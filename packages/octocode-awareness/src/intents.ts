@@ -18,6 +18,8 @@ import type {
 } from './types.js';
 
 const MAX_LOCK_TTL_MS = 10 * 60_000;
+const VALID_RELEASE_STATUSES = new Set(['PENDING', 'SUCCESS', 'FAILED']);
+type ReleaseStatus = 'PENDING' | 'SUCCESS' | 'FAILED';
 
 function effectiveTtlMs(ttlMs: number | null | undefined): number {
   return Math.min(Math.max(1, ttlMs ?? MAX_LOCK_TTL_MS), MAX_LOCK_TTL_MS);
@@ -229,12 +231,12 @@ export function releaseFileLock(
     verifiedNote,
   } = params;
 
-  const requestedSuccessWithoutVerification = statusArg === 'SUCCESS' && !verified;
-  const effectiveStatus: ReleaseFileLockParams['status'] = verified
-    ? 'SUCCESS'
-    : requestedSuccessWithoutVerification
-      ? 'PENDING'
-      : statusArg;
+  if (!VALID_RELEASE_STATUSES.has(String(statusArg))) {
+    throw new Error(`releaseFileLock status must be PENDING, SUCCESS, or FAILED; got "${statusArg}"`);
+  }
+  const requestedStatus = String(statusArg) as ReleaseStatus;
+  const requestedSuccessWithoutVerification = requestedStatus === 'SUCCESS' && !verified;
+  const effectiveStatus: ReleaseStatus = requestedSuccessWithoutVerification ? 'PENDING' : requestedStatus;
 
   const now = utcNow();
   const whereClauses: string[] = ['fl.agent_id = ?'];
@@ -329,7 +331,7 @@ export function releaseFileLock(
 
   return {
     agent_id: agentId,
-    status: effectiveStatus as 'PENDING' | 'ACTIVE' | 'SUCCESS' | 'FAILED',
+    status: effectiveStatus,
     released: locks.length > 0 || Boolean(taskId),
     locks_released: locks.length,
     task_ids: taskIds,

@@ -6,6 +6,22 @@ The LLM Wiki is the generated workspace `.octocode/` projection over the awarene
 
 The SQLite DB in the global Octocode home remains canonical. The wiki is a repo-local projection.
 
+## Context Health
+
+Treat context and tokens like circulation. A generated wiki should move useful oxygen to the next agent: current goal, verified lessons, live risks, handoffs, and where to inspect deeper rows. It should not make the next agent read every historical row before it can act.
+
+Overgrown docs are the projection version of being overweight: they carry old mass into every run, slow planning, and hide the signal inside safe-looking bulk. The healthy shape is:
+
+- `attend --compact` for the live start packet,
+- `query workboard` for active rows and columns,
+- short Markdown for human-readable summaries,
+- `BOOKMARKS.md` for learnable URL/repo/path/URI leads,
+- CSV/HTML for sorting, search, and filtering,
+- manifest budget metadata for freshness and size checks,
+- cleanup and supersession for stale memories, signals, and refinements.
+
+Social context is also part of the health model. Signals, refinements, handoffs, and user corrections add perspective and can generate better ideas, but only if they are concise, scoped, and eventually resolved or consolidated.
+
 ## Location Model
 
 | Location | Role |
@@ -31,6 +47,16 @@ LLMs and humans need quick repo context without querying SQLite directly. The wi
 Use `query` when you need fresh data:
 
 ```bash
+octocode-awareness attend \
+  --workspace "$PWD" \
+  --query "current task or risk" \
+  --compact
+
+octocode-awareness query workboard \
+  --workspace "$PWD" \
+  --format table \
+  --limit 20
+
 octocode-awareness query all \
   --workspace "$PWD" \
   --format json \
@@ -54,6 +80,7 @@ Available views:
 | `refinements` | Open/ongoing/done proposals and handoffs. |
 | `files` | File activity from `edit_log` and related data. |
 | `activity` | Timeline-like activity view. |
+| `workboard` | Kanban-like derived rows for Inbox, Verify, Ready, Claimed, Recent Done, Memory Review, and Projection Health. |
 
 Formats: `json`, `table`, `csv`, `markdown`, `html`.
 
@@ -86,9 +113,10 @@ Modes:
 | `.octocode/MEMORY.md` | Active memory index. |
 | `.octocode/GOTCHAS.md` | Gotcha-focused memory projection. |
 | `.octocode/LEARN.md` | Decisions, architecture notes, workflows, and reusable lessons. |
+| `.octocode/BOOKMARKS.md` | Learnable resource leads from memory references: URLs, repos, file paths, docs, papers, skills, and other URIs. |
 | `.octocode/awareness/csv/*.csv` | CSV exports for supported views. |
 | `.octocode/awareness/index.html` | Static browser view. |
-| `.octocode/awareness/manifest.json` | Generation metadata, mode, warnings, file list. |
+| `.octocode/awareness/manifest.json` | Generation metadata, mode, warnings, file list, counts, and projection budgets. |
 | `.octocode/references/*.md` | Compact reference slices for agents. |
 
 The exact file list can evolve with `repo-context.ts`; treat the manifest as the source for a generated directory.
@@ -119,6 +147,14 @@ Do not hand-edit generated workspace `.octocode/` files as the source of truth. 
 
 Use `memory forget`, superseding memories, or `refinement delete` for stale DB content. Use `docs staleness` when the problem is drift between code edits and documentation.
 
+## Size Policy
+
+Markdown should summarize. Rows should live in query output, CSV, or HTML. If a projection grows beyond its budget, do not fix it by adding another generated Markdown page. First ask which row source should be filtered, grouped, superseded, or moved to a sortable surface.
+
+`repo inject` writes budget metadata into `.octocode/awareness/manifest.json`. `attend --compact` also reports bloat warnings when generated docs exceed the current budget. Treat those warnings as fitness signals: refresh, prune, supersede, or narrow the projection.
+
+`BOOKMARKS.md` is the exception for resource leads, not a dumping ground. Add URLs, repo paths, file paths, papers, and other URIs as memory references when they help future agents learn. Regenerate the projection instead of hand-editing the bookmark file.
+
 ## Relation To Reflection
 
 Reflection feeds the wiki through memories and refinements:
@@ -140,6 +176,9 @@ octocode-awareness query all --workspace "$PWD" --format html --out .octocode/aw
 
 # Regenerate <workspace>/.octocode/ after recording important lessons
 octocode-awareness repo inject --workspace "$PWD" --mode local --compact
+
+# See active work and projection health as rows instead of reading all docs
+octocode-awareness query workboard --workspace "$PWD" --format table --limit 20
 ```
 
 ## Caveats

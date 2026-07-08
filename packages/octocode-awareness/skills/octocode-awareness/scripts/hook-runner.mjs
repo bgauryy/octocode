@@ -9,7 +9,7 @@ process.on('warning', (w) => {
 import { spawnSync as spawnSync4 } from "node:child_process";
 import { createHash as createHash2 } from "node:crypto";
 import { mkdirSync as mkdirSync2, readFileSync, writeFileSync } from "node:fs";
-import { basename as basename2, isAbsolute as isAbsolute3, join as join3, relative, resolve as resolve6 } from "node:path";
+import { basename as basename2, dirname as dirname3, isAbsolute as isAbsolute3, join as join3, relative, resolve as resolve6 } from "node:path";
 import { fileURLToPath } from "node:url";
 
 // src/helpers.ts
@@ -597,6 +597,7 @@ function evictExpiredLocks(db2) {
 import { randomUUID as randomUUID2 } from "node:crypto";
 import { isAbsolute, resolve as resolve4 } from "node:path";
 var MAX_LOCK_TTL_MS = 10 * 6e4;
+var VALID_RELEASE_STATUSES = /* @__PURE__ */ new Set(["PENDING", "SUCCESS", "FAILED"]);
 function effectiveTtlMs(ttlMs) {
   return Math.min(Math.max(1, ttlMs ?? MAX_LOCK_TTL_MS), MAX_LOCK_TTL_MS);
 }
@@ -730,8 +731,12 @@ function releaseFileLock(db2, params) {
     verified = false,
     verifiedNote
   } = params;
-  const requestedSuccessWithoutVerification = statusArg === "SUCCESS" && !verified;
-  const effectiveStatus = verified ? "SUCCESS" : requestedSuccessWithoutVerification ? "PENDING" : statusArg;
+  if (!VALID_RELEASE_STATUSES.has(String(statusArg))) {
+    throw new Error(`releaseFileLock status must be PENDING, SUCCESS, or FAILED; got "${statusArg}"`);
+  }
+  const requestedStatus = String(statusArg);
+  const requestedSuccessWithoutVerification = requestedStatus === "SUCCESS" && !verified;
+  const effectiveStatus = requestedSuccessWithoutVerification ? "PENDING" : requestedStatus;
   const now = utcNow();
   const whereClauses = ["fl.agent_id = ?"];
   const whereParams = [agentId2];
@@ -1483,24 +1488,52 @@ function digest(db2, params = {}) {
   const retentionDays = Number(params.retention_days ?? 90);
   const handoffRetentionDays = Number(params.refinement_handoff_retention_days ?? params.refinementHandoffRetentionDays ?? 7);
   const doneRetentionDays = Number(params.refinement_done_retention_days ?? params.refinementDoneRetentionDays ?? 30);
+  const rawWorkspacePath = typeof params.workspace === "string" ? params.workspace : typeof params.workspace_path === "string" ? params.workspace_path : typeof params.workspacePath === "string" ? params.workspacePath : null;
+  const workspacePath = rawWorkspacePath ? normalizeWorkspacePath(rawWorkspacePath, rawWorkspacePath) : null;
+  const artifact2 = normalizeArtifact(params.artifact);
   const now = (/* @__PURE__ */ new Date()).toISOString();
   const cutoff = new Date(Date.now() - retentionDays * 864e5).toISOString();
   const handoffCutoff = new Date(Date.now() - handoffRetentionDays * 864e5).toISOString();
   const doneCutoff = new Date(Date.now() - doneRetentionDays * 864e5).toISOString();
-  const refinementRetentionSql = `SELECT COUNT(*) AS c FROM refinements
-     WHERE (quality = 'handoff' AND updated_at < ?)
-        OR (quality IN ('good','bad') AND state = 'done' AND updated_at < ?)`;
+  const memoryScope = [];
+  const memoryScopeBinds = [];
+  if (workspacePath) {
+    memoryScope.push("workspace_path = ?");
+    memoryScopeBinds.push(workspacePath);
+  }
+  if (artifact2) {
+    memoryScope.push("artifact = ?");
+    memoryScopeBinds.push(artifact2);
+  }
+  const memoryScopeSql = memoryScope.length > 0 ? ` AND ${memoryScope.join(" AND ")}` : "";
+  const refinementScope = [];
+  const refinementScopeBinds = [];
+  if (workspacePath) {
+    refinementScope.push("workspace_path = ?");
+    refinementScopeBinds.push(workspacePath);
+  }
+  if (artifact2) {
+    refinementScope.push("artifact = ?");
+    refinementScopeBinds.push(artifact2);
+  }
+  const refinementScopeSql = refinementScope.length > 0 ? ` AND ${refinementScope.join(" AND ")}` : "";
   if (params.dry_run) {
     const wouldArchive = db2.prepare(
-      `SELECT COUNT(*) AS c FROM memories WHERE valid_to IS NOT NULL AND valid_to < ? AND state = 'ACTIVE'`
-    ).get(now).c;
+      `SELECT COUNT(*) AS c FROM memories WHERE valid_to IS NOT NULL AND valid_to < ? AND state = 'ACTIVE'${memoryScopeSql}`
+    ).get(now, ...memoryScopeBinds).c;
     const wouldPruneOld = db2.prepare(
-      `SELECT COUNT(*) AS c FROM memories WHERE state = 'SUPERSEDED' AND updated_at < ?`
-    ).get(cutoff).c;
-    const wouldPruneLocks = db2.prepare(
-      `SELECT COUNT(*) AS c FROM locks WHERE expires_at IS NOT NULL AND expires_at < ?`
-    ).get(now).c;
-    const wouldPruneRefinements = db2.prepare(refinementRetentionSql).get(handoffCutoff, doneCutoff).c;
+      `SELECT COUNT(*) AS c FROM memories WHERE state = 'SUPERSEDED' AND updated_at < ?${memoryScopeSql}`
+    ).get(cutoff, ...memoryScopeBinds).c;
+    const lockDryRun = pruneStale(db2, {
+      ...workspacePath ? { workspace: workspacePath } : {},
+      ...artifact2 ? { artifact: artifact2 } : {},
+      expired_only: true,
+      dry_run: true
+    });
+    const wouldPruneLocks = lockDryRun.would_prune ?? 0;
+    const wouldPruneRefinements = db2.prepare(`SELECT COUNT(*) AS c FROM refinements
+       WHERE ((quality = 'handoff' AND updated_at < ?)
+          OR (quality IN ('good','bad') AND state = 'done' AND updated_at < ?))${refinementScopeSql}`).get(handoffCutoff, doneCutoff, ...refinementScopeBinds).c;
     return {
       ok: true,
       archived_memories: 0,
@@ -1518,18 +1551,22 @@ function digest(db2, params = {}) {
   const archiveRes = db2.prepare(
     `UPDATE memories
      SET state = 'SUPERSEDED', expired_at = ?, updated_at = ?
-     WHERE valid_to IS NOT NULL AND valid_to < ? AND state = 'ACTIVE'`
-  ).run(now, now, now);
+     WHERE valid_to IS NOT NULL AND valid_to < ? AND state = 'ACTIVE'${memoryScopeSql}`
+  ).run(now, now, now, ...memoryScopeBinds);
   const deleteRes = db2.prepare(
     `DELETE FROM memories
-     WHERE state = 'SUPERSEDED' AND updated_at < ?`
-  ).run(cutoff);
-  const { pruned_locks } = pruneStale(db2, {});
+     WHERE state = 'SUPERSEDED' AND updated_at < ?${memoryScopeSql}`
+  ).run(cutoff, ...memoryScopeBinds);
+  const { pruned_locks } = pruneStale(db2, {
+    ...workspacePath ? { workspace: workspacePath } : {},
+    ...artifact2 ? { artifact: artifact2 } : {},
+    expired_only: true
+  });
   const pruneRefinementsRes = db2.prepare(
     `DELETE FROM refinements
-     WHERE (quality = 'handoff' AND updated_at < ?)
-        OR (quality IN ('good','bad') AND state = 'done' AND updated_at < ?)`
-  ).run(handoffCutoff, doneCutoff);
+     WHERE ((quality = 'handoff' AND updated_at < ?)
+        OR (quality IN ('good','bad') AND state = 'done' AND updated_at < ?))${refinementScopeSql}`
+  ).run(handoffCutoff, doneCutoff, ...refinementScopeBinds);
   let ftsRebuilt = false;
   try {
     if (hasFts(db2)) {
@@ -1733,6 +1770,100 @@ function isInsidePath(candidate, root) {
 function db() {
   return connectDb(resolveDbPath(null));
 }
+function hookTaskStateFile() {
+  const stateDir = join3(dirname3(resolveDbPath(null)), "hook-state");
+  mkdirSync2(stateDir, { recursive: true });
+  return join3(stateDir, "shell-hook-tasks.json");
+}
+function readHookTaskState() {
+  try {
+    return JSON.parse(readFileSync(hookTaskStateFile(), "utf8"));
+  } catch {
+    return {};
+  }
+}
+function writeHookTaskState(state) {
+  writeFileSync(hookTaskStateFile(), JSON.stringify(state, null, 2) + "\n", "utf8");
+}
+function hookEventId(payload) {
+  const input = objectOrEmpty2(payloadInput(payload));
+  return firstString2(
+    payload.tool_use_id,
+    payload.toolUseId,
+    payload.tool_call_id,
+    payload.toolCallId,
+    payload.event_id,
+    payload.eventId,
+    payload.id,
+    input.tool_use_id,
+    input.toolUseId,
+    input.tool_call_id,
+    input.toolCallId,
+    input.event_id,
+    input.eventId,
+    input.id
+  );
+}
+function hookTaskKey(payload, files, cwd) {
+  const explicitId = hookEventId(payload);
+  const identity = {
+    agent: agentId(payload),
+    workspace: normalizeWorkspacePath(cwd, cwd) ?? resolve6(cwd),
+    artifact: artifact(payload),
+    event: explicitId,
+    files: explicitId ? [] : files.map((file) => resolveHookPath(file, cwd)).sort()
+  };
+  return createHash2("sha1").update(JSON.stringify(identity)).digest("hex");
+}
+function recordHookTask(payload, files, cwd, taskId) {
+  const state = readHookTaskState();
+  const key = hookTaskKey(payload, files, cwd);
+  const entries = state[key] ?? [];
+  entries.push({
+    taskId,
+    files: files.map((file) => resolveHookPath(file, cwd)),
+    createdAt: (/* @__PURE__ */ new Date()).toISOString()
+  });
+  state[key] = entries.slice(-20);
+  writeHookTaskState(state);
+}
+function consumeHookTask(payload, files, cwd) {
+  const state = readHookTaskState();
+  const key = hookTaskKey(payload, files, cwd);
+  const entries = state[key] ?? [];
+  const entry = entries.shift();
+  if (entries.length > 0) state[key] = entries;
+  else delete state[key];
+  writeHookTaskState(state);
+  return entry?.taskId ?? null;
+}
+function uniqueActiveHookTaskId(database, params) {
+  const absFiles = params.files.map((file) => resolveHookPath(file, params.workspacePath));
+  if (absFiles.length === 0) return null;
+  const where = [
+    "fl.agent_id = ?",
+    "ai.status = 'ACTIVE'",
+    `fl.file_path IN (${absFiles.map(() => "?").join(",")})`,
+    "ai.workspace_path = ?"
+  ];
+  const binds = [
+    params.agentId,
+    ...absFiles,
+    normalizeWorkspacePath(params.workspacePath, params.workspacePath) ?? resolve6(params.workspacePath)
+  ];
+  if (params.artifact) {
+    where.push("(ai.artifact = ? OR ai.artifact IS NULL)");
+    binds.push(params.artifact);
+  }
+  const rows = database.prepare(
+    `SELECT DISTINCT fl.task_id
+       FROM locks fl
+       JOIN tasks ai ON ai.task_id = fl.task_id
+      WHERE ${where.join(" AND ")}
+      ORDER BY fl.task_id ASC`
+  ).all(...binds);
+  return rows.length === 1 ? rows[0].task_id : null;
+}
 function hookAgentContext(payload, hookName) {
   const value = process.env.OCTOCODE_AGENT_CONTEXT ?? process.env.OCTOCODE_AGENT_HOST ?? payload.context ?? payload.host ?? payload.client ?? payload.source;
   return typeof value === "string" && value.trim() ? value.trim() : hookName;
@@ -1777,6 +1908,7 @@ async function runPreEdit(payload) {
       console.error(JSON.stringify(result));
       return 2;
     }
+    recordHookTask(payload, files, workspace(payload) ?? process.cwd(), result.task.task_id);
     return 0;
   } catch (error) {
     console.error(`octocode-awareness pre-flight warning (continuing): ${error instanceof Error ? error.message : String(error)}`);
@@ -1792,14 +1924,24 @@ async function runPostEdit(payload) {
     const hookAgentId = agentId(payload);
     const hookWorkspace = workspace(payload) ?? process.cwd();
     const hookArtifact = artifact(payload);
+    const correlatedTaskId = consumeHookTask(payload, files, hookWorkspace) ?? uniqueActiveHookTaskId(database, {
+      agentId: hookAgentId,
+      workspacePath: hookWorkspace,
+      artifact: hookArtifact,
+      files
+    });
+    if (!correlatedTaskId) {
+      console.error("octocode-awareness post-edit warning (continuing): could not identify a unique hook task to release; leaving locks for verify/cleanup.");
+      return 0;
+    }
     const release = releaseFileLock(database, {
       agentId: hookAgentId,
       workspacePath: hookWorkspace,
       artifact: hookArtifact,
-      targetFiles: files,
+      taskId: correlatedTaskId,
       status: "PENDING"
     });
-    const taskId = release.task_ids.length === 1 ? release.task_ids[0] : null;
+    const taskId = release.task_ids.length === 1 ? release.task_ids[0] : correlatedTaskId;
     for (const file of files) {
       insertEditLog(database, {
         agentId: hookAgentId,

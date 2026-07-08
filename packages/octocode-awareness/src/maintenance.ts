@@ -583,6 +583,7 @@ export function waitForLock(
   type LockRow = { file_path: string; agent_id: string; expires_at: string | null };
 
   const checkLocks = (): LockRow[] => {
+    evictExpiredLocks(db);
     const now = new Date().toISOString();
     return lockStmt.all(...absTargetFiles, agentId, ...scopeBinds, now) as unknown as LockRow[];
   };
@@ -646,32 +647,45 @@ export function digest(
   const retentionDays = Number(params.retention_days ?? 90);
   const handoffRetentionDays = Number(params.refinement_handoff_retention_days ?? params.refinementHandoffRetentionDays ?? 7);
   const doneRetentionDays = Number(params.refinement_done_retention_days ?? params.refinementDoneRetentionDays ?? 30);
+  const rawWorkspacePath = typeof params.workspace === 'string' ? params.workspace :
+    typeof params.workspace_path === 'string' ? params.workspace_path :
+      typeof params.workspacePath === 'string' ? params.workspacePath : null;
+  const workspacePath = rawWorkspacePath ? normalizeWorkspacePath(rawWorkspacePath, rawWorkspacePath) : null;
+  const artifact = normalizeArtifact(params.artifact);
   const now = new Date().toISOString();
   const cutoff = new Date(Date.now() - retentionDays * 86400000).toISOString();
   const handoffCutoff = new Date(Date.now() - handoffRetentionDays * 86400000).toISOString();
   const doneCutoff = new Date(Date.now() - doneRetentionDays * 86400000).toISOString();
-
-  // MAINT-4: Use updated_at for both handoff and done retention.
-  // The old code used created_at for handoffs and updated_at for done refinements.
-  // A recently-updated handoff would be deleted if it was created long ago.
-  // updated_at reflects the last meaningful activity and is the correct basis.
-  const refinementRetentionSql = `SELECT COUNT(*) AS c FROM refinements
-     WHERE (quality = 'handoff' AND updated_at < ?)
-        OR (quality IN ('good','bad') AND state = 'done' AND updated_at < ?)`;
+  const memoryScope: string[] = [];
+  const memoryScopeBinds: string[] = [];
+  if (workspacePath) { memoryScope.push('workspace_path = ?'); memoryScopeBinds.push(workspacePath); }
+  if (artifact) { memoryScope.push('artifact = ?'); memoryScopeBinds.push(artifact); }
+  const memoryScopeSql = memoryScope.length > 0 ? ` AND ${memoryScope.join(' AND ')}` : '';
+  const refinementScope: string[] = [];
+  const refinementScopeBinds: string[] = [];
+  if (workspacePath) { refinementScope.push('workspace_path = ?'); refinementScopeBinds.push(workspacePath); }
+  if (artifact) { refinementScope.push('artifact = ?'); refinementScopeBinds.push(artifact); }
+  const refinementScopeSql = refinementScope.length > 0 ? ` AND ${refinementScope.join(' AND ')}` : '';
 
   // dry_run: count what would change without mutating anything
   if (params.dry_run) {
     const wouldArchive = (db.prepare(
-      `SELECT COUNT(*) AS c FROM memories WHERE valid_to IS NOT NULL AND valid_to < ? AND state = 'ACTIVE'`
-    ).get(now) as { c: number }).c;
+      `SELECT COUNT(*) AS c FROM memories WHERE valid_to IS NOT NULL AND valid_to < ? AND state = 'ACTIVE'${memoryScopeSql}`
+    ).get(now, ...memoryScopeBinds) as { c: number }).c;
     const wouldPruneOld = (db.prepare(
-      `SELECT COUNT(*) AS c FROM memories WHERE state = 'SUPERSEDED' AND updated_at < ?`
-    ).get(cutoff) as { c: number }).c;
-    const wouldPruneLocks = (db.prepare(
-      `SELECT COUNT(*) AS c FROM locks WHERE expires_at IS NOT NULL AND expires_at < ?`
-    ).get(now) as { c: number }).c;
-    const wouldPruneRefinements = (db.prepare(refinementRetentionSql)
-      .get(handoffCutoff, doneCutoff) as { c: number }).c;
+      `SELECT COUNT(*) AS c FROM memories WHERE state = 'SUPERSEDED' AND updated_at < ?${memoryScopeSql}`
+    ).get(cutoff, ...memoryScopeBinds) as { c: number }).c;
+    const lockDryRun = pruneStale(db, {
+      ...(workspacePath ? { workspace: workspacePath } : {}),
+      ...(artifact ? { artifact } : {}),
+      expired_only: true,
+      dry_run: true,
+    });
+    const wouldPruneLocks = lockDryRun.would_prune ?? 0;
+    const wouldPruneRefinements = (db.prepare(`SELECT COUNT(*) AS c FROM refinements
+       WHERE ((quality = 'handoff' AND updated_at < ?)
+          OR (quality IN ('good','bad') AND state = 'done' AND updated_at < ?))${refinementScopeSql}`)
+      .get(handoffCutoff, doneCutoff, ...refinementScopeBinds) as { c: number }).c;
     return {
       ok: true,
       archived_memories: 0,
@@ -691,25 +705,29 @@ export function digest(
   const archiveRes = db.prepare(
     `UPDATE memories
      SET state = 'SUPERSEDED', expired_at = ?, updated_at = ?
-     WHERE valid_to IS NOT NULL AND valid_to < ? AND state = 'ACTIVE'`
-  ).run(now, now, now) as { changes: number };
+     WHERE valid_to IS NOT NULL AND valid_to < ? AND state = 'ACTIVE'${memoryScopeSql}`
+  ).run(now, now, now, ...memoryScopeBinds) as { changes: number };
 
   // 2. Hard-delete old SUPERSEDED entries to keep the DB lean
   const deleteRes = db.prepare(
     `DELETE FROM memories
-     WHERE state = 'SUPERSEDED' AND updated_at < ?`
-  ).run(cutoff) as { changes: number };
+     WHERE state = 'SUPERSEDED' AND updated_at < ?${memoryScopeSql}`
+  ).run(cutoff, ...memoryScopeBinds) as { changes: number };
 
   // 3. Prune expired locks (reuse existing function)
-  const { pruned_locks } = pruneStale(db, {});
+  const { pruned_locks } = pruneStale(db, {
+    ...(workspacePath ? { workspace: workspacePath } : {}),
+    ...(artifact ? { artifact } : {}),
+    expired_only: true,
+  });
 
   // 4. Prune old session handoffs and completed repo-fix refinements.
-  // MAINT-4: Use updated_at for handoff retention (was created_at — see refinementRetentionSql above).
+  // MAINT-4: Use updated_at for handoff retention; updated_at reflects the last meaningful activity.
   const pruneRefinementsRes = db.prepare(
     `DELETE FROM refinements
-     WHERE (quality = 'handoff' AND updated_at < ?)
-        OR (quality IN ('good','bad') AND state = 'done' AND updated_at < ?)`
-  ).run(handoffCutoff, doneCutoff) as { changes: number };
+     WHERE ((quality = 'handoff' AND updated_at < ?)
+        OR (quality IN ('good','bad') AND state = 'done' AND updated_at < ?))${refinementScopeSql}`
+  ).run(handoffCutoff, doneCutoff, ...refinementScopeBinds) as { changes: number };
 
   // 5. Rebuild FTS5 index from the memories source of truth.
   let ftsRebuilt = false;

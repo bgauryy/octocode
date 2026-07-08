@@ -8,13 +8,13 @@
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { basename, isAbsolute, join, relative, resolve } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
 import { registerAgent } from '../src/agents.js';
 import { insertEditLog } from '../src/audit.js';
 import { connectDb, resolveDbPath } from '../src/db.js';
-import { canonicalizePath } from '../src/git.js';
+import { canonicalizePath, normalizeWorkspacePath } from '../src/git.js';
 import { preFlightIntent, releaseFileLock } from '../src/intents.js';
 import { auditUnverified } from '../src/verify.js';
 import { digest, notifyGet, sessionCapture } from '../src/maintenance.js';
@@ -167,6 +167,119 @@ function db() {
   return connectDb(resolveDbPath(null));
 }
 
+interface HookTaskStateEntry {
+  taskId: string;
+  files: string[];
+  createdAt: string;
+}
+
+type HookTaskState = Record<string, HookTaskStateEntry[]>;
+
+function hookTaskStateFile(): string {
+  const stateDir = join(dirname(resolveDbPath(null)), 'hook-state');
+  mkdirSync(stateDir, { recursive: true });
+  return join(stateDir, 'shell-hook-tasks.json');
+}
+
+function readHookTaskState(): HookTaskState {
+  try {
+    return JSON.parse(readFileSync(hookTaskStateFile(), 'utf8')) as HookTaskState;
+  } catch {
+    return {};
+  }
+}
+
+function writeHookTaskState(state: HookTaskState): void {
+  writeFileSync(hookTaskStateFile(), JSON.stringify(state, null, 2) + '\n', 'utf8');
+}
+
+function hookEventId(payload: Record<string, unknown>): string | null {
+  const input = objectOrEmpty(payloadInput(payload));
+  return firstString(
+    payload.tool_use_id,
+    payload.toolUseId,
+    payload.tool_call_id,
+    payload.toolCallId,
+    payload.event_id,
+    payload.eventId,
+    payload.id,
+    input.tool_use_id,
+    input.toolUseId,
+    input.tool_call_id,
+    input.toolCallId,
+    input.event_id,
+    input.eventId,
+    input.id,
+  );
+}
+
+function hookTaskKey(payload: Record<string, unknown>, files: string[], cwd: string): string {
+  const explicitId = hookEventId(payload);
+  const identity = {
+    agent: agentId(payload),
+    workspace: normalizeWorkspacePath(cwd, cwd) ?? resolve(cwd),
+    artifact: artifact(payload),
+    event: explicitId,
+    files: explicitId ? [] : files.map(file => resolveHookPath(file, cwd)).sort(),
+  };
+  return createHash('sha1').update(JSON.stringify(identity)).digest('hex');
+}
+
+function recordHookTask(payload: Record<string, unknown>, files: string[], cwd: string, taskId: string): void {
+  const state = readHookTaskState();
+  const key = hookTaskKey(payload, files, cwd);
+  const entries = state[key] ?? [];
+  entries.push({
+    taskId,
+    files: files.map(file => resolveHookPath(file, cwd)),
+    createdAt: new Date().toISOString(),
+  });
+  state[key] = entries.slice(-20);
+  writeHookTaskState(state);
+}
+
+function consumeHookTask(payload: Record<string, unknown>, files: string[], cwd: string): string | null {
+  const state = readHookTaskState();
+  const key = hookTaskKey(payload, files, cwd);
+  const entries = state[key] ?? [];
+  const entry = entries.shift();
+  if (entries.length > 0) state[key] = entries;
+  else delete state[key];
+  writeHookTaskState(state);
+  return entry?.taskId ?? null;
+}
+
+function uniqueActiveHookTaskId(
+  database: DatabaseSync,
+  params: { agentId: string; workspacePath: string; artifact: string | null; files: string[] },
+): string | null {
+  const absFiles = params.files.map(file => resolveHookPath(file, params.workspacePath));
+  if (absFiles.length === 0) return null;
+  const where = [
+    'fl.agent_id = ?',
+    "ai.status = 'ACTIVE'",
+    `fl.file_path IN (${absFiles.map(() => '?').join(',')})`,
+    'ai.workspace_path = ?',
+  ];
+  const binds: (string | number)[] = [
+    params.agentId,
+    ...absFiles,
+    normalizeWorkspacePath(params.workspacePath, params.workspacePath) ?? resolve(params.workspacePath),
+  ];
+  if (params.artifact) {
+    where.push('(ai.artifact = ? OR ai.artifact IS NULL)');
+    binds.push(params.artifact);
+  }
+  const rows = database.prepare(
+    `SELECT DISTINCT fl.task_id
+       FROM locks fl
+       JOIN tasks ai ON ai.task_id = fl.task_id
+      WHERE ${where.join(' AND ')}
+      ORDER BY fl.task_id ASC`
+  ).all(...binds) as Array<{ task_id: string }>;
+  return rows.length === 1 ? rows[0]!.task_id : null;
+}
+
 function hookAgentContext(payload: Record<string, unknown>, hookName: string): string {
   const value =
     process.env.OCTOCODE_AGENT_CONTEXT
@@ -221,6 +334,7 @@ async function runPreEdit(payload: Record<string, unknown>): Promise<number> {
       console.error(JSON.stringify(result));
       return 2;
     }
+    recordHookTask(payload, files, workspace(payload) ?? process.cwd(), result.task.task_id);
     return 0;
   } catch (error) {
     console.error(`octocode-awareness pre-flight warning (continuing): ${error instanceof Error ? error.message : String(error)}`);
@@ -237,14 +351,25 @@ async function runPostEdit(payload: Record<string, unknown>): Promise<number> {
     const hookAgentId = agentId(payload);
     const hookWorkspace = workspace(payload) ?? process.cwd();
     const hookArtifact = artifact(payload);
+    const correlatedTaskId = consumeHookTask(payload, files, hookWorkspace)
+      ?? uniqueActiveHookTaskId(database, {
+        agentId: hookAgentId,
+        workspacePath: hookWorkspace,
+        artifact: hookArtifact,
+        files,
+      });
+    if (!correlatedTaskId) {
+      console.error('octocode-awareness post-edit warning (continuing): could not identify a unique hook task to release; leaving locks for verify/cleanup.');
+      return 0;
+    }
     const release = releaseFileLock(database, {
       agentId: hookAgentId,
       workspacePath: hookWorkspace,
       artifact: hookArtifact,
-      targetFiles: files,
+      taskId: correlatedTaskId,
       status: 'PENDING',
     });
-    const taskId = release.task_ids.length === 1 ? release.task_ids[0] : null;
+    const taskId = release.task_ids.length === 1 ? release.task_ids[0] : correlatedTaskId;
     for (const file of files) {
       insertEditLog(database, {
         agentId: hookAgentId,

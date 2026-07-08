@@ -8,6 +8,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { isAbsolute, join, resolve } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { fileLock } from './intents.js';
+import { attendAwareness } from './attend.js';
 import { digest, exportHarness, exportMemoryDoc, getWorkspaceStatus } from './maintenance.js';
 import { findSimilarMemories, forgetMemory, getMemory, insertMemory, mineWeakness } from './memory.js';
 import { agentSignal } from './notifications.js';
@@ -39,6 +40,7 @@ export type AwarenessToolOperation =
   | 'file_lock'
   | 'mine_weakness'
   | 'export_harness'
+  | 'attend'
   | 'query'
   | 'view'
   | 'repo_inject';
@@ -446,6 +448,10 @@ export function runAwarenessToolOperation(
       const digestParams: Record<string, unknown> = {
         retention_days: (request['retention_days'] as number | undefined) ?? 90,
       };
+      if (request['workspace'] || request['workspace_path']) {
+        digestParams['workspace'] = request['workspace'] ?? request['workspace_path'];
+      }
+      if (request['artifact']) digestParams['artifact'] = request['artifact'];
       if (request['dry_run']) digestParams['dry_run'] = true;
       const result = digest(db, digestParams);
 
@@ -575,6 +581,23 @@ export function runAwarenessToolOperation(
         file: request['file'] as string | undefined,
         since: request['since'] as string | undefined,
         includeBodies: request['include_bodies'] as boolean | undefined,
+        cwd,
+      });
+      return { payload: result, exitCode: 0 };
+    }
+
+    case 'attend': {
+      const result = attendAwareness(db, {
+        workspacePath: (request['workspace_path'] as string | undefined) ?? cwd,
+        artifact: request['artifact'] as string | undefined,
+        repo: request['repo'] as string | undefined,
+        ref: request['ref'] as string | undefined,
+        query: request['query'] as string | undefined,
+        limit: request['limit'] as number | undefined,
+        file: request['file'] as string[] | string | undefined,
+        includeBodies: request['include_bodies'] as boolean | undefined,
+        explainOrgan: request['explain_organ'] as boolean | undefined,
+        compact: request['compact'] as boolean | undefined,
         cwd,
       });
       return { payload: result, exitCode: 0 };

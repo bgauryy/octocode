@@ -80,6 +80,7 @@ const awarenessQueryView = z
     "refinements",
     "files",
     "activity",
+    "workboard",
   ])
   .default("all")
   .describe("Awareness read view.");
@@ -271,6 +272,21 @@ export const schemas = {
     })
     .strict()
     .describe("Query awareness views for agents, scripts, and humans."),
+
+  attend: z
+    .object({
+      query: z.string().trim().max(1000).default("").describe("Current task, risk, or design question."),
+      limit: z.number().int().min(1).max(50).default(10).describe("Rows per workboard column and evidence cap."),
+      workspace_path: workspacePath.optional().describe("Workspace filter."),
+      artifact: artifactScope.optional(),
+      repo: repoScope.optional().describe("Repo filter."),
+      ref: refScope.optional().describe("Ref filter."),
+      file: z.array(z.string().trim().min(1).max(1024)).max(50).default([]).describe("File filters."),
+      include_bodies: z.boolean().default(false).describe("Include full signal bodies in routed reads."),
+      explain_organ: z.boolean().default(false).describe("Include/retain organ-state explanation fields."),
+    })
+    .strict()
+    .describe("Build one compact read-only start packet with profile, workboard, evidence, gaps, organ_state, and drive_state."),
 
   repo_inject: z
     .object({
@@ -690,13 +706,22 @@ export const examples = {
     artifact: "pkg",
   },
   query: {
-    view: "gotchas",
+    view: "workboard",
     query: "build",
-    limit: 50,
+    limit: 10,
     format: "json",
     workspace_path: "/repo",
     artifact: "pkg",
     label: ["GOTCHA"],
+  },
+  attend: {
+    query: "current task",
+    limit: 10,
+    workspace_path: "/repo",
+    artifact: "pkg",
+    file: ["src/file.ts"],
+    include_bodies: false,
+    explain_organ: false,
   },
   repo_inject: {
     workspace_path: "/repo",
@@ -875,7 +900,7 @@ export const examples = {
 
 const listableSchemas = [
   "tell_memory", "get_memory",
-  "query", "repo_inject",
+  "attend", "query", "repo_inject",
   "workspace_status", "export_harness", "session_capture",
   "pre_flight_intent", "wait_for_lock", "prune_stale_locks", "release_file_lock", "verify", "audit_unverified",
   "forget_memory", "refinement", "refine_query", "refine_delete",
@@ -884,6 +909,7 @@ const listableSchemas = [
 ];
 
 const commandIndex = [
+  { command: "attend", schema: "attend", use: "Build one compact start packet with profile, workboard, evidence, gaps, organ_state, and drive_state.", example: 'octocode-awareness attend --query "current task" --workspace "$PWD" --compact' },
   { command: "workspace status", schema: "workspace_status", use: "Check DB health, locks, pending verification, memory counts.", example: 'octocode-awareness workspace status --workspace "$PWD" --compact' },
   { command: "memory recall", schema: "get_memory", use: "Recall repo lessons before planning or editing.", example: 'octocode-awareness memory recall --query "current task" --workspace "$PWD" --compact' },
   { command: "memory record", schema: "tell_memory", use: "Store durable lessons, decisions, gotchas, or observations.", example: 'octocode-awareness memory record --agent-id agent --task-context "task" --observation "lesson" --importance 7 --workspace "$PWD" --compact' },
@@ -905,7 +931,7 @@ const commandIndex = [
   { command: "signal prune", schema: "signal_prune", use: "Delete resolved/old/selected signals; dry-run first.", example: 'octocode-awareness signal prune --workspace "$PWD" --resolved --dry-run --compact' },
   { command: "agent register", schema: "agent_registry", use: "Register/touch an agent identity.", example: 'octocode-awareness agent register --agent-id agent --agent-name "Codex" --workspace "$PWD" --compact' },
   { command: "agent list", schema: "agent_registry", use: "List known agents in scope.", example: 'octocode-awareness agent list --workspace "$PWD" --compact' },
-  { command: "query", schema: "query", use: "Read DB views as json/table/csv/markdown/html.", example: 'octocode-awareness query gotchas --workspace "$PWD" --format json --limit 20 --compact' },
+  { command: "query", schema: "query", use: "Read DB views as json/table/csv/markdown/html, including the derived workboard.", example: 'octocode-awareness query workboard --workspace "$PWD" --format json --limit 10 --compact' },
   { command: "repo inject", schema: "repo_inject", use: "Generate .octocode repo context without editing .gitignore.", example: 'octocode-awareness repo inject --workspace "$PWD" --mode local --compact' },
   { command: "session capture", schema: "session_capture", use: "Hook-driven handoff capture from locks + dirty git tree.", example: 'octocode-awareness session capture --agent-id agent --workspace "$PWD" --reason handoff --compact' },
   { command: "reflect record", schema: "reflect", use: "Record outcome and lessons after work.", example: 'octocode-awareness reflect record --agent-id agent --task "fix CLI" --outcome worked --lesson "lesson" --compact' },

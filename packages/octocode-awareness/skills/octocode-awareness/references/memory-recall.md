@@ -38,10 +38,12 @@ Important flags:
 - `--explain`: attach `score_components` to each result.
 - `--smart`: when strict recall under-fills, broaden safely: lower `--min-importance`, then drop label/tag filters.
 - `--as-of <ISO>`: point-in-time recall using memory validity windows.
-- `--semantic`: request semantic recall where a host has explicitly wired embeddings.
-  The shipped CLI has no embedder, so it warns and falls back to lexical/salience recall.
-  Pi `memory_recall` currently delegates to the same Awareness recall operation and does not generate embeddings by default.
-  Library callers can persist and rank explicit embeddings with `storeEmbedding` / `searchByEmbedding`.
+- `--semantic`: request semantic recall when embeddings are available.
+  Set `OCTOCODE_EMBED_CMD` to a shell command that reads text on stdin and prints `{"embedding":[...],"model":"..."}` JSON.
+  When set, `memory record` stores vectors and `memory recall --semantic` ranks by cosine similarity (mode=`semantic`).
+  When unset or the host command fails, the CLI warns and falls back to lexical/salience recall.
+  Pi `memory_recall` does not generate embeddings by default unless the host wires the same env/API.
+  Library callers can also use `storeEmbedding` / `searchByEmbedding` directly.
 
 ## Judgment Rules
 

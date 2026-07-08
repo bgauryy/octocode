@@ -51,6 +51,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "yarn build && node ../../node_modules/vitest/vitest.mjs run --coverage",
     "test:quiet": "yarn build && node ../../node_modules/vitest/vitest.mjs run --reporter=dot --silent",
+    "test:smoke": "node skills/octocode-awareness/scripts/smoke-multi-agent.mjs",
     "self-test": "node dist/bin/awareness.js maintenance self-test",
     "verify": "yarn lint && yarn test"
   },

@@ -195,6 +195,51 @@ describe('hook-runner', () => {
       rmSync(memoryHome, { recursive: true, force: true });
     }
   });
+
+  it('post-edit releases only the correlated same-agent hook task', () => {
+    const memoryHome = mkdtempSync(join(tmpdir(), 'octocode-hook-overlap-'));
+    const workspace = resolve(memoryHome, 'repo');
+    mkdirSync(workspace, { recursive: true });
+    try {
+      const env = {
+        OCTOCODE_MEMORY_HOME: memoryHome,
+        OCTOCODE_AGENT_ID: 'overlap-hook-agent',
+      };
+      const first = { sessionId: 'overlap-session', workspace, eventId: 'tool-1', file_path: 'src/shared.ts' };
+      const second = { sessionId: 'overlap-session', workspace, eventId: 'tool-2', file_path: 'src/shared.ts' };
+
+      expect(runScript(HOOK_RUNNER, ['pre-edit'], first, env).status).toBe(0);
+      expect(runScript(HOOK_RUNNER, ['pre-edit'], second, env).status).toBe(0);
+
+      const before = spawnSync(NODE, [AWARENESS, 'workspace', 'status', '--workspace', workspace], {
+        encoding: 'utf8',
+        timeout: 5000,
+        env: { ...process.env, OCTOCODE_MEMORY_HOME: memoryHome },
+      });
+      expect(before.status).toBe(0);
+      expect((JSON.parse(before.stdout) as { locks: unknown[] }).locks).toHaveLength(2);
+
+      expect(runScript(HOOK_RUNNER, ['post-edit'], first, env).status).toBe(0);
+      const afterFirst = spawnSync(NODE, [AWARENESS, 'workspace', 'status', '--workspace', workspace], {
+        encoding: 'utf8',
+        timeout: 5000,
+        env: { ...process.env, OCTOCODE_MEMORY_HOME: memoryHome },
+      });
+      expect(afterFirst.status).toBe(0);
+      expect((JSON.parse(afterFirst.stdout) as { locks: unknown[] }).locks).toHaveLength(1);
+
+      expect(runScript(HOOK_RUNNER, ['post-edit'], second, env).status).toBe(0);
+      const afterSecond = spawnSync(NODE, [AWARENESS, 'workspace', 'status', '--workspace', workspace], {
+        encoding: 'utf8',
+        timeout: 5000,
+        env: { ...process.env, OCTOCODE_MEMORY_HOME: memoryHome },
+      });
+      expect(afterSecond.status).toBe(0);
+      expect((JSON.parse(afterSecond.stdout) as { locks: unknown[] }).locks).toEqual([]);
+    } finally {
+      rmSync(memoryHome, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('hook wrapper scripts', () => {

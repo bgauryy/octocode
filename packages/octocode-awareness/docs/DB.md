@@ -258,9 +258,12 @@ The CLI exposes normalized views via `octocode-awareness query <view>`:
 | `signals` | `signals`, `signal_reads` |
 | `refinements` | `refinements` |
 | `files`, `activity` | `edit_log`, tasks/locks where available |
+| `workboard` | Derived rows from `signals`, `refinements`, `tasks`, `locks`, memories, and projection health. It is a row/column view, not a stored board table. |
 | `repo-profile`, `all` | Combined summaries |
 
 Formats: `json`, `table`, `csv`, `markdown`, and `html`.
+
+The `workboard` view is the active context-health surface: it lets agents sort and filter Inbox, Verify, Ready, Claimed, Recent Done, Memory Review, and Projection Health rows without making another Markdown backlog canonical.
 
 ## Indexes
 

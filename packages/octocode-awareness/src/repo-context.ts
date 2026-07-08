@@ -25,6 +25,7 @@ export const AWARENESS_QUERY_VIEWS = [
   'refinements',
   'files',
   'activity',
+  'workboard',
 ] as const;
 
 export type AwarenessQueryView = typeof AWARENESS_QUERY_VIEWS[number];
@@ -124,7 +125,26 @@ interface MemoryDbRow {
 }
 
 const VIEW_SET = new Set<string>(AWARENESS_QUERY_VIEWS);
-const CSV_VIEWS = ['memories', 'gotchas', 'lessons', 'agents', 'tasks', 'locks', 'signals', 'refinements', 'files', 'activity'] as const;
+const CSV_VIEWS = ['memories', 'gotchas', 'lessons', 'agents', 'tasks', 'locks', 'signals', 'refinements', 'files', 'activity', 'workboard'] as const;
+interface ProjectionMarkdownBudget {
+  max_lines: number;
+  role: string;
+}
+
+interface ProjectionMarkdownBudgetStatus extends ProjectionMarkdownBudget {
+  actual_lines: number;
+  within_budget: boolean;
+}
+
+const PROJECTION_MARKDOWN_BUDGETS: Record<string, ProjectionMarkdownBudget> = {
+  'AGENTS.md': { max_lines: 80, role: 'agent start summary' },
+  'MEMORY.md': { max_lines: 200, role: 'active memory index' },
+  'GOTCHAS.md': { max_lines: 200, role: 'gotcha index' },
+  'LEARN.md': { max_lines: 200, role: 'lesson/opportunity index' },
+  'BOOKMARKS.md': { max_lines: 200, role: 'learnable resource index' },
+};
+const ATTEND_COMPACT_BUDGET = { max_lines: 120, max_json_bytes: 8 * 1024 };
+const WORKBOARD_BUDGET = { max_rows_per_column: 10 };
 const LESSON_LABELS = [
   'DECISION',
   'ARCHITECTURE',
@@ -722,6 +742,229 @@ function activityRows(db: DatabaseSync, params: AwarenessQueryParams): Awareness
     .slice(0, limit);
 }
 
+function rowFiles(row: AwarenessQueryRow): string[] {
+  const raw = row['files'];
+  return Array.isArray(raw) ? raw.map(String) : [];
+}
+
+function groupKey(parts: Array<string | number | boolean | null | undefined>): string {
+  return parts
+    .map(part => String(part ?? '').trim().toLowerCase().replace(/\s+/g, ' '))
+    .join('|');
+}
+
+function pushLimited(
+  columns: Record<string, AwarenessQueryRow[]>,
+  counts: Record<string, number>,
+  column: string,
+  row: AwarenessQueryRow,
+  limit: number,
+): void {
+  counts[column] = (counts[column] ?? 0) + 1;
+  const rows = columns[column] ?? [];
+  if (rows.length < limit) {
+    rows.push({ column, ...row });
+    columns[column] = rows;
+  }
+}
+
+function compactIds(rows: AwarenessQueryRow[], key: string): string[] {
+  return rows.map(row => String(row[key] ?? '')).filter(Boolean);
+}
+
+function representativeDate(rows: AwarenessQueryRow[]): string | null {
+  return rows
+    .map(row => String(row['updated_at'] ?? row['created_at'] ?? row['acquired_at'] ?? ''))
+    .filter(Boolean)
+    .sort()
+    .at(-1) ?? null;
+}
+
+function workboardRows(db: DatabaseSync, params: AwarenessQueryParams): AwarenessQueryRow[] {
+  const limit = limitOf(params.limit, 10, 50);
+  const columns: Record<string, AwarenessQueryRow[]> = {
+    Inbox: [],
+    Verify: [],
+    Ready: [],
+    Claimed: [],
+    RecentDone: [],
+    MemoryReview: [],
+    ProjectionHealth: [],
+  };
+  const counts: Record<string, number> = {};
+
+  const openSignals = signalRows(db, { ...params, state: ['open'], limit: 200, includeBodies: false });
+  for (const row of openSignals) {
+    pushLimited(columns, counts, 'Inbox', {
+      item_type: 'signal',
+      id: String(row['signal_id']),
+      title: `${row['kind']}: ${summarize(String(row['subject']), 100)}`,
+      detail: summarize(String(row['body'] ?? ''), 180),
+      agent_id: String(row['from_agent']),
+      status: String(row['status']),
+      raw_ids: [String(row['signal_id'])],
+      files: rowFiles(row),
+      created_at: String(row['created_at']),
+    }, limit);
+  }
+
+  const handoffs = refinementRows(db, { ...params, state: ['open', 'ongoing'], limit: 200 })
+    .filter(row => String(row['quality']) === 'handoff');
+  for (const row of handoffs) {
+    pushLimited(columns, counts, 'Inbox', {
+      item_type: 'refinement',
+      id: String(row['refinement_id']),
+      title: summarize(String(row['remember']), 100),
+      detail: summarize(String(row['reasoning']), 180),
+      agent_id: String(row['agent_id']),
+      status: String(row['state']),
+      quality: String(row['quality']),
+      raw_ids: [String(row['refinement_id'])],
+      files: rowFiles(row),
+      created_at: String(row['created_at']),
+      updated_at: String(row['updated_at']),
+    }, limit);
+  }
+
+  const pendingTasks = taskRows(db, { ...params, state: ['PENDING'], limit: 500 });
+  const taskGroups = new Map<string, AwarenessQueryRow[]>();
+  for (const row of pendingTasks) {
+    const key = groupKey([
+      String(row['status']),
+      String(row['rationale']),
+      String(row['test_plan']),
+      rowFiles(row).sort().join(','),
+      String(row['agent_id']),
+    ]);
+    const list = taskGroups.get(key) ?? [];
+    list.push(row);
+    taskGroups.set(key, list);
+  }
+  for (const group of [...taskGroups.values()].sort((a, b) => String(representativeDate(b) ?? '').localeCompare(String(representativeDate(a) ?? '')))) {
+    const row = group[0]!;
+    pushLimited(columns, counts, 'Verify', {
+      item_type: 'task',
+      id: String(row['task_id']),
+      title: summarize(String(row['rationale']), 120),
+      detail: summarize(String(row['test_plan']), 180),
+      agent_id: String(row['agent_id']),
+      status: String(row['status']),
+      count: group.length,
+      raw_ids: compactIds(group, 'task_id'),
+      files: rowFiles(row),
+      created_at: String(row['created_at']),
+      updated_at: representativeDate(group),
+    }, limit);
+  }
+
+  for (const row of refinementRows(db, { ...params, state: ['open', 'ongoing'], limit: 200 })
+    .filter(row => String(row['quality']) !== 'handoff')) {
+    pushLimited(columns, counts, 'Ready', {
+      item_type: 'refinement',
+      id: String(row['refinement_id']),
+      title: summarize(String(row['remember']), 120),
+      detail: summarize(String(row['reasoning']), 180),
+      agent_id: String(row['agent_id']),
+      status: String(row['state']),
+      quality: String(row['quality']),
+      raw_ids: [String(row['refinement_id'])],
+      files: rowFiles(row),
+      created_at: String(row['created_at']),
+      updated_at: String(row['updated_at']),
+    }, limit);
+  }
+
+  for (const row of lockRows(db, { ...params, limit: 200 })) {
+    pushLimited(columns, counts, 'Claimed', {
+      item_type: 'lock',
+      id: String(row['lock_id']),
+      title: String(row['file_path']),
+      detail: `task=${row['task_id']} ${row['lock_type']}`,
+      agent_id: String(row['agent_id']),
+      status: String(row['task_status']),
+      raw_ids: [String(row['lock_id']), String(row['task_id'])],
+      files: [String(row['file_path'])],
+      created_at: String(row['acquired_at']),
+      expires_at: row['expires_at'] ?? null,
+    }, limit);
+  }
+
+  for (const row of taskRows(db, { ...params, state: ['SUCCESS', 'FAILED'], limit: 200 })) {
+    pushLimited(columns, counts, 'RecentDone', {
+      item_type: 'task',
+      id: String(row['task_id']),
+      title: `${row['status']}: ${summarize(String(row['rationale']), 100)}`,
+      detail: summarize(String(row['test_plan']), 180),
+      agent_id: String(row['agent_id']),
+      status: String(row['status']),
+      raw_ids: [String(row['task_id'])],
+      files: rowFiles(row),
+      created_at: String(row['created_at']),
+      updated_at: String(row['updated_at']),
+    }, limit);
+  }
+
+  for (const row of memoryRows(db, { ...params, limit: 200 })) {
+    const failureSignature = String(row['failure_signature'] ?? '');
+    const refs = Array.isArray(row['references']) ? row['references'] as string[] : [];
+    const tags = Array.isArray(row['tags']) ? row['tags'] as string[] : [];
+    const reviewReasons = [
+      refs.length === 0 ? 'missing_refs' : null,
+      failureSignature ? 'failure_signature' : null,
+      tags.includes('anti-bloat') ? 'policy_memory' : null,
+    ].filter((reason): reason is string => Boolean(reason));
+    if (reviewReasons.length === 0) continue;
+    pushLimited(columns, counts, 'MemoryReview', {
+      item_type: 'memory',
+      id: String(row['memory_id']),
+      title: `${row['label']}:${row['importance']} ${summarize(String(row['task_context']), 100)}`,
+      detail: summarize(String(row['observation']), 180),
+      agent_id: String(row['agent_id']),
+      status: 'review',
+      reasons: reviewReasons,
+      raw_ids: [String(row['memory_id'])],
+      files: refs.filter(ref => ref.startsWith('file:')).map(ref => ref.slice('file:'.length)),
+      created_at: String(row['created_at']),
+      updated_at: row['updated_at'] ?? null,
+    }, limit);
+  }
+
+  const profile = Object.fromEntries(repoProfileRows(db, params).map(row => [String(row['metric']), Number(row['count'] ?? 0)])) as Record<string, number>;
+  const activeMemories = Number(profile['active_memories'] ?? 0);
+  const taskCount = Number(profile['tasks'] ?? 0);
+  const openRefinements = Number(profile['open_refinements'] ?? 0);
+  const openSignalCount = Number(profile['open_signals'] ?? 0);
+  const projectionWarnings = [
+    activeMemories > 200 ? 'active_memories_over_200' : null,
+    taskCount > 500 ? 'task_rows_over_500' : null,
+    openRefinements > 40 ? 'open_refinements_over_40' : null,
+  ].filter((warning): warning is string => Boolean(warning));
+  pushLimited(columns, counts, 'ProjectionHealth', {
+    item_type: 'projection',
+    id: 'projection-health',
+    title: projectionWarnings.length > 0 ? 'Projection/bloat review suggested' : 'Projection health nominal',
+    detail: projectionWarnings.join(', ') || 'No profile threshold warnings.',
+    status: projectionWarnings.length > 0 ? 'review' : 'ok',
+    count: projectionWarnings.length,
+    raw_ids: [],
+    files: [],
+    active_memories: activeMemories,
+    tasks: taskCount,
+    open_refinements: openRefinements,
+    open_signals: openSignalCount,
+    created_at: utcNow(),
+  }, limit);
+
+  return Object.entries(columns).flatMap(([column, rows]) => {
+    const total = counts[column] ?? rows.length;
+    return rows.map(row => ({
+      ...row,
+      column_total: total,
+      omitted_count: Math.max(0, total - rows.length),
+    }));
+  });
+}
+
 function rowsForView(db: DatabaseSync, view: AwarenessQueryView, params: AwarenessQueryParams): AwarenessQueryRow[] {
   switch (view) {
     case 'repo-profile': return repoProfileRows(db, params);
@@ -735,6 +978,7 @@ function rowsForView(db: DatabaseSync, view: AwarenessQueryView, params: Awarene
     case 'refinements': return refinementRows(db, params);
     case 'files': return fileRows(db, params);
     case 'activity': return activityRows(db, params);
+    case 'workboard': return workboardRows(db, params);
     case 'all': return [];
   }
 }
@@ -863,12 +1107,14 @@ export function injectRepoContext(db: DatabaseSync, params: RepoContextInjectPar
   const queryParams: AwarenessQueryParams = { ...params, workspacePath, limit: limitOf(params.limit, 50, 500) };
   const all = queryAwareness(db, { ...queryParams, view: 'all' });
   const filesWritten: string[] = [];
+  const writtenContent: Record<string, string> = {};
   const warnings: string[] = [];
 
   function write(relPath: string, content: string): void {
     const full = join(outDir, relPath);
     mkdirSync(join(full, '..'), { recursive: true });
     writeFileSync(full, content, 'utf8');
+    writtenContent[relPath] = content;
     filesWritten.push(full);
   }
 
@@ -876,9 +1122,10 @@ export function injectRepoContext(db: DatabaseSync, params: RepoContextInjectPar
   const counts = Object.fromEntries(Object.entries(sections).map(([name, section]) => [name, section.count]));
 
   write('AGENTS.md', renderRepoAgentsMd(all));
-  write('MEMORY.md', renderRowsDoc('Memory', sections['memories']?.rows ?? [], 'Active awareness memories for this repo.'));
-  write('GOTCHAS.md', renderRowsDoc('Gotchas', sections['gotchas']?.rows ?? [], 'Failures, traps, and sharp edges agents should check before editing.'));
-  write('LEARN.md', renderRowsDoc('Learning And Opportunities', sections['lessons']?.rows ?? [], 'Decisions, architecture notes, workflows, and improvement ideas.'));
+  write('MEMORY.md', renderRowsDoc('Memory', sections['memories']?.rows ?? [], 'Active awareness memories for this repo.', PROJECTION_MARKDOWN_BUDGETS['MEMORY.md']!.max_lines));
+  write('GOTCHAS.md', renderRowsDoc('Gotchas', sections['gotchas']?.rows ?? [], 'Failures, traps, and sharp edges agents should check before editing.', PROJECTION_MARKDOWN_BUDGETS['GOTCHAS.md']!.max_lines));
+  write('LEARN.md', renderRowsDoc('Learning And Opportunities', sections['lessons']?.rows ?? [], 'Decisions, architecture notes, workflows, and improvement ideas.', PROJECTION_MARKDOWN_BUDGETS['LEARN.md']!.max_lines));
+  write('BOOKMARKS.md', renderBookmarksDoc(sections['memories']?.rows ?? []));
 
   for (const view of CSV_VIEWS) {
     write(join('awareness', 'csv', `${view}.csv`), toCsv(sections[view]?.rows ?? []));
@@ -919,6 +1166,18 @@ export function injectRepoContext(db: DatabaseSync, params: RepoContextInjectPar
     }
   }
 
+  const projectionBudgets: Record<string, ProjectionMarkdownBudgetStatus> = Object.fromEntries(Object.entries(PROJECTION_MARKDOWN_BUDGETS).map(([relPath, budget]) => {
+    const actualLines = lineCount(writtenContent[relPath] ?? '');
+    return [relPath, {
+      ...budget,
+      actual_lines: actualLines,
+      within_budget: actualLines <= budget.max_lines,
+    }];
+  }));
+  for (const [relPath, budget] of Object.entries(projectionBudgets)) {
+    if (!budget.within_budget) warnings.push(`projection budget exceeded: ${relPath} has ${budget.actual_lines}/${budget.max_lines} lines`);
+  }
+
   const manifest = {
     schema_version: 1,
     generated_at: generatedAt,
@@ -937,6 +1196,11 @@ export function injectRepoContext(db: DatabaseSync, params: RepoContextInjectPar
       share_decision: 'user-owned',
     },
     counts,
+    budgets: {
+      markdown: projectionBudgets,
+      workboard: WORKBOARD_BUDGET,
+      attend_compact: ATTEND_COMPACT_BUDGET,
+    },
     files: filesWritten.map(file => relative(workspacePath, file)),
     warnings,
   };
@@ -962,6 +1226,11 @@ function renderRepoAgentsMd(all: AwarenessQueryResult): string {
   const gotchas = (sections['gotchas']?.rows ?? []).slice(0, 8);
   const lessons = (sections['lessons']?.rows ?? []).slice(0, 8);
   const locks = (sections['locks']?.rows ?? []).slice(0, 8);
+  const projectionWarnings = [
+    Number(counts['active_memories'] ?? 0) > 200 ? `Active memories are high (${counts['active_memories']}); prefer targeted recall or CSV filtering over reading full Markdown.` : null,
+    Number(counts['tasks'] ?? 0) > 500 ? `Task history is high (${counts['tasks']}); use \`query workboard\` for grouped verification debt.` : null,
+    Number(counts['open_refinements'] ?? 0) > 40 ? `Open refinements are high (${counts['open_refinements']}); sort/filter the CSV before promoting more follow-up work.` : null,
+  ].filter((item): item is string => Boolean(item));
   const lines = [
     '# Octocode Repo Context',
     '',
@@ -984,6 +1253,13 @@ function renderRepoAgentsMd(all: AwarenessQueryResult): string {
     '- Check `.octocode/LEARN.md` for decisions, workflows, and improvement ideas.',
     '- Check `.octocode/awareness/csv/files.csv` when choosing or filtering affected files.',
     '- Query live data with `octocode-awareness query <view> --workspace <repo>` when freshness matters.',
+    '',
+    '## Projection Health',
+    '',
+    '- SQLite is canonical; Markdown, CSV, and HTML are generated projections.',
+    '- Use `.octocode/awareness/manifest.json` for row counts, caps, generation time, and budget status.',
+    '- Use `octocode-awareness query workboard --workspace <repo>` for grouped active work.',
+    ...projectionWarnings.map(warning => `- ${warning}`),
     '',
   ];
 
@@ -1009,13 +1285,20 @@ function renderRepoAgentsMd(all: AwarenessQueryResult): string {
   lines.push('- `.octocode/MEMORY.md` - active memory index');
   lines.push('- `.octocode/GOTCHAS.md` - gotchas and failure signatures');
   lines.push('- `.octocode/LEARN.md` - lessons and opportunities');
+  lines.push('- `.octocode/BOOKMARKS.md` - learnable resource links and URI leads');
   lines.push('- `.octocode/awareness/manifest.json` - generation metadata and policy warnings');
   lines.push('- `.octocode/references/` - compact generated context references');
   lines.push('');
   return lines.join('\n');
 }
 
-function renderRowsDoc(title: string, rows: AwarenessQueryRow[], description: string): string {
+function renderRowsDoc(title: string, rows: AwarenessQueryRow[], description: string, maxLines?: number): string {
+  // Prefer higher-importance rows when a line budget forces omission.
+  const ranked = [...rows].sort((a, b) => {
+    const imp = Number(b['importance'] ?? 0) - Number(a['importance'] ?? 0);
+    if (imp !== 0) return imp;
+    return String(a['memory_id'] ?? a['task_id'] ?? '').localeCompare(String(b['memory_id'] ?? b['task_id'] ?? ''));
+  });
   const lines = [
     `# ${title}`,
     '',
@@ -1026,17 +1309,93 @@ function renderRowsDoc(title: string, rows: AwarenessQueryRow[], description: st
     `Count: ${rows.length}`,
     '',
   ];
-  for (const row of rows) {
+  let omitted = 0;
+  for (const row of ranked) {
     const id = String(row['memory_id'] ?? row['refinement_id'] ?? row['task_id'] ?? row['signal_id'] ?? row['file_path'] ?? 'item');
     const label = row['label'] ? `[${row['label']}:${row['importance'] ?? ''}] ` : '';
     const titleText = row['task_context'] ?? row['subject'] ?? row['remember'] ?? row['rationale'] ?? row['file_path'] ?? id;
-    lines.push(`## ${label}${summarize(String(titleText), 100)}`);
-    if (row['observation']) lines.push('', summarize(String(row['observation']), 500));
-    if (row['failure_signature']) lines.push('', `Failure signature: \`${row['failure_signature']}\``);
+    const block = [`## ${label}${summarize(String(titleText), 100)}`];
+    if (row['observation']) block.push('', summarize(String(row['observation']), 500));
+    if (row['failure_signature']) block.push('', `Failure signature: \`${row['failure_signature']}\``);
     const refs = Array.isArray(row['references']) ? row['references'] as string[] : [];
-    if (refs.length > 0) lines.push('', `Refs: ${refs.join(', ')}`);
-    lines.push('', `Source id: \`${id}\``, '');
+    if (refs.length > 0) block.push('', `Refs: ${refs.join(', ')}`);
+    block.push('', `Source id: \`${id}\``, '');
+    const needsOmittedLine = omitted === 0 && rows.length > 0;
+    const reserve = maxLines ? (needsOmittedLine ? 3 : 1) : 0;
+    if (maxLines && lines.length + block.length + reserve > maxLines) {
+      omitted++;
+      continue;
+    }
+    lines.push(...block);
   }
+  if (omitted > 0) {
+    const note = `Omitted by projection cap: ${omitted}. Use CSV/HTML/query views for full rows.`;
+    if (!maxLines || lines.length + 2 <= maxLines) lines.push(note, '');
+  }
+  return lines.join('\n');
+}
+
+function bookmarkKind(reference: string): string {
+  const lower = reference.toLowerCase();
+  if (/^(github|gh|repo):/.test(lower) || lower.includes('github.com/')) return 'Repos';
+  if (/^https?:\/\//.test(lower)) return 'URLs';
+  if (/^(file|path):/.test(lower) || lower.startsWith('/') || lower.startsWith('./')) return 'Files';
+  if (/^(doc|docs|paper|book|resource|skill):/.test(lower)) return 'Docs';
+  if (/^[a-z][a-z0-9+.-]*:/.test(lower)) return 'URIs';
+  return 'Other';
+}
+
+function renderBookmarksDoc(memoryRows: AwarenessQueryRow[]): string {
+  const byRef = new Map<string, { kind: string; sourceIds: string[]; labels: string[]; titles: string[] }>();
+  for (const row of memoryRows) {
+    const refs = Array.isArray(row['references']) ? row['references'] as string[] : [];
+    const sourceId = String(row['memory_id'] ?? 'memory');
+    const label = `${row['label'] ?? 'MEMORY'}:${row['importance'] ?? ''}`.replace(/:$/, '');
+    const title = summarize(String(row['task_context'] ?? row['observation'] ?? sourceId), 90);
+    for (const rawRef of refs) {
+      const ref = rawRef.trim();
+      if (!ref) continue;
+      const entry = byRef.get(ref) ?? { kind: bookmarkKind(ref), sourceIds: [], labels: [], titles: [] };
+      if (!entry.sourceIds.includes(sourceId)) entry.sourceIds.push(sourceId);
+      if (!entry.labels.includes(label)) entry.labels.push(label);
+      if (!entry.titles.includes(title)) entry.titles.push(title);
+      byRef.set(ref, entry);
+    }
+  }
+
+  const entries = [...byRef.entries()]
+    .sort((a, b) => (
+      a[1].kind.localeCompare(b[1].kind)
+      || b[1].sourceIds.length - a[1].sourceIds.length
+      || a[0].localeCompare(b[0])
+    ))
+    .slice(0, 80);
+  const omitted = Math.max(0, byRef.size - entries.length);
+  const lines = [
+    '# Bookmarks',
+    '',
+    '<!-- Generated by `octocode-awareness repo inject`. Regenerate instead of hand-editing. -->',
+    '',
+    'Learnable resource leads from awareness memory references: URLs, repos, file paths, docs, papers, skills, and other URIs.',
+    'SQLite remains canonical; verify each bookmark against current source or primary material before relying on it.',
+    '',
+    `Count: ${byRef.size}`,
+    omitted > 0 ? `Omitted by cap: ${omitted}` : null,
+    '',
+  ].filter((line): line is string => line !== null);
+
+  let currentKind = '';
+  for (const [ref, entry] of entries) {
+    if (entry.kind !== currentKind) {
+      currentKind = entry.kind;
+      lines.push(`## ${currentKind}`, '');
+    }
+    const sourceText = entry.sourceIds.slice(0, 3).join(', ');
+    const titleText = entry.titles.slice(0, 2).join(' | ');
+    const labelText = entry.labels.slice(0, 3).join(', ');
+    lines.push(`- \`${ref}\` - ${labelText}; source: ${sourceText}; ${titleText}`);
+  }
+  lines.push('');
   return lines.join('\n');
 }
 
@@ -1158,6 +1517,11 @@ function summarize(value: string, max: number): string {
   const flat = value.replace(/\s+/g, ' ').trim();
   if (flat.length <= max) return flat;
   return flat.slice(0, Math.max(0, max - 3)).trimEnd() + '...';
+}
+
+function lineCount(value: string): number {
+  if (!value) return 0;
+  return value.split(/\r\n|\r|\n/).length;
 }
 
 function escapeHtml(value: string): string {

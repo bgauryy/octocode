@@ -433,4 +433,25 @@ describe('digest — dry_run with new schema', () => {
     const row = db.prepare("SELECT state FROM memories WHERE memory_id = 'mem_old'").get() as { state: string } | undefined;
     expect(row?.state).toBe('SUPERSEDED');
   });
+
+  it('scopes cleanup to the requested workspace', () => {
+    const db = freshDb();
+    const oldDate = new Date(Date.now() - 91 * 86400000).toISOString();
+    db.prepare(`
+      INSERT INTO memories (memory_id, agent_id, task_context, observation, importance, state, workspace_path, created_at, updated_at)
+      VALUES ('mem_ws_a_old', 'agent-x', 'old a', 'old a observation', 3, 'SUPERSEDED', '/ws-a', ?, ?)
+    `).run(oldDate, oldDate);
+    db.prepare(`
+      INSERT INTO memories (memory_id, agent_id, task_context, observation, importance, state, workspace_path, created_at, updated_at)
+      VALUES ('mem_ws_b_old', 'agent-x', 'old b', 'old b observation', 3, 'SUPERSEDED', '/ws-b', ?, ?)
+    `).run(oldDate, oldDate);
+
+    const dry = digest(db, { workspace: '/ws-a', dry_run: true });
+    expect(dry.would_prune_old).toBe(1);
+
+    const res = digest(db, { workspace: '/ws-a' });
+    expect(res.pruned_old).toBe(1);
+    const remaining = db.prepare('SELECT memory_id FROM memories ORDER BY memory_id').all() as Array<{ memory_id: string }>;
+    expect(remaining.map(row => row.memory_id)).toEqual(['mem_ws_b_old']);
+  });
 });

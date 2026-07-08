@@ -1246,3 +1246,21 @@ export function searchByEmbedding(
     .sort((a, b) => b.similarity - a.similarity)
     .slice(0, limit);
 }
+
+/**
+ * Load ACTIVE memory rows by id, preserving the caller order when possible.
+ */
+export function loadMemoriesByIds(
+  db: DatabaseSync,
+  memoryIds: string[],
+): MemoryRecord[] {
+  const ids = [...new Set(memoryIds.filter(Boolean))];
+  if (ids.length === 0) return [];
+  const placeholders = ids.map(() => '?').join(', ');
+  const rows = db.prepare(
+    `SELECT * FROM memories WHERE memory_id IN (${placeholders}) AND state = 'ACTIVE'`
+  ).all(...ids) as unknown as MemoryRow[];
+  const byId = new Map(rows.map(row => [row.memory_id, rowToMemory(row)]));
+  attachMemoryReferences(db, [...byId.values()]);
+  return ids.map(id => byId.get(id)).filter((row): row is MemoryRecord => Boolean(row));
+}

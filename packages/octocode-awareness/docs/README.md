@@ -6,6 +6,14 @@ The short version: awareness gives local AI agents a shared memory and coordinat
 
 The agent-facing model is: **before** work, inspect repo status, other agents, memories, gotchas, handoffs, signals, and wiki context; **during** work, lock files, communicate, and record durable facts; **after** work, verify, reflect, refresh wiki context when useful, housekeep stale state, and improve skills/workflows when repeated patterns emerge.
 
+## Mental Model
+
+Context and tokens are the working circulation of an agent run: they move goals, constraints, evidence, warnings, and next actions to the place where decisions happen. Healthy awareness keeps that circulation fresh and bounded. Too little context starves the run; too much stale context clogs it.
+
+Docs can become like excess weight. A giant `MEMORY.md` or chat-derived wiki may feel safe, but it makes every future run carry mass before it can think. Keep Markdown lean, move rows to CSV/HTML/query views, and use `attend --compact` plus `query workboard` as the active circulation.
+
+Social exchange is part of the loop. Signals, refinements, handoffs, and user corrections bring new ideas and perspectives into the shared system. Keep them traceable and resolve or consolidate them so they improve the collective map instead of becoming more weight.
+
 ## Reading Paths
 
 | You want to... | Start here |
@@ -15,6 +23,7 @@ The agent-facing model is: **before** work, inspect repo status, other agents, m
 | Tell an agent how to install awareness | [SKILLS.md](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-awareness/docs/SKILLS.md#install-in-5-minutes) |
 | Understand the full system flow | [HARNESS.md](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-awareness/docs/HARNESS.md) |
 | Understand the active-memory-navigation prototype decision | [MEMORY_NAVIGATION.md](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-awareness/docs/MEMORY_NAVIGATION.md) |
+| Understand context/token circulation and bloat control | [WIKI.md](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-awareness/docs/WIKI.md), [MEMORY_NAVIGATION.md](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-awareness/docs/MEMORY_NAVIGATION.md) |
 | Inspect exactly what is stored | [DB.md](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-awareness/docs/DB.md) |
 | Debug edit coordination or pending verification | [LOCKS.md](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-awareness/docs/LOCKS.md) |
 | Understand memory-driven self-improvement | [REFLECTION.md](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-awareness/docs/REFLECTION.md) |
@@ -26,13 +35,14 @@ The agent-facing model is: **before** work, inspect repo status, other agents, m
 | Feature | Primary docs | Main commands / APIs |
 |---|---|---|
 | Workspace health | [HARNESS.md](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-awareness/docs/HARNESS.md), [DB.md](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-awareness/docs/DB.md) | `workspace status` |
-| Before/during/after agent workflow | [SKILLS.md](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-awareness/docs/SKILLS.md), package skill `SKILL.md` | `workspace status`, `memory recall`, `lock acquire`, `signal publish`, `verify mark`, `reflect record`, `repo inject` |
+| Attend packet and workboard | [WIKI.md](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-awareness/docs/WIKI.md), [MEMORY_NAVIGATION.md](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-awareness/docs/MEMORY_NAVIGATION.md), package skill `SKILL.md` | `attend`, `query workboard` |
+| Before/during/after agent workflow | [SKILLS.md](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-awareness/docs/SKILLS.md), package skill `SKILL.md` | `attend`, `workspace status`, `memory recall`, `lock acquire`, `signal publish`, `verify mark`, `reflect record`, `repo inject` |
 | Global home vs repo projection | [DB.md](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-awareness/docs/DB.md), [WIKI.md](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-awareness/docs/WIKI.md), package README | `OCTOCODE_MEMORY_HOME`, `repo inject --out` |
 | Database schema and storage | [DB.md](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-awareness/docs/DB.md) | `maintenance init`, library DB helpers |
 | Scope model | [DB.md](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-awareness/docs/DB.md), [SKILLS.md](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-awareness/docs/SKILLS.md) | `--workspace`, `--artifact`, `--repo`, `--ref` |
 | Agent registry | [DB.md](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-awareness/docs/DB.md), [SKILLS.md](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-awareness/docs/SKILLS.md) | `agent register`, `agent list` |
 | Memory recall | [SKILLS.md](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-awareness/docs/SKILLS.md), [DB.md](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-awareness/docs/DB.md) | `memory recall` |
-| Active memory navigation prototype | [MEMORY_NAVIGATION.md](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-awareness/docs/MEMORY_NAVIGATION.md), [HARNESS.md](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-awareness/docs/HARNESS.md) | Not shipped yet; proposed `memory navigate` |
+| Active memory navigation direction | [MEMORY_NAVIGATION.md](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-awareness/docs/MEMORY_NAVIGATION.md), [HARNESS.md](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-awareness/docs/HARNESS.md) | Shipped: `attend`; future: deeper deterministic navigation |
 | Memory recording and forgetting | [SKILLS.md](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-awareness/docs/SKILLS.md), [DB.md](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-awareness/docs/DB.md) | `memory record`, `memory forget` |
 | File locks | [LOCKS.md](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-awareness/docs/LOCKS.md), [DB.md](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-awareness/docs/DB.md) | `lock acquire`, `lock wait`, `lock release`, `lock prune` |
 | Verification gate | [LOCKS.md](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-awareness/docs/LOCKS.md), [HOOKS.md](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-awareness/docs/HOOKS.md) | `verify audit`, `verify mark`, `stop-verify.sh` |
@@ -44,6 +54,8 @@ The agent-facing model is: **before** work, inspect repo status, other agents, m
 | Documentation staleness | [REFLECTION.md](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-awareness/docs/REFLECTION.md), [DB.md](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-awareness/docs/DB.md) | `docs staleness`, `insertEditLog()` |
 | Query views | [WIKI.md](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-awareness/docs/WIKI.md), [DB.md](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-awareness/docs/DB.md) | `query <view>` |
 | LLM Wiki projections | [WIKI.md](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-awareness/docs/WIKI.md), [HARNESS.md](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-awareness/docs/HARNESS.md) | `repo inject` |
+| Context health and projection bloat | [WIKI.md](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-awareness/docs/WIKI.md), package README | `attend --compact`, `query workboard`, `repo inject`, `maintenance digest --dry-run` |
+| Social perspective and handoffs | [SKILLS.md](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-awareness/docs/SKILLS.md), [DB.md](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-awareness/docs/DB.md) | `signal publish`, `signal reply`, `refinement set`, `session capture` |
 | Host hooks | [HOOKS.md](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-awareness/docs/HOOKS.md), [SKILLS.md](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-awareness/docs/SKILLS.md) | `hooks install`, `hooks check`, `hooks remove`, `hook run` |
 | Smart briefing | [HOOKS.md](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-awareness/docs/HOOKS.md), [SKILLS.md](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-awareness/docs/SKILLS.md) | `notify-deliver.sh`, `UserPromptSubmit` |
 | Harness guard | [HOOKS.md](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-awareness/docs/HOOKS.md), [REFLECTION.md](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-awareness/docs/REFLECTION.md) | `harness-guard.sh`, `OCTOCODE_ALLOW_HARNESS_APPLY` |
@@ -70,3 +82,5 @@ Keep [HARNESS.md](https://github.com/bgauryy/octocode-mcp/blob/main/packages/oct
 - generated repo context in [WIKI.md](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-awareness/docs/WIKI.md),
 - host lifecycle behavior in [HOOKS.md](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-awareness/docs/HOOKS.md),
 - user recipes and CLI walkthroughs in [SKILLS.md](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-awareness/docs/SKILLS.md).
+
+Keep the docs set in shape: add a new page only when it owns a stable subsystem. For row-heavy or fast-changing state, prefer `query`, CSV, HTML, manifest metadata, and compact references over another long Markdown narrative.

@@ -6,9 +6,9 @@ process.on('warning', (w) => {
 });
 
 // bin/awareness.ts
-import { writeFileSync as writeFileSync4, mkdirSync as mkdirSync5, existsSync as existsSync2 } from "node:fs";
-import { spawnSync as spawnSync6 } from "node:child_process";
-import { dirname as dirname4, join as join6 } from "node:path";
+import { writeFileSync as writeFileSync4, mkdirSync as mkdirSync5, existsSync as existsSync3 } from "node:fs";
+import { spawnSync as spawnSync7 } from "node:child_process";
+import { dirname as dirname5, join as join7 } from "node:path";
 import { DatabaseSync as DatabaseSync2 } from "node:sqlite";
 import { fileURLToPath as fileURLToPath2 } from "node:url";
 
@@ -1523,6 +1523,113 @@ function mineWeakness(db3, params = {}) {
   ).get(...bindParams);
   return { ok: true, clusters: selected, total_signatures: totals.sigs, total_memories: totals.mems };
 }
+function cosineSimilarity(a, b) {
+  if (a.length !== b.length || a.length === 0) return 0;
+  let dot = 0, normA = 0, normB = 0;
+  for (let i = 0; i < a.length; i++) {
+    dot += a[i] * b[i];
+    normA += a[i] * a[i];
+    normB += b[i] * b[i];
+  }
+  const denom = Math.sqrt(normA) * Math.sqrt(normB);
+  return denom === 0 ? 0 : dot / denom;
+}
+function storeEmbedding(db3, memoryId, embedding, model) {
+  const blob = Buffer.from(embedding.buffer, embedding.byteOffset, embedding.byteLength);
+  db3.prepare(
+    `UPDATE memories SET embedding = ?, embedding_model = ?, updated_at = ?
+     WHERE memory_id = ?`
+  ).run(blob, model, utcNow(), memoryId);
+}
+function searchByEmbedding(db3, queryEmbedding, limit = 5, threshold = 0.75, model) {
+  const conditions = ["state = 'ACTIVE'", "embedding IS NOT NULL"];
+  const binds = [];
+  if (model) {
+    conditions.push("embedding_model = ?");
+    binds.push(model);
+  }
+  const rows = db3.prepare(
+    `SELECT memory_id, embedding, embedding_model FROM memories
+     WHERE ${conditions.join(" AND ")}
+     ORDER BY COALESCE(last_accessed_at, created_at) DESC
+     LIMIT 2000`
+  ).all(...binds);
+  const results = [];
+  for (const row of rows) {
+    try {
+      const stored = new Float32Array(
+        row.embedding.buffer,
+        row.embedding.byteOffset,
+        row.embedding.byteLength / 4
+      );
+      const sim = cosineSimilarity(queryEmbedding, stored);
+      if (sim >= threshold) results.push({ memory_id: row.memory_id, similarity: sim });
+    } catch {
+    }
+  }
+  return results.sort((a, b) => b.similarity - a.similarity).slice(0, limit);
+}
+function loadMemoriesByIds(db3, memoryIds) {
+  const ids = [...new Set(memoryIds.filter(Boolean))];
+  if (ids.length === 0) return [];
+  const placeholders = ids.map(() => "?").join(", ");
+  const rows = db3.prepare(
+    `SELECT * FROM memories WHERE memory_id IN (${placeholders}) AND state = 'ACTIVE'`
+  ).all(...ids);
+  const byId = new Map(rows.map((row) => [row.memory_id, rowToMemory(row)]));
+  attachMemoryReferences(db3, [...byId.values()]);
+  return ids.map((id) => byId.get(id)).filter((row) => Boolean(row));
+}
+
+// src/embed-host.ts
+import { spawnSync as spawnSync2 } from "node:child_process";
+function resolveEmbedCommand(env = process.env) {
+  const raw = env["OCTOCODE_EMBED_CMD"];
+  if (typeof raw !== "string") return null;
+  const cmd = raw.trim();
+  return cmd.length > 0 ? cmd : null;
+}
+function runHostEmbedder(text, options = {}) {
+  const command2 = options.command ?? resolveEmbedCommand(options.env);
+  if (!command2) {
+    throw new Error("OCTOCODE_EMBED_CMD is not set");
+  }
+  const timeoutMs = options.timeoutMs ?? 15e3;
+  const done = spawnSync2(command2, {
+    input: text,
+    encoding: "utf8",
+    shell: true,
+    timeout: timeoutMs,
+    env: options.env ?? process.env,
+    maxBuffer: 8 * 1024 * 1024
+  });
+  if (done.error) {
+    throw new Error(`OCTOCODE_EMBED_CMD failed to start: ${done.error.message}`);
+  }
+  if (done.status !== 0) {
+    const err = (done.stderr || done.stdout || "").trim().slice(0, 400);
+    throw new Error(`OCTOCODE_EMBED_CMD exited ${done.status}${err ? `: ${err}` : ""}`);
+  }
+  const stdout = (done.stdout || "").trim();
+  if (!stdout) throw new Error("OCTOCODE_EMBED_CMD returned empty stdout");
+  let parsed;
+  try {
+    parsed = JSON.parse(stdout);
+  } catch {
+    throw new Error("OCTOCODE_EMBED_CMD stdout is not JSON");
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("OCTOCODE_EMBED_CMD JSON must be an object with embedding[]");
+  }
+  const record = parsed;
+  const values = record["embedding"];
+  if (!Array.isArray(values) || values.length === 0 || !values.every((v) => typeof v === "number" && Number.isFinite(v))) {
+    throw new Error("OCTOCODE_EMBED_CMD embedding must be a non-empty number[]");
+  }
+  const modelRaw = record["model"];
+  const model = typeof modelRaw === "string" && modelRaw.trim() ? modelRaw.trim() : "host-embed";
+  return { embedding: Float32Array.from(values), model };
+}
 
 // src/audit.ts
 import { randomUUID as randomUUID2 } from "node:crypto";
@@ -1905,6 +2012,7 @@ function deleteRefinement(db3, params) {
 import { randomUUID as randomUUID4 } from "node:crypto";
 import { isAbsolute, resolve as resolve4 } from "node:path";
 var MAX_LOCK_TTL_MS = 10 * 6e4;
+var VALID_RELEASE_STATUSES = /* @__PURE__ */ new Set(["PENDING", "SUCCESS", "FAILED"]);
 function effectiveTtlMs(ttlMs) {
   return Math.min(Math.max(1, ttlMs ?? MAX_LOCK_TTL_MS), MAX_LOCK_TTL_MS);
 }
@@ -2038,8 +2146,12 @@ function releaseFileLock(db3, params) {
     verified = false,
     verifiedNote
   } = params;
-  const requestedSuccessWithoutVerification = statusArg === "SUCCESS" && !verified;
-  const effectiveStatus = verified ? "SUCCESS" : requestedSuccessWithoutVerification ? "PENDING" : statusArg;
+  if (!VALID_RELEASE_STATUSES.has(String(statusArg))) {
+    throw new Error(`releaseFileLock status must be PENDING, SUCCESS, or FAILED; got "${statusArg}"`);
+  }
+  const requestedStatus = String(statusArg);
+  const requestedSuccessWithoutVerification = requestedStatus === "SUCCESS" && !verified;
+  const effectiveStatus = requestedSuccessWithoutVerification ? "PENDING" : requestedStatus;
   const now = utcNow();
   const whereClauses = ["fl.agent_id = ?"];
   const whereParams = [agentId2];
@@ -2309,7 +2421,7 @@ function reflect(db3, params) {
 }
 
 // src/maintenance.ts
-import { spawnSync as spawnSync2 } from "node:child_process";
+import { spawnSync as spawnSync3 } from "node:child_process";
 import { randomUUID as randomUUID6 } from "node:crypto";
 import { isAbsolute as isAbsolute2, resolve as resolve6 } from "node:path";
 
@@ -2510,17 +2622,23 @@ function getNotifications(db3, params) {
   return { count: signals.length, signals, unread_only: unreadOnly };
 }
 function resolveNotification(db3, params) {
-  const { notificationIds = [], threadId = null, cwd } = params;
-  const scope = fillScope(
+  const { notificationIds = [], threadId = null, cwd, agentId: agentId2 = null } = params;
+  const hasExplicitScope = params.workspacePath != null || params.artifact != null;
+  const scope = hasExplicitScope ? fillScope(
     { workspace_path: params.workspacePath ?? null, artifact: normalizeArtifact(params.artifact), repo: null, ref: null },
     cwd ?? process.cwd()
-  );
+  ) : { workspace_path: null, artifact: null, repo: null, ref: null };
   const resolved = [];
   const now = utcNow();
   if (notificationIds.length > 0) {
     const ph = notificationIds.map(() => "?").join(",");
     const where = [`signal_id IN (${ph})`, "status = 'open'"];
     const binds = [...notificationIds];
+    appendSignalScope(where, binds, scope, "");
+    if (agentId2) {
+      where.push("(from_agent = ? OR to_agent = ? OR to_agent IS NULL)");
+      binds.push(agentId2, agentId2);
+    }
     const rows = db3.prepare(
       `UPDATE signals SET status = 'resolved', resolved_at = ? WHERE ${where.join(" AND ")} RETURNING signal_id`
     ).all(now, ...binds);
@@ -2530,6 +2648,10 @@ function resolveNotification(db3, params) {
     const where = ["thread_id = ?", "status = 'open'"];
     const binds = [threadId];
     appendSignalScope(where, binds, scope, "");
+    if (agentId2) {
+      where.push("(from_agent = ? OR to_agent = ? OR to_agent IS NULL)");
+      binds.push(agentId2, agentId2);
+    }
     const rows = db3.prepare(
       `UPDATE signals SET status = 'resolved', resolved_at = ? WHERE ${where.join(" AND ")} RETURNING signal_id`
     ).all(now, ...binds);
@@ -2630,6 +2752,7 @@ function agentSignal(db3, params) {
     }
     case "resolve": {
       const result = resolveNotification(db3, {
+        agentId: params.agentId,
         notificationIds: params.signalIds ?? [],
         threadId: params.threadId ?? null,
         workspacePath: params.workspacePath,
@@ -2956,7 +3079,7 @@ function notifyGet(db3, params = {}) {
 function gitDirtyFiles(workspacePath) {
   if (!workspacePath) return [];
   try {
-    const result = spawnSync2("git", ["-C", workspacePath, "status", "--short"], {
+    const result = spawnSync3("git", ["-C", workspacePath, "status", "--short"], {
       encoding: "utf8",
       timeout: 5e3
     });
@@ -3034,10 +3157,10 @@ function sessionCapture(db3, params = {}) {
   const capturedFiles = allCapturedFiles.slice(0, SESSION_CAPTURE_FILE_LIMIT);
   const capturedDirtyFiles = dirtyFiles.slice(0, SESSION_CAPTURE_FILE_LIMIT);
   const statusSummary = taskRows2.slice(0, SESSION_CAPTURE_TASK_DETAIL_LIMIT).map((row) => {
-    const rowFiles = parseJsonList(row.files_json);
-    const shownFiles = rowFiles.slice(0, SESSION_CAPTURE_TASK_FILE_LIMIT);
-    const omittedFiles = rowFiles.length - shownFiles.length;
-    const fileSuffix = rowFiles.length > 0 ? ` files=${shownFiles.join(", ")}${omittedFiles > 0 ? ` (+${omittedFiles} more)` : ""}` : "";
+    const rowFiles2 = parseJsonList(row.files_json);
+    const shownFiles = rowFiles2.slice(0, SESSION_CAPTURE_TASK_FILE_LIMIT);
+    const omittedFiles = rowFiles2.length - shownFiles.length;
+    const fileSuffix = rowFiles2.length > 0 ? ` files=${shownFiles.join(", ")}${omittedFiles > 0 ? ` (+${omittedFiles} more)` : ""}` : "";
     const planSuffix = row.plan_doc_ref ? ` plan=${row.plan_doc_ref}` : "";
     return `${row.status} ${row.task_id}: ${compactText(row.rationale)}; verify=${compactText(row.test_plan)}${planSuffix}${fileSuffix}`;
   });
@@ -3130,6 +3253,7 @@ function waitForLock(db3, params = {}) {
   );
   const sleepBuf = new Int32Array(new SharedArrayBuffer(4));
   const checkLocks = () => {
+    evictExpiredLocks(db3);
     const now = (/* @__PURE__ */ new Date()).toISOString();
     return lockStmt.all(...absTargetFiles, agentId2, ...scopeBinds, now);
   };
@@ -3157,24 +3281,52 @@ function digest(db3, params = {}) {
   const retentionDays = Number(params.retention_days ?? 90);
   const handoffRetentionDays = Number(params.refinement_handoff_retention_days ?? params.refinementHandoffRetentionDays ?? 7);
   const doneRetentionDays = Number(params.refinement_done_retention_days ?? params.refinementDoneRetentionDays ?? 30);
+  const rawWorkspacePath = typeof params.workspace === "string" ? params.workspace : typeof params.workspace_path === "string" ? params.workspace_path : typeof params.workspacePath === "string" ? params.workspacePath : null;
+  const workspacePath = rawWorkspacePath ? normalizeWorkspacePath(rawWorkspacePath, rawWorkspacePath) : null;
+  const artifact2 = normalizeArtifact(params.artifact);
   const now = (/* @__PURE__ */ new Date()).toISOString();
   const cutoff = new Date(Date.now() - retentionDays * 864e5).toISOString();
   const handoffCutoff = new Date(Date.now() - handoffRetentionDays * 864e5).toISOString();
   const doneCutoff = new Date(Date.now() - doneRetentionDays * 864e5).toISOString();
-  const refinementRetentionSql = `SELECT COUNT(*) AS c FROM refinements
-     WHERE (quality = 'handoff' AND updated_at < ?)
-        OR (quality IN ('good','bad') AND state = 'done' AND updated_at < ?)`;
+  const memoryScope = [];
+  const memoryScopeBinds = [];
+  if (workspacePath) {
+    memoryScope.push("workspace_path = ?");
+    memoryScopeBinds.push(workspacePath);
+  }
+  if (artifact2) {
+    memoryScope.push("artifact = ?");
+    memoryScopeBinds.push(artifact2);
+  }
+  const memoryScopeSql = memoryScope.length > 0 ? ` AND ${memoryScope.join(" AND ")}` : "";
+  const refinementScope = [];
+  const refinementScopeBinds = [];
+  if (workspacePath) {
+    refinementScope.push("workspace_path = ?");
+    refinementScopeBinds.push(workspacePath);
+  }
+  if (artifact2) {
+    refinementScope.push("artifact = ?");
+    refinementScopeBinds.push(artifact2);
+  }
+  const refinementScopeSql = refinementScope.length > 0 ? ` AND ${refinementScope.join(" AND ")}` : "";
   if (params.dry_run) {
     const wouldArchive = db3.prepare(
-      `SELECT COUNT(*) AS c FROM memories WHERE valid_to IS NOT NULL AND valid_to < ? AND state = 'ACTIVE'`
-    ).get(now).c;
+      `SELECT COUNT(*) AS c FROM memories WHERE valid_to IS NOT NULL AND valid_to < ? AND state = 'ACTIVE'${memoryScopeSql}`
+    ).get(now, ...memoryScopeBinds).c;
     const wouldPruneOld = db3.prepare(
-      `SELECT COUNT(*) AS c FROM memories WHERE state = 'SUPERSEDED' AND updated_at < ?`
-    ).get(cutoff).c;
-    const wouldPruneLocks = db3.prepare(
-      `SELECT COUNT(*) AS c FROM locks WHERE expires_at IS NOT NULL AND expires_at < ?`
-    ).get(now).c;
-    const wouldPruneRefinements = db3.prepare(refinementRetentionSql).get(handoffCutoff, doneCutoff).c;
+      `SELECT COUNT(*) AS c FROM memories WHERE state = 'SUPERSEDED' AND updated_at < ?${memoryScopeSql}`
+    ).get(cutoff, ...memoryScopeBinds).c;
+    const lockDryRun = pruneStale(db3, {
+      ...workspacePath ? { workspace: workspacePath } : {},
+      ...artifact2 ? { artifact: artifact2 } : {},
+      expired_only: true,
+      dry_run: true
+    });
+    const wouldPruneLocks = lockDryRun.would_prune ?? 0;
+    const wouldPruneRefinements = db3.prepare(`SELECT COUNT(*) AS c FROM refinements
+       WHERE ((quality = 'handoff' AND updated_at < ?)
+          OR (quality IN ('good','bad') AND state = 'done' AND updated_at < ?))${refinementScopeSql}`).get(handoffCutoff, doneCutoff, ...refinementScopeBinds).c;
     return {
       ok: true,
       archived_memories: 0,
@@ -3192,18 +3344,22 @@ function digest(db3, params = {}) {
   const archiveRes = db3.prepare(
     `UPDATE memories
      SET state = 'SUPERSEDED', expired_at = ?, updated_at = ?
-     WHERE valid_to IS NOT NULL AND valid_to < ? AND state = 'ACTIVE'`
-  ).run(now, now, now);
+     WHERE valid_to IS NOT NULL AND valid_to < ? AND state = 'ACTIVE'${memoryScopeSql}`
+  ).run(now, now, now, ...memoryScopeBinds);
   const deleteRes = db3.prepare(
     `DELETE FROM memories
-     WHERE state = 'SUPERSEDED' AND updated_at < ?`
-  ).run(cutoff);
-  const { pruned_locks } = pruneStale(db3, {});
+     WHERE state = 'SUPERSEDED' AND updated_at < ?${memoryScopeSql}`
+  ).run(cutoff, ...memoryScopeBinds);
+  const { pruned_locks } = pruneStale(db3, {
+    ...workspacePath ? { workspace: workspacePath } : {},
+    ...artifact2 ? { artifact: artifact2 } : {},
+    expired_only: true
+  });
   const pruneRefinementsRes = db3.prepare(
     `DELETE FROM refinements
-     WHERE (quality = 'handoff' AND updated_at < ?)
-        OR (quality IN ('good','bad') AND state = 'done' AND updated_at < ?)`
-  ).run(handoffCutoff, doneCutoff);
+     WHERE ((quality = 'handoff' AND updated_at < ?)
+        OR (quality IN ('good','bad') AND state = 'done' AND updated_at < ?))${refinementScopeSql}`
+  ).run(handoffCutoff, doneCutoff, ...refinementScopeBinds);
   let ftsRebuilt = false;
   try {
     if (hasFts(db3)) {
@@ -3560,6 +3716,13 @@ function markVerified(db3, params) {
   const artifact2 = normalizeArtifact(params.artifact);
   const taskId = params.taskId ?? "";
   const status = params.status ?? "SUCCESS";
+  if (!VALID_VERIFY_STATUSES.has(status)) {
+    return {
+      ok: false,
+      error: `invalid status "${status}" \u2014 must be SUCCESS or FAILED`,
+      task_id: taskId || null
+    };
+  }
   if (allPending) {
     const dynWhere = [
       workspacePath ? " AND workspace_path = ?" : "",
@@ -3592,13 +3755,6 @@ function markVerified(db3, params) {
   }
   if (!taskId) {
     return { ok: false, error: "--task-id is required (or use --all-pending)", task_id: null };
-  }
-  if (!VALID_VERIFY_STATUSES.has(status)) {
-    return {
-      ok: false,
-      error: `invalid status "${status}" \u2014 must be SUCCESS or FAILED`,
-      task_id: taskId
-    };
   }
   const now = utcNow();
   const result = db3.prepare(TASKS_UPDATE_PENDING_VERIFIED_BY_AGENT).run(
@@ -3987,8 +4143,12 @@ function runHooksInstall(argv, options) {
   };
 }
 
+// src/attend.ts
+import { existsSync as existsSync2, readFileSync as readFileSync2, statSync } from "node:fs";
+import { join as join5, resolve as resolve9 } from "node:path";
+
 // src/repo-context.ts
-import { spawnSync as spawnSync3 } from "node:child_process";
+import { spawnSync as spawnSync4 } from "node:child_process";
 import { mkdirSync as mkdirSync3, realpathSync as realpathSync2, writeFileSync as writeFileSync2 } from "node:fs";
 import { isAbsolute as isAbsolute4, join as join4, relative as relative2, resolve as resolve8 } from "node:path";
 var AWARENESS_QUERY_VIEWS = [
@@ -4003,10 +4163,20 @@ var AWARENESS_QUERY_VIEWS = [
   "signals",
   "refinements",
   "files",
-  "activity"
+  "activity",
+  "workboard"
 ];
 var VIEW_SET = new Set(AWARENESS_QUERY_VIEWS);
-var CSV_VIEWS = ["memories", "gotchas", "lessons", "agents", "tasks", "locks", "signals", "refinements", "files", "activity"];
+var CSV_VIEWS = ["memories", "gotchas", "lessons", "agents", "tasks", "locks", "signals", "refinements", "files", "activity", "workboard"];
+var PROJECTION_MARKDOWN_BUDGETS = {
+  "AGENTS.md": { max_lines: 80, role: "agent start summary" },
+  "MEMORY.md": { max_lines: 200, role: "active memory index" },
+  "GOTCHAS.md": { max_lines: 200, role: "gotcha index" },
+  "LEARN.md": { max_lines: 200, role: "lesson/opportunity index" },
+  "BOOKMARKS.md": { max_lines: 200, role: "learnable resource index" }
+};
+var ATTEND_COMPACT_BUDGET = { max_lines: 120, max_json_bytes: 8 * 1024 };
+var WORKBOARD_BUDGET = { max_rows_per_column: 10 };
 var LESSON_LABELS = [
   "DECISION",
   "ARCHITECTURE",
@@ -4543,6 +4713,200 @@ function activityRows(db3, params) {
   }
   return rows.sort((a, b) => String(b["created_at"]).localeCompare(String(a["created_at"]))).slice(0, limit);
 }
+function rowFiles(row) {
+  const raw = row["files"];
+  return Array.isArray(raw) ? raw.map(String) : [];
+}
+function groupKey(parts) {
+  return parts.map((part) => String(part ?? "").trim().toLowerCase().replace(/\s+/g, " ")).join("|");
+}
+function pushLimited(columns, counts, column, row, limit) {
+  counts[column] = (counts[column] ?? 0) + 1;
+  const rows = columns[column] ?? [];
+  if (rows.length < limit) {
+    rows.push({ column, ...row });
+    columns[column] = rows;
+  }
+}
+function compactIds(rows, key) {
+  return rows.map((row) => String(row[key] ?? "")).filter(Boolean);
+}
+function representativeDate(rows) {
+  return rows.map((row) => String(row["updated_at"] ?? row["created_at"] ?? row["acquired_at"] ?? "")).filter(Boolean).sort().at(-1) ?? null;
+}
+function workboardRows(db3, params) {
+  const limit = limitOf(params.limit, 10, 50);
+  const columns = {
+    Inbox: [],
+    Verify: [],
+    Ready: [],
+    Claimed: [],
+    RecentDone: [],
+    MemoryReview: [],
+    ProjectionHealth: []
+  };
+  const counts = {};
+  const openSignals = signalRows(db3, { ...params, state: ["open"], limit: 200, includeBodies: false });
+  for (const row of openSignals) {
+    pushLimited(columns, counts, "Inbox", {
+      item_type: "signal",
+      id: String(row["signal_id"]),
+      title: `${row["kind"]}: ${summarize(String(row["subject"]), 100)}`,
+      detail: summarize(String(row["body"] ?? ""), 180),
+      agent_id: String(row["from_agent"]),
+      status: String(row["status"]),
+      raw_ids: [String(row["signal_id"])],
+      files: rowFiles(row),
+      created_at: String(row["created_at"])
+    }, limit);
+  }
+  const handoffs = refinementRows(db3, { ...params, state: ["open", "ongoing"], limit: 200 }).filter((row) => String(row["quality"]) === "handoff");
+  for (const row of handoffs) {
+    pushLimited(columns, counts, "Inbox", {
+      item_type: "refinement",
+      id: String(row["refinement_id"]),
+      title: summarize(String(row["remember"]), 100),
+      detail: summarize(String(row["reasoning"]), 180),
+      agent_id: String(row["agent_id"]),
+      status: String(row["state"]),
+      quality: String(row["quality"]),
+      raw_ids: [String(row["refinement_id"])],
+      files: rowFiles(row),
+      created_at: String(row["created_at"]),
+      updated_at: String(row["updated_at"])
+    }, limit);
+  }
+  const pendingTasks = taskRows(db3, { ...params, state: ["PENDING"], limit: 500 });
+  const taskGroups = /* @__PURE__ */ new Map();
+  for (const row of pendingTasks) {
+    const key = groupKey([
+      String(row["status"]),
+      String(row["rationale"]),
+      String(row["test_plan"]),
+      rowFiles(row).sort().join(","),
+      String(row["agent_id"])
+    ]);
+    const list = taskGroups.get(key) ?? [];
+    list.push(row);
+    taskGroups.set(key, list);
+  }
+  for (const group of [...taskGroups.values()].sort((a, b) => String(representativeDate(b) ?? "").localeCompare(String(representativeDate(a) ?? "")))) {
+    const row = group[0];
+    pushLimited(columns, counts, "Verify", {
+      item_type: "task",
+      id: String(row["task_id"]),
+      title: summarize(String(row["rationale"]), 120),
+      detail: summarize(String(row["test_plan"]), 180),
+      agent_id: String(row["agent_id"]),
+      status: String(row["status"]),
+      count: group.length,
+      raw_ids: compactIds(group, "task_id"),
+      files: rowFiles(row),
+      created_at: String(row["created_at"]),
+      updated_at: representativeDate(group)
+    }, limit);
+  }
+  for (const row of refinementRows(db3, { ...params, state: ["open", "ongoing"], limit: 200 }).filter((row2) => String(row2["quality"]) !== "handoff")) {
+    pushLimited(columns, counts, "Ready", {
+      item_type: "refinement",
+      id: String(row["refinement_id"]),
+      title: summarize(String(row["remember"]), 120),
+      detail: summarize(String(row["reasoning"]), 180),
+      agent_id: String(row["agent_id"]),
+      status: String(row["state"]),
+      quality: String(row["quality"]),
+      raw_ids: [String(row["refinement_id"])],
+      files: rowFiles(row),
+      created_at: String(row["created_at"]),
+      updated_at: String(row["updated_at"])
+    }, limit);
+  }
+  for (const row of lockRows(db3, { ...params, limit: 200 })) {
+    pushLimited(columns, counts, "Claimed", {
+      item_type: "lock",
+      id: String(row["lock_id"]),
+      title: String(row["file_path"]),
+      detail: `task=${row["task_id"]} ${row["lock_type"]}`,
+      agent_id: String(row["agent_id"]),
+      status: String(row["task_status"]),
+      raw_ids: [String(row["lock_id"]), String(row["task_id"])],
+      files: [String(row["file_path"])],
+      created_at: String(row["acquired_at"]),
+      expires_at: row["expires_at"] ?? null
+    }, limit);
+  }
+  for (const row of taskRows(db3, { ...params, state: ["SUCCESS", "FAILED"], limit: 200 })) {
+    pushLimited(columns, counts, "RecentDone", {
+      item_type: "task",
+      id: String(row["task_id"]),
+      title: `${row["status"]}: ${summarize(String(row["rationale"]), 100)}`,
+      detail: summarize(String(row["test_plan"]), 180),
+      agent_id: String(row["agent_id"]),
+      status: String(row["status"]),
+      raw_ids: [String(row["task_id"])],
+      files: rowFiles(row),
+      created_at: String(row["created_at"]),
+      updated_at: String(row["updated_at"])
+    }, limit);
+  }
+  for (const row of memoryRows(db3, { ...params, limit: 200 })) {
+    const failureSignature = String(row["failure_signature"] ?? "");
+    const refs = Array.isArray(row["references"]) ? row["references"] : [];
+    const tags = Array.isArray(row["tags"]) ? row["tags"] : [];
+    const reviewReasons = [
+      refs.length === 0 ? "missing_refs" : null,
+      failureSignature ? "failure_signature" : null,
+      tags.includes("anti-bloat") ? "policy_memory" : null
+    ].filter((reason) => Boolean(reason));
+    if (reviewReasons.length === 0) continue;
+    pushLimited(columns, counts, "MemoryReview", {
+      item_type: "memory",
+      id: String(row["memory_id"]),
+      title: `${row["label"]}:${row["importance"]} ${summarize(String(row["task_context"]), 100)}`,
+      detail: summarize(String(row["observation"]), 180),
+      agent_id: String(row["agent_id"]),
+      status: "review",
+      reasons: reviewReasons,
+      raw_ids: [String(row["memory_id"])],
+      files: refs.filter((ref) => ref.startsWith("file:")).map((ref) => ref.slice("file:".length)),
+      created_at: String(row["created_at"]),
+      updated_at: row["updated_at"] ?? null
+    }, limit);
+  }
+  const profile = Object.fromEntries(repoProfileRows(db3, params).map((row) => [String(row["metric"]), Number(row["count"] ?? 0)]));
+  const activeMemories = Number(profile["active_memories"] ?? 0);
+  const taskCount = Number(profile["tasks"] ?? 0);
+  const openRefinements = Number(profile["open_refinements"] ?? 0);
+  const openSignalCount = Number(profile["open_signals"] ?? 0);
+  const projectionWarnings2 = [
+    activeMemories > 200 ? "active_memories_over_200" : null,
+    taskCount > 500 ? "task_rows_over_500" : null,
+    openRefinements > 40 ? "open_refinements_over_40" : null
+  ].filter((warning) => Boolean(warning));
+  pushLimited(columns, counts, "ProjectionHealth", {
+    item_type: "projection",
+    id: "projection-health",
+    title: projectionWarnings2.length > 0 ? "Projection/bloat review suggested" : "Projection health nominal",
+    detail: projectionWarnings2.join(", ") || "No profile threshold warnings.",
+    status: projectionWarnings2.length > 0 ? "review" : "ok",
+    count: projectionWarnings2.length,
+    raw_ids: [],
+    files: [],
+    active_memories: activeMemories,
+    tasks: taskCount,
+    open_refinements: openRefinements,
+    open_signals: openSignalCount,
+    created_at: utcNow2()
+  }, limit);
+  return Object.entries(columns).flatMap(([column, rows]) => {
+    const total = counts[column] ?? rows.length;
+    return rows.map((row) => ({
+      ...row,
+      column_total: total,
+      omitted_count: Math.max(0, total - rows.length)
+    }));
+  });
+}
 function rowsForView(db3, view, params) {
   switch (view) {
     case "repo-profile":
@@ -4567,6 +4931,8 @@ function rowsForView(db3, view, params) {
       return fileRows(db3, params);
     case "activity":
       return activityRows(db3, params);
+    case "workboard":
+      return workboardRows(db3, params);
     case "all":
       return [];
   }
@@ -4684,19 +5050,22 @@ function injectRepoContext(db3, params = {}) {
   const queryParams = { ...params, workspacePath, limit: limitOf(params.limit, 50, 500) };
   const all = queryAwareness(db3, { ...queryParams, view: "all" });
   const filesWritten = [];
+  const writtenContent = {};
   const warnings = [];
   function write(relPath, content) {
     const full = join4(outDir, relPath);
     mkdirSync3(join4(full, ".."), { recursive: true });
     writeFileSync2(full, content, "utf8");
+    writtenContent[relPath] = content;
     filesWritten.push(full);
   }
   const sections = all.sections ?? {};
   const counts = Object.fromEntries(Object.entries(sections).map(([name, section]) => [name, section.count]));
   write("AGENTS.md", renderRepoAgentsMd(all));
-  write("MEMORY.md", renderRowsDoc("Memory", sections["memories"]?.rows ?? [], "Active awareness memories for this repo."));
-  write("GOTCHAS.md", renderRowsDoc("Gotchas", sections["gotchas"]?.rows ?? [], "Failures, traps, and sharp edges agents should check before editing."));
-  write("LEARN.md", renderRowsDoc("Learning And Opportunities", sections["lessons"]?.rows ?? [], "Decisions, architecture notes, workflows, and improvement ideas."));
+  write("MEMORY.md", renderRowsDoc("Memory", sections["memories"]?.rows ?? [], "Active awareness memories for this repo.", PROJECTION_MARKDOWN_BUDGETS["MEMORY.md"].max_lines));
+  write("GOTCHAS.md", renderRowsDoc("Gotchas", sections["gotchas"]?.rows ?? [], "Failures, traps, and sharp edges agents should check before editing.", PROJECTION_MARKDOWN_BUDGETS["GOTCHAS.md"].max_lines));
+  write("LEARN.md", renderRowsDoc("Learning And Opportunities", sections["lessons"]?.rows ?? [], "Decisions, architecture notes, workflows, and improvement ideas.", PROJECTION_MARKDOWN_BUDGETS["LEARN.md"].max_lines));
+  write("BOOKMARKS.md", renderBookmarksDoc(sections["memories"]?.rows ?? []));
   for (const view of CSV_VIEWS) {
     write(join4("awareness", "csv", `${view}.csv`), toCsv(sections[view]?.rows ?? []));
   }
@@ -4732,6 +5101,17 @@ function injectRepoContext(db3, params = {}) {
       warnings.push("mode=share requested, but git currently ignores the generated .octocode path");
     }
   }
+  const projectionBudgets = Object.fromEntries(Object.entries(PROJECTION_MARKDOWN_BUDGETS).map(([relPath, budget]) => {
+    const actualLines = lineCount(writtenContent[relPath] ?? "");
+    return [relPath, {
+      ...budget,
+      actual_lines: actualLines,
+      within_budget: actualLines <= budget.max_lines
+    }];
+  }));
+  for (const [relPath, budget] of Object.entries(projectionBudgets)) {
+    if (!budget.within_budget) warnings.push(`projection budget exceeded: ${relPath} has ${budget.actual_lines}/${budget.max_lines} lines`);
+  }
   const manifest = {
     schema_version: 1,
     generated_at: generatedAt,
@@ -4750,6 +5130,11 @@ function injectRepoContext(db3, params = {}) {
       share_decision: "user-owned"
     },
     counts,
+    budgets: {
+      markdown: projectionBudgets,
+      workboard: WORKBOARD_BUDGET,
+      attend_compact: ATTEND_COMPACT_BUDGET
+    },
     files: filesWritten.map((file) => relative2(workspacePath, file)),
     warnings
   };
@@ -4773,6 +5158,11 @@ function renderRepoAgentsMd(all) {
   const gotchas = (sections["gotchas"]?.rows ?? []).slice(0, 8);
   const lessons = (sections["lessons"]?.rows ?? []).slice(0, 8);
   const locks = (sections["locks"]?.rows ?? []).slice(0, 8);
+  const projectionWarnings2 = [
+    Number(counts["active_memories"] ?? 0) > 200 ? `Active memories are high (${counts["active_memories"]}); prefer targeted recall or CSV filtering over reading full Markdown.` : null,
+    Number(counts["tasks"] ?? 0) > 500 ? `Task history is high (${counts["tasks"]}); use \`query workboard\` for grouped verification debt.` : null,
+    Number(counts["open_refinements"] ?? 0) > 40 ? `Open refinements are high (${counts["open_refinements"]}); sort/filter the CSV before promoting more follow-up work.` : null
+  ].filter((item) => Boolean(item));
   const lines = [
     "# Octocode Repo Context",
     "",
@@ -4795,6 +5185,13 @@ function renderRepoAgentsMd(all) {
     "- Check `.octocode/LEARN.md` for decisions, workflows, and improvement ideas.",
     "- Check `.octocode/awareness/csv/files.csv` when choosing or filtering affected files.",
     "- Query live data with `octocode-awareness query <view> --workspace <repo>` when freshness matters.",
+    "",
+    "## Projection Health",
+    "",
+    "- SQLite is canonical; Markdown, CSV, and HTML are generated projections.",
+    "- Use `.octocode/awareness/manifest.json` for row counts, caps, generation time, and budget status.",
+    "- Use `octocode-awareness query workboard --workspace <repo>` for grouped active work.",
+    ...projectionWarnings2.map((warning) => `- ${warning}`),
     ""
   ];
   if (locks.length > 0) {
@@ -4816,12 +5213,18 @@ function renderRepoAgentsMd(all) {
   lines.push("- `.octocode/MEMORY.md` - active memory index");
   lines.push("- `.octocode/GOTCHAS.md` - gotchas and failure signatures");
   lines.push("- `.octocode/LEARN.md` - lessons and opportunities");
+  lines.push("- `.octocode/BOOKMARKS.md` - learnable resource links and URI leads");
   lines.push("- `.octocode/awareness/manifest.json` - generation metadata and policy warnings");
   lines.push("- `.octocode/references/` - compact generated context references");
   lines.push("");
   return lines.join("\n");
 }
-function renderRowsDoc(title, rows, description) {
+function renderRowsDoc(title, rows, description, maxLines) {
+  const ranked = [...rows].sort((a, b) => {
+    const imp = Number(b["importance"] ?? 0) - Number(a["importance"] ?? 0);
+    if (imp !== 0) return imp;
+    return String(a["memory_id"] ?? a["task_id"] ?? "").localeCompare(String(b["memory_id"] ?? b["task_id"] ?? ""));
+  });
   const lines = [
     `# ${title}`,
     "",
@@ -4832,17 +5235,83 @@ function renderRowsDoc(title, rows, description) {
     `Count: ${rows.length}`,
     ""
   ];
-  for (const row of rows) {
+  let omitted = 0;
+  for (const row of ranked) {
     const id = String(row["memory_id"] ?? row["refinement_id"] ?? row["task_id"] ?? row["signal_id"] ?? row["file_path"] ?? "item");
     const label = row["label"] ? `[${row["label"]}:${row["importance"] ?? ""}] ` : "";
     const titleText = row["task_context"] ?? row["subject"] ?? row["remember"] ?? row["rationale"] ?? row["file_path"] ?? id;
-    lines.push(`## ${label}${summarize(String(titleText), 100)}`);
-    if (row["observation"]) lines.push("", summarize(String(row["observation"]), 500));
-    if (row["failure_signature"]) lines.push("", `Failure signature: \`${row["failure_signature"]}\``);
+    const block = [`## ${label}${summarize(String(titleText), 100)}`];
+    if (row["observation"]) block.push("", summarize(String(row["observation"]), 500));
+    if (row["failure_signature"]) block.push("", `Failure signature: \`${row["failure_signature"]}\``);
     const refs = Array.isArray(row["references"]) ? row["references"] : [];
-    if (refs.length > 0) lines.push("", `Refs: ${refs.join(", ")}`);
-    lines.push("", `Source id: \`${id}\``, "");
+    if (refs.length > 0) block.push("", `Refs: ${refs.join(", ")}`);
+    block.push("", `Source id: \`${id}\``, "");
+    const needsOmittedLine = omitted === 0 && rows.length > 0;
+    const reserve = maxLines ? needsOmittedLine ? 3 : 1 : 0;
+    if (maxLines && lines.length + block.length + reserve > maxLines) {
+      omitted++;
+      continue;
+    }
+    lines.push(...block);
   }
+  if (omitted > 0) {
+    const note = `Omitted by projection cap: ${omitted}. Use CSV/HTML/query views for full rows.`;
+    if (!maxLines || lines.length + 2 <= maxLines) lines.push(note, "");
+  }
+  return lines.join("\n");
+}
+function bookmarkKind(reference) {
+  const lower = reference.toLowerCase();
+  if (/^(github|gh|repo):/.test(lower) || lower.includes("github.com/")) return "Repos";
+  if (/^https?:\/\//.test(lower)) return "URLs";
+  if (/^(file|path):/.test(lower) || lower.startsWith("/") || lower.startsWith("./")) return "Files";
+  if (/^(doc|docs|paper|book|resource|skill):/.test(lower)) return "Docs";
+  if (/^[a-z][a-z0-9+.-]*:/.test(lower)) return "URIs";
+  return "Other";
+}
+function renderBookmarksDoc(memoryRows2) {
+  const byRef = /* @__PURE__ */ new Map();
+  for (const row of memoryRows2) {
+    const refs = Array.isArray(row["references"]) ? row["references"] : [];
+    const sourceId = String(row["memory_id"] ?? "memory");
+    const label = `${row["label"] ?? "MEMORY"}:${row["importance"] ?? ""}`.replace(/:$/, "");
+    const title = summarize(String(row["task_context"] ?? row["observation"] ?? sourceId), 90);
+    for (const rawRef of refs) {
+      const ref = rawRef.trim();
+      if (!ref) continue;
+      const entry2 = byRef.get(ref) ?? { kind: bookmarkKind(ref), sourceIds: [], labels: [], titles: [] };
+      if (!entry2.sourceIds.includes(sourceId)) entry2.sourceIds.push(sourceId);
+      if (!entry2.labels.includes(label)) entry2.labels.push(label);
+      if (!entry2.titles.includes(title)) entry2.titles.push(title);
+      byRef.set(ref, entry2);
+    }
+  }
+  const entries = [...byRef.entries()].sort((a, b) => a[1].kind.localeCompare(b[1].kind) || b[1].sourceIds.length - a[1].sourceIds.length || a[0].localeCompare(b[0])).slice(0, 80);
+  const omitted = Math.max(0, byRef.size - entries.length);
+  const lines = [
+    "# Bookmarks",
+    "",
+    "<!-- Generated by `octocode-awareness repo inject`. Regenerate instead of hand-editing. -->",
+    "",
+    "Learnable resource leads from awareness memory references: URLs, repos, file paths, docs, papers, skills, and other URIs.",
+    "SQLite remains canonical; verify each bookmark against current source or primary material before relying on it.",
+    "",
+    `Count: ${byRef.size}`,
+    omitted > 0 ? `Omitted by cap: ${omitted}` : null,
+    ""
+  ].filter((line) => line !== null);
+  let currentKind = "";
+  for (const [ref, entry2] of entries) {
+    if (entry2.kind !== currentKind) {
+      currentKind = entry2.kind;
+      lines.push(`## ${currentKind}`, "");
+    }
+    const sourceText = entry2.sourceIds.slice(0, 3).join(", ");
+    const titleText = entry2.titles.slice(0, 2).join(" | ");
+    const labelText = entry2.labels.slice(0, 3).join(", ");
+    lines.push(`- \`${ref}\` - ${labelText}; source: ${sourceText}; ${titleText}`);
+  }
+  lines.push("");
   return lines.join("\n");
 }
 function renderReferenceDoc(title, bullets, rows = []) {
@@ -4953,25 +5422,421 @@ function summarize(value, max) {
   if (flat.length <= max) return flat;
   return flat.slice(0, Math.max(0, max - 3)).trimEnd() + "...";
 }
+function lineCount(value) {
+  if (!value) return 0;
+  return value.split(/\r\n|\r|\n/).length;
+}
 function escapeHtml(value) {
   return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
 function gitCheckIgnored(cwd, path2) {
   const candidate = isAbsolute4(path2) ? relative2(cwd, path2) : path2;
-  const result = spawnSync3("git", ["check-ignore", "-q", candidate], { cwd, encoding: "utf8" });
+  const result = spawnSync4("git", ["check-ignore", "-q", candidate], { cwd, encoding: "utf8" });
   return { ignored: result.status === 0 };
 }
 
+// src/attend.ts
+var TEAM_NORMS = [
+  "evidence-first",
+  "bounded",
+  "cooperative",
+  "non-destructive",
+  "verify-before-policy"
+];
+var ORGAN_REFERENCE = [
+  {
+    organ: "senses",
+    role: "read live state",
+    commands: ["workspace status", "query repo-profile"],
+    guardrail: "Live DB beats stale projections."
+  },
+  {
+    organ: "attention",
+    role: "select a small packet",
+    commands: ["attend", "query workboard", "memory recall"],
+    guardrail: "Show gaps, not dumps."
+  },
+  {
+    organ: "memory",
+    role: "durable lessons",
+    commands: ["memory record", "memory recall", "reflect record"],
+    guardrail: "Memories are leads until verified."
+  },
+  {
+    organ: "immune_pruning",
+    role: "tag weak/stale evidence",
+    commands: ["memory forget --dry-run", "maintenance digest --dry-run", "query workboard"],
+    guardrail: "Report before deleting."
+  },
+  {
+    organ: "corpus_bridge",
+    role: "coordinate agents",
+    commands: ["signal publish", "refinement set", "lock acquire", "verify audit"],
+    guardrail: "SQLite is canonical."
+  },
+  {
+    organ: "drive",
+    role: "goal/gaps/resources",
+    commands: ["attend --explain-organ", "query workboard"],
+    guardrail: "Collective state, not persona."
+  }
+];
+function limitOf2(value, fallback = 10, max = 50) {
+  if (value == null || !Number.isFinite(value)) return fallback;
+  return Math.min(max, Math.max(1, Math.floor(value)));
+}
+function stringList2(value) {
+  if (Array.isArray(value)) return value.map(String).filter(Boolean);
+  if (value == null || value === "") return [];
+  return [String(value)];
+}
+function summarize2(value, max) {
+  const flat = value.replace(/\s+/g, " ").trim();
+  if (flat.length <= max) return flat;
+  return flat.slice(0, Math.max(0, max - 3)).trimEnd() + "...";
+}
+function profileMap(rows) {
+  return Object.fromEntries(rows.map((row) => [String(row["metric"]), Number(row["count"] ?? 0)]));
+}
+function groupWorkboard(rows) {
+  const groups = {};
+  for (const row of rows) {
+    const column = String(row["column"] ?? "Other");
+    const list = groups[column] ?? [];
+    list.push(row);
+    groups[column] = list;
+  }
+  return groups;
+}
+function compactRow(row) {
+  const next = {};
+  for (const key of ["column", "item_type", "id", "status", "agent_id", "quality", "count", "column_total", "omitted_count", "active_memories", "tasks", "open_refinements", "open_signals"]) {
+    const value = row[key];
+    if (value != null) next[key] = value;
+  }
+  if (typeof row["title"] === "string") next["title"] = summarize2(row["title"], 90);
+  if (Array.isArray(row["reasons"])) next["reasons"] = row["reasons"].slice(0, 3);
+  if (Array.isArray(row["files"])) {
+    const files = row["files"];
+    next["file_count"] = files.length;
+    next["files"] = files.slice(0, 2);
+    next["omitted_file_count"] = Math.max(0, files.length - 2);
+  }
+  if (Array.isArray(row["raw_ids"])) {
+    const rawIds = row["raw_ids"];
+    next["raw_id_count"] = rawIds.length;
+    next["raw_ids"] = rawIds.slice(0, 5);
+    next["omitted_raw_id_count"] = Math.max(0, rawIds.length - 5);
+  }
+  return next;
+}
+function compactWorkboard(grouped, limit) {
+  return Object.fromEntries(Object.entries(grouped).map(([column, rows]) => [
+    column,
+    rows.slice(0, limit).map(compactRow)
+  ]));
+}
+function compactVerificationTarget(row) {
+  const compact2 = compactRow(row);
+  return {
+    id: compact2["id"] ?? null,
+    status: compact2["status"] ?? null,
+    title: compact2["title"] ?? null,
+    count: compact2["count"] ?? null,
+    raw_id_count: compact2["raw_id_count"] ?? null,
+    raw_ids: compact2["raw_ids"] ?? [],
+    column_total: compact2["column_total"] ?? null,
+    omitted_count: compact2["omitted_count"] ?? null
+  };
+}
+function uniqueStrings(values) {
+  return [...new Set(values.filter(Boolean))];
+}
+function lineCount2(path2) {
+  if (!existsSync2(path2)) return null;
+  try {
+    return readFileSync2(path2, "utf8").split(/\r?\n/).length;
+  } catch {
+    return null;
+  }
+}
+function projectionStats(workspacePath) {
+  return ["AGENTS.md", "MEMORY.md", "GOTCHAS.md", "LEARN.md", "BOOKMARKS.md", join5("awareness", "manifest.json")].map((file) => {
+    const path2 = join5(workspacePath, ".octocode", file);
+    let mtimeMs = null;
+    try {
+      mtimeMs = existsSync2(path2) ? statSync(path2).mtimeMs : null;
+    } catch {
+    }
+    return { file: `.octocode/${file.replace(/\\/g, "/")}`, lines: lineCount2(path2), mtime_ms: mtimeMs };
+  });
+}
+function manifestWarnings(workspacePath, stats) {
+  const manifestPath = join5(workspacePath, ".octocode", "awareness", "manifest.json");
+  if (!existsSync2(manifestPath)) return [".octocode/awareness/manifest.json missing; run repo inject when projection context is needed"];
+  try {
+    const manifest = JSON.parse(readFileSync2(manifestPath, "utf8"));
+    const warnings = [];
+    const files = manifest.files ?? [];
+    if (!files.some((file) => file.endsWith("/BOOKMARKS.md") || file.endsWith("\\BOOKMARKS.md") || file === "BOOKMARKS.md")) {
+      warnings.push("manifest missing BOOKMARKS.md; regenerate repo projection");
+    }
+    const markdownBudgets = manifest.budgets?.markdown ?? {};
+    for (const [file, budget] of Object.entries(markdownBudgets)) {
+      if (budget.within_budget === false) warnings.push(`manifest budget exceeded for ${file}`);
+    }
+    if (manifest.generated_at) {
+      const generatedMs = new Date(manifest.generated_at).getTime();
+      if (Number.isFinite(generatedMs) && stats.some((stat) => stat.file !== ".octocode/awareness/manifest.json" && stat.mtime_ms != null && stat.mtime_ms > generatedMs + 1e3)) {
+        warnings.push("manifest older than generated projection files; regenerate repo projection");
+      }
+    }
+    return warnings;
+  } catch {
+    return [".octocode/awareness/manifest.json unreadable; regenerate repo projection"];
+  }
+}
+function projectionWarnings(workspacePath, stats) {
+  const budgets = {
+    ".octocode/AGENTS.md": 80,
+    ".octocode/MEMORY.md": 200,
+    ".octocode/GOTCHAS.md": 200,
+    ".octocode/LEARN.md": 200,
+    ".octocode/BOOKMARKS.md": 200
+  };
+  const markdownWarnings = stats.flatMap((stat) => {
+    const budget = budgets[stat.file];
+    if (stat.lines == null) return [`${stat.file} missing; run repo inject when projection context is needed`];
+    if (budget != null && stat.lines > budget) return [`${stat.file} has ${stat.lines} lines over budget ${budget}`];
+    return [];
+  });
+  return [...markdownWarnings, ...manifestWarnings(workspacePath, stats)];
+}
+function evidenceTrust(references) {
+  if (references.length === 0) return "needs_refs";
+  if (references.some((ref) => ref.includes(".octocode/") || ref.startsWith("http"))) return "generated_or_external_lead";
+  return "verified_lead";
+}
+function resourceLeads(query, workspacePath) {
+  const haystack = query.toLowerCase();
+  const leads = [];
+  const add = (source, why, verification = "lead_to_verify") => {
+    leads.push({ source, why, verification });
+  };
+  if (/(awareness|homeostatic|attend|workboard|memory|wiki|task|reflection|drive|motivation|resource|creative|personality)/.test(haystack)) {
+    add(
+      join5(workspacePath, ".octocode", "rfc", "homeostatic-awareness-loop", "RFC.md"),
+      "RFC goals and decision for the awareness loop"
+    );
+    add(
+      join5(workspacePath, ".octocode", "rfc", "homeostatic-awareness-loop", "IMPLEMENTATION.md"),
+      "dependency-ordered build plan for workboard, attend, drive_state, and digest"
+    );
+    add(
+      join5(workspacePath, "packages", "octocode-awareness", "skills", "octocode-awareness", "references", "homeostatic-loop.md"),
+      "compact agent-facing organ and drive map"
+    );
+  }
+  if (/(role.?dialogue|self.?reflection|tutor|student|builder|tester|alter.?ego|debate|duo)/.test(haystack)) {
+    add(
+      join5(workspacePath, "packages", "octocode-awareness", "skills", "octocode-awareness", "references", "self-reflection-dialogue.md"),
+      "role-dialogue pattern for hard ideas without persona bloat"
+    );
+  }
+  if (leads.length === 0) {
+    add(join5(workspacePath, ".octocode", "AGENTS.md"), "generated repo context entrypoint, if present");
+    add(join5(workspacePath, "AGENTS.md"), "workspace-level agent instructions");
+  }
+  return leads.slice(0, 4);
+}
+function chooseMode(query, evidenceCount, verifyCount, gapCount) {
+  if (verifyCount > 0 && gapCount === 0) return "exploit";
+  if (evidenceCount === 0 || /(design|rfc|brainstorm|research|unknown|approach|why|how)/i.test(query)) return verifyCount > 0 ? "mixed" : "explore";
+  return gapCount > 0 ? "mixed" : "exploit";
+}
+function attendAwareness(db3, params = {}) {
+  const cwd = params.cwd ? resolve9(params.cwd) : process.cwd();
+  const workspacePath = resolve9(String(params.workspacePath ?? params.workspace_path ?? params.workspace ?? cwd));
+  const limit = limitOf2(params.limit);
+  const query = String(params.query ?? "").trim();
+  const files = stringList2(params.file);
+  const includeBodies = Boolean(params.includeBodies ?? params.include_bodies);
+  const explainOrgan = Boolean(params.explainOrgan ?? params.explain_organ);
+  const compact2 = Boolean(params.compact);
+  const packetLimit = compact2 ? 1 : limit;
+  const scope = {
+    workspacePath,
+    artifact: params.artifact ?? null,
+    repo: params.repo ?? null,
+    ref: params.ref ?? null,
+    query: query || null,
+    limit,
+    includeBodies,
+    cwd
+  };
+  const profileResult = queryAwareness(db3, { ...scope, view: "repo-profile" });
+  const profile = profileMap(profileResult.rows);
+  const workboardResult = queryAwareness(db3, { ...scope, view: "workboard", query: null });
+  const rawWorkboard = groupWorkboard(workboardResult.rows);
+  const handoffRows = (rawWorkboard["Inbox"] ?? []).filter((row) => row["item_type"] === "refinement" && row["quality"] === "handoff").slice(0, packetLimit).map((row) => compact2 ? compactRow(row) : row);
+  const workboard = compact2 ? compactWorkboard(rawWorkboard, packetLimit) : rawWorkboard;
+  const verificationTargets = (rawWorkboard["Verify"] ?? []).slice(0, packetLimit).map((row) => compact2 ? compactVerificationTarget(row) : row);
+  const projectionHealth = projectionStats(workspacePath);
+  const bloatWarnings = projectionWarnings(workspacePath, projectionHealth);
+  const outputBloatWarnings = compact2 ? bloatWarnings.map((warning) => warning.replace(/\.octocode\//g, "").replace(/ has /g, " ").replace(/ lines over budget /g, ">").replace(/ lines/g, "l")) : bloatWarnings;
+  const memoryQuery = query || files.join(" ");
+  const recall = memoryQuery ? getMemory(db3, {
+    query: memoryQuery,
+    limit: Math.min(5, limit),
+    minImportance: 1,
+    smart: true,
+    workspacePath,
+    artifact: params.artifact ?? null,
+    repo: params.repo ?? null,
+    ref: params.ref ?? null,
+    files,
+    explain: true,
+    cwd
+  }) : { count: 0, memories: [], mode: "lexical", sort: "smart", as_of: null, global_only: false, states: ["ACTIVE"] };
+  const evidence = recall.memories.slice(0, packetLimit).map((memory) => {
+    const allReferences = memory.references ?? [];
+    const references = compact2 ? allReferences.slice(0, 3) : allReferences;
+    const why = [
+      query ? `matched query "${summarize2(query, 80)}"` : null,
+      files.length > 0 ? `scoped to ${files.join(", ")}` : null,
+      `importance ${memory.importance}`,
+      memory.failure_signature ? "has failure signature" : null
+    ].filter((item) => Boolean(item));
+    return {
+      kind: "memory",
+      id: memory.memory_id,
+      label: memory.label,
+      importance: memory.importance,
+      title: summarize2(memory.task_context, compact2 ? 90 : 120),
+      summary: summarize2(memory.observation, compact2 ? 160 : 240),
+      references,
+      reference_count: allReferences.length,
+      omitted_reference_count: Math.max(0, allReferences.length - references.length),
+      why_selected: why,
+      trust: evidenceTrust(allReferences)
+    };
+  });
+  const trustWarnings = evidence.filter((item) => item.trust !== "verified_lead").map((item) => `${item.id}: ${item.trust}`);
+  const gaps = [
+    query ? null : "No query supplied; packet is a general workspace briefing.",
+    evidence.length === 0 && memoryQuery ? `No memory evidence selected for "${summarize2(memoryQuery, 80)}".` : null,
+    verificationTargets.length === 0 ? null : `${verificationTargets.length} verification target(s) need attention.`,
+    bloatWarnings.length === 0 ? null : `${bloatWarnings.length} projection/bloat warning(s) present.`
+  ].filter((gap) => Boolean(gap));
+  const mode = chooseMode(query, evidence.length, verificationTargets.length, gaps.length);
+  const resourceLeadRows = resourceLeads(query || memoryQuery, workspacePath).slice(0, compact2 ? 2 : limit).map((lead) => {
+    const source = lead.source ?? "";
+    return compact2 && source.startsWith(`${workspacePath}/`) ? { ...lead, source: source.slice(workspacePath.length + 1) } : lead;
+  });
+  const alternatives = mode === "explore" || mode === "mixed" ? [
+    { option: "derive_view_first", why: "Prefer read-only DB projections before new canonical storage." },
+    { option: "narrow_scope", why: "Use query/file filters if the packet is too broad." }
+  ] : [];
+  const compactProjectionHealth = compact2 ? projectionHealth.map((item) => ({ file: item.file, lines: item.lines })) : projectionHealth;
+  const organState = {
+    senses: {
+      ...compact2 ? {} : { profile },
+      projection_health: compactProjectionHealth
+    },
+    attention: {
+      selected_evidence: evidence.length,
+      workboard_items: workboardResult.count,
+      compact_budget: compact2 ? "<=8KB JSON" : "unbounded caller output"
+    },
+    memory: {
+      active_memories: profile["active_memories"] ?? 0,
+      gotchas: profile["gotchas"] ?? 0,
+      lessons: profile["lessons"] ?? 0,
+      recall_mode: recall.mode
+    },
+    error_signals: {
+      verification_targets: verificationTargets.length,
+      trust_warnings: trustWarnings.length
+    },
+    pruning_candidates: {
+      memory_review: workboard["MemoryReview"]?.length ?? 0,
+      projection_warnings: bloatWarnings.length
+    },
+    bridge: {
+      inbox: workboard["Inbox"]?.length ?? 0,
+      handoffs: handoffRows.length,
+      open_refinements: profile["open_refinements"] ?? 0,
+      open_signals: profile["open_signals"] ?? 0
+    },
+    projection: {
+      warnings: outputBloatWarnings
+    }
+  };
+  const signalIds = uniqueStrings((workboard["Inbox"] ?? []).filter((row) => row["item_type"] === "signal").map((row) => String(row["id"])));
+  const handoffIds = uniqueStrings(handoffRows.map((row) => String(row["id"])));
+  const refinementIds = uniqueStrings(Object.values(workboard).flat().filter((row) => row["item_type"] === "refinement").map((row) => String(row["id"])));
+  const agentIds = uniqueStrings(Object.values(workboard).flat().map((row) => String(row["agent_id"] ?? "")));
+  const sourceRefs = evidence.flatMap((item) => item.references);
+  const driveState = {
+    goal: query || "general workspace awareness",
+    mode,
+    learning_gaps: gaps,
+    resource_leads: resourceLeadRows,
+    alternatives,
+    team_norms: TEAM_NORMS,
+    transactive_map: {
+      memory_ids: evidence.map((item) => item.id),
+      signal_ids: signalIds.slice(0, compact2 ? 3 : 12),
+      signal_id_count: signalIds.length,
+      handoff_ids: handoffIds.slice(0, compact2 ? 3 : 12),
+      handoff_id_count: handoffIds.length,
+      refinement_ids: refinementIds.slice(0, compact2 ? 4 : 12),
+      refinement_id_count: refinementIds.length,
+      agent_ids: agentIds.slice(0, compact2 ? 6 : 24),
+      agent_id_count: agentIds.length,
+      source_refs: sourceRefs.slice(0, compact2 ? 5 : 12),
+      source_ref_count: sourceRefs.length
+    }
+  };
+  const result = {
+    ok: true,
+    schema_version: 1,
+    generated_at: profileResult.generated_at,
+    workspace_path: workspacePath,
+    artifact: params.artifact ?? null,
+    repo: params.repo ?? null,
+    ref: params.ref ?? null,
+    profile,
+    organ_state: organState,
+    drive_state: driveState,
+    workboard,
+    evidence,
+    gaps,
+    bloat_warnings: outputBloatWarnings,
+    verification_targets: verificationTargets,
+    trust_warnings: trustWarnings,
+    trace: [
+      { step: "repo-profile", count: profileResult.count },
+      { step: "workboard", count: workboardResult.count },
+      { step: "memory-recall", count: evidence.length, note: memoryQuery ? void 0 : "skipped-empty-query" },
+      { step: "projection-health", count: projectionHealth.length }
+    ],
+    next: verificationTargets.length > 0 ? 'octocode-awareness verify audit --agent-id "$OCTOCODE_AGENT_ID" --workspace "$PWD" --compact; then verify mark --all-pending after the declared test plan' : bloatWarnings.length > 0 ? 'octocode-awareness memory forget --workspace "$PWD" --dry-run --compact; then repo inject --workspace "$PWD" --compact to regenerate capped projections (digest does not shrink markdown)' : evidence.length > 0 ? "Treat evidence as leads; re-check cited files, then lock acquire before edits" : 'octocode-awareness attend --workspace "$PWD" --query "<narrower task>" --compact; or query workboard / workspace status'
+  };
+  if (explainOrgan) result.organ_reference = ORGAN_REFERENCE;
+  return result;
+}
+
 // bin/hook-runner.ts
-import { spawnSync as spawnSync5 } from "node:child_process";
+import { spawnSync as spawnSync6 } from "node:child_process";
 import { createHash as createHash2 } from "node:crypto";
-import { mkdirSync as mkdirSync4, readFileSync as readFileSync2, writeFileSync as writeFileSync3 } from "node:fs";
-import { basename as basename2, isAbsolute as isAbsolute5, join as join5, relative as relative3, resolve as resolve9 } from "node:path";
+import { mkdirSync as mkdirSync4, readFileSync as readFileSync3, writeFileSync as writeFileSync3 } from "node:fs";
+import { basename as basename2, dirname as dirname4, isAbsolute as isAbsolute5, join as join6, relative as relative3, resolve as resolve10 } from "node:path";
 import { fileURLToPath } from "node:url";
 
 // src/pi-hooks.ts
 import path from "node:path";
-import { spawnSync as spawnSync4 } from "node:child_process";
+import { spawnSync as spawnSync5 } from "node:child_process";
 import { randomUUID as randomUUID8 } from "node:crypto";
 import { realpathSync as realpathSync3 } from "node:fs";
 var _sessionStartupToken = randomUUID8().slice(0, 8);
@@ -5048,14 +5913,14 @@ function extractPiWriteTargetPaths(toolName, input = {}, options = {}) {
 
 // bin/hook-runner.ts
 function readStdin() {
-  return new Promise((resolve10) => {
+  return new Promise((resolve11) => {
     let raw = "";
     process.stdin.setEncoding("utf8");
     process.stdin.on("data", (chunk) => {
       raw += chunk;
     });
-    process.stdin.on("end", () => resolve10(raw));
-    process.stdin.on("error", () => resolve10(raw));
+    process.stdin.on("end", () => resolve11(raw));
+    process.stdin.on("error", () => resolve11(raw));
   });
 }
 function parsePayload(raw) {
@@ -5142,7 +6007,7 @@ function extractFiles(payload) {
   return extractPiWriteTargetPaths(toolName, input, { assumeWrite: true });
 }
 function resolveHookPath(file, cwd = process.cwd()) {
-  return resolve9(cwd, file);
+  return resolve10(cwd, file);
 }
 function isInsidePath(candidate, root) {
   const resolvedRoot = canonicalizePath(root);
@@ -5153,6 +6018,100 @@ function isInsidePath(candidate, root) {
 }
 function db() {
   return connectDb(resolveDbPath(null));
+}
+function hookTaskStateFile() {
+  const stateDir = join6(dirname4(resolveDbPath(null)), "hook-state");
+  mkdirSync4(stateDir, { recursive: true });
+  return join6(stateDir, "shell-hook-tasks.json");
+}
+function readHookTaskState() {
+  try {
+    return JSON.parse(readFileSync3(hookTaskStateFile(), "utf8"));
+  } catch {
+    return {};
+  }
+}
+function writeHookTaskState(state) {
+  writeFileSync3(hookTaskStateFile(), JSON.stringify(state, null, 2) + "\n", "utf8");
+}
+function hookEventId(payload) {
+  const input = objectOrEmpty2(payloadInput(payload));
+  return firstString2(
+    payload.tool_use_id,
+    payload.toolUseId,
+    payload.tool_call_id,
+    payload.toolCallId,
+    payload.event_id,
+    payload.eventId,
+    payload.id,
+    input.tool_use_id,
+    input.toolUseId,
+    input.tool_call_id,
+    input.toolCallId,
+    input.event_id,
+    input.eventId,
+    input.id
+  );
+}
+function hookTaskKey(payload, files, cwd) {
+  const explicitId = hookEventId(payload);
+  const identity = {
+    agent: agentId(payload),
+    workspace: normalizeWorkspacePath(cwd, cwd) ?? resolve10(cwd),
+    artifact: artifact(payload),
+    event: explicitId,
+    files: explicitId ? [] : files.map((file) => resolveHookPath(file, cwd)).sort()
+  };
+  return createHash2("sha1").update(JSON.stringify(identity)).digest("hex");
+}
+function recordHookTask(payload, files, cwd, taskId) {
+  const state = readHookTaskState();
+  const key = hookTaskKey(payload, files, cwd);
+  const entries = state[key] ?? [];
+  entries.push({
+    taskId,
+    files: files.map((file) => resolveHookPath(file, cwd)),
+    createdAt: (/* @__PURE__ */ new Date()).toISOString()
+  });
+  state[key] = entries.slice(-20);
+  writeHookTaskState(state);
+}
+function consumeHookTask(payload, files, cwd) {
+  const state = readHookTaskState();
+  const key = hookTaskKey(payload, files, cwd);
+  const entries = state[key] ?? [];
+  const entry2 = entries.shift();
+  if (entries.length > 0) state[key] = entries;
+  else delete state[key];
+  writeHookTaskState(state);
+  return entry2?.taskId ?? null;
+}
+function uniqueActiveHookTaskId(database, params) {
+  const absFiles = params.files.map((file) => resolveHookPath(file, params.workspacePath));
+  if (absFiles.length === 0) return null;
+  const where = [
+    "fl.agent_id = ?",
+    "ai.status = 'ACTIVE'",
+    `fl.file_path IN (${absFiles.map(() => "?").join(",")})`,
+    "ai.workspace_path = ?"
+  ];
+  const binds = [
+    params.agentId,
+    ...absFiles,
+    normalizeWorkspacePath(params.workspacePath, params.workspacePath) ?? resolve10(params.workspacePath)
+  ];
+  if (params.artifact) {
+    where.push("(ai.artifact = ? OR ai.artifact IS NULL)");
+    binds.push(params.artifact);
+  }
+  const rows = database.prepare(
+    `SELECT DISTINCT fl.task_id
+       FROM locks fl
+       JOIN tasks ai ON ai.task_id = fl.task_id
+      WHERE ${where.join(" AND ")}
+      ORDER BY fl.task_id ASC`
+  ).all(...binds);
+  return rows.length === 1 ? rows[0].task_id : null;
 }
 function hookAgentContext(payload, hookName) {
   const value = process.env.OCTOCODE_AGENT_CONTEXT ?? process.env.OCTOCODE_AGENT_HOST ?? payload.context ?? payload.host ?? payload.client ?? payload.source;
@@ -5198,6 +6157,7 @@ async function runPreEdit(payload) {
       console.error(JSON.stringify(result));
       return 2;
     }
+    recordHookTask(payload, files, workspace(payload) ?? process.cwd(), result.task.task_id);
     return 0;
   } catch (error) {
     console.error(`octocode-awareness pre-flight warning (continuing): ${error instanceof Error ? error.message : String(error)}`);
@@ -5213,14 +6173,24 @@ async function runPostEdit(payload) {
     const hookAgentId = agentId(payload);
     const hookWorkspace = workspace(payload) ?? process.cwd();
     const hookArtifact = artifact(payload);
+    const correlatedTaskId = consumeHookTask(payload, files, hookWorkspace) ?? uniqueActiveHookTaskId(database, {
+      agentId: hookAgentId,
+      workspacePath: hookWorkspace,
+      artifact: hookArtifact,
+      files
+    });
+    if (!correlatedTaskId) {
+      console.error("octocode-awareness post-edit warning (continuing): could not identify a unique hook task to release; leaving locks for verify/cleanup.");
+      return 0;
+    }
     const release = releaseFileLock(database, {
       agentId: hookAgentId,
       workspacePath: hookWorkspace,
       artifact: hookArtifact,
-      targetFiles: files,
+      taskId: correlatedTaskId,
       status: "PENDING"
     });
-    const taskId = release.task_ids.length === 1 ? release.task_ids[0] : null;
+    const taskId = release.task_ids.length === 1 ? release.task_ids[0] : correlatedTaskId;
     for (const file of files) {
       insertEditLog(database, {
         agentId: hookAgentId,
@@ -5262,7 +6232,7 @@ async function runHarnessGuard(payload) {
 }
 function gitBranchOf(dir) {
   try {
-    const r = spawnSync5("git", ["-C", dir, "rev-parse", "--abbrev-ref", "HEAD"], {
+    const r = spawnSync6("git", ["-C", dir, "rev-parse", "--abbrev-ref", "HEAD"], {
       encoding: "utf8",
       timeout: 5e3
     });
@@ -5299,12 +6269,12 @@ function maybeRunDigest(payload) {
   const intervalHours = Number(process.env.OCTOCODE_DIGEST_INTERVAL_HOURS ?? 4);
   const intervalMs = Number.isFinite(intervalHours) && intervalHours > 0 ? intervalHours * 36e5 : 4 * 36e5;
   const memoryHome2 = process.env.OCTOCODE_MEMORY_HOME || `${process.env.HOME ?? ""}/.octocode/memory`;
-  const markerPath = join5(memoryHome2, ".last-digest-epoch-ms");
+  const markerPath = join6(memoryHome2, ".last-digest-epoch-ms");
   try {
     const database = db();
     let last = 0;
     try {
-      last = Number(readFileSync2(markerPath, "utf8").trim() || 0);
+      last = Number(readFileSync3(markerPath, "utf8").trim() || 0);
     } catch {
       last = 0;
     }
@@ -5383,7 +6353,7 @@ async function runHookCommand(command2, rawPayload) {
 async function main() {
   return runHookCommand(process.argv[2] ?? "help");
 }
-var isMain = process.argv[1] ? fileURLToPath(import.meta.url) === resolve9(process.argv[1]) : false;
+var isMain = process.argv[1] ? fileURLToPath(import.meta.url) === resolve10(process.argv[1]) : false;
 var invokedAsHookRunner = process.argv[1] ? /^hook-runner\.(js|mjs|ts)$/.test(basename2(process.argv[1])) : false;
 if (isMain && invokedAsHookRunner) {
   process.exitCode = await main();
@@ -5469,6 +6439,7 @@ var KNOWN_FLAGS = {
   "doc-staleness": ["agent_id", "workspace", "artifact", "targets_json", "min_edits", "min_lines", "propose", "session_id"],
   "export-harness": ["limit", "min_importance", "workspace", "artifact"],
   "query": ["view", "query", "limit", "format", "out", "workspace", "artifact", "repo", "ref", "agent_id", "state", "label", "file", "since", "include_bodies"],
+  "attend": ["query", "limit", "workspace", "artifact", "repo", "ref", "file", "include_bodies", "explain_organ"],
   "repo-inject": ["query", "limit", "out", "out_dir", "workspace", "artifact", "repo", "ref", "mode", "check", "include_view", "include_bodies"],
   "agent-registry": ["action", "agent_id", "agent_name", "workspace", "artifact", "context", "limit"],
   "agent-signal": ["action", "agent_id", "workspace", "artifact", "repo", "ref", "kind", "subject", "body", "to_agent", "file", "ref_id", "importance", "in_reply_to", "thread_id", "signal_id", "all", "unread_only", "mark_read", "limit", "format"],
@@ -5533,7 +6504,7 @@ var COMMAND_ROUTES = {
   "maintenance self-test": { command: "self-test" },
   "repo inject": { command: "repo-inject" }
 };
-var SINGLE_COMMANDS = /* @__PURE__ */ new Set(["query", "schema"]);
+var SINGLE_COMMANDS = /* @__PURE__ */ new Set(["query", "attend", "schema"]);
 var UNKNOWN_COMMAND = "__unknown__";
 function normalizeToken(value) {
   return value?.replace(/_/g, "-");
@@ -5567,19 +6538,19 @@ function selectCommand(argv) {
   return { command: UNKNOWN_COMMAND, rest: argv };
 }
 function packageSkillScriptPath(...segments) {
-  const here = dirname4(fileURLToPath2(import.meta.url));
+  const here = dirname5(fileURLToPath2(import.meta.url));
   const candidates = [
-    join6(here, "..", "skills", "octocode-awareness", "scripts"),
+    join7(here, "..", "skills", "octocode-awareness", "scripts"),
     // dist/skills/ — bundled, preferred
-    join6(here, "..", "..", "skills", "octocode-awareness", "scripts"),
+    join7(here, "..", "..", "skills", "octocode-awareness", "scripts"),
     // <packageRoot>/skills/ — source fallback
     here
     // dist/bin/ — last resort
   ];
   const scriptsDir = candidates.find(
-    (candidate) => existsSync2(join6(candidate, "schema.mjs")) || existsSync2(join6(candidate, "hooks"))
+    (candidate) => existsSync3(join7(candidate, "schema.mjs")) || existsSync3(join7(candidate, "hooks"))
   ) ?? candidates[0];
-  return join6(scriptsDir, ...segments);
+  return join7(scriptsDir, ...segments);
 }
 function valuesFor(args2, key) {
   const value = args2[key];
@@ -5662,6 +6633,21 @@ function cmdTellMemory(db3, args2, dbPath2, opts2) {
       hint: "low novelty \u2014 review the similar memories; re-record with --supersedes <id> to replace one, or forget this one if redundant"
     };
   }
+  const embedCmd = resolveEmbedCommand();
+  if (embedCmd) {
+    try {
+      const text = `${taskContext}
+${observation}`.trim();
+      const { embedding, model } = runHostEmbedder(text, { command: embedCmd });
+      storeEmbedding(db3, memory.memory_id, embedding, model);
+      payload["embedding"] = { stored: true, model, dims: embedding.length };
+    } catch (err) {
+      payload["embedding"] = {
+        stored: false,
+        warning: err instanceof Error ? err.message : String(err)
+      };
+    }
+  }
   return emit(payload, 0, opts2);
 }
 function cmdGetMemory(db3, args2, dbPath2, opts2) {
@@ -5707,9 +6693,45 @@ function cmdGetMemory(db3, args2, dbPath2, opts2) {
   });
   const payload = { db_path: dbPath2, ...result };
   if (args2["semantic"]) {
-    payload["warnings"] = [
-      "semantic ranking is unavailable in the CLI (no embedding source); results use lexical FTS + decay. Use the library storeEmbedding()/searchByEmbedding() API for semantic recall."
-    ];
+    const embedCmd = resolveEmbedCommand();
+    const queryText = String(args2["query"] ?? "").trim();
+    if (!embedCmd) {
+      payload["warnings"] = [
+        "semantic ranking is unavailable in the CLI (set OCTOCODE_EMBED_CMD or use library storeEmbedding()/searchByEmbedding()); results use lexical FTS + decay."
+      ];
+    } else if (!queryText) {
+      payload["warnings"] = [
+        "semantic ranking skipped: --query is required when OCTOCODE_EMBED_CMD is set; results use lexical FTS + decay."
+      ];
+    } else {
+      try {
+        const { embedding, model } = runHostEmbedder(queryText, { command: embedCmd });
+        const limit = parseInt(String(args2["limit"] ?? "3"), 10);
+        const hits = searchByEmbedding(db3, embedding, Math.max(limit, 1), 0, model);
+        if (hits.length === 0) {
+          payload["warnings"] = [
+            `OCTOCODE_EMBED_CMD ran (model=${model}) but no stored embeddings matched; results use lexical FTS + decay. Record memories while OCTOCODE_EMBED_CMD is set to populate vectors.`
+          ];
+        } else {
+          const ranked = loadMemoriesByIds(db3, hits.map((hit) => hit.memory_id));
+          const simById = new Map(hits.map((hit) => [hit.memory_id, hit.similarity]));
+          for (const memory of ranked) {
+            const similarity = simById.get(memory.memory_id) ?? 0;
+            memory.score = similarity;
+            memory.lexical = similarity;
+          }
+          bumpAccess(db3, ranked.map((memory) => memory.memory_id));
+          payload["memories"] = ranked.slice(0, limit);
+          payload["count"] = Math.min(ranked.length, limit);
+          payload["mode"] = "semantic";
+          payload["embedding_model"] = model;
+        }
+      } catch (err) {
+        payload["warnings"] = [
+          `semantic ranking failed (${err instanceof Error ? err.message : String(err)}); results use lexical FTS + decay.`
+        ];
+      }
+    }
   }
   return emit(payload, 0, opts2);
 }
@@ -5982,7 +7004,7 @@ function cmdMemoryIndex(db3, args2, dbPath2, opts2) {
   const outPath = args2["out"] ? String(args2["out"]) : null;
   const targetPath = outPath ?? resolveDbPath(null).replace("awareness.sqlite3", "MEMORY.md");
   try {
-    mkdirSync5(dirname4(targetPath), { recursive: true });
+    mkdirSync5(dirname5(targetPath), { recursive: true });
     writeFileSync4(targetPath, content, "utf8");
   } catch (err) {
     return emit({ db_path: dbPath2, error: `Could not write MEMORY.md: ${err.message}` }, 1, opts2);
@@ -6048,13 +7070,30 @@ function cmdQuery(db3, args2, dbPath2, opts2) {
   });
   const outPath = args2["out"] ? String(args2["out"]) : null;
   if (outPath) {
-    mkdirSync5(dirname4(outPath), { recursive: true });
+    mkdirSync5(dirname5(outPath), { recursive: true });
     writeFileSync4(outPath, formatAwarenessQueryResult(result, format), "utf8");
     return emit({ db_path: dbPath2, path: outPath, view: result.view, count: result.count }, 0, opts2);
   }
   if (format === "json") return emit({ db_path: dbPath2, ...result }, 0, opts2);
   process.stdout.write(formatAwarenessQueryResult(result, format));
   return 0;
+}
+function cmdAttend(db3, args2, dbPath2, opts2) {
+  const rawFile = args2["file"];
+  const files = Array.isArray(rawFile) ? rawFile.map(String) : rawFile ? [String(rawFile)] : [];
+  const result = attendAwareness(db3, {
+    workspacePath: args2["workspace"] ? String(args2["workspace"]) : process.cwd(),
+    artifact: args2["artifact"] ? String(args2["artifact"]) : null,
+    repo: args2["repo"] ? String(args2["repo"]) : null,
+    ref: args2["ref"] ? String(args2["ref"]) : null,
+    query: args2["query"] ? String(args2["query"]) : null,
+    limit: args2["limit"] ? parseInt(String(args2["limit"]), 10) : void 0,
+    file: files,
+    includeBodies: flagBool(args2["include_bodies"]),
+    explainOrgan: flagBool(args2["explain_organ"]),
+    compact: opts2.compact
+  });
+  return emit({ db_path: dbPath2, ...result }, 0, opts2);
 }
 function cmdView(db3, args2, dbPath2, opts2) {
   const view = String(args2["view"] ?? args2._[0] ?? "all");
@@ -6180,6 +7219,7 @@ function cmdNotifyResolve(db3, args2, dbPath2, opts2) {
   const rawIds = args2["signal_id"];
   const notificationIds = Array.isArray(rawIds) ? rawIds : rawIds ? [String(rawIds)] : [];
   const result = resolveNotification(db3, {
+    agentId: args2["agent_id"] ? String(args2["agent_id"]) : null,
     notificationIds,
     threadId: args2["thread_id"] ? String(args2["thread_id"]) : null,
     workspacePath: args2["workspace"] ? String(args2["workspace"]) : null,
@@ -6405,7 +7445,7 @@ easy install:
 supported agents: Codex, Claude Code, Cursor, Pi, and custom library/CLI hosts
 surfaces: CLI = control plane; Agent Skill = operating loop; hooks/Pi bridge = lifecycle automation
 
-start: workspace status, memory recall, refinement get, signal list, query <view>
+start: attend, workspace status, memory recall, refinement get, signal list, query <view>
 edit: lock acquire, lock wait, lock release, lock prune, verify mark, verify audit
 messages: signal publish, signal list, signal reply, signal ack, signal resolve, signal prune, agent register, agent list
 learning: memory record, memory forget, refinement set, refinement get, refinement delete, reflect record, reflect mine-weakness, reflect export-harness, docs staleness
@@ -6415,6 +7455,7 @@ utility: session capture, maintenance init, maintenance self-test, maintenance d
 
 examples:
   octocode-awareness workspace status --workspace "$PWD" --compact
+  octocode-awareness attend --workspace "$PWD" --query "current task" --compact
   octocode-awareness memory recall --query "current task" --workspace "$PWD" --compact
   octocode-awareness lock acquire --agent-id agent --target-file src/file.ts --rationale "edit" --compact
   octocode-awareness signal list --agent-id agent --workspace "$PWD" --compact
@@ -6425,7 +7466,7 @@ examples:
 Run "octocode-awareness <command> --help" for command flags. Exit 2 = lock conflict or wait timeout.`;
 var HELP_COMPACT = `octocode-awareness: canonical noun/verb CLI. Use --compact for JSON.
 local-first: octocode-awareness <command>; fallback: npx @octocodeai/octocode-awareness <command>; skill: npx octocode skill --add --path {{path_to_skills_location}}/octocode-awareness --platform common; agents: Codex, Claude, Cursor, Pi
-start: workspace status; memory recall; refinement get; signal list
+start: attend; workspace status; memory recall; refinement get; signal list
 edit: lock acquire|wait|release|prune; verify audit|mark
 msg: signal publish|list|reply|ack|resolve|prune; agent register|list
 learn: memory record|forget; reflect record|mine-weakness|export-harness; maintenance digest
@@ -6448,6 +7489,7 @@ var COMMAND_TO_SCHEMA = {
   "agent-signal": "agent_signal",
   "notify-prune": "signal_prune",
   "status": "workspace_status",
+  "attend": "attend",
   "export-harness": "export_harness",
   "query": "query",
   "repo-inject": "repo_inject",
@@ -6474,6 +7516,7 @@ var COMMAND_DISPLAY = {
   "agent-signal": "signal publish|list|reply|ack|resolve",
   "notify-prune": "signal prune",
   "status": "workspace status",
+  "attend": "attend",
   "export-harness": "reflect export-harness",
   "query": "query",
   "repo-inject": "repo inject",
@@ -6505,8 +7548,9 @@ var COMMAND_EXAMPLE = {
   "agent-signal": 'octocode-awareness signal list --agent-id agent --workspace "$PWD" --compact',
   "notify-prune": 'octocode-awareness signal prune --workspace "$PWD" --resolved --dry-run --compact',
   "status": 'octocode-awareness workspace status --workspace "$PWD" --compact',
+  "attend": 'octocode-awareness attend --query "current task" --workspace "$PWD" --compact',
   "export-harness": 'octocode-awareness reflect export-harness --workspace "$PWD" --compact',
-  "query": 'octocode-awareness query gotchas --workspace "$PWD" --format json --limit 20 --compact',
+  "query": 'octocode-awareness query workboard --workspace "$PWD" --format json --limit 10 --compact',
   "repo-inject": 'octocode-awareness repo inject --workspace "$PWD" --out .octocode --mode local --compact',
   "session-capture": 'octocode-awareness session capture --agent-id agent --workspace "$PWD" --reason handoff --compact',
   "mine-weakness": 'octocode-awareness reflect mine-weakness --workspace "$PWD" --compact',
@@ -6594,11 +7638,14 @@ schema: octocode-awareness schema json-schema verify --compact`,
   "reflect": `usage: octocode-awareness reflect record --agent-id <id> --task <text> --outcome worked|partial|failed [--lesson <t>] [--fix-repo <t>] [--fix-file <p>]... [--failure-signature <s>]
 example: octocode-awareness reflect record --agent-id agent --task "fix CLI" --outcome worked --lesson "Keep CLI nouns canonical" --compact
 schema: octocode-awareness schema json-schema reflect --compact`,
-  "query": `usage: octocode-awareness query <all|repo-profile|memories|gotchas|lessons|tasks|locks|agents|signals|refinements|files|activity> [--workspace <repo>] [--format json|table|csv|markdown|html] [--out <path>]
+  "query": `usage: octocode-awareness query <all|repo-profile|memories|gotchas|lessons|tasks|locks|agents|signals|refinements|files|activity|workboard> [--workspace <repo>] [--format json|table|csv|markdown|html] [--out <path>]
 examples:
-  octocode-awareness query gotchas --workspace "$PWD" --format json --limit 20 --compact
+  octocode-awareness query workboard --workspace "$PWD" --format json --limit 10 --compact
   octocode-awareness query all --workspace "$PWD" --format html --out .octocode/awareness/index.html
 schema: octocode-awareness schema json-schema query --compact`,
+  "attend": `usage: octocode-awareness attend [--workspace <repo>] [--query <text>] [--file <p>]... [--limit <n>] [--include-bodies] [--explain-organ]
+example: octocode-awareness attend --query "current task" --workspace "$PWD" --compact
+schema: octocode-awareness schema json-schema attend --compact`,
   "repo-inject": `usage: octocode-awareness repo inject [--workspace <repo>] [--out .octocode] [--mode local|share] [--no-check] [--no-include-view]
 example: octocode-awareness repo inject --workspace "$PWD" --out .octocode --mode local --compact
 schema: octocode-awareness schema json-schema repo_inject --compact`,
@@ -6712,7 +7759,7 @@ if (command === "self-test") {
 }
 if (command === "schema") {
   const script = packageSkillScriptPath("schema.mjs");
-  const result = spawnSync6(process.execPath, [script, ...rest], { stdio: "inherit" });
+  const result = spawnSync7(process.execPath, [script, ...rest], { stdio: "inherit" });
   process.exit(result.status ?? 1);
 }
 if (command === "hook-run") {
@@ -6838,6 +7885,8 @@ try {
         ...retDays !== void 0 ? { retention_days: retDays } : {},
         ...handoffDays !== void 0 ? { refinement_handoff_retention_days: handoffDays } : {},
         ...doneDays !== void 0 ? { refinement_done_retention_days: doneDays } : {},
+        ...args["workspace"] ? { workspace: String(args["workspace"]) } : {},
+        ...args["artifact"] ? { artifact: String(args["artifact"]) } : {},
         ...isDryRun ? { dry_run: true } : {}
       });
       const payload = { db_path: dbPath, ...digestResult };
@@ -6846,11 +7895,11 @@ try {
           const wsPath = args["workspace"] ?? process.cwd();
           const artifact2 = args["artifact"];
           const { mkdirSync: mkdirSync6, writeFileSync: writeFileSync5 } = await import("node:fs");
-          const { join: join7 } = await import("node:path");
-          const docDir = join7(wsPath, ".octocode", "memory-reports");
+          const { join: join8 } = await import("node:path");
+          const docDir = join8(wsPath, ".octocode", "memory-reports");
           mkdirSync6(docDir, { recursive: true });
           const dateStr = (/* @__PURE__ */ new Date()).toISOString().slice(0, 16).replace("T", "-").replace(":", "");
-          const docPath = typeof (args["export_doc"] ?? args["export-doc"]) === "string" ? args["export_doc"] ?? args["export-doc"] : join7(docDir, `memory-report-${dateStr}.md`);
+          const docPath = typeof (args["export_doc"] ?? args["export-doc"]) === "string" ? args["export_doc"] ?? args["export-doc"] : join8(docDir, `memory-report-${dateStr}.md`);
           writeFileSync5(docPath, exportMemoryDoc(db2, { workspace_path: wsPath, artifact: artifact2 }), "utf8");
           payload["doc_path"] = docPath;
         } catch (err) {
@@ -6891,6 +7940,9 @@ try {
       break;
     case "query":
       exitCode = cmdQuery(db2, args, dbPath, opts);
+      break;
+    case "attend":
+      exitCode = cmdAttend(db2, args, dbPath, opts);
       break;
     case "view":
       exitCode = cmdView(db2, args, dbPath, opts);

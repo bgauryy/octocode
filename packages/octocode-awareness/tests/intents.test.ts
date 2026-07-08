@@ -240,6 +240,23 @@ describe('releaseFileLock', () => {
     } finally { cleanup(); }
   });
 
+  it('rejects invalid release statuses before mutating tasks', () => {
+    const db = freshDb();
+    const { path, cleanup } = tempFile();
+    try {
+      const claim = preFlightIntent(db, { agentId: 'agent-a', targetFiles: [path] });
+      if (!claim.ok) throw new Error('claim failed');
+      expect(() => releaseFileLock(db, {
+        agentId: 'agent-a',
+        taskId: claim.task.task_id,
+        status: 'ACTIVE' as 'SUCCESS',
+      })).toThrow(/status must be PENDING, SUCCESS, or FAILED/);
+      const task = db.prepare('SELECT status FROM tasks WHERE task_id = ?')
+        .get(claim.task.task_id) as { status: string };
+      expect(task.status).toBe('ACTIVE');
+    } finally { cleanup(); }
+  });
+
   it('keeps unverified SUCCESS releases pending', () => {
     const db = freshDb();
     const { path, cleanup } = tempFile();

@@ -10,7 +10,7 @@ The harness is the operating system around `@octocodeai/octocode-awareness`: a s
 |---|---|
 | Feature-by-feature documentation coverage | [README.md](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-awareness/docs/README.md) |
 | Stored entities, SQLite schema, relationships, indexes | [DB.md](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-awareness/docs/DB.md) |
-| Active memory navigation prototype decision | [MEMORY_NAVIGATION.md](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-awareness/docs/MEMORY_NAVIGATION.md) |
+| Attend packet, workboard, and active memory navigation | [MEMORY_NAVIGATION.md](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-awareness/docs/MEMORY_NAVIGATION.md) |
 | File locks, tasks, verification, stale lock cleanup | [LOCKS.md](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-awareness/docs/LOCKS.md) |
 | Reflection, self-improvement, weakness mining, harness proposals | [REFLECTION.md](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-awareness/docs/REFLECTION.md) |
 | Workspace `.octocode/` LLM Wiki, query views, generated files, share policy | [WIKI.md](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-awareness/docs/WIKI.md) |
@@ -27,6 +27,8 @@ The harness is the operating system around `@octocodeai/octocode-awareness`: a s
 | SQLite store | Canonical source under the global Octocode home for memories, tasks, locks, verification, signals, refinements, edit audit, and harness events. |
 | Workspace `.octocode/` projections | Optional generated repo context: Markdown, CSV, HTML, manifest, and compact references. |
 
+Context and tokens are the circulation layer of the harness: `attend --compact` carries enough fresh state into the run, while `query workboard`, CSV, HTML, and manifest budgets keep row-heavy context from turning into overweight docs.
+
 ## Full Flow
 
 ```text
@@ -35,7 +37,7 @@ ATTEND -> CLAIM -> WORK -> VERIFY -> REFLECT -> PROJECT -> HAND OFF
 
 | Step | Main command group | What is stored |
 |---|---|---|
-| Attend | `workspace status`, `memory recall`, `refinement get`, `signal list` | Reads `agents`, `memories`, `tasks`, `locks`, `signals`, `refinements`. |
+| Attend | `attend`, `query workboard`, `workspace status`, `memory recall`, `refinement get`, `signal list` | Reads `agents`, `memories`, `tasks`, `locks`, `signals`, `refinements`, and projection health. |
 | Claim | `lock acquire`, `lock wait` | Creates `tasks` and `locks`. |
 | Work | host editor / agent tool | Optional `edit_log` entries if the host records edit audit data. |
 | Verify | `verify mark`, `verify audit` | Updates `tasks`; writes `task_log` events. |
@@ -47,7 +49,7 @@ ATTEND -> CLAIM -> WORK -> VERIFY -> REFLECT -> PROJECT -> HAND OFF
 
 ```mermaid
 flowchart TD
-  Prompt["Agent starts or receives prompt"] --> Attend["Attend\nstatus + recall + signals"]
+  Prompt["Agent starts or receives prompt"] --> Attend["Attend\npacket + workboard + recall"]
   Attend --> Claim["Claim files\nlock acquire"]
   Claim --> Work["Edit files"]
   Work --> Pending["Release as PENDING\npost-edit or lock release"]
@@ -77,16 +79,16 @@ No command automatically patches `AGENTS.md`, `SKILL.md`, or package docs. `expo
 
 ## Current Improvement Direction
 
-The recommended next product slice is **active memory navigation**: a read-only `memory navigate` prototype that chooses among the existing planning surfaces and returns a `navigation_trace`.
+The current product slice is **attend + workboard**: a read-only start packet and row/column view that choose among the existing planning surfaces and return traceable evidence, gaps, verification targets, and bloat warnings.
 
 This is deliberately smaller than a new memory architecture. It builds on the current flow:
 
 ```text
-workspace status + query views + memory recall + mine-weakness + refinements/signals
-  -> navigation_trace + evidence + gaps + next verification targets
+attend + query workboard + memory recall + query views + refinements/signals
+  -> trace + evidence + gaps + verification targets + projection health
 ```
 
-The prototype should stay deterministic until trace fixtures prove a harder policy is needed. See [MEMORY_NAVIGATION.md](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-awareness/docs/MEMORY_NAVIGATION.md) for the tradeoff matrix and MVP boundary.
+Future navigation can deepen the trace, but it should stay deterministic until fixtures prove a harder policy is needed. See [MEMORY_NAVIGATION.md](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-awareness/docs/MEMORY_NAVIGATION.md) for the tradeoff matrix and MVP boundary.
 
 ## Canonical Invariants
 
@@ -102,7 +104,9 @@ The prototype should stay deterministic until trace fixtures prove a harder poli
 
 | Need | Command |
 |---|---|
+| Compact start packet | `octocode-awareness attend --workspace "$PWD" --query "current task" --compact` |
 | DB health and active state | `octocode-awareness workspace status --workspace "$PWD" --compact` |
+| Active work and projection health | `octocode-awareness query workboard --workspace "$PWD" --format table --limit 20` |
 | Exact command contracts | `octocode-awareness schema commands --compact` |
 | Claim files | `octocode-awareness lock acquire --agent-id "$OCTOCODE_AGENT_ID" --target-file <path> ...` |
 | Verify pending work | `octocode-awareness verify mark --agent-id "$OCTOCODE_AGENT_ID" --all-pending --message <result>` |

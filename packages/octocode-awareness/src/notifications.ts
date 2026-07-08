@@ -241,11 +241,14 @@ export function resolveNotification(
   db: DatabaseSync,
   params: ResolveNotificationParams,
 ): ResolveNotificationResult {
-  const { notificationIds = [], threadId = null, cwd } = params;
-  const scope = fillScope(
-    { workspace_path: params.workspacePath ?? null, artifact: normalizeArtifact(params.artifact), repo: null, ref: null },
-    cwd ?? process.cwd(),
-  );
+  const { notificationIds = [], threadId = null, cwd, agentId = null } = params;
+  const hasExplicitScope = params.workspacePath != null || params.artifact != null;
+  const scope = hasExplicitScope
+    ? fillScope(
+      { workspace_path: params.workspacePath ?? null, artifact: normalizeArtifact(params.artifact), repo: null, ref: null },
+      cwd ?? process.cwd(),
+    )
+    : { workspace_path: null, artifact: null, repo: null, ref: null };
   const resolved: string[] = [];
   const now = utcNow();
 
@@ -253,6 +256,11 @@ export function resolveNotification(
     const ph = notificationIds.map(() => '?').join(',');
     const where = [`signal_id IN (${ph})`, "status = 'open'"];
     const binds: (string | number)[] = [...notificationIds];
+    appendSignalScope(where, binds, scope, '');
+    if (agentId) {
+      where.push('(from_agent = ? OR to_agent = ? OR to_agent IS NULL)');
+      binds.push(agentId, agentId);
+    }
     const rows = db.prepare(
       `UPDATE signals SET status = 'resolved', resolved_at = ? WHERE ${where.join(' AND ')} RETURNING signal_id`
     ).all(now, ...binds) as unknown as Array<{ signal_id: string }>;
@@ -263,6 +271,10 @@ export function resolveNotification(
     const where = ['thread_id = ?', "status = 'open'"];
     const binds: (string | number)[] = [threadId];
     appendSignalScope(where, binds, scope, '');
+    if (agentId) {
+      where.push('(from_agent = ? OR to_agent = ? OR to_agent IS NULL)');
+      binds.push(agentId, agentId);
+    }
     const rows = db.prepare(
       `UPDATE signals SET status = 'resolved', resolved_at = ? WHERE ${where.join(' AND ')} RETURNING signal_id`
     ).all(now, ...binds) as unknown as Array<{ signal_id: string }>;
@@ -378,6 +390,7 @@ export function agentSignal(db: DatabaseSync, params: AgentSignalParams): AgentS
     }
     case 'resolve': {
       const result = resolveNotification(db, {
+        agentId: params.agentId,
         notificationIds: params.signalIds ?? [],
         threadId: params.threadId ?? null,
         workspacePath: params.workspacePath,

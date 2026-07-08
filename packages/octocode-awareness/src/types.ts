@@ -240,7 +240,7 @@ export interface GetMemoryParams {
 export interface GetMemoryResult {
   count: number;
   memories: MemoryRecord[];
-  mode: 'lexical' | 'fallback';
+  mode: 'lexical' | 'fallback' | 'semantic';
   sort: string;
   as_of: string | null;
   global_only: boolean;
@@ -766,6 +766,7 @@ export interface GetNotificationsResult {
 }
 
 export interface ResolveNotificationParams {
+  agentId?: string | null;
   notificationIds?: string[];
   threadId?: string | null;
   workspacePath?: string | null;

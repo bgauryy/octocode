@@ -265,6 +265,14 @@ export function markVerified(
   const taskId = params.taskId ?? '';
   const status = params.status ?? 'SUCCESS';
 
+  if (!VALID_VERIFY_STATUSES.has(status)) {
+    return {
+      ok: false,
+      error: `invalid status "${status}" — must be SUCCESS or FAILED`,
+      task_id: taskId || null,
+    };
+  }
+
   // --all-pending: verify every PENDING task for this agent/workspace at once
   if (allPending) {
     const dynWhere = [
@@ -296,14 +304,6 @@ export function markVerified(
 
   if (!taskId) {
     return { ok: false, error: '--task-id is required (or use --all-pending)', task_id: null };
-  }
-
-  if (!VALID_VERIFY_STATUSES.has(status)) {
-    return {
-      ok: false,
-      error: `invalid status "${status}" — must be SUCCESS or FAILED`,
-      task_id: taskId,
-    };
   }
 
   const now = utcNow();

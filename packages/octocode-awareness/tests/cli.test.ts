@@ -304,6 +304,54 @@ describe('memory recall', () => {
     ]));
   });
 
+  it('semantic flag ranks when OCTOCODE_EMBED_CMD returns embeddings', () => {
+    const dir = mktemp();
+    const embedScript = join(dir, 'embed.mjs');
+    writeFileSync(embedScript, `#!/usr/bin/env node
+import { readFileSync } from 'node:fs';
+const text = readFileSync(0, 'utf8');
+const embedding = text.includes('alpha') ? [1, 0, 0] : text.includes('beta') ? [0, 1, 0] : [0.2, 0.8, 0];
+process.stdout.write(JSON.stringify({ embedding, model: 'test-embed' }));
+`, 'utf8');
+    const prev = process.env['OCTOCODE_EMBED_CMD'];
+    process.env['OCTOCODE_EMBED_CMD'] = `node ${embedScript}`;
+    try {
+      ok(db, [
+        'memory', 'record',
+        '--agent-id', 'embed-a',
+        '--task-context', 'alpha vector memory',
+        '--observation', 'alpha content for semantic ranking',
+        '--importance', '8',
+        '--label', 'DECISION',
+        '--workspace', dir,
+      ]);
+      ok(db, [
+        'memory', 'record',
+        '--agent-id', 'embed-b',
+        '--task-context', 'beta vector memory',
+        '--observation', 'beta content for semantic ranking',
+        '--importance', '8',
+        '--label', 'DECISION',
+        '--workspace', dir,
+      ]);
+      const result = ok(db, [
+        'memory', 'recall',
+        '--query', 'alpha',
+        '--semantic',
+        '--workspace', dir,
+        '--limit', '2',
+      ]);
+      expect(result['mode']).toBe('semantic');
+      expect(result['embedding_model']).toBe('test-embed');
+      const memories = result['memories'] as Array<Record<string, unknown>>;
+      expect(memories[0]?.['task_context']).toContain('alpha');
+    } finally {
+      if (prev === undefined) delete process.env['OCTOCODE_EMBED_CMD'];
+      else process.env['OCTOCODE_EMBED_CMD'] = prev;
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it('all memories have a numeric score', () => {
     const result = ok(db, ['memory', 'recall', '--query', 'sqlite', '--min-importance', '1', '--limit', '5']);
     const mems = result['memories'] as Record<string, unknown>[];
@@ -1003,6 +1051,7 @@ describe('CLI', () => {
       doc_staleness: 'docs staleness',
       digest: 'maintenance digest',
       reflect: 'reflect record',
+      attend: 'attend',
       query: 'query',
       repo_inject: 'repo inject',
     };
@@ -1242,6 +1291,80 @@ describe('repo context projections', () => {
       expect(csv.status).toBe(0);
       expect(csv.stdout).toContain('memory_id,label,importance');
       expect(csv.stdout).toContain('repo context should preserve gotchas');
+
+      ok(db, [
+        'lock', 'acquire',
+        '--agent-id', 'agent-a',
+        '--workspace', dir,
+        '--target-file', join(dir, 'src/context.ts'),
+        '--rationale', 'verify context file',
+        '--test-plan', 'vitest context',
+      ]);
+      const release = run(db, [
+        'lock', 'release',
+        '--agent-id', 'agent-a',
+        '--workspace', dir,
+        '--target-file', join(dir, 'src/context.ts'),
+        '--status', 'SUCCESS',
+      ]);
+      expect(release.status).toBe(2);
+
+      const workboard = ok(db, ['query', 'workboard', '--workspace', dir, '--limit', '10']);
+      expect(workboard['view']).toBe('workboard');
+      expect(workboard['rows']).toEqual(expect.arrayContaining([
+        expect.objectContaining({ column: 'Verify', item_type: 'task' }),
+      ]));
+    } finally { rmSync(dir, { recursive: true }); }
+  });
+
+  it('returns a compact attend packet with drive state', () => {
+    const dir = mktemp();
+    const db = join(dir, 'test.sqlite3');
+    try {
+      ok(db, [
+        'memory', 'record',
+        '--agent-id', 'agent-a',
+        '--workspace', dir,
+        '--task-context', 'attend auth design',
+        '--observation', 'attend should select evidence and keep drive state derived',
+        '--importance', '8',
+        '--label', 'DECISION',
+        '--reference', `file:${join(dir, 'src/auth.ts')}`,
+      ]);
+      ok(db, [
+        'signal', 'publish',
+        '--agent-id', 'agent-a',
+        '--workspace', dir,
+        '--kind', 'decision',
+        '--subject', 'attend signal',
+        '--body', 'route through workboard',
+      ]);
+
+      const result = ok(db, [
+        'attend',
+        '--workspace', dir,
+        '--query', 'attend auth design',
+        '--file', join(dir, 'src/auth.ts'),
+        '--limit', '10',
+        '--explain-organ',
+        '--compact',
+      ]);
+      expect(result['schema_version']).toBe(1);
+      expect(result['profile']).toMatchObject({ active_memories: 1 });
+      expect(result['workboard']).toMatchObject({ Inbox: expect.any(Array) });
+      expect(result['evidence']).toEqual(expect.arrayContaining([
+        expect.objectContaining({ kind: 'memory', trust: 'verified_lead' }),
+      ]));
+      expect(result['drive_state']).toMatchObject({
+        goal: 'attend auth design',
+        team_norms: expect.arrayContaining(['evidence-first']),
+      });
+      expect(result['organ_reference']).toEqual(expect.arrayContaining([
+        expect.objectContaining({ organ: 'attention' }),
+      ]));
+      expect(String(result['next'])).toMatch(/lock acquire|verify audit|memory forget|attend --workspace/);
+      expect(Buffer.byteLength(JSON.stringify(result))).toBeLessThanOrEqual(8 * 1024);
+      expect(JSON.stringify(result)).not.toMatch(/fictional persistent personality/i);
     } finally { rmSync(dir, { recursive: true }); }
   });
 
@@ -1279,21 +1402,31 @@ describe('repo context projections', () => {
         '--observation', 'inject writes markdown csv html and manifest',
         '--importance', '7',
         '--label', 'DECISION',
+        '--reference', 'https://example.com/inject-guide',
+        '--reference', 'repo:bgauryy/octocode-mcp',
       ]);
 
       const result = ok(db, ['repo', 'inject', '--workspace', dir, '--mode', 'share']);
       expect(result['out_dir']).toBe(join(dir, '.octocode'));
       expect(result['files']).toEqual(expect.arrayContaining([
         join(dir, '.octocode', 'AGENTS.md'),
+        join(dir, '.octocode', 'BOOKMARKS.md'),
         join(dir, '.octocode', 'awareness', 'manifest.json'),
       ]));
       const manifest = JSON.parse(readFileSync(join(dir, '.octocode', 'awareness', 'manifest.json'), 'utf8')) as Record<string, unknown>;
       expect(manifest['policy']).toMatchObject({ gitignore_modified: false, share_decision: 'user-owned' });
+      expect(manifest['budgets']).toMatchObject({
+        markdown: {
+          'AGENTS.md': { max_lines: 80, within_budget: true },
+        },
+      });
       expect(manifest['warnings']).toEqual(expect.arrayContaining([
         expect.stringContaining('gitignored'),
       ]));
       expect(readFileSync(join(dir, '.gitignore'), 'utf8')).toBe('.octocode\n');
       expect(readFileSync(join(dir, '.octocode', 'AGENTS.md'), 'utf8')).toContain('Octocode Repo Context');
+      expect(readFileSync(join(dir, '.octocode', 'AGENTS.md'), 'utf8')).toContain('Projection Health');
+      expect(readFileSync(join(dir, '.octocode', 'BOOKMARKS.md'), 'utf8')).toContain('https://example.com/inject-guide');
       expect(readFileSync(join(dir, '.octocode', 'awareness', 'csv', 'lessons.csv'), 'utf8')).toContain('DECISION');
     } finally { rmSync(dir, { recursive: true }); }
   });

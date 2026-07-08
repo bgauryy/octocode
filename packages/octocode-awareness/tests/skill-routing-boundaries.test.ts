@@ -34,6 +34,8 @@ describe('skill routing boundaries', () => {
     expect(text).toContain('maintenance init --compact');
     expect(text).toContain('hooks install --host codex');
     expect(text).toContain('Codex/Cursor/Pi need host wiring');
+    expect(text).toContain('agent-cheatsheet.md');
+    expect(text).toContain('Agent smoke');
   });
 
   it('does not ship retired routing stub directories', () => {

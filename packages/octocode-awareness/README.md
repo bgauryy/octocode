@@ -24,7 +24,7 @@ Awareness uses two different `.octocode` locations. They have different jobs:
 | Location | Scope | What lives there |
 |---|---|---|
 | Global Octocode home: `~/.octocode/` on macOS | Machine/user-wide | Config and durable data shared across workspaces. Awareness stores its canonical DB at `~/.octocode/memory/awareness.sqlite3` on macOS by default. Override the DB directory with `OCTOCODE_MEMORY_HOME`; other Octocode packages use `OCTOCODE_HOME` for broader config/env/data. |
-| Workspace projection: `<repo>/.octocode/` | One repo/workspace | Generated LLM Wiki and repo-context files from `repo inject`: `AGENTS.md`, `MEMORY.md`, `GOTCHAS.md`, `LEARN.md`, CSV, HTML, manifest, and compact references. These files describe the repo; they are not the canonical DB. |
+| Workspace projection: `<repo>/.octocode/` | One repo/workspace | Generated LLM Wiki and repo-context files from `repo inject`: `AGENTS.md`, `MEMORY.md`, `GOTCHAS.md`, `LEARN.md`, `BOOKMARKS.md`, CSV, HTML, manifest, and compact references. These files describe the repo; they are not the canonical DB. |
 
 Rule of thumb: **global home stores source data; repo `.octocode/` publishes a repo-specific view of that data.** If a repo projection is stale, update the DB/source facts and regenerate it with `repo inject`.
 
@@ -42,6 +42,20 @@ Modern agent workflows are multi-session and increasingly multi-agent. The failu
 
 Awareness makes those concerns explicit data. It does not try to be the agent. It gives agents a small shared operating loop: attend, claim, work, communicate, verify, reflect, project, housekeep, improve, and hand off.
 
+## Homeostatic Context Model
+
+The useful body analogy is simple: **context and tokens are circulation**. They carry the oxygen of the work: current goal, constraints, evidence, warnings, and next action. If circulation is too thin, the agent misses important signals. If the context stream is clogged with stale wiki pages, duplicate memories, and giant handoffs, the agent gets slower and less precise.
+
+That is why docs can become like excess weight. More notes are not automatically more awareness; after a point, oversized docs make every run carry too much mass before it can move. Awareness should keep the workspace healthy and in shape:
+
+- `attend --compact` is the small working circulation for a new run.
+- `query workboard` turns tasks, locks, signals, refinements, memories, and projection health into sortable rows instead of another giant document.
+- `repo inject` publishes bounded Markdown plus CSV/HTML for deeper inspection.
+- `BOOKMARKS.md` keeps learnable URLs, repo paths, file paths, papers, skills, and other URI leads discoverable without turning memory docs into bulk storage.
+- `maintenance digest`, `memory forget --dry-run`, `signal prune`, and supersession keep stale state from becoming permanent weight.
+
+Sociality matters too. Signals, refinements, handoffs, and agent traces are not noise when they are concise and resolved; they are how the system gets new ideas, different perspectives, and correction from other agents or humans. The rule is to communicate enough to improve the shared map, then resolve or consolidate the trace so it keeps circulating instead of piling up.
+
 ## Design Thinking
 
 | Principle | What it means in this package |
@@ -52,6 +66,8 @@ Awareness makes those concerns explicit data. It does not try to be the agent. I
 | Verification-aware | A released lock is not automatically success; unverified work stays `PENDING`. |
 | Human-reviewed self-improvement | Reflection can propose guidance, but it does not silently rewrite the harness. |
 | Inspectable | `query`, workspace `.octocode/` projections, CSV, HTML, and docs make state readable without spelunking the DB. |
+| Context-health | Compact packets and bounded projections keep tokens circulating through useful evidence instead of overweight docs. |
+| Social perspective | Signals, refinements, and handoffs let agents exchange context and generate better options without hidden chat memory. |
 
 ## Quick Start
 
@@ -149,7 +165,7 @@ Awareness is one feedback loop over one local store in the global Octocode home.
 ATTEND -> CLAIM -> WORK -> COMMUNICATE -> VERIFY -> REFLECT -> PROJECT -> HOUSEKEEP -> IMPROVE -> HAND OFF
 ```
 
-1. **Attend**: `workspace status` is the operational first command in a repo. Then `memory recall`, `refinement get`, `signal list`, and generated `.octocode/AGENTS.md` context surface prior lessons, gotchas, handoffs, messages, and other-agent state before an agent plans.
+1. **Attend**: `attend --compact` is the operational first command in a repo. It routes through profile, workboard, targeted memory evidence, bloat warnings, verification targets, and drive state. Use `workspace status`, `memory recall`, `refinement get`, `signal list`, and generated `.octocode/AGENTS.md` for deeper follow-up.
 2. **Claim**: `lock acquire` creates a task and file locks before writes. `lock wait` and signals handle conflicts instead of racing another agent.
 3. **Work and communicate**: agents edit under the claim, use signals for blockers/questions/decisions/handoffs, and record durable facts as memories when they are reusable.
 4. **Verify**: `verify mark` records the check that actually ran. `verify audit` and stop hooks keep pending verification visible.
@@ -208,17 +224,20 @@ The CLI is the canonical operational surface. Skills and hooks call it for opera
 
 ```bash
 npx @octocodeai/octocode-awareness workspace status --workspace "$PWD" --compact
+npx @octocodeai/octocode-awareness attend --workspace "$PWD" --query "current task" --compact
 npx @octocodeai/octocode-awareness memory recall --query "current task" --smart --compact
 npx @octocodeai/octocode-awareness lock acquire --agent-id agent-a --target-file src/foo.ts --rationale "edit foo" --compact
 npx @octocodeai/octocode-awareness verify mark --agent-id agent-a --all-pending --message "tests passed" --compact
+npx @octocodeai/octocode-awareness query workboard --workspace "$PWD" --format table --limit 20
 npx @octocodeai/octocode-awareness query gotchas --workspace "$PWD" --format json --limit 20 --compact
 npx @octocodeai/octocode-awareness repo inject --workspace "$PWD" --mode local --compact
 ```
 
-Run `npx @octocodeai/octocode-awareness workspace status --workspace "$PWD" --compact` first when joining a repo. Run `schema commands --compact` for the agent command map, then `<command> --help --compact` for token-light usage. Local package development can call `node dist/bin/awareness.js ...` after `yarn workspace @octocodeai/octocode-awareness build`.
+Run `npx @octocodeai/octocode-awareness attend --workspace "$PWD" --query "current task" --compact` first when joining a repo. Run `schema commands --compact` for the agent command map, then `<command> --help --compact` for token-light usage. Local package development can call `node dist/bin/awareness.js ...` after `yarn workspace @octocodeai/octocode-awareness build`.
 
 Main command groups:
 
+- `attend`
 - `memory record|recall|forget`
 - `lock acquire|release|wait|prune`
 - `verify audit|mark`
@@ -226,7 +245,7 @@ Main command groups:
 - `agent register|list`
 - `refinement set|get|delete`
 - `reflect record|mine-weakness|export-harness`
-- `query <view>`, `repo inject`
+- `query <view>`, including `query workboard`, `repo inject`
 - `hooks install|check|remove`
 - `hook run <pre-edit|post-edit|harness-guard|stop-verify|notify-deliver|session-end>`
 - `schema commands|list|json-schema|example|validate`
@@ -236,8 +255,10 @@ Main command groups:
 
 The LLM Wiki is a generated projection of selected awareness data into the workspace `.octocode/` folder, making repo state readable by agents and humans without querying the DB directly:
 
-- `query <view>` reads smart JSON/table/CSV/Markdown/HTML views for agents, scripts, and humans. Views: `memories`, `gotchas`, `lessons`, `tasks`, `locks`, `agents`, `signals`, `refinements`, `files`, `activity`, `repo-profile`, `all`.
-- `repo inject` writes `<repo>/.octocode/AGENTS.md`, `MEMORY.md`, `GOTCHAS.md`, `LEARN.md`, CSV files under `awareness/csv/`, compact references under `references/`, `awareness/index.html`, and `awareness/manifest.json`.
+- `query <view>` reads smart JSON/table/CSV/Markdown/HTML views for agents, scripts, and humans. Views: `memories`, `gotchas`, `lessons`, `tasks`, `locks`, `agents`, `signals`, `refinements`, `files`, `activity`, `workboard`, `repo-profile`, `all`.
+- `repo inject` writes `<repo>/.octocode/AGENTS.md`, `MEMORY.md`, `GOTCHAS.md`, `LEARN.md`, `BOOKMARKS.md`, CSV files under `awareness/csv/`, compact references under `references/`, `awareness/index.html`, and `awareness/manifest.json`.
+
+Use `BOOKMARKS.md` for resources agents can learn from: URLs, repo paths, file paths, papers, skills, and other URIs. Store them as memory references and regenerate the projection instead of hand-editing the file.
 
 SQLite in the global Octocode home is always canonical. Regenerate workspace projections instead of hand-editing them. `repo inject` reports gitignore/share-policy warnings but never edits `.gitignore`; each repo owner decides whether `<repo>/.octocode` stays local or becomes shared.
 

@@ -13,8 +13,10 @@ import { fileURLToPath } from 'node:url';
 export { connectDb, connectCachedDb, initDb, memoryHome, resolveDbPath, hasFts, tableColumns, replaceMemoryReferences, referenceKind, evictExpiredLocks } from './db.js';
 
 // Memory operations
-export { insertMemory, getMemory, bumpAccess, lexicalSearch, decayScore, findSimilarMemories, mineWeakness, forgetMemory, storeEmbedding, searchByEmbedding } from './memory.js';
+export { insertMemory, getMemory, bumpAccess, lexicalSearch, decayScore, findSimilarMemories, mineWeakness, forgetMemory, storeEmbedding, searchByEmbedding, loadMemoriesByIds } from './memory.js';
 export type { MineWeaknessResult, MineWeaknessParams, WeaknessCluster } from './memory.js';
+export { resolveEmbedCommand, runHostEmbedder } from './embed-host.js';
+export type { HostEmbedding } from './embed-host.js';
 
 // Refinements
 export { insertRefinement, getRefinements, deleteRefinement } from './refinements.js';
@@ -50,6 +52,10 @@ export type {
   RepoContextInjectResult,
   RepoContextMode,
 } from './repo-context.js';
+
+// Agent-native start packet
+export { attendAwareness } from './attend.js';
+export type { AttendEvidence, AttendParams, AttendResult } from './attend.js';
 
 // Notifications
 export { insertNotification, getNotifications, resolveNotification, pruneNotifications, agentSignal } from './notifications.js';

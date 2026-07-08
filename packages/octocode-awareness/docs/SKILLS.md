@@ -42,6 +42,8 @@ No server. No network. Any agent that reads and writes that file participates au
 - **Continuity across sessions**: memories and refinements keep useful context out of the prompt until needed, then surface it on recall.
 - **Agent-to-agent messaging**: signals give agents a local mailbox with threads, targeted delivery, broadcast, ack, and resolution.
 - **Shared learning**: one agent's lesson improves every future session in the same repo, for any agent.
+- **Compact context circulation**: `attend --compact` and `query workboard` move the right state into the run without making agents carry oversized docs.
+- **Resource bookmarks**: `BOOKMARKS.md` keeps useful URLs, repo paths, file paths, papers, skills, and other URI leads discoverable without bloating memory docs.
 - **Self-improvement under human oversight**: the harness loop surfaces patterns in failures and proposes guidance candidates for you to review and apply.
 - **LLM Wiki**: `repo inject` generates workspace `.octocode/` Markdown, CSV, and HTML from the DB — a generated wiki tuned for LLM consumption and human inspection.
 
@@ -125,10 +127,11 @@ Add `--global` to install at user scope instead of project scope.
 ### Step 4 — Verify it's working
 
 ```bash
+npx @octocodeai/octocode-awareness attend --workspace "$PWD" --query "installation smoke" --compact
 npx @octocodeai/octocode-awareness workspace status --workspace "$PWD" --compact
 ```
 
-You should see a JSON response with `ok: true`, memory counts, lock state, and refinements.
+You should see JSON responses with `ok: true`. `attend` returns the compact start packet; `workspace status` returns raw memory counts, lock state, and refinements.
 
 ---
 
@@ -175,6 +178,12 @@ Every file edit task carries a declared `test_plan`. When the agent finishes, it
 
 Refinements store work state for the next agent or session: unfinished tasks, repo-fix proposals, handoff notes. They complement memories (which store reusable lessons) by preserving live work state.
 
+### Context health
+
+Context and tokens are the circulation of an agent run. They carry goal, constraints, evidence, warnings, handoffs, and next action. Too little context starves the run; too much stale context makes it overweight. Use `attend --compact`, `query workboard`, CSV/HTML views, and projection budgets to keep docs lean while preserving row-level detail.
+
+Signals and refinements are the social part of that circulation. They bring new ideas, questions, and perspective from other agents or humans; resolve or consolidate them when they stop being active context.
+
 ---
 
 ## The Workflow
@@ -186,6 +195,12 @@ ATTEND → CLAIM → WORK → COMMUNICATE → VERIFY → REFLECT → PROJECT →
 ### 1. Attend — orient before acting
 
 ```bash
+# Get one compact start packet: profile, workboard, memory evidence, gaps, and bloat warnings
+octocode-awareness attend --workspace "$PWD" --query "auth lock gotcha" --compact
+
+# See active work, verification debt, and projection health as rows
+octocode-awareness query workboard --workspace "$PWD" --format table --limit 20
+
 # Check workspace: active locks, pending verification, DB health
 octocode-awareness workspace status --workspace "$PWD"
 
@@ -280,6 +295,7 @@ Use live queries during active work. Refresh the generated LLM Wiki only when th
 
 ```bash
 # Live DB view
+octocode-awareness query workboard --workspace "$PWD" --format table --limit 20
 octocode-awareness query gotchas --workspace "$PWD" --format table --limit 20
 
 # Publish refreshed repo context
@@ -471,6 +487,9 @@ Use `--workspace`, `--artifact`, `--repo`, or `--ref` to keep broad forget selec
 
 The LLM Wiki generates a set of Markdown, CSV, and HTML files from the awareness DB into the current workspace's `.octocode/` folder. Any agent or human can read these files without querying the DB. The SQLite DB in the global Octocode home is always the canonical source — regenerate projections rather than hand-editing them.
 
+Use Markdown for compact summary, not bulk storage. When rows get large, use `query workboard`, CSV, HTML, and `.octocode/awareness/manifest.json` budget metadata so docs stay healthy and searchable instead of overweight.
+Use `BOOKMARKS.md` for resources an agent can learn from: URLs, repos, file paths, papers, skills, and other URIs. Store those as memory references; regenerate the projection rather than editing the file.
+
 ### Generated files
 
 | File | Contents |
@@ -479,9 +498,10 @@ The LLM Wiki generates a set of Markdown, CSV, and HTML files from the awareness
 | `.octocode/MEMORY.md` | Active memory index |
 | `.octocode/GOTCHAS.md` | All gotcha-labeled memories |
 | `.octocode/LEARN.md` | Decisions, architecture notes, workflows |
+| `.octocode/BOOKMARKS.md` | Learnable resource leads from memory references |
 | `.octocode/awareness/csv/*.csv` | Filterable/sortable data exports |
 | `.octocode/awareness/index.html` | Static browser view of all awareness data |
-| `.octocode/awareness/manifest.json` | Generation metadata and share/local policy warnings |
+| `.octocode/awareness/manifest.json` | Generation metadata, counts, projection budgets, and share/local policy warnings |
 | `.octocode/references/*.md` | Compact reference notes generated from DB |
 
 ### Query the live DB
@@ -491,6 +511,7 @@ The LLM Wiki generates a set of Markdown, CSV, and HTML files from the awareness
 octocode-awareness query all --workspace "$PWD" --format json --limit 20 --compact
 
 # Table — best for terminal reading
+octocode-awareness query workboard --workspace "$PWD" --format table --limit 20
 octocode-awareness query gotchas --workspace "$PWD" --format table
 
 # CSV — best for spreadsheets
@@ -500,7 +521,7 @@ octocode-awareness query files --workspace "$PWD" --format csv
 octocode-awareness query all --workspace "$PWD" --format html --out .octocode/awareness/index.html
 ```
 
-Available views: `memories`, `gotchas`, `lessons`, `tasks`, `locks`, `agents`, `signals`, `refinements`, `files`, `activity`, `repo-profile`, `all`.
+Available views: `memories`, `gotchas`, `lessons`, `tasks`, `locks`, `agents`, `signals`, `refinements`, `files`, `activity`, `workboard`, `repo-profile`, `all`.
 
 ### Regenerate the wiki
 
@@ -642,6 +663,8 @@ Run `npx @octocodeai/octocode-awareness schema commands --compact` for the full 
 ### Attend / Status
 
 ```bash
+attend --workspace <path> --query <text> [--file <path>] [--limit N] [--compact] [--explain-organ]
+query workboard --workspace <path> [--format json|table|csv|markdown|html] [--limit N]
 workspace status --workspace <path> [--artifact <name>] [--compact]
 ```
 
@@ -811,7 +834,7 @@ Pi `file_lock` also supports `type:renew` for extending a lock without releasing
 
 | Situation | First command |
 |---|---|
-| Starting or planning work | `workspace status`, then `memory recall`, then `refinement get`, then `signal list` |
+| Starting or planning work | `attend --compact`, then drill into `query workboard`, `memory recall`, `refinement get`, or `signal list` |
 | About to edit files | `lock acquire` before any write |
 | Another agent holds the file | `lock wait` or `signal publish` (kind: question or blocker) |
 | Finishing work | `verify mark`, then `reflect record` or `memory record` |
@@ -829,9 +852,9 @@ Pi `file_lock` also supports `type:renew` for extending a lock without releasing
 
 ### Active memory navigation direction
 
-The current workflow is explicit: start with `workspace status`, then use `memory recall`, `refinement get`, `signal list`, query views, and `reflect mine-weakness` as needed.
+The current workflow starts with `attend --compact`, then drills into `query workboard`, `workspace status`, `memory recall`, `refinement get`, `signal list`, query views, and `reflect mine-weakness` as needed.
 
-The recommended next improvement is a deterministic `memory navigate` prototype that orchestrates those existing reads and returns a `navigation_trace`, evidence, gaps, and next verification targets. It is not a shipped command yet, so agents should keep using the explicit commands above. See [MEMORY_NAVIGATION.md](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-awareness/docs/MEMORY_NAVIGATION.md).
+Future navigation may deepen the trace and routing logic, but it should stay deterministic and bounded. See [MEMORY_NAVIGATION.md](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-awareness/docs/MEMORY_NAVIGATION.md).
 
 ### Scope rules
 

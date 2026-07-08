@@ -14,7 +14,8 @@ import { fileURLToPath } from 'node:url';
 import {
   connectDb, initDb, hasFts, resolveDbPath, evictExpiredLocks,
 } from '../src/db.js';
-import { insertMemory, getMemory, mineWeakness, forgetMemory } from '../src/memory.js';
+import { insertMemory, getMemory, mineWeakness, forgetMemory, storeEmbedding, searchByEmbedding, loadMemoriesByIds, bumpAccess } from '../src/memory.js';
+import { resolveEmbedCommand, runHostEmbedder } from '../src/embed-host.js';
 import { mineDocStaleness, proposeDocRefresh } from '../src/docs.js';
 import { insertRefinement, getRefinements, updateRefinement, deleteRefinement } from '../src/refinements.js';
 import { preFlightIntent, releaseFileLock } from '../src/intents.js';
@@ -25,6 +26,7 @@ import { insertNotification, getNotifications, resolveNotification, pruneNotific
 import { auditUnverified, markVerified } from '../src/verify.js';
 import { registerAgent, listAgents } from '../src/agents.js';
 import { hooksInstallUsage, runHooksInstall } from '../src/hooks-install.js';
+import { attendAwareness } from '../src/attend.js';
 import { formatAwarenessQueryResult, injectRepoContext, queryAwareness, writeAwarenessView } from '../src/repo-context.js';
 import {
   normalizeLabel,
@@ -100,6 +102,7 @@ const KNOWN_FLAGS: Record<string, string[]> = {
   'doc-staleness': ['agent_id', 'workspace', 'artifact', 'targets_json', 'min_edits', 'min_lines', 'propose', 'session_id'],
   'export-harness': ['limit', 'min_importance', 'workspace', 'artifact'],
   'query': ['view', 'query', 'limit', 'format', 'out', 'workspace', 'artifact', 'repo', 'ref', 'agent_id', 'state', 'label', 'file', 'since', 'include_bodies'],
+  'attend': ['query', 'limit', 'workspace', 'artifact', 'repo', 'ref', 'file', 'include_bodies', 'explain_organ'],
   'repo-inject': ['query', 'limit', 'out', 'out_dir', 'workspace', 'artifact', 'repo', 'ref', 'mode', 'check', 'include_view', 'include_bodies'],
   'agent-registry': ['action', 'agent_id', 'agent_name', 'workspace', 'artifact', 'context', 'limit'],
   'agent-signal': ['action', 'agent_id', 'workspace', 'artifact', 'repo', 'ref', 'kind', 'subject', 'body', 'to_agent', 'file', 'ref_id', 'importance', 'in_reply_to', 'thread_id', 'signal_id', 'all', 'unread_only', 'mark_read', 'limit', 'format'],
@@ -171,7 +174,7 @@ const COMMAND_ROUTES: Record<string, CommandRoute> = {
   'repo inject': { command: 'repo-inject' },
 };
 
-const SINGLE_COMMANDS = new Set(['query', 'schema']);
+const SINGLE_COMMANDS = new Set(['query', 'attend', 'schema']);
 const UNKNOWN_COMMAND = '__unknown__';
 
 function normalizeToken(value: string | undefined): string | undefined {
@@ -325,6 +328,20 @@ function cmdTellMemory(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts:
       hint: 'low novelty — review the similar memories; re-record with --supersedes <id> to replace one, or forget this one if redundant',
     };
   }
+  const embedCmd = resolveEmbedCommand();
+  if (embedCmd) {
+    try {
+      const text = `${taskContext}\n${observation}`.trim();
+      const { embedding, model } = runHostEmbedder(text, { command: embedCmd });
+      storeEmbedding(db, memory.memory_id, embedding, model);
+      payload['embedding'] = { stored: true, model, dims: embedding.length };
+    } catch (err) {
+      payload['embedding'] = {
+        stored: false,
+        warning: err instanceof Error ? err.message : String(err),
+      };
+    }
+  }
   return emit(payload, 0, opts);
 }
 
@@ -372,13 +389,47 @@ function cmdGetMemory(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts: 
     explain: Boolean(args['explain']),
   });
 
-  // The CLI has no embedding source; semantic ranking needs embeddings stored
-  // via the library API (storeEmbedding/searchByEmbedding). Be honest about it.
   const payload: Record<string, unknown> = { db_path: dbPath, ...result };
   if (args['semantic']) {
-    payload['warnings'] = [
-      'semantic ranking is unavailable in the CLI (no embedding source); results use lexical FTS + decay. Use the library storeEmbedding()/searchByEmbedding() API for semantic recall.',
-    ];
+    const embedCmd = resolveEmbedCommand();
+    const queryText = String(args['query'] ?? '').trim();
+    if (!embedCmd) {
+      payload['warnings'] = [
+        'semantic ranking is unavailable in the CLI (set OCTOCODE_EMBED_CMD or use library storeEmbedding()/searchByEmbedding()); results use lexical FTS + decay.',
+      ];
+    } else if (!queryText) {
+      payload['warnings'] = [
+        'semantic ranking skipped: --query is required when OCTOCODE_EMBED_CMD is set; results use lexical FTS + decay.',
+      ];
+    } else {
+      try {
+        const { embedding, model } = runHostEmbedder(queryText, { command: embedCmd });
+        const limit = parseInt(String(args['limit'] ?? '3'), 10);
+        const hits = searchByEmbedding(db, embedding, Math.max(limit, 1), 0.0, model);
+        if (hits.length === 0) {
+          payload['warnings'] = [
+            `OCTOCODE_EMBED_CMD ran (model=${model}) but no stored embeddings matched; results use lexical FTS + decay. Record memories while OCTOCODE_EMBED_CMD is set to populate vectors.`,
+          ];
+        } else {
+          const ranked = loadMemoriesByIds(db, hits.map(hit => hit.memory_id));
+          const simById = new Map(hits.map(hit => [hit.memory_id, hit.similarity]));
+          for (const memory of ranked) {
+            const similarity = simById.get(memory.memory_id) ?? 0;
+            memory.score = similarity;
+            memory.lexical = similarity;
+          }
+          bumpAccess(db, ranked.map(memory => memory.memory_id));
+          payload['memories'] = ranked.slice(0, limit);
+          payload['count'] = Math.min(ranked.length, limit);
+          payload['mode'] = 'semantic';
+          payload['embedding_model'] = model;
+        }
+      } catch (err) {
+        payload['warnings'] = [
+          `semantic ranking failed (${err instanceof Error ? err.message : String(err)}); results use lexical FTS + decay.`,
+        ];
+      }
+    }
   }
   return emit(payload, 0, opts);
 }
@@ -599,7 +650,7 @@ function cmdReleaseFileLock(db: DatabaseSync, args: ParsedArgs, dbPath: string, 
     artifact: args['artifact'] ? String(args['artifact']) : null,
     taskId: taskId ?? null,
     targetFiles,
-    status: (String(args['status'] ?? 'SUCCESS')) as 'PENDING' | 'ACTIVE' | 'SUCCESS' | 'FAILED',
+    status: (String(args['status'] ?? 'SUCCESS')) as 'PENDING' | 'SUCCESS' | 'FAILED',
     verified: Boolean(args['verified']),
     verifiedNote: args['verified_note'] ? String(args['verified_note']) : undefined,
   });
@@ -772,6 +823,24 @@ function cmdQuery(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts: Emit
   return 0;
 }
 
+function cmdAttend(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts: EmitOptions): number {
+  const rawFile = args['file'];
+  const files = Array.isArray(rawFile) ? rawFile.map(String) : rawFile ? [String(rawFile)] : [];
+  const result = attendAwareness(db, {
+    workspacePath: args['workspace'] ? String(args['workspace']) : process.cwd(),
+    artifact: args['artifact'] ? String(args['artifact']) : null,
+    repo: args['repo'] ? String(args['repo']) : null,
+    ref: args['ref'] ? String(args['ref']) : null,
+    query: args['query'] ? String(args['query']) : null,
+    limit: args['limit'] ? parseInt(String(args['limit']), 10) : undefined,
+    file: files,
+    includeBodies: flagBool(args['include_bodies']),
+    explainOrgan: flagBool(args['explain_organ']),
+    compact: opts.compact,
+  });
+  return emit({ db_path: dbPath, ...result }, 0, opts);
+}
+
 function cmdView(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts: EmitOptions): number {
   const view = String(args['view'] ?? args._[0] ?? 'all');
   const result = writeAwarenessView(db, {
@@ -904,6 +973,7 @@ function cmdNotifyResolve(db: DatabaseSync, args: ParsedArgs, dbPath: string, op
   const rawIds = args['signal_id'];
   const notificationIds = Array.isArray(rawIds) ? rawIds : rawIds ? [String(rawIds)] : [];
   const result = resolveNotification(db, {
+    agentId: args['agent_id'] ? String(args['agent_id']) : null,
     notificationIds,
     threadId: args['thread_id'] ? String(args['thread_id']) : null,
     workspacePath: args['workspace'] ? String(args['workspace']) : null,
@@ -1133,7 +1203,7 @@ easy install:
 supported agents: Codex, Claude Code, Cursor, Pi, and custom library/CLI hosts
 surfaces: CLI = control plane; Agent Skill = operating loop; hooks/Pi bridge = lifecycle automation
 
-start: workspace status, memory recall, refinement get, signal list, query <view>
+start: attend, workspace status, memory recall, refinement get, signal list, query <view>
 edit: lock acquire, lock wait, lock release, lock prune, verify mark, verify audit
 messages: signal publish, signal list, signal reply, signal ack, signal resolve, signal prune, agent register, agent list
 learning: memory record, memory forget, refinement set, refinement get, refinement delete, reflect record, reflect mine-weakness, reflect export-harness, docs staleness
@@ -1143,6 +1213,7 @@ utility: session capture, maintenance init, maintenance self-test, maintenance d
 
 examples:
   octocode-awareness workspace status --workspace "$PWD" --compact
+  octocode-awareness attend --workspace "$PWD" --query "current task" --compact
   octocode-awareness memory recall --query "current task" --workspace "$PWD" --compact
   octocode-awareness lock acquire --agent-id agent --target-file src/file.ts --rationale "edit" --compact
   octocode-awareness signal list --agent-id agent --workspace "$PWD" --compact
@@ -1154,7 +1225,7 @@ Run "octocode-awareness <command> --help" for command flags. Exit 2 = lock confl
 
 const HELP_COMPACT = `octocode-awareness: canonical noun/verb CLI. Use --compact for JSON.
 local-first: octocode-awareness <command>; fallback: npx @octocodeai/octocode-awareness <command>; skill: npx octocode skill --add --path {{path_to_skills_location}}/octocode-awareness --platform common; agents: Codex, Claude, Cursor, Pi
-start: workspace status; memory recall; refinement get; signal list
+start: attend; workspace status; memory recall; refinement get; signal list
 edit: lock acquire|wait|release|prune; verify audit|mark
 msg: signal publish|list|reply|ack|resolve|prune; agent register|list
 learn: memory record|forget; reflect record|mine-weakness|export-harness; maintenance digest
@@ -1178,6 +1249,7 @@ const COMMAND_TO_SCHEMA: Record<string, string> = {
   'agent-signal': 'agent_signal',
   'notify-prune': 'signal_prune',
   'status': 'workspace_status',
+  'attend': 'attend',
   'export-harness': 'export_harness',
   'query': 'query',
   'repo-inject': 'repo_inject',
@@ -1205,6 +1277,7 @@ const COMMAND_DISPLAY: Record<string, string> = {
   'agent-signal': 'signal publish|list|reply|ack|resolve',
   'notify-prune': 'signal prune',
   'status': 'workspace status',
+  'attend': 'attend',
   'export-harness': 'reflect export-harness',
   'query': 'query',
   'repo-inject': 'repo inject',
@@ -1237,8 +1310,9 @@ const COMMAND_EXAMPLE: Record<string, string> = {
   'agent-signal': 'octocode-awareness signal list --agent-id agent --workspace "$PWD" --compact',
   'notify-prune': 'octocode-awareness signal prune --workspace "$PWD" --resolved --dry-run --compact',
   'status': 'octocode-awareness workspace status --workspace "$PWD" --compact',
+  'attend': 'octocode-awareness attend --query "current task" --workspace "$PWD" --compact',
   'export-harness': 'octocode-awareness reflect export-harness --workspace "$PWD" --compact',
-  'query': 'octocode-awareness query gotchas --workspace "$PWD" --format json --limit 20 --compact',
+  'query': 'octocode-awareness query workboard --workspace "$PWD" --format json --limit 10 --compact',
   'repo-inject': 'octocode-awareness repo inject --workspace "$PWD" --out .octocode --mode local --compact',
   'session-capture': 'octocode-awareness session capture --agent-id agent --workspace "$PWD" --reason handoff --compact',
   'mine-weakness': 'octocode-awareness reflect mine-weakness --workspace "$PWD" --compact',
@@ -1329,11 +1403,14 @@ schema: octocode-awareness schema json-schema verify --compact`,
   'reflect': `usage: octocode-awareness reflect record --agent-id <id> --task <text> --outcome worked|partial|failed [--lesson <t>] [--fix-repo <t>] [--fix-file <p>]... [--failure-signature <s>]
 example: octocode-awareness reflect record --agent-id agent --task "fix CLI" --outcome worked --lesson "Keep CLI nouns canonical" --compact
 schema: octocode-awareness schema json-schema reflect --compact`,
-  'query': `usage: octocode-awareness query <all|repo-profile|memories|gotchas|lessons|tasks|locks|agents|signals|refinements|files|activity> [--workspace <repo>] [--format json|table|csv|markdown|html] [--out <path>]
+  'query': `usage: octocode-awareness query <all|repo-profile|memories|gotchas|lessons|tasks|locks|agents|signals|refinements|files|activity|workboard> [--workspace <repo>] [--format json|table|csv|markdown|html] [--out <path>]
 examples:
-  octocode-awareness query gotchas --workspace "$PWD" --format json --limit 20 --compact
+  octocode-awareness query workboard --workspace "$PWD" --format json --limit 10 --compact
   octocode-awareness query all --workspace "$PWD" --format html --out .octocode/awareness/index.html
 schema: octocode-awareness schema json-schema query --compact`,
+  'attend': `usage: octocode-awareness attend [--workspace <repo>] [--query <text>] [--file <p>]... [--limit <n>] [--include-bodies] [--explain-organ]
+example: octocode-awareness attend --query "current task" --workspace "$PWD" --compact
+schema: octocode-awareness schema json-schema attend --compact`,
   'repo-inject': `usage: octocode-awareness repo inject [--workspace <repo>] [--out .octocode] [--mode local|share] [--no-check] [--no-include-view]
 example: octocode-awareness repo inject --workspace "$PWD" --out .octocode --mode local --compact
 schema: octocode-awareness schema json-schema repo_inject --compact`,
@@ -1567,6 +1644,8 @@ try {
         ...(retDays !== undefined ? { retention_days: retDays } : {}),
         ...(handoffDays !== undefined ? { refinement_handoff_retention_days: handoffDays } : {}),
         ...(doneDays !== undefined ? { refinement_done_retention_days: doneDays } : {}),
+        ...(args['workspace'] ? { workspace: String(args['workspace']) } : {}),
+        ...(args['artifact'] ? { artifact: String(args['artifact']) } : {}),
         ...(isDryRun ? { dry_run: true } : {}),
       });
       const payload: Record<string, unknown> = { db_path: dbPath, ...digestResult };
@@ -1613,6 +1692,7 @@ try {
     case 'refine-delete':   exitCode = cmdRefineDelete(db, args, dbPath, opts); break;
     case 'export-harness':  exitCode = cmdExportHarness(db, args, dbPath, opts); break;
     case 'query':           exitCode = cmdQuery(db, args, dbPath, opts); break;
+    case 'attend':          exitCode = cmdAttend(db, args, dbPath, opts); break;
     case 'view':            exitCode = cmdView(db, args, dbPath, opts); break;
     case 'repo-inject':     exitCode = cmdRepoInject(db, args, dbPath, opts); break;
     case 'agent-registry':  exitCode = cmdAgentRegistry(db, args, dbPath, opts); break;

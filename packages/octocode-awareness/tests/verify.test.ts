@@ -168,6 +168,20 @@ describe('markVerified', () => {
     expect(result.ok).toBe(false);
   });
 
+  it('rejects invalid allPending status before mutating pending tasks', () => {
+    const db = freshDb();
+    const taskId = makePending(db, 'agent-a', '/tmp/ws-a');
+    const result = markVerified(db, {
+      agentId: 'agent-a',
+      allPending: true,
+      workspacePath: '/tmp/ws-a',
+      status: 'PENDING' as 'SUCCESS',
+    });
+    expect(result.ok).toBe(false);
+    const task = db.prepare('SELECT status FROM tasks WHERE task_id = ?').get(taskId) as { status: string };
+    expect(task.status).toBe('PENDING');
+  });
+
   it('returns ok=false when verifying an already-SUCCESS intent — not PENDING', () => {
     const db = freshDb();
     const taskId = makePending(db, 'agent-a', '/tmp/ws-a');

@@ -17,6 +17,7 @@ Generated files include:
 - `.octocode/MEMORY.md` - active memory index.
 - `.octocode/GOTCHAS.md` - repo traps, failures, and failure signatures.
 - `.octocode/LEARN.md` - decisions, architecture notes, workflows, and opportunities.
+- `.octocode/BOOKMARKS.md` - learnable resource leads from memory references: URLs, repos, file paths, docs, papers, skills, and other URIs.
 - `.octocode/awareness/csv/*.csv` - filterable/sortable data for scripts and agents.
 - `.octocode/awareness/index.html` - static browser view.
 - `.octocode/awareness/manifest.json` - generation metadata and share/local policy warnings.
@@ -28,6 +29,8 @@ The repo context projection is wiki-like by design:
 
 - `query <view>` is the live read API for agents and scripts.
 - `repo inject` is the publication step that turns selected DB state into repo-local Markdown, CSV, HTML, manifest, and reference files.
+- `BOOKMARKS.md` is the resource index projection. Add learnable URLs, repo paths, file paths, papers, skills, and other URIs as memory references, then regenerate.
+- Markdown files are capped readable projections, not unlimited storage. When rows exceed the projection budget, `repo inject` omits overflow rows and points agents toward CSV, HTML, or query views for the full sortable/filterable data.
 - `reflect record`, `memory record`, signals, locks, verification, and refinements all feed the same DB, so the generated docs can summarize work without storing raw chat logs.
 - Generated files are leads, not proof. Agents must validate them against current files, tests, and command output.
 

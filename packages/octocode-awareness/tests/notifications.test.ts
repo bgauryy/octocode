@@ -130,4 +130,29 @@ describe('notifications', () => {
     if (resolved.action !== 'resolve') throw new Error('resolve failed');
     expect(resolved.resolved).toBe(2);
   });
+
+  it('requires resolver participation when an agent id is supplied', () => {
+    const db = freshDb();
+    const notification = insertNotification(db, {
+      agentId: 'agent-a',
+      toAgent: 'agent-b',
+      kind: 'request',
+      subject: 'please handle',
+      workspacePath: '/repo',
+    });
+
+    const outsider = resolveNotification(db, {
+      agentId: 'agent-c',
+      notificationIds: [notification.signal_id],
+      workspacePath: '/repo',
+    });
+    expect(outsider.resolved).toBe(0);
+
+    const participant = resolveNotification(db, {
+      agentId: 'agent-b',
+      notificationIds: [notification.signal_id],
+      workspacePath: '/repo',
+    });
+    expect(participant.resolved).toBe(1);
+  });
 });
