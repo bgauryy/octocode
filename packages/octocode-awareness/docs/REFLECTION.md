@@ -11,13 +11,13 @@ verified outcome -> reflect -> route -> human/user-approved apply -> verify -> c
 
 ```bash
 octocode-awareness reflect record --agent-id "$OCTOCODE_AGENT_ID" \
-  --workspace "$PWD" --task "<task>" --outcome worked|partial|failed \
+  --workspace "$PWD" --task "<task>" --outcome worked \
   --lesson "<reusable result>" --compact
 ```
 
-`--outcome` is required. Failed outcomes should carry a stable
-`--failure-signature` such as `test:work-overlap` or `migration:v2-run-files`, not the
-full volatile error string.
+`--outcome` is required and accepts `worked`, `partial`, or `failed`. Failed outcomes
+should carry a stable `--failure-signature` such as `test:work-overlap` or
+`migration:v2-run-files`, not the full volatile error string.
 
 ## Route By Owner
 

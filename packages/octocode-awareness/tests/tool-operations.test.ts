@@ -86,6 +86,21 @@ describe('runAwarenessToolOperation', () => {
       const query = run(db, 'query', { view: 'all', workspace_path: dir, limit: 10 }, dir);
       expect((query.payload as { view: string }).view).toBe('all');
 
+      const attended = run(db, 'attend', {
+        workspace_path: dir,
+        artifact: 'service-a',
+        repo: 'octocode/test',
+        ref: 'coverage',
+        query: 'auth migration',
+        limit: 3,
+        file: ['src/auth.ts'],
+        include_bodies: true,
+        explain_organ: true,
+        compact: true,
+      }, dir);
+      expect(attended.exitCode).toBe(0);
+      expect(attended.payload).toHaveProperty('counts');
+
       const htmlPath = join(dir, 'awareness.html');
       const view = run(db, 'view', { view: 'all', workspace_path: dir, out: htmlPath }, dir);
       expect(view.payload).toMatchObject({ ok: true, path: htmlPath });
@@ -202,18 +217,33 @@ describe('runAwarenessToolOperation', () => {
         testPlan: 'run parser tests',
         ttlMs: 60_000,
       });
+      const sensitiveFile = join(dir, 'src', 'sensitive.ts');
+      const exclusive = run(db, 'file_lock', {
+        type: 'lock',
+        target_files: [sensitiveFile],
+        reasoning: 'exclusive migration',
+        ttl_ms: 60_000,
+      }, dir);
+      expect(exclusive.exitCode).toBe(0);
       const workspace = run(db, 'workspace_status', { workspace_path: dir }, dir);
       expect(workspace.exitCode).toBe(0);
       expect(workspace.payload).toHaveProperty('active_runs');
-      expect(workspace.payload).toMatchObject({
-        files_under_work: [
-          {
-            path: 'src/advisory.ts',
-            peer_count: 1,
-            locked: false,
-          },
-        ],
-      });
+      const workspacePayload = workspace.payload as {
+        files_under_work: Array<{ path: string; peer_count: number; locked: boolean }>;
+        locks: Array<{ file: string; type: string; expires?: string }>;
+      };
+      expect(workspacePayload.files_under_work).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          path: 'src/advisory.ts',
+          peer_count: 1,
+          locked: false,
+        }),
+      ]));
+      expect(workspacePayload.locks).toEqual(expect.arrayContaining([
+        expect.objectContaining({ type: 'EXCLUSIVE' }),
+      ]));
+      const sensitiveLock = workspacePayload.locks.find((entry) => entry.file.endsWith('/src/sensitive.ts'));
+      expect(sensitiveLock?.expires).toBeTruthy();
 
       const stale = run(db, 'file_lock', { type: 'lock', target_files: [join(dir, 'stale.ts')], reasoning: 'stale active' }, dir);
       const staleTask = (stale.payload as { runId: string }).runId;
@@ -227,6 +257,11 @@ describe('runAwarenessToolOperation', () => {
       expect(() => run(db, 'verify', {}, dir)).toThrow('memory_verify requires');
       expect(() => run(db, 'agent_signal', { action: 'bad' }, dir)).toThrow('agent_signal requires');
       expect(() => run(db, 'file_lock', { type: 'bad' }, dir)).toThrow('file_lock requires');
+      expect(() => run(db, 'reflect', {
+        task: 'invalid reflection',
+        outcome: 'INVALID',
+        lesson: 'invalid outcomes must never coerce',
+      }, dir)).toThrow('invalid outcome');
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

@@ -5939,6 +5939,10 @@ function withScope(params, overrides) {
   SCOPE_CACHE.set(derived, scopeFromParams(params));
   return derived;
 }
+function workspaceArtifactScope(scope) {
+  if (!scope.repo && !scope.ref) return scope;
+  return { ...scope, repo: null, ref: null };
+}
 function workspaceAliases(workspacePath, cwd) {
   const aliases = /* @__PURE__ */ new Set([workspacePath]);
   try {
@@ -6153,7 +6157,7 @@ function planRows(db3, params) {
   const scope = scopeFromParams(params);
   const where = [];
   const binds = [];
-  addExactScope(where, binds, scope);
+  addExactScope(where, binds, workspaceArtifactScope(scope));
   addTextFilter(where, binds, params.query, ["plan_id", "name", "objective", "lead_agent_id", "doc_dir"]);
   addStateFilter(where, binds, stringList(params.state), "status", (state) => state.toUpperCase());
   const since = params.since?.trim();
@@ -6191,7 +6195,7 @@ function taskRows(db3, params) {
   const scope = scopeFromParams(params);
   const where = [];
   const binds = [];
-  addExactScope(where, binds, scope, "p");
+  addExactScope(where, binds, workspaceArtifactScope(scope), "p");
   addTextFilter(where, binds, params.query, ["t.task_id", "t.title", "t.reasoning", "t.acceptance_criteria", "t.created_by", "p.name"]);
   addStateFilter(where, binds, stringList(params.state), "t.status", (state) => state.toUpperCase());
   const agentId2 = params.agentId ?? params.agent_id;
@@ -6252,7 +6256,7 @@ function runRows(db3, params) {
   const scope = scopeFromParams(params);
   const where = [];
   const binds = [];
-  addExactScope(where, binds, scope, "tr");
+  addExactScope(where, binds, workspaceArtifactScope(scope), "tr");
   const query = params.query?.trim();
   if (query) {
     where.push(`(LOWER(COALESCE(tr.run_id, '') || ' ' || COALESCE(tr.rationale, '') || ' ' ||
@@ -6299,7 +6303,7 @@ function lockRows(db3, params) {
   const scope = scopeFromParams(params);
   const where = [];
   const binds = [];
-  addExactScope(where, binds, scope, "t");
+  addExactScope(where, binds, workspaceArtifactScope(scope), "t");
   addTextFilter(where, binds, params.query, ["l.file_path", "t.agent_id", "t.rationale"]);
   const agentId2 = params.agentId ?? params.agent_id;
   if (agentId2) {
@@ -6573,7 +6577,7 @@ function fileRows2(db3, params) {
   }
   const editWhere = [];
   const editBinds = [];
-  addExactScope(editWhere, editBinds, scope);
+  addExactScope(editWhere, editBinds, workspaceArtifactScope(scope));
   addTextFilter(editWhere, editBinds, params.query, ["file_path", "old_file_path", "operation", "agent_id"]);
   const editSqlWhere = editWhere.length > 0 ? `WHERE ${editWhere.join(" AND ")}` : "";
   const edits = db3.prepare(
@@ -6605,16 +6609,16 @@ function repoProfileRows(db3, params) {
   addNullableScope(memWhere, memBinds, scope);
   const taskWhere = [];
   const taskBinds = [];
-  addExactScope(taskWhere, taskBinds, scope, "p");
+  addExactScope(taskWhere, taskBinds, workspaceArtifactScope(scope), "p");
   const planWhere = [];
   const planBinds = [];
-  addExactScope(planWhere, planBinds, scope);
+  addExactScope(planWhere, planBinds, workspaceArtifactScope(scope));
   const runWhere = [];
   const runBinds = [];
-  addExactScope(runWhere, runBinds, scope);
+  addExactScope(runWhere, runBinds, workspaceArtifactScope(scope));
   const lockWhere = [];
   const lockBinds = [];
-  addExactScope(lockWhere, lockBinds, scope, "t");
+  addExactScope(lockWhere, lockBinds, workspaceArtifactScope(scope), "t");
   const refinementWhere = ["state IN ('open','ongoing')"];
   const refinementBinds = [];
   addExactScope(refinementWhere, refinementBinds, scope);
@@ -6706,7 +6710,7 @@ function filesUnderWorkRows(db3, params) {
   const scope = scopeFromParams(params);
   const where = ["tr.status = 'ACTIVE'", "rf.ended_at IS NULL", "rf.expires_at > ?"];
   const binds = [utcNow2()];
-  addExactScope(where, binds, scope, "tr");
+  addExactScope(where, binds, workspaceArtifactScope(scope), "tr");
   addTextFilter(where, binds, params.query, ["rf.file_path", "tr.agent_id", "tr.rationale", "rf.reason_override", "t.title", "p.name"]);
   const agentId2 = params.agentId ?? params.agent_id;
   if (agentId2) {
@@ -8912,7 +8916,7 @@ var KNOWN_FLAGS = {
   "hooks-install": ["host", "project_dir", "global", "check", "strict", "dry_run", "remove"],
   "schema": ["examples"],
   "plan-command": ["action", "plan_id", "name", "objective", "lead_agent_id", "agent_id", "workspace", "artifact", "status", "path", "title"],
-  "task-command": ["action", "task_id", "plan_id", "title", "reasoning", "acceptance", "path", "created_by", "agent_id", "priority", "depends_on", "run_id", "lease_minutes", "message", "blocked_reason", "test_plan", "status", "next"],
+  "task-command": ["action", "task_id", "plan_id", "title", "name", "reasoning", "acceptance", "path", "created_by", "agent_id", "priority", "depends_on", "run_id", "lease_minutes", "message", "blocked_reason", "test_plan", "status", "next"],
   "work-command": ["action", "agent_id", "session_id", "workspace", "artifact", "run_id", "rationale", "test_plan", "context_ref", "target_file", "file", "exclusive", "ttl_minutes", "ttl_seconds", "all", "full"]
 };
 function validateFlags(command2, args2) {
@@ -9092,9 +9096,24 @@ function emit(payload, exitCode2 = 0, opts2 = {}) {
   process.stdout.write((compact2 ? JSON.stringify(payload) : JSON.stringify(payload, null, 2)) + "\n");
   return exitCode2;
 }
+var activeCommand = null;
 function die(message, extras = {}) {
   const compact2 = process.argv.includes("--compact") || process.env["OCTOCODE_AWARENESS_COMPACT"] === "1";
-  process.stdout.write(JSON.stringify({ ok: false, error: message, ...extras }, null, compact2 ? 0 : 2) + "\n");
+  const payload = { ok: false };
+  const display = activeCommand ? COMMAND_DISPLAY[activeCommand] ?? activeCommand : null;
+  if (activeCommand) {
+    payload["command"] = display;
+    const schema = COMMAND_TO_SCHEMA[activeCommand];
+    if (schema) payload["schema"] = schema;
+  }
+  payload["error"] = message;
+  Object.assign(payload, extras);
+  if (activeCommand) {
+    payload["hint"] = `Run "octocode-awareness ${display} --help" for this command.`;
+    const example = COMMAND_EXAMPLE[activeCommand];
+    if (example) payload["example"] = example;
+  }
+  process.stdout.write(JSON.stringify(payload, null, compact2 ? 0 : 2) + "\n");
   process.exit(1);
 }
 function cmdTellMemory(db3, args2, dbPath2, opts2) {
@@ -9540,6 +9559,7 @@ function requiredArg(args2, key) {
 function cmdPlan(db3, args2, dbPath2, opts2) {
   const action = requiredArg(args2, "action");
   if (action === "create") {
+    if (args2["name"] == null && args2["title"] != null) args2["name"] = args2["title"];
     const result = createPlan(db3, {
       name: requiredArg(args2, "name"),
       objective: requiredArg(args2, "objective"),
@@ -9593,6 +9613,7 @@ function cmdTask(db3, args2, dbPath2, opts2) {
   const action = requiredArg(args2, "action");
   const agentId2 = String(args2["agent_id"] ?? args2["created_by"] ?? process.env.OCTOCODE_AGENT_ID ?? "").trim();
   if (action === "create") {
+    if (args2["title"] == null && args2["name"] != null) args2["title"] = args2["name"];
     const result = createTask(db3, {
       planId: requiredArg(args2, "plan_id"),
       title: requiredArg(args2, "title"),
@@ -10526,6 +10547,7 @@ if (rawArgv.length === 0 || rawArgv.includes("--help") || rawArgv.includes("-h")
 }
 var { dbPath: globalDb, filtered: filteredArgv } = extractGlobalDb(rawArgv);
 var { command, rest } = selectCommand(filteredArgv);
+activeCommand = command && command !== UNKNOWN_COMMAND ? command : null;
 var args = parseArgs(rest ?? []);
 if (globalDb) args["db"] = globalDb;
 if (command && KNOWN_FLAGS[command]) {

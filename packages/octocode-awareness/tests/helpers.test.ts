@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   utcNow, parseJsonList, tagsText, normalizeTags,
   normalizeReferences, normalizeLabel, normalizeNotificationKind, normalizeReflectionOutcome, normalizeFilePath, rowToMemory,
-  MEMORY_LABELS, REFLECTION_IMPORTANCE,
+  summarizeText, MEMORY_LABELS, REFLECTION_IMPORTANCE,
 } from '../src/helpers.js';
 import { resolve } from 'node:path';
 
@@ -16,6 +16,13 @@ describe('utcNow', () => {
     const a = new Date(utcNow()).getTime();
     const b = new Date(utcNow()).getTime();
     expect(b - a).toBeLessThan(1000);
+  });
+});
+
+describe('summarizeText', () => {
+  it('flattens whitespace and truncates only beyond the requested budget', () => {
+    expect(summarizeText('  short\n text  ', 20)).toBe('short text');
+    expect(summarizeText('  this\ntext is deliberately long  ', 16)).toBe('this text is...');
   });
 });
 

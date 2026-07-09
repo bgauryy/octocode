@@ -236,6 +236,12 @@ function withScope(
   return derived;
 }
 
+/** Plans, tasks, runs, locks, and edit logs are workspace/artifact scoped only. */
+function workspaceArtifactScope(scope: Scope): Scope {
+  if (!scope.repo && !scope.ref) return scope;
+  return { ...scope, repo: null, ref: null };
+}
+
 function workspaceAliases(workspacePath: string, cwd?: string): string[] {
   const aliases = new Set<string>([workspacePath]);
   try {
@@ -477,7 +483,7 @@ function planRows(db: DatabaseSync, params: AwarenessQueryParams): AwarenessQuer
   const scope = scopeFromParams(params);
   const where: string[] = [];
   const binds: BindValue[] = [];
-  addExactScope(where, binds, scope);
+  addExactScope(where, binds, workspaceArtifactScope(scope));
   addTextFilter(where, binds, params.query, ['plan_id', 'name', 'objective', 'lead_agent_id', 'doc_dir']);
   addStateFilter(where, binds, stringList(params.state), 'status', state => state.toUpperCase());
   const since = params.since?.trim();
@@ -517,7 +523,7 @@ function taskRows(db: DatabaseSync, params: AwarenessQueryParams): AwarenessQuer
   const scope = scopeFromParams(params);
   const where: string[] = [];
   const binds: BindValue[] = [];
-  addExactScope(where, binds, scope, 'p');
+  addExactScope(where, binds, workspaceArtifactScope(scope), 'p');
   addTextFilter(where, binds, params.query, ['t.task_id', 't.title', 't.reasoning', 't.acceptance_criteria', 't.created_by', 'p.name']);
   addStateFilter(where, binds, stringList(params.state), 't.status', state => state.toUpperCase());
   const agentId = params.agentId ?? params.agent_id;
@@ -574,7 +580,7 @@ function runRows(db: DatabaseSync, params: AwarenessQueryParams): AwarenessQuery
   const scope = scopeFromParams(params);
   const where: string[] = [];
   const binds: BindValue[] = [];
-  addExactScope(where, binds, scope, 'tr');
+  addExactScope(where, binds, workspaceArtifactScope(scope), 'tr');
   const query = params.query?.trim();
   if (query) {
     where.push(`(LOWER(COALESCE(tr.run_id, '') || ' ' || COALESCE(tr.rationale, '') || ' ' ||
@@ -616,7 +622,7 @@ function lockRows(db: DatabaseSync, params: AwarenessQueryParams): AwarenessQuer
   const scope = scopeFromParams(params);
   const where: string[] = [];
   const binds: BindValue[] = [];
-  addExactScope(where, binds, scope, 't');
+  addExactScope(where, binds, workspaceArtifactScope(scope), 't');
   addTextFilter(where, binds, params.query, ['l.file_path', 't.agent_id', 't.rationale']);
   const agentId = params.agentId ?? params.agent_id;
   if (agentId) {
@@ -922,7 +928,7 @@ function fileRows(db: DatabaseSync, params: AwarenessQueryParams): AwarenessQuer
 
   const editWhere: string[] = [];
   const editBinds: BindValue[] = [];
-  addExactScope(editWhere, editBinds, scope);
+  addExactScope(editWhere, editBinds, workspaceArtifactScope(scope));
   addTextFilter(editWhere, editBinds, params.query, ['file_path', 'old_file_path', 'operation', 'agent_id']);
   const editSqlWhere = editWhere.length > 0 ? `WHERE ${editWhere.join(' AND ')}` : '';
   const edits = db.prepare(
@@ -960,19 +966,19 @@ function repoProfileRows(db: DatabaseSync, params: AwarenessQueryParams): Awaren
 
   const taskWhere: string[] = [];
   const taskBinds: BindValue[] = [];
-  addExactScope(taskWhere, taskBinds, scope, 'p');
+  addExactScope(taskWhere, taskBinds, workspaceArtifactScope(scope), 'p');
 
   const planWhere: string[] = [];
   const planBinds: BindValue[] = [];
-  addExactScope(planWhere, planBinds, scope);
+  addExactScope(planWhere, planBinds, workspaceArtifactScope(scope));
 
   const runWhere: string[] = [];
   const runBinds: BindValue[] = [];
-  addExactScope(runWhere, runBinds, scope);
+  addExactScope(runWhere, runBinds, workspaceArtifactScope(scope));
 
   const lockWhere: string[] = [];
   const lockBinds: BindValue[] = [];
-  addExactScope(lockWhere, lockBinds, scope, 't');
+  addExactScope(lockWhere, lockBinds, workspaceArtifactScope(scope), 't');
 
   const refinementWhere = ["state IN ('open','ongoing')"];
   const refinementBinds: BindValue[] = [];
@@ -1075,7 +1081,7 @@ function filesUnderWorkRows(db: DatabaseSync, params: AwarenessQueryParams): Awa
   const scope = scopeFromParams(params);
   const where = ["tr.status = 'ACTIVE'", 'rf.ended_at IS NULL', 'rf.expires_at > ?'];
   const binds: BindValue[] = [utcNow()];
-  addExactScope(where, binds, scope, 'tr');
+  addExactScope(where, binds, workspaceArtifactScope(scope), 'tr');
   addTextFilter(where, binds, params.query, ['rf.file_path', 'tr.agent_id', 'tr.rationale', 'rf.reason_override', 't.title', 'p.name']);
   const agentId = params.agentId ?? params.agent_id;
   if (agentId) { where.push('tr.agent_id = ?'); binds.push(agentId); }

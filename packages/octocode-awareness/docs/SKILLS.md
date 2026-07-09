@@ -9,22 +9,26 @@ handoffs.
 Requires Node.js 22+.
 
 ```bash
-npx @octocodeai/octocode-awareness maintenance init --compact
-npx octocode skill --add --path <package>/dist/skills/octocode-awareness --platform common --force
-npx octocode skill --add --path <package>/dist/skills/octocode-skills --platform common --force
+npm install --global @octocodeai/octocode-awareness
+octocode-awareness maintenance init --compact
+npx octocode skill --add \
+  --path "$(npm root --global)/@octocodeai/octocode-awareness/dist/skills/octocode-awareness" \
+  --platform common --force
 ```
 
-The first skill teaches the Awareness lifecycle. `octocode-skills` owns skill
-install/review/improvement. Direct package consumers use these paths; Octocode's
-`--name octocode-awareness` route is valid when it resolves the bundled copy.
+The Awareness skill teaches the collaboration lifecycle. The bundled
+`octocode-skills` skill is optional and is only needed for skill
+install/review/improvement:
 
-Choose the local CLI first:
-
-```text
-installed skill scripts/awareness.mjs
--> monorepo packages/octocode-awareness/dist/bin/awareness.js
--> npx @octocodeai/octocode-awareness
+```bash
+npx octocode skill --add \
+  --path "$(npm root --global)/@octocodeai/octocode-awareness/dist/skills/octocode-skills" \
+  --platform common --force
 ```
+
+The examples below use the globally installed binary. For a one-off command, replace
+`octocode-awareness` with `npx @octocodeai/octocode-awareness`. In this monorepo after
+build, use `node packages/octocode-awareness/dist/bin/awareness.js`.
 
 ```bash
 export OCTOCODE_AGENT_ID="${OCTOCODE_AGENT_ID:-my-agent}"

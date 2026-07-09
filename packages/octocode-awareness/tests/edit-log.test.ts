@@ -168,6 +168,47 @@ describe('queryEditLog — filter by session_id', () => {
   });
 });
 
+describe('queryEditLog — combined canonical filters', () => {
+  it('filters by run, artifact, and operation while honoring the limit', () => {
+    const db = freshDb();
+    seedTask(db, 'run-scoped');
+    insertEditLog(db, {
+      agentId: 'agent-x',
+      runId: 'run-scoped',
+      filePath: '/repo/a.ts',
+      operation: 'update',
+      artifact: 'cli',
+    });
+    insertEditLog(db, {
+      agentId: 'agent-x',
+      runId: 'run-scoped',
+      filePath: '/repo/b.ts',
+      operation: 'update',
+      artifact: 'cli',
+    });
+    insertEditLog(db, {
+      agentId: 'agent-x',
+      runId: 'run-scoped',
+      filePath: '/repo/c.ts',
+      operation: 'create',
+      artifact: 'cli',
+    });
+
+    const rows = queryEditLog(db, {
+      runId: 'run-scoped',
+      artifact: 'cli',
+      operation: 'update',
+      limit: 1,
+    });
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      run_id: 'run-scoped',
+      artifact: 'cli',
+      operation: 'update',
+    });
+  });
+});
+
 // ─── 4. queryEditLog by file_path ─────────────────────────────────────────────
 
 describe('queryEditLog — filter by file_path', () => {

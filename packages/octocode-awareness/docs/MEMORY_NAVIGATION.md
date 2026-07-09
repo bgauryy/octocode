@@ -42,7 +42,8 @@ empty are omitted; `counts` still reports totals for Ready/Claimed/Verify/FilesU
 
 `query workboard` groups active work by relative path. Each FilesUnderWork row caps
 peers at three, includes task/plan/reason and exclusive state, and reports
-`omitted_count` instead of dumping all agents.
+`omitted_peer_count` instead of dumping all agents. Workboard column pagination uses
+`omitted_count` separately.
 
 ## Delta Delivery
 

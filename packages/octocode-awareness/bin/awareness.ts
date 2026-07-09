@@ -147,7 +147,7 @@ const KNOWN_FLAGS: Record<string, string[]> = {
   'hooks-install': ['host', 'project_dir', 'global', 'check', 'strict', 'dry_run', 'remove'],
   'schema': ['examples'],
   'plan-command': ['action', 'plan_id', 'name', 'objective', 'lead_agent_id', 'agent_id', 'workspace', 'artifact', 'status', 'path', 'title'],
-  'task-command': ['action', 'task_id', 'plan_id', 'title', 'reasoning', 'acceptance', 'path', 'created_by', 'agent_id', 'priority', 'depends_on', 'run_id', 'lease_minutes', 'message', 'blocked_reason', 'test_plan', 'status', 'next'],
+  'task-command': ['action', 'task_id', 'plan_id', 'title', 'name', 'reasoning', 'acceptance', 'path', 'created_by', 'agent_id', 'priority', 'depends_on', 'run_id', 'lease_minutes', 'message', 'blocked_reason', 'test_plan', 'status', 'next'],
   'work-command': ['action', 'agent_id', 'session_id', 'workspace', 'artifact', 'run_id', 'rationale', 'test_plan', 'context_ref', 'target_file', 'file', 'exclusive', 'ttl_minutes', 'ttl_seconds', 'all', 'full'],
 };
 
@@ -362,9 +362,28 @@ function emit(payload: Record<string, unknown>, exitCode = 0, opts: EmitOptions 
   return exitCode;
 }
 
+// Set once the command is resolved (see entry point). Lets `die` attach the same
+// {command, schema, hint, example} context the unknown-flag error carries, so a
+// missing-required-flag failure is not a second, poorer error-reporting layer.
+let activeCommand: string | null = null;
+
 function die(message: string, extras: Record<string, unknown> = {}): never {
   const compact = process.argv.includes('--compact') || process.env['OCTOCODE_AWARENESS_COMPACT'] === '1';
-  process.stdout.write(JSON.stringify({ ok: false, error: message, ...extras }, null, compact ? 0 : 2) + '\n');
+  const payload: Record<string, unknown> = { ok: false };
+  const display = activeCommand ? COMMAND_DISPLAY[activeCommand] ?? activeCommand : null;
+  if (activeCommand) {
+    payload['command'] = display;
+    const schema = COMMAND_TO_SCHEMA[activeCommand];
+    if (schema) payload['schema'] = schema;
+  }
+  payload['error'] = message;
+  Object.assign(payload, extras);
+  if (activeCommand) {
+    payload['hint'] = `Run "octocode-awareness ${display} --help" for this command.`;
+    const example = COMMAND_EXAMPLE[activeCommand];
+    if (example) payload['example'] = example;
+  }
+  process.stdout.write(JSON.stringify(payload, null, compact ? 0 : 2) + '\n');
   process.exit(1);
 }
 
@@ -871,6 +890,9 @@ function requiredArg(args: ParsedArgs, key: string): string {
 function cmdPlan(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts: EmitOptions): number {
   const action = requiredArg(args, 'action');
   if (action === 'create') {
+    // Accept --title as an alias for --name so a caller carrying `task create`
+    // vocabulary into `plan create` is not surprised by a hard error.
+    if (args['name'] == null && args['title'] != null) args['name'] = args['title'];
     const result = createPlan(db, {
       name: requiredArg(args, 'name'),
       objective: requiredArg(args, 'objective'),
@@ -927,6 +949,8 @@ function cmdTask(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts: EmitO
   const action = requiredArg(args, 'action');
   const agentId = String(args['agent_id'] ?? args['created_by'] ?? process.env.OCTOCODE_AGENT_ID ?? '').trim();
   if (action === 'create') {
+    // Accept --name as an alias for --title (plan-create vocabulary → task create).
+    if (args['title'] == null && args['name'] != null) args['title'] = args['name'];
     const result = createTask(db, {
       planId: requiredArg(args, 'plan_id'),
       title: requiredArg(args, 'title'),
@@ -1909,6 +1933,7 @@ if (rawArgv.length === 0 || rawArgv.includes('--help') || rawArgv.includes('-h')
 
 const { dbPath: globalDb, filtered: filteredArgv } = extractGlobalDb(rawArgv);
 const { command, rest } = selectCommand(filteredArgv);
+activeCommand = command && command !== UNKNOWN_COMMAND ? command : null;
 const args = parseArgs(rest ?? []);
 if (globalDb) args['db'] = globalDb;
 

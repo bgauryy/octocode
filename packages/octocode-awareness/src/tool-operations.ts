@@ -20,6 +20,7 @@ import type {
   FileLockResult,
   InsertMemoryResult,
   NotificationKind,
+  ReflectionOutcome,
   RunStatus,
 } from './types.js';
 import { auditUnverified, markVerified, type MarkVerifiedResult } from './verify.js';
@@ -255,10 +256,7 @@ export function runAwarenessToolOperation(
         );
       }
       const rawOutcome = request['outcome'];
-      const outcome =
-        rawOutcome === 'worked' || rawOutcome === 'partial' || rawOutcome === 'failed'
-          ? rawOutcome
-          : 'partial';
+      const outcome = (rawOutcome ?? 'partial') as ReflectionOutcome;
       const result = reflectMemory(db, {
         agentId,
         task: requireText(request, 'task', operation),

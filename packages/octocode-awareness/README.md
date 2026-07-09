@@ -14,21 +14,28 @@ Requires Node.js 22 or newer. The runtime library has zero npm runtime dependenc
 
 ## Install
 
+Install the persistent CLI, initialize its local store, and install the Awareness
+skill from that exact package copy:
+
 ```bash
-npx @octocodeai/octocode-awareness maintenance init --compact
+npm install --global @octocodeai/octocode-awareness
+octocode-awareness maintenance init --compact
+npx octocode skill --add \
+  --path "$(npm root --global)/@octocodeai/octocode-awareness/dist/skills/octocode-awareness" \
+  --platform common --force
 ```
 
-Install the two skills bundled by this package:
+The bundled `octocode-skills` skill is optional and intended for agents that install,
+review, or improve skills:
 
 ```bash
-npx octocode skill --add --path <package>/dist/skills/octocode-awareness --platform common --force
-npx octocode skill --add --path <package>/dist/skills/octocode-skills --platform common --force
+npx octocode skill --add \
+  --path "$(npm root --global)/@octocodeai/octocode-awareness/dist/skills/octocode-skills" \
+  --platform common --force
 ```
 
 Use a host-specific platform (`claude`, `codex`, `cursor`, `pi`, or `all`) when
-needed. Direct package consumers should use this `dist/skills/` path. The Octocode
-CLI's `--name octocode-awareness` route is also valid when it resolves its bundled
-copy; do not substitute an unrelated registry copy.
+needed. Do not substitute an unrelated registry copy for these package paths.
 
 Optional host hooks:
 
@@ -43,11 +50,9 @@ installation.
 
 ## Start
 
-Use the first available CLI:
-
-1. Installed skill: `node scripts/awareness.mjs`
-2. This monorepo after build: `node packages/octocode-awareness/dist/bin/awareness.js`
-3. Fallback: `npx @octocodeai/octocode-awareness`
+The examples below use the globally installed `octocode-awareness` binary. For a
+one-off command, replace it with `npx @octocodeai/octocode-awareness`. In this
+monorepo after build, use `node packages/octocode-awareness/dist/bin/awareness.js`.
 
 ```bash
 export OCTOCODE_AGENT_ID="${OCTOCODE_AGENT_ID:-my-agent}"

@@ -115,4 +115,24 @@ describe('production guidance contract', () => {
     expect(db).toMatch(/`work list\|show`.{0,100}flat/is);
     expect(db).toMatch(/FilesUnderWork.{0,100}group/i);
   });
+
+  it('keeps user-facing setup and examples copy-pasteable', () => {
+    const readme = read(resolve(PACKAGE_ROOT, 'README.md'));
+    const guide = read(resolve(PACKAGE_ROOT, 'docs/SKILLS.md'));
+    const reflection = read(resolve(PACKAGE_ROOT, 'docs/REFLECTION.md'));
+    const navigation = read(resolve(PACKAGE_ROOT, 'docs/MEMORY_NAVIGATION.md'));
+
+    for (const installDoc of [readme, guide]) {
+      expect(installDoc).not.toContain('<package>');
+      expect(installDoc).toContain('npm install --global @octocodeai/octocode-awareness');
+      expect(installDoc).toContain('$(npm root --global)/@octocodeai/octocode-awareness');
+      expect(installDoc).toMatch(/octocode-skills.{0,80}optional|optional.{0,80}octocode-skills/is);
+    }
+
+    expect(readme).not.toContain('Installed skill: `node scripts/awareness.mjs`');
+    expect(guide).not.toContain('installed skill scripts/awareness.mjs');
+    expect(reflection).toContain('--outcome worked');
+    expect(reflection).not.toContain('--outcome worked|partial|failed');
+    expect(navigation).toContain('`omitted_peer_count`');
+  });
 });

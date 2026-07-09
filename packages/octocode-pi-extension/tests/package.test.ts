@@ -542,7 +542,7 @@ test('write target extraction supports Pi write and edit inputs', () => {
 });
 
 test(
-  'awareness bridge claims a lock and releases it PENDING via the real DB',
+  'awareness bridge declares advisory work and ends its automatic HOOK run PENDING',
   withIsolatedDb(async ctx => {
     await withAgentId('pi-test-agent', async () => {
       const bridge = createAwarenessBridge();
@@ -569,7 +569,11 @@ test(
       const locks = db.prepare('SELECT COUNT(*) AS c FROM locks').get() as {
         c: number;
       };
-      assert.equal(locks.c, 1);
+      assert.equal(locks.c, 0, 'ordinary bridge edits do not acquire exclusive locks');
+      const activePresence = db.prepare(
+        'SELECT COUNT(*) AS c FROM run_files WHERE ended_at IS NULL'
+      ).get() as { c: number };
+      assert.equal(activePresence.c, 1);
       db.close();
 
       await bridge.handleToolResult({ toolCallId: 'tool-1' }, ctx);
@@ -587,7 +591,11 @@ test(
       const noLocks = db2.prepare('SELECT COUNT(*) AS c FROM locks').get() as {
         c: number;
       };
-      assert.equal(noLocks.c, 0, 'lock rows are deleted on release');
+      assert.equal(noLocks.c, 0, 'advisory work never created a lock row');
+      const endedPresence = db2.prepare(
+        'SELECT COUNT(*) AS c FROM run_files WHERE ended_at IS NOT NULL'
+      ).get() as { c: number };
+      assert.equal(endedPresence.c, 1);
       db2.close();
     });
   })
@@ -596,17 +604,18 @@ test(
 test(
   'awareness bridge blocks only on lock conflicts',
   withIsolatedDb(async ctx => {
-    await withAgentId('other-agent', async () => {
-      const holder = createAwarenessBridge();
-      await holder.handleToolCall(
-        {
-          toolName: 'write',
-          toolCallId: 'holder-1',
-          input: { path: 'src/conflict.js' },
-        },
-        ctx
-      );
-    });
+    const explicit = executeMemoryOperation(
+      'file_lock',
+      {
+        type: 'lock',
+        target_files: ['src/conflict.js'],
+        ttl_ms: 60_000,
+        reasoning: 'sensitive migration',
+      },
+      () => 'other-agent',
+      ctx
+    );
+    assert.equal((explicit.details as { exit?: number } | undefined)?.exit, 0);
 
     await withAgentId('pi-test-agent', async () => {
       const bridge = createAwarenessBridge();
@@ -766,13 +775,14 @@ test(
         }>;
       };
       assert.match(locked.runId, /^run_/);
-      assert.deepEqual(locked.files, [path.join(ctx.cwd, 'src/tool-lock.js')]);
+      const canonicalWorkspace = fs.realpathSync(ctx.cwd);
+      assert.deepEqual(locked.files, [path.join(canonicalWorkspace, 'src/tool-lock.js')]);
       assert.equal(locked.reasoning, 'coordinate test edit');
       assert.ok(locked.acquiredAt);
       assert.ok(locked.expiresAt);
       assert.equal(
         locked.locks[0]!.file_path,
-        path.join(ctx.cwd, 'src/tool-lock.js')
+        path.join(canonicalWorkspace, 'src/tool-lock.js')
       );
       assert.equal(locked.locks[0]!.reasoning, 'coordinate test edit');
       assert.ok(locked.locks[0]!.acquired_at);
