@@ -145,7 +145,10 @@ export interface DirectToolMetadata {
 }
 
 type DirectToolAutoFilledField =
-  'id' | 'mainResearchGoal' | 'researchGoal' | 'reasoning';
+  | 'id'
+  | 'mainResearchGoal'
+  | 'researchGoal'
+  | 'reasoning';
 
 export interface PrepareDirectToolInputOptions {
   sourceLabel?: string;

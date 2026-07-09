@@ -92,7 +92,8 @@ export function createResponseFormat(
   keysPriority?: string[]
 ): string {
   const cleanedData = (cleanJsonObject(responseData) ?? {}) as
-    StructuredToolResponse | BulkToolResponse;
+    | StructuredToolResponse
+    | BulkToolResponse;
 
   // Sanitize PER FIELD before serializing — not on the final serialized blob.
   // The secret scanner is superlinear on large code blobs (an 8 MB result took
@@ -102,7 +103,8 @@ export function createResponseFormat(
   // the pathological single-pass scan over the whole document. Mirrors how
   // structuredContent is sanitized (sanitizeStructuredContent).
   const sanitizedData = sanitizeStructuredContent(cleanedData) as
-    StructuredToolResponse | BulkToolResponse;
+    | StructuredToolResponse
+    | BulkToolResponse;
 
   const outputFormat = getOutputFormat();
   const defaultPriority =

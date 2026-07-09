@@ -70,33 +70,9 @@ function patchSkillCommandSpec(spec: CLICommandSpec): CLICommandSpec {
     ...patchedOptions,
     ...SKILL_SPEC_EXTRA_OPTIONS.filter(option => !optionNames.has(option.name)),
   ];
-  const scheme = (spec.scheme ?? []).map(line => {
-    if (line.startsWith('required source:')) {
-      return 'required source: pass exactly one of --add <github-folder>, --add --path <local-skill-or-skills-dir>, --name <octocode-skill>, or --install-all. --name checks bundled skills first, then falls back to GitHub.';
-    }
-    if (line.startsWith('accepted --add forms')) {
-      return 'accepted --add forms include GitHub URLs/shorthands, or --add --path pointing at a local skill folder, SKILL.md, or direct-child skills library.';
-    }
-    if (line.startsWith('--name must')) {
-      return '--name must be a safe official skill name such as octocode-awareness or octocode-research. Run with --list to see available Octocode skill names.';
-    }
-    if (line.startsWith('--platform')) {
-      return '--platform (alias --target, default: common) accepts comma-separated values: common (-> ~/.agents/skills), cursor (-> ~/.cursor/skills), claude (-> Claude Code + Claude Desktop skill folders), codex (-> ~/.agents/skills), opencode (-> ~/.config/opencode/skills), pi (-> ~/.pi/agent/skills), copilot, gemini, or all. --all is shorthand for --platform all.';
-    }
-    if (line.startsWith('platform paths:')) {
-      return 'platform paths: common/codex -> ~/.agents/skills, cursor -> ~/.cursor/skills, opencode -> ~/.config/opencode/skills, pi -> ~/.pi/agent/skills, claude -> Claude Code plus Claude Desktop skill folders. Windows uses platform-appropriate AppData paths.';
-    }
-    if (line.startsWith('install mode:')) {
-      return 'install mode: symlink (default) links each target to the Octocode-managed source cache; copy embeds a standalone copy; hybrid uses copy for claude targets and symlink for everything else.';
-    }
-    if (line.startsWith('runtime:')) {
-      return "runtime: validates the source, refreshes Octocode's skill-sources cache, then installs to the selected platform destinations. Bundled/local sources avoid GitHub.";
-    }
-    if (line.startsWith('output:')) {
-      return 'output: human summary by default; --json returns success, skills[], platforms, mode, and installed/skipped/failed counts.';
-    }
-    return line;
-  });
+  // Use COMMAND_SPECS scheme lines verbatim — they are the canonical source of truth.
+  // Only append extra lines that cover local-specific capabilities not yet in the external spec.
+  const scheme = spec.scheme ?? [];
 
   return {
     ...spec,

@@ -23,7 +23,9 @@ type CountedLocalSearchFile = LocalSearchCodeFile & {
 };
 
 type NextToolName =
-  'localGetFileContent' | 'lspGetSemantics' | 'localSearchCode';
+  | 'localGetFileContent'
+  | 'lspGetSemantics'
+  | 'localSearchCode';
 
 type NextConfidence = 'exact' | 'heuristic';
 
@@ -476,7 +478,8 @@ type RankingDebug = {
 /** Build the deterministic ranking context from the validated query. */
 function buildRankContext(query: RipgrepQuery): RankContext {
   const profileOverride = query.rankingProfile as
-    RankContext['profileOverride'] | undefined;
+    | RankContext['profileOverride']
+    | undefined;
   // If the user explicitly scoped the search into a low-signal/test/docs area
   // (via include globs or a path that targets such an area), don't penalize
   // those roles. Path detection is anchored to segments — "latest/" / "contest/"

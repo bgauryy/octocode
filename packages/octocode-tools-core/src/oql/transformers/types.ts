@@ -12,4 +12,5 @@ export type TransformBlocked = {
 };
 
 export type TransformResult<TQuery extends Record<string, unknown>> =
-  TransformOk<TQuery> | TransformBlocked;
+  | TransformOk<TQuery>
+  | TransformBlocked;

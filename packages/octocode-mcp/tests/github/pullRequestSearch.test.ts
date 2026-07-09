@@ -453,7 +453,8 @@ describe('Pull Request Search', () => {
       });
 
       const pr = result.pull_requests?.[0] as
-        Record<string, unknown> | undefined;
+        | Record<string, unknown>
+        | undefined;
       expect(pr).toBeDefined();
       const warnings = pr?._sanitization_warnings as string[] | undefined;
       expect(warnings).toBeDefined();
@@ -657,7 +658,8 @@ describe('Pull Request Search', () => {
       expect(result.pull_requests?.[0]?.commit_details).toBeUndefined();
       expect(mockLogSessionError).toHaveBeenCalled();
       const prWithWarnings = result.pull_requests?.[0] as
-        { _sanitization_warnings?: string[] } | undefined;
+        | { _sanitization_warnings?: string[] }
+        | undefined;
       expect(prWithWarnings?._sanitization_warnings).toBeDefined();
     });
 
@@ -923,7 +925,8 @@ describe('Pull Request Search', () => {
       });
 
       const pr = result.pull_requests?.[0] as
-        Record<string, unknown> | undefined;
+        | Record<string, unknown>
+        | undefined;
       expect(pr).toBeDefined();
       const comments = pr?.comment_details as Array<Record<string, unknown>>;
       expect(comments).toHaveLength(2);
@@ -1434,7 +1437,8 @@ describe('Pull Request Search', () => {
       );
 
       const cacheOptions = mockWithDataCache.mock.calls[0]?.[2] as
-        { shouldCache: (data: unknown) => boolean } | undefined;
+        | { shouldCache: (data: unknown) => boolean }
+        | undefined;
       expect(cacheOptions?.shouldCache({ error: 'Some error' })).toBe(false);
       expect(cacheOptions?.shouldCache({ pull_requests: [] })).toBe(true);
     });

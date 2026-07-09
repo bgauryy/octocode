@@ -140,7 +140,9 @@ describe('buildGithubFetchContentFinalizer — group building & narrowing', () =
           files: [
             { path: 'a.ts', size: 10, type: 'file' },
             'not-a-record',
-            {/* defaults */},
+            {
+              /* defaults */
+            },
           ],
         },
       },

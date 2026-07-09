@@ -67,7 +67,8 @@ function extractData<T>(result: CallToolResult): T | undefined {
 
 function extractStatus(result: CallToolResult): string | undefined {
   const sc = result.structuredContent as
-    { results?: Array<{ status?: string }> } | undefined;
+    | { results?: Array<{ status?: string }> }
+    | undefined;
   return sc?.results?.[0]?.status;
 }
 

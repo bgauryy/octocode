@@ -1040,32 +1040,37 @@ describe('CLI', () => {
     const r = spawnSync(NODE, [SCRIPT, '--help'], { encoding: 'utf8', timeout: 5000 });
     expect(r.status).toBe(0);
     expect(r.stdout).toContain('memory record');
-    expect(r.stdout).toContain('local-first: use octocode-awareness or a bundled local node path when present');
-    expect(r.stdout).toContain('fallback: npx @octocodeai/octocode-awareness <command>');
-    expect(r.stdout).toContain('The Agent Skill is bundled with this package under dist/skills/');
-    expect(r.stdout).toContain('npx octocode skill --add --path <awareness-package>/dist/skills/octocode-awareness --platform common');
-    expect(r.stdout).toContain('do not install awareness by registry name');
+    expect(r.stdout).toContain('<AGENT_INSTRUCTIONS>');
+    expect(r.stdout).toContain('</AGENT_INSTRUCTIONS>');
+    expect(r.stdout).toContain('BUNDLED SKILLS');
+    expect(r.stdout).toContain('octocode-awareness');
+    expect(r.stdout).toContain('octocode-skills');
+    expect(r.stdout).toContain('Do not install awareness by registry name');
     expect(r.stdout).toContain('octocode-awareness schema commands --compact');
     expect(r.stdout).not.toContain('tell-memory');
     expect(r.stdout).not.toContain('get-memory');
+    expect(r.stdout).not.toContain('<awareness-package>');
   });
 
-  it('no command prints the easy-install discovery guide', () => {
+  it('no command prints the agent-instructions discovery guide', () => {
     const r = spawnSync(NODE, [SCRIPT], { encoding: 'utf8', timeout: 5000 });
     expect(r.status).toBe(0);
-    expect(r.stdout).toContain('easy install:');
-    expect(r.stdout).toContain('If the CLI is bundled locally, tell your agent to run that local CLI');
-    expect(r.stdout).toContain('Package fallback only when no local CLI exists');
-    expect(r.stdout).toContain('npx octocode skill --add --path <awareness-package>/dist/skills/octocode-awareness --platform common');
+    expect(r.stdout).toContain('<AGENT_INSTRUCTIONS>');
+    expect(r.stdout).toContain('BUNDLED SKILLS');
+    expect(r.stdout).toContain('dist/skills/octocode-awareness');
+    expect(r.stdout).toContain('dist/skills/octocode-skills');
+    expect(r.stdout).toContain('FIRST COMMANDS');
+    expect(r.stdout).not.toContain('<awareness-package>');
   });
 
   it('--help --compact returns a short agent guide', () => {
     const r = spawnSync(NODE, [SCRIPT, '--help', '--compact'], { encoding: 'utf8', timeout: 5000 });
     expect(r.status).toBe(0);
     expect(r.stdout).toContain('canonical noun/verb CLI');
-    expect(r.stdout).toContain('local-first: octocode-awareness <command>');
-    expect(r.stdout).toContain('fallback: npx @octocodeai/octocode-awareness <command>');
+    expect(r.stdout).toContain('bundled-skills:');
+    expect(r.stdout).toContain('dist/skills/octocode-awareness');
     expect(r.stdout).toContain('schema commands --compact');
+    expect(r.stdout).not.toContain('<awareness-package>');
     expect(r.stdout.split('\n').filter(Boolean).length).toBeLessThanOrEqual(8);
   });
 
@@ -1073,8 +1078,9 @@ describe('CLI', () => {
     const r = spawnSync(NODE, [SCRIPT, '--compact'], { encoding: 'utf8', timeout: 5000 });
     expect(r.status).toBe(0);
     expect(r.stdout).toContain('canonical noun/verb CLI');
-    expect(r.stdout).toContain('bundled skill path: <awareness-package>/dist/skills/octocode-awareness');
-    expect(r.stdout).toContain('Octocode ops: npx octocode skill|search');
+    expect(r.stdout).toContain('bundled-skills:');
+    expect(r.stdout).toContain('dist/skills/octocode-awareness');
+    expect(r.stdout).not.toContain('<awareness-package>');
     expect(r.stdout).not.toContain('unknown command');
   });
 

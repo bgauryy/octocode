@@ -33,7 +33,8 @@ export function firstQueryData<T = Record<string, unknown>>(
   result: CallToolResult
 ): { data?: T; status?: string } {
   const sc = result.structuredContent as
-    { results?: Array<{ status?: string; data?: unknown }> } | undefined;
+    | { results?: Array<{ status?: string; data?: unknown }> }
+    | undefined;
   const first = sc?.results?.[0];
   return { data: first?.data as T | undefined, status: first?.status };
 }

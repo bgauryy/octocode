@@ -440,7 +440,8 @@ describe('searchPackage - NPM (CLI)', () => {
     expect('packages' in result).toBe(true);
     if ('packages' in result) {
       const pkgB = result.packages.find(p => p.name === 'pkg-b') as
-        NpmPackageResult | undefined;
+        | NpmPackageResult
+        | undefined;
       expect(pkgB?.repositoryDirectory).toBe('packages/pkg-b');
     }
   });
