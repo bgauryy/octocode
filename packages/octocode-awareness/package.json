@@ -1,10 +1,14 @@
 {
   "name": "@octocodeai/octocode-awareness",
   "version": "1.0.0",
-  "description": "Octocode Awareness: shared workspace coordination plus reflection/learning skills — zero npm runtime deps.",
+  "description": "Octocode Awareness: always-on workspace coordination — awareness, collaboration, learning, memory/wiki, bookkeeping, housekeeping, reflection — zero npm runtime deps.",
   "keywords": [
     "octocode",
+    "awareness",
+    "collaboration",
     "memory",
+    "bookkeeping",
+    "housekeeping",
     "sqlite",
     "agent"
   ],
@@ -35,7 +39,6 @@
   },
   "files": [
     "dist/**",
-    "skills/**",
     "docs/**",
     "README.md",
     "LICENSE"
@@ -52,6 +55,8 @@
     "test": "yarn build && node ../../node_modules/vitest/vitest.mjs run --coverage",
     "test:quiet": "yarn build && node ../../node_modules/vitest/vitest.mjs run --reporter=dot --silent",
     "test:smoke": "node skills/octocode-awareness/scripts/smoke-multi-agent.mjs",
+    "pack:check": "node scripts/verify-package.mjs",
+    "prepack": "yarn build && node scripts/verify-package.mjs",
     "self-test": "node dist/bin/awareness.js maintenance self-test",
     "verify": "yarn lint && yarn test"
   },

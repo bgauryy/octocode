@@ -37,6 +37,7 @@ export interface TaskClaimRecord {
 export interface TaskRunRecord {
   run_id: string;
   task_id: string | null;
+  origin: 'TASK' | 'WORK' | 'HOOK';
   agent_id: string;
   session_id: string | null;
   rationale: string;
@@ -45,7 +46,6 @@ export interface TaskRunRecord {
   status: 'PENDING' | 'ACTIVE' | 'SUCCESS' | 'FAILED';
   workspace_path: string | null;
   artifact: string | null;
-  files_json: string;
   created_at: string;
   updated_at: string;
 }
@@ -110,6 +110,8 @@ function evictExpiredTaskClaims(db: DatabaseSync, now = utcNow()): void {
   try {
     for (const claim of expired) {
       db.prepare('DELETE FROM locks WHERE run_id = ?').run(claim.run_id);
+      db.prepare(`UPDATE run_files SET heartbeat_at = ?, expires_at = ?, ended_at = ?
+        WHERE run_id = ? AND ended_at IS NULL`).run(now, now, now, claim.run_id);
       db.prepare("UPDATE task_runs SET status = 'FAILED', updated_at = ? WHERE run_id = ? AND status = 'ACTIVE'")
         .run(now, claim.run_id);
       db.prepare("UPDATE tasks SET status = 'OPEN', updated_at = ? WHERE task_id = ? AND status = 'IN_PROGRESS'")
@@ -306,11 +308,11 @@ export function claimTask(
         .run(params.sessionId, agentId, workspacePath, artifact, now);
     }
     db.prepare(`INSERT INTO task_runs
-      (run_id, task_id, agent_id, session_id, rationale, test_plan, status, workspace_path, artifact, files_json, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, 'ACTIVE', ?, ?, ?, ?, ?)`)
+      (run_id, task_id, origin, agent_id, session_id, rationale, test_plan, status, workspace_path, artifact, created_at, updated_at)
+      VALUES (?, ?, 'TASK', ?, ?, ?, ?, 'ACTIVE', ?, ?, ?, ?)`)
       .run(runId, params.taskId, agentId, params.sessionId ?? null, reasoning,
         params.testPlan?.trim() || acceptanceCriteria, workspacePath, artifact,
-        '[]', now, now);
+        now, now);
     db.prepare(`INSERT INTO task_claims(task_id, run_id, agent_id, claimed_at, heartbeat_at, expires_at)
       VALUES (?, ?, ?, ?, ?, ?)`)
       .run(params.taskId, runId, agentId, now, now, expiresAt);
@@ -363,6 +365,8 @@ export function submitTask(
       throw new Error('only the active claimant can submit this task');
     }
     db.prepare('DELETE FROM locks WHERE run_id = ?').run(params.runId);
+    db.prepare(`UPDATE run_files SET heartbeat_at = ?, expires_at = ?, ended_at = ?
+      WHERE run_id = ? AND ended_at IS NULL`).run(now, now, now, params.runId);
     db.prepare("UPDATE task_runs SET status = 'PENDING', updated_at = ? WHERE run_id = ? AND status = 'ACTIVE'")
       .run(now, params.runId);
     db.prepare("UPDATE tasks SET status = 'VERIFY', updated_at = ? WHERE task_id = ?")
@@ -399,6 +403,8 @@ export function releaseTaskClaim(
       throw new Error('only the active claimant can release this task');
     }
     db.prepare('DELETE FROM locks WHERE run_id = ?').run(params.runId);
+    db.prepare(`UPDATE run_files SET heartbeat_at = ?, expires_at = ?, ended_at = ?
+      WHERE run_id = ? AND ended_at IS NULL`).run(now, now, now, params.runId);
     db.prepare("UPDATE task_runs SET status = 'FAILED', updated_at = ? WHERE run_id = ? AND status = 'ACTIVE'")
       .run(now, params.runId);
     db.prepare('UPDATE tasks SET status = ?, updated_at = ? WHERE task_id = ?')

@@ -25,4 +25,4 @@ export const RUN_LOG_INSERT_ABANDONED =
 
 export const RUN_LOG_INSERT_STALE_ABANDONED =
   `INSERT INTO run_log(event_id, run_id, agent_id, event_type, message, created_at)
-   VALUES (?, ?, ?, 'ABANDONED', 'stale active (no live locks) abandoned by audit-unverified --abandon', ?)`;
+   VALUES (?, ?, ?, 'ABANDONED', 'stale active (no live file presence) abandoned by audit-unverified --abandon', ?)`;

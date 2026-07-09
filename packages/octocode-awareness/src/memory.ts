@@ -542,7 +542,6 @@ export function insertMemory(db: DatabaseSync, params: InsertMemoryParams): Inse
     ref: refArg,
     fileTreeFingerprint = null,
     cwd,
-    compatCoerce = false,
   } = params;
 
   const imp = Number(importance);
@@ -553,10 +552,7 @@ export function insertMemory(db: DatabaseSync, params: InsertMemoryParams): Inse
   const memoryId = 'mem_' + randomUUID().replace(/-/g, '');
   const tagList = normalizeTags(tags, tagsCsv);
   const refList = normalizeReferences(references);
-  // Hard-error on unknown labels unless compatCoerce (audit hardening H3).
-  const normalizedLabel = normalizeLabel(Array.isArray(label) ? label[0] : label, {
-    coerce: Boolean(compatCoerce),
-  });
+  const normalizedLabel = normalizeLabel(Array.isArray(label) ? label[0] : label);
   const createdAt = utcNow();
   const validFromVal = vf ?? createdAt;
 

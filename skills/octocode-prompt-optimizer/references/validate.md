@@ -40,3 +40,6 @@ Load after FIX and before OUTPUT. **STOP: validate the complete draft before wri
 ### On Failure
 - **IF** a repair is local → **THEN** return to FIX.
 - **IF** intent changed or a material choice is unresolved → **THEN** return to UNDERSTAND and ask when needed.
+
+## Sources
+- Anthropic, [Writing effective tools for AI agents](https://www.anthropic.com/engineering/writing-tools-for-agents) — use verifiable outcomes and measure errors, calls, and tokens alongside task success.

@@ -1,37 +1,40 @@
-# Files Awareness And Collisions
+# Files Awareness And Overlap
 
-Read this when multiple agents may touch the same repo or a claim conflicts. For command flags read `references/lock-protocol.md`; for timestamps, views, and session capture read `references/session-observability.md`.
+Every structured edit declares advisory `run_files` presence. Ordinary peers may
+work on the same path; awareness makes that choice informed rather than silently
+blocking it.
 
-## Workspace Status
+## On Overlap
 
-`workspace status --workspace "$PWD"` reads the canonical DB and shows active plans, ready/in-progress/verify tasks, active/pending runs, live locks, memories, and refinements. It cleans expired standalone locks into `PENDING` runs; it never reads generated `.octocode/` files.
-
-Use `refinement get` for handoff bodies and plain Git for the working tree:
+1. Read the bounded peer packet: agent, task/run, short reason, exclusive state.
+2. If changes are independent, continue; unchanged peer state will not repeat.
+3. If changes interact, inspect `work show --file <path>` and signal the peer.
+4. If sensitive exclusivity is needed, request it; acquisition fails until other live
+   presence ends. Never surprise active peers with a lock.
 
 ```bash
-octocode-awareness workspace status --workspace "$PWD" --compact
-octocode-awareness refinement get --workspace "$PWD" --state open --compact
-git status --porcelain
-git rev-parse --abbrev-ref HEAD
+octocode-awareness work show --workspace "$PWD" --file src/auth.ts --compact
+octocode-awareness signal publish --agent-id "$OCTOCODE_AGENT_ID" \
+  --workspace "$PWD" --kind request --subject "Coordinate auth.ts" \
+  --file src/auth.ts --compact
 ```
 
-Keep one normalized workspace root. Pass absolute target paths or run from repo root so same-file claims collide.
+## On Exclusive Conflict
 
-## Collision Protocol
+Stop before editing. Preserve holder, run/task, reason, heartbeat/expiry. Choose
+bounded wait, direct coordination, another task/file, or expired cleanup.
 
-A collision is a live lock, `lock acquire` exit `2`, a task already claimed by another agent, or an `ongoing` refinement over the same work.
+`lock wait` observes only; acquire after clear. Preview `lock prune --dry-run` before
+cleanup. Expiry removes coordination, never proves completion.
 
-1. Stop before editing; preserve the conflict payload.
-2. Report holder, file, acquisition/expiry time, rationale, and test plan.
-3. Choose bounded wait, non-overlapping work, direct coordination, or approved stale cleanup.
-4. If waiting, run `lock wait`; exit `0` means clear, not claimed. Immediately run `lock acquire` again.
-5. If cleanup is justified, preview `lock prune --dry-run`; pruning releases files but leaves standalone run verification `PENDING`. Task claims have their own lease and heartbeat.
+## Coverage
 
-Use `signal publish --kind request|blocker` for a longer wait or ownership question. Never steal a live lock or treat stale cleanup as success.
+Hooks cover recognized write payloads. Arbitrary shell/external writes may only be
+found by dirty-tree reconciliation; without hooks, call `work start|touch` manually.
+Keep one normalized workspace and absolute operational paths so the same file joins.
 
-## Scope Facts
+Task paths are non-exclusive planning scope. Run files are live work. Locks are
+exclusive safety. Edit log is completed history; do not conflate these four layers.
 
-Refinements may auto-fill repo/ref from Git. Non-Git workspaces remain unscoped rather than inheriting another cwd.
-Mismatched scope can hide correct rows. Keep workspace/artifact/repo/ref consistent across attend, task choice, locks, verification, and handoff.
-
-Hooks enforce the mechanical conflict gate; this page owns the human decision after a conflict.
+Command/verification detail: `lock-protocol.md`; timing/handoffs:
+`session-observability.md`.

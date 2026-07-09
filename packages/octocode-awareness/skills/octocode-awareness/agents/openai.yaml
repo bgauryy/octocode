@@ -1,4 +1,4 @@
 interface:
   display_name: "Octocode Awareness"
-  short_description: "Shared plans, agent-selectable tasks, locks, runs, memory, and handoffs."
-  default_prompt: "Use octocode-awareness before, during, and after shared-repo work. First run attend --workspace \"$PWD\" --query \"<current task>\" --compact and inspect workboard Ready/Claimed/Verify. Claim a matching plan task and use its run_id for file locks; for a quick independent edit, acquire a standalone lock without task_id. Submit shared tasks, verify runs, coordinate conflicts and signals, record only durable lessons, capture handoffs, and refresh repo context when useful."
+  short_description: "Always-on workspace awareness: collaboration, learning, memory/wiki, bookkeeping, housekeeping, locks, verification."
+  default_prompt: "Use always when working in a workspace. Run attend --workspace \"$PWD\" --query \"<current task>\" --compact; inspect Ready, Claimed, Verify, and FilesUnderWork. Claim a matching task or open explicit work with reasoning/files/test plan. Declare every edited file; ordinary overlap is allowed, while sensitive work uses exclusive protection. Submit/end, run checks, verify, then bookkeep (reflect/memory) and housekeep (digest/prune dry-run) before closing."

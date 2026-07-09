@@ -31,4 +31,4 @@ One call writes a tagged durable memory and an `instructions` refinement. The co
 
 After updating the owning instruction, verify the changed agent behavior or contract. Close the same row with `refinement set --refinement-id <id> --state done`, then inject only if file-based readers need the refreshed Open/Resolved projection.
 
-When dogfooding Awareness, use this channel if Awareness's own instructions misled the agent. Strong, closed feedback should reduce repeat items.
+Package maintainers: use this channel if Awareness's own instructions misled the agent. Strong, closed feedback should reduce repeat items.

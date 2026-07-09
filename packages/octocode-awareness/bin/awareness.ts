@@ -20,6 +20,7 @@ import { mineDocStaleness, proposeDocRefresh } from '../src/docs.js';
 import { listSkillDocs, showSkillDoc } from '../src/docs-catalog.js';
 import { insertRefinement, getRefinements, updateRefinement, deleteRefinement } from '../src/refinements.js';
 import { preFlightIntent, releaseFileLock } from '../src/intents.js';
+import { endWork, listWork, showWork, startWork, touchWork } from '../src/work.js';
 import { createPlan, getPlan, joinPlan, listPlans, registerPlanDocument, updatePlanStatus, type PlanStatus } from '../src/plans.js';
 import {
   addTaskDependency, claimTask, createTask, getTask, heartbeatTaskClaim,
@@ -37,6 +38,8 @@ import { developerReviewDoc, formatAwarenessQueryResult, injectRepoContext, quer
 import {
   normalizeNotificationKind,
   normalizeFilePath,
+  projectMemoryLean,
+  summarizeText,
 } from '../src/helpers.js';
 import { normalizeWorkspacePath } from '../src/git.js';
 import { runHookCommand } from './hook-runner.js';
@@ -111,14 +114,14 @@ const VALUE_REQUIRED_FLAGS = new Set([
   'name', 'objective', 'title', 'acceptance', 'blocked_reason', 'path',
 ]);
 const KNOWN_FLAGS: Record<string, string[]> = {
-  'tell-memory': ['agent_id', 'task_context', 'observation', 'importance', 'label', 'tag', 'reference', 'supersedes', 'failure_signature', 'valid_from', 'valid_to', 'workspace', 'artifact', 'repo', 'ref', 'file', 'file_tree_fingerprint', 'compat_coerce'],
-  'get-memory': ['query', 'limit', 'min_importance', 'label', 'tag', 'smart', 'workspace', 'artifact', 'repo', 'ref', 'state', 'sort', 'global_only', 'strict_scope', 'as_of', 'reference', 'regex', 'file_regex', 'file', 'explain', 'semantic'],
+  'tell-memory': ['agent_id', 'task_context', 'observation', 'importance', 'label', 'tag', 'reference', 'supersedes', 'failure_signature', 'valid_from', 'valid_to', 'workspace', 'artifact', 'repo', 'ref', 'file', 'file_tree_fingerprint'],
+  'get-memory': ['query', 'limit', 'min_importance', 'label', 'tag', 'smart', 'workspace', 'artifact', 'repo', 'ref', 'state', 'sort', 'global_only', 'strict_scope', 'as_of', 'reference', 'regex', 'file_regex', 'file', 'explain', 'semantic', 'full'],
   'forget': ['memory_id', 'tag', 'tags', 'before', 'max_importance', 'workspace', 'artifact', 'repo', 'ref', 'dry_run'],
-  'reflect': ['agent_id', 'task', 'outcome', 'lesson', 'worked', 'didnt_work', 'fix_repo', 'fix_file', 'fix_harness', 'fix_instructions', 'failure_signature', 'importance', 'judgment_note', 'duo', 'eval_failure_json', 'workspace', 'artifact', 'repo', 'ref', 'compat_coerce'],
+  'reflect': ['agent_id', 'task', 'outcome', 'lesson', 'worked', 'didnt_work', 'fix_repo', 'fix_file', 'fix_harness', 'fix_instructions', 'failure_signature', 'importance', 'judgment_note', 'duo', 'eval_failure_json', 'workspace', 'artifact', 'repo', 'ref'],
   'refine-set': ['agent_id', 'reasoning', 'remember', 'quality', 'state', 'workspace', 'artifact', 'repo', 'ref', 'file', 'refinement_id'],
   'refine-get': ['workspace', 'artifact', 'repo', 'ref', 'quality', 'include_handoffs', 'state', 'limit'],
   'refine-delete': ['refinement_id', 'workspace', 'artifact', 'dry_run'],
-  'pre-flight-intent': ['agent_id', 'workspace', 'artifact', 'run_id', 'rationale', 'test_plan', 'context_ref', 'target_file', 'file', 'lock_type', 'ttl_minutes', 'ttl_seconds', 'wait_seconds', 'retry_interval', 'strict_agent_id'],
+  'pre-flight-intent': ['agent_id', 'workspace', 'artifact', 'run_id', 'rationale', 'test_plan', 'context_ref', 'target_file', 'file', 'ttl_minutes', 'ttl_seconds', 'wait_seconds', 'retry_interval', 'strict_agent_id'],
   'release-file-lock': ['agent_id', 'run_id', 'target_file', 'file', 'status', 'verified', 'verified_note', 'workspace', 'artifact'],
   'status': ['workspace', 'artifact', 'limit'],
   'init': [],
@@ -128,23 +131,24 @@ const KNOWN_FLAGS: Record<string, string[]> = {
   'verify': ['run_id', 'all_pending', 'agent_id', 'status', 'message', 'workspace', 'artifact'],
   'mine-weakness': ['agent_id', 'workspace', 'artifact', 'min_count', 'limit', 'cwd'],
   'doc-staleness': ['agent_id', 'workspace', 'artifact', 'targets_json', 'min_edits', 'min_lines', 'propose', 'session_id'],
-  'docs-catalog': ['action', 'name'],
+  'docs-catalog': ['action', 'name', 'full'],
   'export-harness': ['limit', 'min_importance', 'workspace', 'artifact'],
   'developer-review': ['workspace', 'artifact', 'repo', 'ref', 'state', 'limit', 'format', 'query'],
   'query': ['view', 'query', 'limit', 'format', 'out', 'workspace', 'artifact', 'repo', 'ref', 'agent_id', 'state', 'label', 'file', 'since', 'include_bodies'],
   'attend': ['query', 'limit', 'workspace', 'artifact', 'repo', 'ref', 'file', 'include_bodies', 'explain_organ'],
   'repo-inject': ['query', 'limit', 'out', 'out_dir', 'workspace', 'artifact', 'repo', 'ref', 'mode', 'check', 'include_view', 'include_bodies'],
   'agent-registry': ['action', 'agent_id', 'agent_name', 'workspace', 'artifact', 'context', 'limit'],
-  'agent-signal': ['action', 'agent_id', 'workspace', 'artifact', 'repo', 'ref', 'kind', 'subject', 'body', 'to_agent', 'file', 'ref_id', 'importance', 'in_reply_to', 'thread_id', 'signal_id', 'all', 'unread_only', 'mark_read', 'limit', 'format', 'compat_coerce'],
+  'agent-signal': ['action', 'agent_id', 'workspace', 'artifact', 'repo', 'ref', 'kind', 'subject', 'body', 'to_agent', 'file', 'ref_id', 'importance', 'in_reply_to', 'thread_id', 'signal_id', 'all', 'unread_only', 'mark_read', 'limit', 'format', 'include_bodies'],
   'notify-prune': ['signal_id', 'resolved', 'older_than_days', 'dry_run', 'workspace', 'artifact'],
   'session-capture': ['agent_id', 'workspace', 'artifact', 'repo', 'ref', 'reason', 'cwd'],
-  'wait-for-lock': ['agent_id', 'target_file', 'file', 'workspace', 'artifact', 'lock_type', 'wait_seconds', 'retry_interval'],
+  'wait-for-lock': ['agent_id', 'target_file', 'file', 'workspace', 'artifact', 'wait_seconds', 'retry_interval'],
   'digest': ['retention_days', 'refinement_handoff_retention_days', 'refinement_done_retention_days', 'dry_run', 'export_doc', 'workspace', 'artifact'],
   'hook-run': [],
   'hooks-install': ['host', 'project_dir', 'global', 'check', 'strict', 'dry_run', 'remove'],
-  'schema': [],
+  'schema': ['examples'],
   'plan-command': ['action', 'plan_id', 'name', 'objective', 'lead_agent_id', 'agent_id', 'workspace', 'artifact', 'status', 'path', 'title'],
   'task-command': ['action', 'task_id', 'plan_id', 'title', 'reasoning', 'acceptance', 'path', 'created_by', 'agent_id', 'priority', 'depends_on', 'run_id', 'lease_minutes', 'message', 'blocked_reason', 'test_plan', 'status', 'next'],
+  'work-command': ['action', 'agent_id', 'session_id', 'workspace', 'artifact', 'run_id', 'rationale', 'test_plan', 'context_ref', 'target_file', 'file', 'exclusive', 'ttl_minutes', 'ttl_seconds', 'all', 'full'],
 };
 
 function validateFlags(command: string, args: ParsedArgs): string[] {
@@ -228,6 +232,11 @@ const COMMAND_ROUTES: Record<string, CommandRoute> = {
   'task submit': { command: 'task-command', prepend: ['--action', 'submit'] },
   'task release': { command: 'task-command', prepend: ['--action', 'release'] },
   'task depend': { command: 'task-command', prepend: ['--action', 'depend'] },
+  'work start': { command: 'work-command', prepend: ['--action', 'start'] },
+  'work touch': { command: 'work-command', prepend: ['--action', 'touch'] },
+  'work end': { command: 'work-command', prepend: ['--action', 'end'] },
+  'work list': { command: 'work-command', prepend: ['--action', 'list'] },
+  'work show': { command: 'work-command', prepend: ['--action', 'show'] },
   'verify mark': { command: 'verify' },
   'verify audit': { command: 'audit-unverified' },
   'refinement set': { command: 'refine-set' },
@@ -392,8 +401,6 @@ function cmdTellMemory(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts:
   const supersedes = Array.isArray(rawSup) ? rawSup : rawSup ? [String(rawSup)] : [];
   const rawLabel = args['label'];
   const label = Array.isArray(rawLabel) ? rawLabel[0] : String(rawLabel ?? '');
-  const compatCoerce = Boolean(args['compat_coerce']);
-
   const { memory, superseded, noveltyScore, similarMemoryIds } = insertMemory(db, {
     agentId, taskContext, observation, importance: imp,
     label,
@@ -406,7 +413,6 @@ function cmdTellMemory(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts:
     repo: args['repo'] ? String(args['repo']) : null,
     ref: args['ref'] ? String(args['ref']) : null,
     fileTreeFingerprint: args['file_tree_fingerprint'] ? String(args['file_tree_fingerprint']) : null,
-    compatCoerce,
   });
 
   // Consolidation surface (mem0 ADD/UPDATE/NOOP contract, LLM-free): when the
@@ -482,6 +488,12 @@ function cmdGetMemory(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts: 
   });
 
   const payload: Record<string, unknown> = { db_path: dbPath, ...result };
+  const fullMemory = Boolean(args['full']) || Boolean(args['explain']);
+  if (!fullMemory && Array.isArray(payload['memories'])) {
+    payload['memories'] = (payload['memories'] as import('../src/types.js').MemoryRecord[])
+      .map((memory) => projectMemoryLean(memory));
+    payload['projection'] = 'lean';
+  }
   if (args['semantic']) {
     const embedCmd = resolveEmbedCommand();
     const queryText = String(args['query'] ?? '').trim();
@@ -548,7 +560,11 @@ function cmdGetMemory(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts: 
             // they don't misdescribe the semantic result set.
             delete payload['judgment_required'];
             delete payload['judgment_reason'];
-            payload['memories'] = ranked.slice(0, limit);
+            const semanticMemories = ranked.slice(0, limit);
+            payload['memories'] = fullMemory
+              ? semanticMemories
+              : semanticMemories.map((memory) => projectMemoryLean(memory));
+            if (!fullMemory) payload['projection'] = 'lean';
             payload['count'] = Math.min(ranked.length, limit);
             payload['mode'] = 'semantic';
             payload['embedding_model'] = model;
@@ -639,7 +655,6 @@ function cmdReflect(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts: Em
     }
   }
 
-  const compatCoerce = Boolean(args['compat_coerce']);
   const result = reflect(db, {
     agentId: String(args['agent_id'] ?? 'agent'),
     task: String(args['task']),
@@ -660,7 +675,6 @@ function cmdReflect(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts: Em
     artifact: args['artifact'] ? String(args['artifact']) : null,
     repo: args['repo'] ? String(args['repo']) : null,
     ref: args['ref'] ? String(args['ref']) : null,
-    compatCoerce,
   });
 
   return emit({ ...result, db_path: dbPath }, 0, opts);
@@ -697,7 +711,6 @@ function cmdPreFlightIntent(db: DatabaseSync, args: ParsedArgs, dbPath: string, 
     testPlan: String(args['test_plan'] ?? 'post-edit verification'),
     contextRef: args['context_ref'] ? String(args['context_ref']) : null,
     targetFiles,
-    lockType: (String(args['lock_type'] ?? 'EXCLUSIVE')) as 'EXCLUSIVE' | 'SHARED',
     ttlMs,
   };
   let result = preFlightIntent(db, claimParams);
@@ -713,7 +726,7 @@ function cmdPreFlightIntent(db: DatabaseSync, args: ParsedArgs, dbPath: string, 
       target_files: targetFiles,
       workspace: claimParams.workspacePath ?? undefined,
       artifact: claimParams.artifact ?? undefined,
-      lock_type: claimParams.lockType,
+      lock_type: 'EXCLUSIVE',
       wait_ms: waitSeconds * 1000,
       retry_interval_ms: retrySeconds != null ? retrySeconds * 1000 : undefined,
     });
@@ -735,6 +748,33 @@ function cmdAuditUnverified(db: DatabaseSync, args: ParsedArgs, dbPath: string, 
     artifact: args['artifact'] ? String(args['artifact']) : null,
     abandon: Boolean(args['abandon']),
   });
+  if (opts.compact) {
+    const limit = 3;
+    const compactRun = (run: Record<string, unknown>) => {
+      const allFiles = Array.isArray(run['target_files']) ? run['target_files'].map(String) : [];
+      return {
+        run_id: run['run_id'],
+        agent_id: run['agent_id'],
+        status: run['status'],
+        test_plan: run['test_plan'],
+        target_files: allFiles.slice(0, 1),
+        file_count: allFiles.length,
+        ...(run['age_hours'] == null ? {} : { age_hours: run['age_hours'] }),
+      };
+    };
+    const unverified = result.unverified.slice(0, limit).map(run => compactRun(run as unknown as Record<string, unknown>));
+    const staleActive = result.stale_active.slice(0, limit).map(run => compactRun(run as unknown as Record<string, unknown>));
+    return emit({
+      db_path: dbPath,
+      ok: true,
+      count: result.count,
+      unverified_count: result.unverified.length,
+      stale_active_count: result.stale_active.length,
+      unverified,
+      stale_active: staleActive,
+      omitted_count: result.count - unverified.length - staleActive.length,
+    }, result.count > 0 ? 1 : 0, opts);
+  }
   return emit({ db_path: dbPath, ...result }, result.count > 0 ? 1 : 0, opts);
 }
 
@@ -793,13 +833,17 @@ function cmdReleaseFileLock(db: DatabaseSync, args: ParsedArgs, dbPath: string, 
     return emit({ error: 'lock release requires --run-id or --target-file' }, 1, opts);
   }
 
+  const releaseStatus = String(args['status'] ?? 'SUCCESS').toUpperCase();
+  if (!['PENDING', 'SUCCESS', 'FAILED'].includes(releaseStatus)) {
+    die('--status must be PENDING, SUCCESS, or FAILED');
+  }
   const result = releaseFileLock(db, {
     agentId: String(args['agent_id'] ?? 'agent'),
     workspacePath: args['workspace'] ? String(args['workspace']) : null,
     artifact: args['artifact'] ? String(args['artifact']) : null,
     runId: runId ?? null,
     targetFiles,
-    status: (String(args['status'] ?? 'SUCCESS')) as 'PENDING' | 'SUCCESS' | 'FAILED',
+    status: releaseStatus as 'PENDING' | 'SUCCESS' | 'FAILED',
     verified: Boolean(args['verified']),
     verifiedNote: args['verified_note'] ? String(args['verified_note']) : undefined,
   });
@@ -963,6 +1007,131 @@ function cmdTask(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts: EmitO
   return emit({ db_path: dbPath, error: `unknown task action: ${action}` }, 1, opts);
 }
 
+function cmdWork(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts: EmitOptions): number {
+  const action = requiredArg(args, 'action');
+  const agentId = String(args['agent_id'] ?? process.env.OCTOCODE_AGENT_ID ?? '').trim();
+  const runId = firstValue(args, 'run_id') ?? '';
+  const rawFiles = args['target_file'] ?? args['file'];
+  const targetFiles = Array.isArray(rawFiles) ? rawFiles.map(String) : rawFiles ? [String(rawFiles)] : [];
+  const ttlMinutes = args['ttl_minutes'] == null ? null : Number(args['ttl_minutes']);
+  const ttlSeconds = args['ttl_seconds'] == null ? null : Number(args['ttl_seconds']);
+  if (ttlMinutes != null && (!Number.isInteger(ttlMinutes) || ttlMinutes < 1 || ttlMinutes > 60)) {
+    die('--ttl-minutes must be between 1 and 60');
+  }
+  if (ttlSeconds != null && (!Number.isInteger(ttlSeconds) || ttlSeconds < 1 || ttlSeconds > 3600)) {
+    die('--ttl-seconds must be between 1 and 3600');
+  }
+  const ttlMs = ttlSeconds != null ? ttlSeconds * 1000 : ttlMinutes != null ? ttlMinutes * 60_000 : null;
+  const compactMutation = (result: Extract<ReturnType<typeof startWork>, { ok: true }> | ReturnType<typeof touchWork>) => {
+    if (!opts.compact) return result;
+    const files = result.files.slice(0, 3).map((file) => file.file_path);
+    const peers = result.peers.slice(0, 3).map((peer) => ({
+      run_id: peer.run_id,
+      agent_id: peer.agent_id,
+      file_path: peer.file_path,
+      origin: peer.origin,
+      exclusive: peer.exclusive,
+    }));
+    return {
+      run: {
+        run_id: result.run.run_id,
+        task_id: result.run.task_id,
+        origin: result.run.origin,
+        status: result.run.status,
+      },
+      files,
+      file_count: result.files.length,
+      omitted_file_count: Math.max(0, result.files.length - files.length),
+      peer_count: result.peer_count,
+      peers,
+      omitted_peer_count: Math.max(0, result.peer_count - peers.length),
+    };
+  };
+  const presentList = (result: ReturnType<typeof listWork>, limit: number) => {
+    if (Boolean(args['full'])) return result;
+    const files = result.files.slice(0, limit).map((file) => ({
+      file_path: file.file_path,
+      run_id: file.run_id,
+      task_id: file.task_id,
+      origin: file.origin,
+      agent_id: file.agent_id,
+      exclusive: file.exclusive,
+      reason: file.reason_override ?? file.rationale,
+      heartbeat_at: file.heartbeat_at,
+      expires_at: file.expires_at,
+    }));
+    return { count: result.count, files, omitted_count: Math.max(0, result.count - files.length) };
+  };
+
+  if (action === 'start') {
+    if (!agentId) die('work start requires --agent-id or OCTOCODE_AGENT_ID');
+    if (targetFiles.length === 0) die('work start requires at least one --file');
+    if (!runId && !args['rationale']) die('new WORK runs require --rationale');
+    if (!runId && !args['test_plan']) die('new WORK runs require --test-plan');
+    const result = startWork(db, {
+      agentId,
+      sessionId: args['session_id'] ? String(args['session_id']) : null,
+      workspacePath: args['workspace'] ? String(args['workspace']) : null,
+      artifact: args['artifact'] ? String(args['artifact']) : null,
+      runId: runId || null,
+      targetFiles,
+      rationale: args['rationale'] ? String(args['rationale']) : undefined,
+      testPlan: args['test_plan'] ? String(args['test_plan']) : undefined,
+      contextRef: args['context_ref'] ? String(args['context_ref']) : null,
+      origin: 'WORK',
+      source: 'EXPLICIT',
+      ttlMs,
+      exclusive: Boolean(args['exclusive']),
+    });
+    if (!result.ok) {
+      const conflicts = opts.compact ? result.conflicts.slice(0, 3) : result.conflicts;
+      return emit({
+        db_path: dbPath,
+        ok: false,
+        conflict: true,
+        conflicts,
+        conflict_count: result.conflicts.length,
+        omitted_conflict_count: result.conflicts.length - conflicts.length,
+      }, 2, opts);
+    }
+    return emit({ db_path: dbPath, ...compactMutation(result) }, 0, opts);
+  }
+  if (action === 'touch') {
+    if (!agentId) die('work touch requires --agent-id or OCTOCODE_AGENT_ID');
+    if (!runId) die('work touch requires --run-id');
+    const result = touchWork(db, { agentId, runId, targetFiles, ttlMs });
+    return emit({ db_path: dbPath, ...compactMutation(result) }, 0, opts);
+  }
+  if (action === 'end') {
+    if (!agentId) die('work end requires --agent-id or OCTOCODE_AGENT_ID');
+    if (!runId) die('work end requires --run-id');
+    const result = endWork(db, { agentId, runId, targetFiles });
+    return emit({ db_path: dbPath, ...compactMutation(result) }, 0, opts);
+  }
+  if (action === 'list') {
+    const result = listWork(db, {
+      workspacePath: args['workspace'] ? String(args['workspace']) : null,
+      artifact: args['artifact'] ? String(args['artifact']) : null,
+      agentId: agentId || null,
+      runId: runId || null,
+      filePath: targetFiles[0] ?? null,
+      activeOnly: !Boolean(args['all']),
+    });
+    return emit({ db_path: dbPath, ...presentList(result, opts.compact ? 10 : 20) }, 0, opts);
+  }
+  if (action === 'show') {
+    if (targetFiles.length !== 1) die('work show requires exactly one --file');
+    const result = showWork(db, {
+      workspacePath: args['workspace'] ? String(args['workspace']) : null,
+      artifact: args['artifact'] ? String(args['artifact']) : null,
+      filePath: targetFiles[0]!,
+      activeOnly: !Boolean(args['all']),
+    });
+    return emit({ db_path: dbPath, ...presentList(result, opts.compact ? 5 : 10) }, 0, opts);
+  }
+  return emit({ db_path: dbPath, error: `unknown work action: ${action}` }, 1, opts);
+}
+
 function cmdForget(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts: EmitOptions): number {
   const rawIds = args['memory_id'];
   const memoryIds = Array.isArray(rawIds) ? rawIds : rawIds ? [String(rawIds)] : [];
@@ -1102,18 +1271,13 @@ function cmdRepoInject(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts:
 function cmdDocsCatalog(_db: DatabaseSync, args: ParsedArgs, _dbPath: string, opts: EmitOptions): number {
   const action = String(args['action'] ?? args._[0] ?? 'list').trim().toLowerCase();
   if (action === 'list') {
-    const result = listSkillDocs();
+    const full = Boolean(args['full']);
+    const result = listSkillDocs({ lean: !full });
     return emit({
       ok: true,
       count: result.count,
-      root: result.root,
-      docs: result.docs.map((doc) => ({
-        name: doc.name,
-        title: doc.title,
-        description: doc.description,
-        kind: doc.kind,
-        path: doc.path,
-      })),
+      ...(full ? { root: result.root } : {}),
+      docs: result.docs,
       next: 'octocode-awareness docs show <name> --compact',
     }, 0, opts);
   }
@@ -1200,12 +1364,12 @@ function cmdAgentSignal(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts
   const refs = Array.isArray(rawRefs) ? rawRefs : rawRefs ? [String(rawRefs)] : [];
   const rawKinds = args['kind'];
   const kinds = Array.isArray(rawKinds) ? rawKinds : rawKinds ? [String(rawKinds)] : [];
-  const compatCoerce = Boolean(args['compat_coerce']);
   const publishKind = kinds[0]
-    ? normalizeNotificationKind(kinds[0], { coerce: compatCoerce })
+    ? normalizeNotificationKind(kinds[0])
     : undefined;
   const rawSignalIds = args['signal_id'];
   const signalIds = Array.isArray(rawSignalIds) ? rawSignalIds : rawSignalIds ? [String(rawSignalIds)] : [];
+  const includeBodies = Boolean(args['include_bodies']);
   const result = agentSignal(db, {
     action: action as import('../src/types.js').AgentSignalAction,
     agentId: String(args['agent_id']),
@@ -1225,11 +1389,22 @@ function cmdAgentSignal(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts
     signalIds,
     unreadOnly: args['all'] ? false : args['unread_only'] as boolean | undefined,
     markRead: Boolean(args['mark_read']),
+    limit: args['limit'] ? parseInt(String(args['limit']), 10) : undefined,
     kinds: kinds.length
-      ? kinds.map((k) => normalizeNotificationKind(k, { coerce: compatCoerce }))
+      ? kinds.map((k) => normalizeNotificationKind(k))
       : [],
-    compatCoerce,
   });
+  if (action === 'list' && !includeBodies && 'signals' in result && Array.isArray(result.signals)) {
+    return emit({
+      db_path: dbPath,
+      ...result,
+      signals: result.signals.map((signal) => ({
+        ...signal,
+        body: signal.body == null ? null : summarizeText(String(signal.body), 160),
+      })),
+      bodies: 'summarized',
+    }, 0, opts);
+  }
   return emit({ db_path: dbPath, ...result }, 0, opts);
 }
 
@@ -1391,12 +1566,15 @@ surfaces: CLI = control plane; Agent Skill = operating loop; hooks/Pi bridge = l
 
 start: attend, workspace status, plan list, task ready, memory recall, signal list, query <view>
 planning: plan create|list|show|join|doc|status; task create|list|ready|show|claim|heartbeat|submit|release|depend
-edit: lock acquire, lock wait, lock release, lock prune, verify mark, verify audit
+file work: work start|touch|end|list|show (advisory; declare every edited path)
+exclusive: lock acquire, lock wait, lock release, lock prune (sensitive work only)
+verification: verify mark, verify audit
 messages: signal publish, signal list, signal reply, signal ack, signal resolve, signal prune, agent register, agent list
-learning: memory record, memory forget, refinement set, refinement get, refinement delete, reflect record, reflect mine-weakness, reflect export-harness, reflect developer-review, docs list, docs show, docs staleness
+bookkeeping/learning: memory record, memory forget, refinement set, refinement get, refinement delete, reflect record, reflect mine-weakness, reflect export-harness, reflect developer-review, docs list, docs show, docs staleness
+housekeeping: maintenance digest, lock prune, signal prune, memory forget (dry-run first), session capture
 repo context: query files|workboard|all|developer-review [--format json|table|csv|markdown|html], repo inject
 hooks: hook run <pre-edit|post-edit|harness-guard|stop-verify|notify-deliver|session-end>, hooks install|check|remove --host claude|codex|cursor
-utility: session capture, maintenance init, maintenance self-test, maintenance digest
+utility: maintenance init, maintenance self-test
 
 examples:
   octocode-awareness workspace status --workspace "$PWD" --compact
@@ -1404,8 +1582,8 @@ examples:
   octocode-awareness task ready --plan-id plan_123 --compact
   octocode-awareness memory recall --query "current task" --workspace "$PWD" --compact
   octocode-awareness docs list --compact
-  octocode-awareness docs show full-flow
-  octocode-awareness lock acquire --agent-id agent --target-file src/file.ts --rationale "edit" --compact
+  octocode-awareness docs show architecture
+  octocode-awareness work start --agent-id agent --file src/file.ts --rationale "edit" --test-plan "yarn test" --compact
   octocode-awareness signal list --agent-id agent --workspace "$PWD" --compact
   octocode-awareness schema commands --compact
   octocode-awareness query files --workspace "$PWD" --format table --limit 50
@@ -1416,10 +1594,10 @@ Run "octocode-awareness <command> --help" for command flags. Exit 2 = lock confl
 
 const HELP_COMPACT = `octocode-awareness: canonical noun/verb CLI. Use --compact for JSON.
 local-first: octocode-awareness <command>; fallback: npx @octocodeai/octocode-awareness <command>; bundled skill path: <awareness-package>/dist/skills/octocode-awareness; Octocode ops: npx octocode skill|search; agents: Codex, Claude, Cursor, Pi
-start: attend; workspace status; plan create|list|show|join|doc|status; task create|list|ready|show|claim|heartbeat|submit|release|depend; memory recall; signal list; docs list
-edit: lock acquire|wait|release|prune; verify audit|mark
+start: attend; workspace status; plan create|list|show|join|doc|status; task create|list|ready|show|claim|heartbeat|submit|release|depend; memory recall; signal list
+work: start|touch|end|list|show (advisory); exclusive lock acquire|wait|release|prune (sensitive only); verify audit|mark
 msg: signal publish|list|reply|ack|resolve|prune; agent register|list
-learn: memory record|forget; reflect record|mine-weakness|export-harness|developer-review; maintenance digest
+bookkeep/housekeep: memory record|forget; reflect record|mine-weakness|export-harness|developer-review; maintenance digest; lock|signal prune
 repo: query files|workboard|all|developer-review --format json|table|csv|markdown|html; repo inject
 inspect: schema commands --compact; docs list|show; schema json-schema <name>; <command> --help`;
 
@@ -1452,6 +1630,7 @@ const COMMAND_TO_SCHEMA: Record<string, string> = {
   'reflect': 'reflect',
   'plan-command': 'plan',
   'task-command': 'task',
+  'work-command': 'work',
 };
 
 const COMMAND_DISPLAY: Record<string, string> = {
@@ -1486,6 +1665,7 @@ const COMMAND_DISPLAY: Record<string, string> = {
   'reflect': 'reflect record',
   'plan-command': 'plan create|list|show|join|doc|status',
   'task-command': 'task create|list|ready|show|claim|heartbeat|submit|release|depend',
+  'work-command': 'work start|touch|end|list|show',
   'hook-run': 'hook run',
   'hooks-install': 'hooks install|check|remove',
   'schema': 'schema',
@@ -1523,6 +1703,7 @@ const COMMAND_EXAMPLE: Record<string, string> = {
   'reflect': 'octocode-awareness reflect record --agent-id agent --task "fix CLI" --outcome worked --lesson "Keep commands canonical" --compact',
   'plan-command': 'octocode-awareness plan create --name "Release" --objective "Ship safely" --lead-agent-id agent --workspace "$PWD" --compact',
   'task-command': 'octocode-awareness task ready --plan-id plan_123 --compact',
+  'work-command': 'octocode-awareness work start --agent-id agent --file src/a.ts --rationale "edit parser" --test-plan "yarn test" --compact',
   'hook-run': 'octocode-awareness hook run pre-edit < hook-payload.json',
   'hooks-install': 'octocode-awareness hooks install --host codex --dry-run --compact',
   'schema': 'octocode-awareness schema commands --compact',
@@ -1538,7 +1719,7 @@ const ROUTE_EXAMPLE: Record<string, string> = {
   'agent list': 'octocode-awareness agent list --workspace "$PWD" --compact',
   'reflect developer-review': 'octocode-awareness reflect developer-review --workspace "$PWD" --format markdown --compact',
   'docs list': 'octocode-awareness docs list --compact',
-  'docs show': 'octocode-awareness docs show full-flow',
+  'docs show': 'octocode-awareness docs show architecture',
   'hooks install': 'octocode-awareness hooks install --host codex --dry-run --compact',
   'hooks check': 'octocode-awareness hooks check --host codex --strict --compact',
   'hooks remove': 'octocode-awareness hooks remove --host codex --dry-run --compact',
@@ -1587,31 +1768,34 @@ const REMOVED_COMMAND_REPLACEMENTS: Record<string, string> = {
 const COMMAND_HELP: Record<string, string> = {
   'tell-memory': `usage: octocode-awareness memory record --agent-id <id> --task-context <text> --observation <text> --importance <1-10> [--label <l>] [--tag <t>]... [--reference <r>]... [--file <p>]...
 example: octocode-awareness memory record --agent-id agent --task-context "build failure" --observation "Run yarn build before tests" --importance 7 --label GOTCHA --workspace "$PWD" --compact
-note: unknown --label hard-errors unless --compat-coerce
+note: unknown --label values hard-error
 schema: octocode-awareness schema json-schema tell_memory --compact`,
   'get-memory': `usage: octocode-awareness memory recall [options]
 filters: [--query <text>] [--limit <n>] [--min-importance <n>] [--label <l>]... [--tag <t>]... [--reference <r>]... [--file <p>]... [--regex <r>]... [--file-regex <r>]...
 scope: [--workspace <p>] [--artifact <a>] [--repo <r>] [--ref <r>] [--strict-scope] [--global-only]
-rank: [--sort smart|score|importance|recent|accessed] [--state ACTIVE|SUPERSEDED]... [--as-of <iso>] [--semantic] [--explain]
+rank: [--sort smart|score|importance|recent|accessed] [--state ACTIVE|SUPERSEDED]... [--as-of <iso>] [--semantic] [--explain] [--full]
 example: octocode-awareness memory recall --query "current task" --workspace "$PWD" --smart --compact
+note: default recall projects lean fields; pass --full (or --explain) for complete MemoryRecord rows
 schema: octocode-awareness schema json-schema get_memory --compact`,
-  'pre-flight-intent': `usage: octocode-awareness lock acquire --agent-id <id> --target-file <p>... [--run-id <claimed-run>] [--workspace <p>] [--artifact <a>] [--rationale <t>] [--test-plan <t>] [--lock-type EXCLUSIVE|SHARED] [--ttl-minutes <n>] [--wait-seconds <n>]
+  'pre-flight-intent': `usage: octocode-awareness lock acquire --agent-id <id> --target-file <p>... [--run-id <claimed-run>] [--workspace <p>] [--artifact <a>] [--rationale <t>] [--test-plan <t>] [--ttl-minutes <n>] [--wait-seconds <n>]
 example: octocode-awareness lock acquire --agent-id agent --target-file src/file.ts --rationale "edit file" --test-plan "yarn test" --compact
-note: --run-id attaches file locks to a claimed task run; omit plan/task/run flags for a standalone quick-edit run
+note: ordinary edits use work start/touch; lock acquire always adds exclusive protection (flag not configurable)
 note: export OCTOCODE_AGENT_ID for CLI+hooks; --strict-agent-id / OCTOCODE_STRICT_AGENT_ID=1 hard-fails when missing
 schema: octocode-awareness schema json-schema pre_flight_intent --compact`,
   'agent-signal': `usage: octocode-awareness signal publish|list|reply|ack|resolve --agent-id <id> [--to-agent <id>]... [--signal-id <id>]... [--thread-id <id>] [--kind <k>] [--subject <t>] [--body <t>] [--file <p>]...
 examples:
   octocode-awareness signal list --agent-id agent --workspace "$PWD" --compact
+  octocode-awareness signal list --agent-id agent --workspace "$PWD" --include-bodies --compact
   octocode-awareness signal publish --agent-id agent --kind blocker --subject "File locked" --file src/file.ts --workspace "$PWD" --compact
   octocode-awareness signal reply --agent-id agent --in-reply-to ntf_123 --subject "Re: File locked" --body "done" --compact
+note: signal list summarizes body to 160 chars unless --include-bodies
 schema: octocode-awareness schema json-schema agent_signal --compact`,
   'verify': `usage: octocode-awareness verify mark (--run-id <id>... | --all-pending) --agent-id <id> [--status SUCCESS|FAILED] [--message <t>] [--workspace <p>] [--artifact <a>]
 example: octocode-awareness verify mark --agent-id agent --all-pending --message "yarn test passed" --workspace "$PWD" --compact
 schema: octocode-awareness schema json-schema verify --compact`,
   'reflect': `usage: octocode-awareness reflect record --agent-id <id> --task <text> --outcome worked|partial|failed [--lesson <t>] [--fix-repo <t>] [--fix-instructions <t>] [--fix-file <p>]... [--failure-signature <s>]
 example: octocode-awareness reflect record --agent-id agent --task "fix CLI" --outcome worked --lesson "Keep CLI nouns canonical" --compact
-note: --outcome must be worked|partial|failed (unknown hard-errors unless --compat-coerce)
+note: --outcome must be worked|partial|failed; unknown values hard-error
 note: --fix-repo → coding refinement; --fix-harness → skill/tooling; --fix-instructions → feedback to the human instruction author (see reflect developer-review)
 schema: octocode-awareness schema json-schema reflect --compact`,
   'developer-review': `usage: octocode-awareness reflect developer-review [--workspace <repo>] [--state open|ongoing|done]... [--format json|markdown] [--limit <n>]
@@ -1630,11 +1814,13 @@ schema: octocode-awareness schema json-schema attend --compact`,
   'repo-inject': `usage: octocode-awareness repo inject [--workspace <repo>] [--out .octocode] [--mode local|share] [--no-check] [--no-include-view]
 example: octocode-awareness repo inject --workspace "$PWD" --out .octocode --mode local --compact
 schema: octocode-awareness schema json-schema repo_inject --compact`,
-  'docs-catalog': `usage: octocode-awareness docs list|show [name]
+  'docs-catalog': `usage: octocode-awareness docs list|show [name] [--full]
 examples:
   octocode-awareness docs list --compact
-  octocode-awareness docs show full-flow
-  octocode-awareness docs show full-flow --compact
+  octocode-awareness docs list --full --compact
+  octocode-awareness docs show architecture
+  octocode-awareness docs show architecture --compact
+note: docs list is lean by default (no abs path/root); --full restores path+root
 schema: octocode-awareness schema json-schema docs_catalog --compact`,
   'plan-command': `usage: octocode-awareness plan create|list|show|join|doc|status [options]
 create: --name <text> --objective <text> --lead-agent-id <id> --workspace <repo> [--artifact <name>]
@@ -1647,12 +1833,20 @@ claim: --task-id <id> --agent-id <id>; or --next --plan-id <id> --agent-id <id>.
 heartbeat/submit/release: --task-id <id> --run-id <id> --agent-id <id>; release optionally --blocked-reason <text>
 example: octocode-awareness task ready --plan-id plan_123 --compact
 schema: octocode-awareness schema json-schema task --compact`,
+  'work-command': `usage: octocode-awareness work start|touch|end|list|show [options]
+start: --agent-id <id> --file <path>... --rationale <why> --test-plan <check> [--run-id <claimed-task-run>] [--exclusive] [--ttl-minutes <1-60>]
+touch/end: --agent-id <id> --run-id <id> [--file <path>]...; omit files to touch/end all active presence
+list/show: [--workspace <repo>] [--agent-id <id>] [--run-id <id>] [--file <path>] [--all] [--full]
+example: octocode-awareness work start --agent-id agent --file src/a.ts --rationale "edit parser" --test-plan "yarn test" --compact
+schema: octocode-awareness schema json-schema work --compact`,
   'hook-run': `usage: octocode-awareness hook run <pre-edit|post-edit|harness-guard|stop-verify|notify-deliver|session-end> < hook-payload.json`,
   'hooks-install': hooksInstallUsage(),
   'schema': `usage: octocode-awareness schema commands|list|json-schema <name>|example <name>|validate <name> <json-file|->
 examples:
   octocode-awareness schema commands --compact
-  octocode-awareness schema json-schema query --compact`,
+  octocode-awareness schema commands --examples --compact
+  octocode-awareness schema json-schema query --compact
+note: schema commands omits examples by default; pass --examples for full recipes`,
   'init': `usage: octocode-awareness maintenance init [--db <path>]
 example: octocode-awareness maintenance init --db .octocode/awareness.sqlite3 --compact`,
   'self-test': `usage: octocode-awareness maintenance self-test
@@ -1814,6 +2008,7 @@ try {
     case 'release-file-lock': exitCode = cmdReleaseFileLock(db, args, dbPath, opts); break;
     case 'plan-command':   exitCode = cmdPlan(db, args, dbPath, opts); break;
     case 'task-command':   exitCode = cmdTask(db, args, dbPath, opts); break;
+    case 'work-command':   exitCode = cmdWork(db, args, dbPath, opts); break;
     case 'status':         exitCode = cmdStatus(db, dbPath, args, opts); break;
     case 'init':           exitCode = cmdInit(db, dbPath, opts); break;
     case 'prune-stale-locks': exitCode = emit({ db_path: dbPath, ...pruneStale(db, args) }, 0, opts); break;
@@ -1890,7 +2085,7 @@ try {
         target_files: waitTargets,
         workspace: args['workspace'],
         artifact: args['artifact'],
-        lock_type: args['lock_type'],
+        lock_type: 'EXCLUSIVE',
         wait_ms: waitSecs != null ? waitSecs * 1000 : undefined,
         retry_interval_ms: retrySecs != null ? retrySecs * 1000 : undefined,
       });

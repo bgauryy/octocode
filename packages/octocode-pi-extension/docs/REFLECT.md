@@ -321,8 +321,8 @@ The hooks in `SKILL.md` automate the **mechanical** parts of the loop. Agents ha
 
 | Action | Who | How |
 |--------|-----|-----|
-| Claim file lock before edit | **Hook** (PreToolUse) | `pre-edit.sh` → `preFlightIntent` |
-| Release lock as PENDING after edit | **Hook** (PostToolUse) | `post-edit.sh` → `releaseFileLock` |
+| Declare advisory file presence before edit; block only on an existing exclusive conflict | **Hook** (PreToolUse) | `pre-edit.sh` → `startWork` |
+| Keep task/WORK active; finish an automatic HOOK run as PENDING after edit | **Hook** (PostToolUse) | `post-edit.sh` → `endWork` |
 | Verify gate at session end | **Hook** (Stop) | `stop-verify.sh` → `auditUnverified` |
 | Capture session handoff | **Hook** (SessionEnd) | `session-end.sh` → `sessionCapture` |
 | Deliver inbox at session start | **Hook** (UserPromptSubmit) | `notify-deliver.sh` → `notifyGet` |

@@ -1,29 +1,26 @@
 # Session Observability
 
-Read this when timing, stale references, workspace views, or an end-of-session handoff matters. Collision decisions live in `references/files-awareness.md`.
+Use live DB timestamps, not projection mtime alone. Compare run-file heartbeat/expiry,
+locks, task claims, row updates, and file mtimes.
 
-## Time And Views
-
-Compare lock `acquired_at`/`expires_at`, row `created_at`/`updated_at`, and file mtimes. A recent memory timestamp does not prove the file is current.
-
-| Output | Use when |
+| Question | Read |
 |---|---|
-| `workspace status` | Plan/task counts, live locks, and pending runs need a quick check. |
-| `query workboard` | Inbox, verify debt, ready work, memory review, and projection health need prioritization. |
-| `query files` | Stored paths/references may be missing or stale. |
-| `query memories --format markdown` | A readable memory snapshot is needed. |
-| `query all --format html` | A human needs search/filter/sort across views. |
-| `reflect mine-weakness` | Recurring failure signatures need ranking. |
-| `maintenance digest --dry-run` | Cleanup impact must be previewed. |
+| Active peers | `work list|show` |
+| Plans/tasks/runs/locks | `workspace status`, workboard |
+| Missing references | `query files` |
+| Verification debt | `verify audit` |
+| Human cross-view | `query all --format html` |
+| Cleanup impact | `maintenance digest --dry-run` |
 
-Live query output beats exported files for freshness. See `references/output-routing.md` for format and projection selection.
+`session capture` writes a `quality=handoff` refinement from unresolved work and dirty
+files. Content fingerprinting prevents repeated SessionEnd/PreCompact events from
+duplicating the same handoff.
 
-## Session Capture
+Claude uses SessionEnd; Codex uses PreCompact; Cursor uses sessionEnd/preCompact; Pi
+uses shutdown/pre-compact. Hooks fail open, so capture manually before risky handoff.
 
-Use `session capture` when unresolved work must survive session end or compaction. It writes a `quality=handoff` refinement from this session's locks plus the dirty Git tree.
+A host session is not a work-unit boundary. Task claim or explicit `work start`
+defines run reuse. Close a handoff by applying/verifying its action and marking the
+same refinement done.
 
-Capture no-ops on a clean tree with no session locks, skips a clear/reset reason, and can be disabled with `OCTOCODE_NO_SESSION_CAPTURE=1`. Read captured rows with `refinement get --include-handoffs`.
-
-Claude uses `SessionEnd`; Codex uses best-effort `PreCompact`; Cursor uses local `sessionEnd` plus `preCompact`; Pi uses shutdown/before-compact events. Hooks are fail-open, so manually capture before a risky handoff when host support is uncertain.
-
-Close the handoff by applying and verifying its action, then update the same refinement to `done`.
+Collision decisions: `files-awareness.md`; output choice: `output-routing.md`.

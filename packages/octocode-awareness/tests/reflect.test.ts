@@ -49,12 +49,6 @@ describe('reflect', () => {
     expect(() => reflect(db, { task: 't', outcome: 'INVALID' as 'worked' })).toThrow(/invalid outcome/);
   });
 
-  it('coerces invalid outcomes when compatCoerce', () => {
-    const db = freshDb();
-    const result = reflect(db, { task: 't', outcome: 'INVALID' as 'worked', compatCoerce: true });
-    expect(result.outcome).toBe('partial');
-  });
-
   it('outcome worked is stored correctly', () => {
     const db = freshDb();
     const result = reflect(db, { task: 't', outcome: 'worked' });

@@ -26,7 +26,6 @@ const RECALL_SORTS = ['smart', 'importance', 'recent', 'accessed'] as const;
 const REFINEMENT_STATES = ['open', 'ongoing', 'done'] as const;
 const NOTIFICATION_KINDS = ['claim', 'handoff', 'question', 'reply', 'blocker', 'request', 'decision', 'fyi'] as const;
 const FILE_LOCK_TYPES = ['lock', 'release', 'status', 'renew'] as const;
-const FILE_LOCK_KINDS = ['EXCLUSIVE', 'SHARED'] as const;
 const AGENT_SIGNAL_ACTIONS = ['publish', 'list', 'reply', 'resolve', 'ack'] as const;
 
 
@@ -147,7 +146,6 @@ export function buildMemoryToolDefinition(
   const refinementStateSchema = stringEnumSchema(Type, REFINEMENT_STATES, 'open|ongoing|done. Default open/ongoing.');
   const notificationKindSchema = stringEnumSchema(Type, NOTIFICATION_KINDS, 'claim|handoff|question|reply|blocker|request|decision|fyi.');
   const fileLockTypeSchema = stringEnumSchema(Type, FILE_LOCK_TYPES, 'lock|release|status|renew.');
-  const fileLockKindSchema = stringEnumSchema(Type, FILE_LOCK_KINDS, 'EXCLUSIVE or SHARED; default EXCLUSIVE.');
   const agentSignalActionSchema = stringEnumSchema(Type, AGENT_SIGNAL_ACTIONS, 'publish|list|reply|resolve|ack.');
   const fileScopeProps = {
     file: optionalNonEmptyString(Type, 'Primary related file path.'),
@@ -174,13 +172,10 @@ export function buildMemoryToolDefinition(
     valid_to: optionalNonEmptyString(Type, 'Memory expiry timestamp/ISO date; digest marks expired memories stale.'),
   };
 
-  // Shared schema objects — defined once, referenced by canonical + alias tools.
-  // Previously file_lock and memory_file_lock each copy-pasted all 12 params.
   const fileLockParams = Type.Object({
     type: fileLockTypeSchema,
-    target_files: optionalStringArray(Type, 'Files to lock or release. Relative paths resolve under workspace_path/cwd.'),
-    run_id: optionalNonEmptyString(Type, 'Execution run returned by type:lock or task claim. Use for release/renew and task-linked edits.'),
-    lock_type: Type.Optional(fileLockKindSchema),
+    target_files: optionalStringArray(Type, 'Sensitive files requiring exclusive protection. Relative paths resolve under workspace_path/cwd.'),
+    run_id: optionalNonEmptyString(Type, 'Task or WORK run id. Omit on lock to create standalone WORK; use for release/renew.'),
     ttl_ms: Type.Optional(Type.Integer({ minimum: 1, description: 'Requested lock TTL in milliseconds; capped by awareness.' })),
     reasoning: optionalNonEmptyString(Type, 'Why this lock is needed; shown in lock/status output.'),
     agent_id: optionalNonEmptyString(Type, 'Agent id override; defaults to current Pi agent id.'),
@@ -193,7 +188,10 @@ export function buildMemoryToolDefinition(
     ...workspaceScopeProp,
   });
 
-  const workspaceStatusParams = Type.Object({ ...repoScopeProps });
+  const workspaceStatusParams = Type.Object({
+    ...repoScopeProps,
+    limit: optionalLimit(Type, 'Maximum FilesUnderWork rows; default 5, maximum 20.'),
+  });
 
   const tools = [
     {
@@ -289,10 +287,10 @@ export function buildMemoryToolDefinition(
       name: 'workspace_status',
       type: 'workspace_status' as const,
       label: 'Workspace Status',
-      description: 'Show active file locks, working agents, open signals/refinements, and memory store stats for the current workspace.',
+      description: 'Show advisory files under work, optional exclusive locks, working agents, open signals/refinements, and memory stats for the current workspace.',
       promptGuidelines: [
-        'Use to check if another agent is editing files you need, or to see what is locked.',
-        'Use before long edits to verify no conflicts exist.',
+        'Use to see which files peers declared under work and why; ordinary overlap remains allowed.',
+        'Treat only an exclusive lock as a blocking conflict.',
       ],
       parameters: workspaceStatusParams,
     },
@@ -331,33 +329,14 @@ export function buildMemoryToolDefinition(
       name: 'file_lock',
       type: 'file_lock' as const,
       label: 'File Lock',
-      description: 'Manage exact-file locks for parallel agents. A lock can attach to a claimed task run or create a standalone run.',
+      description: 'Manage optional exclusive protection for sensitive files. Attach it to a task/WORK run or create standalone WORK.',
       promptGuidelines: [
-        'Prefer automatic edit/write locks; use this for explicit coordination across parallel agents.',
-        'For shared plan work, pass the run_id returned by task claim. For quick work, omit it to create a standalone run.',
+        'Do not lock ordinary edits: advisory file presence is the default and peers may overlap knowingly.',
+        'Use exclusivity only for sensitive paths, destructive operations, migrations, or changes that cannot safely overlap.',
+        'For shared plan work, pass the run_id returned by task claim. Otherwise omit it to create standalone WORK.',
         'Release and renew by run_id; agentId/sessionId are scope metadata, not precise lock handles.',
         'Set ttl_ms for bounded work; locks are capped by awareness to the maximum safe TTL.',
         'Include reasoning so status output explains why the files are locked.',
-      ],
-      parameters: fileLockParams,
-    },
-    {
-      name: 'memory_workspace_status',
-      type: 'workspace_status' as const,
-      label: 'Memory: Workspace Status',
-      description: 'Compatibility alias for workspace_status.',
-      promptGuidelines: [
-        'Prefer workspace_status for new usage; this alias is retained for compatibility.',
-      ],
-      parameters: workspaceStatusParams,
-    },
-    {
-      name: 'memory_file_lock',
-      type: 'file_lock' as const,
-      label: 'Memory: File Lock',
-      description: 'Compatibility alias for file_lock.',
-      promptGuidelines: [
-        'Prefer file_lock for new usage; this alias is retained for compatibility.',
       ],
       parameters: fileLockParams,
     },
@@ -423,25 +402,6 @@ export function buildMemoryToolDefinition(
         min_importance: Type.Optional(Type.Integer({ minimum: 1, maximum: 10, description: 'Minimum importance for tier 2 general lessons; default 7.' })),
         // exportHarness scopes by workspace only (no repo/ref upstream).
         ...workspaceScopeProp,
-      }),
-    },
-    {
-      name: 'memory_notify',
-      type: 'notify' as const,
-      label: 'Memory: Notify',
-      description: 'Compatibility alias for agent_signal({action:"publish"}). Prefer agent_signal for list/reply/resolve.',
-      promptGuidelines: [
-        'Prefer agent_signal for new coordination; memory_notify only publishes a signal.',
-        'Use for simple legacy handoffs/blockers/questions when no reply/list/resolve is needed.',
-      ],
-      parameters: Type.Object({
-        kind: notificationKindSchema,
-        subject: nonEmptyString(Type, 'One-line summary of the message.'),
-        body: optionalNonEmptyString(Type, 'Optional detail.'),
-        to_agent: optionalNonEmptyString(Type, 'Recipient agent id; omit to broadcast to all agents on this workspace.'),
-        files: optionalStringArray(Type, 'Files this message concerns.'),
-        importance: Type.Optional(Type.Integer({ minimum: 1, maximum: 10, description: 'Importance 1-10; default 5.' })),
-        ...repoScopeProps,
       }),
     },
   ];

@@ -5,12 +5,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { initDb, rebuildFts } from '../src/db.js';
 import { preFlightIntent } from '../src/intents.js';
-// Import via stubs.js shim to verify the re-export chain still works.
 import { pruneStale, notifyGet, sessionCapture, waitForLock, digest, getWorkspaceStatus, exportMemoryDoc, exportHarness } from '../src/maintenance.js';
 import { insertMemory } from '../src/memory.js';
 import { insertRefinement } from '../src/refinements.js';
 import { insertNotification } from '../src/notifications.js';
 import { auditUnverified } from '../src/verify.js';
+import { canonicalizePath } from '../src/git.js';
 
 function freshDb(): DatabaseSync {
   const db = new DatabaseSync(':memory:');
@@ -31,7 +31,7 @@ describe('pruneStale', () => {
     const db = freshDb();
     const result = pruneStale(db, {});
     expect(result.pruned_locks).toBe(0);
-    expect(result.updated_runs).toBe(0);
+    expect(result).toEqual({ pruned_locks: 0 });
   });
 
   it('prunes expired locks', () => {
@@ -39,7 +39,7 @@ describe('pruneStale', () => {
     const { path, cleanup } = tempFile();
     try {
       const result = preFlightIntent(db, {
-        agentId: 'agent', targetFiles: [path], ttlMs: 1000,
+        agentId: 'agent', targetFiles: [path], ttlMs: 60_000,
       });
       if (!result.ok) throw new Error('claim failed');
       // Age the lock to the past
@@ -52,12 +52,12 @@ describe('pruneStale', () => {
     } finally { cleanup(); }
   });
 
-  it('sets intent to PENDING after lock expiry', () => {
+  it('keeps work ACTIVE after its exclusive lock expires', () => {
     const db = freshDb();
     const { path, cleanup } = tempFile();
     try {
       const claim = preFlightIntent(db, {
-        agentId: 'agent', targetFiles: [path], ttlMs: 1000,
+        agentId: 'agent', targetFiles: [path], ttlMs: 60_000,
       });
       if (!claim.ok) throw new Error('claim failed');
       const past = new Date(Date.now() - 5000).toISOString().replace(/\.\d{3}Z$/, 'Z');
@@ -67,7 +67,7 @@ describe('pruneStale', () => {
       pruneStale(db, {});
       const intent = db.prepare('SELECT status FROM task_runs WHERE run_id = ?')
         .get(claim.run.run_id) as { status: string };
-      expect(intent.status).toBe('PENDING');
+      expect(intent.status).toBe('ACTIVE');
     } finally { cleanup(); }
   });
 });
@@ -107,7 +107,7 @@ describe('notifyGet', () => {
     expect('db_path' in result).toBe(false);
   });
 
-  it('delivers unread agent notifications in hook briefing without acking on fetch', () => {
+  it('delivers an unread signal once per unchanged hook scope without acknowledging it', () => {
     const db = freshDb();
     insertNotification(db, {
       agentId: 'agent-a',
@@ -125,7 +125,8 @@ describe('notifyGet', () => {
     expect('additionalContext' in first && first.additionalContext).toContain('please check locks');
 
     const second = notifyGet(db, { format: 'hook', agent_id: 'agent-b', workspace: '/repo' });
-    expect(second.notifications.some((n) => n.kind === 'notification')).toBe(true);
+    expect(second).toEqual({ ok: true, count: 0, notifications: [] });
+    expect((db.prepare('SELECT COUNT(*) AS c FROM signal_reads').get() as { c: number }).c).toBe(0);
   });
 });
 
@@ -333,7 +334,7 @@ describe('sessionCapture', () => {
       expect(result.captured).toBe(true);
       expect(result.refinement_id).toMatch(/^ref_/);
       expect(result.active_runs).toBe(1);
-      expect(result.files).toContain(path);
+      expect(result.files).toContain(canonicalizePath(path));
 
       const refinement = db.prepare(
         'SELECT remember, quality, state, files_json FROM refinements WHERE refinement_id = ?'
@@ -341,7 +342,7 @@ describe('sessionCapture', () => {
       expect(refinement.quality).toBe('handoff');
       expect(refinement.state).toBe('open');
       expect(refinement.remember).toContain('Review session handoff for agent-a');
-      expect(JSON.parse(refinement.files_json)).toContain(path);
+      expect(JSON.parse(refinement.files_json)).toContain(canonicalizePath(path));
     } finally {
       cleanup();
     }
@@ -383,7 +384,7 @@ describe('waitForLock', () => {
 
     expect(result.lock_free).toBe(false);
     expect(result.waited_ms).toBeGreaterThanOrEqual(1);
-    expect(result.conflicts?.[0]?.file_path).toBe('/tmp/polling-locked.ts');
+    expect(result.conflicts?.[0]?.file_path).toBe(canonicalizePath('/tmp/polling-locked.ts'));
   });
 
   it('treats non-finite direct wait values as an immediate bounded check', () => {

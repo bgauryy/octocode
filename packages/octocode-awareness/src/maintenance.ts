@@ -1,7 +1,7 @@
 /**
  * maintenance.ts — Background maintenance, smart briefing, and session lifecycle operations.
  *
- * pruneStale:          deletes expired file locks, sets affected runs to PENDING.
+ * pruneStale:          deletes expired exclusive locks; work/run lifecycle stays independent.
  * notifyGet:           returns a smart workspace briefing (top memories + weakness + refinements).
  * digest:              archives expired memories, prunes stale rows/locks, rebuilds FTS.
  * getWorkspaceStatus:  returns active locks, agents, and memory store stats.
@@ -12,19 +12,26 @@
  */
 
 import { spawnSync } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { isAbsolute, resolve } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
-import { hasFts, rebuildFts, evictExpiredLocks, checkpointWal } from './db.js';
-import { fillScope, normalizeWorkspacePath } from './git.js';
+import {
+  checkpointWal,
+  evictExpiredLocks,
+  getDeliveryFingerprint,
+  hasFts,
+  rebuildFts,
+  setDeliveryFingerprint,
+} from './db.js';
+import { canonicalizePath, fillScope, normalizeWorkspacePath } from './git.js';
 import { normalizeArtifact, parseJsonList, utcNow } from './helpers.js';
 import { getNotifications } from './notifications.js';
 
-const SESSION_CAPTURE_FILE_LIMIT = 40;
-const SESSION_CAPTURE_VISIBLE_FILE_LIMIT = 20;
-const SESSION_CAPTURE_RUN_DETAIL_LIMIT = 8;
-const SESSION_CAPTURE_RUN_FILE_LIMIT = 8;
-const SESSION_CAPTURE_TEXT_LIMIT = 180;
+const SESSION_CAPTURE_FILE_LIMIT = 20;
+const SESSION_CAPTURE_VISIBLE_FILE_LIMIT = 10;
+const SESSION_CAPTURE_RUN_DETAIL_LIMIT = 3;
+const SESSION_CAPTURE_RUN_FILE_LIMIT = 3;
+const SESSION_CAPTURE_TEXT_LIMIT = 120;
 const MAX_WAIT_MS = 3600_000;
 const MAX_RETRY_MS = 300_000;
 const DEFAULT_WAIT_MS = 60_000;
@@ -32,7 +39,6 @@ const DEFAULT_RETRY_MS = 5_000;
 
 export interface PruneStaleResult {
   pruned_locks: number;
-  updated_runs: number;
   dry_run?: true;
   would_prune?: number;
 }
@@ -57,6 +63,7 @@ export interface SessionCaptureResult {
   omitted_dirty_files?: number;
   reason: string | null;
   consolidation_opportunities: number; // memories with novelty_score < 0.2 (candidates for supersede)
+  deduplicated?: true;
 }
 
 export interface WaitForLockResult {
@@ -85,7 +92,7 @@ function boundedMs(value: unknown, defaultMs: number, minMs: number, maxMs: numb
   return Math.min(Math.max(numeric, minMs), maxMs);
 }
 
-/** REAL: Delete expired file locks and set parent tasks to PENDING. */
+/** Delete expired exclusive locks without changing the independent work lifecycle. */
 export function pruneStale(db: DatabaseSync, params: Record<string, unknown> = {}): PruneStaleResult {
   const dryRun = Boolean(params.dry_run ?? params.dryRun);
   const expiredOnly = Boolean(params.expired_only ?? params.expiredOnly);
@@ -104,7 +111,7 @@ export function pruneStale(db: DatabaseSync, params: Record<string, unknown> = {
     .filter(Boolean)
     .map((file) => {
       const base = rawWorkspacePath ? resolve(rawWorkspacePath) : process.cwd();
-      return isAbsolute(file) ? resolve(file) : resolve(base, file);
+      return canonicalizePath(isAbsolute(file) ? resolve(file) : resolve(base, file));
     });
   const now = utcNow();
   // Age cutoff: locks older than N minutes are considered stale even if not expired.
@@ -122,16 +129,15 @@ export function pruneStale(db: DatabaseSync, params: Record<string, unknown> = {
     binds.push(ageCutoff);
   }
   conditions.push(`(${staleClauses.join(' OR ')})`);
-  if (agentId) { conditions.push('l.agent_id = ?'); binds.push(agentId); }
+  if (agentId) { conditions.push('t.agent_id = ?'); binds.push(agentId); }
   if (targetFiles.length > 0) {
     conditions.push(`l.file_path IN (${targetFiles.map(() => '?').join(',')})`);
     binds.push(...targetFiles);
   }
-  const scopedByTask = Boolean(workspacePath || artifact);
   if (workspacePath) { conditions.push('t.workspace_path = ?'); binds.push(workspacePath); }
   if (artifact) { conditions.push('(t.artifact = ? OR t.artifact IS NULL)'); binds.push(artifact); }
   const where = conditions.join(' AND ');
-  const from = scopedByTask ? 'locks l JOIN task_runs t ON t.run_id = l.run_id' : 'locks l';
+  const from = 'locks l JOIN task_runs t ON t.run_id = l.run_id';
 
   let staleLocks: Array<{ lock_id: string; run_id: string }> = [];
   try {
@@ -141,17 +147,12 @@ export function pruneStale(db: DatabaseSync, params: Record<string, unknown> = {
   } catch { /* non-critical stale-lock scan */ }
 
   if (dryRun) {
-    return { pruned_locks: 0, updated_runs: 0, dry_run: true, would_prune: staleLocks.length };
+    return { pruned_locks: 0, dry_run: true, would_prune: staleLocks.length };
   }
   if (staleLocks.length === 0) {
-    return { pruned_locks: 0, updated_runs: 0 };
+    return { pruned_locks: 0 };
   }
 
-  let updatedRuns = 0;
-
-  // FIX #2 (P0): lock DELETE and task status UPDATE combined in one atomic transaction.
-  // Previously the UPDATE loop ran outside the BEGIN/COMMIT block, creating a window
-  // where locks were deleted but tasks were not yet reset to PENDING.
   db.exec('BEGIN IMMEDIATE');
   try {
     staleLocks = db.prepare(
@@ -159,28 +160,17 @@ export function pruneStale(db: DatabaseSync, params: Record<string, unknown> = {
     ).all(...binds) as Array<{ lock_id: string; run_id: string }>;
     if (staleLocks.length === 0) {
       db.exec('COMMIT');
-      return { pruned_locks: 0, updated_runs: 0 };
+      return { pruned_locks: 0 };
     }
-    const affectedRunIds = [...new Set(staleLocks.map(l => l.run_id))];
     const ph = staleLocks.map(() => '?').join(',');
     db.prepare(`DELETE FROM locks WHERE lock_id IN (${ph})`).run(...staleLocks.map(l => l.lock_id));
-
-    for (const tid of affectedRunIds) {
-      const remaining = db.prepare('SELECT 1 FROM locks WHERE run_id = ? LIMIT 1').get(tid);
-      if (!remaining) {
-        const r = db.prepare(
-          "UPDATE task_runs SET status = 'PENDING', updated_at = ? WHERE run_id = ? AND status = 'ACTIVE'"
-        ).run(now, tid) as { changes: number };
-        if (r.changes) updatedRuns++;
-      }
-    }
     db.exec('COMMIT');
   } catch (e) {
     try { db.exec('ROLLBACK'); } catch { /* already rolled back */ }
     throw e;
   }
 
-  return { pruned_locks: staleLocks.length, updated_runs: updatedRuns };
+  return { pruned_locks: staleLocks.length };
 }
 
 // ─── Smart briefing ─────────────────────────────────────────────────────────
@@ -271,7 +261,10 @@ export function notifyGet(
     });
     for (const n of inbox.signals) {
       const target = n.to_agent ? `to ${n.to_agent}` : 'broadcast';
-      const fileSuffix = n.files.length > 0 ? ` files=${n.files.join(', ')}` : '';
+      const shownFiles = n.files.slice(0, 3);
+      const fileSuffix = shownFiles.length > 0
+        ? ` files=${shownFiles.join(', ')}${n.files.length > shownFiles.length ? ` (+${n.files.length - shownFiles.length})` : ''}`
+        : '';
       const bodySuffix = n.body ? ` — ${n.body.slice(0, 120)}` : '';
       items.push({
         kind: 'notification',
@@ -371,11 +364,38 @@ export function notifyGet(
 
   // Hook format: wrap top items as additionalContext for pi injection
   if (format === 'hook') {
+    const hookItems = items.slice(0, 5);
+    result.count = hookItems.length;
+    result.notifications = hookItems;
     const lines = [
-      `🧠 Memory brief (${items.length}):`,
-      ...items.map(i => `  • ${i.text}`),
+      `🧠 Brief (${hookItems.length}${items.length > hookItems.length ? `/${items.length}` : ''}):`,
+      ...hookItems.map(i => `  • ${i.text}`),
     ];
-    result.additionalContext = lines.join('\n');
+    const additionalContext = lines.join('\n');
+    const sessionId = String(params.session_id ?? params.sessionId ?? '-');
+    const normalizedScope = fillScope(
+      {
+        workspace_path: wsPath,
+        artifact,
+        repo: (params.repo as string | null | undefined) ?? null,
+        ref: (params.ref as string | null | undefined) ?? null,
+      },
+      notifyCwd,
+    );
+    const scopeKey = JSON.stringify([
+      sessionId,
+      normalizedScope.workspace_path,
+      normalizedScope.artifact,
+      normalizedScope.repo,
+      normalizedScope.ref,
+    ]);
+    const fingerprint = createHash('sha256').update(additionalContext).digest('hex');
+    const delivery = { consumerId: agentId, channel: 'briefing', scopeKey };
+    if (getDeliveryFingerprint(db, delivery) === fingerprint) {
+      return { ok: true, count: 0, notifications: [] };
+    }
+    setDeliveryFingerprint(db, { ...delivery, fingerprint });
+    result.additionalContext = additionalContext;
   }
 
   return result;
@@ -443,9 +463,11 @@ export function sessionCapture(
   const workspacePlaceholders = runWorkspaceCandidates.map(() => '?').join(',');
 
   const runRows = db.prepare(
-    `SELECT run_id, rationale, test_plan, context_ref, status, files_json, created_at, updated_at
-     FROM task_runs
-     WHERE agent_id = ?
+    `SELECT tr.run_id, tr.rationale, tr.test_plan, tr.context_ref, tr.status, tr.created_at, tr.updated_at,
+            COALESCE((SELECT json_group_array(rf.file_path)
+              FROM run_files rf WHERE rf.run_id = tr.run_id), '[]') AS files_json
+     FROM task_runs tr
+     WHERE tr.agent_id = ?
        AND status IN ('ACTIVE', 'PENDING')
        AND (workspace_path IN (${workspacePlaceholders}) OR workspace_path IS NULL)
        AND (? IS NULL OR artifact = ? OR artifact IS NULL)
@@ -525,6 +547,41 @@ export function sessionCapture(
     pendingRuns > 0 ? 'Run the recorded verification before claiming completion.' : null,
   ].filter(Boolean).join(' ');
 
+  const existing = db.prepare(
+    `SELECT refinement_id FROM refinements
+      WHERE agent_id = ? AND workspace_path = ? AND artifact IS ? AND repo IS ? AND ref IS ?
+        AND quality = 'handoff' AND state IN ('open', 'ongoing')
+        AND files_json = ? AND reasoning = ? AND remember = ?
+      ORDER BY datetime(updated_at) DESC LIMIT 1`,
+  ).get(
+    agentId,
+    workspacePath,
+    artifact,
+    scope.repo,
+    scope.ref,
+    JSON.stringify(capturedFiles),
+    reasoning,
+    remember,
+  ) as { refinement_id: string } | undefined;
+  if (existing) {
+    return {
+      ok: true,
+      captured: false,
+      deduplicated: true,
+      refinement_id: existing.refinement_id,
+      pending_runs: pendingRuns,
+      active_runs: activeRuns,
+      files: capturedFiles,
+      dirty_files: capturedDirtyFiles,
+      file_count: allCapturedFiles.length,
+      dirty_file_count: dirtyFiles.length,
+      omitted_files: Math.max(0, allCapturedFiles.length - capturedFiles.length),
+      omitted_dirty_files: Math.max(0, dirtyFiles.length - capturedDirtyFiles.length),
+      reason,
+      consolidation_opportunities: consolidationOpportunities,
+    };
+  }
+
   db.prepare(
     `INSERT INTO refinements (
        refinement_id, agent_id, workspace_path, repo, ref,
@@ -579,24 +636,19 @@ export function waitForLock(
   const artifact = normalizeArtifact(params.artifact);
   const waitMs = boundedMs(params.wait_ms ?? params.waitMs, DEFAULT_WAIT_MS, 0, MAX_WAIT_MS);
   const retryMs = boundedMs(params.retry_interval_ms ?? params.retryIntervalMs, DEFAULT_RETRY_MS, 1, MAX_RETRY_MS);
-  // requestedLockType: EXCLUSIVE is blocked by any existing lock; SHARED is only blocked by EXCLUSIVE.
-  const requestedLockType = String(
-    params.requestedLockType ?? params.requested_lock_type ?? params.lockType ?? params.lock_type ?? 'EXCLUSIVE'
-  ).toUpperCase();
   const start = Date.now();
 
   if (targetFiles.length === 0) {
     return { ok: true, waited_ms: 0, lock_free: true };
   }
   const root = rawWorkspacePath ? resolve(rawWorkspacePath) : process.cwd();
-  const absTargetFiles = targetFiles.map((file) => isAbsolute(file) ? resolve(file) : resolve(root, file));
+  const absTargetFiles = targetFiles.map((file) => canonicalizePath(isAbsolute(file) ? resolve(file) : resolve(root, file)));
 
   // FIX #11 (P2): Hoist db.prepare() outside the closure so the statement is compiled
   // once and reused on each poll iteration instead of being re-compiled every loop tick.
   // Also hoist the SharedArrayBuffer/Int32Array allocation before the loop so the same
   // buffer is reused across all Atomics.wait calls.
   const ph = absTargetFiles.map(() => '?').join(',');
-  const lockTypeFilter = requestedLockType === 'EXCLUSIVE' ? '' : "AND fl.lock_type = 'EXCLUSIVE'";
   const scopeClauses: string[] = [];
   const scopeBinds: string[] = [];
   if (workspacePath) { scopeClauses.push('AND ai.workspace_path = ?'); scopeBinds.push(workspacePath); }
@@ -608,7 +660,6 @@ export function waitForLock(
      WHERE fl.file_path IN (${ph})
        AND ai.agent_id <> ?
        AND ai.status = 'ACTIVE'
-       ${lockTypeFilter}
        ${scopeClauses.join('\n       ')}
        AND (fl.expires_at IS NULL OR fl.expires_at > ?)`
   );
@@ -890,7 +941,7 @@ export function getWorkspaceStatus(
   const lockWhere = lockWhereParts.length > 0 ? `WHERE ${lockWhereParts.join(' AND ')}` : '';
   const locks = db.prepare(
     `SELECT fl.file_path, ai.agent_id, ai.session_id, ai.workspace_path, ai.artifact, fl.run_id,
-            fl.lock_type, fl.acquired_at, fl.expires_at
+            'EXCLUSIVE' AS lock_type, fl.acquired_at, fl.expires_at
      FROM locks fl
      JOIN task_runs ai ON ai.run_id = fl.run_id
      ${lockWhere}

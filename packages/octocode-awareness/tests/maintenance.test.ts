@@ -74,8 +74,8 @@ function insertTask(
   const runId = 'task_' + randomUUID().replace(/-/g, '');
   const now = new Date().toISOString();
   db.prepare(`
-    INSERT INTO task_runs (run_id, agent_id, rationale, test_plan, context_ref, status, workspace_path, files_json, created_at, updated_at)
-    VALUES (?, ?, 'test rationale', 'yarn test', ?, 'ACTIVE', ?, '[]', ?, ?)
+    INSERT INTO task_runs (run_id, origin, agent_id, rationale, test_plan, context_ref, status, workspace_path, created_at, updated_at)
+    VALUES (?, 'WORK', ?, 'test rationale', 'yarn test', ?, 'ACTIVE', ?, ?, ?)
   `).run(runId, opts.agentId ?? 'agent-test', opts.planDocRef ?? null, opts.workspacePath ?? '/ws', now, now);
   return runId;
 }
@@ -88,13 +88,12 @@ function insertLock(
   const lockId = 'lock_' + randomUUID().replace(/-/g, '');
   const now = new Date().toISOString();
   db.prepare(`
-    INSERT INTO locks (lock_id, file_path, run_id, agent_id, lock_type, acquired_at, expires_at)
-    VALUES (?, ?, ?, ?, 'EXCLUSIVE', ?, ?)
+    INSERT INTO locks (lock_id, file_path, run_id, acquired_at, expires_at)
+    VALUES (?, ?, ?, ?, ?)
   `).run(
     lockId,
     opts.filePath ?? '/ws/a.ts',
     opts.runId,
-    opts.agentId ?? 'agent-test',
     now,
     opts.expiresAt ?? null,
   );
@@ -133,7 +132,7 @@ describe('pruneStale — locks + tasks', () => {
     expect(lockCount).toBe(0);
   });
 
-  it('updates task status to PENDING in the tasks table when its last lock is pruned', () => {
+  it('does not end independent work when its expired exclusive lock is pruned', () => {
     const db = freshDb();
     const runId = insertTask(db);
     const past = new Date(Date.now() - 5 * 60_000).toISOString();
@@ -144,7 +143,7 @@ describe('pruneStale — locks + tasks', () => {
     const task = db.prepare(
       'SELECT status FROM task_runs WHERE run_id = ?'
     ).get(runId) as { status: string } | undefined;
-    expect(task?.status).toBe('PENDING');
+    expect(task?.status).toBe('ACTIVE');
   });
 
   it('normalizes relative target_file filters against workspace', () => {
@@ -159,7 +158,7 @@ describe('pruneStale — locks + tasks', () => {
     const res = pruneStale(db, { workspace: '/repo', target_file: 'src/a.ts' });
     expect(res.pruned_locks).toBe(1);
     const task = db.prepare('SELECT status FROM task_runs WHERE run_id = ?').get(runId) as { status: string };
-    expect(task.status).toBe('PENDING');
+    expect(task.status).toBe('ACTIVE');
   });
 
   it('does not prune non-expired locks', () => {
@@ -218,7 +217,7 @@ describe('getWorkspaceStatus — current schema', () => {
     expect(status.locks[0]).toHaveProperty('agent_id');
   });
 
-  it('evicts expired locks and marks affected active tasks pending before reporting status', () => {
+  it('evicts expired locks without changing the active work run', () => {
     const db = freshDb();
     const runId = insertTask(db);
     const past = new Date(Date.now() - 5 * 60_000).toISOString();
@@ -226,10 +225,10 @@ describe('getWorkspaceStatus — current schema', () => {
 
     const status = getWorkspaceStatus(db, {});
     expect(status.locks).toHaveLength(0);
-    expect(status.pending_runs).toBeGreaterThanOrEqual(1);
-    expect(status.active_runs).toBe(0);
+    expect(status.pending_runs).toBe(0);
+    expect(status.active_runs).toBe(1);
     const task = db.prepare('SELECT status FROM task_runs WHERE run_id = ?').get(runId) as { status: string };
-    expect(task.status).toBe('PENDING');
+    expect(task.status).toBe('ACTIVE');
   });
 });
 
@@ -270,6 +269,32 @@ describe('notifyGet — smart briefing from memories table', () => {
       ok: true; count: number; notifications: Array<{ kind: string; text: string }>;
     };
     expect(res.notifications.some(n => n.kind === 'weakness')).toBe(true);
+  });
+
+  it('silences unchanged hook briefs per agent, session, and scope without acknowledging signals', () => {
+    const db = freshDb();
+    insertMem(db, {
+      importance: 8,
+      label: 'GOTCHA',
+      observation: 'brief only when the actionable set changes',
+      workspacePath: '/ws',
+    });
+    db.prepare(`INSERT INTO signals (
+      signal_id, workspace_path, from_agent, to_agent, kind, subject, files_json, refs_json,
+      thread_id, importance, status, created_at
+    ) VALUES ('signal-1', '/ws', 'agent-a', 'agent-b', 'request', 'review', '[]', '[]',
+      'signal-1', 8, 'open', strftime('%Y-%m-%dT%H:%M:%fZ','now'))`).run();
+
+    const params = { agent_id: 'agent-b', session_id: 'sess-1', workspace: '/ws', format: 'hook' };
+    const first = notifyGet(db, params) as { count: number; additionalContext?: string };
+    const second = notifyGet(db, params) as { count: number; additionalContext?: string };
+
+    expect(first.additionalContext).toContain('review');
+    expect(second).toEqual({ ok: true, count: 0, notifications: [] });
+    expect((db.prepare('SELECT COUNT(*) AS c FROM signal_reads').get() as { c: number }).c).toBe(0);
+
+    const otherSession = notifyGet(db, { ...params, session_id: 'sess-2' }) as { additionalContext?: string };
+    expect(otherSession.additionalContext).toContain('review');
   });
 });
 
@@ -380,25 +405,44 @@ describe('sessionCapture — tasks table', () => {
     const runId = insertTask(db, { agentId: 'agent-cap', workspacePath: '/ws' });
     const files = Array.from({ length: 60 }, (_, i) => `/ws/src/file-${i}.ts`);
     db.prepare(
-      `UPDATE task_runs
-       SET rationale = ?, test_plan = ?, files_json = ?
-       WHERE run_id = ?`
-    ).run('rationale '.repeat(80), 'test plan '.repeat(80), JSON.stringify(files), runId);
+      `UPDATE task_runs SET rationale = ?, test_plan = ? WHERE run_id = ?`
+    ).run('rationale '.repeat(80), 'test plan '.repeat(80), runId);
+    const now = new Date().toISOString();
+    const insertFile = db.prepare(
+      `INSERT INTO run_files (run_id, file_path, source, started_at, heartbeat_at, expires_at)
+       VALUES (?, ?, 'EXPLICIT', ?, ?, ?)`
+    );
+    for (const file of files) insertFile.run(runId, file, now, now, new Date(Date.now() + 60_000).toISOString());
 
     const res = sessionCapture(db, { agent_id: 'agent-cap', workspace: '/ws' });
     expect(res.captured).toBe(true);
-    expect(res.files).toHaveLength(40);
+    expect(res.files).toHaveLength(20);
     expect(res.file_count).toBe(60);
-    expect(res.omitted_files).toBe(20);
+    expect(res.omitted_files).toBe(40);
 
     const ref = db.prepare(
       'SELECT reasoning, remember, files_json FROM refinements WHERE refinement_id = ?'
     ).get(res.refinement_id!) as { reasoning: string; remember: string; files_json: string };
-    expect(JSON.parse(ref.files_json)).toHaveLength(40);
-    expect(ref.reasoning).toContain('(+52 more)');
-    expect(ref.remember).toContain('showing 20 of 60');
-    expect(ref.remember).toContain('40 omitted');
+    expect(JSON.parse(ref.files_json)).toHaveLength(20);
+    expect(ref.reasoning).toContain('(+57 more)');
+    expect(ref.remember).toContain('showing 10 of 60');
+    expect(ref.remember).toContain('50 omitted');
     expect(ref.reasoning).not.toContain('file-59.ts');
+  });
+
+  it('does not create a duplicate handoff when unresolved state is unchanged', () => {
+    const db = freshDb();
+    insertTask(db, { agentId: 'agent-cap', workspacePath: '/ws' });
+
+    const first = sessionCapture(db, { agent_id: 'agent-cap', workspace: '/ws' });
+    const second = sessionCapture(db, { agent_id: 'agent-cap', workspace: '/ws' });
+
+    expect(first.captured).toBe(true);
+    expect(second).toMatchObject({ captured: false, deduplicated: true, refinement_id: first.refinement_id });
+    const count = db.prepare(
+      "SELECT COUNT(*) AS c FROM refinements WHERE agent_id = 'agent-cap' AND quality = 'handoff' AND state = 'open'"
+    ).get() as { c: number };
+    expect(count.c).toBe(1);
   });
 });
 

@@ -85,15 +85,12 @@ export function normalizeReferences(refs: string[] = []): string[] {
 
 /**
  * Normalize a label string to a valid MEMORY_LABELS value.
- * Empty/missing → OTHER. Unknown labels coerce to OTHER when `coerce` is true (default for
- * filter/recall paths); pass `{ coerce: false }` to hard-error (memory record / CLI).
+ * Empty/missing → OTHER. Unknown labels hard-error.
  */
-export function normalizeLabel(value: unknown, opts: { coerce?: boolean } = {}): string {
-  const coerce = opts.coerce !== false;
+export function normalizeLabel(value: unknown): string {
   if (value == null || String(value).trim() === '') return 'OTHER';
   const cleaned = String(value).trim().toUpperCase().replace(/[\s-]+/g, '_');
   if (MEMORY_LABELS.has(cleaned)) return cleaned;
-  if (coerce) return 'OTHER';
   throw new Error(`invalid label "${String(value)}"; allowed: ${MEMORY_LABEL_VALUES.join(', ')}`);
 }
 
@@ -103,17 +100,12 @@ export const NOTIFICATION_KIND_VALUES = [
 
 export const NOTIFICATION_KINDS = new Set<string>(NOTIFICATION_KIND_VALUES);
 
-/** Validate signal kind; unknown kinds hard-error unless `coerce` maps them to `fyi`. */
-export function normalizeNotificationKind(
-  value: unknown,
-  opts: { coerce?: boolean } = {},
-): (typeof NOTIFICATION_KIND_VALUES)[number] {
-  const coerce = opts.coerce === true;
+/** Validate signal kind; unknown kinds hard-error. */
+export function normalizeNotificationKind(value: unknown): (typeof NOTIFICATION_KIND_VALUES)[number] {
   const cleaned = String(value ?? '').trim().toLowerCase();
   if (NOTIFICATION_KINDS.has(cleaned)) {
     return cleaned as (typeof NOTIFICATION_KIND_VALUES)[number];
   }
-  if (coerce) return 'fyi';
   throw new Error(
     `invalid signal kind "${String(value)}"; allowed: ${NOTIFICATION_KIND_VALUES.join(', ')}`,
   );
@@ -121,19 +113,14 @@ export function normalizeNotificationKind(
 
 export const REFLECTION_OUTCOME_VALUES = ['worked', 'partial', 'failed'] as const;
 
-/** Validate reflect outcome; unknown outcomes hard-error unless `coerce` maps them to `partial`. */
-export function normalizeReflectionOutcome(
-  value: unknown,
-  opts: { coerce?: boolean } = {},
-): (typeof REFLECTION_OUTCOME_VALUES)[number] {
-  const coerce = opts.coerce === true;
+/** Validate reflect outcome; unknown outcomes hard-error. */
+export function normalizeReflectionOutcome(value: unknown): (typeof REFLECTION_OUTCOME_VALUES)[number] {
   // Missing outcome still defaults to partial; only non-empty unknown values hard-error.
   if (value == null || String(value).trim() === '') return 'partial';
   const cleaned = String(value).trim().toLowerCase();
   if ((REFLECTION_OUTCOME_VALUES as readonly string[]).includes(cleaned)) {
     return cleaned as (typeof REFLECTION_OUTCOME_VALUES)[number];
   }
-  if (coerce) return 'partial';
   throw new Error(`invalid outcome "${String(value)}"; allowed: ${REFLECTION_OUTCOME_VALUES.join('|')}`);
 }
 
@@ -182,5 +169,30 @@ export function rowToMemory(row: MemoryRow): MemoryRecord {
     file_tree_fingerprint: row.file_tree_fingerprint ?? null,
     created_at: row.created_at,
     updated_at: row.updated_at ?? null,
+  };
+}
+
+// ─── Token-lean CLI projections ───────────────────────────────────────────────
+
+/** Flatten whitespace and truncate for agent-facing summaries. */
+export function summarizeText(value: string, max: number): string {
+  const flat = value.replace(/\s+/g, ' ').trim();
+  if (flat.length <= max) return flat;
+  return flat.slice(0, Math.max(0, max - 3)).trimEnd() + '...';
+}
+
+/** Default memory recall projection — ids + routing fields, not full rows. */
+export function projectMemoryLean(memory: MemoryRecord): Record<string, unknown> {
+  return {
+    memory_id: memory.memory_id,
+    label: memory.label,
+    importance: memory.importance,
+    task_context: summarizeText(memory.task_context ?? '', 120),
+    observation: summarizeText(memory.observation ?? '', 200),
+    tags: memory.tags,
+    references: memory.references,
+    score: memory.score,
+    failure_signature: memory.failure_signature,
+    created_at: memory.created_at,
   };
 }

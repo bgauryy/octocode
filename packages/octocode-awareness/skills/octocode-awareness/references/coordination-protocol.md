@@ -1,6 +1,6 @@
 # Coordination Protocol
 
-Read this before using signals or refinements across agents. For file claims and verification, read `references/lock-protocol.md`; for collisions and dirty-tree decisions, read `references/files-awareness.md`.
+Read this before using signals or refinements across agents. For advisory overlap read `references/files-awareness.md`; for exclusivity and verification read `references/lock-protocol.md`.
 
 Pi mapping: CLI `signal *` maps to `agent_signal`; `refinement get` maps to `memory_refine_get`. These are host operation names, not public CLI commands.
 

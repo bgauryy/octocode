@@ -62,9 +62,7 @@ export function reflect(db: DatabaseSync, params: ReflectParams): ReflectResult 
     cwd,
   } = params;
 
-  const resolvedOutcome: ReflectionOutcome = normalizeReflectionOutcome(outcome, {
-    coerce: Boolean(params.compatCoerce),
-  });
+  const resolvedOutcome: ReflectionOutcome = normalizeReflectionOutcome(outcome);
 
   // Build narrative observation
   const bits: string[] = [`[reflection:${resolvedOutcome}] ${task}`];

@@ -9,15 +9,20 @@ Core loop: `references/agent-cheatsheet.md`. Agents/skills/search: `references/a
   --task "<task>" --outcome worked|partial|failed --lesson "<reusable>" --compact
 # route feedback by target: --fix-repo <code>, --fix-harness <tooling>,
 # --fix-instructions <what the AGENTS.md/SKILL/brief should have said>
-<cli> reflect developer-review --workspace "$PWD" --format markdown --compact  # read instruction feedback
+<cli> reflect developer-review --workspace "$PWD" --format markdown --compact  # → DEVELOPER_REVIEW.md after inject
 <cli> session capture --agent-id "$OCTOCODE_AGENT_ID" --workspace "$PWD" --compact
 <cli> maintenance digest --workspace "$PWD" --dry-run --compact
 <cli> query files --workspace "$PWD" --format table --limit 50  # stale/missing refs
 <cli> query all --workspace "$PWD" --format html --out .octocode/awareness/index.html
-<cli> repo inject --workspace "$PWD" --compact   # only when projections should refresh
-# then: if root AGENTS.md has no pointer to .octocode/AGENTS.md, append the short
-# block from references/repo-context-management.md (do not rewrite the whole file)
+<cli> repo inject --workspace "$PWD" --compact   # refresh .octocode/{AGENTS,GOTCHAS,LEARN,MEMORY,BOOKMARKS,DEVELOPER_REVIEW}.md
+# then: if root AGENTS.md has no .octocode pointer, append the short block from
+# references/repo-context-management.md (do not rewrite the whole file)
 ```
+
+Wiki map (leads only): `.octocode/AGENTS.md` entry · `GOTCHAS.md` traps · `LEARN.md` lessons ·
+`MEMORY.md` index · `BOOKMARKS.md` resources · `DEVELOPER_REVIEW.md` instruction feedback.
+Create via DB (`memory record` / `reflect record`); label→file map in `learning-loop.md`;
+publish with `repo inject` when file readers need refresh; never hand-edit.
 
 ## Hard ideas
 

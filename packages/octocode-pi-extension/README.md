@@ -160,7 +160,7 @@ Execute directly via `@octocodeai/octocode-tools-core` — no MCP server, no net
 | `spawnAgent` | Start a background Pi worker process over RPC. Returns `agentId`. Workers cannot spawn workers. Registry/output previews are process-local. |
 | `AgentMessage` | List, status, send, steer, followUp, wait, abort, or kill spawned workers in the current Pi process. |
 
-### Memory + coordination tools (13 agent tools + 2 user commands)
+### Memory + coordination tools (10 agent tools + 2 user commands)
 
 All memory is stored in a local SQLite DB under Octocode memory home (`~/.octocode/memory/` by default).
 
@@ -171,16 +171,13 @@ Detailed live Awareness flow and examples: [`docs/MEMORY_AGENT_FLOW.md`](docs/ME
 | `memory_recall` | Awareness: recall durable lessons before risky/unfamiliar work. Accepts `query`, `smart:true`, `references`, `regex`, `sort`, `strict_scope`. |
 | `memory_record` | Awareness reflection: store a root cause, decision, workaround, or verified gotcha after evidence exists. Attaches `file`/`files`/`folders`/`repo`/`workspace_path` scope. Skips duplicates unless `supersedes` or `allow_similar:true`. |
 | `memory_reflect` | Awareness reflection: capture a reusable lesson after non-trivial work. Prefer over `memory_record` when `fix_repo`, `fix_harness`, or `failure_signature` apply — creates refinements and clusters failure patterns. |
-| `workspace_status` | Show active file locks, working agents, and memory/coordination stats for current workspace. |
-| `memory_workspace_status` | Compatibility alias for `workspace_status`. |
+| `workspace_status` | Show advisory file work, exclusive locks, working agents, and memory/coordination stats for the current workspace. |
 | `agent_signal` | Common agent coordination inbox: publish/list/reply/resolve/ack questions, handoffs, blockers, decisions, and FYIs. |
-| `file_lock` | Exact-file locks for parallel agents: attach to a claimed task `run_id`, or omit it for a standalone quick-work run; release/renew by `run_id`. |
-| `memory_file_lock` | Compatibility alias for `file_lock`. |
+| `file_lock` | Optional exclusive protection for sensitive files: attach to a task/WORK `run_id`, or create standalone WORK; release/renew by `run_id`. Ordinary edits rely on advisory presence from Awareness hooks. |
 | `memory_refine_get` | List open repo-fix refinements. Use after reflections may have left actionable fixes. |
 | `memory_audit_unverified` | List pending execution runs that still need verification. Use after every edit batch. |
 | `memory_verify` | Mark pending runs verified or failed: `{run_id}`, `{run_ids:[...]}`, or `{allPending:true}`. A linked durable task completes with its run. |
 | `memory_export_harness` | Awareness reflection: export agent improvement proposals (fix_harness reflections + high-importance lessons) as markdown for AGENTS.md/CLAUDE.md. Never writes files — review and paste after human approval. |
-| `memory_notify` | Compatibility alias for `agent_signal({action:"publish"})`; prefer `agent_signal` for list/reply/resolve. |
 
 User-owned maintenance commands:
 
@@ -249,12 +246,13 @@ workspace_path: absolute path to the workspace root
 
 ### Multi-agent awareness
 
-When multiple agents work in the same workspace, `memory_workspace_status` shows:
-- Which files are currently locked by another agent
+When multiple agents work in the same workspace, `workspace_status` shows:
+- Which files are under advisory work and by whom
+- Which sensitive files have exclusive protection
 - Active PENDING tasks awaiting verification
 - Agent IDs of running workers
 
-`memory_notify` lets agents post structured messages to each other (kinds: `claim` / `handoff` / `question` / `reply` / `blocker` / `request` / `decision` / `fyi`).
+`agent_signal` lets agents publish, list, reply to, acknowledge, and resolve structured messages (kinds: `claim` / `handoff` / `question` / `reply` / `blocker` / `request` / `decision` / `fyi`).
 
 ### Keeping the store clean
 
@@ -413,7 +411,7 @@ The extension replaces Pi's built-in edit tool with an enhanced version:
 | `replaceAll` | File-wide replacement when intentional |
 | Diff/patch detail in results | Shows exactly what changed |
 
-**Edit safety bridge:** Before every Pi write/edit call, the awareness bridge claims a lock on target files. After the edit result, it releases locks and records a `PENDING` task. The system prompt instructs the agent to run the stated verification and call `memory_verify` to clear the task. Pi's in-process `agent_end` gate can send a follow-up instead of letting a session silently conclude while `PENDING` tasks remain.
+**Edit safety bridge:** Before every Pi write/edit call, the awareness bridge declares advisory file presence on the active task/WORK run, or creates an isolated HOOK run. Ordinary overlapping work remains visible and allowed; a live exclusive lock still blocks the edit. After an automatic HOOK edit, the run becomes `PENDING`. The system prompt instructs the agent to run the stated verification and call `memory_verify` to clear it. Pi's in-process `agent_end` gate can send a follow-up instead of letting a session silently conclude while `PENDING` runs remain.
 
 ---
 
@@ -521,11 +519,11 @@ Always compares ≥2 alternatives including do-nothing. `IMPLEMENTATION.md` and 
 
 ### `octocode-awareness`
 
-> Live workspace coordination: recall, file locks, verification gates, signals, reflection, and lifecycle hooks.
+> Live workspace coordination: plans/tasks, advisory file work, sensitive exclusive locks, verification gates, signals, reflection, and lifecycle hooks.
 
-**Load it when:** starting or planning work, claiming files before an edit, checking for other agents' locks, processing messages, recording lessons, or finishing a task.
+**Load it when:** starting or planning work, declaring files under work, checking peer presence/exclusive locks, processing messages, recording lessons, or finishing a task.
 
-**Default loop:** Think/Plan (`memory_recall`, `workspace_status`, inbox check) → Before edits (`file_lock` or CLI `lock acquire`) → After edits (`memory_audit_unverified` → `memory_verify`) → Communicate when needed (`agent_signal`) → Finish/learn (`memory_reflect`, `memory_record`).
+**Default loop:** Attend/choose (Ready/Claimed/Verify/FilesUnderWork) → Declare advisory file work (automatic bridge or Awareness `work start`) → Add `file_lock`/`lock acquire` only for sensitive exclusivity → Run checks and verify → Communicate when needed (`agent_signal`) → Finish/learn (`memory_reflect`, `memory_record`).
 
 Backed by the `wirePiAwarenessHooks` bridge described in [Awareness bridge — edit safety](#awareness-bridge--edit-safety) and the `memory_*` / `file_lock` / `agent_signal` tools in [Support tools](#support-tools-20).
 
@@ -643,10 +641,11 @@ Full Pi model docs: [models.md](https://github.com/earendil-works/pi/blob/main/p
 
 The awareness bridge runs automatically on every Pi edit/write tool call:
 
-1. **Before edit:** Claims a file lock for each target path. Other agents see the lock via `memory_workspace_status`.
-2. **After edit:** For a claimed plan task, releases the short file lock but keeps its run active until `task submit`; otherwise records the standalone run as `PENDING`.
-3. **Agent duty:** Submit claimed tasks, run the stated verification, then call `memory_verify` for the run. Use `{allPending:true}` for all pending runs or `{run_ids:[...]}` for a subset.
-4. **Verify gate:** Pi's in-process awareness bridge sends a follow-up before conclusion while any `PENDING` run remains unverified.
+1. **Before edit:** Declares advisory presence for each target path on the active task/WORK run. Other agents see the work and reason via `workspace_status`; ordinary overlap is allowed.
+2. **Sensitive files:** Use explicit `file_lock`/`lock acquire` for exclusive protection. A live exclusive conflict blocks before presence is created.
+3. **After edit:** Task/explicit WORK presence stays active; an automatic HOOK run ends as `PENDING`.
+4. **Agent duty:** Submit/end owned work, run the stated verification, then call `memory_verify` for the run. Use `{allPending:true}` for all pending runs or `{run_ids:[...]}` for a subset.
+5. **Verify gate:** Pi's in-process awareness bridge sends a follow-up before conclusion while any `PENDING` run remains unverified.
 
 ```bash
 node packages/octocode-awareness/skills/octocode-awareness/scripts/awareness.mjs hooks install --host codex --project-dir . --dry-run

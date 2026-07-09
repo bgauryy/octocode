@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { initDb } from '../src/db.js';
 import { runAwarenessToolOperation } from '../src/tool-operations.js';
+import { startWork } from '../src/work.js';
 
 function freshDb(): DatabaseSync {
   const db = new DatabaseSync(':memory:');
@@ -105,7 +106,7 @@ describe('runAwarenessToolOperation', () => {
     }
   });
 
-  it('covers lock, verify, signal, notify, and workspace status operations', () => {
+  it('covers lock, verify, signal, and workspace status operations', () => {
     const dir = mkdtempSync(join(tmpdir(), 'oc-tool-locks-'));
     try {
       const db = freshDb();
@@ -192,28 +193,40 @@ describe('runAwarenessToolOperation', () => {
       const resolved = run(db, 'agent_signal', { action: 'resolve', signal_ids: [signalId] }, dir);
       expect(resolved.exitCode).toBe(0);
 
-      const notify = run(db, 'notify', {
-        kind: 'fyi',
-        subject: 'legacy alias still works',
-        body: 'Use agent_signal going forward',
-        to_agent: 'agent-b',
-      }, dir);
-      expect(notify.payload).toMatchObject({ alias: 'memory_notify' });
-
+      const advisoryFile = join(dir, 'src', 'advisory.ts');
+      startWork(db, {
+        agentId: 'agent-b',
+        workspacePath: dir,
+        targetFiles: [advisoryFile],
+        rationale: 'refactor advisory parser',
+        testPlan: 'run parser tests',
+        ttlMs: 60_000,
+      });
       const workspace = run(db, 'workspace_status', { workspace_path: dir }, dir);
       expect(workspace.exitCode).toBe(0);
       expect(workspace.payload).toHaveProperty('active_runs');
+      expect(workspace.payload).toMatchObject({
+        files_under_work: [
+          {
+            path: 'src/advisory.ts',
+            peer_count: 1,
+            locked: false,
+          },
+        ],
+      });
 
       const stale = run(db, 'file_lock', { type: 'lock', target_files: [join(dir, 'stale.ts')], reasoning: 'stale active' }, dir);
       const staleTask = (stale.payload as { runId: string }).runId;
       db.prepare('DELETE FROM locks WHERE run_id = ?').run(staleTask);
+      db.prepare('UPDATE run_files SET expires_at = ? WHERE run_id = ?')
+        .run('2000-01-01T00:00:00Z', staleTask);
       const staleAudit = run(db, 'audit_unverified', {}, dir);
       expect(staleAudit.exitCode).toBe(1);
       expect(staleAudit.payload).toHaveProperty('stale_active');
 
       expect(() => run(db, 'verify', {}, dir)).toThrow('memory_verify requires');
       expect(() => run(db, 'agent_signal', { action: 'bad' }, dir)).toThrow('agent_signal requires');
-      expect(() => run(db, 'file_lock', { type: 'bad' }, dir)).toThrow('memory_file_lock requires');
+      expect(() => run(db, 'file_lock', { type: 'bad' }, dir)).toThrow('file_lock requires');
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

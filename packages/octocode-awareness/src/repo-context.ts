@@ -110,6 +110,11 @@ interface Scope {
   ref: string | null;
 }
 
+// One query fans out into many SQL views. Cache its normalized workspace scope
+// by the request object so each view reuses the same realpath/Git discovery
+// instead of spawning Git again for every section.
+const SCOPE_CACHE = new WeakMap<AwarenessQueryParams, Scope>();
+
 interface MemoryDbRow {
   memory_id: string;
   agent_id: string;
@@ -149,7 +154,7 @@ const PROJECTION_MARKDOWN_BUDGETS: Record<string, ProjectionMarkdownBudget> = {
   'BOOKMARKS.md': { max_lines: 200, role: 'learnable resource index' },
   'DEVELOPER_REVIEW.md': { max_lines: 200, role: 'agent feedback to the instruction author' },
 };
-const ATTEND_COMPACT_BUDGET = { max_lines: 120, max_json_bytes: 8 * 1024 };
+const ATTEND_COMPACT_BUDGET = { max_lines: 40, max_json_bytes: 2 * 1024 };
 const WORKBOARD_BUDGET = { max_rows_per_column: 10 };
 const LESSON_LABELS = [
   'DECISION',
@@ -204,10 +209,12 @@ function stringList(value: string | string[] | null | undefined): string[] {
 }
 
 function scopeFromParams(params: AwarenessQueryParams): Scope {
+  const cached = SCOPE_CACHE.get(params);
+  if (cached) return cached;
   const cwd = params.cwd ? resolve(params.cwd) : process.cwd();
   const rawWorkspace = params.workspacePath ?? params.workspace_path ?? params.workspace ?? cwd;
   const workspacePath = rawWorkspace ? resolve(String(rawWorkspace)) : null;
-  return {
+  const scope = {
     // Keep the raw resolved path for projection output / echo; the alias set
     // below carries the extra keys used for DB row matching.
     workspacePath,
@@ -216,6 +223,17 @@ function scopeFromParams(params: AwarenessQueryParams): Scope {
     repo: params.repo ? String(params.repo) : null,
     ref: params.ref ? String(params.ref) : null,
   };
+  SCOPE_CACHE.set(params, scope);
+  return scope;
+}
+
+function withScope(
+  params: AwarenessQueryParams,
+  overrides: Partial<AwarenessQueryParams>,
+): AwarenessQueryParams {
+  const derived = { ...params, ...overrides };
+  SCOPE_CACHE.set(derived, scopeFromParams(params));
+  return derived;
 }
 
 function workspaceAliases(workspacePath: string, cwd?: string): string[] {
@@ -556,19 +574,27 @@ function runRows(db: DatabaseSync, params: AwarenessQueryParams): AwarenessQuery
   const scope = scopeFromParams(params);
   const where: string[] = [];
   const binds: BindValue[] = [];
-  addExactScope(where, binds, scope);
-  addTextFilter(where, binds, params.query, ['run_id', 'rationale', 'test_plan', 'context_ref', 'files_json', 'agent_id']);
-  addStateFilter(where, binds, stringList(params.state), 'status', state => state.toUpperCase());
+  addExactScope(where, binds, scope, 'tr');
+  const query = params.query?.trim();
+  if (query) {
+    where.push(`(LOWER(COALESCE(tr.run_id, '') || ' ' || COALESCE(tr.rationale, '') || ' ' ||
+      COALESCE(tr.test_plan, '') || ' ' || COALESCE(tr.context_ref, '') || ' ' || COALESCE(tr.agent_id, '')) LIKE LOWER(?)
+      OR EXISTS (SELECT 1 FROM run_files rfq WHERE rfq.run_id = tr.run_id AND LOWER(rfq.file_path) LIKE LOWER(?)))`);
+    binds.push(`%${query}%`, `%${query}%`);
+  }
+  addStateFilter(where, binds, stringList(params.state), 'tr.status', state => state.toUpperCase());
   const agentId = params.agentId ?? params.agent_id;
-  if (agentId) { where.push('agent_id = ?'); binds.push(agentId); }
+  if (agentId) { where.push('tr.agent_id = ?'); binds.push(agentId); }
   const since = params.since?.trim();
-  if (since) { where.push('created_at >= ?'); binds.push(since); }
+  if (since) { where.push('tr.created_at >= ?'); binds.push(since); }
   const sqlWhere = where.length > 0 ? `WHERE ${where.join(' AND ')}` : '';
   const rows = db.prepare(
-    `SELECT run_id, task_id, agent_id, session_id, rationale, test_plan, context_ref, status,
-            workspace_path, artifact, files_json, created_at, updated_at
-       FROM task_runs ${sqlWhere}
-      ORDER BY datetime(created_at) DESC LIMIT ?`
+    `SELECT tr.run_id, tr.task_id, tr.agent_id, tr.session_id, tr.rationale, tr.test_plan,
+            tr.context_ref, tr.status, tr.workspace_path, tr.artifact, tr.created_at, tr.updated_at,
+            COALESCE((SELECT json_group_array(rf.file_path)
+              FROM run_files rf WHERE rf.run_id = tr.run_id), '[]') AS files_json
+       FROM task_runs tr ${sqlWhere}
+      ORDER BY datetime(tr.created_at) DESC LIMIT ?`
   ).all(...binds, limitOf(params.limit)) as unknown as Array<Record<string, string | null>>;
   return rows.map(row => ({
     run_id: String(row['run_id']),
@@ -591,15 +617,15 @@ function lockRows(db: DatabaseSync, params: AwarenessQueryParams): AwarenessQuer
   const where: string[] = [];
   const binds: BindValue[] = [];
   addExactScope(where, binds, scope, 't');
-  addTextFilter(where, binds, params.query, ['l.file_path', 'l.agent_id', 't.rationale']);
+  addTextFilter(where, binds, params.query, ['l.file_path', 't.agent_id', 't.rationale']);
   const agentId = params.agentId ?? params.agent_id;
   if (agentId) {
-    where.push('l.agent_id = ?');
+    where.push('t.agent_id = ?');
     binds.push(agentId);
   }
   const sqlWhere = where.length > 0 ? `WHERE ${where.join(' AND ')}` : '';
   const rows = db.prepare(
-    `SELECT l.lock_id, l.file_path, l.run_id, l.agent_id, l.session_id, l.lock_type,
+    `SELECT l.lock_id, l.file_path, l.run_id, t.agent_id, t.session_id, 'EXCLUSIVE' AS lock_type,
             l.acquired_at, l.expires_at, t.task_id, t.workspace_path, t.artifact, t.status
        FROM locks l
        JOIN task_runs t ON t.run_id = l.run_id
@@ -878,19 +904,19 @@ function fileRows(db: DatabaseSync, params: AwarenessQueryParams): AwarenessQuer
     if (ref.label === 'GOTCHA') trackFile(files, ref.reference, 'gotchas', ref.created_at, scope.workspacePath);
   }
 
-  for (const row of taskRows(db, { ...params, limit: 500 })) {
+  for (const row of taskRows(db, withScope(params, { limit: 500 }))) {
     for (const file of row['paths'] as string[]) trackFile(files, file, 'tasks', String(row['created_at']), scope.workspacePath);
   }
-  for (const row of runRows(db, { ...params, limit: 500 })) {
+  for (const row of runRows(db, withScope(params, { limit: 500 }))) {
     for (const file of row['files'] as string[]) trackFile(files, file, 'runs', String(row['created_at']), scope.workspacePath);
   }
-  for (const row of lockRows(db, { ...params, limit: 500 })) {
+  for (const row of lockRows(db, withScope(params, { limit: 500 }))) {
     trackFile(files, String(row['file_path']), 'locks', String(row['acquired_at']), scope.workspacePath);
   }
-  for (const row of refinementRows(db, { ...params, limit: 500 })) {
+  for (const row of refinementRows(db, withScope(params, { limit: 500 }))) {
     for (const file of row['files'] as string[]) trackFile(files, file, 'refinements', String(row['updated_at']), scope.workspacePath);
   }
-  for (const row of signalRows(db, { ...params, limit: 500 })) {
+  for (const row of signalRows(db, withScope(params, { limit: 500 }))) {
     for (const file of row['files'] as string[]) trackFile(files, file, 'signals', String(row['created_at']), scope.workspacePath);
   }
 
@@ -956,28 +982,28 @@ function repoProfileRows(db: DatabaseSync, params: AwarenessQueryParams): Awaren
   const signalBinds: BindValue[] = [];
   addExactScope(signalWhere, signalBinds, scope);
 
-  const trackedFiles = fileRows(db, { ...params, limit: 500 });
+  const trackedFiles = fileRows(db, withScope(params, { limit: 500 }));
   return [
     { metric: 'active_memories', count: countWhere(db, 'memories', memWhere, memBinds) },
-    { metric: 'gotchas', count: memoryRows(db, { ...params, view: 'gotchas', limit: 500 }, { gotchas: true }).length },
-    { metric: 'lessons', count: memoryRows(db, { ...params, view: 'lessons', limit: 500 }, { lessons: true }).length },
+    { metric: 'gotchas', count: memoryRows(db, withScope(params, { view: 'gotchas', limit: 500 }), { gotchas: true }).length },
+    { metric: 'lessons', count: memoryRows(db, withScope(params, { view: 'lessons', limit: 500 }), { lessons: true }).length },
     { metric: 'plans', count: countWhere(db, 'plans', planWhere, planBinds) },
     { metric: 'tasks', count: countWhere(db, 'tasks t JOIN plans p ON p.plan_id = t.plan_id', taskWhere, taskBinds) },
     { metric: 'runs', count: countWhere(db, 'task_runs', runWhere, runBinds) },
     { metric: 'active_locks', count: countWhere(db, 'locks l JOIN task_runs t ON t.run_id = l.run_id', lockWhere, lockBinds) },
     { metric: 'open_refinements', count: countWhere(db, 'refinements', refinementWhere, refinementBinds) },
     { metric: 'open_signals', count: countWhere(db, 'signals', signalWhere, signalBinds) },
-    { metric: 'known_agents', count: agentRows(db, { ...params, limit: 500 }).length },
+    { metric: 'known_agents', count: agentRows(db, withScope(params, { limit: 500 })).length },
     { metric: 'tracked_files', count: trackedFiles.length },
     { metric: 'missing_file_refs', count: trackedFiles.filter(row => row['missing_file']).length },
-    { metric: 'developer_review', count: developerReviewRows(db, { ...params, limit: 500 }).length },
+    { metric: 'developer_review', count: developerReviewRows(db, withScope(params, { limit: 500 })).length },
   ];
 }
 
 function activityRows(db: DatabaseSync, params: AwarenessQueryParams): AwarenessQueryRow[] {
   const limit = limitOf(params.limit);
   const rows: AwarenessQueryRow[] = [];
-  for (const row of memoryRows(db, { ...params, limit })) {
+  for (const row of memoryRows(db, withScope(params, { limit }))) {
     rows.push({
       kind: 'memory',
       id: String(row['memory_id']),
@@ -987,7 +1013,7 @@ function activityRows(db: DatabaseSync, params: AwarenessQueryParams): Awareness
       created_at: String(row['created_at']),
     });
   }
-  for (const row of taskRows(db, { ...params, limit })) {
+  for (const row of taskRows(db, withScope(params, { limit }))) {
     rows.push({
       kind: 'task',
       id: String(row['task_id']),
@@ -997,7 +1023,7 @@ function activityRows(db: DatabaseSync, params: AwarenessQueryParams): Awareness
       created_at: String(row['created_at']),
     });
   }
-  for (const row of runRows(db, { ...params, limit })) {
+  for (const row of runRows(db, withScope(params, { limit }))) {
     rows.push({
       kind: 'run',
       id: String(row['run_id']),
@@ -1007,7 +1033,7 @@ function activityRows(db: DatabaseSync, params: AwarenessQueryParams): Awareness
       created_at: String(row['created_at']),
     });
   }
-  for (const row of signalRows(db, { ...params, limit })) {
+  for (const row of signalRows(db, withScope(params, { limit }))) {
     rows.push({
       kind: 'signal',
       id: String(row['signal_id']),
@@ -1017,7 +1043,7 @@ function activityRows(db: DatabaseSync, params: AwarenessQueryParams): Awareness
       created_at: String(row['created_at']),
     });
   }
-  for (const row of refinementRows(db, { ...params, limit })) {
+  for (const row of refinementRows(db, withScope(params, { limit }))) {
     rows.push({
       kind: 'refinement',
       id: String(row['refinement_id']),
@@ -1035,6 +1061,75 @@ function activityRows(db: DatabaseSync, params: AwarenessQueryParams): Awareness
 function rowFiles(row: AwarenessQueryRow): string[] {
   const raw = row['files'] ?? row['paths'];
   return Array.isArray(raw) ? raw.map(String) : [];
+}
+
+function displayPath(filePath: string, workspacePath: string | null): string {
+  if (!workspacePath) return filePath.replace(/\\/g, '/');
+  const rel = relative(workspacePath, filePath);
+  return rel && rel !== '..' && !rel.startsWith(`..${process.platform === 'win32' ? '\\' : '/'}`) && !isAbsolute(rel)
+    ? rel.replace(/\\/g, '/')
+    : filePath.replace(/\\/g, '/');
+}
+
+function filesUnderWorkRows(db: DatabaseSync, params: AwarenessQueryParams): AwarenessQueryRow[] {
+  const scope = scopeFromParams(params);
+  const where = ["tr.status = 'ACTIVE'", 'rf.ended_at IS NULL', 'rf.expires_at > ?'];
+  const binds: BindValue[] = [utcNow()];
+  addExactScope(where, binds, scope, 'tr');
+  addTextFilter(where, binds, params.query, ['rf.file_path', 'tr.agent_id', 'tr.rationale', 'rf.reason_override', 't.title', 'p.name']);
+  const agentId = params.agentId ?? params.agent_id;
+  if (agentId) { where.push('tr.agent_id = ?'); binds.push(agentId); }
+  if (params.file?.trim()) {
+    const root = scope.workspacePath ?? process.cwd();
+    const filePath = isAbsolute(params.file) ? resolve(params.file) : resolve(root, params.file);
+    where.push('rf.file_path = ?');
+    binds.push(filePath);
+  }
+  const rows = db.prepare(
+    `SELECT rf.file_path, rf.run_id, tr.agent_id, tr.task_id,
+            COALESCE(rf.reason_override, t.reasoning, tr.rationale) AS reason,
+            t.plan_id, p.name AS plan_name, tr.workspace_path,
+            CASE WHEN l.lock_id IS NULL THEN 0 ELSE 1 END AS locked,
+            l.expires_at AS lock_expires_at
+       FROM run_files rf
+       JOIN task_runs tr ON tr.run_id = rf.run_id
+       LEFT JOIN tasks t ON t.task_id = tr.task_id
+       LEFT JOIN plans p ON p.plan_id = t.plan_id
+       LEFT JOIN locks l ON l.run_id = rf.run_id AND l.file_path = rf.file_path
+         AND (l.expires_at IS NULL OR l.expires_at > ?)
+      WHERE ${where.join(' AND ')}
+      ORDER BY rf.file_path, datetime(rf.heartbeat_at) DESC, tr.agent_id, rf.run_id`
+  ).all(utcNow(), ...binds) as unknown as Array<Record<string, string | number | null>>;
+
+  const grouped = new Map<string, Array<Record<string, string | number | null>>>();
+  for (const row of rows) {
+    const path = String(row['file_path']);
+    const peers = grouped.get(path) ?? [];
+    peers.push(row);
+    grouped.set(path, peers);
+  }
+
+  return [...grouped.entries()].map(([filePath, peers]) => {
+    const shown = peers.slice(0, 3);
+    const lock = peers.find(peer => Number(peer['locked']) === 1);
+    const workspacePath = String(peers[0]?.['workspace_path'] ?? scope.workspacePath ?? '') || null;
+    return {
+      item_type: 'file',
+      id: filePath,
+      path: displayPath(filePath, workspacePath),
+      peer_count: peers.length,
+      agents: shown.map(peer => String(peer['agent_id'])),
+      run_ids: shown.map(peer => String(peer['run_id'])),
+      task_ids: shown.flatMap(peer => peer['task_id'] == null ? [] : [String(peer['task_id'])]),
+      plan_ids: shown.flatMap(peer => peer['plan_id'] == null ? [] : [String(peer['plan_id'])]),
+      plans: shown.flatMap(peer => peer['plan_name'] == null ? [] : [String(peer['plan_name'])]),
+      reasons: shown.map(peer => summarize(String(peer['reason'] ?? ''), 80)),
+      omitted_peer_count: Math.max(0, peers.length - shown.length),
+      locked: Boolean(lock),
+      lock_agent_id: lock == null ? null : String(lock['agent_id']),
+      lock_expires_at: lock?.['lock_expires_at'] ?? null,
+    };
+  });
 }
 
 function pushLimited(
@@ -1059,6 +1154,7 @@ function workboardRows(db: DatabaseSync, params: AwarenessQueryParams): Awarenes
     Verify: [],
     Ready: [],
     Claimed: [],
+    FilesUnderWork: [],
     RecentDone: [],
     MemoryReview: [],
     DeveloperReview: [],
@@ -1066,7 +1162,11 @@ function workboardRows(db: DatabaseSync, params: AwarenessQueryParams): Awarenes
   };
   const counts: Record<string, number> = {};
 
-  const openSignals = signalRows(db, { ...params, state: ['open'], limit: 200, includeBodies: false });
+  for (const row of filesUnderWorkRows(db, withScope(params, { limit: 200 }))) {
+    pushLimited(columns, counts, 'FilesUnderWork', row, limit);
+  }
+
+  const openSignals = signalRows(db, withScope(params, { state: ['open'], limit: 200, includeBodies: false }));
   for (const row of openSignals) {
     pushLimited(columns, counts, 'Inbox', {
       item_type: 'signal',
@@ -1081,7 +1181,7 @@ function workboardRows(db: DatabaseSync, params: AwarenessQueryParams): Awarenes
     }, limit);
   }
 
-  const handoffs = refinementRows(db, { ...params, state: ['open', 'ongoing'], limit: 200 })
+  const handoffs = refinementRows(db, withScope(params, { state: ['open', 'ongoing'], limit: 200 }))
     .filter(row => String(row['quality']) === 'handoff');
   for (const row of handoffs) {
     pushLimited(columns, counts, 'Inbox', {
@@ -1099,7 +1199,7 @@ function workboardRows(db: DatabaseSync, params: AwarenessQueryParams): Awarenes
     }, limit);
   }
 
-  for (const row of taskRows(db, { ...params, state: ['VERIFY'], limit: 500 })) {
+  for (const row of taskRows(db, withScope(params, { state: ['VERIFY'], limit: 500 }))) {
     pushLimited(columns, counts, 'Verify', {
       item_type: 'task',
       id: String(row['task_id']),
@@ -1116,7 +1216,7 @@ function workboardRows(db: DatabaseSync, params: AwarenessQueryParams): Awarenes
   }
 
   // Quick lock-only flows have no plan task; they still owe verification.
-  for (const row of runRows(db, { ...params, state: ['PENDING'], limit: 500 })
+  for (const row of runRows(db, withScope(params, { state: ['PENDING'], limit: 500 }))
     .filter(row => row['task_id'] == null)) {
     pushLimited(columns, counts, 'Verify', {
       item_type: 'run',
@@ -1132,7 +1232,7 @@ function workboardRows(db: DatabaseSync, params: AwarenessQueryParams): Awarenes
     }, limit);
   }
 
-  for (const row of taskRows(db, { ...params, state: ['OPEN'], limit: 500 })
+  for (const row of taskRows(db, withScope(params, { state: ['OPEN'], limit: 500 }))
     .filter(row => row['ready'] === true)) {
     pushLimited(columns, counts, 'Ready', {
       item_type: 'task',
@@ -1150,7 +1250,7 @@ function workboardRows(db: DatabaseSync, params: AwarenessQueryParams): Awarenes
     }, limit);
   }
 
-  for (const row of taskRows(db, { ...params, state: ['IN_PROGRESS'], limit: 500 })) {
+  for (const row of taskRows(db, withScope(params, { state: ['IN_PROGRESS'], limit: 500 }))) {
     pushLimited(columns, counts, 'Claimed', {
       item_type: 'task',
       id: String(row['task_id']),
@@ -1167,25 +1267,7 @@ function workboardRows(db: DatabaseSync, params: AwarenessQueryParams): Awarenes
     }, limit);
   }
 
-  // Standalone file locks are shown only when no collaborative task already
-  // represents the same work.
-  for (const row of lockRows(db, { ...params, limit: 200 })
-    .filter(row => row['task_id'] == null)) {
-    pushLimited(columns, counts, 'Claimed', {
-      item_type: 'lock',
-      id: String(row['lock_id']),
-      title: String(row['file_path']),
-      detail: `run=${row['run_id']} ${row['lock_type']}`,
-      agent_id: String(row['agent_id']),
-      status: String(row['run_status']),
-      raw_ids: [String(row['lock_id']), String(row['run_id'])],
-      files: [String(row['file_path'])],
-      created_at: String(row['acquired_at']),
-      expires_at: row['expires_at'] ?? null,
-    }, limit);
-  }
-
-  for (const row of taskRows(db, { ...params, state: ['DONE', 'FAILED', 'CANCELLED'], limit: 200 })) {
+  for (const row of taskRows(db, withScope(params, { state: ['DONE', 'FAILED', 'CANCELLED'], limit: 200 }))) {
     pushLimited(columns, counts, 'RecentDone', {
       item_type: 'task',
       id: String(row['task_id']),
@@ -1201,7 +1283,7 @@ function workboardRows(db: DatabaseSync, params: AwarenessQueryParams): Awarenes
     }, limit);
   }
 
-  for (const row of memoryRows(db, { ...params, limit: 200 })) {
+  for (const row of memoryRows(db, withScope(params, { limit: 200 }))) {
     const failureSignature = String(row['failure_signature'] ?? '');
     const refs = Array.isArray(row['references']) ? row['references'] as string[] : [];
     const missingRefs = Array.isArray(row['missing_references']) ? row['missing_references'] as string[] : [];
@@ -1230,7 +1312,7 @@ function workboardRows(db: DatabaseSync, params: AwarenessQueryParams): Awarenes
     }, limit);
   }
 
-  for (const row of developerReviewRows(db, { ...params, state: ['open', 'ongoing'], limit: 200 })) {
+  for (const row of developerReviewRows(db, withScope(params, { state: ['open', 'ongoing'], limit: 200 }))) {
     pushLimited(columns, counts, 'DeveloperReview', {
       item_type: String(row['source']) === 'refinement' ? 'refinement' : 'memory',
       id: String(row['id']),
@@ -1508,8 +1590,14 @@ export function injectRepoContext(db: DatabaseSync, params: RepoContextInjectPar
   const mode = normalizeMode(params.mode);
   const includeView = params.includeView ?? params.include_view ?? true;
   const check = params.check ?? true;
-  const queryParams: AwarenessQueryParams = { ...params, workspacePath, limit: limitOf(params.limit, 50, 500) };
-  const all = queryAwareness(db, { ...queryParams, view: 'all' });
+  const queryParams: AwarenessQueryParams = {
+    ...params,
+    workspacePath,
+    limit: limitOf(params.limit, 50, 500),
+    view: 'all',
+  };
+  SCOPE_CACHE.set(queryParams, scope);
+  const all = queryAwareness(db, queryParams);
   const filesWritten: string[] = [];
   const writtenContent: Record<string, string> = {};
   const warnings: string[] = [];
@@ -1636,6 +1724,9 @@ function renderRepoAgentsMd(all: AwarenessQueryResult): string {
   const counts = Object.fromEntries(profile.map(row => [String(row['metric']), row['count'] ?? 0]));
   const gotchas = (sections['gotchas']?.rows ?? []).slice(0, 5);
   const lessons = (sections['lessons']?.rows ?? []).slice(0, 5);
+  const fileWorkRows = (sections['workboard']?.rows ?? [])
+    .filter(row => row['column'] === 'FilesUnderWork');
+  const fileWork = fileWorkRows.slice(0, 3);
   const locks = (sections['locks']?.rows ?? []).slice(0, 3);
   const lockTotal = (sections['locks']?.rows ?? []).length;
   const projectionWarnings = [
@@ -1653,7 +1744,7 @@ function renderRepoAgentsMd(all: AwarenessQueryResult): string {
     '',
     '## How To Use',
     '',
-    '- Live: `octocode-awareness attend|query|memory recall|workspace status --workspace <repo>`.',
+    '- Live: `octocode-awareness attend|work list|query|memory recall|workspace status --workspace <repo>`.',
     '- Wiki leads below are projections, not proof. After inject, append a root `AGENTS.md` → `.octocode/AGENTS.md` pointer if missing.',
     '',
     '## Snapshot',
@@ -1662,7 +1753,7 @@ function renderRepoAgentsMd(all: AwarenessQueryResult): string {
     '',
     '## Retro Files Map',
     '',
-    'Generated retrospective projections in this folder (SQLite is canonical; regenerate, don\'t hand-edit). Locks/signals/tasks live only in the DB — use live `query`.',
+    'Generated retrospective projections in this folder (SQLite is canonical; regenerate, don\'t hand-edit). File work, locks, signals, and tasks live only in the DB — use live `attend`, `work`, or `query`.',
     '',
     '- Gotchas → `.octocode/GOTCHAS.md` · live `query gotchas` / `memory recall`',
     '- Lessons → `.octocode/LEARN.md` · live `query lessons`',
@@ -1672,8 +1763,10 @@ function renderRepoAgentsMd(all: AwarenessQueryResult): string {
     '',
     '## Read Before Editing',
     '',
+    '- Run `attend`, then inspect `FilesUnderWork` before editing. Record ordinary work with `work start`; overlap is allowed and visible.',
+    '- Exclusive locks are reserved for sensitive files. An active exclusive lock blocks conflicting work.',
     '- Read GOTCHAS + LEARN; run `query files --format table` or filter `awareness/csv/files.csv` for affected and missing paths.',
-    '- Prefer live `attend` / `query` when freshness matters; `repo inject` after important memories.',
+    '- Prefer live `attend` / `work list` / `query` when freshness matters; `repo inject` after important memories.',
     '',
     '## Projection Health',
     '',
@@ -1682,9 +1775,19 @@ function renderRepoAgentsMd(all: AwarenessQueryResult): string {
     '',
   ];
 
+  if (fileWork.length > 0) {
+    lines.push('## Files Under Work', '');
+    for (const row of fileWork) {
+      const locked = row['locked'] ? ' · exclusive lock' : '';
+      lines.push(`- ${row['path']} — ${row['peer_count']} worker(s): ${row['agents']} · ${summarize(String(row['reasons'] ?? 'reason not recorded'), 100)}${locked}`);
+    }
+    if (fileWorkRows.length > fileWork.length) lines.push(`- …and ${fileWorkRows.length - fileWork.length} more (live: \`work list\` or \`query workboard\`)`);
+    lines.push('');
+  }
+
   if (locks.length > 0) {
-    lines.push('## Active Locks', '');
-    for (const lock of locks) lines.push(`- ${lock['file_path']} - ${lock['agent_id']} (${lock['lock_type']})`);
+    lines.push('## Active Exclusive Locks', '');
+    for (const lock of locks) lines.push(`- ${lock['file_path']} — ${lock['agent_id']}`);
     if (lockTotal > locks.length) lines.push(`- …and ${lockTotal - locks.length} more (live: \`query locks\`)`);
     lines.push('');
   }

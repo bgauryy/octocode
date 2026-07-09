@@ -7,11 +7,11 @@ import { isAbsolute, resolve } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { normalizeArtifact, utcNow } from './helpers.js';
 import { evictExpiredLocks } from './db.js';
-import { normalizeWorkspacePath } from './git.js';
+import { canonicalizePath, normalizeWorkspacePath } from './git.js';
+import { startWork } from './work.js';
 import type {
   PreFlightRunParams, PreFlightRunResult,
   ReleaseFileLockParams, ReleaseFileLockResult,
-  FileLockRow,
   FileLockParams,
   FileLockResult,
   FileLockStatusEntry,
@@ -40,7 +40,7 @@ function workspaceFileBase(workspacePath?: string | null): string {
 
 function resolveTargetFiles(targetFiles: string[] = [], workspacePath?: string | null): string[] {
   const root = workspaceFileBase(workspacePath);
-  return targetFiles.map((file) => isAbsolute(file) ? resolve(file) : resolve(root, file));
+  return targetFiles.map((file) => canonicalizePath(isAbsolute(file) ? resolve(file) : resolve(root, file)));
 }
 
 function activeLockRows(
@@ -79,7 +79,8 @@ function activeLockRows(
 
   return db.prepare(
     `SELECT fl.lock_id, fl.run_id, fl.file_path, ai.agent_id, ai.session_id, ai.workspace_path, ai.artifact,
-            ai.rationale AS reasoning, ai.test_plan AS test_plan, fl.lock_type, fl.acquired_at, fl.expires_at
+            ai.rationale AS reasoning, ai.test_plan AS test_plan, 'EXCLUSIVE' AS lock_type,
+            fl.acquired_at, fl.expires_at
        FROM locks fl
        JOIN task_runs ai ON ai.run_id = fl.run_id
       WHERE ${clauses.join(' AND ')}
@@ -95,157 +96,78 @@ export function preFlightIntent(
   db: DatabaseSync,
   params: PreFlightRunParams,
 ): PreFlightRunResult {
-  const {
-    agentId = 'agent',
-    sessionId = null,
-    workspacePath,
-    artifact,
-    runId: requestedRunId = null,
-    rationale = 'agent write operation',
-    testPlan = 'post-edit verification',
-    contextRef = null,
-    targetFiles = [],
-    lockType = 'EXCLUSIVE',
-    ttlMs = MAX_LOCK_TTL_MS,
-  } = params;
-  const runId = requestedRunId ?? `run_${randomUUID().replace(/-/g, '')}`;
-  const now = utcNow();
-  const wsPath = workspaceScopeRoot(workspacePath);
-  const artifactScope = normalizeArtifact(artifact);
-  const absFiles = resolveTargetFiles(targetFiles, workspacePath);
-  let linkedTaskId: string | null = null;
-  let effectiveContextRef = contextRef;
-
-  // ARCH-3: Drop expired locks before checking conflicts so dangling locks never block new work.
-  evictExpiredLocks(db);
-
-  // BEGIN IMMEDIATE acquires a write lock upfront, serializing the check-then-insert sequence
-  // and eliminating the TOCTOU race where two agents both pass the conflict check before either
-  // inserts, then both hold EXCLUSIVE locks on the same file.
-  db.exec('BEGIN IMMEDIATE');
-  try {
-    // Check for conflicts with OTHER agents.
-    const conflicts: FileLockRow[] = [];
-    for (const absPath of absFiles) {
-      const conflictMode = lockType === 'SHARED' ? "fl.lock_type = 'EXCLUSIVE'" : '1 = 1';
-      const existing = db.prepare(`
-        SELECT fl.*, ai.agent_id AS run_agent_id,
-               ai.rationale AS reasoning, ai.test_plan AS test_plan
-          FROM locks fl
-        JOIN task_runs ai ON ai.run_id = fl.run_id
-        WHERE fl.file_path = ?
-          AND ai.agent_id <> ?
-          AND ai.status = 'ACTIVE'
-          AND ${conflictMode}
-          AND (fl.expires_at IS NULL OR fl.expires_at > ?)
-      `).all(absPath, agentId, now) as unknown as FileLockRow[];
-      conflicts.push(...existing);
-    }
-
-    if (conflicts.length > 0) {
-      db.exec('ROLLBACK');
-      return {
-        ok: false,
-        conflict: true,
-        conflicts: conflicts.map(c => {
-          // Session liveness: if the holder's session has ended, the lock is
-          // likely abandoned (not yet TTL-expired). Surface it — don't auto-steal
-          // — so a blocked agent can decide to wait, work elsewhere, or reclaim.
-          const holderSession = c.session_id
-            ? (db.prepare('SELECT ended_at FROM sessions WHERE session_id = ?').get(c.session_id) as { ended_at: string | null } | undefined)
-            : undefined;
-          const holderSessionActive = !holderSession || holderSession.ended_at == null;
-          return {
-            file_path: c.file_path,
-            lock_type: c.lock_type as 'EXCLUSIVE' | 'SHARED',
-            agent_id: c.run_agent_id ?? c.agent_id,
-            acquired_at: c.acquired_at,
-            expires_at: c.expires_at,
-            // Surface the holder's who/why so a blocked agent can act on it.
-            run_id: c.run_id,
-            reasoning: c.reasoning ?? 'agent write operation',
-            test_plan: c.test_plan ?? 'post-edit verification',
-            session_id: c.session_id ?? null,
-            holder_session_active: holderSessionActive,
-          };
-        }),
-      };
-    }
-
-    // Auto-register session when provided so the FK on task_runs.session_id is satisfied.
-    if (sessionId) {
-      db.prepare(
-        `INSERT OR IGNORE INTO sessions (session_id, agent_id, workspace_path, artifact, started_at)
-         VALUES (?, ?, ?, ?, ?)`
-      ).run(sessionId, agentId, wsPath, artifactScope, now);
-    }
-
-    // A task claim may provide its existing run. Quick lock-only flows omit it
-    // and get a standalone run with task_id = NULL.
-    if (requestedRunId) {
-      const existingRun = db.prepare(
-        "SELECT task_id, agent_id, status, context_ref, files_json FROM task_runs WHERE run_id = ?",
-      ).get(requestedRunId) as { task_id: string | null; agent_id: string; status: string; context_ref: string | null; files_json: string } | undefined;
-      if (!existingRun) throw new Error(`run not found: ${requestedRunId}`);
-      if (existingRun.agent_id !== agentId) throw new Error(`run ${requestedRunId} belongs to ${existingRun.agent_id}`);
-      if (existingRun.status !== 'ACTIVE') throw new Error(`run ${requestedRunId} is not ACTIVE`);
-      linkedTaskId = existingRun.task_id;
-      effectiveContextRef = existingRun.context_ref;
-      const previousFiles = JSON.parse(existingRun.files_json || '[]') as string[];
-      db.prepare('UPDATE task_runs SET files_json = ?, updated_at = ? WHERE run_id = ?')
-        .run(JSON.stringify([...new Set([...previousFiles, ...absFiles])]), now, runId);
-    } else {
-      db.prepare(`
-        INSERT INTO task_runs
-          (run_id, task_id, agent_id, session_id, rationale, test_plan, context_ref, status, workspace_path, artifact, files_json, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, 'ACTIVE', ?, ?, ?, ?, ?)
-      `).run(runId, null, agentId, sessionId, rationale, testPlan, contextRef, wsPath, artifactScope, JSON.stringify(absFiles), now, now);
-    }
-
-    const expiresAt = expiresAtFromNow(ttlMs);
-
-    const acquiredLocks: Array<{ lock_id: string; file_path: string; lock_type: 'EXCLUSIVE' | 'SHARED'; expires_at: string | null }> = [];
-    for (const absPath of absFiles) {
-      const lockId = 'lock_' + randomUUID().replace(/-/g, '');
-      db.prepare(`
-        INSERT OR REPLACE INTO locks
-          (lock_id, file_path, run_id, agent_id, session_id, lock_type, acquired_at, expires_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(lockId, absPath, runId, agentId, sessionId, lockType, now, expiresAt);
-      acquiredLocks.push({ lock_id: lockId, file_path: absPath, lock_type: lockType, expires_at: expiresAt });
-    }
-
-    db.exec('COMMIT');
-
+  const agentId = params.agentId ?? 'agent';
+  const result = startWork(db, {
+    agentId,
+    sessionId: params.sessionId,
+    workspacePath: params.workspacePath,
+    artifact: params.artifact,
+    runId: params.runId,
+    rationale: params.rationale ?? 'agent write operation',
+    testPlan: params.testPlan ?? 'post-edit verification',
+    contextRef: params.contextRef,
+    targetFiles: params.targetFiles ?? [],
+    origin: 'WORK',
+    source: 'EXPLICIT',
+    ttlMs: effectiveTtlMs(params.ttlMs),
+    exclusive: true,
+  });
+  if (!result.ok) {
     return {
-      ok: true,
-      run: {
-        run_id: runId,
-        task_id: linkedTaskId,
-        agent_id: agentId,
-        session_id: sessionId,
-        lock_type: lockType,
-        workspace_path: wsPath,
-        artifact: artifactScope,
-        context_ref: effectiveContextRef,
-        target_files: absFiles,
-        locks: acquiredLocks.map(l => ({
-          lock_id: l.lock_id,
-          file_path: l.file_path,
-          lock_type: l.lock_type,
-          agent_id: agentId,
-          session_id: sessionId,
-          acquired_at: now,
-          expires_at: l.expires_at,
-        })),
-        status: 'ACTIVE',
-        created_at: now,
-      },
+      ok: false,
+      conflict: true,
+      conflicts: result.conflicts.map((conflict) => {
+        const holder = db.prepare(`SELECT tr.session_id, s.ended_at, l.acquired_at
+          FROM task_runs tr
+          LEFT JOIN sessions s ON s.session_id = tr.session_id
+          LEFT JOIN locks l ON l.run_id = tr.run_id AND l.file_path = ?
+          WHERE tr.run_id = ?`).get(conflict.file_path, conflict.run_id) as {
+            session_id: string | null;
+            ended_at: string | null;
+            acquired_at: string | null;
+          } | undefined;
+        return {
+          file_path: conflict.file_path,
+          lock_type: 'EXCLUSIVE' as const,
+          agent_id: conflict.agent_id,
+          acquired_at: holder?.acquired_at ?? conflict.heartbeat_at,
+          expires_at: conflict.expires_at,
+          run_id: conflict.run_id,
+          reasoning: conflict.rationale,
+          test_plan: db.prepare('SELECT test_plan FROM task_runs WHERE run_id = ?')
+            .get(conflict.run_id)?.['test_plan'] as string ?? 'post-edit verification',
+          session_id: holder?.session_id ?? null,
+          holder_session_active: !holder?.ended_at,
+        };
+      }),
     };
-  } catch (e) {
-    try { db.exec('ROLLBACK'); } catch { /* not in transaction */ }
-    throw e;
   }
+  const locks = activeLockRows(db, { runId: result.run.run_id });
+  return {
+    ok: true,
+    run: {
+      run_id: result.run.run_id,
+      task_id: result.run.task_id,
+      origin: result.run.origin,
+      agent_id: result.run.agent_id,
+      session_id: result.run.session_id,
+      workspace_path: result.run.workspace_path ?? workspaceScopeRoot(params.workspacePath),
+      artifact: result.run.artifact,
+      context_ref: result.run.context_ref,
+      target_files: result.files.filter((file) => file.ended_at == null).map((file) => file.file_path),
+      locks: locks.map((lock) => ({
+        lock_id: lock.lock_id,
+        file_path: lock.file_path,
+        lock_type: 'EXCLUSIVE',
+        agent_id: lock.agent_id,
+        session_id: lock.session_id,
+        acquired_at: lock.acquired_at,
+        expires_at: lock.expires_at,
+      })),
+      status: result.run.status,
+      created_at: result.run.created_at,
+    },
+  };
 }
 
 /**
@@ -275,17 +197,14 @@ export function releaseFileLock(
   const effectiveStatus: ReleaseStatus = requestedSuccessWithoutVerification ? 'PENDING' : requestedStatus;
 
   const now = utcNow();
-  const whereClauses: string[] = ['fl.agent_id = ?'];
+  const whereClauses: string[] = ['ai.run_id = fl.run_id', 'ai.agent_id = ?'];
   const whereParams: (string | number)[] = [agentId];
 
   if (sessionId) {
-    whereClauses.push('fl.session_id = ?');
+    whereClauses.push('ai.session_id = ?');
     whereParams.push(sessionId);
   }
   const artifactScope = normalizeArtifact(artifact);
-  if (workspacePath || artifactScope) {
-    whereClauses.push('ai.run_id = fl.run_id');
-  }
   if (workspacePath) {
     whereClauses.push('ai.workspace_path = ?');
     whereParams.push(workspaceScopeRoot(workspacePath));
@@ -310,7 +229,7 @@ export function releaseFileLock(
   const where = whereClauses.join(' AND ');
   const locks = db.prepare(
     `SELECT fl.lock_id, fl.run_id, fl.file_path
-       FROM locks fl${workspacePath || artifactScope ? ', task_runs ai' : ''}
+       FROM locks fl JOIN task_runs ai ON ai.run_id = fl.run_id
       WHERE ${where}`
   ).all(...whereParams) as unknown as Array<{ lock_id: string; run_id: string; file_path: string }>;
 
@@ -349,9 +268,9 @@ export function releaseFileLock(
     };
   }
 
-  const runMetadata = db.prepare(`SELECT run_id, task_id FROM task_runs
+  const runMetadata = db.prepare(`SELECT run_id, task_id, origin FROM task_runs
     WHERE run_id IN (${runIds.map(() => '?').join(',')})`)
-    .all(...runIds) as unknown as Array<{ run_id: string; task_id: string | null }>;
+    .all(...runIds) as unknown as Array<{ run_id: string; task_id: string | null; origin: 'TASK' | 'WORK' | 'HOOK' }>;
   if (effectiveStatus !== 'ACTIVE' && runMetadata.some((run) => run.task_id != null)) {
     throw new Error('task-linked runs must use task submit or task release; lock release may only keep them ACTIVE');
   }
@@ -367,6 +286,16 @@ export function releaseFileLock(
     }
 
     for (const tid of runIds) {
+      const metadata = runMetadata.find((run) => run.run_id === tid);
+      if (effectiveStatus !== 'ACTIVE' && metadata?.origin !== 'TASK') {
+        const releasedFiles = locks.filter((lock) => lock.run_id === tid).map((lock) => lock.file_path);
+        const fileClause = releasedFiles.length > 0
+          ? ` AND file_path IN (${releasedFiles.map(() => '?').join(',')})`
+          : '';
+        db.prepare(`UPDATE run_files SET heartbeat_at = ?, expires_at = ?, ended_at = ?
+          WHERE run_id = ? AND ended_at IS NULL${fileClause}`)
+          .run(now, now, now, tid, ...releasedFiles);
+      }
       const remaining = db.prepare('SELECT 1 FROM locks WHERE run_id = ? LIMIT 1').get(tid);
       if (!remaining) {
         const updated = db.prepare(
@@ -414,7 +343,6 @@ export function fileLock(db: DatabaseSync, params: FileLockParams): FileLockResu
         artifact: params.artifact,
         runId: params.runId,
         targetFiles: params.targetFiles ?? [],
-        lockType: params.lockType,
         ttlMs: params.ttlMs,
         rationale: params.reasoning?.trim() || 'manual: fileLock lock',
         testPlan: 'release or verify file-lock run',
@@ -470,10 +398,14 @@ export function fileLock(db: DatabaseSync, params: FileLockParams): FileLockResu
       const agentId = params.agentId ?? 'agent';
       const expiresAt = expiresAtFromNow(params.ttlMs);
       const res = db.prepare(
-        `UPDATE locks SET expires_at = ? WHERE run_id = ? AND agent_id = ?`
+        `UPDATE locks SET expires_at = ? WHERE run_id = ?
+         AND EXISTS (SELECT 1 FROM task_runs tr WHERE tr.run_id = locks.run_id AND tr.agent_id = ?)`
       ).run(expiresAt, params.runId, agentId) as { changes: number };
+      const now = utcNow();
+      db.prepare(`UPDATE run_files SET heartbeat_at = ?, expires_at = ?
+        WHERE run_id = ? AND ended_at IS NULL`).run(now, expiresAt, params.runId);
       db.prepare('UPDATE task_runs SET updated_at = ? WHERE run_id = ? AND agent_id = ?')
-        .run(utcNow(), params.runId, agentId);
+        .run(now, params.runId, agentId);
       return {
         ok: true,
         type: 'renew',

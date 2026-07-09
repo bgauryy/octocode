@@ -39,4 +39,10 @@ describe('SKILL.md hook frontmatter', () => {
       }
     }
   });
+
+  it('uses pre-edit as the single guard-then-presence hook', () => {
+    const fm = frontmatter(SKILL_MD);
+    expect(fm).toContain('scripts/hooks/pre-edit.sh');
+    expect(fm).not.toContain('scripts/hooks/harness-guard.sh');
+  });
 });

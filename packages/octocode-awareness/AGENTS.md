@@ -1,190 +1,128 @@
-# AGENTS.md - @octocodeai/octocode-awareness
+# AGENTS.md — @octocodeai/octocode-awareness
 
-This package is the dogfood zone for Octocode Awareness. It owns the CLI, runtime library, bundled agent skills, lifecycle hooks, Pi bridge, shared SQLite awareness store, generated repo projections, and the reflection loop that helps agents and instructions improve over time.
+This package is the dogfood zone for shared plans, tasks, advisory file work,
+exclusive sensitive locks, verification, memory, hooks, and generated repo context.
 
-The local package rule is stronger than ordinary repo work: when you work here, use awareness itself. Start with the `octocode-awareness` skill, operate through the CLI, honor locks and signals, verify before claiming success, and turn repeated friction into a reflected lesson or instruction-feedback item.
-
-## First Move For Agents
-
-From the repo root:
+## First Move
 
 ```bash
 export OCTOCODE_AGENT_ID="${OCTOCODE_AGENT_ID:-codex-awareness}"
 AWARENESS="node packages/octocode-awareness/dist/bin/awareness.js"
 $AWARENESS attend --workspace "$PWD" --query "<current task>" --compact
-$AWARENESS schema commands --compact
-$AWARENESS docs list --compact
 ```
 
-Use the first available CLI in this order:
+Follow `attend.next`. Use focused `<command> --help`, `schema json-schema <name>`,
+or `docs list` only when the next action needs that contract or reference owner.
 
-1. `node scripts/awareness.mjs` when running from an installed `octocode-awareness` skill folder.
-2. `node packages/octocode-awareness/dist/bin/awareness.js` in this monorepo after build.
-3. `npx @octocodeai/octocode-awareness` only when no local CLI exists.
-
-`docs list|show` navigates skill reference docs under `skills/octocode-awareness/references/` or `dist/skills/.../references/`; it does not list package `docs/**`. Use `schema commands --compact`, `<command> --help --compact`, and `schema json-schema <name>` when command flags or contracts matter.
+CLI order: installed skill `node scripts/awareness.mjs`; monorepo
+`node packages/octocode-awareness/dist/bin/awareness.js`; package fallback
+`npx @octocodeai/octocode-awareness`.
 
 ## Dogfooding Contract
 
-Before editing, claim every target file:
+1. Run `attend`; inspect Ready, Claimed, Verify, and FilesUnderWork.
+2. Claim a matching plan task. For independent work, run `work start` with the
+   reason, files, and test plan.
+3. Declare every edited file. Hooks do this for structured writes; without hooks,
+   use `work start|touch` explicitly.
+4. Ordinary file work is advisory: peers may work on the same file. Read their
+   task/reason and coordinate when the changes interact.
+5. Use `--exclusive` or `lock acquire` only for sensitive work. Exclusive
+   acquisition fails while another agent has live file presence.
+6. Run the declared checks, then `task submit` or `work end`, `verify mark`, and
+   `verify audit`.
+
+Standalone WORK:
 
 ```bash
-$AWARENESS lock acquire --agent-id "$OCTOCODE_AGENT_ID" --workspace "$PWD" \
-  --target-file "$PWD/packages/octocode-awareness/<path>" \
-  --rationale "<why this edit is needed>" \
-  --test-plan "<exact verification command or doc check>" --compact
+$AWARENESS work start --agent-id "$OCTOCODE_AGENT_ID" --workspace "$PWD" \
+  --file packages/octocode-awareness/<path> --rationale "<why>" \
+  --test-plan "<exact check>" --compact
+# edit; add files with work start --run-id <run> --file <path>, or heartbeat with work touch
+$AWARENESS work end --agent-id "$OCTOCODE_AGENT_ID" --run-id <run> --compact
+$AWARENESS verify mark --agent-id "$OCTOCODE_AGENT_ID" --run-id <run> \
+  --message "<check result>" --compact
 ```
 
-If the lock conflicts, do not edit through it. Use `lock wait`, switch files, or publish a `signal` with the conflicting `task_id`. This package often has concurrent agents.
-
-After editing, run the declared check, then:
-
-```bash
-$AWARENESS verify mark --agent-id "$OCTOCODE_AGENT_ID" --workspace "$PWD" \
-  --all-pending --message "<what passed or failed>" --compact
-$AWARENESS lock release --agent-id "$OCTOCODE_AGENT_ID" --workspace "$PWD" \
-  --target-file "$PWD/packages/octocode-awareness/<path>" \
-  --status SUCCESS --verified --compact
-```
-
-Reflect when the work teaches something reusable:
-
-```bash
-$AWARENESS reflect record --agent-id "$OCTOCODE_AGENT_ID" --workspace "$PWD" \
-  --task "<task>" --outcome worked|partial|failed \
-  --lesson "<short reusable lesson>" --compact
-```
-
-Use the right reflection target:
-
-- `--fix-repo` when code/docs in this repo should change.
-- `--fix-harness` when the skill, hooks, CLI workflow, or automation should improve.
-- `--fix-instructions` when AGENTS.md, SKILL.md, system guidance, or the task brief misled the agent. Read `docs show developer-review` first.
+Sensitive standalone work adds `--exclusive` to `work start`. Never bypass a live
+exclusive conflict; wait, signal the holder, or choose other work.
 
 ## Lifecycle
 
-The package lifecycle is:
-
 ```text
-ATTEND -> CLAIM -> WORK -> PENDING_VERIFY -> VERIFY -> REFLECT -> PROJECT/HAND_OFF -> MAINTAIN
+ATTEND -> CHOOSE -> DECLARE -> ACT -> SUBMIT -> VERIFY -> REFLECT/HAND OFF -> MAINTAIN
 ```
 
-What each phase means here:
+- Plans own objectives, lead agent, members, and `.octocode/plan/**` documents.
+- Tasks are the only durable selectable queue; do not create “today's tasks.”
+- Runs are attempts. `run_files` records mandatory advisory path presence.
+- Locks are optional and exclusive. Expiry cleans coordination; it never proves success.
+- `edit_log` records completed edit events; SQLite remains canonical.
 
-- `ATTEND`: read live awareness state with `attend`, then drill into `query workboard`, `workspace status`, `memory recall`, `refinement get`, and `signal list`.
-- `CLAIM`: use `lock acquire` before edits. Hooks may automate this, but manual CLI calls are still the source of truth when hooks are absent.
-- `WORK`: edit the smallest source files that own the behavior. Communicate decisions or blockers with `signal publish|reply`.
-- `PENDING_VERIFY`: post-edit hooks release locks as pending. Pending is not done.
-- `VERIFY`: run the declared test plan and record it with `verify mark`; use `verify audit` before finishing.
-- `REFLECT`: save durable lessons, failure signatures, and improvement proposals with `reflect record`, `memory record`, and `reflect mine-weakness`.
-- `PROJECT/HAND_OFF`: use `repo inject` only when DB state should refresh `.octocode/`; use `session capture`, `refinement set`, or `signal publish --kind handoff` for unfinished work.
-- `MAINTAIN`: preview cleanup with `maintenance digest --dry-run`, `memory forget --dry-run`, `lock prune --dry-run`, and `signal prune --dry-run`.
+## Hooks
 
-Hooks are reflexes over the same lifecycle: `notify-deliver` briefs, `pre-edit` claims, `harness-guard` protects self-edits, `post-edit` marks pending, `stop-verify` prevents silent unverified completion, and `session-end` captures handoffs. Codex and Cursor need installed host hook config; Claude may run skill frontmatter hooks; Pi uses `wirePiAwarenessHooks(pi)`.
+`pre-edit` runs the harness guard first, then extends existing WORK/TASK presence or
+declares HOOK advisory presence; it blocks on live exclusive conflicts (it does not
+silently acquire exclusivity). `post-edit` logs/heartbeats; task and explicit work
+runs remain active, while automatic fallback runs become `PENDING`.
+`notify-deliver` emits only changed briefing state. `stop-verify` caps outstanding
+items and blocks/reminds. `session-end` deduplicates handoffs.
 
-## What This Package Owns
+Claude may use skill frontmatter. Codex/Cursor require installed host config. Pi uses
+`wirePiAwarenessHooks(pi)`. Preview config writes with `hooks install --dry-run`, then
+run `hooks check --strict`.
 
-- CLI: `bin/awareness.ts`, built to `dist/bin/awareness.js`, exposes `attend`, `memory`, `lock`, `verify`, `signal`, `agent`, `refinement`, `session`, `reflect`, `query`, `repo inject`, `docs`, `maintenance`, `hooks`, `hook run`, and `schema`.
-- Runtime library: `src/index.ts` exports the same operations for Pi and custom hosts.
-- Store: `src/db.ts` creates and migrates the canonical SQLite DB at `~/.octocode/memory/awareness.sqlite3` unless `OCTOCODE_MEMORY_HOME` overrides it.
-- Navigation: `src/attend.ts` builds compact start packets with workboard rows, evidence, gaps, projection health, `organ_state`, and `drive_state`.
-- Coordination: `src/intents.ts`, `src/verify.ts`, `src/notifications.ts`, `src/refinements.ts`, `src/sessions.ts`, and `src/agents.ts`.
-- Memory and learning: `src/memory.ts`, `src/reflect.ts`, `src/maintenance.ts`, `src/audit.ts`, and `src/docs.ts`.
-- Projections: `src/repo-context.ts` powers `query <view>` and `repo inject`.
-- Hooks and host integration: `bin/hook-runner.ts`, `bin/extract-hook-files.ts`, `src/hooks-install.ts`, and `src/pi-hooks.ts`.
-- Agent skill source: `skills/octocode-awareness/`.
-- Skill-management companion: `octocode-skills`, bundled beside awareness so agents can install, lint, rate, and improve skills.
+Harness edits require user authorization, `OCTOCODE_ALLOW_HARNESS_APPLY=1`, and a
+safe non-main branch. The integrated pre-edit hook performs this guard before it
+writes file presence.
 
-This package does not own Octocode code search, GitHub search, npm search, or the MCP brain. Use `npx octocode ... --no-color` or Octocode MCP tools for code/package/GitHub evidence.
+## Source Of Truth
 
-## Source Vs Generated
+Edit canonical sources:
 
-Edit source, not mirrors:
+- Runtime/CLI: `src/**`, `bin/**`, `scripts/schema.mjs`
+- Skill: `skills/octocode-awareness/**`
+- Package docs: `README.md`, `docs/**`
+- Build: `build.mjs`
 
-- Canonical awareness skill source: `packages/octocode-awareness/skills/octocode-awareness/`.
-- Canonical TypeScript/runtime source: `packages/octocode-awareness/src/` and `packages/octocode-awareness/bin/`.
-- Canonical build script: `packages/octocode-awareness/build.mjs`.
-- Canonical package docs: `packages/octocode-awareness/README.md` and `packages/octocode-awareness/docs/**`.
-- Canonical `octocode-skills` source is repo-root `skills/octocode-skills`; this package vendors it during build.
-
-Generated or copied outputs:
-
-- `packages/octocode-awareness/dist/**`
-- repo-root `.agents/skills/**`
-- `packages/octocode-awareness/skills/octocode-skills/**`
-- compiled skill scripts such as `skills/octocode-awareness/scripts/awareness.mjs`, `hook-runner.mjs`, and `extract-hook-files.mjs`
-
-Regenerate generated surfaces with:
+Do not hand-edit `dist/**`, `.agents/skills/**`, vendored
+`skills/octocode-skills/**`, or generated `awareness.mjs`, `hook-runner.mjs`,
+`extract-hook-files.mjs`, and `schema.mjs` copies. **After every source or skill
+edit, rebuild before CLI/smoke/dogfood** — otherwise agents run a stale mirror:
 
 ```bash
 yarn workspace @octocodeai/octocode-awareness build
 ```
 
-Do not hand-edit generated workspace `.octocode/**` projections; change the underlying DB row or source doc, then run `repo inject` when a refreshed projection is useful.
+## Documentation Owners
 
-## Docs And Navigation
+- `docs/HOW_IT_WORKS.md`: system architecture
+- `docs/DB.md`: schema and migrations
+- `docs/LOCKS.md`: advisory work, exclusivity, verification
+- `docs/HOOKS.md`: host behavior
+- `docs/MEMORY_NAVIGATION.md`: compact attend/workboard output
+- `docs/REFLECTION.md`: learning and improvement boundary
+- `docs/WIKI.md`: query/projection behavior
+- Skill `SKILL.md`: compact lobby; references own one concept each
+- `schema commands --compact`: command inventory
 
-Use package docs by intent:
+## Verification
 
-- `README.md`: high-level product, install, command map, package boundaries.
-- `docs/SKILLS.md`: user/agent guide and full CLI reference.
-- `docs/HARNESS.md`: system map, invariants, lifecycle, self-improvement boundary.
-- `docs/DB.md`: SQLite schema, scope model, tables, query views.
-- `docs/LOCKS.md`: claim, wait, release, pending verification, conflicts.
-- `docs/MEMORY_NAVIGATION.md`: `attend`, workboard, compact context routing.
-- `docs/HOOKS.md`: host hooks, smart briefing, harness guard, Pi bridge.
-- `docs/REFLECTION.md`: `reflect record`, failure signatures, harness export, developer review.
-- `docs/WIKI.md`: live query views, `.octocode/` projections, size policy.
-
-Use skill refs through the CLI:
+Use the smallest focused test first, then broaden shared changes:
 
 ```bash
-$AWARENESS docs show agent-cheatsheet
-$AWARENESS docs show full-flow
-$AWARENESS docs show coordination-protocol
-$AWARENESS docs show hooks
-$AWARENESS docs show memory-recall
-$AWARENESS docs show repo-context-management
-$AWARENESS docs show data-model
-$AWARENESS docs show octocode
+yarn workspace @octocodeai/octocode-awareness typecheck
+yarn workspace @octocodeai/octocode-awareness test:quiet
+yarn workspace @octocodeai/octocode-awareness test:smoke
+yarn workspace @octocodeai/octocode-awareness verify
 ```
 
-Load `octocode-skills` when the task is about skill discovery, install, lint, description tuning, hooks inside skills, or skill quality. Run its lint before calling skill edits complete.
+Skill changes also require the Awareness build and:
 
-## Smart Harness And Self-Evolution
-
-This package is self-improving but not self-authorizing. The loop is:
-
-```text
-reflect record -> mine-weakness -> export-harness -> human/maintainer review -> explicit edit -> verification
+```bash
+node skills/octocode-skills/scripts/skill-review.mjs \
+  packages/octocode-awareness/skills/octocode-awareness
 ```
 
-Rules:
-
-- Memories, signals, generated wiki pages, and harness exports are leads. Current source, tests, and fresh verification beat them.
-- `reflect export-harness` proposes guidance; it does not patch `AGENTS.md`, `SKILL.md`, docs, or code.
-- Harness/self-edits are protected by `harness-guard`: require `OCTOCODE_ALLOW_HARNESS_APPLY=1` and a safe non-main branch unless the host explicitly approves a detached/no-branch case.
-- Repeated failures should get stable `failure_signature` values so `reflect mine-weakness` can find patterns.
-- If docs drift from source, use `docs staleness` and update docs/tests together.
-
-## Testing And Verification
-
-Use the smallest check that proves the change, then broaden when shared behavior moves.
-
-- Docs-only package guidance: `git diff --check -- packages/octocode-awareness/AGENTS.md` plus exact read.
-- CLI/runtime changes: `yarn workspace @octocodeai/octocode-awareness test:quiet` or the focused Vitest file when possible.
-- Public API, schema, hooks, or build output changes: `yarn workspace @octocodeai/octocode-awareness build` and targeted tests.
-- Broad or release-facing changes: `yarn workspace @octocodeai/octocode-awareness verify`.
-- Native multi-agent behavior: `yarn workspace @octocodeai/octocode-awareness test:smoke`.
-- Skill source changes: run build, then lint the relevant skill with `octocode-skills` tooling before reporting done.
-
-When tests fail, keep the failure visible. Re-read the failing path, patch only the cause, and do not mark awareness verification successful until the declared check actually ran.
-
-## Editing Style
-
-- Keep AGENTS/SKILL guidance compact and operational. Move conditional depth to `references/` or package docs.
-- Prefer command names from `schema commands --compact`; do not invent unshipped verbs.
-- Prefer `signal` in agent-facing text even if internal legacy names still say notification.
-- Keep one canonical workspace path per task; mixed `--workspace` values make correct rows look missing.
-- Do not put secrets in memories, signals, refinements, projections, or harness logs.
-- If a memory says something surprising, verify it against current files before acting.
+Preserve failed checks. Reflect only reusable outcomes. Keep one normalized
+workspace, one stable agent ID, and no secrets in Awareness rows or projections.

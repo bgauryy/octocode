@@ -11,9 +11,10 @@ import { insertEditLog } from './audit.js';
 // generated once at import time so the agentId is stable within a session but
 // unique across sessions even when PIDs repeat.
 const _sessionStartupToken = randomUUID().slice(0, 8);
-import { normalizeArtifact } from './helpers.js';
-import { preFlightIntent, releaseFileLock } from './intents.js';
+import { normalizeArtifact, utcNow } from './helpers.js';
 import { activeTaskClaimForAgent } from './tasks.js';
+import { endWork, listWork, startWork, touchWork } from './work.js';
+import type { WorkPeer } from './types.js';
 import { auditUnverified } from './verify.js';
 import { notifyGet, sessionCapture } from './maintenance.js';
 import { registerAgent } from './agents.js';
@@ -48,6 +49,7 @@ export interface PiToolEvent {
 export interface PiAwarenessBridgeOptions {
   pendingToolFiles?: Map<string, string[]>;
   pendingToolRuns?: Map<string, string>;
+  peerFingerprints?: Map<string, string>;
   dbPath?: string | null;
   getDb?: (ctx?: PiLikeContext) => DatabaseSync;
   skillRoot?: string | null;
@@ -189,6 +191,15 @@ function defaultGetDb(options: PiAwarenessBridgeOptions, ctx?: PiLikeContext): D
   return connectCachedDb(ctx?.dbPath ?? options.dbPath ?? resolveDbPath(null));
 }
 
+function ensurePiSession(
+  db: DatabaseSync,
+  params: { agentId: string; sessionId: string; workspacePath: string; artifact: string | null },
+): void {
+  db.prepare(`INSERT OR IGNORE INTO sessions
+    (session_id, agent_id, workspace_path, artifact, started_at) VALUES (?, ?, ?, ?, ?)`)
+    .run(params.sessionId, params.agentId, params.workspacePath, params.artifact, utcNow());
+}
+
 function canonicalPath(input: string): string {
   const resolved = path.resolve(input);
   try {
@@ -211,7 +222,65 @@ function canonicalPath(input: string): string {
 }
 
 function resolvePiTargetPath(file: string, cwd: string): string {
-  return path.isAbsolute(file) ? file : path.resolve(cwd, file);
+  return canonicalPath(path.isAbsolute(file) ? file : path.resolve(cwd, file));
+}
+
+function activeWorkRunForFiles(
+  db: DatabaseSync,
+  params: { agentId: string; workspacePath: string; artifact: string | null; targetFiles: string[] },
+): string | null {
+  const targets = params.targetFiles.map(file => resolvePiTargetPath(file, params.workspacePath));
+  const rows = listWork(db, {
+    agentId: params.agentId,
+    workspacePath: params.workspacePath,
+    artifact: params.artifact,
+    activeOnly: true,
+  }).files.filter(entry => entry.origin === 'WORK');
+  const byRun = new Map<string, Set<string>>();
+  for (const row of rows) {
+    const files = byRun.get(row.run_id) ?? new Set<string>();
+    files.add(row.file_path);
+    byRun.set(row.run_id, files);
+  }
+  const matches = [...byRun].filter(([, files]) => targets.every(target => files.has(target)));
+  return matches.length === 1 ? matches[0]![0] : null;
+}
+
+function workRunOrigin(db: DatabaseSync, runId: string): 'TASK' | 'WORK' | 'HOOK' | null {
+  const row = db.prepare('SELECT origin FROM task_runs WHERE run_id = ?').get(runId) as { origin: 'TASK' | 'WORK' | 'HOOK' } | undefined;
+  return row?.origin ?? null;
+}
+
+function piPeerDelta(
+  peerFingerprints: Map<string, string>,
+  params: { agentId: string; workspacePath: string; targetFiles: string[]; peers: WorkPeer[] },
+): string | null {
+  const targetSet = new Set(params.targetFiles.map(file => resolvePiTargetPath(file, params.workspacePath)));
+  const peers = params.peers.filter(peer => peer.agent_id !== params.agentId && targetSet.has(peer.file_path));
+  const key = JSON.stringify({
+    agent: params.agentId,
+    workspace: path.resolve(params.workspacePath),
+    files: params.targetFiles.map(file => resolvePiTargetPath(file, params.workspacePath)).sort(),
+  });
+  const fingerprint = JSON.stringify(peers.map(peer => ({
+    agent: peer.agent_id,
+    file: peer.file_path,
+    task: peer.task_id,
+    origin: peer.origin,
+    rationale: peer.rationale,
+    exclusive: peer.exclusive,
+  })).sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))));
+  if (peerFingerprints.get(key) === fingerprint) return null;
+  peerFingerprints.set(key, fingerprint);
+  if (peers.length === 0) return null;
+  const shown = peers.slice(0, 3).map((peer) => {
+    const work = peer.task_id ?? peer.origin;
+    const reason = peer.rationale.replace(/\s+/g, ' ').trim().slice(0, 40);
+    return `${peer.agent_id}:${work}${reason ? `(${reason})` : ''}`;
+  }).join('; ');
+  const omitted = peers.length > 3 ? ` +${peers.length - 3}` : '';
+  const targets = params.targetFiles.slice(0, 2).join(',');
+  return `AWARE ${targets} | peers ${shown}${omitted}`;
 }
 
 function isInsidePath(candidate: string, root: string): boolean {
@@ -280,12 +349,14 @@ function guardPiHarnessEdit(targetFiles: string[], ctx: PiLikeContext | undefine
 export function createPiAwarenessBridge(options: PiAwarenessBridgeOptions = {}) {
   const pendingToolFiles = options.pendingToolFiles ?? new Map<string, string[]>();
   const pendingToolRuns = options.pendingToolRuns ?? new Map<string, string>();
+  const peerFingerprints = options.peerFingerprints ?? new Map<string, string>();
   const getDb = options.getDb ?? ((ctx?: PiLikeContext) => defaultGetDb(options, ctx));
   const skillRoot = options.skillRoot ?? process.env.OCTOCODE_SKILL_ROOT ?? null;
 
   return {
     pendingToolFiles,
     pendingToolRuns,
+    peerFingerprints,
 
     async handleToolCall(event: PiToolEvent, ctx?: PiLikeContext) {
       const targetFiles = extractPiWriteTargetPaths(event?.toolName, event?.input);
@@ -293,7 +364,7 @@ export function createPiAwarenessBridge(options: PiAwarenessBridgeOptions = {}) 
       // Dedupe key: a host may emit BOTH tool_call and tool_execution_start for
       // one edit. Prefer toolCallId; when it is missing, fall back to the sorted
       // target-file set (identical across both events for the same edit) so a
-      // missing id cannot cause a double lock-acquire. Distinct edits yield
+      // missing id cannot cause a duplicate presence declaration. Distinct edits yield
       // distinct file sets, so this never over-dedupes real work.
       const dedupeKey = event?.toolCallId || `nofid:${[...targetFiles].sort().join('|')}`;
       if (pendingToolRuns.has(dedupeKey)) return undefined;
@@ -308,19 +379,42 @@ export function createPiAwarenessBridge(options: PiAwarenessBridgeOptions = {}) 
           workspacePath: ctx?.cwd ?? process.cwd(),
           artifact: artifactFrom(ctx, event as Record<string, unknown>),
         });
-        const result = preFlightIntent(db, {
+        const workspacePath = ctx?.cwd ?? process.cwd();
+        const artifact = artifactFrom(ctx, event as Record<string, unknown>);
+        ensurePiSession(db, {
           agentId,
           sessionId: getPiAwarenessSessionId(ctx),
-          workspacePath: ctx?.cwd ?? process.cwd(),
-          artifact: artifactFrom(ctx, event as Record<string, unknown>),
-          runId: activeClaim?.run_id,
-          rationale: 'auto: Pi write/edit tool call via octocode-awareness',
-          testPlan: targetFiles.length > 0
-            ? `verify edit applied to: ${targetFiles.slice(0, 3).join(', ')}${targetFiles.length > 3 ? ` + ${targetFiles.length - 3} more` : ''}`
-            : 'post-edit verification',
-          targetFiles,
-          ttlMs: 10 * 60_000,
+          workspacePath,
+          artifact,
         });
+        const explicitRunId = activeClaim ? null : activeWorkRunForFiles(db, {
+          agentId,
+          workspacePath,
+          artifact,
+          targetFiles,
+        });
+        const result = explicitRunId
+          ? { ok: true as const, ...touchWork(db, {
+            agentId,
+            runId: explicitRunId,
+            targetFiles,
+            ttlMs: 10 * 60_000,
+          }) }
+          : startWork(db, {
+            agentId,
+            sessionId: getPiAwarenessSessionId(ctx),
+            workspacePath,
+            artifact,
+            runId: activeClaim?.run_id,
+            rationale: 'auto: Pi write/edit tool call via octocode-awareness',
+            testPlan: targetFiles.length > 0
+              ? `verify edit applied to: ${targetFiles.slice(0, 3).join(', ')}${targetFiles.length > 3 ? ` + ${targetFiles.length - 3} more` : ''}`
+              : 'post-edit verification',
+            targetFiles,
+            origin: 'HOOK',
+            source: 'HOOK',
+            ttlMs: 10 * 60_000,
+          });
 
         if (!result.ok) {
           const detail = (result.conflicts || [])
@@ -331,7 +425,15 @@ export function createPiAwarenessBridge(options: PiAwarenessBridgeOptions = {}) 
 
         pendingToolFiles.set(dedupeKey, targetFiles);
         pendingToolRuns.set(dedupeKey, result.run.run_id);
-        return undefined;
+        const peerContext = piPeerDelta(peerFingerprints, {
+          agentId,
+          workspacePath,
+          targetFiles,
+          peers: result.peers,
+        });
+        if (!peerContext) return undefined;
+        notify(ctx, peerContext);
+        return { additionalContext: peerContext };
       } catch (error) {
         notify(ctx, `Octocode awareness warning; continuing: ${error instanceof Error ? error.message : String(error)}`, 'warning');
         return undefined;
@@ -341,7 +443,7 @@ export function createPiAwarenessBridge(options: PiAwarenessBridgeOptions = {}) 
     async handleToolResult(event: PiToolEvent, ctx?: PiLikeContext) {
       const extracted = extractPiWriteTargetPaths(event?.toolName, event?.input);
       // Mirror the acquire-side key (toolCallId, else sorted target files) so the
-      // release finds the task the matching handleToolCall recorded.
+      // post-edit handling finds the run the matching handleToolCall recorded.
       const dedupeKey = event?.toolCallId || `nofid:${[...extracted].sort().join('|')}`;
       const trackedFiles = pendingToolRuns.has(dedupeKey) ? pendingToolFiles.get(dedupeKey) : undefined;
       const runId = pendingToolRuns.get(dedupeKey);
@@ -356,18 +458,15 @@ export function createPiAwarenessBridge(options: PiAwarenessBridgeOptions = {}) 
         const sessionId = getPiAwarenessSessionId(ctx);
         const workspacePath = ctx?.cwd ?? process.cwd();
         const artifact = artifactFrom(ctx, event as Record<string, unknown>);
-        const linkedClaim = runId
-          ? db.prepare('SELECT 1 FROM task_claims WHERE run_id = ? LIMIT 1').get(runId)
-          : null;
-        releaseFileLock(db, {
-          agentId,
-          sessionId,
-          runId,
-          targetFiles: runId ? [] : fallbackFiles,
-          workspacePath,
-          artifact,
-          status: linkedClaim ? 'ACTIVE' : 'PENDING',
-        });
+        if (!runId) {
+          notify(ctx, 'Octocode awareness post-edit warning; continuing: missing correlated work run.', 'warning');
+          return undefined;
+        }
+        if (workRunOrigin(db, runId) === 'HOOK') {
+          endWork(db, { agentId, runId, targetFiles: fallbackFiles });
+        } else {
+          touchWork(db, { agentId, runId, targetFiles: fallbackFiles, ttlMs: 10 * 60_000 });
+        }
         for (const file of fallbackFiles) {
           insertEditLog(db, {
             sessionId,
@@ -481,19 +580,18 @@ export function wirePiAwarenessHooks(pi: PiLikeApi, options: PiAwarenessBridgeOp
       });
       if (verifyReminderKeys.has(reminderKey)) return undefined;
       verifyReminderKeys.add(reminderKey);
-      const plans = result.unverified
-        .map((intent) => `${intent.status}:${intent.run_id}: ${intent.test_plan}`)
-        .join('; ');
-      const stale = result.stale_active
-        .map((intent) => `STALE:${intent.run_id}: ${intent.rationale}`)
-        .join('; ');
+      const details = [
+        ...result.unverified.map((intent) => `${intent.status}:${intent.run_id}: ${intent.test_plan}`),
+        ...result.stale_active.map((intent) => `STALE:${intent.run_id}: ${intent.rationale}`),
+      ];
+      const shown = details.slice(0, 3).join('; ');
+      const omitted = details.length > 3 ? `; +${details.length - 3} omitted` : '';
       pi.sendMessage?.({
         customType: 'octocode-awareness-verify-gate',
         content: [
           'Octocode awareness verify gate: you have unverified edits before concluding.',
-          plans ? `Pending: ${plans}` : '',
-          stale ? `Expired active locks: ${stale}` : '',
-          'Run the stated verification, then call memory_verify or octocode-awareness verify to clear the pending runs.',
+          shown ? `Pending: ${shown}${omitted}` : '',
+          'Run the stated verification, then use octocode-awareness verify mark to clear the pending runs.',
         ].filter(Boolean).join('\n'),
         display: true,
       }, { deliverAs: 'followUp', triggerTurn: true });

@@ -1,26 +1,25 @@
-# Awareness Data Model — Entities
+# Data Model Entities
 
-Catalog and scope rules: `data-model.md`.
+`plans` stores objective, lead, status, scope, and plan folder. Members participate;
+docs register `PLAN.md` and supporting narrative.
 
-## Plans And Tasks
+`tasks` stores durable work: required reasoning/acceptance, planning paths, priority,
+status, and dependency graph. `task_claims` leases one agent/run. Readiness is
+derived; there is no READY row or second task list.
 
-`plans` stores name, objective, lead, workspace, status (`DRAFT|ACTIVE|PAUSED|COMPLETED|CANCELLED`), and `doc_dir`. `plan_members` records participants. `plan_docs` registers `PLAN.md` plus supporting files inside the managed plan directory.
+`task_runs` stores one attempt with origin `TASK|WORK|HOOK`, agent/session, rationale,
+test plan, scope, and `ACTIVE|PENDING|SUCCESS|FAILED` status.
 
-`tasks` stores durable work: plan, title, reasoning, acceptance criteria, priority, creator, status, and timestamps. Status is `OPEN|IN_PROGRESS|BLOCKED|VERIFY|DONE|FAILED|CANCELLED`.
-`task_paths` records intended ownership. `task_dependencies` forms an acyclic graph inside one plan. `task_claims` is the leased single-owner claim; `task_events` is the history.
-
-## Runs And Locks
-
-`task_runs` stores one execution attempt: nullable `task_id`, agent/session, rationale, test plan, context ref, actual edited files, scope, and status (`ACTIVE|PENDING|SUCCESS|FAILED`). `task_id = NULL` means standalone quick work.
-
-`locks` records each exact file under `run_id`, agent/session, type, and TTL. Locks disappear on release; `run_log` retains verification/abandon evidence. `edit_log` and `harness_log` also reference `run_id`.
+`run_files` stores `(run_id,file_path)`, optional reason override, source, heartbeat,
+expiry, and end time. It is mandatory advisory “under work” state. `locks` stores
+only exclusive `(run,path)` protection. `edit_log` is completed edit history.
 
 ```text
 task: OPEN -> IN_PROGRESS -> VERIFY -> DONE|FAILED
-                    \-> OPEN|BLOCKED (release)
+                    \-> OPEN|BLOCKED
 run:  ACTIVE -> PENDING -> SUCCESS|FAILED
 ```
 
-## Other Awareness State
-
-`memories` holds durable lessons with scope, provenance in `memory_refs`, FTS, salience, validity, and supersession. `signals` plus `signal_reads` form the mailbox. `refinements` is durable follow-up, not a duplicate task queue. `sessions` groups work periods; `agents` records presence and scope.
+`delivery_state` suppresses unchanged prompt delivery without acknowledging signals.
+Memories store reusable learning; signals store peer threads; refinements store owned
+follow-up; sessions group host activity. Agent identity is cooperative, not security.

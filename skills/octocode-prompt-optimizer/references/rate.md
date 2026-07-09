@@ -12,8 +12,7 @@ Load after UNDERSTAND and before FIX. **STOP: rate every logical part before dra
 | Low | indirect/wordy sentence; repeated example; cosmetic residue |
 
 Keep optional modals optional. Replace vague verbs with exact actions and vague conditionals with `IF condition → THEN action`. Preserve required frontmatter and exact commands.
-## Score
-Score 1-5, then average: A 4.5-5 · B 3.5-4.4 · C 2.5-3.4 · D <2.5.
+## Score — score 1-5, then average: A 4.5-5 · B 3.5-4.4 · C 2.5-3.4 · D <2.5.
 
 | Dimension | 5 means |
 |---|---|
@@ -23,7 +22,6 @@ Score 1-5, then average: A 4.5-5 · B 3.5-4.4 · C 2.5-3.4 · D <2.5.
 | Density | every section constrains behavior; one owner per rule |
 | Output | concrete shape for every required deliverable |
 | Integrity | preserved intent, metadata, branches, and commands |
-
 ```markdown
 ## Issues Found
 | Part | Issue | Severity | Fix |
@@ -35,7 +33,6 @@ Score 1-5, then average: A 4.5-5 · B 3.5-4.4 · C 2.5-3.4 · D <2.5.
 | <dimension> | <n> | <why> |
 Overall: <avg> → <grade>
 ```
-
 ### Gate Check
 - [ ] Every part/category was checked; issues and scores cite evidence.
 
@@ -47,3 +44,6 @@ Overall: <avg> → <grade>
 
 ### On Failure
 - **IF** the scan is suspiciously clean → **THEN** recheck modals, referents, conflicts, branches, and outputs once.
+
+## Sources
+- Anthropic, [Writing effective tools for AI agents](https://www.anthropic.com/engineering/writing-tools-for-agents) — evaluate real tasks, inspect transcripts, and measure tool behavior.

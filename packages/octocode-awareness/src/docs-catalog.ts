@@ -17,11 +17,20 @@ export interface DocCatalogEntry {
   path: string;
 }
 
-export interface DocCatalogListResult {
+export type DocCatalogSummary = Pick<DocCatalogEntry, 'name' | 'title'>;
+export type DocCatalogListEntry = DocCatalogEntry | DocCatalogSummary;
+
+export interface DocCatalogListResult<T extends DocCatalogListEntry = DocCatalogListEntry> {
   ok: true;
   count: number;
-  docs: Array<Omit<DocCatalogEntry, 'path'> & { path: string }>;
+  docs: T[];
   root: string;
+}
+
+export interface ListSkillDocsOptions {
+  cwd?: string;
+  root?: string;
+  lean?: boolean;
 }
 
 export interface DocCatalogShowResult {
@@ -88,8 +97,12 @@ function parseDocFile(filePath: string): DocCatalogEntry {
   };
 }
 
-export function listSkillDocs(options: { cwd?: string; root?: string } = {}): DocCatalogListResult {
+export function listSkillDocs(options: ListSkillDocsOptions & { lean: true }): DocCatalogListResult<DocCatalogSummary>;
+export function listSkillDocs(options?: ListSkillDocsOptions & { lean?: false }): DocCatalogListResult<DocCatalogEntry>;
+export function listSkillDocs(options: ListSkillDocsOptions): DocCatalogListResult;
+export function listSkillDocs(options: ListSkillDocsOptions = {}): DocCatalogListResult {
   const root = options.root ?? packageSkillReferencesDir(options.cwd);
+  const lean = Boolean(options.lean);
   if (!existsSync(root)) {
     return { ok: true, count: 0, docs: [], root };
   }
@@ -100,13 +113,9 @@ export function listSkillDocs(options: { cwd?: string; root?: string } = {}): Do
   return {
     ok: true,
     count: docs.length,
-    docs: docs.map((doc) => ({
-      name: doc.name,
-      title: doc.title,
-      description: doc.description,
-      kind: doc.kind,
-      path: doc.path,
-    })),
+    docs: lean
+      ? docs.map((doc) => ({ name: doc.name, title: doc.title }))
+      : docs,
     root,
   };
 }

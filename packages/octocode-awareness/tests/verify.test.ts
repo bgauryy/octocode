@@ -4,6 +4,7 @@ import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { initDb } from '../src/db.js';
+import { canonicalizePath } from '../src/git.js';
 import { preFlightIntent, releaseFileLock } from '../src/intents.js';
 import { auditUnverified, markVerified } from '../src/verify.js';
 
@@ -62,7 +63,25 @@ describe('auditUnverified', () => {
       run_id: runId,
       status: 'PENDING',
       test_plan: 'run vitest + lint',
+      target_files: [canonicalizePath('/tmp/agent-a-target.txt')],
     });
+  });
+
+  it('verification terminally closes any remaining presence and lock rows', () => {
+    const db = freshDb();
+    const runId = makePending(db, 'agent-a', '/tmp/ws-a');
+    db.prepare(`UPDATE run_files
+      SET ended_at = NULL, expires_at = '2099-01-01T00:00:00Z'
+      WHERE run_id = ?`).run(runId);
+    db.prepare(`INSERT INTO locks(lock_id, file_path, run_id, acquired_at, expires_at)
+      VALUES ('lock_late', '/tmp/agent-a-target.txt', ?, '2026-01-01T00:00:00Z', '2099-01-01T00:00:00Z')`)
+      .run(runId);
+
+    expect(markVerified(db, { runId, agentId: 'agent-a', status: 'SUCCESS' }).ok).toBe(true);
+    expect(db.prepare('SELECT COUNT(*) AS count FROM locks WHERE run_id = ?').get(runId))
+      .toEqual({ count: 0 });
+    expect(db.prepare('SELECT COUNT(*) AS count FROM run_files WHERE run_id = ? AND ended_at IS NULL').get(runId))
+      .toEqual({ count: 0 });
   });
 
   it('filters by agentId — only returns that agent\'s PENDING tasks', () => {

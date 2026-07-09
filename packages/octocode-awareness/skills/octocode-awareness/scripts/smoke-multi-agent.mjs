@@ -21,9 +21,8 @@ function printHelp() {
   console.log(`Usage: node scripts/smoke-multi-agent.mjs [--help]
 
 Run an end-to-end smoke test for two agents sharing the awareness store.
-The script creates a temporary workspace and database, then exercises claim,
-conflict, pending verification, signals, release, re-claim,
-stale-prune, and final status flows.
+The script creates a temporary workspace and database, then exercises advisory
+overlap, exclusive conflict, verification, signals, stale-prune, and final status.
 
 Options:
   --help, -h  Show this help.`);
@@ -55,8 +54,9 @@ function log(title, value = "") {
 }
 
 function run(label, cmdArgs, { expect = [0] } = {}) {
-  console.log(`[${label}] node awareness.mjs ${cmdArgs.join(" ")}`);
-  const done = spawnSync(process.execPath, [awareness, "--db", db, ...cmdArgs], {
+  const effectiveArgs = cmdArgs.includes("--compact") ? cmdArgs : [...cmdArgs, "--compact"];
+  console.log(`[${label}] node awareness.mjs ${effectiveArgs.join(" ")}`);
+  const done = spawnSync(process.execPath, [awareness, "--db", db, ...effectiveArgs], {
     cwd: workspace,
     encoding: "utf8",
   });
@@ -73,7 +73,27 @@ function assert(condition, message) {
 }
 
 log("workspace", workspace);
-log("phase 1: agent-a claims and edits the temp file");
+log("phase 1: ordinary advisory work overlaps and remains visible");
+const workA = run("work-agent-a", [
+  "work", "start", "--compact",
+  "--agent-id", "agent-a", "--workspace", workspace, "--artifact", artifact,
+  "--file", target, "--rationale", "smoke: advisory edit A", "--test-plan", "smoke reads final file",
+]);
+const workB = run("work-agent-b", [
+  "work", "start", "--compact",
+  "--agent-id", "agent-b", "--workspace", workspace, "--artifact", artifact,
+  "--file", target, "--rationale", "smoke: advisory edit B", "--test-plan", "smoke reads final file",
+]);
+assert(workA.run?.run_id && workB.run?.run_id, "both advisory workers should get runs");
+assert(workB.peer_count === 1, "second advisory worker should see the first peer");
+const visibleWork = run("work-show", ["work", "show", "--compact", "--workspace", workspace, "--file", target]);
+assert(visibleWork.count === 2, "both advisory workers should be visible");
+for (const [agent, runId] of [["agent-a", workA.run.run_id], ["agent-b", workB.run.run_id]]) {
+  run(`work-end-${agent}`, ["work", "end", "--compact", "--agent-id", agent, "--run-id", runId]);
+  run(`work-verify-${agent}`, ["verify", "mark", "--compact", "--agent-id", agent, "--run-id", runId, "--message", "advisory smoke passed"]);
+}
+
+log("phase 2: agent-a acquires exclusivity and edits the temp file");
 const claimA = run("agent-a", [
   "lock", "acquire",
   "--agent-id", "agent-a",
@@ -87,7 +107,7 @@ const claimA = run("agent-a", [
 assert(claimA.run?.run_id, "agent-a should get a standalone run_id");
 await appendFile(target, "agent-a wrote while holding the lock\n", "utf8");
 
-log("phase 2: agent-b collides on the live lock");
+log("phase 3: agent-b collides on the live lock");
 const blockedB = run(
   "agent-b",
   [
@@ -103,7 +123,7 @@ const blockedB = run(
 );
 assert(blockedB.conflicts?.length === 1, "agent-b should see one lock conflict");
 
-log("phase 3: pending verification is visible, then cleared");
+log("phase 4: pending verification is visible, then cleared");
 run("agent-a", [
   "lock", "release",
   "--agent-id", "agent-a",
@@ -128,7 +148,7 @@ assert(verifiedA.count === 1, "verify --all-pending should clear one run");
 const auditClear = run("audit-clear", ["verify", "audit", "--agent-id", "agent-a", "--workspace", workspace, "--artifact", artifact]);
 assert(auditClear.count === 0, "agent-a pending verification should be clear");
 
-log("phase 4: repo signals deliver once, resolve, and dry-run prune");
+log("phase 5: repo signals deliver once, resolve, and dry-run prune");
 const signal = run("signal-publish", [
   "signal", "publish",
   "--agent-id", "agent-a",
@@ -170,7 +190,7 @@ const prunePreview = run("signal-prune-dry-run", [
 ]);
 assert(prunePreview.would_delete >= 1, "signal prune --dry-run should find the resolved message");
 
-log("phase 5: agent-b re-claims, edits, and releases with verification");
+log("phase 6: agent-b acquires exclusivity after release and verifies");
 const claimB = run("agent-b", [
   "lock", "acquire",
   "--agent-id", "agent-b",
@@ -191,7 +211,7 @@ run("agent-b", [
   "--verified-note", "smoke read final file after agent-b edit",
 ]);
 
-log("phase 6: stale-lock janitor prunes an aged lock without claiming success");
+log("phase 7: stale-lock janitor removes exclusion without ending live work");
 const stale = run("agent-stale", [
   "lock", "acquire",
   "--agent-id", "agent-stale",
@@ -212,12 +232,17 @@ console.log(`[age-stale-lock] set expires_at to ${pastTime}`);
 
 const pruned = run("janitor", ["lock", "prune", "--workspace", workspace, "--artifact", artifact]);
 assert(pruned.pruned_locks >= 1, `janitor should prune expired lock, got: ${JSON.stringify(pruned)}`);
+const afterPruneDb = new DatabaseSync(db);
+const afterPrune = afterPruneDb.prepare("SELECT status FROM task_runs WHERE run_id = ?").get(stale.run.run_id);
+afterPruneDb.close();
+assert(afterPrune?.status === "ACTIVE", "lock expiry must leave live WORK active, not claim completion or debt");
+run("end-stale-work", ["work", "end", "--compact", "--agent-id", "agent-stale", "--run-id", stale.run.run_id]);
 const staleAudit = run(
   "audit-stale",
   ["verify", "audit", "--agent-id", "agent-stale", "--workspace", workspace, "--artifact", artifact],
   { expect: [1] },
 );
-assert(staleAudit.count === 1, "stale-pruned work should remain pending, not successful");
+assert(staleAudit.count === 1, "explicitly ended stale work should remain pending, not successful");
 run("verify-stale", [
   "verify", "mark",
   "--agent-id", "agent-stale",
@@ -228,7 +253,7 @@ run("verify-stale", [
   "--message", "smoke intentionally failed stale owner after prune",
 ]);
 
-log("phase 7: final DB and file assertions");
+log("phase 8: final DB and file assertions");
 const status = run("status", ["workspace", "status", "--workspace", workspace, "--artifact", artifact]);
 assert(status.locks.length === 0, "final status should have no live locks");
 const finalAudit = run("audit-final", ["verify", "audit", "--workspace", workspace, "--artifact", artifact]);

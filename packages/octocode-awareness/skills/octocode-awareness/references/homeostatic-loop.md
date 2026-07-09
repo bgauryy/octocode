@@ -14,14 +14,14 @@ Use this for the intuition behind sensing, work, learning, cleanup, and publicat
 | Error signal | checks, conflicts, corrections | Learn from verified outcomes. |
 | Immune prune | supersession, forget dry-run | Review weak/stale/unsafe rows. |
 | Cleanup | digest/prune dry-runs | Report before mutation. |
-| Corpus/bridge | signals, refinements, locks | Share traceable state, not hidden chat. |
-| Executive control | claim, verify, release | Close action with evidence. |
+| Corpus/bridge | signals, refinements, file work | Share traceable state, not hidden chat. |
+| Executive control | choose, declare, verify | Close action with evidence. |
 | Projection | query, `repo inject` | Publish selectively; SQLite stays canonical. |
 
 ## Cycle
 
 ```text
-SENSE -> ATTEND -> CLAIM -> ACT -> VERIFY -> REFLECT
+SENSE -> ATTEND -> CHOOSE/DECLARE -> ACT -> VERIFY -> REFLECT
   ^                                         |
   |                                         v
 ATTEND <- PROJECT <- PRUNE <- CONSOLIDATE <- CAPTURE
@@ -34,7 +34,7 @@ The loop closes only when reflection is routed, applied, verified, and its row i
 - Failures, lock conflicts, stale docs, corrections, and recall misses are signals for bounded reflection.
 - Durable memories need scope, provenance, and a future-use reason.
 - Prefer supersession/archive/dry-run over destructive deletion.
-- Preserve signals/refinements/locks until their owner acts and closes them.
+- Preserve signals/refinements/work until their owner acts and closes them.
 - Keep Markdown bounded; use CSV/HTML/query for complete sortable data.
 - Retrieved memory, generated wiki, and role dialogue are leads; current evidence wins.
 

@@ -44,3 +44,6 @@ Load after VALIDATE passes. Write only when the request authorizes a file change
 ### On Failure
 - **IF** format alone is wrong → **THEN** regenerate OUTPUT.
 - **IF** requested changes alter the fix → **THEN** return to FIX and revalidate.
+
+## Sources
+- Model Context Protocol, [Tools specification](https://modelcontextprotocol.io/specification/2025-06-18/server/tools) — explicit output structure and error signaling support reliable tool use.

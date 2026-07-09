@@ -15,7 +15,7 @@ describe('docs-catalog', () => {
     expect(result.count).toBeGreaterThan(0);
     expect(existsSync(result.root)).toBe(true);
     const names = result.docs.map((doc) => doc.name);
-    expect(names).toEqual(expect.arrayContaining(['full-flow', 'agent-cheatsheet', 'hooks']));
+    expect(names).toEqual(expect.arrayContaining(['architecture', 'agent-cheatsheet', 'hooks']));
     for (const doc of result.docs) {
       expect(doc.kind).toBe('skill-ref');
       expect(doc.name.length).toBeGreaterThan(0);
@@ -25,11 +25,23 @@ describe('docs-catalog', () => {
     }
   });
 
+  it('listSkillDocs({ lean: true }) returns only the routing index', () => {
+    const result = listSkillDocs({ lean: true });
+    expect(result.ok).toBe(true);
+    expect(result.count).toBeGreaterThan(0);
+    for (const doc of result.docs) {
+      expect(doc).not.toHaveProperty('path');
+      expect(doc.name.length).toBeGreaterThan(0);
+      expect(doc.title.length).toBeGreaterThan(0);
+      expect(Object.keys(doc).sort()).toEqual(['name', 'title']);
+    }
+  });
+
   it('shows a known doc by name and returns content', () => {
-    const result = showSkillDoc('full-flow');
+    const result = showSkillDoc('architecture');
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.name).toBe('full-flow');
+    expect(result.name).toBe('architecture');
     expect(result.content).toContain('#');
     expect(result.kind).toBe('skill-ref');
   });

@@ -7,12 +7,14 @@ Core loop: `references/agent-cheatsheet.md`. Finish/handoffs: `references/agent-
 ```bash
 <cli> agent register --agent-id "$OCTOCODE_AGENT_ID" --agent-name "<host>" --workspace "$PWD" --compact
 <cli> agent list --workspace "$PWD" --compact
+# only when the needed reference owner is unknown:
 <cli> docs list --compact
-<cli> docs show full-flow
+<cli> docs show architecture
 <cli> docs staleness --targets-json '[{"docFile":"README.md","sourceDirs":["src"]}]' --compact
 ```
 
-`docs list|show` indexes skill `references/*.md` only (not package `docs/**`).
+`docs list --compact` returns name/title routing only; `docs show` loads one skill
+reference. Neither indexes package `docs/**`.
 
 ## Skills (install / update / lint)
 

@@ -1,216 +1,185 @@
 # Awareness Database
 
-The Awareness SQLite store is shared by participating local agents. It holds plans, collaborative tasks, execution runs, file locks, verification, memory, signals, handoffs, and audit events.
+Canonical store: `~/.octocode/memory/awareness.sqlite3`, or
+`$OCTOCODE_MEMORY_HOME/awareness.sqlite3`. SQLite runs with WAL and foreign keys;
+current schema version is 3. Source: `src/db.ts`.
 
-- Default on macOS: `~/.octocode/memory/awareness.sqlite3`
-- Override directory: `OCTOCODE_MEMORY_HOME`
-- Runtime: WAL mode, foreign keys enabled, schema version `2`
-- Schema source: `packages/octocode-awareness/src/db.ts`
+`<workspace>/.octocode/` is not the database. It contains generated projections and
+authored plan documents.
 
-The global DB is canonical. `<workspace>/.octocode/` contains generated repo projections and managed plan documents; it is not a second operational task store.
-
-## The Non-Overlapping Work Model
-
-| Entity | Meaning | Lifetime |
-|---|---|---|
-| `plans` | Shared objective, lead agent, lifecycle, document folder | Project/initiative |
-| `tasks` | Durable unit agents can choose, with reasoning, acceptance criteria, paths, and dependencies | Until work is closed |
-| `task_runs` | One attempt to execute a task, or a standalone quick-edit attempt | One claim/attempt |
-| `locks` | Exact files currently protected from conflicting edits | Minutes |
-
-Do not use `task_runs` as a backlog. Do not copy live task status into an editable Markdown checklist. SQLite owns live work state; `.octocode/plan/**` owns narrative design and decisions.
-
-`lock acquire` does not require a plan or task. A quick edit creates a standalone run with `task_runs.task_id = NULL`. When an agent has exactly one live claimed task in the workspace, hooks attach edits to that task's existing run.
-
-## Plan Documents
-
-`plan create` writes:
+## Collaboration Graph
 
 ```text
-.octocode/plan/<YYYYMMDD-HHmmssZ-name>/
-├── PLAN.md
-├── manifest.json
-└── docs/
+plans -> plan_members / plan_docs / tasks
+tasks -> task_paths / task_dependencies / task_claims / task_events / task_runs
+task_runs -> run_files / locks / run_log / edit_log / harness_log
+agents -> sessions / plans / claims / runs / memories / signals
 ```
-
-`PLAN.md` holds objective and decisions, and points readers to live `task list` / `task ready` commands. `plan doc` registers supporting files under that plan folder in `plan_docs`.
-
-## Entity Relationships
 
 ```mermaid
 erDiagram
+  plans ||--o{ tasks : contains
   plans ||--o{ plan_members : has
   plans ||--o{ plan_docs : documents
-  plans ||--o{ tasks : contains
-  tasks ||--o{ task_paths : scopes
+  tasks ||--o{ task_paths : plans
   tasks ||--o{ task_dependencies : waits_for
-  tasks ||--o| task_claims : claimed_by
+  tasks ||--o| task_claims : leased_by
   tasks ||--o{ task_runs : attempted_as
+  task_runs ||--o{ run_files : declares
   task_runs ||--o{ locks : protects
-  task_runs ||--o{ run_log : audits
-  tasks ||--o{ task_events : records
-  sessions ||--o{ task_runs : groups
-  sessions ||--o{ edit_log : groups
+  task_runs ||--o{ run_log : verifies
+  task_runs ||--o{ edit_log : audits
+  signals ||--o{ signal_reads : acknowledged_by
   memories ||--o{ memory_refs : cites
-  signals ||--o{ signal_reads : read_by
 ```
 
-`agent_id` is a cooperative identity shared across hosts, not an authorization boundary. Plans record a lead for governance; SQLite does not implement security roles.
+## Plans And Tasks
 
-## Planning And Execution Tables
+`plans` stores name, objective, lead, status, workspace/artifact scope, managed
+`doc_dir`, and timestamps. Status is `DRAFT|ACTIVE|PAUSED|COMPLETED|CANCELLED`.
+The lead is also the first `plan_members` row. `plan_docs` registers `PLAN.md` and
+supporting files inside `.octocode/plan/<timestamp-name>/`.
 
-### `plans`
+`tasks` stores the single durable work queue: plan, title, required reasoning,
+acceptance criteria, priority, creator, timestamps, and status
+`OPEN|IN_PROGRESS|BLOCKED|VERIFY|DONE|FAILED|CANCELLED`.
 
-| Column | Contract |
+`task_paths` is non-exclusive planning scope. `task_dependencies` is an acyclic
+same-plan graph. Readiness is derived: `OPEN`, no live claim, and every dependency
+`DONE`. There is no `READY` status or “today's tasks” table.
+
+`task_claims` leases one run/agent per task under `BEGIN IMMEDIATE`. Claim heartbeat
+and expiry are independent from file presence. Expiry fails the abandoned run,
+returns the task to `OPEN`, closes its file work/locks, and emits an event.
+
+## Runs
+
+`task_runs` is one attempt:
+
+| Column | Meaning |
 |---|---|
-| `plan_id` | Stable `plan_...` key. |
-| `name`, `objective` | Human intent. Both required. |
-| `lead_agent_id` | Agent allowed to transition plan status. |
-| `status` | `DRAFT`, `ACTIVE`, `PAUSED`, `COMPLETED`, or `CANCELLED`. |
-| `workspace_path`, `artifact` | Workspace scope. |
-| `doc_dir` | Workspace-relative managed document folder. |
-| `created_at`, `updated_at` | UTC timestamps. |
-
-`plan_members` stores `(plan_id, agent_id, role, joined_at)` with role `LEAD` or `CONTRIBUTOR`. The lead is inserted automatically; claiming a task auto-joins the agent.
-
-`plan_docs` stores `(plan_id, relative_path, title, kind, ordinal)`. `PLAN.md` is `PRIMARY`; registered files are `SUPPORTING`.
-
-### `tasks`
-
-| Column | Contract |
-|---|---|
-| `task_id` | Stable `task_...` key. |
-| `plan_id` | Owning plan. |
-| `title` | Short selectable work label. |
-| `reasoning` | Why the task exists and the constraints/decision behind it. Required. |
-| `acceptance_criteria` | Done and verification contract. |
-| `status` | `OPEN`, `IN_PROGRESS`, `BLOCKED`, `VERIFY`, `DONE`, `FAILED`, or `CANCELLED`. |
-| `priority` | Higher values sort first. |
-| `created_by` | Authoring agent. |
-| `created_at`, `updated_at`, `completed_at` | Lifecycle timestamps. |
-
-`task_paths` stores one or more workspace-relative paths per task. Paths are planning scope, not file locks.
-
-`task_dependencies` stores directed edges `(task_id, depends_on_task_id)`. Edges must remain inside one plan; self-dependencies and cycles are rejected.
-
-Readiness is derived, never stored: a task is ready when it is `OPEN`, has no unfinished dependency, and has no live claim.
-
-### `task_claims`
-
-One live leased claim per task:
-
-| Column | Contract |
-|---|---|
-| `task_id` | Primary key. |
-| `run_id` | Unique active execution run. |
-| `agent_id` | Claimant. |
-| `claimed_at`, `heartbeat_at`, `expires_at` | Lease lifecycle. |
-
-Claims are acquired under `BEGIN IMMEDIATE`. Expired claims return `IN_PROGRESS` tasks to `OPEN`, fail the abandoned active run, and emit `CLAIM_EXPIRED`.
-
-### `task_runs`
-
-| Column | Contract |
-|---|---|
-| `run_id` | Stable `run_...` key. Migrated v1 IDs retain their original value. |
-| `task_id` | Nullable link to a durable task. `NULL` means standalone lock flow. |
-| `agent_id`, `session_id` | Actor and optional session. |
-| `rationale`, `test_plan`, `context_ref` | Attempt intent, verification, optional supporting reference. |
+| `run_id` | Stable `run_...` identifier. |
+| `task_id` | Nullable durable task; null for standalone WORK or hook fallback. |
+| `origin` | `TASK`, explicit `WORK`, or automatic `HOOK`. |
+| `agent_id`, `session_id` | Actor and optional host session. |
+| `rationale`, `test_plan`, `context_ref` | Attempt intent and verification. |
 | `status` | `ACTIVE`, `PENDING`, `SUCCESS`, or `FAILED`. |
-| `workspace_path`, `artifact`, `files_json` | Scope and files actually touched/claimed by the run. |
-| `created_at`, `updated_at` | UTC timestamps. |
+| `workspace_path`, `artifact` | Operational scope. |
+| timestamps | Creation/update. |
 
-Run state:
+Task reasoning/test criteria are copied into a run as an attempt snapshot. A host
+session never defines a reusable work unit; only task claim or explicit `work start`
+does.
 
 ```text
-ACTIVE --task submit / standalone lock release--> PENDING --verify mark--> SUCCESS | FAILED
+TASK: OPEN -> IN_PROGRESS -> VERIFY -> DONE|FAILED
+                       \-> OPEN|BLOCKED on release
+RUN:  ACTIVE -> PENDING -> SUCCESS|FAILED
 ```
 
-For a claimed task, post-edit hooks release individual file locks but keep the run `ACTIVE`; `task submit` moves the task to `VERIFY` and its run to `PENDING`. Successful `verify mark --run-id` moves the linked task to `DONE`.
+## Run Files: Mandatory Advisory Presence
 
-### `locks`, `run_log`, `task_events`
+`run_files` replaces `task_runs.files_json`:
 
-`locks` stores `lock_id`, absolute `file_path`, `run_id`, holder/session, `lock_type`, and TTL timestamps. Exact file locks remain the collision authority even when agents coordinate through broader task paths.
+| Column | Meaning |
+|---|---|
+| `(run_id,file_path)` | Primary key; normalized absolute path. |
+| `reason_override` | Optional file-specific reason; otherwise use run/task reason. |
+| `source` | `EXPLICIT` or `HOOK`. |
+| `started_at`, `heartbeat_at`, `expires_at` | Presence lifecycle. |
+| `ended_at` | Null while active. |
 
-`run_log` stores verification and abandonment events for execution runs. `task_events` stores durable planning history such as `CREATED`, `DEPENDENCY_ADDED`, `CLAIMED`, `SUBMITTED`, `VERIFIED`, `BLOCKED`, and `CLAIM_EXPIRED`.
+Active presence requires `ended_at IS NULL`, unexpired `expires_at`, and an ACTIVE
+run. Multiple runs may be active on one ordinary path. Display context is derived:
 
-## Knowledge And Coordination Tables
+```text
+run_files -> task_runs(agent,session,reason) -> tasks -> plans
+```
+
+Do not copy agent/task/plan/general reason into `run_files`.
+
+## Exclusive Locks
+
+`locks(lock_id,file_path,run_id,acquired_at,expires_at)` contains only exclusive
+protection. Agent/session come from `task_runs`; no lock type column exists.
+
+- Advisory start conflicts only with another run's active lock.
+- Exclusive acquisition conflicts with any other active run-file presence.
+- A run may upgrade its own presence.
+- TTL removes stale protection; it does not change TASK/WORK success.
+
+See [LOCKS.md](LOCKS.md) for command behavior.
+
+## Delivery State
+
+`delivery_state(consumer_id,channel,scope_key,fingerprint,delivered_at)` suppresses
+unchanged hook briefings and peer-state messages. It is delivery bookkeeping, not
+signal acknowledgement: only `signal ack` writes `signal_reads`.
+
+## Knowledge, Communication, Audit
 
 | Table | Purpose |
 |---|---|
-| `agents` | Stable agent id, display name, host context, last-seen scope. |
-| `sessions` | Contiguous work periods. Runs/edit/harness rows may reference a session. |
-| `memories` | Durable lessons, decisions, gotchas, temporal validity, salience, optional embeddings. |
-| `memories_fts` | FTS5 index over memory context, observation, and tags. |
-| `memory_refs` | Structured `(memory_id, reference)` provenance with `kind` and stable `ordinal`. |
-| `signals` | Typed local messages/threads: claim, handoff, question, reply, blocker, request, decision, fyi. |
-| `signal_reads` | Per-agent signal acknowledgement. |
-| `refinements` | Handoffs and improvement/instruction-feedback proposals. |
-| `edit_log` | Optional file edit audit linked by `run_id`. |
-| `harness_log` | Reflection/self-improvement lifecycle events linked by optional `run_id`/`memory_id`. |
+| `agents`, `sessions` | Stable identity, scope, contiguous host activity. |
+| `memories`, `memories_fts`, `memory_refs` | Durable lessons, lexical search, provenance, validity/supersession. |
+| `signals`, `signal_reads` | Typed peer threads and explicit acknowledgement. |
+| `refinements` | Owned follow-up/handoff/instruction feedback; not a task queue. |
+| `run_log`, `task_events` | Verification and planning lifecycle history. |
+| `edit_log` | Completed file edit audit. |
+| `harness_log` | Reflection/harness lifecycle audit. |
+
+JSON file lists remain on signals/refinements because they are message snapshots,
+not normalized active run state.
 
 ## Scope
 
-`workspace_path` is the primary isolation key; `artifact` narrows to a package/service. Memory, refinements, and signals may also use `repo` and `ref`. Use the same workspace/artifact across attend, plans, tasks, locks, verify, and handoff commands.
+Use one normalized `workspace_path` across attend, plans, tasks, work, locks,
+verification, signals, and handoff. `artifact` optionally narrows a workspace;
+memory/signals/refinements may also use repo/ref.
 
-Task paths are workspace-relative. Lock paths are absolute and normalized. This difference is intentional: tasks communicate ownership boundaries; locks prevent exact-file collisions.
+Task paths are workspace-relative planning scope. Run-file and lock paths are
+normalized absolute operational paths.
 
-## Query Views And Workboard
+## Query Views
 
-| View | Main rows |
+| View | Content |
 |---|---|
-| `plans` | Plan lifecycle, lead, doc folder, member/task counts. |
-| `tasks` | Durable task reasoning, paths, dependencies, readiness, active claim. |
-| `runs` | Execution and verification attempts. |
-| `locks` | Live exact-file claims with run/task linkage. |
-| `workboard` | Derived Inbox, Verify, Ready, Claimed, RecentDone, MemoryReview, DeveloperReview, ProjectionHealth lanes. |
+| `plans`, `tasks`, `runs` | Planning and attempt lifecycle. |
+| `work list|show` | Flat active run-file rows for focused CLI inspection. |
+| FilesUnderWork | Workboard paths grouped with peers, reason, task/plan, and exclusive state. |
+| `locks` | Live exclusive rows joined to run identity. |
+| `workboard` | Inbox, Verify, Ready, Claimed, FilesUnderWork, RecentDone, review/health lanes. |
+| `files`, `activity` | Historical references and edit/audit views. |
 
-The workboard has no table. `Ready` contains only ready tasks. `Claimed` contains task claims plus standalone locks; linked locks are not repeated as separate work items. `Verify` contains tasks awaiting verification plus standalone pending runs.
+Compact views cap detail and expose omitted counts. Full rows are explicit.
 
-## Migration From Schema V1
+## Migration
 
-Schema v1 used `tasks` for edit attempts. `initDb` migrates that table before creating v2:
+### v1 -> v2
 
-- `tasks` → `task_runs`
-- legacy `task_id` → `run_id`
-- `plan_doc_ref` → `context_ref`
-- lock/edit/harness foreign keys → `run_id`
-- `task_log` → `run_log`
-- migrated runs receive `task_id = NULL`
+Legacy execution `tasks` became `task_runs`; `task_log` became `run_log`; related
+foreign keys were renamed. Migrated attempts were standalone.
 
-The migration is idempotent, preserves row IDs/history, and sets `PRAGMA user_version = 2`.
+### v2 -> v3
 
-## Useful SQL
+- Add `origin` and infer `TASK` when `task_id` exists, otherwise `HOOK`.
+- Backfill `run_files` from `files_json` and lock rows.
+- Rebuild `task_runs` without `files_json`.
+- Rebuild locks as exclusive-only without duplicated agent/session/type fields.
+- Add `delivery_state`.
+- Set `PRAGMA user_version = 3`.
 
-```sql
--- Ready collaborative work
-SELECT t.task_id, t.title, t.priority
-FROM tasks t
-WHERE t.status = 'OPEN'
-  AND NOT EXISTS (SELECT 1 FROM task_claims c WHERE c.task_id = t.task_id)
-  AND NOT EXISTS (
-    SELECT 1 FROM task_dependencies d
-    JOIN tasks dependency ON dependency.task_id = d.depends_on_task_id
-    WHERE d.task_id = t.task_id AND dependency.status <> 'DONE'
-  )
-ORDER BY t.priority DESC, t.created_at;
-
--- Active exact-file locks
-SELECT l.file_path, l.lock_type, r.run_id, r.task_id, r.agent_id, l.expires_at
-FROM locks l
-JOIN task_runs r ON r.run_id = l.run_id
-WHERE r.status = 'ACTIVE';
-
--- Pending verification
-SELECT run_id, task_id, rationale, test_plan, files_json
-FROM task_runs
-WHERE agent_id = ? AND status = 'PENDING'
-ORDER BY updated_at;
-```
+The complete migration runs under one `BEGIN IMMEDIATE` transaction. Concurrent first
+openers wait for the winner, then observe schema v3; detection, DDL, indexes, and
+`user_version` cannot interleave. The migration is idempotent and preserves run IDs
+and audit history. Old clients that require v2 columns are not supported after
+migration; rebuild/reinstall the bundled CLI/hooks together.
 
 ## Operations
 
-- `maintenance init` creates/migrates the store.
-- `workspace status` reports active plans, ready/in-progress/verify tasks, active/pending runs, locks, memories, and refinements.
-- `maintenance digest --dry-run` previews cleanup.
-- `repo inject` regenerates repo projections; it preserves `.octocode/plan/**` managed narrative documents.
+- `maintenance init`: create/migrate.
+- `workspace status`: operational counts and live state.
+- `work list|show`: current file awareness.
+- `query workboard`: derived action queue.
+- `maintenance digest --dry-run`: report cleanup.
+- `repo inject`: regenerate projections while preserving plan folders.

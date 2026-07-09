@@ -13,7 +13,7 @@
 
 import { randomUUID } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
-import { normalizeArtifact, utcNow, parseJsonList } from './helpers.js';
+import { normalizeArtifact, utcNow } from './helpers.js';
 import { normalizeWorkspacePath } from './git.js';
 import type { RunStatus } from './types.js';
 import {
@@ -43,8 +43,8 @@ export interface UnverifiedIntent {
 }
 
 /**
- * VER-2: An ACTIVE run whose locks have all been evicted (expired).
- * These are orphaned sessions the old audit silently missed.
+ * VER-2: An ACTIVE run whose declared file presence has expired.
+ * These are orphaned work units the old audit silently missed.
  */
 export interface StaleActiveIntent {
   run_id: string;
@@ -56,13 +56,13 @@ export interface StaleActiveIntent {
   workspace_path: string | null;
   artifact: string | null;
   created_at: string;
-  age_hours: number; // how long stuck ACTIVE with no live locks
+  age_hours: number; // how long stuck ACTIVE with no live file presence
 }
 
 export interface AuditUnverifiedResult {
   ok: true;
   unverified: UnverifiedIntent[];    // status=PENDING: released, awaiting verify
-  stale_active: StaleActiveIntent[]; // VER-2: ACTIVE with no live locks
+  stale_active: StaleActiveIntent[]; // VER-2: ACTIVE with no live file presence
   count: number;                     // total = unverified.length + stale_active.length
 }
 
@@ -117,13 +117,23 @@ interface IntentDbRow {
   rationale: string;
   workspace_path: string | null;
   artifact: string | null;
-  files_json: string;
   created_at: string;
 }
 
 interface AgentStatusRow {
   agent_id: string;
   status: string;
+}
+
+function targetFilesForRun(db: DatabaseSync, runId: string): string[] {
+  return db.prepare('SELECT file_path FROM run_files WHERE run_id = ? ORDER BY file_path')
+    .all(runId).map((row) => String((row as { file_path: string }).file_path));
+}
+
+function closeRunFiles(db: DatabaseSync, runId: string, now: string): void {
+  db.prepare('DELETE FROM locks WHERE run_id = ?').run(runId);
+  db.prepare(`UPDATE run_files SET heartbeat_at = ?, expires_at = ?, ended_at = ?
+    WHERE run_id = ? AND ended_at IS NULL`).run(now, now, now, runId);
 }
 
 function finishLinkedTask(
@@ -202,7 +212,7 @@ export function auditUnverified(
   }
 
   const rows = db.prepare(
-    `SELECT run_id, agent_id, status, test_plan, context_ref, rationale, workspace_path, artifact, files_json, created_at
+    `SELECT run_id, agent_id, status, test_plan, context_ref, rationale, workspace_path, artifact, created_at
      FROM task_runs
      WHERE ${where.join(' AND ')}
      ORDER BY created_at ASC`,
@@ -215,7 +225,7 @@ export function auditUnverified(
     test_plan: r.test_plan,
     context_ref: r.context_ref,
     rationale: r.rationale,
-    target_files: parseJsonList(r.files_json),
+    target_files: targetFilesForRun(db, r.run_id),
     workspace_path: r.workspace_path,
     artifact: r.artifact,
     created_at: r.created_at,
@@ -225,6 +235,7 @@ export function auditUnverified(
     const now = utcNow();
     for (const intent of unverified) {
       db.prepare(RUNS_UPDATE_PENDING_TO_FAILED).run(now, intent.run_id);
+      closeRunFiles(db, intent.run_id, now);
       abandonLinkedTask(db, intent.run_id, intent.agent_id, now, 'pending run abandoned by verification audit');
       try {
         db.prepare(RUN_LOG_INSERT_ABANDONED).run(
@@ -234,23 +245,19 @@ export function auditUnverified(
     }
   }
 
-  // VER-2: Detect standalone ACTIVE runs whose locks expired, plus task runs
-  // whose claim lease and locks both expired. A live task claim may validly
-  // have no lock between edits and must not become false verification debt.
+  // VER-2: Detect standalone ACTIVE runs whose file presence expired, plus task
+  // runs whose claim lease and file presence both expired. Ordinary work may
+  // validly have no lock, so lock absence is never verification debt.
   const staleActive: StaleActiveIntent[] = [];
   try {
     const nowIso = utcNow();
     const staleWhere: string[] = [
       "ai.status = 'ACTIVE'",
-      // Exclude tasks that never had any files to claim: a zero-target-file task
-      // holds no locks by construction, so it would otherwise be reported as
-      // "stale_active" the instant it is created (age ~0h) — a false positive
-      // that blocks the Stop/conclude gate. Real orphaned work always has files.
-      "COALESCE(ai.files_json,'[]') NOT IN ('[]','null','')",
+      'EXISTS (SELECT 1 FROM run_files any_rf WHERE any_rf.run_id = ai.run_id)',
       `NOT EXISTS (
-        SELECT 1 FROM locks fl
-        WHERE fl.run_id = ai.run_id
-          AND (fl.expires_at IS NULL OR fl.expires_at > ?)
+        SELECT 1 FROM run_files active_rf
+        WHERE active_rf.run_id = ai.run_id AND active_rf.ended_at IS NULL
+          AND active_rf.expires_at > ?
       )`,
       `NOT EXISTS (
         SELECT 1 FROM task_claims tc
@@ -263,7 +270,7 @@ export function auditUnverified(
     if (artifact) { staleWhere.push('(ai.artifact = ? OR ai.artifact IS NULL)'); staleBinds.push(artifact); }
 
     const staleRows = db.prepare(
-      `SELECT ai.run_id, ai.agent_id, ai.rationale, ai.context_ref, ai.workspace_path, ai.artifact, ai.files_json, ai.created_at
+      `SELECT ai.run_id, ai.agent_id, ai.rationale, ai.context_ref, ai.workspace_path, ai.artifact, ai.created_at
        FROM task_runs ai
        WHERE ${staleWhere.join(' AND ')}
        ORDER BY ai.created_at ASC`
@@ -277,7 +284,7 @@ export function auditUnverified(
         status: 'ACTIVE',
         rationale: r.rationale,
         context_ref: r.context_ref,
-        target_files: parseJsonList(r.files_json),
+        target_files: targetFilesForRun(db, r.run_id),
         workspace_path: r.workspace_path,
         artifact: r.artifact,
         created_at: r.created_at,
@@ -290,6 +297,7 @@ export function auditUnverified(
     const now = utcNow();
     for (const intent of staleActive) {
       db.prepare(RUNS_UPDATE_ACTIVE_TO_FAILED).run(now, intent.run_id);
+      closeRunFiles(db, intent.run_id, now);
       abandonLinkedTask(db, intent.run_id, intent.agent_id, now, 'stale task run abandoned by verification audit');
       try {
         db.prepare(RUN_LOG_INSERT_STALE_ABANDONED).run(
@@ -349,6 +357,7 @@ export function markVerified(
           status, now, row.run_id, agentId,
         ) as { changes: number };
         if (upd.changes === 0) continue;
+        closeRunFiles(db, row.run_id, now);
         finishLinkedTask(db, row.run_id, status, agentId, now, message);
         ids.push(row.run_id);
         if (message) {
@@ -414,6 +423,7 @@ export function markVerified(
       } catch { /* non-critical audit log */ }
     }
 
+    closeRunFiles(db, runId, now);
     finishLinkedTask(db, runId, status, agentId, now, message);
     db.exec('COMMIT');
     return { ok: true, run_id: runId, status: status as RunStatus, updated_at: now };

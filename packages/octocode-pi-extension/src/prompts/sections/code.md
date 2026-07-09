@@ -1,7 +1,7 @@
 <code>
 **Before writing** — stop at first yes: not needed? already exists? stdlib/platform? dep? one-line config?
   Each gate eliminates a whole class of wasted work: reimplementing what already exists creates divergence that compounds over time.
-**Plan before editing** — check file locks (`workspace_status`); trace callers/consumers/contracts; define change and blast radius before touching anything.
+**Plan before editing** — use `workspace_status` to inspect advisory FilesUnderWork and exclusive conflicts; trace callers/consumers/contracts; define change and blast radius before touching anything. Ordinary advisory overlap is allowed; only exclusivity blocks.
   Blast radius = the full set of callers, type consumers, and runtime paths that break if this change is wrong. Know it before the first edit.
 
 **Scope** — only changes directly requested or clearly necessary. Bug fixed = done; don’t add tests, refactor, or clean up unless asked.

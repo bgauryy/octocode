@@ -572,7 +572,7 @@ export function buildMemoryRenderCall(
       summary = parts.join(' ');
       break;
     }
-    case 'memory_notify': {
+    case 'agent_signal': {
       const kind = s(a.kind, 12);
       const subject = s(a.subject, 55);
       summary = [kind ? `[${kind}]` : '', subject].filter(Boolean).join(' ');
@@ -583,7 +583,7 @@ export function buildMemoryRenderCall(
       summary = state ? `state:${state}` : '';
       break;
     }
-    // memory_workspace_status, memory_audit_unverified: no meaningful params
+    // workspace_status, memory_audit_unverified: no meaningful params
     default:
       break;
   }
@@ -614,8 +614,7 @@ function parseMemoryStat(toolName: string, text: string): string {
         const outcome = typeof data.outcome === 'string' ? ` (${data.outcome})` : '';
         return `reflected${outcome}`;
       }
-      case 'file_lock':
-      case 'memory_file_lock': {
+      case 'file_lock': {
         if (data.type === 'lock') {
           const files = Array.isArray(data.files) ? data.files.length : 0;
           const expires = typeof data.expiresAt === 'string' ? ` until ${data.expiresAt}` : '';
@@ -629,7 +628,7 @@ function parseMemoryStat(toolName: string, text: string): string {
         if (data.type === 'release') return `${data.locks_released ?? 0} released`;
         return '';
       }
-      case 'memory_workspace_status': {
+      case 'workspace_status': {
         const locks = Array.isArray(data.locks) ? data.locks.length : 0;
         const agents = Array.isArray(data.agents) ? data.agents.length : 0;
         const pending = typeof data.pending_runs === 'number' ? data.pending_runs : 0;
@@ -667,7 +666,7 @@ function parseMemoryStat(toolName: string, text: string): string {
         if (data.dry_run) return `preview: ${previewed} would delete`;
         return `${deleted} deleted`;
       }
-      case 'memory_notify':
+      case 'agent_signal':
         return 'posted';
       default:
         return '';

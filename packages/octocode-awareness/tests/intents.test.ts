@@ -5,6 +5,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { initDb } from '../src/db.js';
+import { canonicalizePath } from '../src/git.js';
 import { fileLock, preFlightIntent, releaseFileLock } from '../src/intents.js';
 import { pruneStale } from '../src/maintenance.js';
 
@@ -31,7 +32,7 @@ describe('preFlightIntent', () => {
       expect(result.ok).toBe(true);
       if (result.ok) {
         expect(result.run.run_id).toMatch(/^run_/);
-        expect(result.run.target_files).toContain(path);
+        expect(result.run.target_files).toContain(canonicalizePath(path));
       }
     } finally { cleanup(); }
   });
@@ -62,8 +63,8 @@ describe('preFlightIntent', () => {
       });
       expect(result.ok).toBe(true);
       if (result.ok) {
-        expect(result.run.target_files).toEqual([join(dir, 'src/a.ts')]);
-        expect(result.run.locks[0]!.file_path).toBe(join(dir, 'src/a.ts'));
+        expect(result.run.target_files).toEqual([canonicalizePath(join(dir, 'src/a.ts'))]);
+        expect(result.run.locks[0]!.file_path).toBe(canonicalizePath(join(dir, 'src/a.ts')));
       }
     } finally { cleanup(); }
   });
@@ -87,24 +88,28 @@ describe('preFlightIntent', () => {
       expect(result.ok).toBe(true);
       if (result.ok) {
         expect(result.run.workspace_path).toBe(expectedRoot);
-        expect(result.run.target_files).toEqual([join(pkg, 'src/a.ts')]);
-        const stored = db.prepare('SELECT workspace_path, files_json FROM task_runs WHERE run_id = ?')
-          .get(result.run.run_id) as { workspace_path: string; files_json: string };
+        expect(result.run.target_files).toEqual([canonicalizePath(join(pkg, 'src/a.ts'))]);
+        const stored = db.prepare('SELECT workspace_path, origin FROM task_runs WHERE run_id = ?')
+          .get(result.run.run_id) as { workspace_path: string; origin: string };
         expect(stored.workspace_path).toBe(expectedRoot);
-        expect(JSON.parse(stored.files_json)).toEqual([join(pkg, 'src/a.ts')]);
+        expect(stored.origin).toBe('WORK');
+        expect(db.prepare('SELECT file_path FROM run_files WHERE run_id = ?').all(result.run.run_id))
+          .toEqual([{ file_path: canonicalizePath(join(pkg, 'src/a.ts')) }]);
       }
     } finally {
       rmSync(repo, { recursive: true, force: true });
     }
   });
 
-  it('same agent can re-claim without conflict', () => {
+  it('same agent reuses its active WORK run on the same file', () => {
     const db = freshDb();
     const { path, cleanup } = tempFile();
     try {
-      preFlightIntent(db, { agentId: 'agent-a', targetFiles: [path] });
+      const first = preFlightIntent(db, { agentId: 'agent-a', targetFiles: [path] });
       const second = preFlightIntent(db, { agentId: 'agent-a', targetFiles: [path] });
+      expect(first.ok).toBe(true);
       expect(second.ok).toBe(true);
+      if (first.ok && second.ok) expect(second.run.run_id).toBe(first.run.run_id);
     } finally { cleanup(); }
   });
 
@@ -128,26 +133,23 @@ describe('preFlightIntent', () => {
     } finally { cleanup(); }
   });
 
-  it('prunes expired locks before conflict checks', () => {
+  it('expired lock removal does not erase active advisory presence', () => {
     const db = freshDb();
     const { path, cleanup } = tempFile();
     try {
-      const first = preFlightIntent(db, { agentId: 'agent-a', targetFiles: [path], ttlMs: 1000 });
+      const first = preFlightIntent(db, { agentId: 'agent-a', targetFiles: [path], ttlMs: 60_000 });
       if (!first.ok) throw new Error('first claim failed');
       const past = new Date(Date.now() - 5000).toISOString().replace(/\.\d{3}Z$/, 'Z');
       db.prepare('UPDATE locks SET expires_at = ? WHERE run_id = ?').run(past, first.run.run_id);
       const second = preFlightIntent(db, { agentId: 'agent-b', targetFiles: [path] });
-      expect(second.ok).toBe(true);
+      expect(second.ok).toBe(false);
     } finally { cleanup(); }
   });
 
-  it('works with no target files', () => {
+  it('rejects lock runs with no target files', () => {
     const db = freshDb();
-    const result = preFlightIntent(db, { agentId: 'agent-a', targetFiles: [] });
-    expect(result.ok).toBe(true);
-    if (result.ok) {
-      expect(result.run.target_files).toHaveLength(0);
-    }
+    expect(() => preFlightIntent(db, { agentId: 'agent-a', targetFiles: [] }))
+      .toThrow(/at least one target file/);
   });
 });
 
@@ -183,24 +185,6 @@ describe('releaseFileLock', () => {
     } finally { cleanup(); }
   });
 
-  it('releasing one same-agent overlapping intent keeps sibling locks active', () => {
-    const db = freshDb();
-    const { path, cleanup } = tempFile();
-    try {
-      const first = preFlightIntent(db, { agentId: 'agent-a', targetFiles: [path] });
-      const second = preFlightIntent(db, { agentId: 'agent-a', targetFiles: [path] });
-      if (!first.ok || !second.ok) throw new Error('claims failed');
-
-      const release = releaseFileLock(db, { agentId: 'agent-a', runId: first.run.run_id });
-      expect(release.locks_released).toBe(1);
-      const locks = db.prepare('SELECT run_id FROM locks WHERE file_path = ? ORDER BY acquired_at').all(path) as Array<{ run_id: string }>;
-      expect(locks.map((l) => l.run_id)).toEqual([second.run.run_id]);
-
-      const other = preFlightIntent(db, { agentId: 'agent-b', targetFiles: [path] });
-      expect(other.ok).toBe(false);
-    } finally { cleanup(); }
-  });
-
   it('releases by target file', () => {
     const db = freshDb();
     const { path, cleanup } = tempFile();
@@ -211,28 +195,6 @@ describe('releaseFileLock', () => {
         targetFiles: [path],
       });
       expect(release.locks_released).toBe(1);
-    } finally { cleanup(); }
-  });
-
-  it('refuses ambiguous target-file release across same-agent overlapping tasks', () => {
-    const db = freshDb();
-    const { path, cleanup } = tempFile();
-    try {
-      const first = preFlightIntent(db, { agentId: 'agent-a', targetFiles: [path] });
-      const second = preFlightIntent(db, { agentId: 'agent-a', targetFiles: [path] });
-      if (!first.ok || !second.ok) throw new Error('claims failed');
-
-      const release = releaseFileLock(db, {
-        agentId: 'agent-a',
-        targetFiles: [path],
-        status: 'PENDING',
-      });
-      expect(release.released).toBe(false);
-      expect(release.locks_released).toBe(0);
-      expect(release.run_ids.sort()).toEqual([first.run.run_id, second.run.run_id].sort());
-      expect(release.ambiguousRelease).toContain('pass --run-id');
-      const lockCount = db.prepare('SELECT COUNT(*) AS c FROM locks WHERE file_path = ?').get(path) as { c: number };
-      expect(lockCount.c).toBe(2);
     } finally { cleanup(); }
   });
 
@@ -361,11 +323,11 @@ describe('releaseFileLock', () => {
 });
 
 describe('pruneStale', () => {
-  it('atomically deletes expired locks and updates task status', () => {
+  it('deletes expired locks without ending advisory work', () => {
     const db = freshDb();
     const { path, cleanup } = tempFile();
     try {
-      const claim = preFlightIntent(db, { agentId: 'agent-a', targetFiles: [path], ttlMs: 1000 });
+      const claim = preFlightIntent(db, { agentId: 'agent-a', targetFiles: [path], ttlMs: 60_000 });
       if (!claim.ok) throw new Error('claim failed');
       const runId = claim.run.run_id;
 
@@ -383,13 +345,13 @@ describe('pruneStale', () => {
 
       // Both mutations reflected in the return value
       expect(result.pruned_locks).toBeGreaterThan(0);
-      expect(result.updated_runs).toBeGreaterThan(0);
+      expect(result).toEqual({ pruned_locks: 1 });
 
       // Both mutations visible in the DB simultaneously
       const locksAfter = db.prepare('SELECT COUNT(*) AS c FROM locks WHERE run_id = ?').get(runId) as { c: number };
       expect(locksAfter.c).toBe(0);
       const taskAfter = db.prepare('SELECT status FROM task_runs WHERE run_id = ?').get(runId) as { status: string };
-      expect(taskAfter.status).toBe('PENDING');
+      expect(taskAfter.status).toBe('ACTIVE');
     } finally { cleanup(); }
   });
 
@@ -397,7 +359,7 @@ describe('pruneStale', () => {
     const db = freshDb();
     const { path, cleanup } = tempFile();
     try {
-      const claim = preFlightIntent(db, { agentId: 'agent-a', targetFiles: [path], ttlMs: 1000 });
+      const claim = preFlightIntent(db, { agentId: 'agent-a', targetFiles: [path], ttlMs: 60_000 });
       if (!claim.ok) throw new Error('claim failed');
       const runId = claim.run.run_id;
       const past = new Date(Date.now() - 5000).toISOString().replace(/\.\d{3}Z$/, 'Z');
@@ -417,7 +379,7 @@ describe('pruneStale', () => {
     const db = freshDb();
     const { path, cleanup } = tempFile();
     try {
-      const claim = preFlightIntent(db, { agentId: 'agent-a', targetFiles: [path], ttlMs: 1000 });
+      const claim = preFlightIntent(db, { agentId: 'agent-a', targetFiles: [path], ttlMs: 60_000 });
       if (!claim.ok) throw new Error('claim failed');
       const runId = claim.run.run_id;
 
@@ -447,13 +409,13 @@ describe('fileLock', () => {
         sessionId: 'session-a',
         workspacePath: dir,
         targetFiles: ['src/a.ts'],
-        ttlMs: 1000,
+        ttlMs: 60_000,
       });
       expect(locked.ok).toBe(true);
       expect(locked.type).toBe('lock');
       if (!locked.ok || locked.type !== 'lock') throw new Error('lock failed');
       expect(locked.runId).toMatch(/^run_/);
-      expect(locked.files).toEqual([join(dir, 'src/a.ts')]);
+      expect(locked.files).toEqual([canonicalizePath(join(dir, 'src/a.ts'))]);
       expect(locked.expiresAt).toBeTruthy();
 
       const status = fileLock(db, { type: 'status', workspacePath: dir, sessionId: 'session-a' });

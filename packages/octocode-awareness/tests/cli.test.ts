@@ -191,14 +191,6 @@ describe('memory record', () => {
     ]);
   });
 
-  it('unknown label coerces with --compat-coerce', () => {
-    const result = ok(db, [
-      'memory', 'record', '--agent-id', 'a', '--task-context', 'ctx', '--observation', 'obs',
-      '--importance', '5', '--label', 'NOTAREAL', '--compat-coerce',
-    ]);
-    expect((result['memory'] as Record<string, unknown>)['label']).toBe('OTHER');
-  });
-
   it('supersedes marks old memory SUPERSEDED', () => {
     const first = ok(db, [
       'memory', 'record', '--agent-id', 'a', '--task-context', 'ctx', '--observation', 'old',
@@ -375,6 +367,24 @@ process.stdout.write(JSON.stringify({ embedding, model: 'test-embed' }));
     expect(r.stdout.trim().split('\n')).toHaveLength(1);
   });
 
+  it('defaults to lean memory projection and restores full rows with --full', () => {
+    const lean = ok(db, ['memory', 'recall', '--query', 'sqlite', '--limit', '1', '--compact']);
+    expect(lean['projection']).toBe('lean');
+    const leanMem = (lean['memories'] as Record<string, unknown>[])[0]!;
+    expect(leanMem['memory_id']).toMatch(/^mem_/);
+    expect(leanMem).toHaveProperty('observation');
+    expect(leanMem).not.toHaveProperty('access_count');
+    expect(leanMem).not.toHaveProperty('decay_half_life_days');
+    expect(leanMem).not.toHaveProperty('file_tree_fingerprint');
+
+    const full = ok(db, ['memory', 'recall', '--query', 'sqlite', '--limit', '1', '--full', '--compact']);
+    expect(full).not.toHaveProperty('projection');
+    const fullMem = (full['memories'] as Record<string, unknown>[])[0]!;
+    expect(fullMem).toHaveProperty('access_count');
+    expect(fullMem).toHaveProperty('created_at');
+    expect(fullMem).toHaveProperty('workspace_path');
+  });
+
   it('smart=true returns same or more results', () => {
     const base = ok(db, ['memory', 'recall', '--query', 'sqlite recall', '--min-importance', '9', '--limit', '5']);
     const smart = ok(db, ['memory', 'recall', '--query', 'sqlite recall', '--min-importance', '9', '--smart', '--limit', '5']);
@@ -389,7 +399,7 @@ process.stdout.write(JSON.stringify({ embedding, model: 'test-embed' }));
     const memId = (w['memory'] as Record<string, unknown>)['memory_id'];
     ok(db, ['memory', 'recall', '--query', 'uniqueaccesstoken77', '--min-importance', '1']);
     ok(db, ['memory', 'recall', '--query', 'uniqueaccesstoken77', '--min-importance', '1']);
-    const result = ok(db, ['memory', 'recall', '--query', 'uniqueaccesstoken77', '--min-importance', '1']);
+    const result = ok(db, ['memory', 'recall', '--query', 'uniqueaccesstoken77', '--min-importance', '1', '--full']);
     const found = (result['memories'] as Record<string, unknown>[]).find(m => m['memory_id'] === memId);
     if (found) expect(found['access_count'] as number).toBeGreaterThanOrEqual(2);
   });
@@ -481,11 +491,6 @@ describe('reflect', () => {
 
   it('invalid outcome hard-errors', () => {
     fail(db, ['reflect', 'record', '--agent-id', 'a', '--task', 'task', '--outcome', 'INVALID']);
-  });
-
-  it('invalid outcome coerces with --compat-coerce', () => {
-    const result = ok(db, ['reflect', 'record', '--agent-id', 'a', '--task', 'task', '--outcome', 'INVALID', '--compat-coerce']);
-    expect(result['outcome']).toBe('partial');
   });
 
   it('invalid memory label hard-errors', () => {
@@ -658,7 +663,7 @@ describe('lock acquire', () => {
     const executionRun = result['run'] as Record<string, unknown>;
     expect(executionRun['run_id']).toMatch(/^run_/);
     expect(executionRun['status']).toBe('ACTIVE');
-    expect(executionRun['target_files']).toContain(targetFile);
+    expect(executionRun['target_files']).toContain(realpathSync(targetFile));
   });
 
   it('second agent blocked with exit 2', () => {
@@ -676,7 +681,7 @@ describe('lock acquire', () => {
       'lock', 'acquire', '--agent-id', 'agent-c', '--target-file', targetFile,
     ]);
     const conflicts = r.parsed?.['conflicts'] as Record<string, unknown>[] | undefined;
-    expect(conflicts?.[0]?.['file_path']).toBe(targetFile);
+    expect(conflicts?.[0]?.['file_path']).toBe(realpathSync(targetFile));
     expect(conflicts?.[0]?.['agent_id']).toBe('agent-a');
   });
 
@@ -787,6 +792,21 @@ describe('lock release', () => {
     expect(rel['status']).toBe('PENDING');
   });
 
+  it('rejects invalid lock release --status values like ACTIVE', () => {
+    const claim = ok(db, [
+      'lock', 'acquire', '--agent-id', 'agent-status', '--target-file', targetFile,
+      '--rationale', 'status enum', '--test-plan', 'none',
+    ]);
+    const runId = (claim['run'] as Record<string, unknown>)['run_id'] as string;
+    const rejected = fail(db, [
+      'lock', 'release', '--agent-id', 'agent-status', '--run-id', runId, '--status', 'ACTIVE',
+    ]);
+    expect(String(rejected?.['error'] ?? '')).toContain('--status must be PENDING, SUCCESS, or FAILED');
+    ok(db, [
+      'lock', 'release', '--agent-id', 'agent-status', '--run-id', runId, '--status', 'PENDING',
+    ]);
+  });
+
   it('no --run-id and no --target-file exits 1', () => {
     fail(db, ['lock', 'release', '--agent-id', 'a']);
   });
@@ -844,6 +864,28 @@ describe('verify', () => {
 
     const after = ok(db, ['verify', 'audit', '--agent-id', 'agent-v', '--workspace', dir]);
     expect(after['count']).toBe(0);
+  });
+
+  it('caps compact audit details while preserving totals', () => {
+    for (let index = 0; index < 5; index++) {
+      const filePath = join(dir, `cap-${index}.txt`);
+      writeFileSync(filePath, String(index));
+      const claim = ok(db, [
+        'lock', 'acquire', '--compact', '--agent-id', 'agent-cap', '--workspace', dir,
+        '--target-file', filePath, '--rationale', `edit ${index}`, '--test-plan', `test ${index}`,
+      ]);
+      const runId = (claim['run'] as Record<string, unknown>)['run_id'] as string;
+      ok(db, ['lock', 'release', '--compact', '--agent-id', 'agent-cap', '--run-id', runId, '--status', 'PENDING']);
+    }
+
+    const audit = run(db, ['verify', 'audit', '--compact', '--agent-id', 'agent-cap', '--workspace', dir]);
+    expect(audit.status).toBe(1);
+    expect(audit.parsed).toMatchObject({ count: 5, unverified_count: 5, stale_active_count: 0, omitted_count: 2 });
+    expect(audit.parsed?.['unverified']).toHaveLength(3);
+    expect(Buffer.byteLength(audit.stdout, 'utf8')).toBeLessThanOrEqual(2 * 1024);
+
+    ok(db, ['verify', 'mark', '--compact', '--agent-id', 'agent-cap', '--workspace', dir,
+      '--all-pending', '--status', 'FAILED', '--message', 'compact audit fixture cleanup']);
   });
 });
 
@@ -911,7 +953,7 @@ describe('workspace status', () => {
       ]);
       const executionRun = claimed['run'] as Record<string, unknown>;
       expect(executionRun['workspace_path']).toBe(expectedRoot);
-      expect(executionRun['target_files']).toEqual([join(pkg, 'src/a.ts')]);
+      expect(executionRun['target_files']).toEqual([realpathSync(join(pkg, 'src/a.ts'))]);
 
       const status = ok(dbPath, ['workspace', 'status', '--workspace', pkg]);
       expect(status['workspace_path']).toBe(expectedRoot);
@@ -1128,6 +1170,7 @@ describe('CLI', () => {
       repo_inject: 'repo inject',
       plan: 'plan create',
       task: 'task create',
+      work: 'work start',
     };
     const unsupported = ['stats', 'embed_index', 'harness_apply', 'memory_export', 'memory_import', 'memory_index', 'view', 'notify', 'notify_query', 'notify_resolve', 'notify_prune', 'status'];
     expect(listed).not.toEqual(expect.arrayContaining(unsupported));
@@ -1155,7 +1198,7 @@ describe('CLI', () => {
     expect(result.stdout.trim().split('\n')).toHaveLength(1);
     const parsed = JSON.parse(result.stdout) as {
       ok: boolean;
-      commands: Array<{ command: string; schema: string | null; use: string; example: string }>;
+      commands: Array<{ command: string; schema: string | null; use?: string; example?: string }>;
     };
     expect(parsed.ok).toBe(true);
     expect(parsed.commands).toEqual(expect.arrayContaining([
@@ -1167,8 +1210,49 @@ describe('CLI', () => {
     ]));
     for (const row of parsed.commands) {
       expect(row.command).not.toMatch(/tell-memory|get-memory|notify|agent-registry|pre-flight/);
-      expect(row.use.length).toBeGreaterThan(8);
+      expect(row).not.toHaveProperty('use');
+      expect(row).not.toHaveProperty('example');
+    }
+    expect(Buffer.byteLength(result.stdout, 'utf8')).toBeLessThanOrEqual(5 * 1024);
+  });
+
+  it('schema commands --examples restores recipe lines', () => {
+    const schemaScript = resolve(dirname(fileURLToPath(import.meta.url)), '../skills/octocode-awareness/scripts/schema.mjs');
+    const result = spawnSync(NODE, [schemaScript, 'commands', '--examples', '--compact'], { encoding: 'utf8', timeout: 5000 });
+    expect(result.status).toBe(0);
+    const parsed = JSON.parse(result.stdout) as {
+      commands: Array<{ command: string; use: string; example: string }>;
+    };
+    expect(parsed.commands.length).toBeGreaterThan(10);
+    for (const row of parsed.commands) {
       expect(row.example).toContain('octocode-awareness ');
+    }
+    const lockRelease = parsed.commands.find((row) => row.command === 'lock release');
+    expect(lockRelease?.example).toMatch(/--status SUCCESS/);
+    expect(lockRelease?.example).not.toMatch(/--status ACTIVE/);
+  });
+
+  it('lock acquire help omits rejected --lock-type flag', () => {
+    const help = spawnSync(NODE, [SCRIPT, 'lock', 'acquire', '--help'], { encoding: 'utf8', timeout: 5000 });
+    expect(help.status).toBe(0);
+    expect(help.stdout).not.toMatch(/\[--lock-type/);
+    expect(help.stdout).toContain('exclusive protection');
+
+    const dir = mktemp();
+    const db = join(dir, 'test.sqlite3');
+    try {
+      const rejected = fail(db, [
+        'lock', 'acquire',
+        '--agent-id', 'agent-a',
+        '--target-file', join(dir, 'x.ts'),
+        '--rationale', 'probe',
+        '--test-plan', 'none',
+        '--lock-type', 'EXCLUSIVE',
+        '--compact',
+      ]);
+      expect(String(rejected?.['error'] ?? '')).toContain('unknown flag(s): --lock-type');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
     }
   });
 
@@ -1398,7 +1482,7 @@ describe('repo context projections', () => {
     } finally { rmSync(dir, { recursive: true }); }
   });
 
-  it('returns a compact attend packet with drive state', () => {
+  it('returns a compact attend packet with bounded counts and evidence', () => {
     const dir = mktemp();
     const db = join(dir, 'test.sqlite3');
     try {
@@ -1430,20 +1514,16 @@ describe('repo context projections', () => {
         '--explain-organ',
         '--compact',
       ]);
-      expect(result['schema_version']).toBe(2);
-      expect(result['profile']).toMatchObject({ active_memories: 1 });
+      expect(result['schema_version']).toBe(3);
+      expect(result['counts']).toMatchObject({ Inbox: 1, Ready: 0, Claimed: 0, Verify: 0, FilesUnderWork: 0 });
       expect(result['workboard']).toMatchObject({ Inbox: expect.any(Array) });
       expect(result['evidence']).toEqual(expect.arrayContaining([
         expect.objectContaining({ kind: 'memory', trust: 'verified_lead' }),
       ]));
-      expect(result['drive_state']).toMatchObject({
-        goal: 'attend auth design',
-        team_norms: expect.arrayContaining(['evidence-first']),
-      });
-      expect(result['organ_reference']).toEqual(expect.arrayContaining([
-        expect.objectContaining({ organ: 'attention' }),
-      ]));
-      expect(String(result['next'])).toMatch(/lock acquire|verify audit|memory forget|attend --workspace/);
+      expect(result['profile']).toBeUndefined();
+      expect(result['drive_state']).toBeUndefined();
+      expect(result['organ_reference']).toBeUndefined();
+      expect(String(result['next'])).toMatch(/work start|verify audit|memory forget|attend --workspace/);
       expect(Buffer.byteLength(JSON.stringify(result))).toBeLessThanOrEqual(8 * 1024);
       expect(JSON.stringify(result)).not.toMatch(/fictional persistent personality/i);
     } finally { rmSync(dir, { recursive: true }); }
@@ -1692,6 +1772,44 @@ describe('signal', () => {
     } finally { rmSync(dir, { recursive: true }); }
   });
 
+  it('summarizes signal list bodies unless --include-bodies', () => {
+    const dir = mktemp();
+    const db = join(dir, 'test.sqlite3');
+    const longBody = `Long signal body ${'x'.repeat(220)}`;
+    try {
+      ok(db, [
+        'signal', 'publish',
+        '--agent-id', 'agent-a',
+        '--to-agent', 'agent-b',
+        '--kind', 'fyi',
+        '--subject', 'Body trim',
+        '--body', longBody,
+        '--workspace', dir,
+      ]);
+
+      const summarized = ok(db, [
+        'signal', 'list',
+        '--agent-id', 'agent-b',
+        '--workspace', dir,
+        '--compact',
+      ]);
+      expect(summarized['bodies']).toBe('summarized');
+      const shortBody = String((summarized['signals'] as Record<string, unknown>[])[0]!['body'] ?? '');
+      expect(shortBody.length).toBeLessThanOrEqual(160);
+      expect(shortBody.endsWith('...')).toBe(true);
+
+      const full = ok(db, [
+        'signal', 'list',
+        '--agent-id', 'agent-b',
+        '--workspace', dir,
+        '--include-bodies',
+        '--compact',
+      ]);
+      expect(full).not.toHaveProperty('bodies');
+      expect(String((full['signals'] as Record<string, unknown>[])[0]!['body'])).toBe(longBody);
+    } finally { rmSync(dir, { recursive: true }); }
+  });
+
   it('round-trips reply, ack, and resolve through the CLI', () => {
     const dir = mktemp();
     const db = join(dir, 'test.sqlite3');
@@ -1828,9 +1946,17 @@ describe('integration: full round-trip', () => {
       const listed = ok(db, ['docs', 'list', '--compact']);
       expect(listed['count'] as number).toBeGreaterThan(0);
       const docs = listed['docs'] as Array<Record<string, unknown>>;
-      expect(docs.some((doc) => doc['name'] === 'full-flow')).toBe(true);
-      expect(docs.every((doc) => doc['kind'] === 'skill-ref')).toBe(true);
+      expect(docs.some((doc) => doc['name'] === 'architecture')).toBe(true);
+      expect(docs.every((doc) => !('path' in doc))).toBe(true);
+      expect(listed).not.toHaveProperty('root');
+      expect(docs.every((doc) => Object.keys(doc).sort().join(',') === 'name,title')).toBe(true);
+      expect(Buffer.byteLength(JSON.stringify(listed), 'utf8')).toBeLessThanOrEqual(3 * 1024);
       expect(String(listed['next'])).toContain('docs show');
+
+      const full = ok(db, ['docs', 'list', '--full', '--compact']);
+      const fullDocs = full['docs'] as Array<Record<string, unknown>>;
+      expect(fullDocs.every((doc) => typeof doc['path'] === 'string')).toBe(true);
+      expect(typeof full['root']).toBe('string');
     } finally { rmSync(dir, { recursive: true }); }
   });
 

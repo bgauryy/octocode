@@ -19,6 +19,9 @@ import type { TableInfoRow, MemoryRow } from './types.js';
 
 const DEFAULT_DB_NAME = 'awareness.sqlite3';
 const MEMORY_HOME_ENV = 'OCTOCODE_MEMORY_HOME';
+const SQLITE_BUSY_RETRY_MS = 25;
+const SQLITE_BUSY_DEADLINE_MS = 10_000;
+const SQLITE_WAIT = new Int32Array(new SharedArrayBuffer(4));
 
 // ─── Module-level singleton ───────────────────────────────────────────────────
 
@@ -58,12 +61,37 @@ export function resolveDbPath(dbArg?: string | null): string {
 export function connectDb(dbPath: string): DatabaseSync {
   mkdirSync(dirname(dbPath), { recursive: true });
   const db = new DatabaseSync(dbPath);
-  db.exec('PRAGMA foreign_keys = ON');
-  db.exec('PRAGMA busy_timeout = 5000');
-  db.exec('PRAGMA journal_mode = WAL');
-  initDb(db);
-  _db = db;
-  return db;
+  try {
+    db.exec(`PRAGMA busy_timeout = ${SQLITE_BUSY_DEADLINE_MS}`);
+    // Changing journal mode is itself a write and SQLite may return BUSY
+    // immediately while another first opener is migrating the same store.
+    withSqliteBusyRetry(() => db.exec('PRAGMA journal_mode = WAL'));
+    db.exec('PRAGMA foreign_keys = ON');
+    initDb(db);
+    _db = db;
+    return db;
+  } catch (error) {
+    db.close();
+    throw error;
+  }
+}
+
+function isSqliteBusy(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  const sqlite = error as Error & { errcode?: number; errstr?: string };
+  return sqlite.errcode === 5 || /database is (?:locked|busy)/i.test(`${sqlite.errstr ?? ''} ${error.message}`);
+}
+
+function withSqliteBusyRetry<T>(operation: () => T): T {
+  const deadline = Date.now() + SQLITE_BUSY_DEADLINE_MS;
+  for (;;) {
+    try {
+      return operation();
+    } catch (error) {
+      if (!isSqliteBusy(error) || Date.now() >= deadline) throw error;
+      Atomics.wait(SQLITE_WAIT, 0, 0, SQLITE_BUSY_RETRY_MS);
+    }
+  }
 }
 
 /**
@@ -99,6 +127,37 @@ export function connectCachedDb(dbPath: string): DatabaseSync {
 export function getDb(): DatabaseSync {
   if (!_db) throw new Error('Database not connected. Call connectDb() first.');
   return _db;
+}
+
+export interface DeliveryFingerprintKey {
+  consumerId: string;
+  channel: string;
+  scopeKey: string;
+}
+
+/** Read the last payload fingerprint delivered to one consumer/scope. */
+export function getDeliveryFingerprint(
+  db: DatabaseSync,
+  key: DeliveryFingerprintKey,
+): string | null {
+  const row = db.prepare(`SELECT fingerprint FROM delivery_state
+    WHERE consumer_id = ? AND channel = ? AND scope_key = ?`)
+    .get(key.consumerId, key.channel, key.scopeKey) as { fingerprint: string } | undefined;
+  return row?.fingerprint ?? null;
+}
+
+/** Idempotently record the latest delivered payload fingerprint. */
+export function setDeliveryFingerprint(
+  db: DatabaseSync,
+  params: DeliveryFingerprintKey & { fingerprint: string; deliveredAt?: string },
+): void {
+  db.prepare(`INSERT INTO delivery_state
+      (consumer_id, channel, scope_key, fingerprint, delivered_at)
+    VALUES (?, ?, ?, ?, ?)
+    ON CONFLICT(consumer_id, channel, scope_key) DO UPDATE SET
+      fingerprint = excluded.fingerprint,
+      delivered_at = excluded.delivered_at`)
+    .run(params.consumerId, params.channel, params.scopeKey, params.fingerprint, params.deliveredAt ?? utcNow());
 }
 
 // ─── Schema ───────────────────────────────────────────────────────────────────
@@ -217,6 +276,7 @@ const SCHEMA_DDL = `
     CREATE TABLE IF NOT EXISTS task_runs (
       run_id         TEXT PRIMARY KEY,
       task_id        TEXT REFERENCES tasks(task_id) ON DELETE SET NULL,
+      origin         TEXT NOT NULL DEFAULT 'TASK' CHECK(origin IN ('TASK','WORK','HOOK')),
       agent_id       TEXT NOT NULL,
       session_id     TEXT REFERENCES sessions(session_id) ON DELETE SET NULL,
       rationale      TEXT NOT NULL,
@@ -226,9 +286,20 @@ const SCHEMA_DDL = `
                      CHECK(status IN ('PENDING','ACTIVE','SUCCESS','FAILED')),
       workspace_path TEXT,
       artifact       TEXT,
-      files_json     TEXT NOT NULL DEFAULT '[]',
       created_at     TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
       updated_at     TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS run_files (
+      run_id         TEXT NOT NULL REFERENCES task_runs(run_id) ON DELETE CASCADE,
+      file_path      TEXT NOT NULL,
+      reason_override TEXT,
+      source         TEXT NOT NULL CHECK(source IN ('EXPLICIT','HOOK')),
+      started_at     TEXT NOT NULL,
+      heartbeat_at   TEXT NOT NULL,
+      expires_at     TEXT NOT NULL,
+      ended_at       TEXT,
+      PRIMARY KEY(run_id, file_path)
     );
 
     CREATE TABLE IF NOT EXISTS task_claims (
@@ -253,14 +324,19 @@ const SCHEMA_DDL = `
     CREATE TABLE IF NOT EXISTS locks (
       lock_id     TEXT PRIMARY KEY,
       file_path   TEXT NOT NULL,
-      run_id      TEXT NOT NULL,
-      agent_id    TEXT NOT NULL,
-      session_id  TEXT,
-      lock_type   TEXT NOT NULL CHECK(lock_type IN ('SHARED','EXCLUSIVE')),
+      run_id      TEXT NOT NULL REFERENCES task_runs(run_id) ON DELETE CASCADE,
       acquired_at TEXT NOT NULL,
       expires_at  TEXT,
-      FOREIGN KEY(run_id) REFERENCES task_runs(run_id) ON DELETE CASCADE,
       UNIQUE(file_path, run_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS delivery_state (
+      consumer_id TEXT NOT NULL,
+      channel     TEXT NOT NULL,
+      scope_key   TEXT NOT NULL,
+      fingerprint TEXT NOT NULL,
+      delivered_at TEXT NOT NULL,
+      PRIMARY KEY(consumer_id, channel, scope_key)
     );
 
     CREATE TABLE IF NOT EXISTS run_log (
@@ -404,32 +480,49 @@ function migrateLegacyTaskRuns(db: DatabaseSync): void {
     throw new Error('schema migration cannot move legacy tasks: task_runs already exists');
   }
 
+  for (const index of ['idx_tasks_status', 'idx_tasks_agent_status', 'idx_tasks_workspace', 'idx_tasks_scope']) {
+    db.exec(`DROP INDEX IF EXISTS ${index}`);
+  }
+  db.exec('ALTER TABLE tasks RENAME TO task_runs');
+  renameColumnIfPresent(db, 'task_runs', 'task_id', 'run_id');
+  renameColumnIfPresent(db, 'task_runs', 'plan_doc_ref', 'context_ref');
+  renameColumnIfPresent(db, 'locks', 'task_id', 'run_id');
+  if (tableExists(db, 'task_log') && !tableExists(db, 'run_log')) {
+    db.exec('ALTER TABLE task_log RENAME TO run_log');
+  }
+  renameColumnIfPresent(db, 'run_log', 'task_id', 'run_id');
+  renameColumnIfPresent(db, 'edit_log', 'task_id', 'run_id');
+  renameColumnIfPresent(db, 'harness_log', 'task_id', 'run_id');
+}
+
+export function initDb(db: DatabaseSync): void {
+  if (db.isTransaction) {
+    initDbSchema(db);
+    return;
+  }
+
+  // Serialize the complete detect → migrate → index → version sequence. A
+  // transaction around individual ALTERs is insufficient: two first openers
+  // can both observe a missing column and race the same DDL.
   db.exec('PRAGMA foreign_keys = OFF');
-  db.exec('BEGIN IMMEDIATE');
+  let began = false;
   try {
-    for (const index of ['idx_tasks_status', 'idx_tasks_agent_status', 'idx_tasks_workspace', 'idx_tasks_scope']) {
-      db.exec(`DROP INDEX IF EXISTS ${index}`);
-    }
-    db.exec('ALTER TABLE tasks RENAME TO task_runs');
-    renameColumnIfPresent(db, 'task_runs', 'task_id', 'run_id');
-    renameColumnIfPresent(db, 'task_runs', 'plan_doc_ref', 'context_ref');
-    renameColumnIfPresent(db, 'locks', 'task_id', 'run_id');
-    if (tableExists(db, 'task_log') && !tableExists(db, 'run_log')) {
-      db.exec('ALTER TABLE task_log RENAME TO run_log');
-    }
-    renameColumnIfPresent(db, 'run_log', 'task_id', 'run_id');
-    renameColumnIfPresent(db, 'edit_log', 'task_id', 'run_id');
-    renameColumnIfPresent(db, 'harness_log', 'task_id', 'run_id');
+    withSqliteBusyRetry(() => db.exec('BEGIN IMMEDIATE'));
+    began = true;
+    initDbSchema(db);
     db.exec('COMMIT');
+    began = false;
   } catch (error) {
-    try { db.exec('ROLLBACK'); } catch { /* transaction did not open */ }
+    if (began) {
+      try { db.exec('ROLLBACK'); } catch { /* transaction already ended */ }
+    }
     throw error;
   } finally {
     db.exec('PRAGMA foreign_keys = ON');
   }
 }
 
-export function initDb(db: DatabaseSync): void {
+function initDbSchema(db: DatabaseSync): void {
   migrateLegacyTaskRuns(db);
 
   // ── 1. All regular tables in a single exec block ───────────────────────────
@@ -439,6 +532,7 @@ export function initDb(db: DatabaseSync): void {
   // created — indexes below reference columns (failure_signature, valid_from,
   // embedding_model, …) that old stores may lack.
   migrateExistingTables(db);
+  migrateExecutionSchemaV3(db);
   migrateRefinementQualityConstraint(db);
   migrateCheckConstraints(db);
 
@@ -473,11 +567,14 @@ export function initDb(db: DatabaseSync): void {
     CREATE INDEX IF NOT EXISTS idx_task_runs_scope      ON task_runs(workspace_path, artifact);
     CREATE INDEX IF NOT EXISTS idx_task_events_task     ON task_events(task_id, created_at);
 
+    CREATE INDEX IF NOT EXISTS idx_run_files_path_active ON run_files(file_path, ended_at, expires_at);
+    CREATE INDEX IF NOT EXISTS idx_run_files_heartbeat   ON run_files(heartbeat_at);
+
     CREATE INDEX IF NOT EXISTS idx_locks_file_path   ON locks(file_path);
-    CREATE INDEX IF NOT EXISTS idx_locks_agent_id    ON locks(agent_id);
     CREATE INDEX IF NOT EXISTS idx_locks_acquired_at ON locks(acquired_at);
     CREATE INDEX IF NOT EXISTS idx_locks_expires_at  ON locks(expires_at);
-    CREATE INDEX IF NOT EXISTS idx_locks_session_id  ON locks(session_id);
+
+    CREATE INDEX IF NOT EXISTS idx_delivery_state_delivered ON delivery_state(delivered_at);
 
     CREATE INDEX IF NOT EXISTS idx_refinements_state         ON refinements(state);
     CREATE INDEX IF NOT EXISTS idx_refinements_scope         ON refinements(workspace_path, artifact);
@@ -530,7 +627,7 @@ export function initDb(db: DatabaseSync): void {
     if (row.cnt === 0) rebuildFts(db);
   }
 
-  db.exec('PRAGMA user_version = 2');
+  db.exec('PRAGMA user_version = 3');
 }
 
 // ─── Table introspection ──────────────────────────────────────────────────────
@@ -596,6 +693,66 @@ function migrateExistingTables(db: DatabaseSync): void {
       }
       db.exec(`ALTER TABLE ${table} ADD COLUMN ${clause}`);
     }
+  }
+}
+
+/**
+ * Schema v3 normalizes advisory file presence and makes every lock exclusive.
+ * Backfill file rows before rebuilding task_runs/locks so no v2 files_json or
+ * lock identity is lost. Historical standalone runs are classified as HOOK:
+ * v2 could not distinguish explicit lock-only work from hook-created runs, and HOOK
+ * is the conservative lifecycle (verification debt remains visible).
+ */
+function migrateExecutionSchemaV3(db: DatabaseSync): void {
+  if (!tableExists(db, 'task_runs')) return;
+  const runColumns = tableColumns(db, 'task_runs');
+  const lockColumns = tableExists(db, 'locks') ? tableColumns(db, 'locks') : new Set<string>();
+  const needsRunRebuild = runColumns.has('files_json');
+  const needsLockRebuild = ['agent_id', 'session_id', 'lock_type'].some((name) => lockColumns.has(name));
+  if (!needsRunRebuild && !needsLockRebuild) return;
+
+  if (needsRunRebuild) {
+    const rows = db.prepare(`SELECT run_id, task_id, status, files_json, created_at, updated_at
+      FROM task_runs`).all() as unknown as Array<{
+        run_id: string;
+        task_id: string | null;
+        status: string;
+        files_json: string;
+        created_at: string | null;
+        updated_at: string | null;
+      }>;
+    const insert = db.prepare(`INSERT OR IGNORE INTO run_files
+      (run_id, file_path, reason_override, source, started_at, heartbeat_at, expires_at, ended_at)
+      VALUES (?, ?, NULL, ?, ?, ?, ?, ?)`);
+    const now = utcNow();
+    for (const row of rows) {
+      const source = row.task_id == null ? 'HOOK' : 'EXPLICIT';
+      const startedAt = row.created_at ?? now;
+      const heartbeatAt = row.updated_at ?? startedAt;
+      for (const filePath of parseJsonList(row.files_json)) {
+        const lease = db.prepare(`SELECT MAX(expires_at) AS expires_at FROM (
+          SELECT expires_at FROM locks WHERE run_id = ? AND file_path = ?
+          UNION ALL
+          SELECT expires_at FROM task_claims WHERE run_id = ?
+        )`).get(row.run_id, filePath, row.run_id) as { expires_at: string | null };
+        const expiresAt = lease.expires_at ?? heartbeatAt;
+        const active = row.status === 'ACTIVE' && expiresAt > now;
+        insert.run(row.run_id, filePath, source, startedAt, heartbeatAt, expiresAt, active ? null : heartbeatAt);
+      }
+    }
+    db.prepare(`UPDATE task_runs SET origin = CASE
+      WHEN task_id IS NOT NULL THEN 'TASK' ELSE 'HOOK' END`).run();
+  }
+
+  if (needsRunRebuild) {
+    const sql = canonicalTableSql().get('task_runs');
+    if (!sql) throw new Error('schema migration cannot find canonical task_runs DDL');
+    rebuildTableFromCanonical(db, 'task_runs', sql);
+  }
+  if (needsLockRebuild) {
+    const sql = canonicalTableSql().get('locks');
+    if (!sql) throw new Error('schema migration cannot find canonical locks DDL');
+    rebuildTableFromCanonical(db, 'locks', sql);
   }
 }
 
@@ -681,15 +838,9 @@ function migrateCheckConstraints(db: DatabaseSync): void {
     if (checkClauses(live.sql) !== checkClauses(canonSql)) drifted.push([table, canonSql]);
   }
   if (drifted.length === 0) return;
-  // A rebuild transiently drops tables that may be FK-referenced by others;
-  // disable FK enforcement for the duration. Safe here: PRAGMA foreign_keys is
-  // a no-op inside a transaction and initDb holds none at this point.
-  db.exec('PRAGMA foreign_keys = OFF');
-  try {
-    for (const [table, canonSql] of drifted) rebuildTableFromCanonical(db, table, canonSql);
-  } finally {
-    db.exec('PRAGMA foreign_keys = ON');
-  }
+  // initDb disables FK enforcement before its serialized transaction because
+  // rebuilds transiently drop tables referenced by other canonical tables.
+  for (const [table, canonSql] of drifted) rebuildTableFromCanonical(db, table, canonSql);
 }
 
 function migrateRefinementQualityConstraint(db: DatabaseSync): void {
@@ -820,13 +971,12 @@ export function replaceMemoryReferences(db: DatabaseSync, memoryId: string, refe
 // ─── Lock maintenance ─────────────────────────────────────────────────────────
 
 /**
- * Evict expired file locks. Extracted as a named function so intents.ts
- * and maintenance.ts call it explicitly rather than duplicating the DELETE
- * as a side effect of read operations (ARCH-3).
+ * Evict expired exclusive locks without changing run lifecycle. Advisory
+ * presence is independent: WORK/HOOK ends explicitly and TASK ends through
+ * task submit/release.
  */
 export interface EvictExpiredLocksResult {
   pruned_locks: number;
-  updated_runs: number;
 }
 
 export function evictExpiredLocks(db: DatabaseSync): EvictExpiredLocksResult {
@@ -834,32 +984,15 @@ export function evictExpiredLocks(db: DatabaseSync): EvictExpiredLocksResult {
   const stale = db.prepare(
     'SELECT COUNT(*) AS c FROM locks WHERE expires_at IS NOT NULL AND expires_at <= ?'
   ).get(now) as { c: number };
-  if (stale.c === 0) return { pruned_locks: 0, updated_runs: 0 };
+  if (stale.c === 0) return { pruned_locks: 0 };
 
   db.exec('SAVEPOINT evict_expired_locks');
   try {
-    db.exec('CREATE TEMP TABLE IF NOT EXISTS temp_expired_lock_runs(run_id TEXT PRIMARY KEY)');
-    db.exec('DELETE FROM temp_expired_lock_runs');
-    db.prepare(
-      `INSERT OR IGNORE INTO temp_expired_lock_runs(run_id)
-       SELECT run_id FROM locks WHERE expires_at IS NOT NULL AND expires_at <= ?`
-    ).run(now);
-
     const deleteRes = db.prepare(
       'DELETE FROM locks WHERE expires_at IS NOT NULL AND expires_at <= ?'
     ).run(now) as { changes: number };
-
-    const updateRes = db.prepare(
-      `UPDATE task_runs
-       SET status = 'PENDING', updated_at = ?
-       WHERE status = 'ACTIVE'
-         AND run_id IN (SELECT run_id FROM temp_expired_lock_runs)
-         AND NOT EXISTS (SELECT 1 FROM locks WHERE locks.run_id = task_runs.run_id)`
-    ).run(now) as { changes: number };
-
-    db.exec('DELETE FROM temp_expired_lock_runs');
     db.exec('RELEASE SAVEPOINT evict_expired_locks');
-    return { pruned_locks: deleteRes.changes, updated_runs: updateRes.changes };
+    return { pruned_locks: deleteRes.changes };
   } catch (e) {
     try { db.exec('ROLLBACK TO SAVEPOINT evict_expired_locks'); } catch { /* already rolled back */ }
     try { db.exec('RELEASE SAVEPOINT evict_expired_locks'); } catch { /* already released */ }

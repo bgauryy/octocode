@@ -366,7 +366,7 @@ Install them with the Octocode CLI through `npx octocode`; no global install is 
 ```bash
 npx octocode skill --list                                      # browse available Octocode skills
 npx octocode skill --name octocode-research                    # install to ~/.agents/skills (common)
-npx octocode skill --name octocode-awareness                   # install bundled Awareness by name
+npx octocode skill --name octocode-awareness                   # install Octocode's bundled Awareness copy
 npx octocode skill --name octocode-research --platform pi      # install for Pi
 npx octocode skill --name octocode-research --platform all --dry-run  # preview before installing everywhere
 npx octocode skill --add --path /path/to/skills/octocode-awareness  # install from an agent-known local skill path
@@ -390,9 +390,9 @@ Workflow contracts are equally explicit: Brainstorming run ledgers and hooks sta
 | [**Roast**](https://www.skills.sh/bgauryy/octocode-mcp/octocode-roast) | `octocode-roast/` | `npx octocode skill --name octocode-roast` | You want blunt but actionable code critique. |
 | [**Skills**](https://www.skills.sh/bgauryy/octocode-mcp/octocode-skills) | `octocode-skills/` | `npx octocode skill --name octocode-skills` | You are working on Agent Skills themselves. |
 | [**Prompt Optimizer**](https://github.com/bgauryy/octocode/tree/main/skills/octocode-prompt-optimizer) | `octocode-prompt-optimizer/` | `npx octocode skill --name octocode-prompt-optimizer` | You want to optimize, strengthen, or shorten a prompt, `SKILL.md`, or `AGENTS.md`. |
-| [**Awareness**](https://www.skills.sh/bgauryy/octocode-mcp/octocode-awareness) | `packages/octocode-awareness/skills/octocode-awareness/` | `npx octocode skill --name octocode-awareness` | You need shared agent memory, file locks, notifications, handoffs, reflection, hooks, or verify-before-conclude in a shared repo. |
+| [**Awareness**](https://www.skills.sh/bgauryy/octocode-mcp/octocode-awareness) | `packages/octocode-awareness/skills/octocode-awareness/` | `npx octocode skill --name octocode-awareness` | You need shared plans/tasks, advisory file awareness, sensitive exclusive locks, signals, handoffs, reflection, hooks, or verify-before-conclude in a shared repo. |
 
-Awareness is the primary skill for memory, locks, signals, reflection, schemas, and hooks. Older prompts that name `octocode-reflection` or `octocode-agent-communication` should load the same [`@octocodeai/octocode-awareness`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-awareness) runtime.
+Awareness is the primary skill for plans/tasks, advisory file work, sensitive exclusive locks, memory, signals, reflection, schemas, and hooks. The `--name` command above resolves Octocode's bundled copy; direct consumers of `@octocodeai/octocode-awareness` should install its `dist/skills/octocode-awareness` path. Older prompts that name `octocode-reflection` or `octocode-agent-communication` should load the same [`@octocodeai/octocode-awareness`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-awareness) runtime.
 
 ---
 
@@ -437,7 +437,7 @@ client → sanitize inputs (Rust) → run tool (GitHub / FS / LSP) → sanitize 
 | [`packages/octocode-engine`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-engine) | `@octocodeai/octocode-engine` | Rust/napi native engine: security scanning, minification, signatures, structural AST, ripgrep/diff/YAML, LSP. |
 | [`packages/octocode-config`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-config) | `@octocodeai/config` | Zero-dep env + config loader: `getOctocodeHome`, `.env` parsing, `.octocoderc` reading. Single source used by every package and skill. |
 | [`packages/octocode-vscode`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-vscode) | `octocode-mcp-vscode` | VS Code extension: GitHub OAuth + multi-editor MCP install. |
-| [`packages/octocode-awareness`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-awareness) | `@octocodeai/octocode-awareness` | Shared workspace coordination: file locks, durable memory, agent-to-agent signals, and verification gates over one local SQLite store. Runtime behind Awareness, including the legacy Reflection and Agent Communication workflows. |
+| [`packages/octocode-awareness`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-awareness) | `@octocodeai/octocode-awareness` | Shared workspace coordination: plans/tasks, advisory file work, sensitive exclusive locks, durable memory, agent-to-agent signals, and verification gates over one local SQLite store. Runtime behind Awareness, including the consolidated Reflection and Agent Communication workflows. |
 | [`packages/octocode-pi-extension`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-pi-extension) | `@octocodeai/pi-extension` | Official [Pi](https://github.com/earendil-works/pi) harness: operating-model system prompt, 13 native research tools registered in-process, memory tools, edit-safety hooks, and bundled workflow skills. |
 | [`packages/octocode-agent`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-agent) | `octocode-agent` | Self-working coding agent CLI: launches Pi with `@octocodeai/pi-extension` as its harness under one branded command. |
 

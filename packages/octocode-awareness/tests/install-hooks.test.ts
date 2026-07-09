@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { spawnSync } from 'node:child_process';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { spawn, spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -47,6 +47,51 @@ function runInstallHooksRaw(args: string[], script = SCRIPT) {
 }
 
 describe('install-hooks', () => {
+  it('serializes concurrent installers and never exposes partial JSON', { timeout: 30_000 }, async () => {
+    const projectDir = mkdtempSync(resolve(tmpdir(), 'octocode-concurrent-hooks-'));
+    const settingsPath = resolve(projectDir, '.codex/hooks.json');
+    try {
+      mkdirSync(resolve(projectDir, '.codex'), { recursive: true });
+      writeFileSync(settingsPath, JSON.stringify({ unrelated: 'x'.repeat(8 * 1024 * 1024) }));
+
+      let parseErrors = 0;
+      const poll = setInterval(() => {
+        try {
+          JSON.parse(readFileSync(settingsPath, 'utf8'));
+        } catch {
+          parseErrors += 1;
+        }
+      }, 1);
+
+      const results = await Promise.all(Array.from({ length: 12 }, () =>
+        new Promise<{ code: number | null; stderr: string }>((resolveChild) => {
+          const child = spawn(NODE, [
+            SCRIPT, 'hooks', 'install', '--host', 'codex', '--project-dir', projectDir, '--compact',
+          ], { stdio: ['ignore', 'ignore', 'pipe'] });
+          let stderr = '';
+          child.stderr.setEncoding('utf8');
+          child.stderr.on('data', (chunk: string) => { stderr += chunk; });
+          child.on('close', (code) => resolveChild({ code, stderr }));
+        }),
+      ));
+      clearInterval(poll);
+
+      expect(
+        results.map((result) => result.code),
+        results.map((result) => result.stderr).filter(Boolean).join('\n'),
+      ).toEqual(results.map(() => 0));
+      expect(parseErrors).toBe(0);
+      const finalSettings = JSON.parse(readFileSync(settingsPath, 'utf8')) as {
+        unrelated?: string;
+        hooks?: Record<string, Array<Record<string, unknown>>>;
+      };
+      expect(finalSettings.unrelated).toHaveLength(8 * 1024 * 1024);
+      expect(finalSettings.hooks?.PreToolUse).toHaveLength(1);
+    } finally {
+      rmSync(projectDir, { recursive: true, force: true });
+    }
+  });
+
   it('runs the hook installer directly for help, install, strict check, and remove', () => {
     expect(hooksInstallUsage()).toContain('hooks install|check|remove');
     const projectDir = mkdtempSync(resolve(tmpdir(), 'octocode-direct-hooks-'));
@@ -116,7 +161,7 @@ describe('install-hooks', () => {
   });
 
   it('skill install script prints the hook init flow without SQLite warnings', () => {
-    const result = spawnSync(NODE, [SKILL_INSTALL_SCRIPT, '--check-only'], {
+    const result = spawnSync(NODE, [SKILL_INSTALL_SCRIPT], {
       encoding: 'utf8',
       timeout: 30000,
     });
@@ -125,7 +170,9 @@ describe('install-hooks', () => {
     const parsed = JSON.parse(result.stdout) as {
       commands: Record<string, string>;
       next_steps: string[];
+      runtime: { dependencies: string; writes: boolean };
     };
+    expect(parsed.runtime).toEqual({ dependencies: 'bundled', writes: false });
     expect(parsed.commands.hooks_preview_claude).toContain('hooks install --host claude');
     expect(parsed.commands.hooks_check_claude).toContain('hooks check --host claude');
     expect(parsed.commands.hooks_preview_codex).toContain('hooks install --host codex');
@@ -196,6 +243,10 @@ describe('install-hooks', () => {
       ]);
       expect(result.resultingSettings.hooks).not.toHaveProperty('SessionEnd');
       expect(JSON.stringify(result.resultingSettings)).not.toContain('CLAUDE_PROJECT_DIR');
+      const preToolUse = result.resultingSettings.hooks?.PreToolUse ?? [];
+      expect(preToolUse).toHaveLength(1);
+      expect(JSON.stringify(preToolUse[0])).toContain('pre-edit.sh');
+      expect(JSON.stringify(preToolUse)).not.toContain('harness-guard.sh');
     } finally {
       rmSync(projectDir, { recursive: true, force: true });
     }
@@ -238,6 +289,8 @@ describe('install-hooks', () => {
         matcher: expect.stringContaining('Write'),
       });
       expect(result.resultingSettings.hooks?.preToolUse?.[0]).not.toHaveProperty('hooks');
+      expect(result.resultingSettings.hooks?.preToolUse).toHaveLength(1);
+      expect(JSON.stringify(result.resultingSettings.hooks?.preToolUse)).not.toContain('harness-guard.sh');
       expect(JSON.stringify(result.resultingSettings)).not.toContain('CLAUDE_PROJECT_DIR');
     } finally {
       rmSync(projectDir, { recursive: true, force: true });
@@ -316,6 +369,32 @@ describe('install-hooks', () => {
         matcher: 'Write|Edit|MultiEdit|NotebookEdit|apply_patch|ApplyPatch',
       });
       expect(JSON.stringify(preEditEntries[0])).toContain('"timeout":20');
+    } finally {
+      rmSync(projectDir, { recursive: true, force: true });
+    }
+  });
+
+  it('removes the obsolete standalone harness guard during repair', () => {
+    const projectDir = mkdtempSync(resolve(tmpdir(), 'octocode-obsolete-guard-'));
+    const hookDir = resolve(REPO_ROOT, 'packages/octocode-awareness/skills/octocode-awareness/scripts/hooks');
+    try {
+      mkdirSync(resolve(projectDir, '.codex'), { recursive: true });
+      writeFileSync(resolve(projectDir, '.codex/hooks.json'), JSON.stringify({
+        hooks: {
+          PreToolUse: [{
+            matcher: 'Write|Edit|MultiEdit|NotebookEdit|apply_patch|ApplyPatch',
+            hooks: [{ type: 'command', command: resolve(hookDir, 'harness-guard.sh'), timeout: 20 }],
+          }],
+        },
+      }));
+
+      const repaired = runHooksInstall(['--host', 'codex', '--project-dir', projectDir, '--dry-run'], {
+        cwd: projectDir,
+        hookDir,
+      });
+      expect(repaired.exitCode).toBe(0);
+      expect(JSON.stringify(repaired.payload)).not.toContain('harness-guard.sh');
+      expect(JSON.stringify(repaired.payload)).toContain('pre-edit.sh');
     } finally {
       rmSync(projectDir, { recursive: true, force: true });
     }

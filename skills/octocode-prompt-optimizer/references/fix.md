@@ -8,8 +8,7 @@ Load after RATE and before VALIDATE. Fix Critical → High → Medium → Low; r
 - Prefer direct positive actions; keep prohibitions where crossing the boundary is dangerous.
 - Use `conciseness-toolkit.md` for token cuts and `attention.md` for placement.
 - Keep one term per concept and one owner per rule.
-## Critical Rule Pattern
-Use the smallest reliable form; add all three locks only when omission is high-risk:
+## Critical Rule Pattern — add all three locks only when omission is high-risk
 1. State the required action.
 2. Forbid the unsafe opposite.
 3. Require a concrete verification signal.
@@ -22,7 +21,6 @@ Goal: <preserved intent>
 Change: <bounded repair>
 Risk: <regression and check>
 ```
-
 ## Gate Template
 ```markdown
 ## <Name> Gate
@@ -34,7 +32,6 @@ Forbidden: <unsafe action>
 Allowed: <safe action>
 On Failure: IF <condition> → THEN <recovery>
 ```
-
 ### Gate Check
 - [ ] Critical/High issues fixed; others fixed or recorded.
 - [ ] Intent/branches remain unchanged; growth is under 10% or justified.
@@ -47,3 +44,6 @@ On Failure: IF <condition> → THEN <recovery>
 
 ### On Failure
 - **IF** intent or working logic changed → **THEN** revert that edit and return to UNDERSTAND.
+
+## Sources
+- Anthropic, [Effective context engineering for AI agents](https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents) — clear, specific prompts at the right level of prescription.

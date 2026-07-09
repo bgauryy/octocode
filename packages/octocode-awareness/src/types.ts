@@ -60,7 +60,9 @@ export interface EmbeddingSearchResult {
 }
 
 export type MemoryState = 'ACTIVE' | 'SUPERSEDED';
-export type LockType = 'EXCLUSIVE' | 'SHARED';
+export type LockType = 'EXCLUSIVE';
+export type RunOrigin = 'TASK' | 'WORK' | 'HOOK';
+export type WorkSource = 'EXPLICIT' | 'HOOK';
 /** Maps to the task_runs table status column. */
 export type RunStatus = 'PENDING' | 'ACTIVE' | 'SUCCESS' | 'FAILED';
 export type RefinementQuality = 'good' | 'bad' | 'handoff' | 'instructions';
@@ -140,9 +142,9 @@ export interface RefinementRecord {
 export interface RunRecord {
   run_id: string;
   task_id: string | null;
+  origin: RunOrigin;
   agent_id: string;
   session_id?: string | null;
-  lock_type: LockType;
   workspace_path: string;
   artifact: string | null;
   context_ref: string | null;
@@ -178,8 +180,6 @@ export interface InsertMemoryParams {
    * When provided, insertMemory skips its own internal findSimilarMemories query.
    */
   preComputedSimilar?: Array<{ memory_id: string; similarity: number }>;
-  /** When true, unknown labels coerce to OTHER (legacy). Default: hard-error. */
-  compatCoerce?: boolean;
 }
 
 export interface InsertMemoryResult {
@@ -304,7 +304,6 @@ export interface PreFlightRunParams {
   testPlan?: string;
   contextRef?: string | null;
   targetFiles?: string[];
-  lockType?: LockType;
   ttlMs?: number | null;
 }
 
@@ -354,7 +353,6 @@ export interface FileLockParams {
   artifact?: string | null;
   runId?: string | null;
   targetFiles?: string[];
-  lockType?: LockType;
   ttlMs?: number | null;
   reasoning?: string | null;
   status?: RunStatus;
@@ -459,8 +457,6 @@ export interface ReflectParams {
   repo?: string | null;
   ref?: string | null;
   cwd?: string;
-  /** When true, unknown outcomes coerce to partial (legacy). Default: hard-error. */
-  compatCoerce?: boolean;
 }
 
 export interface ReflectResult {
@@ -574,14 +570,125 @@ export interface FileLockRow {
   lock_id: string;
   file_path: string;
   run_id: string;
-  agent_id: string;
-  session_id?: string | null;
-  lock_type: string;
   acquired_at: string;
   expires_at: string | null;
   run_agent_id?: string;
+  run_session_id?: string | null;
   reasoning?: string;
   test_plan?: string;
+}
+
+// ─── Advisory file work ──────────────────────────────────────────────────────
+
+export interface WorkRunRecord {
+  run_id: string;
+  task_id: string | null;
+  origin: RunOrigin;
+  agent_id: string;
+  session_id: string | null;
+  rationale: string;
+  test_plan: string;
+  context_ref: string | null;
+  status: RunStatus;
+  workspace_path: string | null;
+  artifact: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface WorkFileRecord {
+  run_id: string;
+  file_path: string;
+  reason_override: string | null;
+  source: WorkSource;
+  started_at: string;
+  heartbeat_at: string;
+  expires_at: string;
+  ended_at: string | null;
+}
+
+export interface WorkPresence extends WorkFileRecord {
+  task_id: string | null;
+  origin: RunOrigin;
+  agent_id: string;
+  session_id: string | null;
+  rationale: string;
+  test_plan: string;
+  status: RunStatus;
+  workspace_path: string | null;
+  artifact: string | null;
+  exclusive: boolean;
+}
+
+export interface WorkPeer {
+  run_id: string;
+  task_id: string | null;
+  origin: RunOrigin;
+  agent_id: string;
+  file_path: string;
+  rationale: string;
+  heartbeat_at: string;
+  expires_at: string;
+  exclusive: boolean;
+}
+
+export interface WorkConflict extends WorkPeer {
+  conflict_type: 'ACTIVE_WORK' | 'EXCLUSIVE_LOCK';
+}
+
+export interface StartWorkParams {
+  agentId: string;
+  sessionId?: string | null;
+  workspacePath?: string | null;
+  artifact?: string | null;
+  runId?: string | null;
+  targetFiles: string[];
+  rationale?: string;
+  testPlan?: string;
+  contextRef?: string | null;
+  origin?: Exclude<RunOrigin, 'TASK'>;
+  source?: WorkSource;
+  ttlMs?: number | null;
+  exclusive?: boolean;
+  reasonOverride?: string | null;
+}
+
+export type StartWorkResult =
+  | { ok: true; run: WorkRunRecord; files: WorkFileRecord[]; peers: WorkPeer[]; peer_count: number }
+  | { ok: false; conflict: true; conflicts: WorkConflict[] };
+
+export interface TouchWorkParams {
+  runId: string;
+  agentId: string;
+  targetFiles?: string[];
+  ttlMs?: number | null;
+}
+
+export interface WorkMutationResult {
+  run: WorkRunRecord;
+  files: WorkFileRecord[];
+  peers: WorkPeer[];
+  peer_count: number;
+}
+
+export interface EndWorkParams {
+  runId: string;
+  agentId: string;
+  targetFiles?: string[];
+}
+
+export interface ListWorkParams {
+  workspacePath?: string | null;
+  artifact?: string | null;
+  agentId?: string | null;
+  runId?: string | null;
+  filePath?: string | null;
+  activeOnly?: boolean;
+}
+
+export interface ListWorkResult {
+  count: number;
+  files: WorkPresence[];
 }
 
 export interface TableInfoRow {
@@ -649,7 +756,6 @@ export interface ForgetMemoryResult {
 export interface WaitForLockParams {
   agentId?: string;
   targetFiles?: string[];
-  lockType?: LockType;
   waitMs?: number;               // max wait time ms (default 60000)
   retryIntervalMs?: number;      // poll interval ms (default 5000)
 }
@@ -673,7 +779,6 @@ export interface PruneStaleParams {
 
 export interface PruneStaleResult {
   pruned_locks: number;
-  updated_runs: number;
   dry_run?: true;
   would_prune?: number;
 }
@@ -768,8 +873,6 @@ export interface InsertNotificationParams {
   inReplyTo?: string | null;     // inherits thread from parent
   importance?: number;
   cwd?: string;
-  /** When true, unknown kinds coerce to fyi (legacy). Default: hard-error. */
-  compatCoerce?: boolean;
 }
 
 export interface InsertNotificationResult {
@@ -854,8 +957,6 @@ export interface AgentSignalParams {
   kinds?: NotificationKind[];
   limit?: number;
   cwd?: string;
-  /** When true, unknown kinds coerce to fyi (legacy). Default: hard-error. */
-  compatCoerce?: boolean;
 }
 
 export interface AgentSignalRecord extends NotificationRecord {

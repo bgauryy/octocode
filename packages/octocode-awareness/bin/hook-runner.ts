@@ -1,21 +1,22 @@
 /**
  * hook-runner.ts — shared implementation for octocode-awareness lifecycle hooks.
  *
- * Shell hook files are intentionally thin wrappers. All parsing, locking,
+ * Shell hook files are intentionally thin wrappers. All parsing, file presence,
  * verification, briefing, and session-capture logic lives here so Claude/Codex
  * skill hooks and Pi native adapters share the same package-owned behavior.
  */
 import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
-import { basename, dirname, join, resolve } from 'node:path';
+import { basename, dirname, join, relative, resolve } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
 import { registerAgent } from '../src/agents.js';
 import { insertEditLog } from '../src/audit.js';
 import { connectDb, resolveDbPath } from '../src/db.js';
-import { normalizeWorkspacePath } from '../src/git.js';
-import { preFlightIntent, releaseFileLock } from '../src/intents.js';
+import { canonicalizePath, normalizeWorkspacePath } from '../src/git.js';
 import { activeTaskClaimForAgent } from '../src/tasks.js';
+import { endWork, listWork, startWork, touchWork } from '../src/work.js';
+import type { WorkPeer } from '../src/types.js';
 import { auditUnverified } from '../src/verify.js';
 import { digest, notifyGet, sessionCapture } from '../src/maintenance.js';
 import { endSession } from '../src/sessions.js';
@@ -92,7 +93,7 @@ function agentId(payload: Record<string, unknown>): string {
   const fallback = `hook:${host.replace(/[^a-zA-Z0-9_.:-]/g, '_')}:${suffix}`;
   if (!warnedFallbackAgentId) {
     warnedFallbackAgentId = true;
-    console.error(`octocode-awareness: OCTOCODE_AGENT_ID or host session id missing; using fallback agent id "${fallback}". Set OCTOCODE_AGENT_ID for reliable multi-agent lock isolation.`);
+    console.error(`octocode-awareness: OCTOCODE_AGENT_ID or host session id missing; using fallback agent id "${fallback}". Set OCTOCODE_AGENT_ID for reliable multi-agent awareness.`);
   }
   return fallback;
 }
@@ -172,7 +173,7 @@ function resolveHookPath(file: string, cwd = process.cwd()): string {
   // apply_patch and Cursor payloads often carry repo-relative paths) must be
   // collapsed before any containment check, or a traversal path that actually
   // resolves inside the skill root can slip past a textual prefix comparison.
-  return resolve(cwd, file);
+  return canonicalizePath(resolve(cwd, file));
 }
 
 function db() {
@@ -185,8 +186,6 @@ interface HookRunStateEntry {
   createdAt: string;
 }
 
-type HookRunState = Record<string, HookRunStateEntry[]>;
-
 function hookRunStateDir(): string {
   const stateDir = join(dirname(resolveDbPath(null)), 'hook-state', 'runs');
   mkdirSync(stateDir, { recursive: true });
@@ -197,46 +196,12 @@ function hookRunStateFile(key: string): string {
   return join(hookRunStateDir(), `${key}.json`);
 }
 
-function legacyHookRunStateFile(): string {
-  const stateDir = join(dirname(resolveDbPath(null)), 'hook-state');
-  mkdirSync(stateDir, { recursive: true });
-  return join(stateDir, 'shell-hook-tasks.json');
-}
-
-function readLegacyPerRunFile(key: string): HookRunStateEntry[] {
-  const file = join(dirname(resolveDbPath(null)), 'hook-state', 'tasks', `${key}.json`);
-  try {
-    const parsed = JSON.parse(readFileSync(file, 'utf8')) as unknown;
-    const entries = Array.isArray(parsed) ? parsed as HookRunStateEntry[] : [];
-    if (entries.length > 0) {
-      try { unlinkSync(file); } catch { /* migration cleanup is best-effort */ }
-    }
-    return entries;
-  } catch {
-    return [];
-  }
-}
-
-function readLegacyHookRunEntries(key: string): HookRunStateEntry[] {
-  try {
-    const legacyFile = legacyHookRunStateFile();
-    const state = JSON.parse(readFileSync(legacyFile, 'utf8')) as HookRunState;
-    const entries = Array.isArray(state[key]) ? state[key]! : [];
-    if (entries.length === 0) return [];
-    delete state[key];
-    writeFileSync(legacyFile, JSON.stringify(state, null, 2) + '\n', 'utf8');
-    return entries;
-  } catch {
-    return [];
-  }
-}
-
 function readHookRunEntries(key: string): HookRunStateEntry[] {
   try {
     const parsed = JSON.parse(readFileSync(hookRunStateFile(key), 'utf8')) as unknown;
     return Array.isArray(parsed) ? parsed as HookRunStateEntry[] : [];
   } catch {
-    return readLegacyPerRunFile(key).concat(readLegacyHookRunEntries(key));
+    return [];
   }
 }
 
@@ -302,35 +267,94 @@ function consumeHookRun(payload: Record<string, unknown>, files: string[], cwd: 
   return entry?.runId ?? null;
 }
 
-function uniqueActiveHookRunId(
+function activeRunForFiles(
   database: DatabaseSync,
-  params: { agentId: string; workspacePath: string; artifact: string | null; files: string[] },
+  params: {
+    agentId: string;
+    workspacePath: string;
+    artifact: string | null;
+    files: string[];
+    origins: Array<'WORK' | 'HOOK'>;
+  },
 ): string | null {
   const absFiles = params.files.map(file => resolveHookPath(file, params.workspacePath));
   if (absFiles.length === 0) return null;
-  const where = [
-    'fl.agent_id = ?',
-    "ai.status = 'ACTIVE'",
-    `fl.file_path IN (${absFiles.map(() => '?').join(',')})`,
-    'ai.workspace_path = ?',
-  ];
-  const binds: (string | number)[] = [
-    params.agentId,
-    ...absFiles,
-    normalizeWorkspacePath(params.workspacePath, params.workspacePath) ?? resolve(params.workspacePath),
-  ];
-  if (params.artifact) {
-    where.push('(ai.artifact = ? OR ai.artifact IS NULL)');
-    binds.push(params.artifact);
+  const rows = listWork(database, {
+    agentId: params.agentId,
+    workspacePath: params.workspacePath,
+    artifact: params.artifact,
+    activeOnly: true,
+  }).files.filter((entry) => params.origins.includes(entry.origin as 'WORK' | 'HOOK'));
+  const byRun = new Map<string, Set<string>>();
+  for (const row of rows) {
+    const paths = byRun.get(row.run_id) ?? new Set<string>();
+    paths.add(row.file_path);
+    byRun.set(row.run_id, paths);
   }
-  const rows = database.prepare(
-    `SELECT DISTINCT fl.run_id
-       FROM locks fl
-       JOIN task_runs ai ON ai.run_id = fl.run_id
-      WHERE ${where.join(' AND ')}
-      ORDER BY fl.run_id ASC`
-  ).all(...binds) as Array<{ run_id: string }>;
-  return rows.length === 1 ? rows[0]!.run_id : null;
+  const matches = [...byRun].filter(([, paths]) => absFiles.every(file => paths.has(file)));
+  return matches.length === 1 ? matches[0]![0] : null;
+}
+
+function runOrigin(database: DatabaseSync, runId: string): 'TASK' | 'WORK' | 'HOOK' | null {
+  const row = database.prepare('SELECT origin FROM task_runs WHERE run_id = ?').get(runId) as { origin: 'TASK' | 'WORK' | 'HOOK' } | undefined;
+  return row?.origin ?? null;
+}
+
+function peerStateDir(): string {
+  const stateDir = join(dirname(resolveDbPath(null)), 'hook-state', 'peers');
+  mkdirSync(stateDir, { recursive: true });
+  return stateDir;
+}
+
+function peerStateKey(payload: Record<string, unknown>, files: string[], cwd: string): string {
+  return createHash('sha1').update(JSON.stringify({
+    agent: agentId(payload),
+    workspace: normalizeWorkspacePath(cwd, cwd) ?? resolve(cwd),
+    artifact: artifact(payload),
+    files: files.map(file => resolveHookPath(file, cwd)).sort(),
+  })).digest('hex');
+}
+
+function peerFingerprint(peers: WorkPeer[]): string {
+  return createHash('sha1').update(JSON.stringify(peers.map((peer) => ({
+    agent: peer.agent_id,
+    file: peer.file_path,
+    task: peer.task_id,
+    origin: peer.origin,
+    rationale: peer.rationale,
+    exclusive: peer.exclusive,
+  })).sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))))).digest('hex');
+}
+
+function peerLabel(peer: WorkPeer): string {
+  const work = peer.task_id ?? peer.origin;
+  const reason = peer.rationale.replace(/\s+/g, ' ').trim().slice(0, 40);
+  return `${peer.agent_id}:${work}${reason ? `(${reason})` : ''}`;
+}
+
+function emitPeerDelta(
+  payload: Record<string, unknown>,
+  files: string[],
+  cwd: string,
+  allPeers: WorkPeer[],
+): void {
+  const targetSet = new Set(files.map(file => resolveHookPath(file, cwd)));
+  const peers = allPeers.filter(peer => peer.agent_id !== agentId(payload) && targetSet.has(peer.file_path));
+  const key = peerStateKey(payload, files, cwd);
+  const stateFile = join(peerStateDir(), `${key}.txt`);
+  const fingerprint = peerFingerprint(peers);
+  let previous: string | null = null;
+  try { previous = readFileSync(stateFile, 'utf8').trim(); } catch { /* first delivery */ }
+  if (previous === fingerprint) return;
+  writeFileSync(stateFile, fingerprint, 'utf8');
+  if (peers.length === 0) return;
+
+  const shown = peers.slice(0, 3).map(peerLabel).join('; ');
+  const omitted = peers.length > 3 ? ` +${peers.length - 3}` : '';
+  const canonicalWorkspace = canonicalizePath(cwd);
+  const targets = files.slice(0, 2).map(file => relative(canonicalWorkspace, resolveHookPath(file, cwd)) || basename(file)).join(',');
+  const message = `AWARE ${targets} | peers ${shown}${omitted}`;
+  process.stdout.write(`${JSON.stringify({ additionalContext: message })}\n`);
 }
 
 function hookAgentContext(payload: Record<string, unknown>, hookName: string): string {
@@ -370,31 +394,62 @@ function scopeArgs(payload: Record<string, unknown>): { workspacePath?: string; 
 async function runPreEdit(payload: Record<string, unknown>): Promise<number> {
   const files = extractFiles(payload);
   if (files.length === 0) return 0;
+  const hookWorkspace = workspace(payload) ?? process.cwd();
+  const guardReason = evaluateHarnessGuard({
+    targetFiles: files,
+    skillRoot: process.env.OCTOCODE_SKILL_ROOT,
+    cwd: hookWorkspace,
+  });
+  if (guardReason) {
+    console.error(`${guardReason} Edit blocked.`);
+    return 2;
+  }
   try {
     const database = db();
     registerHookAgent(database, payload, 'hook:pre-edit');
+    const hookAgentId = agentId(payload);
+    const hookArtifact = artifact(payload);
     const activeClaim = activeTaskClaimForAgent(database, {
-      agentId: agentId(payload),
-      workspacePath: workspace(payload) ?? process.cwd(),
-      artifact: artifact(payload),
+      agentId: hookAgentId,
+      workspacePath: hookWorkspace,
+      artifact: hookArtifact,
     });
-    const result = preFlightIntent(database, {
-      agentId: agentId(payload),
+    const explicitRunId = activeClaim ? null : activeRunForFiles(database, {
+      agentId: hookAgentId,
+      workspacePath: hookWorkspace,
+      artifact: hookArtifact,
+      files,
+      origins: ['WORK'],
+    });
+    const result = explicitRunId
+      ? { ok: true as const, ...touchWork(database, {
+        agentId: hookAgentId,
+        runId: explicitRunId,
+        targetFiles: files,
+        ttlMs: 10 * 60_000,
+      }) }
+      : startWork(database, {
+      agentId: hookAgentId,
       sessionId: sessionId(payload),
-      workspacePath: workspace(payload) ?? process.cwd(),
-      artifact: artifact(payload),
+      workspacePath: hookWorkspace,
+      artifact: hookArtifact,
       runId: activeClaim?.run_id,
       rationale: autoClaimRationale(payload, files),
       testPlan: 'post-edit verification',
       targetFiles: files,
+      origin: 'HOOK',
+      source: 'HOOK',
       ttlMs: 10 * 60_000,
     });
     if (!result.ok) {
-      console.error('octocode-awareness: target file is locked by another agent — edit blocked.');
-      console.error(JSON.stringify(result));
+      const detail = result.conflicts.slice(0, 3)
+        .map(conflict => `${relative(hookWorkspace, conflict.file_path)} (${conflict.agent_id})`)
+        .join(', ');
+      console.error(`octocode-awareness: exclusive file work blocks this edit${detail ? `: ${detail}` : ''}.`);
       return 2;
     }
-    recordHookRun(payload, files, workspace(payload) ?? process.cwd(), result.run.run_id);
+    recordHookRun(payload, files, hookWorkspace, result.run.run_id);
+    emitPeerDelta(payload, files, hookWorkspace, result.peers);
     return 0;
   } catch (error) {
     console.error(`octocode-awareness pre-flight warning (continuing): ${error instanceof Error ? error.message : String(error)}`);
@@ -412,29 +467,41 @@ async function runPostEdit(payload: Record<string, unknown>): Promise<number> {
     const hookWorkspace = workspace(payload) ?? process.cwd();
     const hookArtifact = artifact(payload);
     const correlatedRunId = consumeHookRun(payload, files, hookWorkspace)
-      ?? uniqueActiveHookRunId(database, {
+      ?? activeTaskClaimForAgent(database, {
+        agentId: hookAgentId,
+        workspacePath: hookWorkspace,
+        artifact: hookArtifact,
+      })?.run_id
+      ?? activeRunForFiles(database, {
         agentId: hookAgentId,
         workspacePath: hookWorkspace,
         artifact: hookArtifact,
         files,
+        origins: ['WORK', 'HOOK'],
       });
     if (!correlatedRunId) {
-      console.error('octocode-awareness post-edit warning (continuing): could not identify a unique hook run to release; leaving locks for verify/cleanup.');
+      console.error('octocode-awareness post-edit warning (continuing): could not identify a unique work run; leaving presence for expiry.');
       return 0;
     }
-    const linkedClaim = database.prepare('SELECT 1 FROM task_claims WHERE run_id = ? LIMIT 1').get(correlatedRunId);
-    const release = releaseFileLock(database, {
-      agentId: hookAgentId,
-      workspacePath: hookWorkspace,
-      artifact: hookArtifact,
-      runId: correlatedRunId,
-      status: linkedClaim ? 'ACTIVE' : 'PENDING',
-    });
-    const runId = release.run_ids.length === 1 ? release.run_ids[0] : correlatedRunId;
+    const origin = runOrigin(database, correlatedRunId);
+    if (origin === 'HOOK') {
+      endWork(database, {
+        agentId: hookAgentId,
+        runId: correlatedRunId,
+        targetFiles: files,
+      });
+    } else {
+      touchWork(database, {
+        agentId: hookAgentId,
+        runId: correlatedRunId,
+        targetFiles: files,
+        ttlMs: 10 * 60_000,
+      });
+    }
     for (const file of files) {
       insertEditLog(database, {
         agentId: hookAgentId,
-        runId,
+        runId: correlatedRunId,
         filePath: resolveHookPath(file, hookWorkspace),
         operation: 'update',
         workspacePath: hookWorkspace,
@@ -472,14 +539,13 @@ async function runStopVerify(payload: Record<string, unknown>): Promise<number> 
     registerHookAgent(database, payload, 'hook:stop-verify');
     const report = auditUnverified(database, { agentId: agentId(payload), ...scopeArgs(payload) });
     if (report.count > 0) {
-      const parts: string[] = [];
-      if (report.unverified.length > 0) {
-        parts.push(report.unverified.map((u) => `${u.status}:${u.run_id}: ${u.test_plan}`).join('; '));
-      }
-      if (report.stale_active.length > 0) {
-        parts.push('Stale active (lock expired): ' + report.stale_active.map((s) => `${s.run_id}: ${s.rationale}`).join('; '));
-      }
-      console.error(`octocode-awareness: concluding with unverified work. ${parts.join(' | ')}`);
+      const details = [
+        ...report.unverified.map((run) => `${run.status}:${run.run_id}: ${run.test_plan}`),
+        ...report.stale_active.map((run) => `STALE:${run.run_id}: ${run.rationale}`),
+      ];
+      const shown = details.slice(0, 3);
+      const omitted = details.length > 3 ? `; +${details.length - 3} omitted` : '';
+      console.error(`octocode-awareness: concluding with unverified work. ${shown.join('; ')}${omitted}`);
       return 2;
     }
   } catch (error) {
@@ -529,7 +595,6 @@ async function runNotifyDeliver(payload: Record<string, unknown>): Promise<numbe
     if (result.additionalContext) {
       process.stdout.write(JSON.stringify({
         additionalContext: result.additionalContext,
-        additional_context: result.additionalContext,
       }) + '\n');
     }
   } catch (error) {

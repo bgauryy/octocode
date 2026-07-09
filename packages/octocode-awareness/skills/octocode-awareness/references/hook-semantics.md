@@ -1,37 +1,35 @@
 # Hook Runtime Semantics
 
-Read this when hook identity, failure behavior, payload extraction, or host event differences matter. Installation and lifecycle selection live in `references/hooks.md`.
+Identity order: environment agent ID, payload agent, payload session, warned
+host/workspace fallback. Export one stable `OCTOCODE_AGENT_ID`.
 
-## Invariants
+## Write Path
 
-- Identity order: `OCTOCODE_AGENT_ID`, payload agent id, payload session id, then a warned host/workspace fallback. Pi falls back to session basename or pid.
-- Export a stable id so hooks and manual commands share task claims, runs, locks, and signals.
-- File locks expire after at most 10 minutes. Task claims use a separate lease/heartbeat. Neither TTL proves completion.
-- Pre/post correlation uses small files under the Awareness home. Missing correlation fails open and leaves TTL/audit cleanup.
-- Pre-edit blocks with exit `2` only for a genuine lock conflict. Infrastructure/input failures warn and fail open.
-- With one live task claim, hooks attach edits to its run and release interim locks as `ACTIVE`; the agent later submits the task.
-- Without a claim, hooks create a standalone run and release it as `PENDING` after edit. Stop hooks own the verification gate.
-- Wrappers parse Claude tool paths, Cursor flat paths, Pi input/args paths, and Codex `apply_patch` payloads. Non-file calls no-op.
-- Waits are bounded; use `lock wait` or `lock acquire --wait-seconds`, both capped at 3600 seconds.
-- All hooks use the canonical SQLite DB. They never write workspace `.octocode/`; `repo inject` owns publication.
+1. Extract deduplicated paths; no paths -> no-op.
+2. Evaluate harness guard before any DB presence.
+3. Resolve exactly one TASK claim, matching explicit WORK presence, or create HOOK
+   fallback. Never reuse by session alone.
+4. Declare advisory work. Existing exclusive blocks; ordinary peers succeed.
+5. Emit peer context only when its fingerprint changes.
+6. Post-edit logs/heartbeats. TASK/WORK stays active; HOOK ends PENDING.
 
-## Event Differences
+Infrastructure/input failure warns and fails open. Guard denial and real exclusive
+conflict block with exit 2. Correlation loss never marks success.
+
+## Host Edges
 
 | Edge | Claude/Codex | Cursor | Pi |
 |---|---|---|---|
-| Before write | `PreToolUse` | `preToolUse` | `tool_call` / execution start |
-| After write | `PostToolUse` | `postToolUse` | `tool_result` / execution end |
-| Briefing | `UserPromptSubmit` | `sessionStart` | `before_agent_start` |
-| Verify | `Stop` / `SubagentStop` | `stop` / `subagentStop` | `agent_end` reminder |
-| Capture | Claude `SessionEnd`; Codex `PreCompact` | `sessionEnd` / `preCompact` | shutdown / before compact |
+| Before | PreToolUse | preToolUse | tool call/start |
+| After | PostToolUse | postToolUse | tool result/end |
+| Brief | UserPromptSubmit | sessionStart | before agent start |
+| Verify | Stop/SubagentStop | stop/subagentStop | bounded agent-end reminder |
+| Capture | SessionEnd/PreCompact | sessionEnd/preCompact | shutdown/pre-compact |
 
-Pi cannot hard-block after `agent_end`; it injects one reminder per unchanged pending-run set. Cursor cloud lacks several prompt/session/stop events, so treat local and cloud behavior separately.
+Briefing/peer/session delivery fingerprints suppress unchanged context without
+acknowledging signals. Verification output caps three rows plus omitted count.
 
-## Tuning
+Presence/task claim TTLs are independent. Expiry removes stale coordination, never
+success, and never changes a live TASK run to PENDING.
 
-- `OCTOCODE_NOTIFY_RUN_DIGEST=1` adds digest work to briefing; leave off for lightweight prompts.
-- `OCTOCODE_NO_VERIFY_GATE=1` disables the stop gate; use only with an explicit replacement process.
-- `OCTOCODE_ALLOW_HARNESS_APPLY=1` opens self-edit approval, but main/master remains blocked; detached/non-repo also needs `OCTOCODE_HARNESS_BRANCH_OK=1`.
-- Narrow a matcher or remove Awareness-owned config to disable a hook. Rebuild after changing package-owned scripts or TTL behavior.
-
-Keep pre-edit strict and fast, post-edit best-effort, and verification explicit.
+Tuning/installation belongs to `hooks.md`; file decisions to `files-awareness.md`.

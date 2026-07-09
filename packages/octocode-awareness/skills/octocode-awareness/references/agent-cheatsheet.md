@@ -1,49 +1,48 @@
 # Agent Cheat Sheet
 
-Use `<cli>` below as the first available Awareness CLI: `node scripts/awareness.mjs` in an installed skill, `node packages/octocode-awareness/dist/bin/awareness.js` in this monorepo, then `npx @octocodeai/octocode-awareness`. Set `OCTOCODE_AGENT_ID` once per run. More recipes: `references/agent-cheatsheet-finish.md` (finish/handoffs) and `references/agent-cheatsheet-tooling.md` (agents/skills/search).
+Use `<cli>` in this order: installed `node scripts/awareness.mjs`; monorepo
+`node packages/octocode-awareness/dist/bin/awareness.js`; package fallback
+`npx @octocodeai/octocode-awareness`. Export one `OCTOCODE_AGENT_ID`.
 
 ## Start
 
 ```bash
-<cli> attend --workspace "$PWD" --query "<current task>" --compact
-<cli> schema commands --compact
-<cli> docs list --compact
+<cli> attend --workspace "$PWD" --query "<task>" --compact
 ```
 
-Follow `next` from `attend` when present — it is copy-runnable. For flags use `<command> --help` (add `--compact` only for a token-light line), `schema json-schema <name>` for contracts, `docs show <name>` for references.
+Inspect Ready, Claimed, Verify, FilesUnderWork, and Inbox. Follow `next`; use
+`<command> --help` only when flags are unknown, `schema json-schema <name>` only
+when constructing a machine payload, and `docs list` only when the reference owner
+is unknown.
 
-## Operations Map
-
-| Need | Commands |
-|---|---|
-| Start context | `attend`, `query workboard`, `workspace status`, `memory recall` |
-| Claim/edit | `lock acquire`, `lock wait`, `lock release` |
-| Coordinate | `signal publish|list|reply|ack|resolve`, `refinement set|get` |
-| Learn | `memory record`, `reflect record --duo`, `reflect mine-weakness` |
-| Verify | `verify audit`, `verify mark`, `lock release --verified` |
-| Project repo context | `query files`, `query workboard`, `query all --format html`, `repo inject` |
-| Install/enforce | `maintenance init`, `hooks install|check|remove`, `agent register` |
-| Cleanup | `maintenance digest`, `lock prune`, `signal prune`, `memory forget --dry-run` |
-
-## Before edits
+## Shared Task
 
 ```bash
-<cli> workspace status --workspace "$PWD" --compact
-<cli> memory recall --query "<task>" --workspace "$PWD" --smart --compact
-<cli> refinement get --workspace "$PWD" --state open --compact
-<cli> signal list --agent-id "$OCTOCODE_AGENT_ID" --workspace "$PWD" --compact
-<cli> lock acquire --agent-id "$OCTOCODE_AGENT_ID" --workspace "$PWD" \
-  --target-file <path> --rationale "<why>" --test-plan "<exact verify>" --compact
+<cli> task claim --task-id <task> --agent-id "$OCTOCODE_AGENT_ID" --compact
+# hooks declare paths; without hooks:
+<cli> work start --run-id <run> --agent-id "$OCTOCODE_AGENT_ID" --file <path> --compact
+<cli> task submit --task-id <task> --run-id <run> --agent-id "$OCTOCODE_AGENT_ID" --compact
+# run checks
+<cli> verify mark --run-id <run> --agent-id "$OCTOCODE_AGENT_ID" --message "passed" --compact
 ```
 
-Exit code `2` on lock conflict → wait, coordinate via signal, switch files, or stop.
-
-## After edits
+## Standalone WORK
 
 ```bash
-<cli> verify audit --agent-id "$OCTOCODE_AGENT_ID" --workspace "$PWD" --compact
-# run the declared test plan, then:
-<cli> verify mark --agent-id "$OCTOCODE_AGENT_ID" --workspace "$PWD" --all-pending --compact
-<cli> lock release --agent-id "$OCTOCODE_AGENT_ID" --workspace "$PWD" \
-  --status SUCCESS --verified --compact
+<cli> work start --agent-id "$OCTOCODE_AGENT_ID" --workspace "$PWD" \
+  --file <path> --rationale "<why>" --test-plan "<check>" --compact
+# add/heartbeat: work start --run-id <run> --file <path>; work touch --run-id <run>
+<cli> work end --run-id <run> --agent-id "$OCTOCODE_AGENT_ID" --compact
+# run check, then verify mark
 ```
+
+Ordinary peers are allowed. Use `work show --file <path>` when overlap matters.
+Sensitive work adds `--exclusive`; exit `2` means wait/signal/switch, never bypass.
+
+## Token Discipline
+
+Keep `--compact`; use workboard/signal limits 5–10; request bodies/full rows only
+when acting. Recall/docs list are lean by default. Use CSV/HTML for bulk data.
+
+Finish/handoff: `agent-cheatsheet-finish.md`. Agents/skills/search:
+`agent-cheatsheet-tooling.md`. File decisions: `files-awareness.md`.

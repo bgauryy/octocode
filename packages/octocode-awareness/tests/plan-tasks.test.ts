@@ -3,7 +3,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { initDb, tableColumns } from '../src/db.js';
+import { evictExpiredLocks, initDb, tableColumns } from '../src/db.js';
 import { createPlan, getPlan, joinPlan, listPlans, registerPlanDocument, updatePlanStatus } from '../src/plans.js';
 import {
   activeTaskClaimForAgent,
@@ -321,11 +321,20 @@ describe('plan and task collaboration', () => {
       expect(claim.ok).toBe(true);
       if (!claim.ok) throw new Error(claim.error);
       expect(claim.run.run_id).toMatch(/^run_/);
+      expect(claim.run.origin).toBe('TASK');
       expect(claim.task.status).toBe('IN_PROGRESS');
 
       const competing = claimTask(db, { taskId: first.task.task_id, agentId: 'worker-b' });
       expect(competing.ok).toBe(false);
       if (!competing.ok) expect(competing.error).toMatch(/claimed/i);
+
+      const activeFile = preFlightIntent(db, {
+        runId: claim.run.run_id,
+        agentId: 'worker-a',
+        workspacePath: workspace,
+        targetFiles: ['src/db.ts'],
+      });
+      expect(activeFile.ok).toBe(true);
 
       const submitted = submitTask(db, {
         taskId: first.task.task_id,
@@ -334,6 +343,10 @@ describe('plan and task collaboration', () => {
         message: 'schema tests pass',
       });
       expect(submitted.task.status).toBe('VERIFY');
+      expect(db.prepare('SELECT COUNT(*) AS count FROM locks WHERE run_id = ?')
+        .get(claim.run.run_id)).toEqual({ count: 0 });
+      expect(db.prepare('SELECT COUNT(*) AS count FROM run_files WHERE run_id = ? AND ended_at IS NULL')
+        .get(claim.run.run_id)).toEqual({ count: 0 });
 
       const verified = markVerified(db, {
         runId: claim.run.run_id,
@@ -351,7 +364,7 @@ describe('plan and task collaboration', () => {
     }
   });
 
-  it('attaches repeated file edits to a claimed task run while quick locks stay standalone', () => {
+  it('attaches repeated exclusive edits to a task run while explicit lock-only work stays isolated', () => {
     const db = freshDb();
     const workspace = mkdtempSync(join(tmpdir(), 'oc-plan-'));
     try {
@@ -378,23 +391,23 @@ describe('plan and task collaboration', () => {
       }
       expect(db.prepare('SELECT COUNT(*) AS count FROM task_runs WHERE task_id = ?')
         .get(task.task_id)).toEqual({ count: 1 });
-      expect(JSON.parse((db.prepare('SELECT files_json FROM task_runs WHERE run_id = ?')
-        .get(claimed.run.run_id) as { files_json: string }).files_json)).toHaveLength(2);
+      expect(db.prepare('SELECT COUNT(*) AS count FROM run_files WHERE run_id = ?')
+        .get(claimed.run.run_id)).toEqual({ count: 2 });
       expect(() => releaseFileLock(db, {
         runId: claimed.run.run_id, agentId: 'worker', status: 'PENDING',
       })).toThrow(/task submit or task release/);
 
-      const standalone = preFlightIntent(db, {
-        agentId: 'quick-worker', workspacePath: workspace, targetFiles: ['README.md'],
+      const lockOnly = preFlightIntent(db, {
+        agentId: 'sensitive-worker', workspacePath: workspace, targetFiles: ['README.md'],
       });
-      if (!standalone.ok) throw new Error('standalone lock failed');
-      expect(standalone.run.task_id).toBeNull();
+      if (!lockOnly.ok) throw new Error('exclusive lock failed');
+      expect(lockOnly.run.task_id).toBeNull();
     } finally {
       rmSync(workspace, { recursive: true, force: true });
     }
   });
 
-  it('does not treat a live task claim between edits as a stale standalone run', () => {
+  it('does not treat a live task claim between edits as a stale lock-only run', () => {
     const db = freshDb();
     const workspace = mkdtempSync(join(tmpdir(), 'oc-plan-'));
     try {
@@ -408,11 +421,18 @@ describe('plan and task collaboration', () => {
       });
       const claim = claimTask(db, { taskId: task.task_id, agentId: 'worker' });
       if (!claim.ok) throw new Error(claim.error);
-      db.prepare('UPDATE task_runs SET files_json = ? WHERE run_id = ?')
-        .run(JSON.stringify([join(workspace, 'src/a.ts')]), claim.run.run_id);
+      const locked = preFlightIntent(db, {
+        runId: claim.run.run_id, agentId: 'worker', workspacePath: workspace, targetFiles: ['src/a.ts'],
+      });
+      expect(locked.ok).toBe(true);
+      db.prepare("UPDATE locks SET expires_at = '2000-01-01T00:00:00Z' WHERE run_id = ?")
+        .run(claim.run.run_id);
+      expect(evictExpiredLocks(db)).toEqual({ pruned_locks: 1 });
 
       const audit = auditUnverified(db, { agentId: 'worker', workspacePath: workspace });
       expect(audit.stale_active).toEqual([]);
+      expect(db.prepare('SELECT status FROM task_runs WHERE run_id = ?').get(claim.run.run_id))
+        .toEqual({ status: 'ACTIVE' });
       expect(db.prepare('SELECT status FROM tasks WHERE task_id = ?').get(task.task_id))
         .toEqual({ status: 'IN_PROGRESS' });
     } finally {
@@ -420,7 +440,7 @@ describe('plan and task collaboration', () => {
     }
   });
 
-  it('clears exact-file locks when a task claim is released', () => {
+  it('clears exclusive locks when a task claim is released', () => {
     const db = freshDb();
     const workspace = mkdtempSync(join(tmpdir(), 'oc-plan-'));
     try {
@@ -444,6 +464,8 @@ describe('plan and task collaboration', () => {
       });
       expect(released.status).toBe('OPEN');
       expect(db.prepare('SELECT COUNT(*) AS count FROM locks WHERE run_id = ?')
+        .get(claim.run.run_id)).toEqual({ count: 0 });
+      expect(db.prepare('SELECT COUNT(*) AS count FROM run_files WHERE run_id = ? AND ended_at IS NULL')
         .get(claim.run.run_id)).toEqual({ count: 0 });
       expect(db.prepare('SELECT status FROM task_runs WHERE run_id = ?')
         .get(claim.run.run_id)).toEqual({ status: 'FAILED' });
@@ -550,6 +572,8 @@ describe('plan and task collaboration', () => {
         .toEqual({ status: 'OPEN' });
       expect(db.prepare('SELECT status FROM task_runs WHERE run_id = ?').get(claim.run.run_id))
         .toEqual({ status: 'FAILED' });
+      expect(db.prepare('SELECT COUNT(*) AS count FROM run_files WHERE run_id = ? AND ended_at IS NULL')
+        .get(claim.run.run_id)).toEqual({ count: 0 });
     } finally {
       rmSync(workspace, { recursive: true, force: true });
     }

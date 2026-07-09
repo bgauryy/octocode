@@ -176,9 +176,9 @@ test('memory renderCall formats every memory support surface', () => {
     ['memory_verify', { run_id: 'run_abcdefghijklmnopqrstuvwxyz' }, /run_abcdefghijklmnop/],
     ['memory_forget', { tags: ['old', 'bad'], max_importance: 3, before: '2026-01-02T00:00:00Z', dry_run: true }, /tags:\[old, bad\] ≤3 before:2026-01-02T… dry_run/],
     ['memory_digest', { dry_run: true, export_doc: true }, /dry_run export_doc/],
-    ['memory_notify', { kind: 'handoff', subject: 'coverage branch done' }, /\[handoff\] coverage branch done/],
+    ['agent_signal', { kind: 'handoff', subject: 'coverage branch done' }, /\[handoff\] coverage branch done/],
     ['memory_refine_get', { state: 'open' }, /state:open/],
-    ['memory_workspace_status', {}, /memory_workspace_status/],
+    ['workspace_status', {}, /workspace_status/],
   ];
 
   for (const [toolName, args, pattern] of cases) {
@@ -194,11 +194,11 @@ test('memory renderResult parses JSON stats and expanded output', () => {
     ['memory_record', JSON.stringify({ skipped: true }), /skipped \(similar exists\)/],
     ['memory_reflect', JSON.stringify({ outcome: 'worked' }), /reflected \(worked\)/],
     ['file_lock', JSON.stringify({ type: 'lock', files: ['a'], expiresAt: 'tomorrow' }), /locked 1 file until tomorrow/],
-    ['memory_file_lock', JSON.stringify({ type: 'status', locks: [{}, {}] }), /2 locks/],
+    ['file_lock', JSON.stringify({ type: 'status', locks: [{}, {}] }), /2 locks/],
     ['file_lock', JSON.stringify({ type: 'renew', locks_renewed: 3 }), /3 renewed/],
     ['file_lock', JSON.stringify({ type: 'release', locks_released: 4 }), /4 released/],
-    ['memory_workspace_status', JSON.stringify({ locks: [{}], agents: [{}, {}], pending_runs: 3 }), /1 lock, 2 agents, 3 pending/],
-    ['memory_workspace_status', JSON.stringify({ locks: [], agents: [], pending_runs: 0 }), /no activity/],
+    ['workspace_status', JSON.stringify({ locks: [{}], agents: [{}, {}], pending_runs: 3 }), /1 lock, 2 agents, 3 pending/],
+    ['workspace_status', JSON.stringify({ locks: [], agents: [], pending_runs: 0 }), /no activity/],
     ['memory_refine_get', JSON.stringify({ refinements: [{}] }), /1 refinement/],
     ['memory_audit_unverified', JSON.stringify({ pending: [{}, {}] }), /2 pending runs/],
     ['memory_verify', JSON.stringify({ results: [{}, {}] }), /2 verified/],
@@ -206,7 +206,7 @@ test('memory renderResult parses JSON stats and expanded output', () => {
     ['memory_digest', JSON.stringify({ archived: 0, pruned: 0 }), /nothing to clean/],
     ['memory_forget', JSON.stringify({ dry_run: true, previewed: 9 }), /preview: 9 would delete/],
     ['memory_forget', JSON.stringify({ deleted: 2 }), /2 deleted/],
-    ['memory_notify', JSON.stringify({ ok: true }), /posted/],
+    ['agent_signal', JSON.stringify({ ok: true }), /posted/],
   ];
 
   for (const [toolName, json, pattern] of cases) {

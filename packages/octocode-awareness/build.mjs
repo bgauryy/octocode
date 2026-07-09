@@ -35,7 +35,10 @@ const shared = {
     'node:child_process', 'node:url', 'node:module',
     'sqlite', 'fs', 'os', 'path', 'crypto', 'child_process',
   ],
-  sourcemap: true,
+  // Published artifacts are already inspectable JavaScript. Source maps more
+  // than double the tarball while exposing monorepo source paths, so keep them
+  // out of this zero-dependency runtime package.
+  sourcemap: false,
 };
 
 // Library: imported by pi-extension and other consumers.
@@ -85,6 +88,16 @@ await esbuild.build({
   banner: { js: BIN_BANNER },
 });
 
+// Public schema tooling must also work from a copied skill folder and from an
+// npm install with no ancestor node_modules. Bundle Zod into this one script;
+// it remains a build-time dependency and the published runtime stays zero-dep.
+await esbuild.build({
+  ...shared,
+  entryPoints: ['scripts/schema.mjs'],
+  outfile: 'dist/scripts/schema.mjs',
+  minify: true,
+});
+
 // Generate TypeScript declarations.
 execSync(`${tscBin} --emitDeclarationOnly --outDir dist -p tsconfig.build.json`, {
   stdio: 'inherit',
@@ -122,7 +135,7 @@ const retiredPackageSkills = [
 ];
 // Skills owned at repo-root skills/ and vendored into this package at build time.
 // Gitignored under packages/octocode-awareness/skills/ so GitHub stays clean while
-// npm `files: ["skills/**"]` still ships the built copy.
+// dist/skills ships the built copy.
 const bundledFromRepoRoot = [
   {
     name: 'octocode-skills',
@@ -173,7 +186,7 @@ for (const skillName of packageSkills) {
   // entrypoints. Vendored skills (e.g. octocode-skills) keep their own scripts/.
   const scriptCopies = skillName === 'octocode-awareness' ? [
     [join(distBin, 'awareness.js'), 'awareness.mjs'],
-    [join(__dirname, 'scripts', 'schema.mjs'), 'schema.mjs'],
+    [join(__dirname, 'dist', 'scripts', 'schema.mjs'), 'schema.mjs'],
   ] : [];
   if (skillName === 'octocode-awareness') {
     scriptCopies.push(

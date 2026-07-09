@@ -73,4 +73,3 @@ process.stdin.on("end", () => {
   }
   process.exit(0);
 });
-//# sourceMappingURL=extract-hook-files.js.map

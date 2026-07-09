@@ -1,6 +1,6 @@
 ---
 name: octocode-skills
-description: "Use when finding, evaluating, reviewing, rating, improving, installing, or creating Agent Skills / SKILL.md folders across local paths, GitHub, and marketplaces — including description tuning, hooks, and install targets."
+description: "Use when finding, researching, reviewing, improving, installing, or creating Agent Skills and SKILL.md folders across local paths, GitHub, or marketplaces."
 ---
 
 # Octocode Skills
@@ -36,7 +36,7 @@ Stop when one fit, two High pick a winner, three angles add nothing, or a gate i
 - when fetching remote: `references/fetch-remote.md` — clone, scan, then write
 - when creating local: `references/create-local-skill.md` — plan, approve, write, review
 - when search fails: `references/recovery.md` — broaden once, then report gap
-- when needing code evidence: `references/octocode.md` — delegate to octocode-research
+- when needing local or external research evidence: `references/octocode.md` — route through octocode-research or Octocode
 
 ## Scripts
 

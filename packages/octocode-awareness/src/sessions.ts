@@ -116,11 +116,14 @@ export function listSessions(
   }
 
   const where = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
-  const limit = params.limit !== undefined ? `LIMIT ${params.limit}` : '';
+  const requestedLimit = params.limit == null || !Number.isFinite(params.limit)
+    ? 100
+    : Math.floor(params.limit);
+  const limit = Math.min(100, Math.max(1, requestedLimit));
 
   return db.prepare(
-    `${SESSIONS_LIST_SELECT} ${where} ${SESSIONS_LIST_ORDER} ${limit}`
-  ).all(...args) as unknown as SessionRow[];
+    `${SESSIONS_LIST_SELECT} ${where} ${SESSIONS_LIST_ORDER} LIMIT ?`
+  ).all(...args, limit) as unknown as SessionRow[];
 }
 
 // ─── Get or create ────────────────────────────────────────────────────────────

@@ -1,151 +1,88 @@
 # Reflection And Self-Improvement
 
-**Audience**: agents and maintainers designing the feedback loop from task outcomes to better future behavior.
+Reflection turns a verified outcome into reusable learning or owned follow-up. It is
+not routine status and never self-authorizes source/instruction changes.
 
-Reflection turns session outcomes into structured memory. It supports durable lessons, recurring failure mining, optional handoff/refinement proposals, and human-reviewed harness guidance.
+## Flow
 
-## What Reflection Stores
+```text
+verified outcome -> reflect -> route -> human/user-approved apply -> verify -> close
+```
 
-| Data | Table | Writer |
+```bash
+octocode-awareness reflect record --agent-id "$OCTOCODE_AGENT_ID" \
+  --workspace "$PWD" --task "<task>" --outcome worked|partial|failed \
+  --lesson "<reusable result>" --compact
+```
+
+`--outcome` is required. Failed outcomes should carry a stable
+`--failure-signature` such as `test:work-overlap` or `migration:v2-run-files`, not the
+full volatile error string.
+
+## Route By Owner
+
+| Need | Flag/output | Close when |
 |---|---|---|
-| Lesson narrative | `memories` | `reflect record` |
-| References | `memory_refs` | CLI: `reflect record --fix-file`; library API: `references`, `file`, `files`, `folders` |
-| Failure clustering key | `memories.failure_signature` | `reflect record --failure-signature` |
-| Reflection lifecycle event | `harness_log` | `reflect record` |
-| Repo-fix or harness-fix hint | `refinements` and/or `harness_log.payload_json` | `reflect record --fix-repo`, `--fix-harness` |
-| Instruction-author feedback | `instructions`-quality `refinements` + `developer-review`-tagged `memories` | `reflect record --fix-instructions` |
-| Structured eval failures | extra `memories` rows | `reflect record --eval-failure-json` |
+| Reusable verified lesson | `--lesson` memory | Rechecked later; superseded/forgotten when stale. |
+| Remaining repo/code work | `--fix-repo` refinement | Applied, tested, same refinement marked done. |
+| Harness/skill/tool gap | `--fix-harness` memory/proposal | Human approves, owning source changes, skill/tests pass. |
+| Bad/missing instructions | `--fix-instructions` developer-review row | Author updates guidance, verifies, closes row. |
+| Recurring eval failure | `--failure-signature` / eval JSON | Cluster cause fixed and verified. |
 
-### Three feedback targets
+Use `--fix-file` for affected instruction/source paths. Keep one concern per row.
 
-Reflection separates *who needs to change something* into three channels — pick by what would prevent the problem next time:
-
-- `--fix-repo` → the **code**. Becomes a `good`/`bad` refinement in the coding queue for the next builder.
-- `--fix-harness` → the **skill/tooling/hooks**. Becomes a `harness`-tagged memory surfaced by `reflect export-harness`.
-- `--fix-instructions` → the **human who authored the agent's instructions** (root/`.octocode` `AGENTS.md`, `SKILL.md`, system prompt, task brief), when the instructions — not the code — were ambiguous, wrong, over-constraining, or missing context. Becomes a tracked `instructions` refinement (hidden from the coding queue; the queue reports `instructions_count`) plus a durable `developer-review` memory. Read it with `reflect developer-review`; regenerate `.octocode/DEVELOPER_REVIEW.md` with `repo inject`. See `skills/octocode-awareness/references/developer-review.md`.
-
-Reflection outputs are advisory. They never apply skill, docs, or `AGENTS.md` changes automatically.
-
-## Basic Flow
-
-```text
-reflect record
-  -> memory inserted
-  -> harness_log reflect event inserted
-  -> optional refinement inserted
-  -> mine-weakness clusters repeated signatures
-  -> export-harness previews guidance candidates
-  -> human reviews and applies accepted edits
-```
-
-## Recording A Reflection
+## Weakness Mining
 
 ```bash
-octocode-awareness reflect record \
-  --agent-id "$OCTOCODE_AGENT_ID" \
-  --workspace "$PWD" \
-  --task "Split awareness docs" \
-  --outcome worked \
-  --lesson "Focused docs by subsystem are easier to maintain than one giant harness reference" \
-  --importance 7 \
-  --failure-signature "mechanism:docs-harness|cause:monolithic-reference"
+octocode-awareness reflect mine-weakness --workspace "$PWD" --compact
 ```
 
-Outcomes:
+Mining groups repeated stable signatures. A cluster is evidence to inspect, not a
+patch instruction. Fix one cause, verify it, then reflect with the same signature so
+future review sees the result.
 
-| Outcome | Default intent |
-|---|---|
-| `worked` | Preserve a good pattern. |
-| `partial` | Capture what worked and what still needs correction. |
-| `failed` | Capture a failure mode that should be mined and avoided. |
-
-Reflection memories are stored with the `reflection` tag and an outcome tag. The implementation currently labels main reflection memories as `EXPERIENCE` so they remain filterable and do not overwhelm normal briefings.
-
-## Failure Signatures
-
-Use `failure_signature` for repeated failure classes. Keep it short, stable, and structured:
-
-```text
-mechanism:<system>|cause:<root-cause>|surface:<where-it-showed>
-```
-
-Examples:
-
-| Signature | Meaning |
-|---|---|
-| `mechanism:verify-gate|cause:lock-release-erased-obligation` | Verification state got lost after lock release. |
-| `mechanism:skill-drift|cause:docs-updated-without-skill-reference` | User-facing docs and skill guidance diverged. |
-| `mechanism:wiki-memory|cause:projection-not-regenerated` | `.octocode/` projection stale relative to DB. |
-
-`reflect mine-weakness` groups active memories by this field.
-
-## Mining Weaknesses
+## Harness Proposals
 
 ```bash
-octocode-awareness reflect mine-weakness \
-  --workspace "$PWD" \
-  --limit 10 \
-  --compact
+octocode-awareness reflect export-harness --workspace "$PWD" --compact
+octocode-awareness reflect developer-review --workspace "$PWD" --format markdown --compact
 ```
 
-Use this when failures repeat. It is a detection step, not a patching step. The output should lead to a proposal, a test, or a doc/skill change that a human can review.
+Exports are previews. They never patch `AGENTS.md`, `SKILL.md`, docs, hooks, or code.
+Approved skill edits use `octocode-skills`, then build, skill review, focused tests,
+and a held-out check.
 
-## Exporting Harness Candidates
+Harness self-edits also require the pre-edit guard:
 
-```bash
-octocode-awareness reflect export-harness \
-  --workspace "$PWD" \
-  --min-importance 7 \
-  --limit 10 \
-  --compact
-```
+- `OCTOCODE_ALLOW_HARNESS_APPLY=1`;
+- safe non-main branch;
+- explicit detached/non-repo override only when approved.
 
-`export-harness` previews guidance candidates for `AGENTS.md`, `SKILL.md`, or package docs. The command reads memories and refinements; it does not write those target files.
+## Memory Vs Refinement Vs Signal
 
-Recommended review checklist:
+- Memory: verified future-useful fact/decision/gotcha.
+- Refinement: owned work/handoff that must be completed.
+- Signal: another participant must see/answer/act.
+- Task: selectable durable implementation work under a plan.
 
-| Check | Why it matters |
-|---|---|
-| Evidence | The memory should cite current files, commands, or a reproducible failure. |
-| Generality | The proposed guidance should prevent a class of failures, not one incidental mistake. |
-| Scope | Repo-specific rules go in repo docs; skill-wide rules go in skill docs. |
-| Testability | A future agent should be able to tell whether it followed the guidance. |
-| Freshness | Verify against current source before applying old memories. |
+Never use memory/refinement as a duplicate task queue. Never store secrets.
 
-## Refinements vs Memories
+## Role Challenge
 
-| Store | Use for |
-|---|---|
-| `memories` | Durable lessons, decisions, gotchas, architecture facts. |
-| `refinements` | Work state, handoffs, repo-fix proposals, and review queues. |
-| `harness_log` | Lifecycle audit of reflect/mine/propose/validate/apply/capture events. |
+`reflect record --duo` returns temporary supporter/skeptic prompts; it does not spawn
+an agent or store debate. Use a read-only subagent when independent source inspection
+materially reduces risk. Agreement is not verification; capture only synthesis,
+dissent, and a concrete check.
 
-A reflection can write all three: a memory for the lesson, a refinement for next action, and a harness log event for audit.
-
-## Doc Staleness
-
-`docs staleness` compares source edit activity with documentation edit activity using `edit_log`.
+## Documentation Drift
 
 ```bash
 octocode-awareness docs staleness \
-  --targets-json '[{"docFile":"packages/foo/ARCHITECTURE.md","sourceDirs":["packages/foo/src"]}]' \
-  --workspace "$PWD" \
-  --min-edits 5 \
-  --min-lines 50 \
-  --propose \
-  --agent-id "$OCTOCODE_AGENT_ID" \
-  --compact
+  --targets-json '[{"docFile":"README.md","sourceDirs":["src"]}]' --compact
 ```
 
-With `--propose`, stale docs can create `harness_log` proposal events. They still do not edit files automatically.
+Staleness is a lead based on recorded edit activity. Check current source, update the
+one owning doc, run contract/link checks, and regenerate projections only when needed.
 
-Bundled shell hooks and the Pi bridge populate basic `edit_log` update rows when they can extract file paths. Host integrations should call `insertEditLog()` directly when they need richer diff stats, create/delete/rename events, or host-specific session metadata.
-
-## Human Approval Boundary
-
-The self-improvement loop is intentionally not autonomous:
-
-```text
-memory evidence -> candidate guidance -> human/maintainer review -> explicit file edit -> tests
-```
-Do not let a reflection directly modify the rules that generated it. That separation keeps the harness useful without making it self-reinforcing in the worst way.
+A learning loop is closed only when its output has an owner, applied action, fresh
+verification, and terminal row/projection state.

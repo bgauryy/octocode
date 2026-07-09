@@ -155,4 +155,20 @@ describe('notifications', () => {
     });
     expect(participant.resolved).toBe(1);
   });
+
+  it('caps inbox output even when a caller requests an excessive limit', () => {
+    const db = freshDb();
+    for (let i = 0; i < 125; i++) {
+      insertNotification(db, {
+        agentId: 'agent-a',
+        toAgent: 'agent-b',
+        kind: 'request',
+        subject: `request ${i}`,
+        workspacePath: '/repo',
+      });
+    }
+
+    const result = getNotifications(db, { agentId: 'agent-b', workspacePath: '/repo', limit: 500 });
+    expect(result.signals).toHaveLength(100);
+  });
 });

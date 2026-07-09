@@ -1,29 +1,36 @@
-# Lock And Verification Protocol
+# Exclusive Lock And Verification Protocol
 
-Read `plan-task-workflow.md` first to choose shared task or quick work. Collision rules live in `files-awareness.md`.
+Read `plan-task-workflow.md` first. Ordinary writes use advisory work, not locks.
 
-## Acquire
+## Exclusive
 
-Run `lock acquire` before edits with a stable agent, exact files, rationale, test plan, and workspace.
-Pass a claimed task's `run_id` so repeated edits stay together. For quick work, omit the run; Awareness creates a standalone run (`task_id = NULL`).
+Use `work start --exclusive` or task/run-aware `lock acquire` only when concurrent
+editing would be unsafe. Locks are exclusive-only.
 
-Default locks are EXCLUSIVE. SHARED is for non-writing reads. Paths normalize to absolute, symlink-resolved paths. TTL is crash safety, not completion.
+- Existing other presence -> acquisition exits 2; coordinate/wait.
+- Existing exclusive -> advisory start exits 2 before presence.
+- Same run -> acquire/renew allowed.
+- TTL -> crash recovery only, never success.
 
-- Exit 0: acquired; edit may proceed.
-- Exit 2: conflict; wait, coordinate, or choose other work.
-- Other non-zero: fix the usage/runtime error.
+`lock wait` observes without claiming. `lock prune --expired-only --dry-run` previews
+abandoned protection cleanup. Do not steal live exclusivity.
 
-`lock wait` checks without claiming. It sleeps outside transactions. `lock prune --dry-run --expired-only` is the safest abandoned-holder cleanup.
+## Close And Verify
 
-## Release And Verify
+Explicit WORK:
 
-Standalone run:
+```bash
+<cli> work end --run-id <run> --agent-id "$OCTOCODE_AGENT_ID" --compact
+# run declared check
+<cli> verify mark --run-id <run> --agent-id "$OCTOCODE_AGENT_ID" --message "passed" --compact
+```
 
-1. `lock release --run-id ... --status PENDING`
-2. run the declared check
-3. `verify mark --run-id ... --message ...`
+TASK work uses `task submit`/`task release`; terminal `work end` is rejected. Successful
+`verify mark` closes the run and linked task. Failure closes them as failed.
 
-For a claimed task, release interim locks with `--status ACTIVE` and use `task submit --task-id ... --run-id ...` when work ends. Terminal lock release on a linked run is rejected. After the declared check, `verify mark --run-id ...` moves the task from VERIFY to DONE or FAILED.
+Automatic HOOK fallback becomes PENDING after post-edit. Stop output caps debt; Pi
+may remind instead of block. Scope `--all-pending` by workspace. `verify audit
+--abandon` is only for real abandonment.
 
-`SUCCESS` without `--verified` downgrades to PENDING. An explicit run id can close a standalone run after its TTL locks disappear.
-`verify audit` is the final gate. Scope `--all-pending` to this agent's workspace. `verify audit --abandon` fails both linked task and run, so reserve it for real abandonment.
+Presence/lock expiry never moves a live TASK run to PENDING. Task claim expiry is a
+separate atomic lifecycle that fails its attempt and returns the task to OPEN.

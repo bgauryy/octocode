@@ -1,136 +1,121 @@
 # Hooks And Host Integration
 
-**Audience**: maintainers installing or debugging awareness automation in Claude Code, Codex, Cursor, Pi, or custom hosts.
+Hooks automate Awareness lifecycle edges; the CLI works without them. All hosts call
+the same runtime and canonical SQLite database.
 
-Hooks automate the lifecycle edges that agents often forget: claim before writing, release after writing, verify before stopping, brief before prompts, and capture handoff state at the end.
+## Lifecycle
 
-The CLI works without hooks. Hooks make the workflow harder to skip.
+| Event | Behavior | Output/blocking |
+|---|---|---|
+| Prompt/session start | Register agent; deliver changed signals/memory/refinement briefing. | Silent when fingerprint unchanged. |
+| Before write | Run harness guard, resolve task/explicit work, declare advisory path; honor exclusivity. | Silent normally; compact peer delta; exit/block 2 on guard or exclusive conflict. |
+| After write | Write edit audit and heartbeat; end automatic HOOK fallback. | Best-effort, nonblocking. |
+| Stop/subagent stop | Audit verification debt. | First 3 items + omitted count; block/remind where supported. |
+| Session end/compact | Capture deduplicated handoff and close session state. | Best-effort, nonblocking. |
+
+Pre-edit is the single guard+presence hook. The old separate harness-guard install
+entry is removed during install/repair to guarantee guard ordering.
 
 ## Host Support
 
-Supported agents: **Codex**, **Claude Code**, **Cursor**, and **Pi**.
-
-| Host | Integration |
-|---|---|
-| Claude Code | `SKILL.md` frontmatter hooks can run when the skill is active; project-wide enforcement uses `.claude/settings.json`. |
-| Codex | Hook config via `.codex/hooks.json`; `SKILL.md` frontmatter is not enough. |
-| Cursor | Hook config via `.cursor/hooks.json`; `SKILL.md` frontmatter is not enough. |
-| Pi | In-process bridge through `wirePiAwarenessHooks(pi)`; pass `skillRoot` or set `OCTOCODE_SKILL_ROOT` to enable native harness self-edit guarding. |
-| Custom | Call the library APIs or invoke the CLI/hook runner with host payloads. |
-
-## Hook Lifecycle
-
-| Event | Script | Purpose |
+| Host | Surface | Notes |
 |---|---|---|
-| `UserPromptSubmit` | `notify-deliver.sh` | Smart briefing: register/touch agent and surface unread signals/context. |
-| `PreToolUse` write | `pre-edit.sh` | Claim target files before writes. |
-| `PreToolUse` write | `harness-guard.sh` | Block skill/harness self-edits unless explicitly allowed. |
-| `PostToolUse` write | `post-edit.sh` | Release locks as `PENDING` after writes. |
-| `Stop` / `SubagentStop` | `stop-verify.sh` | Block exit while pending verification remains. |
-| `SessionEnd` / `PreCompact` | `session-end.sh` | Capture handoff/refinement state. |
+| Claude Code | Skill frontmatter while active, or `.claude/settings.json` | Project-wide install is separate from skill activation. |
+| Codex | `.codex/hooks.json` | Enable host hooks; PreCompact substitutes for missing SessionEnd. |
+| Cursor | `.cursor/hooks.json` | Cloud supports fewer events; smoke local/cloud separately. |
+| Pi | `wirePiAwarenessHooks(pi)` / Pi extension | In-process; never run shell hook install. |
+| Custom | Library API or `hook run` payload | Must provide stable identity/path events. |
 
-## Install, Check, Remove
+## Install And Verify
 
-For the shell-hook hosts, always preview first, install only after approval, then run a strict check:
-
-```bash
-octocode-awareness hooks install --host <claude|codex|cursor> --project-dir . --dry-run --compact
-octocode-awareness hooks install --host <claude|codex|cursor> --project-dir . --compact
-octocode-awareness hooks check --host <claude|codex|cursor> --project-dir . --strict --compact
-```
-
-Host-specific targets:
-
-| Host | Config target | Install | Strict check | Notes |
-|---|---|---|---|---|
-| Claude Code | `.claude/settings.json` | `octocode-awareness hooks install --host claude --project-dir . --compact` | `octocode-awareness hooks check --host claude --project-dir . --strict --compact` | Uses `${CLAUDE_PROJECT_DIR}` for project-relative generated dist hook scripts. |
-| Codex | `.codex/hooks.json` | `octocode-awareness hooks install --host codex --project-dir . --compact` | `octocode-awareness hooks check --host codex --project-dir . --strict --compact` | Uses absolute generated dist hook script paths. |
-| Cursor | `.cursor/hooks.json` | `octocode-awareness hooks install --host cursor --project-dir . --compact` | `octocode-awareness hooks check --host cursor --project-dir . --strict --compact` | Uses native lower-camel event names and flat command entries. |
-| Pi | no shell hook file | `wirePiAwarenessHooks(pi, { skillRoot })` or `@octocodeai/pi-extension` | Smoke `tool_call`/`tool_result` and `agent_end` pending-verification behavior. | Pi does not execute `SKILL.md` hook frontmatter or `hooks install`. |
-
-Remove awareness-owned hooks:
+Preview writes, install after approval, then check exact host wiring:
 
 ```bash
-octocode-awareness hooks remove --host codex --project-dir . --dry-run --compact
+octocode-awareness hooks install --host <claude|codex|cursor> \
+  --project-dir . --dry-run --compact
+octocode-awareness hooks install --host <claude|codex|cursor> \
+  --project-dir . --compact
+octocode-awareness hooks check --host <claude|codex|cursor> \
+  --project-dir . --strict --compact
 ```
 
-Use `--global` for user-scope installation instead of project-scope installation.
+Remove (preview first) when uninstalling host wiring:
 
-## Smart Briefing
-
-`notify-deliver.sh` runs before a prompt where the host supports it. It can surface:
-
-- unread signals,
-- active locks or pending verification,
-- relevant memory/refinement context,
-- agent registration/last-seen updates.
-
-This is a briefing, not a substitute for validation. Agents should still verify remembered facts against current files before acting.
-
-## Harness Guard
-
-`harness-guard.sh` protects files that define the harness itself, such as skill docs and scripts.
-
-Decision flow:
-
-```text
-write targets harness/skill files?
-  no  -> allow
-  yes -> OCTOCODE_ALLOW_HARNESS_APPLY=1?
-           no  -> block
-           yes -> on non-main branch?
-                    yes -> allow
-                    no  -> block unless explicitly permitted for detached/no-branch cases
+```bash
+octocode-awareness hooks remove --host <claude|codex|cursor> \
+  --project-dir . --dry-run --compact
+octocode-awareness hooks remove --host <claude|codex|cursor> \
+  --project-dir . --compact
 ```
+
+Installers modify only Awareness-owned entries and repair obsolete command
+paths/standalone guard entries.
+
+After installation, edit a harmless file and confirm:
+
+1. `work list` shows the active task/explicit presence, or fallback enters Verify.
+2. Two ordinary agents can share a file and receive one changed-peer summary.
+3. An explicit exclusive run blocks the second agent before presence.
+4. `verify audit` clears only after the declared check and `verify mark`.
+
+Installed does not mean enabled. Confirm where the host sends stdout/stderr and that
+the hook actually executes.
+
+## Identity And Run Resolution
+
+Identity order: `OCTOCODE_AGENT_ID`, payload agent, payload session, then a warned
+host/workspace fallback. Set one stable ID so manual commands and hooks agree.
+
+Pre-edit resolves the run in this order:
+
+1. exactly one live task claim for the agent/workspace;
+2. an explicit active WORK run already declaring the target path;
+3. a new isolated HOOK run.
+
+It never groups work by host session alone. Ambiguous matches do not guess.
+
+## Guard
+
+The pre-edit wrapper exports `OCTOCODE_SKILL_ROOT`; the runner evaluates the guard
+before touching `run_files`.
+
+Protected harness/skill edits require:
+
+- explicit user authorization;
+- `OCTOCODE_ALLOW_HARNESS_APPLY=1`;
+- a non-main branch;
+- `OCTOCODE_HARNESS_BRANCH_OK=1` only for explicitly approved detached/non-repo cases.
+
+A denied guard leaves no false file presence.
+
+## Briefing And Peer Dedupe
+
+`delivery_state` stores content fingerprints per consumer/channel/scope. Unchanged
+briefings and peer sets emit nothing. This does not acknowledge signals; `signal ack`
+remains explicit.
+
+Hook payloads emit one host-appropriate `additionalContext` field, not duplicated
+camel/snake aliases. Peer summaries cap detail and expose omitted counts.
+
+## Failure Behavior
+
+- Real exclusive conflict and harness denial block before write.
+- Stop gate blocks/reminds on real verification debt where the host permits.
+- Infrastructure, extraction, post-edit, briefing, and session failures warn and fail
+  open so the editor remains usable.
+- A missing correlation never marks success; TTL and verification audit expose debt.
 
 Environment controls:
 
 | Variable | Effect |
 |---|---|
-| `OCTOCODE_ALLOW_HARNESS_APPLY=1` | Allows harness edits if branch policy also passes. |
-| `OCTOCODE_HARNESS_BRANCH_OK=1` | Allows detached/no-branch cases when explicitly needed. |
-| `OCTOCODE_NO_VERIFY_GATE=1` | Disables stop-time verification blocking. |
-| `OCTOCODE_NOTIFY_RUN_DIGEST=1` | Lets prompt-time smart briefing run the periodic maintenance digest before listing signals. |
-| `OCTOCODE_AGENT_ID` | Stable identity for hosts that do not provide one. |
-| `OCTOCODE_MEMORY_HOME` | Directory containing the canonical `awareness.sqlite3` DB, normally under global `~/.octocode/memory`. |
+| `OCTOCODE_AGENT_ID` | Stable cooperative identity. |
+| `OCTOCODE_MEMORY_HOME` | Canonical DB directory. |
+| `OCTOCODE_NO_VERIFY_GATE=1` | Disable stop gate only with replacement process. |
+| `OCTOCODE_NO_NOTIFY=1` | Disable prompt briefing. |
+| `OCTOCODE_NO_SESSION_CAPTURE=1` | Disable automatic handoff capture. |
+| `OCTOCODE_NOTIFY_RUN_DIGEST=1` | Opt in to periodic prompt-time digest. |
+| `OCTOCODE_ALLOW_HARNESS_APPLY=1` | Open harness edit gate; branch rule still applies. |
 
-If a shell-hook host provides no `OCTOCODE_AGENT_ID` and no payload session or agent id, the hook runner derives a stable local fallback from host + workspace and warns. That fallback keeps pre/post hooks paired, but it is not strong multi-agent isolation; set `OCTOCODE_AGENT_ID` for shared workspaces.
-
-## Failure Behavior
-
-Hooks should protect work without making the editor unusable:
-
-| Hook | Blocking behavior |
-|---|---|
-| `pre-edit` | Blocks on real lock conflicts. Other unexpected errors should fail open with a warning. |
-| `harness-guard` | Blocks protected harness edits unless approval env/branch checks pass. |
-| `stop-verify` | Blocks exit on pending verification unless `OCTOCODE_NO_VERIFY_GATE=1`. |
-| `post-edit`, `session-end`, `notify-deliver` | Should not block normal work on non-critical failures. |
-
-The shipped shell wrappers warn to stderr if the bundled `hook-runner.mjs` is missing, then exit 0. That keeps broken installs from blocking the editor while still making the failure visible in hook logs.
-
-**Stderr visibility depends on host wiring, not just the hook script.** "Fail open with a warning" only helps if an agent (or a human) actually sees that stderr line. Some hosts surface tool/hook stderr directly in the transcript; others swallow it unless the session is run with verbose/debug logging, or only persist it to a log file the agent never reads. Before trusting a fail-open warning to be noticed in a given host, confirm where that host routes hook stderr (transcript, log file, or nowhere) — otherwise a broken hook install can silently degrade to "no awareness enforcement" with no visible signal.
-
-## Pi Bridge
-
-Pi does not need shell hooks. `wirePiAwarenessHooks(pi)` wires lifecycle behavior in-process and uses the same database and library functions. When the bridge receives `skillRoot` or `OCTOCODE_SKILL_ROOT`, Pi write tools also use the same harness self-edit approval rules as shell hosts.
-
-Pi equivalents include:
-
-| Pi tool | CLI equivalent |
-|---|---|
-| `workspace_status` | `workspace status` |
-| `memory_recall` | `memory recall` |
-| `file_lock` lock/release/status/renew | `lock acquire/release`, `workspace status` |
-| `memory_verify` | `verify mark` |
-| `memory_audit_unverified` | `verify audit` |
-| `agent_signal` | `signal publish/list/reply/ack/resolve` |
-| `memory_reflect` | `reflect record` |
-| `memory_export_harness` | `reflect export-harness` |
-
-## Known Gaps
-
-- Bundled shell hooks and the Pi bridge insert best-effort `update` rows into `edit_log` for extracted paths; custom hosts still need `insertEditLog()` for richer diff metrics, renames, deletes, or host-specific edit metadata.
-- Codex and Cursor require explicit hook config; skill frontmatter alone does not run there.
-- Hook payload formats differ by host, so path extraction must be tested per host.
-- Generated hook config should be previewed with `--dry-run` before writing and checked with `--strict`.
+Shell/Pi parity, wrapper extraction, installer repair, peer dedupe, guard order, and
+verification caps are covered by focused tests.

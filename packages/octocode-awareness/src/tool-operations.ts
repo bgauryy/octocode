@@ -19,7 +19,6 @@ import type {
   AgentSignalResult,
   FileLockResult,
   InsertMemoryResult,
-  LockType,
   NotificationKind,
   RunStatus,
 } from './types.js';
@@ -35,7 +34,6 @@ export type AwarenessToolOperation =
   | 'verify'
   | 'digest'
   | 'forget'
-  | 'notify'
   | 'agent_signal'
   | 'file_lock'
   | 'mine_weakness'
@@ -330,18 +328,51 @@ export function runAwarenessToolOperation(
     }
 
     case 'workspace_status': {
+      const workspacePath = (request['workspace_path'] as string | undefined) ?? cwd;
       const result = getWorkspaceStatus(db, {
-        workspace_path: (request['workspace_path'] as string | undefined) ?? cwd,
+        workspace_path: workspacePath,
         repo: request['repo'] as string | undefined,
         ref: request['ref'] as string | undefined,
         cwd,
       });
+      const requestedLimit = request['limit'] as number | undefined;
+      const workboard = queryAwareness(db, {
+        view: 'workboard',
+        workspacePath,
+        repo: request['repo'] as string | undefined,
+        ref: request['ref'] as string | undefined,
+        limit: Math.max(1, Math.min(requestedLimit ?? 5, 20)),
+        cwd,
+      });
+      const filesUnderWork = workboard.rows
+        .filter((row) => row['column'] === 'FilesUnderWork')
+        .map((row) => ({
+          path: row['path'],
+          peer_count: row['peer_count'],
+          agents: row['agents'],
+          run_ids: row['run_ids'],
+          task_ids: row['task_ids'],
+          plan_ids: row['plan_ids'],
+          plans: row['plans'],
+          reasons: row['reasons'],
+          omitted_peer_count: row['omitted_peer_count'],
+          locked: row['locked'],
+          ...(row['lock_agent_id'] ? { lock_agent_id: row['lock_agent_id'] } : {}),
+          ...(row['lock_expires_at'] ? { lock_expires_at: row['lock_expires_at'] } : {}),
+        }));
       const payload: Record<string, unknown> = {
         active_memories: result.active_memories,
         pending_runs: result.pending_runs,
         active_runs: result.active_runs,
+        planning: {
+          active_plans: result.active_plans,
+          ready_tasks: result.ready_tasks,
+          in_progress_tasks: result.in_progress_tasks,
+          verify_tasks: result.verify_tasks,
+        },
         open_refinements: result.open_refinements,
       };
+      if (filesUnderWork.length > 0) payload['files_under_work'] = filesUnderWork;
       if (result.locks.length > 0) {
         payload['locks'] = result.locks.map((l) => ({
           file: l.file_path,
@@ -404,7 +435,7 @@ export function runAwarenessToolOperation(
           run_id: i.run_id,
           agent_id: i.agent_id,
           age_hours: i.age_hours,
-          reason: `ACTIVE run with no live locks or task claim (orphaned session) - ${i.rationale}`,
+          reason: `ACTIVE run with no live file presence or task claim (orphaned session) - ${i.rationale}`,
         };
         if (i.target_files?.length) lean['files'] = i.target_files;
         return lean;
@@ -639,29 +670,6 @@ export function runAwarenessToolOperation(
       return { payload: result, exitCode: 0 };
     }
 
-    case 'notify': {
-      const notifyKind = request['kind'] as string;
-      const notifySubject = request['subject'] as string;
-      if (!notifyKind || !notifySubject) throw new Error('memory notify requires kind and subject');
-      const rawNFiles = request['files'];
-      const notifyFiles = Array.isArray(rawNFiles) ? rawNFiles as string[] : [];
-      const result = agentSignal(db, {
-        action: 'publish',
-        agentId,
-        workspacePath: (request['workspace_path'] as string | undefined) ?? cwd,
-        repo: request['repo'] as string | undefined,
-        ref: request['ref'] as string | undefined,
-        toAgents: request['to_agent'] ? [String(request['to_agent'])] : [],
-        kind: notifyKind as NotificationKind,
-        subject: notifySubject,
-        body: request['body'] as string | undefined ?? null,
-        files: notifyFiles,
-        importance: request['importance'] as number | undefined ?? 5,
-        cwd,
-      });
-      return { payload: { ...result, alias: 'memory_notify', prefer: 'agent_signal' }, exitCode: 0 };
-    }
-
     case 'agent_signal': {
       const rawAction = request['action'];
       if (rawAction !== 'publish' && rawAction !== 'list' && rawAction !== 'reply' && rawAction !== 'resolve' && rawAction !== 'ack') {
@@ -698,7 +706,7 @@ export function runAwarenessToolOperation(
     case 'file_lock': {
       const rawType = request['type'];
       if (rawType !== 'lock' && rawType !== 'release' && rawType !== 'status' && rawType !== 'renew') {
-        throw new Error('memory_file_lock requires type: lock | release | status | renew');
+        throw new Error('file_lock requires type: lock | release | status | renew');
       }
       const lockAgentId = (request['agentId'] as string | undefined) ?? (request['agent_id'] as string | undefined) ?? agentId;
       const workspacePath = (request['workspace_path'] as string | undefined) ?? cwd;
@@ -710,7 +718,6 @@ export function runAwarenessToolOperation(
         workspacePath,
         runId: (request['runId'] as string | undefined) ?? (request['run_id'] as string | undefined) ?? null,
         targetFiles,
-        lockType: (request['lockType'] as LockType | undefined) ?? (request['lock_type'] as LockType | undefined),
         ttlMs: (request['ttlMs'] as number | undefined) ?? (request['ttl_ms'] as number | undefined) ?? null,
         status: request['status'] as RunStatus | undefined,
         verified: request['verified'] as boolean | undefined,

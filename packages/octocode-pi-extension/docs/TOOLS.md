@@ -17,8 +17,7 @@ Complete reference for every tool registered by `@octocodeai/pi-extension`. The 
 | **Agents** | `spawnAgent` · `AgentMessage` |
 | **Web** | `web` |
 | **Context** | `manage_context` |
-| **Memory** | `memory_recall` · `memory_record` · `memory_reflect` · `workspace_status` · `agent_signal` · `file_lock` · `memory_refine_get` · `memory_audit_unverified` · `memory_verify` · `memory_export_harness` |
-| **Aliases** | `memory_workspace_status` · `memory_file_lock` · `memory_notify` |
+| **Memory + coordination** | `memory_recall` · `memory_record` · `memory_reflect` · `workspace_status` · `agent_signal` · `file_lock` · `memory_refine_get` · `memory_audit_unverified` · `memory_verify` · `memory_export_harness` |
 
 Source of truth for names: `OCTOCODE_DIRECT_TOOL_NAMES` + `OCTOCODE_SUPPORT_TOOL_NAMES` in `src/constants.ts`.
 
@@ -56,7 +55,7 @@ Source of truth for names: `OCTOCODE_DIRECT_TOOL_NAMES` + `OCTOCODE_SUPPORT_TOOL
 | Capture a post-task lesson | `memory_reflect` |
 | Check locks + active agents | `workspace_status` |
 | Publish / reply to signals | `agent_signal` |
-| Lock files for parallel edits | `file_lock` |
+| Protect sensitive files exclusively | `file_lock` |
 
 ---
 
@@ -237,9 +236,9 @@ See [`MEMORY_AGENT_FLOW.md`](https://github.com/bgauryy/octocode-mcp/blob/main/p
 ### Lifecycle pattern
 
 ```
-[Awareness/start] memory_recall → memory_refine_get → workspace_status
+[Awareness/start] workspace_status → targeted memory_recall / memory_refine_get when useful
 [Awareness/work]  agent_signal  (coordination inbox: questions, handoffs, blockers)
-                 file_lock     (parallel-safe edit coordination)
+                 file_lock     (optional sensitive-path exclusivity)
 [Awareness/after] memory_audit_unverified → memory_verify(allPending:true)
 [Awareness/learn] memory_record (verified root causes, decisions, gotchas)
                   memory_reflect (lesson, fix_repo, fix_harness)
@@ -252,23 +251,13 @@ See [`MEMORY_AGENT_FLOW.md`](https://github.com/bgauryy/octocode-mcp/blob/main/p
 | `memory_recall` | Awareness: retrieve durable lessons before risky/unfamiliar work; flags `judgment_required` when recall confidence is low |
 | `memory_record` | Awareness reflection: store verified root cause, decision, workaround, gotcha; reports novelty + similar-memory candidates for supersede decisions |
 | `memory_reflect` | Awareness reflection: capture post-task lesson; creates repo-fix refinements, clusters failure patterns; supports `judgment_note`, `duo`, `eval_failures` |
-| `workspace_status` | Show active locks, working agents, open signals/refinements, store stats |
+| `workspace_status` | Show advisory files under work, optional exclusive locks, working agents, open signals/refinements, and store stats |
 | `agent_signal` | Coordination inbox — actions: `publish` · `list` · `reply` · `resolve` · `ack` |
-| `file_lock` | Explicit file locks for parallel agents — types: `lock` · `release` · `status` · `renew` |
+| `file_lock` | Optional exclusive protection for sensitive paths — types: `lock` · `release` · `status` · `renew` |
 | `memory_refine_get` | List open repo-fix refinements |
 | `memory_audit_unverified` | List pending execution runs needing verification |
 | `memory_verify` | Mark runs verified/failed — prefer `allPending:true` for batch |
 | `memory_export_harness` | Awareness reflection: export human-reviewed skill/harness proposals; never writes files |
-
-### Aliases (compatibility)
-
-| Alias | Canonical |
-|-------|-----------|
-| `memory_workspace_status` | `workspace_status` |
-| `memory_file_lock` | `file_lock` |
-| `memory_notify` | `agent_signal` (publish only) |
-
----
 
 ## Configuration
 

@@ -1,33 +1,40 @@
-# Plan, Task, And Quick-Lock Workflow
+# Plan, Task, And Standalone WORK
 
-Use this after `attend`. There is one work queue: durable `tasks` under a `plan`. Do not create a second “today's tasks” list in Markdown, memory, or refinements.
+There is one durable queue: `tasks` under a plan. Never create “today's tasks” in
+Markdown, memory, or refinements.
 
 ## Choose
 
-1. Inspect workboard Ready/Claimed/Verify and `task ready|list`.
-2. If a ready task matches the requested work, claim it. A claim is atomic and returns one execution `run_id`.
-3. For a quick independent edit outside plan work, acquire a lock with task and run fields unset. Awareness creates a standalone run.
-4. If coordinated work has no plan/task yet, ask the plan lead to create it or create it when authorized.
+1. Inspect attend/workboard Ready, Claimed, Verify, and `task ready|list`.
+2. Claim a matching ready task; its leased run is the work-unit boundary.
+3. If no task fits, open explicit `work start` with reason, files, and test plan.
+4. Create plan/tasks only when authorized; plan lead governs lifecycle/docs.
 
-## Shared Plan Work
+## Plan Task
 
 ```bash
-<cli> task claim --task-id task_123 --agent-id "$OCTOCODE_AGENT_ID"
-<cli> lock acquire --run-id run_123 --agent-id "$OCTOCODE_AGENT_ID" --target-file src/a.ts
-# edit; repeat locks with the same run_id
-<cli> task submit --task-id task_123 --run-id run_123 --agent-id "$OCTOCODE_AGENT_ID" --message "tests passed"
-<cli> verify mark --run-id run_123 --agent-id "$OCTOCODE_AGENT_ID" --message "declared test plan passed"
+<cli> task claim --task-id task_123 --agent-id "$OCTOCODE_AGENT_ID" --compact
+# hooks declare edited files; without hooks:
+<cli> work start --run-id run_123 --agent-id "$OCTOCODE_AGENT_ID" --file src/a.ts --compact
+<cli> task submit --task-id task_123 --run-id run_123 --agent-id "$OCTOCODE_AGENT_ID" --compact
+# run acceptance check
+<cli> verify mark --run-id run_123 --agent-id "$OCTOCODE_AGENT_ID" --message "passed" --compact
 ```
 
-Heartbeat long claims. `task release` returns unfinished work to OPEN or BLOCKED. Dependencies determine readiness; agents do not manually maintain a READY status.
+Heartbeat long claims. `task release` returns unfinished work to OPEN/BLOCKED.
+Dependencies derive readiness; agents never set READY manually.
 
-## Quick Independent Work
+## Standalone WORK
 
 ```bash
-<cli> lock acquire --agent-id "$OCTOCODE_AGENT_ID" --target-file README.md --rationale "small docs fix" --test-plan "review diff"
+<cli> work start --agent-id "$OCTOCODE_AGENT_ID" --file README.md \
+  --rationale "small docs fix" --test-plan "review diff" --compact
 # edit
-<cli> lock release --run-id run_123 --agent-id "$OCTOCODE_AGENT_ID" --status PENDING
-<cli> verify mark --run-id run_123 --agent-id "$OCTOCODE_AGENT_ID" --message "diff reviewed"
+<cli> work end --run-id run_123 --agent-id "$OCTOCODE_AGENT_ID" --compact
+<cli> verify mark --run-id run_123 --agent-id "$OCTOCODE_AGENT_ID" --message "reviewed" --compact
 ```
 
-The DB is canonical for plan/task state. Plan documents live under `.octocode/plan/<timestamp>-<name>/`; `PLAN.md` explains objective and ownership, supporting docs live under `docs/`, and neither duplicates the live task list.
+Add `--exclusive` only for sensitive work. Never infer one quick run from a host
+session; explicit start or task claim defines reuse.
+
+Plan docs live under `.octocode/plan/<timestamp-name>/`; SQLite owns live task state.

@@ -8,11 +8,12 @@ Higher-priority instructions win:
 
 | Priority | Source |
 |---:|---|
-| 1 | system/safety/tool restrictions |
-| 2 | explicit user request |
-| 3 | applicable critical rules |
-| 4 | skill/default workflow |
-| 5 | soft preference |
+| 1 | system and safety restrictions |
+| 2 | developer/host policy and tool restrictions |
+| 3 | explicit user request |
+| 4 | applicable critical rules |
+| 5 | skill/default workflow |
+| 6 | soft preference |
 
 Detect both rules, apply the higher source, and document one line: `Conflict: A vs B → priority N`. Stop when authority is ambiguous or the resolution would change user intent.
 
@@ -41,3 +42,6 @@ Full Path: summarize goal, progress, next step, and blockers at a real phase/con
 - Compressing away subjects, constraints, commands, branches, or recovery.
 - Using XML decoratively rather than to separate instructions from literal data.
 - Repeating the same critical rule with different wording.
+
+## Sources
+- Anthropic, [Effective context engineering for AI agents](https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents) — distinct prompt sections and a specific-but-not-brittle instruction altitude.

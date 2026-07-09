@@ -88,8 +88,12 @@ describe('legacy store migration', () => {
     expect(tableColumns(db, 'task_runs').has('session_id')).toBe(true);
     expect(tableColumns(db, 'task_runs').has('artifact')).toBe(true);
     expect(tableColumns(db, 'task_runs').has('context_ref')).toBe(true);
+    expect(tableColumns(db, 'task_runs').has('origin')).toBe(true);
+    expect(tableColumns(db, 'task_runs').has('files_json')).toBe(false);
     expect(tableColumns(db, 'tasks').has('plan_id')).toBe(true);
-    expect(tableColumns(db, 'locks').has('session_id')).toBe(true);
+    expect(tableColumns(db, 'locks')).toEqual(new Set([
+      'lock_id', 'file_path', 'run_id', 'acquired_at', 'expires_at',
+    ]));
     expect(tableColumns(db, 'sessions').has('artifact')).toBe(true);
     expect(tableColumns(db, 'sessions').has('repo')).toBe(true);
   });
@@ -136,10 +140,53 @@ describe('legacy store migration', () => {
 
     initDb(db);
 
-    expect(db.prepare('SELECT run_id, task_id, status FROM task_runs WHERE run_id = ?')
-      .get('task_legacy')).toEqual({ run_id: 'task_legacy', task_id: null, status: 'PENDING' });
+    expect(db.prepare('SELECT run_id, task_id, origin, status FROM task_runs WHERE run_id = ?')
+      .get('task_legacy')).toEqual({ run_id: 'task_legacy', task_id: null, origin: 'HOOK', status: 'PENDING' });
+    expect(db.prepare('SELECT run_id, file_path, source FROM run_files WHERE run_id = ?')
+      .get('task_legacy')).toEqual({ run_id: 'task_legacy', file_path: '/repo/a.ts', source: 'HOOK' });
     expect(db.prepare('SELECT COUNT(*) AS count FROM tasks').get()).toEqual({ count: 0 });
-    expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 2 });
+    expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 3 });
+  });
+
+  it('migrates v2 run files and exclusive locks without duplicated identity columns', () => {
+    const db = new DatabaseSync(':memory:');
+    db.exec(`
+      PRAGMA user_version = 2;
+      CREATE TABLE task_runs (
+        run_id TEXT PRIMARY KEY, task_id TEXT, agent_id TEXT NOT NULL, session_id TEXT,
+        rationale TEXT NOT NULL, test_plan TEXT NOT NULL, context_ref TEXT,
+        status TEXT NOT NULL, workspace_path TEXT, artifact TEXT,
+        files_json TEXT NOT NULL DEFAULT '[]', created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+      );
+      CREATE TABLE locks (
+        lock_id TEXT PRIMARY KEY, file_path TEXT NOT NULL, run_id TEXT NOT NULL,
+        agent_id TEXT NOT NULL, session_id TEXT, lock_type TEXT NOT NULL,
+        acquired_at TEXT NOT NULL, expires_at TEXT, UNIQUE(file_path, run_id)
+      );
+      INSERT INTO task_runs VALUES (
+        'run_v2', NULL, 'agent-v2', 'session-v2', 'legacy edit', 'legacy test', NULL,
+        'ACTIVE', '/repo', NULL, '["/repo/a.ts","/repo/b.ts"]',
+        '2026-01-01T00:00:00Z', '2026-01-01T00:01:00Z'
+      );
+      INSERT INTO locks VALUES (
+        'lock_v2', '/repo/a.ts', 'run_v2', 'agent-v2', 'session-v2', 'SHARED',
+        '2026-01-01T00:00:00Z', '2099-01-01T00:00:00Z'
+      );
+    `);
+
+    initDb(db);
+
+    expect(db.prepare('SELECT origin FROM task_runs WHERE run_id = ?').get('run_v2'))
+      .toEqual({ origin: 'HOOK' });
+    expect(db.prepare('SELECT file_path FROM run_files WHERE run_id = ? ORDER BY file_path').all('run_v2'))
+      .toEqual([{ file_path: '/repo/a.ts' }, { file_path: '/repo/b.ts' }]);
+    expect(db.prepare('SELECT * FROM locks WHERE lock_id = ?').get('lock_v2'))
+      .toEqual({
+        lock_id: 'lock_v2', file_path: '/repo/a.ts', run_id: 'run_v2',
+        acquired_at: '2026-01-01T00:00:00Z', expires_at: '2099-01-01T00:00:00Z',
+      });
+    expect(tableColumns(db, 'task_runs').has('files_json')).toBe(false);
+    expect(tableColumns(db, 'locks').has('lock_type')).toBe(false);
   });
 
   it('widens legacy refinement quality checks for instructions feedback', () => {

@@ -4,7 +4,7 @@ Use this when deciding what upkeep is due. **Bookkeeping = learning** turns outc
 
 ## Two concepts, two owners
 
-- **Bookkeeping (learning)** — turn verified outcomes, failures, and corrections into routed, durable knowledge. Ops: `reflect record` (route with `--fix-repo` / `--fix-harness` / `--fix-instructions`), `reflect mine-weakness`, `reflect export-harness`, `reflect developer-review`, `memory record`, `memory record --supersedes <id>`. Deep dive: `references/learning-loop.md`.
+- **Bookkeeping (learning)** — turn verified outcomes, failures, and corrections into routed, durable knowledge. Ops: `reflect record` (route with `--fix-repo` / `--fix-harness` / `--fix-instructions`), `reflect mine-weakness`, `reflect export-harness`, `reflect developer-review`, `memory record`, `memory record --supersedes <id>`. Deep dive + label→wiki map: `references/learning-loop.md`.
 - **Housekeep (cleanup)** — remove or supersede stale locks, signals, refinements, and weak/redundant memories. Ops: `maintenance digest`, `lock prune`, `signal prune`, `memory forget`, `refinement delete`, plus automatic salience decay. Deep dive: `references/homeostatic-loop.md`.
 
 Drift sensors feed both: `query workboard` (surfaces `stale_file_refs` + memory-review items), `query files`, `docs staleness`, `verify audit`, `workspace status`.

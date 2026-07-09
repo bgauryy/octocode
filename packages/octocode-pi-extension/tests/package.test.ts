@@ -729,71 +729,15 @@ test(
 );
 
 test(
-  'memory_notify remains a publishing alias for agent_signal',
-  withIsolatedDb(async ctx => {
-    await withAgentId('agent-a', async () => {
-      const { tools } = await captureExtensions();
-      const notifyTool = tools.get('memory_notify')!;
-      const signalTool = tools.get('agent_signal')!;
-      assert.ok(notifyTool, 'memory_notify is registered');
-
-      const notifyResult = await notifyTool.execute(
-        'notify-alias',
-        {
-          kind: 'handoff',
-          subject: 'legacy notify alias',
-          body: 'alias body',
-          to_agent: 'agent-b',
-        },
-        undefined,
-        undefined,
-        ctx
-      );
-      const notify = JSON.parse(notifyResult.content[0]!.text) as {
-        signal_id: string;
-        alias: string;
-        prefer: string;
-      };
-      assert.match(notify.signal_id, /^ntf_/);
-      assert.equal(notify.alias, 'memory_notify');
-      assert.equal(notify.prefer, 'agent_signal');
-
-      const listResult = await signalTool.execute(
-        'signal-list',
-        {
-          action: 'list',
-          agent_id: 'agent-b',
-          unread_only: true,
-        },
-        undefined,
-        undefined,
-        ctx
-      );
-      const listed = JSON.parse(listResult.content[0]!.text) as {
-        signals: Array<{ subject: string }>;
-      };
-      assert.equal(listed.signals[0]!.subject, 'legacy notify alias');
-    });
-  })
-);
-
-test(
   'file_lock tool locks, reports, releases, and signals conflicts',
   withIsolatedDb(async ctx => {
     await withAgentId('pi-test-agent', async () => {
       const { tools } = await captureExtensions();
       const tool = tools.get('file_lock')!;
-      const aliasTool = tools.get('memory_file_lock')!;
       const workspaceTool = tools.get('workspace_status')!;
-      const workspaceAliasTool = tools.get('memory_workspace_status')!;
       const signalTool = tools.get('agent_signal')!;
       assert.ok(tool, 'file_lock is registered');
-      assert.ok(aliasTool, 'memory_file_lock alias is registered');
       assert.ok(workspaceTool, 'workspace_status is registered');
-      assert.ok(
-        workspaceAliasTool,
-        'memory_workspace_status alias is registered'
-      );
 
       const lockedResult = await tool.execute(
         'lock-1',
@@ -919,6 +863,45 @@ test(
     });
   })
 );
+
+test('awareness coordination is advisory-first and locks are exclusive-only', async () => {
+  const { tools } = await captureExtensions();
+  const workspaceTool = tools.get('workspace_status')!;
+  const lockTool = tools.get('file_lock')!;
+  const editTool = tools.get('edit')!;
+  const lockSchema = lockTool.parameters as {
+    properties: Record<string, Record<string, unknown>>;
+  };
+
+  assert.ok(workspaceTool, 'workspace_status is registered');
+  assert.ok(lockTool, 'file_lock is registered');
+  assert.ok(editTool, 'edit is registered');
+  assert.equal(lockSchema.properties['lock_type'], undefined);
+  for (const alias of [
+    'memory_workspace_status',
+    'memory_file_lock',
+    'memory_notify',
+  ]) {
+    assert.equal(tools.has(alias), false, `${alias} legacy alias is removed`);
+    assert.equal(
+      OCTOCODE_SUPPORT_TOOL_NAMES.includes(alias as never),
+      false,
+      `${alias} is absent from the advertised tool inventory`
+    );
+  }
+  assert.match(workspaceTool.description ?? '', /advisory.*under work/i);
+  assert.match(lockTool.description ?? '', /exclusive.*sensitive/i);
+  const lockGuidance = [
+    lockTool.description,
+    ...(lockTool.promptGuidelines ?? []),
+  ].join('\n');
+  assert.doesNotMatch(lockGuidance, /\bSHARED\b/);
+  assert.doesNotMatch(lockGuidance, /automatic edit\/write locks|quick work/i);
+  assert.match(
+    editTool.promptGuidelines?.join('\n') ?? '',
+    /under work.*exclusive/i
+  );
+});
 
 test('disable built-in read in favor of localGetFileContent (records read state for edit stale-check)', async () => {
   const { activeTools, tools } = await captureExtensions();
@@ -2408,8 +2391,9 @@ test('registers split typed memory support tools with strict schemas', async () 
     'memory_recall',
     'memory_record',
     'memory_reflect',
-    'memory_workspace_status',
-    'memory_notify',
+    'workspace_status',
+    'agent_signal',
+    'file_lock',
     'memory_refine_get',
     'memory_audit_unverified',
     'memory_verify',
@@ -2439,6 +2423,13 @@ test('registers split typed memory support tools with strict schemas', async () 
     false,
     'memory_mine_weakness removed — notifyGet briefing covers it'
   );
+  for (const legacyAlias of [
+    'memory_workspace_status',
+    'memory_file_lock',
+    'memory_notify',
+  ]) {
+    assert.equal(tools.has(legacyAlias), false, `${legacyAlias} removed`);
+  }
 
   const recallParams = tools.get('memory_recall')!.parameters as {
     required?: string[];
@@ -2483,11 +2474,18 @@ test('registers split typed memory support tools with strict schemas', async () 
     'done',
   ]);
 
-  const notifyParams = tools.get('memory_notify')!.parameters as {
+  const notifyParams = tools.get('agent_signal')!.parameters as {
     required?: string[];
     properties: Record<string, Record<string, unknown>>;
   };
-  assert.deepEqual(notifyParams.required, ['kind', 'subject']);
+  assert.deepEqual(notifyParams.required, ['action']);
+  assert.deepEqual(notifyParams.properties['action']?.['enum'], [
+    'publish',
+    'list',
+    'reply',
+    'resolve',
+    'ack',
+  ]);
   assert.deepEqual(notifyParams.properties['kind']?.['enum'], [
     'claim',
     'handoff',
@@ -3410,7 +3408,7 @@ test(
 
     // workspace_status replaces mine_weakness — shows locks and counts
     const wsStatus = JSON.parse(
-      (await invokeExecute(tools.get('memory_workspace_status')!, {}, ctx))
+      (await invokeExecute(tools.get('workspace_status')!, {}, ctx))
         .content[0]!.text
     ) as {
       active_memories: number;

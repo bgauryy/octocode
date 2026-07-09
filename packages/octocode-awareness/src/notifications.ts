@@ -91,10 +91,9 @@ export function insertNotification(
     inReplyTo = null,
     importance = 5,
     cwd,
-    compatCoerce = false,
   } = params;
 
-  const normalizedKind = normalizeNotificationKind(kind, { coerce: Boolean(compatCoerce) });
+  const normalizedKind = normalizeNotificationKind(kind);
 
   const scope = fillScope(
     { workspace_path: params.workspacePath ?? null, artifact: normalizeArtifact(params.artifact), repo: params.repo ?? null, ref: params.ref ?? null },
@@ -224,7 +223,8 @@ export function getNotifications(
     ${whereClause}
     ${SIGNALS_SELECT_ORDER_LIMIT}
   `;
-  const rows = db.prepare(sql).all(...allBinds, limit) as unknown as NotificationRow[];
+  const boundedLimit = Math.min(100, Math.max(1, Math.floor(Number.isFinite(limit) ? limit : 20)));
+  const rows = db.prepare(sql).all(...allBinds, boundedLimit) as unknown as NotificationRow[];
   const signals = rows.map(rowToNotification);
 
   if (markRead && signals.length > 0) {
@@ -360,7 +360,6 @@ export function agentSignal(db: DatabaseSync, params: AgentSignalParams): AgentS
         inReplyTo: params.inReplyTo ?? null,
         importance: params.importance ?? 5,
         cwd: params.cwd,
-        compatCoerce: params.compatCoerce,
       }));
       return {
         action: params.action,

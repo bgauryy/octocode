@@ -54,12 +54,12 @@ describe('core branch coverage helpers', () => {
         agentId: 'agent-a',
         targetFiles: [join(dir, 'a.ts')],
         workspacePath: dir,
-        ttlMs: 1000,
+        ttlMs: 60_000,
       });
       if (!task.ok) throw new Error('claim failed');
       first.prepare('UPDATE locks SET expires_at = ? WHERE run_id = ?').run(new Date(Date.now() - 1000).toISOString(), task.run.run_id);
-      expect(evictExpiredLocks(first)).toMatchObject({ pruned_locks: 1, updated_runs: 1 });
-      expect(evictExpiredLocks(first)).toMatchObject({ pruned_locks: 0, updated_runs: 0 });
+      expect(evictExpiredLocks(first)).toEqual({ pruned_locks: 1 });
+      expect(evictExpiredLocks(first)).toEqual({ pruned_locks: 0 });
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -149,10 +149,12 @@ describe('core branch coverage helpers', () => {
       targetFiles: ['/repo/stale.ts'],
       rationale: 'stale active task',
       testPlan: 'test stale',
-      ttlMs: 1000,
+      ttlMs: 60_000,
     });
     if (!stale.ok) throw new Error('stale claim failed');
     db.prepare('DELETE FROM locks WHERE run_id = ?').run(stale.run.run_id);
+    db.prepare('UPDATE run_files SET expires_at = ? WHERE run_id = ?')
+      .run('2000-01-01T00:00:00Z', stale.run.run_id);
 
     const audit = auditUnverified(db, { agentId: 'agent-a', workspacePath: '/repo', artifact: 'svc' });
     expect(audit.count).toBe(2);

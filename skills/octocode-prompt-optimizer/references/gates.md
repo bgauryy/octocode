@@ -44,3 +44,6 @@ Safe, reversible assumptions may proceed when stated. Material unknowns require 
 - **IF** a path fails but inline content exists → **THEN** use the inline content.
 - **IF** no readable content exists → **THEN** ask for the correct path/content.
 - **IF** interpretations change behavior → **THEN** present options and wait.
+
+## Sources
+- Anthropic, [Effective context engineering for AI agents](https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents) — start minimal, then add instructions from observed failure modes.

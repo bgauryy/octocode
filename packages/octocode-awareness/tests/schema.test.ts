@@ -11,7 +11,13 @@
 
 import { describe, it, expect } from 'vitest';
 import { DatabaseSync } from 'node:sqlite';
-import { initDb, tableColumns, hasFts } from '../src/db.js';
+import {
+  getDeliveryFingerprint,
+  hasFts,
+  initDb,
+  setDeliveryFingerprint,
+  tableColumns,
+} from '../src/db.js';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -41,7 +47,9 @@ describe('initDb creates all required tables', () => {
     'task_claims',
     'task_events',
     'task_runs',
+    'run_files',
     'locks',
+    'delivery_state',
     'run_log',
     'signals',
     'signal_reads',
@@ -81,7 +89,9 @@ describe('initDb table set', () => {
       'task_claims',
       'task_events',
       'task_runs',
+      'run_files',
       'locks',
+      'delivery_state',
       'run_log',
       'refinements',
       'signals',
@@ -172,7 +182,7 @@ describe('task_runs table column names', () => {
       'artifact',
       'context_ref',
       'created_at',
-      'files_json',
+      'origin',
       'rationale',
       'run_id',
       'session_id',
@@ -194,14 +204,64 @@ describe('locks table column names', () => {
   it('matches the current lock column set', () => {
     expect(cols).toEqual([
       'acquired_at',
-      'agent_id',
       'expires_at',
       'file_path',
       'lock_id',
-      'lock_type',
       'run_id',
-      'session_id',
     ]);
+  });
+});
+
+describe('run_files table column names', () => {
+  const db = freshDb();
+  const cols = [...tableColumns(db, 'run_files')].sort();
+
+  it('normalizes advisory file presence separately from runs and locks', () => {
+    expect(cols).toEqual([
+      'ended_at',
+      'expires_at',
+      'file_path',
+      'heartbeat_at',
+      'reason_override',
+      'run_id',
+      'source',
+      'started_at',
+    ]);
+  });
+});
+
+describe('delivery_state table column names', () => {
+  const db = freshDb();
+  const cols = [...tableColumns(db, 'delivery_state')].sort();
+
+  it('stores compact-output fingerprints without duplicating awareness payloads', () => {
+    expect(cols).toEqual([
+      'channel',
+      'consumer_id',
+      'delivered_at',
+      'fingerprint',
+      'scope_key',
+    ]);
+  });
+});
+
+describe('schema version', () => {
+  it('is version 3', () => {
+    const db = freshDb();
+    expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 3 });
+  });
+});
+
+describe('delivery fingerprints', () => {
+  it('upserts one fingerprint per consumer, channel, and scope', () => {
+    const db = freshDb();
+    const key = { consumerId: 'agent-a', channel: 'briefing', scopeKey: '/repo|-|session-a' };
+    expect(getDeliveryFingerprint(db, key)).toBeNull();
+    setDeliveryFingerprint(db, { ...key, fingerprint: 'v1' });
+    expect(getDeliveryFingerprint(db, key)).toBe('v1');
+    setDeliveryFingerprint(db, { ...key, fingerprint: 'v2' });
+    expect(getDeliveryFingerprint(db, key)).toBe('v2');
+    expect(db.prepare('SELECT COUNT(*) AS count FROM delivery_state').get()).toEqual({ count: 1 });
   });
 });
 

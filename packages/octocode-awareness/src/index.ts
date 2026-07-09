@@ -10,7 +10,12 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 // DB layer
-export { connectDb, connectCachedDb, initDb, memoryHome, resolveDbPath, hasFts, tableColumns, replaceMemoryReferences, referenceKind, evictExpiredLocks, checkpointWal } from './db.js';
+export {
+  connectDb, connectCachedDb, initDb, memoryHome, resolveDbPath, hasFts, tableColumns,
+  replaceMemoryReferences, referenceKind, evictExpiredLocks, checkpointWal,
+  getDeliveryFingerprint, setDeliveryFingerprint,
+} from './db.js';
+export type { DeliveryFingerprintKey } from './db.js';
 
 // Memory operations
 export { insertMemory, getMemory, bumpAccess, lexicalSearch, decayScore, findSimilarMemories, mineWeakness, forgetMemory, storeEmbedding, searchByEmbedding, loadMemoriesByIds } from './memory.js';
@@ -24,6 +29,9 @@ export type { DeleteRefinementResult } from './refinements.js';
 
 // Intents / file locks
 export { preFlightIntent, releaseFileLock, fileLock } from './intents.js';
+
+// Advisory file presence + optional sensitive exclusivity
+export { startWork, touchWork, endWork, listWork, showWork } from './work.js';
 
 // Collaborative plans and durable plan tasks
 export { createPlan, getPlan, listPlans, joinPlan, registerPlanDocument, updatePlanStatus } from './plans.js';
@@ -140,7 +148,11 @@ export type {
   ReleaseFileLockParams, ReleaseFileLockResult, FileLockParams, FileLockResult, FileLockStatusEntry,
   ReflectParams, ReflectResult,
   Scope, ScopePartial,
-  MemoryState, LockType, RunStatus, RefinementQuality, RefinementState, ReflectionOutcome,
+  MemoryState, LockType, RunStatus, RunOrigin, WorkSource,
+  RefinementQuality, RefinementState, ReflectionOutcome,
+  StartWorkParams, StartWorkResult, TouchWorkParams, EndWorkParams,
+  WorkMutationResult, ListWorkParams, ListWorkResult,
+  WorkRunRecord, WorkFileRecord, WorkPresence, WorkPeer, WorkConflict,
   // New types
   ForgetMemoryParams, ForgetMemoryResult,
   WaitForLockParams,

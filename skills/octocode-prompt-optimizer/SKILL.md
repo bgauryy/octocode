@@ -1,49 +1,48 @@
 ---
 name: octocode-prompt-optimizer
-description: "Use when prompts, SKILL.md, AGENTS.md, or agent instructions need optimization, gates, enforcement, or reliability fixes."
+description: "Use when prompts, SKILL.md, AGENTS.md, agent tool guidance, MCP instructions, or schemas need optimization, prompt techniques, gates, enforcement, prompt caching, token-efficiency, or reliability fixes."
 ---
 
-# Prompt Optimizer
-Improve instructional prompts, docs, and agent instructions with prompt-engineering best practices — strengthen enforcement, add gates and output formats, shorten wording — while preserving the original intent.
+# Prompt Optimizer — explicit, testable, context-efficient instructions
 
-## When to use
-- Creating or improving a prompt, `SKILL.md`, or `AGENTS.md`.
-- An agent skips steps, ignores instructions, or outputs inconsistently.
-- Instructions lack enforcement, gates, or a defined output format.
-- Text is verbose and could say the same thing in fewer tokens.
+## Use when
+- Creating or improving prompts, `SKILL.md`, `AGENTS.md`, agent instructions, or MCP guidance.
+- Agents skip steps, choose the wrong tool, misuse a schema, or return inconsistent results.
+- Tool results or context are bloated, unpaged, unsafe, or hard to act on.
+- You need a behavior change backed by evaluation data rather than prompt intuition.
 
-## Core flow
-`READ → UNDERSTAND → RATE → FIX → VALIDATE → OUTPUT` — one gate per step; pass each gate before the next.
+## Path
+`READ → UNDERSTAND → RATE → FIX → VALIDATE → OUTPUT`; pass each gate before the next.
 
 | Step | Gate output before proceeding |
-|------|-------------------------------|
-| READ | Whole input read; type + line count noted |
-| UNDERSTAND | Goal, logical parts, and flow documented; unknowns asked |
-| RATE | Issues table with severities + best-practices score produced |
-| FIX | All Critical + High issues fixed in priority order |
-| VALIDATE | Every required check passes; intent unchanged |
-| OUTPUT | Chosen output variant + change summary emitted |
+|---|---|
+| READ | Whole input read; type and line count noted |
+| UNDERSTAND | Goal, parts, flow, assumptions, and unknowns mapped |
+| RATE | Evidenced issues, severity, and baseline score |
+| FIX | Critical/High fixes plus deliberate deferrals |
+| VALIDATE | Required checks pass; intent unchanged |
+| OUTPUT | Requested variant and truthful change summary |
 
-Mode: use **Full Path** (every gate separate) for multi-section, ambiguous, or high-risk prompts; **Fast Path** (READ+UNDERSTAND and RATE+FIX may combine) for short, low-risk ones. When unsure, use Full Path. VALIDATE and intent-preservation are never skipped.
+Use Full Path for multi-section, ambiguous, tool-facing, or high-risk work; Fast Path may combine READ+UNDERSTAND and RATE+FIX only for short, low-risk text. Never skip VALIDATE.
 
-## Tooling
-When the prompt cites commands, flags, file paths, tool names, or schemas, verify them before rewriting.
-If verification needs Octocode-backed code, package, GitHub, or tool research, use `octocode-research` when installed. If missing, use https://github.com/bgauryy/octocode/tree/main/skills/octocode-research or install with `npx octocode skill --name octocode-research`; otherwise use host tools and flag unverified claims.
+## Targeted workflows
+| Situation | Load and do |
+|---|---|
+| Tool/MCP/agent contract | Tool metadata/results → `tool-contracts.md`; agent handoff → `agent-communication.md`; TypeScript/Zod boundary → `zod-agent-contracts.md`. |
+| Large context/output | Budget high-signal context, filter before returning, expose continuation, and summarize handoffs; load `context-budget.md` or `prompt-caching.md`. |
+| Reliability change | Create realistic, held-out scenarios, verifiers, metrics, and a failure ledger; load `evaluation-data.md`. |
+| Retrieved/untrusted content | Separate data from instructions, declare trust boundaries, and never elevate tool text into authority; load `untrusted-content.md`. |
 
 ## Non-negotiables
-- Preserve working logic and intent — never alter what the prompt does without user approval.
-- Follow the gates in order; never skip a gate, checkbox, or VALIDATE.
-- Strengthen only critical rules; keep "should/prefer" for genuinely optional guidance.
-- Density over length: cut only no-signal tokens; keep exact commands, versions, triggers, and structure.
-- Do not bloat: target under 10% line increase; justify any overage in VALIDATE.
-- Write only after VALIDATE passes; if review-only or no safe write tool exists, return the optimized text or a patch-style delta and state that no files changed.
+- Preserve intent, working branches, identifiers, commands, and required metadata; ask before changing them.
+- Verify cited commands, flags, paths, tool names, and schemas before rewriting; flag unverified claims.
+- Make only critical behavior mandatory; retain `should`/`prefer` for real preferences.
+- Apply external/file changes only after VALIDATE and with authority; otherwise return a complete rewrite or patch-style delta.
 
 ## Reference map
-- `references/gates.md` — when running the READ and UNDERSTAND gates.
-- `references/rate.md` — when rating: issue categories plus the weak-word reference.
-- `references/fix.md` — when fixing: command strength, Triple Lock, reasoning block, gate template, conciseness pass.
-- `references/conciseness-toolkit.md` — when shortening a wordy or indirect line without losing logic.
-- `references/attention.md` — when sharpening word choice, isolating a span with section tags (`<example>`), or ordering so critical rules land where attention peaks.
-- `references/validate.md` — when validating all fixes before output.
-- `references/output.md` — when formatting the final document and change report.
-- `references/patterns.md` — when resolving conflicts or choosing high-value instruction patterns.
+- [`gates`](references/gates.md), [`rate`](references/rate.md), [`fix`](references/fix.md), [`validate`](references/validate.md), [`output`](references/output.md) — when executing the core path; load only the current gate.
+- [`conciseness-toolkit`](references/conciseness-toolkit.md), [`attention`](references/attention.md), [`patterns`](references/patterns.md), [`prompt-techniques`](references/prompt-techniques.md) — when selecting a technique or improving clarity, hierarchy, or conflicting instructions.
+- [`tool-contracts`](references/tool-contracts.md), [`agent-communication`](references/agent-communication.md), [`zod-agent-contracts`](references/zod-agent-contracts.md) — when optimizing tool metadata/results, agent handoffs, or TypeScript/Zod packets respectively.
+- [`context-budget`](references/context-budget.md), [`prompt-caching`](references/prompt-caching.md) — when tool input/output, retrieval, pagination, compaction, handoffs, or repeated prompt prefixes need token discipline.
+- [`evaluation-data`](references/evaluation-data.md) — when validating prompt/tool changes with scenarios, verifiers, metrics, and failure evidence.
+- [`untrusted-content`](references/untrusted-content.md) — when prompts consume search results, files, tool output, web content, or user-provided instructions.

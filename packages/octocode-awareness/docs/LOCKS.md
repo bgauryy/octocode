@@ -1,149 +1,125 @@
-# File Locks And Verification
+# File Work, Exclusive Locks, And Verification
 
-File locks prevent overlapping agents from silently editing the same exact file. Locks belong to execution runs, not directly to durable plan tasks.
+File awareness and file exclusion are different operations:
 
-## Two Valid Flows
+- `work *` is mandatory advisory presence. Multiple agents may share a file.
+- `lock *` is optional exclusive protection for sensitive work.
+- verification proves the promised check; ending presence or expiring a lock does not.
 
-Quick edit—no plan or task required:
-
-```text
-lock acquire -> standalone task_run -> edit -> lock release PENDING -> verify mark
-```
-
-Collaborative task:
-
-```text
-task claim -> linked ACTIVE task_run -> lock/edit/release locks as needed
-           -> task submit -> run PENDING + task VERIFY -> verify mark -> task DONE|FAILED
-```
-
-Task paths communicate a broad ownership boundary. File locks remain the exact collision authority.
-
-## Run State
-
-```text
-ACTIVE -> PENDING -> SUCCESS
-              \----> FAILED
-```
-
-Unverified `SUCCESS` is downgraded to `PENDING`. “I stopped editing” and “I ran the promised check” are separate facts.
-
-## Standalone Acquire
+## Ordinary Work
 
 ```bash
-octocode-awareness lock acquire \
-  --agent-id "$OCTOCODE_AGENT_ID" \
-  --workspace "$PWD" \
-  --rationale "Edit awareness docs" \
-  --test-plan "git diff --check && yarn workspace @octocodeai/octocode-awareness build" \
-  --target-file packages/octocode-awareness/docs/DB.md \
-  --compact
+octocode-awareness work start --agent-id "$OCTOCODE_AGENT_ID" \
+  --workspace "$PWD" --file src/auth.ts \
+  --rationale "refactor token refresh" --test-plan "yarn test auth" --compact
 ```
 
-This atomically evicts expired locks, checks conflicts, creates a standalone `task_runs` row (`task_id = NULL`), and inserts one lock per target file under `BEGIN IMMEDIATE`.
-
-At least one target is required. `EXCLUSIVE` conflicts with every other agent's live lock on that file; `SHARED` conflicts with `EXCLUSIVE`.
-
-## Attach To A Claimed Task
-
-`task claim` returns a `run_id`. Explicit callers can attach edits:
+This creates an explicit `origin=WORK` run when `--run-id` is absent, then upserts
+`run_files`. Add files to the same explicit run:
 
 ```bash
-octocode-awareness lock acquire \
-  --agent-id "$OCTOCODE_AGENT_ID" \
-  --run-id run_abc \
-  --target-file src/a.ts \
-  --compact
+octocode-awareness work start --agent-id "$OCTOCODE_AGENT_ID" \
+  --run-id run_abc --file src/session.ts --compact
+octocode-awareness work touch --agent-id "$OCTOCODE_AGENT_ID" \
+  --run-id run_abc --compact
 ```
 
-Installed hooks do this automatically when the same agent has exactly one live task claim in the workspace. Post-edit releases the exact locks but keeps the linked run `ACTIVE`; `task submit` creates the verification obligation. If zero or multiple task claims match, hooks avoid guessing.
+Task-backed callers pass the run returned by `task claim`. Hooks do this automatically
+when exactly one live task claim applies.
 
-## Wait And Release
+Ordinary overlap succeeds. `work start`/pre-edit returns bounded peer changes with
+agent, task/run, short reason, and exclusive state. Use full detail only when needed:
 
 ```bash
-octocode-awareness lock wait \
-  --agent-id "$OCTOCODE_AGENT_ID" \
-  --target-file src/index.ts \
-  --wait-seconds 120 --retry-interval 5 --compact
+octocode-awareness work show --workspace "$PWD" --file src/auth.ts --compact
+octocode-awareness work list --workspace "$PWD" --compact
 ```
 
-Wait checks only; it does not claim. Acquire immediately after a clear result.
+## Sensitive Exclusive Work
+
+Open explicit work with `--exclusive`:
 
 ```bash
-octocode-awareness lock release \
-  --agent-id "$OCTOCODE_AGENT_ID" \
-  --run-id run_abc \
-  --status PENDING \
-  --compact
+octocode-awareness work start --agent-id "$OCTOCODE_AGENT_ID" \
+  --workspace "$PWD" --file migrations/001.sql \
+  --rationale "change account schema" --test-plan "yarn test migrations" \
+  --exclusive --compact
 ```
 
-Target-file release is allowed, but overlapping runs from the same agent can make it ambiguous. Prefer `--run-id`.
+Or upgrade a known task/run with `lock acquire`. Locks are exclusive-only; SHARED
+locks no longer exist.
 
-Terminal `lock release` states apply only to standalone runs. A task-linked run accepts `--status ACTIVE` for interim file release; use `task submit` or `task release` for its lifecycle. The CLI rejects terminal lock release on linked runs.
+Conflict law:
 
-For a verified standalone edit, release can close directly:
-
-```bash
-octocode-awareness lock release \
-  --agent-id "$OCTOCODE_AGENT_ID" \
-  --run-id run_abc \
-  --status SUCCESS --verified \
-  --verified-note "markdown checks passed" --compact
-```
-
-## Verify
-
-```bash
-octocode-awareness verify audit \
-  --agent-id "$OCTOCODE_AGENT_ID" --workspace "$PWD" --compact
-
-octocode-awareness verify mark \
-  --agent-id "$OCTOCODE_AGENT_ID" --run-id run_abc \
-  --message "focused tests passed" --compact
-```
-
-`verify mark` updates a pending run and writes `run_log`. If the run is linked to a task in `VERIFY`, it also writes `task_events` and moves that task to `DONE` or `FAILED`.
-
-Scoped `--all-pending` closes this agent's pending runs in the workspace. Unscoped `--all-pending` spans all workspaces and emits a warning.
-
-## TTL And Prune
-
-File-lock TTL is hard-capped at 10 minutes. It recovers from crashes; it does not prove work ended.
-If a standalone run's locks already expired, explicit `lock release --run-id ...` can still close that run after real verification.
-
-```bash
-octocode-awareness lock prune \
-  --workspace "$PWD" --expired-only --dry-run --compact
-```
-
-Pruning removes locks and moves an orphaned `ACTIVE` run to `PENDING`; it never manufactures success. Task claim leases are separate (default 30 minutes, max 60) and use `task heartbeat`.
-
-## Conflict Packet
-
-Acquire conflict exits `2` and returns:
-
-```json
-{
-  "file_path": "/repo/src/auth.ts",
-  "lock_type": "EXCLUSIVE",
-  "agent_id": "agent-a",
-  "reasoning": "refactoring auth token flow",
-  "test_plan": "yarn test auth",
-  "run_id": "run_...",
-  "session_id": "sess-...",
-  "holder_session_active": true,
-  "acquired_at": "...",
-  "expires_at": "..."
-}
-```
-
-Read the holder's reason, then wait, signal the holder with the `run_id`, switch to another ready task/file, or prune only after expiry. Do not bypass a live lock.
-
-## Hook Effects
-
-| Hook | Standalone flow | Claimed-task flow |
+| Request | Other state | Result |
 |---|---|---|
-| pre-edit | Creates run + locks | Reuses claimed run + adds locks |
-| post-edit | Removes locks; run becomes `PENDING` | Removes locks; run stays `ACTIVE` |
-| stop-verify | Blocks on pending/stale runs | Blocks after task submission until verify |
-| session-end | Captures active/pending runs and dirty files | Same, retaining linked task/run ids |
+| Advisory presence | Advisory presence | Allowed; peers shown |
+| Advisory presence | Exclusive lock | Blocked before presence is created |
+| Exclusive lock | Other live presence | Blocked; coordinate first |
+| Exclusive lock | Same run presence | Allowed/renewed |
+
+Exit `2` means a real conflict or bounded wait timeout. Read the holder/reason, then
+signal, wait, switch work, or prune only after expiry. Never steal live exclusivity.
+
+```bash
+octocode-awareness lock wait --agent-id "$OCTOCODE_AGENT_ID" \
+  --target-file migrations/001.sql --wait-seconds 120 --compact
+```
+
+Wait observes only; acquire after a clear result.
+
+## Ending Work
+
+Explicit work:
+
+```bash
+octocode-awareness work end --agent-id "$OCTOCODE_AGENT_ID" \
+  --run-id run_abc --compact
+# run the declared check
+octocode-awareness verify mark --agent-id "$OCTOCODE_AGENT_ID" \
+  --run-id run_abc --message "auth tests passed" --compact
+```
+
+`work end` closes run-file presence, releases its locks, and moves a completed
+standalone WORK run to `PENDING`. A TASK run must use `task submit` or `task release`.
+
+```bash
+octocode-awareness task submit --task-id task_abc --run-id run_abc \
+  --agent-id "$OCTOCODE_AGENT_ID" --message "ready for verification" --compact
+octocode-awareness verify mark --run-id run_abc \
+  --agent-id "$OCTOCODE_AGENT_ID" --message "acceptance checks passed" --compact
+```
+
+Successful verification moves the linked task to `DONE`; failure moves it to
+`FAILED`. `verify audit` is the final gate. Scope `--all-pending` by workspace.
+
+## Automatic Hook Fallback
+
+If no task claim or explicit WORK presence matches a structured write, pre-edit
+creates an isolated `origin=HOOK` run. Post-edit logs the edit, closes that presence,
+and moves the run to `PENDING`. Hooks never merge unrelated writes by host session.
+
+## TTL And Cleanup
+
+Presence and lock TTL recover from crashes. Heartbeat extends active work. Expiry:
+
+- makes stale presence inactive;
+- removes stale exclusive protection;
+- never marks work successful;
+- never moves a live TASK claim to `PENDING`.
+
+Task claim lease is separate and refreshed with `task heartbeat`. Claim expiry closes
+the run's presence/locks, fails that attempt, and returns the task to `OPEN`.
+
+Preview cleanup:
+
+```bash
+octocode-awareness lock prune --workspace "$PWD" --expired-only --dry-run --compact
+```
+
+## Path Coverage
+
+Write-tool hooks declare recognized paths before editing. External processes and
+arbitrary shell side effects may not be observable in real time; session/dirty-tree
+reconciliation reports undeclared files. Without active hooks, agents must call
+`work start|touch` explicitly.

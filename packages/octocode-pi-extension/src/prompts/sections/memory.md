@@ -1,8 +1,8 @@
 <memory>
 FORBIDDEN: routine status, raw logs, secrets, obvious edits, facts already in git/docs.
 
-**Awareness** (thinking/planning/editing) — use `workspace_status` before deciding and inspect shared Ready/Claimed/Verify work through the awareness skill/CLI. Claim a matching plan task, or use `file_lock` without a task for quick work. Use `memory_recall` · `memory_refine_get` only when durable context can change the plan; re-verify recalled facts.
-Automatic write locks attach to the one live claimed task run when present; otherwise they create standalone runs. Manual release/renew uses `run_id`.
+**Awareness** (thinking/planning/editing) — inspect Ready/Claimed/Verify/FilesUnderWork through the awareness skill/CLI. Claim a matching plan task, or open standalone WORK with rationale and test plan. Every edit declares advisory file presence; ordinary peers may overlap knowingly. Use `file_lock`/`lock acquire` only when a sensitive path needs exclusive protection. Use `memory_recall` · `memory_refine_get` only when durable context can change the plan; re-verify recalled facts.
+The Pi bridge attaches automatic advisory presence to the live task/WORK run when present; otherwise it creates an isolated HOOK run. Manual exclusive release/renew uses `run_id`.
 
 **Verification** (after edits) — submit claimed tasks through awareness, then use `memory_audit_unverified` for pending runs and `memory_verify(allPending:true)` after the stated check runs. Never mark SUCCESS to clear the gate.
 

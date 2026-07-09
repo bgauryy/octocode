@@ -6,9 +6,9 @@ process.on('warning', (w) => {
 });
 
 // bin/hook-runner.ts
-import { createHash as createHash2 } from "node:crypto";
+import { createHash as createHash3 } from "node:crypto";
 import { mkdirSync as mkdirSync2, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
-import { basename as basename2, dirname as dirname3, join as join3, resolve as resolve7 } from "node:path";
+import { basename as basename2, dirname as dirname3, join as join3, relative as relative2, resolve as resolve7 } from "node:path";
 import { fileURLToPath } from "node:url";
 
 // src/helpers.ts
@@ -191,6 +191,9 @@ import { join as join2, resolve as resolve3, dirname as dirname2 } from "node:pa
 import { homedir, platform } from "node:os";
 var DEFAULT_DB_NAME = "awareness.sqlite3";
 var MEMORY_HOME_ENV = "OCTOCODE_MEMORY_HOME";
+var SQLITE_BUSY_RETRY_MS = 25;
+var SQLITE_BUSY_DEADLINE_MS = 1e4;
+var SQLITE_WAIT = new Int32Array(new SharedArrayBuffer(4));
 var _db;
 function memoryHome() {
   const configured = process.env[MEMORY_HOME_ENV];
@@ -212,18 +215,52 @@ function resolveDbPath(dbArg) {
 function connectDb(dbPath) {
   mkdirSync(dirname2(dbPath), { recursive: true });
   const db2 = new DatabaseSync(dbPath);
-  db2.exec("PRAGMA foreign_keys = ON");
-  db2.exec("PRAGMA busy_timeout = 5000");
-  db2.exec("PRAGMA journal_mode = WAL");
-  initDb(db2);
-  _db = db2;
-  return db2;
+  try {
+    db2.exec(`PRAGMA busy_timeout = ${SQLITE_BUSY_DEADLINE_MS}`);
+    withSqliteBusyRetry(() => db2.exec("PRAGMA journal_mode = WAL"));
+    db2.exec("PRAGMA foreign_keys = ON");
+    initDb(db2);
+    _db = db2;
+    return db2;
+  } catch (error) {
+    db2.close();
+    throw error;
+  }
+}
+function isSqliteBusy(error) {
+  if (!(error instanceof Error)) return false;
+  const sqlite = error;
+  return sqlite.errcode === 5 || /database is (?:locked|busy)/i.test(`${sqlite.errstr ?? ""} ${error.message}`);
+}
+function withSqliteBusyRetry(operation) {
+  const deadline = Date.now() + SQLITE_BUSY_DEADLINE_MS;
+  for (; ; ) {
+    try {
+      return operation();
+    } catch (error) {
+      if (!isSqliteBusy(error) || Date.now() >= deadline) throw error;
+      Atomics.wait(SQLITE_WAIT, 0, 0, SQLITE_BUSY_RETRY_MS);
+    }
+  }
 }
 function checkpointWal(db2) {
   try {
     db2.exec("PRAGMA wal_checkpoint(TRUNCATE)");
   } catch {
   }
+}
+function getDeliveryFingerprint(db2, key) {
+  const row = db2.prepare(`SELECT fingerprint FROM delivery_state
+    WHERE consumer_id = ? AND channel = ? AND scope_key = ?`).get(key.consumerId, key.channel, key.scopeKey);
+  return row?.fingerprint ?? null;
+}
+function setDeliveryFingerprint(db2, params) {
+  db2.prepare(`INSERT INTO delivery_state
+      (consumer_id, channel, scope_key, fingerprint, delivered_at)
+    VALUES (?, ?, ?, ?, ?)
+    ON CONFLICT(consumer_id, channel, scope_key) DO UPDATE SET
+      fingerprint = excluded.fingerprint,
+      delivered_at = excluded.delivered_at`).run(params.consumerId, params.channel, params.scopeKey, params.fingerprint, params.deliveredAt ?? utcNow());
 }
 var SCHEMA_DDL = `
     CREATE TABLE IF NOT EXISTS sessions (
@@ -332,6 +369,7 @@ var SCHEMA_DDL = `
     CREATE TABLE IF NOT EXISTS task_runs (
       run_id         TEXT PRIMARY KEY,
       task_id        TEXT REFERENCES tasks(task_id) ON DELETE SET NULL,
+      origin         TEXT NOT NULL DEFAULT 'TASK' CHECK(origin IN ('TASK','WORK','HOOK')),
       agent_id       TEXT NOT NULL,
       session_id     TEXT REFERENCES sessions(session_id) ON DELETE SET NULL,
       rationale      TEXT NOT NULL,
@@ -341,9 +379,20 @@ var SCHEMA_DDL = `
                      CHECK(status IN ('PENDING','ACTIVE','SUCCESS','FAILED')),
       workspace_path TEXT,
       artifact       TEXT,
-      files_json     TEXT NOT NULL DEFAULT '[]',
       created_at     TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
       updated_at     TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS run_files (
+      run_id         TEXT NOT NULL REFERENCES task_runs(run_id) ON DELETE CASCADE,
+      file_path      TEXT NOT NULL,
+      reason_override TEXT,
+      source         TEXT NOT NULL CHECK(source IN ('EXPLICIT','HOOK')),
+      started_at     TEXT NOT NULL,
+      heartbeat_at   TEXT NOT NULL,
+      expires_at     TEXT NOT NULL,
+      ended_at       TEXT,
+      PRIMARY KEY(run_id, file_path)
     );
 
     CREATE TABLE IF NOT EXISTS task_claims (
@@ -368,14 +417,19 @@ var SCHEMA_DDL = `
     CREATE TABLE IF NOT EXISTS locks (
       lock_id     TEXT PRIMARY KEY,
       file_path   TEXT NOT NULL,
-      run_id      TEXT NOT NULL,
-      agent_id    TEXT NOT NULL,
-      session_id  TEXT,
-      lock_type   TEXT NOT NULL CHECK(lock_type IN ('SHARED','EXCLUSIVE')),
+      run_id      TEXT NOT NULL REFERENCES task_runs(run_id) ON DELETE CASCADE,
       acquired_at TEXT NOT NULL,
       expires_at  TEXT,
-      FOREIGN KEY(run_id) REFERENCES task_runs(run_id) ON DELETE CASCADE,
       UNIQUE(file_path, run_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS delivery_state (
+      consumer_id TEXT NOT NULL,
+      channel     TEXT NOT NULL,
+      scope_key   TEXT NOT NULL,
+      fingerprint TEXT NOT NULL,
+      delivered_at TEXT NOT NULL,
+      PRIMARY KEY(consumer_id, channel, scope_key)
     );
 
     CREATE TABLE IF NOT EXISTS run_log (
@@ -504,37 +558,50 @@ function migrateLegacyTaskRuns(db2) {
   if (tableExists(db2, "task_runs")) {
     throw new Error("schema migration cannot move legacy tasks: task_runs already exists");
   }
+  for (const index of ["idx_tasks_status", "idx_tasks_agent_status", "idx_tasks_workspace", "idx_tasks_scope"]) {
+    db2.exec(`DROP INDEX IF EXISTS ${index}`);
+  }
+  db2.exec("ALTER TABLE tasks RENAME TO task_runs");
+  renameColumnIfPresent(db2, "task_runs", "task_id", "run_id");
+  renameColumnIfPresent(db2, "task_runs", "plan_doc_ref", "context_ref");
+  renameColumnIfPresent(db2, "locks", "task_id", "run_id");
+  if (tableExists(db2, "task_log") && !tableExists(db2, "run_log")) {
+    db2.exec("ALTER TABLE task_log RENAME TO run_log");
+  }
+  renameColumnIfPresent(db2, "run_log", "task_id", "run_id");
+  renameColumnIfPresent(db2, "edit_log", "task_id", "run_id");
+  renameColumnIfPresent(db2, "harness_log", "task_id", "run_id");
+}
+function initDb(db2) {
+  if (db2.isTransaction) {
+    initDbSchema(db2);
+    return;
+  }
   db2.exec("PRAGMA foreign_keys = OFF");
-  db2.exec("BEGIN IMMEDIATE");
+  let began = false;
   try {
-    for (const index of ["idx_tasks_status", "idx_tasks_agent_status", "idx_tasks_workspace", "idx_tasks_scope"]) {
-      db2.exec(`DROP INDEX IF EXISTS ${index}`);
-    }
-    db2.exec("ALTER TABLE tasks RENAME TO task_runs");
-    renameColumnIfPresent(db2, "task_runs", "task_id", "run_id");
-    renameColumnIfPresent(db2, "task_runs", "plan_doc_ref", "context_ref");
-    renameColumnIfPresent(db2, "locks", "task_id", "run_id");
-    if (tableExists(db2, "task_log") && !tableExists(db2, "run_log")) {
-      db2.exec("ALTER TABLE task_log RENAME TO run_log");
-    }
-    renameColumnIfPresent(db2, "run_log", "task_id", "run_id");
-    renameColumnIfPresent(db2, "edit_log", "task_id", "run_id");
-    renameColumnIfPresent(db2, "harness_log", "task_id", "run_id");
+    withSqliteBusyRetry(() => db2.exec("BEGIN IMMEDIATE"));
+    began = true;
+    initDbSchema(db2);
     db2.exec("COMMIT");
+    began = false;
   } catch (error) {
-    try {
-      db2.exec("ROLLBACK");
-    } catch {
+    if (began) {
+      try {
+        db2.exec("ROLLBACK");
+      } catch {
+      }
     }
     throw error;
   } finally {
     db2.exec("PRAGMA foreign_keys = ON");
   }
 }
-function initDb(db2) {
+function initDbSchema(db2) {
   migrateLegacyTaskRuns(db2);
   db2.exec(SCHEMA_DDL);
   migrateExistingTables(db2);
+  migrateExecutionSchemaV3(db2);
   migrateRefinementQualityConstraint(db2);
   migrateCheckConstraints(db2);
   db2.exec(`
@@ -567,11 +634,14 @@ function initDb(db2) {
     CREATE INDEX IF NOT EXISTS idx_task_runs_scope      ON task_runs(workspace_path, artifact);
     CREATE INDEX IF NOT EXISTS idx_task_events_task     ON task_events(task_id, created_at);
 
+    CREATE INDEX IF NOT EXISTS idx_run_files_path_active ON run_files(file_path, ended_at, expires_at);
+    CREATE INDEX IF NOT EXISTS idx_run_files_heartbeat   ON run_files(heartbeat_at);
+
     CREATE INDEX IF NOT EXISTS idx_locks_file_path   ON locks(file_path);
-    CREATE INDEX IF NOT EXISTS idx_locks_agent_id    ON locks(agent_id);
     CREATE INDEX IF NOT EXISTS idx_locks_acquired_at ON locks(acquired_at);
     CREATE INDEX IF NOT EXISTS idx_locks_expires_at  ON locks(expires_at);
-    CREATE INDEX IF NOT EXISTS idx_locks_session_id  ON locks(session_id);
+
+    CREATE INDEX IF NOT EXISTS idx_delivery_state_delivered ON delivery_state(delivered_at);
 
     CREATE INDEX IF NOT EXISTS idx_refinements_state         ON refinements(state);
     CREATE INDEX IF NOT EXISTS idx_refinements_scope         ON refinements(workspace_path, artifact);
@@ -618,7 +688,7 @@ function initDb(db2) {
     const row = db2.prepare("SELECT COUNT(*) AS cnt FROM memories_fts").get();
     if (row.cnt === 0) rebuildFts(db2);
   }
-  db2.exec("PRAGMA user_version = 2");
+  db2.exec("PRAGMA user_version = 3");
 }
 function tableColumns(db2, tableName) {
   const rows = db2.prepare(`PRAGMA table_info(${tableName})`).all();
@@ -658,6 +728,49 @@ function migrateExistingTables(db2) {
       }
       db2.exec(`ALTER TABLE ${table} ADD COLUMN ${clause}`);
     }
+  }
+}
+function migrateExecutionSchemaV3(db2) {
+  if (!tableExists(db2, "task_runs")) return;
+  const runColumns = tableColumns(db2, "task_runs");
+  const lockColumns = tableExists(db2, "locks") ? tableColumns(db2, "locks") : /* @__PURE__ */ new Set();
+  const needsRunRebuild = runColumns.has("files_json");
+  const needsLockRebuild = ["agent_id", "session_id", "lock_type"].some((name) => lockColumns.has(name));
+  if (!needsRunRebuild && !needsLockRebuild) return;
+  if (needsRunRebuild) {
+    const rows = db2.prepare(`SELECT run_id, task_id, status, files_json, created_at, updated_at
+      FROM task_runs`).all();
+    const insert = db2.prepare(`INSERT OR IGNORE INTO run_files
+      (run_id, file_path, reason_override, source, started_at, heartbeat_at, expires_at, ended_at)
+      VALUES (?, ?, NULL, ?, ?, ?, ?, ?)`);
+    const now = utcNow();
+    for (const row of rows) {
+      const source = row.task_id == null ? "HOOK" : "EXPLICIT";
+      const startedAt = row.created_at ?? now;
+      const heartbeatAt = row.updated_at ?? startedAt;
+      for (const filePath of parseJsonList(row.files_json)) {
+        const lease = db2.prepare(`SELECT MAX(expires_at) AS expires_at FROM (
+          SELECT expires_at FROM locks WHERE run_id = ? AND file_path = ?
+          UNION ALL
+          SELECT expires_at FROM task_claims WHERE run_id = ?
+        )`).get(row.run_id, filePath, row.run_id);
+        const expiresAt = lease.expires_at ?? heartbeatAt;
+        const active = row.status === "ACTIVE" && expiresAt > now;
+        insert.run(row.run_id, filePath, source, startedAt, heartbeatAt, expiresAt, active ? null : heartbeatAt);
+      }
+    }
+    db2.prepare(`UPDATE task_runs SET origin = CASE
+      WHEN task_id IS NOT NULL THEN 'TASK' ELSE 'HOOK' END`).run();
+  }
+  if (needsRunRebuild) {
+    const sql = canonicalTableSql().get("task_runs");
+    if (!sql) throw new Error("schema migration cannot find canonical task_runs DDL");
+    rebuildTableFromCanonical(db2, "task_runs", sql);
+  }
+  if (needsLockRebuild) {
+    const sql = canonicalTableSql().get("locks");
+    if (!sql) throw new Error("schema migration cannot find canonical locks DDL");
+    rebuildTableFromCanonical(db2, "locks", sql);
   }
 }
 var _canonicalTableSql;
@@ -723,12 +836,7 @@ function migrateCheckConstraints(db2) {
     if (checkClauses(live.sql) !== checkClauses(canonSql)) drifted.push([table, canonSql]);
   }
   if (drifted.length === 0) return;
-  db2.exec("PRAGMA foreign_keys = OFF");
-  try {
-    for (const [table, canonSql] of drifted) rebuildTableFromCanonical(db2, table, canonSql);
-  } finally {
-    db2.exec("PRAGMA foreign_keys = ON");
-  }
+  for (const [table, canonSql] of drifted) rebuildTableFromCanonical(db2, table, canonSql);
 }
 function migrateRefinementQualityConstraint(db2) {
   const row = db2.prepare(
@@ -830,353 +938,15 @@ function rebuildFts(db2) {
     throw e;
   }
 }
-function evictExpiredLocks(db2) {
-  const now = utcNow();
-  const stale = db2.prepare(
-    "SELECT COUNT(*) AS c FROM locks WHERE expires_at IS NOT NULL AND expires_at <= ?"
-  ).get(now);
-  if (stale.c === 0) return { pruned_locks: 0, updated_runs: 0 };
-  db2.exec("SAVEPOINT evict_expired_locks");
-  try {
-    db2.exec("CREATE TEMP TABLE IF NOT EXISTS temp_expired_lock_runs(run_id TEXT PRIMARY KEY)");
-    db2.exec("DELETE FROM temp_expired_lock_runs");
-    db2.prepare(
-      `INSERT OR IGNORE INTO temp_expired_lock_runs(run_id)
-       SELECT run_id FROM locks WHERE expires_at IS NOT NULL AND expires_at <= ?`
-    ).run(now);
-    const deleteRes = db2.prepare(
-      "DELETE FROM locks WHERE expires_at IS NOT NULL AND expires_at <= ?"
-    ).run(now);
-    const updateRes = db2.prepare(
-      `UPDATE task_runs
-       SET status = 'PENDING', updated_at = ?
-       WHERE status = 'ACTIVE'
-         AND run_id IN (SELECT run_id FROM temp_expired_lock_runs)
-         AND NOT EXISTS (SELECT 1 FROM locks WHERE locks.run_id = task_runs.run_id)`
-    ).run(now);
-    db2.exec("DELETE FROM temp_expired_lock_runs");
-    db2.exec("RELEASE SAVEPOINT evict_expired_locks");
-    return { pruned_locks: deleteRes.changes, updated_runs: updateRes.changes };
-  } catch (e) {
-    try {
-      db2.exec("ROLLBACK TO SAVEPOINT evict_expired_locks");
-    } catch {
-    }
-    try {
-      db2.exec("RELEASE SAVEPOINT evict_expired_locks");
-    } catch {
-    }
-    throw e;
-  }
-}
-
-// src/intents.ts
-import { randomUUID as randomUUID2 } from "node:crypto";
-import { isAbsolute, resolve as resolve4 } from "node:path";
-var MAX_LOCK_TTL_MS = 10 * 6e4;
-var VALID_RELEASE_STATUSES = /* @__PURE__ */ new Set(["PENDING", "ACTIVE", "SUCCESS", "FAILED"]);
-function effectiveTtlMs(ttlMs) {
-  return Math.min(Math.max(1, ttlMs ?? MAX_LOCK_TTL_MS), MAX_LOCK_TTL_MS);
-}
-function expiresAtFromNow(ttlMs) {
-  return new Date(Date.now() + effectiveTtlMs(ttlMs)).toISOString().replace(/\.\d{3}Z$/, "Z");
-}
-function workspaceScopeRoot(workspacePath) {
-  const candidate = workspacePath ?? process.cwd();
-  return normalizeWorkspacePath(candidate, candidate) ?? resolve4(candidate);
-}
-function workspaceFileBase(workspacePath) {
-  return workspacePath ? resolve4(workspacePath) : process.cwd();
-}
-function resolveTargetFiles(targetFiles = [], workspacePath) {
-  const root = workspaceFileBase(workspacePath);
-  return targetFiles.map((file) => isAbsolute(file) ? resolve4(file) : resolve4(root, file));
-}
-function preFlightIntent(db2, params) {
-  const {
-    agentId: agentId2 = "agent",
-    sessionId: sessionId2 = null,
-    workspacePath,
-    artifact: artifact2,
-    runId: requestedRunId = null,
-    rationale = "agent write operation",
-    testPlan = "post-edit verification",
-    contextRef = null,
-    targetFiles = [],
-    lockType = "EXCLUSIVE",
-    ttlMs = MAX_LOCK_TTL_MS
-  } = params;
-  const runId = requestedRunId ?? `run_${randomUUID2().replace(/-/g, "")}`;
-  const now = utcNow();
-  const wsPath = workspaceScopeRoot(workspacePath);
-  const artifactScope = normalizeArtifact(artifact2);
-  const absFiles = resolveTargetFiles(targetFiles, workspacePath);
-  let linkedTaskId = null;
-  let effectiveContextRef = contextRef;
-  evictExpiredLocks(db2);
-  db2.exec("BEGIN IMMEDIATE");
-  try {
-    const conflicts = [];
-    for (const absPath of absFiles) {
-      const conflictMode = lockType === "SHARED" ? "fl.lock_type = 'EXCLUSIVE'" : "1 = 1";
-      const existing = db2.prepare(`
-        SELECT fl.*, ai.agent_id AS run_agent_id,
-               ai.rationale AS reasoning, ai.test_plan AS test_plan
-          FROM locks fl
-        JOIN task_runs ai ON ai.run_id = fl.run_id
-        WHERE fl.file_path = ?
-          AND ai.agent_id <> ?
-          AND ai.status = 'ACTIVE'
-          AND ${conflictMode}
-          AND (fl.expires_at IS NULL OR fl.expires_at > ?)
-      `).all(absPath, agentId2, now);
-      conflicts.push(...existing);
-    }
-    if (conflicts.length > 0) {
-      db2.exec("ROLLBACK");
-      return {
-        ok: false,
-        conflict: true,
-        conflicts: conflicts.map((c) => {
-          const holderSession = c.session_id ? db2.prepare("SELECT ended_at FROM sessions WHERE session_id = ?").get(c.session_id) : void 0;
-          const holderSessionActive = !holderSession || holderSession.ended_at == null;
-          return {
-            file_path: c.file_path,
-            lock_type: c.lock_type,
-            agent_id: c.run_agent_id ?? c.agent_id,
-            acquired_at: c.acquired_at,
-            expires_at: c.expires_at,
-            // Surface the holder's who/why so a blocked agent can act on it.
-            run_id: c.run_id,
-            reasoning: c.reasoning ?? "agent write operation",
-            test_plan: c.test_plan ?? "post-edit verification",
-            session_id: c.session_id ?? null,
-            holder_session_active: holderSessionActive
-          };
-        })
-      };
-    }
-    if (sessionId2) {
-      db2.prepare(
-        `INSERT OR IGNORE INTO sessions (session_id, agent_id, workspace_path, artifact, started_at)
-         VALUES (?, ?, ?, ?, ?)`
-      ).run(sessionId2, agentId2, wsPath, artifactScope, now);
-    }
-    if (requestedRunId) {
-      const existingRun = db2.prepare(
-        "SELECT task_id, agent_id, status, context_ref, files_json FROM task_runs WHERE run_id = ?"
-      ).get(requestedRunId);
-      if (!existingRun) throw new Error(`run not found: ${requestedRunId}`);
-      if (existingRun.agent_id !== agentId2) throw new Error(`run ${requestedRunId} belongs to ${existingRun.agent_id}`);
-      if (existingRun.status !== "ACTIVE") throw new Error(`run ${requestedRunId} is not ACTIVE`);
-      linkedTaskId = existingRun.task_id;
-      effectiveContextRef = existingRun.context_ref;
-      const previousFiles = JSON.parse(existingRun.files_json || "[]");
-      db2.prepare("UPDATE task_runs SET files_json = ?, updated_at = ? WHERE run_id = ?").run(JSON.stringify([.../* @__PURE__ */ new Set([...previousFiles, ...absFiles])]), now, runId);
-    } else {
-      db2.prepare(`
-        INSERT INTO task_runs
-          (run_id, task_id, agent_id, session_id, rationale, test_plan, context_ref, status, workspace_path, artifact, files_json, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, 'ACTIVE', ?, ?, ?, ?, ?)
-      `).run(runId, null, agentId2, sessionId2, rationale, testPlan, contextRef, wsPath, artifactScope, JSON.stringify(absFiles), now, now);
-    }
-    const expiresAt = expiresAtFromNow(ttlMs);
-    const acquiredLocks = [];
-    for (const absPath of absFiles) {
-      const lockId = "lock_" + randomUUID2().replace(/-/g, "");
-      db2.prepare(`
-        INSERT OR REPLACE INTO locks
-          (lock_id, file_path, run_id, agent_id, session_id, lock_type, acquired_at, expires_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(lockId, absPath, runId, agentId2, sessionId2, lockType, now, expiresAt);
-      acquiredLocks.push({ lock_id: lockId, file_path: absPath, lock_type: lockType, expires_at: expiresAt });
-    }
-    db2.exec("COMMIT");
-    return {
-      ok: true,
-      run: {
-        run_id: runId,
-        task_id: linkedTaskId,
-        agent_id: agentId2,
-        session_id: sessionId2,
-        lock_type: lockType,
-        workspace_path: wsPath,
-        artifact: artifactScope,
-        context_ref: effectiveContextRef,
-        target_files: absFiles,
-        locks: acquiredLocks.map((l) => ({
-          lock_id: l.lock_id,
-          file_path: l.file_path,
-          lock_type: l.lock_type,
-          agent_id: agentId2,
-          session_id: sessionId2,
-          acquired_at: now,
-          expires_at: l.expires_at
-        })),
-        status: "ACTIVE",
-        created_at: now
-      }
-    };
-  } catch (e) {
-    try {
-      db2.exec("ROLLBACK");
-    } catch {
-    }
-    throw e;
-  }
-}
-function releaseFileLock(db2, params) {
-  const {
-    agentId: agentId2 = "agent",
-    sessionId: sessionId2 = null,
-    workspacePath = null,
-    artifact: artifact2 = null,
-    runId = null,
-    targetFiles = [],
-    status: statusArg = "SUCCESS",
-    verified = false,
-    verifiedNote
-  } = params;
-  if (!VALID_RELEASE_STATUSES.has(String(statusArg))) {
-    throw new Error(`releaseFileLock status must be ACTIVE, PENDING, SUCCESS, or FAILED; got "${statusArg}"`);
-  }
-  const requestedStatus = String(statusArg);
-  const requestedSuccessWithoutVerification = requestedStatus === "SUCCESS" && !verified;
-  const effectiveStatus = requestedSuccessWithoutVerification ? "PENDING" : requestedStatus;
-  const now = utcNow();
-  const whereClauses = ["fl.agent_id = ?"];
-  const whereParams = [agentId2];
-  if (sessionId2) {
-    whereClauses.push("fl.session_id = ?");
-    whereParams.push(sessionId2);
-  }
-  const artifactScope = normalizeArtifact(artifact2);
-  if (workspacePath || artifactScope) {
-    whereClauses.push("ai.run_id = fl.run_id");
-  }
-  if (workspacePath) {
-    whereClauses.push("ai.workspace_path = ?");
-    whereParams.push(workspaceScopeRoot(workspacePath));
-  }
-  if (artifactScope) {
-    whereClauses.push("(ai.artifact = ? OR ai.artifact IS NULL)");
-    whereParams.push(artifactScope);
-  }
-  if (runId) {
-    whereClauses.push("fl.run_id = ?");
-    whereParams.push(runId);
-  }
-  const absFiles = resolveTargetFiles(targetFiles, workspacePath);
-  if (absFiles.length > 0) {
-    const ph = absFiles.map(() => "?").join(",");
-    whereClauses.push(`fl.file_path IN (${ph})`);
-    whereParams.push(...absFiles);
-  }
-  const where = whereClauses.join(" AND ");
-  const locks = db2.prepare(
-    `SELECT fl.lock_id, fl.run_id, fl.file_path
-       FROM locks fl${workspacePath || artifactScope ? ", task_runs ai" : ""}
-      WHERE ${where}`
-  ).all(...whereParams);
-  const runIds = [...new Set(locks.map((l) => l.run_id))];
-  if (runId && !runIds.includes(runId)) {
-    const directWhere = ["run_id = ?", "agent_id = ?"];
-    const directParams = [runId, agentId2];
-    if (sessionId2) {
-      directWhere.push("session_id = ?");
-      directParams.push(sessionId2);
-    }
-    if (workspacePath) {
-      directWhere.push("workspace_path = ?");
-      directParams.push(workspaceScopeRoot(workspacePath));
-    }
-    if (artifactScope) {
-      directWhere.push("(artifact = ? OR artifact IS NULL)");
-      directParams.push(artifactScope);
-    }
-    const directRun = db2.prepare(`SELECT run_id FROM task_runs WHERE ${directWhere.join(" AND ")}`).get(...directParams);
-    if (directRun) runIds.push(directRun.run_id);
-  }
-  const ambiguousRelease = !runId && absFiles.length > 0 && runIds.length > 1;
-  if (ambiguousRelease) {
-    return {
-      agent_id: agentId2,
-      status: effectiveStatus,
-      released: false,
-      locks_released: 0,
-      run_ids: runIds,
-      updated_at: now,
-      ambiguousRelease: "target-file release matched multiple active runs; pass --run-id to release exactly one run"
-    };
-  }
-  if (runIds.length === 0) {
-    return {
-      agent_id: agentId2,
-      status: effectiveStatus,
-      released: false,
-      locks_released: 0,
-      run_ids: [],
-      updated_at: now
-    };
-  }
-  const runMetadata = db2.prepare(`SELECT run_id, task_id FROM task_runs
-    WHERE run_id IN (${runIds.map(() => "?").join(",")})`).all(...runIds);
-  if (effectiveStatus !== "ACTIVE" && runMetadata.some((run) => run.task_id != null)) {
-    throw new Error("task-linked runs must use task submit or task release; lock release may only keep them ACTIVE");
-  }
-  db2.exec("BEGIN IMMEDIATE");
-  let updatedRuns = 0;
-  try {
-    const lockIds = locks.map((lock) => lock.lock_id);
-    if (lockIds.length > 0) {
-      db2.prepare(`DELETE FROM locks WHERE lock_id IN (${lockIds.map(() => "?").join(",")})`).run(...lockIds);
-    }
-    for (const tid of runIds) {
-      const remaining = db2.prepare("SELECT 1 FROM locks WHERE run_id = ? LIMIT 1").get(tid);
-      if (!remaining) {
-        const updated = db2.prepare(
-          `UPDATE task_runs SET status = ?, updated_at = ?
-           WHERE run_id = ? AND agent_id = ? AND status IN ('ACTIVE','PENDING')`
-        ).run(effectiveStatus, now, tid, agentId2);
-        updatedRuns += updated.changes;
-        if (updated.changes > 0 && verified && verifiedNote) {
-          try {
-            db2.prepare(
-              `INSERT INTO run_log(event_id, run_id, agent_id, event_type, message, created_at)
-               VALUES (?, ?, ?, 'VERIFIED', ?, ?)`
-            ).run("evt_" + randomUUID2().replace(/-/g, ""), tid, agentId2, verifiedNote, now);
-          } catch {
-          }
-        }
-      }
-    }
-    db2.exec("COMMIT");
-  } catch (e) {
-    try {
-      db2.exec("ROLLBACK");
-    } catch {
-    }
-    throw e;
-  }
-  return {
-    agent_id: agentId2,
-    status: effectiveStatus,
-    released: locks.length > 0 || updatedRuns > 0,
-    locks_released: locks.length,
-    run_ids: runIds,
-    updated_at: now,
-    ...requestedSuccessWithoutVerification ? { unverifiedConclusion: "SUCCESS requested without --verified; stored as PENDING until verify records the test result." } : {}
-  };
-}
 
 // src/tasks.ts
-import { randomUUID as randomUUID3 } from "node:crypto";
-import { isAbsolute as isAbsolute2, relative, resolve as resolve5, sep } from "node:path";
+import { randomUUID as randomUUID2 } from "node:crypto";
+import { isAbsolute, relative, resolve as resolve4, sep } from "node:path";
 var DEFAULT_CLAIM_LEASE_MS = 30 * 6e4;
 var MAX_CLAIM_LEASE_MS = 60 * 6e4;
 function event(db2, taskId, runId, agentId2, eventType, message, now = utcNow()) {
   db2.prepare(`INSERT INTO task_events(event_id, task_id, run_id, agent_id, event_type, message, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?)`).run(`tevt_${randomUUID3().replace(/-/g, "")}`, taskId, runId, agentId2, eventType, message, now);
+    VALUES (?, ?, ?, ?, ?, ?, ?)`).run(`tevt_${randomUUID2().replace(/-/g, "")}`, taskId, runId, agentId2, eventType, message, now);
 }
 function evictExpiredTaskClaims(db2, now = utcNow()) {
   const expired = db2.prepare(
@@ -1187,6 +957,8 @@ function evictExpiredTaskClaims(db2, now = utcNow()) {
   try {
     for (const claim of expired) {
       db2.prepare("DELETE FROM locks WHERE run_id = ?").run(claim.run_id);
+      db2.prepare(`UPDATE run_files SET heartbeat_at = ?, expires_at = ?, ended_at = ?
+        WHERE run_id = ? AND ended_at IS NULL`).run(now, now, now, claim.run_id);
       db2.prepare("UPDATE task_runs SET status = 'FAILED', updated_at = ? WHERE run_id = ? AND status = 'ACTIVE'").run(now, claim.run_id);
       db2.prepare("UPDATE tasks SET status = 'OPEN', updated_at = ? WHERE task_id = ? AND status = 'IN_PROGRESS'").run(now, claim.task_id);
       db2.prepare("DELETE FROM task_claims WHERE task_id = ?").run(claim.task_id);
@@ -1207,7 +979,7 @@ function evictExpiredTaskClaims(db2, now = utcNow()) {
 }
 function activeTaskClaimForAgent(db2, params) {
   evictExpiredTaskClaims(db2);
-  const workspacePath = normalizeWorkspacePath(params.workspacePath, params.workspacePath) ?? resolve5(params.workspacePath);
+  const workspacePath = normalizeWorkspacePath(params.workspacePath, params.workspacePath) ?? resolve4(params.workspacePath);
   const where = ["c.agent_id = ?", "p.workspace_path = ?", "c.expires_at > ?"];
   const binds = [params.agentId, workspacePath, utcNow()];
   if (params.artifact) {
@@ -1221,6 +993,283 @@ function activeTaskClaimForAgent(db2, params) {
   return claims.length === 1 ? claims[0] : null;
 }
 
+// src/work.ts
+import { randomUUID as randomUUID3 } from "node:crypto";
+import { isAbsolute as isAbsolute2, resolve as resolve5 } from "node:path";
+var DEFAULT_PRESENCE_TTL_MS = 10 * 6e4;
+var MAX_PRESENCE_TTL_MS = 60 * 6e4;
+var PEER_DETAIL_LIMIT = 5;
+function required(value, name) {
+  const normalized = value?.trim() ?? "";
+  if (!normalized) throw new Error(`${name} is required`);
+  return normalized;
+}
+function workspaceRoot(workspacePath) {
+  const candidate = workspacePath ?? process.cwd();
+  return normalizeWorkspacePath(candidate, candidate) ?? resolve5(candidate);
+}
+function normalizeFiles(files, workspacePath) {
+  if (files.length === 0) throw new Error("at least one target file is required");
+  const base = canonicalizePath(workspacePath ? resolve5(workspacePath) : process.cwd());
+  return [...new Set(files.map((file) => {
+    const value = required(file, "target file");
+    return canonicalizePath(isAbsolute2(value) ? resolve5(value) : resolve5(base, value));
+  }))];
+}
+function expiry(ttlMs) {
+  const effective = Math.min(Math.max(1, ttlMs ?? DEFAULT_PRESENCE_TTL_MS), MAX_PRESENCE_TTL_MS);
+  return new Date(Date.now() + effective).toISOString().replace(/\.\d{3}Z$/, "Z");
+}
+function getRun(db2, runId) {
+  const row = db2.prepare("SELECT * FROM task_runs WHERE run_id = ?").get(runId);
+  if (!row) throw new Error(`run not found: ${runId}`);
+  return row;
+}
+function fileRows(db2, runId) {
+  return db2.prepare("SELECT * FROM run_files WHERE run_id = ? ORDER BY file_path").all(runId);
+}
+function activePeerRows(db2, runId, files) {
+  if (files.length === 0) return [];
+  const now = utcNow();
+  const rows = db2.prepare(`SELECT rf.run_id, tr.task_id, tr.origin, tr.agent_id, rf.file_path,
+      tr.rationale, rf.heartbeat_at, rf.expires_at,
+      EXISTS(SELECT 1 FROM locks l WHERE l.run_id = rf.run_id AND l.file_path = rf.file_path
+        AND (l.expires_at IS NULL OR l.expires_at > ?)) AS exclusive
+    FROM run_files rf
+    JOIN task_runs tr ON tr.run_id = rf.run_id
+    WHERE rf.run_id <> ?
+      AND rf.file_path IN (${files.map(() => "?").join(",")})
+      AND rf.ended_at IS NULL AND rf.expires_at > ? AND tr.status = 'ACTIVE'
+    ORDER BY rf.file_path, rf.heartbeat_at DESC, rf.run_id`).all(now, runId, ...files, now);
+  return rows.map((row) => ({ ...row, exclusive: Boolean(row.exclusive) }));
+}
+function mutationResult(db2, runId, affectedFiles) {
+  const allFiles = fileRows(db2, runId);
+  const affected = affectedFiles ? new Set(affectedFiles) : null;
+  const files = affected ? allFiles.filter((file) => affected.has(file.file_path)) : allFiles;
+  const allPeers = activePeerRows(db2, runId, files.filter((file) => file.ended_at == null).map((file) => file.file_path));
+  return {
+    run: getRun(db2, runId),
+    files,
+    peers: allPeers.slice(0, PEER_DETAIL_LIMIT),
+    peer_count: allPeers.length
+  };
+}
+function conflictRows(db2, runId, files, exclusive) {
+  if (files.length === 0) return [];
+  const now = utcNow();
+  const placeholders = files.map(() => "?").join(",");
+  if (exclusive) {
+    return db2.prepare(`SELECT rf.run_id, tr.task_id, tr.origin, tr.agent_id, rf.file_path,
+        tr.rationale, rf.heartbeat_at, rf.expires_at,
+        EXISTS(SELECT 1 FROM locks l WHERE l.run_id = rf.run_id AND l.file_path = rf.file_path
+          AND (l.expires_at IS NULL OR l.expires_at > ?)) AS exclusive,
+        'ACTIVE_WORK' AS conflict_type
+      FROM run_files rf JOIN task_runs tr ON tr.run_id = rf.run_id
+      WHERE rf.file_path IN (${placeholders}) AND rf.run_id <> ?
+        AND rf.ended_at IS NULL AND rf.expires_at > ? AND tr.status = 'ACTIVE'
+      ORDER BY rf.file_path, rf.heartbeat_at DESC`).all(now, ...files, runId, now);
+  }
+  return db2.prepare(`SELECT l.run_id, tr.task_id, tr.origin, tr.agent_id, l.file_path,
+      tr.rationale, rf.heartbeat_at, COALESCE(l.expires_at, rf.expires_at) AS expires_at,
+      1 AS exclusive, 'EXCLUSIVE_LOCK' AS conflict_type
+    FROM locks l
+    JOIN task_runs tr ON tr.run_id = l.run_id
+    LEFT JOIN run_files rf ON rf.run_id = l.run_id AND rf.file_path = l.file_path
+    WHERE l.file_path IN (${placeholders}) AND l.run_id <> ? AND tr.status = 'ACTIVE'
+      AND (l.expires_at IS NULL OR l.expires_at > ?)
+    ORDER BY l.file_path, l.acquired_at DESC`).all(...files, runId, now);
+}
+function reusableWorkRun(db2, agentId2, files, now) {
+  const rows = db2.prepare(`SELECT DISTINCT tr.run_id
+    FROM task_runs tr JOIN run_files rf ON rf.run_id = tr.run_id
+    WHERE tr.agent_id = ? AND tr.origin = 'WORK' AND tr.status = 'ACTIVE'
+      AND rf.file_path IN (${files.map(() => "?").join(",")})
+      AND rf.ended_at IS NULL AND rf.expires_at > ?`).all(agentId2, ...files, now);
+  if (rows.length > 1) throw new Error("target files match multiple active WORK runs; pass --run-id");
+  return rows[0]?.run_id ?? null;
+}
+function startWork(db2, params) {
+  const agentId2 = required(params.agentId, "agent id");
+  const files = normalizeFiles(params.targetFiles, params.workspacePath);
+  const now = utcNow();
+  const expiresAt = expiry(params.ttlMs);
+  const requestedOrigin = params.origin ?? "WORK";
+  const source = params.source ?? (requestedOrigin === "HOOK" ? "HOOK" : "EXPLICIT");
+  const wsPath = workspaceRoot(params.workspacePath);
+  const artifact2 = normalizeArtifact(params.artifact);
+  let runId = params.runId ?? null;
+  if (!runId) {
+    required(params.rationale, "rationale");
+    required(params.testPlan, "test plan");
+  }
+  db2.exec("BEGIN IMMEDIATE");
+  try {
+    if (!runId && requestedOrigin === "WORK") runId = reusableWorkRun(db2, agentId2, files, now);
+    runId ??= `run_${randomUUID3().replace(/-/g, "")}`;
+    let run = db2.prepare("SELECT * FROM task_runs WHERE run_id = ?").get(runId);
+    if (run) {
+      if (run.agent_id !== agentId2) throw new Error(`run ${runId} belongs to ${run.agent_id}`);
+      if (run.status !== "ACTIVE") throw new Error(`run ${runId} is not ACTIVE`);
+    } else {
+      if (params.sessionId) {
+        db2.prepare(`INSERT OR IGNORE INTO sessions
+          (session_id, agent_id, workspace_path, artifact, started_at) VALUES (?, ?, ?, ?, ?)`).run(params.sessionId, agentId2, wsPath, artifact2, now);
+      }
+      db2.prepare(`INSERT INTO task_runs
+        (run_id, task_id, origin, agent_id, session_id, rationale, test_plan, context_ref,
+         status, workspace_path, artifact, created_at, updated_at)
+        VALUES (?, NULL, ?, ?, ?, ?, ?, ?, 'ACTIVE', ?, ?, ?, ?)`).run(
+        runId,
+        requestedOrigin,
+        agentId2,
+        params.sessionId ?? null,
+        required(params.rationale, "rationale"),
+        required(params.testPlan, "test plan"),
+        params.contextRef ?? null,
+        wsPath,
+        artifact2,
+        now,
+        now
+      );
+      run = getRun(db2, runId);
+    }
+    const conflicts = conflictRows(db2, runId, files, params.exclusive === true);
+    if (conflicts.length > 0) {
+      db2.exec("ROLLBACK");
+      return { ok: false, conflict: true, conflicts };
+    }
+    const upsert = db2.prepare(`INSERT INTO run_files
+      (run_id, file_path, reason_override, source, started_at, heartbeat_at, expires_at, ended_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, NULL)
+      ON CONFLICT(run_id, file_path) DO UPDATE SET
+        reason_override = COALESCE(excluded.reason_override, run_files.reason_override),
+        source = excluded.source,
+        started_at = CASE WHEN run_files.ended_at IS NULL THEN run_files.started_at ELSE excluded.started_at END,
+        heartbeat_at = excluded.heartbeat_at,
+        expires_at = excluded.expires_at,
+        ended_at = NULL`);
+    for (const file of files) {
+      upsert.run(runId, file, params.reasonOverride?.trim() || null, source, now, now, expiresAt);
+      if (params.exclusive) {
+        db2.prepare(`INSERT INTO locks(lock_id, file_path, run_id, acquired_at, expires_at)
+          VALUES (?, ?, ?, ?, ?)
+          ON CONFLICT(file_path, run_id) DO UPDATE SET expires_at = excluded.expires_at`).run(`lock_${randomUUID3().replace(/-/g, "")}`, file, runId, now, expiresAt);
+      }
+    }
+    db2.prepare("UPDATE task_runs SET updated_at = ? WHERE run_id = ?").run(now, runId);
+    db2.exec("COMMIT");
+    return { ok: true, ...mutationResult(db2, runId, files) };
+  } catch (error) {
+    try {
+      db2.exec("ROLLBACK");
+    } catch {
+    }
+    throw error;
+  }
+}
+function touchWork(db2, params) {
+  const run = getRun(db2, params.runId);
+  if (run.agent_id !== params.agentId) throw new Error(`run ${params.runId} belongs to ${run.agent_id}`);
+  if (run.status !== "ACTIVE") throw new Error(`run ${params.runId} is not ACTIVE`);
+  const targets = params.targetFiles?.length ? normalizeFiles(params.targetFiles, run.workspace_path) : fileRows(db2, params.runId).filter((file) => file.ended_at == null).map((file) => file.file_path);
+  if (targets.length === 0) throw new Error("run has no active file presence");
+  const now = utcNow();
+  const expiresAt = expiry(params.ttlMs);
+  db2.exec("BEGIN IMMEDIATE");
+  try {
+    const update = db2.prepare(`UPDATE run_files SET heartbeat_at = ?, expires_at = ?
+      WHERE run_id = ? AND file_path = ? AND ended_at IS NULL`);
+    for (const file of targets) {
+      const result = update.run(now, expiresAt, params.runId, file);
+      if (result.changes === 0) throw new Error(`active file presence not found: ${file}`);
+    }
+    db2.prepare(`UPDATE locks SET expires_at = ? WHERE run_id = ?
+      AND file_path IN (${targets.map(() => "?").join(",")})`).run(expiresAt, params.runId, ...targets);
+    db2.prepare("UPDATE task_runs SET updated_at = ? WHERE run_id = ?").run(now, params.runId);
+    db2.exec("COMMIT");
+  } catch (error) {
+    try {
+      db2.exec("ROLLBACK");
+    } catch {
+    }
+    throw error;
+  }
+  return mutationResult(db2, params.runId, targets);
+}
+function endWork(db2, params) {
+  const run = getRun(db2, params.runId);
+  if (run.agent_id !== params.agentId) throw new Error(`run ${params.runId} belongs to ${run.agent_id}`);
+  if (run.origin === "TASK") throw new Error("TASK work must end through task submit or task release");
+  const targets = params.targetFiles?.length ? normalizeFiles(params.targetFiles, run.workspace_path) : fileRows(db2, params.runId).filter((file) => file.ended_at == null).map((file) => file.file_path);
+  const now = utcNow();
+  db2.exec("BEGIN IMMEDIATE");
+  try {
+    if (targets.length > 0) {
+      const ended = db2.prepare(`UPDATE run_files SET heartbeat_at = ?, expires_at = ?, ended_at = ?
+        WHERE run_id = ? AND file_path IN (${targets.map(() => "?").join(",")}) AND ended_at IS NULL`).run(now, now, now, params.runId, ...targets);
+      if (ended.changes !== targets.length) {
+        throw new Error("one or more active file presences were not found for this run");
+      }
+      db2.prepare(`DELETE FROM locks WHERE run_id = ?
+        AND file_path IN (${targets.map(() => "?").join(",")})`).run(params.runId, ...targets);
+    }
+    const active = db2.prepare(`SELECT 1 FROM run_files
+      WHERE run_id = ? AND ended_at IS NULL AND expires_at > ? LIMIT 1`).get(params.runId, now);
+    if (!active) {
+      db2.prepare(`UPDATE task_runs SET status = 'PENDING', updated_at = ?
+        WHERE run_id = ? AND status = 'ACTIVE' AND origin IN ('WORK','HOOK')`).run(now, params.runId);
+    }
+    db2.exec("COMMIT");
+  } catch (error) {
+    try {
+      db2.exec("ROLLBACK");
+    } catch {
+    }
+    throw error;
+  }
+  return mutationResult(db2, params.runId, targets);
+}
+function listWork(db2, params = {}) {
+  const now = utcNow();
+  const where = ["1 = 1"];
+  const binds = [now];
+  if (params.activeOnly !== false) {
+    where.push("rf.ended_at IS NULL", "rf.expires_at > ?", "tr.status = 'ACTIVE'");
+    binds.push(now);
+  }
+  if (params.workspacePath) {
+    where.push("tr.workspace_path = ?");
+    binds.push(workspaceRoot(params.workspacePath));
+  }
+  const artifact2 = normalizeArtifact(params.artifact);
+  if (artifact2) {
+    where.push("(tr.artifact = ? OR tr.artifact IS NULL)");
+    binds.push(artifact2);
+  }
+  if (params.agentId) {
+    where.push("tr.agent_id = ?");
+    binds.push(params.agentId);
+  }
+  if (params.runId) {
+    where.push("tr.run_id = ?");
+    binds.push(params.runId);
+  }
+  if (params.filePath) {
+    where.push("rf.file_path = ?");
+    binds.push(normalizeFiles([params.filePath], params.workspacePath)[0]);
+  }
+  const rows = db2.prepare(`SELECT rf.*, tr.task_id, tr.origin, tr.agent_id, tr.session_id,
+      tr.rationale, tr.test_plan, tr.status, tr.workspace_path, tr.artifact,
+      EXISTS(SELECT 1 FROM locks l WHERE l.run_id = rf.run_id AND l.file_path = rf.file_path
+        AND (l.expires_at IS NULL OR l.expires_at > ?)) AS exclusive
+    FROM run_files rf JOIN task_runs tr ON tr.run_id = rf.run_id
+    WHERE ${where.join(" AND ")}
+    ORDER BY rf.file_path, rf.heartbeat_at DESC, rf.run_id`).all(...binds);
+  const files = rows.map((row) => ({ ...row, exclusive: Boolean(row.exclusive) }));
+  return { count: files.length, files };
+}
+
 // src/verify.ts
 import { randomUUID as randomUUID4 } from "node:crypto";
 
@@ -1230,9 +1279,17 @@ var RUNS_UPDATE_ACTIVE_TO_FAILED = `UPDATE task_runs SET status = 'FAILED', upda
 var RUN_LOG_INSERT_ABANDONED = `INSERT INTO run_log(event_id, run_id, agent_id, event_type, message, created_at)
    VALUES (?, ?, ?, 'ABANDONED', 'orphaned by audit-unverified --abandon', ?)`;
 var RUN_LOG_INSERT_STALE_ABANDONED = `INSERT INTO run_log(event_id, run_id, agent_id, event_type, message, created_at)
-   VALUES (?, ?, ?, 'ABANDONED', 'stale active (no live locks) abandoned by audit-unverified --abandon', ?)`;
+   VALUES (?, ?, ?, 'ABANDONED', 'stale active (no live file presence) abandoned by audit-unverified --abandon', ?)`;
 
 // src/verify.ts
+function targetFilesForRun(db2, runId) {
+  return db2.prepare("SELECT file_path FROM run_files WHERE run_id = ? ORDER BY file_path").all(runId).map((row) => String(row.file_path));
+}
+function closeRunFiles(db2, runId, now) {
+  db2.prepare("DELETE FROM locks WHERE run_id = ?").run(runId);
+  db2.prepare(`UPDATE run_files SET heartbeat_at = ?, expires_at = ?, ended_at = ?
+    WHERE run_id = ? AND ended_at IS NULL`).run(now, now, now, runId);
+}
 function abandonLinkedTask(db2, runId, agentId2, now, message) {
   const linked = db2.prepare("SELECT task_id FROM task_runs WHERE run_id = ?").get(runId);
   if (!linked?.task_id) return;
@@ -1261,7 +1318,7 @@ function auditUnverified(db2, params = {}) {
     binds.push(artifact2);
   }
   const rows = db2.prepare(
-    `SELECT run_id, agent_id, status, test_plan, context_ref, rationale, workspace_path, artifact, files_json, created_at
+    `SELECT run_id, agent_id, status, test_plan, context_ref, rationale, workspace_path, artifact, created_at
      FROM task_runs
      WHERE ${where.join(" AND ")}
      ORDER BY created_at ASC`
@@ -1273,7 +1330,7 @@ function auditUnverified(db2, params = {}) {
     test_plan: r.test_plan,
     context_ref: r.context_ref,
     rationale: r.rationale,
-    target_files: parseJsonList(r.files_json),
+    target_files: targetFilesForRun(db2, r.run_id),
     workspace_path: r.workspace_path,
     artifact: r.artifact,
     created_at: r.created_at
@@ -1282,6 +1339,7 @@ function auditUnverified(db2, params = {}) {
     const now = utcNow();
     for (const intent of unverified) {
       db2.prepare(RUNS_UPDATE_PENDING_TO_FAILED).run(now, intent.run_id);
+      closeRunFiles(db2, intent.run_id, now);
       abandonLinkedTask(db2, intent.run_id, intent.agent_id, now, "pending run abandoned by verification audit");
       try {
         db2.prepare(RUN_LOG_INSERT_ABANDONED).run(
@@ -1299,15 +1357,11 @@ function auditUnverified(db2, params = {}) {
     const nowIso = utcNow();
     const staleWhere = [
       "ai.status = 'ACTIVE'",
-      // Exclude tasks that never had any files to claim: a zero-target-file task
-      // holds no locks by construction, so it would otherwise be reported as
-      // "stale_active" the instant it is created (age ~0h) — a false positive
-      // that blocks the Stop/conclude gate. Real orphaned work always has files.
-      "COALESCE(ai.files_json,'[]') NOT IN ('[]','null','')",
+      "EXISTS (SELECT 1 FROM run_files any_rf WHERE any_rf.run_id = ai.run_id)",
       `NOT EXISTS (
-        SELECT 1 FROM locks fl
-        WHERE fl.run_id = ai.run_id
-          AND (fl.expires_at IS NULL OR fl.expires_at > ?)
+        SELECT 1 FROM run_files active_rf
+        WHERE active_rf.run_id = ai.run_id AND active_rf.ended_at IS NULL
+          AND active_rf.expires_at > ?
       )`,
       `NOT EXISTS (
         SELECT 1 FROM task_claims tc
@@ -1328,7 +1382,7 @@ function auditUnverified(db2, params = {}) {
       staleBinds.push(artifact2);
     }
     const staleRows = db2.prepare(
-      `SELECT ai.run_id, ai.agent_id, ai.rationale, ai.context_ref, ai.workspace_path, ai.artifact, ai.files_json, ai.created_at
+      `SELECT ai.run_id, ai.agent_id, ai.rationale, ai.context_ref, ai.workspace_path, ai.artifact, ai.created_at
        FROM task_runs ai
        WHERE ${staleWhere.join(" AND ")}
        ORDER BY ai.created_at ASC`
@@ -1341,7 +1395,7 @@ function auditUnverified(db2, params = {}) {
         status: "ACTIVE",
         rationale: r.rationale,
         context_ref: r.context_ref,
-        target_files: parseJsonList(r.files_json),
+        target_files: targetFilesForRun(db2, r.run_id),
         workspace_path: r.workspace_path,
         artifact: r.artifact,
         created_at: r.created_at,
@@ -1355,6 +1409,7 @@ function auditUnverified(db2, params = {}) {
     const now = utcNow();
     for (const intent of staleActive) {
       db2.prepare(RUNS_UPDATE_ACTIVE_TO_FAILED).run(now, intent.run_id);
+      closeRunFiles(db2, intent.run_id, now);
       abandonLinkedTask(db2, intent.run_id, intent.agent_id, now, "stale task run abandoned by verification audit");
       try {
         db2.prepare(RUN_LOG_INSERT_STALE_ABANDONED).run(
@@ -1373,7 +1428,7 @@ function auditUnverified(db2, params = {}) {
 
 // src/maintenance.ts
 import { spawnSync as spawnSync2 } from "node:child_process";
-import { randomUUID as randomUUID6 } from "node:crypto";
+import { createHash as createHash2, randomUUID as randomUUID6 } from "node:crypto";
 import { isAbsolute as isAbsolute3, resolve as resolve6 } from "node:path";
 
 // src/notifications.ts
@@ -1486,7 +1541,8 @@ function getNotifications(db2, params) {
     ${whereClause}
     ${SIGNALS_SELECT_ORDER_LIMIT}
   `;
-  const rows = db2.prepare(sql).all(...allBinds, limit);
+  const boundedLimit = Math.min(100, Math.max(1, Math.floor(Number.isFinite(limit) ? limit : 20)));
+  const rows = db2.prepare(sql).all(...allBinds, boundedLimit);
   const signals = rows.map(rowToNotification);
   if (markRead && signals.length > 0) {
     const now = utcNow();
@@ -1499,11 +1555,11 @@ function getNotifications(db2, params) {
 }
 
 // src/maintenance.ts
-var SESSION_CAPTURE_FILE_LIMIT = 40;
-var SESSION_CAPTURE_VISIBLE_FILE_LIMIT = 20;
-var SESSION_CAPTURE_RUN_DETAIL_LIMIT = 8;
-var SESSION_CAPTURE_RUN_FILE_LIMIT = 8;
-var SESSION_CAPTURE_TEXT_LIMIT = 180;
+var SESSION_CAPTURE_FILE_LIMIT = 20;
+var SESSION_CAPTURE_VISIBLE_FILE_LIMIT = 10;
+var SESSION_CAPTURE_RUN_DETAIL_LIMIT = 3;
+var SESSION_CAPTURE_RUN_FILE_LIMIT = 3;
+var SESSION_CAPTURE_TEXT_LIMIT = 120;
 function compactText(value, max = SESSION_CAPTURE_TEXT_LIMIT) {
   const normalized = value.replace(/\s+/g, " ").trim();
   return normalized.length > max ? `${normalized.slice(0, max - 3)}...` : normalized;
@@ -1525,7 +1581,7 @@ function pruneStale(db2, params = {}) {
   const rawTarget = params.target_file ?? params.targetFile;
   const targetFiles = (Array.isArray(rawTarget) ? rawTarget : rawTarget != null ? [rawTarget] : []).map(String).filter(Boolean).map((file) => {
     const base = rawWorkspacePath ? resolve6(rawWorkspacePath) : process.cwd();
-    return isAbsolute3(file) ? resolve6(file) : resolve6(base, file);
+    return canonicalizePath(isAbsolute3(file) ? resolve6(file) : resolve6(base, file));
   });
   const now = utcNow();
   const ageCutoff = olderThanMinutes != null && !expiredOnly ? new Date(Date.now() - olderThanMinutes * 6e4).toISOString() : null;
@@ -1539,14 +1595,13 @@ function pruneStale(db2, params = {}) {
   }
   conditions.push(`(${staleClauses.join(" OR ")})`);
   if (agentId2) {
-    conditions.push("l.agent_id = ?");
+    conditions.push("t.agent_id = ?");
     binds.push(agentId2);
   }
   if (targetFiles.length > 0) {
     conditions.push(`l.file_path IN (${targetFiles.map(() => "?").join(",")})`);
     binds.push(...targetFiles);
   }
-  const scopedByTask = Boolean(workspacePath || artifact2);
   if (workspacePath) {
     conditions.push("t.workspace_path = ?");
     binds.push(workspacePath);
@@ -1556,7 +1611,7 @@ function pruneStale(db2, params = {}) {
     binds.push(artifact2);
   }
   const where = conditions.join(" AND ");
-  const from = scopedByTask ? "locks l JOIN task_runs t ON t.run_id = l.run_id" : "locks l";
+  const from = "locks l JOIN task_runs t ON t.run_id = l.run_id";
   let staleLocks = [];
   try {
     staleLocks = db2.prepare(
@@ -1565,12 +1620,11 @@ function pruneStale(db2, params = {}) {
   } catch {
   }
   if (dryRun) {
-    return { pruned_locks: 0, updated_runs: 0, dry_run: true, would_prune: staleLocks.length };
+    return { pruned_locks: 0, dry_run: true, would_prune: staleLocks.length };
   }
   if (staleLocks.length === 0) {
-    return { pruned_locks: 0, updated_runs: 0 };
+    return { pruned_locks: 0 };
   }
-  let updatedRuns = 0;
   db2.exec("BEGIN IMMEDIATE");
   try {
     staleLocks = db2.prepare(
@@ -1578,20 +1632,10 @@ function pruneStale(db2, params = {}) {
     ).all(...binds);
     if (staleLocks.length === 0) {
       db2.exec("COMMIT");
-      return { pruned_locks: 0, updated_runs: 0 };
+      return { pruned_locks: 0 };
     }
-    const affectedRunIds = [...new Set(staleLocks.map((l) => l.run_id))];
     const ph = staleLocks.map(() => "?").join(",");
     db2.prepare(`DELETE FROM locks WHERE lock_id IN (${ph})`).run(...staleLocks.map((l) => l.lock_id));
-    for (const tid of affectedRunIds) {
-      const remaining = db2.prepare("SELECT 1 FROM locks WHERE run_id = ? LIMIT 1").get(tid);
-      if (!remaining) {
-        const r = db2.prepare(
-          "UPDATE task_runs SET status = 'PENDING', updated_at = ? WHERE run_id = ? AND status = 'ACTIVE'"
-        ).run(now, tid);
-        if (r.changes) updatedRuns++;
-      }
-    }
     db2.exec("COMMIT");
   } catch (e) {
     try {
@@ -1600,7 +1644,7 @@ function pruneStale(db2, params = {}) {
     }
     throw e;
   }
-  return { pruned_locks: staleLocks.length, updated_runs: updatedRuns };
+  return { pruned_locks: staleLocks.length };
 }
 function openRefinementCount(db2, params = {}) {
   const scope = fillScope(
@@ -1648,7 +1692,8 @@ function notifyGet(db2, params = {}) {
     });
     for (const n of inbox.signals) {
       const target = n.to_agent ? `to ${n.to_agent}` : "broadcast";
-      const fileSuffix = n.files.length > 0 ? ` files=${n.files.join(", ")}` : "";
+      const shownFiles = n.files.slice(0, 3);
+      const fileSuffix = shownFiles.length > 0 ? ` files=${shownFiles.join(", ")}${n.files.length > shownFiles.length ? ` (+${n.files.length - shownFiles.length})` : ""}` : "";
       const bodySuffix = n.body ? ` \u2014 ${n.body.slice(0, 120)}` : "";
       items.push({
         kind: "notification",
@@ -1758,11 +1803,38 @@ function notifyGet(db2, params = {}) {
     notifications: items
   };
   if (format === "hook") {
+    const hookItems = items.slice(0, 5);
+    result.count = hookItems.length;
+    result.notifications = hookItems;
     const lines = [
-      `\u{1F9E0} Memory brief (${items.length}):`,
-      ...items.map((i) => `  \u2022 ${i.text}`)
+      `\u{1F9E0} Brief (${hookItems.length}${items.length > hookItems.length ? `/${items.length}` : ""}):`,
+      ...hookItems.map((i) => `  \u2022 ${i.text}`)
     ];
-    result.additionalContext = lines.join("\n");
+    const additionalContext = lines.join("\n");
+    const sessionId2 = String(params.session_id ?? params.sessionId ?? "-");
+    const normalizedScope = fillScope(
+      {
+        workspace_path: wsPath,
+        artifact: artifact2,
+        repo: params.repo ?? null,
+        ref: params.ref ?? null
+      },
+      notifyCwd
+    );
+    const scopeKey = JSON.stringify([
+      sessionId2,
+      normalizedScope.workspace_path,
+      normalizedScope.artifact,
+      normalizedScope.repo,
+      normalizedScope.ref
+    ]);
+    const fingerprint = createHash2("sha256").update(additionalContext).digest("hex");
+    const delivery = { consumerId: agentId2, channel: "briefing", scopeKey };
+    if (getDeliveryFingerprint(db2, delivery) === fingerprint) {
+      return { ok: true, count: 0, notifications: [] };
+    }
+    setDeliveryFingerprint(db2, { ...delivery, fingerprint });
+    result.additionalContext = additionalContext;
   }
   return result;
 }
@@ -1813,9 +1885,11 @@ function sessionCapture(db2, params = {}) {
   const artifact2 = scope.artifact;
   const workspacePlaceholders = runWorkspaceCandidates.map(() => "?").join(",");
   const runRows = db2.prepare(
-    `SELECT run_id, rationale, test_plan, context_ref, status, files_json, created_at, updated_at
-     FROM task_runs
-     WHERE agent_id = ?
+    `SELECT tr.run_id, tr.rationale, tr.test_plan, tr.context_ref, tr.status, tr.created_at, tr.updated_at,
+            COALESCE((SELECT json_group_array(rf.file_path)
+              FROM run_files rf WHERE rf.run_id = tr.run_id), '[]') AS files_json
+     FROM task_runs tr
+     WHERE tr.agent_id = ?
        AND status IN ('ACTIVE', 'PENDING')
        AND (workspace_path IN (${workspacePlaceholders}) OR workspace_path IS NULL)
        AND (? IS NULL OR artifact = ? OR artifact IS NULL)
@@ -1882,6 +1956,40 @@ function sessionCapture(db2, params = {}) {
     dirtyFiles.length > 0 ? "Check dirty git state before continuing." : null,
     pendingRuns > 0 ? "Run the recorded verification before claiming completion." : null
   ].filter(Boolean).join(" ");
+  const existing = db2.prepare(
+    `SELECT refinement_id FROM refinements
+      WHERE agent_id = ? AND workspace_path = ? AND artifact IS ? AND repo IS ? AND ref IS ?
+        AND quality = 'handoff' AND state IN ('open', 'ongoing')
+        AND files_json = ? AND reasoning = ? AND remember = ?
+      ORDER BY datetime(updated_at) DESC LIMIT 1`
+  ).get(
+    agentId2,
+    workspacePath,
+    artifact2,
+    scope.repo,
+    scope.ref,
+    JSON.stringify(capturedFiles),
+    reasoning,
+    remember
+  );
+  if (existing) {
+    return {
+      ok: true,
+      captured: false,
+      deduplicated: true,
+      refinement_id: existing.refinement_id,
+      pending_runs: pendingRuns,
+      active_runs: activeRuns,
+      files: capturedFiles,
+      dirty_files: capturedDirtyFiles,
+      file_count: allCapturedFiles.length,
+      dirty_file_count: dirtyFiles.length,
+      omitted_files: Math.max(0, allCapturedFiles.length - capturedFiles.length),
+      omitted_dirty_files: Math.max(0, dirtyFiles.length - capturedDirtyFiles.length),
+      reason,
+      consolidation_opportunities: consolidationOpportunities
+    };
+  }
   db2.prepare(
     `INSERT INTO refinements (
        refinement_id, agent_id, workspace_path, repo, ref,
@@ -2127,7 +2235,7 @@ function canonicalPath(input) {
   }
 }
 function resolvePiTargetPath(file, cwd) {
-  return path.isAbsolute(file) ? file : path.resolve(cwd, file);
+  return canonicalPath(path.isAbsolute(file) ? file : path.resolve(cwd, file));
 }
 function isInsidePath(candidate, root) {
   const resolvedCandidate = canonicalPath(candidate);
@@ -2230,11 +2338,11 @@ function agentId(payload) {
     payload.context
   ) ?? "shell";
   const scope = `${host}\0${workspace(payload) ?? process.cwd()}`;
-  const suffix = createHash2("sha1").update(scope).digest("hex").slice(0, 12);
+  const suffix = createHash3("sha1").update(scope).digest("hex").slice(0, 12);
   const fallback = `hook:${host.replace(/[^a-zA-Z0-9_.:-]/g, "_")}:${suffix}`;
   if (!warnedFallbackAgentId) {
     warnedFallbackAgentId = true;
-    console.error(`octocode-awareness: OCTOCODE_AGENT_ID or host session id missing; using fallback agent id "${fallback}". Set OCTOCODE_AGENT_ID for reliable multi-agent lock isolation.`);
+    console.error(`octocode-awareness: OCTOCODE_AGENT_ID or host session id missing; using fallback agent id "${fallback}". Set OCTOCODE_AGENT_ID for reliable multi-agent awareness.`);
   }
   return fallback;
 }
@@ -2291,7 +2399,7 @@ function extractFiles(payload) {
   return extractPiWriteTargetPaths(toolName2, input, { assumeWrite: true });
 }
 function resolveHookPath(file, cwd = process.cwd()) {
-  return resolve7(cwd, file);
+  return canonicalizePath(resolve7(cwd, file));
 }
 function db() {
   return connectDb(resolveDbPath(null));
@@ -2304,46 +2412,12 @@ function hookRunStateDir() {
 function hookRunStateFile(key) {
   return join3(hookRunStateDir(), `${key}.json`);
 }
-function legacyHookRunStateFile() {
-  const stateDir = join3(dirname3(resolveDbPath(null)), "hook-state");
-  mkdirSync2(stateDir, { recursive: true });
-  return join3(stateDir, "shell-hook-tasks.json");
-}
-function readLegacyPerRunFile(key) {
-  const file = join3(dirname3(resolveDbPath(null)), "hook-state", "tasks", `${key}.json`);
-  try {
-    const parsed = JSON.parse(readFileSync(file, "utf8"));
-    const entries = Array.isArray(parsed) ? parsed : [];
-    if (entries.length > 0) {
-      try {
-        unlinkSync(file);
-      } catch {
-      }
-    }
-    return entries;
-  } catch {
-    return [];
-  }
-}
-function readLegacyHookRunEntries(key) {
-  try {
-    const legacyFile = legacyHookRunStateFile();
-    const state = JSON.parse(readFileSync(legacyFile, "utf8"));
-    const entries = Array.isArray(state[key]) ? state[key] : [];
-    if (entries.length === 0) return [];
-    delete state[key];
-    writeFileSync(legacyFile, JSON.stringify(state, null, 2) + "\n", "utf8");
-    return entries;
-  } catch {
-    return [];
-  }
-}
 function readHookRunEntries(key) {
   try {
     const parsed = JSON.parse(readFileSync(hookRunStateFile(key), "utf8"));
     return Array.isArray(parsed) ? parsed : [];
   } catch {
-    return readLegacyPerRunFile(key).concat(readLegacyHookRunEntries(key));
+    return [];
   }
 }
 function writeHookRunEntries(key, entries) {
@@ -2387,7 +2461,7 @@ function hookRunKey(payload, files, cwd) {
     event: explicitId,
     files: explicitId ? [] : files.map((file) => resolveHookPath(file, cwd)).sort()
   };
-  return createHash2("sha1").update(JSON.stringify(identity)).digest("hex");
+  return createHash3("sha1").update(JSON.stringify(identity)).digest("hex");
 }
 function recordHookRun(payload, files, cwd, runId) {
   const key = hookRunKey(payload, files, cwd);
@@ -2406,32 +2480,77 @@ function consumeHookRun(payload, files, cwd) {
   writeHookRunEntries(key, entries);
   return entry?.runId ?? null;
 }
-function uniqueActiveHookRunId(database, params) {
+function activeRunForFiles(database, params) {
   const absFiles = params.files.map((file) => resolveHookPath(file, params.workspacePath));
   if (absFiles.length === 0) return null;
-  const where = [
-    "fl.agent_id = ?",
-    "ai.status = 'ACTIVE'",
-    `fl.file_path IN (${absFiles.map(() => "?").join(",")})`,
-    "ai.workspace_path = ?"
-  ];
-  const binds = [
-    params.agentId,
-    ...absFiles,
-    normalizeWorkspacePath(params.workspacePath, params.workspacePath) ?? resolve7(params.workspacePath)
-  ];
-  if (params.artifact) {
-    where.push("(ai.artifact = ? OR ai.artifact IS NULL)");
-    binds.push(params.artifact);
+  const rows = listWork(database, {
+    agentId: params.agentId,
+    workspacePath: params.workspacePath,
+    artifact: params.artifact,
+    activeOnly: true
+  }).files.filter((entry) => params.origins.includes(entry.origin));
+  const byRun = /* @__PURE__ */ new Map();
+  for (const row of rows) {
+    const paths = byRun.get(row.run_id) ?? /* @__PURE__ */ new Set();
+    paths.add(row.file_path);
+    byRun.set(row.run_id, paths);
   }
-  const rows = database.prepare(
-    `SELECT DISTINCT fl.run_id
-       FROM locks fl
-       JOIN task_runs ai ON ai.run_id = fl.run_id
-      WHERE ${where.join(" AND ")}
-      ORDER BY fl.run_id ASC`
-  ).all(...binds);
-  return rows.length === 1 ? rows[0].run_id : null;
+  const matches = [...byRun].filter(([, paths]) => absFiles.every((file) => paths.has(file)));
+  return matches.length === 1 ? matches[0][0] : null;
+}
+function runOrigin(database, runId) {
+  const row = database.prepare("SELECT origin FROM task_runs WHERE run_id = ?").get(runId);
+  return row?.origin ?? null;
+}
+function peerStateDir() {
+  const stateDir = join3(dirname3(resolveDbPath(null)), "hook-state", "peers");
+  mkdirSync2(stateDir, { recursive: true });
+  return stateDir;
+}
+function peerStateKey(payload, files, cwd) {
+  return createHash3("sha1").update(JSON.stringify({
+    agent: agentId(payload),
+    workspace: normalizeWorkspacePath(cwd, cwd) ?? resolve7(cwd),
+    artifact: artifact(payload),
+    files: files.map((file) => resolveHookPath(file, cwd)).sort()
+  })).digest("hex");
+}
+function peerFingerprint(peers) {
+  return createHash3("sha1").update(JSON.stringify(peers.map((peer) => ({
+    agent: peer.agent_id,
+    file: peer.file_path,
+    task: peer.task_id,
+    origin: peer.origin,
+    rationale: peer.rationale,
+    exclusive: peer.exclusive
+  })).sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))))).digest("hex");
+}
+function peerLabel(peer) {
+  const work = peer.task_id ?? peer.origin;
+  const reason = peer.rationale.replace(/\s+/g, " ").trim().slice(0, 40);
+  return `${peer.agent_id}:${work}${reason ? `(${reason})` : ""}`;
+}
+function emitPeerDelta(payload, files, cwd, allPeers) {
+  const targetSet = new Set(files.map((file) => resolveHookPath(file, cwd)));
+  const peers = allPeers.filter((peer) => peer.agent_id !== agentId(payload) && targetSet.has(peer.file_path));
+  const key = peerStateKey(payload, files, cwd);
+  const stateFile = join3(peerStateDir(), `${key}.txt`);
+  const fingerprint = peerFingerprint(peers);
+  let previous = null;
+  try {
+    previous = readFileSync(stateFile, "utf8").trim();
+  } catch {
+  }
+  if (previous === fingerprint) return;
+  writeFileSync(stateFile, fingerprint, "utf8");
+  if (peers.length === 0) return;
+  const shown = peers.slice(0, 3).map(peerLabel).join("; ");
+  const omitted = peers.length > 3 ? ` +${peers.length - 3}` : "";
+  const canonicalWorkspace = canonicalizePath(cwd);
+  const targets = files.slice(0, 2).map((file) => relative2(canonicalWorkspace, resolveHookPath(file, cwd)) || basename2(file)).join(",");
+  const message = `AWARE ${targets} | peers ${shown}${omitted}`;
+  process.stdout.write(`${JSON.stringify({ additionalContext: message })}
+`);
 }
 function hookAgentContext(payload, hookName) {
   const value = process.env.OCTOCODE_AGENT_CONTEXT ?? process.env.OCTOCODE_AGENT_HOST ?? payload.context ?? payload.host ?? payload.client ?? payload.source;
@@ -2460,31 +2579,58 @@ function scopeArgs(payload) {
 async function runPreEdit(payload) {
   const files = extractFiles(payload);
   if (files.length === 0) return 0;
+  const hookWorkspace = workspace(payload) ?? process.cwd();
+  const guardReason = evaluateHarnessGuard({
+    targetFiles: files,
+    skillRoot: process.env.OCTOCODE_SKILL_ROOT,
+    cwd: hookWorkspace
+  });
+  if (guardReason) {
+    console.error(`${guardReason} Edit blocked.`);
+    return 2;
+  }
   try {
     const database = db();
     registerHookAgent(database, payload, "hook:pre-edit");
+    const hookAgentId = agentId(payload);
+    const hookArtifact = artifact(payload);
     const activeClaim = activeTaskClaimForAgent(database, {
-      agentId: agentId(payload),
-      workspacePath: workspace(payload) ?? process.cwd(),
-      artifact: artifact(payload)
+      agentId: hookAgentId,
+      workspacePath: hookWorkspace,
+      artifact: hookArtifact
     });
-    const result = preFlightIntent(database, {
-      agentId: agentId(payload),
+    const explicitRunId = activeClaim ? null : activeRunForFiles(database, {
+      agentId: hookAgentId,
+      workspacePath: hookWorkspace,
+      artifact: hookArtifact,
+      files,
+      origins: ["WORK"]
+    });
+    const result = explicitRunId ? { ok: true, ...touchWork(database, {
+      agentId: hookAgentId,
+      runId: explicitRunId,
+      targetFiles: files,
+      ttlMs: 10 * 6e4
+    }) } : startWork(database, {
+      agentId: hookAgentId,
       sessionId: sessionId(payload),
-      workspacePath: workspace(payload) ?? process.cwd(),
-      artifact: artifact(payload),
+      workspacePath: hookWorkspace,
+      artifact: hookArtifact,
       runId: activeClaim?.run_id,
       rationale: autoClaimRationale(payload, files),
       testPlan: "post-edit verification",
       targetFiles: files,
+      origin: "HOOK",
+      source: "HOOK",
       ttlMs: 10 * 6e4
     });
     if (!result.ok) {
-      console.error("octocode-awareness: target file is locked by another agent \u2014 edit blocked.");
-      console.error(JSON.stringify(result));
+      const detail = result.conflicts.slice(0, 3).map((conflict) => `${relative2(hookWorkspace, conflict.file_path)} (${conflict.agent_id})`).join(", ");
+      console.error(`octocode-awareness: exclusive file work blocks this edit${detail ? `: ${detail}` : ""}.`);
       return 2;
     }
-    recordHookRun(payload, files, workspace(payload) ?? process.cwd(), result.run.run_id);
+    recordHookRun(payload, files, hookWorkspace, result.run.run_id);
+    emitPeerDelta(payload, files, hookWorkspace, result.peers);
     return 0;
   } catch (error) {
     console.error(`octocode-awareness pre-flight warning (continuing): ${error instanceof Error ? error.message : String(error)}`);
@@ -2500,29 +2646,40 @@ async function runPostEdit(payload) {
     const hookAgentId = agentId(payload);
     const hookWorkspace = workspace(payload) ?? process.cwd();
     const hookArtifact = artifact(payload);
-    const correlatedRunId = consumeHookRun(payload, files, hookWorkspace) ?? uniqueActiveHookRunId(database, {
+    const correlatedRunId = consumeHookRun(payload, files, hookWorkspace) ?? activeTaskClaimForAgent(database, {
+      agentId: hookAgentId,
+      workspacePath: hookWorkspace,
+      artifact: hookArtifact
+    })?.run_id ?? activeRunForFiles(database, {
       agentId: hookAgentId,
       workspacePath: hookWorkspace,
       artifact: hookArtifact,
-      files
+      files,
+      origins: ["WORK", "HOOK"]
     });
     if (!correlatedRunId) {
-      console.error("octocode-awareness post-edit warning (continuing): could not identify a unique hook run to release; leaving locks for verify/cleanup.");
+      console.error("octocode-awareness post-edit warning (continuing): could not identify a unique work run; leaving presence for expiry.");
       return 0;
     }
-    const linkedClaim = database.prepare("SELECT 1 FROM task_claims WHERE run_id = ? LIMIT 1").get(correlatedRunId);
-    const release = releaseFileLock(database, {
-      agentId: hookAgentId,
-      workspacePath: hookWorkspace,
-      artifact: hookArtifact,
-      runId: correlatedRunId,
-      status: linkedClaim ? "ACTIVE" : "PENDING"
-    });
-    const runId = release.run_ids.length === 1 ? release.run_ids[0] : correlatedRunId;
+    const origin = runOrigin(database, correlatedRunId);
+    if (origin === "HOOK") {
+      endWork(database, {
+        agentId: hookAgentId,
+        runId: correlatedRunId,
+        targetFiles: files
+      });
+    } else {
+      touchWork(database, {
+        agentId: hookAgentId,
+        runId: correlatedRunId,
+        targetFiles: files,
+        ttlMs: 10 * 6e4
+      });
+    }
     for (const file of files) {
       insertEditLog(database, {
         agentId: hookAgentId,
-        runId,
+        runId: correlatedRunId,
         filePath: resolveHookPath(file, hookWorkspace),
         operation: "update",
         workspacePath: hookWorkspace,
@@ -2553,14 +2710,13 @@ async function runStopVerify(payload) {
     registerHookAgent(database, payload, "hook:stop-verify");
     const report = auditUnverified(database, { agentId: agentId(payload), ...scopeArgs(payload) });
     if (report.count > 0) {
-      const parts = [];
-      if (report.unverified.length > 0) {
-        parts.push(report.unverified.map((u) => `${u.status}:${u.run_id}: ${u.test_plan}`).join("; "));
-      }
-      if (report.stale_active.length > 0) {
-        parts.push("Stale active (lock expired): " + report.stale_active.map((s) => `${s.run_id}: ${s.rationale}`).join("; "));
-      }
-      console.error(`octocode-awareness: concluding with unverified work. ${parts.join(" | ")}`);
+      const details = [
+        ...report.unverified.map((run) => `${run.status}:${run.run_id}: ${run.test_plan}`),
+        ...report.stale_active.map((run) => `STALE:${run.run_id}: ${run.rationale}`)
+      ];
+      const shown = details.slice(0, 3);
+      const omitted = details.length > 3 ? `; +${details.length - 3} omitted` : "";
+      console.error(`octocode-awareness: concluding with unverified work. ${shown.join("; ")}${omitted}`);
       return 2;
     }
   } catch (error) {
@@ -2607,8 +2763,7 @@ async function runNotifyDeliver(payload) {
     });
     if (result.additionalContext) {
       process.stdout.write(JSON.stringify({
-        additionalContext: result.additionalContext,
-        additional_context: result.additionalContext
+        additionalContext: result.additionalContext
       }) + "\n");
     }
   } catch (error) {
@@ -2668,4 +2823,3 @@ if (isMain && invokedAsHookRunner) {
 export {
   runHookCommand
 };
-//# sourceMappingURL=hook-runner.js.map

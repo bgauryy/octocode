@@ -5,8 +5,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { connectDb } from '../src/db.js';
 import { createPiAwarenessBridge, evaluateHarnessGuard, extractPiWriteTargetPaths, wirePiAwarenessHooks } from '../src/pi-hooks.js';
-import { preFlightIntent } from '../src/intents.js';
 import { insertNotification } from '../src/notifications.js';
+import { createPlan } from '../src/plans.js';
+import { claimTask, createTask } from '../src/tasks.js';
+import { startWork } from '../src/work.js';
 
 function tempDb() {
   const dir = mkdtempSync(join(tmpdir(), 'oc-pi-hooks-'));
@@ -98,7 +100,7 @@ describe('extractPiWriteTargetPaths', () => {
 });
 
 describe('createPiAwarenessBridge', () => {
-  it('claims and releases Pi tool writes through the shared DB', async () => {
+  it('declares Pi tool writes and leaves fallback HOOK runs pending', async () => {
     const tmp = tempDb();
     try {
       const db = connectDb(tmp.dbPath);
@@ -114,6 +116,8 @@ describe('createPiAwarenessBridge', () => {
       expect(bridge.pendingToolFiles.has('tool-1')).toBe(false);
       expect((db.prepare("SELECT COUNT(*) AS c FROM task_runs WHERE status='PENDING'").get() as { c: number }).c).toBe(1);
       expect((db.prepare('SELECT COUNT(*) AS c FROM locks').get() as { c: number }).c).toBe(0);
+      expect(db.prepare('SELECT origin FROM task_runs').get()).toMatchObject({ origin: 'HOOK' });
+      expect((db.prepare('SELECT COUNT(*) AS c FROM run_files WHERE ended_at IS NOT NULL').get() as { c: number }).c).toBe(1);
       expect((db.prepare('SELECT COUNT(*) AS c FROM edit_log').get() as { c: number }).c).toBe(1);
       db.close();
     } finally {
@@ -125,7 +129,16 @@ describe('createPiAwarenessBridge', () => {
     const tmp = tempDb();
     try {
       const db = connectDb(tmp.dbPath);
-      preFlightIntent(db, { agentId: 'other', targetFiles: ['src/conflict.ts'], workspacePath: tmp.dir });
+      startWork(db, {
+        agentId: 'other',
+        targetFiles: ['src/conflict.ts'],
+        workspacePath: tmp.dir,
+        rationale: 'sensitive migration',
+        testPlan: 'verify migration',
+        origin: 'WORK',
+        source: 'EXPLICIT',
+        exclusive: true,
+      });
       const bridge = createPiAwarenessBridge({ getDb: () => db });
 
       const result = await bridge.handleToolCall(
@@ -141,28 +154,94 @@ describe('createPiAwarenessBridge', () => {
     }
   });
 
-  it('releases only the matching run for overlapping same-agent tool calls', async () => {
+  it('allows two Pi agents to work on the same ordinary file and emits one peer delta', async () => {
     const tmp = tempDb();
     try {
       const db = connectDb(tmp.dbPath);
+      const first = createPiAwarenessBridge({ getDb: () => db });
+      const second = createPiAwarenessBridge({ getDb: () => db });
+      const firstCtx = { cwd: tmp.dir, sessionManager: { getSessionFile: () => join(tmp.dir, 'first.jsonl') } };
+      const secondCtx = { cwd: tmp.dir, sessionManager: { getSessionFile: () => join(tmp.dir, 'second.jsonl') } };
+
+      expect(await first.handleToolCall({ toolName: 'write', toolCallId: 'tool-1', input: { path: 'src/a.ts' } }, firstCtx)).toBeUndefined();
+      const peerDelta = await second.handleToolCall({ toolName: 'write', toolCallId: 'tool-2', input: { path: 'src/a.ts' } }, secondCtx);
+      expect(peerDelta).toMatchObject({ additionalContext: expect.stringContaining('AWARE') });
+      expect((db.prepare('SELECT COUNT(*) AS c FROM run_files WHERE ended_at IS NULL').get() as { c: number }).c).toBe(2);
+      expect((db.prepare('SELECT COUNT(*) AS c FROM locks').get() as { c: number }).c).toBe(0);
+
+      const unchanged = await second.handleToolCall({ toolName: 'write', toolCallId: 'tool-3', input: { path: 'src/a.ts' } }, secondCtx);
+      expect(unchanged).toBeUndefined();
+      db.close();
+    } finally {
+      tmp.cleanup();
+    }
+  });
+
+  it('attaches repeated Pi edits to exactly one claimed TASK run', async () => {
+    const tmp = tempDb();
+    try {
+      const db = connectDb(tmp.dbPath);
+      const agentId = 'pi:task-session';
+      const plan = createPlan(db, {
+        name: 'Pi task hooks',
+        objective: 'Keep hook edits on one task run',
+        leadAgentId: 'lead',
+        workspacePath: tmp.dir,
+      }).plan;
+      const task = createTask(db, {
+        planId: plan.plan_id,
+        title: 'Edit files',
+        reasoning: 'Exercise task attachment',
+        paths: ['src/a.ts'],
+        createdBy: 'lead',
+      }).task;
+      const claim = claimTask(db, { taskId: task.task_id, agentId });
+      expect(claim.ok).toBe(true);
+      if (!claim.ok) throw new Error(claim.error);
+
       const bridge = createPiAwarenessBridge({ getDb: () => db });
-      const ctx = { cwd: tmp.dir, sessionManager: { getSessionFile: () => join(tmp.dir, 'session.jsonl') } };
+      const ctx = { cwd: tmp.dir, sessionManager: { getSessionFile: () => join(tmp.dir, 'task-session.jsonl') } };
+      for (const [index, file] of ['src/a.ts', 'src/b.ts'].entries()) {
+        await bridge.handleToolCall({ toolName: 'write', toolCallId: `task-${index}`, input: { path: file } }, ctx);
+        await bridge.handleToolResult({ toolCallId: `task-${index}` }, ctx);
+      }
 
-      await bridge.handleToolCall({ toolName: 'write', toolCallId: 'tool-1', input: { path: 'src/a.ts' } }, ctx);
-      await bridge.handleToolCall({ toolName: 'write', toolCallId: 'tool-2', input: { path: 'src/a.ts' } }, ctx);
-      const secondRun = bridge.pendingToolRuns.get('tool-2');
-      expect((db.prepare('SELECT COUNT(*) AS c FROM locks').get() as { c: number }).c).toBe(2);
+      expect((db.prepare('SELECT COUNT(*) AS c FROM task_claims').get() as { c: number }).c).toBe(1);
+      expect((db.prepare('SELECT COUNT(*) AS c FROM task_runs').get() as { c: number }).c).toBe(1);
+      expect((db.prepare('SELECT COUNT(*) AS c FROM run_files WHERE run_id = ? AND ended_at IS NULL').get(claim.run.run_id) as { c: number }).c).toBe(2);
+      expect(db.prepare('SELECT origin, status FROM task_runs WHERE run_id = ?').get(claim.run.run_id)).toMatchObject({ origin: 'TASK', status: 'ACTIVE' });
+      db.close();
+    } finally {
+      tmp.cleanup();
+    }
+  });
 
-      await bridge.handleToolResult({ toolCallId: 'tool-1' }, ctx);
-      expect((db.prepare('SELECT COUNT(*) AS c FROM locks').get() as { c: number }).c).toBe(1);
-      const remaining = db.prepare('SELECT run_id FROM locks').get() as { run_id: string };
-      expect(remaining.run_id).toBe(secondRun);
+  it('keeps an explicit WORK run active across repeated Pi edits', async () => {
+    const tmp = tempDb();
+    try {
+      const db = connectDb(tmp.dbPath);
+      const agentId = 'pi:work-session';
+      const explicit = startWork(db, {
+        agentId,
+        workspacePath: tmp.dir,
+        targetFiles: ['src/a.ts'],
+        rationale: 'explicit focused work',
+        testPlan: 'focused test',
+        origin: 'WORK',
+        source: 'EXPLICIT',
+      });
+      if (!explicit.ok) throw new Error('unexpected conflict');
+      const bridge = createPiAwarenessBridge({ getDb: () => db });
+      const ctx = { cwd: tmp.dir, sessionManager: { getSessionFile: () => join(tmp.dir, 'work-session.jsonl') } };
 
-      const blocked = await createPiAwarenessBridge({ getDb: () => db }).handleToolCall(
-        { toolName: 'edit', toolCallId: 'tool-3', input: { path: 'src/a.ts' } },
-        { cwd: tmp.dir, sessionManager: { getSessionFile: () => join(tmp.dir, 'other.jsonl') } },
-      );
-      expect(blocked).toMatchObject({ block: true });
+      for (let index = 0; index < 2; index += 1) {
+        await bridge.handleToolCall({ toolName: 'write', toolCallId: `work-${index}`, input: { path: 'src/a.ts' } }, ctx);
+        await bridge.handleToolResult({ toolCallId: `work-${index}` }, ctx);
+      }
+
+      expect(db.prepare('SELECT origin, status FROM task_runs WHERE run_id = ?').get(explicit.run.run_id)).toMatchObject({ origin: 'WORK', status: 'ACTIVE' });
+      expect((db.prepare('SELECT COUNT(*) AS c FROM run_files WHERE run_id = ? AND ended_at IS NULL').get(explicit.run.run_id) as { c: number }).c).toBe(1);
+      expect((db.prepare('SELECT COUNT(*) AS c FROM edit_log WHERE run_id = ?').get(explicit.run.run_id) as { c: number }).c).toBe(2);
       db.close();
     } finally {
       tmp.cleanup();
@@ -253,7 +332,7 @@ describe('wirePiAwarenessHooks', () => {
       expect(String(result?.message?.content)).toContain('agent-a');
 
       const second = await bridge.handleBeforeAgentStart({}, { cwd: tmp.dir });
-      expect(String(second?.message?.content ?? '')).toContain('hook handoff works');
+      expect(second).toBeUndefined();
       db.close();
     } finally {
       if (previousAgentId === undefined) delete process.env.OCTOCODE_AGENT_ID;
@@ -280,8 +359,10 @@ describe('wirePiAwarenessHooks', () => {
 
       const ctx = { cwd: tmp.dir, sessionManager: { getSessionFile: () => join(tmp.dir, 'session.jsonl') } };
       const bridge = createPiAwarenessBridge({ getDb: () => db });
-      await bridge.handleToolCall({ toolName: 'write', toolCallId: 'tool-verify', input: { path: 'src/a.ts' } }, ctx);
-      await bridge.handleToolResult({ toolCallId: 'tool-verify' }, ctx);
+      for (let index = 0; index < 5; index += 1) {
+        await bridge.handleToolCall({ toolName: 'write', toolCallId: `tool-verify-${index}`, input: { path: `src/${index}.ts` } }, ctx);
+        await bridge.handleToolResult({ toolCallId: `tool-verify-${index}` }, ctx);
+      }
 
       await handlers.get('agent_end')?.({}, ctx);
       await handlers.get('agent_end')?.({}, ctx);
@@ -289,6 +370,8 @@ describe('wirePiAwarenessHooks', () => {
       expect(sent).toHaveLength(1);
       expect(sent[0]?.message.customType).toBe('octocode-awareness-verify-gate');
       expect(String(sent[0]?.message.content)).toContain('unverified edits');
+      expect((String(sent[0]?.message.content).match(/PENDING:run_/g) ?? [])).toHaveLength(3);
+      expect(String(sent[0]?.message.content)).toContain('+2 omitted');
       expect(sent[0]?.options).toEqual({ deliverAs: 'followUp', triggerTurn: true });
       db.close();
     } finally {

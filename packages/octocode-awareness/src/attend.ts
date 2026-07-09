@@ -42,22 +42,23 @@ export interface AttendEvidence {
 
 export interface AttendResult {
   ok: true;
-  schema_version: 2;
+  schema_version: 3;
   generated_at: string;
   workspace_path: string;
   artifact: string | null;
   repo: string | null;
   ref: string | null;
-  profile: Record<string, number>;
-  organ_state: Record<string, unknown>;
-  drive_state: Record<string, unknown>;
+  counts?: Record<string, number>;
+  profile?: Record<string, number>;
+  organ_state?: Record<string, unknown>;
+  drive_state?: Record<string, unknown>;
   workboard: Record<string, AwarenessQueryRow[]>;
   evidence: AttendEvidence[];
-  gaps: string[];
-  bloat_warnings: string[];
-  verification_targets: AwarenessQueryRow[];
-  trust_warnings: string[];
-  trace: Array<{ step: string; count?: number; note?: string }>;
+  gaps?: string[];
+  bloat_warnings?: string[];
+  verification_targets?: AwarenessQueryRow[];
+  trust_warnings?: string[];
+  trace?: Array<{ step: string; count?: number; note?: string }>;
   organ_reference?: Array<{ organ: string; role: string; commands: string[]; guardrail: string }>;
   next: string;
 }
@@ -98,7 +99,7 @@ const ORGAN_REFERENCE = [
   {
     organ: 'corpus_bridge',
     role: 'coordinate agents',
-    commands: ['plan list', 'task ready', 'task claim', 'signal publish', 'lock acquire', 'verify audit'],
+    commands: ['plan list', 'task ready', 'task claim', 'work start', 'work list', 'signal publish', 'lock acquire', 'verify audit'],
     guardrail: 'SQLite is canonical.',
   },
   {
@@ -142,52 +143,27 @@ function groupWorkboard(rows: AwarenessQueryRow[]): Record<string, AwarenessQuer
 }
 
 function compactRow(row: AwarenessQueryRow): AwarenessQueryRow {
+  if (row['item_type'] === 'file') {
+    // Compact lobby: path + peer pressure + exclusivity only (drill with work list/show).
+    return Object.fromEntries([
+      'path', 'peer_count', 'omitted_peer_count', 'locked', 'lock_agent_id',
+    ].flatMap(key => row[key] == null ? [] : [[key, row[key]]])) as AwarenessQueryRow;
+  }
   const next: AwarenessQueryRow = {};
-  for (const key of ['column', 'item_type', 'id', 'plan_id', 'status', 'agent_id', 'priority', 'quality', 'count', 'column_total', 'omitted_count', 'active_memories', 'missing_file_refs', 'missing_reference_count', 'plans', 'tasks', 'runs', 'open_refinements', 'open_signals']) {
+  for (const key of ['item_type', 'id', 'plan_id', 'status', 'agent_id', 'priority']) {
     const value = row[key];
     if (value != null) next[key] = value;
   }
-  if (typeof row['title'] === 'string') next['title'] = summarize(row['title'], 90);
-  if (Array.isArray(row['reasons'])) next['reasons'] = row['reasons'].slice(0, 3);
-  if (Array.isArray(row['missing_references'])) {
-    const refs = row['missing_references'];
-    next['missing_references'] = refs.slice(0, 2);
-    next['omitted_missing_reference_count'] = Math.max(0, refs.length - 2);
-  }
-  if (Array.isArray(row['files'])) {
-    const files = row['files'];
-    next['file_count'] = files.length;
-    next['files'] = files.slice(0, 2);
-    next['omitted_file_count'] = Math.max(0, files.length - 2);
-  }
-  if (Array.isArray(row['raw_ids'])) {
-    const rawIds = row['raw_ids'];
-    next['raw_id_count'] = rawIds.length;
-    next['raw_ids'] = rawIds.slice(0, 5);
-    next['omitted_raw_id_count'] = Math.max(0, rawIds.length - 5);
-  }
+  if (typeof row['title'] === 'string') next['title'] = summarize(row['title'], 60);
   return next;
 }
 
 function compactWorkboard(grouped: Record<string, AwarenessQueryRow[]>, limit: number): Record<string, AwarenessQueryRow[]> {
-  return Object.fromEntries(Object.entries(grouped).map(([column, rows]) => [
-    column,
-    rows.slice(0, limit).map(compactRow),
-  ]));
-}
-
-function compactVerificationTarget(row: AwarenessQueryRow): AwarenessQueryRow {
-  const compact = compactRow(row);
-  return {
-    id: compact['id'] ?? null,
-    status: compact['status'] ?? null,
-    title: compact['title'] ?? null,
-    count: compact['count'] ?? null,
-    raw_id_count: compact['raw_id_count'] ?? null,
-    raw_ids: compact['raw_ids'] ?? [],
-    column_total: compact['column_total'] ?? null,
-    omitted_count: compact['omitted_count'] ?? null,
-  };
+  const actionable = ['Inbox', 'Ready', 'Claimed', 'Verify', 'FilesUnderWork'];
+  return Object.fromEntries(actionable.flatMap(column => {
+    const rows = grouped[column] ?? [];
+    return rows.length === 0 ? [] : [[column, rows.slice(0, limit).map(compactRow)]];
+  }));
 }
 
 function uniqueStrings(values: string[]): string[] {
@@ -338,7 +314,7 @@ export function attendAwareness(db: DatabaseSync, params: AttendParams = {}): At
     .slice(0, packetLimit)
     .map(row => compact ? compactRow(row) : row);
   const workboard = compact ? compactWorkboard(rawWorkboard, packetLimit) : rawWorkboard;
-  const verificationTargets = (rawWorkboard['Verify'] ?? []).slice(0, packetLimit).map(row => compact ? compactVerificationTarget(row) : row);
+  const verificationTargets = (rawWorkboard['Verify'] ?? []).slice(0, packetLimit);
   const readyTasks = rawWorkboard['Ready'] ?? [];
   const claimedTasks = (rawWorkboard['Claimed'] ?? []).filter(row => row['item_type'] === 'task');
   const projectionHealth = projectionStats(workspacePath);
@@ -370,7 +346,7 @@ export function attendAwareness(db: DatabaseSync, params: AttendParams = {}): At
 
   const evidence: AttendEvidence[] = recall.memories.slice(0, packetLimit).map(memory => {
     const allReferences = memory.references ?? [];
-    const references = compact ? allReferences.slice(0, 3) : allReferences;
+    const references = compact ? allReferences.slice(0, 1) : allReferences;
     const why = [
       query ? `matched query "${summarize(query, 80)}"` : null,
       files.length > 0 ? `scoped to ${files.join(', ')}` : null,
@@ -382,12 +358,14 @@ export function attendAwareness(db: DatabaseSync, params: AttendParams = {}): At
       id: memory.memory_id,
       label: memory.label,
       importance: memory.importance,
-      title: summarize(memory.task_context, compact ? 90 : 120),
-      summary: summarize(memory.observation, compact ? 160 : 240),
+      title: summarize(memory.task_context, compact ? 60 : 120),
+      summary: summarize(memory.observation, compact ? 120 : 240),
       references,
-      reference_count: allReferences.length,
-      omitted_reference_count: Math.max(0, allReferences.length - references.length),
-      why_selected: why,
+      ...(compact ? {} : {
+        reference_count: allReferences.length,
+        omitted_reference_count: Math.max(0, allReferences.length - references.length),
+      }),
+      why_selected: compact ? why.slice(0, 2) : why,
       trust: evidenceTrust(allReferences),
     };
   });
@@ -489,9 +467,45 @@ export function attendAwareness(db: DatabaseSync, params: AttendParams = {}): At
     },
   };
 
+  const next = verificationTargets.length > 0
+    ? 'octocode-awareness verify audit --agent-id "$OCTOCODE_AGENT_ID" --workspace "$PWD" --compact; then verify mark --all-pending after the declared test plan'
+    : readyTasks.length > 0
+      ? `octocode-awareness task claim --task-id ${String(readyTasks[0]?.['id'])} --agent-id "$OCTOCODE_AGENT_ID" --compact`
+      : bloatWarnings.length > 0
+        ? 'octocode-awareness memory forget --workspace "$PWD" --dry-run --compact; then repo inject --workspace "$PWD" --compact to regenerate capped projections (digest does not shrink markdown)'
+        : evidence.length > 0
+          ? 'Treat evidence as leads; re-check cited files, then work start before edits'
+          : 'octocode-awareness attend --workspace "$PWD" --query "<narrower task>" --compact; or query workboard / workspace status';
+
+  if (compact) {
+    const columnCount = (column: string): number => {
+      const rows = rawWorkboard[column] ?? [];
+      return Number(rows[0]?.['column_total'] ?? rows.length);
+    };
+    return {
+      ok: true,
+      schema_version: 3,
+      generated_at: profileResult.generated_at,
+      workspace_path: workspacePath,
+      artifact: params.artifact ?? null,
+      repo: params.repo ?? null,
+      ref: params.ref ?? null,
+      counts: {
+        Inbox: columnCount('Inbox'),
+        Ready: columnCount('Ready'),
+        Claimed: columnCount('Claimed'),
+        Verify: columnCount('Verify'),
+        FilesUnderWork: columnCount('FilesUnderWork'),
+      },
+      workboard,
+      evidence,
+      next,
+    };
+  }
+
   const result: AttendResult = {
     ok: true,
-    schema_version: 2,
+    schema_version: 3,
     generated_at: profileResult.generated_at,
     workspace_path: workspacePath,
     artifact: params.artifact ?? null,
@@ -512,15 +526,7 @@ export function attendAwareness(db: DatabaseSync, params: AttendParams = {}): At
       { step: 'memory-recall', count: evidence.length, note: memoryQuery ? undefined : 'skipped-empty-query' },
       { step: 'projection-health', count: projectionHealth.length },
     ],
-    next: verificationTargets.length > 0
-      ? 'octocode-awareness verify audit --agent-id "$OCTOCODE_AGENT_ID" --workspace "$PWD" --compact; then verify mark --all-pending after the declared test plan'
-      : readyTasks.length > 0
-        ? `octocode-awareness task claim --task-id ${String(readyTasks[0]?.['id'])} --agent-id "$OCTOCODE_AGENT_ID" --compact`
-      : bloatWarnings.length > 0
-        ? 'octocode-awareness memory forget --workspace "$PWD" --dry-run --compact; then repo inject --workspace "$PWD" --compact to regenerate capped projections (digest does not shrink markdown)'
-        : evidence.length > 0
-          ? 'Treat evidence as leads; re-check cited files, then lock acquire before edits'
-          : 'octocode-awareness attend --workspace "$PWD" --query "<narrower task>" --compact; or query workboard / workspace status',
+    next,
   };
   if (explainOrgan) result.organ_reference = ORGAN_REFERENCE;
   return result;

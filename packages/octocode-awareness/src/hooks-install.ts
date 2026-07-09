@@ -1,4 +1,8 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import {
+  closeSync, existsSync, mkdirSync, openSync, readFileSync, renameSync,
+  statSync, unlinkSync, writeFileSync,
+} from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 
@@ -44,6 +48,10 @@ export interface HooksInstallOptions {
 
 const WRITE_MATCHER = 'Write|Edit|MultiEdit|NotebookEdit|apply_patch|ApplyPatch';
 const HOSTS = new Set<HookHost>(['claude', 'codex', 'cursor']);
+const CONFIG_LOCK_WAIT = new Int32Array(new SharedArrayBuffer(4));
+const CONFIG_LOCK_RETRY_MS = 25;
+const CONFIG_LOCK_TIMEOUT_MS = 10_000;
+const CONFIG_LOCK_STALE_MS = 30_000;
 
 export function hooksInstallUsage(): string {
   return `usage: octocode-awareness hooks install|check|remove [options]
@@ -98,6 +106,70 @@ function loadSettings(settingsPath: string): HookSettings {
   return parsed && typeof parsed === 'object' ? parsed as HookSettings : {};
 }
 
+function processIsAlive(pid: number): boolean {
+  if (!Number.isSafeInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code !== 'ESRCH';
+  }
+}
+
+function removeStaleConfigLock(lockPath: string): boolean {
+  try {
+    const owner = Number.parseInt(readFileSync(lockPath, 'utf8'), 10);
+    const staleByAge = Date.now() - statSync(lockPath).mtimeMs > CONFIG_LOCK_STALE_MS;
+    if (processIsAlive(owner) && !staleByAge) return false;
+    unlinkSync(lockPath);
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return true;
+    return false;
+  }
+}
+
+function acquireConfigLock(settingsPath: string): () => void {
+  mkdirSync(dirname(settingsPath), { recursive: true });
+  const lockPath = `${settingsPath}.octocode-awareness.lock`;
+  const deadline = Date.now() + CONFIG_LOCK_TIMEOUT_MS;
+  for (;;) {
+    try {
+      const fd = openSync(lockPath, 'wx', 0o600);
+      try {
+        writeFileSync(fd, `${process.pid}\n`, 'utf8');
+      } finally {
+        closeSync(fd);
+      }
+      return () => {
+        try { unlinkSync(lockPath); } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+        }
+      };
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+      if (removeStaleConfigLock(lockPath)) continue;
+      if (Date.now() >= deadline) {
+        throw new Error(`timed out waiting for concurrent hook update: ${settingsPath}`);
+      }
+      Atomics.wait(CONFIG_LOCK_WAIT, 0, 0, CONFIG_LOCK_RETRY_MS);
+    }
+  }
+}
+
+function writeSettingsAtomic(settingsPath: string, settings: HookSettings): void {
+  mkdirSync(dirname(settingsPath), { recursive: true });
+  const temporaryPath = `${settingsPath}.tmp-${process.pid}-${randomUUID()}`;
+  try {
+    writeFileSync(temporaryPath, JSON.stringify(settings, null, 2) + '\n');
+    renameSync(temporaryPath, settingsPath);
+  } finally {
+    try { unlinkSync(temporaryPath); } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    }
+  }
+}
+
 function hookCommand(name: string, params: {
   host: HookHost;
   globalMode: boolean;
@@ -122,7 +194,6 @@ function specsFor(host: HookHost, params: {
   if (host === 'cursor') {
     return [
       { event: 'preToolUse', matcher: WRITE_MATCHER, command: command('pre-edit.sh') },
-      { event: 'preToolUse', matcher: WRITE_MATCHER, command: command('harness-guard.sh') },
       { event: 'postToolUse', matcher: WRITE_MATCHER, command: command('post-edit.sh') },
       { event: 'stop', command: command('stop-verify.sh') },
       { event: 'subagentStop', command: command('stop-verify.sh') },
@@ -134,7 +205,6 @@ function specsFor(host: HookHost, params: {
   if (host === 'codex') {
     return [
       { event: 'PreToolUse', matcher: WRITE_MATCHER, command: command('pre-edit.sh') },
-      { event: 'PreToolUse', matcher: WRITE_MATCHER, command: command('harness-guard.sh') },
       { event: 'PostToolUse', matcher: WRITE_MATCHER, command: command('post-edit.sh') },
       { event: 'Stop', command: command('stop-verify.sh') },
       { event: 'SubagentStop', command: command('stop-verify.sh') },
@@ -144,13 +214,24 @@ function specsFor(host: HookHost, params: {
   }
   return [
     { event: 'PreToolUse', matcher: WRITE_MATCHER, command: command('pre-edit.sh') },
-    { event: 'PreToolUse', matcher: WRITE_MATCHER, command: command('harness-guard.sh') },
     { event: 'PostToolUse', matcher: WRITE_MATCHER, command: command('post-edit.sh') },
     { event: 'Stop', command: command('stop-verify.sh') },
     { event: 'SubagentStop', command: command('stop-verify.sh') },
     { event: 'SessionEnd', command: command('session-end.sh') },
     { event: 'UserPromptSubmit', command: command('notify-deliver.sh') },
   ];
+}
+
+function obsoleteSpecsFor(host: HookHost, params: {
+  globalMode: boolean;
+  projectDir: string;
+  hookDir: string;
+}): HookSpec[] {
+  return [{
+    event: host === 'cursor' ? 'preToolUse' : 'PreToolUse',
+    matcher: WRITE_MATCHER,
+    command: hookCommand('harness-guard.sh', { host, ...params }),
+  }];
 }
 
 function entry(host: HookHost, spec: HookSpec): HookEntry {
@@ -271,6 +352,35 @@ function removeCommand(groups: HookEntry[] | undefined, command: string): { grou
 }
 
 export function runHooksInstall(argv: string[], options: HooksInstallOptions): HooksInstallResult {
+  const hostValue = requestedHost(argv);
+  const writes = !flag(argv, '--help')
+    && !flag(argv, '-h')
+    && !flag(argv, '--check')
+    && !flag(argv, '--dry-run')
+    && !(flag(argv, '--global') && argv.includes('--project-dir'))
+    && HOSTS.has(hostValue as HookHost);
+  if (!writes) return runHooksInstallUnlocked(argv, options);
+
+  const host = hostValue as HookHost;
+  const cwd = options.cwd ?? process.cwd();
+  const home = options.homeDir ?? homedir();
+  const config = targetConfig(host);
+  const settingsPath = flag(argv, '--global')
+    ? join(home, config.dir, config.file)
+    : join(resolve(opt(argv, '--project-dir', cwd)), config.dir, config.file);
+
+  let release: (() => void) | undefined;
+  try {
+    release = acquireConfigLock(settingsPath);
+    return runHooksInstallUnlocked(argv, options);
+  } catch (error) {
+    return fail(`cannot update ${settingsPath}: ${(error as Error).message}`);
+  } finally {
+    release?.();
+  }
+}
+
+function runHooksInstallUnlocked(argv: string[], options: HooksInstallOptions): HooksInstallResult {
   if (flag(argv, '--help') || flag(argv, '-h')) {
     return { exitCode: 0, text: hooksInstallUsage() + '\n' };
   }
@@ -308,6 +418,11 @@ export function runHooksInstall(argv: string[], options: HooksInstallOptions): H
     projectDir,
     hookDir: options.hookDir,
   });
+  const obsoleteSpecs = obsoleteSpecsFor(host, {
+    globalMode,
+    projectDir,
+    hookDir: options.hookDir,
+  });
 
   const checks = specs.map((spec) => {
     const groups = settings.hooks?.[spec.event];
@@ -332,13 +447,16 @@ export function runHooksInstall(argv: string[], options: HooksInstallOptions): H
     };
   });
   const hooks = Object.fromEntries(checks.map((check) => [check.key, check.installed]));
+  const obsolete = obsoleteSpecs
+    .filter((spec) => hasCommand(settings.hooks?.[spec.event], spec.command))
+    .map(hookStatusKey);
   const status = {
     host,
     settingsPath,
     hooks,
-    installed_all: checks.every((check) => check.installed),
+    installed_all: checks.every((check) => check.installed) && obsolete.length === 0,
     missing: checks.filter((check) => !check.present).map((check) => check.key),
-    drifted: checks.filter((check) => check.drifted).map((check) => check.key),
+    drifted: [...checks.filter((check) => check.drifted).map((check) => check.key), ...obsolete],
     details: Object.fromEntries(checks.map((check) => [check.key, check])),
   };
 
@@ -355,6 +473,14 @@ export function runHooksInstall(argv: string[], options: HooksInstallOptions): H
   if (host === 'cursor' && !flag(argv, '--remove') && settings.version == null) {
     settings.version = 1;
     changed = true;
+  }
+
+  for (const spec of obsoleteSpecs) {
+    const result = removeCommand(settings.hooks[spec.event], spec.command);
+    if (!result.removed) continue;
+    changed = true;
+    if (result.groups.length > 0) settings.hooks[spec.event] = result.groups;
+    else delete settings.hooks[spec.event];
   }
 
   if (flag(argv, '--remove')) {
@@ -390,8 +516,7 @@ export function runHooksInstall(argv: string[], options: HooksInstallOptions): H
   }
 
   if (changed) {
-    mkdirSync(dirname(settingsPath), { recursive: true });
-    writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + '\n');
+    writeSettingsAtomic(settingsPath, settings);
   }
 
   return {

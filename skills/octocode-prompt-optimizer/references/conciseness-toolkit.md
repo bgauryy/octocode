@@ -27,3 +27,6 @@ Load during FIX when a line is wordy, indirect, or over about 20-25 words. Goal:
 - **Match style to output:** a terse prompt biases terse agent output; a verbose prompt biases verbose output.
 - **Markdown only if meaningful:** emphasis, headers, tables, and fences cost tokens. Use them only when they aid parsing or scanning — a real matrix, a section, a code block; strip decorative formatting.
 - **Table = genuine matrix:** this bounds the "Prose → table" move above — reach for a table on a real matrix, not on two items.
+
+## Sources
+- Anthropic, [Effective context engineering for AI agents](https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents) — the minimal high-signal context principle.

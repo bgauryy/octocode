@@ -6,31 +6,26 @@ process.on("warning", (warning) => {
 });
 
 import { spawnSync } from "node:child_process";
-import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const scriptsDir = dirname(fileURLToPath(import.meta.url));
 const skillRoot = dirname(scriptsDir);
 const args = new Set(process.argv.slice(2));
-const checkOnly = args.has("--check-only");
-const skipDeps = args.has("--skip-deps");
 const nodeBin = process.execPath;
 
 function printHelp() {
-  console.log(`Usage: node scripts/install.mjs [--check-only] [--skip-deps] [--help]
+  console.log(`Usage: node scripts/install.mjs [--help]
 
 Check the octocode-awareness standalone runtime and print the host hook init flow.
-This script never writes Codex/Cursor/Claude hook config; preview and install hooks
-with scripts/awareness.mjs after explicit user approval.
+The package bundles every runtime dependency. This script never installs packages
+or writes Codex/Cursor/Claude hook config; preview and install hooks with
+scripts/awareness.mjs after explicit user approval.
 
 Options:
-  --check-only  Do not install missing npm dependencies.
-  --skip-deps   Skip npm dependency installation.
   --help, -h    Show this help.
 
 Examples:
-  node scripts/install.mjs --check-only
   node scripts/install.mjs
   node scripts/awareness.mjs hooks install --host codex --project-dir . --dry-run --compact
   node scripts/awareness.mjs hooks check --host claude --project-dir . --strict --compact`);
@@ -39,6 +34,10 @@ Examples:
 if (args.has("--help") || args.has("-h")) {
   printHelp();
   process.exit(0);
+}
+
+if (args.size > 0) {
+  fail(`unknown option(s): ${[...args].join(", ")}`);
 }
 
 function run(command, commandArgs, options = {}) {
@@ -52,21 +51,6 @@ function run(command, commandArgs, options = {}) {
 
 function ok(command, commandArgs, options = {}) {
   return run(command, commandArgs, { ...options, capture: true }).status === 0;
-}
-
-function findNpm() {
-  const candidates = [
-    "npm",
-    join(dirname(process.execPath), "npm"),
-    "/opt/homebrew/bin/npm",
-    "/usr/local/bin/npm",
-  ];
-  for (const candidate of candidates) {
-    if (ok(candidate, ["--help"])) {
-      return candidate;
-    }
-  }
-  return null;
 }
 
 function fail(message, details = {}) {
@@ -86,39 +70,6 @@ function ensureRuntime() {
   if (!ok(nodeBin, ["--input-type=module", "-e", sqliteProbe])) {
     fail("Node >=22 with node:sqlite is required.");
   }
-}
-
-function schemaWorks() {
-  return ok(nodeBin, [join(scriptsDir, "schema.mjs"), "list"]);
-}
-
-function installDependencies() {
-  if (schemaWorks()) {
-    return { installed: false, reason: "zod already resolvable" };
-  }
-
-  if (skipDeps || checkOnly) {
-    return { installed: false, reason: "dependency install skipped" };
-  }
-
-  if (!existsSync(join(scriptsDir, "package.json"))) {
-    fail("scripts/package.json is missing; cannot install local schema dependencies.");
-  }
-  const npm = findNpm();
-  if (!npm) {
-    fail("npm is required to install local Zod dependency for standalone use.");
-  }
-
-  const result = run(npm, ["install", "--omit=dev", "--no-audit", "--no-fund"], {
-    cwd: scriptsDir,
-  });
-  if (result.status !== 0) {
-    fail("npm install failed for local script dependencies.", { exitCode: result.status });
-  }
-  if (!schemaWorks()) {
-    fail("schema.mjs still cannot run after installing dependencies.");
-  }
-  return { installed: true, reason: "installed scripts/package.json dependencies" };
 }
 
 function runSmokeChecks() {
@@ -160,7 +111,6 @@ function runSmokeChecks() {
 }
 
 ensureRuntime();
-const dependencyResult = installDependencies();
 runSmokeChecks();
 
 console.log(
@@ -170,7 +120,7 @@ console.log(
       skillRoot,
       scriptsDir,
       node: nodeBin,
-      dependencyResult,
+      runtime: { dependencies: "bundled", writes: false },
       commands: {
         schema: `${nodeBin} scripts/schema.mjs list`,
         awareness: `${nodeBin} scripts/awareness.mjs workspace status`,

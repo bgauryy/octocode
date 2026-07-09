@@ -104,14 +104,6 @@ describe('insertMemory', () => {
     })).toThrow(/invalid label/);
   });
 
-  it('coerces unknown labels to OTHER when compatCoerce', () => {
-    const db = freshDb();
-    const { memory } = insertMemory(db, {
-      taskContext: 't', observation: 'o', importance: 3, label: 'BOGUS', compatCoerce: true,
-    });
-    expect(memory.label).toBe('OTHER');
-  });
-
   it('handles undefined optional fields gracefully', () => {
     const db = freshDb();
     const { memory } = insertMemory(db, { taskContext: 't', observation: 'o', importance: 1 });

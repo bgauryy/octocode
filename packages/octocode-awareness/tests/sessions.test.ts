@@ -46,10 +46,10 @@ function insertTask(
   sessionId: string | null,
 ): void {
   db.prepare(`
-    INSERT INTO task_runs(run_id, agent_id, session_id, rationale, test_plan, status,
-                      workspace_path, files_json, created_at, updated_at)
-    VALUES (?, ?, ?, 'rationale', 'test_plan', 'ACTIVE',
-            '/workspace', '[]',
+    INSERT INTO task_runs(run_id, origin, agent_id, session_id, rationale, test_plan, status,
+                      workspace_path, created_at, updated_at)
+    VALUES (?, 'WORK', ?, ?, 'rationale', 'test_plan', 'ACTIVE',
+            '/workspace',
             strftime('%Y-%m-%dT%H:%M:%fZ','now'),
             strftime('%Y-%m-%dT%H:%M:%fZ','now'))
   `).run(runId, agentId, sessionId);
@@ -445,6 +445,12 @@ describe('listSessions', () => {
 
     expect(listSessions(db, { agentId: 'agent-Z' })).toHaveLength(0);
     expect(listSessions(db, { workspacePath: '/no-such-path' })).toHaveLength(0);
+  });
+
+  it('caps caller limits so session listings cannot flood agent context', () => {
+    const db = freshDb();
+    for (let i = 0; i < 125; i++) insertSession(db, { agentId: `agent-${i}` });
+    expect(listSessions(db, { limit: 500 })).toHaveLength(100);
   });
 });
 
