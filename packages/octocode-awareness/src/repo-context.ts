@@ -519,7 +519,7 @@ function planRows(db: DatabaseSync, params: AwarenessQueryParams): AwarenessQuer
   }));
 }
 
-function taskRows(db: DatabaseSync, params: AwarenessQueryParams): AwarenessQueryRow[] {
+function taskRowWhere(params: AwarenessQueryParams): { where: string[]; binds: BindValue[] } {
   const scope = scopeFromParams(params);
   const where: string[] = [];
   const binds: BindValue[] = [];
@@ -530,13 +530,28 @@ function taskRows(db: DatabaseSync, params: AwarenessQueryParams): AwarenessQuer
   if (agentId) { where.push('(t.created_by = ? OR c.agent_id = ?)'); binds.push(agentId, agentId); }
   const since = params.since?.trim();
   if (since) { where.push('t.created_at >= ?'); binds.push(since); }
+  return { where, binds };
+}
+
+function taskRows(db: DatabaseSync, params: AwarenessQueryParams): AwarenessQueryRow[] {
+  const { where, binds } = taskRowWhere(params);
   const sqlWhere = where.length > 0 ? `WHERE ${where.join(' AND ')}` : '';
   const rows = db.prepare(
     `SELECT t.*, p.name AS plan_name, p.status AS plan_status, p.workspace_path, p.artifact,
-            c.agent_id AS claimed_by, c.run_id, c.expires_at AS claim_expires_at,
+            COALESCE(c.agent_id, (
+              SELECT tr.agent_id FROM task_runs tr
+              WHERE tr.task_id = t.task_id AND tr.status = 'PENDING'
+              ORDER BY datetime(tr.updated_at) DESC, tr.run_id DESC LIMIT 1
+            )) AS claimed_by,
+            COALESCE(c.run_id, (
+              SELECT tr.run_id FROM task_runs tr
+              WHERE tr.task_id = t.task_id AND tr.status = 'PENDING'
+              ORDER BY datetime(tr.updated_at) DESC, tr.run_id DESC LIMIT 1
+            )) AS run_id,
+            c.expires_at AS claim_expires_at,
             COALESCE((SELECT json_group_array(tp.path) FROM task_paths tp WHERE tp.task_id = t.task_id), '[]') AS paths_json,
             COALESCE((SELECT json_group_array(td.depends_on_task_id) FROM task_dependencies td WHERE td.task_id = t.task_id), '[]') AS dependencies_json,
-            CASE WHEN t.status = 'OPEN'
+            CASE WHEN t.status = 'OPEN' AND p.status = 'ACTIVE'
               AND c.task_id IS NULL
               AND NOT EXISTS (
                 SELECT 1 FROM task_dependencies td
@@ -574,6 +589,25 @@ function taskRows(db: DatabaseSync, params: AwarenessQueryParams): AwarenessQuer
     updated_at: String(row['updated_at']),
     completed_at: row['completed_at'] ?? null,
   }));
+}
+
+function countTaskRows(db: DatabaseSync, params: AwarenessQueryParams, readyOnly = false): number {
+  const { where, binds } = taskRowWhere(params);
+  if (readyOnly) {
+    where.push("t.status = 'OPEN'", "p.status = 'ACTIVE'", 'c.task_id IS NULL');
+    where.push(`NOT EXISTS (
+      SELECT 1 FROM task_dependencies td
+      JOIN tasks dependency ON dependency.task_id = td.depends_on_task_id
+      WHERE td.task_id = t.task_id AND dependency.status <> 'DONE'
+    )`);
+  }
+  const sqlWhere = where.length > 0 ? `WHERE ${where.join(' AND ')}` : '';
+  return (db.prepare(`SELECT COUNT(*) AS count
+    FROM tasks t
+    JOIN plans p ON p.plan_id = t.plan_id
+    LEFT JOIN task_claims c ON c.task_id = t.task_id
+      AND c.expires_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+    ${sqlWhere}`).get(...binds) as { count: number }).count;
 }
 
 function runRows(db: DatabaseSync, params: AwarenessQueryParams): AwarenessQueryRow[] {
@@ -616,6 +650,26 @@ function runRows(db: DatabaseSync, params: AwarenessQueryParams): AwarenessQuery
     created_at: String(row['created_at']),
     updated_at: String(row['updated_at']),
   }));
+}
+
+function countPendingStandaloneRuns(db: DatabaseSync, params: AwarenessQueryParams): number {
+  const scope = scopeFromParams(params);
+  const where = ["tr.status = 'PENDING'", 'tr.task_id IS NULL'];
+  const binds: BindValue[] = [];
+  addExactScope(where, binds, workspaceArtifactScope(scope), 'tr');
+  const query = params.query?.trim();
+  if (query) {
+    where.push(`(LOWER(COALESCE(tr.run_id, '') || ' ' || COALESCE(tr.rationale, '') || ' ' ||
+      COALESCE(tr.test_plan, '') || ' ' || COALESCE(tr.context_ref, '') || ' ' || COALESCE(tr.agent_id, '')) LIKE LOWER(?)
+      OR EXISTS (SELECT 1 FROM run_files rfq WHERE rfq.run_id = tr.run_id AND LOWER(rfq.file_path) LIKE LOWER(?)))`);
+    binds.push(`%${query}%`, `%${query}%`);
+  }
+  const agentId = params.agentId ?? params.agent_id;
+  if (agentId) { where.push('tr.agent_id = ?'); binds.push(agentId); }
+  const since = params.since?.trim();
+  if (since) { where.push('tr.created_at >= ?'); binds.push(since); }
+  return (db.prepare(`SELECT COUNT(*) AS count FROM task_runs tr WHERE ${where.join(' AND ')}`)
+    .get(...binds) as { count: number }).count;
 }
 
 function lockRows(db: DatabaseSync, params: AwarenessQueryParams): AwarenessQueryRow[] {
@@ -1361,6 +1415,13 @@ function workboardRows(db: DatabaseSync, params: AwarenessQueryParams): Awarenes
     open_signals: openSignalCount,
     created_at: utcNow(),
   }, limit);
+
+  // Detail reads are intentionally capped; totals are separate exact queries so
+  // compact agents can trust the number and see how much detail was omitted.
+  counts.Verify = countTaskRows(db, withScope(params, { state: ['VERIFY'] }))
+    + countPendingStandaloneRuns(db, params);
+  counts.Ready = countTaskRows(db, withScope(params, { state: ['OPEN'] }), true);
+  counts.Claimed = countTaskRows(db, withScope(params, { state: ['IN_PROGRESS'] }));
 
   return Object.entries(columns).flatMap(([column, rows]) => {
     const total = counts[column] ?? rows.length;

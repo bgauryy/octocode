@@ -4,18 +4,21 @@ import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSy
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { evictExpiredLocks, initDb, tableColumns } from '../src/db.js';
-import { createPlan, getPlan, joinPlan, listPlans, registerPlanDocument, updatePlanStatus } from '../src/plans.js';
+import { countPlans, createPlan, getPlan, joinPlan, listPlans, registerPlanDocument, updatePlanStatus } from '../src/plans.js';
 import {
   activeTaskClaimForAgent,
   addTaskDependency,
   claimTask,
-  createTask,
+  countReadyTasks,
+  countTasks,
+  createTask as createTaskBase,
   heartbeatTaskClaim,
   listTasks,
   listReadyTasks,
   releaseTaskClaim,
   submitTask,
 } from '../src/tasks.js';
+import type { CreateTaskParams } from '../src/tasks.js';
 import { auditUnverified, markVerified } from '../src/verify.js';
 import { preFlightIntent, releaseFileLock } from '../src/intents.js';
 
@@ -24,6 +27,11 @@ function freshDb(): DatabaseSync {
   db.exec('PRAGMA foreign_keys = ON');
   initDb(db);
   return db;
+}
+
+type TestTaskParams = Omit<CreateTaskParams, 'acceptanceCriteria'> & { acceptanceCriteria?: string };
+function createTask(db: DatabaseSync, params: TestTaskParams) {
+  return createTaskBase(db, { acceptanceCriteria: 'affected behavior is verified', ...params });
 }
 
 describe('plan and task collaboration', () => {
@@ -51,7 +59,7 @@ describe('plan and task collaboration', () => {
       });
 
       expect(created.plan.plan_id).toMatch(/^plan_/);
-      expect(created.plan.status).toBe('DRAFT');
+      expect(created.plan.status).toBe('ACTIVE');
       expect(created.plan.doc_dir).toMatch(/^\.octocode\/plan\/\d{8}-\d{6}Z-awareness-collaboration$/);
       expect(existsSync(join(workspace, created.plan.doc_dir, 'PLAN.md'))).toBe(true);
       expect(readFileSync(join(workspace, created.plan.doc_dir, 'PLAN.md'), 'utf8'))
@@ -100,6 +108,14 @@ describe('plan and task collaboration', () => {
         paths: [],
         createdBy: 'lead',
       })).toThrow(/path/i);
+      expect(() => createTaskBase(db, {
+        planId: plan.plan_id,
+        title: 'Missing acceptance',
+        reasoning: 'The task must declare how completion is checked.',
+        acceptanceCriteria: ' ',
+        paths: ['src/a.ts'],
+        createdBy: 'lead',
+      })).toThrow(/acceptance/i);
     } finally {
       rmSync(workspace, { recursive: true, force: true });
     }
@@ -119,9 +135,9 @@ describe('plan and task collaboration', () => {
         name: 'Governed plan', objective: 'Validate plan control-plane boundaries.',
         leadAgentId: 'lead', workspacePath: workspace, artifact: 'pkg',
       });
-      expect(listPlans(db, { workspacePath: workspace, artifact: 'pkg', status: 'DRAFT' }))
+      expect(listPlans(db, { workspacePath: workspace, artifact: 'pkg', status: 'ACTIVE' }))
         .toHaveLength(1);
-      expect(listPlans(db, { status: 'ACTIVE' })).toEqual([]);
+      expect(listPlans(db, { status: 'DRAFT' })).toEqual([]);
       joinPlan(db, { planId: plan.plan_id, agentId: 'worker' });
       expect(joinPlan(db, { planId: plan.plan_id, agentId: 'worker' }).role).toBe('CONTRIBUTOR');
 
@@ -257,10 +273,13 @@ describe('plan and task collaboration', () => {
       expect(db.prepare('SELECT COUNT(*) AS count FROM locks WHERE run_id = ?').get(claim.run.run_id))
         .toEqual({ count: 0 });
 
-      updatePlanStatus(db, { planId: plan.plan_id, status: 'COMPLETED', agentId: 'lead' });
+      expect(() => updatePlanStatus(db, {
+        planId: plan.plan_id, status: 'COMPLETED', agentId: 'lead',
+      })).toThrow(/unfinished task/);
+      updatePlanStatus(db, { planId: plan.plan_id, status: 'CANCELLED', agentId: 'lead' });
       expect(() => createTask(db, {
         planId: plan.plan_id, title: 'Late', reasoning: 'Too late.', paths: ['late.ts'], createdBy: 'lead',
-      })).toThrow(/completed plan/);
+      })).toThrow(/cancelled plan/);
 
       const failedDb = freshDb();
       const failedWorkspace = mkdtempSync(join(tmpdir(), 'oc-task-fail-'));
@@ -359,6 +378,65 @@ describe('plan and task collaboration', () => {
         .get(first.task.task_id)).toEqual({ status: 'DONE' });
       expect(listReadyTasks(db, { planId: plan.plan_id }).map((task) => task.task_id))
         .toEqual([second.task.task_id]);
+    } finally {
+      rmSync(workspace, { recursive: true, force: true });
+    }
+  });
+
+  it('blocks ready/claim outside ACTIVE plans and cancels unclaimed tasks atomically', () => {
+    const db = freshDb();
+    const workspace = mkdtempSync(join(tmpdir(), 'oc-plan-status-'));
+    try {
+      const { plan } = createPlan(db, {
+        name: 'Governed queue', objective: 'Make lead status authoritative.',
+        leadAgentId: 'lead', workspacePath: workspace,
+      });
+      const { task } = createTask(db, {
+        planId: plan.plan_id, title: 'Queued', reasoning: 'Wait for active governance.',
+        acceptanceCriteria: 'tests pass', paths: ['src/a.ts'], createdBy: 'lead',
+      });
+
+      updatePlanStatus(db, { planId: plan.plan_id, status: 'PAUSED', agentId: 'lead' });
+      expect(listReadyTasks(db, { planId: plan.plan_id })).toEqual([]);
+      const pausedClaim = claimTask(db, { taskId: task.task_id, agentId: 'worker' });
+      expect(pausedClaim.ok).toBe(false);
+      if (!pausedClaim.ok) expect(pausedClaim.error).toMatch(/plan is not ACTIVE/);
+
+      updatePlanStatus(db, { planId: plan.plan_id, status: 'CANCELLED', agentId: 'lead' });
+      expect(getPlan(db, plan.plan_id)?.status).toBe('CANCELLED');
+      expect(listTasks(db, { planId: plan.plan_id })[0]?.status).toBe('CANCELLED');
+      expect(claimTask(db, { taskId: task.task_id, agentId: 'worker' }).ok).toBe(false);
+    } finally {
+      rmSync(workspace, { recursive: true, force: true });
+    }
+  });
+
+  it('bounds plan/task reads while counts remain exact', () => {
+    const db = freshDb();
+    const workspace = mkdtempSync(join(tmpdir(), 'oc-plan-bounds-'));
+    try {
+      const plans = Array.from({ length: 3 }, (_, index) => createPlan(db, {
+        name: `Plan ${index}`,
+        objective: 'Exercise bounded reads.',
+        leadAgentId: 'lead',
+        workspacePath: workspace,
+      }).plan);
+      expect(countPlans(db, { workspacePath: workspace })).toBe(3);
+      expect(listPlans(db, { workspacePath: workspace, limit: 2 })).toHaveLength(2);
+
+      for (let index = 0; index < 3; index++) {
+        createTask(db, {
+          planId: plans[0]!.plan_id,
+          title: `Task ${index}`,
+          reasoning: 'Exercise bounded task reads.',
+          paths: [`src/${index}.ts`],
+          createdBy: 'lead',
+        });
+      }
+      expect(countTasks(db, { planId: plans[0]!.plan_id })).toBe(3);
+      expect(countReadyTasks(db, { planId: plans[0]!.plan_id })).toBe(3);
+      expect(listTasks(db, { planId: plans[0]!.plan_id, limit: 2 })).toHaveLength(2);
+      expect(listReadyTasks(db, { planId: plans[0]!.plan_id, limit: 2 })).toHaveLength(2);
     } finally {
       rmSync(workspace, { recursive: true, force: true });
     }

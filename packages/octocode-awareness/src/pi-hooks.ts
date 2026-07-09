@@ -361,12 +361,16 @@ export function createPiAwarenessBridge(options: PiAwarenessBridgeOptions = {}) 
     async handleToolCall(event: PiToolEvent, ctx?: PiLikeContext) {
       const targetFiles = extractPiWriteTargetPaths(event?.toolName, event?.input);
       if (targetFiles.length === 0) return undefined;
-      // Dedupe key: a host may emit BOTH tool_call and tool_execution_start for
-      // one edit. Prefer toolCallId; when it is missing, fall back to the sorted
-      // target-file set (identical across both events for the same edit) so a
-      // missing id cannot cause a duplicate presence declaration. Distinct edits yield
-      // distinct file sets, so this never over-dedupes real work.
-      const dedupeKey = event?.toolCallId || `nofid:${[...targetFiles].sort().join('|')}`;
+      // A file-set fallback cannot distinguish two parallel edits of the same
+      // file, and tool_execution_end does not carry the start payload needed to
+      // reconstruct that key. Block before the write when the host supplies no
+      // stable id instead of creating presence that cannot be correlated safely.
+      const dedupeKey = firstString(event?.toolCallId);
+      if (!dedupeKey) {
+        const reason = 'Octocode awareness blocked this edit: the Pi host did not provide a stable toolCallId for lifecycle correlation.';
+        notify(ctx, reason, 'warning');
+        return { block: true, reason };
+      }
       if (pendingToolRuns.has(dedupeKey)) return undefined;
       const harnessBlockReason = guardPiHarnessEdit(targetFiles, ctx, skillRoot);
       if (harnessBlockReason) return { block: true, reason: harnessBlockReason };
@@ -442,9 +446,11 @@ export function createPiAwarenessBridge(options: PiAwarenessBridgeOptions = {}) 
 
     async handleToolResult(event: PiToolEvent, ctx?: PiLikeContext) {
       const extracted = extractPiWriteTargetPaths(event?.toolName, event?.input);
-      // Mirror the acquire-side key (toolCallId, else sorted target files) so the
-      // post-edit handling finds the run the matching handleToolCall recorded.
-      const dedupeKey = event?.toolCallId || `nofid:${[...extracted].sort().join('|')}`;
+      const dedupeKey = firstString(event?.toolCallId);
+      if (!dedupeKey) {
+        notify(ctx, 'Octocode awareness post-edit warning: missing stable toolCallId; the matching write should have been blocked before execution.', 'warning');
+        return undefined;
+      }
       const trackedFiles = pendingToolRuns.has(dedupeKey) ? pendingToolFiles.get(dedupeKey) : undefined;
       const runId = pendingToolRuns.get(dedupeKey);
       const fallbackFiles = trackedFiles ?? extracted;

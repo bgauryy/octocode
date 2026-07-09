@@ -10,7 +10,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import { fileLock } from './intents.js';
 import { attendAwareness } from './attend.js';
 import { digest, exportHarness, exportMemoryDoc, getWorkspaceStatus } from './maintenance.js';
-import { findSimilarMemories, forgetMemory, getMemory, insertMemory, mineWeakness } from './memory.js';
+import { forgetMemory, getMemory, insertMemoryWithSimilarityGate, mineWeakness } from './memory.js';
 import { agentSignal } from './notifications.js';
 import { reflect as reflectMemory } from './reflect.js';
 import { getRefinements } from './refinements.js';
@@ -99,10 +99,11 @@ function scopeReferences(request: Record<string, unknown>): string[] {
   return [...references, ...file, ...files, ...folders];
 }
 
-function recallQuery(request: Record<string, unknown>, type: string): string {
-  // Only use semantic text for FTS search. File/folder/repo names are structural
-  // scope filters and must not be appended to the search query.
-  return requireText(request, 'query', type);
+function optionalQuery(request: Record<string, unknown>): string {
+  const query = request['query'];
+  if (query == null) return '';
+  if (typeof query !== 'string') throw new Error('memory recall query must be a string');
+  return query;
 }
 
 export function runAwarenessToolOperation(
@@ -120,25 +121,38 @@ export function runAwarenessToolOperation(
       const recallRefs = Array.isArray(rawRefs) ? rawRefs as string[] : rawRefs ? [String(rawRefs)] : [];
       const rawRegex = request['regex'];
       const recallRegex = Array.isArray(rawRegex) ? rawRegex as string[] : rawRegex ? [String(rawRegex)] : [];
+      const rawFileRegex = request['file_regex'];
+      const recallFileRegex = Array.isArray(rawFileRegex) ? rawFileRegex as string[] : rawFileRegex ? [String(rawFileRegex)] : [];
+      const rawLabels = request['labels'] ?? request['label'];
+      const recallLabels = Array.isArray(rawLabels) ? rawLabels.map(String) : rawLabels ? [String(rawLabels)] : undefined;
+      const rawStates = request['states'] ?? request['state'];
+      const recallStates = Array.isArray(rawStates) ? rawStates.map(String) : rawStates ? [String(rawStates)] : undefined;
       const result = getMemory(db, {
-        query: recallQuery(request, operation),
+        query: optionalQuery(request),
         limit: (request['limit'] as number | undefined) ?? 3,
         minImportance: request['min_importance'] as number | undefined,
-        label: request['label'] ? [(request['label'] as string)] : undefined,
+        label: recallLabels,
+        tags: stringArray(request['tags']),
         smart: request['smart'] as boolean | undefined,
         workspacePath: (request['workspace_path'] as string | undefined) ?? cwd,
+        artifact: request['artifact'] as string | undefined,
+        repo: request['repo'] as string | undefined,
+        ref: request['ref'] as string | undefined,
         globalOnly: request['global_only'] as boolean | undefined,
         strictScope: request['strict_scope'] as boolean | undefined,
         sort: request['sort'] as string | undefined,
-        states: request['state'] ? [String(request['state'])] : undefined,
+        states: recallStates,
         references: recallRefs.length > 0 ? recallRefs : undefined,
         regex: recallRegex.length > 0 ? recallRegex : undefined,
+        fileRegex: recallFileRegex.length > 0 ? recallFileRegex : undefined,
         files: (() => {
           const merged = [...stringArray(request['files'])];
           if (typeof request['file'] === 'string' && request['file']) merged.push(request['file']);
           return merged.length > 0 ? merged : undefined;
         })(),
         asOf: request['as_of'] as string | undefined ?? null,
+        explain: Boolean(request['explain']),
+        cwd,
       });
       type MemRecord = {
         memory_id: string;
@@ -191,18 +205,31 @@ export function runAwarenessToolOperation(
       const label = ((request['label'] as string | undefined)?.toUpperCase()) ?? 'OTHER';
       const supersedes = normalizeSupersedes(request['supersedes']);
       const memoryWorkspace = (request['workspace_path'] as string | undefined) ?? cwd;
-      const similar = findSimilarMemories(db, `${taskContext} ${observation}`, 5, null, {
+      const guarded = insertMemoryWithSimilarityGate(db, {
+        agentId,
+        taskContext,
+        observation,
+        importance: (request['importance'] as number | undefined) ?? defaultImportance(label),
+        label,
+        tags: stringArray(request['tags']),
+        references: scopeReferences(request),
+        supersedes,
+        failureSignature: (request['failure_signature'] as string | undefined) ?? null,
+        validFrom: (request['valid_from'] as string | undefined) ?? null,
+        validTo: (request['valid_to'] as string | undefined) ?? null,
         workspacePath: memoryWorkspace,
+        artifact: request['artifact'] as string | undefined,
+        repo: request['repo'] as string | undefined,
+        ref: request['ref'] as string | undefined,
+        fileTreeFingerprint: request['file_tree_fingerprint'] as string | undefined,
         cwd,
-      });
-      const unsupersededSimilar = (similar as Array<{ memory_id: string; similarity: number }>)
-        .filter((m) => !supersedes.includes(m.memory_id));
-      if (unsupersededSimilar.length > 0 && request['allow_similar'] !== true) {
+      }, request['allow_similar'] === true);
+      if (guarded.skipped) {
         return {
           payload: {
             skipped: true,
             reason: 'similar_memory_exists',
-            similar: unsupersededSimilar.map((m) => ({
+            similar: guarded.similar.map((m) => ({
               memory_id: m.memory_id,
               similarity: Math.round(m.similarity * 100) / 100,
             })),
@@ -211,24 +238,7 @@ export function runAwarenessToolOperation(
           exitCode: 0,
         };
       }
-      const { memory, superseded } = insertMemory(db, {
-        agentId,
-        taskContext,
-        observation,
-        importance: (request['importance'] as number | undefined) ?? defaultImportance(label),
-        label,
-        tags: (request['tags'] as string[] | undefined) ?? [],
-        references: scopeReferences(request),
-        supersedes,
-        failureSignature: (request['failure_signature'] as string | undefined) ?? null,
-        validFrom: (request['valid_from'] as string | undefined) ?? null,
-        validTo: (request['valid_to'] as string | undefined) ?? null,
-        workspacePath: memoryWorkspace,
-        repo: request['repo'] as string | undefined,
-        ref: request['ref'] as string | undefined,
-        cwd,
-        preComputedSimilar: similar,
-      }) as InsertMemoryResult;
+      const { memory, superseded } = guarded.result as InsertMemoryResult;
       const payload: Record<string, unknown> = {
         memory_id: memory.memory_id,
         importance: memory.importance,
@@ -237,7 +247,7 @@ export function runAwarenessToolOperation(
       if (typeof memory.novelty_score === 'number') {
         payload['novelty'] = Math.round(memory.novelty_score * 100) / 100;
       }
-      if (similar.length) payload['similar'] = similar.map((m) => m.memory_id);
+      if (guarded.similar.length) payload['similar'] = guarded.similar.map((m) => m.memory_id);
       if (superseded.length) payload['superseded'] = superseded;
       return { payload, exitCode: 0 };
     }

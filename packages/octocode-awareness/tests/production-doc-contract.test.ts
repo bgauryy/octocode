@@ -122,6 +122,9 @@ describe('production guidance contract', () => {
     const reflection = read(resolve(PACKAGE_ROOT, 'docs/REFLECTION.md'));
     const navigation = read(resolve(PACKAGE_ROOT, 'docs/MEMORY_NAVIGATION.md'));
 
+    expect(readme).not.toContain('docs show full-flow');
+    expect(read(resolve(PACKAGE_ROOT, 'bin/awareness.ts'))).not.toContain('docs show full-flow');
+
     for (const installDoc of [readme, guide]) {
       expect(installDoc).not.toContain('<package>');
       expect(installDoc).toContain('npm install --global @octocodeai/octocode-awareness');

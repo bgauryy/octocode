@@ -209,6 +209,7 @@ describe('repo context query and projections', () => {
     try {
       const { db, file } = seededDb(dir);
       const result = attendAwareness(db, {
+        agentId: 'agent-a',
         workspacePath: dir,
         artifact: 'svc',
         query: 'auth',
@@ -222,12 +223,77 @@ describe('repo context query and projections', () => {
       expect(result.workboard.Verify?.map(row => row.id)).toContain('run_pending_a');
       expect(result.evidence[0]?.why_selected.join(' ')).toContain('auth');
       expect(result.next).toContain('verify audit');
+      expect(result.next).toContain('--run-id run_pending_');
+      expect(result.next).not.toContain('--all-pending');
       expect(result).not.toHaveProperty('profile');
       expect(result).not.toHaveProperty('organ_state');
       expect(result).not.toHaveProperty('drive_state');
       expect(result).not.toHaveProperty('verification_targets');
       expect(JSON.stringify(result)).not.toContain('raw_ids');
       expect(Buffer.byteLength(JSON.stringify(result), 'utf8')).toBeLessThan(2 * 1024);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps global Verify totals exact while routing only the current agent', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'oc-attend-owner-'));
+    try {
+      const { db, file } = seededDb(dir);
+      const now = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
+      const insertRun = db.prepare(`INSERT INTO task_runs
+        (run_id, origin, agent_id, rationale, test_plan, status, workspace_path, artifact, created_at, updated_at)
+        VALUES (?, 'WORK', 'agent-a', 'bulk pending', 'bulk test', 'PENDING', ?, 'svc', ?, ?)`);
+      const insertFile = db.prepare(`INSERT INTO run_files
+        (run_id, file_path, source, started_at, heartbeat_at, expires_at, ended_at)
+        VALUES (?, ?, 'EXPLICIT', ?, ?, ?, ?)`);
+      db.exec('BEGIN');
+      for (let index = 0; index < 501; index++) {
+        const runId = `run_bulk_${String(index).padStart(4, '0')}`;
+        insertRun.run(runId, dir, now, now);
+        insertFile.run(runId, file, now, now, now, now);
+      }
+      db.exec('COMMIT');
+
+      const peer = attendAwareness(db, {
+        agentId: 'agent-b', workspacePath: dir, artifact: 'svc', compact: true,
+      });
+      expect(peer.counts?.Verify).toBe(503);
+      expect(peer.next).not.toContain('verify audit');
+
+      const owner = attendAwareness(db, {
+        agentId: 'agent-a', workspacePath: dir, artifact: 'svc', compact: true,
+      });
+      expect(owner.counts?.Verify).toBe(503);
+      expect(owner.next).toContain('verify audit');
+      expect(owner.next).not.toContain('--all-pending');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('routes a submitted task to its exact pending run owner', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'oc-attend-task-owner-'));
+    try {
+      const db = freshDb();
+      const now = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
+      db.prepare(`INSERT INTO plans
+        (plan_id, name, objective, lead_agent_id, status, workspace_path, doc_dir, created_at, updated_at)
+        VALUES ('plan_verify', 'Verify', 'Route exact run', 'lead', 'ACTIVE', ?, '.octocode/plan/verify', ?, ?)`)
+        .run(dir, now, now);
+      db.prepare(`INSERT INTO tasks
+        (task_id, plan_id, title, reasoning, acceptance_criteria, status, priority, created_by, created_at, updated_at)
+        VALUES ('task_verify', 'plan_verify', 'Verify task', 'reason', 'tests pass', 'VERIFY', 1, 'lead', ?, ?)`)
+        .run(now, now);
+      db.prepare(`INSERT INTO task_runs
+        (run_id, task_id, origin, agent_id, rationale, test_plan, status, workspace_path, created_at, updated_at)
+        VALUES ('run_verify_exact', 'task_verify', 'TASK', 'worker', 'reason', 'tests pass', 'PENDING', ?, ?, ?)`)
+        .run(dir, now, now);
+
+      const worker = attendAwareness(db, { agentId: 'worker', workspacePath: dir, compact: true });
+      expect(worker.next).toContain('--run-id run_verify_exact');
+      const lead = attendAwareness(db, { agentId: 'lead', workspacePath: dir, compact: true });
+      expect(lead.next).not.toContain('verify audit');
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

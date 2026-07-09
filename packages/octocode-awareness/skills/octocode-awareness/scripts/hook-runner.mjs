@@ -7,7 +7,16 @@ process.on('warning', (w) => {
 
 // bin/hook-runner.ts
 import { createHash as createHash3 } from "node:crypto";
-import { mkdirSync as mkdirSync2, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import {
+  closeSync,
+  mkdirSync as mkdirSync2,
+  openSync,
+  readFileSync,
+  renameSync,
+  statSync,
+  unlinkSync,
+  writeFileSync
+} from "node:fs";
 import { basename as basename2, dirname as dirname3, join as join3, relative as relative2, resolve as resolve7 } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -189,11 +198,62 @@ import { DatabaseSync } from "node:sqlite";
 import { mkdirSync } from "node:fs";
 import { join as join2, resolve as resolve3, dirname as dirname2 } from "node:path";
 import { homedir, platform } from "node:os";
+
+// src/v4/runtime.ts
+var FIXED_BRANCHES = /* @__PURE__ */ new Map([
+  [44, 6],
+  [50, 7],
+  [51, 3]
+]);
+function parseSqliteVersion(version) {
+  const match = /^(\d+)\.(\d+)\.(\d+)(?:\D.*)?$/.exec(version.trim());
+  if (!match) return null;
+  const major = Number(match[1]);
+  const minor = Number(match[2]);
+  const patch = Number(match[3]);
+  if (![major, minor, patch].every(Number.isSafeInteger)) return null;
+  return [major, minor, patch];
+}
+function assessConcurrentWalSafety(sqliteVersion) {
+  const parsed = parseSqliteVersion(sqliteVersion);
+  if (!parsed) {
+    return {
+      sqliteVersion,
+      safe: false,
+      reason: "the embedded SQLite version could not be parsed"
+    };
+  }
+  const [major, minor, patch] = parsed;
+  const futureFixedLine = major > 3 || major === 3 && minor > 51;
+  const fixedPatch = major === 3 ? FIXED_BRANCHES.get(minor) : void 0;
+  const safe = futureFixedLine || fixedPatch !== void 0 && patch >= fixedPatch;
+  return {
+    sqliteVersion,
+    safe,
+    reason: safe ? "the embedded SQLite includes the concurrent WAL reset fix" : "concurrent WAL requires SQLite 3.44.6, 3.50.7, or 3.51.3 (or a newer fixed release)"
+  };
+}
+function journalModeForSqliteVersion(sqliteVersion) {
+  return assessConcurrentWalSafety(sqliteVersion).safe ? "WAL" : "DELETE";
+}
+
+// src/db.ts
 var DEFAULT_DB_NAME = "awareness.sqlite3";
 var MEMORY_HOME_ENV = "OCTOCODE_MEMORY_HOME";
+var V3_SCHEMA_VERSION = 3;
 var SQLITE_BUSY_RETRY_MS = 25;
 var SQLITE_BUSY_DEADLINE_MS = 1e4;
 var SQLITE_WAIT = new Int32Array(new SharedArrayBuffer(4));
+var LEGACY_V0_RELATION_NAMES = /* @__PURE__ */ new Set([
+  "agent_intents",
+  "agent_memories",
+  "file_locks",
+  "intent_events",
+  "memory_fts",
+  "notifications",
+  "notification_reads",
+  "task_log"
+]);
 var _db;
 function memoryHome() {
   const configured = process.env[MEMORY_HOME_ENV];
@@ -217,7 +277,10 @@ function connectDb(dbPath) {
   const db2 = new DatabaseSync(dbPath);
   try {
     db2.exec(`PRAGMA busy_timeout = ${SQLITE_BUSY_DEADLINE_MS}`);
-    withSqliteBusyRetry(() => db2.exec("PRAGMA journal_mode = WAL"));
+    assertV3SchemaIdentity(db2);
+    const versionRow = db2.prepare("SELECT sqlite_version() AS version").get();
+    const journalMode = journalModeForSqliteVersion(versionRow.version);
+    withSqliteBusyRetry(() => db2.exec(`PRAGMA journal_mode = ${journalMode}`));
     db2.exec("PRAGMA foreign_keys = ON");
     initDb(db2);
     _db = db2;
@@ -225,6 +288,51 @@ function connectDb(dbPath) {
   } catch (error) {
     db2.close();
     throw error;
+  }
+}
+function readV3SchemaIdentity(db2) {
+  const application = db2.prepare("PRAGMA application_id").get();
+  const version = db2.prepare("PRAGMA user_version").get();
+  return {
+    applicationId: application.application_id ?? 0,
+    userVersion: version.user_version ?? 0
+  };
+}
+function assertV3SchemaIdentity(db2) {
+  const identity = readV3SchemaIdentity(db2);
+  if (identity.applicationId !== 0) {
+    throw new Error(
+      `refusing foreign Awareness application_id ${identity.applicationId}; v3 expects 0`
+    );
+  }
+  if (identity.userVersion > V3_SCHEMA_VERSION) {
+    throw new Error(
+      `refusing newer Awareness schema version ${identity.userVersion}; v3 supports versions 0-${V3_SCHEMA_VERSION}`
+    );
+  }
+  if (identity.userVersion === 0) {
+    const relations = db2.prepare(`
+      SELECT name, type
+      FROM sqlite_schema
+      WHERE type IN ('table', 'view')
+        AND name NOT LIKE 'sqlite_%'
+      ORDER BY name
+    `).all();
+    if (relations.length === 0) return;
+    const known = /* @__PURE__ */ new Set([
+      ...canonicalColumns().keys(),
+      ...LEGACY_V0_RELATION_NAMES,
+      "memories_fts"
+    ]);
+    const unexpected = relations.filter(({ name, type }) => {
+      if (type !== "table") return true;
+      return !known.has(name) && !name.startsWith("memories_fts_") && !name.startsWith("memory_fts_");
+    });
+    if (unexpected.length > 0) {
+      throw new Error(
+        `refusing unrecognized non-empty unversioned SQLite store; unexpected relations: ${unexpected.map(({ name }) => name).join(", ")}`
+      );
+    }
   }
 }
 function isSqliteBusy(error) {
@@ -573,6 +681,7 @@ function migrateLegacyTaskRuns(db2) {
   renameColumnIfPresent(db2, "harness_log", "task_id", "run_id");
 }
 function initDb(db2) {
+  assertV3SchemaIdentity(db2);
   if (db2.isTransaction) {
     initDbSchema(db2);
     return;
@@ -1080,24 +1189,15 @@ function conflictRows(db2, runId, files, exclusive) {
       AND (l.expires_at IS NULL OR l.expires_at > ?)
     ORDER BY l.file_path, l.acquired_at DESC`).all(...files, runId, now);
 }
-function reusableWorkRun(db2, agentId2, files, now) {
-  const rows = db2.prepare(`SELECT DISTINCT tr.run_id
-    FROM task_runs tr JOIN run_files rf ON rf.run_id = tr.run_id
-    WHERE tr.agent_id = ? AND tr.origin = 'WORK' AND tr.status = 'ACTIVE'
-      AND rf.file_path IN (${files.map(() => "?").join(",")})
-      AND rf.ended_at IS NULL AND rf.expires_at > ?`).all(agentId2, ...files, now);
-  if (rows.length > 1) throw new Error("target files match multiple active WORK runs; pass --run-id");
-  return rows[0]?.run_id ?? null;
-}
 function startWork(db2, params) {
   const agentId2 = required(params.agentId, "agent id");
-  const files = normalizeFiles(params.targetFiles, params.workspacePath);
   const now = utcNow();
   const expiresAt = expiry(params.ttlMs);
   const requestedOrigin = params.origin ?? "WORK";
   const source = params.source ?? (requestedOrigin === "HOOK" ? "HOOK" : "EXPLICIT");
-  const wsPath = workspaceRoot(params.workspacePath);
-  const artifact2 = normalizeArtifact(params.artifact);
+  const fileBasePath = params.workspacePath ?? process.cwd();
+  let wsPath = workspaceRoot(params.workspacePath);
+  let artifact2 = normalizeArtifact(params.artifact);
   let runId = params.runId ?? null;
   if (!runId) {
     required(params.rationale, "rationale");
@@ -1105,13 +1205,23 @@ function startWork(db2, params) {
   }
   db2.exec("BEGIN IMMEDIATE");
   try {
-    if (!runId && requestedOrigin === "WORK") runId = reusableWorkRun(db2, agentId2, files, now);
     runId ??= `run_${randomUUID3().replace(/-/g, "")}`;
     let run = db2.prepare("SELECT * FROM task_runs WHERE run_id = ?").get(runId);
     if (run) {
       if (run.agent_id !== agentId2) throw new Error(`run ${runId} belongs to ${run.agent_id}`);
       if (run.status !== "ACTIVE") throw new Error(`run ${runId} is not ACTIVE`);
+      const runWorkspace = workspaceRoot(run.workspace_path);
+      if (params.workspacePath != null && wsPath !== runWorkspace) {
+        throw new Error(`workspace ${wsPath} does not match run workspace ${runWorkspace}`);
+      }
+      const runArtifact = normalizeArtifact(run.artifact);
+      if (params.artifact != null && artifact2 !== runArtifact) {
+        throw new Error(`artifact ${artifact2 ?? "(none)"} does not match run artifact ${runArtifact ?? "(none)"}`);
+      }
+      wsPath = runWorkspace;
+      artifact2 = runArtifact;
     } else {
+      if (params.runId) throw new Error(`run not found: ${params.runId}`);
       if (params.sessionId) {
         db2.prepare(`INSERT OR IGNORE INTO sessions
           (session_id, agent_id, workspace_path, artifact, started_at) VALUES (?, ?, ?, ?, ?)`).run(params.sessionId, agentId2, wsPath, artifact2, now);
@@ -1134,6 +1244,7 @@ function startWork(db2, params) {
       );
       run = getRun(db2, runId);
     }
+    const files = normalizeFiles(params.targetFiles, fileBasePath);
     const conflicts = conflictRows(db2, runId, files, params.exclusive === true);
     if (conflicts.length > 0) {
       db2.exec("ROLLBACK");
@@ -1259,15 +1370,25 @@ function listWork(db2, params = {}) {
     where.push("rf.file_path = ?");
     binds.push(normalizeFiles([params.filePath], params.workspacePath)[0]);
   }
+  const limit = params.limit == null ? null : Math.max(1, Math.floor(params.limit));
+  const limitSql = limit == null ? "" : "LIMIT ?";
+  if (limit != null) binds.push(limit);
   const rows = db2.prepare(`SELECT rf.*, tr.task_id, tr.origin, tr.agent_id, tr.session_id,
       tr.rationale, tr.test_plan, tr.status, tr.workspace_path, tr.artifact,
       EXISTS(SELECT 1 FROM locks l WHERE l.run_id = rf.run_id AND l.file_path = rf.file_path
-        AND (l.expires_at IS NULL OR l.expires_at > ?)) AS exclusive
+        AND (l.expires_at IS NULL OR l.expires_at > ?)) AS exclusive,
+      COUNT(*) OVER() AS result_total
     FROM run_files rf JOIN task_runs tr ON tr.run_id = rf.run_id
     WHERE ${where.join(" AND ")}
-    ORDER BY rf.file_path, rf.heartbeat_at DESC, rf.run_id`).all(...binds);
-  const files = rows.map((row) => ({ ...row, exclusive: Boolean(row.exclusive) }));
-  return { count: files.length, files };
+    ORDER BY rf.file_path, rf.heartbeat_at DESC, rf.run_id ${limitSql}`).all(...binds);
+  const totalCount = rows[0]?.result_total ?? 0;
+  const files = rows.map(({ result_total: _total, ...row }) => ({ ...row, exclusive: Boolean(row.exclusive) }));
+  return {
+    count: files.length,
+    total_count: totalCount,
+    omitted_count: Math.max(0, totalCount - files.length),
+    files
+  };
 }
 
 // src/verify.ts
@@ -1498,6 +1619,7 @@ function getNotifications(db2, params) {
   const {
     agentId: agentId2,
     kinds = [],
+    signalIds = [],
     threadId = null,
     unreadOnly = true,
     markRead = false,
@@ -1532,6 +1654,10 @@ function getNotifications(db2, params) {
     where.push(`n.kind IN (${kinds.map(() => "?").join(",")})`);
     binds.push(...kinds);
   }
+  if (signalIds.length > 0) {
+    where.push(`n.signal_id IN (${signalIds.map(() => "?").join(",")})`);
+    binds.push(...signalIds);
+  }
   const whereClause = where.length > 0 ? `WHERE ${where.join(" AND ")}` : "";
   const joinClause = unreadOnly ? SIGNALS_SELECT_LEFT_JOIN_READS : "";
   const allBinds = unreadOnly ? [agentId2, ...binds] : binds;
@@ -1541,7 +1667,7 @@ function getNotifications(db2, params) {
     ${whereClause}
     ${SIGNALS_SELECT_ORDER_LIMIT}
   `;
-  const boundedLimit = Math.min(100, Math.max(1, Math.floor(Number.isFinite(limit) ? limit : 20)));
+  const boundedLimit = Math.min(200, Math.max(1, Math.floor(Number.isFinite(limit) ? limit : 20)));
   const rows = db2.prepare(sql).all(...allBinds, boundedLimit);
   const signals = rows.map(rowToNotification);
   if (markRead && signals.length > 0) {
@@ -1625,22 +1751,25 @@ function pruneStale(db2, params = {}) {
   if (staleLocks.length === 0) {
     return { pruned_locks: 0 };
   }
-  db2.exec("BEGIN IMMEDIATE");
+  const ownsTransaction = !db2.isTransaction;
+  if (ownsTransaction) db2.exec("BEGIN IMMEDIATE");
   try {
     staleLocks = db2.prepare(
       `SELECT l.lock_id, l.run_id FROM ${from} WHERE ${where}`
     ).all(...binds);
     if (staleLocks.length === 0) {
-      db2.exec("COMMIT");
+      if (ownsTransaction) db2.exec("COMMIT");
       return { pruned_locks: 0 };
     }
     const ph = staleLocks.map(() => "?").join(",");
     db2.prepare(`DELETE FROM locks WHERE lock_id IN (${ph})`).run(...staleLocks.map((l) => l.lock_id));
-    db2.exec("COMMIT");
+    if (ownsTransaction) db2.exec("COMMIT");
   } catch (e) {
-    try {
-      db2.exec("ROLLBACK");
-    } catch {
+    if (ownsTransaction) {
+      try {
+        db2.exec("ROLLBACK");
+      } catch {
+      }
     }
     throw e;
   }
@@ -2088,39 +2217,53 @@ function digest(db2, params = {}) {
       would_prune_refinements: wouldPruneRefinements
     };
   }
-  const archiveRes = db2.prepare(
-    `UPDATE memories
-     SET state = 'SUPERSEDED', expired_at = ?, updated_at = ?
-     WHERE valid_to IS NOT NULL AND valid_to < ? AND state = 'ACTIVE'${memoryScopeSql}`
-  ).run(now, now, now, ...memoryScopeBinds);
-  const deleteRes = db2.prepare(
-    `DELETE FROM memories
-     WHERE state = 'SUPERSEDED' AND updated_at < ?${memoryScopeSql}`
-  ).run(cutoff, ...memoryScopeBinds);
-  const { pruned_locks } = pruneStale(db2, {
-    ...workspacePath ? { workspace: workspacePath } : {},
-    ...artifact2 ? { artifact: artifact2 } : {},
-    expired_only: true
-  });
-  const pruneRefinementsRes = db2.prepare(
-    `DELETE FROM refinements
-     WHERE ((quality = 'handoff' AND updated_at < ?)
-        OR (quality IN ('good','bad') AND state = 'done' AND updated_at < ?))${refinementScopeSql}`
-  ).run(handoffCutoff, doneCutoff, ...refinementScopeBinds);
+  let archiveRes = { changes: 0 };
+  let deleteRes = { changes: 0 };
+  let prunedLocks = 0;
+  let pruneRefinementsRes = { changes: 0 };
   let ftsRebuilt = false;
+  const ownsDigestTransaction = !db2.isTransaction;
+  if (ownsDigestTransaction) db2.exec("BEGIN IMMEDIATE");
   try {
+    archiveRes = db2.prepare(
+      `UPDATE memories
+       SET state = 'SUPERSEDED', expired_at = ?, updated_at = ?
+       WHERE valid_to IS NOT NULL AND valid_to < ? AND state = 'ACTIVE'${memoryScopeSql}`
+    ).run(now, now, now, ...memoryScopeBinds);
+    deleteRes = db2.prepare(
+      `DELETE FROM memories
+       WHERE state = 'SUPERSEDED' AND updated_at < ?${memoryScopeSql}`
+    ).run(cutoff, ...memoryScopeBinds);
+    prunedLocks = pruneStale(db2, {
+      ...workspacePath ? { workspace: workspacePath } : {},
+      ...artifact2 ? { artifact: artifact2 } : {},
+      expired_only: true
+    }).pruned_locks;
+    pruneRefinementsRes = db2.prepare(
+      `DELETE FROM refinements
+       WHERE ((quality = 'handoff' AND updated_at < ?)
+          OR (quality IN ('good','bad') AND state = 'done' AND updated_at < ?))${refinementScopeSql}`
+    ).run(handoffCutoff, doneCutoff, ...refinementScopeBinds);
     if (hasFts(db2)) {
       rebuildFts(db2);
       ftsRebuilt = true;
     }
-  } catch {
+    if (ownsDigestTransaction) db2.exec("COMMIT");
+  } catch (error) {
+    if (ownsDigestTransaction) {
+      try {
+        db2.exec("ROLLBACK");
+      } catch {
+      }
+    }
+    throw error;
   }
-  checkpointWal(db2);
+  if (ownsDigestTransaction) checkpointWal(db2);
   return {
     ok: true,
     archived_memories: archiveRes.changes,
     pruned_old: deleteRes.changes,
-    pruned_locks,
+    pruned_locks: prunedLocks,
     pruned_refinements: pruneRefinementsRes.changes,
     fts_rebuilt: ftsRebuilt
   };
@@ -2404,6 +2547,28 @@ function resolveHookPath(file, cwd = process.cwd()) {
 function db() {
   return connectDb(resolveDbPath(null));
 }
+var HOOK_RUN_STATE_TTL_MS = 10 * 6e4;
+var HOOK_RUN_STATE_LOCK_WAIT = new Int32Array(new SharedArrayBuffer(4));
+var HOOK_RUN_STATE_LOCK_RETRY_MS = 10;
+var HOOK_RUN_STATE_LOCK_TIMEOUT_MS = 2e3;
+var HOOK_RUN_STATE_LOCK_STALE_MS = 3e4;
+var HOOK_DB_RETRY_TIMEOUT_MS = 5e3;
+function isHookDbBusy(error) {
+  const sqlite = error;
+  const message = sqlite && typeof sqlite === "object" ? `${sqlite.errstr ?? ""} ${sqlite.message ?? ""}` : String(error);
+  return sqlite?.errcode === 5 || /database is (?:locked|busy)/i.test(message);
+}
+function withHookDbRetry(operation) {
+  const deadline = Date.now() + HOOK_DB_RETRY_TIMEOUT_MS;
+  for (; ; ) {
+    try {
+      return operation();
+    } catch (error) {
+      if (!isHookDbBusy(error) || Date.now() >= deadline) throw error;
+      Atomics.wait(HOOK_RUN_STATE_LOCK_WAIT, 0, 0, HOOK_RUN_STATE_LOCK_RETRY_MS);
+    }
+  }
+}
 function hookRunStateDir() {
   const stateDir = join3(dirname3(resolveDbPath(null)), "hook-state", "runs");
   mkdirSync2(stateDir, { recursive: true });
@@ -2412,10 +2577,69 @@ function hookRunStateDir() {
 function hookRunStateFile(key) {
   return join3(hookRunStateDir(), `${key}.json`);
 }
+function processIsAlive(pid) {
+  if (!Number.isSafeInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error.code !== "ESRCH";
+  }
+}
+function removeStaleHookRunStateLock(lockFile) {
+  try {
+    const owner = Number.parseInt(readFileSync(lockFile, "utf8"), 10);
+    const staleByAge = Date.now() - statSync(lockFile).mtimeMs > HOOK_RUN_STATE_LOCK_STALE_MS;
+    if (processIsAlive(owner) && !staleByAge) return false;
+    unlinkSync(lockFile);
+    return true;
+  } catch (error) {
+    if (error.code === "ENOENT") return true;
+    return false;
+  }
+}
+function withHookRunStateLock(key, operation) {
+  const lockFile = `${hookRunStateFile(key)}.lock`;
+  const deadline = Date.now() + HOOK_RUN_STATE_LOCK_TIMEOUT_MS;
+  for (; ; ) {
+    try {
+      const fd = openSync(lockFile, "wx", 384);
+      try {
+        writeFileSync(fd, `${process.pid}
+`, "utf8");
+      } finally {
+        closeSync(fd);
+      }
+      try {
+        return operation();
+      } finally {
+        try {
+          unlinkSync(lockFile);
+        } catch (error) {
+          if (error.code !== "ENOENT") throw error;
+        }
+      }
+    } catch (error) {
+      if (error.code !== "EEXIST") throw error;
+      if (removeStaleHookRunStateLock(lockFile)) continue;
+      if (Date.now() >= deadline) {
+        throw new Error(`timed out waiting for hook correlation state: ${lockFile}`);
+      }
+      Atomics.wait(HOOK_RUN_STATE_LOCK_WAIT, 0, 0, HOOK_RUN_STATE_LOCK_RETRY_MS);
+    }
+  }
+}
 function readHookRunEntries(key) {
   try {
     const parsed = JSON.parse(readFileSync(hookRunStateFile(key), "utf8"));
-    return Array.isArray(parsed) ? parsed : [];
+    if (!Array.isArray(parsed)) return [];
+    const cutoff = Date.now() - HOOK_RUN_STATE_TTL_MS;
+    return parsed.filter((entry) => {
+      if (!entry || typeof entry !== "object") return false;
+      const candidate = entry;
+      const createdAt = typeof candidate.createdAt === "string" ? Date.parse(candidate.createdAt) : NaN;
+      return typeof candidate.runId === "string" && candidate.runId.length > 0 && Array.isArray(candidate.files) && candidate.files.every((file) => typeof file === "string" && file.length > 0) && Number.isFinite(createdAt) && createdAt >= cutoff;
+    });
   } catch {
     return [];
   }
@@ -2465,20 +2689,34 @@ function hookRunKey(payload, files, cwd) {
 }
 function recordHookRun(payload, files, cwd, runId) {
   const key = hookRunKey(payload, files, cwd);
-  const entries = readHookRunEntries(key);
-  entries.push({
-    runId,
-    files: files.map((file) => resolveHookPath(file, cwd)),
-    createdAt: (/* @__PURE__ */ new Date()).toISOString()
+  withHookRunStateLock(key, () => {
+    const entries = readHookRunEntries(key);
+    entries.push({
+      runId,
+      files: files.map((file) => resolveHookPath(file, cwd)),
+      createdAt: (/* @__PURE__ */ new Date()).toISOString()
+    });
+    writeHookRunEntries(key, entries.slice(-20));
   });
-  writeHookRunEntries(key, entries.slice(-20));
 }
-function consumeHookRun(payload, files, cwd) {
+function consumeHookRun(database, payload, files, cwd) {
   const key = hookRunKey(payload, files, cwd);
-  const entries = readHookRunEntries(key);
-  const entry = entries.shift();
-  writeHookRunEntries(key, entries);
-  return entry?.runId ?? null;
+  return withHookRunStateLock(key, () => {
+    const entries = readHookRunEntries(key);
+    const activeEntries = entries.filter((entry2) => {
+      const activeFiles = new Set(listWork(database, {
+        agentId: agentId(payload),
+        workspacePath: cwd,
+        artifact: artifact(payload),
+        runId: entry2.runId,
+        activeOnly: true
+      }).files.map((file) => file.file_path));
+      return entry2.files.every((file) => activeFiles.has(file));
+    });
+    const entry = activeEntries.pop() ?? null;
+    writeHookRunEntries(key, activeEntries);
+    return entry?.runId ?? null;
+  });
 }
 function activeRunForFiles(database, params) {
   const absFiles = params.files.map((file) => resolveHookPath(file, params.workspacePath));
@@ -2640,54 +2878,70 @@ async function runPreEdit(payload) {
 async function runPostEdit(payload) {
   const files = extractFiles(payload);
   if (files.length === 0) return 0;
+  const hookWorkspace = workspace(payload) ?? process.cwd();
+  let consumedRunId = null;
+  let stage = "open database";
   try {
     const database = db();
-    registerHookAgent(database, payload, "hook:post-edit");
+    stage = "register hook agent";
+    withHookDbRetry(() => registerHookAgent(database, payload, "hook:post-edit"));
     const hookAgentId = agentId(payload);
-    const hookWorkspace = workspace(payload) ?? process.cwd();
     const hookArtifact = artifact(payload);
-    const correlatedRunId = consumeHookRun(payload, files, hookWorkspace) ?? activeTaskClaimForAgent(database, {
+    stage = "consume correlation";
+    consumedRunId = withHookDbRetry(() => consumeHookRun(database, payload, files, hookWorkspace));
+    stage = "resolve fallback run";
+    const correlatedRunId = consumedRunId ?? withHookDbRetry(() => activeTaskClaimForAgent(database, {
       agentId: hookAgentId,
       workspacePath: hookWorkspace,
       artifact: hookArtifact
-    })?.run_id ?? activeRunForFiles(database, {
+    }))?.run_id ?? withHookDbRetry(() => activeRunForFiles(database, {
       agentId: hookAgentId,
       workspacePath: hookWorkspace,
       artifact: hookArtifact,
       files,
       origins: ["WORK", "HOOK"]
-    });
+    }));
     if (!correlatedRunId) {
       console.error("octocode-awareness post-edit warning (continuing): could not identify a unique work run; leaving presence for expiry.");
       return 0;
     }
-    const origin = runOrigin(database, correlatedRunId);
+    stage = "read run origin";
+    const origin = withHookDbRetry(() => runOrigin(database, correlatedRunId));
+    stage = "finish work lifecycle";
     if (origin === "HOOK") {
-      endWork(database, {
+      withHookDbRetry(() => endWork(database, {
         agentId: hookAgentId,
         runId: correlatedRunId,
         targetFiles: files
-      });
+      }));
     } else {
-      touchWork(database, {
+      withHookDbRetry(() => touchWork(database, {
         agentId: hookAgentId,
         runId: correlatedRunId,
         targetFiles: files,
         ttlMs: 10 * 6e4
-      });
+      }));
     }
+    consumedRunId = null;
+    stage = "write edit log";
     for (const file of files) {
-      insertEditLog(database, {
+      withHookDbRetry(() => insertEditLog(database, {
         agentId: hookAgentId,
         runId: correlatedRunId,
         filePath: resolveHookPath(file, hookWorkspace),
         operation: "update",
         workspacePath: hookWorkspace,
         artifact: hookArtifact
-      });
+      }));
     }
   } catch (error) {
-    console.error(`octocode-awareness post-edit warning (continuing): ${error instanceof Error ? error.message : String(error)}`);
+    if (consumedRunId) {
+      try {
+        recordHookRun(payload, files, hookWorkspace, consumedRunId);
+      } catch {
+      }
+    }
+    console.error(`octocode-awareness post-edit warning during ${stage} (continuing): ${error instanceof Error ? error.message : String(error)}`);
   }
   return 0;
 }
@@ -2729,7 +2983,7 @@ function maybeRunDigest(payload) {
   if (process.env.OCTOCODE_NOTIFY_RUN_DIGEST !== "1") return;
   const intervalHours = Number(process.env.OCTOCODE_DIGEST_INTERVAL_HOURS ?? 4);
   const intervalMs = Number.isFinite(intervalHours) && intervalHours > 0 ? intervalHours * 36e5 : 4 * 36e5;
-  const memoryHome2 = process.env.OCTOCODE_MEMORY_HOME || `${process.env.HOME ?? ""}/.octocode/memory`;
+  const memoryHome2 = dirname3(resolveDbPath(null));
   const markerPath = join3(memoryHome2, ".last-digest-epoch-ms");
   try {
     const database = db();
@@ -2741,9 +2995,9 @@ function maybeRunDigest(payload) {
     }
     const now = Date.now();
     if (!last || now - last >= intervalMs) {
+      digest(database, { workspace: workspace(payload), memoryHome: memoryHome2 });
       mkdirSync2(memoryHome2, { recursive: true });
       writeFileSync(markerPath, String(now), "utf8");
-      digest(database, { workspace: workspace(payload), memoryHome: memoryHome2 });
     }
   } catch (error) {
     console.error(`octocode-awareness digest warning (continuing): ${error instanceof Error ? error.message : String(error)}`);

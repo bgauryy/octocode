@@ -22,8 +22,9 @@ Sibling skill `octocode-skills` ships next to this skill in the awareness packag
 
 ```bash
 # Install / refresh both bundled skills for a host; use common for ~/.agents/skills
-npx octocode skill --add --path "<awareness-package>/dist/skills/octocode-awareness" --platform codex --force
-npx octocode skill --add --path "<awareness-package>/dist/skills/octocode-skills" --platform codex --force
+npm install --global @octocodeai/octocode-awareness
+npx octocode skill --add --path "$(npm root --global)/@octocodeai/octocode-awareness/dist/skills/octocode-awareness" --platform common --force
+npx octocode skill --add --path "$(npm root --global)/@octocodeai/octocode-awareness/dist/skills/octocode-skills" --platform common --force
 
 # Initialize store and smoke the CLI
 <cli> maintenance init --compact

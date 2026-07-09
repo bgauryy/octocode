@@ -11,6 +11,10 @@ function skill(path: string): string {
   return readFileSync(resolve(PACKAGE_ROOT, 'skills', path, 'SKILL.md'), 'utf8');
 }
 
+function awarenessSkillFile(path: string): string {
+  return readFileSync(resolve(PACKAGE_ROOT, 'skills/octocode-awareness', path), 'utf8');
+}
+
 function description(markdown: string): string {
   const match = markdown.match(/^---\n[\s\S]*?description:\s*"([^"]+)"[\s\S]*?\n---/);
   return match?.[1] ?? '';
@@ -61,5 +65,20 @@ describe('skill routing boundaries', () => {
 
   it('keeps generated runtime scripts only in the primary skill', () => {
     expect(existsSync(resolve(PACKAGE_ROOT, 'skills/octocode-awareness/scripts/awareness.mjs'))).toBe(true);
+  });
+
+  it('keeps standalone guidance portable outside the monorepo', () => {
+    const readme = awarenessSkillFile('README.md');
+    const tooling = awarenessSkillFile('references/agent-cheatsheet-tooling.md');
+    const octocode = awarenessSkillFile('references/octocode.md');
+    const dataModel = awarenessSkillFile('references/data-model.md');
+    const repoContext = awarenessSkillFile('references/repo-context-management.md');
+    const combined = [readme, tooling, octocode, dataModel, repoContext].join('\n');
+
+    expect(combined).not.toMatch(/<package>|<awareness-package>|default for this monorepo/);
+    expect(combined).not.toContain('package migration truth: `docs/DB.md`');
+    expect(readme).toContain('$(npm root --global)/@octocodeai/octocode-awareness/dist/skills/octocode-awareness');
+    expect(tooling).toContain('$(npm root --global)/@octocodeai/octocode-awareness/dist/skills/octocode-skills');
+    expect(octocode).toContain('references/agent-cheatsheet-tooling.md');
   });
 });

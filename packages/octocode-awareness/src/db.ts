@@ -14,14 +14,26 @@ import { homedir, platform } from 'node:os';
 
 import { parseJsonList, utcNow } from './helpers.js';
 import type { TableInfoRow, MemoryRow } from './types.js';
+import { journalModeForSqliteVersion } from './v4/runtime.js';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const DEFAULT_DB_NAME = 'awareness.sqlite3';
 const MEMORY_HOME_ENV = 'OCTOCODE_MEMORY_HOME';
+const V3_SCHEMA_VERSION = 3;
 const SQLITE_BUSY_RETRY_MS = 25;
 const SQLITE_BUSY_DEADLINE_MS = 10_000;
 const SQLITE_WAIT = new Int32Array(new SharedArrayBuffer(4));
+const LEGACY_V0_RELATION_NAMES = new Set([
+  'agent_intents',
+  'agent_memories',
+  'file_locks',
+  'intent_events',
+  'memory_fts',
+  'notifications',
+  'notification_reads',
+  'task_log',
+]);
 
 // ─── Module-level singleton ───────────────────────────────────────────────────
 
@@ -62,10 +74,20 @@ export function connectDb(dbPath: string): DatabaseSync {
   mkdirSync(dirname(dbPath), { recursive: true });
   const db = new DatabaseSync(dbPath);
   try {
+    // busy_timeout is connection-local and must precede the identity reads: in
+    // rollback-journal mode, a concurrent writer may otherwise make this
+    // read-only guard fail immediately with SQLITE_BUSY.
     db.exec(`PRAGMA busy_timeout = ${SQLITE_BUSY_DEADLINE_MS}`);
-    // Changing journal mode is itself a write and SQLite may return BUSY
-    // immediately while another first opener is migrating the same store.
-    withSqliteBusyRetry(() => db.exec('PRAGMA journal_mode = WAL'));
+    // Fail closed before journal mode, foreign-key state, DDL, or migrations can
+    // touch a foreign/future store. This is the compatibility firewall that
+    // prevents an old v3 CLI/hook from shape-migrating a v4 database back to v3.
+    assertV3SchemaIdentity(db);
+    const versionRow = db.prepare('SELECT sqlite_version() AS version').get() as { version: string };
+    const journalMode = journalModeForSqliteVersion(versionRow.version);
+    // Unsafe embedded SQLite versions use rollback journaling instead of the
+    // documented concurrent-WAL path. Changing mode is a write and may race a
+    // first opener, so both modes use the same bounded BUSY retry.
+    withSqliteBusyRetry(() => db.exec(`PRAGMA journal_mode = ${journalMode}`));
     db.exec('PRAGMA foreign_keys = ON');
     initDb(db);
     _db = db;
@@ -73,6 +95,61 @@ export function connectDb(dbPath: string): DatabaseSync {
   } catch (error) {
     db.close();
     throw error;
+  }
+}
+
+interface V3SchemaIdentity {
+  applicationId: number;
+  userVersion: number;
+}
+
+function readV3SchemaIdentity(db: DatabaseSync): V3SchemaIdentity {
+  const application = db.prepare('PRAGMA application_id').get() as { application_id: number };
+  const version = db.prepare('PRAGMA user_version').get() as { user_version: number };
+  return {
+    applicationId: application.application_id ?? 0,
+    userVersion: version.user_version ?? 0,
+  };
+}
+
+function assertV3SchemaIdentity(db: DatabaseSync): void {
+  const identity = readV3SchemaIdentity(db);
+  if (identity.applicationId !== 0) {
+    throw new Error(
+      `refusing foreign Awareness application_id ${identity.applicationId}; v3 expects 0`,
+    );
+  }
+  if (identity.userVersion > V3_SCHEMA_VERSION) {
+    throw new Error(
+      `refusing newer Awareness schema version ${identity.userVersion}; v3 supports versions 0-${V3_SCHEMA_VERSION}`,
+    );
+  }
+  if (identity.userVersion === 0) {
+    const relations = db.prepare(`
+      SELECT name, type
+      FROM sqlite_schema
+      WHERE type IN ('table', 'view')
+        AND name NOT LIKE 'sqlite_%'
+      ORDER BY name
+    `).all() as Array<{ name: string; type: string }>;
+    if (relations.length === 0) return;
+
+    const known = new Set<string>([
+      ...canonicalColumns().keys(),
+      ...LEGACY_V0_RELATION_NAMES,
+      'memories_fts',
+    ]);
+    const unexpected = relations.filter(({ name, type }) => {
+      if (type !== 'table') return true;
+      return !known.has(name)
+        && !name.startsWith('memories_fts_')
+        && !name.startsWith('memory_fts_');
+    });
+    if (unexpected.length > 0) {
+      throw new Error(
+        `refusing unrecognized non-empty unversioned SQLite store; unexpected relations: ${unexpected.map(({ name }) => name).join(', ')}`,
+      );
+    }
   }
 }
 
@@ -496,6 +573,7 @@ function migrateLegacyTaskRuns(db: DatabaseSync): void {
 }
 
 export function initDb(db: DatabaseSync): void {
+  assertV3SchemaIdentity(db);
   if (db.isTransaction) {
     initDbSchema(db);
     return;

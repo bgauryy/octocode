@@ -101,12 +101,14 @@ describe('preFlightIntent', () => {
     }
   });
 
-  it('same agent reuses its active WORK run on the same file', () => {
+  it('same agent can explicitly reuse its active WORK run on the same file', () => {
     const db = freshDb();
     const { path, cleanup } = tempFile();
     try {
       const first = preFlightIntent(db, { agentId: 'agent-a', targetFiles: [path] });
-      const second = preFlightIntent(db, { agentId: 'agent-a', targetFiles: [path] });
+      const second = preFlightIntent(db, {
+        agentId: 'agent-a', runId: first.ok ? first.run.run_id : undefined, targetFiles: [path],
+      });
       expect(first.ok).toBe(true);
       expect(second.ok).toBe(true);
       if (first.ok && second.ok) expect(second.run.run_id).toBe(first.run.run_id);

@@ -1,14 +1,18 @@
 <memory>
-FORBIDDEN: routine status, raw logs, secrets, obvious edits, facts already in git/docs.
+Awareness memory/coordination has no dedicated tools. Drive it through the
+octocode-awareness CLI: `bash: node $OCTOCODE_AWARENESS_CLI <noun> <verb> --compact`
+(agent id + workspace are inherited from the environment). Load the
+**octocode-awareness skill** for the full workflow, flags, and recipes.
+FORBIDDEN to store: routine status, raw logs, secrets, obvious edits, facts already in git/docs.
 
-**Awareness** (thinking/planning/editing) — inspect Ready/Claimed/Verify/FilesUnderWork through the awareness skill/CLI. Claim a matching plan task, or open standalone WORK with rationale and test plan. Every edit declares advisory file presence; ordinary peers may overlap knowingly. Use `file_lock`/`lock acquire` only when a sensitive path needs exclusive protection. Use `memory_recall` · `memory_refine_get` only when durable context can change the plan; re-verify recalled facts.
-The Pi bridge attaches automatic advisory presence to the live task/WORK run when present; otherwise it creates an isolated HOOK run. Manual exclusive release/renew uses `run_id`.
+**Awareness** (thinking/planning/editing) — `node "$OCTOCODE_AWARENESS_CLI" attend --workspace "$PWD" --query "<task>" --compact`; inspect Ready/Claimed/Verify/FilesUnderWork. Claim a matching `task ready`, or open standalone `work start` with rationale + test plan. Every edit auto-declares advisory file presence via hooks; ordinary peers may overlap knowingly. Use `work start --exclusive` only when a sensitive path needs exclusive protection. Run `memory recall` · `refinement get` only when durable context can change the plan; re-verify recalled facts.
+The Pi hooks attach automatic advisory presence to the live task/WORK run when present; otherwise they create an isolated HOOK run. Manual exclusive release/renew uses `run_id`.
 
-**Verification** (after edits) — submit claimed tasks through awareness, then use `memory_audit_unverified` for pending runs and `memory_verify(allPending:true)` after the stated check runs. Never mark SUCCESS to clear the gate.
+**Verification** (after edits) — submit claimed tasks (`task submit`), then `verify audit` and `verify mark --run-id <exact-run>` after that run's stated check passes. Never batch-verify unrelated agents' work and never mark SUCCESS merely to clear the gate.
 
-**Reflection** (after meaningful outcomes) — use `memory_record` for verified root causes, decisions, workarounds, gotchas.
-Labels: `BUG`/`GOTCHA` (imp 7–9) · `DECISION` (6–8) · `IMPROVEMENT` · `EXPERIENCE`. `failure_signature="mechanism:X|cause:Y"` for recurring-failure clustering. `supersedes=<id>` when you learn better — never stack duplicates.
-Use `memory_reflect(task, outcome)` for post-task learning: `lesson` (reusable) · `fix_repo` (open refinement) · `fix_harness` (skill improvement proposal) · `failure_signature` (weakness clustering).
+**Reflection** (after meaningful outcomes) — `memory record` for verified root causes, decisions, workarounds, gotchas.
+Labels: `BUG`/`GOTCHA` (imp 7–9) · `DECISION` (6–8) · `IMPROVEMENT` · `EXPERIENCE`. `--failure-signature "mechanism:X|cause:Y"` for recurring-failure clustering. `--supersedes <id>` when you learn better — never stack duplicates.
+Use `reflect record --task … --outcome …` for post-task learning: `--lesson` (reusable) · `--fix-repo` (open refinement) · `--fix-harness` (skill improvement proposal) · `--failure-signature` (weakness clustering).
 
-**Maintain** — use `octocode-awareness` after work for stale-memory and pending-run cleanup. Preview deletion with `/octocode-memory-digest` or `/octocode-memory-forget`; user approval owns mutation. Stage skill/harness changes with evidence and wait for explicit human approval. No memory tool → record in reply or `GOTCHAS.md`.
+**Maintain** — after work, run stale-memory and pending-run cleanup via the CLI. Preview deletion with `/octocode-memory-digest` or `/octocode-memory-forget`; user approval owns mutation. Stage skill/harness changes with evidence and wait for explicit human approval. If the CLI is unavailable → record in reply or `GOTCHAS.md`.
 </memory>

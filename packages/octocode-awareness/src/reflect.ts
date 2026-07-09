@@ -90,11 +90,15 @@ export function reflect(db: DatabaseSync, params: ReflectParams): ReflectResult 
     ...(hasEvalFailures ? ['eval'] : []),
   ];
 
-  // When --failure-signature is omitted, the first structured eval failure's
-  // signature drives mine-weakness clustering for the main lesson memory.
-  const failSig = failSigArg ?? evalFailures.find((f) => f.failure_signature)?.failure_signature ?? null;
-  const sig = failSig
-    ?? (resolvedOutcome === 'failed' && fixHarness ? 'harness:reflection|outcome:failed' : null);
+  // The summary memory participates in failure clustering only when there are
+  // no structured eval-event rows below.
+  const fallbackSig = resolvedOutcome === 'failed' && fixHarness
+    ? 'harness:reflection|outcome:failed'
+    : null;
+  // Structured eval rows are the failure events. Copying their signature onto
+  // the summary memory made one failed eval satisfy mine-weakness minCount=2.
+  const sig = hasEvalFailures ? null : (failSigArg ?? fallbackSig);
+  const evalFallbackSig = failSigArg ?? fallbackSig;
   const scope = fillScope(
     { workspace_path: workspacePath ?? null, artifact: normalizeArtifact(artifact), repo: repoArg ?? null, ref: refArg ?? null },
     cwd ?? process.cwd(),
@@ -139,7 +143,7 @@ export function reflect(db: DatabaseSync, params: ReflectParams): ReflectResult 
       importance: importance,
       label: 'EXPERIENCE',
       tags: ['reflection', 'eval', resolvedOutcome],
-      failureSignature: failure.failure_signature ?? sig,
+      failureSignature: failure.failure_signature ?? evalFallbackSig,
       workspacePath: scope.workspace_path,
       artifact: scope.artifact,
       repo: scope.repo,

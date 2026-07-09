@@ -56,6 +56,27 @@ describe('insertMemory', () => {
       .toThrow('importance');
   });
 
+  it('validates and canonicalizes temporal bounds', () => {
+    const db = freshDb();
+    expect(() => insertMemory(db, {
+      taskContext: 't', observation: 'o', importance: 5, validFrom: 'not-a-date',
+    })).toThrow(/valid_from.*ISO/i);
+    expect(() => insertMemory(db, {
+      taskContext: 't', observation: 'o', importance: 5, validFrom: 'January 1, 2026',
+    })).toThrow(/valid_from.*ISO/i);
+    expect(() => insertMemory(db, {
+      taskContext: 't', observation: 'o', importance: 5,
+      validFrom: '2026-01-02T00:00:00Z', validTo: '2026-01-01T00:00:00Z',
+    })).toThrow(/valid_to.*after valid_from/i);
+
+    const { memoryId } = insertMemory(db, {
+      taskContext: 't', observation: 'o', importance: 5,
+      validFrom: '2026-01-01T02:00:00+02:00', validTo: '2026-01-02T02:00:00+02:00',
+    });
+    expect(db.prepare('SELECT valid_from, valid_to FROM memories WHERE memory_id = ?').get(memoryId))
+      .toEqual({ valid_from: '2026-01-01T00:00:00Z', valid_to: '2026-01-02T00:00:00Z' });
+  });
+
   it('supersedes a previous memory', () => {
     const db = freshDb();
     const { memoryId: oldId } = insertMemory(db, {
@@ -138,6 +159,23 @@ describe('getMemory', () => {
     expect(count).toBe(3);
   });
 
+  it('can defer access tracking until an alternate ranker chooses final results', () => {
+    const db = freshDb();
+    const { memoryId } = insertMemory(db, {
+      taskContext: 'alternate ranker', observation: 'candidate result', importance: 5,
+    });
+    const before = db.prepare('SELECT access_count FROM memories WHERE memory_id = ?')
+      .get(memoryId) as { access_count: number };
+
+    const result = getMemory(db, {
+      query: '', candidateMemoryIds: [memoryId], recordAccess: false,
+    });
+
+    expect(result.memories.map(memory => memory.memory_id)).toEqual([memoryId]);
+    expect(db.prepare('SELECT access_count FROM memories WHERE memory_id = ?').get(memoryId))
+      .toEqual({ access_count: before.access_count });
+  });
+
   it('filters by minImportance', () => {
     const db = freshDb();
     insertMemory(db, { taskContext: 't', observation: 'low', importance: 2 });
@@ -157,6 +195,50 @@ describe('getMemory', () => {
     const { memories, count } = getMemory(db, { query: 'nonexistent term zxqpw' });
     expect(memories).toHaveLength(0);
     expect(count).toBe(0);
+  });
+
+  it('does not turn a stopword-only query into unrelated browsing', () => {
+    const db = freshDb();
+    insertMemory(db, { taskContext: 'unrelated', observation: 'durable lesson', importance: 9 });
+    const result = getMemory(db, { query: 'the and with', limit: 5 });
+    expect(result.memories).toEqual([]);
+    expect(result.judgment_required).toBe(true);
+  });
+
+  it('excludes currently expired ACTIVE memories from normal recall', () => {
+    const db = freshDb();
+    insertMemory(db, {
+      taskContext: 'expiredcurrent temporal', observation: 'must not be recalled now', importance: 9,
+      validFrom: '2019-01-01T00:00:00Z', validTo: '2020-01-01T00:00:00Z',
+    });
+    expect(getMemory(db, { query: 'expiredcurrent temporal', limit: 5 }).memories).toEqual([]);
+  });
+
+  it('historical recall includes memories valid then even if later superseded', () => {
+    const db = freshDb();
+    const old = insertMemory(db, {
+      taskContext: 'historicalstate temporal', observation: 'old truth', importance: 7,
+      validFrom: '2019-01-01T00:00:00Z',
+    });
+    insertMemory(db, {
+      taskContext: 'historicalstate temporal', observation: 'new truth', importance: 8,
+      validFrom: '2021-01-01T00:00:00Z', supersedes: [old.memoryId],
+    });
+
+    const historical = getMemory(db, {
+      query: 'historicalstate temporal', asOf: '2020-06-01T00:00:00Z', limit: 5,
+    });
+    expect(historical.memories.map(memory => memory.memory_id)).toContain(old.memoryId);
+
+    const explicitlyActive = getMemory(db, {
+      query: 'historicalstate temporal', asOf: '2020-06-01T00:00:00Z', states: ['ACTIVE'], limit: 5,
+    });
+    expect(explicitlyActive.memories.map(memory => memory.memory_id)).not.toContain(old.memoryId);
+  });
+
+  it('rejects non-ISO historical timestamps instead of using implementation-defined parsing', () => {
+    const db = freshDb();
+    expect(() => getMemory(db, { asOf: 'June 1, 2020' })).toThrow(/as_of.*ISO/i);
   });
 
   it('smart mode lowers minImportance threshold', () => {

@@ -94,6 +94,9 @@ export function insertNotification(
   } = params;
 
   const normalizedKind = normalizeNotificationKind(kind);
+  if (!Number.isInteger(importance) || importance < 1 || importance > 10) {
+    throw new Error(`importance must be an integer between 1 and 10, got ${String(importance)}`);
+  }
 
   const scope = fillScope(
     { workspace_path: params.workspacePath ?? null, artifact: normalizeArtifact(params.artifact), repo: params.repo ?? null, ref: params.ref ?? null },
@@ -160,6 +163,7 @@ export function getNotifications(
   const {
     agentId,
     kinds = [],
+    signalIds = [],
     threadId = null,
     unreadOnly = true,
     markRead = false,
@@ -208,6 +212,10 @@ export function getNotifications(
     where.push(`n.kind IN (${kinds.map(() => '?').join(',')})`);
     binds.push(...kinds);
   }
+  if (signalIds.length > 0) {
+    where.push(`n.signal_id IN (${signalIds.map(() => '?').join(',')})`);
+    binds.push(...signalIds);
+  }
 
   const whereClause = where.length > 0 ? `WHERE ${where.join(' AND ')}` : '';
   // NOTIF-1/NOTIF-2: LEFT JOIN signal_reads whenever unreadOnly is true,
@@ -223,7 +231,7 @@ export function getNotifications(
     ${whereClause}
     ${SIGNALS_SELECT_ORDER_LIMIT}
   `;
-  const boundedLimit = Math.min(100, Math.max(1, Math.floor(Number.isFinite(limit) ? limit : 20)));
+  const boundedLimit = Math.min(200, Math.max(1, Math.floor(Number.isFinite(limit) ? limit : 20)));
   const rows = db.prepare(sql).all(...allBinds, boundedLimit) as unknown as NotificationRow[];
   const signals = rows.map(rowToNotification);
 
@@ -378,6 +386,7 @@ export function agentSignal(db: DatabaseSync, params: AgentSignalParams): AgentS
         repo: params.repo,
         ref: params.ref,
         kinds: params.kinds ?? [],
+        signalIds: params.signalIds ?? [],
         threadId: params.threadId ?? null,
         unreadOnly: params.unreadOnly ?? true,
         markRead: params.markRead ?? false,

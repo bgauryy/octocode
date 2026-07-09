@@ -13,6 +13,7 @@ import { describe, it, expect } from 'vitest';
 import { DatabaseSync } from 'node:sqlite';
 import { randomUUID } from 'node:crypto';
 import { initDb, replaceMemoryReferences, connectDb, checkpointWal } from '../src/db.js';
+import { journalModeForSqliteVersion } from '../src/v4/runtime.js';
 import {
   pruneStale,
   notifyGet,
@@ -507,13 +508,40 @@ describe('digest — dry_run with new schema', () => {
     expect(remaining.map(row => row.memory_id)).toEqual(['mem_ws_b_old']);
   });
 
-  it('checkpointWal and digest complete on a file-backed WAL store', () => {
+  it('rolls back all cleanup when FTS reconciliation fails', () => {
+    const db = freshDb();
+    const oldDate = new Date(Date.now() - 91 * 86400000).toISOString();
+    db.prepare(`
+      INSERT INTO memories (memory_id, agent_id, task_context, observation, importance, state, created_at, updated_at)
+      VALUES ('mem_digest_rollback_old', 'agent-x', 'old', 'old observation', 3, 'SUPERSEDED', ?, ?)
+    `).run(oldDate, oldDate);
+    db.prepare(`
+      INSERT INTO memories (memory_id, agent_id, task_context, observation, importance, state, created_at, updated_at)
+      VALUES ('mem_digest_rollback_active', 'agent-x', 'active', 'active observation', 8, 'ACTIVE', ?, ?)
+    `).run(oldDate, oldDate);
+    db.exec(`
+      DROP TABLE memories_fts;
+      CREATE TABLE memories_fts (
+        memory_id TEXT CHECK(memory_id = 'never-allowed'),
+        task_context TEXT,
+        observation TEXT,
+        tags TEXT
+      );
+    `);
+
+    expect(() => digest(db, {})).toThrow();
+    expect(db.prepare('SELECT state FROM memories WHERE memory_id = ?')
+      .get('mem_digest_rollback_old')).toEqual({ state: 'SUPERSEDED' });
+  });
+
+  it('checkpoint and digest complete on the runtime-safe file journal', () => {
     const dir = mkdtempSync(join(tmpdir(), 'oc-wal-'));
     try {
       const dbPath = join(dir, 'awareness.sqlite3');
       const db = connectDb(dbPath);
       const mode = db.prepare('PRAGMA journal_mode').get() as { journal_mode: string };
-      expect(String(mode.journal_mode).toLowerCase()).toBe('wal');
+      const sqliteVersion = (db.prepare('SELECT sqlite_version() AS version').get() as { version: string }).version;
+      expect(String(mode.journal_mode).toUpperCase()).toBe(journalModeForSqliteVersion(sqliteVersion));
       expect(() => checkpointWal(db)).not.toThrow();
       const oldDate = new Date(Date.now() - 91 * 86400000).toISOString();
       db.prepare(`

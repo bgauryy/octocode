@@ -32,11 +32,6 @@ Treat hits as leads. Cite paths/lines/IDs in locks, signals, memories, and refin
 
 ## Skill Management
 
-```bash
-npx octocode skill --add --path "<awareness-package>/dist/skills/octocode-awareness" --platform common --force
-npx octocode skill --add --path "<awareness-package>/dist/skills/octocode-skills" --platform common --force
-```
-
-Use host-specific `--platform` when needed. Install these two skills from the Awareness package bundle by path; do not substitute a registry copy for the package's canonical bundle.
+For copy-pasteable install and refresh commands, load `references/agent-cheatsheet-tooling.md`; it owns package-path and host-platform setup. Gate skill installation as a write.
 
 Return research evidence to Awareness only when it informs a claim, decision, memory, signal, refinement, or verified reflection.

@@ -123,31 +123,15 @@ function conflictRows(
     .all(...files, runId, now) as unknown as WorkConflict[];
 }
 
-function reusableWorkRun(
-  db: DatabaseSync,
-  agentId: string,
-  files: string[],
-  now: string,
-): string | null {
-  const rows = db.prepare(`SELECT DISTINCT tr.run_id
-    FROM task_runs tr JOIN run_files rf ON rf.run_id = tr.run_id
-    WHERE tr.agent_id = ? AND tr.origin = 'WORK' AND tr.status = 'ACTIVE'
-      AND rf.file_path IN (${files.map(() => '?').join(',')})
-      AND rf.ended_at IS NULL AND rf.expires_at > ?`)
-    .all(agentId, ...files, now) as unknown as Array<{ run_id: string }>;
-  if (rows.length > 1) throw new Error('target files match multiple active WORK runs; pass --run-id');
-  return rows[0]?.run_id ?? null;
-}
-
 export function startWork(db: DatabaseSync, params: StartWorkParams): StartWorkResult {
   const agentId = required(params.agentId, 'agent id');
-  const files = normalizeFiles(params.targetFiles, params.workspacePath);
   const now = utcNow();
   const expiresAt = expiry(params.ttlMs);
   const requestedOrigin = params.origin ?? 'WORK';
   const source = params.source ?? (requestedOrigin === 'HOOK' ? 'HOOK' : 'EXPLICIT');
-  const wsPath = workspaceRoot(params.workspacePath);
-  const artifact = normalizeArtifact(params.artifact);
+  const fileBasePath = params.workspacePath ?? process.cwd();
+  let wsPath = workspaceRoot(params.workspacePath);
+  let artifact = normalizeArtifact(params.artifact);
   let runId = params.runId ?? null;
 
   if (!runId) {
@@ -157,14 +141,24 @@ export function startWork(db: DatabaseSync, params: StartWorkParams): StartWorkR
 
   db.exec('BEGIN IMMEDIATE');
   try {
-    if (!runId && requestedOrigin === 'WORK') runId = reusableWorkRun(db, agentId, files, now);
     runId ??= `run_${randomUUID().replace(/-/g, '')}`;
 
     let run = db.prepare('SELECT * FROM task_runs WHERE run_id = ?').get(runId) as unknown as WorkRunRecord | undefined;
     if (run) {
       if (run.agent_id !== agentId) throw new Error(`run ${runId} belongs to ${run.agent_id}`);
       if (run.status !== 'ACTIVE') throw new Error(`run ${runId} is not ACTIVE`);
+      const runWorkspace = workspaceRoot(run.workspace_path);
+      if (params.workspacePath != null && wsPath !== runWorkspace) {
+        throw new Error(`workspace ${wsPath} does not match run workspace ${runWorkspace}`);
+      }
+      const runArtifact = normalizeArtifact(run.artifact);
+      if (params.artifact != null && artifact !== runArtifact) {
+        throw new Error(`artifact ${artifact ?? '(none)'} does not match run artifact ${runArtifact ?? '(none)'}`);
+      }
+      wsPath = runWorkspace;
+      artifact = runArtifact;
     } else {
+      if (params.runId) throw new Error(`run not found: ${params.runId}`);
       if (params.sessionId) {
         db.prepare(`INSERT OR IGNORE INTO sessions
           (session_id, agent_id, workspace_path, artifact, started_at) VALUES (?, ?, ?, ?, ?)`)
@@ -179,6 +173,8 @@ export function startWork(db: DatabaseSync, params: StartWorkParams): StartWorkR
           params.contextRef ?? null, wsPath, artifact, now, now);
       run = getRun(db, runId);
     }
+
+    const files = normalizeFiles(params.targetFiles, fileBasePath);
 
     const conflicts = conflictRows(db, runId, files, params.exclusive === true);
     if (conflicts.length > 0) {
@@ -298,16 +294,26 @@ export function listWork(db: DatabaseSync, params: ListWorkParams = {}): ListWor
     where.push('rf.file_path = ?');
     binds.push(normalizeFiles([params.filePath], params.workspacePath)[0]!);
   }
+  const limit = params.limit == null ? null : Math.max(1, Math.floor(params.limit));
+  const limitSql = limit == null ? '' : 'LIMIT ?';
+  if (limit != null) binds.push(limit);
   const rows = db.prepare(`SELECT rf.*, tr.task_id, tr.origin, tr.agent_id, tr.session_id,
       tr.rationale, tr.test_plan, tr.status, tr.workspace_path, tr.artifact,
       EXISTS(SELECT 1 FROM locks l WHERE l.run_id = rf.run_id AND l.file_path = rf.file_path
-        AND (l.expires_at IS NULL OR l.expires_at > ?)) AS exclusive
+        AND (l.expires_at IS NULL OR l.expires_at > ?)) AS exclusive,
+      COUNT(*) OVER() AS result_total
     FROM run_files rf JOIN task_runs tr ON tr.run_id = rf.run_id
     WHERE ${where.join(' AND ')}
-    ORDER BY rf.file_path, rf.heartbeat_at DESC, rf.run_id`)
-    .all(...binds) as unknown as Array<WorkPresence & { exclusive: number | boolean }>;
-  const files = rows.map((row) => ({ ...row, exclusive: Boolean(row.exclusive) }));
-  return { count: files.length, files };
+    ORDER BY rf.file_path, rf.heartbeat_at DESC, rf.run_id ${limitSql}`)
+    .all(...binds) as unknown as Array<WorkPresence & { exclusive: number | boolean; result_total: number }>;
+  const totalCount = rows[0]?.result_total ?? 0;
+  const files = rows.map(({ result_total: _total, ...row }) => ({ ...row, exclusive: Boolean(row.exclusive) }));
+  return {
+    count: files.length,
+    total_count: totalCount,
+    omitted_count: Math.max(0, totalCount - files.length),
+    files,
+  };
 }
 
 export function showWork(

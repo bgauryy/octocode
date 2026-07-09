@@ -729,7 +729,7 @@ export function registerEditTool(
       'edits[].reasoning is REQUIRED for every edit — provide a non-empty string explaining why the change is necessary; edits without reasoning are rejected.',
       'Every edit output includes a Reasoning list and a Changes diff; read both to verify correctness before continuing.',
       'If edit reports oldText not found, re-read the current target range and retry with a smaller unique oldText.',
-      'GOTCHA: Read and understand the file before editing; use workspace_status to inspect peers with the file under work and any exclusive conflict. Advisory overlap is allowed; an exclusive lock blocks.',
+      'GOTCHA: Read and understand the file before editing; run `node $OCTOCODE_AWARENESS_CLI workspace status --compact` to inspect peers with the file under work and any exclusive conflict. Advisory overlap is allowed; an exclusive lock blocks.',
       'GOTCHA: For multiple repetitive or mechanical changes across a file (e.g. renaming a symbol everywhere, bulk formatting), prefer shell commands like sed instead of many individual edit calls.',
     ],
     parameters: buildParameters(Type),

@@ -1,8 +1,11 @@
 # Awareness Database
 
 Canonical store: `~/.octocode/memory/awareness.sqlite3`, or
-`$OCTOCODE_MEMORY_HOME/awareness.sqlite3`. SQLite runs with WAL and foreign keys;
-current schema version is 3. Source: `src/db.ts`.
+`$OCTOCODE_MEMORY_HOME/awareness.sqlite3`. Foreign keys are always enabled.
+Awareness uses WAL only when the embedded SQLite contains the concurrent reset-race
+fix (3.44.6, 3.50.7, 3.51.3, or a newer fixed release); affected versions use
+rollback journaling instead. Current production schema version is 3. Source:
+`src/db.ts`; the isolated final-schema bootstrap is under `src/v4/`.
 
 `<workspace>/.octocode/` is not the database. It contains generated projections and
 authored plan documents.

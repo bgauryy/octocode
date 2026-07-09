@@ -6,7 +6,9 @@
  * skill hooks and Pi native adapters share the same package-owned behavior.
  */
 import { createHash } from 'node:crypto';
-import { mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
+import {
+  closeSync, mkdirSync, openSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync,
+} from 'node:fs';
 import { basename, dirname, join, relative, resolve } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
@@ -186,6 +188,33 @@ interface HookRunStateEntry {
   createdAt: string;
 }
 
+const HOOK_RUN_STATE_TTL_MS = 10 * 60_000;
+const HOOK_RUN_STATE_LOCK_WAIT = new Int32Array(new SharedArrayBuffer(4));
+const HOOK_RUN_STATE_LOCK_RETRY_MS = 10;
+const HOOK_RUN_STATE_LOCK_TIMEOUT_MS = 2_000;
+const HOOK_RUN_STATE_LOCK_STALE_MS = 30_000;
+const HOOK_DB_RETRY_TIMEOUT_MS = 5_000;
+
+function isHookDbBusy(error: unknown): boolean {
+  const sqlite = error as { errcode?: number; errstr?: string; message?: string } | null;
+  const message = sqlite && typeof sqlite === 'object'
+    ? `${sqlite.errstr ?? ''} ${sqlite.message ?? ''}`
+    : String(error);
+  return sqlite?.errcode === 5 || /database is (?:locked|busy)/i.test(message);
+}
+
+function withHookDbRetry<T>(operation: () => T): T {
+  const deadline = Date.now() + HOOK_DB_RETRY_TIMEOUT_MS;
+  for (;;) {
+    try {
+      return operation();
+    } catch (error) {
+      if (!isHookDbBusy(error) || Date.now() >= deadline) throw error;
+      Atomics.wait(HOOK_RUN_STATE_LOCK_WAIT, 0, 0, HOOK_RUN_STATE_LOCK_RETRY_MS);
+    }
+  }
+}
+
 function hookRunStateDir(): string {
   const stateDir = join(dirname(resolveDbPath(null)), 'hook-state', 'runs');
   mkdirSync(stateDir, { recursive: true });
@@ -196,10 +225,74 @@ function hookRunStateFile(key: string): string {
   return join(hookRunStateDir(), `${key}.json`);
 }
 
+function processIsAlive(pid: number): boolean {
+  if (!Number.isSafeInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code !== 'ESRCH';
+  }
+}
+
+function removeStaleHookRunStateLock(lockFile: string): boolean {
+  try {
+    const owner = Number.parseInt(readFileSync(lockFile, 'utf8'), 10);
+    const staleByAge = Date.now() - statSync(lockFile).mtimeMs > HOOK_RUN_STATE_LOCK_STALE_MS;
+    if (processIsAlive(owner) && !staleByAge) return false;
+    unlinkSync(lockFile);
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return true;
+    return false;
+  }
+}
+
+function withHookRunStateLock<T>(key: string, operation: () => T): T {
+  const lockFile = `${hookRunStateFile(key)}.lock`;
+  const deadline = Date.now() + HOOK_RUN_STATE_LOCK_TIMEOUT_MS;
+  for (;;) {
+    try {
+      const fd = openSync(lockFile, 'wx', 0o600);
+      try {
+        writeFileSync(fd, `${process.pid}\n`, 'utf8');
+      } finally {
+        closeSync(fd);
+      }
+      try {
+        return operation();
+      } finally {
+        try { unlinkSync(lockFile); } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+        }
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+      if (removeStaleHookRunStateLock(lockFile)) continue;
+      if (Date.now() >= deadline) {
+        throw new Error(`timed out waiting for hook correlation state: ${lockFile}`);
+      }
+      Atomics.wait(HOOK_RUN_STATE_LOCK_WAIT, 0, 0, HOOK_RUN_STATE_LOCK_RETRY_MS);
+    }
+  }
+}
+
 function readHookRunEntries(key: string): HookRunStateEntry[] {
   try {
     const parsed = JSON.parse(readFileSync(hookRunStateFile(key), 'utf8')) as unknown;
-    return Array.isArray(parsed) ? parsed as HookRunStateEntry[] : [];
+    if (!Array.isArray(parsed)) return [];
+    const cutoff = Date.now() - HOOK_RUN_STATE_TTL_MS;
+    return parsed.filter((entry): entry is HookRunStateEntry => {
+      if (!entry || typeof entry !== 'object') return false;
+      const candidate = entry as Partial<HookRunStateEntry>;
+      const createdAt = typeof candidate.createdAt === 'string' ? Date.parse(candidate.createdAt) : NaN;
+      return typeof candidate.runId === 'string'
+        && candidate.runId.length > 0
+        && Array.isArray(candidate.files)
+        && candidate.files.every((file) => typeof file === 'string' && file.length > 0)
+        && Number.isFinite(createdAt)
+        && createdAt >= cutoff;
+    });
   } catch {
     return [];
   }
@@ -250,21 +343,42 @@ function hookRunKey(payload: Record<string, unknown>, files: string[], cwd: stri
 
 function recordHookRun(payload: Record<string, unknown>, files: string[], cwd: string, runId: string): void {
   const key = hookRunKey(payload, files, cwd);
-  const entries = readHookRunEntries(key);
-  entries.push({
-    runId,
-    files: files.map(file => resolveHookPath(file, cwd)),
-    createdAt: new Date().toISOString(),
+  withHookRunStateLock(key, () => {
+    const entries = readHookRunEntries(key);
+    entries.push({
+      runId,
+      files: files.map(file => resolveHookPath(file, cwd)),
+      createdAt: new Date().toISOString(),
+    });
+    writeHookRunEntries(key, entries.slice(-20));
   });
-  writeHookRunEntries(key, entries.slice(-20));
 }
 
-function consumeHookRun(payload: Record<string, unknown>, files: string[], cwd: string): string | null {
+function consumeHookRun(
+  database: DatabaseSync,
+  payload: Record<string, unknown>,
+  files: string[],
+  cwd: string,
+): string | null {
   const key = hookRunKey(payload, files, cwd);
-  const entries = readHookRunEntries(key);
-  const entry = entries.shift();
-  writeHookRunEntries(key, entries);
-  return entry?.runId ?? null;
+  return withHookRunStateLock(key, () => {
+    const entries = readHookRunEntries(key);
+    const activeEntries = entries.filter((entry) => {
+      const activeFiles = new Set(listWork(database, {
+        agentId: agentId(payload),
+        workspacePath: cwd,
+        artifact: artifact(payload),
+        runId: entry.runId,
+        activeOnly: true,
+      }).files.map((file) => file.file_path));
+      return entry.files.every((file) => activeFiles.has(file));
+    });
+    // Newest-first avoids a previously abandoned same-key event consuming the
+    // post-edit for a later retry. Other live entries stay queued.
+    const entry = activeEntries.pop() ?? null;
+    writeHookRunEntries(key, activeEntries);
+    return entry?.runId ?? null;
+  });
 }
 
 function activeRunForFiles(
@@ -460,56 +574,74 @@ async function runPreEdit(payload: Record<string, unknown>): Promise<number> {
 async function runPostEdit(payload: Record<string, unknown>): Promise<number> {
   const files = extractFiles(payload);
   if (files.length === 0) return 0;
+  const hookWorkspace = workspace(payload) ?? process.cwd();
+  let consumedRunId: string | null = null;
+  let stage = 'open database';
   try {
     const database = db();
-    registerHookAgent(database, payload, 'hook:post-edit');
+    stage = 'register hook agent';
+    withHookDbRetry(() => registerHookAgent(database, payload, 'hook:post-edit'));
     const hookAgentId = agentId(payload);
-    const hookWorkspace = workspace(payload) ?? process.cwd();
     const hookArtifact = artifact(payload);
-    const correlatedRunId = consumeHookRun(payload, files, hookWorkspace)
-      ?? activeTaskClaimForAgent(database, {
+    stage = 'consume correlation';
+    consumedRunId = withHookDbRetry(() => consumeHookRun(database, payload, files, hookWorkspace));
+    stage = 'resolve fallback run';
+    const correlatedRunId = consumedRunId
+      ?? withHookDbRetry(() => activeTaskClaimForAgent(database, {
         agentId: hookAgentId,
         workspacePath: hookWorkspace,
         artifact: hookArtifact,
-      })?.run_id
-      ?? activeRunForFiles(database, {
+      }))?.run_id
+      ?? withHookDbRetry(() => activeRunForFiles(database, {
         agentId: hookAgentId,
         workspacePath: hookWorkspace,
         artifact: hookArtifact,
         files,
         origins: ['WORK', 'HOOK'],
-      });
+      }));
     if (!correlatedRunId) {
       console.error('octocode-awareness post-edit warning (continuing): could not identify a unique work run; leaving presence for expiry.');
       return 0;
     }
-    const origin = runOrigin(database, correlatedRunId);
+    stage = 'read run origin';
+    const origin = withHookDbRetry(() => runOrigin(database, correlatedRunId));
+    stage = 'finish work lifecycle';
     if (origin === 'HOOK') {
-      endWork(database, {
+      withHookDbRetry(() => endWork(database, {
         agentId: hookAgentId,
         runId: correlatedRunId,
         targetFiles: files,
-      });
+      }));
     } else {
-      touchWork(database, {
+      withHookDbRetry(() => touchWork(database, {
         agentId: hookAgentId,
         runId: correlatedRunId,
         targetFiles: files,
         ttlMs: 10 * 60_000,
-      });
+      }));
     }
+    // The lifecycle mutation committed, so this correlation must not be
+    // restored even if a later audit-log write fails.
+    consumedRunId = null;
+    stage = 'write edit log';
     for (const file of files) {
-      insertEditLog(database, {
+      withHookDbRetry(() => insertEditLog(database, {
         agentId: hookAgentId,
         runId: correlatedRunId,
         filePath: resolveHookPath(file, hookWorkspace),
         operation: 'update',
         workspacePath: hookWorkspace,
         artifact: hookArtifact,
-      });
+      }));
     }
   } catch (error) {
-    console.error(`octocode-awareness post-edit warning (continuing): ${error instanceof Error ? error.message : String(error)}`);
+    // Consuming the file-backed correlation and mutating SQLite cannot be one
+    // atomic transaction. Restore it on a failed lifecycle mutation so a host
+    // retry can finish the same run instead of leaving presence orphaned.
+    if (consumedRunId) {
+      try { recordHookRun(payload, files, hookWorkspace, consumedRunId); } catch { /* best effort */ }
+    }
+    console.error(`octocode-awareness post-edit warning during ${stage} (continuing): ${error instanceof Error ? error.message : String(error)}`);
   }
   return 0;
 }
@@ -559,7 +691,7 @@ function maybeRunDigest(payload: Record<string, unknown>): void {
   if (process.env.OCTOCODE_NOTIFY_RUN_DIGEST !== '1') return;
   const intervalHours = Number(process.env.OCTOCODE_DIGEST_INTERVAL_HOURS ?? 4);
   const intervalMs = Number.isFinite(intervalHours) && intervalHours > 0 ? intervalHours * 3600_000 : 4 * 3600_000;
-  const memoryHome = process.env.OCTOCODE_MEMORY_HOME || `${process.env.HOME ?? ''}/.octocode/memory`;
+  const memoryHome = dirname(resolveDbPath(null));
   const markerPath = join(memoryHome, '.last-digest-epoch-ms');
   try {
     const database = db();
@@ -571,9 +703,9 @@ function maybeRunDigest(payload: Record<string, unknown>): void {
     }
     const now = Date.now();
     if (!last || now - last >= intervalMs) {
+      digest(database, { workspace: workspace(payload), memoryHome });
       mkdirSync(memoryHome, { recursive: true });
       writeFileSync(markerPath, String(now), 'utf8');
-      digest(database, { workspace: workspace(payload), memoryHome });
     }
   } catch (error) {
     console.error(`octocode-awareness digest warning (continuing): ${error instanceof Error ? error.message : String(error)}`);

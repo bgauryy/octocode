@@ -62,7 +62,7 @@ describe('advisory work presence', () => {
     } finally { ws.cleanup(); }
   });
 
-  it('reuses explicit WORK only for the same agent and active target presence', () => {
+  it('creates a new explicit WORK unless the caller supplies a run id', () => {
     const db = freshDb();
     const ws = workspace();
     try {
@@ -71,19 +71,19 @@ describe('advisory work presence', () => {
         targetFiles: ['src/a.ts'], ...required,
       });
       if (!first.ok) throw new Error('first start failed');
-      const reused = startWork(db, {
+      const separate = startWork(db, {
         agentId: 'agent-a', sessionId: 'session-other', workspacePath: ws.path,
         targetFiles: ['src/a.ts'], ...required,
       });
-      if (!reused.ok) throw new Error('reuse failed');
-      expect(reused.run.run_id).toBe(first.run.run_id);
+      if (!separate.ok) throw new Error('second start failed');
+      expect(separate.run.run_id).not.toBe(first.run.run_id);
 
-      const unrelated = startWork(db, {
-        agentId: 'agent-a', sessionId: 'session-a', workspacePath: ws.path,
-        targetFiles: ['src/b.ts'], ...required,
+      const reused = startWork(db, {
+        agentId: 'agent-a', runId: first.run.run_id, workspacePath: ws.path,
+        targetFiles: ['src/b.ts'],
       });
-      if (!unrelated.ok) throw new Error('unrelated start failed');
-      expect(unrelated.run.run_id).not.toBe(first.run.run_id);
+      if (!reused.ok) throw new Error('explicit reuse failed');
+      expect(reused.run.run_id).toBe(first.run.run_id);
     } finally { ws.cleanup(); }
   });
 
@@ -99,7 +99,8 @@ describe('advisory work presence', () => {
       expect(first.files).toHaveLength(20);
 
       const reused = startWork(db, {
-        agentId: 'agent-a', workspacePath: ws.path, targetFiles: ['src/file-0.ts'], ...required,
+        agentId: 'agent-a', runId: first.run.run_id, workspacePath: ws.path,
+        targetFiles: ['src/file-0.ts'],
       });
       if (!reused.ok) throw new Error('reuse failed');
       expect(reused.run.run_id).toBe(first.run.run_id);
@@ -150,6 +151,22 @@ describe('advisory work presence', () => {
       expect(shown.files[0]).toMatchObject({
         run_id: started.run.run_id, agent_id: 'agent-a', origin: 'WORK', rationale: required.rationale,
       });
+    } finally { ws.cleanup(); }
+  });
+
+  it('bounds work rows while preserving exact totals', () => {
+    const db = freshDb();
+    const ws = workspace();
+    try {
+      for (const file of ['src/a.ts', 'src/b.ts', 'src/c.ts']) {
+        const started = startWork(db, {
+          agentId: `agent-${file}`, workspacePath: ws.path, targetFiles: [file], ...required,
+        });
+        expect(started.ok).toBe(true);
+      }
+      const result = listWork(db, { workspacePath: ws.path, limit: 2 });
+      expect(result).toMatchObject({ count: 2, total_count: 3, omitted_count: 1 });
+      expect(result.files).toHaveLength(2);
     } finally { ws.cleanup(); }
   });
 });
@@ -224,6 +241,33 @@ describe('task and hook origins', () => {
       expect(() => endWork(db, { agentId: 'agent-a', runId: 'run_task' }))
         .toThrow(/task submit or task release/);
     } finally { ws.cleanup(); }
+  });
+
+  it('rejects attaching a supplied run through a different workspace or artifact', () => {
+    const db = freshDb();
+    const firstWorkspace = workspace();
+    const secondWorkspace = workspace();
+    try {
+      db.prepare(`INSERT INTO task_runs
+        (run_id, task_id, origin, agent_id, rationale, test_plan, status, workspace_path, artifact,
+         created_at, updated_at)
+        VALUES ('run_scoped', NULL, 'TASK', 'agent-a', 'task snapshot', 'task tests', 'ACTIVE', ?, 'pkg-a',
+                '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')`).run(firstWorkspace.path);
+
+      expect(() => startWork(db, {
+        agentId: 'agent-a', runId: 'run_scoped', workspacePath: secondWorkspace.path,
+        artifact: 'pkg-a', targetFiles: ['src/a.ts'],
+      })).toThrow(/workspace.*does not match/i);
+      expect(() => startWork(db, {
+        agentId: 'agent-a', runId: 'run_scoped', workspacePath: firstWorkspace.path,
+        artifact: 'pkg-b', targetFiles: ['src/a.ts'],
+      })).toThrow(/artifact.*does not match/i);
+      expect(db.prepare("SELECT COUNT(*) AS count FROM run_files WHERE run_id = 'run_scoped'").get())
+        .toEqual({ count: 0 });
+    } finally {
+      firstWorkspace.cleanup();
+      secondWorkspace.cleanup();
+    }
   });
 
   it('moves a completed HOOK fallback run to PENDING', () => {

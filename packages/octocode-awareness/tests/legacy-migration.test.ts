@@ -1,6 +1,10 @@
 import { describe, it, expect } from 'vitest';
+import { createHash } from 'node:crypto';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import { initDb, tableColumns } from '../src/db.js';
+import { connectDb, initDb, tableColumns } from '../src/db.js';
 import { insertMemory, getMemory } from '../src/memory.js';
 import { insertRefinement } from '../src/refinements.js';
 import { insertHarnessLog } from '../src/audit.js';
@@ -64,6 +68,115 @@ function legacyDb(): DatabaseSync {
   `);
   return db;
 }
+
+function fileDigest(path: string): string {
+  return createHash('sha256').update(readFileSync(path)).digest('hex');
+}
+
+function createIdentityFixture(
+  path: string,
+  applicationId: number,
+  userVersion: number,
+): void {
+  const db = new DatabaseSync(path);
+  db.exec(`
+    PRAGMA application_id = ${applicationId};
+    PRAGMA user_version = ${userVersion};
+    CREATE TABLE identity_marker(value TEXT NOT NULL);
+    INSERT INTO identity_marker VALUES ('preserve-me');
+  `);
+  db.close();
+}
+
+describe('v3 schema identity guard', () => {
+  it('rejects an unrelated non-empty unversioned store without mutating it', () => {
+    const root = mkdtempSync(join(tmpdir(), 'oc-v3-unrelated-'));
+    const path = join(root, 'awareness.sqlite3');
+    try {
+      createIdentityFixture(path, 0, 0);
+      const before = fileDigest(path);
+
+      expect(() => connectDb(path)).toThrow(/unrecognized|unversioned|unrelated/i);
+      expect(fileDigest(path)).toBe(before);
+
+      const check = new DatabaseSync(path);
+      expect(check.prepare('PRAGMA application_id').get()).toEqual({ application_id: 0 });
+      expect(check.prepare('PRAGMA user_version').get()).toEqual({ user_version: 0 });
+      expect(check.prepare('PRAGMA journal_mode').get()).toEqual({ journal_mode: 'delete' });
+      expect(check.prepare('SELECT value FROM identity_marker').get()).toEqual({ value: 'preserve-me' });
+      expect(check.prepare("SELECT name FROM sqlite_schema WHERE type='table' ORDER BY name").all())
+        .toEqual([{ name: 'identity_marker' }]);
+      check.close();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it.each([
+    { name: 'staged v4', applicationId: 0x4f435434, userVersion: 4 },
+    { name: 'foreign application', applicationId: 1234, userVersion: 3 },
+    { name: 'future unbranded schema', applicationId: 0, userVersion: 4 },
+  ])('connectDb refuses $name without mutating bytes, journal, schema, or headers', ({ applicationId, userVersion }) => {
+    const root = mkdtempSync(join(tmpdir(), 'oc-v3-identity-'));
+    const path = join(root, 'awareness.sqlite3');
+    try {
+      createIdentityFixture(path, applicationId, userVersion);
+      const before = fileDigest(path);
+
+      expect(() => connectDb(path)).toThrow(/refusing|unsupported|newer|foreign/i);
+      expect(fileDigest(path)).toBe(before);
+
+      const check = new DatabaseSync(path);
+      expect(check.prepare('PRAGMA application_id').get()).toEqual({ application_id: applicationId });
+      expect(check.prepare('PRAGMA user_version').get()).toEqual({ user_version: userVersion });
+      expect(check.prepare('PRAGMA journal_mode').get()).toEqual({ journal_mode: 'delete' });
+      expect(check.prepare('SELECT value FROM identity_marker').get()).toEqual({ value: 'preserve-me' });
+      expect(check.prepare("SELECT name FROM sqlite_schema WHERE type='table' ORDER BY name").all())
+        .toEqual([{ name: 'identity_marker' }]);
+      check.close();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it.each([
+    { applicationId: 1234, userVersion: 3 },
+    { applicationId: 0, userVersion: 4 },
+  ])('initDb rejects application_id=$applicationId version=$userVersion before adding v3 relations', ({ applicationId, userVersion }) => {
+    const db = new DatabaseSync(':memory:');
+    db.exec(`
+      PRAGMA application_id = ${applicationId};
+      PRAGMA user_version = ${userVersion};
+      CREATE TABLE identity_marker(value TEXT NOT NULL);
+      INSERT INTO identity_marker VALUES ('preserve-me');
+    `);
+
+    expect(() => initDb(db)).toThrow(/foreign|newer|unsupported/i);
+    expect(db.prepare('PRAGMA application_id').get()).toEqual({ application_id: applicationId });
+    expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: userVersion });
+    expect(db.prepare("SELECT name FROM sqlite_schema WHERE type='table' ORDER BY name").all())
+      .toEqual([{ name: 'identity_marker' }]);
+  });
+
+  it('still opens a normal v3 store', () => {
+    const root = mkdtempSync(join(tmpdir(), 'oc-v3-normal-open-'));
+    const path = join(root, 'awareness.sqlite3');
+    try {
+      const seeded = new DatabaseSync(path);
+      initDb(seeded);
+      seeded.close();
+
+      const reopened = connectDb(path);
+      expect(reopened.prepare('PRAGMA application_id').get()).toEqual({ application_id: 0 });
+      expect(reopened.prepare('PRAGMA user_version').get()).toEqual({ user_version: 3 });
+      expect(reopened.prepare("SELECT name FROM sqlite_schema WHERE name='memories'").get())
+        .toEqual({ name: 'memories' });
+      reopened.close();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
 
 describe('legacy store migration', () => {
   it('initDb succeeds on a pre-bitemporal store (indexes reference migrated columns)', () => {

@@ -236,6 +236,10 @@ export interface GetMemoryParams {
   fileRegex?: string[];         // regex matched against file path
   files?: string[];             // exact file path filter
   explain?: boolean;            // attach score_components per result for tuning
+  /** Optional preselected candidate ids, used by alternate rankers before final filtering. */
+  candidateMemoryIds?: string[];
+  /** Set false when a caller will record access only after applying a final alternate ranking. */
+  recordAccess?: boolean;
   /** Base directory for resolving relative file paths; falls back to workspacePath when absent. */
   cwd?: string;
 }
@@ -684,10 +688,13 @@ export interface ListWorkParams {
   runId?: string | null;
   filePath?: string | null;
   activeOnly?: boolean;
+  limit?: number | null;
 }
 
 export interface ListWorkResult {
   count: number;
+  total_count: number;
+  omitted_count: number;
   files: WorkPresence[];
 }
 
@@ -889,6 +896,7 @@ export interface GetNotificationsParams {
   repo?: string | null;
   ref?: string | null;
   kinds?: NotificationKind[];
+  signalIds?: string[];
   threadId?: string | null;
   unreadOnly?: boolean;          // default true
   markRead?: boolean;            // advance read cursor

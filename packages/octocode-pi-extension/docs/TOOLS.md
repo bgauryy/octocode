@@ -17,7 +17,7 @@ Complete reference for every tool registered by `@octocodeai/pi-extension`. The 
 | **Agents** | `spawnAgent` · `AgentMessage` |
 | **Web** | `web` |
 | **Context** | `manage_context` |
-| **Memory + coordination** | `memory_recall` · `memory_record` · `memory_reflect` · `workspace_status` · `agent_signal` · `file_lock` · `memory_refine_get` · `memory_audit_unverified` · `memory_verify` · `memory_export_harness` |
+| **Memory + coordination** | *No tools.* Use the `octocode-awareness` CLI: `node $OCTOCODE_AWARENESS_CLI <noun> <verb>` (see Memory / Awareness below) |
 
 Source of truth for names: `OCTOCODE_DIRECT_TOOL_NAMES` + `OCTOCODE_SUPPORT_TOOL_NAMES` in `src/constants.ts`.
 
@@ -50,12 +50,12 @@ Source of truth for names: `OCTOCODE_DIRECT_TOOL_NAMES` + `OCTOCODE_SUPPORT_TOOL
 | Coordinate spawned workers | `AgentMessage` |
 | Fetch a URL / web search | `web` |
 | Compact / reset context | `manage_context` |
-| Recall prior lessons | `memory_recall` |
-| Record a root cause / decision | `memory_record` |
-| Capture a post-task lesson | `memory_reflect` |
-| Check locks + active agents | `workspace_status` |
-| Publish / reply to signals | `agent_signal` |
-| Protect sensitive files exclusively | `file_lock` |
+| Recall prior lessons | `awareness memory recall` (CLI) |
+| Record a root cause / decision | `awareness memory record` (CLI) |
+| Capture a post-task lesson | `awareness reflect record` (CLI) |
+| Check locks + active agents | `awareness workspace status` (CLI) |
+| Publish / reply to signals | `awareness signal …` (CLI) |
+| Protect sensitive files exclusively | `awareness lock acquire` (CLI) |
 
 ---
 
@@ -229,35 +229,40 @@ Param: `instructions` — focus hint for compaction summary (used with `compact`
 
 ---
 
-## Memory / Awareness Tools
+## Memory / Awareness (CLI + skill, not agent tools)
+
+Awareness memory/coordination has **no agent tools**. Drive it through the bundled
+CLI: `node $OCTOCODE_AWARENESS_CLI <noun> <verb> --compact` (agent id + workspace
+inherited from the environment), following the **octocode-awareness skill**. The
+edit/verify lifecycle is automated by the awareness hooks.
 
 See [`MEMORY_AGENT_FLOW.md`](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-pi-extension/docs/MEMORY_AGENT_FLOW.md) for live coordination and [`REFLECT.md`](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-pi-extension/docs/REFLECT.md) for the Awareness learning loop.
 
 ### Lifecycle pattern
 
 ```
-[Awareness/start] workspace_status → targeted memory_recall / memory_refine_get when useful
-[Awareness/work]  agent_signal  (coordination inbox: questions, handoffs, blockers)
-                 file_lock     (optional sensitive-path exclusivity)
-[Awareness/after] memory_audit_unverified → memory_verify(allPending:true)
-[Awareness/learn] memory_record (verified root causes, decisions, gotchas)
-                  memory_reflect (lesson, fix_repo, fix_harness)
+[Awareness/start] workspace status → targeted memory recall / refinement get when useful
+[Awareness/work]  signal publish  (coordination inbox: questions, handoffs, blockers)
+                 lock acquire     (optional sensitive-path exclusivity)
+[Awareness/after] verify audit → run the declared check → verify mark --run-id <exact-owned-run>
+[Awareness/learn] memory record (verified root causes, decisions, gotchas)
+                  reflect record (lesson, fix-repo, fix-harness)
 ```
 
-### Tool quick-reference
+### CLI quick-reference
 
-| Tool | Purpose |
+| Command | Purpose |
 |------|---------|
-| `memory_recall` | Awareness: retrieve durable lessons before risky/unfamiliar work; flags `judgment_required` when recall confidence is low |
-| `memory_record` | Awareness reflection: store verified root cause, decision, workaround, gotcha; reports novelty + similar-memory candidates for supersede decisions |
-| `memory_reflect` | Awareness reflection: capture post-task lesson; creates repo-fix refinements, clusters failure patterns; supports `judgment_note`, `duo`, `eval_failures` |
-| `workspace_status` | Show advisory files under work, optional exclusive locks, working agents, open signals/refinements, and store stats |
-| `agent_signal` | Coordination inbox — actions: `publish` · `list` · `reply` · `resolve` · `ack` |
-| `file_lock` | Optional exclusive protection for sensitive paths — types: `lock` · `release` · `status` · `renew` |
-| `memory_refine_get` | List open repo-fix refinements |
-| `memory_audit_unverified` | List pending execution runs needing verification |
-| `memory_verify` | Mark runs verified/failed — prefer `allPending:true` for batch |
-| `memory_export_harness` | Awareness reflection: export human-reviewed skill/harness proposals; never writes files |
+| `memory recall` | Retrieve durable lessons before risky/unfamiliar work; flags `judgment_required` when recall confidence is low |
+| `memory record` | Store verified root cause, decision, workaround, gotcha; reports novelty + similar-memory candidates for supersede decisions |
+| `reflect record` | Capture post-task lesson; creates repo-fix refinements, clusters failure patterns; supports `--judgment-note`, `--duo`, `--eval-failure-json` |
+| `workspace status` | Show advisory files under work, optional exclusive locks, working agents, open signals/refinements, and store stats |
+| `signal publish\|list\|reply\|resolve\|ack` | Coordination inbox |
+| `lock acquire\|release\|wait\|prune` | Optional exclusive protection for sensitive paths |
+| `refinement get` | List open repo-fix refinements |
+| `verify audit` | List pending execution runs needing verification |
+| `verify mark` | Mark one exact owned run verified/failed after its declared check; never batch another agent's work. |
+| `reflect export-harness` | Export human-reviewed skill/harness proposals; never writes files |
 
 ## Configuration
 

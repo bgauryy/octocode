@@ -1,8 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
 import {
-  buildMemoryRenderCall,
-  buildMemoryRenderResult,
   buildOctocodeRenderCall,
   buildOctocodeRenderResult,
   buildResultStats,
@@ -164,74 +162,4 @@ test('Octocode renderers cover partial, collapsed, expanded, stats, and error st
 
   const error = buildOctocodeRenderResult('npmSearch', textResult('bad', {}, true), { expanded: false }, theme).render(120)[0]!;
   assert.match(error, /<error>✗<\/error>/);
-});
-
-test('memory renderCall formats every memory support surface', () => {
-  const cases: Array<[string, unknown, RegExp]> = [
-    ['memory_recall', { query: 'find the thing', label: 'BUG' }, /find the thing \[BUG\]/],
-    ['memory_record', { label: 'TEST', importance: 8, task_context: 'record this lesson' }, /\[TEST·8\] record this lesson/],
-    ['memory_reflect', { task: 'ship tests', outcome: 'worked' }, /ship tests \(worked\)/],
-    ['memory_verify', { allPending: true, status: 'SUCCESS' }, /allPending → SUCCESS/],
-    ['memory_verify', { run_ids: ['a', 'b'] }, /2 runs/],
-    ['memory_verify', { run_id: 'run_abcdefghijklmnopqrstuvwxyz' }, /run_abcdefghijklmnop/],
-    ['memory_forget', { tags: ['old', 'bad'], max_importance: 3, before: '2026-01-02T00:00:00Z', dry_run: true }, /tags:\[old, bad\] ≤3 before:2026-01-02T… dry_run/],
-    ['memory_digest', { dry_run: true, export_doc: true }, /dry_run export_doc/],
-    ['agent_signal', { kind: 'handoff', subject: 'coverage branch done' }, /\[handoff\] coverage branch done/],
-    ['memory_refine_get', { state: 'open' }, /state:open/],
-    ['workspace_status', {}, /workspace_status/],
-  ];
-
-  for (const [toolName, args, pattern] of cases) {
-    const line = buildMemoryRenderCall(toolName, args, theme).render(160)[0]!;
-    assert.match(line, pattern, toolName);
-  }
-});
-
-test('memory renderResult parses JSON stats and expanded output', () => {
-  const cases: Array<[string, string, RegExp]> = [
-    ['memory_recall', JSON.stringify({ memories: [{}, {}] }), /2 memories/],
-    ['memory_record', JSON.stringify({ label: 'BUG' }), /recorded \[BUG\]/],
-    ['memory_record', JSON.stringify({ skipped: true }), /skipped \(similar exists\)/],
-    ['memory_reflect', JSON.stringify({ outcome: 'worked' }), /reflected \(worked\)/],
-    ['file_lock', JSON.stringify({ type: 'lock', files: ['a'], expiresAt: 'tomorrow' }), /locked 1 file until tomorrow/],
-    ['file_lock', JSON.stringify({ type: 'status', locks: [{}, {}] }), /2 locks/],
-    ['file_lock', JSON.stringify({ type: 'renew', locks_renewed: 3 }), /3 renewed/],
-    ['file_lock', JSON.stringify({ type: 'release', locks_released: 4 }), /4 released/],
-    ['workspace_status', JSON.stringify({ locks: [{}], agents: [{}, {}], pending_runs: 3 }), /1 lock, 2 agents, 3 pending/],
-    ['workspace_status', JSON.stringify({ locks: [], agents: [], pending_runs: 0 }), /no activity/],
-    ['memory_refine_get', JSON.stringify({ refinements: [{}] }), /1 refinement/],
-    ['memory_audit_unverified', JSON.stringify({ pending: [{}, {}] }), /2 pending runs/],
-    ['memory_verify', JSON.stringify({ results: [{}, {}] }), /2 verified/],
-    ['memory_digest', JSON.stringify({ archived: 2, pruned: 3 }), /5 cleaned \(2 archived, 3 pruned\)/],
-    ['memory_digest', JSON.stringify({ archived: 0, pruned: 0 }), /nothing to clean/],
-    ['memory_forget', JSON.stringify({ dry_run: true, previewed: 9 }), /preview: 9 would delete/],
-    ['memory_forget', JSON.stringify({ deleted: 2 }), /2 deleted/],
-    ['agent_signal', JSON.stringify({ ok: true }), /posted/],
-  ];
-
-  for (const [toolName, json, pattern] of cases) {
-    const line = buildMemoryRenderResult(toolName, textResult(json), { expanded: false }, theme).render(200)[0]!;
-    assert.match(line, pattern, toolName);
-  }
-
-  assert.equal(
-    buildMemoryRenderResult('memory_recall', textResult('{}'), { isPartial: true }, theme).render(80)[0],
-    '<warning>memory_recall…</warning>',
-  );
-  assert.match(
-    buildMemoryRenderResult('memory_recall', textResult('not-json'), { expanded: false }, theme).render(80)[0]!,
-    /memory_recall/,
-  );
-  assert.match(
-    buildMemoryRenderResult('memory_recall', textResult('bad', {}, true), { expanded: false }, theme).render(80)[0]!,
-    /<error>✗<\/error>/,
-  );
-
-  const expanded = buildMemoryRenderResult(
-    'memory_recall',
-    textResult(JSON.stringify({ count: 1, memories: [{ observation: 'kept' }] })),
-    { expanded: true },
-    theme,
-  ).render(120);
-  assert.ok(expanded.some((line) => line.includes('"observation": "kept"')));
 });

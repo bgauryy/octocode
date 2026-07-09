@@ -25,4 +25,5 @@ do not duplicate them per path/lock.
 
 Readiness is derived from OPEN + no claim + completed dependencies. Tasks are the
 only queue; refinements are owned follow-up. Details: `data-model-entities.md`;
-joins: `data-model-relationships.md`; package migration truth: `docs/DB.md`.
+joins: `data-model-relationships.md`. Inspect public operation contracts with
+`schema commands --compact` and targeted `schema json-schema <name>`.

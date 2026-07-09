@@ -7,7 +7,8 @@ import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 import { connectDb } from '../src/db.js';
 import { createPlan } from '../src/plans.js';
-import { claimTask, createTask } from '../src/tasks.js';
+import { claimTask, createTask as createTaskBase } from '../src/tasks.js';
+import type { CreateTaskParams } from '../src/tasks.js';
 import { startWork } from '../src/work.js';
 
 const DIST_DIR = resolve(dirname(fileURLToPath(import.meta.url)), '../dist/bin');
@@ -17,6 +18,11 @@ const AWARENESS = resolve(DIST_DIR, 'awareness.js');
 const SKILL_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../skills/octocode-awareness');
 const HOOKS_DIR = resolve(SKILL_ROOT, 'scripts/hooks');
 const NODE = process.execPath;
+
+type TestTaskParams = Omit<CreateTaskParams, 'acceptanceCriteria'> & { acceptanceCriteria?: string };
+function createTask(db: DatabaseSync, params: TestTaskParams) {
+  return createTaskBase(db, { acceptanceCriteria: 'affected behavior is verified', ...params });
+}
 
 function runScript(script: string, args: string[], payload: unknown, env: Record<string, string | undefined> = {}, cwd?: string) {
   return spawnSync(NODE, [script, ...args], {

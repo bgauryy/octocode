@@ -139,6 +139,7 @@ describe('digest dry_run', () => {
       observation: 'this should be archived',
       importance: 7,
       label: 'GOTCHA',
+      validFrom: new Date(Date.now() - 2000).toISOString(),
       validTo: new Date(Date.now() - 1000).toISOString(),
     });
     const before = (db.prepare("SELECT COUNT(*) AS c FROM memories WHERE state = 'ACTIVE'").get() as { c: number }).c;

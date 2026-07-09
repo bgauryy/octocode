@@ -43,15 +43,20 @@ export interface DocCatalogShowResult {
   content: string;
 }
 
-function packageSkillReferencesDir(cwd = process.cwd()): string {
-  const here = dirname(fileURLToPath(import.meta.url));
+export function resolveSkillReferencesDir(here: string, cwd = process.cwd()): string {
   const candidates = [
-    join(here, '..', 'skills', 'octocode-awareness', 'references'), // dist/skills
-    join(here, '..', '..', 'skills', 'octocode-awareness', 'references'), // package root
+    join(here, '..', 'references'), // standalone skill scripts/
+    join(here, 'skills', 'octocode-awareness', 'references'), // dist/index.js
+    join(here, '..', 'skills', 'octocode-awareness', 'references'), // dist/bin or package src
+    join(here, '..', '..', 'skills', 'octocode-awareness', 'references'),
     join(cwd, 'packages', 'octocode-awareness', 'skills', 'octocode-awareness', 'references'),
     join(cwd, 'skills', 'octocode-awareness', 'references'),
   ];
   return candidates.find((candidate) => existsSync(candidate)) ?? candidates[0]!;
+}
+
+function packageSkillReferencesDir(cwd = process.cwd()): string {
+  return resolveSkillReferencesDir(dirname(fileURLToPath(import.meta.url)), cwd);
 }
 
 function firstParagraph(lines: string[], start = 0): string {

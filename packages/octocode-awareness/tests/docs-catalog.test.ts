@@ -6,7 +6,7 @@ import { describe, it, expect } from 'vitest';
 import { existsSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { listSkillDocs, showSkillDoc } from '../src/docs-catalog.js';
+import { listSkillDocs, resolveSkillReferencesDir, showSkillDoc } from '../src/docs-catalog.js';
 
 describe('docs-catalog', () => {
   it('lists skill reference markdown files with name/title/description', () => {
@@ -68,6 +68,24 @@ describe('docs-catalog', () => {
       expect(shown.ok).toBe(true);
       if (!shown.ok) return;
       expect(shown.content).toContain('Sample Doc');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('resolves package, dist, and standalone skill-script layouts without cwd help', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'oc-doc-layout-'));
+    try {
+      const references = join(dir, 'skills', 'octocode-awareness', 'references');
+      mkdirSync(references, { recursive: true });
+      writeFileSync(join(references, 'sample.md'), '# Sample\n', 'utf8');
+
+      expect(resolveSkillReferencesDir(join(dir, 'dist', 'bin'), '/unrelated'))
+        .toBe(references);
+      expect(resolveSkillReferencesDir(join(dir, 'dist'), '/unrelated'))
+        .toBe(references);
+      expect(resolveSkillReferencesDir(join(dir, 'skills', 'octocode-awareness', 'scripts'), '/unrelated'))
+        .toBe(references);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

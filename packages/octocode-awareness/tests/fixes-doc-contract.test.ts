@@ -44,7 +44,7 @@ describe('reflect — judgment_note / duo / eval_failures', () => {
     expect(count).toBe(1);
   });
 
-  it('evalFailures become eval-tagged memories and drive the fallback failure signature', () => {
+  it('evalFailures become eval-tagged memories without double-counting the summary', () => {
     const db = freshDb();
     const r = reflect(db, {
       agentId: 'a', task: 'eval run', outcome: 'failed',
@@ -59,11 +59,14 @@ describe('reflect — judgment_note / duo / eval_failures', () => {
     const rows = db.prepare(
       "SELECT memory_id, failure_signature, observation, tags_json FROM memories"
     ).all() as Array<{ memory_id: string; failure_signature: string | null; observation: string; tags_json: string }>;
-    // Main lesson memory inherits the first eval failure signature.
+    // Structured eval rows are the failure events. The summary deliberately
+    // carries no signature so one failed eval cannot form a count=2 cluster.
     const main = rows.find((x) => x.memory_id === r.learning_memory_id);
-    expect(main?.failure_signature).toBe('mechanism:x|cause:y');
+    expect(main?.failure_signature).toBeNull();
     const evalMems = rows.filter((x) => r.eval_failure_ids.includes(x.memory_id));
     expect(evalMems).toHaveLength(2);
+    expect(evalMems.map((memory) => memory.failure_signature))
+      .toContain('mechanism:x|cause:y');
     for (const m of evalMems) expect(JSON.parse(m.tags_json)).toContain('eval');
   });
 });

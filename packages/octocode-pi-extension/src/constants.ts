@@ -22,6 +22,10 @@ export const OCTOCODE_DIRECT_TOOL_NAMES = [
 // Replaced by superior Octocode tools: localGetFileContent, localSearchCode, localFindFiles, localViewStructure
 export const DISABLED_BUILTIN_TOOL_NAMES = ['read', 'grep', 'find', 'ls'] as const;
 
+// Awareness memory/coordination is intentionally absent: it is not exposed as
+// agent tools. Agents drive it through the octocode-awareness CLI
+// (node $OCTOCODE_AWARENESS_CLI <noun> <verb>) and the octocode-awareness skill,
+// with the edit/verify lifecycle automated by the awareness hooks.
 export const OCTOCODE_SUPPORT_TOOL_NAMES = [
   'web',
   'chromeDebug',
@@ -30,14 +34,4 @@ export const OCTOCODE_SUPPORT_TOOL_NAMES = [
   'manage_context',
   'spawnAgent',
   'AgentMessage',
-  'memory_recall',
-  'memory_record',
-  'memory_reflect',
-  'workspace_status',
-  'agent_signal',
-  'file_lock',
-  'memory_refine_get',
-  'memory_audit_unverified',
-  'memory_verify',
-  'memory_export_harness',
 ] as const;

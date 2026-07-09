@@ -1,40 +1,47 @@
 # Plan, Task, And Standalone WORK
 
-There is one durable queue: `tasks` under a plan. Never create “today's tasks” in
-Markdown, memory, or refinements.
+One durable queue exists: plan `tasks`. Never create “today's tasks” in Markdown,
+memory, or refinements. Inspect attend/Ready/Claimed/Verify; claim a matching task or open explicit Work with reason, files, and test plan.
 
-## Choose
+## Lead: create shared work
 
-1. Inspect attend/workboard Ready, Claimed, Verify, and `task ready|list`.
-2. Claim a matching ready task; its leased run is the work-unit boundary.
-3. If no task fits, open explicit `work start` with reason, files, and test plan.
-4. Create plan/tasks only when authorized; plan lead governs lifecycle/docs.
+```bash
+<cli> plan create --name "Release" --objective "Ship safely" \
+  --lead-agent-id "$OCTOCODE_AGENT_ID" --workspace "$PWD" --compact
+# author docs/DESIGN.md inside the returned plan folder, then register it
+<cli> plan doc --plan-id plan_123 --agent-id "$OCTOCODE_AGENT_ID" \
+  --path docs/DESIGN.md --title "Design" --compact
+<cli> task create --plan-id plan_123 --agent-id "$OCTOCODE_AGENT_ID" \
+  --title "Implement parser" --reasoning "Needed before integration" \
+  --acceptance "parser tests pass" --path src/parser.ts --compact
+```
 
-## Plan Task
+Tasks require reasoning, acceptance, and 1+ paths; `--depends-on task_...` orders them.
+New plans are ACTIVE. PAUSED retains work but blocks claims. Complete/cancel only after active runs resolve. SQLite owns task state; plan prose lives under
+`.octocode/plan/<timestamp-name>/` and never duplicates a mutable checklist.
+
+## Agent: execute plan task
 
 ```bash
 <cli> task claim --task-id task_123 --agent-id "$OCTOCODE_AGENT_ID" --compact
-# hooks declare edited files; without hooks:
+# hooks declare files; without hooks, attach them to the returned run
 <cli> work start --run-id run_123 --agent-id "$OCTOCODE_AGENT_ID" --file src/a.ts --compact
-<cli> task submit --task-id task_123 --run-id run_123 --agent-id "$OCTOCODE_AGENT_ID" --compact
-# run acceptance check
-<cli> verify mark --run-id run_123 --agent-id "$OCTOCODE_AGENT_ID" --message "passed" --compact
+<cli> task submit --task-id task_123 --run-id run_123 \
+  --agent-id "$OCTOCODE_AGENT_ID" --message "tests pass" --compact
+<cli> verify mark --run-id run_123 --agent-id "$OCTOCODE_AGENT_ID" \
+  --message "tests pass" --compact
 ```
 
 Heartbeat long claims. `task release` returns unfinished work to OPEN/BLOCKED.
-Dependencies derive readiness; agents never set READY manually.
+Dependencies and ACTIVE plan status derive readiness; never set READY manually.
 
 ## Standalone WORK
 
 ```bash
 <cli> work start --agent-id "$OCTOCODE_AGENT_ID" --file README.md \
   --rationale "small docs fix" --test-plan "review diff" --compact
-# edit
 <cli> work end --run-id run_123 --agent-id "$OCTOCODE_AGENT_ID" --compact
-<cli> verify mark --run-id run_123 --agent-id "$OCTOCODE_AGENT_ID" --message "reviewed" --compact
+<cli> verify mark --run-id run_123 --agent-id "$OCTOCODE_AGENT_ID" \
+  --message "reviewed" --compact
 ```
-
-Add `--exclusive` only for sensitive work. Never infer one quick run from a host
-session; explicit start or task claim defines reuse.
-
-Plan docs live under `.octocode/plan/<timestamp-name>/`; SQLite owns live task state.
+Add `--exclusive` only for sensitive work. A new explicit start creates a new run; only explicit `--run-id` or a host hook extends one.

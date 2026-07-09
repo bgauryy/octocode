@@ -7,12 +7,18 @@ import { connectDb } from '../src/db.js';
 import { createPiAwarenessBridge, evaluateHarnessGuard, extractPiWriteTargetPaths, wirePiAwarenessHooks } from '../src/pi-hooks.js';
 import { insertNotification } from '../src/notifications.js';
 import { createPlan } from '../src/plans.js';
-import { claimTask, createTask } from '../src/tasks.js';
+import { claimTask, createTask as createTaskBase } from '../src/tasks.js';
+import type { CreateTaskParams } from '../src/tasks.js';
 import { startWork } from '../src/work.js';
 
 function tempDb() {
   const dir = mkdtempSync(join(tmpdir(), 'oc-pi-hooks-'));
   return { dir, dbPath: join(dir, 'awareness.sqlite3'), cleanup: () => rmSync(dir, { recursive: true, force: true }) };
+}
+
+type TestTaskParams = Omit<CreateTaskParams, 'acceptanceCriteria'> & { acceptanceCriteria?: string };
+function createTask(db: Parameters<typeof createTaskBase>[0], params: TestTaskParams) {
+  return createTaskBase(db, { acceptanceCriteria: 'affected behavior is verified', ...params });
 }
 
 function gitRepoOnBranch(branch: string) {
@@ -119,6 +125,60 @@ describe('createPiAwarenessBridge', () => {
       expect(db.prepare('SELECT origin FROM task_runs').get()).toMatchObject({ origin: 'HOOK' });
       expect((db.prepare('SELECT COUNT(*) AS c FROM run_files WHERE ended_at IS NOT NULL').get() as { c: number }).c).toBe(1);
       expect((db.prepare('SELECT COUNT(*) AS c FROM edit_log').get() as { c: number }).c).toBe(1);
+      db.close();
+    } finally {
+      tmp.cleanup();
+    }
+  });
+
+  it('blocks a Pi write when the host omits a stable toolCallId', async () => {
+    const tmp = tempDb();
+    try {
+      const db = connectDb(tmp.dbPath);
+      const notices: string[] = [];
+      const bridge = createPiAwarenessBridge({ getDb: () => db });
+      const ctx = {
+        cwd: tmp.dir,
+        sessionManager: { getSessionFile: () => join(tmp.dir, 'missing-id.jsonl') },
+        ui: { notify: (message: string) => notices.push(message) },
+      };
+
+      const blocked = await bridge.handleToolCall({ toolName: 'write', input: { path: 'src/no-id.ts' } }, ctx);
+      expect(blocked).toMatchObject({ block: true, reason: expect.stringContaining('stable toolCallId') });
+      expect(bridge.pendingToolRuns.size).toBe(0);
+      expect((db.prepare('SELECT COUNT(*) AS c FROM task_runs').get() as { c: number }).c).toBe(0);
+
+      await bridge.handleToolResult({ toolName: 'write', input: { path: 'src/no-id.ts' } }, ctx);
+      expect(notices.some((message) => message.includes('missing stable toolCallId'))).toBe(true);
+      db.close();
+    } finally {
+      tmp.cleanup();
+    }
+  });
+
+  it('keeps parallel same-file Pi edits distinct when stable ids are present', async () => {
+    const tmp = tempDb();
+    try {
+      const db = connectDb(tmp.dbPath);
+      const bridge = createPiAwarenessBridge({ getDb: () => db });
+      const ctx = { cwd: tmp.dir, sessionManager: { getSessionFile: () => join(tmp.dir, 'parallel.jsonl') } };
+
+      await Promise.all([
+        bridge.handleToolCall({ toolName: 'write', toolCallId: 'parallel-1', input: { path: 'src/shared.ts' } }, ctx),
+        bridge.handleToolCall({ toolName: 'write', toolCallId: 'parallel-2', input: { path: 'src/shared.ts' } }, ctx),
+      ]);
+
+      expect(bridge.pendingToolRuns.size).toBe(2);
+      expect((db.prepare("SELECT COUNT(*) AS c FROM task_runs WHERE status = 'ACTIVE'").get() as { c: number }).c).toBe(2);
+
+      await Promise.all([
+        bridge.handleToolResult({ toolCallId: 'parallel-2' }, ctx),
+        bridge.handleToolResult({ toolCallId: 'parallel-1' }, ctx),
+      ]);
+
+      expect(bridge.pendingToolRuns.size).toBe(0);
+      expect((db.prepare("SELECT COUNT(*) AS c FROM task_runs WHERE status = 'PENDING'").get() as { c: number }).c).toBe(2);
+      expect((db.prepare('SELECT COUNT(*) AS c FROM edit_log').get() as { c: number }).c).toBe(2);
       db.close();
     } finally {
       tmp.cleanup();

@@ -12,11 +12,15 @@ import {
   DISABLED_BUILTIN_TOOL_NAMES,
   OCTOCODE_SUPPORT_TOOL_NAMES,
 } from './constants.js';
-import { getAssetPaths, readTextIfExists, listBundledSkills, getInstallSource, getCLIPath } from './assets.js';
+import { getAssetPaths, readTextIfExists, listBundledSkills, getInstallSource, getCLIPath, getAwarenessCLIPath } from './assets.js';
 
 // Expose the bundled CLI path as an env var so agents can use: node $OCTOCODE_CLI <command>
 // Set once at module load — inherited by all bash subprocesses spawned during the session.
 process.env.OCTOCODE_CLI = getCLIPath();
+// The awareness memory/coordination CLI is the sole agent-facing interface to
+// awareness state (the in-process memory tools were retired). Expose it as
+// node $OCTOCODE_AWARENESS_CLI <noun> <verb> — inherited by bash subprocesses.
+process.env.OCTOCODE_AWARENESS_CLI = getAwarenessCLIPath();
 import {
   shouldAppendSystemPrompt,
   mergeManagedAppendSystem,
@@ -29,7 +33,7 @@ import {
   splitArgs,
 } from './utils.js';
 import { registerOctocodeTools, registerUniqueTool } from './tools/octocode-tools.js';
-import { buildMemoryToolDefinition, executeMemoryOperation } from './tools/memory.js';
+import { executeMemoryOperation } from './tools/memory.js';
 import { registerContextTools } from './tools/context-tools.js';
 import { cleanupSpawnedAgentsForShutdown, registerAgentTools } from './tools/agent-tools.js';
 import { registerWebTool } from './tools/web-tool.js';
@@ -411,6 +415,10 @@ async function wireOctocodePiExtension(
   opts: { promptMode: PromptMode },
 ): Promise<void> {
   const { promptMode } = opts;
+  // Preserve a user-configured stable identity, but never mistake an identity
+  // derived for one Pi session as explicit configuration for the next session.
+  const configuredAwarenessAgentId = process.env.OCTOCODE_AGENT_ID?.trim() || null;
+  let derivedAwarenessAgentId: string | null = null;
 
   // Register --no-context CLI flag before any session starts so Pi can parse it.
   // default:false → context files load normally (octocode-agent launcher already
@@ -438,6 +446,26 @@ async function wireOctocodePiExtension(
 
     pi.on('session_start', async (_event, ctx) => {
       applyOctocodeUi(ctx, pi.getThinkingLevel?.());
+      // Pin the current session's agent id into the environment so it is shared by BOTH the
+      // in-process awareness hooks (which read OCTOCODE_AGENT_ID first) and any
+      // `octocode-awareness` CLI calls the agent spawns via bash — those child
+      // processes inherit this env. Without it the CLI defaults to the literal
+      // "agent" and verify/reflect/lock calls fail the ownership check against
+      // hook-declared runs. Explicit user configuration stays stable; derived
+      // identities refresh on every /new, /resume, or sequential session.
+      try {
+        if (configuredAwarenessAgentId) {
+          process.env.OCTOCODE_AGENT_ID = configuredAwarenessAgentId;
+        } else {
+          if (process.env.OCTOCODE_AGENT_ID === derivedAwarenessAgentId) {
+            delete process.env.OCTOCODE_AGENT_ID;
+          }
+          derivedAwarenessAgentId = getAwarenessAgentId(ctx);
+          process.env.OCTOCODE_AGENT_ID = derivedAwarenessAgentId;
+        }
+      } catch {
+        /* fail-open: id pinning is non-critical; hooks still derive one per call */
+      }
       // Disable the built-in read tool (only once, here in session_start).
       try {
         if (disableBuiltinReadTool(pi)) {
@@ -497,6 +525,10 @@ async function wireOctocodePiExtension(
           ctx.ui?.notify?.(`Octocode closed ${cleanedAgents} spawned subagent(s).`, 'info');
         }
       }
+      if (!configuredAwarenessAgentId && process.env.OCTOCODE_AGENT_ID === derivedAwarenessAgentId) {
+        delete process.env.OCTOCODE_AGENT_ID;
+        derivedAwarenessAgentId = null;
+      }
     });
 
     pi.on('model_select', async (_event, ctx) => {
@@ -554,14 +586,12 @@ async function wireOctocodePiExtension(
 
     registerAgentTools(pi, Type, registeredToolNames, registerUniqueTool);
 
-    buildMemoryToolDefinition(
-      Type,
-      (ctx) => getAwarenessAgentId(ctx),
-      registerUniqueTool,
-      pi,
-      registeredToolNames,
-      notify,
-    );
+    // Memory/coordination is NOT registered as agent tools. The agent reaches
+    // awareness state through the octocode-awareness CLI (node $OCTOCODE_AWARENESS_CLI …),
+    // driven by the octocode-awareness skill; the lifecycle (file presence,
+    // conflict block, verify gate, briefings, handoff) is automated by the
+    // awareness hooks wired above. Only the user-facing digest/forget slash
+    // commands still call executeMemoryOperation in-process.
   }
 
   if (!pi.registerCommand) return;

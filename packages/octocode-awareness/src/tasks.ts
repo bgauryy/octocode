@@ -54,7 +54,7 @@ export interface CreateTaskParams {
   planId: string;
   title: string;
   reasoning: string;
-  acceptanceCriteria?: string;
+  acceptanceCriteria: string;
   paths: string[];
   createdBy: string;
   priority?: number;
@@ -179,7 +179,7 @@ export function createTask(
   const title = required(params.title, 'task title');
   const reasoning = required(params.reasoning, 'task reasoning');
   const createdBy = required(params.createdBy, 'task creator');
-  const acceptance = params.acceptanceCriteria?.trim() || 'Complete the described work and verify affected behavior.';
+  const acceptance = required(params.acceptanceCriteria, 'task acceptance criteria');
   const paths = normalizeTaskPaths(plan.workspace_path, params.paths);
   const taskId = `task_${randomUUID().replace(/-/g, '')}`;
   const now = utcNow();
@@ -229,8 +229,29 @@ export function addTaskDependency(
 
 export function listTasks(
   db: DatabaseSync,
-  params: { planId?: string | null; status?: PlanTaskStatus | null; agentId?: string | null } = {},
+  params: { planId?: string | null; status?: PlanTaskStatus | null; agentId?: string | null; limit?: number | null } = {},
 ): PlanTaskRecord[] {
+  evictExpiredTaskClaims(db);
+  const where: string[] = ['1 = 1'];
+  const binds: Array<string | number> = [];
+  if (params.planId) { where.push('t.plan_id = ?'); binds.push(params.planId); }
+  if (params.status) { where.push('t.status = ?'); binds.push(params.status); }
+  if (params.agentId) {
+    where.push('EXISTS (SELECT 1 FROM task_claims c WHERE c.task_id = t.task_id AND c.agent_id = ?)');
+    binds.push(params.agentId);
+  }
+  const limit = params.limit == null ? null : Math.max(1, Math.floor(params.limit));
+  const limitSql = limit == null ? '' : 'LIMIT ?';
+  const queryBinds: Array<string | number> = limit == null ? binds : [...binds, limit];
+  return db.prepare(`SELECT t.* FROM tasks t WHERE ${where.join(' AND ')}
+    ORDER BY t.priority DESC, t.created_at, t.task_id ${limitSql}`)
+    .all(...queryBinds).map((row) => hydrateTask(db, row as Record<string, unknown>));
+}
+
+export function countTasks(
+  db: DatabaseSync,
+  params: { planId?: string | null; status?: PlanTaskStatus | null; agentId?: string | null } = {},
+): number {
   evictExpiredTaskClaims(db);
   const where: string[] = ['1 = 1'];
   const binds: string[] = [];
@@ -240,30 +261,47 @@ export function listTasks(
     where.push('EXISTS (SELECT 1 FROM task_claims c WHERE c.task_id = t.task_id AND c.agent_id = ?)');
     binds.push(params.agentId);
   }
-  return db.prepare(`SELECT t.* FROM tasks t WHERE ${where.join(' AND ')}
-    ORDER BY t.priority DESC, t.created_at, t.task_id`)
-    .all(...binds).map((row) => hydrateTask(db, row as Record<string, unknown>));
+  return (db.prepare(`SELECT COUNT(*) AS count FROM tasks t WHERE ${where.join(' AND ')}`)
+    .get(...binds) as { count: number }).count;
 }
 
 export function listReadyTasks(
   db: DatabaseSync,
-  params: { planId?: string | null } = {},
+  params: { planId?: string | null; limit?: number | null } = {},
 ): PlanTaskRecord[] {
   evictExpiredTaskClaims(db);
-  const binds: string[] = [];
+  const binds: Array<string | number> = [];
   const planWhere = params.planId ? 'AND t.plan_id = ?' : '';
   if (params.planId) binds.push(params.planId);
-  const rows = db.prepare(`SELECT t.* FROM tasks t
-    WHERE t.status = 'OPEN' ${planWhere}
+  const limit = params.limit == null ? null : Math.max(1, Math.floor(params.limit));
+  const limitSql = limit == null ? '' : 'LIMIT ?';
+  if (limit != null) binds.push(limit);
+  const rows = db.prepare(`SELECT t.* FROM tasks t JOIN plans p ON p.plan_id = t.plan_id
+    WHERE t.status = 'OPEN' AND p.status = 'ACTIVE' ${planWhere}
       AND NOT EXISTS (SELECT 1 FROM task_claims c WHERE c.task_id = t.task_id)
       AND NOT EXISTS (
         SELECT 1 FROM task_dependencies td
         JOIN tasks dependency ON dependency.task_id = td.depends_on_task_id
         WHERE td.task_id = t.task_id AND dependency.status <> 'DONE'
       )
-    ORDER BY t.priority DESC, t.created_at, t.task_id`)
+    ORDER BY t.priority DESC, t.created_at, t.task_id ${limitSql}`)
     .all(...binds) as unknown as Record<string, unknown>[];
   return rows.map((row) => hydrateTask(db, row));
+}
+
+export function countReadyTasks(db: DatabaseSync, params: { planId?: string | null } = {}): number {
+  evictExpiredTaskClaims(db);
+  const binds: string[] = [];
+  const planWhere = params.planId ? 'AND t.plan_id = ?' : '';
+  if (params.planId) binds.push(params.planId);
+  return (db.prepare(`SELECT COUNT(*) AS count FROM tasks t JOIN plans p ON p.plan_id = t.plan_id
+    WHERE t.status = 'OPEN' AND p.status = 'ACTIVE' ${planWhere}
+      AND NOT EXISTS (SELECT 1 FROM task_claims c WHERE c.task_id = t.task_id)
+      AND NOT EXISTS (
+        SELECT 1 FROM task_dependencies td
+        JOIN tasks dependency ON dependency.task_id = td.depends_on_task_id
+        WHERE td.task_id = t.task_id AND dependency.status <> 'DONE'
+      )`).get(...binds) as { count: number }).count;
 }
 
 export type ClaimTaskResult =
@@ -283,12 +321,16 @@ export function claimTask(
   db.exec('BEGIN IMMEDIATE');
   try {
     evictExpiredTaskClaims(db, now);
-    const row = db.prepare(`SELECT t.*, p.workspace_path, p.artifact
+    const row = db.prepare(`SELECT t.*, p.workspace_path, p.artifact, p.status AS plan_status
       FROM tasks t JOIN plans p ON p.plan_id = t.plan_id WHERE t.task_id = ?`)
       .get(params.taskId) as Record<string, unknown> | undefined;
     if (!row) { db.exec('ROLLBACK'); return { ok: false, error: `task not found: ${params.taskId}`, task_id: params.taskId }; }
     const existing = db.prepare('SELECT agent_id FROM task_claims WHERE task_id = ?').get(params.taskId) as { agent_id: string } | undefined;
     if (existing) { db.exec('ROLLBACK'); return { ok: false, error: `task is already claimed by ${existing.agent_id}`, task_id: params.taskId }; }
+    if (row['plan_status'] !== 'ACTIVE') {
+      db.exec('ROLLBACK');
+      return { ok: false, error: `task plan is not ACTIVE: status=${String(row['plan_status'])}`, task_id: params.taskId };
+    }
     if (row['status'] !== 'OPEN') {
       db.exec('ROLLBACK');
       return { ok: false, error: `task is not ready: status=${String(row['status'])}`, task_id: params.taskId };

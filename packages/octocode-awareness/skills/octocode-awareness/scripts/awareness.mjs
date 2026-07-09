@@ -8,7 +8,7 @@ process.on('warning', (w) => {
 // bin/awareness.ts
 import { writeFileSync as writeFileSync5, mkdirSync as mkdirSync6, existsSync as existsSync6 } from "node:fs";
 import { spawnSync as spawnSync6 } from "node:child_process";
-import { dirname as dirname6, isAbsolute as isAbsolute7, join as join9, resolve as resolve14 } from "node:path";
+import { dirname as dirname6, isAbsolute as isAbsolute8, join as join9, resolve as resolve15 } from "node:path";
 import { DatabaseSync as DatabaseSync2 } from "node:sqlite";
 import { fileURLToPath as fileURLToPath4 } from "node:url";
 
@@ -82,12 +82,10 @@ function normalizeReferences(refs = []) {
   const seen = /* @__PURE__ */ new Set();
   return refs.map((r) => (r ?? "").trim().slice(0, 512)).filter((r) => r && !seen.has(r) && seen.add(r)).slice(0, 20);
 }
-function normalizeLabel(value, opts2 = {}) {
-  const coerce = opts2.coerce !== false;
+function normalizeLabel(value) {
   if (value == null || String(value).trim() === "") return "OTHER";
   const cleaned = String(value).trim().toUpperCase().replace(/[\s-]+/g, "_");
   if (MEMORY_LABELS.has(cleaned)) return cleaned;
-  if (coerce) return "OTHER";
   throw new Error(`invalid label "${String(value)}"; allowed: ${MEMORY_LABEL_VALUES.join(", ")}`);
 }
 var NOTIFICATION_KIND_VALUES = [
@@ -101,26 +99,22 @@ var NOTIFICATION_KIND_VALUES = [
   "fyi"
 ];
 var NOTIFICATION_KINDS = new Set(NOTIFICATION_KIND_VALUES);
-function normalizeNotificationKind(value, opts2 = {}) {
-  const coerce = opts2.coerce === true;
+function normalizeNotificationKind(value) {
   const cleaned = String(value ?? "").trim().toLowerCase();
   if (NOTIFICATION_KINDS.has(cleaned)) {
     return cleaned;
   }
-  if (coerce) return "fyi";
   throw new Error(
     `invalid signal kind "${String(value)}"; allowed: ${NOTIFICATION_KIND_VALUES.join(", ")}`
   );
 }
 var REFLECTION_OUTCOME_VALUES = ["worked", "partial", "failed"];
-function normalizeReflectionOutcome(value, opts2 = {}) {
-  const coerce = opts2.coerce === true;
+function normalizeReflectionOutcome(value) {
   if (value == null || String(value).trim() === "") return "partial";
   const cleaned = String(value).trim().toLowerCase();
   if (REFLECTION_OUTCOME_VALUES.includes(cleaned)) {
     return cleaned;
   }
-  if (coerce) return "partial";
   throw new Error(`invalid outcome "${String(value)}"; allowed: ${REFLECTION_OUTCOME_VALUES.join("|")}`);
 }
 function normalizeFilePath(filePath, cwd) {
@@ -163,10 +157,81 @@ function rowToMemory(row) {
     updated_at: row.updated_at ?? null
   };
 }
+function summarizeText(value, max) {
+  const flat = value.replace(/\s+/g, " ").trim();
+  if (flat.length <= max) return flat;
+  return flat.slice(0, Math.max(0, max - 3)).trimEnd() + "...";
+}
+function projectMemoryLean(memory) {
+  return {
+    memory_id: memory.memory_id,
+    label: memory.label,
+    importance: memory.importance,
+    task_context: summarizeText(memory.task_context ?? "", 120),
+    observation: summarizeText(memory.observation ?? "", 200),
+    tags: memory.tags,
+    references: memory.references,
+    score: memory.score,
+    failure_signature: memory.failure_signature,
+    created_at: memory.created_at
+  };
+}
+
+// src/v4/runtime.ts
+var FIXED_BRANCHES = /* @__PURE__ */ new Map([
+  [44, 6],
+  [50, 7],
+  [51, 3]
+]);
+function parseSqliteVersion(version) {
+  const match = /^(\d+)\.(\d+)\.(\d+)(?:\D.*)?$/.exec(version.trim());
+  if (!match) return null;
+  const major = Number(match[1]);
+  const minor = Number(match[2]);
+  const patch = Number(match[3]);
+  if (![major, minor, patch].every(Number.isSafeInteger)) return null;
+  return [major, minor, patch];
+}
+function assessConcurrentWalSafety(sqliteVersion) {
+  const parsed = parseSqliteVersion(sqliteVersion);
+  if (!parsed) {
+    return {
+      sqliteVersion,
+      safe: false,
+      reason: "the embedded SQLite version could not be parsed"
+    };
+  }
+  const [major, minor, patch] = parsed;
+  const futureFixedLine = major > 3 || major === 3 && minor > 51;
+  const fixedPatch = major === 3 ? FIXED_BRANCHES.get(minor) : void 0;
+  const safe = futureFixedLine || fixedPatch !== void 0 && patch >= fixedPatch;
+  return {
+    sqliteVersion,
+    safe,
+    reason: safe ? "the embedded SQLite includes the concurrent WAL reset fix" : "concurrent WAL requires SQLite 3.44.6, 3.50.7, or 3.51.3 (or a newer fixed release)"
+  };
+}
+function journalModeForSqliteVersion(sqliteVersion) {
+  return assessConcurrentWalSafety(sqliteVersion).safe ? "WAL" : "DELETE";
+}
 
 // src/db.ts
 var DEFAULT_DB_NAME = "awareness.sqlite3";
 var MEMORY_HOME_ENV = "OCTOCODE_MEMORY_HOME";
+var V3_SCHEMA_VERSION = 3;
+var SQLITE_BUSY_RETRY_MS = 25;
+var SQLITE_BUSY_DEADLINE_MS = 1e4;
+var SQLITE_WAIT = new Int32Array(new SharedArrayBuffer(4));
+var LEGACY_V0_RELATION_NAMES = /* @__PURE__ */ new Set([
+  "agent_intents",
+  "agent_memories",
+  "file_locks",
+  "intent_events",
+  "memory_fts",
+  "notifications",
+  "notification_reads",
+  "task_log"
+]);
 var _db;
 function memoryHome() {
   const configured = process.env[MEMORY_HOME_ENV];
@@ -188,18 +253,100 @@ function resolveDbPath(dbArg) {
 function connectDb(dbPath2) {
   mkdirSync(dirname(dbPath2), { recursive: true });
   const db3 = new DatabaseSync(dbPath2);
-  db3.exec("PRAGMA foreign_keys = ON");
-  db3.exec("PRAGMA busy_timeout = 5000");
-  db3.exec("PRAGMA journal_mode = WAL");
-  initDb(db3);
-  _db = db3;
-  return db3;
+  try {
+    db3.exec(`PRAGMA busy_timeout = ${SQLITE_BUSY_DEADLINE_MS}`);
+    assertV3SchemaIdentity(db3);
+    const versionRow = db3.prepare("SELECT sqlite_version() AS version").get();
+    const journalMode = journalModeForSqliteVersion(versionRow.version);
+    withSqliteBusyRetry(() => db3.exec(`PRAGMA journal_mode = ${journalMode}`));
+    db3.exec("PRAGMA foreign_keys = ON");
+    initDb(db3);
+    _db = db3;
+    return db3;
+  } catch (error) {
+    db3.close();
+    throw error;
+  }
+}
+function readV3SchemaIdentity(db3) {
+  const application = db3.prepare("PRAGMA application_id").get();
+  const version = db3.prepare("PRAGMA user_version").get();
+  return {
+    applicationId: application.application_id ?? 0,
+    userVersion: version.user_version ?? 0
+  };
+}
+function assertV3SchemaIdentity(db3) {
+  const identity = readV3SchemaIdentity(db3);
+  if (identity.applicationId !== 0) {
+    throw new Error(
+      `refusing foreign Awareness application_id ${identity.applicationId}; v3 expects 0`
+    );
+  }
+  if (identity.userVersion > V3_SCHEMA_VERSION) {
+    throw new Error(
+      `refusing newer Awareness schema version ${identity.userVersion}; v3 supports versions 0-${V3_SCHEMA_VERSION}`
+    );
+  }
+  if (identity.userVersion === 0) {
+    const relations = db3.prepare(`
+      SELECT name, type
+      FROM sqlite_schema
+      WHERE type IN ('table', 'view')
+        AND name NOT LIKE 'sqlite_%'
+      ORDER BY name
+    `).all();
+    if (relations.length === 0) return;
+    const known = /* @__PURE__ */ new Set([
+      ...canonicalColumns().keys(),
+      ...LEGACY_V0_RELATION_NAMES,
+      "memories_fts"
+    ]);
+    const unexpected = relations.filter(({ name, type }) => {
+      if (type !== "table") return true;
+      return !known.has(name) && !name.startsWith("memories_fts_") && !name.startsWith("memory_fts_");
+    });
+    if (unexpected.length > 0) {
+      throw new Error(
+        `refusing unrecognized non-empty unversioned SQLite store; unexpected relations: ${unexpected.map(({ name }) => name).join(", ")}`
+      );
+    }
+  }
+}
+function isSqliteBusy(error) {
+  if (!(error instanceof Error)) return false;
+  const sqlite = error;
+  return sqlite.errcode === 5 || /database is (?:locked|busy)/i.test(`${sqlite.errstr ?? ""} ${error.message}`);
+}
+function withSqliteBusyRetry(operation) {
+  const deadline = Date.now() + SQLITE_BUSY_DEADLINE_MS;
+  for (; ; ) {
+    try {
+      return operation();
+    } catch (error) {
+      if (!isSqliteBusy(error) || Date.now() >= deadline) throw error;
+      Atomics.wait(SQLITE_WAIT, 0, 0, SQLITE_BUSY_RETRY_MS);
+    }
+  }
 }
 function checkpointWal(db3) {
   try {
     db3.exec("PRAGMA wal_checkpoint(TRUNCATE)");
   } catch {
   }
+}
+function getDeliveryFingerprint(db3, key) {
+  const row = db3.prepare(`SELECT fingerprint FROM delivery_state
+    WHERE consumer_id = ? AND channel = ? AND scope_key = ?`).get(key.consumerId, key.channel, key.scopeKey);
+  return row?.fingerprint ?? null;
+}
+function setDeliveryFingerprint(db3, params) {
+  db3.prepare(`INSERT INTO delivery_state
+      (consumer_id, channel, scope_key, fingerprint, delivered_at)
+    VALUES (?, ?, ?, ?, ?)
+    ON CONFLICT(consumer_id, channel, scope_key) DO UPDATE SET
+      fingerprint = excluded.fingerprint,
+      delivered_at = excluded.delivered_at`).run(params.consumerId, params.channel, params.scopeKey, params.fingerprint, params.deliveredAt ?? utcNow());
 }
 var SCHEMA_DDL = `
     CREATE TABLE IF NOT EXISTS sessions (
@@ -308,6 +455,7 @@ var SCHEMA_DDL = `
     CREATE TABLE IF NOT EXISTS task_runs (
       run_id         TEXT PRIMARY KEY,
       task_id        TEXT REFERENCES tasks(task_id) ON DELETE SET NULL,
+      origin         TEXT NOT NULL DEFAULT 'TASK' CHECK(origin IN ('TASK','WORK','HOOK')),
       agent_id       TEXT NOT NULL,
       session_id     TEXT REFERENCES sessions(session_id) ON DELETE SET NULL,
       rationale      TEXT NOT NULL,
@@ -317,9 +465,20 @@ var SCHEMA_DDL = `
                      CHECK(status IN ('PENDING','ACTIVE','SUCCESS','FAILED')),
       workspace_path TEXT,
       artifact       TEXT,
-      files_json     TEXT NOT NULL DEFAULT '[]',
       created_at     TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
       updated_at     TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS run_files (
+      run_id         TEXT NOT NULL REFERENCES task_runs(run_id) ON DELETE CASCADE,
+      file_path      TEXT NOT NULL,
+      reason_override TEXT,
+      source         TEXT NOT NULL CHECK(source IN ('EXPLICIT','HOOK')),
+      started_at     TEXT NOT NULL,
+      heartbeat_at   TEXT NOT NULL,
+      expires_at     TEXT NOT NULL,
+      ended_at       TEXT,
+      PRIMARY KEY(run_id, file_path)
     );
 
     CREATE TABLE IF NOT EXISTS task_claims (
@@ -344,14 +503,19 @@ var SCHEMA_DDL = `
     CREATE TABLE IF NOT EXISTS locks (
       lock_id     TEXT PRIMARY KEY,
       file_path   TEXT NOT NULL,
-      run_id      TEXT NOT NULL,
-      agent_id    TEXT NOT NULL,
-      session_id  TEXT,
-      lock_type   TEXT NOT NULL CHECK(lock_type IN ('SHARED','EXCLUSIVE')),
+      run_id      TEXT NOT NULL REFERENCES task_runs(run_id) ON DELETE CASCADE,
       acquired_at TEXT NOT NULL,
       expires_at  TEXT,
-      FOREIGN KEY(run_id) REFERENCES task_runs(run_id) ON DELETE CASCADE,
       UNIQUE(file_path, run_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS delivery_state (
+      consumer_id TEXT NOT NULL,
+      channel     TEXT NOT NULL,
+      scope_key   TEXT NOT NULL,
+      fingerprint TEXT NOT NULL,
+      delivered_at TEXT NOT NULL,
+      PRIMARY KEY(consumer_id, channel, scope_key)
     );
 
     CREATE TABLE IF NOT EXISTS run_log (
@@ -480,37 +644,51 @@ function migrateLegacyTaskRuns(db3) {
   if (tableExists(db3, "task_runs")) {
     throw new Error("schema migration cannot move legacy tasks: task_runs already exists");
   }
+  for (const index of ["idx_tasks_status", "idx_tasks_agent_status", "idx_tasks_workspace", "idx_tasks_scope"]) {
+    db3.exec(`DROP INDEX IF EXISTS ${index}`);
+  }
+  db3.exec("ALTER TABLE tasks RENAME TO task_runs");
+  renameColumnIfPresent(db3, "task_runs", "task_id", "run_id");
+  renameColumnIfPresent(db3, "task_runs", "plan_doc_ref", "context_ref");
+  renameColumnIfPresent(db3, "locks", "task_id", "run_id");
+  if (tableExists(db3, "task_log") && !tableExists(db3, "run_log")) {
+    db3.exec("ALTER TABLE task_log RENAME TO run_log");
+  }
+  renameColumnIfPresent(db3, "run_log", "task_id", "run_id");
+  renameColumnIfPresent(db3, "edit_log", "task_id", "run_id");
+  renameColumnIfPresent(db3, "harness_log", "task_id", "run_id");
+}
+function initDb(db3) {
+  assertV3SchemaIdentity(db3);
+  if (db3.isTransaction) {
+    initDbSchema(db3);
+    return;
+  }
   db3.exec("PRAGMA foreign_keys = OFF");
-  db3.exec("BEGIN IMMEDIATE");
+  let began = false;
   try {
-    for (const index of ["idx_tasks_status", "idx_tasks_agent_status", "idx_tasks_workspace", "idx_tasks_scope"]) {
-      db3.exec(`DROP INDEX IF EXISTS ${index}`);
-    }
-    db3.exec("ALTER TABLE tasks RENAME TO task_runs");
-    renameColumnIfPresent(db3, "task_runs", "task_id", "run_id");
-    renameColumnIfPresent(db3, "task_runs", "plan_doc_ref", "context_ref");
-    renameColumnIfPresent(db3, "locks", "task_id", "run_id");
-    if (tableExists(db3, "task_log") && !tableExists(db3, "run_log")) {
-      db3.exec("ALTER TABLE task_log RENAME TO run_log");
-    }
-    renameColumnIfPresent(db3, "run_log", "task_id", "run_id");
-    renameColumnIfPresent(db3, "edit_log", "task_id", "run_id");
-    renameColumnIfPresent(db3, "harness_log", "task_id", "run_id");
+    withSqliteBusyRetry(() => db3.exec("BEGIN IMMEDIATE"));
+    began = true;
+    initDbSchema(db3);
     db3.exec("COMMIT");
+    began = false;
   } catch (error) {
-    try {
-      db3.exec("ROLLBACK");
-    } catch {
+    if (began) {
+      try {
+        db3.exec("ROLLBACK");
+      } catch {
+      }
     }
     throw error;
   } finally {
     db3.exec("PRAGMA foreign_keys = ON");
   }
 }
-function initDb(db3) {
+function initDbSchema(db3) {
   migrateLegacyTaskRuns(db3);
   db3.exec(SCHEMA_DDL);
   migrateExistingTables(db3);
+  migrateExecutionSchemaV3(db3);
   migrateRefinementQualityConstraint(db3);
   migrateCheckConstraints(db3);
   db3.exec(`
@@ -543,11 +721,14 @@ function initDb(db3) {
     CREATE INDEX IF NOT EXISTS idx_task_runs_scope      ON task_runs(workspace_path, artifact);
     CREATE INDEX IF NOT EXISTS idx_task_events_task     ON task_events(task_id, created_at);
 
+    CREATE INDEX IF NOT EXISTS idx_run_files_path_active ON run_files(file_path, ended_at, expires_at);
+    CREATE INDEX IF NOT EXISTS idx_run_files_heartbeat   ON run_files(heartbeat_at);
+
     CREATE INDEX IF NOT EXISTS idx_locks_file_path   ON locks(file_path);
-    CREATE INDEX IF NOT EXISTS idx_locks_agent_id    ON locks(agent_id);
     CREATE INDEX IF NOT EXISTS idx_locks_acquired_at ON locks(acquired_at);
     CREATE INDEX IF NOT EXISTS idx_locks_expires_at  ON locks(expires_at);
-    CREATE INDEX IF NOT EXISTS idx_locks_session_id  ON locks(session_id);
+
+    CREATE INDEX IF NOT EXISTS idx_delivery_state_delivered ON delivery_state(delivered_at);
 
     CREATE INDEX IF NOT EXISTS idx_refinements_state         ON refinements(state);
     CREATE INDEX IF NOT EXISTS idx_refinements_scope         ON refinements(workspace_path, artifact);
@@ -594,7 +775,7 @@ function initDb(db3) {
     const row = db3.prepare("SELECT COUNT(*) AS cnt FROM memories_fts").get();
     if (row.cnt === 0) rebuildFts(db3);
   }
-  db3.exec("PRAGMA user_version = 2");
+  db3.exec("PRAGMA user_version = 3");
 }
 function tableColumns(db3, tableName) {
   const rows = db3.prepare(`PRAGMA table_info(${tableName})`).all();
@@ -634,6 +815,49 @@ function migrateExistingTables(db3) {
       }
       db3.exec(`ALTER TABLE ${table} ADD COLUMN ${clause}`);
     }
+  }
+}
+function migrateExecutionSchemaV3(db3) {
+  if (!tableExists(db3, "task_runs")) return;
+  const runColumns = tableColumns(db3, "task_runs");
+  const lockColumns = tableExists(db3, "locks") ? tableColumns(db3, "locks") : /* @__PURE__ */ new Set();
+  const needsRunRebuild = runColumns.has("files_json");
+  const needsLockRebuild = ["agent_id", "session_id", "lock_type"].some((name) => lockColumns.has(name));
+  if (!needsRunRebuild && !needsLockRebuild) return;
+  if (needsRunRebuild) {
+    const rows = db3.prepare(`SELECT run_id, task_id, status, files_json, created_at, updated_at
+      FROM task_runs`).all();
+    const insert = db3.prepare(`INSERT OR IGNORE INTO run_files
+      (run_id, file_path, reason_override, source, started_at, heartbeat_at, expires_at, ended_at)
+      VALUES (?, ?, NULL, ?, ?, ?, ?, ?)`);
+    const now = utcNow();
+    for (const row of rows) {
+      const source = row.task_id == null ? "HOOK" : "EXPLICIT";
+      const startedAt = row.created_at ?? now;
+      const heartbeatAt = row.updated_at ?? startedAt;
+      for (const filePath of parseJsonList(row.files_json)) {
+        const lease = db3.prepare(`SELECT MAX(expires_at) AS expires_at FROM (
+          SELECT expires_at FROM locks WHERE run_id = ? AND file_path = ?
+          UNION ALL
+          SELECT expires_at FROM task_claims WHERE run_id = ?
+        )`).get(row.run_id, filePath, row.run_id);
+        const expiresAt = lease.expires_at ?? heartbeatAt;
+        const active = row.status === "ACTIVE" && expiresAt > now;
+        insert.run(row.run_id, filePath, source, startedAt, heartbeatAt, expiresAt, active ? null : heartbeatAt);
+      }
+    }
+    db3.prepare(`UPDATE task_runs SET origin = CASE
+      WHEN task_id IS NOT NULL THEN 'TASK' ELSE 'HOOK' END`).run();
+  }
+  if (needsRunRebuild) {
+    const sql = canonicalTableSql().get("task_runs");
+    if (!sql) throw new Error("schema migration cannot find canonical task_runs DDL");
+    rebuildTableFromCanonical(db3, "task_runs", sql);
+  }
+  if (needsLockRebuild) {
+    const sql = canonicalTableSql().get("locks");
+    if (!sql) throw new Error("schema migration cannot find canonical locks DDL");
+    rebuildTableFromCanonical(db3, "locks", sql);
   }
 }
 var _canonicalTableSql;
@@ -699,12 +923,7 @@ function migrateCheckConstraints(db3) {
     if (checkClauses(live.sql) !== checkClauses(canonSql)) drifted.push([table, canonSql]);
   }
   if (drifted.length === 0) return;
-  db3.exec("PRAGMA foreign_keys = OFF");
-  try {
-    for (const [table, canonSql] of drifted) rebuildTableFromCanonical(db3, table, canonSql);
-  } finally {
-    db3.exec("PRAGMA foreign_keys = ON");
-  }
+  for (const [table, canonSql] of drifted) rebuildTableFromCanonical(db3, table, canonSql);
 }
 function migrateRefinementQualityConstraint(db3) {
   const row = db3.prepare(
@@ -823,28 +1042,14 @@ function evictExpiredLocks(db3) {
   const stale = db3.prepare(
     "SELECT COUNT(*) AS c FROM locks WHERE expires_at IS NOT NULL AND expires_at <= ?"
   ).get(now);
-  if (stale.c === 0) return { pruned_locks: 0, updated_runs: 0 };
+  if (stale.c === 0) return { pruned_locks: 0 };
   db3.exec("SAVEPOINT evict_expired_locks");
   try {
-    db3.exec("CREATE TEMP TABLE IF NOT EXISTS temp_expired_lock_runs(run_id TEXT PRIMARY KEY)");
-    db3.exec("DELETE FROM temp_expired_lock_runs");
-    db3.prepare(
-      `INSERT OR IGNORE INTO temp_expired_lock_runs(run_id)
-       SELECT run_id FROM locks WHERE expires_at IS NOT NULL AND expires_at <= ?`
-    ).run(now);
     const deleteRes = db3.prepare(
       "DELETE FROM locks WHERE expires_at IS NOT NULL AND expires_at <= ?"
     ).run(now);
-    const updateRes = db3.prepare(
-      `UPDATE task_runs
-       SET status = 'PENDING', updated_at = ?
-       WHERE status = 'ACTIVE'
-         AND run_id IN (SELECT run_id FROM temp_expired_lock_runs)
-         AND NOT EXISTS (SELECT 1 FROM locks WHERE locks.run_id = task_runs.run_id)`
-    ).run(now);
-    db3.exec("DELETE FROM temp_expired_lock_runs");
     db3.exec("RELEASE SAVEPOINT evict_expired_locks");
-    return { pruned_locks: deleteRes.changes, updated_runs: updateRes.changes };
+    return { pruned_locks: deleteRes.changes };
   } catch (e) {
     try {
       db3.exec("ROLLBACK TO SAVEPOINT evict_expired_locks");
@@ -938,6 +1143,19 @@ var LABEL_HALF_LIFE_DAYS = {
 var SCORING_PREFETCH_FACTOR = 3;
 var SIMILARITY_THRESHOLD = 0.45;
 var SIMILARITY_PREFETCH = 12;
+function canonicalMemoryInstant(value, field) {
+  if (value == null) return null;
+  const text = String(value).trim();
+  const isoInstant = /^\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2}))?$/;
+  if (!isoInstant.test(text)) {
+    throw new Error(`${field} must be a valid ISO 8601 timestamp`);
+  }
+  const parsed = new Date(text);
+  if (!text || Number.isNaN(parsed.getTime())) {
+    throw new Error(`${field} must be a valid ISO 8601 timestamp`);
+  }
+  return parsed.toISOString().replace(/\.\d{3}Z$/, "Z");
+}
 var STOP_WORDS = /* @__PURE__ */ new Set([
   // Articles / conjunctions
   "the",
@@ -1104,6 +1322,7 @@ function applyScopeConditions(conditions, params, options = {}) {
 }
 function lexicalSearch(db3, query, limit, minImportance, tags, labels, states, scopeOptions = {}) {
   const ftsQuery = query ? buildFtsQuery(query) : null;
+  if (query.trim() && !ftsQuery) return [];
   const params = [];
   const conditions = [
     "m.importance >= ?",
@@ -1123,6 +1342,13 @@ function lexicalSearch(db3, query, limit, minImportance, tags, labels, states, s
     conditions.push("(m.valid_from IS NULL OR m.valid_from <= ?)");
     conditions.push("(m.valid_to IS NULL OR m.valid_to > ?)");
     params.push(scopeOptions.asOf, scopeOptions.asOf);
+  } else {
+    const now = utcNow();
+    conditions.push(`(m.state <> 'ACTIVE' OR (
+      (m.valid_from IS NULL OR m.valid_from <= ?)
+      AND (m.valid_to IS NULL OR m.valid_to > ?)
+    ))`);
+    params.push(now, now);
   }
   const candidateIds = scopeOptions.candidateMemoryIds ? [...new Set(scopeOptions.candidateMemoryIds)].filter(Boolean) : null;
   if (candidateIds && candidateIds.length === 0) return [];
@@ -1332,21 +1558,23 @@ function insertMemory(db3, params) {
     repo: repoArg,
     ref: refArg,
     fileTreeFingerprint = null,
-    cwd,
-    compatCoerce = false
+    cwd
   } = params;
   const imp = Number(importance);
   if (!Number.isInteger(imp) || imp < 1 || imp > 10) {
     throw new Error(`importance must be 1\u201310, got ${String(importance)}`);
   }
+  const normalizedValidFrom = canonicalMemoryInstant(vf, "valid_from");
+  const normalizedValidTo = canonicalMemoryInstant(vt, "valid_to");
   const memoryId = "mem_" + randomUUID().replace(/-/g, "");
   const tagList = normalizeTags(tags, tagsCsv);
   const refList = normalizeReferences(references);
-  const normalizedLabel = normalizeLabel(Array.isArray(label) ? label[0] : label, {
-    coerce: Boolean(compatCoerce)
-  });
+  const normalizedLabel = normalizeLabel(Array.isArray(label) ? label[0] : label);
   const createdAt = utcNow();
-  const validFromVal = vf ?? createdAt;
+  const validFromVal = normalizedValidFrom ?? createdAt;
+  if (normalizedValidTo != null && normalizedValidTo <= validFromVal) {
+    throw new Error("valid_to must be after valid_from");
+  }
   const scope = fillScope(
     { workspace_path: workspacePath ?? null, artifact: normalizeArtifact(artifact2), repo: repoArg ?? null, ref: refArg ?? null },
     cwd ?? process.cwd()
@@ -1355,7 +1583,8 @@ function insertMemory(db3, params) {
   let noveltyScore = 0;
   let similarMemoryIds = [];
   const superseded = [];
-  db3.exec("BEGIN IMMEDIATE");
+  const ownsTransaction = !db3.isTransaction;
+  if (ownsTransaction) db3.exec("BEGIN IMMEDIATE");
   try {
     const similar = params.preComputedSimilar ?? findSimilarMemories(db3, `${taskContext} ${observation}`, 3, null, {
       workspacePath: scope.workspace_path,
@@ -1392,7 +1621,7 @@ function insertMemory(db3, params) {
       createdAt,
       failureSignature ?? null,
       validFromVal,
-      vt ?? null,
+      normalizedValidTo,
       halfLifeDefault
     );
     if (refList.length > 0) {
@@ -1425,11 +1654,13 @@ function insertMemory(db3, params) {
       `).run(memoryId, createdAt, validFromVal, createdAt, oldId, memoryId);
       if (r.changes) superseded.push(oldId);
     }
-    db3.exec("COMMIT");
+    if (ownsTransaction) db3.exec("COMMIT");
   } catch (e) {
-    try {
-      db3.exec("ROLLBACK");
-    } catch {
+    if (ownsTransaction) {
+      try {
+        db3.exec("ROLLBACK");
+      } catch {
+      }
     }
     throw e;
   }
@@ -1480,19 +1711,23 @@ function getMemory(db3, params = {}) {
     fileRegex = [],
     files = [],
     explain = false,
+    candidateMemoryIds = [],
+    recordAccess = true,
     cwd: cwdParam
   } = params;
-  const limit = Math.min(20, Math.max(1, Number(limitRaw) || 3));
+  const limitCap = candidateMemoryIds.length > 0 ? 2e3 : 50;
+  const limit = Math.min(limitCap, Math.max(1, Number(limitRaw) || 3));
   let minImportance = Math.max(1, Number(minImpRaw) || 1);
   if (smart === true || smart === "true") minImportance = Math.max(1, minImportance - 1);
-  const states = statesRaw ?? ["ACTIVE"];
+  const states = statesRaw ?? (asOf ? ["ACTIVE", "SUPERSEDED"] : ["ACTIVE"]);
   const labels = label ? Array.isArray(label) ? label.map((value) => normalizeLabel(value)) : [normalizeLabel(label)] : [];
   const effectiveCwd = cwdParam ?? workspacePath ?? void 0;
-  const asOfDate = asOf ? new Date(asOf) : null;
+  const normalizedAsOf = canonicalMemoryInstant(asOf, "as_of");
+  const asOfDate = normalizedAsOf ? new Date(normalizedAsOf) : null;
   if (asOfDate && isNaN(asOfDate.getTime())) {
     throw new Error(`invalid --as-of value "${asOf}" \u2014 expected ISO 8601 date string (e.g. 2024-06-01T00:00:00Z)`);
   }
-  let candidateIds = null;
+  let candidateIds = candidateMemoryIds.length > 0 ? new Set(candidateMemoryIds.filter(Boolean)) : null;
   const refFilters = normalizeReferences(references);
   const fileRefFilters = fileReferenceCandidates(files, effectiveCwd);
   const compiledRegex = regex.map(compileRecallRegex);
@@ -1525,7 +1760,7 @@ function getMemory(db3, params = {}) {
       strictScope,
       globalOnly,
       cwd: cwdParam,
-      asOf: asOf ?? null,
+      asOf: normalizedAsOf,
       candidateMemoryIds: candidateIds ? [...candidateIds] : void 0
     }
   );
@@ -1587,14 +1822,14 @@ function getMemory(db3, params = {}) {
       m.score = components.final;
     }
   }
-  bumpAccess(db3, memories.map((m) => m.memory_id));
+  if (recordAccess) bumpAccess(db3, memories.map((m) => m.memory_id));
   const mode = hasFts(db3) ? "lexical" : "fallback";
   const result = {
     count: memories.length,
     memories,
     mode,
     sort,
-    as_of: asOf ?? null,
+    as_of: normalizedAsOf,
     global_only: Boolean(globalOnly),
     states
   };
@@ -1848,9 +2083,15 @@ function storeEmbedding(db3, memoryId, embedding, model) {
      WHERE memory_id = ?`
   ).run(blob, model, utcNow(), memoryId);
 }
-function searchByEmbedding(db3, queryEmbedding, limit = 5, threshold = 0.75, model) {
-  const conditions = ["state = 'ACTIVE'", "embedding IS NOT NULL"];
+function searchByEmbedding(db3, queryEmbedding, limit = 5, threshold = 0.75, model, states = ["ACTIVE"]) {
+  const normalizedStates = [...new Set(states.filter(Boolean))];
+  if (normalizedStates.length === 0) return [];
+  const conditions = [
+    `state IN (${normalizedStates.map(() => "?").join(",")})`,
+    "embedding IS NOT NULL"
+  ];
   const binds = [];
+  binds.push(...normalizedStates);
   if (model) {
     conditions.push("embedding_model = ?");
     binds.push(model);
@@ -2097,17 +2338,22 @@ function proposeDocRefresh(db3, entry2, params) {
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { basename as basename2, dirname as dirname3, join as join3 } from "node:path";
 import { fileURLToPath } from "node:url";
-function packageSkillReferencesDir(cwd = process.cwd()) {
-  const here = dirname3(fileURLToPath(import.meta.url));
+function resolveSkillReferencesDir(here, cwd = process.cwd()) {
   const candidates = [
+    join3(here, "..", "references"),
+    // standalone skill scripts/
+    join3(here, "skills", "octocode-awareness", "references"),
+    // dist/index.js
     join3(here, "..", "skills", "octocode-awareness", "references"),
-    // dist/skills
+    // dist/bin or package src
     join3(here, "..", "..", "skills", "octocode-awareness", "references"),
-    // package root
     join3(cwd, "packages", "octocode-awareness", "skills", "octocode-awareness", "references"),
     join3(cwd, "skills", "octocode-awareness", "references")
   ];
   return candidates.find((candidate) => existsSync(candidate)) ?? candidates[0];
+}
+function packageSkillReferencesDir(cwd = process.cwd()) {
+  return resolveSkillReferencesDir(dirname3(fileURLToPath(import.meta.url)), cwd);
 }
 function firstParagraph(lines, start = 0) {
   const chunks = [];
@@ -2152,6 +2398,7 @@ function parseDocFile(filePath) {
 }
 function listSkillDocs(options = {}) {
   const root = options.root ?? packageSkillReferencesDir(options.cwd);
+  const lean = Boolean(options.lean);
   if (!existsSync(root)) {
     return { ok: true, count: 0, docs: [], root };
   }
@@ -2159,13 +2406,7 @@ function listSkillDocs(options = {}) {
   return {
     ok: true,
     count: docs.length,
-    docs: docs.map((doc) => ({
-      name: doc.name,
-      title: doc.title,
-      description: doc.description,
-      kind: doc.kind,
-      path: doc.path
-    })),
+    docs: lean ? docs.map((doc) => ({ name: doc.name, title: doc.title })) : docs,
     root
   };
 }
@@ -2446,159 +2687,422 @@ function deleteRefinement(db3, params) {
 }
 
 // src/intents.ts
+import { randomUUID as randomUUID5 } from "node:crypto";
+import { isAbsolute as isAbsolute2, resolve as resolve6 } from "node:path";
+
+// src/work.ts
 import { randomUUID as randomUUID4 } from "node:crypto";
 import { isAbsolute, resolve as resolve5 } from "node:path";
+var DEFAULT_PRESENCE_TTL_MS = 10 * 6e4;
+var MAX_PRESENCE_TTL_MS = 60 * 6e4;
+var PEER_DETAIL_LIMIT = 5;
+function required(value, name) {
+  const normalized = value?.trim() ?? "";
+  if (!normalized) throw new Error(`${name} is required`);
+  return normalized;
+}
+function workspaceRoot(workspacePath) {
+  const candidate = workspacePath ?? process.cwd();
+  return normalizeWorkspacePath(candidate, candidate) ?? resolve5(candidate);
+}
+function normalizeFiles(files, workspacePath) {
+  if (files.length === 0) throw new Error("at least one target file is required");
+  const base = canonicalizePath(workspacePath ? resolve5(workspacePath) : process.cwd());
+  return [...new Set(files.map((file) => {
+    const value = required(file, "target file");
+    return canonicalizePath(isAbsolute(value) ? resolve5(value) : resolve5(base, value));
+  }))];
+}
+function expiry(ttlMs) {
+  const effective = Math.min(Math.max(1, ttlMs ?? DEFAULT_PRESENCE_TTL_MS), MAX_PRESENCE_TTL_MS);
+  return new Date(Date.now() + effective).toISOString().replace(/\.\d{3}Z$/, "Z");
+}
+function getRun(db3, runId) {
+  const row = db3.prepare("SELECT * FROM task_runs WHERE run_id = ?").get(runId);
+  if (!row) throw new Error(`run not found: ${runId}`);
+  return row;
+}
+function fileRows(db3, runId) {
+  return db3.prepare("SELECT * FROM run_files WHERE run_id = ? ORDER BY file_path").all(runId);
+}
+function activePeerRows(db3, runId, files) {
+  if (files.length === 0) return [];
+  const now = utcNow();
+  const rows = db3.prepare(`SELECT rf.run_id, tr.task_id, tr.origin, tr.agent_id, rf.file_path,
+      tr.rationale, rf.heartbeat_at, rf.expires_at,
+      EXISTS(SELECT 1 FROM locks l WHERE l.run_id = rf.run_id AND l.file_path = rf.file_path
+        AND (l.expires_at IS NULL OR l.expires_at > ?)) AS exclusive
+    FROM run_files rf
+    JOIN task_runs tr ON tr.run_id = rf.run_id
+    WHERE rf.run_id <> ?
+      AND rf.file_path IN (${files.map(() => "?").join(",")})
+      AND rf.ended_at IS NULL AND rf.expires_at > ? AND tr.status = 'ACTIVE'
+    ORDER BY rf.file_path, rf.heartbeat_at DESC, rf.run_id`).all(now, runId, ...files, now);
+  return rows.map((row) => ({ ...row, exclusive: Boolean(row.exclusive) }));
+}
+function mutationResult(db3, runId, affectedFiles) {
+  const allFiles = fileRows(db3, runId);
+  const affected = affectedFiles ? new Set(affectedFiles) : null;
+  const files = affected ? allFiles.filter((file) => affected.has(file.file_path)) : allFiles;
+  const allPeers = activePeerRows(db3, runId, files.filter((file) => file.ended_at == null).map((file) => file.file_path));
+  return {
+    run: getRun(db3, runId),
+    files,
+    peers: allPeers.slice(0, PEER_DETAIL_LIMIT),
+    peer_count: allPeers.length
+  };
+}
+function conflictRows(db3, runId, files, exclusive) {
+  if (files.length === 0) return [];
+  const now = utcNow();
+  const placeholders = files.map(() => "?").join(",");
+  if (exclusive) {
+    return db3.prepare(`SELECT rf.run_id, tr.task_id, tr.origin, tr.agent_id, rf.file_path,
+        tr.rationale, rf.heartbeat_at, rf.expires_at,
+        EXISTS(SELECT 1 FROM locks l WHERE l.run_id = rf.run_id AND l.file_path = rf.file_path
+          AND (l.expires_at IS NULL OR l.expires_at > ?)) AS exclusive,
+        'ACTIVE_WORK' AS conflict_type
+      FROM run_files rf JOIN task_runs tr ON tr.run_id = rf.run_id
+      WHERE rf.file_path IN (${placeholders}) AND rf.run_id <> ?
+        AND rf.ended_at IS NULL AND rf.expires_at > ? AND tr.status = 'ACTIVE'
+      ORDER BY rf.file_path, rf.heartbeat_at DESC`).all(now, ...files, runId, now);
+  }
+  return db3.prepare(`SELECT l.run_id, tr.task_id, tr.origin, tr.agent_id, l.file_path,
+      tr.rationale, rf.heartbeat_at, COALESCE(l.expires_at, rf.expires_at) AS expires_at,
+      1 AS exclusive, 'EXCLUSIVE_LOCK' AS conflict_type
+    FROM locks l
+    JOIN task_runs tr ON tr.run_id = l.run_id
+    LEFT JOIN run_files rf ON rf.run_id = l.run_id AND rf.file_path = l.file_path
+    WHERE l.file_path IN (${placeholders}) AND l.run_id <> ? AND tr.status = 'ACTIVE'
+      AND (l.expires_at IS NULL OR l.expires_at > ?)
+    ORDER BY l.file_path, l.acquired_at DESC`).all(...files, runId, now);
+}
+function startWork(db3, params) {
+  const agentId2 = required(params.agentId, "agent id");
+  const now = utcNow();
+  const expiresAt = expiry(params.ttlMs);
+  const requestedOrigin = params.origin ?? "WORK";
+  const source = params.source ?? (requestedOrigin === "HOOK" ? "HOOK" : "EXPLICIT");
+  const fileBasePath = params.workspacePath ?? process.cwd();
+  let wsPath = workspaceRoot(params.workspacePath);
+  let artifact2 = normalizeArtifact(params.artifact);
+  let runId = params.runId ?? null;
+  if (!runId) {
+    required(params.rationale, "rationale");
+    required(params.testPlan, "test plan");
+  }
+  db3.exec("BEGIN IMMEDIATE");
+  try {
+    runId ??= `run_${randomUUID4().replace(/-/g, "")}`;
+    let run = db3.prepare("SELECT * FROM task_runs WHERE run_id = ?").get(runId);
+    if (run) {
+      if (run.agent_id !== agentId2) throw new Error(`run ${runId} belongs to ${run.agent_id}`);
+      if (run.status !== "ACTIVE") throw new Error(`run ${runId} is not ACTIVE`);
+      const runWorkspace = workspaceRoot(run.workspace_path);
+      if (params.workspacePath != null && wsPath !== runWorkspace) {
+        throw new Error(`workspace ${wsPath} does not match run workspace ${runWorkspace}`);
+      }
+      const runArtifact = normalizeArtifact(run.artifact);
+      if (params.artifact != null && artifact2 !== runArtifact) {
+        throw new Error(`artifact ${artifact2 ?? "(none)"} does not match run artifact ${runArtifact ?? "(none)"}`);
+      }
+      wsPath = runWorkspace;
+      artifact2 = runArtifact;
+    } else {
+      if (params.runId) throw new Error(`run not found: ${params.runId}`);
+      if (params.sessionId) {
+        db3.prepare(`INSERT OR IGNORE INTO sessions
+          (session_id, agent_id, workspace_path, artifact, started_at) VALUES (?, ?, ?, ?, ?)`).run(params.sessionId, agentId2, wsPath, artifact2, now);
+      }
+      db3.prepare(`INSERT INTO task_runs
+        (run_id, task_id, origin, agent_id, session_id, rationale, test_plan, context_ref,
+         status, workspace_path, artifact, created_at, updated_at)
+        VALUES (?, NULL, ?, ?, ?, ?, ?, ?, 'ACTIVE', ?, ?, ?, ?)`).run(
+        runId,
+        requestedOrigin,
+        agentId2,
+        params.sessionId ?? null,
+        required(params.rationale, "rationale"),
+        required(params.testPlan, "test plan"),
+        params.contextRef ?? null,
+        wsPath,
+        artifact2,
+        now,
+        now
+      );
+      run = getRun(db3, runId);
+    }
+    const files = normalizeFiles(params.targetFiles, fileBasePath);
+    const conflicts = conflictRows(db3, runId, files, params.exclusive === true);
+    if (conflicts.length > 0) {
+      db3.exec("ROLLBACK");
+      return { ok: false, conflict: true, conflicts };
+    }
+    const upsert = db3.prepare(`INSERT INTO run_files
+      (run_id, file_path, reason_override, source, started_at, heartbeat_at, expires_at, ended_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, NULL)
+      ON CONFLICT(run_id, file_path) DO UPDATE SET
+        reason_override = COALESCE(excluded.reason_override, run_files.reason_override),
+        source = excluded.source,
+        started_at = CASE WHEN run_files.ended_at IS NULL THEN run_files.started_at ELSE excluded.started_at END,
+        heartbeat_at = excluded.heartbeat_at,
+        expires_at = excluded.expires_at,
+        ended_at = NULL`);
+    for (const file of files) {
+      upsert.run(runId, file, params.reasonOverride?.trim() || null, source, now, now, expiresAt);
+      if (params.exclusive) {
+        db3.prepare(`INSERT INTO locks(lock_id, file_path, run_id, acquired_at, expires_at)
+          VALUES (?, ?, ?, ?, ?)
+          ON CONFLICT(file_path, run_id) DO UPDATE SET expires_at = excluded.expires_at`).run(`lock_${randomUUID4().replace(/-/g, "")}`, file, runId, now, expiresAt);
+      }
+    }
+    db3.prepare("UPDATE task_runs SET updated_at = ? WHERE run_id = ?").run(now, runId);
+    db3.exec("COMMIT");
+    return { ok: true, ...mutationResult(db3, runId, files) };
+  } catch (error) {
+    try {
+      db3.exec("ROLLBACK");
+    } catch {
+    }
+    throw error;
+  }
+}
+function touchWork(db3, params) {
+  const run = getRun(db3, params.runId);
+  if (run.agent_id !== params.agentId) throw new Error(`run ${params.runId} belongs to ${run.agent_id}`);
+  if (run.status !== "ACTIVE") throw new Error(`run ${params.runId} is not ACTIVE`);
+  const targets = params.targetFiles?.length ? normalizeFiles(params.targetFiles, run.workspace_path) : fileRows(db3, params.runId).filter((file) => file.ended_at == null).map((file) => file.file_path);
+  if (targets.length === 0) throw new Error("run has no active file presence");
+  const now = utcNow();
+  const expiresAt = expiry(params.ttlMs);
+  db3.exec("BEGIN IMMEDIATE");
+  try {
+    const update = db3.prepare(`UPDATE run_files SET heartbeat_at = ?, expires_at = ?
+      WHERE run_id = ? AND file_path = ? AND ended_at IS NULL`);
+    for (const file of targets) {
+      const result = update.run(now, expiresAt, params.runId, file);
+      if (result.changes === 0) throw new Error(`active file presence not found: ${file}`);
+    }
+    db3.prepare(`UPDATE locks SET expires_at = ? WHERE run_id = ?
+      AND file_path IN (${targets.map(() => "?").join(",")})`).run(expiresAt, params.runId, ...targets);
+    db3.prepare("UPDATE task_runs SET updated_at = ? WHERE run_id = ?").run(now, params.runId);
+    db3.exec("COMMIT");
+  } catch (error) {
+    try {
+      db3.exec("ROLLBACK");
+    } catch {
+    }
+    throw error;
+  }
+  return mutationResult(db3, params.runId, targets);
+}
+function endWork(db3, params) {
+  const run = getRun(db3, params.runId);
+  if (run.agent_id !== params.agentId) throw new Error(`run ${params.runId} belongs to ${run.agent_id}`);
+  if (run.origin === "TASK") throw new Error("TASK work must end through task submit or task release");
+  const targets = params.targetFiles?.length ? normalizeFiles(params.targetFiles, run.workspace_path) : fileRows(db3, params.runId).filter((file) => file.ended_at == null).map((file) => file.file_path);
+  const now = utcNow();
+  db3.exec("BEGIN IMMEDIATE");
+  try {
+    if (targets.length > 0) {
+      const ended = db3.prepare(`UPDATE run_files SET heartbeat_at = ?, expires_at = ?, ended_at = ?
+        WHERE run_id = ? AND file_path IN (${targets.map(() => "?").join(",")}) AND ended_at IS NULL`).run(now, now, now, params.runId, ...targets);
+      if (ended.changes !== targets.length) {
+        throw new Error("one or more active file presences were not found for this run");
+      }
+      db3.prepare(`DELETE FROM locks WHERE run_id = ?
+        AND file_path IN (${targets.map(() => "?").join(",")})`).run(params.runId, ...targets);
+    }
+    const active = db3.prepare(`SELECT 1 FROM run_files
+      WHERE run_id = ? AND ended_at IS NULL AND expires_at > ? LIMIT 1`).get(params.runId, now);
+    if (!active) {
+      db3.prepare(`UPDATE task_runs SET status = 'PENDING', updated_at = ?
+        WHERE run_id = ? AND status = 'ACTIVE' AND origin IN ('WORK','HOOK')`).run(now, params.runId);
+    }
+    db3.exec("COMMIT");
+  } catch (error) {
+    try {
+      db3.exec("ROLLBACK");
+    } catch {
+    }
+    throw error;
+  }
+  return mutationResult(db3, params.runId, targets);
+}
+function listWork(db3, params = {}) {
+  const now = utcNow();
+  const where = ["1 = 1"];
+  const binds = [now];
+  if (params.activeOnly !== false) {
+    where.push("rf.ended_at IS NULL", "rf.expires_at > ?", "tr.status = 'ACTIVE'");
+    binds.push(now);
+  }
+  if (params.workspacePath) {
+    where.push("tr.workspace_path = ?");
+    binds.push(workspaceRoot(params.workspacePath));
+  }
+  const artifact2 = normalizeArtifact(params.artifact);
+  if (artifact2) {
+    where.push("(tr.artifact = ? OR tr.artifact IS NULL)");
+    binds.push(artifact2);
+  }
+  if (params.agentId) {
+    where.push("tr.agent_id = ?");
+    binds.push(params.agentId);
+  }
+  if (params.runId) {
+    where.push("tr.run_id = ?");
+    binds.push(params.runId);
+  }
+  if (params.filePath) {
+    where.push("rf.file_path = ?");
+    binds.push(normalizeFiles([params.filePath], params.workspacePath)[0]);
+  }
+  const limit = params.limit == null ? null : Math.max(1, Math.floor(params.limit));
+  const limitSql = limit == null ? "" : "LIMIT ?";
+  if (limit != null) binds.push(limit);
+  const rows = db3.prepare(`SELECT rf.*, tr.task_id, tr.origin, tr.agent_id, tr.session_id,
+      tr.rationale, tr.test_plan, tr.status, tr.workspace_path, tr.artifact,
+      EXISTS(SELECT 1 FROM locks l WHERE l.run_id = rf.run_id AND l.file_path = rf.file_path
+        AND (l.expires_at IS NULL OR l.expires_at > ?)) AS exclusive,
+      COUNT(*) OVER() AS result_total
+    FROM run_files rf JOIN task_runs tr ON tr.run_id = rf.run_id
+    WHERE ${where.join(" AND ")}
+    ORDER BY rf.file_path, rf.heartbeat_at DESC, rf.run_id ${limitSql}`).all(...binds);
+  const totalCount = rows[0]?.result_total ?? 0;
+  const files = rows.map(({ result_total: _total, ...row }) => ({ ...row, exclusive: Boolean(row.exclusive) }));
+  return {
+    count: files.length,
+    total_count: totalCount,
+    omitted_count: Math.max(0, totalCount - files.length),
+    files
+  };
+}
+function showWork(db3, params) {
+  return listWork(db3, { ...params, filePath: params.filePath });
+}
+
+// src/intents.ts
 var MAX_LOCK_TTL_MS = 10 * 6e4;
 var VALID_RELEASE_STATUSES = /* @__PURE__ */ new Set(["PENDING", "ACTIVE", "SUCCESS", "FAILED"]);
 function effectiveTtlMs(ttlMs) {
   return Math.min(Math.max(1, ttlMs ?? MAX_LOCK_TTL_MS), MAX_LOCK_TTL_MS);
 }
-function expiresAtFromNow(ttlMs) {
-  return new Date(Date.now() + effectiveTtlMs(ttlMs)).toISOString().replace(/\.\d{3}Z$/, "Z");
-}
 function workspaceScopeRoot(workspacePath) {
   const candidate = workspacePath ?? process.cwd();
-  return normalizeWorkspacePath(candidate, candidate) ?? resolve5(candidate);
+  return normalizeWorkspacePath(candidate, candidate) ?? resolve6(candidate);
 }
 function workspaceFileBase(workspacePath) {
-  return workspacePath ? resolve5(workspacePath) : process.cwd();
+  return workspacePath ? resolve6(workspacePath) : process.cwd();
 }
 function resolveTargetFiles(targetFiles = [], workspacePath) {
   const root = workspaceFileBase(workspacePath);
-  return targetFiles.map((file) => isAbsolute(file) ? resolve5(file) : resolve5(root, file));
+  return targetFiles.map((file) => canonicalizePath(isAbsolute2(file) ? resolve6(file) : resolve6(root, file)));
+}
+function activeLockRows(db3, params = {}) {
+  evictExpiredLocks(db3);
+  const now = utcNow();
+  const clauses = ["ai.status = 'ACTIVE'", "(fl.expires_at IS NULL OR fl.expires_at > ?)"];
+  const binds = [now];
+  if (params.workspacePath) {
+    clauses.push("ai.workspace_path = ?");
+    binds.push(workspaceScopeRoot(params.workspacePath));
+  }
+  const artifact2 = normalizeArtifact(params.artifact);
+  if (artifact2) {
+    clauses.push("(ai.artifact = ? OR ai.artifact IS NULL)");
+    binds.push(artifact2);
+  }
+  if (params.agentId) {
+    clauses.push("ai.agent_id = ?");
+    binds.push(params.agentId);
+  }
+  if (params.sessionId) {
+    clauses.push("ai.session_id = ?");
+    binds.push(params.sessionId);
+  }
+  if (params.runId) {
+    clauses.push("fl.run_id = ?");
+    binds.push(params.runId);
+  }
+  return db3.prepare(
+    `SELECT fl.lock_id, fl.run_id, fl.file_path, ai.agent_id, ai.session_id, ai.workspace_path, ai.artifact,
+            ai.rationale AS reasoning, ai.test_plan AS test_plan, 'EXCLUSIVE' AS lock_type,
+            fl.acquired_at, fl.expires_at
+       FROM locks fl
+       JOIN task_runs ai ON ai.run_id = fl.run_id
+      WHERE ${clauses.join(" AND ")}
+      ORDER BY fl.acquired_at DESC`
+  ).all(...binds);
 }
 function preFlightIntent(db3, params) {
-  const {
-    agentId: agentId2 = "agent",
-    sessionId: sessionId2 = null,
-    workspacePath,
-    artifact: artifact2,
-    runId: requestedRunId = null,
-    rationale = "agent write operation",
-    testPlan = "post-edit verification",
-    contextRef = null,
-    targetFiles = [],
-    lockType = "EXCLUSIVE",
-    ttlMs = MAX_LOCK_TTL_MS
-  } = params;
-  const runId = requestedRunId ?? `run_${randomUUID4().replace(/-/g, "")}`;
-  const now = utcNow();
-  const wsPath = workspaceScopeRoot(workspacePath);
-  const artifactScope = normalizeArtifact(artifact2);
-  const absFiles = resolveTargetFiles(targetFiles, workspacePath);
-  let linkedTaskId = null;
-  let effectiveContextRef = contextRef;
-  evictExpiredLocks(db3);
-  db3.exec("BEGIN IMMEDIATE");
-  try {
-    const conflicts = [];
-    for (const absPath of absFiles) {
-      const conflictMode = lockType === "SHARED" ? "fl.lock_type = 'EXCLUSIVE'" : "1 = 1";
-      const existing = db3.prepare(`
-        SELECT fl.*, ai.agent_id AS run_agent_id,
-               ai.rationale AS reasoning, ai.test_plan AS test_plan
-          FROM locks fl
-        JOIN task_runs ai ON ai.run_id = fl.run_id
-        WHERE fl.file_path = ?
-          AND ai.agent_id <> ?
-          AND ai.status = 'ACTIVE'
-          AND ${conflictMode}
-          AND (fl.expires_at IS NULL OR fl.expires_at > ?)
-      `).all(absPath, agentId2, now);
-      conflicts.push(...existing);
-    }
-    if (conflicts.length > 0) {
-      db3.exec("ROLLBACK");
-      return {
-        ok: false,
-        conflict: true,
-        conflicts: conflicts.map((c) => {
-          const holderSession = c.session_id ? db3.prepare("SELECT ended_at FROM sessions WHERE session_id = ?").get(c.session_id) : void 0;
-          const holderSessionActive = !holderSession || holderSession.ended_at == null;
-          return {
-            file_path: c.file_path,
-            lock_type: c.lock_type,
-            agent_id: c.run_agent_id ?? c.agent_id,
-            acquired_at: c.acquired_at,
-            expires_at: c.expires_at,
-            // Surface the holder's who/why so a blocked agent can act on it.
-            run_id: c.run_id,
-            reasoning: c.reasoning ?? "agent write operation",
-            test_plan: c.test_plan ?? "post-edit verification",
-            session_id: c.session_id ?? null,
-            holder_session_active: holderSessionActive
-          };
-        })
-      };
-    }
-    if (sessionId2) {
-      db3.prepare(
-        `INSERT OR IGNORE INTO sessions (session_id, agent_id, workspace_path, artifact, started_at)
-         VALUES (?, ?, ?, ?, ?)`
-      ).run(sessionId2, agentId2, wsPath, artifactScope, now);
-    }
-    if (requestedRunId) {
-      const existingRun = db3.prepare(
-        "SELECT task_id, agent_id, status, context_ref, files_json FROM task_runs WHERE run_id = ?"
-      ).get(requestedRunId);
-      if (!existingRun) throw new Error(`run not found: ${requestedRunId}`);
-      if (existingRun.agent_id !== agentId2) throw new Error(`run ${requestedRunId} belongs to ${existingRun.agent_id}`);
-      if (existingRun.status !== "ACTIVE") throw new Error(`run ${requestedRunId} is not ACTIVE`);
-      linkedTaskId = existingRun.task_id;
-      effectiveContextRef = existingRun.context_ref;
-      const previousFiles = JSON.parse(existingRun.files_json || "[]");
-      db3.prepare("UPDATE task_runs SET files_json = ?, updated_at = ? WHERE run_id = ?").run(JSON.stringify([.../* @__PURE__ */ new Set([...previousFiles, ...absFiles])]), now, runId);
-    } else {
-      db3.prepare(`
-        INSERT INTO task_runs
-          (run_id, task_id, agent_id, session_id, rationale, test_plan, context_ref, status, workspace_path, artifact, files_json, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, 'ACTIVE', ?, ?, ?, ?, ?)
-      `).run(runId, null, agentId2, sessionId2, rationale, testPlan, contextRef, wsPath, artifactScope, JSON.stringify(absFiles), now, now);
-    }
-    const expiresAt = expiresAtFromNow(ttlMs);
-    const acquiredLocks = [];
-    for (const absPath of absFiles) {
-      const lockId = "lock_" + randomUUID4().replace(/-/g, "");
-      db3.prepare(`
-        INSERT OR REPLACE INTO locks
-          (lock_id, file_path, run_id, agent_id, session_id, lock_type, acquired_at, expires_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(lockId, absPath, runId, agentId2, sessionId2, lockType, now, expiresAt);
-      acquiredLocks.push({ lock_id: lockId, file_path: absPath, lock_type: lockType, expires_at: expiresAt });
-    }
-    db3.exec("COMMIT");
+  const agentId2 = params.agentId ?? "agent";
+  const result = startWork(db3, {
+    agentId: agentId2,
+    sessionId: params.sessionId,
+    workspacePath: params.workspacePath,
+    artifact: params.artifact,
+    runId: params.runId,
+    rationale: params.rationale ?? "agent write operation",
+    testPlan: params.testPlan ?? "post-edit verification",
+    contextRef: params.contextRef,
+    targetFiles: params.targetFiles ?? [],
+    origin: "WORK",
+    source: "EXPLICIT",
+    ttlMs: effectiveTtlMs(params.ttlMs),
+    exclusive: true
+  });
+  if (!result.ok) {
     return {
-      ok: true,
-      run: {
-        run_id: runId,
-        task_id: linkedTaskId,
-        agent_id: agentId2,
-        session_id: sessionId2,
-        lock_type: lockType,
-        workspace_path: wsPath,
-        artifact: artifactScope,
-        context_ref: effectiveContextRef,
-        target_files: absFiles,
-        locks: acquiredLocks.map((l) => ({
-          lock_id: l.lock_id,
-          file_path: l.file_path,
-          lock_type: l.lock_type,
-          agent_id: agentId2,
-          session_id: sessionId2,
-          acquired_at: now,
-          expires_at: l.expires_at
-        })),
-        status: "ACTIVE",
-        created_at: now
-      }
+      ok: false,
+      conflict: true,
+      conflicts: result.conflicts.map((conflict) => {
+        const holder = db3.prepare(`SELECT tr.session_id, s.ended_at, l.acquired_at
+          FROM task_runs tr
+          LEFT JOIN sessions s ON s.session_id = tr.session_id
+          LEFT JOIN locks l ON l.run_id = tr.run_id AND l.file_path = ?
+          WHERE tr.run_id = ?`).get(conflict.file_path, conflict.run_id);
+        return {
+          file_path: conflict.file_path,
+          lock_type: "EXCLUSIVE",
+          agent_id: conflict.agent_id,
+          acquired_at: holder?.acquired_at ?? conflict.heartbeat_at,
+          expires_at: conflict.expires_at,
+          run_id: conflict.run_id,
+          reasoning: conflict.rationale,
+          test_plan: db3.prepare("SELECT test_plan FROM task_runs WHERE run_id = ?").get(conflict.run_id)?.["test_plan"] ?? "post-edit verification",
+          session_id: holder?.session_id ?? null,
+          holder_session_active: !holder?.ended_at
+        };
+      })
     };
-  } catch (e) {
-    try {
-      db3.exec("ROLLBACK");
-    } catch {
-    }
-    throw e;
   }
+  const locks = activeLockRows(db3, { runId: result.run.run_id });
+  return {
+    ok: true,
+    run: {
+      run_id: result.run.run_id,
+      task_id: result.run.task_id,
+      origin: result.run.origin,
+      agent_id: result.run.agent_id,
+      session_id: result.run.session_id,
+      workspace_path: result.run.workspace_path ?? workspaceScopeRoot(params.workspacePath),
+      artifact: result.run.artifact,
+      context_ref: result.run.context_ref,
+      target_files: result.files.filter((file) => file.ended_at == null).map((file) => file.file_path),
+      locks: locks.map((lock) => ({
+        lock_id: lock.lock_id,
+        file_path: lock.file_path,
+        lock_type: "EXCLUSIVE",
+        agent_id: lock.agent_id,
+        session_id: lock.session_id,
+        acquired_at: lock.acquired_at,
+        expires_at: lock.expires_at
+      })),
+      status: result.run.status,
+      created_at: result.run.created_at
+    }
+  };
 }
 function releaseFileLock(db3, params) {
   const {
@@ -2619,16 +3123,13 @@ function releaseFileLock(db3, params) {
   const requestedSuccessWithoutVerification = requestedStatus === "SUCCESS" && !verified;
   const effectiveStatus = requestedSuccessWithoutVerification ? "PENDING" : requestedStatus;
   const now = utcNow();
-  const whereClauses = ["fl.agent_id = ?"];
+  const whereClauses = ["ai.run_id = fl.run_id", "ai.agent_id = ?"];
   const whereParams = [agentId2];
   if (sessionId2) {
-    whereClauses.push("fl.session_id = ?");
+    whereClauses.push("ai.session_id = ?");
     whereParams.push(sessionId2);
   }
   const artifactScope = normalizeArtifact(artifact2);
-  if (workspacePath || artifactScope) {
-    whereClauses.push("ai.run_id = fl.run_id");
-  }
   if (workspacePath) {
     whereClauses.push("ai.workspace_path = ?");
     whereParams.push(workspaceScopeRoot(workspacePath));
@@ -2650,7 +3151,7 @@ function releaseFileLock(db3, params) {
   const where = whereClauses.join(" AND ");
   const locks = db3.prepare(
     `SELECT fl.lock_id, fl.run_id, fl.file_path
-       FROM locks fl${workspacePath || artifactScope ? ", task_runs ai" : ""}
+       FROM locks fl JOIN task_runs ai ON ai.run_id = fl.run_id
       WHERE ${where}`
   ).all(...whereParams);
   const runIds = [...new Set(locks.map((l) => l.run_id))];
@@ -2694,7 +3195,7 @@ function releaseFileLock(db3, params) {
       updated_at: now
     };
   }
-  const runMetadata = db3.prepare(`SELECT run_id, task_id FROM task_runs
+  const runMetadata = db3.prepare(`SELECT run_id, task_id, origin FROM task_runs
     WHERE run_id IN (${runIds.map(() => "?").join(",")})`).all(...runIds);
   if (effectiveStatus !== "ACTIVE" && runMetadata.some((run) => run.task_id != null)) {
     throw new Error("task-linked runs must use task submit or task release; lock release may only keep them ACTIVE");
@@ -2707,6 +3208,13 @@ function releaseFileLock(db3, params) {
       db3.prepare(`DELETE FROM locks WHERE lock_id IN (${lockIds.map(() => "?").join(",")})`).run(...lockIds);
     }
     for (const tid of runIds) {
+      const metadata = runMetadata.find((run) => run.run_id === tid);
+      if (effectiveStatus !== "ACTIVE" && metadata?.origin !== "TASK") {
+        const releasedFiles = locks.filter((lock) => lock.run_id === tid).map((lock) => lock.file_path);
+        const fileClause = releasedFiles.length > 0 ? ` AND file_path IN (${releasedFiles.map(() => "?").join(",")})` : "";
+        db3.prepare(`UPDATE run_files SET heartbeat_at = ?, expires_at = ?, ended_at = ?
+          WHERE run_id = ? AND ended_at IS NULL${fileClause}`).run(now, now, now, tid, ...releasedFiles);
+      }
       const remaining = db3.prepare("SELECT 1 FROM locks WHERE run_id = ? LIMIT 1").get(tid);
       if (!remaining) {
         const updated = db3.prepare(
@@ -2719,7 +3227,7 @@ function releaseFileLock(db3, params) {
             db3.prepare(
               `INSERT INTO run_log(event_id, run_id, agent_id, event_type, message, created_at)
                VALUES (?, ?, ?, 'VERIFIED', ?, ?)`
-            ).run("evt_" + randomUUID4().replace(/-/g, ""), tid, agentId2, verifiedNote, now);
+            ).run("evt_" + randomUUID5().replace(/-/g, ""), tid, agentId2, verifiedNote, now);
           } catch {
           }
         }
@@ -2745,10 +3253,10 @@ function releaseFileLock(db3, params) {
 }
 
 // src/plans.ts
-import { randomUUID as randomUUID5 } from "node:crypto";
+import { randomUUID as randomUUID6 } from "node:crypto";
 import { existsSync as existsSync2, mkdirSync as mkdirSync2, rmSync, writeFileSync } from "node:fs";
-import { isAbsolute as isAbsolute2, join as join4, relative, resolve as resolve6 } from "node:path";
-function required(value, field) {
+import { isAbsolute as isAbsolute3, join as join4, relative, resolve as resolve7 } from "node:path";
+function required2(value, field) {
   const normalized = value.trim();
   if (!normalized) throw new Error(`${field} is required`);
   return normalized;
@@ -2782,12 +3290,12 @@ function rowToPlan(row) {
   return row;
 }
 function createPlan(db3, params) {
-  const name = required(params.name, "plan name");
-  const objective = required(params.objective, "plan objective");
-  const leadAgentId = required(params.leadAgentId, "lead agent id");
-  const workspacePath = normalizeWorkspacePath(params.workspacePath, params.workspacePath) ?? resolve6(params.workspacePath);
+  const name = required2(params.name, "plan name");
+  const objective = required2(params.objective, "plan objective");
+  const leadAgentId = required2(params.leadAgentId, "lead agent id");
+  const workspacePath = normalizeWorkspacePath(params.workspacePath, params.workspacePath) ?? resolve7(params.workspacePath);
   const now = utcNow();
-  const planId = `plan_${randomUUID5().replace(/-/g, "")}`;
+  const planId = `plan_${randomUUID6().replace(/-/g, "")}`;
   const docDir = `.octocode/plan/${planTimestamp(now)}-${slugify(name)}`;
   const absoluteDir = join4(workspacePath, docDir);
   if (existsSync2(absoluteDir)) {
@@ -2798,7 +3306,7 @@ function createPlan(db3, params) {
     name,
     objective,
     lead_agent_id: leadAgentId,
-    status: "DRAFT",
+    status: "ACTIVE",
     workspace_path: workspacePath,
     artifact: normalizeArtifact(params.artifact),
     doc_dir: docDir,
@@ -2822,7 +3330,7 @@ function createPlan(db3, params) {
     try {
       db3.prepare(`INSERT INTO plans
         (plan_id, name, objective, lead_agent_id, status, workspace_path, artifact, doc_dir, created_at, updated_at)
-        VALUES (?, ?, ?, ?, 'DRAFT', ?, ?, ?, ?, ?)`).run(planId, name, objective, leadAgentId, workspacePath, plan.artifact, docDir, now, now);
+        VALUES (?, ?, ?, ?, 'ACTIVE', ?, ?, ?, ?, ?)`).run(planId, name, objective, leadAgentId, workspacePath, plan.artifact, docDir, now, now);
       db3.prepare(`INSERT INTO plan_members(plan_id, agent_id, role, joined_at)
         VALUES (?, ?, 'LEAD', ?)`).run(planId, leadAgentId, now);
       db3.prepare(`INSERT INTO plan_docs(plan_id, relative_path, title, kind, ordinal)
@@ -2857,7 +3365,7 @@ function listPlans(db3, params = {}) {
   const binds = [];
   if (params.workspacePath) {
     where.push("workspace_path = ?");
-    binds.push(normalizeWorkspacePath(params.workspacePath, params.workspacePath) ?? resolve6(params.workspacePath));
+    binds.push(normalizeWorkspacePath(params.workspacePath, params.workspacePath) ?? resolve7(params.workspacePath));
   }
   const artifact2 = normalizeArtifact(params.artifact);
   if (artifact2) {
@@ -2868,12 +3376,33 @@ function listPlans(db3, params = {}) {
     where.push("status = ?");
     binds.push(params.status);
   }
+  const limit = params.limit == null ? null : Math.max(1, Math.floor(params.limit));
+  const limitSql = limit == null ? "" : "LIMIT ?";
+  const queryBinds = limit == null ? binds : [...binds, limit];
   return db3.prepare(
-    `SELECT * FROM plans WHERE ${where.join(" AND ")} ORDER BY updated_at DESC, plan_id`
-  ).all(...binds).map((row) => rowToPlan(row));
+    `SELECT * FROM plans WHERE ${where.join(" AND ")} ORDER BY updated_at DESC, plan_id ${limitSql}`
+  ).all(...queryBinds).map((row) => rowToPlan(row));
+}
+function countPlans(db3, params = {}) {
+  const where = ["1 = 1"];
+  const binds = [];
+  if (params.workspacePath) {
+    where.push("workspace_path = ?");
+    binds.push(normalizeWorkspacePath(params.workspacePath, params.workspacePath) ?? resolve7(params.workspacePath));
+  }
+  const artifact2 = normalizeArtifact(params.artifact);
+  if (artifact2) {
+    where.push("(artifact = ? OR artifact IS NULL)");
+    binds.push(artifact2);
+  }
+  if (params.status) {
+    where.push("status = ?");
+    binds.push(params.status);
+  }
+  return db3.prepare(`SELECT COUNT(*) AS count FROM plans WHERE ${where.join(" AND ")}`).get(...binds).count;
 }
 function joinPlan(db3, params) {
-  const agentId2 = required(params.agentId, "agent id");
+  const agentId2 = required2(params.agentId, "agent id");
   if (!getPlan(db3, params.planId)) throw new Error(`plan not found: ${params.planId}`);
   const now = utcNow();
   db3.prepare(`INSERT INTO plan_members(plan_id, agent_id, role, joined_at)
@@ -2886,14 +3415,14 @@ function joinPlan(db3, params) {
 function registerPlanDocument(db3, params) {
   const plan = getPlan(db3, params.planId);
   if (!plan) throw new Error(`plan not found: ${params.planId}`);
-  const member = db3.prepare("SELECT 1 FROM plan_members WHERE plan_id = ? AND agent_id = ?").get(params.planId, required(params.agentId, "agent id"));
+  const member = db3.prepare("SELECT 1 FROM plan_members WHERE plan_id = ? AND agent_id = ?").get(params.planId, required2(params.agentId, "agent id"));
   if (!member) throw new Error(`agent ${params.agentId} must join plan ${params.planId} before registering docs`);
-  const relativePath = required(params.relativePath, "document path").replace(/\\/g, "/");
-  if (isAbsolute2(relativePath)) throw new Error("plan document path must be relative to the plan folder");
-  const planDir = resolve6(plan.workspace_path, plan.doc_dir);
-  const absolutePath = resolve6(planDir, relativePath);
+  const relativePath = required2(params.relativePath, "document path").replace(/\\/g, "/");
+  if (isAbsolute3(relativePath)) throw new Error("plan document path must be relative to the plan folder");
+  const planDir = resolve7(plan.workspace_path, plan.doc_dir);
+  const absolutePath = resolve7(planDir, relativePath);
   const withinPlan = relative(planDir, absolutePath);
-  if (!withinPlan || withinPlan === ".." || withinPlan.startsWith("../") || isAbsolute2(withinPlan)) {
+  if (!withinPlan || withinPlan === ".." || withinPlan.startsWith("../") || isAbsolute3(withinPlan)) {
     throw new Error("plan document path must stay inside the plan folder");
   }
   if (!existsSync2(absolutePath)) throw new Error(`plan document does not exist: ${relativePath}`);
@@ -2902,7 +3431,7 @@ function registerPlanDocument(db3, params) {
   ).get(params.planId).ordinal;
   db3.prepare(`INSERT INTO plan_docs(plan_id, relative_path, title, kind, ordinal)
     VALUES (?, ?, ?, 'SUPPORTING', ?)
-    ON CONFLICT(plan_id, relative_path) DO UPDATE SET title = excluded.title`).run(params.planId, relativePath, required(params.title, "document title"), nextOrdinal);
+    ON CONFLICT(plan_id, relative_path) DO UPDATE SET title = excluded.title`).run(params.planId, relativePath, required2(params.title, "document title"), nextOrdinal);
   return db3.prepare(
     "SELECT relative_path, title, kind, ordinal FROM plan_docs WHERE plan_id = ? AND relative_path = ?"
   ).get(params.planId, relativePath);
@@ -2914,28 +3443,55 @@ function updatePlanStatus(db3, params) {
     throw new Error(`only lead agent ${plan.lead_agent_id} can change plan status`);
   }
   const now = utcNow();
-  db3.prepare("UPDATE plans SET status = ?, updated_at = ? WHERE plan_id = ?").run(params.status, now, params.planId);
+  db3.exec("BEGIN IMMEDIATE");
+  try {
+    if (params.status === "COMPLETED") {
+      const unfinished = db3.prepare(`SELECT COUNT(*) AS count FROM tasks
+        WHERE plan_id = ? AND status NOT IN ('DONE', 'CANCELLED')`).get(params.planId);
+      if (unfinished.count > 0) {
+        throw new Error(`cannot complete plan ${params.planId} with ${unfinished.count} unfinished task(s)`);
+      }
+    }
+    if (params.status === "CANCELLED") {
+      const active = db3.prepare(`SELECT COUNT(*) AS count FROM task_claims c
+        JOIN tasks t ON t.task_id = c.task_id
+        WHERE t.plan_id = ? AND c.expires_at > ?`).get(params.planId, now);
+      if (active.count > 0) {
+        throw new Error(`cannot cancel plan ${params.planId} with ${active.count} active task run(s)`);
+      }
+      db3.prepare(`UPDATE tasks SET status = 'CANCELLED', completed_at = ?, updated_at = ?
+        WHERE plan_id = ? AND status IN ('OPEN', 'BLOCKED', 'VERIFY')`).run(now, now, params.planId);
+    }
+    db3.prepare("UPDATE plans SET status = ?, updated_at = ? WHERE plan_id = ?").run(params.status, now, params.planId);
+    db3.exec("COMMIT");
+  } catch (error) {
+    try {
+      db3.exec("ROLLBACK");
+    } catch {
+    }
+    throw error;
+  }
   return getPlan(db3, params.planId);
 }
 
 // src/tasks.ts
-import { randomUUID as randomUUID6 } from "node:crypto";
-import { isAbsolute as isAbsolute3, relative as relative2, resolve as resolve7, sep } from "node:path";
+import { randomUUID as randomUUID7 } from "node:crypto";
+import { isAbsolute as isAbsolute4, relative as relative2, resolve as resolve8, sep } from "node:path";
 var DEFAULT_CLAIM_LEASE_MS = 30 * 6e4;
 var MAX_CLAIM_LEASE_MS = 60 * 6e4;
-function required2(value, field) {
+function required3(value, field) {
   const normalized = value.trim();
   if (!normalized) throw new Error(`${field} is required`);
   return normalized;
 }
 function normalizeTaskPaths(workspacePath, paths) {
   if (paths.length === 0) throw new Error("at least one task path is required");
-  const root = resolve7(workspacePath);
+  const root = resolve8(workspacePath);
   const normalized = paths.map((input) => {
-    const value = required2(input, "task path");
-    const absolute = isAbsolute3(value) ? resolve7(value) : resolve7(root, value);
+    const value = required3(input, "task path");
+    const absolute = isAbsolute4(value) ? resolve8(value) : resolve8(root, value);
     const rel = relative2(root, absolute);
-    if (!rel || rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute3(rel)) {
+    if (!rel || rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute4(rel)) {
       throw new Error(`task path must be workspace-relative and below the workspace: ${input}`);
     }
     return rel.split(sep).join("/");
@@ -2944,7 +3500,7 @@ function normalizeTaskPaths(workspacePath, paths) {
 }
 function event(db3, taskId, runId, agentId2, eventType, message, now = utcNow()) {
   db3.prepare(`INSERT INTO task_events(event_id, task_id, run_id, agent_id, event_type, message, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?)`).run(`tevt_${randomUUID6().replace(/-/g, "")}`, taskId, runId, agentId2, eventType, message, now);
+    VALUES (?, ?, ?, ?, ?, ?, ?)`).run(`tevt_${randomUUID7().replace(/-/g, "")}`, taskId, runId, agentId2, eventType, message, now);
 }
 function evictExpiredTaskClaims(db3, now = utcNow()) {
   const expired = db3.prepare(
@@ -2955,6 +3511,8 @@ function evictExpiredTaskClaims(db3, now = utcNow()) {
   try {
     for (const claim of expired) {
       db3.prepare("DELETE FROM locks WHERE run_id = ?").run(claim.run_id);
+      db3.prepare(`UPDATE run_files SET heartbeat_at = ?, expires_at = ?, ended_at = ?
+        WHERE run_id = ? AND ended_at IS NULL`).run(now, now, now, claim.run_id);
       db3.prepare("UPDATE task_runs SET status = 'FAILED', updated_at = ? WHERE run_id = ? AND status = 'ACTIVE'").run(now, claim.run_id);
       db3.prepare("UPDATE tasks SET status = 'OPEN', updated_at = ? WHERE task_id = ? AND status = 'IN_PROGRESS'").run(now, claim.task_id);
       db3.prepare("DELETE FROM task_claims WHERE task_id = ?").run(claim.task_id);
@@ -2989,7 +3547,7 @@ function getTask(db3, taskId) {
 }
 function activeTaskClaimForAgent(db3, params) {
   evictExpiredTaskClaims(db3);
-  const workspacePath = normalizeWorkspacePath(params.workspacePath, params.workspacePath) ?? resolve7(params.workspacePath);
+  const workspacePath = normalizeWorkspacePath(params.workspacePath, params.workspacePath) ?? resolve8(params.workspacePath);
   const where = ["c.agent_id = ?", "p.workspace_path = ?", "c.expires_at > ?"];
   const binds = [params.agentId, workspacePath, utcNow()];
   if (params.artifact) {
@@ -3008,12 +3566,12 @@ function createTask(db3, params) {
   if (["COMPLETED", "CANCELLED"].includes(plan.status)) {
     throw new Error(`cannot add tasks to ${plan.status.toLowerCase()} plan ${params.planId}`);
   }
-  const title = required2(params.title, "task title");
-  const reasoning = required2(params.reasoning, "task reasoning");
-  const createdBy = required2(params.createdBy, "task creator");
-  const acceptance = params.acceptanceCriteria?.trim() || "Complete the described work and verify affected behavior.";
+  const title = required3(params.title, "task title");
+  const reasoning = required3(params.reasoning, "task reasoning");
+  const createdBy = required3(params.createdBy, "task creator");
+  const acceptance = required3(params.acceptanceCriteria, "task acceptance criteria");
   const paths = normalizeTaskPaths(plan.workspace_path, params.paths);
-  const taskId = `task_${randomUUID6().replace(/-/g, "")}`;
+  const taskId = `task_${randomUUID7().replace(/-/g, "")}`;
   const now = utcNow();
   db3.exec("BEGIN IMMEDIATE");
   try {
@@ -3068,35 +3626,73 @@ function listTasks(db3, params = {}) {
     where.push("EXISTS (SELECT 1 FROM task_claims c WHERE c.task_id = t.task_id AND c.agent_id = ?)");
     binds.push(params.agentId);
   }
+  const limit = params.limit == null ? null : Math.max(1, Math.floor(params.limit));
+  const limitSql = limit == null ? "" : "LIMIT ?";
+  const queryBinds = limit == null ? binds : [...binds, limit];
   return db3.prepare(`SELECT t.* FROM tasks t WHERE ${where.join(" AND ")}
-    ORDER BY t.priority DESC, t.created_at, t.task_id`).all(...binds).map((row) => hydrateTask(db3, row));
+    ORDER BY t.priority DESC, t.created_at, t.task_id ${limitSql}`).all(...queryBinds).map((row) => hydrateTask(db3, row));
+}
+function countTasks(db3, params = {}) {
+  evictExpiredTaskClaims(db3);
+  const where = ["1 = 1"];
+  const binds = [];
+  if (params.planId) {
+    where.push("t.plan_id = ?");
+    binds.push(params.planId);
+  }
+  if (params.status) {
+    where.push("t.status = ?");
+    binds.push(params.status);
+  }
+  if (params.agentId) {
+    where.push("EXISTS (SELECT 1 FROM task_claims c WHERE c.task_id = t.task_id AND c.agent_id = ?)");
+    binds.push(params.agentId);
+  }
+  return db3.prepare(`SELECT COUNT(*) AS count FROM tasks t WHERE ${where.join(" AND ")}`).get(...binds).count;
 }
 function listReadyTasks(db3, params = {}) {
   evictExpiredTaskClaims(db3);
   const binds = [];
   const planWhere = params.planId ? "AND t.plan_id = ?" : "";
   if (params.planId) binds.push(params.planId);
-  const rows = db3.prepare(`SELECT t.* FROM tasks t
-    WHERE t.status = 'OPEN' ${planWhere}
+  const limit = params.limit == null ? null : Math.max(1, Math.floor(params.limit));
+  const limitSql = limit == null ? "" : "LIMIT ?";
+  if (limit != null) binds.push(limit);
+  const rows = db3.prepare(`SELECT t.* FROM tasks t JOIN plans p ON p.plan_id = t.plan_id
+    WHERE t.status = 'OPEN' AND p.status = 'ACTIVE' ${planWhere}
       AND NOT EXISTS (SELECT 1 FROM task_claims c WHERE c.task_id = t.task_id)
       AND NOT EXISTS (
         SELECT 1 FROM task_dependencies td
         JOIN tasks dependency ON dependency.task_id = td.depends_on_task_id
         WHERE td.task_id = t.task_id AND dependency.status <> 'DONE'
       )
-    ORDER BY t.priority DESC, t.created_at, t.task_id`).all(...binds);
+    ORDER BY t.priority DESC, t.created_at, t.task_id ${limitSql}`).all(...binds);
   return rows.map((row) => hydrateTask(db3, row));
 }
+function countReadyTasks(db3, params = {}) {
+  evictExpiredTaskClaims(db3);
+  const binds = [];
+  const planWhere = params.planId ? "AND t.plan_id = ?" : "";
+  if (params.planId) binds.push(params.planId);
+  return db3.prepare(`SELECT COUNT(*) AS count FROM tasks t JOIN plans p ON p.plan_id = t.plan_id
+    WHERE t.status = 'OPEN' AND p.status = 'ACTIVE' ${planWhere}
+      AND NOT EXISTS (SELECT 1 FROM task_claims c WHERE c.task_id = t.task_id)
+      AND NOT EXISTS (
+        SELECT 1 FROM task_dependencies td
+        JOIN tasks dependency ON dependency.task_id = td.depends_on_task_id
+        WHERE td.task_id = t.task_id AND dependency.status <> 'DONE'
+      )`).get(...binds).count;
+}
 function claimTask(db3, params) {
-  const agentId2 = required2(params.agentId, "agent id");
+  const agentId2 = required3(params.agentId, "agent id");
   const now = utcNow();
   const leaseMs = Math.min(Math.max(1, params.leaseMs ?? DEFAULT_CLAIM_LEASE_MS), MAX_CLAIM_LEASE_MS);
   const expiresAt = new Date(Date.parse(now) + leaseMs).toISOString().replace(/\.\d{3}Z$/, "Z");
-  const runId = `run_${randomUUID6().replace(/-/g, "")}`;
+  const runId = `run_${randomUUID7().replace(/-/g, "")}`;
   db3.exec("BEGIN IMMEDIATE");
   try {
     evictExpiredTaskClaims(db3, now);
-    const row = db3.prepare(`SELECT t.*, p.workspace_path, p.artifact
+    const row = db3.prepare(`SELECT t.*, p.workspace_path, p.artifact, p.status AS plan_status
       FROM tasks t JOIN plans p ON p.plan_id = t.plan_id WHERE t.task_id = ?`).get(params.taskId);
     if (!row) {
       db3.exec("ROLLBACK");
@@ -3106,6 +3702,10 @@ function claimTask(db3, params) {
     if (existing) {
       db3.exec("ROLLBACK");
       return { ok: false, error: `task is already claimed by ${existing.agent_id}`, task_id: params.taskId };
+    }
+    if (row["plan_status"] !== "ACTIVE") {
+      db3.exec("ROLLBACK");
+      return { ok: false, error: `task plan is not ACTIVE: status=${String(row["plan_status"])}`, task_id: params.taskId };
     }
     if (row["status"] !== "OPEN") {
       db3.exec("ROLLBACK");
@@ -3128,8 +3728,8 @@ function claimTask(db3, params) {
         VALUES (?, ?, ?, ?, ?)`).run(params.sessionId, agentId2, workspacePath, artifact2, now);
     }
     db3.prepare(`INSERT INTO task_runs
-      (run_id, task_id, agent_id, session_id, rationale, test_plan, status, workspace_path, artifact, files_json, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, 'ACTIVE', ?, ?, ?, ?, ?)`).run(
+      (run_id, task_id, origin, agent_id, session_id, rationale, test_plan, status, workspace_path, artifact, created_at, updated_at)
+      VALUES (?, ?, 'TASK', ?, ?, ?, ?, 'ACTIVE', ?, ?, ?, ?)`).run(
       runId,
       params.taskId,
       agentId2,
@@ -3138,7 +3738,6 @@ function claimTask(db3, params) {
       params.testPlan?.trim() || acceptanceCriteria,
       workspacePath,
       artifact2,
-      "[]",
       now,
       now
     );
@@ -3183,6 +3782,8 @@ function submitTask(db3, params) {
       throw new Error("only the active claimant can submit this task");
     }
     db3.prepare("DELETE FROM locks WHERE run_id = ?").run(params.runId);
+    db3.prepare(`UPDATE run_files SET heartbeat_at = ?, expires_at = ?, ended_at = ?
+      WHERE run_id = ? AND ended_at IS NULL`).run(now, now, now, params.runId);
     db3.prepare("UPDATE task_runs SET status = 'PENDING', updated_at = ? WHERE run_id = ? AND status = 'ACTIVE'").run(now, params.runId);
     db3.prepare("UPDATE tasks SET status = 'VERIFY', updated_at = ? WHERE task_id = ?").run(now, params.taskId);
     db3.prepare("DELETE FROM task_claims WHERE task_id = ?").run(params.taskId);
@@ -3215,6 +3816,8 @@ function releaseTaskClaim(db3, params) {
       throw new Error("only the active claimant can release this task");
     }
     db3.prepare("DELETE FROM locks WHERE run_id = ?").run(params.runId);
+    db3.prepare(`UPDATE run_files SET heartbeat_at = ?, expires_at = ?, ended_at = ?
+      WHERE run_id = ? AND ended_at IS NULL`).run(now, now, now, params.runId);
     db3.prepare("UPDATE task_runs SET status = 'FAILED', updated_at = ? WHERE run_id = ? AND status = 'ACTIVE'").run(now, params.runId);
     db3.prepare("UPDATE tasks SET status = ?, updated_at = ? WHERE task_id = ?").run(blockedReason ? "BLOCKED" : "OPEN", now, params.taskId);
     db3.prepare("DELETE FROM task_claims WHERE task_id = ?").run(params.taskId);
@@ -3231,7 +3834,7 @@ function releaseTaskClaim(db3, params) {
 }
 
 // src/reflect.ts
-import { resolve as resolve8 } from "node:path";
+import { resolve as resolve9 } from "node:path";
 var NEXT_MSG = [
   "Next: inspect created fixes with octocode-awareness refinement get --state open.",
   "After applying and verifying a fix, close it with octocode-awareness refinement set --refinement-id <id> --state done.",
@@ -3240,7 +3843,7 @@ var NEXT_MSG = [
 function normalizeScopePaths(paths = [], prefix, baseCwd) {
   const base = baseCwd ?? process.cwd();
   return [...new Set(paths.filter(Boolean).map((p) => {
-    const abs = p.startsWith("/") ? p : resolve8(base, p);
+    const abs = p.startsWith("/") ? p : resolve9(base, p);
     return `${prefix}:${abs}`;
   }))];
 }
@@ -3272,9 +3875,7 @@ function reflect(db3, params) {
     ref: refArg,
     cwd
   } = params;
-  const resolvedOutcome = normalizeReflectionOutcome(outcome, {
-    coerce: Boolean(params.compatCoerce)
-  });
+  const resolvedOutcome = normalizeReflectionOutcome(outcome);
   const bits = [`[reflection:${resolvedOutcome}] ${task}`];
   if (worked) bits.push(`worked: ${worked}`);
   if (didntWork) bits.push(`didn't work: ${didntWork}`);
@@ -3294,8 +3895,9 @@ function reflect(db3, params) {
     ...fixInstructions ? ["instructions", "developer-review"] : [],
     ...hasEvalFailures ? ["eval"] : []
   ];
-  const failSig = failSigArg ?? evalFailures.find((f) => f.failure_signature)?.failure_signature ?? null;
-  const sig = failSig ?? (resolvedOutcome === "failed" && fixHarness ? "harness:reflection|outcome:failed" : null);
+  const fallbackSig = resolvedOutcome === "failed" && fixHarness ? "harness:reflection|outcome:failed" : null;
+  const sig = hasEvalFailures ? null : failSigArg ?? fallbackSig;
+  const evalFallbackSig = failSigArg ?? fallbackSig;
   const scope = fillScope(
     { workspace_path: workspacePath ?? null, artifact: normalizeArtifact(artifact2), repo: repoArg ?? null, ref: refArg ?? null },
     cwd ?? process.cwd()
@@ -3335,7 +3937,7 @@ function reflect(db3, params) {
       importance,
       label: "EXPERIENCE",
       tags: ["reflection", "eval", resolvedOutcome],
-      failureSignature: failure.failure_signature ?? sig,
+      failureSignature: failure.failure_signature ?? evalFallbackSig,
       workspacePath: scope.workspace_path,
       artifact: scope.artifact,
       repo: scope.repo,
@@ -3433,11 +4035,11 @@ function reflect(db3, params) {
 
 // src/maintenance.ts
 import { spawnSync as spawnSync3 } from "node:child_process";
-import { randomUUID as randomUUID8 } from "node:crypto";
-import { isAbsolute as isAbsolute4, resolve as resolve9 } from "node:path";
+import { createHash as createHash2, randomUUID as randomUUID9 } from "node:crypto";
+import { isAbsolute as isAbsolute5, resolve as resolve10 } from "node:path";
 
 // src/notifications.ts
-import { randomUUID as randomUUID7 } from "node:crypto";
+import { randomUUID as randomUUID8 } from "node:crypto";
 
 // src/sql/runs.ts
 var RUNS_SELECT_PENDING_IDS = `SELECT run_id FROM task_runs WHERE status = 'PENDING' AND agent_id = ? {DYNAMIC_WHERE}`;
@@ -3450,7 +4052,7 @@ var RUN_LOG_INSERT_VERIFIED = `INSERT INTO run_log(event_id, run_id, agent_id, e
 var RUN_LOG_INSERT_ABANDONED = `INSERT INTO run_log(event_id, run_id, agent_id, event_type, message, created_at)
    VALUES (?, ?, ?, 'ABANDONED', 'orphaned by audit-unverified --abandon', ?)`;
 var RUN_LOG_INSERT_STALE_ABANDONED = `INSERT INTO run_log(event_id, run_id, agent_id, event_type, message, created_at)
-   VALUES (?, ?, ?, 'ABANDONED', 'stale active (no live locks) abandoned by audit-unverified --abandon', ?)`;
+   VALUES (?, ?, ?, 'ABANDONED', 'stale active (no live file presence) abandoned by audit-unverified --abandon', ?)`;
 
 // src/sql/sessions.ts
 var SESSIONS_UPDATE_END = `UPDATE sessions SET ended_at = ?, summary = ? WHERE session_id = ? RETURNING *`;
@@ -3518,15 +4120,17 @@ function insertNotification(db3, params) {
     refIds = [],
     inReplyTo = null,
     importance = 5,
-    cwd,
-    compatCoerce = false
+    cwd
   } = params;
-  const normalizedKind = normalizeNotificationKind(kind, { coerce: Boolean(compatCoerce) });
+  const normalizedKind = normalizeNotificationKind(kind);
+  if (!Number.isInteger(importance) || importance < 1 || importance > 10) {
+    throw new Error(`importance must be an integer between 1 and 10, got ${String(importance)}`);
+  }
   const scope = fillScope(
     { workspace_path: params.workspacePath ?? null, artifact: normalizeArtifact(params.artifact), repo: params.repo ?? null, ref: params.ref ?? null },
     cwd ?? process.cwd()
   );
-  const signalId = "ntf_" + randomUUID7().replace(/-/g, "");
+  const signalId = "ntf_" + randomUUID8().replace(/-/g, "");
   const createdAt = utcNow();
   const wsPath = scope.workspace_path ?? process.cwd();
   let threadId;
@@ -3582,6 +4186,7 @@ function getNotifications(db3, params) {
   const {
     agentId: agentId2,
     kinds = [],
+    signalIds = [],
     threadId = null,
     unreadOnly = true,
     markRead = false,
@@ -3616,6 +4221,10 @@ function getNotifications(db3, params) {
     where.push(`n.kind IN (${kinds.map(() => "?").join(",")})`);
     binds.push(...kinds);
   }
+  if (signalIds.length > 0) {
+    where.push(`n.signal_id IN (${signalIds.map(() => "?").join(",")})`);
+    binds.push(...signalIds);
+  }
   const whereClause = where.length > 0 ? `WHERE ${where.join(" AND ")}` : "";
   const joinClause = unreadOnly ? SIGNALS_SELECT_LEFT_JOIN_READS : "";
   const allBinds = unreadOnly ? [agentId2, ...binds] : binds;
@@ -3625,7 +4234,8 @@ function getNotifications(db3, params) {
     ${whereClause}
     ${SIGNALS_SELECT_ORDER_LIMIT}
   `;
-  const rows = db3.prepare(sql).all(...allBinds, limit);
+  const boundedLimit = Math.min(200, Math.max(1, Math.floor(Number.isFinite(limit) ? limit : 20)));
+  const rows = db3.prepare(sql).all(...allBinds, boundedLimit);
   const signals = rows.map(rowToNotification);
   if (markRead && signals.length > 0) {
     const now = utcNow();
@@ -3733,8 +4343,7 @@ function agentSignal(db3, params) {
         refIds: params.refs ?? [],
         inReplyTo: params.inReplyTo ?? null,
         importance: params.importance ?? 5,
-        cwd: params.cwd,
-        compatCoerce: params.compatCoerce
+        cwd: params.cwd
       }));
       return {
         action: params.action,
@@ -3753,6 +4362,7 @@ function agentSignal(db3, params) {
         repo: params.repo,
         ref: params.ref,
         kinds: params.kinds ?? [],
+        signalIds: params.signalIds ?? [],
         threadId: params.threadId ?? null,
         unreadOnly: params.unreadOnly ?? true,
         markRead: params.markRead ?? false,
@@ -3832,11 +4442,11 @@ function pruneNotifications(db3, params) {
 }
 
 // src/maintenance.ts
-var SESSION_CAPTURE_FILE_LIMIT = 40;
-var SESSION_CAPTURE_VISIBLE_FILE_LIMIT = 20;
-var SESSION_CAPTURE_RUN_DETAIL_LIMIT = 8;
-var SESSION_CAPTURE_RUN_FILE_LIMIT = 8;
-var SESSION_CAPTURE_TEXT_LIMIT = 180;
+var SESSION_CAPTURE_FILE_LIMIT = 20;
+var SESSION_CAPTURE_VISIBLE_FILE_LIMIT = 10;
+var SESSION_CAPTURE_RUN_DETAIL_LIMIT = 3;
+var SESSION_CAPTURE_RUN_FILE_LIMIT = 3;
+var SESSION_CAPTURE_TEXT_LIMIT = 120;
 var MAX_WAIT_MS = 36e5;
 var MAX_RETRY_MS = 3e5;
 var DEFAULT_WAIT_MS = 6e4;
@@ -3867,8 +4477,8 @@ function pruneStale(db3, params = {}) {
   const artifact2 = normalizeArtifact(params.artifact);
   const rawTarget = params.target_file ?? params.targetFile;
   const targetFiles = (Array.isArray(rawTarget) ? rawTarget : rawTarget != null ? [rawTarget] : []).map(String).filter(Boolean).map((file) => {
-    const base = rawWorkspacePath ? resolve9(rawWorkspacePath) : process.cwd();
-    return isAbsolute4(file) ? resolve9(file) : resolve9(base, file);
+    const base = rawWorkspacePath ? resolve10(rawWorkspacePath) : process.cwd();
+    return canonicalizePath(isAbsolute5(file) ? resolve10(file) : resolve10(base, file));
   });
   const now = utcNow();
   const ageCutoff = olderThanMinutes != null && !expiredOnly ? new Date(Date.now() - olderThanMinutes * 6e4).toISOString() : null;
@@ -3882,14 +4492,13 @@ function pruneStale(db3, params = {}) {
   }
   conditions.push(`(${staleClauses.join(" OR ")})`);
   if (agentId2) {
-    conditions.push("l.agent_id = ?");
+    conditions.push("t.agent_id = ?");
     binds.push(agentId2);
   }
   if (targetFiles.length > 0) {
     conditions.push(`l.file_path IN (${targetFiles.map(() => "?").join(",")})`);
     binds.push(...targetFiles);
   }
-  const scopedByTask = Boolean(workspacePath || artifact2);
   if (workspacePath) {
     conditions.push("t.workspace_path = ?");
     binds.push(workspacePath);
@@ -3899,7 +4508,7 @@ function pruneStale(db3, params = {}) {
     binds.push(artifact2);
   }
   const where = conditions.join(" AND ");
-  const from = scopedByTask ? "locks l JOIN task_runs t ON t.run_id = l.run_id" : "locks l";
+  const from = "locks l JOIN task_runs t ON t.run_id = l.run_id";
   let staleLocks = [];
   try {
     staleLocks = db3.prepare(
@@ -3908,42 +4517,34 @@ function pruneStale(db3, params = {}) {
   } catch {
   }
   if (dryRun) {
-    return { pruned_locks: 0, updated_runs: 0, dry_run: true, would_prune: staleLocks.length };
+    return { pruned_locks: 0, dry_run: true, would_prune: staleLocks.length };
   }
   if (staleLocks.length === 0) {
-    return { pruned_locks: 0, updated_runs: 0 };
+    return { pruned_locks: 0 };
   }
-  let updatedRuns = 0;
-  db3.exec("BEGIN IMMEDIATE");
+  const ownsTransaction = !db3.isTransaction;
+  if (ownsTransaction) db3.exec("BEGIN IMMEDIATE");
   try {
     staleLocks = db3.prepare(
       `SELECT l.lock_id, l.run_id FROM ${from} WHERE ${where}`
     ).all(...binds);
     if (staleLocks.length === 0) {
-      db3.exec("COMMIT");
-      return { pruned_locks: 0, updated_runs: 0 };
+      if (ownsTransaction) db3.exec("COMMIT");
+      return { pruned_locks: 0 };
     }
-    const affectedRunIds = [...new Set(staleLocks.map((l) => l.run_id))];
     const ph = staleLocks.map(() => "?").join(",");
     db3.prepare(`DELETE FROM locks WHERE lock_id IN (${ph})`).run(...staleLocks.map((l) => l.lock_id));
-    for (const tid of affectedRunIds) {
-      const remaining = db3.prepare("SELECT 1 FROM locks WHERE run_id = ? LIMIT 1").get(tid);
-      if (!remaining) {
-        const r = db3.prepare(
-          "UPDATE task_runs SET status = 'PENDING', updated_at = ? WHERE run_id = ? AND status = 'ACTIVE'"
-        ).run(now, tid);
-        if (r.changes) updatedRuns++;
-      }
-    }
-    db3.exec("COMMIT");
+    if (ownsTransaction) db3.exec("COMMIT");
   } catch (e) {
-    try {
-      db3.exec("ROLLBACK");
-    } catch {
+    if (ownsTransaction) {
+      try {
+        db3.exec("ROLLBACK");
+      } catch {
+      }
     }
     throw e;
   }
-  return { pruned_locks: staleLocks.length, updated_runs: updatedRuns };
+  return { pruned_locks: staleLocks.length };
 }
 function openRefinementCount(db3, params = {}) {
   const scope = fillScope(
@@ -3991,7 +4592,8 @@ function notifyGet(db3, params = {}) {
     });
     for (const n of inbox.signals) {
       const target = n.to_agent ? `to ${n.to_agent}` : "broadcast";
-      const fileSuffix = n.files.length > 0 ? ` files=${n.files.join(", ")}` : "";
+      const shownFiles = n.files.slice(0, 3);
+      const fileSuffix = shownFiles.length > 0 ? ` files=${shownFiles.join(", ")}${n.files.length > shownFiles.length ? ` (+${n.files.length - shownFiles.length})` : ""}` : "";
       const bodySuffix = n.body ? ` \u2014 ${n.body.slice(0, 120)}` : "";
       items.push({
         kind: "notification",
@@ -4101,11 +4703,38 @@ function notifyGet(db3, params = {}) {
     notifications: items
   };
   if (format === "hook") {
+    const hookItems = items.slice(0, 5);
+    result.count = hookItems.length;
+    result.notifications = hookItems;
     const lines = [
-      `\u{1F9E0} Memory brief (${items.length}):`,
-      ...items.map((i) => `  \u2022 ${i.text}`)
+      `\u{1F9E0} Brief (${hookItems.length}${items.length > hookItems.length ? `/${items.length}` : ""}):`,
+      ...hookItems.map((i) => `  \u2022 ${i.text}`)
     ];
-    result.additionalContext = lines.join("\n");
+    const additionalContext = lines.join("\n");
+    const sessionId2 = String(params.session_id ?? params.sessionId ?? "-");
+    const normalizedScope = fillScope(
+      {
+        workspace_path: wsPath,
+        artifact: artifact2,
+        repo: params.repo ?? null,
+        ref: params.ref ?? null
+      },
+      notifyCwd
+    );
+    const scopeKey = JSON.stringify([
+      sessionId2,
+      normalizedScope.workspace_path,
+      normalizedScope.artifact,
+      normalizedScope.repo,
+      normalizedScope.ref
+    ]);
+    const fingerprint = createHash2("sha256").update(additionalContext).digest("hex");
+    const delivery = { consumerId: agentId2, channel: "briefing", scopeKey };
+    if (getDeliveryFingerprint(db3, delivery) === fingerprint) {
+      return { ok: true, count: 0, notifications: [] };
+    }
+    setDeliveryFingerprint(db3, { ...delivery, fingerprint });
+    result.additionalContext = additionalContext;
   }
   return result;
 }
@@ -4141,7 +4770,7 @@ function sessionCapture(db3, params = {}) {
   const agentId2 = String(params.agent_id ?? params.agentId ?? "agent");
   const reason = params.reason ? String(params.reason) : null;
   const workspaceInput = params.workspace ?? params.workspace_path ?? params.workspacePath;
-  const rawWorkspacePath = typeof workspaceInput === "string" && workspaceInput.trim() ? resolve9(workspaceInput.trim()) : null;
+  const rawWorkspacePath = typeof workspaceInput === "string" && workspaceInput.trim() ? resolve10(workspaceInput.trim()) : null;
   const scope = fillScope(
     {
       workspace_path: rawWorkspacePath,
@@ -4156,9 +4785,11 @@ function sessionCapture(db3, params = {}) {
   const artifact2 = scope.artifact;
   const workspacePlaceholders = runWorkspaceCandidates.map(() => "?").join(",");
   const runRows2 = db3.prepare(
-    `SELECT run_id, rationale, test_plan, context_ref, status, files_json, created_at, updated_at
-     FROM task_runs
-     WHERE agent_id = ?
+    `SELECT tr.run_id, tr.rationale, tr.test_plan, tr.context_ref, tr.status, tr.created_at, tr.updated_at,
+            COALESCE((SELECT json_group_array(rf.file_path)
+              FROM run_files rf WHERE rf.run_id = tr.run_id), '[]') AS files_json
+     FROM task_runs tr
+     WHERE tr.agent_id = ?
        AND status IN ('ACTIVE', 'PENDING')
        AND (workspace_path IN (${workspacePlaceholders}) OR workspace_path IS NULL)
        AND (? IS NULL OR artifact = ? OR artifact IS NULL)
@@ -4200,7 +4831,7 @@ function sessionCapture(db3, params = {}) {
     };
   }
   const now = utcNow();
-  const refinementId = "ref_" + randomUUID8().replace(/-/g, "");
+  const refinementId = "ref_" + randomUUID9().replace(/-/g, "");
   const allCapturedFiles = [.../* @__PURE__ */ new Set([...files, ...dirtyFiles])];
   const capturedFiles = allCapturedFiles.slice(0, SESSION_CAPTURE_FILE_LIMIT);
   const capturedDirtyFiles = dirtyFiles.slice(0, SESSION_CAPTURE_FILE_LIMIT);
@@ -4225,6 +4856,40 @@ function sessionCapture(db3, params = {}) {
     dirtyFiles.length > 0 ? "Check dirty git state before continuing." : null,
     pendingRuns > 0 ? "Run the recorded verification before claiming completion." : null
   ].filter(Boolean).join(" ");
+  const existing = db3.prepare(
+    `SELECT refinement_id FROM refinements
+      WHERE agent_id = ? AND workspace_path = ? AND artifact IS ? AND repo IS ? AND ref IS ?
+        AND quality = 'handoff' AND state IN ('open', 'ongoing')
+        AND files_json = ? AND reasoning = ? AND remember = ?
+      ORDER BY datetime(updated_at) DESC LIMIT 1`
+  ).get(
+    agentId2,
+    workspacePath,
+    artifact2,
+    scope.repo,
+    scope.ref,
+    JSON.stringify(capturedFiles),
+    reasoning,
+    remember
+  );
+  if (existing) {
+    return {
+      ok: true,
+      captured: false,
+      deduplicated: true,
+      refinement_id: existing.refinement_id,
+      pending_runs: pendingRuns,
+      active_runs: activeRuns,
+      files: capturedFiles,
+      dirty_files: capturedDirtyFiles,
+      file_count: allCapturedFiles.length,
+      dirty_file_count: dirtyFiles.length,
+      omitted_files: Math.max(0, allCapturedFiles.length - capturedFiles.length),
+      omitted_dirty_files: Math.max(0, dirtyFiles.length - capturedDirtyFiles.length),
+      reason,
+      consolidation_opportunities: consolidationOpportunities
+    };
+  }
   db3.prepare(
     `INSERT INTO refinements (
        refinement_id, agent_id, workspace_path, repo, ref,
@@ -4267,17 +4932,13 @@ function waitForLock(db3, params = {}) {
   const artifact2 = normalizeArtifact(params.artifact);
   const waitMs = boundedMs(params.wait_ms ?? params.waitMs, DEFAULT_WAIT_MS, 0, MAX_WAIT_MS);
   const retryMs = boundedMs(params.retry_interval_ms ?? params.retryIntervalMs, DEFAULT_RETRY_MS, 1, MAX_RETRY_MS);
-  const requestedLockType = String(
-    params.requestedLockType ?? params.requested_lock_type ?? params.lockType ?? params.lock_type ?? "EXCLUSIVE"
-  ).toUpperCase();
   const start = Date.now();
   if (targetFiles.length === 0) {
     return { ok: true, waited_ms: 0, lock_free: true };
   }
-  const root = rawWorkspacePath ? resolve9(rawWorkspacePath) : process.cwd();
-  const absTargetFiles = targetFiles.map((file) => isAbsolute4(file) ? resolve9(file) : resolve9(root, file));
+  const root = rawWorkspacePath ? resolve10(rawWorkspacePath) : process.cwd();
+  const absTargetFiles = targetFiles.map((file) => canonicalizePath(isAbsolute5(file) ? resolve10(file) : resolve10(root, file)));
   const ph = absTargetFiles.map(() => "?").join(",");
-  const lockTypeFilter = requestedLockType === "EXCLUSIVE" ? "" : "AND fl.lock_type = 'EXCLUSIVE'";
   const scopeClauses = [];
   const scopeBinds = [];
   if (workspacePath) {
@@ -4295,7 +4956,6 @@ function waitForLock(db3, params = {}) {
      WHERE fl.file_path IN (${ph})
        AND ai.agent_id <> ?
        AND ai.status = 'ACTIVE'
-       ${lockTypeFilter}
        ${scopeClauses.join("\n       ")}
        AND (fl.expires_at IS NULL OR fl.expires_at > ?)`
   );
@@ -4389,39 +5049,53 @@ function digest(db3, params = {}) {
       would_prune_refinements: wouldPruneRefinements
     };
   }
-  const archiveRes = db3.prepare(
-    `UPDATE memories
-     SET state = 'SUPERSEDED', expired_at = ?, updated_at = ?
-     WHERE valid_to IS NOT NULL AND valid_to < ? AND state = 'ACTIVE'${memoryScopeSql}`
-  ).run(now, now, now, ...memoryScopeBinds);
-  const deleteRes = db3.prepare(
-    `DELETE FROM memories
-     WHERE state = 'SUPERSEDED' AND updated_at < ?${memoryScopeSql}`
-  ).run(cutoff, ...memoryScopeBinds);
-  const { pruned_locks } = pruneStale(db3, {
-    ...workspacePath ? { workspace: workspacePath } : {},
-    ...artifact2 ? { artifact: artifact2 } : {},
-    expired_only: true
-  });
-  const pruneRefinementsRes = db3.prepare(
-    `DELETE FROM refinements
-     WHERE ((quality = 'handoff' AND updated_at < ?)
-        OR (quality IN ('good','bad') AND state = 'done' AND updated_at < ?))${refinementScopeSql}`
-  ).run(handoffCutoff, doneCutoff, ...refinementScopeBinds);
+  let archiveRes = { changes: 0 };
+  let deleteRes = { changes: 0 };
+  let prunedLocks = 0;
+  let pruneRefinementsRes = { changes: 0 };
   let ftsRebuilt = false;
+  const ownsDigestTransaction = !db3.isTransaction;
+  if (ownsDigestTransaction) db3.exec("BEGIN IMMEDIATE");
   try {
+    archiveRes = db3.prepare(
+      `UPDATE memories
+       SET state = 'SUPERSEDED', expired_at = ?, updated_at = ?
+       WHERE valid_to IS NOT NULL AND valid_to < ? AND state = 'ACTIVE'${memoryScopeSql}`
+    ).run(now, now, now, ...memoryScopeBinds);
+    deleteRes = db3.prepare(
+      `DELETE FROM memories
+       WHERE state = 'SUPERSEDED' AND updated_at < ?${memoryScopeSql}`
+    ).run(cutoff, ...memoryScopeBinds);
+    prunedLocks = pruneStale(db3, {
+      ...workspacePath ? { workspace: workspacePath } : {},
+      ...artifact2 ? { artifact: artifact2 } : {},
+      expired_only: true
+    }).pruned_locks;
+    pruneRefinementsRes = db3.prepare(
+      `DELETE FROM refinements
+       WHERE ((quality = 'handoff' AND updated_at < ?)
+          OR (quality IN ('good','bad') AND state = 'done' AND updated_at < ?))${refinementScopeSql}`
+    ).run(handoffCutoff, doneCutoff, ...refinementScopeBinds);
     if (hasFts(db3)) {
       rebuildFts(db3);
       ftsRebuilt = true;
     }
-  } catch {
+    if (ownsDigestTransaction) db3.exec("COMMIT");
+  } catch (error) {
+    if (ownsDigestTransaction) {
+      try {
+        db3.exec("ROLLBACK");
+      } catch {
+      }
+    }
+    throw error;
   }
-  checkpointWal(db3);
+  if (ownsDigestTransaction) checkpointWal(db3);
   return {
     ok: true,
     archived_memories: archiveRes.changes,
     pruned_old: deleteRes.changes,
-    pruned_locks,
+    pruned_locks: prunedLocks,
     pruned_refinements: pruneRefinementsRes.changes,
     fts_rebuilt: ftsRebuilt
   };
@@ -4507,7 +5181,7 @@ function getWorkspaceStatus(db3, params = {}) {
   const lockWhere = lockWhereParts.length > 0 ? `WHERE ${lockWhereParts.join(" AND ")}` : "";
   const locks = db3.prepare(
     `SELECT fl.file_path, ai.agent_id, ai.session_id, ai.workspace_path, ai.artifact, fl.run_id,
-            fl.lock_type, fl.acquired_at, fl.expires_at
+            'EXCLUSIVE' AS lock_type, fl.acquired_at, fl.expires_at
      FROM locks fl
      JOIN task_runs ai ON ai.run_id = fl.run_id
      ${lockWhere}
@@ -4684,8 +5358,16 @@ function exportHarness(db3, params = {}) {
 }
 
 // src/verify.ts
-import { randomUUID as randomUUID9 } from "node:crypto";
+import { randomUUID as randomUUID10 } from "node:crypto";
 var VALID_VERIFY_STATUSES = /* @__PURE__ */ new Set(["SUCCESS", "FAILED"]);
+function targetFilesForRun(db3, runId) {
+  return db3.prepare("SELECT file_path FROM run_files WHERE run_id = ? ORDER BY file_path").all(runId).map((row) => String(row.file_path));
+}
+function closeRunFiles(db3, runId, now) {
+  db3.prepare("DELETE FROM locks WHERE run_id = ?").run(runId);
+  db3.prepare(`UPDATE run_files SET heartbeat_at = ?, expires_at = ?, ended_at = ?
+    WHERE run_id = ? AND ended_at IS NULL`).run(now, now, now, runId);
+}
 function finishLinkedTask(db3, runId, status, agentId2, now, message) {
   const linked = db3.prepare("SELECT task_id FROM task_runs WHERE run_id = ?").get(runId);
   if (!linked?.task_id) return;
@@ -4695,7 +5377,7 @@ function finishLinkedTask(db3, runId, status, agentId2, now, message) {
   if (updated.changes === 0) return;
   db3.prepare(`INSERT INTO task_events(event_id, task_id, run_id, agent_id, event_type, message, created_at)
     VALUES (?, ?, ?, ?, ?, ?, ?)`).run(
-    `tevt_${randomUUID9().replace(/-/g, "")}`,
+    `tevt_${randomUUID10().replace(/-/g, "")}`,
     linked.task_id,
     runId,
     agentId2,
@@ -4712,7 +5394,7 @@ function abandonLinkedTask(db3, runId, agentId2, now, message) {
   if (updated.changes === 0) return;
   db3.prepare("DELETE FROM task_claims WHERE task_id = ?").run(linked.task_id);
   db3.prepare(`INSERT INTO task_events(event_id, task_id, run_id, agent_id, event_type, message, created_at)
-    VALUES (?, ?, ?, ?, 'ABANDONED', ?, ?)`).run(`tevt_${randomUUID9().replace(/-/g, "")}`, linked.task_id, runId, agentId2, message, now);
+    VALUES (?, ?, ?, ?, 'ABANDONED', ?, ?)`).run(`tevt_${randomUUID10().replace(/-/g, "")}`, linked.task_id, runId, agentId2, message, now);
 }
 function auditUnverified(db3, params = {}) {
   const workspacePath = params.workspacePath ? normalizeWorkspacePath(params.workspacePath, params.workspacePath) : null;
@@ -4732,7 +5414,7 @@ function auditUnverified(db3, params = {}) {
     binds.push(artifact2);
   }
   const rows = db3.prepare(
-    `SELECT run_id, agent_id, status, test_plan, context_ref, rationale, workspace_path, artifact, files_json, created_at
+    `SELECT run_id, agent_id, status, test_plan, context_ref, rationale, workspace_path, artifact, created_at
      FROM task_runs
      WHERE ${where.join(" AND ")}
      ORDER BY created_at ASC`
@@ -4744,7 +5426,7 @@ function auditUnverified(db3, params = {}) {
     test_plan: r.test_plan,
     context_ref: r.context_ref,
     rationale: r.rationale,
-    target_files: parseJsonList(r.files_json),
+    target_files: targetFilesForRun(db3, r.run_id),
     workspace_path: r.workspace_path,
     artifact: r.artifact,
     created_at: r.created_at
@@ -4753,10 +5435,11 @@ function auditUnverified(db3, params = {}) {
     const now = utcNow();
     for (const intent of unverified) {
       db3.prepare(RUNS_UPDATE_PENDING_TO_FAILED).run(now, intent.run_id);
+      closeRunFiles(db3, intent.run_id, now);
       abandonLinkedTask(db3, intent.run_id, intent.agent_id, now, "pending run abandoned by verification audit");
       try {
         db3.prepare(RUN_LOG_INSERT_ABANDONED).run(
-          "evt_" + randomUUID9().replace(/-/g, ""),
+          "evt_" + randomUUID10().replace(/-/g, ""),
           intent.run_id,
           intent.agent_id,
           now
@@ -4770,15 +5453,11 @@ function auditUnverified(db3, params = {}) {
     const nowIso = utcNow();
     const staleWhere = [
       "ai.status = 'ACTIVE'",
-      // Exclude tasks that never had any files to claim: a zero-target-file task
-      // holds no locks by construction, so it would otherwise be reported as
-      // "stale_active" the instant it is created (age ~0h) — a false positive
-      // that blocks the Stop/conclude gate. Real orphaned work always has files.
-      "COALESCE(ai.files_json,'[]') NOT IN ('[]','null','')",
+      "EXISTS (SELECT 1 FROM run_files any_rf WHERE any_rf.run_id = ai.run_id)",
       `NOT EXISTS (
-        SELECT 1 FROM locks fl
-        WHERE fl.run_id = ai.run_id
-          AND (fl.expires_at IS NULL OR fl.expires_at > ?)
+        SELECT 1 FROM run_files active_rf
+        WHERE active_rf.run_id = ai.run_id AND active_rf.ended_at IS NULL
+          AND active_rf.expires_at > ?
       )`,
       `NOT EXISTS (
         SELECT 1 FROM task_claims tc
@@ -4799,7 +5478,7 @@ function auditUnverified(db3, params = {}) {
       staleBinds.push(artifact2);
     }
     const staleRows = db3.prepare(
-      `SELECT ai.run_id, ai.agent_id, ai.rationale, ai.context_ref, ai.workspace_path, ai.artifact, ai.files_json, ai.created_at
+      `SELECT ai.run_id, ai.agent_id, ai.rationale, ai.context_ref, ai.workspace_path, ai.artifact, ai.created_at
        FROM task_runs ai
        WHERE ${staleWhere.join(" AND ")}
        ORDER BY ai.created_at ASC`
@@ -4812,7 +5491,7 @@ function auditUnverified(db3, params = {}) {
         status: "ACTIVE",
         rationale: r.rationale,
         context_ref: r.context_ref,
-        target_files: parseJsonList(r.files_json),
+        target_files: targetFilesForRun(db3, r.run_id),
         workspace_path: r.workspace_path,
         artifact: r.artifact,
         created_at: r.created_at,
@@ -4826,10 +5505,11 @@ function auditUnverified(db3, params = {}) {
     const now = utcNow();
     for (const intent of staleActive) {
       db3.prepare(RUNS_UPDATE_ACTIVE_TO_FAILED).run(now, intent.run_id);
+      closeRunFiles(db3, intent.run_id, now);
       abandonLinkedTask(db3, intent.run_id, intent.agent_id, now, "stale task run abandoned by verification audit");
       try {
         db3.prepare(RUN_LOG_INSERT_STALE_ABANDONED).run(
-          "evt_" + randomUUID9().replace(/-/g, ""),
+          "evt_" + randomUUID10().replace(/-/g, ""),
           intent.run_id,
           intent.agent_id,
           now
@@ -4876,12 +5556,13 @@ function markVerified(db3, params) {
           agentId2
         );
         if (upd.changes === 0) continue;
+        closeRunFiles(db3, row.run_id, now2);
         finishLinkedTask(db3, row.run_id, status, agentId2, now2, message);
         ids.push(row.run_id);
         if (message) {
           try {
             db3.prepare(RUN_LOG_INSERT_VERIFIED).run(
-              "evt_" + randomUUID9().replace(/-/g, ""),
+              "evt_" + randomUUID10().replace(/-/g, ""),
               row.run_id,
               agentId2,
               message,
@@ -4936,7 +5617,7 @@ function markVerified(db3, params) {
     if (message) {
       try {
         db3.prepare(RUN_LOG_INSERT_VERIFIED).run(
-          "evt_" + randomUUID9().replace(/-/g, ""),
+          "evt_" + randomUUID10().replace(/-/g, ""),
           runId,
           agentId2,
           message,
@@ -4945,6 +5626,7 @@ function markVerified(db3, params) {
       } catch {
       }
     }
+    closeRunFiles(db3, runId, now);
     finishLinkedTask(db3, runId, status, agentId2, now, message);
     db3.exec("COMMIT");
     return { ok: true, run_id: runId, status, updated_at: now };
@@ -4992,11 +5674,26 @@ function listAgents(db3, params = {}) {
 }
 
 // src/hooks-install.ts
-import { existsSync as existsSync3, mkdirSync as mkdirSync3, readFileSync as readFileSync2, writeFileSync as writeFileSync2 } from "node:fs";
+import {
+  closeSync,
+  existsSync as existsSync3,
+  mkdirSync as mkdirSync3,
+  openSync,
+  readFileSync as readFileSync2,
+  renameSync,
+  statSync,
+  unlinkSync,
+  writeFileSync as writeFileSync2
+} from "node:fs";
+import { randomUUID as randomUUID11 } from "node:crypto";
 import { homedir as homedir2 } from "node:os";
-import { dirname as dirname4, isAbsolute as isAbsolute5, join as join5, relative as relative3, resolve as resolve10, sep as sep2 } from "node:path";
+import { dirname as dirname4, isAbsolute as isAbsolute6, join as join5, relative as relative3, resolve as resolve11, sep as sep2 } from "node:path";
 var WRITE_MATCHER = "Write|Edit|MultiEdit|NotebookEdit|apply_patch|ApplyPatch";
 var HOSTS = /* @__PURE__ */ new Set(["claude", "codex", "cursor"]);
+var CONFIG_LOCK_WAIT = new Int32Array(new SharedArrayBuffer(4));
+var CONFIG_LOCK_RETRY_MS = 25;
+var CONFIG_LOCK_TIMEOUT_MS = 1e4;
+var CONFIG_LOCK_STALE_MS = 3e4;
 function hooksInstallUsage() {
   return `usage: octocode-awareness hooks install|check|remove [options]
 
@@ -5046,11 +5743,76 @@ function loadSettings(settingsPath) {
   const parsed = JSON.parse(raw);
   return parsed && typeof parsed === "object" ? parsed : {};
 }
+function processIsAlive(pid) {
+  if (!Number.isSafeInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error.code !== "ESRCH";
+  }
+}
+function removeStaleConfigLock(lockPath) {
+  try {
+    const owner = Number.parseInt(readFileSync2(lockPath, "utf8"), 10);
+    const staleByAge = Date.now() - statSync(lockPath).mtimeMs > CONFIG_LOCK_STALE_MS;
+    if (processIsAlive(owner) && !staleByAge) return false;
+    unlinkSync(lockPath);
+    return true;
+  } catch (error) {
+    if (error.code === "ENOENT") return true;
+    return false;
+  }
+}
+function acquireConfigLock(settingsPath) {
+  mkdirSync3(dirname4(settingsPath), { recursive: true });
+  const lockPath = `${settingsPath}.octocode-awareness.lock`;
+  const deadline = Date.now() + CONFIG_LOCK_TIMEOUT_MS;
+  for (; ; ) {
+    try {
+      const fd = openSync(lockPath, "wx", 384);
+      try {
+        writeFileSync2(fd, `${process.pid}
+`, "utf8");
+      } finally {
+        closeSync(fd);
+      }
+      return () => {
+        try {
+          unlinkSync(lockPath);
+        } catch (error) {
+          if (error.code !== "ENOENT") throw error;
+        }
+      };
+    } catch (error) {
+      if (error.code !== "EEXIST") throw error;
+      if (removeStaleConfigLock(lockPath)) continue;
+      if (Date.now() >= deadline) {
+        throw new Error(`timed out waiting for concurrent hook update: ${settingsPath}`);
+      }
+      Atomics.wait(CONFIG_LOCK_WAIT, 0, 0, CONFIG_LOCK_RETRY_MS);
+    }
+  }
+}
+function writeSettingsAtomic(settingsPath, settings) {
+  mkdirSync3(dirname4(settingsPath), { recursive: true });
+  const temporaryPath = `${settingsPath}.tmp-${process.pid}-${randomUUID11()}`;
+  try {
+    writeFileSync2(temporaryPath, JSON.stringify(settings, null, 2) + "\n");
+    renameSync(temporaryPath, settingsPath);
+  } finally {
+    try {
+      unlinkSync(temporaryPath);
+    } catch (error) {
+      if (error.code !== "ENOENT") throw error;
+    }
+  }
+}
 function hookCommand(name, params) {
   const abs = join5(params.hookDir, name);
   if (params.host === "codex" || params.host === "cursor" || params.globalMode) return abs;
   const rel = relative3(params.projectDir, abs);
-  if (rel && !rel.startsWith("..") && !isAbsolute5(rel)) {
+  if (rel && !rel.startsWith("..") && !isAbsolute6(rel)) {
     return "${CLAUDE_PROJECT_DIR}/" + rel.split(sep2).join("/");
   }
   return abs;
@@ -5060,7 +5822,6 @@ function specsFor(host, params) {
   if (host === "cursor") {
     return [
       { event: "preToolUse", matcher: WRITE_MATCHER, command: command2("pre-edit.sh") },
-      { event: "preToolUse", matcher: WRITE_MATCHER, command: command2("harness-guard.sh") },
       { event: "postToolUse", matcher: WRITE_MATCHER, command: command2("post-edit.sh") },
       { event: "stop", command: command2("stop-verify.sh") },
       { event: "subagentStop", command: command2("stop-verify.sh") },
@@ -5072,7 +5833,6 @@ function specsFor(host, params) {
   if (host === "codex") {
     return [
       { event: "PreToolUse", matcher: WRITE_MATCHER, command: command2("pre-edit.sh") },
-      { event: "PreToolUse", matcher: WRITE_MATCHER, command: command2("harness-guard.sh") },
       { event: "PostToolUse", matcher: WRITE_MATCHER, command: command2("post-edit.sh") },
       { event: "Stop", command: command2("stop-verify.sh") },
       { event: "SubagentStop", command: command2("stop-verify.sh") },
@@ -5082,13 +5842,19 @@ function specsFor(host, params) {
   }
   return [
     { event: "PreToolUse", matcher: WRITE_MATCHER, command: command2("pre-edit.sh") },
-    { event: "PreToolUse", matcher: WRITE_MATCHER, command: command2("harness-guard.sh") },
     { event: "PostToolUse", matcher: WRITE_MATCHER, command: command2("post-edit.sh") },
     { event: "Stop", command: command2("stop-verify.sh") },
     { event: "SubagentStop", command: command2("stop-verify.sh") },
     { event: "SessionEnd", command: command2("session-end.sh") },
     { event: "UserPromptSubmit", command: command2("notify-deliver.sh") }
   ];
+}
+function obsoleteSpecsFor(host, params) {
+  return [{
+    event: host === "cursor" ? "preToolUse" : "PreToolUse",
+    matcher: WRITE_MATCHER,
+    command: hookCommand("harness-guard.sh", { host, ...params })
+  }];
 }
 function entry(host, spec) {
   if (host === "cursor") {
@@ -5182,6 +5948,25 @@ function removeCommand(groups, command2) {
   return { groups: out, removed };
 }
 function runHooksInstall(argv, options) {
+  const hostValue = requestedHost(argv);
+  const writes = !flag(argv, "--help") && !flag(argv, "-h") && !flag(argv, "--check") && !flag(argv, "--dry-run") && !(flag(argv, "--global") && argv.includes("--project-dir")) && HOSTS.has(hostValue);
+  if (!writes) return runHooksInstallUnlocked(argv, options);
+  const host = hostValue;
+  const cwd = options.cwd ?? process.cwd();
+  const home = options.homeDir ?? homedir2();
+  const config = targetConfig(host);
+  const settingsPath = flag(argv, "--global") ? join5(home, config.dir, config.file) : join5(resolve11(opt(argv, "--project-dir", cwd)), config.dir, config.file);
+  let release;
+  try {
+    release = acquireConfigLock(settingsPath);
+    return runHooksInstallUnlocked(argv, options);
+  } catch (error) {
+    return fail(`cannot update ${settingsPath}: ${error.message}`);
+  } finally {
+    release?.();
+  }
+}
+function runHooksInstallUnlocked(argv, options) {
   if (flag(argv, "--help") || flag(argv, "-h")) {
     return { exitCode: 0, text: hooksInstallUsage() + "\n" };
   }
@@ -5199,7 +5984,7 @@ function runHooksInstall(argv, options) {
   const cwd = options.cwd ?? process.cwd();
   const home = options.homeDir ?? homedir2();
   const globalMode = flag(argv, "--global");
-  const projectDir = resolve10(opt(argv, "--project-dir", cwd));
+  const projectDir = resolve11(opt(argv, "--project-dir", cwd));
   const config = targetConfig(host);
   const settingsPath = globalMode ? join5(home, config.dir, config.file) : join5(projectDir, config.dir, config.file);
   let settings;
@@ -5209,6 +5994,11 @@ function runHooksInstall(argv, options) {
     return fail(`cannot parse ${settingsPath}: ${error.message}`);
   }
   const specs = specsFor(host, {
+    globalMode,
+    projectDir,
+    hookDir: options.hookDir
+  });
+  const obsoleteSpecs = obsoleteSpecsFor(host, {
     globalMode,
     projectDir,
     hookDir: options.hookDir
@@ -5236,13 +6026,14 @@ function runHooksInstall(argv, options) {
     };
   });
   const hooks = Object.fromEntries(checks.map((check) => [check.key, check.installed]));
+  const obsolete = obsoleteSpecs.filter((spec) => hasCommand(settings.hooks?.[spec.event], spec.command)).map(hookStatusKey);
   const status = {
     host,
     settingsPath,
     hooks,
-    installed_all: checks.every((check) => check.installed),
+    installed_all: checks.every((check) => check.installed) && obsolete.length === 0,
     missing: checks.filter((check) => !check.present).map((check) => check.key),
-    drifted: checks.filter((check) => check.drifted).map((check) => check.key),
+    drifted: [...checks.filter((check) => check.drifted).map((check) => check.key), ...obsolete],
     details: Object.fromEntries(checks.map((check) => [check.key, check]))
   };
   if (flag(argv, "--check")) {
@@ -5257,6 +6048,13 @@ function runHooksInstall(argv, options) {
   if (host === "cursor" && !flag(argv, "--remove") && settings.version == null) {
     settings.version = 1;
     changed = true;
+  }
+  for (const spec of obsoleteSpecs) {
+    const result = removeCommand(settings.hooks[spec.event], spec.command);
+    if (!result.removed) continue;
+    changed = true;
+    if (result.groups.length > 0) settings.hooks[spec.event] = result.groups;
+    else delete settings.hooks[spec.event];
   }
   if (flag(argv, "--remove")) {
     for (const spec of specs) {
@@ -5289,8 +6087,7 @@ function runHooksInstall(argv, options) {
     };
   }
   if (changed) {
-    mkdirSync3(dirname4(settingsPath), { recursive: true });
-    writeFileSync2(settingsPath, JSON.stringify(settings, null, 2) + "\n");
+    writeSettingsAtomic(settingsPath, settings);
   }
   return {
     exitCode: 0,
@@ -5306,13 +6103,13 @@ function runHooksInstall(argv, options) {
 }
 
 // src/attend.ts
-import { existsSync as existsSync5, readFileSync as readFileSync3, statSync } from "node:fs";
-import { join as join7, resolve as resolve12 } from "node:path";
+import { existsSync as existsSync5, readFileSync as readFileSync3, statSync as statSync2 } from "node:fs";
+import { join as join7, resolve as resolve13 } from "node:path";
 
 // src/repo-context.ts
 import { spawnSync as spawnSync4 } from "node:child_process";
 import { existsSync as existsSync4, mkdirSync as mkdirSync4, realpathSync as realpathSync2, writeFileSync as writeFileSync3 } from "node:fs";
-import { isAbsolute as isAbsolute6, join as join6, relative as relative4, resolve as resolve11 } from "node:path";
+import { isAbsolute as isAbsolute7, join as join6, relative as relative4, resolve as resolve12 } from "node:path";
 import { fileURLToPath as fileURLToPath2 } from "node:url";
 var AWARENESS_QUERY_VIEWS = [
   "all",
@@ -5332,6 +6129,7 @@ var AWARENESS_QUERY_VIEWS = [
   "workboard",
   "developer-review"
 ];
+var SCOPE_CACHE = /* @__PURE__ */ new WeakMap();
 var VIEW_SET = new Set(AWARENESS_QUERY_VIEWS);
 var CSV_VIEWS = ["memories", "gotchas", "lessons", "plans", "tasks", "runs", "agents", "locks", "signals", "refinements", "files", "activity", "workboard"];
 var PROJECTION_MARKDOWN_BUDGETS = {
@@ -5342,7 +6140,7 @@ var PROJECTION_MARKDOWN_BUDGETS = {
   "BOOKMARKS.md": { max_lines: 200, role: "learnable resource index" },
   "DEVELOPER_REVIEW.md": { max_lines: 200, role: "agent feedback to the instruction author" }
 };
-var ATTEND_COMPACT_BUDGET = { max_lines: 120, max_json_bytes: 8 * 1024 };
+var ATTEND_COMPACT_BUDGET = { max_lines: 40, max_json_bytes: 2 * 1024 };
 var WORKBOARD_BUDGET = { max_rows_per_column: 10 };
 var LESSON_LABELS = [
   "DECISION",
@@ -5390,10 +6188,12 @@ function stringList(value) {
   return [String(value)];
 }
 function scopeFromParams(params) {
-  const cwd = params.cwd ? resolve11(params.cwd) : process.cwd();
+  const cached = SCOPE_CACHE.get(params);
+  if (cached) return cached;
+  const cwd = params.cwd ? resolve12(params.cwd) : process.cwd();
   const rawWorkspace = params.workspacePath ?? params.workspace_path ?? params.workspace ?? cwd;
-  const workspacePath = rawWorkspace ? resolve11(String(rawWorkspace)) : null;
-  return {
+  const workspacePath = rawWorkspace ? resolve12(String(rawWorkspace)) : null;
+  const scope = {
     // Keep the raw resolved path for projection output / echo; the alias set
     // below carries the extra keys used for DB row matching.
     workspacePath,
@@ -5402,6 +6202,17 @@ function scopeFromParams(params) {
     repo: params.repo ? String(params.repo) : null,
     ref: params.ref ? String(params.ref) : null
   };
+  SCOPE_CACHE.set(params, scope);
+  return scope;
+}
+function withScope(params, overrides) {
+  const derived = { ...params, ...overrides };
+  SCOPE_CACHE.set(derived, scopeFromParams(params));
+  return derived;
+}
+function workspaceArtifactScope(scope) {
+  if (!scope.repo && !scope.ref) return scope;
+  return { ...scope, repo: null, ref: null };
 }
 function workspaceAliases(workspacePath, cwd) {
   const aliases = /* @__PURE__ */ new Set([workspacePath]);
@@ -5478,7 +6289,7 @@ function fileRefCandidates(file, workspacePath) {
   const trimmed = file.trim();
   if (!trimmed) return [];
   if (trimmed.startsWith("file:")) return [trimmed];
-  const absolute = isAbsolute6(trimmed) ? resolve11(trimmed) : resolve11(workspacePath ?? process.cwd(), trimmed);
+  const absolute = isAbsolute7(trimmed) ? resolve12(trimmed) : resolve12(workspacePath ?? process.cwd(), trimmed);
   return [`file:${absolute}`, `%${trimmed}%`];
 }
 function stripLocationSuffix(value) {
@@ -5500,12 +6311,12 @@ function localPathFromReference(reference, workspacePath) {
     rawPath = trimmed.slice("path:".length);
   } else if (/^[a-z][a-z0-9+.-]*:/i.test(trimmed)) {
     return null;
-  } else if (isAbsolute6(trimmed) || trimmed.startsWith("./") || trimmed.startsWith("../") || /^[^/\s]+\/.+/.test(trimmed)) {
+  } else if (isAbsolute7(trimmed) || trimmed.startsWith("./") || trimmed.startsWith("../") || /^[^/\s]+\/.+/.test(trimmed)) {
     rawPath = trimmed;
   }
   if (!rawPath) return null;
   const clean = stripLocationSuffix(rawPath);
-  return isAbsolute6(clean) ? resolve11(clean) : resolve11(workspacePath ?? process.cwd(), clean);
+  return isAbsolute7(clean) ? resolve12(clean) : resolve12(workspacePath ?? process.cwd(), clean);
 }
 function referenceHealth(references, workspacePath) {
   const fileReferences = [];
@@ -5617,7 +6428,7 @@ function planRows(db3, params) {
   const scope = scopeFromParams(params);
   const where = [];
   const binds = [];
-  addExactScope(where, binds, scope);
+  addExactScope(where, binds, workspaceArtifactScope(scope));
   addTextFilter(where, binds, params.query, ["plan_id", "name", "objective", "lead_agent_id", "doc_dir"]);
   addStateFilter(where, binds, stringList(params.state), "status", (state) => state.toUpperCase());
   const since = params.since?.trim();
@@ -5651,11 +6462,11 @@ function planRows(db3, params) {
     updated_at: String(row["updated_at"])
   }));
 }
-function taskRows(db3, params) {
+function taskRowWhere(params) {
   const scope = scopeFromParams(params);
   const where = [];
   const binds = [];
-  addExactScope(where, binds, scope, "p");
+  addExactScope(where, binds, workspaceArtifactScope(scope), "p");
   addTextFilter(where, binds, params.query, ["t.task_id", "t.title", "t.reasoning", "t.acceptance_criteria", "t.created_by", "p.name"]);
   addStateFilter(where, binds, stringList(params.state), "t.status", (state) => state.toUpperCase());
   const agentId2 = params.agentId ?? params.agent_id;
@@ -5668,13 +6479,17 @@ function taskRows(db3, params) {
     where.push("t.created_at >= ?");
     binds.push(since);
   }
+  return { where, binds };
+}
+function taskRows(db3, params) {
+  const { where, binds } = taskRowWhere(params);
   const sqlWhere = where.length > 0 ? `WHERE ${where.join(" AND ")}` : "";
   const rows = db3.prepare(
     `SELECT t.*, p.name AS plan_name, p.status AS plan_status, p.workspace_path, p.artifact,
             c.agent_id AS claimed_by, c.run_id, c.expires_at AS claim_expires_at,
             COALESCE((SELECT json_group_array(tp.path) FROM task_paths tp WHERE tp.task_id = t.task_id), '[]') AS paths_json,
             COALESCE((SELECT json_group_array(td.depends_on_task_id) FROM task_dependencies td WHERE td.task_id = t.task_id), '[]') AS dependencies_json,
-            CASE WHEN t.status = 'OPEN'
+            CASE WHEN t.status = 'OPEN' AND p.status = 'ACTIVE'
               AND c.task_id IS NULL
               AND NOT EXISTS (
                 SELECT 1 FROM task_dependencies td
@@ -5712,29 +6527,55 @@ function taskRows(db3, params) {
     completed_at: row["completed_at"] ?? null
   }));
 }
+function countTaskRows(db3, params, readyOnly = false) {
+  const { where, binds } = taskRowWhere(params);
+  if (readyOnly) {
+    where.push("t.status = 'OPEN'", "p.status = 'ACTIVE'", "c.task_id IS NULL");
+    where.push(`NOT EXISTS (
+      SELECT 1 FROM task_dependencies td
+      JOIN tasks dependency ON dependency.task_id = td.depends_on_task_id
+      WHERE td.task_id = t.task_id AND dependency.status <> 'DONE'
+    )`);
+  }
+  const sqlWhere = where.length > 0 ? `WHERE ${where.join(" AND ")}` : "";
+  return db3.prepare(`SELECT COUNT(*) AS count
+    FROM tasks t
+    JOIN plans p ON p.plan_id = t.plan_id
+    LEFT JOIN task_claims c ON c.task_id = t.task_id
+      AND c.expires_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+    ${sqlWhere}`).get(...binds).count;
+}
 function runRows(db3, params) {
   const scope = scopeFromParams(params);
   const where = [];
   const binds = [];
-  addExactScope(where, binds, scope);
-  addTextFilter(where, binds, params.query, ["run_id", "rationale", "test_plan", "context_ref", "files_json", "agent_id"]);
-  addStateFilter(where, binds, stringList(params.state), "status", (state) => state.toUpperCase());
+  addExactScope(where, binds, workspaceArtifactScope(scope), "tr");
+  const query = params.query?.trim();
+  if (query) {
+    where.push(`(LOWER(COALESCE(tr.run_id, '') || ' ' || COALESCE(tr.rationale, '') || ' ' ||
+      COALESCE(tr.test_plan, '') || ' ' || COALESCE(tr.context_ref, '') || ' ' || COALESCE(tr.agent_id, '')) LIKE LOWER(?)
+      OR EXISTS (SELECT 1 FROM run_files rfq WHERE rfq.run_id = tr.run_id AND LOWER(rfq.file_path) LIKE LOWER(?)))`);
+    binds.push(`%${query}%`, `%${query}%`);
+  }
+  addStateFilter(where, binds, stringList(params.state), "tr.status", (state) => state.toUpperCase());
   const agentId2 = params.agentId ?? params.agent_id;
   if (agentId2) {
-    where.push("agent_id = ?");
+    where.push("tr.agent_id = ?");
     binds.push(agentId2);
   }
   const since = params.since?.trim();
   if (since) {
-    where.push("created_at >= ?");
+    where.push("tr.created_at >= ?");
     binds.push(since);
   }
   const sqlWhere = where.length > 0 ? `WHERE ${where.join(" AND ")}` : "";
   const rows = db3.prepare(
-    `SELECT run_id, task_id, agent_id, session_id, rationale, test_plan, context_ref, status,
-            workspace_path, artifact, files_json, created_at, updated_at
-       FROM task_runs ${sqlWhere}
-      ORDER BY datetime(created_at) DESC LIMIT ?`
+    `SELECT tr.run_id, tr.task_id, tr.agent_id, tr.session_id, tr.rationale, tr.test_plan,
+            tr.context_ref, tr.status, tr.workspace_path, tr.artifact, tr.created_at, tr.updated_at,
+            COALESCE((SELECT json_group_array(rf.file_path)
+              FROM run_files rf WHERE rf.run_id = tr.run_id), '[]') AS files_json
+       FROM task_runs tr ${sqlWhere}
+      ORDER BY datetime(tr.created_at) DESC LIMIT ?`
   ).all(...binds, limitOf(params.limit));
   return rows.map((row) => ({
     run_id: String(row["run_id"]),
@@ -5751,20 +6592,44 @@ function runRows(db3, params) {
     updated_at: String(row["updated_at"])
   }));
 }
+function countPendingStandaloneRuns(db3, params) {
+  const scope = scopeFromParams(params);
+  const where = ["tr.status = 'PENDING'", "tr.task_id IS NULL"];
+  const binds = [];
+  addExactScope(where, binds, workspaceArtifactScope(scope), "tr");
+  const query = params.query?.trim();
+  if (query) {
+    where.push(`(LOWER(COALESCE(tr.run_id, '') || ' ' || COALESCE(tr.rationale, '') || ' ' ||
+      COALESCE(tr.test_plan, '') || ' ' || COALESCE(tr.context_ref, '') || ' ' || COALESCE(tr.agent_id, '')) LIKE LOWER(?)
+      OR EXISTS (SELECT 1 FROM run_files rfq WHERE rfq.run_id = tr.run_id AND LOWER(rfq.file_path) LIKE LOWER(?)))`);
+    binds.push(`%${query}%`, `%${query}%`);
+  }
+  const agentId2 = params.agentId ?? params.agent_id;
+  if (agentId2) {
+    where.push("tr.agent_id = ?");
+    binds.push(agentId2);
+  }
+  const since = params.since?.trim();
+  if (since) {
+    where.push("tr.created_at >= ?");
+    binds.push(since);
+  }
+  return db3.prepare(`SELECT COUNT(*) AS count FROM task_runs tr WHERE ${where.join(" AND ")}`).get(...binds).count;
+}
 function lockRows(db3, params) {
   const scope = scopeFromParams(params);
   const where = [];
   const binds = [];
-  addExactScope(where, binds, scope, "t");
-  addTextFilter(where, binds, params.query, ["l.file_path", "l.agent_id", "t.rationale"]);
+  addExactScope(where, binds, workspaceArtifactScope(scope), "t");
+  addTextFilter(where, binds, params.query, ["l.file_path", "t.agent_id", "t.rationale"]);
   const agentId2 = params.agentId ?? params.agent_id;
   if (agentId2) {
-    where.push("l.agent_id = ?");
+    where.push("t.agent_id = ?");
     binds.push(agentId2);
   }
   const sqlWhere = where.length > 0 ? `WHERE ${where.join(" AND ")}` : "";
   const rows = db3.prepare(
-    `SELECT l.lock_id, l.file_path, l.run_id, l.agent_id, l.session_id, l.lock_type,
+    `SELECT l.lock_id, l.file_path, l.run_id, t.agent_id, t.session_id, 'EXCLUSIVE' AS lock_type,
             l.acquired_at, l.expires_at, t.task_id, t.workspace_path, t.artifact, t.status
        FROM locks l
        JOIN task_runs t ON t.run_id = l.run_id
@@ -5992,7 +6857,7 @@ function trackFile(map, filePath, source, date, workspacePath) {
   if (date && (!row["last_seen_at"] || String(date) > String(row["last_seen_at"]))) row["last_seen_at"] = date;
   map.set(clean, row);
 }
-function fileRows(db3, params) {
+function fileRows2(db3, params) {
   const scope = scopeFromParams(params);
   const limit = limitOf(params.limit, 80, 500);
   const files = /* @__PURE__ */ new Map();
@@ -6012,24 +6877,24 @@ function fileRows(db3, params) {
     trackFile(files, ref.reference, "memories", ref.created_at, scope.workspacePath);
     if (ref.label === "GOTCHA") trackFile(files, ref.reference, "gotchas", ref.created_at, scope.workspacePath);
   }
-  for (const row of taskRows(db3, { ...params, limit: 500 })) {
+  for (const row of taskRows(db3, withScope(params, { limit: 500 }))) {
     for (const file of row["paths"]) trackFile(files, file, "tasks", String(row["created_at"]), scope.workspacePath);
   }
-  for (const row of runRows(db3, { ...params, limit: 500 })) {
+  for (const row of runRows(db3, withScope(params, { limit: 500 }))) {
     for (const file of row["files"]) trackFile(files, file, "runs", String(row["created_at"]), scope.workspacePath);
   }
-  for (const row of lockRows(db3, { ...params, limit: 500 })) {
+  for (const row of lockRows(db3, withScope(params, { limit: 500 }))) {
     trackFile(files, String(row["file_path"]), "locks", String(row["acquired_at"]), scope.workspacePath);
   }
-  for (const row of refinementRows(db3, { ...params, limit: 500 })) {
+  for (const row of refinementRows(db3, withScope(params, { limit: 500 }))) {
     for (const file of row["files"]) trackFile(files, file, "refinements", String(row["updated_at"]), scope.workspacePath);
   }
-  for (const row of signalRows(db3, { ...params, limit: 500 })) {
+  for (const row of signalRows(db3, withScope(params, { limit: 500 }))) {
     for (const file of row["files"]) trackFile(files, file, "signals", String(row["created_at"]), scope.workspacePath);
   }
   const editWhere = [];
   const editBinds = [];
-  addExactScope(editWhere, editBinds, scope);
+  addExactScope(editWhere, editBinds, workspaceArtifactScope(scope));
   addTextFilter(editWhere, editBinds, params.query, ["file_path", "old_file_path", "operation", "agent_id"]);
   const editSqlWhere = editWhere.length > 0 ? `WHERE ${editWhere.join(" AND ")}` : "";
   const edits = db3.prepare(
@@ -6061,43 +6926,43 @@ function repoProfileRows(db3, params) {
   addNullableScope(memWhere, memBinds, scope);
   const taskWhere = [];
   const taskBinds = [];
-  addExactScope(taskWhere, taskBinds, scope, "p");
+  addExactScope(taskWhere, taskBinds, workspaceArtifactScope(scope), "p");
   const planWhere = [];
   const planBinds = [];
-  addExactScope(planWhere, planBinds, scope);
+  addExactScope(planWhere, planBinds, workspaceArtifactScope(scope));
   const runWhere = [];
   const runBinds = [];
-  addExactScope(runWhere, runBinds, scope);
+  addExactScope(runWhere, runBinds, workspaceArtifactScope(scope));
   const lockWhere = [];
   const lockBinds = [];
-  addExactScope(lockWhere, lockBinds, scope, "t");
+  addExactScope(lockWhere, lockBinds, workspaceArtifactScope(scope), "t");
   const refinementWhere = ["state IN ('open','ongoing')"];
   const refinementBinds = [];
   addExactScope(refinementWhere, refinementBinds, scope);
   const signalWhere = ["status = 'open'"];
   const signalBinds = [];
   addExactScope(signalWhere, signalBinds, scope);
-  const trackedFiles = fileRows(db3, { ...params, limit: 500 });
+  const trackedFiles = fileRows2(db3, withScope(params, { limit: 500 }));
   return [
     { metric: "active_memories", count: countWhere(db3, "memories", memWhere, memBinds) },
-    { metric: "gotchas", count: memoryRows(db3, { ...params, view: "gotchas", limit: 500 }, { gotchas: true }).length },
-    { metric: "lessons", count: memoryRows(db3, { ...params, view: "lessons", limit: 500 }, { lessons: true }).length },
+    { metric: "gotchas", count: memoryRows(db3, withScope(params, { view: "gotchas", limit: 500 }), { gotchas: true }).length },
+    { metric: "lessons", count: memoryRows(db3, withScope(params, { view: "lessons", limit: 500 }), { lessons: true }).length },
     { metric: "plans", count: countWhere(db3, "plans", planWhere, planBinds) },
     { metric: "tasks", count: countWhere(db3, "tasks t JOIN plans p ON p.plan_id = t.plan_id", taskWhere, taskBinds) },
     { metric: "runs", count: countWhere(db3, "task_runs", runWhere, runBinds) },
     { metric: "active_locks", count: countWhere(db3, "locks l JOIN task_runs t ON t.run_id = l.run_id", lockWhere, lockBinds) },
     { metric: "open_refinements", count: countWhere(db3, "refinements", refinementWhere, refinementBinds) },
     { metric: "open_signals", count: countWhere(db3, "signals", signalWhere, signalBinds) },
-    { metric: "known_agents", count: agentRows(db3, { ...params, limit: 500 }).length },
+    { metric: "known_agents", count: agentRows(db3, withScope(params, { limit: 500 })).length },
     { metric: "tracked_files", count: trackedFiles.length },
     { metric: "missing_file_refs", count: trackedFiles.filter((row) => row["missing_file"]).length },
-    { metric: "developer_review", count: developerReviewRows(db3, { ...params, limit: 500 }).length }
+    { metric: "developer_review", count: developerReviewRows(db3, withScope(params, { limit: 500 })).length }
   ];
 }
 function activityRows(db3, params) {
   const limit = limitOf(params.limit);
   const rows = [];
-  for (const row of memoryRows(db3, { ...params, limit })) {
+  for (const row of memoryRows(db3, withScope(params, { limit }))) {
     rows.push({
       kind: "memory",
       id: String(row["memory_id"]),
@@ -6107,7 +6972,7 @@ function activityRows(db3, params) {
       created_at: String(row["created_at"])
     });
   }
-  for (const row of taskRows(db3, { ...params, limit })) {
+  for (const row of taskRows(db3, withScope(params, { limit }))) {
     rows.push({
       kind: "task",
       id: String(row["task_id"]),
@@ -6117,7 +6982,7 @@ function activityRows(db3, params) {
       created_at: String(row["created_at"])
     });
   }
-  for (const row of runRows(db3, { ...params, limit })) {
+  for (const row of runRows(db3, withScope(params, { limit }))) {
     rows.push({
       kind: "run",
       id: String(row["run_id"]),
@@ -6127,7 +6992,7 @@ function activityRows(db3, params) {
       created_at: String(row["created_at"])
     });
   }
-  for (const row of signalRows(db3, { ...params, limit })) {
+  for (const row of signalRows(db3, withScope(params, { limit }))) {
     rows.push({
       kind: "signal",
       id: String(row["signal_id"]),
@@ -6137,7 +7002,7 @@ function activityRows(db3, params) {
       created_at: String(row["created_at"])
     });
   }
-  for (const row of refinementRows(db3, { ...params, limit })) {
+  for (const row of refinementRows(db3, withScope(params, { limit }))) {
     rows.push({
       kind: "refinement",
       id: String(row["refinement_id"]),
@@ -6152,6 +7017,72 @@ function activityRows(db3, params) {
 function rowFiles(row) {
   const raw = row["files"] ?? row["paths"];
   return Array.isArray(raw) ? raw.map(String) : [];
+}
+function displayPath(filePath, workspacePath) {
+  if (!workspacePath) return filePath.replace(/\\/g, "/");
+  const rel = relative4(workspacePath, filePath);
+  return rel && rel !== ".." && !rel.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`) && !isAbsolute7(rel) ? rel.replace(/\\/g, "/") : filePath.replace(/\\/g, "/");
+}
+function filesUnderWorkRows(db3, params) {
+  const scope = scopeFromParams(params);
+  const where = ["tr.status = 'ACTIVE'", "rf.ended_at IS NULL", "rf.expires_at > ?"];
+  const binds = [utcNow2()];
+  addExactScope(where, binds, workspaceArtifactScope(scope), "tr");
+  addTextFilter(where, binds, params.query, ["rf.file_path", "tr.agent_id", "tr.rationale", "rf.reason_override", "t.title", "p.name"]);
+  const agentId2 = params.agentId ?? params.agent_id;
+  if (agentId2) {
+    where.push("tr.agent_id = ?");
+    binds.push(agentId2);
+  }
+  if (params.file?.trim()) {
+    const root = scope.workspacePath ?? process.cwd();
+    const filePath = isAbsolute7(params.file) ? resolve12(params.file) : resolve12(root, params.file);
+    where.push("rf.file_path = ?");
+    binds.push(filePath);
+  }
+  const rows = db3.prepare(
+    `SELECT rf.file_path, rf.run_id, tr.agent_id, tr.task_id,
+            COALESCE(rf.reason_override, t.reasoning, tr.rationale) AS reason,
+            t.plan_id, p.name AS plan_name, tr.workspace_path,
+            CASE WHEN l.lock_id IS NULL THEN 0 ELSE 1 END AS locked,
+            l.expires_at AS lock_expires_at
+       FROM run_files rf
+       JOIN task_runs tr ON tr.run_id = rf.run_id
+       LEFT JOIN tasks t ON t.task_id = tr.task_id
+       LEFT JOIN plans p ON p.plan_id = t.plan_id
+       LEFT JOIN locks l ON l.run_id = rf.run_id AND l.file_path = rf.file_path
+         AND (l.expires_at IS NULL OR l.expires_at > ?)
+      WHERE ${where.join(" AND ")}
+      ORDER BY rf.file_path, datetime(rf.heartbeat_at) DESC, tr.agent_id, rf.run_id`
+  ).all(utcNow2(), ...binds);
+  const grouped = /* @__PURE__ */ new Map();
+  for (const row of rows) {
+    const path2 = String(row["file_path"]);
+    const peers = grouped.get(path2) ?? [];
+    peers.push(row);
+    grouped.set(path2, peers);
+  }
+  return [...grouped.entries()].map(([filePath, peers]) => {
+    const shown = peers.slice(0, 3);
+    const lock = peers.find((peer) => Number(peer["locked"]) === 1);
+    const workspacePath = String(peers[0]?.["workspace_path"] ?? scope.workspacePath ?? "") || null;
+    return {
+      item_type: "file",
+      id: filePath,
+      path: displayPath(filePath, workspacePath),
+      peer_count: peers.length,
+      agents: shown.map((peer) => String(peer["agent_id"])),
+      run_ids: shown.map((peer) => String(peer["run_id"])),
+      task_ids: shown.flatMap((peer) => peer["task_id"] == null ? [] : [String(peer["task_id"])]),
+      plan_ids: shown.flatMap((peer) => peer["plan_id"] == null ? [] : [String(peer["plan_id"])]),
+      plans: shown.flatMap((peer) => peer["plan_name"] == null ? [] : [String(peer["plan_name"])]),
+      reasons: shown.map((peer) => summarize(String(peer["reason"] ?? ""), 80)),
+      omitted_peer_count: Math.max(0, peers.length - shown.length),
+      locked: Boolean(lock),
+      lock_agent_id: lock == null ? null : String(lock["agent_id"]),
+      lock_expires_at: lock?.["lock_expires_at"] ?? null
+    };
+  });
 }
 function pushLimited(columns, counts, column, row, limit) {
   counts[column] = (counts[column] ?? 0) + 1;
@@ -6168,13 +7099,17 @@ function workboardRows(db3, params) {
     Verify: [],
     Ready: [],
     Claimed: [],
+    FilesUnderWork: [],
     RecentDone: [],
     MemoryReview: [],
     DeveloperReview: [],
     ProjectionHealth: []
   };
   const counts = {};
-  const openSignals = signalRows(db3, { ...params, state: ["open"], limit: 200, includeBodies: false });
+  for (const row of filesUnderWorkRows(db3, withScope(params, { limit: 200 }))) {
+    pushLimited(columns, counts, "FilesUnderWork", row, limit);
+  }
+  const openSignals = signalRows(db3, withScope(params, { state: ["open"], limit: 200, includeBodies: false }));
   for (const row of openSignals) {
     pushLimited(columns, counts, "Inbox", {
       item_type: "signal",
@@ -6188,7 +7123,7 @@ function workboardRows(db3, params) {
       created_at: String(row["created_at"])
     }, limit);
   }
-  const handoffs = refinementRows(db3, { ...params, state: ["open", "ongoing"], limit: 200 }).filter((row) => String(row["quality"]) === "handoff");
+  const handoffs = refinementRows(db3, withScope(params, { state: ["open", "ongoing"], limit: 200 })).filter((row) => String(row["quality"]) === "handoff");
   for (const row of handoffs) {
     pushLimited(columns, counts, "Inbox", {
       item_type: "refinement",
@@ -6204,7 +7139,7 @@ function workboardRows(db3, params) {
       updated_at: String(row["updated_at"])
     }, limit);
   }
-  for (const row of taskRows(db3, { ...params, state: ["VERIFY"], limit: 500 })) {
+  for (const row of taskRows(db3, withScope(params, { state: ["VERIFY"], limit: 500 }))) {
     pushLimited(columns, counts, "Verify", {
       item_type: "task",
       id: String(row["task_id"]),
@@ -6219,7 +7154,7 @@ function workboardRows(db3, params) {
       updated_at: String(row["updated_at"])
     }, limit);
   }
-  for (const row of runRows(db3, { ...params, state: ["PENDING"], limit: 500 }).filter((row2) => row2["task_id"] == null)) {
+  for (const row of runRows(db3, withScope(params, { state: ["PENDING"], limit: 500 })).filter((row2) => row2["task_id"] == null)) {
     pushLimited(columns, counts, "Verify", {
       item_type: "run",
       id: String(row["run_id"]),
@@ -6233,7 +7168,7 @@ function workboardRows(db3, params) {
       updated_at: String(row["updated_at"])
     }, limit);
   }
-  for (const row of taskRows(db3, { ...params, state: ["OPEN"], limit: 500 }).filter((row2) => row2["ready"] === true)) {
+  for (const row of taskRows(db3, withScope(params, { state: ["OPEN"], limit: 500 })).filter((row2) => row2["ready"] === true)) {
     pushLimited(columns, counts, "Ready", {
       item_type: "task",
       id: String(row["task_id"]),
@@ -6249,7 +7184,7 @@ function workboardRows(db3, params) {
       updated_at: String(row["updated_at"])
     }, limit);
   }
-  for (const row of taskRows(db3, { ...params, state: ["IN_PROGRESS"], limit: 500 })) {
+  for (const row of taskRows(db3, withScope(params, { state: ["IN_PROGRESS"], limit: 500 }))) {
     pushLimited(columns, counts, "Claimed", {
       item_type: "task",
       id: String(row["task_id"]),
@@ -6265,21 +7200,7 @@ function workboardRows(db3, params) {
       expires_at: row["claim_expires_at"] ?? null
     }, limit);
   }
-  for (const row of lockRows(db3, { ...params, limit: 200 }).filter((row2) => row2["task_id"] == null)) {
-    pushLimited(columns, counts, "Claimed", {
-      item_type: "lock",
-      id: String(row["lock_id"]),
-      title: String(row["file_path"]),
-      detail: `run=${row["run_id"]} ${row["lock_type"]}`,
-      agent_id: String(row["agent_id"]),
-      status: String(row["run_status"]),
-      raw_ids: [String(row["lock_id"]), String(row["run_id"])],
-      files: [String(row["file_path"])],
-      created_at: String(row["acquired_at"]),
-      expires_at: row["expires_at"] ?? null
-    }, limit);
-  }
-  for (const row of taskRows(db3, { ...params, state: ["DONE", "FAILED", "CANCELLED"], limit: 200 })) {
+  for (const row of taskRows(db3, withScope(params, { state: ["DONE", "FAILED", "CANCELLED"], limit: 200 }))) {
     pushLimited(columns, counts, "RecentDone", {
       item_type: "task",
       id: String(row["task_id"]),
@@ -6294,7 +7215,7 @@ function workboardRows(db3, params) {
       updated_at: String(row["updated_at"])
     }, limit);
   }
-  for (const row of memoryRows(db3, { ...params, limit: 200 })) {
+  for (const row of memoryRows(db3, withScope(params, { limit: 200 }))) {
     const failureSignature = String(row["failure_signature"] ?? "");
     const refs = Array.isArray(row["references"]) ? row["references"] : [];
     const missingRefs = Array.isArray(row["missing_references"]) ? row["missing_references"] : [];
@@ -6322,7 +7243,7 @@ function workboardRows(db3, params) {
       updated_at: row["updated_at"] ?? null
     }, limit);
   }
-  for (const row of developerReviewRows(db3, { ...params, state: ["open", "ongoing"], limit: 200 })) {
+  for (const row of developerReviewRows(db3, withScope(params, { state: ["open", "ongoing"], limit: 200 }))) {
     pushLimited(columns, counts, "DeveloperReview", {
       item_type: String(row["source"]) === "refinement" ? "refinement" : "memory",
       id: String(row["id"]),
@@ -6364,6 +7285,9 @@ function workboardRows(db3, params) {
     open_signals: openSignalCount,
     created_at: utcNow2()
   }, limit);
+  counts.Verify = countTaskRows(db3, withScope(params, { state: ["VERIFY"] })) + countPendingStandaloneRuns(db3, params);
+  counts.Ready = countTaskRows(db3, withScope(params, { state: ["OPEN"] }), true);
+  counts.Claimed = countTaskRows(db3, withScope(params, { state: ["IN_PROGRESS"] }));
   return Object.entries(columns).flatMap(([column, rows]) => {
     const total = counts[column] ?? rows.length;
     return rows.map((row) => ({
@@ -6398,7 +7322,7 @@ function rowsForView(db3, view, params) {
     case "refinements":
       return refinementRows(db3, params);
     case "files":
-      return fileRows(db3, params);
+      return fileRows2(db3, params);
     case "activity":
       return activityRows(db3, params);
     case "workboard":
@@ -6574,7 +7498,7 @@ function renderAwarenessHtml(result) {
 }
 function resolveWorkspaceOutputPath(output, workspacePath, defaultPath) {
   const target = output?.trim() || defaultPath;
-  return isAbsolute6(target) ? resolve11(target) : resolve11(workspacePath, target);
+  return isAbsolute7(target) ? resolve12(target) : resolve12(workspacePath, target);
 }
 function injectRepoContext(db3, params = {}) {
   const scope = scopeFromParams(params);
@@ -6584,8 +7508,14 @@ function injectRepoContext(db3, params = {}) {
   const mode = normalizeMode(params.mode);
   const includeView = params.includeView ?? params.include_view ?? true;
   const check = params.check ?? true;
-  const queryParams = { ...params, workspacePath, limit: limitOf(params.limit, 50, 500) };
-  const all = queryAwareness(db3, { ...queryParams, view: "all" });
+  const queryParams = {
+    ...params,
+    workspacePath,
+    limit: limitOf(params.limit, 50, 500),
+    view: "all"
+  };
+  SCOPE_CACHE.set(queryParams, scope);
+  const all = queryAwareness(db3, queryParams);
   const filesWritten = [];
   const writtenContent = {};
   const warnings = [];
@@ -6701,6 +7631,8 @@ function renderRepoAgentsMd(all) {
   const counts = Object.fromEntries(profile.map((row) => [String(row["metric"]), row["count"] ?? 0]));
   const gotchas = (sections["gotchas"]?.rows ?? []).slice(0, 5);
   const lessons = (sections["lessons"]?.rows ?? []).slice(0, 5);
+  const fileWorkRows = (sections["workboard"]?.rows ?? []).filter((row) => row["column"] === "FilesUnderWork");
+  const fileWork = fileWorkRows.slice(0, 3);
   const locks = (sections["locks"]?.rows ?? []).slice(0, 3);
   const lockTotal = (sections["locks"]?.rows ?? []).length;
   const projectionWarnings2 = [
@@ -6718,7 +7650,7 @@ function renderRepoAgentsMd(all) {
     "",
     "## How To Use",
     "",
-    "- Live: `octocode-awareness attend|query|memory recall|workspace status --workspace <repo>`.",
+    "- Live: `octocode-awareness attend|work list|query|memory recall|workspace status --workspace <repo>`.",
     "- Wiki leads below are projections, not proof. After inject, append a root `AGENTS.md` \u2192 `.octocode/AGENTS.md` pointer if missing.",
     "",
     "## Snapshot",
@@ -6727,7 +7659,7 @@ function renderRepoAgentsMd(all) {
     "",
     "## Retro Files Map",
     "",
-    "Generated retrospective projections in this folder (SQLite is canonical; regenerate, don't hand-edit). Locks/signals/tasks live only in the DB \u2014 use live `query`.",
+    "Generated retrospective projections in this folder (SQLite is canonical; regenerate, don't hand-edit). File work, locks, signals, and tasks live only in the DB \u2014 use live `attend`, `work`, or `query`.",
     "",
     "- Gotchas \u2192 `.octocode/GOTCHAS.md` \xB7 live `query gotchas` / `memory recall`",
     "- Lessons \u2192 `.octocode/LEARN.md` \xB7 live `query lessons`",
@@ -6737,8 +7669,10 @@ function renderRepoAgentsMd(all) {
     "",
     "## Read Before Editing",
     "",
+    "- Run `attend`, then inspect `FilesUnderWork` before editing. Record ordinary work with `work start`; overlap is allowed and visible.",
+    "- Exclusive locks are reserved for sensitive files. An active exclusive lock blocks conflicting work.",
     "- Read GOTCHAS + LEARN; run `query files --format table` or filter `awareness/csv/files.csv` for affected and missing paths.",
-    "- Prefer live `attend` / `query` when freshness matters; `repo inject` after important memories.",
+    "- Prefer live `attend` / `work list` / `query` when freshness matters; `repo inject` after important memories.",
     "",
     "## Projection Health",
     "",
@@ -6746,9 +7680,18 @@ function renderRepoAgentsMd(all) {
     ...projectionWarnings2.map((warning) => `- ${warning}`),
     ""
   ];
+  if (fileWork.length > 0) {
+    lines.push("## Files Under Work", "");
+    for (const row of fileWork) {
+      const locked = row["locked"] ? " \xB7 exclusive lock" : "";
+      lines.push(`- ${row["path"]} \u2014 ${row["peer_count"]} worker(s): ${row["agents"]} \xB7 ${summarize(String(row["reasons"] ?? "reason not recorded"), 100)}${locked}`);
+    }
+    if (fileWorkRows.length > fileWork.length) lines.push(`- \u2026and ${fileWorkRows.length - fileWork.length} more (live: \`work list\` or \`query workboard\`)`);
+    lines.push("");
+  }
   if (locks.length > 0) {
-    lines.push("## Active Locks", "");
-    for (const lock of locks) lines.push(`- ${lock["file_path"]} - ${lock["agent_id"]} (${lock["lock_type"]})`);
+    lines.push("## Active Exclusive Locks", "");
+    for (const lock of locks) lines.push(`- ${lock["file_path"]} \u2014 ${lock["agent_id"]}`);
     if (lockTotal > locks.length) lines.push(`- \u2026and ${lockTotal - locks.length} more (live: \`query locks\`)`);
     lines.push("");
   }
@@ -7039,7 +7982,7 @@ function escapeHtml(value) {
   return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
 function gitCheckIgnored(cwd, path2) {
-  const candidate = isAbsolute6(path2) ? relative4(cwd, path2) : path2;
+  const candidate = isAbsolute7(path2) ? relative4(cwd, path2) : path2;
   const result = spawnSync4("git", ["check-ignore", "-q", candidate], { cwd, encoding: "utf8" });
   return { ignored: result.status === 0 };
 }
@@ -7080,7 +8023,7 @@ var ORGAN_REFERENCE = [
   {
     organ: "corpus_bridge",
     role: "coordinate agents",
-    commands: ["plan list", "task ready", "task claim", "signal publish", "lock acquire", "verify audit"],
+    commands: ["plan list", "task ready", "task claim", "work start", "work list", "signal publish", "lock acquire", "verify audit"],
     guardrail: "SQLite is canonical."
   },
   {
@@ -7118,50 +8061,29 @@ function groupWorkboard(rows) {
   return groups;
 }
 function compactRow(row) {
+  if (row["item_type"] === "file") {
+    return Object.fromEntries([
+      "path",
+      "peer_count",
+      "omitted_peer_count",
+      "locked",
+      "lock_agent_id"
+    ].flatMap((key) => row[key] == null ? [] : [[key, row[key]]]));
+  }
   const next = {};
-  for (const key of ["column", "item_type", "id", "plan_id", "status", "agent_id", "priority", "quality", "count", "column_total", "omitted_count", "active_memories", "missing_file_refs", "missing_reference_count", "plans", "tasks", "runs", "open_refinements", "open_signals"]) {
+  for (const key of ["item_type", "id", "plan_id", "status", "agent_id", "priority"]) {
     const value = row[key];
     if (value != null) next[key] = value;
   }
-  if (typeof row["title"] === "string") next["title"] = summarize2(row["title"], 90);
-  if (Array.isArray(row["reasons"])) next["reasons"] = row["reasons"].slice(0, 3);
-  if (Array.isArray(row["missing_references"])) {
-    const refs = row["missing_references"];
-    next["missing_references"] = refs.slice(0, 2);
-    next["omitted_missing_reference_count"] = Math.max(0, refs.length - 2);
-  }
-  if (Array.isArray(row["files"])) {
-    const files = row["files"];
-    next["file_count"] = files.length;
-    next["files"] = files.slice(0, 2);
-    next["omitted_file_count"] = Math.max(0, files.length - 2);
-  }
-  if (Array.isArray(row["raw_ids"])) {
-    const rawIds = row["raw_ids"];
-    next["raw_id_count"] = rawIds.length;
-    next["raw_ids"] = rawIds.slice(0, 5);
-    next["omitted_raw_id_count"] = Math.max(0, rawIds.length - 5);
-  }
+  if (typeof row["title"] === "string") next["title"] = summarize2(row["title"], 60);
   return next;
 }
 function compactWorkboard(grouped, limit) {
-  return Object.fromEntries(Object.entries(grouped).map(([column, rows]) => [
-    column,
-    rows.slice(0, limit).map(compactRow)
-  ]));
-}
-function compactVerificationTarget(row) {
-  const compact2 = compactRow(row);
-  return {
-    id: compact2["id"] ?? null,
-    status: compact2["status"] ?? null,
-    title: compact2["title"] ?? null,
-    count: compact2["count"] ?? null,
-    raw_id_count: compact2["raw_id_count"] ?? null,
-    raw_ids: compact2["raw_ids"] ?? [],
-    column_total: compact2["column_total"] ?? null,
-    omitted_count: compact2["omitted_count"] ?? null
-  };
+  const actionable = ["Inbox", "Ready", "Claimed", "Verify", "FilesUnderWork"];
+  return Object.fromEntries(actionable.flatMap((column) => {
+    const rows = grouped[column] ?? [];
+    return rows.length === 0 ? [] : [[column, rows.slice(0, limit).map(compactRow)]];
+  }));
 }
 function uniqueStrings(values) {
   return [...new Set(values.filter(Boolean))];
@@ -7179,7 +8101,7 @@ function projectionStats(workspacePath) {
     const path2 = join7(workspacePath, ".octocode", file);
     let mtimeMs = null;
     try {
-      mtimeMs = existsSync5(path2) ? statSync(path2).mtimeMs : null;
+      mtimeMs = existsSync5(path2) ? statSync2(path2).mtimeMs : null;
     } catch {
     }
     return { file: `.octocode/${file.replace(/\\/g, "/")}`, lines: lineCount2(path2), mtime_ms: mtimeMs };
@@ -7269,14 +8191,15 @@ function chooseMode(query, evidenceCount, verifyCount, gapCount) {
   return gapCount > 0 ? "mixed" : "exploit";
 }
 function attendAwareness(db3, params = {}) {
-  const cwd = params.cwd ? resolve12(params.cwd) : process.cwd();
-  const workspacePath = resolve12(String(params.workspacePath ?? params.workspace_path ?? params.workspace ?? cwd));
+  const cwd = params.cwd ? resolve13(params.cwd) : process.cwd();
+  const workspacePath = resolve13(String(params.workspacePath ?? params.workspace_path ?? params.workspace ?? cwd));
   const limit = limitOf2(params.limit);
   const query = String(params.query ?? "").trim();
   const files = stringList2(params.file);
   const includeBodies = Boolean(params.includeBodies ?? params.include_bodies);
   const explainOrgan = Boolean(params.explainOrgan ?? params.explain_organ);
   const compact2 = Boolean(params.compact);
+  const agentId2 = String(params.agentId ?? params.agent_id ?? "").trim();
   const packetLimit = compact2 ? 1 : limit;
   const scope = {
     workspacePath,
@@ -7292,9 +8215,12 @@ function attendAwareness(db3, params = {}) {
   const profile = profileMap(profileResult.rows);
   const workboardResult = queryAwareness(db3, { ...scope, view: "workboard", query: null });
   const rawWorkboard = groupWorkboard(workboardResult.rows);
+  if (agentId2 && rawWorkboard["Verify"]) {
+    rawWorkboard["Verify"] = [...rawWorkboard["Verify"]].sort((left, right) => Number(String(right["agent_id"] ?? "") === agentId2) - Number(String(left["agent_id"] ?? "") === agentId2));
+  }
   const handoffRows = (rawWorkboard["Inbox"] ?? []).filter((row) => row["item_type"] === "refinement" && row["quality"] === "handoff").slice(0, packetLimit).map((row) => compact2 ? compactRow(row) : row);
   const workboard = compact2 ? compactWorkboard(rawWorkboard, packetLimit) : rawWorkboard;
-  const verificationTargets = (rawWorkboard["Verify"] ?? []).slice(0, packetLimit).map((row) => compact2 ? compactVerificationTarget(row) : row);
+  const verificationTargets = (rawWorkboard["Verify"] ?? []).filter((row) => agentId2 !== "" && String(row["agent_id"] ?? "") === agentId2).slice(0, packetLimit);
   const readyTasks = rawWorkboard["Ready"] ?? [];
   const claimedTasks = (rawWorkboard["Claimed"] ?? []).filter((row) => row["item_type"] === "task");
   const projectionHealth = projectionStats(workspacePath);
@@ -7316,7 +8242,7 @@ function attendAwareness(db3, params = {}) {
   }) : { count: 0, memories: [], mode: "lexical", sort: "smart", as_of: null, global_only: false, states: ["ACTIVE"] };
   const evidence = recall.memories.slice(0, packetLimit).map((memory) => {
     const allReferences = memory.references ?? [];
-    const references = compact2 ? allReferences.slice(0, 3) : allReferences;
+    const references = compact2 ? allReferences.slice(0, 1) : allReferences;
     const why = [
       query ? `matched query "${summarize2(query, 80)}"` : null,
       files.length > 0 ? `scoped to ${files.join(", ")}` : null,
@@ -7328,12 +8254,14 @@ function attendAwareness(db3, params = {}) {
       id: memory.memory_id,
       label: memory.label,
       importance: memory.importance,
-      title: summarize2(memory.task_context, compact2 ? 90 : 120),
-      summary: summarize2(memory.observation, compact2 ? 160 : 240),
+      title: summarize2(memory.task_context, compact2 ? 60 : 120),
+      summary: summarize2(memory.observation, compact2 ? 120 : 240),
       references,
-      reference_count: allReferences.length,
-      omitted_reference_count: Math.max(0, allReferences.length - references.length),
-      why_selected: why,
+      ...compact2 ? {} : {
+        reference_count: allReferences.length,
+        omitted_reference_count: Math.max(0, allReferences.length - references.length)
+      },
+      why_selected: compact2 ? why.slice(0, 2) : why,
       trust: evidenceTrust(allReferences)
     };
   });
@@ -7420,9 +8348,36 @@ function attendAwareness(db3, params = {}) {
       source_ref_count: sourceRefs.length
     }
   };
+  const verificationRunId = verificationTargets.flatMap((row) => Array.isArray(row["raw_ids"]) ? row["raw_ids"] : []).map(String).find((id) => id.startsWith("run_"));
+  const next = verificationTargets.length > 0 ? `octocode-awareness verify audit --agent-id "$OCTOCODE_AGENT_ID" --workspace "$PWD" --compact; then verify mark ${verificationRunId ? `--run-id ${verificationRunId}` : "--run-id <exact-run-id>"} after its declared test plan` : readyTasks.length > 0 ? `octocode-awareness task claim --task-id ${String(readyTasks[0]?.["id"])} --agent-id "$OCTOCODE_AGENT_ID" --compact` : bloatWarnings.length > 0 ? 'octocode-awareness memory forget --workspace "$PWD" --dry-run --compact; then repo inject --workspace "$PWD" --compact to regenerate capped projections (digest does not shrink markdown)' : evidence.length > 0 ? "Treat evidence as leads; re-check cited files, then work start before edits" : 'octocode-awareness attend --workspace "$PWD" --query "<narrower task>" --compact; or query workboard / workspace status';
+  if (compact2) {
+    const columnCount = (column) => {
+      const rows = rawWorkboard[column] ?? [];
+      return Number(rows[0]?.["column_total"] ?? rows.length);
+    };
+    return {
+      ok: true,
+      schema_version: 3,
+      generated_at: profileResult.generated_at,
+      workspace_path: workspacePath,
+      artifact: params.artifact ?? null,
+      repo: params.repo ?? null,
+      ref: params.ref ?? null,
+      counts: {
+        Inbox: columnCount("Inbox"),
+        Ready: columnCount("Ready"),
+        Claimed: columnCount("Claimed"),
+        Verify: columnCount("Verify"),
+        FilesUnderWork: columnCount("FilesUnderWork")
+      },
+      workboard,
+      evidence,
+      next
+    };
+  }
   const result = {
     ok: true,
-    schema_version: 2,
+    schema_version: 3,
     generated_at: profileResult.generated_at,
     workspace_path: workspacePath,
     artifact: params.artifact ?? null,
@@ -7443,20 +8398,29 @@ function attendAwareness(db3, params = {}) {
       { step: "memory-recall", count: evidence.length, note: memoryQuery ? void 0 : "skipped-empty-query" },
       { step: "projection-health", count: projectionHealth.length }
     ],
-    next: verificationTargets.length > 0 ? 'octocode-awareness verify audit --agent-id "$OCTOCODE_AGENT_ID" --workspace "$PWD" --compact; then verify mark --all-pending after the declared test plan' : readyTasks.length > 0 ? `octocode-awareness task claim --task-id ${String(readyTasks[0]?.["id"])} --agent-id "$OCTOCODE_AGENT_ID" --compact` : bloatWarnings.length > 0 ? 'octocode-awareness memory forget --workspace "$PWD" --dry-run --compact; then repo inject --workspace "$PWD" --compact to regenerate capped projections (digest does not shrink markdown)' : evidence.length > 0 ? "Treat evidence as leads; re-check cited files, then lock acquire before edits" : 'octocode-awareness attend --workspace "$PWD" --query "<narrower task>" --compact; or query workboard / workspace status'
+    next
   };
   if (explainOrgan) result.organ_reference = ORGAN_REFERENCE;
   return result;
 }
 
 // bin/hook-runner.ts
-import { createHash as createHash2 } from "node:crypto";
-import { mkdirSync as mkdirSync5, readFileSync as readFileSync4, renameSync, unlinkSync, writeFileSync as writeFileSync4 } from "node:fs";
-import { basename as basename3, dirname as dirname5, join as join8, resolve as resolve13 } from "node:path";
+import { createHash as createHash3 } from "node:crypto";
+import {
+  closeSync as closeSync2,
+  mkdirSync as mkdirSync5,
+  openSync as openSync2,
+  readFileSync as readFileSync4,
+  renameSync as renameSync2,
+  statSync as statSync3,
+  unlinkSync as unlinkSync2,
+  writeFileSync as writeFileSync4
+} from "node:fs";
+import { basename as basename3, dirname as dirname5, join as join8, relative as relative5, resolve as resolve14 } from "node:path";
 import { fileURLToPath as fileURLToPath3 } from "node:url";
 
 // src/sessions.ts
-import { randomUUID as randomUUID10 } from "node:crypto";
+import { randomUUID as randomUUID12 } from "node:crypto";
 function endSession(db3, params) {
   const now = utcNow();
   const result = db3.prepare(SESSIONS_UPDATE_END).get(
@@ -7470,9 +8434,9 @@ function endSession(db3, params) {
 // src/pi-hooks.ts
 import path from "node:path";
 import { spawnSync as spawnSync5 } from "node:child_process";
-import { randomUUID as randomUUID11 } from "node:crypto";
+import { randomUUID as randomUUID13 } from "node:crypto";
 import { realpathSync as realpathSync3 } from "node:fs";
-var _sessionStartupToken = randomUUID11().slice(0, 8);
+var _sessionStartupToken = randomUUID13().slice(0, 8);
 function addPathValue(paths, value) {
   if (typeof value === "string" && value.trim().length > 0) {
     paths.push(value.trim());
@@ -7564,7 +8528,7 @@ function canonicalPath(input) {
   }
 }
 function resolvePiTargetPath(file, cwd) {
-  return path.isAbsolute(file) ? file : path.resolve(cwd, file);
+  return canonicalPath(path.isAbsolute(file) ? file : path.resolve(cwd, file));
 }
 function isInsidePath(candidate, root) {
   const resolvedCandidate = canonicalPath(candidate);
@@ -7607,14 +8571,14 @@ function evaluateHarnessGuard(params) {
 
 // bin/hook-runner.ts
 function readStdin() {
-  return new Promise((resolve15) => {
+  return new Promise((resolve16) => {
     let raw = "";
     process.stdin.setEncoding("utf8");
     process.stdin.on("data", (chunk) => {
       raw += chunk;
     });
-    process.stdin.on("end", () => resolve15(raw));
-    process.stdin.on("error", () => resolve15(raw));
+    process.stdin.on("end", () => resolve16(raw));
+    process.stdin.on("error", () => resolve16(raw));
   });
 }
 function parsePayload(raw) {
@@ -7667,11 +8631,11 @@ function agentId(payload) {
     payload.context
   ) ?? "shell";
   const scope = `${host}\0${workspace(payload) ?? process.cwd()}`;
-  const suffix = createHash2("sha1").update(scope).digest("hex").slice(0, 12);
+  const suffix = createHash3("sha1").update(scope).digest("hex").slice(0, 12);
   const fallback = `hook:${host.replace(/[^a-zA-Z0-9_.:-]/g, "_")}:${suffix}`;
   if (!warnedFallbackAgentId) {
     warnedFallbackAgentId = true;
-    console.error(`octocode-awareness: OCTOCODE_AGENT_ID or host session id missing; using fallback agent id "${fallback}". Set OCTOCODE_AGENT_ID for reliable multi-agent lock isolation.`);
+    console.error(`octocode-awareness: OCTOCODE_AGENT_ID or host session id missing; using fallback agent id "${fallback}". Set OCTOCODE_AGENT_ID for reliable multi-agent awareness.`);
   }
   return fallback;
 }
@@ -7728,10 +8692,32 @@ function extractFiles(payload) {
   return extractPiWriteTargetPaths(toolName2, input, { assumeWrite: true });
 }
 function resolveHookPath(file, cwd = process.cwd()) {
-  return resolve13(cwd, file);
+  return canonicalizePath(resolve14(cwd, file));
 }
 function db() {
   return connectDb(resolveDbPath(null));
+}
+var HOOK_RUN_STATE_TTL_MS = 10 * 6e4;
+var HOOK_RUN_STATE_LOCK_WAIT = new Int32Array(new SharedArrayBuffer(4));
+var HOOK_RUN_STATE_LOCK_RETRY_MS = 10;
+var HOOK_RUN_STATE_LOCK_TIMEOUT_MS = 2e3;
+var HOOK_RUN_STATE_LOCK_STALE_MS = 3e4;
+var HOOK_DB_RETRY_TIMEOUT_MS = 5e3;
+function isHookDbBusy(error) {
+  const sqlite = error;
+  const message = sqlite && typeof sqlite === "object" ? `${sqlite.errstr ?? ""} ${sqlite.message ?? ""}` : String(error);
+  return sqlite?.errcode === 5 || /database is (?:locked|busy)/i.test(message);
+}
+function withHookDbRetry(operation) {
+  const deadline = Date.now() + HOOK_DB_RETRY_TIMEOUT_MS;
+  for (; ; ) {
+    try {
+      return operation();
+    } catch (error) {
+      if (!isHookDbBusy(error) || Date.now() >= deadline) throw error;
+      Atomics.wait(HOOK_RUN_STATE_LOCK_WAIT, 0, 0, HOOK_RUN_STATE_LOCK_RETRY_MS);
+    }
+  }
 }
 function hookRunStateDir() {
   const stateDir = join8(dirname5(resolveDbPath(null)), "hook-state", "runs");
@@ -7741,60 +8727,85 @@ function hookRunStateDir() {
 function hookRunStateFile(key) {
   return join8(hookRunStateDir(), `${key}.json`);
 }
-function legacyHookRunStateFile() {
-  const stateDir = join8(dirname5(resolveDbPath(null)), "hook-state");
-  mkdirSync5(stateDir, { recursive: true });
-  return join8(stateDir, "shell-hook-tasks.json");
-}
-function readLegacyPerRunFile(key) {
-  const file = join8(dirname5(resolveDbPath(null)), "hook-state", "tasks", `${key}.json`);
+function processIsAlive2(pid) {
+  if (!Number.isSafeInteger(pid) || pid <= 0) return false;
   try {
-    const parsed = JSON.parse(readFileSync4(file, "utf8"));
-    const entries = Array.isArray(parsed) ? parsed : [];
-    if (entries.length > 0) {
-      try {
-        unlinkSync(file);
-      } catch {
-      }
-    }
-    return entries;
-  } catch {
-    return [];
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error.code !== "ESRCH";
   }
 }
-function readLegacyHookRunEntries(key) {
+function removeStaleHookRunStateLock(lockFile) {
   try {
-    const legacyFile = legacyHookRunStateFile();
-    const state = JSON.parse(readFileSync4(legacyFile, "utf8"));
-    const entries = Array.isArray(state[key]) ? state[key] : [];
-    if (entries.length === 0) return [];
-    delete state[key];
-    writeFileSync4(legacyFile, JSON.stringify(state, null, 2) + "\n", "utf8");
-    return entries;
-  } catch {
-    return [];
+    const owner = Number.parseInt(readFileSync4(lockFile, "utf8"), 10);
+    const staleByAge = Date.now() - statSync3(lockFile).mtimeMs > HOOK_RUN_STATE_LOCK_STALE_MS;
+    if (processIsAlive2(owner) && !staleByAge) return false;
+    unlinkSync2(lockFile);
+    return true;
+  } catch (error) {
+    if (error.code === "ENOENT") return true;
+    return false;
+  }
+}
+function withHookRunStateLock(key, operation) {
+  const lockFile = `${hookRunStateFile(key)}.lock`;
+  const deadline = Date.now() + HOOK_RUN_STATE_LOCK_TIMEOUT_MS;
+  for (; ; ) {
+    try {
+      const fd = openSync2(lockFile, "wx", 384);
+      try {
+        writeFileSync4(fd, `${process.pid}
+`, "utf8");
+      } finally {
+        closeSync2(fd);
+      }
+      try {
+        return operation();
+      } finally {
+        try {
+          unlinkSync2(lockFile);
+        } catch (error) {
+          if (error.code !== "ENOENT") throw error;
+        }
+      }
+    } catch (error) {
+      if (error.code !== "EEXIST") throw error;
+      if (removeStaleHookRunStateLock(lockFile)) continue;
+      if (Date.now() >= deadline) {
+        throw new Error(`timed out waiting for hook correlation state: ${lockFile}`);
+      }
+      Atomics.wait(HOOK_RUN_STATE_LOCK_WAIT, 0, 0, HOOK_RUN_STATE_LOCK_RETRY_MS);
+    }
   }
 }
 function readHookRunEntries(key) {
   try {
     const parsed = JSON.parse(readFileSync4(hookRunStateFile(key), "utf8"));
-    return Array.isArray(parsed) ? parsed : [];
+    if (!Array.isArray(parsed)) return [];
+    const cutoff = Date.now() - HOOK_RUN_STATE_TTL_MS;
+    return parsed.filter((entry2) => {
+      if (!entry2 || typeof entry2 !== "object") return false;
+      const candidate = entry2;
+      const createdAt = typeof candidate.createdAt === "string" ? Date.parse(candidate.createdAt) : NaN;
+      return typeof candidate.runId === "string" && candidate.runId.length > 0 && Array.isArray(candidate.files) && candidate.files.every((file) => typeof file === "string" && file.length > 0) && Number.isFinite(createdAt) && createdAt >= cutoff;
+    });
   } catch {
-    return readLegacyPerRunFile(key).concat(readLegacyHookRunEntries(key));
+    return [];
   }
 }
 function writeHookRunEntries(key, entries) {
   const file = hookRunStateFile(key);
   if (entries.length === 0) {
     try {
-      unlinkSync(file);
+      unlinkSync2(file);
     } catch {
     }
     return;
   }
   const tempFile = `${file}.${process.pid}.${Date.now()}.tmp`;
   writeFileSync4(tempFile, JSON.stringify(entries, null, 2) + "\n", "utf8");
-  renameSync(tempFile, file);
+  renameSync2(tempFile, file);
 }
 function hookEventId(payload) {
   const input = objectOrEmpty2(payloadInput(payload));
@@ -7819,56 +8830,115 @@ function hookRunKey(payload, files, cwd) {
   const explicitId = hookEventId(payload);
   const identity = {
     agent: agentId(payload),
-    workspace: normalizeWorkspacePath(cwd, cwd) ?? resolve13(cwd),
+    workspace: normalizeWorkspacePath(cwd, cwd) ?? resolve14(cwd),
     artifact: artifact(payload),
     event: explicitId,
     files: explicitId ? [] : files.map((file) => resolveHookPath(file, cwd)).sort()
   };
-  return createHash2("sha1").update(JSON.stringify(identity)).digest("hex");
+  return createHash3("sha1").update(JSON.stringify(identity)).digest("hex");
 }
 function recordHookRun(payload, files, cwd, runId) {
   const key = hookRunKey(payload, files, cwd);
-  const entries = readHookRunEntries(key);
-  entries.push({
-    runId,
-    files: files.map((file) => resolveHookPath(file, cwd)),
-    createdAt: (/* @__PURE__ */ new Date()).toISOString()
+  withHookRunStateLock(key, () => {
+    const entries = readHookRunEntries(key);
+    entries.push({
+      runId,
+      files: files.map((file) => resolveHookPath(file, cwd)),
+      createdAt: (/* @__PURE__ */ new Date()).toISOString()
+    });
+    writeHookRunEntries(key, entries.slice(-20));
   });
-  writeHookRunEntries(key, entries.slice(-20));
 }
-function consumeHookRun(payload, files, cwd) {
+function consumeHookRun(database, payload, files, cwd) {
   const key = hookRunKey(payload, files, cwd);
-  const entries = readHookRunEntries(key);
-  const entry2 = entries.shift();
-  writeHookRunEntries(key, entries);
-  return entry2?.runId ?? null;
+  return withHookRunStateLock(key, () => {
+    const entries = readHookRunEntries(key);
+    const activeEntries = entries.filter((entry3) => {
+      const activeFiles = new Set(listWork(database, {
+        agentId: agentId(payload),
+        workspacePath: cwd,
+        artifact: artifact(payload),
+        runId: entry3.runId,
+        activeOnly: true
+      }).files.map((file) => file.file_path));
+      return entry3.files.every((file) => activeFiles.has(file));
+    });
+    const entry2 = activeEntries.pop() ?? null;
+    writeHookRunEntries(key, activeEntries);
+    return entry2?.runId ?? null;
+  });
 }
-function uniqueActiveHookRunId(database, params) {
+function activeRunForFiles(database, params) {
   const absFiles = params.files.map((file) => resolveHookPath(file, params.workspacePath));
   if (absFiles.length === 0) return null;
-  const where = [
-    "fl.agent_id = ?",
-    "ai.status = 'ACTIVE'",
-    `fl.file_path IN (${absFiles.map(() => "?").join(",")})`,
-    "ai.workspace_path = ?"
-  ];
-  const binds = [
-    params.agentId,
-    ...absFiles,
-    normalizeWorkspacePath(params.workspacePath, params.workspacePath) ?? resolve13(params.workspacePath)
-  ];
-  if (params.artifact) {
-    where.push("(ai.artifact = ? OR ai.artifact IS NULL)");
-    binds.push(params.artifact);
+  const rows = listWork(database, {
+    agentId: params.agentId,
+    workspacePath: params.workspacePath,
+    artifact: params.artifact,
+    activeOnly: true
+  }).files.filter((entry2) => params.origins.includes(entry2.origin));
+  const byRun = /* @__PURE__ */ new Map();
+  for (const row of rows) {
+    const paths = byRun.get(row.run_id) ?? /* @__PURE__ */ new Set();
+    paths.add(row.file_path);
+    byRun.set(row.run_id, paths);
   }
-  const rows = database.prepare(
-    `SELECT DISTINCT fl.run_id
-       FROM locks fl
-       JOIN task_runs ai ON ai.run_id = fl.run_id
-      WHERE ${where.join(" AND ")}
-      ORDER BY fl.run_id ASC`
-  ).all(...binds);
-  return rows.length === 1 ? rows[0].run_id : null;
+  const matches = [...byRun].filter(([, paths]) => absFiles.every((file) => paths.has(file)));
+  return matches.length === 1 ? matches[0][0] : null;
+}
+function runOrigin(database, runId) {
+  const row = database.prepare("SELECT origin FROM task_runs WHERE run_id = ?").get(runId);
+  return row?.origin ?? null;
+}
+function peerStateDir() {
+  const stateDir = join8(dirname5(resolveDbPath(null)), "hook-state", "peers");
+  mkdirSync5(stateDir, { recursive: true });
+  return stateDir;
+}
+function peerStateKey(payload, files, cwd) {
+  return createHash3("sha1").update(JSON.stringify({
+    agent: agentId(payload),
+    workspace: normalizeWorkspacePath(cwd, cwd) ?? resolve14(cwd),
+    artifact: artifact(payload),
+    files: files.map((file) => resolveHookPath(file, cwd)).sort()
+  })).digest("hex");
+}
+function peerFingerprint(peers) {
+  return createHash3("sha1").update(JSON.stringify(peers.map((peer) => ({
+    agent: peer.agent_id,
+    file: peer.file_path,
+    task: peer.task_id,
+    origin: peer.origin,
+    rationale: peer.rationale,
+    exclusive: peer.exclusive
+  })).sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))))).digest("hex");
+}
+function peerLabel(peer) {
+  const work = peer.task_id ?? peer.origin;
+  const reason = peer.rationale.replace(/\s+/g, " ").trim().slice(0, 40);
+  return `${peer.agent_id}:${work}${reason ? `(${reason})` : ""}`;
+}
+function emitPeerDelta(payload, files, cwd, allPeers) {
+  const targetSet = new Set(files.map((file) => resolveHookPath(file, cwd)));
+  const peers = allPeers.filter((peer) => peer.agent_id !== agentId(payload) && targetSet.has(peer.file_path));
+  const key = peerStateKey(payload, files, cwd);
+  const stateFile = join8(peerStateDir(), `${key}.txt`);
+  const fingerprint = peerFingerprint(peers);
+  let previous = null;
+  try {
+    previous = readFileSync4(stateFile, "utf8").trim();
+  } catch {
+  }
+  if (previous === fingerprint) return;
+  writeFileSync4(stateFile, fingerprint, "utf8");
+  if (peers.length === 0) return;
+  const shown = peers.slice(0, 3).map(peerLabel).join("; ");
+  const omitted = peers.length > 3 ? ` +${peers.length - 3}` : "";
+  const canonicalWorkspace = canonicalizePath(cwd);
+  const targets = files.slice(0, 2).map((file) => relative5(canonicalWorkspace, resolveHookPath(file, cwd)) || basename3(file)).join(",");
+  const message = `AWARE ${targets} | peers ${shown}${omitted}`;
+  process.stdout.write(`${JSON.stringify({ additionalContext: message })}
+`);
 }
 function hookAgentContext(payload, hookName) {
   const value = process.env.OCTOCODE_AGENT_CONTEXT ?? process.env.OCTOCODE_AGENT_HOST ?? payload.context ?? payload.host ?? payload.client ?? payload.source;
@@ -7897,31 +8967,58 @@ function scopeArgs(payload) {
 async function runPreEdit(payload) {
   const files = extractFiles(payload);
   if (files.length === 0) return 0;
+  const hookWorkspace = workspace(payload) ?? process.cwd();
+  const guardReason = evaluateHarnessGuard({
+    targetFiles: files,
+    skillRoot: process.env.OCTOCODE_SKILL_ROOT,
+    cwd: hookWorkspace
+  });
+  if (guardReason) {
+    console.error(`${guardReason} Edit blocked.`);
+    return 2;
+  }
   try {
     const database = db();
     registerHookAgent(database, payload, "hook:pre-edit");
+    const hookAgentId = agentId(payload);
+    const hookArtifact = artifact(payload);
     const activeClaim = activeTaskClaimForAgent(database, {
-      agentId: agentId(payload),
-      workspacePath: workspace(payload) ?? process.cwd(),
-      artifact: artifact(payload)
+      agentId: hookAgentId,
+      workspacePath: hookWorkspace,
+      artifact: hookArtifact
     });
-    const result = preFlightIntent(database, {
-      agentId: agentId(payload),
+    const explicitRunId = activeClaim ? null : activeRunForFiles(database, {
+      agentId: hookAgentId,
+      workspacePath: hookWorkspace,
+      artifact: hookArtifact,
+      files,
+      origins: ["WORK"]
+    });
+    const result = explicitRunId ? { ok: true, ...touchWork(database, {
+      agentId: hookAgentId,
+      runId: explicitRunId,
+      targetFiles: files,
+      ttlMs: 10 * 6e4
+    }) } : startWork(database, {
+      agentId: hookAgentId,
       sessionId: sessionId(payload),
-      workspacePath: workspace(payload) ?? process.cwd(),
-      artifact: artifact(payload),
+      workspacePath: hookWorkspace,
+      artifact: hookArtifact,
       runId: activeClaim?.run_id,
       rationale: autoClaimRationale(payload, files),
       testPlan: "post-edit verification",
       targetFiles: files,
+      origin: "HOOK",
+      source: "HOOK",
       ttlMs: 10 * 6e4
     });
     if (!result.ok) {
-      console.error("octocode-awareness: target file is locked by another agent \u2014 edit blocked.");
-      console.error(JSON.stringify(result));
+      const detail = result.conflicts.slice(0, 3).map((conflict) => `${relative5(hookWorkspace, conflict.file_path)} (${conflict.agent_id})`).join(", ");
+      console.error(`octocode-awareness: exclusive file work blocks this edit${detail ? `: ${detail}` : ""}.`);
       return 2;
     }
-    recordHookRun(payload, files, workspace(payload) ?? process.cwd(), result.run.run_id);
+    recordHookRun(payload, files, hookWorkspace, result.run.run_id);
+    emitPeerDelta(payload, files, hookWorkspace, result.peers);
     return 0;
   } catch (error) {
     console.error(`octocode-awareness pre-flight warning (continuing): ${error instanceof Error ? error.message : String(error)}`);
@@ -7931,43 +9028,70 @@ async function runPreEdit(payload) {
 async function runPostEdit(payload) {
   const files = extractFiles(payload);
   if (files.length === 0) return 0;
+  const hookWorkspace = workspace(payload) ?? process.cwd();
+  let consumedRunId = null;
+  let stage = "open database";
   try {
     const database = db();
-    registerHookAgent(database, payload, "hook:post-edit");
+    stage = "register hook agent";
+    withHookDbRetry(() => registerHookAgent(database, payload, "hook:post-edit"));
     const hookAgentId = agentId(payload);
-    const hookWorkspace = workspace(payload) ?? process.cwd();
     const hookArtifact = artifact(payload);
-    const correlatedRunId = consumeHookRun(payload, files, hookWorkspace) ?? uniqueActiveHookRunId(database, {
+    stage = "consume correlation";
+    consumedRunId = withHookDbRetry(() => consumeHookRun(database, payload, files, hookWorkspace));
+    stage = "resolve fallback run";
+    const correlatedRunId = consumedRunId ?? withHookDbRetry(() => activeTaskClaimForAgent(database, {
+      agentId: hookAgentId,
+      workspacePath: hookWorkspace,
+      artifact: hookArtifact
+    }))?.run_id ?? withHookDbRetry(() => activeRunForFiles(database, {
       agentId: hookAgentId,
       workspacePath: hookWorkspace,
       artifact: hookArtifact,
-      files
-    });
+      files,
+      origins: ["WORK", "HOOK"]
+    }));
     if (!correlatedRunId) {
-      console.error("octocode-awareness post-edit warning (continuing): could not identify a unique hook run to release; leaving locks for verify/cleanup.");
+      console.error("octocode-awareness post-edit warning (continuing): could not identify a unique work run; leaving presence for expiry.");
       return 0;
     }
-    const linkedClaim = database.prepare("SELECT 1 FROM task_claims WHERE run_id = ? LIMIT 1").get(correlatedRunId);
-    const release = releaseFileLock(database, {
-      agentId: hookAgentId,
-      workspacePath: hookWorkspace,
-      artifact: hookArtifact,
-      runId: correlatedRunId,
-      status: linkedClaim ? "ACTIVE" : "PENDING"
-    });
-    const runId = release.run_ids.length === 1 ? release.run_ids[0] : correlatedRunId;
-    for (const file of files) {
-      insertEditLog(database, {
+    stage = "read run origin";
+    const origin = withHookDbRetry(() => runOrigin(database, correlatedRunId));
+    stage = "finish work lifecycle";
+    if (origin === "HOOK") {
+      withHookDbRetry(() => endWork(database, {
         agentId: hookAgentId,
-        runId,
+        runId: correlatedRunId,
+        targetFiles: files
+      }));
+    } else {
+      withHookDbRetry(() => touchWork(database, {
+        agentId: hookAgentId,
+        runId: correlatedRunId,
+        targetFiles: files,
+        ttlMs: 10 * 6e4
+      }));
+    }
+    consumedRunId = null;
+    stage = "write edit log";
+    for (const file of files) {
+      withHookDbRetry(() => insertEditLog(database, {
+        agentId: hookAgentId,
+        runId: correlatedRunId,
         filePath: resolveHookPath(file, hookWorkspace),
         operation: "update",
         workspacePath: hookWorkspace,
         artifact: hookArtifact
-      });
+      }));
     }
   } catch (error) {
-    console.error(`octocode-awareness post-edit warning (continuing): ${error instanceof Error ? error.message : String(error)}`);
+    if (consumedRunId) {
+      try {
+        recordHookRun(payload, files, hookWorkspace, consumedRunId);
+      } catch {
+      }
+    }
+    console.error(`octocode-awareness post-edit warning during ${stage} (continuing): ${error instanceof Error ? error.message : String(error)}`);
   }
   return 0;
 }
@@ -7990,14 +9114,13 @@ async function runStopVerify(payload) {
     registerHookAgent(database, payload, "hook:stop-verify");
     const report = auditUnverified(database, { agentId: agentId(payload), ...scopeArgs(payload) });
     if (report.count > 0) {
-      const parts = [];
-      if (report.unverified.length > 0) {
-        parts.push(report.unverified.map((u) => `${u.status}:${u.run_id}: ${u.test_plan}`).join("; "));
-      }
-      if (report.stale_active.length > 0) {
-        parts.push("Stale active (lock expired): " + report.stale_active.map((s) => `${s.run_id}: ${s.rationale}`).join("; "));
-      }
-      console.error(`octocode-awareness: concluding with unverified work. ${parts.join(" | ")}`);
+      const details = [
+        ...report.unverified.map((run) => `${run.status}:${run.run_id}: ${run.test_plan}`),
+        ...report.stale_active.map((run) => `STALE:${run.run_id}: ${run.rationale}`)
+      ];
+      const shown = details.slice(0, 3);
+      const omitted = details.length > 3 ? `; +${details.length - 3} omitted` : "";
+      console.error(`octocode-awareness: concluding with unverified work. ${shown.join("; ")}${omitted}`);
       return 2;
     }
   } catch (error) {
@@ -8010,7 +9133,7 @@ function maybeRunDigest(payload) {
   if (process.env.OCTOCODE_NOTIFY_RUN_DIGEST !== "1") return;
   const intervalHours = Number(process.env.OCTOCODE_DIGEST_INTERVAL_HOURS ?? 4);
   const intervalMs = Number.isFinite(intervalHours) && intervalHours > 0 ? intervalHours * 36e5 : 4 * 36e5;
-  const memoryHome2 = process.env.OCTOCODE_MEMORY_HOME || `${process.env.HOME ?? ""}/.octocode/memory`;
+  const memoryHome2 = dirname5(resolveDbPath(null));
   const markerPath = join8(memoryHome2, ".last-digest-epoch-ms");
   try {
     const database = db();
@@ -8022,9 +9145,9 @@ function maybeRunDigest(payload) {
     }
     const now = Date.now();
     if (!last || now - last >= intervalMs) {
+      digest(database, { workspace: workspace(payload), memoryHome: memoryHome2 });
       mkdirSync5(memoryHome2, { recursive: true });
       writeFileSync4(markerPath, String(now), "utf8");
-      digest(database, { workspace: workspace(payload), memoryHome: memoryHome2 });
     }
   } catch (error) {
     console.error(`octocode-awareness digest warning (continuing): ${error instanceof Error ? error.message : String(error)}`);
@@ -8044,8 +9167,7 @@ async function runNotifyDeliver(payload) {
     });
     if (result.additionalContext) {
       process.stdout.write(JSON.stringify({
-        additionalContext: result.additionalContext,
-        additional_context: result.additionalContext
+        additionalContext: result.additionalContext
       }) + "\n");
     }
   } catch (error) {
@@ -8097,7 +9219,7 @@ async function runHookCommand(command2, rawPayload) {
 async function main() {
   return runHookCommand(process.argv[2] ?? "help");
 }
-var isMain = process.argv[1] ? fileURLToPath3(import.meta.url) === resolve13(process.argv[1]) : false;
+var isMain = process.argv[1] ? fileURLToPath3(import.meta.url) === resolve14(process.argv[1]) : false;
 var invokedAsHookRunner = process.argv[1] ? /^hook-runner\.(js|mjs|ts)$/.test(basename3(process.argv[1])) : false;
 if (isMain && invokedAsHookRunner) {
   process.exitCode = await main();
@@ -8183,6 +9305,39 @@ var NUMERIC_FLAGS = /* @__PURE__ */ new Set([
   "priority",
   "lease_minutes"
 ]);
+var BOOLEAN_FLAGS = /* @__PURE__ */ new Set([
+  "compact",
+  "help",
+  "smart",
+  "global_only",
+  "strict_scope",
+  "explain",
+  "semantic",
+  "full",
+  "dry_run",
+  "include_handoffs",
+  "strict_agent_id",
+  "verified",
+  "expired_only",
+  "abandon",
+  "all_pending",
+  "propose",
+  "include_bodies",
+  "explain_organ",
+  "check",
+  "include_view",
+  "all",
+  "unread_only",
+  "mark_read",
+  "resolved",
+  "global",
+  "strict",
+  "remove",
+  "exclusive",
+  "next",
+  "duo",
+  "examples"
+]);
 var VALUE_REQUIRED_FLAGS = /* @__PURE__ */ new Set([
   "query",
   "observation",
@@ -8205,17 +9360,67 @@ var VALUE_REQUIRED_FLAGS = /* @__PURE__ */ new Set([
   "title",
   "acceptance",
   "blocked_reason",
-  "path"
+  "path",
+  "agent_id",
+  "session_id",
+  "workspace",
+  "artifact",
+  "repo",
+  "ref",
+  "run_id",
+  "task_id",
+  "plan_id",
+  "test_plan",
+  "context_ref",
+  "target_file",
+  "file",
+  "status",
+  "verified_note",
+  "memory_id",
+  "refinement_id",
+  "signal_id",
+  "to_agent",
+  "ref_id",
+  "host",
+  "project_dir",
+  "out",
+  "out_dir",
+  "mode",
+  "format",
+  "view",
+  "action",
+  "kind",
+  "label",
+  "tag",
+  "reference",
+  "state",
+  "sort",
+  "as_of",
+  "cwd",
+  "created_by",
+  "depends_on",
+  "failure_signature",
+  "valid_from",
+  "valid_to",
+  "outcome",
+  "quality",
+  "reason",
+  "targets_json",
+  "export_doc",
+  "agent_name",
+  "context",
+  "before",
+  "importance"
 ]);
 var KNOWN_FLAGS = {
-  "tell-memory": ["agent_id", "task_context", "observation", "importance", "label", "tag", "reference", "supersedes", "failure_signature", "valid_from", "valid_to", "workspace", "artifact", "repo", "ref", "file", "file_tree_fingerprint", "compat_coerce"],
-  "get-memory": ["query", "limit", "min_importance", "label", "tag", "smart", "workspace", "artifact", "repo", "ref", "state", "sort", "global_only", "strict_scope", "as_of", "reference", "regex", "file_regex", "file", "explain", "semantic"],
+  "tell-memory": ["agent_id", "task_context", "observation", "importance", "label", "tag", "reference", "supersedes", "failure_signature", "valid_from", "valid_to", "workspace", "artifact", "repo", "ref", "file", "file_tree_fingerprint"],
+  "get-memory": ["query", "limit", "min_importance", "label", "tag", "smart", "workspace", "artifact", "repo", "ref", "state", "sort", "global_only", "strict_scope", "as_of", "reference", "regex", "file_regex", "file", "explain", "semantic", "full"],
   "forget": ["memory_id", "tag", "tags", "before", "max_importance", "workspace", "artifact", "repo", "ref", "dry_run"],
-  "reflect": ["agent_id", "task", "outcome", "lesson", "worked", "didnt_work", "fix_repo", "fix_file", "fix_harness", "fix_instructions", "failure_signature", "importance", "judgment_note", "duo", "eval_failure_json", "workspace", "artifact", "repo", "ref", "compat_coerce"],
+  "reflect": ["agent_id", "task", "outcome", "lesson", "worked", "didnt_work", "fix_repo", "fix_file", "fix_harness", "fix_instructions", "failure_signature", "importance", "judgment_note", "duo", "eval_failure_json", "workspace", "artifact", "repo", "ref"],
   "refine-set": ["agent_id", "reasoning", "remember", "quality", "state", "workspace", "artifact", "repo", "ref", "file", "refinement_id"],
   "refine-get": ["workspace", "artifact", "repo", "ref", "quality", "include_handoffs", "state", "limit"],
   "refine-delete": ["refinement_id", "workspace", "artifact", "dry_run"],
-  "pre-flight-intent": ["agent_id", "workspace", "artifact", "run_id", "rationale", "test_plan", "context_ref", "target_file", "file", "lock_type", "ttl_minutes", "ttl_seconds", "wait_seconds", "retry_interval", "strict_agent_id"],
+  "pre-flight-intent": ["agent_id", "workspace", "artifact", "run_id", "rationale", "test_plan", "context_ref", "target_file", "file", "ttl_minutes", "ttl_seconds", "wait_seconds", "retry_interval", "strict_agent_id"],
   "release-file-lock": ["agent_id", "run_id", "target_file", "file", "status", "verified", "verified_note", "workspace", "artifact"],
   "status": ["workspace", "artifact", "limit"],
   "init": [],
@@ -8225,23 +9430,24 @@ var KNOWN_FLAGS = {
   "verify": ["run_id", "all_pending", "agent_id", "status", "message", "workspace", "artifact"],
   "mine-weakness": ["agent_id", "workspace", "artifact", "min_count", "limit", "cwd"],
   "doc-staleness": ["agent_id", "workspace", "artifact", "targets_json", "min_edits", "min_lines", "propose", "session_id"],
-  "docs-catalog": ["action", "name"],
+  "docs-catalog": ["action", "name", "full"],
   "export-harness": ["limit", "min_importance", "workspace", "artifact"],
   "developer-review": ["workspace", "artifact", "repo", "ref", "state", "limit", "format", "query"],
   "query": ["view", "query", "limit", "format", "out", "workspace", "artifact", "repo", "ref", "agent_id", "state", "label", "file", "since", "include_bodies"],
-  "attend": ["query", "limit", "workspace", "artifact", "repo", "ref", "file", "include_bodies", "explain_organ"],
-  "repo-inject": ["query", "limit", "out", "out_dir", "workspace", "artifact", "repo", "ref", "mode", "check", "include_view", "include_bodies"],
+  "attend": ["agent_id", "query", "limit", "workspace", "artifact", "repo", "ref", "file", "include_bodies", "explain_organ"],
+  "repo-inject": ["query", "limit", "out", "out_dir", "workspace", "artifact", "repo", "ref", "mode", "check", "include_view"],
   "agent-registry": ["action", "agent_id", "agent_name", "workspace", "artifact", "context", "limit"],
-  "agent-signal": ["action", "agent_id", "workspace", "artifact", "repo", "ref", "kind", "subject", "body", "to_agent", "file", "ref_id", "importance", "in_reply_to", "thread_id", "signal_id", "all", "unread_only", "mark_read", "limit", "format", "compat_coerce"],
+  "agent-signal": ["action", "agent_id", "workspace", "artifact", "repo", "ref", "kind", "subject", "body", "to_agent", "file", "ref_id", "importance", "in_reply_to", "thread_id", "signal_id", "all", "unread_only", "mark_read", "limit", "include_bodies"],
   "notify-prune": ["signal_id", "resolved", "older_than_days", "dry_run", "workspace", "artifact"],
   "session-capture": ["agent_id", "workspace", "artifact", "repo", "ref", "reason", "cwd"],
-  "wait-for-lock": ["agent_id", "target_file", "file", "workspace", "artifact", "lock_type", "wait_seconds", "retry_interval"],
+  "wait-for-lock": ["agent_id", "target_file", "file", "workspace", "artifact", "wait_seconds", "retry_interval"],
   "digest": ["retention_days", "refinement_handoff_retention_days", "refinement_done_retention_days", "dry_run", "export_doc", "workspace", "artifact"],
   "hook-run": [],
   "hooks-install": ["host", "project_dir", "global", "check", "strict", "dry_run", "remove"],
-  "schema": [],
-  "plan-command": ["action", "plan_id", "name", "objective", "lead_agent_id", "agent_id", "workspace", "artifact", "status", "path", "title"],
-  "task-command": ["action", "task_id", "plan_id", "title", "reasoning", "acceptance", "path", "created_by", "agent_id", "priority", "depends_on", "run_id", "lease_minutes", "message", "blocked_reason", "test_plan", "status", "next"]
+  "schema": ["examples"],
+  "plan-command": ["action", "plan_id", "name", "objective", "lead_agent_id", "agent_id", "workspace", "artifact", "status", "path", "title", "limit", "full"],
+  "task-command": ["action", "task_id", "plan_id", "title", "reasoning", "acceptance", "path", "created_by", "agent_id", "priority", "depends_on", "run_id", "lease_minutes", "message", "blocked_reason", "test_plan", "status", "next", "limit", "full"],
+  "work-command": ["action", "agent_id", "session_id", "workspace", "artifact", "run_id", "rationale", "test_plan", "context_ref", "target_file", "file", "exclusive", "ttl_minutes", "ttl_seconds", "all", "full", "limit"]
 };
 function validateFlags(command2, args2) {
   const known = KNOWN_FLAGS[command2];
@@ -8253,7 +9459,9 @@ function validateFlagValues(args2) {
   for (const key of Object.keys(args2)) {
     if (key === "_") continue;
     const value = args2[key];
-    if (NUMERIC_FLAGS.has(key)) {
+    if (value === false && !BOOLEAN_FLAGS.has(key)) {
+      die(`--no-${key.replace(/_/g, "-")} is invalid because --${key.replace(/_/g, "-")} expects a value`);
+    } else if (NUMERIC_FLAGS.has(key)) {
       const n = typeof value === "string" ? Number(value) : NaN;
       if (value === true || !Number.isInteger(n)) {
         die(`--${key.replace(/_/g, "-")} expects an integer`, { got: value === true ? "flag with no value" : String(value) });
@@ -8273,13 +9481,20 @@ function parseBoundedSeconds(args2, key, min, max) {
   if (value > max) die(`${flag2} must be <= ${max}`);
   return value;
 }
+function listLimit(args2) {
+  const value = Number(String(args2["limit"] ?? "20"));
+  if (!Number.isInteger(value) || value < 1) die("--limit must be a positive integer");
+  return Math.min(value, 200);
+}
 function extractGlobalDb(argv) {
   let dbPath2 = null;
   const filtered = [];
   let i = 0;
   while (i < argv.length) {
-    if (argv[i] === "--db" && i + 1 < argv.length) {
-      dbPath2 = argv[i + 1];
+    if (argv[i] === "--db") {
+      const value = argv[i + 1];
+      if (value === void 0 || value.startsWith("--")) die("--db expects a path");
+      dbPath2 = value;
       i += 2;
     } else {
       filtered.push(argv[i]);
@@ -8312,6 +9527,11 @@ var COMMAND_ROUTES = {
   "task submit": { command: "task-command", prepend: ["--action", "submit"] },
   "task release": { command: "task-command", prepend: ["--action", "release"] },
   "task depend": { command: "task-command", prepend: ["--action", "depend"] },
+  "work start": { command: "work-command", prepend: ["--action", "start"] },
+  "work touch": { command: "work-command", prepend: ["--action", "touch"] },
+  "work end": { command: "work-command", prepend: ["--action", "end"] },
+  "work list": { command: "work-command", prepend: ["--action", "list"] },
+  "work show": { command: "work-command", prepend: ["--action", "show"] },
   "verify mark": { command: "verify" },
   "verify audit": { command: "audit-unverified" },
   "refinement set": { command: "refine-set" },
@@ -8420,8 +9640,11 @@ function die(message, extras = {}) {
   process.stdout.write(JSON.stringify({ ok: false, error: message, ...extras }, null, compact2 ? 0 : 2) + "\n");
   process.exit(1);
 }
+function resolveAgentId(args2) {
+  return String(args2["agent_id"] ?? process.env.OCTOCODE_AGENT_ID ?? "agent");
+}
 function cmdTellMemory(db3, args2, dbPath2, opts2) {
-  const agentId2 = String(args2["agent_id"] ?? "agent");
+  const agentId2 = resolveAgentId(args2);
   const taskContext = String(args2["task_context"] ?? "");
   const observation = String(args2["observation"] ?? "");
   const importanceLevel = args2["importance"];
@@ -8447,7 +9670,6 @@ function cmdTellMemory(db3, args2, dbPath2, opts2) {
   const supersedes = Array.isArray(rawSup) ? rawSup : rawSup ? [String(rawSup)] : [];
   const rawLabel = args2["label"];
   const label = Array.isArray(rawLabel) ? rawLabel[0] : String(rawLabel ?? "");
-  const compatCoerce = Boolean(args2["compat_coerce"]);
   const { memory, superseded, noveltyScore, similarMemoryIds } = insertMemory(db3, {
     agentId: agentId2,
     taskContext,
@@ -8464,8 +9686,7 @@ function cmdTellMemory(db3, args2, dbPath2, opts2) {
     artifact: args2["artifact"] ? String(args2["artifact"]) : null,
     repo: args2["repo"] ? String(args2["repo"]) : null,
     ref: args2["ref"] ? String(args2["ref"]) : null,
-    fileTreeFingerprint: args2["file_tree_fingerprint"] ? String(args2["file_tree_fingerprint"]) : null,
-    compatCoerce
+    fileTreeFingerprint: args2["file_tree_fingerprint"] ? String(args2["file_tree_fingerprint"]) : null
   });
   const payload = { db_path: dbPath2, memory, superseded };
   if (supersedes.length === 0 && noveltyScore < 0.5 && similarMemoryIds.length > 0) {
@@ -8511,7 +9732,7 @@ function cmdGetMemory(db3, args2, dbPath2, opts2) {
   if (!MEMORY_SORTS.has(sort)) {
     die(`--sort must be one of: ${[...MEMORY_SORTS].join(", ")}`);
   }
-  const result = getMemory(db3, {
+  const recallParams = {
     query: String(args2["query"] ?? ""),
     limit: parseInt(String(args2["limit"] ?? "3"), 10),
     minImportance: parseInt(String(args2["min_importance"] ?? "1"), 10),
@@ -8531,8 +9752,10 @@ function cmdGetMemory(db3, args2, dbPath2, opts2) {
     regex,
     fileRegex,
     files: getFiles,
-    explain: Boolean(args2["explain"])
-  });
+    explain: Boolean(args2["explain"]),
+    recordAccess: !Boolean(args2["semantic"])
+  };
+  const result = getMemory(db3, recallParams);
   const payload = { db_path: dbPath2, ...result };
   if (args2["semantic"]) {
     const embedCmd = resolveEmbedCommand();
@@ -8549,32 +9772,22 @@ function cmdGetMemory(db3, args2, dbPath2, opts2) {
       try {
         const { embedding, model } = runHostEmbedder(queryText, { command: embedCmd });
         const limit = parseInt(String(args2["limit"] ?? "3"), 10);
-        const hits = searchByEmbedding(db3, embedding, Math.max(limit, 1), 0, model);
+        const semanticStates = states ?? (args2["as_of"] ? ["ACTIVE", "SUPERSEDED"] : ["ACTIVE"]);
+        const hits = searchByEmbedding(db3, embedding, 2e3, 0, model, semanticStates);
         if (hits.length === 0) {
           payload["warnings"] = [
             `OCTOCODE_EMBED_CMD ran (model=${model}) but no stored embeddings matched; results use lexical FTS + decay. Record memories while OCTOCODE_EMBED_CMD is set to populate vectors.`
           ];
         } else {
           const simById = new Map(hits.map((hit) => [hit.memory_id, hit.similarity]));
-          const scoped = lexicalSearch(
-            db3,
-            "",
-            hits.length,
-            parseInt(String(args2["min_importance"] ?? "1"), 10),
-            tags,
-            labelArr ?? [],
-            states ?? ["ACTIVE"],
-            {
-              workspacePath: args2["workspace"] ? String(args2["workspace"]) : null,
-              artifact: args2["artifact"] ? String(args2["artifact"]) : null,
-              repo: args2["repo"] ? String(args2["repo"]) : null,
-              ref: args2["ref"] ? String(args2["ref"]) : null,
-              strictScope: Boolean(args2["strict_scope"]),
-              globalOnly: Boolean(args2["global_only"]),
-              asOf: args2["as_of"] ? String(args2["as_of"]) : null,
-              candidateMemoryIds: hits.map((hit) => hit.memory_id)
-            }
-          );
+          const scoped = getMemory(db3, {
+            ...recallParams,
+            query: "",
+            limit: hits.length,
+            candidateMemoryIds: hits.map((hit) => hit.memory_id),
+            recordAccess: false,
+            explain: false
+          }).memories;
           const ranked = scoped.map((memory) => {
             const similarity = simById.get(memory.memory_id) ?? 0;
             memory.score = similarity;
@@ -8602,6 +9815,15 @@ function cmdGetMemory(db3, args2, dbPath2, opts2) {
       }
     }
   }
+  if (args2["semantic"] && payload["mode"] !== "semantic") {
+    const fallback = payload["memories"] ?? [];
+    bumpAccess(db3, fallback.flatMap((memory) => memory.memory_id ? [memory.memory_id] : []));
+  }
+  if (!Boolean(args2["full"])) {
+    const memories = payload["memories"] ?? [];
+    payload["memories"] = memories.map((memory) => projectMemoryLean(memory));
+    payload["projection"] = "lean";
+  }
   return emit(payload, 0, opts2);
 }
 function cmdRefineSet(db3, args2, dbPath2, opts2) {
@@ -8628,7 +9850,7 @@ function cmdRefineSet(db3, args2, dbPath2, opts2) {
   if (!reasoning) die("--reasoning is required");
   if (!remember) die("--remember is required");
   const { refinement } = insertRefinement(db3, {
-    agentId: String(args2["agent_id"] ?? "agent"),
+    agentId: resolveAgentId(args2),
     reasoning,
     remember,
     quality: String(args2["quality"] ?? "good"),
@@ -8668,9 +9890,8 @@ function cmdReflect(db3, args2, dbPath2, opts2) {
       die(`--eval-failure-json must be a JSON array of {id, dimension?, failure_signature?, suggested_lesson?}: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
-  const compatCoerce = Boolean(args2["compat_coerce"]);
   const result = reflect(db3, {
-    agentId: String(args2["agent_id"] ?? "agent"),
+    agentId: resolveAgentId(args2),
     task: String(args2["task"]),
     outcome: args2["outcome"] != null ? String(args2["outcome"]) : "partial",
     lesson: args2["lesson"] ? String(args2["lesson"]) : null,
@@ -8688,8 +9909,7 @@ function cmdReflect(db3, args2, dbPath2, opts2) {
     workspacePath: args2["workspace"] ? String(args2["workspace"]) : null,
     artifact: args2["artifact"] ? String(args2["artifact"]) : null,
     repo: args2["repo"] ? String(args2["repo"]) : null,
-    ref: args2["ref"] ? String(args2["ref"]) : null,
-    compatCoerce
+    ref: args2["ref"] ? String(args2["ref"]) : null
   });
   return emit({ ...result, db_path: dbPath2 }, 0, opts2);
 }
@@ -8721,7 +9941,6 @@ function cmdPreFlightIntent(db3, args2, dbPath2, opts2) {
     testPlan: String(args2["test_plan"] ?? "post-edit verification"),
     contextRef: args2["context_ref"] ? String(args2["context_ref"]) : null,
     targetFiles,
-    lockType: String(args2["lock_type"] ?? "EXCLUSIVE"),
     ttlMs
   };
   let result = preFlightIntent(db3, claimParams);
@@ -8733,7 +9952,6 @@ function cmdPreFlightIntent(db3, args2, dbPath2, opts2) {
       target_files: targetFiles,
       workspace: claimParams.workspacePath ?? void 0,
       artifact: claimParams.artifact ?? void 0,
-      lock_type: claimParams.lockType,
       wait_ms: waitSeconds * 1e3,
       retry_interval_ms: retrySeconds != null ? retrySeconds * 1e3 : void 0
     });
@@ -8750,6 +9968,20 @@ function cmdAuditUnverified(db3, args2, dbPath2, opts2) {
     artifact: args2["artifact"] ? String(args2["artifact"]) : null,
     abandon: Boolean(args2["abandon"])
   });
+  if (opts2.compact || process.env["OCTOCODE_AWARENESS_COMPACT"] === "1") {
+    const detailLimit = 3;
+    const unverified = result.unverified.slice(0, detailLimit);
+    const staleActive = result.stale_active.slice(0, Math.max(0, detailLimit - unverified.length));
+    return emit({
+      db_path: dbPath2,
+      ...result,
+      unverified,
+      stale_active: staleActive,
+      unverified_count: result.unverified.length,
+      stale_active_count: result.stale_active.length,
+      omitted_count: result.count - unverified.length - staleActive.length
+    }, result.count > 0 ? 1 : 0, opts2);
+  }
   return emit({ db_path: dbPath2, ...result }, result.count > 0 ? 1 : 0, opts2);
 }
 function cmdVerify(db3, args2, dbPath2, opts2) {
@@ -8765,7 +9997,7 @@ function cmdVerify(db3, args2, dbPath2, opts2) {
   if (!allPending && runIds.length > 1) {
     const results = runIds.map((runId) => markVerified(db3, {
       runId,
-      agentId: String(args2["agent_id"] ?? "agent"),
+      agentId: resolveAgentId(args2),
       workspacePath: args2["workspace"] ? String(args2["workspace"]) : null,
       artifact: args2["artifact"] ? String(args2["artifact"]) : null,
       message: args2["message"] ? String(args2["message"]) : void 0,
@@ -8786,7 +10018,7 @@ function cmdVerify(db3, args2, dbPath2, opts2) {
   }
   const result = markVerified(db3, {
     runId: runIds[0],
-    agentId: String(args2["agent_id"] ?? "agent"),
+    agentId: resolveAgentId(args2),
     allPending,
     workspacePath: args2["workspace"] ? String(args2["workspace"]) : null,
     artifact: args2["artifact"] ? String(args2["artifact"]) : null,
@@ -8802,13 +10034,17 @@ function cmdReleaseFileLock(db3, args2, dbPath2, opts2) {
   if (!runId && targetFiles.length === 0) {
     return emit({ error: "lock release requires --run-id or --target-file" }, 1, opts2);
   }
+  const status = String(args2["status"] ?? "SUCCESS").toUpperCase();
+  if (!["PENDING", "SUCCESS", "FAILED"].includes(status)) {
+    return emit({ error: `--status must be PENDING, SUCCESS, or FAILED, got "${status}"` }, 1, opts2);
+  }
   const result = releaseFileLock(db3, {
-    agentId: String(args2["agent_id"] ?? "agent"),
+    agentId: resolveAgentId(args2),
     workspacePath: args2["workspace"] ? String(args2["workspace"]) : null,
     artifact: args2["artifact"] ? String(args2["artifact"]) : null,
     runId: runId ?? null,
     targetFiles,
-    status: String(args2["status"] ?? "SUCCESS"),
+    status,
     verified: Boolean(args2["verified"]),
     verifiedNote: args2["verified_note"] ? String(args2["verified_note"]) : void 0
   });
@@ -8819,6 +10055,90 @@ function cmdReleaseFileLock(db3, args2, dbPath2, opts2) {
     return emit({ db_path: dbPath2, ...result, ok: false }, 2, opts2);
   }
   return emit({ db_path: dbPath2, ...result }, 0, opts2);
+}
+function cmdWork(db3, args2, dbPath2, opts2) {
+  const action = requiredArg(args2, "action");
+  const rawFiles = args2["target_file"] ?? args2["file"];
+  const targetFiles = rawFiles ? Array.isArray(rawFiles) ? rawFiles.map(String) : [String(rawFiles)] : [];
+  const runId = firstValue(args2, "run_id");
+  const workspacePath = args2["workspace"] ? String(args2["workspace"]) : null;
+  const artifact2 = args2["artifact"] ? String(args2["artifact"]) : null;
+  const ttlSeconds = parseBoundedSeconds(args2, "ttl_seconds", 1, 60 * 60);
+  let ttlMs = ttlSeconds == null ? void 0 : ttlSeconds * 1e3;
+  if (ttlMs == null && args2["ttl_minutes"] != null) {
+    const minutes = Number(String(args2["ttl_minutes"]));
+    if (!Number.isInteger(minutes) || minutes < 1 || minutes > 60) {
+      die("--ttl-minutes must be an integer between 1 and 60");
+    }
+    ttlMs = minutes * 6e4;
+  }
+  if (action === "start") {
+    const result = startWork(db3, {
+      agentId: resolveAgentId(args2),
+      sessionId: args2["session_id"] ? String(args2["session_id"]) : null,
+      workspacePath,
+      artifact: artifact2,
+      runId,
+      rationale: args2["rationale"] ? String(args2["rationale"]) : void 0,
+      testPlan: args2["test_plan"] ? String(args2["test_plan"]) : void 0,
+      contextRef: args2["context_ref"] ? String(args2["context_ref"]) : null,
+      targetFiles,
+      exclusive: Boolean(args2["exclusive"]),
+      ttlMs
+    });
+    return emit({ db_path: dbPath2, ...result }, result.ok ? 0 : 2, opts2);
+  }
+  if (action === "touch") {
+    if (!runId) die("--run-id is required");
+    const result = touchWork(db3, {
+      agentId: resolveAgentId(args2),
+      runId,
+      targetFiles: targetFiles.length > 0 ? targetFiles : void 0,
+      ttlMs
+    });
+    return emit({ db_path: dbPath2, ...result }, 0, opts2);
+  }
+  if (action === "end") {
+    if (!runId) die("--run-id is required");
+    const result = endWork(db3, {
+      agentId: resolveAgentId(args2),
+      runId,
+      targetFiles: targetFiles.length > 0 ? targetFiles : void 0
+    });
+    return emit({ db_path: dbPath2, ...result }, 0, opts2);
+  }
+  if (action === "list" || action === "show") {
+    if (action === "show" && targetFiles.length !== 1) die("work show requires exactly one --file");
+    const params = {
+      workspacePath,
+      artifact: artifact2,
+      agentId: args2["agent_id"] ? String(args2["agent_id"]) : null,
+      runId,
+      activeOnly: !Boolean(args2["all"]),
+      limit: listLimit(args2)
+    };
+    const result = action === "show" ? showWork(db3, { ...params, filePath: targetFiles[0] ?? "" }) : listWork(db3, params);
+    if (Boolean(args2["full"])) return emit({ db_path: dbPath2, ...result }, 0, opts2);
+    const files = result.files.map((file) => ({
+      run_id: file.run_id,
+      task_id: file.task_id,
+      origin: file.origin,
+      agent_id: file.agent_id,
+      file_path: file.file_path,
+      rationale: summarizeText(file.rationale, 160),
+      heartbeat_at: file.heartbeat_at,
+      expires_at: file.expires_at,
+      exclusive: file.exclusive
+    }));
+    return emit({
+      db_path: dbPath2,
+      count: files.length,
+      total_count: result.total_count,
+      omitted_count: result.omitted_count,
+      files
+    }, 0, opts2);
+  }
+  return emit({ db_path: dbPath2, error: `unknown work action: ${action}` }, 1, opts2);
 }
 function requiredArg(args2, key) {
   const value = args2[key];
@@ -8840,12 +10160,27 @@ function cmdPlan(db3, args2, dbPath2, opts2) {
     return emit({ db_path: dbPath2, ...result }, 0, opts2);
   }
   if (action === "list") {
-    const plans = listPlans(db3, {
+    const filters = {
       workspacePath: args2["workspace"] ? String(args2["workspace"]) : null,
       artifact: args2["artifact"] ? String(args2["artifact"]) : null,
       status: args2["status"] ? String(args2["status"]).toUpperCase() : null
-    });
-    return emit({ db_path: dbPath2, count: plans.length, plans }, 0, opts2);
+    };
+    const totalCount = countPlans(db3, filters);
+    const plans = listPlans(db3, { ...filters, limit: listLimit(args2) });
+    const projected = Boolean(args2["full"]) ? plans : plans.map((plan) => ({
+      plan_id: plan.plan_id,
+      name: plan.name,
+      status: plan.status,
+      lead_agent_id: plan.lead_agent_id,
+      updated_at: plan.updated_at
+    }));
+    return emit({
+      db_path: dbPath2,
+      count: projected.length,
+      total_count: totalCount,
+      omitted_count: Math.max(0, totalCount - projected.length),
+      plans: projected
+    }, 0, opts2);
   }
   const planId = requiredArg(args2, "plan_id");
   if (action === "show") {
@@ -8887,7 +10222,7 @@ function cmdTask(db3, args2, dbPath2, opts2) {
       planId: requiredArg(args2, "plan_id"),
       title: requiredArg(args2, "title"),
       reasoning: requiredArg(args2, "reasoning"),
-      acceptanceCriteria: args2["acceptance"] ? String(args2["acceptance"]) : void 0,
+      acceptanceCriteria: requiredArg(args2, "acceptance"),
       paths: valuesFor(args2, "path"),
       createdBy: agentId2,
       priority: args2["priority"] == null ? void 0 : Number(args2["priority"]),
@@ -8896,12 +10231,35 @@ function cmdTask(db3, args2, dbPath2, opts2) {
     return emit({ db_path: dbPath2, ...result }, 0, opts2);
   }
   if (action === "list" || action === "ready") {
-    const tasks = action === "ready" ? listReadyTasks(db3, { planId: args2["plan_id"] ? String(args2["plan_id"]) : null }) : listTasks(db3, {
+    const filters = {
       planId: args2["plan_id"] ? String(args2["plan_id"]) : null,
       status: args2["status"] ? String(args2["status"]).toUpperCase() : null,
       agentId: args2["agent_id"] ? agentId2 : null
-    });
-    return emit({ db_path: dbPath2, count: tasks.length, tasks }, 0, opts2);
+    };
+    const limit = listLimit(args2);
+    const totalCount = action === "ready" ? countReadyTasks(db3, { planId: filters.planId }) : countTasks(db3, filters);
+    const tasks = action === "ready" ? listReadyTasks(db3, { planId: filters.planId, limit }) : listTasks(db3, { ...filters, limit });
+    const projected = Boolean(args2["full"]) ? tasks : tasks.map((task) => ({
+      task_id: task.task_id,
+      plan_id: task.plan_id,
+      title: task.title,
+      status: task.status,
+      priority: task.priority,
+      paths: task.paths,
+      dependencies: task.dependencies,
+      claim: task.claim ? {
+        run_id: task.claim.run_id,
+        agent_id: task.claim.agent_id,
+        expires_at: task.claim.expires_at
+      } : null
+    }));
+    return emit({
+      db_path: dbPath2,
+      count: projected.length,
+      total_count: totalCount,
+      omitted_count: Math.max(0, totalCount - projected.length),
+      tasks: projected
+    }, 0, opts2);
   }
   let taskId = args2["task_id"] ? String(args2["task_id"]) : "";
   if (action === "claim" && Boolean(args2["next"])) {
@@ -9048,7 +10406,7 @@ function cmdQuery(db3, args2, dbPath2, opts2) {
   });
   const outPath = args2["out"] ? String(args2["out"]) : null;
   if (outPath) {
-    const resolvedOutPath = isAbsolute7(outPath) ? resolve14(outPath) : resolve14(workspacePath, outPath);
+    const resolvedOutPath = isAbsolute8(outPath) ? resolve15(outPath) : resolve15(workspacePath, outPath);
     mkdirSync6(dirname6(resolvedOutPath), { recursive: true });
     writeFileSync5(resolvedOutPath, formatAwarenessQueryResult(result, format), "utf8");
     return emit({ db_path: dbPath2, path: resolvedOutPath, view: result.view, count: result.count }, 0, opts2);
@@ -9061,6 +10419,7 @@ function cmdAttend(db3, args2, dbPath2, opts2) {
   const rawFile = args2["file"];
   const files = Array.isArray(rawFile) ? rawFile.map(String) : rawFile ? [String(rawFile)] : [];
   const result = attendAwareness(db3, {
+    agentId: resolveAgentId(args2),
     workspacePath: args2["workspace"] ? String(args2["workspace"]) : process.cwd(),
     artifact: args2["artifact"] ? String(args2["artifact"]) : null,
     repo: args2["repo"] ? String(args2["repo"]) : null,
@@ -9093,6 +10452,16 @@ function cmdRepoInject(db3, args2, dbPath2, opts2) {
 function cmdDocsCatalog(_db2, args2, _dbPath, opts2) {
   const action = String(args2["action"] ?? args2._[0] ?? "list").trim().toLowerCase();
   if (action === "list") {
+    const full = Boolean(args2["full"]);
+    if (!full) {
+      const result2 = listSkillDocs({ lean: true });
+      return emit({
+        ok: true,
+        count: result2.count,
+        docs: result2.docs,
+        next: "octocode-awareness docs show <name>"
+      }, 0, opts2);
+    }
     const result = listSkillDocs();
     return emit({
       ok: true,
@@ -9105,7 +10474,7 @@ function cmdDocsCatalog(_db2, args2, _dbPath, opts2) {
         kind: doc.kind,
         path: doc.path
       })),
-      next: "octocode-awareness docs show <name> --compact"
+      next: "octocode-awareness docs show <name>"
     }, 0, opts2);
   }
   if (action === "show") {
@@ -9162,7 +10531,7 @@ function cmdDocStaleness(db3, args2, dbPath2, opts2) {
   });
   const proposed = [];
   if (Boolean(args2["propose"])) {
-    const agentId2 = String(args2["agent_id"] ?? "agent");
+    const agentId2 = resolveAgentId(args2);
     const sessionId2 = args2["session_id"] ? String(args2["session_id"]) : null;
     for (const entry2 of result.entries) {
       if (!entry2.stale) continue;
@@ -9173,10 +10542,19 @@ function cmdDocStaleness(db3, args2, dbPath2, opts2) {
   return emit({ db_path: dbPath2, ...result, proposed }, 0, opts2);
 }
 function cmdAgentSignal(db3, args2, dbPath2, opts2) {
-  if (!args2["agent_id"]) return emit({ error: "--agent-id is required" }, 1, opts2);
   const action = String(args2["action"] ?? "");
   if (!["publish", "list", "reply", "resolve", "ack"].includes(action)) {
     return emit({ error: "--action must be publish, list, reply, resolve, or ack" }, 1, opts2);
+  }
+  const rawImportance = args2["importance"];
+  const importance = rawImportance === void 0 ? void 0 : typeof rawImportance === "string" ? Number(rawImportance) : Number.NaN;
+  if (importance !== void 0 && (!Number.isInteger(importance) || importance < 1 || importance > 10)) {
+    die("--importance must be an integer between 1 and 10");
+  }
+  const rawLimit = args2["limit"];
+  const limit = rawLimit === void 0 ? void 0 : typeof rawLimit === "string" ? Number(rawLimit) : Number.NaN;
+  if (limit !== void 0 && (!Number.isInteger(limit) || limit < 1)) {
+    die("--limit must be a positive integer");
   }
   const rawTo = args2["to_agent"] ?? args2["to"];
   const toAgents = Array.isArray(rawTo) ? rawTo : rawTo ? [String(rawTo)] : [];
@@ -9186,13 +10564,12 @@ function cmdAgentSignal(db3, args2, dbPath2, opts2) {
   const refs = Array.isArray(rawRefs) ? rawRefs : rawRefs ? [String(rawRefs)] : [];
   const rawKinds = args2["kind"];
   const kinds = Array.isArray(rawKinds) ? rawKinds : rawKinds ? [String(rawKinds)] : [];
-  const compatCoerce = Boolean(args2["compat_coerce"]);
-  const publishKind = kinds[0] ? normalizeNotificationKind(kinds[0], { coerce: compatCoerce }) : void 0;
+  const publishKind = kinds[0] ? normalizeNotificationKind(kinds[0]) : void 0;
   const rawSignalIds = args2["signal_id"];
   const signalIds = Array.isArray(rawSignalIds) ? rawSignalIds : rawSignalIds ? [String(rawSignalIds)] : [];
   const result = agentSignal(db3, {
     action,
-    agentId: String(args2["agent_id"]),
+    agentId: resolveAgentId(args2),
     workspacePath: args2["workspace"] ? String(args2["workspace"]) : null,
     artifact: args2["artifact"] ? String(args2["artifact"]) : null,
     repo: args2["repo"] ? String(args2["repo"]) : null,
@@ -9203,15 +10580,26 @@ function cmdAgentSignal(db3, args2, dbPath2, opts2) {
     toAgents,
     files,
     refs,
-    importance: args2["importance"] ? parseInt(String(args2["importance"]), 10) : void 0,
+    importance,
     inReplyTo: args2["in_reply_to"] ? String(args2["in_reply_to"]) : null,
     threadId: args2["thread_id"] ? String(args2["thread_id"]) : null,
     signalIds,
     unreadOnly: args2["all"] ? false : args2["unread_only"],
     markRead: Boolean(args2["mark_read"]),
-    kinds: kinds.length ? kinds.map((k) => normalizeNotificationKind(k, { coerce: compatCoerce })) : [],
-    compatCoerce
+    kinds: kinds.length ? kinds.map((k) => normalizeNotificationKind(k)) : [],
+    limit
   });
+  if (result.action === "list" && !Boolean(args2["include_bodies"])) {
+    return emit({
+      db_path: dbPath2,
+      ...result,
+      bodies: "summarized",
+      signals: result.signals.map((signal) => ({
+        ...signal,
+        body: signal.body == null ? null : summarizeText(signal.body, 160)
+      }))
+    }, 0, opts2);
+  }
   return emit({ db_path: dbPath2, ...result }, 0, opts2);
 }
 function cmdNotifyPrune(db3, args2, dbPath2, opts2) {
@@ -9345,7 +10733,7 @@ schema: octocode-awareness schema commands|list|json-schema <name>|example <name
 <AGENT_INSTRUCTIONS>
 You are reading the octocode-awareness CLI. Run every command with --compact for JSON output.
 
-BUNDLED SKILLS \u2014 install these two paths to activate the full operating loop:
+BUNDLED SKILLS:
   octocode-awareness : ${BUNDLED_SKILLS_DIR}/octocode-awareness
   octocode-skills    : ${BUNDLED_SKILLS_DIR}/octocode-skills
 
@@ -9353,20 +10741,20 @@ BUNDLED SKILLS \u2014 install these two paths to activate the full operating loo
   memory, locks, planning, coordination, signals, verification, repo context, and hooks.
   Once installed, your agent reads the skill and knows exactly how and when to call this CLI.
 
-  The octocode-skills skill teaches you how to install, manage, and create skills.
-  Install both using your agent platform's skill mechanism (the octocode-skills skill guides you).
-  Do not install awareness by registry name \u2014 use the bundled paths above.
+  Install octocode-awareness from its bundled path using your agent platform's skill mechanism.
+  octocode-skills is optional and only needed to discover, review, or improve skills.
+  Do not use a skill installer's registry/name lookup for awareness; use the bundled path above.
 
 FIRST COMMANDS after install:
   octocode-awareness attend --workspace "$PWD" --compact           # start packet
   octocode-awareness workspace status --compact                    # DB health
   octocode-awareness schema commands --compact                     # full command map
-  octocode-awareness docs show full-flow                           # operating loop
+  octocode-awareness docs show agent-cheatsheet                    # operating loop
 
 COMMAND SURFACES:
   start:     attend, workspace status, plan list, task ready, memory recall, signal list, query <view>
   planning:  plan create|list|show|join|doc|status; task create|list|ready|show|claim|heartbeat|submit|release|depend
-  edit:      lock acquire, lock wait, lock release, lock prune, verify mark, verify audit
+  edit:      work start|touch|end|list|show; lock acquire, lock wait, lock release, lock prune; verify mark, verify audit
   messages:  signal publish, signal list, signal reply, signal ack, signal resolve, signal prune, agent register, agent list
   learning:  memory record, memory forget, refinement set, refinement get, refinement delete, reflect record, reflect mine-weakness, reflect export-harness, reflect developer-review, docs list, docs show, docs staleness
   repo:      query files|workboard|all|developer-review [--format json|table|csv|markdown|html], repo inject
@@ -9383,7 +10771,7 @@ examples:
   octocode-awareness task ready --plan-id plan_123 --compact
   octocode-awareness memory recall --query "current task" --workspace "$PWD" --compact
   octocode-awareness docs list --compact
-  octocode-awareness docs show full-flow
+  octocode-awareness docs show agent-cheatsheet
   octocode-awareness lock acquire --agent-id agent --target-file src/file.ts --rationale "edit" --compact
   octocode-awareness signal list --agent-id agent --workspace "$PWD" --compact
   octocode-awareness schema commands --compact
@@ -9395,7 +10783,7 @@ Run "octocode-awareness <command> --help" for command flags. Exit 2 = lock confl
 var HELP_COMPACT = `octocode-awareness: canonical noun/verb CLI. Use --compact for JSON.
 bundled-skills: ${BUNDLED_SKILLS_DIR}/octocode-awareness | ${BUNDLED_SKILLS_DIR}/octocode-skills
 start: attend; workspace status; plan create|list|show|join|doc|status; task create|list|ready|show|claim|heartbeat|submit|release|depend; memory recall; signal list; docs list
-edit: lock acquire|wait|release|prune; verify audit|mark
+edit: work start|touch|end|list|show; lock acquire|wait|release|prune; verify audit|mark
 msg: signal publish|list|reply|ack|resolve|prune; agent register|list
 learn: memory record|forget; reflect record|mine-weakness|export-harness|developer-review; maintenance digest
 repo: query files|workboard|all|developer-review --format json|table|csv|markdown|html; repo inject
@@ -9428,7 +10816,8 @@ var COMMAND_TO_SCHEMA = {
   "digest": "digest",
   "reflect": "reflect",
   "plan-command": "plan",
-  "task-command": "task"
+  "task-command": "task",
+  "work-command": "work"
 };
 var COMMAND_DISPLAY = {
   "tell-memory": "memory record",
@@ -9462,6 +10851,7 @@ var COMMAND_DISPLAY = {
   "reflect": "reflect record",
   "plan-command": "plan create|list|show|join|doc|status",
   "task-command": "task create|list|ready|show|claim|heartbeat|submit|release|depend",
+  "work-command": "work start|touch|end|list|show",
   "hook-run": "hook run",
   "hooks-install": "hooks install|check|remove",
   "schema": "schema"
@@ -9498,6 +10888,7 @@ var COMMAND_EXAMPLE = {
   "reflect": 'octocode-awareness reflect record --agent-id agent --task "fix CLI" --outcome worked --lesson "Keep commands canonical" --compact',
   "plan-command": 'octocode-awareness plan create --name "Release" --objective "Ship safely" --lead-agent-id agent --workspace "$PWD" --compact',
   "task-command": "octocode-awareness task ready --plan-id plan_123 --compact",
+  "work-command": 'octocode-awareness work start --agent-id agent --file src/a.ts --rationale "edit parser" --test-plan "yarn test" --compact',
   "hook-run": "octocode-awareness hook run pre-edit < hook-payload.json",
   "hooks-install": "octocode-awareness hooks install --host codex --dry-run --compact",
   "schema": "octocode-awareness schema commands --compact"
@@ -9512,7 +10903,7 @@ var ROUTE_EXAMPLE = {
   "agent list": 'octocode-awareness agent list --workspace "$PWD" --compact',
   "reflect developer-review": 'octocode-awareness reflect developer-review --workspace "$PWD" --format markdown --compact',
   "docs list": "octocode-awareness docs list --compact",
-  "docs show": "octocode-awareness docs show full-flow",
+  "docs show": "octocode-awareness docs show agent-cheatsheet",
   "hooks install": "octocode-awareness hooks install --host codex --dry-run --compact",
   "hooks check": "octocode-awareness hooks check --host codex --strict --compact",
   "hooks remove": "octocode-awareness hooks remove --host codex --dry-run --compact",
@@ -9559,17 +10950,19 @@ var REMOVED_COMMAND_REPLACEMENTS = {
 var COMMAND_HELP = {
   "tell-memory": `usage: octocode-awareness memory record --agent-id <id> --task-context <text> --observation <text> --importance <1-10> [--label <l>] [--tag <t>]... [--reference <r>]... [--file <p>]...
 example: octocode-awareness memory record --agent-id agent --task-context "build failure" --observation "Run yarn build before tests" --importance 7 --label GOTCHA --workspace "$PWD" --compact
-note: unknown --label hard-errors unless --compat-coerce
+note: unknown --label values hard-error
 schema: octocode-awareness schema json-schema tell_memory --compact`,
   "get-memory": `usage: octocode-awareness memory recall [options]
 filters: [--query <text>] [--limit <n>] [--min-importance <n>] [--label <l>]... [--tag <t>]... [--reference <r>]... [--file <p>]... [--regex <r>]... [--file-regex <r>]...
 scope: [--workspace <p>] [--artifact <a>] [--repo <r>] [--ref <r>] [--strict-scope] [--global-only]
-rank: [--sort smart|score|importance|recent|accessed] [--state ACTIVE|SUPERSEDED]... [--as-of <iso>] [--semantic] [--explain]
+rank: [--smart] [--sort smart|score|importance|recent|accessed] [--state ACTIVE|SUPERSEDED]... [--as-of <iso>] [--semantic] [--explain]
+output: lean/truncated by default; --full restores full memory rows
 example: octocode-awareness memory recall --query "current task" --workspace "$PWD" --smart --compact
 schema: octocode-awareness schema json-schema get_memory --compact`,
-  "pre-flight-intent": `usage: octocode-awareness lock acquire --agent-id <id> --target-file <p>... [--run-id <claimed-run>] [--workspace <p>] [--artifact <a>] [--rationale <t>] [--test-plan <t>] [--lock-type EXCLUSIVE|SHARED] [--ttl-minutes <n>] [--wait-seconds <n>]
+  "pre-flight-intent": `usage: octocode-awareness lock acquire --agent-id <id> --target-file <p>... [--run-id <claimed-run>] [--workspace <p>] [--artifact <a>] [--rationale <t>] [--test-plan <t>] [--ttl-minutes <n>] [--wait-seconds <n>]
 example: octocode-awareness lock acquire --agent-id agent --target-file src/file.ts --rationale "edit file" --test-plan "yarn test" --compact
-note: --run-id attaches file locks to a claimed task run; omit plan/task/run flags for a standalone quick-edit run
+note: lock acquire is exclusive protection for sensitive work; ordinary work uses work start
+note: --run-id attaches exclusive protection to a claimed task run
 note: export OCTOCODE_AGENT_ID for CLI+hooks; --strict-agent-id / OCTOCODE_STRICT_AGENT_ID=1 hard-fails when missing
 schema: octocode-awareness schema json-schema pre_flight_intent --compact`,
   "agent-signal": `usage: octocode-awareness signal publish|list|reply|ack|resolve --agent-id <id> [--to-agent <id>]... [--signal-id <id>]... [--thread-id <id>] [--kind <k>] [--subject <t>] [--body <t>] [--file <p>]...
@@ -9577,13 +10970,14 @@ examples:
   octocode-awareness signal list --agent-id agent --workspace "$PWD" --compact
   octocode-awareness signal publish --agent-id agent --kind blocker --subject "File locked" --file src/file.ts --workspace "$PWD" --compact
   octocode-awareness signal reply --agent-id agent --in-reply-to ntf_123 --subject "Re: File locked" --body "done" --compact
+list options: [--limit <n>] [--all|--unread-only] [--mark-read] [--include-bodies]
 schema: octocode-awareness schema json-schema agent_signal --compact`,
   "verify": `usage: octocode-awareness verify mark (--run-id <id>... | --all-pending) --agent-id <id> [--status SUCCESS|FAILED] [--message <t>] [--workspace <p>] [--artifact <a>]
 example: octocode-awareness verify mark --agent-id agent --all-pending --message "yarn test passed" --workspace "$PWD" --compact
 schema: octocode-awareness schema json-schema verify --compact`,
   "reflect": `usage: octocode-awareness reflect record --agent-id <id> --task <text> --outcome worked|partial|failed [--lesson <t>] [--fix-repo <t>] [--fix-instructions <t>] [--fix-file <p>]... [--failure-signature <s>]
 example: octocode-awareness reflect record --agent-id agent --task "fix CLI" --outcome worked --lesson "Keep CLI nouns canonical" --compact
-note: --outcome must be worked|partial|failed (unknown hard-errors unless --compat-coerce)
+note: --outcome must be worked|partial|failed; unknown values hard-error
 note: --fix-repo \u2192 coding refinement; --fix-harness \u2192 skill/tooling; --fix-instructions \u2192 feedback to the human instruction author (see reflect developer-review)
 schema: octocode-awareness schema json-schema reflect --compact`,
   "developer-review": `usage: octocode-awareness reflect developer-review [--workspace <repo>] [--state open|ongoing|done]... [--format json|markdown] [--limit <n>]
@@ -9602,23 +10996,33 @@ schema: octocode-awareness schema json-schema attend --compact`,
   "repo-inject": `usage: octocode-awareness repo inject [--workspace <repo>] [--out .octocode] [--mode local|share] [--no-check] [--no-include-view]
 example: octocode-awareness repo inject --workspace "$PWD" --out .octocode --mode local --compact
 schema: octocode-awareness schema json-schema repo_inject --compact`,
-  "docs-catalog": `usage: octocode-awareness docs list|show [name]
+  "docs-catalog": `usage: octocode-awareness docs list|show [name] [--full]
 examples:
   octocode-awareness docs list --compact
-  octocode-awareness docs show full-flow
-  octocode-awareness docs show full-flow --compact
+  octocode-awareness docs show agent-cheatsheet
+  octocode-awareness docs show agent-cheatsheet --compact  # JSON only
 schema: octocode-awareness schema json-schema docs_catalog --compact`,
   "plan-command": `usage: octocode-awareness plan create|list|show|join|doc|status [options]
 create: --name <text> --objective <text> --lead-agent-id <id> --workspace <repo> [--artifact <name>]
+list: [--workspace <repo>] [--status <status>] [--limit <1-200>] [--full]
 show/join/doc/status: --plan-id <id>; join also --agent-id <id>; doc uses --agent-id <member> --path docs/NOTE.md --title <text>; status uses --agent-id <lead> --status DRAFT|ACTIVE|PAUSED|COMPLETED|CANCELLED
 example: octocode-awareness plan create --name "Release" --objective "Ship safely" --lead-agent-id agent --workspace "$PWD" --compact
 schema: octocode-awareness schema json-schema plan --compact`,
   "task-command": `usage: octocode-awareness task create|list|ready|show|claim|heartbeat|submit|release|depend [options]
-create: --plan-id <id> --title <text> --reasoning <text> --path <workspace-relative>... --agent-id <id> [--acceptance <text>] [--depends-on <task-id>]...
+create: --plan-id <id> --title <text> --reasoning <text> --acceptance <text> --path <workspace-relative>... --agent-id <id> [--depends-on <task-id>]...
+list/ready: [--plan-id <id>] [--limit <1-200>] [--full]
 claim: --task-id <id> --agent-id <id>; or --next --plan-id <id> --agent-id <id>. Returns run_id for lock/submit/verify.
 heartbeat/submit/release: --task-id <id> --run-id <id> --agent-id <id>; release optionally --blocked-reason <text>
 example: octocode-awareness task ready --plan-id plan_123 --compact
 schema: octocode-awareness schema json-schema task --compact`,
+  "work-command": `usage: octocode-awareness work start|touch|end|list|show [options]
+start new WORK: --file <path>... --agent-id <id> --workspace <repo> --rationale <text> --test-plan <text> [--exclusive]
+attach task run: --run-id <claimed-task-run> --file <path>... --agent-id <id> [--exclusive]
+touch/end: --run-id <id> --agent-id <id> [--file <path>]...
+list: [--workspace <repo>] [--agent-id <id>] [--run-id <id>] [--all] [--limit <1-200>] [--full]
+show: --workspace <repo> --file <path> [--all] [--limit <1-200>] [--full]
+example: octocode-awareness work start --agent-id agent --file src/a.ts --rationale "edit parser" --test-plan "yarn test" --compact
+schema: octocode-awareness schema json-schema work --compact`,
   "hook-run": `usage: octocode-awareness hook run <pre-edit|post-edit|harness-guard|stop-verify|notify-deliver|session-end> < hook-payload.json`,
   "hooks-install": hooksInstallUsage(),
   "schema": `usage: octocode-awareness schema commands|list|json-schema <name>|example <name>|validate <name> <json-file|->
@@ -9800,7 +11204,7 @@ try {
       exitCode = emit({
         db_path: dbPath,
         ...sessionCapture(db2, {
-          agent_id: args["agent_id"],
+          agent_id: resolveAgentId(args),
           workspace: args["workspace"],
           artifact: args["artifact"],
           repo: args["repo"],
@@ -9867,17 +11271,19 @@ try {
       const waitSecs = parseBoundedSeconds(args, "wait_seconds", 0, MAX_CLI_WAIT_SECONDS);
       const retrySecs = parseBoundedSeconds(args, "retry_interval", 1, MAX_CLI_RETRY_INTERVAL_SECONDS);
       const waitResult = waitForLock(db2, {
-        agent_id: args["agent_id"],
+        agent_id: resolveAgentId(args),
         target_files: waitTargets,
         workspace: args["workspace"],
         artifact: args["artifact"],
-        lock_type: args["lock_type"],
         wait_ms: waitSecs != null ? waitSecs * 1e3 : void 0,
         retry_interval_ms: retrySecs != null ? retrySecs * 1e3 : void 0
       });
       exitCode = emit({ db_path: dbPath, ...waitResult }, waitResult.lock_free ? 0 : 2, opts);
       break;
     }
+    case "work-command":
+      exitCode = cmdWork(db2, args, dbPath, opts);
+      break;
     case "forget":
       exitCode = cmdForget(db2, args, dbPath, opts);
       break;
@@ -9929,4 +11335,3 @@ try {
   }, 1, opts);
 }
 process.exit(exitCode);
-//# sourceMappingURL=awareness.js.map

@@ -1,99 +1,130 @@
-# Pi Agent Flow with Memory Tools
+# Awareness Agent Flow in Pi
 
-Guide to the Pi-extension live awareness flow, tool usage, schemas, and output quality.
+Awareness has one agent-facing interface in Pi: the bundled CLI at
+`$OCTOCODE_AWARENESS_CLI`, guided by the `octocode-awareness` skill. Coordination
+is not duplicated as Pi tools.
 
-See also: [REFLECT.md](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-pi-extension/docs/REFLECT.md) — full documentation of the Awareness learning, memory hygiene, and harness improvement loop.
+## Why
 
-## Validated surfaces
+One CLI/schema keeps flags, help, compact output, hooks, other coding agents, and
+Pi on the same contract. The Pi bridge automates lifecycle events but writes to
+the same SQLite store.
 
-- The extension wires memory-awareness hooks for session start, write/edit calls, tool results, agent end, and session shutdown.
-- The default agent tool surface includes 10 canonical memory and coordination tools; redundant compatibility aliases are not registered.
-- Memory maintenance is Awareness-owned and user-approved via `/octocode-memory-digest` and `/octocode-memory-forget` commands.
-- Each memory tool has a typed schema and a dedicated runtime operation.
-- Tests validate required schema fields, lean outputs, duplicate handling, scoping, audit/verify behavior, reflection output, and workspace/refinement summaries.
+## Identity
 
-## Runtime flow
+- An explicit user `OCTOCODE_AGENT_ID` remains stable.
+- Otherwise Pi derives `pi:<session-file>` for the current session.
+- Sequential `/new`, `/resume`, and forked sessions refresh the derived identity.
+- Hooks and CLI subprocesses inherit that same current identity.
 
-```mermaid
-flowchart TD
-  A[Pi session start] --> B[before_agent_start]
-  B --> C[Memory briefing: reminders, refinements, notifications]
-  C --> D[Agent plans work]
-  D --> E{Write/edit tool call?}
-  E -- no --> F[Normal tool execution]
-  E -- yes --> G[Extract target files]
-  G --> H[Declare advisory FilesUnderWork on task or WORK run]
-  H --> I{Exclusive conflict?}
-  I -- yes --> J[Block edit with lock owner]
-  I -- no --> K[Show peer overlap and run edit/write]
-  K --> L[Keep task/WORK active; automatic HOOK run becomes PENDING]
-  L --> M[Agent runs verification]
-  M --> N[memory_verify marks SUCCESS or FAILED]
-  F --> O[agent_end]
-  N --> O
-  O --> P{Pending tasks?}
-  P -- yes --> Q[Follow-up verify gate: run checks then memory_verify]
-  P -- no --> R[Conclusion allowed]
-  R --> S[Session shutdown captures handoff unless disabled]
-```
-
-## Agent tool usage matrix
-
-| Tool | Use when | Key inputs | Output shape / caveat |
-|---|---|---|---|
-| `memory_recall` | Before risky, unfamiliar, long, or related work. | `query`; optional `limit`, `min_importance`, `smart`, `label`, `references`, `regex`, scope. | Lean `{count, memories}`; raw observations appear because recall needs them. Carries `judgment_required` + `judgment_reason` when confidence is low (zero results or a weak top match) — treat those results as leads and verify before relying on them. |
-| `memory_record` | Awareness reflection: store a verified durable root cause, decision, workaround, or gotcha after evidence exists. | `task_context`, `observation`; optional `label`, `importance`, `tags`, `references`, scope, `supersedes`, `allow_similar`, `failure_signature`. | Returns id/label/importance/novelty; duplicate skip avoids echoing long prose. |
-| `memory_reflect` | Awareness reflection: after non-trivial work with a reusable lesson, repo fix, harness fix, or failure signature. | `task`; at least one lesson/failure/fix/signature field. | Returns lean learning id; includes next-action hints only when action exists. |
-| `workspace_status` | Before long edits or when checking advisory work, exclusive locks, or pending work. | Optional workspace/repo scope. | Returns bounded FilesUnderWork/agent counts and optional exclusive locks. |
-| `memory_refine_get` | At task start when previous reflections may have left actionable repo fixes. | Optional `state`, `include_handoffs`, `limit`, scope. | Returns lean refinement id/state/fix/files/repo summary. |
-| `memory_audit_unverified` | Mid-turn when unsure; final audit also runs automatically. | No params. | Returns pending runs with test plans; non-zero exit when pending. |
-| `memory_verify` | Only after running the stated verification. | One of `run_id`, `run_ids[]`, or `allPending:true`; optional `status`. | Single result or batch result; exit fails on per-id errors. |
-| `agent_signal` | Real multi-agent coordination: publish/list/reply/resolve/ack blockers, handoffs, questions, decisions, or FYIs. | `action`; publish/reply fields include `kind`, `subject`, `body`, `to_agents`, `files`, and scope. | Returns compact signal/thread/workspace identifiers. |
-| `file_lock` | A sensitive path needs exclusive protection. | `type`; optional `target_files`, task/WORK `run_id`, `ttl_ms`, `reasoning`. | Exclusive-only. Ordinary edits use advisory presence and can overlap. |
-| `memory_export_harness` | Before proposing AGENTS.md changes — human review required. | `harness_only`, `limit`, `min_importance`, scope. | Two-tier markdown block; never writes files. |
-
-> Consolidation/deletion (`memory_digest`, `memory_forget`) are **user commands**, not agent tools — see "User maintenance commands" below. Weakness clustering is **not** an agent tool; recurring failure-signature clusters are surfaced automatically in the session-start briefing.
-
-## User maintenance commands
-
-| Command | Default | Mutation |
-|---|---|---|
-| `/octocode-memory-digest` | Dry-run preview of archive/prune work. | `--apply` mutates after UI confirmation; non-UI requires `--apply --yes`. |
-| `/octocode-memory-forget` | Dry-run preview by `--id`, `--tag`, `--before`, or `--max-importance`. | `--apply` deletes after UI confirmation; non-UI requires `--apply --yes`. Broad selectors (tag/age without ids) never sweep importance ≥ 8 unless `--max-importance` explicitly raises the ceiling (`salience_floor` reported). |
-
-## Schema and output quality checks
-
-- Required fields are schema-level where simple: `memory_recall.query`, `memory_record.task_context`, and `memory_record.observation`.
-- Closed domains use enums where useful: labels, recall state/sort, refinement state, notification kind, reflect outcome, and verify status.
-- Some cross-field constraints stay runtime-level because the schema cannot express them cleanly: `memory_verify` selector choice, non-empty reflection content, and notify kind/subject requirement.
-- Outputs are intentionally compact: ids, counts, labels, scores, files, and next-action hints.
-- Tools avoid echoing long prose except `memory_recall`, where returning observations is the purpose.
-
-## Recommended agent protocol
-
-1. **Attend:** call `workspace_status`; load refinements or targeted memory only when they can change the plan.
-2. **Choose and act:** inspect Ready/Claimed/Verify through Awareness. Claim matching plan work or open standalone WORK. Every edit declares advisory file presence on that run; peer overlap is visible and allowed.
-3. **Protect and coordinate:** use `file_lock` only when sensitive work needs exclusivity. Use `agent_signal` for real blockers, handoffs, questions, decisions, or FYIs.
-4. **Verify:** submit claimed tasks, run the stated checks, then clear runs with `memory_verify({run_ids:[...]})` or `memory_verify({allPending:true})`.
-5. **Reflect:** use the Awareness reflection loop for post-task lessons/fix queues/failure signatures; use `memory_record` for one specific verified finding.
-6. **Maintain:** agents do not clean or delete memories; users run the maintenance commands above after preview.
-
-## Copy-paste examples
-
-```ts
-workspace_status({ workspace_path: "/repo" })
-memory_refine_get({ workspace_path: "/repo", limit: 5 })
-memory_recall({ query: "editing Pi memory tools", workspace_path: "/repo", min_importance: 6 })
-memory_record({ task_context: "Future generated-file edits", observation: "Generated files are rebuilt from sources; edit the source and rebuild", label: "GOTCHA", importance: 7, files: ["source-file"] })
-memory_reflect({ task: "fixed verify gate", outcome: "worked", lesson: "Run verification before memory_verify", fix_repo: "Add a regression test for pending runs" })
-memory_audit_unverified({})
-memory_verify({ run_ids: ["run_..."], status: "SUCCESS" })
-agent_signal({ action: "publish", kind: "blocker", subject: "Exclusive conflict", files: ["source-file"], importance: 8, workspace_path: "/repo" })
-```
+## Start
 
 ```bash
-/octocode-memory-digest --export-doc
-/octocode-memory-digest --apply
-/octocode-memory-forget --tag EXPERIENCE --max-importance 5
-/octocode-memory-forget --tag EXPERIENCE --max-importance 5 --apply
+node "$OCTOCODE_AWARENESS_CLI" attend \
+  --workspace "$PWD" --query "current task" --compact
 ```
+
+Inspect Ready, Claimed, Verify, FilesUnderWork, and direct signals. Recalled
+memories are leads; verify them against current source/tests.
+
+## Choose work
+
+Claim a matching task:
+
+```bash
+node "$OCTOCODE_AWARENESS_CLI" task ready --plan-id plan_123 --limit 10 --compact
+node "$OCTOCODE_AWARENESS_CLI" task claim \
+  --task-id task_123 --agent-id "$OCTOCODE_AGENT_ID" --compact
+```
+
+Or open standalone Work:
+
+```bash
+node "$OCTOCODE_AWARENESS_CLI" work start \
+  --agent-id "$OCTOCODE_AGENT_ID" --workspace "$PWD" \
+  --file src/a.ts --rationale "fix parser" --test-plan "parser tests" --compact
+```
+
+Every file edit belongs to a Task/Work run with a reason and check. Advisory
+presence is the default and allows informed overlap. Add `--exclusive` only for
+sensitive/non-mergeable changes.
+
+## Hooks during edits
+
+Pi wires Awareness in process:
+
+1. pre-edit resolves the current agent/session and target paths;
+2. it heartbeats/attaches advisory file presence;
+3. another run’s exclusive lease blocks the mutation;
+4. post-edit records the edit and preserves the owning run;
+5. finish warns about the current agent’s unresolved run.
+
+Pi does not need `hooks install`; that command is for shell-hook hosts.
+
+## Finish exactly owned work
+
+For a task:
+
+```bash
+node "$OCTOCODE_AWARENESS_CLI" task submit \
+  --task-id task_123 --run-id run_123 --agent-id "$OCTOCODE_AGENT_ID" \
+  --message "parser tests passed" --compact
+node "$OCTOCODE_AWARENESS_CLI" verify mark \
+  --run-id run_123 --agent-id "$OCTOCODE_AGENT_ID" \
+  --message "parser tests passed" --compact
+```
+
+For standalone Work:
+
+```bash
+node "$OCTOCODE_AWARENESS_CLI" work end \
+  --run-id run_123 --agent-id "$OCTOCODE_AGENT_ID" --compact
+node "$OCTOCODE_AWARENESS_CLI" verify mark \
+  --run-id run_123 --agent-id "$OCTOCODE_AGENT_ID" \
+  --message "reviewed diff" --compact
+```
+
+Never use a batch success operation to clear another agent’s debt. Verification
+records evidence; it does not execute the check.
+
+## Recall and record
+
+Use targeted retrieval only when durable context can change the plan:
+
+```bash
+node "$OCTOCODE_AWARENESS_CLI" memory recall \
+  --query "parser regression" --workspace "$PWD" --smart --limit 5 --compact
+```
+
+Record only reusable, verified facts:
+
+```bash
+node "$OCTOCODE_AWARENESS_CLI" memory record \
+  --agent-id "$OCTOCODE_AGENT_ID" --workspace "$PWD" \
+  --task-context "parser regression" \
+  --observation "Malformed escapes must be rejected before tokenization" \
+  --label GOTCHA --importance 8 --reference file:src/parser.ts --compact
+```
+
+Skip routine status, raw logs, obvious edits, secrets, and facts already captured
+in source/docs.
+
+## Signals and handoff
+
+```bash
+node "$OCTOCODE_AWARENESS_CLI" signal list \
+  --agent-id "$OCTOCODE_AGENT_ID" --workspace "$PWD" --limit 10 --compact
+node "$OCTOCODE_AWARENESS_CLI" signal publish \
+  --agent-id "$OCTOCODE_AGENT_ID" --to-agent other-agent --kind handoff \
+  --subject "Parser task ready" --body "Run parser tests before finishing" \
+  --ref-id run_123 --workspace "$PWD" --compact
+```
+
+Use a Plan Task for selectable durable work; signals are communication, not a
+second task queue.
+
+## Cleanup
+
+`/octocode-memory-digest` and `/octocode-memory-forget` are user-owned maintenance
+commands. They preview by default and mutate only after confirmation. Repo
+projection is optional and should run last, only when file readers need refresh.

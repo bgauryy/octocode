@@ -25,6 +25,65 @@ function run(
 }
 
 describe('runAwarenessToolOperation', () => {
+  it('maps validated memory scope/filter fields and supports empty-query browsing', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'oc-tool-memory-scope-'));
+    try {
+      const db = freshDb();
+      const first = run(db, 'record', {
+        task_context: 'artifact alpha memory',
+        observation: 'alpha scoped lesson',
+        label: 'GOTCHA',
+        tags: ['alpha-tag'],
+        references: ['file:src/alpha.ts'],
+        workspace_path: dir,
+        artifact: 'service-a',
+        repo: 'owner/repo',
+        ref: 'feature-a',
+        file_tree_fingerprint: 'tree-a',
+      }, dir);
+      const second = run(db, 'record', {
+        task_context: 'artifact beta memory',
+        observation: 'beta scoped lesson',
+        label: 'DECISION',
+        tags: ['beta-tag'],
+        references: ['file:src/beta.ts'],
+        workspace_path: dir,
+        artifact: 'service-b',
+        repo: 'owner/repo',
+        ref: 'feature-b',
+      }, dir);
+      const firstId = (first.payload as { memory_id: string }).memory_id;
+      const secondId = (second.payload as { memory_id: string }).memory_id;
+
+      expect(db.prepare(
+        'SELECT artifact, repo, ref, file_tree_fingerprint FROM memories WHERE memory_id = ?',
+      ).get(firstId)).toEqual({
+        artifact: 'service-a', repo: 'owner/repo', ref: 'feature-a', file_tree_fingerprint: 'tree-a',
+      });
+
+      const recalled = run(db, 'recall', {
+        query: '',
+        labels: ['GOTCHA'],
+        tags: ['alpha-tag'],
+        states: ['ACTIVE'],
+        file_regex: ['alpha\\.ts$'],
+        workspace_path: dir,
+        artifact: 'service-a',
+        repo: 'owner/repo',
+        ref: 'feature-a',
+        strict_scope: true,
+        explain: true,
+        limit: 10,
+      }, dir);
+      const ids = (recalled.payload as { memories: Array<{ memory_id: string }> }).memories
+        .map(memory => memory.memory_id);
+      expect(ids).toEqual([firstId]);
+      expect(ids).not.toContain(secondId);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it('covers memory, reflection, refinement, query, wiki, digest, and harness operations', () => {
     const dir = mkdtempSync(join(tmpdir(), 'oc-tool-ops-'));
     try {

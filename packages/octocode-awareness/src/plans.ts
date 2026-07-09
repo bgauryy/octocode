@@ -117,7 +117,7 @@ export function createPlan(
     name,
     objective,
     lead_agent_id: leadAgentId,
-    status: 'DRAFT',
+    status: 'ACTIVE',
     workspace_path: workspacePath,
     artifact: normalizeArtifact(params.artifact),
     doc_dir: docDir,
@@ -142,7 +142,7 @@ export function createPlan(
     try {
       db.prepare(`INSERT INTO plans
         (plan_id, name, objective, lead_agent_id, status, workspace_path, artifact, doc_dir, created_at, updated_at)
-        VALUES (?, ?, ?, ?, 'DRAFT', ?, ?, ?, ?, ?)`)
+        VALUES (?, ?, ?, ?, 'ACTIVE', ?, ?, ?, ?, ?)`)
         .run(planId, name, objective, leadAgentId, workspacePath, plan.artifact, docDir, now, now);
       db.prepare(`INSERT INTO plan_members(plan_id, agent_id, role, joined_at)
         VALUES (?, ?, 'LEAD', ?)`)
@@ -177,7 +177,7 @@ export function getPlan(db: DatabaseSync, planId: string): PlanDetail | null {
 
 export function listPlans(
   db: DatabaseSync,
-  params: { workspacePath?: string | null; artifact?: string | null; status?: PlanStatus | null } = {},
+  params: { workspacePath?: string | null; artifact?: string | null; status?: PlanStatus | null; limit?: number | null } = {},
 ): PlanRecord[] {
   const where: string[] = ['1 = 1'];
   const binds: string[] = [];
@@ -188,9 +188,29 @@ export function listPlans(
   const artifact = normalizeArtifact(params.artifact);
   if (artifact) { where.push('(artifact = ? OR artifact IS NULL)'); binds.push(artifact); }
   if (params.status) { where.push('status = ?'); binds.push(params.status); }
+  const limit = params.limit == null ? null : Math.max(1, Math.floor(params.limit));
+  const limitSql = limit == null ? '' : 'LIMIT ?';
+  const queryBinds: Array<string | number> = limit == null ? binds : [...binds, limit];
   return db.prepare(
-    `SELECT * FROM plans WHERE ${where.join(' AND ')} ORDER BY updated_at DESC, plan_id`,
-  ).all(...binds).map((row) => rowToPlan(row as Record<string, unknown>));
+    `SELECT * FROM plans WHERE ${where.join(' AND ')} ORDER BY updated_at DESC, plan_id ${limitSql}`,
+  ).all(...queryBinds).map((row) => rowToPlan(row as Record<string, unknown>));
+}
+
+export function countPlans(
+  db: DatabaseSync,
+  params: { workspacePath?: string | null; artifact?: string | null; status?: PlanStatus | null } = {},
+): number {
+  const where: string[] = ['1 = 1'];
+  const binds: string[] = [];
+  if (params.workspacePath) {
+    where.push('workspace_path = ?');
+    binds.push(normalizeWorkspacePath(params.workspacePath, params.workspacePath) ?? resolve(params.workspacePath));
+  }
+  const artifact = normalizeArtifact(params.artifact);
+  if (artifact) { where.push('(artifact = ? OR artifact IS NULL)'); binds.push(artifact); }
+  if (params.status) { where.push('status = ?'); binds.push(params.status); }
+  return (db.prepare(`SELECT COUNT(*) AS count FROM plans WHERE ${where.join(' AND ')}`)
+    .get(...binds) as { count: number }).count;
 }
 
 export function joinPlan(db: DatabaseSync, params: JoinPlanParams): PlanMemberRecord {
@@ -246,7 +266,34 @@ export function updatePlanStatus(
     throw new Error(`only lead agent ${plan.lead_agent_id} can change plan status`);
   }
   const now = utcNow();
-  db.prepare('UPDATE plans SET status = ?, updated_at = ? WHERE plan_id = ?')
-    .run(params.status, now, params.planId);
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    if (params.status === 'COMPLETED') {
+      const unfinished = db.prepare(`SELECT COUNT(*) AS count FROM tasks
+        WHERE plan_id = ? AND status NOT IN ('DONE', 'CANCELLED')`)
+        .get(params.planId) as { count: number };
+      if (unfinished.count > 0) {
+        throw new Error(`cannot complete plan ${params.planId} with ${unfinished.count} unfinished task(s)`);
+      }
+    }
+    if (params.status === 'CANCELLED') {
+      const active = db.prepare(`SELECT COUNT(*) AS count FROM task_claims c
+        JOIN tasks t ON t.task_id = c.task_id
+        WHERE t.plan_id = ? AND c.expires_at > ?`)
+        .get(params.planId, now) as { count: number };
+      if (active.count > 0) {
+        throw new Error(`cannot cancel plan ${params.planId} with ${active.count} active task run(s)`);
+      }
+      db.prepare(`UPDATE tasks SET status = 'CANCELLED', completed_at = ?, updated_at = ?
+        WHERE plan_id = ? AND status IN ('OPEN', 'BLOCKED', 'VERIFY')`)
+        .run(now, now, params.planId);
+    }
+    db.prepare('UPDATE plans SET status = ?, updated_at = ? WHERE plan_id = ?')
+      .run(params.status, now, params.planId);
+    db.exec('COMMIT');
+  } catch (error) {
+    try { db.exec('ROLLBACK'); } catch { /* transaction did not open */ }
+    throw error;
+  }
   return getPlan(db, params.planId)!;
 }

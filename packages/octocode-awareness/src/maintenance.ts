@@ -153,20 +153,23 @@ export function pruneStale(db: DatabaseSync, params: Record<string, unknown> = {
     return { pruned_locks: 0 };
   }
 
-  db.exec('BEGIN IMMEDIATE');
+  const ownsTransaction = !db.isTransaction;
+  if (ownsTransaction) db.exec('BEGIN IMMEDIATE');
   try {
     staleLocks = db.prepare(
       `SELECT l.lock_id, l.run_id FROM ${from} WHERE ${where}`
     ).all(...binds) as Array<{ lock_id: string; run_id: string }>;
     if (staleLocks.length === 0) {
-      db.exec('COMMIT');
+      if (ownsTransaction) db.exec('COMMIT');
       return { pruned_locks: 0 };
     }
     const ph = staleLocks.map(() => '?').join(',');
     db.prepare(`DELETE FROM locks WHERE lock_id IN (${ph})`).run(...staleLocks.map(l => l.lock_id));
-    db.exec('COMMIT');
+    if (ownsTransaction) db.exec('COMMIT');
   } catch (e) {
-    try { db.exec('ROLLBACK'); } catch { /* already rolled back */ }
+    if (ownsTransaction) {
+      try { db.exec('ROLLBACK'); } catch { /* already rolled back */ }
+    }
     throw e;
   }
 
@@ -787,53 +790,63 @@ export function digest(
     };
   }
 
-  // 1. Archive expired memories (valid_to < now)
-  const archiveRes = db.prepare(
-    `UPDATE memories
-     SET state = 'SUPERSEDED', expired_at = ?, updated_at = ?
-     WHERE valid_to IS NOT NULL AND valid_to < ? AND state = 'ACTIVE'${memoryScopeSql}`
-  ).run(now, now, now, ...memoryScopeBinds) as { changes: number };
-
-  // 2. Hard-delete old SUPERSEDED entries to keep the DB lean
-  const deleteRes = db.prepare(
-    `DELETE FROM memories
-     WHERE state = 'SUPERSEDED' AND updated_at < ?${memoryScopeSql}`
-  ).run(cutoff, ...memoryScopeBinds) as { changes: number };
-
-  // 3. Prune expired locks (reuse existing function)
-  const { pruned_locks } = pruneStale(db, {
-    ...(workspacePath ? { workspace: workspacePath } : {}),
-    ...(artifact ? { artifact } : {}),
-    expired_only: true,
-  });
-
-  // 4. Prune old session handoffs and completed repo-fix refinements.
-  // MAINT-4: Use updated_at for handoff retention; updated_at reflects the last meaningful activity.
-  const pruneRefinementsRes = db.prepare(
-    `DELETE FROM refinements
-     WHERE ((quality = 'handoff' AND updated_at < ?)
-        OR (quality IN ('good','bad') AND state = 'done' AND updated_at < ?))${refinementScopeSql}`
-  ).run(handoffCutoff, doneCutoff, ...refinementScopeBinds) as { changes: number };
-
-  // 5. Rebuild FTS5 index from the memories source of truth.
+  let archiveRes: { changes: number } = { changes: 0 };
+  let deleteRes: { changes: number } = { changes: 0 };
+  let prunedLocks = 0;
+  let pruneRefinementsRes: { changes: number } = { changes: 0 };
   let ftsRebuilt = false;
+  const ownsDigestTransaction = !db.isTransaction;
+  if (ownsDigestTransaction) db.exec('BEGIN IMMEDIATE');
   try {
+    // 1. Archive expired memories (valid_to < now)
+    archiveRes = db.prepare(
+      `UPDATE memories
+       SET state = 'SUPERSEDED', expired_at = ?, updated_at = ?
+       WHERE valid_to IS NOT NULL AND valid_to < ? AND state = 'ACTIVE'${memoryScopeSql}`
+    ).run(now, now, now, ...memoryScopeBinds) as { changes: number };
+
+    // 2. Hard-delete old SUPERSEDED entries to keep the DB lean
+    deleteRes = db.prepare(
+      `DELETE FROM memories
+       WHERE state = 'SUPERSEDED' AND updated_at < ?${memoryScopeSql}`
+    ).run(cutoff, ...memoryScopeBinds) as { changes: number };
+
+    // 3. Prune expired locks inside the same caller-owned transaction.
+    prunedLocks = pruneStale(db, {
+      ...(workspacePath ? { workspace: workspacePath } : {}),
+      ...(artifact ? { artifact } : {}),
+      expired_only: true,
+    }).pruned_locks;
+
+    // 4. Prune old session handoffs and completed repo-fix refinements.
+    pruneRefinementsRes = db.prepare(
+      `DELETE FROM refinements
+       WHERE ((quality = 'handoff' AND updated_at < ?)
+          OR (quality IN ('good','bad') AND state = 'done' AND updated_at < ?))${refinementScopeSql}`
+    ).run(handoffCutoff, doneCutoff, ...refinementScopeBinds) as { changes: number };
+
+    // 5. Rebuild FTS5 from the same committed memory snapshot. A failure is
+    // fatal so deleted source rows and the index can never diverge.
     if (hasFts(db)) {
       rebuildFts(db);
       ftsRebuilt = true;
     }
-  } catch {
-    // FTS5 may not be available in all builds; non-fatal
+    if (ownsDigestTransaction) db.exec('COMMIT');
+  } catch (error) {
+    if (ownsDigestTransaction) {
+      try { db.exec('ROLLBACK'); } catch { /* already rolled back */ }
+    }
+    throw error;
   }
 
   // 6. Absorb WAL pages after bulk maintenance writes (non-fatal on :memory:).
-  checkpointWal(db);
+  if (ownsDigestTransaction) checkpointWal(db);
 
   return {
     ok: true,
     archived_memories: archiveRes.changes,
     pruned_old: deleteRes.changes,
-    pruned_locks,
+    pruned_locks: prunedLocks,
     pruned_refinements: pruneRefinementsRes.changes,
     fts_rebuilt: ftsRebuilt,
   };

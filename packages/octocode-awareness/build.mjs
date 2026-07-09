@@ -98,11 +98,21 @@ await esbuild.build({
   minify: true,
 });
 
-// Generate TypeScript declarations.
-execSync(`${tscBin} --emitDeclarationOnly --outDir dist -p tsconfig.build.json`, {
-  stdio: 'inherit',
-  cwd: __dirname,
-});
+// Generate TypeScript declarations. A .d.ts failure must NOT abort the build:
+// esbuild has already emitted the JS bundles above, and the skill-script sync
+// below only copies those JS artifacts. Blocking artifact assembly on a type
+// declaration error (e.g. an in-flight refactor) would ship a stale agent-facing
+// CLI. Type errors are still enforced by `tsc --noEmit` / vitest. Set
+// OCTOCODE_STRICT_DTS=1 to make declaration failures fatal.
+try {
+  execSync(`${tscBin} --emitDeclarationOnly --outDir dist -p tsconfig.build.json`, {
+    stdio: 'inherit',
+    cwd: __dirname,
+  });
+} catch (err) {
+  if (process.env.OCTOCODE_STRICT_DTS === '1') throw err;
+  console.warn('⚠ declaration emit failed; continuing with JS artifacts (set OCTOCODE_STRICT_DTS=1 to make fatal).');
+}
 
 console.log('✓ @octocodeai/octocode-awareness built → dist/');
 

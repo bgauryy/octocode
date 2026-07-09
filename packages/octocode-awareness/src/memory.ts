@@ -51,6 +51,20 @@ const SCORING_PREFETCH_FACTOR = 3;
 const SIMILARITY_THRESHOLD = 0.45;
 const SIMILARITY_PREFETCH = 12;
 
+function canonicalMemoryInstant(value: string | null | undefined, field: string): string | null {
+  if (value == null) return null;
+  const text = String(value).trim();
+  const isoInstant = /^\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2}))?$/;
+  if (!isoInstant.test(text)) {
+    throw new Error(`${field} must be a valid ISO 8601 timestamp`);
+  }
+  const parsed = new Date(text);
+  if (!text || Number.isNaN(parsed.getTime())) {
+    throw new Error(`${field} must be a valid ISO 8601 timestamp`);
+  }
+  return parsed.toISOString().replace(/\.\d{3}Z$/, 'Z');
+}
+
 /**
  * Tokenize text for Jaccard similarity. Splits camelCase/PascalCase,
  * lowercases, strips structural prefixes (file:, dir:, pr:, url:),
@@ -282,6 +296,10 @@ export function lexicalSearch(
   scopeOptions: LexicalScopeOptions = {},
 ): MemoryRecord[] {
   const ftsQuery = query ? buildFtsQuery(query) : null;
+  // An explicit non-empty query that contains no searchable tokens is not the
+  // same operation as empty-query browsing. Returning the unfiltered corpus
+  // here would present unrelated memories as lexical matches.
+  if (query.trim() && !ftsQuery) return [];
   const params: (string | number)[] = [];
   const conditions: string[] = [
     'm.importance >= ?',
@@ -304,6 +322,15 @@ export function lexicalSearch(
     conditions.push('(m.valid_from IS NULL OR m.valid_from <= ?)');
     conditions.push('(m.valid_to IS NULL OR m.valid_to > ?)');
     params.push(scopeOptions.asOf, scopeOptions.asOf);
+  } else {
+    // Normal recall evaluates ACTIVE knowledge at the current instant. Explicit
+    // SUPERSEDED audit queries remain available without requiring an --as-of.
+    const now = utcNow();
+    conditions.push(`(m.state <> 'ACTIVE' OR (
+      (m.valid_from IS NULL OR m.valid_from <= ?)
+      AND (m.valid_to IS NULL OR m.valid_to > ?)
+    ))`);
+    params.push(now, now);
   }
 
   const candidateIds = scopeOptions.candidateMemoryIds
@@ -549,12 +576,17 @@ export function insertMemory(db: DatabaseSync, params: InsertMemoryParams): Inse
     throw new Error(`importance must be 1–10, got ${String(importance)}`);
   }
 
+  const normalizedValidFrom = canonicalMemoryInstant(vf, 'valid_from');
+  const normalizedValidTo = canonicalMemoryInstant(vt, 'valid_to');
   const memoryId = 'mem_' + randomUUID().replace(/-/g, '');
   const tagList = normalizeTags(tags, tagsCsv);
   const refList = normalizeReferences(references);
   const normalizedLabel = normalizeLabel(Array.isArray(label) ? label[0] : label);
   const createdAt = utcNow();
-  const validFromVal = vf ?? createdAt;
+  const validFromVal = normalizedValidFrom ?? createdAt;
+  if (normalizedValidTo != null && normalizedValidTo <= validFromVal) {
+    throw new Error('valid_to must be after valid_from');
+  }
 
   const scope = fillScope(
     { workspace_path: workspacePath ?? null, artifact: normalizeArtifact(artifact), repo: repoArg ?? null, ref: refArg ?? null },
@@ -568,7 +600,8 @@ export function insertMemory(db: DatabaseSync, params: InsertMemoryParams): Inse
   let similarMemoryIds: string[] = [];
   const superseded: string[] = [];
 
-  db.exec('BEGIN IMMEDIATE');
+  const ownsTransaction = !db.isTransaction;
+  if (ownsTransaction) db.exec('BEGIN IMMEDIATE');
   try {
     // FIX #8 (P1): findSimilarMemories moved inside the transaction for read consistency —
     // ensures the similarity check and the insert see the same set of ACTIVE memories.
@@ -596,7 +629,7 @@ export function insertMemory(db: DatabaseSync, params: InsertMemoryParams): Inse
       normalizedLabel, JSON.stringify(tagList),
       scope.workspace_path, scope.artifact, scope.repo, scope.ref,
       fileTreeFingerprint, noveltyScore, createdAt, createdAt,
-      createdAt, failureSignature ?? null, validFromVal, vt ?? null, halfLifeDefault
+      createdAt, failureSignature ?? null, validFromVal, normalizedValidTo, halfLifeDefault
     );
 
     // Populate structured reference index (memory_refs table)
@@ -633,9 +666,11 @@ export function insertMemory(db: DatabaseSync, params: InsertMemoryParams): Inse
       if (r.changes) superseded.push(oldId);
     }
 
-    db.exec('COMMIT');
+    if (ownsTransaction) db.exec('COMMIT');
   } catch (e) {
-    try { db.exec('ROLLBACK'); } catch { /* already rolled back */ }
+    if (ownsTransaction) {
+      try { db.exec('ROLLBACK'); } catch { /* already rolled back */ }
+    }
     throw e;
   }
 
@@ -665,6 +700,62 @@ export function insertMemory(db: DatabaseSync, params: InsertMemoryParams): Inse
   };
 }
 
+export type GuardedMemoryInsertResult =
+  | { skipped: true; similar: Array<{ memory_id: string; similarity: number }> }
+  | { skipped: false; similar: Array<{ memory_id: string; similarity: number }>; result: InsertMemoryResult };
+
+/**
+ * Atomically run the duplicate gate and insert. Tool adapters must use this
+ * instead of precomputing similarity before insertMemory's write transaction.
+ */
+export function insertMemoryWithSimilarityGate(
+  db: DatabaseSync,
+  params: InsertMemoryParams,
+  allowSimilar = false,
+): GuardedMemoryInsertResult {
+  const ownsTransaction = !db.isTransaction;
+  if (ownsTransaction) db.exec('BEGIN IMMEDIATE');
+  try {
+    const scope = fillScope(
+      {
+        workspace_path: params.workspacePath ?? null,
+        artifact: normalizeArtifact(params.artifact),
+        repo: params.repo ?? null,
+        ref: params.ref ?? null,
+      },
+      params.cwd ?? process.cwd(),
+    );
+    const supersedes = params.supersedes ?? [];
+    const similar = findSimilarMemories(
+      db,
+      `${params.taskContext} ${params.observation}`,
+      5,
+      null,
+      {
+        workspacePath: scope.workspace_path,
+        artifact: scope.artifact,
+        repo: scope.repo,
+        ref: scope.ref,
+        cwd: params.cwd,
+      },
+    );
+    const unsupersededSimilar = similar.filter(memory => !supersedes.includes(memory.memory_id));
+    if (unsupersededSimilar.length > 0 && !allowSimilar) {
+      if (ownsTransaction) db.exec('COMMIT');
+      return { skipped: true, similar: unsupersededSimilar };
+    }
+
+    const result = insertMemory(db, { ...params, preComputedSimilar: similar });
+    if (ownsTransaction) db.exec('COMMIT');
+    return { skipped: false, similar, result };
+  } catch (error) {
+    if (ownsTransaction) {
+      try { db.exec('ROLLBACK'); } catch { /* already rolled back */ }
+    }
+    throw error;
+  }
+}
+
 // ─── getMemory ────────────────────────────────────────────────────────────────
 
 /**
@@ -692,25 +783,33 @@ export function getMemory(db: DatabaseSync, params: GetMemoryParams = {}): GetMe
     fileRegex = [],
     files = [],
     explain = false,
+    candidateMemoryIds = [],
+    recordAccess = true,
     cwd: cwdParam,
   } = params;
 
-  const limit = Math.min(20, Math.max(1, Number(limitRaw) || 3));
+  // Alternate rankers may pass the bounded 2,000-row embedding pool through
+  // this function so every normal scope/provenance filter runs before top-k.
+  const limitCap = candidateMemoryIds.length > 0 ? 2_000 : 50;
+  const limit = Math.min(limitCap, Math.max(1, Number(limitRaw) || 3));
   let minImportance = Math.max(1, Number(minImpRaw) || 1);
   if (smart === true || smart === 'true') minImportance = Math.max(1, minImportance - 1);
 
-  const states = statesRaw ?? ['ACTIVE'];
+  const states = statesRaw ?? (asOf ? ['ACTIVE', 'SUPERSEDED'] : ['ACTIVE']);
   const labels = label
     ? (Array.isArray(label) ? label.map((value) => normalizeLabel(value)) : [normalizeLabel(label)])
     : [];
 
   const effectiveCwd = cwdParam ?? workspacePath ?? undefined;
-  const asOfDate = asOf ? new Date(asOf) : null;
+  const normalizedAsOf = canonicalMemoryInstant(asOf, 'as_of');
+  const asOfDate = normalizedAsOf ? new Date(normalizedAsOf) : null;
   if (asOfDate && isNaN(asOfDate.getTime())) {
     throw new Error(`invalid --as-of value "${asOf}" — expected ISO 8601 date string (e.g. 2024-06-01T00:00:00Z)`);
   }
 
-  let candidateIds: Set<string> | null = null;
+  let candidateIds: Set<string> | null = candidateMemoryIds.length > 0
+    ? new Set(candidateMemoryIds.filter(Boolean))
+    : null;
   const refFilters = normalizeReferences(references);
   const fileRefFilters = fileReferenceCandidates(files, effectiveCwd);
   const compiledRegex = regex.map(compileRecallRegex);
@@ -738,7 +837,7 @@ export function getMemory(db: DatabaseSync, params: GetMemoryParams = {}): GetMe
       strictScope,
       globalOnly,
       cwd: cwdParam,
-      asOf: asOf ?? null,
+      asOf: normalizedAsOf,
       candidateMemoryIds: candidateIds ? [...candidateIds] : undefined,
     },
   );
@@ -809,7 +908,7 @@ export function getMemory(db: DatabaseSync, params: GetMemoryParams = {}): GetMe
       m.score = components.final;
     }
   }
-  bumpAccess(db, memories.map(m => m.memory_id));
+  if (recordAccess) bumpAccess(db, memories.map(m => m.memory_id));
 
   const mode = hasFts(db) ? 'lexical' as const : 'fallback' as const;
   const result: GetMemoryResult = {
@@ -817,7 +916,7 @@ export function getMemory(db: DatabaseSync, params: GetMemoryParams = {}): GetMe
     memories,
     mode,
     sort,
-    as_of: asOf ?? null,
+    as_of: normalizedAsOf,
     global_only: Boolean(globalOnly),
     states,
   };
@@ -1215,6 +1314,7 @@ export function storeEmbedding(
  * @param limit          - Maximum results to return (default 5)
  * @param threshold      - Minimum cosine similarity 0–1 (default 0.75)
  * @param model          - Only compare against embeddings from this model
+ * @param states         - Memory states eligible for alternate ranking
  */
 export function searchByEmbedding(
   db: DatabaseSync,
@@ -1222,9 +1322,16 @@ export function searchByEmbedding(
   limit = 5,
   threshold = 0.75,
   model?: string,
+  states: string[] = ['ACTIVE'],
 ): Array<{ memory_id: string; similarity: number }> {
-  const conditions = ["state = 'ACTIVE'", 'embedding IS NOT NULL'];
+  const normalizedStates = [...new Set(states.filter(Boolean))];
+  if (normalizedStates.length === 0) return [];
+  const conditions = [
+    `state IN (${normalizedStates.map(() => '?').join(',')})`,
+    'embedding IS NOT NULL',
+  ];
   const binds: string[] = [];
+  binds.push(...normalizedStates);
   if (model) { conditions.push('embedding_model = ?'); binds.push(model); }
 
   type EmbRow = { memory_id: string; embedding: Buffer; embedding_model: string };

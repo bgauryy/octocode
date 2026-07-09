@@ -34,6 +34,22 @@ export function getCLIPath(baseDir = extensionDir): string {
 }
 
 /**
+ * Returns the absolute path to the bundled octocode-awareness CLI entry point
+ * (the standalone script shipped with the awareness skill). Agents run it with:
+ * `node <awarenessCliPath> <noun> <verb>`. Also exposed via the
+ * OCTOCODE_AWARENESS_CLI env var (set at extension load) so bash-spawned CLI
+ * calls share the same interface the skill documents.
+ */
+export function getAwarenessCLIPath(baseDir = extensionDir): string {
+  const bundled = path.join(baseDir, 'skills', 'octocode-awareness', 'scripts', 'awareness.mjs');
+  if (fs.existsSync(bundled)) return bundled;
+  // Source-mode tests/dev run from src/, while the build/runtime runs from
+  // dist/. Both consume the same generated package-level skill tree.
+  const sourceMode = path.join(path.dirname(baseDir), 'skills', 'octocode-awareness', 'scripts', 'awareness.mjs');
+  return fs.existsSync(sourceMode) ? sourceMode : bundled;
+}
+
+/**
  * Awareness memory home: delegates to @octocodeai/octocode-awareness.
  * Kept as a named export for backward compat with external callers.
  */
@@ -74,5 +90,4 @@ export function getInstallSource(baseDir = extensionDir): string {
   }
   return packageRoot;
 }
-
 

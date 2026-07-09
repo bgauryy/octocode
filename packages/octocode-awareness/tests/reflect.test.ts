@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { DatabaseSync } from 'node:sqlite';
 import { initDb } from '../src/db.js';
 import { reflect } from '../src/reflect.js';
+import { mineWeakness } from '../src/memory.js';
 
 function freshDb(): DatabaseSync {
   const db = new DatabaseSync(':memory:');
@@ -154,6 +155,24 @@ describe('reflect', () => {
     const result = reflect(db, { task: 't', outcome: 'worked' });
     expect(result.eval_failure_count).toBe(0);
     expect(result.eval_failure_ids).toEqual([]);
+  });
+
+  it('counts one structured eval failure as one weakness event', () => {
+    const db = freshDb();
+    const result = reflect(db, {
+      task: 'single eval failure',
+      outcome: 'failed',
+      evalFailures: [{
+        id: 'eval-one',
+        failure_signature: 'mechanism:single-eval|cause:one-event',
+        suggested_lesson: 'keep one row per eval failure event',
+      }],
+    });
+    expect(result.eval_failure_count).toBe(1);
+    expect(db.prepare(
+      'SELECT count(*) AS count FROM memories WHERE failure_signature = ?',
+    ).get('mechanism:single-eval|cause:one-event')).toEqual({ count: 1 });
+    expect(mineWeakness(db, { minCount: 2 }).clusters).toEqual([]);
   });
 
   it('returns similar reflection ids for repeated reflections', () => {

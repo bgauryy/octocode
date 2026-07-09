@@ -11,6 +11,15 @@ function freshDb(): DatabaseSync {
 }
 
 describe('notifications', () => {
+  it('enforces importance bounds in the domain layer', () => {
+    const db = freshDb();
+    for (const importance of [0, 1.5, 11]) {
+      expect(() => insertNotification(db, {
+        agentId: 'agent-a', kind: 'fyi', subject: 'invalid', importance,
+      })).toThrow(/importance.*integer.*1.*10/i);
+    }
+  });
+
   it('default unread inbox excludes resolved notifications', () => {
     const db = freshDb();
     const first = insertNotification(db, {
@@ -156,9 +165,9 @@ describe('notifications', () => {
     expect(participant.resolved).toBe(1);
   });
 
-  it('caps inbox output even when a caller requests an excessive limit', () => {
+  it('caps inbox output at the public schema maximum', () => {
     const db = freshDb();
-    for (let i = 0; i < 125; i++) {
+    for (let i = 0; i < 205; i++) {
       insertNotification(db, {
         agentId: 'agent-a',
         toAgent: 'agent-b',
@@ -169,6 +178,6 @@ describe('notifications', () => {
     }
 
     const result = getNotifications(db, { agentId: 'agent-b', workspacePath: '/repo', limit: 500 });
-    expect(result.signals).toHaveLength(100);
+    expect(result.signals).toHaveLength(200);
   });
 });

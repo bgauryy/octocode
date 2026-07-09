@@ -7,10 +7,12 @@ deterministic scripts, schemas, host hooks, and a canonical-source build workflo
 
 ## Install
 
-Install this folder from the `@octocodeai/octocode-awareness` package bundle:
+Install the package, then install this bundled skill by its resolved local path:
 
 ```bash
-npx octocode skill --add --path <package>/dist/skills/octocode-awareness \
+npm install --global @octocodeai/octocode-awareness
+npx octocode skill --add \
+  --path "$(npm root --global)/@octocodeai/octocode-awareness/dist/skills/octocode-awareness" \
   --platform common --force
 ```
 
@@ -58,9 +60,8 @@ node scripts/awareness.mjs docs list --compact
 | `scripts/smoke-multi-agent.mjs` | Native multi-agent end-to-end smoke. |
 | `scripts/hooks/*.sh` | Thin lifecycle wrappers. |
 
-Compiled operational scripts are refreshed by the package build. Edit canonical
-TypeScript/source scripts in `packages/octocode-awareness`, not generated `.mjs`
-copies.
+Compiled operational scripts are generated artifacts. Do not hand-edit the `.mjs`
+copies; package maintainers regenerate them from canonical TypeScript sources.
 
 ## Hosts
 

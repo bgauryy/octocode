@@ -22,7 +22,7 @@ Relative output paths resolve under `--workspace`. Markdown is capped; overflow 
 
 `repo inject` never edits `.gitignore`.
 
-- `--mode local`: personal/machine-local projection; default for this monorepo.
+- `--mode local`: personal/machine-local projection; default until sharing is intentional.
 - `--mode share`: owner intentionally plans to review/commit projections.
 - Share mode plus an ignored `.octocode/` produces a warning; the user decides policy.
 

@@ -9,6 +9,8 @@ import { getMemory } from './memory.js';
 import { queryAwareness, type AwarenessQueryRow } from './repo-context.js';
 
 export interface AttendParams {
+  agentId?: string | null;
+  agent_id?: string | null;
   workspacePath?: string | null;
   workspace_path?: string | null;
   workspace?: string | null;
@@ -293,6 +295,7 @@ export function attendAwareness(db: DatabaseSync, params: AttendParams = {}): At
   const includeBodies = Boolean(params.includeBodies ?? params.include_bodies);
   const explainOrgan = Boolean(params.explainOrgan ?? params.explain_organ);
   const compact = Boolean(params.compact);
+  const agentId = String(params.agentId ?? params.agent_id ?? '').trim();
   const packetLimit = compact ? 1 : limit;
   const scope = {
     workspacePath,
@@ -309,12 +312,18 @@ export function attendAwareness(db: DatabaseSync, params: AttendParams = {}): At
   const profile = profileMap(profileResult.rows);
   const workboardResult = queryAwareness(db, { ...scope, view: 'workboard', query: null });
   const rawWorkboard = groupWorkboard(workboardResult.rows);
+  if (agentId && rawWorkboard['Verify']) {
+    rawWorkboard['Verify'] = [...rawWorkboard['Verify']!].sort((left, right) =>
+      Number(String(right['agent_id'] ?? '') === agentId) - Number(String(left['agent_id'] ?? '') === agentId));
+  }
   const handoffRows = (rawWorkboard['Inbox'] ?? [])
     .filter(row => row['item_type'] === 'refinement' && row['quality'] === 'handoff')
     .slice(0, packetLimit)
     .map(row => compact ? compactRow(row) : row);
   const workboard = compact ? compactWorkboard(rawWorkboard, packetLimit) : rawWorkboard;
-  const verificationTargets = (rawWorkboard['Verify'] ?? []).slice(0, packetLimit);
+  const verificationTargets = (rawWorkboard['Verify'] ?? [])
+    .filter(row => agentId !== '' && String(row['agent_id'] ?? '') === agentId)
+    .slice(0, packetLimit);
   const readyTasks = rawWorkboard['Ready'] ?? [];
   const claimedTasks = (rawWorkboard['Claimed'] ?? []).filter(row => row['item_type'] === 'task');
   const projectionHealth = projectionStats(workspacePath);
@@ -467,8 +476,12 @@ export function attendAwareness(db: DatabaseSync, params: AttendParams = {}): At
     },
   };
 
+  const verificationRunId = verificationTargets
+    .flatMap(row => Array.isArray(row['raw_ids']) ? row['raw_ids'] as unknown[] : [])
+    .map(String)
+    .find(id => id.startsWith('run_'));
   const next = verificationTargets.length > 0
-    ? 'octocode-awareness verify audit --agent-id "$OCTOCODE_AGENT_ID" --workspace "$PWD" --compact; then verify mark --all-pending after the declared test plan'
+    ? `octocode-awareness verify audit --agent-id "$OCTOCODE_AGENT_ID" --workspace "$PWD" --compact; then verify mark ${verificationRunId ? `--run-id ${verificationRunId}` : '--run-id <exact-run-id>'} after its declared test plan`
     : readyTasks.length > 0
       ? `octocode-awareness task claim --task-id ${String(readyTasks[0]?.['id'])} --agent-id "$OCTOCODE_AGENT_ID" --compact`
       : bloatWarnings.length > 0
