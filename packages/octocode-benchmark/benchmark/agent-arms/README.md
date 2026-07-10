@@ -9,8 +9,11 @@ byte/time/exit metrics; answers are judged against pre-verified ground truth.
 
 | Benchmark | Arms | Scope | Definition |
 |---|---|---|---|
-| `gh-vs-octocode` | `gh` CLI vs octocode CLI | GitHub research only (code search, PRs, history, structure, releases) | [`gh-vs-octocode/`](./gh-vs-octocode/) |
 | `rtk-gh-vs-octocode` | `rtk`+`gh` vs octocode CLI | Mixed: local root-cause + remote research | [`rtk-gh-vs-octocode/`](./rtk-gh-vs-octocode/) |
+
+(A pure-GitHub `gh-vs-octocode` benchmark ran once on 2026-07-10, drove the
+releases-surface/`--quiet`/did-you-mean fixes, and was then retired by request;
+its methodology lives on in this README.)
 
 ## Methodology (replicate this)
 
@@ -39,6 +42,13 @@ byte/time/exit metrics; answers are judged against pre-verified ground truth.
 7. **Judging** — the author (not a solver) scores each `answers.md` against the
    rubric, writes `scores.json`, then runs
    `node aggregate.mjs <runDir>` to produce the per-arm tables for `results.md`.
+8. **Integrity audit (required before publishing)** — run
+   `node check-run-integrity.mjs <runDir>`: verifies every ndjson line parses,
+   every step has its raw evidence file with reconciling byte counts, answer
+   sheets cover all questions and end with Totals, and flags provider
+   truncation markers (`matchTruncated`/`incomplete_results`) plus empty
+   successful outputs so scored answers can be audited for truncated evidence.
+   A run may not be reported without `INTEGRITY OK`.
 
 ## Fairness rules
 
@@ -73,6 +83,6 @@ question, show it in the matrix and discuss it.
 
 ## Adding a new benchmark
 
-Copy `gh-vs-octocode/` as a template: write questions, verify ground truth
+Copy `rtk-gh-vs-octocode/` as a template: write questions, verify ground truth
 yourself, define arm whitelists in the README, fill `prompt-template.md`
 placeholders, spawn ≥3 solvers per arm, judge, aggregate.

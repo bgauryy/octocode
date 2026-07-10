@@ -188,7 +188,11 @@ async function handleDirectoryFetch(
     directoryEntryCount: result.directoryEntryCount,
     eligibleFileCount: result.eligibleFileCount,
     savedFileCount: result.savedFileCount,
-    skipped: result.skipped,
+    // All-zeros skip map is noise (and duplicates location.skippedSummary's
+    // absence); emit the full breakdown only when something was skipped.
+    ...(skippedSummary && Object.keys(skippedSummary).length > 0
+      ? { skipped: result.skipped }
+      : {}),
     limits: result.limits,
     ...(result.warnings ? { warnings: result.warnings } : {}),
     files: result.files,

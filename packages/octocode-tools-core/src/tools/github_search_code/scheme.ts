@@ -11,7 +11,10 @@ import {
   describeQuerySchema,
 } from '../../scheme/coreSchemas.js';
 import { responseEnvelopeFields } from '../../scheme/responseEnvelope.js';
-import { ItemPaginationSchema } from '../../scheme/pagination.js';
+import {
+  ItemPaginationSchema,
+  ToolContinuationSchema,
+} from '../../scheme/pagination.js';
 
 const queryOverrides = {
   limit: clampedInt(1, GITHUB_SEARCH_MAX_LIMIT).optional(),
@@ -84,6 +87,10 @@ export const GitHubCodeSearchOutputLocalSchema = z.object({
     )
     .optional(),
   warnings: z.array(z.string()).optional(),
+  // GitHub code search returns no absolute line numbers; `next` carries a
+  // ready-made ghGetFileContent matchString call per result record so agents
+  // can resolve exact file:line anchors in one step instead of cloning.
+  next: z.record(z.string(), ToolContinuationSchema).optional(),
   errors: z
     .array(
       z.object({

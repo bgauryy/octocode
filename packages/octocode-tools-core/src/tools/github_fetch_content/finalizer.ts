@@ -12,7 +12,7 @@ import {
   formatFinalizedResponse,
   type QueryWithPagination,
 } from '../../utils/response/groupedFinalizer.js';
-import { resolveQueryId } from '../../utils/response/bulk.js';
+import { resolveUniqueQueryIds } from '../../utils/response/bulk.js';
 import type { GitHubFetchContentOutputLocal } from './scheme.js';
 import type { WithOptionalMeta } from '../../types/execution.js';
 
@@ -403,12 +403,14 @@ export function buildGithubFetchContentFinalizer<
   TQuery extends PartialFileContentQuery,
 >(): BulkFinalizer<TQuery, GitHubFetchContentOutputLocal> {
   return ({ queries, results }) => {
-    // Align each flat result row to its originating query by id (the same id
-    // bulk.ts derived via resolveQueryId), not by array position — a dropped or
-    // reordered query would otherwise attach the wrong owner/repo/path.
+    // Align each flat result row to its originating query by id (the same
+    // batch-unique ids bulk.ts derives via resolveUniqueQueryIds), not by
+    // array position — a dropped or reordered query would otherwise attach
+    // the wrong owner/repo/path, and duplicate explicit ids would collide.
     const queryById = new Map<string, PartialFileContentQuery>();
+    const uniqueIds = resolveUniqueQueryIds(queries);
     queries.forEach((query, index) => {
-      queryById.set(resolveQueryId(query, index), query);
+      queryById.set(uniqueIds[index]!, query);
     });
 
     const groups = buildGroups(results, queryById);

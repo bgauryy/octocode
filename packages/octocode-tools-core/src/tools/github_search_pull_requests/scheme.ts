@@ -26,6 +26,15 @@ import { responseEnvelopeFields } from '../../scheme/responseEnvelope.js';
 // omits .describe() so the description is inherited from core (see copyDescription
 // in ../../scheme/coreSchemas.ts). One source of truth; no duplicated prose.
 const queryOverrides = {
+  // Extends core's enum (prs|commits) with 'releases' — releases/tags listing
+  // with a latest-stable marker. Carries its own description until core ships
+  // the new value.
+  type: z
+    .enum(['prs', 'commits', 'releases'])
+    .optional()
+    .describe(
+      'Research mode: "prs" (default) searches pull requests; "commits" walks commit history for a repo or path; "releases" lists the repository releases (tagName, publishedAt, prerelease flag) and surfaces the latest stable release.'
+    ),
   perPage: clampedInt(1, 100).optional().default(30),
   prNumber: clampedInt(1, 1_000_000_000).optional(),
   limit: clampedInt(1, GITHUB_SEARCH_MAX_LIMIT)

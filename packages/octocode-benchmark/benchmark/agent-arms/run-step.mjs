@@ -4,7 +4,12 @@
 // Saves raw output to <agentOutDir>/raw/<stepId>.txt, appends a metrics line
 // to <agentOutDir>/commands.ndjson, and echoes output so the agent can read it.
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, appendFileSync, writeFileSync } from 'node:fs';
+import {
+  mkdirSync,
+  appendFileSync,
+  writeFileSync,
+  existsSync,
+} from 'node:fs';
 import { join } from 'node:path';
 
 const argv = process.argv.slice(2);
@@ -17,6 +22,15 @@ if (!outDir || !stepId || sep !== 2 || cmd.length === 0) {
   process.exit(2);
 }
 mkdirSync(join(outDir, 'raw'), { recursive: true });
+// Never overwrite prior evidence: a retried step id gets a .2/.3 suffix so
+// the failed attempt's output stays auditable.
+let rawName = `${stepId}.txt`;
+if (existsSync(join(outDir, 'raw', rawName))) {
+  let attempt = 2;
+  while (existsSync(join(outDir, 'raw', `${stepId}.${attempt}.txt`)))
+    attempt += 1;
+  rawName = `${stepId}.${attempt}.txt`;
+}
 const start = Date.now();
 const res = spawnSync(cmd[0], cmd.slice(1), {
   encoding: 'utf8',
@@ -26,7 +40,7 @@ const ms = Date.now() - start;
 const stdout = res.stdout ?? '';
 const stderr = res.stderr ?? '';
 writeFileSync(
-  join(outDir, 'raw', `${stepId}.txt`),
+  join(outDir, 'raw', rawName),
   stdout + (stderr ? `\n--- STDERR ---\n${stderr}` : '')
 );
 appendFileSync(

@@ -535,6 +535,15 @@ function buildKnownDirectToolCommandPatternQueries(
           perPage: 5,
         },
       },
+      {
+        label: 'releases + latest',
+        query: {
+          type: 'releases',
+          owner: 'microsoft',
+          repo: 'TypeScript',
+          perPage: 5,
+        },
+      },
     ];
   }
 
@@ -890,6 +899,61 @@ function buildDefaultGoal(toolName: string, sourceLabel: string): string {
   return `Execute ${toolName} via ${sourceLabel}`;
 }
 
+function editDistance(a: string, b: string): number {
+  const rows = a.length + 1;
+  const cols = b.length + 1;
+  const dist: number[] = Array.from({ length: rows * cols }, () => 0);
+  for (let i = 0; i < rows; i++) dist[i * cols] = i;
+  for (let j = 0; j < cols; j++) dist[j] = j;
+  for (let i = 1; i < rows; i++) {
+    for (let j = 1; j < cols; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      dist[i * cols + j] = Math.min(
+        dist[(i - 1) * cols + j]! + 1,
+        dist[i * cols + j - 1]! + 1,
+        dist[(i - 1) * cols + j - 1]! + cost
+      );
+    }
+  }
+  return dist[rows * cols - 1]!;
+}
+
+/**
+ * Closest schema field for an unknown key, if plausibly a rename/typo.
+ * Catches the measured first-contact misses (keywordsToSearch→keywords,
+ * name→packageName, depth→maxDepth): substring containment counts as a
+ * match, otherwise a scaled edit-distance threshold.
+ */
+function suggestField(
+  unknown: string,
+  schemaFields: ReadonlySet<string>
+): string | undefined {
+  const lower = unknown.toLowerCase();
+  let bestContained: string | undefined;
+  let bestContainedScore = Number.POSITIVE_INFINITY;
+  let bestFuzzy: string | undefined;
+  let bestFuzzyScore = Number.POSITIVE_INFINITY;
+  for (const field of schemaFields) {
+    const fieldLower = field.toLowerCase();
+    const distance = editDistance(lower, fieldLower);
+    // Containment (name⊂packageName, keywords⊂keywordsToSearch) is a rename
+    // signal, not a typo — it outranks any edit-distance match.
+    if (fieldLower.includes(lower) || lower.includes(fieldLower)) {
+      if (distance < bestContainedScore) {
+        bestContained = field;
+        bestContainedScore = distance;
+      }
+      continue;
+    }
+    const threshold = Math.max(2, Math.floor(field.length / 3));
+    if (distance <= threshold && distance < bestFuzzyScore) {
+      bestFuzzy = field;
+      bestFuzzyScore = distance;
+    }
+  }
+  return bestContained ?? bestFuzzy;
+}
+
 function normalizeQueryObject(
   toolName: string,
   query: unknown,
@@ -924,9 +988,16 @@ function normalizeQueryObject(
   if (unknownFields.length > 0 && schemaFields.size > 0) {
     options.onUnknownFields?.(unknownFields, queryIndex);
     if (options.rejectUnknownFields === true) {
+      const suggestions = unknownFields
+        .map(field => {
+          const suggested = suggestField(field, schemaFields);
+          return suggested ? `'${field}' → did you mean '${suggested}'?` : '';
+        })
+        .filter(Boolean);
       throw new DirectToolInputError(
         `Unknown field(s): ${unknownFields.join(', ')}`,
         [
+          ...suggestions,
           `Remove unknown field(s) from query ${queryIndex + 1}: ${unknownFields.join(', ')}`,
           `Run tools ${toolName} --scheme to see valid fields.`,
         ]

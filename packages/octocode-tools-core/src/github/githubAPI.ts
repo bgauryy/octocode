@@ -70,7 +70,10 @@ export interface HistoryCommitFile {
 export interface HistoryCommit {
   sha: string;
   date: string;
-  message: string;
+  /** Headline + (truncated) body; omitted when identical to messageHeadline. */
+  message?: string;
+  /** Present when the message body was cut at 500 chars — the '…' is a real cut. */
+  messageTruncated?: true;
   messageHeadline: string;
   url: string;
   author: {

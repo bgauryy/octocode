@@ -6,6 +6,7 @@ import {
   type QueryWithPagination,
 } from '../../utils/response/groupedFinalizer.js';
 import type { GitHubCodeSearchOutputLocal } from './scheme.js';
+import type { ToolContinuation } from '../../scheme/pagination.js';
 import {
   type CodeSearchFlatResult,
   type CodeSearchGroupedMatch,
@@ -180,6 +181,45 @@ function buildResultRecords(
   });
 }
 
+// GitHub code search returns snippet fragments with NO absolute line numbers.
+// For each result record, emit a ready-made ghGetFileContent call against the
+// record's top file using the query's first keyword as matchString — one step
+// to an exact file:line anchor instead of a clone-and-grep loop.
+function buildNextMap(
+  resultRecords: readonly CodeSearchResultRecord[],
+  queries: readonly QueryWithPagination[],
+  allKeywords: readonly string[]
+): Record<string, ToolContinuation> | undefined {
+  const queriesById = queryById(queries);
+  const next: Record<string, ToolContinuation> = {};
+  for (const record of resultRecords) {
+    const file = record.data.files[0];
+    if (!file) continue;
+    const query = queriesById.get(record.id) as
+      | (QueryWithPagination & { keywords?: unknown })
+      | undefined;
+    const ownKeywords = Array.isArray(query?.keywords)
+      ? query.keywords.filter((k): k is string => typeof k === 'string')
+      : [];
+    const matchString = ownKeywords[0] ?? allKeywords[0];
+    if (!matchString) continue;
+    const key =
+      resultRecords.length === 1 ? 'getLines' : `getLines:${record.id}`;
+    next[key] = {
+      tool: 'ghGetFileContent',
+      query: {
+        owner: file.owner,
+        repo: file.repo,
+        path: file.path,
+        matchString,
+      },
+      why: 'GitHub code search returns no line numbers; fetch the top hit with matchString to get exact file:line anchors',
+      confidence: 'heuristic',
+    };
+  }
+  return Object.keys(next).length > 0 ? next : undefined;
+}
+
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
@@ -312,6 +352,7 @@ export function buildGhSearchCodeFinalizer<
       groups,
       paginationByQuery
     );
+    const nextMap = buildNextMap(resultRecords, queries, allKeywords);
     if (conciseMode) {
       for (const rec of resultRecords) {
         rec.data.files = rec.data.files.map(
@@ -321,6 +362,7 @@ export function buildGhSearchCodeFinalizer<
     }
     const responseData: GitHubCodeSearchOutputLocal = {
       results: resultRecords,
+      ...(nextMap ? { next: nextMap } : {}),
     };
 
     if (emptyQueries.length > 0) {
@@ -371,6 +413,11 @@ export function buildGhSearchCodeFinalizer<
         'pathOnly',
         'matchIndices',
         'pagination',
+        'next',
+        'tool',
+        'query',
+        'why',
+        'confidence',
         'emptyQueries',
         'nonExistentScope',
         'incompleteResults',

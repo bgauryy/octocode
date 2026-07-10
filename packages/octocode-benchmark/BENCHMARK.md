@@ -82,7 +82,7 @@ packages/octocode-benchmark/
 | 8 | `benchmark/ast-grep/compare-upstream-scenarios.mjs` | `ast:compare:upstream` | No | Optional | Optional | `results/ast-grep/` + `output/` |
 | 9 | `benchmark/repo/clone.mjs` + `run.mjs` | `repo:clone` + `repo:bench` | No | Yes (clone) | Manual | `results/repo/<name>/results.md` |
 | 10 | `benchmark/octocode/` | manual agent run | No | Yes (GitHub/npm) | Manual | `output/<name>-<ts>/` |
-| 11 | `benchmark/agent-arms/` — agent toolchain comparisons (`gh-vs-octocode/`, `rtk-gh-vs-octocode/`) | manual multi-agent run | No | Yes (GitHub) | Manual | `output/<name>-<ts>/` |
+| 11 | `benchmark/agent-arms/` — agent toolchain comparisons (`rtk-gh-vs-octocode/`) | manual multi-agent run | No | Yes (GitHub) | Manual | `output/<name>-<ts>/` |
 
 `yarn benchmark` (alias `yarn test`) runs checks 1–2, 4–6 in order: matrix → AST → LSP → minify → CLI metadata.
 

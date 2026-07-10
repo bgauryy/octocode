@@ -7,7 +7,7 @@ import { EXIT, classifyToolErrorText } from '../exit-codes.js';
 import { printCliError } from '../cli-error.js';
 import { resolveRef, isGithubRef, cloneCommandFor } from '../routing.js';
 import { outlineSymbols } from './symbol-outline.js';
-import { render, renderRawContent } from './search-render.js';
+import { render, renderRawContent, renderRows } from './search-render.js';
 import {
   formatMaterializationHints,
   materializeRemoteForCli,
@@ -77,6 +77,7 @@ export const searchCommand: CLICommand = {
     { name: 'json' },
     { name: 'compact' },
     { name: 'raw' },
+    { name: 'quiet' },
     { name: 'concise' },
     // shorthand sugar (normalized by core, shown canonical via --explain)
     { name: 'target', hasValue: true },
@@ -247,6 +248,14 @@ export const searchCommand: CLICommand = {
       process.exitCode = EXIT.USAGE;
       return;
     }
+    if (
+      getBool(options, 'quiet') &&
+      (getBool(options, 'json') || getBool(options, 'raw'))
+    ) {
+      printCliError('Use --quiet alone (not with --json or --raw).');
+      process.exitCode = EXIT.USAGE;
+      return;
+    }
     if (await tryHandleSymbolOutline(args)) {
       return;
     }
@@ -307,6 +316,11 @@ export const searchCommand: CLICommand = {
         return;
       }
       process.stdout.write(raw.endsWith('\n') ? raw : `${raw}\n`);
+    } else if (getBool(options, 'quiet')) {
+      // Rows only — no plan/diagnostics/evidence/continuations. Token-frugal
+      // mode for agent loops that only need path:line anchors.
+      const rows = renderRows(result);
+      process.stdout.write(rows.length > 0 ? `${rows}\n` : '');
     } else {
       process.stdout.write(`${render(result, getBool(options, 'compact'))}\n`);
     }

@@ -94,6 +94,7 @@ type PackageData = {
   repositoryDirectory?: string;
   repositoryId?: string;
   next?: Record<string, unknown>;
+  warnings?: string[];
 };
 
 type PackageRepositoryData = {
@@ -125,6 +126,11 @@ function buildNext(
         ...(repositoryDirectory ? { path: repositoryDirectory } : {}),
       },
     },
+    latestRelease: {
+      tool: 'ghHistoryResearch',
+      query: { type: 'releases', owner, repo },
+      why: 'npm latest can diverge from the repo release line — verify against the repo releases/tags',
+    },
     searchCode: {
       tool: 'ghSearchCode',
       query: { owner, repo },
@@ -141,7 +147,7 @@ function buildNext(
   return next;
 }
 
-function formatPackageData(pkg: PackageResult): PackageData {
+export function formatPackageData(pkg: PackageResult): PackageData {
   const name = getPackageName(pkg);
   const url = normalizeRepoUrl(getPackageRepo(pkg));
   const data: PackageData = { name };
@@ -159,6 +165,14 @@ function formatPackageData(pkg: PackageResult): PackageData {
   if (root) data.repositoryDirectory = root;
   const next = buildNext(url, root);
   if (next) data.next = next;
+  // Registry-latest can diverge from the linked repo's release line (e.g. npm
+  // typescript@7.x vs microsoft/TypeScript tags at v6.x) — warn so agents
+  // don't cite the npm version as the repo's latest release.
+  if (data.version && resolveGitHubOwnerRepo(url)) {
+    data.warnings = [
+      `npm version ${data.version} is the registry's latest publish and may not correspond to a release/tag in the linked repository — verify against the repo's releases or tags before citing it as the repo's latest release.`,
+    ];
+  }
   return data;
 }
 

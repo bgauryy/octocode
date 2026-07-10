@@ -99,10 +99,14 @@ function createBulkResponse<
     queries.length
   );
 
+  const uniqueQueryIds = resolveUniqueQueryIds(queries);
+
   results.forEach(r => {
     const status = r.result.status;
     orderedQueries[r.queryIndex] = {
-      id: resolveQueryId(r.originalQuery, r.queryIndex),
+      id:
+        uniqueQueryIds[r.queryIndex] ??
+        resolveQueryId(r.originalQuery, r.queryIndex),
       ...(status !== undefined ? { status } : {}),
       data: extractToolData(r.result),
     };
@@ -113,7 +117,7 @@ function createBulkResponse<
     if (!originalQuery) return;
 
     orderedQueries[err.queryIndex] = {
-      id: resolveQueryId(originalQuery, err.queryIndex),
+      id: uniqueQueryIds[err.queryIndex] ?? resolveQueryId(originalQuery, err.queryIndex),
       status: 'error',
       data: { error: err.error },
     };
@@ -458,4 +462,27 @@ export function resolveQueryId<TQuery extends object>(
     return String(rawId);
   }
   return `q${queryIndex + 1}`;
+}
+
+/**
+ * Resolve one id per query, guaranteed unique within the batch. Everything
+ * downstream (finalizer grouping, per-query pagination maps) keys off these
+ * ids, so two queries submitted with the same explicit `id` would otherwise
+ * silently merge and the second query's pagination would overwrite the first.
+ * Collisions get a `#2`, `#3`… suffix in submission order.
+ */
+export function resolveUniqueQueryIds<TQuery extends object>(
+  queries: readonly TQuery[]
+): string[] {
+  const seen = new Set<string>();
+  return queries.map((query, index) => {
+    let id = resolveQueryId(query, index);
+    if (seen.has(id)) {
+      let suffix = 2;
+      while (seen.has(`${id}#${suffix}`)) suffix += 1;
+      id = `${id}#${suffix}`;
+    }
+    seen.add(id);
+    return id;
+  });
 }

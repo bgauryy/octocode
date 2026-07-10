@@ -220,6 +220,41 @@ describe('octocode search command', () => {
     expect(process.exitCode).toBe(EXIT.OK);
   });
 
+  it('--quiet prints result rows ONLY (no evidence footer, diagnostics, or continuations)', async () => {
+    runOqlSearch.mockResolvedValue(proofEnvelope());
+    await run({
+      quiet: true,
+      query:
+        '{"target":"code","from":{"kind":"local","path":"."},"where":{"kind":"text","value":"x"}}',
+    });
+    expect(stdout).toContain('a.ts:3');
+    expect(stdout).toContain('hit');
+    expect(stdout).not.toContain('evidence:');
+    expect(stdout).not.toContain('answerReady');
+    expect(stdout).not.toContain('next.');
+    expect(stdout).not.toContain('PLAN');
+    expect(process.exitCode).toBe(EXIT.OK);
+  });
+
+  it('--quiet emits nothing on zero results', async () => {
+    runOqlSearch.mockResolvedValue({
+      ...proofEnvelope(),
+      results: [],
+    });
+    await run({
+      quiet: true,
+      query:
+        '{"target":"code","from":{"kind":"local","path":"."},"where":{"kind":"text","value":"x"}}',
+    });
+    expect(stdout).toBe('');
+  });
+
+  it('rejects --quiet combined with --json', async () => {
+    await run({ quiet: true, json: true, query: '{}' });
+    expect(process.exitCode).toBe(EXIT.USAGE);
+    expect(runOqlSearch).not.toHaveBeenCalled();
+  });
+
   it('accepts top-level array JSON as an OQL batch for --query', async () => {
     runOqlSearch.mockResolvedValue(proofEnvelope());
     await run({

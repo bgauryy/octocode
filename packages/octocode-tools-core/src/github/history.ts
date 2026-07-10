@@ -94,13 +94,29 @@ export async function fetchHistory(
       const authorObj = item.commit.author;
       const committerObj = item.commit.committer;
       const date = committerObj?.date ?? authorObj?.date ?? '';
-      const message = item.commit.message;
-      const messageHeadline = message.split('\n')[0] ?? message;
+      const fullMessage = item.commit.message;
+      const messageHeadline = fullMessage.split('\n')[0] ?? fullMessage;
+      // Token trim: headline is the default payload; the body is included only
+      // when it adds information, capped at 500 chars (benchmark measured
+      // multi-KB commit trailers dominating one-shot history answers).
+      const body = fullMessage.slice(messageHeadline.length).trim();
+      const bodyTruncated = body.length > 500;
+      const message =
+        body.length === 0
+          ? messageHeadline
+          : `${messageHeadline}\n${bodyTruncated ? `${body.slice(0, 500)}…` : body}`;
+      // web-flow is GitHub's merge-UI bot — a constant boilerplate committer
+      // on every merged commit; it carries no research signal.
+      const committerSameAsAuthor =
+        (committerObj?.name === authorObj?.name &&
+          committerObj?.email === authorObj?.email) ||
+        item.committer?.login === 'web-flow';
 
       return {
         sha: item.sha,
         date,
-        message,
+        ...(message === messageHeadline ? {} : { message }),
+        ...(bodyTruncated ? { messageTruncated: true as const } : {}),
         messageHeadline,
         url: item.html_url,
         author: {
@@ -108,7 +124,7 @@ export async function fetchHistory(
           email: authorObj?.email ?? '',
           ...(item.author?.login ? { login: item.author.login } : {}),
         },
-        ...(committerObj
+        ...(committerObj && !committerSameAsAuthor
           ? {
               committer: {
                 name: committerObj.name ?? 'unknown',

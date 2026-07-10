@@ -27,6 +27,24 @@ export function render(result: OqlRunResult, compact: boolean): string {
   return renderEnvelope(result, compact);
 }
 
+/**
+ * Rows-only rendering for token-frugal agent loops (--quiet): result rows
+ * through the standard row renderer, with NO plan block, pagination note,
+ * diagnostics, evidence footer, or continuation hints. Batch envelopes render
+ * the merged view when present, otherwise each child's rows.
+ */
+export function renderRows(result: OqlRunResult): string {
+  if (isBatchEnvelope(result)) {
+    const envelopes = result.merged
+      ? [result.merged]
+      : result.children.map(child => child.envelope);
+    return envelopes
+      .flatMap(env => env.results.map(row => renderRow(row)))
+      .join('\n');
+  }
+  return result.results.map(row => renderRow(row)).join('\n');
+}
+
 export function renderRawContent(result: OqlRunResult): string | undefined {
   if (isBatchEnvelope(result)) return undefined;
   const contentRows = result.results.filter(row => row.kind === 'content');
@@ -227,7 +245,7 @@ function shellQuote(value: string): string {
 function renderRow(row: OqlResultEnvelope['results'][number]): string {
   switch (row.kind) {
     case 'code':
-      return `  ${c('green', row.path)}${row.line !== undefined ? `:${row.line}` : ''}${row.snippet ? `  ${dim(row.snippet.replace(/\s+/g, ' ').trim().slice(0, 200))}` : ''}`;
+      return `  ${c('green', row.path)}${row.line !== undefined ? `:${row.line}` : ''}${row.snippet ? `  ${dim(clip(row.snippet.replace(/\s+/g, ' ').trim(), 200))}` : ''}`;
     case 'file':
       return `  ${c('green', row.path)}${row.entryType === 'directory' ? '/' : ''}`;
     case 'tree':
@@ -308,7 +326,13 @@ function renderRecord(row: {
   // Concise lanes flatten rows to { value: "…" }; show it rather than a bare
   // record head.
   if (!detail) detail = get('value') ?? '';
-  return detail ? `${head}  ${dim(detail.slice(0, 200))}` : head;
+  return detail ? `${head}  ${dim(clip(detail, 200))}` : head;
+}
+
+/** Cap display text, marking the cut so a trimmed line is never mistaken for
+ * the full value (full content stays available via --json / exact reads). */
+function clip(text: string, max: number): string {
+  return text.length > max ? `${text.slice(0, max)}…` : text;
 }
 
 function renderArtifactRecord(d: Record<string, unknown>): string {
