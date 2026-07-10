@@ -1,9 +1,8 @@
 # Awareness Hooks
 
-Hooks automate loop edges; manual CLI remains valid. A config file proves presence,
-not execution, trust, or model-visible delivery. Export one stable
-`OCTOCODE_AGENT_ID` shared by CLI and hooks — without it, presence and peer packets
-do not join correctly.
+Hooks automate loop edges; manual CLI remains valid. A config file proves presence, not
+execution, trust, or model-visible delivery. Export one stable `OCTOCODE_AGENT_ID` shared
+by CLI and hooks — without it, presence and peer packets do not join correctly.
 
 | Host | Surface | Context / control |
 |---|---|---|
@@ -41,6 +40,10 @@ Smoke: ordinary peer context once; exclusive denial before presence; N writes in
 turn become one fallback Verify item with N files; stop continuation; changed briefing;
 host log visibility. Treat any missing edge as a runtime failure even when config is green.
 
-Identity/TTL/payload detail: `references/hook-semantics.md`. Session timing and
-handoff detail: `references/session-observability.md`. Harness edits require
-`OCTOCODE_ALLOW_HARNESS_APPLY=1` plus a safe non-main branch.
+Prompt-time delivery is transient: shell hooks pass an event prompt when available; Pi buffers
+only the latest `input` through `before_agent_start`, clearing empty/consumed input. The hook emits
+at most one grounded memory lead (or silence), keeps signals/overrides independent, and caps
+the final five-item packet at 1 KiB UTF-8. Selection/trust: `references/memory-recall.md`.
+
+Identity/TTL/payload: `references/hook-semantics.md`; session/handoff: `references/session-observability.md`.
+Harness edits require `OCTOCODE_ALLOW_HARNESS_APPLY=1` plus a safe non-main branch.

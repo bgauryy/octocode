@@ -680,9 +680,22 @@ describe('repo context query and projections', () => {
         check: false,
       });
 
-      const memoryLines = readFileSync(join(dir, '.octocode', 'MEMORY.md'), 'utf8').split(/\r?\n/).length;
+      const memoryMarkdown = readFileSync(join(dir, '.octocode', 'MEMORY.md'), 'utf8');
+      const memoryLines = memoryMarkdown.split(/\r?\n/).length;
       expect(memoryLines).toBeLessThanOrEqual(200);
-      expect(readFileSync(join(dir, '.octocode', 'MEMORY.md'), 'utf8')).toContain('Omitted by projection cap');
+      expect(memoryMarkdown).toContain('Omitted by projection cap');
+      const summary = memoryMarkdown.match(/Total: (\d+) · Shown: (\d+) · Omitted: (\d+)/);
+      expect(summary).not.toBeNull();
+      const renderedRows = memoryMarkdown.match(/^## /gm)?.length ?? 0;
+      expect({
+        total: Number(summary?.[1]),
+        shown: Number(summary?.[2]),
+        omitted: Number(summary?.[3]),
+      }).toEqual({
+        total: 80,
+        shown: renderedRows,
+        omitted: 80 - renderedRows,
+      });
       const manifest = JSON.parse(readFileSync(join(dir, '.octocode', 'awareness', 'manifest.json'), 'utf8')) as {
         budgets: { markdown: Record<string, { within_budget: boolean }> };
       };

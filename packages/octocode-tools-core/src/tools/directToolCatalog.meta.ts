@@ -630,14 +630,15 @@ function buildKnownDirectToolCommandPatternQueries(
       {
         label: 'text search',
         query: {
-          path: '.',
-          keywords: 'runCLI',
+          path: 'packages/octocode-tools-core/src',
+          keywords: 'buildDirectToolCommandPatterns',
+          maxFiles: 20,
         },
       },
       {
         label: 'structural code search',
         query: {
-          path: 'src',
+          path: 'packages/octocode-tools-core/src/tools',
           mode: 'structural',
           pattern: 'eval($X)',
         },
@@ -650,17 +651,17 @@ function buildKnownDirectToolCommandPatternQueries(
       {
         label: 'exact line range',
         query: {
-          path: 'src/index.ts',
+          path: 'packages/octocode-tools-core/package.json',
           startLine: 1,
-          endLine: 40,
+          endLine: 30,
           minify: 'none',
         },
       },
       {
         label: 'matched slice',
         query: {
-          path: 'src/index.ts',
-          matchString: 'registerTool',
+          path: 'packages/octocode-tools-core/src/tools/directToolCatalog.meta.ts',
+          matchString: 'buildKnownDirectToolCommandPatternQueries',
           contextLines: 8,
           minify: 'standard',
         },
@@ -673,8 +674,8 @@ function buildKnownDirectToolCommandPatternQueries(
       {
         label: 'basename globs',
         query: {
-          path: '.',
-          names: ['*.ts', 'package.json'],
+          path: 'packages/octocode-tools-core',
+          names: ['scheme.ts', 'package.json'],
           entryType: 'f',
           itemsPerPage: 20,
         },
@@ -683,9 +684,31 @@ function buildKnownDirectToolCommandPatternQueries(
         label: 'monorepo path glob',
         query: {
           path: '.',
-          pathPattern: 'packages/*/src/**',
+          pathPattern: 'packages/*/src/tools/**',
           entryType: 'f',
           itemsPerPage: 20,
+        },
+      },
+    ];
+  }
+
+  if (toolName === STATIC_TOOL_NAMES.LOCAL_VIEW_STRUCTURE) {
+    return [
+      {
+        label: 'shallow tree',
+        query: {
+          path: 'packages/octocode-tools-core/src/tools',
+          maxDepth: 2,
+          itemsPerPage: 50,
+        },
+      },
+      {
+        label: 'files only at depth 1',
+        query: {
+          path: 'packages/octocode-engine/src',
+          maxDepth: 1,
+          filesOnly: true,
+          itemsPerPage: 100,
         },
       },
     ];
@@ -696,18 +719,17 @@ function buildKnownDirectToolCommandPatternQueries(
       {
         label: 'archive listing',
         query: {
-          path: 'archive.zip',
+          path: 'path/to/archive.zip',
           mode: 'list',
           entriesPerPage: 50,
+          entryPageNumber: 1,
         },
       },
       {
-        label: 'binary strings',
+        label: 'native binary inspect',
         query: {
-          path: 'dist/app.node',
-          mode: 'strings',
-          minLength: 8,
-          charLength: 2000,
+          path: 'path/to/binary.node',
+          mode: 'inspect',
         },
       },
     ];
@@ -718,7 +740,7 @@ function buildKnownDirectToolCommandPatternQueries(
       {
         label: 'semantic definition',
         query: {
-          uri: '/path/to/file.ts',
+          uri: '/absolute/path/to/file.ts',
           type: 'definition',
           symbolName: 'myFunction',
           lineHint: 42,
@@ -727,7 +749,7 @@ function buildKnownDirectToolCommandPatternQueries(
       {
         label: 'symbol outline',
         query: {
-          uri: '/path/to/file.ts',
+          uri: '/absolute/path/to/file.ts',
           type: 'documentSymbols',
         },
       },

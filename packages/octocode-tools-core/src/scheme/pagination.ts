@@ -51,6 +51,37 @@ export const ToolContinuationSchema = z.object({
 
 export type ToolContinuation = z.infer<typeof ToolContinuationSchema>;
 
+/** Runtime item-pagination fields used by local tools (aliases of pageSize/totalItems). */
+export const LocalItemPaginationSchema = ItemPaginationSchema.extend({
+  filesPerPage: z.number().optional(),
+  entriesPerPage: z.number().optional(),
+  matchesPerPage: z.number().optional(),
+  totalFiles: z.number().optional(),
+  totalEntries: z.number().optional(),
+  totalMatches: z.number().optional(),
+  totalFilesFound: z.number().optional(),
+  nextMatchPage: z.number().optional(),
+});
+
+export type LocalItemPagination = z.infer<typeof LocalItemPaginationSchema>;
+
+/**
+ * Build a machine-ready next-page continuation for list-style local tools.
+ * Callers pass the full original query with the advanced page field already set.
+ */
+export function buildNextPageContinuation(
+  tool: string,
+  query: Record<string, unknown>,
+  why = 'Continue to the next page of results.'
+): ToolContinuation {
+  return {
+    tool,
+    query,
+    why,
+    confidence: 'exact',
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Diagnostic — structured tool-level diagnostic message
 // ---------------------------------------------------------------------------

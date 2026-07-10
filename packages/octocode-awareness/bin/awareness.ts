@@ -157,7 +157,7 @@ const KNOWN_FLAGS: Record<string, string[]> = {
   'refine-get': ['workspace', 'artifact', 'repo', 'ref', 'quality', 'include_handoffs', 'state', 'limit'],
   'refine-delete': ['refinement_id', 'workspace', 'artifact', 'dry_run'],
   'pre-flight-intent': ['agent_id', 'workspace', 'artifact', 'run_id', 'rationale', 'test_plan', 'context_ref', 'target_file', 'file', 'ttl_minutes', 'ttl_seconds', 'wait_seconds', 'retry_interval', 'strict_agent_id'],
-  'release-file-lock': ['agent_id', 'run_id', 'target_file', 'file', 'status', 'workspace', 'artifact'],
+  'release-file-lock': ['agent_id', 'run_id', 'lock_id', 'target_file', 'file', 'status', 'workspace', 'artifact'],
   'status': ['workspace', 'artifact', 'limit'],
   'init': [],
   'self-test': [],
@@ -400,8 +400,28 @@ function flagBool(value: ArgValue | undefined, fallback?: boolean): boolean | un
 
 interface EmitOptions { compact?: boolean }
 
+// Set once command routing resolves (see selectCommand call at the bottom);
+// lets every error path — flag parsing, domain validation, thrown domain
+// errors — carry the same {command,schema,example} recovery context instead
+// of a bare {error}. Empty until routing runs (e.g. --db parse errors).
+let activeCommand = '';
+
+function errorContext(): Record<string, unknown> {
+  const context: Record<string, unknown> = {};
+  const display = COMMAND_DISPLAY[activeCommand];
+  if (display) context['command'] = display;
+  const schema = COMMAND_TO_SCHEMA[activeCommand];
+  if (schema) context['schema'] = `octocode-awareness schema json-schema ${schema} --compact`;
+  const example = COMMAND_EXAMPLE[activeCommand];
+  if (example) context['example'] = example;
+  return context;
+}
+
 function emit(payload: Record<string, unknown>, exitCode = 0, opts: EmitOptions = {}): number {
   payload['ok'] = payload['ok'] ?? (exitCode === 0);
+  if (exitCode !== 0 && typeof payload['error'] === 'string' && payload['command'] === undefined) {
+    Object.assign(payload, { ...errorContext(), ...payload });
+  }
   const compact = opts.compact === true || process.env['OCTOCODE_AWARENESS_COMPACT'] === '1';
   process.stdout.write((compact ? JSON.stringify(payload) : JSON.stringify(payload, null, 2)) + '\n');
   return exitCode;
@@ -409,7 +429,7 @@ function emit(payload: Record<string, unknown>, exitCode = 0, opts: EmitOptions 
 
 function die(message: string, extras: Record<string, unknown> = {}): never {
   const compact = process.argv.includes('--compact') || process.env['OCTOCODE_AWARENESS_COMPACT'] === '1';
-  process.stdout.write(JSON.stringify({ ok: false, error: message, ...extras }, null, compact ? 0 : 2) + '\n');
+  process.stdout.write(JSON.stringify({ ok: false, error: message, ...errorContext(), ...extras }, null, compact ? 0 : 2) + '\n');
   process.exit(1);
 }
 
@@ -891,9 +911,26 @@ function cmdReleaseFileLock(db: DatabaseSync, args: ParsedArgs, dbPath: string, 
     ? (Array.isArray(rawTarget) ? rawTarget : [String(rawTarget)])
     : [];
 
-  const runId = firstValue(args, 'run_id');
+  let runId = firstValue(args, 'run_id');
+
+  // lock acquire surfaces lock_id on each lock row, so accept it here too and
+  // resolve it to the run+file pair the release engine actually keys on.
+  const lockId = firstValue(args, 'lock_id');
+  if (lockId) {
+    const lock = db.prepare('SELECT run_id, file_path FROM locks WHERE lock_id = ?')
+      .get(lockId) as { run_id: string; file_path: string } | undefined;
+    if (!lock) {
+      return emit({ error: `lock not found: ${lockId} (it may already be released)` }, 1, opts);
+    }
+    if (runId && runId !== lock.run_id) {
+      return emit({ error: `--lock-id ${lockId} belongs to run ${lock.run_id}, not --run-id ${runId}` }, 1, opts);
+    }
+    runId = lock.run_id;
+    if (!targetFiles.includes(lock.file_path)) targetFiles.push(lock.file_path);
+  }
+
   if (!runId && targetFiles.length === 0) {
-    return emit({ error: 'lock release requires --run-id or --target-file' }, 1, opts);
+    return emit({ error: 'lock release requires --run-id, --lock-id, or --target-file' }, 1, opts);
   }
 
   const status = String(args['status'] ?? 'PENDING').toUpperCase();
@@ -1058,11 +1095,15 @@ function requiredArg(args: ParsedArgs, key: string): string {
 function cmdPlan(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts: EmitOptions): number {
   const action = requiredArg(args, 'action');
   if (action === 'create') {
+    // An explicit --workspace also fixes where the .octocode/plan scaffolding
+    // is written; without it the docs default to the normalized repo root.
+    const explicitWorkspace = args['workspace'] ? String(args['workspace']) : null;
     const result = createPlan(db, {
       name: requiredArg(args, 'name'),
       objective: requiredArg(args, 'objective'),
       leadAgentId: String(args['lead_agent_id'] ?? args['agent_id'] ?? process.env.OCTOCODE_AGENT_ID ?? '').trim(),
-      workspacePath: String(args['workspace'] ?? process.cwd()),
+      workspacePath: explicitWorkspace ?? process.cwd(),
+      docsPath: explicitWorkspace,
       artifact: args['artifact'] ? String(args['artifact']) : null,
     });
     return emit({ db_path: dbPath, ...result }, 0, opts);
@@ -2061,6 +2102,7 @@ if (rawArgv.length === 0 || rawArgv.includes('--help') || rawArgv.includes('-h')
 
 const { dbPath: globalDb, filtered: filteredArgv } = extractGlobalDb(rawArgv);
 const { command, rest } = selectCommand(filteredArgv);
+activeCommand = command ?? '';
 const args = parseArgs(rest ?? []);
 if (globalDb) args['db'] = globalDb;
 
@@ -2277,6 +2319,8 @@ try {
       exitCode = emit({ error: `unknown command: ${command}. Run --help for usage.` }, 1, opts);
   }
 } catch (err) {
+  // Domain errors thrown from src/* land here; emit() attaches the same
+  // {command,schema,example} context that flag-parse errors get from die().
   exitCode = emit({
     error: err instanceof Error ? err.message : String(err),
   }, 1, opts);

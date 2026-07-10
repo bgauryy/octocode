@@ -2,10 +2,10 @@
 
 import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
-import { isAbsolute, join, relative, resolve } from 'node:path';
+import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { normalizeArtifact, utcNow } from './helpers.js';
-import { normalizeWorkspacePath } from './git.js';
+import { canonicalizePath, normalizeWorkspacePath } from './git.js';
 
 export type PlanStatus = 'DRAFT' | 'ACTIVE' | 'PAUSED' | 'COMPLETED' | 'CANCELLED';
 export type PlanMemberRole = 'LEAD' | 'CONTRIBUTOR';
@@ -46,6 +46,15 @@ export interface CreatePlanParams {
   objective: string;
   leadAgentId: string;
   workspacePath: string;
+  /**
+   * Where to write the `.octocode/plan/**` scaffolding. Plan rows are always
+   * scoped to the normalized workspace root so discovery works from any
+   * subdirectory, but the filesystem side-effect must land under the path the
+   * caller actually asked for — an explicit subdir (or isolated scratch dir)
+   * must not silently receive its docs at the shared repo root. Must resolve
+   * inside the workspace root; defaults to the root when omitted.
+   */
+  docsPath?: string | null;
   artifact?: string | null;
 }
 
@@ -104,9 +113,17 @@ export function createPlan(
   const leadAgentId = required(params.leadAgentId, 'lead agent id');
   const workspacePath = normalizeWorkspacePath(params.workspacePath, params.workspacePath)
     ?? resolve(params.workspacePath);
+  const docsRoot = params.docsPath ? canonicalizePath(params.docsPath) : workspacePath;
+  let docBase = '';
+  if (docsRoot !== workspacePath) {
+    docBase = relative(workspacePath, docsRoot);
+    if (!docBase || docBase.startsWith('..') || isAbsolute(docBase)) {
+      throw new Error(`plan docs path must be inside the workspace root ${workspacePath}: ${docsRoot}`);
+    }
+  }
   const now = utcNow();
   const planId = `plan_${randomUUID().replace(/-/g, '')}`;
-  const docDir = `.octocode/plan/${planTimestamp(now)}-${slugify(name)}`;
+  const docDir = `${docBase ? `${docBase.split(sep).join('/')}/` : ''}.octocode/plan/${planTimestamp(now)}-${slugify(name)}`;
   const absoluteDir = join(workspacePath, docDir);
   if (existsSync(absoluteDir)) {
     throw new Error(`plan document directory already exists: ${docDir}`);

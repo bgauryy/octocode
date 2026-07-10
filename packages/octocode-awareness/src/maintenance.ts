@@ -1151,7 +1151,7 @@ export function getWorkspaceStatus(
   });
 
   type LockRow = { file_path: string; agent_id: string; session_id: string | null; workspace_path: string | null; artifact: string | null; run_id: string; lock_type: string; acquired_at: string; expires_at: string | null };
-  const lockWhereParts: string[] = ['fl.expires_at > ?', "ai.status = 'ACTIVE'"];
+  const lockWhereParts: string[] = ['(fl.expires_at IS NULL OR fl.expires_at > ?)', "ai.status = 'ACTIVE'"];
   const lockParams: (string | number)[] = [utcNow()];
   if (wsPath) { lockWhereParts.push('ai.workspace_path = ?'); lockParams.push(wsPath); }
   if (artifact) { lockWhereParts.push('(ai.artifact = ? OR ai.artifact IS NULL)'); lockParams.push(artifact); }

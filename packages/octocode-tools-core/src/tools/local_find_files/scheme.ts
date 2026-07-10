@@ -11,7 +11,10 @@ import {
   describeQuerySchema,
 } from '../../scheme/coreSchemas.js';
 import { bulkOutputEnvelopeFields } from '../../scheme/responseEnvelope.js';
-import { ItemPaginationSchema } from '../../scheme/pagination.js';
+import {
+  LocalItemPaginationSchema,
+  ToolContinuationSchema,
+} from '../../scheme/pagination.js';
 
 const queryOverrides = {
   maxDepth: clampedInt(0, 100).optional(),
@@ -77,6 +80,7 @@ const FindFilesEntrySchema = z.object({
   path: z.string().optional(),
   type: z.enum(['file', 'dir', 'directory', 'link', 'symlink']).optional(),
   size: z.union([z.number(), z.string()]).optional(),
+  sizeFormatted: z.string().optional(),
   modified: z.string().optional(),
   accessed: z.string().optional(),
   created: z.string().optional(),
@@ -84,9 +88,11 @@ const FindFilesEntrySchema = z.object({
 });
 
 const LocalFindFilesDataSchema = z.object({
+  path: z.string().optional(),
   files: z.array(FindFilesEntrySchema).optional(),
   summary: z.string().optional(),
-  pagination: ItemPaginationSchema.optional(),
+  pagination: LocalItemPaginationSchema.optional(),
+  next: z.record(z.string(), ToolContinuationSchema).optional(),
   warnings: z.array(z.string()).optional(),
 });
 

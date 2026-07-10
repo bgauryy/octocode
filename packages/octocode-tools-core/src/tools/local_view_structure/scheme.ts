@@ -15,7 +15,10 @@ import {
   describeQuerySchema,
 } from '../../scheme/coreSchemas.js';
 import { bulkOutputEnvelopeFields } from '../../scheme/responseEnvelope.js';
-import { ItemPaginationSchema } from '../../scheme/pagination.js';
+import {
+  LocalItemPaginationSchema,
+  ToolContinuationSchema,
+} from '../../scheme/pagination.js';
 
 const queryOverrides = {
   maxDepth: clampedInt(0, LOCAL_MAX_DEPTH).optional(),
@@ -50,6 +53,7 @@ const ViewStructureEntrySchema = z.object({
   path: z.string().optional(),
   depth: z.number().optional(),
   size: z.union([z.number(), z.string()]).optional(),
+  sizeBytes: z.number().optional(),
   modified: z.string().optional(),
   permissions: z.string().optional(),
 });
@@ -62,7 +66,8 @@ const LocalViewStructureDataSchema = z.object({
   folders: z.array(z.string()).optional(),
   links: z.array(z.string()).optional(),
   summary: z.union([z.string(), z.record(z.string(), z.unknown())]).optional(),
-  pagination: ItemPaginationSchema.optional(),
+  pagination: LocalItemPaginationSchema.optional(),
+  next: z.record(z.string(), ToolContinuationSchema).optional(),
   warnings: z.array(z.string()).optional(),
 });
 

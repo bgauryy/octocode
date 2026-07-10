@@ -1089,7 +1089,7 @@ function repoProfileRows(db: DatabaseSync, params: AwarenessQueryParams): Awaren
   const lockWhere: string[] = [];
   const lockBinds: BindValue[] = [];
   addExactScope(lockWhere, lockBinds, workspaceArtifactScope(scope), 't');
-  lockWhere.push("t.status = 'ACTIVE'", 'l.expires_at > ?');
+  lockWhere.push("t.status = 'ACTIVE'", '(l.expires_at IS NULL OR l.expires_at > ?)');
   lockBinds.push(utcNow());
 
   const refinementWhere = ["state IN ('open','ongoing')"];
@@ -2115,6 +2115,10 @@ function renderRowsDoc(title: string, rows: AwarenessQueryRow[], description: st
     return String(a['memory_id'] ?? a['plan_id'] ?? a['task_id'] ?? a['run_id'] ?? '')
       .localeCompare(String(b['memory_id'] ?? b['plan_id'] ?? b['task_id'] ?? b['run_id'] ?? ''));
   });
+  const normalizedTotal = Number.isFinite(totalCount)
+    ? Math.max(rows.length, Math.trunc(totalCount))
+    : rows.length;
+  const notSelected = Math.max(0, normalizedTotal - rows.length);
   const lines = [
     `# ${title}`,
     '',
@@ -2122,7 +2126,7 @@ function renderRowsDoc(title: string, rows: AwarenessQueryRow[], description: st
     '',
     description,
     '',
-    `Total: ${totalCount} · Shown: ${rows.length} · Omitted before Markdown budget: ${Math.max(0, totalCount - rows.length)}`,
+    '',
     '',
   ];
   let omitted = 0;
@@ -2138,16 +2142,21 @@ function renderRowsDoc(title: string, rows: AwarenessQueryRow[], description: st
     const missingRefs = Array.isArray(row['missing_references']) ? row['missing_references'] as string[] : [];
     if (missingRefs.length > 0) block.push('', `Missing refs: ${missingRefs.join(', ')}`);
     block.push('', `Source id: \`${id}\``, '');
-    const needsOmittedLine = omitted === 0 && rows.length > 0;
-    const reserve = maxLines ? (needsOmittedLine ? 3 : 1) : 0;
+    const reserve = maxLines && (notSelected > 0 || rows.length > 0) ? 3 : 0;
     if (maxLines && lines.length + block.length + reserve > maxLines) {
       omitted++;
       continue;
     }
     lines.push(...block);
   }
-  if (omitted > 0) {
-    const note = `Omitted by projection cap: ${omitted}. Use CSV/HTML/query views for full rows.`;
+  const shown = rows.length - omitted;
+  const totalOmitted = normalizedTotal - shown;
+  lines[6] = `Total: ${normalizedTotal} · Shown: ${shown} · Omitted: ${totalOmitted}`;
+  if (totalOmitted > 0) {
+    const detail = omitted > 0
+      ? `Omitted by projection cap: ${omitted}. Not selected for Markdown: ${notSelected}.`
+      : `Not selected for Markdown: ${notSelected}.`;
+    const note = `${detail} Use CSV/HTML/query views for full rows.`;
     if (!maxLines || lines.length + 2 <= maxLines) lines.push(note, '');
   }
   return lines.join('\n');

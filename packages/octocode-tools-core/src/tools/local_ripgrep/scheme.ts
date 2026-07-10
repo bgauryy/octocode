@@ -13,7 +13,7 @@ import {
 } from '../../scheme/coreSchemas.js';
 import { bulkOutputEnvelopeFields } from '../../scheme/responseEnvelope.js';
 import {
-  ItemPaginationSchema,
+  LocalItemPaginationSchema,
   ToolContinuationSchema,
 } from '../../scheme/pagination.js';
 
@@ -214,7 +214,16 @@ const SearchFileSchema = z.object({
   totalMatchedLines: z.number().optional(),
   totalMatchRows: z.number().optional(),
   returnedMatchRows: z.number().optional(),
-  matchPagination: ItemPaginationSchema.optional(),
+  ranking: z
+    .object({
+      score: z.number(),
+      profile: z.string().optional(),
+      pathRole: z.string().optional(),
+      reasons: z.array(z.string()).optional(),
+    })
+    .optional(),
+  matchPagination: LocalItemPaginationSchema.optional(),
+  pagination: LocalItemPaginationSchema.optional(),
   next: z.record(z.string(), ToolContinuationSchema).optional(),
 });
 
@@ -222,7 +231,18 @@ const LocalSearchCodeDataSchema = z.object({
   files: z.array(SearchFileSchema).optional(),
   summary: z.string().optional(),
   searchEngine: z.string().optional(),
-  pagination: ItemPaginationSchema.optional(),
+  stats: z
+    .object({
+      totalOccurrences: z.number().optional(),
+      matchedLines: z.number().optional(),
+      filesMatched: z.number().optional(),
+      filesSearched: z.number().optional(),
+      bytesSearched: z.number().optional(),
+      searchTime: z.string().optional(),
+    })
+    .passthrough()
+    .optional(),
+  pagination: LocalItemPaginationSchema.optional(),
   next: z.record(z.string(), ToolContinuationSchema).optional(),
   warnings: z.array(z.string()).optional(),
 });

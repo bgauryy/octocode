@@ -22,6 +22,13 @@ Useful filters:
 
 Use `schema json-schema get_memory` when payload fields matter. CLI flags and schema names can differ, such as `--file` versus stored arrays.
 
+## Automatic Prompt-Time Lead
+
+`format=hook` searches the bounded normal 50-candidate pool, then requires two meaningful
+query-token matches. It emits at most one scoped `Memory lead — verify` or stays silent;
+signals and `OVERRIDE` items remain independent. The prompt is transient: no access-count
+update, memory row, or prompt text in delivery state; Pi clears empty, consumed, and shutdown state.
+
 ## Trust And Recording
 
 A hit is a lead. Current user instructions, source, tests, and fresh command output win. Validate file-backed claims and inspect `missing_references`/`query files` before acting.

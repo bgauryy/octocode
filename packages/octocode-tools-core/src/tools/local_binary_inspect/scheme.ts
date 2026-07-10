@@ -8,7 +8,8 @@ import {
 import { bulkOutputEnvelopeFields } from '../../scheme/responseEnvelope.js';
 import {
   CharPaginationSchema,
-  ItemPaginationSchema,
+  LocalItemPaginationSchema,
+  ToolContinuationSchema,
 } from '../../scheme/pagination.js';
 
 // Override fields that need tighter bounds at the MCP layer. Each carries a
@@ -117,13 +118,26 @@ const BinaryInspectDataSchema = z.object({
   path: z.string(),
   mode: z.literal('inspect'),
   format: z.string().optional(),
+  description: z.string().optional(),
+  magicBytes: z.string().optional(),
+  arch: z.string().optional(),
+  bits: z.number().optional(),
+  endianness: z.string().optional(),
+  stripped: z.boolean().optional(),
+  entry: z.string().optional(),
   size: z.number().optional(),
   isText: z.boolean().optional(),
   encoding: z.string().optional(),
+  symbolCount: z.number().optional(),
+  importCount: z.number().optional(),
+  exportCount: z.number().optional(),
   symbols: z.array(z.string()).optional(),
   imports: z.array(z.string()).optional(),
   exports: z.array(z.string()).optional(),
   sections: z.array(z.string()).optional(),
+  libraries: z.array(z.string()).optional(),
+  detailed: z.boolean().optional(),
+  truncated: z.boolean().optional(),
   warnings: z.array(z.string()).optional(),
 });
 
@@ -139,9 +153,11 @@ const ArchiveEntrySchema = z.object({
 const BinaryListDataSchema = z.object({
   path: z.string(),
   mode: z.literal('list'),
+  backend: z.string().optional(),
+  totalEntries: z.number().optional(),
   entries: z.array(ArchiveEntrySchema).optional(),
-  // Total entry count is in pagination.totalItems — no separate alias here.
-  pagination: ItemPaginationSchema.optional(),
+  pagination: LocalItemPaginationSchema.optional(),
+  next: z.record(z.string(), ToolContinuationSchema).optional(),
   warnings: z.array(z.string()).optional(),
 });
 
@@ -150,6 +166,9 @@ const BinaryContentDataSchema = z.object({
   path: z.string(),
   mode: z.enum(['extract', 'decompress']),
   archiveFile: z.string().optional(),
+  format: z.string().optional(),
+  backend: z.string().optional(),
+  localPath: z.string().optional(),
   content: z.string().optional(),
   isPartial: z.boolean().optional(),
   pagination: CharPaginationSchema.optional(),
@@ -169,7 +188,11 @@ const BinaryStringsDataSchema = z.object({
     )
     .optional(),
   content: z.string().optional(),
+  localPath: z.string().optional(),
   totalStrings: z.number().optional(),
+  totalFound: z.number().optional(),
+  isPartial: z.boolean().optional(),
+  pagination: CharPaginationSchema.optional(),
   scanOffset: z.number().optional(),
   nextScanOffset: z.number().optional(),
   hasMore: z.boolean().optional(),

@@ -378,7 +378,8 @@ export const schemas = {
       objective: nonEmptyText("Plan objective.", 4000).optional(),
       lead_agent_id: agentId.optional(),
       agent_id: agentId.optional(),
-      workspace: workspacePath.optional(),
+      workspace: workspacePath.optional()
+        .describe("Plan scope normalizes to the repo root; on create, the exact path passed also decides where .octocode/plan scaffolding is written."),
       artifact: artifactScope.optional(),
       status: z.enum(["DRAFT", "ACTIVE", "PAUSED", "COMPLETED", "CANCELLED"]).optional(),
       path: z.string().trim().min(1).max(1024).optional(),
@@ -556,6 +557,8 @@ export const schemas = {
     .object({
       agent_id: agentId,
       run_id: z.string().trim().min(1).max(128).optional(),
+      lock_id: z.string().trim().min(1).max(128).optional()
+        .describe("Lock id from lock acquire; resolved to its run and file."),
       workspace: workspacePath.optional(),
       artifact: artifactScope.optional(),
       target_files: z.array(z.string().trim().min(1).max(1024)).max(200).optional(),
@@ -563,8 +566,8 @@ export const schemas = {
         .describe("End editing; use verify mark with a receipt for SUCCESS."),
     })
     .strict()
-    .refine((value) => value.run_id !== undefined || (value.target_files?.length ?? 0) > 0, {
-      message: "run_id or target_files is required.",
+    .refine((value) => value.run_id !== undefined || value.lock_id !== undefined || (value.target_files?.length ?? 0) > 0, {
+      message: "run_id, lock_id, or target_files is required.",
     })
     .describe("Release locks."),
 

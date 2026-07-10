@@ -3781,7 +3781,7 @@ function releaseFileLock(db3, params) {
 // src/plans.ts
 import { randomUUID as randomUUID6 } from "node:crypto";
 import { existsSync as existsSync2, mkdirSync as mkdirSync2, rmSync, writeFileSync } from "node:fs";
-import { isAbsolute as isAbsolute3, join as join4, relative, resolve as resolve7 } from "node:path";
+import { isAbsolute as isAbsolute3, join as join4, relative, resolve as resolve7, sep } from "node:path";
 function required2(value, field) {
   const normalized = value.trim();
   if (!normalized) throw new Error(`${field} is required`);
@@ -3820,9 +3820,17 @@ function createPlan(db3, params) {
   const objective = required2(params.objective, "plan objective");
   const leadAgentId = required2(params.leadAgentId, "lead agent id");
   const workspacePath = normalizeWorkspacePath(params.workspacePath, params.workspacePath) ?? resolve7(params.workspacePath);
+  const docsRoot = params.docsPath ? canonicalizePath(params.docsPath) : workspacePath;
+  let docBase = "";
+  if (docsRoot !== workspacePath) {
+    docBase = relative(workspacePath, docsRoot);
+    if (!docBase || docBase.startsWith("..") || isAbsolute3(docBase)) {
+      throw new Error(`plan docs path must be inside the workspace root ${workspacePath}: ${docsRoot}`);
+    }
+  }
   const now = utcNow();
   const planId = `plan_${randomUUID6().replace(/-/g, "")}`;
-  const docDir = `.octocode/plan/${planTimestamp(now)}-${slugify(name)}`;
+  const docDir = `${docBase ? `${docBase.split(sep).join("/")}/` : ""}.octocode/plan/${planTimestamp(now)}-${slugify(name)}`;
   const absoluteDir = join4(workspacePath, docDir);
   if (existsSync2(absoluteDir)) {
     throw new Error(`plan document directory already exists: ${docDir}`);
@@ -4002,7 +4010,7 @@ function updatePlanStatus(db3, params) {
 
 // src/tasks.ts
 import { randomUUID as randomUUID7 } from "node:crypto";
-import { isAbsolute as isAbsolute4, relative as relative2, resolve as resolve8, sep } from "node:path";
+import { isAbsolute as isAbsolute4, relative as relative2, resolve as resolve8, sep as sep2 } from "node:path";
 var DEFAULT_CLAIM_LEASE_MS = 30 * 6e4;
 var MAX_CLAIM_LEASE_MS = 60 * 6e4;
 function required3(value, field) {
@@ -4017,10 +4025,10 @@ function normalizeTaskPaths(workspacePath, paths) {
     const value = required3(input, "task path");
     const absolute = isAbsolute4(value) ? resolve8(value) : resolve8(root, value);
     const rel = relative2(root, absolute);
-    if (!rel || rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute4(rel)) {
+    if (!rel || rel === ".." || rel.startsWith(`..${sep2}`) || isAbsolute4(rel)) {
       throw new Error(`task path must be workspace-relative and below the workspace: ${input}`);
     }
-    return rel.split(sep).join("/");
+    return rel.split(sep2).join("/");
   });
   return [...new Set(normalized)];
 }
@@ -5935,7 +5943,7 @@ function getWorkspaceStatus(db3, params = {}) {
     repo: params.repo,
     cwd: params.cwd
   });
-  const lockWhereParts = ["fl.expires_at > ?", "ai.status = 'ACTIVE'"];
+  const lockWhereParts = ["(fl.expires_at IS NULL OR fl.expires_at > ?)", "ai.status = 'ACTIVE'"];
   const lockParams = [utcNow()];
   if (wsPath) {
     lockWhereParts.push("ai.workspace_path = ?");
@@ -6513,7 +6521,7 @@ import {
 } from "node:fs";
 import { randomUUID as randomUUID11 } from "node:crypto";
 import { homedir as homedir2 } from "node:os";
-import { dirname as dirname4, isAbsolute as isAbsolute6, join as join5, relative as relative3, resolve as resolve11, sep as sep2 } from "node:path";
+import { dirname as dirname4, isAbsolute as isAbsolute6, join as join5, relative as relative3, resolve as resolve11, sep as sep3 } from "node:path";
 var WRITE_MATCHER = "Write|Edit|MultiEdit|NotebookEdit|apply_patch|ApplyPatch";
 var HOSTS = /* @__PURE__ */ new Set(["claude", "codex", "cursor"]);
 var CONFIG_LOCK_WAIT = new Int32Array(new SharedArrayBuffer(4));
@@ -6641,7 +6649,7 @@ function hookCommand(name, params) {
   if (params.host !== "codex" && params.host !== "cursor" && !params.globalMode) {
     const rel = relative3(params.projectDir, abs);
     if (rel && !rel.startsWith("..") && !isAbsolute6(rel)) {
-      scriptPath = "${CLAUDE_PROJECT_DIR}/" + rel.split(sep2).join("/");
+      scriptPath = "${CLAUDE_PROJECT_DIR}/" + rel.split(sep3).join("/");
     }
   }
   return `OCTOCODE_AGENT_HOST=${params.host} "${scriptPath.replace(/["\\]/g, "\\$&")}"`;
@@ -7889,7 +7897,7 @@ function repoProfileRows(db3, params) {
   const lockWhere = [];
   const lockBinds = [];
   addExactScope(lockWhere, lockBinds, workspaceArtifactScope(scope), "t");
-  lockWhere.push("t.status = 'ACTIVE'", "l.expires_at > ?");
+  lockWhere.push("t.status = 'ACTIVE'", "(l.expires_at IS NULL OR l.expires_at > ?)");
   lockBinds.push(utcNow2());
   const refinementWhere = ["state IN ('open','ongoing')"];
   const refinementBinds = [];
@@ -8827,6 +8835,8 @@ function renderRowsDoc(title, rows, description, maxLines, totalCount = rows.len
     if (imp !== 0) return imp;
     return String(a["memory_id"] ?? a["plan_id"] ?? a["task_id"] ?? a["run_id"] ?? "").localeCompare(String(b["memory_id"] ?? b["plan_id"] ?? b["task_id"] ?? b["run_id"] ?? ""));
   });
+  const normalizedTotal = Number.isFinite(totalCount) ? Math.max(rows.length, Math.trunc(totalCount)) : rows.length;
+  const notSelected = Math.max(0, normalizedTotal - rows.length);
   const lines = [
     `# ${title}`,
     "",
@@ -8834,7 +8844,7 @@ function renderRowsDoc(title, rows, description, maxLines, totalCount = rows.len
     "",
     description,
     "",
-    `Total: ${totalCount} \xB7 Shown: ${rows.length} \xB7 Omitted before Markdown budget: ${Math.max(0, totalCount - rows.length)}`,
+    "",
     ""
   ];
   let omitted = 0;
@@ -8850,16 +8860,19 @@ function renderRowsDoc(title, rows, description, maxLines, totalCount = rows.len
     const missingRefs = Array.isArray(row["missing_references"]) ? row["missing_references"] : [];
     if (missingRefs.length > 0) block.push("", `Missing refs: ${missingRefs.join(", ")}`);
     block.push("", `Source id: \`${id}\``, "");
-    const needsOmittedLine = omitted === 0 && rows.length > 0;
-    const reserve = maxLines ? needsOmittedLine ? 3 : 1 : 0;
+    const reserve = maxLines && (notSelected > 0 || rows.length > 0) ? 3 : 0;
     if (maxLines && lines.length + block.length + reserve > maxLines) {
       omitted++;
       continue;
     }
     lines.push(...block);
   }
-  if (omitted > 0) {
-    const note = `Omitted by projection cap: ${omitted}. Use CSV/HTML/query views for full rows.`;
+  const shown = rows.length - omitted;
+  const totalOmitted = normalizedTotal - shown;
+  lines[6] = `Total: ${normalizedTotal} \xB7 Shown: ${shown} \xB7 Omitted: ${totalOmitted}`;
+  if (totalOmitted > 0) {
+    const detail = omitted > 0 ? `Omitted by projection cap: ${omitted}. Not selected for Markdown: ${notSelected}.` : `Not selected for Markdown: ${notSelected}.`;
+    const note = `${detail} Use CSV/HTML/query views for full rows.`;
     if (!maxLines || lines.length + 2 <= maxLines) lines.push(note, "");
   }
   return lines.join("\n");
@@ -9028,9 +9041,9 @@ function toTable(rows) {
   const keys = keysForRows(rows).slice(0, 10);
   const widths = keys.map((key) => Math.min(40, Math.max(key.length, ...rows.map((row) => cellToString(row[key]).length))));
   const line = keys.map((key, i) => key.padEnd(widths[i] ?? key.length)).join("  ");
-  const sep3 = widths.map((w) => "-".repeat(w)).join("  ");
+  const sep4 = widths.map((w) => "-".repeat(w)).join("  ");
   const body = rows.map((row) => keys.map((key, i) => truncate(cellToString(row[key]), widths[i] ?? 40).padEnd(widths[i] ?? 40)).join("  "));
-  return [line, sep3, ...body].join("\n") + "\n";
+  return [line, sep4, ...body].join("\n") + "\n";
 }
 function toMarkdown(result) {
   const lines = [
@@ -10810,7 +10823,7 @@ var KNOWN_FLAGS = {
   "refine-get": ["workspace", "artifact", "repo", "ref", "quality", "include_handoffs", "state", "limit"],
   "refine-delete": ["refinement_id", "workspace", "artifact", "dry_run"],
   "pre-flight-intent": ["agent_id", "workspace", "artifact", "run_id", "rationale", "test_plan", "context_ref", "target_file", "file", "ttl_minutes", "ttl_seconds", "wait_seconds", "retry_interval", "strict_agent_id"],
-  "release-file-lock": ["agent_id", "run_id", "target_file", "file", "status", "workspace", "artifact"],
+  "release-file-lock": ["agent_id", "run_id", "lock_id", "target_file", "file", "status", "workspace", "artifact"],
   "status": ["workspace", "artifact", "limit"],
   "init": [],
   "self-test": [],
@@ -11018,15 +11031,29 @@ function flagBool(value, fallback) {
   if (normalized === "true" || normalized === "1" || normalized === "yes") return true;
   return Boolean(value);
 }
+var activeCommand = "";
+function errorContext() {
+  const context = {};
+  const display = COMMAND_DISPLAY[activeCommand];
+  if (display) context["command"] = display;
+  const schema = COMMAND_TO_SCHEMA[activeCommand];
+  if (schema) context["schema"] = `octocode-awareness schema json-schema ${schema} --compact`;
+  const example = COMMAND_EXAMPLE[activeCommand];
+  if (example) context["example"] = example;
+  return context;
+}
 function emit(payload, exitCode2 = 0, opts2 = {}) {
   payload["ok"] = payload["ok"] ?? exitCode2 === 0;
+  if (exitCode2 !== 0 && typeof payload["error"] === "string" && payload["command"] === void 0) {
+    Object.assign(payload, { ...errorContext(), ...payload });
+  }
   const compact2 = opts2.compact === true || process.env["OCTOCODE_AWARENESS_COMPACT"] === "1";
   process.stdout.write((compact2 ? JSON.stringify(payload) : JSON.stringify(payload, null, 2)) + "\n");
   return exitCode2;
 }
 function die(message, extras = {}) {
   const compact2 = process.argv.includes("--compact") || process.env["OCTOCODE_AWARENESS_COMPACT"] === "1";
-  process.stdout.write(JSON.stringify({ ok: false, error: message, ...extras }, null, compact2 ? 0 : 2) + "\n");
+  process.stdout.write(JSON.stringify({ ok: false, error: message, ...errorContext(), ...extras }, null, compact2 ? 0 : 2) + "\n");
   process.exit(1);
 }
 function resolveAgentId(args2) {
@@ -11448,9 +11475,21 @@ function cmdVerify(db3, args2, dbPath2, opts2) {
 function cmdReleaseFileLock(db3, args2, dbPath2, opts2) {
   const rawTarget = args2["target_file"] ?? args2["file"];
   const targetFiles = rawTarget ? Array.isArray(rawTarget) ? rawTarget : [String(rawTarget)] : [];
-  const runId = firstValue(args2, "run_id");
+  let runId = firstValue(args2, "run_id");
+  const lockId = firstValue(args2, "lock_id");
+  if (lockId) {
+    const lock = db3.prepare("SELECT run_id, file_path FROM locks WHERE lock_id = ?").get(lockId);
+    if (!lock) {
+      return emit({ error: `lock not found: ${lockId} (it may already be released)` }, 1, opts2);
+    }
+    if (runId && runId !== lock.run_id) {
+      return emit({ error: `--lock-id ${lockId} belongs to run ${lock.run_id}, not --run-id ${runId}` }, 1, opts2);
+    }
+    runId = lock.run_id;
+    if (!targetFiles.includes(lock.file_path)) targetFiles.push(lock.file_path);
+  }
   if (!runId && targetFiles.length === 0) {
-    return emit({ error: "lock release requires --run-id or --target-file" }, 1, opts2);
+    return emit({ error: "lock release requires --run-id, --lock-id, or --target-file" }, 1, opts2);
   }
   const status = String(args2["status"] ?? "PENDING").toUpperCase();
   if (!["PENDING", "FAILED"].includes(status)) {
@@ -11595,11 +11634,13 @@ function requiredArg(args2, key) {
 function cmdPlan(db3, args2, dbPath2, opts2) {
   const action = requiredArg(args2, "action");
   if (action === "create") {
+    const explicitWorkspace = args2["workspace"] ? String(args2["workspace"]) : null;
     const result = createPlan(db3, {
       name: requiredArg(args2, "name"),
       objective: requiredArg(args2, "objective"),
       leadAgentId: String(args2["lead_agent_id"] ?? args2["agent_id"] ?? process.env.OCTOCODE_AGENT_ID ?? "").trim(),
-      workspacePath: String(args2["workspace"] ?? process.cwd()),
+      workspacePath: explicitWorkspace ?? process.cwd(),
+      docsPath: explicitWorkspace,
       artifact: args2["artifact"] ? String(args2["artifact"]) : null
     });
     return emit({ db_path: dbPath2, ...result }, 0, opts2);
@@ -12542,6 +12583,7 @@ if (rawArgv.length === 0 || rawArgv.includes("--help") || rawArgv.includes("-h")
 }
 var { dbPath: globalDb, filtered: filteredArgv } = extractGlobalDb(rawArgv);
 var { command, rest } = selectCommand(filteredArgv);
+activeCommand = command ?? "";
 var args = parseArgs(rest ?? []);
 if (globalDb) args["db"] = globalDb;
 if (command && KNOWN_FLAGS[command]) {

@@ -16,6 +16,7 @@ import { bulkOutputEnvelopeFields } from '../../scheme/responseEnvelope.js';
 import {
   CharPaginationSchema,
   ItemPaginationSchema,
+  ToolContinuationSchema,
 } from '../../scheme/pagination.js';
 
 const minifyField = z
@@ -72,12 +73,21 @@ const LocalGetFileContentDataSchema = z.object({
   isSkeleton: z.boolean().optional(),
   totalLines: z.number().optional(),
   sourceChars: z.number().optional(),
+  sourceBytes: z.number().optional(),
   startLine: z.number().optional(),
   endLine: z.number().optional(),
   isPartial: z.boolean().optional(),
   matchRanges: z.array(FileContentMatchRangeSchema).optional(),
   // Char pagination for content windows
-  pagination: z.union([CharPaginationSchema, ItemPaginationSchema]).optional(),
+  pagination: z
+    .union([
+      CharPaginationSchema.extend({
+        nextBlockChar: z.number().optional(),
+      }),
+      ItemPaginationSchema,
+    ])
+    .optional(),
+  next: z.record(z.string(), ToolContinuationSchema).optional(),
   modified: z.string().optional(),
   lastModified: z.string().optional(),
   lastModifiedBy: z.string().optional(),

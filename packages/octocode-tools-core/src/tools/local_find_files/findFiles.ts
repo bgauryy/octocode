@@ -18,6 +18,7 @@ import { TOOL_NAMES } from '../toolMetadata/proxies.js';
 import { LOCAL_DEFAULT_FILES_PER_PAGE, LOCAL_MAX_LIMIT } from '../../config.js';
 
 import { attachRawResponseChars } from '../../utils/response/charSavings.js';
+import { buildNextPageContinuation } from '../../scheme/pagination.js';
 
 type FindFilesQuery = WithOptionalMeta<UpstreamFindFilesQuery>;
 
@@ -131,6 +132,7 @@ export async function findFiles(
     ];
     const allWarnings = [...timeFormatWarnings, ...nativeWarnings];
 
+    const hasMore = currentPage < totalPages;
     const fullResult: LocalFindFilesToolResult = {
       ...(totalFiles === 0 ? { status: 'empty' as const } : {}),
       path: queryWithSanitizedPath.path,
@@ -140,12 +142,26 @@ export async function findFiles(
         totalPages,
         filesPerPage,
         totalFiles,
-        hasMore: currentPage < totalPages,
-        ...(currentPage < totalPages ? { nextPage: currentPage + 1 } : {}),
+        hasMore,
+        ...(hasMore ? { nextPage: currentPage + 1 } : {}),
         ...(wasFileCapped || discoveredFileCount > totalFiles
           ? { totalFilesFound: discoveredFileCount }
           : {}),
       },
+      ...(hasMore
+        ? {
+            next: {
+              nextPage: buildNextPageContinuation(
+                TOOL_NAMES.LOCAL_FIND_FILES,
+                {
+                  ...queryWithSanitizedPath,
+                  page: currentPage + 1,
+                } as Record<string, unknown>,
+                'Continue to the next page of matched files.'
+              ),
+            },
+          }
+        : {}),
       ...(allWarnings.length > 0 && { warnings: allWarnings }),
     };
 

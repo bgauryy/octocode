@@ -116,6 +116,13 @@ copied from either source.
   [code repository](https://github.com/yifannnwu/proactive-memory-agent) contained no
   implementation files when evaluated on 2026-07-10, limiting independent
   reproduction of the reported mechanism.
+- **Implemented invariant (local evidence):** `maintenance.test.ts`, `pi-hooks.test.ts`,
+  `extract-hook-files.test.ts`, and the Pi factory contract freeze the deterministic
+  selector and delivery lifecycle. In validation on 2026-07-10, the frozen adversarial
+  matrix moved from 2/5 to 5/5; Awareness passed 775/775 tests and Pi passed 214 with 2
+  skipped. Local checks also held one memory lead, prompt non-persistence, five UTF-8
+  items within 1 KiB, and SQLite `user_version=1`. Strict config health passed, but it
+  does not prove host runtime execution or trust.
 - **Adjacent prior art:** [Reflexion](https://arxiv.org/abs/2303.11366) and
   [Self-Refine](https://arxiv.org/abs/2303.17651) show that linguistic feedback can
   improve later attempts. Awareness stores only verified, reusable synthesis and

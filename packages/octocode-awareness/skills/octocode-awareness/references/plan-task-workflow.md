@@ -18,7 +18,7 @@ memory, or refinements. Inspect attend/Ready/Claimed/Verify; claim a matching ta
 
 Tasks require reasoning, acceptance, and 1+ paths; `--depends-on task_...` orders them.
 New plans are ACTIVE. PAUSED retains work but blocks claims. Complete/cancel only after active runs resolve. SQLite owns task state; plan prose lives under
-`.octocode/plan/<timestamp-name>/` and never duplicates a mutable checklist.
+`.octocode/plan/<timestamp-name>/` under the exact `--workspace` you pass (repo root when omitted; the plan row always scopes to the repo root for discovery) and never duplicates a mutable checklist.
 
 ## Agent: execute plan task
 

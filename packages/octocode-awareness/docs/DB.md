@@ -46,7 +46,9 @@ erDiagram
 `plans` stores name, objective, lead, status, workspace/artifact scope, managed
 `doc_dir`, and timestamps. Status is `DRAFT|ACTIVE|PAUSED|COMPLETED|CANCELLED`.
 The lead is also the first `plan_members` row. `plan_docs` registers `PLAN.md` and
-supporting files inside `.octocode/plan/<timestamp-name>/`.
+supporting files inside `.octocode/plan/<timestamp-name>/`, created under the exact
+workspace path passed to `plan create` (the repo root when none is passed); the plan
+row itself is always scoped to the normalized repo root.
 
 `tasks` stores the single durable work queue: plan, title, required reasoning,
 acceptance criteria, priority, creator, timestamps, and status

@@ -747,4 +747,29 @@ mod tests {
         assert_eq!(result.entries[0].entry_type, "directory");
         fs::remove_dir_all(root).expect("cleanup");
     }
+
+    #[test]
+    fn path_pattern_filters_monorepo_layout() {
+        let root = temp_root("path_pattern");
+        fs::create_dir_all(root.join("packages/a/src/tools")).expect("create a");
+        fs::create_dir_all(root.join("packages/b/src")).expect("create b");
+        fs::create_dir_all(root.join("other/src/tools")).expect("create other");
+        File::create(root.join("packages/a/src/tools/scheme.ts")).expect("a scheme");
+        File::create(root.join("packages/b/src/main.ts")).expect("b main");
+        File::create(root.join("other/src/tools/skip.ts")).expect("other skip");
+
+        let result = query_file_system_inner(FileSystemQueryOptions {
+            path: root.to_string_lossy().to_string(),
+            path_pattern: Some("packages/*/src/tools/**".to_owned()),
+            entry_type: Some("f".to_owned()),
+            recursive: Some(true),
+            ..Default::default()
+        })
+        .expect("query pathPattern");
+
+        assert_eq!(result.entries.len(), 1);
+        assert_eq!(result.entries[0].name, "scheme.ts");
+        assert!(result.entries[0].path.contains("packages/a/src/tools/scheme.ts"));
+        fs::remove_dir_all(root).expect("cleanup");
+    }
 }

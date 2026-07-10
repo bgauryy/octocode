@@ -18,6 +18,7 @@ import {
 } from './archiveOps.js';
 import { decompressFile } from './decompressOps.js';
 import { inspectBinaryFile, extractStrings } from './binaryOps.js';
+import { buildNextPageContinuation } from '../../scheme/pagination.js';
 
 const TOOL_NAME = TOOL_NAMES.LOCAL_BINARY_INSPECT;
 
@@ -237,8 +238,25 @@ async function handleList(path: string, query: BinaryInspectQuery) {
         totalPages,
         hasMore,
         entriesPerPage: perPage,
+        ...(hasMore ? { nextPage: page + 1 } : {}),
       },
     }),
+    ...(hasMore
+      ? {
+          next: {
+            nextPage: buildNextPageContinuation(
+              TOOL_NAME,
+              {
+                ...query,
+                path,
+                mode: 'list',
+                entryPageNumber: page + 1,
+              } as Record<string, unknown>,
+              'Continue to the next page of archive entries.'
+            ),
+          },
+        }
+      : {}),
   };
 }
 

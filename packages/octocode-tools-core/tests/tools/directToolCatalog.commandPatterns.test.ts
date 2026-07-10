@@ -21,17 +21,18 @@ describe('direct-tool command patterns', () => {
     expect(patterns[0]).toMatchObject({
       label: 'text search',
       query: {
-        path: '.',
-        keywords: 'runCLI',
+        path: 'packages/octocode-tools-core/src',
+        keywords: 'buildDirectToolCommandPatterns',
+        maxFiles: 20,
       },
     });
     expect(patterns[0]?.command).toBe(
-      'tools localSearchCode --queries \'{"path":".","keywords":"runCLI"}\''
+      'tools localSearchCode --queries \'{"path":"packages/octocode-tools-core/src","keywords":"buildDirectToolCommandPatterns","maxFiles":20}\''
     );
     expect(patterns[1]).toMatchObject({
-        label: 'structural code search',
-        query: {
-          path: 'src',
+      label: 'structural code search',
+      query: {
+        path: 'packages/octocode-tools-core/src/tools',
         mode: 'structural',
         pattern: 'eval($X)',
       },
@@ -39,9 +40,28 @@ describe('direct-tool command patterns', () => {
     expect(
       buildDirectToolExampleQuery(STATIC_TOOL_NAMES.LOCAL_RIPGREP)
     ).toEqual({
-      path: '.',
-      keywords: 'runCLI',
+      path: 'packages/octocode-tools-core/src',
+      keywords: 'buildDirectToolCommandPatterns',
+      maxFiles: 20,
     });
+  });
+
+  it('curates localViewStructure examples without schema placeholders', () => {
+    const patterns = buildDirectToolCommandPatterns(
+      STATIC_TOOL_NAMES.LOCAL_VIEW_STRUCTURE
+    );
+
+    expect(patterns.map(pattern => pattern.label)).toEqual([
+      'shallow tree',
+      'files only at depth 1',
+    ]);
+    expect(patterns[0]?.query).toEqual({
+      path: 'packages/octocode-tools-core/src/tools',
+      maxDepth: 2,
+      itemsPerPage: 50,
+    });
+    expect(JSON.stringify(patterns[0]?.query)).not.toContain('"pattern"');
+    expect(JSON.stringify(patterns[0]?.query)).not.toContain('"extensions"');
   });
 
   it('uses curated path/content patterns for GitHub code search', () => {
@@ -86,13 +106,13 @@ describe('direct-tool command patterns', () => {
         'symbol outline',
       ]);
     expect(patterns[0]?.query).toMatchObject({
-      uri: '/path/to/file.ts',
+      uri: '/absolute/path/to/file.ts',
       type: 'definition',
       symbolName: 'myFunction',
       lineHint: 42,
     });
     expect(patterns[1]?.query).toEqual({
-      uri: '/path/to/file.ts',
+      uri: '/absolute/path/to/file.ts',
       type: 'documentSymbols',
       });
     });

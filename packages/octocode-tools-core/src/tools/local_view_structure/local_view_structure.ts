@@ -24,6 +24,7 @@ import {
   contextUtils,
   type FileSystemEntry,
 } from '../../utils/contextUtils.js';
+import { buildNextPageContinuation } from '../../scheme/pagination.js';
 
 type ViewStructureQuery = WithOptionalMeta<LocalViewStructureQuery>;
 
@@ -172,6 +173,20 @@ function viewStructureNative(
         summary,
         ...(pagination.hasMore || pagination.totalPages > 1
           ? { pagination }
+          : {}),
+        ...(pagination.hasMore
+          ? {
+              next: {
+                nextPage: buildNextPageContinuation(
+                  TOOL_NAMES.LOCAL_VIEW_STRUCTURE,
+                  {
+                    ...query,
+                    page: pagination.currentPage + 1,
+                  } as Record<string, unknown>,
+                  'Continue to the next page of directory entries.'
+                ),
+              },
+            }
           : {}),
         ...(warnings.length > 0 && { warnings }),
       },
