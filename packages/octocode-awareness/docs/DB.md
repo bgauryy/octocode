@@ -2,6 +2,7 @@
 
 Canonical store: `~/.octocode/memory/awareness.sqlite3`, or
 `$OCTOCODE_MEMORY_HOME/awareness.sqlite3`. Foreign keys are always enabled.
+The runtime requires Node.js 22.13.0 or newer (`node:sqlite` without a flag).
 Awareness uses WAL only when the embedded SQLite contains the concurrent reset-race
 fix (3.44.6, 3.50.7, 3.51.3, or a newer fixed release); affected versions use
 rollback journaling instead. Current production schema version is 3. Source:
@@ -9,6 +10,9 @@ rollback journaling instead. Current production schema version is 3. Source:
 
 `<workspace>/.octocode/` is not the database. It contains generated projections and
 authored plan documents.
+
+The runtime/version rationale and primary SQLite/Node sources are mapped in
+[REFERENCES.md](REFERENCES.md).
 
 ## Collaboration Graph
 

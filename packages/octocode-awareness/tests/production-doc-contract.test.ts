@@ -138,4 +138,38 @@ describe('production guidance contract', () => {
     expect(reflection).not.toContain('--outcome worked|partial|failed');
     expect(navigation).toContain('`omitted_peer_count`');
   });
+
+  it('documents evidence, truthful compact routing, and safe read/write boundaries', () => {
+    const readme = read(resolve(PACKAGE_ROOT, 'README.md'));
+    const docsIndex = read(resolve(PACKAGE_ROOT, 'docs/README.md'));
+    const references = read(resolve(PACKAGE_ROOT, 'docs/REFERENCES.md'));
+    const navigation = read(resolve(PACKAGE_ROOT, 'docs/MEMORY_NAVIGATION.md'));
+    const wiki = read(resolve(PACKAGE_ROOT, 'docs/WIKI.md'));
+    const guide = read(resolve(PACKAGE_ROOT, 'docs/SKILLS.md'));
+    const skill = read(resolve(SKILL_ROOT, 'SKILL.md'));
+    const skillReadme = read(resolve(SKILL_ROOT, 'README.md'));
+
+    expect(readme).toContain('docs/REFERENCES.md');
+    expect(docsIndex).toContain('REFERENCES.md');
+    expect(references).toMatch(/implemented invariant/i);
+    expect(references).toMatch(/adjacent prior art/i);
+    expect(references).toMatch(/follow-on hypothesis/i);
+    expect(wiki).toContain('## Read And Write Map');
+    expect(wiki).toMatch(/access metadata|expiry cleanup/i);
+    expect(navigation).toMatch(/limit applies per lane/i);
+    expect(navigation).toMatch(/minifies JSON/i);
+    expect(guide).not.toMatch(/verify audit[^\n]*--all-pending/i);
+    expect(skill).not.toMatch(/before start, read `references\/agent-cheatsheet\.md`/i);
+    expect(skillReadme).not.toContain('`--name octocode-awareness`');
+  });
+
+  it('keeps the always-loaded skill lobby byte-bounded and finish work conditional', () => {
+    const skill = read(resolve(SKILL_ROOT, 'SKILL.md'));
+    const finish = read(resolve(SKILL_ROOT, 'references/agent-cheatsheet-finish.md'));
+    expect(Buffer.byteLength(skill, 'utf8')).toBeLessThanOrEqual(6 * 1024);
+    expect(finish).toContain('Always');
+    expect(finish).toContain('Only when');
+    expect(finish).toContain('verify audit');
+    expect(finish).not.toMatch(/query all[^\n]*repo inject/is);
+  });
 });

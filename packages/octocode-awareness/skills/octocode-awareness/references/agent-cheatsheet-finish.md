@@ -1,48 +1,41 @@
-# Agent Cheat Sheet — Finish & Handoffs
+# Agent Cheat Sheet — Finish And Handoffs
 
-Core loop: `references/agent-cheatsheet.md`. Agents/skills/search: `references/agent-cheatsheet-tooling.md`.
+Core loop: `references/agent-cheatsheet.md`. Run only the branch that has work.
 
-## Finish / hygiene
+## Always
+
+After the declared check and `task submit` or `work end`, record the result and
+confirm this agent has no remaining debt:
 
 ```bash
-<cli> reflect record --agent-id "$OCTOCODE_AGENT_ID" --workspace "$PWD" \
-  --task "<task>" --outcome worked|partial|failed --lesson "<reusable>" --compact
-# route feedback by target: --fix-repo <code>, --fix-harness <tooling>,
-# --fix-instructions <what the AGENTS.md/SKILL/brief should have said>
-<cli> reflect developer-review --workspace "$PWD" --format markdown --compact  # → DEVELOPER_REVIEW.md after inject
-<cli> session capture --agent-id "$OCTOCODE_AGENT_ID" --workspace "$PWD" --compact
-<cli> maintenance digest --workspace "$PWD" --dry-run --compact
-<cli> query files --workspace "$PWD" --format table --limit 50  # stale/missing refs
-<cli> query all --workspace "$PWD" --format html --out .octocode/awareness/index.html
-<cli> repo inject --workspace "$PWD" --compact   # refresh .octocode/{AGENTS,GOTCHAS,LEARN,MEMORY,BOOKMARKS,DEVELOPER_REVIEW}.md
-# then: if root AGENTS.md has no .octocode pointer, append the short block from
-# references/repo-context-management.md (do not rewrite the whole file)
+<cli> verify mark --run-id <run> --agent-id "$OCTOCODE_AGENT_ID" --message "<check result>" --compact
+<cli> verify audit --workspace "$PWD" --agent-id "$OCTOCODE_AGENT_ID" --compact
 ```
 
-Wiki map (leads only): `.octocode/AGENTS.md` entry · `GOTCHAS.md` traps · `LEARN.md` lessons ·
-`MEMORY.md` index · `BOOKMARKS.md` resources · `DEVELOPER_REVIEW.md` instruction feedback.
-Create via DB (`memory record` / `reflect record`); label→file map in `learning-loop.md`;
-publish with `repo inject` when file readers need refresh; never hand-edit.
+## Only when
+
+| Condition | Action |
+|---|---|
+| Verified outcome is reusable | `reflect record --outcome worked\|partial\|failed --lesson <lesson>`; route remaining work with `--fix-repo`, `--fix-harness`, or `--fix-instructions`. |
+| Work remains for another run | Publish a handoff signal, update the owning refinement, or run `session capture`. |
+| Workboard reports cleanup pressure | Run `maintenance digest --dry-run`; inspect IDs before prune/forget. |
+| File references may be stale | Run `query files --format table --limit 50`; repair/supersede the owning rows. |
+| File readers need refreshed context | Run `repo inject --workspace "$PWD" --mode local --compact`; never hand-edit generated wiki files. |
+| A human needs bulk inspection | Run `query all --format html --out .octocode/awareness/index.html`. |
+| Instructions caused a wrong turn | Run `reflect developer-review`; close the same feedback row after the instruction fix is verified. |
+
+Wiki map after inject: `AGENTS.md` entry · `GOTCHAS.md` traps · `LEARN.md` lessons ·
+`MEMORY.md` index · `BOOKMARKS.md` resources · `DEVELOPER_REVIEW.md` instruction
+feedback. SQLite is canonical; `references/repo-context-management.md` owns root
+pointer permissions and publication details.
 
 ## Hard ideas
 
-```bash
-<cli> attend --workspace "$PWD" --query "<idea or risk>" --compact
-# then read references/self-reflection-dialogue.md and run a bounded two-role pass
-<cli> reflect record ... --duo --compact   # advisory supporter/skeptic prompts only
-```
+For a risky judgment, run `attend --query <risk>`, then load
+`references/self-reflection-dialogue.md`; use `references/subagent-rubber-duck.md`
+only when independent inspection adds value. Agreement is not verification.
 
 ## Handoffs
 
-```bash
-<cli> refinement get --workspace "$PWD" --state open --compact
-# handoff_count > 0 means session handoffs exist; list them with:
-<cli> refinement get --workspace "$PWD" --state open --include-handoffs --compact
-```
-
-## Rules of thumb
-
-- SQLite is canonical; `.octocode/` markdown is a projection/lead.
-- Memories and signals are leads — verify against files/tests before acting.
-- Prefer `signal` vocabulary in docs/CLI; internal `notification*` names are aliases.
-- Do not invent unshipped commands (`sleep`, dedicated trust gate) — see `homeostatic-loop.md`.
+`refinement get --state open` returns coding rows. Add `--include-handoffs` only
+when resuming session handoffs. Close the same row after applying and verifying it.

@@ -40,9 +40,10 @@ Ordinary peers are allowed. Use `work show --file <path>` when overlap matters.
 Sensitive work adds `--exclusive`; exit `2` means wait/signal/switch, never bypass.
 
 ## Token Discipline
-
-Keep `--compact`; use workboard/signal limits 5–10; request bodies/full rows only
-when acting. Recall/docs list are lean by default. Use CSV/HTML for bulk data.
+Use compact `attend` for the next action. `--compact` minifies all JSON but does not
+make every generic query lean; workboard limits apply per lane. Prefer targeted
+`verify audit`, `signal list`, or `work show`; use CSV/HTML for bulk data. Recall and
+docs list are lean by default. Request bodies/full rows only when acting.
 
 Finish/handoff: `agent-cheatsheet-finish.md`. Agents/skills/search:
 `agent-cheatsheet-tooling.md`. File decisions: `files-awareness.md`.

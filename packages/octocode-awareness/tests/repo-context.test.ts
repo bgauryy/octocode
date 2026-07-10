@@ -208,6 +208,9 @@ describe('repo context query and projections', () => {
     const dir = mkdtempSync(join(tmpdir(), 'oc-attend-'));
     try {
       const { db, file } = seededDb(dir);
+      const accessBefore = db.prepare(
+        'SELECT COALESCE(SUM(access_count), 0) AS count FROM memories'
+      ).get() as { count: number };
       const result = attendAwareness(db, {
         agentId: 'agent-a',
         workspacePath: dir,
@@ -231,6 +234,10 @@ describe('repo context query and projections', () => {
       expect(result).not.toHaveProperty('verification_targets');
       expect(JSON.stringify(result)).not.toContain('raw_ids');
       expect(Buffer.byteLength(JSON.stringify(result), 'utf8')).toBeLessThan(2 * 1024);
+      const accessAfter = db.prepare(
+        'SELECT COALESCE(SUM(access_count), 0) AS count FROM memories'
+      ).get() as { count: number };
+      expect(accessAfter.count).toBe(accessBefore.count);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -379,7 +386,7 @@ describe('repo context query and projections', () => {
   it('writes HTML views and generated wiki files from the DB projection', () => {
     const dir = mkdtempSync(join(tmpdir(), 'oc-repo-inject-'));
     try {
-      const { db } = seededDb(dir);
+      const { db, file } = seededDb(dir);
       const view = writeAwarenessView(db, {
         workspacePath: dir,
         artifact: 'svc',
@@ -401,12 +408,20 @@ describe('repo context query and projections', () => {
       expect(injected.ok).toBe(true);
       expect(injected.files.some(file => file.endsWith('AGENTS.md'))).toBe(true);
       expect(readFileSync(join(dir, '.octocode', 'GOTCHAS.md'), 'utf8')).toContain('Token migration order matters');
+      expect(readFileSync(join(dir, '.octocode', 'MEMORY.md'), 'utf8')).toContain('Total: 2 · Shown: 2');
       expect(readFileSync(join(dir, '.octocode', 'BOOKMARKS.md'), 'utf8')).toContain('https://example.com/auth-guide');
       expect(readFileSync(join(dir, '.octocode', 'BOOKMARKS.md'), 'utf8')).toContain('repo:bgauryy/octocode-mcp');
       const agentsMd = readFileSync(join(dir, '.octocode', 'AGENTS.md'), 'utf8');
       expect(agentsMd).toContain('Octocode Awareness Map');
       expect(agentsMd).toContain('Projection Health');
       expect(agentsMd).toContain('Root `AGENTS.md` should point here');
+      expect(agentsMd).not.toContain('append a root `AGENTS.md`');
+      expect(agentsMd).not.toContain('Read GOTCHAS + LEARN');
+      expect(agentsMd).not.toContain('## Files Under Work');
+      expect(agentsMd).not.toContain('## Active Exclusive Locks');
+      expect(agentsMd).toContain('memory recall');
+      expect(agentsMd).toMatch(/ask before editing root `AGENTS\.md`/i);
+      expect(readFileSync(join(dir, '.octocode', 'references', 'repo-map.md'), 'utf8')).not.toContain(file);
       const manifest = JSON.parse(readFileSync(join(dir, '.octocode', 'awareness', 'manifest.json'), 'utf8')) as {
         schema_version: number;
         files: string[];

@@ -29,8 +29,9 @@ TASK work uses `task submit`/`task release`; terminal `work end` is rejected. Su
 `verify mark` closes the run and linked task. Failure closes them as failed.
 
 Automatic HOOK fallback becomes PENDING after post-edit. Stop output caps debt; Pi
-may remind instead of block. Scope `--all-pending` by workspace. `verify audit
---abandon` is only for real abandonment.
+may remind instead of block. `verify audit` lists debt. If deliberately using
+`verify mark --all-pending`, scope it by workspace. `verify audit --abandon` is only
+for real abandonment.
 
 Presence/lock expiry never moves a live TASK run to PENDING. Task claim expiry is a
 separate atomic lifecycle that fails its attempt and returns the task to OPEN.

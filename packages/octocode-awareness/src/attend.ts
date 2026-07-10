@@ -1,5 +1,5 @@
 /**
- * attend.ts - read-only agent start packet over awareness state.
+ * attend.ts - bounded agent start packet over awareness state.
  */
 
 import { existsSync, readFileSync, statSync } from 'node:fs';
@@ -349,6 +349,7 @@ export function attendAwareness(db: DatabaseSync, params: AttendParams = {}): At
       ref: params.ref ?? null,
       files,
       explain: true,
+      recordAccess: false,
       cwd,
     })
     : { count: 0, memories: [], mode: 'lexical' as const, sort: 'smart', as_of: null, global_only: false, states: ['ACTIVE'] };

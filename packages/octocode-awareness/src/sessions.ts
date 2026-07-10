@@ -1,6 +1,6 @@
 /**
  * sessions.ts — Session CRUD operations against the sessions table.
- * Requires Node >=22 (node:sqlite built-in).
+ * Requires Node >=22.13.0 (unflagged node:sqlite built-in).
  */
 
 import { DatabaseSync } from 'node:sqlite';

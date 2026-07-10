@@ -18,7 +18,8 @@ generated projections, never a second task database. There is no server or daemo
 
 ## Install
 
-Requires Node 22 or newer with `node:sqlite`.
+Requires Node 22.13.0 or newer. This is the first Node 22 release where
+`node:sqlite` is available without an experimental flag.
 
 ```bash
 npm install --global @octocodeai/octocode-awareness
@@ -115,8 +116,6 @@ octocode-awareness plan doc --plan-id plan_123 --agent-id "$OCTOCODE_AGENT_ID" \
 octocode-awareness task create --plan-id plan_123 --agent-id "$OCTOCODE_AGENT_ID" \
   --title "Reject malformed escapes" --reasoning "Avoid ambiguous tokenization" \
   --acceptance "parser tests cover malformed escapes" --path src/parser.ts --compact
-octocode-awareness plan status --plan-id plan_123 --agent-id "$OCTOCODE_AGENT_ID" \
-  --status ACTIVE --compact
 ```
 
 Agents choose dependency-ready work and retain the returned `run_id`:
@@ -124,17 +123,33 @@ Agents choose dependency-ready work and retain the returned `run_id`:
 ```bash
 octocode-awareness task ready --plan-id plan_123 --compact
 octocode-awareness task claim --task-id task_123 --agent-id "$OCTOCODE_AGENT_ID" --compact
+octocode-awareness task heartbeat --task-id task_123 --run-id run_123 \
+  --agent-id "$OCTOCODE_AGENT_ID" --compact  # for long attempts
 octocode-awareness work start --run-id run_123 --agent-id "$OCTOCODE_AGENT_ID" \
   --workspace "$PWD" --file src/parser.ts --compact
 # edit and verify
 octocode-awareness task submit --task-id task_123 --run-id run_123 \
-  --agent-id "$OCTOCODE_AGENT_ID" --message "parser tests passed" --compact
+  --agent-id "$OCTOCODE_AGENT_ID" --message "ready for verification" --compact
 octocode-awareness verify mark --run-id run_123 --agent-id "$OCTOCODE_AGENT_ID" \
   --message "parser tests passed" --compact
 ```
 
 Plan status governs readiness: only ACTIVE plans expose new claims. Pause before
 replanning; do not complete/cancel while agents still own active runs.
+
+## Close the loop
+
+Always inspect your remaining verification debt:
+
+```bash
+octocode-awareness verify audit --workspace "$PWD" \
+  --agent-id "$OCTOCODE_AGENT_ID" --compact
+```
+
+Only record reflection or memory when the outcome is reusable. Run cleanup as a
+dry-run when the workboard reports pressure, and run `repo inject` only when
+file-based readers need a refreshed wiki. See [docs/SKILLS.md](docs/SKILLS.md) for
+the conditional closeout recipes.
 
 ## Hooks
 
@@ -173,6 +188,7 @@ octocode-awareness repo inject --workspace "$PWD" --mode local --compact
 
 ## Documentation
 
+- [docs/README.md](docs/README.md) — concept-owner index
 - [docs/SKILLS.md](docs/SKILLS.md) — installation and agent workflow
 - [docs/HOW_IT_WORKS.md](docs/HOW_IT_WORKS.md) — package/skill/hook architecture
 - [docs/DB.md](docs/DB.md) — entities, schema, migration, journal safety
@@ -180,6 +196,9 @@ octocode-awareness repo inject --workspace "$PWD" --mode local --compact
 - [docs/HOOKS.md](docs/HOOKS.md) — host integration
 - [docs/MEMORY_NAVIGATION.md](docs/MEMORY_NAVIGATION.md) — compact retrieval
 - [docs/REFLECTION.md](docs/REFLECTION.md) — supervised learning loop
+- [docs/WIKI.md](docs/WIKI.md) — live reads, durable writes, and generated projections
+- [docs/HARNESS.md](docs/HARNESS.md) — maintainer invariants and verification matrix
+- [docs/REFERENCES.md](docs/REFERENCES.md) — evidence, prior art, and design limits
 - [skills/octocode-awareness/SKILL.md](skills/octocode-awareness/SKILL.md) — agent lobby
 
 The mechanical command source of truth is always:

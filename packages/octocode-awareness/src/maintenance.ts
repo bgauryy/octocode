@@ -4,7 +4,7 @@
  * pruneStale:          deletes expired exclusive locks; work/run lifecycle stays independent.
  * notifyGet:           returns a smart workspace briefing (top memories + weakness + refinements).
  * digest:              archives expired memories, prunes stale rows/locks, rebuilds FTS.
- * getWorkspaceStatus:  returns active locks, agents, and memory store stats.
+ * getWorkspaceStatus:  reads active locks, agents, and memory store stats.
  * exportMemoryDoc:     queries all active memories and returns a markdown report string.
  * exportHarness:       returns top recurring lessons as an AGENTS.md block.
  * sessionCapture:      records unresolved session work as an open handoff refinement.
@@ -880,8 +880,8 @@ export interface WorkspaceStatusResult {
 }
 
 /**
- * Returns a snapshot of plans, durable tasks, execution runs, locks, and memory stats.
- * Prunes expired locks first so stale entries don't pollute the view.
+ * Returns a non-mutating snapshot of plans, durable tasks, execution runs, locks,
+ * and memory stats. Explicit maintenance owns expired-row deletion.
  */
 export function getWorkspaceStatus(
   db: DatabaseSync,
@@ -890,10 +890,6 @@ export function getWorkspaceStatus(
   const rawWsPath = (params.workspace_path as string | undefined) ?? null;
   const wsPath = rawWsPath ? normalizeWorkspacePath(rawWsPath, rawWsPath) : null;
   const artifact = normalizeArtifact(params.artifact);
-
-  // ARCH-3: Delegate lock eviction to the shared evictExpiredLocks function
-  // instead of duplicating the DELETE statement.
-  evictExpiredLocks(db);
 
   const memoryScope: string[] = ["state = 'ACTIVE'"];
   const memoryScopeParams: (string | number)[] = [];
@@ -947,8 +943,8 @@ export function getWorkspaceStatus(
   });
 
   type LockRow = { file_path: string; agent_id: string; session_id: string | null; workspace_path: string | null; artifact: string | null; run_id: string; lock_type: string; acquired_at: string; expires_at: string | null };
-  const lockWhereParts: string[] = [];
-  const lockParams: (string | number)[] = [];
+  const lockWhereParts: string[] = ['fl.expires_at > ?', "ai.status = 'ACTIVE'"];
+  const lockParams: (string | number)[] = [utcNow()];
   if (wsPath) { lockWhereParts.push('ai.workspace_path = ?'); lockParams.push(wsPath); }
   if (artifact) { lockWhereParts.push('(ai.artifact = ? OR ai.artifact IS NULL)'); lockParams.push(artifact); }
   const lockWhere = lockWhereParts.length > 0 ? `WHERE ${lockWhereParts.join(' AND ')}` : '';

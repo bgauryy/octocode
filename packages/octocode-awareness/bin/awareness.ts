@@ -7,7 +7,7 @@
 
 import { writeFileSync, mkdirSync, existsSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
-import { dirname, isAbsolute, join, resolve } from 'node:path';
+import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
 
@@ -48,8 +48,12 @@ import { runHookCommand } from './hook-runner.js';
 // Computed once at startup so help text shows real, copy-pasteable paths.
 
 const __bin = dirname(fileURLToPath(import.meta.url));
-// dist/bin/awareness.js → dist/skills/
-const BUNDLED_SKILLS_DIR = join(__bin, '..', 'skills');
+// dist/bin/awareness.js -> dist/skills/; standalone skill scripts/awareness.mjs
+// -> the sibling skills/ directory that contains both packaged skills.
+const BUNDLED_SKILLS_DIR = basename(__bin) === 'scripts'
+  && basename(dirname(__bin)) === 'octocode-awareness'
+  ? resolve(__bin, '..', '..')
+  : resolve(__bin, '..', 'skills');
 
 // ─── Arg parser ───────────────────────────────────────────────────────────────
 
@@ -1610,7 +1614,7 @@ agent map: octocode-awareness schema commands --compact
 schema: octocode-awareness schema commands|list|json-schema <name>|example <name>|validate <name> <json-file|->
 
 <AGENT_INSTRUCTIONS>
-You are reading the octocode-awareness CLI. Run every command with --compact for JSON output.
+You are reading the octocode-awareness CLI. Use --compact for operational JSON; read docs show as raw Markdown.
 
 BUNDLED SKILLS:
   octocode-awareness : ${BUNDLED_SKILLS_DIR}/octocode-awareness
@@ -1771,7 +1775,7 @@ const COMMAND_EXAMPLE: Record<string, string> = {
   'reflect': 'octocode-awareness reflect record --agent-id agent --task "fix CLI" --outcome worked --lesson "Keep commands canonical" --compact',
   'plan-command': 'octocode-awareness plan create --name "Release" --objective "Ship safely" --lead-agent-id agent --workspace "$PWD" --compact',
   'task-command': 'octocode-awareness task ready --plan-id plan_123 --compact',
-  'work-command': 'octocode-awareness work start --agent-id agent --file src/a.ts --rationale "edit parser" --test-plan "yarn test" --compact',
+  'work-command': 'octocode-awareness work start --agent-id agent --workspace "$PWD" --file src/a.ts --rationale "edit parser" --test-plan "yarn test" --compact',
   'hook-run': 'octocode-awareness hook run pre-edit < hook-payload.json',
   'hooks-install': 'octocode-awareness hooks install --host codex --dry-run --compact',
   'schema': 'octocode-awareness schema commands --compact',
@@ -1902,12 +1906,12 @@ heartbeat/submit/release: --task-id <id> --run-id <id> --agent-id <id>; release 
 example: octocode-awareness task ready --plan-id plan_123 --compact
 schema: octocode-awareness schema json-schema task --compact`,
   'work-command': `usage: octocode-awareness work start|touch|end|list|show [options]
-start new WORK: --file <path>... --agent-id <id> --workspace <repo> --rationale <text> --test-plan <text> [--exclusive]
+start new WORK: --file <path>... --agent-id <id> [--workspace <repo>] --rationale <text> --test-plan <text> [--exclusive]
 attach task run: --run-id <claimed-task-run> --file <path>... --agent-id <id> [--exclusive]
 touch/end: --run-id <id> --agent-id <id> [--file <path>]...
 list: [--workspace <repo>] [--agent-id <id>] [--run-id <id>] [--all] [--limit <1-200>] [--full]
 show: --workspace <repo> --file <path> [--all] [--limit <1-200>] [--full]
-example: octocode-awareness work start --agent-id agent --file src/a.ts --rationale "edit parser" --test-plan "yarn test" --compact
+example: octocode-awareness work start --agent-id agent --workspace "$PWD" --file src/a.ts --rationale "edit parser" --test-plan "yarn test" --compact
 schema: octocode-awareness schema json-schema work --compact`,
   'hook-run': `usage: octocode-awareness hook run <pre-edit|post-edit|harness-guard|stop-verify|notify-deliver|session-end> < hook-payload.json`,
   'hooks-install': hooksInstallUsage(),

@@ -8,7 +8,7 @@ process.on('warning', (w) => {
 // bin/awareness.ts
 import { writeFileSync as writeFileSync5, mkdirSync as mkdirSync6, existsSync as existsSync6 } from "node:fs";
 import { spawnSync as spawnSync6 } from "node:child_process";
-import { dirname as dirname6, isAbsolute as isAbsolute8, join as join9, resolve as resolve15 } from "node:path";
+import { basename as basename4, dirname as dirname6, isAbsolute as isAbsolute8, join as join9, resolve as resolve15 } from "node:path";
 import { DatabaseSync as DatabaseSync2 } from "node:sqlite";
 import { fileURLToPath as fileURLToPath4 } from "node:url";
 
@@ -5104,7 +5104,6 @@ function getWorkspaceStatus(db3, params = {}) {
   const rawWsPath = params.workspace_path ?? null;
   const wsPath = rawWsPath ? normalizeWorkspacePath(rawWsPath, rawWsPath) : null;
   const artifact2 = normalizeArtifact(params.artifact);
-  evictExpiredLocks(db3);
   const memoryScope = ["state = 'ACTIVE'"];
   const memoryScopeParams = [];
   if (wsPath) {
@@ -5168,8 +5167,8 @@ function getWorkspaceStatus(db3, params = {}) {
     repo: params.repo,
     cwd: params.cwd
   });
-  const lockWhereParts = [];
-  const lockParams = [];
+  const lockWhereParts = ["fl.expires_at > ?", "ai.status = 'ACTIVE'"];
+  const lockParams = [utcNow()];
   if (wsPath) {
     lockWhereParts.push("ai.workspace_path = ?");
     lockParams.push(wsPath);
@@ -6486,7 +6485,17 @@ function taskRows(db3, params) {
   const sqlWhere = where.length > 0 ? `WHERE ${where.join(" AND ")}` : "";
   const rows = db3.prepare(
     `SELECT t.*, p.name AS plan_name, p.status AS plan_status, p.workspace_path, p.artifact,
-            c.agent_id AS claimed_by, c.run_id, c.expires_at AS claim_expires_at,
+            COALESCE(c.agent_id, (
+              SELECT tr.agent_id FROM task_runs tr
+              WHERE tr.task_id = t.task_id AND tr.status = 'PENDING'
+              ORDER BY datetime(tr.updated_at) DESC, tr.run_id DESC LIMIT 1
+            )) AS claimed_by,
+            COALESCE(c.run_id, (
+              SELECT tr.run_id FROM task_runs tr
+              WHERE tr.task_id = t.task_id AND tr.status = 'PENDING'
+              ORDER BY datetime(tr.updated_at) DESC, tr.run_id DESC LIMIT 1
+            )) AS run_id,
+            c.expires_at AS claim_expires_at,
             COALESCE((SELECT json_group_array(tp.path) FROM task_paths tp WHERE tp.task_id = t.task_id), '[]') AS paths_json,
             COALESCE((SELECT json_group_array(td.depends_on_task_id) FROM task_dependencies td WHERE td.task_id = t.task_id), '[]') AS dependencies_json,
             CASE WHEN t.status = 'OPEN' AND p.status = 'ACTIVE'
@@ -7528,10 +7537,13 @@ function injectRepoContext(db3, params = {}) {
   }
   const sections = all.sections ?? {};
   const counts = Object.fromEntries(Object.entries(sections).map(([name, section]) => [name, section.count]));
+  const profileCounts = Object.fromEntries(
+    (sections["repo-profile"]?.rows ?? []).map((row) => [String(row["metric"]), Number(row["count"] ?? 0)])
+  );
   write("AGENTS.md", renderRepoAgentsMd(all));
-  write("MEMORY.md", renderRowsDoc("Memory", sections["memories"]?.rows ?? [], "Active awareness memories for this repo.", PROJECTION_MARKDOWN_BUDGETS["MEMORY.md"].max_lines));
-  write("GOTCHAS.md", renderRowsDoc("Gotchas", sections["gotchas"]?.rows ?? [], "Failures, traps, and sharp edges agents should check before editing.", PROJECTION_MARKDOWN_BUDGETS["GOTCHAS.md"].max_lines));
-  write("LEARN.md", renderRowsDoc("Learning And Opportunities", sections["lessons"]?.rows ?? [], "Decisions, architecture notes, workflows, and improvement ideas.", PROJECTION_MARKDOWN_BUDGETS["LEARN.md"].max_lines));
+  write("MEMORY.md", renderRowsDoc("Memory", sections["memories"]?.rows ?? [], "Active awareness memories for this repo.", PROJECTION_MARKDOWN_BUDGETS["MEMORY.md"].max_lines, profileCounts["active_memories"]));
+  write("GOTCHAS.md", renderRowsDoc("Gotchas", sections["gotchas"]?.rows ?? [], "Failures, traps, and sharp edges agents should check before editing.", PROJECTION_MARKDOWN_BUDGETS["GOTCHAS.md"].max_lines, profileCounts["gotchas"]));
+  write("LEARN.md", renderRowsDoc("Learning And Opportunities", sections["lessons"]?.rows ?? [], "Decisions, architecture notes, workflows, and improvement ideas.", PROJECTION_MARKDOWN_BUDGETS["LEARN.md"].max_lines, profileCounts["lessons"]));
   write("BOOKMARKS.md", renderBookmarksDoc(sections["memories"]?.rows ?? []));
   write("DEVELOPER_REVIEW.md", renderDeveloperReviewDoc(sections["developer-review"]?.rows ?? [], PROJECTION_MARKDOWN_BUDGETS["DEVELOPER_REVIEW.md"].max_lines));
   for (const view of CSV_VIEWS) {
@@ -7540,11 +7552,13 @@ function injectRepoContext(db3, params = {}) {
   if (includeView) {
     write(join6("awareness", "index.html"), renderAwarenessHtml(all));
   }
+  const validFileRows = (sections["files"]?.rows ?? []).filter((row) => row["missing_file"] !== true && row["file_exists"] !== false);
   write(join6("references", "repo-map.md"), renderReferenceDoc("Repo Map", [
     "Generated overview of awareness-tracked files and activity.",
     "Use `.octocode/awareness/csv/files.csv` when filtering or sorting by file path.",
-    "Use the live command `octocode-awareness query files --workspace <repo>` when freshness matters."
-  ], sections["files"]?.rows ?? []));
+    "Use the live command `octocode-awareness query files --workspace <repo>` when freshness matters.",
+    "Missing file references are excluded from Top Rows; review them through the live query or CSV cleanup lane."
+  ], validFileRows));
   write(join6("references", "commands.md"), renderReferenceDoc("Awareness Commands", [
     "`octocode-awareness query <view>` reads the SQLite store for agents and scripts.",
     "`octocode-awareness query all --format html --out .octocode/awareness/index.html` writes a static human browser view; use `npx @octocodeai/octocode-awareness` only when no local CLI exists.",
@@ -7631,10 +7645,6 @@ function renderRepoAgentsMd(all) {
   const counts = Object.fromEntries(profile.map((row) => [String(row["metric"]), row["count"] ?? 0]));
   const gotchas = (sections["gotchas"]?.rows ?? []).slice(0, 5);
   const lessons = (sections["lessons"]?.rows ?? []).slice(0, 5);
-  const fileWorkRows = (sections["workboard"]?.rows ?? []).filter((row) => row["column"] === "FilesUnderWork");
-  const fileWork = fileWorkRows.slice(0, 3);
-  const locks = (sections["locks"]?.rows ?? []).slice(0, 3);
-  const lockTotal = (sections["locks"]?.rows ?? []).length;
   const projectionWarnings2 = [
     Number(counts["missing_file_refs"] ?? 0) > 0 ? `Missing/stale file refs (${counts["missing_file_refs"]}) \u2014 use \`query files --format table\` before trusting bookmarks.` : null,
     Number(counts["active_memories"] ?? 0) > 200 ? `Active memories high (${counts["active_memories"]}) \u2014 prefer recall/CSV over full Markdown.` : null,
@@ -7651,7 +7661,7 @@ function renderRepoAgentsMd(all) {
     "## How To Use",
     "",
     "- Live: `octocode-awareness attend|work list|query|memory recall|workspace status --workspace <repo>`.",
-    "- Wiki leads below are projections, not proof. After inject, append a root `AGENTS.md` \u2192 `.octocode/AGENTS.md` pointer if missing.",
+    "- Wiki leads below are projections, not proof. If root `AGENTS.md` lacks this pointer, use the source guidance and ask before editing root `AGENTS.md` unless already authorized.",
     "",
     "## Snapshot",
     "",
@@ -7671,7 +7681,7 @@ function renderRepoAgentsMd(all) {
     "",
     "- Run `attend`, then inspect `FilesUnderWork` before editing. Record ordinary work with `work start`; overlap is allowed and visible.",
     "- Exclusive locks are reserved for sensitive files. An active exclusive lock blocks conflicting work.",
-    "- Read GOTCHAS + LEARN; run `query files --format table` or filter `awareness/csv/files.csv` for affected and missing paths.",
+    "- Use targeted `memory recall --query <task> --smart --compact`; open one matching wiki lead only when live SQLite is unavailable or more detail is needed.",
     "- Prefer live `attend` / `work list` / `query` when freshness matters; `repo inject` after important memories.",
     "",
     "## Projection Health",
@@ -7680,21 +7690,6 @@ function renderRepoAgentsMd(all) {
     ...projectionWarnings2.map((warning) => `- ${warning}`),
     ""
   ];
-  if (fileWork.length > 0) {
-    lines.push("## Files Under Work", "");
-    for (const row of fileWork) {
-      const locked = row["locked"] ? " \xB7 exclusive lock" : "";
-      lines.push(`- ${row["path"]} \u2014 ${row["peer_count"]} worker(s): ${row["agents"]} \xB7 ${summarize(String(row["reasons"] ?? "reason not recorded"), 100)}${locked}`);
-    }
-    if (fileWorkRows.length > fileWork.length) lines.push(`- \u2026and ${fileWorkRows.length - fileWork.length} more (live: \`work list\` or \`query workboard\`)`);
-    lines.push("");
-  }
-  if (locks.length > 0) {
-    lines.push("## Active Exclusive Locks", "");
-    for (const lock of locks) lines.push(`- ${lock["file_path"]} \u2014 ${lock["agent_id"]}`);
-    if (lockTotal > locks.length) lines.push(`- \u2026and ${lockTotal - locks.length} more (live: \`query locks\`)`);
-    lines.push("");
-  }
   if (gotchas.length > 0) {
     lines.push("## Top Gotchas", "");
     for (const row of gotchas) lines.push(`- [${row["importance"]}] ${summarize(String(row["observation"]), 140)}`);
@@ -7711,7 +7706,7 @@ function renderRepoAgentsMd(all) {
   lines.push("");
   return lines.join("\n");
 }
-function renderRowsDoc(title, rows, description, maxLines) {
+function renderRowsDoc(title, rows, description, maxLines, totalCount = rows.length) {
   const ranked = [...rows].sort((a, b) => {
     const imp = Number(b["importance"] ?? 0) - Number(a["importance"] ?? 0);
     if (imp !== 0) return imp;
@@ -7724,7 +7719,7 @@ function renderRowsDoc(title, rows, description, maxLines) {
     "",
     description,
     "",
-    `Count: ${rows.length}`,
+    `Total: ${totalCount} \xB7 Shown: ${rows.length} \xB7 Omitted before Markdown budget: ${Math.max(0, totalCount - rows.length)}`,
     ""
   ];
   let omitted = 0;
@@ -8238,6 +8233,7 @@ function attendAwareness(db3, params = {}) {
     ref: params.ref ?? null,
     files,
     explain: true,
+    recordAccess: false,
     cwd
   }) : { count: 0, memories: [], mode: "lexical", sort: "smart", as_of: null, global_only: false, states: ["ACTIVE"] };
   const evidence = recall.memories.slice(0, packetLimit).map((memory) => {
@@ -9227,7 +9223,7 @@ if (isMain && invokedAsHookRunner) {
 
 // bin/awareness.ts
 var __bin = dirname6(fileURLToPath4(import.meta.url));
-var BUNDLED_SKILLS_DIR = join9(__bin, "..", "skills");
+var BUNDLED_SKILLS_DIR = basename4(__bin) === "scripts" && basename4(dirname6(__bin)) === "octocode-awareness" ? resolve15(__bin, "..", "..") : resolve15(__bin, "..", "skills");
 var MAX_CLI_TTL_SECONDS = 10 * 60;
 var MAX_CLI_WAIT_SECONDS = 60 * 60;
 var MAX_CLI_RETRY_INTERVAL_SECONDS = 5 * 60;
@@ -10731,7 +10727,7 @@ agent map: octocode-awareness schema commands --compact
 schema: octocode-awareness schema commands|list|json-schema <name>|example <name>|validate <name> <json-file|->
 
 <AGENT_INSTRUCTIONS>
-You are reading the octocode-awareness CLI. Run every command with --compact for JSON output.
+You are reading the octocode-awareness CLI. Use --compact for operational JSON; read docs show as raw Markdown.
 
 BUNDLED SKILLS:
   octocode-awareness : ${BUNDLED_SKILLS_DIR}/octocode-awareness
@@ -10888,7 +10884,7 @@ var COMMAND_EXAMPLE = {
   "reflect": 'octocode-awareness reflect record --agent-id agent --task "fix CLI" --outcome worked --lesson "Keep commands canonical" --compact',
   "plan-command": 'octocode-awareness plan create --name "Release" --objective "Ship safely" --lead-agent-id agent --workspace "$PWD" --compact',
   "task-command": "octocode-awareness task ready --plan-id plan_123 --compact",
-  "work-command": 'octocode-awareness work start --agent-id agent --file src/a.ts --rationale "edit parser" --test-plan "yarn test" --compact',
+  "work-command": 'octocode-awareness work start --agent-id agent --workspace "$PWD" --file src/a.ts --rationale "edit parser" --test-plan "yarn test" --compact',
   "hook-run": "octocode-awareness hook run pre-edit < hook-payload.json",
   "hooks-install": "octocode-awareness hooks install --host codex --dry-run --compact",
   "schema": "octocode-awareness schema commands --compact"
@@ -11016,12 +11012,12 @@ heartbeat/submit/release: --task-id <id> --run-id <id> --agent-id <id>; release 
 example: octocode-awareness task ready --plan-id plan_123 --compact
 schema: octocode-awareness schema json-schema task --compact`,
   "work-command": `usage: octocode-awareness work start|touch|end|list|show [options]
-start new WORK: --file <path>... --agent-id <id> --workspace <repo> --rationale <text> --test-plan <text> [--exclusive]
+start new WORK: --file <path>... --agent-id <id> [--workspace <repo>] --rationale <text> --test-plan <text> [--exclusive]
 attach task run: --run-id <claimed-task-run> --file <path>... --agent-id <id> [--exclusive]
 touch/end: --run-id <id> --agent-id <id> [--file <path>]...
 list: [--workspace <repo>] [--agent-id <id>] [--run-id <id>] [--all] [--limit <1-200>] [--full]
 show: --workspace <repo> --file <path> [--all] [--limit <1-200>] [--full]
-example: octocode-awareness work start --agent-id agent --file src/a.ts --rationale "edit parser" --test-plan "yarn test" --compact
+example: octocode-awareness work start --agent-id agent --workspace "$PWD" --file src/a.ts --rationale "edit parser" --test-plan "yarn test" --compact
 schema: octocode-awareness schema json-schema work --compact`,
   "hook-run": `usage: octocode-awareness hook run <pre-edit|post-edit|harness-guard|stop-verify|notify-deliver|session-end> < hook-payload.json`,
   "hooks-install": hooksInstallUsage(),

@@ -17,8 +17,8 @@ npx octocode skill --add \
 ```
 
 The package also bundles sibling `octocode-skills` for skill install/review/
-improvement. Direct package consumers use these paths; Octocode's
-`--name octocode-awareness` route is valid when it resolves its bundled copy.
+improvement. Install both skills from their packaged paths; do not depend on
+registry/name lookup.
 
 ## Features
 

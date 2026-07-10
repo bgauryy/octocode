@@ -27,12 +27,13 @@ New plans are ACTIVE. PAUSED retains work but blocks claims. Complete/cancel onl
 # hooks declare files; without hooks, attach them to the returned run
 <cli> work start --run-id run_123 --agent-id "$OCTOCODE_AGENT_ID" --file src/a.ts --compact
 <cli> task submit --task-id task_123 --run-id run_123 \
-  --agent-id "$OCTOCODE_AGENT_ID" --message "tests pass" --compact
+  --agent-id "$OCTOCODE_AGENT_ID" --message "ready for verification" --compact
 <cli> verify mark --run-id run_123 --agent-id "$OCTOCODE_AGENT_ID" \
   --message "tests pass" --compact
 ```
 
-Heartbeat long claims. `task release` returns unfinished work to OPEN/BLOCKED.
+Heartbeat long claims with `task heartbeat --task-id <task> --run-id <run>
+--agent-id "$OCTOCODE_AGENT_ID" --compact`. `task release` returns unfinished work to OPEN/BLOCKED.
 Dependencies and ACTIVE plan status derive readiness; never set READY manually.
 
 ## Standalone WORK

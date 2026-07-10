@@ -13,6 +13,22 @@ workspace files when agents/humans need context without DB access.
 Do not hand-edit generated projections. Correct source/DB state, then regenerate.
 Plan narrative is authored; live task checklists are not.
 
+## Read And Write Map
+
+| Intent | Surface | Canonical effect |
+|---|---|---|
+| Inspect current work | `attend`, targeted `query`, `work list|show`, `verify audit`, `workspace status` | Reads live state; does not close work or prune rows. |
+| Plan and coordinate | `plan`, `task`, `work`, `lock`, `signal`, `refinement`, `verify mark` | Writes operational rows to SQLite. |
+| Learn across runs | `memory record`, `reflect record`, `memory record --supersedes` | Writes durable knowledge or routed follow-up. |
+| Read learned context | `memory recall` | Reads memories and updates access metadata used by ranking. |
+| Mark communication read | `signal list --mark-read`, `signal ack` | Writes recipient/read state. Plain `signal list` does not. |
+| Clean stale state | digest/prune/forget/delete commands | Mutates only after an explicit reviewed call; dry-run first. Expiry cleanup is maintenance, not a status-read side effect. |
+| Author plan reasoning | `.octocode/plan/<timestamp-name>/`, then `plan doc` | Writes narrative; task status stays in SQLite. |
+| Publish a file snapshot | `repo inject` | Regenerates bounded projections; never becomes operational truth. |
+
+Hook briefing may update delivery fingerprints so unchanged context stays silent.
+That bookkeeping does not acknowledge signals or prove work complete.
+
 ## Live First
 
 ```bash
@@ -61,7 +77,8 @@ not prove underlying files are current.
 ## Root Discovery
 
 Root `AGENTS.md` should contain one short pointer to `.octocode/AGENTS.md`. Preserve
-all existing instructions; never replace root guidance with the wiki.
+all existing instructions; never replace root guidance with the wiki. Ask before
+editing root instructions unless the user already authorized that change.
 
 ## Editing And Sharing
 

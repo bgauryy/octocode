@@ -91,7 +91,8 @@ octocode-awareness verify mark --run-id run_abc \
 ```
 
 Successful verification moves the linked task to `DONE`; failure moves it to
-`FAILED`. `verify audit` is the final gate. Scope `--all-pending` by workspace.
+`FAILED`. `verify audit` is the final debt-listing gate. If deliberately using
+`verify mark --all-pending`, scope it by workspace.
 
 ## Automatic Hook Fallback
 

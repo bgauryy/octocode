@@ -9,7 +9,7 @@ octocode-awareness attend --workspace "$PWD" --query "current task" --compact
 
 ## Compact Contract
 
-Compact output is action-oriented and byte-budgeted. It includes:
+Compact `attend` is action-oriented and byte-budgeted. It includes:
 
 - workspace identity and generated time;
 - actionable counts/rows for Ready, Claimed, Verify, FilesUnderWork, and Inbox;
@@ -23,9 +23,20 @@ aliases, repeated raw IDs, full bodies, and full file lists. Compact FilesUnderW
 rows keep path/peer_count/locked only — drill with `work list|show`. Noncompact attend
 remains the explicit deep diagnostic surface.
 
-Representative tests require compact attend to remain below 2 KB. Row count alone is
+Representative unit and CLI tests require compact attend to remain at or below 2 KB. Row count alone is
 not sufficient; output-size assertions protect token cost. Workboard columns that are
 empty are omitted; `counts` still reports totals for Ready/Claimed/Verify/FilesUnderWork/Inbox.
+
+`--compact` is not a universal field-reduction promise. It minifies JSON for every
+command, while documented lean surfaces such as `attend`, memory recall, and selected
+lists also reduce fields or summarize bodies. `docs show` raw Markdown is the smaller
+agent-readable form; its compact form is a JSON envelope.
+
+For generic `query workboard --limit N`, the limit applies per lane, not to the whole
+response. It can be much larger than compact attend. Use `attend` for the next action,
+targeted `verify audit`/`signal list`/`work show` for one concern, and CSV/HTML for
+bulk review. Noncompact `attend` is a deliberate deep diagnostic, not a prompt-safe
+default.
 
 ## Progressive Disclosure
 
@@ -42,8 +53,9 @@ empty are omitted; `counts` still reports totals for Ready/Claimed/Verify/FilesU
 
 `query workboard` groups active work by relative path. Each FilesUnderWork row caps
 peers at three, includes task/plan/reason and exclusive state, and reports
-`omitted_peer_count` instead of dumping all agents. Workboard column pagination uses
-`omitted_count` separately.
+`omitted_peer_count` instead of dumping all agents. Workboard lane truncation uses
+`omitted_count` separately; there is no cursor pagination, so drill into a targeted
+surface instead of repeatedly increasing the lane limit.
 
 ## Delta Delivery
 
@@ -81,3 +93,6 @@ The workboard is derived; it has no table. Lanes route actions:
 
 Re-run attend after a material task, peer, signal, or verification transition—not
 after every tool call.
+
+Counts are workspace-wide; routing is actor-safe. For example, `Verify` may count
+other agents' debt while `next` routes only verification owned by the current agent.

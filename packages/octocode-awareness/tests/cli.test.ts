@@ -1367,11 +1367,13 @@ describe('CLI', () => {
     const pkg = JSON.parse(readFileSync(packageJsonPath, 'utf8')) as {
       name?: string;
       bin?: Record<string, string>;
+      engines?: Record<string, string>;
       publishConfig?: Record<string, string>;
     };
     expect(pkg.name).toBe('@octocodeai/octocode-awareness');
     expect(pkg.publishConfig?.access).toBe('public');
     expect(pkg.bin?.['octocode-awareness']).toBe('./dist/bin/awareness.js');
+    expect(pkg.engines?.['node']).toBe('>=22.13.0');
     expect(pkg.bin ?? {}).not.toHaveProperty('awareness');
   });
 
@@ -1389,6 +1391,18 @@ describe('CLI', () => {
     expect(r.stdout).not.toContain('tell-memory');
     expect(r.stdout).not.toContain('get-memory');
     expect(r.stdout).not.toContain('<awareness-package>');
+  });
+
+  it('installed skill help resolves sibling bundled skills from the skill root', () => {
+    const r = spawnSync(NODE, [SKILL_SCRIPT, '--help'], { encoding: 'utf8', timeout: 5000 });
+    expect(r.status).toBe(0);
+    const skillsRoot = resolve(dirname(SKILL_SCRIPT), '..', '..');
+    const awarenessSkill = resolve(skillsRoot, 'octocode-awareness');
+    const skillsSkill = resolve(skillsRoot, 'octocode-skills');
+    expect(r.stdout).toContain(awarenessSkill);
+    expect(r.stdout).toContain(skillsSkill);
+    expect(existsSync(awarenessSkill)).toBe(true);
+    expect(existsSync(skillsSkill)).toBe(true);
   });
 
   it('no command prints the agent-instructions discovery guide', () => {
@@ -1575,6 +1589,13 @@ describe('CLI', () => {
     const lockRelease = parsed.commands.find((row) => row.command === 'lock release');
     expect(lockRelease?.example).toMatch(/--status SUCCESS/);
     expect(lockRelease?.example).not.toMatch(/--status ACTIVE/);
+    const taskCreate = parsed.commands.find((row) => row.command === 'task create');
+    expect(taskCreate?.example).toContain('--acceptance');
+    const taskSubmit = parsed.commands.find((row) => row.command === 'task submit');
+    expect(taskSubmit?.example).toContain('ready for verification');
+    expect(taskSubmit?.example).not.toContain('tests pass');
+    const workStart = parsed.commands.find((row) => row.command === 'work start');
+    expect(workStart?.example).toContain('--workspace');
   });
 
   it('lock acquire help omits rejected --lock-type flag', () => {
@@ -1869,7 +1890,7 @@ describe('repo context projections', () => {
       expect(result['drive_state']).toBeUndefined();
       expect(result['organ_reference']).toBeUndefined();
       expect(String(result['next'])).toMatch(/work start|verify audit|memory forget|attend --workspace/);
-      expect(Buffer.byteLength(JSON.stringify(result))).toBeLessThanOrEqual(8 * 1024);
+      expect(Buffer.byteLength(JSON.stringify(result))).toBeLessThanOrEqual(2 * 1024);
       expect(JSON.stringify(result)).not.toMatch(/fictional persistent personality/i);
     } finally { rmSync(dir, { recursive: true }); }
   });

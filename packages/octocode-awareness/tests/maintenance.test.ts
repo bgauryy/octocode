@@ -218,7 +218,7 @@ describe('getWorkspaceStatus — current schema', () => {
     expect(status.locks[0]).toHaveProperty('agent_id');
   });
 
-  it('evicts expired locks without changing the active work run', () => {
+  it('filters expired locks without mutating status during a read', () => {
     const db = freshDb();
     const runId = insertTask(db);
     const past = new Date(Date.now() - 5 * 60_000).toISOString();
@@ -228,6 +228,8 @@ describe('getWorkspaceStatus — current schema', () => {
     expect(status.locks).toHaveLength(0);
     expect(status.pending_runs).toBe(0);
     expect(status.active_runs).toBe(1);
+    const lockCount = db.prepare('SELECT COUNT(*) AS count FROM locks').get() as { count: number };
+    expect(lockCount.count).toBe(1);
     const task = db.prepare('SELECT status FROM task_runs WHERE run_id = ?').get(runId) as { status: string };
     expect(task.status).toBe('ACTIVE');
   });

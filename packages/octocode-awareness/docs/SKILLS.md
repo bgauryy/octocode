@@ -6,7 +6,7 @@ handoffs.
 
 ## Install
 
-Requires Node.js 22+.
+Requires Node.js 22.13.0+ (`node:sqlite` without an experimental flag).
 
 ```bash
 npm install --global @octocodeai/octocode-awareness
@@ -70,6 +70,8 @@ Task-backed:
 
 ```bash
 octocode-awareness task claim --task-id <task> --agent-id "$OCTOCODE_AGENT_ID" --compact
+octocode-awareness task heartbeat --task-id <task> --run-id <run> \
+  --agent-id "$OCTOCODE_AGENT_ID" --compact  # repeat during long attempts
 octocode-awareness work start --run-id <run> --agent-id "$OCTOCODE_AGENT_ID" \
   --file src/a.ts --compact
 ```
@@ -115,7 +117,7 @@ Task:
 
 ```bash
 octocode-awareness task submit --task-id <task> --run-id <run> \
-  --agent-id "$OCTOCODE_AGENT_ID" --message "ready" --compact
+  --agent-id "$OCTOCODE_AGENT_ID" --message "ready for verification" --compact
 # run acceptance checks
 octocode-awareness verify mark --run-id <run> --agent-id "$OCTOCODE_AGENT_ID" \
   --message "tests passed" --compact
@@ -130,8 +132,9 @@ octocode-awareness verify mark --run-id <run> --agent-id "$OCTOCODE_AGENT_ID" \
   --message "check passed" --compact
 ```
 
-Finish with `verify audit --workspace "$PWD" --agent-id ... --compact`. Scope
-`--all-pending`; unscoped batch verification spans all workspaces for that agent.
+Finish with `verify audit --workspace "$PWD" --agent-id ... --compact` to list
+remaining debt. If deliberately using `verify mark --all-pending`, always scope it
+with `--workspace`; an unscoped batch spans all workspaces for that agent.
 
 ### 5. Learn, hand off, maintain
 
@@ -171,10 +174,11 @@ requires `OCTOCODE_EMBED_CMD` and falls back safely when absent.
 
 ## Compact Outputs
 
-- `attend --compact` is a bounded lobby, tested below 2 KB.
+- `attend --compact` is a bounded lobby, tested at or below 2 KB.
 - Normal edits emit no Awareness context.
 - Changed peers/briefings emit once; fingerprints suppress repetition.
-- Workboard groups paths and caps peers with omitted counts.
+- Workboard groups paths and caps peers with omitted counts; its `--limit` applies
+  per lane, so use `attend` or a targeted command for prompt context.
 - `signal list --limit 5` and lean recall/docs outputs are the default.
 - Use query CSV/HTML for bulk data instead of putting it in the prompt.
 
@@ -204,7 +208,7 @@ See [HOOKS.md](HOOKS.md) for host differences.
 ## Live Queries And Repo Context
 
 ```bash
-octocode-awareness query workboard --workspace "$PWD" --format table --limit 10
+octocode-awareness query workboard --workspace "$PWD" --format table --limit 3
 octocode-awareness query all --workspace "$PWD" --format html \
   --out .octocode/awareness/index.html
 octocode-awareness repo inject --workspace "$PWD" --mode local --compact
@@ -225,5 +229,6 @@ octocode-awareness docs list --compact
 octocode-awareness docs show <name>
 ```
 
-Database details: [DB.md](DB.md). File semantics: [LOCKS.md](LOCKS.md). Architecture:
-[HOW_IT_WORKS.md](HOW_IT_WORKS.md).
+Database details: [DB.md](DB.md). File semantics: [LOCKS.md](LOCKS.md). Live/write/wiki
+semantics: [WIKI.md](WIKI.md). Architecture: [HOW_IT_WORKS.md](HOW_IT_WORKS.md).
+Evidence and prior-art boundaries: [REFERENCES.md](REFERENCES.md).

@@ -101,4 +101,5 @@ machine-local paths; current source/tests/user instructions always win.
   changes, and normal verification still applies.
 
 Schema detail: [DB.md](DB.md). File-work semantics: [LOCKS.md](LOCKS.md). User
-recipes: [SKILLS.md](SKILLS.md).
+recipes: [SKILLS.md](SKILLS.md). Research and prior-art boundaries:
+[REFERENCES.md](REFERENCES.md).
