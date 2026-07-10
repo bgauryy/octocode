@@ -16,8 +16,8 @@ Choose `<cli>`: `npx @octocodeai/octocode-awareness` (or global `octocode-awaren
 ```text
 BEFORE/READ+REASON -> DURING/DO -> AFTER/VERIFY -> LEARN? -> CLEAN? -> PROJECT?
 ```
-1. **BEFORE/READ+REASON:** `<cli> attend --workspace "$PWD" --query "<task>" --agent-id "$OCTOCODE_AGENT_ID" --compact`; follow `next`; prefer live state to wiki. State goal, acceptance, scope, evidence; claim `task ready` or open WORK.
-2. **DURING/DO:** declare every edited path via hooks or `work start`; read peer reason before interacting changes. Ordinary overlap allowed; exclusivity only for sensitive paths — never bypass a conflict.
+1. **BEFORE/READ+REASON:** `<cli> attend --workspace "$PWD" --query "<task>" --agent-id "$OCTOCODE_AGENT_ID" --compact`; follow `next`; prefer live state to wiki. State goal, acceptance, affected scope, and evidence; claim `task ready` or open WORK.
+2. **DURING/DO:** declare every edited path via hooks or `work start`; read peer reason before interacting changes. Ordinary overlap is allowed; exclusivity only for sensitive paths — never bypass a conflict.
 3. **AFTER/VERIFY:** `task submit` or `work end`, run the declared check, `verify mark`, then `verify audit`. Ending work is not verified success.
 4. **LEARN / CLEAN / PROJECT only when due:** record reusable outcomes; cleanup dry-run under workboard pressure; `repo inject` only when file readers need refreshed leads.
 ## Routes (load one owner; core work needs none)
@@ -31,16 +31,10 @@ BEFORE/READ+REASON -> DURING/DO -> AFTER/VERIFY -> LEARN? -> CLEAN? -> PROJECT?
 - When recalling or recording memory, load `references/memory-recall.md` for trust and ranking rules.
 - When deciding whether to learn or clean, load `references/bookkeeping.md` for pressure-driven triggers.
 - When inspecting storage or sessions, load `references/architecture.md` for data owners and invariants.
-- When improving the harness, prefer `octocode-eval`; stub `references/improve-loop.md` if unavailable.
+- When improving the harness, load `references/improve-loop.md` for goal/KPI acceptance.
 - When shipping a skill change, load `references/skill-evolution.md` for held-out and human gates.
 Unknown owner only: `docs list --compact`; then `docs show <name>`.
-## Related skills
-- `octocode-eval` — goal→KPI / keep-discard when measuring harness changes
-- `octocode-research` — code/GitHub/package evidence (not Awareness search)
-- `octocode-skills` — skill folder create/edit/review (bundled sibling)
-- `octocode-subagent` — parallel workers sharing this repo
-- `octocode-rfc-generator` — design before large coordination changes
 ## Scripts
-Prefer package CLI above; `scripts/awareness.mjs` is bundled fallback. Use `scripts/schema.mjs` for contracts, `scripts/hook-runner.mjs` for host events, `scripts/extract-hook-files.mjs` for payloads, `scripts/install.mjs` for setup, `scripts/smoke-multi-agent.mjs` before release.
+Prefer package CLI above; `scripts/awareness.mjs` is bundled fallback. Use `scripts/schema.mjs` for contracts, `scripts/hook-runner.mjs` for host events, `scripts/extract-hook-files.mjs` for payloads, `scripts/install.mjs` for setup diagnostics, and `scripts/smoke-multi-agent.mjs` for end-to-end coordination smoke.
 ## Install · Hard rules
 Install: README `npx octocode skill --add --path "$(npm root --global)/@octocodeai/octocode-awareness/dist/skills/octocode-awareness" --platform <host> --force`. Devs edit sources then `yarn workspace @octocodeai/octocode-awareness build` — never hand-edit mirrors. Hard: one agent ID/workspace; secrets out; manual CLI fallback; config ≠ runtime health; rebuild after edits; hooks + stable ID required for multi-agent presence.
