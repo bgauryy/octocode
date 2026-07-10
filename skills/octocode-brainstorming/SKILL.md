@@ -29,9 +29,9 @@ STOP, recommend one option, and wait when any gate trips:
 - Run Critical Architect, Visionary Entrepreneur, and Product lenses before a final verdict unless the worker gate shortens review.
 
 ## Related skills
-- `octocode-research` — code/GitHub/package evidence for idea validation
+- `octocode-eval` — goal→KPI; stub `references/improve-loop.md` if eval unavailable
 - `octocode-rfc-generator` — Build-ready ideas → decision folder
-- `octocode-eval` — goal→KPI when improving this skill or measuring a prototype
+- `octocode-research` — code/GitHub/package evidence for idea validation
 - `octocode-awareness` — capture durable lessons after DECIDE
 - `octocode-skills` — edit/review this skill folder
 
@@ -45,6 +45,7 @@ STOP, recommend one option, and wait when any gate trips:
 - `references/hook-communication.md` — before substantial, multi-turn, or subagent-heavy research.
 - `references/grounding.md` — when challenged on methods, SCAMPER, or web-engine contracts.
 - `references/octocode.md` — when local/GitHub/package/code research is needed; delegates Octocode research rules to `octocode-research`.
+- `references/improve-loop.md` — stub; prefer `octocode-eval` for full goal→KPI
 
 ## Scripts
 

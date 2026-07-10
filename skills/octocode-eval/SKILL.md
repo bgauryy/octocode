@@ -46,11 +46,8 @@ Stop when: goal/KPI undefined; checks not run; harness cheated; or another loop 
 - `scripts/eval-eval.mjs` — when self-testing answers against `evals/cases.json`
 
 ## Related skills
-- `octocode-research` — code/GitHub/package evidence for claims under test
-- `octocode-skills` — skill folder create/edit/review after ACCEPT
-- `octocode-awareness` — durable lessons / reflect / verify debt
-- `octocode-rfc-generator` — document success metrics in `KPI.md`
-- `octocode-prompt-optimizer` — prompt/trigger wording only (still run this KPI loop)
-- `octocode-brainstorming` — worth-building before standing up an eval suite
-
+- `octocode-research` — evidence for claims under test · `octocode-skills` — folder edits after ACCEPT
+- `octocode-awareness` — durable lessons / verify debt · `octocode-rfc-generator` — `KPI.md`
+- `octocode-prompt-optimizer` — wording only (still run this KPI loop)
+- `octocode-brainstorming` — worth-building before an eval suite
 Install: `npx octocode skill --name octocode-eval`.

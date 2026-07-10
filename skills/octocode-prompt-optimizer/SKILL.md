@@ -40,7 +40,7 @@ Use Full Path for multi-section, ambiguous, tool-facing, or high-risk work; Fast
 - Apply external/file changes only after VALIDATE and with authority; otherwise return a complete rewrite or patch-style delta.
 
 ## Related skills
-- `octocode-eval` — held-out scenarios / KPI before accepting prompt changes
+- `octocode-eval` — held-out/KPI; stub `references/improve-loop.md` if eval unavailable
 - `octocode-skills` — SKILL.md structure/review after wording fixes
 - `octocode-research` — verify cited commands/paths/schemas in code
 - `octocode-awareness` — shared-repo coordination for AGENTS/skill edits
@@ -53,3 +53,4 @@ Use Full Path for multi-section, ambiguous, tool-facing, or high-risk work; Fast
 - [`context-budget`](references/context-budget.md), [`prompt-caching`](references/prompt-caching.md) — when tool input/output, retrieval, pagination, compaction, handoffs, or repeated prompt prefixes need token discipline.
 - [`evaluation-data`](references/evaluation-data.md) — when validating prompt/tool changes with scenarios, verifiers, metrics, and failure evidence.
 - [`untrusted-content`](references/untrusted-content.md) — when prompts consume search results, files, tool output, web content, or user-provided instructions.
+- [`improve-loop`](references/improve-loop.md) — stub; prefer `octocode-eval` for full goal→KPI

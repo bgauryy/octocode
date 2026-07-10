@@ -32,8 +32,8 @@ When Octocode-backed code research is needed, use `octocode-research` if install
 If there are 20+ issues, triage the top 10 by impact and confidence, then separate important findings from redundant noise.
 
 ## Related skills
+- `octocode-eval` — goal→KPI; stub `references/improve-loop.md` if eval unavailable
 - `octocode-research` — Octocode-backed inspect before roasting
-- `octocode-eval` — goal→KPI when improving this skill
 - `octocode-prompt-optimizer` — tone/instruction wording only
 - `octocode-awareness` — shared-repo locks when roasting live work
 - `octocode-skills` — edit/review this skill folder
@@ -47,6 +47,7 @@ If there are 20+ issues, triage the top 10 by impact and confidence, then separa
 - `references/tone-personas.md` — when adjusting severity level, persona, audience, or awkward targets.
 - `references/redemption-flow.md` — when the user asks what to fix or picks a repair path.
 - `references/parallel-roasting.md` — when roasting a large codebase, monorepo, or many categories.
+- `references/improve-loop.md` — stub; prefer `octocode-eval` for full goal→KPI
 
 ## Output
 

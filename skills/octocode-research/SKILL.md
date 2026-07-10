@@ -19,7 +19,7 @@ Investigate; Review PRs/diffs (`references/workflow-pr-review.md`); Change after
 5. Ask before broad public contracts, deletes/renames, thin evidence, or 3+ unrelated spaces.
 6. Edits: smallest scoped patch; report checks that **actually ran**.
 7. Broad/contested work: fan out subagents, merge on conflict, re-verify anchors.
-8. **Results beat words:** prove claims with facts (`file:line`, exact reads) and deterministic runs (package tests, eval scripts, CLI, or code execution). Report exit codes and outputs that actually ran. Unrun summaries are leads, not proof.
+8. **Results beat words:** cite `file:line` / exact reads and report exit codes from checks that actually ran.
 
 ## Reference Map
 Before any task, read `references/algorithm.md` first (routing, evidence grades, failure signals).
@@ -29,18 +29,15 @@ Before any task, read `references/algorithm.md` first (routing, evidence grades,
 - when general research/validation: `references/research-flow.md` — non-code research flow
 - when ranking repos: `references/github-landscape.md` — ecosystem prior art
 - when contested/deep decisions: `references/long-research.md` — durable decision brief
-- when evidence keeps shifting: `references/loop-mode.md` — investigation Act→Observe→Learn
-- when improving with goal→KPI: prefer `octocode-eval`; stub `references/improve-loop.md` if eval unavailable
+- when evidence keeps shifting: `references/loop-mode.md` — Act→Observe→Learn until evidence converges
+- when improving with goal→KPI: prefer `octocode-eval`; else stub `references/improve-loop.md`
 - when command/MCP/schema details matter: `references/octocode.md` — transport and tool syntax
-Should-we-build / diverge → `octocode-brainstorming`.
+Should-we-build → `octocode-brainstorming`.
 
 ## Related skills
-- `octocode-eval` — goal→KPI / keep-discard / held-out (not investigation loops)
-- `octocode-brainstorming` — worth-building before deep research
-- `octocode-rfc-generator` — decision docs after evidence converges
-- `octocode-roast` — blunt code critique with file:line
-- `octocode-subagent` — fan-out contested probes
-- `octocode-awareness` — shared-repo locks / memory / verify debt
+- `octocode-eval` — goal→KPI / held-out (not investigation loops)
+- `octocode-brainstorming` — worth-building · `octocode-rfc-generator` — decision docs
+- `octocode-roast` — critique · `octocode-subagent` — fan-out · `octocode-awareness` — locks/memory
 - `octocode-skills` — edit/review this skill folder
 
 ## Scripts
