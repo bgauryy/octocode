@@ -60,7 +60,7 @@ export type GithubCodeSearchTransformOptions = {
  * fragment, or `null` if the predicate is not a provider-expressible path-field
  * equality (those still require materialization, per the planner files lane).
  */
-export function githubPathFieldParams(
+function githubPathFieldParams(
   where: Predicate
 ): GithubCodeSearchToolQuery | null {
   if (where.kind !== 'field' || where.op !== '=') return null;

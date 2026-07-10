@@ -670,9 +670,7 @@ function semanticPagination(
 
 /* --------------------------- target adapters ---------------------------- */
 
-export async function executeRepositories(
-  query: OqlQuery
-): Promise<AdapterResult> {
+async function executeRepositories(query: OqlQuery): Promise<AdapterResult> {
   const { owner } = splitRepo(query.from);
   const forwarded = withOqlPaging(query, 'limit');
   const rawLanguage =
@@ -730,7 +728,7 @@ function multiTermRepoQuery(forwarded: Record<string, unknown>): boolean {
   return typeof terms === 'string' && terms.trim().includes(' ');
 }
 
-export async function executePackages(query: OqlQuery): Promise<AdapterResult> {
+async function executePackages(query: OqlQuery): Promise<AdapterResult> {
   const result = await runDirect('npmSearch', { ...withOqlPaging(query) });
   return finishRecords(
     result,
@@ -740,7 +738,7 @@ export async function executePackages(query: OqlQuery): Promise<AdapterResult> {
   );
 }
 
-export async function executeHistory(query: OqlQuery): Promise<AdapterResult> {
+async function executeHistory(query: OqlQuery): Promise<AdapterResult> {
   const { owner, repo } = splitRepo(query.from);
   const commits = query.target === 'commits';
 
@@ -1266,9 +1264,7 @@ export function computeLineDiff(baseText: string, headText: string): LineDiff {
   return { additions, deletions, unchanged, patch: lines.join('\n') };
 }
 
-export async function executeArtifacts(
-  query: OqlQuery
-): Promise<AdapterResult> {
+async function executeArtifacts(query: OqlQuery): Promise<AdapterResult> {
   const path =
     query.from?.kind === 'local'
       ? query.from.path
@@ -1374,9 +1370,7 @@ function artifactContentContinuation(
   };
 }
 
-export async function executeSemantics(
-  query: OqlQuery
-): Promise<AdapterResult> {
+async function executeSemantics(query: OqlQuery): Promise<AdapterResult> {
   let uri: string | undefined;
   let workspaceRoot: string | undefined;
   const provenance: AdapterResult['provenance'] = [];
@@ -1585,7 +1579,7 @@ function semanticSource(query: OqlQuery, uri: string): QuerySource {
   return query.from ?? { kind: 'local', path: uri };
 }
 
-export async function executeResearch(query: OqlQuery): Promise<AdapterResult> {
+async function executeResearch(query: OqlQuery): Promise<AdapterResult> {
   const p = params(query);
   const root =
     query.from?.kind === 'local'
@@ -1737,7 +1731,7 @@ export async function executeResearch(query: OqlQuery): Promise<AdapterResult> {
   };
 }
 
-export async function executeGraph(query: OqlQuery): Promise<AdapterResult> {
+async function executeGraph(query: OqlQuery): Promise<AdapterResult> {
   const p = params(query);
   const root =
     query.from?.kind === 'local'

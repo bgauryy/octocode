@@ -240,9 +240,7 @@ const graphParams = z
   .passthrough();
 
 /** Per-target params schema; targets without a `params` bag are absent. */
-export const TARGET_PARAM_SCHEMAS: Partial<
-  Record<OqlActiveTarget, z.ZodTypeAny>
-> = {
+const TARGET_PARAM_SCHEMAS: Partial<Record<OqlActiveTarget, z.ZodTypeAny>> = {
   semantics: semanticsParams,
   repositories: repositoriesParams,
   packages: packagesParams,

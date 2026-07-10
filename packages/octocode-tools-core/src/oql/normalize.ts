@@ -85,11 +85,6 @@ function fail(...diagnostics: ReturnType<typeof diagnostic>[]): never {
   throw new OqlValidationError(diagnostics);
 }
 
-function asArray<T>(v: T | T[] | undefined): T[] | undefined {
-  if (v === undefined) return undefined;
-  return Array.isArray(v) ? v : [v];
-}
-
 /* ----------------------------- public API ------------------------------- */
 
 export function normalizeInput(input: OqlSearchInput): OqlCanonicalInput {
@@ -940,5 +935,3 @@ function formatZodError(error: unknown): string {
   }
   return 'Invalid OQL query.';
 }
-
-export { asArray };

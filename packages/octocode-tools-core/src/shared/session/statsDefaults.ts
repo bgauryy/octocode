@@ -4,9 +4,7 @@ function sumCounterMap(counters: Record<string, number>): number {
   return Object.values(counters).reduce((sum, count) => sum + count, 0);
 }
 
-export function calculateTotalUsageStats(
-  stats: SessionStats
-): SessionTotalUsageStats {
+function calculateTotalUsageStats(stats: SessionStats): SessionTotalUsageStats {
   const charsSavedByTool = stats.charsSavedByTool ?? {};
   const githubCacheHits = stats.githubCacheHits ?? {
     hits: {},

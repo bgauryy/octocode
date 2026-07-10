@@ -140,6 +140,51 @@ describe('ghSearchCode finalizer — next.getLines continuation', () => {
     expect(next['getLines:q2']!.query.matchString).toBe('beta');
   });
 
+  it('maps repoState renamed → ghRepoRenamed diagnostic + corrected retry continuation', () => {
+    const queries = [
+      { id: 'q1', keywords: ['localSearchCode'], owner: 'bgauryy', repo: 'octocode-mcp' },
+    ];
+    const results = [
+      {
+        id: 'q1',
+        status: 'success',
+        data: {
+          results: [],
+          repoState: { kind: 'renamed', fullName: 'bgauryy/octocode' },
+        },
+      },
+    ];
+    const sc = runFinalizer(queries, results);
+    const diags = sc.diagnostics as Array<{ code?: string; level: string }>;
+    expect(diags?.some(d => d.code === 'ghRepoRenamed')).toBe(true);
+    const next = sc.next as Record<string, { query: Record<string, unknown> }>;
+    expect(next['retryRenamed:q1']!.query).toMatchObject({
+      owner: 'bgauryy',
+      repo: 'octocode',
+      keywords: ['localSearchCode'],
+    });
+  });
+
+  it('maps repoState archived/notFound → coded diagnostics', () => {
+    const queries = [{ id: 'q1' }, { id: 'q2' }];
+    const results = [
+      {
+        id: 'q1',
+        status: 'success',
+        data: { results: [], repoState: { kind: 'archived' } },
+      },
+      {
+        id: 'q2',
+        status: 'success',
+        data: { results: [], repoState: { kind: 'notFound' } },
+      },
+    ];
+    const sc = runFinalizer(queries, results);
+    const codes = (sc.diagnostics as Array<{ code?: string }>).map(d => d.code);
+    expect(codes).toContain('ghRepoArchived');
+    expect(codes).toContain('ghRepoNotFound');
+  });
+
   it('omits next when there are no keywords to anchor on', () => {
     const queries = [{ id: 'q1' }];
     const results = [

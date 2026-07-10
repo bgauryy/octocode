@@ -1,9 +1,10 @@
 import type { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types.js';
 import { getOctokit } from './client.js';
 import { handleGitHubAPIError } from './errors.js';
+import { parseHasMore } from './history.js';
 import type { GitHubAPIResponse } from './githubAPI.js';
 
-export type ReleaseRow = {
+type ReleaseRow = {
   tagName: string;
   name?: string;
   publishedAt?: string;
@@ -28,11 +29,6 @@ export type ReleasesResult = {
     nextPage?: number;
   };
 };
-
-function parseHasMore(linkHeader: string | undefined): boolean {
-  if (!linkHeader) return false;
-  return linkHeader.includes('rel="next"');
-}
 
 export async function fetchReleases(
   params: { owner: string; repo: string; page: number; perPage: number },

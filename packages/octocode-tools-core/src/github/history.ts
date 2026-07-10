@@ -9,7 +9,8 @@ import type {
   HistoryResult,
 } from './githubAPI.js';
 
-function parseHasMore(linkHeader: string | undefined): boolean {
+/** GitHub REST pagination: a `rel="next"` Link header means more pages exist. */
+export function parseHasMore(linkHeader: string | undefined): boolean {
   if (!linkHeader) return false;
   return linkHeader.includes('rel="next"');
 }

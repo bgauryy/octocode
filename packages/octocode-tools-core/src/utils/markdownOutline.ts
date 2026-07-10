@@ -12,11 +12,11 @@ type Fence = {
 
 const MARKDOWN_PATH_RE = /\.(?:md|markdown|mdx)$/i;
 
-export function isMarkdownFilePath(filePath: string): boolean {
+function isMarkdownFilePath(filePath: string): boolean {
   return MARKDOWN_PATH_RE.test(filePath.split(/[?#]/, 1)[0] ?? filePath);
 }
 
-export function extractMarkdownHeadingOutline(
+function extractMarkdownHeadingOutline(
   content: string,
   filePath: string
 ): MarkdownHeading[] | null {

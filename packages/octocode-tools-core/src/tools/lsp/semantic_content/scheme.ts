@@ -56,6 +56,8 @@ export const LspGetSemanticsQueryDisplaySchema = describeQuerySchema(
   queryOverrides
 );
 
+// Public-surface alias: octocode-mcp's public.ts re-exports this name.
+// Do NOT remove as a "duplicate export" — external consumers import it.
 export const LspGetSemanticsQuerySchema = LspGetSemanticsQueryDisplaySchema;
 
 export const BulkLspGetSemanticsQuerySchema = createRelaxedBulkQuerySchema(

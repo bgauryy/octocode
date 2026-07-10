@@ -117,7 +117,9 @@ function createBulkResponse<
     if (!originalQuery) return;
 
     orderedQueries[err.queryIndex] = {
-      id: uniqueQueryIds[err.queryIndex] ?? resolveQueryId(originalQuery, err.queryIndex),
+      id:
+        uniqueQueryIds[err.queryIndex] ??
+        resolveQueryId(originalQuery, err.queryIndex),
       status: 'error',
       data: { error: err.error },
     };
