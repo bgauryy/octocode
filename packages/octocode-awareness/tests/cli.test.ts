@@ -1190,6 +1190,29 @@ describe('work CLI', () => {
     } finally { rmSync(dir, { recursive: true }); }
   });
 
+  it('caps compact work mutation file details while preserving exact totals', () => {
+    const dir = mktemp();
+    const db = join(dir, 'test.sqlite3');
+    try {
+      const args = [
+        'work', 'start', '--agent-id', 'agent-many-files', '--workspace', dir,
+        '--rationale', 'multi-file refactor', '--test-plan', 'focused tests', '--compact',
+      ];
+      for (let index = 0; index < 8; index++) args.push('--file', `src/file-${index}.ts`);
+      const started = ok(db, args);
+      const runId = (started['run'] as Record<string, unknown>)['run_id'] as string;
+      const ended = run(db, [
+        'work', 'end', '--agent-id', 'agent-many-files', '--run-id', runId, '--compact',
+      ]);
+      expect(ended.status).toBe(0);
+      expect(ended.parsed).toMatchObject({ file_count: 8, file_shown_count: 1, file_omitted_count: 7 });
+      expect(ended.parsed?.['files']).toHaveLength(1);
+      expect(Buffer.byteLength(ended.stdout, 'utf8')).toBeLessThanOrEqual(2 * 1024);
+      ok(db, ['verify', 'mark', '--agent-id', 'agent-many-files', '--run-id', runId,
+        '--message', 'compact closeout fixture passed', '--compact']);
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
+
   it('uses OCTOCODE_AGENT_ID for a new Work run', () => {
     const dir = mktemp();
     const db = join(dir, 'test.sqlite3');
@@ -1255,6 +1278,26 @@ describe('workspace status', () => {
   it('locks array is present', () => {
     const result = ok(db, ['workspace', 'status']);
     expect(Array.isArray(result['locks'])).toBe(true);
+  });
+
+  it('keeps compact lock status bounded and reports exact omissions', () => {
+    const root = mktemp();
+    const dbPath = join(root, 'test.sqlite3');
+    try {
+      for (let index = 0; index < 3; index++) {
+        const file = join(root, `sensitive-${index}.txt`);
+        writeFileSync(file, String(index));
+        ok(dbPath, [
+          'lock', 'acquire', '--agent-id', `agent-${index}`, '--workspace', root,
+          '--target-file', file, '--rationale', `protect ${index}`, '--test-plan', `check ${index}`, '--compact',
+        ]);
+      }
+      const compact = run(dbPath, ['workspace', 'status', '--workspace', root, '--compact']);
+      expect(compact.status).toBe(0);
+      expect(compact.parsed).toMatchObject({ lock_count: 3, lock_shown_count: 1, lock_omitted_count: 2 });
+      expect(compact.parsed?.['locks']).toHaveLength(1);
+      expect(Buffer.byteLength(compact.stdout, 'utf8')).toBeLessThanOrEqual(2 * 1024);
+    } finally { rmSync(root, { recursive: true, force: true }); }
   });
 
   it('memory_labels is present', () => {

@@ -114,7 +114,7 @@ Environment controls:
 | `OCTOCODE_NO_VERIFY_GATE=1` | Disable stop gate only with replacement process. |
 | `OCTOCODE_NO_NOTIFY=1` | Disable prompt briefing. |
 | `OCTOCODE_NO_SESSION_CAPTURE=1` | Disable automatic handoff capture. |
-| `OCTOCODE_NOTIFY_RUN_DIGEST=1` | Opt in to periodic prompt-time digest. |
+| `OCTOCODE_NOTIFY_RUN_DIGEST=1` | Opt in to a scoped, deduped prompt-time maintenance preview; never applies cleanup. |
 | `OCTOCODE_ALLOW_HARNESS_APPLY=1` | Open harness edit gate; branch rule still applies. |
 
 Shell/Pi parity, wrapper extraction, installer repair, peer dedupe, guard order, and

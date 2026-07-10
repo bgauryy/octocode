@@ -26,7 +26,8 @@ ATTEND → RESEARCH (octocode-skills) → PLAN (bounded edits) → USER GATE →
 ```
 
 1. **Attend** — `attend`; recall prior harness lessons / rejected edits for this skill path.
-2. **Research opportunities** — with `octocode-skills`: discover prior art (`search-playbook`, registries), inspect real `SKILL.md` folders, rate fit (`quality-rubric`). Use `npx octocode` / MCP when you need code or GitHub evidence (`references/octocode.md`).
+2. **Research opportunities** — with `octocode-skills`: discover prior art, inspect real `SKILL.md` folders, and rate fit. Use `npx octocode` / MCP for code or GitHub evidence (`references/octocode.md`).
+   For hard judgment use `references/self-reflection-dialogue.md`; for independent challenge use `references/subagent-rubber-duck.md`.
 3. **Create** — `octocode-skills` → `create-local-skill.md`: synthesize need → plan → approve → write lobby + one-concept refs → `skill-review.mjs`.
 4. **Improve / update** — `self-improvement.md` (mode gate) → `skill-improve.md` (READ→…→VERIFY). Prefer patch-mode: add/delete/replace one concept; lobby owns flow; refs stay ≤50 one-concept.
 5. **Gate** — no write without user approval when the skill is shared; no accept without review **0 ERROR** and a held-out smoke (task outside the failure that motivated the edit).

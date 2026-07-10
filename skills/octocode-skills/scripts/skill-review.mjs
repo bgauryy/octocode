@@ -135,6 +135,10 @@ function stripFencedLines(str) {
     .join('\n');
 }
 
+function maskFrontmatter(content) {
+  return content.replace(/^---\n[\s\S]*?\n---/, (block) => block.replace(/[^\n]/g, ' '));
+}
+
 function referenceMentions(content) {
   return [...stripFencedLines(content).matchAll(/references\/([A-Za-z0-9._-]+\.md)/g)].map((m) => m[1]);
 }
@@ -438,14 +442,27 @@ function reviewSkill(skillDir) {
     add('WARN', 'script-routing', `scripts/ has ${scriptFiles.length} file(s), but SKILL.md never mentions scripts/; route deterministic capabilities to scripts instead of prose`);
 
   const directRefLinks = new Set(referenceMentions(bodyWithoutFm));
+  const refContentByName = new Map(refContents.map((ref) => [ref.name, ref.content]));
+  const reachableRefLinks = new Set();
+  const pendingRefLinks = [...directRefLinks];
+  while (pendingRefLinks.length > 0) {
+    const current = pendingRefLinks.shift();
+    if (!current || reachableRefLinks.has(current)) continue;
+    reachableRefLinks.add(current);
+    const currentContent = refContentByName.get(current);
+    if (!currentContent) continue;
+    for (const linked of referenceMentions(currentContent)) {
+      if (!reachableRefLinks.has(linked)) pendingRefLinks.push(linked);
+    }
+  }
   for (const f of refFiles) {
     if (NAME_EXEMPT.has(f)) continue;
     const resourcePath = `references/${f}`;
-    if (!directRefLinks.has(f)) {
-      add('WARN', 'reference-map-complete', `${resourcePath} is not listed in SKILL.md; every bundled reference should be concisely routed from the main skill`);
+    if (!reachableRefLinks.has(f)) {
+      add('WARN', 'reference-map-complete', `${resourcePath} is not reachable from a conditional SKILL.md route; link it from a routed reference or the lobby`);
       continue;
     }
-    if (!routeLines(bodyLines, resourcePath).some((line) => isConciseRoute(line, resourcePath)))
+    if (directRefLinks.has(f) && !routeLines(bodyLines, resourcePath).some((line) => isConciseRoute(line, resourcePath)))
       add('WARN', 'route-description', `${resourcePath} is listed in SKILL.md but needs a concise same-line purpose/load condition (3-${ROUTE_DESCRIPTION_WORDS} words)`);
   }
 
@@ -634,6 +651,7 @@ function reviewSkill(skillDir) {
 
     const body = stripNoise(content);
     const bodyLines = body.split('\n').filter((l) => l.trim());
+    const proseContent = maskFrontmatter(content);
 
     // W-rigid: high density of imperative modals
     const rigidHits = [...body.matchAll(/\b(MUST|NEVER|ALWAYS|FORBIDDEN|REQUIRED)\b/g)];
@@ -643,7 +661,7 @@ function reviewSkill(skillDir) {
     // W-verbose: filler phrases
     const FILLER = /\b(in order to|it is important|make sure to|please note|note that|as mentioned|be sure to|ensure that you|take care to)\b/i;
     let fillerCount = 0;
-    content.split('\n').forEach((ln, i) => {
+    proseContent.split('\n').forEach((ln, i) => {
       if (FILLER.test(ln) && ++fillerCount <= 3)
         add('WARN', 'verbose', `${label} line ${i + 1}: filler phrase — rewrite concisely`);
     });
@@ -652,7 +670,7 @@ function reviewSkill(skillDir) {
     let vagueActionCount = 0;
     let decisionCount = 0;
     let referentialCount = 0;
-    stripFencedLines(content).split('\n').forEach((ln, i) => {
+    stripFencedLines(proseContent).split('\n').forEach((ln, i) => {
       if (isRuleDocLine(ln)) return;
       if (CRITICAL_LINE.test(ln) && WEAK_WORD.test(ln) && ++weakCriticalCount <= 3)
         add('WARN', 'weak-critical-language', `${label} line ${i + 1}: weak word inside critical rule; use MUST/REQUIRED or mark it explicitly optional`);
@@ -672,7 +690,7 @@ function reviewSkill(skillDir) {
     const CLARITY_DOUBLE_NEG = /\bnot\b.{1,60}\bnot\b|\bnever\b.{1,60}\bnot\b|\bnot\b.{1,60}\bwithout\b/i;
     const CLARITY_LINE_WORDS = 35;
     let clarityCount = 0;
-    stripFencedLines(content).split('\n').forEach((ln, i) => {
+    stripFencedLines(proseContent).split('\n').forEach((ln, i) => {
       if (clarityCount >= 3 || isRuleDocLine(ln)) return;
       const clean = ln.replace(/`[^`]*`/g, '').replace(/\[[^\]]*\]\([^)]*\)/g, '').trim();
       if (!clean || /^#{1,6}\s/.test(clean) || /^\|/.test(clean)) return;

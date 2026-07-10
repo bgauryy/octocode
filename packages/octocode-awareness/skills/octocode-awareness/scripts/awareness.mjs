@@ -5178,6 +5178,12 @@ function getWorkspaceStatus(db3, params = {}) {
     lockParams.push(artifact2);
   }
   const lockWhere = lockWhereParts.length > 0 ? `WHERE ${lockWhereParts.join(" AND ")}` : "";
+  const lockCount = db3.prepare(
+    `SELECT COUNT(*) AS count
+     FROM locks fl
+     JOIN task_runs ai ON ai.run_id = fl.run_id
+     ${lockWhere}`
+  ).get(...lockParams).count;
   const locks = db3.prepare(
     `SELECT fl.file_path, ai.agent_id, ai.session_id, ai.workspace_path, ai.artifact, fl.run_id,
             'EXCLUSIVE' AS lock_type, fl.acquired_at, fl.expires_at
@@ -5197,6 +5203,7 @@ function getWorkspaceStatus(db3, params = {}) {
     in_progress_tasks: inProgressTasks,
     verify_tasks: verifyTasks,
     open_refinements: openRefinements,
+    lock_count: lockCount,
     locks
   };
 }
@@ -6945,6 +6952,8 @@ function repoProfileRows(db3, params) {
   const lockWhere = [];
   const lockBinds = [];
   addExactScope(lockWhere, lockBinds, workspaceArtifactScope(scope), "t");
+  lockWhere.push("t.status = 'ACTIVE'", "l.expires_at > ?");
+  lockBinds.push(utcNow2());
   const refinementWhere = ["state IN ('open','ongoing')"];
   const refinementBinds = [];
   addExactScope(refinementWhere, refinementBinds, scope);
@@ -7643,8 +7652,9 @@ function renderRepoAgentsMd(all) {
   const sections = all.sections ?? {};
   const profile = sections["repo-profile"]?.rows ?? [];
   const counts = Object.fromEntries(profile.map((row) => [String(row["metric"]), row["count"] ?? 0]));
-  const gotchas = (sections["gotchas"]?.rows ?? []).slice(0, 5);
-  const lessons = (sections["lessons"]?.rows ?? []).slice(0, 5);
+  const promotable = (row) => Number(row["missing_reference_count"] ?? 0) === 0;
+  const gotchas = (sections["gotchas"]?.rows ?? []).filter(promotable).slice(0, 5);
+  const lessons = (sections["lessons"]?.rows ?? []).filter(promotable).slice(0, 5);
   const projectionWarnings2 = [
     Number(counts["missing_file_refs"] ?? 0) > 0 ? `Missing/stale file refs (${counts["missing_file_refs"]}) \u2014 use \`query files --format table\` before trusting bookmarks.` : null,
     Number(counts["active_memories"] ?? 0) > 200 ? `Active memories high (${counts["active_memories"]}) \u2014 prefer recall/CSV over full Markdown.` : null,
@@ -7660,7 +7670,7 @@ function renderRepoAgentsMd(all) {
     "",
     "## How To Use",
     "",
-    "- Live: `octocode-awareness attend|work list|query|memory recall|workspace status --workspace <repo>`.",
+    "- Live: `octocode-awareness attend --workspace <repo> --compact`; use targeted `work list`, `query workboard`, `memory recall`, or `workspace status` commands with the same workspace.",
     "- Wiki leads below are projections, not proof. If root `AGENTS.md` lacks this pointer, use the source guidance and ask before editing root `AGENTS.md` unless already authorized.",
     "",
     "## Snapshot",
@@ -7682,7 +7692,7 @@ function renderRepoAgentsMd(all) {
     "- Run `attend`, then inspect `FilesUnderWork` before editing. Record ordinary work with `work start`; overlap is allowed and visible.",
     "- Exclusive locks are reserved for sensitive files. An active exclusive lock blocks conflicting work.",
     "- Use targeted `memory recall --query <task> --smart --compact`; open one matching wiki lead only when live SQLite is unavailable or more detail is needed.",
-    "- Prefer live `attend` / `work list` / `query` when freshness matters; `repo inject` after important memories.",
+    "- Prefer live `attend` / `work list` / `query` when freshness matters; run `repo inject` only when file readers need a fresh snapshot.",
     "",
     "## Projection Health",
     "",
@@ -9124,13 +9134,15 @@ async function runStopVerify(payload) {
   }
   return 0;
 }
-function maybeRunDigest(payload) {
-  if (process.env.OCTOCODE_NO_DIGEST === "1") return;
-  if (process.env.OCTOCODE_NOTIFY_RUN_DIGEST !== "1") return;
+function maybePreviewDigest(payload) {
+  if (process.env.OCTOCODE_NO_DIGEST === "1") return null;
+  if (process.env.OCTOCODE_NOTIFY_RUN_DIGEST !== "1") return null;
   const intervalHours = Number(process.env.OCTOCODE_DIGEST_INTERVAL_HOURS ?? 4);
   const intervalMs = Number.isFinite(intervalHours) && intervalHours > 0 ? intervalHours * 36e5 : 4 * 36e5;
   const memoryHome2 = dirname5(resolveDbPath(null));
-  const markerPath = join8(memoryHome2, ".last-digest-epoch-ms");
+  const digestScope = workspace(payload) ?? "global";
+  const scopeHash = createHash3("sha256").update(digestScope).digest("hex").slice(0, 12);
+  const markerPath = join8(memoryHome2, `.last-digest-preview-${scopeHash}-epoch-ms`);
   try {
     const database = db();
     let last = 0;
@@ -9141,17 +9153,31 @@ function maybeRunDigest(payload) {
     }
     const now = Date.now();
     if (!last || now - last >= intervalMs) {
-      digest(database, { workspace: workspace(payload), memoryHome: memoryHome2 });
+      const preview = digest(database, {
+        workspace: workspace(payload),
+        memoryHome: memoryHome2,
+        dry_run: true
+      });
       mkdirSync5(memoryHome2, { recursive: true });
       writeFileSync4(markerPath, String(now), "utf8");
+      const pressure = {
+        archive: preview.would_archive ?? 0,
+        memories: preview.would_prune_old ?? 0,
+        locks: preview.would_prune_locks ?? 0,
+        refinements: preview.would_prune_refinements ?? 0
+      };
+      if (Object.values(pressure).some((count) => count > 0)) {
+        return `Maintenance pressure: archive ${pressure.archive}, prune memories ${pressure.memories}, locks ${pressure.locks}, refinements ${pressure.refinements}. Review with octocode-awareness maintenance digest --dry-run --workspace "$PWD" --compact; apply only after review.`;
+      }
     }
   } catch (error) {
     console.error(`octocode-awareness digest warning (continuing): ${error instanceof Error ? error.message : String(error)}`);
   }
+  return null;
 }
 async function runNotifyDeliver(payload) {
   if (process.env.OCTOCODE_NO_NOTIFY === "1") return 0;
-  maybeRunDigest(payload);
+  const maintenanceContext = maybePreviewDigest(payload);
   try {
     const database = db();
     registerHookAgent(database, payload, "hook:notify-deliver");
@@ -9161,9 +9187,10 @@ async function runNotifyDeliver(payload) {
       artifact: artifact(payload) ?? void 0,
       format: "hook"
     });
-    if (result.additionalContext) {
+    const additionalContext = [result.additionalContext, maintenanceContext].filter(Boolean).join("\n");
+    if (additionalContext) {
       process.stdout.write(JSON.stringify({
-        additionalContext: result.additionalContext
+        additionalContext
       }) + "\n");
     }
   } catch (error) {
@@ -10052,6 +10079,32 @@ function cmdReleaseFileLock(db3, args2, dbPath2, opts2) {
   }
   return emit({ db_path: dbPath2, ...result }, 0, opts2);
 }
+function projectCompactWorkMutation(result) {
+  const files = result.files.slice(0, 1).map((file) => ({
+    file_path: file.file_path,
+    source: file.source,
+    expires_at: file.expires_at,
+    ...file.ended_at ? { ended_at: file.ended_at } : {}
+  }));
+  const peers = result.peers.slice(0, 1).map((peer) => ({
+    run_id: peer.run_id,
+    task_id: peer.task_id,
+    agent_id: peer.agent_id,
+    file_path: peer.file_path,
+    exclusive: peer.exclusive,
+    expires_at: peer.expires_at
+  }));
+  return {
+    ...result,
+    file_count: result.files.length,
+    file_shown_count: files.length,
+    file_omitted_count: Math.max(0, result.files.length - files.length),
+    files,
+    peer_shown_count: peers.length,
+    peer_omitted_count: Math.max(0, result.peer_count - peers.length),
+    peers
+  };
+}
 function cmdWork(db3, args2, dbPath2, opts2) {
   const action = requiredArg(args2, "action");
   const rawFiles = args2["target_file"] ?? args2["file"];
@@ -10082,7 +10135,8 @@ function cmdWork(db3, args2, dbPath2, opts2) {
       exclusive: Boolean(args2["exclusive"]),
       ttlMs
     });
-    return emit({ db_path: dbPath2, ...result }, result.ok ? 0 : 2, opts2);
+    const payload = opts2.compact && result.ok ? projectCompactWorkMutation(result) : result;
+    return emit({ db_path: dbPath2, ...payload }, result.ok ? 0 : 2, opts2);
   }
   if (action === "touch") {
     if (!runId) die("--run-id is required");
@@ -10092,7 +10146,8 @@ function cmdWork(db3, args2, dbPath2, opts2) {
       targetFiles: targetFiles.length > 0 ? targetFiles : void 0,
       ttlMs
     });
-    return emit({ db_path: dbPath2, ...result }, 0, opts2);
+    const payload = opts2.compact ? projectCompactWorkMutation(result) : result;
+    return emit({ db_path: dbPath2, ...payload }, 0, opts2);
   }
   if (action === "end") {
     if (!runId) die("--run-id is required");
@@ -10101,7 +10156,8 @@ function cmdWork(db3, args2, dbPath2, opts2) {
       runId,
       targetFiles: targetFiles.length > 0 ? targetFiles : void 0
     });
-    return emit({ db_path: dbPath2, ...result }, 0, opts2);
+    const payload = opts2.compact ? projectCompactWorkMutation(result) : result;
+    return emit({ db_path: dbPath2, ...payload }, 0, opts2);
   }
   if (action === "list" || action === "show") {
     if (action === "show" && targetFiles.length !== 1) die("work show requires exactly one --file");
@@ -10666,6 +10722,8 @@ function cmdStatus(db3, dbPath2, args2, opts2) {
   );
   const limit = Math.min(100, Math.max(1, parseInt(String(args2["limit"] ?? "20"), 10) || 20));
   const status = getWorkspaceStatus(db3, { workspace_path: wsPath, artifact: artifact2 });
+  const lockLimit = opts2.compact ? 1 : limit;
+  const locks = status.locks.slice(0, lockLimit);
   return emit({
     db_path: dbPath2,
     fts_enabled: hasFts(db3),
@@ -10673,7 +10731,15 @@ function cmdStatus(db3, dbPath2, args2, opts2) {
     memory_states: memStates,
     memory_labels: memLabels,
     ...status,
-    locks: status.locks.slice(0, limit),
+    lock_count: status.lock_count,
+    lock_shown_count: locks.length,
+    lock_omitted_count: Math.max(0, status.lock_count - locks.length),
+    locks: opts2.compact ? locks.map((lock) => ({
+      file_path: lock.file_path,
+      agent_id: lock.agent_id,
+      run_id: lock.run_id,
+      expires_at: lock.expires_at
+    })) : locks,
     workspace_path: wsPath,
     artifact: artifact2
   }, 0, opts2);
@@ -10733,9 +10799,8 @@ BUNDLED SKILLS:
   octocode-awareness : ${BUNDLED_SKILLS_DIR}/octocode-awareness
   octocode-skills    : ${BUNDLED_SKILLS_DIR}/octocode-skills
 
-  The octocode-awareness skill contains ALL instructions for using every CLI command:
-  memory, locks, planning, coordination, signals, verification, repo context, and hooks.
-  Once installed, your agent reads the skill and knows exactly how and when to call this CLI.
+  The octocode-awareness skill owns operating policy for memory, locks, planning,
+  coordination, verification, repo context, and hooks. Focused help/schema owns flags and payloads.
 
   Install octocode-awareness from its bundled path using your agent platform's skill mechanism.
   octocode-skills is optional and only needed to discover, review, or improve skills.

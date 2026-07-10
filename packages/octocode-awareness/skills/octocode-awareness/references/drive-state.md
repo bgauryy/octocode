@@ -2,7 +2,7 @@
 
 Read this when `attend` returns `drive_state`, `organ_state`, learning gaps, alternatives, or a transactive map and the agent must decide what to do next.
 
-**Compact default:** `attend --compact` omits `drive_state` and `organ_state` to save tokens. Re-run without `--compact`, or pass `--explain-organ`, when you need those fields. The lobby still works from workboard columns, gaps, and `next`.
+**Compact default:** `attend --compact` omits `drive_state` and `organ_state` to save tokens. Re-run without `--compact`, or pass `--explain-organ`, when you need those fields. The lobby still works from counts, workboard, evidence, and `next`.
 
 Awareness is the shared system formed by agents, sources, rows, locks, signals, refinements, memories, and projections. It is operational workspace orientation, not sentience or a permanent persona.
 
@@ -16,7 +16,7 @@ Awareness is the shared system formed by agents, sources, rows, locks, signals, 
 | `resource_leads` | Choosing sources with provenance; verify before use. |
 | `alternatives` | Comparing a few viable options before commitment. |
 | `team_norms` | Preserving evidence-first, bounded, cooperative behavior. |
-| `transactive_map` | Finding who/what knows what and checking freshness. |
+| `transactive_map` | Inspecting current shared-state IDs and freshness; it is not an expertise map. |
 | `organ_state` | Seeing pressure across senses, memory, verification, bridge, and projection health. |
 
 ## Operating Rules

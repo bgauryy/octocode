@@ -228,8 +228,8 @@ function openRefinementCount(
  * — Top mine-weakness cluster (failure_signature with count >=2)
  * — Count of open refinements
  * Designed to be called by notify-deliver.sh before supported user prompts.
- * Periodic digest cleanup is a separate opt-in path controlled by
- * OCTOCODE_NOTIFY_RUN_DIGEST=1.
+ * Optional prompt-time maintenance preview is controlled by
+ * OCTOCODE_NOTIFY_RUN_DIGEST=1; it never applies the digest.
  */
 // MAINT-3: Briefing label allowlist as a named constant — previously buried inside
 // notifyGet making it invisible and hard to tune.
@@ -705,7 +705,7 @@ export function waitForLock(
   };
 }
 
-// ─── Background digest ────────────────────────────────────────────────────
+// ─── Explicit maintenance digest ─────────────────────────────────────────
 
 export interface DigestResult {
   ok: true;
@@ -722,7 +722,8 @@ export interface DigestResult {
 }
 
 /**
- * Background consolidation — designed to run non-blocking every few hours.
+ * Explicit maintenance operation. Callers preview with dry_run before deciding
+ * whether to apply it; prompt hooks are preview-only.
  * 1. Archive memories whose valid_to has passed
  * 2. Hard-delete SUPERSEDED memories older than retention_days
  * 3. Prune expired file locks
@@ -876,6 +877,7 @@ export interface WorkspaceStatusResult {
   in_progress_tasks: number;
   verify_tasks: number;
   open_refinements: number;
+  lock_count: number;
   locks: WorkspaceLockEntry[];
 }
 
@@ -948,6 +950,12 @@ export function getWorkspaceStatus(
   if (wsPath) { lockWhereParts.push('ai.workspace_path = ?'); lockParams.push(wsPath); }
   if (artifact) { lockWhereParts.push('(ai.artifact = ? OR ai.artifact IS NULL)'); lockParams.push(artifact); }
   const lockWhere = lockWhereParts.length > 0 ? `WHERE ${lockWhereParts.join(' AND ')}` : '';
+  const lockCount = (db.prepare(
+    `SELECT COUNT(*) AS count
+     FROM locks fl
+     JOIN task_runs ai ON ai.run_id = fl.run_id
+     ${lockWhere}`
+  ).get(...lockParams) as { count: number }).count;
   const locks = db.prepare(
     `SELECT fl.file_path, ai.agent_id, ai.session_id, ai.workspace_path, ai.artifact, fl.run_id,
             'EXCLUSIVE' AS lock_type, fl.acquired_at, fl.expires_at
@@ -968,6 +976,7 @@ export function getWorkspaceStatus(
     in_progress_tasks: inProgressTasks,
     verify_tasks: verifyTasks,
     open_refinements: openRefinements,
+    lock_count: lockCount,
     locks,
   };
 }

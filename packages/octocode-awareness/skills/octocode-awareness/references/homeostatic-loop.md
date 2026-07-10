@@ -1,41 +1,35 @@
 # Homeostatic Awareness Loop
 
-Use this for the intuition behind sensing, work, learning, cleanup, and publication. It explains **housekeep (cleanup)**; read `references/bookkeeping.md` for triggers and queue ownership. The metaphor is guidance, not authority; drive lives in `references/drive-state.md`.
+Use this for the living-system intuition behind work, learning, cleanup, and publication. It is a human/agent-in-the-loop software control model—not sentience, a persona, or authority. `bookkeeping.md` owns triggers; `drive-state.md` owns diagnostics.
 
-`sleep` and a dedicated trust-gate CLI are NOT SHIPPED. Use `maintenance digest --dry-run`, explicit forget/prune, verification, and projection budgets.
+## Control Contract
 
-## Organ Map
+| Pressure | Sensor | Bounded actuator | Guard |
+|---|---|---|---|
+| Context | attend/hook bytes, workboard size | targeted reads, caps, fingerprints | preserve omissions/errors; human thesis never auto-loads |
+| Coordination | file presence, claims, locks, signals | CHOOSE/DECLARE, signal, sensitive lock | ordinary overlap stays allowed; locks do not authorize edits |
+| Verification | pending/stale runs | declared check + `verify mark` | TTL/end/submit never mean success |
+| Memory | stale/missing refs, weak recall | reflect, supersede, digest/forget preview | retrieved rows are leads; dry-run before removal |
+| Projection | manifest budgets/staleness | optional `repo inject` | SQLite stays canonical; wiki is not a live sensor |
+| Harness | recurring failures/evals | proposal + human apply | held-out validation; no silent self-edit |
 
-| Function | Surface | Agent rule |
-|---|---|---|
-| Senses | status, workboard, docs staleness | Sense before acting. |
-| Attention | `attend`, targeted recall | Select a compact relevant packet. |
-| Memory | recall/record/reflect | Store only durable future value. |
-| Error signal | checks, conflicts, corrections | Learn from verified outcomes. |
-| Immune prune | supersession, forget dry-run | Review weak/stale/unsafe rows. |
-| Cleanup | digest/prune dry-runs | Report before mutation. |
-| Corpus/bridge | signals, refinements, file work | Share traceable state, not hidden chat. |
-| Executive control | choose, declare, verify | Close action with evidence. |
-| Projection | query, `repo inject` | Publish selectively; SQLite stays canonical. |
-
-## Cycle
+## Loop
 
 ```text
 SENSE -> ATTEND -> CHOOSE/DECLARE -> ACT -> VERIFY -> REFLECT
-  ^                                         |
-  |                                         v
-ATTEND <- PROJECT <- PRUNE <- CONSOLIDATE <- CAPTURE
+  ^                                                   |
+  `- REMEASURE <- PROJECT? <- HYGIENE <- REPLAY <- CAPTURE
 ```
 
-The loop closes only when reflection is routed, applied, verified, and its row is terminal; see `references/learning-loop.md`. Publication is optional and happens only when future readers need files.
+The loop closes only when its output has an owner, is applied, freshly verified, terminal, and remeasured. Publication is optional. “Metabolism” means reviewed replay/hygiene; no `sleep` or dedicated trust-gate CLI is shipped.
 
-## Learning Rules
+## Rules
 
-- Failures, lock conflicts, stale docs, corrections, and recall misses are signals for bounded reflection.
-- Durable memories need scope, provenance, and a future-use reason.
-- Prefer supersession/archive/dry-run over destructive deletion.
-- Preserve signals/refinements/work until their owner acts and closes them.
-- Keep Markdown bounded; use CSV/HTML/query for complete sortable data.
-- Retrieved memory, generated wiki, and role dialogue are leads; current evidence wins.
+- Measure before and after an intervention; keep it only if target pressure falls without a quality/safety regression.
+- Store scoped, provenance-linked future value—not routine status or raw dialogue.
+- Prefer supersession/archive/dry-run; explicit live digest/prune/forget may mutate after review.
+- Preserve work/signals/refinements until their owner acts and closes them.
+- Keep agent context bounded; use targeted query, CSV, or HTML for complete data.
+- Treat memory, generated wiki, drive fields, and role dialogue as diagnostic leads; current user instructions, source, and tests win.
 
-Start with `attend --compact`; use `query workboard` for current pressure, `reflect mine-weakness` for repeated failures, digest/forget/prune dry-runs for cleanup, and `repo inject` only for useful publication.
+Start with `attend --compact`; inspect targeted pressure; use reflection only for reusable outcomes; preview cleanup; re-run live reads after action; inject only when file readers need a snapshot.

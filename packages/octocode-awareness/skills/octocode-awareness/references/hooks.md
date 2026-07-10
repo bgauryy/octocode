@@ -37,5 +37,6 @@ Installer repairs obsolete paths and removes the old separate harness-guard entr
 pre-edit is the single ordered guard+presence hook. Smoke ordinary peer overlap,
 exclusive block, fallback verification, and stderr visibility.
 
-Identity/TTL/payload detail: `hook-semantics.md`. Harness edits require
+Identity/TTL/payload detail: `references/hook-semantics.md`. Session timing and
+handoff detail: `references/session-observability.md`. Harness edits require
 `OCTOCODE_ALLOW_HARNESS_APPLY=1` plus a safe non-main branch.

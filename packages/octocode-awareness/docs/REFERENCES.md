@@ -12,6 +12,36 @@ Runtime behavior is defined by source, schemas, tests, and the other package doc
 | Adjacent prior art | A useful comparison or vocabulary; Awareness does not claim compatibility or equivalent results. |
 | Follow-on hypothesis | Research worth testing later; it is not production justification. |
 
+## Homeostatic Control And Collective Memory
+
+- **Adjacent prior art:** physiological homeostasis is dynamic regulation around
+  viable ranges, not a frozen set point. Billman's
+  [Homeostasis: The Underappreciated and Far Too Often Ignored Central Organizing Principle of Physiology](https://pubmed.ncbi.nlm.nih.gov/32210840/)
+  informs the sensor/target/actuator/guard vocabulary. Awareness applies that
+  vocabulary only to measurable software state.
+- **Adjacent prior art:** allostasis emphasizes anticipatory adjustment under
+  changing demand; see
+  [Allostasis: a model of predictive regulation](https://pubmed.ncbi.nlm.nih.gov/31488322/).
+  Awareness does not infer biological drives or let predictions authorize edits.
+- **Adjacent prior art:** stigmergy explains indirect coordination through a shared
+  environment; see
+  [A Brief History of Stigmergy](https://direct.mit.edu/artl/article/5/2/97/2318/A-Brief-History-of-Stigmergy).
+  SQLite rows and file presence are an engineered coordination medium, not proof of
+  collective intelligence.
+- **Adjacent prior art:** transactive-memory research studies knowing where group
+  knowledge resides; see
+  [Transactive memory systems, learning, and learning transfer](https://pubmed.ncbi.nlm.nih.gov/12940401/).
+  Awareness's `transactive_map` reports current shared-state IDs and freshness; it
+  is not an expertise model.
+- **Adjacent prior art:** sleep-related consolidation and adaptive forgetting
+  motivate preserving verified knowledge while removing obsolete state; see
+  [Memory consolidation during sleep](https://www.nature.com/articles/s41593-019-0467-3)
+  and [Adaptive Forgetting in Humans](https://pubmed.ncbi.nlm.nih.gov/28641107/).
+  Maintenance remains explicit, preview-first, and supervised.
+
+These analogies support the bounded controller in [THESIS.md](THESIS.md). They do
+not make a repository alive, sentient, self-authorizing, or self-governing.
+
 ## Local Store And Concurrency
 
 - **Implemented invariant:** SQLite is the canonical local store; write lifecycles
@@ -39,6 +69,10 @@ those are locally tested product decisions.
   recommends simple composable workflows, selective parallelism, and clear tool
   interfaces. Awareness applies those ideas through explicit lifecycle commands and
   independent review, while its exact coordination policy remains local.
+- **Adjacent prior art:** [Beads](https://github.com/gastownhall/beads) uses a
+  dependency-aware issue graph for coding-agent work. It is useful task/claim
+  vocabulary, not validation of Awareness's SQLite schema, advisory file presence,
+  or verification lifecycle.
 
 Mandatory advisory file presence, optional sensitive-file exclusivity, one durable
 Task queue, and authored plan documents are Octocode design choices—not claims
@@ -56,6 +90,10 @@ copied from either source.
   motivate next-decision context, filtering, pagination, and measured tool output.
   Awareness therefore makes `attend --compact` byte-budgeted and keeps bulk data in
   targeted queries, CSV, or HTML.
+- **Adjacent prior art:**
+  [Lost in the Middle](https://aclanthology.org/2024.tacl-1.9/) finds that relevant
+  information can be used less reliably when buried in long context. It supports
+  progressive disclosure and next-decision packets, not a universal byte limit.
 - **Adjacent prior art:** [OpenAI prompt caching](https://developers.openai.com/api/docs/guides/prompt-caching)
   supports stable-prefix cost reduction. Awareness's stable skill/schema layer can
   benefit when a host caches it, but the CLI neither controls nor guarantees cache
@@ -86,6 +124,16 @@ copied from either source.
 Generated wiki files remain leads because none of these papers makes retrieved or
 reflected text authoritative. Current user instructions, source, and tests win.
 
+- **Adjacent prior art:** a systematic study of
+  [memory poisoning in LLM agents](https://arxiv.org/abs/2606.04329) treats durable
+  writes and later retrieval as an attack surface. It supports the “memory is a
+  lead” safety boundary, but does not establish that Awareness prevents poisoning.
+- **Adjacent prior art:**
+  [AgentPoison](https://proceedings.neurips.cc/paper_files/paper/2024/hash/eb113910e9c3f6242541c1652e30dfd6-Abstract-Conference.html)
+  demonstrates that an agent's long-term memory or knowledge base can become an
+  attack surface. This reinforces provenance, scoped recall, and verification; it
+  is not evidence that local SQLite alone is safe.
+
 ## Skill And Harness Improvement
 
 - **Implemented invariant:** [SkillOpt](https://arxiv.org/abs/2605.23904) treats a
@@ -97,6 +145,15 @@ reflected text authoritative. Current user instructions, source, and tests win.
   motivates realistic multi-turn scenarios, verifiable outcomes, and cost/tool-call
   metrics. Local tests and smoke flows—not prose quality—decide whether a change is
   accepted.
+- **Follow-on hypothesis:** [Self-Harness](https://arxiv.org/abs/2606.09498)
+  studies verifier-grounded weakness mining and propose/evaluate/accept harness
+  changes. Awareness can test this pattern, but does not auto-accept its own code or
+  instruction mutations.
+- **Adjacent prior art:** Lilian Weng's
+  [Harness Engineering for Self-Improvement](https://lilianweng.github.io/posts/2026-07-04-harness/)
+  is a secondary synthesis of persistent artifacts, explicit subagents, context
+  control, and verifier-backed improvement. It is a map to primary work, not
+  independent production evidence.
 - **Not production evidence:** [Self-Rewarding Language Models](https://arxiv.org/abs/2401.10020)
   and [SPIN](https://arxiv.org/abs/2401.01335) concern model training. They do not
   justify agents applying their own code, skill, or instruction changes. Awareness

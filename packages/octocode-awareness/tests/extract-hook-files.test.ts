@@ -6,6 +6,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 import { connectDb } from '../src/db.js';
+import { insertMemory } from '../src/memory.js';
 import { createPlan } from '../src/plans.js';
 import { claimTask, createTask as createTaskBase } from '../src/tasks.js';
 import type { CreateTaskParams } from '../src/tasks.js';
@@ -332,6 +333,49 @@ describe('hook-runner', () => {
           context: 'codex-hook',
         }),
       ]));
+    } finally {
+      rmSync(memoryHome, { recursive: true, force: true });
+    }
+  });
+
+  it('reports periodic maintenance pressure without mutating prompt-time state', () => {
+    const memoryHome = mkdtempSync(join(tmpdir(), 'octocode-hook-digest-preview-'));
+    const workspace = resolve(memoryHome, 'repo');
+    mkdirSync(workspace, { recursive: true });
+    try {
+      const dbPath = join(memoryHome, 'awareness.sqlite3');
+      const database = connectDb(dbPath);
+      const inserted = insertMemory(database, {
+        agentId: 'old-agent',
+        taskContext: 'old superseded row',
+        observation: 'must survive prompt-time preview',
+        importance: 5,
+        workspacePath: workspace,
+      });
+      database.prepare("UPDATE memories SET state = 'SUPERSEDED', updated_at = '2000-01-01T00:00:00Z' WHERE memory_id = ?")
+        .run(inserted.memoryId);
+      database.close();
+
+      const env = {
+        OCTOCODE_MEMORY_HOME: memoryHome,
+        OCTOCODE_AGENT_ID: 'preview-agent',
+        OCTOCODE_NOTIFY_RUN_DIGEST: '1',
+        OCTOCODE_DIGEST_INTERVAL_HOURS: '4',
+      };
+      const first = runScript(HOOK_RUNNER, ['notify-deliver'], { workspace }, env);
+      expect(first.status).toBe(0);
+      expect(first.stdout).toContain('Maintenance pressure');
+      expect(first.stdout).toContain('maintenance digest --dry-run');
+      expect(Buffer.byteLength(first.stdout, 'utf8')).toBeLessThanOrEqual(1024);
+
+      const check = connectDb(dbPath);
+      expect(check.prepare('SELECT state FROM memories WHERE memory_id = ?').get(inserted.memoryId))
+        .toEqual({ state: 'SUPERSEDED' });
+      check.close();
+
+      const second = runScript(HOOK_RUNNER, ['notify-deliver'], { workspace }, env);
+      expect(second.status).toBe(0);
+      expect(second.stdout).not.toContain('Maintenance pressure');
     } finally {
       rmSync(memoryHome, { recursive: true, force: true });
     }

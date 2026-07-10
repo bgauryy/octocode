@@ -213,6 +213,7 @@ describe('getWorkspaceStatus — current schema', () => {
     insertLock(db, { runId, expiresAt: future });
 
     const status = getWorkspaceStatus(db, {});
+    expect(status.lock_count).toBe(1);
     expect(status.locks.length).toBeGreaterThanOrEqual(1);
     expect(status.locks[0]).toHaveProperty('file_path');
     expect(status.locks[0]).toHaveProperty('agent_id');
@@ -225,6 +226,7 @@ describe('getWorkspaceStatus — current schema', () => {
     insertLock(db, { runId, expiresAt: past });
 
     const status = getWorkspaceStatus(db, {});
+    expect(status.lock_count).toBe(0);
     expect(status.locks).toHaveLength(0);
     expect(status.pending_runs).toBe(0);
     expect(status.active_runs).toBe(1);

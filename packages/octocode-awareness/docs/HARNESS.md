@@ -37,6 +37,19 @@ generated projections. Architecture narrative lives in [HOW_IT_WORKS.md](HOW_IT_
 - Signals remain unread until explicitly acknowledged; delivery dedupe is separate.
 - Session handoffs are content-deduped.
 
+## Homeostatic And Token Invariants
+
+- Token pressure is regulated: stable state stays silent; changed state emits only
+  the next decision packet; detail remains queryable outside the prompt.
+- Every control action has a sensor, target, actuator, and guard. A recommendation
+  without re-measurement is an open loop, not improvement.
+- Prompt hooks may preview maintenance pressure but never archive, prune, rebuild,
+  or rewrite state. Applying maintenance is an explicit reviewed command.
+- Reflection, memory, generated wiki, and transactive maps are diagnostic leads.
+  They cannot override current instructions, source, tests, or human authority.
+- The living-system language is an operational metaphor, never a claim of
+  sentience, autonomy, self-selected goals, or cross-machine synchronization.
+
 ## Host Parity
 
 | Behavior | Shell hosts | Pi |

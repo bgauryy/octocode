@@ -1,0 +1,43 @@
+{
+  "train_should_trigger": [
+    { "prompt": "Fix the failing parser test in this repo.", "expect": true },
+    { "prompt": "Review this PR diff and identify merge risks; do not edit.", "expect": true },
+    { "prompt": "Update README and run the package tests.", "expect": true },
+    { "prompt": "Use subagents to implement separate packages.", "expect": true },
+    { "prompt": "Continue yesterday's migration and find what remains.", "expect": true },
+    { "prompt": "Create a plan and split it into selectable tasks.", "expect": true },
+    { "prompt": "Another agent is editing src/db.ts; can I work there too?", "expect": true },
+    { "prompt": "Rotate the auth schema and migration safely.", "expect": true },
+    { "prompt": "Why did the pre-edit hook block this change?", "expect": true },
+    { "prompt": "Check pending verification before we finish.", "expect": true },
+    { "prompt": "Save this gotcha for the next coding session.", "expect": true },
+    { "prompt": "Refresh the .octocode wiki for future file readers.", "expect": true },
+    { "prompt": "chekc what agnets work on same fiel then fix it", "expect": true }
+  ],
+  "train_near_miss": [
+    { "prompt": "Summarize the attached self-evolving-systems paper.", "expect": false },
+    { "prompt": "Create a logo image.", "expect": false },
+    { "prompt": "Draft an email to the team.", "expect": false },
+    { "prompt": "Schedule a meeting for tomorrow.", "expect": false },
+    { "prompt": "Analyze this uploaded CSV outside a repository.", "expect": false },
+    { "prompt": "Explain SQLite WAL conceptually.", "expect": false },
+    { "prompt": "Explain multi-agent routing conceptually.", "expect": false },
+    { "prompt": "Remember my favorite restaurant.", "expect": false },
+    { "prompt": "Lock my phone screen.", "expect": false },
+    { "prompt": "Create a personal today task list.", "expect": false },
+    { "prompt": "Browse for memory applications.", "expect": false },
+    { "prompt": "Reflect on my career choices.", "expect": false }
+  ],
+  "held_out": [
+    { "prompt": "Bump the dependency and verify there is no API break.", "expect": true },
+    { "prompt": "I am the only agent; make a two-line typo fix in this checkout.", "expect": true },
+    { "prompt": "Do a read-only security review of this repository.", "expect": true },
+    { "prompt": "The last host stopped halfway; resume the repo work safely.", "expect": true },
+    { "prompt": "Two workers may touch package.json.", "expect": true },
+    { "prompt": "Write a blog post about verification debt outside a repo.", "expect": false },
+    { "prompt": "Make a slide explaining homeostasis.", "expect": false },
+    { "prompt": "Search the web for Agent Skills.", "expect": false },
+    { "prompt": "Install Awareness hooks for this repository and smoke them.", "expect": true },
+    { "prompt": "What does .octocode/MEMORY.md mean in this checkout?", "expect": true }
+  ]
+}

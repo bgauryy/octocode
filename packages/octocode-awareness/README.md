@@ -16,6 +16,12 @@ Awareness gives an agent four things that chat history cannot reliably provide:
 SQLite is canonical. `<workspace>/.octocode/` contains authored plan documents and
 generated projections, never a second task database. There is no server or daemon.
 
+The design thesis is a **Homeostatic Awareness Loop**: a human/agent-in-the-loop
+software controller senses coordination, token, verification, memory, projection,
+and harness pressure, then recommends the smallest bounded corrective action. The
+repository is a “living system” only as an operational metaphor—not sentience,
+autonomy, or authority. See [docs/THESIS.md](docs/THESIS.md).
+
 ## Install
 
 Requires Node 22.13.0 or newer. This is the first Node 22 release where
@@ -46,149 +52,58 @@ registry/name lookup.
 For one-off CLI use, replace `octocode-awareness` with
 `npx @octocodeai/octocode-awareness`.
 
-## Start every active coding session
+## Start and work
 
-Set a stable identity once, then ask the live store for the smallest useful packet:
+Give each agent a stable identity and start from the bounded live packet:
 
 ```bash
 export OCTOCODE_AGENT_ID="my-agent-id"
 octocode-awareness attend --workspace "$PWD" --compact
 ```
 
-Use targeted discovery instead of loading every command or document:
-
-```bash
-octocode-awareness docs list --compact
-octocode-awareness docs show agent-cheatsheet
-octocode-awareness schema commands --compact
-octocode-awareness <command> --help
-```
-
-`docs show` is raw Markdown by default. Add `--compact` only when a program needs
-the JSON envelope.
-
-## The work model
+The model is deliberately small:
 
 ```text
-Plan (objective, lead, PLAN.md, docs/)
-  └─ Task (reasoning, acceptance, one or more paths, dependencies)
-       └─ Run (one agent attempt and test plan)
-            └─ RunFile (advisory file presence; optional exclusivity)
+Plan (objective, lead, PLAN.md + docs/)
+  └─ Task (reasoning, acceptance, paths, dependencies)
+       └─ Run (one agent attempt + test plan)
+            └─ RunFile (advisory presence; optional exclusivity)
 ```
 
-Every edited file must be declared under an active Task or standalone Work run.
-Declaration is advisory by default: several agents may work on the same file and
-see each other’s agent, reason, run, and expiry. Use exclusivity only when overlap
-would be unsafe—for example schema/migration, security, hook/skill self-modification,
-generated release metadata, or another non-mergeable operation.
-
-Task paths are planning scope, not locks. There is one task queue; “today’s tasks”
-is a query, not another entity.
-
-## Standalone change
-
-No Plan or Task is required for a small independent change:
+Every edited path is declared. Ordinary overlap stays visible and allowed;
+exclusivity is reserved for sensitive or non-mergeable work. A small change needs
+no Plan or Task:
 
 ```bash
-START=$(octocode-awareness work start --agent-id "$OCTOCODE_AGENT_ID" \
+octocode-awareness work start --agent-id "$OCTOCODE_AGENT_ID" \
   --workspace "$PWD" --file src/parser.ts \
-  --rationale "fix parser edge case" --test-plan "parser tests" --compact)
-# retain run_id from START; edit; use work touch for a long-running change
+  --rationale "fix parser edge case" --test-plan "parser tests" --compact
+# edit, run the declared check, then use the returned run_id
 octocode-awareness work end --agent-id "$OCTOCODE_AGENT_ID" --run-id run_123 --compact
 octocode-awareness verify mark --agent-id "$OCTOCODE_AGENT_ID" \
   --run-id run_123 --message "parser tests passed" --compact
-```
-
-For sensitive work, add `--exclusive` to `work start`. Low-level `lock` commands
-exist for explicit protection/waiting, but ordinary edits should use advisory Work.
-
-## Shared plan and tasks
-
-The lead creates a managed plan folder under
-`.octocode/plan/<timestamp-name>/`, adds supporting documents, and creates tasks:
-
-```bash
-octocode-awareness plan create --name "Parser hardening" \
-  --objective "Make malformed input safe" --lead-agent-id "$OCTOCODE_AGENT_ID" \
-  --workspace "$PWD" --compact
-octocode-awareness plan doc --plan-id plan_123 --agent-id "$OCTOCODE_AGENT_ID" \
-  --path docs/DESIGN.md --title "Parser design" --compact
-octocode-awareness task create --plan-id plan_123 --agent-id "$OCTOCODE_AGENT_ID" \
-  --title "Reject malformed escapes" --reasoning "Avoid ambiguous tokenization" \
-  --acceptance "parser tests cover malformed escapes" --path src/parser.ts --compact
-```
-
-Agents choose dependency-ready work and retain the returned `run_id`:
-
-```bash
-octocode-awareness task ready --plan-id plan_123 --compact
-octocode-awareness task claim --task-id task_123 --agent-id "$OCTOCODE_AGENT_ID" --compact
-octocode-awareness task heartbeat --task-id task_123 --run-id run_123 \
-  --agent-id "$OCTOCODE_AGENT_ID" --compact  # for long attempts
-octocode-awareness work start --run-id run_123 --agent-id "$OCTOCODE_AGENT_ID" \
-  --workspace "$PWD" --file src/parser.ts --compact
-# edit and verify
-octocode-awareness task submit --task-id task_123 --run-id run_123 \
-  --agent-id "$OCTOCODE_AGENT_ID" --message "ready for verification" --compact
-octocode-awareness verify mark --run-id run_123 --agent-id "$OCTOCODE_AGENT_ID" \
-  --message "parser tests passed" --compact
-```
-
-Plan status governs readiness: only ACTIVE plans expose new claims. Pause before
-replanning; do not complete/cancel while agents still own active runs.
-
-## Close the loop
-
-Always inspect your remaining verification debt:
-
-```bash
 octocode-awareness verify audit --workspace "$PWD" \
   --agent-id "$OCTOCODE_AGENT_ID" --compact
 ```
 
-Only record reflection or memory when the outcome is reusable. Run cleanup as a
-dry-run when the workboard reports pressure, and run `repo inject` only when
-file-based readers need a refreshed wiki. See [docs/SKILLS.md](docs/SKILLS.md) for
-the conditional closeout recipes.
+Shared plans live under `.octocode/plan/<timestamp-name>/`; their Tasks are the
+only durable work queue. “Today’s tasks” is a query, not another entity. See
+[docs/SKILLS.md](docs/SKILLS.md) for plan creation, task claim/heartbeat/submit,
+overlap decisions, sensitive locks, hooks, memory, and conditional closeout.
 
-## Hooks
-
-Hooks automate the same declarations and finish warnings; they do not create a
-second lifecycle. Preview, install with user approval, then check:
-
-```bash
-octocode-awareness hooks install --host <claude|codex|cursor> \
-  --project-dir . --dry-run --compact
-octocode-awareness hooks install --host <claude|codex|cursor> \
-  --project-dir . --compact
-octocode-awareness hooks check --host <claude|codex|cursor> \
-  --project-dir . --strict --compact
-```
-
-Pi uses the in-process `wirePiAwarenessHooks` bridge rather than shell hook files.
-
-## Storage and concurrency
-
-The default store is `~/.octocode/memory/awareness.sqlite3`; override its directory
-with `OCTOCODE_MEMORY_HOME`. `workspace_path` is the primary boundary and
-`artifact` optionally narrows it.
-
-Awareness enables WAL only when the embedded SQLite contains the concurrent WAL
-reset fix (SQLite 3.44.6, 3.50.7, 3.51.3, or a newer fixed release). Older affected
-runtimes automatically use rollback journaling, preserving correctness with less
-write concurrency. Upgrade Node before relying on concurrent WAL throughput.
-
-Generated projections are optional and capped. Refresh them only when file-based
-readers need current context:
+SQLite at `~/.octocode/memory/awareness.sqlite3` is canonical. Generated wiki
+files are capped leads; run `repo inject` only when file readers need a refreshed
+snapshot. Command flags and payloads come from focused help and schema:
 
 ```bash
-octocode-awareness maintenance digest --workspace "$PWD" --dry-run --compact
-octocode-awareness repo inject --workspace "$PWD" --mode local --compact
+octocode-awareness <command> --help
+octocode-awareness schema commands --compact
 ```
 
 ## Documentation
 
 - [docs/README.md](docs/README.md) — concept-owner index
+- [docs/THESIS.md](docs/THESIS.md) — bounded homeostatic control thesis
 - [docs/SKILLS.md](docs/SKILLS.md) — installation and agent workflow
 - [docs/HOW_IT_WORKS.md](docs/HOW_IT_WORKS.md) — package/skill/hook architecture
 - [docs/DB.md](docs/DB.md) — entities, schema, migration, journal safety

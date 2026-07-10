@@ -6,11 +6,12 @@ Load after `algorithm.md` to pick one mode-specific route. Load `octocode.md` on
 |---|---|---|
 | `workflow-local.md` | running repo, checkout, artifact, installed dependency | — |
 | `workflow-external.md` | remote repo/PR/package/upstream | — |
+| `workflow-combination.md` | local clue → upstream, or remote code needing local-grade AST/LSP/negative proof | — |
 | `workflow-debug.md` | failure, error, behavior/root cause | `code-investigation`, `oql-graph-proof` |
 | `workflow-change.md` | implement/refactor/migrate/patch | `change-mode` |
 | `workflow-pr-review.md` | PR URL/#N/safe-to-merge, local changes/diff, file review; sole Octocode review workflow | `pr-local-review` |
 
-Rare paths: `long-research.md` for durable/contested decisions; `github-landscape.md` for repo ecosystems; `loop-mode.md` after repeated evidence/check changes.
+Rare paths: `long-research.md` for durable/contested decisions; `github-landscape.md` for repo ecosystems; `loop-mode.md` after repeated evidence/check changes. Cross-task meta (planning, measuring, subagent fan-out, efficiency): `researcher-mindset.md`. For divergent idea generation or build/no-build validation, switch to the `octocode-brainstorming` skill.
 
 ## Common Spine
 `scope → surface plan → cheap map → anchor → exact read → stronger proof → answer/patch/review`

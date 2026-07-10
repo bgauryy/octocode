@@ -18,7 +18,7 @@ Load when interpreting or fixing review findings — after running `scripts/skil
 | Group | Fix |
 |-------|-----|
 | Length (`skill-too-long`, `reference-too-long`, `duplicate-content`) | `SKILL.md` and each ref ≤50 lines, one concept; cross-link |
-| Routing (`*-routing`, `*-map-complete`, `route-description`, `link-no-condition`, `orphan-reference`) | same-line when/why next to every ref/script |
+| Routing (`*-routing`, `*-map-complete`, `route-description`, `link-no-condition`, `orphan-reference`) | conditional root routes in `SKILL.md`; every other ref graph-reachable from one root; same-line when/why for direct refs/scripts |
 | README (`readme-*`) | overview, features, how-it-works, audiences, `npx octocode skill` install |
 | Scripts/hooks (`script-quality`, `deterministic-prose`, `hooks-*`) | `--help`/flags, extract script, route hook + `timeout` |
 | Frontmatter/metadata | drop authoring keys/headings → README |

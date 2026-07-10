@@ -336,6 +336,12 @@ describe('repo context query and projections', () => {
       expect(compact.workboard.FilesUnderWork?.[0]).not.toHaveProperty('reasons');
       expect(compact.workboard.FilesUnderWork?.[0]).not.toHaveProperty('lock_expires_at');
       expect(Buffer.byteLength(JSON.stringify(compact), 'utf8')).toBeLessThan(2 * 1024);
+
+      const profile = queryAwareness(db, { workspacePath: dir, artifact: 'svc', view: 'repo-profile' });
+      expect(profile.rows).toContainEqual({ metric: 'active_locks', count: 1 });
+      db.prepare("UPDATE locks SET expires_at = '2000-01-01T00:00:00Z'").run();
+      const expiredProfile = queryAwareness(db, { workspacePath: dir, artifact: 'svc', view: 'repo-profile' });
+      expect(expiredProfile.rows).toContainEqual({ metric: 'active_locks', count: 0 });
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -522,7 +528,9 @@ describe('repo context query and projections', () => {
       });
       expect(readFileSync(join(dir, '.octocode', 'GOTCHAS.md'), 'utf8')).toContain(`Missing refs: file:${missing}:27`);
       expect(readFileSync(join(dir, '.octocode', 'BOOKMARKS.md'), 'utf8')).toContain('[missing file]');
-      expect(readFileSync(join(dir, '.octocode', 'AGENTS.md'), 'utf8')).toContain('MissingFiles 1');
+      const agents = readFileSync(join(dir, '.octocode', 'AGENTS.md'), 'utf8');
+      expect(agents).toContain('MissingFiles 1');
+      expect(agents).not.toContain('Do not trust old generated viewer paths without checking file refs');
       const html = readFileSync(join(dir, '.octocode', 'awareness', 'index.html'), 'utf8');
       expect(html).toContain('id="global-filter"');
       expect(html).toContain('id="missing-filter"');

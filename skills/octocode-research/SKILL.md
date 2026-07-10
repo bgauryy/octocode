@@ -7,6 +7,8 @@ description: "Use when code work needs evidence-first research, debugging, chang
 
 Evidence-first technical research and code work: `SCOPE -> SEARCH -> READ EXACT -> VALIDATE -> DECIDE/PATCH -> VERIFY`.
 
+Octocode spans three surfaces — LOCAL (workspace, `node_modules`, clones), EXTERNAL (GitHub, npm), FEDERATED (one OQL query across both). Check the environment before trusting a surface: `context`, `auth status`, `lsp-server status <file>`.
+
 ## Modes
 
 Investigate behavior/root cause; Review PRs (URL/#N) and local/staged diffs via `workflow-pr-review.md`; Change after evidence; Map/Validate prior art or architecture; Loop when evidence shifts.
@@ -19,16 +21,19 @@ Investigate behavior/root cause; Review PRs (URL/#N) and local/staged diffs via 
 4. Keep a tiny ledger: `claim -> evidence -> confidence -> next check`.
 5. Ask before broad public contracts, deletes/renames, thin evidence, or 3+ unrelated problem spaces.
 6. For code edits, make the smallest scoped patch and report the checks that actually ran.
+7. For broad, contested, or multi-part questions, fan out parallel subagents on different directions or lanes, merge on conflict, and re-verify each worker's key anchor before trusting it.
 
 ## Reference Map
 
 Before any task, read `references/algorithm.md` first; it owns routing, evidence grades, and failure signals.
 
+- `references/researcher-mindset.md` — for state of mind, planning/managing the task, how to measure progress, fanning out subagents across directions, and dot-to-dot efficiency.
 - `references/workflows.md` — when choosing a mode-specific workflow index.
 - `references/code-research.md` — when investigating, reviewing, refactoring, or changing code.
 - `references/research-flow.md` — when doing general research or idea validation.
 - `references/workflow-local.md` — when the local repo or installed dependency is source of truth.
 - `references/workflow-external.md` — when using GitHub, npm, PRs, commits, or remote repos.
+- `references/workflow-combination.md` — when a local clue points upstream or remote code needs local-grade (AST/LSP/negative) proof.
 - `references/workflow-debug.md` — when debugging failures or proving root cause.
 - `references/workflow-pr-review.md` — when reviewing PRs, diffs, or merge safety.
 - `references/workflow-pr-review-analysis.md` — when PR review analysis and finding shape are needed.
@@ -38,6 +43,8 @@ Before any task, read `references/algorithm.md` first; it owns routing, evidence
 - `references/long-research.md` — when a decision brief, audit trail, or contested question needs depth.
 - `references/loop-mode.md` — when evidence keeps shifting or verification fails repeatedly.
 - `references/octocode.md` — when command syntax, MCP transport, or raw tool schemas matter.
+
+For divergent idea generation or "should we build X" validation, use the `octocode-brainstorming` skill instead of this one.
 
 ## Scripts
 

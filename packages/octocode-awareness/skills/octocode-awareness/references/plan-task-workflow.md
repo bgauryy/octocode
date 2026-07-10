@@ -28,6 +28,7 @@ New plans are ACTIVE. PAUSED retains work but blocks claims. Complete/cancel onl
 <cli> work start --run-id run_123 --agent-id "$OCTOCODE_AGENT_ID" --file src/a.ts --compact
 <cli> task submit --task-id task_123 --run-id run_123 \
   --agent-id "$OCTOCODE_AGENT_ID" --message "ready for verification" --compact
+# run the acceptance check
 <cli> verify mark --run-id run_123 --agent-id "$OCTOCODE_AGENT_ID" \
   --message "tests pass" --compact
 ```

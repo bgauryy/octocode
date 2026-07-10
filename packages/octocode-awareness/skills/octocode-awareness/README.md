@@ -5,6 +5,12 @@ learning, memory/wiki, bookkeeping, housekeeping, locks, verification, hooks,
 reflection, and repo context. Users get a compact lobby; developers get
 deterministic scripts, schemas, host hooks, and a canonical-source build workflow.
 
+The operational model is a Homeostatic Awareness Loop: sense shared SQLite/hook
+state, compare it with bounded targets, recommend the smallest guarded correction,
+then re-measure. “Living system” is a metaphor for adaptive repository maintenance,
+not sentience or autonomous authority. Human-facing details live in
+[THESIS.md](../../docs/THESIS.md); the skill lobby routes agents to focused references.
+
 ## Install
 
 Install the package, then install this bundled skill by its resolved local path:
@@ -37,6 +43,7 @@ ATTEND -> CHOOSE -> DECLARE -> ACT -> SUBMIT/END -> VERIFY -> BOOKKEEP -> HOUSEK
 - Bookkeeping turns verified outcomes into durable lessons; housekeeping prunes
   stale locks/signals/memory after dry-run.
 - SQLite is canonical; `.octocode/` files are bounded projections.
+- Stable state is silent; changed state returns only the next decision packet.
 
 ## How It Works
 

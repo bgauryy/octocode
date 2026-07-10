@@ -185,7 +185,8 @@ migration; rebuild/reinstall the bundled CLI/hooks together.
 ## Operations
 
 - `maintenance init`: create/migrate.
-- `workspace status`: operational counts and live state.
+- `workspace status`: operational counts and live state; compact output reports
+  exact lock totals/omissions and only one lean lock lead.
 - `work list|show`: current file awareness.
 - `query workboard`: derived action queue.
 - `maintenance digest --dry-run`: report cleanup.

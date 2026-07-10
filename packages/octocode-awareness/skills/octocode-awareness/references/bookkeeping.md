@@ -24,5 +24,5 @@ Drift sensors feed both: `query workboard` (surfaces `stale_file_refs` + memory-
 
 - Dry-run before any mutation; report evidence before removing.
 - Prefer supersession and decay over destructive deletion.
-- Route each lesson to its owner (`learning-loop.md`); a loop closes only when applied, verified, and terminal.
+- Route each lesson to its owner (`references/learning-loop.md`); a loop closes only when applied, verified, and terminal.
 - `query workboard` is the to-do list — drain due upkeep before concluding, then re-run `attend` / `query` to confirm health.

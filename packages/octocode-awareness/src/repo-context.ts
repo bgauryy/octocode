@@ -1033,6 +1033,8 @@ function repoProfileRows(db: DatabaseSync, params: AwarenessQueryParams): Awaren
   const lockWhere: string[] = [];
   const lockBinds: BindValue[] = [];
   addExactScope(lockWhere, lockBinds, workspaceArtifactScope(scope), 't');
+  lockWhere.push("t.status = 'ACTIVE'", 'l.expires_at > ?');
+  lockBinds.push(utcNow());
 
   const refinementWhere = ["state IN ('open','ongoing')"];
   const refinementBinds: BindValue[] = [];
@@ -1796,8 +1798,9 @@ function renderRepoAgentsMd(all: AwarenessQueryResult): string {
   const sections = all.sections ?? {};
   const profile = sections['repo-profile']?.rows ?? [];
   const counts = Object.fromEntries(profile.map(row => [String(row['metric']), row['count'] ?? 0]));
-  const gotchas = (sections['gotchas']?.rows ?? []).slice(0, 5);
-  const lessons = (sections['lessons']?.rows ?? []).slice(0, 5);
+  const promotable = (row: AwarenessQueryRow): boolean => Number(row['missing_reference_count'] ?? 0) === 0;
+  const gotchas = (sections['gotchas']?.rows ?? []).filter(promotable).slice(0, 5);
+  const lessons = (sections['lessons']?.rows ?? []).filter(promotable).slice(0, 5);
   const projectionWarnings = [
     Number(counts['missing_file_refs'] ?? 0) > 0 ? `Missing/stale file refs (${counts['missing_file_refs']}) — use \`query files --format table\` before trusting bookmarks.` : null,
     Number(counts['active_memories'] ?? 0) > 200 ? `Active memories high (${counts['active_memories']}) — prefer recall/CSV over full Markdown.` : null,
@@ -1813,7 +1816,7 @@ function renderRepoAgentsMd(all: AwarenessQueryResult): string {
     '',
     '## How To Use',
     '',
-    '- Live: `octocode-awareness attend|work list|query|memory recall|workspace status --workspace <repo>`.',
+    '- Live: `octocode-awareness attend --workspace <repo> --compact`; use targeted `work list`, `query workboard`, `memory recall`, or `workspace status` commands with the same workspace.',
     '- Wiki leads below are projections, not proof. If root `AGENTS.md` lacks this pointer, use the source guidance and ask before editing root `AGENTS.md` unless already authorized.',
     '',
     '## Snapshot',
@@ -1835,7 +1838,7 @@ function renderRepoAgentsMd(all: AwarenessQueryResult): string {
     '- Run `attend`, then inspect `FilesUnderWork` before editing. Record ordinary work with `work start`; overlap is allowed and visible.',
     '- Exclusive locks are reserved for sensitive files. An active exclusive lock blocks conflicting work.',
     '- Use targeted `memory recall --query <task> --smart --compact`; open one matching wiki lead only when live SQLite is unavailable or more detail is needed.',
-    '- Prefer live `attend` / `work list` / `query` when freshness matters; `repo inject` after important memories.',
+    '- Prefer live `attend` / `work list` / `query` when freshness matters; run `repo inject` only when file readers need a fresh snapshot.',
     '',
     '## Projection Health',
     '',

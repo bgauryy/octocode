@@ -12,6 +12,21 @@ Agent Skill -> CLI / library / hooks / Pi -> awareness.sqlite3
 No server or broker is required. Rows are isolated by normalized `workspace_path`
 and optional artifact/repo/ref scope.
 
+## Homeostatic Control Model
+
+Awareness is a supervised software control loop, not an autonomous agent. It
+senses operational pressure in SQLite and hooks, compares that evidence with
+bounded targets, recommends an actuator, and preserves human/agent choice at the
+guard. Typical corrections are `attend --compact`, declaring file presence,
+resolving a signal, verifying a run, previewing maintenance, or refreshing a
+projection. Re-measurement closes the loop; unchanged state should inject no new
+prompt text.
+
+“Living repository” is a useful systems metaphor for continuous sensing,
+adaptation, forgetting, and repair. It does not imply sentience, self-chosen goals,
+network coordination, or permission to mutate code/instructions. The complete
+pressure table and success measures live in [THESIS.md](THESIS.md).
+
 ## Work Model
 
 ```text

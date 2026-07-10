@@ -160,12 +160,15 @@ describe('shell hook correlation state', () => {
     }
   });
 
-  it('writes the optional digest marker only after digest succeeds', () => {
+  it('writes the scoped preview marker only after a dry-run digest succeeds', () => {
     const source = readFileSync(SOURCE_RUNNER, 'utf8');
-    const digestCall = source.indexOf('digest(database, { workspace: workspace(payload), memoryHome });');
+    const digestCall = source.indexOf('const preview = digest(database, {');
+    const dryRun = source.indexOf('dry_run: true', digestCall);
     const markerWrite = source.indexOf("writeFileSync(markerPath, String(now), 'utf8');", digestCall);
     expect(source).toContain('const memoryHome = dirname(resolveDbPath(null));');
+    expect(source).toContain('.last-digest-preview-${scopeHash}-epoch-ms');
     expect(digestCall).toBeGreaterThanOrEqual(0);
-    expect(markerWrite).toBeGreaterThan(digestCall);
+    expect(dryRun).toBeGreaterThan(digestCall);
+    expect(markerWrite).toBeGreaterThan(dryRun);
   });
 });

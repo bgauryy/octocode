@@ -51,6 +51,14 @@ default.
 | Inbox | `signal list --limit 5`; include bodies only when acting |
 | Human cross-view inspection | `query all --format html` |
 
+Compact workspace status returns exact `lock_count`, `lock_shown_count`, and
+`lock_omitted_count`, plus at most one lean lock lead. Drop `--compact` and set
+`--limit` only when full lock rows are needed.
+
+Compact `work start|touch|end` likewise returns exact file/peer totals and at most
+one lean lead for each. Use non-compact output or targeted `work show --file` when
+full presence records are needed.
+
 `query workboard` groups active work by relative path. Each FilesUnderWork row caps
 peers at three, includes task/plan/reason and exclusive state, and reports
 `omitted_peer_count` instead of dumping all agents. Workboard lane truncation uses

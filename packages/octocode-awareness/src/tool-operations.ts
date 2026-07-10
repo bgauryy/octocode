@@ -379,10 +379,14 @@ export function runAwarenessToolOperation(
           verify_tasks: result.verify_tasks,
         },
         open_refinements: result.open_refinements,
+        lock_count: result.lock_count,
       };
       if (filesUnderWork.length > 0) payload['files_under_work'] = filesUnderWork;
-      if (result.locks.length > 0) {
-        payload['locks'] = result.locks.map((l) => ({
+      const shownLocks = result.locks.slice(0, Math.max(1, Math.min(requestedLimit ?? 5, 20)));
+      payload['lock_shown_count'] = shownLocks.length;
+      payload['lock_omitted_count'] = Math.max(0, result.lock_count - shownLocks.length);
+      if (shownLocks.length > 0) {
+        payload['locks'] = shownLocks.map((l) => ({
           file: l.file_path,
           run_id: l.run_id,
           agent: l.agent_id,

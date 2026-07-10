@@ -38,7 +38,7 @@ Agents load root `AGENTS.md`, while inject writes only `.octocode/AGENTS.md`. Af
 
 ```markdown
 ## Octocode Awareness
-For shared-repo memory, locks, gotchas, and live context, start with `attend --compact`, then read `.octocode/AGENTS.md` (from `octocode-awareness repo inject`). SQLite is canonical; wiki files are leads — prefer live `attend` / `query` / `memory recall`. Create/learn via `memory record` / `reflect record`, then `repo inject`. Never hand-edit `.octocode/*.md`.
+For shared-repo memory, locks, gotchas, and live context, start with `attend --compact`. Read `.octocode/AGENTS.md` only when live SQLite is unavailable, `attend.next` routes there, or projection history matters. SQLite is canonical; wiki files are leads — prefer live `attend` / `query` / `memory recall`. Create/learn via `memory record` / `reflect record`; run `repo inject` only when file readers need a fresh snapshot. Never hand-edit `.octocode/*.md`.
 ```
 
 Wiki files: `AGENTS` · `GOTCHAS` · `LEARN` · `MEMORY` · `BOOKMARKS` · `DEVELOPER_REVIEW` (see learning-loop label map).

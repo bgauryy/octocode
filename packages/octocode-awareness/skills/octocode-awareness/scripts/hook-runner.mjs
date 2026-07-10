@@ -2978,13 +2978,15 @@ async function runStopVerify(payload) {
   }
   return 0;
 }
-function maybeRunDigest(payload) {
-  if (process.env.OCTOCODE_NO_DIGEST === "1") return;
-  if (process.env.OCTOCODE_NOTIFY_RUN_DIGEST !== "1") return;
+function maybePreviewDigest(payload) {
+  if (process.env.OCTOCODE_NO_DIGEST === "1") return null;
+  if (process.env.OCTOCODE_NOTIFY_RUN_DIGEST !== "1") return null;
   const intervalHours = Number(process.env.OCTOCODE_DIGEST_INTERVAL_HOURS ?? 4);
   const intervalMs = Number.isFinite(intervalHours) && intervalHours > 0 ? intervalHours * 36e5 : 4 * 36e5;
   const memoryHome2 = dirname3(resolveDbPath(null));
-  const markerPath = join3(memoryHome2, ".last-digest-epoch-ms");
+  const digestScope = workspace(payload) ?? "global";
+  const scopeHash = createHash3("sha256").update(digestScope).digest("hex").slice(0, 12);
+  const markerPath = join3(memoryHome2, `.last-digest-preview-${scopeHash}-epoch-ms`);
   try {
     const database = db();
     let last = 0;
@@ -2995,17 +2997,31 @@ function maybeRunDigest(payload) {
     }
     const now = Date.now();
     if (!last || now - last >= intervalMs) {
-      digest(database, { workspace: workspace(payload), memoryHome: memoryHome2 });
+      const preview = digest(database, {
+        workspace: workspace(payload),
+        memoryHome: memoryHome2,
+        dry_run: true
+      });
       mkdirSync2(memoryHome2, { recursive: true });
       writeFileSync(markerPath, String(now), "utf8");
+      const pressure = {
+        archive: preview.would_archive ?? 0,
+        memories: preview.would_prune_old ?? 0,
+        locks: preview.would_prune_locks ?? 0,
+        refinements: preview.would_prune_refinements ?? 0
+      };
+      if (Object.values(pressure).some((count) => count > 0)) {
+        return `Maintenance pressure: archive ${pressure.archive}, prune memories ${pressure.memories}, locks ${pressure.locks}, refinements ${pressure.refinements}. Review with octocode-awareness maintenance digest --dry-run --workspace "$PWD" --compact; apply only after review.`;
+      }
     }
   } catch (error) {
     console.error(`octocode-awareness digest warning (continuing): ${error instanceof Error ? error.message : String(error)}`);
   }
+  return null;
 }
 async function runNotifyDeliver(payload) {
   if (process.env.OCTOCODE_NO_NOTIFY === "1") return 0;
-  maybeRunDigest(payload);
+  const maintenanceContext = maybePreviewDigest(payload);
   try {
     const database = db();
     registerHookAgent(database, payload, "hook:notify-deliver");
@@ -3015,9 +3031,10 @@ async function runNotifyDeliver(payload) {
       artifact: artifact(payload) ?? void 0,
       format: "hook"
     });
-    if (result.additionalContext) {
+    const additionalContext = [result.additionalContext, maintenanceContext].filter(Boolean).join("\n");
+    if (additionalContext) {
       process.stdout.write(JSON.stringify({
-        additionalContext: result.additionalContext
+        additionalContext
       }) + "\n");
     }
   } catch (error) {

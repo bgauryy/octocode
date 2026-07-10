@@ -27,7 +27,7 @@ import {
   countReadyTasks, countTasks, listReadyTasks, listTasks, releaseTaskClaim, submitTask, type PlanTaskStatus,
 } from '../src/tasks.js';
 import { reflect } from '../src/reflect.js';
-import type { EvalFailure, MemoryRecord, RefinementQuality } from '../src/types.js';
+import type { EvalFailure, MemoryRecord, RefinementQuality, WorkMutationResult } from '../src/types.js';
 import { pruneStale, notifyGet, sessionCapture, waitForLock, digest, exportMemoryDoc, exportHarness, getWorkspaceStatus } from '../src/maintenance.js';
 import { pruneNotifications, agentSignal } from '../src/notifications.js';
 import { auditUnverified, markVerified } from '../src/verify.js';
@@ -888,6 +888,33 @@ function cmdReleaseFileLock(db: DatabaseSync, args: ParsedArgs, dbPath: string, 
   return emit({ db_path: dbPath, ...result }, 0, opts);
 }
 
+function projectCompactWorkMutation(result: WorkMutationResult): Record<string, unknown> {
+  const files = result.files.slice(0, 1).map(file => ({
+    file_path: file.file_path,
+    source: file.source,
+    expires_at: file.expires_at,
+    ...(file.ended_at ? { ended_at: file.ended_at } : {}),
+  }));
+  const peers = result.peers.slice(0, 1).map(peer => ({
+    run_id: peer.run_id,
+    task_id: peer.task_id,
+    agent_id: peer.agent_id,
+    file_path: peer.file_path,
+    exclusive: peer.exclusive,
+    expires_at: peer.expires_at,
+  }));
+  return {
+    ...result,
+    file_count: result.files.length,
+    file_shown_count: files.length,
+    file_omitted_count: Math.max(0, result.files.length - files.length),
+    files,
+    peer_shown_count: peers.length,
+    peer_omitted_count: Math.max(0, result.peer_count - peers.length),
+    peers,
+  };
+}
+
 function cmdWork(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts: EmitOptions): number {
   const action = requiredArg(args, 'action');
   const rawFiles = args['target_file'] ?? args['file'];
@@ -922,7 +949,8 @@ function cmdWork(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts: EmitO
       exclusive: Boolean(args['exclusive']),
       ttlMs,
     });
-    return emit({ db_path: dbPath, ...result }, result.ok ? 0 : 2, opts);
+    const payload = opts.compact && result.ok ? projectCompactWorkMutation(result) : result;
+    return emit({ db_path: dbPath, ...payload }, result.ok ? 0 : 2, opts);
   }
 
   if (action === 'touch') {
@@ -933,7 +961,8 @@ function cmdWork(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts: EmitO
       targetFiles: targetFiles.length > 0 ? targetFiles : undefined,
       ttlMs,
     });
-    return emit({ db_path: dbPath, ...result }, 0, opts);
+    const payload = opts.compact ? projectCompactWorkMutation(result) : result;
+    return emit({ db_path: dbPath, ...payload }, 0, opts);
   }
 
   if (action === 'end') {
@@ -943,7 +972,8 @@ function cmdWork(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts: EmitO
       runId,
       targetFiles: targetFiles.length > 0 ? targetFiles : undefined,
     });
-    return emit({ db_path: dbPath, ...result }, 0, opts);
+    const payload = opts.compact ? projectCompactWorkMutation(result) : result;
+    return emit({ db_path: dbPath, ...payload }, 0, opts);
   }
 
   if (action === 'list' || action === 'show') {
@@ -1542,6 +1572,8 @@ function cmdStatus(db: DatabaseSync, dbPath: string, args: ParsedArgs, opts: Emi
   );
   const limit = Math.min(100, Math.max(1, parseInt(String(args['limit'] ?? '20'), 10) || 20));
   const status = getWorkspaceStatus(db, { workspace_path: wsPath, artifact });
+  const lockLimit = opts.compact ? 1 : limit;
+  const locks = status.locks.slice(0, lockLimit);
 
   return emit({
     db_path: dbPath,
@@ -1550,7 +1582,17 @@ function cmdStatus(db: DatabaseSync, dbPath: string, args: ParsedArgs, opts: Emi
     memory_states: memStates,
     memory_labels: memLabels,
     ...status,
-    locks: status.locks.slice(0, limit),
+    lock_count: status.lock_count,
+    lock_shown_count: locks.length,
+    lock_omitted_count: Math.max(0, status.lock_count - locks.length),
+    locks: opts.compact
+      ? locks.map(lock => ({
+          file_path: lock.file_path,
+          agent_id: lock.agent_id,
+          run_id: lock.run_id,
+          expires_at: lock.expires_at,
+        }))
+      : locks,
     workspace_path: wsPath,
     artifact,
   }, 0, opts);
@@ -1620,9 +1662,8 @@ BUNDLED SKILLS:
   octocode-awareness : ${BUNDLED_SKILLS_DIR}/octocode-awareness
   octocode-skills    : ${BUNDLED_SKILLS_DIR}/octocode-skills
 
-  The octocode-awareness skill contains ALL instructions for using every CLI command:
-  memory, locks, planning, coordination, signals, verification, repo context, and hooks.
-  Once installed, your agent reads the skill and knows exactly how and when to call this CLI.
+  The octocode-awareness skill owns operating policy for memory, locks, planning,
+  coordination, verification, repo context, and hooks. Focused help/schema owns flags and payloads.
 
   Install octocode-awareness from its bundled path using your agent platform's skill mechanism.
   octocode-skills is optional and only needed to discover, review, or improve skills.

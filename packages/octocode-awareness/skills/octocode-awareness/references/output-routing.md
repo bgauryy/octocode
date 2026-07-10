@@ -26,4 +26,4 @@ Generate only after meaningful durable changes or explicit snapshot requests.
 
 Close the owning row: verify work, ack/resolve signals, complete refinements, supersede
 stale memory, or re-run cleanup/query. Projection mechanics:
-`repo-context-management.md`.
+`references/repo-context-management.md`.

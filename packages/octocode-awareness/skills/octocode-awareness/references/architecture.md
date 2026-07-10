@@ -25,17 +25,17 @@ completed-event history.
 
 | Need | Reference/surface |
 |---|---|
-| Start/commands | `agent-cheatsheet.md`; `schema commands` |
-| Plan/task choice | `plan-task-workflow.md` |
-| File overlap | `files-awareness.md` |
-| Exclusive/verify | `lock-protocol.md` |
-| Signals/refinements | `coordination-protocol.md` |
-| Hooks/hosts | `hooks.md`, `hook-semantics.md` |
-| Tables/joins | `data-model.md`, `data-model-entities.md`, `data-model-relationships.md` |
-| Live/durable/generated output | `output-routing.md`, `repo-context-management.md` |
-| Memory | `memory-recall.md`, `memory-ranking.md` |
-| Learn/clean | `bookkeeping.md`, `learning-loop.md`, `homeostatic-loop.md` |
-| Sessions/timing | `session-observability.md` |
+| Start/commands | `references/agent-cheatsheet.md`; `schema commands` |
+| Plan/task choice | `references/plan-task-workflow.md` |
+| File overlap | `references/files-awareness.md` |
+| Exclusive/verify | `references/lock-protocol.md` |
+| Signals/refinements | `references/coordination-protocol.md` |
+| Hooks/hosts | `references/hooks.md`, `references/hook-semantics.md` |
+| Tables/joins | `references/data-model.md`, `references/data-model-entities.md`, `references/data-model-relationships.md` |
+| Live/durable/generated output | `references/output-routing.md`, `references/repo-context-management.md` |
+| Memory | `references/memory-recall.md`, `references/memory-ranking.md` |
+| Learn/clean | `references/bookkeeping.md`, `references/learning-loop.md`, `references/homeostatic-loop.md` |
+| Sessions/drive | `references/session-observability.md`, `references/drive-state.md` |
 
 ## Context Rule
 

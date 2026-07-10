@@ -46,10 +46,26 @@ describe('production guidance contract', () => {
 
   it('routes every skill reference explicitly and removes mutating compatibility setup', () => {
     const skill = read(resolve(SKILL_ROOT, 'SKILL.md'));
-    for (const entry of readdirSync(resolve(SKILL_ROOT, 'references'), { withFileTypes: true })) {
-      if (!entry.isFile() || !entry.name.endsWith('.md')) continue;
-      expect(skill, entry.name).toContain(`references/${entry.name}`);
+    const referenceNames = readdirSync(resolve(SKILL_ROOT, 'references'), { withFileTypes: true })
+      .filter((entry) => entry.isFile() && entry.name.endsWith('.md'))
+      .map((entry) => entry.name);
+    const direct = new Set(
+      [...skill.matchAll(/references\/([a-z0-9-]+\.md)/g)].map((match) => match[1]!),
+    );
+    const reachable = new Set(direct);
+    const queue = [...direct];
+    while (queue.length > 0) {
+      const current = queue.shift()!;
+      const body = read(resolve(SKILL_ROOT, 'references', current));
+      for (const candidate of referenceNames) {
+        if (!reachable.has(candidate) && body.includes(candidate)) {
+          reachable.add(candidate);
+          queue.push(candidate);
+        }
+      }
     }
+    expect([...reachable].sort()).toEqual(referenceNames.sort());
+    expect(direct.size).toBeLessThanOrEqual(12);
     expect(skill).not.toContain('scripts/install-hooks.mjs');
 
     expect(existsSync(resolve(SKILL_ROOT, 'scripts/install-hooks.mjs'))).toBe(false);
@@ -171,5 +187,53 @@ describe('production guidance contract', () => {
     expect(finish).toContain('Only when');
     expect(finish).toContain('verify audit');
     expect(finish).not.toMatch(/query all[^\n]*repo inject/is);
+  });
+
+  it('keeps the generated wiki conditional, copy-runnable, and stale-safe', () => {
+    const rootAgents = read(resolve(REPO_ROOT, 'AGENTS.md'));
+    const generator = read(resolve(PACKAGE_ROOT, 'src/repo-context.ts'));
+    const skill = read(resolve(SKILL_ROOT, 'SKILL.md'));
+    const taskFlow = read(resolve(SKILL_ROOT, 'references/plan-task-workflow.md'));
+    const repoFlow = read(resolve(SKILL_ROOT, 'references/repo-context-management.md'));
+
+    expect(rootAgents).not.toMatch(/attend --compact`, then read `.octocode\/AGENTS\.md`/i);
+    expect(generator).not.toContain('attend|work list|query|memory recall|workspace status');
+    expect(generator).not.toContain('`repo inject` after important memories');
+    expect(repoFlow).not.toMatch(/attend --compact`, then read `.octocode\/AGENTS\.md`/i);
+    expect(skill).toContain('HOUSEKEEP?');
+    expect(taskFlow).toContain('# run the acceptance check');
+  });
+
+  it('keeps README a bounded landing page instead of a second user guide', () => {
+    const readme = read(resolve(PACKAGE_ROOT, 'README.md'));
+    const words = readme.trim().split(/\s+/).length;
+    expect(words).toBeLessThanOrEqual(800);
+    expect(readme).toContain('[docs/SKILLS.md](docs/SKILLS.md)');
+    expect(readme).not.toContain('## Shared plan and tasks');
+    expect(readme).not.toContain('## Hooks');
+  });
+
+  it('publishes a bounded, measurable Homeostatic Awareness thesis', () => {
+    const readme = read(resolve(PACKAGE_ROOT, 'README.md'));
+    const docsIndex = read(resolve(PACKAGE_ROOT, 'docs/README.md'));
+    const thesis = read(resolve(PACKAGE_ROOT, 'docs/THESIS.md'));
+    const references = read(resolve(PACKAGE_ROOT, 'docs/REFERENCES.md'));
+    const homeostatic = read(resolve(SKILL_ROOT, 'references/homeostatic-loop.md'));
+
+    expect(readme).toContain('docs/THESIS.md');
+    expect(docsIndex).toContain('THESIS.md');
+    expect(thesis).toMatch(/human\/agent-in-the-loop software controller/i);
+    expect(thesis).toMatch(/living-system.*metaphor|metaphor.*living-system/is);
+    expect(thesis).toMatch(/not sentience|not.*sentien/i);
+    expect(thesis).toContain('Token pressure');
+    expect(thesis).toMatch(/Sensor[\s\S]*Target[\s\S]*Actuator[\s\S]*Guard/);
+    expect(thesis.trim().split(/\s+/).length).toBeLessThanOrEqual(1400);
+    expect(references).toContain('## Homeostatic Control And Collective Memory');
+    expect(homeostatic).toContain('CHOOSE/DECLARE');
+    expect(homeostatic).toContain('REMEASURE');
+    expect(homeostatic).not.toContain('CONSOLIDATE');
+    expect(homeostatic).not.toMatch(/who owns this file|claim on edit/i);
+    expect(homeostatic.trim().split('\n').length).toBeLessThanOrEqual(50);
+    expect(Buffer.byteLength(homeostatic, 'utf8')).toBeLessThanOrEqual(4 * 1024);
   });
 });

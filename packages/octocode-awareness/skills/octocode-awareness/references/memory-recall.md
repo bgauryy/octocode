@@ -6,6 +6,8 @@ Read this before planning, editing, recording, superseding, or trusting a rememb
 
 `memory recall` reads canonical SQLite rows, not `.octocode/MEMORY.md`. Run it when prior lessons may change the plan:
 
+A successful explicit recall also updates access count/time used by later ranking; startup `attend` deliberately opts out of that feedback.
+
 ```bash
 octocode-awareness memory recall --query "<task>" --workspace "$PWD" --smart --compact
 ```
