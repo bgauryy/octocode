@@ -9,7 +9,10 @@ import {
   describeQuerySchema,
 } from '../../scheme/coreSchemas.js';
 import { responseEnvelopeFields } from '../../scheme/responseEnvelope.js';
-import { ItemPaginationSchema } from '../../scheme/pagination.js';
+import {
+  ItemPaginationSchema,
+  ToolDiagnosticSchema,
+} from '../../scheme/pagination.js';
 
 const queryOverrides = {
   page: relaxedPageNumberField,
@@ -17,6 +20,16 @@ const queryOverrides = {
   // The strict npm bulk schema would otherwise reject it as an unrecognized key.
   // Execution currently no-ops it, but the field must stay part of the contract.
   mode: z.enum(['lean', 'full']).optional(),
+  // Core types this as a single string, but sibling tools take keyword ARRAYS
+  // (ghSearchCode/localSearchCode) — agents reflexively pass arrays here too.
+  // Accept both shapes; execution folds arrays to the space-joined registry
+  // query (no zod transform — it would break JSON-schema generation).
+  keywords: z
+    .union([z.string(), z.array(z.string())])
+    .optional()
+    .describe(
+      'Registry keyword query (string; an array of terms is accepted and joined with spaces).'
+    ),
 } as const;
 
 export const NpmSearchQueryLocalSchema = describeQuerySchema(
@@ -53,6 +66,7 @@ export const NpmSearchOutputLocalSchema = z
                       repositoryId: z.string().optional(),
                       next: z.record(z.string(), z.unknown()).optional(),
                       warnings: z.array(z.string()).optional(),
+                      diagnostics: z.array(ToolDiagnosticSchema).optional(),
                     })
                     .passthrough()
                 )

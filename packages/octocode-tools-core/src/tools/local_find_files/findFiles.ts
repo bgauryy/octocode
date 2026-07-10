@@ -240,10 +240,10 @@ function formatForOutput(
   return files.map(f => {
     const result: LocalFindFilesEntry = { path: f.path, type: f.type };
     if (f.size !== undefined && f.type !== 'directory') {
-      result.sizeFormatted = formatFileSize(f.size);
-      // Numeric size rides along in details mode so downstream consumers
-      // (e.g. OQL files-lane sorting) can order without parsing the label.
+      // One size per mode: human label by default, numeric in details mode
+      // (OQL files-lane sorting needs the number, never both).
       if (details) result.size = f.size;
+      else result.sizeFormatted = formatFileSize(f.size);
     }
     if (details && f.permissions) result.permissions = f.permissions;
     if (f.modified) result.modified = f.modified;

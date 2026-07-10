@@ -273,7 +273,9 @@ export async function executeLspGetSemantics(
         contextMessage: 'lspGetSemantics execution failed',
         execute: async () => {
           const result = await getSemanticContent(query);
-          return attachSemanticRawEvidence(formatSemanticResult(query, result));
+          return attachSemanticRawEvidence(
+            withSemanticNext(formatSemanticResult(query, result))
+          );
         },
       });
     },
@@ -295,6 +297,41 @@ function formatSemanticResult(
 ): LspSemanticEnvelope | Record<string, unknown> {
   if (query.format !== 'compact' || !isSemanticEnvelope(result)) return result;
   return compactSemanticEnvelope(result);
+}
+
+// Ready-to-run follow-up: read the top result location with context, so the
+// agent doesn't have to assemble the localGetFileContent call from ranges.
+function withSemanticNext(
+  result: LspSemanticEnvelope | Record<string, unknown>
+): LspSemanticEnvelope | Record<string, unknown> {
+  if (!isSemanticEnvelope(result)) return result;
+  const payload = result.payload as {
+    locations?: Array<{
+      uri?: string;
+      displayRange?: { startLine?: number; endLine?: number };
+    }>;
+  };
+  const loc = payload.locations?.[0];
+  const start = loc?.displayRange?.startLine;
+  if (!loc?.uri || typeof start !== 'number') return result;
+  const path = loc.uri.startsWith('file://')
+    ? decodeURIComponent(loc.uri.slice('file://'.length))
+    : loc.uri;
+  return {
+    ...result,
+    next: {
+      readSite: {
+        tool: 'localGetFileContent',
+        query: {
+          path,
+          startLine: Math.max(1, start - 3),
+          endLine: (loc.displayRange?.endLine ?? start) + 10,
+        },
+        why: 'Read the top result location with surrounding context',
+        confidence: 'exact',
+      },
+    },
+  };
 }
 
 function isSemanticEnvelope(

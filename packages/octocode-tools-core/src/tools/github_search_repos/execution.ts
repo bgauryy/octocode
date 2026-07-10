@@ -62,8 +62,11 @@ function buildRepositoryDetail(repo: GitHubRepositoryOutput): RepositoryDetail {
         ? r.description
         : undefined,
     homepage: r.homepage || undefined,
+    // Date-only for ALL timestamps in discovery rows (one consistent format;
+    // day precision is what ranking/recency decisions actually use).
     pushedAt: r.pushedAt ? r.pushedAt.slice(0, 10) : undefined,
-    createdAt: r.createdAt,
+    createdAt: r.createdAt ? r.createdAt.slice(0, 10) : undefined,
+    updatedAt: r.updatedAt ? r.updatedAt.slice(0, 10) : undefined,
     defaultBranch:
       r.defaultBranch &&
       r.defaultBranch !== 'main' &&
@@ -73,8 +76,8 @@ function buildRepositoryDetail(repo: GitHubRepositoryOutput): RepositoryDetail {
     topics: r.topics?.length ? r.topics : undefined,
     visibility:
       r.visibility && r.visibility !== 'public' ? r.visibility : undefined,
-    url: r.url,
-    updatedAt: r.updatedAt,
+    // url intentionally omitted: derivable as https://github.com/{owner}/{repo}
+    // (~40 bytes × every row of every page for zero information).
   };
   return Object.fromEntries(
     Object.entries(detail).filter(([, v]) => v !== undefined)
@@ -131,12 +134,33 @@ function buildReposSearchOutput(
   };
 } {
   const concise = (query as { concise?: boolean }).concise === true;
+  // Ready-to-run follow-ups for the TOP result: discovery rows are leads, and
+  // the natural next move is orienting inside (or code-searching) the best hit.
+  const top = data.repositories[0];
+  const next =
+    top?.owner && top?.repo
+      ? {
+          viewStructure: {
+            tool: 'ghViewRepoStructure',
+            query: { owner: top.owner, repo: top.repo, path: '' },
+            why: 'Orient in the top-ranked repository before reading code',
+            confidence: 'heuristic',
+          },
+          searchCode: {
+            tool: 'ghSearchCode',
+            query: { owner: top.owner, repo: top.repo },
+            why: 'Scope a code search to the top-ranked repository',
+            confidence: 'heuristic',
+          },
+        }
+      : undefined;
   return {
     data: {
       pagination: data.pagination,
       repositories: concise
         ? data.repositories.map(r => `${r.owner ? `${r.owner}/` : ''}${r.repo}`)
         : data.repositories.map(buildRepositoryDetail),
+      ...(next ? { next } : {}),
     },
   };
 }

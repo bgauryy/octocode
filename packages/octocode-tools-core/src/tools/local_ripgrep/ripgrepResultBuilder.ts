@@ -35,9 +35,7 @@ type SearchNextCall = {
 };
 
 type SearchNextMap = {
-  fetchExact?: SearchNextCall;
-  fetchStandard?: SearchNextCall;
-  fetchSymbols?: SearchNextCall;
+  fetch?: SearchNextCall;
   lspDefinition?: SearchNextCall;
   lspReferences?: SearchNextCall;
   nextPage?: SearchNextCall;
@@ -295,9 +293,13 @@ function buildSearchNextMap(
   const next: SearchNextMap = {};
 
   if (firstFile?.path) {
+    // ONE fetch continuation instead of exact/standard/symbols triplets —
+    // the variants only differed by `minify`, while each repeated the full
+    // absolute path (the top token cost of small search responses). The why
+    // documents the knob so agents can still pick a different view.
     if (firstMatch?.line) {
       const range = lineRangeAroundMatch(firstMatch);
-      next.fetchExact = {
+      next.fetch = {
         tool: 'localGetFileContent',
         query: withoutUndefined({
           path: firstFile.path,
@@ -305,35 +307,17 @@ function buildSearchNextMap(
           endLine: range.endLine,
           minify: 'none',
         }),
-        why: 'Read exact source around the first grep match before editing, quoting, or validating comments/tests.',
+        why: 'Read exact source around the first match (set minify:"standard" for a token-lean slice, or drop the line range with minify:"symbols" for a skeleton).',
         confidence: 'exact',
       };
-      next.fetchStandard = {
-        tool: 'localGetFileContent',
-        query: withoutUndefined({
-          path: firstFile.path,
-          startLine: range.startLine,
-          endLine: range.endLine,
-          minify: 'standard',
-        }),
-        why: 'Read a token-efficient source slice around the first grep match.',
-        confidence: 'exact',
-      };
-    } else if (options.isFileListMode) {
-      next.fetchStandard = {
+    } else {
+      next.fetch = {
         tool: 'localGetFileContent',
         query: { path: firstFile.path, minify: 'standard' },
-        why: 'Read the first matched file from file-list/count mode.',
-        confidence: 'heuristic',
+        why: 'Read the first matched file (minify:"symbols" gives a skeleton for orientation; minify:"none" gives exact bytes).',
+        confidence: options.isFileListMode ? 'heuristic' : 'exact',
       };
     }
-
-    next.fetchSymbols = {
-      tool: 'localGetFileContent',
-      query: { path: firstFile.path, minify: 'symbols' },
-      why: 'Get a symbol skeleton for fast orientation before opening large bodies.',
-      confidence: 'exact',
-    };
 
     const symbolName = inferLspSymbolName(firstMatch, query, searchEngine);
     if (symbolName && firstMatch?.line) {

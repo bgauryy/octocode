@@ -945,6 +945,9 @@ function suggestField(
       }
       continue;
     }
+    // Fuzzy matching on very short unknowns produces false friends
+    // ('op' → 'id'); require 3+ chars before trusting edit distance.
+    if (lower.length < 3) continue;
     const threshold = Math.max(2, Math.floor(field.length / 3));
     if (distance <= threshold && distance < bestFuzzyScore) {
       bestFuzzy = field;
@@ -952,6 +955,40 @@ function suggestField(
     }
   }
   return bestContained ?? bestFuzzy;
+}
+
+/**
+ * Cross-tool field-name harmonization: the same concept is named differently
+ * per tool in the core schemas (keywords vs keywordsToSearch, path vs
+ * filePath, maxDepth vs depth…). These well-known renames are accepted as
+ * aliases and folded to the canonical field instead of erroring or being
+ * silently stripped. Real typos still hit the did-you-mean path.
+ */
+const TOOL_FIELD_ALIASES: Record<string, Record<string, string>> = {
+  ghSearchCode: { keywordsToSearch: 'keywords' },
+  ghSearchRepos: { keywords: 'keywordsToSearch' },
+  npmSearch: { name: 'packageName' },
+  ghViewRepoStructure: { depth: 'maxDepth' },
+  lspGetSemantics: { op: 'type', line: 'lineHint', path: 'uri' },
+  localGetFileContent: { filePath: 'path' },
+  localSearchCode: { keywordsToSearch: 'keywords' },
+};
+
+function applyFieldAliases(
+  toolName: string,
+  query: Record<string, unknown>
+): Record<string, unknown> {
+  const aliases = TOOL_FIELD_ALIASES[toolName];
+  if (!aliases) return query;
+  let next: Record<string, unknown> | undefined;
+  for (const [alias, canonical] of Object.entries(aliases)) {
+    if (alias in query && !(canonical in query)) {
+      next ??= { ...query };
+      next[canonical] = next[alias];
+      delete next[alias];
+    }
+  }
+  return next ?? query;
 }
 
 function normalizeQueryObject(
@@ -968,6 +1005,7 @@ function normalizeQueryObject(
       'Tool input must be a JSON object or an array of objects.'
     );
   }
+  const aliasedQuery = applyFieldAliases(toolName, query);
 
   const schemaFields = new Set([
     ...getDirectToolDisplayFields(toolName)
@@ -977,7 +1015,7 @@ function normalizeQueryObject(
   ]);
   const exactQuery: Record<string, unknown> = {};
   const unknownFields: string[] = [];
-  for (const [key, value] of Object.entries(query)) {
+  for (const [key, value] of Object.entries(aliasedQuery)) {
     if (schemaFields.has(key)) {
       exactQuery[key] = value;
       continue;

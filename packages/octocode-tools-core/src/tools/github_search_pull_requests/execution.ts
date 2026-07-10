@@ -165,9 +165,36 @@ export async function searchMultipleGitHubPullRequests(
           const { commits } = result.data;
           const hasContent = commits.length > 0;
 
+          // Commit headlines reference their PR as "(#N)" — hand the agent a
+          // ready-made PR lookup for the first referenced PR instead of
+          // making it build the type:"prs" call manually.
+          const prRef = commits
+            .map(c => c.messageHeadline?.match(/\(#(\d+)\)/)?.[1])
+            .find(Boolean);
+          const dataWithNext = {
+            ...(result.data as unknown as Record<string, unknown>),
+            ...(prRef
+              ? {
+                  next: {
+                    prDetail: {
+                      tool: 'ghHistoryResearch',
+                      query: {
+                        type: 'prs',
+                        owner: q.owner,
+                        repo: q.repo,
+                        prNumber: Number(prRef),
+                      },
+                      why: `Open PR #${prRef} referenced by the first commit for review context`,
+                      confidence: 'heuristic',
+                    },
+                  },
+                }
+              : {}),
+          };
+
           return createSuccessResult(
             query,
-            result.data as unknown as Record<string, unknown>,
+            dataWithNext,
             hasContent,
             TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS,
             {

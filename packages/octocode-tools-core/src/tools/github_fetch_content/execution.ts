@@ -240,7 +240,9 @@ async function handleFileFetch(
           localPath: materialized.localPath,
           repoRoot: materialized.repoRoot,
           cached: materialized.cached,
-          ...(materialized.branch !== query.branch
+          // Provenance: always name the ref that was actually served, so the
+          // answer is citable even when it equals the requested branch.
+          ...(materialized.branch
             ? { resolvedBranch: materialized.branch }
             : {}),
         }

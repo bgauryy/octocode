@@ -95,6 +95,11 @@ type PackageData = {
   repositoryId?: string;
   next?: Record<string, unknown>;
   warnings?: string[];
+  diagnostics?: Array<{
+    level: 'info' | 'warning' | 'error';
+    message: string;
+    code?: string;
+  }>;
 };
 
 type PackageRepositoryData = {
@@ -169,8 +174,12 @@ export function formatPackageData(pkg: PackageResult): PackageData {
   // typescript@7.x vs microsoft/TypeScript tags at v6.x) — warn so agents
   // don't cite the npm version as the repo's latest release.
   if (data.version && resolveGitHubOwnerRepo(url)) {
-    data.warnings = [
-      `npm version ${data.version} is the registry's latest publish and may not correspond to a release/tag in the linked repository — verify against the repo's releases or tags before citing it as the repo's latest release.`,
+    const message = `npm version ${data.version} is the registry's latest publish and may not correspond to a release/tag in the linked repository — verify against the repo's releases or tags before citing it as the repo's latest release.`;
+    data.warnings = [message];
+    // Machine-routable duplicate: route on the code straight to
+    // next.latestRelease instead of parsing prose.
+    data.diagnostics = [
+      { level: 'warning', code: 'npmRepoTagDivergence', message },
     ];
   }
   return data;

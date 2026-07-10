@@ -125,6 +125,49 @@ export async function exploreMultipleRepositoryStructures(
           resolvedBranch
         );
 
+        // Ready-to-run follow-ups: read the first listed file, or materialize
+        // the whole directory for local search/LSP.
+        const structure = (
+          resultData as {
+            structure?: Array<{ dir: string; files?: string[] }>;
+          }
+        ).structure;
+        const firstDir = structure?.find(d => (d.files?.length ?? 0) > 0);
+        const firstFile = firstDir
+          ? firstDir.dir === '.'
+            ? firstDir.files![0]
+            : `${firstDir.dir}/${firstDir.files![0]}`
+          : undefined;
+        (resultData as Record<string, unknown>).next = {
+          ...(firstFile
+            ? {
+                fetchFile: {
+                  tool: 'ghGetFileContent',
+                  query: {
+                    owner: query.owner,
+                    repo: query.repo,
+                    path: firstFile,
+                    ...(query.branch ? { branch: query.branch } : {}),
+                  },
+                  why: 'Read the first listed file',
+                  confidence: 'heuristic',
+                },
+              }
+            : {}),
+          materialize: {
+            tool: 'ghGetFileContent',
+            query: {
+              owner: query.owner,
+              repo: query.repo,
+              path: String(query.path ?? ''),
+              type: 'directory',
+              ...(query.branch ? { branch: query.branch } : {}),
+            },
+            why: 'Materialize this directory locally for exact line anchors, local search, or LSP',
+            confidence: 'exact',
+          },
+        };
+
         return createSuccessResult(
           query,
           resultData as unknown as Record<string, unknown>,

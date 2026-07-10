@@ -6,7 +6,10 @@ import {
   type QueryWithPagination,
 } from '../../utils/response/groupedFinalizer.js';
 import type { GitHubCodeSearchOutputLocal } from './scheme.js';
-import type { ToolContinuation } from '../../scheme/pagination.js';
+import type {
+  ToolContinuation,
+  ToolDiagnostic,
+} from '../../scheme/pagination.js';
 import {
   type CodeSearchFlatResult,
   type CodeSearchGroupedMatch,
@@ -377,25 +380,41 @@ export function buildGhSearchCodeFinalizer<
     if (errors.length > 0) responseData.errors = errors;
 
     // GitHub's index did not fully complete for at least one query — empty or
-    // partial results may be a false negative, NOT a true absence. Surface it
-    // as a visible warning so the agent distinguishes "no match" from "search
-    // degraded" and can retry, narrow scope, or search the repo locally.
+    // partial results may be a false negative, NOT a true absence. Emit both
+    // the rendered warning string and a coded diagnostic so agents can route
+    // on `code` instead of parsing prose.
+    const diagnostics: ToolDiagnostic[] = [];
     if (anyIncompleteResults) {
+      const message =
+        'GitHub code search returned incomplete_results: the search index did not fully complete. Empty or partial results may be a false negative — retry, narrow scope (owner/repo/path), or materialize the repo and search locally before concluding absence.';
       responseData.warnings = [
         ...(Array.isArray(responseData.warnings) ? responseData.warnings : []),
-        'GitHub code search returned incomplete_results: the search index did not fully complete. Empty or partial results may be a false negative — retry, narrow scope (owner/repo/path), or materialize the repo and search locally before concluding absence.',
+        message,
       ];
+      diagnostics.push({
+        level: 'warning',
+        code: 'ghIncompleteResults',
+        message,
+      });
     }
 
     if (
       emptyQueries.length > 0 &&
       hasScopedGitHubQuery(emptyQueries, queries)
     ) {
+      const message =
+        'GitHub code search returned no results for a scoped repository query. Treat this as unproven absence: verify the repo/path with ghViewRepoStructure, then materialize or clone a bounded path and search locally before concluding.';
       responseData.warnings = [
         ...(Array.isArray(responseData.warnings) ? responseData.warnings : []),
-        'GitHub code search returned no results for a scoped repository query. Treat this as unproven absence: verify the repo/path with ghViewRepoStructure, then materialize or clone a bounded path and search locally before concluding.',
+        message,
       ];
+      diagnostics.push({
+        level: 'warning',
+        code: 'ghScopedZeroUnproven',
+        message,
+      });
     }
+    if (diagnostics.length > 0) responseData.diagnostics = diagnostics;
 
     return formatFinalizedResponse<GitHubCodeSearchOutputLocal>(
       responseData,
