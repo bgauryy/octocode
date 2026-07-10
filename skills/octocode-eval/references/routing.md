@@ -9,6 +9,8 @@ Load when a loop produces a durable lesson or needs another Octocode skill. Why:
 | RFC success metrics document | `octocode-rfc-generator` → `KPI.md` |
 | Prompt/trigger tuning only | `octocode-prompt-optimizer` (still run this skill’s KPI loop) |
 | Idea worth-building before eval suite | `octocode-brainstorming` |
+| Parallel workers / model routing | `octocode-subagent` |
+| Blunt code critique | `octocode-roast` |
 
 ## Capture rules
 - Record only **verified** reusable outcomes

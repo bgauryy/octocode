@@ -31,9 +31,15 @@ BEFORE/READ+REASON -> DURING/DO -> AFTER/VERIFY -> LEARN? -> CLEAN? -> PROJECT?
 - When recalling or recording memory, load `references/memory-recall.md` for trust and ranking rules.
 - When deciding whether to learn or clean, load `references/bookkeeping.md` for pressure-driven triggers.
 - When inspecting storage or sessions, load `references/architecture.md` for data owners and invariants.
-- When improving the harness, load `references/improve-loop.md` for goal/KPI acceptance.
+- When improving the harness, prefer `octocode-eval`; stub `references/improve-loop.md` if unavailable.
 - When shipping a skill change, load `references/skill-evolution.md` for held-out and human gates.
 Unknown owner only: `docs list --compact`; then `docs show <name>`.
+## Related skills
+- `octocode-eval` — goal→KPI / keep-discard when measuring harness changes
+- `octocode-research` — code/GitHub/package evidence (not Awareness search)
+- `octocode-skills` — skill folder create/edit/review (bundled sibling)
+- `octocode-subagent` — parallel workers sharing this repo
+- `octocode-rfc-generator` — design before large coordination changes
 ## Scripts
 Prefer package CLI above; `scripts/awareness.mjs` is bundled fallback. Use `scripts/schema.mjs` for contracts, `scripts/hook-runner.mjs` for host events, `scripts/extract-hook-files.mjs` for payloads, `scripts/install.mjs` for setup, `scripts/smoke-multi-agent.mjs` before release.
 ## Install · Hard rules

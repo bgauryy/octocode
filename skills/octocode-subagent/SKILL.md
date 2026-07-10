@@ -32,7 +32,7 @@ Solo finishes; two High options need a winner; three angles add nothing; a user/
 - `references/synthesize.md` — when merging worker results before the final answer.
 - `references/recovery.md` — when workers fail, stall, or conflict.
 - `references/workspace.md` — when parallel writers share a repo or cwd.
-- `references/improve-loop.md` — when improving this skill with measurable KPIs.
+- `references/improve-loop.md` — stub; prefer `octocode-eval` for full goal→KPI
 - `references/octocode.md` — when workers need Octocode research tool routing.
 
 ## Related skills
