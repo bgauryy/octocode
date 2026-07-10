@@ -1,6 +1,7 @@
 ---
 name: octocode-install
-description: Interactive step-by-step installer for Octocode tools on macOS and Windows. Use when the user asks to "install octocode", "set up octocode", "configure octocode mcp", "get started with octocode", "install octocode", "octocode setup", or needs help with GitHub auth, IDE MCP config, or skills installation.
+description: "Use when installing or setting up Octocode — MCP config, CLI, GitHub auth, IDE wiring, or skills installation on macOS/Windows."
+
 ---
 
 # Octocode Install — Interactive Setup

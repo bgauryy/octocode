@@ -1,6 +1,6 @@
 ---
 name: octocode-rfc-generator
-description: "Use when the user needs an RFC, design doc, architecture proposal, migration plan, or research-backed decision before coding. Triggers: cross-package changes, risky refactors, option comparisons, blast-radius mapping, or improving an existing RFC/plan."
+description: "Use when you need an RFC, design doc, architecture proposal, migration plan, or research-backed decision before coding — cross-package changes, risky refactors, option comparisons, blast-radius mapping, or improving an existing RFC/plan."
 ---
 
 # Octocode RFC Generator
@@ -27,10 +27,9 @@ When a save is approved, write a folder `<workspace>/.octocode/rfc/{name}/` cont
 
 **Small-feature mode:** for a small, reversible, single-package change, produce **only `RFC.md`** (plan + acceptance criteria + references inline) and say so. The full folder is the default for anything irreversible, cross-package, public-contract/data/security impact, or prior-art-heavy.
 
-## Next skills
-- `octocode-brainstorming` — when the idea is not yet Build-RFC ready (get a handoff first)
-- `octocode-research` — close open questions; prerequisites; implement after accept
-- `octocode-awareness` — attend/work/verify while executing the plan
+## Next skills (optional) · Improve loop
+Load only when needed: `brainstorming` · `research` · `awareness`.
+When improving: set goal+KPI → measure actual results → check thesis — load `references/improve-loop.md`.
 
 ## Reference Map
 
@@ -44,6 +43,7 @@ When a save is approved, write a folder `<workspace>/.octocode/rfc/{name}/` cont
 
 ## Non-negotiables
 
+- **Results beat words:** recommendations need facts plus deterministic proof (package tests, `eval-rfc.mjs`, CLI or code execution). Cite what ran and what it returned; prose alone is not acceptance evidence.
 - Do not guess facts that tools can verify; cite local claims with `file:line` and external claims with a GitHub path/line or PR/commit link. Use `octocode-research` for Octocode-backed claims.
 - Ask before deciding the flow when uncertainty changes the RFC shape, owner, scope, or decision criteria.
 - Always compare at least two alternatives — including do-nothing — unless the user explicitly asks for a single implementation plan.

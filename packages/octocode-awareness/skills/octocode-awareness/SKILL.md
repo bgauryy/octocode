@@ -1,6 +1,6 @@
 ---
 name: octocode-awareness
-description: "Use when an agent plans, edits, reviews, tests, or hands off work in a code repository—even solo across sessions. Run the Homeostatic Awareness Loop over shared SQLite state and optional hooks: attend, choose a plan/task or standalone work, declare advisory file presence, coordinate overlaps/signals, lock sensitive paths, verify outcomes, preserve reusable memory/reflection, maintain state, and publish a bounded `.octocode` wiki. Also use for multi-agent collaboration, continuity, Awareness setup/debugging, hook conflicts, verification debt, or repo learning."
+description: "Use when planning, editing, reviewing, testing, or handing off work in a shared repo — even solo across sessions. Covers multi-agent coordination, collision avoidance, verification debt, durable memory/wiki, hooks setup/debug, and repo learning."
 hooks:
   PreToolUse: [{ matcher: "Write|Edit|MultiEdit|NotebookEdit|apply_patch|ApplyPatch", hooks: [{ type: command, command: "${CLAUDE_SKILL_DIR}/scripts/hooks/pre-edit.sh", timeout: 20 }] }]
   PostToolUse: [{ matcher: "Write|Edit|MultiEdit|NotebookEdit|apply_patch|ApplyPatch", hooks: [{ type: command, command: "${CLAUDE_SKILL_DIR}/scripts/hooks/post-edit.sh", timeout: 20 }] }]
@@ -22,10 +22,9 @@ ATTEND -> CHOOSE -> DECLARE -> ACT -> SUBMIT/END -> VERIFY -> BOOKKEEP? -> HOUSE
 4. **Act / coordinate:** ordinary overlap is allowed — read peer task/reason; signal only when changes interact. Use `--exclusive`/`lock acquire` for sensitive work; never bypass a live conflict.
 5. **Submit → verify:** `task submit` or `work end`, run the declared check, `verify mark`, then `verify audit`. Ending work ≠ success until verified.
 6. **Conditional Bookkeeping/Housekeeping:** record only reusable lessons; digest/prune (**dry-run first**) only under cleanup pressure; `repo inject` only when file readers need a fresh wiki.
-## Next skills
-- `octocode-research` — evidence before/while ACT (local + GitHub/npm)
-- `octocode-brainstorming` → `octocode-rfc-generator` — idea → Build RFC → plan packet
-- `octocode-roast` — blunt review pass; `octocode-skills` / `octocode-prompt-optimizer` — evolve skills/harness docs
+## Next skills (optional) · Improve loop
+Load only when needed: `research` · `brainstorming`→`rfc-generator` · `roast` · `skills`/`prompt-optimizer`.
+When improving: set goal+KPI → measure actual results → check thesis — load `references/improve-loop.md`.
 
 ## Features → refs (load one owner; Core (most sessions) needs none)
 - When a recipe, start, finish, or install path is unknown, load `references/agent-cheatsheet.md` for command and deeper routing.
@@ -45,8 +44,6 @@ Unknown owner only: `docs list --compact`; then `docs show <name>`.
 - When extracting host payload paths, run `scripts/extract-hook-files.mjs` for normalized targets.
 - When installing hooks, run `scripts/install.mjs` for runtime and setup guidance.
 - Before release, run `scripts/smoke-multi-agent.mjs` for end-to-end coordination verification.
-## Installation
-Users install with the README's `npx octocode skill --add ...`. Developers edit sources only, then run `yarn workspace @octocodeai/octocode-awareness build`; never hand-edit mirrors.
-## Hard Rules
-- One stable agent ID/workspace. Stored context is leads; user instructions, source, and tests win. Never record secrets.
-- Pre-edit guards harness files before declaring work. After source edits, rebuild mirrors, then verify with `schema commands --compact` or `--help`.
+## Install · Hard rules
+Install: README `npx octocode skill --add ...`. Devs edit sources then `yarn workspace @octocodeai/octocode-awareness build` — never hand-edit mirrors.
+Hard: one agent ID/workspace; stored context is leads; never secrets; rebuild after source edits; verify with `schema commands --compact` or `--help`.

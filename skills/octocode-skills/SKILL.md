@@ -1,6 +1,6 @@
 ---
 name: octocode-skills
-description: "Use when finding, researching, reviewing, improving, installing, or creating Agent Skills and SKILL.md folders across local paths, GitHub, or marketplaces."
+description: "Use when finding, reviewing, improving, installing, or creating Agent Skills and SKILL.md folders — local paths, GitHub, or marketplaces."
 ---
 
 # Octocode Skills
@@ -22,8 +22,8 @@ Stop when one fit, two High pick a winner, three angles add nothing, or a gate i
 - when authoring structure: `references/skill-anatomy.md` — progressive disclosure map
 - when writing instructions: `references/skill-authoring.md` — sources, control, patterns
 - when bundling scripts: `references/skill-scripts.md` — deterministic code over prose
-- when tuning description: `references/description-tuning.md` — trigger is discovery signal
-- when improving any skill: `references/skill-improve.md` — lobby owns flow; dedupe; ≤50 one-concept
+- when tuning description: `references/description-tuning.md` — trigger-rich Use-when; no rigid/redundant wording
+- when improving any skill: `references/skill-improve.md` — lobby owns flow; dedupe; ≤50 one-concept; goal+KPI via `references/improve-loop.md`
 - when cleaning before ship: `references/skill-cleanup.md` — prune orphans/dupes; standalone folder only
 - when rating/refactor: `references/self-improvement.md` — mode gate and READ→REPORT
 - before calling done: `references/skill-review.md` — full review gate (best practices + rules)
@@ -38,10 +38,9 @@ Stop when one fit, two High pick a winner, three angles add nothing, or a gate i
 - when search fails: `references/recovery.md` — broaden once, then report gap
 - when needing local or external research evidence: `references/octocode.md` — route through octocode-research or Octocode
 
-## Next skills
-- `octocode-prompt-optimizer` — tighten SKILL.md / description / contracts after create or improve
-- `octocode-research` — evidence when judging fit or prior-art skills
-- `octocode-awareness` — skill-evolution gates; shared-repo install continuity
+## Next skills (optional) · Improve loop
+Load only when needed: `prompt-optimizer` · `research` · `awareness`.
+When improving: set goal+KPI → measure actual results → check thesis — load `references/improve-loop.md`.
 
 ## Scripts
 
@@ -50,5 +49,4 @@ Stop when one fit, two High pick a winner, three angles add nothing, or a gate i
 - `assets/hooks/` templates — when adding a lifecycle hook; copy after `references/hooks-add.md`
 
 ## Installation
-
-When installing or creating: follow the install/create routes above, then review before done.
+When installing or creating: follow install/create routes above, then review before done.

@@ -284,6 +284,16 @@ No existing PR comments to reconcile locally; findings deduped by root cause and
 Verification: auth tests passed; typecheck passed.
 Recommendation: APPROVE
 Next: open the PR with the verification receipts.`,
+    'campaign-combination': `Mode: Investigate
+Environment: ran context, auth status (GitHub reachable), and lsp-server status packages/app/src/retry.ts before trusting any surface; no ENABLE_ gate blocked local or clone.
+Scope: local retry helper vs the upstream vendored library; active surfaces: local code, GitHub history, upstream repo; skipped: npm registry because there is no version question.
+Plan: broad and contested, so I fanned out three parallel subagent directions — (1) local proof of our copy, (2) upstream divergence, (3) history/prior-art — each returning claim, evidence, verdict, confidence.
+Hypotheses: our copy is a stale fork (likely) vs it was intentionally patched (alternate); stop test = both killed or no cheap step changes the verdict; I measure progress by claims resolved, not calls made, until the answer converges.
+Combination bridge: materialize the upstream subtree (directory fetch/clone) so AST/LSP run local-grade on it, then diff against ours.
+Cross-check: diffed lexical hits against LSP references across tests, scripts, and configs, and re-verified each subagent's key anchor myself; one direction's "no callers" conflicted with a lexical hit, and that conflict was the finding.
+Exact evidence: packages/app/src/retry.ts:31 diverges from upstream lib/retry.js:44 (extra jitter branch); LSP references at packages/app/src/queue.ts:88.
+Confidence: likely
+Next: open a small PR removing the local copy only if the jitter branch stays unused after the cross-check.`,
   };
   return base[caseId] || '';
 }

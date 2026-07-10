@@ -1,6 +1,6 @@
 ---
 name: octocode-brainstorming
-description: "Use when brainstorming or validating ideas against evidence: worth building, prior art, existing solutions, or whether to add X. Diverges, researches, stress-tests, and returns Build RFC / Prototype / Narrow / Park."
+description: "Use when brainstorming or validating ideas against evidence: worth building, prior art, existing solutions, should we add X, or idea stress-tests. Returns Build RFC / Prototype / Narrow / Park."
 ---
 
 # Octocode Brainstorming
@@ -28,10 +28,9 @@ STOP, recommend one option, and wait when any gate trips:
 - Keep a claim ledger: `claim -> source -> confidence -> next query`; for substantial, multi-surface, or high-confidence runs, start `scripts/brainstorm-run.mjs` via `references/hook-communication.md`.
 - Run Critical Architect, Visionary Entrepreneur, and Product lenses before a final verdict unless the worker gate shortens review.
 
-## Next skills
-- `octocode-research` — local/GitHub/npm/code proof while diverging or stress-testing
-- `octocode-rfc-generator` — when verdict is Build RFC (handoff packet)
-- `octocode-awareness` — capture durable lessons after DECIDE
+## Next skills (optional) · Improve loop
+Load only when needed: `research` · `rfc-generator` · `awareness`.
+When improving: set goal+KPI → measure actual results → check thesis — load `references/improve-loop.md`.
 
 ## Reference Map
 

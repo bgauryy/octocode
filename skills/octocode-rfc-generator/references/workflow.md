@@ -116,6 +116,7 @@ Order steps by dependency, not preference; avoid time estimates.
 
 Before delivering, check:
 
+- **Results > words:** run deterministic checks that can fail (`scripts/eval-rfc.mjs --case <id>`, package tests, CLI smoke). Cite exit codes/output; never ship on narrative alone.
 - Problem, motivation, Goals **and** Non-Goals are specific; current state has real evidence.
 - Alternatives fairly compared, including do-nothing; recommendation depends on no `uncertain` claim.
 - Drawbacks, pre-mortem (how this fails), migration cost, and blast radius (shared symbols/contracts) are explicit.

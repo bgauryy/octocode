@@ -38,4 +38,4 @@ Before Full analysis, present scope/areas, staged state, risk, sizing, guideline
 | remote-only PR | GitHub tree/search/exact/history; package metadata for dependency claims |
 | Local/File | local exact/search/LSP + shell git context |
 
-Search/patch hits lead to exact reads; exact anchors lead to callers/references/callees. Follow `workflow-pr-review-analysis.md` for sizing, flow proof, findings, and verification; then `workflow-pr-review-report.md` for recommendation/output. Validate with `node scripts/eval-research.mjs --case pr-local-review`.
+Search/patch hits lead to exact reads; exact anchors lead to callers/references/callees. Follow `references/workflow-pr-review-analysis.md` for sizing, flow proof, findings, and verification; then `references/workflow-pr-review-report.md` for recommendation/output. Validate with `node scripts/eval-research.mjs --case pr-local-review`.

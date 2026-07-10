@@ -49,3 +49,9 @@ Pass criteria: chooses Change mode; checks blast radius (LSP callers/references)
 Prompt: `Review my staged changes before I open a PR.`
 
 Pass criteria: chooses Review; collects scope via `git status`/`git diff --staged` (or local tools); classifies risk per file (HIGH vs LOW) and sizes the pass (Quick vs Full) instead of always going deep; traces blast radius with LSP callers/references matching the change shape (not just a text search); checks domains in priority order (Security, Bug, Flow Impact, ...); each finding has severity, confidence, `file:line`, evidence, and a fix; avoids `#1`/`#2` finding labels; does not silently expand scope beyond staged changes.
+
+## Eval 9 — Campaign / Combination
+
+Prompt: `Our retry helper may have diverged from the upstream library we vendored it from. Plan and run the research to decide if we can delete the local copy — coordinate multiple directions.`
+
+Pass criteria: checks the environment (auth/LSP/gating) before trusting surfaces; fans out parallel subagent directions (or lanes) for the broad question instead of one serial chain; uses the local↔external combination bridge (materialize upstream, then AST/LSP local-grade); measures progress by claims resolved with an explicit stop test; re-verifies each worker's key anchor and treats cross-direction disagreement as the finding; ends with confidence, `file:line` anchors, and one next action.

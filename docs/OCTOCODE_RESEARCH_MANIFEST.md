@@ -661,7 +661,7 @@ materialization for you. Behaviors to rely on:
 - `target:"research"` page 1 is summary counts, packets from page 2 onward;
   `next.graph` upgrades rows to proofStatus (confirmed-by-lsp / conflicting-evidence / etc.)
 - zero rows plus `providerUnindexed` does not mean absence; follow `next.materialize`
-- run `search --scheme` before authoring nontrivial OQL; `--explain` shows the routing
+- run `search --scheme` before authoring nontrivial OQL; `--explain` shows the routing PLAN and then also executes, while `--dry-run` prints the PLAN without executing
 
 ---
 
@@ -828,7 +828,7 @@ manifest covers ground it doesn't, is the point of this section.
 | Memory pointers: a short reference token stands in for content that can be re-fetched | StackOne | Materialized `localPath` + `next.materialize` (§8); OQL rows carry the same pattern | Matches |
 | Built-in filters as the pragmatic middle ground for tool *providers* (vs. sandboxed code-mode, which StackOne calls "heavy... most won't build it") | StackOne | `countMatchesPerFile`, `filesOnly`, `discovery`, structural metavars, `concise` (§9, §12) | Matches: independent validation of an existing design choice, not self-assessment |
 | Tiered/on-demand schema so tool definitions don't burn the budget up front | StackOne ("Tool Definition Catch-22") | §9b: a small tool catalog vs. a much larger per-tool schema; a compact OQL guide vs. the full contract | Matches: same discipline applied at the field level since the tool count (13) never grew large enough to need discovery-by-search |
-| Pre-flight cost awareness: let the agent see or estimate cost before committing | StackOne ("dry-run... their survival becomes their responsibility") | `search --dry-run` plans an OQL query without executing it; every paginated response carries `estimatedTokens` with an actionable warning above 30k/50k tokens (`utils/pagination/{core,hints}.ts`) | Matches: shipped, not aspirational |
+| Pre-flight cost awareness: let the agent see or estimate cost before committing | StackOne ("dry-run... their survival becomes their responsibility") | `search --dry-run` plans an OQL query without executing it (prints the routing PLAN and an evidence line, no result rows); `--explain` shows the same PLAN but then executes | Partial: the non-executing planner ships and is CLI-reachable. An `estimatedTokens` field and a 30k/50k token-warning path exist in `utils/pagination/{core,hints}.ts` but are currently unwired into any CLI-reachable response (dead code), so the cost-warning half is aspirational, not shipped |
 | Structural/semantic code intelligence beats plain text retrieval for coding agents, measured | Sourcegraph (CodeScaleBench: file recall 0.127 to 0.277, P@5 0.140 to 0.478, F1@5 0.099 to 0.262 with an MCP code-graph layer vs. grep-only) | §1/§5 evidence grades (semantic > structural > lexical > provider) argue the same ordering qualitatively | Same conclusion, weaker proof: this manifest has never run the equivalent task-level A/B (§13 already lists this as an open item, not restated as new) |
 
 **Where this manifest doesn't compete, on purpose:**

@@ -14,12 +14,13 @@
 
 use oxc_allocator::Allocator;
 use oxc_ast::ast::{
-    BindingPattern, Class, ClassElement, Declaration, ExportAllDeclaration,
-    ExportDefaultDeclarationKind, ExportNamedDeclaration, Expression, ForStatementInit, Function,
-    ImportDeclaration, ImportDeclarationSpecifier, ImportOrExportKind, MethodDefinitionKind,
-    ModuleExportName, Program, PropertyKey, Statement, TSEnumDeclaration, TSEnumMemberName,
-    TSInterfaceDeclaration, TSModuleDeclaration, TSModuleDeclarationBody, TSModuleDeclarationName,
-    TSSignature, TSTypeAliasDeclaration, VariableDeclaration, VariableDeclarationKind,
+    Argument, ArrayExpressionElement, BindingPattern, ChainElement, Class, ClassElement,
+    Declaration, ExportAllDeclaration, ExportDefaultDeclarationKind, ExportNamedDeclaration,
+    Expression, ForStatementInit, Function, ImportDeclaration, ImportDeclarationSpecifier,
+    ImportOrExportKind, MethodDefinitionKind, ModuleExportName, ObjectPropertyKind, Program,
+    PropertyKey, Statement, TSEnumDeclaration, TSEnumMemberName, TSInterfaceDeclaration,
+    TSModuleDeclaration, TSModuleDeclarationBody, TSModuleDeclarationName, TSSignature,
+    TSTypeAliasDeclaration, VariableDeclaration, VariableDeclarationKind,
 };
 use oxc_parser::Parser;
 use oxc_semantic::SemanticBuilder;
@@ -810,12 +811,20 @@ fn collect_owned_statement_calls(
             }
         }
         Statement::ForStatement(for_stmt) => {
-            if let Some(ForStatementInit::VariableDeclaration(variable)) = &for_stmt.init {
-                for declarator in &variable.declarations {
-                    if let Some(init) = &declarator.init {
-                        collect_expression_calls(owner, init, li, calls);
+            match &for_stmt.init {
+                Some(ForStatementInit::VariableDeclaration(variable)) => {
+                    for declarator in &variable.declarations {
+                        if let Some(init) = &declarator.init {
+                            collect_expression_calls(owner, init, li, calls);
+                        }
                     }
                 }
+                Some(init) => {
+                    if let Some(expr) = init.as_expression() {
+                        collect_expression_calls(owner, expr, li, calls);
+                    }
+                }
+                None => {}
             }
             if let Some(test) = &for_stmt.test {
                 collect_expression_calls(owner, test, li, calls);
@@ -836,7 +845,104 @@ fn collect_owned_statement_calls(
         Statement::ThrowStatement(throw_stmt) => {
             collect_expression_calls(owner, &throw_stmt.argument, li, calls);
         }
+        Statement::SwitchStatement(switch_stmt) => {
+            collect_expression_calls(owner, &switch_stmt.discriminant, li, calls);
+            for case in &switch_stmt.cases {
+                if let Some(test) = &case.test {
+                    collect_expression_calls(owner, test, li, calls);
+                }
+                for child in &case.consequent {
+                    collect_owned_statement_calls(owner, child, li, calls);
+                }
+            }
+        }
+        Statement::TryStatement(try_stmt) => {
+            for child in &try_stmt.block.body {
+                collect_owned_statement_calls(owner, child, li, calls);
+            }
+            if let Some(handler) = &try_stmt.handler {
+                for child in &handler.body.body {
+                    collect_owned_statement_calls(owner, child, li, calls);
+                }
+            }
+            if let Some(finalizer) = &try_stmt.finalizer {
+                for child in &finalizer.body {
+                    collect_owned_statement_calls(owner, child, li, calls);
+                }
+            }
+        }
+        Statement::ForInStatement(for_in) => {
+            collect_expression_calls(owner, &for_in.right, li, calls);
+            collect_owned_statement_calls(owner, &for_in.body, li, calls);
+        }
+        Statement::ForOfStatement(for_of) => {
+            collect_expression_calls(owner, &for_of.right, li, calls);
+            collect_owned_statement_calls(owner, &for_of.body, li, calls);
+        }
+        Statement::LabeledStatement(labeled) => {
+            collect_owned_statement_calls(owner, &labeled.body, li, calls);
+        }
+        Statement::WithStatement(with_stmt) => {
+            collect_expression_calls(owner, &with_stmt.object, li, calls);
+            collect_owned_statement_calls(owner, &with_stmt.body, li, calls);
+        }
         _ => {}
+    }
+}
+
+fn push_call(
+    owner: &str,
+    callee: String,
+    span: Span,
+    li: &LineIndex,
+    kind: &'static str,
+    calls: &mut Vec<GraphCall>,
+) {
+    let range = li.range(span);
+    let line = range.start.line + 1;
+    let id_prefix = if kind == "constructs" {
+        "construct"
+    } else {
+        "call"
+    };
+    calls.push(GraphCall {
+        id: format!("{id_prefix}:{owner}:{callee}:{line}"),
+        caller: owner.to_string(),
+        callee,
+        line,
+        range,
+        kind,
+    });
+}
+
+fn collect_argument_calls(
+    owner: &str,
+    arg: &Argument,
+    li: &LineIndex,
+    calls: &mut Vec<GraphCall>,
+) {
+    if let Some(expr) = arg.as_expression() {
+        collect_expression_calls(owner, expr, li, calls);
+    } else if let Argument::SpreadElement(spread) = arg {
+        collect_expression_calls(owner, &spread.argument, li, calls);
+    }
+}
+
+fn collect_call_like(
+    owner: &str,
+    callee: &Expression,
+    arguments: &[Argument],
+    span: Span,
+    li: &LineIndex,
+    kind: &'static str,
+    calls: &mut Vec<GraphCall>,
+) {
+    if let Some(name) = callee_name(callee) {
+        push_call(owner, name, span, li, kind, calls);
+    }
+    collect_expression_calls(owner, callee, li, calls);
+    for arg in arguments {
+        collect_argument_calls(owner, arg, li, calls);
     }
 }
 
@@ -848,33 +954,170 @@ fn collect_expression_calls(
 ) {
     match expr {
         Expression::CallExpression(call) => {
-            if let Some(callee) = callee_name(&call.callee) {
-                let range = li.range(call.span);
-                let line = range.start.line + 1;
-                calls.push(GraphCall {
-                    id: format!("call:{}:{}:{}", owner, callee, line),
-                    caller: owner.to_string(),
-                    callee,
-                    line,
-                    range,
-                    kind: "calls",
-                });
-            }
+            collect_call_like(
+                owner,
+                &call.callee,
+                &call.arguments,
+                call.span,
+                li,
+                "calls",
+                calls,
+            );
         }
         Expression::NewExpression(new_expr) => {
-            if let Some(callee) = callee_name(&new_expr.callee) {
-                let range = li.range(new_expr.span);
-                let line = range.start.line + 1;
-                calls.push(GraphCall {
-                    id: format!("construct:{}:{}:{}", owner, callee, line),
-                    caller: owner.to_string(),
-                    callee,
-                    line,
-                    range,
-                    kind: "constructs",
-                });
+            collect_call_like(
+                owner,
+                &new_expr.callee,
+                &new_expr.arguments,
+                new_expr.span,
+                li,
+                "constructs",
+                calls,
+            );
+        }
+        Expression::BinaryExpression(bin) => {
+            collect_expression_calls(owner, &bin.left, li, calls);
+            collect_expression_calls(owner, &bin.right, li, calls);
+        }
+        Expression::LogicalExpression(log) => {
+            collect_expression_calls(owner, &log.left, li, calls);
+            collect_expression_calls(owner, &log.right, li, calls);
+        }
+        Expression::ConditionalExpression(cond) => {
+            collect_expression_calls(owner, &cond.test, li, calls);
+            collect_expression_calls(owner, &cond.consequent, li, calls);
+            collect_expression_calls(owner, &cond.alternate, li, calls);
+        }
+        Expression::AssignmentExpression(assign) => {
+            if let Some(member) = assign.left.as_member_expression() {
+                collect_expression_calls(owner, member.object(), li, calls);
+                if let oxc_ast::ast::MemberExpression::ComputedMemberExpression(computed) = member
+                {
+                    collect_expression_calls(owner, &computed.expression, li, calls);
+                }
+            } else if let Some(left) = assign.left.get_expression() {
+                collect_expression_calls(owner, left, li, calls);
+            }
+            collect_expression_calls(owner, &assign.right, li, calls);
+        }
+        Expression::SequenceExpression(seq) => {
+            for child in &seq.expressions {
+                collect_expression_calls(owner, child, li, calls);
             }
         }
+        Expression::AwaitExpression(await_expr) => {
+            collect_expression_calls(owner, &await_expr.argument, li, calls);
+        }
+        Expression::ParenthesizedExpression(paren) => {
+            collect_expression_calls(owner, &paren.expression, li, calls);
+        }
+        Expression::ChainExpression(chain) => match &chain.expression {
+            ChainElement::CallExpression(call) => {
+                collect_call_like(
+                    owner,
+                    &call.callee,
+                    &call.arguments,
+                    call.span,
+                    li,
+                    "calls",
+                    calls,
+                );
+            }
+            ChainElement::TSNonNullExpression(non_null) => {
+                collect_expression_calls(owner, &non_null.expression, li, calls);
+            }
+            other => {
+                if let Some(member) = other.as_member_expression() {
+                    collect_expression_calls(owner, member.object(), li, calls);
+                    if let oxc_ast::ast::MemberExpression::ComputedMemberExpression(computed) =
+                        member
+                    {
+                        collect_expression_calls(owner, &computed.expression, li, calls);
+                    }
+                }
+            }
+        },
+        Expression::UnaryExpression(unary) => {
+            collect_expression_calls(owner, &unary.argument, li, calls);
+        }
+        Expression::YieldExpression(yield_expr) => {
+            if let Some(argument) = &yield_expr.argument {
+                collect_expression_calls(owner, argument, li, calls);
+            }
+        }
+        Expression::ArrayExpression(array) => {
+            for element in &array.elements {
+                if let Some(child) = element.as_expression() {
+                    collect_expression_calls(owner, child, li, calls);
+                } else if let ArrayExpressionElement::SpreadElement(spread) = element {
+                    collect_expression_calls(owner, &spread.argument, li, calls);
+                }
+            }
+        }
+        Expression::ObjectExpression(object) => {
+            for property in &object.properties {
+                match property {
+                    ObjectPropertyKind::ObjectProperty(prop) => {
+                        if let Some(key) = prop.key.as_expression() {
+                            collect_expression_calls(owner, key, li, calls);
+                        }
+                        collect_expression_calls(owner, &prop.value, li, calls);
+                    }
+                    ObjectPropertyKind::SpreadProperty(spread) => {
+                        collect_expression_calls(owner, &spread.argument, li, calls);
+                    }
+                }
+            }
+        }
+        Expression::TemplateLiteral(template) => {
+            for child in &template.expressions {
+                collect_expression_calls(owner, child, li, calls);
+            }
+        }
+        Expression::TaggedTemplateExpression(tagged) => {
+            collect_expression_calls(owner, &tagged.tag, li, calls);
+            for child in &tagged.quasi.expressions {
+                collect_expression_calls(owner, child, li, calls);
+            }
+        }
+        Expression::ImportExpression(import) => {
+            collect_expression_calls(owner, &import.source, li, calls);
+            if let Some(options) = &import.options {
+                collect_expression_calls(owner, options, li, calls);
+            }
+        }
+        Expression::PrivateInExpression(private_in) => {
+            collect_expression_calls(owner, &private_in.right, li, calls);
+        }
+        Expression::TSAsExpression(ts) => {
+            collect_expression_calls(owner, &ts.expression, li, calls);
+        }
+        Expression::TSSatisfiesExpression(ts) => {
+            collect_expression_calls(owner, &ts.expression, li, calls);
+        }
+        Expression::TSTypeAssertion(ts) => {
+            collect_expression_calls(owner, &ts.expression, li, calls);
+        }
+        Expression::TSNonNullExpression(ts) => {
+            collect_expression_calls(owner, &ts.expression, li, calls);
+        }
+        Expression::TSInstantiationExpression(ts) => {
+            collect_expression_calls(owner, &ts.expression, li, calls);
+        }
+        Expression::StaticMemberExpression(member) => {
+            collect_expression_calls(owner, &member.object, li, calls);
+        }
+        Expression::ComputedMemberExpression(member) => {
+            collect_expression_calls(owner, &member.object, li, calls);
+            collect_expression_calls(owner, &member.expression, li, calls);
+        }
+        Expression::PrivateFieldExpression(member) => {
+            collect_expression_calls(owner, &member.object, li, calls);
+        }
+        // Nested function/class bodies have their own owners via declaration/variable walkers.
+        Expression::ArrowFunctionExpression(_)
+        | Expression::FunctionExpression(_)
+        | Expression::ClassExpression(_) => {}
         _ => {}
     }
 }
@@ -1275,6 +1518,108 @@ mod tests {
             .collect::<Vec<_>>();
         assert!(callees.contains(&"dep"), "callee list: {callees:?}");
         assert!(callees.contains(&"helper"), "callee list: {callees:?}");
+    }
+
+    #[test]
+    fn extracts_calls_nested_in_return_binary_and_args() {
+        let src = "export function run(x: number) {\n  return helper(x) + other(x);\n}\nfunction helper(n: number) { return n; }\nfunction other(n: number) { return n; }\n";
+        let v = graph(src, "nested.ts");
+        let callees = v["calls"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|call| call["callee"].as_str().unwrap())
+            .collect::<Vec<_>>();
+        assert!(
+            callees.contains(&"helper"),
+            "nested return binary should capture helper: {callees:?}"
+        );
+        assert!(
+            callees.contains(&"other"),
+            "nested return binary should capture other: {callees:?}"
+        );
+        assert!(
+            v["calls"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|call| call["caller"] == "run"),
+            "calls should belong to run: {:?}",
+            v["calls"]
+        );
+    }
+
+    #[test]
+    fn extracts_calls_in_logical_conditional_await_and_array() {
+        let src = r#"
+export async function run(flag: boolean) {
+  const a = flag && helper(1);
+  const b = flag ? other(2) : helper(3);
+  await helper(4);
+  return [other(5), ...[helper(6)]];
+}
+function helper(n: number) { return n; }
+function other(n: number) { return n; }
+"#;
+        let v = graph(src, "nested-more.ts");
+        let callees = v["calls"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|call| call["callee"].as_str().unwrap())
+            .collect::<Vec<_>>();
+        for expected in ["helper", "other"] {
+            assert!(
+                callees.iter().filter(|c| **c == expected).count() >= 1,
+                "expected {expected} in {callees:?}"
+            );
+        }
+        assert!(
+            callees.len() >= 6,
+            "expected nested call sites, got {callees:?}"
+        );
+    }
+
+    #[test]
+    fn extracts_calls_in_switch_try_and_for_of() {
+        let src = r#"
+export function run(items: number[]) {
+  switch (helper(1)) {
+    case other(2):
+      helper(3);
+      break;
+  }
+  try {
+    other(4);
+  } catch {
+    helper(5);
+  } finally {
+    other(6);
+  }
+  for (const x of helper(7)) {
+    other(x);
+  }
+}
+function helper(n: number) { return n; }
+function other(n: number) { return n; }
+"#;
+        let v = graph(src, "control.ts");
+        let callees = v["calls"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|call| call["callee"].as_str().unwrap())
+            .collect::<Vec<_>>();
+        for expected in ["helper", "other"] {
+            assert!(
+                callees.iter().any(|c| *c == expected),
+                "expected {expected} in {callees:?}"
+            );
+        }
+        assert!(
+            callees.len() >= 7,
+            "expected switch/try/for-of call sites, got {callees:?}"
+        );
     }
 
     #[test]

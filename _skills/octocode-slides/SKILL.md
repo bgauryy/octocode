@@ -1,6 +1,6 @@
 ---
 name: octocode-slides
-description: "Generates polished multi-file HTML presentations. Six-phase flow: brief → research → outline → design → implementation → review. Each slide is a standalone HTML file loaded via iframe. Use when asked to 'create slides', 'make a presentation', 'generate HTML slides', 'build a deck', or turn notes/docs/code into a polished presentation."
+description: "Use when creating slides or a presentation deck — HTML slides, pitch decks, or turning notes/docs/code into a polished multi-file slide set."
 ---
 
 # Octocode Slides

@@ -1,6 +1,6 @@
 ---
 name: octocode-chrome-devtools
-description: "Use Chrome DevTools Protocol (CDP) for browser debugging, inspection, and automation when DevTools-grade evidence is needed: network, console, performance, DOM/CSS, screenshots/PDF, security, storage, auth-gated, live-page, and source-traced findings. Opens or attaches to Chrome, runs sandboxed CDP scripts, and keeps sessions reusable. Prefer lighter browser tools for simply opening a page."
+description: "Use when browser debugging needs DevTools-grade evidence: network, console, performance, DOM/CSS, screenshots/PDF, security, storage, auth-gated or live-page inspection via Chrome DevTools Protocol (CDP). Prefer lighter browser tools for simply opening a page."
 ---
 
 # Octocode Chrome DevTools

@@ -20,9 +20,10 @@ Accept only edits that improve a held-out check. Keep rejected proposals as lear
 ## Operator loop (create / improve / update)
 
 Always load **`octocode-skills`** for the skill work; keep this skill for attend/lock/verify/reflect.
+For goal+KPI improve loops grounded in **actual results** and thesis pressures, also follow local `references/improve-loop.md` (shared contract with octocode-research).
 
 ```text
-ATTEND → RESEARCH (octocode-skills) → PLAN (bounded edits) → USER GATE → ACT → REVIEW → VALIDATE → REFLECT
+ATTEND → SET GOAL+KPI → RESEARCH (octocode-skills) → PLAN (bounded edits) → USER GATE → ACT → REVIEW → VALIDATE (actual checks) → REFLECT
 ```
 
 1. **Attend** — `attend`; recall prior harness lessons / rejected edits for this skill path.

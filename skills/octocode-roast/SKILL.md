@@ -1,6 +1,6 @@
 ---
 name: octocode-roast
-description: "Use when roasting code or finding code sins with file:line evidence and blunt critique."
+description: "Use when roasting code, finding code sins/smells, or wanting blunt critique with file:line evidence — PRs, hot paths, security risks, or cleanup triage."
 ---
 
 # Octocode Roast
@@ -31,10 +31,9 @@ When Octocode-backed code research is needed, use `octocode-research` if install
 
 If there are 20+ issues, triage the top 10 by impact and confidence, then separate important findings from redundant noise.
 
-## Next skills
-- `octocode-research` — prove findings / PR-diff review / safe fix path
-- `octocode-prompt-optimizer` — when the sin is skill/prompt/contract bloat
-- `octocode-awareness` — verify fixes and record reusable gotchas
+## Next skills (optional) · Improve loop
+Load only when needed: `research` · `prompt-optimizer` · `awareness`.
+When improving: set goal+KPI → measure actual results → check thesis — load `references/improve-loop.md`.
 
 ## Reference Map
 

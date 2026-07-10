@@ -1,6 +1,7 @@
 ---
 name: octocode-harness-status
-description: Show all skills, MCP servers, CLIs, and tokens installed on this machine per vendor in an interactive HTML dashboard. Opens in the default browser. Allows removing MCPs from config files and deleting skill folders directly from the UI. Use when the user asks to "show my harness", "check installed skills", "show my MCPs", "check my AI setup", "show all agents", "harness status", "what CLIs are installed", "check token limits", "review my agent context", or wants an inventory of their full AI tooling.
+description: "Use when checking installed skills, MCPs, CLIs, tokens, or overall AI harness status — inventory, review agent context, or clean up configs from a dashboard."
+
 ---
 
 # Octocode Harness Status

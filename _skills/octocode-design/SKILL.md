@@ -1,6 +1,6 @@
 ---
 name: octocode-design
-description: "High-level design-system and UI architecture generator for existing or new projects. Uses Octocode MCP local tools first, then creates a dynamic (not rigid) DESIGN.md covering visual language, styling strategy, component architecture, framework constraints, accessibility, performance, responsive behavior, and implementation guidance."
+description: "Use when you need a DESIGN.md or UI/design-system architecture for a new or existing project — visual language, styling strategy, components, accessibility, performance, and responsive guidance."
 ---
 
 # Octocode Design - Dynamic DESIGN.md Generator

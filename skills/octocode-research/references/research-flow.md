@@ -19,7 +19,7 @@ Package evidence includes publish recency, cadence, maintainers, issue/PR ratio,
 Docs/wiki lead: tree -> exact doc -> verify each named entry point
 Local: tree/find -> search -> symbols/matchString -> LSP/AST
 Remote/package: package/repo search -> tree -> code search -> exact read -> history
-Remote as local: directory fetch/clone -> local AST/LSP/search
+Remote as local: directory fetch/clone -> local AST/LSP/search (bridge details: workflow-combination.md)
 PR intent: PR metadata/comments/selected patches -> exact changed paths -> history
 Dead code: research candidates -> returned graph query -> text+AST+LSP+tests
 Artifact: inspect/list/strings -> extract -> local research

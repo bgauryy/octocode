@@ -8,7 +8,7 @@ Review is not a narrow syntax check. It judges whether the skill is efficient fo
 
 1. **Best practices** — lobby owns workflows; progressive disclosure; one owner per concept; scripts over mechanical prose (`references/skill-improve.md`, `references/skill-anatomy.md`).
 2. **Quality rubric** — trigger, workflow, gates, evidence, UX, risk (`references/quality-rubric.md`).
-3. **Mechanical rules** — frontmatter, missing refs/scripts, length, routing, hooks, prose (`references/skill-review-rules.md`).
+3. **Mechanical rules** — frontmatter, missing refs/scripts, length, routing, hooks, prose, description trigger quality (`description-concise` / `description-rigid` / `description-redundant`) (`references/skill-review-rules.md`).
 4. **Cleanup** — orphans, dupes, dead files (`references/skill-cleanup.md`).
 
 ## Run

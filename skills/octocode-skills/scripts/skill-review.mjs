@@ -393,6 +393,20 @@ function reviewSkill(skillDir) {
         const leadWords = lead.trim().split(/\s+/).filter(Boolean).length;
         if (leadWords > 10)
           add('WARN', 'description-concise', `first ${LIMITS.descriptionLead} chars are ${leadWords} words; tighten the opening hook`);
+        // W: rigid / redundant description — trigger-rich, not mandate-heavy or synonym spam
+        if (/\b(MUST|NEVER|ALWAYS|FORBIDDEN|REQUIRED|SOLE|ONLY\s+skill)\b/i.test(d))
+          add('WARN', 'description-rigid', 'description uses rigid exclusivity/mandate wording (MUST/NEVER/ALWAYS/SOLE/ONLY skill) — prefer trigger intents agents will say; keep hard rules in the lobby body');
+        if (/\btriggers?\s*:/i.test(d) && /^use\b/i.test(d))
+          add('WARN', 'description-redundant', 'description already starts with Use when — drop a second "Triggers:" label; fold intents into the when-clause');
+        if (/\bthis skill should be used\b/i.test(d))
+          add('WARN', 'description-redundant', 'drop "This skill should be used when" — open with "Use when …"');
+        const quotedTriggers = d.match(/"[^"]{3,40}"/g) || [];
+        if (quotedTriggers.length >= 6)
+          add('WARN', 'description-redundant', `${quotedTriggers.length} quoted synonym phrases — keep a few distinct intents, not a rigid quote laundry list`);
+        // Implementation laundry list in discovery text (CLI verbs / internal nouns) crowds out user intents
+        const implHits = (d.match(/\b(attend|sqlite|hooks?|frontmatter|schema|CLI|MCP server|Homeostatic|npx)\b/gi) || []).length;
+        if (implHits >= 5)
+          add('WARN', 'description-rigid', `description leans on ${implHits} implementation terms — lead with user intents; put internals in the lobby body`);
       }
     }
     // W: redundant frontmatter metadata — agents read only name/description at discovery

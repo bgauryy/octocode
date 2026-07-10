@@ -1,6 +1,7 @@
 ---
 name: agentic-flow-best-practices
-description: Use when the user asks to design, review, implement, debug, or evaluate an agentic workflow or AI-agent harness: MCP tools/resources/prompts, multi-agent routing or handoffs, agent memory/context/cache, Zod/JSON-schema protocols, human gates, observability, evals, or production safety. Do not use for ordinary app code, generic prompt writing, or model comparison unless an agentic flow boundary is involved.
+description: "Use when designing, reviewing, implementing, debugging, or evaluating an agentic workflow or AI-agent harness: MCP tools/resources/prompts, multi-agent routing/handoffs, memory/context/cache, Zod/JSON-schema protocols, human gates, observability, evals, or production safety. Skip for ordinary app code or generic prompt writing unless an agentic-flow boundary is involved."
+
 ---
 
 # Agentic Flow Best Practices

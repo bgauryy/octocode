@@ -1,6 +1,7 @@
 ---
 name: octocode-news
-description: Researches what is new in AI, developer tools, web platform, security, and notable repositories. Use when the user asks for whats-new, latest updates, recent releases, tech news, AI news, changelogs, repo updates, or trend scanning.
+description: "Use when scanning whats-new or latest updates — AI, developer tools, web platform, security, notable repos, releases, changelogs, or tech/AI news."
+
 ---
 
 # What's New — Tech Research Agent

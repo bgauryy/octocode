@@ -1,6 +1,7 @@
 ---
 name: octocode-documentation-writer
-description: This skill should be used when the user asks to "generate documentation", "document this project", "create docs", "write documentation", "update documentation", "document all APIs", "generate onboarding docs", "create developer docs", or needs comprehensive codebase documentation. Orchestrates parallel AI agents to analyze code and produce documentation files.
+description: "Use when generating or updating project documentation — onboarding docs, API docs, developer guides, or a full docs pass from the codebase."
+
 ---
 
 # Repository Documentation Generator

@@ -1,62 +1,46 @@
 ---
 name: octocode-research
-description: "Use when code work needs evidence-first research, debugging, change, PR/local-diff or safe-to-merge review, GitHub/npm prior art, dead code, architecture, or ReAct loops. Sole Octocode research and review skill."
+description: "Use when code needs evidence-first research: find where X lives, how it works, debug a failure, change after proof, PR/local-diff or safe-to-merge review, GitHub/npm prior art, dead code, architecture, or ReAct loops."
 ---
 
 # Octocode Research
 
 Evidence-first technical research and code work: `SCOPE -> SEARCH -> READ EXACT -> VALIDATE -> DECIDE/PATCH -> VERIFY`.
-
-Octocode spans three surfaces — LOCAL (workspace, `node_modules`, clones), EXTERNAL (GitHub, npm), FEDERATED (one OQL query across both). Check the environment before trusting a surface: `context`, `auth status`, `lsp-server status <file>`.
+Octocode surfaces: LOCAL · EXTERNAL · FEDERATED. Check `context`, `auth status`, `lsp-server status <file>` before trusting a surface.
 
 ## Modes
-
-Investigate behavior/root cause; Review PRs (URL/#N) and local/staged diffs via `workflow-pr-review.md`; Change after evidence; Map/Validate prior art or architecture; Loop when evidence shifts.
+Investigate; Review PRs/diffs (`references/workflow-pr-review.md`); Change after evidence; Map/Validate prior art; Loop when evidence shifts.
 
 ## Rules
-
 1. State corpus, question, mode, and active/skipped surfaces in one line.
-2. Route by what you already hold; never force a fixed grep -> AST -> LSP path.
-3. For nontrivial code claims, read at least two of structure, stream, and connections.
-4. Keep a tiny ledger: `claim -> evidence -> confidence -> next check`.
-5. Ask before broad public contracts, deletes/renames, thin evidence, or 3+ unrelated problem spaces.
-6. For code edits, make the smallest scoped patch and report the checks that actually ran.
-7. For broad, contested, or multi-part questions, fan out parallel subagents on different directions or lanes, merge on conflict, and re-verify each worker's key anchor before trusting it.
+2. Route by what you hold; never force grep → AST → LSP.
+3. Nontrivial code claims: read ≥2 of structure, stream, connections.
+4. Ledger: `claim -> evidence -> confidence -> next check`.
+5. Ask before broad public contracts, deletes/renames, thin evidence, or 3+ unrelated spaces.
+6. Edits: smallest scoped patch; report checks that **actually ran**.
+7. Broad/contested work: fan out subagents, merge on conflict, re-verify anchors.
+8. **Results beat words:** prove claims with facts (`file:line`, exact reads) and deterministic runs (package tests, eval scripts, CLI, or code execution). Report exit codes and outputs that actually ran. Unrun summaries are leads, not proof.
 
 ## Reference Map
+Before any task, read `references/algorithm.md` first (routing, evidence grades, failure signals).
+- when planning/measuring/fan-out: `references/researcher-mindset.md` — progress and subagent fan-out
+- when choosing a mode route: `references/workflows.md` — index to local/external/debug/PR/change
+- when investigating code: `references/code-research.md` — code investigation and change paths
+- when general research/validation: `references/research-flow.md` — non-code research flow
+- when ranking repos: `references/github-landscape.md` — ecosystem prior art
+- when contested/deep decisions: `references/long-research.md` — durable decision brief
+- when evidence keeps shifting: `references/loop-mode.md` — investigation Act→Observe→Learn
+- when improving skill/quality: `references/improve-loop.md` — goal+KPI, actual results, thesis
+- when command/MCP/schema details matter: `references/octocode.md` — transport and tool syntax
+Should-we-build / diverge → `octocode-brainstorming`.
 
-Before any task, read `references/algorithm.md` first; it owns routing, evidence grades, and failure signals.
-
-- `references/researcher-mindset.md` — for state of mind, planning/managing the task, how to measure progress, fanning out subagents across directions, and dot-to-dot efficiency.
-- `references/workflows.md` — when choosing a mode-specific workflow index.
-- `references/code-research.md` — when investigating, reviewing, refactoring, or changing code.
-- `references/research-flow.md` — when doing general research or idea validation.
-- `references/workflow-local.md` — when the local repo or installed dependency is source of truth.
-- `references/workflow-external.md` — when using GitHub, npm, PRs, commits, or remote repos.
-- `references/workflow-combination.md` — when a local clue points upstream or remote code needs local-grade (AST/LSP/negative) proof.
-- `references/workflow-debug.md` — when debugging failures or proving root cause.
-- `references/workflow-pr-review.md` — when reviewing PRs, diffs, or merge safety.
-- `references/workflow-pr-review-analysis.md` — when PR review analysis and finding shape are needed.
-- `references/workflow-pr-review-report.md` — when writing PR/local review summaries or documents.
-- `references/workflow-change.md` — when implementing or refactoring after evidence.
-- `references/github-landscape.md` — when ranking GitHub repos or ecosystem prior art.
-- `references/long-research.md` — when a decision brief, audit trail, or contested question needs depth.
-- `references/loop-mode.md` — when evidence keeps shifting or verification fails repeatedly.
-- `references/octocode.md` — when command syntax, MCP transport, or raw tool schemas matter.
-
-For divergent idea generation or "should we build X" validation, use the `octocode-brainstorming` skill instead of this one.
-
-## Next skills
-- `octocode-brainstorming` — should-we-build / diverge before deep code work
-- `octocode-rfc-generator` — when research needs a decision packet before coding
-- `octocode-roast` — blunt sin pass after or beside review
-- `octocode-awareness` — declare work, verify, bookkeep across sessions
+## Next skills (optional) · Improve loop
+Load only when needed: `brainstorming` · `rfc-generator` · `roast` · `awareness`.
+When improving: goal+KPI → actual results → thesis — load `references/improve-loop.md` (never vibes).
 
 ## Scripts
-
 - `scripts/eval-research.mjs` — when changing this skill; run the matching eval case.
 
 ## Output
-
-Quick answer: `Finding`, `Evidence`, `Confidence`, `Next`.
+Quick: `Finding`, `Evidence`, `Confidence`, `Next`.
 Decision/review: `TL;DR`, evidence, verdict, risks, `file:line`, verification, confidence, smallest safe fix.

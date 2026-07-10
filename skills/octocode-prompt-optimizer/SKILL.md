@@ -1,6 +1,6 @@
 ---
 name: octocode-prompt-optimizer
-description: "Use when prompts, SKILL.md, AGENTS.md, agent tool guidance, MCP instructions, or schemas need optimization, prompt techniques, gates, enforcement, prompt caching, token-efficiency, or reliability fixes."
+description: "Use when prompts, SKILL.md, AGENTS.md, agent tool guidance, MCP instructions, or schemas need optimization — techniques, gates, enforcement, prompt caching, token-efficiency, or reliability fixes."
 ---
 
 # Prompt Optimizer — explicit, testable, context-efficient instructions
@@ -39,10 +39,9 @@ Use Full Path for multi-section, ambiguous, tool-facing, or high-risk work; Fast
 - Make only critical behavior mandatory; retain `should`/`prefer` for real preferences.
 - Apply external/file changes only after VALIDATE and with authority; otherwise return a complete rewrite or patch-style delta.
 
-## Next skills
-- `octocode-skills` — create/install/review the skill folder being optimized
-- `octocode-research` — verify cited commands, paths, and tool behavior
-- `octocode-awareness` — when optimizing harness/AGENTS that Awareness projects
+## Next skills (optional) · Improve loop
+Load only when needed: `skills` · `research` · `awareness`.
+When improving: set goal+KPI → measure actual results → check thesis — load `references/improve-loop.md`.
 
 ## Reference map
 - [`gates`](references/gates.md), [`rate`](references/rate.md), [`fix`](references/fix.md), [`validate`](references/validate.md), [`output`](references/output.md) — when executing the core path; load only the current gate.

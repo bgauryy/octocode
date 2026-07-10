@@ -11,9 +11,9 @@ The meta-layer: how to think, plan, measure, delegate, and stay efficient across
 
 ## Plan & Manage the Work
 - Open with one line: corpus, question, mode, active/skipped surfaces, budget, stop test.
-- Keep a tiny ledger — `claim -> evidence -> confidence -> next check`. Compress large outputs into it before continuing.
-- Budget: about 3-5 decisive iterations or ~15 min for a normal task. Ask before cloning/running code, broad repo scans, expensive external research, or a product/architecture decision.
-- Carry anchors forward exactly: `path:line`, matchRanges, repo/PR/package ids, branch/ref, cursors, returned `next.*`. Never invent an offset or path.
+- Keep a tiny ledger — `claim -> evidence -> confidence -> next check` — and compress large outputs into it before continuing.
+- `loop-mode.md` owns the iteration budget, stop tests, and the ledger/anchor mechanics (`path:line`, matchRanges, ids, branch/ref, cursors, `next.*` — never invented); this section is only the campaign framing around them.
+- Gate the expensive moves: ask before cloning/running code, broad repo scans, expensive external research, or a product/architecture decision.
 
 ## Understand the Environment First
 Before trusting any surface, learn what is actually available:
@@ -41,3 +41,5 @@ When a question is broad, contested, or splits into independent probes, fan out 
 - Orient cheap before reading deep: tree / discovery / counts / symbols cost little and aim the expensive exact reads.
 - Batch independent probes into one call (up to 5). Spend an extra angle on a *claim*; spend an extra query on a *lookup*.
 - Materialize once when 3+ remote reads or AST/LSP/negative proof are coming — one bridge call turns remote code into local-grade evidence.
+
+Validate: `node scripts/eval-research.mjs --case campaign-combination`.

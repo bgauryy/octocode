@@ -367,6 +367,56 @@
         { "name": "hash finding labels", "pattern": "\\[?#\\d+\\]?\\s*(title|finding|issue)" },
         { "name": "scope creep beyond staged", "pattern": "\\breviewed the (?:entire|whole|full) repo\\b" }
       ]
+    },
+    {
+      "id": "campaign-combination",
+      "mode": "Investigate",
+      "prompt": "Our retry helper may have diverged from the upstream library we vendored it from. Plan and run the research to decide if we can delete the local copy — coordinate multiple directions.",
+      "minScore": 0.8,
+      "minCitationCount": 2,
+      "required": [
+        { "name": "mode", "pattern": "\\bMode:\\s*Investigate\\b" },
+        { "name": "environment or surfaces", "pattern": "\\bactive surfaces\\b|\\bauth status\\b|\\blsp-server status\\b|\\bENABLE_" },
+        { "name": "subagent directions", "pattern": "\\bsubagents?\\b|fan.?out|parallel[\\s\\S]{0,20}direction|\\bdirections\\b" },
+        { "name": "combination bridge", "pattern": "\\bmateriali|\\bcombination\\b|\\bbridge\\b" },
+        { "name": "cross-lane validation", "pattern": "\\bcross-check\\b|\\bre-verif" },
+        { "name": "measure or stop", "pattern": "\\bstop test\\b|\\bconverge\\b|\\bhypothes" },
+        { "name": "exact evidence", "pattern": "[A-Za-z0-9_./-]+:\\d+" },
+        { "name": "confidence", "pattern": "\\bConfidence:\\s*(confirmed|likely|uncertain)\\b" },
+        { "name": "next action", "pattern": "\\bNext:" }
+      ],
+      "binaryQuestions": [
+        {
+          "id": "fans-out-directions",
+          "dimension": "method",
+          "question": "Does the answer fan out parallel subagent directions (or lanes) for a broad/contested question instead of one serial chain?",
+          "passPattern": "\\bsubagents?\\b|fan.?out|parallel[\\s\\S]{0,20}direction",
+          "failPattern": "\\bserial(?:ly)?\\b[\\s\\S]{0,20}\\bsingle\\b",
+          "failureSignature": "mechanism:research-campaign|cause:no-fan-out",
+          "suggestedLesson": "Broad or contested questions should fan out parallel directions or lanes, not run one serial chain."
+        },
+        {
+          "id": "validates-workers",
+          "dimension": "evidence",
+          "question": "Does the answer re-verify each worker's key anchor and treat cross-direction disagreement as the finding?",
+          "passPattern": "\\bre-verif|\\bcross-check\\b|\\bconflict(?:ed|ing)?\\b[\\s\\S]{0,40}\\bfinding\\b",
+          "failPattern": "\\btrust(?:ed|s)?\\b[\\s\\S]{0,20}\\b(?:worker|subagent)s?\\b[\\s\\S]{0,20}\\bwithout\\b",
+          "failureSignature": "mechanism:research-campaign|cause:unvalidated-worker-output",
+          "suggestedLesson": "A subagent's returned anchor is a lead until re-verified; a conflict between directions is the finding, not noise."
+        },
+        {
+          "id": "measures-by-claims",
+          "dimension": "decision",
+          "question": "Does the answer measure progress by claims resolved and set an explicit stop test rather than counting calls?",
+          "passPattern": "\\bclaims resolved\\b|\\bstop test\\b|\\bconverge",
+          "failureSignature": "mechanism:research-campaign|cause:activity-over-outcome",
+          "suggestedLesson": "Measure research by claims resolved and a stated stop test, not by the number of calls made."
+        }
+      ],
+      "forbidden": [
+        { "name": "empty means absence", "pattern": "\\bempty result means absence\\b|\\bzero matches prove absence\\b" },
+        { "name": "blanket delete without proof", "pattern": "\\bsafe to delete all\\b" }
+      ]
     }
   ]
 }

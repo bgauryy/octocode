@@ -25,3 +25,5 @@ Clone works out-of-the-box in the CLI (`npx octocode`); the `ENABLE_CLONE=true` 
 
 ## The loop
 Local clue -> external evidence -> local proof, until the claim rests on the strongest available grade. Cross-pollinate at least once each way: check every external fact against local reality where possible, and confirm every local guess about upstream against the repo, PR, or package that actually shipped it.
+
+Validate: `node scripts/eval-research.mjs --case campaign-combination`.
