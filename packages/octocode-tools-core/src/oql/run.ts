@@ -1149,6 +1149,8 @@ const SELECTABLE_ROW_FIELDS = new Set([
   'range',
   'metavars',
   'metavarRanges',
+  'matchKind',
+  'scoreHint',
   'proofGrade',
   'size',
   'modified',

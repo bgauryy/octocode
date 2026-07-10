@@ -494,6 +494,14 @@ export interface OqlCodeResultRow extends OqlProofGradedRow {
     }[]
   >;
   /**
+   * Deterministic AST match-kind label from the engine classifier
+   * (declaration|import|export|callsite|identifier|comment|string|…).
+   * Lexical coverage signal — not semantic identity.
+   */
+  matchKind?: string;
+  /** Fixed table derived from matchKind (0.0..1.0); not relevance ranking. */
+  scoreHint?: number;
+  /**
    * Executable follow-up continuations. Keys are dotted *domain names*
    * (`next.<domain>`, e.g. `next.fetch`, `next.semantic`, `next.charRange`),
    * NOT nested object paths — the registry in run.ts owns the key set.

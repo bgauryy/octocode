@@ -306,6 +306,37 @@ test('build composes the system prompt from its section files', async () => {
     false
   );
   assert.equal(fs.readFileSync(paths.systemPrompt, 'utf8'), SYSTEM_PROMPT);
+
+  const sourceSections = path.join(packageRoot, 'src', 'prompts', 'sections');
+  const distSections = path.join(distDir, 'prompts', 'sections');
+  const sourceFiles = fs.readdirSync(sourceSections)
+    .filter(file => file.endsWith('.md'))
+    .sort();
+  const distFiles = fs.readdirSync(distSections)
+    .filter(file => file.endsWith('.md'))
+    .sort();
+  assert.deepEqual(distFiles, sourceFiles);
+  for (const file of sourceFiles) {
+    assert.equal(
+      fs.readFileSync(path.join(distSections, file), 'utf8'),
+      fs.readFileSync(path.join(sourceSections, file), 'utf8'),
+      `dist prompt section differs from source: ${file}`
+    );
+  }
+
+  for (const agent of ['architect', 'browser-agent', 'planner', 'researcher']) {
+    assert.equal(
+      fs.readFileSync(
+        path.join(distDir, 'subagents', agent, 'SYSTEM_PROMPT.md'),
+        'utf8'
+      ),
+      fs.readFileSync(
+        path.join(packageRoot, 'subagents', agent, 'SYSTEM_PROMPT.md'),
+        'utf8'
+      ),
+      `dist subagent prompt differs from source: ${agent}`
+    );
+  }
 });
 
 test('build copies bundled Octocode skills without secret env files', () => {
@@ -2701,6 +2732,47 @@ test('spawnAgent starts a lean RPC Pi process and AgentMessage can list/status/s
   }
 });
 
+test('spawnAgent gives each worker a distinct Awareness identity', async () => {
+  const spawned: Array<{
+    options: { env?: NodeJS.ProcessEnv };
+    proc: MockAgentProcess;
+  }> = [];
+  setAgentProcessFactoryForTests((_command, _args, options) => {
+    const proc = createMockAgentProcess();
+    spawned.push({ options, proc });
+    return proc;
+  });
+  try {
+    await withAgentId('parent-agent', async () => {
+      const { tools } = await captureExtensions();
+      const spawnTool = tools.get('spawnAgent')!;
+
+      await invokeExecute(spawnTool, { task: 'first bounded task' });
+      await invokeExecute(spawnTool, { task: 'second bounded task' });
+
+      const workerIds = spawned.map(
+        item => item.options.env?.['OCTOCODE_AGENT_ID']
+      );
+      assert.equal(spawned.length, 2);
+      assert.ok(
+        workerIds.every(id => id?.startsWith('parent-agent:worker:')),
+        'worker identities preserve the parent prefix'
+      );
+      assert.notEqual(workerIds[0], 'parent-agent');
+      assert.notEqual(workerIds[0], workerIds[1]);
+      assert.ok(
+        spawned.every(
+          item => item.options.env?.['OCTOCODE_PI_SUBAGENT'] === '1'
+        )
+      );
+      assert.equal(process.env['OCTOCODE_AGENT_ID'], 'parent-agent');
+    });
+  } finally {
+    cleanupSpawnedAgentsForShutdown();
+    setAgentProcessFactoryForTests(null);
+  }
+});
+
 test('spawnAgent covers octocode resource options, prompt file cleanup, list renderers, and dead-worker messaging', async () => {
   const spawned: Array<{
     command: string;
@@ -3220,6 +3292,12 @@ test('AgentMessage wait collects worker output and kill terminates stale workers
       agentId: firstId,
       timeoutMs: 1000,
     });
+    assert.equal(
+      (waited.details as { agent: { status: string } }).agent.status,
+      'idle'
+    );
+    assert.match(waited.content[0]!.text, /Agent turn completed/);
+    assert.doesNotMatch(waited.content[0]!.text, /Agent completed/);
     assert.match(waited.content[0]!.text, /tools: localSearchCode:done/);
     assert.match(waited.content[0]!.text, /worker result/);
     assert.ok(spawned[0]!.stdinWrites[0]!.includes('produce output'));

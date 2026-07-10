@@ -223,12 +223,17 @@ describe('production guidance contract', () => {
     expect(readme).toContain('docs/THESIS.md');
     expect(docsIndex).toContain('THESIS.md');
     expect(thesis).toMatch(/human\/agent-in-the-loop software controller/i);
+    expect(thesis).toContain('## Why Homeostasis');
+    expect(thesis).toMatch(/dynamic regulation.*viable range/is);
+    expect(thesis).toMatch(/not.*equilibrium/is);
+    expect(thesis).toMatch(/SENSE[\s\S]*COMPARE[\s\S]*ACT[\s\S]*REMEASURE/);
     expect(thesis).toMatch(/living-system.*metaphor|metaphor.*living-system/is);
     expect(thesis).toMatch(/not sentience|not.*sentien/i);
     expect(thesis).toContain('Token pressure');
     expect(thesis).toMatch(/Sensor[\s\S]*Target[\s\S]*Actuator[\s\S]*Guard/);
     expect(thesis.trim().split(/\s+/).length).toBeLessThanOrEqual(1400);
-    expect(references).toContain('## Homeostatic Control And Collective Memory');
+    expect(references).toContain('## Homeostasis And Collective Memory');
+    expect(references).toContain('**Homeostasis — adjacent prior art:**');
     expect(homeostatic).toContain('CHOOSE/DECLARE');
     expect(homeostatic).toContain('REMEASURE');
     expect(homeostatic).not.toContain('CONSOLIDATE');

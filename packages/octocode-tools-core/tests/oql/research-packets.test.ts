@@ -85,6 +85,8 @@ function fixture(): ResearchAnalysisResult {
         kind: 'function',
         file: 'src/a.ts',
         line: 10,
+        evidenceSource: 'ast',
+        retentionSource: 'ast',
         directRefs: 2,
         externalRefs: 1,
         retainedBy: ['src/b.ts'],
@@ -95,6 +97,8 @@ function fixture(): ResearchAnalysisResult {
         kind: 'function',
         file: 'src/a.ts',
         line: 20,
+        evidenceSource: 'ast',
+        retentionSource: 'ast',
         directRefs: 0,
         externalRefs: 0,
         retainedBy: [],
@@ -139,7 +143,9 @@ describe('buildResearchPackets', () => {
     expect(used.verdict).toBe('reachable');
     expect(used.risk.deleteRisk).toBe('high');
     expect(used.retainedBy.length).toBe(1);
-    expect(used.retainedBy[0]!.relation).toBe('references');
+    expect(used.retainedBy[0]!.relation).toBe('imports');
+    expect(used.retainedBy[0]!.source).toBe('ast');
+    expect(used.retainedBy[0]!.confidence).toBe('exact');
 
     const file = packets.find(p => p.subject.kind === 'file')!;
     expect(file.verdict).toBe('candidate-unused-file');

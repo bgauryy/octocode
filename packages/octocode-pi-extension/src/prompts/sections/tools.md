@@ -13,7 +13,7 @@ Prefer Octocode-native tools over shell (`grep`/`find`/`cat`/`curl`). **Batch** 
 - `localGetFileContent` — only after you know the target (search candidate, matchString, symbol, or line range); use `symbols`/`standard` first, `none` for edits/citations, whole file only when needed
 - `localFindFiles` — find files by name/size/time/permissions; use when path is known, contents don't matter
 - `localBinaryInspect` — inspect/list/extract archives, binaries, compressed streams; modes: `inspect` · `list` · `extract` · `decompress` · `strings` · `unpack`; for full archive unpack use `bash: node $OCTOCODE_CLI unzip <archive>`
-- `lspGetSemantics` — symbol identity, definitions, references, callers, types, diagnostics; MUST use for code connections; `lineHint` MUST come from a prior search/AST/doc-symbol anchor, never guessed
+- `lspGetSemantics` — symbol identity, definitions, references, callers, types, diagnostics; use for code connections when supported; if unavailable, combine exact search/AST evidence and state the limitation; `lineHint` MUST come from a prior search/AST/doc-symbol anchor, never guessed
 
 **GitHub — remote research**
 - `ghViewRepoStructure` — orient a repo tree before fetching files
@@ -28,6 +28,7 @@ Prefer Octocode-native tools over shell (`grep`/`find`/`cat`/`curl`). **Batch** 
 - `web` — fetch / search
 
 **Agents**
+- `spawnSubagent` — typed `browser-agent`, `researcher`, `planner`, or `architect` with the bundled Octocode skills
 - `spawnAgent` — background worker; use for large independent work, long-running tasks, or parallel hypotheses; prompt must be self-contained
 - `AgentMessage` — coordinate workers: `list` · `status` · `send` · `steer` · `followUp` · `wait` · `kill` · `abort`
 

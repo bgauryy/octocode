@@ -184,8 +184,27 @@ const SearchMatchSchema = z.object({
   endLine: z.number().optional(),
   value: z.string().optional(),
   column: z.number().optional(),
+  endColumn: z.number().optional(),
   count: z.number().optional(),
+  /** AST node-kind label when classifyMatches ran (declaration|callsite|…). */
+  kind: z.string().optional(),
+  /** Deterministic hint derived from kind (0.0..1.0); not a ranker score. */
+  scoreHint: z.number().optional(),
   metavars: z.record(z.string(), z.array(z.string())).optional(),
+  metavarRanges: z
+    .record(
+      z.string(),
+      z.array(
+        z.object({
+          text: z.string(),
+          line: z.number(),
+          column: z.number(),
+          endLine: z.number(),
+          endColumn: z.number(),
+        })
+      )
+    )
+    .optional(),
 });
 
 const SearchFileSchema = z.object({

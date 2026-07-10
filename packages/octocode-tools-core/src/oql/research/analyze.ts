@@ -62,12 +62,16 @@ export type ResearchSymbolVerdict =
   | 'unused-export'
   | 'unknown';
 
+export type ResearchRetentionSource = 'ast' | 'ripgrep';
+
 export type ResearchSymbolRow = {
   readonly symbol: string;
   readonly kind: string;
   readonly file: string;
   readonly line: number;
   readonly evidenceSource: 'ast' | 'regex';
+  /** How cross-file retention was established. Prefer `ast`; `ripgrep` is lexical fallback only. */
+  readonly retentionSource: ResearchRetentionSource;
   readonly directRefs: number;
   readonly externalRefs: number;
   readonly retainedBy: readonly string[];
@@ -338,8 +342,8 @@ export async function analyzeResearchFlow(
     graphFacts,
     graphCapabilities,
     caveats: [
-      'This is a smart research flow with native AST graph facts where available plus heuristic cross-file reachability. LSP references should be used before destructive cleanup.',
-      'Graph capability coverage is explicit: tree-sitter/OXC facts are syntax inventory, not semantic deletion proof.',
+      'Analyze uses native AST graph facts for inventory and preferred cross-file retention (named imports / call callees). Lexical token scan is fallback only when AST finds no retainers.',
+      'Graph facts are syntax inventory, not semantic identity. Upgrade candidates with target:graph proof:"lsp" (or lspGetSemantics references/callers) before destructive cleanup.',
       'Dynamic imports, framework entrypoints, generated files, test-only retention, and package-manager-specific workspace rules may require project-specific refinement.',
     ],
   };
@@ -408,25 +412,22 @@ function buildResearchFlow(
         id: 'symbol-inventory',
         purpose:
           'Enumerate exports and declaration anchors for symbol-level questions.',
-        tools: [
-          'localSearchCode structural',
-          'lspGetSemantics documentSymbols',
-        ],
+        tools: ['extractGraphFacts', 'export regex fallback'],
         produces: ['symbols', 'lineHints'],
-        evidence: 'proof',
+        evidence: 'heuristic',
       },
       {
-        id: 'reference-proof',
+        id: 'reference-scan',
         purpose:
-          'Use references grouped by file to separate direct, external, and transitive retention.',
-        tools: ['lspGetSemantics references', 'localSearchCode'],
+          'Candidate cross-file retention from native AST imports/calls (preferred) with lexical token fallback. Upgrade via target:graph proof:lsp — analyze does not run LSP.',
+        tools: ['extractGraphFacts', 'token scan fallback'],
         produces: [
           'directRefs',
           'externalRefs',
           'retainedBy',
           'transitiveDead',
         ],
-        evidence: 'proof',
+        evidence: 'heuristic',
       }
     );
   }
@@ -870,6 +871,11 @@ function collectEntrypoints(
     'src/index.js',
     'index.ts',
     'index.js',
+    'src/lib.rs',
+    'src/main.rs',
+    'lib.rs',
+    'main.rs',
+    'mod.rs',
   ]) {
     const resolved = resolveExistingPath(path.resolve(root, fallback), known);
     if (resolved) out.add(resolved);
@@ -1050,12 +1056,36 @@ function scoreSymbols(
   reachable: ReadonlySet<string>
 ): readonly ResearchSymbolRow[] {
   const sourceByRel = new Map(sourceFiles.map(file => [file.rel, file]));
+  const sourceByPath = new Map(sourceFiles.map(file => [file.path, file]));
+  const knownPaths = new Set(sourceFiles.map(file => file.path));
+  const exportersBySymbol = buildExporterIndex(sourceFiles);
+
   return symbols.map(symbol => {
-    const refs = sourceFiles.filter(
-      file => file.rel !== symbol.file && tokenAppears(file.path, symbol.symbol)
-    );
-    const reachableRefs = refs.filter(file => reachable.has(file.path));
     const declaringFile = sourceByRel.get(symbol.file);
+    const astRefs = findAstRetainingFiles(
+      symbol,
+      sourceFiles,
+      declaringFile,
+      exportersBySymbol,
+      knownPaths,
+      sourceByPath
+    );
+    const retentionSource: ResearchRetentionSource =
+      astRefs.length > 0 ? 'ast' : 'ripgrep';
+    const refs =
+      astRefs.length > 0
+        ? astRefs
+        : sourceFiles
+            .filter(
+              file =>
+                file.rel !== symbol.file &&
+                tokenAppears(file.path, symbol.symbol)
+            )
+            .map(file => file.rel);
+    const reachableRefs = refs.filter(rel => {
+      const file = sourceByRel.get(rel);
+      return file ? reachable.has(file.path) : false;
+    });
     const declaringReachable = declaringFile
       ? reachable.has(declaringFile.path)
       : false;
@@ -1073,12 +1103,98 @@ function scoreSymbols(
       file: symbol.file,
       line: symbol.line,
       evidenceSource: symbol.evidenceSource,
+      retentionSource,
       directRefs: refs.length,
       externalRefs: reachableRefs.length,
-      retainedBy: refs.map(file => file.rel),
+      retainedBy: refs,
       verdict,
     };
   });
+}
+
+function buildExporterIndex(
+  sourceFiles: readonly SourceFile[]
+): ReadonlyMap<string, ReadonlySet<string>> {
+  const index = new Map<string, Set<string>>();
+  for (const file of sourceFiles) {
+    const facts = file.graphFacts;
+    if (!facts) continue;
+    for (const decl of facts.declarations) {
+      if (!decl.exported) continue;
+      const set = index.get(decl.name) ?? new Set<string>();
+      set.add(file.path);
+      index.set(decl.name, set);
+    }
+    for (const exp of facts.exports) {
+      const set = index.get(exp.name) ?? new Set<string>();
+      set.add(file.path);
+      index.set(exp.name, set);
+    }
+  }
+  return index;
+}
+
+function findAstRetainingFiles(
+  symbol: ExportSymbol,
+  sourceFiles: readonly SourceFile[],
+  declaringFile: SourceFile | undefined,
+  exportersBySymbol: ReadonlyMap<string, ReadonlySet<string>>,
+  knownPaths: ReadonlySet<string>,
+  sourceByPath: ReadonlyMap<string, SourceFile>
+): readonly string[] {
+  const declaringPaths =
+    exportersBySymbol.get(symbol.symbol) ??
+    (declaringFile ? new Set([declaringFile.path]) : new Set<string>());
+  const retained = new Set<string>();
+
+  for (const file of sourceFiles) {
+    if (file.rel === symbol.file) continue;
+    const facts = file.graphFacts;
+    if (!facts) continue;
+
+    for (const imp of facts.imports) {
+      const imported =
+        imp.importedName && imp.importedName !== 'default'
+          ? imp.importedName
+          : undefined;
+      const local = imp.localName;
+      const namesSymbol =
+        imported === symbol.symbol || local === symbol.symbol;
+      if (!namesSymbol) continue;
+      if (!isRelativeSpecifier(imp.specifier)) continue;
+      const resolved = resolveImport(
+        path.dirname(file.path),
+        imp.specifier,
+        knownPaths
+      );
+      if (resolved && declaringPaths.has(resolved)) {
+        retained.add(file.rel);
+        break;
+      }
+    }
+
+    if (retained.has(file.rel)) continue;
+
+    for (const call of facts.calls) {
+      if (!calleeRefersToSymbol(call.callee, symbol.symbol)) continue;
+      // Same-file call graph only; still counts as cross-file retention when
+      // the call site file is not the declaring export file.
+      retained.add(file.rel);
+      break;
+    }
+  }
+
+  // Same-file call retention does not appear in retainedBy (other files only),
+  // but import-from-self never happens. sourceByPath kept for future edge work.
+  void sourceByPath;
+  return [...retained].sort();
+}
+
+function calleeRefersToSymbol(callee: string, symbol: string): boolean {
+  if (callee === symbol) return true;
+  if (callee.endsWith(`.${symbol}`)) return true;
+  if (callee.endsWith(`::${symbol}`)) return true;
+  return false;
 }
 
 function tokenAppears(file: string, token: string): boolean {

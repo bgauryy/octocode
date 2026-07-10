@@ -46,6 +46,12 @@ Before any task, read `references/algorithm.md` first; it owns routing, evidence
 
 For divergent idea generation or "should we build X" validation, use the `octocode-brainstorming` skill instead of this one.
 
+## Next skills
+- `octocode-brainstorming` — should-we-build / diverge before deep code work
+- `octocode-rfc-generator` — when research needs a decision packet before coding
+- `octocode-roast` — blunt sin pass after or beside review
+- `octocode-awareness` — declare work, verify, bookkeep across sessions
+
 ## Scripts
 
 - `scripts/eval-research.mjs` — when changing this skill; run the matching eval case.

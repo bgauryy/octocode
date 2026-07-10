@@ -22,6 +22,11 @@ ATTEND -> CHOOSE -> DECLARE -> ACT -> SUBMIT/END -> VERIFY -> BOOKKEEP? -> HOUSE
 4. **Act / coordinate:** ordinary overlap is allowed — read peer task/reason; signal only when changes interact. Use `--exclusive`/`lock acquire` for sensitive work; never bypass a live conflict.
 5. **Submit → verify:** `task submit` or `work end`, run the declared check, `verify mark`, then `verify audit`. Ending work ≠ success until verified.
 6. **Conditional Bookkeeping/Housekeeping:** record only reusable lessons; digest/prune (**dry-run first**) only under cleanup pressure; `repo inject` only when file readers need a fresh wiki.
+## Next skills
+- `octocode-research` — evidence before/while ACT (local + GitHub/npm)
+- `octocode-brainstorming` → `octocode-rfc-generator` — idea → Build RFC → plan packet
+- `octocode-roast` — blunt review pass; `octocode-skills` / `octocode-prompt-optimizer` — evolve skills/harness docs
+
 ## Features → refs (load one owner; Core (most sessions) needs none)
 - When a recipe, start, finish, or install path is unknown, load `references/agent-cheatsheet.md` for command and deeper routing.
 - When choosing plans, tasks, or standalone Work, load `references/plan-task-workflow.md` for queue and execution policy.

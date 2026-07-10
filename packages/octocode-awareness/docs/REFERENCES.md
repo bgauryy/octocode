@@ -12,9 +12,9 @@ Runtime behavior is defined by source, schemas, tests, and the other package doc
 | Adjacent prior art | A useful comparison or vocabulary; Awareness does not claim compatibility or equivalent results. |
 | Follow-on hypothesis | Research worth testing later; it is not production justification. |
 
-## Homeostatic Control And Collective Memory
+## Homeostasis And Collective Memory
 
-- **Adjacent prior art:** physiological homeostasis is dynamic regulation around
+- **Homeostasis — adjacent prior art:** physiological homeostasis is dynamic regulation around
   viable ranges, not a frozen set point. Billman's
   [Homeostasis: The Underappreciated and Far Too Often Ignored Central Organizing Principle of Physiology](https://pubmed.ncbi.nlm.nih.gov/32210840/)
   informs the sensor/target/actuator/guard vocabulary. Awareness applies that

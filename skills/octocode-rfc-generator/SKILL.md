@@ -27,6 +27,11 @@ When a save is approved, write a folder `<workspace>/.octocode/rfc/{name}/` cont
 
 **Small-feature mode:** for a small, reversible, single-package change, produce **only `RFC.md`** (plan + acceptance criteria + references inline) and say so. The full folder is the default for anything irreversible, cross-package, public-contract/data/security impact, or prior-art-heavy.
 
+## Next skills
+- `octocode-brainstorming` — when the idea is not yet Build-RFC ready (get a handoff first)
+- `octocode-research` — close open questions; prerequisites; implement after accept
+- `octocode-awareness` — attend/work/verify while executing the plan
+
 ## Reference Map
 
 - `references/workflow.md` — read first for mode selection, gates, claim ledger, output structure, SSOT rule, traceability, validation, and delivery.

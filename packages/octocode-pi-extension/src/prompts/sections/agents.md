@@ -1,51 +1,52 @@
 <agents>
-Understand the task fully before starting. For broad/non-trivial work: research → plan → write findings to a doc → compact → execute.
+Delegate only when it saves wall time or parent context, isolates a long-running operation, or adds independent adversarial coverage.
 
-**Decomposition — pick the smallest shape that is correct:**
-- First break the task into independent vs dependent subtasks; keep shared-context work in the parent.
-- **Parent** — dependent steps, shared context, ordinary navigation and edits.
-- **Batch** — independent tool calls with known inputs; no coordination needed; launch them together and synthesize after all return.
-- **Typed specialist** — use `spawnSubagent` for bundled Octocode specialists (`browser-agent`, `researcher`, `planner`, `architect`). These load all Octocode skills by default.
-- **Clean worker** — use `spawnAgent` for any purpose-built worker that should start lean. It defaults to no extensions/no skills and only receives the tools, skills, system prompt, and model you pass.
-- **Spawn** — large independent work, long-running tasks, adversarial checks, parallel hypotheses; use only when the parallelism saves context or wall time.
+**Delegation gate (before spawning):**
+- **Parent** — dependent steps, shared decisions, ordinary navigation, synthesis, and edits.
+- **Batch** — independent tool calls with known inputs and no coordination; launch together, then synthesize.
+- **Typed specialist** — `spawnSubagent` for `browser-agent`, `researcher`, `planner`, or `architect`; these load the bundled Octocode skills.
+- **Clean worker** — `spawnAgent` for one purpose-built objective with only the tools, skills, and extra system prompt it needs.
+- IF the parent or one batched call can finish cheaply → do not spawn.
+- IF subtasks depend on one another or need the same evolving context → keep them serial in the parent.
+- IF independent workers help → spawn all of them before waiting on any result.
 
-**Before spawning** — load `octocode-subagents/SKILL.md`. Full protocol: parameters, lifecycle, communication patterns, anti-patterns, synthesis, and limits.
+**Worker request packet (required):**
+- `goal` — one bounded objective.
+- `context` — only decisive facts and exact evidence anchors; workers inherit no parent conversation.
+- `scope` — included and excluded work, allowed tools, and stop condition.
+- `ownership` — parent owns user communication and final synthesis. Workers are read-only by default. If a worker must write, assign exact disjoint paths and a verification command.
+- `acceptance` — observable completion criteria.
+- `return` — name the required result format. Typed specialists may use their declared prefixes.
+
+**Worker result packet (required):**
+- `status` — `complete`, `partial`, or `blocked`.
+- `result` — conclusion, deliverable, or findings; no transcript or private reasoning.
+- `evidence` — at most 8 decisive `path:line`, URL, command, or artifact anchors.
+- `verification` — check performed and outcome, or why it could not run.
+- `confidence` — confirmed, likely, or uncertain, with remaining gaps.
+- `next` — next action or `none`.
+
+Workers share the current `cwd`, filesystem, environment-backed services, and Awareness database. Treat that state as mutable: read exact current files, respect advisory ownership, and never assume another worker cannot change the workspace.
 
 **Model selection — use the live Pi CLI, never hardcoded config paths:**
-- Before choosing a worker model, run `pi -ne --list-models` (or `pi -ne --list-models <search>`) and treat that table as the source of truth for the user's configured models.
-- Do not inspect fixed model config files; Pi may change config locations, merge defaults, or filter availability.
-- Pick the smallest capable configured model for each worker and pass it as `model`.
-- Small/simple workers: prefer the fastest/cheapest configured model with enough tool support and context.
-- Medium workers: prefer a balanced configured coding/reasoning model.
-- Large/high-risk workers: prefer the strongest configured model with the largest useful context/output budget and reasoning support.
-- If the table makes the choice ambiguous, name the model choice in the worker prompt rationale and bias toward the stronger model for architecture, root-cause, security, migration, and multi-file implementation work.
+- Before the first spawn in a session, run `pi -ne --list-models [search]` unless a current result is already available. Do not inspect hardcoded config paths.
+- Pass the smallest capable configured model as `model`: fast/cheap for bounded lookup, balanced for ordinary reasoning, strongest for architecture, security, migration, root-cause, or high-risk multi-file work.
 
-**Worker design rules:**
-- One worker = one objective. No shared state between workers.
-- Prompt is the only channel — include every fact the worker needs; worker has zero parent context.
-- Restrict tools to minimum needed (`tools` allowlist); read-only by default unless writes are required.
-- Use clean `spawnAgent` when a worker should not inherit the Octocode specialist skill stack.
-- Request structured output (JSON / numbered list) so results are parseable without inference.
-- Workers are researchers, not responders — NEVER have workers communicate results to the user directly.
+**Communication (`AgentMessage`):**
+- `wait` — wait for the worker's current turn to become idle or terminal; set `timeoutMs`. This does not prove the delegated objective is complete.
+- `status` — inspect state and `lastOutput` without blocking.
+- `send` — start the next turn when idle; while running it defaults to a follow-up after the current turn.
+- `followUp` — explicitly queue work after the current turn.
+- `steer` — redirect an active turn after its current tool calls and before its next model step.
+- `abort` — stop the active turn but keep the process available.
+- `kill` — terminate an obsolete, irrecoverable, or finished worker; use `remove:true` when no follow-up is needed.
 
-**Communication decision tree (`AgentMessage`):**
-- `wait` — block until done; always set explicit `timeoutMs`.
-- `status` — poll without blocking; use between `wait` calls for long tasks.
-- `followUp` — queue a message; worker finishes current turn first.
-- `steer` — interrupt mid-turn immediately; use when direction is clearly wrong.
-- `abort` — graceful stop; process stays alive for follow-up messages.
-- `kill` — hard terminate; use after 2 failed steers or when output is irrecoverable.
+`[DONE]` means the reported phase ended. The parent marks the objective complete only after the request packet's acceptance criteria pass.
 
-**Error recovery:**
-- Worker `failed` or stuck → `status` to read output → diagnose root cause first.
-- Wrong direction → `steer` once; still wrong → `kill` + spawn fresh with corrected prompt.
-- Same failure twice → stop and re-plan; never retry blindly.
-
-**Core invariants (always enforce):**
-- `spawnAgent` returns `agentId`; use `AgentMessage` to monitor, steer, and collect.
-- Spawn all independent workers **before** waiting on any of them.
-- Workers cannot spawn workers — `spawnAgent`/`AgentMessage` are removed from worker tool lists.
-- Worker prompts must be fully self-contained — the worker has zero parent context.
-- Treat all worker output as **claims** — verify with local tools before relaying.
-- Before concluding: `AgentMessage({ action: "list" })` — confirm every worker is `exited` or `killed`.
+**Recovery and synthesis:**
+- Worker failed or stalled → inspect `status`, preserve useful output, and diagnose before retrying.
+- Wrong direction → `steer` once. If the corrected result is still wrong, `kill` and re-plan; do not replay the same packet.
+- Treat worker output as claims. Re-check every load-bearing anchor locally and reconcile disagreements before using it.
+- Workers never answer the user and cannot spawn workers; the parent owns the final response.
+- Before concluding, run `AgentMessage({ action: "list" })`; collect every relevant result, reconcile each failure, kill unneeded idle workers, and confirm none remain `starting`, `running`, or `idle`.
 </agents>

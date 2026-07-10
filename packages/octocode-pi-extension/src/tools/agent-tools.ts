@@ -102,6 +102,7 @@ const MAX_STDERR_CHARS = 64_000;
 const MAX_VISIBLE_OUTPUT = 12000;
 const MAX_AGENT_RECORDS = 50;
 const SUBAGENT_ENV_VAR = 'OCTOCODE_PI_SUBAGENT';
+const AWARENESS_AGENT_ENV_VAR = 'OCTOCODE_AGENT_ID';
 const FORBIDDEN_WORKER_TOOLS = new Set(['spawnAgent', 'AgentMessage']);
 const agents = new Map<string, AgentRecord>();
 const EXIT_SIGNALS: NodeJS.Signals[] = ['SIGTERM', 'SIGHUP'];
@@ -420,6 +421,11 @@ function sendRpc(record: AgentRecord, payload: Record<string, unknown>): void {
   }
 }
 
+function workerAwarenessAgentId(workerId: string): string {
+  const parentId = process.env[AWARENESS_AGENT_ENV_VAR]?.trim() || 'pi-agent';
+  return `${parentId}:worker:${workerId.slice(0, 8)}`;
+}
+
 export function spawnRpcAgent(params: SpawnAgentParams, ctx?: PiContext): AgentRecord {
   const task = buildInitialPrompt(params);
   if (!task) throw new Error('spawnAgent requires task or prompt.');
@@ -430,11 +436,16 @@ export function spawnRpcAgent(params: SpawnAgentParams, ctx?: PiContext): AgentR
   const promptFiles: string[] = [];
   const args = buildPiArgs(params, name, promptFiles);
   const invocation = getPiInvocation(args);
+  const awarenessAgentId = workerAwarenessAgentId(id);
   const proc = processFactory(invocation.command, invocation.args, {
     cwd,
     shell: false,
     stdio: ['pipe', 'pipe', 'pipe'],
-    env: { ...process.env, [SUBAGENT_ENV_VAR]: '1' },
+    env: {
+      ...process.env,
+      [SUBAGENT_ENV_VAR]: '1',
+      [AWARENESS_AGENT_ENV_VAR]: awarenessAgentId,
+    },
   });
 
   const record: AgentRecord = {
@@ -643,12 +654,13 @@ export function registerAgentTools(
     name: 'spawnAgent',
     label: 'Agent: Spawn Parallel Worker',
     description:
-      'Spawn a background Pi worker process over RPC. Returns immediately with an agentId; use AgentMessage to inspect, send follow-ups, wait, or kill. Workers are isolated processes and can run in parallel.',
+      'Spawn a separate background Pi worker process over RPC. Returns immediately with an agentId; use AgentMessage to inspect, send follow-ups, wait, or kill. Workers can run in parallel but share the selected cwd and environment-backed services.',
     promptSnippet: 'Spawn a background Pi worker process and return an agentId for AgentMessage.',
     promptGuidelines: [
       'Use spawnAgent only when delegation materially helps: independent work ownership, long-running tasks, or adversarial/coverage checks.',
       'Do not spawn agents for ordinary bug fixes/refactors that need shared context; stay in the parent or batch independent tool calls instead.',
       'For useful parallelism, spawn all independent workers first, then use AgentMessage action:"wait" or action:"status" to collect results.',
+      'Workers inherit no parent conversation but share cwd, files, and environment-backed services. Pass a bounded request packet and assign disjoint paths for any writes.',
       'spawnAgent defaults to resourceMode:"lean". Use resourceMode:"octocode" only when the worker needs Octocode extension tools.',
       'Use `pi -ne --list-models [search]` as the source of truth for the user-configured model table; do not read hardcoded config paths.',
       'Pass model for each worker: fastest capable configured model for small tasks, balanced coding/reasoning model for medium tasks, strongest configured model for large/high-risk work.',
@@ -718,10 +730,10 @@ export function registerAgentTools(
     promptSnippet: 'Message, wait for, list, status, or kill spawned background agents.',
     promptGuidelines: [
       'Use AgentMessage action:"list" or action:"status" before claiming a spawned worker is done.',
-      'Use AgentMessage action:"wait" to collect a worker result; use action:"kill" for stale or incorrect workers.',
+      'Use AgentMessage action:"wait" to collect the current turn result. Idle means the turn ended, not necessarily that the delegated objective passed acceptance.',
       'AgentMessage reads the in-memory spawned-agent registry; after session shutdown or reload, spawn fresh workers instead of relying on old agentIds.',
       'Before final answers, wait/status every relevant worker, reconcile disagreements, and synthesize findings instead of dumping raw worker JSON.',
-      'Use AgentMessage action:"send" for follow-up instructions; action:"steer" interrupts the next turn; action:"followUp" queues after completion.',
+      'Use action:"send" to start the next idle turn; while running it defaults to followUp. action:"followUp" queues after the turn. action:"steer" redirects after current tool calls, before the next model step.',
     ],
     parameters: Type.Object({
       action: Type.Optional(actionSchema),
@@ -751,7 +763,7 @@ export function registerAgentTools(
         } finally {
           if (ctx?.hasUI) ctx.ui?.setStatus?.('agent-wait', '');
         }
-        const waitResult = renderSingleAgentResult(record, 'Agent completed');
+        const waitResult = renderSingleAgentResult(record, 'Agent turn completed');
         if (params['remove'] === true) agents.delete(record.id);
         return waitResult;
       }

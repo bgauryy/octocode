@@ -23,7 +23,7 @@ Nav: `symbols`/AST → anchor → `matchString`/range `none` → LSP `lineHint`.
 - Lightest proof first: search → exact read → AST shape → LSP identity → independent corroboration.
 
 **Flows by kind**
-- local code → `localSearchCode` (`structural` for AST shape) → confirm with `lspGetSemantics`; prefer LSP identity over raw file reads.
+- local code → `localSearchCode` (`structural` for AST shape) → confirm identity with `lspGetSemantics` when supported; otherwise combine exact reads with AST/text connections and state the limitation.
 - docs → search/outline first → fetch the relevant section with minify; avoid full-document reads unless exact bytes or global context is required.
 - external/ecosystem → `ghSearchCode` / `ghGetFileContent` / `ghViewRepoStructure` / `npmSearch` / `web`.
 - dependency → inspect `node_modules/<pkg>/` source directly before inferring from docs or types.

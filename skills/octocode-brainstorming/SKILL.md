@@ -28,6 +28,11 @@ STOP, recommend one option, and wait when any gate trips:
 - Keep a claim ledger: `claim -> source -> confidence -> next query`; for substantial, multi-surface, or high-confidence runs, start `scripts/brainstorm-run.mjs` via `references/hook-communication.md`.
 - Run Critical Architect, Visionary Entrepreneur, and Product lenses before a final verdict unless the worker gate shortens review.
 
+## Next skills
+- `octocode-research` — local/GitHub/npm/code proof while diverging or stress-testing
+- `octocode-rfc-generator` — when verdict is Build RFC (handoff packet)
+- `octocode-awareness` — capture durable lessons after DECIDE
+
 ## Reference Map
 
 - `references/tools.md` — when building the surface plan or running local, GitHub, package, and web searches.

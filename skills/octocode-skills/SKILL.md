@@ -38,6 +38,11 @@ Stop when one fit, two High pick a winner, three angles add nothing, or a gate i
 - when search fails: `references/recovery.md` — broaden once, then report gap
 - when needing local or external research evidence: `references/octocode.md` — route through octocode-research or Octocode
 
+## Next skills
+- `octocode-prompt-optimizer` — tighten SKILL.md / description / contracts after create or improve
+- `octocode-research` — evidence when judging fit or prior-art skills
+- `octocode-awareness` — skill-evolution gates; shared-repo install continuity
+
 ## Scripts
 
 - `scripts/skill-review.mjs` — before reporting any create/edit done; best-practices + structure review gate

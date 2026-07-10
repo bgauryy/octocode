@@ -80,6 +80,42 @@ Publish: `yarn sync:version:publish`
 
 Coverage target 90% (Vitest + v8). Rust: `yarn workspace @octocodeai/octocode-engine test:rust`.
 
+## Local Run
+
+Use workspace packages end-to-end (not published npm pins) when changing engine,
+tools-core, or the CLI:
+
+```bash
+yarn local:fix                                                 # internal deps → workspace:*
+yarn local:check                                                 # verify links
+yarn workspace @octocodeai/octocode-engine build:dev             # native + TS wrappers
+yarn workspace @octocodeai/octocode-tools-core build             # brain
+yarn workspace octocode build:dev                                # rebuilds tools-core then CLI
+```
+
+Drive tools through the local CLI (same runners as MCP):
+
+```bash
+OCTO=node\ packages/octocode/out/octocode.js
+$OCTO --help
+$OCTO context --compact                                          # protocol + tool map
+$OCTO tools --json                                               # lean catalog (no full schemas)
+$OCTO tools localSearchCode lspGetSemantics --scheme             # read schemas before raw calls
+$OCTO tools localSearchCode --queries '{"path":"'"$PWD"'/packages/octocode-engine/src","keywords":"extractGraphFacts","mode":"discovery"}' --compact
+$OCTO search --query '{"schema":"oql","target":"research","from":{"kind":"local","path":"'"$PWD"'/packages/octocode-tools-core/src/oql"},"params":{"intent":"reachability","mode":"analyze"},"itemsPerPage":1,"page":1}' --compact
+```
+
+Rules for agents:
+- Prefer `node packages/octocode/out/octocode.js` over a global `octocode` / npx when
+  validating monorepo changes — it loads workspace `octocode-tools-core` →
+  workspace `octocode-engine`.
+- After engine or tools-core edits: rebuild the changed package, then
+  `yarn workspace octocode build:dev` before CLI smoke.
+- Research analyze packets are **candidate** evidence (AST import/call retention,
+  lexical fallback). Upgrade with `target:graph` + `proof:"lsp"` before delete claims.
+- Do not treat `sort:relevance` / ranking as proof; use structure, exact content, AST,
+  and LSP identity.
+
 ## Local dev — workspace deps
 
 Internal deps are version pins resolving to npm. To consume local source:

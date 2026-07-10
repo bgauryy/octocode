@@ -92,6 +92,11 @@ export function mapCodeResult(
       // ranges let an agent feed a capture straight to lspGetSemantics.
       const captures = m.metavars;
       const ranges = m.metavarRanges;
+      const classified = m as typeof m & {
+        kind?: string;
+        scoreHint?: number;
+        endColumn?: number;
+      };
       rows.push({
         kind: 'code',
         source,
@@ -100,6 +105,12 @@ export function mapCodeResult(
         ...(m.endLine !== undefined ? { endLine: m.endLine } : {}),
         ...(m.column !== undefined ? { column: m.column } : {}),
         ...(m.value !== undefined ? { snippet: m.value } : {}),
+        ...(classified.kind !== undefined
+          ? { matchKind: classified.kind }
+          : {}),
+        ...(classified.scoreHint !== undefined
+          ? { scoreHint: classified.scoreHint }
+          : {}),
         ...(captures && Object.keys(captures).length
           ? { metavars: captures }
           : {}),

@@ -17,6 +17,24 @@ Its purpose is not to accumulate the most memories, tasks, skills, or wiki pages
 It keeps observable workspace pressures inside useful ranges while preserving
 evidence, user authority, and current source/tests.
 
+## Why Homeostasis
+
+Homeostasis is dynamic regulation within a viable range, not a fixed equilibrium.
+A healthy controller notices deviation, chooses a bounded correction, and measures
+again; it does not maximize one variable forever. For Awareness, “more memory,”
+“more coordination,” and “more context” can all become harmful beyond their useful
+ranges.
+
+```text
+SENSE -> COMPARE -> ACT -> REMEASURE
+```
+
+The analogy is earned only when each pressure has an observable sensor, an explicit
+target range, a bounded actuator, a safety guard, and feedback after action. Without
+comparison and remeasurement, “homeostasis” is branding rather than a control loop.
+Biology motivates the question; source, schemas, tests, and measured artifacts
+decide whether the software answer works.
+
 ## Where Awareness Sits
 
 ```text

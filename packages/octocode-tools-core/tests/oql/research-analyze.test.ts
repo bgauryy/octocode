@@ -69,7 +69,7 @@ describe('smart OQL research analyzer', () => {
           'orient',
           'manifest-graph',
           'symbol-inventory',
-          'reference-proof',
+          'reference-scan',
           'dependency-audit',
         ])
       );
@@ -99,10 +99,12 @@ describe('smart OQL research analyzer', () => {
             symbol: 'dead',
             verdict: 'transitive-dead',
             retainedBy: ['src/dead-user.ts'],
+            retentionSource: 'ast',
           }),
           expect.objectContaining({
             symbol: 'used',
             verdict: 'reachable',
+            retentionSource: 'ast',
           }),
         ])
       );
@@ -122,10 +124,18 @@ describe('smart OQL research analyzer', () => {
       expect(result.mode).toBe('plan');
       expect(result.summary.sourceFiles).toBe(0);
       expect(
-        result.flow.some(step =>
-          step.tools.includes('lspGetSemantics references')
+        result.flow.some(
+          step =>
+            step.id === 'reference-scan' &&
+            step.evidence === 'heuristic' &&
+            step.tools.includes('extractGraphFacts')
         )
       ).toBe(true);
+      expect(
+        result.flow.some(step =>
+          step.tools.some(tool => tool.includes('lspGetSemantics'))
+        )
+      ).toBe(false);
     } finally {
       await rm(root, { recursive: true, force: true });
     }

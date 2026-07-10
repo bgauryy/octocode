@@ -20,8 +20,10 @@ import {
 export const SYSTEM_PROMPT =
   [
     authority,
-    thinkFirst,
+    safety,
     workMode,
+    thinkFirst,
+    agents,
     memory,
     tools,
     searchAndResearch,
@@ -29,9 +31,7 @@ export const SYSTEM_PROMPT =
     skills,
     code,
     docs,
-    output,
     context,
-    agents,
     browserAgent,
-    safety,
+    output,
   ].join('\n\n') + '\n';

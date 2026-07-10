@@ -254,9 +254,9 @@ function symbolPacket(
     id: `${subject.id}:ref:${i}`,
     from: { id: `file:${refFile}`, kind: 'file', uri: refFile },
     to: subject,
-    relation: 'references',
-    source: 'ripgrep',
-    confidence: 'heuristic',
+    relation: s.retentionSource === 'ast' ? 'imports' : 'references',
+    source: s.retentionSource === 'ast' ? 'ast' : 'ripgrep',
+    confidence: s.retentionSource === 'ast' ? 'exact' : 'heuristic',
     flags: s.externalRefs > 0 ? undefined : ['unreachable'],
   }));
 
@@ -305,19 +305,19 @@ function symbolRisk(verdict: PacketVerdict): ResearchEvidencePacket['risk'] {
       return {
         deleteRisk: 'high',
         reason:
-          'Reachable from entrypoints via reference scan; likely used — do not delete without confirming.',
+          'Reachable from entrypoints via AST import/call retention (or lexical fallback); likely used — do not delete without confirming.',
       };
     case 'candidate-dead':
       return {
         deleteRisk: 'medium',
         reason:
-          'No reachable references found, but the scan is token-based. Confirm with LSP references (next.semantic) before deleting.',
+          'No reachable retainers found in analyze (AST import/call scan, then lexical fallback). Confirm with LSP references (next.semantic) before deleting.',
       };
     case 'transitive-dead':
       return {
         deleteRisk: 'medium',
         reason:
-          'Only referenced from unreachable code. Confirm the retention chain with LSP before deleting.',
+          'Only retained from unreachable code (AST or lexical scan). Confirm the retention chain with LSP before deleting.',
       };
     default:
       return { deleteRisk: 'unknown', reason: 'Insufficient evidence.' };

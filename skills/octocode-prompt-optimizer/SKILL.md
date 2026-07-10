@@ -39,6 +39,11 @@ Use Full Path for multi-section, ambiguous, tool-facing, or high-risk work; Fast
 - Make only critical behavior mandatory; retain `should`/`prefer` for real preferences.
 - Apply external/file changes only after VALIDATE and with authority; otherwise return a complete rewrite or patch-style delta.
 
+## Next skills
+- `octocode-skills` — create/install/review the skill folder being optimized
+- `octocode-research` — verify cited commands, paths, and tool behavior
+- `octocode-awareness` — when optimizing harness/AGENTS that Awareness projects
+
 ## Reference map
 - [`gates`](references/gates.md), [`rate`](references/rate.md), [`fix`](references/fix.md), [`validate`](references/validate.md), [`output`](references/output.md) — when executing the core path; load only the current gate.
 - [`conciseness-toolkit`](references/conciseness-toolkit.md), [`attention`](references/attention.md), [`patterns`](references/patterns.md), [`prompt-techniques`](references/prompt-techniques.md) — when selecting a technique or improving clarity, hierarchy, or conflicting instructions.

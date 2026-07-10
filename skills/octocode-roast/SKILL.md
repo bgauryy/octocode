@@ -31,6 +31,11 @@ When Octocode-backed code research is needed, use `octocode-research` if install
 
 If there are 20+ issues, triage the top 10 by impact and confidence, then separate important findings from redundant noise.
 
+## Next skills
+- `octocode-research` — prove findings / PR-diff review / safe fix path
+- `octocode-prompt-optimizer` — when the sin is skill/prompt/contract bloat
+- `octocode-awareness` — verify fixes and record reusable gotchas
+
 ## Reference Map
 
 - `references/octocode.md` — before code inspection when delegating Octocode research to `octocode-research`.
