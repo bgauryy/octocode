@@ -35,5 +35,10 @@ Solo finishes; two High options need a winner; three angles add nothing; a user/
 - `references/improve-loop.md` — when improving this skill with measurable KPIs.
 - `references/octocode.md` — when workers need Octocode research tool routing.
 
-## Next skills
-`research` · `awareness` · `rfc-generator` · `prompt-optimizer` (agent-communication).
+## Related skills
+- `octocode-research` — workers gathering code/GitHub evidence
+- `octocode-awareness` — shared-repo locks when parallel writers share cwd
+- `octocode-eval` — goal→KPI when improving this skill or judging worker quality
+- `octocode-rfc-generator` — design before multi-agent system changes
+- `octocode-prompt-optimizer` — agent-communication / packet wording
+- `octocode-skills` — edit/review this skill folder

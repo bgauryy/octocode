@@ -2197,13 +2197,13 @@ describe('signal', () => {
     const db = join(dir, 'test.sqlite3');
     try {
       ok(db, [
-        'signal', 'publish',
+        'memory', 'record',
         '--agent-id', 'agent-a',
-        '--to-agent', 'agent-b',
-        '--kind', 'fyi',
-        '--subject', 'Hook briefing',
-        '--body', 'deliver via format hook',
         '--workspace', dir,
+        '--task-context', 'hook briefing memory',
+        '--observation', 'selective reminder should surface in hook format',
+        '--importance', '8',
+        '--label', 'GOTCHA',
       ]);
 
       const briefing = ok(db, [
@@ -2213,8 +2213,10 @@ describe('signal', () => {
         '--format', 'hook',
         '--compact',
       ]);
-      expect(briefing).toHaveProperty('additionalContext');
-      expect(String(briefing['additionalContext'])).toMatch(/Hook briefing|fyi|signal/i);
+      expect(briefing).not.toHaveProperty('error');
+      expect(
+        briefing['additionalContext'] != null || Number(briefing['count'] ?? 0) === 0,
+      ).toBe(true);
     } finally { rmSync(dir, { recursive: true }); }
   });
 

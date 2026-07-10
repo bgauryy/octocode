@@ -7,7 +7,7 @@ the same runtime and canonical SQLite database.
 
 | Event | Behavior | Output/blocking |
 |---|---|---|
-| Prompt/session start | Register agent; deliver changed signals/memory/refinement briefing. | Silent when fingerprint unchanged. |
+| Prompt/session start | Register agent; deliver changed operational state plus at most one prompt-grounded memory lead. | Silent for unrelated memory or an unchanged fingerprint. |
 | Before write | Run harness guard, resolve task/explicit work, declare advisory path; honor exclusivity. | Silent normally; compact peer delta; host-native denial on guard or exclusive conflict. |
 | After write | Write edit audit and heartbeat; keep a scoped automatic HOOK active. | Best-effort, nonblocking. |
 | Stop/subagent stop | Finalize the scoped HOOK once, then audit verification debt. | First 3 items + omitted count; block/remind where supported. |
@@ -113,6 +113,14 @@ A denied guard leaves no false file presence.
 `delivery_state` stores content fingerprints per consumer/channel/scope. Unchanged
 briefings and peer sets emit nothing. This does not acknowledge signals; `signal ack`
 remains explicit.
+
+For Claude/Codex prompt hooks and Pi `input`, the current prompt is held only as a
+bounded transient query; it is not written to SQLite. The selector searches the
+existing scoped memory bank, requires at least two meaningful prompt/memory token
+matches, emits at most one `Memory lead — verify` item, and otherwise stays silent.
+Signals, overrides, recurring-failure pressure, and open-refinement counts remain
+separate operational interventions. This is a deterministic local policy, not a
+second reasoning agent, and it never makes recalled text authoritative.
 
 Claude/Codex emit event-named `hookSpecificOutput.additionalContext`. Cursor emits
 native `additional_context` at session start and `agent_message` around tool use;

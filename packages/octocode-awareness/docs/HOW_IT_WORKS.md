@@ -80,9 +80,10 @@ Normal success is silent. If the peer set changes, the hook emits one bounded
 summary; if an exclusive conflict exists, it blocks before creating presence.
 
 Post-edit writes `edit_log` and heartbeats. Task and explicit work runs remain
-active; hook fallback runs end as `PENDING`. Prompt briefing and session capture use
-fingerprints so unchanged state is not re-injected or duplicated. Stop output is
-capped.
+active; hook fallback runs end as `PENDING`. Prompt briefing uses the transient
+current prompt to select at most one grounded memory lead or stay silent; operational
+signals/overrides remain independent. Briefing and session capture use fingerprints
+so unchanged state is not re-injected or duplicated. Stop output is capped.
 
 Host wiring details live in [HOOKS.md](HOOKS.md).
 
@@ -91,6 +92,8 @@ Host wiring details live in [HOOKS.md](HOOKS.md).
 Persist everything needed for coordination; prompt only actionable changes:
 
 - ordinary edit: zero injected awareness text;
+- unrelated remembered state: zero injected text; a matching prompt gets at most one
+  `Memory lead — verify` item;
 - changed overlap: file, bounded peers, task/reason, omitted count;
 - exclusive conflict: holder, reason, expiry, recovery action;
 - compact attend: bounded action packet, not full organ/drive/profile aliases;

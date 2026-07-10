@@ -1,5 +1,6 @@
 # Improve Loop
-Load when improving this skill, a related Octocode skill, harness docs, or a research/process outcome. Why: improvement is a control loop, not a rewrite from vibes.
+**Owner:** this skill (`octocode-eval`). Other Octocode skills keep a stub and route here.
+Load when improving a skill, harness docs, or process outcome. Why: improvement is a control loop, not a rewrite from vibes.
 
 Thesis (Awareness / harness): `Agent = Model + Harness`. Improve the harness; measure artifacts. Homeostasis needs **goal → KPI → act → remeasure** against observable sensors — see package `docs/THESIS.md` when Awareness is in play.
 

@@ -27,9 +27,12 @@ When a save is approved, write a folder `<workspace>/.octocode/rfc/{name}/` cont
 
 **Small-feature mode:** for a small, reversible, single-package change, produce **only `RFC.md`** (plan + acceptance criteria + references inline) and say so. The full folder is the default for anything irreversible, cross-package, public-contract/data/security impact, or prior-art-heavy.
 
-## Next skills (optional) · Improve loop
-Load only when needed: `brainstorming` · `research` · `awareness`.
-When improving: set goal+KPI → measure actual results → check thesis — load `references/improve-loop.md`.
+## Related skills
+- `octocode-research` — close open questions with file:line / PR evidence
+- `octocode-brainstorming` — worth-building / diverge before RFC
+- `octocode-eval` — post-ship measurement; owns goal→KPI improve loop
+- `octocode-awareness` — shared-repo coordination while drafting RFCs
+- `octocode-skills` — edit/review this skill folder
 
 ## Reference Map
 

@@ -30,13 +30,18 @@ Before any task, read `references/algorithm.md` first (routing, evidence grades,
 - when ranking repos: `references/github-landscape.md` — ecosystem prior art
 - when contested/deep decisions: `references/long-research.md` — durable decision brief
 - when evidence keeps shifting: `references/loop-mode.md` — investigation Act→Observe→Learn
-- when improving skill/quality: `references/improve-loop.md` — goal+KPI, actual results, thesis
+- when improving with goal→KPI: prefer `octocode-eval`; stub `references/improve-loop.md` if eval unavailable
 - when command/MCP/schema details matter: `references/octocode.md` — transport and tool syntax
 Should-we-build / diverge → `octocode-brainstorming`.
 
-## Next skills (optional) · Improve loop
-Load only when needed: `brainstorming` · `rfc-generator` · `roast` · `awareness`.
-When improving: goal+KPI → actual results → thesis — load `references/improve-loop.md` (never vibes).
+## Related skills
+- `octocode-eval` — goal→KPI / keep-discard / held-out (not investigation loops)
+- `octocode-brainstorming` — worth-building before deep research
+- `octocode-rfc-generator` — decision docs after evidence converges
+- `octocode-roast` — blunt code critique with file:line
+- `octocode-subagent` — fan-out contested probes
+- `octocode-awareness` — shared-repo locks / memory / verify debt
+- `octocode-skills` — edit/review this skill folder
 
 ## Scripts
 - `scripts/eval-research.mjs` — when changing this skill; run the matching eval case.

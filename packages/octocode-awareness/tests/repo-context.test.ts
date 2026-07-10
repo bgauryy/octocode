@@ -326,6 +326,10 @@ describe('repo context query and projections', () => {
         (run_id, task_id, origin, agent_id, rationale, test_plan, status, workspace_path, created_at, updated_at)
         VALUES ('run_next', 'task_next', 'TASK', 'owner', 'reason', 'tests pass', 'ACTIVE', ?, ?, ?)`)
         .run(dir, now, now);
+      db.prepare(`INSERT INTO task_claims
+        (task_id, run_id, agent_id, claimed_at, heartbeat_at, expires_at)
+        VALUES ('task_next', 'run_next', 'owner', ?, ?, ?)`)
+        .run(now, now, future);
 
       const claimed = attendAwareness(db, {
         agentId: 'owner',

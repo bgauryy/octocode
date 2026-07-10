@@ -72,11 +72,15 @@ consumer, channel, and scope.
 
 - First changed state: emit one bounded summary.
 - Same state on next prompt/edit: emit nothing.
+- Prompt memory: use the transient current prompt to select at most one scoped lead;
+  require two meaningful token matches and emit nothing for unrelated memory.
 - Peer/signal/briefing changes: emit the new bounded state.
 - Signal delivery does not mark read; `signal ack` is separate.
 
 Pi also fingerprints unchanged verification sets so repeated agent-end events do not
-repeat the same reminder.
+repeat the same reminder. Pi captures the latest `input` text only in process until
+`before_agent_start`; shell prompt hooks pass the same bounded query directly. Neither
+path stores the prompt.
 
 ## Evidence Rules
 

@@ -28,9 +28,12 @@ STOP, recommend one option, and wait when any gate trips:
 - Keep a claim ledger: `claim -> source -> confidence -> next query`; for substantial, multi-surface, or high-confidence runs, start `scripts/brainstorm-run.mjs` via `references/hook-communication.md`.
 - Run Critical Architect, Visionary Entrepreneur, and Product lenses before a final verdict unless the worker gate shortens review.
 
-## Next skills (optional) · Improve loop
-Load only when needed: `research` · `rfc-generator` · `awareness`.
-When improving: set goal+KPI → measure actual results → check thesis — load `references/improve-loop.md`.
+## Related skills
+- `octocode-research` — code/GitHub/package evidence for idea validation
+- `octocode-rfc-generator` — Build-ready ideas → decision folder
+- `octocode-eval` — goal→KPI when improving this skill or measuring a prototype
+- `octocode-awareness` — capture durable lessons after DECIDE
+- `octocode-skills` — edit/review this skill folder
 
 ## Reference Map
 

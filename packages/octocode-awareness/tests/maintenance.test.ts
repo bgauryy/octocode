@@ -14,6 +14,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { randomUUID } from 'node:crypto';
 import { initDb, replaceMemoryReferences, connectDb, checkpointWal } from '../src/db.js';
 import { journalModeForSqliteVersion } from '../src/sqlite-runtime.js';
+import { insertMemory } from '../src/memory.js';
 import {
   pruneStale,
   notifyGet,
@@ -266,13 +267,17 @@ describe('notifyGet — smart briefing from memories table', () => {
 
   it('selects one prompt-relevant memory for hook context and stays silent on unrelated memory', () => {
     const db = freshDb();
-    insertMem(db, {
+    insertMemory(db, {
+      agentId: 'memory-agent',
+      taskContext: 'release screenshots',
       importance: 10,
       label: 'GOTCHA',
       observation: 'always rotate the screenshot archive before publishing',
       workspacePath: '/ws',
     });
-    insertMem(db, {
+    insertMemory(db, {
+      agentId: 'memory-agent',
+      taskContext: 'deployment credentials',
       importance: 7,
       label: 'DECISION',
       observation: 'token expiry requires refreshing credentials before deploy',

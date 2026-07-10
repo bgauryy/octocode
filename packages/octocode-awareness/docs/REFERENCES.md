@@ -104,6 +104,18 @@ copied from either source.
 
 ## Memory, Reflection, And Provenance
 
+- **Adjacent prior art:**
+  [Remember When It Matters](https://arxiv.org/abs/2607.08716v1) frames
+  behavioral-state decay as remembered execution state losing influence and reports
+  that maintained memory plus a selective grounded reminder/silence policy is more
+  balanced than passive full-bank exposure or advisor-only guidance. Awareness uses
+  that result only as motivation for its locally tested hook selector: one scoped
+  prompt-grounded memory lead or silence, with signals/overrides kept separate. It is
+  not the paper's separate LLM memory agent, fixed-interval trajectory observer, or
+  trained policy, so its benchmark gains do not transfer. The paper's linked
+  [code repository](https://github.com/yifannnwu/proactive-memory-agent) contained no
+  implementation files when evaluated on 2026-07-10, limiting independent
+  reproduction of the reported mechanism.
 - **Adjacent prior art:** [Reflexion](https://arxiv.org/abs/2303.11366) and
   [Self-Refine](https://arxiv.org/abs/2303.17651) show that linguistic feedback can
   improve later attempts. Awareness stores only verified, reusable synthesis and

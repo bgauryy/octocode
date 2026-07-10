@@ -31,9 +31,12 @@ When Octocode-backed code research is needed, use `octocode-research` if install
 
 If there are 20+ issues, triage the top 10 by impact and confidence, then separate important findings from redundant noise.
 
-## Next skills (optional) · Improve loop
-Load only when needed: `research` · `prompt-optimizer` · `awareness`.
-When improving: set goal+KPI → measure actual results → check thesis — load `references/improve-loop.md`.
+## Related skills
+- `octocode-research` — Octocode-backed inspect before roasting
+- `octocode-eval` — goal→KPI when improving this skill
+- `octocode-prompt-optimizer` — tone/instruction wording only
+- `octocode-awareness` — shared-repo locks when roasting live work
+- `octocode-skills` — edit/review this skill folder
 
 ## Reference Map
 

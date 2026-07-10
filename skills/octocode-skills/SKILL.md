@@ -23,7 +23,7 @@ Stop when one fit, two High pick a winner, three angles add nothing, or a gate i
 - when writing instructions: `references/skill-authoring.md` — sources, control, patterns
 - when bundling scripts: `references/skill-scripts.md` — deterministic code over prose
 - when tuning description: `references/description-tuning.md` — trigger-rich Use-when; no rigid/redundant wording
-- when improving any skill: `references/skill-improve.md` — lobby owns flow; dedupe; ≤50 one-concept; goal+KPI via `references/improve-loop.md`
+- when improving any skill: `references/skill-improve.md` — lobby owns flow; dedupe; ≤50 one-concept; goal+KPI via `octocode-eval` (stub `references/improve-loop.md`)
 - when cleaning before ship: `references/skill-cleanup.md` — prune orphans/dupes; standalone folder only
 - when rating/refactor: `references/self-improvement.md` — mode gate and READ→REPORT
 - before calling done: `references/skill-review.md` — full review gate (best practices + rules)
@@ -38,9 +38,12 @@ Stop when one fit, two High pick a winner, three angles add nothing, or a gate i
 - when search fails: `references/recovery.md` — broaden once, then report gap
 - when needing local or external research evidence: `references/octocode.md` — route through octocode-research or Octocode
 
-## Next skills (optional) · Improve loop
-Load only when needed: `prompt-optimizer` · `research` · `awareness`.
-When improving: set goal+KPI → measure actual results → check thesis — load `references/improve-loop.md`.
+## Related skills
+- `octocode-eval` — goal→KPI accept/reject for skill changes (never vibes)
+- `octocode-prompt-optimizer` — description/trigger/instruction wording
+- `octocode-research` — local/GitHub evidence while judging a skill
+- `octocode-awareness` — shared-repo coordination when editing installed skills
+- `octocode-rfc-generator` — design doc before large skill-system changes
 
 ## Scripts
 

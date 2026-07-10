@@ -56,10 +56,10 @@ the behavior.
 
 | Pressure | Sensor | Target | Actuator | Guard |
 |---|---|---|---|---|
-| **Token pressure** | compact-output byte tests, hook output, workboard measurements | next-decision context; compact attend <=2 KiB; unchanged hook context = 0 B | targeted attend/query, fingerprints, caps, CSV/HTML drill-down | never hide omission, errors, approval, or continuation state |
+| **Token pressure** | compact-output byte tests, hook output, workboard measurements | next-decision context; compact attend <=2 KiB; unrelated/unchanged memory context = 0 B; selected memory <=1 lead | targeted attend/query, prompt-grounded selection, fingerprints, caps, CSV/HTML drill-down | never hide omission, errors, approval, or continuation state |
 | **Coordination pressure** | FilesUnderWork, active claims, locks, signals | every changed path visible; ordinary overlap allowed; sensitive overlap blocked | advisory `work start`, signals, optional exclusive locks | locks never authorize edits or prove success |
 | **Verification pressure** | pending/stale runs, `verify audit` | no owned unverified debt at completion | run declared check, `verify mark`, route failures | TTL and work end never equal success |
-| **Memory pressure** | missing refs, weak recall, duplicates, stale rows | small, scoped, provenance-linked reusable lessons | reflect, record, supersede, forget/digest preview | retrieved memory is a lead; dry-run before removal |
+| **Memory pressure** | missing refs, weak recall, duplicates, stale rows | small, scoped, provenance-linked reusable lessons that affect the next decision only when grounded | reflect, record, selective transient reminder, supersede, forget/digest preview | retrieved memory is a lead; unrelated recall stays silent; dry-run before removal |
 | **Communication pressure** | open signals/refinements/handoffs | one owner and terminal state | reply/ack/resolve; update the same refinement | peers provide evidence, not authority |
 | **Projection pressure** | manifest budgets, missing refs, stale timestamps | bounded optional file view | `repo inject` when file readers need it | SQLite stays canonical; generated wiki is not default live state |
 | **Harness pressure** | recurring failure signatures, evals, developer review | fewer repeated failures with stable trigger and token metrics | export proposal, human apply, held-out review | no silent skill/AGENTS mutation or automatic acceptance |
