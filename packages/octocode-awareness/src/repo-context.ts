@@ -7,7 +7,8 @@
  */
 
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
@@ -92,6 +93,8 @@ export interface RepoContextInjectParams extends AwarenessQueryParams {
   mode?: string | null;
   includeView?: boolean | null;
   include_view?: boolean | null;
+  pruneOrphans?: boolean | null;
+  prune_orphans?: boolean | null;
   check?: boolean | null;
 }
 
@@ -104,6 +107,8 @@ export interface RepoContextInjectResult {
   count: number;
   files: string[];
   warnings: string[];
+  orphan_candidates: string[];
+  pruned_orphans: string[];
   manifest: Record<string, unknown>;
 }
 
@@ -1092,9 +1097,10 @@ function repoProfileRows(db: DatabaseSync, params: AwarenessQueryParams): Awaren
   lockWhere.push("t.status = 'ACTIVE'", '(l.expires_at IS NULL OR l.expires_at > ?)');
   lockBinds.push(utcNow());
 
-  const refinementWhere = ["state IN ('open','ongoing')"];
+  const allRefinementWhere = ["state IN ('open','ongoing')"];
   const refinementBinds: BindValue[] = [];
-  addExactScope(refinementWhere, refinementBinds, scope);
+  addExactScope(allRefinementWhere, refinementBinds, scope);
+  const actionableRefinementWhere = [...allRefinementWhere, "quality NOT IN ('handoff','instructions')"];
 
   const signalWhere = ["status = 'open'"];
   const signalBinds: BindValue[] = [];
@@ -1109,7 +1115,8 @@ function repoProfileRows(db: DatabaseSync, params: AwarenessQueryParams): Awaren
     { metric: 'tasks', count: countWhere(db, 'tasks t JOIN plans p ON p.plan_id = t.plan_id', taskWhere, taskBinds) },
     { metric: 'runs', count: countWhere(db, 'task_runs', runWhere, runBinds) },
     { metric: 'active_locks', count: countWhere(db, 'locks l JOIN task_runs t ON t.run_id = l.run_id', lockWhere, lockBinds) },
-    { metric: 'open_refinements', count: countWhere(db, 'refinements', refinementWhere, refinementBinds) },
+    { metric: 'actionable_refinements', count: countWhere(db, 'refinements', actionableRefinementWhere, refinementBinds) },
+    { metric: 'all_open_refinements', count: countWhere(db, 'refinements', allRefinementWhere, refinementBinds) },
     { metric: 'open_signals', count: countWhere(db, 'signals', signalWhere, signalBinds) },
     { metric: 'known_agents', count: agentRows(db, withScope(params, { limit: 500 })).length },
     { metric: 'tracked_files', count: trackedFiles.length },
@@ -1492,14 +1499,15 @@ function workboardRows(db: DatabaseSync, params: AwarenessQueryParams): Awarenes
   const profile = Object.fromEntries(repoProfileRows(db, params).map(row => [String(row['metric']), Number(row['count'] ?? 0)])) as Record<string, number>;
   const activeMemories = Number(profile['active_memories'] ?? 0);
   const taskCount = Number(profile['tasks'] ?? 0);
-  const openRefinements = Number(profile['open_refinements'] ?? 0);
+  const allOpenRefinements = Number(profile['all_open_refinements'] ?? 0);
+  const actionableRefinements = Number(profile['actionable_refinements'] ?? 0);
   const openSignalCount = Number(profile['open_signals'] ?? 0);
   const missingFileRefs = Number(profile['missing_file_refs'] ?? 0);
   const projectionWarnings = [
     missingFileRefs > 0 ? 'missing_file_refs' : null,
     activeMemories > 200 ? 'active_memories_over_200' : null,
     taskCount > 500 ? 'task_rows_over_500' : null,
-    openRefinements > 40 ? 'open_refinements_over_40' : null,
+    allOpenRefinements > 40 ? 'all_open_refinements_over_40' : null,
   ].filter((warning): warning is string => Boolean(warning));
   pushLimited(columns, counts, 'ProjectionHealth', {
     item_type: 'projection',
@@ -1513,7 +1521,8 @@ function workboardRows(db: DatabaseSync, params: AwarenessQueryParams): Awarenes
     active_memories: activeMemories,
     missing_file_refs: missingFileRefs,
     tasks: taskCount,
-    open_refinements: openRefinements,
+    actionable_refinements: actionableRefinements,
+    all_open_refinements: allOpenRefinements,
     open_signals: openSignalCount,
     created_at: utcNow(),
   }, limit);
@@ -1881,6 +1890,71 @@ function sanitizeQueryResultForShare(
   };
 }
 
+function projectionRevisionFromResult(result: AwarenessQueryResult): string {
+  const sections = Object.fromEntries(
+    Object.entries(result.sections ?? {})
+      // Workboard contains a synthetic generated timestamp. Its underlying DB
+      // rows and counts are represented by the stable source sections.
+      .filter(([name]) => name !== 'workboard')
+      .map(([name, section]) => [name, {
+        rows: section.rows,
+        count: section.count,
+        total: section.total,
+        omitted_count: section.omitted_count,
+        is_partial: section.is_partial,
+      }]),
+  );
+  const digest = createHash('sha256').update(JSON.stringify({
+    workspace_path: result.workspace_path,
+    artifact: result.artifact,
+    repo: result.repo,
+    ref: result.ref,
+    sections,
+  })).digest('hex');
+  return `sha256:${digest}`;
+}
+
+/** Fingerprint exactly the bounded live sections that would feed repo inject. */
+export function projectionSourceRevision(
+  db: DatabaseSync,
+  params: AwarenessQueryParams = {},
+): string {
+  return projectionRevisionFromResult(queryAwareness(db, {
+    ...params,
+    view: 'all',
+    limit: limitOf(params.limit, 50, 500),
+  }));
+}
+
+interface PreviousProjectionManifest {
+  generator?: string;
+  files?: string[];
+  orphan_cleanup?: { candidates?: string[] };
+}
+
+function previousProjectionManifest(outDir: string): PreviousProjectionManifest | null {
+  const path = join(outDir, 'awareness', 'manifest.json');
+  if (!existsSync(path)) return null;
+  try {
+    const parsed = JSON.parse(readFileSync(path, 'utf8')) as PreviousProjectionManifest;
+    return parsed.generator === '@octocodeai/octocode-awareness repo inject' ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function isInside(root: string, candidate: string): boolean {
+  const rel = relative(root, candidate);
+  return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
+}
+
+function priorOwnedPath(file: string, workspacePath: string, outDir: string): string | null {
+  const workspaceRelative = resolve(workspacePath, file);
+  if (isInside(outDir, workspaceRelative)) return workspaceRelative;
+  const outputRelative = resolve(outDir, file);
+  return isInside(outDir, outputRelative) ? outputRelative : null;
+}
+
 export function injectRepoContext(db: DatabaseSync, params: RepoContextInjectParams = {}): RepoContextInjectResult {
   const scope = scopeFromParams(params);
   const workspacePath = scope.workspacePath ?? process.cwd();
@@ -1888,7 +1962,9 @@ export function injectRepoContext(db: DatabaseSync, params: RepoContextInjectPar
   const outDir = resolveWorkspaceOutputPath(rawOutDir, workspacePath, join(workspacePath, '.octocode'));
   const mode = normalizeMode(params.mode);
   const includeView = params.includeView ?? params.include_view ?? true;
+  const pruneOrphans = params.pruneOrphans ?? params.prune_orphans ?? false;
   const check = params.check ?? true;
+  const previousManifest = previousProjectionManifest(outDir);
   const queryParams: AwarenessQueryParams = {
     ...params,
     workspacePath,
@@ -1989,12 +2065,44 @@ export function injectRepoContext(db: DatabaseSync, params: RepoContextInjectPar
 
   const generatedAt = utcNow();
   const manifestRelPath = join('awareness', 'manifest.json');
+  const manifestPath = join(outDir, manifestRelPath);
+  const currentManaged = new Set([...filesWritten, manifestPath].map(file => resolve(file)));
+  const previousOwned = (previousManifest?.files ?? [])
+    .map(file => priorOwnedPath(file, workspacePath, outDir))
+    .filter((file): file is string => Boolean(file));
+  previousOwned.push(...(previousManifest?.orphan_cleanup?.candidates ?? [])
+    .map(file => priorOwnedPath(file, workspacePath, outDir))
+    .filter((file): file is string => Boolean(file)));
+  // Known output retired before manifest-owned cleanup existed.
+  previousOwned.push(join(outDir, 'awareness', 'csv', 'all.csv'));
+  const orphanCandidates = [...new Set(previousOwned.map(file => resolve(file)))]
+    .filter(file => isInside(outDir, file))
+    .filter(file => !currentManaged.has(file))
+    .filter(file => !relative(outDir, file).replace(/\\/g, '/').startsWith('plan/'))
+    .filter(file => existsSync(file))
+    .sort();
+  const prunedOrphans: string[] = [];
+  if (pruneOrphans) {
+    for (const file of orphanCandidates) {
+      try {
+        const entry = lstatSync(file);
+        if (!entry.isFile() && !entry.isSymbolicLink()) continue;
+        rmSync(file, { force: true });
+        prunedOrphans.push(file);
+      } catch (error) {
+        warnings.push(`could not prune retired projection ${relative(workspacePath, file)}: ${String(error)}`);
+      }
+    }
+  } else if (orphanCandidates.length > 0) {
+    warnings.push(`${orphanCandidates.length} retired manifest-owned projection file(s) found; rerun repo inject with --prune-orphans after review`);
+  }
+  const sourceRevision = projectionRevisionFromResult(queried);
   const manifestFiles = [
     ...filesWritten.map(file => relative(workspacePath, file)),
-    relative(workspacePath, join(outDir, manifestRelPath)),
+    relative(workspacePath, manifestPath),
   ];
   const manifest = {
-    schema_version: 1,
+    schema_version: 2,
     generated_at: generatedAt,
     generator: '@octocodeai/octocode-awareness repo inject',
     mode,
@@ -2005,6 +2113,8 @@ export function injectRepoContext(db: DatabaseSync, params: RepoContextInjectPar
     source: {
       canonical: '~/.octocode/memory/awareness.sqlite3',
       projection: '.octocode',
+      revision: sourceRevision,
+      revision_algorithm: 'sha256:bounded-live-sections-v1',
     },
     policy: {
       gitignore_modified: false,
@@ -2018,6 +2128,10 @@ export function injectRepoContext(db: DatabaseSync, params: RepoContextInjectPar
       attend_compact: ATTEND_COMPACT_BUDGET,
     },
     files: manifestFiles,
+    orphan_cleanup: {
+      candidates: orphanCandidates.map(file => relative(workspacePath, file)),
+      pruned: prunedOrphans.map(file => relative(workspacePath, file)),
+    },
     warnings,
   };
   write(manifestRelPath, JSON.stringify(manifest, null, 2) + '\n');
@@ -2031,6 +2145,8 @@ export function injectRepoContext(db: DatabaseSync, params: RepoContextInjectPar
     count: filesWritten.length,
     files: filesWritten,
     warnings,
+    orphan_candidates: orphanCandidates,
+    pruned_orphans: prunedOrphans,
     manifest,
   };
 }
@@ -2046,7 +2162,7 @@ function renderRepoAgentsMd(all: AwarenessQueryResult): string {
     Number(counts['missing_file_refs'] ?? 0) > 0 ? `Missing/stale file refs (${counts['missing_file_refs']}) — use \`query files --format table\` before trusting bookmarks.` : null,
     Number(counts['active_memories'] ?? 0) > 200 ? `Active memories high (${counts['active_memories']}) — prefer recall/CSV over full Markdown.` : null,
     Number(counts['tasks'] ?? 0) > 500 ? `Task history high (${counts['tasks']}) — use \`query workboard\`.` : null,
-    Number(counts['open_refinements'] ?? 0) > 40 ? `Open refinements high (${counts['open_refinements']}) — filter CSV before promoting.` : null,
+    Number(counts['all_open_refinements'] ?? 0) > 40 ? `All open refinements high (${counts['all_open_refinements']}) — inspect actionable, handoff, and instruction queues separately.` : null,
   ].filter((item): item is string => Boolean(item));
   const lines = [
     '# Octocode Awareness Map',
@@ -2062,7 +2178,7 @@ function renderRepoAgentsMd(all: AwarenessQueryResult): string {
     '',
     '## Snapshot',
     '',
-    `- Memories ${counts['active_memories'] ?? 0} · Gotchas ${counts['gotchas'] ?? 0} · Lessons ${counts['lessons'] ?? 0} · MissingFiles ${counts['missing_file_refs'] ?? 0} · Locks ${counts['active_locks'] ?? 0} · Refinements ${counts['open_refinements'] ?? 0} · Signals ${counts['open_signals'] ?? 0} · DevReview ${counts['developer_review'] ?? 0}`,
+    `- Memories ${counts['active_memories'] ?? 0} · Gotchas ${counts['gotchas'] ?? 0} · Lessons ${counts['lessons'] ?? 0} · MissingFiles ${counts['missing_file_refs'] ?? 0} · Locks ${counts['active_locks'] ?? 0} · ActionableRefinements ${counts['actionable_refinements'] ?? 0} · AllOpenRefinements ${counts['all_open_refinements'] ?? 0} · Signals ${counts['open_signals'] ?? 0} · DevReview ${counts['developer_review'] ?? 0}`,
     '',
     '## Retro Files Map',
     '',
@@ -2078,7 +2194,7 @@ function renderRepoAgentsMd(all: AwarenessQueryResult): string {
     '',
     '- Run `attend`, then inspect `FilesUnderWork` before editing. Record ordinary work with `work start`; overlap is allowed and visible.',
     '- Exclusive locks are reserved for sensitive files. An active exclusive lock blocks conflicting work.',
-    '- Use targeted `memory recall --query <task> --smart --compact`; open one matching wiki lead only when live SQLite is unavailable or more detail is needed.',
+    '- Use targeted `memory recall --query <task> --smart --compact`; open one matching wiki lead only when live SQLite is unavailable, `attend.next` routes there, or projection history matters.',
     '- Prefer live `attend` / `work list` / `query` when freshness matters; run `repo inject` only when file readers need a fresh snapshot.',
     '',
     '## Projection Health',

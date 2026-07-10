@@ -17,6 +17,7 @@ octocode-awareness repo inject --workspace "$PWD" --out .octocode --mode local -
 ```
 
 Relative output paths resolve under `--workspace`. Markdown is capped; overflow points to full CSV/HTML/query rows. Use `query files` before trusting old file/bookmark references.
+The manifest stores a live-source revision. `attend` warns when SQLite would generate a different snapshot. Injection reports retired manifest-owned files as `orphan_candidates`; rerun with `--prune-orphans` only after review. Unknown files and `.octocode/plan/**` are never removed.
 
 ## Share Policy
 
@@ -43,4 +44,4 @@ For shared-repo memory, locks, gotchas, and live context, start with `attend --c
 
 Wiki files: `AGENTS` · `GOTCHAS` · `LEARN` · `MEMORY` · `BOOKMARKS` · `DEVELOPER_REVIEW` (see learning-loop label map).
 
-Publication closes when generated files match the intended DB scope, manifest warnings are reviewed, root discovery works, and current source/tests still confirm the projected claims.
+Publication closes when generated files match the intended DB revision/scope, manifest and orphan warnings are reviewed, root discovery works, and current source/tests still confirm the projected claims.

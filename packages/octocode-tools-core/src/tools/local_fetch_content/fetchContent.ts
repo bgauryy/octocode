@@ -600,7 +600,9 @@ function buildSuccessResult(
   return {
     path: queryPath,
     content: window.windowedContent,
-    ...(contentView !== 'standard' && { contentView }),
+    // Always surface contentView so agents know when default minify:"standard"
+    // rewrote the text (previously omitted for standard, which hid the footgun).
+    contentView,
     ...(isPartial && { isPartial }),
     totalLines,
     ...(extraction.actualStartLine !== undefined &&

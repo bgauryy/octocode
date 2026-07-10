@@ -509,13 +509,16 @@ describe('repo context query and projections', () => {
       expect(agentsMd).not.toContain('## Active Exclusive Locks');
       expect(agentsMd).toContain('memory recall');
       expect(agentsMd).toMatch(/ask before editing root `AGENTS\.md`/i);
+      expect(agentsMd).not.toContain('or more detail is needed');
       expect(readFileSync(join(dir, '.octocode', 'references', 'repo-map.md'), 'utf8')).not.toContain(file);
       const manifest = JSON.parse(readFileSync(join(dir, '.octocode', 'awareness', 'manifest.json'), 'utf8')) as {
         schema_version: number;
         files: string[];
+        source: { revision: string };
         budgets: { markdown: Record<string, { max_lines: number; actual_lines: number; within_budget: boolean }> };
       };
-      expect(manifest.schema_version).toBe(1);
+      expect(manifest.schema_version).toBe(2);
+      expect(manifest.source.revision).toMatch(/^sha256:/);
       expect(manifest.files).toContain('.octocode/awareness/manifest.json');
       const agentsBudget = manifest.budgets.markdown['AGENTS.md'];
       expect(agentsBudget).toMatchObject({ max_lines: 80, within_budget: true });
@@ -525,7 +528,50 @@ describe('repo context query and projections', () => {
       const projectionFiles = ((attend.organ_state?.senses as Record<string, unknown>).projection_health as Array<{ file: string }>).map(row => row.file);
       expect(projectionFiles).toEqual(expect.arrayContaining(['.octocode/BOOKMARKS.md', '.octocode/awareness/manifest.json']));
       expect(attend.bloat_warnings ?? []).not.toContain('manifest older than generated projection files; regenerate repo projection');
+      expect(attend.bloat_warnings ?? []).not.toContain('manifest source revision differs from live SQLite; regenerate repo projection');
+      insertMemory(db, {
+        agentId: 'agent-after-inject',
+        taskContext: 'projection changed after inject',
+        observation: 'live SQLite now differs from the generated snapshot',
+        importance: 6,
+        workspacePath: dir,
+        artifact: 'svc',
+      });
+      const staleAttend = attendAwareness(db, { workspacePath: dir, artifact: 'svc', compact: false });
+      expect(staleAttend.bloat_warnings ?? []).toContain('manifest source revision differs from live SQLite; regenerate repo projection');
       expect(readFileSync(join(dir, '.octocode', 'awareness', 'csv', 'files.csv'), 'utf8')).toContain('auth.ts');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('previews and prunes only retired manifest-owned projection files', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'oc-repo-orphans-'));
+    try {
+      const { db } = seededDb(dir);
+      injectRepoContext(db, { workspacePath: dir, includeView: true, check: false });
+      const html = join(dir, '.octocode', 'awareness', 'index.html');
+      const notes = join(dir, '.octocode', 'notes.md');
+      const plan = join(dir, '.octocode', 'plan', 'kept', 'PLAN.md');
+      mkdirSync(join(dir, '.octocode', 'plan', 'kept'), { recursive: true });
+      writeFileSync(notes, 'user-owned\n');
+      writeFileSync(plan, 'authored plan\n');
+
+      const preview = injectRepoContext(db, { workspacePath: dir, includeView: false, check: false });
+      expect(preview.orphan_candidates).toContain(html);
+      expect(preview.pruned_orphans).toEqual([]);
+      expect(existsSync(html)).toBe(true);
+
+      const pruned = injectRepoContext(db, {
+        workspacePath: dir,
+        includeView: false,
+        pruneOrphans: true,
+        check: false,
+      });
+      expect(pruned.pruned_orphans).toContain(html);
+      expect(existsSync(html)).toBe(false);
+      expect(readFileSync(notes, 'utf8')).toBe('user-owned\n');
+      expect(readFileSync(plan, 'utf8')).toBe('authored plan\n');
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

@@ -284,6 +284,7 @@ export const schemas = {
 
   attend: z
     .object({
+      agent_id: agentId.optional().describe("Stable agent identity used to prioritize owned work."),
       query: z.string().trim().max(1000).default("").describe("Current task, risk, or design question."),
       limit: z.number().int().min(1).max(50).default(10).describe("Rows per workboard column and evidence cap."),
       workspace_path: workspacePath.optional().describe("Workspace filter."),
@@ -308,6 +309,8 @@ export const schemas = {
       out_dir: z.string().trim().min(1).max(1024).optional().describe("Output directory, defaults to <workspace>/.octocode."),
       mode: repoContextMode,
       include_view: z.boolean().default(true).describe("Write awareness/index.html."),
+      prune_orphans: z.boolean().default(false)
+        .describe("Remove retired files owned by the previous Awareness manifest; run once without it to preview candidates."),
       check: z.boolean().default(true).describe("Report gitignore/share policy warnings."),
     })
     .strict()
@@ -654,6 +657,20 @@ export const schemas = {
     )
     .describe("Forget memories."),
 
+  memory_lifecycle: z
+    .object({
+      action: z.enum(["archive", "restore"]).describe("Lifecycle operation selected by the CLI noun/verb command."),
+      memory_id: z.array(z.string().trim().min(1).max(128)).min(1).max(200)
+        .describe("Explicit memory ids; lifecycle changes never use broad selectors."),
+      workspace_path: workspacePath.optional().describe("Workspace scope."),
+      artifact: artifactScope.optional(),
+      repo: repoScope.optional().describe("Repo scope."),
+      ref: refScope.optional().describe("Ref scope."),
+      dry_run: z.boolean().default(false).describe("Preview selected ids without mutation."),
+    })
+    .strict()
+    .describe("Reversibly archive memories or restore archived rows; replacement history cannot be restored."),
+
   refinement: z
     .object({
       agent_id: agentId,
@@ -897,6 +914,7 @@ export const examples = {
     label: ["GOTCHA"],
   },
   attend: {
+    agent_id: "agent",
     query: "current task",
     limit: 10,
     workspace_path: "/repo",
@@ -1039,6 +1057,12 @@ export const examples = {
     max_importance: 3,
     dry_run: true,
   },
+  memory_lifecycle: {
+    action: "archive",
+    memory_id: ["mem_abc123"],
+    workspace_path: "/repo",
+    dry_run: true,
+  },
   refinement: {
     agent_id: "agent",
     workspace_path: "/repo",
@@ -1118,7 +1142,7 @@ const listableSchemas = [
   "attend", "query", "repo_inject",
   "workspace_status", "export_harness", "session_capture",
   "plan", "task", "work", "pre_flight_intent", "wait_for_lock", "prune_stale_locks", "release_file_lock", "verify", "audit_unverified",
-  "forget_memory", "refinement", "refine_query", "refine_delete",
+  "forget_memory", "memory_lifecycle", "refinement", "refine_query", "refine_delete",
   "agent_registry", "agent_signal", "signal_prune",
   "mine_weakness", "developer_review", "doc_staleness", "docs_catalog", "digest", "reflect",
 ];
@@ -1149,6 +1173,8 @@ const commandIndex = [
   { command: "memory recall", schema: "get_memory", use: "Recall repo lessons before planning or editing.", example: 'octocode-awareness memory recall --query "current task" --workspace "$PWD" --compact' },
   { command: "memory record", schema: "tell_memory", use: "Store durable lessons, decisions, gotchas, or observations.", example: 'octocode-awareness memory record --agent-id agent --task-context "task" --observation "lesson" --importance 7 --workspace "$PWD" --compact' },
   { command: "memory forget", schema: "forget_memory", use: "Delete selected stale memories; dry-run first.", example: "octocode-awareness memory forget --memory-id mem_123 --dry-run --compact" },
+  { command: "memory archive", schema: "memory_lifecycle", use: "Preview or reversibly archive explicit active memories.", example: "octocode-awareness memory archive --memory-id mem_123 --dry-run --compact" },
+  { command: "memory restore", schema: "memory_lifecycle", use: "Preview or restore explicitly archived memories; never revive replacement history.", example: "octocode-awareness memory restore --memory-id mem_123 --dry-run --compact" },
   { command: "refinement get", schema: "refine_query", use: "Read unfinished handoffs or follow-up work.", example: 'octocode-awareness refinement get --workspace "$PWD" --state open --compact' },
   { command: "refinement set", schema: "refinement", use: "Save handoff/work state for the next agent.", example: 'octocode-awareness refinement set --agent-id agent --reasoning "handoff" --remember "next step" --workspace "$PWD" --compact' },
   { command: "refinement delete", schema: "refine_delete", use: "Delete stale refinement rows; dry-run first.", example: "octocode-awareness refinement delete --refinement-id ref_123 --dry-run --compact" },
@@ -1171,7 +1197,7 @@ const commandIndex = [
   { command: "query workboard", schema: "query", use: "Read the smart agent queue, including stale_file_refs memory-review items.", example: 'octocode-awareness query workboard --workspace "$PWD" --format json --limit 10 --compact' },
   { command: "query all", schema: "query", use: "Export all live views; use html for the sortable/filterable browser view.", example: 'octocode-awareness query all --workspace "$PWD" --format html --out .octocode/awareness/index.html' },
   { command: "query developer-review", schema: "query", use: "Read instruction-feedback rows that also feed DEVELOPER_REVIEW.md.", example: 'octocode-awareness query developer-review --workspace "$PWD" --format markdown --compact' },
-  { command: "repo inject", schema: "repo_inject", use: "Generate .octocode Markdown, CSV, HTML, manifest, and missing-ref warnings without editing .gitignore.", example: 'octocode-awareness repo inject --workspace "$PWD" --mode local --compact' },
+  { command: "repo inject", schema: "repo_inject", use: "Generate .octocode projections and preview retired manifest-owned files; --prune-orphans removes only those owned files.", example: 'octocode-awareness repo inject --workspace "$PWD" --mode local --compact' },
   { command: "session capture", schema: "session_capture", use: "Hook-driven handoff capture from locks + dirty git tree.", example: 'octocode-awareness session capture --agent-id agent --workspace "$PWD" --reason handoff --compact' },
   { command: "reflect record", schema: "reflect", use: "Record outcome and lessons after work.", example: 'octocode-awareness reflect record --agent-id agent --task "fix CLI" --outcome worked --lesson "lesson" --compact' },
   { command: "reflect mine-weakness", schema: "mine_weakness", use: "Find recurring failure clusters.", example: 'octocode-awareness reflect mine-weakness --workspace "$PWD" --compact' },
@@ -1180,7 +1206,7 @@ const commandIndex = [
   { command: "docs list", schema: "docs_catalog", use: "List skill reference docs (references/*.md).", example: "octocode-awareness docs list --compact" },
   { command: "docs show", schema: "docs_catalog", use: "Show one skill reference by name.", example: "octocode-awareness docs show architecture" },
   { command: "docs staleness", schema: "doc_staleness", use: "Find docs likely stale from edit activity.", example: 'octocode-awareness docs staleness --targets-json \'[{"docFile":"README.md","sourceDirs":["src"]}]\' --compact' },
-  { command: "maintenance digest", schema: "digest", use: "Preview or run memory/signal/refinement cleanup.", example: 'octocode-awareness maintenance digest --dry-run --workspace "$PWD" --compact' },
+  { command: "maintenance digest", schema: "digest", use: "Preview or run memory, expired-lock, terminal-refinement, and terminal-run cleanup; signal/reference pressure is report-only.", example: 'octocode-awareness maintenance digest --dry-run --workspace "$PWD" --compact' },
   { command: "maintenance init", schema: null, use: "Initialize the awareness DB.", example: "octocode-awareness maintenance init --compact" },
   { command: "maintenance self-test", schema: null, use: "Run in-memory DB smoke checks.", example: "octocode-awareness maintenance self-test --compact" },
   { command: "hooks install", schema: null, use: "Install hook config after preview/approval.", example: "octocode-awareness hooks install --host codex --dry-run --compact" },

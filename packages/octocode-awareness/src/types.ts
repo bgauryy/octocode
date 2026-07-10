@@ -765,6 +765,32 @@ export interface ForgetMemoryResult {
   salience_floor?: number;
 }
 
+// ─── Reversible memory archive ───────────────────────────────────────────────
+
+export interface MemoryLifecycleParams {
+  memoryIds: string[];
+  workspacePath?: string | null;
+  artifact?: string | null;
+  repo?: string | null;
+  ref?: string | null;
+  dryRun?: boolean;
+  cwd?: string;
+}
+
+export interface ArchiveMemoryResult {
+  archived: number;
+  dry_run?: true;
+  would_archive?: number;
+  memory_ids: string[];
+}
+
+export interface RestoreMemoryResult {
+  restored: number;
+  dry_run?: true;
+  would_restore?: number;
+  memory_ids: string[];
+}
+
 // ─── Wait-for-lock ────────────────────────────────────────────────────────────
 
 export interface WaitForLockParams {

@@ -245,12 +245,19 @@ fn visit_path_with_metadata(
 fn matches_query(path: &Path, metadata: &fs::Metadata, query: &CompiledQuery) -> bool {
     let name = file_name(path);
     let normalized_path = normalize_path(path);
+    // pathPattern is authored relative to the search root (e.g. packages/*/src/**).
+    // Match against the root-relative path so absolute temp/cwd prefixes do not
+    // silently zero out every result.
+    let relative_path = path
+        .strip_prefix(&query.root)
+        .map(normalize_path)
+        .unwrap_or_else(|_| normalized_path.clone());
 
     if !query.name_globs.is_empty() && !query.name_globs.iter().any(|re| re.is_match(&name)) {
         return false;
     }
     if let Some(path_glob) = &query.path_glob {
-        if !path_glob.is_match(&normalized_path) {
+        if !path_glob.is_match(&relative_path) && !path_glob.is_match(&normalized_path) {
             return false;
         }
     }
@@ -534,10 +541,13 @@ struct GlobError {
 }
 
 fn compile_glob(pattern: &str, label: &str) -> std::result::Result<Regex, GlobError> {
+    // Collapse `**` to a single wildcard token before translating `*` so
+    // `packages/**/src` does not become `.*.*` (two greedy dots).
+    let collapsed = pattern.replace("**", "\u{0001}");
     let mut out = String::from("^");
-    for ch in pattern.chars() {
+    for ch in collapsed.chars() {
         match ch {
-            '*' => out.push_str(".*"),
+            '\u{0001}' | '*' => out.push_str(".*"),
             '?' => out.push('.'),
             _ => out.push_str(&regex::escape(&ch.to_string())),
         }

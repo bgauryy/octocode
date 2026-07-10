@@ -22,6 +22,8 @@ Read the tool schema immediately before raw calls and `search --scheme --compact
 | federated/diff/graph | `oqlSearch` | `--query <json>` / diff/research/graph targets |
 | materialize | `ghCloneRepo` or directory fetch | clone/cache fetch; CLI clones by default, MCP server gates clone behind `ENABLE_CLONE` |
 
+Artifact recipe: `inspect` or `list` → `strings` for leads → `extract`/`decompress`/`unpack` one bounded path → resume local search/read/LSP on the landed files. Never invent archive contents from the filename.
+
 Batch up to five independent queries per tool call. Materialize when remote providers cannot prove AST/LSP/negative/many-file predicates.
 
 ## CLI Probes

@@ -101,23 +101,40 @@ describe('direct-tool command patterns', () => {
         LSP_GET_SEMANTICS_TOOL_NAME
       );
 
-      expect(patterns.map(pattern => pattern.label)).toEqual([
-        'semantic definition',
-        'symbol outline',
-      ]);
-    expect(patterns[0]?.query).toMatchObject({
-      uri: '/absolute/path/to/file.ts',
-      type: 'definition',
-      symbolName: 'myFunction',
-      lineHint: 42,
-    });
-    expect(patterns[1]?.query).toEqual({
-      uri: '/absolute/path/to/file.ts',
+    expect(patterns.map(pattern => pattern.label)).toEqual([
+      'symbol outline (absolute uri)',
+      'semantic definition (absolute uri + lineHint)',
+    ]);
+    expect(patterns[0]?.query).toEqual({
+      uri: '/ABS/packages/octocode-tools-core/src/scheme/pagination.ts',
       type: 'documentSymbols',
-      });
+    });
+    expect(patterns[1]?.query).toMatchObject({
+      uri: '/ABS/packages/octocode-tools-core/src/scheme/pagination.ts',
+      type: 'definition',
+      symbolName: 'buildNextPageContinuation',
+      lineHint: 72,
+    });
     });
 
-    it('groups structural search and semantic LSP under local code tooling', () => {
+  it('prefers native binary inspect over placeholder archive paths', () => {
+    const patterns = buildDirectToolCommandPatterns(
+      STATIC_TOOL_NAMES.LOCAL_BINARY_INSPECT
+    );
+    expect(patterns.map(p => p.label)).toEqual([
+      'native binary inspect',
+      'native strings preview',
+    ]);
+    expect(patterns[0]?.query).toMatchObject({
+      mode: 'inspect',
+      path: 'packages/octocode-engine/octocode-engine.darwin-arm64.node',
+    });
+    expect(patterns[1]?.query).toMatchObject({
+      mode: 'strings',
+    });
+  });
+
+  it('groups structural search and semantic LSP under local code tooling', () => {
       const categoryLabels = DIRECT_TOOL_CATEGORIES as readonly string[];
 
       expect(DIRECT_TOOL_CATEGORIES).toContain('Local Code');

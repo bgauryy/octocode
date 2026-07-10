@@ -163,6 +163,51 @@ function paginateContent(
   };
 }
 
+function attachCharContinuation(
+  query: BinaryInspectQuery,
+  path: string,
+  mode: BinaryInspectQuery['mode'],
+  paginated: {
+    pagination?: ContentCharPagination;
+  },
+  options?: { nextScanOffset?: number; archiveFile?: string }
+): Record<string, unknown> | undefined {
+  const next: Record<string, ReturnType<typeof buildNextPageContinuation>> = {};
+  if (
+    paginated.pagination?.hasMore &&
+    paginated.pagination.nextCharOffset !== undefined
+  ) {
+    next.continueChars = buildNextPageContinuation(
+      TOOL_NAME,
+      {
+        ...query,
+        path,
+        mode,
+        ...(options?.archiveFile ? { archiveFile: options.archiveFile } : {}),
+        charOffset: paginated.pagination.nextCharOffset,
+        charLength: paginated.pagination.charLength,
+      } as Record<string, unknown>,
+      'Continue the inline content window.'
+    );
+  }
+  if (
+    typeof options?.nextScanOffset === 'number' &&
+    Number.isFinite(options.nextScanOffset)
+  ) {
+    next.nextScan = buildNextPageContinuation(
+      TOOL_NAME,
+      {
+        ...query,
+        path,
+        mode,
+        scanOffset: options.nextScanOffset,
+      } as Record<string, unknown>,
+      'Advance the strings scan window across the binary.'
+    );
+  }
+  return Object.keys(next).length > 0 ? { next } : undefined;
+}
+
 // ─── mode handlers ────────────────────────────────────────────────────────────
 
 function handleInspect(path: string, query: BinaryInspectQuery) {
@@ -312,6 +357,9 @@ async function handleExtract(path: string, query: BinaryInspectQuery) {
     content: paginated.content,
     isPartial: paginated.isPartial,
     ...(paginated.pagination ? { pagination: paginated.pagination } : {}),
+    ...attachCharContinuation(query, path, 'extract', paginated, {
+      archiveFile,
+    }),
   };
 }
 
@@ -366,6 +414,7 @@ async function handleDecompress(path: string, query: BinaryInspectQuery) {
     content: paginated.content,
     isPartial: paginated.isPartial,
     ...(paginated.pagination ? { pagination: paginated.pagination } : {}),
+    ...attachCharContinuation(query, path, 'decompress', paginated),
   };
 }
 
@@ -443,6 +492,11 @@ async function handleStrings(path: string, query: BinaryInspectQuery) {
     ...(result.nextScanOffset !== undefined
       ? { nextScanOffset: result.nextScanOffset }
       : {}),
+    ...attachCharContinuation(query, path, 'strings', paginated, {
+      ...(result.nextScanOffset !== undefined
+        ? { nextScanOffset: result.nextScanOffset }
+        : {}),
+    }),
   };
 }
 

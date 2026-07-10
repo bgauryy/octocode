@@ -46,12 +46,12 @@ export const REFINEMENTS_COUNT_OPEN =
  *  Binds: handoff_updated_at_cutoff, done_updated_at_cutoff. */
 export const REFINEMENTS_DELETE_STALE =
   `DELETE FROM refinements
-   WHERE (quality = 'handoff' AND updated_at < ?)
+   WHERE (quality = 'handoff' AND state = 'done' AND updated_at < ?)
       OR (quality IN ('good','bad') AND state = 'done' AND updated_at < ?)`;
 
 /** Dry-run counterpart of REFINEMENTS_DELETE_STALE — counts without deleting.
  *  Binds: handoff_updated_at_cutoff, done_updated_at_cutoff. */
 export const REFINEMENTS_COUNT_STALE =
   `SELECT COUNT(*) AS c FROM refinements
-   WHERE (quality = 'handoff' AND updated_at < ?)
+   WHERE (quality = 'handoff' AND state = 'done' AND updated_at < ?)
       OR (quality IN ('good','bad') AND state = 'done' AND updated_at < ?)`;

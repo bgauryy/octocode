@@ -19,6 +19,7 @@ import { hasFts, ftsTermsForRow, replaceMemoryReferences } from './db.js';
 import type {
   InsertMemoryParams, InsertMemoryResult, GetMemoryParams, GetMemoryResult,
   MemoryRow, MemoryRecord, ForgetMemoryParams, ForgetMemoryResult,
+  MemoryLifecycleParams, ArchiveMemoryResult, RestoreMemoryResult,
 } from './types.js';
 
 // ─── Decay / salience scoring ─────────────────────────────────────────────────
@@ -986,7 +987,93 @@ export function getMemory(db: DatabaseSync, params: GetMemoryParams = {}): GetMe
   return result;
 }
 
-// ─── forgetMemory ─────────────────────────────────────────────────────────────────
+// ─── Reversible archive lifecycle ─────────────────────────────────────────────
+
+function lifecycleSelection(
+  db: DatabaseSync,
+  params: MemoryLifecycleParams,
+  statePredicate: string,
+): string[] {
+  const memoryIds = [...new Set(params.memoryIds.map(String).filter(Boolean))];
+  if (memoryIds.length === 0) throw new Error('memory lifecycle requires at least one memoryId');
+  const scope = fillScope(
+    {
+      workspace_path: params.workspacePath ?? null,
+      artifact: normalizeArtifact(params.artifact),
+      repo: params.repo ?? null,
+      ref: params.ref ?? null,
+    },
+    params.cwd ?? params.workspacePath ?? process.cwd(),
+  );
+  const conditions = [
+    `memory_id IN (${memoryIds.map(() => '?').join(',')})`,
+    statePredicate,
+  ];
+  const binds: (string | number)[] = [...memoryIds];
+  if (params.workspacePath && scope.workspace_path) {
+    conditions.push('workspace_path = ?');
+    binds.push(scope.workspace_path);
+  }
+  if (params.artifact && scope.artifact) {
+    conditions.push('artifact = ?');
+    binds.push(scope.artifact);
+  }
+  if (params.repo && scope.repo) {
+    conditions.push('repo = ?');
+    binds.push(scope.repo);
+  }
+  if (params.ref && scope.ref) {
+    conditions.push('ref = ?');
+    binds.push(scope.ref);
+  }
+  const rows = db.prepare(
+    `SELECT memory_id FROM memories WHERE ${conditions.join(' AND ')}`
+  ).all(...binds) as Array<{ memory_id: string }>;
+  const selected = new Set(rows.map(row => row.memory_id));
+  return memoryIds.filter(memoryId => selected.has(memoryId));
+}
+
+/**
+ * Reversibly archive active rows using existing lifecycle metadata. Archived rows
+ * are SUPERSEDED with expired_at set and superseded_by left null, which keeps them
+ * distinguishable from replacement history without a schema migration.
+ */
+export function archiveMemories(db: DatabaseSync, params: MemoryLifecycleParams): ArchiveMemoryResult {
+  const ids = lifecycleSelection(db, params, "state = 'ACTIVE'");
+  if (params.dryRun) {
+    return { archived: 0, dry_run: true, would_archive: ids.length, memory_ids: ids };
+  }
+  if (ids.length > 0) {
+    const now = utcNow();
+    db.prepare(
+      `UPDATE memories SET state = 'SUPERSEDED', expired_at = ?, updated_at = ?
+       WHERE memory_id IN (${ids.map(() => '?').join(',')})`
+    ).run(now, now, ...ids);
+  }
+  return { archived: ids.length, memory_ids: ids };
+}
+
+/** Restore only explicitly archived rows; superseded replacement history is immutable. */
+export function restoreMemories(db: DatabaseSync, params: MemoryLifecycleParams): RestoreMemoryResult {
+  const ids = lifecycleSelection(
+    db,
+    params,
+    "state = 'SUPERSEDED' AND superseded_by IS NULL AND expired_at IS NOT NULL",
+  );
+  if (params.dryRun) {
+    return { restored: 0, dry_run: true, would_restore: ids.length, memory_ids: ids };
+  }
+  if (ids.length > 0) {
+    const now = utcNow();
+    db.prepare(
+      `UPDATE memories SET state = 'ACTIVE', expired_at = NULL, valid_to = NULL, updated_at = ?
+       WHERE memory_id IN (${ids.map(() => '?').join(',')})`
+    ).run(now, ...ids);
+  }
+  return { restored: ids.length, memory_ids: ids };
+}
+
+// ─── forgetMemory ─────────────────────────────────────────────────────────────
 
 /**
  * Delete memories by id, tag, age, or importance ceiling.

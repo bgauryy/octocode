@@ -385,7 +385,8 @@ export function runAwarenessToolOperation(
           in_progress_tasks: result.in_progress_tasks,
           verify_tasks: result.verify_tasks,
         },
-        open_refinements: result.open_refinements,
+        actionable_refinements: result.actionable_refinements,
+        all_open_refinements: result.all_open_refinements,
         lock_count: result.lock_count,
       };
       if (filesUnderWork.length > 0) payload['files_under_work'] = filesUnderWork;

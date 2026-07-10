@@ -12,7 +12,7 @@ Read first for routing, proof grades, triangulation, and failure recovery. Route
 | code shape | structural rule with metavariables |
 | installed package | inspect `node_modules` exact version before GitHub |
 | why/history | PR/commit history on the path |
-| binary/archive | inspect/list/strings before extract |
+| binary/archive | `localBinaryInspect` inspect/list/strings before extract |
 
 ## Proof Model
 Read at least two dimensions before a nontrivial conclusion:

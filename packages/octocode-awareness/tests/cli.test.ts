@@ -125,6 +125,26 @@ describe('source CLI regressions', () => {
     } finally { rmSync(dir, { recursive: true, force: true }); }
   });
 
+  it('rejects missing values for lifecycle selectors and accepts boolean digest export', () => {
+    const dir = mktemp();
+    const db = join(dir, 'test.sqlite3');
+    try {
+      for (const args of [
+        ['memory', 'record', '--task-context', 'ctx', '--observation', 'obs', '--importance', '5', '--supersedes', '--compact'],
+        ['memory', 'recall', '--regex', '--compact'],
+        ['memory', 'recall', '--file-regex', '--compact'],
+        ['memory', 'forget', '--tags', '--compact'],
+      ]) {
+        const result = runSource(['--db', db, ...args]);
+        expect(result.status, result.stdout).toBe(1);
+        expect(String(result.parsed?.['error'])).toContain('expects a value');
+      }
+
+      const digest = runSource(['--db', db, 'maintenance', 'digest', '--dry-run', '--export-doc', '--compact']);
+      expect(digest.status, digest.stderr || digest.stdout).toBe(0);
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
+
   it('forwards schema --examples and rejects repo inject --include-bodies', () => {
     const dir = mktemp();
     const db = join(dir, 'test.sqlite3');
@@ -454,6 +474,43 @@ describe('memory record', () => {
       '--importance', '6', '--supersedes', oldId as string,
     ]);
     expect(second['superseded']).toContain(oldId);
+  });
+
+  it('archives and restores a memory without reviving replaced history', () => {
+    const first = ok(db, [
+      'memory', 'record', '--agent-id', 'a', '--task-context', 'archive lifecycle',
+      '--observation', 'reversible archived memory', '--importance', '5', '--allow-similar',
+    ]);
+    const memoryId = (first['memory'] as Record<string, unknown>)['memory_id'] as string;
+
+    const preview = ok(db, ['memory', 'archive', '--memory-id', memoryId, '--dry-run']);
+    expect(preview).toMatchObject({ archived: 0, dry_run: true, would_archive: 1, memory_ids: [memoryId] });
+    expect(ok(db, ['memory', 'archive', '--memory-id', memoryId])).toMatchObject({ archived: 1, memory_ids: [memoryId] });
+
+    const hidden = ok(db, ['memory', 'recall', '--query', 'reversible archived memory', '--min-importance', '1']);
+    expect((hidden['memories'] as Array<Record<string, unknown>>).map(memory => memory['memory_id'])).not.toContain(memoryId);
+    const archived = ok(db, ['memory', 'recall', '--state', 'SUPERSEDED', '--query', 'reversible archived memory', '--min-importance', '1', '--full']);
+    expect((archived['memories'] as Array<Record<string, unknown>>)[0]?.['expired_at']).toBeTruthy();
+
+    const restorePreview = ok(db, ['memory', 'restore', '--memory-id', memoryId, '--dry-run']);
+    expect(restorePreview).toMatchObject({ restored: 0, dry_run: true, would_restore: 1, memory_ids: [memoryId] });
+    expect(ok(db, ['memory', 'restore', '--memory-id', memoryId])).toMatchObject({ restored: 1, memory_ids: [memoryId] });
+    const restored = ok(db, ['memory', 'recall', '--query', 'reversible archived memory', '--min-importance', '1']);
+    expect((restored['memories'] as Array<Record<string, unknown>>).map(memory => memory['memory_id'])).toContain(memoryId);
+
+    const replacement = ok(db, [
+      'memory', 'record', '--agent-id', 'a', '--task-context', 'archive replacement',
+      '--observation', 'newer replacement', '--importance', '6', '--supersedes', memoryId,
+    ]);
+    expect(replacement['superseded']).toContain(memoryId);
+    expect(ok(db, ['memory', 'restore', '--memory-id', memoryId, '--dry-run'])).toMatchObject({ would_restore: 0 });
+  });
+
+  it('memory record help exposes the correction and dedupe contract', () => {
+    const help = spawnSync(NODE, [SCRIPT, 'memory', 'record', '--help'], { encoding: 'utf8', timeout: 5000 });
+    expect(help.status).toBe(0);
+    expect(help.stdout).toContain('--supersedes <id>');
+    expect(help.stdout).toContain('--allow-similar');
   });
 
   it('importance out of range exits 1', () => {
@@ -1550,6 +1607,7 @@ describe('CLI', () => {
       audit_unverified: 'verify audit',
       verify: 'verify mark',
       forget_memory: 'memory forget',
+      memory_lifecycle: 'memory archive',
       refinement: 'refinement set',
       refine_query: 'refinement get',
       refine_delete: 'refinement delete',
@@ -1730,6 +1788,14 @@ describe('CLI', () => {
     expect(sortSchema?.['enum']).toEqual(['smart', 'score', 'importance', 'recent', 'accessed']);
     expect(parsed.properties).not.toHaveProperty('no_decay');
     expect(parsed.properties).not.toHaveProperty('half_life');
+  });
+
+  it('attend schema exposes the agent identity used by CLI and skill guidance', () => {
+    const schemaScript = resolve(dirname(fileURLToPath(import.meta.url)), '../skills/octocode-awareness/scripts/schema.mjs');
+    const schema = spawnSync(NODE, [schemaScript, 'json-schema', 'attend'], { encoding: 'utf8', timeout: 5000 });
+    expect(schema.status).toBe(0);
+    const parsed = JSON.parse(schema.stdout) as { properties: Record<string, Record<string, unknown>> };
+    expect(parsed.properties).toHaveProperty('agent_id');
   });
 
   it('schema aligns pre-flight ttl and retry contract with CLI/runtime', () => {
@@ -2057,6 +2123,18 @@ describe('digest', () => {
         '--quality', 'handoff',
         '--state', 'open',
       ]);
+      const oldClosedHandoff = ok(db, [
+        'refinement', 'set', '--agent-id', 'a',
+        '--reasoning', 'old closed handoff',
+        '--remember', 'old closed handoff',
+        '--quality', 'handoff',
+        '--state', 'open',
+      ]);
+      const oldClosedHandoffId = (oldClosedHandoff['refinement'] as Record<string, unknown>)['refinement_id'] as string;
+      ok(db, [
+        'refinement', 'set', '--agent-id', 'a', '--refinement-id', oldClosedHandoffId,
+        '--state', 'done', '--check-receipt', 'handoff consumed and verified',
+      ]);
       const freshHandoff = ok(db, [
         'refinement', 'set', '--agent-id', 'a',
         '--reasoning', 'fresh handoff',
@@ -2098,6 +2176,8 @@ describe('digest', () => {
         conn.prepare('UPDATE refinements SET updated_at = ? WHERE refinement_id = ?')
           .run(daysAgo(5), (oldHandoff['refinement'] as Record<string, unknown>)['refinement_id'] as string);
         conn.prepare('UPDATE refinements SET updated_at = ? WHERE refinement_id = ?')
+          .run(daysAgo(5), oldClosedHandoffId);
+        conn.prepare('UPDATE refinements SET updated_at = ? WHERE refinement_id = ?')
           .run(daysAgo(0), (freshHandoff['refinement'] as Record<string, unknown>)['refinement_id'] as string);
         conn.prepare('UPDATE refinements SET updated_at = ? WHERE refinement_id = ?')
           .run(daysAgo(5), oldDoneId);
@@ -2120,7 +2200,42 @@ describe('digest', () => {
       expect(result['dry_run']).toBe(true);
       expect(result['would_prune_old']).toBe(1);
       expect(result['would_prune_refinements']).toBe(2);
+
+      const applied = ok(db, [
+        'maintenance', 'digest',
+        '--retention-days', '3',
+        '--refinement-handoff-retention-days', '1',
+        '--refinement-done-retention-days', '2',
+      ]);
+      expect(applied['pruned_refinements']).toBe(2);
+      const verifyConn = new DatabaseSync(db);
+      try {
+        const openId = (oldHandoff['refinement'] as Record<string, unknown>)['refinement_id'] as string;
+        expect(verifyConn.prepare('SELECT state FROM refinements WHERE refinement_id = ?').get(openId)).toEqual({ state: 'open' });
+        expect(verifyConn.prepare('SELECT state FROM refinements WHERE refinement_id = ?').get(oldClosedHandoffId)).toBeUndefined();
+      } finally { verifyConn.close(); }
     } finally { rmSync(dir, { recursive: true }); }
+  });
+
+  it('rejects every destructive retention window outside 1..3650', () => {
+    const dir = mktemp();
+    const db = join(dir, 'test.sqlite3');
+    try {
+      for (const flag of [
+        '--retention-days',
+        '--refinement-handoff-retention-days',
+        '--refinement-done-retention-days',
+        '--operational-retention-days',
+        '--pressure-age-days',
+      ]) {
+        for (const value of ['0', '-1', '3651']) {
+          const result = runSource(['--db', db, 'maintenance', 'digest', '--dry-run', flag, value, '--compact']);
+          expect(result.status, `${flag}=${value}: ${result.stdout}`).toBe(1);
+          expect(String(result.parsed?.['error'])).toContain(flag);
+          expect(String(result.parsed?.['error'])).toContain('1..3650');
+        }
+      }
+    } finally { rmSync(dir, { recursive: true, force: true }); }
   });
 
   it('exports memory docs with provenance references', () => {

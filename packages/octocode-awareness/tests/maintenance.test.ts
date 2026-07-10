@@ -624,10 +624,35 @@ describe('digest — dry_run with new schema', () => {
     expect(res.ok).toBe(true);
     expect(res.dry_run).toBe(true);
     expect(typeof res.would_prune_old).toBe('number');
+    expect(res.candidate_limit).toBe(20);
+    expect(res.candidate_ids?.purge_memory_ids).toEqual(['mem_old']);
 
     // Nothing deleted in dry_run
     const row = db.prepare("SELECT state FROM memories WHERE memory_id = 'mem_old'").get() as { state: string } | undefined;
     expect(row?.state).toBe('SUPERSEDED');
+  });
+
+  it('rejects invalid retention windows before mutating', () => {
+    const db = freshDb();
+    const oldDate = new Date(Date.now() - 91 * 86400000).toISOString();
+    db.prepare(`
+      INSERT INTO memories (memory_id, agent_id, task_context, observation, importance, state, created_at, updated_at)
+      VALUES ('mem_retention_sentinel', 'agent-x', 'sentinel', 'must survive invalid config', 3, 'SUPERSEDED', ?, ?)
+    `).run(oldDate, oldDate);
+
+    for (const key of [
+      'retention_days',
+      'refinement_handoff_retention_days',
+      'refinement_done_retention_days',
+      'operational_retention_days',
+      'pressure_age_days',
+    ]) {
+      for (const value of [0, -1, 3651, 1.5, Number.NaN]) {
+        expect(() => digest(db, { [key]: value })).toThrow(/1\.\.3650/);
+        expect(db.prepare('SELECT state FROM memories WHERE memory_id = ?').get('mem_retention_sentinel'))
+          .toEqual({ state: 'SUPERSEDED' });
+      }
+    }
   });
 
   it('scopes cleanup to the requested workspace', () => {

@@ -30,3 +30,6 @@ If a loop stalls on the same `empty`/`error`, change surface or query shape: loc
 ### Loop Output
 
 Do not output a transcript. End with: **Answer**, **Evidence**, **Loop trace** (decisive iterations only), **Verification** that actually ran, **Open gaps**.
+Declare `Mode: Loop` when this path owns the run.
+
+Validate: `node scripts/eval-research.mjs --case loop-mode`.

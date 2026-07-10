@@ -2829,7 +2829,12 @@ function pruneStale(db2, params = {}) {
   } catch {
   }
   if (dryRun) {
-    return { pruned_locks: 0, dry_run: true, would_prune: staleLocks.length };
+    return {
+      pruned_locks: 0,
+      dry_run: true,
+      would_prune: staleLocks.length,
+      lock_ids: staleLocks.map((lock) => lock.lock_id).slice(0, 20)
+    };
   }
   if (staleLocks.length === 0) {
     return { pruned_locks: 0 };
@@ -3317,6 +3322,16 @@ function sessionCapture(db2, params = {}) {
     consolidation_opportunities: consolidationOpportunities
   };
 }
+var MIN_RETENTION_DAYS = 1;
+var MAX_RETENTION_DAYS = 3650;
+function retentionWindow(params, snakeName, camelName, fallback) {
+  const raw = params[snakeName] ?? params[camelName] ?? fallback;
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < MIN_RETENTION_DAYS || value > MAX_RETENTION_DAYS) {
+    throw new Error(`${snakeName} must be an integer in ${MIN_RETENTION_DAYS}..${MAX_RETENTION_DAYS}`);
+  }
+  return value;
+}
 function inspectMaintenancePressure(db2, params = {}) {
   const requestedDays = Number(params.pressure_age_days ?? params.pressureAgeDays ?? 1);
   const pressureAgeDays = Number.isFinite(requestedDays) ? Math.min(3650, Math.max(1, Math.floor(requestedDays))) : 1;
@@ -3384,10 +3399,11 @@ function inspectMaintenancePressure(db2, params = {}) {
   };
 }
 function digest(db2, params = {}) {
-  const retentionDays = Number(params.retention_days ?? 90);
-  const handoffRetentionDays = Number(params.refinement_handoff_retention_days ?? params.refinementHandoffRetentionDays ?? 7);
-  const doneRetentionDays = Number(params.refinement_done_retention_days ?? params.refinementDoneRetentionDays ?? 30);
-  const operationalRetentionDays = Number(params.operational_retention_days ?? params.operationalRetentionDays ?? 90);
+  const retentionDays = retentionWindow(params, "retention_days", "retentionDays", 90);
+  const handoffRetentionDays = retentionWindow(params, "refinement_handoff_retention_days", "refinementHandoffRetentionDays", 7);
+  const doneRetentionDays = retentionWindow(params, "refinement_done_retention_days", "refinementDoneRetentionDays", 30);
+  const operationalRetentionDays = retentionWindow(params, "operational_retention_days", "operationalRetentionDays", 90);
+  retentionWindow(params, "pressure_age_days", "pressureAgeDays", 1);
   const rawWorkspacePath = typeof params.workspace === "string" ? params.workspace : typeof params.workspace_path === "string" ? params.workspace_path : typeof params.workspacePath === "string" ? params.workspacePath : null;
   const workspacePath = rawWorkspacePath ? normalizeWorkspacePath(rawWorkspacePath, rawWorkspacePath) : null;
   const artifact2 = normalizeArtifact(params.artifact);
@@ -3427,6 +3443,7 @@ function digest(db2, params = {}) {
   }
   const refinementScopeSql = refinementScope.length > 0 ? ` AND ${refinementScope.join(" AND ")}` : "";
   if (params.dry_run) {
+    const candidateLimit = 20;
     const wouldArchive = db2.prepare(
       `SELECT COUNT(*) AS c FROM memories WHERE valid_to IS NOT NULL AND valid_to < ? AND state = 'ACTIVE'${memoryScopeSql}`
     ).get(now, ...memoryScopeBinds).c;
@@ -3441,11 +3458,33 @@ function digest(db2, params = {}) {
     });
     const wouldPruneLocks = lockDryRun.would_prune ?? 0;
     const wouldPruneRefinements = db2.prepare(`SELECT COUNT(*) AS c FROM refinements
-       WHERE ((quality = 'handoff' AND updated_at < ?)
+       WHERE ((quality = 'handoff' AND state = 'done' AND updated_at < ?)
           OR (quality IN ('good','bad') AND state = 'done' AND updated_at < ?))${refinementScopeSql}`).get(handoffCutoff, doneCutoff, ...refinementScopeBinds).c;
     const wouldPruneRuns = db2.prepare(`SELECT COUNT(*) AS c FROM task_runs
       WHERE task_id IS NULL AND origin IN ('WORK','HOOK')
         AND status IN ('SUCCESS','FAILED') AND updated_at < ?${memoryScopeSql}`).get(operationalCutoff, ...memoryScopeBinds).c;
+    const expireMemoryIds = db2.prepare(
+      `SELECT memory_id FROM memories
+       WHERE valid_to IS NOT NULL AND valid_to < ? AND state = 'ACTIVE'${memoryScopeSql}
+       ORDER BY datetime(valid_to), memory_id LIMIT ?`
+    ).all(now, ...memoryScopeBinds, candidateLimit).map((row) => row.memory_id);
+    const purgeMemoryIds = db2.prepare(
+      `SELECT memory_id FROM memories
+       WHERE state = 'SUPERSEDED' AND updated_at < ?${memoryScopeSql}
+       ORDER BY datetime(updated_at), memory_id LIMIT ?`
+    ).all(cutoff, ...memoryScopeBinds, candidateLimit).map((row) => row.memory_id);
+    const refinementIds = db2.prepare(
+      `SELECT refinement_id FROM refinements
+       WHERE ((quality = 'handoff' AND state = 'done' AND updated_at < ?)
+          OR (quality IN ('good','bad') AND state = 'done' AND updated_at < ?))${refinementScopeSql}
+       ORDER BY datetime(updated_at), refinement_id LIMIT ?`
+    ).all(handoffCutoff, doneCutoff, ...refinementScopeBinds, candidateLimit).map((row) => row.refinement_id);
+    const runIds = db2.prepare(
+      `SELECT run_id FROM task_runs
+       WHERE task_id IS NULL AND origin IN ('WORK','HOOK')
+         AND status IN ('SUCCESS','FAILED') AND updated_at < ?${memoryScopeSql}
+       ORDER BY datetime(updated_at), run_id LIMIT ?`
+    ).all(operationalCutoff, ...memoryScopeBinds, candidateLimit).map((row) => row.run_id);
     return {
       ok: true,
       archived_memories: 0,
@@ -3460,6 +3499,14 @@ function digest(db2, params = {}) {
       would_prune_locks: wouldPruneLocks,
       would_prune_refinements: wouldPruneRefinements,
       would_prune_runs: wouldPruneRuns,
+      candidate_limit: candidateLimit,
+      candidate_ids: {
+        expire_memory_ids: expireMemoryIds,
+        purge_memory_ids: purgeMemoryIds,
+        lock_ids: lockDryRun.lock_ids ?? [],
+        refinement_ids: refinementIds,
+        run_ids: runIds
+      },
       ...pressureFields
     };
   }
@@ -3488,7 +3535,7 @@ function digest(db2, params = {}) {
     }).pruned_locks;
     pruneRefinementsRes = db2.prepare(
       `DELETE FROM refinements
-       WHERE ((quality = 'handoff' AND updated_at < ?)
+       WHERE ((quality = 'handoff' AND state = 'done' AND updated_at < ?)
           OR (quality IN ('good','bad') AND state = 'done' AND updated_at < ?))${refinementScopeSql}`
     ).run(handoffCutoff, doneCutoff, ...refinementScopeBinds);
     pruneRunsRes = db2.prepare(`DELETE FROM task_runs

@@ -2249,6 +2249,77 @@ function getMemory(db3, params = {}) {
   }
   return result;
 }
+function lifecycleSelection(db3, params, statePredicate) {
+  const memoryIds = [...new Set(params.memoryIds.map(String).filter(Boolean))];
+  if (memoryIds.length === 0) throw new Error("memory lifecycle requires at least one memoryId");
+  const scope = fillScope(
+    {
+      workspace_path: params.workspacePath ?? null,
+      artifact: normalizeArtifact(params.artifact),
+      repo: params.repo ?? null,
+      ref: params.ref ?? null
+    },
+    params.cwd ?? params.workspacePath ?? process.cwd()
+  );
+  const conditions = [
+    `memory_id IN (${memoryIds.map(() => "?").join(",")})`,
+    statePredicate
+  ];
+  const binds = [...memoryIds];
+  if (params.workspacePath && scope.workspace_path) {
+    conditions.push("workspace_path = ?");
+    binds.push(scope.workspace_path);
+  }
+  if (params.artifact && scope.artifact) {
+    conditions.push("artifact = ?");
+    binds.push(scope.artifact);
+  }
+  if (params.repo && scope.repo) {
+    conditions.push("repo = ?");
+    binds.push(scope.repo);
+  }
+  if (params.ref && scope.ref) {
+    conditions.push("ref = ?");
+    binds.push(scope.ref);
+  }
+  const rows = db3.prepare(
+    `SELECT memory_id FROM memories WHERE ${conditions.join(" AND ")}`
+  ).all(...binds);
+  const selected = new Set(rows.map((row) => row.memory_id));
+  return memoryIds.filter((memoryId) => selected.has(memoryId));
+}
+function archiveMemories(db3, params) {
+  const ids = lifecycleSelection(db3, params, "state = 'ACTIVE'");
+  if (params.dryRun) {
+    return { archived: 0, dry_run: true, would_archive: ids.length, memory_ids: ids };
+  }
+  if (ids.length > 0) {
+    const now = utcNow();
+    db3.prepare(
+      `UPDATE memories SET state = 'SUPERSEDED', expired_at = ?, updated_at = ?
+       WHERE memory_id IN (${ids.map(() => "?").join(",")})`
+    ).run(now, now, ...ids);
+  }
+  return { archived: ids.length, memory_ids: ids };
+}
+function restoreMemories(db3, params) {
+  const ids = lifecycleSelection(
+    db3,
+    params,
+    "state = 'SUPERSEDED' AND superseded_by IS NULL AND expired_at IS NOT NULL"
+  );
+  if (params.dryRun) {
+    return { restored: 0, dry_run: true, would_restore: ids.length, memory_ids: ids };
+  }
+  if (ids.length > 0) {
+    const now = utcNow();
+    db3.prepare(
+      `UPDATE memories SET state = 'ACTIVE', expired_at = NULL, valid_to = NULL, updated_at = ?
+       WHERE memory_id IN (${ids.map(() => "?").join(",")})`
+    ).run(now, ...ids);
+  }
+  return { restored: ids.length, memory_ids: ids };
+}
 function forgetMemory(db3, params) {
   const { memoryIds = [], tags = [], before, dryRun = false } = params;
   let { maxImportance } = params;
@@ -5124,7 +5195,12 @@ function pruneStale(db3, params = {}) {
   } catch {
   }
   if (dryRun) {
-    return { pruned_locks: 0, dry_run: true, would_prune: staleLocks.length };
+    return {
+      pruned_locks: 0,
+      dry_run: true,
+      would_prune: staleLocks.length,
+      lock_ids: staleLocks.map((lock) => lock.lock_id).slice(0, 20)
+    };
   }
   if (staleLocks.length === 0) {
     return { pruned_locks: 0 };
@@ -5673,6 +5749,16 @@ function waitForLock(db3, params = {}) {
     conflicts: conflicts.map((c) => ({ file_path: c.file_path, agent_id: c.agent_id, expires_at: c.expires_at }))
   };
 }
+var MIN_RETENTION_DAYS = 1;
+var MAX_RETENTION_DAYS = 3650;
+function retentionWindow(params, snakeName, camelName, fallback) {
+  const raw = params[snakeName] ?? params[camelName] ?? fallback;
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < MIN_RETENTION_DAYS || value > MAX_RETENTION_DAYS) {
+    throw new Error(`${snakeName} must be an integer in ${MIN_RETENTION_DAYS}..${MAX_RETENTION_DAYS}`);
+  }
+  return value;
+}
 function inspectMaintenancePressure(db3, params = {}) {
   const requestedDays = Number(params.pressure_age_days ?? params.pressureAgeDays ?? 1);
   const pressureAgeDays = Number.isFinite(requestedDays) ? Math.min(3650, Math.max(1, Math.floor(requestedDays))) : 1;
@@ -5740,10 +5826,11 @@ function inspectMaintenancePressure(db3, params = {}) {
   };
 }
 function digest(db3, params = {}) {
-  const retentionDays = Number(params.retention_days ?? 90);
-  const handoffRetentionDays = Number(params.refinement_handoff_retention_days ?? params.refinementHandoffRetentionDays ?? 7);
-  const doneRetentionDays = Number(params.refinement_done_retention_days ?? params.refinementDoneRetentionDays ?? 30);
-  const operationalRetentionDays = Number(params.operational_retention_days ?? params.operationalRetentionDays ?? 90);
+  const retentionDays = retentionWindow(params, "retention_days", "retentionDays", 90);
+  const handoffRetentionDays = retentionWindow(params, "refinement_handoff_retention_days", "refinementHandoffRetentionDays", 7);
+  const doneRetentionDays = retentionWindow(params, "refinement_done_retention_days", "refinementDoneRetentionDays", 30);
+  const operationalRetentionDays = retentionWindow(params, "operational_retention_days", "operationalRetentionDays", 90);
+  retentionWindow(params, "pressure_age_days", "pressureAgeDays", 1);
   const rawWorkspacePath = typeof params.workspace === "string" ? params.workspace : typeof params.workspace_path === "string" ? params.workspace_path : typeof params.workspacePath === "string" ? params.workspacePath : null;
   const workspacePath = rawWorkspacePath ? normalizeWorkspacePath(rawWorkspacePath, rawWorkspacePath) : null;
   const artifact2 = normalizeArtifact(params.artifact);
@@ -5783,6 +5870,7 @@ function digest(db3, params = {}) {
   }
   const refinementScopeSql = refinementScope.length > 0 ? ` AND ${refinementScope.join(" AND ")}` : "";
   if (params.dry_run) {
+    const candidateLimit = 20;
     const wouldArchive = db3.prepare(
       `SELECT COUNT(*) AS c FROM memories WHERE valid_to IS NOT NULL AND valid_to < ? AND state = 'ACTIVE'${memoryScopeSql}`
     ).get(now, ...memoryScopeBinds).c;
@@ -5797,11 +5885,33 @@ function digest(db3, params = {}) {
     });
     const wouldPruneLocks = lockDryRun.would_prune ?? 0;
     const wouldPruneRefinements = db3.prepare(`SELECT COUNT(*) AS c FROM refinements
-       WHERE ((quality = 'handoff' AND updated_at < ?)
+       WHERE ((quality = 'handoff' AND state = 'done' AND updated_at < ?)
           OR (quality IN ('good','bad') AND state = 'done' AND updated_at < ?))${refinementScopeSql}`).get(handoffCutoff, doneCutoff, ...refinementScopeBinds).c;
     const wouldPruneRuns = db3.prepare(`SELECT COUNT(*) AS c FROM task_runs
       WHERE task_id IS NULL AND origin IN ('WORK','HOOK')
         AND status IN ('SUCCESS','FAILED') AND updated_at < ?${memoryScopeSql}`).get(operationalCutoff, ...memoryScopeBinds).c;
+    const expireMemoryIds = db3.prepare(
+      `SELECT memory_id FROM memories
+       WHERE valid_to IS NOT NULL AND valid_to < ? AND state = 'ACTIVE'${memoryScopeSql}
+       ORDER BY datetime(valid_to), memory_id LIMIT ?`
+    ).all(now, ...memoryScopeBinds, candidateLimit).map((row) => row.memory_id);
+    const purgeMemoryIds = db3.prepare(
+      `SELECT memory_id FROM memories
+       WHERE state = 'SUPERSEDED' AND updated_at < ?${memoryScopeSql}
+       ORDER BY datetime(updated_at), memory_id LIMIT ?`
+    ).all(cutoff, ...memoryScopeBinds, candidateLimit).map((row) => row.memory_id);
+    const refinementIds = db3.prepare(
+      `SELECT refinement_id FROM refinements
+       WHERE ((quality = 'handoff' AND state = 'done' AND updated_at < ?)
+          OR (quality IN ('good','bad') AND state = 'done' AND updated_at < ?))${refinementScopeSql}
+       ORDER BY datetime(updated_at), refinement_id LIMIT ?`
+    ).all(handoffCutoff, doneCutoff, ...refinementScopeBinds, candidateLimit).map((row) => row.refinement_id);
+    const runIds = db3.prepare(
+      `SELECT run_id FROM task_runs
+       WHERE task_id IS NULL AND origin IN ('WORK','HOOK')
+         AND status IN ('SUCCESS','FAILED') AND updated_at < ?${memoryScopeSql}
+       ORDER BY datetime(updated_at), run_id LIMIT ?`
+    ).all(operationalCutoff, ...memoryScopeBinds, candidateLimit).map((row) => row.run_id);
     return {
       ok: true,
       archived_memories: 0,
@@ -5816,6 +5926,14 @@ function digest(db3, params = {}) {
       would_prune_locks: wouldPruneLocks,
       would_prune_refinements: wouldPruneRefinements,
       would_prune_runs: wouldPruneRuns,
+      candidate_limit: candidateLimit,
+      candidate_ids: {
+        expire_memory_ids: expireMemoryIds,
+        purge_memory_ids: purgeMemoryIds,
+        lock_ids: lockDryRun.lock_ids ?? [],
+        refinement_ids: refinementIds,
+        run_ids: runIds
+      },
       ...pressureFields
     };
   }
@@ -5844,7 +5962,7 @@ function digest(db3, params = {}) {
     }).pruned_locks;
     pruneRefinementsRes = db3.prepare(
       `DELETE FROM refinements
-       WHERE ((quality = 'handoff' AND updated_at < ?)
+       WHERE ((quality = 'handoff' AND state = 'done' AND updated_at < ?)
           OR (quality IN ('good','bad') AND state = 'done' AND updated_at < ?))${refinementScopeSql}`
     ).run(handoffCutoff, doneCutoff, ...refinementScopeBinds);
     pruneRunsRes = db3.prepare(`DELETE FROM task_runs
@@ -5937,11 +6055,18 @@ function getWorkspaceStatus(db3, params = {}) {
   const verifyTasks = db3.prepare(
     `SELECT COUNT(*) AS c FROM tasks t JOIN plans p ON p.plan_id = t.plan_id WHERE t.status = 'VERIFY'${planScope}`
   ).get(...planScopeParams).c;
-  const openRefinements = openRefinementCount(db3, {
+  const actionableRefinements = openRefinementCount(db3, {
     workspacePath: wsPath,
     artifact: artifact2,
     repo: params.repo,
     cwd: params.cwd
+  });
+  const allOpenRefinements = openRefinementCount(db3, {
+    workspacePath: wsPath,
+    artifact: artifact2,
+    repo: params.repo,
+    cwd: params.cwd,
+    includeHandoffs: true
   });
   const lockWhereParts = ["(fl.expires_at IS NULL OR fl.expires_at > ?)", "ai.status = 'ACTIVE'"];
   const lockParams = [utcNow()];
@@ -5978,7 +6103,8 @@ function getWorkspaceStatus(db3, params = {}) {
     ready_tasks: readyTasks,
     in_progress_tasks: inProgressTasks,
     verify_tasks: verifyTasks,
-    open_refinements: openRefinements,
+    actionable_refinements: actionableRefinements,
+    all_open_refinements: allOpenRefinements,
     lock_count: lockCount,
     locks
   };
@@ -7021,12 +7147,13 @@ function runHooksInstallUnlocked(argv, options) {
 }
 
 // src/attend.ts
-import { existsSync as existsSync6, readFileSync as readFileSync3, statSync as statSync2 } from "node:fs";
+import { existsSync as existsSync6, readFileSync as readFileSync4, statSync as statSync2 } from "node:fs";
 import { join as join7, resolve as resolve13 } from "node:path";
 
 // src/repo-context.ts
 import { spawnSync as spawnSync4 } from "node:child_process";
-import { existsSync as existsSync5, mkdirSync as mkdirSync4, realpathSync as realpathSync2, renameSync as renameSync2, rmSync as rmSync2, writeFileSync as writeFileSync3 } from "node:fs";
+import { createHash as createHash4 } from "node:crypto";
+import { existsSync as existsSync5, lstatSync, mkdirSync as mkdirSync4, readFileSync as readFileSync3, realpathSync as realpathSync2, renameSync as renameSync2, rmSync as rmSync2, writeFileSync as writeFileSync3 } from "node:fs";
 import { isAbsolute as isAbsolute7, join as join6, relative as relative4, resolve as resolve12 } from "node:path";
 import { fileURLToPath as fileURLToPath2 } from "node:url";
 var AWARENESS_QUERY_VIEWS = [
@@ -7899,9 +8026,10 @@ function repoProfileRows(db3, params) {
   addExactScope(lockWhere, lockBinds, workspaceArtifactScope(scope), "t");
   lockWhere.push("t.status = 'ACTIVE'", "(l.expires_at IS NULL OR l.expires_at > ?)");
   lockBinds.push(utcNow2());
-  const refinementWhere = ["state IN ('open','ongoing')"];
+  const allRefinementWhere = ["state IN ('open','ongoing')"];
   const refinementBinds = [];
-  addExactScope(refinementWhere, refinementBinds, scope);
+  addExactScope(allRefinementWhere, refinementBinds, scope);
+  const actionableRefinementWhere = [...allRefinementWhere, "quality NOT IN ('handoff','instructions')"];
   const signalWhere = ["status = 'open'"];
   const signalBinds = [];
   addExactScope(signalWhere, signalBinds, scope);
@@ -7914,7 +8042,8 @@ function repoProfileRows(db3, params) {
     { metric: "tasks", count: countWhere(db3, "tasks t JOIN plans p ON p.plan_id = t.plan_id", taskWhere, taskBinds) },
     { metric: "runs", count: countWhere(db3, "task_runs", runWhere, runBinds) },
     { metric: "active_locks", count: countWhere(db3, "locks l JOIN task_runs t ON t.run_id = l.run_id", lockWhere, lockBinds) },
-    { metric: "open_refinements", count: countWhere(db3, "refinements", refinementWhere, refinementBinds) },
+    { metric: "actionable_refinements", count: countWhere(db3, "refinements", actionableRefinementWhere, refinementBinds) },
+    { metric: "all_open_refinements", count: countWhere(db3, "refinements", allRefinementWhere, refinementBinds) },
     { metric: "open_signals", count: countWhere(db3, "signals", signalWhere, signalBinds) },
     { metric: "known_agents", count: agentRows(db3, withScope(params, { limit: 500 })).length },
     { metric: "tracked_files", count: trackedFiles.length },
@@ -8273,14 +8402,15 @@ function workboardRows(db3, params) {
   const profile = Object.fromEntries(repoProfileRows(db3, params).map((row) => [String(row["metric"]), Number(row["count"] ?? 0)]));
   const activeMemories = Number(profile["active_memories"] ?? 0);
   const taskCount = Number(profile["tasks"] ?? 0);
-  const openRefinements = Number(profile["open_refinements"] ?? 0);
+  const allOpenRefinements = Number(profile["all_open_refinements"] ?? 0);
+  const actionableRefinements = Number(profile["actionable_refinements"] ?? 0);
   const openSignalCount = Number(profile["open_signals"] ?? 0);
   const missingFileRefs = Number(profile["missing_file_refs"] ?? 0);
   const projectionWarnings2 = [
     missingFileRefs > 0 ? "missing_file_refs" : null,
     activeMemories > 200 ? "active_memories_over_200" : null,
     taskCount > 500 ? "task_rows_over_500" : null,
-    openRefinements > 40 ? "open_refinements_over_40" : null
+    allOpenRefinements > 40 ? "all_open_refinements_over_40" : null
   ].filter((warning) => Boolean(warning));
   pushLimited(columns, counts, "ProjectionHealth", {
     item_type: "projection",
@@ -8294,7 +8424,8 @@ function workboardRows(db3, params) {
     active_memories: activeMemories,
     missing_file_refs: missingFileRefs,
     tasks: taskCount,
-    open_refinements: openRefinements,
+    actionable_refinements: actionableRefinements,
+    all_open_refinements: allOpenRefinements,
     open_signals: openSignalCount,
     created_at: utcNow2()
   }, limit);
@@ -8620,6 +8751,52 @@ function sanitizeQueryResultForShare(result, workspacePath) {
     ...sections ? { sections } : {}
   };
 }
+function projectionRevisionFromResult(result) {
+  const sections = Object.fromEntries(
+    Object.entries(result.sections ?? {}).filter(([name]) => name !== "workboard").map(([name, section]) => [name, {
+      rows: section.rows,
+      count: section.count,
+      total: section.total,
+      omitted_count: section.omitted_count,
+      is_partial: section.is_partial
+    }])
+  );
+  const digest2 = createHash4("sha256").update(JSON.stringify({
+    workspace_path: result.workspace_path,
+    artifact: result.artifact,
+    repo: result.repo,
+    ref: result.ref,
+    sections
+  })).digest("hex");
+  return `sha256:${digest2}`;
+}
+function projectionSourceRevision(db3, params = {}) {
+  return projectionRevisionFromResult(queryAwareness(db3, {
+    ...params,
+    view: "all",
+    limit: limitOf(params.limit, 50, 500)
+  }));
+}
+function previousProjectionManifest(outDir) {
+  const path2 = join6(outDir, "awareness", "manifest.json");
+  if (!existsSync5(path2)) return null;
+  try {
+    const parsed = JSON.parse(readFileSync3(path2, "utf8"));
+    return parsed.generator === "@octocodeai/octocode-awareness repo inject" ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+function isInside(root, candidate) {
+  const rel = relative4(root, candidate);
+  return rel === "" || !rel.startsWith("..") && !isAbsolute7(rel);
+}
+function priorOwnedPath(file, workspacePath, outDir) {
+  const workspaceRelative = resolve12(workspacePath, file);
+  if (isInside(outDir, workspaceRelative)) return workspaceRelative;
+  const outputRelative = resolve12(outDir, file);
+  return isInside(outDir, outputRelative) ? outputRelative : null;
+}
 function injectRepoContext(db3, params = {}) {
   const scope = scopeFromParams(params);
   const workspacePath = scope.workspacePath ?? process.cwd();
@@ -8627,7 +8804,9 @@ function injectRepoContext(db3, params = {}) {
   const outDir = resolveWorkspaceOutputPath(rawOutDir, workspacePath, join6(workspacePath, ".octocode"));
   const mode = normalizeMode(params.mode);
   const includeView = params.includeView ?? params.include_view ?? true;
+  const pruneOrphans = params.pruneOrphans ?? params.prune_orphans ?? false;
   const check = params.check ?? true;
+  const previousManifest = previousProjectionManifest(outDir);
   const queryParams = {
     ...params,
     workspacePath,
@@ -8717,12 +8896,34 @@ function injectRepoContext(db3, params = {}) {
   }
   const generatedAt = utcNow2();
   const manifestRelPath = join6("awareness", "manifest.json");
+  const manifestPath = join6(outDir, manifestRelPath);
+  const currentManaged = new Set([...filesWritten, manifestPath].map((file) => resolve12(file)));
+  const previousOwned = (previousManifest?.files ?? []).map((file) => priorOwnedPath(file, workspacePath, outDir)).filter((file) => Boolean(file));
+  previousOwned.push(...(previousManifest?.orphan_cleanup?.candidates ?? []).map((file) => priorOwnedPath(file, workspacePath, outDir)).filter((file) => Boolean(file)));
+  previousOwned.push(join6(outDir, "awareness", "csv", "all.csv"));
+  const orphanCandidates = [...new Set(previousOwned.map((file) => resolve12(file)))].filter((file) => isInside(outDir, file)).filter((file) => !currentManaged.has(file)).filter((file) => !relative4(outDir, file).replace(/\\/g, "/").startsWith("plan/")).filter((file) => existsSync5(file)).sort();
+  const prunedOrphans = [];
+  if (pruneOrphans) {
+    for (const file of orphanCandidates) {
+      try {
+        const entry2 = lstatSync(file);
+        if (!entry2.isFile() && !entry2.isSymbolicLink()) continue;
+        rmSync2(file, { force: true });
+        prunedOrphans.push(file);
+      } catch (error) {
+        warnings.push(`could not prune retired projection ${relative4(workspacePath, file)}: ${String(error)}`);
+      }
+    }
+  } else if (orphanCandidates.length > 0) {
+    warnings.push(`${orphanCandidates.length} retired manifest-owned projection file(s) found; rerun repo inject with --prune-orphans after review`);
+  }
+  const sourceRevision = projectionRevisionFromResult(queried);
   const manifestFiles = [
     ...filesWritten.map((file) => relative4(workspacePath, file)),
-    relative4(workspacePath, join6(outDir, manifestRelPath))
+    relative4(workspacePath, manifestPath)
   ];
   const manifest = {
-    schema_version: 1,
+    schema_version: 2,
     generated_at: generatedAt,
     generator: "@octocodeai/octocode-awareness repo inject",
     mode,
@@ -8732,7 +8933,9 @@ function injectRepoContext(db3, params = {}) {
     ref: scope.ref,
     source: {
       canonical: "~/.octocode/memory/awareness.sqlite3",
-      projection: ".octocode"
+      projection: ".octocode",
+      revision: sourceRevision,
+      revision_algorithm: "sha256:bounded-live-sections-v1"
     },
     policy: {
       gitignore_modified: false,
@@ -8746,6 +8949,10 @@ function injectRepoContext(db3, params = {}) {
       attend_compact: ATTEND_COMPACT_BUDGET
     },
     files: manifestFiles,
+    orphan_cleanup: {
+      candidates: orphanCandidates.map((file) => relative4(workspacePath, file)),
+      pruned: prunedOrphans.map((file) => relative4(workspacePath, file))
+    },
     warnings
   };
   write(manifestRelPath, JSON.stringify(manifest, null, 2) + "\n");
@@ -8758,6 +8965,8 @@ function injectRepoContext(db3, params = {}) {
     count: filesWritten.length,
     files: filesWritten,
     warnings,
+    orphan_candidates: orphanCandidates,
+    pruned_orphans: prunedOrphans,
     manifest
   };
 }
@@ -8772,7 +8981,7 @@ function renderRepoAgentsMd(all) {
     Number(counts["missing_file_refs"] ?? 0) > 0 ? `Missing/stale file refs (${counts["missing_file_refs"]}) \u2014 use \`query files --format table\` before trusting bookmarks.` : null,
     Number(counts["active_memories"] ?? 0) > 200 ? `Active memories high (${counts["active_memories"]}) \u2014 prefer recall/CSV over full Markdown.` : null,
     Number(counts["tasks"] ?? 0) > 500 ? `Task history high (${counts["tasks"]}) \u2014 use \`query workboard\`.` : null,
-    Number(counts["open_refinements"] ?? 0) > 40 ? `Open refinements high (${counts["open_refinements"]}) \u2014 filter CSV before promoting.` : null
+    Number(counts["all_open_refinements"] ?? 0) > 40 ? `All open refinements high (${counts["all_open_refinements"]}) \u2014 inspect actionable, handoff, and instruction queues separately.` : null
   ].filter((item) => Boolean(item));
   const lines = [
     "# Octocode Awareness Map",
@@ -8788,7 +8997,7 @@ function renderRepoAgentsMd(all) {
     "",
     "## Snapshot",
     "",
-    `- Memories ${counts["active_memories"] ?? 0} \xB7 Gotchas ${counts["gotchas"] ?? 0} \xB7 Lessons ${counts["lessons"] ?? 0} \xB7 MissingFiles ${counts["missing_file_refs"] ?? 0} \xB7 Locks ${counts["active_locks"] ?? 0} \xB7 Refinements ${counts["open_refinements"] ?? 0} \xB7 Signals ${counts["open_signals"] ?? 0} \xB7 DevReview ${counts["developer_review"] ?? 0}`,
+    `- Memories ${counts["active_memories"] ?? 0} \xB7 Gotchas ${counts["gotchas"] ?? 0} \xB7 Lessons ${counts["lessons"] ?? 0} \xB7 MissingFiles ${counts["missing_file_refs"] ?? 0} \xB7 Locks ${counts["active_locks"] ?? 0} \xB7 ActionableRefinements ${counts["actionable_refinements"] ?? 0} \xB7 AllOpenRefinements ${counts["all_open_refinements"] ?? 0} \xB7 Signals ${counts["open_signals"] ?? 0} \xB7 DevReview ${counts["developer_review"] ?? 0}`,
     "",
     "## Retro Files Map",
     "",
@@ -8804,7 +9013,7 @@ function renderRepoAgentsMd(all) {
     "",
     "- Run `attend`, then inspect `FilesUnderWork` before editing. Record ordinary work with `work start`; overlap is allowed and visible.",
     "- Exclusive locks are reserved for sensitive files. An active exclusive lock blocks conflicting work.",
-    "- Use targeted `memory recall --query <task> --smart --compact`; open one matching wiki lead only when live SQLite is unavailable or more detail is needed.",
+    "- Use targeted `memory recall --query <task> --smart --compact`; open one matching wiki lead only when live SQLite is unavailable, `attend.next` routes there, or projection history matters.",
     "- Prefer live `attend` / `work list` / `query` when freshness matters; run `repo inject` only when file readers need a fresh snapshot.",
     "",
     "## Projection Health",
@@ -9216,7 +9425,7 @@ function uniqueStrings(values) {
 function lineCount2(path2) {
   if (!existsSync6(path2)) return null;
   try {
-    return readFileSync3(path2, "utf8").split(/\r?\n/).length;
+    return readFileSync4(path2, "utf8").split(/\r?\n/).length;
   } catch {
     return null;
   }
@@ -9232,11 +9441,11 @@ function projectionStats(workspacePath) {
     return { file: `.octocode/${file.replace(/\\/g, "/")}`, lines: lineCount2(path2), mtime_ms: mtimeMs };
   });
 }
-function manifestWarnings(workspacePath, stats) {
+function manifestWarnings(workspacePath, stats, liveSourceRevision) {
   const manifestPath = join7(workspacePath, ".octocode", "awareness", "manifest.json");
   if (!existsSync6(manifestPath)) return [".octocode/awareness/manifest.json missing; run repo inject when projection context is needed"];
   try {
-    const manifest = JSON.parse(readFileSync3(manifestPath, "utf8"));
+    const manifest = JSON.parse(readFileSync4(manifestPath, "utf8"));
     const warnings = [];
     const files = manifest.files ?? [];
     if (!files.some((file) => file.endsWith("/BOOKMARKS.md") || file.endsWith("\\BOOKMARKS.md") || file === "BOOKMARKS.md")) {
@@ -9245,6 +9454,11 @@ function manifestWarnings(workspacePath, stats) {
     const markdownBudgets = manifest.budgets?.markdown ?? {};
     for (const [file, budget] of Object.entries(markdownBudgets)) {
       if (budget.within_budget === false) warnings.push(`manifest budget exceeded for ${file}`);
+    }
+    if (!manifest.source?.revision) {
+      warnings.push("manifest missing source revision; regenerate repo projection");
+    } else if (manifest.source.revision !== liveSourceRevision) {
+      warnings.push("manifest source revision differs from live SQLite; regenerate repo projection");
     }
     if (manifest.generated_at) {
       const generatedMs = new Date(manifest.generated_at).getTime();
@@ -9257,7 +9471,7 @@ function manifestWarnings(workspacePath, stats) {
     return [".octocode/awareness/manifest.json unreadable; regenerate repo projection"];
   }
 }
-function projectionWarnings(workspacePath, stats) {
+function projectionWarnings(workspacePath, stats, liveSourceRevision) {
   const budgets = {
     ".octocode/AGENTS.md": 80,
     ".octocode/MEMORY.md": 200,
@@ -9271,7 +9485,7 @@ function projectionWarnings(workspacePath, stats) {
     if (budget != null && stat.lines > budget) return [`${stat.file} has ${stat.lines} lines over budget ${budget}`];
     return [];
   });
-  return [...markdownWarnings, ...manifestWarnings(workspacePath, stats)];
+  return [...markdownWarnings, ...manifestWarnings(workspacePath, stats, liveSourceRevision)];
 }
 function evidenceTrust(references, workspacePath) {
   if (references.length === 0) return "needs_refs";
@@ -9356,7 +9570,14 @@ function attendAwareness(db3, params = {}) {
   const readyTasks = rawWorkboard["Ready"] ?? [];
   const claimedTasks = (rawWorkboard["Claimed"] ?? []).filter((row) => row["item_type"] === "task");
   const projectionHealth = projectionStats(workspacePath);
-  const bloatWarnings = projectionWarnings(workspacePath, projectionHealth);
+  const liveSourceRevision = projectionSourceRevision(db3, {
+    workspacePath,
+    artifact: scope.artifact,
+    repo: scope.repo,
+    ref: scope.ref,
+    limit: 500
+  });
+  const bloatWarnings = projectionWarnings(workspacePath, projectionHealth, liveSourceRevision);
   const outputBloatWarnings = compact2 ? bloatWarnings.map((warning) => warning.replace(/\.octocode\//g, "").replace(/ has /g, " ").replace(/ lines over budget /g, ">").replace(/ lines/g, "l")) : bloatWarnings;
   const memoryQuery = query || files.join(" ");
   const recall = memoryQuery ? getMemory(db3, {
@@ -9444,7 +9665,8 @@ function attendAwareness(db3, params = {}) {
     bridge: {
       inbox: workboard["Inbox"]?.length ?? 0,
       handoffs: handoffRows.length,
-      open_refinements: profile["open_refinements"] ?? 0,
+      actionable_refinements: profile["actionable_refinements"] ?? 0,
+      all_open_refinements: profile["all_open_refinements"] ?? 0,
       open_signals: profile["open_signals"] ?? 0,
       plans: profile["plans"] ?? 0,
       tasks: profile["tasks"] ?? 0
@@ -9545,12 +9767,12 @@ function attendAwareness(db3, params = {}) {
 }
 
 // bin/hook-runner.ts
-import { createHash as createHash5 } from "node:crypto";
+import { createHash as createHash6 } from "node:crypto";
 import {
   closeSync as closeSync2,
   mkdirSync as mkdirSync5,
   openSync as openSync2,
-  readFileSync as readFileSync4,
+  readFileSync as readFileSync5,
   renameSync as renameSync3,
   statSync as statSync3,
   unlinkSync as unlinkSync2,
@@ -9562,7 +9784,7 @@ import { fileURLToPath as fileURLToPath3 } from "node:url";
 // src/pi-hooks.ts
 import path from "node:path";
 import { spawnSync as spawnSync5 } from "node:child_process";
-import { createHash as createHash4, randomUUID as randomUUID12 } from "node:crypto";
+import { createHash as createHash5, randomUUID as randomUUID12 } from "node:crypto";
 import { realpathSync as realpathSync3 } from "node:fs";
 var _sessionStartupToken = randomUUID12().slice(0, 8);
 function addPathValue(paths, value) {
@@ -9817,7 +10039,7 @@ function agentId(payload) {
     payload.context
   ) ?? "shell";
   const scope = `${host}\0${workspace(payload) ?? process.cwd()}`;
-  const suffix = createHash5("sha1").update(scope).digest("hex").slice(0, 12);
+  const suffix = createHash6("sha1").update(scope).digest("hex").slice(0, 12);
   const fallback = `hook:${host.replace(/[^a-zA-Z0-9_.:-]/g, "_")}:${suffix}`;
   if (!warnedFallbackAgentId) {
     warnedFallbackAgentId = true;
@@ -9966,7 +10188,7 @@ function processIsAlive2(pid) {
 }
 function removeStaleHookRunStateLock(lockFile) {
   try {
-    const owner = Number.parseInt(readFileSync4(lockFile, "utf8"), 10);
+    const owner = Number.parseInt(readFileSync5(lockFile, "utf8"), 10);
     const staleByAge = Date.now() - statSync3(lockFile).mtimeMs > HOOK_RUN_STATE_LOCK_STALE_MS;
     if (processIsAlive2(owner) && !staleByAge) return false;
     unlinkSync2(lockFile);
@@ -10009,7 +10231,7 @@ function withHookRunStateLock(key, operation) {
 }
 function readHookRunEntries(key) {
   try {
-    const parsed = JSON.parse(readFileSync4(hookRunStateFile(key), "utf8"));
+    const parsed = JSON.parse(readFileSync5(hookRunStateFile(key), "utf8"));
     if (!Array.isArray(parsed)) return [];
     const cutoff = Date.now() - HOOK_RUN_STATE_TTL_MS;
     return parsed.filter((entry2) => {
@@ -10063,7 +10285,7 @@ function hookRunKey(payload, files, cwd) {
     event: explicitId,
     files: explicitId ? [] : files.map((file) => resolveHookPath(file, cwd)).sort()
   };
-  return createHash5("sha1").update(JSON.stringify(identity)).digest("hex");
+  return createHash6("sha1").update(JSON.stringify(identity)).digest("hex");
 }
 var HOOK_AGGREGATE_CONTEXT_PREFIX = "hook-scope:";
 function hookAggregateContextRef(payload, cwd) {
@@ -10075,7 +10297,7 @@ function hookAggregateContextRef(payload, cwd) {
     workspace: normalizeWorkspacePath(cwd, cwd) ?? resolve14(cwd),
     artifact: normalizeArtifact(artifact(payload))
   };
-  return `${HOOK_AGGREGATE_CONTEXT_PREFIX}${createHash5("sha1").update(JSON.stringify(identity)).digest("hex")}`;
+  return `${HOOK_AGGREGATE_CONTEXT_PREFIX}${createHash6("sha1").update(JSON.stringify(identity)).digest("hex")}`;
 }
 function activeFallbackHookRun(database, payload, cwd) {
   const contextRef = hookAggregateContextRef(payload, cwd);
@@ -10093,7 +10315,7 @@ function activeFallbackHookRun(database, payload, cwd) {
 }
 function hookAggregateLockKey(payload, cwd) {
   const contextRef = hookAggregateContextRef(payload, cwd);
-  return contextRef ? `aggregate-${createHash5("sha1").update(contextRef).digest("hex")}` : null;
+  return contextRef ? `aggregate-${createHash6("sha1").update(contextRef).digest("hex")}` : null;
 }
 function startOrAttachFallbackHookRun(database, payload, cwd, files) {
   const contextRef = hookAggregateContextRef(payload, cwd);
@@ -10212,7 +10434,7 @@ function peerStateDir() {
   return stateDir;
 }
 function peerStateKey(payload, files, cwd) {
-  return createHash5("sha1").update(JSON.stringify({
+  return createHash6("sha1").update(JSON.stringify({
     agent: agentId(payload),
     workspace: normalizeWorkspacePath(cwd, cwd) ?? resolve14(cwd),
     artifact: artifact(payload),
@@ -10220,7 +10442,7 @@ function peerStateKey(payload, files, cwd) {
   })).digest("hex");
 }
 function peerFingerprint(peers) {
-  return createHash5("sha1").update(JSON.stringify(peers.map((peer) => ({
+  return createHash6("sha1").update(JSON.stringify(peers.map((peer) => ({
     agent: peer.agent_id,
     file: peer.file_path,
     task: peer.task_id,
@@ -10242,7 +10464,7 @@ function emitPeerDelta(payload, files, cwd, allPeers) {
   const fingerprint = peerFingerprint(peers);
   let previous = null;
   try {
-    previous = readFileSync4(stateFile, "utf8").trim();
+    previous = readFileSync5(stateFile, "utf8").trim();
   } catch {
   }
   if (previous === fingerprint) return null;
@@ -10478,13 +10700,13 @@ function maybePreviewDigest(payload) {
   const intervalMs = Number.isFinite(intervalHours) && intervalHours > 0 ? intervalHours * 36e5 : 4 * 36e5;
   const memoryHome2 = dirname5(resolveDbPath(null));
   const digestScope = workspace(payload) ?? "global";
-  const scopeHash = createHash5("sha256").update(digestScope).digest("hex").slice(0, 12);
+  const scopeHash = createHash6("sha256").update(digestScope).digest("hex").slice(0, 12);
   const markerPath = join8(memoryHome2, `.last-digest-preview-${scopeHash}-epoch-ms`);
   try {
     const database = db();
     let last = 0;
     try {
-      last = Number(readFileSync4(markerPath, "utf8").trim() || 0);
+      last = Number(readFileSync5(markerPath, "utf8").trim() || 0);
     } catch {
       last = 0;
     }
@@ -10704,6 +10926,13 @@ var NUMERIC_FLAGS = /* @__PURE__ */ new Set([
   "priority",
   "lease_minutes"
 ]);
+var RETENTION_DAY_FLAGS = /* @__PURE__ */ new Set([
+  "retention_days",
+  "refinement_handoff_retention_days",
+  "refinement_done_retention_days",
+  "operational_retention_days",
+  "pressure_age_days"
+]);
 var BOOLEAN_FLAGS = /* @__PURE__ */ new Set([
   "compact",
   "help",
@@ -10736,7 +10965,8 @@ var BOOLEAN_FLAGS = /* @__PURE__ */ new Set([
   "next",
   "duo",
   "examples",
-  "allow_similar"
+  "allow_similar",
+  "prune_orphans"
 ]);
 var VALUE_REQUIRED_FLAGS = /* @__PURE__ */ new Set([
   "query",
@@ -10807,7 +11037,10 @@ var VALUE_REQUIRED_FLAGS = /* @__PURE__ */ new Set([
   "reason",
   "targets_json",
   "origin",
-  "export_doc",
+  "supersedes",
+  "regex",
+  "file_regex",
+  "tags",
   "agent_name",
   "context",
   "before",
@@ -10818,6 +11051,8 @@ var KNOWN_FLAGS = {
   "tell-memory": ["agent_id", "task_context", "observation", "importance", "label", "tag", "reference", "supersedes", "failure_signature", "valid_from", "valid_to", "workspace", "artifact", "repo", "ref", "file", "file_tree_fingerprint", "allow_similar"],
   "get-memory": ["query", "limit", "min_importance", "label", "tag", "smart", "workspace", "artifact", "repo", "ref", "state", "sort", "global_only", "strict_scope", "as_of", "reference", "regex", "file_regex", "file", "explain", "semantic", "full"],
   "forget": ["memory_id", "tag", "tags", "before", "max_importance", "workspace", "artifact", "repo", "ref", "dry_run"],
+  "memory-archive": ["memory_id", "workspace", "artifact", "repo", "ref", "dry_run"],
+  "memory-restore": ["memory_id", "workspace", "artifact", "repo", "ref", "dry_run"],
   "reflect": ["agent_id", "task", "outcome", "lesson", "worked", "didnt_work", "fix_repo", "fix_file", "fix_harness", "fix_instructions", "failure_signature", "importance", "judgment_note", "duo", "eval_failure_json", "workspace", "artifact", "repo", "ref", "allow_similar"],
   "refine-set": ["agent_id", "reasoning", "remember", "quality", "state", "workspace", "artifact", "repo", "ref", "file", "refinement_id", "check_receipt"],
   "refine-get": ["workspace", "artifact", "repo", "ref", "quality", "include_handoffs", "state", "limit"],
@@ -10837,7 +11072,7 @@ var KNOWN_FLAGS = {
   "developer-review": ["workspace", "artifact", "repo", "ref", "state", "limit", "format", "query"],
   "query": ["view", "query", "limit", "format", "out", "workspace", "artifact", "repo", "ref", "agent_id", "state", "label", "file", "since", "include_bodies"],
   "attend": ["agent_id", "query", "limit", "workspace", "artifact", "repo", "ref", "file", "include_bodies", "explain_organ"],
-  "repo-inject": ["query", "limit", "out", "out_dir", "workspace", "artifact", "repo", "ref", "mode", "check", "include_view"],
+  "repo-inject": ["query", "limit", "out", "out_dir", "workspace", "artifact", "repo", "ref", "mode", "check", "include_view", "prune_orphans"],
   "agent-registry": ["action", "agent_id", "agent_name", "workspace", "artifact", "context", "limit"],
   "agent-signal": ["action", "agent_id", "workspace", "artifact", "repo", "ref", "kind", "subject", "body", "to_agent", "file", "ref_id", "importance", "in_reply_to", "thread_id", "signal_id", "all", "unread_only", "mark_read", "limit", "include_bodies", "format"],
   "notify-prune": ["agent_id", "signal_id", "resolved", "older_than_days", "dry_run", "workspace", "artifact"],
@@ -10867,6 +11102,9 @@ function validateFlagValues(args2) {
       const n = typeof value === "string" ? Number(value) : NaN;
       if (value === true || !Number.isInteger(n)) {
         die(`--${key.replace(/_/g, "-")} expects an integer`, { got: value === true ? "flag with no value" : String(value) });
+      }
+      if (RETENTION_DAY_FLAGS.has(key) && (n < 1 || n > 3650)) {
+        die(`--${key.replace(/_/g, "-")} must be in 1..3650`, { got: n });
       }
     } else if (VALUE_REQUIRED_FLAGS.has(key) && value === true) {
       die(`--${key.replace(/_/g, "-")} expects a value (it was followed by another flag)`);
@@ -10909,6 +11147,8 @@ var COMMAND_ROUTES = {
   "memory record": { command: "tell-memory" },
   "memory recall": { command: "get-memory" },
   "memory forget": { command: "forget" },
+  "memory archive": { command: "memory-archive" },
+  "memory restore": { command: "memory-restore" },
   "workspace status": { command: "status" },
   "lock acquire": { command: "pre-flight-intent" },
   "lock release": { command: "release-file-lock" },
@@ -11826,6 +12066,21 @@ function cmdForget(db3, args2, dbPath2, opts2) {
   });
   return emit({ db_path: dbPath2, ...result }, 0, opts2);
 }
+function cmdMemoryLifecycle(db3, args2, dbPath2, opts2, action) {
+  const rawIds = args2["memory_id"];
+  const memoryIds = Array.isArray(rawIds) ? rawIds.map(String) : rawIds ? [String(rawIds)] : [];
+  if (memoryIds.length === 0) die("--memory-id is required");
+  const params = {
+    memoryIds,
+    workspacePath: args2["workspace"] ? String(args2["workspace"]) : null,
+    artifact: args2["artifact"] ? String(args2["artifact"]) : null,
+    repo: args2["repo"] ? String(args2["repo"]) : null,
+    ref: args2["ref"] ? String(args2["ref"]) : null,
+    dryRun: Boolean(args2["dry_run"])
+  };
+  const result = action === "archive" ? archiveMemories(db3, params) : restoreMemories(db3, params);
+  return emit({ db_path: dbPath2, ...result }, 0, opts2);
+}
 function cmdRefineDelete(db3, args2, dbPath2, opts2) {
   const rawIds = args2["refinement_id"];
   const refinementIds = Array.isArray(rawIds) ? rawIds : rawIds ? [String(rawIds)] : [];
@@ -11931,6 +12186,7 @@ function cmdRepoInject(db3, args2, dbPath2, opts2) {
     outDir: outDir ? String(outDir) : void 0,
     mode: args2["mode"] ? String(args2["mode"]) : void 0,
     includeView: flagBool(args2["include_view"]),
+    pruneOrphans: flagBool(args2["prune_orphans"]),
     check: flagBool(args2["check"])
   });
   return emit({ db_path: dbPath2, ...result }, 0, opts2);
@@ -12252,7 +12508,7 @@ COMMAND SURFACES:
   planning:  plan create|list|show|join|doc|status; task create|list|ready|show|claim|heartbeat|submit|release|depend
   edit:      work start|touch|end|list|show; lock acquire, lock wait, lock release, lock prune; verify mark, verify audit
   messages:  signal publish, signal list, signal reply, signal ack, signal resolve, signal prune, agent register, agent list
-  learning:  memory record, memory forget, refinement set, refinement get, refinement delete, reflect record, reflect mine-weakness, reflect export-harness, reflect developer-review, docs list, docs show, docs staleness
+  learning:  memory record, memory archive, memory restore, memory forget, refinement set, refinement get, refinement delete, reflect record, reflect mine-weakness, reflect export-harness, reflect developer-review, docs list, docs show, docs staleness
   repo:      query files|workboard|all|developer-review [--format json|table|csv|markdown|html], repo inject
   hooks:     hook run <pre-edit|post-edit|harness-guard|stop-verify|notify-deliver|session-end>, hooks install|check|remove --host claude|codex|cursor
   utility:   session capture, maintenance init, maintenance self-test, maintenance digest
@@ -12282,12 +12538,14 @@ bundled-skills: ${BUNDLED_SKILLS_DIR}/octocode-awareness | ${BUNDLED_SKILLS_DIR}
 start: attend; workspace status; plan create|list|show|join|doc|status; task create|list|ready|show|claim|heartbeat|submit|release|depend; memory recall; signal list; docs list
 edit: work start|touch|end|list|show; lock acquire|wait|release|prune; verify audit|mark
 msg: signal publish|list|reply|ack|resolve|prune; agent register|list
-learn: memory record|forget; refinement set|get|delete; reflect record|mine-weakness|export-harness|developer-review; maintenance digest
+learn: memory record|archive|restore|forget; refinement set|get|delete; reflect record|mine-weakness|export-harness|developer-review; maintenance digest
 repo: query files|workboard|all|developer-review --format json|table|csv|markdown|html; repo inject
 inspect: schema commands --compact; docs list|show; <command> --help; exits 0 ok / 1 validation|verify debt / 2 lock|wait|hooks --strict`;
 var COMMAND_TO_SCHEMA = {
   "tell-memory": "tell_memory",
   "get-memory": "get_memory",
+  "memory-archive": "memory_lifecycle",
+  "memory-restore": "memory_lifecycle",
   "pre-flight-intent": "pre_flight_intent",
   "wait-for-lock": "wait_for_lock",
   "prune-stale-locks": "prune_stale_locks",
@@ -12319,6 +12577,8 @@ var COMMAND_TO_SCHEMA = {
 var COMMAND_DISPLAY = {
   "tell-memory": "memory record",
   "get-memory": "memory recall",
+  "memory-archive": "memory archive",
+  "memory-restore": "memory restore",
   "forget": "memory forget",
   "pre-flight-intent": "lock acquire",
   "wait-for-lock": "lock wait",
@@ -12356,6 +12616,8 @@ var COMMAND_DISPLAY = {
 var COMMAND_EXAMPLE = {
   "tell-memory": 'octocode-awareness memory record --agent-id agent --task-context "build failure" --observation "Run yarn build before tests" --importance 7 --label GOTCHA --workspace "$PWD" --compact',
   "get-memory": 'octocode-awareness memory recall --query "current task" --workspace "$PWD" --smart --compact',
+  "memory-archive": "octocode-awareness memory archive --memory-id mem_123 --dry-run --compact",
+  "memory-restore": "octocode-awareness memory restore --memory-id mem_123 --dry-run --compact",
   "forget": "octocode-awareness memory forget --memory-id mem_123 --dry-run --compact",
   "pre-flight-intent": 'octocode-awareness lock acquire --agent-id agent --target-file src/file.ts --rationale "edit file" --test-plan "yarn test" --compact',
   "wait-for-lock": "octocode-awareness lock wait --agent-id agent --target-file src/file.ts --wait-seconds 60 --compact",
@@ -12445,9 +12707,12 @@ var REMOVED_COMMAND_REPLACEMENTS = {
   "self-test": "maintenance self-test"
 };
 var COMMAND_HELP = {
-  "tell-memory": `usage: octocode-awareness memory record --agent-id <id> --task-context <text> --observation <text> --importance <1-10> [--label <l>] [--tag <t>]... [--reference <r>]... [--file <p>]...
+  "tell-memory": `usage: octocode-awareness memory record --agent-id <id> --task-context <text> --observation <text> --importance <1-10> [--label <l>] [--tag <t>]... [--reference <r>]... [--file <p>]... [--supersedes <id>]... [--allow-similar]
+scope: [--workspace <p>] [--artifact <a>] [--repo <r>] [--ref <r>]
+lifecycle: [--valid-from <iso>] [--valid-to <iso>] [--failure-signature <key>]
 example: octocode-awareness memory record --agent-id agent --task-context "build failure" --observation "Run yarn build before tests" --importance 7 --label GOTCHA --workspace "$PWD" --compact
 note: unknown --label values hard-error
+note: --supersedes atomically records a replacement and preserves the replaced row as history
 schema: octocode-awareness schema json-schema tell_memory --compact`,
   "get-memory": `usage: octocode-awareness memory recall [options]
 filters: [--query <text>] [--limit <n>] [--min-importance <n>] [--label <l>]... [--tag <t>]... [--reference <r>]... [--file <p>]... [--regex <r>]... [--file-regex <r>]...
@@ -12456,6 +12721,26 @@ rank: [--smart] [--sort smart|score|importance|recent|accessed] [--state ACTIVE|
 output: lean/truncated by default; --full restores full memory rows
 example: octocode-awareness memory recall --query "current task" --workspace "$PWD" --smart --compact
 schema: octocode-awareness schema json-schema get_memory --compact`,
+  "memory-archive": `usage: octocode-awareness memory archive --memory-id <id>... [--workspace <p>] [--artifact <a>] [--repo <r>] [--ref <r>] [--dry-run]
+example: octocode-awareness memory archive --memory-id mem_123 --dry-run --compact
+note: reversible archive hides ACTIVE recall while preserving the row; preview first
+schema: octocode-awareness schema json-schema memory_lifecycle --compact`,
+  "memory-restore": `usage: octocode-awareness memory restore --memory-id <id>... [--workspace <p>] [--artifact <a>] [--repo <r>] [--ref <r>] [--dry-run]
+example: octocode-awareness memory restore --memory-id mem_123 --dry-run --compact
+note: restores archived rows only; replacement history with superseded_by is never revived
+schema: octocode-awareness schema json-schema memory_lifecycle --compact`,
+  "forget": `usage: octocode-awareness memory forget (--memory-id <id>... | --tag <t>... | --before <iso> | --max-importance <n>) [--workspace <p>] [--dry-run]
+example: octocode-awareness memory forget --memory-id mem_123 --dry-run --compact
+note: hard deletion is irreversible; prefer archive for reversible cleanup and always preview broad selectors
+schema: octocode-awareness schema json-schema forget_memory --compact`,
+  "refine-delete": `usage: octocode-awareness refinement delete --refinement-id <id>... [--workspace <p>] [--artifact <a>] [--dry-run]
+example: octocode-awareness refinement delete --refinement-id ref_123 --dry-run --compact
+note: hard deletion is irreversible; close completed work with refinement set --state done instead
+schema: octocode-awareness schema json-schema refine_delete --compact`,
+  "digest": `usage: octocode-awareness maintenance digest [--dry-run] [--retention-days <1..3650>] [--refinement-handoff-retention-days <1..3650>] [--refinement-done-retention-days <1..3650>] [--operational-retention-days <1..3650>] [--pressure-age-days <1..3650>]
+example: octocode-awareness maintenance digest --dry-run --workspace "$PWD" --compact
+note: expires ACTIVE memories, purges old SUPERSEDED rows, expired locks, terminal refinements, and terminal standalone runs; reports signal/reference pressure but never prunes signals
+schema: octocode-awareness schema json-schema digest --compact`,
   "pre-flight-intent": `usage: octocode-awareness lock acquire --agent-id <id> --target-file <p>... [--run-id <claimed-run>] [--workspace <p>] [--artifact <a>] [--rationale <t>] [--test-plan <t>] [--ttl-minutes <n>] [--wait-seconds <n>]
 example: octocode-awareness lock acquire --agent-id agent --target-file src/file.ts --rationale "edit file" --test-plan "yarn test" --compact
 note: lock acquire is exclusive protection for sensitive work; ordinary work uses work start
@@ -12791,6 +13076,12 @@ try {
       break;
     case "forget":
       exitCode = cmdForget(db2, args, dbPath, opts);
+      break;
+    case "memory-archive":
+      exitCode = cmdMemoryLifecycle(db2, args, dbPath, opts, "archive");
+      break;
+    case "memory-restore":
+      exitCode = cmdMemoryLifecycle(db2, args, dbPath, opts, "restore");
       break;
     case "refine-delete":
       exitCode = cmdRefineDelete(db2, args, dbPath, opts);

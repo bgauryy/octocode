@@ -3,7 +3,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { initDb, rebuildFts, replaceMemoryReferences } from '../src/db.js';
 import {
   insertMemory, getMemory, bumpAccess, decayScore,
-  forgetMemory, findSimilarMemories,
+  forgetMemory, archiveMemories, restoreMemories, findSimilarMemories,
 } from '../src/memory.js';
 import * as memoryModule from '../src/memory.js';
 import { normalizeFilePath } from '../src/helpers.js';
@@ -19,6 +19,29 @@ function freshDb(): DatabaseSync {
   initDb(db);
   return db;
 }
+
+describe('memory archive lifecycle', () => {
+  it('archives active rows, restores only archived rows, and supports dry-run', () => {
+    const db = freshDb();
+    const { memoryId } = insertMemory(db, {
+      taskContext: 'archive unit', observation: 'restore the archived row', importance: 6,
+    });
+
+    expect(archiveMemories(db, { memoryIds: [memoryId], dryRun: true }))
+      .toEqual({ archived: 0, dry_run: true, would_archive: 1, memory_ids: [memoryId] });
+    expect(archiveMemories(db, { memoryIds: [memoryId] }))
+      .toEqual({ archived: 1, memory_ids: [memoryId] });
+    expect(db.prepare('SELECT state, expired_at FROM memories WHERE memory_id = ?').get(memoryId))
+      .toMatchObject({ state: 'SUPERSEDED', expired_at: expect.any(String) });
+
+    expect(restoreMemories(db, { memoryIds: [memoryId], dryRun: true }))
+      .toEqual({ restored: 0, dry_run: true, would_restore: 1, memory_ids: [memoryId] });
+    expect(restoreMemories(db, { memoryIds: [memoryId] }))
+      .toEqual({ restored: 1, memory_ids: [memoryId] });
+    expect(db.prepare('SELECT state, expired_at FROM memories WHERE memory_id = ?').get(memoryId))
+      .toEqual({ state: 'ACTIVE', expired_at: null });
+  });
+});
 
 describe('insertMemory', () => {
   it('returns a memoryId prefixed mem_', () => {

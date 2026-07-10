@@ -141,6 +141,11 @@ signal acknowledgement: only `signal ack` writes `signal_reads`.
 JSON file lists remain on signals/refinements because they are message snapshots,
 not normalized active run state.
 
+Memory correction is append-only: `superseded_by` identifies immutable replacement
+history. Reversible archive uses `state='SUPERSEDED'` plus `expired_at` with no
+`superseded_by`; `memory restore` may reactivate only that archived shape. `memory
+forget` and age-based digest purge remain irreversible and require review/dry-run.
+
 ## Scope
 
 Use one normalized `workspace_path` across attend, plans, tasks, work, locks,
@@ -223,5 +228,5 @@ CLI has passed smoke tests and a second reopen.
   exact lock totals/omissions and only one lean lock lead.
 - `work list|show`: current file awareness.
 - `query workboard`: derived action queue.
-- `maintenance digest --dry-run`: report cleanup.
-- `repo inject`: regenerate projections while preserving plan folders.
+- `maintenance digest --dry-run`: report bounded cleanup; only terminal refinements are age-pruned.
+- `repo inject`: regenerate revisioned projections, preview/prune prior manifest-owned orphans, and preserve plan/user files.

@@ -43,6 +43,7 @@ export interface PruneStaleResult {
   pruned_locks: number;
   dry_run?: true;
   would_prune?: number;
+  lock_ids?: string[];
 }
 
 export interface NotifyGetResult {
@@ -149,7 +150,12 @@ export function pruneStale(db: DatabaseSync, params: Record<string, unknown> = {
   } catch { /* non-critical stale-lock scan */ }
 
   if (dryRun) {
-    return { pruned_locks: 0, dry_run: true, would_prune: staleLocks.length };
+    return {
+      pruned_locks: 0,
+      dry_run: true,
+      would_prune: staleLocks.length,
+      lock_ids: staleLocks.map(lock => lock.lock_id).slice(0, 20),
+    };
   }
   if (staleLocks.length === 0) {
     return { pruned_locks: 0 };
@@ -811,6 +817,14 @@ export interface DigestResult {
   stale_open_signals?: number;
   stale_missing_refs?: number;
   pressure_samples?: MaintenancePressure['samples'];
+  candidate_limit?: number;
+  candidate_ids?: {
+    expire_memory_ids: string[];
+    purge_memory_ids: string[];
+    lock_ids: string[];
+    refinement_ids: string[];
+    run_ids: string[];
+  };
 }
 
 export interface MaintenancePressure {
@@ -824,6 +838,23 @@ export interface MaintenancePressure {
     signal_ids: string[];
     memory_ids: string[];
   };
+}
+
+const MIN_RETENTION_DAYS = 1;
+const MAX_RETENTION_DAYS = 3650;
+
+function retentionWindow(
+  params: Record<string, unknown>,
+  snakeName: string,
+  camelName: string,
+  fallback: number,
+): number {
+  const raw = params[snakeName] ?? params[camelName] ?? fallback;
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < MIN_RETENTION_DAYS || value > MAX_RETENTION_DAYS) {
+    throw new Error(`${snakeName} must be an integer in ${MIN_RETENTION_DAYS}..${MAX_RETENTION_DAYS}`);
+  }
+  return value;
 }
 
 /**
@@ -913,10 +944,11 @@ export function digest(
   db: DatabaseSync,
   params: Record<string, unknown> = {},
 ): DigestResult {
-  const retentionDays = Number(params.retention_days ?? 90);
-  const handoffRetentionDays = Number(params.refinement_handoff_retention_days ?? params.refinementHandoffRetentionDays ?? 7);
-  const doneRetentionDays = Number(params.refinement_done_retention_days ?? params.refinementDoneRetentionDays ?? 30);
-  const operationalRetentionDays = Number(params.operational_retention_days ?? params.operationalRetentionDays ?? 90);
+  const retentionDays = retentionWindow(params, 'retention_days', 'retentionDays', 90);
+  const handoffRetentionDays = retentionWindow(params, 'refinement_handoff_retention_days', 'refinementHandoffRetentionDays', 7);
+  const doneRetentionDays = retentionWindow(params, 'refinement_done_retention_days', 'refinementDoneRetentionDays', 30);
+  const operationalRetentionDays = retentionWindow(params, 'operational_retention_days', 'operationalRetentionDays', 90);
+  retentionWindow(params, 'pressure_age_days', 'pressureAgeDays', 1);
   const rawWorkspacePath = typeof params.workspace === 'string' ? params.workspace :
     typeof params.workspace_path === 'string' ? params.workspace_path :
       typeof params.workspacePath === 'string' ? params.workspacePath : null;
@@ -948,6 +980,7 @@ export function digest(
 
   // dry_run: count what would change without mutating anything
   if (params.dry_run) {
+    const candidateLimit = 20;
     const wouldArchive = (db.prepare(
       `SELECT COUNT(*) AS c FROM memories WHERE valid_to IS NOT NULL AND valid_to < ? AND state = 'ACTIVE'${memoryScopeSql}`
     ).get(now, ...memoryScopeBinds) as { c: number }).c;
@@ -962,13 +995,35 @@ export function digest(
     });
     const wouldPruneLocks = lockDryRun.would_prune ?? 0;
     const wouldPruneRefinements = (db.prepare(`SELECT COUNT(*) AS c FROM refinements
-       WHERE ((quality = 'handoff' AND updated_at < ?)
+       WHERE ((quality = 'handoff' AND state = 'done' AND updated_at < ?)
           OR (quality IN ('good','bad') AND state = 'done' AND updated_at < ?))${refinementScopeSql}`)
       .get(handoffCutoff, doneCutoff, ...refinementScopeBinds) as { c: number }).c;
     const wouldPruneRuns = (db.prepare(`SELECT COUNT(*) AS c FROM task_runs
       WHERE task_id IS NULL AND origin IN ('WORK','HOOK')
         AND status IN ('SUCCESS','FAILED') AND updated_at < ?${memoryScopeSql}`)
       .get(operationalCutoff, ...memoryScopeBinds) as { c: number }).c;
+    const expireMemoryIds = (db.prepare(
+      `SELECT memory_id FROM memories
+       WHERE valid_to IS NOT NULL AND valid_to < ? AND state = 'ACTIVE'${memoryScopeSql}
+       ORDER BY datetime(valid_to), memory_id LIMIT ?`
+    ).all(now, ...memoryScopeBinds, candidateLimit) as Array<{ memory_id: string }>).map(row => row.memory_id);
+    const purgeMemoryIds = (db.prepare(
+      `SELECT memory_id FROM memories
+       WHERE state = 'SUPERSEDED' AND updated_at < ?${memoryScopeSql}
+       ORDER BY datetime(updated_at), memory_id LIMIT ?`
+    ).all(cutoff, ...memoryScopeBinds, candidateLimit) as Array<{ memory_id: string }>).map(row => row.memory_id);
+    const refinementIds = (db.prepare(
+      `SELECT refinement_id FROM refinements
+       WHERE ((quality = 'handoff' AND state = 'done' AND updated_at < ?)
+          OR (quality IN ('good','bad') AND state = 'done' AND updated_at < ?))${refinementScopeSql}
+       ORDER BY datetime(updated_at), refinement_id LIMIT ?`
+    ).all(handoffCutoff, doneCutoff, ...refinementScopeBinds, candidateLimit) as Array<{ refinement_id: string }>).map(row => row.refinement_id);
+    const runIds = (db.prepare(
+      `SELECT run_id FROM task_runs
+       WHERE task_id IS NULL AND origin IN ('WORK','HOOK')
+         AND status IN ('SUCCESS','FAILED') AND updated_at < ?${memoryScopeSql}
+       ORDER BY datetime(updated_at), run_id LIMIT ?`
+    ).all(operationalCutoff, ...memoryScopeBinds, candidateLimit) as Array<{ run_id: string }>).map(row => row.run_id);
     return {
       ok: true,
       archived_memories: 0,
@@ -983,6 +1038,14 @@ export function digest(
       would_prune_locks: wouldPruneLocks,
       would_prune_refinements: wouldPruneRefinements,
       would_prune_runs: wouldPruneRuns,
+      candidate_limit: candidateLimit,
+      candidate_ids: {
+        expire_memory_ids: expireMemoryIds,
+        purge_memory_ids: purgeMemoryIds,
+        lock_ids: lockDryRun.lock_ids ?? [],
+        refinement_ids: refinementIds,
+        run_ids: runIds,
+      },
       ...pressureFields,
     };
   }
@@ -1016,10 +1079,11 @@ export function digest(
       expired_only: true,
     }).pruned_locks;
 
-    // 4. Prune old session handoffs and completed repo-fix refinements.
+    // 4. Prune only terminal session handoffs and completed repo-fix refinements.
+    // Open/ongoing handoffs remain until their owner consumes and closes them.
     pruneRefinementsRes = db.prepare(
       `DELETE FROM refinements
-       WHERE ((quality = 'handoff' AND updated_at < ?)
+       WHERE ((quality = 'handoff' AND state = 'done' AND updated_at < ?)
           OR (quality IN ('good','bad') AND state = 'done' AND updated_at < ?))${refinementScopeSql}`
     ).run(handoffCutoff, doneCutoff, ...refinementScopeBinds) as { changes: number };
 
@@ -1082,7 +1146,8 @@ export interface WorkspaceStatusResult {
   ready_tasks: number;
   in_progress_tasks: number;
   verify_tasks: number;
-  open_refinements: number;
+  actionable_refinements: number;
+  all_open_refinements: number;
   lock_count: number;
   locks: WorkspaceLockEntry[];
 }
@@ -1143,11 +1208,18 @@ export function getWorkspaceStatus(
     `SELECT COUNT(*) AS c FROM tasks t JOIN plans p ON p.plan_id = t.plan_id WHERE t.status = 'VERIFY'${planScope}`,
   ).get(...planScopeParams) as { c: number }).c;
 
-  const openRefinements = openRefinementCount(db, {
+  const actionableRefinements = openRefinementCount(db, {
     workspacePath: wsPath,
     artifact,
     repo: params.repo as string | undefined,
     cwd: params.cwd as string | undefined,
+  });
+  const allOpenRefinements = openRefinementCount(db, {
+    workspacePath: wsPath,
+    artifact,
+    repo: params.repo as string | undefined,
+    cwd: params.cwd as string | undefined,
+    includeHandoffs: true,
   });
 
   type LockRow = { file_path: string; agent_id: string; session_id: string | null; workspace_path: string | null; artifact: string | null; run_id: string; lock_type: string; acquired_at: string; expires_at: string | null };
@@ -1181,7 +1253,8 @@ export function getWorkspaceStatus(
     ready_tasks: readyTasks,
     in_progress_tasks: inProgressTasks,
     verify_tasks: verifyTasks,
-    open_refinements: openRefinements,
+    actionable_refinements: actionableRefinements,
+    all_open_refinements: allOpenRefinements,
     lock_count: lockCount,
     locks,
   };

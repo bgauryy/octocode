@@ -19,10 +19,11 @@ Plan narrative is authored; live task checklists are not.
 |---|---|---|
 | Inspect current work | `attend`, targeted `query`, `work list|show`, `verify audit`, `workspace status` | Reads live state; does not close work or prune rows. |
 | Plan and coordinate | `plan`, `task`, `work`, `lock`, `signal`, `refinement`, `verify mark` | Writes operational rows to SQLite. |
-| Learn across runs | `memory record`, `reflect record`, `memory record --supersedes` | Writes durable knowledge or routed follow-up. |
+| Learn across runs | `memory record`, `reflect record`, `memory record --supersedes` | Writes durable knowledge or immutable replacement history. |
+| Reversible cleanup | `memory archive --dry-run`, then archive/restore | Hides archived rows from active recall; restore never revives replacement history. |
 | Read learned context | `memory recall` | Reads memories and updates access metadata used by ranking. |
 | Mark communication read | `signal list --mark-read`, `signal ack` | Writes recipient/read state. Plain `signal list` does not. |
-| Clean stale state | digest/prune/forget/delete commands | Mutates only after an explicit reviewed call; dry-run first. Expiry cleanup is maintenance, not a status-read side effect. |
+| Clean stale state | digest/prune/forget/delete commands | Mutates only after an explicit reviewed call; dry-run first. Digest preserves open/ongoing handoffs and reports signal/reference pressure without deleting those rows. |
 | Author plan reasoning | `.octocode/plan/<timestamp-name>/`, then `plan doc` | Writes narrative; task status stays in SQLite. |
 | Publish a file snapshot | `repo inject` | Regenerates bounded projections; never becomes operational truth. |
 
@@ -47,6 +48,8 @@ safety probe found more rows but did not scan far enough to claim an exact total
 
 ```bash
 octocode-awareness repo inject --workspace "$PWD" --mode local --compact
+# If orphan_candidates are correct after review:
+octocode-awareness repo inject --workspace "$PWD" --mode local --prune-orphans --compact
 ```
 
 `local` is machine-local. `share` means the owner intends to review/commit the
@@ -61,7 +64,7 @@ Generated surfaces include:
 - `MEMORY.md`, `GOTCHAS.md`, `LEARN.md`, `BOOKMARKS.md`;
 - `DEVELOPER_REVIEW.md`;
 - sortable CSV and HTML views, 50 rows by default and at most 500 per section;
-- `awareness/manifest.json` with generation scope, completeness, and budgets;
+- `awareness/manifest.json` with generation scope, live-source revision, completeness, budgets, and retired-file cleanup receipts;
 - compact generated references.
 
 Active run files, locks, signals, and tasks remain live-query concerns; do not dump
@@ -77,7 +80,8 @@ them into every Markdown projection.
   is stale—not after every edit.
 
 Check `query files` before trusting file/bookmark references. Generated timestamps do
-not prove underlying files are current.
+not prove underlying files are current; `attend` compares the manifest source revision
+with live SQLite and routes stale snapshots back to `repo inject`.
 
 ## Root Discovery
 

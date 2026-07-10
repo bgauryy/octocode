@@ -22,7 +22,7 @@ Remote/package: package/repo search -> tree -> code search -> exact read -> hist
 Remote as local: directory fetch/clone -> local AST/LSP/search (bridge details: workflow-combination.md)
 PR intent: PR metadata/comments/selected patches -> exact changed paths -> history
 Dead code: research candidates -> returned graph query -> text+AST+LSP+tests
-Artifact: inspect/list/strings -> extract -> local research
+Artifact: localBinaryInspect inspect|list|strings -> extract|unpack bounded entry -> local tree/search/exact/LSP
 ```
 
 ## Cross-Pollination

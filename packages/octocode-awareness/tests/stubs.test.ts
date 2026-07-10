@@ -155,7 +155,7 @@ describe('digest dry_run', () => {
     const db = freshDb();
     const result = digest(db, { dry_run: true });
     expect(Object.keys(result).sort()).toEqual([
-      'archived_memories', 'dry_run', 'fts_rebuilt', 'ok', 'pressure_age_days',
+      'archived_memories', 'candidate_ids', 'candidate_limit', 'dry_run', 'fts_rebuilt', 'ok', 'pressure_age_days',
       'pressure_samples', 'pruned_locks', 'pruned_old', 'pruned_refinements', 'pruned_runs',
       'stale_missing_refs', 'stale_open_signals', 'stale_pending_runs',
       'would_archive', 'would_prune_locks', 'would_prune_old', 'would_prune_refinements', 'would_prune_runs',
@@ -166,6 +166,10 @@ describe('digest dry_run', () => {
       stale_open_signals: 0,
       stale_missing_refs: 0,
       pressure_samples: { run_ids: [], signal_ids: [], memory_ids: [] },
+      candidate_limit: 20,
+      candidate_ids: {
+        expire_memory_ids: [], purge_memory_ids: [], lock_ids: [], refinement_ids: [], run_ids: [],
+      },
     });
   });
 });
@@ -205,11 +209,12 @@ describe('digest', () => {
     const stale = db.prepare('SELECT memory_id FROM memories_fts WHERE memories_fts MATCH ?').get('stale') as Record<string, unknown> | undefined;
     expect(stale).toBeUndefined();
   });
-  it('prunes old handoffs and completed refinements while keeping active repo fixes', () => {
+  it('prunes terminal handoffs and completed refinements while keeping active repo fixes', () => {
     const db = freshDb();
     const old = new Date(Date.now() - 45 * 86400000).toISOString();
     const fresh = new Date().toISOString();
     const handoff = insertRefinement(db, { reasoning: 'handoff', remember: 'Review session handoff for agent', quality: 'handoff' }).refinementId;
+    updateRefinement(db, { refinementId: handoff, state: 'done', actorAgentId: 'tester', checkReceipt: 'handoff consumed' });
     const done = insertRefinement(db, { reasoning: 'done', remember: 'done fix', quality: 'bad', state: 'open' }).refinementId;
     updateRefinement(db, { refinementId: done, state: 'done', actorAgentId: 'tester', checkReceipt: 'fixture verified' });
     const active = insertRefinement(db, { reasoning: 'active', remember: 'active fix', quality: 'bad', state: 'open' }).refinementId;
@@ -256,7 +261,8 @@ describe('getWorkspaceStatus', () => {
     expect(typeof result.active_memories).toBe('number');
     expect(typeof result.pending_runs).toBe('number');
     expect(typeof result.active_runs).toBe('number');
-    expect(typeof result.open_refinements).toBe('number');
+    expect(typeof result.actionable_refinements).toBe('number');
+    expect(typeof result.all_open_refinements).toBe('number');
     expect(Array.isArray(result.locks)).toBe(true);
   });
 

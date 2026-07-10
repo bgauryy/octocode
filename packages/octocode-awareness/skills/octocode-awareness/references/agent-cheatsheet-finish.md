@@ -18,9 +18,9 @@ confirm this agent has no remaining debt:
 |---|---|
 | Verified outcome is reusable | `reflect record --outcome worked\|partial\|failed --lesson <lesson>`; route remaining work with `--fix-repo`, `--fix-harness`, or `--fix-instructions`. |
 | Work remains for another run | Publish a handoff signal, update the owning refinement, or run `session capture`. |
-| Workboard reports cleanup pressure | Run `maintenance digest --dry-run`; inspect IDs before prune/forget. |
+| Workboard reports cleanup pressure | Prefer `memory archive --dry-run` for reversible cleanup; run `maintenance digest --dry-run` and inspect before irreversible prune/forget. |
 | File references may be stale | Run `query files --format table --limit 50`; repair/supersede the owning rows. |
-| File readers need refreshed context | Run `repo inject --workspace "$PWD" --mode local --compact`; never hand-edit generated wiki files. |
+| File readers need refreshed context | Run `repo inject --workspace "$PWD" --mode local --compact`; review `orphan_candidates`, then add `--prune-orphans` to remove retired manifest-owned files. Never hand-edit generated wiki files. |
 | A human needs bulk inspection | Run `query all --format html --out .octocode/awareness/index.html`. |
 | Instructions caused a wrong turn | Run `reflect developer-review`; close the same feedback row after the instruction fix is verified. |
 

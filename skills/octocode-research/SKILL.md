@@ -9,7 +9,7 @@ Evidence-first technical research and code work: `SCOPE -> SEARCH -> READ EXACT 
 Octocode surfaces: LOCAL · EXTERNAL · FEDERATED. Check `context`, `auth status`, `lsp-server status <file>` before trusting a surface.
 
 ## Modes
-Investigate; Review PRs/diffs (`references/workflow-pr-review.md`); Change after evidence; Refactor structure/names/modules (`references/workflow-refactor.md`); Map/Validate prior art; Loop when evidence shifts.
+Investigate; Review PRs/diffs (`references/workflow-pr-review.md`); Change after evidence; Refactor structure/names/modules (`references/workflow-refactor.md`); Map/Validate prior art; Loop when evidence shifts (`references/loop-mode.md`).
 
 ## Rules
 1. State corpus, question, mode, and active/skipped surfaces in one line.

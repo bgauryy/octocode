@@ -64,6 +64,9 @@ function modeQuestion(testCase) {
   if (testCase.mode === 'Plan') {
     return 'Did the answer turn evidence into a bounded, reversible next step?';
   }
+  if (testCase.mode === 'Loop') {
+    return 'Did the answer iterate Act→Observe→Learn with a stop test instead of dumping a transcript?';
+  }
   return 'Did the answer investigate competing explanations before settling on a finding?';
 }
 
@@ -303,6 +306,37 @@ Cross-check: diffed lexical hits against LSP references across tests, scripts, a
 Exact evidence: packages/app/src/retry.ts:31 diverges from upstream lib/retry.js:44 (extra jitter branch); LSP references at packages/app/src/queue.ts:88.
 Confidence: likely
 Next: open a small PR removing the local copy only if the jitter branch stays unused after the cross-check.`,
+    'local-research': `Mode: Investigate
+Scope: this checkout only; active surfaces: local tree, local search, exact reads, LSP; skipped: GitHub (package behavior comes from the installed copy).
+Spine: localViewStructure on src/ → localFindFiles names formatDate* → localSearchCode discovery → exact read → lspGetSemantics references.
+node_modules: inspected node_modules/date-fns/package.json before any GitHub lookup — that is the version that runs.
+Exact evidence: src/utils/date.ts:14 defines formatDate; LSP callers at src/components/Header.tsx:27 and src/api/report.ts:9; structural import shape confirmed.
+Diffed lexical "formatDate" hits against LSP references before claiming impact.
+Confidence: confirmed
+Next: if behavior looks wrong, compare node_modules/date-fns against the lockfile pin, not upstream HEAD.`,
+    'external-research': `Mode: Investigate
+Scope: remote vitejs/vite; active surfaces: npmSearch, ghViewRepoStructure, ghGetFileContent, ghHistoryResearch; skipped: local clone until needed.
+Spine: npmSearch packageName:vite → ghViewRepoStructure packages/vite/src/node → ghSearchCode createServer (empty = provider blind spot, not absence) → verify path → ghGetFileContent exact read.
+Provider empty: GitHub code search returned no hits; treated as unindexed/provider evidence, verified path with structure, then exact-read — did not claim absence.
+Exact evidence: packages/vite/src/node/index.ts:48 exports createServer; packages/vite/src/node/cli.ts:216 calls createServer; resolvedBranch:main.
+History: ghHistoryResearch commits/PRs on packages/vite/src/node/cli.ts; recent PR #22912 touched related test wiring.
+Confidence: confirmed
+Next: materialize packages/vite/src/node only if AST/LSP on the CLI entry is required.`,
+    'loop-mode': `Mode: Loop
+Question: is export helpers dead? Evidence flipped between text hits and LSP.
+Act→Observe→Learn: cheap discovery first, then exact/LSP only on survivors.
+Ledger: hypotheses = (1) dead export, (2) dynamic import alternate; anchors carried forward exactly.
+Iteration 1 (cheap): localSearchCode discovery for helpers — status empty on path A; adjusted include, not treated as absence.
+Iteration 2: broader path returned hits; Observe distinguished empty vs error (no tool error).
+Iteration 3 (expensive): exact read packages/app/src/helpers.ts:12 + LSP references (includeDeclaration:false) — one dynamic import remained.
+Stop test: alternate killed when dynamic import confirmed; budget 3 decisive iterations; answer converged.
+Answer: not safe to delete — dynamic import remains.
+Evidence: packages/app/src/helpers.ts:12; packages/app/src/lazy.ts:40.
+Loop trace: discovery empty→scope fix; lexical hits; LSP+exact confirmed dynamic import.
+Verification: LSP references ran; final discovery for static imports returned 0.
+Open gaps: runtime-only require() strings not fully ruled out.
+Confidence: likely
+Next: one structural/regex pass for require(.*helpers) before delete.`,
   };
   return base[caseId] || '';
 }

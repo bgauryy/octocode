@@ -494,6 +494,145 @@
         { "name": "empty means absence", "pattern": "\\bempty result means absence\\b|\\bzero matches prove absence\\b" },
         { "name": "blanket delete without proof", "pattern": "\\bsafe to delete all\\b" }
       ]
+    },
+    {
+      "id": "local-research",
+      "mode": "Investigate",
+      "prompt": "Where is formatDate defined in this checkout, who calls it, and is the node_modules copy of date-fns the version that actually runs?",
+      "minScore": 0.8,
+      "minCitationCount": 2,
+      "required": [
+        { "name": "mode", "pattern": "\\bMode:\\s*Investigate\\b|\\bInvestigate mode\\b" },
+        { "name": "local surfaces", "pattern": "\\blocalViewStructure\\b|\\blocalFindFiles\\b|\\blocalSearchCode\\b|\\bactive surfaces\\b[\\s\\S]*\\blocal\\b" },
+        { "name": "node_modules before github", "pattern": "\\bnode_modules\\b" },
+        { "name": "exact evidence", "pattern": "[A-Za-z0-9_./-]+:\\d+" },
+        { "name": "lsp or structural", "pattern": "\\bLSP\\b|\\blspGetSemantics\\b|\\bstructural\\b|\\bdocumentSymbols\\b|\\breferences\\b|\\bcallers?\\b" },
+        { "name": "confidence", "pattern": "\\bConfidence:\\s*(confirmed|likely|uncertain)\\b" },
+        { "name": "next action", "pattern": "\\bNext:" }
+      ],
+      "binaryQuestions": [
+        {
+          "id": "orients-local-first",
+          "dimension": "method",
+          "question": "Does the answer start with local tree/find/search before any GitHub call?",
+          "passPattern": "\\b(localViewStructure|localFindFiles|localSearchCode)\\b[\\s\\S]*\\b(exact|LSP|references|callers?)\\b",
+          "failPattern": "\\bghSearch|\\bghViewRepo|\\bGitHub first\\b",
+          "failureSignature": "mechanism:local-research|cause:skipped-local-spine",
+          "suggestedLesson": "Local research should run localViewStructure/localFindFiles → localSearchCode → exact/LSP before leaving the checkout."
+        },
+        {
+          "id": "prefers-installed-package",
+          "dimension": "evidence",
+          "question": "Does the answer inspect node_modules (the running version) before trusting GitHub for package behavior?",
+          "passPattern": "\\bnode_modules\\b",
+          "failureSignature": "mechanism:local-research|cause:github-before-installed",
+          "suggestedLesson": "For package behavior, inspect node_modules/<pkg> before GitHub — it is the version that runs."
+        },
+        {
+          "id": "diffs-text-vs-lsp",
+          "dimension": "evidence",
+          "question": "Does the answer use LSP/structural identity (or explicitly diff lexical hits vs LSP) for callers/impact?",
+          "passPattern": "\\bLSP\\b|\\blspGetSemantics\\b|\\bstructural\\b|\\breferences\\b|\\bcallers?\\b",
+          "failureSignature": "mechanism:local-research|cause:lexical-only-impact",
+          "suggestedLesson": "Diff broad text hits against LSP before claiming unused/only/safe on local code."
+        }
+      ],
+      "forbidden": [
+        { "name": "empty means absence", "pattern": "\\bempty result means absence\\b|\\bzero matches prove absence\\b" },
+        { "name": "github-only package proof", "pattern": "\\bGitHub alone proves the installed version\\b" }
+      ]
+    },
+    {
+      "id": "external-research",
+      "mode": "Investigate",
+      "prompt": "How does vitejs/vite wire createServer in the published repo, and what recent PR touched the CLI entry?",
+      "minScore": 0.8,
+      "minCitationCount": 2,
+      "required": [
+        { "name": "mode", "pattern": "\\bMode:\\s*Investigate\\b|\\bInvestigate mode\\b" },
+        { "name": "discovery", "pattern": "\\bnpmSearch\\b|\\bghSearchRepos\\b|\\bghViewRepoStructure\\b" },
+        { "name": "code or exact", "pattern": "\\bghSearchCode\\b|\\bghGetFileContent\\b|\\bexact(?:-read| read)\\b|[A-Za-z0-9_./-]+:\\d+" },
+        { "name": "history", "pattern": "\\bghHistoryResearch\\b|\\bPR\\b|\\bcommit\\b" },
+        { "name": "resolved branch", "pattern": "\\bresolvedBranch\\b|\\bdefault branch\\b|\\bmain\\b|\\bcanary\\b|\\bmaster\\b" },
+        { "name": "confidence", "pattern": "\\bConfidence:\\s*(confirmed|likely|uncertain)\\b" },
+        { "name": "next action", "pattern": "\\bNext:" }
+      ],
+      "binaryQuestions": [
+        {
+          "id": "follows-external-spine",
+          "dimension": "method",
+          "question": "Does the answer follow discovery → structure → code/exact → history (not jump straight to a guessed path)?",
+          "passPattern": "(\\bnpmSearch\\b|\\bghSearchRepos\\b|\\bghViewRepoStructure\\b)[\\s\\S]*(\\bghSearchCode\\b|\\bghGetFileContent\\b|exact)[\\s\\S]*(\\bghHistoryResearch\\b|\\bPR\\b|\\bcommit\\b)",
+          "failureSignature": "mechanism:external-research|cause:skipped-external-spine",
+          "suggestedLesson": "External research should run npmSearch/ghSearchRepos → ghViewRepoStructure → ghSearchCode/ghGetFileContent → ghHistoryResearch."
+        },
+        {
+          "id": "treats-empty-as-provider",
+          "dimension": "evidence",
+          "question": "Does the answer treat GitHub search zeros as provider evidence (not absence) and mention verify/materialize?",
+          "passPattern": "\\bprovider\\b|\\bunindexed\\b|\\bmateriali|\\bnot absence\\b|\\bverify path\\b|\\bblind spot\\b",
+          "failureSignature": "mechanism:external-research|cause:empty-as-absence",
+          "suggestedLesson": "GitHub search zeros are provider evidence, not absence — verify path/ref, then materialize before strong negative claims."
+        },
+        {
+          "id": "cites-resolved-ref",
+          "dimension": "evidence",
+          "question": "Does the answer track the resolved branch/ref that was actually read?",
+          "passPattern": "\\bresolvedBranch\\b|\\bdefault branch\\b|\\bon (main|master|canary)\\b",
+          "failureSignature": "mechanism:external-research|cause:no-resolved-ref",
+          "suggestedLesson": "Cite resolvedBranch/ref; a fallback branch changes what was actually researched."
+        }
+      ],
+      "forbidden": [
+        { "name": "empty means absence", "pattern": "\\bempty result means absence\\b|\\bzero matches prove absence\\b" }
+      ]
+    },
+    {
+      "id": "loop-mode",
+      "mode": "Loop",
+      "prompt": "Keep going until you can confirm whether export helpers is dead code — evidence keeps flipping between text hits and LSP.",
+      "minScore": 0.8,
+      "minCitationCount": 2,
+      "required": [
+        { "name": "loop mode", "pattern": "\\bMode:\\s*Loop\\b|\\bLoop mode\\b" },
+        { "name": "act observe learn", "pattern": "\\bAct\\b[\\s\\S]*\\bObserve\\b|\\bAct→Observe→Learn\\b|\\biteration\\b" },
+        { "name": "ledger or hypotheses", "pattern": "\\bledger\\b|\\bhypothes(?:is|es)\\b|\\balternate\\b" },
+        { "name": "stop test", "pattern": "\\bstop test\\b|\\bconverge\\b|\\bbudget\\b" },
+        { "name": "loop trace", "pattern": "\\bLoop trace\\b|\\bdecisive iteration" },
+        { "name": "exact evidence", "pattern": "[A-Za-z0-9_./-]+:\\d+" },
+        { "name": "confidence", "pattern": "\\bConfidence:\\s*(confirmed|likely|uncertain)\\b" },
+        { "name": "next or gaps", "pattern": "\\bNext:|\\bOpen gaps\\b" }
+      ],
+      "binaryQuestions": [
+        {
+          "id": "iterates-cheap-first",
+          "dimension": "method",
+          "question": "Does the answer show cheap discovery iterations before expensive exact/LSP/clone steps?",
+          "passPattern": "\\b(discovery|path|concise|symbols)\\b[\\s\\S]*\\b(exact|LSP|clone|AST)\\b|\\bcheap\\b[\\s\\S]*\\b(exact|LSP|clone)\\b",
+          "failureSignature": "mechanism:loop-mode|cause:expensive-first",
+          "suggestedLesson": "Loop mode should Act with the cheapest call that can change the answer; spend exact/LSP/clone only on surviving leads."
+        },
+        {
+          "id": "observes-empty-vs-error",
+          "dimension": "evidence",
+          "question": "Does the answer distinguish empty (ran, no match) from error (broken call) when observing results?",
+          "passPattern": "\\bempty\\b[\\s\\S]*\\berror\\b|\\berror\\b[\\s\\S]*\\bempty\\b|\\bnot absence\\b|\\bstatus\\b",
+          "failureSignature": "mechanism:loop-mode|cause:empty-error-conflated",
+          "suggestedLesson": "Observe status first: empty = adjust one variable; error = fix the call — never read either as settled absence."
+        },
+        {
+          "id": "stops-on-test",
+          "dimension": "decision",
+          "question": "Does the answer state an explicit stop test and end with answer/evidence/loop trace rather than a full transcript?",
+          "passPattern": "(\\bstop test\\b|\\bconverge\\b|\\bbudget\\b)[\\s\\S]*(\\bLoop trace\\b|\\bdecisive iteration)",
+          "failureSignature": "mechanism:loop-mode|cause:no-stop-test",
+          "suggestedLesson": "Stop when the framed question is answered, the alternate is killed, or the budget is hit — report Loop trace of decisive iterations only."
+        }
+      ],
+      "forbidden": [
+        { "name": "empty means absence", "pattern": "\\bempty result means absence\\b|\\bzero matches prove absence\\b" },
+        { "name": "full transcript dump", "pattern": "\\bfull transcript\\b|\\bevery tool call listed\\b" }
+      ]
     }
   ]
 }

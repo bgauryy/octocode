@@ -14,7 +14,7 @@ import { fileURLToPath } from 'node:url';
 import {
   connectDb, initDb, hasFts, resolveDbPath,
 } from '../src/db.js';
-import { insertMemory, insertMemoryWithSimilarityGate, getMemory, mineWeakness, forgetMemory, storeEmbedding, searchByEmbedding, bumpAccess } from '../src/memory.js';
+import { insertMemory, insertMemoryWithSimilarityGate, getMemory, mineWeakness, forgetMemory, archiveMemories, restoreMemories, storeEmbedding, searchByEmbedding, bumpAccess } from '../src/memory.js';
 import { resolveEmbedCommand, runHostEmbedder } from '../src/embed-host.js';
 import { mineDocStaleness, proposeDocRefresh } from '../src/docs.js';
 import { listSkillDocs, showSkillDoc } from '../src/docs-catalog.js';
@@ -118,6 +118,11 @@ const NUMERIC_FLAGS = new Set([
   'pressure_age_days',
   'priority', 'lease_minutes',
 ]);
+const RETENTION_DAY_FLAGS = new Set([
+  'retention_days', 'refinement_handoff_retention_days',
+  'refinement_done_retention_days', 'operational_retention_days',
+  'pressure_age_days',
+]);
 // Only these flags may use the `--no-*` spelling. Treating every `--no-*`
 // token as false let required scalar values such as `--agent-id` and
 // `--task-context` evade validation.
@@ -128,7 +133,7 @@ const BOOLEAN_FLAGS = new Set([
   'include_bodies', 'explain_organ', 'check', 'include_view', 'all',
   'unread_only', 'mark_read', 'resolved', 'global', 'strict', 'remove',
   'exclusive', 'next', 'duo', 'examples',
-  'allow_similar',
+  'allow_similar', 'prune_orphans',
 ]);
 // Flags that must carry a value. Catches value-swallow like `--query --smart`,
 // which parseArgs would otherwise read as query=true (searching the literal
@@ -145,13 +150,15 @@ const VALUE_REQUIRED_FLAGS = new Set([
   'format', 'view', 'action', 'kind', 'label', 'tag', 'reference', 'state',
   'sort', 'as_of', 'cwd', 'created_by', 'depends_on', 'failure_signature',
   'valid_from', 'valid_to', 'outcome', 'quality', 'reason', 'targets_json',
-  'origin',
-  'export_doc', 'agent_name', 'context', 'before', 'importance', 'check_receipt',
+  'origin', 'supersedes', 'regex', 'file_regex', 'tags',
+  'agent_name', 'context', 'before', 'importance', 'check_receipt',
 ]);
 const KNOWN_FLAGS: Record<string, string[]> = {
   'tell-memory': ['agent_id', 'task_context', 'observation', 'importance', 'label', 'tag', 'reference', 'supersedes', 'failure_signature', 'valid_from', 'valid_to', 'workspace', 'artifact', 'repo', 'ref', 'file', 'file_tree_fingerprint', 'allow_similar'],
   'get-memory': ['query', 'limit', 'min_importance', 'label', 'tag', 'smart', 'workspace', 'artifact', 'repo', 'ref', 'state', 'sort', 'global_only', 'strict_scope', 'as_of', 'reference', 'regex', 'file_regex', 'file', 'explain', 'semantic', 'full'],
   'forget': ['memory_id', 'tag', 'tags', 'before', 'max_importance', 'workspace', 'artifact', 'repo', 'ref', 'dry_run'],
+  'memory-archive': ['memory_id', 'workspace', 'artifact', 'repo', 'ref', 'dry_run'],
+  'memory-restore': ['memory_id', 'workspace', 'artifact', 'repo', 'ref', 'dry_run'],
   'reflect': ['agent_id', 'task', 'outcome', 'lesson', 'worked', 'didnt_work', 'fix_repo', 'fix_file', 'fix_harness', 'fix_instructions', 'failure_signature', 'importance', 'judgment_note', 'duo', 'eval_failure_json', 'workspace', 'artifact', 'repo', 'ref', 'allow_similar'],
   'refine-set': ['agent_id', 'reasoning', 'remember', 'quality', 'state', 'workspace', 'artifact', 'repo', 'ref', 'file', 'refinement_id', 'check_receipt'],
   'refine-get': ['workspace', 'artifact', 'repo', 'ref', 'quality', 'include_handoffs', 'state', 'limit'],
@@ -171,7 +178,7 @@ const KNOWN_FLAGS: Record<string, string[]> = {
   'developer-review': ['workspace', 'artifact', 'repo', 'ref', 'state', 'limit', 'format', 'query'],
   'query': ['view', 'query', 'limit', 'format', 'out', 'workspace', 'artifact', 'repo', 'ref', 'agent_id', 'state', 'label', 'file', 'since', 'include_bodies'],
   'attend': ['agent_id', 'query', 'limit', 'workspace', 'artifact', 'repo', 'ref', 'file', 'include_bodies', 'explain_organ'],
-  'repo-inject': ['query', 'limit', 'out', 'out_dir', 'workspace', 'artifact', 'repo', 'ref', 'mode', 'check', 'include_view'],
+  'repo-inject': ['query', 'limit', 'out', 'out_dir', 'workspace', 'artifact', 'repo', 'ref', 'mode', 'check', 'include_view', 'prune_orphans'],
   'agent-registry': ['action', 'agent_id', 'agent_name', 'workspace', 'artifact', 'context', 'limit'],
   'agent-signal': ['action', 'agent_id', 'workspace', 'artifact', 'repo', 'ref', 'kind', 'subject', 'body', 'to_agent', 'file', 'ref_id', 'importance', 'in_reply_to', 'thread_id', 'signal_id', 'all', 'unread_only', 'mark_read', 'limit', 'include_bodies', 'format'],
   'notify-prune': ['agent_id', 'signal_id', 'resolved', 'older_than_days', 'dry_run', 'workspace', 'artifact'],
@@ -208,6 +215,9 @@ function validateFlagValues(args: ParsedArgs): void {
       const n = typeof value === 'string' ? Number(value) : NaN;
       if (value === true || !Number.isInteger(n)) {
         die(`--${key.replace(/_/g, '-')} expects an integer`, { got: value === true ? 'flag with no value' : String(value) });
+      }
+      if (RETENTION_DAY_FLAGS.has(key) && (n < 1 || n > 3650)) {
+        die(`--${key.replace(/_/g, '-')} must be in 1..3650`, { got: n });
       }
     } else if (VALUE_REQUIRED_FLAGS.has(key) && value === true) {
       die(`--${key.replace(/_/g, '-')} expects a value (it was followed by another flag)`);
@@ -257,6 +267,8 @@ const COMMAND_ROUTES: Record<string, CommandRoute> = {
   'memory record': { command: 'tell-memory' },
   'memory recall': { command: 'get-memory' },
   'memory forget': { command: 'forget' },
+  'memory archive': { command: 'memory-archive' },
+  'memory restore': { command: 'memory-restore' },
   'workspace status': { command: 'status' },
   'lock acquire': { command: 'pre-flight-intent' },
   'lock release': { command: 'release-file-lock' },
@@ -1295,6 +1307,30 @@ function cmdForget(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts: Emi
   return emit({ db_path: dbPath, ...result }, 0, opts);
 }
 
+function cmdMemoryLifecycle(
+  db: DatabaseSync,
+  args: ParsedArgs,
+  dbPath: string,
+  opts: EmitOptions,
+  action: 'archive' | 'restore',
+): number {
+  const rawIds = args['memory_id'];
+  const memoryIds = Array.isArray(rawIds) ? rawIds.map(String) : rawIds ? [String(rawIds)] : [];
+  if (memoryIds.length === 0) die('--memory-id is required');
+  const params = {
+    memoryIds,
+    workspacePath: args['workspace'] ? String(args['workspace']) : null,
+    artifact: args['artifact'] ? String(args['artifact']) : null,
+    repo: args['repo'] ? String(args['repo']) : null,
+    ref: args['ref'] ? String(args['ref']) : null,
+    dryRun: Boolean(args['dry_run']),
+  };
+  const result = action === 'archive'
+    ? archiveMemories(db, params)
+    : restoreMemories(db, params);
+  return emit({ db_path: dbPath, ...result }, 0, opts);
+}
+
 function cmdRefineDelete(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts: EmitOptions): number {
   const rawIds = args['refinement_id'];
   const refinementIds = Array.isArray(rawIds) ? rawIds : rawIds ? [String(rawIds)] : [];
@@ -1407,6 +1443,7 @@ function cmdRepoInject(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts:
     outDir: outDir ? String(outDir) : undefined,
     mode: args['mode'] ? String(args['mode']) : undefined,
     includeView: flagBool(args['include_view']),
+    pruneOrphans: flagBool(args['prune_orphans']),
     check: flagBool(args['check']),
   });
   return emit({ db_path: dbPath, ...result }, 0, opts);
@@ -1756,7 +1793,7 @@ COMMAND SURFACES:
   planning:  plan create|list|show|join|doc|status; task create|list|ready|show|claim|heartbeat|submit|release|depend
   edit:      work start|touch|end|list|show; lock acquire, lock wait, lock release, lock prune; verify mark, verify audit
   messages:  signal publish, signal list, signal reply, signal ack, signal resolve, signal prune, agent register, agent list
-  learning:  memory record, memory forget, refinement set, refinement get, refinement delete, reflect record, reflect mine-weakness, reflect export-harness, reflect developer-review, docs list, docs show, docs staleness
+  learning:  memory record, memory archive, memory restore, memory forget, refinement set, refinement get, refinement delete, reflect record, reflect mine-weakness, reflect export-harness, reflect developer-review, docs list, docs show, docs staleness
   repo:      query files|workboard|all|developer-review [--format json|table|csv|markdown|html], repo inject
   hooks:     hook run <pre-edit|post-edit|harness-guard|stop-verify|notify-deliver|session-end>, hooks install|check|remove --host claude|codex|cursor
   utility:   session capture, maintenance init, maintenance self-test, maintenance digest
@@ -1787,13 +1824,15 @@ bundled-skills: ${BUNDLED_SKILLS_DIR}/octocode-awareness | ${BUNDLED_SKILLS_DIR}
 start: attend; workspace status; plan create|list|show|join|doc|status; task create|list|ready|show|claim|heartbeat|submit|release|depend; memory recall; signal list; docs list
 edit: work start|touch|end|list|show; lock acquire|wait|release|prune; verify audit|mark
 msg: signal publish|list|reply|ack|resolve|prune; agent register|list
-learn: memory record|forget; refinement set|get|delete; reflect record|mine-weakness|export-harness|developer-review; maintenance digest
+learn: memory record|archive|restore|forget; refinement set|get|delete; reflect record|mine-weakness|export-harness|developer-review; maintenance digest
 repo: query files|workboard|all|developer-review --format json|table|csv|markdown|html; repo inject
 inspect: schema commands --compact; docs list|show; <command> --help; exits 0 ok / 1 validation|verify debt / 2 lock|wait|hooks --strict`;
 
 const COMMAND_TO_SCHEMA: Record<string, string> = {
   'tell-memory': 'tell_memory',
   'get-memory': 'get_memory',
+  'memory-archive': 'memory_lifecycle',
+  'memory-restore': 'memory_lifecycle',
   'pre-flight-intent': 'pre_flight_intent',
   'wait-for-lock': 'wait_for_lock',
   'prune-stale-locks': 'prune_stale_locks',
@@ -1826,6 +1865,8 @@ const COMMAND_TO_SCHEMA: Record<string, string> = {
 const COMMAND_DISPLAY: Record<string, string> = {
   'tell-memory': 'memory record',
   'get-memory': 'memory recall',
+  'memory-archive': 'memory archive',
+  'memory-restore': 'memory restore',
   'forget': 'memory forget',
   'pre-flight-intent': 'lock acquire',
   'wait-for-lock': 'lock wait',
@@ -1864,6 +1905,8 @@ const COMMAND_DISPLAY: Record<string, string> = {
 const COMMAND_EXAMPLE: Record<string, string> = {
   'tell-memory': 'octocode-awareness memory record --agent-id agent --task-context "build failure" --observation "Run yarn build before tests" --importance 7 --label GOTCHA --workspace "$PWD" --compact',
   'get-memory': 'octocode-awareness memory recall --query "current task" --workspace "$PWD" --smart --compact',
+  'memory-archive': 'octocode-awareness memory archive --memory-id mem_123 --dry-run --compact',
+  'memory-restore': 'octocode-awareness memory restore --memory-id mem_123 --dry-run --compact',
   'forget': 'octocode-awareness memory forget --memory-id mem_123 --dry-run --compact',
   'pre-flight-intent': 'octocode-awareness lock acquire --agent-id agent --target-file src/file.ts --rationale "edit file" --test-plan "yarn test" --compact',
   'wait-for-lock': 'octocode-awareness lock wait --agent-id agent --target-file src/file.ts --wait-seconds 60 --compact',
@@ -1956,9 +1999,12 @@ const REMOVED_COMMAND_REPLACEMENTS: Record<string, string> = {
 };
 
 const COMMAND_HELP: Record<string, string> = {
-  'tell-memory': `usage: octocode-awareness memory record --agent-id <id> --task-context <text> --observation <text> --importance <1-10> [--label <l>] [--tag <t>]... [--reference <r>]... [--file <p>]...
+  'tell-memory': `usage: octocode-awareness memory record --agent-id <id> --task-context <text> --observation <text> --importance <1-10> [--label <l>] [--tag <t>]... [--reference <r>]... [--file <p>]... [--supersedes <id>]... [--allow-similar]
+scope: [--workspace <p>] [--artifact <a>] [--repo <r>] [--ref <r>]
+lifecycle: [--valid-from <iso>] [--valid-to <iso>] [--failure-signature <key>]
 example: octocode-awareness memory record --agent-id agent --task-context "build failure" --observation "Run yarn build before tests" --importance 7 --label GOTCHA --workspace "$PWD" --compact
 note: unknown --label values hard-error
+note: --supersedes atomically records a replacement and preserves the replaced row as history
 schema: octocode-awareness schema json-schema tell_memory --compact`,
   'get-memory': `usage: octocode-awareness memory recall [options]
 filters: [--query <text>] [--limit <n>] [--min-importance <n>] [--label <l>]... [--tag <t>]... [--reference <r>]... [--file <p>]... [--regex <r>]... [--file-regex <r>]...
@@ -1967,6 +2013,26 @@ rank: [--smart] [--sort smart|score|importance|recent|accessed] [--state ACTIVE|
 output: lean/truncated by default; --full restores full memory rows
 example: octocode-awareness memory recall --query "current task" --workspace "$PWD" --smart --compact
 schema: octocode-awareness schema json-schema get_memory --compact`,
+  'memory-archive': `usage: octocode-awareness memory archive --memory-id <id>... [--workspace <p>] [--artifact <a>] [--repo <r>] [--ref <r>] [--dry-run]
+example: octocode-awareness memory archive --memory-id mem_123 --dry-run --compact
+note: reversible archive hides ACTIVE recall while preserving the row; preview first
+schema: octocode-awareness schema json-schema memory_lifecycle --compact`,
+  'memory-restore': `usage: octocode-awareness memory restore --memory-id <id>... [--workspace <p>] [--artifact <a>] [--repo <r>] [--ref <r>] [--dry-run]
+example: octocode-awareness memory restore --memory-id mem_123 --dry-run --compact
+note: restores archived rows only; replacement history with superseded_by is never revived
+schema: octocode-awareness schema json-schema memory_lifecycle --compact`,
+  'forget': `usage: octocode-awareness memory forget (--memory-id <id>... | --tag <t>... | --before <iso> | --max-importance <n>) [--workspace <p>] [--dry-run]
+example: octocode-awareness memory forget --memory-id mem_123 --dry-run --compact
+note: hard deletion is irreversible; prefer archive for reversible cleanup and always preview broad selectors
+schema: octocode-awareness schema json-schema forget_memory --compact`,
+  'refine-delete': `usage: octocode-awareness refinement delete --refinement-id <id>... [--workspace <p>] [--artifact <a>] [--dry-run]
+example: octocode-awareness refinement delete --refinement-id ref_123 --dry-run --compact
+note: hard deletion is irreversible; close completed work with refinement set --state done instead
+schema: octocode-awareness schema json-schema refine_delete --compact`,
+  'digest': `usage: octocode-awareness maintenance digest [--dry-run] [--retention-days <1..3650>] [--refinement-handoff-retention-days <1..3650>] [--refinement-done-retention-days <1..3650>] [--operational-retention-days <1..3650>] [--pressure-age-days <1..3650>]
+example: octocode-awareness maintenance digest --dry-run --workspace "$PWD" --compact
+note: expires ACTIVE memories, purges old SUPERSEDED rows, expired locks, terminal refinements, and terminal standalone runs; reports signal/reference pressure but never prunes signals
+schema: octocode-awareness schema json-schema digest --compact`,
   'pre-flight-intent': `usage: octocode-awareness lock acquire --agent-id <id> --target-file <p>... [--run-id <claimed-run>] [--workspace <p>] [--artifact <a>] [--rationale <t>] [--test-plan <t>] [--ttl-minutes <n>] [--wait-seconds <n>]
 example: octocode-awareness lock acquire --agent-id agent --target-file src/file.ts --rationale "edit file" --test-plan "yarn test" --compact
 note: lock acquire is exclusive protection for sensitive work; ordinary work uses work start
@@ -2290,6 +2356,8 @@ try {
     }
     case 'work-command':    exitCode = cmdWork(db, args, dbPath, opts); break;
     case 'forget':          exitCode = cmdForget(db, args, dbPath, opts); break;
+    case 'memory-archive':  exitCode = cmdMemoryLifecycle(db, args, dbPath, opts, 'archive'); break;
+    case 'memory-restore':  exitCode = cmdMemoryLifecycle(db, args, dbPath, opts, 'restore'); break;
     case 'refine-delete':   exitCode = cmdRefineDelete(db, args, dbPath, opts); break;
     case 'export-harness':  exitCode = cmdExportHarness(db, args, dbPath, opts); break;
     case 'developer-review': exitCode = cmdDeveloperReview(db, args, dbPath, opts); break;

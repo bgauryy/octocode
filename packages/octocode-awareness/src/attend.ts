@@ -7,7 +7,7 @@ import { join, resolve } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { AWARENESS_SCHEMA_VERSION } from './db.js';
 import { getMemory } from './memory.js';
-import { queryAwareness, type AwarenessQueryRow } from './repo-context.js';
+import { projectionSourceRevision, queryAwareness, type AwarenessQueryRow } from './repo-context.js';
 
 export interface AttendParams {
   agentId?: string | null;
@@ -191,13 +191,18 @@ function projectionStats(workspacePath: string): Array<{ file: string; lines: nu
   });
 }
 
-function manifestWarnings(workspacePath: string, stats: Array<{ file: string; mtime_ms: number | null }>): string[] {
+function manifestWarnings(
+  workspacePath: string,
+  stats: Array<{ file: string; mtime_ms: number | null }>,
+  liveSourceRevision: string,
+): string[] {
   const manifestPath = join(workspacePath, '.octocode', 'awareness', 'manifest.json');
   if (!existsSync(manifestPath)) return ['.octocode/awareness/manifest.json missing; run repo inject when projection context is needed'];
   try {
     const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as {
       generated_at?: string;
       files?: string[];
+      source?: { revision?: string };
       budgets?: { markdown?: Record<string, { within_budget?: boolean }> };
     };
     const warnings: string[] = [];
@@ -208,6 +213,11 @@ function manifestWarnings(workspacePath: string, stats: Array<{ file: string; mt
     const markdownBudgets = manifest.budgets?.markdown ?? {};
     for (const [file, budget] of Object.entries(markdownBudgets)) {
       if (budget.within_budget === false) warnings.push(`manifest budget exceeded for ${file}`);
+    }
+    if (!manifest.source?.revision) {
+      warnings.push('manifest missing source revision; regenerate repo projection');
+    } else if (manifest.source.revision !== liveSourceRevision) {
+      warnings.push('manifest source revision differs from live SQLite; regenerate repo projection');
     }
     if (manifest.generated_at) {
       const generatedMs = new Date(manifest.generated_at).getTime();
@@ -221,7 +231,11 @@ function manifestWarnings(workspacePath: string, stats: Array<{ file: string; mt
   }
 }
 
-function projectionWarnings(workspacePath: string, stats: Array<{ file: string; lines: number | null; mtime_ms: number | null }>): string[] {
+function projectionWarnings(
+  workspacePath: string,
+  stats: Array<{ file: string; lines: number | null; mtime_ms: number | null }>,
+  liveSourceRevision: string,
+): string[] {
   const budgets: Record<string, number> = {
     '.octocode/AGENTS.md': 80,
     '.octocode/MEMORY.md': 200,
@@ -235,7 +249,7 @@ function projectionWarnings(workspacePath: string, stats: Array<{ file: string; 
     if (budget != null && stat.lines > budget) return [`${stat.file} has ${stat.lines} lines over budget ${budget}`];
     return [];
   });
-  return [...markdownWarnings, ...manifestWarnings(workspacePath, stats)];
+  return [...markdownWarnings, ...manifestWarnings(workspacePath, stats, liveSourceRevision)];
 }
 
 function evidenceTrust(references: string[], workspacePath: string): AttendEvidence['trust'] {
@@ -335,7 +349,14 @@ export function attendAwareness(db: DatabaseSync, params: AttendParams = {}): At
   const readyTasks = rawWorkboard['Ready'] ?? [];
   const claimedTasks = (rawWorkboard['Claimed'] ?? []).filter(row => row['item_type'] === 'task');
   const projectionHealth = projectionStats(workspacePath);
-  const bloatWarnings = projectionWarnings(workspacePath, projectionHealth);
+  const liveSourceRevision = projectionSourceRevision(db, {
+    workspacePath,
+    artifact: scope.artifact,
+    repo: scope.repo,
+    ref: scope.ref,
+    limit: 500,
+  });
+  const bloatWarnings = projectionWarnings(workspacePath, projectionHealth, liveSourceRevision);
   const outputBloatWarnings = compact
     ? bloatWarnings.map(warning => warning
       .replace(/\.octocode\//g, '')
@@ -446,7 +467,8 @@ export function attendAwareness(db: DatabaseSync, params: AttendParams = {}): At
     bridge: {
       inbox: workboard['Inbox']?.length ?? 0,
       handoffs: handoffRows.length,
-      open_refinements: profile['open_refinements'] ?? 0,
+      actionable_refinements: profile['actionable_refinements'] ?? 0,
+      all_open_refinements: profile['all_open_refinements'] ?? 0,
       open_signals: profile['open_signals'] ?? 0,
       plans: profile['plans'] ?? 0,
       tasks: profile['tasks'] ?? 0,

@@ -35,13 +35,15 @@ A hit is a lead. Current user instructions, source, tests, and fresh command out
 
 Record only a scoped, reusable, evidence-backed lesson, decision, gotcha, or source lead. Routine status belongs in tasks/signals/refinements, not memory.
 
-If new evidence corrects an active row, use `memory record --supersedes <id>` so the old row becomes `SUPERSEDED`. Use `memory forget --dry-run` for stale rows that should be deleted; keep raw IDs and scope narrow.
+If new evidence corrects an active row, use `memory record --supersedes <id>`; replacement history stays immutable.
+For reversible cleanup, preview/apply `memory archive`; `memory restore` revives only archived rows, never rows carrying `superseded_by`.
+Reserve `memory forget --dry-run` plus apply for reviewed irreversible deletion; keep raw IDs and scope narrow.
 
 ## Closure
 
 - Zero results mean broaden vocabulary/filtering or use `--smart`; they do not prove absence.
 - A low-confidence result with `judgment_required` needs more evidence before use.
 - After using a memory, verify the claim in current context.
-- When the claim changes, supersede/forget it and regenerate projections only if future readers need the update in files.
+- When the claim changes, supersede/archive it; forget only after review. Regenerate projections only if file readers need the update.
 
 Use recall to inform the plan; proof comes from current artifacts and checks.

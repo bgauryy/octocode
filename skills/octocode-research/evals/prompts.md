@@ -61,3 +61,21 @@ Pass criteria: chooses Review; collects scope via `git status`/`git diff --stage
 Prompt: `Our retry helper may have diverged from the upstream library we vendored it from. Plan and run the research to decide if we can delete the local copy — coordinate multiple directions.`
 
 Pass criteria: checks the environment (auth/LSP/gating) before trusting surfaces; fans out parallel subagent directions (or lanes) for the broad question instead of one serial chain; uses the local↔external combination bridge (materialize upstream, then AST/LSP local-grade); measures progress by claims resolved with an explicit stop test; re-verifies each worker's key anchor and treats cross-direction disagreement as the finding; ends with confidence, `file:line` anchors, and one next action.
+
+## Eval 10 — Local Research
+
+Prompt: `Where is formatDate defined in this checkout, who calls it, and is the node_modules copy of date-fns the version that actually runs?`
+
+Pass criteria: chooses Investigate; runs the local spine (tree/find → search → exact → LSP/structural); inspects `node_modules` before GitHub for package behavior; diffs lexical hits vs LSP for impact; cites `file:line`; ends with confidence and next.
+
+## Eval 11 — External Research
+
+Prompt: `How does vitejs/vite wire createServer in the published repo, and what recent PR touched the CLI entry?`
+
+Pass criteria: chooses Investigate; follows discovery → structure → code/exact → history; treats GitHub search zeros as provider evidence (verify/materialize, not absence); cites `resolvedBranch`/ref; ends with confidence and next.
+
+## Eval 12 — Loop Mode
+
+Prompt: `Keep going until you can confirm whether export helpers is dead code — evidence keeps flipping between text hits and LSP.`
+
+Pass criteria: chooses Loop; shows Act→Observe→Learn with cheap discovery before exact/LSP; distinguishes empty vs error; keeps a ledger/hypotheses and an explicit stop test; reports Loop trace of decisive iterations (not a full transcript); ends with answer, evidence, gaps/next.

@@ -105,12 +105,12 @@ export const LocalBinaryInspectBulkQuerySchema = createRelaxedBulkQuerySchema(
 // Output schema — describes what localBinaryInspect returns per mode.
 //
 // Mode-specific data shapes:
-//   inspect  → binary metadata (format, size, sections, symbols)
-//   list     → archive entries with item pagination
-//   extract  → text content with char pagination
-//   decompress → text content with char pagination
-//   strings  → extracted strings with scan offset
-//   unpack   → localPath to unpacked directory
+//   inspect  → binary metadata (format, size, sections, symbols) — NATIVE
+//   strings  → extracted strings with scan offset — NATIVE
+//   list     → archive entries with item pagination — shell (unzip/tar/7z)
+//   extract  → text content with char pagination — shell
+//   decompress → text content with char pagination — shell (zcat/xzcat/…)
+//   unpack   → localPath to unpacked directory — shell
 // ---------------------------------------------------------------------------
 
 // inspect mode
@@ -172,6 +172,7 @@ const BinaryContentDataSchema = z.object({
   content: z.string().optional(),
   isPartial: z.boolean().optional(),
   pagination: CharPaginationSchema.optional(),
+  next: z.record(z.string(), ToolContinuationSchema).optional(),
   warnings: z.array(z.string()).optional(),
 });
 
@@ -193,6 +194,7 @@ const BinaryStringsDataSchema = z.object({
   totalFound: z.number().optional(),
   isPartial: z.boolean().optional(),
   pagination: CharPaginationSchema.optional(),
+  next: z.record(z.string(), ToolContinuationSchema).optional(),
   scanOffset: z.number().optional(),
   nextScanOffset: z.number().optional(),
   hasMore: z.boolean().optional(),

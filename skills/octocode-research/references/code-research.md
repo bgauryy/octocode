@@ -11,7 +11,7 @@ Load for code investigation, review, refactor, architecture, dead-code, artifact
 | PR/local review | changed region → symbols → consumers/tests → ranked findings |
 | dead code/delete | candidate → LSP/AST/broad text/tests |
 | architecture | entry points → dependencies/fan proxies → tradeoffs |
-| binary/archive | inspect/list/strings/extract → local research |
+| binary/archive | `localBinaryInspect` inspect/list/strings → extract/unpack → local research |
 
 ## Workflow
 1. State goal, scope, and expected output: research, review, plan, or patch.

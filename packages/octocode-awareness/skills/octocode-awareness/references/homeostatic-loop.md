@@ -28,7 +28,7 @@ The loop closes only when its output has an owner, is applied, freshly verified,
 - Measure before and after an intervention; keep it only if target pressure falls without a quality/safety regression.
 - Store scoped, provenance-linked future value—not routine status or raw dialogue.
 - Prefer supersession/archive/dry-run; explicit live digest/prune/forget may mutate after review.
-- Preserve work/signals/refinements until their owner acts and closes them.
+- Preserve work/signals/open-or-ongoing refinements until their owner acts and closes them; digest may age-prune terminal `done` refinements only.
 - Keep agent context bounded; use targeted query, CSV, or HTML for complete data.
 - Treat memory, generated wiki, drive fields, and role dialogue as diagnostic leads; current user instructions, source, and tests win.
 

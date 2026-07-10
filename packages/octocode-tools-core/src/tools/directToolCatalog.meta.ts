@@ -717,19 +717,19 @@ function buildKnownDirectToolCommandPatternQueries(
   if (toolName === STATIC_TOOL_NAMES.LOCAL_BINARY_INSPECT) {
     return [
       {
-        label: 'archive listing',
+        label: 'native binary inspect',
         query: {
-          path: 'path/to/archive.zip',
-          mode: 'list',
-          entriesPerPage: 50,
-          entryPageNumber: 1,
+          path: 'packages/octocode-engine/octocode-engine.darwin-arm64.node',
+          mode: 'inspect',
         },
       },
       {
-        label: 'native binary inspect',
+        label: 'native strings preview',
         query: {
-          path: 'path/to/binary.node',
-          mode: 'inspect',
+          path: 'packages/octocode/out/octocode.js',
+          mode: 'strings',
+          minLength: 12,
+          charLength: 2000,
         },
       },
     ];
@@ -738,19 +738,19 @@ function buildKnownDirectToolCommandPatternQueries(
   if (toolName === LSP_GET_SEMANTICS_TOOL_NAME) {
     return [
       {
-        label: 'semantic definition',
+        label: 'symbol outline (absolute uri)',
         query: {
-          uri: '/absolute/path/to/file.ts',
-          type: 'definition',
-          symbolName: 'myFunction',
-          lineHint: 42,
+          uri: '/ABS/packages/octocode-tools-core/src/scheme/pagination.ts',
+          type: 'documentSymbols',
         },
       },
       {
-        label: 'symbol outline',
+        label: 'semantic definition (absolute uri + lineHint)',
         query: {
-          uri: '/absolute/path/to/file.ts',
-          type: 'documentSymbols',
+          uri: '/ABS/packages/octocode-tools-core/src/scheme/pagination.ts',
+          type: 'definition',
+          symbolName: 'buildNextPageContinuation',
+          lineHint: 72,
         },
       },
     ];
