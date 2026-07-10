@@ -62,7 +62,7 @@ export function journalModeForSqliteVersion(sqliteVersion: string): 'WAL' | 'DEL
   return assessConcurrentWalSafety(sqliteVersion).safe ? 'WAL' : 'DELETE';
 }
 
-export function inspectV4Runtime(db: DatabaseSync): ConcurrentWalSafety {
+export function inspectSqliteRuntime(db: DatabaseSync): ConcurrentWalSafety {
   const row = db.prepare('SELECT sqlite_version() AS version').get() as { version: string };
   return assessConcurrentWalSafety(row.version);
 }

@@ -12,11 +12,13 @@ interface HookSpec {
   event: string;
   matcher?: string;
   command: string;
+  commandWindows?: string;
 }
 
 interface NestedHook {
   type?: string;
   command?: string;
+  commandWindows?: string;
   timeout?: number;
 }
 
@@ -68,7 +70,8 @@ Options:
   --project-dir <path>  Target a project hook file under <path> (default: cwd).
   --global              Target the user hook file with absolute hook paths.
   --check               Report whether the hooks are installed.
-  --strict              With --check, exit 2 if hooks are missing or drifted.
+  --strict              With --check, exit 2 if config is missing or drifted.
+                        Runtime execution, host trust, and enablement remain unprobed.
   --dry-run             Print the resulting settings without writing.
   --compact             Minify JSON output when supported.
   --remove              Remove only octocode-awareness hooks.`;
@@ -177,12 +180,34 @@ function hookCommand(name: string, params: {
   hookDir: string;
 }): string {
   const abs = join(params.hookDir, name);
-  if (params.host === 'codex' || params.host === 'cursor' || params.globalMode) return abs;
-  const rel = relative(params.projectDir, abs);
-  if (rel && !rel.startsWith('..') && !isAbsolute(rel)) {
-    return '${CLAUDE_PROJECT_DIR}/' + rel.split(sep).join('/');
+  let scriptPath = abs;
+  if (params.host !== 'codex' && params.host !== 'cursor' && !params.globalMode) {
+    const rel = relative(params.projectDir, abs);
+    if (rel && !rel.startsWith('..') && !isAbsolute(rel)) {
+      scriptPath = '${CLAUDE_PROJECT_DIR}/' + rel.split(sep).join('/');
+    }
   }
-  return abs;
+  return `OCTOCODE_AGENT_HOST=${params.host} "${scriptPath.replace(/["\\]/g, '\\$&')}"`;
+}
+
+function hookCommandWindows(name: string, params: {
+  host: HookHost;
+  hookDir: string;
+}): string | undefined {
+  if (params.host !== 'codex') return undefined;
+  const runner = resolve(params.hookDir, '..', 'hook-runner.mjs');
+  const skillRoot = resolve(params.hookDir, '..', '..');
+  const command = name.replace(/\.sh$/, '');
+  const quoted = (value: string) => `"${value.replace(/"/g, '""')}"`;
+  return [
+    quoted(process.execPath),
+    quoted(runner),
+    command,
+    '--host',
+    params.host,
+    '--skill-root',
+    quoted(skillRoot),
+  ].join(' ');
 }
 
 function specsFor(host: HookHost, params: {
@@ -190,35 +215,42 @@ function specsFor(host: HookHost, params: {
   projectDir: string;
   hookDir: string;
 }): HookSpec[] {
-  const command = (name: string) => hookCommand(name, { host, ...params });
+  const spec = (event: string, name: string, matcher?: string): HookSpec => ({
+    event,
+    ...(matcher ? { matcher } : {}),
+    command: hookCommand(name, { host, ...params }),
+    ...(hookCommandWindows(name, { host, hookDir: params.hookDir })
+      ? { commandWindows: hookCommandWindows(name, { host, hookDir: params.hookDir }) }
+      : {}),
+  });
   if (host === 'cursor') {
     return [
-      { event: 'preToolUse', matcher: WRITE_MATCHER, command: command('pre-edit.sh') },
-      { event: 'postToolUse', matcher: WRITE_MATCHER, command: command('post-edit.sh') },
-      { event: 'stop', command: command('stop-verify.sh') },
-      { event: 'subagentStop', command: command('stop-verify.sh') },
-      { event: 'sessionEnd', command: command('session-end.sh') },
-      { event: 'preCompact', command: command('session-end.sh') },
-      { event: 'sessionStart', command: command('notify-deliver.sh') },
+      spec('preToolUse', 'pre-edit.sh', WRITE_MATCHER),
+      spec('postToolUse', 'post-edit.sh', WRITE_MATCHER),
+      spec('stop', 'stop-verify.sh'),
+      spec('subagentStop', 'stop-verify.sh'),
+      spec('sessionEnd', 'session-end.sh'),
+      spec('preCompact', 'session-end.sh'),
+      spec('sessionStart', 'notify-deliver.sh'),
     ];
   }
   if (host === 'codex') {
     return [
-      { event: 'PreToolUse', matcher: WRITE_MATCHER, command: command('pre-edit.sh') },
-      { event: 'PostToolUse', matcher: WRITE_MATCHER, command: command('post-edit.sh') },
-      { event: 'Stop', command: command('stop-verify.sh') },
-      { event: 'SubagentStop', command: command('stop-verify.sh') },
-      { event: 'PreCompact', command: command('session-end.sh') },
-      { event: 'UserPromptSubmit', command: command('notify-deliver.sh') },
+      spec('PreToolUse', 'pre-edit.sh', WRITE_MATCHER),
+      spec('PostToolUse', 'post-edit.sh', WRITE_MATCHER),
+      spec('Stop', 'stop-verify.sh'),
+      spec('SubagentStop', 'stop-verify.sh'),
+      spec('PreCompact', 'session-end.sh'),
+      spec('UserPromptSubmit', 'notify-deliver.sh'),
     ];
   }
   return [
-    { event: 'PreToolUse', matcher: WRITE_MATCHER, command: command('pre-edit.sh') },
-    { event: 'PostToolUse', matcher: WRITE_MATCHER, command: command('post-edit.sh') },
-    { event: 'Stop', command: command('stop-verify.sh') },
-    { event: 'SubagentStop', command: command('stop-verify.sh') },
-    { event: 'SessionEnd', command: command('session-end.sh') },
-    { event: 'UserPromptSubmit', command: command('notify-deliver.sh') },
+    spec('PreToolUse', 'pre-edit.sh', WRITE_MATCHER),
+    spec('PostToolUse', 'post-edit.sh', WRITE_MATCHER),
+    spec('Stop', 'stop-verify.sh'),
+    spec('SubagentStop', 'stop-verify.sh'),
+    spec('SessionEnd', 'session-end.sh'),
+    spec('UserPromptSubmit', 'notify-deliver.sh'),
   ];
 }
 
@@ -244,16 +276,22 @@ function entry(host: HookHost, spec: HookSpec): HookEntry {
   }
   return {
     ...(spec.matcher ? { matcher: spec.matcher } : {}),
-    hooks: [{ type: 'command', command: spec.command, timeout: 20 }],
+    hooks: [{
+      type: 'command',
+      command: spec.command,
+      ...(spec.commandWindows ? { commandWindows: spec.commandWindows } : {}),
+      timeout: 20,
+    }],
   };
 }
 
 function awarenessHookName(command: string | undefined): string | null {
   const normalized = command?.replace(/\\/g, '/');
   if (!normalized) return null;
-  const marker = '/octocode-awareness/scripts/hooks/';
-  const index = normalized.lastIndexOf(marker);
-  return index >= 0 ? normalized.slice(index + marker.length) : null;
+  const wrapper = /\/octocode-awareness\/scripts\/hooks\/(pre-edit|post-edit|harness-guard|stop-verify|notify-deliver|session-end)\.sh/.exec(normalized);
+  if (wrapper?.[1]) return `${wrapper[1]}.sh`;
+  const runner = /\/octocode-awareness\/scripts\/hook-runner\.mjs["']?\s+(pre-edit|post-edit|harness-guard|stop-verify|notify-deliver|session-end)(?:\s|$)/.exec(normalized);
+  return runner?.[1] ? `${runner[1]}.sh` : null;
 }
 
 function sameAwarenessCommand(actual: string | undefined, expected: string): boolean {
@@ -286,6 +324,7 @@ function isExactHookEntry(host: HookHost, group: HookEntry, spec: HookSpec): boo
     && (group.hooks ?? []).some((hook) => (
       hook.type === 'command'
       && hook.command === spec.command
+      && hook.commandWindows === spec.commandWindows
       && hook.timeout === 20
     ));
 }
@@ -316,6 +355,7 @@ function hasDriftedCommand(groups: HookEntry[] | undefined, host: HookHost, spec
       if (!sameAwarenessCommand(hook.command, spec.command)) continue;
       const exact = matcherMatches(group.matcher, spec.matcher)
         && hook.type === 'command'
+        && hook.commandWindows === spec.commandWindows
         && hook.timeout === 20;
       if (!exact) return true;
     }
@@ -324,7 +364,7 @@ function hasDriftedCommand(groups: HookEntry[] | undefined, host: HookHost, spec
 }
 
 function hookStatusKey(spec: HookSpec): string {
-  return `${spec.event}:${spec.command.split(/[\\/]/).pop()}`;
+  return `${spec.event}:${awarenessHookName(spec.command) ?? spec.command.split(/[\\/]/).pop()}`;
 }
 
 function removeCommand(groups: HookEntry[] | undefined, command: string): { groups: HookEntry[]; removed: boolean } {
@@ -349,6 +389,36 @@ function removeCommand(groups: HookEntry[] | undefined, command: string): { grou
     if (hooks.length > 0) out.push({ ...group, hooks });
   }
   return { groups: out, removed };
+}
+
+function runtimeHealth(host: HookHost, globalMode: boolean): Record<string, unknown> {
+  const common = {
+    status: 'unverified',
+    verified: false,
+    execution: 'not_probed',
+    strict_scope: 'config_only',
+    next: 'Run a harmless write and inspect the host hook log before relying on enforcement.',
+  };
+  if (host === 'codex') {
+    return {
+      ...common,
+      project_trust: globalMode ? 'not_applicable_global_config' : 'not_checked',
+      hook_definition_trust: 'not_checked',
+      hooks_feature_enabled: 'not_checked',
+    };
+  }
+  if (host === 'claude') {
+    return {
+      ...common,
+      activation: globalMode ? 'global_config_not_probed' : 'skill_or_project_activation_not_checked',
+    };
+  }
+  return {
+    ...common,
+    local_runtime: 'not_probed',
+    cloud_runtime: 'not_probed',
+    windows_command: 'not_guaranteed_by_cursor_flat_hook_format',
+  };
 }
 
 export function runHooksInstall(argv: string[], options: HooksInstallOptions): HooksInstallResult {
@@ -433,7 +503,7 @@ function runHooksInstallUnlocked(argv: string[], options: HooksInstallOptions): 
     return {
       key: hookStatusKey(spec),
       event: spec.event,
-      hook: spec.command.split(/[\\/]/).pop(),
+      hook: awarenessHookName(spec.command) ?? spec.command.split(/[\\/]/).pop(),
       installed: exact,
       present,
       matching_count: matchingCount,
@@ -441,6 +511,7 @@ function runHooksInstallUnlocked(argv: string[], options: HooksInstallOptions): 
       expected: {
         matcher: spec.matcher ?? null,
         command: spec.command,
+        command_windows: spec.commandWindows ?? null,
         timeout: 20,
         shape: host === 'cursor' ? 'flat' : 'nested',
       },
@@ -462,9 +533,24 @@ function runHooksInstallUnlocked(argv: string[], options: HooksInstallOptions): 
 
   if (flag(argv, '--check')) {
     const strict = flag(argv, '--strict');
+    const configReady = status.installed_all && status.drifted.length === 0;
     return {
-      exitCode: strict && (!status.installed_all || status.drifted.length > 0) ? 2 : 0,
-      payload: { ok: status.installed_all && status.drifted.length === 0, action: 'check', strict, installed: status },
+      exitCode: strict && !configReady ? 2 : 0,
+      payload: {
+        ok: configReady,
+        action: 'check',
+        strict,
+        strict_scope: 'config_only',
+        installed: status,
+        health: {
+          config: {
+            status: configReady ? 'ready' : 'needs_repair',
+            verified: configReady,
+            settings_path: settingsPath,
+          },
+          runtime: runtimeHealth(host, globalMode),
+        },
+      },
     };
   }
 
@@ -511,7 +597,15 @@ function runHooksInstallUnlocked(argv: string[], options: HooksInstallOptions): 
   if (flag(argv, '--dry-run')) {
     return {
       exitCode: 0,
-      payload: { ok: true, action: 'dry-run', host, changed, settingsPath, resultingSettings: settings },
+      payload: {
+        ok: true,
+        action: 'dry-run',
+        host,
+        changed,
+        settingsPath,
+        resultingSettings: settings,
+        runtime: runtimeHealth(host, globalMode),
+      },
     };
   }
 
@@ -528,6 +622,7 @@ function runHooksInstallUnlocked(argv: string[], options: HooksInstallOptions): 
       changed,
       settingsPath,
       note: changed ? `${settingsPath.split(/[\\/]/).pop()} updated` : 'already up to date - no change',
+      runtime: runtimeHealth(host, globalMode),
     },
   };
 }

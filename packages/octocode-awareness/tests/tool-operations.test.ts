@@ -21,7 +21,7 @@ function run(
   cwd: string,
   agentId = 'agent-a',
 ) {
-  return runAwarenessToolOperation(db, operation, request, { cwd, agentId, sessionId: 'sess-test' });
+  return runAwarenessToolOperation(db, operation, request, { cwd, agentId, sessionId: `sess-test-${agentId}` });
 }
 
 describe('runAwarenessToolOperation', () => {
@@ -216,7 +216,7 @@ describe('runAwarenessToolOperation', () => {
       expect(audit.exitCode).toBe(1);
       expect((audit.payload as { count: number }).count).toBe(1);
 
-      const verified = run(db, 'verify', { allPending: true, status: 'SUCCESS' }, dir);
+      const verified = run(db, 'verify', { all_pending: true, status: 'SUCCESS', message: 'lock operation checks passed' }, dir);
       expect(verified.exitCode).toBe(0);
 
       const first = run(db, 'file_lock', { type: 'lock', target_files: [join(dir, 'b.ts')], reasoning: 'batch 1' }, dir);
@@ -234,7 +234,7 @@ describe('runAwarenessToolOperation', () => {
       const fourthTask = (fourth.payload as { runId: string }).runId;
       run(db, 'file_lock', { type: 'release', run_id: thirdTask, status: 'PENDING' }, dir);
       run(db, 'file_lock', { type: 'release', run_id: fourthTask, status: 'PENDING' }, dir);
-      const mixed = run(db, 'verify', { run_id: thirdTask, allPending: true, status: 'SUCCESS' }, dir);
+      const mixed = run(db, 'verify', { run_id: thirdTask, all_pending: true, status: 'SUCCESS', message: 'mixed batch checks passed' }, dir);
       expect(mixed.exitCode).toBe(0);
 
       const published = run(db, 'agent_signal', {

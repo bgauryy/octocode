@@ -71,6 +71,9 @@ export interface AuditUnverifiedParams {
   workspacePath?: string | null;
   artifact?: string | null;
   abandon?: boolean;         // dismiss all PENDING runs as FAILED (clear orphaned)
+  olderThanDays?: number | null;
+  origins?: Array<'TASK' | 'WORK' | 'HOOK'>;
+  before?: string | null;
 }
 
 export type VerifyStatus = 'SUCCESS' | 'FAILED';
@@ -196,6 +199,31 @@ export function auditUnverified(
   const workspacePath = params.workspacePath ? normalizeWorkspacePath(params.workspacePath, params.workspacePath) : null;
   const where: string[] = ["status = 'PENDING'"];
   const binds: (string | number)[] = [];
+  let ageCutoff: string | null = null;
+  if (params.olderThanDays != null) {
+    if (!Number.isFinite(params.olderThanDays) || params.olderThanDays < 1) {
+      throw new Error('olderThanDays must be a finite number >= 1');
+    }
+    ageCutoff = new Date(Date.now() - Math.floor(params.olderThanDays) * 86400000).toISOString();
+    where.push('updated_at < ?');
+    binds.push(ageCutoff);
+  }
+  if (params.origins?.length) {
+    const origins = [...new Set(params.origins)];
+    if (origins.some((origin) => !['TASK', 'WORK', 'HOOK'].includes(origin))) {
+      throw new Error('origins must contain only TASK, WORK, or HOOK');
+    }
+    where.push(`origin IN (${origins.map(() => '?').join(',')})`);
+    binds.push(...origins);
+  }
+  let before: string | null = null;
+  if (params.before) {
+    const parsed = new Date(params.before);
+    if (Number.isNaN(parsed.getTime())) throw new Error('before must be a valid ISO timestamp');
+    before = parsed.toISOString();
+    where.push('created_at < ?');
+    binds.push(before);
+  }
 
   if (params.agentId) {
     where.push('agent_id = ?');
@@ -268,6 +296,13 @@ export function auditUnverified(
     if (params.agentId) { staleWhere.push('ai.agent_id = ?'); staleBinds.push(params.agentId); }
     if (workspacePath) { staleWhere.push('ai.workspace_path = ?'); staleBinds.push(workspacePath); }
     if (artifact) { staleWhere.push('(ai.artifact = ? OR ai.artifact IS NULL)'); staleBinds.push(artifact); }
+    if (ageCutoff) { staleWhere.push('ai.updated_at < ?'); staleBinds.push(ageCutoff); }
+    if (params.origins?.length) {
+      const origins = [...new Set(params.origins)];
+      staleWhere.push(`ai.origin IN (${origins.map(() => '?').join(',')})`);
+      staleBinds.push(...origins);
+    }
+    if (before) { staleWhere.push('ai.created_at < ?'); staleBinds.push(before); }
 
     const staleRows = db.prepare(
       `SELECT ai.run_id, ai.agent_id, ai.rationale, ai.context_ref, ai.workspace_path, ai.artifact, ai.created_at
@@ -336,6 +371,22 @@ export function markVerified(
     };
   }
 
+  const receipt = message?.trim() ?? '';
+  if (status === 'SUCCESS' && !receipt) {
+    return {
+      ok: false,
+      error: 'SUCCESS verification requires a non-empty evidence receipt in message',
+      run_id: runId || null,
+    };
+  }
+  if (allPending && !workspacePath && !artifact) {
+    return {
+      ok: false,
+      error: '--all-pending requires --workspace or --artifact; use explicit run ids for cross-workspace verification',
+      run_id: null,
+    };
+  }
+
   // --all-pending: verify every PENDING run for this agent/workspace at once
   if (allPending) {
     const dynWhere = [
@@ -358,24 +409,19 @@ export function markVerified(
         ) as { changes: number };
         if (upd.changes === 0) continue;
         closeRunFiles(db, row.run_id, now);
-        finishLinkedTask(db, row.run_id, status, agentId, now, message);
+        finishLinkedTask(db, row.run_id, status, agentId, now, receipt || undefined);
         ids.push(row.run_id);
-        if (message) {
+        if (receipt) {
           try {
             db.prepare(RUN_LOG_INSERT_VERIFIED).run(
-              'evt_' + randomUUID().replace(/-/g, ''), row.run_id, agentId, message, now,
+              'evt_' + randomUUID().replace(/-/g, ''), row.run_id, agentId, receipt, now,
             );
           } catch { /* non-critical audit log */ }
         }
       }
       db.exec('COMMIT');
       // VER-1: Return null for run_id — no single task applies in allPending batch mode.
-      // Footgun guard: unscoped --all-pending verifies EVERY pending run for this
-      // agent across ALL workspaces. Surface it so the caller sees the blast radius.
-      const warning = !workspacePath && !artifact && ids.length > 0
-        ? `marked ${ids.length} pending run(s) across ALL workspaces for agent "${agentId}" — no --workspace/--artifact scope given; pass --workspace to limit`
-        : undefined;
-      return { ok: true, run_id: null, run_ids: ids, count: ids.length, status: status as RunStatus, updated_at: now, ...(warning ? { warning } : {}) };
+      return { ok: true, run_id: null, run_ids: ids, count: ids.length, status: status as RunStatus, updated_at: now };
     } catch (e) {
       try { db.exec('ROLLBACK'); } catch { /* not in transaction */ }
       throw e;
@@ -415,16 +461,16 @@ export function markVerified(
       };
     }
 
-    if (message) {
+    if (receipt) {
       try {
         db.prepare(RUN_LOG_INSERT_VERIFIED).run(
-          'evt_' + randomUUID().replace(/-/g, ''), runId, agentId, message, now,
+          'evt_' + randomUUID().replace(/-/g, ''), runId, agentId, receipt, now,
         );
       } catch { /* non-critical audit log */ }
     }
 
     closeRunFiles(db, runId, now);
-    finishLinkedTask(db, runId, status, agentId, now, message);
+    finishLinkedTask(db, runId, status, agentId, now, receipt || undefined);
     db.exec('COMMIT');
     return { ok: true, run_id: runId, status: status as RunStatus, updated_at: now };
   } catch (e) {

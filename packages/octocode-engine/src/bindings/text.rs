@@ -1,5 +1,5 @@
 use crate::types::{
-    ExtractMatchingLinesOptions, ExtractMatchingLinesResult, FilterPatchOptions,
+    ExtractMatchingLinesOptions, ExtractMatchingLinesResult, FilterPatchOptions, LineDiffOp,
     SliceContentOptions, SliceContentResult,
 };
 use napi::{Error, Result, Status};
@@ -82,4 +82,18 @@ pub fn extract_matching_lines(
 #[napi(js_name = "filterPatch")]
 pub fn filter_patch(patch: String, options: Option<FilterPatchOptions>) -> String {
     crate::diff_parser::filter_patch_inner(&patch, options)
+}
+
+/// Myers line diff (`old_text` → `new_text`). Returns a full edit script of
+/// `{ opType, line }` ops (`same` | `add` | `remove`). Prefer this over an
+/// O(N·M) LCS for agent edit previews on mid/large files.
+#[napi(js_name = "computeLineDiff")]
+pub fn compute_line_diff(old_text: String, new_text: String) -> Vec<LineDiffOp> {
+    crate::line_diff::compute_line_diff_inner(&old_text, &new_text)
+        .into_iter()
+        .map(|op| LineDiffOp {
+            op_type: op.op_type,
+            line: op.line,
+        })
+        .collect()
 }

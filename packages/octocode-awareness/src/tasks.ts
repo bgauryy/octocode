@@ -5,6 +5,7 @@ import { isAbsolute, relative, resolve, sep } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { utcNow } from './helpers.js';
 import { normalizeWorkspacePath } from './git.js';
+import { ensureRunSession } from './sessions.js';
 
 export type PlanTaskStatus = 'OPEN' | 'IN_PROGRESS' | 'BLOCKED' | 'VERIFY' | 'DONE' | 'FAILED' | 'CANCELLED';
 
@@ -209,22 +210,52 @@ export function addTaskDependency(
   params: { taskId: string; dependsOnTaskId: string; agentId: string },
 ): void {
   if (params.taskId === params.dependsOnTaskId) throw new Error('a task cannot depend on itself');
-  const rows = db.prepare('SELECT task_id, plan_id FROM tasks WHERE task_id IN (?, ?)')
-    .all(params.taskId, params.dependsOnTaskId) as unknown as Array<{ task_id: string; plan_id: string }>;
-  if (rows.length !== 2) throw new Error('both dependency tasks must exist');
-  if (rows[0]!.plan_id !== rows[1]!.plan_id) throw new Error('task dependencies must stay within one plan');
-  const cycle = db.prepare(`WITH RECURSIVE chain(task_id) AS (
-      SELECT depends_on_task_id FROM task_dependencies WHERE task_id = ?
-      UNION
-      SELECT td.depends_on_task_id FROM task_dependencies td JOIN chain c ON td.task_id = c.task_id
-    ) SELECT 1 FROM chain WHERE task_id = ? LIMIT 1`)
-    .get(params.dependsOnTaskId, params.taskId);
-  if (cycle) throw new Error('task dependency would create a cycle');
-  const now = utcNow();
-  db.prepare(`INSERT OR IGNORE INTO task_dependencies
-    (task_id, depends_on_task_id, created_by, created_at) VALUES (?, ?, ?, ?)`)
-    .run(params.taskId, params.dependsOnTaskId, params.agentId, now);
-  event(db, params.taskId, null, params.agentId, 'DEPENDENCY_ADDED', params.dependsOnTaskId, now);
+  const ownsTransaction = !db.isTransaction;
+  if (ownsTransaction) db.exec('BEGIN IMMEDIATE');
+  try {
+    const rows = db.prepare(`SELECT t.task_id, t.plan_id, t.status, p.status AS plan_status
+      FROM tasks t JOIN plans p ON p.plan_id = t.plan_id
+      WHERE t.task_id IN (?, ?)`)
+      .all(params.taskId, params.dependsOnTaskId) as unknown as Array<{
+        task_id: string;
+        plan_id: string;
+        status: PlanTaskStatus;
+        plan_status: string;
+      }>;
+    if (rows.length !== 2) throw new Error('both dependency tasks must exist');
+    if (rows[0]!.plan_id !== rows[1]!.plan_id) throw new Error('task dependencies must stay within one plan');
+    const task = rows.find((row) => row.task_id === params.taskId)!;
+    const dependency = rows.find((row) => row.task_id === params.dependsOnTaskId)!;
+    if (['COMPLETED', 'CANCELLED'].includes(task.plan_status)) {
+      throw new Error(`cannot change dependencies in ${task.plan_status.toLowerCase()} plan ${task.plan_id}`);
+    }
+    if (!['OPEN', 'BLOCKED'].includes(task.status)) {
+      throw new Error(`cannot change dependencies for task ${params.taskId} with status ${task.status}`);
+    }
+    if (dependency.status === 'CANCELLED') {
+      throw new Error(`cannot depend on cancelled task ${params.dependsOnTaskId}`);
+    }
+    const cycle = db.prepare(`WITH RECURSIVE chain(task_id) AS (
+        SELECT depends_on_task_id FROM task_dependencies WHERE task_id = ?
+        UNION
+        SELECT td.depends_on_task_id FROM task_dependencies td JOIN chain c ON td.task_id = c.task_id
+      ) SELECT 1 FROM chain WHERE task_id = ? LIMIT 1`)
+      .get(params.dependsOnTaskId, params.taskId);
+    if (cycle) throw new Error('task dependency would create a cycle');
+    const now = utcNow();
+    const inserted = db.prepare(`INSERT OR IGNORE INTO task_dependencies
+      (task_id, depends_on_task_id, created_by, created_at) VALUES (?, ?, ?, ?)`)
+      .run(params.taskId, params.dependsOnTaskId, params.agentId, now) as { changes: number };
+    if (inserted.changes > 0) {
+      event(db, params.taskId, null, params.agentId, 'DEPENDENCY_ADDED', params.dependsOnTaskId, now);
+    }
+    if (ownsTransaction) db.exec('COMMIT');
+  } catch (error) {
+    if (ownsTransaction) {
+      try { db.exec('ROLLBACK'); } catch { /* transaction did not open */ }
+    }
+    throw error;
+  }
 }
 
 export function listTasks(
@@ -345,9 +376,12 @@ export function claimTask(
     const acceptanceCriteria = String(row['acceptance_criteria']);
     const planId = String(row['plan_id']);
     if (params.sessionId) {
-      db.prepare(`INSERT OR IGNORE INTO sessions(session_id, agent_id, workspace_path, artifact, started_at)
-        VALUES (?, ?, ?, ?, ?)`)
-        .run(params.sessionId, agentId, workspacePath, artifact, now);
+      ensureRunSession(db, {
+        sessionId: params.sessionId,
+        agentId,
+        workspacePath,
+        artifact,
+      });
     }
     db.prepare(`INSERT INTO task_runs
       (run_id, task_id, origin, agent_id, session_id, rationale, test_plan, status, workspace_path, artifact, created_at, updated_at)

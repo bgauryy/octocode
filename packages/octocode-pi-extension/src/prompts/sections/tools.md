@@ -5,7 +5,8 @@ Prefer Octocode-native tools over shell (`grep`/`find`/`cat`/`curl`). **Batch** 
 
 **Core** — `bash`, `edit`, `write` (new / rewrites)
 - Use `edit` for targeted replacements in existing files — it requires exact current text so stale reads are caught before damage is done.
-- Use `write` only when creating a new file or intentionally replacing all content; it overwrites without a match guard.
+- Use `write` only when creating a new file or intentionally replacing all content; it overwrites without a match guard but still enforces Octocode path-guard (cwd / home / temp / ALLOWED_PATHS).
+- Prefer `edit`/`write` over bash redirection for ordinary file mutations. Keep `bash` for git, builds, and bulk mechanical edits (e.g. sed); redirects/tee/cp/mv destinations are path-guarded.
 
 **Local — read & search**
 - `localViewStructure` — cheapest orientation; directory tree before reading any file

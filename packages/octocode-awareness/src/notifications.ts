@@ -16,7 +16,6 @@ import {
   SIGNALS_SELECT_LEFT_JOIN_READS,
   SIGNALS_SELECT_ORDER_LIMIT,
   SIGNALS_DELETE_BY_IDS,
-  SIGNALS_SELECT_IDS_FOR_PRUNE,
   SIGNAL_READS_INSERT_IGNORE,
   SIGNAL_READS_DELETE_BY_SIGNAL_IDS,
 } from './sql/index.js';
@@ -114,6 +113,9 @@ export function insertNotification(
     if (!parent) {
       throw new Error(`insertNotification: parent signal ${inReplyTo} not found (deleted?). Omit inReplyTo to start a new thread.`);
     }
+    if (!canReadOrJoinThread(db, parent.thread_id, agentId)) {
+      throw new Error(`insertNotification: agent ${agentId} is not a participant in thread ${parent.thread_id}`);
+    }
     threadId = parent.thread_id;
   } else {
     threadId = signalId;
@@ -154,6 +156,48 @@ function appendSignalScope(
   }
 }
 
+function isBroadcastThread(db: DatabaseSync, threadId: string): boolean {
+  return db.prepare(`SELECT 1 FROM signals
+    WHERE thread_id = ? AND reply_to IS NULL AND to_agent IS NULL
+    LIMIT 1`).get(threadId) != null;
+}
+
+function isThreadParticipant(db: DatabaseSync, threadId: string, agentId: string): boolean {
+  const addressed = db.prepare(`SELECT 1 FROM signals
+    WHERE thread_id = ? AND (from_agent = ? OR to_agent = ?)
+    LIMIT 1`).get(threadId, agentId, agentId) != null;
+  if (addressed) return true;
+  if (!isBroadcastThread(db, threadId)) return false;
+  return db.prepare(`SELECT 1 FROM signal_reads read
+    JOIN signals signal ON signal.signal_id = read.signal_id
+    WHERE signal.thread_id = ? AND read.agent_id = ?
+    LIMIT 1`).get(threadId, agentId) != null;
+}
+
+function canReadOrJoinThread(db: DatabaseSync, threadId: string, agentId: string): boolean {
+  return isBroadcastThread(db, threadId) || isThreadParticipant(db, threadId, agentId);
+}
+
+function inferReplyTargets(db: DatabaseSync, inReplyTo: string, agentId: string): string[] {
+  const parent = db.prepare('SELECT thread_id FROM signals WHERE signal_id = ?')
+    .get(inReplyTo) as { thread_id: string } | undefined;
+  if (!parent) {
+    throw new Error(`insertNotification: parent signal ${inReplyTo} not found (deleted?). Omit inReplyTo to start a new thread.`);
+  }
+  const rows = db.prepare('SELECT from_agent, to_agent FROM signals WHERE thread_id = ?')
+    .all(parent.thread_id) as unknown as Array<{ from_agent: string; to_agent: string | null }>;
+  const participants = new Set<string>();
+  for (const row of rows) {
+    participants.add(row.from_agent);
+    if (row.to_agent) participants.add(row.to_agent);
+  }
+  participants.delete(agentId);
+  if (participants.size === 0) {
+    throw new Error('agent_signal reply has no inferred recipient; pass --to-agent');
+  }
+  return [...participants].sort();
+}
+
 // ─── getNotifications ──────────────────────────────────────────────────────────
 
 export function getNotifications(
@@ -175,6 +219,13 @@ export function getNotifications(
     { workspace_path: params.workspacePath ?? null, artifact: normalizeArtifact(params.artifact), repo: params.repo ?? null, ref: params.ref ?? null },
     cwd ?? process.cwd(),
   );
+
+  // A targeted thread is private to its senders and recipients. Reading a
+  // thread must never create participation: that made a guessed thread id a
+  // capability token and let an outsider read, reply, then resolve it.
+  if (threadId && !canReadOrJoinThread(db, threadId, agentId)) {
+    return { count: 0, signals: [], unread_only: unreadOnly };
+  }
 
   const where: string[] = [];
   const binds: (string | number)[] = [];
@@ -269,8 +320,14 @@ export function resolveNotification(
     const binds: (string | number)[] = [...notificationIds];
     appendSignalScope(where, binds, scope, '');
     if (agentId) {
-      where.push('(from_agent = ? OR to_agent = ? OR to_agent IS NULL)');
-      binds.push(agentId, agentId);
+      const authorizedIds = notificationIds.filter((signalId) => {
+        const row = db.prepare('SELECT thread_id FROM signals WHERE signal_id = ?')
+          .get(signalId) as { thread_id: string } | undefined;
+        return row ? isThreadParticipant(db, row.thread_id, agentId) : false;
+      });
+      if (authorizedIds.length === 0) return { resolved: 0, signal_ids: [] };
+      where.push(`signal_id IN (${authorizedIds.map(() => '?').join(',')})`);
+      binds.push(...authorizedIds);
     }
     const rows = db.prepare(
       `UPDATE signals SET status = 'resolved', resolved_at = ? WHERE ${where.join(' AND ')} RETURNING signal_id`
@@ -279,13 +336,12 @@ export function resolveNotification(
   }
 
   if (threadId) {
+    if (agentId && !isThreadParticipant(db, threadId, agentId)) {
+      return { resolved: resolved.length, signal_ids: [...new Set(resolved)] };
+    }
     const where = ['thread_id = ?', "status = 'open'"];
     const binds: (string | number)[] = [threadId];
     appendSignalScope(where, binds, scope, '');
-    if (agentId) {
-      where.push('(from_agent = ? OR to_agent = ? OR to_agent IS NULL)');
-      binds.push(agentId, agentId);
-    }
     const rows = db.prepare(
       `UPDATE signals SET status = 'resolved', resolved_at = ? WHERE ${where.join(' AND ')} RETURNING signal_id`
     ).all(now, ...binds) as unknown as Array<{ signal_id: string }>;
@@ -352,7 +408,11 @@ export function agentSignal(db: DatabaseSync, params: AgentSignalParams): AgentS
   switch (params.action) {
     case 'publish':
     case 'reply': {
-      const toAgents = params.toAgents?.length ? params.toAgents : [null];
+      const toAgents = params.toAgents?.length
+        ? params.toAgents
+        : params.action === 'reply'
+          ? inferReplyTargets(db, requireSignalText(params.inReplyTo, 'inReplyTo'), params.agentId)
+          : [null];
       const results = toAgents.map((toAgent) => insertNotification(db, {
         agentId: params.agentId,
         workspacePath: params.workspacePath,
@@ -428,41 +488,34 @@ export function pruneNotifications(
   db: DatabaseSync,
   params: PruneNotificationsParams,
 ): PruneNotificationsResult {
-  const { notificationIds = [], resolvedOnly = false, olderThanDays, dryRun = false, cwd } = params;
+  const { agentId, notificationIds = [], resolvedOnly = false, olderThanDays, dryRun = false, cwd } = params;
+
+  if (!resolvedOnly) throw new Error('signal prune only deletes resolved messages');
+  if (olderThanDays == null || !Number.isFinite(olderThanDays) || olderThanDays < 1) {
+    throw new Error('signal prune requires --older-than-days >= 1');
+  }
 
   const scope = fillScope(
     { workspace_path: params.workspacePath ?? null, artifact: normalizeArtifact(params.artifact), repo: null, ref: null },
     cwd ?? process.cwd(),
   );
 
-  const where: string[] = [];
+  const where: string[] = ["status = 'resolved'", 'created_at < ?'];
   const binds: (string | number)[] = [];
+  binds.push(new Date(Date.now() - Math.floor(olderThanDays) * 86400000).toISOString());
 
   if (notificationIds.length > 0) {
     where.push(`signal_id IN (${notificationIds.map(() => '?').join(',')})`);
     binds.push(...notificationIds);
   }
-  if (resolvedOnly) {
-    where.push("status = 'resolved'");
-  }
-  if (olderThanDays != null) {
-    const cutoff = new Date(Date.now() - olderThanDays * 86400000).toISOString();
-    where.push('created_at < ?');
-    binds.push(cutoff);
-  }
-  if (notificationIds.length === 0) {
-    appendSignalScope(where, binds, scope, '');
-  }
-
-  if (where.length === 0) {
-    return { deleted: 0, signal_ids: [] };
-  }
+  appendSignalScope(where, binds, scope, '');
 
   const whereClause = where.join(' AND ');
-  const rows = db.prepare(
-    `${SIGNALS_SELECT_IDS_FOR_PRUNE} ${whereClause}`
-  ).all(...binds) as unknown as Array<{ signal_id: string }>;
-  const ids = rows.map(r => r.signal_id);
+  const rows = db.prepare(`SELECT signal_id, thread_id FROM signals WHERE ${whereClause}`)
+    .all(...binds) as unknown as Array<{ signal_id: string; thread_id: string }>;
+  const ids = rows
+    .filter((row) => isThreadParticipant(db, row.thread_id, agentId))
+    .map((row) => row.signal_id);
 
   if (dryRun) {
     return { deleted: 0, dry_run: true, would_delete: ids.length, signal_ids: ids };

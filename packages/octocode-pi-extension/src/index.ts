@@ -10,6 +10,7 @@ import { propagateOctocodeEnv, getOctocodeHome } from './env.js';
 import {
   OCTOCODE_DIRECT_TOOL_NAMES,
   DISABLED_BUILTIN_TOOL_NAMES,
+  OVERRIDDEN_BUILTIN_TOOL_NAMES,
   OCTOCODE_SUPPORT_TOOL_NAMES,
 } from './constants.js';
 import { getAssetPaths, readTextIfExists, listBundledSkills, getInstallSource, getCLIPath, getAwarenessCLIPath } from './assets.js';
@@ -41,6 +42,8 @@ import { registerChromeDebugTool } from './tools/chrome-debug-tool.js';
 import { registerBrowserAgentTool } from './tools/browser-agent-tool.js';
 import { registerSpawnSubagentTool } from './tools/spawn-subagent-tool.js';
 import { registerEditTool } from './tools/edit-tool.js';
+import { registerWriteTool } from './tools/write-tool.js';
+import { registerBashTool } from './tools/bash-tool.js';
 import { pickProvider } from './web.js';
 import type {
   PiInstance,
@@ -54,6 +57,7 @@ import type {
 export {
   OCTOCODE_DIRECT_TOOL_NAMES,
   DISABLED_BUILTIN_TOOL_NAMES,
+  OVERRIDDEN_BUILTIN_TOOL_NAMES,
   OCTOCODE_SUPPORT_TOOL_NAMES,
 } from './constants.js';
 export {
@@ -192,7 +196,7 @@ export function formatStatus(baseDir?: string): string {
     `memory module: @octocodeai/octocode-awareness (direct import)`,
     `octocode tools: ${formatOctocodeToolStatus()}`,
     `bundled CLI: ${getCLIPath()} — use via: node $OCTOCODE_CLI <command>`,
-    `disabled/replaced built-ins: edit (custom Octocode tool)${DISABLED_BUILTIN_TOOL_NAMES.length ? `; removed: ${DISABLED_BUILTIN_TOOL_NAMES.join(', ')}` : ''}`,
+    `disabled/replaced built-ins: overridden: ${OVERRIDDEN_BUILTIN_TOOL_NAMES.join(', ')}${DISABLED_BUILTIN_TOOL_NAMES.length ? `; removed: ${DISABLED_BUILTIN_TOOL_NAMES.join(', ')}` : ''}`,
     `web search: ${searchStatus}`,
     `package assets: ${paths.baseDir}`,
     `flags: --no-context (suppress AGENTS.md/CLAUDE.md context files for this run)`,
@@ -202,6 +206,9 @@ export function formatStatus(baseDir?: string): string {
 export interface ExtensionHarness {
   tools: string[];
   supportTools: string[];
+  overriddenBuiltins: string[];
+  disabledBuiltins: string[];
+  passthroughBuiltins: string[];
   extensionCommands: string[];
   skills: string[];
   cliNote: string;
@@ -211,6 +218,9 @@ export function listExtensionHarness(baseDir?: string): ExtensionHarness {
   return {
     tools: [...OCTOCODE_DIRECT_TOOL_NAMES],
     supportTools: [...OCTOCODE_SUPPORT_TOOL_NAMES],
+    overriddenBuiltins: [...OVERRIDDEN_BUILTIN_TOOL_NAMES],
+    disabledBuiltins: [...DISABLED_BUILTIN_TOOL_NAMES],
+    passthroughBuiltins: [],
     extensionCommands: [
       '/octocode-status',
       '/octocode-harness',
@@ -230,15 +240,26 @@ function renderExtensionHarness(baseDir?: string): string {
     'Octocode Pi extension harness',
     `native tools (${harness.tools.length}): ${harness.tools.join(', ')}`,
     `support tools (${harness.supportTools.length}): ${harness.supportTools.join(', ')}`,
+    `builtin overrides: ${harness.overriddenBuiltins.join(', ')}`,
+    `builtin removed: ${harness.disabledBuiltins.join(', ')}`,
+    harness.passthroughBuiltins.length > 0
+      ? `builtin passthrough: ${harness.passthroughBuiltins.join(', ')}`
+      : 'builtin passthrough: (none)',
     `extension commands: ${harness.extensionCommands.join(', ')}`,
     `CLI: ${harness.cliNote}`,
     `skills (${harness.skills.length}): ${harness.skills.join(', ')}`,
   ].join('\n');
 }
 
-// ─── Built-in read tool disable ───────────────────────────────────────────────
+// ─── Built-in tool disable ────────────────────────────────────────────────────
 
-export function disableBuiltinReadTool(pi: PiInstance): boolean {
+/**
+ * Remove Pi builtins that Octocode replaces with superior tools
+ * (`read`/`grep`/`find`/`ls`). Idempotent. Prefer calling after tool
+ * registration and again on `session_start` so later `setActiveTools` resets
+ * cannot silently re-enable the weak builtins.
+ */
+export function disableBuiltinTools(pi: PiInstance): boolean {
   if (!pi.getActiveTools || !pi.setActiveTools) return false;
   try {
     const activeTools = pi.getActiveTools();
@@ -259,6 +280,9 @@ export function disableBuiltinReadTool(pi: PiInstance): boolean {
     throw error;
   }
 }
+
+/** @deprecated Use {@link disableBuiltinTools}. Kept for public API stability. */
+export const disableBuiltinReadTool = disableBuiltinTools;
 
 // ─── APPEND_SYSTEM installer ──────────────────────────────────────────────────
 
@@ -430,10 +454,10 @@ async function wireOctocodePiExtension(
     default: false,
   });
 
-  // Best-effort early disable so the tool is absent immediately on load.
-  // Real Pi runtimes also re-run this in session_start (which fires after
-  // extension load) — the double call is idempotent.
-  disableBuiltinReadTool(pi);
+  // Best-effort early disable so weak builtins are absent immediately on load.
+  // Real Pi runtimes also re-run this in session_start and after tool registration
+  // — the calls are idempotent.
+  disableBuiltinTools(pi);
 
   if (pi.on) {
     createAwarenessHooksAddon()(pi);
@@ -466,19 +490,19 @@ async function wireOctocodePiExtension(
       } catch {
         /* fail-open: id pinning is non-critical; hooks still derive one per call */
       }
-      // Disable the built-in read tool (only once, here in session_start).
+      // Disable weak built-ins (read/grep/find/ls) in favor of Octocode locals.
       try {
-        if (disableBuiltinReadTool(pi)) {
+        if (disableBuiltinTools(pi)) {
           notify(
             ctx,
-            'Octocode disabled Pi built-in read; use localGetFileContent instead.',
+            `Octocode disabled Pi built-ins (${DISABLED_BUILTIN_TOOL_NAMES.join(', ')}); use Octocode local tools instead. Overrides: ${OVERRIDDEN_BUILTIN_TOOL_NAMES.join(', ')}.`,
             'info',
           );
         }
       } catch (error) {
         notify(
           ctx,
-          `Octocode could not disable Pi built-in read: ${(error as Error)?.message ?? String(error)}`,
+          `Octocode could not disable Pi built-ins: ${(error as Error)?.message ?? String(error)}`,
           'warning',
         );
       }
@@ -570,6 +594,8 @@ async function wireOctocodePiExtension(
     const registeredToolNames = new Set<string>();
 
     registerEditTool(pi, Type);
+    registerWriteTool(pi, Type);
+    registerBashTool(pi, Type);
 
     await registerOctocodeTools(pi, Type, registeredToolNames);
 
@@ -585,6 +611,10 @@ async function wireOctocodePiExtension(
     registerContextTools(pi, Type, registeredToolNames, registerUniqueTool, notify);
 
     registerAgentTools(pi, Type, registeredToolNames, registerUniqueTool);
+
+    // Re-assert disabled builtins after registration so a concurrent setActiveTools
+    // (or Pi defaulting the full builtin set) cannot leave read/grep/find/ls active.
+    disableBuiltinTools(pi);
 
     // Memory/coordination is NOT registered as agent tools. The agent reaches
     // awareness state through the octocode-awareness CLI (node $OCTOCODE_AWARENESS_CLI …),

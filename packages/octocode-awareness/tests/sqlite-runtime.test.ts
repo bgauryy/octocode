@@ -3,11 +3,11 @@ import { DatabaseSync } from 'node:sqlite';
 import {
   assertConcurrentWalSafe,
   assessConcurrentWalSafety,
-  inspectV4Runtime,
+  inspectSqliteRuntime,
   journalModeForSqliteVersion,
-} from '../src/v4/runtime.js';
+} from '../src/sqlite-runtime.js';
 
-describe('v4 concurrent WAL runtime gate', () => {
+describe('concurrent WAL runtime gate', () => {
   it.each([
     ['3.44.6', true],
     ['3.44.7', true],
@@ -53,6 +53,6 @@ describe('v4 concurrent WAL runtime gate', () => {
     const db = new DatabaseSync(':memory:');
     const expected = (db.prepare('SELECT sqlite_version() AS version').get() as { version: string }).version;
 
-    expect(inspectV4Runtime(db)).toEqual(assessConcurrentWalSafety(expected));
+    expect(inspectSqliteRuntime(db)).toEqual(assessConcurrentWalSafety(expected));
   });
 });

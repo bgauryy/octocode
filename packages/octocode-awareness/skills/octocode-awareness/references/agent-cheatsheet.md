@@ -4,18 +4,19 @@ Use `<cli>` in this order: installed `node scripts/awareness.mjs`; monorepo
 `node packages/octocode-awareness/dist/bin/awareness.js`; package fallback
 `npx @octocodeai/octocode-awareness`. Export one `OCTOCODE_AGENT_ID`.
 
-## Start
+## BEFORE / READ
 
 ```bash
 <cli> attend --workspace "$PWD" --query "<task>" --compact
 ```
 
-Inspect Ready, Claimed, Verify, FilesUnderWork, and Inbox. Follow `next`; use
+Inspect Ready, Claimed, Verify, FilesUnderWork, and Inbox. State goal, acceptance,
+affected scope, and evidence; follow `next`. Use
 `<command> --help` only when flags are unknown, `schema json-schema <name>` only
 when constructing a machine payload, and `docs list` only when the reference owner
 is unknown.
 
-## Shared Task
+## DURING / DO — Shared Task
 
 ```bash
 <cli> task claim --task-id <task> --agent-id "$OCTOCODE_AGENT_ID" --compact
@@ -26,7 +27,7 @@ is unknown.
 <cli> verify mark --run-id <run> --agent-id "$OCTOCODE_AGENT_ID" --message "passed" --compact
 ```
 
-## Standalone WORK
+## DURING / DO — Standalone WORK
 
 ```bash
 <cli> work start --agent-id "$OCTOCODE_AGENT_ID" --workspace "$PWD" \
@@ -45,4 +46,4 @@ make every generic query lean; workboard limits apply per lane. Prefer targeted
 `verify audit`, `signal list`, or `work show`; use CSV/HTML for bulk data. Recall and
 docs list are lean by default. Request bodies/full rows only when acting.
 
-Finish/handoff: `references/agent-cheatsheet-finish.md`. Agents/skills/search: `references/agent-cheatsheet-tooling.md`. File decisions: `references/files-awareness.md`.
+AFTER/VERIFY and conditional LEARN/CLEAN: `references/agent-cheatsheet-finish.md`. Agents/skills/search: `references/agent-cheatsheet-tooling.md`. File decisions: `references/files-awareness.md`.

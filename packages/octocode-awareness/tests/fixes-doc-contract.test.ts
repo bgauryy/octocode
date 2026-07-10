@@ -72,16 +72,26 @@ describe('reflect — judgment_note / duo / eval_failures', () => {
 });
 
 describe('refinement update lifecycle', () => {
-  it('updateRefinement changes only passed fields (open → done)', () => {
+  it('updateRefinement requires and preserves an auditable closure receipt (open → done)', () => {
     const db = freshDb();
     const { refinementId } = insertRefinement(db, {
       agentId: 'a', reasoning: 'why', remember: 'do the thing',
       quality: 'bad', state: 'open', workspacePath: '/tmp/ws',
     });
-    const upd = updateRefinement(db, { refinementId, state: 'done' });
+    expect(() => updateRefinement(db, { refinementId, state: 'done' }))
+      .toThrow(/actor.*check receipt/i);
+    const upd = updateRefinement(db, {
+      refinementId,
+      state: 'done',
+      actorAgentId: 'reviewer',
+      checkReceipt: 'focused refinement lifecycle test passed',
+    });
     expect(upd.updated).toBe(true);
     expect(upd.refinement?.state).toBe('done');
     expect(upd.refinement?.remember).toBe('do the thing'); // untouched
+    expect(upd.refinement?.reasoning).toContain('Closure receipt');
+    expect(upd.refinement?.reasoning).toContain('reviewer');
+    expect(upd.refinement?.reasoning).toContain('focused refinement lifecycle test passed');
     const { count } = getRefinements(db, { workspacePath: '/tmp/ws' }); // defaults open+ongoing
     expect(count).toBe(0);
   });

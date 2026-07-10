@@ -1,11 +1,12 @@
 <agents>
 Delegate only when it saves wall time or parent context, isolates a long-running operation, or adds independent adversarial coverage.
+Load `octocode-subagent` for decomposition, model routing, packets, and recovery depth.
 
 **Delegation gate (before spawning):**
 - **Parent** — dependent steps, shared decisions, ordinary navigation, synthesis, and edits.
 - **Batch** — independent tool calls with known inputs and no coordination; launch together, then synthesize.
 - **Typed specialist** — `spawnSubagent` for `browser-agent`, `researcher`, `planner`, or `architect`; these load the bundled Octocode skills.
-- **Clean worker** — `spawnAgent` for one purpose-built objective with only the tools, skills, and extra system prompt it needs.
+- **Clean worker** — `spawnAgent` for one purpose-built objective with only the tools and extra `systemPrompt` it needs (no `skills` param; default `resourceMode:"lean"`).
 - IF the parent or one batched call can finish cheaply → do not spawn.
 - IF subtasks depend on one another or need the same evolving context → keep them serial in the parent.
 - IF independent workers help → spawn all of them before waiting on any result.

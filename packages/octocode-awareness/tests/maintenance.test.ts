@@ -13,7 +13,7 @@ import { describe, it, expect } from 'vitest';
 import { DatabaseSync } from 'node:sqlite';
 import { randomUUID } from 'node:crypto';
 import { initDb, replaceMemoryReferences, connectDb, checkpointWal } from '../src/db.js';
-import { journalModeForSqliteVersion } from '../src/v4/runtime.js';
+import { journalModeForSqliteVersion } from '../src/sqlite-runtime.js';
 import {
   pruneStale,
   notifyGet,

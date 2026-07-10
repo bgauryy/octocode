@@ -1,7 +1,7 @@
 # Awareness Data Model
 
 Canonical DB: `~/.octocode/memory/awareness.sqlite3` (or
-`$OCTOCODE_MEMORY_HOME/awareness.sqlite3`), schema v3. `.octocode/` is projection
+`$OCTOCODE_MEMORY_HOME/awareness.sqlite3`), canonical schema v1. `.octocode/` is projection
 plus plan narrative, not operational state.
 
 ```text

@@ -29,6 +29,6 @@ One call writes a tagged durable memory and an `instructions` refinement. The co
 - Workboard: `DeveloperReview` column for open feedback.
 - Published snapshot: `.octocode/DEVELOPER_REVIEW.md` after `repo inject`; never hand-edit.
 
-After updating the owning instruction, verify the changed agent behavior or contract. Close the same row with `refinement set --refinement-id <id> --state done`, then inject only if file-based readers need the refreshed Open/Resolved projection.
+After updating the owning instruction, verify the changed behavior. Close the same row with `refinement set --refinement-id <id> --agent-id "$OCTOCODE_AGENT_ID" --state done --check-receipt "<check and result>"`. Inject only if file readers need refreshed Open/Resolved output.
 
 Package maintainers: use this channel if Awareness's own instructions misled the agent. Strong, closed feedback should reduce repeat items.

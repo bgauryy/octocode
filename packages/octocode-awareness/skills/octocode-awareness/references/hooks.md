@@ -1,22 +1,14 @@
 # Awareness Hooks
 
-Hooks automate the lobby lifecycle; manual CLI remains valid. Installed config only
-matters when the host executes it.
+Hooks automate loop edges; manual CLI remains valid. A config file proves presence,
+not execution, trust, or model-visible delivery.
 
-| Behavior | Effect |
-|---|---|
-| Brief | Deliver changed signals/memory/refinement only. |
-| Pre-edit | Guard harness first; declare advisory work; block exclusivity conflict. |
-| Post-edit | Audit/heartbeat; end HOOK fallback PENDING. |
-| Stop | Bound verification debt and block/remind. |
-| Capture | Deduplicate handoff/session state. |
-
-## Hosts
-
-- Claude: skill frontmatter while active, or project `.claude/settings.json`.
-- Codex: explicit `.codex/hooks.json`; PreCompact captures handoff.
-- Cursor: explicit `.cursor/hooks.json`; cloud event support differs.
-- Pi: `wirePiAwarenessHooks(pi)`; never shell install.
+| Host | Surface | Context / control |
+|---|---|---|
+| Claude | active skill frontmatter or `.claude/settings.json` | nested `hookSpecificOutput`; exit 2 blocks pre-edit/stop |
+| Codex | trusted `.codex/hooks.json` | nested `hookSpecificOutput`; exit 2 blocks; hook definition must be trusted |
+| Cursor | `.cursor/hooks.json` | `additional_context` / `agent_message`; `permission: deny`; stop `followup_message` |
+| Pi | `wirePiAwarenessHooks(pi)` | in-process block/context/follow-up; never shell install |
 
 Preview, install after approval, then check:
 
@@ -26,6 +18,12 @@ Preview, install after approval, then check:
 <cli> hooks check --host <claude|codex|cursor> --project-dir . --strict --compact
 ```
 
+`--strict` validates Awareness-owned config only. Read `health.config` separately
+from `health.runtime`; runtime remains `unverified` until a harmless write proves the
+hook fired. For Codex also inspect project trust, hook-definition trust, and the hooks
+feature. For Cursor smoke local and cloud separately; flat config has no guaranteed
+Windows command override.
+
 Remove (preview first) when uninstalling host wiring:
 
 ```bash
@@ -33,9 +31,13 @@ Remove (preview first) when uninstalling host wiring:
 <cli> hooks remove --host <claude|codex|cursor> --project-dir . --compact
 ```
 
-Installer repairs obsolete paths and removes the old separate harness-guard entry;
-pre-edit is the single ordered guard+presence hook. Smoke ordinary peer overlap,
-exclusive block, fallback verification, and stderr visibility.
+The installer quotes hook paths, tags the host, adds a Codex Windows command, repairs
+obsolete roots, and removes the old standalone guard. Pre-edit remains the single
+ordered guard+presence edge.
+
+Smoke: ordinary peer context once; exclusive denial before presence; N writes in one
+turn become one fallback Verify item with N files; stop continuation; changed briefing;
+host log visibility. Treat any missing edge as a runtime failure even when config is green.
 
 Identity/TTL/payload detail: `references/hook-semantics.md`. Session timing and
 handoff detail: `references/session-observability.md`. Harness edits require

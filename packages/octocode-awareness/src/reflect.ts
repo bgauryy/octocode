@@ -7,7 +7,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import { resolve } from 'node:path';
 import { normalizeArtifact, normalizeReflectionOutcome, REFLECTION_IMPORTANCE } from './helpers.js';
 import { fillScope } from './git.js';
-import { insertMemory } from './memory.js';
+import { insertMemory, insertMemoryWithSimilarityGate } from './memory.js';
 import { insertRefinement } from './refinements.js';
 import { insertHarnessLog } from './audit.js';
 import type { ReflectParams, ReflectResult, ReflectionOutcome } from './types.js';
@@ -49,6 +49,7 @@ export function reflect(db: DatabaseSync, params: ReflectParams): ReflectResult 
     judgmentNote,
     duo = false,
     evalFailures = [],
+      allowSimilar = false,
       references = [],
       file,
       files = [],
@@ -103,31 +104,39 @@ export function reflect(db: DatabaseSync, params: ReflectParams): ReflectResult 
     { workspace_path: workspacePath ?? null, artifact: normalizeArtifact(artifact), repo: repoArg ?? null, ref: refArg ?? null },
     cwd ?? process.cwd(),
   );
-    const scopeReferences = [
-      ...references,
-      ...normalizeScopePaths(file ? [file] : [], 'file', cwd),
-      ...normalizeScopePaths(files, 'file', cwd),
-      ...normalizeScopePaths(folders, 'dir', cwd),
-    ];
+  const pathBase = cwd ?? scope.workspace_path ?? workspacePath ?? process.cwd();
+  const scopeReferences = [
+    ...references,
+    ...normalizeScopePaths(file ? [file] : [], 'file', pathBase),
+    ...normalizeScopePaths(files, 'file', pathBase),
+    ...normalizeScopePaths(folders, 'dir', pathBase),
+  ];
 
-  // Insert learning memory — direct call, no subprocess, no stdout capture
-  const { memoryId, similarMemoryIds, noveltyScore } = insertMemory(db, {
+  // Route summaries through the same atomic duplicate gate as other agent
+  // surfaces. Repeated routine reflections reuse the existing memory instead
+  // of growing ACTIVE storage; a caller must explicitly justify recurrence.
+  const guardedSummary = insertMemoryWithSimilarityGate(db, {
     agentId,
     taskContext: task,
     observation,
     importance: importance,
     label: 'EXPERIENCE', // distinct label so reflections are filterable and excluded from briefings
     tags,
-      references: scopeReferences,
-      failureSignature: sig,
-      validFrom,
-      validTo,
-      workspacePath: scope.workspace_path,
-      artifact: scope.artifact,
-      repo: scope.repo,
-      ref: scope.ref,
-      cwd,
-  });
+    references: scopeReferences,
+    failureSignature: sig,
+    validFrom,
+    validTo,
+    workspacePath: scope.workspace_path,
+    artifact: scope.artifact,
+    repo: scope.repo,
+    ref: scope.ref,
+    cwd,
+  }, allowSimilar);
+  const summaryInsert = guardedSummary.skipped ? null : guardedSummary.result;
+  const memoryId = summaryInsert?.memoryId ?? guardedSummary.similar[0]!.memory_id;
+  const similarMemoryIds = guardedSummary.similar.map((memory) => memory.memory_id);
+  const noveltyScore = summaryInsert?.noveltyScore
+    ?? Math.max(0, 1 - (guardedSummary.similar[0]?.similarity ?? 1));
 
   // Structured eval failures — one eval-tagged memory each, so mine-weakness
   // can cluster them by failure_signature. Diagnostic packets, never auto-patches.
@@ -171,8 +180,8 @@ export function reflect(db: DatabaseSync, params: ReflectParams): ReflectResult 
       artifact: scope.artifact,
       repo: scope.repo,
       ref: scope.ref,
-        files: [...normalizeScopePaths(files, 'file', cwd), ...normalizeScopePaths(folders, 'dir', cwd)],
-        cwd,
+      files: [...normalizeScopePaths(files, 'file', pathBase), ...normalizeScopePaths(folders, 'dir', pathBase)],
+      cwd,
     });
     refinementId = rid;
   }
@@ -193,7 +202,7 @@ export function reflect(db: DatabaseSync, params: ReflectParams): ReflectResult 
       artifact: scope.artifact,
       repo: scope.repo,
       ref: scope.ref,
-      files: [...normalizeScopePaths(files, 'file', cwd), ...normalizeScopePaths(folders, 'dir', cwd)],
+      files: [...normalizeScopePaths(files, 'file', pathBase), ...normalizeScopePaths(folders, 'dir', pathBase)],
       cwd,
     });
     developerReviewRefinementId = rid;
@@ -210,6 +219,7 @@ export function reflect(db: DatabaseSync, params: ReflectParams): ReflectResult 
       payload: {
         outcome: resolvedOutcome,
         novelty_score: noveltyScore,
+        memory_skipped: guardedSummary.skipped,
         harness_fix: Boolean(fixHarness),
         instructions_feedback: Boolean(fixInstructions),
         refinement_id: refinementId,
@@ -224,6 +234,7 @@ export function reflect(db: DatabaseSync, params: ReflectParams): ReflectResult 
   const result: ReflectResult = {
     outcome: resolvedOutcome,
     learning_memory_id: memoryId,
+    ...(guardedSummary.skipped ? { learning_memory_skipped: true as const } : {}),
     repo_fix_refinement_id: refinementId,
     harness_fix: Boolean(fixHarness),
     instructions_feedback: Boolean(fixInstructions),

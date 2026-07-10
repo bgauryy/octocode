@@ -2,9 +2,12 @@ import { constants } from 'node:fs';
 import { access, readFile, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
+import { createRequire } from 'node:module';
 import type { TSchema, ToolCallResult, ToolDefinition, PiTheme } from '../types.js';
 import { makeRenderer, truncateToWidth, wrapText } from './render-helpers.js';
 import { assertPathAllowed } from './path-guard.js';
+
+const require = createRequire(import.meta.url);
 
 // ─── TypeBox (dynamic import — Pi runtime dep) ────────────────────────────────
 
@@ -104,7 +107,7 @@ const readStates = new Map<string, ReadState>();
 // implemented locally since that package is not a declared dependency.
 const fileQueues = new Map<string, Promise<void>>();
 
-function withFileMutationQueue<T>(key: string, fn: () => Promise<T>): Promise<T> {
+export function withFileMutationQueue<T>(key: string, fn: () => Promise<T>): Promise<T> {
   // Get the current settled tail (always resolves, never rejects)
   const prev = fileQueues.get(key) ?? Promise.resolve();
   // Schedule fn after prev settles
@@ -529,45 +532,156 @@ export function applyCustomEditsToContent(content: string, edits: EditOperation[
 
 interface DiffOp { type: 'same' | 'add' | 'remove'; line: string }
 
-// LCS diff is O(oldLines × newLines) in time AND memory. Above this many lines
-// the DP matrix (and the two full-file diff/patch passes per edit) becomes a real
-// memory/CPU hazard inside execute — skip the diff and let callers fall back.
-const MAX_DIFF_LINES = 6000;
+// Myers line diff is O((N+M)·D). Agent edits are almost always small D on large
+// files, so this stays fast where the old LCS DP (O(N·M) time+memory) stalled
+// (~230ms at 3k lines) and forced MAX_DIFF_LINES=6000 omit. Cap only for
+// pathological total size / memory, not for ordinary mid-size source files.
+const MAX_DIFF_LINES = 200_000;
 
 function diffTooLarge(oldContent: string, newContent: string): boolean {
+  // Cheap length pre-check avoids splitting huge buffers just to count lines.
+  if (oldContent.length + newContent.length > 32 * 1024 * 1024) return true;
   return oldContent.split('\n').length + newContent.split('\n').length > MAX_DIFF_LINES;
 }
 
-function diffOps(oldContent: string, newContent: string): DiffOp[] {
-  const oldLines = oldContent.split('\n');
-  const newLines = newContent.split('\n');
-  const dp: number[][] = Array.from({ length: oldLines.length + 1 }, () => Array(newLines.length + 1).fill(0));
-  for (let i = oldLines.length - 1; i >= 0; i--) {
-    for (let j = newLines.length - 1; j >= 0; j--) {
-      dp[i]![j] = oldLines[i] === newLines[j] ? dp[i + 1]![j + 1]! + 1 : Math.max(dp[i + 1]![j]!, dp[i]![j + 1]!);
-    }
+/**
+ * Myers O((N+M)D) line diff. Returns a full edit script of same/add/remove ops.
+ * Default: pure JS Myers (typically sub-ms for agent-sized edits).
+ * Opt-in native engine path via OCTOCODE_EDIT_NATIVE_DIFF=1 (useful for release
+ * napi builds / shared CLI callers; debug napi can be slower than JS).
+ * Exported for unit/perf tests.
+ */
+export function diffOps(oldContent: string, newContent: string): DiffOp[] {
+  if (process.env['OCTOCODE_EDIT_NATIVE_DIFF'] === '1') {
+    const native = tryNativeDiffOps(oldContent, newContent);
+    if (native) return native;
   }
-  const ops: DiffOp[] = [];
-  let i = 0;
-  let j = 0;
-  while (i < oldLines.length && j < newLines.length) {
-    if (oldLines[i] === newLines[j]) {
-      ops.push({ type: 'same', line: oldLines[i]! });
-      i++; j++;
-    } else if (dp[i + 1]![j]! >= dp[i]![j + 1]!) {
-      ops.push({ type: 'remove', line: oldLines[i]! });
-      i++;
-    } else {
-      ops.push({ type: 'add', line: newLines[j]! });
-      j++;
-    }
-  }
-  while (i < oldLines.length) ops.push({ type: 'remove', line: oldLines[i++]! });
-  while (j < newLines.length) ops.push({ type: 'add', line: newLines[j++]! });
-  return ops;
+  return diffOpsJs(oldContent, newContent);
 }
 
-function generateDiffString(oldContent: string, newContent: string): string {
+type NativeLineDiffOp = { opType: string; line: string };
+let nativeComputeLineDiff:
+  | ((oldText: string, newText: string) => NativeLineDiffOp[])
+  | null
+  | undefined;
+
+function tryNativeDiffOps(oldContent: string, newContent: string): DiffOp[] | null {
+  if (nativeComputeLineDiff === undefined) {
+    try {
+      const eng = require('@octocodeai/octocode-engine') as {
+        computeLineDiff?: (a: string, b: string) => NativeLineDiffOp[];
+      };
+      nativeComputeLineDiff =
+        typeof eng.computeLineDiff === 'function' ? eng.computeLineDiff.bind(eng) : null;
+    } catch {
+      nativeComputeLineDiff = null;
+    }
+  }
+  if (!nativeComputeLineDiff) return null;
+  try {
+    const ops = nativeComputeLineDiff(oldContent, newContent);
+    return ops.map((op) => ({
+      type: op.opType as DiffOp['type'],
+      line: op.line,
+    }));
+  } catch {
+    return null;
+  }
+}
+
+/** Pure JS Myers — used when the native addon is unavailable. */
+export function diffOpsJs(oldContent: string, newContent: string): DiffOp[] {
+  const a = oldContent.split('\n');
+  const b = newContent.split('\n');
+  const n = a.length;
+  const m = b.length;
+  if (n === 0 && m === 0) return [];
+  if (n === 0) return b.map((line) => ({ type: 'add' as const, line }));
+  if (m === 0) return a.map((line) => ({ type: 'remove' as const, line }));
+
+  const max = n + m;
+  const offset = max;
+  const v = new Int32Array(2 * max + 1);
+  v.fill(-1);
+  v[offset + 1] = 0;
+  const trace: Int32Array[] = [];
+
+  let dFound = -1;
+  outer: for (let d = 0; d <= max; d++) {
+    for (let k = -d; k <= d; k += 2) {
+      let x: number;
+      if (k === -d || (k !== d && v[offset + k - 1]! < v[offset + k + 1]!)) {
+        x = v[offset + k + 1]!;
+      } else {
+        x = v[offset + k - 1]! + 1;
+      }
+      let y = x - k;
+      while (x < n && y < m && a[x] === b[y]) {
+        x++;
+        y++;
+      }
+      v[offset + k] = x;
+      if (x >= n && y >= m) {
+        trace.push(Int32Array.from(v));
+        dFound = d;
+        break outer;
+      }
+    }
+    trace.push(Int32Array.from(v));
+  }
+
+  if (dFound < 0) {
+    return [
+      ...a.map((line) => ({ type: 'remove' as const, line })),
+      ...b.map((line) => ({ type: 'add' as const, line })),
+    ];
+  }
+
+  const opsRev: DiffOp[] = [];
+  let x = n;
+  let y = m;
+  for (let d = dFound; d > 0; d--) {
+    const vPrev = trace[d - 1]!;
+    const k = x - y;
+    let prevK: number;
+    if (k === -d || (k !== d && vPrev[offset + k - 1]! < vPrev[offset + k + 1]!)) {
+      prevK = k + 1;
+    } else {
+      prevK = k - 1;
+    }
+    const prevX = vPrev[offset + prevK]!;
+    const prevY = prevX - prevK;
+    while (x > prevX && y > prevY) {
+      x--;
+      y--;
+      opsRev.push({ type: 'same', line: a[x]! });
+    }
+    if (x === prevX) {
+      y--;
+      opsRev.push({ type: 'add', line: b[y]! });
+    } else {
+      x--;
+      opsRev.push({ type: 'remove', line: a[x]! });
+    }
+  }
+  while (x > 0 && y > 0) {
+    x--;
+    y--;
+    opsRev.push({ type: 'same', line: a[x]! });
+  }
+  while (x > 0) {
+    x--;
+    opsRev.push({ type: 'remove', line: a[x]! });
+  }
+  while (y > 0) {
+    y--;
+    opsRev.push({ type: 'add', line: b[y]! });
+  }
+  opsRev.reverse();
+  return opsRev;
+}
+
+export function generateDiffString(oldContent: string, newContent: string): string {
   if (diffTooLarge(oldContent, newContent)) {
     return '(diff omitted: file too large — see the per-edit changes in details)';
   }
@@ -587,15 +701,25 @@ function colorDiffString(diff: string): string {
   return diff.split('\n').map(colorDiffLine).join('\n');
 }
 
-function generateUnifiedPatch(filePath: string, oldContent: string, newContent: string): string {
-  // Compute a single hunk covering the changed region (old/new prelude of equal lines
-  // plus the +/- diff body). Emit a valid unified-diff hunk header
-  // `@@ -<oldStart>,<oldCount> +<newStart>,<newCount> @@` per the format spec.
+/** Build diff + unified patch from a single Myers pass (no double O(ND)). */
+export function generateDiffArtifacts(
+  filePath: string,
+  oldContent: string,
+  newContent: string,
+): { diff: string; patch: string; ops: DiffOp[] } {
   if (diffTooLarge(oldContent, newContent)) {
-    return `--- ${filePath}\n+++ ${filePath}\n@@ patch omitted: file too large @@\n`;
+    return {
+      diff: '(diff omitted: file too large — see the per-edit changes in details)',
+      patch: `--- ${filePath}\n+++ ${filePath}\n@@ patch omitted: file too large @@\n`,
+      ops: [],
+    };
   }
   const ops = diffOps(oldContent, newContent);
-  // Trim leading/trailing 'same' lines to bound the hunk to actual changes.
+  const diff = ops
+    .filter((op) => op.type !== 'same')
+    .map((op) => `${op.type === 'add' ? '+' : '-'} ${op.line}`)
+    .join('\n');
+
   let start = 0;
   while (start < ops.length && ops[start]!.type === 'same') start++;
   let end = ops.length;
@@ -603,18 +727,14 @@ function generateUnifiedPatch(filePath: string, oldContent: string, newContent: 
   const hunkOps = ops.slice(start, end);
   const oldCount = hunkOps.filter((op) => op.type !== 'add').length;
   const newCount = hunkOps.filter((op) => op.type !== 'remove').length;
-  // 1-based start line in the old file of the first hunk line.
   const oldStart = start + 1;
   const newStart = start + 1;
   const lines = [`--- ${filePath}`, `+++ ${filePath}`, `@@ -${oldStart},${oldCount} +${newStart},${newCount} @@`];
-  // Body must iterate the trimmed hunk (hunkOps), not the full ops — the header
-  // line-counts and start offsets are computed from hunkOps, so emitting the
-  // leading/trailing 'same' context lines from ops would desync header and body.
   for (const op of hunkOps) {
     if (op.type === 'same') lines.push(` ${op.line}`);
     else lines.push(`${op.type === 'add' ? '+' : '-'}${op.line}`);
   }
-  return `${lines.join('\n')}\n`;
+  return { diff, patch: `${lines.join('\n')}\n`, ops };
 }
 
 function buildParameters(Type: TypeBoxBuilder): TSchema {
@@ -690,6 +810,7 @@ async function prepareEdit(query: EditQuery, cwd: string, inheritedRequireRecent
   const normalizedContent = normalizeToLF(text);
   const result = applyCustomEditsToContent(normalizedContent, query.edits, query.path);
   const finalContent = bom + restoreLineEndings(result.newContent, lineEnding);
+  const artifacts = generateDiffArtifacts(query.path, result.baseContent, result.newContent);
   return {
     requestPath: query.path,
     absolutePath,
@@ -699,8 +820,8 @@ async function prepareEdit(query: EditQuery, cwd: string, inheritedRequireRecent
     finalContent,
     result,
     readState,
-    diff: generateDiffString(result.baseContent, result.newContent),
-    patch: generateUnifiedPatch(query.path, result.baseContent, result.newContent),
+    diff: artifacts.diff,
+    patch: artifacts.patch,
   };
 }
 
@@ -828,7 +949,7 @@ export function registerEditTool(
       // Per file → per edit:
       //   meta line  (truncatable — always short)
       //   reasoning  (word-wrapped so full text is visible without exceeding terminal width)
-      //   diff lines (proper LCS diff: only genuinely changed lines)
+      //   diff lines (Myers: only genuinely changed lines)
       //
       // Items are either a static { text, truncate } pair or a width-function that
       // emits multiple lines (used for word-wrapped reasoning).
@@ -865,7 +986,7 @@ export function registerEditTool(
             });
           }
 
-          // Diff: LCS diff between old and new so unchanged lines are skipped.
+          // Diff: Myers line diff between old and new so unchanged lines are skipped.
           // Verbatim removedLines/addedLines showed identical -/+ pairs when new
           // content was appended after an unchanged anchor block (confusing UX).
           const ops = diffOps(

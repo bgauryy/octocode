@@ -394,7 +394,7 @@ describe('memory record', () => {
 
   it('tags are stored and normalized', () => {
     const result = ok(db, [
-      'memory', 'record', '--agent-id', 'a', '--task-context', 'ctx', '--observation', 'obs',
+      'memory', 'record', '--agent-id', 'a', '--task-context', 'tag normalization', '--observation', 'tag normalization observation',
       '--importance', '5', '--tag', 'FOO', '--tag', 'bar-baz',
     ]);
     expect((result['memory'] as Record<string, unknown>)['tags']).toEqual(['foo', 'bar-baz']);
@@ -402,7 +402,7 @@ describe('memory record', () => {
 
   it('references are stored', () => {
     const result = ok(db, [
-      'memory', 'record', '--agent-id', 'a', '--task-context', 'ctx', '--observation', 'obs',
+      'memory', 'record', '--agent-id', 'a', '--task-context', 'reference storage', '--observation', 'reference storage observation',
       '--importance', '5',
       '--reference', 'https://example.com',
       '--reference', 'pr:owner/repo#123',
@@ -438,7 +438,7 @@ describe('memory record', () => {
 
   it('unknown label hard-errors', () => {
     fail(db, [
-      'memory', 'record', '--agent-id', 'a', '--task-context', 'ctx', '--observation', 'obs',
+      'memory', 'record', '--agent-id', 'a', '--task-context', 'compact output', '--observation', 'compact output observation',
       '--importance', '5', '--label', 'NOTAREAL',
     ]);
   });
@@ -458,7 +458,7 @@ describe('memory record', () => {
 
   it('importance out of range exits 1', () => {
     fail(db, [
-      'memory', 'record', '--agent-id', 'a', '--task-context', 'ctx', '--observation', 'obs',
+      'memory', 'record', '--agent-id', 'a', '--task-context', 'duplicate tags', '--observation', 'duplicate tag normalization observation',
       '--importance', '11',
     ]);
   });
@@ -473,7 +473,7 @@ describe('memory record', () => {
 
   it('--compact produces single-line JSON', () => {
     const r = run(db, [
-      'memory', 'record', '--agent-id', 'a', '--task-context', 'ctx', '--observation', 'obs',
+      'memory', 'record', '--agent-id', 'a', '--task-context', 'duplicate tag fixture', '--observation', 'deduplicate repeated tag values',
       '--importance', '5', '--compact',
     ]);
     expect(r.status).toBe(0);
@@ -485,7 +485,7 @@ describe('memory record', () => {
 
   it('duplicate tags are deduplicated', () => {
     const result = ok(db, [
-      'memory', 'record', '--agent-id', 'a', '--task-context', 'ctx', '--observation', 'obs',
+      'memory', 'record', '--agent-id', 'a', '--task-context', 'duplicate tag assertion', '--observation', 'the tag list should contain one unique value',
       '--importance', '5', '--tag', 'dup', '--tag', 'dup', '--tag', 'dup',
     ]);
     expect((result['memory'] as Record<string, unknown>)['tags']).toEqual(['dup']);
@@ -1017,16 +1017,12 @@ describe('lock release', () => {
     ]);
     const runId = (claim['run'] as Record<string, unknown>)['run_id'] as string;
 
-    const releaseAttempt = run(db, [
-      'lock', 'release', '--agent-id', 'agent-a', '--run-id', runId, '--status', 'SUCCESS',
+    const rel = ok(db, [
+      'lock', 'release', '--agent-id', 'agent-a', '--run-id', runId, '--status', 'PENDING',
     ]);
-    expect(releaseAttempt.status).toBe(2);
-    const rel = releaseAttempt.parsed!;
-    expect(rel['ok']).toBe(false);
     expect(rel['released']).toBe(true);
     expect(rel['locks_released']).toBe(1);
     expect(rel['status']).toBe('PENDING');
-    expect(rel['unverifiedConclusion']).toContain('SUCCESS requested without --verified');
 
     // Should now be claimable by agent-b
     const b = ok(db, ['lock', 'acquire', '--agent-id', 'agent-b', '--target-file', targetFile]);
@@ -1053,7 +1049,7 @@ describe('lock release', () => {
     const rejected = fail(db, [
       'lock', 'release', '--agent-id', 'agent-status', '--run-id', runId, '--status', 'ACTIVE',
     ]);
-    expect(String(rejected?.['error'] ?? '')).toContain('--status must be PENDING, SUCCESS, or FAILED');
+    expect(String(rejected?.['error'] ?? '')).toContain('--status must be PENDING or FAILED');
     ok(db, [
       'lock', 'release', '--agent-id', 'agent-status', '--run-id', runId, '--status', 'PENDING',
     ]);
@@ -1630,7 +1626,7 @@ describe('CLI', () => {
       expect(row.example).toContain('octocode-awareness ');
     }
     const lockRelease = parsed.commands.find((row) => row.command === 'lock release');
-    expect(lockRelease?.example).toMatch(/--status SUCCESS/);
+    expect(lockRelease?.example).toMatch(/--status PENDING/);
     expect(lockRelease?.example).not.toMatch(/--status ACTIVE/);
     const taskCreate = parsed.commands.find((row) => row.command === 'task create');
     expect(taskCreate?.example).toContain('--acceptance');
@@ -1879,9 +1875,9 @@ describe('repo context projections', () => {
         '--agent-id', 'agent-a',
         '--workspace', dir,
         '--target-file', join(dir, 'src/context.ts'),
-        '--status', 'SUCCESS',
+        '--status', 'PENDING',
       ]);
-      expect(release.status).toBe(2);
+      expect(release.status).toBe(0);
 
       const workboard = ok(db, ['query', 'workboard', '--workspace', dir, '--limit', '10']);
       expect(workboard['view']).toBe('workboard');
@@ -1895,6 +1891,8 @@ describe('repo context projections', () => {
     const dir = mktemp();
     const db = join(dir, 'test.sqlite3');
     try {
+      mkdirSync(join(dir, 'src'), { recursive: true });
+      writeFileSync(join(dir, 'src/auth.ts'), 'export const auth = true;\n', 'utf8');
       ok(db, [
         'memory', 'record',
         '--agent-id', 'agent-a',
@@ -1923,7 +1921,7 @@ describe('repo context projections', () => {
         '--explain-organ',
         '--compact',
       ]);
-      expect(result['schema_version']).toBe(3);
+      expect(result['schema_version']).toBe(1);
       expect(result['counts']).toMatchObject({ Inbox: 1, Ready: 0, Claimed: 0, Verify: 0, FilesUnderWork: 0 });
       expect(result['workboard']).toMatchObject({ Inbox: expect.any(Array) });
       expect(result['evidence']).toEqual(expect.arrayContaining([
@@ -1932,7 +1930,7 @@ describe('repo context projections', () => {
       expect(result['profile']).toBeUndefined();
       expect(result['drive_state']).toBeUndefined();
       expect(result['organ_reference']).toBeUndefined();
-      expect(String(result['next'])).toMatch(/work start|verify audit|memory forget|attend --workspace/);
+      expect(String(result['next'])).toMatch(/work start|verify audit|query workboard|attend --workspace/);
       expect(Buffer.byteLength(JSON.stringify(result))).toBeLessThanOrEqual(2 * 1024);
       expect(JSON.stringify(result)).not.toMatch(/fictional persistent personality/i);
     } finally { rmSync(dir, { recursive: true }); }
@@ -2048,6 +2046,7 @@ describe('digest', () => {
         '--task-context', 'fresh superseded',
         '--observation', 'fresh superseded observation',
         '--importance', '3',
+        '--allow-similar',
       ]);
       const oldHandoff = ok(db, [
         'refinement', 'set', '--agent-id', 'a',
@@ -2068,14 +2067,24 @@ describe('digest', () => {
         '--reasoning', 'old done',
         '--remember', 'old done',
         '--quality', 'good',
-        '--state', 'done',
+        '--state', 'open',
+      ]);
+      const oldDoneId = (oldDone['refinement'] as Record<string, unknown>)['refinement_id'] as string;
+      ok(db, [
+        'refinement', 'set', '--agent-id', 'a', '--refinement-id', oldDoneId,
+        '--state', 'done', '--check-receipt', 'old fixture verified',
       ]);
       const freshDone = ok(db, [
         'refinement', 'set', '--agent-id', 'a',
         '--reasoning', 'fresh done',
         '--remember', 'fresh done',
         '--quality', 'bad',
-        '--state', 'done',
+        '--state', 'open',
+      ]);
+      const freshDoneId = (freshDone['refinement'] as Record<string, unknown>)['refinement_id'] as string;
+      ok(db, [
+        'refinement', 'set', '--agent-id', 'a', '--refinement-id', freshDoneId,
+        '--state', 'done', '--check-receipt', 'fresh fixture verified',
       ]);
 
       const conn = new DatabaseSync(db);
@@ -2089,9 +2098,9 @@ describe('digest', () => {
         conn.prepare('UPDATE refinements SET updated_at = ? WHERE refinement_id = ?')
           .run(daysAgo(0), (freshHandoff['refinement'] as Record<string, unknown>)['refinement_id'] as string);
         conn.prepare('UPDATE refinements SET updated_at = ? WHERE refinement_id = ?')
-          .run(daysAgo(5), (oldDone['refinement'] as Record<string, unknown>)['refinement_id'] as string);
+          .run(daysAgo(5), oldDoneId);
         conn.prepare('UPDATE refinements SET updated_at = ? WHERE refinement_id = ?')
-          .run(daysAgo(0), (freshDone['refinement'] as Record<string, unknown>)['refinement_id'] as string);
+          .run(daysAgo(0), freshDoneId);
       } finally {
         conn.close();
       }

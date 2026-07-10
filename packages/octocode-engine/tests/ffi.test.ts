@@ -106,6 +106,7 @@ const MINIFIER_FUNCTION_EXPORTS = [
   'sliceContent',
   'extractMatchingLines',
   'filterPatch',
+  'computeLineDiff',
 ] as const satisfies readonly (keyof typeof import('../index.js'))[];
 
 const PUBLIC_NATIVE_EXPORTS = [
@@ -1367,6 +1368,22 @@ describe('filterPatch', () => {
   it('short patch not trimmed even with trimContext=true', () => {
     const r = addon!.filterPatch(samplePatch, { trimContext: true });
     expect(r).not.toContain('...');
+  });
+});
+
+describe('computeLineDiff', () => {
+  it('returns Myers ops for a single-line change', () => {
+    const ops = addon!.computeLineDiff('a\nb\nc\n', 'a\nB\nc\n');
+    const changed = ops.filter((op) => op.opType !== 'same');
+    expect(changed).toEqual([
+      { opType: 'remove', line: 'b' },
+      { opType: 'add', line: 'B' },
+    ]);
+  });
+
+  it('marks identical content as all same', () => {
+    const ops = addon!.computeLineDiff('one\ntwo\n', 'one\ntwo\n');
+    expect(ops.every((op) => op.opType === 'same')).toBe(true);
   });
 });
 

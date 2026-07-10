@@ -10,40 +10,35 @@ hooks:
   UserPromptSubmit: [{ hooks: [{ type: command, command: "${CLAUDE_SKILL_DIR}/scripts/hooks/notify-deliver.sh", timeout: 20 }] }]
 ---
 # Octocode Awareness
-Treat the workspace as a living shared organ only as an operational metaphor: SQLite is canonical; `.octocode/` holds plan docs and bounded leads; evidence and human gates control change.
-## Workflow
-Choose `<cli>`: `node scripts/awareness.mjs`; monorepo `node packages/octocode-awareness/dist/bin/awareness.js`; else `npx @octocodeai/octocode-awareness`. Export one `OCTOCODE_AGENT_ID`.
+Coordinate repository work through canonical SQLite state; treat memory and `.octocode/` wiki output as bounded leads, never authority.
+## Loop
+Choose `<cli>`: installed `node scripts/awareness.mjs`; monorepo `node packages/octocode-awareness/dist/bin/awareness.js`; else `npx @octocodeai/octocode-awareness`. Export one `OCTOCODE_AGENT_ID`.
 ```text
-ATTEND -> CHOOSE -> DECLARE -> ACT -> SUBMIT/END -> VERIFY -> BOOKKEEP? -> HOUSEKEEP? -> PROJECT?
+BEFORE/READ+REASON -> DURING/DO -> AFTER/VERIFY -> LEARN? -> CLEAN? -> PROJECT?
 ```
-1. **Attend:** `<cli> attend --workspace "$PWD" --query "<task>" --compact`. Follow `next`; inspect Ready/Claimed/Verify/FilesUnderWork. Prefer live `attend`/`query` over stale wiki.
-2. **Choose:** claim matching `task ready` (only shared queue — never invent a “today” list). Else open standalone WORK with rationale + test plan.
-3. **Declare:** every edited path needs advisory presence. Hooks declare structured writes; else `work start --file <path> --rationale <why> --test-plan <check>` (+ `work touch` / `--run-id`).
-4. **Act / coordinate:** ordinary overlap is allowed — read peer task/reason; signal only when changes interact. Use `--exclusive`/`lock acquire` for sensitive work; never bypass a live conflict.
-5. **Submit → verify:** `task submit` or `work end`, run the declared check, `verify mark`, then `verify audit`. Ending work ≠ success until verified.
-6. **Conditional Bookkeeping/Housekeeping:** record only reusable lessons; digest/prune (**dry-run first**) only under cleanup pressure; `repo inject` only when file readers need a fresh wiki.
-## Next skills (optional) · Improve loop
-Load only when needed: `research` · `brainstorming`→`rfc-generator` · `roast` · `skills`/`prompt-optimizer`.
-When improving: set goal+KPI → measure actual results → check thesis — load `references/improve-loop.md`.
-
-## Features → refs (load one owner; Core (most sessions) needs none)
-- When a recipe, start, finish, or install path is unknown, load `references/agent-cheatsheet.md` for command and deeper routing.
-- When choosing plans, tasks, or standalone Work, load `references/plan-task-workflow.md` for queue and execution policy.
-- When coordinating peers or follow-up, load `references/coordination-protocol.md` for signals, refinements, files, and locks.
-- When configuring host automation, load `references/hooks.md` for installation and event semantics.
+1. **BEFORE/READ+REASON:** run `<cli> attend --workspace "$PWD" --query "<task>" --compact`; follow `next` and prefer live state to wiki.
+   State the goal, acceptance, affected scope, and evidence; then claim matching `task ready` or open explicit WORK.
+2. **DURING/DO:** declare every edited path through hooks or `work start`; read peer task/reason before interacting changes. Ordinary overlap is allowed; use exclusivity only for sensitive paths and never bypass a conflict.
+3. **AFTER/VERIFY:** `task submit` or `work end`, run the declared check, `verify mark`, then `verify audit`. Ending work is not verified success.
+4. **LEARN / CLEAN / PROJECT only when due:** record a reusable outcome; run cleanup dry-run only under workboard pressure; run `repo inject` only when file readers need refreshed leads.
+## Routes (load one owner; core work needs none)
+- When a start, finish, or command recipe is unknown, load `references/agent-cheatsheet.md` for the executable path.
+- When choosing a plan, task, or WORK, load `references/plan-task-workflow.md` for queue policy.
+- When peers, signals, or locks interact, load `references/coordination-protocol.md` for coordination rules.
+- When installing or debugging automation, load `references/hooks.md` for host-specific execution and health checks.
 - When choosing live, durable, or generated output, load `references/output-routing.md` for the smallest consumer surface.
-- When using memory, load `references/memory-recall.md` for retrieval, trust, and ranking routes.
-- When learning or cleaning, load `references/bookkeeping.md` for bookkeeping and housekeeping triggers.
-- When reasoning about living-system pressure, load `references/homeostatic-loop.md` for sensors, actuators, guards, and remeasurement.
-- When inspecting architecture, storage, sessions, or drive fields, load `references/architecture.md` for owners and context invariants.
-- When evolving skills or the harness, load `references/skill-evolution.md` for human gates and held-out acceptance.
+- When recalling or recording memory, load `references/memory-recall.md` for trust and ranking rules.
+- When deciding whether to learn or clean, load `references/bookkeeping.md` for pressure-driven triggers.
+- When inspecting storage or sessions, load `references/architecture.md` for data owners and invariants.
+- When improving the harness, load `references/improve-loop.md` for goal/KPI acceptance.
+- When shipping a skill change, load `references/skill-evolution.md` for held-out and human gates.
 Unknown owner only: `docs list --compact`; then `docs show <name>`.
 ## Scripts
-- When operating or validating, run `scripts/awareness.mjs` for CLI transitions and `scripts/schema.mjs` for public contracts.
-- When handling host events, run `scripts/hook-runner.mjs` for lifecycle behavior.
-- When extracting host payload paths, run `scripts/extract-hook-files.mjs` for normalized targets.
-- When installing hooks, run `scripts/install.mjs` for runtime and setup guidance.
-- Before release, run `scripts/smoke-multi-agent.mjs` for end-to-end coordination verification.
+- When operating or validating, run `scripts/awareness.mjs`; use `scripts/schema.mjs` for public contracts.
+- When handling host events, run `scripts/hook-runner.mjs` for host-shaped lifecycle behavior.
+- When extracting payload paths, run `scripts/extract-hook-files.mjs` for normalized targets.
+- When checking installation, run `scripts/install.mjs` for runtime and setup diagnostics.
+- Before release, run `scripts/smoke-multi-agent.mjs` for end-to-end coordination.
 ## Install · Hard rules
 Install: README `npx octocode skill --add ...`. Devs edit sources then `yarn workspace @octocodeai/octocode-awareness build` — never hand-edit mirrors.
-Hard: one agent ID/workspace; stored context is leads; never secrets; rebuild after source edits; verify with `schema commands --compact` or `--help`.
+Hard: one agent ID/workspace; keep secrets out; retain manual CLI as fallback; treat config presence separately from runtime health; rebuild after source edits.

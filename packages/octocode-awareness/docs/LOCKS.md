@@ -97,8 +97,9 @@ Successful verification moves the linked task to `DONE`; failure moves it to
 ## Automatic Hook Fallback
 
 If no task claim or explicit WORK presence matches a structured write, pre-edit
-creates an isolated `origin=HOOK` run. Post-edit logs the edit, closes that presence,
-and moves the run to `PENDING`. Hooks never merge unrelated writes by host session.
+creates or reuses one scoped `origin=HOOK` aggregate. Post-edit records and touches
+it; Stop or SessionEnd finalizes it once to `PENDING`. Aggregates never cross agent,
+session, workspace, artifact, TASK, or explicit WORK boundaries.
 
 ## TTL And Cleanup
 

@@ -42,6 +42,7 @@
   "dependencies": {
     "@octocodeai/octocode-awareness": "workspace:*",
     "@octocodeai/octocode-core": "^16.6.3",
+    "@octocodeai/octocode-engine": "workspace:*",
     "@octocodeai/octocode-tools-core": "workspace:*"
   },
   "devDependencies": {

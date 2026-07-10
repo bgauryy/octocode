@@ -12,6 +12,8 @@
 import { describe, it, expect } from 'vitest';
 import { DatabaseSync } from 'node:sqlite';
 import {
+  AWARENESS_APPLICATION_ID,
+  AWARENESS_SCHEMA_VERSION,
   getDeliveryFingerprint,
   hasFts,
   initDb,
@@ -245,10 +247,43 @@ describe('delivery_state table column names', () => {
   });
 });
 
-describe('schema version', () => {
-  it('is version 3', () => {
+describe('canonical schema identity', () => {
+  it('is the sole OCT1 schema version 1', () => {
     const db = freshDb();
-    expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 3 });
+    expect(db.prepare('PRAGMA application_id').get())
+      .toEqual({ application_id: AWARENESS_APPLICATION_ID });
+    expect(db.prepare('PRAGMA user_version').get())
+      .toEqual({ user_version: AWARENESS_SCHEMA_VERSION });
+    expect(AWARENESS_SCHEMA_VERSION).toBe(1);
+  });
+
+  it('rejects an extra application relation on the canonical fast path', () => {
+    const db = freshDb();
+    db.exec('CREATE TABLE unexpected_state(value TEXT)');
+    expect(() => initDb(db)).toThrow(/canonical v1 relation contract mismatch.*unexpected_state/i);
+  });
+
+  it('rejects canonical-header structural drift', () => {
+    const db = freshDb();
+    db.exec(`
+      PRAGMA foreign_keys = OFF;
+      DROP TABLE task_paths;
+      CREATE TABLE task_paths(task_id TEXT NOT NULL, path TEXT NOT NULL, ordinal INTEGER NOT NULL DEFAULT 0);
+    `);
+    expect(() => initDb(db)).toThrow(/canonical v1 schema fingerprint mismatch/i);
+  });
+
+  it('rejects a missing canonical index', () => {
+    const db = freshDb();
+    db.exec('DROP INDEX idx_sessions_agent');
+    expect(() => initDb(db)).toThrow(/canonical v1 schema fingerprint mismatch/i);
+  });
+
+  it('rejects an unexpected trigger', () => {
+    const db = freshDb();
+    db.exec(`CREATE TRIGGER destructive_memory_trigger AFTER INSERT ON memories
+      BEGIN DELETE FROM memories WHERE memory_id = NEW.memory_id; END`);
+    expect(() => initDb(db)).toThrow(/canonical v1 schema fingerprint mismatch/i);
   });
 });
 

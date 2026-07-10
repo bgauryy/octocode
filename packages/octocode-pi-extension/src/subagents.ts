@@ -84,6 +84,7 @@ export const OCTOCODE_SKILL_NAMES = [
   'octocode-rfc-generator',
   'octocode-roast',
   'octocode-skills',
+  'octocode-subagent',
 ] as const;
 
 function subagentSkillPath(name: SubagentName, skillName: string): string {

@@ -7,20 +7,24 @@
  *   artifact is the optional workspace-local package/service/component slice.
  */
 
-import { DatabaseSync } from 'node:sqlite';
+import { DatabaseSync, type SQLInputValue } from 'node:sqlite';
+import { createHash } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { join, resolve, dirname } from 'node:path';
 import { homedir, platform } from 'node:os';
 
 import { parseJsonList, utcNow } from './helpers.js';
 import type { TableInfoRow, MemoryRow } from './types.js';
-import { journalModeForSqliteVersion } from './v4/runtime.js';
+import { journalModeForSqliteVersion } from './sqlite-runtime.js';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const DEFAULT_DB_NAME = 'awareness.sqlite3';
 const MEMORY_HOME_ENV = 'OCTOCODE_MEMORY_HOME';
-const V3_SCHEMA_VERSION = 3;
+/** ASCII "OCT1". Canonical Awareness has one executable schema contract. */
+export const AWARENESS_APPLICATION_ID = 0x4f435431;
+export const AWARENESS_SCHEMA_VERSION = 1;
+const LEGACY_MAX_USER_VERSION = 3;
 const SQLITE_BUSY_RETRY_MS = 25;
 const SQLITE_BUSY_DEADLINE_MS = 10_000;
 const SQLITE_WAIT = new Int32Array(new SharedArrayBuffer(4));
@@ -79,9 +83,10 @@ export function connectDb(dbPath: string): DatabaseSync {
     // read-only guard fail immediately with SQLITE_BUSY.
     db.exec(`PRAGMA busy_timeout = ${SQLITE_BUSY_DEADLINE_MS}`);
     // Fail closed before journal mode, foreign-key state, DDL, or migrations can
-    // touch a foreign/future store. This is the compatibility firewall that
-    // prevents an old v3 CLI/hook from shape-migrating a v4 database back to v3.
-    assertV3SchemaIdentity(db);
+    // touch a foreign/future store. A recognized legacy store is backed up before
+    // its first write; canonical OCT1 stores take a strict read-only fast path.
+    const schemaState = inspectSchemaState(db);
+    if (schemaState === 'legacy') createPreV1Backup(db, dbPath);
     const versionRow = db.prepare('SELECT sqlite_version() AS version').get() as { version: string };
     const journalMode = journalModeForSqliteVersion(versionRow.version);
     // Unsafe embedded SQLite versions use rollback journaling instead of the
@@ -89,7 +94,7 @@ export function connectDb(dbPath: string): DatabaseSync {
     // first opener, so both modes use the same bounded BUSY retry.
     withSqliteBusyRetry(() => db.exec(`PRAGMA journal_mode = ${journalMode}`));
     db.exec('PRAGMA foreign_keys = ON');
-    initDb(db);
+    initializeDb(db, schemaState === 'legacy');
     _db = db;
     return db;
   } catch (error) {
@@ -98,58 +103,123 @@ export function connectDb(dbPath: string): DatabaseSync {
   }
 }
 
-interface V3SchemaIdentity {
+interface SchemaIdentity {
   applicationId: number;
   userVersion: number;
+  relations: Array<{ name: string; type: string }>;
 }
 
-function readV3SchemaIdentity(db: DatabaseSync): V3SchemaIdentity {
+type SchemaState = 'fresh' | 'canonical' | 'legacy';
+
+function readSchemaIdentity(db: DatabaseSync): SchemaIdentity {
   const application = db.prepare('PRAGMA application_id').get() as { application_id: number };
   const version = db.prepare('PRAGMA user_version').get() as { user_version: number };
+  const relations = db.prepare(`
+    SELECT name, type
+    FROM sqlite_schema
+    WHERE type IN ('table', 'view')
+      AND name NOT LIKE 'sqlite_%'
+      AND name NOT GLOB 'memories_fts_*'
+      AND name NOT GLOB 'memory_fts_*'
+    ORDER BY name
+  `).all() as Array<{ name: string; type: string }>;
   return {
     applicationId: application.application_id ?? 0,
     userVersion: version.user_version ?? 0,
+    relations,
   };
 }
 
-function assertV3SchemaIdentity(db: DatabaseSync): void {
-  const identity = readV3SchemaIdentity(db);
-  if (identity.applicationId !== 0) {
-    throw new Error(
-      `refusing foreign Awareness application_id ${identity.applicationId}; v3 expects 0`,
-    );
-  }
-  if (identity.userVersion > V3_SCHEMA_VERSION) {
-    throw new Error(
-      `refusing newer Awareness schema version ${identity.userVersion}; v3 supports versions 0-${V3_SCHEMA_VERSION}`,
-    );
-  }
-  if (identity.userVersion === 0) {
-    const relations = db.prepare(`
-      SELECT name, type
-      FROM sqlite_schema
-      WHERE type IN ('table', 'view')
-        AND name NOT LIKE 'sqlite_%'
-      ORDER BY name
-    `).all() as Array<{ name: string; type: string }>;
-    if (relations.length === 0) return;
+function hasColumns(db: DatabaseSync, table: string, columns: string[]): boolean {
+  if (!tableExists(db, table)) return false;
+  const actual = tableColumns(db, table);
+  return columns.every((column) => actual.has(column));
+}
 
-    const known = new Set<string>([
-      ...canonicalColumns().keys(),
-      ...LEGACY_V0_RELATION_NAMES,
-      'memories_fts',
-    ]);
-    const unexpected = relations.filter(({ name, type }) => {
-      if (type !== 'table') return true;
-      return !known.has(name)
-        && !name.startsWith('memories_fts_')
-        && !name.startsWith('memory_fts_');
-    });
-    if (unexpected.length > 0) {
+function recognizedLegacySignature(db: DatabaseSync): boolean {
+  const matchedTables = new Set<string>();
+  for (const [table, columns] of [
+    ['sessions', ['session_id', 'agent_id', 'started_at']],
+    ['memories', ['memory_id', 'agent_id', 'task_context', 'observation', 'importance']],
+    ['tasks', ['task_id', 'agent_id', 'rationale', 'test_plan', 'status']],
+    ['task_runs', ['run_id', 'agent_id', 'rationale', 'test_plan', 'status']],
+    ['locks', ['lock_id', 'file_path', 'acquired_at']],
+    ['refinements', ['refinement_id', 'agent_id', 'reasoning', 'remember', 'state']],
+    ['agent_intents', ['intent_id', 'agent_id', 'rationale', 'test_plan', 'status']],
+    ['intent_events', ['event_id', 'intent_id', 'agent_id', 'event_type']],
+    ['agent_memories', ['memory_id', 'agent_id', 'task_context', 'observation', 'importance_score']],
+  ] as Array<[string, string[]]>) {
+    if (hasColumns(db, table, columns)) matchedTables.add(table);
+  }
+  for (const [table, columns] of canonicalColumns()) {
+    if (columns.length >= 2 && hasColumns(db, table, columns.slice(0, 2).map(({ name }) => name))) {
+      matchedTables.add(table);
+    }
+  }
+  // One generic-looking table is not enough authority to mutate a database.
+  // Every shipped legacy generation had at least two recognizable relations.
+  return matchedTables.size >= 2;
+}
+
+function inspectSchemaState(db: DatabaseSync): SchemaState {
+  const identity = readSchemaIdentity(db);
+  if (identity.applicationId === AWARENESS_APPLICATION_ID) {
+    if (identity.userVersion !== AWARENESS_SCHEMA_VERSION) {
       throw new Error(
-        `refusing unrecognized non-empty unversioned SQLite store; unexpected relations: ${unexpected.map(({ name }) => name).join(', ')}`,
+        `unsupported canonical Awareness schema version ${identity.userVersion}; expected ${AWARENESS_SCHEMA_VERSION}`,
       );
     }
+    assertCanonicalRelationContract(db);
+    assertCanonicalSchemaFingerprint(db);
+    return 'canonical';
+  }
+  if (identity.applicationId !== 0) {
+    throw new Error(
+      `refusing foreign Awareness application_id ${identity.applicationId}; expected ${AWARENESS_APPLICATION_ID}`,
+    );
+  }
+  if (identity.userVersion > LEGACY_MAX_USER_VERSION) {
+    throw new Error(
+      `refusing unsupported unbranded Awareness schema version ${identity.userVersion}; legacy versions are 0-${LEGACY_MAX_USER_VERSION}`,
+    );
+  }
+  if (identity.relations.length === 0) {
+    if (identity.userVersion === 0) return 'fresh';
+    throw new Error(`refusing unrelated empty versioned SQLite store at user_version ${identity.userVersion}`);
+  }
+
+  const known = new Set<string>([
+    ...canonicalColumns().keys(),
+    ...LEGACY_V0_RELATION_NAMES,
+    'memories_fts',
+  ]);
+  const unexpected = identity.relations.filter(({ name, type }) => type !== 'table' || !known.has(name));
+  if (unexpected.length > 0 || !recognizedLegacySignature(db)) {
+    const suffix = unexpected.length > 0
+      ? `; unexpected relations: ${unexpected.map(({ name }) => name).join(', ')}`
+      : '';
+    throw new Error(`refusing unrecognized or unrelated SQLite store${suffix}`);
+  }
+  return 'legacy';
+}
+
+function createPreV1Backup(db: DatabaseSync, dbPath: string): string | null {
+  if (dbPath === ':memory:') return null;
+  const stamp = new Date().toISOString().replace(/[-:.TZ]/g, '');
+  const backupPath = `${resolve(dbPath)}.pre-v1-${stamp}-${process.pid}.sqlite3`;
+  db.exec(`VACUUM INTO '${backupPath.replace(/'/g, "''")}'`);
+  return backupPath;
+}
+
+function assertDatabaseIntegrity(db: DatabaseSync): void {
+  const integrity = db.prepare('PRAGMA integrity_check').all() as Array<{ integrity_check: string }>;
+  const failures = integrity.filter(({ integrity_check }) => integrity_check !== 'ok');
+  if (failures.length > 0) {
+    throw new Error(`canonical v1 integrity_check failed: ${failures.map((row) => row.integrity_check).join('; ')}`);
+  }
+  const foreignKeys = db.prepare('PRAGMA foreign_key_check').all();
+  if (foreignKeys.length > 0) {
+    throw new Error(`canonical v1 foreign_key_check failed with ${foreignKeys.length} row(s)`);
   }
 }
 
@@ -523,6 +593,85 @@ const SCHEMA_DDL = `
     );
 `;
 
+const SCHEMA_INDEX_DDL = `
+  CREATE INDEX IF NOT EXISTS idx_sessions_agent     ON sessions(agent_id);
+  CREATE INDEX IF NOT EXISTS idx_sessions_workspace ON sessions(workspace_path);
+  CREATE INDEX IF NOT EXISTS idx_sessions_scope     ON sessions(workspace_path, artifact);
+
+  CREATE INDEX IF NOT EXISTS idx_memories_importance      ON memories(importance);
+  CREATE INDEX IF NOT EXISTS idx_memories_created_at      ON memories(created_at);
+  CREATE INDEX IF NOT EXISTS idx_memories_state           ON memories(state);
+  CREATE INDEX IF NOT EXISTS idx_memories_label           ON memories(label);
+  CREATE INDEX IF NOT EXISTS idx_memories_failure_sig     ON memories(failure_signature);
+  CREATE INDEX IF NOT EXISTS idx_memories_workspace_path  ON memories(workspace_path);
+  CREATE INDEX IF NOT EXISTS idx_memories_scope           ON memories(workspace_path, repo, ref);
+  CREATE INDEX IF NOT EXISTS idx_memories_artifact_scope  ON memories(workspace_path, artifact);
+  CREATE INDEX IF NOT EXISTS idx_memories_repo_ref        ON memories(repo, ref);
+  CREATE INDEX IF NOT EXISTS idx_memories_valid           ON memories(valid_from, valid_to);
+  CREATE INDEX IF NOT EXISTS idx_memories_embedding_model ON memories(embedding_model);
+
+  CREATE INDEX IF NOT EXISTS idx_plans_scope          ON plans(workspace_path, artifact, status);
+  CREATE INDEX IF NOT EXISTS idx_plans_lead           ON plans(lead_agent_id, status);
+  CREATE INDEX IF NOT EXISTS idx_plan_members_agent   ON plan_members(agent_id, plan_id);
+  CREATE INDEX IF NOT EXISTS idx_tasks_plan_status    ON tasks(plan_id, status, priority DESC, created_at);
+  CREATE INDEX IF NOT EXISTS idx_task_deps_dependency ON task_dependencies(depends_on_task_id);
+  CREATE INDEX IF NOT EXISTS idx_task_claims_agent    ON task_claims(agent_id, expires_at);
+  CREATE INDEX IF NOT EXISTS idx_task_claims_expiry   ON task_claims(expires_at);
+  CREATE INDEX IF NOT EXISTS idx_task_runs_status     ON task_runs(status);
+  CREATE INDEX IF NOT EXISTS idx_task_runs_agent      ON task_runs(agent_id, status);
+  CREATE INDEX IF NOT EXISTS idx_task_runs_task       ON task_runs(task_id, created_at DESC);
+  CREATE INDEX IF NOT EXISTS idx_task_runs_scope      ON task_runs(workspace_path, artifact);
+  CREATE INDEX IF NOT EXISTS idx_task_events_task     ON task_events(task_id, created_at);
+
+  CREATE INDEX IF NOT EXISTS idx_run_files_path_active ON run_files(file_path, ended_at, expires_at);
+  CREATE INDEX IF NOT EXISTS idx_run_files_heartbeat   ON run_files(heartbeat_at);
+
+  CREATE INDEX IF NOT EXISTS idx_locks_file_path   ON locks(file_path);
+  CREATE INDEX IF NOT EXISTS idx_locks_acquired_at ON locks(acquired_at);
+  CREATE INDEX IF NOT EXISTS idx_locks_expires_at  ON locks(expires_at);
+
+  CREATE INDEX IF NOT EXISTS idx_delivery_state_delivered ON delivery_state(delivered_at);
+
+  CREATE INDEX IF NOT EXISTS idx_refinements_state         ON refinements(state);
+  CREATE INDEX IF NOT EXISTS idx_refinements_scope         ON refinements(workspace_path, artifact);
+  CREATE INDEX IF NOT EXISTS idx_refinements_repo          ON refinements(repo);
+  CREATE INDEX IF NOT EXISTS idx_refinements_state_updated ON refinements(state, updated_at DESC);
+
+  CREATE INDEX IF NOT EXISTS idx_signals_status         ON signals(status);
+  CREATE INDEX IF NOT EXISTS idx_signals_to_agent       ON signals(to_agent);
+  CREATE INDEX IF NOT EXISTS idx_signals_workspace_path ON signals(workspace_path);
+  CREATE INDEX IF NOT EXISTS idx_signals_scope          ON signals(workspace_path, artifact);
+  CREATE INDEX IF NOT EXISTS idx_signals_created_at     ON signals(created_at);
+  CREATE INDEX IF NOT EXISTS idx_signals_thread         ON signals(thread_id);
+
+  CREATE INDEX IF NOT EXISTS idx_memory_refs_ref  ON memory_refs(reference);
+  CREATE INDEX IF NOT EXISTS idx_memory_refs_kind ON memory_refs(kind);
+
+  CREATE INDEX IF NOT EXISTS idx_agents_workspace ON agents(workspace_path);
+  CREATE INDEX IF NOT EXISTS idx_agents_scope     ON agents(workspace_path, artifact);
+  CREATE INDEX IF NOT EXISTS idx_agents_last_seen ON agents(last_seen_at DESC);
+
+  CREATE INDEX IF NOT EXISTS idx_edit_log_session     ON edit_log(session_id);
+  CREATE INDEX IF NOT EXISTS idx_edit_log_run         ON edit_log(run_id);
+  CREATE INDEX IF NOT EXISTS idx_edit_log_agent       ON edit_log(agent_id);
+  CREATE INDEX IF NOT EXISTS idx_edit_log_file        ON edit_log(file_path);
+  CREATE INDEX IF NOT EXISTS idx_edit_log_workspace   ON edit_log(workspace_path);
+  CREATE INDEX IF NOT EXISTS idx_edit_log_scope       ON edit_log(workspace_path, artifact);
+  CREATE INDEX IF NOT EXISTS idx_edit_log_created_at  ON edit_log(created_at);
+
+  CREATE INDEX IF NOT EXISTS idx_harness_log_session    ON harness_log(session_id);
+  CREATE INDEX IF NOT EXISTS idx_harness_log_agent      ON harness_log(agent_id);
+  CREATE INDEX IF NOT EXISTS idx_harness_log_scope      ON harness_log(workspace_path, artifact);
+  CREATE INDEX IF NOT EXISTS idx_harness_log_event_type ON harness_log(event_type);
+  CREATE INDEX IF NOT EXISTS idx_harness_log_memory     ON harness_log(memory_id);
+  CREATE INDEX IF NOT EXISTS idx_harness_log_run        ON harness_log(run_id);
+`;
+
+const FTS_SCHEMA_DDL = `
+  CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts
+  USING fts5(memory_id UNINDEXED, task_context, observation, tags)
+`;
+
 function tableExists(db: DatabaseSync, table: string): boolean {
   return Boolean(db.prepare(
     "SELECT 1 FROM sqlite_master WHERE type='table' AND name = ?",
@@ -572,11 +721,203 @@ function migrateLegacyTaskRuns(db: DatabaseSync): void {
   renameColumnIfPresent(db, 'harness_log', 'task_id', 'run_id');
 }
 
+function expectCopied(changes: number | bigint, expected: number, relation: string): void {
+  if (Number(changes) !== expected) {
+    throw new Error(`schema migration copied ${String(changes)}/${expected} rows from ${relation}`);
+  }
+}
+
+function legacySqlValue(value: unknown, field: string): SQLInputValue {
+  if (value === null || typeof value === 'string' || typeof value === 'number' || typeof value === 'bigint') {
+    return value;
+  }
+  if (value instanceof Uint8Array) return value;
+  throw new Error(`schema migration cannot bind legacy field ${field}`);
+}
+
+function legacySqlValues(values: Array<[unknown, string]>): SQLInputValue[] {
+  return values.map(([value, field]) => legacySqlValue(value, field));
+}
+
+/** Import the pre-canonical relation names before removing the legacy island. */
+function migrateLegacyV0Relations(db: DatabaseSync): void {
+  if (tableExists(db, 'agent_memories')) {
+    const rows = db.prepare('SELECT * FROM agent_memories').all() as Array<Record<string, unknown>>;
+    const insert = db.prepare(`INSERT INTO memories (
+      memory_id, agent_id, task_context, observation, importance, state, label,
+      superseded_by, tags_json, workspace_path, artifact, repo, ref,
+      file_tree_fingerprint, novelty_score, last_accessed_at, access_count,
+      decay_half_life_days, failure_signature, valid_from, valid_to, expired_at,
+      embedding, embedding_model, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+    const insertRef = db.prepare(`INSERT INTO memory_refs(memory_id, reference, kind, ordinal)
+      VALUES (?, ?, 'file', 0)`);
+    for (const row of rows) {
+      insert.run(...legacySqlValues([
+        [row['memory_id'], 'agent_memories.memory_id'],
+        [row['agent_id'], 'agent_memories.agent_id'],
+        [row['task_context'], 'agent_memories.task_context'],
+        [row['observation'], 'agent_memories.observation'],
+        [row['importance_score'], 'agent_memories.importance_score'],
+        [row['state'] ?? 'ACTIVE', 'agent_memories.state'],
+        [row['label'] ?? 'OTHER', 'agent_memories.label'],
+        [row['superseded_by'] ?? null, 'agent_memories.superseded_by'],
+        [row['tags_json'] ?? '[]', 'agent_memories.tags_json'],
+        [row['file_tree_fingerprint'] ?? null, 'agent_memories.file_tree_fingerprint'],
+        [row['last_accessed_at'] ?? null, 'agent_memories.last_accessed_at'],
+        [row['access_count'] ?? 0, 'agent_memories.access_count'],
+        [row['decay_half_life_days'] ?? null, 'agent_memories.decay_half_life_days'],
+        [row['failure_signature'] ?? null, 'agent_memories.failure_signature'],
+        [row['valid_from'] ?? row['created_at'], 'agent_memories.valid_from'],
+        [row['valid_to'] ?? null, 'agent_memories.valid_to'],
+        [row['expired_at'] ?? null, 'agent_memories.expired_at'],
+        [row['embedding'] ?? null, 'agent_memories.embedding'],
+        [row['embedding_model'] ?? null, 'agent_memories.embedding_model'],
+        [row['created_at'], 'agent_memories.created_at'],
+        [row['updated_at'] ?? null, 'agent_memories.updated_at'],
+      ]));
+      if (typeof row['file'] === 'string' && row['file'].trim()) {
+        insertRef.run(
+          legacySqlValue(row['memory_id'], 'agent_memories.memory_id'),
+          `file:${row['file']}`,
+        );
+      }
+    }
+  }
+
+  if (tableExists(db, 'agent_intents')) {
+    const rows = db.prepare('SELECT * FROM agent_intents').all() as Array<Record<string, unknown>>;
+    const insertRun = db.prepare(`INSERT INTO task_runs (
+      run_id, task_id, origin, agent_id, session_id, rationale, test_plan,
+      context_ref, status, workspace_path, artifact, created_at, updated_at
+    ) VALUES (?, NULL, 'WORK', ?, NULL, ?, ?, ?, ?, ?, NULL, ?, ?)`);
+    const insertFile = db.prepare(`INSERT INTO run_files (
+      run_id, file_path, reason_override, source, started_at, heartbeat_at,
+      expires_at, ended_at
+    ) VALUES (?, ?, NULL, 'EXPLICIT', ?, ?, ?, ?)`);
+    for (const row of rows) {
+      insertRun.run(...legacySqlValues([
+        [row['intent_id'], 'agent_intents.intent_id'],
+        [row['agent_id'], 'agent_intents.agent_id'],
+        [row['rationale'], 'agent_intents.rationale'],
+        [row['test_plan'], 'agent_intents.test_plan'],
+        [row['plan_doc_ref'] ?? null, 'agent_intents.plan_doc_ref'],
+        [row['status'], 'agent_intents.status'],
+        [row['workspace_path'] ?? null, 'agent_intents.workspace_path'],
+        [row['created_at'], 'agent_intents.created_at'],
+        [row['updated_at'], 'agent_intents.updated_at'],
+      ]));
+      for (const filePath of parseJsonList(String(row['files_json'] ?? '[]'))) {
+        const updatedAt = String(row['updated_at']);
+        insertFile.run(...legacySqlValues([
+          [row['intent_id'], 'agent_intents.intent_id'],
+          [filePath, 'agent_intents.files_json[]'],
+          [row['created_at'], 'agent_intents.created_at'],
+          [updatedAt, 'agent_intents.updated_at'],
+          [updatedAt, 'agent_intents.updated_at'],
+          [row['status'] === 'ACTIVE' ? null : updatedAt, 'agent_intents.ended_at'],
+        ]));
+      }
+    }
+  }
+
+  if (tableExists(db, 'file_locks')) {
+    const expected = (db.prepare('SELECT COUNT(*) AS count FROM file_locks').get() as { count: number }).count;
+    const result = db.prepare(`INSERT INTO locks(lock_id, file_path, run_id, acquired_at, expires_at)
+      SELECT f.lock_id, f.file_path, f.intent_id, f.acquired_at, f.expires_at
+      FROM file_locks f JOIN task_runs r ON r.run_id = f.intent_id`).run();
+    expectCopied(result.changes, expected, 'file_locks');
+  }
+
+  if (tableExists(db, 'intent_events')) {
+    const expected = (db.prepare('SELECT COUNT(*) AS count FROM intent_events').get() as { count: number }).count;
+    const result = db.prepare(`INSERT INTO run_log(event_id, run_id, agent_id, event_type, message, created_at)
+      SELECT e.event_id, e.intent_id, e.agent_id, e.event_type, e.message, e.created_at
+      FROM intent_events e LEFT JOIN task_runs r ON r.run_id = e.intent_id`).run();
+    expectCopied(result.changes, expected, 'intent_events');
+  }
+
+  if (tableExists(db, 'task_log')) {
+    const columns = tableColumns(db, 'task_log');
+    const runColumn = columns.has('run_id') ? 'run_id' : 'task_id';
+    const expected = (db.prepare('SELECT COUNT(*) AS count FROM task_log').get() as { count: number }).count;
+    const result = db.prepare(`INSERT INTO run_log(event_id, run_id, agent_id, event_type, message, created_at)
+      SELECT event_id, ${runColumn}, agent_id, event_type, message, created_at FROM task_log`).run();
+    expectCopied(result.changes, expected, 'task_log');
+  }
+
+  if (tableExists(db, 'notifications')) {
+    const expected = (db.prepare('SELECT COUNT(*) AS count FROM notifications').get() as { count: number }).count;
+    const result = db.prepare(`INSERT INTO signals (
+      signal_id, workspace_path, artifact, repo, ref, from_agent, to_agent, kind,
+      subject, body, files_json, refs_json, thread_id, reply_to, importance,
+      status, resolved_at, created_at
+    ) SELECT notification_id, workspace_path, NULL, repo, ref, from_agent, to_agent,
+      kind, subject, body, files_json, refs_json, thread_id, in_reply_to,
+      importance, status, CASE WHEN status = 'resolved' THEN created_at ELSE NULL END,
+      created_at FROM notifications`).run();
+    expectCopied(result.changes, expected, 'notifications');
+  }
+
+  if (tableExists(db, 'notification_reads')) {
+    const expected = (db.prepare('SELECT COUNT(*) AS count FROM notification_reads').get() as { count: number }).count;
+    const result = db.prepare(`INSERT INTO signal_reads(signal_id, agent_id, read_at)
+      SELECT r.notification_id, r.agent_id, r.read_at
+      FROM notification_reads r JOIN signals s ON s.signal_id = r.notification_id`).run();
+    expectCopied(result.changes, expected, 'notification_reads');
+  }
+
+  for (const relation of [
+    'notification_reads', 'notifications', 'file_locks', 'intent_events',
+    'agent_intents', 'agent_memories', 'task_log', 'memory_fts',
+  ]) {
+    db.exec(`DROP TABLE IF EXISTS ${relation}`);
+  }
+}
+
+function repairLegacyForeignKeyReferences(db: DatabaseSync): void {
+  // Legacy execution rows could carry a host session ID without a sessions row.
+  // Preserve that identifier by synthesizing the smallest honest session record.
+  db.exec(`INSERT OR IGNORE INTO sessions (
+    session_id, agent_id, workspace_path, artifact, repo, ref,
+    started_at, ended_at, summary
+  ) SELECT session_id, agent_id, workspace_path, artifact, NULL, NULL,
+      created_at, CASE WHEN status = 'ACTIVE' THEN NULL ELSE updated_at END,
+      'migrated legacy session reference'
+    FROM task_runs
+    WHERE session_id IS NOT NULL
+    ORDER BY created_at, run_id`);
+
+  // A missing durable task cannot be reconstructed honestly. Preserve its ID as
+  // context on the run before using the canonical nullable historical FK.
+  db.exec(`UPDATE task_runs
+    SET context_ref = COALESCE(context_ref, 'legacy-task:' || task_id), task_id = NULL
+    WHERE task_id IS NOT NULL AND NOT EXISTS (
+      SELECT 1 FROM tasks WHERE tasks.task_id = task_runs.task_id
+    )`);
+}
+
 export function initDb(db: DatabaseSync): void {
-  assertV3SchemaIdentity(db);
-  if (db.isTransaction) {
-    initDbSchema(db);
+  initializeDb(db, false);
+}
+
+function mainDatabasePath(db: DatabaseSync): string | null {
+  const row = (db.prepare('PRAGMA database_list').all() as Array<{ name: string; file: string }>)
+    .find(({ name }) => name === 'main');
+  return row?.file?.trim() || null;
+}
+
+function initializeDb(db: DatabaseSync, fileBackupCreated: boolean): void {
+  const state = inspectSchemaState(db);
+  if (state === 'canonical') {
+    if (!db.isTransaction) db.exec('PRAGMA foreign_keys = ON');
     return;
+  }
+  if (db.isTransaction) {
+    throw new Error('cannot initialize or migrate canonical v1 inside a caller-owned transaction');
+  }
+  if (state === 'legacy' && mainDatabasePath(db) && !fileBackupCreated) {
+    throw new Error('file-backed legacy migration requires connectDb(path) so a pre-v1 backup is created');
   }
 
   // Serialize the complete detect → migrate → index → version sequence. A
@@ -587,7 +928,10 @@ export function initDb(db: DatabaseSync): void {
   try {
     withSqliteBusyRetry(() => db.exec('BEGIN IMMEDIATE'));
     began = true;
-    initDbSchema(db);
+    // A concurrent opener may have completed the migration while this
+    // connection waited for the write lock. Reclassify under the lock.
+    const lockedState = inspectSchemaState(db);
+    if (lockedState !== 'canonical') initDbSchema(db, lockedState);
     db.exec('COMMIT');
     began = false;
   } catch (error) {
@@ -600,7 +944,7 @@ export function initDb(db: DatabaseSync): void {
   }
 }
 
-function initDbSchema(db: DatabaseSync): void {
+function initDbSchema(db: DatabaseSync, state: Exclude<SchemaState, 'canonical'>): void {
   migrateLegacyTaskRuns(db);
 
   // ── 1. All regular tables in a single exec block ───────────────────────────
@@ -610,91 +954,25 @@ function initDbSchema(db: DatabaseSync): void {
   // created — indexes below reference columns (failure_signature, valid_from,
   // embedding_model, …) that old stores may lack.
   migrateExistingTables(db);
-  migrateExecutionSchemaV3(db);
+  migrateLegacyExecutionSchema(db);
   migrateRefinementQualityConstraint(db);
   migrateCheckConstraints(db);
+  migrateLegacyV0Relations(db);
+  repairLegacyForeignKeyReferences(db);
 
-  // ── 2. All indexes in a single exec block ──────────────────────────────────
-  db.exec(`
-    CREATE INDEX IF NOT EXISTS idx_sessions_agent     ON sessions(agent_id);
-    CREATE INDEX IF NOT EXISTS idx_sessions_workspace ON sessions(workspace_path);
-    CREATE INDEX IF NOT EXISTS idx_sessions_scope     ON sessions(workspace_path, artifact);
+  if (state === 'legacy') {
+    // FTS is derived and may refer to a pre-canonical memory table. Rebuild all
+    // ordinary tables from the one DDL so PK/FK/UNIQUE/CHECK drift cannot survive.
+    db.exec('DROP TABLE IF EXISTS memories_fts');
+    rebuildAllCanonicalTables(db);
+  }
 
-    CREATE INDEX IF NOT EXISTS idx_memories_importance      ON memories(importance);
-    CREATE INDEX IF NOT EXISTS idx_memories_created_at      ON memories(created_at);
-    CREATE INDEX IF NOT EXISTS idx_memories_state           ON memories(state);
-    CREATE INDEX IF NOT EXISTS idx_memories_label           ON memories(label);
-    CREATE INDEX IF NOT EXISTS idx_memories_failure_sig     ON memories(failure_signature);
-    CREATE INDEX IF NOT EXISTS idx_memories_workspace_path  ON memories(workspace_path);
-    CREATE INDEX IF NOT EXISTS idx_memories_scope           ON memories(workspace_path, repo, ref);
-    CREATE INDEX IF NOT EXISTS idx_memories_artifact_scope  ON memories(workspace_path, artifact);
-    CREATE INDEX IF NOT EXISTS idx_memories_repo_ref        ON memories(repo, ref);
-    CREATE INDEX IF NOT EXISTS idx_memories_valid           ON memories(valid_from, valid_to);
-    CREATE INDEX IF NOT EXISTS idx_memories_embedding_model ON memories(embedding_model);
-
-    CREATE INDEX IF NOT EXISTS idx_plans_scope          ON plans(workspace_path, artifact, status);
-    CREATE INDEX IF NOT EXISTS idx_plans_lead           ON plans(lead_agent_id, status);
-    CREATE INDEX IF NOT EXISTS idx_plan_members_agent   ON plan_members(agent_id, plan_id);
-    CREATE INDEX IF NOT EXISTS idx_tasks_plan_status    ON tasks(plan_id, status, priority DESC, created_at);
-    CREATE INDEX IF NOT EXISTS idx_task_deps_dependency ON task_dependencies(depends_on_task_id);
-    CREATE INDEX IF NOT EXISTS idx_task_claims_agent    ON task_claims(agent_id, expires_at);
-    CREATE INDEX IF NOT EXISTS idx_task_claims_expiry   ON task_claims(expires_at);
-    CREATE INDEX IF NOT EXISTS idx_task_runs_status     ON task_runs(status);
-    CREATE INDEX IF NOT EXISTS idx_task_runs_agent      ON task_runs(agent_id, status);
-    CREATE INDEX IF NOT EXISTS idx_task_runs_task       ON task_runs(task_id, created_at DESC);
-    CREATE INDEX IF NOT EXISTS idx_task_runs_scope      ON task_runs(workspace_path, artifact);
-    CREATE INDEX IF NOT EXISTS idx_task_events_task     ON task_events(task_id, created_at);
-
-    CREATE INDEX IF NOT EXISTS idx_run_files_path_active ON run_files(file_path, ended_at, expires_at);
-    CREATE INDEX IF NOT EXISTS idx_run_files_heartbeat   ON run_files(heartbeat_at);
-
-    CREATE INDEX IF NOT EXISTS idx_locks_file_path   ON locks(file_path);
-    CREATE INDEX IF NOT EXISTS idx_locks_acquired_at ON locks(acquired_at);
-    CREATE INDEX IF NOT EXISTS idx_locks_expires_at  ON locks(expires_at);
-
-    CREATE INDEX IF NOT EXISTS idx_delivery_state_delivered ON delivery_state(delivered_at);
-
-    CREATE INDEX IF NOT EXISTS idx_refinements_state         ON refinements(state);
-    CREATE INDEX IF NOT EXISTS idx_refinements_scope         ON refinements(workspace_path, artifact);
-    CREATE INDEX IF NOT EXISTS idx_refinements_repo          ON refinements(repo);
-    CREATE INDEX IF NOT EXISTS idx_refinements_state_updated ON refinements(state, updated_at DESC);
-
-    CREATE INDEX IF NOT EXISTS idx_signals_status         ON signals(status);
-    CREATE INDEX IF NOT EXISTS idx_signals_to_agent       ON signals(to_agent);
-    CREATE INDEX IF NOT EXISTS idx_signals_workspace_path ON signals(workspace_path);
-    CREATE INDEX IF NOT EXISTS idx_signals_scope          ON signals(workspace_path, artifact);
-    CREATE INDEX IF NOT EXISTS idx_signals_created_at     ON signals(created_at);
-    CREATE INDEX IF NOT EXISTS idx_signals_thread         ON signals(thread_id);
-
-    CREATE INDEX IF NOT EXISTS idx_memory_refs_ref  ON memory_refs(reference);
-    CREATE INDEX IF NOT EXISTS idx_memory_refs_kind ON memory_refs(kind);
-
-    CREATE INDEX IF NOT EXISTS idx_agents_workspace ON agents(workspace_path);
-    CREATE INDEX IF NOT EXISTS idx_agents_scope     ON agents(workspace_path, artifact);
-    CREATE INDEX IF NOT EXISTS idx_agents_last_seen ON agents(last_seen_at DESC);
-
-    CREATE INDEX IF NOT EXISTS idx_edit_log_session     ON edit_log(session_id);
-    CREATE INDEX IF NOT EXISTS idx_edit_log_run         ON edit_log(run_id);
-    CREATE INDEX IF NOT EXISTS idx_edit_log_agent       ON edit_log(agent_id);
-    CREATE INDEX IF NOT EXISTS idx_edit_log_file        ON edit_log(file_path);
-    CREATE INDEX IF NOT EXISTS idx_edit_log_workspace   ON edit_log(workspace_path);
-    CREATE INDEX IF NOT EXISTS idx_edit_log_scope       ON edit_log(workspace_path, artifact);
-    CREATE INDEX IF NOT EXISTS idx_edit_log_created_at  ON edit_log(created_at);
-
-    CREATE INDEX IF NOT EXISTS idx_harness_log_session    ON harness_log(session_id);
-    CREATE INDEX IF NOT EXISTS idx_harness_log_agent      ON harness_log(agent_id);
-    CREATE INDEX IF NOT EXISTS idx_harness_log_scope      ON harness_log(workspace_path, artifact);
-    CREATE INDEX IF NOT EXISTS idx_harness_log_event_type ON harness_log(event_type);
-    CREATE INDEX IF NOT EXISTS idx_harness_log_memory     ON harness_log(memory_id);
-    CREATE INDEX IF NOT EXISTS idx_harness_log_run        ON harness_log(run_id);
-  `);
+  // ── 2. All indexes in a single canonical block ──────────────────────────────
+  db.exec(SCHEMA_INDEX_DDL);
 
   // ── 3. FTS5 virtual table (isolated try/catch — fts5 may be unavailable) ──
   try {
-    db.exec(`
-      CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts
-      USING fts5(memory_id UNINDEXED, task_context, observation, tags)
-    `);
+    db.exec(FTS_SCHEMA_DDL);
   } catch {
     /* fts5 unavailable or already exists */
   }
@@ -705,7 +983,11 @@ function initDbSchema(db: DatabaseSync): void {
     if (row.cnt === 0) rebuildFts(db);
   }
 
-  db.exec('PRAGMA user_version = 3');
+  assertCanonicalRelationContract(db);
+  assertCanonicalSchemaFingerprint(db);
+  assertDatabaseIntegrity(db);
+  db.exec(`PRAGMA application_id = ${AWARENESS_APPLICATION_ID}`);
+  db.exec(`PRAGMA user_version = ${AWARENESS_SCHEMA_VERSION}`);
 }
 
 // ─── Table introspection ──────────────────────────────────────────────────────
@@ -775,13 +1057,14 @@ function migrateExistingTables(db: DatabaseSync): void {
 }
 
 /**
- * Schema v3 normalizes advisory file presence and makes every lock exclusive.
+ * The last unbranded runtime generation normalized advisory file presence and
+ * made every lock exclusive. Preserve that import step on the way to v1.
  * Backfill file rows before rebuilding task_runs/locks so no v2 files_json or
  * lock identity is lost. Historical standalone runs are classified as HOOK:
  * v2 could not distinguish explicit lock-only work from hook-created runs, and HOOK
  * is the conservative lifecycle (verification debt remains visible).
  */
-function migrateExecutionSchemaV3(db: DatabaseSync): void {
+function migrateLegacyExecutionSchema(db: DatabaseSync): void {
   if (!tableExists(db, 'task_runs')) return;
   const runColumns = tableColumns(db, 'task_runs');
   const lockColumns = tableExists(db, 'locks') ? tableColumns(db, 'locks') : new Set<string>();
@@ -856,6 +1139,92 @@ function canonicalTableSql(): Map<string, string> {
   }
 }
 
+function normalizeSchemaSql(sql: string): string {
+  return sql
+    .replace(/--[^\n]*/g, ' ')
+    .replace(/["`\[\]]/g, '')
+    .replace(/\bIF\s+NOT\s+EXISTS\b/gi, '')
+    .replace(/\s+/g, ' ')
+    .replace(/\s*([(),])\s*/g, '$1')
+    .trim()
+    .toLowerCase();
+}
+
+interface SchemaObject {
+  type: string;
+  name: string;
+  tableName: string;
+  sql: string;
+}
+
+function readSchemaObjects(db: DatabaseSync): SchemaObject[] {
+  const rows = db.prepare(`
+    SELECT type, name, tbl_name, sql
+    FROM sqlite_schema
+    WHERE type IN ('table', 'view', 'index', 'trigger')
+      AND name NOT LIKE 'sqlite_%'
+      AND name NOT GLOB 'memories_fts_*'
+      AND name NOT GLOB 'memory_fts_*'
+    ORDER BY type, name
+  `).all() as Array<{ type: string; name: string; tbl_name: string; sql: string | null }>;
+  return rows.map((row) => ({
+    type: row.type,
+    name: row.name,
+    tableName: row.tbl_name,
+    sql: normalizeSchemaSql(row.sql ?? ''),
+  }));
+}
+
+function schemaObjectsFingerprint(objects: SchemaObject[]): string {
+  return createHash('sha256').update(JSON.stringify(objects)).digest('hex');
+}
+
+const _canonicalSchemaFingerprints = new Map<boolean, string>();
+
+function canonicalSchemaFingerprint(includeFts: boolean): string {
+  const cached = _canonicalSchemaFingerprints.get(includeFts);
+  if (cached) return cached;
+  const canonical = new DatabaseSync(':memory:');
+  try {
+    canonical.exec(SCHEMA_DDL);
+    canonical.exec(SCHEMA_INDEX_DDL);
+    if (includeFts) canonical.exec(FTS_SCHEMA_DDL);
+    const fingerprint = schemaObjectsFingerprint(readSchemaObjects(canonical));
+    _canonicalSchemaFingerprints.set(includeFts, fingerprint);
+    return fingerprint;
+  } finally {
+    canonical.close();
+  }
+}
+
+function assertCanonicalRelationContract(db: DatabaseSync): void {
+  const actualRows = readSchemaIdentity(db).relations;
+  const expected = new Set(canonicalColumns().keys());
+  const actual = new Set(actualRows.map(({ name }) => name));
+  const missing = [...expected].filter((name) => !actual.has(name));
+  const unexpected = actualRows.filter(({ name, type }) => (
+    type !== 'table' || (!expected.has(name) && name !== 'memories_fts')
+  ));
+  if (missing.length === 0 && unexpected.length === 0) return;
+  const details = [
+    missing.length > 0 ? `missing: ${missing.join(', ')}` : null,
+    unexpected.length > 0 ? `unexpected: ${unexpected.map(({ name }) => name).join(', ')}` : null,
+  ].filter((value): value is string => value !== null).join('; ');
+  throw new Error(`canonical v1 relation contract mismatch (${details})`);
+}
+
+function assertCanonicalSchemaFingerprint(db: DatabaseSync): void {
+  const objects = readSchemaObjects(db);
+  const includeFts = objects.some(({ type, name }) => type === 'table' && name === 'memories_fts');
+  const expectedFingerprint = canonicalSchemaFingerprint(includeFts);
+  const actualFingerprint = schemaObjectsFingerprint(objects);
+  if (actualFingerprint !== expectedFingerprint) {
+    throw new Error(
+      `canonical v1 schema fingerprint mismatch (expected ${expectedFingerprint}, got ${actualFingerprint})`,
+    );
+  }
+}
+
 /** Normalized, order-insensitive fingerprint of a table's CHECK clauses. */
 function checkClauses(createSql: string): string {
   const matches = createSql.match(/CHECK\s*\([^)]*\)/gi) ?? [];
@@ -894,6 +1263,12 @@ function rebuildTableFromCanonical(db: DatabaseSync, table: string, canonSql: st
     try { db.exec(`ROLLBACK TO SAVEPOINT ${savepoint}`); } catch { /* already rolled back */ }
     try { db.exec(`RELEASE SAVEPOINT ${savepoint}`); } catch { /* already released */ }
     throw err;
+  }
+}
+
+function rebuildAllCanonicalTables(db: DatabaseSync): void {
+  for (const [table, sql] of canonicalTableSql()) {
+    if (tableExists(db, table)) rebuildTableFromCanonical(db, table, sql);
   }
 }
 

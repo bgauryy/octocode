@@ -175,7 +175,7 @@ describe('getSession', () => {
     const db = freshDb();
     const { session_id } = insertSession(db, { agentId: 'agent-1' });
 
-    endSession(db, { sessionId: session_id, summary: 'wrapped up' });
+    endSession(db, { sessionId: session_id, agentId: 'agent-1', summary: 'wrapped up' });
 
     const fetched = getSession(db, session_id);
     expect(fetched!.ended_at).not.toBeNull();
@@ -190,7 +190,7 @@ describe('endSession', () => {
     const db = freshDb();
     const { session_id } = insertSession(db, { agentId: 'agent-1' });
 
-    const ended = endSession(db, { sessionId: session_id });
+    const ended = endSession(db, { sessionId: session_id, agentId: 'agent-1' });
 
     expect(ended).not.toBeNull();
     expect(ended!.ended_at).not.toBeNull();
@@ -200,7 +200,7 @@ describe('endSession', () => {
   it('ended_at is at or after started_at', () => {
     const db = freshDb();
     const { session_id } = insertSession(db, { agentId: 'agent-1' });
-    const ended = endSession(db, { sessionId: session_id });
+    const ended = endSession(db, { sessionId: session_id, agentId: 'agent-1' });
     expect(new Date(ended!.ended_at!).getTime()).toBeGreaterThanOrEqual(
       new Date(ended!.started_at).getTime(),
     );
@@ -209,7 +209,7 @@ describe('endSession', () => {
   it('persists the summary when provided', () => {
     const db = freshDb();
     const { session_id } = insertSession(db, { agentId: 'agent-1' });
-    const ended = endSession(db, { sessionId: session_id, summary: 'All tasks done.' });
+    const ended = endSession(db, { sessionId: session_id, agentId: 'agent-1', summary: 'All tasks done.' });
     expect(ended!.summary).toBe('All tasks done.');
 
     // Also verify the row in the DB.
@@ -223,13 +223,21 @@ describe('endSession', () => {
   it('summary remains null when not provided', () => {
     const db = freshDb();
     const { session_id } = insertSession(db, { agentId: 'agent-1' });
-    const ended = endSession(db, { sessionId: session_id });
+    const ended = endSession(db, { sessionId: session_id, agentId: 'agent-1' });
     expect(ended!.summary).toBeNull();
   });
 
   it('returns null for an unknown session_id', () => {
     const db = freshDb();
-    expect(endSession(db, { sessionId: 'sess_nonexistent' })).toBeNull();
+    expect(endSession(db, { sessionId: 'sess_nonexistent', agentId: 'agent-1' })).toBeNull();
+  });
+
+  it('does not let another agent or scope end the session', () => {
+    const db = freshDb();
+    const session = insertSession(db, { agentId: 'owner', workspacePath: '/repo', artifact: 'svc' });
+    expect(endSession(db, { sessionId: session.session_id, agentId: 'outsider', workspacePath: '/repo', artifact: 'svc' })).toBeNull();
+    expect(endSession(db, { sessionId: session.session_id, agentId: 'owner', workspacePath: '/other', artifact: 'svc' })).toBeNull();
+    expect(getSession(db, session.session_id)?.ended_at).toBeNull();
   });
 });
 

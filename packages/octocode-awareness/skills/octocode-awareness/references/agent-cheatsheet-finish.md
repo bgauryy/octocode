@@ -2,7 +2,7 @@
 
 Core loop: `references/agent-cheatsheet.md`. Run only the branch that has work.
 
-## Always
+## AFTER / VERIFY — Always
 
 After the declared check and `task submit` or `work end`, record the result and
 confirm this agent has no remaining debt:
@@ -12,7 +12,7 @@ confirm this agent has no remaining debt:
 <cli> verify audit --workspace "$PWD" --agent-id "$OCTOCODE_AGENT_ID" --compact
 ```
 
-## Only when
+## LEARN / CLEAN / PROJECT — Only when due
 
 | Condition | Action |
 |---|---|

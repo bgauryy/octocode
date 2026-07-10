@@ -59,6 +59,7 @@ export const byteSliceContent = nativeBinding.byteSliceContent
 export const sliceContent = nativeBinding.sliceContent
 export const extractMatchingLines = nativeBinding.extractMatchingLines
 export const filterPatch = nativeBinding.filterPatch
+export const computeLineDiff = nativeBinding.computeLineDiff
 export const PatchLineType = nativeBinding.PatchLineType
 export const inspectBinaryNative = nativeBinding.inspectBinaryNative
 export const extractBinaryStringsNative = nativeBinding.extractBinaryStringsNative

@@ -106,25 +106,28 @@ describe('extractPiWriteTargetPaths', () => {
 });
 
 describe('createPiAwarenessBridge', () => {
-  it('declares Pi tool writes and leaves fallback HOOK runs pending', async () => {
+  it('keeps Pi fallback active until session shutdown finalizes it once', async () => {
     const tmp = tempDb();
     try {
       const db = connectDb(tmp.dbPath);
       const bridge = createPiAwarenessBridge({ getDb: () => db });
       const ctx = { cwd: tmp.dir, sessionManager: { getSessionFile: () => join(tmp.dir, 'session.jsonl') } };
 
-      await bridge.handleToolCall({ toolName: 'write', toolCallId: 'tool-1', input: { path: 'src/a.ts' } }, ctx);
-      expect(bridge.pendingToolFiles.get('tool-1')).toEqual(['src/a.ts']);
-      expect(bridge.pendingToolRuns.get('tool-1')).toMatch(/^run_/);
+      for (let index = 0; index < 5; index += 1) {
+        const toolCallId = `shutdown-${index}`;
+        await bridge.handleToolCall({ toolName: 'write', toolCallId, input: { path: `src/${index}.ts` } }, ctx);
+        expect(bridge.pendingToolRuns.get(toolCallId)).toMatch(/^run_/);
+        await bridge.handleToolResult({ toolCallId }, ctx);
+      }
+      expect(bridge.pendingToolRuns.size).toBe(0);
       expect((db.prepare("SELECT COUNT(*) AS c FROM task_runs WHERE status='ACTIVE'").get() as { c: number }).c).toBe(1);
-
-      await bridge.handleToolResult({ toolCallId: 'tool-1' }, ctx);
-      expect(bridge.pendingToolFiles.has('tool-1')).toBe(false);
+      expect((db.prepare('SELECT COUNT(*) AS c FROM run_files WHERE ended_at IS NULL').get() as { c: number }).c).toBe(5);
+      await bridge.handleSessionShutdown({ reason: 'quit' }, ctx);
       expect((db.prepare("SELECT COUNT(*) AS c FROM task_runs WHERE status='PENDING'").get() as { c: number }).c).toBe(1);
       expect((db.prepare('SELECT COUNT(*) AS c FROM locks').get() as { c: number }).c).toBe(0);
       expect(db.prepare('SELECT origin FROM task_runs').get()).toMatchObject({ origin: 'HOOK' });
-      expect((db.prepare('SELECT COUNT(*) AS c FROM run_files WHERE ended_at IS NOT NULL').get() as { c: number }).c).toBe(1);
-      expect((db.prepare('SELECT COUNT(*) AS c FROM edit_log').get() as { c: number }).c).toBe(1);
+      expect((db.prepare('SELECT COUNT(*) AS c FROM run_files WHERE ended_at IS NOT NULL').get() as { c: number }).c).toBe(5);
+      expect((db.prepare('SELECT COUNT(*) AS c FROM edit_log').get() as { c: number }).c).toBe(5);
       db.close();
     } finally {
       tmp.cleanup();
@@ -156,7 +159,7 @@ describe('createPiAwarenessBridge', () => {
     }
   });
 
-  it('keeps parallel same-file Pi edits distinct when stable ids are present', async () => {
+  it('coalesces parallel same-file Pi events while preserving tool correlation', async () => {
     const tmp = tempDb();
     try {
       const db = connectDb(tmp.dbPath);
@@ -169,7 +172,8 @@ describe('createPiAwarenessBridge', () => {
       ]);
 
       expect(bridge.pendingToolRuns.size).toBe(2);
-      expect((db.prepare("SELECT COUNT(*) AS c FROM task_runs WHERE status = 'ACTIVE'").get() as { c: number }).c).toBe(2);
+      expect(new Set(bridge.pendingToolRuns.values()).size).toBe(1);
+      expect((db.prepare("SELECT COUNT(*) AS c FROM task_runs WHERE status = 'ACTIVE'").get() as { c: number }).c).toBe(1);
 
       await Promise.all([
         bridge.handleToolResult({ toolCallId: 'parallel-2' }, ctx),
@@ -177,7 +181,9 @@ describe('createPiAwarenessBridge', () => {
       ]);
 
       expect(bridge.pendingToolRuns.size).toBe(0);
-      expect((db.prepare("SELECT COUNT(*) AS c FROM task_runs WHERE status = 'PENDING'").get() as { c: number }).c).toBe(2);
+      expect((db.prepare("SELECT COUNT(*) AS c FROM task_runs WHERE status = 'ACTIVE'").get() as { c: number }).c).toBe(1);
+      await bridge.handleSessionShutdown({ reason: 'quit' }, ctx);
+      expect((db.prepare("SELECT COUNT(*) AS c FROM task_runs WHERE status = 'PENDING'").get() as { c: number }).c).toBe(1);
       expect((db.prepare('SELECT COUNT(*) AS c FROM edit_log').get() as { c: number }).c).toBe(2);
       db.close();
     } finally {
@@ -265,6 +271,7 @@ describe('createPiAwarenessBridge', () => {
         await bridge.handleToolCall({ toolName: 'write', toolCallId: `task-${index}`, input: { path: file } }, ctx);
         await bridge.handleToolResult({ toolCallId: `task-${index}` }, ctx);
       }
+      await bridge.handleSessionShutdown({ reason: 'quit' }, ctx);
 
       expect((db.prepare('SELECT COUNT(*) AS c FROM task_claims').get() as { c: number }).c).toBe(1);
       expect((db.prepare('SELECT COUNT(*) AS c FROM task_runs').get() as { c: number }).c).toBe(1);
@@ -298,6 +305,7 @@ describe('createPiAwarenessBridge', () => {
         await bridge.handleToolCall({ toolName: 'write', toolCallId: `work-${index}`, input: { path: 'src/a.ts' } }, ctx);
         await bridge.handleToolResult({ toolCallId: `work-${index}` }, ctx);
       }
+      await bridge.handleSessionShutdown({ reason: 'quit' }, ctx);
 
       expect(db.prepare('SELECT origin, status FROM task_runs WHERE run_id = ?').get(explicit.run.run_id)).toMatchObject({ origin: 'WORK', status: 'ACTIVE' });
       expect((db.prepare('SELECT COUNT(*) AS c FROM run_files WHERE run_id = ? AND ended_at IS NULL').get(explicit.run.run_id) as { c: number }).c).toBe(1);
@@ -430,9 +438,18 @@ describe('wirePiAwarenessHooks', () => {
       expect(sent).toHaveLength(1);
       expect(sent[0]?.message.customType).toBe('octocode-awareness-verify-gate');
       expect(String(sent[0]?.message.content)).toContain('unverified edits');
-      expect((String(sent[0]?.message.content).match(/PENDING:run_/g) ?? [])).toHaveLength(3);
-      expect(String(sent[0]?.message.content)).toContain('+2 omitted');
+      expect((String(sent[0]?.message.content).match(/PENDING:run_/g) ?? [])).toHaveLength(1);
+      expect(String(sent[0]?.message.content)).not.toContain('omitted');
       expect(sent[0]?.options).toEqual({ deliverAs: 'followUp', triggerTurn: true });
+      const aggregate = db.prepare("SELECT run_id, test_plan, status FROM task_runs WHERE origin = 'HOOK'").get() as {
+        run_id: string;
+        test_plan: string;
+        status: string;
+      };
+      expect(aggregate.status).toBe('PENDING');
+      expect(aggregate.test_plan).toContain('smallest relevant test/typecheck');
+      expect(aggregate.test_plan).toContain('+2 more');
+      expect((db.prepare('SELECT COUNT(*) AS c FROM run_files WHERE run_id = ?').get(aggregate.run_id) as { c: number }).c).toBe(5);
       db.close();
     } finally {
       tmp.cleanup();

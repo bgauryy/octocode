@@ -347,7 +347,7 @@ describe('repo context query and projections', () => {
     }
   });
 
-  it('points bloat next at forget + inject when verify is clear', () => {
+  it('routes bloat to one valid bounded review command when verify is clear', () => {
     const dir = mkdtempSync(join(tmpdir(), 'oc-attend-bloat-'));
     try {
       const { db } = seededDb(dir);
@@ -359,13 +359,14 @@ describe('repo context query and projections', () => {
       db.prepare(`UPDATE task_runs SET status = 'SUCCESS' WHERE status = 'PENDING'`).run();
       const result = attendAwareness(db, {
         workspacePath: dir,
-        query: 'projection bloat hygiene',
         limit: 10,
         compact: true,
       });
-      expect(result.next).toContain('memory forget');
-      expect(result.next).toContain('repo inject');
-      expect(result.next).toMatch(/digest does not shrink markdown/);
+      expect(result.next).toBe(
+        'octocode-awareness query workboard --workspace "$PWD" --format json --limit 5 --compact',
+      );
+      expect(result.next).not.toContain(';');
+      expect(result.next).not.toContain('memory forget --workspace');
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -573,7 +574,8 @@ describe('repo context query and projections', () => {
     }
   });
 
-  it('keeps generated memory markdown within projection budgets', () => {
+  // Inserts and projection writes contend with the full parallel package suite.
+  it('keeps generated memory markdown within projection budgets', { timeout: 15_000 }, () => {
     const dir = mkdtempSync(join(tmpdir(), 'oc-repo-budget-'));
     try {
       const db = freshDb();
@@ -585,6 +587,7 @@ describe('repo context query and projections', () => {
           importance: 5,
           label: 'OTHER',
           workspacePath: dir,
+          preComputedSimilar: [],
         });
       }
 

@@ -183,12 +183,14 @@ const resolved = run("signal-resolve", [
 assert(resolved.resolved === 1, "signal resolve should close the thread");
 const prunePreview = run("signal-prune-dry-run", [
   "signal", "prune",
+  "--agent-id", "agent-a",
   "--workspace", workspace,
   "--artifact", artifact,
   "--resolved",
+  "--older-than-days", "1",
   "--dry-run",
 ]);
-assert(prunePreview.would_delete >= 1, "signal prune --dry-run should find the resolved message");
+assert(prunePreview.would_delete === 0, "fresh resolved messages must survive age-gated prune");
 
 log("phase 6: agent-b acquires exclusivity after release and verifies");
 const claimB = run("agent-b", [
@@ -206,9 +208,15 @@ run("agent-b", [
   "lock", "release",
   "--agent-id", "agent-b",
   "--run-id", claimB.run.run_id,
+  "--status", "PENDING",
+]);
+run("agent-b", [
+  "verify", "mark",
+  "--agent-id", "agent-b",
+  "--workspace", workspace,
+  "--run-id", claimB.run.run_id,
   "--status", "SUCCESS",
-  "--verified",
-  "--verified-note", "smoke read final file after agent-b edit",
+  "--message", "smoke read final file after agent-b edit",
 ]);
 
 log("phase 7: stale-lock janitor removes exclusion without ending live work");

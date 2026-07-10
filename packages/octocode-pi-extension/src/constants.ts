@@ -22,6 +22,9 @@ export const OCTOCODE_DIRECT_TOOL_NAMES = [
 // Replaced by superior Octocode tools: localGetFileContent, localSearchCode, localFindFiles, localViewStructure
 export const DISABLED_BUILTIN_TOOL_NAMES = ['read', 'grep', 'find', 'ls'] as const;
 
+// Same-name registerTool overrides (Pi keeps the name; Octocode owns the implementation).
+export const OVERRIDDEN_BUILTIN_TOOL_NAMES = ['edit', 'write', 'bash'] as const;
+
 // Awareness memory/coordination is intentionally absent: it is not exposed as
 // agent tools. Agents drive it through the octocode-awareness CLI
 // (node $OCTOCODE_AWARENESS_CLI <noun> <verb>) and the octocode-awareness skill,

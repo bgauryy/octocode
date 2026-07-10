@@ -103,7 +103,7 @@ describe('production guidance contract', () => {
     expect(intents).not.toContain('params.lockType');
   });
 
-  it('has no compatibility coercion or re-export shim in the v3 runtime', () => {
+  it('has no compatibility coercion or re-export shim in the canonical v1 runtime', () => {
     const runtimeFiles = [
       resolve(PACKAGE_ROOT, 'bin/awareness.ts'),
       ...readdirSync(resolve(PACKAGE_ROOT, 'src'), { withFileTypes: true })
@@ -112,6 +112,14 @@ describe('production guidance contract', () => {
     ];
     expect(runtimeFiles.some((path) => /compatCoerce|compat_coerce/.test(read(path)))).toBe(false);
     expect(existsSync(resolve(PACKAGE_ROOT, 'src/stubs.ts'))).toBe(false);
+  });
+
+  it('ships one canonical schema and no staged version directory', () => {
+    const db = read(resolve(PACKAGE_ROOT, 'src/db.ts'));
+    expect(db).toContain('AWARENESS_SCHEMA_VERSION = 1');
+    expect(db).toContain('AWARENESS_APPLICATION_ID = 0x4f435431');
+    expect(existsSync(resolve(PACKAGE_ROOT, 'src/v4'))).toBe(false);
+    expect(existsSync(resolve(PACKAGE_ROOT, 'tests/v4-schema.test.ts'))).toBe(false);
   });
 
   it('publishes and verifies Awareness before the Pi extension', () => {
@@ -200,7 +208,7 @@ describe('production guidance contract', () => {
     expect(generator).not.toContain('attend|work list|query|memory recall|workspace status');
     expect(generator).not.toContain('`repo inject` after important memories');
     expect(repoFlow).not.toMatch(/attend --compact`, then read `.octocode\/AGENTS\.md`/i);
-    expect(skill).toContain('HOUSEKEEP?');
+    expect(skill).toContain('CLEAN? -> PROJECT?');
     expect(taskFlow).toContain('# run the acceptance check');
   });
 

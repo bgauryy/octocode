@@ -5,8 +5,9 @@ Canonical store: `~/.octocode/memory/awareness.sqlite3`, or
 The runtime requires Node.js 22.13.0 or newer (`node:sqlite` without a flag).
 Awareness uses WAL only when the embedded SQLite contains the concurrent reset-race
 fix (3.44.6, 3.50.7, 3.51.3, or a newer fixed release); affected versions use
-rollback journaling instead. Current production schema version is 3. Source:
-`src/db.ts`; the isolated final-schema bootstrap is under `src/v4/`.
+rollback journaling instead. `src/db.ts` is the only schema source. The
+canonical identity is SQLite
+`application_id = 0x4f435431` (ASCII `OCT1`) and `user_version = 1`.
 
 `<workspace>/.octocode/` is not the database. It contains generated projections and
 authored plan documents.
@@ -162,25 +163,56 @@ Compact views cap detail and expose omitted counts. Full rows are explicit.
 
 ## Migration
 
-### v1 -> v2
+Canonical v1 is a clean contract identity, not the first historical layout. The
+previous unbranded layouts used `user_version` 0-3 and are migration inputs only;
+no second schema initializer remains.
+
+### Legacy generation 1
 
 Legacy execution `tasks` became `task_runs`; `task_log` became `run_log`; related
 foreign keys were renamed. Migrated attempts were standalone.
 
-### v2 -> v3
+### Legacy generation 2/3
 
 - Add `origin` and infer `TASK` when `task_id` exists, otherwise `HOOK`.
 - Backfill `run_files` from `files_json` and lock rows.
 - Rebuild `task_runs` without `files_json`.
 - Rebuild locks as exclusive-only without duplicated agent/session/type fields.
-- Add `delivery_state`.
-- Set `PRAGMA user_version = 3`.
+- Add `delivery_state` and the remaining production relations/columns.
+
+### Unversioned legacy relations
+
+- Import `agent_intents` into standalone `task_runs` and `run_files`.
+- Import `intent_events` into `run_log`.
+- Import legacy memories, file locks, notifications, and read receipts when rows
+  exist.
+- Drop the legacy relation names only after exact copy counts pass inside the
+  migration transaction.
+- Rebuild FTS from canonical memories instead of copying virtual/shadow tables.
+
+### Canonical v1 cutover
+
+Startup classifies a store as empty, canonical v1, recognized legacy Awareness,
+or unsupported. Recognition requires only known relation names plus valid
+Awareness sentinel columns; `user_version` alone is never trusted. Unrelated,
+future, staged `OCT4`, and structurally drifted canonical stores fail before
+journal or data writes.
+
+For a file-backed legacy store, `connectDb` first creates
+`awareness.sqlite3.pre-v1-<timestamp>-<pid>.sqlite3` with SQLite `VACUUM INTO`, so
+WAL-visible rows are included. The complete import/rebuild then runs under one
+`BEGIN IMMEDIATE`; `application_id=OCT1` and `user_version=1` are written last.
+Every ordinary table is rebuilt from the one DDL so PK/FK/UNIQUE/CHECK drift
+cannot survive. The canonical fingerprint covers tables, named indexes, views,
+triggers, and optional FTS; `integrity_check` and `foreign_key_check` also gate
+the cutover.
 
 The complete migration runs under one `BEGIN IMMEDIATE` transaction. Concurrent first
-openers wait for the winner, then observe schema v3; detection, DDL, indexes, and
-`user_version` cannot interleave. The migration is idempotent and preserves run IDs
-and audit history. Old clients that require v2 columns are not supported after
-migration; rebuild/reinstall the bundled CLI/hooks together.
+openers wait for the winner, then observe canonical v1; detection, DDL, indexes,
+identity, and data cannot interleave. The migration is idempotent and preserves
+run IDs and audit history. Old unbranded clients reject the OCT1 file; rebuild and
+reinstall the bundled CLI/hooks together. Retain the pre-v1 backup until the new
+CLI has passed smoke tests and a second reopen.
 
 ## Operations
 

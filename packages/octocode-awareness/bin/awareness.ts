@@ -14,7 +14,7 @@ import { fileURLToPath } from 'node:url';
 import {
   connectDb, initDb, hasFts, resolveDbPath,
 } from '../src/db.js';
-import { insertMemory, getMemory, mineWeakness, forgetMemory, storeEmbedding, searchByEmbedding, bumpAccess } from '../src/memory.js';
+import { insertMemory, insertMemoryWithSimilarityGate, getMemory, mineWeakness, forgetMemory, storeEmbedding, searchByEmbedding, bumpAccess } from '../src/memory.js';
 import { resolveEmbedCommand, runHostEmbedder } from '../src/embed-host.js';
 import { mineDocStaleness, proposeDocRefresh } from '../src/docs.js';
 import { listSkillDocs, showSkillDoc } from '../src/docs-catalog.js';
@@ -69,6 +69,7 @@ const ARRAY_FLAGS = new Set([
   'tag', 'tags', 'reference', 'file', 'fix_file', 'target_file', 'supersedes', 'label', 'state',
   'memory_id', 'refinement_id', 'signal_id', 'ref_id', 'run_id', 'regex', 'file_regex',
   'to_agent', 'kind', 'path', 'depends_on',
+  'origin',
 ]);
 
 function parseArgs(argv: string[]): ParsedArgs {
@@ -113,6 +114,8 @@ const NUMERIC_FLAGS = new Set([
   'limit', 'min_importance', 'max_importance', 'min_count', 'min_edits',
   'min_lines', 'older_than_days', 'retention_days',
   'refinement_handoff_retention_days', 'refinement_done_retention_days',
+  'operational_retention_days',
+  'pressure_age_days',
   'priority', 'lease_minutes',
 ]);
 // Only these flags may use the `--no-*` spelling. Treating every `--no-*`
@@ -125,6 +128,7 @@ const BOOLEAN_FLAGS = new Set([
   'include_bodies', 'explain_organ', 'check', 'include_view', 'all',
   'unread_only', 'mark_read', 'resolved', 'global', 'strict', 'remove',
   'exclusive', 'next', 'duo', 'examples',
+  'allow_similar',
 ]);
 // Flags that must carry a value. Catches value-swallow like `--query --smart`,
 // which parseArgs would otherwise read as query=true (searching the literal
@@ -141,23 +145,24 @@ const VALUE_REQUIRED_FLAGS = new Set([
   'format', 'view', 'action', 'kind', 'label', 'tag', 'reference', 'state',
   'sort', 'as_of', 'cwd', 'created_by', 'depends_on', 'failure_signature',
   'valid_from', 'valid_to', 'outcome', 'quality', 'reason', 'targets_json',
-  'export_doc', 'agent_name', 'context', 'before', 'importance',
+  'origin',
+  'export_doc', 'agent_name', 'context', 'before', 'importance', 'check_receipt',
 ]);
 const KNOWN_FLAGS: Record<string, string[]> = {
-  'tell-memory': ['agent_id', 'task_context', 'observation', 'importance', 'label', 'tag', 'reference', 'supersedes', 'failure_signature', 'valid_from', 'valid_to', 'workspace', 'artifact', 'repo', 'ref', 'file', 'file_tree_fingerprint'],
+  'tell-memory': ['agent_id', 'task_context', 'observation', 'importance', 'label', 'tag', 'reference', 'supersedes', 'failure_signature', 'valid_from', 'valid_to', 'workspace', 'artifact', 'repo', 'ref', 'file', 'file_tree_fingerprint', 'allow_similar'],
   'get-memory': ['query', 'limit', 'min_importance', 'label', 'tag', 'smart', 'workspace', 'artifact', 'repo', 'ref', 'state', 'sort', 'global_only', 'strict_scope', 'as_of', 'reference', 'regex', 'file_regex', 'file', 'explain', 'semantic', 'full'],
   'forget': ['memory_id', 'tag', 'tags', 'before', 'max_importance', 'workspace', 'artifact', 'repo', 'ref', 'dry_run'],
-  'reflect': ['agent_id', 'task', 'outcome', 'lesson', 'worked', 'didnt_work', 'fix_repo', 'fix_file', 'fix_harness', 'fix_instructions', 'failure_signature', 'importance', 'judgment_note', 'duo', 'eval_failure_json', 'workspace', 'artifact', 'repo', 'ref'],
-  'refine-set': ['agent_id', 'reasoning', 'remember', 'quality', 'state', 'workspace', 'artifact', 'repo', 'ref', 'file', 'refinement_id'],
+  'reflect': ['agent_id', 'task', 'outcome', 'lesson', 'worked', 'didnt_work', 'fix_repo', 'fix_file', 'fix_harness', 'fix_instructions', 'failure_signature', 'importance', 'judgment_note', 'duo', 'eval_failure_json', 'workspace', 'artifact', 'repo', 'ref', 'allow_similar'],
+  'refine-set': ['agent_id', 'reasoning', 'remember', 'quality', 'state', 'workspace', 'artifact', 'repo', 'ref', 'file', 'refinement_id', 'check_receipt'],
   'refine-get': ['workspace', 'artifact', 'repo', 'ref', 'quality', 'include_handoffs', 'state', 'limit'],
   'refine-delete': ['refinement_id', 'workspace', 'artifact', 'dry_run'],
   'pre-flight-intent': ['agent_id', 'workspace', 'artifact', 'run_id', 'rationale', 'test_plan', 'context_ref', 'target_file', 'file', 'ttl_minutes', 'ttl_seconds', 'wait_seconds', 'retry_interval', 'strict_agent_id'],
-  'release-file-lock': ['agent_id', 'run_id', 'target_file', 'file', 'status', 'verified', 'verified_note', 'workspace', 'artifact'],
+  'release-file-lock': ['agent_id', 'run_id', 'target_file', 'file', 'status', 'workspace', 'artifact'],
   'status': ['workspace', 'artifact', 'limit'],
   'init': [],
   'self-test': [],
   'prune-stale-locks': ['older_than_minutes', 'expired_only', 'agent_id', 'target_file', 'workspace', 'artifact', 'dry_run'],
-  'audit-unverified': ['agent_id', 'workspace', 'artifact', 'abandon'],
+  'audit-unverified': ['agent_id', 'workspace', 'artifact', 'abandon', 'older_than_days', 'origin', 'before'],
   'verify': ['run_id', 'all_pending', 'agent_id', 'status', 'message', 'workspace', 'artifact'],
   'mine-weakness': ['agent_id', 'workspace', 'artifact', 'min_count', 'limit', 'cwd'],
   'doc-staleness': ['agent_id', 'workspace', 'artifact', 'targets_json', 'min_edits', 'min_lines', 'propose', 'session_id'],
@@ -169,10 +174,10 @@ const KNOWN_FLAGS: Record<string, string[]> = {
   'repo-inject': ['query', 'limit', 'out', 'out_dir', 'workspace', 'artifact', 'repo', 'ref', 'mode', 'check', 'include_view'],
   'agent-registry': ['action', 'agent_id', 'agent_name', 'workspace', 'artifact', 'context', 'limit'],
   'agent-signal': ['action', 'agent_id', 'workspace', 'artifact', 'repo', 'ref', 'kind', 'subject', 'body', 'to_agent', 'file', 'ref_id', 'importance', 'in_reply_to', 'thread_id', 'signal_id', 'all', 'unread_only', 'mark_read', 'limit', 'include_bodies'],
-  'notify-prune': ['signal_id', 'resolved', 'older_than_days', 'dry_run', 'workspace', 'artifact'],
+  'notify-prune': ['agent_id', 'signal_id', 'resolved', 'older_than_days', 'dry_run', 'workspace', 'artifact'],
   'session-capture': ['agent_id', 'workspace', 'artifact', 'repo', 'ref', 'reason', 'cwd'],
   'wait-for-lock': ['agent_id', 'target_file', 'file', 'workspace', 'artifact', 'wait_seconds', 'retry_interval'],
-  'digest': ['retention_days', 'refinement_handoff_retention_days', 'refinement_done_retention_days', 'dry_run', 'export_doc', 'workspace', 'artifact'],
+  'digest': ['retention_days', 'refinement_handoff_retention_days', 'refinement_done_retention_days', 'operational_retention_days', 'pressure_age_days', 'dry_run', 'export_doc', 'workspace', 'artifact'],
   'hook-run': [],
   'hooks-install': ['host', 'project_dir', 'global', 'check', 'strict', 'dry_run', 'remove'],
   'schema': ['examples'],
@@ -452,7 +457,7 @@ function cmdTellMemory(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts:
   const supersedes = Array.isArray(rawSup) ? rawSup : rawSup ? [String(rawSup)] : [];
   const rawLabel = args['label'];
   const label = Array.isArray(rawLabel) ? rawLabel[0] : String(rawLabel ?? '');
-  const { memory, superseded, noveltyScore, similarMemoryIds } = insertMemory(db, {
+  const guarded = insertMemoryWithSimilarityGate(db, {
     agentId, taskContext, observation, importance: imp,
     label,
     tags, references: [...references, ...fileReferences], supersedes,
@@ -464,7 +469,18 @@ function cmdTellMemory(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts:
     repo: args['repo'] ? String(args['repo']) : null,
     ref: args['ref'] ? String(args['ref']) : null,
     fileTreeFingerprint: args['file_tree_fingerprint'] ? String(args['file_tree_fingerprint']) : null,
-  });
+  }, Boolean(args['allow_similar']));
+
+  if (guarded.skipped) {
+    return emit({
+      db_path: dbPath,
+      skipped: true,
+      reason: 'similar_memory_exists',
+      similar: guarded.similar,
+      next: 'Reuse the existing memory, supersede stale ids, or pass --allow-similar only for a materially distinct recurrence.',
+    }, 0, opts);
+  }
+  const { memory, superseded, noveltyScore, similarMemoryIds } = guarded.result;
 
   // Consolidation surface (mem0 ADD/UPDATE/NOOP contract, LLM-free): when the
   // new memory overlaps existing ones, hand the calling agent the candidates
@@ -639,9 +655,17 @@ function cmdRefineSet(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts: 
       ...(args['reasoning'] !== undefined ? { reasoning: String(args['reasoning']) } : {}),
       ...(args['remember'] !== undefined ? { remember: String(args['remember']) } : {}),
       ...(rawFile !== undefined ? { files } : {}),
+      ...(args['state'] !== undefined && stateVal === 'done' ? {
+        actorAgentId: resolveAgentId(args),
+        checkReceipt: args['check_receipt'] ? String(args['check_receipt']) : '',
+      } : {}),
     });
     if (!update.updated) die(`refinement not found: ${refinementId}`);
     return emit({ db_path: dbPath, updated: true, refinement: update.refinement }, 0, opts);
+  }
+
+  if (stateVal === 'done') {
+    die('terminal refinement creation is not allowed; create open/ongoing, then close an existing --refinement-id with --agent-id and --check-receipt');
   }
 
   const reasoning = String(args['reasoning'] ?? '');
@@ -710,12 +734,14 @@ function cmdReflect(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts: Em
     importance: args['importance'] ? parseInt(String(args['importance']), 10) : null,
     judgmentNote: args['judgment_note'] ? String(args['judgment_note']) : null,
     duo: Boolean(args['duo']),
+    allowSimilar: Boolean(args['allow_similar']),
     evalFailures,
-    files: Array.isArray(args['fix_file']) ? (args['fix_file'] as string[]) : [],
+    files: valuesFor(args, 'fix_file'),
     workspacePath: args['workspace'] ? String(args['workspace']) : null,
     artifact: args['artifact'] ? String(args['artifact']) : null,
     repo: args['repo'] ? String(args['repo']) : null,
     ref: args['ref'] ? String(args['ref']) : null,
+    cwd: args['workspace'] ? String(args['workspace']) : process.cwd(),
   });
 
   return emit({ ...result, db_path: dbPath }, 0, opts);
@@ -787,6 +813,9 @@ function cmdAuditUnverified(db: DatabaseSync, args: ParsedArgs, dbPath: string, 
     workspacePath: rawAuditWs ? normalizeWorkspacePath(rawAuditWs, rawAuditWs) : null,
     artifact: args['artifact'] ? String(args['artifact']) : null,
     abandon: Boolean(args['abandon']),
+    olderThanDays: args['older_than_days'] !== undefined ? Number(args['older_than_days']) : null,
+    origins: valuesFor(args, 'origin').map((origin) => origin.toUpperCase() as 'TASK' | 'WORK' | 'HOOK'),
+    before: args['before'] ? String(args['before']) : null,
   });
   if (opts.compact || process.env['OCTOCODE_AWARENESS_COMPACT'] === '1') {
     const detailLimit = 3;
@@ -815,13 +844,20 @@ function cmdVerify(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts: Emi
   if (statusArg !== 'SUCCESS' && statusArg !== 'FAILED') {
     return emit({ error: `--status must be SUCCESS or FAILED, got "${statusArg}"` }, 1, opts);
   }
+  const message = args['message'] ? String(args['message']).trim() : '';
+  if (statusArg === 'SUCCESS' && !message) {
+    return emit({ error: 'SUCCESS verification requires --message with the evidence receipt' }, 1, opts);
+  }
+  if (allPending && !args['workspace'] && !args['artifact']) {
+    return emit({ error: '--all-pending requires --workspace or --artifact; otherwise pass explicit --run-id values' }, 1, opts);
+  }
   if (!allPending && runIds.length > 1) {
     const results = runIds.map((runId) => markVerified(db, {
       runId,
       agentId: resolveAgentId(args),
       workspacePath: args['workspace'] ? String(args['workspace']) : null,
       artifact: args['artifact'] ? String(args['artifact']) : null,
-      message: args['message'] ? String(args['message']) : undefined,
+      message: message || undefined,
       status: statusArg as 'SUCCESS' | 'FAILED',
     }));
     const failed = results.find((result) => !result.ok);
@@ -843,7 +879,7 @@ function cmdVerify(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts: Emi
     allPending,
     workspacePath: args['workspace'] ? String(args['workspace']) : null,
     artifact: args['artifact'] ? String(args['artifact']) : null,
-    message: args['message'] ? String(args['message']) : undefined,
+    message: message || undefined,
     status: statusArg as 'SUCCESS' | 'FAILED',
   });
   return emit({ db_path: dbPath, ...result }, result.ok ? 0 : 1, opts);
@@ -860,9 +896,9 @@ function cmdReleaseFileLock(db: DatabaseSync, args: ParsedArgs, dbPath: string, 
     return emit({ error: 'lock release requires --run-id or --target-file' }, 1, opts);
   }
 
-  const status = String(args['status'] ?? 'SUCCESS').toUpperCase();
-  if (!['PENDING', 'SUCCESS', 'FAILED'].includes(status)) {
-    return emit({ error: `--status must be PENDING, SUCCESS, or FAILED, got "${status}"` }, 1, opts);
+  const status = String(args['status'] ?? 'PENDING').toUpperCase();
+  if (!['PENDING', 'FAILED'].includes(status)) {
+    return emit({ error: `--status must be PENDING or FAILED; use verify mark --message <receipt> for SUCCESS, got "${status}"` }, 1, opts);
   }
 
   const result = releaseFileLock(db, {
@@ -871,9 +907,7 @@ function cmdReleaseFileLock(db: DatabaseSync, args: ParsedArgs, dbPath: string, 
     artifact: args['artifact'] ? String(args['artifact']) : null,
     runId: runId ?? null,
     targetFiles,
-    status: status as 'PENDING' | 'SUCCESS' | 'FAILED',
-    verified: Boolean(args['verified']),
-    verifiedNote: args['verified_note'] ? String(args['verified_note']) : undefined,
+    status: status as 'PENDING' | 'FAILED',
   });
 
   // When release succeeded but verification is still pending, signal this clearly:
@@ -1506,6 +1540,7 @@ function cmdNotifyPrune(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts
   const rawIds = args['signal_id'];
   const notificationIds = Array.isArray(rawIds) ? rawIds : rawIds ? [String(rawIds)] : [];
   const result = pruneNotifications(db, {
+    agentId: resolveAgentId(args),
     workspacePath: args['workspace'] ? String(args['workspace']) : null,
     artifact: args['artifact'] ? String(args['artifact']) : null,
     notificationIds,
@@ -1791,7 +1826,7 @@ const COMMAND_EXAMPLE: Record<string, string> = {
   'pre-flight-intent': 'octocode-awareness lock acquire --agent-id agent --target-file src/file.ts --rationale "edit file" --test-plan "yarn test" --compact',
   'wait-for-lock': 'octocode-awareness lock wait --agent-id agent --target-file src/file.ts --wait-seconds 60 --compact',
   'prune-stale-locks': 'octocode-awareness lock prune --workspace "$PWD" --expired-only --dry-run --compact',
-  'release-file-lock': 'octocode-awareness lock release --agent-id agent --run-id run_123 --status SUCCESS --verified --compact',
+  'release-file-lock': 'octocode-awareness lock release --agent-id agent --run-id run_123 --status PENDING --compact',
   'audit-unverified': 'octocode-awareness verify audit --agent-id agent --workspace "$PWD" --compact',
   'verify': 'octocode-awareness verify mark --agent-id agent --all-pending --message "yarn test passed" --workspace "$PWD" --compact',
   'refine-set': 'octocode-awareness refinement set --agent-id agent --reasoning "handoff" --remember "next step" --workspace "$PWD" --compact',
@@ -2156,11 +2191,15 @@ try {
       const retDays = args['retention_days'] ? Number(args['retention_days']) : undefined;
       const handoffDays = args['refinement_handoff_retention_days'] ? Number(args['refinement_handoff_retention_days']) : undefined;
       const doneDays = args['refinement_done_retention_days'] ? Number(args['refinement_done_retention_days']) : undefined;
+      const operationalDays = args['operational_retention_days'] ? Number(args['operational_retention_days']) : undefined;
+      const pressureAgeDays = args['pressure_age_days'] ? Number(args['pressure_age_days']) : 1;
       const isDryRun = Boolean(args['dry_run'] ?? args['dry-run']);
       const digestResult = digest(db, {
         ...(retDays !== undefined ? { retention_days: retDays } : {}),
         ...(handoffDays !== undefined ? { refinement_handoff_retention_days: handoffDays } : {}),
         ...(doneDays !== undefined ? { refinement_done_retention_days: doneDays } : {}),
+        ...(operationalDays !== undefined ? { operational_retention_days: operationalDays } : {}),
+        pressure_age_days: pressureAgeDays,
         ...(args['workspace'] ? { workspace: String(args['workspace']) } : {}),
         ...(args['artifact'] ? { artifact: String(args['artifact']) } : {}),
         ...(isDryRun ? { dry_run: true } : {}),

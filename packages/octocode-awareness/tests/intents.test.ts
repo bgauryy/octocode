@@ -8,6 +8,7 @@ import { initDb } from '../src/db.js';
 import { canonicalizePath } from '../src/git.js';
 import { fileLock, preFlightIntent, releaseFileLock } from '../src/intents.js';
 import { pruneStale } from '../src/maintenance.js';
+import { markVerified } from '../src/verify.js';
 
 function freshDb(): DatabaseSync {
   const db = new DatabaseSync(':memory:');
@@ -171,7 +172,7 @@ describe('releaseFileLock', () => {
       expect(release.released).toBe(true);
       expect(release.locks_released).toBe(1);
       expect(release.status).toBe('PENDING');
-      expect(release.unverifiedConclusion).toContain('SUCCESS requested without --verified');
+      expect(release.unverifiedConclusion).toContain('Direct SUCCESS');
     } finally { cleanup(); }
   });
 
@@ -257,7 +258,7 @@ describe('releaseFileLock', () => {
     } finally { cleanup(); }
   });
 
-  it('updates task status to SUCCESS after verified lock release', () => {
+  it('routes lock release through PENDING before evidence-gated SUCCESS', () => {
     const db = freshDb();
     const { path, cleanup } = tempFile();
     try {
@@ -270,6 +271,14 @@ describe('releaseFileLock', () => {
         verified: true,
         verifiedNote: 'test passed',
       });
+      expect(db.prepare('SELECT status FROM task_runs WHERE run_id = ?').get(a.run.run_id))
+        .toEqual({ status: 'PENDING' });
+      expect(markVerified(db, {
+        runId: a.run.run_id,
+        agentId: 'agent-a',
+        status: 'SUCCESS',
+        message: 'test passed',
+      }).ok).toBe(true);
       const task = db.prepare('SELECT status FROM task_runs WHERE run_id = ?')
         .get(a.run.run_id) as { status: string };
       expect(task.status).toBe('SUCCESS');
@@ -292,6 +301,12 @@ describe('releaseFileLock', () => {
         verified: true, verifiedNote: 'lockless run verified',
       });
       expect(released).toMatchObject({ released: true, locks_released: 0, run_ids: [claim.run.run_id] });
+      expect(markVerified(db, {
+        runId: claim.run.run_id,
+        agentId: 'agent-a',
+        status: 'SUCCESS',
+        message: 'lockless run verified',
+      }).ok).toBe(true);
       expect(db.prepare('SELECT status FROM task_runs WHERE run_id = ?').get(claim.run.run_id))
         .toEqual({ status: 'SUCCESS' });
     } finally { cleanup(); }
@@ -425,6 +440,13 @@ describe('fileLock', () => {
       if (status.type !== 'status') throw new Error('status failed');
       expect(status.locks).toHaveLength(1);
       expect(status.locks[0]!.run_id).toBe(locked.runId);
+
+      const beforeWrongRenew = db.prepare('SELECT heartbeat_at, expires_at FROM run_files WHERE run_id = ?')
+        .get(locked.runId);
+      expect(() => fileLock(db, { type: 'renew', agentId: 'agent-b', runId: locked.runId, ttlMs: 60 * 60_000 }))
+        .toThrow(/belongs to agent-a/);
+      expect(db.prepare('SELECT heartbeat_at, expires_at FROM run_files WHERE run_id = ?').get(locked.runId))
+        .toEqual(beforeWrongRenew);
 
       const renewed = fileLock(db, { type: 'renew', agentId: 'agent-a', runId: locked.runId, ttlMs: 60 * 60_000 });
       expect(renewed.type).toBe('renew');

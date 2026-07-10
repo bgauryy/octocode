@@ -308,6 +308,15 @@ pub struct FilterPatchOptions {
     pub context_lines: Option<u32>,
 }
 
+/// One line in a Myers edit script returned by {@link computeLineDiff}.
+#[napi(object)]
+#[derive(Debug, Clone)]
+pub struct LineDiffOp {
+    /// `"same"` | `"add"` | `"remove"`
+    pub op_type: String,
+    pub line: String,
+}
+
 #[napi(object)]
 #[derive(Debug, Clone)]
 pub struct MinifyResult {

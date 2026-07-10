@@ -48,7 +48,7 @@ describe('notifications', () => {
     expect(all.signals.map(n => n.status)).toEqual(expect.arrayContaining(['open', 'resolved']));
   });
 
-  it('prunes explicit notification ids regardless of inferred workspace', () => {
+  it('prunes only old resolved messages in the participant workspace', () => {
     const db = freshDb();
     const notification = insertNotification(db, {
       agentId: 'agent-a',
@@ -58,17 +58,35 @@ describe('notifications', () => {
       workspacePath: '/repo-a',
     });
 
-    const dryRun = pruneNotifications(db, {
+    db.prepare("UPDATE signals SET status = 'resolved', resolved_at = ?, created_at = ? WHERE signal_id = ?")
+      .run(new Date().toISOString(), '2020-01-01T00:00:00.000Z', notification.signal_id);
+
+    const outsider = pruneNotifications(db, {
+      agentId: 'agent-c',
       notificationIds: [notification.signal_id],
+      resolvedOnly: true,
+      olderThanDays: 1,
+      workspacePath: '/repo-a',
+      dryRun: true,
+    });
+    expect(outsider.would_delete).toBe(0);
+
+    const wrongScope = pruneNotifications(db, {
+      agentId: 'agent-b',
+      notificationIds: [notification.signal_id],
+      resolvedOnly: true,
+      olderThanDays: 1,
       workspacePath: '/repo-b',
       dryRun: true,
     });
-    expect(dryRun.would_delete).toBe(1);
-    expect(dryRun.signal_ids).toEqual([notification.signal_id]);
+    expect(wrongScope.would_delete).toBe(0);
 
     const deleted = pruneNotifications(db, {
+      agentId: 'agent-b',
       notificationIds: [notification.signal_id],
-      workspacePath: '/repo-b',
+      resolvedOnly: true,
+      olderThanDays: 1,
+      workspacePath: '/repo-a',
     });
     expect(deleted.deleted).toBe(1);
   });

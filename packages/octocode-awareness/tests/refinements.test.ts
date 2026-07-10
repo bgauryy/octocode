@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { DatabaseSync } from 'node:sqlite';
 import { initDb } from '../src/db.js';
-import { insertRefinement, getRefinements } from '../src/refinements.js';
+import { insertRefinement, getRefinements, updateRefinement } from '../src/refinements.js';
 
 function freshDb(): DatabaseSync {
   const db = new DatabaseSync(':memory:');
@@ -62,7 +62,8 @@ describe('getRefinements', () => {
   it('returns open refinements by default', () => {
     const db = freshDb();
     insertRefinement(db, { reasoning: 'r', remember: 'rem', state: 'open' });
-    insertRefinement(db, { reasoning: 'r', remember: 'rem', state: 'done' });
+    const terminal = insertRefinement(db, { reasoning: 'r', remember: 'done rem', state: 'open' });
+    updateRefinement(db, { refinementId: terminal.refinementId, state: 'done', actorAgentId: 'tester', checkReceipt: 'fixture verified' });
     const { refinements, count } = getRefinements(db);
     expect(count).toBe(1);
     expect(refinements[0]!.state).toBe('open');
@@ -71,7 +72,8 @@ describe('getRefinements', () => {
   it('respects state filter', () => {
     const db = freshDb();
     insertRefinement(db, { reasoning: 'r', remember: 'rem', state: 'ongoing' });
-    insertRefinement(db, { reasoning: 'r', remember: 'rem', state: 'done' });
+    const terminal = insertRefinement(db, { reasoning: 'r', remember: 'done rem', state: 'open' });
+    updateRefinement(db, { refinementId: terminal.refinementId, state: 'done', actorAgentId: 'tester', checkReceipt: 'fixture verified' });
     const { refinements } = getRefinements(db, { states: ['done'] });
     expect(refinements).toHaveLength(1);
     expect(refinements[0]!.state).toBe('done');
@@ -120,10 +122,18 @@ describe('getRefinements', () => {
   it('respects limit', () => {
     const db = freshDb();
     for (let i = 0; i < 5; i++) {
-      insertRefinement(db, { reasoning: 'r', remember: 'rem' });
+      insertRefinement(db, { reasoning: 'r', remember: `rem-${i}` });
     }
     const { refinements } = getRefinements(db, { limit: 2 });
     expect(refinements).toHaveLength(2);
+  });
+
+  it('deduplicates identical open refinements', () => {
+    const db = freshDb();
+    const first = insertRefinement(db, { reasoning: 'first', remember: 'same fix', files: ['/a.ts'] });
+    const second = insertRefinement(db, { reasoning: 'duplicate', remember: 'same fix', files: ['/a.ts'] });
+    expect(second.refinementId).toBe(first.refinementId);
+    expect(db.prepare('SELECT COUNT(*) AS count FROM refinements').get()).toEqual({ count: 1 });
   });
 
   it('returns files as an array', () => {

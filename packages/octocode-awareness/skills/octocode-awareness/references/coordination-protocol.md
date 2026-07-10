@@ -25,7 +25,8 @@ Use refinements for workspace work state that must survive a run. Scope them by 
 
 - New rows require `--reasoning` and `--remember`; quality is `good`, `bad`, `handoff`, or instruction feedback created by reflection.
 - Lifecycle is `open -> ongoing -> done`; `refinement get` defaults to unfinished coding rows.
-- Update in place with `refinement set --refinement-id <id> --state ongoing|done`; do not create a duplicate to close work.
+- Continue in place with `refinement set --refinement-id <id> --state ongoing`; do not create a duplicate.
+- Close after verification with `refinement set --refinement-id <id> --agent-id "$OCTOCODE_AGENT_ID" --state done --check-receipt "<check and result>"`.
 - Session handoffs are hidden unless `--include-handoffs` or `--quality handoff` is requested.
 - Use `refinement delete --refinement-id <id> --dry-run` only for stale rows that should be removed rather than completed.
 

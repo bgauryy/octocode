@@ -7,7 +7,7 @@ import { initDb, rebuildFts } from '../src/db.js';
 import { preFlightIntent } from '../src/intents.js';
 import { pruneStale, notifyGet, sessionCapture, waitForLock, digest, getWorkspaceStatus, exportMemoryDoc, exportHarness } from '../src/maintenance.js';
 import { insertMemory } from '../src/memory.js';
-import { insertRefinement } from '../src/refinements.js';
+import { insertRefinement, updateRefinement } from '../src/refinements.js';
 import { insertNotification } from '../src/notifications.js';
 import { auditUnverified } from '../src/verify.js';
 import { canonicalizePath } from '../src/git.js';
@@ -154,7 +154,19 @@ describe('digest dry_run', () => {
   it('dry_run output keys match expected shape', () => {
     const db = freshDb();
     const result = digest(db, { dry_run: true });
-    expect(Object.keys(result).sort()).toEqual(['archived_memories','dry_run','fts_rebuilt','ok','pruned_locks','pruned_old','pruned_refinements','would_archive','would_prune_locks','would_prune_old','would_prune_refinements']);
+    expect(Object.keys(result).sort()).toEqual([
+      'archived_memories', 'dry_run', 'fts_rebuilt', 'ok', 'pressure_age_days',
+      'pressure_samples', 'pruned_locks', 'pruned_old', 'pruned_refinements', 'pruned_runs',
+      'stale_missing_refs', 'stale_open_signals', 'stale_pending_runs',
+      'would_archive', 'would_prune_locks', 'would_prune_old', 'would_prune_refinements', 'would_prune_runs',
+    ]);
+    expect(result).toMatchObject({
+      pressure_age_days: 1,
+      stale_pending_runs: 0,
+      stale_open_signals: 0,
+      stale_missing_refs: 0,
+      pressure_samples: { run_ids: [], signal_ids: [], memory_ids: [] },
+    });
   });
 });
 
@@ -198,7 +210,8 @@ describe('digest', () => {
     const old = new Date(Date.now() - 45 * 86400000).toISOString();
     const fresh = new Date().toISOString();
     const handoff = insertRefinement(db, { reasoning: 'handoff', remember: 'Review session handoff for agent', quality: 'handoff' }).refinementId;
-    const done = insertRefinement(db, { reasoning: 'done', remember: 'done fix', quality: 'bad', state: 'done' }).refinementId;
+    const done = insertRefinement(db, { reasoning: 'done', remember: 'done fix', quality: 'bad', state: 'open' }).refinementId;
+    updateRefinement(db, { refinementId: done, state: 'done', actorAgentId: 'tester', checkReceipt: 'fixture verified' });
     const active = insertRefinement(db, { reasoning: 'active', remember: 'active fix', quality: 'bad', state: 'open' }).refinementId;
     db.prepare('UPDATE refinements SET created_at = ?, updated_at = ? WHERE refinement_id IN (?, ?)').run(old, old, handoff, done);
     db.prepare('UPDATE refinements SET created_at = ?, updated_at = ? WHERE refinement_id = ?').run(fresh, fresh, active);
@@ -209,6 +222,28 @@ describe('digest', () => {
     expect(result.pruned_refinements).toBe(2);
     const remaining = db.prepare('SELECT refinement_id FROM refinements').all() as Array<{ refinement_id: string }>;
     expect(remaining.map(r => r.refinement_id)).toEqual([active]);
+  });
+
+  it('compacts old terminal standalone runs while retaining verification receipts', () => {
+    const db = freshDb();
+    const old = '2020-01-01T00:00:00Z';
+    db.prepare(`INSERT INTO task_runs
+      (run_id, origin, agent_id, rationale, test_plan, status, workspace_path, created_at, updated_at)
+      VALUES ('run_old_terminal', 'HOOK', 'agent', 'old aggregate', 'focused test', 'SUCCESS', '/repo', ?, ?)`)
+      .run(old, old);
+    db.prepare(`INSERT INTO run_files
+      (run_id, file_path, source, started_at, heartbeat_at, expires_at, ended_at)
+      VALUES ('run_old_terminal', '/repo/src/a.ts', 'HOOK', ?, ?, ?, ?)`)
+      .run(old, old, old, old);
+    db.prepare(`INSERT INTO run_log(event_id, run_id, agent_id, event_type, message, created_at)
+      VALUES ('evt_receipt', 'run_old_terminal', 'agent', 'VERIFIED', 'focused test passed', ?)`)
+      .run(old);
+
+    expect(digest(db, { dry_run: true, workspace: '/repo', operational_retention_days: 1 }).would_prune_runs).toBe(1);
+    expect(digest(db, { workspace: '/repo', operational_retention_days: 1 }).pruned_runs).toBe(1);
+    expect(db.prepare("SELECT COUNT(*) AS count FROM task_runs WHERE run_id = 'run_old_terminal'").get()).toEqual({ count: 0 });
+    expect(db.prepare("SELECT run_id, message FROM run_log WHERE event_id = 'evt_receipt'").get())
+      .toEqual({ run_id: null, message: 'focused test passed' });
   });
 
 });

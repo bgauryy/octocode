@@ -6,7 +6,7 @@ process.on('warning', (w) => {
 });
 
 // bin/awareness.ts
-import { writeFileSync as writeFileSync5, mkdirSync as mkdirSync6, existsSync as existsSync6 } from "node:fs";
+import { writeFileSync as writeFileSync5, mkdirSync as mkdirSync6, existsSync as existsSync7 } from "node:fs";
 import { spawnSync as spawnSync6 } from "node:child_process";
 import { basename as basename4, dirname as dirname6, isAbsolute as isAbsolute8, join as join9, resolve as resolve15 } from "node:path";
 import { DatabaseSync as DatabaseSync2 } from "node:sqlite";
@@ -14,6 +14,7 @@ import { fileURLToPath as fileURLToPath4 } from "node:url";
 
 // src/db.ts
 import { DatabaseSync } from "node:sqlite";
+import { createHash } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { join, resolve as resolve2, dirname } from "node:path";
 import { homedir, platform } from "node:os";
@@ -177,7 +178,7 @@ function projectMemoryLean(memory) {
   };
 }
 
-// src/v4/runtime.ts
+// src/sqlite-runtime.ts
 var FIXED_BRANCHES = /* @__PURE__ */ new Map([
   [44, 6],
   [50, 7],
@@ -218,7 +219,9 @@ function journalModeForSqliteVersion(sqliteVersion) {
 // src/db.ts
 var DEFAULT_DB_NAME = "awareness.sqlite3";
 var MEMORY_HOME_ENV = "OCTOCODE_MEMORY_HOME";
-var V3_SCHEMA_VERSION = 3;
+var AWARENESS_APPLICATION_ID = 1329812529;
+var AWARENESS_SCHEMA_VERSION = 1;
+var LEGACY_MAX_USER_VERSION = 3;
 var SQLITE_BUSY_RETRY_MS = 25;
 var SQLITE_BUSY_DEADLINE_MS = 1e4;
 var SQLITE_WAIT = new Int32Array(new SharedArrayBuffer(4));
@@ -255,12 +258,13 @@ function connectDb(dbPath2) {
   const db3 = new DatabaseSync(dbPath2);
   try {
     db3.exec(`PRAGMA busy_timeout = ${SQLITE_BUSY_DEADLINE_MS}`);
-    assertV3SchemaIdentity(db3);
+    const schemaState = inspectSchemaState(db3);
+    if (schemaState === "legacy") createPreV1Backup(db3, dbPath2);
     const versionRow = db3.prepare("SELECT sqlite_version() AS version").get();
     const journalMode = journalModeForSqliteVersion(versionRow.version);
     withSqliteBusyRetry(() => db3.exec(`PRAGMA journal_mode = ${journalMode}`));
     db3.exec("PRAGMA foreign_keys = ON");
-    initDb(db3);
+    initializeDb(db3, schemaState === "legacy");
     _db = db3;
     return db3;
   } catch (error) {
@@ -268,49 +272,105 @@ function connectDb(dbPath2) {
     throw error;
   }
 }
-function readV3SchemaIdentity(db3) {
+function readSchemaIdentity(db3) {
   const application = db3.prepare("PRAGMA application_id").get();
   const version = db3.prepare("PRAGMA user_version").get();
+  const relations = db3.prepare(`
+    SELECT name, type
+    FROM sqlite_schema
+    WHERE type IN ('table', 'view')
+      AND name NOT LIKE 'sqlite_%'
+      AND name NOT GLOB 'memories_fts_*'
+      AND name NOT GLOB 'memory_fts_*'
+    ORDER BY name
+  `).all();
   return {
     applicationId: application.application_id ?? 0,
-    userVersion: version.user_version ?? 0
+    userVersion: version.user_version ?? 0,
+    relations
   };
 }
-function assertV3SchemaIdentity(db3) {
-  const identity = readV3SchemaIdentity(db3);
-  if (identity.applicationId !== 0) {
-    throw new Error(
-      `refusing foreign Awareness application_id ${identity.applicationId}; v3 expects 0`
-    );
+function hasColumns(db3, table, columns) {
+  if (!tableExists(db3, table)) return false;
+  const actual = tableColumns(db3, table);
+  return columns.every((column) => actual.has(column));
+}
+function recognizedLegacySignature(db3) {
+  const matchedTables = /* @__PURE__ */ new Set();
+  for (const [table, columns] of [
+    ["sessions", ["session_id", "agent_id", "started_at"]],
+    ["memories", ["memory_id", "agent_id", "task_context", "observation", "importance"]],
+    ["tasks", ["task_id", "agent_id", "rationale", "test_plan", "status"]],
+    ["task_runs", ["run_id", "agent_id", "rationale", "test_plan", "status"]],
+    ["locks", ["lock_id", "file_path", "acquired_at"]],
+    ["refinements", ["refinement_id", "agent_id", "reasoning", "remember", "state"]],
+    ["agent_intents", ["intent_id", "agent_id", "rationale", "test_plan", "status"]],
+    ["intent_events", ["event_id", "intent_id", "agent_id", "event_type"]],
+    ["agent_memories", ["memory_id", "agent_id", "task_context", "observation", "importance_score"]]
+  ]) {
+    if (hasColumns(db3, table, columns)) matchedTables.add(table);
   }
-  if (identity.userVersion > V3_SCHEMA_VERSION) {
-    throw new Error(
-      `refusing newer Awareness schema version ${identity.userVersion}; v3 supports versions 0-${V3_SCHEMA_VERSION}`
-    );
+  for (const [table, columns] of canonicalColumns()) {
+    if (columns.length >= 2 && hasColumns(db3, table, columns.slice(0, 2).map(({ name }) => name))) {
+      matchedTables.add(table);
+    }
   }
-  if (identity.userVersion === 0) {
-    const relations = db3.prepare(`
-      SELECT name, type
-      FROM sqlite_schema
-      WHERE type IN ('table', 'view')
-        AND name NOT LIKE 'sqlite_%'
-      ORDER BY name
-    `).all();
-    if (relations.length === 0) return;
-    const known = /* @__PURE__ */ new Set([
-      ...canonicalColumns().keys(),
-      ...LEGACY_V0_RELATION_NAMES,
-      "memories_fts"
-    ]);
-    const unexpected = relations.filter(({ name, type }) => {
-      if (type !== "table") return true;
-      return !known.has(name) && !name.startsWith("memories_fts_") && !name.startsWith("memory_fts_");
-    });
-    if (unexpected.length > 0) {
+  return matchedTables.size >= 2;
+}
+function inspectSchemaState(db3) {
+  const identity = readSchemaIdentity(db3);
+  if (identity.applicationId === AWARENESS_APPLICATION_ID) {
+    if (identity.userVersion !== AWARENESS_SCHEMA_VERSION) {
       throw new Error(
-        `refusing unrecognized non-empty unversioned SQLite store; unexpected relations: ${unexpected.map(({ name }) => name).join(", ")}`
+        `unsupported canonical Awareness schema version ${identity.userVersion}; expected ${AWARENESS_SCHEMA_VERSION}`
       );
     }
+    assertCanonicalRelationContract(db3);
+    assertCanonicalSchemaFingerprint(db3);
+    return "canonical";
+  }
+  if (identity.applicationId !== 0) {
+    throw new Error(
+      `refusing foreign Awareness application_id ${identity.applicationId}; expected ${AWARENESS_APPLICATION_ID}`
+    );
+  }
+  if (identity.userVersion > LEGACY_MAX_USER_VERSION) {
+    throw new Error(
+      `refusing unsupported unbranded Awareness schema version ${identity.userVersion}; legacy versions are 0-${LEGACY_MAX_USER_VERSION}`
+    );
+  }
+  if (identity.relations.length === 0) {
+    if (identity.userVersion === 0) return "fresh";
+    throw new Error(`refusing unrelated empty versioned SQLite store at user_version ${identity.userVersion}`);
+  }
+  const known = /* @__PURE__ */ new Set([
+    ...canonicalColumns().keys(),
+    ...LEGACY_V0_RELATION_NAMES,
+    "memories_fts"
+  ]);
+  const unexpected = identity.relations.filter(({ name, type }) => type !== "table" || !known.has(name));
+  if (unexpected.length > 0 || !recognizedLegacySignature(db3)) {
+    const suffix = unexpected.length > 0 ? `; unexpected relations: ${unexpected.map(({ name }) => name).join(", ")}` : "";
+    throw new Error(`refusing unrecognized or unrelated SQLite store${suffix}`);
+  }
+  return "legacy";
+}
+function createPreV1Backup(db3, dbPath2) {
+  if (dbPath2 === ":memory:") return null;
+  const stamp = (/* @__PURE__ */ new Date()).toISOString().replace(/[-:.TZ]/g, "");
+  const backupPath = `${resolve2(dbPath2)}.pre-v1-${stamp}-${process.pid}.sqlite3`;
+  db3.exec(`VACUUM INTO '${backupPath.replace(/'/g, "''")}'`);
+  return backupPath;
+}
+function assertDatabaseIntegrity(db3) {
+  const integrity = db3.prepare("PRAGMA integrity_check").all();
+  const failures = integrity.filter(({ integrity_check }) => integrity_check !== "ok");
+  if (failures.length > 0) {
+    throw new Error(`canonical v1 integrity_check failed: ${failures.map((row) => row.integrity_check).join("; ")}`);
+  }
+  const foreignKeys = db3.prepare("PRAGMA foreign_key_check").all();
+  if (foreignKeys.length > 0) {
+    throw new Error(`canonical v1 foreign_key_check failed with ${foreignKeys.length} row(s)`);
   }
 }
 function isSqliteBusy(error) {
@@ -624,6 +684,83 @@ var SCHEMA_DDL = `
       created_at   TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
     );
 `;
+var SCHEMA_INDEX_DDL = `
+  CREATE INDEX IF NOT EXISTS idx_sessions_agent     ON sessions(agent_id);
+  CREATE INDEX IF NOT EXISTS idx_sessions_workspace ON sessions(workspace_path);
+  CREATE INDEX IF NOT EXISTS idx_sessions_scope     ON sessions(workspace_path, artifact);
+
+  CREATE INDEX IF NOT EXISTS idx_memories_importance      ON memories(importance);
+  CREATE INDEX IF NOT EXISTS idx_memories_created_at      ON memories(created_at);
+  CREATE INDEX IF NOT EXISTS idx_memories_state           ON memories(state);
+  CREATE INDEX IF NOT EXISTS idx_memories_label           ON memories(label);
+  CREATE INDEX IF NOT EXISTS idx_memories_failure_sig     ON memories(failure_signature);
+  CREATE INDEX IF NOT EXISTS idx_memories_workspace_path  ON memories(workspace_path);
+  CREATE INDEX IF NOT EXISTS idx_memories_scope           ON memories(workspace_path, repo, ref);
+  CREATE INDEX IF NOT EXISTS idx_memories_artifact_scope  ON memories(workspace_path, artifact);
+  CREATE INDEX IF NOT EXISTS idx_memories_repo_ref        ON memories(repo, ref);
+  CREATE INDEX IF NOT EXISTS idx_memories_valid           ON memories(valid_from, valid_to);
+  CREATE INDEX IF NOT EXISTS idx_memories_embedding_model ON memories(embedding_model);
+
+  CREATE INDEX IF NOT EXISTS idx_plans_scope          ON plans(workspace_path, artifact, status);
+  CREATE INDEX IF NOT EXISTS idx_plans_lead           ON plans(lead_agent_id, status);
+  CREATE INDEX IF NOT EXISTS idx_plan_members_agent   ON plan_members(agent_id, plan_id);
+  CREATE INDEX IF NOT EXISTS idx_tasks_plan_status    ON tasks(plan_id, status, priority DESC, created_at);
+  CREATE INDEX IF NOT EXISTS idx_task_deps_dependency ON task_dependencies(depends_on_task_id);
+  CREATE INDEX IF NOT EXISTS idx_task_claims_agent    ON task_claims(agent_id, expires_at);
+  CREATE INDEX IF NOT EXISTS idx_task_claims_expiry   ON task_claims(expires_at);
+  CREATE INDEX IF NOT EXISTS idx_task_runs_status     ON task_runs(status);
+  CREATE INDEX IF NOT EXISTS idx_task_runs_agent      ON task_runs(agent_id, status);
+  CREATE INDEX IF NOT EXISTS idx_task_runs_task       ON task_runs(task_id, created_at DESC);
+  CREATE INDEX IF NOT EXISTS idx_task_runs_scope      ON task_runs(workspace_path, artifact);
+  CREATE INDEX IF NOT EXISTS idx_task_events_task     ON task_events(task_id, created_at);
+
+  CREATE INDEX IF NOT EXISTS idx_run_files_path_active ON run_files(file_path, ended_at, expires_at);
+  CREATE INDEX IF NOT EXISTS idx_run_files_heartbeat   ON run_files(heartbeat_at);
+
+  CREATE INDEX IF NOT EXISTS idx_locks_file_path   ON locks(file_path);
+  CREATE INDEX IF NOT EXISTS idx_locks_acquired_at ON locks(acquired_at);
+  CREATE INDEX IF NOT EXISTS idx_locks_expires_at  ON locks(expires_at);
+
+  CREATE INDEX IF NOT EXISTS idx_delivery_state_delivered ON delivery_state(delivered_at);
+
+  CREATE INDEX IF NOT EXISTS idx_refinements_state         ON refinements(state);
+  CREATE INDEX IF NOT EXISTS idx_refinements_scope         ON refinements(workspace_path, artifact);
+  CREATE INDEX IF NOT EXISTS idx_refinements_repo          ON refinements(repo);
+  CREATE INDEX IF NOT EXISTS idx_refinements_state_updated ON refinements(state, updated_at DESC);
+
+  CREATE INDEX IF NOT EXISTS idx_signals_status         ON signals(status);
+  CREATE INDEX IF NOT EXISTS idx_signals_to_agent       ON signals(to_agent);
+  CREATE INDEX IF NOT EXISTS idx_signals_workspace_path ON signals(workspace_path);
+  CREATE INDEX IF NOT EXISTS idx_signals_scope          ON signals(workspace_path, artifact);
+  CREATE INDEX IF NOT EXISTS idx_signals_created_at     ON signals(created_at);
+  CREATE INDEX IF NOT EXISTS idx_signals_thread         ON signals(thread_id);
+
+  CREATE INDEX IF NOT EXISTS idx_memory_refs_ref  ON memory_refs(reference);
+  CREATE INDEX IF NOT EXISTS idx_memory_refs_kind ON memory_refs(kind);
+
+  CREATE INDEX IF NOT EXISTS idx_agents_workspace ON agents(workspace_path);
+  CREATE INDEX IF NOT EXISTS idx_agents_scope     ON agents(workspace_path, artifact);
+  CREATE INDEX IF NOT EXISTS idx_agents_last_seen ON agents(last_seen_at DESC);
+
+  CREATE INDEX IF NOT EXISTS idx_edit_log_session     ON edit_log(session_id);
+  CREATE INDEX IF NOT EXISTS idx_edit_log_run         ON edit_log(run_id);
+  CREATE INDEX IF NOT EXISTS idx_edit_log_agent       ON edit_log(agent_id);
+  CREATE INDEX IF NOT EXISTS idx_edit_log_file        ON edit_log(file_path);
+  CREATE INDEX IF NOT EXISTS idx_edit_log_workspace   ON edit_log(workspace_path);
+  CREATE INDEX IF NOT EXISTS idx_edit_log_scope       ON edit_log(workspace_path, artifact);
+  CREATE INDEX IF NOT EXISTS idx_edit_log_created_at  ON edit_log(created_at);
+
+  CREATE INDEX IF NOT EXISTS idx_harness_log_session    ON harness_log(session_id);
+  CREATE INDEX IF NOT EXISTS idx_harness_log_agent      ON harness_log(agent_id);
+  CREATE INDEX IF NOT EXISTS idx_harness_log_scope      ON harness_log(workspace_path, artifact);
+  CREATE INDEX IF NOT EXISTS idx_harness_log_event_type ON harness_log(event_type);
+  CREATE INDEX IF NOT EXISTS idx_harness_log_memory     ON harness_log(memory_id);
+  CREATE INDEX IF NOT EXISTS idx_harness_log_run        ON harness_log(run_id);
+`;
+var FTS_SCHEMA_DDL = `
+  CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts
+  USING fts5(memory_id UNINDEXED, task_context, observation, tags)
+`;
 function tableExists(db3, table) {
   return Boolean(db3.prepare(
     "SELECT 1 FROM sqlite_master WHERE type='table' AND name = ?"
@@ -658,18 +795,196 @@ function migrateLegacyTaskRuns(db3) {
   renameColumnIfPresent(db3, "edit_log", "task_id", "run_id");
   renameColumnIfPresent(db3, "harness_log", "task_id", "run_id");
 }
+function expectCopied(changes, expected, relation) {
+  if (Number(changes) !== expected) {
+    throw new Error(`schema migration copied ${String(changes)}/${expected} rows from ${relation}`);
+  }
+}
+function legacySqlValue(value, field) {
+  if (value === null || typeof value === "string" || typeof value === "number" || typeof value === "bigint") {
+    return value;
+  }
+  if (value instanceof Uint8Array) return value;
+  throw new Error(`schema migration cannot bind legacy field ${field}`);
+}
+function legacySqlValues(values) {
+  return values.map(([value, field]) => legacySqlValue(value, field));
+}
+function migrateLegacyV0Relations(db3) {
+  if (tableExists(db3, "agent_memories")) {
+    const rows = db3.prepare("SELECT * FROM agent_memories").all();
+    const insert = db3.prepare(`INSERT INTO memories (
+      memory_id, agent_id, task_context, observation, importance, state, label,
+      superseded_by, tags_json, workspace_path, artifact, repo, ref,
+      file_tree_fingerprint, novelty_score, last_accessed_at, access_count,
+      decay_half_life_days, failure_signature, valid_from, valid_to, expired_at,
+      embedding, embedding_model, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+    const insertRef = db3.prepare(`INSERT INTO memory_refs(memory_id, reference, kind, ordinal)
+      VALUES (?, ?, 'file', 0)`);
+    for (const row of rows) {
+      insert.run(...legacySqlValues([
+        [row["memory_id"], "agent_memories.memory_id"],
+        [row["agent_id"], "agent_memories.agent_id"],
+        [row["task_context"], "agent_memories.task_context"],
+        [row["observation"], "agent_memories.observation"],
+        [row["importance_score"], "agent_memories.importance_score"],
+        [row["state"] ?? "ACTIVE", "agent_memories.state"],
+        [row["label"] ?? "OTHER", "agent_memories.label"],
+        [row["superseded_by"] ?? null, "agent_memories.superseded_by"],
+        [row["tags_json"] ?? "[]", "agent_memories.tags_json"],
+        [row["file_tree_fingerprint"] ?? null, "agent_memories.file_tree_fingerprint"],
+        [row["last_accessed_at"] ?? null, "agent_memories.last_accessed_at"],
+        [row["access_count"] ?? 0, "agent_memories.access_count"],
+        [row["decay_half_life_days"] ?? null, "agent_memories.decay_half_life_days"],
+        [row["failure_signature"] ?? null, "agent_memories.failure_signature"],
+        [row["valid_from"] ?? row["created_at"], "agent_memories.valid_from"],
+        [row["valid_to"] ?? null, "agent_memories.valid_to"],
+        [row["expired_at"] ?? null, "agent_memories.expired_at"],
+        [row["embedding"] ?? null, "agent_memories.embedding"],
+        [row["embedding_model"] ?? null, "agent_memories.embedding_model"],
+        [row["created_at"], "agent_memories.created_at"],
+        [row["updated_at"] ?? null, "agent_memories.updated_at"]
+      ]));
+      if (typeof row["file"] === "string" && row["file"].trim()) {
+        insertRef.run(
+          legacySqlValue(row["memory_id"], "agent_memories.memory_id"),
+          `file:${row["file"]}`
+        );
+      }
+    }
+  }
+  if (tableExists(db3, "agent_intents")) {
+    const rows = db3.prepare("SELECT * FROM agent_intents").all();
+    const insertRun = db3.prepare(`INSERT INTO task_runs (
+      run_id, task_id, origin, agent_id, session_id, rationale, test_plan,
+      context_ref, status, workspace_path, artifact, created_at, updated_at
+    ) VALUES (?, NULL, 'WORK', ?, NULL, ?, ?, ?, ?, ?, NULL, ?, ?)`);
+    const insertFile = db3.prepare(`INSERT INTO run_files (
+      run_id, file_path, reason_override, source, started_at, heartbeat_at,
+      expires_at, ended_at
+    ) VALUES (?, ?, NULL, 'EXPLICIT', ?, ?, ?, ?)`);
+    for (const row of rows) {
+      insertRun.run(...legacySqlValues([
+        [row["intent_id"], "agent_intents.intent_id"],
+        [row["agent_id"], "agent_intents.agent_id"],
+        [row["rationale"], "agent_intents.rationale"],
+        [row["test_plan"], "agent_intents.test_plan"],
+        [row["plan_doc_ref"] ?? null, "agent_intents.plan_doc_ref"],
+        [row["status"], "agent_intents.status"],
+        [row["workspace_path"] ?? null, "agent_intents.workspace_path"],
+        [row["created_at"], "agent_intents.created_at"],
+        [row["updated_at"], "agent_intents.updated_at"]
+      ]));
+      for (const filePath of parseJsonList(String(row["files_json"] ?? "[]"))) {
+        const updatedAt = String(row["updated_at"]);
+        insertFile.run(...legacySqlValues([
+          [row["intent_id"], "agent_intents.intent_id"],
+          [filePath, "agent_intents.files_json[]"],
+          [row["created_at"], "agent_intents.created_at"],
+          [updatedAt, "agent_intents.updated_at"],
+          [updatedAt, "agent_intents.updated_at"],
+          [row["status"] === "ACTIVE" ? null : updatedAt, "agent_intents.ended_at"]
+        ]));
+      }
+    }
+  }
+  if (tableExists(db3, "file_locks")) {
+    const expected = db3.prepare("SELECT COUNT(*) AS count FROM file_locks").get().count;
+    const result = db3.prepare(`INSERT INTO locks(lock_id, file_path, run_id, acquired_at, expires_at)
+      SELECT f.lock_id, f.file_path, f.intent_id, f.acquired_at, f.expires_at
+      FROM file_locks f JOIN task_runs r ON r.run_id = f.intent_id`).run();
+    expectCopied(result.changes, expected, "file_locks");
+  }
+  if (tableExists(db3, "intent_events")) {
+    const expected = db3.prepare("SELECT COUNT(*) AS count FROM intent_events").get().count;
+    const result = db3.prepare(`INSERT INTO run_log(event_id, run_id, agent_id, event_type, message, created_at)
+      SELECT e.event_id, e.intent_id, e.agent_id, e.event_type, e.message, e.created_at
+      FROM intent_events e LEFT JOIN task_runs r ON r.run_id = e.intent_id`).run();
+    expectCopied(result.changes, expected, "intent_events");
+  }
+  if (tableExists(db3, "task_log")) {
+    const columns = tableColumns(db3, "task_log");
+    const runColumn = columns.has("run_id") ? "run_id" : "task_id";
+    const expected = db3.prepare("SELECT COUNT(*) AS count FROM task_log").get().count;
+    const result = db3.prepare(`INSERT INTO run_log(event_id, run_id, agent_id, event_type, message, created_at)
+      SELECT event_id, ${runColumn}, agent_id, event_type, message, created_at FROM task_log`).run();
+    expectCopied(result.changes, expected, "task_log");
+  }
+  if (tableExists(db3, "notifications")) {
+    const expected = db3.prepare("SELECT COUNT(*) AS count FROM notifications").get().count;
+    const result = db3.prepare(`INSERT INTO signals (
+      signal_id, workspace_path, artifact, repo, ref, from_agent, to_agent, kind,
+      subject, body, files_json, refs_json, thread_id, reply_to, importance,
+      status, resolved_at, created_at
+    ) SELECT notification_id, workspace_path, NULL, repo, ref, from_agent, to_agent,
+      kind, subject, body, files_json, refs_json, thread_id, in_reply_to,
+      importance, status, CASE WHEN status = 'resolved' THEN created_at ELSE NULL END,
+      created_at FROM notifications`).run();
+    expectCopied(result.changes, expected, "notifications");
+  }
+  if (tableExists(db3, "notification_reads")) {
+    const expected = db3.prepare("SELECT COUNT(*) AS count FROM notification_reads").get().count;
+    const result = db3.prepare(`INSERT INTO signal_reads(signal_id, agent_id, read_at)
+      SELECT r.notification_id, r.agent_id, r.read_at
+      FROM notification_reads r JOIN signals s ON s.signal_id = r.notification_id`).run();
+    expectCopied(result.changes, expected, "notification_reads");
+  }
+  for (const relation of [
+    "notification_reads",
+    "notifications",
+    "file_locks",
+    "intent_events",
+    "agent_intents",
+    "agent_memories",
+    "task_log",
+    "memory_fts"
+  ]) {
+    db3.exec(`DROP TABLE IF EXISTS ${relation}`);
+  }
+}
+function repairLegacyForeignKeyReferences(db3) {
+  db3.exec(`INSERT OR IGNORE INTO sessions (
+    session_id, agent_id, workspace_path, artifact, repo, ref,
+    started_at, ended_at, summary
+  ) SELECT session_id, agent_id, workspace_path, artifact, NULL, NULL,
+      created_at, CASE WHEN status = 'ACTIVE' THEN NULL ELSE updated_at END,
+      'migrated legacy session reference'
+    FROM task_runs
+    WHERE session_id IS NOT NULL
+    ORDER BY created_at, run_id`);
+  db3.exec(`UPDATE task_runs
+    SET context_ref = COALESCE(context_ref, 'legacy-task:' || task_id), task_id = NULL
+    WHERE task_id IS NOT NULL AND NOT EXISTS (
+      SELECT 1 FROM tasks WHERE tasks.task_id = task_runs.task_id
+    )`);
+}
 function initDb(db3) {
-  assertV3SchemaIdentity(db3);
-  if (db3.isTransaction) {
-    initDbSchema(db3);
+  initializeDb(db3, false);
+}
+function mainDatabasePath(db3) {
+  const row = db3.prepare("PRAGMA database_list").all().find(({ name }) => name === "main");
+  return row?.file?.trim() || null;
+}
+function initializeDb(db3, fileBackupCreated) {
+  const state = inspectSchemaState(db3);
+  if (state === "canonical") {
+    if (!db3.isTransaction) db3.exec("PRAGMA foreign_keys = ON");
     return;
+  }
+  if (db3.isTransaction) {
+    throw new Error("cannot initialize or migrate canonical v1 inside a caller-owned transaction");
+  }
+  if (state === "legacy" && mainDatabasePath(db3) && !fileBackupCreated) {
+    throw new Error("file-backed legacy migration requires connectDb(path) so a pre-v1 backup is created");
   }
   db3.exec("PRAGMA foreign_keys = OFF");
   let began = false;
   try {
     withSqliteBusyRetry(() => db3.exec("BEGIN IMMEDIATE"));
     began = true;
-    initDbSchema(db3);
+    const lockedState = inspectSchemaState(db3);
+    if (lockedState !== "canonical") initDbSchema(db3, lockedState);
     db3.exec("COMMIT");
     began = false;
   } catch (error) {
@@ -684,98 +999,33 @@ function initDb(db3) {
     db3.exec("PRAGMA foreign_keys = ON");
   }
 }
-function initDbSchema(db3) {
+function initDbSchema(db3, state) {
   migrateLegacyTaskRuns(db3);
   db3.exec(SCHEMA_DDL);
   migrateExistingTables(db3);
-  migrateExecutionSchemaV3(db3);
+  migrateLegacyExecutionSchema(db3);
   migrateRefinementQualityConstraint(db3);
   migrateCheckConstraints(db3);
-  db3.exec(`
-    CREATE INDEX IF NOT EXISTS idx_sessions_agent     ON sessions(agent_id);
-    CREATE INDEX IF NOT EXISTS idx_sessions_workspace ON sessions(workspace_path);
-    CREATE INDEX IF NOT EXISTS idx_sessions_scope     ON sessions(workspace_path, artifact);
-
-    CREATE INDEX IF NOT EXISTS idx_memories_importance      ON memories(importance);
-    CREATE INDEX IF NOT EXISTS idx_memories_created_at      ON memories(created_at);
-    CREATE INDEX IF NOT EXISTS idx_memories_state           ON memories(state);
-    CREATE INDEX IF NOT EXISTS idx_memories_label           ON memories(label);
-    CREATE INDEX IF NOT EXISTS idx_memories_failure_sig     ON memories(failure_signature);
-    CREATE INDEX IF NOT EXISTS idx_memories_workspace_path  ON memories(workspace_path);
-    CREATE INDEX IF NOT EXISTS idx_memories_scope           ON memories(workspace_path, repo, ref);
-    CREATE INDEX IF NOT EXISTS idx_memories_artifact_scope  ON memories(workspace_path, artifact);
-    CREATE INDEX IF NOT EXISTS idx_memories_repo_ref        ON memories(repo, ref);
-    CREATE INDEX IF NOT EXISTS idx_memories_valid           ON memories(valid_from, valid_to);
-    CREATE INDEX IF NOT EXISTS idx_memories_embedding_model ON memories(embedding_model);
-
-    CREATE INDEX IF NOT EXISTS idx_plans_scope          ON plans(workspace_path, artifact, status);
-    CREATE INDEX IF NOT EXISTS idx_plans_lead           ON plans(lead_agent_id, status);
-    CREATE INDEX IF NOT EXISTS idx_plan_members_agent   ON plan_members(agent_id, plan_id);
-    CREATE INDEX IF NOT EXISTS idx_tasks_plan_status    ON tasks(plan_id, status, priority DESC, created_at);
-    CREATE INDEX IF NOT EXISTS idx_task_deps_dependency ON task_dependencies(depends_on_task_id);
-    CREATE INDEX IF NOT EXISTS idx_task_claims_agent    ON task_claims(agent_id, expires_at);
-    CREATE INDEX IF NOT EXISTS idx_task_claims_expiry   ON task_claims(expires_at);
-    CREATE INDEX IF NOT EXISTS idx_task_runs_status     ON task_runs(status);
-    CREATE INDEX IF NOT EXISTS idx_task_runs_agent      ON task_runs(agent_id, status);
-    CREATE INDEX IF NOT EXISTS idx_task_runs_task       ON task_runs(task_id, created_at DESC);
-    CREATE INDEX IF NOT EXISTS idx_task_runs_scope      ON task_runs(workspace_path, artifact);
-    CREATE INDEX IF NOT EXISTS idx_task_events_task     ON task_events(task_id, created_at);
-
-    CREATE INDEX IF NOT EXISTS idx_run_files_path_active ON run_files(file_path, ended_at, expires_at);
-    CREATE INDEX IF NOT EXISTS idx_run_files_heartbeat   ON run_files(heartbeat_at);
-
-    CREATE INDEX IF NOT EXISTS idx_locks_file_path   ON locks(file_path);
-    CREATE INDEX IF NOT EXISTS idx_locks_acquired_at ON locks(acquired_at);
-    CREATE INDEX IF NOT EXISTS idx_locks_expires_at  ON locks(expires_at);
-
-    CREATE INDEX IF NOT EXISTS idx_delivery_state_delivered ON delivery_state(delivered_at);
-
-    CREATE INDEX IF NOT EXISTS idx_refinements_state         ON refinements(state);
-    CREATE INDEX IF NOT EXISTS idx_refinements_scope         ON refinements(workspace_path, artifact);
-    CREATE INDEX IF NOT EXISTS idx_refinements_repo          ON refinements(repo);
-    CREATE INDEX IF NOT EXISTS idx_refinements_state_updated ON refinements(state, updated_at DESC);
-
-    CREATE INDEX IF NOT EXISTS idx_signals_status         ON signals(status);
-    CREATE INDEX IF NOT EXISTS idx_signals_to_agent       ON signals(to_agent);
-    CREATE INDEX IF NOT EXISTS idx_signals_workspace_path ON signals(workspace_path);
-    CREATE INDEX IF NOT EXISTS idx_signals_scope          ON signals(workspace_path, artifact);
-    CREATE INDEX IF NOT EXISTS idx_signals_created_at     ON signals(created_at);
-    CREATE INDEX IF NOT EXISTS idx_signals_thread         ON signals(thread_id);
-
-    CREATE INDEX IF NOT EXISTS idx_memory_refs_ref  ON memory_refs(reference);
-    CREATE INDEX IF NOT EXISTS idx_memory_refs_kind ON memory_refs(kind);
-
-    CREATE INDEX IF NOT EXISTS idx_agents_workspace ON agents(workspace_path);
-    CREATE INDEX IF NOT EXISTS idx_agents_scope     ON agents(workspace_path, artifact);
-    CREATE INDEX IF NOT EXISTS idx_agents_last_seen ON agents(last_seen_at DESC);
-
-    CREATE INDEX IF NOT EXISTS idx_edit_log_session     ON edit_log(session_id);
-    CREATE INDEX IF NOT EXISTS idx_edit_log_run         ON edit_log(run_id);
-    CREATE INDEX IF NOT EXISTS idx_edit_log_agent       ON edit_log(agent_id);
-    CREATE INDEX IF NOT EXISTS idx_edit_log_file        ON edit_log(file_path);
-    CREATE INDEX IF NOT EXISTS idx_edit_log_workspace   ON edit_log(workspace_path);
-    CREATE INDEX IF NOT EXISTS idx_edit_log_scope       ON edit_log(workspace_path, artifact);
-    CREATE INDEX IF NOT EXISTS idx_edit_log_created_at  ON edit_log(created_at);
-
-    CREATE INDEX IF NOT EXISTS idx_harness_log_session    ON harness_log(session_id);
-    CREATE INDEX IF NOT EXISTS idx_harness_log_agent      ON harness_log(agent_id);
-    CREATE INDEX IF NOT EXISTS idx_harness_log_scope      ON harness_log(workspace_path, artifact);
-    CREATE INDEX IF NOT EXISTS idx_harness_log_event_type ON harness_log(event_type);
-    CREATE INDEX IF NOT EXISTS idx_harness_log_memory     ON harness_log(memory_id);
-    CREATE INDEX IF NOT EXISTS idx_harness_log_run        ON harness_log(run_id);
-  `);
+  migrateLegacyV0Relations(db3);
+  repairLegacyForeignKeyReferences(db3);
+  if (state === "legacy") {
+    db3.exec("DROP TABLE IF EXISTS memories_fts");
+    rebuildAllCanonicalTables(db3);
+  }
+  db3.exec(SCHEMA_INDEX_DDL);
   try {
-    db3.exec(`
-      CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts
-      USING fts5(memory_id UNINDEXED, task_context, observation, tags)
-    `);
+    db3.exec(FTS_SCHEMA_DDL);
   } catch {
   }
   if (hasFts(db3)) {
     const row = db3.prepare("SELECT COUNT(*) AS cnt FROM memories_fts").get();
     if (row.cnt === 0) rebuildFts(db3);
   }
-  db3.exec("PRAGMA user_version = 3");
+  assertCanonicalRelationContract(db3);
+  assertCanonicalSchemaFingerprint(db3);
+  assertDatabaseIntegrity(db3);
+  db3.exec(`PRAGMA application_id = ${AWARENESS_APPLICATION_ID}`);
+  db3.exec(`PRAGMA user_version = ${AWARENESS_SCHEMA_VERSION}`);
 }
 function tableColumns(db3, tableName) {
   const rows = db3.prepare(`PRAGMA table_info(${tableName})`).all();
@@ -817,7 +1067,7 @@ function migrateExistingTables(db3) {
     }
   }
 }
-function migrateExecutionSchemaV3(db3) {
+function migrateLegacyExecutionSchema(db3) {
   if (!tableExists(db3, "task_runs")) return;
   const runColumns = tableColumns(db3, "task_runs");
   const lockColumns = tableExists(db3, "locks") ? tableColumns(db3, "locks") : /* @__PURE__ */ new Set();
@@ -875,6 +1125,69 @@ function canonicalTableSql() {
     tmp.close();
   }
 }
+function normalizeSchemaSql(sql) {
+  return sql.replace(/--[^\n]*/g, " ").replace(/["`\[\]]/g, "").replace(/\bIF\s+NOT\s+EXISTS\b/gi, "").replace(/\s+/g, " ").replace(/\s*([(),])\s*/g, "$1").trim().toLowerCase();
+}
+function readSchemaObjects(db3) {
+  const rows = db3.prepare(`
+    SELECT type, name, tbl_name, sql
+    FROM sqlite_schema
+    WHERE type IN ('table', 'view', 'index', 'trigger')
+      AND name NOT LIKE 'sqlite_%'
+      AND name NOT GLOB 'memories_fts_*'
+      AND name NOT GLOB 'memory_fts_*'
+    ORDER BY type, name
+  `).all();
+  return rows.map((row) => ({
+    type: row.type,
+    name: row.name,
+    tableName: row.tbl_name,
+    sql: normalizeSchemaSql(row.sql ?? "")
+  }));
+}
+function schemaObjectsFingerprint(objects) {
+  return createHash("sha256").update(JSON.stringify(objects)).digest("hex");
+}
+var _canonicalSchemaFingerprints = /* @__PURE__ */ new Map();
+function canonicalSchemaFingerprint(includeFts) {
+  const cached = _canonicalSchemaFingerprints.get(includeFts);
+  if (cached) return cached;
+  const canonical = new DatabaseSync(":memory:");
+  try {
+    canonical.exec(SCHEMA_DDL);
+    canonical.exec(SCHEMA_INDEX_DDL);
+    if (includeFts) canonical.exec(FTS_SCHEMA_DDL);
+    const fingerprint = schemaObjectsFingerprint(readSchemaObjects(canonical));
+    _canonicalSchemaFingerprints.set(includeFts, fingerprint);
+    return fingerprint;
+  } finally {
+    canonical.close();
+  }
+}
+function assertCanonicalRelationContract(db3) {
+  const actualRows = readSchemaIdentity(db3).relations;
+  const expected = new Set(canonicalColumns().keys());
+  const actual = new Set(actualRows.map(({ name }) => name));
+  const missing = [...expected].filter((name) => !actual.has(name));
+  const unexpected = actualRows.filter(({ name, type }) => type !== "table" || !expected.has(name) && name !== "memories_fts");
+  if (missing.length === 0 && unexpected.length === 0) return;
+  const details = [
+    missing.length > 0 ? `missing: ${missing.join(", ")}` : null,
+    unexpected.length > 0 ? `unexpected: ${unexpected.map(({ name }) => name).join(", ")}` : null
+  ].filter((value) => value !== null).join("; ");
+  throw new Error(`canonical v1 relation contract mismatch (${details})`);
+}
+function assertCanonicalSchemaFingerprint(db3) {
+  const objects = readSchemaObjects(db3);
+  const includeFts = objects.some(({ type, name }) => type === "table" && name === "memories_fts");
+  const expectedFingerprint = canonicalSchemaFingerprint(includeFts);
+  const actualFingerprint = schemaObjectsFingerprint(objects);
+  if (actualFingerprint !== expectedFingerprint) {
+    throw new Error(
+      `canonical v1 schema fingerprint mismatch (expected ${expectedFingerprint}, got ${actualFingerprint})`
+    );
+  }
+}
 function checkClauses(createSql) {
   const matches = createSql.match(/CHECK\s*\([^)]*\)/gi) ?? [];
   return matches.map((c) => c.replace(/\s+/g, " ").trim().toLowerCase()).sort().join(" | ");
@@ -911,6 +1224,11 @@ function rebuildTableFromCanonical(db3, table, canonSql) {
     } catch {
     }
     throw err;
+  }
+}
+function rebuildAllCanonicalTables(db3) {
+  for (const [table, sql] of canonicalTableSql()) {
+    if (tableExists(db3, table)) rebuildTableFromCanonical(db3, table, sql);
   }
 }
 function migrateCheckConstraints(db3) {
@@ -1689,6 +2007,56 @@ function insertMemory(db3, params) {
     similarMemoryIds
   };
 }
+function insertMemoryWithSimilarityGate(db3, params, allowSimilar = false) {
+  const importance = Number(params.importance);
+  if (!Number.isInteger(importance) || importance < 1 || importance > 10) {
+    throw new Error(`importance must be 1\u201310, got ${String(params.importance)}`);
+  }
+  normalizeLabel(Array.isArray(params.label) ? params.label[0] : params.label);
+  const ownsTransaction = !db3.isTransaction;
+  if (ownsTransaction) db3.exec("BEGIN IMMEDIATE");
+  try {
+    const scope = fillScope(
+      {
+        workspace_path: params.workspacePath ?? null,
+        artifact: normalizeArtifact(params.artifact),
+        repo: params.repo ?? null,
+        ref: params.ref ?? null
+      },
+      params.cwd ?? process.cwd()
+    );
+    const supersedes = params.supersedes ?? [];
+    const similar = findSimilarMemories(
+      db3,
+      `${params.taskContext} ${params.observation}`,
+      5,
+      null,
+      {
+        workspacePath: scope.workspace_path,
+        artifact: scope.artifact,
+        repo: scope.repo,
+        ref: scope.ref,
+        cwd: params.cwd
+      }
+    );
+    const unsupersededSimilar = similar.filter((memory) => !supersedes.includes(memory.memory_id));
+    if (unsupersededSimilar.length > 0 && !allowSimilar) {
+      if (ownsTransaction) db3.exec("COMMIT");
+      return { skipped: true, similar: unsupersededSimilar };
+    }
+    const result = insertMemory(db3, { ...params, preComputedSimilar: similar });
+    if (ownsTransaction) db3.exec("COMMIT");
+    return { skipped: false, similar, result };
+  } catch (error) {
+    if (ownsTransaction) {
+      try {
+        db3.exec("ROLLBACK");
+      } catch {
+      }
+    }
+    throw error;
+  }
+}
 function getMemory(db3, params = {}) {
   const {
     query = "",
@@ -1717,8 +2085,15 @@ function getMemory(db3, params = {}) {
   } = params;
   const limitCap = candidateMemoryIds.length > 0 ? 2e3 : 50;
   const limit = Math.min(limitCap, Math.max(1, Number(limitRaw) || 3));
+  const smartEnabled = smart === true || smart === "true";
   let minImportance = Math.max(1, Number(minImpRaw) || 1);
-  if (smart === true || smart === "true") minImportance = Math.max(1, minImportance - 1);
+  let smartExpanded = false;
+  const droppedSmartFilters = [];
+  if (smartEnabled && minImportance > 1) {
+    minImportance = Math.max(1, minImportance - 1);
+    smartExpanded = true;
+    droppedSmartFilters.push("min_importance");
+  }
   const states = statesRaw ?? (asOf ? ["ACTIVE", "SUPERSEDED"] : ["ACTIVE"]);
   const labels = label ? Array.isArray(label) ? label.map((value) => normalizeLabel(value)) : [normalizeLabel(label)] : [];
   const effectiveCwd = cwdParam ?? workspacePath ?? void 0;
@@ -1744,6 +2119,17 @@ function getMemory(db3, params = {}) {
   if (compiledRegex.length > 0) {
     candidateIds = intersectCandidateIds(candidateIds, regexCandidateIds(db3, compiledRegex));
   }
+  const scopeOptions = {
+    workspacePath: workspacePath ?? cwdParam ?? null,
+    artifact: artifact2,
+    repo: repoArg,
+    ref: refArg,
+    strictScope,
+    globalOnly,
+    cwd: cwdParam,
+    asOf: normalizedAsOf,
+    candidateMemoryIds: candidateIds ? [...candidateIds] : void 0
+  };
   let memories = lexicalSearch(
     db3,
     query,
@@ -1753,17 +2139,28 @@ function getMemory(db3, params = {}) {
     labels,
     states,
     {
-      workspacePath: workspacePath ?? cwdParam ?? null,
-      artifact: artifact2,
-      repo: repoArg,
-      ref: refArg,
-      strictScope,
-      globalOnly,
-      cwd: cwdParam,
-      asOf: normalizedAsOf,
-      candidateMemoryIds: candidateIds ? [...candidateIds] : void 0
+      ...scopeOptions
     }
   );
+  if (smartEnabled && memories.length < limit && (labels.length > 0 || tags.length > 0 || minImportance > 1)) {
+    if (labels.length > 0 && !droppedSmartFilters.includes("label")) droppedSmartFilters.push("label");
+    if (tags.length > 0 && !droppedSmartFilters.includes("tag")) droppedSmartFilters.push("tag");
+    if (minImportance > 1 && !droppedSmartFilters.includes("min_importance")) droppedSmartFilters.push("min_importance");
+    const expanded = lexicalSearch(
+      db3,
+      query,
+      limit * SCORING_PREFETCH_FACTOR,
+      1,
+      [],
+      [],
+      states,
+      scopeOptions
+    );
+    const byId = new Map(memories.map((memory) => [memory.memory_id, memory]));
+    for (const memory of expanded) byId.set(memory.memory_id, memory);
+    memories = [...byId.values()];
+    smartExpanded = true;
+  }
   attachMemoryReferences(db3, memories);
   if (fileRefFilters.length > 0) {
     const normFiles = new Set(fileRefFilters);
@@ -1831,13 +2228,17 @@ function getMemory(db3, params = {}) {
     sort,
     as_of: normalizedAsOf,
     global_only: Boolean(globalOnly),
-    states
+    states,
+    ...smartExpanded ? {
+      smart_expanded: true,
+      smart_dropped_filters: droppedSmartFilters
+    } : {}
   };
   if (query.trim()) {
     const topRelevance = memories[0]?.lexical ?? 0;
     if (memories.length === 0) {
       result.judgment_required = true;
-      result.judgment_reason = "no results \u2014 absence of recall is not proof of absence; retry with --smart or broader terms";
+      result.judgment_reason = smartEnabled ? "no results after smart widening \u2014 absence of recall is not proof of absence; broaden the query terms or scope" : "no results \u2014 absence of recall is not proof of absence; retry with --smart or broader terms";
     } else if (mode === "fallback") {
       result.judgment_required = true;
       result.judgment_reason = "FTS unavailable \u2014 results are unranked substring matches; verify relevance before relying on them";
@@ -2173,7 +2574,7 @@ import { resolve as resolve4 } from "node:path";
 
 // src/audit.ts
 import { randomUUID as randomUUID2 } from "node:crypto";
-import { createHash } from "node:crypto";
+import { createHash as createHash2 } from "node:crypto";
 
 // src/sql/audit.ts
 var EDIT_LOG_INSERT = `
@@ -2466,20 +2867,58 @@ function insertRefinement(db3, params) {
     files = [],
     cwd
   } = params;
+  if (state === "done") {
+    throw new Error("terminal refinement creation is not allowed; create open/ongoing, then close it with an actor and check receipt");
+  }
   const refinementId = "ref_" + randomUUID3().replace(/-/g, "");
   const now = utcNow();
   const scope = fillScope(
     { workspace_path: workspacePath ?? null, artifact: normalizeArtifact(artifact2), repo: repoArg ?? null, ref: refArg ?? null },
     cwd ?? process.cwd()
   );
-  db3.prepare(REFINEMENTS_INSERT).run(
-    refinementId,
-    agentId2,
-    scope.workspace_path ?? process.cwd(),
+  const workspace2 = scope.workspace_path ?? process.cwd();
+  const normalizedFiles = [...new Set(files)];
+  const existing = db3.prepare(`SELECT * FROM refinements
+    WHERE workspace_path IS ? AND artifact IS ? AND repo IS ? AND ref IS ?
+      AND quality = ? AND remember = ? AND files_json = ?
+      AND state IN ('open', 'ongoing')
+    ORDER BY updated_at DESC LIMIT 1`).get(
+    workspace2,
     scope.artifact,
     scope.repo ?? null,
     scope.ref ?? null,
-    JSON.stringify(files),
+    quality,
+    remember,
+    JSON.stringify(normalizedFiles)
+  );
+  if (existing) {
+    return {
+      refinementId: existing.refinement_id,
+      refinement: {
+        refinement_id: existing.refinement_id,
+        agent_id: existing.agent_id,
+        workspace_path: existing.workspace_path,
+        artifact: existing.artifact ?? null,
+        repo: existing.repo,
+        ref: existing.ref,
+        files: parseJsonList(existing.files_json),
+        reasoning: existing.reasoning,
+        remember: existing.remember,
+        quality: existing.quality,
+        state: existing.state,
+        created_at: existing.created_at,
+        updated_at: existing.updated_at
+      }
+    };
+  }
+  db3.prepare(REFINEMENTS_INSERT).run(
+    refinementId,
+    agentId2,
+    workspace2,
+    scope.artifact,
+    scope.repo ?? null,
+    scope.ref ?? null,
+    JSON.stringify(normalizedFiles),
     reasoning,
     remember,
     quality,
@@ -2492,11 +2931,11 @@ function insertRefinement(db3, params) {
     refinement: {
       refinement_id: refinementId,
       agent_id: agentId2,
-      workspace_path: scope.workspace_path ?? process.cwd(),
+      workspace_path: workspace2,
       artifact: scope.artifact,
       repo: scope.repo,
       ref: scope.ref,
-      files,
+      files: normalizedFiles,
       reasoning,
       remember,
       quality,
@@ -2605,7 +3044,21 @@ function getRefinements(db3, params = {}) {
   };
 }
 function updateRefinement(db3, params) {
-  const { refinementId, state, quality, reasoning, remember, files } = params;
+  const { refinementId, state, quality, reasoning, remember, files, actorAgentId, checkReceipt } = params;
+  const existing = db3.prepare("SELECT * FROM refinements WHERE refinement_id = ?").get(refinementId);
+  if (!existing) return { updated: false, refinement: null };
+  let effectiveReasoning = reasoning;
+  if (state === "done") {
+    const actor = actorAgentId?.trim() ?? "";
+    const receipt = checkReceipt?.trim() ?? "";
+    if (!actor || !receipt) {
+      throw new Error("terminal refinement closure requires a non-empty actor and check receipt");
+    }
+    const baseReasoning = reasoning ?? existing.reasoning;
+    effectiveReasoning = `${baseReasoning}
+
+Closure receipt (${utcNow()}) by ${actor}: ${receipt}`;
+  }
   const sets = [];
   const binds = [];
   if (state !== void 0) {
@@ -2616,9 +3069,9 @@ function updateRefinement(db3, params) {
     sets.push("quality = ?");
     binds.push(quality);
   }
-  if (reasoning !== void 0) {
+  if (effectiveReasoning !== void 0) {
     sets.push("reasoning = ?");
-    binds.push(reasoning);
+    binds.push(effectiveReasoning);
   }
   if (remember !== void 0) {
     sets.push("remember = ?");
@@ -2631,10 +3084,9 @@ function updateRefinement(db3, params) {
   if (sets.length === 0) throw new Error("updateRefinement: no fields to update");
   sets.push("updated_at = ?");
   binds.push(utcNow());
-  const r = db3.prepare(
+  db3.prepare(
     `UPDATE refinements SET ${sets.join(", ")} WHERE refinement_id = ?`
   ).run(...binds, refinementId);
-  if (r.changes === 0) return { updated: false, refinement: null };
   const row = db3.prepare("SELECT * FROM refinements WHERE refinement_id = ?").get(refinementId);
   return {
     updated: true,
@@ -2687,12 +3139,81 @@ function deleteRefinement(db3, params) {
 }
 
 // src/intents.ts
-import { randomUUID as randomUUID5 } from "node:crypto";
 import { isAbsolute as isAbsolute2, resolve as resolve6 } from "node:path";
 
 // src/work.ts
-import { randomUUID as randomUUID4 } from "node:crypto";
+import { randomUUID as randomUUID5 } from "node:crypto";
 import { isAbsolute, resolve as resolve5 } from "node:path";
+
+// src/sessions.ts
+import { randomUUID as randomUUID4 } from "node:crypto";
+
+// src/sql/sessions.ts
+var SESSIONS_INSERT = `INSERT INTO sessions (session_id, agent_id, workspace_path, artifact, repo, ref, started_at)
+   VALUES (?, ?, ?, ?, ?, ?, ?)`;
+var SESSIONS_SELECT_BY_ID = `SELECT session_id, agent_id, workspace_path, artifact, repo, ref, started_at, ended_at, summary
+   FROM sessions WHERE session_id = ?`;
+
+// src/sessions.ts
+function scopedWorkspacePath(workspacePath) {
+  return workspacePath ? normalizeWorkspacePath(workspacePath, workspacePath) : null;
+}
+function ensureRunSession(db3, params) {
+  const sessionId2 = params.sessionId.trim();
+  if (!sessionId2) throw new Error("session id is required");
+  const workspacePath = scopedWorkspacePath(params.workspacePath);
+  const artifact2 = normalizeArtifact(params.artifact);
+  const existing = getSession(db3, sessionId2);
+  if (existing) {
+    if (existing.agent_id !== params.agentId) {
+      throw new Error(`session ${sessionId2} belongs to agent ${existing.agent_id}`);
+    }
+    if (existing.workspace_path !== workspacePath) {
+      throw new Error(`session ${sessionId2} belongs to workspace ${existing.workspace_path ?? "(none)"}`);
+    }
+    if (existing.artifact !== artifact2) {
+      throw new Error(`session ${sessionId2} belongs to artifact ${existing.artifact ?? "(none)"}`);
+    }
+    if (existing.ended_at != null) {
+      throw new Error(`session ${sessionId2} has already ended`);
+    }
+    return existing;
+  }
+  const now = utcNow();
+  db3.prepare(SESSIONS_INSERT).run(
+    sessionId2,
+    params.agentId,
+    workspacePath,
+    artifact2,
+    null,
+    null,
+    now
+  );
+  return getSession(db3, sessionId2);
+}
+function endSession(db3, params) {
+  const now = utcNow();
+  const where = ["session_id = ?", "agent_id = ?", "ended_at IS NULL"];
+  const binds = [params.sessionId, params.agentId];
+  if (params.workspacePath !== void 0) {
+    where.push("workspace_path IS ?");
+    binds.push(scopedWorkspacePath(params.workspacePath));
+  }
+  if (params.artifact !== void 0) {
+    where.push("artifact IS ?");
+    binds.push(normalizeArtifact(params.artifact));
+  }
+  const result = db3.prepare(
+    `UPDATE sessions SET ended_at = ?, summary = ? WHERE ${where.join(" AND ")} RETURNING *`
+  ).get(now, params.summary ?? null, ...binds);
+  return result ?? null;
+}
+function getSession(db3, sessionId2) {
+  const row = db3.prepare(SESSIONS_SELECT_BY_ID).get(sessionId2);
+  return row ?? null;
+}
+
+// src/work.ts
 var DEFAULT_PRESENCE_TTL_MS = 10 * 6e4;
 var MAX_PRESENCE_TTL_MS = 60 * 6e4;
 var PEER_DETAIL_LIMIT = 5;
@@ -2783,7 +3304,7 @@ function startWork(db3, params) {
   const expiresAt = expiry(params.ttlMs);
   const requestedOrigin = params.origin ?? "WORK";
   const source = params.source ?? (requestedOrigin === "HOOK" ? "HOOK" : "EXPLICIT");
-  const fileBasePath = params.workspacePath ?? process.cwd();
+  let fileBasePath = params.workspacePath ?? process.cwd();
   let wsPath = workspaceRoot(params.workspacePath);
   let artifact2 = normalizeArtifact(params.artifact);
   let runId = params.runId ?? null;
@@ -2793,7 +3314,7 @@ function startWork(db3, params) {
   }
   db3.exec("BEGIN IMMEDIATE");
   try {
-    runId ??= `run_${randomUUID4().replace(/-/g, "")}`;
+    runId ??= `run_${randomUUID5().replace(/-/g, "")}`;
     let run = db3.prepare("SELECT * FROM task_runs WHERE run_id = ?").get(runId);
     if (run) {
       if (run.agent_id !== agentId2) throw new Error(`run ${runId} belongs to ${run.agent_id}`);
@@ -2808,11 +3329,27 @@ function startWork(db3, params) {
       }
       wsPath = runWorkspace;
       artifact2 = runArtifact;
+      fileBasePath = runWorkspace;
+      if (params.sessionId != null) {
+        if (params.sessionId !== run.session_id) {
+          throw new Error(`run ${runId} belongs to session ${run.session_id ?? "(none)"}`);
+        }
+        ensureRunSession(db3, {
+          sessionId: params.sessionId,
+          agentId: agentId2,
+          workspacePath: runWorkspace,
+          artifact: runArtifact
+        });
+      }
     } else {
       if (params.runId) throw new Error(`run not found: ${params.runId}`);
       if (params.sessionId) {
-        db3.prepare(`INSERT OR IGNORE INTO sessions
-          (session_id, agent_id, workspace_path, artifact, started_at) VALUES (?, ?, ?, ?, ?)`).run(params.sessionId, agentId2, wsPath, artifact2, now);
+        ensureRunSession(db3, {
+          sessionId: params.sessionId,
+          agentId: agentId2,
+          workspacePath: wsPath,
+          artifact: artifact2
+        });
       }
       db3.prepare(`INSERT INTO task_runs
         (run_id, task_id, origin, agent_id, session_id, rationale, test_plan, context_ref,
@@ -2853,7 +3390,7 @@ function startWork(db3, params) {
       if (params.exclusive) {
         db3.prepare(`INSERT INTO locks(lock_id, file_path, run_id, acquired_at, expires_at)
           VALUES (?, ?, ?, ?, ?)
-          ON CONFLICT(file_path, run_id) DO UPDATE SET expires_at = excluded.expires_at`).run(`lock_${randomUUID4().replace(/-/g, "")}`, file, runId, now, expiresAt);
+          ON CONFLICT(file_path, run_id) DO UPDATE SET expires_at = excluded.expires_at`).run(`lock_${randomUUID5().replace(/-/g, "")}`, file, runId, now, expiresAt);
       }
     }
     db3.prepare("UPDATE task_runs SET updated_at = ? WHERE run_id = ?").run(now, runId);
@@ -3112,16 +3649,14 @@ function releaseFileLock(db3, params) {
     artifact: artifact2 = null,
     runId = null,
     targetFiles = [],
-    status: statusArg = "SUCCESS",
-    verified = false,
-    verifiedNote
+    status: statusArg = "SUCCESS"
   } = params;
   if (!VALID_RELEASE_STATUSES.has(String(statusArg))) {
     throw new Error(`releaseFileLock status must be ACTIVE, PENDING, SUCCESS, or FAILED; got "${statusArg}"`);
   }
   const requestedStatus = String(statusArg);
-  const requestedSuccessWithoutVerification = requestedStatus === "SUCCESS" && !verified;
-  const effectiveStatus = requestedSuccessWithoutVerification ? "PENDING" : requestedStatus;
+  const requestedDirectSuccess = requestedStatus === "SUCCESS";
+  const effectiveStatus = requestedDirectSuccess ? "PENDING" : requestedStatus;
   const now = utcNow();
   const whereClauses = ["ai.run_id = fl.run_id", "ai.agent_id = ?"];
   const whereParams = [agentId2];
@@ -3222,15 +3757,6 @@ function releaseFileLock(db3, params) {
            WHERE run_id = ? AND agent_id = ? AND status IN ('ACTIVE','PENDING')`
         ).run(effectiveStatus, now, tid, agentId2);
         updatedRuns += updated.changes;
-        if (updated.changes > 0 && verified && verifiedNote) {
-          try {
-            db3.prepare(
-              `INSERT INTO run_log(event_id, run_id, agent_id, event_type, message, created_at)
-               VALUES (?, ?, ?, 'VERIFIED', ?, ?)`
-            ).run("evt_" + randomUUID5().replace(/-/g, ""), tid, agentId2, verifiedNote, now);
-          } catch {
-          }
-        }
       }
     }
     db3.exec("COMMIT");
@@ -3248,7 +3774,7 @@ function releaseFileLock(db3, params) {
     locks_released: locks.length,
     run_ids: runIds,
     updated_at: now,
-    ...requestedSuccessWithoutVerification ? { unverifiedConclusion: "SUCCESS requested without --verified; stored as PENDING until verify records the test result." } : {}
+    ...requestedDirectSuccess ? { unverifiedConclusion: "Direct SUCCESS on lock release is not allowed; stored as PENDING until verify mark records an evidence receipt." } : {}
   };
 }
 
@@ -3596,19 +4122,47 @@ function createTask(db3, params) {
 }
 function addTaskDependency(db3, params) {
   if (params.taskId === params.dependsOnTaskId) throw new Error("a task cannot depend on itself");
-  const rows = db3.prepare("SELECT task_id, plan_id FROM tasks WHERE task_id IN (?, ?)").all(params.taskId, params.dependsOnTaskId);
-  if (rows.length !== 2) throw new Error("both dependency tasks must exist");
-  if (rows[0].plan_id !== rows[1].plan_id) throw new Error("task dependencies must stay within one plan");
-  const cycle = db3.prepare(`WITH RECURSIVE chain(task_id) AS (
-      SELECT depends_on_task_id FROM task_dependencies WHERE task_id = ?
-      UNION
-      SELECT td.depends_on_task_id FROM task_dependencies td JOIN chain c ON td.task_id = c.task_id
-    ) SELECT 1 FROM chain WHERE task_id = ? LIMIT 1`).get(params.dependsOnTaskId, params.taskId);
-  if (cycle) throw new Error("task dependency would create a cycle");
-  const now = utcNow();
-  db3.prepare(`INSERT OR IGNORE INTO task_dependencies
-    (task_id, depends_on_task_id, created_by, created_at) VALUES (?, ?, ?, ?)`).run(params.taskId, params.dependsOnTaskId, params.agentId, now);
-  event(db3, params.taskId, null, params.agentId, "DEPENDENCY_ADDED", params.dependsOnTaskId, now);
+  const ownsTransaction = !db3.isTransaction;
+  if (ownsTransaction) db3.exec("BEGIN IMMEDIATE");
+  try {
+    const rows = db3.prepare(`SELECT t.task_id, t.plan_id, t.status, p.status AS plan_status
+      FROM tasks t JOIN plans p ON p.plan_id = t.plan_id
+      WHERE t.task_id IN (?, ?)`).all(params.taskId, params.dependsOnTaskId);
+    if (rows.length !== 2) throw new Error("both dependency tasks must exist");
+    if (rows[0].plan_id !== rows[1].plan_id) throw new Error("task dependencies must stay within one plan");
+    const task = rows.find((row) => row.task_id === params.taskId);
+    const dependency = rows.find((row) => row.task_id === params.dependsOnTaskId);
+    if (["COMPLETED", "CANCELLED"].includes(task.plan_status)) {
+      throw new Error(`cannot change dependencies in ${task.plan_status.toLowerCase()} plan ${task.plan_id}`);
+    }
+    if (!["OPEN", "BLOCKED"].includes(task.status)) {
+      throw new Error(`cannot change dependencies for task ${params.taskId} with status ${task.status}`);
+    }
+    if (dependency.status === "CANCELLED") {
+      throw new Error(`cannot depend on cancelled task ${params.dependsOnTaskId}`);
+    }
+    const cycle = db3.prepare(`WITH RECURSIVE chain(task_id) AS (
+        SELECT depends_on_task_id FROM task_dependencies WHERE task_id = ?
+        UNION
+        SELECT td.depends_on_task_id FROM task_dependencies td JOIN chain c ON td.task_id = c.task_id
+      ) SELECT 1 FROM chain WHERE task_id = ? LIMIT 1`).get(params.dependsOnTaskId, params.taskId);
+    if (cycle) throw new Error("task dependency would create a cycle");
+    const now = utcNow();
+    const inserted = db3.prepare(`INSERT OR IGNORE INTO task_dependencies
+      (task_id, depends_on_task_id, created_by, created_at) VALUES (?, ?, ?, ?)`).run(params.taskId, params.dependsOnTaskId, params.agentId, now);
+    if (inserted.changes > 0) {
+      event(db3, params.taskId, null, params.agentId, "DEPENDENCY_ADDED", params.dependsOnTaskId, now);
+    }
+    if (ownsTransaction) db3.exec("COMMIT");
+  } catch (error) {
+    if (ownsTransaction) {
+      try {
+        db3.exec("ROLLBACK");
+      } catch {
+      }
+    }
+    throw error;
+  }
 }
 function listTasks(db3, params = {}) {
   evictExpiredTaskClaims(db3);
@@ -3724,8 +4278,12 @@ function claimTask(db3, params) {
     const acceptanceCriteria = String(row["acceptance_criteria"]);
     const planId = String(row["plan_id"]);
     if (params.sessionId) {
-      db3.prepare(`INSERT OR IGNORE INTO sessions(session_id, agent_id, workspace_path, artifact, started_at)
-        VALUES (?, ?, ?, ?, ?)`).run(params.sessionId, agentId2, workspacePath, artifact2, now);
+      ensureRunSession(db3, {
+        sessionId: params.sessionId,
+        agentId: agentId2,
+        workspacePath,
+        artifact: artifact2
+      });
     }
     db3.prepare(`INSERT INTO task_runs
       (run_id, task_id, origin, agent_id, session_id, rationale, test_plan, status, workspace_path, artifact, created_at, updated_at)
@@ -3863,6 +4421,7 @@ function reflect(db3, params) {
     judgmentNote,
     duo = false,
     evalFailures = [],
+    allowSimilar = false,
     references = [],
     file,
     files = [],
@@ -3902,13 +4461,14 @@ function reflect(db3, params) {
     { workspace_path: workspacePath ?? null, artifact: normalizeArtifact(artifact2), repo: repoArg ?? null, ref: refArg ?? null },
     cwd ?? process.cwd()
   );
+  const pathBase = cwd ?? scope.workspace_path ?? workspacePath ?? process.cwd();
   const scopeReferences = [
     ...references,
-    ...normalizeScopePaths(file ? [file] : [], "file", cwd),
-    ...normalizeScopePaths(files, "file", cwd),
-    ...normalizeScopePaths(folders, "dir", cwd)
+    ...normalizeScopePaths(file ? [file] : [], "file", pathBase),
+    ...normalizeScopePaths(files, "file", pathBase),
+    ...normalizeScopePaths(folders, "dir", pathBase)
   ];
-  const { memoryId, similarMemoryIds, noveltyScore } = insertMemory(db3, {
+  const guardedSummary = insertMemoryWithSimilarityGate(db3, {
     agentId: agentId2,
     taskContext: task,
     observation,
@@ -3925,7 +4485,11 @@ function reflect(db3, params) {
     repo: scope.repo,
     ref: scope.ref,
     cwd
-  });
+  }, allowSimilar);
+  const summaryInsert = guardedSummary.skipped ? null : guardedSummary.result;
+  const memoryId = summaryInsert?.memoryId ?? guardedSummary.similar[0].memory_id;
+  const similarMemoryIds = guardedSummary.similar.map((memory) => memory.memory_id);
+  const noveltyScore = summaryInsert?.noveltyScore ?? Math.max(0, 1 - (guardedSummary.similar[0]?.similarity ?? 1));
   const evalFailureIds = [];
   for (const failure of evalFailures) {
     if (!failure || typeof failure.id !== "string" || !failure.id.trim()) continue;
@@ -3959,7 +4523,7 @@ function reflect(db3, params) {
       artifact: scope.artifact,
       repo: scope.repo,
       ref: scope.ref,
-      files: [...normalizeScopePaths(files, "file", cwd), ...normalizeScopePaths(folders, "dir", cwd)],
+      files: [...normalizeScopePaths(files, "file", pathBase), ...normalizeScopePaths(folders, "dir", pathBase)],
       cwd
     });
     refinementId = rid;
@@ -3976,7 +4540,7 @@ function reflect(db3, params) {
       artifact: scope.artifact,
       repo: scope.repo,
       ref: scope.ref,
-      files: [...normalizeScopePaths(files, "file", cwd), ...normalizeScopePaths(folders, "dir", cwd)],
+      files: [...normalizeScopePaths(files, "file", pathBase), ...normalizeScopePaths(folders, "dir", pathBase)],
       cwd
     });
     developerReviewRefinementId = rid;
@@ -3991,6 +4555,7 @@ function reflect(db3, params) {
       payload: {
         outcome: resolvedOutcome,
         novelty_score: noveltyScore,
+        memory_skipped: guardedSummary.skipped,
         harness_fix: Boolean(fixHarness),
         instructions_feedback: Boolean(fixInstructions),
         refinement_id: refinementId,
@@ -4005,6 +4570,7 @@ function reflect(db3, params) {
   const result = {
     outcome: resolvedOutcome,
     learning_memory_id: memoryId,
+    ...guardedSummary.skipped ? { learning_memory_skipped: true } : {},
     repo_fix_refinement_id: refinementId,
     harness_fix: Boolean(fixHarness),
     instructions_feedback: Boolean(fixInstructions),
@@ -4035,7 +4601,8 @@ function reflect(db3, params) {
 
 // src/maintenance.ts
 import { spawnSync as spawnSync3 } from "node:child_process";
-import { createHash as createHash2, randomUUID as randomUUID9 } from "node:crypto";
+import { createHash as createHash3, randomUUID as randomUUID9 } from "node:crypto";
+import { existsSync as existsSync3 } from "node:fs";
 import { isAbsolute as isAbsolute5, resolve as resolve10 } from "node:path";
 
 // src/notifications.ts
@@ -4054,9 +4621,6 @@ var RUN_LOG_INSERT_ABANDONED = `INSERT INTO run_log(event_id, run_id, agent_id, 
 var RUN_LOG_INSERT_STALE_ABANDONED = `INSERT INTO run_log(event_id, run_id, agent_id, event_type, message, created_at)
    VALUES (?, ?, ?, 'ABANDONED', 'stale active (no live file presence) abandoned by audit-unverified --abandon', ?)`;
 
-// src/sql/sessions.ts
-var SESSIONS_UPDATE_END = `UPDATE sessions SET ended_at = ?, summary = ? WHERE session_id = ? RETURNING *`;
-
 // src/sql/signals.ts
 var SIGNALS_SELECT_THREAD_ID = "SELECT thread_id FROM signals WHERE signal_id = ?";
 var SIGNALS_INSERT = `INSERT INTO signals
@@ -4067,7 +4631,6 @@ var SIGNALS_SELECT_BASE = "SELECT n.* FROM signals n";
 var SIGNALS_SELECT_LEFT_JOIN_READS = "LEFT JOIN signal_reads nr ON nr.signal_id = n.signal_id AND nr.agent_id = ?";
 var SIGNALS_SELECT_ORDER_LIMIT = "ORDER BY n.created_at DESC LIMIT ?";
 var SIGNALS_DELETE_BY_IDS = (ph) => `DELETE FROM signals WHERE signal_id IN (${ph})`;
-var SIGNALS_SELECT_IDS_FOR_PRUNE = "SELECT signal_id FROM signals WHERE";
 var SIGNAL_READS_INSERT_IGNORE = "INSERT OR IGNORE INTO signal_reads(signal_id, agent_id, read_at) VALUES (?, ?, ?)";
 var SIGNAL_READS_DELETE_BY_SIGNAL_IDS = (ph) => `DELETE FROM signal_reads WHERE signal_id IN (${ph})`;
 
@@ -4139,6 +4702,9 @@ function insertNotification(db3, params) {
     if (!parent) {
       throw new Error(`insertNotification: parent signal ${inReplyTo} not found (deleted?). Omit inReplyTo to start a new thread.`);
     }
+    if (!canReadOrJoinThread(db3, parent.thread_id, agentId2)) {
+      throw new Error(`insertNotification: agent ${agentId2} is not a participant in thread ${parent.thread_id}`);
+    }
     threadId = parent.thread_id;
   } else {
     threadId = signalId;
@@ -4182,6 +4748,42 @@ function appendSignalScope(where, binds, scope, alias = "n") {
     binds.push(scope.ref);
   }
 }
+function isBroadcastThread(db3, threadId) {
+  return db3.prepare(`SELECT 1 FROM signals
+    WHERE thread_id = ? AND reply_to IS NULL AND to_agent IS NULL
+    LIMIT 1`).get(threadId) != null;
+}
+function isThreadParticipant(db3, threadId, agentId2) {
+  const addressed = db3.prepare(`SELECT 1 FROM signals
+    WHERE thread_id = ? AND (from_agent = ? OR to_agent = ?)
+    LIMIT 1`).get(threadId, agentId2, agentId2) != null;
+  if (addressed) return true;
+  if (!isBroadcastThread(db3, threadId)) return false;
+  return db3.prepare(`SELECT 1 FROM signal_reads read
+    JOIN signals signal ON signal.signal_id = read.signal_id
+    WHERE signal.thread_id = ? AND read.agent_id = ?
+    LIMIT 1`).get(threadId, agentId2) != null;
+}
+function canReadOrJoinThread(db3, threadId, agentId2) {
+  return isBroadcastThread(db3, threadId) || isThreadParticipant(db3, threadId, agentId2);
+}
+function inferReplyTargets(db3, inReplyTo, agentId2) {
+  const parent = db3.prepare("SELECT thread_id FROM signals WHERE signal_id = ?").get(inReplyTo);
+  if (!parent) {
+    throw new Error(`insertNotification: parent signal ${inReplyTo} not found (deleted?). Omit inReplyTo to start a new thread.`);
+  }
+  const rows = db3.prepare("SELECT from_agent, to_agent FROM signals WHERE thread_id = ?").all(parent.thread_id);
+  const participants = /* @__PURE__ */ new Set();
+  for (const row of rows) {
+    participants.add(row.from_agent);
+    if (row.to_agent) participants.add(row.to_agent);
+  }
+  participants.delete(agentId2);
+  if (participants.size === 0) {
+    throw new Error("agent_signal reply has no inferred recipient; pass --to-agent");
+  }
+  return [...participants].sort();
+}
 function getNotifications(db3, params) {
   const {
     agentId: agentId2,
@@ -4197,6 +4799,9 @@ function getNotifications(db3, params) {
     { workspace_path: params.workspacePath ?? null, artifact: normalizeArtifact(params.artifact), repo: params.repo ?? null, ref: params.ref ?? null },
     cwd ?? process.cwd()
   );
+  if (threadId && !canReadOrJoinThread(db3, threadId, agentId2)) {
+    return { count: 0, signals: [], unread_only: unreadOnly };
+  }
   const where = [];
   const binds = [];
   appendSignalScope(where, binds, scope);
@@ -4261,8 +4866,13 @@ function resolveNotification(db3, params) {
     const binds = [...notificationIds];
     appendSignalScope(where, binds, scope, "");
     if (agentId2) {
-      where.push("(from_agent = ? OR to_agent = ? OR to_agent IS NULL)");
-      binds.push(agentId2, agentId2);
+      const authorizedIds = notificationIds.filter((signalId) => {
+        const row = db3.prepare("SELECT thread_id FROM signals WHERE signal_id = ?").get(signalId);
+        return row ? isThreadParticipant(db3, row.thread_id, agentId2) : false;
+      });
+      if (authorizedIds.length === 0) return { resolved: 0, signal_ids: [] };
+      where.push(`signal_id IN (${authorizedIds.map(() => "?").join(",")})`);
+      binds.push(...authorizedIds);
     }
     const rows = db3.prepare(
       `UPDATE signals SET status = 'resolved', resolved_at = ? WHERE ${where.join(" AND ")} RETURNING signal_id`
@@ -4270,13 +4880,12 @@ function resolveNotification(db3, params) {
     resolved.push(...rows.map((r) => r.signal_id));
   }
   if (threadId) {
+    if (agentId2 && !isThreadParticipant(db3, threadId, agentId2)) {
+      return { resolved: resolved.length, signal_ids: [...new Set(resolved)] };
+    }
     const where = ["thread_id = ?", "status = 'open'"];
     const binds = [threadId];
     appendSignalScope(where, binds, scope, "");
-    if (agentId2) {
-      where.push("(from_agent = ? OR to_agent = ? OR to_agent IS NULL)");
-      binds.push(agentId2, agentId2);
-    }
     const rows = db3.prepare(
       `UPDATE signals SET status = 'resolved', resolved_at = ? WHERE ${where.join(" AND ")} RETURNING signal_id`
     ).all(now, ...binds);
@@ -4328,7 +4937,7 @@ function agentSignal(db3, params) {
   switch (params.action) {
     case "publish":
     case "reply": {
-      const toAgents = params.toAgents?.length ? params.toAgents : [null];
+      const toAgents = params.toAgents?.length ? params.toAgents : params.action === "reply" ? inferReplyTargets(db3, requireSignalText(params.inReplyTo, "inReplyTo"), params.agentId) : [null];
       const results = toAgents.map((toAgent) => insertNotification(db3, {
         agentId: params.agentId,
         workspacePath: params.workspacePath,
@@ -4400,36 +5009,26 @@ function agentSignal(db3, params) {
   }
 }
 function pruneNotifications(db3, params) {
-  const { notificationIds = [], resolvedOnly = false, olderThanDays, dryRun = false, cwd } = params;
+  const { agentId: agentId2, notificationIds = [], resolvedOnly = false, olderThanDays, dryRun = false, cwd } = params;
+  if (!resolvedOnly) throw new Error("signal prune only deletes resolved messages");
+  if (olderThanDays == null || !Number.isFinite(olderThanDays) || olderThanDays < 1) {
+    throw new Error("signal prune requires --older-than-days >= 1");
+  }
   const scope = fillScope(
     { workspace_path: params.workspacePath ?? null, artifact: normalizeArtifact(params.artifact), repo: null, ref: null },
     cwd ?? process.cwd()
   );
-  const where = [];
+  const where = ["status = 'resolved'", "created_at < ?"];
   const binds = [];
+  binds.push(new Date(Date.now() - Math.floor(olderThanDays) * 864e5).toISOString());
   if (notificationIds.length > 0) {
     where.push(`signal_id IN (${notificationIds.map(() => "?").join(",")})`);
     binds.push(...notificationIds);
   }
-  if (resolvedOnly) {
-    where.push("status = 'resolved'");
-  }
-  if (olderThanDays != null) {
-    const cutoff = new Date(Date.now() - olderThanDays * 864e5).toISOString();
-    where.push("created_at < ?");
-    binds.push(cutoff);
-  }
-  if (notificationIds.length === 0) {
-    appendSignalScope(where, binds, scope, "");
-  }
-  if (where.length === 0) {
-    return { deleted: 0, signal_ids: [] };
-  }
+  appendSignalScope(where, binds, scope, "");
   const whereClause = where.join(" AND ");
-  const rows = db3.prepare(
-    `${SIGNALS_SELECT_IDS_FOR_PRUNE} ${whereClause}`
-  ).all(...binds);
-  const ids = rows.map((r) => r.signal_id);
+  const rows = db3.prepare(`SELECT signal_id, thread_id FROM signals WHERE ${whereClause}`).all(...binds);
+  const ids = rows.filter((row) => isThreadParticipant(db3, row.thread_id, agentId2)).map((row) => row.signal_id);
   if (dryRun) {
     return { deleted: 0, dry_run: true, would_delete: ids.length, signal_ids: ids };
   }
@@ -4728,7 +5327,7 @@ function notifyGet(db3, params = {}) {
       normalizedScope.repo,
       normalizedScope.ref
     ]);
-    const fingerprint = createHash2("sha256").update(additionalContext).digest("hex");
+    const fingerprint = createHash3("sha256").update(additionalContext).digest("hex");
     const delivery = { consumerId: agentId2, channel: "briefing", scopeKey };
     if (getDeliveryFingerprint(db3, delivery) === fingerprint) {
       return { ok: true, count: 0, notifications: [] };
@@ -4985,10 +5584,77 @@ function waitForLock(db3, params = {}) {
     conflicts: conflicts.map((c) => ({ file_path: c.file_path, agent_id: c.agent_id, expires_at: c.expires_at }))
   };
 }
+function inspectMaintenancePressure(db3, params = {}) {
+  const requestedDays = Number(params.pressure_age_days ?? params.pressureAgeDays ?? 1);
+  const pressureAgeDays = Number.isFinite(requestedDays) ? Math.min(3650, Math.max(1, Math.floor(requestedDays))) : 1;
+  const cutoff = new Date(Date.now() - pressureAgeDays * 864e5).toISOString();
+  const rawWorkspacePath = typeof params.workspace === "string" ? params.workspace : typeof params.workspace_path === "string" ? params.workspace_path : typeof params.workspacePath === "string" ? params.workspacePath : null;
+  const workspacePath = rawWorkspacePath ? params.workspace_normalized === true ? resolve10(rawWorkspacePath) : normalizeWorkspacePath(rawWorkspacePath, rawWorkspacePath) : null;
+  const artifact2 = normalizeArtifact(params.artifact);
+  const scope = [];
+  const scopeBinds = [];
+  if (workspacePath) {
+    scope.push("workspace_path = ?");
+    scopeBinds.push(workspacePath);
+  }
+  if (artifact2) {
+    scope.push("artifact = ?");
+    scopeBinds.push(artifact2);
+  }
+  const scopeSql = scope.length > 0 ? ` AND ${scope.join(" AND ")}` : "";
+  const pendingCount = db3.prepare(
+    `SELECT COUNT(*) AS count FROM task_runs
+      WHERE status = 'PENDING' AND updated_at < ?${scopeSql}`
+  ).get(cutoff, ...scopeBinds).count;
+  const pendingRows = db3.prepare(
+    `SELECT run_id FROM task_runs
+      WHERE status = 'PENDING' AND updated_at < ?${scopeSql}
+      ORDER BY datetime(updated_at), run_id LIMIT 3`
+  ).all(cutoff, ...scopeBinds);
+  const signalCount = db3.prepare(
+    `SELECT COUNT(*) AS count FROM signals
+      WHERE status = 'open' AND created_at < ?${scopeSql}`
+  ).get(cutoff, ...scopeBinds).count;
+  const signalRows2 = db3.prepare(
+    `SELECT signal_id FROM signals
+      WHERE status = 'open' AND created_at < ?${scopeSql}
+      ORDER BY datetime(created_at), signal_id LIMIT 3`
+  ).all(cutoff, ...scopeBinds);
+  const referenceRows = db3.prepare(
+    `SELECT m.memory_id, r.reference
+       FROM memories m
+       JOIN memory_refs r ON r.memory_id = m.memory_id
+      WHERE m.state = 'ACTIVE'
+        AND r.reference LIKE 'file:%'
+        AND COALESCE(m.updated_at, m.created_at) < ?
+        ${scopeSql.replaceAll("workspace_path", "m.workspace_path").replaceAll("artifact", "m.artifact")}
+      ORDER BY datetime(COALESCE(m.updated_at, m.created_at)), m.memory_id
+      LIMIT 1000`
+  ).all(cutoff, ...scopeBinds);
+  const staleMemoryIds = /* @__PURE__ */ new Set();
+  for (const row of referenceRows) {
+    const raw = row.reference.slice("file:".length).replace(/(?::\d+(?::\d+)?|#L\d+(?:-L?\d+)?)$/, "");
+    const path2 = isAbsolute5(raw) ? raw : resolve10(workspacePath ?? process.cwd(), raw);
+    if (!existsSync3(path2)) staleMemoryIds.add(row.memory_id);
+  }
+  return {
+    pressure_age_days: pressureAgeDays,
+    cutoff,
+    stale_pending_runs: pendingCount,
+    stale_open_signals: signalCount,
+    stale_missing_refs: staleMemoryIds.size,
+    samples: {
+      run_ids: pendingRows.map((row) => row.run_id),
+      signal_ids: signalRows2.map((row) => row.signal_id),
+      memory_ids: [...staleMemoryIds].slice(0, 3)
+    }
+  };
+}
 function digest(db3, params = {}) {
   const retentionDays = Number(params.retention_days ?? 90);
   const handoffRetentionDays = Number(params.refinement_handoff_retention_days ?? params.refinementHandoffRetentionDays ?? 7);
   const doneRetentionDays = Number(params.refinement_done_retention_days ?? params.refinementDoneRetentionDays ?? 30);
+  const operationalRetentionDays = Number(params.operational_retention_days ?? params.operationalRetentionDays ?? 90);
   const rawWorkspacePath = typeof params.workspace === "string" ? params.workspace : typeof params.workspace_path === "string" ? params.workspace_path : typeof params.workspacePath === "string" ? params.workspacePath : null;
   const workspacePath = rawWorkspacePath ? normalizeWorkspacePath(rawWorkspacePath, rawWorkspacePath) : null;
   const artifact2 = normalizeArtifact(params.artifact);
@@ -4996,6 +5662,15 @@ function digest(db3, params = {}) {
   const cutoff = new Date(Date.now() - retentionDays * 864e5).toISOString();
   const handoffCutoff = new Date(Date.now() - handoffRetentionDays * 864e5).toISOString();
   const doneCutoff = new Date(Date.now() - doneRetentionDays * 864e5).toISOString();
+  const operationalCutoff = new Date(Date.now() - operationalRetentionDays * 864e5).toISOString();
+  const pressure = inspectMaintenancePressure(db3, params);
+  const pressureFields = {
+    pressure_age_days: pressure.pressure_age_days,
+    stale_pending_runs: pressure.stale_pending_runs,
+    stale_open_signals: pressure.stale_open_signals,
+    stale_missing_refs: pressure.stale_missing_refs,
+    pressure_samples: pressure.samples
+  };
   const memoryScope = [];
   const memoryScopeBinds = [];
   if (workspacePath) {
@@ -5035,24 +5710,31 @@ function digest(db3, params = {}) {
     const wouldPruneRefinements = db3.prepare(`SELECT COUNT(*) AS c FROM refinements
        WHERE ((quality = 'handoff' AND updated_at < ?)
           OR (quality IN ('good','bad') AND state = 'done' AND updated_at < ?))${refinementScopeSql}`).get(handoffCutoff, doneCutoff, ...refinementScopeBinds).c;
+    const wouldPruneRuns = db3.prepare(`SELECT COUNT(*) AS c FROM task_runs
+      WHERE task_id IS NULL AND origin IN ('WORK','HOOK')
+        AND status IN ('SUCCESS','FAILED') AND updated_at < ?${memoryScopeSql}`).get(operationalCutoff, ...memoryScopeBinds).c;
     return {
       ok: true,
       archived_memories: 0,
       pruned_old: 0,
       pruned_locks: 0,
       pruned_refinements: 0,
+      pruned_runs: 0,
       fts_rebuilt: false,
       dry_run: true,
       would_archive: wouldArchive,
       would_prune_old: wouldPruneOld,
       would_prune_locks: wouldPruneLocks,
-      would_prune_refinements: wouldPruneRefinements
+      would_prune_refinements: wouldPruneRefinements,
+      would_prune_runs: wouldPruneRuns,
+      ...pressureFields
     };
   }
   let archiveRes = { changes: 0 };
   let deleteRes = { changes: 0 };
   let prunedLocks = 0;
   let pruneRefinementsRes = { changes: 0 };
+  let pruneRunsRes = { changes: 0 };
   let ftsRebuilt = false;
   const ownsDigestTransaction = !db3.isTransaction;
   if (ownsDigestTransaction) db3.exec("BEGIN IMMEDIATE");
@@ -5076,6 +5758,9 @@ function digest(db3, params = {}) {
        WHERE ((quality = 'handoff' AND updated_at < ?)
           OR (quality IN ('good','bad') AND state = 'done' AND updated_at < ?))${refinementScopeSql}`
     ).run(handoffCutoff, doneCutoff, ...refinementScopeBinds);
+    pruneRunsRes = db3.prepare(`DELETE FROM task_runs
+      WHERE task_id IS NULL AND origin IN ('WORK','HOOK')
+        AND status IN ('SUCCESS','FAILED') AND updated_at < ?${memoryScopeSql}`).run(operationalCutoff, ...memoryScopeBinds);
     if (hasFts(db3)) {
       rebuildFts(db3);
       ftsRebuilt = true;
@@ -5097,7 +5782,9 @@ function digest(db3, params = {}) {
     pruned_old: deleteRes.changes,
     pruned_locks: prunedLocks,
     pruned_refinements: pruneRefinementsRes.changes,
-    fts_rebuilt: ftsRebuilt
+    pruned_runs: pruneRunsRes.changes,
+    fts_rebuilt: ftsRebuilt,
+    ...pressureFields
   };
 }
 function getWorkspaceStatus(db3, params = {}) {
@@ -5406,6 +6093,31 @@ function auditUnverified(db3, params = {}) {
   const workspacePath = params.workspacePath ? normalizeWorkspacePath(params.workspacePath, params.workspacePath) : null;
   const where = ["status = 'PENDING'"];
   const binds = [];
+  let ageCutoff = null;
+  if (params.olderThanDays != null) {
+    if (!Number.isFinite(params.olderThanDays) || params.olderThanDays < 1) {
+      throw new Error("olderThanDays must be a finite number >= 1");
+    }
+    ageCutoff = new Date(Date.now() - Math.floor(params.olderThanDays) * 864e5).toISOString();
+    where.push("updated_at < ?");
+    binds.push(ageCutoff);
+  }
+  if (params.origins?.length) {
+    const origins = [...new Set(params.origins)];
+    if (origins.some((origin) => !["TASK", "WORK", "HOOK"].includes(origin))) {
+      throw new Error("origins must contain only TASK, WORK, or HOOK");
+    }
+    where.push(`origin IN (${origins.map(() => "?").join(",")})`);
+    binds.push(...origins);
+  }
+  let before = null;
+  if (params.before) {
+    const parsed = new Date(params.before);
+    if (Number.isNaN(parsed.getTime())) throw new Error("before must be a valid ISO timestamp");
+    before = parsed.toISOString();
+    where.push("created_at < ?");
+    binds.push(before);
+  }
   if (params.agentId) {
     where.push("agent_id = ?");
     binds.push(params.agentId);
@@ -5483,6 +6195,19 @@ function auditUnverified(db3, params = {}) {
       staleWhere.push("(ai.artifact = ? OR ai.artifact IS NULL)");
       staleBinds.push(artifact2);
     }
+    if (ageCutoff) {
+      staleWhere.push("ai.updated_at < ?");
+      staleBinds.push(ageCutoff);
+    }
+    if (params.origins?.length) {
+      const origins = [...new Set(params.origins)];
+      staleWhere.push(`ai.origin IN (${origins.map(() => "?").join(",")})`);
+      staleBinds.push(...origins);
+    }
+    if (before) {
+      staleWhere.push("ai.created_at < ?");
+      staleBinds.push(before);
+    }
     const staleRows = db3.prepare(
       `SELECT ai.run_id, ai.agent_id, ai.rationale, ai.context_ref, ai.workspace_path, ai.artifact, ai.created_at
        FROM task_runs ai
@@ -5540,6 +6265,21 @@ function markVerified(db3, params) {
       run_id: runId || null
     };
   }
+  const receipt = message?.trim() ?? "";
+  if (status === "SUCCESS" && !receipt) {
+    return {
+      ok: false,
+      error: "SUCCESS verification requires a non-empty evidence receipt in message",
+      run_id: runId || null
+    };
+  }
+  if (allPending && !workspacePath && !artifact2) {
+    return {
+      ok: false,
+      error: "--all-pending requires --workspace or --artifact; use explicit run ids for cross-workspace verification",
+      run_id: null
+    };
+  }
   if (allPending) {
     const dynWhere = [
       workspacePath ? " AND workspace_path = ?" : "",
@@ -5563,15 +6303,15 @@ function markVerified(db3, params) {
         );
         if (upd.changes === 0) continue;
         closeRunFiles(db3, row.run_id, now2);
-        finishLinkedTask(db3, row.run_id, status, agentId2, now2, message);
+        finishLinkedTask(db3, row.run_id, status, agentId2, now2, receipt || void 0);
         ids.push(row.run_id);
-        if (message) {
+        if (receipt) {
           try {
             db3.prepare(RUN_LOG_INSERT_VERIFIED).run(
               "evt_" + randomUUID10().replace(/-/g, ""),
               row.run_id,
               agentId2,
-              message,
+              receipt,
               now2
             );
           } catch {
@@ -5579,8 +6319,7 @@ function markVerified(db3, params) {
         }
       }
       db3.exec("COMMIT");
-      const warning = !workspacePath && !artifact2 && ids.length > 0 ? `marked ${ids.length} pending run(s) across ALL workspaces for agent "${agentId2}" \u2014 no --workspace/--artifact scope given; pass --workspace to limit` : void 0;
-      return { ok: true, run_id: null, run_ids: ids, count: ids.length, status, updated_at: now2, ...warning ? { warning } : {} };
+      return { ok: true, run_id: null, run_ids: ids, count: ids.length, status, updated_at: now2 };
     } catch (e) {
       try {
         db3.exec("ROLLBACK");
@@ -5620,20 +6359,20 @@ function markVerified(db3, params) {
         run_id: runId
       };
     }
-    if (message) {
+    if (receipt) {
       try {
         db3.prepare(RUN_LOG_INSERT_VERIFIED).run(
           "evt_" + randomUUID10().replace(/-/g, ""),
           runId,
           agentId2,
-          message,
+          receipt,
           now
         );
       } catch {
       }
     }
     closeRunFiles(db3, runId, now);
-    finishLinkedTask(db3, runId, status, agentId2, now, message);
+    finishLinkedTask(db3, runId, status, agentId2, now, receipt || void 0);
     db3.exec("COMMIT");
     return { ok: true, run_id: runId, status, updated_at: now };
   } catch (e) {
@@ -5682,7 +6421,7 @@ function listAgents(db3, params = {}) {
 // src/hooks-install.ts
 import {
   closeSync,
-  existsSync as existsSync3,
+  existsSync as existsSync4,
   mkdirSync as mkdirSync3,
   openSync,
   readFileSync as readFileSync2,
@@ -5715,7 +6454,8 @@ Options:
   --project-dir <path>  Target a project hook file under <path> (default: cwd).
   --global              Target the user hook file with absolute hook paths.
   --check               Report whether the hooks are installed.
-  --strict              With --check, exit 2 if hooks are missing or drifted.
+  --strict              With --check, exit 2 if config is missing or drifted.
+                        Runtime execution, host trust, and enablement remain unprobed.
   --dry-run             Print the resulting settings without writing.
   --compact             Minify JSON output when supported.
   --remove              Remove only octocode-awareness hooks.`;
@@ -5744,7 +6484,7 @@ function targetConfig(host) {
   }
 }
 function loadSettings(settingsPath) {
-  if (!existsSync3(settingsPath)) return {};
+  if (!existsSync4(settingsPath)) return {};
   const raw = readFileSync2(settingsPath, "utf8");
   const parsed = JSON.parse(raw);
   return parsed && typeof parsed === "object" ? parsed : {};
@@ -5816,43 +6556,66 @@ function writeSettingsAtomic(settingsPath, settings) {
 }
 function hookCommand(name, params) {
   const abs = join5(params.hookDir, name);
-  if (params.host === "codex" || params.host === "cursor" || params.globalMode) return abs;
-  const rel = relative3(params.projectDir, abs);
-  if (rel && !rel.startsWith("..") && !isAbsolute6(rel)) {
-    return "${CLAUDE_PROJECT_DIR}/" + rel.split(sep2).join("/");
+  let scriptPath = abs;
+  if (params.host !== "codex" && params.host !== "cursor" && !params.globalMode) {
+    const rel = relative3(params.projectDir, abs);
+    if (rel && !rel.startsWith("..") && !isAbsolute6(rel)) {
+      scriptPath = "${CLAUDE_PROJECT_DIR}/" + rel.split(sep2).join("/");
+    }
   }
-  return abs;
+  return `OCTOCODE_AGENT_HOST=${params.host} "${scriptPath.replace(/["\\]/g, "\\$&")}"`;
+}
+function hookCommandWindows(name, params) {
+  if (params.host !== "codex") return void 0;
+  const runner = resolve11(params.hookDir, "..", "hook-runner.mjs");
+  const skillRoot = resolve11(params.hookDir, "..", "..");
+  const command2 = name.replace(/\.sh$/, "");
+  const quoted = (value) => `"${value.replace(/"/g, '""')}"`;
+  return [
+    quoted(process.execPath),
+    quoted(runner),
+    command2,
+    "--host",
+    params.host,
+    "--skill-root",
+    quoted(skillRoot)
+  ].join(" ");
 }
 function specsFor(host, params) {
-  const command2 = (name) => hookCommand(name, { host, ...params });
+  const spec = (event2, name, matcher) => ({
+    event: event2,
+    ...matcher ? { matcher } : {},
+    command: hookCommand(name, { host, ...params }),
+    ...hookCommandWindows(name, { host, hookDir: params.hookDir }) ? { commandWindows: hookCommandWindows(name, { host, hookDir: params.hookDir }) } : {}
+  });
   if (host === "cursor") {
     return [
-      { event: "preToolUse", matcher: WRITE_MATCHER, command: command2("pre-edit.sh") },
-      { event: "postToolUse", matcher: WRITE_MATCHER, command: command2("post-edit.sh") },
-      { event: "stop", command: command2("stop-verify.sh") },
-      { event: "subagentStop", command: command2("stop-verify.sh") },
-      { event: "sessionEnd", command: command2("session-end.sh") },
-      { event: "preCompact", command: command2("session-end.sh") },
-      { event: "sessionStart", command: command2("notify-deliver.sh") }
+      spec("preToolUse", "pre-edit.sh", WRITE_MATCHER),
+      spec("postToolUse", "post-edit.sh", WRITE_MATCHER),
+      spec("stop", "stop-verify.sh"),
+      spec("subagentStop", "stop-verify.sh"),
+      spec("sessionEnd", "session-end.sh"),
+      spec("preCompact", "session-end.sh"),
+      spec("sessionStart", "notify-deliver.sh")
     ];
   }
   if (host === "codex") {
     return [
-      { event: "PreToolUse", matcher: WRITE_MATCHER, command: command2("pre-edit.sh") },
-      { event: "PostToolUse", matcher: WRITE_MATCHER, command: command2("post-edit.sh") },
-      { event: "Stop", command: command2("stop-verify.sh") },
-      { event: "SubagentStop", command: command2("stop-verify.sh") },
-      { event: "PreCompact", command: command2("session-end.sh") },
-      { event: "UserPromptSubmit", command: command2("notify-deliver.sh") }
+      spec("PreToolUse", "pre-edit.sh", WRITE_MATCHER),
+      spec("PostToolUse", "post-edit.sh", WRITE_MATCHER),
+      spec("Stop", "stop-verify.sh"),
+      spec("SubagentStop", "stop-verify.sh"),
+      spec("PreCompact", "session-end.sh"),
+      spec("UserPromptSubmit", "notify-deliver.sh")
     ];
   }
   return [
-    { event: "PreToolUse", matcher: WRITE_MATCHER, command: command2("pre-edit.sh") },
-    { event: "PostToolUse", matcher: WRITE_MATCHER, command: command2("post-edit.sh") },
-    { event: "Stop", command: command2("stop-verify.sh") },
-    { event: "SubagentStop", command: command2("stop-verify.sh") },
-    { event: "SessionEnd", command: command2("session-end.sh") },
-    { event: "UserPromptSubmit", command: command2("notify-deliver.sh") }
+    spec("PreToolUse", "pre-edit.sh", WRITE_MATCHER),
+    spec("PostToolUse", "post-edit.sh", WRITE_MATCHER),
+    spec("Stop", "stop-verify.sh"),
+    spec("SubagentStop", "stop-verify.sh"),
+    spec("SessionEnd", "session-end.sh"),
+    spec("UserPromptSubmit", "notify-deliver.sh")
   ];
 }
 function obsoleteSpecsFor(host, params) {
@@ -5872,15 +6635,21 @@ function entry(host, spec) {
   }
   return {
     ...spec.matcher ? { matcher: spec.matcher } : {},
-    hooks: [{ type: "command", command: spec.command, timeout: 20 }]
+    hooks: [{
+      type: "command",
+      command: spec.command,
+      ...spec.commandWindows ? { commandWindows: spec.commandWindows } : {},
+      timeout: 20
+    }]
   };
 }
 function awarenessHookName(command2) {
   const normalized = command2?.replace(/\\/g, "/");
   if (!normalized) return null;
-  const marker = "/octocode-awareness/scripts/hooks/";
-  const index = normalized.lastIndexOf(marker);
-  return index >= 0 ? normalized.slice(index + marker.length) : null;
+  const wrapper = /\/octocode-awareness\/scripts\/hooks\/(pre-edit|post-edit|harness-guard|stop-verify|notify-deliver|session-end)\.sh/.exec(normalized);
+  if (wrapper?.[1]) return `${wrapper[1]}.sh`;
+  const runner = /\/octocode-awareness\/scripts\/hook-runner\.mjs["']?\s+(pre-edit|post-edit|harness-guard|stop-verify|notify-deliver|session-end)(?:\s|$)/.exec(normalized);
+  return runner?.[1] ? `${runner[1]}.sh` : null;
 }
 function sameAwarenessCommand(actual, expected) {
   if (actual === expected) return true;
@@ -5898,7 +6667,7 @@ function isExactHookEntry(host, group, spec) {
   if (host === "cursor") {
     return group.command === spec.command && group.timeout === 20 && matcherMatches(group.matcher, spec.matcher) && !Array.isArray(group.hooks);
   }
-  return matcherMatches(group.matcher, spec.matcher) && (group.hooks ?? []).some((hook) => hook.type === "command" && hook.command === spec.command && hook.timeout === 20);
+  return matcherMatches(group.matcher, spec.matcher) && (group.hooks ?? []).some((hook) => hook.type === "command" && hook.command === spec.command && hook.commandWindows === spec.commandWindows && hook.timeout === 20);
 }
 function hasExactCommand(groups, host, spec) {
   return (groups ?? []).some((group) => isExactHookEntry(host, group, spec));
@@ -5921,14 +6690,14 @@ function hasDriftedCommand(groups, host, spec) {
     }
     for (const hook of group.hooks ?? []) {
       if (!sameAwarenessCommand(hook.command, spec.command)) continue;
-      const exact = matcherMatches(group.matcher, spec.matcher) && hook.type === "command" && hook.timeout === 20;
+      const exact = matcherMatches(group.matcher, spec.matcher) && hook.type === "command" && hook.commandWindows === spec.commandWindows && hook.timeout === 20;
       if (!exact) return true;
     }
   }
   return false;
 }
 function hookStatusKey(spec) {
-  return `${spec.event}:${spec.command.split(/[\\/]/).pop()}`;
+  return `${spec.event}:${awarenessHookName(spec.command) ?? spec.command.split(/[\\/]/).pop()}`;
 }
 function removeCommand(groups, command2) {
   let removed = false;
@@ -5952,6 +6721,35 @@ function removeCommand(groups, command2) {
     if (hooks.length > 0) out.push({ ...group, hooks });
   }
   return { groups: out, removed };
+}
+function runtimeHealth(host, globalMode) {
+  const common = {
+    status: "unverified",
+    verified: false,
+    execution: "not_probed",
+    strict_scope: "config_only",
+    next: "Run a harmless write and inspect the host hook log before relying on enforcement."
+  };
+  if (host === "codex") {
+    return {
+      ...common,
+      project_trust: globalMode ? "not_applicable_global_config" : "not_checked",
+      hook_definition_trust: "not_checked",
+      hooks_feature_enabled: "not_checked"
+    };
+  }
+  if (host === "claude") {
+    return {
+      ...common,
+      activation: globalMode ? "global_config_not_probed" : "skill_or_project_activation_not_checked"
+    };
+  }
+  return {
+    ...common,
+    local_runtime: "not_probed",
+    cloud_runtime: "not_probed",
+    windows_command: "not_guaranteed_by_cursor_flat_hook_format"
+  };
 }
 function runHooksInstall(argv, options) {
   const hostValue = requestedHost(argv);
@@ -6018,7 +6816,7 @@ function runHooksInstallUnlocked(argv, options) {
     return {
       key: hookStatusKey(spec),
       event: spec.event,
-      hook: spec.command.split(/[\\/]/).pop(),
+      hook: awarenessHookName(spec.command) ?? spec.command.split(/[\\/]/).pop(),
       installed: exact,
       present,
       matching_count: matchingCount,
@@ -6026,6 +6824,7 @@ function runHooksInstallUnlocked(argv, options) {
       expected: {
         matcher: spec.matcher ?? null,
         command: spec.command,
+        command_windows: spec.commandWindows ?? null,
         timeout: 20,
         shape: host === "cursor" ? "flat" : "nested"
       }
@@ -6044,9 +6843,24 @@ function runHooksInstallUnlocked(argv, options) {
   };
   if (flag(argv, "--check")) {
     const strict = flag(argv, "--strict");
+    const configReady = status.installed_all && status.drifted.length === 0;
     return {
-      exitCode: strict && (!status.installed_all || status.drifted.length > 0) ? 2 : 0,
-      payload: { ok: status.installed_all && status.drifted.length === 0, action: "check", strict, installed: status }
+      exitCode: strict && !configReady ? 2 : 0,
+      payload: {
+        ok: configReady,
+        action: "check",
+        strict,
+        strict_scope: "config_only",
+        installed: status,
+        health: {
+          config: {
+            status: configReady ? "ready" : "needs_repair",
+            verified: configReady,
+            settings_path: settingsPath
+          },
+          runtime: runtimeHealth(host, globalMode)
+        }
+      }
     };
   }
   let changed = false;
@@ -6089,7 +6903,15 @@ function runHooksInstallUnlocked(argv, options) {
   if (flag(argv, "--dry-run")) {
     return {
       exitCode: 0,
-      payload: { ok: true, action: "dry-run", host, changed, settingsPath, resultingSettings: settings }
+      payload: {
+        ok: true,
+        action: "dry-run",
+        host,
+        changed,
+        settingsPath,
+        resultingSettings: settings,
+        runtime: runtimeHealth(host, globalMode)
+      }
     };
   }
   if (changed) {
@@ -6103,18 +6925,19 @@ function runHooksInstallUnlocked(argv, options) {
       host,
       changed,
       settingsPath,
-      note: changed ? `${settingsPath.split(/[\\/]/).pop()} updated` : "already up to date - no change"
+      note: changed ? `${settingsPath.split(/[\\/]/).pop()} updated` : "already up to date - no change",
+      runtime: runtimeHealth(host, globalMode)
     }
   };
 }
 
 // src/attend.ts
-import { existsSync as existsSync5, readFileSync as readFileSync3, statSync as statSync2 } from "node:fs";
+import { existsSync as existsSync6, readFileSync as readFileSync3, statSync as statSync2 } from "node:fs";
 import { join as join7, resolve as resolve13 } from "node:path";
 
 // src/repo-context.ts
 import { spawnSync as spawnSync4 } from "node:child_process";
-import { existsSync as existsSync4, mkdirSync as mkdirSync4, realpathSync as realpathSync2, writeFileSync as writeFileSync3 } from "node:fs";
+import { existsSync as existsSync5, mkdirSync as mkdirSync4, realpathSync as realpathSync2, renameSync as renameSync2, rmSync as rmSync2, writeFileSync as writeFileSync3 } from "node:fs";
 import { isAbsolute as isAbsolute7, join as join6, relative as relative4, resolve as resolve12 } from "node:path";
 import { fileURLToPath as fileURLToPath2 } from "node:url";
 var AWARENESS_QUERY_VIEWS = [
@@ -6184,9 +7007,42 @@ function normalizeMode(mode) {
   if (normalized === "local" || normalized === "share") return normalized;
   throw new Error("--mode must be local or share");
 }
-function limitOf(value, fallback = 50, max = 500) {
+function limitOf(value, fallback = 50, max = 501) {
   if (value == null || !Number.isFinite(value)) return fallback;
   return Math.min(max, Math.max(1, Math.floor(value)));
+}
+function continuationFor(view, requestedLimit) {
+  if (requestedLimit < 500) {
+    return `query ${view} --limit ${Math.min(500, Math.max(requestedLimit + 1, requestedLimit * 2))}; narrow filters if the result remains partial`;
+  }
+  return `query ${view} reached the 500-row safety cap; narrow workspace, state, label, file, time, or text filters`;
+}
+function boundedRows(view, probedRows, requestedLimit) {
+  if (view === "workboard") {
+    const columnTotals = /* @__PURE__ */ new Map();
+    for (const row of probedRows) {
+      const column = String(row["column"] ?? "Other");
+      if (!columnTotals.has(column)) columnTotals.set(column, Number(row["column_total"] ?? 1));
+    }
+    const total = [...columnTotals.values()].reduce((sum, count) => sum + count, 0);
+    const omitted = Math.max(0, total - probedRows.length);
+    return {
+      rows: probedRows,
+      total,
+      omitted_count: omitted,
+      is_partial: omitted > 0,
+      continuation: omitted > 0 ? "drill into the named workboard lane with its targeted command; lane output is intentionally bounded" : null
+    };
+  }
+  const hasMore = probedRows.length > requestedLimit;
+  const rows = probedRows.slice(0, requestedLimit);
+  return {
+    rows,
+    total: hasMore ? null : rows.length,
+    omitted_count: hasMore ? null : 0,
+    is_partial: hasMore,
+    continuation: hasMore ? continuationFor(view, requestedLimit) : null
+  };
 }
 function stringList(value) {
   if (Array.isArray(value)) return value.map(String).filter(Boolean);
@@ -6333,7 +7189,7 @@ function referenceHealth(references, workspacePath) {
     const localPath = localPathFromReference(reference, workspacePath);
     if (!localPath) continue;
     fileReferences.push(localPath);
-    if (existsSync4(localPath)) {
+    if (existsSync5(localPath)) {
       existingFiles.push(localPath);
     } else {
       missingFiles.push(localPath);
@@ -6851,7 +7707,7 @@ function trackFile(map, filePath, source, date, workspacePath) {
   const resolved = localPathFromReference(filePath, workspacePath);
   const clean = resolved ?? stripLocationSuffix(filePath.startsWith("file:") ? filePath.slice("file:".length) : filePath);
   if (!clean) return;
-  const fileExists = existsSync4(clean);
+  const fileExists = existsSync5(clean);
   const row = map.get(clean) ?? {
     file_path: clean,
     file_exists: fileExists,
@@ -7121,7 +7977,8 @@ function workboardRows(db3, params) {
     RecentDone: [],
     MemoryReview: [],
     DeveloperReview: [],
-    ProjectionHealth: []
+    ProjectionHealth: [],
+    Maintenance: []
   };
   const counts = {};
   for (const row of filesUnderWorkRows(db3, withScope(params, { limit: 200 }))) {
@@ -7275,6 +8132,55 @@ function workboardRows(db3, params) {
       updated_at: row["updated_at"] ?? null
     }, limit);
   }
+  const pressure = inspectMaintenancePressure(db3, {
+    workspace: scopeFromParams(params).workspacePath,
+    artifact: scopeFromParams(params).artifact,
+    pressure_age_days: 1,
+    workspace_normalized: true
+  });
+  const pressureRows = [];
+  if (pressure.stale_pending_runs > 0) {
+    const sample = pressure.samples.run_ids[0];
+    pressureRows.push({
+      item_type: "pressure",
+      id: "stale-pending-runs",
+      status: "review",
+      title: `${pressure.stale_pending_runs} pending run(s) older than ${pressure.pressure_age_days}d`,
+      detail: "Run the declared checks; pending age never implies success or deletion.",
+      action: 'verify audit --workspace "$PWD" --compact',
+      raw_ids: sample ? [sample] : [],
+      files: [],
+      created_at: utcNow2()
+    });
+  }
+  if (pressure.stale_open_signals > 0) {
+    pressureRows.push({
+      item_type: "pressure",
+      id: "stale-open-signals",
+      status: "review",
+      title: `${pressure.stale_open_signals} open signal(s) older than ${pressure.pressure_age_days}d`,
+      detail: "Acknowledge or resolve after review; no signal is silently pruned.",
+      action: 'signal list --agent-id "$OCTOCODE_AGENT_ID" --workspace "$PWD" --all --limit 5 --compact',
+      raw_ids: pressure.samples.signal_ids,
+      files: [],
+      created_at: utcNow2()
+    });
+  }
+  if (pressure.stale_missing_refs > 0) {
+    const memoryId = pressure.samples.memory_ids[0];
+    pressureRows.push({
+      item_type: "pressure",
+      id: "stale-missing-memory-refs",
+      status: "review",
+      title: `${pressure.stale_missing_refs} old memory reference(s) point to missing files`,
+      detail: "Revalidate, supersede, or preview deletion by exact memory id.",
+      action: memoryId ? `memory forget --memory-id ${memoryId} --dry-run --compact` : 'query files --workspace "$PWD" --format table --limit 20',
+      raw_ids: pressure.samples.memory_ids,
+      files: [],
+      created_at: utcNow2()
+    });
+  }
+  for (const row of pressureRows) pushLimited(columns, counts, "Maintenance", row, limit);
   const profile = Object.fromEntries(repoProfileRows(db3, params).map((row) => [String(row["metric"]), Number(row["count"] ?? 0)]));
   const activeMemories = Number(profile["active_memories"] ?? 0);
   const taskCount = Number(profile["tasks"] ?? 0);
@@ -7355,9 +8261,10 @@ function queryAwareness(db3, params = {}) {
   const view = normalizeView(params.view);
   const scope = scopeFromParams(params);
   const generatedAt = utcNow2();
+  const requestedLimit = limitOf(params.limit, 50, 500);
   const filters = {
     query: params.query ?? null,
-    limit: limitOf(params.limit),
+    limit: requestedLimit,
     agent_id: params.agentId ?? params.agent_id ?? null,
     state: stringList(params.state),
     label: stringList(params.label),
@@ -7368,10 +8275,27 @@ function queryAwareness(db3, params = {}) {
     const sections = {};
     for (const section of AWARENESS_QUERY_VIEWS) {
       if (section === "all") continue;
-      const rows3 = rowsForView(db3, section, params);
-      sections[section] = { count: rows3.length, rows: rows3 };
+      const probeLimit = section === "workboard" ? requestedLimit : Math.min(501, requestedLimit + 1);
+      const completeness2 = boundedRows(
+        section,
+        rowsForView(db3, section, withScope(params, { limit: probeLimit })),
+        requestedLimit
+      );
+      sections[section] = { count: completeness2.rows.length, ...completeness2 };
     }
-    const rows2 = Object.entries(sections).map(([name, section]) => ({ section: name, count: section.count }));
+    const rows = Object.entries(sections).map(([name, section]) => ({
+      section: name,
+      count: section.count,
+      total: section.total,
+      omitted_count: section.omitted_count,
+      is_partial: section.is_partial,
+      continuation: section.continuation
+    }));
+    const isPartial = Object.values(sections).some((section) => section.is_partial);
+    const knownTotals = Object.values(sections).map((section) => section.total);
+    const total = knownTotals.some((value) => value == null) ? null : knownTotals.reduce((sum, value) => sum + Number(value), 0);
+    const omittedCounts = Object.values(sections).map((section) => section.omitted_count);
+    const omittedCount = omittedCounts.some((value) => value == null) ? null : omittedCounts.reduce((sum, value) => sum + Number(value), 0);
     return {
       ok: true,
       view,
@@ -7380,13 +8304,23 @@ function queryAwareness(db3, params = {}) {
       artifact: scope.artifact,
       repo: scope.repo,
       ref: scope.ref,
-      count: rows2.length,
-      rows: rows2,
+      count: rows.length,
+      rows,
+      total,
+      omitted_count: omittedCount,
+      is_partial: isPartial,
+      continuation: isPartial ? "inspect section completeness and follow its targeted continuation" : null,
       sections,
       filters
     };
   }
-  const rows = rowsForView(db3, view, params);
+  const completeness = boundedRows(
+    view,
+    rowsForView(db3, view, withScope(params, {
+      limit: view === "workboard" ? requestedLimit : Math.min(501, requestedLimit + 1)
+    })),
+    requestedLimit
+  );
   return {
     ok: true,
     view,
@@ -7395,8 +8329,12 @@ function queryAwareness(db3, params = {}) {
     artifact: scope.artifact,
     repo: scope.repo,
     ref: scope.ref,
-    count: rows.length,
-    rows,
+    count: completeness.rows.length,
+    rows: completeness.rows,
+    total: completeness.total,
+    omitted_count: completeness.omitted_count,
+    is_partial: completeness.is_partial,
+    continuation: completeness.continuation,
     filters
   };
 }
@@ -7413,10 +8351,26 @@ function developerReviewDoc(db3, params = {}) {
 function formatAwarenessQueryResult(result, format) {
   const normalized = normalizeFormat(format);
   if (normalized === "json") return JSON.stringify(result, null, 2);
-  if (normalized === "csv") return toCsv(result.rows);
-  if (normalized === "table") return toTable(result.rows);
+  if (normalized === "csv") {
+    const rows = result.rows.length > 0 ? result.rows : [{}];
+    return toCsv(rows.map((row) => ({
+      ...row,
+      __awareness_is_partial: result.is_partial,
+      __awareness_total: result.total,
+      __awareness_omitted_count: result.omitted_count,
+      __awareness_continuation: result.continuation
+    })));
+  }
+  if (normalized === "table") return `${completenessText(result)}
+${toTable(result.rows)}`;
   if (normalized === "html") return renderAwarenessHtml(result);
   return toMarkdown(result);
+}
+function completenessText(result) {
+  const total = result.total == null ? "unknown" : String(result.total);
+  const omitted = result.omitted_count == null ? "unknown" : String(result.omitted_count);
+  const continuation = result.continuation ? `; next: ${result.continuation}` : "";
+  return `Completeness: ${result.is_partial ? "partial" : "complete"}; visible=${result.count}; total=${total}; omitted=${omitted}${continuation}`;
 }
 function renderAwarenessHtml(result) {
   const title = `Octocode Awareness: ${result.view}`;
@@ -7456,6 +8410,7 @@ function renderAwarenessHtml(result) {
   <header>
     <h1>${escapeHtml(title)}</h1>
     <div class="meta">Generated ${escapeHtml(result.generated_at)} for <code>${escapeHtml(result.workspace_path ?? "global")}</code></div>
+    <div class="meta">${escapeHtml(completenessText(result))}</div>
     <div class="controls">
       <input id="global-filter" type="search" placeholder="Filter rows" autocomplete="off">
       <select id="section-filter" aria-label="Section">
@@ -7518,6 +8473,64 @@ function resolveWorkspaceOutputPath(output, workspacePath, defaultPath) {
   const target = output?.trim() || defaultPath;
   return isAbsolute7(target) ? resolve12(target) : resolve12(workspacePath, target);
 }
+var atomicWriteSequence = 0;
+function atomicWriteText(path2, content) {
+  mkdirSync4(join6(path2, ".."), { recursive: true });
+  const temp = `${path2}.tmp-${process.pid}-${Date.now()}-${atomicWriteSequence++}`;
+  try {
+    writeFileSync3(temp, content, { encoding: "utf8", flag: "wx" });
+    renameSync2(temp, path2);
+  } finally {
+    rmSync2(temp, { force: true });
+  }
+}
+function sanitizeShareString(value, workspacePath) {
+  const sanitizeAbsolute = (token) => {
+    const filePrefix = token.startsWith("file:") ? "file:" : "";
+    const raw = filePrefix ? token.slice(filePrefix.length) : token;
+    if (!isAbsolute7(raw)) return token;
+    if (raw === workspacePath || raw.startsWith(`${workspacePath}/`)) {
+      return `${filePrefix}${relative4(workspacePath, raw) || "."}`;
+    }
+    return filePrefix ? "file:<external-path-redacted>" : "<absolute-path-redacted>";
+  };
+  if (value.startsWith("file:") || isAbsolute7(value)) return sanitizeAbsolute(value);
+  const withoutWorkspace = value.split(workspacePath).join("<workspace>");
+  return withoutWorkspace.replace(
+    /(?:file:)?\/(?:Users|home|private|tmp|var|Volumes|opt)\/[^\s,;)"'\]]+/g,
+    sanitizeAbsolute
+  );
+}
+function sanitizeShareRow(row, workspacePath) {
+  const sanitized = {};
+  for (const [key, value] of Object.entries(row)) {
+    if (key === "body" || key === "detail" && (row["item_type"] === "signal" || row["kind"] === "signal")) {
+      sanitized[key] = "";
+      sanitized["body_redacted"] = Boolean(value) || sanitized["body_redacted"] === true;
+      continue;
+    }
+    if (typeof value === "string") {
+      sanitized[key] = sanitizeShareString(value, workspacePath);
+    } else if (Array.isArray(value)) {
+      sanitized[key] = value.map((item) => sanitizeShareString(String(item), workspacePath));
+    } else {
+      sanitized[key] = value;
+    }
+  }
+  return sanitized;
+}
+function sanitizeQueryResultForShare(result, workspacePath) {
+  const sections = result.sections ? Object.fromEntries(Object.entries(result.sections).map(([name, section]) => [name, {
+    ...section,
+    rows: section.rows.map((row) => sanitizeShareRow(row, workspacePath))
+  }])) : void 0;
+  return {
+    ...result,
+    workspace_path: "<workspace>",
+    rows: result.rows.map((row) => sanitizeShareRow(row, workspacePath)),
+    ...sections ? { sections } : {}
+  };
+}
 function injectRepoContext(db3, params = {}) {
   const scope = scopeFromParams(params);
   const workspacePath = scope.workspacePath ?? process.cwd();
@@ -7533,19 +8546,29 @@ function injectRepoContext(db3, params = {}) {
     view: "all"
   };
   SCOPE_CACHE.set(queryParams, scope);
-  const all = queryAwareness(db3, queryParams);
+  const queried = queryAwareness(db3, queryParams);
+  const all = mode === "share" ? sanitizeQueryResultForShare(queried, workspacePath) : queried;
   const filesWritten = [];
   const writtenContent = {};
   const warnings = [];
   function write(relPath, content) {
     const full = join6(outDir, relPath);
-    mkdirSync4(join6(full, ".."), { recursive: true });
-    writeFileSync3(full, content, "utf8");
+    atomicWriteText(full, content);
     writtenContent[relPath] = content;
     filesWritten.push(full);
   }
   const sections = all.sections ?? {};
   const counts = Object.fromEntries(Object.entries(sections).map(([name, section]) => [name, section.count]));
+  const completeness = Object.fromEntries(Object.entries(sections).map(([name, section]) => [name, {
+    visible: section.count,
+    total: section.total,
+    omitted_count: section.omitted_count,
+    is_partial: section.is_partial,
+    continuation: section.continuation
+  }]));
+  for (const [name, section] of Object.entries(sections)) {
+    if (section.is_partial) warnings.push(`projection section ${name} is partial: ${section.continuation ?? "narrow the query"}`);
+  }
   const profileCounts = Object.fromEntries(
     (sections["repo-profile"]?.rows ?? []).map((row) => [String(row["metric"]), Number(row["count"] ?? 0)])
   );
@@ -7575,7 +8598,7 @@ function injectRepoContext(db3, params = {}) {
   ]));
   write(join6("references", "testing.md"), renderReferenceDoc("Testing And Verification", [
     "Treat generated memories as leads. Verify current files and command output before acting.",
-    "Release locks with `verify mark` or `lock release --verified` after declared tests actually run.",
+    'End editing with `work end` or `lock release --status PENDING`; only `verify mark --message "<check + result>"` records success.',
     "Record new durable failures with `reflect record --failure-signature` or `memory record --label GOTCHA`."
   ]));
   write(join6("references", "architecture.md"), renderReferenceDoc("Architecture Notes", [
@@ -7614,7 +8637,7 @@ function injectRepoContext(db3, params = {}) {
     generated_at: generatedAt,
     generator: "@octocodeai/octocode-awareness repo inject",
     mode,
-    workspace_path: workspacePath,
+    workspace_path: mode === "share" ? "<workspace>" : workspacePath,
     artifact: scope.artifact,
     repo: scope.repo,
     ref: scope.ref,
@@ -7627,6 +8650,7 @@ function injectRepoContext(db3, params = {}) {
       share_decision: "user-owned"
     },
     counts,
+    completeness,
     budgets: {
       markdown: projectionBudgets,
       workboard: WORKBOARD_BUDGET,
@@ -7933,6 +8957,7 @@ function toMarkdown(result) {
     "",
     `Generated: ${result.generated_at}`,
     `Workspace: ${result.workspace_path ?? "global"}`,
+    completenessText(result),
     ""
   ];
   if (result.sections) {
@@ -7960,7 +8985,8 @@ function markdownRows(rows) {
   }).join("\n");
 }
 function csvCell(value) {
-  const s = String(value ?? "");
+  let s = String(value ?? "");
+  if (/^\s*[=+\-@]/.test(s)) s = `'${s}`;
   return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 function cellToString(value) {
@@ -8084,7 +9110,7 @@ function compactRow(row) {
   return next;
 }
 function compactWorkboard(grouped, limit) {
-  const actionable = ["Inbox", "Ready", "Claimed", "Verify", "FilesUnderWork"];
+  const actionable = ["Inbox", "Ready", "Claimed", "Verify", "FilesUnderWork", "Maintenance"];
   return Object.fromEntries(actionable.flatMap((column) => {
     const rows = grouped[column] ?? [];
     return rows.length === 0 ? [] : [[column, rows.slice(0, limit).map(compactRow)]];
@@ -8094,7 +9120,7 @@ function uniqueStrings(values) {
   return [...new Set(values.filter(Boolean))];
 }
 function lineCount2(path2) {
-  if (!existsSync5(path2)) return null;
+  if (!existsSync6(path2)) return null;
   try {
     return readFileSync3(path2, "utf8").split(/\r?\n/).length;
   } catch {
@@ -8106,7 +9132,7 @@ function projectionStats(workspacePath) {
     const path2 = join7(workspacePath, ".octocode", file);
     let mtimeMs = null;
     try {
-      mtimeMs = existsSync5(path2) ? statSync2(path2).mtimeMs : null;
+      mtimeMs = existsSync6(path2) ? statSync2(path2).mtimeMs : null;
     } catch {
     }
     return { file: `.octocode/${file.replace(/\\/g, "/")}`, lines: lineCount2(path2), mtime_ms: mtimeMs };
@@ -8114,7 +9140,7 @@ function projectionStats(workspacePath) {
 }
 function manifestWarnings(workspacePath, stats) {
   const manifestPath = join7(workspacePath, ".octocode", "awareness", "manifest.json");
-  if (!existsSync5(manifestPath)) return [".octocode/awareness/manifest.json missing; run repo inject when projection context is needed"];
+  if (!existsSync6(manifestPath)) return [".octocode/awareness/manifest.json missing; run repo inject when projection context is needed"];
   try {
     const manifest = JSON.parse(readFileSync3(manifestPath, "utf8"));
     const warnings = [];
@@ -8153,8 +9179,15 @@ function projectionWarnings(workspacePath, stats) {
   });
   return [...markdownWarnings, ...manifestWarnings(workspacePath, stats)];
 }
-function evidenceTrust(references) {
+function evidenceTrust(references, workspacePath) {
   if (references.length === 0) return "needs_refs";
+  const missingFileReference = references.some((reference) => {
+    if (!reference.startsWith("file:")) return false;
+    const rawPath = reference.slice("file:".length).replace(/(?::\d+(?::\d+)?|#L\d+(?:-L?\d+)?)$/, "");
+    const path2 = rawPath.startsWith("/") ? rawPath : resolve13(workspacePath, rawPath);
+    return !existsSync6(path2);
+  });
+  if (missingFileReference) return "needs_refs";
   if (references.some((ref) => ref.includes(".octocode/") || ref.startsWith("http"))) return "generated_or_external_lead";
   return "verified_lead";
 }
@@ -8268,7 +9301,7 @@ function attendAwareness(db3, params = {}) {
         omitted_reference_count: Math.max(0, allReferences.length - references.length)
       },
       why_selected: compact2 ? why.slice(0, 2) : why,
-      trust: evidenceTrust(allReferences)
+      trust: evidenceTrust(allReferences, workspacePath)
     };
   });
   const trustWarnings = evidence.filter((item) => item.trust !== "verified_lead").map((item) => `${item.id}: ${item.trust}`);
@@ -8355,7 +9388,7 @@ function attendAwareness(db3, params = {}) {
     }
   };
   const verificationRunId = verificationTargets.flatMap((row) => Array.isArray(row["raw_ids"]) ? row["raw_ids"] : []).map(String).find((id) => id.startsWith("run_"));
-  const next = verificationTargets.length > 0 ? `octocode-awareness verify audit --agent-id "$OCTOCODE_AGENT_ID" --workspace "$PWD" --compact; then verify mark ${verificationRunId ? `--run-id ${verificationRunId}` : "--run-id <exact-run-id>"} after its declared test plan` : readyTasks.length > 0 ? `octocode-awareness task claim --task-id ${String(readyTasks[0]?.["id"])} --agent-id "$OCTOCODE_AGENT_ID" --compact` : bloatWarnings.length > 0 ? 'octocode-awareness memory forget --workspace "$PWD" --dry-run --compact; then repo inject --workspace "$PWD" --compact to regenerate capped projections (digest does not shrink markdown)' : evidence.length > 0 ? "Treat evidence as leads; re-check cited files, then work start before edits" : 'octocode-awareness attend --workspace "$PWD" --query "<narrower task>" --compact; or query workboard / workspace status';
+  const next = verificationTargets.length > 0 ? `octocode-awareness verify audit --agent-id "$OCTOCODE_AGENT_ID" --workspace "$PWD" --compact; then verify mark ${verificationRunId ? `--run-id ${verificationRunId}` : "--run-id <exact-run-id>"} --message "<check + result>" after its declared test plan` : readyTasks.length > 0 ? `octocode-awareness task claim --task-id ${String(readyTasks[0]?.["id"])} --agent-id "$OCTOCODE_AGENT_ID" --compact` : !query && bloatWarnings.length > 0 ? 'octocode-awareness query workboard --workspace "$PWD" --format json --limit 5 --compact' : evidence.length > 0 ? "Treat evidence as leads; re-check cited files, then work start before edits" : 'octocode-awareness attend --workspace "$PWD" --query "<narrower task>" --compact; or query workboard / workspace status';
   if (compact2) {
     const columnCount = (column) => {
       const rows = rawWorkboard[column] ?? [];
@@ -8363,7 +9396,7 @@ function attendAwareness(db3, params = {}) {
     };
     return {
       ok: true,
-      schema_version: 3,
+      schema_version: AWARENESS_SCHEMA_VERSION,
       generated_at: profileResult.generated_at,
       workspace_path: workspacePath,
       artifact: params.artifact ?? null,
@@ -8374,7 +9407,8 @@ function attendAwareness(db3, params = {}) {
         Ready: columnCount("Ready"),
         Claimed: columnCount("Claimed"),
         Verify: columnCount("Verify"),
-        FilesUnderWork: columnCount("FilesUnderWork")
+        FilesUnderWork: columnCount("FilesUnderWork"),
+        Maintenance: columnCount("Maintenance")
       },
       workboard,
       evidence,
@@ -8383,7 +9417,7 @@ function attendAwareness(db3, params = {}) {
   }
   const result = {
     ok: true,
-    schema_version: 3,
+    schema_version: AWARENESS_SCHEMA_VERSION,
     generated_at: profileResult.generated_at,
     workspace_path: workspacePath,
     artifact: params.artifact ?? null,
@@ -8411,13 +9445,13 @@ function attendAwareness(db3, params = {}) {
 }
 
 // bin/hook-runner.ts
-import { createHash as createHash3 } from "node:crypto";
+import { createHash as createHash5 } from "node:crypto";
 import {
   closeSync as closeSync2,
   mkdirSync as mkdirSync5,
   openSync as openSync2,
   readFileSync as readFileSync4,
-  renameSync as renameSync2,
+  renameSync as renameSync3,
   statSync as statSync3,
   unlinkSync as unlinkSync2,
   writeFileSync as writeFileSync4
@@ -8425,24 +9459,12 @@ import {
 import { basename as basename3, dirname as dirname5, join as join8, relative as relative5, resolve as resolve14 } from "node:path";
 import { fileURLToPath as fileURLToPath3 } from "node:url";
 
-// src/sessions.ts
-import { randomUUID as randomUUID12 } from "node:crypto";
-function endSession(db3, params) {
-  const now = utcNow();
-  const result = db3.prepare(SESSIONS_UPDATE_END).get(
-    now,
-    params.summary ?? null,
-    params.sessionId
-  );
-  return result ?? null;
-}
-
 // src/pi-hooks.ts
 import path from "node:path";
 import { spawnSync as spawnSync5 } from "node:child_process";
-import { randomUUID as randomUUID13 } from "node:crypto";
+import { createHash as createHash4, randomUUID as randomUUID12 } from "node:crypto";
 import { realpathSync as realpathSync3 } from "node:fs";
-var _sessionStartupToken = randomUUID13().slice(0, 8);
+var _sessionStartupToken = randomUUID12().slice(0, 8);
 function addPathValue(paths, value) {
   if (typeof value === "string" && value.trim().length > 0) {
     paths.push(value.trim());
@@ -8576,6 +9598,8 @@ function evaluateHarnessGuard(params) {
 }
 
 // bin/hook-runner.ts
+var INTERNAL_HOOK_HOST = "__octocode_hook_host";
+var INTERNAL_SKILL_ROOT = "__octocode_skill_root";
 function readStdin() {
   return new Promise((resolve16) => {
     let raw = "";
@@ -8615,6 +9639,61 @@ function firstString2(...values) {
   }
   return null;
 }
+function normalizeShellHookHost(value) {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim().toLowerCase();
+  return normalized === "claude" || normalized === "codex" || normalized === "cursor" ? normalized : null;
+}
+function shellHookHost(payload) {
+  const explicit = normalizeShellHookHost(
+    payload[INTERNAL_HOOK_HOST] ?? process.env.OCTOCODE_AGENT_HOST ?? payload.host ?? payload.client
+  );
+  if (explicit) return explicit;
+  const eventName = firstString2(payload.hook_event_name, payload.eventName) ?? "";
+  if (eventName && eventName[0] === eventName[0]?.toLowerCase()) return "cursor";
+  return "claude";
+}
+function hookSkillRoot(payload) {
+  return firstString2(payload[INTERNAL_SKILL_ROOT], process.env.OCTOCODE_SKILL_ROOT);
+}
+function hookContextEnvelope(host, eventName, message) {
+  if (host === "cursor") {
+    if (eventName === "sessionStart") return { additional_context: message };
+    return { permission: "allow", agent_message: message };
+  }
+  return {
+    hookSpecificOutput: {
+      hookEventName: eventName,
+      additionalContext: message
+    }
+  };
+}
+function hookBlockOutcome(host, phase, message) {
+  if (host !== "cursor") return { exitCode: 2, stderr: message };
+  if (phase === "stop") {
+    return { exitCode: 0, payload: { followup_message: message } };
+  }
+  return {
+    exitCode: 0,
+    payload: {
+      permission: "deny",
+      user_message: message,
+      agent_message: message
+    }
+  };
+}
+function writeHookPayload(payload) {
+  process.stdout.write(`${JSON.stringify(payload)}
+`);
+}
+function emitHookContext(payload, eventName, message) {
+  writeHookPayload(hookContextEnvelope(shellHookHost(payload), eventName, message));
+}
+function completeHookControl(outcome) {
+  if (outcome.payload) writeHookPayload(outcome.payload);
+  if (outcome.stderr) console.error(outcome.stderr);
+  return outcome.exitCode;
+}
 function agentId(payload) {
   const input = objectOrEmpty2(payloadInput(payload));
   const explicit = firstString2(
@@ -8630,6 +9709,7 @@ function agentId(payload) {
   );
   if (explicit) return explicit;
   const host = firstString2(
+    payload[INTERNAL_HOOK_HOST],
     process.env.OCTOCODE_AGENT_HOST,
     payload.host,
     payload.client,
@@ -8637,7 +9717,7 @@ function agentId(payload) {
     payload.context
   ) ?? "shell";
   const scope = `${host}\0${workspace(payload) ?? process.cwd()}`;
-  const suffix = createHash3("sha1").update(scope).digest("hex").slice(0, 12);
+  const suffix = createHash5("sha1").update(scope).digest("hex").slice(0, 12);
   const fallback = `hook:${host.replace(/[^a-zA-Z0-9_.:-]/g, "_")}:${suffix}`;
   if (!warnedFallbackAgentId) {
     warnedFallbackAgentId = true;
@@ -8652,6 +9732,24 @@ function sessionId(payload) {
     payload.sessionId,
     input.session_id,
     input.sessionId
+  );
+}
+function hookSessionCorrelation(payload) {
+  const input = objectOrEmpty2(payloadInput(payload));
+  return firstString2(
+    sessionId(payload),
+    payload.transcript_path,
+    payload.transcriptPath,
+    payload.conversation_id,
+    payload.conversationId,
+    payload.thread_id,
+    payload.threadId,
+    input.transcript_path,
+    input.transcriptPath,
+    input.conversation_id,
+    input.conversationId,
+    input.thread_id,
+    input.threadId
   );
 }
 function toolName(payload) {
@@ -8671,6 +9769,13 @@ function autoClaimRationale(payload, files) {
   const extra = names.length > 3 ? ` +${names.length - 3} more` : "";
   const action = tool ? `${tool}` : "edit";
   return `auto: ${action} ${shown}${extra} (lifecycle hook)`;
+}
+function fallbackVerificationPlan(files, cwd) {
+  const canonicalWorkspace = canonicalizePath(cwd);
+  const normalized = [...new Set(files.map((file) => resolveHookPath(file, cwd)))];
+  const shown = normalized.slice(0, 3).map((file) => relative5(canonicalWorkspace, file) || basename3(file)).join(", ");
+  const omitted = normalized.length > 3 ? ` (+${normalized.length - 3} more)` : "";
+  return `Verify ${shown || "the edited files"}${omitted}: run the smallest relevant test/typecheck and inspect the diff; record the check and result.`;
 }
 function agentName(payload) {
   const value = process.env.OCTOCODE_AGENT_NAME ?? payload.agent_name ?? payload.agentName ?? payload.agent_display_name ?? payload.agentDisplayName;
@@ -8811,7 +9916,7 @@ function writeHookRunEntries(key, entries) {
   }
   const tempFile = `${file}.${process.pid}.${Date.now()}.tmp`;
   writeFileSync4(tempFile, JSON.stringify(entries, null, 2) + "\n", "utf8");
-  renameSync2(tempFile, file);
+  renameSync3(tempFile, file);
 }
 function hookEventId(payload) {
   const input = objectOrEmpty2(payloadInput(payload));
@@ -8841,7 +9946,95 @@ function hookRunKey(payload, files, cwd) {
     event: explicitId,
     files: explicitId ? [] : files.map((file) => resolveHookPath(file, cwd)).sort()
   };
-  return createHash3("sha1").update(JSON.stringify(identity)).digest("hex");
+  return createHash5("sha1").update(JSON.stringify(identity)).digest("hex");
+}
+var HOOK_AGGREGATE_CONTEXT_PREFIX = "hook-scope:";
+function hookAggregateContextRef(payload, cwd) {
+  const sessionCorrelation = hookSessionCorrelation(payload);
+  if (!sessionCorrelation) return null;
+  const identity = {
+    agent: agentId(payload),
+    session: sessionCorrelation,
+    workspace: normalizeWorkspacePath(cwd, cwd) ?? resolve14(cwd),
+    artifact: normalizeArtifact(artifact(payload))
+  };
+  return `${HOOK_AGGREGATE_CONTEXT_PREFIX}${createHash5("sha1").update(JSON.stringify(identity)).digest("hex")}`;
+}
+function activeFallbackHookRun(database, payload, cwd) {
+  const contextRef = hookAggregateContextRef(payload, cwd);
+  if (!contextRef) return null;
+  const row = database.prepare(`SELECT run_id FROM task_runs
+    WHERE origin = 'HOOK' AND status = 'ACTIVE' AND agent_id = ?
+      AND workspace_path = ? AND artifact IS ? AND context_ref = ?
+    ORDER BY updated_at DESC, created_at DESC LIMIT 1`).get(
+    agentId(payload),
+    normalizeWorkspacePath(cwd, cwd) ?? resolve14(cwd),
+    normalizeArtifact(artifact(payload)),
+    contextRef
+  );
+  return row?.run_id ?? null;
+}
+function hookAggregateLockKey(payload, cwd) {
+  const contextRef = hookAggregateContextRef(payload, cwd);
+  return contextRef ? `aggregate-${createHash5("sha1").update(contextRef).digest("hex")}` : null;
+}
+function startOrAttachFallbackHookRun(database, payload, cwd, files) {
+  const contextRef = hookAggregateContextRef(payload, cwd);
+  const startOrAttach = () => {
+    const existingRunId = activeFallbackHookRun(database, payload, cwd);
+    const result = startWork(database, {
+      agentId: agentId(payload),
+      sessionId: sessionId(payload),
+      workspacePath: cwd,
+      artifact: artifact(payload),
+      runId: existingRunId ?? void 0,
+      rationale: autoClaimRationale(payload, files),
+      testPlan: fallbackVerificationPlan(files, cwd),
+      contextRef: contextRef ?? void 0,
+      targetFiles: files,
+      origin: "HOOK",
+      source: "HOOK",
+      ttlMs: 10 * 6e4
+    });
+    if (result.ok && existingRunId) {
+      touchWork(database, {
+        agentId: agentId(payload),
+        runId: existingRunId,
+        ttlMs: 10 * 6e4
+      });
+    }
+    return result;
+  };
+  const lockKey = hookAggregateLockKey(payload, cwd);
+  return lockKey ? withHookRunStateLock(lockKey, startOrAttach) : startOrAttach();
+}
+function refreshFallbackVerificationPlan(database, runId, cwd) {
+  if (!isAggregatedFallbackHookRun(database, runId)) return;
+  const files = database.prepare("SELECT file_path FROM run_files WHERE run_id = ? ORDER BY file_path").all(runId);
+  database.prepare("UPDATE task_runs SET test_plan = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE run_id = ? AND origin = 'HOOK'").run(fallbackVerificationPlan(files.map((file) => file.file_path), cwd), runId);
+}
+function isAggregatedFallbackHookRun(database, runId) {
+  const row = database.prepare(`SELECT origin, context_ref FROM task_runs WHERE run_id = ?`).get(runId);
+  return row?.origin === "HOOK" && row.context_ref?.startsWith(HOOK_AGGREGATE_CONTEXT_PREFIX) === true;
+}
+function finalizeActiveFallbackHookRuns(database, payload, cwd) {
+  const contextRef = hookAggregateContextRef(payload, cwd);
+  if (!contextRef) return [];
+  const rows = database.prepare(`SELECT run_id FROM task_runs
+    WHERE origin = 'HOOK' AND status = 'ACTIVE' AND agent_id = ?
+      AND workspace_path = ? AND artifact IS ? AND context_ref = ?
+    ORDER BY created_at`).all(
+    agentId(payload),
+    normalizeWorkspacePath(cwd, cwd) ?? resolve14(cwd),
+    normalizeArtifact(artifact(payload)),
+    contextRef
+  );
+  const finalized = [];
+  for (const row of rows) {
+    endWork(database, { agentId: agentId(payload), runId: row.run_id });
+    finalized.push(row.run_id);
+  }
+  return finalized;
 }
 function recordHookRun(payload, files, cwd, runId) {
   const key = hookRunKey(payload, files, cwd);
@@ -8902,7 +10095,7 @@ function peerStateDir() {
   return stateDir;
 }
 function peerStateKey(payload, files, cwd) {
-  return createHash3("sha1").update(JSON.stringify({
+  return createHash5("sha1").update(JSON.stringify({
     agent: agentId(payload),
     workspace: normalizeWorkspacePath(cwd, cwd) ?? resolve14(cwd),
     artifact: artifact(payload),
@@ -8910,7 +10103,7 @@ function peerStateKey(payload, files, cwd) {
   })).digest("hex");
 }
 function peerFingerprint(peers) {
-  return createHash3("sha1").update(JSON.stringify(peers.map((peer) => ({
+  return createHash5("sha1").update(JSON.stringify(peers.map((peer) => ({
     agent: peer.agent_id,
     file: peer.file_path,
     task: peer.task_id,
@@ -8935,19 +10128,17 @@ function emitPeerDelta(payload, files, cwd, allPeers) {
     previous = readFileSync4(stateFile, "utf8").trim();
   } catch {
   }
-  if (previous === fingerprint) return;
+  if (previous === fingerprint) return null;
   writeFileSync4(stateFile, fingerprint, "utf8");
-  if (peers.length === 0) return;
+  if (peers.length === 0) return null;
   const shown = peers.slice(0, 3).map(peerLabel).join("; ");
   const omitted = peers.length > 3 ? ` +${peers.length - 3}` : "";
   const canonicalWorkspace = canonicalizePath(cwd);
   const targets = files.slice(0, 2).map((file) => relative5(canonicalWorkspace, resolveHookPath(file, cwd)) || basename3(file)).join(",");
-  const message = `AWARE ${targets} | peers ${shown}${omitted}`;
-  process.stdout.write(`${JSON.stringify({ additionalContext: message })}
-`);
+  return `AWARE ${targets} | peers ${shown}${omitted}`;
 }
 function hookAgentContext(payload, hookName) {
-  const value = process.env.OCTOCODE_AGENT_CONTEXT ?? process.env.OCTOCODE_AGENT_HOST ?? payload.context ?? payload.host ?? payload.client ?? payload.source;
+  const value = process.env.OCTOCODE_AGENT_CONTEXT ?? payload[INTERNAL_HOOK_HOST] ?? process.env.OCTOCODE_AGENT_HOST ?? payload.context ?? payload.host ?? payload.client ?? payload.source;
   return typeof value === "string" && value.trim() ? value.trim() : hookName;
 }
 function registerHookAgent(database, payload, hookName) {
@@ -8976,12 +10167,15 @@ async function runPreEdit(payload) {
   const hookWorkspace = workspace(payload) ?? process.cwd();
   const guardReason = evaluateHarnessGuard({
     targetFiles: files,
-    skillRoot: process.env.OCTOCODE_SKILL_ROOT,
+    skillRoot: hookSkillRoot(payload),
     cwd: hookWorkspace
   });
   if (guardReason) {
-    console.error(`${guardReason} Edit blocked.`);
-    return 2;
+    return completeHookControl(hookBlockOutcome(
+      shellHookHost(payload),
+      "pre-edit",
+      `${guardReason} Edit blocked.`
+    ));
   }
   try {
     const database = db();
@@ -9005,26 +10199,34 @@ async function runPreEdit(payload) {
       runId: explicitRunId,
       targetFiles: files,
       ttlMs: 10 * 6e4
-    }) } : startWork(database, {
+    }) } : activeClaim ? startWork(database, {
       agentId: hookAgentId,
-      sessionId: sessionId(payload),
       workspacePath: hookWorkspace,
       artifact: hookArtifact,
-      runId: activeClaim?.run_id,
-      rationale: autoClaimRationale(payload, files),
-      testPlan: "post-edit verification",
+      runId: activeClaim.run_id,
       targetFiles: files,
       origin: "HOOK",
       source: "HOOK",
       ttlMs: 10 * 6e4
-    });
+    }) : startOrAttachFallbackHookRun(database, payload, hookWorkspace, files);
     if (!result.ok) {
       const detail = result.conflicts.slice(0, 3).map((conflict) => `${relative5(hookWorkspace, conflict.file_path)} (${conflict.agent_id})`).join(", ");
-      console.error(`octocode-awareness: exclusive file work blocks this edit${detail ? `: ${detail}` : ""}.`);
-      return 2;
+      return completeHookControl(hookBlockOutcome(
+        shellHookHost(payload),
+        "pre-edit",
+        `octocode-awareness: exclusive file work blocks this edit${detail ? `: ${detail}` : ""}.`
+      ));
     }
+    withHookDbRetry(() => refreshFallbackVerificationPlan(database, result.run.run_id, hookWorkspace));
     recordHookRun(payload, files, hookWorkspace, result.run.run_id);
-    emitPeerDelta(payload, files, hookWorkspace, result.peers);
+    const peerContext = emitPeerDelta(payload, files, hookWorkspace, result.peers);
+    if (peerContext) {
+      emitHookContext(
+        payload,
+        shellHookHost(payload) === "cursor" ? "preToolUse" : "PreToolUse",
+        peerContext
+      );
+    }
     return 0;
   } catch (error) {
     console.error(`octocode-awareness pre-flight warning (continuing): ${error instanceof Error ? error.message : String(error)}`);
@@ -9064,7 +10266,13 @@ async function runPostEdit(payload) {
     stage = "read run origin";
     const origin = withHookDbRetry(() => runOrigin(database, correlatedRunId));
     stage = "finish work lifecycle";
-    if (origin === "HOOK") {
+    if (origin === "HOOK" && isAggregatedFallbackHookRun(database, correlatedRunId)) {
+      withHookDbRetry(() => touchWork(database, {
+        agentId: hookAgentId,
+        runId: correlatedRunId,
+        ttlMs: 10 * 6e4
+      }));
+    } else if (origin === "HOOK") {
       withHookDbRetry(() => endWork(database, {
         agentId: hookAgentId,
         runId: correlatedRunId,
@@ -9104,30 +10312,42 @@ async function runPostEdit(payload) {
 async function runHarnessGuard(payload) {
   const reason = evaluateHarnessGuard({
     targetFiles: extractFiles(payload),
-    skillRoot: process.env.OCTOCODE_SKILL_ROOT,
+    skillRoot: hookSkillRoot(payload),
     cwd: process.cwd()
   });
   if (reason) {
-    console.error(`${reason} Edit blocked.`);
-    return 2;
+    return completeHookControl(hookBlockOutcome(
+      shellHookHost(payload),
+      "pre-edit",
+      `${reason} Edit blocked.`
+    ));
   }
   return 0;
 }
 async function runStopVerify(payload) {
-  if (process.env.OCTOCODE_NO_VERIFY_GATE === "1" || isStopHookActive(payload)) return 0;
   try {
     const database = db();
     registerHookAgent(database, payload, "hook:stop-verify");
+    const finalizedRunIds = withHookDbRetry(() => finalizeActiveFallbackHookRuns(
+      database,
+      payload,
+      workspace(payload) ?? process.cwd()
+    ));
+    if (process.env.OCTOCODE_NO_VERIFY_GATE === "1") return 0;
     const report = auditUnverified(database, { agentId: agentId(payload), ...scopeArgs(payload) });
     if (report.count > 0) {
+      if (isStopHookActive(payload) && finalizedRunIds.length === 0) return 0;
       const details = [
         ...report.unverified.map((run) => `${run.status}:${run.run_id}: ${run.test_plan}`),
         ...report.stale_active.map((run) => `STALE:${run.run_id}: ${run.rationale}`)
       ];
       const shown = details.slice(0, 3);
       const omitted = details.length > 3 ? `; +${details.length - 3} omitted` : "";
-      console.error(`octocode-awareness: concluding with unverified work. ${shown.join("; ")}${omitted}`);
-      return 2;
+      return completeHookControl(hookBlockOutcome(
+        shellHookHost(payload),
+        "stop",
+        `octocode-awareness: concluding with unverified work. ${shown.join("; ")}${omitted}`
+      ));
     }
   } catch (error) {
     console.error(`octocode-awareness verify warning (continuing): ${error instanceof Error ? error.message : String(error)}`);
@@ -9141,7 +10361,7 @@ function maybePreviewDigest(payload) {
   const intervalMs = Number.isFinite(intervalHours) && intervalHours > 0 ? intervalHours * 36e5 : 4 * 36e5;
   const memoryHome2 = dirname5(resolveDbPath(null));
   const digestScope = workspace(payload) ?? "global";
-  const scopeHash = createHash3("sha256").update(digestScope).digest("hex").slice(0, 12);
+  const scopeHash = createHash5("sha256").update(digestScope).digest("hex").slice(0, 12);
   const markerPath = join8(memoryHome2, `.last-digest-preview-${scopeHash}-epoch-ms`);
   try {
     const database = db();
@@ -9181,6 +10401,11 @@ async function runNotifyDeliver(payload) {
   try {
     const database = db();
     registerHookAgent(database, payload, "hook:notify-deliver");
+    withHookDbRetry(() => finalizeActiveFallbackHookRuns(
+      database,
+      payload,
+      workspace(payload) ?? process.cwd()
+    ));
     const result = notifyGet(database, {
       agent_id: agentId(payload),
       workspace: workspace(payload) ?? void 0,
@@ -9189,9 +10414,11 @@ async function runNotifyDeliver(payload) {
     });
     const additionalContext = [result.additionalContext, maintenanceContext].filter(Boolean).join("\n");
     if (additionalContext) {
-      process.stdout.write(JSON.stringify({
+      emitHookContext(
+        payload,
+        shellHookHost(payload) === "cursor" ? "sessionStart" : "UserPromptSubmit",
         additionalContext
-      }) + "\n");
+      );
     }
   } catch (error) {
     console.error(`octocode-awareness session-capture warning (continuing): ${error instanceof Error ? error.message : String(error)}`);
@@ -9199,28 +10426,43 @@ async function runNotifyDeliver(payload) {
   return 0;
 }
 async function runSessionEnd(payload) {
-  if (process.env.OCTOCODE_NO_SESSION_CAPTURE === "1" || hookReason(payload) === "clear") return 0;
   try {
     const database = db();
     registerHookAgent(database, payload, "hook:session-end");
-    sessionCapture(database, {
-      agent_id: agentId(payload),
-      workspace: workspace(payload) ?? void 0,
-      artifact: artifact(payload) ?? void 0,
-      reason: hookReason(payload) || void 0
-    });
+    withHookDbRetry(() => finalizeActiveFallbackHookRuns(
+      database,
+      payload,
+      workspace(payload) ?? process.cwd()
+    ));
+    if (process.env.OCTOCODE_NO_SESSION_CAPTURE !== "1" && hookReason(payload) !== "clear") {
+      sessionCapture(database, {
+        agent_id: agentId(payload),
+        workspace: workspace(payload) ?? void 0,
+        artifact: artifact(payload) ?? void 0,
+        reason: hookReason(payload) || void 0
+      });
+    }
     const sid = sessionId(payload);
-    if (sid) endSession(database, { sessionId: sid });
+    if (sid) endSession(database, {
+      sessionId: sid,
+      agentId: agentId(payload),
+      workspacePath: workspace(payload) ?? process.cwd(),
+      artifact: artifact(payload)
+    });
   } catch {
   }
   return 0;
 }
-async function runHookCommand(command2, rawPayload) {
+async function runHookCommand(command2, rawPayload, options = {}) {
   if (command2 === "help" || command2 === "--help" || command2 === "-h") {
     process.stdout.write("usage: hook-runner <pre-edit|post-edit|harness-guard|stop-verify|notify-deliver|session-end> < hook-payload.json\n");
     return 0;
   }
-  const payload = parsePayload(rawPayload ?? await readStdin());
+  const payload = {
+    ...parsePayload(rawPayload ?? await readStdin()),
+    ...options.host ? { [INTERNAL_HOOK_HOST]: options.host } : {},
+    ...options.skillRoot ? { [INTERNAL_SKILL_ROOT]: options.skillRoot } : {}
+  };
   switch (command2) {
     case "pre-edit":
       return runPreEdit(payload);
@@ -9240,7 +10482,19 @@ async function runHookCommand(command2, rawPayload) {
   }
 }
 async function main() {
-  return runHookCommand(process.argv[2] ?? "help");
+  const hostIndex = process.argv.indexOf("--host");
+  const rawHost = hostIndex >= 0 ? process.argv[hostIndex + 1] : void 0;
+  const host = normalizeShellHookHost(rawHost);
+  if (rawHost && !host) {
+    console.error(`unknown hook host: ${rawHost}`);
+    return 1;
+  }
+  const skillRootIndex = process.argv.indexOf("--skill-root");
+  const skillRoot = skillRootIndex >= 0 ? process.argv[skillRootIndex + 1] : void 0;
+  return runHookCommand(process.argv[2] ?? "help", void 0, {
+    ...host ? { host } : {},
+    ...skillRoot ? { skillRoot } : {}
+  });
 }
 var isMain = process.argv[1] ? fileURLToPath3(import.meta.url) === resolve14(process.argv[1]) : false;
 var invokedAsHookRunner = process.argv[1] ? /^hook-runner\.(js|mjs|ts)$/.test(basename3(process.argv[1])) : false;
@@ -9275,7 +10529,8 @@ var ARRAY_FLAGS = /* @__PURE__ */ new Set([
   "to_agent",
   "kind",
   "path",
-  "depends_on"
+  "depends_on",
+  "origin"
 ]);
 function parseArgs(argv) {
   const result = { _: [] };
@@ -9325,6 +10580,8 @@ var NUMERIC_FLAGS = /* @__PURE__ */ new Set([
   "retention_days",
   "refinement_handoff_retention_days",
   "refinement_done_retention_days",
+  "operational_retention_days",
+  "pressure_age_days",
   "priority",
   "lease_minutes"
 ]);
@@ -9359,7 +10616,8 @@ var BOOLEAN_FLAGS = /* @__PURE__ */ new Set([
   "exclusive",
   "next",
   "duo",
-  "examples"
+  "examples",
+  "allow_similar"
 ]);
 var VALUE_REQUIRED_FLAGS = /* @__PURE__ */ new Set([
   "query",
@@ -9429,27 +10687,29 @@ var VALUE_REQUIRED_FLAGS = /* @__PURE__ */ new Set([
   "quality",
   "reason",
   "targets_json",
+  "origin",
   "export_doc",
   "agent_name",
   "context",
   "before",
-  "importance"
+  "importance",
+  "check_receipt"
 ]);
 var KNOWN_FLAGS = {
-  "tell-memory": ["agent_id", "task_context", "observation", "importance", "label", "tag", "reference", "supersedes", "failure_signature", "valid_from", "valid_to", "workspace", "artifact", "repo", "ref", "file", "file_tree_fingerprint"],
+  "tell-memory": ["agent_id", "task_context", "observation", "importance", "label", "tag", "reference", "supersedes", "failure_signature", "valid_from", "valid_to", "workspace", "artifact", "repo", "ref", "file", "file_tree_fingerprint", "allow_similar"],
   "get-memory": ["query", "limit", "min_importance", "label", "tag", "smart", "workspace", "artifact", "repo", "ref", "state", "sort", "global_only", "strict_scope", "as_of", "reference", "regex", "file_regex", "file", "explain", "semantic", "full"],
   "forget": ["memory_id", "tag", "tags", "before", "max_importance", "workspace", "artifact", "repo", "ref", "dry_run"],
-  "reflect": ["agent_id", "task", "outcome", "lesson", "worked", "didnt_work", "fix_repo", "fix_file", "fix_harness", "fix_instructions", "failure_signature", "importance", "judgment_note", "duo", "eval_failure_json", "workspace", "artifact", "repo", "ref"],
-  "refine-set": ["agent_id", "reasoning", "remember", "quality", "state", "workspace", "artifact", "repo", "ref", "file", "refinement_id"],
+  "reflect": ["agent_id", "task", "outcome", "lesson", "worked", "didnt_work", "fix_repo", "fix_file", "fix_harness", "fix_instructions", "failure_signature", "importance", "judgment_note", "duo", "eval_failure_json", "workspace", "artifact", "repo", "ref", "allow_similar"],
+  "refine-set": ["agent_id", "reasoning", "remember", "quality", "state", "workspace", "artifact", "repo", "ref", "file", "refinement_id", "check_receipt"],
   "refine-get": ["workspace", "artifact", "repo", "ref", "quality", "include_handoffs", "state", "limit"],
   "refine-delete": ["refinement_id", "workspace", "artifact", "dry_run"],
   "pre-flight-intent": ["agent_id", "workspace", "artifact", "run_id", "rationale", "test_plan", "context_ref", "target_file", "file", "ttl_minutes", "ttl_seconds", "wait_seconds", "retry_interval", "strict_agent_id"],
-  "release-file-lock": ["agent_id", "run_id", "target_file", "file", "status", "verified", "verified_note", "workspace", "artifact"],
+  "release-file-lock": ["agent_id", "run_id", "target_file", "file", "status", "workspace", "artifact"],
   "status": ["workspace", "artifact", "limit"],
   "init": [],
   "self-test": [],
   "prune-stale-locks": ["older_than_minutes", "expired_only", "agent_id", "target_file", "workspace", "artifact", "dry_run"],
-  "audit-unverified": ["agent_id", "workspace", "artifact", "abandon"],
+  "audit-unverified": ["agent_id", "workspace", "artifact", "abandon", "older_than_days", "origin", "before"],
   "verify": ["run_id", "all_pending", "agent_id", "status", "message", "workspace", "artifact"],
   "mine-weakness": ["agent_id", "workspace", "artifact", "min_count", "limit", "cwd"],
   "doc-staleness": ["agent_id", "workspace", "artifact", "targets_json", "min_edits", "min_lines", "propose", "session_id"],
@@ -9461,10 +10721,10 @@ var KNOWN_FLAGS = {
   "repo-inject": ["query", "limit", "out", "out_dir", "workspace", "artifact", "repo", "ref", "mode", "check", "include_view"],
   "agent-registry": ["action", "agent_id", "agent_name", "workspace", "artifact", "context", "limit"],
   "agent-signal": ["action", "agent_id", "workspace", "artifact", "repo", "ref", "kind", "subject", "body", "to_agent", "file", "ref_id", "importance", "in_reply_to", "thread_id", "signal_id", "all", "unread_only", "mark_read", "limit", "include_bodies"],
-  "notify-prune": ["signal_id", "resolved", "older_than_days", "dry_run", "workspace", "artifact"],
+  "notify-prune": ["agent_id", "signal_id", "resolved", "older_than_days", "dry_run", "workspace", "artifact"],
   "session-capture": ["agent_id", "workspace", "artifact", "repo", "ref", "reason", "cwd"],
   "wait-for-lock": ["agent_id", "target_file", "file", "workspace", "artifact", "wait_seconds", "retry_interval"],
-  "digest": ["retention_days", "refinement_handoff_retention_days", "refinement_done_retention_days", "dry_run", "export_doc", "workspace", "artifact"],
+  "digest": ["retention_days", "refinement_handoff_retention_days", "refinement_done_retention_days", "operational_retention_days", "pressure_age_days", "dry_run", "export_doc", "workspace", "artifact"],
   "hook-run": [],
   "hooks-install": ["host", "project_dir", "global", "check", "strict", "dry_run", "remove"],
   "schema": ["examples"],
@@ -9631,7 +10891,7 @@ function packageSkillScriptPath(...segments) {
     // dist/bin/ — last resort
   ];
   const scriptsDir = candidates.find(
-    (candidate) => existsSync6(join9(candidate, "schema.mjs")) || existsSync6(join9(candidate, "hooks"))
+    (candidate) => existsSync7(join9(candidate, "schema.mjs")) || existsSync7(join9(candidate, "hooks"))
   ) ?? candidates[0];
   return join9(scriptsDir, ...segments);
 }
@@ -9693,7 +10953,7 @@ function cmdTellMemory(db3, args2, dbPath2, opts2) {
   const supersedes = Array.isArray(rawSup) ? rawSup : rawSup ? [String(rawSup)] : [];
   const rawLabel = args2["label"];
   const label = Array.isArray(rawLabel) ? rawLabel[0] : String(rawLabel ?? "");
-  const { memory, superseded, noveltyScore, similarMemoryIds } = insertMemory(db3, {
+  const guarded = insertMemoryWithSimilarityGate(db3, {
     agentId: agentId2,
     taskContext,
     observation,
@@ -9710,7 +10970,17 @@ function cmdTellMemory(db3, args2, dbPath2, opts2) {
     repo: args2["repo"] ? String(args2["repo"]) : null,
     ref: args2["ref"] ? String(args2["ref"]) : null,
     fileTreeFingerprint: args2["file_tree_fingerprint"] ? String(args2["file_tree_fingerprint"]) : null
-  });
+  }, Boolean(args2["allow_similar"]));
+  if (guarded.skipped) {
+    return emit({
+      db_path: dbPath2,
+      skipped: true,
+      reason: "similar_memory_exists",
+      similar: guarded.similar,
+      next: "Reuse the existing memory, supersede stale ids, or pass --allow-similar only for a materially distinct recurrence."
+    }, 0, opts2);
+  }
+  const { memory, superseded, noveltyScore, similarMemoryIds } = guarded.result;
   const payload = { db_path: dbPath2, memory, superseded };
   if (supersedes.length === 0 && noveltyScore < 0.5 && similarMemoryIds.length > 0) {
     payload["consolidation"] = {
@@ -9863,10 +11133,17 @@ function cmdRefineSet(db3, args2, dbPath2, opts2) {
       ...args2["quality"] !== void 0 ? { quality: String(args2["quality"]) } : {},
       ...args2["reasoning"] !== void 0 ? { reasoning: String(args2["reasoning"]) } : {},
       ...args2["remember"] !== void 0 ? { remember: String(args2["remember"]) } : {},
-      ...rawFile !== void 0 ? { files } : {}
+      ...rawFile !== void 0 ? { files } : {},
+      ...args2["state"] !== void 0 && stateVal === "done" ? {
+        actorAgentId: resolveAgentId(args2),
+        checkReceipt: args2["check_receipt"] ? String(args2["check_receipt"]) : ""
+      } : {}
     });
     if (!update.updated) die(`refinement not found: ${refinementId}`);
     return emit({ db_path: dbPath2, updated: true, refinement: update.refinement }, 0, opts2);
+  }
+  if (stateVal === "done") {
+    die("terminal refinement creation is not allowed; create open/ongoing, then close an existing --refinement-id with --agent-id and --check-receipt");
   }
   const reasoning = String(args2["reasoning"] ?? "");
   const remember = String(args2["remember"] ?? "");
@@ -9927,12 +11204,14 @@ function cmdReflect(db3, args2, dbPath2, opts2) {
     importance: args2["importance"] ? parseInt(String(args2["importance"]), 10) : null,
     judgmentNote: args2["judgment_note"] ? String(args2["judgment_note"]) : null,
     duo: Boolean(args2["duo"]),
+    allowSimilar: Boolean(args2["allow_similar"]),
     evalFailures,
-    files: Array.isArray(args2["fix_file"]) ? args2["fix_file"] : [],
+    files: valuesFor(args2, "fix_file"),
     workspacePath: args2["workspace"] ? String(args2["workspace"]) : null,
     artifact: args2["artifact"] ? String(args2["artifact"]) : null,
     repo: args2["repo"] ? String(args2["repo"]) : null,
-    ref: args2["ref"] ? String(args2["ref"]) : null
+    ref: args2["ref"] ? String(args2["ref"]) : null,
+    cwd: args2["workspace"] ? String(args2["workspace"]) : process.cwd()
   });
   return emit({ ...result, db_path: dbPath2 }, 0, opts2);
 }
@@ -9989,7 +11268,10 @@ function cmdAuditUnverified(db3, args2, dbPath2, opts2) {
     agentId: args2["agent_id"] ? String(args2["agent_id"]) : null,
     workspacePath: rawAuditWs ? normalizeWorkspacePath(rawAuditWs, rawAuditWs) : null,
     artifact: args2["artifact"] ? String(args2["artifact"]) : null,
-    abandon: Boolean(args2["abandon"])
+    abandon: Boolean(args2["abandon"]),
+    olderThanDays: args2["older_than_days"] !== void 0 ? Number(args2["older_than_days"]) : null,
+    origins: valuesFor(args2, "origin").map((origin) => origin.toUpperCase()),
+    before: args2["before"] ? String(args2["before"]) : null
   });
   if (opts2.compact || process.env["OCTOCODE_AWARENESS_COMPACT"] === "1") {
     const detailLimit = 3;
@@ -10017,13 +11299,20 @@ function cmdVerify(db3, args2, dbPath2, opts2) {
   if (statusArg !== "SUCCESS" && statusArg !== "FAILED") {
     return emit({ error: `--status must be SUCCESS or FAILED, got "${statusArg}"` }, 1, opts2);
   }
+  const message = args2["message"] ? String(args2["message"]).trim() : "";
+  if (statusArg === "SUCCESS" && !message) {
+    return emit({ error: "SUCCESS verification requires --message with the evidence receipt" }, 1, opts2);
+  }
+  if (allPending && !args2["workspace"] && !args2["artifact"]) {
+    return emit({ error: "--all-pending requires --workspace or --artifact; otherwise pass explicit --run-id values" }, 1, opts2);
+  }
   if (!allPending && runIds.length > 1) {
     const results = runIds.map((runId) => markVerified(db3, {
       runId,
       agentId: resolveAgentId(args2),
       workspacePath: args2["workspace"] ? String(args2["workspace"]) : null,
       artifact: args2["artifact"] ? String(args2["artifact"]) : null,
-      message: args2["message"] ? String(args2["message"]) : void 0,
+      message: message || void 0,
       status: statusArg
     }));
     const failed = results.find((result2) => !result2.ok);
@@ -10045,7 +11334,7 @@ function cmdVerify(db3, args2, dbPath2, opts2) {
     allPending,
     workspacePath: args2["workspace"] ? String(args2["workspace"]) : null,
     artifact: args2["artifact"] ? String(args2["artifact"]) : null,
-    message: args2["message"] ? String(args2["message"]) : void 0,
+    message: message || void 0,
     status: statusArg
   });
   return emit({ db_path: dbPath2, ...result }, result.ok ? 0 : 1, opts2);
@@ -10057,9 +11346,9 @@ function cmdReleaseFileLock(db3, args2, dbPath2, opts2) {
   if (!runId && targetFiles.length === 0) {
     return emit({ error: "lock release requires --run-id or --target-file" }, 1, opts2);
   }
-  const status = String(args2["status"] ?? "SUCCESS").toUpperCase();
-  if (!["PENDING", "SUCCESS", "FAILED"].includes(status)) {
-    return emit({ error: `--status must be PENDING, SUCCESS, or FAILED, got "${status}"` }, 1, opts2);
+  const status = String(args2["status"] ?? "PENDING").toUpperCase();
+  if (!["PENDING", "FAILED"].includes(status)) {
+    return emit({ error: `--status must be PENDING or FAILED; use verify mark --message <receipt> for SUCCESS, got "${status}"` }, 1, opts2);
   }
   const result = releaseFileLock(db3, {
     agentId: resolveAgentId(args2),
@@ -10067,9 +11356,7 @@ function cmdReleaseFileLock(db3, args2, dbPath2, opts2) {
     artifact: args2["artifact"] ? String(args2["artifact"]) : null,
     runId: runId ?? null,
     targetFiles,
-    status,
-    verified: Boolean(args2["verified"]),
-    verifiedNote: args2["verified_note"] ? String(args2["verified_note"]) : void 0
+    status
   });
   if (!result.released) {
     return emit({ db_path: dbPath2, ...result, ok: false }, result.ambiguousRelease ? 2 : 1, opts2);
@@ -10658,6 +11945,7 @@ function cmdNotifyPrune(db3, args2, dbPath2, opts2) {
   const rawIds = args2["signal_id"];
   const notificationIds = Array.isArray(rawIds) ? rawIds : rawIds ? [String(rawIds)] : [];
   const result = pruneNotifications(db3, {
+    agentId: resolveAgentId(args2),
     workspacePath: args2["workspace"] ? String(args2["workspace"]) : null,
     artifact: args2["artifact"] ? String(args2["artifact"]) : null,
     notificationIds,
@@ -10924,7 +12212,7 @@ var COMMAND_EXAMPLE = {
   "pre-flight-intent": 'octocode-awareness lock acquire --agent-id agent --target-file src/file.ts --rationale "edit file" --test-plan "yarn test" --compact',
   "wait-for-lock": "octocode-awareness lock wait --agent-id agent --target-file src/file.ts --wait-seconds 60 --compact",
   "prune-stale-locks": 'octocode-awareness lock prune --workspace "$PWD" --expired-only --dry-run --compact',
-  "release-file-lock": "octocode-awareness lock release --agent-id agent --run-id run_123 --status SUCCESS --verified --compact",
+  "release-file-lock": "octocode-awareness lock release --agent-id agent --run-id run_123 --status PENDING --compact",
   "audit-unverified": 'octocode-awareness verify audit --agent-id agent --workspace "$PWD" --compact',
   "verify": 'octocode-awareness verify mark --agent-id agent --all-pending --message "yarn test passed" --workspace "$PWD" --compact',
   "refine-set": 'octocode-awareness refinement set --agent-id agent --reasoning "handoff" --remember "next step" --workspace "$PWD" --compact',
@@ -11297,11 +12585,15 @@ try {
       const retDays = args["retention_days"] ? Number(args["retention_days"]) : void 0;
       const handoffDays = args["refinement_handoff_retention_days"] ? Number(args["refinement_handoff_retention_days"]) : void 0;
       const doneDays = args["refinement_done_retention_days"] ? Number(args["refinement_done_retention_days"]) : void 0;
+      const operationalDays = args["operational_retention_days"] ? Number(args["operational_retention_days"]) : void 0;
+      const pressureAgeDays = args["pressure_age_days"] ? Number(args["pressure_age_days"]) : 1;
       const isDryRun = Boolean(args["dry_run"] ?? args["dry-run"]);
       const digestResult = digest(db2, {
         ...retDays !== void 0 ? { retention_days: retDays } : {},
         ...handoffDays !== void 0 ? { refinement_handoff_retention_days: handoffDays } : {},
         ...doneDays !== void 0 ? { refinement_done_retention_days: doneDays } : {},
+        ...operationalDays !== void 0 ? { operational_retention_days: operationalDays } : {},
+        pressure_age_days: pressureAgeDays,
         ...args["workspace"] ? { workspace: String(args["workspace"]) } : {},
         ...args["artifact"] ? { artifact: String(args["artifact"]) } : {},
         ...isDryRun ? { dry_run: true } : {}

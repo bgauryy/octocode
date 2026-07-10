@@ -196,6 +196,10 @@ export function runAwarenessToolOperation(
         payload['judgment_required'] = true;
         payload['judgment_reason'] = result.judgment_reason;
       }
+      if (result.smart_expanded) {
+        payload['smart_expanded'] = true;
+        payload['smart_dropped_filters'] = result.smart_dropped_filters ?? [];
+      }
       return { payload, exitCode: 0 };
     }
 
@@ -281,6 +285,7 @@ export function runAwarenessToolOperation(
         importance: request['importance'] as number | undefined,
         judgmentNote: request['judgment_note'] as string | undefined,
         duo: Boolean(request['duo']),
+        allowSimilar: Boolean(request['allow_similar']),
         evalFailures: Array.isArray(request['eval_failures'])
           ? request['eval_failures'] as Array<{ id: string; dimension?: string; failure_signature?: string; suggested_lesson?: string }>
           : undefined,
@@ -297,6 +302,7 @@ export function runAwarenessToolOperation(
       }) as unknown as {
         outcome: string;
         learning_memory_id: string;
+        learning_memory_skipped?: true;
         novelty_score?: number;
         similar_memory_ids?: string[];
         repo_fix_refinement_id?: string;
@@ -312,6 +318,7 @@ export function runAwarenessToolOperation(
         outcome: result.outcome,
         memory_id: result.learning_memory_id,
       };
+      if (result.learning_memory_skipped) payload['memory_skipped'] = true;
       if (typeof result.novelty_score === 'number' && result.novelty_score < 0.75) {
         payload['novelty'] = Math.round(result.novelty_score * 100) / 100;
       }
@@ -432,6 +439,11 @@ export function runAwarenessToolOperation(
       const result = auditUnverified(db, {
         agentId,
         workspacePath: cwd,
+        olderThanDays: request['older_than_days'] as number | undefined,
+        origins: Array.isArray(request['origin'])
+          ? request['origin'] as Array<'TASK' | 'WORK' | 'HOOK'>
+          : undefined,
+        before: request['before'] as string | undefined,
       }) as unknown as {
         unverified: Array<{ run_id: string; test_plan: string; target_files?: string[] }>;
         stale_active: Array<{ run_id: string; agent_id: string; age_hours: number; rationale: string; target_files?: string[] }>;
@@ -460,11 +472,23 @@ export function runAwarenessToolOperation(
     case 'verify': {
       const singleId = request['run_id'] as string | undefined;
       const batchIds = Array.isArray(request['run_ids']) ? (request['run_ids'] as unknown[]).map(String) : [];
-      const allPending = Boolean(request['allPending']);
+      const allPending = Boolean(request['all_pending'] ?? request['allPending']);
       const verifyStatus = ((request['status'] as string | undefined) ?? 'SUCCESS') as 'SUCCESS' | 'FAILED';
+      const verifyWorkspace = (request['workspace'] as string | undefined)
+        ?? (request['workspace_path'] as string | undefined)
+        ?? cwd;
+      const verifyArtifact = request['artifact'] as string | undefined;
+      const verifyMessage = request['message'] as string | undefined;
 
       if (allPending && !singleId && batchIds.length === 0) {
-        const r = markVerified(db, { allPending: true, agentId, workspacePath: cwd, status: verifyStatus }) as MarkVerifiedResult;
+        const r = markVerified(db, {
+          allPending: true,
+          agentId,
+          workspacePath: verifyWorkspace,
+          artifact: verifyArtifact,
+          message: verifyMessage,
+          status: verifyStatus,
+        }) as MarkVerifiedResult;
         if (!r.ok) {
           return { payload: { run_id: r.run_id, error: r.error }, exitCode: 1 };
         }
@@ -486,7 +510,14 @@ export function runAwarenessToolOperation(
       }
 
       const verifyResults = ids.map((runId) => {
-        const r = markVerified(db, { runId, agentId, status: verifyStatus }) as MarkVerifiedResult;
+        const r = markVerified(db, {
+          runId,
+          agentId,
+          workspacePath: verifyWorkspace,
+          artifact: verifyArtifact,
+          message: verifyMessage,
+          status: verifyStatus,
+        }) as MarkVerifiedResult;
         return r.ok
           ? { run_id: r.run_id, status: r.status }
           : { run_id: r.run_id, error: r.error };
@@ -500,6 +531,10 @@ export function runAwarenessToolOperation(
     case 'digest': {
       const digestParams: Record<string, unknown> = {
         retention_days: (request['retention_days'] as number | undefined) ?? 90,
+        refinement_handoff_retention_days: (request['refinement_handoff_retention_days'] as number | undefined) ?? 7,
+        refinement_done_retention_days: (request['refinement_done_retention_days'] as number | undefined) ?? 30,
+        operational_retention_days: (request['operational_retention_days'] as number | undefined) ?? 90,
+        pressure_age_days: (request['pressure_age_days'] as number | undefined) ?? 1,
       };
       if (request['workspace'] || request['workspace_path']) {
         digestParams['workspace'] = request['workspace'] ?? request['workspace_path'];
@@ -515,13 +550,25 @@ export function runAwarenessToolOperation(
             would_prune_old: result.would_prune_old,
             would_prune_locks: result.would_prune_locks,
             would_prune_refinements: result.would_prune_refinements,
+            would_prune_runs: result.would_prune_runs,
+            pressure_age_days: result.pressure_age_days,
+            stale_pending_runs: result.stale_pending_runs,
+            stale_open_signals: result.stale_open_signals,
+            stale_missing_refs: result.stale_missing_refs,
+            pressure_samples: result.pressure_samples,
           }
         : {
             archived_memories: result.archived_memories,
             pruned_old: result.pruned_old,
             pruned_locks: result.pruned_locks,
             pruned_refinements: result.pruned_refinements,
+            pruned_runs: result.pruned_runs,
             fts_rebuilt: result.fts_rebuilt,
+            pressure_age_days: result.pressure_age_days,
+            stale_pending_runs: result.stale_pending_runs,
+            stale_open_signals: result.stale_open_signals,
+            stale_missing_refs: result.stale_missing_refs,
+            pressure_samples: result.pressure_samples,
           };
 
       if (request['export_doc']) {

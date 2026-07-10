@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { realpathSync } from 'node:fs';
 import type { DatabaseSync } from 'node:sqlite';
 import { connectCachedDb, resolveDbPath } from './db.js';
@@ -11,13 +11,15 @@ import { insertEditLog } from './audit.js';
 // generated once at import time so the agentId is stable within a session but
 // unique across sessions even when PIDs repeat.
 const _sessionStartupToken = randomUUID().slice(0, 8);
-import { normalizeArtifact, utcNow } from './helpers.js';
+import { normalizeArtifact } from './helpers.js';
+import { normalizeWorkspacePath } from './git.js';
 import { activeTaskClaimForAgent } from './tasks.js';
 import { endWork, listWork, startWork, touchWork } from './work.js';
 import type { WorkPeer } from './types.js';
 import { auditUnverified } from './verify.js';
 import { notifyGet, sessionCapture } from './maintenance.js';
 import { registerAgent } from './agents.js';
+import { ensureRunSession } from './sessions.js';
 
 export interface PiLikeSessionManager {
   getSessionFile?: () => string | null | undefined;
@@ -195,9 +197,7 @@ function ensurePiSession(
   db: DatabaseSync,
   params: { agentId: string; sessionId: string; workspacePath: string; artifact: string | null },
 ): void {
-  db.prepare(`INSERT OR IGNORE INTO sessions
-    (session_id, agent_id, workspace_path, artifact, started_at) VALUES (?, ?, ?, ?, ?)`)
-    .run(params.sessionId, params.agentId, params.workspacePath, params.artifact, utcNow());
+  ensureRunSession(db, params);
 }
 
 function canonicalPath(input: string): string {
@@ -249,6 +249,115 @@ function activeWorkRunForFiles(
 function workRunOrigin(db: DatabaseSync, runId: string): 'TASK' | 'WORK' | 'HOOK' | null {
   const row = db.prepare('SELECT origin FROM task_runs WHERE run_id = ?').get(runId) as { origin: 'TASK' | 'WORK' | 'HOOK' } | undefined;
   return row?.origin ?? null;
+}
+
+const PI_HOOK_AGGREGATE_CONTEXT_PREFIX = 'pi-hook-scope:';
+
+function piHookAggregateContextRef(params: {
+  agentId: string;
+  sessionId: string;
+  workspacePath: string;
+  artifact: string | null;
+}): string {
+  const identity = {
+    agent: params.agentId,
+    session: params.sessionId,
+    workspace: normalizeWorkspacePath(params.workspacePath, params.workspacePath) ?? path.resolve(params.workspacePath),
+    artifact: normalizeArtifact(params.artifact),
+  };
+  return `${PI_HOOK_AGGREGATE_CONTEXT_PREFIX}${createHash('sha1').update(JSON.stringify(identity)).digest('hex')}`;
+}
+
+function activePiFallbackHookRun(db: DatabaseSync, params: {
+  agentId: string;
+  sessionId: string;
+  workspacePath: string;
+  artifact: string | null;
+}): string | null {
+  const row = db.prepare(`SELECT run_id FROM task_runs
+    WHERE origin = 'HOOK' AND status = 'ACTIVE' AND agent_id = ?
+      AND workspace_path = ? AND artifact IS ? AND context_ref = ?
+    ORDER BY updated_at DESC, created_at DESC LIMIT 1`).get(
+    params.agentId,
+    normalizeWorkspacePath(params.workspacePath, params.workspacePath) ?? path.resolve(params.workspacePath),
+    normalizeArtifact(params.artifact),
+    piHookAggregateContextRef(params),
+  ) as { run_id: string } | undefined;
+  return row?.run_id ?? null;
+}
+
+function isAggregatedPiFallbackRun(db: DatabaseSync, runId: string): boolean {
+  const row = db.prepare('SELECT origin, context_ref FROM task_runs WHERE run_id = ?').get(runId) as {
+    origin: string;
+    context_ref: string | null;
+  } | undefined;
+  return row?.origin === 'HOOK' && row.context_ref?.startsWith(PI_HOOK_AGGREGATE_CONTEXT_PREFIX) === true;
+}
+
+function piFallbackVerificationPlan(files: string[], workspacePath: string): string {
+  const root = canonicalPath(workspacePath);
+  const normalized = [...new Set(files.map(file => resolvePiTargetPath(file, workspacePath)))];
+  const shown = normalized.slice(0, 3).map(file => path.relative(root, file) || path.basename(file)).join(', ');
+  const omitted = normalized.length > 3 ? ` (+${normalized.length - 3} more)` : '';
+  return `Verify ${shown || 'the edited files'}${omitted}: run the smallest relevant test/typecheck and inspect the diff; record the check and result.`;
+}
+
+function refreshPiFallbackVerificationPlan(db: DatabaseSync, runId: string, workspacePath: string): void {
+  if (!isAggregatedPiFallbackRun(db, runId)) return;
+  const files = db.prepare('SELECT file_path FROM run_files WHERE run_id = ? ORDER BY file_path')
+    .all(runId) as unknown as Array<{ file_path: string }>;
+  db.prepare("UPDATE task_runs SET test_plan = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE run_id = ? AND origin = 'HOOK'")
+    .run(piFallbackVerificationPlan(files.map(file => file.file_path), workspacePath), runId);
+}
+
+function startOrAttachPiFallbackRun(db: DatabaseSync, params: {
+  agentId: string;
+  sessionId: string;
+  workspacePath: string;
+  artifact: string | null;
+  targetFiles: string[];
+}) {
+  // Pi dispatch is in-process. Keep lookup + synchronous SQLite mutation in one
+  // no-await critical section so parallel tool callbacks coalesce deterministically.
+  const existingRunId = activePiFallbackHookRun(db, params);
+  const result = startWork(db, {
+    agentId: params.agentId,
+    sessionId: params.sessionId,
+    workspacePath: params.workspacePath,
+    artifact: params.artifact,
+    runId: existingRunId ?? undefined,
+    rationale: 'auto: Pi write/edit tool call via octocode-awareness',
+    testPlan: piFallbackVerificationPlan(params.targetFiles, params.workspacePath),
+    contextRef: piHookAggregateContextRef(params),
+    targetFiles: params.targetFiles,
+    origin: 'HOOK',
+    source: 'HOOK',
+    ttlMs: 10 * 60_000,
+  });
+  if (result.ok && existingRunId) {
+    touchWork(db, { agentId: params.agentId, runId: existingRunId, ttlMs: 10 * 60_000 });
+  }
+  if (result.ok) refreshPiFallbackVerificationPlan(db, result.run.run_id, params.workspacePath);
+  return result;
+}
+
+function finalizeActivePiFallbackRuns(db: DatabaseSync, params: {
+  agentId: string;
+  sessionId: string;
+  workspacePath: string;
+  artifact: string | null;
+}): string[] {
+  const rows = db.prepare(`SELECT run_id FROM task_runs
+    WHERE origin = 'HOOK' AND status = 'ACTIVE' AND agent_id = ?
+      AND workspace_path = ? AND artifact IS ? AND context_ref = ?
+    ORDER BY created_at`).all(
+    params.agentId,
+    normalizeWorkspacePath(params.workspacePath, params.workspacePath) ?? path.resolve(params.workspacePath),
+    normalizeArtifact(params.artifact),
+    piHookAggregateContextRef(params),
+  ) as unknown as Array<{ run_id: string }>;
+  for (const row of rows) endWork(db, { agentId: params.agentId, runId: row.run_id });
+  return rows.map(row => row.run_id);
 }
 
 function piPeerDelta(
@@ -397,6 +506,7 @@ export function createPiAwarenessBridge(options: PiAwarenessBridgeOptions = {}) 
           artifact,
           targetFiles,
         });
+        const piSessionId = getPiAwarenessSessionId(ctx);
         const result = explicitRunId
           ? { ok: true as const, ...touchWork(db, {
             agentId,
@@ -404,21 +514,24 @@ export function createPiAwarenessBridge(options: PiAwarenessBridgeOptions = {}) 
             targetFiles,
             ttlMs: 10 * 60_000,
           }) }
-          : startWork(db, {
-            agentId,
-            sessionId: getPiAwarenessSessionId(ctx),
-            workspacePath,
-            artifact,
-            runId: activeClaim?.run_id,
-            rationale: 'auto: Pi write/edit tool call via octocode-awareness',
-            testPlan: targetFiles.length > 0
-              ? `verify edit applied to: ${targetFiles.slice(0, 3).join(', ')}${targetFiles.length > 3 ? ` + ${targetFiles.length - 3} more` : ''}`
-              : 'post-edit verification',
-            targetFiles,
-            origin: 'HOOK',
-            source: 'HOOK',
-            ttlMs: 10 * 60_000,
-          });
+          : activeClaim
+            ? startWork(db, {
+              agentId,
+              workspacePath,
+              artifact,
+              runId: activeClaim.run_id,
+              targetFiles,
+              origin: 'HOOK',
+              source: 'HOOK',
+              ttlMs: 10 * 60_000,
+            })
+            : startOrAttachPiFallbackRun(db, {
+              agentId,
+              sessionId: piSessionId,
+              workspacePath,
+              artifact,
+              targetFiles,
+            });
 
         if (!result.ok) {
           const detail = (result.conflicts || [])
@@ -468,7 +581,9 @@ export function createPiAwarenessBridge(options: PiAwarenessBridgeOptions = {}) 
           notify(ctx, 'Octocode awareness post-edit warning; continuing: missing correlated work run.', 'warning');
           return undefined;
         }
-        if (workRunOrigin(db, runId) === 'HOOK') {
+        if (workRunOrigin(db, runId) === 'HOOK' && isAggregatedPiFallbackRun(db, runId)) {
+          touchWork(db, { agentId, runId, ttlMs: 10 * 60_000 });
+        } else if (workRunOrigin(db, runId) === 'HOOK') {
           endWork(db, { agentId, runId, targetFiles: fallbackFiles });
         } else {
           touchWork(db, { agentId, runId, targetFiles: fallbackFiles, ttlMs: 10 * 60_000 });
@@ -527,10 +642,15 @@ export function createPiAwarenessBridge(options: PiAwarenessBridgeOptions = {}) 
     },
 
     async handleSessionShutdown(event: Record<string, unknown> = {}, ctx?: PiLikeContext) {
-      if (process.env.OCTOCODE_NO_SESSION_CAPTURE === '1') return undefined;
-      if (event.reason === 'new') return undefined;
       try {
         const db = getDb(ctx);
+        finalizeActivePiFallbackRuns(db, {
+          agentId: getPiAwarenessAgentId(ctx),
+          sessionId: getPiAwarenessSessionId(ctx),
+          workspacePath: ctx?.cwd ?? process.cwd(),
+          artifact: artifactFrom(ctx, event),
+        });
+        if (process.env.OCTOCODE_NO_SESSION_CAPTURE === '1' || event.reason === 'new') return undefined;
         sessionCapture(db, {
           agent_id: getPiAwarenessAgentId(ctx),
           workspace: ctx?.cwd ?? process.cwd(),
@@ -563,9 +683,15 @@ export function wirePiAwarenessHooks(pi: PiLikeApi, options: PiAwarenessBridgeOp
   }, ctx));
   pi.on('before_agent_start', async (event, ctx) => bridge.handleBeforeAgentStart(event, ctx));
   pi.on('agent_end', async (_event, ctx) => {
-    if (process.env.OCTOCODE_NO_VERIFY_GATE === '1') return undefined;
     try {
       const db = (options.getDb ?? ((hookCtx?: PiLikeContext) => defaultGetDb(options, hookCtx)))(ctx);
+      finalizeActivePiFallbackRuns(db, {
+        agentId: getPiAwarenessAgentId(ctx),
+        sessionId: getPiAwarenessSessionId(ctx),
+        workspacePath: ctx?.cwd ?? process.cwd(),
+        artifact: artifactFrom(ctx, _event),
+      });
+      if (process.env.OCTOCODE_NO_VERIFY_GATE === '1') return undefined;
       const result = auditUnverified(db, {
         agentId: getPiAwarenessAgentId(ctx),
         workspacePath: ctx?.cwd ?? process.cwd(),

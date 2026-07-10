@@ -9,8 +9,8 @@
  *
  * This is NOT the old WORKSPACE_ROOT cwd-sandbox (deliberately removed) — it is the
  * documented "home + ALLOWED_PATHS" bound, applied consistently to the two tool
- * surfaces that previously bypassed it. `bash`/`write` are Pi built-ins outside this
- * package and are not covered here.
+ * surfaces that previously bypassed it. `bash` is overridden by Octocode and
+ * path-guards redirect/tee/cp/mv write targets; catastrophic patterns are blocked.
  */
 import fs from 'node:fs';
 import os from 'node:os';

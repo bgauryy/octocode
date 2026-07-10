@@ -2,6 +2,10 @@
 
 Complete reference for every tool registered by `@octocodeai/pi-extension`. The 13 Octocode research tools delegate execution to `@octocodeai/octocode-tools-core`; the Pi-specific tools are implemented directly in `src/tools/`.
 
+Pi’s default `read`/`grep`/`find`/`ls` are removed and `edit`/`write`/`bash` are
+replaced by Octocode implementations. See **[OVERRIDES.md](./OVERRIDES.md)** for
+why, the user-facing rules, and the developer code map.
+
 ---
 
 ## Tool Inventory
@@ -62,13 +66,13 @@ Source of truth for names: `OCTOCODE_DIRECT_TOOL_NAMES` + `OCTOCODE_SUPPORT_TOOL
 ## Core Tools
 
 ### `bash`
-Execute shell commands in the current working directory. Returns stdout + stderr (truncated to last 2 000 lines / 50 KB). Use for git, builds, `sed`/bulk edits, and anything local tools cannot cover.
+Execute shell commands in the current working directory. Octocode override of Pi’s built-in bash: same shell execution, plus path-guard on redirect/`tee`/`cp`/`mv` write targets and a small blocklist of catastrophic commands. Returns stdout + stderr (truncated to last 2 000 lines / 50 KB). Prefer `edit`/`write` for ordinary file mutations; use bash for git, builds, `sed`/bulk edits, and anything local tools cannot cover. Details: [OVERRIDES.md](./OVERRIDES.md).
 
 ### `edit`
-Targeted file replacement using exact current-file text. Detects stale reads before writing. Every edit requires a non-empty `reasoning`. Use `matchMode:"normalized"` for whitespace drift; `matchMode:"lineRange"` with freshly read line numbers as a last resort. **Not** for new files — use `write`.
+Targeted file replacement using exact current-file text. Detects stale reads before writing. Every edit requires a non-empty `reasoning`. Use `matchMode:"normalized"` for whitespace drift; `matchMode:"lineRange"` with freshly read line numbers as a last resort. **Not** for new files — use `write`. Diff previews use Myers line diff (see [OVERRIDES.md](./OVERRIDES.md)).
 
 ### `write`
-Create or overwrite a file. Automatically creates parent directories. No match guard — overwrites without confirmation. Use only for new files or intentional full rewrites.
+Create or overwrite a file. Octocode override of Pi’s built-in write: same create/overwrite + parent-mkdir semantics, plus path-guard (cwd / home / OS temp / `ALLOWED_PATHS`) and post-write read-state recording for the edit stale-check. No match guard — overwrites without confirmation. Use only for new files or intentional full rewrites; prefer `edit` for surgical changes. Details: [OVERRIDES.md](./OVERRIDES.md).
 
 ---
 

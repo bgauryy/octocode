@@ -200,6 +200,8 @@ export interface ToolDefinition {
   promptSnippet?: string;
   promptGuidelines?: string[];
   parameters: TSchema;
+  /** Optional compatibility shim. Runs before schema validation. */
+  prepareArguments?(args: unknown): unknown;
   execute(
     toolCallId: string,
     params: Record<string, unknown>,

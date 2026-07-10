@@ -35,20 +35,53 @@ export function insertRefinement(
     cwd,
   } = params;
 
+  if (state === 'done') {
+    throw new Error('terminal refinement creation is not allowed; create open/ongoing, then close it with an actor and check receipt');
+  }
+
   const refinementId = 'ref_' + randomUUID().replace(/-/g, '');
   const now = utcNow();
   const scope = fillScope(
     { workspace_path: workspacePath ?? null, artifact: normalizeArtifact(artifact), repo: repoArg ?? null, ref: refArg ?? null },
     cwd ?? process.cwd()
   );
+  const workspace = scope.workspace_path ?? process.cwd();
+  const normalizedFiles = [...new Set(files)];
+  const existing = db.prepare(`SELECT * FROM refinements
+    WHERE workspace_path IS ? AND artifact IS ? AND repo IS ? AND ref IS ?
+      AND quality = ? AND remember = ? AND files_json = ?
+      AND state IN ('open', 'ongoing')
+    ORDER BY updated_at DESC LIMIT 1`)
+    .get(workspace, scope.artifact, scope.repo ?? null, scope.ref ?? null,
+      quality, remember, JSON.stringify(normalizedFiles)) as unknown as RefinementRow | undefined;
+  if (existing) {
+    return {
+      refinementId: existing.refinement_id,
+      refinement: {
+        refinement_id: existing.refinement_id,
+        agent_id: existing.agent_id,
+        workspace_path: existing.workspace_path,
+        artifact: existing.artifact ?? null,
+        repo: existing.repo,
+        ref: existing.ref,
+        files: parseJsonList(existing.files_json),
+        reasoning: existing.reasoning,
+        remember: existing.remember,
+        quality: existing.quality as RefinementQuality,
+        state: existing.state as 'open' | 'ongoing' | 'done',
+        created_at: existing.created_at,
+        updated_at: existing.updated_at,
+      },
+    };
+  }
 
   db.prepare(REFINEMENTS_INSERT).run(
     refinementId, agentId,
-    scope.workspace_path ?? process.cwd(),
+    workspace,
     scope.artifact,
     scope.repo ?? null,
     scope.ref ?? null,
-    JSON.stringify(files),
+    JSON.stringify(normalizedFiles),
     reasoning, remember, quality, state, now, now
   );
 
@@ -57,11 +90,11 @@ export function insertRefinement(
     refinement: {
       refinement_id: refinementId,
       agent_id: agentId,
-      workspace_path: scope.workspace_path ?? process.cwd(),
+      workspace_path: workspace,
       artifact: scope.artifact,
       repo: scope.repo,
       ref: scope.ref,
-      files,
+      files: normalizedFiles,
       reasoning,
       remember,
       quality,
@@ -199,15 +232,34 @@ export function updateRefinement(
     reasoning?: string;
     remember?: string;
     files?: string[];
+    /** Actor applying a terminal transition. Required with checkReceipt for state=done. */
+    actorAgentId?: string;
+    /** Human-readable verification evidence for a terminal transition. */
+    checkReceipt?: string;
   },
 ): UpdateRefinementResult {
-  const { refinementId, state, quality, reasoning, remember, files } = params;
+  const { refinementId, state, quality, reasoning, remember, files, actorAgentId, checkReceipt } = params;
+
+  const existing = db.prepare('SELECT * FROM refinements WHERE refinement_id = ?')
+    .get(refinementId) as unknown as RefinementRow | undefined;
+  if (!existing) return { updated: false, refinement: null };
+
+  let effectiveReasoning = reasoning;
+  if (state === 'done') {
+    const actor = actorAgentId?.trim() ?? '';
+    const receipt = checkReceipt?.trim() ?? '';
+    if (!actor || !receipt) {
+      throw new Error('terminal refinement closure requires a non-empty actor and check receipt');
+    }
+    const baseReasoning = reasoning ?? existing.reasoning;
+    effectiveReasoning = `${baseReasoning}\n\nClosure receipt (${utcNow()}) by ${actor}: ${receipt}`;
+  }
 
   const sets: string[] = [];
   const binds: string[] = [];
   if (state !== undefined) { sets.push('state = ?'); binds.push(state); }
   if (quality !== undefined) { sets.push('quality = ?'); binds.push(quality); }
-  if (reasoning !== undefined) { sets.push('reasoning = ?'); binds.push(reasoning); }
+  if (effectiveReasoning !== undefined) { sets.push('reasoning = ?'); binds.push(effectiveReasoning); }
   if (remember !== undefined) { sets.push('remember = ?'); binds.push(remember); }
   if (files !== undefined) { sets.push('files_json = ?'); binds.push(JSON.stringify(files)); }
   if (sets.length === 0) throw new Error('updateRefinement: no fields to update');
@@ -215,11 +267,9 @@ export function updateRefinement(
   sets.push('updated_at = ?');
   binds.push(utcNow());
 
-  const r = db.prepare(
+  db.prepare(
     `UPDATE refinements SET ${sets.join(', ')} WHERE refinement_id = ?`
-  ).run(...binds, refinementId) as { changes: number };
-
-  if (r.changes === 0) return { updated: false, refinement: null };
+  ).run(...binds, refinementId);
 
   const row = db.prepare('SELECT * FROM refinements WHERE refinement_id = ?')
     .get(refinementId) as unknown as RefinementRow;

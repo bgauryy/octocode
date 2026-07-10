@@ -67,7 +67,7 @@ function openConcurrently(dbPath: string, count: number): Promise<Array<{ code: 
 }
 
 describe('concurrent schema migration', () => {
-  it('serializes first open so every process observes one complete v3 migration', { timeout: 60_000 }, async () => {
+  it('serializes first open so every process observes one complete canonical v1 migration', { timeout: 60_000 }, async () => {
     const root = mkdtempSync(join(tmpdir(), 'octocode-awareness-concurrent-migration-'));
     const dbPath = join(root, 'awareness.sqlite3');
     try {
@@ -79,7 +79,8 @@ describe('concurrent schema migration', () => {
       ).toEqual(results.map(() => 0));
 
       const migrated = new DatabaseSync(dbPath);
-      expect(migrated.prepare('PRAGMA user_version').get()).toEqual({ user_version: 3 });
+      expect(migrated.prepare('PRAGMA application_id').get()).toEqual({ application_id: 0x4f435431 });
+      expect(migrated.prepare('PRAGMA user_version').get()).toEqual({ user_version: 1 });
       expect(migrated.prepare('SELECT COUNT(*) AS count FROM task_runs').get()).toEqual({ count: 10_000 });
       expect(migrated.prepare('SELECT COUNT(*) AS count FROM run_files').get()).toEqual({ count: 10_000 });
       migrated.close();

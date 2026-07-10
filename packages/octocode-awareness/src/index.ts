@@ -11,6 +11,7 @@ import { fileURLToPath } from 'node:url';
 
 // DB layer
 export {
+  AWARENESS_APPLICATION_ID, AWARENESS_SCHEMA_VERSION,
   connectDb, connectCachedDb, initDb, memoryHome, resolveDbPath, hasFts, tableColumns,
   replaceMemoryReferences, referenceKind, evictExpiredLocks, checkpointWal,
   getDeliveryFingerprint, setDeliveryFingerprint,
@@ -18,14 +19,14 @@ export {
 export type { DeliveryFingerprintKey } from './db.js';
 
 // Memory operations
-export { insertMemory, getMemory, bumpAccess, lexicalSearch, decayScore, findSimilarMemories, mineWeakness, forgetMemory, storeEmbedding, searchByEmbedding, loadMemoriesByIds } from './memory.js';
-export type { MineWeaknessResult, MineWeaknessParams, WeaknessCluster } from './memory.js';
+export { insertMemory, insertMemoryWithSimilarityGate, getMemory, bumpAccess, lexicalSearch, decayScore, findSimilarMemories, mineWeakness, forgetMemory, storeEmbedding, searchByEmbedding, loadMemoriesByIds } from './memory.js';
+export type { GuardedMemoryInsertResult, MineWeaknessResult, MineWeaknessParams, WeaknessCluster } from './memory.js';
 export { resolveEmbedCommand, runHostEmbedder } from './embed-host.js';
 export type { HostEmbedding } from './embed-host.js';
 
 // Refinements
-export { insertRefinement, getRefinements, deleteRefinement } from './refinements.js';
-export type { DeleteRefinementResult } from './refinements.js';
+export { insertRefinement, updateRefinement, getRefinements, deleteRefinement } from './refinements.js';
+export type { DeleteRefinementResult, UpdateRefinementResult } from './refinements.js';
 
 // Intents / file locks
 export { preFlightIntent, releaseFileLock, fileLock } from './intents.js';
@@ -46,8 +47,8 @@ export type { PlanTaskStatus, PlanTaskRecord, TaskClaimRecord, TaskRunRecord, Cr
 export { reflect } from './reflect.js';
 
 // Background operations + smart briefing + harness export
-export { pruneStale, notifyGet, sessionCapture, waitForLock, digest, getWorkspaceStatus, exportMemoryDoc, exportHarness } from './maintenance.js';
-export type { DigestResult, BriefItem, NotifyGetResult, NotifyGetBriefResult, WorkspaceStatusResult, WorkspaceLockEntry, WaitForLockResult, PruneStaleResult } from './maintenance.js';
+export { pruneStale, notifyGet, sessionCapture, waitForLock, digest, inspectMaintenancePressure, getWorkspaceStatus, exportMemoryDoc, exportHarness } from './maintenance.js';
+export type { DigestResult, MaintenancePressure, BriefItem, NotifyGetResult, NotifyGetBriefResult, WorkspaceStatusResult, WorkspaceLockEntry, WaitForLockResult, PruneStaleResult } from './maintenance.js';
 
 // Repo-readable awareness projections
 export {
@@ -168,6 +169,7 @@ export type {
   MemoryReferenceRow,
   DocStalenessTarget, DocStalenessParams, DocStalenessEntry, DocStalenessResult,
   ProposeDocRefreshParams,
+  InsertSessionParams, EndSessionParams, SessionRow,
 } from './types.js';
 
 function runCliWhenExecutedDirectly(): void {

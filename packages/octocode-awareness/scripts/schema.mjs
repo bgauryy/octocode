@@ -182,6 +182,8 @@ export const schemas = {
         .describe("Failure cluster key."),
       valid_from: z.string().trim().min(1).max(64).optional().describe("Valid from ISO."),
       valid_to: z.string().trim().min(1).max(64).optional().describe("Valid until ISO."),
+      allow_similar: z.boolean().default(false)
+        .describe("Keep a materially distinct recurrence despite the duplicate gate."),
     })
     .strict()
     .describe("Record a memory."),
@@ -537,6 +539,10 @@ export const schemas = {
       retention_days: z.number().int().min(1).max(3650).default(90),
       refinement_handoff_retention_days: z.number().int().min(1).max(3650).default(7),
       refinement_done_retention_days: z.number().int().min(1).max(3650).default(30),
+      operational_retention_days: z.number().int().min(1).max(3650).default(90)
+        .describe("Compact old terminal standalone WORK/HOOK rows; receipts remain."),
+      pressure_age_days: z.number().int().min(1).max(3650).default(1)
+        .describe("Report old pending runs/signals/missing refs without mutating them."),
       dry_run: z.boolean().default(false),
       export_doc: z.union([z.boolean(), z.string().trim().min(1).max(1024)]).optional()
         .describe("Write report."),
@@ -553,12 +559,8 @@ export const schemas = {
       workspace: workspacePath.optional(),
       artifact: artifactScope.optional(),
       target_files: z.array(z.string().trim().min(1).max(1024)).max(200).optional(),
-      status: z.enum(["PENDING", "SUCCESS", "FAILED"]).default("SUCCESS"),
-      verified: z
-        .boolean()
-        .default(false)
-        .describe("Tests ran."),
-      verified_note: z.string().trim().min(1).max(2000).optional().describe("Verification note."),
+      status: z.enum(["PENDING", "FAILED"]).default("PENDING")
+        .describe("End editing; use verify mark with a receipt for SUCCESS."),
     })
     .strict()
     .refine((value) => value.run_id !== undefined || (value.target_files?.length ?? 0) > 0, {
@@ -581,8 +583,16 @@ export const schemas = {
       message: z.string().trim().min(1).max(2000).optional().describe("Verification note."),
     })
     .strict()
-    .refine((value) => value.all_pending || value.run_id.length > 0, {
-      message: "run_id or all_pending is required.",
+    .superRefine((value, ctx) => {
+      if (!value.all_pending && value.run_id.length === 0) {
+        ctx.addIssue({ code: "custom", message: "run_id or all_pending is required." });
+      }
+      if (value.status === "SUCCESS" && !value.message?.trim()) {
+        ctx.addIssue({ code: "custom", path: ["message"], message: "SUCCESS requires an evidence receipt in message." });
+      }
+      if (value.all_pending && !value.workspace && !value.artifact) {
+        ctx.addIssue({ code: "custom", path: ["all_pending"], message: "all_pending requires workspace or artifact scope." });
+      }
     })
     .describe("Mark verified."),
 
@@ -592,6 +602,12 @@ export const schemas = {
       workspace: workspacePath.optional(),
       artifact: artifactScope.optional(),
       abandon: z.boolean().default(false).describe("Mark pending runs FAILED instead of only listing."),
+      older_than_days: z.number().int().min(1).max(3650).optional()
+        .describe("Only include debt older than this age; inspect before --abandon."),
+      origin: z.array(z.enum(["TASK", "WORK", "HOOK"])).max(3).default([])
+        .describe("Restrict migration/audit to selected run origins."),
+      before: z.string().datetime().optional()
+        .describe("Only runs created before this ISO timestamp."),
     })
     .strict()
     .describe("List or abandon unverified runs."),
@@ -638,30 +654,51 @@ export const schemas = {
   refinement: z
     .object({
       agent_id: agentId,
+      refinement_id: z.string().trim().min(1).max(128).optional()
+        .describe("Existing refinement to update; omit when creating."),
       workspace_path: z
         .string()
         .trim()
         .min(1)
         .max(1024)
-        .describe("Workspace root."),
+        .optional()
+        .describe("Workspace root; required when creating."),
       artifact: artifactScope.optional(),
       repo: z.string().trim().min(1).max(256).optional().describe("Repo."),
       ref: z.string().trim().min(1).max(256).optional().describe("Ref."),
       files: z
         .array(z.string().trim().min(1).max(1024))
         .max(200)
-        .default([])
+        .optional()
         .describe("Related files."),
-      reasoning: nonEmptyText("Why saved.", 2000),
-      remember: nonEmptyText("What to remember.", 2000),
-      quality: z.enum(["good", "bad", "handoff", "instructions"]).default("good").describe("Outcome quality."),
+      reasoning: nonEmptyText("Why saved.", 2000).optional(),
+      remember: nonEmptyText("What to remember.", 2000).optional(),
+      quality: z.enum(["good", "bad", "handoff", "instructions"]).optional().describe("Outcome quality."),
       state: z
         .enum(["open", "ongoing", "done"])
-        .default("open")
-        .describe("Lifecycle state."),
+        .optional()
+        .describe("Lifecycle state; terminal done is update-only."),
+      check_receipt: nonEmptyText("Verification evidence for terminal closure.", 2000).optional(),
     })
     .strict()
-    .describe("Store refinement."),
+    .superRefine((value, ctx) => {
+      if (!value.refinement_id) {
+        for (const field of ["workspace_path", "reasoning", "remember"]) {
+          if (!value[field]) ctx.addIssue({ code: "custom", path: [field], message: `${field} is required when creating.` });
+        }
+        if (value.state === "done") {
+          ctx.addIssue({ code: "custom", path: ["state"], message: "Create open/ongoing, then close the existing refinement with a receipt." });
+        }
+        return;
+      }
+      if (!["state", "quality", "reasoning", "remember", "files"].some((field) => value[field] !== undefined)) {
+        ctx.addIssue({ code: "custom", message: "An update requires at least one changed field." });
+      }
+      if (value.state === "done" && !value.check_receipt?.trim()) {
+        ctx.addIssue({ code: "custom", path: ["check_receipt"], message: "Terminal closure requires a check receipt." });
+      }
+    })
+    .describe("Create or update a refinement; terminal closure is evidence-gated."),
 
   refine_query: z
     .object({
@@ -731,6 +768,7 @@ export const schemas = {
 
   signal_prune: z
     .object({
+      agent_id: agentId,
       workspace_path: z.string().trim().min(1).max(1024).optional().describe("Workspace channel."),
       artifact: artifactScope.optional(),
       signal_id: z
@@ -738,21 +776,17 @@ export const schemas = {
         .max(200)
         .default([])
         .describe("Signal ids."),
-      resolved: z.boolean().default(false).describe("Resolved only."),
+      resolved: z.literal(true).describe("Only resolved messages may be pruned."),
       older_than_days: z
         .number()
         .int()
         .min(1)
         .max(3650)
-        .optional()
-        .describe("Age cutoff."),
+        .describe("Required age cutoff."),
       dry_run: z.boolean().default(false).describe("Preview only."),
     })
     .strict()
-    .refine((d) => d.signal_id.length > 0 || d.resolved || d.older_than_days !== undefined, {
-      message: "signal_prune requires a selector: signal_id, resolved, or older_than_days.",
-    })
-    .describe("Prune signals."),
+    .describe("Preview or prune old resolved signals owned by a thread participant."),
 
   agent_registry: z
     .object({
@@ -804,6 +838,8 @@ export const schemas = {
         .boolean()
         .optional()
         .describe("Advisory duo packet."),
+      allow_similar: z.boolean().default(false)
+        .describe("Keep a materially distinct recurrence despite the duplicate gate."),
     })
     .strict()
     .describe("Reflect after work."),
@@ -963,6 +999,7 @@ export const examples = {
     retention_days: 90,
     refinement_handoff_retention_days: 7,
     refinement_done_retention_days: 30,
+    operational_retention_days: 90,
     dry_run: true,
     workspace: "/repo",
     artifact: "pkg",
@@ -972,9 +1009,7 @@ export const examples = {
     run_id: "run_abc123",
     workspace: "/repo",
     artifact: "pkg",
-    status: "SUCCESS",
-    verified: true,
-    verified_note: "test passed",
+    status: "PENDING",
   },
   verify: {
     agent_id: "agent",
@@ -1034,6 +1069,7 @@ export const examples = {
     importance: 7,
   },
   signal_prune: {
+    agent_id: "agent-a",
     resolved: true,
     older_than_days: 7,
     dry_run: true,
@@ -1111,7 +1147,7 @@ const commandIndex = [
   { command: "refinement delete", schema: "refine_delete", use: "Delete stale refinement rows; dry-run first.", example: "octocode-awareness refinement delete --refinement-id ref_123 --dry-run --compact" },
   { command: "lock acquire", schema: "pre_flight_intent", use: "Acquire exclusive sensitive-file protection; exit 2 means conflict.", example: 'octocode-awareness lock acquire --agent-id agent --target-file src/file.ts --rationale "sensitive edit" --test-plan "yarn test" --compact' },
   { command: "lock wait", schema: "wait_for_lock", use: "Wait for existing file locks without claiming.", example: "octocode-awareness lock wait --agent-id agent --target-file src/file.ts --wait-seconds 60 --compact" },
-  { command: "lock release", schema: "release_file_lock", use: "Release exclusive protection; use task submit or work end for normal lifecycle.", example: "octocode-awareness lock release --agent-id agent --run-id run_123 --status SUCCESS --verified --compact" },
+  { command: "lock release", schema: "release_file_lock", use: "Release exclusive protection to PENDING; verify success separately with evidence.", example: "octocode-awareness lock release --agent-id agent --run-id run_123 --status PENDING --compact" },
   { command: "lock prune", schema: "prune_stale_locks", use: "Clean expired/stale locks; never marks success.", example: 'octocode-awareness lock prune --workspace "$PWD" --expired-only --dry-run --compact' },
   { command: "verify audit", schema: "audit_unverified", use: "Find pending or stale work before finishing.", example: 'octocode-awareness verify audit --agent-id agent --workspace "$PWD" --compact' },
   { command: "verify mark", schema: "verify", use: "Mark declared verification as run.", example: 'octocode-awareness verify mark --agent-id agent --all-pending --message "yarn test passed" --workspace "$PWD" --compact' },
@@ -1120,7 +1156,7 @@ const commandIndex = [
   { command: "signal reply", schema: "agent_signal", use: "Reply in an existing signal thread.", example: "octocode-awareness signal reply --agent-id agent --in-reply-to ntf_123 --subject \"Re: File locked\" --body \"done\" --compact" },
   { command: "signal ack", schema: "agent_signal", use: "Mark specific signals read after handling.", example: "octocode-awareness signal ack --agent-id agent --signal-id ntf_123 --compact" },
   { command: "signal resolve", schema: "agent_signal", use: "Close handled signals or threads.", example: "octocode-awareness signal resolve --agent-id agent --thread-id ntf_123 --compact" },
-  { command: "signal prune", schema: "signal_prune", use: "Delete resolved/old/selected signals; dry-run first.", example: 'octocode-awareness signal prune --workspace "$PWD" --resolved --dry-run --compact' },
+  { command: "signal prune", schema: "signal_prune", use: "Preview/delete old resolved participant-owned signals.", example: 'octocode-awareness signal prune --agent-id agent --workspace "$PWD" --resolved --older-than-days 7 --dry-run --compact' },
   { command: "agent register", schema: "agent_registry", use: "Register/touch an agent identity.", example: 'octocode-awareness agent register --agent-id agent --agent-name "Codex" --workspace "$PWD" --compact' },
   { command: "agent list", schema: "agent_registry", use: "List known agents in scope.", example: 'octocode-awareness agent list --workspace "$PWD" --compact' },
   { command: "query", schema: "query", use: "Read DB views as json/table/csv/markdown/html, including file-reference health.", example: 'octocode-awareness query workboard --workspace "$PWD" --format json --limit 10 --compact' },

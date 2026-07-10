@@ -24,12 +24,24 @@ should carry a stable `--failure-signature` such as `test:work-overlap` or
 | Need | Flag/output | Close when |
 |---|---|---|
 | Reusable verified lesson | `--lesson` memory | Rechecked later; superseded/forgotten when stale. |
-| Remaining repo/code work | `--fix-repo` refinement | Applied, tested, same refinement marked done. |
+| Remaining repo/code work | `--fix-repo` refinement | Applied, tested, same refinement marked done with a check receipt. |
 | Harness/skill/tool gap | `--fix-harness` memory/proposal | Human approves, owning source changes, skill/tests pass. |
 | Bad/missing instructions | `--fix-instructions` developer-review row | Author updates guidance, verifies, closes row. |
 | Recurring eval failure | `--failure-signature` / eval JSON | Cluster cause fixed and verified. |
 
 Use `--fix-file` for affected instruction/source paths. Keep one concern per row.
+Relative fix files resolve against `--workspace`, even when the CLI is launched from
+another directory.
+
+Terminal closure is evidence-bearing:
+
+```bash
+octocode-awareness refinement set --refinement-id <id> --state done \
+  --agent-id "$OCTOCODE_AGENT_ID" --check-receipt "<check and result>" --compact
+```
+
+The closer may differ from the reporting agent. Awareness appends the actor,
+timestamp, and receipt to the refinement reasoning before it appears as Resolved.
 
 ## Weakness Mining
 

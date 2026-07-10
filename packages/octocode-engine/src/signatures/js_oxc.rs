@@ -14,13 +14,15 @@
 
 use oxc_allocator::Allocator;
 use oxc_ast::ast::{
-    Argument, ArrayExpressionElement, BindingPattern, ChainElement, Class, ClassElement,
-    Declaration, ExportAllDeclaration, ExportDefaultDeclarationKind, ExportNamedDeclaration,
-    Expression, ForStatementInit, Function, ImportDeclaration, ImportDeclarationSpecifier,
-    ImportOrExportKind, MethodDefinitionKind, ModuleExportName, ObjectPropertyKind, Program,
-    PropertyKey, Statement, TSEnumDeclaration, TSEnumMemberName, TSInterfaceDeclaration,
-    TSModuleDeclaration, TSModuleDeclarationBody, TSModuleDeclarationName, TSSignature,
-    TSTypeAliasDeclaration, VariableDeclaration, VariableDeclarationKind,
+    Argument, ArrayExpressionElement, ArrayPattern, ArrowFunctionExpression, BindingPattern,
+    ChainElement, Class, ClassElement, Declaration, ExportAllDeclaration,
+    ExportDefaultDeclarationKind, ExportNamedDeclaration, Expression, ForStatementInit,
+    FormalParameters, Function, ImportDeclaration, ImportDeclarationSpecifier, ImportOrExportKind,
+    JSXAttributeItem, JSXAttributeValue, JSXChild, JSXElement, JSXFragment,
+    MethodDefinitionKind, ModuleExportName, ObjectPattern, ObjectPropertyKind, Program, PropertyKey,
+    Statement, TSEnumDeclaration, TSEnumMemberName, TSInterfaceDeclaration, TSModuleDeclaration,
+    TSModuleDeclarationBody, TSModuleDeclarationName, TSSignature, TSTypeAliasDeclaration,
+    VariableDeclaration, VariableDeclarationKind,
 };
 use oxc_parser::Parser;
 use oxc_semantic::SemanticBuilder;
@@ -750,9 +752,7 @@ fn collect_variable_calls(
         };
         match &declarator.init {
             Some(Expression::ArrowFunctionExpression(arrow)) => {
-                for stmt in &arrow.body.statements {
-                    collect_owned_statement_calls(id.name.as_str(), stmt, li, calls);
-                }
+                collect_arrow_calls(id.name.as_str(), arrow, li, calls);
             }
             Some(Expression::FunctionExpression(function)) => {
                 collect_function_calls(id.name.as_str(), function, li, calls);
@@ -763,16 +763,91 @@ fn collect_variable_calls(
     }
 }
 
+fn collect_params_calls(
+    owner: &str,
+    params: &FormalParameters,
+    li: &LineIndex,
+    calls: &mut Vec<GraphCall>,
+) {
+    for param in &params.items {
+        if let Some(init) = &param.initializer {
+            collect_expression_calls(owner, init, li, calls);
+        }
+        collect_binding_pattern_calls(owner, &param.pattern, li, calls);
+    }
+}
+
+fn collect_binding_pattern_calls(
+    owner: &str,
+    pattern: &BindingPattern,
+    li: &LineIndex,
+    calls: &mut Vec<GraphCall>,
+) {
+    match pattern {
+        BindingPattern::AssignmentPattern(assign) => {
+            collect_expression_calls(owner, &assign.right, li, calls);
+            collect_binding_pattern_calls(owner, &assign.left, li, calls);
+        }
+        BindingPattern::ObjectPattern(object) => {
+            collect_object_pattern_calls(owner, object, li, calls);
+        }
+        BindingPattern::ArrayPattern(array) => {
+            collect_array_pattern_calls(owner, array, li, calls);
+        }
+        BindingPattern::BindingIdentifier(_) => {}
+    }
+}
+
+fn collect_object_pattern_calls(
+    owner: &str,
+    object: &ObjectPattern,
+    li: &LineIndex,
+    calls: &mut Vec<GraphCall>,
+) {
+    for property in &object.properties {
+        if let Some(key) = property.key.as_expression() {
+            collect_expression_calls(owner, key, li, calls);
+        }
+        collect_binding_pattern_calls(owner, &property.value, li, calls);
+    }
+}
+
+fn collect_array_pattern_calls(
+    owner: &str,
+    array: &ArrayPattern,
+    li: &LineIndex,
+    calls: &mut Vec<GraphCall>,
+) {
+    for element in &array.elements {
+        if let Some(pattern) = element {
+            collect_binding_pattern_calls(owner, pattern, li, calls);
+        }
+    }
+}
+
 fn collect_function_calls(
     owner: &str,
     function: &Function,
     li: &LineIndex,
     calls: &mut Vec<GraphCall>,
 ) {
+    collect_params_calls(owner, &function.params, li, calls);
     if let Some(body) = &function.body {
         for stmt in &body.statements {
             collect_owned_statement_calls(owner, stmt, li, calls);
         }
+    }
+}
+
+fn collect_arrow_calls(
+    owner: &str,
+    arrow: &ArrowFunctionExpression,
+    li: &LineIndex,
+    calls: &mut Vec<GraphCall>,
+) {
+    collect_params_calls(owner, &arrow.params, li, calls);
+    for stmt in &arrow.body.statements {
+        collect_owned_statement_calls(owner, stmt, li, calls);
     }
 }
 
@@ -928,6 +1003,18 @@ fn collect_argument_calls(
     }
 }
 
+fn unwrap_expr<'a>(expr: &'a Expression<'a>) -> &'a Expression<'a> {
+    match expr {
+        Expression::ParenthesizedExpression(paren) => unwrap_expr(&paren.expression),
+        Expression::TSAsExpression(ts) => unwrap_expr(&ts.expression),
+        Expression::TSSatisfiesExpression(ts) => unwrap_expr(&ts.expression),
+        Expression::TSTypeAssertion(ts) => unwrap_expr(&ts.expression),
+        Expression::TSNonNullExpression(ts) => unwrap_expr(&ts.expression),
+        Expression::TSInstantiationExpression(ts) => unwrap_expr(&ts.expression),
+        other => other,
+    }
+}
+
 fn collect_call_like(
     owner: &str,
     callee: &Expression,
@@ -940,7 +1027,16 @@ fn collect_call_like(
     if let Some(name) = callee_name(callee) {
         push_call(owner, name, span, li, kind, calls);
     }
-    collect_expression_calls(owner, callee, li, calls);
+    // IIFE / immediately-invoked arrow: attribute body calls to the outer owner.
+    match unwrap_expr(callee) {
+        Expression::FunctionExpression(function) => {
+            collect_function_calls(owner, function, li, calls);
+        }
+        Expression::ArrowFunctionExpression(arrow) => {
+            collect_arrow_calls(owner, arrow, li, calls);
+        }
+        other => collect_expression_calls(owner, other, li, calls),
+    }
     for arg in arguments {
         collect_argument_calls(owner, arg, li, calls);
     }
@@ -1061,7 +1157,18 @@ fn collect_expression_calls(
                         if let Some(key) = prop.key.as_expression() {
                             collect_expression_calls(owner, key, li, calls);
                         }
-                        collect_expression_calls(owner, &prop.value, li, calls);
+                        let method_owner = property_key_name(&prop.key)
+                            .map(|(name, _)| name)
+                            .unwrap_or_else(|| owner.to_string());
+                        match &prop.value {
+                            Expression::FunctionExpression(function) => {
+                                collect_function_calls(&method_owner, function, li, calls);
+                            }
+                            Expression::ArrowFunctionExpression(arrow) => {
+                                collect_arrow_calls(&method_owner, arrow, li, calls);
+                            }
+                            other => collect_expression_calls(owner, other, li, calls),
+                        }
                     }
                     ObjectPropertyKind::SpreadProperty(spread) => {
                         collect_expression_calls(owner, &spread.argument, li, calls);
@@ -1075,6 +1182,9 @@ fn collect_expression_calls(
             }
         }
         Expression::TaggedTemplateExpression(tagged) => {
+            if let Some(name) = callee_name(&tagged.tag) {
+                push_call(owner, name, tagged.span, li, "calls", calls);
+            }
             collect_expression_calls(owner, &tagged.tag, li, calls);
             for child in &tagged.quasi.expressions {
                 collect_expression_calls(owner, child, li, calls);
@@ -1114,11 +1224,95 @@ fn collect_expression_calls(
         Expression::PrivateFieldExpression(member) => {
             collect_expression_calls(owner, &member.object, li, calls);
         }
-        // Nested function/class bodies have their own owners via declaration/variable walkers.
+        Expression::JSXElement(element) => {
+            collect_jsx_element_calls(owner, element, li, calls);
+        }
+        Expression::JSXFragment(fragment) => {
+            collect_jsx_fragment_calls(owner, fragment, li, calls);
+        }
+        // Nested function/class bodies have their own owners via declaration/variable/object walkers.
+        // IIFE bodies are handled in collect_call_like.
         Expression::ArrowFunctionExpression(_)
         | Expression::FunctionExpression(_)
         | Expression::ClassExpression(_) => {}
         _ => {}
+    }
+}
+
+fn collect_jsx_element_calls(
+    owner: &str,
+    element: &JSXElement,
+    li: &LineIndex,
+    calls: &mut Vec<GraphCall>,
+) {
+    for attribute in &element.opening_element.attributes {
+        match attribute {
+            JSXAttributeItem::Attribute(attr) => {
+                if let Some(value) = &attr.value {
+                    collect_jsx_attribute_value_calls(owner, value, li, calls);
+                }
+            }
+            JSXAttributeItem::SpreadAttribute(spread) => {
+                collect_expression_calls(owner, &spread.argument, li, calls);
+            }
+        }
+    }
+    for child in &element.children {
+        collect_jsx_child_calls(owner, child, li, calls);
+    }
+}
+
+fn collect_jsx_fragment_calls(
+    owner: &str,
+    fragment: &JSXFragment,
+    li: &LineIndex,
+    calls: &mut Vec<GraphCall>,
+) {
+    for child in &fragment.children {
+        collect_jsx_child_calls(owner, child, li, calls);
+    }
+}
+
+fn collect_jsx_attribute_value_calls(
+    owner: &str,
+    value: &JSXAttributeValue,
+    li: &LineIndex,
+    calls: &mut Vec<GraphCall>,
+) {
+    match value {
+        JSXAttributeValue::ExpressionContainer(container) => {
+            if let Some(expr) = container.expression.as_expression() {
+                collect_expression_calls(owner, expr, li, calls);
+            }
+        }
+        JSXAttributeValue::Element(element) => {
+            collect_jsx_element_calls(owner, element, li, calls);
+        }
+        JSXAttributeValue::Fragment(fragment) => {
+            collect_jsx_fragment_calls(owner, fragment, li, calls);
+        }
+        JSXAttributeValue::StringLiteral(_) => {}
+    }
+}
+
+fn collect_jsx_child_calls(
+    owner: &str,
+    child: &JSXChild,
+    li: &LineIndex,
+    calls: &mut Vec<GraphCall>,
+) {
+    match child {
+        JSXChild::Element(element) => collect_jsx_element_calls(owner, element, li, calls),
+        JSXChild::Fragment(fragment) => collect_jsx_fragment_calls(owner, fragment, li, calls),
+        JSXChild::ExpressionContainer(container) => {
+            if let Some(expr) = container.expression.as_expression() {
+                collect_expression_calls(owner, expr, li, calls);
+            }
+        }
+        JSXChild::Spread(spread) => {
+            collect_expression_calls(owner, &spread.expression, li, calls);
+        }
+        JSXChild::Text(_) => {}
     }
 }
 
@@ -1133,6 +1327,63 @@ fn callee_name(expr: &Expression) -> Option<String> {
                     .unwrap_or_else(|| property.to_string()),
             )
         }
+        Expression::ComputedMemberExpression(member) => {
+            let property = match &member.expression {
+                Expression::StringLiteral(lit) => Some(lit.value.as_str().to_string()),
+                Expression::TemplateLiteral(lit) if lit.expressions.is_empty() => lit
+                    .quasis
+                    .first()
+                    .and_then(|q| q.value.cooked.as_ref())
+                    .map(|cooked| cooked.as_str().to_string()),
+                _ => None,
+            }?;
+            Some(
+                expression_name(&member.object)
+                    .map(|object| format!("{object}.{property}"))
+                    .unwrap_or(property),
+            )
+        }
+        Expression::ParenthesizedExpression(paren) => callee_name(&paren.expression),
+        Expression::TSAsExpression(ts) => callee_name(&ts.expression),
+        Expression::TSSatisfiesExpression(ts) => callee_name(&ts.expression),
+        Expression::TSTypeAssertion(ts) => callee_name(&ts.expression),
+        Expression::TSNonNullExpression(ts) => callee_name(&ts.expression),
+        Expression::TSInstantiationExpression(ts) => callee_name(&ts.expression),
+        Expression::ChainExpression(chain) => match &chain.expression {
+            ChainElement::CallExpression(_) => None,
+            ChainElement::TSNonNullExpression(non_null) => callee_name(&non_null.expression),
+            other => other
+                .as_member_expression()
+                .and_then(|member| match member {
+                    oxc_ast::ast::MemberExpression::StaticMemberExpression(static_member) => {
+                        let property = static_member.property.name.as_str();
+                        Some(
+                            expression_name(&static_member.object)
+                                .map(|object| format!("{object}.{property}"))
+                                .unwrap_or_else(|| property.to_string()),
+                        )
+                    }
+                    oxc_ast::ast::MemberExpression::ComputedMemberExpression(computed) => {
+                        let property = match &computed.expression {
+                            Expression::StringLiteral(lit) => Some(lit.value.as_str().to_string()),
+                            _ => None,
+                        }?;
+                        Some(
+                            expression_name(&computed.object)
+                                .map(|object| format!("{object}.{property}"))
+                                .unwrap_or(property),
+                        )
+                    }
+                    oxc_ast::ast::MemberExpression::PrivateFieldExpression(private) => {
+                        let property = format!("#{}", private.field.name.as_str());
+                        Some(
+                            expression_name(&private.object)
+                                .map(|object| format!("{object}.{property}"))
+                                .unwrap_or(property),
+                        )
+                    }
+                })
+        },
         _ => None,
     }
 }
@@ -1620,6 +1871,31 @@ function other(n: number) { return n; }
             callees.len() >= 7,
             "expected switch/try/for-of call sites, got {callees:?}"
         );
+    }
+
+    #[test]
+    fn extracts_calls_in_iife_jsx_defaults_and_tagged_templates() {
+        let src = r#"
+export function run(x = helper(1)) {
+  (function () { other(2); })();
+  return helper`ok${other(3)}`;
+}
+function helper(n: any) { return n; }
+function other(n: number) { return n; }
+"#;
+        let v = graph(src, "extra.ts");
+        let callees = v["calls"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|call| call["callee"].as_str().unwrap())
+            .collect::<Vec<_>>();
+        for expected in ["helper", "other"] {
+            assert!(
+                callees.iter().any(|c| *c == expected),
+                "expected {expected} in {callees:?}"
+            );
+        }
     }
 
     #[test]

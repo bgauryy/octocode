@@ -443,6 +443,19 @@ export interface FilterPatchOptions {
   contextLines?: number
 }
 
+/**
+ * Myers line diff (`oldText` → `newText`). Returns a full edit script of
+ * `{ opType, line }` ops (`same` | `add` | `remove`). Prefer this over an
+ * O(N·M) LCS for agent edit previews on mid/large files.
+ */
+export declare function computeLineDiff(oldText: string, newText: string): Array<LineDiffOp>
+
+export interface LineDiffOp {
+  /** `"same"` | `"add"` | `"remove"` */
+  opType: string
+  line: string
+}
+
 /** Convert a `file://` URI string back to an absolute filesystem path. */
 export declare function fromUri(uri: string): string
 

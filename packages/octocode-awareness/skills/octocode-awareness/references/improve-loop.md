@@ -13,7 +13,8 @@ SET GOAL + KPI → SMALLEST CHANGE → MEASURE ACTUAL RESULTS → COMPARE TO THE
 1. **Goal** — one user-visible outcome (e.g. fewer wrong triggers, higher Recall@3, 0 ERROR on skill-review, green held-out smoke).
 2. **KPI** — measurable signal with baseline + target (eval case score, test pass, attend compact bytes, verify debt, review ERROR count). Prefer ranges from thesis pressures when applicable (token, verification, memory, harness).
 3. **Change** — smallest patch to lobby/ref/script/docs; no unbounded rewrite.
-4. **Actual results** — run real checks: `scripts/eval-*.mjs`, package tests, `skill-review.mjs`, `attend`/`verify`, held-out task **not** used to invent the edit. Prefer deterministic script/CLI/code execution with recorded exit codes/output. **Results > words** — never accept on narrative alone.
+4. **Actual results** — run real checks: `scripts/eval-*.mjs`, package tests, `skill-review.mjs`, `attend`/`verify`, and a held-out task not used to invent the edit.
+   Prefer deterministic execution with recorded exit codes/output. Accept measured results, not narrative alone.
 5. **Thesis check** — confirm no regression on evidence discipline, user authority, safety guards, or “retrieved memory is a lead.” If Awareness thesis pressures apply, remeasure the matching sensor.
 6. **Decide** — accept only if KPI moves and thesis guards hold; else revert, record what failed, pick a smaller KPI.
 

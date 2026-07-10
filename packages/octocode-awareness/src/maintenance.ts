@@ -13,6 +13,7 @@
 
 import { spawnSync } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
+import { existsSync } from 'node:fs';
 import { isAbsolute, resolve } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import {
@@ -713,12 +714,106 @@ export interface DigestResult {
   pruned_old: number;          // SUPERSEDED older than retention_days
   pruned_locks: number;        // expired file locks
   pruned_refinements: number;  // old handoffs and done refinements
+  pruned_runs: number;         // old terminal standalone WORK/HOOK rows
   fts_rebuilt: boolean;
   dry_run?: true;
   would_archive?: number;
   would_prune_old?: number;
   would_prune_locks?: number;
   would_prune_refinements?: number;
+  would_prune_runs?: number;
+  pressure_age_days?: number;
+  stale_pending_runs?: number;
+  stale_open_signals?: number;
+  stale_missing_refs?: number;
+  pressure_samples?: MaintenancePressure['samples'];
+}
+
+export interface MaintenancePressure {
+  pressure_age_days: number;
+  cutoff: string;
+  stale_pending_runs: number;
+  stale_open_signals: number;
+  stale_missing_refs: number;
+  samples: {
+    run_ids: string[];
+    signal_ids: string[];
+    memory_ids: string[];
+  };
+}
+
+/**
+ * Read-only pressure sensor. It never expires, verifies, resolves, or deletes work;
+ * callers receive bounded ids and must use the owning lifecycle command.
+ */
+export function inspectMaintenancePressure(
+  db: DatabaseSync,
+  params: Record<string, unknown> = {},
+): MaintenancePressure {
+  const requestedDays = Number(params.pressure_age_days ?? params.pressureAgeDays ?? 1);
+  const pressureAgeDays = Number.isFinite(requestedDays) ? Math.min(3650, Math.max(1, Math.floor(requestedDays))) : 1;
+  const cutoff = new Date(Date.now() - pressureAgeDays * 86400000).toISOString();
+  const rawWorkspacePath = typeof params.workspace === 'string' ? params.workspace :
+    typeof params.workspace_path === 'string' ? params.workspace_path :
+      typeof params.workspacePath === 'string' ? params.workspacePath : null;
+  const workspacePath = rawWorkspacePath
+    ? (params.workspace_normalized === true ? resolve(rawWorkspacePath) : normalizeWorkspacePath(rawWorkspacePath, rawWorkspacePath))
+    : null;
+  const artifact = normalizeArtifact(params.artifact);
+  const scope: string[] = [];
+  const scopeBinds: string[] = [];
+  if (workspacePath) { scope.push('workspace_path = ?'); scopeBinds.push(workspacePath); }
+  if (artifact) { scope.push('artifact = ?'); scopeBinds.push(artifact); }
+  const scopeSql = scope.length > 0 ? ` AND ${scope.join(' AND ')}` : '';
+
+  const pendingCount = (db.prepare(
+    `SELECT COUNT(*) AS count FROM task_runs
+      WHERE status = 'PENDING' AND updated_at < ?${scopeSql}`
+  ).get(cutoff, ...scopeBinds) as { count: number }).count;
+  const pendingRows = db.prepare(
+    `SELECT run_id FROM task_runs
+      WHERE status = 'PENDING' AND updated_at < ?${scopeSql}
+      ORDER BY datetime(updated_at), run_id LIMIT 3`
+  ).all(cutoff, ...scopeBinds) as unknown as Array<{ run_id: string }>;
+  const signalCount = (db.prepare(
+    `SELECT COUNT(*) AS count FROM signals
+      WHERE status = 'open' AND created_at < ?${scopeSql}`
+  ).get(cutoff, ...scopeBinds) as { count: number }).count;
+  const signalRows = db.prepare(
+    `SELECT signal_id FROM signals
+      WHERE status = 'open' AND created_at < ?${scopeSql}
+      ORDER BY datetime(created_at), signal_id LIMIT 3`
+  ).all(cutoff, ...scopeBinds) as unknown as Array<{ signal_id: string }>;
+  const referenceRows = db.prepare(
+    `SELECT m.memory_id, r.reference
+       FROM memories m
+       JOIN memory_refs r ON r.memory_id = m.memory_id
+      WHERE m.state = 'ACTIVE'
+        AND r.reference LIKE 'file:%'
+        AND COALESCE(m.updated_at, m.created_at) < ?
+        ${scopeSql.replaceAll('workspace_path', 'm.workspace_path').replaceAll('artifact', 'm.artifact')}
+      ORDER BY datetime(COALESCE(m.updated_at, m.created_at)), m.memory_id
+      LIMIT 1000`
+  ).all(cutoff, ...scopeBinds) as unknown as Array<{ memory_id: string; reference: string }>;
+  const staleMemoryIds = new Set<string>();
+  for (const row of referenceRows) {
+    const raw = row.reference.slice('file:'.length).replace(/(?::\d+(?::\d+)?|#L\d+(?:-L?\d+)?)$/, '');
+    const path = isAbsolute(raw) ? raw : resolve(workspacePath ?? process.cwd(), raw);
+    if (!existsSync(path)) staleMemoryIds.add(row.memory_id);
+  }
+
+  return {
+    pressure_age_days: pressureAgeDays,
+    cutoff,
+    stale_pending_runs: pendingCount,
+    stale_open_signals: signalCount,
+    stale_missing_refs: staleMemoryIds.size,
+    samples: {
+      run_ids: pendingRows.map(row => row.run_id),
+      signal_ids: signalRows.map(row => row.signal_id),
+      memory_ids: [...staleMemoryIds].slice(0, 3),
+    },
+  };
 }
 
 /**
@@ -737,6 +832,7 @@ export function digest(
   const retentionDays = Number(params.retention_days ?? 90);
   const handoffRetentionDays = Number(params.refinement_handoff_retention_days ?? params.refinementHandoffRetentionDays ?? 7);
   const doneRetentionDays = Number(params.refinement_done_retention_days ?? params.refinementDoneRetentionDays ?? 30);
+  const operationalRetentionDays = Number(params.operational_retention_days ?? params.operationalRetentionDays ?? 90);
   const rawWorkspacePath = typeof params.workspace === 'string' ? params.workspace :
     typeof params.workspace_path === 'string' ? params.workspace_path :
       typeof params.workspacePath === 'string' ? params.workspacePath : null;
@@ -746,6 +842,15 @@ export function digest(
   const cutoff = new Date(Date.now() - retentionDays * 86400000).toISOString();
   const handoffCutoff = new Date(Date.now() - handoffRetentionDays * 86400000).toISOString();
   const doneCutoff = new Date(Date.now() - doneRetentionDays * 86400000).toISOString();
+  const operationalCutoff = new Date(Date.now() - operationalRetentionDays * 86400000).toISOString();
+  const pressure = inspectMaintenancePressure(db, params);
+  const pressureFields = {
+    pressure_age_days: pressure.pressure_age_days,
+    stale_pending_runs: pressure.stale_pending_runs,
+    stale_open_signals: pressure.stale_open_signals,
+    stale_missing_refs: pressure.stale_missing_refs,
+    pressure_samples: pressure.samples,
+  };
   const memoryScope: string[] = [];
   const memoryScopeBinds: string[] = [];
   if (workspacePath) { memoryScope.push('workspace_path = ?'); memoryScopeBinds.push(workspacePath); }
@@ -776,18 +881,25 @@ export function digest(
        WHERE ((quality = 'handoff' AND updated_at < ?)
           OR (quality IN ('good','bad') AND state = 'done' AND updated_at < ?))${refinementScopeSql}`)
       .get(handoffCutoff, doneCutoff, ...refinementScopeBinds) as { c: number }).c;
+    const wouldPruneRuns = (db.prepare(`SELECT COUNT(*) AS c FROM task_runs
+      WHERE task_id IS NULL AND origin IN ('WORK','HOOK')
+        AND status IN ('SUCCESS','FAILED') AND updated_at < ?${memoryScopeSql}`)
+      .get(operationalCutoff, ...memoryScopeBinds) as { c: number }).c;
     return {
       ok: true,
       archived_memories: 0,
       pruned_old: 0,
       pruned_locks: 0,
       pruned_refinements: 0,
+      pruned_runs: 0,
       fts_rebuilt: false,
       dry_run: true,
       would_archive: wouldArchive,
       would_prune_old: wouldPruneOld,
       would_prune_locks: wouldPruneLocks,
       would_prune_refinements: wouldPruneRefinements,
+      would_prune_runs: wouldPruneRuns,
+      ...pressureFields,
     };
   }
 
@@ -795,6 +907,7 @@ export function digest(
   let deleteRes: { changes: number } = { changes: 0 };
   let prunedLocks = 0;
   let pruneRefinementsRes: { changes: number } = { changes: 0 };
+  let pruneRunsRes: { changes: number } = { changes: 0 };
   let ftsRebuilt = false;
   const ownsDigestTransaction = !db.isTransaction;
   if (ownsDigestTransaction) db.exec('BEGIN IMMEDIATE');
@@ -826,7 +939,14 @@ export function digest(
           OR (quality IN ('good','bad') AND state = 'done' AND updated_at < ?))${refinementScopeSql}`
     ).run(handoffCutoff, doneCutoff, ...refinementScopeBinds) as { changes: number };
 
-    // 5. Rebuild FTS5 from the same committed memory snapshot. A failure is
+    // 5. Compact terminal standalone execution rows. Run-file presence cascades;
+    // verification receipts remain in run_log with run_id set null by the FK.
+    pruneRunsRes = db.prepare(`DELETE FROM task_runs
+      WHERE task_id IS NULL AND origin IN ('WORK','HOOK')
+        AND status IN ('SUCCESS','FAILED') AND updated_at < ?${memoryScopeSql}`)
+      .run(operationalCutoff, ...memoryScopeBinds) as { changes: number };
+
+    // 6. Rebuild FTS5 from the same committed memory snapshot. A failure is
     // fatal so deleted source rows and the index can never diverge.
     if (hasFts(db)) {
       rebuildFts(db);
@@ -840,7 +960,7 @@ export function digest(
     throw error;
   }
 
-  // 6. Absorb WAL pages after bulk maintenance writes (non-fatal on :memory:).
+  // 7. Absorb WAL pages after bulk maintenance writes (non-fatal on :memory:).
   if (ownsDigestTransaction) checkpointWal(db);
 
   return {
@@ -849,7 +969,9 @@ export function digest(
     pruned_old: deleteRes.changes,
     pruned_locks: prunedLocks,
     pruned_refinements: pruneRefinementsRes.changes,
+    pruned_runs: pruneRunsRes.changes,
     fts_rebuilt: ftsRebuilt,
+    ...pressureFields,
   };
 }
 

@@ -39,7 +39,9 @@ octocode-awareness query files --workspace "$PWD" --format table --limit 50
 ```
 
 Use JSON for agents/APIs, table for terminals, CSV for scripts, Markdown for bounded
-review, and HTML for humans who need search/filter/sort.
+review, and HTML for humans who need search/filter/sort. Query results report
+`is_partial`, `total`, `omitted_count`, and `continuation`; a `null` total means a
+safety probe found more rows but did not scan far enough to claim an exact total.
 
 ## Generate
 
@@ -48,15 +50,18 @@ octocode-awareness repo inject --workspace "$PWD" --mode local --compact
 ```
 
 `local` is machine-local. `share` means the owner intends to review/commit the
-projection; ignored output produces a warning, not a `.gitignore` mutation.
+projection; ignored output produces a warning, not a `.gitignore` mutation. Share
+rows omit signal bodies and redact absolute paths. CSV prefixes spreadsheet-formula
+cells, and each projection file is atomically replaced after its temporary file is
+complete.
 
 Generated surfaces include:
 
 - `AGENTS.md`: small map and pointers;
 - `MEMORY.md`, `GOTCHAS.md`, `LEARN.md`, `BOOKMARKS.md`;
 - `DEVELOPER_REVIEW.md`;
-- full sortable CSV and HTML views;
-- `awareness/manifest.json` with generation scope/budgets;
+- sortable CSV and HTML views, 50 rows by default and at most 500 per section;
+- `awareness/manifest.json` with generation scope, completeness, and budgets;
 - compact generated references.
 
 Active run files, locks, signals, and tasks remain live-query concerns; do not dump
@@ -82,7 +87,8 @@ editing root instructions unless the user already authorized that change.
 
 ## Editing And Sharing
 
-- Generated files may include machine-local paths. Review before commit/share.
+- Local generated files may include machine-local paths. Share mode redacts known
+  absolute-path fields and body excerpts, but review remains required before commit.
 - Memories/signals/projections are leads; current user instructions/source/tests win.
 - `repo inject` never edits `.gitignore`.
 - `maintenance digest` does not regenerate or shrink existing Markdown; inject after

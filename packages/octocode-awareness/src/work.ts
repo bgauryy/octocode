@@ -5,6 +5,7 @@ import { isAbsolute, resolve } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { normalizeArtifact, utcNow } from './helpers.js';
 import { canonicalizePath, normalizeWorkspacePath } from './git.js';
+import { ensureRunSession } from './sessions.js';
 import type {
   EndWorkParams,
   ListWorkParams,
@@ -129,7 +130,7 @@ export function startWork(db: DatabaseSync, params: StartWorkParams): StartWorkR
   const expiresAt = expiry(params.ttlMs);
   const requestedOrigin = params.origin ?? 'WORK';
   const source = params.source ?? (requestedOrigin === 'HOOK' ? 'HOOK' : 'EXPLICIT');
-  const fileBasePath = params.workspacePath ?? process.cwd();
+  let fileBasePath = params.workspacePath ?? process.cwd();
   let wsPath = workspaceRoot(params.workspacePath);
   let artifact = normalizeArtifact(params.artifact);
   let runId = params.runId ?? null;
@@ -157,12 +158,27 @@ export function startWork(db: DatabaseSync, params: StartWorkParams): StartWorkR
       }
       wsPath = runWorkspace;
       artifact = runArtifact;
+      fileBasePath = runWorkspace;
+      if (params.sessionId != null) {
+        if (params.sessionId !== run.session_id) {
+          throw new Error(`run ${runId} belongs to session ${run.session_id ?? '(none)'}`);
+        }
+        ensureRunSession(db, {
+          sessionId: params.sessionId,
+          agentId,
+          workspacePath: runWorkspace,
+          artifact: runArtifact,
+        });
+      }
     } else {
       if (params.runId) throw new Error(`run not found: ${params.runId}`);
       if (params.sessionId) {
-        db.prepare(`INSERT OR IGNORE INTO sessions
-          (session_id, agent_id, workspace_path, artifact, started_at) VALUES (?, ?, ?, ?, ?)`)
-          .run(params.sessionId, agentId, wsPath, artifact, now);
+        ensureRunSession(db, {
+          sessionId: params.sessionId,
+          agentId,
+          workspacePath: wsPath,
+          artifact,
+        });
       }
       db.prepare(`INSERT INTO task_runs
         (run_id, task_id, origin, agent_id, session_id, rationale, test_plan, context_ref,

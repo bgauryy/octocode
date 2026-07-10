@@ -468,7 +468,7 @@ describe('hook-runner', () => {
     }
   });
 
-  it('post-edit ends only the correlated same-agent HOOK presence', () => {
+  it('post-edit keeps one correlated same-agent aggregate until Stop finalizes it', () => {
     const memoryHome = mkdtempSync(join(tmpdir(), 'octocode-hook-overlap-'));
     const workspace = resolve(memoryHome, 'repo');
     mkdirSync(workspace, { recursive: true });
@@ -484,14 +484,17 @@ describe('hook-runner', () => {
       expect(runScript(HOOK_RUNNER, ['pre-edit'], second, env).status).toBe(0);
 
       const db = new DatabaseSync(join(memoryHome, 'awareness.sqlite3'));
-      expect((db.prepare('SELECT COUNT(*) AS count FROM run_files WHERE ended_at IS NULL').get() as { count: number }).count).toBe(2);
+      expect((db.prepare('SELECT COUNT(*) AS count FROM run_files WHERE ended_at IS NULL').get() as { count: number }).count).toBe(1);
+      expect((db.prepare("SELECT COUNT(*) AS count FROM task_runs WHERE origin = 'HOOK' AND status = 'ACTIVE'").get() as { count: number }).count).toBe(1);
 
       expect(runScript(HOOK_RUNNER, ['post-edit'], first, env).status).toBe(0);
       expect((db.prepare('SELECT COUNT(*) AS count FROM run_files WHERE ended_at IS NULL').get() as { count: number }).count).toBe(1);
 
       expect(runScript(HOOK_RUNNER, ['post-edit'], second, env).status).toBe(0);
+      expect((db.prepare('SELECT COUNT(*) AS count FROM run_files WHERE ended_at IS NULL').get() as { count: number }).count).toBe(1);
+      expect(runScript(HOOK_RUNNER, ['stop-verify'], { sessionId: 'overlap-session', workspace }, env).status).toBe(2);
       expect((db.prepare('SELECT COUNT(*) AS count FROM run_files WHERE ended_at IS NULL').get() as { count: number }).count).toBe(0);
-      expect((db.prepare("SELECT COUNT(*) AS count FROM task_runs WHERE status = 'PENDING'").get() as { count: number }).count).toBe(2);
+      expect((db.prepare("SELECT COUNT(*) AS count FROM task_runs WHERE status = 'PENDING'").get() as { count: number }).count).toBe(1);
       db.close();
     } finally {
       rmSync(memoryHome, { recursive: true, force: true });
@@ -553,6 +556,10 @@ describe('hook wrapper scripts', () => {
       const post = runHookWrapper('post-edit.sh', payload, env, workspace);
       expect(post.status, post.stderr).toBe(0);
 
+      expect((db.prepare('SELECT COUNT(*) AS count FROM run_files WHERE ended_at IS NULL').get() as { count: number }).count).toBe(1);
+      expect(db.prepare('SELECT origin, status FROM task_runs').get()).toMatchObject({ origin: 'HOOK', status: 'ACTIVE' });
+      const stop = runHookWrapper('stop-verify.sh', { sessionId: 'wrapper-session', workspace }, env, workspace);
+      expect(stop.status).toBe(2);
       expect((db.prepare('SELECT COUNT(*) AS count FROM run_files WHERE ended_at IS NULL').get() as { count: number }).count).toBe(0);
       expect(db.prepare('SELECT origin, status FROM task_runs').get()).toMatchObject({ origin: 'HOOK', status: 'PENDING' });
       db.close();

@@ -30,9 +30,11 @@ function assert(condition, message) {
 
 const pack = JSON.parse(run('npm', ['pack', '--dry-run', '--json', '--ignore-scripts']));
 const files = (pack[0]?.files ?? []).map((entry) => entry.path);
-for (const required of ['LICENSE', 'README.md', 'package.json', 'dist/index.js', 'dist/bin/awareness.js']) {
+for (const required of ['LICENSE', 'README.md', 'package.json', 'dist/index.js', 'dist/src/index.d.ts', 'dist/bin/awareness.js']) {
   assert(files.includes(required), `packed artifact is missing ${required}`);
 }
+assert(pkg.types === './dist/src/index.d.ts', `package types must point at the verified declaration entry, got ${String(pkg.types)}`);
+assert(readFileSync(join(packageRoot, 'dist/src/index.d.ts'), 'utf8').includes('export'), 'declaration entry is empty or malformed');
 assert(
   files.filter((path) => path.endsWith('skills/octocode-awareness/SKILL.md')).length === 1,
   'packed artifact must contain exactly one octocode-awareness skill tree',

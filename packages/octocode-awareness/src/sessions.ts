@@ -10,7 +10,6 @@ import { normalizeWorkspacePath } from './git.js';
 import type { InsertSessionParams, EndSessionParams, SessionRow } from './types.js';
 import {
   SESSIONS_INSERT,
-  SESSIONS_UPDATE_END,
   SESSIONS_SELECT_BY_ID,
   SESSIONS_SELECT_ACTIVE,
   SESSIONS_LIST_SELECT,
@@ -30,6 +29,50 @@ import {
  */
 function scopedWorkspacePath(workspacePath?: string | null): string | null {
   return workspacePath ? normalizeWorkspacePath(workspacePath, workspacePath) : null;
+}
+
+/**
+ * Resolve a caller-supplied session id for a run without allowing an existing
+ * row to silently drift across agents or scopes. Callers already hold the run
+ * creation transaction, so the lookup/insert is serialized with that run.
+ */
+export function ensureRunSession(
+  db: DatabaseSync,
+  params: { sessionId: string; agentId: string; workspacePath: string; artifact?: string | null },
+): SessionRow {
+  const sessionId = params.sessionId.trim();
+  if (!sessionId) throw new Error('session id is required');
+  const workspacePath = scopedWorkspacePath(params.workspacePath);
+  const artifact = normalizeArtifact(params.artifact);
+  const existing = getSession(db, sessionId);
+
+  if (existing) {
+    if (existing.agent_id !== params.agentId) {
+      throw new Error(`session ${sessionId} belongs to agent ${existing.agent_id}`);
+    }
+    if (existing.workspace_path !== workspacePath) {
+      throw new Error(`session ${sessionId} belongs to workspace ${existing.workspace_path ?? '(none)'}`);
+    }
+    if (existing.artifact !== artifact) {
+      throw new Error(`session ${sessionId} belongs to artifact ${existing.artifact ?? '(none)'}`);
+    }
+    if (existing.ended_at != null) {
+      throw new Error(`session ${sessionId} has already ended`);
+    }
+    return existing;
+  }
+
+  const now = utcNow();
+  db.prepare(SESSIONS_INSERT).run(
+    sessionId,
+    params.agentId,
+    workspacePath,
+    artifact,
+    null,
+    null,
+    now,
+  );
+  return getSession(db, sessionId)!;
 }
 
 // ─── Insert ───────────────────────────────────────────────────────────────────
@@ -69,11 +112,19 @@ export function insertSession(db: DatabaseSync, params: InsertSessionParams): Se
 /** End an active session (sets ended_at + optional summary). Returns the updated row, or null if not found. */
 export function endSession(db: DatabaseSync, params: EndSessionParams): SessionRow | null {
   const now = utcNow();
-  const result = db.prepare(SESSIONS_UPDATE_END).get(
-    now,
-    params.summary ?? null,
-    params.sessionId,
-  ) as SessionRow | undefined;
+  const where = ['session_id = ?', 'agent_id = ?', 'ended_at IS NULL'];
+  const binds: Array<string | null> = [params.sessionId, params.agentId];
+  if (params.workspacePath !== undefined) {
+    where.push('workspace_path IS ?');
+    binds.push(scopedWorkspacePath(params.workspacePath));
+  }
+  if (params.artifact !== undefined) {
+    where.push('artifact IS ?');
+    binds.push(normalizeArtifact(params.artifact));
+  }
+  const result = db.prepare(
+    `UPDATE sessions SET ended_at = ?, summary = ? WHERE ${where.join(' AND ')} RETURNING *`,
+  ).get(now, params.summary ?? null, ...binds) as SessionRow | undefined;
   return result ?? null;
 }
 

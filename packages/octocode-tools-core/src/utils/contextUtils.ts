@@ -18,6 +18,7 @@ export type {
   GraphFactExport,
   GraphFactImport,
   GraphFacts,
+  LineDiffOp,
   MinifyResult,
   JsonInput,
   RipgrepParseOptions,
@@ -261,6 +262,13 @@ export const contextUtils = {
     options?: NativeContextUtils.FilterPatchOptions | null
   ): string {
     return loadNative().filterPatch(patch, options);
+  },
+
+  computeLineDiff(
+    oldText: string,
+    newText: string
+  ): NativeContextUtils.LineDiffOp[] {
+    return loadNative().computeLineDiff(oldText, newText);
   },
 
   charToByteOffset(content: string, charIndex: number): number {

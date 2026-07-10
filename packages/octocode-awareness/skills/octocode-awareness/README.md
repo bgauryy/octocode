@@ -31,17 +31,17 @@ registry/name lookup.
 `SKILL.md` is the lobby:
 
 ```text
-ATTEND -> CHOOSE -> DECLARE -> ACT -> SUBMIT/END -> VERIFY -> BOOKKEEP -> HOUSEKEEP -> PROJECT?
+READ/ATTEND -> REASON/CHOOSE -> DO/COORDINATE -> VERIFY -> LEARN? -> CLEAN? -> PROJECT?
 ```
 
 - Plans/tasks define collaborative work and one canonical queue.
 - `work start|touch|end|list|show` records mandatory advisory file presence.
 - Ordinary peers can share a file and see task/reason context.
 - `--exclusive`/locks protect sensitive work and conflict with other live presence.
-- Hooks guard and declare before writes, log after writes, dedupe briefing/peer
-  context, cap verification debt, and capture handoffs.
-- Bookkeeping turns verified outcomes into durable lessons; housekeeping prunes
-  stale locks/signals/memory after dry-run.
+- Hooks guard and declare before writes, aggregate fallback edits by bounded
+  agent/session/workspace/artifact scope, finalize once, and capture handoffs.
+- Learning records only reusable verified outcomes; cleanup is pressure-driven,
+  selector-bound, and previewed before any destructive action.
 - SQLite is canonical; `.octocode/` files are bounded projections.
 - Stable state is silent; changed state returns only the next decision packet.
 

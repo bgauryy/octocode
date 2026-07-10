@@ -255,6 +255,10 @@ export interface GetMemoryResult {
   /** Set when recall confidence is low — verify results before relying on them. */
   judgment_required?: boolean;
   judgment_reason?: string;
+  /** True when smart recall widened an underfilled query. */
+  smart_expanded?: boolean;
+  /** Exact caller filters omitted by the smart widening pass. */
+  smart_dropped_filters?: string[];
 }
 
 export interface InsertRefinementParams {
@@ -450,6 +454,8 @@ export interface ReflectParams {
   duo?: boolean;
   /** Structured eval failures; each becomes an `eval`-tagged memory. */
   evalFailures?: EvalFailure[];
+  /** Explicitly retain a materially distinct recurrence that resembles existing memory. */
+  allowSimilar?: boolean;
   references?: string[];
   file?: string | null;
   files?: string[];
@@ -466,6 +472,7 @@ export interface ReflectParams {
 export interface ReflectResult {
   outcome: ReflectionOutcome;
   learning_memory_id: string;
+  learning_memory_skipped?: true;
   repo_fix_refinement_id: string | null;
   harness_fix: boolean;
   /** True when this reflection carried feedback to the instruction author (`--fix-instructions`). */
@@ -819,6 +826,9 @@ export interface AuditUnverifiedParams {
   workspacePath?: string;
   artifact?: string | null;
   abandon?: boolean;             // dismiss all found PENDING runs as orphaned
+  olderThanDays?: number | null; // restrict inspection/abandonment to stale debt
+  origins?: RunOrigin[];
+  before?: string | null;        // created before ISO timestamp
 }
 
 // ─── Delete refinement ───────────────────────────────────────────────────────
@@ -925,6 +935,7 @@ export interface ResolveNotificationResult {
 }
 
 export interface PruneNotificationsParams {
+  agentId: string;
   workspacePath?: string | null;
   artifact?: string | null;
   notificationIds?: string[];
@@ -1140,5 +1151,8 @@ export interface SessionRow {
 
 export interface EndSessionParams {
   sessionId: string;
+  agentId: string;
+  workspacePath?: string | null;
+  artifact?: string | null;
   summary?: string | null;
 }

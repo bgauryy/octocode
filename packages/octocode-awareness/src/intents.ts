@@ -2,7 +2,6 @@
  * intents.ts — execution-run and file-lock operations.
  */
 
-import { randomUUID } from 'node:crypto';
 import { isAbsolute, resolve } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { normalizeArtifact, utcNow } from './helpers.js';
@@ -185,16 +184,17 @@ export function releaseFileLock(
     runId = null,
     targetFiles = [],
     status: statusArg = 'SUCCESS',
-    verified = false,
-    verifiedNote,
   } = params;
 
   if (!VALID_RELEASE_STATUSES.has(String(statusArg))) {
     throw new Error(`releaseFileLock status must be ACTIVE, PENDING, SUCCESS, or FAILED; got "${statusArg}"`);
   }
   const requestedStatus = String(statusArg) as ReleaseStatus;
-  const requestedSuccessWithoutVerification = requestedStatus === 'SUCCESS' && !verified;
-  const effectiveStatus: ReleaseStatus = requestedSuccessWithoutVerification ? 'PENDING' : requestedStatus;
+  // Lock release ends editing; it never certifies the work. All SUCCESS
+  // transitions go through markVerified so evidence and linked-task closure
+  // share one policy and one audit receipt.
+  const requestedDirectSuccess = requestedStatus === 'SUCCESS';
+  const effectiveStatus: ReleaseStatus = requestedDirectSuccess ? 'PENDING' : requestedStatus;
 
   const now = utcNow();
   const whereClauses: string[] = ['ai.run_id = fl.run_id', 'ai.agent_id = ?'];
@@ -303,14 +303,6 @@ export function releaseFileLock(
            WHERE run_id = ? AND agent_id = ? AND status IN ('ACTIVE','PENDING')`
         ).run(effectiveStatus, now, tid, agentId) as { changes: number };
         updatedRuns += updated.changes;
-        if (updated.changes > 0 && verified && verifiedNote) {
-          try {
-            db.prepare(
-              `INSERT INTO run_log(event_id, run_id, agent_id, event_type, message, created_at)
-               VALUES (?, ?, ?, 'VERIFIED', ?, ?)`
-            ).run('evt_' + randomUUID().replace(/-/g, ''), tid, agentId, verifiedNote, now);
-          } catch { /* non-critical audit log */ }
-        }
       }
     }
 
@@ -327,8 +319,8 @@ export function releaseFileLock(
     locks_released: locks.length,
     run_ids: runIds,
     updated_at: now,
-    ...(requestedSuccessWithoutVerification
-      ? { unverifiedConclusion: 'SUCCESS requested without --verified; stored as PENDING until verify records the test result.' }
+    ...(requestedDirectSuccess
+      ? { unverifiedConclusion: 'Direct SUCCESS on lock release is not allowed; stored as PENDING until verify mark records an evidence receipt.' }
       : {}),
   };
 }
@@ -397,15 +389,28 @@ export function fileLock(db: DatabaseSync, params: FileLockParams): FileLockResu
       if (!params.runId) throw new Error('fileLock renew requires runId');
       const agentId = params.agentId ?? 'agent';
       const expiresAt = expiresAtFromNow(params.ttlMs);
-      const res = db.prepare(
-        `UPDATE locks SET expires_at = ? WHERE run_id = ?
-         AND EXISTS (SELECT 1 FROM task_runs tr WHERE tr.run_id = locks.run_id AND tr.agent_id = ?)`
-      ).run(expiresAt, params.runId, agentId) as { changes: number };
       const now = utcNow();
-      db.prepare(`UPDATE run_files SET heartbeat_at = ?, expires_at = ?
-        WHERE run_id = ? AND ended_at IS NULL`).run(now, expiresAt, params.runId);
-      db.prepare('UPDATE task_runs SET updated_at = ? WHERE run_id = ? AND agent_id = ?')
-        .run(now, params.runId, agentId);
+      db.exec('BEGIN IMMEDIATE');
+      let res: { changes: number };
+      try {
+        const owner = db.prepare('SELECT agent_id, status FROM task_runs WHERE run_id = ?')
+          .get(params.runId) as { agent_id: string; status: string } | undefined;
+        if (!owner) throw new Error(`run ${params.runId} not found`);
+        if (owner.agent_id !== agentId) throw new Error(`run ${params.runId} belongs to ${owner.agent_id}, not ${agentId}`);
+        if (owner.status !== 'ACTIVE') throw new Error(`run ${params.runId} is not ACTIVE`);
+        res = db.prepare('UPDATE locks SET expires_at = ? WHERE run_id = ?')
+          .run(expiresAt, params.runId) as { changes: number };
+        if (res.changes > 0) {
+          db.prepare(`UPDATE run_files SET heartbeat_at = ?, expires_at = ?
+            WHERE run_id = ? AND ended_at IS NULL`).run(now, expiresAt, params.runId);
+          db.prepare('UPDATE task_runs SET updated_at = ? WHERE run_id = ? AND agent_id = ?')
+            .run(now, params.runId, agentId);
+        }
+        db.exec('COMMIT');
+      } catch (error) {
+        try { db.exec('ROLLBACK'); } catch { /* transaction did not open */ }
+        throw error;
+      }
       return {
         ok: true,
         type: 'renew',

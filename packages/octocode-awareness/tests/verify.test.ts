@@ -77,7 +77,7 @@ describe('auditUnverified', () => {
       VALUES ('lock_late', '/tmp/agent-a-target.txt', ?, '2026-01-01T00:00:00Z', '2099-01-01T00:00:00Z')`)
       .run(runId);
 
-    expect(markVerified(db, { runId, agentId: 'agent-a', status: 'SUCCESS' }).ok).toBe(true);
+    expect(markVerified(db, { runId, agentId: 'agent-a', status: 'SUCCESS', message: 'verified late presence cleanup' }).ok).toBe(true);
     expect(db.prepare('SELECT COUNT(*) AS count FROM locks WHERE run_id = ?').get(runId))
       .toEqual({ count: 0 });
     expect(db.prepare('SELECT COUNT(*) AS count FROM run_files WHERE run_id = ? AND ended_at IS NULL').get(runId))
@@ -122,15 +122,64 @@ describe('auditUnverified', () => {
     expect(result.count).toBe(2);
     expect(result.unverified.map(u => u.run_id).sort()).toEqual([aId, bId].sort());
   });
+
+  it('can inspect only age-qualified debt before explicit abandonment', () => {
+    const db = freshDb();
+    const oldId = makePending(db, 'agent-a', '/tmp/ws-a');
+    const freshId = makePending(db, 'agent-a', '/tmp/ws-a');
+    db.prepare('UPDATE task_runs SET updated_at = ? WHERE run_id = ?')
+      .run('2020-01-01T00:00:00Z', oldId);
+    const result = auditUnverified(db, {
+      agentId: 'agent-a', workspacePath: '/tmp/ws-a', olderThanDays: 1,
+    });
+    expect(result.unverified.map((run) => run.run_id)).toEqual([oldId]);
+    expect(result.unverified.map((run) => run.run_id)).not.toContain(freshId);
+  });
+
+  it('migrates legacy HOOK debt by origin and creation cutoff without touching WORK', () => {
+    const db = freshDb();
+    const hookId = makePending(db, 'legacy-agent', '/tmp/ws-a');
+    const workId = makePending(db, 'legacy-agent', '/tmp/ws-a');
+    db.prepare("UPDATE task_runs SET origin = 'HOOK', created_at = '2020-01-01T00:00:00Z' WHERE run_id = ?")
+      .run(hookId);
+    db.prepare("UPDATE task_runs SET origin = 'WORK', created_at = '2020-01-01T00:00:00Z' WHERE run_id = ?")
+      .run(workId);
+
+    const migrated = auditUnverified(db, {
+      workspacePath: '/tmp/ws-a', origins: ['HOOK'], before: '2021-01-01T00:00:00Z', abandon: true,
+    });
+    expect(migrated.unverified.map((run) => run.run_id)).toEqual([hookId]);
+    expect(db.prepare('SELECT status FROM task_runs WHERE run_id = ?').get(hookId)).toEqual({ status: 'FAILED' });
+    expect(db.prepare('SELECT status FROM task_runs WHERE run_id = ?').get(workId)).toEqual({ status: 'PENDING' });
+  });
 });
 
 describe('markVerified', () => {
+  it('rejects SUCCESS without a durable evidence receipt', () => {
+    const db = freshDb();
+    const runId = makePending(db, 'agent-a', '/tmp/ws-a');
+    const result = markVerified(db, { runId, agentId: 'agent-a', status: 'SUCCESS' });
+    expect(result).toMatchObject({ ok: false });
+    if (!result.ok) expect(result.error).toMatch(/evidence receipt/);
+    expect(auditUnverified(db, { agentId: 'agent-a', workspacePath: '/tmp/ws-a' }).count).toBe(1);
+  });
+
+  it('rejects unscoped allPending before mutation', () => {
+    const db = freshDb();
+    makePending(db, 'agent-a', '/tmp/ws-a');
+    const result = markVerified(db, {
+      agentId: 'agent-a', allPending: true, status: 'SUCCESS', message: 'checks passed',
+    });
+    expect(result).toMatchObject({ ok: false });
+    expect(auditUnverified(db, { agentId: 'agent-a' }).count).toBe(1);
+  });
+
   it('transitions a PENDING task to SUCCESS and clears it from auditUnverified', () => {
     const db = freshDb();
     const runId = makePending(db, 'agent-a', '/tmp/ws-a');
     expect(auditUnverified(db).count).toBe(1);
 
-    const result = markVerified(db, { runId, agentId: 'agent-a', status: 'SUCCESS' });
+    const result = markVerified(db, { runId, agentId: 'agent-a', status: 'SUCCESS', message: 'declared check passed' });
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.run_id).toBe(runId);
@@ -148,10 +197,10 @@ describe('markVerified', () => {
     expect((row as { status: string }).status).toBe('FAILED');
   });
 
-  it('defaults to SUCCESS when status is omitted', () => {
+  it('defaults to SUCCESS when status is omitted but still requires a receipt', () => {
     const db = freshDb();
     const runId = makePending(db, 'agent-a', '/tmp/ws-a');
-    const result = markVerified(db, { runId, agentId: 'agent-a' });
+    const result = markVerified(db, { runId, agentId: 'agent-a', message: 'default success check passed' });
     expect(result.ok).toBe(true);
     const row = db.prepare('SELECT status FROM task_runs WHERE run_id = ?').get(runId);
     expect((row as { status: string }).status).toBe('SUCCESS');
@@ -204,10 +253,10 @@ describe('markVerified', () => {
   it('returns ok=false when verifying an already-SUCCESS intent — not PENDING', () => {
     const db = freshDb();
     const runId = makePending(db, 'agent-a', '/tmp/ws-a');
-    const first = markVerified(db, { runId, agentId: 'agent-a', status: 'SUCCESS' });
+    const first = markVerified(db, { runId, agentId: 'agent-a', status: 'SUCCESS', message: 'first verification passed' });
     expect(first.ok).toBe(true);
     // Second verify attempt: intent is now SUCCESS, not PENDING
-    const second = markVerified(db, { runId, agentId: 'agent-a', status: 'SUCCESS' });
+    const second = markVerified(db, { runId, agentId: 'agent-a', status: 'SUCCESS', message: 'duplicate verification attempt' });
     expect(second.ok).toBe(false);
   });
 
@@ -220,6 +269,7 @@ describe('markVerified', () => {
       allPending: true,
       workspacePath: '/tmp/ws-a',
       status: 'SUCCESS',
+      message: 'both declared checks passed',
     });
     expect(result.ok).toBe(true);
     if (result.ok) {
@@ -256,6 +306,7 @@ describe('markVerified', () => {
       allPending: true,
       workspacePath: '/tmp/ws-a',
       status: 'SUCCESS',
+      message: 'batch checks passed before injected failure',
     })).toThrow(/forced finishLinkedTask failure/);
 
     expect(db.prepare("SELECT COUNT(*) AS c FROM task_runs WHERE status = 'PENDING' AND agent_id = 'agent-a'")
@@ -274,6 +325,7 @@ describe('markVerified', () => {
       allPending: true,
       workspacePath: '/tmp/ws-a',
       status: 'SUCCESS',
+      message: 'scoped batch check passed',
     });
     expect(result.ok).toBe(true);
     if (result.ok) {
@@ -319,7 +371,7 @@ describe('workspace-scope symlink stability (regression)', () => {
     const { real, link, base } = tempDirWithLink();
     try {
       makePending(db, 'agent-a', link, 'verify-symlink-mark');
-      const result = markVerified(db, { agentId: 'agent-a', allPending: true, workspacePath: real });
+      const result = markVerified(db, { agentId: 'agent-a', allPending: true, workspacePath: real, message: 'symlink-scoped check passed' });
       expect(result.ok).toBe(true);
       if (result.ok) expect(result.count).toBe(1);
       expect(auditUnverified(db, { workspacePath: real }).count).toBe(0);

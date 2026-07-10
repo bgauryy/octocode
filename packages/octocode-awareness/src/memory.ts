@@ -713,6 +713,14 @@ export function insertMemoryWithSimilarityGate(
   params: InsertMemoryParams,
   allowSimilar = false,
 ): GuardedMemoryInsertResult {
+  const importance = Number(params.importance);
+  if (!Number.isInteger(importance) || importance < 1 || importance > 10) {
+    throw new Error(`importance must be 1–10, got ${String(params.importance)}`);
+  }
+  // Validate fields that insertMemory owns before an early duplicate return;
+  // invalid input must never appear successful merely because it resembles an
+  // existing row.
+  normalizeLabel(Array.isArray(params.label) ? params.label[0] : params.label);
   const ownsTransaction = !db.isTransaction;
   if (ownsTransaction) db.exec('BEGIN IMMEDIATE');
   try {
@@ -792,8 +800,15 @@ export function getMemory(db: DatabaseSync, params: GetMemoryParams = {}): GetMe
   // this function so every normal scope/provenance filter runs before top-k.
   const limitCap = candidateMemoryIds.length > 0 ? 2_000 : 50;
   const limit = Math.min(limitCap, Math.max(1, Number(limitRaw) || 3));
+  const smartEnabled = smart === true || smart === 'true';
   let minImportance = Math.max(1, Number(minImpRaw) || 1);
-  if (smart === true || smart === 'true') minImportance = Math.max(1, minImportance - 1);
+  let smartExpanded = false;
+  const droppedSmartFilters: string[] = [];
+  if (smartEnabled && minImportance > 1) {
+    minImportance = Math.max(1, minImportance - 1);
+    smartExpanded = true;
+    droppedSmartFilters.push('min_importance');
+  }
 
   const states = statesRaw ?? (asOf ? ['ACTIVE', 'SUPERSEDED'] : ['ACTIVE']);
   const labels = label
@@ -828,19 +843,41 @@ export function getMemory(db: DatabaseSync, params: GetMemoryParams = {}): GetMe
     candidateIds = intersectCandidateIds(candidateIds, regexCandidateIds(db, compiledRegex));
   }
 
+  const scopeOptions: LexicalScopeOptions = {
+    workspacePath: workspacePath ?? cwdParam ?? null,
+    artifact,
+    repo: repoArg,
+    ref: refArg,
+    strictScope,
+    globalOnly,
+    cwd: cwdParam,
+    asOf: normalizedAsOf,
+    candidateMemoryIds: candidateIds ? [...candidateIds] : undefined,
+  };
   let memories = lexicalSearch(
     db, query, limit * SCORING_PREFETCH_FACTOR, minImportance, tags, labels, states, {
-      workspacePath: workspacePath ?? cwdParam ?? null,
-      artifact,
-      repo: repoArg,
-      ref: refArg,
-      strictScope,
-      globalOnly,
-      cwd: cwdParam,
-      asOf: normalizedAsOf,
-      candidateMemoryIds: candidateIds ? [...candidateIds] : undefined,
+      ...scopeOptions,
     },
   );
+  if (smartEnabled && memories.length < limit && (labels.length > 0 || tags.length > 0 || minImportance > 1)) {
+    if (labels.length > 0 && !droppedSmartFilters.includes('label')) droppedSmartFilters.push('label');
+    if (tags.length > 0 && !droppedSmartFilters.includes('tag')) droppedSmartFilters.push('tag');
+    if (minImportance > 1 && !droppedSmartFilters.includes('min_importance')) droppedSmartFilters.push('min_importance');
+    const expanded = lexicalSearch(
+      db,
+      query,
+      limit * SCORING_PREFETCH_FACTOR,
+      1,
+      [],
+      [],
+      states,
+      scopeOptions,
+    );
+    const byId = new Map(memories.map(memory => [memory.memory_id, memory]));
+    for (const memory of expanded) byId.set(memory.memory_id, memory);
+    memories = [...byId.values()];
+    smartExpanded = true;
+  }
   attachMemoryReferences(db, memories);
 
   // Exact file filter — the `file` column was removed from the schema (files are
@@ -911,7 +948,10 @@ export function getMemory(db: DatabaseSync, params: GetMemoryParams = {}): GetMe
   if (recordAccess) bumpAccess(db, memories.map(m => m.memory_id));
 
   const mode = hasFts(db) ? 'lexical' as const : 'fallback' as const;
-  const result: GetMemoryResult = {
+  const result: GetMemoryResult & {
+    smart_expanded?: boolean;
+    smart_dropped_filters?: string[];
+  } = {
     count: memories.length,
     memories,
     mode,
@@ -919,6 +959,10 @@ export function getMemory(db: DatabaseSync, params: GetMemoryParams = {}): GetMe
     as_of: normalizedAsOf,
     global_only: Boolean(globalOnly),
     states,
+    ...(smartExpanded ? {
+      smart_expanded: true,
+      smart_dropped_filters: droppedSmartFilters,
+    } : {}),
   };
 
   // Low-confidence recall flag (engram BM25Floor pattern): tell the agent when
@@ -927,7 +971,9 @@ export function getMemory(db: DatabaseSync, params: GetMemoryParams = {}): GetMe
     const topRelevance = memories[0]?.lexical ?? 0;
     if (memories.length === 0) {
       result.judgment_required = true;
-      result.judgment_reason = 'no results — absence of recall is not proof of absence; retry with --smart or broader terms';
+      result.judgment_reason = smartEnabled
+        ? 'no results after smart widening — absence of recall is not proof of absence; broaden the query terms or scope'
+        : 'no results — absence of recall is not proof of absence; retry with --smart or broader terms';
     } else if (mode === 'fallback') {
       result.judgment_required = true;
       result.judgment_reason = 'FTS unavailable — results are unranked substring matches; verify relevance before relying on them';

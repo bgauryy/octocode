@@ -7,12 +7,13 @@
  */
 
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, realpathSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
 import { parseJsonList } from './helpers.js';
 import { normalizeWorkspacePath } from './git.js';
+import { inspectMaintenancePressure } from './maintenance.js';
 
 export const AWARENESS_QUERY_VIEWS = [
   'all',
@@ -61,6 +62,10 @@ export interface AwarenessQueryParams {
 export interface AwarenessQuerySection {
   count: number;
   rows: AwarenessQueryRow[];
+  total: number | null;
+  omitted_count: number | null;
+  is_partial: boolean;
+  continuation: string | null;
 }
 
 export interface AwarenessQueryResult {
@@ -73,6 +78,10 @@ export interface AwarenessQueryResult {
   ref: string | null;
   count: number;
   rows: AwarenessQueryRow[];
+  total: number | null;
+  omitted_count: number | null;
+  is_partial: boolean;
+  continuation: string | null;
   sections?: Record<string, AwarenessQuerySection>;
   filters: Record<string, unknown>;
 }
@@ -197,9 +206,56 @@ function normalizeMode(mode: string | null | undefined): RepoContextMode {
   throw new Error('--mode must be local or share');
 }
 
-function limitOf(value: number | null | undefined, fallback = 50, max = 500): number {
+function limitOf(value: number | null | undefined, fallback = 50, max = 501): number {
   if (value == null || !Number.isFinite(value)) return fallback;
   return Math.min(max, Math.max(1, Math.floor(value)));
+}
+
+interface QueryCompleteness {
+  rows: AwarenessQueryRow[];
+  total: number | null;
+  omitted_count: number | null;
+  is_partial: boolean;
+  continuation: string | null;
+}
+
+function continuationFor(view: AwarenessQueryView, requestedLimit: number): string {
+  if (requestedLimit < 500) {
+    return `query ${view} --limit ${Math.min(500, Math.max(requestedLimit + 1, requestedLimit * 2))}; narrow filters if the result remains partial`;
+  }
+  return `query ${view} reached the 500-row safety cap; narrow workspace, state, label, file, time, or text filters`;
+}
+
+function boundedRows(
+  view: AwarenessQueryView,
+  probedRows: AwarenessQueryRow[],
+  requestedLimit: number,
+): QueryCompleteness {
+  if (view === 'workboard') {
+    const columnTotals = new Map<string, number>();
+    for (const row of probedRows) {
+      const column = String(row['column'] ?? 'Other');
+      if (!columnTotals.has(column)) columnTotals.set(column, Number(row['column_total'] ?? 1));
+    }
+    const total = [...columnTotals.values()].reduce((sum, count) => sum + count, 0);
+    const omitted = Math.max(0, total - probedRows.length);
+    return {
+      rows: probedRows,
+      total,
+      omitted_count: omitted,
+      is_partial: omitted > 0,
+      continuation: omitted > 0 ? 'drill into the named workboard lane with its targeted command; lane output is intentionally bounded' : null,
+    };
+  }
+  const hasMore = probedRows.length > requestedLimit;
+  const rows = probedRows.slice(0, requestedLimit);
+  return {
+    rows,
+    total: hasMore ? null : rows.length,
+    omitted_count: hasMore ? null : 0,
+    is_partial: hasMore,
+    continuation: hasMore ? continuationFor(view, requestedLimit) : null,
+  };
 }
 
 function stringList(value: string | string[] | null | undefined): string[] {
@@ -1221,6 +1277,7 @@ function workboardRows(db: DatabaseSync, params: AwarenessQueryParams): Awarenes
     MemoryReview: [],
     DeveloperReview: [],
     ProjectionHealth: [],
+    Maintenance: [],
   };
   const counts: Record<string, number> = {};
 
@@ -1389,6 +1446,49 @@ function workboardRows(db: DatabaseSync, params: AwarenessQueryParams): Awarenes
     }, limit);
   }
 
+  const pressure = inspectMaintenancePressure(db, {
+    workspace: scopeFromParams(params).workspacePath,
+    artifact: scopeFromParams(params).artifact,
+    pressure_age_days: 1,
+    workspace_normalized: true,
+  });
+  const pressureRows: AwarenessQueryRow[] = [];
+  if (pressure.stale_pending_runs > 0) {
+    const sample = pressure.samples.run_ids[0];
+    pressureRows.push({
+      item_type: 'pressure', id: 'stale-pending-runs', status: 'review',
+      title: `${pressure.stale_pending_runs} pending run(s) older than ${pressure.pressure_age_days}d`,
+      detail: 'Run the declared checks; pending age never implies success or deletion.',
+      action: 'verify audit --workspace "$PWD" --compact',
+      raw_ids: sample ? [sample] : [],
+      files: [], created_at: utcNow(),
+    });
+  }
+  if (pressure.stale_open_signals > 0) {
+    pressureRows.push({
+      item_type: 'pressure', id: 'stale-open-signals', status: 'review',
+      title: `${pressure.stale_open_signals} open signal(s) older than ${pressure.pressure_age_days}d`,
+      detail: 'Acknowledge or resolve after review; no signal is silently pruned.',
+      action: 'signal list --agent-id "$OCTOCODE_AGENT_ID" --workspace "$PWD" --all --limit 5 --compact',
+      raw_ids: pressure.samples.signal_ids,
+      files: [], created_at: utcNow(),
+    });
+  }
+  if (pressure.stale_missing_refs > 0) {
+    const memoryId = pressure.samples.memory_ids[0];
+    pressureRows.push({
+      item_type: 'pressure', id: 'stale-missing-memory-refs', status: 'review',
+      title: `${pressure.stale_missing_refs} old memory reference(s) point to missing files`,
+      detail: 'Revalidate, supersede, or preview deletion by exact memory id.',
+      action: memoryId
+        ? `memory forget --memory-id ${memoryId} --dry-run --compact`
+        : 'query files --workspace "$PWD" --format table --limit 20',
+      raw_ids: pressure.samples.memory_ids,
+      files: [], created_at: utcNow(),
+    });
+  }
+  for (const row of pressureRows) pushLimited(columns, counts, 'Maintenance', row, limit);
+
   const profile = Object.fromEntries(repoProfileRows(db, params).map(row => [String(row['metric']), Number(row['count'] ?? 0)])) as Record<string, number>;
   const activeMemories = Number(profile['active_memories'] ?? 0);
   const taskCount = Number(profile['tasks'] ?? 0);
@@ -1460,9 +1560,10 @@ export function queryAwareness(db: DatabaseSync, params: AwarenessQueryParams = 
   const view = normalizeView(params.view);
   const scope = scopeFromParams(params);
   const generatedAt = utcNow();
+  const requestedLimit = limitOf(params.limit, 50, 500);
   const filters = {
     query: params.query ?? null,
-    limit: limitOf(params.limit),
+    limit: requestedLimit,
     agent_id: params.agentId ?? params.agent_id ?? null,
     state: stringList(params.state),
     label: stringList(params.label),
@@ -1474,10 +1575,31 @@ export function queryAwareness(db: DatabaseSync, params: AwarenessQueryParams = 
     const sections: Record<string, AwarenessQuerySection> = {};
     for (const section of AWARENESS_QUERY_VIEWS) {
       if (section === 'all') continue;
-      const rows = rowsForView(db, section, params);
-      sections[section] = { count: rows.length, rows };
+      const probeLimit = section === 'workboard' ? requestedLimit : Math.min(501, requestedLimit + 1);
+      const completeness = boundedRows(
+        section,
+        rowsForView(db, section, withScope(params, { limit: probeLimit })),
+        requestedLimit,
+      );
+      sections[section] = { count: completeness.rows.length, ...completeness };
     }
-    const rows = Object.entries(sections).map(([name, section]) => ({ section: name, count: section.count }));
+    const rows = Object.entries(sections).map(([name, section]) => ({
+      section: name,
+      count: section.count,
+      total: section.total,
+      omitted_count: section.omitted_count,
+      is_partial: section.is_partial,
+      continuation: section.continuation,
+    }));
+    const isPartial = Object.values(sections).some(section => section.is_partial);
+    const knownTotals = Object.values(sections).map(section => section.total);
+    const total = knownTotals.some(value => value == null)
+      ? null
+      : knownTotals.reduce<number>((sum, value) => sum + Number(value), 0);
+    const omittedCounts = Object.values(sections).map(section => section.omitted_count);
+    const omittedCount = omittedCounts.some(value => value == null)
+      ? null
+      : omittedCounts.reduce<number>((sum, value) => sum + Number(value), 0);
     return {
       ok: true,
       view,
@@ -1488,12 +1610,22 @@ export function queryAwareness(db: DatabaseSync, params: AwarenessQueryParams = 
       ref: scope.ref,
       count: rows.length,
       rows,
+      total,
+      omitted_count: omittedCount,
+      is_partial: isPartial,
+      continuation: isPartial ? 'inspect section completeness and follow its targeted continuation' : null,
       sections,
       filters,
     };
   }
 
-  const rows = rowsForView(db, view, params);
+  const completeness = boundedRows(
+    view,
+    rowsForView(db, view, withScope(params, {
+      limit: view === 'workboard' ? requestedLimit : Math.min(501, requestedLimit + 1),
+    })),
+    requestedLimit,
+  );
   return {
     ok: true,
     view,
@@ -1502,8 +1634,12 @@ export function queryAwareness(db: DatabaseSync, params: AwarenessQueryParams = 
     artifact: scope.artifact,
     repo: scope.repo,
     ref: scope.ref,
-    count: rows.length,
-    rows,
+    count: completeness.rows.length,
+    rows: completeness.rows,
+    total: completeness.total,
+    omitted_count: completeness.omitted_count,
+    is_partial: completeness.is_partial,
+    continuation: completeness.continuation,
     filters,
   };
 }
@@ -1529,10 +1665,26 @@ export function developerReviewDoc(
 export function formatAwarenessQueryResult(result: AwarenessQueryResult, format: string | null | undefined): string {
   const normalized = normalizeFormat(format);
   if (normalized === 'json') return JSON.stringify(result, null, 2);
-  if (normalized === 'csv') return toCsv(result.rows);
-  if (normalized === 'table') return toTable(result.rows);
+  if (normalized === 'csv') {
+    const rows = result.rows.length > 0 ? result.rows : [{}];
+    return toCsv(rows.map(row => ({
+      ...row,
+      __awareness_is_partial: result.is_partial,
+      __awareness_total: result.total,
+      __awareness_omitted_count: result.omitted_count,
+      __awareness_continuation: result.continuation,
+    })));
+  }
+  if (normalized === 'table') return `${completenessText(result)}\n${toTable(result.rows)}`;
   if (normalized === 'html') return renderAwarenessHtml(result);
   return toMarkdown(result);
+}
+
+function completenessText(result: AwarenessQueryResult): string {
+  const total = result.total == null ? 'unknown' : String(result.total);
+  const omitted = result.omitted_count == null ? 'unknown' : String(result.omitted_count);
+  const continuation = result.continuation ? `; next: ${result.continuation}` : '';
+  return `Completeness: ${result.is_partial ? 'partial' : 'complete'}; visible=${result.count}; total=${total}; omitted=${omitted}${continuation}`;
 }
 
 export function renderAwarenessHtml(result: AwarenessQueryResult): string {
@@ -1575,6 +1727,7 @@ export function renderAwarenessHtml(result: AwarenessQueryResult): string {
   <header>
     <h1>${escapeHtml(title)}</h1>
     <div class="meta">Generated ${escapeHtml(result.generated_at)} for <code>${escapeHtml(result.workspace_path ?? 'global')}</code></div>
+    <div class="meta">${escapeHtml(completenessText(result))}</div>
     <div class="controls">
       <input id="global-filter" type="search" placeholder="Filter rows" autocomplete="off">
       <select id="section-filter" aria-label="Section">
@@ -1637,18 +1790,95 @@ export function renderAwarenessHtml(result: AwarenessQueryResult): string {
 export function writeAwarenessView(
   db: DatabaseSync,
   params: AwarenessQueryParams & { out?: string | null; format?: string | null } = {},
-): { ok: true; path: string; view: AwarenessQueryView; count: number } {
+): { ok: true; path: string; view: AwarenessQueryView; count: number; total: number | null; omitted_count: number | null; is_partial: boolean; continuation: string | null } {
   const result = queryAwareness(db, params);
   const workspacePath = scopeFromParams(params).workspacePath ?? process.cwd();
   const outPath = resolveWorkspaceOutputPath(params.out, workspacePath, join(workspacePath, '.octocode', 'awareness', 'index.html'));
-  mkdirSync(join(outPath, '..'), { recursive: true });
-  writeFileSync(outPath, renderAwarenessHtml(result), 'utf8');
-  return { ok: true, path: outPath, view: result.view, count: result.count };
+  atomicWriteText(outPath, renderAwarenessHtml(result));
+  return {
+    ok: true,
+    path: outPath,
+    view: result.view,
+    count: result.count,
+    total: result.total,
+    omitted_count: result.omitted_count,
+    is_partial: result.is_partial,
+    continuation: result.continuation,
+  };
 }
 
 function resolveWorkspaceOutputPath(output: string | null | undefined, workspacePath: string, defaultPath: string): string {
   const target = output?.trim() || defaultPath;
   return isAbsolute(target) ? resolve(target) : resolve(workspacePath, target);
+}
+
+let atomicWriteSequence = 0;
+
+function atomicWriteText(path: string, content: string): void {
+  mkdirSync(join(path, '..'), { recursive: true });
+  const temp = `${path}.tmp-${process.pid}-${Date.now()}-${atomicWriteSequence++}`;
+  try {
+    writeFileSync(temp, content, { encoding: 'utf8', flag: 'wx' });
+    renameSync(temp, path);
+  } finally {
+    rmSync(temp, { force: true });
+  }
+}
+
+function sanitizeShareString(value: string, workspacePath: string): string {
+  const sanitizeAbsolute = (token: string): string => {
+    const filePrefix = token.startsWith('file:') ? 'file:' : '';
+    const raw = filePrefix ? token.slice(filePrefix.length) : token;
+    if (!isAbsolute(raw)) return token;
+    if (raw === workspacePath || raw.startsWith(`${workspacePath}/`)) {
+      return `${filePrefix}${relative(workspacePath, raw) || '.'}`;
+    }
+    return filePrefix ? 'file:<external-path-redacted>' : '<absolute-path-redacted>';
+  };
+
+  if (value.startsWith('file:') || isAbsolute(value)) return sanitizeAbsolute(value);
+  const withoutWorkspace = value.split(workspacePath).join('<workspace>');
+  return withoutWorkspace.replace(
+    /(?:file:)?\/(?:Users|home|private|tmp|var|Volumes|opt)\/[^\s,;)"'\]]+/g,
+    sanitizeAbsolute,
+  );
+}
+
+function sanitizeShareRow(row: AwarenessQueryRow, workspacePath: string): AwarenessQueryRow {
+  const sanitized: AwarenessQueryRow = {};
+  for (const [key, value] of Object.entries(row)) {
+    if (key === 'body' || (key === 'detail' && (row['item_type'] === 'signal' || row['kind'] === 'signal'))) {
+      sanitized[key] = '';
+      sanitized['body_redacted'] = Boolean(value) || sanitized['body_redacted'] === true;
+      continue;
+    }
+    if (typeof value === 'string') {
+      sanitized[key] = sanitizeShareString(value, workspacePath);
+    } else if (Array.isArray(value)) {
+      sanitized[key] = value.map(item => sanitizeShareString(String(item), workspacePath));
+    } else {
+      sanitized[key] = value;
+    }
+  }
+  return sanitized;
+}
+
+function sanitizeQueryResultForShare(
+  result: AwarenessQueryResult,
+  workspacePath: string,
+): AwarenessQueryResult {
+  const sections = result.sections
+    ? Object.fromEntries(Object.entries(result.sections).map(([name, section]) => [name, {
+      ...section,
+      rows: section.rows.map(row => sanitizeShareRow(row, workspacePath)),
+    }]))
+    : undefined;
+  return {
+    ...result,
+    workspace_path: '<workspace>',
+    rows: result.rows.map(row => sanitizeShareRow(row, workspacePath)),
+    ...(sections ? { sections } : {}),
+  };
 }
 
 export function injectRepoContext(db: DatabaseSync, params: RepoContextInjectParams = {}): RepoContextInjectResult {
@@ -1666,21 +1896,31 @@ export function injectRepoContext(db: DatabaseSync, params: RepoContextInjectPar
     view: 'all',
   };
   SCOPE_CACHE.set(queryParams, scope);
-  const all = queryAwareness(db, queryParams);
+  const queried = queryAwareness(db, queryParams);
+  const all = mode === 'share' ? sanitizeQueryResultForShare(queried, workspacePath) : queried;
   const filesWritten: string[] = [];
   const writtenContent: Record<string, string> = {};
   const warnings: string[] = [];
 
   function write(relPath: string, content: string): void {
     const full = join(outDir, relPath);
-    mkdirSync(join(full, '..'), { recursive: true });
-    writeFileSync(full, content, 'utf8');
+    atomicWriteText(full, content);
     writtenContent[relPath] = content;
     filesWritten.push(full);
   }
 
   const sections = all.sections ?? {};
   const counts = Object.fromEntries(Object.entries(sections).map(([name, section]) => [name, section.count]));
+  const completeness = Object.fromEntries(Object.entries(sections).map(([name, section]) => [name, {
+    visible: section.count,
+    total: section.total,
+    omitted_count: section.omitted_count,
+    is_partial: section.is_partial,
+    continuation: section.continuation,
+  }]));
+  for (const [name, section] of Object.entries(sections)) {
+    if (section.is_partial) warnings.push(`projection section ${name} is partial: ${section.continuation ?? 'narrow the query'}`);
+  }
   const profileCounts = Object.fromEntries(
     (sections['repo-profile']?.rows ?? []).map(row => [String(row['metric']), Number(row['count'] ?? 0)]),
   );
@@ -1716,7 +1956,7 @@ export function injectRepoContext(db: DatabaseSync, params: RepoContextInjectPar
   ]));
   write(join('references', 'testing.md'), renderReferenceDoc('Testing And Verification', [
     'Treat generated memories as leads. Verify current files and command output before acting.',
-    'Release locks with `verify mark` or `lock release --verified` after declared tests actually run.',
+    'End editing with `work end` or `lock release --status PENDING`; only `verify mark --message "<check + result>"` records success.',
     'Record new durable failures with `reflect record --failure-signature` or `memory record --label GOTCHA`.',
   ]));
   write(join('references', 'architecture.md'), renderReferenceDoc('Architecture Notes', [
@@ -1758,7 +1998,7 @@ export function injectRepoContext(db: DatabaseSync, params: RepoContextInjectPar
     generated_at: generatedAt,
     generator: '@octocodeai/octocode-awareness repo inject',
     mode,
-    workspace_path: workspacePath,
+    workspace_path: mode === 'share' ? '<workspace>' : workspacePath,
     artifact: scope.artifact,
     repo: scope.repo,
     ref: scope.ref,
@@ -1771,6 +2011,7 @@ export function injectRepoContext(db: DatabaseSync, params: RepoContextInjectPar
       share_decision: 'user-owned',
     },
     counts,
+    completeness,
     budgets: {
       markdown: projectionBudgets,
       workboard: WORKBOARD_BUDGET,
@@ -2106,6 +2347,7 @@ function toMarkdown(result: AwarenessQueryResult): string {
     '',
     `Generated: ${result.generated_at}`,
     `Workspace: ${result.workspace_path ?? 'global'}`,
+    completenessText(result),
     '',
   ];
   if (result.sections) {
@@ -2135,7 +2377,8 @@ function markdownRows(rows: AwarenessQueryRow[]): string {
 }
 
 function csvCell(value: unknown): string {
-  const s = String(value ?? '');
+  let s = String(value ?? '');
+  if (/^\s*[=+\-@]/.test(s)) s = `'${s}`;
   return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 

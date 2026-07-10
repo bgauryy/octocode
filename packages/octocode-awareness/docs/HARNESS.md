@@ -86,6 +86,7 @@ node skills/octocode-skills/scripts/skill-review.mjs \
   packages/octocode-awareness/skills/octocode-awareness
 ```
 
-Migration tests must cover v1 execution tables, v2 `files_json`/typed locks, and v3
-normalized run files/exclusive locks. Hook tests must replay equivalent shell/Pi
+Migration tests must cover legacy generation-1 execution tables, generation-2
+`files_json`/typed locks, generation-3 normalized run files/exclusive locks, and
+the canonical OCT1/v1 identity. Hook tests must replay equivalent shell/Pi
 events. Output tests must enforce byte/detail caps, not only row counts.

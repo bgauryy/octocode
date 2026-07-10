@@ -23,7 +23,7 @@ The build bundles both command lines:
 |---|---:|
 | Native Octocode research tools | 13 |
 | Pi support tools | 7 |
-| Replacement edit tool | 1 |
+| Replacement edit + write + bash tools | 3 |
 | Slash commands | 6 |
 | Bundled main-agent skills | 7 |
 
@@ -82,9 +82,13 @@ or duplicate interface layer is started:
 | Packages | `npmSearch` |
 
 Pi’s built-in `read`, `grep`, `find`, and `ls` are disabled in favor of the
-corresponding Octocode tools. The extension replaces Pi’s `edit` tool with a
-batch-aware implementation that verifies all matches before writing and exposes
-stale-read diagnostics.
+corresponding Octocode tools. The extension replaces Pi’s `edit`, `write`, and
+`bash` tools: `edit` is batch-aware with stale-read checks and Myers diffs
+(native engine when available); `write`/`bash` add Octocode path-guard on
+mutation targets.
+
+**Why, and how to work with overrides:** [docs/OVERRIDES.md](docs/OVERRIDES.md)
+(users + developers).
 
 ## Support tools (7)
 
@@ -116,17 +120,19 @@ Awareness commands such as `attend`, `task ready`, `work start`, `signal list`,
 The two memory maintenance commands are user controls. Agent-facing recall,
 recording, signals, tasks, verification, and reflection stay on the Awareness CLI.
 
-## Bundled skills (7)
+## Bundled skills (9)
 
 Pi discovers one generated skill tree under `dist/skills/`:
 
 - `octocode-awareness`
 - `octocode-brainstorming`
+- `octocode-eval`
 - `octocode-prompt-optimizer`
 - `octocode-research`
 - `octocode-rfc-generator`
 - `octocode-roast`
 - `octocode-skills`
+- `octocode-subagent`
 
 `octocode-awareness` is copied from the Awareness package’s canonical skill.
 The Pi build owns the generated copy; never edit it by hand.

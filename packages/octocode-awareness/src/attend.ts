@@ -5,6 +5,7 @@
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
+import { AWARENESS_SCHEMA_VERSION } from './db.js';
 import { getMemory } from './memory.js';
 import { queryAwareness, type AwarenessQueryRow } from './repo-context.js';
 
@@ -44,7 +45,7 @@ export interface AttendEvidence {
 
 export interface AttendResult {
   ok: true;
-  schema_version: 3;
+  schema_version: number;
   generated_at: string;
   workspace_path: string;
   artifact: string | null;
@@ -161,7 +162,7 @@ function compactRow(row: AwarenessQueryRow): AwarenessQueryRow {
 }
 
 function compactWorkboard(grouped: Record<string, AwarenessQueryRow[]>, limit: number): Record<string, AwarenessQueryRow[]> {
-  const actionable = ['Inbox', 'Ready', 'Claimed', 'Verify', 'FilesUnderWork'];
+  const actionable = ['Inbox', 'Ready', 'Claimed', 'Verify', 'FilesUnderWork', 'Maintenance'];
   return Object.fromEntries(actionable.flatMap(column => {
     const rows = grouped[column] ?? [];
     return rows.length === 0 ? [] : [[column, rows.slice(0, limit).map(compactRow)]];
@@ -237,8 +238,15 @@ function projectionWarnings(workspacePath: string, stats: Array<{ file: string; 
   return [...markdownWarnings, ...manifestWarnings(workspacePath, stats)];
 }
 
-function evidenceTrust(references: string[]): AttendEvidence['trust'] {
+function evidenceTrust(references: string[], workspacePath: string): AttendEvidence['trust'] {
   if (references.length === 0) return 'needs_refs';
+  const missingFileReference = references.some(reference => {
+    if (!reference.startsWith('file:')) return false;
+    const rawPath = reference.slice('file:'.length).replace(/(?::\d+(?::\d+)?|#L\d+(?:-L?\d+)?)$/, '');
+    const path = rawPath.startsWith('/') ? rawPath : resolve(workspacePath, rawPath);
+    return !existsSync(path);
+  });
+  if (missingFileReference) return 'needs_refs';
   if (references.some(ref => ref.includes('.octocode/') || ref.startsWith('http'))) return 'generated_or_external_lead';
   return 'verified_lead';
 }
@@ -376,7 +384,7 @@ export function attendAwareness(db: DatabaseSync, params: AttendParams = {}): At
         omitted_reference_count: Math.max(0, allReferences.length - references.length),
       }),
       why_selected: compact ? why.slice(0, 2) : why,
-      trust: evidenceTrust(allReferences),
+      trust: evidenceTrust(allReferences, workspacePath),
     };
   });
 
@@ -482,11 +490,11 @@ export function attendAwareness(db: DatabaseSync, params: AttendParams = {}): At
     .map(String)
     .find(id => id.startsWith('run_'));
   const next = verificationTargets.length > 0
-    ? `octocode-awareness verify audit --agent-id "$OCTOCODE_AGENT_ID" --workspace "$PWD" --compact; then verify mark ${verificationRunId ? `--run-id ${verificationRunId}` : '--run-id <exact-run-id>'} after its declared test plan`
+    ? `octocode-awareness verify audit --agent-id "$OCTOCODE_AGENT_ID" --workspace "$PWD" --compact; then verify mark ${verificationRunId ? `--run-id ${verificationRunId}` : '--run-id <exact-run-id>'} --message "<check + result>" after its declared test plan`
     : readyTasks.length > 0
       ? `octocode-awareness task claim --task-id ${String(readyTasks[0]?.['id'])} --agent-id "$OCTOCODE_AGENT_ID" --compact`
-      : bloatWarnings.length > 0
-        ? 'octocode-awareness memory forget --workspace "$PWD" --dry-run --compact; then repo inject --workspace "$PWD" --compact to regenerate capped projections (digest does not shrink markdown)'
+      : !query && bloatWarnings.length > 0
+        ? 'octocode-awareness query workboard --workspace "$PWD" --format json --limit 5 --compact'
         : evidence.length > 0
           ? 'Treat evidence as leads; re-check cited files, then work start before edits'
           : 'octocode-awareness attend --workspace "$PWD" --query "<narrower task>" --compact; or query workboard / workspace status';
@@ -498,7 +506,7 @@ export function attendAwareness(db: DatabaseSync, params: AttendParams = {}): At
     };
     return {
       ok: true,
-      schema_version: 3,
+      schema_version: AWARENESS_SCHEMA_VERSION,
       generated_at: profileResult.generated_at,
       workspace_path: workspacePath,
       artifact: params.artifact ?? null,
@@ -510,6 +518,7 @@ export function attendAwareness(db: DatabaseSync, params: AttendParams = {}): At
         Claimed: columnCount('Claimed'),
         Verify: columnCount('Verify'),
         FilesUnderWork: columnCount('FilesUnderWork'),
+        Maintenance: columnCount('Maintenance'),
       },
       workboard,
       evidence,
@@ -519,7 +528,7 @@ export function attendAwareness(db: DatabaseSync, params: AttendParams = {}): At
 
   const result: AttendResult = {
     ok: true,
-    schema_version: 3,
+    schema_version: AWARENESS_SCHEMA_VERSION,
     generated_at: profileResult.generated_at,
     workspace_path: workspacePath,
     artifact: params.artifact ?? null,

@@ -47,7 +47,7 @@ default.
 | Active file peers | `work list --compact`, then `work show --file <path>` |
 | Operational counts | `workspace status --compact` |
 | Verification debt | `verify audit --compact` |
-| Reusable lessons | `memory recall --compact`; request full/explain only when judging ranking |
+| Reusable lessons | `memory recall --compact`; use `--explain --full` for score components |
 | Inbox | `signal list --limit 5`; include bodies only when acting |
 | Human cross-view inspection | `query all --format html` |
 
@@ -84,6 +84,11 @@ Memory, peers, signals, and generated projections are leads. Check current files
 tests, and user instructions before acting. Zero recall results mean broaden one
 query/filter; they do not prove absence.
 
+`memory recall --smart` first uses requested filters, then widens an under-filled
+result by dropping label/tag/minimum-importance restrictions. Output reports
+`smart_expanded` and `smart_dropped_filters`; widening is never silent. File-backed
+attend evidence is not `verified_lead` when its referenced file is missing.
+
 Use file/scope filters before increasing limits. Prefer relative paths in compact
 output. Use HTML/CSV or explicit full rows for bulk inspection rather than raising
 the prompt budget.
@@ -98,6 +103,10 @@ The workboard is derived; it has no table. Lanes route actions:
 - Verify: run declared checks and mark results.
 - Inbox: act, acknowledge, resolve.
 - MemoryReview/DeveloperReview/ProjectionHealth: bookkeep or housekeep.
+- Maintenance: pending runs, open signals, and missing memory file references older
+  than one day by default (`--pressure-age-days` may raise the review window). These
+  are read-only sensors with bounded IDs; they never delete,
+  resolve, or verify fresh work.
 
 Re-run attend after a material task, peer, signal, or verification transition—not
 after every tool call.

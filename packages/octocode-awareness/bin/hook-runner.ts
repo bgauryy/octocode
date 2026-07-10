@@ -16,6 +16,7 @@ import { registerAgent } from '../src/agents.js';
 import { insertEditLog } from '../src/audit.js';
 import { connectDb, resolveDbPath } from '../src/db.js';
 import { canonicalizePath, normalizeWorkspacePath } from '../src/git.js';
+import { normalizeArtifact } from '../src/helpers.js';
 import { activeTaskClaimForAgent } from '../src/tasks.js';
 import { endWork, listWork, startWork, touchWork } from '../src/work.js';
 import type { WorkPeer } from '../src/types.js';
@@ -23,6 +24,22 @@ import { auditUnverified } from '../src/verify.js';
 import { digest, notifyGet, sessionCapture } from '../src/maintenance.js';
 import { endSession } from '../src/sessions.js';
 import { evaluateHarnessGuard, extractPiWriteTargetPaths } from '../src/pi-hooks.js';
+
+export type ShellHookHost = 'claude' | 'codex' | 'cursor';
+
+export interface HookRunOptions {
+  host?: ShellHookHost;
+  skillRoot?: string;
+}
+
+export interface HookControlOutcome {
+  exitCode: number;
+  payload?: Record<string, unknown>;
+  stderr?: string;
+}
+
+const INTERNAL_HOOK_HOST = '__octocode_hook_host';
+const INTERNAL_SKILL_ROOT = '__octocode_skill_root';
 
 function readStdin(): Promise<string> {
   return new Promise((resolve) => {
@@ -68,6 +85,81 @@ function firstString(...values: unknown[]): string | null {
   return null;
 }
 
+function normalizeShellHookHost(value: unknown): ShellHookHost | null {
+  if (typeof value !== 'string') return null;
+  const normalized = value.trim().toLowerCase();
+  return normalized === 'claude' || normalized === 'codex' || normalized === 'cursor'
+    ? normalized
+    : null;
+}
+
+function shellHookHost(payload: Record<string, unknown>): ShellHookHost {
+  const explicit = normalizeShellHookHost(
+    payload[INTERNAL_HOOK_HOST]
+      ?? process.env.OCTOCODE_AGENT_HOST
+      ?? payload.host
+      ?? payload.client,
+  );
+  if (explicit) return explicit;
+  const eventName = firstString(payload.hook_event_name, payload.eventName) ?? '';
+  if (eventName && eventName[0] === eventName[0]?.toLowerCase()) return 'cursor';
+  return 'claude';
+}
+
+function hookSkillRoot(payload: Record<string, unknown>): string | null {
+  return firstString(payload[INTERNAL_SKILL_ROOT], process.env.OCTOCODE_SKILL_ROOT);
+}
+
+export function hookContextEnvelope(
+  host: ShellHookHost,
+  eventName: string,
+  message: string,
+): Record<string, unknown> {
+  if (host === 'cursor') {
+    if (eventName === 'sessionStart') return { additional_context: message };
+    return { permission: 'allow', agent_message: message };
+  }
+  return {
+    hookSpecificOutput: {
+      hookEventName: eventName,
+      additionalContext: message,
+    },
+  };
+}
+
+export function hookBlockOutcome(
+  host: ShellHookHost,
+  phase: 'pre-edit' | 'stop',
+  message: string,
+): HookControlOutcome {
+  if (host !== 'cursor') return { exitCode: 2, stderr: message };
+  if (phase === 'stop') {
+    return { exitCode: 0, payload: { followup_message: message } };
+  }
+  return {
+    exitCode: 0,
+    payload: {
+      permission: 'deny',
+      user_message: message,
+      agent_message: message,
+    },
+  };
+}
+
+function writeHookPayload(payload: Record<string, unknown>): void {
+  process.stdout.write(`${JSON.stringify(payload)}\n`);
+}
+
+function emitHookContext(payload: Record<string, unknown>, eventName: string, message: string): void {
+  writeHookPayload(hookContextEnvelope(shellHookHost(payload), eventName, message));
+}
+
+function completeHookControl(outcome: HookControlOutcome): number {
+  if (outcome.payload) writeHookPayload(outcome.payload);
+  if (outcome.stderr) console.error(outcome.stderr);
+  return outcome.exitCode;
+}
+
 function agentId(payload: Record<string, unknown>): string {
   const input = objectOrEmpty(payloadInput(payload));
   const explicit = firstString(
@@ -84,6 +176,7 @@ function agentId(payload: Record<string, unknown>): string {
   if (explicit) return explicit;
 
   const host = firstString(
+    payload[INTERNAL_HOOK_HOST],
     process.env.OCTOCODE_AGENT_HOST,
     payload.host,
     payload.client,
@@ -107,6 +200,25 @@ function sessionId(payload: Record<string, unknown>): string | null {
   );
 }
 
+function hookSessionCorrelation(payload: Record<string, unknown>): string | null {
+  const input = objectOrEmpty(payloadInput(payload));
+  return firstString(
+    sessionId(payload),
+    payload.transcript_path,
+    payload.transcriptPath,
+    payload.conversation_id,
+    payload.conversationId,
+    payload.thread_id,
+    payload.threadId,
+    input.transcript_path,
+    input.transcriptPath,
+    input.conversation_id,
+    input.conversationId,
+    input.thread_id,
+    input.threadId,
+  );
+}
+
 function toolName(payload: Record<string, unknown>): string {
   const input = objectOrEmpty(payloadInput(payload));
   return firstString(
@@ -123,6 +235,16 @@ function autoClaimRationale(payload: Record<string, unknown>, files: string[]): 
   const extra = names.length > 3 ? ` +${names.length - 3} more` : '';
   const action = tool ? `${tool}` : 'edit';
   return `auto: ${action} ${shown}${extra} (lifecycle hook)`;
+}
+
+function fallbackVerificationPlan(files: string[], cwd: string): string {
+  const canonicalWorkspace = canonicalizePath(cwd);
+  const normalized = [...new Set(files.map(file => resolveHookPath(file, cwd)))];
+  const shown = normalized.slice(0, 3)
+    .map(file => relative(canonicalWorkspace, file) || basename(file))
+    .join(', ');
+  const omitted = normalized.length > 3 ? ` (+${normalized.length - 3} more)` : '';
+  return `Verify ${shown || 'the edited files'}${omitted}: run the smallest relevant test/typecheck and inspect the diff; record the check and result.`;
 }
 
 function agentName(payload: Record<string, unknown>): string {
@@ -341,6 +463,126 @@ function hookRunKey(payload: Record<string, unknown>, files: string[], cwd: stri
   return createHash('sha1').update(JSON.stringify(identity)).digest('hex');
 }
 
+const HOOK_AGGREGATE_CONTEXT_PREFIX = 'hook-scope:';
+
+function hookAggregateContextRef(payload: Record<string, unknown>, cwd: string): string | null {
+  const sessionCorrelation = hookSessionCorrelation(payload);
+  if (!sessionCorrelation) return null;
+  const identity = {
+    agent: agentId(payload),
+    session: sessionCorrelation,
+    workspace: normalizeWorkspacePath(cwd, cwd) ?? resolve(cwd),
+    artifact: normalizeArtifact(artifact(payload)),
+  };
+  return `${HOOK_AGGREGATE_CONTEXT_PREFIX}${createHash('sha1').update(JSON.stringify(identity)).digest('hex')}`;
+}
+
+function activeFallbackHookRun(
+  database: DatabaseSync,
+  payload: Record<string, unknown>,
+  cwd: string,
+): string | null {
+  const contextRef = hookAggregateContextRef(payload, cwd);
+  if (!contextRef) return null;
+  const row = database.prepare(`SELECT run_id FROM task_runs
+    WHERE origin = 'HOOK' AND status = 'ACTIVE' AND agent_id = ?
+      AND workspace_path = ? AND artifact IS ? AND context_ref = ?
+    ORDER BY updated_at DESC, created_at DESC LIMIT 1`).get(
+    agentId(payload),
+    normalizeWorkspacePath(cwd, cwd) ?? resolve(cwd),
+    normalizeArtifact(artifact(payload)),
+    contextRef,
+  ) as { run_id: string } | undefined;
+  return row?.run_id ?? null;
+}
+
+function hookAggregateLockKey(payload: Record<string, unknown>, cwd: string): string | null {
+  const contextRef = hookAggregateContextRef(payload, cwd);
+  return contextRef
+    ? `aggregate-${createHash('sha1').update(contextRef).digest('hex')}`
+    : null;
+}
+
+function startOrAttachFallbackHookRun(
+  database: DatabaseSync,
+  payload: Record<string, unknown>,
+  cwd: string,
+  files: string[],
+) {
+  const contextRef = hookAggregateContextRef(payload, cwd);
+  const startOrAttach = () => {
+    const existingRunId = activeFallbackHookRun(database, payload, cwd);
+    const result = startWork(database, {
+      agentId: agentId(payload),
+      sessionId: sessionId(payload),
+      workspacePath: cwd,
+      artifact: artifact(payload),
+      runId: existingRunId ?? undefined,
+      rationale: autoClaimRationale(payload, files),
+      testPlan: fallbackVerificationPlan(files, cwd),
+      contextRef: contextRef ?? undefined,
+      targetFiles: files,
+      origin: 'HOOK',
+      source: 'HOOK',
+      ttlMs: 10 * 60_000,
+    });
+    if (result.ok && existingRunId) {
+      touchWork(database, {
+        agentId: agentId(payload),
+        runId: existingRunId,
+        ttlMs: 10 * 60_000,
+      });
+    }
+    return result;
+  };
+  const lockKey = hookAggregateLockKey(payload, cwd);
+  return lockKey ? withHookRunStateLock(lockKey, startOrAttach) : startOrAttach();
+}
+
+function refreshFallbackVerificationPlan(
+  database: DatabaseSync,
+  runId: string,
+  cwd: string,
+): void {
+  if (!isAggregatedFallbackHookRun(database, runId)) return;
+  const files = database.prepare('SELECT file_path FROM run_files WHERE run_id = ? ORDER BY file_path')
+    .all(runId) as unknown as Array<{ file_path: string }>;
+  database.prepare("UPDATE task_runs SET test_plan = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE run_id = ? AND origin = 'HOOK'")
+    .run(fallbackVerificationPlan(files.map(file => file.file_path), cwd), runId);
+}
+
+function isAggregatedFallbackHookRun(database: DatabaseSync, runId: string): boolean {
+  const row = database.prepare(`SELECT origin, context_ref FROM task_runs WHERE run_id = ?`).get(runId) as {
+    origin: string;
+    context_ref: string | null;
+  } | undefined;
+  return row?.origin === 'HOOK' && row.context_ref?.startsWith(HOOK_AGGREGATE_CONTEXT_PREFIX) === true;
+}
+
+function finalizeActiveFallbackHookRuns(
+  database: DatabaseSync,
+  payload: Record<string, unknown>,
+  cwd: string,
+): string[] {
+  const contextRef = hookAggregateContextRef(payload, cwd);
+  if (!contextRef) return [];
+  const rows = database.prepare(`SELECT run_id FROM task_runs
+    WHERE origin = 'HOOK' AND status = 'ACTIVE' AND agent_id = ?
+      AND workspace_path = ? AND artifact IS ? AND context_ref = ?
+    ORDER BY created_at`).all(
+    agentId(payload),
+    normalizeWorkspacePath(cwd, cwd) ?? resolve(cwd),
+    normalizeArtifact(artifact(payload)),
+    contextRef,
+  ) as unknown as Array<{ run_id: string }>;
+  const finalized: string[] = [];
+  for (const row of rows) {
+    endWork(database, { agentId: agentId(payload), runId: row.run_id });
+    finalized.push(row.run_id);
+  }
+  return finalized;
+}
+
 function recordHookRun(payload: Record<string, unknown>, files: string[], cwd: string, runId: string): void {
   const key = hookRunKey(payload, files, cwd);
   withHookRunStateLock(key, () => {
@@ -451,7 +693,7 @@ function emitPeerDelta(
   files: string[],
   cwd: string,
   allPeers: WorkPeer[],
-): void {
+): string | null {
   const targetSet = new Set(files.map(file => resolveHookPath(file, cwd)));
   const peers = allPeers.filter(peer => peer.agent_id !== agentId(payload) && targetSet.has(peer.file_path));
   const key = peerStateKey(payload, files, cwd);
@@ -459,21 +701,21 @@ function emitPeerDelta(
   const fingerprint = peerFingerprint(peers);
   let previous: string | null = null;
   try { previous = readFileSync(stateFile, 'utf8').trim(); } catch { /* first delivery */ }
-  if (previous === fingerprint) return;
+  if (previous === fingerprint) return null;
   writeFileSync(stateFile, fingerprint, 'utf8');
-  if (peers.length === 0) return;
+  if (peers.length === 0) return null;
 
   const shown = peers.slice(0, 3).map(peerLabel).join('; ');
   const omitted = peers.length > 3 ? ` +${peers.length - 3}` : '';
   const canonicalWorkspace = canonicalizePath(cwd);
   const targets = files.slice(0, 2).map(file => relative(canonicalWorkspace, resolveHookPath(file, cwd)) || basename(file)).join(',');
-  const message = `AWARE ${targets} | peers ${shown}${omitted}`;
-  process.stdout.write(`${JSON.stringify({ additionalContext: message })}\n`);
+  return `AWARE ${targets} | peers ${shown}${omitted}`;
 }
 
 function hookAgentContext(payload: Record<string, unknown>, hookName: string): string {
   const value =
     process.env.OCTOCODE_AGENT_CONTEXT
+    ?? payload[INTERNAL_HOOK_HOST]
     ?? process.env.OCTOCODE_AGENT_HOST
     ?? payload.context
     ?? payload.host
@@ -511,12 +753,15 @@ async function runPreEdit(payload: Record<string, unknown>): Promise<number> {
   const hookWorkspace = workspace(payload) ?? process.cwd();
   const guardReason = evaluateHarnessGuard({
     targetFiles: files,
-    skillRoot: process.env.OCTOCODE_SKILL_ROOT,
+    skillRoot: hookSkillRoot(payload),
     cwd: hookWorkspace,
   });
   if (guardReason) {
-    console.error(`${guardReason} Edit blocked.`);
-    return 2;
+    return completeHookControl(hookBlockOutcome(
+      shellHookHost(payload),
+      'pre-edit',
+      `${guardReason} Edit blocked.`,
+    ));
   }
   try {
     const database = db();
@@ -542,28 +787,38 @@ async function runPreEdit(payload: Record<string, unknown>): Promise<number> {
         targetFiles: files,
         ttlMs: 10 * 60_000,
       }) }
-      : startWork(database, {
-      agentId: hookAgentId,
-      sessionId: sessionId(payload),
-      workspacePath: hookWorkspace,
-      artifact: hookArtifact,
-      runId: activeClaim?.run_id,
-      rationale: autoClaimRationale(payload, files),
-      testPlan: 'post-edit verification',
-      targetFiles: files,
-      origin: 'HOOK',
-      source: 'HOOK',
-      ttlMs: 10 * 60_000,
-    });
+      : activeClaim
+        ? startWork(database, {
+          agentId: hookAgentId,
+          workspacePath: hookWorkspace,
+          artifact: hookArtifact,
+          runId: activeClaim.run_id,
+          targetFiles: files,
+          origin: 'HOOK',
+          source: 'HOOK',
+          ttlMs: 10 * 60_000,
+        })
+        : startOrAttachFallbackHookRun(database, payload, hookWorkspace, files);
     if (!result.ok) {
       const detail = result.conflicts.slice(0, 3)
         .map(conflict => `${relative(hookWorkspace, conflict.file_path)} (${conflict.agent_id})`)
         .join(', ');
-      console.error(`octocode-awareness: exclusive file work blocks this edit${detail ? `: ${detail}` : ''}.`);
-      return 2;
+      return completeHookControl(hookBlockOutcome(
+        shellHookHost(payload),
+        'pre-edit',
+        `octocode-awareness: exclusive file work blocks this edit${detail ? `: ${detail}` : ''}.`,
+      ));
     }
+    withHookDbRetry(() => refreshFallbackVerificationPlan(database, result.run.run_id, hookWorkspace));
     recordHookRun(payload, files, hookWorkspace, result.run.run_id);
-    emitPeerDelta(payload, files, hookWorkspace, result.peers);
+    const peerContext = emitPeerDelta(payload, files, hookWorkspace, result.peers);
+    if (peerContext) {
+      emitHookContext(
+        payload,
+        shellHookHost(payload) === 'cursor' ? 'preToolUse' : 'PreToolUse',
+        peerContext,
+      );
+    }
     return 0;
   } catch (error) {
     console.error(`octocode-awareness pre-flight warning (continuing): ${error instanceof Error ? error.message : String(error)}`);
@@ -606,7 +861,13 @@ async function runPostEdit(payload: Record<string, unknown>): Promise<number> {
     stage = 'read run origin';
     const origin = withHookDbRetry(() => runOrigin(database, correlatedRunId));
     stage = 'finish work lifecycle';
-    if (origin === 'HOOK') {
+    if (origin === 'HOOK' && isAggregatedFallbackHookRun(database, correlatedRunId)) {
+      withHookDbRetry(() => touchWork(database, {
+        agentId: hookAgentId,
+        runId: correlatedRunId,
+        ttlMs: 10 * 60_000,
+      }));
+    } else if (origin === 'HOOK') {
       withHookDbRetry(() => endWork(database, {
         agentId: hookAgentId,
         runId: correlatedRunId,
@@ -654,31 +915,47 @@ async function runHarnessGuard(payload: Record<string, unknown>): Promise<number
   // is wired.
   const reason = evaluateHarnessGuard({
     targetFiles: extractFiles(payload),
-    skillRoot: process.env.OCTOCODE_SKILL_ROOT,
+    skillRoot: hookSkillRoot(payload),
     cwd: process.cwd(),
   });
   if (reason) {
-    console.error(`${reason} Edit blocked.`);
-    return 2;
+    return completeHookControl(hookBlockOutcome(
+      shellHookHost(payload),
+      'pre-edit',
+      `${reason} Edit blocked.`,
+    ));
   }
   return 0;
 }
 
 async function runStopVerify(payload: Record<string, unknown>): Promise<number> {
-  if (process.env.OCTOCODE_NO_VERIFY_GATE === '1' || isStopHookActive(payload)) return 0;
   try {
     const database = db();
     registerHookAgent(database, payload, 'hook:stop-verify');
+    const finalizedRunIds = withHookDbRetry(() => finalizeActiveFallbackHookRuns(
+      database,
+      payload,
+      workspace(payload) ?? process.cwd(),
+    ));
+    if (process.env.OCTOCODE_NO_VERIFY_GATE === '1') return 0;
     const report = auditUnverified(database, { agentId: agentId(payload), ...scopeArgs(payload) });
     if (report.count > 0) {
+      // A recursive Stop with no newly finalized work already surfaced this
+      // unchanged debt. Allow it to conclude to avoid an infinite host loop.
+      // New continuation edits create/finalize a new aggregate and must surface
+      // one fresh continuation before the following unchanged recursive Stop.
+      if (isStopHookActive(payload) && finalizedRunIds.length === 0) return 0;
       const details = [
         ...report.unverified.map((run) => `${run.status}:${run.run_id}: ${run.test_plan}`),
         ...report.stale_active.map((run) => `STALE:${run.run_id}: ${run.rationale}`),
       ];
       const shown = details.slice(0, 3);
       const omitted = details.length > 3 ? `; +${details.length - 3} omitted` : '';
-      console.error(`octocode-awareness: concluding with unverified work. ${shown.join('; ')}${omitted}`);
-      return 2;
+      return completeHookControl(hookBlockOutcome(
+        shellHookHost(payload),
+        'stop',
+        `octocode-awareness: concluding with unverified work. ${shown.join('; ')}${omitted}`,
+      ));
     }
   } catch (error) {
     console.error(`octocode-awareness verify warning (continuing): ${error instanceof Error ? error.message : String(error)}`);
@@ -734,6 +1011,11 @@ async function runNotifyDeliver(payload: Record<string, unknown>): Promise<numbe
   try {
     const database = db();
     registerHookAgent(database, payload, 'hook:notify-deliver');
+    withHookDbRetry(() => finalizeActiveFallbackHookRuns(
+      database,
+      payload,
+      workspace(payload) ?? process.cwd(),
+    ));
     const result = notifyGet(database, {
       agent_id: agentId(payload),
       workspace: workspace(payload) ?? undefined,
@@ -742,9 +1024,11 @@ async function runNotifyDeliver(payload: Record<string, unknown>): Promise<numbe
     }) as { additionalContext?: string };
     const additionalContext = [result.additionalContext, maintenanceContext].filter(Boolean).join('\n');
     if (additionalContext) {
-      process.stdout.write(JSON.stringify({
+      emitHookContext(
+        payload,
+        shellHookHost(payload) === 'cursor' ? 'sessionStart' : 'UserPromptSubmit',
         additionalContext,
-      }) + '\n');
+      );
     }
   } catch (error) {
     console.error(`octocode-awareness session-capture warning (continuing): ${error instanceof Error ? error.message : String(error)}`);
@@ -753,33 +1037,52 @@ async function runNotifyDeliver(payload: Record<string, unknown>): Promise<numbe
 }
 
 async function runSessionEnd(payload: Record<string, unknown>): Promise<number> {
-  if (process.env.OCTOCODE_NO_SESSION_CAPTURE === '1' || hookReason(payload) === 'clear') return 0;
   try {
     const database = db();
     registerHookAgent(database, payload, 'hook:session-end');
-    sessionCapture(database, {
-      agent_id: agentId(payload),
-      workspace: workspace(payload) ?? undefined,
-      artifact: artifact(payload) ?? undefined,
-      reason: hookReason(payload) || undefined,
-    });
+    withHookDbRetry(() => finalizeActiveFallbackHookRuns(
+      database,
+      payload,
+      workspace(payload) ?? process.cwd(),
+    ));
+    if (process.env.OCTOCODE_NO_SESSION_CAPTURE !== '1' && hookReason(payload) !== 'clear') {
+      sessionCapture(database, {
+        agent_id: agentId(payload),
+        workspace: workspace(payload) ?? undefined,
+        artifact: artifact(payload) ?? undefined,
+        reason: hookReason(payload) || undefined,
+      });
+    }
     // Mark the session ended so its still-held locks read as abandoned
     // (holder_session_active:false) to any agent that later conflicts on them.
     const sid = sessionId(payload);
-    if (sid) endSession(database, { sessionId: sid });
+    if (sid) endSession(database, {
+      sessionId: sid,
+      agentId: agentId(payload),
+      workspacePath: workspace(payload) ?? process.cwd(),
+      artifact: artifact(payload),
+    });
   } catch {
     // fail-open
   }
   return 0;
 }
 
-export async function runHookCommand(command: string, rawPayload?: string): Promise<number> {
+export async function runHookCommand(
+  command: string,
+  rawPayload?: string,
+  options: HookRunOptions = {},
+): Promise<number> {
   if (command === 'help' || command === '--help' || command === '-h') {
     process.stdout.write('usage: hook-runner <pre-edit|post-edit|harness-guard|stop-verify|notify-deliver|session-end> < hook-payload.json\n');
     return 0;
   }
 
-  const payload = parsePayload(rawPayload ?? await readStdin());
+  const payload = {
+    ...parsePayload(rawPayload ?? await readStdin()),
+    ...(options.host ? { [INTERNAL_HOOK_HOST]: options.host } : {}),
+    ...(options.skillRoot ? { [INTERNAL_SKILL_ROOT]: options.skillRoot } : {}),
+  };
   switch (command) {
     case 'pre-edit': return runPreEdit(payload);
     case 'post-edit': return runPostEdit(payload);
@@ -794,7 +1097,19 @@ export async function runHookCommand(command: string, rawPayload?: string): Prom
 }
 
 async function main(): Promise<number> {
-  return runHookCommand(process.argv[2] ?? 'help');
+  const hostIndex = process.argv.indexOf('--host');
+  const rawHost = hostIndex >= 0 ? process.argv[hostIndex + 1] : undefined;
+  const host = normalizeShellHookHost(rawHost);
+  if (rawHost && !host) {
+    console.error(`unknown hook host: ${rawHost}`);
+    return 1;
+  }
+  const skillRootIndex = process.argv.indexOf('--skill-root');
+  const skillRoot = skillRootIndex >= 0 ? process.argv[skillRootIndex + 1] : undefined;
+  return runHookCommand(process.argv[2] ?? 'help', undefined, {
+    ...(host ? { host } : {}),
+    ...(skillRoot ? { skillRoot } : {}),
+  });
 }
 
 const isMain = process.argv[1]

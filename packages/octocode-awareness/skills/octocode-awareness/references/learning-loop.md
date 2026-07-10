@@ -9,7 +9,7 @@ A loop is closed only when its output has an owner, an applied action, fresh ver
 | Trigger | Produce | Consume | Close |
 |---|---|---|---|
 | Reusable outcome | `reflect record --lesson` | later `attend` / `memory recall` | Re-check; supersede/forget when stale. |
-| Repo/code fix | `--fix-repo` refinement | `refinement get --state open` | Apply, verify, `refinement set --state done`. |
+| Repo/code fix | `--fix-repo` refinement | `refinement get --state open` | Apply, verify, then close with agent and check receipt. |
 | Harness gap | `--fix-harness` memory | `reflect export-harness` | Human applies; skill review/tests; re-reflect. |
 | Bad instructions | `--fix-instructions` | `reflect developer-review` | Update instructions; mark done; optional inject. |
 | Repeated failure | `--failure-signature` / `--eval-failure-json` | `reflect mine-weakness` | One cluster → one fix → re-reflect same signature. |
@@ -17,6 +17,8 @@ A loop is closed only when its output has an owner, an applied action, fresh ver
 | Independent challenge | rubber-duck subagent | main revises + next check | Never treat agreement as proof. |
 | Stale docs | `docs staleness` | source owner | Update + regenerate needed projections. |
 | Cleanup pressure | digest/prune/forget dry-runs | reviewed IDs | Mutate, then re-`attend`/`query`. |
+
+Terminal recipe: `refinement set --refinement-id <id> --agent-id "$OCTOCODE_AGENT_ID" --state done --check-receipt "<check and result>"`.
 
 ## Failures
 

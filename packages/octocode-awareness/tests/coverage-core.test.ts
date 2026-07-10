@@ -123,7 +123,7 @@ describe('core branch coverage helpers', () => {
 
     const existing = getOrCreateSession(db, { agentId: 'agent-a', workspacePath: '/repo', artifact: 'svc' });
     expect(existing).toBe(session.session_id);
-    endSession(db, { sessionId: session.session_id, summary: 'done' });
+    endSession(db, { sessionId: session.session_id, agentId: 'agent-a', summary: 'done' });
     const created = getOrCreateSession(db, { agentId: 'agent-a', workspacePath: '/repo', artifact: 'svc' });
     expect(created).not.toBe(session.session_id);
     expect(listSessions(db, { agentId: 'agent-a', workspacePath: '/repo', artifact: 'svc', active: true, limit: 5 })).toHaveLength(1);
@@ -162,7 +162,7 @@ describe('core branch coverage helpers', () => {
 
     const abandoned = auditUnverified(db, { agentId: 'agent-a', workspacePath: '/repo', artifact: 'svc', abandon: true });
     expect(abandoned.count).toBe(2);
-    expect(markVerified(db, { runId: pending.run.run_id, agentId: 'agent-a' })).toMatchObject({
+    expect(markVerified(db, { runId: pending.run.run_id, agentId: 'agent-a', message: 'coverage fixture passed' })).toMatchObject({
       ok: false,
       run_id: pending.run.run_id,
     });
@@ -206,7 +206,7 @@ describe('core branch coverage helpers', () => {
 
   it('covers notification prune no-op and explicit resolved cleanup', () => {
     const db = freshDb();
-    expect(pruneNotifications(db, {})).toEqual({ deleted: 0, signal_ids: [] });
+    expect(() => pruneNotifications(db, { agentId: 'agent-b' })).toThrow(/resolved/);
     const signal = insertNotification(db, {
       agentId: 'agent-a',
       toAgent: 'agent-b',
@@ -216,11 +216,11 @@ describe('core branch coverage helpers', () => {
     });
     db.prepare("UPDATE signals SET status = 'resolved', created_at = ? WHERE signal_id = ?")
       .run(new Date(Date.now() - 10 * 86400000).toISOString(), signal.signal_id);
-    expect(pruneNotifications(db, { resolvedOnly: true, olderThanDays: 1, workspacePath: '/repo', dryRun: true })).toMatchObject({
+    expect(pruneNotifications(db, { agentId: 'agent-b', resolvedOnly: true, olderThanDays: 1, workspacePath: '/repo', dryRun: true })).toMatchObject({
       deleted: 0,
       would_delete: 1,
     });
-    expect(pruneNotifications(db, { notificationIds: [signal.signal_id] })).toMatchObject({ deleted: 1 });
+    expect(pruneNotifications(db, { agentId: 'agent-b', notificationIds: [signal.signal_id], resolvedOnly: true, olderThanDays: 1, workspacePath: '/repo' })).toMatchObject({ deleted: 1 });
   });
 
 

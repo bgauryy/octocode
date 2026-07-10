@@ -52,6 +52,7 @@ const EXPECTED_OCTOCODE_SKILLS = [
   'octocode-rfc-generator',
   'octocode-roast',
   'octocode-skills',
+  'octocode-subagent',
 ];
 
 let distAssetsReady = false;
@@ -158,6 +159,7 @@ interface ToolDef {
     opts: unknown,
     theme?: unknown
   ) => { render: (w?: number) => string[] };
+  prepareArguments?: (args: unknown) => unknown;
 }
 
 interface CaptureResult {
@@ -200,7 +202,7 @@ async function captureExtensions(): Promise<CaptureResult> {
     msg: string;
     opts?: Record<string, unknown>;
   }> = [];
-  const activeTools = ['read', 'bash', 'edit', 'write'];
+  const activeTools = ['read', 'bash', 'edit', 'write', 'grep', 'find', 'ls'];
   const handlers = new Map<
     string,
     Array<(event: unknown, ctx: unknown) => void | Promise<void>>
@@ -379,11 +381,13 @@ test('build copies bundled Octocode skills without secret env files', () => {
     [
       'octocode-awareness',
       'octocode-brainstorming',
+      'octocode-eval',
       'octocode-prompt-optimizer',
       'octocode-research',
       'octocode-rfc-generator',
       'octocode-roast',
       'octocode-skills',
+      'octocode-subagent',
     ].sort()
   );
   assert.equal(
@@ -539,8 +543,10 @@ test(
     assert.match(status, /bundled CLI:.*octocode\.js/);
     assert.match(
       status,
-      /disabled\/replaced built-ins: edit \(custom Octocode tool\)/
+      /disabled\/replaced built-ins: overridden: edit, write, bash/
     );
+    assert.match(status, /removed: read, grep, find, ls/);
+    assert.doesNotMatch(status, /passthrough: bash/);
   })
 );
 
@@ -576,7 +582,7 @@ test('write target extraction supports Pi write and edit inputs', () => {
 });
 
 test(
-  'awareness bridge declares advisory work and ends its automatic HOOK run PENDING',
+  'awareness bridge aggregates advisory work and finalizes its automatic HOOK run PENDING at shutdown',
   withIsolatedDb(async ctx => {
     await withAgentId('pi-test-agent', async () => {
       const bridge = createAwarenessBridge();
@@ -613,6 +619,11 @@ test(
       await bridge.handleToolResult({ toolCallId: 'tool-1' }, ctx);
       assert.equal(bridge.pendingToolFiles.has('tool-1'), false);
 
+      const beforeShutdown = new DatabaseSync(ctx.dbPath);
+      assert.equal((beforeShutdown.prepare("SELECT COUNT(*) AS c FROM task_runs WHERE status='ACTIVE'").get() as { c: number }).c, 1);
+      beforeShutdown.close();
+      await bridge.handleSessionShutdown({}, ctx);
+
       const db2 = new DatabaseSync(ctx.dbPath);
       const pending = db2
         .prepare("SELECT COUNT(*) AS c FROM task_runs WHERE status='PENDING'")
@@ -620,7 +631,7 @@ test(
       assert.equal(
         pending.c,
         1,
-        'release sets run status PENDING (verification still owed)'
+        'shutdown finalizes the aggregate PENDING (verification still owed)'
       );
       const noLocks = db2.prepare('SELECT COUNT(*) AS c FROM locks').get() as {
         c: number;
@@ -729,6 +740,81 @@ test('replaces built-in edit by custom tool override', async () => {
     params.properties.queries,
     'custom edit supports multi-file queries'
   );
+});
+
+test('replaces built-in write by custom tool override with path guard', async () => {
+  const { tools, activeTools } = await captureExtensions();
+  const writeTool = tools.get('write')!;
+  assert.equal(writeTool.label, 'write (Octocode)');
+  assert.match(writeTool.description!, /Replaces Pi built-in write/);
+  assert.equal(activeTools.includes('write'), true, 'write stays active as Octocode override');
+  assert.equal(activeTools.includes('read'), false);
+  assert.equal(activeTools.includes('grep'), false);
+
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'octocode-write-'));
+  try {
+    const target = path.join(tmp, 'nested', 'hello.txt');
+    const result = await invokeExecute(writeTool, {
+      path: target,
+      content: 'hello from octocode write\n',
+    }, { cwd: tmp });
+    assert.match(result.content[0]!.text!, /Successfully wrote/);
+    assert.equal(fs.readFileSync(target, 'utf8'), 'hello from octocode write\n');
+
+    // Outside allowed roots must fail (/usr is not cwd/home/tmp).
+    const outside = `/usr/octocode-pi-write-should-block-${process.pid}.txt`;
+    await assert.rejects(
+      () => invokeExecute(writeTool, { path: outside, content: 'x' }, { cwd: tmp }),
+      /write blocked|outside the allowed roots/,
+    );
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test('write file_path alias folds via prepareArguments', async () => {
+  const { tools } = await captureExtensions();
+  const writeTool = tools.get('write')!;
+  assert.ok(writeTool.prepareArguments);
+  const folded = writeTool.prepareArguments!({
+    file_path: 'a.ts',
+    content: 'x',
+  }) as { path: string; content: string };
+  assert.equal(folded.path, 'a.ts');
+});
+
+test('write records read-state so a follow-up edit is not stale', async () => {
+  const { tools } = await captureExtensions();
+  const writeTool = tools.get('write')!;
+  const editTool = tools.get('edit')!;
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'octocode-write-edit-'));
+  try {
+    const target = path.join(tmp, 'seed.ts');
+    await invokeExecute(
+      writeTool,
+      { path: target, content: 'const x = 1;\n' },
+      { cwd: tmp },
+    );
+    const edited = await invokeExecute(
+      editTool,
+      {
+        path: target,
+        requireRecentRead: true,
+        edits: [
+          {
+            oldText: 'const x = 1;',
+            newText: 'const x = 2;',
+            reasoning: 'bump after write',
+          },
+        ],
+      },
+      { cwd: tmp },
+    );
+    assert.match(edited.content[0]!.text!, /Successfully replaced/);
+    assert.equal(fs.readFileSync(target, 'utf8'), 'const x = 2;\n');
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
 });
 
 test('custom edit applies batched replacements and replaceAll against original content', () => {
@@ -1882,7 +1968,7 @@ test('disableBuiltinReadTool is defensive and only removes disabled built-ins', 
     false
   );
 
-  const active = ['read', 'bash', 'edit'];
+  const active = ['read', 'bash', 'edit', 'grep', 'find', 'ls', 'write'];
   assert.equal(
     disableBuiltinReadTool({
       getActiveTools: () => [...active],
@@ -1892,7 +1978,7 @@ test('disableBuiltinReadTool is defensive and only removes disabled built-ins', 
     } as DisablePi),
     true
   );
-  assert.deepEqual(active, ['bash', 'edit']);
+  assert.deepEqual(active, ['bash', 'edit', 'write']);
 
   assert.equal(
     disableBuiltinReadTool({
@@ -1952,6 +2038,9 @@ test('extension commands and lifecycle handlers execute user-visible wiring path
 
     await commands.get('octocode-harness')!.handler('', ctx);
     assert.match(notifications.at(-1)!.message, /native tools/);
+    assert.match(notifications.at(-1)!.message, /builtin overrides: edit, write, bash/);
+    assert.match(notifications.at(-1)!.message, /builtin removed: read, grep, find, ls/);
+    assert.match(notifications.at(-1)!.message, /builtin passthrough: \(none\)/);
 
     await commands.get('octocode-memory-forget')!.handler('', ctx);
     assert.match(
@@ -2398,6 +2487,9 @@ test('lists every extension harness surface', () => {
   const harness = listExtensionHarness(distDir);
   assert.deepEqual(harness.tools, OCTOCODE_DIRECT_TOOL_NAMES);
   assert.deepEqual(harness.supportTools, OCTOCODE_SUPPORT_TOOL_NAMES);
+  assert.deepEqual(harness.overriddenBuiltins, ['edit', 'write', 'bash']);
+  assert.deepEqual(harness.disabledBuiltins, ['read', 'grep', 'find', 'ls']);
+  assert.deepEqual(harness.passthroughBuiltins, []);
   assert.ok(harness.extensionCommands.includes('/octocode-harness'));
   assert.ok(harness.skills.includes('octocode-research'));
   assert.match(
