@@ -311,6 +311,83 @@
       ]
     },
     {
+      "id": "refactor-mode",
+      "mode": "Refactor",
+      "prompt": "Refactor packages/app/src/utils into packages/app/src/lib/utils — move the tree, keep public exports stable, and update all imports.",
+      "minScore": 0.8,
+      "minCitationCount": 2,
+      "required": [
+        {
+          "name": "refactor mode",
+          "pattern": "\\bMode:\\s*Refactor\\b|\\bRefactor mode\\b"
+        },
+        {
+          "name": "skeleton or structure map",
+          "pattern": "\\bskeleton\\b|\\blocalViewStructure\\b|\\bminify:\\s*\"?symbols\"?\\b|\\bstructure\\b"
+        },
+        {
+          "name": "contracts or invariants",
+          "pattern": "\\bcontracts?\\b|\\binvariants?\\b|\\bpublic exports?\\b|\\bAPI\\b"
+        },
+        {
+          "name": "blast radius",
+          "pattern": "\\bblast.radius\\b|\\bcallers?\\b|\\breferences?\\b|\\bconsumers?\\b|\\bLSP\\b"
+        },
+        {
+          "name": "bulk move or task plan",
+          "pattern": "\\bmv\\b|\\bbulk\\b|\\btask(?:s| list| ledger)?\\b|\\bbig.?small\\b"
+        },
+        {
+          "name": "verification ran",
+          "pattern": "\\bverif(?:y|ied|ication)\\b[\\s\\S]*\\b(build|test|typecheck|lint|ran|passed|diagnostic)\\b"
+        }
+      ],
+      "binaryQuestions": [
+        {
+          "id": "maps-skeleton-first",
+          "dimension": "method",
+          "question": "Does the answer orient on structure/skeleton before rewriting bodies?",
+          "passPattern": "\\bskeleton\\b|\\blocalViewStructure\\b|\\bminify:\\s*\"?symbols\"?\\b|\\bstructure\\b[\\s\\S]*(?:before|first|orient)",
+          "failureSignature": "mechanism:refactor-mode|cause:no-skeleton-map",
+          "suggestedLesson": "Refactor mode should map skeleton (structure/symbols) before body rewrites or bulk moves."
+        },
+        {
+          "id": "freezes-contracts",
+          "dimension": "method",
+          "question": "Does the answer freeze public contracts/invariants before executing the move?",
+          "passPattern": "\\bcontracts?\\b|\\binvariants?\\b|\\bpublic exports?\\b",
+          "failureSignature": "mechanism:refactor-mode|cause:no-contract-freeze",
+          "suggestedLesson": "List public contracts/invariants before a refactor so behavior and exports stay stable."
+        },
+        {
+          "id": "uses-bulk-moves-when-fit",
+          "dimension": "decision",
+          "question": "Does the answer prefer bulk mv (or an explicit task plan) over one-file rewrite-by-copy for a tree move?",
+          "passPattern": "\\bmv\\b|\\bbulk\\b|\\btask(?:s| list| ledger)?\\b",
+          "failureSignature": "mechanism:refactor-mode|cause:no-bulk-move-plan",
+          "suggestedLesson": "For directory/tree refactors, plan bulk mv plus mechanical path rewrites instead of copy-rewrite loops."
+        },
+        {
+          "id": "verification-actually-ran",
+          "dimension": "evidence",
+          "question": "Does the answer report verification that actually ran after the refactor?",
+          "passPattern": "\\bverif(?:y|ied|ication)\\b[\\s\\S]*\\b(ran|passed|output|result|exit|build|test|typecheck|diagnostic)\\b",
+          "failureSignature": "mechanism:refactor-mode|cause:verification-not-run",
+          "suggestedLesson": "Do not claim a refactor succeeded until verification (test/typecheck/diagnostics) actually ran."
+        }
+      ],
+      "forbidden": [
+        {
+          "name": "success before verification",
+          "pattern": "\\b(?:done|complete|finished|refactored)\\b(?![\\s\\S]*\\bverif)"
+        },
+        {
+          "name": "blind identifier sed",
+          "pattern": "\\bsed\\b[\\s\\S]*\\b(rename symbol|symbol rename|identifier)\\b|\\bblind sed\\b"
+        }
+      ]
+    },
+    {
       "id": "pr-local-review",
       "mode": "Review",
       "prompt": "Review my staged changes before I open a PR.",

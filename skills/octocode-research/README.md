@@ -12,7 +12,7 @@ This skill makes the agent scope the question, search cheaply first, read exact 
 
 ## Capabilities
 
-- Mode selection for map, validate, investigate, plan, review, change, and loop tasks.
+- Mode selection for map, validate, investigate, plan, review, change, refactor, and loop tasks.
 - Evidence surfaces that can include local code, GitHub, npm, PR history, artifacts, binaries, docs, specs, and papers.
 - Exact anchors such as `file:line`, repo path, package id, PR number, commit, artifact fact, or fetched URL.
 - AST, structural search, LSP, history, package, GitHub, and local-file workflows through Octocode when available.
@@ -20,6 +20,7 @@ This skill makes the agent scope the question, search cheaply first, read exact 
 - Finding checks that keep alternate explanations alive until evidence resolves them.
 - Review output ordered by severity, impact, confidence, and citation quality.
 - Change output that stays scoped and reports the verification that actually ran.
+- Refactor output that maps skeleton → contracts → blast → big-to-small tasks (bulk `mv` when fit) and verifies contracts held.
 
 ## Operating Model
 

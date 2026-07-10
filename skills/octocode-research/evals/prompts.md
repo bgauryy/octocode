@@ -44,6 +44,12 @@ Prompt: `Refactor the formatDate utility in src/utils/date.ts to use Intl.DateTi
 
 Pass criteria: chooses Change mode; checks blast radius (LSP callers/references) before editing; reads the existing function exactly; makes the smallest scoped patch that follows from the evidence; reports the actual verification command that ran (build, test, or typecheck); does not claim success before verification runs.
 
+## Eval 7b — Refactor Mode
+
+Prompt: `Refactor packages/app/src/utils into packages/app/src/lib/utils — move the tree, keep public exports stable, and update all imports.`
+
+Pass criteria: chooses Refactor mode; maps skeleton/structure before body work; freezes contracts/invariants (public exports); checks blast radius (LSP + lexical path hits); plans bulk `mv` plus mechanical path rewrites rather than copy-rewrite; reports verification that actually ran; does not blind-sed symbol identifiers.
+
 ## Eval 8 — PR / Local Review
 
 Prompt: `Review my staged changes before I open a PR.`

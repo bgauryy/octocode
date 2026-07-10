@@ -5172,6 +5172,8 @@ function openRefinementCount(db3, params = {}) {
   return db3.prepare(sql).get(...queryParams).c;
 }
 var BRIEFING_LABELS = ["GOTCHA", "BUG", "DECISION", "IMPROVEMENT", "ARCHITECTURE", "SECURITY"];
+var INTERVENTION_CANDIDATE_LIMIT = 50;
+var HOOK_BRIEF_ITEM_MAX_BYTES = 180;
 var INTERVENTION_STOP_WORDS = /* @__PURE__ */ new Set([
   "the",
   "and",
@@ -5194,6 +5196,21 @@ function interventionTokens(text) {
   return new Set(
     (text.toLowerCase().match(/[a-z0-9]{3,}/g) ?? []).filter((token) => !INTERVENTION_STOP_WORDS.has(token))
   );
+}
+function summarizeUtf8(value, maxBytes) {
+  const flat = value.replace(/\s+/g, " ").trim();
+  if (Buffer.byteLength(flat, "utf8") <= maxBytes) return flat;
+  const suffix = "...";
+  const suffixBytes = Buffer.byteLength(suffix, "utf8");
+  let bytes = 0;
+  let output = "";
+  for (const character of flat) {
+    const characterBytes = Buffer.byteLength(character, "utf8");
+    if (bytes + characterBytes + suffixBytes > maxBytes) break;
+    output += character;
+    bytes += characterBytes;
+  }
+  return output.trimEnd() + suffix;
 }
 function isPromptGroundedMemory(query, memory) {
   const queryTokens = interventionTokens(query);
@@ -5230,12 +5247,11 @@ function notifyGet(db3, params = {}) {
     });
     for (const n of inbox.signals) {
       const target = n.to_agent ? `to ${n.to_agent}` : "broadcast";
-      const shownFiles = n.files.slice(0, 3);
-      const fileSuffix = shownFiles.length > 0 ? ` files=${shownFiles.join(", ")}${n.files.length > shownFiles.length ? ` (+${n.files.length - shownFiles.length})` : ""}` : "";
-      const bodySuffix = n.body ? ` \u2014 ${n.body.slice(0, 120)}` : "";
+      const fileSuffix = n.files.length > 0 ? ` files=${n.files.length}[${summarizeText(n.files[0], 48)}]` : "";
+      const bodySuffix = n.body ? ` \u2014 ${summarizeText(n.body, 60)}` : "";
       items.push({
         kind: "notification",
-        text: `\u{1F4E8} ${n.kind} from ${n.from_agent} (${target}): ${n.subject}${bodySuffix}${fileSuffix}`,
+        text: `\u{1F4E8} ${n.kind} from ${n.from_agent} (${target})${fileSuffix}: ${summarizeText(n.subject, 72)}${bodySuffix}`,
         importance: n.importance
       });
     }
@@ -5274,14 +5290,16 @@ function notifyGet(db3, params = {}) {
       if (interventionQuery) {
         const recall = getMemory(db3, {
           query: interventionQuery,
-          limit: 3,
+          // Grounding is stricter than retrieval. Inspect the full normal recall
+          // budget so high-importance one-token hits cannot starve a lower-ranked
+          // memory that satisfies the two-token intervention gate.
+          limit: INTERVENTION_CANDIDATE_LIMIT,
           minImportance: 6,
           label: [...BRIEFING_LABELS],
           workspacePath: wsPath,
           artifact: artifact2,
           repo: params.repo ?? null,
           ref: params.ref ?? null,
-          explain: true,
           recordAccess: false,
           cwd: notifyCwd
         });
@@ -5362,7 +5380,10 @@ function notifyGet(db3, params = {}) {
     notifications: items
   };
   if (format === "hook") {
-    const hookItems = items.slice(0, 5);
+    const hookItems = items.slice(0, 5).map((item) => ({
+      ...item,
+      text: summarizeUtf8(item.text, HOOK_BRIEF_ITEM_MAX_BYTES)
+    }));
     result.count = hookItems.length;
     result.notifications = hookItems;
     const lines = [

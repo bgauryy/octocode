@@ -7,6 +7,7 @@ Load for code investigation, review, refactor, architecture, dead-code, artifact
 |---|---|
 | bug/behavior | reproduction → hypotheses → exact boundaries → AST/LSP/history |
 | implementation | contract → blast radius → local pattern → patch → checks |
+| refactor (preserve behavior) | skeleton → contracts → blast → big→small tasks → bulk move/rewire → verify (`workflow-refactor.md`) |
 | PR/local review | changed region → symbols → consumers/tests → ranked findings |
 | dead code/delete | candidate → LSP/AST/broad text/tests |
 | architecture | entry points → dependencies/fan proxies → tradeoffs |

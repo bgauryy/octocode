@@ -267,6 +267,15 @@ Patch: smallest scoped change — only the formatDate function body; the exporte
 Verification: yarn test src/utils/date.test.ts ran and passed; typecheck passed with exit 0.
 Confidence: confirmed
 Next: drop the moment dependency in a follow-up once no other imports remain.`,
+    'refactor-mode': `Mode: Refactor
+Tier: L (directory tree move inside one package).
+Skeleton: localViewStructure on packages/app/src (depth 2); minify:"symbols" on packages/app/src/utils/index.ts:1 and packages/app/src/index.ts:1.
+Contracts / invariants: public exports from utils/index.ts stay stable; no API signature changes; package.json exports paths updated only if they pointed at utils/.
+Blast radius: LSP references groupByFile for formatDate and parseId; lexical discovery for "src/utils" across tests/scripts/configs found 14 path hits.
+Task ledger (big→small): (1) mkdir -p packages/app/src/lib && mv packages/app/src/utils packages/app/src/lib/utils; (2) bulk path rewrite on the 14-hit inventory with perl -pi; (3) LSP diagnostic + references catch-up; (4) no body rewrites.
+Verification: yarn workspace app typecheck ran and passed; yarn test packages/app ran and passed; LSP diagnostic on packages/app/src/lib/utils clean; final localSearchCode for old path returned 0.
+Confidence: confirmed
+Next: remove any temporary re-export shim only if package exports already point at lib/utils.`,
     'pr-local-review': `Mode: Review
 Scope: collected via git status and git diff --staged; 3 staged files, all in the auth area.
 Risk: src/auth/login.ts is HIGH (auth logic changed); README.md is LOW (docs-only).

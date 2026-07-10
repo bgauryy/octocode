@@ -15,6 +15,7 @@ import { randomUUID } from 'node:crypto';
 import { initDb, replaceMemoryReferences, connectDb, checkpointWal } from '../src/db.js';
 import { journalModeForSqliteVersion } from '../src/sqlite-runtime.js';
 import { insertMemory } from '../src/memory.js';
+import { insertNotification } from '../src/notifications.js';
 import {
   pruneStale,
   notifyGet,
@@ -303,6 +304,103 @@ describe('notifyGet — smart briefing from memories table', () => {
       query: 'format the release notes',
     });
     expect(unrelated).toEqual({ ok: true, count: 0, notifications: [] });
+  });
+
+  it('finds a grounded memory beyond higher-ranked one-token candidates', () => {
+    const db = freshDb();
+    for (const [index, token] of ['token', 'expiry', 'deployment', 'credentials'].entries()) {
+      insertMemory(db, {
+        agentId: 'memory-agent',
+        taskContext: `dominant ${token}`,
+        observation: `${token} unrelated singleton ${index}`,
+        importance: 10,
+        label: 'GOTCHA',
+        workspacePath: '/ws',
+      });
+    }
+    insertMemory(db, {
+      agentId: 'memory-agent',
+      taskContext: 'relevant token expiry',
+      observation: 'token expiry fix requires refresh',
+      importance: 6,
+      label: 'DECISION',
+      workspacePath: '/ws',
+    });
+
+    const result = notifyGet(db, {
+      agent_id: 'agent-grounded',
+      session_id: 'session-grounded',
+      workspace: '/ws',
+      format: 'hook',
+      query: 'token expiry deployment credentials',
+    }) as { count: number; additionalContext?: string };
+
+    expect(result.count).toBe(1);
+    expect(result.additionalContext).toContain('token expiry fix requires refresh');
+    expect((result.additionalContext?.match(/Memory lead/g) ?? [])).toHaveLength(1);
+  });
+
+  it('does not persist the transient prompt in memory or delivery state', () => {
+    const db = freshDb();
+    insertMemory(db, {
+      agentId: 'memory-agent',
+      taskContext: 'private deployment token',
+      observation: 'private deployment token requires rotation',
+      importance: 8,
+      label: 'SECURITY',
+      workspacePath: '/ws',
+    });
+    const prompt = 'private deployment token rotate-now-secret';
+    const before = (db.prepare('SELECT COUNT(*) AS count FROM memories').get() as { count: number }).count;
+
+    const result = notifyGet(db, {
+      agent_id: 'agent-private',
+      session_id: 'session-private',
+      workspace: '/ws',
+      format: 'hook',
+      query: prompt,
+    }) as { additionalContext?: string };
+
+    expect(result.additionalContext).toContain('private deployment token');
+    expect((db.prepare('SELECT COUNT(*) AS count FROM memories').get() as { count: number }).count).toBe(before);
+    const delivery = db.prepare('SELECT fingerprint, scope_key FROM delivery_state').get() as {
+      fingerprint: string; scope_key: string;
+    };
+    expect(delivery.fingerprint).toMatch(/^[a-f0-9]{64}$/);
+    expect(`${delivery.fingerprint} ${delivery.scope_key}`).not.toContain(prompt);
+    expect(`${delivery.fingerprint} ${delivery.scope_key}`).not.toContain('rotate-now-secret');
+  });
+
+  it('keeps a five-item hook briefing within one KiB', () => {
+    const db = freshDb();
+    for (let index = 0; index < 5; index += 1) {
+      insertNotification(db, {
+        agentId: `sender-${index}`,
+        toAgent: 'target',
+        kind: 'request',
+        subject: `subject-${index}-${'界'.repeat(200)}`,
+        body: '🧠'.repeat(500),
+        files: [
+          `/very/${'長い/'.repeat(30)}file-${index}.ts`,
+          `/second/${'path/'.repeat(30)}file-${index}.ts`,
+          `/third/${'path/'.repeat(30)}file-${index}.ts`,
+        ],
+        workspacePath: '/ws',
+        importance: 8,
+      });
+    }
+
+    const result = notifyGet(db, {
+      agent_id: 'target',
+      session_id: 'session-bounded',
+      workspace: '/ws',
+      format: 'hook',
+    }) as { count: number; additionalContext?: string };
+
+    expect(result.count).toBe(5);
+    expect(Buffer.byteLength(result.additionalContext ?? '', 'utf8')).toBeLessThanOrEqual(1024);
+    expect(result.additionalContext).toContain('subject-0');
+    expect(result.additionalContext).toContain('files=3');
   });
 
   it('surfaces weakness cluster when failure_signature is present', () => {

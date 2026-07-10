@@ -1,6 +1,8 @@
 # Workflow: Change Mode
 
-Use when the user asks to implement, refactor, migrate, or patch after evidence gathering. Read `algorithm.md` first for the router and evidence grades; use `code-research.md` for the proof ladder before editing.
+Use when the user asks to implement, migrate, or patch **behavior** after evidence gathering.
+For structure/name/module/layout reshapes that preserve behavior, use `workflow-refactor.md` instead.
+Read `algorithm.md` first for the router and evidence grades; use `code-research.md` for the proof ladder before editing.
 
 ```text
 current contract + invariants

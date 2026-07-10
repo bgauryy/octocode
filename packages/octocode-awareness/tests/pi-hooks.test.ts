@@ -450,6 +450,63 @@ describe('wirePiAwarenessHooks', () => {
     }
   });
 
+  it('clears a queued Pi prompt when a newer input is empty', async () => {
+    const tmp = tempDb();
+    const previousAgentId = process.env.OCTOCODE_AGENT_ID;
+    process.env.OCTOCODE_AGENT_ID = 'pi-empty-input-agent';
+    try {
+      const db = connectDb(tmp.dbPath);
+      insertMemory(db, {
+        agentId: 'memory-agent',
+        taskContext: 'deployment token expiry',
+        observation: 'deployment token expiry requires rotation',
+        importance: 8,
+        label: 'SECURITY',
+        workspacePath: tmp.dir,
+      });
+      const bridge = createPiAwarenessBridge({ getDb: () => db });
+      await bridge.handleInput({ text: 'deployment token expiry' }, { cwd: tmp.dir });
+      await bridge.handleInput({ text: '   ' }, { cwd: tmp.dir });
+
+      expect(await bridge.handleBeforeAgentStart({}, { cwd: tmp.dir })).toBeUndefined();
+      db.close();
+    } finally {
+      if (previousAgentId === undefined) delete process.env.OCTOCODE_AGENT_ID;
+      else process.env.OCTOCODE_AGENT_ID = previousAgentId;
+      tmp.cleanup();
+    }
+  });
+
+  it('isolates queued Pi prompts by session', async () => {
+    const tmp = tempDb();
+    const previousAgentId = process.env.OCTOCODE_AGENT_ID;
+    process.env.OCTOCODE_AGENT_ID = 'pi-isolated-agent';
+    try {
+      const db = connectDb(tmp.dbPath);
+      insertMemory(db, {
+        agentId: 'memory-agent',
+        taskContext: 'deployment token expiry',
+        observation: 'deployment token expiry requires rotation',
+        importance: 8,
+        label: 'SECURITY',
+        workspacePath: tmp.dir,
+      });
+      const bridge = createPiAwarenessBridge({ getDb: () => db });
+      const sessionA = { cwd: tmp.dir, sessionManager: { getSessionFile: () => 'session-a.jsonl' } };
+      const sessionB = { cwd: tmp.dir, sessionManager: { getSessionFile: () => 'session-b.jsonl' } };
+      await bridge.handleInput({ text: 'deployment token expiry' }, sessionA);
+
+      expect(await bridge.handleBeforeAgentStart({}, sessionB)).toBeUndefined();
+      expect(String((await bridge.handleBeforeAgentStart({}, sessionA))?.message?.content))
+        .toContain('deployment token expiry');
+      db.close();
+    } finally {
+      if (previousAgentId === undefined) delete process.env.OCTOCODE_AGENT_ID;
+      else process.env.OCTOCODE_AGENT_ID = previousAgentId;
+      tmp.cleanup();
+    }
+  });
+
   it('sends a verify-gate follow-up message when pending runs remain', async () => {
     const tmp = tempDb();
     try {

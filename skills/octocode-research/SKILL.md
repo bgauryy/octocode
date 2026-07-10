@@ -1,6 +1,6 @@
 ---
 name: octocode-research
-description: "Use when code needs evidence-first research: find where X lives, how it works, debug a failure, change after proof, PR/local-diff or safe-to-merge review, GitHub/npm prior art, dead code, architecture, or ReAct loops."
+description: "Use when code needs evidence-first research: find where X lives, how it works, debug a failure, change after proof, refactor structure/names/modules safely, PR/local-diff or safe-to-merge review, GitHub/npm prior art, dead code, architecture, or ReAct loops."
 ---
 
 # Octocode Research
@@ -9,7 +9,7 @@ Evidence-first technical research and code work: `SCOPE -> SEARCH -> READ EXACT 
 Octocode surfaces: LOCAL · EXTERNAL · FEDERATED. Check `context`, `auth status`, `lsp-server status <file>` before trusting a surface.
 
 ## Modes
-Investigate; Review PRs/diffs (`references/workflow-pr-review.md`); Change after evidence; Map/Validate prior art; Loop when evidence shifts.
+Investigate; Review PRs/diffs (`references/workflow-pr-review.md`); Change after evidence; Refactor structure/names/modules (`references/workflow-refactor.md`); Map/Validate prior art; Loop when evidence shifts.
 
 ## Rules
 1. State corpus, question, mode, and active/skipped surfaces in one line.
@@ -24,8 +24,8 @@ Investigate; Review PRs/diffs (`references/workflow-pr-review.md`); Change after
 ## Reference Map
 Before any task, read `references/algorithm.md` first (routing, evidence grades, failure signals).
 - when planning/measuring/fan-out: `references/researcher-mindset.md` — progress and subagent fan-out
-- when choosing a mode route: `references/workflows.md` — index to local/external/debug/PR/change
-- when investigating code: `references/code-research.md` — code investigation and change paths
+- when choosing a mode route: `references/workflows.md` — index to local/external/debug/PR/change/refactor
+- when investigating code: `references/code-research.md` — code investigation, change, and refactor paths
 - when general research/validation: `references/research-flow.md` — non-code research flow
 - when ranking repos: `references/github-landscape.md` — ecosystem prior art
 - when contested/deep decisions: `references/long-research.md` — durable decision brief

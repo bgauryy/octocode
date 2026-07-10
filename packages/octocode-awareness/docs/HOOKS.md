@@ -117,10 +117,15 @@ remains explicit.
 For Claude/Codex prompt hooks and Pi `input`, the current prompt is held only as a
 bounded transient query; it is not written to SQLite. The selector searches the
 existing scoped memory bank, requires at least two meaningful prompt/memory token
-matches, emits at most one `Memory lead — verify` item, and otherwise stays silent.
+matches across the bounded normal recall pool, emits at most one
+`Memory lead — verify` item, and otherwise stays silent.
 Signals, overrides, recurring-failure pressure, and open-refinement counts remain
 separate operational interventions. This is a deterministic local policy, not a
 second reasoning agent, and it never makes recalled text authoritative.
+
+The final hook briefing keeps at most five items, truncates each item by UTF-8 bytes,
+and stays within 1 KiB even for multi-byte text. Signal summaries retain the file
+count and one bounded file lead; use `signal list` for full bodies and paths.
 
 Claude/Codex emit event-named `hookSpecificOutput.additionalContext`. Cursor emits
 native `additional_context` at session start and `agent_message` around tool use;

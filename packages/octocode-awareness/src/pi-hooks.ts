@@ -469,8 +469,10 @@ export function createPiAwarenessBridge(options: PiAwarenessBridgeOptions = {}) 
     peerFingerprints,
 
     async handleInput(event: Record<string, unknown> = {}, ctx?: PiLikeContext) {
+      const sessionId = getPiAwarenessSessionId(ctx);
       const prompt = firstString(event.text, event.prompt, event.user_prompt, event.userPrompt);
-      if (prompt) latestPromptBySession.set(getPiAwarenessSessionId(ctx), prompt.slice(0, 4_000));
+      if (prompt) latestPromptBySession.set(sessionId, prompt.slice(0, 4_000));
+      else latestPromptBySession.delete(sessionId);
       return undefined;
     },
 

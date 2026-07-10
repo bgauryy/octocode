@@ -74,6 +74,8 @@ consumer, channel, and scope.
 - Same state on next prompt/edit: emit nothing.
 - Prompt memory: use the transient current prompt to select at most one scoped lead;
   require two meaningful token matches and emit nothing for unrelated memory.
+- Hook briefing: at most five items and 1 KiB after UTF-8-safe truncation; drill into
+  `signal list`, recall, or targeted queries for full data.
 - Peer/signal/briefing changes: emit the new bounded state.
 - Signal delivery does not mark read; `signal ack` is separate.
 
