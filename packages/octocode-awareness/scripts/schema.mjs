@@ -762,6 +762,10 @@ export const schemas = {
         .boolean()
         .default(false)
         .describe("Include full signal bodies on list (default summarizes to 160 chars)."),
+      format: z
+        .enum(["json", "hook"])
+        .default("json")
+        .describe("list only: json rows, or hook briefing shape for host notify delivery."),
     })
     .strict()
     .describe("Signal actions."),
@@ -1151,7 +1155,7 @@ const commandIndex = [
   { command: "lock prune", schema: "prune_stale_locks", use: "Clean expired/stale locks; never marks success.", example: 'octocode-awareness lock prune --workspace "$PWD" --expired-only --dry-run --compact' },
   { command: "verify audit", schema: "audit_unverified", use: "Find pending or stale work before finishing.", example: 'octocode-awareness verify audit --agent-id agent --workspace "$PWD" --compact' },
   { command: "verify mark", schema: "verify", use: "Mark declared verification as run.", example: 'octocode-awareness verify mark --agent-id agent --all-pending --message "yarn test passed" --workspace "$PWD" --compact' },
-  { command: "signal list", schema: "agent_signal", use: "Read inbox/messages; add --mark-read only after acting.", example: 'octocode-awareness signal list --agent-id agent --workspace "$PWD" --compact' },
+  { command: "signal list", schema: "agent_signal", use: "Read inbox/messages; add --mark-read only after acting. --format hook returns host briefing shape.", example: 'octocode-awareness signal list --agent-id agent --workspace "$PWD" --compact' },
   { command: "signal publish", schema: "agent_signal", use: "Send blocker/question/request/handoff/decision/fyi.", example: 'octocode-awareness signal publish --agent-id agent --kind blocker --subject "File locked" --workspace "$PWD" --compact' },
   { command: "signal reply", schema: "agent_signal", use: "Reply in an existing signal thread.", example: "octocode-awareness signal reply --agent-id agent --in-reply-to ntf_123 --subject \"Re: File locked\" --body \"done\" --compact" },
   { command: "signal ack", schema: "agent_signal", use: "Mark specific signals read after handling.", example: "octocode-awareness signal ack --agent-id agent --signal-id ntf_123 --compact" },

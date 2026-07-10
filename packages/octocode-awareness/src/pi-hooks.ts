@@ -461,11 +461,18 @@ export function createPiAwarenessBridge(options: PiAwarenessBridgeOptions = {}) 
   const peerFingerprints = options.peerFingerprints ?? new Map<string, string>();
   const getDb = options.getDb ?? ((ctx?: PiLikeContext) => defaultGetDb(options, ctx));
   const skillRoot = options.skillRoot ?? process.env.OCTOCODE_SKILL_ROOT ?? null;
+  const latestPromptBySession = new Map<string, string>();
 
   return {
     pendingToolFiles,
     pendingToolRuns,
     peerFingerprints,
+
+    async handleInput(event: Record<string, unknown> = {}, ctx?: PiLikeContext) {
+      const prompt = firstString(event.text, event.prompt, event.user_prompt, event.userPrompt);
+      if (prompt) latestPromptBySession.set(getPiAwarenessSessionId(ctx), prompt.slice(0, 4_000));
+      return undefined;
+    },
 
     async handleToolCall(event: PiToolEvent, ctx?: PiLikeContext) {
       const targetFiles = extractPiWriteTargetPaths(event?.toolName, event?.input);
@@ -606,6 +613,15 @@ export function createPiAwarenessBridge(options: PiAwarenessBridgeOptions = {}) 
     },
 
     async handleBeforeAgentStart(_event: Record<string, unknown> = {}, ctx?: PiLikeContext) {
+      const awarenessSessionId = getPiAwarenessSessionId(ctx);
+      const interventionQuery = firstString(
+        _event.prompt,
+        _event.text,
+        _event.user_prompt,
+        _event.userPrompt,
+        latestPromptBySession.get(awarenessSessionId),
+      );
+      latestPromptBySession.delete(awarenessSessionId);
       // ARCH-5: Register / refresh agent identity at the start of each session.
       // Uses OCTOCODE_AGENT_NAME env (if set) or session file basename as display name.
       try {
@@ -623,8 +639,10 @@ export function createPiAwarenessBridge(options: PiAwarenessBridgeOptions = {}) 
         const db = getDb(ctx);
         const result = notifyGet(db, {
           agent_id: getPiAwarenessAgentId(ctx),
+          session_id: awarenessSessionId,
           workspace: ctx?.cwd ?? process.cwd(),
           artifact: artifactFrom(ctx, _event),
+          query: interventionQuery ?? undefined,
           format: 'hook',
         }) as { additionalContext?: string };
         if (!result.additionalContext) return undefined;
@@ -642,6 +660,7 @@ export function createPiAwarenessBridge(options: PiAwarenessBridgeOptions = {}) 
     },
 
     async handleSessionShutdown(event: Record<string, unknown> = {}, ctx?: PiLikeContext) {
+      latestPromptBySession.delete(getPiAwarenessSessionId(ctx));
       try {
         const db = getDb(ctx);
         finalizeActivePiFallbackRuns(db, {
@@ -681,6 +700,7 @@ export function wirePiAwarenessHooks(pi: PiLikeApi, options: PiAwarenessBridgeOp
     toolCallId: String(event?.toolCallId ?? ''),
     toolName: String(event?.toolName ?? ''),
   }, ctx));
+  pi.on('input', async (event, ctx) => bridge.handleInput(event, ctx));
   pi.on('before_agent_start', async (event, ctx) => bridge.handleBeforeAgentStart(event, ctx));
   pi.on('agent_end', async (_event, ctx) => {
     try {

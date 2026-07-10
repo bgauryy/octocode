@@ -26,9 +26,10 @@ npx octocode skill --add \
   --platform common --force
 ```
 
-The examples below use the globally installed binary. For a one-off command, replace
-`octocode-awareness` with `npx @octocodeai/octocode-awareness`. In this monorepo after
-build, use `node packages/octocode-awareness/dist/bin/awareness.js`.
+The examples below use the globally installed binary. For a one-off command, use
+`npx @octocodeai/octocode-awareness`. In octocode monorepo after build, use
+`node packages/octocode-awareness/dist/bin/awareness.js`. Bundled skill
+`scripts/awareness.mjs` is a fallback when the package CLI is unavailable.
 
 ```bash
 export OCTOCODE_AGENT_ID="${OCTOCODE_AGENT_ID:-my-agent}"

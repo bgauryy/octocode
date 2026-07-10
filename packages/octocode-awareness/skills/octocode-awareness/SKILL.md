@@ -12,11 +12,15 @@ hooks:
 # Octocode Awareness
 Coordinate repository work through canonical SQLite state; treat memory and `.octocode/` wiki output as bounded leads, never authority.
 ## Loop
-Choose `<cli>`: installed `node scripts/awareness.mjs`; monorepo `node packages/octocode-awareness/dist/bin/awareness.js`; else `npx @octocodeai/octocode-awareness`. Export one `OCTOCODE_AGENT_ID`.
+Choose `<cli>` in this order:
+1. **Published package:** `npx @octocodeai/octocode-awareness` (or global `octocode-awareness` after `npm i -g @octocodeai/octocode-awareness`).
+2. **Local monorepo build:** `node packages/octocode-awareness/dist/bin/awareness.js` (rebuild after source edits).
+3. **Bundled skill fallback:** `node scripts/awareness.mjs` only when the package CLI is unavailable.
+Export one stable `OCTOCODE_AGENT_ID` for CLI + hooks. Install host hooks (`hooks install` / skill frontmatter / Pi wire) so every structured edit declares presence.
 ```text
 BEFORE/READ+REASON -> DURING/DO -> AFTER/VERIFY -> LEARN? -> CLEAN? -> PROJECT?
 ```
-1. **BEFORE/READ+REASON:** run `<cli> attend --workspace "$PWD" --query "<task>" --compact`; follow `next` and prefer live state to wiki.
+1. **BEFORE/READ+REASON:** run `<cli> attend --workspace "$PWD" --query "<task>" --agent-id "$OCTOCODE_AGENT_ID" --compact`; follow `next` and prefer live state to wiki.
    State the goal, acceptance, affected scope, and evidence; then claim matching `task ready` or open explicit WORK.
 2. **DURING/DO:** declare every edited path through hooks or `work start`; read peer task/reason before interacting changes. Ordinary overlap is allowed; use exclusivity only for sensitive paths and never bypass a conflict.
 3. **AFTER/VERIFY:** `task submit` or `work end`, run the declared check, `verify mark`, then `verify audit`. Ending work is not verified success.
@@ -24,7 +28,9 @@ BEFORE/READ+REASON -> DURING/DO -> AFTER/VERIFY -> LEARN? -> CLEAN? -> PROJECT?
 ## Routes (load one owner; core work needs none)
 - When a start, finish, or command recipe is unknown, load `references/agent-cheatsheet.md` for the executable path.
 - When choosing a plan, task, or WORK, load `references/plan-task-workflow.md` for queue policy.
-- When peers, signals, or locks interact, load `references/coordination-protocol.md` for coordination rules.
+- When the same path has peer presence or overlap, load `references/files-awareness.md`.
+- When exclusive locks or verify mark/audit are needed, load `references/lock-protocol.md`.
+- When peers, signals, or refinements interact, load `references/coordination-protocol.md`.
 - When installing or debugging automation, load `references/hooks.md` for host-specific execution and health checks.
 - When choosing live, durable, or generated output, load `references/output-routing.md` for the smallest consumer surface.
 - When recalling or recording memory, load `references/memory-recall.md` for trust and ranking rules.
@@ -34,11 +40,11 @@ BEFORE/READ+REASON -> DURING/DO -> AFTER/VERIFY -> LEARN? -> CLEAN? -> PROJECT?
 - When shipping a skill change, load `references/skill-evolution.md` for held-out and human gates.
 Unknown owner only: `docs list --compact`; then `docs show <name>`.
 ## Scripts
-- When operating or validating, run `scripts/awareness.mjs`; use `scripts/schema.mjs` for public contracts.
+- Prefer the package CLI above; use `scripts/awareness.mjs` only as bundled fallback. Use `scripts/schema.mjs` for public contracts.
 - When handling host events, run `scripts/hook-runner.mjs` for host-shaped lifecycle behavior.
 - When extracting payload paths, run `scripts/extract-hook-files.mjs` for normalized targets.
 - When checking installation, run `scripts/install.mjs` for runtime and setup diagnostics.
 - Before release, run `scripts/smoke-multi-agent.mjs` for end-to-end coordination.
 ## Install · Hard rules
-Install: README `npx octocode skill --add ...`. Devs edit sources then `yarn workspace @octocodeai/octocode-awareness build` — never hand-edit mirrors.
-Hard: one agent ID/workspace; keep secrets out; retain manual CLI as fallback; treat config presence separately from runtime health; rebuild after source edits.
+Install skill: README `npx octocode skill --add --path "$(npm root --global)/@octocodeai/octocode-awareness/dist/skills/octocode-awareness" --platform <host> --force`. Devs edit sources then `yarn workspace @octocodeai/octocode-awareness build` — never hand-edit mirrors.
+Hard: one agent ID/workspace; keep secrets out; retain manual CLI as fallback; treat config presence separately from runtime health; rebuild after source edits; hooks + stable ID are required for multi-agent presence.

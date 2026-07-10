@@ -338,6 +338,57 @@ describe('hook-runner', () => {
     }
   });
 
+  it('uses the submitted prompt to inject only a relevant memory lead', () => {
+    const memoryHome = mkdtempSync(join(tmpdir(), 'octocode-hook-selective-memory-'));
+    const workspace = resolve(memoryHome, 'repo');
+    mkdirSync(workspace, { recursive: true });
+    try {
+      const dbPath = join(memoryHome, 'awareness.sqlite3');
+      const database = connectDb(dbPath);
+      insertMemory(database, {
+        agentId: 'memory-agent',
+        taskContext: 'release screenshots',
+        observation: 'rotate the screenshot archive before publishing',
+        importance: 10,
+        label: 'GOTCHA',
+        workspacePath: workspace,
+      });
+      insertMemory(database, {
+        agentId: 'memory-agent',
+        taskContext: 'deployment credentials',
+        observation: 'token expiry requires refreshing credentials before deploy',
+        importance: 7,
+        label: 'DECISION',
+        workspacePath: workspace,
+      });
+      database.close();
+
+      const env = {
+        OCTOCODE_MEMORY_HOME: memoryHome,
+        OCTOCODE_AGENT_ID: 'prompt-agent',
+        OCTOCODE_NO_DIGEST: '1',
+      };
+      const relevant = runScript(HOOK_RUNNER, ['notify-deliver'], {
+        session_id: 'session-relevant',
+        workspace,
+        prompt: 'fix token expiry during deployment',
+      }, env);
+      expect(relevant.status).toBe(0);
+      expect(relevant.stdout).toContain('token expiry');
+      expect(relevant.stdout).not.toContain('screenshot archive');
+
+      const unrelated = runScript(HOOK_RUNNER, ['notify-deliver'], {
+        session_id: 'session-unrelated',
+        workspace,
+        prompt: 'format the release notes',
+      }, env);
+      expect(unrelated.status).toBe(0);
+      expect(unrelated.stdout).toBe('');
+    } finally {
+      rmSync(memoryHome, { recursive: true, force: true });
+    }
+  });
+
   it('reports periodic maintenance pressure without mutating prompt-time state', () => {
     const memoryHome = mkdtempSync(join(tmpdir(), 'octocode-hook-digest-preview-'));
     const workspace = resolve(memoryHome, 'repo');

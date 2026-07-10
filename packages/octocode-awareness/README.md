@@ -49,8 +49,9 @@ The npm package is installed normally from npm. For the Agent Skill, use the
 packaged `dist/skills/octocode-awareness` path; do not use a skill installer’s
 registry/name lookup.
 
-For one-off CLI use, replace `octocode-awareness` with
-`npx @octocodeai/octocode-awareness`.
+For one-off CLI use, prefer `npx @octocodeai/octocode-awareness`. In this monorepo
+after build, use the local binary
+`node packages/octocode-awareness/dist/bin/awareness.js`.
 
 ## Start and work
 

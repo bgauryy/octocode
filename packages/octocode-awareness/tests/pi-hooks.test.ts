@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { connectDb } from '../src/db.js';
 import { createPiAwarenessBridge, evaluateHarnessGuard, extractPiWriteTargetPaths, wirePiAwarenessHooks } from '../src/pi-hooks.js';
 import { insertNotification } from '../src/notifications.js';
+import { insertMemory } from '../src/memory.js';
 import { createPlan } from '../src/plans.js';
 import { claimTask, createTask as createTaskBase } from '../src/tasks.js';
 import type { CreateTaskParams } from '../src/tasks.js';
@@ -370,6 +371,7 @@ describe('wirePiAwarenessHooks', () => {
       'tool_result',
       'tool_execution_start',
       'tool_execution_end',
+      'input',
       'before_agent_start',
       'agent_end',
       'session_before_compact',
@@ -401,6 +403,45 @@ describe('wirePiAwarenessHooks', () => {
 
       const second = await bridge.handleBeforeAgentStart({}, { cwd: tmp.dir });
       expect(second).toBeUndefined();
+      db.close();
+    } finally {
+      if (previousAgentId === undefined) delete process.env.OCTOCODE_AGENT_ID;
+      else process.env.OCTOCODE_AGENT_ID = previousAgentId;
+      tmp.cleanup();
+    }
+  });
+
+  it('keeps the latest Pi prompt transient and injects only its relevant memory lead', async () => {
+    const tmp = tempDb();
+    const previousAgentId = process.env.OCTOCODE_AGENT_ID;
+    process.env.OCTOCODE_AGENT_ID = 'pi-prompt-agent';
+    try {
+      const db = connectDb(tmp.dbPath);
+      insertMemory(db, {
+        agentId: 'memory-agent',
+        taskContext: 'release screenshots',
+        observation: 'rotate the screenshot archive before publishing',
+        importance: 10,
+        label: 'GOTCHA',
+        workspacePath: tmp.dir,
+      });
+      insertMemory(db, {
+        agentId: 'memory-agent',
+        taskContext: 'deployment credentials',
+        observation: 'token expiry requires refreshing credentials before deploy',
+        importance: 7,
+        label: 'DECISION',
+        workspacePath: tmp.dir,
+      });
+      const bridge = createPiAwarenessBridge({ getDb: () => db });
+      await bridge.handleInput({ text: 'fix token expiry during deployment' }, { cwd: tmp.dir });
+      const result = await bridge.handleBeforeAgentStart({}, { cwd: tmp.dir });
+
+      expect(String(result?.message?.content)).toContain('token expiry');
+      expect(String(result?.message?.content)).not.toContain('screenshot archive');
+
+      const next = await bridge.handleBeforeAgentStart({}, { cwd: tmp.dir });
+      expect(next).toBeUndefined();
       db.close();
     } finally {
       if (previousAgentId === undefined) delete process.env.OCTOCODE_AGENT_ID;

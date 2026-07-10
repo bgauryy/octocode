@@ -1462,6 +1462,8 @@ describe('CLI', () => {
     expect(r.stdout).toContain('bundled-skills:');
     expect(r.stdout).toContain('dist/skills/octocode-awareness');
     expect(r.stdout).toContain('schema commands --compact');
+    expect(r.stdout).toContain('refinement set|get|delete');
+    expect(r.stdout).toMatch(/exits 0 ok/);
     expect(r.stdout).not.toContain('<awareness-package>');
     expect(r.stdout.split('\n').filter(Boolean).length).toBeLessThanOrEqual(8);
   });
@@ -1930,7 +1932,7 @@ describe('repo context projections', () => {
       expect(result['profile']).toBeUndefined();
       expect(result['drive_state']).toBeUndefined();
       expect(result['organ_reference']).toBeUndefined();
-      expect(String(result['next'])).toMatch(/work start|verify audit|query workboard|attend --workspace/);
+      expect(String(result['next'])).toMatch(/work start|verify audit|query workboard|attend --workspace|signal list|work show|Continue claimed/);
       expect(Buffer.byteLength(JSON.stringify(result))).toBeLessThanOrEqual(2 * 1024);
       expect(JSON.stringify(result)).not.toMatch(/fictional persistent personality/i);
     } finally { rmSync(dir, { recursive: true }); }
@@ -2187,6 +2189,32 @@ describe('signal', () => {
       expect(listed['count']).toBe(1);
       const signal = (listed['signals'] as Record<string, unknown>[])[0]!;
       expect(signal['kind']).toBe('question');
+    } finally { rmSync(dir, { recursive: true }); }
+  });
+
+  it('accepts signal list --format hook for host briefing shape', () => {
+    const dir = mktemp();
+    const db = join(dir, 'test.sqlite3');
+    try {
+      ok(db, [
+        'signal', 'publish',
+        '--agent-id', 'agent-a',
+        '--to-agent', 'agent-b',
+        '--kind', 'fyi',
+        '--subject', 'Hook briefing',
+        '--body', 'deliver via format hook',
+        '--workspace', dir,
+      ]);
+
+      const briefing = ok(db, [
+        'signal', 'list',
+        '--agent-id', 'agent-b',
+        '--workspace', dir,
+        '--format', 'hook',
+        '--compact',
+      ]);
+      expect(briefing).toHaveProperty('additionalContext');
+      expect(String(briefing['additionalContext'])).toMatch(/Hook briefing|fyi|signal/i);
     } finally { rmSync(dir, { recursive: true }); }
   });
 

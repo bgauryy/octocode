@@ -264,6 +264,42 @@ describe('notifyGet — smart briefing from memories table', () => {
     expect(res.notifications.some(n => n.text.includes('GOTCHA'))).toBe(true);
   });
 
+  it('selects one prompt-relevant memory for hook context and stays silent on unrelated memory', () => {
+    const db = freshDb();
+    insertMem(db, {
+      importance: 10,
+      label: 'GOTCHA',
+      observation: 'always rotate the screenshot archive before publishing',
+      workspacePath: '/ws',
+    });
+    insertMem(db, {
+      importance: 7,
+      label: 'DECISION',
+      observation: 'token expiry requires refreshing credentials before deploy',
+      workspacePath: '/ws',
+    });
+
+    const relevant = notifyGet(db, {
+      agent_id: 'agent-selective',
+      session_id: 'session-relevant',
+      workspace: '/ws',
+      format: 'hook',
+      query: 'fix token expiry during deployment',
+    }) as { count: number; additionalContext?: string };
+    expect(relevant.count).toBe(1);
+    expect(relevant.additionalContext).toContain('token expiry');
+    expect(relevant.additionalContext).not.toContain('screenshot archive');
+
+    const unrelated = notifyGet(db, {
+      agent_id: 'agent-selective',
+      session_id: 'session-unrelated',
+      workspace: '/ws',
+      format: 'hook',
+      query: 'format the release notes',
+    });
+    expect(unrelated).toEqual({ ok: true, count: 0, notifications: [] });
+  });
+
   it('surfaces weakness cluster when failure_signature is present', () => {
     const db = freshDb();
     const sig = 'mechanism:test-timeout|cause:slow-io';

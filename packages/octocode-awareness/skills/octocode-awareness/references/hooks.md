@@ -1,7 +1,9 @@
 # Awareness Hooks
 
 Hooks automate loop edges; manual CLI remains valid. A config file proves presence,
-not execution, trust, or model-visible delivery.
+not execution, trust, or model-visible delivery. Export one stable
+`OCTOCODE_AGENT_ID` shared by CLI and hooks — without it, presence and peer packets
+do not join correctly.
 
 | Host | Surface | Context / control |
 |---|---|---|

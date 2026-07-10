@@ -5172,10 +5172,49 @@ function openRefinementCount(db3, params = {}) {
   return db3.prepare(sql).get(...queryParams).c;
 }
 var BRIEFING_LABELS = ["GOTCHA", "BUG", "DECISION", "IMPROVEMENT", "ARCHITECTURE", "SECURITY"];
+var INTERVENTION_STOP_WORDS = /* @__PURE__ */ new Set([
+  "the",
+  "and",
+  "for",
+  "with",
+  "from",
+  "into",
+  "this",
+  "that",
+  "about",
+  "before",
+  "after",
+  "fix",
+  "update",
+  "change",
+  "make",
+  "during"
+]);
+function interventionTokens(text) {
+  return new Set(
+    (text.toLowerCase().match(/[a-z0-9]{3,}/g) ?? []).filter((token) => !INTERVENTION_STOP_WORDS.has(token))
+  );
+}
+function isPromptGroundedMemory(query, memory) {
+  const queryTokens = interventionTokens(query);
+  if (queryTokens.size < 2) return false;
+  const memoryTokens = interventionTokens([
+    memory.task_context,
+    memory.observation,
+    memory.label,
+    memory.failure_signature ?? ""
+  ].join(" "));
+  let overlap = 0;
+  for (const token of queryTokens) {
+    if (memoryTokens.has(token) && ++overlap >= 2) return true;
+  }
+  return false;
+}
 function notifyGet(db3, params = {}) {
   const wsPath = params.workspace ?? null;
   const artifact2 = normalizeArtifact(params.artifact);
   const format = params.format ?? "json";
+  const interventionQuery = String(params.query ?? "").trim().slice(0, 4e3);
   const agentId2 = String(params.agent_id ?? params.agentId ?? "agent");
   const notifyCwd = wsPath ?? params.cwd ?? process.cwd();
   const items = [];
@@ -5230,31 +5269,52 @@ function notifyGet(db3, params = {}) {
   } catch {
   }
   try {
-    const conditions = [
-      "state = 'ACTIVE'",
-      "importance >= 6",
-      `label IN (${BRIEFING_LABELS.map(() => "?").join(",")})`
-    ];
-    const bindParams = [...BRIEFING_LABELS];
-    if (wsPath) {
-      conditions.push("(workspace_path = ? OR workspace_path IS NULL)");
-      bindParams.push(wsPath);
+    let memRows = [];
+    if (format === "hook") {
+      if (interventionQuery) {
+        const recall = getMemory(db3, {
+          query: interventionQuery,
+          limit: 3,
+          minImportance: 6,
+          label: [...BRIEFING_LABELS],
+          workspacePath: wsPath,
+          artifact: artifact2,
+          repo: params.repo ?? null,
+          ref: params.ref ?? null,
+          explain: true,
+          recordAccess: false,
+          cwd: notifyCwd
+        });
+        const selected = recall.memories.find((memory) => isPromptGroundedMemory(interventionQuery, memory));
+        if (selected) memRows = [selected];
+      }
+    } else {
+      const conditions = [
+        "state = 'ACTIVE'",
+        "importance >= 6",
+        `label IN (${BRIEFING_LABELS.map(() => "?").join(",")})`
+      ];
+      const bindParams = [...BRIEFING_LABELS];
+      if (wsPath) {
+        conditions.push("(workspace_path = ? OR workspace_path IS NULL)");
+        bindParams.push(wsPath);
+      }
+      if (artifact2) {
+        conditions.push("(artifact = ? OR artifact IS NULL)");
+        bindParams.push(artifact2);
+      }
+      memRows = db3.prepare(
+        `SELECT memory_id, task_context, observation, label, importance, failure_signature
+         FROM memories
+         WHERE ${conditions.join(" AND ")}
+         ORDER BY importance DESC, last_accessed_at DESC
+         LIMIT 3`
+      ).all(...bindParams);
     }
-    if (artifact2) {
-      conditions.push("(artifact = ? OR artifact IS NULL)");
-      bindParams.push(artifact2);
-    }
-    const memRows = db3.prepare(
-      `SELECT memory_id, observation, label, importance
-       FROM memories
-       WHERE ${conditions.join(" AND ")}
-       ORDER BY importance DESC, last_accessed_at DESC
-       LIMIT 3`
-    ).all(...bindParams);
     for (const m of memRows) {
       items.push({
         kind: "memory",
-        text: `${m.label}(${m.importance}): ${m.observation.slice(0, 120)}`,
+        text: `Memory lead \u2014 verify: ${m.label}(${m.importance}): ${m.observation.slice(0, 120)}`,
         importance: m.importance
       });
     }
@@ -9388,7 +9448,13 @@ function attendAwareness(db3, params = {}) {
     }
   };
   const verificationRunId = verificationTargets.flatMap((row) => Array.isArray(row["raw_ids"]) ? row["raw_ids"] : []).map(String).find((id) => id.startsWith("run_"));
-  const next = verificationTargets.length > 0 ? `octocode-awareness verify audit --agent-id "$OCTOCODE_AGENT_ID" --workspace "$PWD" --compact; then verify mark ${verificationRunId ? `--run-id ${verificationRunId}` : "--run-id <exact-run-id>"} --message "<check + result>" after its declared test plan` : readyTasks.length > 0 ? `octocode-awareness task claim --task-id ${String(readyTasks[0]?.["id"])} --agent-id "$OCTOCODE_AGENT_ID" --compact` : !query && bloatWarnings.length > 0 ? 'octocode-awareness query workboard --workspace "$PWD" --format json --limit 5 --compact' : evidence.length > 0 ? "Treat evidence as leads; re-check cited files, then work start before edits" : 'octocode-awareness attend --workspace "$PWD" --query "<narrower task>" --compact; or query workboard / workspace status';
+  const ownedClaimed = agentId2 ? claimedTasks.filter((row) => String(row["agent_id"] ?? "") === agentId2) : [];
+  const ownedClaimedTask = ownedClaimed[0];
+  const ownedClaimedRunId = ownedClaimed.flatMap((row) => Array.isArray(row["raw_ids"]) ? row["raw_ids"] : []).map(String).find((id) => id.startsWith("run_"));
+  const filesUnderWork = rawWorkboard["FilesUnderWork"] ?? [];
+  const filesUnderWorkPath = filesUnderWork.map((row) => String(row["path"] ?? row["file_path"] ?? "")).find((path2) => path2.length > 0);
+  const inboxCount = (rawWorkboard["Inbox"] ?? []).length > 0 ? Number((rawWorkboard["Inbox"] ?? [])[0]?.["column_total"] ?? (rawWorkboard["Inbox"] ?? []).length) : 0;
+  const next = verificationTargets.length > 0 ? `octocode-awareness verify audit --agent-id "$OCTOCODE_AGENT_ID" --workspace "$PWD" --compact; then verify mark ${verificationRunId ? `--run-id ${verificationRunId}` : "--run-id <exact-run-id>"} --message "<check + result>" after its declared test plan` : readyTasks.length > 0 ? `octocode-awareness task claim --task-id ${String(readyTasks[0]?.["id"])} --agent-id "$OCTOCODE_AGENT_ID" --compact` : ownedClaimedTask ? `Continue claimed task ${String(ownedClaimedTask["id"])}: work start --run-id ${ownedClaimedRunId ?? "<run>"} --file <path> or task heartbeat; then task submit + verify mark` : filesUnderWorkPath ? `octocode-awareness work show --workspace "$PWD" --file ${filesUnderWorkPath} --compact; read peer reason before overlapping edits` : inboxCount > 0 ? `octocode-awareness signal list --agent-id "$OCTOCODE_AGENT_ID" --workspace "$PWD" --compact` : !query && bloatWarnings.length > 0 ? 'octocode-awareness query workboard --workspace "$PWD" --format json --limit 5 --compact' : evidence.length > 0 ? "Treat evidence as leads; re-check cited files, then work start before edits" : 'octocode-awareness attend --workspace "$PWD" --query "<narrower task>" --compact; or query workboard / workspace status';
   if (compact2) {
     const columnCount = (column) => {
       const rows = rawWorkboard[column] ?? [];
@@ -9733,6 +9799,23 @@ function sessionId(payload) {
     input.session_id,
     input.sessionId
   );
+}
+function promptQuery(payload) {
+  const input = objectOrEmpty2(payloadInput(payload));
+  const prompt = firstString2(
+    payload.prompt,
+    payload.user_prompt,
+    payload.userPrompt,
+    payload.text,
+    payload.message,
+    typeof payload.input === "string" ? payload.input : null,
+    input.prompt,
+    input.user_prompt,
+    input.userPrompt,
+    input.text,
+    input.message
+  );
+  return prompt ? prompt.slice(0, 4e3) : null;
 }
 function hookSessionCorrelation(payload) {
   const input = objectOrEmpty2(payloadInput(payload));
@@ -10408,8 +10491,10 @@ async function runNotifyDeliver(payload) {
     ));
     const result = notifyGet(database, {
       agent_id: agentId(payload),
+      session_id: hookSessionCorrelation(payload) ?? void 0,
       workspace: workspace(payload) ?? void 0,
       artifact: artifact(payload) ?? void 0,
+      query: promptQuery(payload) ?? void 0,
       format: "hook"
     });
     const additionalContext = [result.additionalContext, maintenanceContext].filter(Boolean).join("\n");
@@ -10720,7 +10805,7 @@ var KNOWN_FLAGS = {
   "attend": ["agent_id", "query", "limit", "workspace", "artifact", "repo", "ref", "file", "include_bodies", "explain_organ"],
   "repo-inject": ["query", "limit", "out", "out_dir", "workspace", "artifact", "repo", "ref", "mode", "check", "include_view"],
   "agent-registry": ["action", "agent_id", "agent_name", "workspace", "artifact", "context", "limit"],
-  "agent-signal": ["action", "agent_id", "workspace", "artifact", "repo", "ref", "kind", "subject", "body", "to_agent", "file", "ref_id", "importance", "in_reply_to", "thread_id", "signal_id", "all", "unread_only", "mark_read", "limit", "include_bodies"],
+  "agent-signal": ["action", "agent_id", "workspace", "artifact", "repo", "ref", "kind", "subject", "body", "to_agent", "file", "ref_id", "importance", "in_reply_to", "thread_id", "signal_id", "all", "unread_only", "mark_read", "limit", "include_bodies", "format"],
   "notify-prune": ["agent_id", "signal_id", "resolved", "older_than_days", "dry_run", "workspace", "artifact"],
   "session-capture": ["agent_id", "workspace", "artifact", "repo", "ref", "reason", "cwd"],
   "wait-for-lock": ["agent_id", "target_file", "file", "workspace", "artifact", "wait_seconds", "retry_interval"],
@@ -12128,15 +12213,16 @@ examples:
   octocode-awareness query all --workspace "$PWD" --format html --out .octocode/awareness/index.html
   octocode-awareness repo inject --workspace "$PWD" --mode local --compact
 
-Run "octocode-awareness <command> --help" for command flags. Exit 2 = lock conflict or wait timeout.`;
+Run "octocode-awareness <command> --help" for command flags.
+Exit codes: 0 ok; 1 validation/unknown flag/verify debt (verify audit); 2 lock conflict, lock wait timeout, or hooks check --strict.`;
 var HELP_COMPACT = `octocode-awareness: canonical noun/verb CLI. Use --compact for JSON.
 bundled-skills: ${BUNDLED_SKILLS_DIR}/octocode-awareness | ${BUNDLED_SKILLS_DIR}/octocode-skills
 start: attend; workspace status; plan create|list|show|join|doc|status; task create|list|ready|show|claim|heartbeat|submit|release|depend; memory recall; signal list; docs list
 edit: work start|touch|end|list|show; lock acquire|wait|release|prune; verify audit|mark
 msg: signal publish|list|reply|ack|resolve|prune; agent register|list
-learn: memory record|forget; reflect record|mine-weakness|export-harness|developer-review; maintenance digest
+learn: memory record|forget; refinement set|get|delete; reflect record|mine-weakness|export-harness|developer-review; maintenance digest
 repo: query files|workboard|all|developer-review --format json|table|csv|markdown|html; repo inject
-inspect: schema commands --compact; docs list|show; schema json-schema <name>; <command> --help`;
+inspect: schema commands --compact; docs list|show; <command> --help; exits 0 ok / 1 validation|verify debt / 2 lock|wait|hooks --strict`;
 var COMMAND_TO_SCHEMA = {
   "tell-memory": "tell_memory",
   "get-memory": "get_memory",
@@ -12317,9 +12403,11 @@ schema: octocode-awareness schema json-schema pre_flight_intent --compact`,
   "agent-signal": `usage: octocode-awareness signal publish|list|reply|ack|resolve --agent-id <id> [--to-agent <id>]... [--signal-id <id>]... [--thread-id <id>] [--kind <k>] [--subject <t>] [--body <t>] [--file <p>]...
 examples:
   octocode-awareness signal list --agent-id agent --workspace "$PWD" --compact
+  octocode-awareness signal list --agent-id agent --workspace "$PWD" --format hook --compact
   octocode-awareness signal publish --agent-id agent --kind blocker --subject "File locked" --file src/file.ts --workspace "$PWD" --compact
   octocode-awareness signal reply --agent-id agent --in-reply-to ntf_123 --subject "Re: File locked" --body "done" --compact
-list options: [--limit <n>] [--all|--unread-only] [--mark-read] [--include-bodies]
+list options: [--limit <n>] [--all|--unread-only] [--mark-read] [--include-bodies] [--format json|hook]
+note: --format hook returns the notify briefing shape used by host hooks (list only)
 schema: octocode-awareness schema json-schema agent_signal --compact`,
   "verify": `usage: octocode-awareness verify mark (--run-id <id>... | --all-pending) --agent-id <id> [--status SUCCESS|FAILED] [--message <t>] [--workspace <p>] [--artifact <a>]
 example: octocode-awareness verify mark --agent-id agent --all-pending --message "yarn test passed" --workspace "$PWD" --compact
@@ -12339,8 +12427,9 @@ examples:
   octocode-awareness query all --workspace "$PWD" --format html --out .octocode/awareness/index.html
 note: files/memories expose missing file references as file_exists, missing_file, missing_references, and stale_file_refs workboard reasons
 schema: octocode-awareness schema json-schema query --compact`,
-  "attend": `usage: octocode-awareness attend [--workspace <repo>] [--query <text>] [--file <p>]... [--limit <n>] [--include-bodies] [--explain-organ]
-example: octocode-awareness attend --query "current task" --workspace "$PWD" --compact
+  "attend": `usage: octocode-awareness attend [--workspace <repo>] [--query <text>] [--agent-id <id>] [--file <p>]... [--limit <n>] [--include-bodies] [--explain-organ]
+example: octocode-awareness attend --query "current task" --workspace "$PWD" --agent-id "$OCTOCODE_AGENT_ID" --compact
+note: pass --agent-id (or OCTOCODE_AGENT_ID) so next routes owned Verify/Claimed before generic evidence
 schema: octocode-awareness schema json-schema attend --compact`,
   "repo-inject": `usage: octocode-awareness repo inject [--workspace <repo>] [--out .octocode] [--mode local|share] [--no-check] [--no-include-view]
 example: octocode-awareness repo inject --workspace "$PWD" --out .octocode --mode local --compact

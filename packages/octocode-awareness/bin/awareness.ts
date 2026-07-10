@@ -173,7 +173,7 @@ const KNOWN_FLAGS: Record<string, string[]> = {
   'attend': ['agent_id', 'query', 'limit', 'workspace', 'artifact', 'repo', 'ref', 'file', 'include_bodies', 'explain_organ'],
   'repo-inject': ['query', 'limit', 'out', 'out_dir', 'workspace', 'artifact', 'repo', 'ref', 'mode', 'check', 'include_view'],
   'agent-registry': ['action', 'agent_id', 'agent_name', 'workspace', 'artifact', 'context', 'limit'],
-  'agent-signal': ['action', 'agent_id', 'workspace', 'artifact', 'repo', 'ref', 'kind', 'subject', 'body', 'to_agent', 'file', 'ref_id', 'importance', 'in_reply_to', 'thread_id', 'signal_id', 'all', 'unread_only', 'mark_read', 'limit', 'include_bodies'],
+  'agent-signal': ['action', 'agent_id', 'workspace', 'artifact', 'repo', 'ref', 'kind', 'subject', 'body', 'to_agent', 'file', 'ref_id', 'importance', 'in_reply_to', 'thread_id', 'signal_id', 'all', 'unread_only', 'mark_read', 'limit', 'include_bodies', 'format'],
   'notify-prune': ['agent_id', 'signal_id', 'resolved', 'older_than_days', 'dry_run', 'workspace', 'artifact'],
   'session-capture': ['agent_id', 'workspace', 'artifact', 'repo', 'ref', 'reason', 'cwd'],
   'wait-for-lock': ['agent_id', 'target_file', 'file', 'workspace', 'artifact', 'wait_seconds', 'retry_interval'],
@@ -1738,16 +1738,17 @@ examples:
   octocode-awareness query all --workspace "$PWD" --format html --out .octocode/awareness/index.html
   octocode-awareness repo inject --workspace "$PWD" --mode local --compact
 
-Run "octocode-awareness <command> --help" for command flags. Exit 2 = lock conflict or wait timeout.`;
+Run "octocode-awareness <command> --help" for command flags.
+Exit codes: 0 ok; 1 validation/unknown flag/verify debt (verify audit); 2 lock conflict, lock wait timeout, or hooks check --strict.`;
 
 const HELP_COMPACT = `octocode-awareness: canonical noun/verb CLI. Use --compact for JSON.
 bundled-skills: ${BUNDLED_SKILLS_DIR}/octocode-awareness | ${BUNDLED_SKILLS_DIR}/octocode-skills
 start: attend; workspace status; plan create|list|show|join|doc|status; task create|list|ready|show|claim|heartbeat|submit|release|depend; memory recall; signal list; docs list
 edit: work start|touch|end|list|show; lock acquire|wait|release|prune; verify audit|mark
 msg: signal publish|list|reply|ack|resolve|prune; agent register|list
-learn: memory record|forget; reflect record|mine-weakness|export-harness|developer-review; maintenance digest
+learn: memory record|forget; refinement set|get|delete; reflect record|mine-weakness|export-harness|developer-review; maintenance digest
 repo: query files|workboard|all|developer-review --format json|table|csv|markdown|html; repo inject
-inspect: schema commands --compact; docs list|show; schema json-schema <name>; <command> --help`;
+inspect: schema commands --compact; docs list|show; <command> --help; exits 0 ok / 1 validation|verify debt / 2 lock|wait|hooks --strict`;
 
 const COMMAND_TO_SCHEMA: Record<string, string> = {
   'tell-memory': 'tell_memory',
@@ -1934,9 +1935,11 @@ schema: octocode-awareness schema json-schema pre_flight_intent --compact`,
   'agent-signal': `usage: octocode-awareness signal publish|list|reply|ack|resolve --agent-id <id> [--to-agent <id>]... [--signal-id <id>]... [--thread-id <id>] [--kind <k>] [--subject <t>] [--body <t>] [--file <p>]...
 examples:
   octocode-awareness signal list --agent-id agent --workspace "$PWD" --compact
+  octocode-awareness signal list --agent-id agent --workspace "$PWD" --format hook --compact
   octocode-awareness signal publish --agent-id agent --kind blocker --subject "File locked" --file src/file.ts --workspace "$PWD" --compact
   octocode-awareness signal reply --agent-id agent --in-reply-to ntf_123 --subject "Re: File locked" --body "done" --compact
-list options: [--limit <n>] [--all|--unread-only] [--mark-read] [--include-bodies]
+list options: [--limit <n>] [--all|--unread-only] [--mark-read] [--include-bodies] [--format json|hook]
+note: --format hook returns the notify briefing shape used by host hooks (list only)
 schema: octocode-awareness schema json-schema agent_signal --compact`,
   'verify': `usage: octocode-awareness verify mark (--run-id <id>... | --all-pending) --agent-id <id> [--status SUCCESS|FAILED] [--message <t>] [--workspace <p>] [--artifact <a>]
 example: octocode-awareness verify mark --agent-id agent --all-pending --message "yarn test passed" --workspace "$PWD" --compact
@@ -1956,8 +1959,9 @@ examples:
   octocode-awareness query all --workspace "$PWD" --format html --out .octocode/awareness/index.html
 note: files/memories expose missing file references as file_exists, missing_file, missing_references, and stale_file_refs workboard reasons
 schema: octocode-awareness schema json-schema query --compact`,
-  'attend': `usage: octocode-awareness attend [--workspace <repo>] [--query <text>] [--file <p>]... [--limit <n>] [--include-bodies] [--explain-organ]
-example: octocode-awareness attend --query "current task" --workspace "$PWD" --compact
+  'attend': `usage: octocode-awareness attend [--workspace <repo>] [--query <text>] [--agent-id <id>] [--file <p>]... [--limit <n>] [--include-bodies] [--explain-organ]
+example: octocode-awareness attend --query "current task" --workspace "$PWD" --agent-id "$OCTOCODE_AGENT_ID" --compact
+note: pass --agent-id (or OCTOCODE_AGENT_ID) so next routes owned Verify/Claimed before generic evidence
 schema: octocode-awareness schema json-schema attend --compact`,
   'repo-inject': `usage: octocode-awareness repo inject [--workspace <repo>] [--out .octocode] [--mode local|share] [--no-check] [--no-include-view]
 example: octocode-awareness repo inject --workspace "$PWD" --out .octocode --mode local --compact

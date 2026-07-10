@@ -1,6 +1,6 @@
 # Octocode Research Delegation
 
-Load when subagent work needs local code, GitHub, package, history, or artifact research through Octocode.
+Load when subagent work needs local code, GitHub, package, history, or artifact research through Octocode. Optional — skip on hosts without Octocode.
 
 This skill does not redefine research rules. Use `octocode-research` for routing, evidence grades, and citations.
 

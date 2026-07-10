@@ -12,8 +12,16 @@ editing would be unsafe. Locks are exclusive-only.
 - Same run -> acquire/renew allowed.
 - TTL -> crash recovery only, never success.
 
-`lock wait` observes without claiming. `lock prune --expired-only --dry-run` previews
-abandoned protection cleanup. Do not steal live exclusivity.
+## Wait Vs Presence
+
+`lock wait` observes **other agents' lock rows only**. It does **not** mean peers are
+gone: advisory `run_files` presence can still block exclusive acquire (`ACTIVE_WORK`).
+After wait returns clear, re-check `work show --file <path>` before acquire. Expiry
+cleans coordination state; it never proves completion. `verify audit` lists
+`stale_active` when a run is ACTIVE with no live presence.
+
+`lock prune --expired-only --dry-run` previews abandoned protection cleanup. Do not
+steal live exclusivity.
 
 ## Close And Verify
 
@@ -29,9 +37,11 @@ TASK work uses `task submit`/`task release`; terminal `work end` is rejected. Su
 `verify mark` closes the run and linked task. Failure closes them as failed.
 
 Automatic HOOK fallback becomes PENDING after post-edit. Stop output caps debt; Pi
-may remind instead of block. `verify audit` lists debt. If deliberately using
-`verify mark --all-pending`, scope it by workspace. `verify audit --abandon` is only
-for real abandonment.
+may remind instead of block. `verify audit` lists debt (exit **1** when debt remains).
+If deliberately using `verify mark --all-pending`, scope it by workspace.
+`verify audit --abandon` is only for real abandonment.
 
 Presence/lock expiry never moves a live TASK run to PENDING. Task claim expiry is a
 separate atomic lifecycle that fails its attempt and returns the task to OPEN.
+
+Exit codes: **2** = lock conflict or wait timeout; **1** = verify debt / validation.

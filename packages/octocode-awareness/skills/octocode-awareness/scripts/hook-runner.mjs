@@ -61,6 +61,16 @@ function parseJsonList(value) {
     return [];
   }
 }
+function normalizeReferences(refs = []) {
+  const seen = /* @__PURE__ */ new Set();
+  return refs.map((r) => (r ?? "").trim().slice(0, 512)).filter((r) => r && !seen.has(r) && seen.add(r)).slice(0, 20);
+}
+function normalizeLabel(value) {
+  if (value == null || String(value).trim() === "") return "OTHER";
+  const cleaned = String(value).trim().toUpperCase().replace(/[\s-]+/g, "_");
+  if (MEMORY_LABELS.has(cleaned)) return cleaned;
+  throw new Error(`invalid label "${String(value)}"; allowed: ${MEMORY_LABEL_VALUES.join(", ")}`);
+}
 var NOTIFICATION_KIND_VALUES = [
   "claim",
   "handoff",
@@ -72,10 +82,45 @@ var NOTIFICATION_KIND_VALUES = [
   "fyi"
 ];
 var NOTIFICATION_KINDS = new Set(NOTIFICATION_KIND_VALUES);
+function normalizeFilePath(filePath, cwd) {
+  if (!filePath) return null;
+  const p = String(filePath);
+  return cwd ? resolve(cwd, p) : resolve(p);
+}
 function normalizeArtifact(value) {
   if (value == null) return null;
   const cleaned = String(value).trim().slice(0, 256);
   return cleaned.length > 0 ? cleaned : null;
+}
+function rowToMemory(row) {
+  return {
+    memory_id: row.memory_id,
+    agent_id: row.agent_id,
+    task_context: row.task_context,
+    observation: row.observation,
+    importance: row.importance,
+    state: row.state ?? "ACTIVE",
+    label: row.label ?? "OTHER",
+    superseded_by: row.superseded_by ?? null,
+    tags: parseJsonList(row.tags_json),
+    // references are stored in memory_refs table; populated separately via JOIN
+    references: [],
+    workspace_path: row.workspace_path ?? null,
+    artifact: row.artifact ?? null,
+    repo: row.repo ?? null,
+    ref: row.ref ?? null,
+    novelty_score: row.novelty_score ?? null,
+    failure_signature: row.failure_signature ?? null,
+    access_count: row.access_count ?? 0,
+    last_accessed_at: row.last_accessed_at ?? null,
+    decay_half_life_days: row.decay_half_life_days ?? null,
+    valid_from: row.valid_from ?? null,
+    valid_to: row.valid_to ?? null,
+    expired_at: row.expired_at ?? null,
+    file_tree_fingerprint: row.file_tree_fingerprint ?? null,
+    created_at: row.created_at,
+    updated_at: row.updated_at ?? null
+  };
 }
 
 // src/git.ts
@@ -1988,12 +2033,586 @@ function auditUnverified(db2, params = {}) {
 
 // src/maintenance.ts
 import { spawnSync as spawnSync2 } from "node:child_process";
-import { createHash as createHash3, randomUUID as randomUUID7 } from "node:crypto";
+import { createHash as createHash3, randomUUID as randomUUID8 } from "node:crypto";
 import { existsSync } from "node:fs";
 import { isAbsolute as isAbsolute3, resolve as resolve6 } from "node:path";
 
-// src/notifications.ts
+// src/memory.ts
 import { randomUUID as randomUUID6 } from "node:crypto";
+var DECAY_WEIGHTS = { importance: 0.25, recency: 0.3, access: 0.15, lexical: 0.3 };
+var DEFAULT_HALF_LIFE_DAYS = 30;
+var ACCESS_SATURATION = 50;
+var BM25_SQUASH_K = 1;
+var BM25_DEGENERATE_MAX = 0.01;
+var JUDGMENT_RELEVANCE_FLOOR = 0.35;
+var SCORING_PREFETCH_FACTOR = 3;
+function canonicalMemoryInstant(value, field) {
+  if (value == null) return null;
+  const text = String(value).trim();
+  const isoInstant = /^\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2}))?$/;
+  if (!isoInstant.test(text)) {
+    throw new Error(`${field} must be a valid ISO 8601 timestamp`);
+  }
+  const parsed = new Date(text);
+  if (!text || Number.isNaN(parsed.getTime())) {
+    throw new Error(`${field} must be a valid ISO 8601 timestamp`);
+  }
+  return parsed.toISOString().replace(/\.\d{3}Z$/, "Z");
+}
+var STOP_WORDS = /* @__PURE__ */ new Set([
+  // Articles / conjunctions
+  "the",
+  "and",
+  "for",
+  "with",
+  "from",
+  "into",
+  "not",
+  // Demonstratives
+  "this",
+  "that",
+  "its",
+  // Question words
+  "what",
+  "when",
+  "about",
+  "before",
+  "after",
+  // Common verbs (too generic to be useful in memory search)
+  "are",
+  "was",
+  "has",
+  "had",
+  "can",
+  "did",
+  "use",
+  "used",
+  "using"
+]);
+function textTokens(text) {
+  const split = text.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2").replace(/[:_-]/g, " ").toLowerCase();
+  return new Set(
+    (split.match(/[a-z0-9]{3,}/g) ?? []).filter((t) => !STOP_WORDS.has(t))
+  );
+}
+function decayComponents(memory, lexical, weights = DECAY_WEIGHTS) {
+  const halfLife = memory.decay_half_life_days ?? DEFAULT_HALF_LIFE_DAYS;
+  const lastUsedStr = memory.last_accessed_at ?? memory.created_at;
+  let recency = 0;
+  if (lastUsedStr) {
+    const ageDays = Math.max(0, (Date.now() - new Date(lastUsedStr).getTime()) / 864e5);
+    recency = Math.exp(-Math.LN2 * ageDays / Math.max(halfLife, 0.01));
+  }
+  const importance = (memory.importance ?? 0) / 10;
+  const access = Math.min(
+    Math.log1p(memory.access_count ?? 0) / Math.log1p(ACCESS_SATURATION),
+    1
+  );
+  const relevance = Math.max(0, Math.min(1, lexical));
+  const final = weights.importance * importance + weights.recency * recency + weights.access * access + weights.lexical * relevance;
+  return { importance, recency, access, relevance, weights, final };
+}
+function decayScore(memory, lexical, weights = DECAY_WEIGHTS) {
+  return decayComponents(memory, lexical, weights).final;
+}
+function buildFtsQuery(query) {
+  const normalized = query.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2").replace(/[:_-]/g, " ").toLowerCase();
+  const tokens = [
+    ...new Set(
+      (normalized.match(/[a-z0-9]{3,}/g) ?? []).filter((t) => !STOP_WORDS.has(t))
+    )
+  ].slice(0, 16);
+  if (tokens.length === 0) return null;
+  return tokens.join(" OR ");
+}
+function escapeLike(value) {
+  return value.replace(/[\\%_]/g, "\\$&");
+}
+function appendFallbackQueryConditions(query, conditions, params) {
+  const tokens = [...textTokens(query)].slice(0, 16);
+  if (tokens.length === 0) return;
+  const tokenClauses = [];
+  for (const token of tokens) {
+    const pattern = `%${escapeLike(token)}%`;
+    tokenClauses.push(`(
+      lower(m.task_context) LIKE ? ESCAPE '\\'
+      OR lower(m.observation) LIKE ? ESCAPE '\\'
+      OR lower(m.tags_json) LIKE ? ESCAPE '\\'
+      OR lower(COALESCE(m.label, '')) LIKE ? ESCAPE '\\'
+      OR lower(COALESCE(m.workspace_path, '')) LIKE ? ESCAPE '\\'
+      OR lower(COALESCE(m.artifact, '')) LIKE ? ESCAPE '\\'
+      OR lower(COALESCE(m.repo, '')) LIKE ? ESCAPE '\\'
+      OR lower(COALESCE(m.ref, '')) LIKE ? ESCAPE '\\'
+      OR lower(COALESCE(m.failure_signature, '')) LIKE ? ESCAPE '\\'
+      OR EXISTS (
+        SELECT 1 FROM memory_refs r
+        WHERE r.memory_id = m.memory_id
+          AND lower(r.reference) LIKE ? ESCAPE '\\'
+      )
+    )`);
+    params.push(pattern, pattern, pattern, pattern, pattern, pattern, pattern, pattern, pattern, pattern);
+  }
+  conditions.push(`(${tokenClauses.join(" OR ")})`);
+}
+function fallbackSearch(db2, query, conditions, params, limit) {
+  const fallbackConditions = [...conditions];
+  const fallbackParams = [...params];
+  appendFallbackQueryConditions(query, fallbackConditions, fallbackParams);
+  const sql = `
+    SELECT m.*, 0 AS _bm25
+    FROM memories m
+    WHERE ${fallbackConditions.join(" AND ")}
+    ORDER BY m.importance DESC, m.created_at DESC
+    LIMIT ?
+  `;
+  return db2.prepare(sql).all(...fallbackParams, limit);
+}
+function applyScopeConditions(conditions, params, options = {}) {
+  const artifact2 = normalizeArtifact(options.artifact);
+  const scope = fillScope(
+    {
+      workspace_path: options.workspacePath ?? null,
+      artifact: artifact2,
+      repo: options.repo ?? null,
+      ref: options.ref ?? null
+    },
+    options.cwd ?? options.workspacePath ?? process.cwd()
+  );
+  if (options.globalOnly) {
+    conditions.push("m.workspace_path IS NULL", "m.artifact IS NULL", "m.repo IS NULL", "m.ref IS NULL");
+    return;
+  }
+  if (scope.workspace_path) {
+    conditions.push(options.strictScope ? "m.workspace_path = ?" : "(m.workspace_path IS NULL OR m.workspace_path = ?)");
+    params.push(scope.workspace_path);
+  }
+  if (scope.artifact) {
+    conditions.push(options.strictScope ? "m.artifact = ?" : "(m.artifact IS NULL OR m.artifact = ?)");
+    params.push(scope.artifact);
+  }
+  if (scope.repo) {
+    conditions.push(options.strictScope ? "m.repo = ?" : "(m.repo IS NULL OR m.repo = ?)");
+    params.push(scope.repo);
+  }
+  if (scope.ref) {
+    conditions.push(options.strictScope ? "m.ref = ?" : "(m.ref IS NULL OR m.ref = ?)");
+    params.push(scope.ref);
+  }
+}
+function lexicalSearch(db2, query, limit, minImportance, tags, labels, states, scopeOptions = {}) {
+  const ftsQuery = query ? buildFtsQuery(query) : null;
+  if (query.trim() && !ftsQuery) return [];
+  const params = [];
+  const conditions = [
+    "m.importance >= ?",
+    `m.state IN (${states.map(() => "?").join(",")})`
+  ];
+  params.push(minImportance, ...states);
+  if (labels.length > 0) {
+    conditions.push(`m.label IN (${labels.map(() => "?").join(",")})`);
+    params.push(...labels);
+  }
+  for (const tag of tags) {
+    conditions.push("EXISTS (SELECT 1 FROM json_each(m.tags_json) WHERE value = ?)");
+    params.push(tag);
+  }
+  applyScopeConditions(conditions, params, scopeOptions);
+  if (scopeOptions.asOf) {
+    conditions.push("(m.valid_from IS NULL OR m.valid_from <= ?)");
+    conditions.push("(m.valid_to IS NULL OR m.valid_to > ?)");
+    params.push(scopeOptions.asOf, scopeOptions.asOf);
+  } else {
+    const now = utcNow();
+    conditions.push(`(m.state <> 'ACTIVE' OR (
+      (m.valid_from IS NULL OR m.valid_from <= ?)
+      AND (m.valid_to IS NULL OR m.valid_to > ?)
+    ))`);
+    params.push(now, now);
+  }
+  const candidateIds = scopeOptions.candidateMemoryIds ? [...new Set(scopeOptions.candidateMemoryIds)].filter(Boolean) : null;
+  if (candidateIds && candidateIds.length === 0) return [];
+  let usingCandidateTable = false;
+  if (candidateIds) {
+    if (candidateIds.length <= 400) {
+      conditions.push(`m.memory_id IN (${candidateIds.map(() => "?").join(",")})`);
+      params.push(...candidateIds);
+    } else {
+      db2.exec("CREATE TEMP TABLE IF NOT EXISTS temp_memory_candidate_ids(memory_id TEXT PRIMARY KEY)");
+      db2.exec("DELETE FROM temp_memory_candidate_ids");
+      const insertCandidate = db2.prepare("INSERT OR IGNORE INTO temp_memory_candidate_ids(memory_id) VALUES (?)");
+      for (const id of candidateIds) insertCandidate.run(id);
+      conditions.push("EXISTS (SELECT 1 FROM temp_memory_candidate_ids c WHERE c.memory_id = m.memory_id)");
+      usingCandidateTable = true;
+    }
+  }
+  let rows;
+  try {
+    if (ftsQuery && hasFts(db2)) {
+      try {
+        const sql = `
+          SELECT m.*, ABS(bm25(memories_fts, 0, 10, 7, 2)) AS _bm25
+          FROM memories m
+          JOIN memories_fts ON memories_fts.memory_id = m.memory_id
+          WHERE memories_fts MATCH ?
+            AND ${conditions.join(" AND ")}
+          ORDER BY _bm25 DESC
+          LIMIT ?
+        `;
+        rows = db2.prepare(sql).all(ftsQuery, ...params, limit);
+      } catch {
+        rows = fallbackSearch(db2, query, conditions, params, limit);
+      }
+    } else {
+      rows = fallbackSearch(db2, query, conditions, params, limit);
+    }
+  } finally {
+    if (usingCandidateTable) {
+      try {
+        db2.exec("DELETE FROM temp_memory_candidate_ids");
+      } catch {
+      }
+    }
+  }
+  const maxBm25 = rows.reduce((m, r) => Math.max(m, r._bm25 ?? 0), 0);
+  return rows.map((row) => {
+    const lexical = maxBm25 >= BM25_DEGENERATE_MAX ? (row._bm25 ?? 0) / (maxBm25 + BM25_SQUASH_K) : 0.5;
+    const mem = rowToMemory(row);
+    mem.lexical = lexical;
+    mem.score = decayScore(mem, lexical);
+    return mem;
+  });
+}
+function attachMemoryReferences(db2, memories) {
+  if (memories.length === 0) return;
+  try {
+    const ids = [...new Set(memories.map((m) => m.memory_id))];
+    const ph = ids.map(() => "?").join(",");
+    const rows = db2.prepare(
+      `SELECT memory_id, reference
+       FROM memory_refs
+       WHERE memory_id IN (${ph})
+       ORDER BY memory_id, ordinal`
+    ).all(...ids);
+    const refsByMemory = /* @__PURE__ */ new Map();
+    for (const row of rows) {
+      const refs = refsByMemory.get(row.memory_id) ?? [];
+      refs.push(row.reference);
+      refsByMemory.set(row.memory_id, refs);
+    }
+    for (const memory of memories) {
+      memory.references = refsByMemory.get(memory.memory_id) ?? [];
+    }
+  } catch (e) {
+    if (!(e instanceof Error && e.message.includes("no such table"))) throw e;
+  }
+}
+function compileRecallRegex(pattern) {
+  try {
+    return new RegExp(pattern);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`invalid regex ${JSON.stringify(pattern)}: ${message}`);
+  }
+}
+function intersectCandidateIds(current, next) {
+  if (current === null) return new Set(next);
+  const out = /* @__PURE__ */ new Set();
+  for (const id of current) if (next.has(id)) out.add(id);
+  return out;
+}
+function exactReferenceCandidateIds(db2, references) {
+  const refs = normalizeReferences(references);
+  if (refs.length === 0) return /* @__PURE__ */ new Set();
+  const rows = db2.prepare(
+    `SELECT memory_id
+     FROM memory_refs
+     WHERE reference IN (${refs.map(() => "?").join(",")})
+     GROUP BY memory_id
+     HAVING COUNT(DISTINCT reference) = ?`
+  ).all(...refs, refs.length);
+  return new Set(rows.map((row) => row.memory_id));
+}
+function fileReferenceCandidates(files, baseDir) {
+  const refs = /* @__PURE__ */ new Set();
+  for (const raw of files) {
+    const file = String(raw ?? "").trim();
+    if (!file) continue;
+    refs.add(file);
+    if (file.startsWith("file:")) {
+      const unprefixed = file.slice(5);
+      if (unprefixed) refs.add(unprefixed);
+      continue;
+    }
+    refs.add(`file:${file}`);
+    const normalized = normalizeFilePath(file, baseDir ?? void 0);
+    if (normalized) {
+      refs.add(normalized);
+      refs.add(`file:${normalized}`);
+    }
+  }
+  return [...refs];
+}
+function anyReferenceCandidateIds(db2, references) {
+  const refs = [...new Set(references.map((ref) => String(ref ?? "").trim().slice(0, 512)).filter(Boolean))];
+  if (refs.length === 0) return /* @__PURE__ */ new Set();
+  const rows = db2.prepare(
+    `SELECT DISTINCT memory_id
+     FROM memory_refs
+     WHERE reference IN (${refs.map(() => "?").join(",")})`
+  ).all(...refs);
+  return new Set(rows.map((row) => row.memory_id));
+}
+function fileRegexCandidateIds(db2, regexes) {
+  if (regexes.length === 0) return /* @__PURE__ */ new Set();
+  const rows = db2.prepare(
+    `SELECT memory_id, reference
+     FROM memory_refs
+     WHERE kind = 'file' OR reference LIKE 'file:%'
+     ORDER BY memory_id, ordinal`
+  ).all();
+  const refsByMemory = /* @__PURE__ */ new Map();
+  for (const row of rows) {
+    const refs = refsByMemory.get(row.memory_id) ?? [];
+    refs.push(row.reference);
+    refsByMemory.set(row.memory_id, refs);
+  }
+  const ids = /* @__PURE__ */ new Set();
+  for (const [memoryId, refs] of refsByMemory.entries()) {
+    if (regexes.every((re) => refs.some((ref) => re.test(ref)))) ids.add(memoryId);
+  }
+  return ids;
+}
+function regexCandidateIds(db2, regexes) {
+  if (regexes.length === 0) return /* @__PURE__ */ new Set();
+  const rows = db2.prepare(
+    `SELECT m.*, group_concat(r.reference, char(31)) AS references_text
+     FROM memories m
+     LEFT JOIN memory_refs r ON r.memory_id = m.memory_id
+     GROUP BY m.memory_id`
+  ).all();
+  const ids = /* @__PURE__ */ new Set();
+  for (const row of rows) {
+    const haystack = [
+      row.task_context,
+      row.observation,
+      ...parseJsonList(row.tags_json),
+      ...row.references_text ? row.references_text.split("") : [],
+      row.label,
+      row.workspace_path,
+      row.artifact,
+      row.repo,
+      row.ref,
+      row.failure_signature
+    ].filter(Boolean).join(" ");
+    if (regexes.every((re) => re.test(haystack))) ids.add(row.memory_id);
+  }
+  return ids;
+}
+function bumpAccess(db2, memoryIds) {
+  if (memoryIds.length === 0) return;
+  const now = utcNow();
+  const placeholders = memoryIds.map(() => "?").join(",");
+  db2.prepare(`
+    UPDATE memories
+    SET access_count = COALESCE(access_count, 0) + 1, last_accessed_at = ?
+    WHERE memory_id IN (${placeholders})
+  `).run(now, ...memoryIds);
+}
+function getMemory(db2, params = {}) {
+  const {
+    query = "",
+    limit: limitRaw = 3,
+    minImportance: minImpRaw = 1,
+    label,
+    tags = [],
+    smart = false,
+    workspacePath,
+    artifact: artifact2,
+    repo: repoArg,
+    ref: refArg,
+    states: statesRaw,
+    sort = "smart",
+    globalOnly = false,
+    strictScope = false,
+    asOf,
+    references = [],
+    regex = [],
+    fileRegex = [],
+    files = [],
+    explain = false,
+    candidateMemoryIds = [],
+    recordAccess = true,
+    cwd: cwdParam
+  } = params;
+  const limitCap = candidateMemoryIds.length > 0 ? 2e3 : 50;
+  const limit = Math.min(limitCap, Math.max(1, Number(limitRaw) || 3));
+  const smartEnabled = smart === true || smart === "true";
+  let minImportance = Math.max(1, Number(minImpRaw) || 1);
+  let smartExpanded = false;
+  const droppedSmartFilters = [];
+  if (smartEnabled && minImportance > 1) {
+    minImportance = Math.max(1, minImportance - 1);
+    smartExpanded = true;
+    droppedSmartFilters.push("min_importance");
+  }
+  const states = statesRaw ?? (asOf ? ["ACTIVE", "SUPERSEDED"] : ["ACTIVE"]);
+  const labels = label ? Array.isArray(label) ? label.map((value) => normalizeLabel(value)) : [normalizeLabel(label)] : [];
+  const effectiveCwd = cwdParam ?? workspacePath ?? void 0;
+  const normalizedAsOf = canonicalMemoryInstant(asOf, "as_of");
+  const asOfDate = normalizedAsOf ? new Date(normalizedAsOf) : null;
+  if (asOfDate && isNaN(asOfDate.getTime())) {
+    throw new Error(`invalid --as-of value "${asOf}" \u2014 expected ISO 8601 date string (e.g. 2024-06-01T00:00:00Z)`);
+  }
+  let candidateIds = candidateMemoryIds.length > 0 ? new Set(candidateMemoryIds.filter(Boolean)) : null;
+  const refFilters = normalizeReferences(references);
+  const fileRefFilters = fileReferenceCandidates(files, effectiveCwd);
+  const compiledRegex = regex.map(compileRecallRegex);
+  const compiledFileRegex = fileRegex.map(compileRecallRegex);
+  if (refFilters.length > 0) {
+    candidateIds = intersectCandidateIds(candidateIds, exactReferenceCandidateIds(db2, refFilters));
+  }
+  if (fileRefFilters.length > 0) {
+    candidateIds = intersectCandidateIds(candidateIds, anyReferenceCandidateIds(db2, fileRefFilters));
+  }
+  if (compiledFileRegex.length > 0) {
+    candidateIds = intersectCandidateIds(candidateIds, fileRegexCandidateIds(db2, compiledFileRegex));
+  }
+  if (compiledRegex.length > 0) {
+    candidateIds = intersectCandidateIds(candidateIds, regexCandidateIds(db2, compiledRegex));
+  }
+  const scopeOptions = {
+    workspacePath: workspacePath ?? cwdParam ?? null,
+    artifact: artifact2,
+    repo: repoArg,
+    ref: refArg,
+    strictScope,
+    globalOnly,
+    cwd: cwdParam,
+    asOf: normalizedAsOf,
+    candidateMemoryIds: candidateIds ? [...candidateIds] : void 0
+  };
+  let memories = lexicalSearch(
+    db2,
+    query,
+    limit * SCORING_PREFETCH_FACTOR,
+    minImportance,
+    tags,
+    labels,
+    states,
+    {
+      ...scopeOptions
+    }
+  );
+  if (smartEnabled && memories.length < limit && (labels.length > 0 || tags.length > 0 || minImportance > 1)) {
+    if (labels.length > 0 && !droppedSmartFilters.includes("label")) droppedSmartFilters.push("label");
+    if (tags.length > 0 && !droppedSmartFilters.includes("tag")) droppedSmartFilters.push("tag");
+    if (minImportance > 1 && !droppedSmartFilters.includes("min_importance")) droppedSmartFilters.push("min_importance");
+    const expanded = lexicalSearch(
+      db2,
+      query,
+      limit * SCORING_PREFETCH_FACTOR,
+      1,
+      [],
+      [],
+      states,
+      scopeOptions
+    );
+    const byId = new Map(memories.map((memory) => [memory.memory_id, memory]));
+    for (const memory of expanded) byId.set(memory.memory_id, memory);
+    memories = [...byId.values()];
+    smartExpanded = true;
+  }
+  attachMemoryReferences(db2, memories);
+  if (fileRefFilters.length > 0) {
+    const normFiles = new Set(fileRefFilters);
+    memories = memories.filter(
+      (m) => m.references.some((r) => normFiles.has(r))
+    );
+  }
+  if (refFilters.length > 0) {
+    memories = memories.filter((m) => refFilters.every((ref) => m.references.includes(ref)));
+  }
+  if (compiledRegex.length > 0 || compiledFileRegex.length > 0) {
+    memories = memories.filter((m) => {
+      if (compiledFileRegex.length > 0) {
+        const fileRefs = (m.references ?? []).filter((r) => r.startsWith("file:"));
+        if (!compiledFileRegex.every((re) => fileRefs.some((r) => re.test(r)))) return false;
+      }
+      if (compiledRegex.length > 0) {
+        const haystack = [
+          m.task_context,
+          m.observation,
+          ...m.tags ?? [],
+          ...m.references ?? [],
+          m.label,
+          m.workspace_path,
+          m.artifact,
+          m.repo,
+          m.ref,
+          m.failure_signature
+        ].filter(Boolean).join(" ");
+        if (!compiledRegex.every((re) => re.test(haystack))) return false;
+      }
+      return true;
+    });
+  }
+  if (asOfDate) {
+    memories = memories.filter((m) => {
+      const vf = m.valid_from ? new Date(m.valid_from) : null;
+      const vt = m.valid_to ? new Date(m.valid_to) : null;
+      return (!vf || vf <= asOfDate) && (!vt || vt > asOfDate);
+    });
+  }
+  if (sort === "importance") {
+    memories.sort((a, b) => b.importance - a.importance || (b.score ?? 0) - (a.score ?? 0));
+  } else if (sort === "recent") {
+    memories.sort((a, b) => (b.created_at ?? "").localeCompare(a.created_at ?? ""));
+  } else if (sort === "accessed") {
+    memories.sort((a, b) => (b.last_accessed_at ?? b.created_at ?? "").localeCompare(a.last_accessed_at ?? a.created_at ?? ""));
+  } else {
+    memories.sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
+  }
+  memories = memories.slice(0, limit);
+  if (explain) {
+    for (const m of memories) {
+      const components = decayComponents(m, m.lexical ?? 0);
+      m.score_components = components;
+      m.score = components.final;
+    }
+  }
+  if (recordAccess) bumpAccess(db2, memories.map((m) => m.memory_id));
+  const mode = hasFts(db2) ? "lexical" : "fallback";
+  const result = {
+    count: memories.length,
+    memories,
+    mode,
+    sort,
+    as_of: normalizedAsOf,
+    global_only: Boolean(globalOnly),
+    states,
+    ...smartExpanded ? {
+      smart_expanded: true,
+      smart_dropped_filters: droppedSmartFilters
+    } : {}
+  };
+  if (query.trim()) {
+    const topRelevance = memories[0]?.lexical ?? 0;
+    if (memories.length === 0) {
+      result.judgment_required = true;
+      result.judgment_reason = smartEnabled ? "no results after smart widening \u2014 absence of recall is not proof of absence; broaden the query terms or scope" : "no results \u2014 absence of recall is not proof of absence; retry with --smart or broader terms";
+    } else if (mode === "fallback") {
+      result.judgment_required = true;
+      result.judgment_reason = "FTS unavailable \u2014 results are unranked substring matches; verify relevance before relying on them";
+    } else if (topRelevance < JUDGMENT_RELEVANCE_FLOOR) {
+      result.judgment_required = true;
+      result.judgment_reason = `weak lexical match (top relevance ${topRelevance.toFixed(2)} < ${JUDGMENT_RELEVANCE_FLOOR}) \u2014 treat results as leads, not answers`;
+    }
+  }
+  return result;
+}
+
+// src/notifications.ts
+import { randomUUID as randomUUID7 } from "node:crypto";
 
 // src/sql/signals.ts
 var SIGNALS_SELECT_BASE = "SELECT n.* FROM signals n";
@@ -2261,10 +2880,49 @@ function openRefinementCount(db2, params = {}) {
   return db2.prepare(sql).get(...queryParams).c;
 }
 var BRIEFING_LABELS = ["GOTCHA", "BUG", "DECISION", "IMPROVEMENT", "ARCHITECTURE", "SECURITY"];
+var INTERVENTION_STOP_WORDS = /* @__PURE__ */ new Set([
+  "the",
+  "and",
+  "for",
+  "with",
+  "from",
+  "into",
+  "this",
+  "that",
+  "about",
+  "before",
+  "after",
+  "fix",
+  "update",
+  "change",
+  "make",
+  "during"
+]);
+function interventionTokens(text) {
+  return new Set(
+    (text.toLowerCase().match(/[a-z0-9]{3,}/g) ?? []).filter((token) => !INTERVENTION_STOP_WORDS.has(token))
+  );
+}
+function isPromptGroundedMemory(query, memory) {
+  const queryTokens = interventionTokens(query);
+  if (queryTokens.size < 2) return false;
+  const memoryTokens = interventionTokens([
+    memory.task_context,
+    memory.observation,
+    memory.label,
+    memory.failure_signature ?? ""
+  ].join(" "));
+  let overlap = 0;
+  for (const token of queryTokens) {
+    if (memoryTokens.has(token) && ++overlap >= 2) return true;
+  }
+  return false;
+}
 function notifyGet(db2, params = {}) {
   const wsPath = params.workspace ?? null;
   const artifact2 = normalizeArtifact(params.artifact);
   const format = params.format ?? "json";
+  const interventionQuery = String(params.query ?? "").trim().slice(0, 4e3);
   const agentId2 = String(params.agent_id ?? params.agentId ?? "agent");
   const notifyCwd = wsPath ?? params.cwd ?? process.cwd();
   const items = [];
@@ -2319,31 +2977,52 @@ function notifyGet(db2, params = {}) {
   } catch {
   }
   try {
-    const conditions = [
-      "state = 'ACTIVE'",
-      "importance >= 6",
-      `label IN (${BRIEFING_LABELS.map(() => "?").join(",")})`
-    ];
-    const bindParams = [...BRIEFING_LABELS];
-    if (wsPath) {
-      conditions.push("(workspace_path = ? OR workspace_path IS NULL)");
-      bindParams.push(wsPath);
+    let memRows = [];
+    if (format === "hook") {
+      if (interventionQuery) {
+        const recall = getMemory(db2, {
+          query: interventionQuery,
+          limit: 3,
+          minImportance: 6,
+          label: [...BRIEFING_LABELS],
+          workspacePath: wsPath,
+          artifact: artifact2,
+          repo: params.repo ?? null,
+          ref: params.ref ?? null,
+          explain: true,
+          recordAccess: false,
+          cwd: notifyCwd
+        });
+        const selected = recall.memories.find((memory) => isPromptGroundedMemory(interventionQuery, memory));
+        if (selected) memRows = [selected];
+      }
+    } else {
+      const conditions = [
+        "state = 'ACTIVE'",
+        "importance >= 6",
+        `label IN (${BRIEFING_LABELS.map(() => "?").join(",")})`
+      ];
+      const bindParams = [...BRIEFING_LABELS];
+      if (wsPath) {
+        conditions.push("(workspace_path = ? OR workspace_path IS NULL)");
+        bindParams.push(wsPath);
+      }
+      if (artifact2) {
+        conditions.push("(artifact = ? OR artifact IS NULL)");
+        bindParams.push(artifact2);
+      }
+      memRows = db2.prepare(
+        `SELECT memory_id, task_context, observation, label, importance, failure_signature
+         FROM memories
+         WHERE ${conditions.join(" AND ")}
+         ORDER BY importance DESC, last_accessed_at DESC
+         LIMIT 3`
+      ).all(...bindParams);
     }
-    if (artifact2) {
-      conditions.push("(artifact = ? OR artifact IS NULL)");
-      bindParams.push(artifact2);
-    }
-    const memRows = db2.prepare(
-      `SELECT memory_id, observation, label, importance
-       FROM memories
-       WHERE ${conditions.join(" AND ")}
-       ORDER BY importance DESC, last_accessed_at DESC
-       LIMIT 3`
-    ).all(...bindParams);
     for (const m of memRows) {
       items.push({
         kind: "memory",
-        text: `${m.label}(${m.importance}): ${m.observation.slice(0, 120)}`,
+        text: `Memory lead \u2014 verify: ${m.label}(${m.importance}): ${m.observation.slice(0, 120)}`,
         importance: m.importance
       });
     }
@@ -2519,7 +3198,7 @@ function sessionCapture(db2, params = {}) {
     };
   }
   const now = utcNow();
-  const refinementId = "ref_" + randomUUID7().replace(/-/g, "");
+  const refinementId = "ref_" + randomUUID8().replace(/-/g, "");
   const allCapturedFiles = [.../* @__PURE__ */ new Set([...files, ...dirtyFiles])];
   const capturedFiles = allCapturedFiles.slice(0, SESSION_CAPTURE_FILE_LIMIT);
   const capturedDirtyFiles = dirtyFiles.slice(0, SESSION_CAPTURE_FILE_LIMIT);
@@ -2819,9 +3498,9 @@ function digest(db2, params = {}) {
 // src/pi-hooks.ts
 import path from "node:path";
 import { spawnSync as spawnSync3 } from "node:child_process";
-import { createHash as createHash4, randomUUID as randomUUID8 } from "node:crypto";
+import { createHash as createHash4, randomUUID as randomUUID9 } from "node:crypto";
 import { realpathSync as realpathSync2 } from "node:fs";
-var _sessionStartupToken = randomUUID8().slice(0, 8);
+var _sessionStartupToken = randomUUID9().slice(0, 8);
 function addPathValue(paths, value) {
   if (typeof value === "string" && value.trim().length > 0) {
     paths.push(value.trim());
@@ -3090,6 +3769,23 @@ function sessionId(payload) {
     input.session_id,
     input.sessionId
   );
+}
+function promptQuery(payload) {
+  const input = objectOrEmpty2(payloadInput(payload));
+  const prompt = firstString2(
+    payload.prompt,
+    payload.user_prompt,
+    payload.userPrompt,
+    payload.text,
+    payload.message,
+    typeof payload.input === "string" ? payload.input : null,
+    input.prompt,
+    input.user_prompt,
+    input.userPrompt,
+    input.text,
+    input.message
+  );
+  return prompt ? prompt.slice(0, 4e3) : null;
 }
 function hookSessionCorrelation(payload) {
   const input = objectOrEmpty2(payloadInput(payload));
@@ -3765,8 +4461,10 @@ async function runNotifyDeliver(payload) {
     ));
     const result = notifyGet(database, {
       agent_id: agentId(payload),
+      session_id: hookSessionCorrelation(payload) ?? void 0,
       workspace: workspace(payload) ?? void 0,
       artifact: artifact(payload) ?? void 0,
+      query: promptQuery(payload) ?? void 0,
       format: "hook"
     });
     const additionalContext = [result.additionalContext, maintenanceContext].filter(Boolean).join("\n");

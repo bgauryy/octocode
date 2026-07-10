@@ -26,6 +26,7 @@ import {
 } from './db.js';
 import { canonicalizePath, fillScope, normalizeWorkspacePath } from './git.js';
 import { normalizeArtifact, parseJsonList, utcNow } from './helpers.js';
+import { getMemory } from './memory.js';
 import { getNotifications } from './notifications.js';
 
 const SESSION_CAPTURE_FILE_LIMIT = 20;
@@ -236,6 +237,37 @@ function openRefinementCount(
 // notifyGet making it invisible and hard to tune.
 const BRIEFING_LABELS = ['GOTCHA', 'BUG', 'DECISION', 'IMPROVEMENT', 'ARCHITECTURE', 'SECURITY'] as const;
 
+const INTERVENTION_STOP_WORDS = new Set([
+  'the', 'and', 'for', 'with', 'from', 'into', 'this', 'that', 'about',
+  'before', 'after', 'fix', 'update', 'change', 'make', 'during',
+]);
+
+function interventionTokens(text: string): Set<string> {
+  return new Set(
+    (text.toLowerCase().match(/[a-z0-9]{3,}/g) ?? [])
+      .filter(token => !INTERVENTION_STOP_WORDS.has(token)),
+  );
+}
+
+function isPromptGroundedMemory(
+  query: string,
+  memory: { task_context: string; observation: string; label: string; failure_signature?: string | null },
+): boolean {
+  const queryTokens = interventionTokens(query);
+  if (queryTokens.size < 2) return false;
+  const memoryTokens = interventionTokens([
+    memory.task_context,
+    memory.observation,
+    memory.label,
+    memory.failure_signature ?? '',
+  ].join(' '));
+  let overlap = 0;
+  for (const token of queryTokens) {
+    if (memoryTokens.has(token) && ++overlap >= 2) return true;
+  }
+  return false;
+}
+
 export function notifyGet(
   db: DatabaseSync,
   params: Record<string, unknown> = {},
@@ -243,6 +275,7 @@ export function notifyGet(
   const wsPath = (params.workspace as string | undefined) ?? null;
   const artifact = normalizeArtifact(params.artifact);
   const format  = (params.format as string | undefined) ?? 'json';
+  const interventionQuery = String(params.query ?? '').trim().slice(0, 4_000);
   const agentId = String(params.agent_id ?? params.agentId ?? 'agent');
   // MAINT-2: Use the cwd from params (workspace path) not process.cwd() which
   // would be the shell directory, potentially different from the actual workspace.
@@ -301,26 +334,55 @@ export function notifyGet(
     }
   } catch { /* skip this section on error */ }
 
-  // 1b. Top actionable memories for this workspace (EXPERIENCE/reflections excluded)
+  // 1b. Hook delivery is a selective intervention: one query-grounded memory
+  // lead or silence. Non-hook callers keep the general briefing view.
   try {
-    type MemRow = { memory_id: string; observation: string; label: string; importance: number };
-    const conditions: string[] = ["state = 'ACTIVE'", "importance >= 6",
-      `label IN (${BRIEFING_LABELS.map(() => '?').join(',')})`];
-    // BRIEFING_LABELS binds must be pushed before wsPath so they match the IN(?) order in WHERE
-    const bindParams: (string | number)[] = [...BRIEFING_LABELS];
-    if (wsPath) { conditions.push('(workspace_path = ? OR workspace_path IS NULL)'); bindParams.push(wsPath); }
-    if (artifact) { conditions.push('(artifact = ? OR artifact IS NULL)'); bindParams.push(artifact); }
-    const memRows = db.prepare(
-      `SELECT memory_id, observation, label, importance
-       FROM memories
-       WHERE ${conditions.join(' AND ')}
-       ORDER BY importance DESC, last_accessed_at DESC
-       LIMIT 3`
-    ).all(...bindParams) as unknown as MemRow[];
+    type BriefMemory = {
+      memory_id: string;
+      task_context: string;
+      observation: string;
+      label: string;
+      importance: number;
+      failure_signature?: string | null;
+    };
+    let memRows: BriefMemory[] = [];
+    if (format === 'hook') {
+      if (interventionQuery) {
+        const recall = getMemory(db, {
+          query: interventionQuery,
+          limit: 3,
+          minImportance: 6,
+          label: [...BRIEFING_LABELS],
+          workspacePath: wsPath,
+          artifact,
+          repo: (params.repo as string | null | undefined) ?? null,
+          ref: (params.ref as string | null | undefined) ?? null,
+          explain: true,
+          recordAccess: false,
+          cwd: notifyCwd,
+        });
+        const selected = recall.memories.find(memory => isPromptGroundedMemory(interventionQuery, memory));
+        if (selected) memRows = [selected];
+      }
+    } else {
+      const conditions: string[] = ["state = 'ACTIVE'", "importance >= 6",
+        `label IN (${BRIEFING_LABELS.map(() => '?').join(',')})`];
+      // BRIEFING_LABELS binds must be pushed before wsPath so they match the IN(?) order in WHERE
+      const bindParams: (string | number)[] = [...BRIEFING_LABELS];
+      if (wsPath) { conditions.push('(workspace_path = ? OR workspace_path IS NULL)'); bindParams.push(wsPath); }
+      if (artifact) { conditions.push('(artifact = ? OR artifact IS NULL)'); bindParams.push(artifact); }
+      memRows = db.prepare(
+        `SELECT memory_id, task_context, observation, label, importance, failure_signature
+         FROM memories
+         WHERE ${conditions.join(' AND ')}
+         ORDER BY importance DESC, last_accessed_at DESC
+         LIMIT 3`
+      ).all(...bindParams) as unknown as BriefMemory[];
+    }
     for (const m of memRows) {
       items.push({
         kind: 'memory',
-        text: `${m.label}(${m.importance}): ${m.observation.slice(0, 120)}`,
+        text: `Memory lead — verify: ${m.label}(${m.importance}): ${m.observation.slice(0, 120)}`,
         importance: m.importance,
       });
     }

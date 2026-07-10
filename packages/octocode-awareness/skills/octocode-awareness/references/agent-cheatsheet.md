@@ -1,20 +1,23 @@
 # Agent Cheat Sheet
 
-Use `<cli>` in this order: installed `node scripts/awareness.mjs`; monorepo
-`node packages/octocode-awareness/dist/bin/awareness.js`; package fallback
-`npx @octocodeai/octocode-awareness`. Export one `OCTOCODE_AGENT_ID`.
+Use `<cli>` in this order:
+1. `npx @octocodeai/octocode-awareness` (or global `octocode-awareness`)
+2. Local monorepo build: `node packages/octocode-awareness/dist/bin/awareness.js`
+3. Bundled skill fallback: `node scripts/awareness.mjs` only when the package CLI is unavailable
+
+Export one `OCTOCODE_AGENT_ID`. Install host hooks so structured edits declare presence.
 
 ## BEFORE / READ
 
 ```bash
-<cli> attend --workspace "$PWD" --query "<task>" --compact
+<cli> attend --workspace "$PWD" --query "<task>" --agent-id "$OCTOCODE_AGENT_ID" --compact
 ```
 
 Inspect Ready, Claimed, Verify, FilesUnderWork, and Inbox. State goal, acceptance,
-affected scope, and evidence; follow `next`. Use
-`<command> --help` only when flags are unknown, `schema json-schema <name>` only
-when constructing a machine payload, and `docs list` only when the reference owner
-is unknown.
+affected scope, and evidence; follow `next` (Verify → Ready → owned Claimed →
+FilesUnderWork → Inbox → evidence). Use `<command> --help` only when flags are
+unknown, `schema json-schema <name>` only when constructing a machine payload, and
+`docs list` only when the reference owner is unknown.
 
 ## DURING / DO — Shared Task
 
@@ -39,6 +42,7 @@ is unknown.
 
 Ordinary peers are allowed. Use `work show --file <path>` when overlap matters.
 Sensitive work adds `--exclusive`; exit `2` means wait/signal/switch, never bypass.
+`lock wait` ≠ peer gone — re-check presence before exclusive acquire.
 
 ## Token Discipline
 Use compact `attend` for the next action. `--compact` minifies all JSON but does not

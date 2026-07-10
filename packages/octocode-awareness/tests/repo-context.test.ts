@@ -306,6 +306,80 @@ describe('repo context query and projections', () => {
     }
   });
 
+  it('routes attend.next through owned Claimed, then FilesUnderWork, then Inbox', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'oc-attend-next-'));
+    try {
+      const db = freshDb();
+      const now = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
+      const future = new Date(Date.now() + 60_000).toISOString();
+      const file = join(dir, 'src', 'auth.ts');
+
+      db.prepare(`INSERT INTO plans
+        (plan_id, name, objective, lead_agent_id, status, workspace_path, doc_dir, created_at, updated_at)
+        VALUES ('plan_next', 'Next', 'Route mid-loop', 'owner', 'ACTIVE', ?, '.octocode/plan/next', ?, ?)`)
+        .run(dir, now, now);
+      db.prepare(`INSERT INTO tasks
+        (task_id, plan_id, title, reasoning, acceptance_criteria, status, priority, created_by, created_at, updated_at)
+        VALUES ('task_next', 'plan_next', 'Claimed work', 'reason', 'tests pass', 'IN_PROGRESS', 1, 'owner', ?, ?)`)
+        .run(now, now);
+      db.prepare(`INSERT INTO task_runs
+        (run_id, task_id, origin, agent_id, rationale, test_plan, status, workspace_path, created_at, updated_at)
+        VALUES ('run_next', 'task_next', 'TASK', 'owner', 'reason', 'tests pass', 'ACTIVE', ?, ?, ?)`)
+        .run(dir, now, now);
+
+      const claimed = attendAwareness(db, {
+        agentId: 'owner',
+        workspacePath: dir,
+        query: 'claimed mid-loop',
+        compact: true,
+      });
+      expect(claimed.next).toContain('Continue claimed task task_next');
+      expect(claimed.next).toContain('run_next');
+
+      const peer = attendAwareness(db, {
+        agentId: 'peer',
+        workspacePath: dir,
+        query: 'peer sees claimed',
+        compact: true,
+      });
+      expect(peer.next).not.toContain('Continue claimed task');
+
+      db.prepare(`INSERT INTO run_files
+        (run_id, file_path, source, started_at, heartbeat_at, expires_at)
+        VALUES ('run_next', ?, 'EXPLICIT', ?, ?, ?)`)
+        .run(file, now, now, future);
+      const files = attendAwareness(db, {
+        agentId: 'peer',
+        workspacePath: dir,
+        query: 'files under work',
+        compact: true,
+      });
+      expect(files.next).toContain('work show');
+      expect(files.next).toContain('src/auth.ts');
+
+      db.prepare(`UPDATE run_files SET ended_at = ?, expires_at = ?`).run(now, now);
+      agentSignal(db, {
+        action: 'publish',
+        agentId: 'owner',
+        toAgents: ['peer'],
+        workspacePath: dir,
+        kind: 'request',
+        subject: 'inbox next',
+        body: 'please ack',
+        importance: 6,
+      });
+      const inbox = attendAwareness(db, {
+        agentId: 'peer',
+        workspacePath: dir,
+        query: 'inbox mid-loop',
+        compact: true,
+      });
+      expect(inbox.next).toContain('signal list');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it('groups active file work by relative path, caps peers, and shows exclusive lock state', () => {
     const dir = mkdtempSync(join(tmpdir(), 'oc-file-work-'));
     try {
@@ -355,8 +429,11 @@ describe('repo context query and projections', () => {
       writeFileSync(join(dir, '.octocode', 'MEMORY.md'), `${'x\n'.repeat(250)}`, 'utf8');
       writeFileSync(join(dir, '.octocode', 'GOTCHAS.md'), `${'y\n'.repeat(250)}`, 'utf8');
       writeFileSync(join(dir, '.octocode', 'LEARN.md'), `${'z\n'.repeat(250)}`, 'utf8');
-      // Mark pending tasks verified so bloat drives next.
-      db.prepare(`UPDATE task_runs SET status = 'SUCCESS' WHERE status = 'PENDING'`).run();
+      // Clear mid-loop lanes so projection bloat drives next.
+      db.prepare(`UPDATE task_runs SET status = 'SUCCESS'`).run();
+      db.prepare(`UPDATE run_files SET ended_at = '2000-01-01T00:00:00Z', expires_at = '2000-01-01T00:00:00Z'`).run();
+      db.prepare(`UPDATE signals SET status = 'resolved', resolved_at = '2000-01-01T00:00:00Z' WHERE status != 'resolved'`).run();
+      db.prepare(`UPDATE refinements SET state = 'done' WHERE state != 'done'`).run();
       const result = attendAwareness(db, {
         workspacePath: dir,
         limit: 10,

@@ -7,16 +7,19 @@ exclusive sensitive locks, verification, memory, hooks, and generated repo conte
 
 ```bash
 export OCTOCODE_AGENT_ID="${OCTOCODE_AGENT_ID:-codex-awareness}"
+# Prefer published CLI; in this monorepo after build use the local binary:
 AWARENESS="node packages/octocode-awareness/dist/bin/awareness.js"
-$AWARENESS attend --workspace "$PWD" --query "<current task>" --compact
+# Elsewhere: AWARENESS="npx @octocodeai/octocode-awareness"
+$AWARENESS attend --workspace "$PWD" --query "<current task>" --agent-id "$OCTOCODE_AGENT_ID" --compact
 ```
 
 Follow `attend.next`. Use focused `<command> --help`, `schema json-schema <name>`,
 or `docs list` only when the next action needs that contract or reference owner.
 
-CLI order: installed skill `node scripts/awareness.mjs`; monorepo
-`node packages/octocode-awareness/dist/bin/awareness.js`; package fallback
-`npx @octocodeai/octocode-awareness`.
+CLI order: `npx @octocodeai/octocode-awareness` (or global `octocode-awareness`);
+monorepo local build `node packages/octocode-awareness/dist/bin/awareness.js`;
+bundled skill fallback `node scripts/awareness.mjs` only when the package CLI is
+unavailable. Install host hooks so structured edits declare presence.
 
 ## Dogfooding Contract
 

@@ -13,17 +13,17 @@ Load when splitting a goal into worker-sized units. Why: bad cuts create thrash;
 ## Independence test
 A subtask may run in parallel only if all hold:
 - Inputs are already known (or cheap to duplicate).
-- No write overlap, or exclusive Awareness locks assigned.
+- No write overlap, or exclusive locks assigned.
 - Failure of one does not invalidate another's method mid-flight.
 - Return shape is mergeable without another research campaign (`synthesize.md`).
 
 ## Cut styles
 | Style | Use |
 |---|---|
-| By surface | local vs GitHub vs npm vs web |
+| By surface | local vs remote vs package vs web |
 | By hypothesis | two competing explanations |
 | By layer | data → logic → API (serial if dependent) |
-| By role | researcher / planner / architect / browser |
+| By role | research / plan / implement / review |
 | Map-reduce | many similar probes → parent merge |
 
 Prefer the smallest plan that can satisfy acceptance.

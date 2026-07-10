@@ -55,6 +55,14 @@ node scripts/awareness.mjs schema commands --compact
 node scripts/awareness.mjs docs list --compact
 ```
 
+Prefer the published CLI when available:
+
+```bash
+npx @octocodeai/octocode-awareness schema commands --compact
+# monorepo local build:
+node packages/octocode-awareness/dist/bin/awareness.js schema commands --compact
+```
+
 ## Scripts
 
 | Script | Purpose |

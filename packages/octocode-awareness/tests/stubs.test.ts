@@ -91,7 +91,7 @@ describe('notifyGet', () => {
     expect(result.notifications).toHaveLength(0);
   });
 
-  it('returns a smart memory briefing without db envelope noise', () => {
+  it('returns a query-grounded memory briefing without db envelope noise', () => {
     const db = freshDb();
     insertMemory(db, {
       taskContext: 'notify briefing',
@@ -99,7 +99,7 @@ describe('notifyGet', () => {
       importance: 8,
       label: 'GOTCHA',
     });
-    const result = notifyGet(db, { format: 'hook' });
+    const result = notifyGet(db, { format: 'hook', query: 'notify briefing' });
     expect(result.ok).toBe(true);
     expect(result.count).toBe(1);
     expect(result.notifications[0]?.kind).toBe('memory');

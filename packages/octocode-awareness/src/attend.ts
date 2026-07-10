@@ -489,15 +489,37 @@ export function attendAwareness(db: DatabaseSync, params: AttendParams = {}): At
     .flatMap(row => Array.isArray(row['raw_ids']) ? row['raw_ids'] as unknown[] : [])
     .map(String)
     .find(id => id.startsWith('run_'));
+  const ownedClaimed = agentId
+    ? claimedTasks.filter(row => String(row['agent_id'] ?? '') === agentId)
+    : [];
+  const ownedClaimedTask = ownedClaimed[0];
+  const ownedClaimedRunId = ownedClaimed
+    .flatMap(row => Array.isArray(row['raw_ids']) ? row['raw_ids'] as unknown[] : [])
+    .map(String)
+    .find(id => id.startsWith('run_'));
+  const filesUnderWork = rawWorkboard['FilesUnderWork'] ?? [];
+  const filesUnderWorkPath = filesUnderWork
+    .map(row => String(row['path'] ?? row['file_path'] ?? ''))
+    .find(path => path.length > 0);
+  const inboxCount = (rawWorkboard['Inbox'] ?? []).length > 0
+    ? Number((rawWorkboard['Inbox'] ?? [])[0]?.['column_total'] ?? (rawWorkboard['Inbox'] ?? []).length)
+    : 0;
+
   const next = verificationTargets.length > 0
     ? `octocode-awareness verify audit --agent-id "$OCTOCODE_AGENT_ID" --workspace "$PWD" --compact; then verify mark ${verificationRunId ? `--run-id ${verificationRunId}` : '--run-id <exact-run-id>'} --message "<check + result>" after its declared test plan`
     : readyTasks.length > 0
       ? `octocode-awareness task claim --task-id ${String(readyTasks[0]?.['id'])} --agent-id "$OCTOCODE_AGENT_ID" --compact`
-      : !query && bloatWarnings.length > 0
-        ? 'octocode-awareness query workboard --workspace "$PWD" --format json --limit 5 --compact'
-        : evidence.length > 0
-          ? 'Treat evidence as leads; re-check cited files, then work start before edits'
-          : 'octocode-awareness attend --workspace "$PWD" --query "<narrower task>" --compact; or query workboard / workspace status';
+      : ownedClaimedTask
+        ? `Continue claimed task ${String(ownedClaimedTask['id'])}: work start --run-id ${ownedClaimedRunId ?? '<run>'} --file <path> or task heartbeat; then task submit + verify mark`
+        : filesUnderWorkPath
+          ? `octocode-awareness work show --workspace "$PWD" --file ${filesUnderWorkPath} --compact; read peer reason before overlapping edits`
+        : inboxCount > 0
+          ? `octocode-awareness signal list --agent-id "$OCTOCODE_AGENT_ID" --workspace "$PWD" --compact`
+          : !query && bloatWarnings.length > 0
+            ? 'octocode-awareness query workboard --workspace "$PWD" --format json --limit 5 --compact'
+            : evidence.length > 0
+              ? 'Treat evidence as leads; re-check cited files, then work start before edits'
+              : 'octocode-awareness attend --workspace "$PWD" --query "<narrower task>" --compact; or query workboard / workspace status';
 
   if (compact) {
     const columnCount = (column: string): number => {

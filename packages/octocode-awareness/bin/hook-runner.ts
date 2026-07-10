@@ -200,6 +200,24 @@ function sessionId(payload: Record<string, unknown>): string | null {
   );
 }
 
+function promptQuery(payload: Record<string, unknown>): string | null {
+  const input = objectOrEmpty(payloadInput(payload));
+  const prompt = firstString(
+    payload.prompt,
+    payload.user_prompt,
+    payload.userPrompt,
+    payload.text,
+    payload.message,
+    typeof payload.input === 'string' ? payload.input : null,
+    input.prompt,
+    input.user_prompt,
+    input.userPrompt,
+    input.text,
+    input.message,
+  );
+  return prompt ? prompt.slice(0, 4_000) : null;
+}
+
 function hookSessionCorrelation(payload: Record<string, unknown>): string | null {
   const input = objectOrEmpty(payloadInput(payload));
   return firstString(
@@ -1018,8 +1036,10 @@ async function runNotifyDeliver(payload: Record<string, unknown>): Promise<numbe
     ));
     const result = notifyGet(database, {
       agent_id: agentId(payload),
+      session_id: hookSessionCorrelation(payload) ?? undefined,
       workspace: workspace(payload) ?? undefined,
       artifact: artifact(payload) ?? undefined,
+      query: promptQuery(payload) ?? undefined,
       format: 'hook',
     }) as { additionalContext?: string };
     const additionalContext = [result.additionalContext, maintenanceContext].filter(Boolean).join('\n');
