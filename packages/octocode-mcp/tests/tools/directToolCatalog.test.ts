@@ -164,20 +164,17 @@ describe('directToolCatalog', () => {
     expect(
       buildDirectToolExampleQuery(STATIC_TOOL_NAMES.LOCAL_RIPGREP)
     ).toEqual({
-      path: '.',
-      keywords: 'runCLI',
+      path: 'packages/octocode-tools-core/src',
+      keywords: 'buildDirectToolCommandPatterns',
+      maxFiles: 20,
     });
     expect(
       buildDirectToolExampleQuery(STATIC_TOOL_NAMES.GITHUB_CLONE_REPO)
     ).toEqual({ owner: 'bgauryy', repo: 'octocode' });
-    expect(buildDirectToolExampleQuery(LSP_GET_SEMANTICS_TOOL_NAME)).toEqual(
-      expect.objectContaining({
-        uri: '/path/to/file.ts',
-        type: 'definition',
-        symbolName: 'myFunction',
-        lineHint: 42,
-      })
-    );
+    expect(buildDirectToolExampleQuery(LSP_GET_SEMANTICS_TOOL_NAME)).toEqual({
+      uri: '/ABS/packages/octocode-tools-core/src/scheme/pagination.ts',
+      type: 'documentSymbols',
+    });
     expect(buildDirectToolExampleQuery('missingTool')).toEqual({});
   });
 

@@ -687,9 +687,7 @@ describe('GitHub API Utils', () => {
           archived: false,
           'include-forks': 'false' as const,
           match: ['name', 'description'] as (
-            | 'name'
-            | 'description'
-            | 'readme'
+            'name' | 'description' | 'readme'
           )[],
           sort: 'stars' as const,
         };

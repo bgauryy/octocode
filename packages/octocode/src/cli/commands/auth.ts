@@ -29,12 +29,7 @@ import {
 } from '../../utils/token-storage.js';
 
 type AuthMenuAction =
-  | 'login'
-  | 'logout'
-  | 'switch'
-  | 'gh-login'
-  | 'gh-logout'
-  | 'back';
+  'login' | 'logout' | 'switch' | 'gh-login' | 'gh-logout' | 'back';
 
 function isOctocodeAuthStatus(
   status: Awaited<ReturnType<typeof getAuthStatusAsync>>

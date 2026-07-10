@@ -1,0 +1,45 @@
+{
+  "note": "JUDGE-ONLY. Solver agents must never read this file. Verified 2026-07-10 via gh api (outside octocode arm).",
+  "questions": {
+    "q1": {
+      "answer": "packages/next/src/shared/lib/router/utils/sorted-routes.ts",
+      "scoring": "1.0 = exact path; 0.5 = utils/index.ts re-export or right dir wrong file; 0 = caller files."
+    },
+    "q2": {
+      "answer": "index.js implements the limiter; it imports Queue from 'yocto-queue'.",
+      "scoring": "1.0 = index.js + yocto-queue; 0.5 = one of the two; 0 = other."
+    },
+    "q3": {
+      "answer": "pmndrs/zustand, ~58,546 stars (2026-07-10). Runner-up statelyai/xstate ~29.8k.",
+      "scoring": "1.0 = pmndrs/zustand with plausible star count (±10%); 0.5 = zustand w/o count or xstate with justification (e.g. different topic filter shown); 0 = other."
+    },
+    "q4": {
+      "answer": "5 crates: tokio, tokio-macros, tokio-stream, tokio-test, tokio-util.",
+      "scoring": "1.0 = all 5 named (count 5); 0.5 = 3-4 named; 0 = <=2."
+    },
+    "q5": {
+      "answer": "PR #22662 by acdlite ('Upgrade useSyncExternalStore to alpha channel'), containing commit 6bce0355c3.",
+      "scoring": "1.0 = #22662 + acdlite; 0.5 = one of the two; 0 = other."
+    },
+    "q6": {
+      "answer": "432d1b50e0 by cjihrig (Colin Ihrig), 2022-02-09.",
+      "scoring": "1.0 = sha prefix OR author + Feb 2022; 0.5 = author or year only; 0 = other."
+    },
+    "q7": {
+      "answer": "zustand: src/react.ts (useStore, overloads at :17-26). jotai: src/react/useAtom.ts.",
+      "scoring": "1.0 = both paths; 0.5 = one path; 0 = neither."
+    },
+    "q8": {
+      "answer": "teardownTimeout default is 10000 (ms), defined in packages/vitest/src/defaults.ts:120 (type at :80).",
+      "scoring": "1.0 = 10000 + defaults.ts; 0.5 = value or file only; 0 = other."
+    },
+    "q9": {
+      "answer": "v6.0.3, published 2026-04-16. Accept a newer tag if one was published after 2026-07-10 (judge re-checks at scoring time).",
+      "scoring": "1.0 = correct current tag + date; 0.5 = tag only; 0 = other."
+    },
+    "q10": {
+      "answer": "lib/defaults/index.js — transformRequest array at :43, function transformRequest at :44.",
+      "scoring": "1.0 = file + line ~40-50; 0.5 = file only; 0 = other."
+    }
+  }
+}

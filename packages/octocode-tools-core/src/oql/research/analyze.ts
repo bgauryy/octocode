@@ -40,10 +40,7 @@ const NODE_BUILTINS = new Set(
 );
 
 export type ResearchIntent =
-  | 'general'
-  | 'reachability'
-  | 'dependencies'
-  | 'symbols';
+  'general' | 'reachability' | 'dependencies' | 'symbols';
 
 export type ResearchMode = 'plan' | 'analyze' | 'prove';
 
@@ -128,9 +125,7 @@ export type ResearchFileIssue = {
 
 export type ResearchDependencyIssue = {
   readonly kind:
-    | 'unlistedDependency'
-    | 'unusedDependency'
-    | 'duplicateDependency';
+    'unlistedDependency' | 'unusedDependency' | 'duplicateDependency';
   readonly packageName: string;
   readonly manifest: string;
   readonly usedBy: readonly string[];
@@ -1158,8 +1153,7 @@ function findAstRetainingFiles(
           ? imp.importedName
           : undefined;
       const local = imp.localName;
-      const namesSymbol =
-        imported === symbol.symbol || local === symbol.symbol;
+      const namesSymbol = imported === symbol.symbol || local === symbol.symbol;
       if (!namesSymbol) continue;
       if (!isRelativeSpecifier(imp.specifier)) continue;
       const resolved = resolveImport(

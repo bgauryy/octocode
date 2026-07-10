@@ -818,10 +818,8 @@ fn collect_array_pattern_calls(
     li: &LineIndex,
     calls: &mut Vec<GraphCall>,
 ) {
-    for element in &array.elements {
-        if let Some(pattern) = element {
-            collect_binding_pattern_calls(owner, pattern, li, calls);
-        }
+    for pattern in array.elements.iter().flatten() {
+        collect_binding_pattern_calls(owner, pattern, li, calls);
     }
 }
 
@@ -1863,7 +1861,7 @@ function other(n: number) { return n; }
             .collect::<Vec<_>>();
         for expected in ["helper", "other"] {
             assert!(
-                callees.iter().any(|c| *c == expected),
+                callees.contains(&expected),
                 "expected {expected} in {callees:?}"
             );
         }
@@ -1892,7 +1890,7 @@ function other(n: number) { return n; }
             .collect::<Vec<_>>();
         for expected in ["helper", "other"] {
             assert!(
-                callees.iter().any(|c| *c == expected),
+                callees.contains(&expected),
                 "expected {expected} in {callees:?}"
             );
         }

@@ -253,7 +253,7 @@ describe('toolCommand', () => {
       .map((call: unknown[]) => call.map(String).join(' '))
       .join('\n');
     expect(output).toContain('Command Patterns');
-    expect(output).toContain('"keywords":"runCLI"');
+    expect(output).toContain('"keywords":"buildDirectToolCommandPatterns"');
     expect(output).toContain('"pattern":"eval($X)"');
     expect(output).toContain('absolute path');
   });
@@ -266,7 +266,7 @@ describe('toolCommand', () => {
       args: ['localSearchCode'],
       options: {
         input:
-          '{"path":".","keywords":"runCLI","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
+          '{"path":".","keywords":"buildDirectToolCommandPatterns","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
       },
     });
 

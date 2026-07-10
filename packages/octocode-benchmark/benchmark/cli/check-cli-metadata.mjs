@@ -97,7 +97,7 @@ function validateCanonicalToolMetadata() {
   );
   for (const phrase of [
     'Start broad, go specific',
-    'read the schema',
+    "Each tool's schema",
     'Failures are signals',
   ]) {
     assert(
