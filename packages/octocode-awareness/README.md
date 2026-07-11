@@ -64,8 +64,8 @@ packaged `dist/skills/octocode-awareness` path; do not use a skill installer’s
 registry/name lookup.
 
 For one-off CLI use, prefer `npx @octocodeai/octocode-awareness`. In this monorepo
-after build, use the local binary
-`node packages/octocode-awareness/dist/bin/awareness.js`.
+after build, use the local package entry
+`node packages/octocode-awareness/dist/index.js`.
 
 ## Start and work
 

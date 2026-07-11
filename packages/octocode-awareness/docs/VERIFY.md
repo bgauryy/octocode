@@ -39,7 +39,7 @@ export OCTOCODE_AGENT_ID="${OCTOCODE_AGENT_ID:-awareness-check}"
 # Installed package:
 AWARENESS="octocode-awareness"
 # Monorepo after build:
-AWARENESS="node packages/octocode-awareness/dist/bin/awareness.js"
+AWARENESS="node packages/octocode-awareness/dist/index.js"
 ```
 
 ## Quick Check
@@ -125,7 +125,7 @@ yarn workspace @octocodeai/octocode-awareness test
 yarn workspace @octocodeai/octocode-awareness test:smoke
 node skills/octocode-skills/scripts/skill-review.mjs \
   skills/octocode-awareness
-node packages/octocode-awareness/dist/bin/awareness.js \
+node packages/octocode-awareness/dist/index.js \
   maintenance self-test --compact
 ```
 

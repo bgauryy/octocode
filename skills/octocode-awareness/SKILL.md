@@ -11,9 +11,9 @@ hooks:
 ---
 # Octocode Awareness
 Coordinate repository work through canonical SQLite state; treat memory and `.octocode/` wiki output as bounded leads, never authority.
-The Octocode Awareness Agent Skill ships with the `@octocodeai/octocode-awareness` CLI package: use `npx @octocodeai/octocode-awareness` when installed, or the local package build in this monorepo.
+The `@octocodeai/octocode-awareness` package includes this skill and the CLI; this skill supplies operating policy; run every live-state action through the CLI.
 ## Loop
-Choose `<cli>`: `npx @octocodeai/octocode-awareness` (or global `octocode-awareness`); local monorepo build `node packages/octocode-awareness/dist/bin/awareness.js`; bundled `node scripts/awareness.mjs` only as fallback. Export one `OCTOCODE_AGENT_ID`; use First activation below for setup and host wiring.
+Choose `<cli>`: local monorepo `node packages/octocode-awareness/dist/index.js`; installed package `npx @octocodeai/octocode-awareness` (or global `octocode-awareness`); bundled `node scripts/awareness.mjs` only as fallback. Export one `OCTOCODE_AGENT_ID`; use First activation below for setup and host wiring.
 ```text
 BEFORE/READ+REASON -> DURING/DO -> AFTER/VERIFY -> LEARN? -> CLEAN? -> PROJECT?
 ```

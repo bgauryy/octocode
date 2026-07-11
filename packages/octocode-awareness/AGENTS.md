@@ -12,7 +12,7 @@ the next action:
 
 ```bash
 export OCTOCODE_AGENT_ID="${OCTOCODE_AGENT_ID:-codex-awareness}"
-AWARENESS="node packages/octocode-awareness/dist/bin/awareness.js"
+AWARENESS="node packages/octocode-awareness/dist/index.js"
 $AWARENESS attend --workspace "$PWD" --query "<current task>" \
   --agent-id "$OCTOCODE_AGENT_ID" --compact
 ```

@@ -46,6 +46,9 @@ describe('skill routing boundaries', () => {
     expect(desc.length).toBeLessThanOrEqual(1024);
     expect(desc).not.toContain('dogfood');
     expect(desc).not.toContain('packages/octocode-awareness');
+    expect(text).toContain('this skill supplies operating policy; run every live-state action through the CLI');
+    expect(text).toContain('npx @octocodeai/octocode-awareness');
+    expect(text).toContain('node packages/octocode-awareness/dist/index.js');
     expect(text).toContain('## Loop');
     expect(text).toContain('BEFORE/READ+REASON');
     expect(text).toContain('DURING/DO');

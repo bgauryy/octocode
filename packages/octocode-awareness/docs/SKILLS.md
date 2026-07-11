@@ -37,7 +37,7 @@ npx octocode skill --add \
 
 The examples below use the globally installed binary. For a one-off command, use
 `npx @octocodeai/octocode-awareness`. In octocode monorepo after build, use
-`node packages/octocode-awareness/dist/bin/awareness.js`. Bundled skill
+`node packages/octocode-awareness/dist/index.js`. Bundled skill
 `scripts/awareness.mjs` is a fallback when the package CLI is unavailable.
 
 ```bash
