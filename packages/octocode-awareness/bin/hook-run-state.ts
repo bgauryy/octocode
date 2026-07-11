@@ -72,7 +72,11 @@ export function removeStaleHookRunStateLock(lockFile: string): boolean {
   try {
     const owner = Number.parseInt(readFileSync(lockFile, 'utf8'), 10);
     const staleByAge = Date.now() - statSync(lockFile).mtimeMs > HOOK_RUN_STATE_LOCK_STALE_MS;
-    if (processIsAlive(owner) && !staleByAge) return false;
+    const validOwner = Number.isSafeInteger(owner) && owner > 0;
+    // open('wx') creates the lock before its owner PID can be written. Another
+    // process may observe that brief empty-file window; a fresh invalid owner
+    // is therefore busy, not stale. Only age may reclaim malformed locks.
+    if (!staleByAge && (!validOwner || processIsAlive(owner))) return false;
     unlinkSync(lockFile);
     return true;
   } catch (error) {

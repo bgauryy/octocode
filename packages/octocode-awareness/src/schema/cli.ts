@@ -1,3 +1,4 @@
+/* v8 ignore file -- exercised through built CLI and isolated-package subprocess tests */
 import { readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';

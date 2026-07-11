@@ -1,10 +1,7 @@
 import { readFileSync } from 'node:fs';
 import type { ParsedArgs } from '../../types.js';
 import { getString, getBool } from '../../options.js';
-import {
-  parseOqlQueryJson,
-  looksLikeJsonText,
-} from './inputParsing.js';
+import { parseOqlQueryJson, looksLikeJsonText } from './inputParsing.js';
 import {
   isPullRequestTextQuery,
   isPullRequestPatchPath,

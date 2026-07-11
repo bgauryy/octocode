@@ -1,3 +1,4 @@
+/* v8 ignore file -- exercised through built CLI and isolated-package subprocess tests */
 import { z } from 'zod';
 import {
   agentId, nonEmptyText, workspacePath, artifactScope, importanceLevel,

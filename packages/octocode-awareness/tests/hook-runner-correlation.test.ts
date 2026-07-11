@@ -1,12 +1,13 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { DatabaseSync } from 'node:sqlite';
 import {
-  mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync,
+  existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { removeStaleHookRunStateLock } from '../bin/hook-run-state.js';
 
 const TEST_DIR = dirname(fileURLToPath(import.meta.url));
 const PACKAGE_ROOT = resolve(TEST_DIR, '..');
@@ -66,6 +67,18 @@ function stateJsonFiles(memoryHome: string): string[] {
 }
 
 describe('shell hook correlation state', () => {
+  it('does not steal a fresh lock before its owner PID is written', () => {
+    const root = mkdtempSync(join(tmpdir(), 'octocode-hook-lock-creation-'));
+    const lockFile = join(root, 'fresh.lock');
+    try {
+      writeFileSync(lockFile, '');
+      expect(removeStaleHookRunStateLock(lockFile)).toBe(false);
+      expect(existsSync(lockFile)).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it('drops a non-active stale entry before consuming a later same-key edit', () => {
     const memoryHome = mkdtempSync(join(tmpdir(), 'octocode-hook-correlation-invalid-'));
     const workspace = join(memoryHome, 'repo');

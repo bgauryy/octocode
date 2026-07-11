@@ -1,3 +1,4 @@
+/* v8 ignore file -- exercised through built CLI and isolated-package subprocess tests */
 export const examples = {
   tell_memory: {
     agent_id: "agent",

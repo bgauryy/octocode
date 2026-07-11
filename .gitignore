@@ -28,10 +28,7 @@ coverage
 # Canonical Agent Skills live here; generated scripts have targeted ignores above.
 /skills/octocode-agent-communication/
 /skills/octocode-reflection/
-# Legacy package-local skill staging; the Awareness package now bundles repo-root
-# skills/octocode-awareness and skills/octocode-skills directly into dist/skills/.
-/packages/octocode-awareness/skills/
-# Build artifact regenerated from root skills/ + packages/octocode-awareness/skills/.
+# Build artifact regenerated from canonical repo-root skills/.
 /packages/octocode-pi-extension/skills/
 # Bundled skills copied into the octocode CLI package during build/prepack.
 /packages/octocode/skills/

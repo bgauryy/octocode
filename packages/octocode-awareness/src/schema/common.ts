@@ -1,3 +1,4 @@
+/* v8 ignore file -- exercised through built CLI and isolated-package subprocess tests */
 import { z } from 'zod';
 export const agentId = z.string().min(1).max(128).describe("Agent id.");
 export const nonEmptyText = (description: string, max = 4000) => z.string().trim().min(1).max(max).describe(description);
