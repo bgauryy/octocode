@@ -148,7 +148,7 @@ yarn workspace @octocodeai/octocode-awareness pack:check
 ```
 
 The build bundles Zod into the standalone schema script, refreshes
-`dist/skills/`, and keeps npm runtime dependencies at zero. `pack:check` validates
+`out/skills/`, and keeps npm runtime dependencies at zero. `pack:check` validates
 one skill tree, no source maps, package entrypoints, maintenance self-test, and all
 schema examples from an isolated copy with no ancestor `node_modules`.
 
@@ -163,9 +163,9 @@ yarn workspace @octocodeai/pi-extension build      # runs scripts/build.mjs
 | Output | From | Notes |
 |--------|------|-------|
 | `dist/system/APPEND_SYSTEM.md` | `docs/PI/APPEND_SYSTEM.md` | the harness system prompt |
-| `dist/skills/` | root `skills/` | minus `octocode`, `octocode-awareness`, `octocode-stats` (SKIPPED_SKILLS) |
+| `out/skills/` | root `skills/` | minus `octocode`, `octocode-awareness`, `octocode-stats` (SKIPPED_SKILLS) |
 | `dist/env.js` | `@octocodeai/config` source | **inlined** — the loader itself, not a re-export |
-| `dist/skills/<skill>/scripts/octocode-config.mjs` | `@octocodeai/config` source | **copied into every skill with a `scripts/` dir** (`injectConfigIntoSkills`) so skills load env standalone |
+| `out/skills/<skill>/scripts/octocode-config.mjs` | `@octocodeai/config` source | **copied into every skill with a `scripts/` dir** (`injectConfigIntoSkills`) so skills load env standalone |
 | `dist/web.js` | `src/web.js` | the `web` search/fetch tool |
 | `dist/bin/` | `octocode`'s `out/` | bundled CLI |
 | `dist/awareness/scripts/` + `schema.json` | root awareness scripts | memory tools + file-lock hooks |

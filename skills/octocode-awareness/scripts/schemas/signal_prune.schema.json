@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "agent_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "description": "Agent id."
+    },
+    "workspace_path": {
+      "description": "Workspace channel.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024
+    },
+    "artifact": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "description": "Artifact/package scope."
+    },
+    "signal_id": {
+      "default": [],
+      "description": "Signal ids.",
+      "maxItems": 200,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 128
+      }
+    },
+    "resolved": {
+      "type": "boolean",
+      "const": true,
+      "description": "Only resolved messages may be pruned."
+    },
+    "older_than_days": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 3650,
+      "description": "Required age cutoff."
+    },
+    "dry_run": {
+      "default": false,
+      "description": "Preview only.",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "agent_id",
+    "signal_id",
+    "resolved",
+    "older_than_days",
+    "dry_run"
+  ],
+  "additionalProperties": false,
+  "description": "Preview or prune old resolved signals owned by a thread participant.",
+  "$id": "urn:octocode-awareness:schema:signal_prune",
+  "examples": [
+    {
+      "agent_id": "agent-a",
+      "resolved": true,
+      "older_than_days": 7,
+      "dry_run": true
+    }
+  ]
+}

@@ -31,11 +31,11 @@ Requires Node 22.13.0 or newer. This is the first Node 22 release where
 npm install --global @octocodeai/octocode-awareness
 octocode-awareness maintenance init --compact
 npx octocode skill --add \
-  --path "$(npm root --global)/@octocodeai/octocode-awareness/dist/skills/octocode-awareness" \
+  --path "$(npm root --global)/@octocodeai/octocode-awareness/out/skills/octocode-awareness" \
   --platform common --dry-run
 # after reviewing destinations and approving the write:
 npx octocode skill --add \
-  --path "$(npm root --global)/@octocodeai/octocode-awareness/dist/skills/octocode-awareness" \
+  --path "$(npm root --global)/@octocodeai/octocode-awareness/out/skills/octocode-awareness" \
   --platform common --force
 ```
 
@@ -44,7 +44,7 @@ when that host does not scan the shared directory. Verify the bundled runtime an
 get cwd-independent next commands:
 
 ```bash
-node "$(npm root --global)/@octocodeai/octocode-awareness/dist/skills/octocode-awareness/scripts/install.mjs"
+node "$(npm root --global)/@octocodeai/octocode-awareness/out/skills/octocode-awareness/scripts/install.mjs"
 ```
 
 The Awareness skill is required because it teaches agents when to use the CLI.
@@ -53,23 +53,23 @@ reviewing, or improving skills:
 
 ```bash
 npx octocode skill --add \
-  --path "$(npm root --global)/@octocodeai/octocode-awareness/dist/skills/octocode-skills" \
+  --path "$(npm root --global)/@octocodeai/octocode-awareness/out/skills/octocode-skills" \
   --platform common --dry-run
 # after approval, rerun with --force
 ```
 
-The package bundles every other repo skill under `dist/skills/` too, all optional and
+The package bundles every other repo skill under `out/skills/` too, all optional and
 installed the same way; run `octocode-awareness --help` or
 `scripts/install.mjs` (see its `bundled_skills` field) for the current, resolved list.
 
 The npm package is one product with two surfaces: the
 `npx @octocodeai/octocode-awareness` CLI and the bundled Agent Skill. For the skill, use the
-packaged `dist/skills/octocode-awareness` path; do not use a skill installer’s
+packaged `out/skills/octocode-awareness` path; do not use a skill installer’s
 registry/name lookup.
 
 For one-off CLI use, prefer `npx @octocodeai/octocode-awareness`. In this monorepo
 after build, use the local package entry
-`node packages/octocode-awareness/dist/index.js`.
+`node packages/octocode-awareness/out/octocode-awareness.js`.
 
 ## Start and work
 

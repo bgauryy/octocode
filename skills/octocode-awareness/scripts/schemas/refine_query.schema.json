@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "workspace_path": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024
+    },
+    "refinement_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "artifact": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "description": "Artifact/package scope."
+    },
+    "repo": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "ref": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "quality": {
+      "type": "string",
+      "enum": [
+        "good",
+        "bad",
+        "handoff",
+        "instructions"
+      ]
+    },
+    "include_handoffs": {
+      "default": false,
+      "description": "Include session handoff refinements.",
+      "type": "boolean"
+    },
+    "states": {
+      "default": [
+        "open",
+        "ongoing"
+      ],
+      "description": "States.",
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "open",
+          "ongoing",
+          "done"
+        ]
+      }
+    },
+    "limit": {
+      "default": 20,
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 200
+    },
+    "include_env": {
+      "default": false,
+      "description": "Include env.",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "include_handoffs",
+    "states",
+    "limit",
+    "include_env"
+  ],
+  "additionalProperties": false,
+  "description": "Read refinements.",
+  "$id": "urn:octocode-awareness:schema:refine_query",
+  "examples": [
+    {
+      "repo": "repo",
+      "ref": "main",
+      "quality": "handoff",
+      "states": [
+        "open",
+        "ongoing"
+      ],
+      "include_handoffs": true,
+      "include_env": false
+    }
+  ]
+}

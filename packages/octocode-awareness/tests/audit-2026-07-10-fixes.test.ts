@@ -24,7 +24,7 @@ import { preFlightIntent } from '../src/intents.js';
 import { getWorkspaceStatus } from '../src/maintenance.js';
 import { queryAwareness } from '../src/repo-context.js';
 
-const SCRIPT = resolve(dirname(fileURLToPath(import.meta.url)), '../dist/bin/awareness.js');
+const SCRIPT = resolve(dirname(fileURLToPath(import.meta.url)), '../out/octocode-awareness.js');
 const NODE = process.execPath;
 
 function freshDb(): DatabaseSync {

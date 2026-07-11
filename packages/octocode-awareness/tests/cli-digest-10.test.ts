@@ -1,5 +1,5 @@
 /**
- * cli.test.ts — subprocess-based CLI contract tests for dist/bin/awareness.js.
+ * cli.test.ts — subprocess-based CLI contract tests for out/octocode-awareness.js.
  *
  * These tests exercise the compiled CLI binary end-to-end via spawnSync,
  * verifying the exact JSON output shapes that hook scripts and pi-extension depend on.
@@ -11,7 +11,7 @@ import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-const SCRIPT = resolve(dirname(fileURLToPath(import.meta.url)), '../dist/bin/awareness.js');
+const SCRIPT = resolve(dirname(fileURLToPath(import.meta.url)), '../out/octocode-awareness.js');
 const SOURCE_SCRIPT = resolve(dirname(fileURLToPath(import.meta.url)), '../bin/awareness.ts');
 const TSX_SCRIPT = resolve(dirname(fileURLToPath(import.meta.url)), '../../../node_modules/tsx/dist/cli.mjs');
 const NODE = process.execPath;

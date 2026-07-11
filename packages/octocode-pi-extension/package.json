@@ -81,7 +81,7 @@
       "./dist/index.js"
     ],
     "skills": [
-      "./dist/skills"
+      "./out/skills"
     ]
   },
   "publishConfig": {

@@ -1,0 +1,111 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "agent_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "description": "Agent id."
+    },
+    "refinement_id": {
+      "description": "Existing refinement to update; omit when creating.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "workspace_path": {
+      "description": "Workspace root; required when creating.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024
+    },
+    "artifact": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "description": "Artifact/package scope."
+    },
+    "repo": {
+      "description": "Repo.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "ref": {
+      "description": "Ref.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "files": {
+      "description": "Related files.",
+      "maxItems": 200,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 1024
+      }
+    },
+    "reasoning": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2000,
+      "description": "Why saved."
+    },
+    "remember": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2000,
+      "description": "What to remember."
+    },
+    "quality": {
+      "description": "Outcome quality.",
+      "type": "string",
+      "enum": [
+        "good",
+        "bad",
+        "handoff",
+        "instructions"
+      ]
+    },
+    "state": {
+      "description": "Lifecycle state; terminal done is update-only.",
+      "type": "string",
+      "enum": [
+        "open",
+        "ongoing",
+        "done"
+      ]
+    },
+    "check_receipt": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2000,
+      "description": "Verification evidence for terminal closure."
+    }
+  },
+  "required": [
+    "agent_id"
+  ],
+  "additionalProperties": false,
+  "description": "Create or update a refinement; terminal closure is evidence-gated.",
+  "$id": "urn:octocode-awareness:schema:refinement",
+  "examples": [
+    {
+      "agent_id": "agent",
+      "workspace_path": "/repo",
+      "artifact": "pkg",
+      "repo": "repo",
+      "ref": "main",
+      "files": [
+        "src/file.ts"
+      ],
+      "reasoning": "handoff",
+      "remember": "lesson",
+      "quality": "handoff",
+      "state": "ongoing"
+    }
+  ]
+}

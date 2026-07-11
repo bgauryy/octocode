@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "agent_id": {
+      "description": "Agent filter.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "workspace": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024,
+      "description": "Workspace root."
+    },
+    "artifact": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "description": "Artifact/package scope."
+    },
+    "repo": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "description": "Repo slug."
+    },
+    "ref": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "description": "Branch/tag/SHA."
+    },
+    "reason": {
+      "description": "Capture reason.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 500
+    },
+    "cwd": {
+      "description": "Scope cwd.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024
+    }
+  },
+  "additionalProperties": false,
+  "description": "Capture session handoff.",
+  "$id": "urn:octocode-awareness:schema:session_capture",
+  "examples": [
+    {
+      "agent_id": "agent",
+      "workspace": "/repo",
+      "artifact": "pkg",
+      "repo": "repo",
+      "ref": "main",
+      "reason": "handoff"
+    }
+  ]
+}

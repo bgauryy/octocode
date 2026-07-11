@@ -1,4 +1,3 @@
-import { spawnSync } from 'node:child_process';
 import type { DatabaseSync } from 'node:sqlite';
 import { connectDb, resolveDbPath } from '../src/db.js';
 import { mineWeakness } from '../src/memory.js';
@@ -83,9 +82,8 @@ if (command === 'self-test') {
 }
 
 if (command === 'schema') {
-  const script = packageSkillScriptPath('schema.mjs');
-  const result = spawnSync(process.execPath, [script, ...rest], { stdio: 'inherit' });
-  process.exit(result.status ?? 1);
+  const { runSchemaCli } = await import('../src/schema/cli.js');
+  process.exit(await runSchemaCli(rest));
 }
 
 if (command === 'hook-run') {

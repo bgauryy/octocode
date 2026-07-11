@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-const DIST_DIR = resolve(dirname(fileURLToPath(import.meta.url)), '../dist/bin');
+const DIST_DIR = resolve(dirname(fileURLToPath(import.meta.url)), '../out');
 const HOOK_RUNNER = resolve(DIST_DIR, 'hook-runner.js');
 const NODE = process.execPath;
 function runScript(script: string, args: string[], payload: unknown, env: Record<string, string | undefined> = {}, cwd?: string) {

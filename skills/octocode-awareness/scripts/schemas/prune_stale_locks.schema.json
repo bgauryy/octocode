@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "older_than_minutes": {
+      "default": 20,
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 10080
+    },
+    "expired_only": {
+      "default": false,
+      "type": "boolean"
+    },
+    "agent_id": {
+      "description": "Holder filter.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "workspace": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024,
+      "description": "Workspace root."
+    },
+    "artifact": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "description": "Artifact/package scope."
+    },
+    "target_files": {
+      "default": [],
+      "maxItems": 200,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 1024
+      }
+    },
+    "dry_run": {
+      "default": false,
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "older_than_minutes",
+    "expired_only",
+    "target_files",
+    "dry_run"
+  ],
+  "additionalProperties": false,
+  "description": "Prune stale locks.",
+  "$id": "urn:octocode-awareness:schema:prune_stale_locks",
+  "examples": [
+    {
+      "older_than_minutes": 20,
+      "expired_only": false,
+      "workspace": "/repo",
+      "artifact": "pkg",
+      "target_files": [
+        "src/file.ts"
+      ],
+      "dry_run": true
+    }
+  ]
+}

@@ -11,9 +11,9 @@ import { createPlan } from '../src/plans.js';
 import { claimTask, createTask as createTaskBase } from '../src/tasks.js';
 import type { CreateTaskParams } from '../src/tasks.js';
 import { startWork } from '../src/work.js';
-const DIST_DIR = resolve(dirname(fileURLToPath(import.meta.url)), '../dist/bin');
+const DIST_DIR = resolve(dirname(fileURLToPath(import.meta.url)), '../out');
 const HOOK_RUNNER = resolve(DIST_DIR, 'hook-runner.js');
-const AWARENESS = resolve(DIST_DIR, 'awareness.js');
+const AWARENESS = resolve(DIST_DIR, 'octocode-awareness.js');
 const NODE = process.execPath;
 type TestTaskParams = Omit<CreateTaskParams, 'acceptanceCriteria'> & {
     acceptanceCriteria?: string;

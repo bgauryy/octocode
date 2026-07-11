@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { runHooksInstall } from '../src/hooks-install.js';
 const TEST_DIR = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(TEST_DIR, '../../..');
-const SCRIPT = resolve(REPO_ROOT, 'packages/octocode-awareness/dist/bin/awareness.js');
+const SCRIPT = resolve(REPO_ROOT, 'packages/octocode-awareness/out/octocode-awareness.js');
 const NODE = process.execPath;
 function runInstallHooks(args: string[], script = SCRIPT) {
     const result = spawnSync(NODE, [script, ...args], {

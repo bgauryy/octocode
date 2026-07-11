@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { spawnSync } from 'node:child_process';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-const DIST_DIR = resolve(dirname(fileURLToPath(import.meta.url)), '../dist/bin');
+const DIST_DIR = resolve(dirname(fileURLToPath(import.meta.url)), '../out');
 const SCRIPT = resolve(DIST_DIR, 'extract-hook-files.js');
 const NODE = process.execPath;
 function runScript(script: string, args: string[], payload: unknown, env: Record<string, string | undefined> = {}, cwd?: string) {

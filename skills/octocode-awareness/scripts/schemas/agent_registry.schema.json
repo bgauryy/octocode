@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "action": {
+      "default": "list",
+      "description": "Action.",
+      "type": "string",
+      "enum": [
+        "list",
+        "register"
+      ]
+    },
+    "agent_id": {
+      "description": "Agent id.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "agent_name": {
+      "description": "Display name.",
+      "type": "string",
+      "maxLength": 256
+    },
+    "workspace": {
+      "description": "Workspace scope.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024
+    },
+    "artifact": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "description": "Artifact/package scope."
+    },
+    "context": {
+      "description": "Host context.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "limit": {
+      "default": 50,
+      "description": "Row limit.",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 200
+    }
+  },
+  "required": [
+    "action",
+    "limit"
+  ],
+  "additionalProperties": false,
+  "description": "Agent registry.",
+  "$id": "urn:octocode-awareness:schema:agent_registry",
+  "examples": [
+    {
+      "action": "register",
+      "agent_id": "agent",
+      "agent_name": "Agent",
+      "workspace": "/repo",
+      "artifact": "pkg",
+      "context": "codex",
+      "limit": 50
+    }
+  ]
+}

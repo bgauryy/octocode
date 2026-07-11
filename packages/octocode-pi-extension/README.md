@@ -122,7 +122,7 @@ recording, signals, tasks, verification, and reflection stay on the Awareness CL
 
 ## Bundled skills (9)
 
-Pi discovers one generated skill tree under `dist/skills/`:
+Pi discovers one generated skill tree under `out/skills/`:
 
 - `octocode-awareness`
 - `octocode-brainstorming`

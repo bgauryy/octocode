@@ -17,7 +17,7 @@ afterEach(() => {
 function isolatedPackage(): string {
   const root = mkdtempSync(join(tmpdir(), 'octocode-awareness-package-'));
   tempRoots.push(root);
-  cpSync(resolve(PACKAGE_ROOT, 'dist'), resolve(root, 'dist'), { recursive: true });
+  cpSync(resolve(PACKAGE_ROOT, 'out'), resolve(root, 'dist'), { recursive: true });
   cpSync(resolve(PACKAGE_ROOT, 'README.md'), resolve(root, 'README.md'));
   if (existsSync(resolve(PACKAGE_ROOT, 'LICENSE'))) {
     cpSync(resolve(PACKAGE_ROOT, 'LICENSE'), resolve(root, 'LICENSE'));
@@ -47,8 +47,8 @@ describe('published package artifact', () => {
 
   it('runs every schema command from an isolated package with no dependencies', { timeout: 30_000 }, () => {
     const root = isolatedPackage();
-    const cli = resolve(root, 'dist/bin/awareness.js');
-    const schema = resolve(root, 'dist/skills/octocode-awareness/scripts/schema.mjs');
+    const cli = resolve(root, 'out/octocode-awareness.js');
+    const schema = resolve(root, 'out/skills/octocode-awareness/scripts/schema.mjs');
 
     const listed = spawnSync(process.execPath, [cli, 'schema', 'list', '--compact'], {
       cwd: root,

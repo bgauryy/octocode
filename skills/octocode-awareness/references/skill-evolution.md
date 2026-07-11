@@ -1,7 +1,7 @@
 # Skill Evolution (SkillOpt → Octocode)
 
 Use when creating, improving, or updating Agent Skills from real rollouts — not one-shot rewrites.
-Paper: [SkillOpt](https://arxiv.org/abs/2605.23904) (arXiv:2605.23904). Operator: sibling skill **`octocode-skills`** (bundled next to this skill; install via `npx octocode skill --add --path …/dist/skills/octocode-skills`).
+Paper: [SkillOpt](https://arxiv.org/abs/2605.23904) (arXiv:2605.23904). Operator: sibling skill **`octocode-skills`** (bundled next to this skill; install via `npx octocode skill --add --path …/out/skills/octocode-skills`).
 
 ## Thesis (agent-usable)
 
@@ -33,7 +33,7 @@ ATTEND → SET GOAL+KPI → RESEARCH (octocode-skills) → PLAN (bounded edits) 
 4. **Improve / update** — `self-improvement.md` (mode gate) → `skill-improve.md` (READ→…→VERIFY). Prefer patch-mode: add/delete/replace one concept; lobby owns flow; refs stay ≤50 one-concept.
 5. **Gate** — no write without user approval when the skill is shared; no accept without review **0 ERROR** and a held-out smoke (task outside the failure that motivated the edit).
 6. **Reject path** — if smoke/review regresses, revert the patch, `memory record` / `reflect --fix-harness` with what was tried and why it hurt, then propose a smaller edit.
-7. **Ship** — prune orphans (`skill-cleanup.md`); install/refresh with `npx octocode skill --add --path <skill-dir> --platform <host> --force` (awareness + skills both from the awareness package `dist/skills/`).
+7. **Ship** — prune orphans (`skill-cleanup.md`); install/refresh with `npx octocode skill --add --path <skill-dir> --platform <host> --force` (awareness + skills both from the awareness package `out/skills/`).
 
 ## Hard rules
 

@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "agent_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "description": "Waiting agent."
+    },
+    "workspace": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024,
+      "description": "Workspace root."
+    },
+    "artifact": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "description": "Artifact/package scope."
+    },
+    "target_files": {
+      "minItems": 1,
+      "maxItems": 200,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 1024
+      },
+      "description": "Files to lock."
+    },
+    "wait_seconds": {
+      "default": 60,
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 3600
+    },
+    "retry_interval": {
+      "default": 5,
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 300
+    }
+  },
+  "required": [
+    "agent_id",
+    "target_files",
+    "wait_seconds",
+    "retry_interval"
+  ],
+  "additionalProperties": false,
+  "description": "Wait for locks.",
+  "$id": "urn:octocode-awareness:schema:wait_for_lock",
+  "examples": [
+    {
+      "agent_id": "agent",
+      "workspace": "/repo",
+      "artifact": "pkg",
+      "target_files": [
+        "src/file.ts"
+      ],
+      "wait_seconds": 120,
+      "retry_interval": 5
+    }
+  ]
+}

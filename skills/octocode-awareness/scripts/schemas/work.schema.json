@@ -1,0 +1,119 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "action": {
+      "type": "string",
+      "enum": [
+        "start",
+        "touch",
+        "end",
+        "list",
+        "show"
+      ]
+    },
+    "agent_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "description": "Agent id."
+    },
+    "session_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "workspace": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024,
+      "description": "Workspace root."
+    },
+    "artifact": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "description": "Artifact/package scope."
+    },
+    "run_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "rationale": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2000,
+      "description": "Why these files are under work."
+    },
+    "test_plan": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2000,
+      "description": "Verification plan."
+    },
+    "context_ref": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024
+    },
+    "target_files": {
+      "default": [],
+      "maxItems": 200,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 1024
+      }
+    },
+    "exclusive": {
+      "default": false,
+      "type": "boolean"
+    },
+    "ttl_minutes": {
+      "default": 10,
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 60
+    },
+    "ttl_seconds": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 3600
+    },
+    "all": {
+      "default": false,
+      "type": "boolean"
+    },
+    "full": {
+      "default": false,
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "action",
+    "target_files",
+    "exclusive",
+    "ttl_minutes",
+    "all",
+    "full"
+  ],
+  "additionalProperties": false,
+  "description": "Declare, heartbeat, inspect, or end advisory file work; exclusivity is opt-in.",
+  "$id": "urn:octocode-awareness:schema:work",
+  "examples": [
+    {
+      "action": "start",
+      "agent_id": "agent",
+      "workspace": "/repo",
+      "rationale": "refactor parser",
+      "test_plan": "run parser tests",
+      "target_files": [
+        "src/parser.ts"
+      ],
+      "exclusive": false,
+      "ttl_minutes": 10
+    }
+  ]
+}

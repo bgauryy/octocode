@@ -48,7 +48,7 @@ describe('skill routing boundaries', () => {
     expect(desc).not.toContain('packages/octocode-awareness');
     expect(text).toContain('this skill supplies operating policy; run every live-state action through the CLI');
     expect(text).toContain('npx @octocodeai/octocode-awareness');
-    expect(text).toContain('node packages/octocode-awareness/dist/index.js');
+    expect(text).toContain('node packages/octocode-awareness/out/octocode-awareness.js');
     expect(text).toContain('## Loop');
     expect(text).toContain('BEFORE/READ+REASON');
     expect(text).toContain('DURING/DO');
@@ -145,8 +145,8 @@ describe('skill routing boundaries', () => {
 
     expect(combined).not.toMatch(/<package>|<awareness-package>|default for this monorepo/);
     expect(combined).not.toContain('package migration truth: `docs/DB.md`');
-    expect(readme).toContain('$(npm root --global)/@octocodeai/octocode-awareness/dist/skills/octocode-awareness');
-    expect(tooling).toContain('$(npm root --global)/@octocodeai/octocode-awareness/dist/skills/octocode-skills');
+    expect(readme).toContain('$(npm root --global)/@octocodeai/octocode-awareness/out/skills/octocode-awareness');
+    expect(tooling).toContain('$(npm root --global)/@octocodeai/octocode-awareness/out/skills/octocode-skills');
     expect(octocode).toContain('references/agent-cheatsheet-tooling.md');
   });
 });

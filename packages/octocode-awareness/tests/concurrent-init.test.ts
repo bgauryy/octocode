@@ -7,7 +7,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const PACKAGE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const DIST_INDEX_URL = pathToFileURL(resolve(PACKAGE_ROOT, 'dist/index.js')).href;
+const DIST_INDEX_URL = pathToFileURL(resolve(PACKAGE_ROOT, 'out/index.js')).href;
 
 const OPEN_AT_ONCE = `
 const [moduleUrl, dbPath, startAt] = process.argv.slice(1);

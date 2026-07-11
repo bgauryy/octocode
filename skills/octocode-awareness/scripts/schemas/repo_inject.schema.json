@@ -1,0 +1,92 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "workspace_path": {
+      "description": "Workspace filter.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024
+    },
+    "artifact": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "description": "Artifact/package scope."
+    },
+    "repo": {
+      "description": "Repo filter.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "ref": {
+      "description": "Ref filter.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "query": {
+      "default": "",
+      "description": "Optional text filter.",
+      "type": "string",
+      "maxLength": 1000
+    },
+    "limit": {
+      "default": 50,
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 500
+    },
+    "out_dir": {
+      "description": "Output directory, defaults to <workspace>/.octocode.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024
+    },
+    "mode": {
+      "default": "local",
+      "description": "Whether generated .octocode is intended as local-only or shared repo context. The command never edits .gitignore.",
+      "type": "string",
+      "enum": [
+        "local",
+        "share"
+      ]
+    },
+    "include_view": {
+      "default": true,
+      "description": "Write awareness/index.html.",
+      "type": "boolean"
+    },
+    "prune_orphans": {
+      "default": false,
+      "description": "Remove retired files owned by the previous Awareness manifest; run once without it to preview candidates.",
+      "type": "boolean"
+    },
+    "check": {
+      "default": true,
+      "description": "Report gitignore/share policy warnings.",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "query",
+    "limit",
+    "mode",
+    "include_view",
+    "prune_orphans",
+    "check"
+  ],
+  "additionalProperties": false,
+  "description": "Generate .octocode repo context projections without editing .gitignore.",
+  "$id": "urn:octocode-awareness:schema:repo_inject",
+  "examples": [
+    {
+      "workspace_path": "/repo",
+      "out_dir": "/repo/.octocode",
+      "mode": "local",
+      "include_view": true,
+      "check": true
+    }
+  ]
+}

@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "agent_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "description": "Agent id."
+    },
+    "run_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "lock_id": {
+      "description": "Lock id from lock acquire; resolved to its run and file.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "workspace": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024,
+      "description": "Workspace root."
+    },
+    "artifact": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "description": "Artifact/package scope."
+    },
+    "target_files": {
+      "maxItems": 200,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 1024
+      }
+    },
+    "status": {
+      "default": "PENDING",
+      "description": "End editing; use verify mark with a receipt for SUCCESS.",
+      "type": "string",
+      "enum": [
+        "PENDING",
+        "FAILED"
+      ]
+    }
+  },
+  "required": [
+    "agent_id",
+    "status"
+  ],
+  "additionalProperties": false,
+  "description": "Release locks.",
+  "$id": "urn:octocode-awareness:schema:release_file_lock",
+  "examples": [
+    {
+      "agent_id": "agent",
+      "run_id": "run_abc123",
+      "workspace": "/repo",
+      "artifact": "pkg",
+      "status": "PENDING"
+    }
+  ]
+}

@@ -1,0 +1,94 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "agent_id": {
+      "description": "Stable agent identity used to prioritize owned work.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "query": {
+      "default": "",
+      "description": "Current task, risk, or design question.",
+      "type": "string",
+      "maxLength": 1000
+    },
+    "limit": {
+      "default": 10,
+      "description": "Rows per workboard column and evidence cap.",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 50
+    },
+    "workspace_path": {
+      "description": "Workspace filter.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024
+    },
+    "artifact": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "description": "Artifact/package scope."
+    },
+    "repo": {
+      "description": "Repo filter.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "ref": {
+      "description": "Ref filter.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "file": {
+      "default": [],
+      "description": "File filters.",
+      "maxItems": 50,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 1024
+      }
+    },
+    "include_bodies": {
+      "default": false,
+      "description": "Include full signal bodies in routed reads.",
+      "type": "boolean"
+    },
+    "explain_organ": {
+      "default": false,
+      "description": "Include/retain organ-state explanation fields.",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "query",
+    "limit",
+    "file",
+    "include_bodies",
+    "explain_organ"
+  ],
+  "additionalProperties": false,
+  "description": "Build a bounded read-only lobby: actionable workboard state, relevant evidence/gaps, and one next command; noncompact mode adds diagnostics.",
+  "$id": "urn:octocode-awareness:schema:attend",
+  "examples": [
+    {
+      "agent_id": "agent",
+      "query": "current task",
+      "limit": 10,
+      "workspace_path": "/repo",
+      "artifact": "pkg",
+      "file": [
+        "src/file.ts"
+      ],
+      "include_bodies": false,
+      "explain_organ": false
+    }
+  ]
+}

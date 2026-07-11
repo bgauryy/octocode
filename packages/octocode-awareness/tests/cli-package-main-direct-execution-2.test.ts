@@ -1,5 +1,5 @@
 /**
- * cli.test.ts — subprocess-based CLI contract tests for dist/bin/awareness.js.
+ * cli.test.ts — subprocess-based CLI contract tests for out/octocode-awareness.js.
  *
  * These tests exercise the compiled CLI binary end-to-end via spawnSync,
  * verifying the exact JSON output shapes that hook scripts and pi-extension depend on.
@@ -10,8 +10,8 @@ import { mkdtempSync, rmSync, existsSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-const SCRIPT = resolve(dirname(fileURLToPath(import.meta.url)), '../dist/bin/awareness.js');
-const INDEX_SCRIPT = resolve(dirname(fileURLToPath(import.meta.url)), '../dist/index.js');
+const SCRIPT = resolve(dirname(fileURLToPath(import.meta.url)), '../out/octocode-awareness.js');
+const INDEX_SCRIPT = resolve(dirname(fileURLToPath(import.meta.url)), '../out/index.js');
 const NODE = process.execPath;
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 function mktemp(): string {
@@ -54,7 +54,7 @@ function fail(dbPath: string, args: string[], expectedStatus = 1): Record<string
 }
 
 describe('package main direct execution', () => {
-  it('delegates to the CLI when dist/index.js is executed directly', () => {
+  it('delegates to the CLI when out/index.js is executed directly', () => {
     const dir = mktemp();
     const db = join(dir, 'test.sqlite3');
     try {

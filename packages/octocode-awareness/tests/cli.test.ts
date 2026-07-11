@@ -1,5 +1,5 @@
 /**
- * cli.test.ts — subprocess-based CLI contract tests for dist/bin/awareness.js.
+ * cli.test.ts — subprocess-based CLI contract tests for out/octocode-awareness.js.
  *
  * These tests exercise the compiled CLI binary end-to-end via spawnSync,
  * verifying the exact JSON output shapes that hook scripts and pi-extension depend on.

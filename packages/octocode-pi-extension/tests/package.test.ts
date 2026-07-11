@@ -417,7 +417,7 @@ test('build copies bundled Octocode skills without secret env files', () => {
   ) as {
     pi?: { skills?: string[] };
   };
-  assert.deepEqual(packageJson.pi?.skills, ['./dist/skills']);
+  assert.deepEqual(packageJson.pi?.skills, ['./out/skills']);
 
   const forbiddenEnv = path.join(
     distDir,

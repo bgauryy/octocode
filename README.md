@@ -392,7 +392,7 @@ Workflow contracts are equally explicit: Brainstorming run ledgers and hooks sta
 | [**Prompt Optimizer**](https://github.com/bgauryy/octocode/tree/main/skills/octocode-prompt-optimizer) | `octocode-prompt-optimizer/` | `npx octocode skill --name octocode-prompt-optimizer` | You want to optimize, strengthen, or shorten a prompt, `SKILL.md`, or `AGENTS.md`. |
 | [**Awareness**](https://www.skills.sh/bgauryy/octocode-mcp/octocode-awareness) | `skills/octocode-awareness/` | Bundled with `npx @octocodeai/octocode-awareness` | You need shared plans/tasks, advisory file awareness, sensitive exclusive locks, signals, handoffs, reflection, hooks, or verify-before-conclude in a shared repo. |
 
-Awareness is the primary skill for plans/tasks, advisory file work, sensitive exclusive locks, memory, signals, reflection, schemas, and hooks. The `--name` command above resolves Octocode's bundled copy; direct consumers of `@octocodeai/octocode-awareness` should install its `dist/skills/octocode-awareness` path. Older prompts that name `octocode-reflection` or `octocode-agent-communication` should load the same [`@octocodeai/octocode-awareness`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-awareness) runtime.
+Awareness is the primary skill for plans/tasks, advisory file work, sensitive exclusive locks, memory, signals, reflection, schemas, and hooks. The `--name` command above resolves Octocode's bundled copy; direct consumers of `@octocodeai/octocode-awareness` should install its `out/skills/octocode-awareness` path. Older prompts that name `octocode-reflection` or `octocode-agent-communication` should load the same [`@octocodeai/octocode-awareness`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-awareness) runtime.
 
 ---
 

@@ -2,10 +2,10 @@
  * awareness.ts — CLI entry point for @octocodeai/octocode-awareness.
  *
  * Thin wrapper: parse args → call domain functions → emit JSON.
- * Compiled to dist/bin/awareness.js by build.mjs.
+ * Compiled to out/octocode-awareness.js by build.mjs.
  */
 import { existsSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ArgValue, BOOLEAN_FLAGS, GLOBAL_FLAGS, NUMERIC_FLAGS, ParsedArgs, RETENTION_DAY_FLAGS, VALUE_REQUIRED_FLAGS } from './cli-model.js';
 import { COMMAND_DISPLAY, COMMAND_EXAMPLE, COMMAND_TO_SCHEMA } from './cli-help-data.js';
@@ -231,15 +231,16 @@ export function selectCommand(argv: string[]): { command: string | undefined; re
 
 export function packageSkillScriptPath(...segments: string[]): string {
   const here = dirname(fileURLToPath(import.meta.url));
-  // Prefer dist/skills/ (self-contained bundle) over repo-root skills/ (source tree).
-  // dist/skills/ is populated by build.mjs so dist/ is fully self-contained for
-  // CLI installs and npm consumers that only ship dist/.
+  const invokedDir = process.argv[1] ? dirname(resolve(process.argv[1])) : here;
+  // Prefer the self-contained out/skills bundle. Code-split modules execute from
+  // out/chunks, so resource discovery is anchored to the stable invoked entry.
   const candidates = [
-    join(here, '..', 'skills', 'octocode-awareness', 'scripts'),   // dist/skills/ — bundled, preferred
-    join(here, '..', '..', '..', 'skills', 'octocode-awareness', 'scripts'), // package bin/ or dist/ source fallback
-    join(here, '..', '..', '..', '..', 'skills', 'octocode-awareness', 'scripts'), // dist/bin source fallback
-    here, // dist/bin/ — last resort
-  ];
+    process.env.OCTOCODE_SKILL_ROOT ? join(process.env.OCTOCODE_SKILL_ROOT, 'scripts') : null,
+    join(invokedDir, 'skills', 'octocode-awareness', 'scripts'),
+    invokedDir,
+    join(process.cwd(), 'skills', 'octocode-awareness', 'scripts'),
+    join(here, '..', 'skills', 'octocode-awareness', 'scripts'),
+  ].filter((candidate): candidate is string => Boolean(candidate));
   const scriptsDir = candidates.find((candidate) =>
     existsSync(join(candidate, 'schema.mjs')) || existsSync(join(candidate, 'hooks')),
   ) ?? candidates[0]!;

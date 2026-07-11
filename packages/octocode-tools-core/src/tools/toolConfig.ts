@@ -4,59 +4,33 @@ import { type z } from 'zod';
 import {
   CloneRepoQueryLocalSchema,
   BulkCloneRepoLocalSchema,
-} from './github_clone_repo/scheme.js';
-import {
   FileContentQueryLocalSchema,
   FileContentBulkQueryLocalSchema,
-} from './github_fetch_content/scheme.js';
-import {
   GitHubCodeSearchQueryLocalSchema,
   GitHubCodeSearchBulkQueryLocalSchema,
-} from './github_search_code/scheme.js';
-import {
   GitHubPullRequestSearchQueryLocalSchema,
   GitHubPullRequestSearchBulkQueryLocalSchema,
-} from './github_search_pull_requests/scheme.js';
-import {
   GitHubReposSearchSingleQueryLocalSchema,
   GitHubReposSearchBulkQueryLocalSchema,
-} from './github_search_repos/scheme.js';
-import {
   GitHubViewRepoStructureQueryLocalSchema,
   GitHubViewRepoStructureBulkQueryLocalSchema,
-} from './github_view_repo_structure/scheme.js';
-import {
   NpmSearchQueryLocalSchema,
   NpmSearchBulkQueryLocalSchema,
-} from './package_search/scheme.js';
-import {
   LocalFetchContentQuerySchema,
   LocalFetchContentBulkQuerySchema,
-} from './local_fetch_content/scheme.js';
-import {
   LocalFindFilesQuerySchema,
   LocalFindFilesBulkQuerySchema,
-} from './local_find_files/scheme.js';
-import {
   LocalRipgrepQuerySchema,
   LocalRipgrepBulkQuerySchema,
-} from './local_ripgrep/scheme.js';
-import {
   LocalViewStructureQuerySchema,
   LocalViewStructureBulkQuerySchema,
-} from './local_view_structure/scheme.js';
-import {
   BulkLspGetSemanticsQuerySchema,
   LspGetSemanticsQueryDisplaySchema,
-} from './lsp/semantic_content/scheme.js';
-import {
   LocalBinaryInspectQuerySchema,
   LocalBinaryInspectBulkQuerySchema,
-} from './local_binary_inspect/scheme.js';
-import {
-  OqlDisplayQuerySchema as OqlSearchQuerySchema,
+  OqlSearchQuerySchema,
   OqlSearchInputSchema,
-} from '../oql/schema.js';
+} from './toolSchemaImports.js';
 import { executeInspectBinary } from './local_binary_inspect/execution.js';
 import { executeCloneRepo } from './github_clone_repo/execution.js';
 import { fetchMultipleGitHubFileContents } from './github_fetch_content/execution.js';

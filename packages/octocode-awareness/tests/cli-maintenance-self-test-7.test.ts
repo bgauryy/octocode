@@ -1,5 +1,5 @@
 /**
- * cli.test.ts — subprocess-based CLI contract tests for dist/bin/awareness.js.
+ * cli.test.ts — subprocess-based CLI contract tests for out/octocode-awareness.js.
  *
  * These tests exercise the compiled CLI binary end-to-end via spawnSync,
  * verifying the exact JSON output shapes that hook scripts and pi-extension depend on.
@@ -10,7 +10,7 @@ import { mkdtempSync, rmSync, existsSync, readFileSync, readdirSync } from 'node
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-const SCRIPT = resolve(dirname(fileURLToPath(import.meta.url)), '../dist/bin/awareness.js');
+const SCRIPT = resolve(dirname(fileURLToPath(import.meta.url)), '../out/octocode-awareness.js');
 const SKILL_SCRIPT = resolve(dirname(fileURLToPath(import.meta.url)), '../../../skills/octocode-awareness/scripts/awareness.mjs');
 const NODE = process.execPath;
 // Independent discovery (not imported from build.mjs) so CLI help assertions
@@ -83,7 +83,7 @@ it('package metadata exposes the scoped public npx binary', () => {
     };
     expect(pkg.name).toBe('@octocodeai/octocode-awareness');
     expect(pkg.publishConfig?.access).toBe('public');
-    expect(pkg.bin?.['octocode-awareness']).toBe('./dist/bin/awareness.js');
+    expect(pkg.bin?.['octocode-awareness']).toBe('./out/octocode-awareness.js');
     expect(pkg.engines?.['node']).toBe('>=22.13.0');
     expect(pkg.bin ?? {}).not.toHaveProperty('awareness');
   });
@@ -97,12 +97,12 @@ it('--help exits 0', () => {
     expect(r.stdout).toContain('octocode-awareness');
     expect(r.stdout).toContain('octocode-skills');
     // Structural: every repo skill discovered independently must be enumerated,
-    // and every enumerated skill path must resolve under dist/skills/.
+    // and every enumerated skill path must resolve under out/skills/.
     const repoSkillNames = discoverRepoSkillNames();
     expect(repoSkillNames.length).toBeGreaterThanOrEqual(2);
     for (const name of repoSkillNames) {
       expect(r.stdout).toContain(name);
-      expect(r.stdout).toContain(`dist/skills/${name}`);
+      expect(r.stdout).toContain(`out/skills/${name}`);
     }
     expect(r.stdout).toContain("Do not use a skill installer's registry/name lookup for these");
     expect(r.stdout).toContain('octocode-awareness schema commands --compact');
@@ -126,7 +126,7 @@ it('no command prints the agent-instructions discovery guide', () => {
     expect(r.stdout).toContain('<AGENT_INSTRUCTIONS>');
     expect(r.stdout).toMatch(/BUNDLED SKILLS \(\d+\)/);
     for (const name of discoverRepoSkillNames()) {
-      expect(r.stdout).toContain(`dist/skills/${name}`);
+      expect(r.stdout).toContain(`out/skills/${name}`);
     }
     expect(r.stdout).toContain('FIRST COMMANDS');
     expect(r.stdout).not.toContain('<awareness-package>');
@@ -136,7 +136,7 @@ it('--help --compact returns a short agent guide', () => {
     expect(r.status).toBe(0);
     expect(r.stdout).toContain('canonical noun/verb CLI');
     expect(r.stdout).toMatch(/bundled-skills\(\d+\):/);
-    expect(r.stdout).toContain('dist/skills');
+    expect(r.stdout).toContain('out/skills');
     expect(r.stdout).toContain('schema commands --compact');
     expect(r.stdout).toContain('refinement set|get|delete');
     expect(r.stdout).toMatch(/exits 0 ok/);
@@ -148,7 +148,7 @@ it('no command with --compact prints compact discovery instead of unknown-comman
     expect(r.status).toBe(0);
     expect(r.stdout).toContain('canonical noun/verb CLI');
     expect(r.stdout).toMatch(/bundled-skills\(\d+\):/);
-    expect(r.stdout).toContain('dist/skills');
+    expect(r.stdout).toContain('out/skills');
     expect(r.stdout).not.toContain('<awareness-package>');
     expect(r.stdout).not.toContain('unknown command');
   });

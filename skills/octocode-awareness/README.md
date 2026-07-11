@@ -24,17 +24,17 @@ Install the package, then install this bundled skill by its resolved local path:
 ```bash
 npm install --global @octocodeai/octocode-awareness
 npx octocode skill --add \
-  --path "$(npm root --global)/@octocodeai/octocode-awareness/dist/skills/octocode-awareness" \
+  --path "$(npm root --global)/@octocodeai/octocode-awareness/out/skills/octocode-awareness" \
   --platform common --dry-run
 # after reviewing destinations and approving the write:
 npx octocode skill --add \
-  --path "$(npm root --global)/@octocodeai/octocode-awareness/dist/skills/octocode-awareness" \
+  --path "$(npm root --global)/@octocodeai/octocode-awareness/out/skills/octocode-awareness" \
   --platform common --force
 ```
 
 `common` installs to `~/.agents/skills`; use `claude`, `cursor`, `codex`, or `pi`
 when the target host does not scan that shared directory. Run
-`node "$(npm root --global)/@octocodeai/octocode-awareness/dist/skills/octocode-awareness/scripts/install.mjs"`
+`node "$(npm root --global)/@octocodeai/octocode-awareness/out/skills/octocode-awareness/scripts/install.mjs"`
 to verify the bundled runtime and receive cwd-independent next commands.
 
 The package also bundles sibling `octocode-skills` for skill install/review/
@@ -75,7 +75,7 @@ Prefer the published CLI when available:
 ```bash
 npx @octocodeai/octocode-awareness schema commands --compact
 # monorepo local build:
-node packages/octocode-awareness/dist/index.js schema commands --compact
+node packages/octocode-awareness/out/octocode-awareness.js schema commands --compact
 ```
 
 ## Scripts
@@ -111,4 +111,4 @@ node skills/octocode-skills/scripts/skill-review.mjs \
   skills/octocode-awareness
 ```
 
-Build mirrors this skill to package `dist/skills/` and local `.agents/skills/`.
+Build mirrors this skill to package `out/skills/` and local `.agents/skills/`.

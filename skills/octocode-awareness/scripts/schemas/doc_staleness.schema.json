@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "targets_json": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 20000,
+      "description": "Doc/source JSON."
+    },
+    "workspace": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024,
+      "description": "Workspace root."
+    },
+    "artifact": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "description": "Artifact/package scope."
+    },
+    "min_edits": {
+      "default": 5,
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 10000
+    },
+    "min_lines": {
+      "default": 50,
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 1000000
+    },
+    "propose": {
+      "default": false,
+      "type": "boolean"
+    },
+    "agent_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "description": "Agent id."
+    },
+    "session_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    }
+  },
+  "required": [
+    "targets_json",
+    "min_edits",
+    "min_lines",
+    "propose"
+  ],
+  "additionalProperties": false,
+  "description": "Check doc staleness.",
+  "$id": "urn:octocode-awareness:schema:doc_staleness",
+  "examples": [
+    {
+      "targets_json": "[{\"docFile\":\"docs/a.md\",\"sourceDirs\":[\"src\"]}]",
+      "workspace": "/repo",
+      "artifact": "pkg",
+      "min_edits": 5,
+      "min_lines": 50,
+      "propose": false
+    }
+  ]
+}

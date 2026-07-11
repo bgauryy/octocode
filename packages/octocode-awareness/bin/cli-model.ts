@@ -2,7 +2,7 @@
  * awareness.ts — CLI entry point for @octocodeai/octocode-awareness.
  *
  * Thin wrapper: parse args → call domain functions → emit JSON.
- * Compiled to dist/bin/awareness.js by build.mjs.
+ * Compiled to out/octocode-awareness.js by build.mjs.
  */
 import { existsSync, readdirSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
@@ -12,12 +12,14 @@ import { fileURLToPath } from 'node:url';
 // Computed once at startup so help text shows real, copy-pasteable paths.
 
 export const __bin = dirname(fileURLToPath(import.meta.url));
-// dist/bin/awareness.js -> dist/skills/; standalone skill scripts/awareness.mjs
+const invokedDir = process.argv[1] ? dirname(resolve(process.argv[1])) : __bin;
+// out/octocode-awareness.js -> out/skills/; standalone skill scripts/awareness.mjs
 // -> the sibling skills/ directory that contains both packaged skills.
-export const BUNDLED_SKILLS_DIR = basename(__bin) === 'scripts'
-  && basename(dirname(__bin)) === 'octocode-awareness'
-  ? resolve(__bin, '..', '..')
-  : resolve(__bin, '..', 'skills');
+export const BUNDLED_SKILLS_DIR = process.env.OCTOCODE_SKILL_ROOT
+  ? resolve(process.env.OCTOCODE_SKILL_ROOT, '..')
+  : basename(invokedDir) === 'scripts' && basename(dirname(invokedDir)) === 'octocode-awareness'
+    ? resolve(invokedDir, '..', '..')
+    : resolve(invokedDir, 'skills');
 
 // Skills that coordination itself depends on (own operating skill + the
 // skill-lifecycle skill needed to install the rest); every other bundled

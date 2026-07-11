@@ -1,0 +1,163 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "action": {
+      "type": "string",
+      "enum": [
+        "create",
+        "list",
+        "ready",
+        "show",
+        "claim",
+        "heartbeat",
+        "submit",
+        "release",
+        "depend"
+      ]
+    },
+    "task_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "plan_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "workspace": {
+      "description": "Workspace filter for list/ready (matches the owning plan's workspace_path).",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024
+    },
+    "run_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 300,
+      "description": "Task title."
+    },
+    "reasoning": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4000,
+      "description": "Why this work exists and what decisions constrain it."
+    },
+    "acceptance": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4000,
+      "description": "Done/verification criteria."
+    },
+    "path": {
+      "default": [],
+      "maxItems": 200,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 1024
+      }
+    },
+    "depends_on": {
+      "default": [],
+      "maxItems": 200,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 128
+      }
+    },
+    "created_by": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "description": "Agent id."
+    },
+    "agent_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "description": "Agent id."
+    },
+    "priority": {
+      "default": 0,
+      "type": "integer",
+      "minimum": -1000,
+      "maximum": 1000
+    },
+    "lease_minutes": {
+      "default": 30,
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 60
+    },
+    "test_plan": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4000,
+      "description": "Run verification plan."
+    },
+    "message": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2000,
+      "description": "Submission message."
+    },
+    "blocked_reason": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2000,
+      "description": "Why the task is blocked."
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "OPEN",
+        "IN_PROGRESS",
+        "BLOCKED",
+        "VERIFY",
+        "DONE",
+        "FAILED",
+        "CANCELLED"
+      ]
+    },
+    "next": {
+      "default": false,
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "action",
+    "path",
+    "depends_on",
+    "priority",
+    "lease_minutes",
+    "next"
+  ],
+  "additionalProperties": false,
+  "description": "Create, choose, claim, and complete durable plan tasks.",
+  "$id": "urn:octocode-awareness:schema:task",
+  "examples": [
+    {
+      "action": "create",
+      "plan_id": "plan_abc123",
+      "title": "Add schema migration",
+      "reasoning": "Consumers need the new storage contract first.",
+      "acceptance": "Migration and focused tests pass.",
+      "path": [
+        "src/db.ts",
+        "tests/migration.test.ts"
+      ],
+      "agent_id": "agent-lead",
+      "priority": 10
+    }
+  ]
+}

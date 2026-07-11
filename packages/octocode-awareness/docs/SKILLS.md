@@ -12,17 +12,17 @@ Requires Node.js 22.13.0+ (`node:sqlite` without an experimental flag).
 npm install --global @octocodeai/octocode-awareness
 octocode-awareness maintenance init --compact
 npx octocode skill --add \
-  --path "$(npm root --global)/@octocodeai/octocode-awareness/dist/skills/octocode-awareness" \
+  --path "$(npm root --global)/@octocodeai/octocode-awareness/out/skills/octocode-awareness" \
   --platform common --dry-run
 # after reviewing destinations and approving the write:
 npx octocode skill --add \
-  --path "$(npm root --global)/@octocodeai/octocode-awareness/dist/skills/octocode-awareness" \
+  --path "$(npm root --global)/@octocodeai/octocode-awareness/out/skills/octocode-awareness" \
   --platform common --force
 ```
 
 `common` installs to `~/.agents/skills`; use `claude`, `cursor`, `codex`, or `pi`
 when the host does not scan that shared directory. Verify the bundled runtime with
-`node "$(npm root --global)/@octocodeai/octocode-awareness/dist/skills/octocode-awareness/scripts/install.mjs"`.
+`node "$(npm root --global)/@octocodeai/octocode-awareness/out/skills/octocode-awareness/scripts/install.mjs"`.
 
 The Awareness skill teaches the collaboration lifecycle. The bundled
 `octocode-skills` skill is optional and is only needed for skill
@@ -30,19 +30,19 @@ install/review/improvement:
 
 ```bash
 npx octocode skill --add \
-  --path "$(npm root --global)/@octocodeai/octocode-awareness/dist/skills/octocode-skills" \
+  --path "$(npm root --global)/@octocodeai/octocode-awareness/out/skills/octocode-skills" \
   --platform common --dry-run
 # after approval, rerun with --force
 ```
 
-The package also bundles every other repo skill under `dist/skills/`; all are optional
+The package also bundles every other repo skill under `out/skills/`; all are optional
 and installed the same way. Discover the full, always-current list (with resolved
 paths) via `octocode-awareness --help` or the `bundled_skills` field printed by
 `scripts/install.mjs` — do not hardcode a skill list from prose.
 
 The examples below use the globally installed binary. For a one-off command, use
 `npx @octocodeai/octocode-awareness`. In octocode monorepo after build, use
-`node packages/octocode-awareness/dist/index.js`. Bundled skill
+`node packages/octocode-awareness/out/octocode-awareness.js`. Bundled skill
 `scripts/awareness.mjs` is a fallback when the package CLI is unavailable.
 
 ```bash

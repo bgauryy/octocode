@@ -22,23 +22,24 @@
   "bugs": "https://github.com/bgauryy/octocode-mcp/issues",
   "license": "MIT",
   "type": "module",
-  "main": "./dist/index.js",
-  "types": "./dist/src/index.d.ts",
+  "main": "./out/index.js",
+  "types": "./out/types/src/index.d.ts",
   "exports": {
     ".": {
-      "types": "./dist/src/index.d.ts",
-      "import": "./dist/index.js",
-      "default": "./dist/index.js"
+      "types": "./out/types/src/index.d.ts",
+      "import": "./out/index.js",
+      "default": "./out/index.js"
     },
-    "./bin/awareness": "./dist/bin/awareness.js",
-    "./bin/octocode-awareness": "./dist/bin/awareness.js",
-    "./bin/extract-hook-files": "./dist/bin/extract-hook-files.js"
+    "./bin/awareness": "./out/octocode-awareness.js",
+    "./bin/octocode-awareness": "./out/octocode-awareness.js",
+    "./bin/extract-hook-files": "./out/extract-hook-files.js",
+    "./schema": "./out/schema.js"
   },
   "bin": {
-    "octocode-awareness": "./dist/bin/awareness.js"
+    "octocode-awareness": "./out/octocode-awareness.js"
   },
   "files": [
-    "dist/**",
+    "out/**",
     "docs/**",
     "assets/**",
     "README.md",
@@ -50,7 +51,7 @@
   "scripts": {
     "build": "node build.mjs",
     "build:dev": "node build.mjs",
-    "clean": "rm -rf dist/",
+    "clean": "rm -rf out/ dist/",
     "lint": "node ../../node_modules/eslint/bin/eslint.js . --config eslint.config.mjs --no-warn-ignored && tsc --noEmit -p tsconfig.json",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "yarn build && node ../../node_modules/vitest/vitest.mjs run --coverage",
@@ -58,7 +59,8 @@
     "test:smoke": "node ../../skills/octocode-awareness/scripts/smoke-multi-agent.mjs",
     "pack:check": "node scripts/verify-package.mjs",
     "prepack": "yarn build && node scripts/verify-package.mjs",
-    "self-test": "node dist/bin/awareness.js maintenance self-test",
+    "self-test": "node out/octocode-awareness.js maintenance self-test",
+    "start": "node out/octocode-awareness.js",
     "verify": "yarn lint && yarn test"
   },
   "devDependencies": {

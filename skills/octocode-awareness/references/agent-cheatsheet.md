@@ -1,6 +1,6 @@
 # Agent Cheat Sheet
 
-Use `<cli>`: local monorepo `node packages/octocode-awareness/dist/index.js`;
+Use `<cli>`: local monorepo `node packages/octocode-awareness/out/octocode-awareness.js`;
 installed package `npx @octocodeai/octocode-awareness` (or global `octocode-awareness`); bundled
 `node scripts/awareness.mjs` only as fallback. Export `OCTOCODE_AGENT_ID`; use active
 Claude frontmatter or checked Codex/Cursor config, never both Claude surfaces.

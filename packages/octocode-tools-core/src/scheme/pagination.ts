@@ -103,11 +103,14 @@ export function buildNextPageContinuation(
 export function buildContinueCharsContinuation<TTool extends string>(
   tool: TTool,
   query: Record<string, unknown>,
-  pagination: {
-    hasMore?: boolean;
-    nextCharOffset?: number;
-    charLength?: number;
-  } | null | undefined,
+  pagination:
+    | {
+        hasMore?: boolean;
+        nextCharOffset?: number;
+        charLength?: number;
+      }
+    | null
+    | undefined,
   options?: { includeCharLength?: boolean }
 ): { continueChars: ToolContinuation & { tool: TTool } } | undefined {
   if (

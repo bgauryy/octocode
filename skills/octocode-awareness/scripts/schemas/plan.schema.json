@@ -1,0 +1,94 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "action": {
+      "type": "string",
+      "enum": [
+        "create",
+        "list",
+        "show",
+        "join",
+        "doc",
+        "status"
+      ]
+    },
+    "plan_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "description": "Plan name."
+    },
+    "objective": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4000,
+      "description": "Plan objective."
+    },
+    "lead_agent_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "description": "Agent id."
+    },
+    "agent_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "description": "Agent id."
+    },
+    "workspace": {
+      "description": "Plan scope normalizes to the repo root; on create, the exact path passed also decides where .octocode/plan scaffolding is written.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024
+    },
+    "artifact": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "description": "Artifact/package scope."
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "DRAFT",
+        "ACTIVE",
+        "PAUSED",
+        "COMPLETED",
+        "CANCELLED"
+      ]
+    },
+    "path": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 300,
+      "description": "Supporting document title."
+    }
+  },
+  "required": [
+    "action"
+  ],
+  "additionalProperties": false,
+  "description": "Create, inspect, join, or transition a collaborative plan.",
+  "$id": "urn:octocode-awareness:schema:plan",
+  "examples": [
+    {
+      "action": "create",
+      "name": "Release readiness",
+      "objective": "Coordinate the remaining release work.",
+      "lead_agent_id": "agent-lead",
+      "workspace": "/repo"
+    }
+  ]
+}

@@ -49,11 +49,11 @@ function assert(condition, message) {
 
 const pack = JSON.parse(run('npm', ['pack', '--dry-run', '--json', '--ignore-scripts']));
 const files = (pack[0]?.files ?? []).map((entry) => entry.path);
-for (const required of ['LICENSE', 'README.md', 'package.json', 'dist/index.js', 'dist/src/index.d.ts', 'dist/bin/awareness.js']) {
+for (const required of ['LICENSE', 'README.md', 'package.json', 'dist/index.js', 'out/types/src/index.d.ts', 'out/octocode-awareness.js']) {
   assert(files.includes(required), `packed artifact is missing ${required}`);
 }
-assert(pkg.types === './dist/src/index.d.ts', `package types must point at the verified declaration entry, got ${String(pkg.types)}`);
-assert(readFileSync(join(packageRoot, 'dist/src/index.d.ts'), 'utf8').includes('export'), 'declaration entry is empty or malformed');
+assert(pkg.types === './out/types/src/index.d.ts', `package types must point at the verified declaration entry, got ${String(pkg.types)}`);
+assert(readFileSync(join(packageRoot, 'out/types/src/index.d.ts'), 'utf8').includes('export'), 'declaration entry is empty or malformed');
 assert(packageSkills.length > 0, 'skill discovery found zero skills under repo-root skills/');
 for (const skill of packageSkills) {
   assert(
@@ -61,7 +61,7 @@ for (const skill of packageSkills) {
     `packed artifact must contain exactly one ${skill} skill tree`,
   );
 }
-assert(!files.some((path) => path.startsWith('skills/')), 'source skills/ must not duplicate dist/skills/');
+assert(!files.some((path) => path.startsWith('skills/')), 'source skills/ must not duplicate out/skills/');
 assert(!files.some((path) => path.endsWith('.map')), 'source maps must not ship in the package');
 assert(
   !files.some((path) => path.endsWith('octocode-config.mjs')),
@@ -75,8 +75,8 @@ try {
   cpSync(join(packageRoot, 'LICENSE'), join(isolated, 'LICENSE'));
   writeFileSync(join(isolated, 'package.json'), JSON.stringify(pkg));
 
-  const cli = join(isolated, 'dist/bin/awareness.js');
-  const schema = join(isolated, 'dist/skills/octocode-awareness/scripts/schema.mjs');
+  const cli = join(isolated, 'out/octocode-awareness.js');
+  const schema = join(isolated, 'out/skills/octocode-awareness/scripts/schema.mjs');
   const names = JSON.parse(run(process.execPath, [cli, 'schema', 'list', '--compact'], { cwd: isolated }));
   for (const name of names) {
     run(process.execPath, [schema, 'json-schema', name, '--compact'], { cwd: isolated });

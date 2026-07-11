@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "agent_id": {
+      "description": "Agent filter.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "workspace": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024,
+      "description": "Workspace root."
+    },
+    "artifact": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "description": "Artifact/package scope."
+    },
+    "min_count": {
+      "default": 2,
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 100
+    },
+    "limit": {
+      "default": 20,
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 200
+    },
+    "cwd": {
+      "description": "Scope cwd.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024
+    }
+  },
+  "required": [
+    "min_count",
+    "limit"
+  ],
+  "additionalProperties": false,
+  "description": "Mine failure clusters.",
+  "$id": "urn:octocode-awareness:schema:mine_weakness",
+  "examples": [
+    {
+      "agent_id": "agent",
+      "workspace": "/repo",
+      "artifact": "pkg",
+      "min_count": 2,
+      "limit": 20
+    }
+  ]
+}

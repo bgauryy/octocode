@@ -2,7 +2,7 @@
  * awareness.ts — CLI entry point for @octocodeai/octocode-awareness.
  *
  * Thin wrapper: parse args → call domain functions → emit JSON.
- * Compiled to dist/bin/awareness.js by build.mjs.
+ * Compiled to out/octocode-awareness.js by build.mjs.
  */
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { dirname, isAbsolute, resolve } from 'node:path';

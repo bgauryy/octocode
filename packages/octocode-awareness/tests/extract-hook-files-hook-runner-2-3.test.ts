@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 import { connectDb } from '../src/db.js';
 import { insertMemory } from '../src/memory.js';
-const DIST_DIR = resolve(dirname(fileURLToPath(import.meta.url)), '../dist/bin');
+const DIST_DIR = resolve(dirname(fileURLToPath(import.meta.url)), '../out');
 const HOOK_RUNNER = resolve(DIST_DIR, 'hook-runner.js');
 const SKILL_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../../skills/octocode-awareness');
 const HOOKS_DIR = resolve(SKILL_ROOT, 'scripts/hooks');
