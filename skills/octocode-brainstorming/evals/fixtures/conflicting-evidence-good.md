@@ -27,3 +27,9 @@ Decision: Prototype First
 
 ## Recommended Next Step
 Run one prototype that compares SQLite/FTS recall against optional semantic recall on real repo handoffs.
+
+## Sources
+- skills/octocode-awareness/references/memory-recall.md:18 — backs the local/inspectable SQLite-first claim above.
+- https://arxiv.org/abs/2310.08560 — backs the paraphrase-recall-value/dependency-cost claim above.
+- skills/octocode-awareness/SKILL.md:14 — backs the scoped-handoff/verification claim above.
+- https://mem0.ai/blog/introducing-openmemory-mcp — backs the differentiated-recall claim above.

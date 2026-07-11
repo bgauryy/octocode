@@ -868,9 +868,8 @@ fn collect_candidate_files(
     )
 }
 
-// Walker threads the 6 scope fields the OQL contract requires; a `FileScope`
-// struct would reduce the param count but is out of scope for this parity fix.
-#[allow(clippy::too_many_arguments)]
+// Walker threads the 8 scope/output fields the OQL contract requires; a
+// `FileScope` struct would trim this further but is out of scope here.
 fn collect_files(
     root: &Path,
     overrides: Override,

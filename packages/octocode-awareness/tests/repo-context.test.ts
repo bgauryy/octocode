@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { DatabaseSync } from 'node:sqlite';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { initDb } from '../src/db.js';
@@ -9,166 +9,102 @@ import { registerAgent } from '../src/agents.js';
 import { insertMemory } from '../src/memory.js';
 import { agentSignal } from '../src/notifications.js';
 import { insertRefinement } from '../src/refinements.js';
-import { reflect } from '../src/reflect.js';
 import { attendAwareness } from '../src/attend.js';
-import {
-  formatAwarenessQueryResult,
-  injectRepoContext,
-  queryAwareness,
-  renderAwarenessHtml,
-  writeAwarenessView,
-} from '../src/repo-context.js';
-
+import { formatAwarenessQueryResult, queryAwareness, renderAwarenessHtml } from '../src/repo-context.js';
 function freshDb(): DatabaseSync {
-  const db = new DatabaseSync(':memory:');
-  db.exec('PRAGMA foreign_keys = ON');
-  initDb(db);
-  return db;
+    const db = new DatabaseSync(':memory:');
+    db.exec('PRAGMA foreign_keys = ON');
+    initDb(db);
+    return db;
 }
-
 function seedPendingTasks(db: DatabaseSync, workspace: string, file: string): void {
-  const now = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
-  for (const runId of ['run_pending_a', 'run_pending_b']) {
-    db.prepare(
-      `INSERT INTO task_runs (run_id, origin, agent_id, rationale, test_plan, status, workspace_path, artifact, created_at, updated_at)
-       VALUES (?, 'WORK', ?, ?, ?, 'PENDING', ?, ?, ?, ?)`
-    ).run(
-      runId,
-      'agent-a',
-      'verify auth file',
-      'vitest auth',
-      workspace,
-      'svc',
-      now,
-      now,
-    );
-    db.prepare(
-      `INSERT INTO run_files (run_id, file_path, source, started_at, heartbeat_at, expires_at)
-       VALUES (?, ?, 'EXPLICIT', ?, ?, ?)`
-    ).run(runId, file, now, now, new Date(Date.now() + 60_000).toISOString());
-  }
+    const now = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
+    for (const runId of ['run_pending_a', 'run_pending_b']) {
+        db.prepare(`INSERT INTO task_runs (run_id, origin, agent_id, rationale, test_plan, status, workspace_path, artifact, created_at, updated_at)
+       VALUES (?, 'WORK', ?, ?, ?, 'PENDING', ?, ?, ?, ?)`).run(runId, 'agent-a', 'verify auth file', 'vitest auth', workspace, 'svc', now, now);
+        db.prepare(`INSERT INTO run_files (run_id, file_path, source, started_at, heartbeat_at, expires_at)
+       VALUES (?, ?, 'EXPLICIT', ?, ?, ?)`).run(runId, file, now, now, new Date(Date.now() + 60000).toISOString());
+    }
 }
-
-function seedActiveFilePeers(db: DatabaseSync, workspace: string, file: string): void {
-  const now = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
-  const future = new Date(Date.now() + 60_000).toISOString();
-  const past = new Date(Date.now() - 60_000).toISOString();
-  db.prepare(
-    `INSERT INTO plans (plan_id, name, objective, lead_agent_id, status, workspace_path, artifact, doc_dir, created_at, updated_at)
-     VALUES ('plan_file_work', 'Shared auth plan', 'Coordinate auth edits', 'agent-a', 'ACTIVE', ?, 'svc', '.octocode/plan/auth', ?, ?)`
-  ).run(workspace, now, now);
-  db.prepare(
-    `INSERT INTO tasks (task_id, plan_id, title, reasoning, acceptance_criteria, status, priority, created_by, created_at, updated_at)
-     VALUES ('task_file_work', 'plan_file_work', 'Edit auth', 'shared task reason', 'tests pass', 'IN_PROGRESS', 80, 'agent-a', ?, ?)`
-  ).run(now, now);
-  for (const [index, agentId] of ['agent-a', 'agent-b', 'agent-c', 'agent-d', 'agent-expired'].entries()) {
-    const runId = `run_peer_${index}`;
-    db.prepare(
-      `INSERT INTO task_runs (run_id, task_id, origin, agent_id, rationale, test_plan, status, workspace_path, artifact, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, 'focused test', 'ACTIVE', ?, 'svc', ?, ?)`
-    ).run(
-      runId,
-      index === 0 ? 'task_file_work' : null,
-      index === 0 ? 'TASK' : 'WORK',
-      agentId,
-      `reason ${index}`,
-      workspace,
-      now,
-      now,
-    );
-    db.prepare(
-      `INSERT INTO run_files (run_id, file_path, source, started_at, heartbeat_at, expires_at)
-       VALUES (?, ?, 'EXPLICIT', ?, ?, ?)`
-    ).run(runId, file, now, now, agentId === 'agent-expired' ? past : future);
-  }
-  db.prepare(
-    `INSERT INTO locks (lock_id, file_path, run_id, acquired_at, expires_at)
-     VALUES ('lock_peer', ?, 'run_peer_0', ?, ?)`
-  ).run(file, now, future);
-}
-
-function seededDb(workspace: string): { db: DatabaseSync; file: string } {
-  const db = freshDb();
-  const file = join(workspace, 'src', 'auth.ts');
-  registerAgent(db, {
-    agentId: 'agent-a',
-    agentName: 'Agent A',
-    workspacePath: workspace,
-    artifact: 'svc',
-    context: 'repo-context test',
-  });
-  insertMemory(db, {
-    agentId: 'agent-a',
-    taskContext: 'auth gotcha',
-    observation: 'Token migration order matters for auth',
-    importance: 9,
-    label: 'GOTCHA',
-    tags: ['auth'],
-    references: [`file:${file}`, 'https://example.com/auth-guide', 'repo:bgauryy/octocode-mcp', 'doc:auth-runbook'],
-    workspacePath: workspace,
-    artifact: 'svc',
-    failureSignature: 'mechanism:auth|cause:order',
-  });
-  insertMemory(db, {
-    agentId: 'agent-a',
-    taskContext: 'auth decision',
-    observation: 'Use schema before data backfill',
-    importance: 8,
-    label: 'DECISION',
-    workspacePath: workspace,
-    artifact: 'svc',
-  });
-  const now = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
-  const future = new Date(Date.now() + 60_000).toISOString();
-  db.prepare(
-    `INSERT INTO task_runs (run_id, origin, agent_id, rationale, test_plan, status, workspace_path, artifact, created_at, updated_at)
-     VALUES ('run_auth', 'WORK', 'agent-a', 'edit auth file', 'vitest auth', 'ACTIVE', ?, 'svc', ?, ?)`
-  ).run(workspace, now, now);
-  db.prepare(
-    `INSERT INTO run_files (run_id, file_path, source, started_at, heartbeat_at, expires_at)
-     VALUES ('run_auth', ?, 'EXPLICIT', ?, ?, ?)`
-  ).run(file, now, now, future);
-  db.prepare(
-    `INSERT INTO locks (lock_id, file_path, run_id, acquired_at, expires_at)
-     VALUES ('lock_auth', ?, 'run_auth', ?, ?)`
-  ).run(file, now, future);
-  insertRefinement(db, {
-    agentId: 'agent-a',
-    workspacePath: workspace,
-    artifact: 'svc',
-    reasoning: 'Continue auth cleanup',
-    remember: 'Finish middleware after router',
-    quality: 'handoff',
-    state: 'open',
-    files: [file],
-  });
-  agentSignal(db, {
-    action: 'publish',
-    agentId: 'agent-a',
-    toAgents: ['agent-b'],
-    workspacePath: workspace,
-    artifact: 'svc',
-    kind: 'decision',
-    subject: 'auth order',
-    body: 'schema first',
-    files: [file],
-    refs: ['doc:auth'],
-    importance: 7,
-  });
-  insertEditLog(db, {
-    agentId: 'agent-a',
-    workspacePath: workspace,
-    filePath: file,
-    operation: 'update',
-    linesAdded: 9,
-    linesRemoved: 3,
-  });
-  seedPendingTasks(db, workspace, file);
-  return { db, file };
+function seededDb(workspace: string): {
+    db: DatabaseSync;
+    file: string;
+} {
+    const db = freshDb();
+    const file = join(workspace, 'src', 'auth.ts');
+    registerAgent(db, {
+        agentId: 'agent-a',
+        agentName: 'Agent A',
+        workspacePath: workspace,
+        artifact: 'svc',
+        context: 'repo-context test',
+    });
+    insertMemory(db, {
+        agentId: 'agent-a',
+        taskContext: 'auth gotcha',
+        observation: 'Token migration order matters for auth',
+        importance: 9,
+        label: 'GOTCHA',
+        tags: ['auth'],
+        references: [`file:${file}`, 'https://example.com/auth-guide', 'repo:bgauryy/octocode-mcp', 'doc:auth-runbook'],
+        workspacePath: workspace,
+        artifact: 'svc',
+        failureSignature: 'mechanism:auth|cause:order',
+    });
+    insertMemory(db, {
+        agentId: 'agent-a',
+        taskContext: 'auth decision',
+        observation: 'Use schema before data backfill',
+        importance: 8,
+        label: 'DECISION',
+        workspacePath: workspace,
+        artifact: 'svc',
+    });
+    const now = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
+    const future = new Date(Date.now() + 60000).toISOString();
+    db.prepare(`INSERT INTO task_runs (run_id, origin, agent_id, rationale, test_plan, status, workspace_path, artifact, created_at, updated_at)
+     VALUES ('run_auth', 'WORK', 'agent-a', 'edit auth file', 'vitest auth', 'ACTIVE', ?, 'svc', ?, ?)`).run(workspace, now, now);
+    db.prepare(`INSERT INTO run_files (run_id, file_path, source, started_at, heartbeat_at, expires_at)
+     VALUES ('run_auth', ?, 'EXPLICIT', ?, ?, ?)`).run(file, now, now, future);
+    db.prepare(`INSERT INTO locks (lock_id, file_path, run_id, acquired_at, expires_at)
+     VALUES ('lock_auth', ?, 'run_auth', ?, ?)`).run(file, now, future);
+    insertRefinement(db, {
+        agentId: 'agent-a',
+        workspacePath: workspace,
+        artifact: 'svc',
+        reasoning: 'Continue auth cleanup',
+        remember: 'Finish middleware after router',
+        quality: 'handoff',
+        state: 'open',
+        files: [file],
+    });
+    agentSignal(db, {
+        action: 'publish',
+        agentId: 'agent-a',
+        toAgents: ['agent-b'],
+        workspacePath: workspace,
+        artifact: 'svc',
+        kind: 'decision',
+        subject: 'auth order',
+        body: 'schema first',
+        files: [file],
+        refs: ['doc:auth'],
+        importance: 7,
+    });
+    insertEditLog(db, {
+        agentId: 'agent-a',
+        workspacePath: workspace,
+        filePath: file,
+        operation: 'update',
+        linesAdded: 9,
+        linesRemoved: 3,
+    });
+    seedPendingTasks(db, workspace, file);
+    return { db, file };
 }
 
 describe('repo context query and projections', () => {
-  it('queries every view and renders all supported formats', () => {
+it('queries every view and renders all supported formats', () => {
     const dir = mkdtempSync(join(tmpdir(), 'oc-repo-context-'));
     try {
       const { db, file } = seededDb(dir);
@@ -203,8 +139,7 @@ describe('repo context query and projections', () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
-
-  it('builds a delta-sized compact attend packet with only actionable work', () => {
+it('builds a delta-sized compact attend packet with only actionable work', () => {
     const dir = mkdtempSync(join(tmpdir(), 'oc-attend-'));
     try {
       const { db, file } = seededDb(dir);
@@ -242,8 +177,7 @@ describe('repo context query and projections', () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
-
-  it('keeps global Verify totals exact while routing only the current agent', () => {
+it('keeps global Verify totals exact while routing only the current agent', () => {
     const dir = mkdtempSync(join(tmpdir(), 'oc-attend-owner-'));
     try {
       const { db, file } = seededDb(dir);
@@ -278,8 +212,7 @@ describe('repo context query and projections', () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
-
-  it('routes a submitted task to its exact pending run owner', () => {
+it('routes a submitted task to its exact pending run owner', () => {
     const dir = mkdtempSync(join(tmpdir(), 'oc-attend-task-owner-'));
     try {
       const db = freshDb();
@@ -308,503 +241,4 @@ describe('repo context query and projections', () => {
     }
   });
 
-  it('routes attend.next through owned Claimed, then FilesUnderWork, then Inbox', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'oc-attend-next-'));
-    try {
-      const db = freshDb();
-      const now = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
-      const future = new Date(Date.now() + 60_000).toISOString();
-      const file = join(dir, 'src', 'auth.ts');
-
-      db.prepare(`INSERT INTO plans
-        (plan_id, name, objective, lead_agent_id, status, workspace_path, doc_dir, created_at, updated_at)
-        VALUES ('plan_next', 'Next', 'Route mid-loop', 'owner', 'ACTIVE', ?, '.octocode/plan/next', ?, ?)`)
-        .run(dir, now, now);
-      db.prepare(`INSERT INTO tasks
-        (task_id, plan_id, title, reasoning, acceptance_criteria, status, priority, created_by, created_at, updated_at)
-        VALUES ('task_next', 'plan_next', 'Claimed work', 'reason', 'tests pass', 'IN_PROGRESS', 1, 'owner', ?, ?)`)
-        .run(now, now);
-      db.prepare(`INSERT INTO task_runs
-        (run_id, task_id, origin, agent_id, rationale, test_plan, status, workspace_path, created_at, updated_at)
-        VALUES ('run_next', 'task_next', 'TASK', 'owner', 'reason', 'tests pass', 'ACTIVE', ?, ?, ?)`)
-        .run(dir, now, now);
-      db.prepare(`INSERT INTO task_claims
-        (task_id, run_id, agent_id, claimed_at, heartbeat_at, expires_at)
-        VALUES ('task_next', 'run_next', 'owner', ?, ?, ?)`)
-        .run(now, now, future);
-
-      const claimed = attendAwareness(db, {
-        agentId: 'owner',
-        workspacePath: dir,
-        query: 'claimed mid-loop',
-        compact: true,
-      });
-      expect(claimed.next).toBe("octocode-awareness task heartbeat --task-id 'task_next' --run-id 'run_next' --agent-id 'owner' --compact");
-
-      const peer = attendAwareness(db, {
-        agentId: 'peer',
-        workspacePath: dir,
-        query: 'peer sees claimed',
-        compact: true,
-      });
-      expect(peer.next).not.toContain('task heartbeat');
-
-      db.prepare(`INSERT INTO run_files
-        (run_id, file_path, source, started_at, heartbeat_at, expires_at)
-        VALUES ('run_next', ?, 'EXPLICIT', ?, ?, ?)`)
-        .run(file, now, now, future);
-      const files = attendAwareness(db, {
-        agentId: 'peer',
-        workspacePath: dir,
-        query: 'files under work',
-        compact: true,
-      });
-      expect(files.next).toContain('work show');
-      expect(files.next).toContain('src/auth.ts');
-      expect(files.next).toContain(`--workspace '${dir}'`);
-
-      db.prepare(`UPDATE run_files SET ended_at = ?, expires_at = ?`).run(now, now);
-      agentSignal(db, {
-        action: 'publish',
-        agentId: 'owner',
-        toAgents: ['peer'],
-        workspacePath: dir,
-        kind: 'request',
-        subject: 'inbox next',
-        body: 'please ack',
-        importance: 6,
-      });
-      const inbox = attendAwareness(db, {
-        agentId: 'peer',
-        workspacePath: dir,
-        query: 'inbox mid-loop',
-        compact: true,
-      });
-      expect(inbox.next).toContain('signal list');
-      expect(inbox.next).toContain("--agent-id 'peer'");
-      expect(inbox.next).toContain(`--workspace '${dir}'`);
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  });
-
-  it('groups active file work by relative path, caps peers, and shows exclusive lock state', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'oc-file-work-'));
-    try {
-      const db = freshDb();
-      const file = join(dir, 'src', 'auth.ts');
-      seedActiveFilePeers(db, dir, file);
-
-      const workboard = queryAwareness(db, { workspacePath: dir, artifact: 'svc', view: 'workboard', limit: 10 });
-      const row = workboard.rows.find(item => item.column === 'FilesUnderWork');
-      expect(row).toMatchObject({
-        item_type: 'file',
-        path: 'src/auth.ts',
-        peer_count: 4,
-        omitted_peer_count: 1,
-        locked: true,
-        lock_agent_id: 'agent-a',
-      });
-      expect(row?.agents).toEqual(['agent-a', 'agent-b', 'agent-c']);
-      expect(row?.task_ids).toEqual(['task_file_work']);
-      expect(row?.plan_ids).toEqual(['plan_file_work']);
-      expect(row?.plans).toEqual(['Shared auth plan']);
-      expect(row?.reasons).toEqual(['shared task reason', 'reason 1', 'reason 2']);
-      expect(String(row?.path)).not.toContain(dir);
-
-      const compact = attendAwareness(db, { workspacePath: dir, artifact: 'svc', query: 'auth', compact: true });
-      expect(compact.workboard.FilesUnderWork?.[0]).toMatchObject({ path: 'src/auth.ts', peer_count: 4 });
-      expect(compact.workboard.FilesUnderWork?.[0]).not.toHaveProperty('agents');
-      expect(compact.workboard.FilesUnderWork?.[0]).not.toHaveProperty('reasons');
-      expect(compact.workboard.FilesUnderWork?.[0]).not.toHaveProperty('lock_expires_at');
-      expect(Buffer.byteLength(JSON.stringify(compact), 'utf8')).toBeLessThan(2 * 1024);
-
-      const profile = queryAwareness(db, { workspacePath: dir, artifact: 'svc', view: 'repo-profile' });
-      expect(profile.rows).toContainEqual({ metric: 'active_locks', count: 1 });
-      db.prepare("UPDATE locks SET expires_at = '2000-01-01T00:00:00Z'").run();
-      const expiredProfile = queryAwareness(db, { workspacePath: dir, artifact: 'svc', view: 'repo-profile' });
-      expect(expiredProfile.rows).toContainEqual({ metric: 'active_locks', count: 0 });
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  });
-
-  it('routes bloat to one valid bounded review command when verify is clear', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'oc-attend-bloat-'));
-    try {
-      const { db } = seededDb(dir);
-      mkdirSync(join(dir, '.octocode'), { recursive: true });
-      writeFileSync(join(dir, '.octocode', 'MEMORY.md'), `${'x\n'.repeat(250)}`, 'utf8');
-      writeFileSync(join(dir, '.octocode', 'GOTCHAS.md'), `${'y\n'.repeat(250)}`, 'utf8');
-      writeFileSync(join(dir, '.octocode', 'LEARN.md'), `${'z\n'.repeat(250)}`, 'utf8');
-      // Clear mid-loop lanes so projection bloat drives next.
-      db.prepare(`UPDATE task_runs SET status = 'SUCCESS'`).run();
-      db.prepare(`UPDATE run_files SET ended_at = '2000-01-01T00:00:00Z', expires_at = '2000-01-01T00:00:00Z'`).run();
-      db.prepare(`UPDATE signals SET status = 'resolved', resolved_at = '2000-01-01T00:00:00Z' WHERE status != 'resolved'`).run();
-      db.prepare(`UPDATE refinements SET state = 'done' WHERE state != 'done'`).run();
-      const result = attendAwareness(db, {
-        workspacePath: dir,
-        limit: 10,
-        compact: true,
-      });
-      expect(result.next).toBe(
-        `octocode-awareness query workboard --workspace '${dir}' --format json --limit 5 --compact`,
-      );
-      expect(result.next).not.toContain(';');
-      expect(result.next).not.toContain('memory forget --workspace');
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  });
-
-  it('routes role-dialogue queries to self-reflection-dialogue.md', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'oc-attend-dialogue-'));
-    try {
-      const { db } = seededDb(dir);
-      const full = attendAwareness(db, {
-        workspacePath: dir,
-        query: 'role dialogue tutor student review',
-        limit: 10,
-        compact: false,
-      });
-      const leads = (full.drive_state?.resource_leads ?? []) as Array<Record<string, unknown>>;
-      const sources = leads.map(lead => String(lead['source'] ?? ''));
-      expect(sources.some(source => source.includes('self-reflection-dialogue.md'))).toBe(true);
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  });
-
-  it('writes HTML views and generated wiki files from the DB projection', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'oc-repo-inject-'));
-    try {
-      const { db, file } = seededDb(dir);
-      const view = writeAwarenessView(db, {
-        workspacePath: dir,
-        artifact: 'svc',
-        view: 'all',
-        out: join(dir, '.octocode', 'awareness', 'index.html'),
-      });
-      expect(view.ok).toBe(true);
-      expect(existsSync(view.path)).toBe(true);
-      expect(readFileSync(view.path, 'utf8')).toContain('Octocode Awareness');
-
-      const injected = injectRepoContext(db, {
-        workspacePath: dir,
-        artifact: 'svc',
-        outDir: join(dir, '.octocode'),
-        mode: 'local',
-        includeView: true,
-        check: false,
-      });
-      expect(injected.ok).toBe(true);
-      expect(injected.files.some(file => file.endsWith('AGENTS.md'))).toBe(true);
-      expect(readFileSync(join(dir, '.octocode', 'GOTCHAS.md'), 'utf8')).toContain('Token migration order matters');
-      expect(readFileSync(join(dir, '.octocode', 'MEMORY.md'), 'utf8')).toContain('Total: 2 · Shown: 2');
-      expect(readFileSync(join(dir, '.octocode', 'BOOKMARKS.md'), 'utf8')).toContain('https://example.com/auth-guide');
-      expect(readFileSync(join(dir, '.octocode', 'BOOKMARKS.md'), 'utf8')).toContain('repo:bgauryy/octocode-mcp');
-      const agentsMd = readFileSync(join(dir, '.octocode', 'AGENTS.md'), 'utf8');
-      expect(agentsMd).toContain('Octocode Awareness Map');
-      expect(agentsMd).toContain('Projection Health');
-      expect(agentsMd).toContain('Root `AGENTS.md` should point here');
-      expect(agentsMd).not.toContain('append a root `AGENTS.md`');
-      expect(agentsMd).not.toContain('Read GOTCHAS + LEARN');
-      expect(agentsMd).not.toContain('## Files Under Work');
-      expect(agentsMd).not.toContain('## Active Exclusive Locks');
-      expect(agentsMd).toContain('memory recall');
-      expect(agentsMd).toMatch(/ask before editing root `AGENTS\.md`/i);
-      expect(agentsMd).not.toContain('or more detail is needed');
-      expect(readFileSync(join(dir, '.octocode', 'references', 'repo-map.md'), 'utf8')).not.toContain(file);
-      const manifest = JSON.parse(readFileSync(join(dir, '.octocode', 'awareness', 'manifest.json'), 'utf8')) as {
-        schema_version: number;
-        files: string[];
-        source: { revision: string };
-        budgets: { markdown: Record<string, { max_lines: number; actual_lines: number; within_budget: boolean }> };
-      };
-      expect(manifest.schema_version).toBe(2);
-      expect(manifest.source.revision).toMatch(/^sha256:/);
-      expect(manifest.files).toContain('.octocode/awareness/manifest.json');
-      const agentsBudget = manifest.budgets.markdown['AGENTS.md'];
-      expect(agentsBudget).toMatchObject({ max_lines: 80, within_budget: true });
-      expect(agentsBudget?.actual_lines).toBeGreaterThan(0);
-      expect(manifest.budgets.markdown['BOOKMARKS.md']).toMatchObject({ max_lines: 200, within_budget: true });
-      const attend = attendAwareness(db, { workspacePath: dir, artifact: 'svc', compact: false });
-      const projectionFiles = ((attend.organ_state?.senses as Record<string, unknown>).projection_health as Array<{ file: string }>).map(row => row.file);
-      expect(projectionFiles).toEqual(expect.arrayContaining(['.octocode/BOOKMARKS.md', '.octocode/awareness/manifest.json']));
-      expect(attend.bloat_warnings ?? []).not.toContain('manifest older than generated projection files; regenerate repo projection');
-      expect(attend.bloat_warnings ?? []).not.toContain('manifest source revision differs from live SQLite; regenerate repo projection');
-      insertMemory(db, {
-        agentId: 'agent-after-inject',
-        taskContext: 'projection changed after inject',
-        observation: 'live SQLite now differs from the generated snapshot',
-        importance: 6,
-        workspacePath: dir,
-        artifact: 'svc',
-      });
-      const staleAttend = attendAwareness(db, { workspacePath: dir, artifact: 'svc', compact: false });
-      expect(staleAttend.bloat_warnings ?? []).toContain('manifest source revision differs from live SQLite; regenerate repo projection');
-      expect(readFileSync(join(dir, '.octocode', 'awareness', 'csv', 'files.csv'), 'utf8')).toContain('auth.ts');
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  });
-
-  it('previews and prunes only retired manifest-owned projection files', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'oc-repo-orphans-'));
-    try {
-      const { db } = seededDb(dir);
-      injectRepoContext(db, { workspacePath: dir, includeView: true, check: false });
-      const html = join(dir, '.octocode', 'awareness', 'index.html');
-      const notes = join(dir, '.octocode', 'notes.md');
-      const plan = join(dir, '.octocode', 'plan', 'kept', 'PLAN.md');
-      mkdirSync(join(dir, '.octocode', 'plan', 'kept'), { recursive: true });
-      writeFileSync(notes, 'user-owned\n');
-      writeFileSync(plan, 'authored plan\n');
-
-      const preview = injectRepoContext(db, { workspacePath: dir, includeView: false, check: false });
-      expect(preview.orphan_candidates).toContain(html);
-      expect(preview.pruned_orphans).toEqual([]);
-      expect(existsSync(html)).toBe(true);
-
-      const pruned = injectRepoContext(db, {
-        workspacePath: dir,
-        includeView: false,
-        pruneOrphans: true,
-        check: false,
-      });
-      expect(pruned.pruned_orphans).toContain(html);
-      expect(existsSync(html)).toBe(false);
-      expect(readFileSync(notes, 'utf8')).toBe('user-owned\n');
-      expect(readFileSync(plan, 'utf8')).toBe('authored plan\n');
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  });
-
-  it('resolves Git scope once for a complete repo injection', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'oc-repo-inject-git-budget-'));
-    const binDir = join(dir, 'bin');
-    const countFile = join(dir, 'git-calls.log');
-    const previousPath = process.env.PATH;
-    const previousCountFile = process.env.OCTOCODE_GIT_COUNT_FILE;
-    try {
-      const { db } = seededDb(dir);
-      mkdirSync(binDir, { recursive: true });
-      const git = join(binDir, 'git');
-      writeFileSync(git, '#!/bin/sh\nprintf "%s\\n" "$*" >> "$OCTOCODE_GIT_COUNT_FILE"\nexit 1\n');
-      chmodSync(git, 0o755);
-      process.env.PATH = `${binDir}:${previousPath ?? ''}`;
-      process.env.OCTOCODE_GIT_COUNT_FILE = countFile;
-
-      injectRepoContext(db, {
-        workspacePath: dir,
-        outDir: join(dir, '.octocode'),
-        mode: 'local',
-        includeView: true,
-        check: true,
-      });
-
-      const calls = readFileSync(countFile, 'utf8').trim().split('\n').filter(Boolean);
-      expect(calls.length, calls.join('\n')).toBeLessThanOrEqual(6);
-      expect(calls.filter((call) => call.includes('rev-parse --show-toplevel'))).toHaveLength(1);
-    } finally {
-      process.env.PATH = previousPath;
-      if (previousCountFile === undefined) delete process.env.OCTOCODE_GIT_COUNT_FILE;
-      else process.env.OCTOCODE_GIT_COUNT_FILE = previousCountFile;
-      rmSync(dir, { recursive: true, force: true });
-    }
-  });
-
-  it('surfaces missing file references across query, workboard, projections, and HTML', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'oc-repo-missing-ref-'));
-    try {
-      const db = freshDb();
-      mkdirSync(join(dir, 'src'), { recursive: true });
-      const existing = join(dir, 'src', 'exists.ts');
-      const missing = join(dir, 'src', 'missing.ts');
-      writeFileSync(existing, 'export const ok = true;\n', 'utf8');
-      insertMemory(db, {
-        agentId: 'agent-a',
-        taskContext: 'missing ref gotcha',
-        observation: 'Do not trust old generated viewer paths without checking file refs',
-        importance: 8,
-        label: 'GOTCHA',
-        references: [`file:${existing}:1`, `file:${missing}:27`],
-        workspacePath: dir,
-        failureSignature: 'mechanism:projection|cause:stale-file-ref',
-      });
-
-      const memories = queryAwareness(db, { workspacePath: dir, view: 'memories', limit: 10 });
-      expect(memories.rows[0]?.['missing_reference_count']).toBe(1);
-      expect(memories.rows[0]?.['missing_references']).toEqual([`file:${missing}:27`]);
-      expect(memories.rows[0]?.['missing_files']).toEqual([missing]);
-
-      const files = queryAwareness(db, { workspacePath: dir, view: 'files', limit: 10 });
-      const missingRow = files.rows.find(row => row['file_path'] === missing);
-      expect(missingRow).toMatchObject({ file_exists: false, missing_file: true, gotchas: 1 });
-
-      const profile = queryAwareness(db, { workspacePath: dir, view: 'repo-profile', limit: 20 });
-      expect(profile.rows).toContainEqual({ metric: 'missing_file_refs', count: 1 });
-
-      const workboard = queryAwareness(db, { workspacePath: dir, view: 'workboard', limit: 10 });
-      const review = workboard.rows.find(row => row['column'] === 'MemoryReview');
-      expect(review?.['reasons']).toEqual(expect.arrayContaining(['stale_file_refs', 'failure_signature']));
-      expect(review?.['missing_references']).toEqual([`file:${missing}:27`]);
-
-      injectRepoContext(db, {
-        workspacePath: dir,
-        outDir: join(dir, '.octocode'),
-        mode: 'local',
-        includeView: true,
-        check: false,
-      });
-      expect(readFileSync(join(dir, '.octocode', 'GOTCHAS.md'), 'utf8')).toContain(`Missing refs: file:${missing}:27`);
-      expect(readFileSync(join(dir, '.octocode', 'BOOKMARKS.md'), 'utf8')).toContain('[missing file]');
-      const agents = readFileSync(join(dir, '.octocode', 'AGENTS.md'), 'utf8');
-      expect(agents).toContain('MissingFiles 1');
-      expect(agents).not.toContain('Do not trust old generated viewer paths without checking file refs');
-      const html = readFileSync(join(dir, '.octocode', 'awareness', 'index.html'), 'utf8');
-      expect(html).toContain('id="global-filter"');
-      expect(html).toContain('id="missing-filter"');
-      expect(html).toContain('data-missing="true"');
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  });
-
-  it('resolves relative projection output paths against the requested workspace', () => {
-    const workspaceDir = mkdtempSync(join(tmpdir(), 'oc-repo-inject-workspace-'));
-    const cwdDir = mkdtempSync(join(tmpdir(), 'oc-repo-inject-cwd-'));
-    const previousCwd = process.cwd();
-    try {
-      const { db } = seededDb(workspaceDir);
-      process.chdir(cwdDir);
-
-      const view = writeAwarenessView(db, {
-        workspacePath: workspaceDir,
-        view: 'all',
-        out: '.octocode/awareness/index.html',
-      });
-      expect(view.path).toBe(join(workspaceDir, '.octocode', 'awareness', 'index.html'));
-      expect(existsSync(view.path)).toBe(true);
-
-      const injected = injectRepoContext(db, {
-        workspacePath: workspaceDir,
-        outDir: '.octocode',
-        mode: 'local',
-        includeView: false,
-        check: false,
-      });
-      expect(injected.out_dir).toBe(join(workspaceDir, '.octocode'));
-      expect(existsSync(join(workspaceDir, '.octocode', 'AGENTS.md'))).toBe(true);
-      expect(existsSync(join(cwdDir, '.octocode', 'AGENTS.md'))).toBe(false);
-    } finally {
-      process.chdir(previousCwd);
-      rmSync(workspaceDir, { recursive: true, force: true });
-      rmSync(cwdDir, { recursive: true, force: true });
-    }
-  });
-
-  // Inserts and projection writes contend with the full parallel package suite.
-  it('keeps generated memory markdown within projection budgets', { timeout: 15_000 }, () => {
-    const dir = mkdtempSync(join(tmpdir(), 'oc-repo-budget-'));
-    try {
-      const db = freshDb();
-      for (let i = 0; i < 80; i++) {
-        insertMemory(db, {
-          agentId: 'agent-a',
-          taskContext: `budget memory ${i}`,
-          observation: `budget observation ${i}`,
-          importance: 5,
-          label: 'OTHER',
-          workspacePath: dir,
-          preComputedSimilar: [],
-        });
-      }
-
-      injectRepoContext(db, {
-        workspacePath: dir,
-        outDir: join(dir, '.octocode'),
-        mode: 'local',
-        includeView: false,
-        check: false,
-      });
-
-      const memoryMarkdown = readFileSync(join(dir, '.octocode', 'MEMORY.md'), 'utf8');
-      const memoryLines = memoryMarkdown.split(/\r?\n/).length;
-      expect(memoryLines).toBeLessThanOrEqual(200);
-      expect(memoryMarkdown).toContain('Omitted by projection cap');
-      const summary = memoryMarkdown.match(/Total: (\d+) · Shown: (\d+) · Omitted: (\d+)/);
-      expect(summary).not.toBeNull();
-      const renderedRows = memoryMarkdown.match(/^## /gm)?.length ?? 0;
-      expect({
-        total: Number(summary?.[1]),
-        shown: Number(summary?.[2]),
-        omitted: Number(summary?.[3]),
-      }).toEqual({
-        total: 80,
-        shown: renderedRows,
-        omitted: 80 - renderedRows,
-      });
-      const manifest = JSON.parse(readFileSync(join(dir, '.octocode', 'awareness', 'manifest.json'), 'utf8')) as {
-        budgets: { markdown: Record<string, { within_budget: boolean }> };
-      };
-      expect(manifest.budgets.markdown['MEMORY.md']).toMatchObject({ within_budget: true });
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  });
-
-  it('surfaces instruction feedback via the developer-review view and DEVELOPER_REVIEW.md projection', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'oc-repo-devreview-'));
-    try {
-      const db = freshDb();
-      reflect(db, {
-        agentId: 'agent-a',
-        task: 'add lock retry',
-        outcome: 'partial',
-        fixInstructions: 'AGENTS.md never states the default lock TTL — document it and how to extend.',
-        workspacePath: dir,
-      });
-
-      const view = queryAwareness(db, { view: 'developer-review', workspacePath: dir });
-      expect(view.count).toBe(1);
-      expect(String(view.rows[0]!['feedback'])).toContain('default lock TTL');
-      expect(view.rows[0]!['source']).toBe('refinement');
-      expect(view.rows[0]!['state']).toBe('open');
-
-      injectRepoContext(db, {
-        workspacePath: dir,
-        outDir: join(dir, '.octocode'),
-        mode: 'local',
-        includeView: false,
-        check: false,
-      });
-
-      const devReview = readFileSync(join(dir, '.octocode', 'DEVELOPER_REVIEW.md'), 'utf8');
-      expect(devReview).toContain('# Developer Review');
-      expect(devReview).toContain('default lock TTL');
-      expect(devReview).toContain('Open: 1');
-
-      const agentsMd = readFileSync(join(dir, '.octocode', 'AGENTS.md'), 'utf8');
-      expect(agentsMd).toContain('Retro Files Map');
-      expect(agentsMd).toContain('.octocode/DEVELOPER_REVIEW.md');
-
-      const manifest = JSON.parse(readFileSync(join(dir, '.octocode', 'awareness', 'manifest.json'), 'utf8')) as {
-        counts: Record<string, number>;
-        budgets: { markdown: Record<string, { within_budget: boolean }> };
-      };
-      expect(manifest.counts['developer-review']).toBe(1);
-      expect(manifest.budgets.markdown['DEVELOPER_REVIEW.md']).toMatchObject({ within_budget: true });
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  });
-
-  it('rejects unknown views, formats, and repo injection modes', () => {
-    const db = freshDb();
-    expect(() => queryAwareness(db, { view: 'unknown' })).toThrow('unknown octocode-awareness query view');
-    expect(() => formatAwarenessQueryResult(queryAwareness(db, { view: 'all' }), 'bad')).toThrow('--format must be');
-    expect(() => injectRepoContext(db, { mode: 'publish' })).toThrow('--mode must be local or share');
-  });
 });

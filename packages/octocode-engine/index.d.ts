@@ -119,8 +119,10 @@ export interface BinaryStrings {
  * Lossless pagination: the returned `nextScanOffset` (when set) is the absolute
  * byte offset of the next window, rewound to a safe break so no string is split
  * across windows. Pass `scanOffset = 0` for the first window.
+ *
+ * Runs on libuv's worker pool (MB-scale scan) — returns a Promise.
  */
-export declare function extractBinaryStringsNative(path: string, minLength: number, includeOffsets: boolean, scanOffset: number): BinaryStrings
+export declare function extractBinaryStringsNative(path: string, minLength: number, includeOffsets: boolean, scanOffset: number): Promise<BinaryStrings>
 
 /**
  * Native binary inspection (format lane). Parses `path` as an executable /
@@ -130,8 +132,10 @@ export declare function extractBinaryStringsNative(path: string, minLength: numb
  * Replaces the `file` + `xxd` shell-outs. Never throws on malformed input: a
  * parse failure degrades to magic-byte identity with an explanatory note. The
  * only `Err` cases are unreadable / oversized files.
+ *
+ * Runs on libuv's worker pool (goblin parse) — returns a Promise.
  */
-export declare function inspectBinaryNative(path: string): BinaryInspectInfo
+export declare function inspectBinaryNative(path: string): Promise<BinaryInspectInfo>
 
 /** Extract a byte-range substring from `content`. */
 export declare function byteSliceContent(content: string, byteStart: number, byteEnd: number): string
@@ -503,8 +507,10 @@ export declare const SUPPORTED_STRUCTURAL_EXTENSIONS: readonly string[]
  *
  * Char offsets match JavaScript `string.substring()` — pass them directly to
  * JavaScript string slicing without conversion.
+ *
+ * Runs on libuv's worker pool (tree-sitter parse) — returns a Promise.
  */
-export declare function getSemanticBoundaryOffsets(content: string, filePath: string): Array<number>
+export declare function getSemanticBoundaryOffsets(content: string, filePath: string): Promise<Array<number>>
 
 /**
  * Returns all extensions that have signature extraction support
@@ -992,8 +998,10 @@ export interface StructuralSearchDetailedResult {
  * (exactly one). Returns node ranges (1-based lines, ready as `lineHint`s)
  * plus captured metavariables. Throws on unsupported extension, invalid
  * pattern/rule, or both/neither query supplied.
+ *
+ * Runs on libuv's worker pool (tree-sitter parse) — returns a Promise.
  */
-export declare function structuralSearch(content: string, filePath: string, pattern?: string | undefined | null, rule?: string | undefined | null): Array<StructuralMatch>
+export declare function structuralSearch(content: string, filePath: string, pattern?: string | undefined | null, rule?: string | undefined | null): Promise<Array<StructuralMatch>>
 
 /**
  * Detailed structural search. Unsupported extensions and invalid queries return
@@ -1006,7 +1014,11 @@ export interface StructuralSearchFileResult {
   matches: Array<StructuralMatch>
 }
 
-export declare function structuralSearchFiles(options: StructuralSearchFilesOptions): StructuralSearchFilesResult
+/**
+ * Runs on libuv's worker pool — the directory walk + per-file parse is
+ * CPU/IO-bound and can span thousands of files. Returns a Promise.
+ */
+export declare function structuralSearchFiles(options: StructuralSearchFilesOptions): Promise<StructuralSearchFilesResult>
 
 export declare function structuralSearchFilesDetailed(options: StructuralSearchFilesOptions): StructuralSearchFilesDetailedResult
 
@@ -1015,7 +1027,25 @@ export interface StructuralSearchFilesOptions {
   pattern?: string
   rule?: string
   include?: Array<string>
+  /**
+   * File-path globs to skip (gitignore-style, e.g. `"*.min.js"`, `"src/gen/**"`).
+   * Mirrors `localSearchCode.exclude` so OQL `scope.exclude` is honored on the
+   * structural lane — previously silently dropped (typed-contract violation).
+   */
+  exclude?: Array<string>
   excludeDir?: Array<string>
+  /**
+   * Include hidden (dot) files. `None` preserves the default walker behavior
+   * (hidden ignored); `Some(true)` forces them in.
+   */
+  hidden?: boolean
+  /**
+   * Bypass `.gitignore`/`.ignore` rules. `None` preserves defaults; `Some(true)`
+   * searches files normally hidden by ignore files (mirrors `localSearchCode.noIgnore`).
+   */
+  noIgnore?: boolean
+  /** Maximum directory descent depth (0 = just the root). `None` = unbounded. */
+  maxDepth?: number
   maxFiles?: number
   maxFileBytes?: number
 }
@@ -1025,6 +1055,13 @@ export interface StructuralSearchFilesResult {
   totalMatches: number
   parsedFiles: number
   skippedByPreFilter: number
+  /**
+   * Candidate files whose extension has no grammar — not evaluated, hence
+   * not proof of absence. Mirrors the detailed result's counter so the two
+   * shapes agree and the warning text can't collapse unevaluated into
+   * anchor-absent.
+   */
+  skippedUnsupported: number
   skippedUnreadable: number
   skippedLarge: number
   warnings: Array<string>

@@ -104,7 +104,7 @@ export async function fetchGitHubFileContentAPI(
   const paginatedResult =
     signaturesExtracted || wantsWholeFile
       ? processedData
-      : applyContentPagination(processedData, charOffset, charLength);
+      : await applyContentPagination(processedData, charOffset, charLength);
 
   const isContinuationPage = (params.charOffset ?? 0) > 0;
   if (!params.noTimestamp && !isContinuationPage) {

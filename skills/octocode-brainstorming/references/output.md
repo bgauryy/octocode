@@ -32,7 +32,12 @@ Load when presenting the chat brief, assigning confidence, or preparing an RFC h
 
 ## RFC Handoff
 <only if ready/requested: problem, framing, value, evidence, alternatives, constraints, first slice, open questions, success signal>
+
+## Sources
+- <URL or path:line> — <claim it supports, author/org/date where unstable>
 ```
+
+**`Sources` is mandatory, not optional** — always close with it, even for a chat-only answer that is never saved as a brief. One line per URL/path actually cited above (Evidence by Surface, Landscape, or inline); do not introduce new sources here that weren't already used in the body. Empty only when zero external evidence was used (pure reasoning/framing turn).
 
 ## Confidence
 

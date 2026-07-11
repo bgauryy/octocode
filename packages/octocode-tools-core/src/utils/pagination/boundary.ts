@@ -9,13 +9,18 @@ function resolveBoundaryFilePath(filePath: string | undefined): string {
     : GENERIC_BOUNDARY_FILE;
 }
 
-function getSemanticBoundaries(content: string, filePath?: string): number[] {
-  return contextUtils
-    .getSemanticBoundaryOffsets(content, resolveBoundaryFilePath(filePath))
-    .filter(
-      (offset): offset is number =>
-        Number.isInteger(offset) && offset >= 0 && offset <= content.length
-    );
+async function getSemanticBoundaries(
+  content: string,
+  filePath?: string
+): Promise<number[]> {
+  const offsets = await contextUtils.getSemanticBoundaryOffsets(
+    content,
+    resolveBoundaryFilePath(filePath)
+  );
+  return offsets.filter(
+    (offset): offset is number =>
+      Number.isInteger(offset) && offset >= 0 && offset <= content.length
+  );
 }
 
 function nextLineStart(content: string, fromChar: number): number | undefined {
@@ -32,28 +37,31 @@ export function isMidBlockCut(paginatedContent: string): boolean {
   );
 }
 
-export function findNextBlockBoundary(
+export async function findNextBlockBoundary(
   content: string,
   fromChar: number,
   filePath?: string
-): number | undefined {
+): Promise<number | undefined> {
   const searchStart = nextLineStart(content, Math.max(0, fromChar));
   if (searchStart === undefined) return undefined;
-  return getSemanticBoundaries(content, filePath).find(
-    offset => offset >= searchStart && offset > fromChar
-  );
+  const boundaries = await getSemanticBoundaries(content, filePath);
+  return boundaries.find(offset => offset >= searchStart && offset > fromChar);
 }
 
-export function buildBlockBoundaryHint(
+export async function buildBlockBoundaryHint(
   paginatedContent: string,
   fullContent: string,
   cutPos: number,
   currentCharLength: number,
   filePath?: string
-): { nextBlockChar: number; hint: string } | undefined {
+): Promise<{ nextBlockChar: number; hint: string } | undefined> {
   if (!isMidBlockCut(paginatedContent)) return undefined;
 
-  const nextBlockChar = findNextBlockBoundary(fullContent, cutPos, filePath);
+  const nextBlockChar = await findNextBlockBoundary(
+    fullContent,
+    cutPos,
+    filePath
+  );
   if (nextBlockChar === undefined) return undefined;
 
   const extendBy = nextBlockChar - cutPos;
@@ -68,12 +76,12 @@ export function buildBlockBoundaryHint(
 
 export type ChunkMode = 'semantic' | 'char-limit';
 
-export function snapToSemanticBoundary(
+export async function snapToSemanticBoundary(
   content: string,
   charOffset: number,
   charLength: number,
   filePath?: string
-): { length: number; chunkMode: ChunkMode } {
+): Promise<{ length: number; chunkMode: ChunkMode }> {
   const safeOffset = Math.min(Math.max(0, charOffset), content.length);
   const safeLength = Math.max(1, charLength);
   const idealEnd = safeOffset + safeLength;
@@ -82,7 +90,7 @@ export function snapToSemanticBoundary(
     return { length: content.length - safeOffset, chunkMode: 'char-limit' };
   }
 
-  const boundaries = getSemanticBoundaries(content, filePath);
+  const boundaries = await getSemanticBoundaries(content, filePath);
   if (boundaries.length === 0) {
     return { length: safeLength, chunkMode: 'char-limit' };
   }

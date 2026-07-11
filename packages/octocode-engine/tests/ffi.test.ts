@@ -599,14 +599,14 @@ pub fn run() {
 });
 
 describe('structuralSearchFiles', () => {
-  it('searches files natively and returns grouped structural matches', () => {
+  it('searches files natively and returns grouped structural matches', async () => {
     const root = mkdtempSync(join(tmpdir(), 'octocode-structural-'));
     try {
       mkdirSync(join(root, 'src'), { recursive: true });
       writeFileSync(join(root, 'src', 'a.ts'), 'target(value);\n');
       writeFileSync(join(root, 'src', 'b.ts'), 'other(value);\n');
 
-      const result = addon!.structuralSearchFiles({
+      const result = await addon!.structuralSearchFiles({
         path: root,
         pattern: 'target($X)',
         include: ['*.ts'],
@@ -713,13 +713,13 @@ describe('structuralSearchFilesDetailed', () => {
 });
 
 describe('inspectBinaryNative (format lane)', () => {
-  it('identifies an ELF magic and degrades gracefully on a truncated header', () => {
+  it('identifies an ELF magic and degrades gracefully on a truncated header', async () => {
     const root = mkdtempSync(join(tmpdir(), 'octocode-binary-'));
     try {
       const file = join(root, 'fake.so');
       // Valid ELF magic, then garbage — goblin parse fails, identity survives.
       writeFileSync(file, Buffer.from([0x7f, 0x45, 0x4c, 0x46, 0, 0, 0, 0]));
-      const info = addon!.inspectBinaryNative(file);
+      const info = await addon!.inspectBinaryNative(file);
       expect(info.format).toBe('elf');
       expect(info.magicHex.startsWith('7f 45 4c 46')).toBe(true);
       expect(info.notes.length).toBeGreaterThan(0);
@@ -728,12 +728,12 @@ describe('inspectBinaryNative (format lane)', () => {
     }
   });
 
-  it('marks unrecognized data as unknown without throwing', () => {
+  it('marks unrecognized data as unknown without throwing', async () => {
     const root = mkdtempSync(join(tmpdir(), 'octocode-binary-'));
     try {
       const file = join(root, 'data.bin');
       writeFileSync(file, 'just some plain text, definitely not a binary');
-      const info = addon!.inspectBinaryNative(file);
+      const info = await addon!.inspectBinaryNative(file);
       expect(info.format).toBe('unknown');
       expect(info.notes.length).toBeGreaterThan(0);
     } finally {
@@ -743,7 +743,7 @@ describe('inspectBinaryNative (format lane)', () => {
 });
 
 describe('extractBinaryStringsNative', () => {
-  it('recovers ASCII and UTF-16LE strings (the GNU strings -a blind spot)', () => {
+  it('recovers ASCII and UTF-16LE strings (the GNU strings -a blind spot)', async () => {
     const root = mkdtempSync(join(tmpdir(), 'octocode-strings-'));
     try {
       const file = join(root, 'blob.bin');
@@ -752,7 +752,7 @@ describe('extractBinaryStringsNative', () => {
       const wide = Buffer.from('WideString', 'utf16le');
       writeFileSync(file, Buffer.concat([ascii, Buffer.from([0xff, 0xff]), wide]));
 
-      const res = addon!.extractBinaryStringsNative(file, 5, false, 0);
+      const res = await addon!.extractBinaryStringsNative(file, 5, false, 0);
       expect(res.strings).toContain('HelloAsciiWorld');
       expect(res.strings).toContain('WideString');
       expect(res.totalFound).toBeGreaterThanOrEqual(2);
@@ -762,12 +762,12 @@ describe('extractBinaryStringsNative', () => {
     }
   });
 
-  it('prefixes hex offsets when requested', () => {
+  it('prefixes hex offsets when requested', async () => {
     const root = mkdtempSync(join(tmpdir(), 'octocode-strings-'));
     try {
       const file = join(root, 'blob.bin');
       writeFileSync(file, Buffer.from([0, 0, 0x61, 0x62, 0x63, 0x64, 0x65, 0x66]));
-      const res = addon!.extractBinaryStringsNative(file, 4, true, 0);
+      const res = await addon!.extractBinaryStringsNative(file, 4, true, 0);
       expect(res.strings[0]).toMatch(/^0x[0-9a-f]+: abcdef$/);
     } finally {
       rmSync(root, { recursive: true, force: true });
@@ -804,8 +804,8 @@ describe('getSupportedStructuralExtensions', () => {
 });
 
 describe('structuralSearch across new languages (napi shape)', () => {
-  it('matches a CSS declaration value and captures the metavar', () => {
-    const matches = addon!.structuralSearch(
+  it('matches a CSS declaration value and captures the metavar', async () => {
+    const matches = await addon!.structuralSearch(
       '.btn { color: red; }\n',
       'a.css',
       '.btn { color: $C; }',
@@ -815,14 +815,19 @@ describe('structuralSearch across new languages (napi shape)', () => {
     expect(matches[0].metavars.C).toEqual(['red']);
   });
 
-  it('matches HTML tag-name metavars (z-expando) over napi', () => {
-    const matches = addon!.structuralSearch('<input>\n', 'p.html', '<$TAG>', null);
+  it('matches HTML tag-name metavars (z-expando) over napi', async () => {
+    const matches = await addon!.structuralSearch(
+      '<input>\n',
+      'p.html',
+      '<$TAG>',
+      null
+    );
     expect(matches.length).toBe(1);
     expect(matches[0].metavars.TAG).toEqual(['input']);
   });
 
-  it('runs a JSON kind rule over napi', () => {
-    const matches = addon!.structuralSearch(
+  it('runs a JSON kind rule over napi', async () => {
+    const matches = await addon!.structuralSearch(
       '{"a":1,"b":2}\n',
       'c.json',
       null,
@@ -1434,8 +1439,8 @@ describe('ESM/CJS loader parity', () => {
     const esm = await importEsmLoader();
     const src = 'function a() {\n  return 1;\n}\n\nfunction b() {}\n';
 
-    expect(esm.getSemanticBoundaryOffsets(src, 'x.ts')).toEqual(
-      addon!.getSemanticBoundaryOffsets(src, 'x.ts')
+    expect(await esm.getSemanticBoundaryOffsets(src, 'x.ts')).toEqual(
+      await addon!.getSemanticBoundaryOffsets(src, 'x.ts')
     );
   });
 });

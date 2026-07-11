@@ -1,3 +1,7 @@
+use crate::bindings::tasks::{
+    SemanticBoundaryOffsetsTask, StructuralSearchFilesTask, StructuralSearchTask,
+};
+use napi::bindgen_prelude::AsyncTask;
 use napi::{Error, Result, Status};
 use napi_derive::napi;
 
@@ -92,22 +96,22 @@ pub fn get_graph_fact_capabilities() -> String {
 /// (exactly one). Returns node ranges (1-based lines, ready as `lineHint`s)
 /// plus captured metavariables. Throws on unsupported extension, invalid
 /// pattern/rule, or both/neither query supplied.
+///
+/// Runs on libuv's worker pool (parsing is tree-sitter, CPU-bound) so a large
+/// file never blocks the event loop. Returns a Promise from JavaScript.
 #[napi(js_name = "structuralSearch")]
 pub fn structural_search(
     content: String,
     file_path: String,
     pattern: Option<String>,
     rule: Option<String>,
-) -> Result<Vec<crate::structural::StructuralMatch>> {
-    let ext = crate::file_extension::get_extension_internal(&file_path, true, "txt");
-    // Contain tree-sitter matcher panics on pathological input: an unwind
-    // across the napi FFI boundary would abort the Node process. Mirror the
-    // panic guards used in `apply.rs` / signature extraction.
-    let outcome = std::panic::catch_unwind(|| {
-        crate::structural::search(&content, &ext, pattern.as_deref(), rule.as_deref())
+) -> AsyncTask<StructuralSearchTask> {
+    AsyncTask::new(StructuralSearchTask {
+        content,
+        file_path,
+        pattern,
+        rule,
     })
-    .unwrap_or_else(|_| Err("structural search failed on pathological input".to_string()));
-    outcome.map_err(|message| Error::new(Status::InvalidArg, message))
 }
 
 /// Detailed structural search. Unlike `structuralSearch`, unsupported
@@ -138,13 +142,16 @@ pub fn structural_search_detailed(
     })
 }
 
+/// Runs on libuv's worker pool — the directory walk + per-file parse is
+/// CPU/IO-bound and can span thousands of files. Returns a Promise from
+/// JavaScript.
 #[napi(js_name = "structuralSearchFiles")]
 pub fn structural_search_files(
     options: crate::structural::StructuralSearchFilesOptions,
-) -> Result<crate::structural::StructuralSearchFilesResult> {
-    std::panic::catch_unwind(|| crate::structural::search_files(options))
-        .unwrap_or_else(|_| Err("structural file search failed on pathological input".to_string()))
-        .map_err(|message| Error::new(Status::InvalidArg, message))
+) -> AsyncTask<StructuralSearchFilesTask> {
+    AsyncTask::new(StructuralSearchFilesTask {
+        options: Some(options),
+    })
 }
 
 #[napi(js_name = "structuralSearchFilesDetailed")]
@@ -174,9 +181,15 @@ pub fn get_supported_structural_extensions() -> Vec<String> {
 ///
 /// Char offsets match JavaScript `string.substring()` — pass them directly to
 /// JavaScript string slicing without conversion.
+///
+/// Runs on libuv's worker pool (tree-sitter parse is CPU-bound) so a large file
+/// never blocks the event loop. Returns a Promise from JavaScript.
 #[napi(js_name = "getSemanticBoundaryOffsets")]
-pub fn get_semantic_boundary_offsets(content: String, file_path: String) -> Vec<u32> {
-    crate::signatures::get_semantic_boundary_offsets_inner(&content, &file_path)
+pub fn get_semantic_boundary_offsets(
+    content: String,
+    file_path: String,
+) -> AsyncTask<SemanticBoundaryOffsetsTask> {
+    AsyncTask::new(SemanticBoundaryOffsetsTask { content, file_path })
 }
 
 /// Returns all extensions that have signature-outline support. This is exactly

@@ -146,10 +146,9 @@ export function createPlan(
   const planPath = join(absoluteDir, 'PLAN.md');
   const manifestPath = join(absoluteDir, 'manifest.json');
   try {
-    writeFileSync(planPath, renderPrimaryPlanDoc(plan), { encoding: 'utf8', flag: 'wx' });
-    writeFileSync(manifestPath, `${JSON.stringify({
-      schema_version: 1,
-      plan_id: planId,
+      writeFileSync(planPath, renderPrimaryPlanDoc(plan), { encoding: 'utf8', flag: 'wx' });
+      writeFileSync(manifestPath, `${JSON.stringify({
+        plan_id: planId,
       primary_doc: 'PLAN.md',
       supporting_docs_dir: 'docs',
       live_task_state: 'awareness.sqlite3',

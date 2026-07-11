@@ -35,8 +35,8 @@ describe('isMidBlockCut — pure TypeScript logic', () => {
 });
 
 describe('snapToSemanticBoundary — real Rust boundaries via octocode-engine', () => {
-  it('returns char-limit when content fits entirely within the budget', () => {
-    const result = snapToSemanticBoundary(
+  it('returns char-limit when content fits entirely within the budget', async () => {
+    const result = await snapToSemanticBoundary(
       TWO_TS_FUNCTIONS,
       0,
       TWO_TS_FUNCTIONS.length + 100,
@@ -46,22 +46,27 @@ describe('snapToSemanticBoundary — real Rust boundaries via octocode-engine', 
     expect(result.length).toBe(TWO_TS_FUNCTIONS.length);
   });
 
-  it('returns char-limit for JSON content (Rust returns no boundaries for data files)', () => {
+  it('returns char-limit for JSON content (Rust returns no boundaries for data files)', async () => {
     const json = '{"key":"value","num":42,"arr":[1,2,3]}';
-    const result = snapToSemanticBoundary(json, 0, 5, 'config.json');
+    const result = await snapToSemanticBoundary(json, 0, 5, 'config.json');
     expect(result.chunkMode).toBe('char-limit');
     expect(result.length).toBe(5);
   });
 
-  it('returns char-limit for YAML content (Rust returns no boundaries for data files)', () => {
+  it('returns char-limit for YAML content (Rust returns no boundaries for data files)', async () => {
     const yaml = 'key: value\nother: 42\n';
-    const result = snapToSemanticBoundary(yaml, 0, 5, 'config.yaml');
+    const result = await snapToSemanticBoundary(yaml, 0, 5, 'config.yaml');
     expect(result.chunkMode).toBe('char-limit');
     expect(result.length).toBe(5);
   });
 
-  it('snaps to a semantic boundary for TypeScript when one is within budget', () => {
-    const result = snapToSemanticBoundary(TWO_TS_FUNCTIONS, 0, 10, 'src/a.ts');
+  it('snaps to a semantic boundary for TypeScript when one is within budget', async () => {
+    const result = await snapToSemanticBoundary(
+      TWO_TS_FUNCTIONS,
+      0,
+      10,
+      'src/a.ts'
+    );
     if (result.chunkMode === 'semantic') {
       expect(result.length).toBeGreaterThan(10);
       expect(result.length).toBeLessThanOrEqual(TWO_TS_FUNCTIONS.length);
@@ -70,19 +75,34 @@ describe('snapToSemanticBoundary — real Rust boundaries via octocode-engine', 
     }
   });
 
-  it('returns char-limit when no boundary is found after the ideal cut', () => {
+  it('returns char-limit when no boundary is found after the ideal cut', async () => {
     const offset = TWO_TS_FUNCTIONS.length - 5;
-    const result = snapToSemanticBoundary(TWO_TS_FUNCTIONS, offset, 10, 'src/a.ts');
+    const result = await snapToSemanticBoundary(
+      TWO_TS_FUNCTIONS,
+      offset,
+      10,
+      'src/a.ts'
+    );
     expect(result.chunkMode).toBe('char-limit');
   });
 
-  it('never returns a length larger than (content.length - offset)', () => {
-    const result = snapToSemanticBoundary(TWO_TS_FUNCTIONS, 10, 5, 'src/a.ts');
+  it('never returns a length larger than (content.length - offset)', async () => {
+    const result = await snapToSemanticBoundary(
+      TWO_TS_FUNCTIONS,
+      10,
+      5,
+      'src/a.ts'
+    );
     expect(result.length).toBeLessThanOrEqual(TWO_TS_FUNCTIONS.length - 10);
   });
 
-  it('handles a giant single function without exceeding MAX_SEMANTIC_EXTENSION', () => {
-    const result = snapToSemanticBoundary(SINGLE_GIANT_FUNCTION, 0, 10, 'src/big.ts');
+  it('handles a giant single function without exceeding MAX_SEMANTIC_EXTENSION', async () => {
+    const result = await snapToSemanticBoundary(
+      SINGLE_GIANT_FUNCTION,
+      0,
+      10,
+      'src/big.ts'
+    );
     if (result.chunkMode === 'char-limit') {
       expect(result.length).toBe(10);
     } else {
@@ -92,20 +112,26 @@ describe('snapToSemanticBoundary — real Rust boundaries via octocode-engine', 
 });
 
 describe('findNextBlockBoundary — real Rust offsets', () => {
-  it('returns undefined for JSON content (Rust reports no boundaries)', () => {
-    expect(findNextBlockBoundary('{"a":1}', 3, 'file.json')).toBeUndefined();
+  it('returns undefined for JSON content (Rust reports no boundaries)', async () => {
+    expect(
+      await findNextBlockBoundary('{"a":1}', 3, 'file.json')
+    ).toBeUndefined();
   });
 
-  it('finds a boundary after the cut point in a two-function TypeScript file', () => {
-    const boundary = findNextBlockBoundary(TWO_TS_FUNCTIONS, 5, 'src/a.ts');
+  it('finds a boundary after the cut point in a two-function TypeScript file', async () => {
+    const boundary = await findNextBlockBoundary(
+      TWO_TS_FUNCTIONS,
+      5,
+      'src/a.ts'
+    );
     if (boundary !== undefined) {
       expect(boundary).toBeGreaterThan(5);
       expect(boundary).toBeLessThanOrEqual(TWO_TS_FUNCTIONS.length);
     }
   });
 
-  it('uses a generic boundary path for unknown file types', () => {
-    const result = findNextBlockBoundary(TWO_TS_FUNCTIONS, 0);
+  it('uses a generic boundary path for unknown file types', async () => {
+    const result = await findNextBlockBoundary(TWO_TS_FUNCTIONS, 0);
     if (result !== undefined) {
       expect(Number.isInteger(result)).toBe(true);
       expect(result).toBeGreaterThan(0);
@@ -114,10 +140,10 @@ describe('findNextBlockBoundary — real Rust offsets', () => {
 });
 
 describe('buildBlockBoundaryHint', () => {
-  it('returns undefined when the paginated content ends at column 0 (not mid-block)', () => {
+  it('returns undefined when the paginated content ends at column 0 (not mid-block)', async () => {
     const content = 'function a() {}\nfunction b() {}\n';
     const cut = content.indexOf('\nfunction b') + 1;
-    const hint = buildBlockBoundaryHint(
+    const hint = await buildBlockBoundaryHint(
       content.slice(0, cut),
       content,
       cut,
@@ -127,10 +153,10 @@ describe('buildBlockBoundaryHint', () => {
     expect(hint).toBeUndefined();
   });
 
-  it('builds a well-formed hint when the cut lands mid-block and Rust finds a next boundary', () => {
+  it('builds a well-formed hint when the cut lands mid-block and Rust finds a next boundary', async () => {
     const insideBody = TWO_TS_FUNCTIONS.indexOf('  return 1;') + 5;
     const paginated = TWO_TS_FUNCTIONS.slice(0, insideBody);
-    const hint = buildBlockBoundaryHint(
+    const hint = await buildBlockBoundaryHint(
       paginated,
       TWO_TS_FUNCTIONS,
       insideBody,

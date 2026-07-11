@@ -4,13 +4,12 @@ Use this runbook when any agent must answer: “Is Octocode Awareness working?�
 owns the verification sequence and receipt shape; command schemas remain owned by
 the CLI, hook semantics by [HOOKS.md](HOOKS.md), and invariants by
 [HARNESS.md](HARNESS.md).
-
 ## Choose Scope
 
 | Scope | Use when | Required result |
 |---|---|---|
 | Quick | Confirm an installed CLI/store can start | Self-test, schema, status, attend |
-| Installed | Validate the shipped skill bundle and coordination runtime | Quick + install diagnostic + multi-agent smoke |
+| Installed | Validate the shipped skill bundle and coordination runtime | Quick + install diagnostic + multi-agent smoke + [full feature sweep](FEATURE_SWEEP.md) |
 | Host | Rely on Claude, Codex, Cursor, or Pi automation | Installed + config check + observed runtime event |
 | Monorepo | Change package source, docs, hooks, or skill | Full build/test/smoke/review matrix |
 | Release | Publish or validate an npm artifact | Monorepo + pack check |
@@ -18,7 +17,6 @@ the CLI, hook semantics by [HOOKS.md](HOOKS.md), and invariants by
 
 Run only the lanes in scope. Never report “all working” when a required lane was
 skipped or blocked.
-
 ## Safety
 
 - Start with non-source-mutating checks. They may initialize or update Awareness
@@ -31,6 +29,8 @@ skipped or blocked.
   not install both. Pi never uses shell hook installation.
 - Preserve exact failing output and exit code. Do not convert unavailable tooling
   into a product failure.
+- Pass `--workspace` on path-resolution commands; a bare relative path can resolve
+  against the wrong root and false-pass while a peer still holds the file.
 
 Choose the executable once:
 
@@ -41,7 +41,6 @@ AWARENESS="octocode-awareness"
 # Monorepo after build:
 AWARENESS="node packages/octocode-awareness/dist/index.js"
 ```
-
 ## Quick Check
 
 Run from the target repository:
@@ -58,7 +57,6 @@ Pass when self-test returns `ok:true`, schema discovery returns commands, worksp
 status opens the intended store/scope, and attend returns `ok:true` plus an
 actionable `next`. Follow `attend.next` only when it is relevant to the check; do not
 drain unrelated inbox or maintenance work.
-
 ## Installed Bundle Check
 
 Set `SKILL_ROOT` to the installed `octocode-awareness` skill directory. Run the
@@ -73,7 +71,11 @@ The diagnostic must report `ok:true`, absolute runnable commands, a bundled or
 available runtime, and no dependency writes. The smoke uses temporary state and
 must prove advisory overlap, exclusive conflict, pending verification, verify
 clearance, signal delivery, stale-lock cleanup, and a zero-debt final audit.
+## Full Feature Sweep
 
+Run the isolated [full feature sweep](FEATURE_SWEEP.md) for planning, learning,
+wiki, registry, and maintenance surfaces. Every listed pass signal is required;
+an errored, missing, or wrong-workspace step makes Installed scope FAIL.
 ## Host Hook Check
 
 Config check is read-only:
@@ -111,7 +113,6 @@ Then make one approved harmless structured edit and observe the complete edge:
 For Pi, call `wirePiAwarenessHooks(pi)` or use `@octocodeai/pi-extension`; verify
 tool-call guard/presence, tool-result audit/heartbeat, prompt briefing, pre-compact,
 and agent-end behavior. Never run shell hook install for Pi.
-
 ## Full Monorepo Check
 
 Run from the monorepo root. Keep the explicit matrix: the package `verify` script
@@ -131,7 +132,6 @@ node packages/octocode-awareness/dist/index.js \
 
 Pass when every command exits `0`, coverage thresholds pass, skill review has zero
 errors, and smoke ends with zero verification debt or active locks.
-
 ## Release Add-On
 
 ```bash
@@ -141,7 +141,6 @@ yarn workspace @octocodeai/octocode-awareness pack:check
 Pass when the isolated packed artifact loads its CLI, schemas, and library
 entrypoint. `pack:check` requires an `npm` executable; missing `npm` makes the
 release lane **BLOCKED**, not failed. It does not block the monorepo lane.
-
 ## Peer Interview
 
 Use when the question is “how do agents judge a capability,” not “does a command pass or fail” — auditing Awareness itself or any multi-agent coordination question. One agent is the **interviewer**; it spawns independent **panelists** with no shared context, each required to cite a command it ran for every claim. Quick-Check scope only: read-only, no hook install, no lock/work/task claims, no source mutation.
@@ -151,14 +150,12 @@ Use when the question is “how do agents judge a capability,” not “does a c
 **Evidence rules:** live state is a snapshot, not a fact; declared presence (`work list`, `attend.FilesUnderWork`) is intent, not edit-proof; `verify mark`/`verify audit` are claims, not independent proof; `hooks check` config `ready` never implies `runtime` execution (stays `unverified` until a real host event); opinions need a controlled comparison to be more than opinion.
 
 **Report shape:** `## <Lens> agent — <topic>`, Q&A citing commands, an evidence table, one-line verdict. Interview scope has no PASS/FAIL/BLOCKED — its receipt is this scorecard, not the record below.
-
 ## Verdict
 
 - **PASS** — every required lane ran and its pass signal was observed.
 - **FAIL** — a required product behavior or assertion failed; preserve evidence.
 - **BLOCKED** — a prerequisite or approval is unavailable; name the exact lane and
   next command. Other passing lanes remain valid but cannot justify “all working.”
-
 ## Receipt
 
 Return this compact record:
@@ -169,6 +166,7 @@ Scope: quick | installed | host:<name> | monorepo | release
 Runtime: node=<version> awareness=<version/path> workspace=<path>
 Checks: <command/lane>=<exit + decisive signal>; ...
 Hooks: config=<ready|missing|drifted|n/a> runtime=<observed|unverified|n/a>
+Wiki: inject=<generated|stale|not_run> manifest_complete=<true|false|n/a>
 Debt: pending=<count> active=<count> locks=<count>
 Blocked/skipped: <none or exact prerequisite + next action>
 Evidence: <test counts, coverage, smoke receipt, relevant paths>

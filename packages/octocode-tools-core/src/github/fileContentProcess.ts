@@ -29,11 +29,11 @@ interface FileTimestampInfo {
   lastModifiedBy: string;
 }
 
-export function applyContentPagination(
+export async function applyContentPagination(
   data: GitHubFileContentApiResult,
   charOffset: number,
   charLength?: number
-): GitHubFileContentApiResult {
+): Promise<GitHubFileContentApiResult> {
   const content = data.content ?? '';
   const maxChars = charLength ?? getDefaultContentPageSize();
 
@@ -42,20 +42,25 @@ export function applyContentPagination(
   }
 
   const filePath = data.path ?? undefined;
-  const { length: snappedLength, chunkMode } = snapToSemanticBoundary(
+  const { length: snappedLength, chunkMode } = await snapToSemanticBoundary(
     content,
     charOffset,
     maxChars,
     filePath
   );
 
-  const paginationMeta = applyPagination(content, charOffset, snappedLength);
+  const paginationMeta = applyPagination(content, charOffset, snappedLength, {
+    // snappedLength is snapped to a semantic boundary and varies per page; use
+    // the stable requested page size (maxChars) for an absolute page counter —
+    // same fix as local_fetch_content/fetchContent.ts's paginateContentWindow.
+    pageSize: maxChars,
+  });
 
   let nextBlockChar: number | undefined;
   if (paginationMeta.hasMore && chunkMode === 'char-limit') {
     if (isMidBlockCut(paginationMeta.paginatedContent)) {
       const cutPos = paginationMeta.charOffset + paginationMeta.charLength;
-      nextBlockChar = findNextBlockBoundary(content, cutPos, filePath);
+      nextBlockChar = await findNextBlockBoundary(content, cutPos, filePath);
     }
   }
 
@@ -146,11 +151,21 @@ export async function processFileContentAPI(
         filePath
       );
       if (markdownOutline !== null) {
+        const sanitizedOutline = ContentSanitizer.sanitizeContent(
+          markdownOutline,
+          filePath
+        );
+        const hints: string[] = [contextUtils.SIGNATURES_ONLY_HINT];
+        if (sanitizedOutline.hasSecrets) {
+          hints.push(
+            `Secrets detected and redacted: ${sanitizedOutline.secretsDetected.join(', ')}`
+          );
+        }
         return {
           owner,
           repo,
           path: filePath,
-          content: markdownOutline,
+          content: sanitizedOutline.content,
           contentView: 'symbols',
           isSkeleton: true,
           branch,
@@ -158,7 +173,7 @@ export async function processFileContentAPI(
           ...sourceSizeFields(sourceChars, sourceBytes),
           isPartial: false,
           signaturesExtracted: true,
-          hints: [contextUtils.SIGNATURES_ONLY_HINT],
+          hints,
         };
       }
       signaturesSkippedWarning = `minify:"symbols" is not supported for this file type (${filePath.split('.').pop() ?? 'unknown'}) — falling back to standard content view.`;

@@ -36,7 +36,9 @@ node skills/octocode-brainstorming/scripts/eval-brainstorm.mjs --case idea-valid
 node skills/octocode-brainstorming/scripts/brainstorm-run.mjs --self-test
 ```
 
-The evaluator checks observable structure and failure modes, not whether market or technical judgment is true.
+The evaluator checks observable structure and failure modes, not whether market or technical judgment is true. Cited `file:line` references are always checked locally (no flag, no network — fabricated paths or stale line numbers fail `cited file:line references resolve`); cited URLs are only checked live with `--verify-links` (network required, opt-in so default/CI runs stay offline) and only a definitive 404 fails `cited links are reachable (verified)` — timeouts, 403s, 5xx, and hosts that reject `HEAD` are `unverified`, not `dead`.
+
+**Contract: the deterministic score is the gate; `--agentic` is monitoring, not a gate.** `required`/`forbidden`/`binaryQuestions`/citation-count/Sources-section checks decide pass/fail (`affectsScore: false` on the agentic layer is deliberate — a flaky LLM judge must never fail CI). Advisory-only protects the gate from judge inconsistency, but it does **not** protect against self-preference bias: if the same model family both writes the brainstorming answer and grades it via `--agentic`, use a **different judge model/provider** whenever that advisory pass is actually informing a release or acceptance decision, not just a curiosity check.
 
 ## User Communication
 

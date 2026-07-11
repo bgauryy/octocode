@@ -19,7 +19,11 @@ describe('fetchContent next.continueChars', () => {
     bigFile = join(dir, 'big.txt');
     smallFile = join(dir, 'small.txt');
     // Plain prose (no code) so minification leaves length comfortably > limit.
-    await writeFile(bigFile, 'lorem ipsum dolor sit amet '.repeat(400), 'utf-8');
+    await writeFile(
+      bigFile,
+      'lorem ipsum dolor sit amet '.repeat(400),
+      'utf-8'
+    );
     await writeFile(smallFile, 'tiny content', 'utf-8');
   });
 
@@ -137,6 +141,7 @@ describe('fetchContent minify:"symbols" char pagination', () => {
       nextCharOffset?: number;
       totalChars?: number;
       charOffset?: number;
+      charLength?: number;
     };
     expect(pagination?.hasMore).toBe(true);
     expect(pagination?.charOffset).toBe(0);
@@ -154,7 +159,10 @@ describe('fetchContent minify:"symbols" char pagination', () => {
       query: {
         path: manyFnFile,
         charOffset: pagination.nextCharOffset,
-        charLength: 400,
+        // The continuation echoes the actual (semantic-snapped) page length,
+        // not the originally requested charLength — a page that snapped to a
+        // boundary continues at that snapped width.
+        charLength: pagination.charLength,
         minify: 'symbols',
       },
     });

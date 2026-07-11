@@ -229,7 +229,7 @@ describe('READ -> DO -> LEARN closure fixes', () => {
   });
 
   it('keeps terminal refinement creation behind the receipt-bearing update path', () => {
-    const cliSource = readFileSync(new URL('../bin/awareness.ts', import.meta.url), 'utf8');
+    const cliSource = readFileSync(new URL('../bin/cli-memory.ts', import.meta.url), 'utf8');
     const terminalCreateGuard = cliSource.indexOf("if (stateVal === 'done')");
     const createCall = cliSource.indexOf('const { refinement } = insertRefinement', terminalCreateGuard);
     expect(terminalCreateGuard).toBeGreaterThan(0);

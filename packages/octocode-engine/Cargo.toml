@@ -26,7 +26,9 @@ unused_variables = "deny"
 unused_mut       = "deny"
 
 [lib]
-crate-type = ["cdylib"]
+# `cdylib` is the napi addon; `rlib` additionally lets Rust bench/integration
+# targets link the crate as a library (criterion benches under `benches/`).
+crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 napi        = { version = "3", default-features = false, features = ["napi4", "tokio_rt", "serde-json"] }
@@ -130,6 +132,15 @@ tree-sitter-large-grammars = ["tree-sitter-cpp", "tree-sitter-c-sharp", "tree-si
 [dev-dependencies]
 napi = { version = "3", default-features = false, features = ["noop", "napi4", "tokio_rt", "serde-json"] }
 proptest = "1"
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[[bench]]
+name = "structural"
+harness = false
+
+[[bench]]
+name = "minify"
+harness = false
 
 [build-dependencies]
 napi-build = "2"

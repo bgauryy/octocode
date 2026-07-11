@@ -6,16 +6,34 @@ process.on("warning", (warning) => {
 });
 
 import { spawnSync } from "node:child_process";
+import { existsSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const scriptsDir = dirname(fileURLToPath(import.meta.url));
 const skillRoot = dirname(scriptsDir);
+const bundledSkillsDir = dirname(skillRoot);
 const args = new Set(process.argv.slice(2));
 const nodeBin = process.execPath;
 const quote = (value) => JSON.stringify(value);
 const awarenessCommand = `${quote(nodeBin)} ${quote(join(scriptsDir, "awareness.mjs"))}`;
 const schemaCommand = `${quote(nodeBin)} ${quote(join(scriptsDir, "schema.mjs"))}`;
+
+// Discovered at runtime — a sibling of this skill's own folder — so this list
+// can never silently drift from whatever build.mjs actually bundled here.
+const REQUIRED_BUNDLED_SKILLS = new Set(["octocode-awareness", "octocode-skills"]);
+function discoverBundledSkills(dir) {
+  if (!existsSync(dir)) return [];
+  return readdirSync(dir, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && existsSync(join(dir, entry.name, "SKILL.md")))
+    .map((entry) => ({
+      name: entry.name,
+      path: join(dir, entry.name),
+      required: REQUIRED_BUNDLED_SKILLS.has(entry.name),
+    }))
+    .sort((a, b) => (a.required === b.required ? a.name.localeCompare(b.name) : a.required ? -1 : 1));
+}
+const bundledSkills = discoverBundledSkills(bundledSkillsDir);
 
 function printHelp() {
   console.log(`Usage: node scripts/install.mjs [--help]
@@ -124,6 +142,7 @@ console.log(
       scriptsDir,
       node: nodeBin,
       runtime: { dependencies: "bundled", writes: false },
+      bundled_skills: bundledSkills,
       commands: {
         schema: `${schemaCommand} list`,
         awareness: `${awarenessCommand} workspace status --workspace "$PWD" --compact`,
@@ -141,8 +160,8 @@ console.log(
         pi_bridge: "import { wirePiAwarenessHooks } from '@octocodeai/octocode-awareness'; wirePiAwarenessHooks(pi, { skillRoot })",
       },
       next_steps: [
-        "This package bundles the skill under dist/skills/octocode-awareness; install that local/bundled path with npx octocode skill --add --path <awareness-package>/dist/skills/octocode-awareness --platform common.",
-        "Use npx octocode for skill install/update/lint and research/search operations; do not fetch octocode-awareness by registry name.",
+        `This package bundles ${bundledSkills.length} skill(s) under bundled_skills above (octocode-awareness + octocode-skills are required, the rest optional); install any of them with npx octocode skill --add --path <bundled_skills[i].path> --platform common.`,
+        "Use npx octocode for skill install/update/lint and research/search operations; do not fetch bundled skills by registry name — always install from the bundled path above.",
         "Export one stable OCTOCODE_AGENT_ID for the CLI and host hooks.",
         "Run maintenance init once for the store, then workspace status and attend from each repo.",
         "When Claude skill frontmatter is active, use it as the hook surface and do not also install duplicate project settings; hooks check inspects settings files only.",

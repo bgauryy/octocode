@@ -210,8 +210,8 @@ function attachCharContinuation(
 
 // ─── mode handlers ────────────────────────────────────────────────────────────
 
-function handleInspect(path: string, query: BinaryInspectQuery) {
-  const result = inspectBinaryFile(path);
+async function handleInspect(path: string, query: BinaryInspectQuery) {
+  const result = await inspectBinaryFile(path);
   if (!result.success || !result.info) {
     return createErrorResult(result.error ?? 'inspect failed', query);
   }
@@ -422,7 +422,12 @@ async function handleStrings(path: string, query: BinaryInspectQuery) {
   const minLength = query.minLength ?? DEFAULT_MIN_STRING_LENGTH;
   const includeOffsets = query.includeOffsets ?? false;
   const scanOffset = query.scanOffset ?? 0;
-  const result = extractStrings(path, minLength, includeOffsets, scanOffset);
+  const result = await extractStrings(
+    path,
+    minLength,
+    includeOffsets,
+    scanOffset
+  );
 
   if (!result.success) {
     return createErrorResult(

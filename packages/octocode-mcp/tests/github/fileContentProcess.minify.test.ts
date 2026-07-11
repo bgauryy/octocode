@@ -232,7 +232,7 @@ describe('processFileContentAPI — minify mode', () => {
 });
 
 describe('applyContentPagination — chars mode (not bytes)', () => {
-  it('does NOT paginate when charCount <= limit even if byteCount > limit', () => {
+  it('does NOT paginate when charCount <= limit even if byteCount > limit', async () => {
     const cjk = '中';
     const content = cjk.repeat(50);
     expect(content.length).toBe(50); // 50 JS chars
@@ -247,12 +247,12 @@ describe('applyContentPagination — chars mode (not bytes)', () => {
       totalLines: 1,
     };
 
-    const result = applyContentPagination(data, 0, 100);
+    const result = await applyContentPagination(data, 0, 100);
     expect(result.content).toBe(content);
     expect(result.pagination).toBeUndefined();
   });
 
-  it('paginates when charCount exceeds limit', () => {
+  it('paginates when charCount exceeds limit', async () => {
     const content = 'a'.repeat(200);
 
     const data = {
@@ -264,12 +264,12 @@ describe('applyContentPagination — chars mode (not bytes)', () => {
       totalLines: 1,
     };
 
-    const result = applyContentPagination(data, 0, 100);
+    const result = await applyContentPagination(data, 0, 100);
     expect(result.content).toHaveLength(100);
     expect(result.pagination?.hasMore).toBe(true);
   });
 
-  it('pagination output contains only char fields — no byteOffset/byteLength/totalBytes', () => {
+  it('pagination output contains only char fields — no byteOffset/byteLength/totalBytes', async () => {
     const content = 'x'.repeat(200);
     const data = {
       owner: 'test',
@@ -280,7 +280,7 @@ describe('applyContentPagination — chars mode (not bytes)', () => {
       totalLines: 1,
     };
 
-    const result = applyContentPagination(data, 0, 100);
+    const result = await applyContentPagination(data, 0, 100);
     expect(result.pagination).toBeDefined();
     expect(result.pagination).not.toHaveProperty('byteOffset');
     expect(result.pagination).not.toHaveProperty('byteLength');
@@ -290,7 +290,7 @@ describe('applyContentPagination — chars mode (not bytes)', () => {
     expect(result.pagination).toHaveProperty('totalChars');
   });
 
-  it('charOffset advances by chars, not bytes', () => {
+  it('charOffset advances by chars, not bytes', async () => {
     const cjk = '中'.repeat(30); // 30 chars, 90 bytes
     const ascii = 'x'.repeat(100);
     const content = cjk + ascii;
@@ -304,7 +304,7 @@ describe('applyContentPagination — chars mode (not bytes)', () => {
       totalLines: 1,
     };
 
-    const result = applyContentPagination(data, 30, 100);
+    const result = await applyContentPagination(data, 30, 100);
     expect(result.content).toBe(ascii.slice(0, 100));
   });
 });

@@ -124,25 +124,33 @@ rmSync(join(__dirname, 'skills'), { recursive: true, force: true });
 const agentSkillsRoot = join(repoRoot, '.agents', 'skills');
 const skillsDestRoot = join(repoRoot, 'skills');
 const distBin     = join(__dirname, 'dist', 'bin');
-const mirroredPackageSkills = new Set([
-  'octocode-awareness',
-  'octocode-skills',
-]);
 const retiredPackageSkills = [
   'octocode-agent-communication',
   'octocode-reflection',
 ];
-const bundledFromRepoRoot = [
-  {
-    name: 'octocode-awareness',
-    src: join(repoRoot, 'skills', 'octocode-awareness'),
-  },
-  {
-    name: 'octocode-skills',
-    src: join(repoRoot, 'skills', 'octocode-skills'),
-  },
-];
+
+// Every skill under repo-root skills/ is bundled and mirrored — discovered at
+// build time so a new skill folder is picked up automatically instead of
+// silently drifting out of the published package. A directory only counts as
+// a skill when it has a SKILL.md; the `scripts/` helper dir and retired names
+// are excluded.
+function discoverSkills(skillsRoot, retiredNames) {
+  return readdirSync(skillsRoot, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name)
+    .filter((name) => name !== 'scripts' && !retiredNames.includes(name))
+    .filter((name) => existsSync(join(skillsRoot, name, 'SKILL.md')))
+    .sort()
+    .map((name) => ({ name, src: join(skillsRoot, name) }));
+}
+
+const bundledFromRepoRoot = discoverSkills(skillsDestRoot, retiredPackageSkills);
+const mirroredPackageSkills = new Set(bundledFromRepoRoot.map(({ name }) => name));
 const generatedSkillMirrorRoots = [agentSkillsRoot];
+// Generated per-consumer artifact (injected by skills/scripts/sync.mjs from
+// packages/octocode-config/dist/); it is gitignored and machine-local, and
+// must never be vendored into a published or mirrored skill copy.
+const skipGeneratedConfig = (src) => !src.endsWith('octocode-config.mjs');
 
 for (const skillName of retiredPackageSkills) {
   rmSync(join(skillsDestRoot, skillName), { recursive: true, force: true });
@@ -200,7 +208,7 @@ for (const skillName of packageSkills) {
 
     cpSync(skillSrc, skillDest, {
       recursive: true,
-      filter: (src) => !src.includes('node_modules'),
+      filter: (src) => !src.includes('node_modules') && skipGeneratedConfig(src),
     });
 
     if (scriptCopies.length > 0) {
@@ -220,7 +228,7 @@ mkdirSync(distSkillsDest, { recursive: true });
 for (const bundled of bundledFromRepoRoot) {
   cpSync(bundled.src, join(distSkillsDest, bundled.name), {
     recursive: true,
-    filter: (src) => !src.includes('node_modules'),
+    filter: (src) => !src.includes('node_modules') && skipGeneratedConfig(src),
   });
 }
 

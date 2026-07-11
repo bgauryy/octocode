@@ -11,7 +11,7 @@ import { fileURLToPath } from 'node:url';
 
 // DB layer
 export {
-  AWARENESS_APPLICATION_ID, AWARENESS_SCHEMA_VERSION,
+  AWARENESS_APPLICATION_ID,
   connectDb, connectCachedDb, initDb, memoryHome, resolveDbPath, hasFts, tableColumns,
   replaceMemoryReferences, referenceKind, evictExpiredLocks, checkpointWal,
   getDeliveryFingerprint, setDeliveryFingerprint,

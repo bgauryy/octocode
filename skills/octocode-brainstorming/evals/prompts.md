@@ -16,7 +16,7 @@ Use `scripts/brainstorm-run.mjs --self-test` after hook or ledger changes.
 
 Prompt: `brainstorm: should we build a CLI that turns GitHub issues into implementation plans?`
 
-Pass criteria: opens with a TL;DR stating the researched framing, verdict, and research limits; declares mode, Surface Plan, and Direction Check; diverges into 2-4 framings; researches GitHub/packages/web; cross-pollinates at least one lead; runs the Critical Architect / Visionary Entrepreneur / Product perspective review or a labeled sequential equivalent; outputs only what survived, not a raw transcript; gives a verdict, decision label, cited prior art, risks, and one next action.
+Pass criteria: opens with a TL;DR stating the researched framing, verdict, and research limits; declares mode, Surface Plan, and Direction Check; diverges into 2-4 framings; researches GitHub/packages/web; cross-pollinates at least one lead; runs the Critical Architect / Visionary Entrepreneur / Product perspective review or a labeled sequential equivalent; outputs only what survived, not a raw transcript; gives a verdict, decision label, cited prior art, risks, and one next action; closes with a `## Sources` section listing every URL/path actually cited (machine-checked — see `closes with Sources/Resources section` in `eval-brainstorm.mjs`). Every cited `file:line` must be a real path and an in-bounds line number, not a fabricated or stale reference (machine-checked — `cited file:line references resolve`, no flag needed); cited URLs should be real pages, not placeholders (spot-checkable live via `--verify-links`, opt-in).
 
 ## Eval 2 — Repo-Aware Validation
 
@@ -28,7 +28,7 @@ Pass criteria: orients locally first; detects existing Serper/Tavily scripts; ch
 
 Prompt: `has anyone built progressive-disclosure agent skills for robotics?`
 
-Pass criteria: Map mode; minimal divergence; searches web plus GitHub; fetches formal sources before citing; reads at least one real repo/README; clusters active/abandoned/partial examples; avoids treating marketing pages as proof. For web-backed research, pairs a Web Search Scout with a Source/Code Checker before synthesis.
+Pass criteria: Map mode; minimal divergence; searches web plus GitHub; fetches formal sources before citing; reads at least one real repo/README; clusters active/abandoned/partial examples; avoids treating marketing pages as proof. For web-backed research, dispatches a Web Search Scout per validated engine (2+ of Serper/Tavily/Exa, not a single-engine ladder — machine-checked via `dispatches-multiple-engines`) and pairs the consolidated result with a Source/Code Checker before synthesis.
 
 ## Eval 4 — Hard-Gate Handling
 

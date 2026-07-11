@@ -58,6 +58,10 @@ npx octocode skill --add \
 # after approval, rerun with --force
 ```
 
+The package bundles every other repo skill under `dist/skills/` too, all optional and
+installed the same way; run `octocode-awareness --help` or
+`scripts/install.mjs` (see its `bundled_skills` field) for the current, resolved list.
+
 The npm package is one product with two surfaces: the
 `npx @octocodeai/octocode-awareness` CLI and the bundled Agent Skill. For the skill, use the
 packaged `dist/skills/octocode-awareness` path; do not use a skill installer’s

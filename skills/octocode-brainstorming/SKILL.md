@@ -1,6 +1,6 @@
 ---
 name: octocode-brainstorming
-description: "Use when an idea needs disciplined exploration before commitment: generate options, test whether something is worth building, map existing solutions and adjacent patterns, challenge assumptions, narrow scope, or choose Build RFC, Prototype, Narrow, or Park."
+description: "Evidence-grounded idea exploration and prior-art mapping before build commitment. Use when an idea needs disciplined exploration before commitment: generate options, test whether something is worth building, map existing solutions and adjacent patterns, challenge assumptions, narrow scope, or choose Build RFC, Prototype, Narrow, or Park — even when the user never says 'brainstorm.' Prefer octocode-research for pure code/repo evidence-gathering and octocode-rfc-generator once the decision is already made."
 ---
 
 # Octocode Brainstorming
@@ -29,7 +29,8 @@ Stop, recommend one option, and wait when the idea spans three unrelated spaces,
 ## Related routes and scripts
 - Use `octocode-rfc-generator` for a Build verdict; `octocode-research` for technical evidence; `octocode-eval` for measurable experiments.
 - Use `octocode-awareness` to capture durable lessons; `octocode-skills` when changing this skill folder.
-- Use `scripts/serper-search.mjs` or `scripts/tavily-search.mjs` only when configured web search is needed; run `scripts/eval-brainstorm.mjs` when changing this skill.
+- Use `octocode-subagent` to dispatch and synthesize workers — see `references/tools.md#Workers` for the brainstorm-specific Scout/Aggregator/Checker topology and the five-worker ceiling.
+- Use `scripts/serper-search.mjs`, `scripts/tavily-search.mjs`, or `scripts/exa-search.mjs` for configured web search — default to querying every validated engine and consolidating, not a first-success ladder (`references/tools.md`); run `scripts/eval-brainstorm.mjs` when changing this skill.
 
 ## Output
-Use `TL;DR`, `Framings`, `Evidence by surface`, `What survived review`, `Verdict`, `Risks`, `Next`.
+Use `TL;DR`, `Framings`, `Evidence by surface`, `What survived review`, `Verdict`, `Risks`, `Next`, `Sources`. **Always end with `Sources`** — a consolidated list of every URL/path actually cited above with the claim it backs — even for chat-only answers that are never saved as a brief; see `references/output.md` and `references/brief-template.md`.

@@ -23,8 +23,8 @@ function base(): GitHubFileContentApiResult {
 }
 
 describe('ghGetFileContent applyContentPagination — nextCharOffset is present', () => {
-  it('a non-final chunk carries nextCharOffset === charOffset + charLength and hasMore:true', () => {
-    const out = applyContentPagination(base(), 0, 1000);
+  it('a non-final chunk carries nextCharOffset === charOffset + charLength and hasMore:true', async () => {
+    const out = await applyContentPagination(base(), 0, 1000);
     const pg = out.pagination!;
     expect(pg.hasMore).toBe(true);
     expect(pg.charOffset).toBe(0);
@@ -33,19 +33,19 @@ describe('ghGetFileContent applyContentPagination — nextCharOffset is present'
     expect(pg.totalChars).toBe(3000);
   });
 
-  it('the final chunk has no nextCharOffset and hasMore:false', () => {
-    const out = applyContentPagination(base(), 2000, 1000);
+  it('the final chunk has no nextCharOffset and hasMore:false', async () => {
+    const out = await applyContentPagination(base(), 2000, 1000);
     const pg = out.pagination!;
     expect(pg.hasMore).toBe(false);
     expect(pg.nextCharOffset).toBeUndefined();
   });
 
-  it('walking nextCharOffset reassembles the full file losslessly', () => {
+  it('walking nextCharOffset reassembles the full file losslessly', async () => {
     let offset = 0;
     let assembled = '';
     let guard = 0;
     for (;;) {
-      const out = applyContentPagination(base(), offset, 1000);
+      const out = await applyContentPagination(base(), offset, 1000);
       assembled += out.content ?? '';
       const pg = out.pagination!;
       if (!pg.hasMore || pg.nextCharOffset === undefined) break;
@@ -57,8 +57,8 @@ describe('ghGetFileContent applyContentPagination — nextCharOffset is present'
 });
 
 describe('ghGetFileContent finalizer — next.continueChars fires from nextCharOffset', () => {
-  it('emits a ready continuation carrying the materialized nextCharOffset', () => {
-    const paginated = applyContentPagination(base(), 0, 1000);
+  it('emits a ready continuation carrying the materialized nextCharOffset', async () => {
+    const paginated = await applyContentPagination(base(), 0, 1000);
     const query = {
       id: 'q1',
       owner: 'octo',

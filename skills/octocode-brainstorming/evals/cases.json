@@ -10,7 +10,9 @@
     "Includes verdict, decision label, and one actionable next step.",
     "Honors hard gates and does not jump to RFC or implementation prematurely.",
     "Avoids one-shot brainstorming by involving the user in direction when the flow is unclear.",
-    "Uses a Web Search Scout for Serper/Tavily and a Source/Code Checker to verify sources/code when web research matters."
+    "Uses a Web Search Scout per validated engine (Serper/Tavily/Exa), consolidates results across engines, and adds a Source/Code Checker to verify sources/code when web research matters.",
+    "Closes with a Sources (chat) or Resources (saved brief) section listing every URL/path actually cited, whenever external evidence was used.",
+    "Every cited file:line points to a real path and an in-bounds line number, not a fabricated or stale reference; cited URLs are real pages, not placeholders."
   ],
   "cases": [
     {
@@ -195,7 +197,15 @@
           "question": "Does the answer pair web search with a separate source/code checker before synthesis?",
           "passPattern": "\\bWeb Search Scout\\b[\\s\\S]*\\bSource/Code Checker\\b|\\bSource/Code Checker\\b[\\s\\S]*\\bWeb Search Scout\\b",
           "failureSignature": "mechanism:brainstorm-research|cause:no-source-code-checker",
-          "suggestedLesson": "For web-backed brainstorming, pair Serper/Tavily scouting with a source/code checker that fetches sources and verifies code when needed."
+          "suggestedLesson": "For web-backed brainstorming, run Serper/Tavily/Exa scouting per validated engine, consolidate before synthesis, and pair with a source/code checker that fetches sources and verifies code when needed."
+        },
+        {
+          "id": "dispatches-multiple-engines",
+          "dimension": "cross-surface",
+          "question": "Does the answer show at least two distinct validated web engines (Serper/Tavily/Exa) dispatched and consolidated, not a single-engine ladder?",
+          "passPattern": "(?=[\\s\\S]*\\bSerper\\b)(?=[\\s\\S]*\\bTavily\\b)|(?=[\\s\\S]*\\bSerper\\b)(?=[\\s\\S]*\\bExa\\b)|(?=[\\s\\S]*\\bTavily\\b)(?=[\\s\\S]*\\bExa\\b)",
+          "failureSignature": "mechanism:brainstorm-research|cause:single-engine-only",
+          "suggestedLesson": "Real web-backed brainstorming should dispatch a Web Search Scout per validated engine (2+ of Serper/Tavily/Exa) and consolidate, not rely on one engine alone."
         },
         {
           "id": "loops-back-to-resources",

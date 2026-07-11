@@ -22,9 +22,12 @@ export interface InspectResult {
   error?: string;
 }
 
-export function inspectBinaryFile(path: string): InspectResult {
+export async function inspectBinaryFile(path: string): Promise<InspectResult> {
   try {
-    return { success: true, info: contextUtils.inspectBinaryNative(path) };
+    return {
+      success: true,
+      info: await contextUtils.inspectBinaryNative(path),
+    };
   } catch (error) {
     return {
       success: false,
@@ -46,14 +49,14 @@ export interface StringsResult {
   error?: string;
 }
 
-export function extractStrings(
+export async function extractStrings(
   path: string,
   minLength: number,
   includeOffsets: boolean,
   scanOffset = 0
-): StringsResult {
+): Promise<StringsResult> {
   try {
-    const result: BinaryStrings = contextUtils.extractBinaryStringsNative(
+    const result: BinaryStrings = await contextUtils.extractBinaryStringsNative(
       path,
       minLength,
       includeOffsets,

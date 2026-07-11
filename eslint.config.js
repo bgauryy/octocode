@@ -94,6 +94,13 @@ export default tseslint.config(
   },
 
   {
+    files: ['packages/octocode-tools-core/src/**/*.ts'],
+    rules: {
+      'max-lines': ['error', { max: 400 }],
+    },
+  },
+
+  {
     files: ['**/tests/**/*.ts', '**/tests/**/*.tsx'],
     languageOptions: {
       globals: {

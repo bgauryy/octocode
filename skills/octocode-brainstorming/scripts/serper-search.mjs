@@ -1,34 +1,11 @@
 #!/usr/bin/env node
 
-import { resolve } from 'node:path';
+import { die, loadEnv, normalizeApiKey } from './lib/web-search-common.mjs';
 
 const ENDPOINT = 'https://google.serper.dev/search';
 
 // Serper time filters use Google's `tbs` qdr tokens.
 const TIME_RANGE_TBS = { day: 'qdr:d', week: 'qdr:w', month: 'qdr:m', year: 'qdr:y' };
-
-function die(msg, code = 1) {
-  process.stderr.write(`ERROR: ${msg}\n`);
-  process.exitCode = code;
-}
-
-// Unified env loading via octocode-config.mjs (injected by skills/scripts/sync.mjs).
-//
-// Priority (highest → lowest):
-//   1. process.env already set (shell / MCP client / pi-extension session_start)
-//   2. <workspace>/.octocode/.env   (project-level, WORKSPACE_ROOT or cwd)
-//   3. ~/.octocode/.env             (global octocode home)
-// Project env wins over global; already-set process.env vars always win over both.
-async function loadEnv() {
-  const { propagateOctocodeEnv, getOctocodeHome } = await import(new URL('./octocode-config.mjs', import.meta.url).href);
-  const home = getOctocodeHome();
-  propagateOctocodeEnv({
-    home,
-    cwd: process.env.WORKSPACE_ROOT || process.cwd(),
-    trusted: true,
-  });
-  return resolve(home, '.env');
-}
 
 function parseArgs(argv) {
   const opts = {
@@ -148,7 +125,7 @@ Environment: process env, then <workspace>/.octocode/.env, then <OCTOCODE_HOME>/
   }
 
   const envPath = await loadEnv();
-  const apiKey = process.env.SERPER_API_KEY;
+  const apiKey = normalizeApiKey(process.env.SERPER_API_KEY);
 
   if (opts.check) {
     if (!apiKey) {

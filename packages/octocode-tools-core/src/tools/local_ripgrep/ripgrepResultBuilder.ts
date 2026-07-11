@@ -51,6 +51,7 @@ type FlowMatch = {
   endLine?: number;
   value?: string;
   metavars?: Record<string, string[]>;
+  metavarRanges?: Record<string, Array<{ line: number }>>;
 };
 
 type FlowFile = {
@@ -319,12 +320,12 @@ function buildSearchNextMap(
       };
     }
 
-    const symbolName = inferLspSymbolName(firstMatch, query, searchEngine);
-    if (symbolName && firstMatch?.line) {
+    const inferred = inferLspSymbolName(firstMatch, query, searchEngine);
+    if (inferred && firstMatch?.line) {
       const lspBase = {
         uri: firstFile.path,
-        symbolName,
-        lineHint: firstMatch.line,
+        symbolName: inferred.symbol,
+        lineHint: inferred.line ?? firstMatch.line,
       };
       next.lspDefinition = {
         tool: 'lspGetSemantics',
@@ -385,11 +386,21 @@ function lineRangeAroundMatch(match: FlowMatch): {
 // sends the agent to resolve a bogus anchor. We only infer when the evidence is
 // an exact bare identifier, never from regex syntax, literals, dotted property
 // text, multi-token snippets, windowed context, or aggregate count output.
+export type InferredLspSymbol = {
+  symbol: string;
+  /**
+   * Precise capture line from `metavarRanges` (structural search only).
+   * Undefined when the search engine doesn't carry per-capture ranges — the
+   * caller falls back to the match's own start line.
+   */
+  line?: number;
+};
+
 export function inferLspSymbolName(
   match: FlowMatch | undefined,
   query: RipgrepQuery,
   searchEngine: LocalSearchEngine
-): string | undefined {
+): InferredLspSymbol | undefined {
   // Aggregate / count output has no single-symbol anchor.
   if (
     query.countLinesPerFile ||
@@ -403,7 +414,7 @@ export function inferLspSymbolName(
   // Structural search may only infer from a metavar whose full capture is one
   // bare identifier (e.g. `$NAME` bound to `getUser`, never to `false`).
   if (searchEngine === 'structural') {
-    return firstBareIdentifierMetavar(match?.metavars);
+    return firstBareIdentifierMetavar(match?.metavars, match?.metavarRanges);
   }
 
   // Windowed matches carry surrounding context, not a clean token.
@@ -412,23 +423,29 @@ export function inferLspSymbolName(
   // onlyMatching returns the exact matched substring — infer when it is itself a
   // bare identifier.
   if (query.onlyMatching) {
-    return bareIdentifier(match?.value);
+    const symbol = bareIdentifier(match?.value);
+    return symbol ? { symbol } : undefined;
   }
 
   // Otherwise infer only from an exact bare-identifier query. This suppresses
   // regex-like queries (`\w+_searched`), dotted fixed strings (`query.symbolName`),
   // and multi-token snippets, none of which are a single bare identifier.
-  return bareIdentifier(query.keywords);
+  const symbol = bareIdentifier(query.keywords);
+  return symbol ? { symbol } : undefined;
 }
 
 function firstBareIdentifierMetavar(
-  metavars: Record<string, string[]> | undefined
-): string | undefined {
+  metavars: Record<string, string[]> | undefined,
+  metavarRanges: Record<string, Array<{ line: number }>> | undefined
+): InferredLspSymbol | undefined {
   if (!metavars) return undefined;
-  for (const values of Object.values(metavars)) {
-    for (const value of values) {
+  for (const [key, values] of Object.entries(metavars)) {
+    for (const [index, value] of values.entries()) {
       const symbol = bareIdentifier(value);
-      if (symbol) return symbol;
+      // metavarRanges is parallel to metavars (same keys, same order) — the
+      // precise per-capture line lets the LSP lineHint point at the captured
+      // symbol itself instead of the whole match's (possibly multi-line) start.
+      if (symbol) return { symbol, line: metavarRanges?.[key]?.[index]?.line };
     }
   }
   return undefined;

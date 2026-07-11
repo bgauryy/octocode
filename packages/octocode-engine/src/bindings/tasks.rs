@@ -45,3 +45,142 @@ impl Task for SearchRipgrepTask {
         Ok(output)
     }
 }
+
+pub struct StructuralSearchTask {
+    pub content: String,
+    pub file_path: String,
+    pub pattern: Option<String>,
+    pub rule: Option<String>,
+}
+
+impl Task for StructuralSearchTask {
+    type Output = Vec<crate::structural::StructuralMatch>;
+    type JsValue = Vec<crate::structural::StructuralMatch>;
+
+    fn compute(&mut self) -> Result<Self::Output> {
+        let ext = crate::file_extension::get_extension_internal(&self.file_path, true, "txt");
+        // Same panic guard as the (formerly) sync binding: an unwind across the
+        // napi FFI boundary would abort the Node process.
+        std::panic::catch_unwind(|| {
+            crate::structural::search(
+                &self.content,
+                &ext,
+                self.pattern.as_deref(),
+                self.rule.as_deref(),
+            )
+        })
+        .unwrap_or_else(|_| Err("structural search failed on pathological input".to_string()))
+        .map_err(|message| Error::new(Status::InvalidArg, message))
+    }
+
+    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
+        Ok(output)
+    }
+}
+
+pub struct StructuralSearchFilesTask {
+    pub options: Option<crate::structural::StructuralSearchFilesOptions>,
+}
+
+impl Task for StructuralSearchFilesTask {
+    type Output = crate::structural::StructuralSearchFilesResult;
+    type JsValue = crate::structural::StructuralSearchFilesResult;
+
+    fn compute(&mut self) -> Result<Self::Output> {
+        let options = self.options.take().ok_or_else(|| {
+            Error::new(
+                Status::GenericFailure,
+                "structural search options already consumed",
+            )
+        })?;
+        std::panic::catch_unwind(|| crate::structural::search_files(options))
+            .unwrap_or_else(|_| {
+                Err("structural file search failed on pathological input".to_string())
+            })
+            .map_err(|message| Error::new(Status::InvalidArg, message))
+    }
+
+    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
+        Ok(output)
+    }
+}
+
+pub struct SemanticBoundaryOffsetsTask {
+    pub content: String,
+    pub file_path: String,
+}
+
+impl Task for SemanticBoundaryOffsetsTask {
+    type Output = Vec<u32>;
+    type JsValue = Vec<u32>;
+
+    fn compute(&mut self) -> Result<Self::Output> {
+        // Tree-sitter parsing is CPU-bound and, like the structural/signature
+        // paths, can unwind on pathological input — a panic across the napi FFI
+        // boundary would abort Node, so contain it here.
+        std::panic::catch_unwind(|| {
+            crate::signatures::get_semantic_boundary_offsets_inner(&self.content, &self.file_path)
+        })
+        .map_err(|_| {
+            Error::new(
+                Status::GenericFailure,
+                "semantic boundary detection failed on pathological input",
+            )
+        })
+    }
+
+    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
+        Ok(output)
+    }
+}
+
+pub struct InspectBinaryTask {
+    pub path: String,
+}
+
+impl Task for InspectBinaryTask {
+    type Output = crate::binary::BinaryInspectInfo;
+    type JsValue = crate::binary::BinaryInspectInfo;
+
+    fn compute(&mut self) -> Result<Self::Output> {
+        // `goblin` is explicitly not hardened against malicious input, so an
+        // unwind across the napi FFI boundary (which would abort Node) is
+        // contained here — the same guard the structural/signature paths use.
+        std::panic::catch_unwind(|| crate::binary::inspect(&self.path))
+            .unwrap_or_else(|_| Err("binary inspection failed on pathological input".to_string()))
+            .map_err(|message| Error::new(Status::InvalidArg, message))
+    }
+
+    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
+        Ok(output)
+    }
+}
+
+pub struct ExtractBinaryStringsTask {
+    pub path: String,
+    pub min_length: u32,
+    pub include_offsets: bool,
+    pub scan_offset: u32,
+}
+
+impl Task for ExtractBinaryStringsTask {
+    type Output = crate::binary::BinaryStrings;
+    type JsValue = crate::binary::BinaryStrings;
+
+    fn compute(&mut self) -> Result<Self::Output> {
+        std::panic::catch_unwind(|| {
+            crate::binary::strings(
+                &self.path,
+                self.min_length,
+                self.include_offsets,
+                self.scan_offset,
+            )
+        })
+        .unwrap_or_else(|_| Err("strings extraction failed on pathological input".to_string()))
+        .map_err(|message| Error::new(Status::InvalidArg, message))
+    }
+
+    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
+        Ok(output)
+    }
+}

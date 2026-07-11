@@ -22,3 +22,7 @@ Decision: Build RFC
 
 ## Recommended Next Step
 Design the full memory system.
+
+## Sources
+- skills/octocode-awareness/SKILL.md:14 — backs the SQLite-is-useful claim above.
+- https://arxiv.org/abs/2310.08560 — backs the vector-is-useful claim above.

@@ -4,68 +4,22 @@ import {
   resetContextUtilsNativeLoaderForTesting,
   setContextUtilsNativeLoaderForTesting,
 } from '../../../src/utils/contextUtils.js';
-import { filterPatch, trimDiffContext } from '../../../src/utils/parsers/diff.js';
-import { parseRipgrepJson } from '../../../src/utils/parsers/ripgrep.js';
+import {
+  filterPatch,
+  trimDiffContext,
+} from '../../../src/utils/parsers/diff.js';
 
 type NativeContextUtilsModule = typeof import('@octocodeai/octocode-engine');
 
 function installNative(partial: Partial<NativeContextUtilsModule>): void {
-  setContextUtilsNativeLoaderForTesting(() => partial as NativeContextUtilsModule);
+  setContextUtilsNativeLoaderForTesting(
+    () => partial as NativeContextUtilsModule
+  );
 }
 
 describe('context-utils parser wrappers', () => {
   afterEach(() => {
     resetContextUtilsNativeLoaderForTesting();
-  });
-
-  it('maps ripgrep native output into tools-core search result shape', () => {
-    installNative({
-      parseRipgrepJson: (stdout, options) => {
-        expect(stdout).toBe('{"type":"summary"}');
-        expect(options).toEqual({
-          contextLines: 2,
-          maxSnippetChars: 80,
-        });
-        return {
-          files: [
-            {
-              path: 'src/a.ts',
-              matchCount: 1,
-              matches: [{ line: 7, column: 3, value: 'const needle = true;' }],
-            },
-          ],
-          stats: {
-            matchCount: 1,
-            matchedLines: 1,
-            filesMatched: 1,
-            filesSearched: 4,
-            bytesSearched: 123,
-            searchTime: '0.002s',
-          },
-        };
-      },
-    });
-
-    const result = parseRipgrepJson('{"type":"summary"}', {
-      contextLines: 2,
-      matchContentLength: 80,
-    });
-
-    expect(result.files).toEqual([
-      {
-        path: 'src/a.ts',
-        matchCount: 1,
-        matches: [{ line: 7, column: 3, value: 'const needle = true;' }],
-      },
-    ]);
-    expect(result.stats).toEqual({
-      totalOccurrences: 1,
-      matchedLines: 1,
-      filesMatched: 1,
-      filesSearched: 4,
-      bytesSearched: 123,
-      searchTime: '0.002s',
-    });
   });
 
   it('keeps selected-line no-op native-free while mapping selected-line options', () => {

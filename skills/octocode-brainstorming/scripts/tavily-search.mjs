@@ -1,42 +1,8 @@
 #!/usr/bin/env node
 
-import { resolve } from 'node:path';
+import { die, loadEnv, splitList, normalizeApiKey } from './lib/web-search-common.mjs';
 
 const ENDPOINT = 'https://api.tavily.com/search';
-
-function die(msg, code = 1) {
-  process.stderr.write(`ERROR: ${msg}\n`);
-  process.exitCode = code;
-}
-
-// Unified env loading via octocode-config.mjs (injected by skills/scripts/sync.mjs).
-//
-// Priority (highest → lowest):
-//   1. process.env already set (shell / MCP client / pi-extension session_start)
-//   2. <workspace>/.octocode/.env   (project-level, WORKSPACE_ROOT or cwd)
-//   3. ~/.octocode/.env             (global octocode home)
-// Project env wins over global; already-set process.env vars always win over both.
-async function loadEnv() {
-  const { propagateOctocodeEnv, getOctocodeHome } = await import(new URL('./octocode-config.mjs', import.meta.url).href);
-  const home = getOctocodeHome();
-  propagateOctocodeEnv({
-    home,
-    cwd: process.env.WORKSPACE_ROOT || process.cwd(),
-    trusted: true,
-  });
-  return resolve(home, '.env');
-}
-
-function splitList(v) {
-  return String(v || '').split(',').map(s => s.trim()).filter(Boolean);
-}
-
-function normalizeApiKey(raw) {
-  let key = String(raw || '').trim();
-  key = key.replace(/^Authorization\s*:\s*/i, '').trim();
-  key = key.replace(/^Bearer\s+/i, '').trim();
-  return key;
-}
 
 function parseArgs(argv) {
   const opts = {

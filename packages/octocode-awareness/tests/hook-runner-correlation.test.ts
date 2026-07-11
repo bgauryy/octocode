@@ -12,6 +12,7 @@ const TEST_DIR = dirname(fileURLToPath(import.meta.url));
 const PACKAGE_ROOT = resolve(TEST_DIR, '..');
 const REPO_ROOT = resolve(PACKAGE_ROOT, '../..');
 const SOURCE_RUNNER = resolve(PACKAGE_ROOT, 'bin/hook-runner.ts');
+const SOURCE_LIFECYCLE = resolve(PACKAGE_ROOT, 'bin/hook-lifecycle.ts');
 const TSX_CLI = resolve(REPO_ROOT, 'node_modules/tsx/dist/cli.mjs');
 
 function hookEnv(memoryHome: string): NodeJS.ProcessEnv {
@@ -161,7 +162,7 @@ describe('shell hook correlation state', () => {
   });
 
   it('writes the scoped preview marker only after a dry-run digest succeeds', () => {
-    const source = readFileSync(SOURCE_RUNNER, 'utf8');
+    const source = readFileSync(SOURCE_LIFECYCLE, 'utf8');
     const digestCall = source.indexOf('const preview = digest(database, {');
     const dryRun = source.indexOf('dry_run: true', digestCall);
     const markerWrite = source.indexOf("writeFileSync(markerPath, String(now), 'utf8');", digestCall);

@@ -114,12 +114,32 @@ describe('production guidance contract', () => {
     expect(existsSync(resolve(PACKAGE_ROOT, 'src/stubs.ts'))).toBe(false);
   });
 
-  it('ships one canonical schema and no staged version directory', () => {
-    const db = read(resolve(PACKAGE_ROOT, 'src/db.ts'));
-    expect(db).toContain('AWARENESS_SCHEMA_VERSION = 1');
-    expect(db).toContain('AWARENESS_APPLICATION_ID = 0x4f435431');
-    expect(existsSync(resolve(PACKAGE_ROOT, 'src/v4'))).toBe(false);
-    expect(existsSync(resolve(PACKAGE_ROOT, 'tests/v4-schema.test.ts'))).toBe(false);
+  it('ships one current database contract without migration or version layers', () => {
+    const databaseFiles = [
+      'db.ts',
+      'db-init.ts',
+      'db-introspection.ts',
+      'db-runtime.ts',
+      'db-schema.ts',
+      'db-search.ts',
+    ];
+    const databaseSource = databaseFiles
+      .map((file) => read(resolve(PACKAGE_ROOT, 'src', file)))
+      .join('\n');
+
+    expect(databaseSource).toContain('AWARENESS_APPLICATION_ID = 0x4f435431');
+    expect(databaseSource).not.toMatch(/\b(?:legacy|migrat(?:e|ion)|user_version|AWARENESS_SCHEMA_VERSION)\b/i);
+    expect(existsSync(resolve(PACKAGE_ROOT, 'src/db-legacy.ts'))).toBe(false);
+    expect(existsSync(resolve(PACKAGE_ROOT, 'src/db-rebuild.ts'))).toBe(false);
+    expect(existsSync(resolve(PACKAGE_ROOT, 'tests/legacy-migration.test.ts'))).toBe(false);
+
+    const ownedArtifacts = [
+      read(resolve(PACKAGE_ROOT, 'src/attend-model.ts')),
+      read(resolve(PACKAGE_ROOT, 'src/attend-query.ts')),
+      read(resolve(PACKAGE_ROOT, 'src/plans.ts')),
+      read(resolve(PACKAGE_ROOT, 'src/repo-projection.ts')),
+    ].join('\n');
+    expect(ownedArtifacts).not.toContain('schema_version');
   });
 
   it('publishes and verifies Awareness before the Pi extension', () => {
@@ -133,9 +153,9 @@ describe('production guidance contract', () => {
     expect(release).toMatch(/npm install[^\n]*@octocodeai\/octocode-awareness/);
   });
 
-  it('documents serialized migration and separates flat work rows from grouped FilesUnderWork', () => {
+  it('documents serialized initialization and separates flat work rows from grouped FilesUnderWork', () => {
     const db = read(resolve(PACKAGE_ROOT, 'docs/DB.md'));
-    expect(db).toMatch(/complete migration.{0,100}BEGIN IMMEDIATE/is);
+    expect(db).toMatch(/Fresh initialization.{0,100}BEGIN IMMEDIATE/is);
     expect(db).toMatch(/`work list\|show`.{0,100}flat/is);
     expect(db).toMatch(/FilesUnderWork.{0,100}group/i);
   });

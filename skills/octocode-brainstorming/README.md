@@ -47,30 +47,41 @@ npx octocode skill --name octocode-brainstorming
 
 ## Configuration — web search keys
 
-The skill runs web research via Tavily and/or Serper. Put your keys in the **unified Octocode env file** — not in a skill-local `.env`:
+The skill runs web research via Tavily, Serper, and/or Exa. Put your keys in the **unified Octocode env file**, at `<octocode-home>/.env` — not in a skill-local `.env`. The Octocode home directory is resolved by `getOctocodeHome()` (`@octocodeai/config`) and is **platform-specific**, not just `~/.octocode`:
+
+| Platform | Octocode home | `.env` path |
+|---|---|---|
+| macOS | `~/.octocode` | `~/.octocode/.env` |
+| Linux | `${XDG_CONFIG_HOME:-~/.config}/.octocode` | `~/.config/.octocode/.env` (default) |
+| Windows | `%APPDATA%\.octocode` | `%APPDATA%\.octocode\.env` |
+| any platform | `$OCTOCODE_HOME` (override, if set) | `$OCTOCODE_HOME/.env` |
 
 ```bash
-# ~/.octocode/.env  (macOS/Linux default; Windows: %APPDATA%\.octocode\.env)
+# example content, regardless of which path above applies to your platform:
 TAVILY_API_KEY=tvly-...
 SERPER_API_KEY=...
+EXA_API_KEY=...
 ```
 
-Get keys: [Tavily](https://app.tavily.com/) · [Serper](https://serper.dev/) · both is fine, one is enough.
+Never assume `~/.octocode` — always resolve the path (`npx @octocodeai/config` prints the effective home; or call `getOctocodeHome()`) before reading or writing this file, since Linux and Windows use a different default than macOS.
+
+Get keys: [Tavily](https://app.tavily.com/) · [Serper](https://serper.dev/) · [Exa](https://dashboard.exa.ai/) · any one is enough, more gives redundancy/fallback.
 
 **How the keys reach the skill:**
-- Under the `octocode-agent` / Pi extension — `propagateOctocodeEnv` runs at session start and injects `~/.octocode/.env` into `process.env`. Every subprocess (bash calls, hooks, script invocations) inherits the full env automatically.
-- When the scripts are run standalone from the published build — `octocode-config.mjs` is bundled alongside each script and loads the same file directly.
+- Under the `octocode-agent` / Pi extension — `propagateOctocodeEnv` runs at session start and injects `<octocode-home>/.env` (per the table above) into `process.env`. Every subprocess (bash calls, hooks, script invocations) inherits the full env automatically.
+- When the scripts are run standalone from the published build — `octocode-config.mjs` is bundled alongside each script and loads the same file directly, using the same cross-platform `getOctocodeHome()` resolution.
 
-**Key priority:** `process.env` (shell / agent session) > `~/.octocode/.env` (global) > `<project>/.octocode/.env` (project, when trusted). The search scripts never overwrite an already-set value.
+**Key priority (highest to lowest):** `process.env` (shell / agent session) > `<project>/.octocode/.env` (project, when trusted) > `<octocode-home>/.env` (global, per platform table above). The search scripts never overwrite an already-set value.
 
 Verify a key is working:
 
 ```bash
 node <skill_dir>/scripts/tavily-search.mjs --check
 node <skill_dir>/scripts/serper-search.mjs --check
+node <skill_dir>/scripts/exa-search.mjs --check
 ```
 
-The provider ladder is: Tavily → Serper → DuckDuckGo (no key needed, lower quality). The skill uses whichever exits 0 first; with no key it falls back to DuckDuckGo and reports the limitation once.
+**Default is consolidation, not a ladder:** for real research (not a single spot-check), the skill queries every engine that passes `--check` — Tavily, Serper, and Exa each surface different results for the same query — and reconciles them (dedupe by URL, cross-confirm claims seen across engines, flag single-engine claims for verification). Engines are dispatched in parallel via `octocode-subagent` (one Web Search Scout per engine); see `references/tools.md`. DuckDuckGo (no key needed, lower quality) is the fallback only when no key validates at all, and is reported as a coverage limitation, not a silent substitute.
 
 ## Maintainer Notes
 

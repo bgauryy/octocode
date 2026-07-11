@@ -23,7 +23,7 @@ npx octocode skill --add --path "$(npm root --global)/@octocodeai/octocode-aware
 # after reviewing destinations and approving the write:
 npx octocode skill --add --path "$(npm root --global)/@octocodeai/octocode-awareness/dist/skills/octocode-awareness" --platform common --force
 npx octocode skill --add --path "$(npm root --global)/@octocodeai/octocode-awareness/dist/skills/octocode-skills" --platform common --force
-
+# every other repo skill is also bundled (optional) — see `<cli> --help` or install.mjs's bundled_skills
 # Initialize store and smoke the CLI
 export OCTOCODE_AGENT_ID="${OCTOCODE_AGENT_ID:-my-agent}"
 <cli> maintenance init --compact

@@ -17,18 +17,28 @@ Delegate repo/package/history/semantic checks to `octocode-research`. Ask it to 
 |---|---|---|
 | `scripts/serper-search.mjs` | `SERPER_API_KEY` | broad Google results |
 | `scripts/tavily-search.mjs` | `TAVILY_API_KEY` | curated/deeper research |
+| `scripts/exa-search.mjs` | `EXA_API_KEY` | AI-native/neural search, category filters (papers, GitHub, news), highlights |
 
-Run `--check` once; `--presence-only` is offline-only. Credentials load through `@octocodeai/config` from process env, workspace `.octocode/.env`, then global Octocode home. Search → fetch/open the best formal URLs → exact-read code → reconcile. Never cite snippets or print/commit keys.
+Run `--check` once per engine at session start (`--presence-only` is offline-only) and record which are actually live — a configured key is not the same as a validated one. Credentials load through `@octocodeai/config` from process env, workspace `.octocode/.env`, then global Octocode home. Never cite snippets or print/commit keys.
+
+**Default policy: query every validated engine, not a first-success ladder.** Serper, Tavily, and Exa surface different result sets for the same query (raw Google SERP vs. AI-curated summary vs. neural/category-filtered) — role-based fusion, not interchangeable fallbacks. Only fall back to fewer engines (down to DuckDuckGo, no key needed) when a key is missing or fails `--check`. Fetch/open the best formal URLs from the consolidated set → exact-read code → reconcile.
+
+**Consolidation isn't a raw URL-overlap count.** Canonicalize URLs first (strip tracking params/fragments before comparing) — otherwise identical pages with different query strings under-merge. Then tier confidence instead of treating "2+ engines saw it" as proof on its own (cross-engine SEO/aggregator pages can duplicate without independent verification, and AI-curated engines can legitimately omit a URL a raw SERP returns — low overlap ≠ weak claim):
+- **Strong:** same canonical URL from 2+ engines, each with an acceptable per-engine relevance score, ideally a primary-source domain.
+- **Medium:** single engine, high relevance score.
+- **Weak — flag for verification:** single engine with a low score, or a secondary/aggregator summary only.
+Do not sum or compare raw scores across engines (Serper rank, Tavily score, Exa score are not on the same scale) — rank within each engine, then apply the tiers above across engines.
 
 ## Workers
 
-Use solo for one check. Dispatch only for independent surfaces within the five-worker ceiling:
+Use solo for one check or a single-engine query. For real brainstorming research (2+ engines, multiple query angles), decompose and dispatch per `octocode-subagent` (`GATE → DECOMPOSE → ROUTE → PACKET → SPAWN → COORDINATE → SYNTHESIZE`): one bounded objective per worker, a self-contained packet (query, engine, framing, return shape — workers inherit no parent context), and a synthesis barrier before the parent reconciles results. Stay within the five-worker ceiling:
 
-- **Web Search Scout:** one query slice; return ranked fetched leads with author/date.
-- **Source/Code Checker:** validate leads through formal sources and `octocode-research`.
+- **Web Search Scout (×1 per validated engine):** one engine, one query slice; return ranked fetched leads with title/url/date/author, run in parallel across engines.
+- **Aggregator:** merge the Scouts' results after the barrier — canonicalize and dedupe by URL, apply the strong/medium/weak confidence tiers above, surface conflicts, drop SEO/farm noise. Fold into the parent when only 2-3 Scouts ran; spawn separately only if the merge itself is large enough to earn its own worker per `spawn-gate.md`.
+- **Source/Code Checker:** validate the aggregated leads through formal sources and `octocode-research`.
 - **Trend & Source Scout:** when momentum/crowdedness needs `trend-sources.md` evidence.
 
-Run Web + Source/Code as the default closed loop; add Trend only for a distinct question. Use a fast worker tier for mechanical fetch/summarize when supported. Reserve judgment for stress-test/synthesis.
+Run all validated Web Search Scouts + Source/Code Checker as the default closed loop (typically 3-4 workers); add Trend only for a distinct question. **Deep dive when needed:** if the consolidated evidence stays thin, single-engine-only, or materially conflicting after the first round, don't stop — reframe the query (2-3 synonyms), dispatch a second parallel Scout round with the new framing, or hand the gap to Source/Code Checker for a formal-source pass before synthesizing. Use a fast worker tier for mechanical fetch/summarize when supported. Reserve judgment for stress-test/synthesis — treat every worker's output as a claim to re-check, per `octocode-subagent`.
 
 ## Query And Evidence Rules
 

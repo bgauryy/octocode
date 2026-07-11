@@ -169,13 +169,13 @@ export const contextUtils = {
     filePath: string,
     pattern?: string | null,
     rule?: string | null
-  ): NativeContextUtils.StructuralMatch[] {
+  ): Promise<NativeContextUtils.StructuralMatch[]> {
     return loadNative().structuralSearch(content, filePath, pattern, rule);
   },
 
   structuralSearchFiles(
     options: NativeContextUtils.StructuralSearchFilesOptions
-  ): NativeContextUtils.StructuralSearchFilesResult {
+  ): Promise<NativeContextUtils.StructuralSearchFilesResult> {
     return loadNative().structuralSearchFiles(options);
   },
 
@@ -189,7 +189,9 @@ export const contextUtils = {
    * Degrades to magic-byte identity on malformed input; only unreadable or
    * oversized files throw.
    */
-  inspectBinaryNative(path: string): NativeContextUtils.BinaryInspectInfo {
+  inspectBinaryNative(
+    path: string
+  ): Promise<NativeContextUtils.BinaryInspectInfo> {
     return loadNative().inspectBinaryNative(path);
   },
 
@@ -202,7 +204,7 @@ export const contextUtils = {
     minLength: number,
     includeOffsets: boolean,
     scanOffset = 0
-  ): NativeContextUtils.BinaryStrings {
+  ): Promise<NativeContextUtils.BinaryStrings> {
     return loadNative().extractBinaryStringsNative(
       path,
       minLength,
@@ -219,7 +221,10 @@ export const contextUtils = {
     return loadNative().validateRipgrepPattern(pattern, fixedString, perlRegex);
   },
 
-  getSemanticBoundaryOffsets(content: string, filePath: string): number[] {
+  getSemanticBoundaryOffsets(
+    content: string,
+    filePath: string
+  ): Promise<number[]> {
     return loadNative().getSemanticBoundaryOffsets(content, filePath);
   },
 

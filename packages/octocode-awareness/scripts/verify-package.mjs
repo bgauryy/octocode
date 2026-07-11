@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -8,6 +8,21 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const packageRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
 const pkg = JSON.parse(readFileSync(join(packageRoot, 'package.json'), 'utf8'));
+
+// Same discovery rule as build.mjs — kept independent (not imported) so this
+// verification catches a real build-vs-source mismatch instead of trivially
+// agreeing with whatever build.mjs produced.
+const RETIRED_PACKAGE_SKILLS = ['octocode-agent-communication', 'octocode-reflection'];
+function discoverPackageSkills() {
+  const skillsRoot = join(packageRoot, '..', '..', 'skills');
+  return readdirSync(skillsRoot, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name)
+    .filter((name) => name !== 'scripts' && !RETIRED_PACKAGE_SKILLS.includes(name))
+    .filter((name) => existsSync(join(skillsRoot, name, 'SKILL.md')))
+    .sort();
+}
+const packageSkills = discoverPackageSkills();
 
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, {
@@ -39,12 +54,19 @@ for (const required of ['LICENSE', 'README.md', 'package.json', 'dist/index.js',
 }
 assert(pkg.types === './dist/src/index.d.ts', `package types must point at the verified declaration entry, got ${String(pkg.types)}`);
 assert(readFileSync(join(packageRoot, 'dist/src/index.d.ts'), 'utf8').includes('export'), 'declaration entry is empty or malformed');
-assert(
-  files.filter((path) => path.endsWith('skills/octocode-awareness/SKILL.md')).length === 1,
-  'packed artifact must contain exactly one octocode-awareness skill tree',
-);
+assert(packageSkills.length > 0, 'skill discovery found zero skills under repo-root skills/');
+for (const skill of packageSkills) {
+  assert(
+    files.filter((path) => path.endsWith(`skills/${skill}/SKILL.md`)).length === 1,
+    `packed artifact must contain exactly one ${skill} skill tree`,
+  );
+}
 assert(!files.some((path) => path.startsWith('skills/')), 'source skills/ must not duplicate dist/skills/');
 assert(!files.some((path) => path.endsWith('.map')), 'source maps must not ship in the package');
+assert(
+  !files.some((path) => path.endsWith('octocode-config.mjs')),
+  'gitignored, machine-generated octocode-config.mjs must never be vendored into the published package',
+);
 
 const isolated = mkdtempSync(join(tmpdir(), 'octocode-awareness-pack-check-'));
 try {

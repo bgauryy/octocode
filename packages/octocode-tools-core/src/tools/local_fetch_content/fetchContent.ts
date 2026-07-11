@@ -464,11 +464,11 @@ interface ContentWindow {
 // snaps to a semantic boundary, and builds the pagination metadata plus the
 // ready `next.continueChars` continuation query. Keeping this in one place lets
 // the symbols skeleton window and round-trip exactly like normal content.
-function paginateContentWindow(
+async function paginateContentWindow(
   content: string,
   query: FetchContentQuery,
   defaultOutputCharLength: number
-): ContentWindow {
+): Promise<ContentWindow> {
   const queryPath = String(query.path);
   const explicitCharLength = query.charLength;
   const explicitCharOffset = query.charOffset ?? 0;
@@ -494,7 +494,7 @@ function paginateContentWindow(
   let chunkMode: 'semantic' | 'char-limit' = 'char-limit';
   let resolvedCharLength = effectiveCharLength;
   if (effectiveCharLength !== undefined) {
-    const snap = snapToSemanticBoundary(
+    const snap = await snapToSemanticBoundary(
       content,
       charOffset,
       effectiveCharLength,
@@ -522,7 +522,7 @@ function paginateContentWindow(
     isMidBlockCut(pagination.paginatedContent)
   ) {
     const cutPos = pagination.charOffset + pagination.charLength;
-    nextBlockChar = findNextBlockBoundary(content, cutPos, queryPath);
+    nextBlockChar = await findNextBlockBoundary(content, cutPos, queryPath);
   }
 
   // Ready continuation query for the next char page. Same shape convention as
@@ -554,7 +554,7 @@ function paginateContentWindow(
   };
 }
 
-function buildSuccessResult(
+async function buildSuccessResult(
   query: FetchContentQuery,
   extraction: ExtractionState,
   fileStats: FileStats,
@@ -562,7 +562,7 @@ function buildSuccessResult(
   defaultOutputCharLength: number,
   shouldMinify = true,
   contentView: ContentView = shouldMinify ? 'standard' : 'none'
-): LocalGetFileContentToolResult {
+): Promise<LocalGetFileContentToolResult> {
   if (
     !extraction.resultContent ||
     extraction.resultContent.trim().length === 0
@@ -582,7 +582,7 @@ function buildSuccessResult(
       )
     : extraction.resultContent;
 
-  const window = paginateContentWindow(
+  const window = await paginateContentWindow(
     outputContent,
     query,
     defaultOutputCharLength
@@ -629,7 +629,7 @@ function buildSuccessResult(
 // charLength windows the skeleton, pagination reflects the skeleton's own
 // totalChars, and next.continueChars round-trips (query carries minify:"symbols"
 // + nextCharOffset). Small skeletons return whole with no pagination/next.
-function buildSymbolsSkeletonResult(
+async function buildSymbolsSkeletonResult(
   query: FetchContentQuery,
   skeleton: string,
   totalLines: number,
@@ -637,8 +637,8 @@ function buildSymbolsSkeletonResult(
   sourceBytes: number,
   secretWarning: string | undefined,
   defaultOutputCharLength: number
-): LocalGetFileContentToolResult {
-  const window = paginateContentWindow(
+): Promise<LocalGetFileContentToolResult> {
+  const window = await paginateContentWindow(
     skeleton,
     query,
     defaultOutputCharLength
@@ -758,7 +758,7 @@ export async function fetchContent(
         );
         if (markdownOutline !== null) {
           return attachRawResponseChars(
-            buildSymbolsSkeletonResult(
+            await buildSymbolsSkeletonResult(
               query,
               markdownOutline,
               countLines(content),
@@ -780,7 +780,7 @@ export async function fetchContent(
         );
 
         return attachRawResponseChars(
-          buildSymbolsSkeletonResult(
+          await buildSymbolsSkeletonResult(
             query,
             sigsProcessed,
             totalLinesOrig,
@@ -842,7 +842,7 @@ export async function fetchContent(
       );
     }
 
-    const fullResult = buildSuccessResult(
+    const fullResult = await buildSuccessResult(
       query,
       extraction,
       fileStats,

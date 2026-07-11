@@ -59,9 +59,9 @@ async function isRegularFile(path: string): Promise<boolean> {
 async function searchSingleFile(
   path: string,
   query: RipgrepQuery
-): Promise<ReturnType<typeof contextUtils.structuralSearchFiles>> {
+): Promise<Awaited<ReturnType<typeof contextUtils.structuralSearchFiles>>> {
   const content = await readFile(path, 'utf8');
-  const matches = contextUtils.structuralSearch(
+  const matches = await contextUtils.structuralSearch(
     content,
     path,
     query.pattern,
@@ -73,6 +73,7 @@ async function searchSingleFile(
     totalMatches: matches.length,
     parsedFiles: 1,
     skippedByPreFilter: 0,
+    skippedUnsupported: 0,
     skippedUnreadable: 0,
     skippedLarge: 0,
     warnings: [],
@@ -92,11 +93,13 @@ export async function searchContentStructural(
     return pathValidation.errorResult as LocalSearchCodeToolResult;
   }
 
-  let nativeResult: ReturnType<typeof contextUtils.structuralSearchFiles>;
+  let nativeResult: Awaited<
+    ReturnType<typeof contextUtils.structuralSearchFiles>
+  >;
   try {
     nativeResult = (await isRegularFile(pathValidation.sanitizedPath))
       ? await searchSingleFile(pathValidation.sanitizedPath, query)
-      : contextUtils.structuralSearchFiles({
+      : await contextUtils.structuralSearchFiles({
           path: pathValidation.sanitizedPath,
           pattern: query.pattern,
           rule: query.rule,

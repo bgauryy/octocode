@@ -51,7 +51,7 @@
     "build": "node build.mjs",
     "build:dev": "node build.mjs",
     "clean": "rm -rf dist/",
-    "lint": "tsc --noEmit -p tsconfig.json",
+    "lint": "node ../../node_modules/eslint/bin/eslint.js . --config eslint.config.mjs --no-warn-ignored && tsc --noEmit -p tsconfig.json",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "yarn build && node ../../node_modules/vitest/vitest.mjs run --coverage",
     "test:quiet": "yarn build && node ../../node_modules/vitest/vitest.mjs run --reporter=dot --silent",

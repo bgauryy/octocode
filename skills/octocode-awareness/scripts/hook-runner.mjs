@@ -5,20 +5,14 @@ process.on('warning', (w) => {
   console.error(w?.stack ?? String(w));
 });
 
-// bin/hook-runner.ts
+// bin/hook-payload.ts
 import { createHash as createHash5 } from "node:crypto";
-import {
-  closeSync,
-  mkdirSync as mkdirSync2,
-  openSync,
-  readFileSync,
-  renameSync,
-  statSync,
-  unlinkSync,
-  writeFileSync
-} from "node:fs";
-import { basename as basename2, dirname as dirname3, join as join3, relative as relative2, resolve as resolve7 } from "node:path";
-import { fileURLToPath } from "node:url";
+import { basename as basename2, relative as relative2, resolve as resolve9 } from "node:path";
+
+// src/db-runtime.ts
+import { mkdirSync } from "node:fs";
+import { join, resolve as resolve2, dirname } from "node:path";
+import { homedir, platform } from "node:os";
 
 // src/helpers.ts
 import { resolve } from "node:path";
@@ -128,127 +122,6 @@ function summarizeText(value, max) {
   return flat.slice(0, Math.max(0, max - 3)).trimEnd() + "...";
 }
 
-// src/git.ts
-import { spawnSync } from "node:child_process";
-import { realpathSync } from "node:fs";
-import { basename, dirname, join, resolve as resolve2 } from "node:path";
-function runCmd(cmd, args, cwd) {
-  try {
-    const r = spawnSync(cmd, args, { cwd: cwd ?? process.cwd(), encoding: "utf8", timeout: 5e3 });
-    return r.status === 0 ? r.stdout.trim() : null;
-  } catch {
-    return null;
-  }
-}
-function detectGit(cwd) {
-  const root = runCmd("git", ["-C", cwd ?? ".", "rev-parse", "--show-toplevel"]);
-  if (!root) return { is_repo: false };
-  const branch = runCmd("git", ["-C", root, "rev-parse", "--abbrev-ref", "HEAD"]);
-  const remote = runCmd("git", ["-C", root, "remote", "get-url", "origin"]);
-  const repoName = remote ? (remote.match(/github\.com[:/]([^/]+\/[^/]+?)(?:\.git)?$/) ?? [])[1] ?? basename(root) : basename(root);
-  return { is_repo: true, root, repo: repoName, branch, remote };
-}
-function canonicalizePath(input) {
-  let dir = resolve2(input);
-  const tail = [];
-  for (let guard = 0; guard < 4096; guard += 1) {
-    try {
-      return tail.length ? join(realpathSync(dir), ...tail) : realpathSync(dir);
-    } catch {
-      const parent = dirname(dir);
-      if (parent === dir) return resolve2(input);
-      tail.unshift(basename(dir));
-      dir = parent;
-    }
-  }
-  return resolve2(input);
-}
-function fillScope(partial, cwd) {
-  const explicitWorkspace = partial.workspace_path ? canonicalizePath(partial.workspace_path) : null;
-  const scope = {
-    workspace_path: explicitWorkspace,
-    artifact: partial.artifact ?? null,
-    repo: partial.repo ?? null,
-    ref: partial.ref ?? null
-  };
-  const git = detectGit(scope.workspace_path ?? cwd ?? process.cwd());
-  if (!git.is_repo) return scope;
-  if (git.root) scope.workspace_path = canonicalizePath(git.root);
-  if (!scope.repo && git.repo) scope.repo = git.repo;
-  if (!scope.ref && git.branch) scope.ref = git.branch;
-  return scope;
-}
-function normalizeWorkspacePath(workspacePath, cwd) {
-  const candidate = workspacePath ? resolve2(workspacePath) : cwd ? resolve2(cwd) : null;
-  const scope = fillScope({ workspace_path: candidate }, candidate ?? process.cwd());
-  if (scope.workspace_path) return scope.workspace_path;
-  return candidate;
-}
-
-// src/sql/agents.ts
-var AGENTS_UPSERT = `INSERT INTO agents (agent_id, agent_name, workspace_path, artifact, context, registered_at, last_seen_at)
-   VALUES (?, ?, ?, ?, ?, ?, ?)
-   ON CONFLICT(agent_id) DO UPDATE SET
-     agent_name     = CASE WHEN excluded.agent_name <> '' THEN excluded.agent_name ELSE agent_name END,
-     workspace_path = COALESCE(excluded.workspace_path, workspace_path),
-     artifact       = COALESCE(excluded.artifact, artifact),
-     context        = COALESCE(excluded.context, context),
-     last_seen_at   = excluded.last_seen_at`;
-
-// src/agents.ts
-function registerAgent(db2, params) {
-  const agentId2 = params.agentId;
-  const agentName2 = params.agentName ?? "";
-  const workspacePath = params.workspacePath ? normalizeWorkspacePath(params.workspacePath, params.workspacePath) : null;
-  const artifact2 = normalizeArtifact(params.artifact);
-  const context = params.context ?? null;
-  const now = utcNow();
-  db2.prepare(AGENTS_UPSERT).run(agentId2, agentName2, workspacePath, artifact2, context, now, now);
-  return { agent_id: agentId2, agent_name: agentName2, workspace_path: workspacePath, artifact: artifact2, context, registered_at: now, last_seen_at: now };
-}
-
-// src/audit.ts
-import { randomUUID } from "node:crypto";
-import { createHash } from "node:crypto";
-
-// src/sql/audit.ts
-var EDIT_LOG_INSERT = `
-  INSERT INTO edit_log (
-    edit_id, session_id, run_id, agent_id,
-    file_path, operation, old_file_path,
-    lines_added, lines_removed, content_hash,
-    workspace_path, artifact, created_at
-  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-`;
-
-// src/audit.ts
-function insertEditLog(db2, params) {
-  const editId = "edit_" + randomUUID();
-  const now = utcNow();
-  db2.prepare(EDIT_LOG_INSERT).run(
-    editId,
-    params.sessionId ?? null,
-    params.runId ?? null,
-    params.agentId,
-    params.filePath,
-    params.operation,
-    params.oldFilePath ?? null,
-    params.linesAdded ?? null,
-    params.linesRemoved ?? null,
-    params.contentHash ?? null,
-    params.workspacePath ?? null,
-    normalizeArtifact(params.artifact),
-    now
-  );
-  return { editId };
-}
-
-// src/db.ts
-import { createHash as createHash2 } from "node:crypto";
-import { mkdirSync } from "node:fs";
-import { join as join2, resolve as resolve3, dirname as dirname2 } from "node:path";
-import { homedir, platform } from "node:os";
-
 // src/sqlite-runtime.ts
 var FIXED_BRANCHES = /* @__PURE__ */ new Map([
   [44, 6],
@@ -287,209 +160,10 @@ function journalModeForSqliteVersion(sqliteVersion) {
   return assessConcurrentWalSafety(sqliteVersion).safe ? "WAL" : "DELETE";
 }
 
-// src/db.ts
-var previousWarningListeners = process.listeners("warning");
-process.removeAllListeners("warning");
-var sqliteWarningFilter = (warning) => {
-  if (warning?.name === "ExperimentalWarning" && String(warning?.message).includes("SQLite")) return;
-  for (const listener of previousWarningListeners) listener.call(process, warning);
-};
-process.on("warning", sqliteWarningFilter);
-var { DatabaseSync } = await import("node:sqlite");
-await new Promise((resolveTick) => setImmediate(resolveTick));
-process.removeAllListeners("warning");
-for (const listener of previousWarningListeners) process.on("warning", listener);
-var DEFAULT_DB_NAME = "awareness.sqlite3";
-var MEMORY_HOME_ENV = "OCTOCODE_MEMORY_HOME";
-var AWARENESS_APPLICATION_ID = 1329812529;
-var AWARENESS_SCHEMA_VERSION = 1;
-var LEGACY_MAX_USER_VERSION = 3;
-var SQLITE_BUSY_RETRY_MS = 25;
-var SQLITE_BUSY_DEADLINE_MS = 1e4;
-var SQLITE_WAIT = new Int32Array(new SharedArrayBuffer(4));
-var LEGACY_V0_RELATION_NAMES = /* @__PURE__ */ new Set([
-  "agent_intents",
-  "agent_memories",
-  "file_locks",
-  "intent_events",
-  "memory_fts",
-  "notifications",
-  "notification_reads",
-  "task_log"
-]);
-var _db;
-function memoryHome() {
-  const configured = process.env[MEMORY_HOME_ENV];
-  if (configured?.trim()) return resolve3(configured.trim());
-  const h = homedir();
-  const p = platform();
-  if (p === "win32") {
-    const appData = process.env["APPDATA"] ?? join2(h, "AppData", "Roaming");
-    return join2(appData, ".octocode", "memory");
-  }
-  if (p === "darwin") return join2(h, ".octocode", "memory");
-  const xdg = process.env["XDG_CONFIG_HOME"] ?? join2(h, ".config");
-  return join2(xdg, ".octocode", "memory");
-}
-function resolveDbPath(dbArg) {
-  if (dbArg) return resolve3(dbArg);
-  return join2(memoryHome(), DEFAULT_DB_NAME);
-}
-function connectDb(dbPath) {
-  mkdirSync(dirname2(dbPath), { recursive: true });
-  const db2 = new DatabaseSync(dbPath);
-  try {
-    db2.exec(`PRAGMA busy_timeout = ${SQLITE_BUSY_DEADLINE_MS}`);
-    const schemaState = inspectSchemaState(db2);
-    if (schemaState === "legacy") createPreV1Backup(db2, dbPath);
-    const versionRow = db2.prepare("SELECT sqlite_version() AS version").get();
-    const journalMode = journalModeForSqliteVersion(versionRow.version);
-    withSqliteBusyRetry(() => db2.exec(`PRAGMA journal_mode = ${journalMode}`));
-    db2.exec("PRAGMA foreign_keys = ON");
-    initializeDb(db2, schemaState === "legacy", schemaState);
-    _db = db2;
-    return db2;
-  } catch (error) {
-    db2.close();
-    throw error;
-  }
-}
-function readSchemaIdentity(db2) {
-  const application = db2.prepare("PRAGMA application_id").get();
-  const version = db2.prepare("PRAGMA user_version").get();
-  const relations = db2.prepare(`
-    SELECT name, type
-    FROM sqlite_schema
-    WHERE type IN ('table', 'view')
-      AND name NOT LIKE 'sqlite_%'
-      AND name NOT GLOB 'memories_fts_*'
-      AND name NOT GLOB 'memory_fts_*'
-    ORDER BY name
-  `).all();
-  return {
-    applicationId: application.application_id ?? 0,
-    userVersion: version.user_version ?? 0,
-    relations
-  };
-}
-function hasColumns(db2, table, columns) {
-  if (!tableExists(db2, table)) return false;
-  const actual = tableColumns(db2, table);
-  return columns.every((column) => actual.has(column));
-}
-function recognizedLegacySignature(db2) {
-  const matchedTables = /* @__PURE__ */ new Set();
-  for (const [table, columns] of [
-    ["sessions", ["session_id", "agent_id", "started_at"]],
-    ["memories", ["memory_id", "agent_id", "task_context", "observation", "importance"]],
-    ["tasks", ["task_id", "agent_id", "rationale", "test_plan", "status"]],
-    ["task_runs", ["run_id", "agent_id", "rationale", "test_plan", "status"]],
-    ["locks", ["lock_id", "file_path", "acquired_at"]],
-    ["refinements", ["refinement_id", "agent_id", "reasoning", "remember", "state"]],
-    ["agent_intents", ["intent_id", "agent_id", "rationale", "test_plan", "status"]],
-    ["intent_events", ["event_id", "intent_id", "agent_id", "event_type"]],
-    ["agent_memories", ["memory_id", "agent_id", "task_context", "observation", "importance_score"]]
-  ]) {
-    if (hasColumns(db2, table, columns)) matchedTables.add(table);
-  }
-  for (const [table, columns] of canonicalColumns()) {
-    if (columns.length >= 2 && hasColumns(db2, table, columns.slice(0, 2).map(({ name }) => name))) {
-      matchedTables.add(table);
-    }
-  }
-  return matchedTables.size >= 2;
-}
-function inspectSchemaState(db2) {
-  const identity = readSchemaIdentity(db2);
-  if (identity.applicationId === AWARENESS_APPLICATION_ID) {
-    if (identity.userVersion !== AWARENESS_SCHEMA_VERSION) {
-      throw new Error(
-        `unsupported canonical Awareness schema version ${identity.userVersion}; expected ${AWARENESS_SCHEMA_VERSION}`
-      );
-    }
-    assertCanonicalRelationContract(db2, identity.relations);
-    assertCanonicalSchemaFingerprint(db2);
-    return "canonical";
-  }
-  if (identity.applicationId !== 0) {
-    throw new Error(
-      `refusing foreign Awareness application_id ${identity.applicationId}; expected ${AWARENESS_APPLICATION_ID}`
-    );
-  }
-  if (identity.userVersion > LEGACY_MAX_USER_VERSION) {
-    throw new Error(
-      `refusing unsupported unbranded Awareness schema version ${identity.userVersion}; legacy versions are 0-${LEGACY_MAX_USER_VERSION}`
-    );
-  }
-  if (identity.relations.length === 0) {
-    if (identity.userVersion === 0) return "fresh";
-    throw new Error(`refusing unrelated empty versioned SQLite store at user_version ${identity.userVersion}`);
-  }
-  const known = /* @__PURE__ */ new Set([
-    ...canonicalColumns().keys(),
-    ...LEGACY_V0_RELATION_NAMES,
-    "memories_fts"
-  ]);
-  const unexpected = identity.relations.filter(({ name, type }) => type !== "table" || !known.has(name));
-  if (unexpected.length > 0 || !recognizedLegacySignature(db2)) {
-    const suffix = unexpected.length > 0 ? `; unexpected relations: ${unexpected.map(({ name }) => name).join(", ")}` : "";
-    throw new Error(`refusing unrecognized or unrelated SQLite store${suffix}`);
-  }
-  return "legacy";
-}
-function createPreV1Backup(db2, dbPath) {
-  if (dbPath === ":memory:") return null;
-  const stamp = (/* @__PURE__ */ new Date()).toISOString().replace(/[-:.TZ]/g, "");
-  const backupPath = `${resolve3(dbPath)}.pre-v1-${stamp}-${process.pid}.sqlite3`;
-  db2.exec(`VACUUM INTO '${backupPath.replace(/'/g, "''")}'`);
-  return backupPath;
-}
-function assertDatabaseIntegrity(db2) {
-  const integrity = db2.prepare("PRAGMA integrity_check").all();
-  const failures = integrity.filter(({ integrity_check }) => integrity_check !== "ok");
-  if (failures.length > 0) {
-    throw new Error(`canonical v1 integrity_check failed: ${failures.map((row) => row.integrity_check).join("; ")}`);
-  }
-  const foreignKeys = db2.prepare("PRAGMA foreign_key_check").all();
-  if (foreignKeys.length > 0) {
-    throw new Error(`canonical v1 foreign_key_check failed with ${foreignKeys.length} row(s)`);
-  }
-}
-function isSqliteBusy(error) {
-  if (!(error instanceof Error)) return false;
-  const sqlite = error;
-  return sqlite.errcode === 5 || /database is (?:locked|busy)/i.test(`${sqlite.errstr ?? ""} ${error.message}`);
-}
-function withSqliteBusyRetry(operation) {
-  const deadline = Date.now() + SQLITE_BUSY_DEADLINE_MS;
-  for (; ; ) {
-    try {
-      return operation();
-    } catch (error) {
-      if (!isSqliteBusy(error) || Date.now() >= deadline) throw error;
-      Atomics.wait(SQLITE_WAIT, 0, 0, SQLITE_BUSY_RETRY_MS);
-    }
-  }
-}
-function checkpointWal(db2) {
-  try {
-    db2.exec("PRAGMA wal_checkpoint(TRUNCATE)");
-  } catch {
-  }
-}
-function getDeliveryFingerprint(db2, key) {
-  const row = db2.prepare(`SELECT fingerprint FROM delivery_state
-    WHERE consumer_id = ? AND channel = ? AND scope_key = ?`).get(key.consumerId, key.channel, key.scopeKey);
-  return row?.fingerprint ?? null;
-}
-function setDeliveryFingerprint(db2, params) {
-  db2.prepare(`INSERT INTO delivery_state
-      (consumer_id, channel, scope_key, fingerprint, delivered_at)
-    VALUES (?, ?, ?, ?, ?)
-    ON CONFLICT(consumer_id, channel, scope_key) DO UPDATE SET
-      fingerprint = excluded.fingerprint,
-      delivered_at = excluded.delivered_at`).run(params.consumerId, params.channel, params.scopeKey, params.fingerprint, params.deliveredAt ?? utcNow());
-}
+// src/db-introspection.ts
+import { createHash } from "node:crypto";
+
+// src/db-schema.ts
 var SCHEMA_DDL = `
     CREATE TABLE IF NOT EXISTS sessions (
       session_id     TEXT PRIMARY KEY,
@@ -843,366 +517,24 @@ var FTS_SCHEMA_DDL = `
   CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts
   USING fts5(memory_id UNINDEXED, task_context, observation, tags)
 `;
-function tableExists(db2, table) {
-  return Boolean(db2.prepare(
-    "SELECT 1 FROM sqlite_master WHERE type='table' AND name = ?"
-  ).get(table));
-}
-function renameColumnIfPresent(db2, table, from, to) {
-  if (!tableExists(db2, table)) return;
-  const columns = tableColumns(db2, table);
-  if (columns.has(from) && !columns.has(to)) {
-    db2.exec(`ALTER TABLE ${table} RENAME COLUMN ${from} TO ${to}`);
-  }
-}
-function migrateLegacyTaskRuns(db2) {
-  if (!tableExists(db2, "tasks")) return;
-  const columns = tableColumns(db2, "tasks");
-  const isLegacyExecutionTable = columns.has("agent_id") && columns.has("test_plan") && !columns.has("plan_id");
-  if (!isLegacyExecutionTable) return;
-  if (tableExists(db2, "task_runs")) {
-    throw new Error("schema migration cannot move legacy tasks: task_runs already exists");
-  }
-  for (const index of ["idx_tasks_status", "idx_tasks_agent_status", "idx_tasks_workspace", "idx_tasks_scope"]) {
-    db2.exec(`DROP INDEX IF EXISTS ${index}`);
-  }
-  db2.exec("ALTER TABLE tasks RENAME TO task_runs");
-  renameColumnIfPresent(db2, "task_runs", "task_id", "run_id");
-  renameColumnIfPresent(db2, "task_runs", "plan_doc_ref", "context_ref");
-  renameColumnIfPresent(db2, "locks", "task_id", "run_id");
-  if (tableExists(db2, "task_log") && !tableExists(db2, "run_log")) {
-    db2.exec("ALTER TABLE task_log RENAME TO run_log");
-  }
-  renameColumnIfPresent(db2, "run_log", "task_id", "run_id");
-  renameColumnIfPresent(db2, "edit_log", "task_id", "run_id");
-  renameColumnIfPresent(db2, "harness_log", "task_id", "run_id");
-}
-function expectCopied(changes, expected, relation) {
-  if (Number(changes) !== expected) {
-    throw new Error(`schema migration copied ${String(changes)}/${expected} rows from ${relation}`);
-  }
-}
-function legacySqlValue(value, field) {
-  if (value === null || typeof value === "string" || typeof value === "number" || typeof value === "bigint") {
-    return value;
-  }
-  if (value instanceof Uint8Array) return value;
-  throw new Error(`schema migration cannot bind legacy field ${field}`);
-}
-function legacySqlValues(values) {
-  return values.map(([value, field]) => legacySqlValue(value, field));
-}
-function migrateLegacyV0Relations(db2) {
-  if (tableExists(db2, "agent_memories")) {
-    const rows = db2.prepare("SELECT * FROM agent_memories").all();
-    const insert = db2.prepare(`INSERT INTO memories (
-      memory_id, agent_id, task_context, observation, importance, state, label,
-      superseded_by, tags_json, workspace_path, artifact, repo, ref,
-      file_tree_fingerprint, novelty_score, last_accessed_at, access_count,
-      decay_half_life_days, failure_signature, valid_from, valid_to, expired_at,
-      embedding, embedding_model, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
-    const insertRef = db2.prepare(`INSERT INTO memory_refs(memory_id, reference, kind, ordinal)
-      VALUES (?, ?, 'file', 0)`);
-    for (const row of rows) {
-      insert.run(...legacySqlValues([
-        [row["memory_id"], "agent_memories.memory_id"],
-        [row["agent_id"], "agent_memories.agent_id"],
-        [row["task_context"], "agent_memories.task_context"],
-        [row["observation"], "agent_memories.observation"],
-        [row["importance_score"], "agent_memories.importance_score"],
-        [row["state"] ?? "ACTIVE", "agent_memories.state"],
-        [row["label"] ?? "OTHER", "agent_memories.label"],
-        [row["superseded_by"] ?? null, "agent_memories.superseded_by"],
-        [row["tags_json"] ?? "[]", "agent_memories.tags_json"],
-        [row["file_tree_fingerprint"] ?? null, "agent_memories.file_tree_fingerprint"],
-        [row["last_accessed_at"] ?? null, "agent_memories.last_accessed_at"],
-        [row["access_count"] ?? 0, "agent_memories.access_count"],
-        [row["decay_half_life_days"] ?? null, "agent_memories.decay_half_life_days"],
-        [row["failure_signature"] ?? null, "agent_memories.failure_signature"],
-        [row["valid_from"] ?? row["created_at"], "agent_memories.valid_from"],
-        [row["valid_to"] ?? null, "agent_memories.valid_to"],
-        [row["expired_at"] ?? null, "agent_memories.expired_at"],
-        [row["embedding"] ?? null, "agent_memories.embedding"],
-        [row["embedding_model"] ?? null, "agent_memories.embedding_model"],
-        [row["created_at"], "agent_memories.created_at"],
-        [row["updated_at"] ?? null, "agent_memories.updated_at"]
-      ]));
-      if (typeof row["file"] === "string" && row["file"].trim()) {
-        insertRef.run(
-          legacySqlValue(row["memory_id"], "agent_memories.memory_id"),
-          `file:${row["file"]}`
-        );
-      }
-    }
-  }
-  if (tableExists(db2, "agent_intents")) {
-    const rows = db2.prepare("SELECT * FROM agent_intents").all();
-    const insertRun = db2.prepare(`INSERT INTO task_runs (
-      run_id, task_id, origin, agent_id, session_id, rationale, test_plan,
-      context_ref, status, workspace_path, artifact, created_at, updated_at
-    ) VALUES (?, NULL, 'WORK', ?, NULL, ?, ?, ?, ?, ?, NULL, ?, ?)`);
-    const insertFile = db2.prepare(`INSERT INTO run_files (
-      run_id, file_path, reason_override, source, started_at, heartbeat_at,
-      expires_at, ended_at
-    ) VALUES (?, ?, NULL, 'EXPLICIT', ?, ?, ?, ?)`);
-    for (const row of rows) {
-      insertRun.run(...legacySqlValues([
-        [row["intent_id"], "agent_intents.intent_id"],
-        [row["agent_id"], "agent_intents.agent_id"],
-        [row["rationale"], "agent_intents.rationale"],
-        [row["test_plan"], "agent_intents.test_plan"],
-        [row["plan_doc_ref"] ?? null, "agent_intents.plan_doc_ref"],
-        [row["status"], "agent_intents.status"],
-        [row["workspace_path"] ?? null, "agent_intents.workspace_path"],
-        [row["created_at"], "agent_intents.created_at"],
-        [row["updated_at"], "agent_intents.updated_at"]
-      ]));
-      for (const filePath of parseJsonList(String(row["files_json"] ?? "[]"))) {
-        const updatedAt = String(row["updated_at"]);
-        insertFile.run(...legacySqlValues([
-          [row["intent_id"], "agent_intents.intent_id"],
-          [filePath, "agent_intents.files_json[]"],
-          [row["created_at"], "agent_intents.created_at"],
-          [updatedAt, "agent_intents.updated_at"],
-          [updatedAt, "agent_intents.updated_at"],
-          [row["status"] === "ACTIVE" ? null : updatedAt, "agent_intents.ended_at"]
-        ]));
-      }
-    }
-  }
-  if (tableExists(db2, "file_locks")) {
-    const expected = db2.prepare("SELECT COUNT(*) AS count FROM file_locks").get().count;
-    const result = db2.prepare(`INSERT INTO locks(lock_id, file_path, run_id, acquired_at, expires_at)
-      SELECT f.lock_id, f.file_path, f.intent_id, f.acquired_at, f.expires_at
-      FROM file_locks f JOIN task_runs r ON r.run_id = f.intent_id`).run();
-    expectCopied(result.changes, expected, "file_locks");
-  }
-  if (tableExists(db2, "intent_events")) {
-    const expected = db2.prepare("SELECT COUNT(*) AS count FROM intent_events").get().count;
-    const result = db2.prepare(`INSERT INTO run_log(event_id, run_id, agent_id, event_type, message, created_at)
-      SELECT e.event_id, e.intent_id, e.agent_id, e.event_type, e.message, e.created_at
-      FROM intent_events e LEFT JOIN task_runs r ON r.run_id = e.intent_id`).run();
-    expectCopied(result.changes, expected, "intent_events");
-  }
-  if (tableExists(db2, "task_log")) {
-    const columns = tableColumns(db2, "task_log");
-    const runColumn = columns.has("run_id") ? "run_id" : "task_id";
-    const expected = db2.prepare("SELECT COUNT(*) AS count FROM task_log").get().count;
-    const result = db2.prepare(`INSERT INTO run_log(event_id, run_id, agent_id, event_type, message, created_at)
-      SELECT event_id, ${runColumn}, agent_id, event_type, message, created_at FROM task_log`).run();
-    expectCopied(result.changes, expected, "task_log");
-  }
-  if (tableExists(db2, "notifications")) {
-    const expected = db2.prepare("SELECT COUNT(*) AS count FROM notifications").get().count;
-    const result = db2.prepare(`INSERT INTO signals (
-      signal_id, workspace_path, artifact, repo, ref, from_agent, to_agent, kind,
-      subject, body, files_json, refs_json, thread_id, reply_to, importance,
-      status, resolved_at, created_at
-    ) SELECT notification_id, workspace_path, NULL, repo, ref, from_agent, to_agent,
-      kind, subject, body, files_json, refs_json, thread_id, in_reply_to,
-      importance, status, CASE WHEN status = 'resolved' THEN created_at ELSE NULL END,
-      created_at FROM notifications`).run();
-    expectCopied(result.changes, expected, "notifications");
-  }
-  if (tableExists(db2, "notification_reads")) {
-    const expected = db2.prepare("SELECT COUNT(*) AS count FROM notification_reads").get().count;
-    const result = db2.prepare(`INSERT INTO signal_reads(signal_id, agent_id, read_at)
-      SELECT r.notification_id, r.agent_id, r.read_at
-      FROM notification_reads r JOIN signals s ON s.signal_id = r.notification_id`).run();
-    expectCopied(result.changes, expected, "notification_reads");
-  }
-  for (const relation of [
-    "notification_reads",
-    "notifications",
-    "file_locks",
-    "intent_events",
-    "agent_intents",
-    "agent_memories",
-    "task_log",
-    "memory_fts"
-  ]) {
-    db2.exec(`DROP TABLE IF EXISTS ${relation}`);
-  }
-}
-function repairLegacyForeignKeyReferences(db2) {
-  db2.exec(`INSERT OR IGNORE INTO sessions (
-    session_id, agent_id, workspace_path, artifact, repo, ref,
-    started_at, ended_at, summary
-  ) SELECT session_id, agent_id, workspace_path, artifact, NULL, NULL,
-      created_at, CASE WHEN status = 'ACTIVE' THEN NULL ELSE updated_at END,
-      'migrated legacy session reference'
-    FROM task_runs
-    WHERE session_id IS NOT NULL
-    ORDER BY created_at, run_id`);
-  db2.exec(`UPDATE task_runs
-    SET context_ref = COALESCE(context_ref, 'legacy-task:' || task_id), task_id = NULL
-    WHERE task_id IS NOT NULL AND NOT EXISTS (
-      SELECT 1 FROM tasks WHERE tasks.task_id = task_runs.task_id
-    )`);
-}
-function mainDatabasePath(db2) {
-  const row = db2.prepare("PRAGMA database_list").all().find(({ name }) => name === "main");
-  return row?.file?.trim() || null;
-}
-function initializeDb(db2, fileBackupCreated, knownState) {
-  const state = knownState ?? inspectSchemaState(db2);
-  if (state === "canonical") {
-    if (!db2.isTransaction) db2.exec("PRAGMA foreign_keys = ON");
-    return;
-  }
-  if (db2.isTransaction) {
-    throw new Error("cannot initialize or migrate canonical v1 inside a caller-owned transaction");
-  }
-  if (state === "legacy" && mainDatabasePath(db2) && !fileBackupCreated) {
-    throw new Error("file-backed legacy migration requires connectDb(path) so a pre-v1 backup is created");
-  }
-  db2.exec("PRAGMA foreign_keys = OFF");
-  let began = false;
-  try {
-    withSqliteBusyRetry(() => db2.exec("BEGIN IMMEDIATE"));
-    began = true;
-    const lockedState = inspectSchemaState(db2);
-    if (lockedState !== "canonical") initDbSchema(db2, lockedState);
-    db2.exec("COMMIT");
-    began = false;
-  } catch (error) {
-    if (began) {
-      try {
-        db2.exec("ROLLBACK");
-      } catch {
-      }
-    }
-    throw error;
-  } finally {
-    db2.exec("PRAGMA foreign_keys = ON");
-  }
-}
-function initDbSchema(db2, state) {
-  migrateLegacyTaskRuns(db2);
-  db2.exec(SCHEMA_DDL);
-  migrateExistingTables(db2);
-  migrateLegacyExecutionSchema(db2);
-  migrateRefinementQualityConstraint(db2);
-  migrateCheckConstraints(db2);
-  migrateLegacyV0Relations(db2);
-  repairLegacyForeignKeyReferences(db2);
-  if (state === "legacy") {
-    db2.exec("DROP TABLE IF EXISTS memories_fts");
-    rebuildAllCanonicalTables(db2);
-    normalizeImportedTimestamps(db2);
-  }
-  db2.exec(SCHEMA_INDEX_DDL);
-  try {
-    db2.exec(FTS_SCHEMA_DDL);
-  } catch {
-  }
-  if (hasFts(db2)) {
-    const row = db2.prepare("SELECT COUNT(*) AS cnt FROM memories_fts").get();
-    if (row.cnt === 0) rebuildFts(db2);
-  }
-  assertCanonicalRelationContract(db2);
-  assertCanonicalSchemaFingerprint(db2);
-  assertDatabaseIntegrity(db2);
-  db2.exec(`PRAGMA application_id = ${AWARENESS_APPLICATION_ID}`);
-  db2.exec(`PRAGMA user_version = ${AWARENESS_SCHEMA_VERSION}`);
-}
-function tableColumns(db2, tableName) {
-  const rows = db2.prepare(`PRAGMA table_info(${tableName})`).all();
-  return new Set(rows.map((r) => r.name));
-}
+
+// src/db-introspection.ts
 var _canonicalColumns;
 function canonicalColumns() {
   if (_canonicalColumns) return _canonicalColumns;
-  const tmp = new DatabaseSync(":memory:");
+  const canonical = new DatabaseSync(":memory:");
   try {
-    tmp.exec(SCHEMA_DDL);
-    const tables = tmp.prepare(
+    canonical.exec(SCHEMA_DDL);
+    const tables = canonical.prepare(
       "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
     ).all();
-    const map = /* @__PURE__ */ new Map();
-    for (const { name } of tables) {
-      map.set(name, tmp.prepare(`PRAGMA table_info(${name})`).all());
-    }
-    _canonicalColumns = map;
-    return map;
+    _canonicalColumns = new Map(tables.map(({ name }) => [
+      name,
+      canonical.prepare(`PRAGMA table_info(${name})`).all()
+    ]));
+    return _canonicalColumns;
   } finally {
-    tmp.close();
-  }
-}
-function isConstantDefault(dflt) {
-  return dflt !== null && !dflt.includes("(");
-}
-function migrateExistingTables(db2) {
-  for (const [table, columns] of canonicalColumns()) {
-    const existing = tableColumns(db2, table);
-    for (const col of columns) {
-      if (existing.has(col.name)) continue;
-      let clause = `${col.name} ${col.type}`;
-      if (isConstantDefault(col.dflt_value)) {
-        if (col.notnull) clause += " NOT NULL";
-        clause += ` DEFAULT ${col.dflt_value}`;
-      }
-      db2.exec(`ALTER TABLE ${table} ADD COLUMN ${clause}`);
-    }
-  }
-}
-function migrateLegacyExecutionSchema(db2) {
-  if (!tableExists(db2, "task_runs")) return;
-  const runColumns = tableColumns(db2, "task_runs");
-  const lockColumns = tableExists(db2, "locks") ? tableColumns(db2, "locks") : /* @__PURE__ */ new Set();
-  const needsRunRebuild = runColumns.has("files_json");
-  const needsLockRebuild = ["agent_id", "session_id", "lock_type"].some((name) => lockColumns.has(name));
-  if (!needsRunRebuild && !needsLockRebuild) return;
-  if (needsRunRebuild) {
-    const rows = db2.prepare(`SELECT run_id, task_id, status, files_json, created_at, updated_at
-      FROM task_runs`).all();
-    const insert = db2.prepare(`INSERT OR IGNORE INTO run_files
-      (run_id, file_path, reason_override, source, started_at, heartbeat_at, expires_at, ended_at)
-      VALUES (?, ?, NULL, ?, ?, ?, ?, ?)`);
-    const now = utcNow();
-    for (const row of rows) {
-      const source = row.task_id == null ? "HOOK" : "EXPLICIT";
-      const startedAt = row.created_at ?? now;
-      const heartbeatAt = row.updated_at ?? startedAt;
-      for (const filePath of parseJsonList(row.files_json)) {
-        const lease = db2.prepare(`SELECT MAX(expires_at) AS expires_at FROM (
-          SELECT expires_at FROM locks WHERE run_id = ? AND file_path = ?
-          UNION ALL
-          SELECT expires_at FROM task_claims WHERE run_id = ?
-        )`).get(row.run_id, filePath, row.run_id);
-        const expiresAt = lease.expires_at ?? heartbeatAt;
-        const active = row.status === "ACTIVE" && expiresAt > now;
-        insert.run(row.run_id, filePath, source, startedAt, heartbeatAt, expiresAt, active ? null : heartbeatAt);
-      }
-    }
-    db2.prepare(`UPDATE task_runs SET origin = CASE
-      WHEN task_id IS NOT NULL THEN 'TASK' ELSE 'HOOK' END`).run();
-  }
-  if (needsRunRebuild) {
-    const sql = canonicalTableSql().get("task_runs");
-    if (!sql) throw new Error("schema migration cannot find canonical task_runs DDL");
-    rebuildTableFromCanonical(db2, "task_runs", sql);
-  }
-  if (needsLockRebuild) {
-    const sql = canonicalTableSql().get("locks");
-    if (!sql) throw new Error("schema migration cannot find canonical locks DDL");
-    rebuildTableFromCanonical(db2, "locks", sql);
-  }
-}
-var _canonicalTableSql;
-function canonicalTableSql() {
-  if (_canonicalTableSql) return _canonicalTableSql;
-  const tmp = new DatabaseSync(":memory:");
-  try {
-    tmp.exec(SCHEMA_DDL);
-    const rows = tmp.prepare(
-      "SELECT name, sql FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND sql IS NOT NULL"
-    ).all();
-    _canonicalTableSql = new Map(rows.map((r) => [r.name, r.sql]));
-    return _canonicalTableSql;
-  } finally {
-    tmp.close();
+    canonical.close();
   }
 }
 function normalizeSchemaSql(sql) {
@@ -1215,7 +547,6 @@ function readSchemaObjects(db2) {
     WHERE type IN ('table', 'view', 'index', 'trigger')
       AND name NOT LIKE 'sqlite_%'
       AND name NOT GLOB 'memories_fts_*'
-      AND name NOT GLOB 'memory_fts_*'
     ORDER BY type, name
   `).all();
   return rows.map((row) => ({
@@ -1226,7 +557,7 @@ function readSchemaObjects(db2) {
   }));
 }
 function schemaObjectsFingerprint(objects) {
-  return createHash2("sha256").update(JSON.stringify(objects)).digest("hex");
+  return createHash("sha256").update(JSON.stringify(objects)).digest("hex");
 }
 var _canonicalSchemaFingerprints = /* @__PURE__ */ new Map();
 function canonicalSchemaFingerprint(includeFts) {
@@ -1255,7 +586,7 @@ function assertCanonicalRelationContract(db2, relations) {
     missing.length > 0 ? `missing: ${missing.join(", ")}` : null,
     unexpected.length > 0 ? `unexpected: ${unexpected.map(({ name }) => name).join(", ")}` : null
   ].filter((value) => value !== null).join("; ");
-  throw new Error(`canonical v1 relation contract mismatch (${details})`);
+  throw new Error(`canonical relation contract mismatch (${details})`);
 }
 function assertCanonicalSchemaFingerprint(db2) {
   const objects = readSchemaObjects(db2);
@@ -1264,152 +595,12 @@ function assertCanonicalSchemaFingerprint(db2) {
   const actualFingerprint = schemaObjectsFingerprint(objects);
   if (actualFingerprint !== expectedFingerprint) {
     throw new Error(
-      `canonical v1 schema fingerprint mismatch (expected ${expectedFingerprint}, got ${actualFingerprint})`
+      `canonical schema fingerprint mismatch (expected ${expectedFingerprint}, got ${actualFingerprint})`
     );
   }
 }
-function checkClauses(createSql) {
-  const clauses = [];
-  const opener = /CHECK\s*\(/gi;
-  let match;
-  while ((match = opener.exec(createSql)) !== null) {
-    let depth = 1;
-    let i = opener.lastIndex;
-    while (i < createSql.length && depth > 0) {
-      const ch = createSql[i];
-      if (ch === "'") {
-        i = createSql.indexOf("'", i + 1);
-        if (i === -1) {
-          i = createSql.length;
-          break;
-        }
-      } else if (ch === "(") depth++;
-      else if (ch === ")") depth--;
-      i++;
-    }
-    clauses.push(createSql.slice(match.index, i));
-    opener.lastIndex = i;
-  }
-  return clauses.map((c) => c.replace(/\s+/g, " ").trim().toLowerCase()).sort().join(" | ");
-}
-function rebuildTableFromCanonical(db2, table, canonSql) {
-  const liveCols = tableColumns(db2, table);
-  const canonCols = (canonicalColumns().get(table) ?? []).map((c) => c.name).filter((n) => liveCols.has(n));
-  if (canonCols.length === 0) return;
-  const colList = canonCols.join(", ");
-  const tmpName = `${table}__ckmig`;
-  const createTmp = canonSql.replace(
-    new RegExp(`(CREATE\\s+TABLE\\s+(?:IF\\s+NOT\\s+EXISTS\\s+)?)"?${table}"?`, "i"),
-    `$1${tmpName}`
-  );
-  if (!createTmp.includes(tmpName)) {
-    throw new Error(`check-constraint migration: cannot rename table ${table} in canonical DDL`);
-  }
-  const savepoint = `migrate_check_${table}`;
-  db2.exec(`SAVEPOINT ${savepoint}`);
-  try {
-    db2.exec(`DROP TABLE IF EXISTS ${tmpName};`);
-    db2.exec(createTmp);
-    db2.exec(`INSERT INTO ${tmpName} (${colList}) SELECT ${colList} FROM ${table};`);
-    db2.exec(`DROP TABLE ${table};`);
-    db2.exec(`ALTER TABLE ${tmpName} RENAME TO ${table};`);
-    db2.exec(`RELEASE SAVEPOINT ${savepoint}`);
-  } catch (err) {
-    try {
-      db2.exec(`ROLLBACK TO SAVEPOINT ${savepoint}`);
-    } catch {
-    }
-    try {
-      db2.exec(`RELEASE SAVEPOINT ${savepoint}`);
-    } catch {
-    }
-    const reason = err instanceof Error ? err.message : String(err);
-    if (/CHECK constraint failed/i.test(reason)) {
-      throw new Error(
-        `schema migration cannot rebuild table "${table}": existing rows violate a canonical CHECK constraint (${reason}); inspect that table's enum columns and update the offending rows before reopening`
-      );
-    }
-    throw err;
-  }
-}
-function rebuildAllCanonicalTables(db2) {
-  for (const [table, sql] of canonicalTableSql()) {
-    if (tableExists(db2, table)) rebuildTableFromCanonical(db2, table, sql);
-  }
-}
-function normalizeImportedTimestamps(db2) {
-  for (const [table, columns] of canonicalColumns()) {
-    if (!tableExists(db2, table)) continue;
-    for (const col of columns) {
-      if (col.type.toUpperCase() !== "TEXT") continue;
-      if (!/(_at|_from|_to)$/.test(col.name)) continue;
-      db2.prepare(
-        `UPDATE ${table} SET ${col.name} = substr(${col.name}, 1, 19) || 'Z'
-         WHERE ${col.name} LIKE '____-__-__T__:__:__.___Z'`
-      ).run();
-    }
-  }
-}
-function migrateCheckConstraints(db2) {
-  const drifted = [];
-  for (const [table, canonSql] of canonicalTableSql()) {
-    const live = db2.prepare(
-      "SELECT sql FROM sqlite_master WHERE type='table' AND name=?"
-    ).get(table);
-    if (!live?.sql) continue;
-    if (checkClauses(live.sql) !== checkClauses(canonSql)) drifted.push([table, canonSql]);
-  }
-  if (drifted.length === 0) return;
-  for (const [table, canonSql] of drifted) rebuildTableFromCanonical(db2, table, canonSql);
-}
-function migrateRefinementQualityConstraint(db2) {
-  const row = db2.prepare(
-    "SELECT sql FROM sqlite_master WHERE type='table' AND name='refinements'"
-  ).get();
-  if (!row?.sql || row.sql.includes("'instructions'")) return;
-  db2.exec("SAVEPOINT migrate_refinement_quality_constraint");
-  try {
-    db2.exec(`
-      DROP TABLE IF EXISTS refinements_migration_new;
-      CREATE TABLE refinements_migration_new (
-        refinement_id  TEXT PRIMARY KEY,
-        agent_id       TEXT NOT NULL,
-        workspace_path TEXT NOT NULL,
-        artifact       TEXT,
-        repo           TEXT,
-        ref            TEXT,
-        files_json     TEXT NOT NULL DEFAULT '[]',
-        reasoning      TEXT NOT NULL,
-        remember       TEXT NOT NULL,
-        quality        TEXT NOT NULL CHECK(quality IN ('good','bad','handoff','instructions')) DEFAULT 'good',
-        state          TEXT NOT NULL CHECK(state IN ('open','ongoing','done')) DEFAULT 'open',
-        created_at     TEXT NOT NULL,
-        updated_at     TEXT NOT NULL
-      );
-      INSERT INTO refinements_migration_new (
-        refinement_id, agent_id, workspace_path, artifact, repo, ref,
-        files_json, reasoning, remember, quality, state, created_at, updated_at
-      )
-      SELECT
-        refinement_id, agent_id, workspace_path, artifact, repo, ref,
-        files_json, reasoning, remember, quality, state, created_at, updated_at
-      FROM refinements;
-      DROP TABLE refinements;
-      ALTER TABLE refinements_migration_new RENAME TO refinements;
-    `);
-    db2.exec("RELEASE SAVEPOINT migrate_refinement_quality_constraint");
-  } catch (err) {
-    try {
-      db2.exec("ROLLBACK TO SAVEPOINT migrate_refinement_quality_constraint");
-    } catch {
-    }
-    try {
-      db2.exec("RELEASE SAVEPOINT migrate_refinement_quality_constraint");
-    } catch {
-    }
-    throw err;
-  }
-}
+
+// src/db-search.ts
 function hasFts(db2) {
   const row = db2.prepare(
     "SELECT 1 FROM sqlite_master WHERE type='table' AND name='memories_fts'"
@@ -1463,12 +654,248 @@ function rebuildFts(db2) {
   }
 }
 
-// src/tasks.ts
-import { randomUUID as randomUUID3 } from "node:crypto";
-import { isAbsolute, relative, resolve as resolve4, sep } from "node:path";
+// src/db-init.ts
+function initializeDb(db2, knownState) {
+  const state = knownState ?? inspectSchemaState(db2);
+  if (state === "canonical") {
+    if (!db2.isTransaction) db2.exec("PRAGMA foreign_keys = ON");
+    return;
+  }
+  if (db2.isTransaction) {
+    throw new Error("cannot initialize canonical Awareness inside a caller-owned transaction");
+  }
+  db2.exec("PRAGMA foreign_keys = OFF");
+  let began = false;
+  try {
+    withSqliteBusyRetry(() => db2.exec("BEGIN IMMEDIATE"));
+    began = true;
+    const lockedState = inspectSchemaState(db2);
+    if (lockedState === "fresh") initializeFreshDb(db2);
+    db2.exec("COMMIT");
+    began = false;
+  } catch (error) {
+    if (began) {
+      try {
+        db2.exec("ROLLBACK");
+      } catch {
+      }
+    }
+    throw error;
+  } finally {
+    db2.exec("PRAGMA foreign_keys = ON");
+  }
+}
+function initializeFreshDb(db2) {
+  db2.exec(SCHEMA_DDL);
+  db2.exec(SCHEMA_INDEX_DDL);
+  try {
+    db2.exec(FTS_SCHEMA_DDL);
+  } catch {
+  }
+  if (hasFts(db2)) rebuildFts(db2);
+  assertCanonicalRelationContract(db2);
+  assertCanonicalSchemaFingerprint(db2);
+  assertDatabaseIntegrity(db2);
+  db2.exec(`PRAGMA application_id = ${AWARENESS_APPLICATION_ID}`);
+}
+
+// src/db-runtime.ts
+var previousWarningListeners = process.listeners("warning");
+process.removeAllListeners("warning");
+var sqliteWarningFilter = (warning) => {
+  if (warning?.name === "ExperimentalWarning" && String(warning?.message).includes("SQLite")) return;
+  for (const listener of previousWarningListeners) listener.call(process, warning);
+};
+process.on("warning", sqliteWarningFilter);
+var { DatabaseSync } = await import("node:sqlite");
+await new Promise((resolveTick) => setImmediate(resolveTick));
+process.removeAllListeners("warning");
+for (const listener of previousWarningListeners) process.on("warning", listener);
+var DEFAULT_DB_NAME = "awareness.sqlite3";
+var MEMORY_HOME_ENV = "OCTOCODE_MEMORY_HOME";
+var AWARENESS_APPLICATION_ID = 1329812529;
+var SQLITE_BUSY_RETRY_MS = 25;
+var SQLITE_BUSY_DEADLINE_MS = 1e4;
+var SQLITE_WAIT = new Int32Array(new SharedArrayBuffer(4));
+var _db;
+function memoryHome() {
+  const configured = process.env[MEMORY_HOME_ENV];
+  if (configured?.trim()) return resolve2(configured.trim());
+  const h = homedir();
+  const p = platform();
+  if (p === "win32") {
+    const appData = process.env["APPDATA"] ?? join(h, "AppData", "Roaming");
+    return join(appData, ".octocode", "memory");
+  }
+  if (p === "darwin") return join(h, ".octocode", "memory");
+  const xdg = process.env["XDG_CONFIG_HOME"] ?? join(h, ".config");
+  return join(xdg, ".octocode", "memory");
+}
+function resolveDbPath(dbArg) {
+  if (dbArg) return resolve2(dbArg);
+  return join(memoryHome(), DEFAULT_DB_NAME);
+}
+function connectDb(dbPath) {
+  mkdirSync(dirname(dbPath), { recursive: true });
+  const db2 = new DatabaseSync(dbPath);
+  try {
+    db2.exec(`PRAGMA busy_timeout = ${SQLITE_BUSY_DEADLINE_MS}`);
+    const schemaState = inspectSchemaState(db2);
+    const versionRow = db2.prepare("SELECT sqlite_version() AS version").get();
+    const journalMode = journalModeForSqliteVersion(versionRow.version);
+    withSqliteBusyRetry(() => db2.exec(`PRAGMA journal_mode = ${journalMode}`));
+    db2.exec("PRAGMA foreign_keys = ON");
+    initializeDb(db2, schemaState);
+    _db = db2;
+    return db2;
+  } catch (error) {
+    db2.close();
+    throw error;
+  }
+}
+function readSchemaIdentity(db2) {
+  const application = db2.prepare("PRAGMA application_id").get();
+  const relations = db2.prepare(`
+    SELECT name, type
+    FROM sqlite_schema
+    WHERE type IN ('table', 'view')
+      AND name NOT LIKE 'sqlite_%'
+      AND name NOT GLOB 'memories_fts_*'
+      AND name NOT GLOB 'memory_fts_*'
+    ORDER BY name
+  `).all();
+  return {
+    applicationId: application.application_id ?? 0,
+    relations
+  };
+}
+function inspectSchemaState(db2) {
+  const identity = readSchemaIdentity(db2);
+  if (identity.applicationId === AWARENESS_APPLICATION_ID) {
+    assertCanonicalRelationContract(db2, identity.relations);
+    assertCanonicalSchemaFingerprint(db2);
+    return "canonical";
+  }
+  if (identity.applicationId !== 0) {
+    throw new Error(
+      `refusing foreign Awareness application_id ${identity.applicationId}; expected ${AWARENESS_APPLICATION_ID}`
+    );
+  }
+  if (identity.relations.length === 0) return "fresh";
+  const names = identity.relations.map(({ name }) => name).join(", ");
+  throw new Error(`refusing unrecognized or unrelated SQLite store; relations: ${names}`);
+}
+function assertDatabaseIntegrity(db2) {
+  const integrity = db2.prepare("PRAGMA integrity_check").all();
+  const failures = integrity.filter(({ integrity_check }) => integrity_check !== "ok");
+  if (failures.length > 0) {
+    throw new Error(`canonical integrity_check failed: ${failures.map((row) => row.integrity_check).join("; ")}`);
+  }
+  const foreignKeys = db2.prepare("PRAGMA foreign_key_check").all();
+  if (foreignKeys.length > 0) {
+    throw new Error(`canonical foreign_key_check failed with ${foreignKeys.length} row(s)`);
+  }
+}
+function isSqliteBusy(error) {
+  if (!(error instanceof Error)) return false;
+  const sqlite = error;
+  return sqlite.errcode === 5 || /database is (?:locked|busy)/i.test(`${sqlite.errstr ?? ""} ${error.message}`);
+}
+function withSqliteBusyRetry(operation) {
+  const deadline = Date.now() + SQLITE_BUSY_DEADLINE_MS;
+  for (; ; ) {
+    try {
+      return operation();
+    } catch (error) {
+      if (!isSqliteBusy(error) || Date.now() >= deadline) throw error;
+      Atomics.wait(SQLITE_WAIT, 0, 0, SQLITE_BUSY_RETRY_MS);
+    }
+  }
+}
+function checkpointWal(db2) {
+  try {
+    db2.exec("PRAGMA wal_checkpoint(TRUNCATE)");
+  } catch {
+  }
+}
+function getDeliveryFingerprint(db2, key) {
+  const row = db2.prepare(`SELECT fingerprint FROM delivery_state
+    WHERE consumer_id = ? AND channel = ? AND scope_key = ?`).get(key.consumerId, key.channel, key.scopeKey);
+  return row?.fingerprint ?? null;
+}
+function setDeliveryFingerprint(db2, params) {
+  db2.prepare(`INSERT INTO delivery_state
+      (consumer_id, channel, scope_key, fingerprint, delivered_at)
+    VALUES (?, ?, ?, ?, ?)
+    ON CONFLICT(consumer_id, channel, scope_key) DO UPDATE SET
+      fingerprint = excluded.fingerprint,
+      delivered_at = excluded.delivered_at`).run(params.consumerId, params.channel, params.scopeKey, params.fingerprint, params.deliveredAt ?? utcNow());
+}
+
+// src/git.ts
+import { spawnSync } from "node:child_process";
+import { realpathSync } from "node:fs";
+import { basename, dirname as dirname2, join as join2, resolve as resolve3 } from "node:path";
+function runCmd(cmd, args, cwd) {
+  try {
+    const r = spawnSync(cmd, args, { cwd: cwd ?? process.cwd(), encoding: "utf8", timeout: 5e3 });
+    return r.status === 0 ? r.stdout.trim() : null;
+  } catch {
+    return null;
+  }
+}
+function detectGit(cwd) {
+  const root = runCmd("git", ["-C", cwd ?? ".", "rev-parse", "--show-toplevel"]);
+  if (!root) return { is_repo: false };
+  const branch = runCmd("git", ["-C", root, "rev-parse", "--abbrev-ref", "HEAD"]);
+  const remote = runCmd("git", ["-C", root, "remote", "get-url", "origin"]);
+  const repoName = remote ? (remote.match(/github\.com[:/]([^/]+\/[^/]+?)(?:\.git)?$/) ?? [])[1] ?? basename(root) : basename(root);
+  return { is_repo: true, root, repo: repoName, branch, remote };
+}
+function canonicalizePath(input) {
+  let dir = resolve3(input);
+  const tail = [];
+  for (let guard = 0; guard < 4096; guard += 1) {
+    try {
+      return tail.length ? join2(realpathSync(dir), ...tail) : realpathSync(dir);
+    } catch {
+      const parent = dirname2(dir);
+      if (parent === dir) return resolve3(input);
+      tail.unshift(basename(dir));
+      dir = parent;
+    }
+  }
+  return resolve3(input);
+}
+function fillScope(partial, cwd) {
+  const explicitWorkspace = partial.workspace_path ? canonicalizePath(partial.workspace_path) : null;
+  const scope = {
+    workspace_path: explicitWorkspace,
+    artifact: partial.artifact ?? null,
+    repo: partial.repo ?? null,
+    ref: partial.ref ?? null
+  };
+  const git = detectGit(scope.workspace_path ?? cwd ?? process.cwd());
+  if (!git.is_repo) return scope;
+  if (git.root) scope.workspace_path = canonicalizePath(git.root);
+  if (!scope.repo && git.repo) scope.repo = git.repo;
+  if (!scope.ref && git.branch) scope.ref = git.branch;
+  return scope;
+}
+function normalizeWorkspacePath(workspacePath, cwd) {
+  const candidate = workspacePath ? resolve3(workspacePath) : cwd ? resolve3(cwd) : null;
+  const scope = fillScope({ workspace_path: candidate }, candidate ?? process.cwd());
+  if (scope.workspace_path) return scope.workspace_path;
+  return candidate;
+}
+
+// src/pi-hooks-inputs.ts
+import path from "node:path";
+import { randomUUID as randomUUID2 } from "node:crypto";
+import { realpathSync as realpathSync2 } from "node:fs";
 
 // src/sessions.ts
-import { randomUUID as randomUUID2 } from "node:crypto";
+import { randomUUID } from "node:crypto";
 
 // src/sql/sessions.ts
 var SESSIONS_INSERT = `INSERT INTO sessions (session_id, agent_id, workspace_path, artifact, repo, ref, started_at)
@@ -1535,61 +962,107 @@ function getSession(db2, sessionId2) {
   return row ?? null;
 }
 
-// src/tasks.ts
-var DEFAULT_CLAIM_LEASE_MS = 30 * 6e4;
-var MAX_CLAIM_LEASE_MS = 60 * 6e4;
-function event(db2, taskId, runId, agentId2, eventType, message, now = utcNow()) {
-  db2.prepare(`INSERT INTO task_events(event_id, task_id, run_id, agent_id, event_type, message, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?)`).run(`tevt_${randomUUID3().replace(/-/g, "")}`, taskId, runId, agentId2, eventType, message, now);
+// src/pi-hooks-inputs.ts
+var _sessionStartupToken = randomUUID2().slice(0, 8);
+function addPathValue(paths, value) {
+  if (typeof value === "string" && value.trim().length > 0) {
+    paths.push(value.trim());
+  } else if (Array.isArray(value)) {
+    for (const item of value) addPathValue(paths, item);
+  }
 }
-function evictExpiredTaskClaims(db2, now = utcNow()) {
-  const expired = db2.prepare(
-    "SELECT task_id, run_id, agent_id FROM task_claims WHERE expires_at <= ?"
-  ).all(now);
-  if (expired.length === 0) return;
-  db2.exec("SAVEPOINT evict_expired_task_claims");
+function addApplyPatchPaths(paths, command) {
+  if (typeof command !== "string") return;
+  for (const line of command.split("\n")) {
+    const addUpdDel = line.match(/^\*\*\* (?:Add|Update|Delete) File: (.+)$/);
+    if (addUpdDel) {
+      paths.push(addUpdDel[1].trim());
+      continue;
+    }
+    const moveTo = line.match(/^\*\*\* Move to: (.+)$/);
+    if (moveTo) paths.push(moveTo[1].trim());
+  }
+}
+function objectOrEmpty(value) {
+  return value && typeof value === "object" ? value : {};
+}
+function firstString(...values) {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return null;
+}
+function addQueryPaths(paths, value) {
+  if (!Array.isArray(value)) return;
+  for (const query of value) {
+    const payload = objectOrEmpty(query);
+    addPathValue(paths, payload.path);
+    addPathValue(paths, payload.filePath);
+    addPathValue(paths, payload.file_path);
+    addPathValue(paths, payload.paths);
+    addPathValue(paths, payload.filePaths);
+    addPathValue(paths, payload.file_paths);
+  }
+}
+function extractPiWriteTargetPaths(toolName2, input = {}, options = {}) {
+  const normalizedToolName = String(toolName2 ?? "").toLowerCase();
+  const isWriteTool = Boolean(options.assumeWrite) || [
+    "write",
+    "edit",
+    "multi_edit",
+    "multiedit",
+    "notebookedit",
+    "notebook_edit",
+    "apply_patch",
+    "applypatch"
+  ].includes(normalizedToolName);
+  const payload = objectOrEmpty(input);
+  const command = typeof input === "string" ? input : firstString(payload.command, payload.patch);
+  if (!isWriteTool) {
+    const patchPaths = [];
+    addApplyPatchPaths(patchPaths, command);
+    return [...new Set(patchPaths)];
+  }
+  const paths = [];
+  addPathValue(paths, payload.path);
+  addPathValue(paths, payload.filePath);
+  addPathValue(paths, payload.file_path);
+  addPathValue(paths, payload.paths);
+  addPathValue(paths, payload.filePaths);
+  addPathValue(paths, payload.file_paths);
+  addQueryPaths(paths, payload.queries);
+  addApplyPatchPaths(paths, command);
+  return [...new Set(paths)];
+}
+function canonicalPath(input) {
+  const resolved = path.resolve(input);
   try {
-    for (const claim of expired) {
-      db2.prepare("DELETE FROM locks WHERE run_id = ?").run(claim.run_id);
-      db2.prepare(`UPDATE run_files SET heartbeat_at = ?, expires_at = ?, ended_at = ?
-        WHERE run_id = ? AND ended_at IS NULL`).run(now, now, now, claim.run_id);
-      db2.prepare("UPDATE task_runs SET status = 'FAILED', updated_at = ? WHERE run_id = ? AND status = 'ACTIVE'").run(now, claim.run_id);
-      db2.prepare("UPDATE tasks SET status = 'OPEN', updated_at = ? WHERE task_id = ? AND status = 'IN_PROGRESS'").run(now, claim.task_id);
-      db2.prepare("DELETE FROM task_claims WHERE task_id = ?").run(claim.task_id);
-      event(db2, claim.task_id, claim.run_id, claim.agent_id, "CLAIM_EXPIRED", "claim lease expired", now);
+    return realpathSync2(resolved);
+  } catch {
+    const missingParts = [];
+    let cursor = resolved;
+    while (true) {
+      const parent = path.dirname(cursor);
+      if (parent === cursor) return resolved;
+      missingParts.unshift(path.basename(cursor));
+      cursor = parent;
+      try {
+        return path.join(realpathSync2(cursor), ...missingParts);
+      } catch {
+        continue;
+      }
     }
-    db2.exec("RELEASE SAVEPOINT evict_expired_task_claims");
-  } catch (e) {
-    try {
-      db2.exec("ROLLBACK TO SAVEPOINT evict_expired_task_claims");
-    } catch {
-    }
-    try {
-      db2.exec("RELEASE SAVEPOINT evict_expired_task_claims");
-    } catch {
-    }
-    throw e;
   }
-}
-function activeTaskClaimForAgent(db2, params) {
-  evictExpiredTaskClaims(db2);
-  const workspacePath = normalizeWorkspacePath(params.workspacePath, params.workspacePath) ?? resolve4(params.workspacePath);
-  const where = ["c.agent_id = ?", "p.workspace_path = ?", "c.expires_at > ?"];
-  const binds = [params.agentId, workspacePath, utcNow()];
-  if (params.artifact) {
-    where.push("(p.artifact = ? OR p.artifact IS NULL)");
-    binds.push(params.artifact);
-  }
-  const claims = db2.prepare(`SELECT c.* FROM task_claims c
-    JOIN tasks t ON t.task_id = c.task_id
-    JOIN plans p ON p.plan_id = t.plan_id
-    WHERE ${where.join(" AND ")} ORDER BY c.claimed_at DESC LIMIT 2`).all(...binds);
-  return claims.length === 1 ? claims[0] : null;
 }
 
+// src/pi-hooks-guard.ts
+import path2 from "node:path";
+import { spawnSync as spawnSync2 } from "node:child_process";
+import { createHash as createHash2 } from "node:crypto";
+
 // src/work.ts
-import { randomUUID as randomUUID4 } from "node:crypto";
-import { isAbsolute as isAbsolute2, resolve as resolve5 } from "node:path";
+import { randomUUID as randomUUID3 } from "node:crypto";
+import { isAbsolute, resolve as resolve4 } from "node:path";
 var DEFAULT_PRESENCE_TTL_MS = 10 * 6e4;
 var MAX_PRESENCE_TTL_MS = 60 * 6e4;
 var PEER_DETAIL_LIMIT = 5;
@@ -1600,14 +1073,14 @@ function required(value, name) {
 }
 function workspaceRoot(workspacePath) {
   const candidate = workspacePath ?? process.cwd();
-  return normalizeWorkspacePath(candidate, candidate) ?? resolve5(candidate);
+  return normalizeWorkspacePath(candidate, candidate) ?? resolve4(candidate);
 }
 function normalizeFiles(files, workspacePath) {
   if (files.length === 0) throw new Error("at least one target file is required");
-  const base = canonicalizePath(workspacePath ? resolve5(workspacePath) : process.cwd());
+  const base = canonicalizePath(workspacePath ? resolve4(workspacePath) : process.cwd());
   return [...new Set(files.map((file) => {
     const value = required(file, "target file");
-    return canonicalizePath(isAbsolute2(value) ? resolve5(value) : resolve5(base, value));
+    return canonicalizePath(isAbsolute(value) ? resolve4(value) : resolve4(base, value));
   }))];
 }
 function expiry(ttlMs) {
@@ -1690,7 +1163,7 @@ function startWork(db2, params) {
   }
   db2.exec("BEGIN IMMEDIATE");
   try {
-    runId ??= `run_${randomUUID4().replace(/-/g, "")}`;
+    runId ??= `run_${randomUUID3().replace(/-/g, "")}`;
     let run = db2.prepare("SELECT * FROM task_runs WHERE run_id = ?").get(runId);
     if (run) {
       if (run.agent_id !== agentId2) throw new Error(`run ${runId} belongs to ${run.agent_id}`);
@@ -1766,7 +1239,7 @@ function startWork(db2, params) {
       if (params.exclusive) {
         db2.prepare(`INSERT INTO locks(lock_id, file_path, run_id, acquired_at, expires_at)
           VALUES (?, ?, ?, ?, ?)
-          ON CONFLICT(file_path, run_id) DO UPDATE SET expires_at = excluded.expires_at`).run(`lock_${randomUUID4().replace(/-/g, "")}`, file, runId, now, expiresAt);
+          ON CONFLICT(file_path, run_id) DO UPDATE SET expires_at = excluded.expires_at`).run(`lock_${randomUUID3().replace(/-/g, "")}`, file, runId, now, expiresAt);
       }
     }
     db2.prepare("UPDATE task_runs SET updated_at = ? WHERE run_id = ?").run(now, runId);
@@ -1821,7 +1294,7 @@ function renewWorkLease(db2, params, options = {}) {
       if (lockedTargets.has(file)) {
         db2.prepare(`INSERT INTO locks(lock_id, file_path, run_id, acquired_at, expires_at)
           VALUES (?, ?, ?, ?, ?)
-          ON CONFLICT(file_path, run_id) DO UPDATE SET expires_at = excluded.expires_at`).run(`lock_${randomUUID4().replace(/-/g, "")}`, file, params.runId, now, expiresAt);
+          ON CONFLICT(file_path, run_id) DO UPDATE SET expires_at = excluded.expires_at`).run(`lock_${randomUUID3().replace(/-/g, "")}`, file, params.runId, now, expiresAt);
       }
     }
     db2.prepare("UPDATE task_runs SET updated_at = ? WHERE run_id = ?").run(now, params.runId);
@@ -1925,384 +1398,281 @@ function listWork(db2, params = {}) {
   };
 }
 
-// src/verify.ts
-import { randomUUID as randomUUID5 } from "node:crypto";
-
-// src/sql/runs.ts
-var RUNS_UPDATE_PENDING_TO_FAILED = `UPDATE task_runs SET status = 'FAILED', updated_at = ? WHERE run_id = ? AND status = 'PENDING'`;
-var RUNS_UPDATE_ACTIVE_TO_FAILED = `UPDATE task_runs SET status = 'FAILED', updated_at = ? WHERE run_id = ? AND status = 'ACTIVE'`;
-var RUN_LOG_INSERT_ABANDONED = `INSERT INTO run_log(event_id, run_id, agent_id, event_type, message, created_at)
-   VALUES (?, ?, ?, 'ABANDONED', 'orphaned by audit-unverified --abandon', ?)`;
-var RUN_LOG_INSERT_STALE_ABANDONED = `INSERT INTO run_log(event_id, run_id, agent_id, event_type, message, created_at)
-   VALUES (?, ?, ?, 'ABANDONED', 'stale active (no live file presence) abandoned by audit-unverified --abandon', ?)`;
-
-// src/verify.ts
-function targetFilesForRuns(db2, runIds) {
-  const byRun = new Map(runIds.map((id) => [id, []]));
-  for (let offset = 0; offset < runIds.length; offset += 500) {
-    const chunk = runIds.slice(offset, offset + 500);
-    const rows = db2.prepare(
-      `SELECT run_id, file_path FROM run_files
-       WHERE run_id IN (${chunk.map(() => "?").join(",")})
-       ORDER BY file_path`
-    ).all(...chunk);
-    for (const row of rows) byRun.get(row.run_id)?.push(row.file_path);
+// src/pi-hooks-guard.ts
+function resolvePiTargetPath(file, cwd) {
+  return canonicalPath(path2.isAbsolute(file) ? file : path2.resolve(cwd, file));
+}
+function isInsidePath(candidate, root) {
+  const resolvedCandidate = canonicalPath(candidate);
+  const resolvedRoot = canonicalPath(root);
+  const rel = path2.relative(resolvedRoot, resolvedCandidate);
+  return rel === "" || Boolean(rel && !rel.startsWith("..") && !path2.isAbsolute(rel));
+}
+function gitBranchOf(dir) {
+  try {
+    const result = spawnSync2("git", ["-C", dir, "rev-parse", "--abbrev-ref", "HEAD"], {
+      encoding: "utf8",
+      timeout: 5e3
+    });
+    return result.status === 0 ? String(result.stdout).trim() : null;
+  } catch {
+    return null;
   }
-  return byRun;
 }
-function closeRunFiles(db2, runId, now) {
-  db2.prepare("DELETE FROM locks WHERE run_id = ?").run(runId);
-  db2.prepare(`UPDATE run_files SET heartbeat_at = ?, expires_at = ?, ended_at = ?
-    WHERE run_id = ? AND ended_at IS NULL`).run(now, now, now, runId);
-}
-function abandonLinkedTask(db2, runId, agentId2, now, message) {
-  const linked = db2.prepare("SELECT task_id FROM task_runs WHERE run_id = ?").get(runId);
-  if (!linked?.task_id) return;
-  const updated = db2.prepare(`UPDATE tasks SET status = 'FAILED', updated_at = ?, completed_at = ?
-    WHERE task_id = ? AND status IN ('IN_PROGRESS', 'VERIFY')`).run(now, now, linked.task_id);
-  if (updated.changes === 0) return;
-  db2.prepare("DELETE FROM task_claims WHERE task_id = ?").run(linked.task_id);
-  db2.prepare(`INSERT INTO task_events(event_id, task_id, run_id, agent_id, event_type, message, created_at)
-    VALUES (?, ?, ?, ?, 'ABANDONED', ?, ?)`).run(`tevt_${randomUUID5().replace(/-/g, "")}`, linked.task_id, runId, agentId2, message, now);
-}
-function auditUnverified(db2, params = {}) {
-  const workspacePath = params.workspacePath ? normalizeWorkspacePath(params.workspacePath, params.workspacePath) : null;
-  const where = ["status = 'PENDING'"];
-  const binds = [];
-  let ageCutoff = null;
-  if (params.olderThanDays != null) {
-    if (!Number.isFinite(params.olderThanDays) || params.olderThanDays < 1) {
-      throw new Error("olderThanDays must be a finite number >= 1");
+function evaluateHarnessGuard(params) {
+  const { targetFiles, skillRoot, cwd } = params;
+  const env = params.env ?? process.env;
+  if (!skillRoot) return null;
+  if (targetFiles.length === 0) return null;
+  const insideSkill = targetFiles.some((file) => isInsidePath(resolvePiTargetPath(file, cwd), skillRoot));
+  if (!insideSkill) return null;
+  if (env.OCTOCODE_ALLOW_HARNESS_APPLY !== "1") {
+    return "octocode-awareness: editing the skill itself is gated. A human must set OCTOCODE_ALLOW_HARNESS_APPLY=1.";
+  }
+  const branch = gitBranchOf(skillRoot);
+  if (branch === "main" || branch === "master") {
+    return `octocode-awareness: harness self-fix is never allowed on ${branch}. Create a dedicated branch first.`;
+  }
+  if (!branch || branch === "HEAD") {
+    if (env.OCTOCODE_HARNESS_BRANCH_OK !== "1") {
+      return "octocode-awareness: cannot confirm a dedicated git branch for the skill. Create one, or set OCTOCODE_HARNESS_BRANCH_OK=1 to acknowledge.";
     }
-    ageCutoff = new Date(Date.now() - Math.floor(params.olderThanDays) * 864e5).toISOString();
-    where.push("updated_at < ?");
+  }
+  return null;
+}
+
+// src/pi-hooks-bridge.ts
+import path3 from "node:path";
+
+// src/audit.ts
+import { randomUUID as randomUUID4 } from "node:crypto";
+import { createHash as createHash3 } from "node:crypto";
+
+// src/sql/audit.ts
+var EDIT_LOG_INSERT = `
+  INSERT INTO edit_log (
+    edit_id, session_id, run_id, agent_id,
+    file_path, operation, old_file_path,
+    lines_added, lines_removed, content_hash,
+    workspace_path, artifact, created_at
+  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+`;
+
+// src/audit.ts
+function insertEditLog(db2, params) {
+  const editId = "edit_" + randomUUID4();
+  const now = utcNow();
+  db2.prepare(EDIT_LOG_INSERT).run(
+    editId,
+    params.sessionId ?? null,
+    params.runId ?? null,
+    params.agentId,
+    params.filePath,
+    params.operation,
+    params.oldFilePath ?? null,
+    params.linesAdded ?? null,
+    params.linesRemoved ?? null,
+    params.contentHash ?? null,
+    params.workspacePath ?? null,
+    normalizeArtifact(params.artifact),
+    now
+  );
+  return { editId };
+}
+
+// src/tasks-catalog.ts
+import { randomUUID as randomUUID5 } from "node:crypto";
+import { isAbsolute as isAbsolute2, relative, resolve as resolve5, sep } from "node:path";
+var DEFAULT_CLAIM_LEASE_MS = 30 * 6e4;
+var MAX_CLAIM_LEASE_MS = 60 * 6e4;
+function event(db2, taskId, runId, agentId2, eventType, message, now = utcNow()) {
+  db2.prepare(`INSERT INTO task_events(event_id, task_id, run_id, agent_id, event_type, message, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)`).run(`tevt_${randomUUID5().replace(/-/g, "")}`, taskId, runId, agentId2, eventType, message, now);
+}
+function evictExpiredTaskClaims(db2, now = utcNow()) {
+  const expired = db2.prepare(
+    "SELECT task_id, run_id, agent_id FROM task_claims WHERE expires_at <= ?"
+  ).all(now);
+  if (expired.length === 0) return;
+  db2.exec("SAVEPOINT evict_expired_task_claims");
+  try {
+    for (const claim of expired) {
+      db2.prepare("DELETE FROM locks WHERE run_id = ?").run(claim.run_id);
+      db2.prepare(`UPDATE run_files SET heartbeat_at = ?, expires_at = ?, ended_at = ?
+        WHERE run_id = ? AND ended_at IS NULL`).run(now, now, now, claim.run_id);
+      db2.prepare("UPDATE task_runs SET status = 'FAILED', updated_at = ? WHERE run_id = ? AND status = 'ACTIVE'").run(now, claim.run_id);
+      db2.prepare("UPDATE tasks SET status = 'OPEN', updated_at = ? WHERE task_id = ? AND status = 'IN_PROGRESS'").run(now, claim.task_id);
+      db2.prepare("DELETE FROM task_claims WHERE task_id = ?").run(claim.task_id);
+      event(db2, claim.task_id, claim.run_id, claim.agent_id, "CLAIM_EXPIRED", "claim lease expired", now);
+    }
+    db2.exec("RELEASE SAVEPOINT evict_expired_task_claims");
+  } catch (e) {
+    try {
+      db2.exec("ROLLBACK TO SAVEPOINT evict_expired_task_claims");
+    } catch {
+    }
+    try {
+      db2.exec("RELEASE SAVEPOINT evict_expired_task_claims");
+    } catch {
+    }
+    throw e;
+  }
+}
+function activeTaskClaimForAgent(db2, params) {
+  evictExpiredTaskClaims(db2);
+  const workspacePath = normalizeWorkspacePath(params.workspacePath, params.workspacePath) ?? resolve5(params.workspacePath);
+  const where = ["c.agent_id = ?", "p.workspace_path = ?", "c.expires_at > ?"];
+  const binds = [params.agentId, workspacePath, utcNow()];
+  if (params.artifact) {
+    where.push("(p.artifact = ? OR p.artifact IS NULL)");
+    binds.push(params.artifact);
+  }
+  const claims = db2.prepare(`SELECT c.* FROM task_claims c
+    JOIN tasks t ON t.task_id = c.task_id
+    JOIN plans p ON p.plan_id = t.plan_id
+    WHERE ${where.join(" AND ")} ORDER BY c.claimed_at DESC LIMIT 2`).all(...binds);
+  return claims.length === 1 ? claims[0] : null;
+}
+
+// src/tasks-ready.ts
+import { randomUUID as randomUUID6 } from "node:crypto";
+
+// src/tasks-claims.ts
+import { randomUUID as randomUUID7 } from "node:crypto";
+
+// src/maintenance-stale.ts
+import { isAbsolute as isAbsolute3, resolve as resolve6 } from "node:path";
+var SESSION_CAPTURE_FILE_LIMIT = 20;
+var SESSION_CAPTURE_VISIBLE_FILE_LIMIT = 10;
+var SESSION_CAPTURE_RUN_DETAIL_LIMIT = 3;
+var SESSION_CAPTURE_RUN_FILE_LIMIT = 3;
+var SESSION_CAPTURE_TEXT_LIMIT = 120;
+function compactText(value, max = SESSION_CAPTURE_TEXT_LIMIT) {
+  const normalized = value.replace(/\s+/g, " ").trim();
+  return normalized.length > max ? `${normalized.slice(0, max - 3)}...` : normalized;
+}
+function listSummary(label, items, visibleLimit = SESSION_CAPTURE_VISIBLE_FILE_LIMIT) {
+  if (items.length === 0) return null;
+  const shown = items.slice(0, visibleLimit);
+  const omitted = items.length - shown.length;
+  return `${label}${omitted > 0 ? ` (showing ${shown.length} of ${items.length})` : ""}: ${shown.join(", ")}${omitted > 0 ? `; ${omitted} omitted` : ""}.`;
+}
+function pruneStale(db2, params = {}) {
+  const dryRun = Boolean(params.dry_run ?? params.dryRun);
+  const expiredOnly = Boolean(params.expired_only ?? params.expiredOnly);
+  const olderThanMinutes = params.older_than_minutes != null ? Number(params.older_than_minutes) : params.olderThanMinutes != null ? Number(params.olderThanMinutes) : null;
+  const agentId2 = typeof params.agent_id === "string" ? params.agent_id : typeof params.agentId === "string" ? params.agentId : null;
+  const rawWorkspacePath = typeof params.workspace === "string" ? params.workspace : typeof params.workspace_path === "string" ? params.workspace_path : typeof params.workspacePath === "string" ? params.workspacePath : null;
+  const workspacePath = rawWorkspacePath ? normalizeWorkspacePath(rawWorkspacePath, rawWorkspacePath) : null;
+  const artifact2 = normalizeArtifact(params.artifact);
+  const rawTarget = params.target_file ?? params.targetFile;
+  const targetFiles = (Array.isArray(rawTarget) ? rawTarget : rawTarget != null ? [rawTarget] : []).map(String).filter(Boolean).map((file) => {
+    const base = rawWorkspacePath ? resolve6(rawWorkspacePath) : process.cwd();
+    return canonicalizePath(isAbsolute3(file) ? resolve6(file) : resolve6(base, file));
+  });
+  const now = utcNow();
+  const ageCutoff = olderThanMinutes != null && !expiredOnly ? new Date(Date.now() - olderThanMinutes * 6e4).toISOString() : null;
+  const conditions = [];
+  const binds = [];
+  const staleClauses = ["(l.expires_at IS NOT NULL AND l.expires_at < ?)"];
+  binds.push(now);
+  if (ageCutoff) {
+    staleClauses.push("(l.acquired_at < ?)");
     binds.push(ageCutoff);
   }
-  if (params.origins?.length) {
-    const origins = [...new Set(params.origins)];
-    if (origins.some((origin) => !["TASK", "WORK", "HOOK"].includes(origin))) {
-      throw new Error("origins must contain only TASK, WORK, or HOOK");
-    }
-    where.push(`origin IN (${origins.map(() => "?").join(",")})`);
-    binds.push(...origins);
+  conditions.push(`(${staleClauses.join(" OR ")})`);
+  if (agentId2) {
+    conditions.push("t.agent_id = ?");
+    binds.push(agentId2);
   }
-  let before = null;
-  if (params.before) {
-    const parsed = new Date(params.before);
-    if (Number.isNaN(parsed.getTime())) throw new Error("before must be a valid ISO timestamp");
-    before = parsed.toISOString();
-    where.push("created_at < ?");
-    binds.push(before);
-  }
-  if (params.agentId) {
-    where.push("agent_id = ?");
-    binds.push(params.agentId);
+  if (targetFiles.length > 0) {
+    conditions.push(`l.file_path IN (${targetFiles.map(() => "?").join(",")})`);
+    binds.push(...targetFiles);
   }
   if (workspacePath) {
-    where.push("workspace_path = ?");
+    conditions.push("t.workspace_path = ?");
     binds.push(workspacePath);
   }
-  const artifact2 = normalizeArtifact(params.artifact);
   if (artifact2) {
-    where.push("(artifact = ? OR artifact IS NULL)");
+    conditions.push("(t.artifact = ? OR t.artifact IS NULL)");
     binds.push(artifact2);
   }
-  const rows = db2.prepare(
-    `SELECT run_id, agent_id, status, test_plan, context_ref, rationale, workspace_path, artifact, created_at
-     FROM task_runs
-     WHERE ${where.join(" AND ")}
-     ORDER BY created_at ASC`
-  ).all(...binds);
-  const unverifiedFiles = targetFilesForRuns(db2, rows.map((r) => r.run_id));
-  const unverified = rows.map((r) => ({
-    run_id: r.run_id,
-    agent_id: r.agent_id,
-    status: r.status,
-    test_plan: r.test_plan,
-    context_ref: r.context_ref,
-    rationale: r.rationale,
-    target_files: unverifiedFiles.get(r.run_id) ?? [],
-    workspace_path: r.workspace_path,
-    artifact: r.artifact,
-    created_at: r.created_at
-  }));
-  if (params.abandon && unverified.length > 0) {
-    const now = utcNow();
-    const markFailed = db2.prepare(RUNS_UPDATE_PENDING_TO_FAILED);
-    const logAbandoned = db2.prepare(RUN_LOG_INSERT_ABANDONED);
-    for (const intent of unverified) {
-      markFailed.run(now, intent.run_id);
-      closeRunFiles(db2, intent.run_id, now);
-      abandonLinkedTask(db2, intent.run_id, intent.agent_id, now, "pending run abandoned by verification audit");
-      try {
-        logAbandoned.run(
-          "evt_" + randomUUID5().replace(/-/g, ""),
-          intent.run_id,
-          intent.agent_id,
-          now
-        );
-      } catch {
-      }
-    }
-  }
-  const staleActive = [];
+  const where = conditions.join(" AND ");
+  const from = "locks l JOIN task_runs t ON t.run_id = l.run_id";
+  let staleLocks = [];
   try {
-    const nowIso = utcNow();
-    const staleWhere = [
-      "ai.status = 'ACTIVE'",
-      "EXISTS (SELECT 1 FROM run_files any_rf WHERE any_rf.run_id = ai.run_id)",
-      `NOT EXISTS (
-        SELECT 1 FROM run_files active_rf
-        WHERE active_rf.run_id = ai.run_id AND active_rf.ended_at IS NULL
-          AND active_rf.expires_at > ?
-      )`,
-      `NOT EXISTS (
-        SELECT 1 FROM task_claims tc
-        WHERE tc.run_id = ai.run_id AND tc.expires_at > ?
-      )`
-    ];
-    const staleBinds = [nowIso, nowIso];
-    if (params.agentId) {
-      staleWhere.push("ai.agent_id = ?");
-      staleBinds.push(params.agentId);
-    }
-    if (workspacePath) {
-      staleWhere.push("ai.workspace_path = ?");
-      staleBinds.push(workspacePath);
-    }
-    if (artifact2) {
-      staleWhere.push("(ai.artifact = ? OR ai.artifact IS NULL)");
-      staleBinds.push(artifact2);
-    }
-    if (ageCutoff) {
-      staleWhere.push("ai.updated_at < ?");
-      staleBinds.push(ageCutoff);
-    }
-    if (params.origins?.length) {
-      const origins = [...new Set(params.origins)];
-      staleWhere.push(`ai.origin IN (${origins.map(() => "?").join(",")})`);
-      staleBinds.push(...origins);
-    }
-    if (before) {
-      staleWhere.push("ai.created_at < ?");
-      staleBinds.push(before);
-    }
-    const staleRows = db2.prepare(
-      `SELECT ai.run_id, ai.agent_id, ai.rationale, ai.context_ref, ai.workspace_path, ai.artifact, ai.created_at
-       FROM task_runs ai
-       WHERE ${staleWhere.join(" AND ")}
-       ORDER BY ai.created_at ASC`
-    ).all(...staleBinds);
-    const staleFiles = targetFilesForRuns(db2, staleRows.map((r) => r.run_id));
-    for (const r of staleRows) {
-      const ageMs = Date.now() - new Date(r.created_at).getTime();
-      staleActive.push({
-        run_id: r.run_id,
-        agent_id: r.agent_id,
-        status: "ACTIVE",
-        rationale: r.rationale,
-        context_ref: r.context_ref,
-        target_files: staleFiles.get(r.run_id) ?? [],
-        workspace_path: r.workspace_path,
-        artifact: r.artifact,
-        created_at: r.created_at,
-        age_hours: Math.round(ageMs / 36e5 * 10) / 10
-      });
-    }
-  } catch (e) {
-    if (!(e instanceof Error && e.message.includes("no such table"))) throw e;
+    staleLocks = db2.prepare(
+      `SELECT l.lock_id, l.run_id FROM ${from} WHERE ${where}`
+    ).all(...binds);
+  } catch {
   }
-  if (params.abandon && staleActive.length > 0) {
-    const now = utcNow();
-    const markFailed = db2.prepare(RUNS_UPDATE_ACTIVE_TO_FAILED);
-    const logStaleAbandoned = db2.prepare(RUN_LOG_INSERT_STALE_ABANDONED);
-    for (const intent of staleActive) {
-      markFailed.run(now, intent.run_id);
-      closeRunFiles(db2, intent.run_id, now);
-      abandonLinkedTask(db2, intent.run_id, intent.agent_id, now, "stale task run abandoned by verification audit");
+  if (dryRun) {
+    return {
+      pruned_locks: 0,
+      dry_run: true,
+      would_prune: staleLocks.length,
+      lock_ids: staleLocks.map((lock) => lock.lock_id).slice(0, 20)
+    };
+  }
+  if (staleLocks.length === 0) {
+    return { pruned_locks: 0 };
+  }
+  const ownsTransaction = !db2.isTransaction;
+  if (ownsTransaction) db2.exec("BEGIN IMMEDIATE");
+  try {
+    staleLocks = db2.prepare(
+      `SELECT l.lock_id, l.run_id FROM ${from} WHERE ${where}`
+    ).all(...binds);
+    if (staleLocks.length === 0) {
+      if (ownsTransaction) db2.exec("COMMIT");
+      return { pruned_locks: 0 };
+    }
+    const ph = staleLocks.map(() => "?").join(",");
+    db2.prepare(`DELETE FROM locks WHERE lock_id IN (${ph})`).run(...staleLocks.map((l) => l.lock_id));
+    if (ownsTransaction) db2.exec("COMMIT");
+  } catch (e) {
+    if (ownsTransaction) {
       try {
-        logStaleAbandoned.run(
-          "evt_" + randomUUID5().replace(/-/g, ""),
-          intent.run_id,
-          intent.agent_id,
-          now
-        );
+        db2.exec("ROLLBACK");
       } catch {
       }
     }
+    throw e;
   }
-  const total = unverified.length + staleActive.length;
-  return { ok: true, unverified, stale_active: staleActive, count: total };
+  return { pruned_locks: staleLocks.length };
 }
-
-// src/maintenance.ts
-import { spawnSync as spawnSync2 } from "node:child_process";
-import { createHash as createHash3, randomUUID as randomUUID8 } from "node:crypto";
-import { existsSync } from "node:fs";
-import { isAbsolute as isAbsolute3, resolve as resolve6 } from "node:path";
-
-// src/memory.ts
-import { randomUUID as randomUUID6 } from "node:crypto";
-var DECAY_WEIGHTS = { importance: 0.25, recency: 0.3, access: 0.15, lexical: 0.3 };
-var DEFAULT_HALF_LIFE_DAYS = 30;
-var ACCESS_SATURATION = 50;
-var BM25_SQUASH_K = 1;
-var BM25_DEGENERATE_MAX = 0.01;
-var JUDGMENT_RELEVANCE_FLOOR = 0.35;
-var SCORING_PREFETCH_FACTOR = 3;
-function canonicalMemoryInstant(value, field) {
-  if (value == null) return null;
-  const text = String(value).trim();
-  const isoInstant = /^\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2}))?$/;
-  if (!isoInstant.test(text)) {
-    throw new Error(`${field} must be a valid ISO 8601 timestamp`);
-  }
-  const parsed = new Date(text);
-  if (!text || Number.isNaN(parsed.getTime())) {
-    throw new Error(`${field} must be a valid ISO 8601 timestamp`);
-  }
-  return parsed.toISOString().replace(/\.\d{3}Z$/, "Z");
-}
-var STOP_WORDS = /* @__PURE__ */ new Set([
-  // Articles / conjunctions
-  "the",
-  "and",
-  "for",
-  "with",
-  "from",
-  "into",
-  "not",
-  // Demonstratives
-  "this",
-  "that",
-  "its",
-  // Question words
-  "what",
-  "when",
-  "about",
-  "before",
-  "after",
-  // Common verbs (too generic to be useful in memory search)
-  "are",
-  "was",
-  "has",
-  "had",
-  "can",
-  "did",
-  "use",
-  "used",
-  "using"
-]);
-function textTokens(text) {
-  const split = text.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2").replace(/[:_-]/g, " ").toLowerCase();
-  return new Set(
-    (split.match(/[a-z0-9]{3,}/g) ?? []).filter((t) => !STOP_WORDS.has(t))
-  );
-}
-function decayComponents(memory, lexical, weights = DECAY_WEIGHTS) {
-  const halfLife = memory.decay_half_life_days ?? DEFAULT_HALF_LIFE_DAYS;
-  const lastUsedStr = memory.last_accessed_at ?? memory.created_at;
-  let recency = 0;
-  if (lastUsedStr) {
-    const ageDays = Math.max(0, (Date.now() - new Date(lastUsedStr).getTime()) / 864e5);
-    recency = Math.exp(-Math.LN2 * ageDays / Math.max(halfLife, 0.01));
-  }
-  const importance = (memory.importance ?? 0) / 10;
-  const access = Math.min(
-    Math.log1p(memory.access_count ?? 0) / Math.log1p(ACCESS_SATURATION),
-    1
-  );
-  const relevance = Math.max(0, Math.min(1, lexical));
-  const final = weights.importance * importance + weights.recency * recency + weights.access * access + weights.lexical * relevance;
-  return { importance, recency, access, relevance, weights, final };
-}
-function decayScore(memory, lexical, weights = DECAY_WEIGHTS) {
-  return decayComponents(memory, lexical, weights).final;
-}
-function buildFtsQuery(query) {
-  const normalized = query.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2").replace(/[:_-]/g, " ").toLowerCase();
-  const tokens = [
-    ...new Set(
-      (normalized.match(/[a-z0-9]{3,}/g) ?? []).filter((t) => !STOP_WORDS.has(t))
-    )
-  ].slice(0, 16);
-  if (tokens.length === 0) return null;
-  return tokens.join(" OR ");
-}
-function escapeLike(value) {
-  return value.replace(/[\\%_]/g, "\\$&");
-}
-function appendFallbackQueryConditions(query, conditions, params) {
-  const tokens = [...textTokens(query)].slice(0, 16);
-  if (tokens.length === 0) return;
-  const tokenClauses = [];
-  for (const token of tokens) {
-    const pattern = `%${escapeLike(token)}%`;
-    tokenClauses.push(`(
-      lower(m.task_context) LIKE ? ESCAPE '\\'
-      OR lower(m.observation) LIKE ? ESCAPE '\\'
-      OR lower(m.tags_json) LIKE ? ESCAPE '\\'
-      OR lower(COALESCE(m.label, '')) LIKE ? ESCAPE '\\'
-      OR lower(COALESCE(m.workspace_path, '')) LIKE ? ESCAPE '\\'
-      OR lower(COALESCE(m.artifact, '')) LIKE ? ESCAPE '\\'
-      OR lower(COALESCE(m.repo, '')) LIKE ? ESCAPE '\\'
-      OR lower(COALESCE(m.ref, '')) LIKE ? ESCAPE '\\'
-      OR lower(COALESCE(m.failure_signature, '')) LIKE ? ESCAPE '\\'
-      OR EXISTS (
-        SELECT 1 FROM memory_refs r
-        WHERE r.memory_id = m.memory_id
-          AND lower(r.reference) LIKE ? ESCAPE '\\'
-      )
-    )`);
-    params.push(pattern, pattern, pattern, pattern, pattern, pattern, pattern, pattern, pattern, pattern);
-  }
-  conditions.push(`(${tokenClauses.join(" OR ")})`);
-}
-function fallbackSearch(db2, query, conditions, params, limit) {
-  const fallbackConditions = [...conditions];
-  const fallbackParams = [...params];
-  appendFallbackQueryConditions(query, fallbackConditions, fallbackParams);
-  const sql = `
-    SELECT m.*, 0 AS _bm25
-    FROM memories m
-    WHERE ${fallbackConditions.join(" AND ")}
-    ORDER BY m.importance DESC, m.created_at DESC
-    LIMIT ?
-  `;
-  return db2.prepare(sql).all(...fallbackParams, limit);
-}
-function applyScopeConditions(conditions, params, options = {}) {
-  const artifact2 = normalizeArtifact(options.artifact);
+function openRefinementCount(db2, params = {}) {
   const scope = fillScope(
-    {
-      workspace_path: options.workspacePath ?? null,
-      artifact: artifact2,
-      repo: options.repo ?? null,
-      ref: options.ref ?? null
-    },
-    options.cwd ?? options.workspacePath ?? process.cwd()
+    { workspace_path: params.workspacePath ?? null, artifact: normalizeArtifact(params.artifact), repo: params.repo ?? null, ref: params.ref ?? null },
+    params.cwd ?? process.cwd()
   );
-  if (options.globalOnly) {
-    conditions.push("m.workspace_path IS NULL", "m.artifact IS NULL", "m.repo IS NULL", "m.ref IS NULL");
-    return;
-  }
+  const queryParams = [];
+  let sql = "SELECT COUNT(*) AS c FROM refinements WHERE state IN ('open','ongoing')";
+  if (!params.includeHandoffs) sql += " AND quality NOT IN ('handoff','instructions')";
   if (scope.workspace_path) {
-    conditions.push(options.strictScope ? "m.workspace_path = ?" : "(m.workspace_path IS NULL OR m.workspace_path = ?)");
-    params.push(scope.workspace_path);
+    sql += " AND (workspace_path = ? OR workspace_path IS NULL)";
+    queryParams.push(scope.workspace_path);
   }
   if (scope.artifact) {
-    conditions.push(options.strictScope ? "m.artifact = ?" : "(m.artifact IS NULL OR m.artifact = ?)");
-    params.push(scope.artifact);
+    sql += " AND (artifact = ? OR artifact IS NULL)";
+    queryParams.push(scope.artifact);
   }
   if (scope.repo) {
-    conditions.push(options.strictScope ? "m.repo = ?" : "(m.repo IS NULL OR m.repo = ?)");
-    params.push(scope.repo);
+    sql += " AND (repo = ? OR repo IS NULL)";
+    queryParams.push(scope.repo);
   }
   if (scope.ref) {
-    conditions.push(options.strictScope ? "m.ref = ?" : "(m.ref IS NULL OR m.ref = ?)");
-    params.push(scope.ref);
+    sql += " AND (ref = ? OR ref IS NULL)";
+    queryParams.push(scope.ref);
   }
+  return db2.prepare(sql).get(...queryParams).c;
 }
+
+// src/maintenance-briefing.ts
+import { spawnSync as spawnSync3 } from "node:child_process";
+import { createHash as createHash4 } from "node:crypto";
+
+// src/memory-search.ts
 function lexicalSearch(db2, query, limit, minImportance, tags, labels, states, scopeOptions = {}) {
   const ftsQuery = query ? buildFtsQuery(query) : null;
   if (query.trim() && !ftsQuery) return [];
@@ -2512,6 +1882,171 @@ function regexCandidateIds(db2, regexes) {
   }
   return ids;
 }
+
+// src/memory-scoring.ts
+var DECAY_WEIGHTS = { importance: 0.25, recency: 0.3, access: 0.15, lexical: 0.3 };
+var DEFAULT_HALF_LIFE_DAYS = 30;
+var ACCESS_SATURATION = 50;
+var BM25_SQUASH_K = 1;
+var BM25_DEGENERATE_MAX = 0.01;
+var JUDGMENT_RELEVANCE_FLOOR = 0.35;
+var SCORING_PREFETCH_FACTOR = 3;
+function canonicalMemoryInstant(value, field) {
+  if (value == null) return null;
+  const text = String(value).trim();
+  const isoInstant = /^\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2}))?$/;
+  if (!isoInstant.test(text)) {
+    throw new Error(`${field} must be a valid ISO 8601 timestamp`);
+  }
+  const parsed = new Date(text);
+  if (!text || Number.isNaN(parsed.getTime())) {
+    throw new Error(`${field} must be a valid ISO 8601 timestamp`);
+  }
+  return parsed.toISOString().replace(/\.\d{3}Z$/, "Z");
+}
+var STOP_WORDS = /* @__PURE__ */ new Set([
+  // Articles / conjunctions
+  "the",
+  "and",
+  "for",
+  "with",
+  "from",
+  "into",
+  "not",
+  // Demonstratives
+  "this",
+  "that",
+  "its",
+  // Question words
+  "what",
+  "when",
+  "about",
+  "before",
+  "after",
+  // Common verbs (too generic to be useful in memory search)
+  "are",
+  "was",
+  "has",
+  "had",
+  "can",
+  "did",
+  "use",
+  "used",
+  "using"
+]);
+function textTokens(text) {
+  const split = text.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2").replace(/[:_-]/g, " ").toLowerCase();
+  return new Set(
+    (split.match(/[a-z0-9]{3,}/g) ?? []).filter((t) => !STOP_WORDS.has(t))
+  );
+}
+function decayComponents(memory, lexical, weights = DECAY_WEIGHTS) {
+  const halfLife = memory.decay_half_life_days ?? DEFAULT_HALF_LIFE_DAYS;
+  const lastUsedStr = memory.last_accessed_at ?? memory.created_at;
+  let recency = 0;
+  if (lastUsedStr) {
+    const ageDays = Math.max(0, (Date.now() - new Date(lastUsedStr).getTime()) / 864e5);
+    recency = Math.exp(-Math.LN2 * ageDays / Math.max(halfLife, 0.01));
+  }
+  const importance = (memory.importance ?? 0) / 10;
+  const access = Math.min(
+    Math.log1p(memory.access_count ?? 0) / Math.log1p(ACCESS_SATURATION),
+    1
+  );
+  const relevance = Math.max(0, Math.min(1, lexical));
+  const final = weights.importance * importance + weights.recency * recency + weights.access * access + weights.lexical * relevance;
+  return { importance, recency, access, relevance, weights, final };
+}
+function decayScore(memory, lexical, weights = DECAY_WEIGHTS) {
+  return decayComponents(memory, lexical, weights).final;
+}
+function buildFtsQuery(query) {
+  const normalized = query.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2").replace(/[:_-]/g, " ").toLowerCase();
+  const tokens = [
+    ...new Set(
+      (normalized.match(/[a-z0-9]{3,}/g) ?? []).filter((t) => !STOP_WORDS.has(t))
+    )
+  ].slice(0, 16);
+  if (tokens.length === 0) return null;
+  return tokens.join(" OR ");
+}
+function escapeLike(value) {
+  return value.replace(/[\\%_]/g, "\\$&");
+}
+function appendFallbackQueryConditions(query, conditions, params) {
+  const tokens = [...textTokens(query)].slice(0, 16);
+  if (tokens.length === 0) return;
+  const tokenClauses = [];
+  for (const token of tokens) {
+    const pattern = `%${escapeLike(token)}%`;
+    tokenClauses.push(`(
+      lower(m.task_context) LIKE ? ESCAPE '\\'
+      OR lower(m.observation) LIKE ? ESCAPE '\\'
+      OR lower(m.tags_json) LIKE ? ESCAPE '\\'
+      OR lower(COALESCE(m.label, '')) LIKE ? ESCAPE '\\'
+      OR lower(COALESCE(m.workspace_path, '')) LIKE ? ESCAPE '\\'
+      OR lower(COALESCE(m.artifact, '')) LIKE ? ESCAPE '\\'
+      OR lower(COALESCE(m.repo, '')) LIKE ? ESCAPE '\\'
+      OR lower(COALESCE(m.ref, '')) LIKE ? ESCAPE '\\'
+      OR lower(COALESCE(m.failure_signature, '')) LIKE ? ESCAPE '\\'
+      OR EXISTS (
+        SELECT 1 FROM memory_refs r
+        WHERE r.memory_id = m.memory_id
+          AND lower(r.reference) LIKE ? ESCAPE '\\'
+      )
+    )`);
+    params.push(pattern, pattern, pattern, pattern, pattern, pattern, pattern, pattern, pattern, pattern);
+  }
+  conditions.push(`(${tokenClauses.join(" OR ")})`);
+}
+function fallbackSearch(db2, query, conditions, params, limit) {
+  const fallbackConditions = [...conditions];
+  const fallbackParams = [...params];
+  appendFallbackQueryConditions(query, fallbackConditions, fallbackParams);
+  const sql = `
+    SELECT m.*, 0 AS _bm25
+    FROM memories m
+    WHERE ${fallbackConditions.join(" AND ")}
+    ORDER BY m.importance DESC, m.created_at DESC
+    LIMIT ?
+  `;
+  return db2.prepare(sql).all(...fallbackParams, limit);
+}
+function applyScopeConditions(conditions, params, options = {}) {
+  const artifact2 = normalizeArtifact(options.artifact);
+  const scope = fillScope(
+    {
+      workspace_path: options.workspacePath ?? null,
+      artifact: artifact2,
+      repo: options.repo ?? null,
+      ref: options.ref ?? null
+    },
+    options.cwd ?? options.workspacePath ?? process.cwd()
+  );
+  if (options.globalOnly) {
+    conditions.push("m.workspace_path IS NULL", "m.artifact IS NULL", "m.repo IS NULL", "m.ref IS NULL");
+    return;
+  }
+  if (scope.workspace_path) {
+    conditions.push(options.strictScope ? "m.workspace_path = ?" : "(m.workspace_path IS NULL OR m.workspace_path = ?)");
+    params.push(scope.workspace_path);
+  }
+  if (scope.artifact) {
+    conditions.push(options.strictScope ? "m.artifact = ?" : "(m.artifact IS NULL OR m.artifact = ?)");
+    params.push(scope.artifact);
+  }
+  if (scope.repo) {
+    conditions.push(options.strictScope ? "m.repo = ?" : "(m.repo IS NULL OR m.repo = ?)");
+    params.push(scope.repo);
+  }
+  if (scope.ref) {
+    conditions.push(options.strictScope ? "m.ref = ?" : "(m.ref IS NULL OR m.ref = ?)");
+    params.push(scope.ref);
+  }
+}
+
+// src/memory-write.ts
+import { randomUUID as randomUUID8 } from "node:crypto";
 function bumpAccess(db2, memoryIds) {
   if (memoryIds.length === 0) return;
   const now = utcNow();
@@ -2522,6 +2057,8 @@ function bumpAccess(db2, memoryIds) {
     WHERE memory_id IN (${placeholders})
   `).run(now, ...memoryIds);
 }
+
+// src/memory-recall.ts
 function getMemory(db2, params = {}) {
   const {
     query = "",
@@ -2715,14 +2252,32 @@ function getMemory(db2, params = {}) {
   return result;
 }
 
-// src/notifications.ts
-import { randomUUID as randomUUID7 } from "node:crypto";
+// src/notifications-core.ts
+import { randomUUID as randomUUID9 } from "node:crypto";
+
+// src/sql/runs.ts
+var RUNS_UPDATE_PENDING_TO_FAILED = `UPDATE task_runs SET status = 'FAILED', updated_at = ? WHERE run_id = ? AND status = 'PENDING'`;
+var RUNS_UPDATE_ACTIVE_TO_FAILED = `UPDATE task_runs SET status = 'FAILED', updated_at = ? WHERE run_id = ? AND status = 'ACTIVE'`;
+var RUN_LOG_INSERT_ABANDONED = `INSERT INTO run_log(event_id, run_id, agent_id, event_type, message, created_at)
+   VALUES (?, ?, ?, 'ABANDONED', 'orphaned by audit-unverified --abandon', ?)`;
+var RUN_LOG_INSERT_STALE_ABANDONED = `INSERT INTO run_log(event_id, run_id, agent_id, event_type, message, created_at)
+   VALUES (?, ?, ?, 'ABANDONED', 'stale active (no live file presence) abandoned by audit-unverified --abandon', ?)`;
 
 // src/sql/signals.ts
 var SIGNALS_SELECT_BASE = "SELECT n.* FROM signals n";
 var SIGNALS_SELECT_LEFT_JOIN_READS = "LEFT JOIN signal_reads nr ON nr.signal_id = n.signal_id AND nr.agent_id = ?";
 var SIGNALS_SELECT_ORDER_LIMIT = "ORDER BY n.created_at DESC LIMIT ?";
 var SIGNAL_READS_INSERT_IGNORE = "INSERT OR IGNORE INTO signal_reads(signal_id, agent_id, read_at) VALUES (?, ?, ?)";
+
+// src/sql/agents.ts
+var AGENTS_UPSERT = `INSERT INTO agents (agent_id, agent_name, workspace_path, artifact, context, registered_at, last_seen_at)
+   VALUES (?, ?, ?, ?, ?, ?, ?)
+   ON CONFLICT(agent_id) DO UPDATE SET
+     agent_name     = CASE WHEN excluded.agent_name <> '' THEN excluded.agent_name ELSE agent_name END,
+     workspace_path = COALESCE(excluded.workspace_path, workspace_path),
+     artifact       = COALESCE(excluded.artifact, artifact),
+     context        = COALESCE(excluded.context, context),
+     last_seen_at   = excluded.last_seen_at`;
 
 // src/sql/refinements.ts
 var COLS = "refinement_id, agent_id, workspace_path, artifact, repo, ref, files_json, reasoning, remember, quality, state, created_at, updated_at";
@@ -2733,7 +2288,7 @@ var REFINEMENTS_SELECT_BY_WORKSPACE = `SELECT ${COLS} FROM refinements
    WHERE (workspace_path = ? OR workspace_path IS NULL)
    ORDER BY CASE state WHEN 'ongoing' THEN 0 ELSE 1 END, updated_at DESC`;
 
-// src/notifications.ts
+// src/notifications-core.ts
 function rowToNotification(r) {
   return {
     signal_id: r.signal_id,
@@ -2794,6 +2349,8 @@ function isThreadParticipant(db2, threadId, agentId2) {
 function canReadOrJoinThread(db2, threadId, agentId2) {
   return isBroadcastThread(db2, threadId) || isThreadParticipant(db2, threadId, agentId2);
 }
+
+// src/notifications-inbox.ts
 function getNotifications(db2, params) {
   const {
     agentId: agentId2,
@@ -2862,132 +2419,7 @@ function getNotifications(db2, params) {
   return { count: signals.length, signals, unread_only: unreadOnly };
 }
 
-// src/maintenance.ts
-var SESSION_CAPTURE_FILE_LIMIT = 20;
-var SESSION_CAPTURE_VISIBLE_FILE_LIMIT = 10;
-var SESSION_CAPTURE_RUN_DETAIL_LIMIT = 3;
-var SESSION_CAPTURE_RUN_FILE_LIMIT = 3;
-var SESSION_CAPTURE_TEXT_LIMIT = 120;
-function compactText(value, max = SESSION_CAPTURE_TEXT_LIMIT) {
-  const normalized = value.replace(/\s+/g, " ").trim();
-  return normalized.length > max ? `${normalized.slice(0, max - 3)}...` : normalized;
-}
-function listSummary(label, items, visibleLimit = SESSION_CAPTURE_VISIBLE_FILE_LIMIT) {
-  if (items.length === 0) return null;
-  const shown = items.slice(0, visibleLimit);
-  const omitted = items.length - shown.length;
-  return `${label}${omitted > 0 ? ` (showing ${shown.length} of ${items.length})` : ""}: ${shown.join(", ")}${omitted > 0 ? `; ${omitted} omitted` : ""}.`;
-}
-function pruneStale(db2, params = {}) {
-  const dryRun = Boolean(params.dry_run ?? params.dryRun);
-  const expiredOnly = Boolean(params.expired_only ?? params.expiredOnly);
-  const olderThanMinutes = params.older_than_minutes != null ? Number(params.older_than_minutes) : params.olderThanMinutes != null ? Number(params.olderThanMinutes) : null;
-  const agentId2 = typeof params.agent_id === "string" ? params.agent_id : typeof params.agentId === "string" ? params.agentId : null;
-  const rawWorkspacePath = typeof params.workspace === "string" ? params.workspace : typeof params.workspace_path === "string" ? params.workspace_path : typeof params.workspacePath === "string" ? params.workspacePath : null;
-  const workspacePath = rawWorkspacePath ? normalizeWorkspacePath(rawWorkspacePath, rawWorkspacePath) : null;
-  const artifact2 = normalizeArtifact(params.artifact);
-  const rawTarget = params.target_file ?? params.targetFile;
-  const targetFiles = (Array.isArray(rawTarget) ? rawTarget : rawTarget != null ? [rawTarget] : []).map(String).filter(Boolean).map((file) => {
-    const base = rawWorkspacePath ? resolve6(rawWorkspacePath) : process.cwd();
-    return canonicalizePath(isAbsolute3(file) ? resolve6(file) : resolve6(base, file));
-  });
-  const now = utcNow();
-  const ageCutoff = olderThanMinutes != null && !expiredOnly ? new Date(Date.now() - olderThanMinutes * 6e4).toISOString() : null;
-  const conditions = [];
-  const binds = [];
-  const staleClauses = ["(l.expires_at IS NOT NULL AND l.expires_at < ?)"];
-  binds.push(now);
-  if (ageCutoff) {
-    staleClauses.push("(l.acquired_at < ?)");
-    binds.push(ageCutoff);
-  }
-  conditions.push(`(${staleClauses.join(" OR ")})`);
-  if (agentId2) {
-    conditions.push("t.agent_id = ?");
-    binds.push(agentId2);
-  }
-  if (targetFiles.length > 0) {
-    conditions.push(`l.file_path IN (${targetFiles.map(() => "?").join(",")})`);
-    binds.push(...targetFiles);
-  }
-  if (workspacePath) {
-    conditions.push("t.workspace_path = ?");
-    binds.push(workspacePath);
-  }
-  if (artifact2) {
-    conditions.push("(t.artifact = ? OR t.artifact IS NULL)");
-    binds.push(artifact2);
-  }
-  const where = conditions.join(" AND ");
-  const from = "locks l JOIN task_runs t ON t.run_id = l.run_id";
-  let staleLocks = [];
-  try {
-    staleLocks = db2.prepare(
-      `SELECT l.lock_id, l.run_id FROM ${from} WHERE ${where}`
-    ).all(...binds);
-  } catch {
-  }
-  if (dryRun) {
-    return {
-      pruned_locks: 0,
-      dry_run: true,
-      would_prune: staleLocks.length,
-      lock_ids: staleLocks.map((lock) => lock.lock_id).slice(0, 20)
-    };
-  }
-  if (staleLocks.length === 0) {
-    return { pruned_locks: 0 };
-  }
-  const ownsTransaction = !db2.isTransaction;
-  if (ownsTransaction) db2.exec("BEGIN IMMEDIATE");
-  try {
-    staleLocks = db2.prepare(
-      `SELECT l.lock_id, l.run_id FROM ${from} WHERE ${where}`
-    ).all(...binds);
-    if (staleLocks.length === 0) {
-      if (ownsTransaction) db2.exec("COMMIT");
-      return { pruned_locks: 0 };
-    }
-    const ph = staleLocks.map(() => "?").join(",");
-    db2.prepare(`DELETE FROM locks WHERE lock_id IN (${ph})`).run(...staleLocks.map((l) => l.lock_id));
-    if (ownsTransaction) db2.exec("COMMIT");
-  } catch (e) {
-    if (ownsTransaction) {
-      try {
-        db2.exec("ROLLBACK");
-      } catch {
-      }
-    }
-    throw e;
-  }
-  return { pruned_locks: staleLocks.length };
-}
-function openRefinementCount(db2, params = {}) {
-  const scope = fillScope(
-    { workspace_path: params.workspacePath ?? null, artifact: normalizeArtifact(params.artifact), repo: params.repo ?? null, ref: params.ref ?? null },
-    params.cwd ?? process.cwd()
-  );
-  const queryParams = [];
-  let sql = "SELECT COUNT(*) AS c FROM refinements WHERE state IN ('open','ongoing')";
-  if (!params.includeHandoffs) sql += " AND quality NOT IN ('handoff','instructions')";
-  if (scope.workspace_path) {
-    sql += " AND (workspace_path = ? OR workspace_path IS NULL)";
-    queryParams.push(scope.workspace_path);
-  }
-  if (scope.artifact) {
-    sql += " AND (artifact = ? OR artifact IS NULL)";
-    queryParams.push(scope.artifact);
-  }
-  if (scope.repo) {
-    sql += " AND (repo = ? OR repo IS NULL)";
-    queryParams.push(scope.repo);
-  }
-  if (scope.ref) {
-    sql += " AND (ref = ? OR ref IS NULL)";
-    queryParams.push(scope.ref);
-  }
-  return db2.prepare(sql).get(...queryParams).c;
-}
+// src/maintenance-briefing.ts
 var BRIEFING_LABELS = ["GOTCHA", "BUG", "DECISION", "IMPROVEMENT", "ARCHITECTURE", "SECURITY"];
 var INTERVENTION_CANDIDATE_LIMIT = 50;
 var HOOK_BRIEF_ITEM_MAX_BYTES = 180;
@@ -3225,7 +2657,7 @@ function notifyGet(db2, params = {}) {
       normalizedScope.repo,
       normalizedScope.ref
     ]);
-    const fingerprint = createHash3("sha256").update(additionalContext).digest("hex");
+    const fingerprint = createHash4("sha256").update(additionalContext).digest("hex");
     const delivery = { consumerId: agentId2, channel: "briefing", scopeKey };
     if (getDeliveryFingerprint(db2, delivery) === fingerprint) {
       return { ok: true, count: 0, notifications: [] };
@@ -3253,7 +2685,7 @@ function parseGitStatusShortLines(stdout) {
 function gitDirtyFiles(workspacePath) {
   if (!workspacePath) return [];
   try {
-    const result = spawnSync2("git", ["-C", workspacePath, "status", "--porcelain=v1"], {
+    const result = spawnSync3("git", ["-C", workspacePath, "status", "--porcelain=v1"], {
       encoding: "utf8",
       timeout: 5e3
     });
@@ -3263,11 +2695,15 @@ function gitDirtyFiles(workspacePath) {
     return [];
   }
 }
+
+// src/maintenance-session.ts
+import { randomUUID as randomUUID10 } from "node:crypto";
+import { isAbsolute as isAbsolute4, resolve as resolve7 } from "node:path";
 function sessionCapture(db2, params = {}) {
   const agentId2 = String(params.agent_id ?? params.agentId ?? "agent");
   const reason = params.reason ? String(params.reason) : null;
   const workspaceInput = params.workspace ?? params.workspace_path ?? params.workspacePath;
-  const rawWorkspacePath = typeof workspaceInput === "string" && workspaceInput.trim() ? resolve6(workspaceInput.trim()) : null;
+  const rawWorkspacePath = typeof workspaceInput === "string" && workspaceInput.trim() ? resolve7(workspaceInput.trim()) : null;
   const scope = fillScope(
     {
       workspace_path: rawWorkspacePath,
@@ -3328,7 +2764,7 @@ function sessionCapture(db2, params = {}) {
     };
   }
   const now = utcNow();
-  const refinementId = "ref_" + randomUUID8().replace(/-/g, "");
+  const refinementId = "ref_" + randomUUID10().replace(/-/g, "");
   const allCapturedFiles = [.../* @__PURE__ */ new Set([...files, ...dirtyFiles])];
   const capturedFiles = allCapturedFiles.slice(0, SESSION_CAPTURE_FILE_LIMIT);
   const capturedDirtyFiles = dirtyFiles.slice(0, SESSION_CAPTURE_FILE_LIMIT);
@@ -3421,6 +2857,10 @@ function sessionCapture(db2, params = {}) {
     consolidation_opportunities: consolidationOpportunities
   };
 }
+
+// src/maintenance-digest.ts
+import { existsSync } from "node:fs";
+import { isAbsolute as isAbsolute5, resolve as resolve8 } from "node:path";
 var MIN_RETENTION_DAYS = 1;
 var MAX_RETENTION_DAYS = 3650;
 function retentionWindow(params, snakeName, camelName, fallback) {
@@ -3436,7 +2876,7 @@ function inspectMaintenancePressure(db2, params = {}) {
   const pressureAgeDays = Number.isFinite(requestedDays) ? Math.min(3650, Math.max(1, Math.floor(requestedDays))) : 1;
   const cutoff = new Date(Date.now() - pressureAgeDays * 864e5).toISOString();
   const rawWorkspacePath = typeof params.workspace === "string" ? params.workspace : typeof params.workspace_path === "string" ? params.workspace_path : typeof params.workspacePath === "string" ? params.workspacePath : null;
-  const workspacePath = rawWorkspacePath ? params.workspace_normalized === true ? resolve6(rawWorkspacePath) : normalizeWorkspacePath(rawWorkspacePath, rawWorkspacePath) : null;
+  const workspacePath = rawWorkspacePath ? params.workspace_normalized === true ? resolve8(rawWorkspacePath) : normalizeWorkspacePath(rawWorkspacePath, rawWorkspacePath) : null;
   const artifact2 = normalizeArtifact(params.artifact);
   const scope = [];
   const scopeBinds = [];
@@ -3481,8 +2921,8 @@ function inspectMaintenancePressure(db2, params = {}) {
   const staleMemoryIds = /* @__PURE__ */ new Set();
   for (const row of referenceRows) {
     const raw = row.reference.slice("file:".length).replace(/(?::\d+(?::\d+)?|#L\d+(?:-L?\d+)?)$/, "");
-    const path2 = isAbsolute3(raw) ? raw : resolve6(workspacePath ?? process.cwd(), raw);
-    if (!existsSync(path2)) staleMemoryIds.add(row.memory_id);
+    const path4 = isAbsolute5(raw) ? raw : resolve8(workspacePath ?? process.cwd(), raw);
+    if (!existsSync(path4)) staleMemoryIds.add(row.memory_id);
   }
   return {
     pressure_age_days: pressureAgeDays,
@@ -3667,156 +3107,238 @@ function digest(db2, params = {}) {
   };
 }
 
-// src/pi-hooks.ts
-import path from "node:path";
-import { spawnSync as spawnSync3 } from "node:child_process";
-import { createHash as createHash4, randomUUID as randomUUID9 } from "node:crypto";
-import { realpathSync as realpathSync2 } from "node:fs";
-var _sessionStartupToken = randomUUID9().slice(0, 8);
-function addPathValue(paths, value) {
-  if (typeof value === "string" && value.trim().length > 0) {
-    paths.push(value.trim());
-  } else if (Array.isArray(value)) {
-    for (const item of value) addPathValue(paths, item);
-  }
+// src/agents.ts
+function registerAgent(db2, params) {
+  const agentId2 = params.agentId;
+  const agentName2 = params.agentName ?? "";
+  const workspacePath = params.workspacePath ? normalizeWorkspacePath(params.workspacePath, params.workspacePath) : null;
+  const artifact2 = normalizeArtifact(params.artifact);
+  const context = params.context ?? null;
+  const now = utcNow();
+  db2.prepare(AGENTS_UPSERT).run(agentId2, agentName2, workspacePath, artifact2, context, now, now);
+  return { agent_id: agentId2, agent_name: agentName2, workspace_path: workspacePath, artifact: artifact2, context, registered_at: now, last_seen_at: now };
 }
-function addApplyPatchPaths(paths, command) {
-  if (typeof command !== "string") return;
-  for (const line of command.split("\n")) {
-    const addUpdDel = line.match(/^\*\*\* (?:Add|Update|Delete) File: (.+)$/);
-    if (addUpdDel) {
-      paths.push(addUpdDel[1].trim());
-      continue;
+
+// src/verify-audit.ts
+import { randomUUID as randomUUID12 } from "node:crypto";
+
+// src/verify-shared.ts
+import { randomUUID as randomUUID11 } from "node:crypto";
+function targetFilesForRuns(db2, runIds) {
+  const byRun = new Map(runIds.map((id) => [id, []]));
+  for (let offset = 0; offset < runIds.length; offset += 500) {
+    const chunk = runIds.slice(offset, offset + 500);
+    const rows = db2.prepare(
+      `SELECT run_id, file_path FROM run_files
+       WHERE run_id IN (${chunk.map(() => "?").join(",")})
+       ORDER BY file_path`
+    ).all(...chunk);
+    for (const row of rows) byRun.get(row.run_id)?.push(row.file_path);
+  }
+  return byRun;
+}
+function closeRunFiles(db2, runId, now) {
+  db2.prepare("DELETE FROM locks WHERE run_id = ?").run(runId);
+  db2.prepare(`UPDATE run_files SET heartbeat_at = ?, expires_at = ?, ended_at = ?
+    WHERE run_id = ? AND ended_at IS NULL`).run(now, now, now, runId);
+}
+function abandonLinkedTask(db2, runId, agentId2, now, message) {
+  const linked = db2.prepare("SELECT task_id FROM task_runs WHERE run_id = ?").get(runId);
+  if (!linked?.task_id) return;
+  const updated = db2.prepare(`UPDATE tasks SET status = 'FAILED', updated_at = ?, completed_at = ?
+    WHERE task_id = ? AND status IN ('IN_PROGRESS', 'VERIFY')`).run(now, now, linked.task_id);
+  if (updated.changes === 0) return;
+  db2.prepare("DELETE FROM task_claims WHERE task_id = ?").run(linked.task_id);
+  db2.prepare(`INSERT INTO task_events(event_id, task_id, run_id, agent_id, event_type, message, created_at)
+    VALUES (?, ?, ?, ?, 'ABANDONED', ?, ?)`).run(`tevt_${randomUUID11().replace(/-/g, "")}`, linked.task_id, runId, agentId2, message, now);
+}
+
+// src/verify-audit.ts
+function auditUnverified(db2, params = {}) {
+  const workspacePath = params.workspacePath ? normalizeWorkspacePath(params.workspacePath, params.workspacePath) : null;
+  const where = ["status = 'PENDING'"];
+  const binds = [];
+  let ageCutoff = null;
+  if (params.olderThanDays != null) {
+    if (!Number.isFinite(params.olderThanDays) || params.olderThanDays < 1) {
+      throw new Error("olderThanDays must be a finite number >= 1");
     }
-    const moveTo = line.match(/^\*\*\* Move to: (.+)$/);
-    if (moveTo) paths.push(moveTo[1].trim());
+    ageCutoff = new Date(Date.now() - Math.floor(params.olderThanDays) * 864e5).toISOString();
+    where.push("updated_at < ?");
+    binds.push(ageCutoff);
   }
-}
-function objectOrEmpty(value) {
-  return value && typeof value === "object" ? value : {};
-}
-function firstString(...values) {
-  for (const value of values) {
-    if (typeof value === "string" && value.trim()) return value.trim();
+  if (params.origins?.length) {
+    const origins = [...new Set(params.origins)];
+    if (origins.some((origin) => !["TASK", "WORK", "HOOK"].includes(origin))) {
+      throw new Error("origins must contain only TASK, WORK, or HOOK");
+    }
+    where.push(`origin IN (${origins.map(() => "?").join(",")})`);
+    binds.push(...origins);
   }
-  return null;
-}
-function addQueryPaths(paths, value) {
-  if (!Array.isArray(value)) return;
-  for (const query of value) {
-    const payload = objectOrEmpty(query);
-    addPathValue(paths, payload.path);
-    addPathValue(paths, payload.filePath);
-    addPathValue(paths, payload.file_path);
-    addPathValue(paths, payload.paths);
-    addPathValue(paths, payload.filePaths);
-    addPathValue(paths, payload.file_paths);
+  let before = null;
+  if (params.before) {
+    const parsed = new Date(params.before);
+    if (Number.isNaN(parsed.getTime())) throw new Error("before must be a valid ISO timestamp");
+    before = parsed.toISOString();
+    where.push("created_at < ?");
+    binds.push(before);
   }
-}
-function extractPiWriteTargetPaths(toolName2, input = {}, options = {}) {
-  const normalizedToolName = String(toolName2 ?? "").toLowerCase();
-  const isWriteTool = Boolean(options.assumeWrite) || [
-    "write",
-    "edit",
-    "multi_edit",
-    "multiedit",
-    "notebookedit",
-    "notebook_edit",
-    "apply_patch",
-    "applypatch"
-  ].includes(normalizedToolName);
-  const payload = objectOrEmpty(input);
-  const command = typeof input === "string" ? input : firstString(payload.command, payload.patch);
-  if (!isWriteTool) {
-    const patchPaths = [];
-    addApplyPatchPaths(patchPaths, command);
-    return [...new Set(patchPaths)];
+  if (params.agentId) {
+    where.push("agent_id = ?");
+    binds.push(params.agentId);
   }
-  const paths = [];
-  addPathValue(paths, payload.path);
-  addPathValue(paths, payload.filePath);
-  addPathValue(paths, payload.file_path);
-  addPathValue(paths, payload.paths);
-  addPathValue(paths, payload.filePaths);
-  addPathValue(paths, payload.file_paths);
-  addQueryPaths(paths, payload.queries);
-  addApplyPatchPaths(paths, command);
-  return [...new Set(paths)];
-}
-function canonicalPath(input) {
-  const resolved = path.resolve(input);
-  try {
-    return realpathSync2(resolved);
-  } catch {
-    const missingParts = [];
-    let cursor = resolved;
-    while (true) {
-      const parent = path.dirname(cursor);
-      if (parent === cursor) return resolved;
-      missingParts.unshift(path.basename(cursor));
-      cursor = parent;
+  if (workspacePath) {
+    where.push("workspace_path = ?");
+    binds.push(workspacePath);
+  }
+  const artifact2 = normalizeArtifact(params.artifact);
+  if (artifact2) {
+    where.push("(artifact = ? OR artifact IS NULL)");
+    binds.push(artifact2);
+  }
+  const rows = db2.prepare(
+    `SELECT run_id, agent_id, status, test_plan, context_ref, rationale, workspace_path, artifact, created_at
+     FROM task_runs
+     WHERE ${where.join(" AND ")}
+     ORDER BY created_at ASC`
+  ).all(...binds);
+  const unverifiedFiles = targetFilesForRuns(db2, rows.map((r) => r.run_id));
+  const unverified = rows.map((r) => ({
+    run_id: r.run_id,
+    agent_id: r.agent_id,
+    status: r.status,
+    test_plan: r.test_plan,
+    context_ref: r.context_ref,
+    rationale: r.rationale,
+    target_files: unverifiedFiles.get(r.run_id) ?? [],
+    workspace_path: r.workspace_path,
+    artifact: r.artifact,
+    created_at: r.created_at
+  }));
+  if (params.abandon && unverified.length > 0) {
+    const now = utcNow();
+    const markFailed = db2.prepare(RUNS_UPDATE_PENDING_TO_FAILED);
+    const logAbandoned = db2.prepare(RUN_LOG_INSERT_ABANDONED);
+    for (const intent of unverified) {
+      markFailed.run(now, intent.run_id);
+      closeRunFiles(db2, intent.run_id, now);
+      abandonLinkedTask(db2, intent.run_id, intent.agent_id, now, "pending run abandoned by verification audit");
       try {
-        return path.join(realpathSync2(cursor), ...missingParts);
+        logAbandoned.run(
+          "evt_" + randomUUID12().replace(/-/g, ""),
+          intent.run_id,
+          intent.agent_id,
+          now
+        );
       } catch {
-        continue;
       }
     }
   }
-}
-function resolvePiTargetPath(file, cwd) {
-  return canonicalPath(path.isAbsolute(file) ? file : path.resolve(cwd, file));
-}
-function isInsidePath(candidate, root) {
-  const resolvedCandidate = canonicalPath(candidate);
-  const resolvedRoot = canonicalPath(root);
-  const rel = path.relative(resolvedRoot, resolvedCandidate);
-  return rel === "" || Boolean(rel && !rel.startsWith("..") && !path.isAbsolute(rel));
-}
-function gitBranchOf(dir) {
+  const staleActive = [];
   try {
-    const result = spawnSync3("git", ["-C", dir, "rev-parse", "--abbrev-ref", "HEAD"], {
-      encoding: "utf8",
-      timeout: 5e3
-    });
-    return result.status === 0 ? String(result.stdout).trim() : null;
-  } catch {
-    return null;
+    const nowIso = utcNow();
+    const staleWhere = [
+      "ai.status = 'ACTIVE'",
+      "EXISTS (SELECT 1 FROM run_files any_rf WHERE any_rf.run_id = ai.run_id)",
+      `NOT EXISTS (
+        SELECT 1 FROM run_files active_rf
+        WHERE active_rf.run_id = ai.run_id AND active_rf.ended_at IS NULL
+          AND active_rf.expires_at > ?
+      )`,
+      `NOT EXISTS (
+        SELECT 1 FROM task_claims tc
+        WHERE tc.run_id = ai.run_id AND tc.expires_at > ?
+      )`
+    ];
+    const staleBinds = [nowIso, nowIso];
+    if (params.agentId) {
+      staleWhere.push("ai.agent_id = ?");
+      staleBinds.push(params.agentId);
+    }
+    if (workspacePath) {
+      staleWhere.push("ai.workspace_path = ?");
+      staleBinds.push(workspacePath);
+    }
+    if (artifact2) {
+      staleWhere.push("(ai.artifact = ? OR ai.artifact IS NULL)");
+      staleBinds.push(artifact2);
+    }
+    if (ageCutoff) {
+      staleWhere.push("ai.updated_at < ?");
+      staleBinds.push(ageCutoff);
+    }
+    if (params.origins?.length) {
+      const origins = [...new Set(params.origins)];
+      staleWhere.push(`ai.origin IN (${origins.map(() => "?").join(",")})`);
+      staleBinds.push(...origins);
+    }
+    if (before) {
+      staleWhere.push("ai.created_at < ?");
+      staleBinds.push(before);
+    }
+    const staleRows = db2.prepare(
+      `SELECT ai.run_id, ai.agent_id, ai.rationale, ai.context_ref, ai.workspace_path, ai.artifact, ai.created_at
+       FROM task_runs ai
+       WHERE ${staleWhere.join(" AND ")}
+       ORDER BY ai.created_at ASC`
+    ).all(...staleBinds);
+    const staleFiles = targetFilesForRuns(db2, staleRows.map((r) => r.run_id));
+    for (const r of staleRows) {
+      const ageMs = Date.now() - new Date(r.created_at).getTime();
+      staleActive.push({
+        run_id: r.run_id,
+        agent_id: r.agent_id,
+        status: "ACTIVE",
+        rationale: r.rationale,
+        context_ref: r.context_ref,
+        target_files: staleFiles.get(r.run_id) ?? [],
+        workspace_path: r.workspace_path,
+        artifact: r.artifact,
+        created_at: r.created_at,
+        age_hours: Math.round(ageMs / 36e5 * 10) / 10
+      });
+    }
+  } catch (e) {
+    if (!(e instanceof Error && e.message.includes("no such table"))) throw e;
   }
-}
-function evaluateHarnessGuard(params) {
-  const { targetFiles, skillRoot, cwd } = params;
-  const env = params.env ?? process.env;
-  if (!skillRoot) return null;
-  if (targetFiles.length === 0) return null;
-  const insideSkill = targetFiles.some((file) => isInsidePath(resolvePiTargetPath(file, cwd), skillRoot));
-  if (!insideSkill) return null;
-  if (env.OCTOCODE_ALLOW_HARNESS_APPLY !== "1") {
-    return "octocode-awareness: editing the skill itself is gated. A human must set OCTOCODE_ALLOW_HARNESS_APPLY=1.";
-  }
-  const branch = gitBranchOf(skillRoot);
-  if (branch === "main" || branch === "master") {
-    return `octocode-awareness: harness self-fix is never allowed on ${branch}. Create a dedicated branch first.`;
-  }
-  if (!branch || branch === "HEAD") {
-    if (env.OCTOCODE_HARNESS_BRANCH_OK !== "1") {
-      return "octocode-awareness: cannot confirm a dedicated git branch for the skill. Create one, or set OCTOCODE_HARNESS_BRANCH_OK=1 to acknowledge.";
+  if (params.abandon && staleActive.length > 0) {
+    const now = utcNow();
+    const markFailed = db2.prepare(RUNS_UPDATE_ACTIVE_TO_FAILED);
+    const logStaleAbandoned = db2.prepare(RUN_LOG_INSERT_STALE_ABANDONED);
+    for (const intent of staleActive) {
+      markFailed.run(now, intent.run_id);
+      closeRunFiles(db2, intent.run_id, now);
+      abandonLinkedTask(db2, intent.run_id, intent.agent_id, now, "stale task run abandoned by verification audit");
+      try {
+        logStaleAbandoned.run(
+          "evt_" + randomUUID12().replace(/-/g, ""),
+          intent.run_id,
+          intent.agent_id,
+          now
+        );
+      } catch {
+      }
     }
   }
-  return null;
+  const total = unverified.length + staleActive.length;
+  return { ok: true, unverified, stale_active: staleActive, count: total };
 }
 
-// bin/hook-runner.ts
+// src/verify-mark.ts
+import { randomUUID as randomUUID13 } from "node:crypto";
+
+// bin/hook-payload.ts
 var INTERNAL_HOOK_HOST = "__octocode_hook_host";
 var INTERNAL_SKILL_ROOT = "__octocode_skill_root";
 function readStdin() {
-  return new Promise((resolve8) => {
+  return new Promise((resolve13) => {
     let raw = "";
     process.stdin.setEncoding("utf8");
     process.stdin.on("data", (chunk) => {
       raw += chunk;
     });
-    process.stdin.on("end", () => resolve8(raw));
-    process.stdin.on("error", () => resolve8(raw));
+    process.stdin.on("end", () => resolve13(raw));
+    process.stdin.on("error", () => resolve13(raw));
   });
 }
 function parsePayload(raw) {
@@ -4028,11 +3550,100 @@ function extractFiles(payload) {
   return extractPiWriteTargetPaths(toolName2, input, { assumeWrite: true });
 }
 function resolveHookPath(file, cwd = process.cwd()) {
-  return canonicalizePath(resolve7(cwd, file));
+  return canonicalizePath(resolve9(cwd, file));
 }
 function db() {
   return connectDb(resolveDbPath(null));
 }
+
+// bin/hook-runner.ts
+import { basename as basename4, resolve as resolve12 } from "node:path";
+import { fileURLToPath } from "node:url";
+
+// bin/hook-edit-events.ts
+import { relative as relative4 } from "node:path";
+
+// bin/hook-peers.ts
+import { createHash as createHash6 } from "node:crypto";
+import { mkdirSync as mkdirSync2, readFileSync, writeFileSync } from "node:fs";
+import { basename as basename3, dirname as dirname3, join as join3, relative as relative3, resolve as resolve10 } from "node:path";
+function peerStateDir() {
+  const stateDir = join3(dirname3(resolveDbPath(null)), "hook-state", "peers");
+  mkdirSync2(stateDir, { recursive: true });
+  return stateDir;
+}
+function peerStateKey(payload, files, cwd) {
+  return createHash6("sha1").update(JSON.stringify({
+    agent: agentId(payload),
+    workspace: normalizeWorkspacePath(cwd, cwd) ?? resolve10(cwd),
+    artifact: artifact(payload),
+    files: files.map((file) => resolveHookPath(file, cwd)).sort()
+  })).digest("hex");
+}
+function peerFingerprint(peers) {
+  return createHash6("sha1").update(JSON.stringify(peers.map((peer) => ({
+    agent: peer.agent_id,
+    file: peer.file_path,
+    task: peer.task_id,
+    origin: peer.origin,
+    rationale: peer.rationale,
+    exclusive: peer.exclusive
+  })).sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))))).digest("hex");
+}
+function peerLabel(peer) {
+  const work = peer.task_id ?? peer.origin;
+  const reason = peer.rationale.replace(/\s+/g, " ").trim().slice(0, 40);
+  return `${peer.agent_id}:${work}${reason ? `(${reason})` : ""}`;
+}
+function emitPeerDelta(payload, files, cwd, allPeers) {
+  const targetSet = new Set(files.map((file) => resolveHookPath(file, cwd)));
+  const peers = allPeers.filter((peer) => peer.agent_id !== agentId(payload) && targetSet.has(peer.file_path));
+  const key = peerStateKey(payload, files, cwd);
+  const stateFile = join3(peerStateDir(), `${key}.txt`);
+  const fingerprint = peerFingerprint(peers);
+  let previous = null;
+  try {
+    previous = readFileSync(stateFile, "utf8").trim();
+  } catch {
+  }
+  if (previous === fingerprint) return null;
+  writeFileSync(stateFile, fingerprint, "utf8");
+  if (peers.length === 0) return null;
+  const shown = peers.slice(0, 3).map(peerLabel).join("; ");
+  const omitted = peers.length > 3 ? ` +${peers.length - 3}` : "";
+  const canonicalWorkspace = canonicalizePath(cwd);
+  const targets = files.slice(0, 2).map((file) => relative3(canonicalWorkspace, resolveHookPath(file, cwd)) || basename3(file)).join(",");
+  return `AWARE ${targets} | peers ${shown}${omitted}`;
+}
+function hookAgentContext(payload, hookName) {
+  const value = process.env.OCTOCODE_AGENT_CONTEXT ?? payload[INTERNAL_HOOK_HOST] ?? process.env.OCTOCODE_AGENT_HOST ?? payload.context ?? payload.host ?? payload.client ?? payload.source;
+  return typeof value === "string" && value.trim() ? value.trim() : hookName;
+}
+function registerHookAgent(database, payload, hookName) {
+  try {
+    registerAgent(database, {
+      agentId: agentId(payload),
+      agentName: agentName(payload),
+      workspacePath: workspace(payload),
+      artifact: artifact(payload),
+      context: hookAgentContext(payload, hookName)
+    });
+  } catch {
+  }
+}
+function scopeArgs(payload) {
+  const ws = workspace(payload);
+  const art = artifact(payload);
+  return {
+    ...ws ? { workspacePath: ws } : {},
+    ...art ? { artifact: art } : {}
+  };
+}
+
+// bin/hook-run-state.ts
+import { createHash as createHash7 } from "node:crypto";
+import { closeSync, mkdirSync as mkdirSync3, openSync, readFileSync as readFileSync2, renameSync, statSync, unlinkSync, writeFileSync as writeFileSync2 } from "node:fs";
+import { dirname as dirname4, join as join4, resolve as resolve11 } from "node:path";
 var HOOK_RUN_STATE_TTL_MS = 10 * 6e4;
 var HOOK_RUN_STATE_LOCK_WAIT = new Int32Array(new SharedArrayBuffer(4));
 var HOOK_RUN_STATE_LOCK_RETRY_MS = 10;
@@ -4056,12 +3667,12 @@ function withHookDbRetry(operation) {
   }
 }
 function hookRunStateDir() {
-  const stateDir = join3(dirname3(resolveDbPath(null)), "hook-state", "runs");
-  mkdirSync2(stateDir, { recursive: true });
+  const stateDir = join4(dirname4(resolveDbPath(null)), "hook-state", "runs");
+  mkdirSync3(stateDir, { recursive: true });
   return stateDir;
 }
 function hookRunStateFile(key) {
-  return join3(hookRunStateDir(), `${key}.json`);
+  return join4(hookRunStateDir(), `${key}.json`);
 }
 function processIsAlive(pid) {
   if (!Number.isSafeInteger(pid) || pid <= 0) return false;
@@ -4074,7 +3685,7 @@ function processIsAlive(pid) {
 }
 function removeStaleHookRunStateLock(lockFile) {
   try {
-    const owner = Number.parseInt(readFileSync(lockFile, "utf8"), 10);
+    const owner = Number.parseInt(readFileSync2(lockFile, "utf8"), 10);
     const staleByAge = Date.now() - statSync(lockFile).mtimeMs > HOOK_RUN_STATE_LOCK_STALE_MS;
     if (processIsAlive(owner) && !staleByAge) return false;
     unlinkSync(lockFile);
@@ -4091,7 +3702,7 @@ function withHookRunStateLock(key, operation) {
     try {
       const fd = openSync(lockFile, "wx", 384);
       try {
-        writeFileSync(fd, `${process.pid}
+        writeFileSync2(fd, `${process.pid}
 `, "utf8");
       } finally {
         closeSync(fd);
@@ -4117,7 +3728,7 @@ function withHookRunStateLock(key, operation) {
 }
 function readHookRunEntries(key) {
   try {
-    const parsed = JSON.parse(readFileSync(hookRunStateFile(key), "utf8"));
+    const parsed = JSON.parse(readFileSync2(hookRunStateFile(key), "utf8"));
     if (!Array.isArray(parsed)) return [];
     const cutoff = Date.now() - HOOK_RUN_STATE_TTL_MS;
     return parsed.filter((entry) => {
@@ -4140,7 +3751,7 @@ function writeHookRunEntries(key, entries) {
     return;
   }
   const tempFile = `${file}.${process.pid}.${Date.now()}.tmp`;
-  writeFileSync(tempFile, JSON.stringify(entries, null, 2) + "\n", "utf8");
+  writeFileSync2(tempFile, JSON.stringify(entries, null, 2) + "\n", "utf8");
   renameSync(tempFile, file);
 }
 function hookEventId(payload) {
@@ -4166,12 +3777,12 @@ function hookRunKey(payload, files, cwd) {
   const explicitId = hookEventId(payload);
   const identity = {
     agent: agentId(payload),
-    workspace: normalizeWorkspacePath(cwd, cwd) ?? resolve7(cwd),
+    workspace: normalizeWorkspacePath(cwd, cwd) ?? resolve11(cwd),
     artifact: artifact(payload),
     event: explicitId,
     files: explicitId ? [] : files.map((file) => resolveHookPath(file, cwd)).sort()
   };
-  return createHash5("sha1").update(JSON.stringify(identity)).digest("hex");
+  return createHash7("sha1").update(JSON.stringify(identity)).digest("hex");
 }
 var HOOK_AGGREGATE_CONTEXT_PREFIX = "hook-scope:";
 function hookAggregateContextRef(payload, cwd) {
@@ -4180,10 +3791,10 @@ function hookAggregateContextRef(payload, cwd) {
   const identity = {
     agent: agentId(payload),
     session: sessionCorrelation,
-    workspace: normalizeWorkspacePath(cwd, cwd) ?? resolve7(cwd),
+    workspace: normalizeWorkspacePath(cwd, cwd) ?? resolve11(cwd),
     artifact: normalizeArtifact(artifact(payload))
   };
-  return `${HOOK_AGGREGATE_CONTEXT_PREFIX}${createHash5("sha1").update(JSON.stringify(identity)).digest("hex")}`;
+  return `${HOOK_AGGREGATE_CONTEXT_PREFIX}${createHash7("sha1").update(JSON.stringify(identity)).digest("hex")}`;
 }
 function activeFallbackHookRun(database, payload, cwd) {
   const contextRef = hookAggregateContextRef(payload, cwd);
@@ -4193,7 +3804,7 @@ function activeFallbackHookRun(database, payload, cwd) {
       AND workspace_path = ? AND artifact IS ? AND context_ref = ?
     ORDER BY updated_at DESC, created_at DESC LIMIT 1`).get(
     agentId(payload),
-    normalizeWorkspacePath(cwd, cwd) ?? resolve7(cwd),
+    normalizeWorkspacePath(cwd, cwd) ?? resolve11(cwd),
     normalizeArtifact(artifact(payload)),
     contextRef
   );
@@ -4201,7 +3812,7 @@ function activeFallbackHookRun(database, payload, cwd) {
 }
 function hookAggregateLockKey(payload, cwd) {
   const contextRef = hookAggregateContextRef(payload, cwd);
-  return contextRef ? `aggregate-${createHash5("sha1").update(contextRef).digest("hex")}` : null;
+  return contextRef ? `aggregate-${createHash7("sha1").update(contextRef).digest("hex")}` : null;
 }
 function startOrAttachFallbackHookRun(database, payload, cwd, files) {
   const contextRef = hookAggregateContextRef(payload, cwd);
@@ -4250,7 +3861,7 @@ function finalizeActiveFallbackHookRuns(database, payload, cwd) {
       AND workspace_path = ? AND artifact IS ? AND context_ref = ?
     ORDER BY created_at`).all(
     agentId(payload),
-    normalizeWorkspacePath(cwd, cwd) ?? resolve7(cwd),
+    normalizeWorkspacePath(cwd, cwd) ?? resolve11(cwd),
     normalizeArtifact(artifact(payload)),
     contextRef
   );
@@ -4314,78 +3925,8 @@ function runOrigin(database, runId) {
   const row = database.prepare("SELECT origin FROM task_runs WHERE run_id = ?").get(runId);
   return row?.origin ?? null;
 }
-function peerStateDir() {
-  const stateDir = join3(dirname3(resolveDbPath(null)), "hook-state", "peers");
-  mkdirSync2(stateDir, { recursive: true });
-  return stateDir;
-}
-function peerStateKey(payload, files, cwd) {
-  return createHash5("sha1").update(JSON.stringify({
-    agent: agentId(payload),
-    workspace: normalizeWorkspacePath(cwd, cwd) ?? resolve7(cwd),
-    artifact: artifact(payload),
-    files: files.map((file) => resolveHookPath(file, cwd)).sort()
-  })).digest("hex");
-}
-function peerFingerprint(peers) {
-  return createHash5("sha1").update(JSON.stringify(peers.map((peer) => ({
-    agent: peer.agent_id,
-    file: peer.file_path,
-    task: peer.task_id,
-    origin: peer.origin,
-    rationale: peer.rationale,
-    exclusive: peer.exclusive
-  })).sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))))).digest("hex");
-}
-function peerLabel(peer) {
-  const work = peer.task_id ?? peer.origin;
-  const reason = peer.rationale.replace(/\s+/g, " ").trim().slice(0, 40);
-  return `${peer.agent_id}:${work}${reason ? `(${reason})` : ""}`;
-}
-function emitPeerDelta(payload, files, cwd, allPeers) {
-  const targetSet = new Set(files.map((file) => resolveHookPath(file, cwd)));
-  const peers = allPeers.filter((peer) => peer.agent_id !== agentId(payload) && targetSet.has(peer.file_path));
-  const key = peerStateKey(payload, files, cwd);
-  const stateFile = join3(peerStateDir(), `${key}.txt`);
-  const fingerprint = peerFingerprint(peers);
-  let previous = null;
-  try {
-    previous = readFileSync(stateFile, "utf8").trim();
-  } catch {
-  }
-  if (previous === fingerprint) return null;
-  writeFileSync(stateFile, fingerprint, "utf8");
-  if (peers.length === 0) return null;
-  const shown = peers.slice(0, 3).map(peerLabel).join("; ");
-  const omitted = peers.length > 3 ? ` +${peers.length - 3}` : "";
-  const canonicalWorkspace = canonicalizePath(cwd);
-  const targets = files.slice(0, 2).map((file) => relative2(canonicalWorkspace, resolveHookPath(file, cwd)) || basename2(file)).join(",");
-  return `AWARE ${targets} | peers ${shown}${omitted}`;
-}
-function hookAgentContext(payload, hookName) {
-  const value = process.env.OCTOCODE_AGENT_CONTEXT ?? payload[INTERNAL_HOOK_HOST] ?? process.env.OCTOCODE_AGENT_HOST ?? payload.context ?? payload.host ?? payload.client ?? payload.source;
-  return typeof value === "string" && value.trim() ? value.trim() : hookName;
-}
-function registerHookAgent(database, payload, hookName) {
-  try {
-    registerAgent(database, {
-      agentId: agentId(payload),
-      agentName: agentName(payload),
-      workspacePath: workspace(payload),
-      artifact: artifact(payload),
-      context: hookAgentContext(payload, hookName)
-    });
-  } catch {
-  }
-}
-function scopeArgs(payload) {
-  const ws = workspace(payload);
-  const art = artifact(payload);
-  return {
-    ...ws ? { workspacePath: ws } : {},
-    ...art ? { artifact: art } : {}
-  };
-}
+
+// bin/hook-edit-events.ts
 async function runPreEdit(payload) {
   const files = extractFiles(payload);
   if (files.length === 0) return 0;
@@ -4435,7 +3976,7 @@ async function runPreEdit(payload) {
       ttlMs: 10 * 6e4
     }) : startOrAttachFallbackHookRun(database, payload, hookWorkspace, files);
     if (!result.ok) {
-      const detail = result.conflicts.slice(0, 3).map((conflict) => `${relative2(hookWorkspace, conflict.file_path)} (${conflict.agent_id})`).join(", ");
+      const detail = result.conflicts.slice(0, 3).map((conflict) => `${relative4(hookWorkspace, conflict.file_path)} (${conflict.agent_id})`).join(", ");
       return completeHookControl(hookBlockOutcome(
         shellHookHost(payload),
         "pre-edit",
@@ -4549,6 +4090,11 @@ async function runHarnessGuard(payload) {
   }
   return 0;
 }
+
+// bin/hook-lifecycle.ts
+import { createHash as createHash8 } from "node:crypto";
+import { mkdirSync as mkdirSync4, readFileSync as readFileSync3, writeFileSync as writeFileSync3 } from "node:fs";
+import { dirname as dirname5, join as join5 } from "node:path";
 async function runStopVerify(payload) {
   try {
     const database = db();
@@ -4584,15 +4130,15 @@ function maybePreviewDigest(payload) {
   if (process.env.OCTOCODE_NOTIFY_RUN_DIGEST !== "1") return null;
   const intervalHours = Number(process.env.OCTOCODE_DIGEST_INTERVAL_HOURS ?? 4);
   const intervalMs = Number.isFinite(intervalHours) && intervalHours > 0 ? intervalHours * 36e5 : 4 * 36e5;
-  const memoryHome2 = dirname3(resolveDbPath(null));
+  const memoryHome2 = dirname5(resolveDbPath(null));
   const digestScope = workspace(payload) ?? "global";
-  const scopeHash = createHash5("sha256").update(digestScope).digest("hex").slice(0, 12);
-  const markerPath = join3(memoryHome2, `.last-digest-preview-${scopeHash}-epoch-ms`);
+  const scopeHash = createHash8("sha256").update(digestScope).digest("hex").slice(0, 12);
+  const markerPath = join5(memoryHome2, `.last-digest-preview-${scopeHash}-epoch-ms`);
   try {
     const database = db();
     let last = 0;
     try {
-      last = Number(readFileSync(markerPath, "utf8").trim() || 0);
+      last = Number(readFileSync3(markerPath, "utf8").trim() || 0);
     } catch {
       last = 0;
     }
@@ -4603,8 +4149,8 @@ function maybePreviewDigest(payload) {
         memoryHome: memoryHome2,
         dry_run: true
       });
-      mkdirSync2(memoryHome2, { recursive: true });
-      writeFileSync(markerPath, String(now), "utf8");
+      mkdirSync4(memoryHome2, { recursive: true });
+      writeFileSync3(markerPath, String(now), "utf8");
       const pressure = {
         archive: preview.would_archive ?? 0,
         memories: preview.would_prune_old ?? 0,
@@ -4701,6 +4247,8 @@ async function runSessionCompact(payload) {
   }
   return 0;
 }
+
+// bin/hook-runner.ts
 async function runHookCommand(command, rawPayload, options = {}) {
   if (command === "help" || command === "--help" || command === "-h") {
     process.stdout.write("usage: hook-runner <pre-edit|post-edit|harness-guard|stop-verify|notify-deliver|session-compact|session-end> < hook-payload.json\n");
@@ -4746,13 +4294,16 @@ async function main() {
     ...skillRoot ? { skillRoot } : {}
   });
 }
-var isMain = process.argv[1] ? fileURLToPath(import.meta.url) === resolve7(process.argv[1]) : false;
-var invokedAsHookRunner = process.argv[1] ? /^hook-runner\.(js|mjs|ts)$/.test(basename2(process.argv[1])) : false;
+var isMain = process.argv[1] ? fileURLToPath(import.meta.url) === resolve12(process.argv[1]) : false;
+var invokedAsHookRunner = process.argv[1] ? /^hook-runner\.(js|mjs|ts)$/.test(basename4(process.argv[1])) : false;
 if (isMain && invokedAsHookRunner) {
   process.exitCode = await main();
 }
 export {
   hookBlockOutcome,
   hookContextEnvelope,
+  invokedAsHookRunner,
+  isMain,
+  main,
   runHookCommand
 };

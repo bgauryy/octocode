@@ -140,7 +140,6 @@ export * from './utils/pagination/core.js';
 export * from './utils/pagination/hints.js';
 export * from './utils/pagination/types.js';
 export * from './utils/parsers/diff.js';
-export * from './utils/parsers/ripgrep.js';
 export * from './utils/parsers/schemas.js';
 export * from './utils/response/bulk.js';
 export * from './utils/response/callToolResult.js';

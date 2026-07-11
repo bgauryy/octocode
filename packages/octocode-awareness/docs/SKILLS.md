@@ -35,6 +35,11 @@ npx octocode skill --add \
 # after approval, rerun with --force
 ```
 
+The package also bundles every other repo skill under `dist/skills/`; all are optional
+and installed the same way. Discover the full, always-current list (with resolved
+paths) via `octocode-awareness --help` or the `bundled_skills` field printed by
+`scripts/install.mjs` — do not hardcode a skill list from prose.
+
 The examples below use the globally installed binary. For a one-off command, use
 `npx @octocodeai/octocode-awareness`. In octocode monorepo after build, use
 `node packages/octocode-awareness/dist/index.js`. Bundled skill

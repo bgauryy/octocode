@@ -19,6 +19,7 @@ import { LOCAL_DEFAULT_FILES_PER_PAGE, LOCAL_MAX_LIMIT } from '../../config.js';
 
 import { attachRawResponseChars } from '../../utils/response/charSavings.js';
 import { buildNextPageContinuation } from '../../scheme/pagination.js';
+import { buildWalkWarnings } from '../local_view_structure/structureResponse.js';
 
 type FindFilesQuery = WithOptionalMeta<UpstreamFindFilesQuery>;
 
@@ -124,11 +125,7 @@ export async function findFiles(
 
     const nativeWarnings = [
       ...nativeResult.warnings,
-      ...(nativeResult.skipped > 0
-        ? [
-            `${nativeResult.skipped} entr${nativeResult.skipped === 1 ? 'y' : 'ies'} skipped during filesystem traversal`,
-          ]
-        : []),
+      ...buildWalkWarnings(nativeResult),
     ];
     const allWarnings = [...timeFormatWarnings, ...nativeWarnings];
 

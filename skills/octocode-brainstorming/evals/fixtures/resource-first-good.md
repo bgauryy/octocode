@@ -28,3 +28,7 @@ Decision: Narrow
 
 ## Recommended Next Step
 Write a focused protocol for resource-first research and delegated evidence receipts.
+
+## Sources
+- https://example.com/official-agent-docs — backs the resource-first framing and the Reflexion/Self-Refine prior-art claim.
+- https://example.com/reflection-paper — backs the reflection/self-refine academic prior art claim.

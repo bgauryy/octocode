@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -21,6 +21,8 @@ function parseArgs(argv) {
     json: false,
     selfTest: false,
     agentic: false,
+    verifyLinks: false,
+    linkTimeoutMs: 5000,
     help: false,
   };
   for (let i = 0; i < argv.length; i++) {
@@ -30,6 +32,8 @@ function parseArgs(argv) {
     if (arg === '--json') { opts.json = true; continue; }
     if (arg === '--self-test') { opts.selfTest = true; continue; }
     if (arg === '--agentic') { opts.agentic = true; continue; }
+    if (arg === '--verify-links') { opts.verifyLinks = true; continue; }
+    if (arg === '--link-timeout') { opts.linkTimeoutMs = Number(argv[++i]) || opts.linkTimeoutMs; continue; }
     if (arg === '--input' || arg === '-i') { opts.input = argv[++i] || ''; continue; }
     if (arg === '--case') { opts.caseId = argv[++i] || ''; continue; }
     die(`Unknown argument: ${arg}`);
@@ -52,10 +56,97 @@ function readStdin() {
   });
 }
 
-function countCitations(text) {
+function extractCitations(text) {
   const urls = text.match(/https?:\/\/[^\s)]+/g) || [];
-  const fileLines = text.match(/\b[\w./-]+\.(?:md|mjs|js|ts|tsx|json|py|sh):\d+\b/g) || [];
-  return urls.length + fileLines.length;
+  const fileRefRaw = text.match(/\b[\w./-]+\.(?:md|mjs|js|ts|tsx|json|py|sh):\d+\b/g) || [];
+  const fileRefs = fileRefRaw.map(raw => {
+    const idx = raw.lastIndexOf(':');
+    return { raw, file: raw.slice(0, idx), line: Number(raw.slice(idx + 1)) };
+  });
+  return { urls, fileRefs };
+}
+
+function countCitations(text) {
+  const { urls, fileRefs } = extractCitations(text);
+  return urls.length + fileRefs.length;
+}
+
+// A cited file:line can point anywhere depending on where the answer was produced,
+// so try the caller's declared workspace first, then cwd, then this monorepo's root
+// (this skill's own dev/self-test fallback) — first directory where the file exists wins.
+function resolveBaseDirs() {
+  const candidates = [process.env.WORKSPACE_ROOT, process.cwd(), resolve(SKILL_DIR, '..', '..')];
+  const seen = new Set();
+  const dirs = [];
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    const abs = resolve(candidate);
+    if (seen.has(abs)) continue;
+    seen.add(abs);
+    dirs.push(abs);
+  }
+  return dirs;
+}
+
+// Deterministic, local, no network: catches fabricated paths and stale line numbers
+// (e.g. a citation surviving a later edit that shrank the target file).
+function checkFileCitations(fileRefs) {
+  const baseDirs = resolveBaseDirs();
+  return fileRefs.map(ref => {
+    let resolvedPath = null;
+    let exists = false;
+    for (const dir of baseDirs) {
+      const candidate = resolve(dir, ref.file);
+      if (existsSync(candidate)) {
+        resolvedPath = candidate;
+        exists = true;
+        break;
+      }
+    }
+    let lineCount = null;
+    let lineInBounds = null;
+    if (exists) {
+      try {
+        lineCount = readFileSync(resolvedPath, 'utf8').split('\n').length;
+        lineInBounds = ref.line >= 1 && ref.line <= lineCount;
+      } catch {
+        lineInBounds = null;
+      }
+    }
+    return { ...ref, exists, resolvedPath, lineCount, lineInBounds };
+  });
+}
+
+// Opt-in (--verify-links) since it needs network access, which self-test and default
+// CI runs must not depend on. Only a definitive 404 fails the check — timeouts, 403s,
+// 5xx, and hosts that reject HEAD are "unverified", not "dead", so a flaky network or
+// a bot-blocking host never fails an otherwise-good answer.
+async function checkUrlLinks(urls, { timeoutMs = 5000 } = {}) {
+  const unique = [...new Set(urls)];
+  return Promise.all(unique.map(async url => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const response = await fetch(url, { method: 'HEAD', redirect: 'follow', signal: controller.signal });
+      if (response.status === 404) return { url, status: 'dead', httpStatus: response.status };
+      if (response.ok) return { url, status: 'alive', httpStatus: response.status };
+      return { url, status: 'unverified', httpStatus: response.status };
+    } catch (err) {
+      return { url, status: 'unverified', httpStatus: null, error: err?.message || String(err) };
+    } finally {
+      clearTimeout(timer);
+    }
+  }));
+}
+
+// SKILL.md, references/output.md, and references/brief-template.md all make the
+// closing Sources (chat) / Resources (saved brief) section mandatory whenever any
+// external evidence was cited. Any case with minCitationCount > 0 implies external
+// evidence was expected, so it must also close with one of these headings.
+const SOURCES_HEADING_PATTERN = /^##\s*(Sources|Resources)\b/m;
+
+function hasSourcesSection(text) {
+  return SOURCES_HEADING_PATTERN.test(text);
 }
 
 function compile(pattern) {
@@ -111,6 +202,11 @@ function buildAgenticEval(testCase, text) {
       question: 'Did the verdict follow from the strongest evidence and concessions, rather than from enthusiasm or template compliance?',
     },
     {
+      id: 'agentic-citation-faithfulness',
+      dimension: 'evidence',
+      question: "For each citation used above, does the linked source's actual content support the specific claim placed next to it — not just topical relevance, a loose paraphrase, or an unverified assertion?",
+    },
+    {
       id: 'agentic-scope-razor',
       dimension: 'scope',
       question: 'Did the answer choose a scope razor or next experiment that would actually change the decision?',
@@ -134,7 +230,7 @@ function buildAgenticEval(testCase, text) {
       'You are an eval agent for brainstorming, not a fixed checklist. Create 3-5 binary questions from the user intent, the case mode, and the answer.',
       'Use the generatedQuestions as seeds only: rewrite, add, or drop questions when the idea demands it.',
       'Use answerSignals only to notice what the answer emphasized; do not require those terms.',
-      'Prefer questions about user/problem/success signal, evidence quality, differentiated wedge, scope, and decision usefulness.',
+      'Prefer questions about user/problem/success signal, evidence quality, citation faithfulness (does the source actually back the claim, not just exist), differentiated wedge, scope, and decision usefulness.',
       'Answer each question yes/no/uncertain with evidence and a suggested lesson. Do not use advisory questions as a rigid gate.',
     ].join(' '),
     answerShape: {
@@ -184,8 +280,20 @@ function evaluateCase(testCase, text, opts = {}) {
     bucket.score = Number((bucket.passed / bucket.total).toFixed(3));
     dimensionScores[question.dimension] = bucket;
   }
-  const citationCount = countCitations(text);
+  const { urls, fileRefs } = extractCitations(text);
+  const citationCount = urls.length + fileRefs.length;
   const citationPassed = citationCount >= (testCase.minCitationCount || 0);
+  const sourcesSectionRequired = (testCase.minCitationCount || 0) > 0;
+  const sourcesSectionPresent = hasSourcesSection(text);
+
+  const fileCitations = fileRefs.length ? checkFileCitations(fileRefs) : [];
+  const brokenFileCitations = fileCitations.filter(ref => !ref.exists || ref.lineInBounds === false);
+  const fileCitationsRequired = fileRefs.length > 0;
+
+  const urlCitations = opts.urlChecks || null;
+  const deadUrlCitations = urlCitations ? urlCitations.filter(check => check.status === 'dead') : [];
+  const urlCitationsRequired = Boolean(urlCitations && urlCitations.length);
+
   const checks = [
     ...required,
     ...forbidden,
@@ -194,6 +302,24 @@ function evaluateCase(testCase, text, opts = {}) {
       name: `citations >= ${testCase.minCitationCount || 0}`,
       passed: citationPassed,
       observed: citationCount,
+    },
+    {
+      name: 'closes with Sources/Resources section',
+      passed: !sourcesSectionRequired || sourcesSectionPresent,
+      observed: sourcesSectionPresent,
+      skipped: !sourcesSectionRequired,
+    },
+    {
+      name: 'cited file:line references resolve',
+      passed: !fileCitationsRequired || brokenFileCitations.length === 0,
+      observed: brokenFileCitations.map(ref => ref.raw),
+      skipped: !fileCitationsRequired,
+    },
+    {
+      name: 'cited links are reachable (verified)',
+      passed: !urlCitationsRequired || deadUrlCitations.length === 0,
+      observed: deadUrlCitations.map(check => check.url),
+      skipped: !urlCitationsRequired,
     },
   ];
   const passedCount = checks.filter(check => check.passed).length;
@@ -205,6 +331,8 @@ function evaluateCase(testCase, text, opts = {}) {
     minScore: testCase.minScore || 1,
     passed: score >= (testCase.minScore || 1),
     citationCount,
+    fileCitations,
+    urlCitations,
     required,
     forbidden,
     binaryQuestions,
@@ -241,16 +369,19 @@ Usage:
   node scripts/eval-brainstorm.mjs --list
   node scripts/eval-brainstorm.mjs --case idea-validation --input answer.md --json
   node scripts/eval-brainstorm.mjs --case idea-validation --input answer.md --agentic --json
+  node scripts/eval-brainstorm.mjs --case idea-validation --input answer.md --verify-links --json
   cat answer.md | node scripts/eval-brainstorm.mjs --case idea-validation
   node scripts/eval-brainstorm.mjs --self-test
 
 Options:
-  --list          List eval cases
-  --case <id>     Evaluate only one case
-  --input, -i     Answer file. Omit to read stdin
-  --json          Emit JSON result
-  --agentic       Include advisory eval-agent question seeds derived from the case intent; does not affect score
-  --self-test     Run evaluator smoke checks
+  --list           List eval cases
+  --case <id>      Evaluate only one case
+  --input, -i      Answer file. Omit to read stdin
+  --json           Emit JSON result
+  --agentic        Include advisory eval-agent question seeds derived from the case intent; does not affect score
+  --verify-links   Live-check cited URLs (HEAD, network required); only a definitive 404 fails the score, everything else is unverified. Cited file:line references are always checked locally (no flag needed).
+  --link-timeout   Per-URL timeout in ms for --verify-links (default: 5000)
+  --self-test      Run evaluator smoke checks
 
 Cases file: ${CASES_PATH}`;
 }
@@ -272,22 +403,36 @@ Researched: issue-to-plan CLI.
 
 ## Landscape
 - Example source. \`moderate\` https://example.com/source
-- Local source. \`moderate\` skills/octocode-brainstorming/SKILL.md:57
+- Local source. \`moderate\` skills/octocode-brainstorming/SKILL.md:18
 
 ## Perspective Review
 - Critical Architect: held claim because integration risk is bounded; evidence https://example.com/source.
-- Visionary Entrepreneur: held claim because urgent workflow exists; evidence skills/octocode-brainstorming/SKILL.md:57.
+- Visionary Entrepreneur: held claim because urgent workflow exists; evidence skills/octocode-brainstorming/SKILL.md:18.
 - Product: held claim because MVP can test one workflow; evidence https://example.com/product.
 - Conceded: broad automation claim dropped.
 
 Decision: Prototype First
 
 ## Recommended Next Step
-Prototype the hardest unknown first.`;
+Prototype the hardest unknown first.
+
+## Sources
+- https://example.com/source — backs the integration-risk and workflow-urgency claims above.
+- skills/octocode-brainstorming/SKILL.md:18 — backs the MVP-scope claim above.`;
 }
 
 function weakSample() {
   return 'This is clearly proven. I implemented the code. Full transcript follows.';
+}
+
+// Corrupts exactly one of strongSample's two identical file:line citations (the first
+// occurrence) so the sample still has a valid citation alongside a fabricated one —
+// isolates whether the check catches a single broken ref, not just an all-broken sample.
+function brokenFileCitationSample() {
+  return strongSample().replace(
+    'skills/octocode-brainstorming/SKILL.md:18',
+    'skills/octocode-brainstorming/SKILL.md:9999',
+  );
 }
 
 function readFixture(relativePath) {
@@ -310,6 +455,16 @@ function runSelfTest(cases) {
   }
   if (bad.passed) {
     throw new Error('weak sample should fail');
+  }
+  if (good.fileCitations.some(ref => !ref.exists || ref.lineInBounds === false)) {
+    throw new Error(`strong sample cites a file:line that does not resolve: ${JSON.stringify(good.fileCitations)}`);
+  }
+  const brokenCitation = evaluateCase(idea, brokenFileCitationSample(), { agentic: true });
+  if (!brokenCitation.failedChecks.includes('cited file:line references resolve')) {
+    throw new Error('a fabricated file:line citation should be caught by the citation-resolve check');
+  }
+  if (brokenCitation.score >= good.score) {
+    throw new Error('a fabricated file:line citation should score strictly lower than the fully-valid strong sample');
   }
   const conflict = cases.find(testCase => testCase.id === 'conflicting-evidence');
   if (!conflict) throw new Error('missing conflicting-evidence case');
@@ -365,6 +520,7 @@ function runSelfTest(cases) {
     casesPath: CASES_PATH,
     strongSample: good,
     weakSample: bad,
+    brokenFileCitationSample: brokenCitation,
     resourceFirst: {
       passingFixture: resourceFirstGood,
       failingFixture: resourceFirstBad,
@@ -431,7 +587,10 @@ async function main() {
     return;
   }
 
-  const results = selected.map(testCase => evaluateCase(testCase, answer, { agentic: opts.agentic }));
+  const urlChecks = opts.verifyLinks
+    ? await checkUrlLinks(extractCitations(answer).urls, { timeoutMs: opts.linkTimeoutMs })
+    : null;
+  const results = selected.map(testCase => evaluateCase(testCase, answer, { agentic: opts.agentic, urlChecks }));
   const passed = results.every(result => result.passed);
   const payload = {
     ok: passed,

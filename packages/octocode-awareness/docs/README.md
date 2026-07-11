@@ -17,6 +17,7 @@ complete command inventory.
 | [WIKI.md](WIKI.md) | Live queries and generated `.octocode/` projections |
 | [HARNESS.md](HARNESS.md) | Maintainer invariants and verification matrix |
 | [VERIFY.md](VERIFY.md) | Any-agent quick, installed, host, monorepo, and release verification runbook |
+| [FEATURE_SWEEP.md](FEATURE_SWEEP.md) | Isolated end-to-end proof for planning, learning, wiki, registry, and maintenance surfaces |
 | [REFERENCES.md](REFERENCES.md) | Evidence map, prior art, hypotheses, and design limits |
 
 Agent-facing procedures live under repo-root `skills/octocode-awareness/references/` and
