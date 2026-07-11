@@ -16,6 +16,7 @@ complete command inventory.
 | [REFLECTION.md](REFLECTION.md) | Learning, failure signatures, human approval |
 | [WIKI.md](WIKI.md) | Live queries and generated `.octocode/` projections |
 | [HARNESS.md](HARNESS.md) | Maintainer invariants and verification matrix |
+| [VERIFY.md](VERIFY.md) | Any-agent quick, installed, host, monorepo, and release verification runbook |
 | [REFERENCES.md](REFERENCES.md) | Evidence map, prior art, hypotheses, and design limits |
 
 Agent-facing procedures live under `../skills/octocode-awareness/references/` and

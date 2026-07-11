@@ -19,6 +19,7 @@ import {
 } from '../../scheme/coreSchemas.js';
 
 import { responseEnvelopeFields } from '../../scheme/responseEnvelope.js';
+import { ToolContinuationSchema } from '../../scheme/pagination.js';
 
 // Field set, enums, defaults and descriptions all come from octocode-core
 // (GitHubPullRequestSearchQuerySchema). The runtime only overrides the numeric /
@@ -84,6 +85,10 @@ export const GitHubSearchPullRequestsOutputLocalSchema =
                 pull_requests: z.array(ConciseOrDetailRowSchema).optional(),
                 // type:"issues" reuses this tool; same concise/object shapes.
                 issues: z.array(ConciseOrDetailRowSchema).optional(),
+                // Continuations (readIssue / searchCode / …) — declare so MCP
+                // JSON Schema does not reject under additionalProperties:false
+                // when upstream/passthrough compilation is strict.
+                next: z.record(z.string(), ToolContinuationSchema).optional(),
               })
               .passthrough()
               .optional(),

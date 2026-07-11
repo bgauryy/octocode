@@ -1,5 +1,4 @@
 # Hook Runtime Semantics
-
 Identity order: environment agent ID, payload agent, payload session, warned
 host/workspace fallback. Export one stable `OCTOCODE_AGENT_ID`.
 
@@ -12,7 +11,7 @@ host/workspace fallback. Export one stable `OCTOCODE_AGENT_ID`.
 4. Declare advisory work. Existing exclusive blocks; ordinary peers succeed.
 5. Emit peer context only when its fingerprint changes.
 6. Post-edit logs/heartbeats. TASK/WORK stays active; scoped HOOK stays active.
-7. Stop/session end finalizes scoped HOOK runs once; Stop audits the resulting debt.
+7. Stop, PreCompact, or SessionEnd finalizes scoped HOOK runs once; Stop audits debt.
 
 N edits in one scoped turn produce one PENDING HOOK with N files. TASK/WORK never
 merge into it. Shell creation is cross-process locked; Pi coalesces synchronous
@@ -33,13 +32,16 @@ Cursor; `{ block: true }` for Pi. Correlation loss never marks success.
 | After | PostToolUse | postToolUse | tool result/end |
 | Brief | UserPromptSubmit | sessionStart | before agent start |
 | Verify | Stop/SubagentStop | stop/subagentStop | bounded agent-end reminder |
-| Capture | SessionEnd/PreCompact | sessionEnd/preCompact | shutdown/pre-compact |
+| Finalize/capture | SessionEnd/PreCompact | sessionEnd/preCompact | shutdown/pre-compact |
 
 Claude/Codex context uses event-named `hookSpecificOutput`. Cursor uses
 `additional_context` at session start and `agent_message` around tool use, but host
 delivery remains best-effort and must be smoked. Cursor stop uses `followup_message`;
 Claude/Codex stop uses exit 2. Fingerprints suppress unchanged context without
 acknowledging signals. Verification output caps three rows plus omitted count.
+
+PreCompact finalizes/captures but keeps the host session reusable. SessionEnd and Pi
+shutdown mark the session ended; they do not delete explicit WORK or claim success.
 
 Presence/task claim TTLs are independent. Expiry removes stale coordination, never
 success, and never changes a live TASK run to PENDING.

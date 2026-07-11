@@ -32,7 +32,19 @@ npm install --global @octocodeai/octocode-awareness
 octocode-awareness maintenance init --compact
 npx octocode skill --add \
   --path "$(npm root --global)/@octocodeai/octocode-awareness/dist/skills/octocode-awareness" \
+  --platform common --dry-run
+# after reviewing destinations and approving the write:
+npx octocode skill --add \
+  --path "$(npm root --global)/@octocodeai/octocode-awareness/dist/skills/octocode-awareness" \
   --platform common --force
+```
+
+`common` installs to `~/.agents/skills`. Use `claude`, `cursor`, `codex`, or `pi`
+when that host does not scan the shared directory. Verify the bundled runtime and
+get cwd-independent next commands:
+
+```bash
+node "$(npm root --global)/@octocodeai/octocode-awareness/dist/skills/octocode-awareness/scripts/install.mjs"
 ```
 
 The Awareness skill is required because it teaches agents when to use the CLI.
@@ -42,7 +54,8 @@ reviewing, or improving skills:
 ```bash
 npx octocode skill --add \
   --path "$(npm root --global)/@octocodeai/octocode-awareness/dist/skills/octocode-skills" \
-  --platform common --force
+  --platform common --dry-run
+# after approval, rerun with --force
 ```
 
 The npm package is installed normally from npm. For the Agent Skill, use the
@@ -114,6 +127,7 @@ octocode-awareness schema commands --compact
 - [docs/REFLECTION.md](docs/REFLECTION.md) — supervised learning loop
 - [docs/WIKI.md](docs/WIKI.md) — live reads, durable writes, and generated projections
 - [docs/HARNESS.md](docs/HARNESS.md) — maintainer invariants and verification matrix
+- [docs/VERIFY.md](docs/VERIFY.md) — any-agent end-to-end health and release check
 - [docs/REFERENCES.md](docs/REFERENCES.md) — evidence, prior art, and design limits
 - [skills/octocode-awareness/SKILL.md](skills/octocode-awareness/SKILL.md) — agent lobby
 

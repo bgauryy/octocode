@@ -1,10 +1,13 @@
 import { completeMetadata } from '@octocodeai/octocode-core';
 import type { CompleteMetadata } from '@octocodeai/octocode-core/types';
+import { getPatchedToolMetadata } from './descriptionOverrides.js';
 
 let _cached: CompleteMetadata | null = null;
 
 function ensureLoaded(): CompleteMetadata {
-  if (!_cached) _cached = completeMetadata;
+  if (!_cached) {
+    _cached = getPatchedToolMetadata(completeMetadata);
+  }
   return _cached;
 }
 

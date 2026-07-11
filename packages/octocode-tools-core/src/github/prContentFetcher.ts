@@ -572,6 +572,30 @@ async function fetchCommitFilesAPI(
   }
 }
 
+const COMMIT_FILES_CONCURRENCY = 5;
+
+async function mapPool<T, R>(
+  items: T[],
+  concurrency: number,
+  mapper: (item: T, index: number) => Promise<R>
+): Promise<R[]> {
+  if (items.length === 0) return [];
+  const results: R[] = new Array(items.length);
+  let nextIndex = 0;
+  const workers = Array.from(
+    { length: Math.min(concurrency, items.length) },
+    async () => {
+      while (true) {
+        const i = nextIndex++;
+        if (i >= items.length) break;
+        results[i] = await mapper(items[i]!, i);
+      }
+    }
+  );
+  await Promise.all(workers);
+  return results;
+}
+
 async function fetchPRCommitsWithFiles(
   owner: string,
   repo: string,
@@ -593,8 +617,10 @@ async function fetchPRCommitsWithFiles(
     return dateB - dateA;
   });
 
-  const commitInfos: CommitInfo[] = await Promise.all(
-    sortedCommits.map(async commit => {
+  const commitInfos: CommitInfo[] = await mapPool(
+    sortedCommits,
+    COMMIT_FILES_CONCURRENCY,
+    async commit => {
       const files = await fetchCommitFilesAPI(
         owner,
         repo,
@@ -619,7 +645,7 @@ async function fetchPRCommitsWithFiles(
         date: commit.commit.author?.date || '',
         files: processedFiles,
       };
-    })
+    }
   );
 
   return attachRawResponseChars(commitInfos, rawResponseChars);

@@ -15,12 +15,23 @@ import { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types';
 import { TOOL_NAMES } from '../tools/toolMetadata/proxies.js';
 import { FILE_OPERATION_ERRORS } from '../errors/domainErrors.js';
 import { countSerializedChars } from '../utils/response/charSavings.js';
+import { extractEtag } from './responseHeaders.js';
 
 export interface RawContentResult {
   rawContent: string;
   branch?: string;
   resolvedRef: string;
 }
+
+export type RawContentFetchOptions = {
+  /** Prior ETag for conditional GET (If-None-Match). */
+  ifNoneMatch?: string;
+};
+
+export type RawContentFetchResponse = GitHubAPIResponse<RawContentResult> & {
+  etag?: string;
+  notModified?: boolean;
+};
 
 async function handle404WithBranch(
   octokit: InstanceType<typeof OctokitWithThrottling>,
@@ -237,8 +248,9 @@ async function fetchContentViaTreeFallback(
 
 export async function fetchRawGitHubFileContent(
   params: FileContentQuery,
-  authInfo?: AuthInfo
-): Promise<GitHubAPIResponse<RawContentResult>> {
+  authInfo?: AuthInfo,
+  opts: RawContentFetchOptions = {}
+): Promise<RawContentFetchResponse> {
   try {
     const octokit = await getOctokit(authInfo);
     const { owner, repo, path: filePath, branch } = params;
@@ -248,6 +260,9 @@ export async function fetchRawGitHubFileContent(
       repo,
       path: filePath,
       ...(branch && { ref: branch }),
+      ...(opts.ifNoneMatch
+        ? { headers: { 'If-None-Match': opts.ifNoneMatch } }
+        : {}),
     };
 
     let result;
@@ -255,6 +270,17 @@ export async function fetchRawGitHubFileContent(
     try {
       result = await octokit.rest.repos.getContent(contentParams);
     } catch (error: unknown) {
+      if (error instanceof RequestError && error.status === 304) {
+        return {
+          data: {
+            rawContent: '',
+            resolvedRef: branch || 'HEAD',
+          },
+          status: 304,
+          etag: opts.ifNoneMatch,
+          notModified: true,
+        };
+      }
       if (error instanceof RequestError && error.status === 404) {
         if (branch) {
           const fallback = await handle404WithBranch(
@@ -298,6 +324,7 @@ export async function fetchRawGitHubFileContent(
     }
 
     const data = result.data;
+    const etag = extractEtag(result.headers);
 
     if (Array.isArray(data)) {
       return {
@@ -356,6 +383,7 @@ export async function fetchRawGitHubFileContent(
         },
         status: 200,
         rawResponseChars: countSerializedChars(data),
+        ...(etag ? { etag } : {}),
       };
     }
 

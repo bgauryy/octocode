@@ -36,9 +36,10 @@ Explicit WORK:
 TASK work uses `task submit`/`task release`; terminal `work end` is rejected. Successful
 `verify mark` closes the run and linked task. Failure closes them as failed.
 
-Post-edit logs/heartbeats and keeps the scoped HOOK aggregate ACTIVE. Stop or
-SessionEnd finalizes it once to PENDING. Stop output caps debt; Pi may remind instead
-of block. `verify audit` lists debt (exit **1** when debt remains).
+Post-edit logs/heartbeats and keeps the scoped HOOK aggregate ACTIVE. Stop,
+PreCompact, or SessionEnd finalizes it once to PENDING. PreCompact keeps the session
+reusable; SessionEnd marks it ended. Stop output caps debt; Pi may remind instead of
+block. `verify audit` lists debt (exit **1** when debt remains).
 If deliberately using `verify mark --all-pending`, scope it by workspace.
 `verify audit --abandon` is only for real abandonment.
 

@@ -17,8 +17,12 @@ function run(command, args, options = {}) {
     ...options,
   });
   if (result.status !== 0) {
+    const reason = result.error?.message
+      || result.stderr
+      || result.stdout
+      || (result.signal ? `signal ${result.signal}` : 'unknown subprocess failure');
     throw new Error(
-      `${command} ${args.join(' ')} failed (${result.status ?? 'signal'}):\n${result.stderr || result.stdout}`,
+      `${command} ${args.join(' ')} failed (${result.status ?? result.signal ?? 'spawn'}):\n${reason}`,
     );
   }
   return result.stdout;

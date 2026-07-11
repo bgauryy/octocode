@@ -19,8 +19,17 @@ Install the package, then install this bundled skill by its resolved local path:
 npm install --global @octocodeai/octocode-awareness
 npx octocode skill --add \
   --path "$(npm root --global)/@octocodeai/octocode-awareness/dist/skills/octocode-awareness" \
+  --platform common --dry-run
+# after reviewing destinations and approving the write:
+npx octocode skill --add \
+  --path "$(npm root --global)/@octocodeai/octocode-awareness/dist/skills/octocode-awareness" \
   --platform common --force
 ```
+
+`common` installs to `~/.agents/skills`; use `claude`, `cursor`, `codex`, or `pi`
+when the target host does not scan that shared directory. Run
+`node "$(npm root --global)/@octocodeai/octocode-awareness/dist/skills/octocode-awareness/scripts/install.mjs"`
+to verify the bundled runtime and receive cwd-independent next commands.
 
 The package also bundles sibling `octocode-skills` for skill install/review/
 improvement. Install both skills from their packaged paths; do not depend on

@@ -12,7 +12,7 @@ hooks:
 # Octocode Awareness
 Coordinate repository work through canonical SQLite state; treat memory and `.octocode/` wiki output as bounded leads, never authority.
 ## Loop
-Choose `<cli>`: `npx @octocodeai/octocode-awareness` (or global `octocode-awareness`); local monorepo build `node packages/octocode-awareness/dist/bin/awareness.js`; bundled `node scripts/awareness.mjs` only as fallback. Export one `OCTOCODE_AGENT_ID`; check hook health, then preview and obtain approval before installing missing/drifted hooks.
+Choose `<cli>`: `npx @octocodeai/octocode-awareness` (or global `octocode-awareness`); local monorepo build `node packages/octocode-awareness/dist/bin/awareness.js`; bundled `node scripts/awareness.mjs` only as fallback. Export one `OCTOCODE_AGENT_ID`; use First activation below for setup and host wiring.
 ```text
 BEFORE/READ+REASON -> DURING/DO -> AFTER/VERIFY -> LEARN? -> CLEAN? -> PROJECT?
 ```
@@ -42,5 +42,7 @@ Unknown owner only: `docs list --compact`; then `docs show <name>`.
 - `octocode-rfc-generator` — design before large coordination changes
 ## Scripts
 Prefer package CLI above; `scripts/awareness.mjs` is bundled fallback. Use `scripts/schema.mjs` for contracts, `scripts/hook-runner.mjs` for host events, `scripts/extract-hook-files.mjs` for payloads, `scripts/install.mjs` for setup diagnostics, and `scripts/smoke-multi-agent.mjs` for end-to-end coordination smoke.
-## Install · Hard rules
-Install: README `npx octocode skill --add --path "$(npm root --global)/@octocodeai/octocode-awareness/dist/skills/octocode-awareness" --platform <host> --force`. Devs edit sources then `yarn workspace @octocodeai/octocode-awareness build` — never hand-edit mirrors. Hard: one agent ID/workspace; secrets out; manual CLI fallback; config ≠ runtime health; rebuild after edits; hooks + stable ID required for multi-agent presence.
+## Installation and first activation
+Package/skill install and refresh live in `README.md`. After activation: export one stable `OCTOCODE_AGENT_ID`; run `scripts/install.mjs` when the bundled runtime needs diagnosis; run `<cli> maintenance init --compact` once; then `attend` in each repo.
+Claude skill frontmatter is already one hook surface — do not also install duplicate project settings. Codex/Cursor load `references/hooks.md` for preview → approval → install → strict check; Pi uses its bridge only.
+Devs edit sources then `yarn workspace @octocodeai/octocode-awareness build` — never hand-edit mirrors. Hard: one agent ID/workspace; secrets out; manual CLI fallback; config ≠ runtime health; rebuild after edits; hooks + stable ID required for multi-agent presence.

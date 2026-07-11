@@ -228,4 +228,13 @@ export type LspSemanticEnvelope = {
   pagination?: unknown;
   warnings?: string[];
   hints?: string[];
+  next?: Record<
+    string,
+    {
+      tool: string;
+      query: Record<string, unknown>;
+      why?: string;
+      confidence?: 'exact' | 'heuristic';
+    }
+  >;
 };

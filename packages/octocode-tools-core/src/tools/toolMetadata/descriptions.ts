@@ -1,7 +1,7 @@
-import { completeMetadata } from '@octocodeai/octocode-core';
+import { getPatchedToolMetadata } from './descriptionOverrides.js';
 
 export const DESCRIPTIONS = new Proxy({} as Record<string, string>, {
   get(_target, prop: string) {
-    return completeMetadata.tools[prop]?.description ?? '';
+    return getPatchedToolMetadata().tools[prop]?.description ?? '';
   },
 });

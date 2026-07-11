@@ -221,6 +221,63 @@ describe('production guidance contract', () => {
     expect(readme).not.toContain('## Hooks');
   });
 
+  it('keeps agent entrypoints lean and assigns one owner to each workflow layer', () => {
+    const rootAgents = read(resolve(REPO_ROOT, 'AGENTS.md'));
+    const claude = read(resolve(REPO_ROOT, 'CLAUDE.md'));
+    const packageAgents = read(resolve(PACKAGE_ROOT, 'AGENTS.md'));
+    const architecture = read(resolve(PACKAGE_ROOT, 'docs/HOW_IT_WORKS.md'));
+    const userGuide = read(resolve(PACKAGE_ROOT, 'docs/SKILLS.md'));
+    const hooks = read(resolve(PACKAGE_ROOT, 'docs/HOOKS.md'));
+    const skill = read(resolve(SKILL_ROOT, 'SKILL.md'));
+    const awarenessSection = rootAgents.match(/## Awareness[\s\S]*?(?=\n## |$)/)?.[0] ?? '';
+
+    expect(Buffer.byteLength(awarenessSection, 'utf8')).toBeLessThanOrEqual(1_400);
+    expect(Buffer.byteLength(packageAgents, 'utf8')).toBeLessThanOrEqual(3_600);
+    expect(Buffer.byteLength(claude, 'utf8')).toBeLessThanOrEqual(256);
+    expect(claude).toContain('[AGENTS.md](./AGENTS.md)');
+    expect(claude).toContain('.agents/skills');
+    expect(claude).not.toContain('Skiils');
+
+    expect(packageAgents).toMatch(/AGENTS.*routes.*skill.*policy.*CLI.*live state.*hooks.*automat/is);
+    expect(packageAgents).toContain('follow `attend.next`');
+    expect(packageAgents).not.toContain('## Lifecycle');
+    expect(packageAgents).not.toContain('## Hooks');
+    expect(packageAgents).not.toContain('Standalone WORK');
+    expect(skill).toContain('## Loop');
+    expect(userGuide).toContain('## Operating Loop');
+    expect(hooks).toContain('## Lifecycle');
+    expect(architecture).toMatch(/AGENTS\.md \/ CLAUDE\.md[\s\S]*Agent Skill[\s\S]*CLI[\s\S]*hooks/i);
+  });
+
+  it('ships one bounded any-agent runbook for checking Awareness end to end', () => {
+    const verification = read(resolve(PACKAGE_ROOT, 'docs/VERIFY.md'));
+    const docsIndex = read(resolve(PACKAGE_ROOT, 'docs/README.md'));
+    const packageReadme = read(resolve(PACKAGE_ROOT, 'README.md'));
+    const packageAgents = read(resolve(PACKAGE_ROOT, 'AGENTS.md'));
+
+    expect(Buffer.byteLength(verification, 'utf8')).toBeLessThanOrEqual(9 * 1024);
+    expect(verification.trim().split('\n').length).toBeLessThanOrEqual(180);
+    expect(docsIndex).toContain('[VERIFY.md](VERIFY.md)');
+    expect(packageReadme).toContain('[docs/VERIFY.md](docs/VERIFY.md)');
+    expect(packageAgents).toContain('docs/VERIFY.md');
+
+    expect(verification).toContain('## Quick Check');
+    expect(verification).toContain('## Full Monorepo Check');
+    expect(verification).toContain('maintenance self-test --compact');
+    expect(verification).toContain('scripts/install.mjs');
+    expect(verification).toContain('scripts/smoke-multi-agent.mjs');
+    expect(verification).toContain('hooks check --host <claude|codex|cursor>');
+    expect(verification).toMatch(/config.*runtime.*unverified/is);
+    expect(verification).toContain('wirePiAwarenessHooks(pi)');
+    expect(verification).toContain('yarn workspace @octocodeai/octocode-awareness lint');
+    expect(verification).toContain('yarn workspace @octocodeai/octocode-awareness pack:check');
+    expect(verification).toContain('skill-review.mjs');
+    expect(verification).toMatch(/PASS[\s\S]*FAIL[\s\S]*BLOCKED/);
+    expect(verification).toContain('## Receipt');
+    expect(verification).toMatch(/missing `npm`[\s\S]*BLOCKED/i);
+    expect(verification.indexOf('--dry-run')).toBeLessThan(verification.indexOf('hooks install --host <claude|codex|cursor>'));
+  });
+
   it('keeps lifecycle recipes scoped, executable, and ordered around active presence', () => {
     const finish = read(resolve(SKILL_ROOT, 'references/agent-cheatsheet-finish.md'));
     expect(finish).toMatch(/reflect record --agent-id "\$OCTOCODE_AGENT_ID" --workspace "\$PWD" --task/);
@@ -243,7 +300,9 @@ describe('production guidance contract', () => {
       read(resolve(PACKAGE_ROOT, 'docs/SKILLS.md')),
       read(resolve(SKILL_ROOT, 'references/lock-protocol.md')),
     ].join('\n');
-    expect(hookGuides).toMatch(/Post-edit[\s\S]*ACTIVE[\s\S]*Stop or SessionEnd[\s\S]*PENDING/i);
+    expect(hookGuides).toMatch(/Post-edit[\s\S]*ACTIVE[\s\S]*(?:Stop|PreCompact|SessionEnd)[\s\S]*PENDING/i);
+    expect(hookGuides).toMatch(/PreCompact[\s\S]{0,240}(?:does not end|keeps)[\s\S]{0,80}session/i);
+    expect(hookGuides).toMatch(/SessionEnd[\s\S]{0,240}(?:ends|marks)[\s\S]{0,80}session/i);
     expect(hookGuides).not.toMatch(/post-edit[^\n]*(ends|becomes)[^\n]*PENDING/i);
 
     const taskFlow = read(resolve(PACKAGE_ROOT, 'docs/SKILLS.md'));
@@ -251,6 +310,30 @@ describe('production guidance contract', () => {
       .toBeLessThan(taskFlow.indexOf('octocode-awareness task submit'));
     expect(taskFlow.indexOf('octocode-awareness task submit'))
       .toBeLessThan(taskFlow.indexOf('octocode-awareness verify mark'));
+  });
+
+  it('makes fresh-agent install, activation, and hook ownership safe and executable', () => {
+    const packageReadme = read(resolve(PACKAGE_ROOT, 'README.md'));
+    const userGuide = read(resolve(PACKAGE_ROOT, 'docs/SKILLS.md'));
+    const skillReadme = read(resolve(SKILL_ROOT, 'README.md'));
+    const skillLobby = read(resolve(SKILL_ROOT, 'SKILL.md'));
+    const tooling = read(resolve(SKILL_ROOT, 'references/agent-cheatsheet-tooling.md'));
+    const hooks = read(resolve(SKILL_ROOT, 'references/hooks.md'));
+    const packageHooks = read(resolve(PACKAGE_ROOT, 'docs/HOOKS.md'));
+
+    for (const guide of [packageReadme, userGuide, skillReadme, tooling]) {
+      expect(guide).toContain('--dry-run');
+      expect(guide.indexOf('--dry-run')).toBeLessThan(guide.indexOf('--force'));
+      expect(guide).toMatch(/common[\s\S]{0,240}(?:claude|cursor|codex|pi)/i);
+    }
+    expect(tooling.indexOf('export OCTOCODE_AGENT_ID')).toBeLessThan(tooling.indexOf('attend --workspace'));
+    expect(skillLobby).toContain('first activation');
+    expect(skillLobby).toContain('scripts/install.mjs');
+    for (const guide of [skillLobby, hooks, packageHooks]) {
+      expect(guide).toMatch(/Claude[\s\S]{0,240}frontmatter/i);
+      expect(guide).toMatch(/do not (?:also )?install|do not duplicate/i);
+    }
+    expect(packageHooks).not.toMatch(/Session end\/compact[\s\S]{0,120}close the session/i);
   });
 
   it('publishes a bounded, measurable Homeostatic Awareness thesis', () => {

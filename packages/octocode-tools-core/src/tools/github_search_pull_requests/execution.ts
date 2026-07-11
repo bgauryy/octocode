@@ -197,9 +197,57 @@ export async function searchMultipleGitHubPullRequests(
           const hasContent = Array.isArray(result.data.issues)
             ? result.data.issues.length > 0
             : false;
+
+          const issues = result.data.issues;
+          const firstIssueNumber = (() => {
+            if (!Array.isArray(issues) || issues.length === 0) return undefined;
+            const first = issues[0];
+            if (typeof first === 'number') return first;
+            if (typeof first === 'string') {
+              const m = first.match(/^#(\d+)\b/);
+              return m ? Number(m[1]) : undefined;
+            }
+            if (
+              first &&
+              typeof first === 'object' &&
+              typeof (first as { number?: unknown }).number === 'number'
+            ) {
+              return (first as { number: number }).number;
+            }
+            return undefined;
+          })();
+
+          const next: Record<string, unknown> = {};
+          if (issueNumber == null && firstIssueNumber != null) {
+            next.readIssue = {
+              tool: 'ghHistoryResearch',
+              query: {
+                type: 'issues',
+                owner: q.owner,
+                repo: q.repo,
+                issueNumber: firstIssueNumber,
+                content: { body: true },
+              },
+              why: `Read issue #${firstIssueNumber} body/discussion from this list`,
+              confidence: 'heuristic',
+            };
+          }
+          next.searchCode = {
+            tool: 'ghSearchCode',
+            query: {
+              owner: q.owner,
+              repo: q.repo,
+            },
+            why: 'Search code in this repository for symbols mentioned in the issue(s)',
+            confidence: 'heuristic',
+          };
+
           return createSuccessResult(
             query,
-            result.data as unknown as Record<string, unknown>,
+            {
+              ...(result.data as unknown as Record<string, unknown>),
+              next,
+            },
             hasContent,
             TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS,
             { rawResponse: result.rawResponseChars }

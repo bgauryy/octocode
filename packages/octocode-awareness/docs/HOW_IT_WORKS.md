@@ -1,13 +1,23 @@
 # How Octocode Awareness Works
 
-Awareness is a coordination runtime over one local SQLite database. The CLI,
-library, hooks, Pi bridge, and query/projection surfaces all use the same state.
+Awareness is a coordination runtime over one local SQLite database. Agent entry
+files route into policy; the CLI, hooks, Pi bridge, and query/projection surfaces
+all use the same state.
 
 ```text
-Agent Skill -> CLI / library / hooks / Pi -> awareness.sqlite3
-                                           |-> live query/attend/workboard
-                                           `-> optional .octocode/ projection
+AGENTS.md / CLAUDE.md -> Agent Skill (policy and conditional routes)
+                               |
+                               v
+                    CLI / library (live state and contracts) -> awareness.sqlite3
+                               ^                                  |-> live query/attend/workboard
+                               |                                  `-> optional .octocode/ projection
+                         hooks / Pi (automation)
 ```
+
+Each layer has one job: entry files stay short and always loaded; the skill owns the
+agent loop; CLI help/schema own executable contracts; hooks automate but never
+replace the manual CLI; human docs explain architecture and feature depth. Generated
+`.octocode/AGENTS.md` is a bounded fallback lead, not another instruction authority.
 
 No server or broker is required. Rows are isolated by normalized `workspace_path`
 and optional artifact/repo/ref scope.
@@ -80,8 +90,9 @@ Normal success is silent. If the peer set changes, the hook emits one bounded
 summary; if an exclusive conflict exists, it blocks before creating presence.
 
 Post-edit writes `edit_log` and heartbeats. Task, explicit work, and scoped hook
-fallback runs remain active; Stop or SessionEnd finalizes the fallback once to
-`PENDING`. Prompt briefing uses the transient
+fallback runs remain active; Stop, PreCompact, or SessionEnd finalizes the fallback
+once to `PENDING`. PreCompact keeps the session reusable;
+SessionEnd marks the session ended. Prompt briefing uses the transient
 current prompt to select at most one grounded memory lead or stay silent; operational
 signals/overrides remain independent. Briefing and session capture use fingerprints
 so unchanged state is not re-injected or duplicated. Stop output is capped.

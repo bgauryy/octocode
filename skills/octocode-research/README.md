@@ -8,11 +8,16 @@ Use it when the answer should be grounded in code, history, package data, exact 
 
 Technical work fails when an agent treats search snippets as proof, edits before understanding blast radius, or reports confidence without showing where it came from. A codebase rarely rewards a single lucky query.
 
-This skill makes the agent scope the question, search cheaply first, read exact evidence, validate findings, and either recommend a path or make a scoped change with verification.
+It also fails when every request labeled “bug” is debugged as a defect, features are assigned fictional root causes, or enhancements begin without a baseline. This skill first defines actual versus desired behavior and classifies the work as bug, feature, enhancement, or unknown.
+
+The agent then searches cheaply, reads exact evidence, validates findings, and either recommends a path or makes a scoped change with verification.
 
 ## Capabilities
 
 - Mode selection for map, validate, investigate, plan, review, change, refactor, and loop tasks.
+- Problem contracts covering actual/desired behavior, authority, trigger, impact, success criteria, and non-goals.
+- Evidence-based classification of bugs, features, enhancements, and unknown symptoms.
+- Root-cause proof requiring mechanism, trigger, violated contract, divergence boundary, and disconfirmation.
 - Evidence surfaces that can include local code, GitHub, npm, PR history, artifacts, binaries, docs, specs, and papers.
 - Exact anchors such as `file:line`, repo path, package id, PR number, commit, artifact fact, or fetched URL.
 - AST, structural search, LSP, history, package, GitHub, and local-file workflows through Octocode when available.
@@ -27,10 +32,10 @@ This skill makes the agent scope the question, search cheaply first, read exact 
 The workflow is:
 
 ```text
-SCOPE -> SEARCH -> READ EXACT -> VALIDATE -> DECIDE/PATCH -> VERIFY
+FRAME -> CLASSIFY -> MODEL -> SEARCH -> READ EXACT -> PROVE -> DECIDE/PATCH -> VERIFY
 ```
 
-The agent starts by naming the corpus, question, mode, and active evidence surfaces. It then uses cheap discovery to find anchors, reads exact slices once anchors appear, validates claims against stronger evidence, and only then decides, plans, reviews, or patches.
+The agent starts by defining actual and desired behavior, the source of authority, task class, corpus, mode, and active evidence surfaces. It maps the load-bearing system path, uses cheap discovery to find anchors, reads exact slices, and only then decides, plans, reviews, or patches.
 
 For open-ended questions, the skill loops: act, observe, learn, and repeat until evidence converges or the remaining gap is clear enough to report honestly.
 

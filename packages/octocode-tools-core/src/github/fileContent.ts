@@ -4,7 +4,11 @@ import type {
   GitHubFileContentApiResult,
 } from '../tools/github_fetch_content/types.js';
 import { getOctokit, resolveCacheAuthFingerprint } from './client.js';
-import { generateCacheKey, withDataCache } from '../utils/http/cache.js';
+import {
+  generateCacheKey,
+  withDataCache,
+  withDataCacheConditional,
+} from '../utils/http/cache.js';
 import { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types';
 
 import {
@@ -35,10 +39,20 @@ export async function fetchGitHubFileContentAPI(
     sessionId
   );
 
-  const rawResult = await withDataCache<GitHubAPIResponse<RawContentResult>>(
+  const rawResult = await withDataCacheConditional<
+    GitHubAPIResponse<RawContentResult>
+  >(
     cacheKey,
-    async () => {
-      return await fetchRawGitHubFileContent(params, authInfo);
+    async ({ ifNoneMatch }) => {
+      const response = await fetchRawGitHubFileContent(params, authInfo, {
+        ifNoneMatch,
+      });
+      const { etag, notModified, ...value } = response;
+      return {
+        value: value as GitHubAPIResponse<RawContentResult>,
+        etag,
+        notModified,
+      };
     },
     {
       shouldCache: (value: GitHubAPIResponse<RawContentResult>) =>

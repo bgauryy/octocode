@@ -99,7 +99,8 @@ Successful verification moves the linked task to `DONE`; failure moves it to
 
 If no task claim or explicit WORK presence matches a structured write, pre-edit
 creates or reuses one scoped `origin=HOOK` aggregate. Post-edit records and touches
-it; Stop or SessionEnd finalizes it once to `PENDING`. Aggregates never cross agent,
+it; Stop, PreCompact, or SessionEnd finalizes it once to `PENDING`. PreCompact keeps
+the session reusable; SessionEnd marks it ended. Aggregates never cross agent,
 session, workspace, artifact, TASK, or explicit WORK boundaries.
 
 ## TTL And Cleanup

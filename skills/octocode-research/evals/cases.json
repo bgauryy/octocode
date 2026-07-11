@@ -633,6 +633,141 @@
         { "name": "empty means absence", "pattern": "\\bempty result means absence\\b|\\bzero matches prove absence\\b" },
         { "name": "full transcript dump", "pattern": "\\bfull transcript\\b|\\bevery tool call listed\\b" }
       ]
+    },
+    {
+      "id": "ambiguous-problem-classification",
+      "mode": "Investigate",
+      "prompt": "Fix this bug: the export API rejects a new output format requested by one customer.",
+      "minScore": 0.8,
+      "minCitationCount": 1,
+      "required": [
+        { "name": "problem contract", "pattern": "\\bProblem contract\\b|\\bactual\\b[\\s\\S]*\\b(expected|desired)\\b[\\s\\S]*\\bauthority\\b" },
+        { "name": "unknown classification", "pattern": "\\bClass(?:ification)?:\\s*unknown\\b|\\bclass remains unknown\\b" },
+        { "name": "authority check", "pattern": "\\b(spec|test|schema|documented support|accepted criterion|authority)\\b" },
+        { "name": "cheapest classification check", "pattern": "\\bcheapest check\\b|\\bNext:\\b" },
+        { "name": "exact evidence", "pattern": "[A-Za-z0-9_./-]+:\\d+" },
+        { "name": "confidence", "pattern": "\\bConfidence:\\s*(likely|uncertain)\\b" }
+      ],
+      "binaryQuestions": [
+        {
+          "id": "does-not-trust-user-label",
+          "dimension": "classification",
+          "question": "Does the answer avoid accepting the word bug until a supported contract is evidenced?",
+          "passPattern": "\\b(unknown|not yet a bug|do not label.*bug|supported contract)\\b",
+          "failureSignature": "mechanism:problem-framing|cause:user-label-treated-as-proof",
+          "suggestedLesson": "Classify from actual/expected/authority evidence rather than the user's initial label."
+        },
+        {
+          "id": "distinguishes-feature-gap",
+          "dimension": "decision",
+          "question": "Does the answer explain that an unpromised new format is a feature rather than a defect?",
+          "passPattern": "\\b(new|unpromised|not supported)\\b[\\s\\S]*\\bfeature\\b|\\bfeature\\b[\\s\\S]*\\b(new|unpromised|not supported)\\b",
+          "failureSignature": "mechanism:problem-framing|cause:feature-debugged-as-defect",
+          "suggestedLesson": "A desired capability outside the supported contract is a feature gap, not a root-cause bug."
+        },
+        {
+          "id": "asks-one-decisive-check",
+          "dimension": "efficiency",
+          "question": "Does the answer name one cheap fact that will resolve the classification?",
+          "passPattern": "\\bcheapest check\\b|\\bNext:\\b[\\s\\S]*(spec|schema|test|support|contract)",
+          "failureSignature": "mechanism:problem-framing|cause:no-decisive-next-check",
+          "suggestedLesson": "Unknown classification should end with the cheapest authority or behavior check that resolves it."
+        }
+      ],
+      "forbidden": [
+        { "name": "invented root cause", "pattern": "\\bRoot cause:\\s*(the code|missing implementation|unsupported format)\\b" },
+        { "name": "premature confirmed bug", "pattern": "\\bClass(?:ification)?:\\s*bug\\b[\\s\\S]*\\bConfidence:\\s*confirmed\\b" }
+      ]
+    },
+    {
+      "id": "feature-framing",
+      "mode": "Plan",
+      "prompt": "Add streaming JSON output to the CLI while keeping current output stable.",
+      "minScore": 0.8,
+      "minCitationCount": 1,
+      "required": [
+        { "name": "feature classification", "pattern": "\\bClass(?:ification)?:\\s*feature\\b|\\btask class:\\s*feature\\b" },
+        { "name": "capability gap", "pattern": "\\bcapability gap\\b|\\bnew contract\\b" },
+        { "name": "consumers and compatibility", "pattern": "\\bconsumers?\\b[\\s\\S]*\\bcompatib|\\bcompatib[\\s\\S]*\\bconsumers?\\b" },
+        { "name": "acceptance criteria", "pattern": "\\bacceptance (?:criteria|tests?)\\b" },
+        { "name": "exact evidence", "pattern": "[A-Za-z0-9_./-]+:\\d+" },
+        { "name": "next action", "pattern": "\\bNext:\\b" }
+      ],
+      "binaryQuestions": [
+        {
+          "id": "does-not-invent-root-cause",
+          "dimension": "classification",
+          "question": "Does the answer frame the request as a new capability without inventing a defect mechanism?",
+          "passPattern": "\\b(feature|new contract|capability gap)\\b",
+          "failPattern": "\\bRoot cause:\\b",
+          "failureSignature": "mechanism:feature-framing|cause:fictional-root-cause",
+          "suggestedLesson": "Features need rationale and gap analysis, not a fictional root cause."
+        },
+        {
+          "id": "defines-observable-acceptance",
+          "dimension": "decision",
+          "question": "Does the answer define observable acceptance behavior for new and existing consumers?",
+          "passPattern": "\\bacceptance (?:criteria|tests?)\\b[\\s\\S]*(stream|existing|legacy|current)",
+          "failureSignature": "mechanism:feature-framing|cause:no-observable-acceptance",
+          "suggestedLesson": "Turn feature intent into observable acceptance tests before implementation."
+        },
+        {
+          "id": "checks-smallest-owner",
+          "dimension": "method",
+          "question": "Does the answer identify the smallest boundary that can own the new contract?",
+          "passPattern": "\\bsmallest (?:boundary|owner|scope|patch)\\b|\\bpatch boundary\\b",
+          "failureSignature": "mechanism:feature-framing|cause:no-contract-owner",
+          "suggestedLesson": "Map consumers and choose the smallest boundary that can own the feature contract."
+        }
+      ],
+      "forbidden": [
+        { "name": "feature called bug", "pattern": "\\bClass(?:ification)?:\\s*bug\\b" }
+      ]
+    },
+    {
+      "id": "enhancement-framing",
+      "mode": "Plan",
+      "prompt": "Enhance local code search so it feels much faster without changing results.",
+      "minScore": 0.8,
+      "minCitationCount": 1,
+      "required": [
+        { "name": "enhancement classification", "pattern": "\\bClass(?:ification)?:\\s*enhancement\\b|\\btask class:\\s*enhancement\\b" },
+        { "name": "baseline", "pattern": "\\bbaseline\\b" },
+        { "name": "measurable target", "pattern": "\\btarget\\b[\\s\\S]*(latency|p\\d+|milliseconds|percent|%)|\\b(latency|p\\d+|milliseconds|percent|%)\\b[\\s\\S]*\\btarget\\b" },
+        { "name": "bottleneck or hypothesis", "pattern": "\\bbottleneck\\b|\\bhypothes(?:is|es)\\b" },
+        { "name": "experiment", "pattern": "\\bexperiment\\b|\\bbenchmark\\b" },
+        { "name": "regression guard", "pattern": "\\bregression (?:guard|check|test)\\b|\\bresult parity\\b" },
+        { "name": "exact evidence", "pattern": "[A-Za-z0-9_./-]+:\\d+" }
+      ],
+      "binaryQuestions": [
+        {
+          "id": "refuses-vague-faster",
+          "dimension": "classification",
+          "question": "Does the answer replace 'feels faster' with a measured baseline and target?",
+          "passPattern": "\\bbaseline\\b[\\s\\S]*\\btarget\\b",
+          "failureSignature": "mechanism:enhancement-framing|cause:unmeasurable-quality-goal",
+          "suggestedLesson": "An enhancement needs a baseline and measurable target before choosing a fix."
+        },
+        {
+          "id": "tests-bottleneck",
+          "dimension": "method",
+          "question": "Does the answer propose an experiment that can confirm or reject the suspected bottleneck?",
+          "passPattern": "\\b(bottleneck|hypothes(?:is|es))\\b[\\s\\S]*\\b(experiment|benchmark|profile)\\b",
+          "failureSignature": "mechanism:enhancement-framing|cause:optimization-without-bottleneck-proof",
+          "suggestedLesson": "Profile or benchmark the suspected bottleneck before optimizing."
+        },
+        {
+          "id": "preserves-existing-contract",
+          "dimension": "verification",
+          "question": "Does the answer protect result parity while measuring performance?",
+          "passPattern": "\\b(result parity|same results|existing contract|regression (?:guard|check|test))\\b",
+          "failureSignature": "mechanism:enhancement-framing|cause:no-regression-guard",
+          "suggestedLesson": "Performance enhancements must verify the target and preserve existing result contracts."
+        }
+      ],
+      "forbidden": [
+        { "name": "optimization before baseline", "pattern": "\\bimplement(?:ed)? optimization\\b(?![\\s\\S]*\\bbaseline\\b)" }
+      ]
     }
   ]
 }

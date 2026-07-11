@@ -337,6 +337,31 @@ Verification: LSP references ran; final discovery for static imports returned 0.
 Open gaps: runtime-only require() strings not fully ruled out.
 Confidence: likely
 Next: one structural/regex pass for require(.*helpers) before delete.`,
+    'ambiguous-problem-classification': `Mode: Investigate
+Problem contract: actual = export API rejects the requested format; desired = accept it; authority = supported schema/spec/test still unknown; trigger = new format; impact = one customer blocked.
+Classification: unknown. The user label is not proof of a bug; a supported contract violation would be a bug, while a new or unpromised format is a feature.
+Exact evidence: src/export/schema.ts:18 defines current formats, but product acceptance is not yet evidenced.
+Cheapest check: compare the requested format with the published schema and accepted contract test.
+Confidence: uncertain
+Next: read the schema/spec and its contract test, then classify bug versus feature before patching.`,
+    'feature-framing': `Mode: Plan
+Task class: feature. This is a capability gap and new contract, not a defect with a root cause.
+Problem contract: actual = buffered JSON only; desired = streaming JSON; authority = accepted user criterion; success = stream incrementally while current output stays byte-compatible.
+Exact evidence: src/cli/output.ts:24 owns serialization; consumers include shell pipelines and existing JSON parsers.
+Consumers and compatibility: keep the default output unchanged and gate streaming behind an explicit option.
+Acceptance tests: streaming emits incrementally for large input; cancellation closes cleanly; existing output snapshots remain unchanged.
+Smallest boundary: the output writer interface owns the new contract; patch boundary is that adapter plus focused tests.
+Confidence: likely
+Next: exact-read the writer callers and confirm the option/API shape before implementation.`,
+    'enhancement-framing': `Mode: Plan
+Task class: enhancement. Existing result behavior is the contract; "feels faster" needs measurement.
+Baseline: benchmark representative searches at src/search/execute.ts:41, recording p50/p95 latency and result hashes.
+Target: reduce p95 latency by 30% without changing result parity.
+Hypotheses: file enumeration or ranking is the bottleneck; profile both before choosing a patch.
+Experiment: benchmark/profile each stage, change only the dominant stage, then rerun the same corpus.
+Regression guard: identical result hashes and existing search tests, plus the latency target.
+Confidence: likely
+Next: capture the baseline benchmark before implementing optimization.`,
   };
   return base[caseId] || '';
 }

@@ -104,22 +104,19 @@ Prefer `node packages/octocode/out/octocode.js` over global `octocode` / npx whe
 
 ## Awareness
 
-Start: `attend --compact` (CLI: `node packages/octocode-awareness/dist/bin/awareness.js`). Package dogfood: [`packages/octocode-awareness/AGENTS.md`](packages/octocode-awareness/AGENTS.md). Skill SoT: `packages/octocode-awareness/skills/octocode-awareness` — rebuild with `yarn workspace @octocodeai/octocode-awareness build`; never hand-edit `.agents/skills/` or `dist/skills/` mirrors.
+For repository work, activate the `octocode-awareness` skill and start with
+`attend --compact` using the local CLI. Work in this package also reads
+[`packages/octocode-awareness/AGENTS.md`](packages/octocode-awareness/AGENTS.md).
 
-SQLite (`~/.octocode/memory/awareness.sqlite3`) is canonical. `.octocode/*.md` are generated wiki leads — prefer live `attend` / `work` / `query` / `memory recall`. Never hand-edit projections; fix DB then `repo inject`.
+`AGENTS.md` routes; the skill owns operating policy; the CLI owns live state and
+contracts; hooks automate lifecycle edges. SQLite is canonical. Treat generated
+`.octocode/*.md` as fallback leads: prefer live `attend` / `query` / `memory recall`,
+never hand-edit projections, and run `repo inject` only when file readers need a
+refresh.
 
-| Generated | Prefer live |
-|---|---|
-| [`.octocode/AGENTS.md`](.octocode/AGENTS.md) | `attend` |
-| [`.octocode/GOTCHAS.md`](.octocode/GOTCHAS.md) | `query gotchas` / `memory recall` |
-| [`.octocode/LEARN.md`](.octocode/LEARN.md) | `query lessons` |
-| [`.octocode/MEMORY.md`](.octocode/MEMORY.md) | `memory recall --smart` |
-| [`.octocode/BOOKMARKS.md`](.octocode/BOOKMARKS.md) | `query files` |
-| [`.octocode/DEVELOPER_REVIEW.md`](.octocode/DEVELOPER_REVIEW.md) | `reflect developer-review` |
-
-Learn → project: `memory record` / `reflect record` → `repo inject --workspace "$PWD" --mode local --compact` only when file readers need a refresh. If a clone lacks the root pointer to `.octocode/AGENTS.md`, ask before appending the block from skill `references/repo-context-management.md`.
-
-Awareness package docs: [HOW_IT_WORKS](packages/octocode-awareness/docs/HOW_IT_WORKS.md) · [DB](packages/octocode-awareness/docs/DB.md) · [LOCKS](packages/octocode-awareness/docs/LOCKS.md) · [HOOKS](packages/octocode-awareness/docs/HOOKS.md) · [WIKI](packages/octocode-awareness/docs/WIKI.md) · [REFLECTION](packages/octocode-awareness/docs/REFLECTION.md) · [HARNESS](packages/octocode-awareness/docs/HARNESS.md) · [SKILLS](packages/octocode-awareness/docs/SKILLS.md) · [THESIS](packages/octocode-awareness/docs/THESIS.md) · [REFERENCES](packages/octocode-awareness/docs/REFERENCES.md)
+Skill source: `packages/octocode-awareness/skills/octocode-awareness`. Rebuild after
+changes; never edit `.agents/skills/` or `dist/skills/` mirrors. Architecture and
+concept owners: [`packages/octocode-awareness/docs/README.md`](packages/octocode-awareness/docs/README.md).
 
 ## Docs and references
 

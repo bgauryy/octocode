@@ -1,29 +1,28 @@
 # Awareness Hooks
-
 Hooks automate loop edges; manual CLI remains valid. A config file proves presence, not
 execution, trust, or model-visible delivery. Export one stable `OCTOCODE_AGENT_ID` shared
 by CLI and hooks — without it, presence and peer packets do not join correctly.
-
 | Host | Surface | Context / control |
 |---|---|---|
 | Claude | active skill frontmatter or `.claude/settings.json` | nested `hookSpecificOutput`; exit 2 blocks pre-edit/stop |
 | Codex | trusted `.codex/hooks.json` | nested `hookSpecificOutput`; exit 2 blocks; hook definition must be trusted |
 | Cursor | `.cursor/hooks.json` | `additional_context` / `agent_message`; `permission: deny`; stop `followup_message` |
 | Pi | `wirePiAwarenessHooks(pi)` | in-process block/context/follow-up; never shell install |
-
+Choose one surface. When Claude runs this skill's frontmatter, do not also install
+project settings; `hooks check` inspects settings files only. Codex/Cursor require config.
 Preview, install after approval, then check:
 
 ```bash
-<cli> hooks install --host <claude|codex|cursor> --project-dir . --dry-run --compact
-<cli> hooks install --host <claude|codex|cursor> --project-dir . --compact
-<cli> hooks check --host <claude|codex|cursor> --project-dir . --strict --compact
+<cli> hooks install --host <codex|cursor> --project-dir . --dry-run --compact
+<cli> hooks install --host <codex|cursor> --project-dir . --compact
+<cli> hooks check --host <codex|cursor> --project-dir . --strict --compact
 ```
 
 `--strict` validates Awareness-owned config only. Read `health.config` separately
 from `health.runtime`; runtime remains `unverified` until a harmless write proves the
 hook fired. For Codex also inspect project trust, hook-definition trust, and the hooks
 feature. For Cursor smoke local and cloud separately; flat config has no guaranteed
-Windows command override.
+Windows command override. Use `--host claude` only when frontmatter is unavailable.
 
 Remove (preview first) when uninstalling host wiring:
 
@@ -37,8 +36,9 @@ obsolete roots, and removes the old standalone guard. Pre-edit remains the singl
 ordered guard+presence edge.
 
 Smoke: ordinary peer context once; exclusive denial before presence; N writes in one
-turn become one fallback Verify item with N files; stop continuation; changed briefing;
-host log visibility. Treat any missing edge as a runtime failure even when config is green.
+turn become one fallback Verify item with N files; PreCompact continuation reuses the
+session; SessionEnd ends it; changed briefing and host log visibility. Treat any missing
+edge as a runtime failure even when config is green.
 
 Prompt-time delivery is transient: shell hooks pass an event prompt when available; Pi buffers
 only the latest `input` through `before_agent_start`, clearing empty/consumed input. The hook emits

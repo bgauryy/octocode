@@ -1,58 +1,36 @@
 ---
 name: octocode-rfc-generator
-description: "Use when you need an RFC, design doc, architecture proposal, migration plan, or research-backed decision before coding — cross-package changes, risky refactors, option comparisons, blast-radius mapping, or improving an existing RFC/plan."
+description: "Use when a consequential change needs a decision before implementation: create or improve an RFC, design document, architecture proposal, migration strategy, option comparison, rollout plan, or measurable implementation contract."
 ---
 
 # Octocode RFC Generator
 
-For a change that needs **thinking before coding** — or to **improve an existing RFC/plan** (close gaps, research open questions, add resources/refs, add verification). Output is evidence-backed and actionable, not a brainstorm.
+Produce evidence-backed decisions that an implementer and reviewer can execute. Flow:
+`UNDERSTAND → RESEARCH → PREREQUISITES? → COMPARE → WRITE → CLOSE QUESTIONS → KPIs → VALIDATE → DELIVER`.
 
-```text
-UNDERSTAND → RESEARCH (octocode-research) → PREREQUISITES? → COMPARE OPTIONS → WRITE RFC → CLOSE OPEN QUESTIONS → DERIVE KPIs → VALIDATE → DELIVER
-```
+## Lobby rules
+- Skip RFC mode for trivial edits. Ask one focused question when uncertainty changes shape, owner, scope, or decision criteria.
+- Compare at least two alternatives, including do-nothing, unless the user explicitly requests one implementation plan.
+- Recommendations require verifiable facts; cite exact anchors and commands/checks that actually ran.
+- `RFC.md` owns goals, scope, and decision. Other files link to its anchors rather than restating them.
+- Resolve every open question with evidence or an explicit deferral; no recommendation may rest on an uncertain claim.
+- Order implementation by dependency, not estimates; bind requirements to acceptance and verification.
 
-Skip RFC mode for trivial one-file edits. Read `references/octocode.md` before evidence gathering, and ask one focused question when the problem/output/decision flow is unclear.
+## Artifact route
+- Small, reversible, single-package work: produce only `RFC.md` with plan, acceptance, and inline references.
+- Otherwise, after save approval, create `<workspace>/.octocode/rfc/{name}/`: `RFC.md` (decide), `PREREQUISITES.md` (ready, existing code only), `IMPLEMENTATION.md` (build), `KPI.md` (verify), and `RESOURCES.md` (source appendix).
 
-## Output: a folder, not a file
+## Smart routes — load only what the current step needs
+- Before drafting, load `references/workflow.md` — select mode, gates, claim ledger, artifact set, traceability, validation, and delivery.
+- When gathering evidence, load `references/octocode.md` then `references/research-playbook.md` — delegate exact research and keep claims auditable.
+- When writing the decision, load `references/rfc-template.md` — structure options, goals/non-goals, reversibility, and pre-mortem.
+- When existing code has readiness work, load `references/rfc-prerequisites.md` before planning — expose baselines, blockers, owners, and setup.
+- When building the execution plan, load `references/rfc-implementation.md` — close questions, order dependencies, and define rollout/rollback.
+- When defining acceptance, load `references/rfc-kpi.md` — connect user stories, metrics, decision rules, and verification in a traceability matrix.
+- When preserving sources, load `references/rfc-resources.md` — record provenance without moving decisive citations out of the RFC.
+- When improving this skill, prefer `octocode-eval`; otherwise load `references/improve-loop.md` — enforce measurable accept/revert.
 
-When a save is approved, write a folder `<workspace>/.octocode/rfc/{name}/` containing the RFC document set; existing-code RFCs add `PREREQUISITES.md` before `IMPLEMENTATION.md` (fall back to global `~/.octocode/rfc/{name}/` only when the workspace has no `.octocode/` or is unwritable — see `<doc_placement>`):
-
-| File | Role · reader · lifecycle |
-|---|---|
-| `RFC.md` | **Decide** — reviewer-facing. **Frozen at decision. Single source of truth (SSOT) for goals/scope/decision.** |
-| `PREREQUISITES.md` | **Ready** — existing-code RFCs only. **Written before the plan.** Preconditions, baseline evidence, blockers, owners, and setup needed before implementation. |
-| `IMPLEMENTATION.md` | **Build** — implementer-facing. **Live.** Every RFC open question is closed here with `octocode-research` evidence. |
-| `KPI.md` | **Verify** — outlives the ship date. Acceptance criteria + measurable success signals + how to check the RFC *and* its implementation post-ship. |
-| `RESOURCES.md` | **Refs** — source appendix. Local refs, external prior art, papers, packages, research artifacts, and search prompts; not a substitute for inline citations. |
-
-**Small-feature mode:** for a small, reversible, single-package change, produce **only `RFC.md`** (plan + acceptance criteria + references inline) and say so. The full folder is the default for anything irreversible, cross-package, public-contract/data/security impact, or prior-art-heavy.
-
-## Related skills
-- `octocode-eval` — goal→KPI; stub `references/improve-loop.md` if eval unavailable
-- `octocode-research` — close open questions with file:line / PR evidence
-- `octocode-brainstorming` — worth-building / diverge before RFC
-- `octocode-awareness` — shared-repo coordination while drafting RFCs
-- `octocode-skills` — edit/review this skill folder
-
-## Reference Map
-
-- `references/workflow.md` — read first for mode selection, gates, claim ledger, output structure, SSOT rule, traceability, validation, and delivery.
-- `references/research-playbook.md` — when gathering RFC evidence by delegating Octocode-backed research to `octocode-research`.
-- `references/rfc-template.md` — when producing `RFC.md` (Summary → Prior Art, Goals/Non-Goals, reversibility tag, pre-mortem).
-- `references/rfc-prerequisites.md` — when an RFC changes existing code and must produce `PREREQUISITES.md` before the implementation plan.
-- `references/rfc-implementation.md` — when producing `IMPLEMENTATION.md` (open questions closed via research, dependency-ordered steps, V&V test plan, rollout/rollback).
-- `references/rfc-kpi.md` — when producing `KPI.md` (user stories, Gherkin acceptance, success metrics, decision rule, traceability matrix).
-- `references/rfc-resources.md` — when producing `RESOURCES.md` (source inventory, local refs, prior art, papers, research artifacts, search prompts).
-- `references/improve-loop.md` — stub; prefer `octocode-eval` for full goal→KPI
-
-## Non-negotiables
-
-- **Results beat words:** recommendations need facts plus deterministic proof (package tests, `eval-rfc.mjs`, CLI or code execution). Cite what ran and what it returned; prose alone is not acceptance evidence.
-- Do not guess facts that tools can verify; cite local claims with `file:line` and external claims with a GitHub path/line or PR/commit link. Use `octocode-research` for Octocode-backed claims.
-- Ask before deciding the flow when uncertainty changes the RFC shape, owner, scope, or decision criteria.
-- Always compare at least two alternatives — including do-nothing — unless the user explicitly asks for a single implementation plan.
-- **SSOT rule:** `RFC.md` owns goals, scope, and the decision. `IMPLEMENTATION.md` and `KPI.md` **reference RFC section anchors — never restate them**, so the files cannot drift apart.
-- **Close open questions in `IMPLEMENTATION.md`:** every `Unresolved Question` in `RFC.md` must be resolved with an `octocode-research` citation, or explicitly deferred with a reason. No recommendation may rest on an `uncertain` claim.
-- **Bind the files with a traceability matrix** in `KPI.md`: `RFC requirement → user story → acceptance criteria → verification method → post-ship status`.
-- **Use `RESOURCES.md` for refs, not claims:** store source inventories and research trails there, but cite decisive claims in the RFC section where the claim appears.
-- Order implementation steps by dependency, not preference; avoid time estimates. Generate the document set in **one pass from one claim ledger**, then self-check with `scripts/eval-rfc.mjs --case <id>` before delivery.
+## Related routes and verification
+- Use `octocode-brainstorming` before RFC when worth-building is unresolved; `octocode-research` to close factual questions; `octocode-eval` for KPI rigor.
+- Use `octocode-awareness` while coordinating drafts; `octocode-skills` when changing this skill folder.
+- Before delivery run `scripts/eval-rfc.mjs --case <id>` — validate the document contract and report the real result.

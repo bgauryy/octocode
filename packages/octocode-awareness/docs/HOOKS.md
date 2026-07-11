@@ -11,7 +11,8 @@ the same runtime and canonical SQLite database.
 | Before write | Run harness guard, resolve task/explicit work, declare advisory path; honor exclusivity. | Silent normally; compact peer delta; host-native denial on guard or exclusive conflict. |
 | After write | Write edit audit and heartbeat; keep a scoped automatic HOOK active. | Best-effort, nonblocking. |
 | Stop/subagent stop | Finalize the scoped HOOK once, then audit verification debt. | First 3 items + omitted count; block/remind where supported. |
-| Session end/compact | Finalize scoped HOOK state, capture deduplicated handoff, and close the session. | Best-effort, nonblocking. |
+| PreCompact | Finalize scoped HOOK state and capture a deduplicated handoff; keep the session reusable. | Best-effort, nonblocking. |
+| SessionEnd | Finalize/capture, then mark the host session ended without claiming work success. | Best-effort, nonblocking. |
 
 Pre-edit is the single guard+presence hook. The old separate harness-guard install
 entry is removed during install/repair to guarantee guard ordering.
@@ -20,7 +21,7 @@ entry is removed during install/repair to guarantee guard ordering.
 
 | Host | Surface | Notes |
 |---|---|---|
-| Claude Code | Skill frontmatter while active, or `.claude/settings.json` | Project-wide install is separate from skill activation. |
+| Claude Code | Skill frontmatter while active, or `.claude/settings.json` | Choose one surface; do not install duplicate settings when frontmatter runs. |
 | Codex | `.codex/hooks.json` | PreCompact substitutes for SessionEnd; project and hook-definition trust are separate runtime gates. |
 | Cursor | `.cursor/hooks.json` | Native JSON outputs; model-context delivery varies by version/surface, so smoke local/cloud separately. |
 | Pi | `wirePiAwarenessHooks(pi)` / Pi extension | In-process; never run shell hook install. |
@@ -28,16 +29,20 @@ entry is removed during install/repair to guarantee guard ordering.
 
 ## Install And Verify
 
+Codex/Cursor require project config. When Claude skill frontmatter is active, use it
+and do not also install project settings; `hooks check` inspects settings files only.
 Preview writes, install after approval, then check exact host config:
 
 ```bash
-octocode-awareness hooks install --host <claude|codex|cursor> \
+octocode-awareness hooks install --host <codex|cursor> \
   --project-dir . --dry-run --compact
-octocode-awareness hooks install --host <claude|codex|cursor> \
+octocode-awareness hooks install --host <codex|cursor> \
   --project-dir . --compact
-octocode-awareness hooks check --host <claude|codex|cursor> \
+octocode-awareness hooks check --host <codex|cursor> \
   --project-dir . --strict --compact
 ```
+
+Use `--host claude` only when skill frontmatter is unsupported or disabled.
 
 Remove (preview first) when uninstalling host wiring:
 
@@ -66,6 +71,8 @@ After installation, edit a harmless file and confirm:
 2. Two ordinary agents can share a file and receive one changed-peer summary.
 3. An explicit exclusive run blocks the second agent before presence.
 4. `verify audit` clears only after the declared check and `verify mark`.
+5. A write after PreCompact reuses the session; SessionEnd leaves later conflicts
+   with `holder_session_active:false` rather than claiming success.
 
 Config-ready does not mean runtime-ready. Confirm where the host sends stdout/stderr,
 that the exact hook runs, and that model-visible context or continuation arrives.
@@ -82,12 +89,13 @@ Pre-edit resolves the run in this order:
 3. the active fallback HOOK for the same agent, stable session/transcript,
    workspace, and artifact; otherwise a new fallback.
 
-Post-edit keeps that fallback active and attaches further files. Stop/agent-end
-finalizes it once to PENDING, so N edits produce one item with N files.
+Post-edit keeps that fallback active and attaches further files. Stop/agent-end or
+PreCompact finalizes it once to PENDING, so N edits produce one item with N files.
 TASK and explicit WORK are never merged. Without stable session/transcript identity,
 post-edit uses the isolated per-event lifecycle rather than guessing across sessions.
 Shell get-or-create is cross-process locked; Pi coalesces its synchronous in-process
-tool callbacks. Session end/shutdown safely finalizes any remaining aggregate.
+tool callbacks. PreCompact keeps the session reusable; SessionEnd/shutdown safely
+finalizes any remaining aggregate and marks the session ended.
 
 Fallback verification plans name up to three files plus an omitted count and require
 the smallest relevant test/typecheck, diff inspection, and a recorded result. Recursive

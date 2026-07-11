@@ -1,12 +1,14 @@
 # Code Research
 
-Load for code investigation, review, refactor, architecture, dead-code, artifact, or blast-radius work. Read `algorithm.md` first; load the matching `workflow-*.md` before this proof ladder.
+Load for code investigation, review, refactor, architecture, dead-code, artifact, or blast-radius work. Read `algorithm.md` and `problem-framing.md` first; load the matching `workflow-*.md` before this proof ladder.
 
 ## Route
 | Need | First proof path |
 |---|---|
-| bug/behavior | reproduction → hypotheses → exact boundaries → AST/LSP/history |
-| implementation | contract → blast radius → local pattern → patch → checks |
+| bug | reproduction → violated contract → hypotheses → divergence boundary → causal/counterfactual proof |
+| feature | capability gap → acceptance criteria → consumers → options/local pattern → patch/checks |
+| enhancement | baseline → bottleneck → measurable target → experiment/change → regression guard |
+| unknown behavior | actual/authority evidence → classify → matching route |
 | refactor (preserve behavior) | skeleton → contracts → blast → big→small tasks → bulk move/rewire → verify (`workflow-refactor.md`) |
 | PR/local review | changed region → symbols → consumers/tests → ranked findings |
 | dead code/delete | candidate → LSP/AST/broad text/tests |

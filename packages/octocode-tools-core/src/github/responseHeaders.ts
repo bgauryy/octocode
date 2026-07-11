@@ -14,3 +14,14 @@ export function normalizeResponseHeaders(
   }
   return out;
 }
+
+/** Prefer strong ETag; fall back to weak / case variants GitHub may emit. */
+export function extractEtag(headers: unknown): string | undefined {
+  const normalized = normalizeResponseHeaders(headers);
+  const etag =
+    normalized.etag ||
+    normalized.ETag ||
+    normalized['Etag'] ||
+    Object.entries(normalized).find(([k]) => k.toLowerCase() === 'etag')?.[1];
+  return etag && etag.length > 0 ? etag : undefined;
+}

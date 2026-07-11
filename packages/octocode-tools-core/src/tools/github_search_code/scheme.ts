@@ -50,29 +50,34 @@ export const GitHubCodeSearchOutputLocalSchema = z.object({
     z.object({
       id: z.string(),
       data: z.object({
+        // concise:true collapses each file to "owner/repo:path" strings;
+        // default mode returns structured file objects with matches.
         files: z.array(
-          z.object({
-            owner: z.string(),
-            repo: z.string(),
-            path: z.string(),
-            queryId: z.string().optional(),
-            matches: z.array(
-              z.object({
-                value: z.string().optional(),
-                pathOnly: z.boolean().optional(),
-                matchIndices: z
-                  .array(
-                    z.object({
-                      start: z.number(),
-                      end: z.number(),
-                      lineOffset: z.number(),
-                    })
-                  )
-                  .optional(),
-                url: z.string().optional(),
-              })
-            ),
-          })
+          z.union([
+            z.string(),
+            z.object({
+              owner: z.string(),
+              repo: z.string(),
+              path: z.string(),
+              queryId: z.string().optional(),
+              matches: z.array(
+                z.object({
+                  value: z.string().optional(),
+                  pathOnly: z.boolean().optional(),
+                  matchIndices: z
+                    .array(
+                      z.object({
+                        start: z.number(),
+                        end: z.number(),
+                        lineOffset: z.number(),
+                      })
+                    )
+                    .optional(),
+                  url: z.string().optional(),
+                })
+              ),
+            }),
+          ])
         ),
         pagination: CodeSearchPaginationSchema.optional(),
       }),
@@ -89,7 +94,8 @@ export const GitHubCodeSearchOutputLocalSchema = z.object({
     .optional(),
   warnings: z.array(z.string()).optional(),
   // Machine-routable duplicates of `warnings` — route on `code`
-  // (ghIncompleteResults, ghScopedZeroUnproven) instead of parsing prose.
+  // (ghIncompleteResults, ghScopedZeroUnproven, ghRepoRenamed, ghRepoArchived,
+  // ghRepoNotFound) instead of parsing prose.
   diagnostics: z.array(ToolDiagnosticSchema).optional(),
   // GitHub code search returns no absolute line numbers; `next` carries a
   // ready-made ghGetFileContent matchString call per result record so agents

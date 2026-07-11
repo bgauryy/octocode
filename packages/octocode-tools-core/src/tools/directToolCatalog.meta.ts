@@ -707,6 +707,16 @@ function buildKnownDirectToolCommandPatternQueries(
           itemsPerPage: 20,
         },
       },
+      {
+        label: 'prune build dirs',
+        query: {
+          path: 'packages/octocode-tools-core',
+          names: ['*.js'],
+          entryType: 'f',
+          excludeDir: ['node_modules', 'dist', 'coverage', 'out'],
+          itemsPerPage: 20,
+        },
+      },
     ];
   }
 

@@ -54,7 +54,7 @@ describe('skill routing boundaries', () => {
     expect(text).toContain('work start');
       expect(text).toMatch(/ordinary overlap is allowed/i);
     expect(text).toContain('scripts/schema.mjs');
-    expect(text).toContain('## Install · Hard rules');
+    expect(text).toContain('first activation');
     expect(text).toContain('agent-cheatsheet.md');
     expect(text).toContain('Routes (load one owner; core work needs none)');
     expect(text).toContain('pressure-driven triggers');
@@ -89,6 +89,28 @@ describe('skill routing boundaries', () => {
     expect(heldOut.filter((entry) => entry.expect).map((entry) => entry.prompt).join('\n')).toMatch(/read-only security review/i);
     expect(heldOut.filter((entry) => entry.expect).map((entry) => entry.prompt).join('\n')).toMatch(/resume/i);
     expect(heldOut.filter((entry) => !entry.expect).map((entry) => entry.prompt).join('\n')).toMatch(/outside a repo/i);
+  });
+
+  it('routes each fresh-agent feature question to one direct owner', () => {
+    const text = skill('octocode-awareness');
+    const journeys = [
+      ['start, finish, or command recipe', 'agent-cheatsheet.md'],
+      ['plan, task, or WORK', 'plan-task-workflow.md'],
+      ['peer presence or overlap', 'files-awareness.md'],
+      ['exclusive locks or verify', 'lock-protocol.md'],
+      ['peers, signals, or refinements', 'coordination-protocol.md'],
+      ['installing or debugging automation', 'hooks.md'],
+      ['live, durable, or generated output', 'output-routing.md'],
+      ['recalling or recording memory', 'memory-recall.md'],
+      ['learn or clean', 'bookkeeping.md'],
+      ['storage or sessions', 'architecture.md'],
+      ['improving the harness', 'improve-loop.md'],
+      ['shipping a skill change', 'skill-evolution.md'],
+    ] as const;
+    for (const [trigger, owner] of journeys) {
+      expect(text).toContain(trigger);
+      expect(text).toContain(`references/${owner}`);
+    }
   });
 
   it('passes skill review with graph-routed progressive disclosure', () => {

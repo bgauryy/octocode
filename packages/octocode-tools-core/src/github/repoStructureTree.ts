@@ -1,6 +1,8 @@
 import type { Octokit } from 'octokit';
+import { RequestError } from 'octokit';
 import type { GitHubApiFileItem } from '../tools/github_view_repo_structure/types.js';
 import { countSerializedChars } from '../utils/response/charSavings.js';
+import { extractEtag } from './responseHeaders.js';
 
 export type GitTreeEntry = {
   path?: string;
@@ -15,6 +17,8 @@ export type FilteredGitTree = {
   items: GitHubApiFileItem[];
   truncated: boolean;
   rawResponseChars: number;
+  etag?: string;
+  notModified?: boolean;
 };
 
 /**
@@ -58,7 +62,7 @@ export function filterGitTreeEntries(
       html_url: undefined,
       git_url: undefined,
       download_url: undefined,
-    } as GitHubApiFileItem);
+    } as unknown as GitHubApiFileItem);
   }
 
   return items;
@@ -82,6 +86,7 @@ export async function fetchStructureViaGitTree(
     workingBranch: string;
     pathPrefix?: string;
     maxDepth: number;
+    ifNoneMatch?: string;
   }
 ): Promise<FilteredGitTree> {
   const { data: branchData } = await octokit.rest.repos.getBranch({
@@ -97,13 +102,32 @@ export async function fetchStructureViaGitTree(
     );
   }
 
-  const { data: treeData } = await octokit.rest.git.getTree({
-    owner: params.owner,
-    repo: params.repo,
-    tree_sha: treeSha,
-    recursive: 'true',
-  });
+  let treeResponse;
+  try {
+    treeResponse = await octokit.rest.git.getTree({
+      owner: params.owner,
+      repo: params.repo,
+      tree_sha: treeSha,
+      recursive: 'true',
+      ...(params.ifNoneMatch
+        ? { headers: { 'If-None-Match': params.ifNoneMatch } }
+        : {}),
+    });
+  } catch (error: unknown) {
+    if (error instanceof RequestError && error.status === 304) {
+      return {
+        items: [],
+        truncated: false,
+        rawResponseChars: 0,
+        etag: params.ifNoneMatch,
+        notModified: true,
+      };
+    }
+    throw error;
+  }
 
+  const treeData = treeResponse.data;
+  const etag = extractEtag(treeResponse.headers);
   const items = filterGitTreeEntries(treeData.tree as GitTreeEntry[], {
     pathPrefix: params.pathPrefix,
     maxDepth: params.maxDepth,
@@ -114,5 +138,6 @@ export async function fetchStructureViaGitTree(
     truncated: Boolean(treeData.truncated),
     rawResponseChars:
       countSerializedChars(branchData) + countSerializedChars(treeData),
+    ...(etag ? { etag } : {}),
   };
 }

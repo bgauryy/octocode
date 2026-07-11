@@ -12,7 +12,10 @@ import {
   describeQuerySchema,
 } from '../../../scheme/coreSchemas.js';
 import { SEMANTIC_CONTENT_TYPES } from '../shared/semanticTypes.js';
-import { ItemPaginationSchema } from '../../../scheme/pagination.js';
+import {
+  ItemPaginationSchema,
+  ToolContinuationSchema,
+} from '../../../scheme/pagination.js';
 
 const requiredLineHintField = clampedInt(1, 1_000_000_000).describe(
   '1-based source line for symbol-anchored semantic operations. Get it from search/localSearchCode, structural AST captures, or documentSymbols; never guess.'
@@ -264,6 +267,11 @@ const SemanticDataSchema = z.object({
   pagination: PaginationSchema.optional(),
   summary: z.record(z.string(), z.unknown()).optional(),
   warnings: z.array(z.string()).optional(),
+  // Ready-to-run follow-ups (e.g. next.readSite). Must be declared: MCP
+  // structuredContent JSON Schema uses additionalProperties:false, while Zod
+  // would otherwise strip unknown keys — leaving Cursor MCP validation failing.
+  next: z.record(z.string(), ToolContinuationSchema).optional(),
+  hints: z.array(z.string()).optional(),
 });
 
 export const LspGetSemanticsOutputSchema = z.object({

@@ -73,7 +73,7 @@ export async function searchGitHubReposAPI(
       keywords: params.keywords,
       topicsToSearch: params.topicsToSearch,
       owner: params.owner,
-      repo: params.repo,
+      repo: extra.repo,
       stars: params.stars,
       size: params.size,
       created: params.created,

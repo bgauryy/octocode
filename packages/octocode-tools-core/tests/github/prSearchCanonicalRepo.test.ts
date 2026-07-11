@@ -15,6 +15,7 @@ vi.mock('../../src/github/client.js', () => ({
       pulls: { get: mocks.pullsGet },
     },
   })),
+  resolveCacheAuthFingerprint: vi.fn(async () => 'test-auth'),
 }));
 
 const { searchGitHubPullRequestsAPI } =
@@ -44,6 +45,7 @@ describe('PR search canonical repository resolution', () => {
             created_at: '2026-06-17T09:09:55Z',
             updated_at: '2026-06-17T23:07:24Z',
             closed_at: '2026-06-17T23:07:24Z',
+            merged_at: '2026-06-17T23:07:24Z',
             pull_request: {},
           },
         ],
@@ -85,6 +87,8 @@ describe('PR search canonical repository resolution', () => {
         q: expect.not.stringContaining('repo:facebook/react'),
       })
     );
+    // Lean list search skips per-hit pulls.get; merged_at comes from search hit.
+    expect(mocks.pullsGet).not.toHaveBeenCalled();
     expect(result.pull_requests[0]).toMatchObject({
       number: 36809,
       state: 'closed',

@@ -64,6 +64,50 @@ describe('ghHistoryResearch type:"issues"', () => {
     const text = JSON.stringify(result.structuredContent ?? result);
     expect(text).toContain('Crash on startup');
     expect(text).toContain('"type":"issues"');
+    expect(text).toContain('"readIssue"');
+    expect(text).toContain('"issueNumber":42');
+    expect(text).toContain('"searchCode"');
+  });
+
+  it('omits next.readIssue when already in detail mode but still offers searchCode', async () => {
+    fetchIssues.mockResolvedValue({
+      data: {
+        type: 'issues',
+        owner: 'microsoft',
+        repo: 'TypeScript',
+        issues: [
+          {
+            number: 42,
+            title: 'Crash on startup',
+            state: 'open',
+            author: 'someone',
+            labels: [],
+            created_at: '2026-01-01T00:00:00Z',
+            updated_at: '2026-02-01T00:00:00Z',
+            url: 'https://github.com/microsoft/TypeScript/issues/42',
+            body: 'repro steps',
+          },
+        ],
+        total_count: 1,
+      },
+      status: 200,
+    });
+
+    const result = await searchMultipleGitHubPullRequests({
+      queries: [
+        {
+          type: 'issues',
+          owner: 'microsoft',
+          repo: 'TypeScript',
+          issueNumber: 42,
+          content: { body: true },
+        },
+      ],
+    } as never);
+
+    const text = JSON.stringify(result.structuredContent ?? result);
+    expect(text).not.toContain('"readIssue"');
+    expect(text).toContain('"searchCode"');
   });
 
   it('passes issueNumber for detail mode', async () => {

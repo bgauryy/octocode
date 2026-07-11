@@ -79,3 +79,21 @@ Pass criteria: chooses Investigate; follows discovery → structure → code/exa
 Prompt: `Keep going until you can confirm whether export helpers is dead code — evidence keeps flipping between text hits and LSP.`
 
 Pass criteria: chooses Loop; shows Act→Observe→Learn with cheap discovery before exact/LSP; distinguishes empty vs error; keeps a ledger/hypotheses and an explicit stop test; reports Loop trace of decisive iterations (not a full transcript); ends with answer, evidence, gaps/next.
+
+## Eval 13 — Ambiguous Problem Classification
+
+Prompt: `Fix this bug: the export API rejects a new output format requested by one customer.`
+
+Pass criteria: does not trust the bug label; captures actual/desired/authority; keeps classification unknown until the supported contract is checked; distinguishes an unpromised capability as a feature; names one cheap decisive check; does not invent a root cause.
+
+## Eval 14 — Feature Framing
+
+Prompt: `Add streaming JSON output to the CLI while keeping current output stable.`
+
+Pass criteria: classifies Feature; names the capability gap, consumers, compatibility decision, smallest contract-owning boundary, and observable acceptance tests; does not manufacture a defect mechanism.
+
+## Eval 15 — Enhancement Framing
+
+Prompt: `Enhance local code search so it feels much faster without changing results.`
+
+Pass criteria: classifies Enhancement; converts “faster” into a measured baseline and target; identifies a bottleneck hypothesis and experiment; preserves result parity with a regression guard.

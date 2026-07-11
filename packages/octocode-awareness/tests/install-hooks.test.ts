@@ -172,6 +172,7 @@ describe('install-hooks', () => {
     expect(result.status, result.stderr || result.stdout).toBe(0);
     expect(result.stderr).not.toContain('ExperimentalWarning');
     const parsed = JSON.parse(result.stdout) as {
+      scriptsDir: string;
       commands: Record<string, string>;
       next_steps: string[];
       runtime: { dependencies: string; writes: boolean };
@@ -184,7 +185,26 @@ describe('install-hooks', () => {
     expect(parsed.commands.hooks_install_cursor).toContain('hooks install --host cursor');
     expect(parsed.commands.hooks_check_cursor).toContain('hooks check --host cursor');
     expect(parsed.commands.pi_bridge).toContain('wirePiAwarenessHooks');
-    expect(parsed.next_steps.join('\n')).toContain('Claude, Codex, and Cursor project hooks');
+    for (const key of ['schema', 'awareness', 'init', 'attend', 'hooks_preview_claude', 'hooks_preview_codex', 'hooks_preview_cursor']) {
+      expect(parsed.commands[key]).toContain(parsed.scriptsDir);
+    }
+    const arbitraryCwd = mkdtempSync(resolve(tmpdir(), 'octocode-install-command-cwd-'));
+    try {
+      const schema = spawnSync('/bin/sh', ['-c', parsed.commands.schema!], {
+        cwd: arbitraryCwd,
+        encoding: 'utf8',
+        timeout: 5000,
+      });
+      expect(schema.status, schema.stderr || schema.stdout).toBe(0);
+    } finally {
+      rmSync(arbitraryCwd, { recursive: true, force: true });
+    }
+    const nextSteps = parsed.next_steps.join('\n');
+    expect(nextSteps).toContain('stable OCTOCODE_AGENT_ID');
+    expect(nextSteps).toContain('Claude skill frontmatter');
+    expect(nextSteps).toContain('do not also install');
+    expect(nextSteps).toContain('Codex and Cursor');
+    expect(nextSteps).not.toContain('Claude, Codex, and Cursor project hooks');
     expect(parsed.next_steps.join('\n')).toContain('For Pi: do not run shell hook install');
   });
 

@@ -2,7 +2,8 @@
 
 Use `<cli>`: `npx @octocodeai/octocode-awareness` (or global `octocode-awareness`);
 local monorepo `node packages/octocode-awareness/dist/bin/awareness.js`; bundled
-`node scripts/awareness.mjs` only as fallback. Export `OCTOCODE_AGENT_ID`; install hooks.
+`node scripts/awareness.mjs` only as fallback. Export `OCTOCODE_AGENT_ID`; use active
+Claude frontmatter or checked Codex/Cursor config, never both Claude surfaces.
 
 ## BEFORE / READ
 

@@ -1,56 +1,35 @@
 ---
 name: octocode-brainstorming
-description: "Use when brainstorming or validating ideas against evidence: worth building, prior art, existing solutions, should we add X, or idea stress-tests. Returns Build RFC / Prototype / Narrow / Park."
+description: "Use when an idea needs disciplined exploration before commitment: generate options, test whether something is worth building, map existing solutions and adjacent patterns, challenge assumptions, narrow scope, or choose Build RFC, Prototype, Narrow, or Park."
 ---
 
 # Octocode Brainstorming
-Evidence-grounded idea exploration: diverge (defer judgment until the framing slate is captured), then validate against local/GitHub/package/web evidence, stress-test, and decide. Flow: `FRAME -> DIVERGE -> RESEARCH -> CROSS-POLLINATE -> STRESS-TEST -> SYNTHESIZE -> DECIDE`.
+Evidence-grounded idea exploration. Flow: `FRAME → DIVERGE → RESEARCH → CROSS-POLLINATE → STRESS-TEST → SYNTHESIZE → DECIDE`.
 
-Modes: **Generate** (user wants ideas → 6-10 angles, validate best 2-3) · **Validate** (worth building? → 2-4 reframings, research deeply) · **Map** (who's built this? → adjacent terms, landscape map).
-Declare a Surface Plan before searching: mark Local, Web/top resources, and GitHub/packages/code active or skipped, each with a reason. For repo-targeted ideas, orient locally first; otherwise start with top resources before repo/package/code searches.
-Avoid one-shot brainstorms: when direction, audience, or research surface is unclear, ask the user to choose before deep research.
+## Modes and lobby rules
+- Generate: create 6–10 angles, then validate the best 2–3. Validate: produce 2–4 reframings, then investigate deeply. Map: expand adjacent terms and landscape existing solutions.
+- Capture framing before judging. When direction, audience, or research surface is unclear, ask the user to choose before deep research.
+- Declare a Surface Plan: mark local, top resources/web, and repository/package/code evidence active or skipped with a reason.
+- Treat snippets and summaries as leads; cite exact sources or mark claims weak. Track `claim → source → confidence → next query`.
+- Cross-pollinate across each active surface and run Critical Architect, Visionary Entrepreneur, and Product lenses before verdict.
+- Recall potentially useful context first and validate it; capture only durable lessons that survive rebuttal.
 
-## Hard Gates
+## Hard gate
+Stop, recommend one option, and wait when the idea spans three unrelated spaces, active evidence stays thin after synonym retries, evidence materially conflicts, or delegation would exceed five workers.
 
-STOP, recommend one option, and wait when any gate trips:
-- idea maps to 3+ unrelated spaces;
-- active surfaces stay thin after synonym retries;
-- evidence materially conflicts;
-- delegation would exceed 5 workers.
+## Smart routes — load only what the current step needs
+- When building the Surface Plan, load `references/tools.md`; when code/repository/package evidence is active, load `references/octocode.md` — choose sources deliberately and delegate technical research correctly.
+- When generic results cannot prove momentum, crowdedness, publication, or shipped prior art, load `references/trend-sources.md` — add time-sensitive evidence without domain lock-in.
+- When stress-testing, load `references/debate.md` — run the three lenses and cross-examination before converging.
+- When research is substantial, multi-turn, or delegated, load `references/hook-communication.md` and run `scripts/brainstorm-run.mjs` — preserve a resumable claim/source/decision ledger.
+- When presenting, load `references/output.md`; if the user approves a durable artifact, load `references/brief-template.md` — match chat brevity or saved decision depth.
+- When methods or source contracts are challenged, load `references/grounding.md` — make the process falsifiable.
+- When improving this skill, prefer `octocode-eval`; otherwise load `references/improve-loop.md` — require measurable acceptance.
 
-## Research Rules
-
-- Recall first (FRAME): use the host's memory tool when available (`memory_recall`/`get-memory --smart`); retry synonyms on zero results and validate recalled facts.
-- Capture last (DECIDE): use `memory_record`/`memory_reflect` or `octocode-awareness`'s capture flow when installed; otherwise keep the lesson in the brief, and skip capture if nothing durable survived rebuttal.
-- Treat snippets and search summaries as leads; cite fetched pages, exact files, repos, packages, PRs, metrics, or mark claims `weak`.
-- Default external loop: top articles/docs/papers -> repos/packages/code -> exact reads -> loop back to sources for contradictions.
-- Cross-pollinate at least once per active surface; for web use the Web Search Scout plus Source/Code Checker loop in `references/tools.md`.
-- Keep a claim ledger: `claim -> source -> confidence -> next query`; for substantial, multi-surface, or high-confidence runs, start `scripts/brainstorm-run.mjs` via `references/hook-communication.md`.
-- Run Critical Architect, Visionary Entrepreneur, and Product lenses before a final verdict unless the worker gate shortens review.
-
-## Related skills
-- `octocode-eval` — goal→KPI; stub `references/improve-loop.md` if eval unavailable
-- `octocode-rfc-generator` — Build-ready ideas → decision folder
-- `octocode-research` — code/GitHub/package evidence for idea validation
-- `octocode-awareness` — capture durable lessons after DECIDE
-- `octocode-skills` — edit/review this skill folder
-
-## Reference Map
-
-- `references/tools.md` — when building the surface plan or running local, GitHub, package, and web searches.
-- `references/trend-sources.md` — when Tavily/Serper alone don't give a momentum/crowdedness signal, a published-research check (arXiv/Scholar), or confirmation a platform already shipped the idea. Generic across domains, not AI/devtools-only.
-- `references/debate.md` — when running the three-lens perspective review and cross-exam.
-- `references/output.md` — when presenting the chat brief, confidence markers, or RFC handoff.
-- `references/brief-template.md` — when the user confirms saving a fuller decision brief.
-- `references/hook-communication.md` — before substantial, multi-turn, or subagent-heavy research.
-- `references/grounding.md` — when challenged on methods, SCAMPER, or web-engine contracts.
-- `references/octocode.md` — when local/GitHub/package/code research is needed; delegates Octocode research rules to `octocode-research`.
-- `references/improve-loop.md` — stub; prefer `octocode-eval` for full goal→KPI
-
-## Scripts
-
-- `scripts/brainstorm-run.mjs` — record run state/claims/sources/decisions as resumable ledgers; `scripts/eval-brainstorm.mjs` — self-test and evaluate answers against `evals/cases.json`.
-- `scripts/serper-search.mjs`, `scripts/tavily-search.mjs` — query Serper/Tavily for normalized JSON web results when API credentials are set.
+## Related routes and scripts
+- Use `octocode-rfc-generator` for a Build verdict; `octocode-research` for technical evidence; `octocode-eval` for measurable experiments.
+- Use `octocode-awareness` to capture durable lessons; `octocode-skills` when changing this skill folder.
+- Use `scripts/serper-search.mjs` or `scripts/tavily-search.mjs` only when configured web search is needed; run `scripts/eval-brainstorm.mjs` when changing this skill.
 
 ## Output
-Use concise chat sections: `TL;DR`, `Framings`, `Evidence by surface`, `What survived review`, `Verdict`, `Risks`, `Next`. For build-ready ideas, hand off to `octocode-rfc-generator`; for code work, use `octocode-research`. Install: `npx octocode skill --name octocode-brainstorming`.
+Use `TL;DR`, `Framings`, `Evidence by surface`, `What survived review`, `Verdict`, `Risks`, `Next`.

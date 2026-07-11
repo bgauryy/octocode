@@ -59,9 +59,11 @@ generated projections. Architecture narrative lives in [HOW_IT_WORKS.md](HOW_IT_
 | Edit audit/heartbeat | post-edit | tool result/end |
 | Changed briefing | prompt/session start | before agent start |
 | Verification gate | Stop/SubagentStop | bounded agent-end reminder |
-| Handoff capture | SessionEnd/PreCompact | shutdown/pre-compact |
+| Pre-compact finalize/capture | PreCompact | pre-compact; session remains reusable |
+| Session-end finalize/capture | SessionEnd | shutdown; session is ended |
 
-Claude may run skill frontmatter. Codex/Cursor require explicit installed config.
+Claude may run skill frontmatter; do not also install duplicate project settings.
+Codex/Cursor require explicit installed config.
 Pi never uses shell hook installation.
 
 ## Self-Improvement Boundary

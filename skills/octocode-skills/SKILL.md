@@ -1,54 +1,37 @@
 ---
 name: octocode-skills
-description: "Use when finding, reviewing, improving, installing, or creating Agent Skills and SKILL.md folders — local paths, GitHub, or marketplaces."
+description: "Use when any Agent Skill lifecycle work is needed: discover, compare, inspect, review, create, improve, repair, install, or synchronize a SKILL.md folder from local workspaces, registries, or remote sources."
 ---
 
 # Octocode Skills
 
-Operate on Agent Skills (`SKILL.md` plus optional references, scripts, assets).
-**Lobby rule:** all workflows live here; refs are one-concept depth — no flow restatement, no overlapping owners, load one ref at a time.
+Operate on standalone Agent Skill folders: `SKILL.md` plus optional references, scripts, assets, and evals.
 Flow: `UNDERSTAND → DISCOVER → INSPECT → JUDGE → RECOMMEND → USER GATE → ACT → CLEANUP → REVIEW → VERIFY`.
-Hard rules: inspect real `SKILL.md` before recommend/install/quote; identify by path; gate every write; one owner per concept.
-Stop when one fit, two High pick a winner, three angles add nothing, or a gate is pending. Skills ship as a **standalone folder** — prune dead files before done (`references/skill-cleanup.md`).
 
-## Workflows → load
+## Lobby rules
+- `SKILL.md` owns workflows, hard gates, and routes; each reference owns one concept and never restates the flow.
+- Inspect the real `SKILL.md` before quoting, judging, or installing; identify candidates by path and gate every write.
+- Stop when one fit is clear, two High candidates need a winner, three angles add nothing, or user/auth approval is pending.
+- Ship a standalone folder with one owner per concept; prune dead or duplicated material before done.
 
-- when discovering: `references/search-playbook.md` — fan-out and angles before shopping
-- when shopping registries: `references/discovery-surfaces.md` — pick the right surface
-- when parsing manifests/CLIs: `references/discovery-manifests.md` — formats and installers
-- when judging fit: `references/quality-rubric.md` — dimensions plus High/Med/Low
-- when ranking evidence: `references/quality-signals.md` — installs/recency beat stars
-- when presenting: `references/output-format.md` — cards and next-step gate
-- when authoring structure: `references/skill-anatomy.md` — progressive disclosure map
-- when writing instructions: `references/skill-authoring.md` — sources, control, patterns
-- when bundling scripts: `references/skill-scripts.md` — deterministic code over prose
-- when tuning description: `references/description-tuning.md` — trigger-rich Use-when; no rigid/redundant wording
-- when improving any skill: `references/skill-improve.md` — lobby owns flow; dedupe; ≤50 one-concept
-- when closing goal→KPI without eval installed: `references/improve-loop.md` — minimum accept/reject stub
-- when cleaning before ship: `references/skill-cleanup.md` — prune orphans/dupes; standalone folder only
-- when rating/refactor: `references/self-improvement.md` — mode gate and READ→REPORT
-- before calling done: `references/skill-review.md` — full review gate (best practices + rules)
-- when interpreting findings: `references/skill-review-rules.md` — ERROR/WARN codes to fixes
-- when reviewing hooks: `references/hooks.md` — host surfaces and event contract
-- when adding a hook: `references/hooks-add.md` — wire frontmatter plus templates
-- when installing: `references/install-gates.md` — user gates and checklist
-- when choosing destinations: `references/install-destinations.md` — maps provider and scope paths
-- when syncing to vendors: `references/skill-sync.md` — dry-run then human `--approve`
-- when fetching remote: `references/fetch-remote.md` — clone, scan, then write
-- when creating local: `references/create-local-skill.md` — plan, approve, write, review
-- when search fails: `references/recovery.md` — broaden once, then report gap
-- when needing local or external research evidence: `references/octocode.md` — route through octocode-research or Octocode
+## Smart routes — load only what the current step needs
+- When discovering, load `references/search-playbook.md`; choose a source with `references/discovery-surfaces.md`, parse manifests with `references/discovery-manifests.md`, and recover with `references/recovery.md` — search broadly enough without inventing candidates.
+- When judging, load `references/quality-rubric.md` for content fit and `references/quality-signals.md` for adoption/recency; present through `references/output-format.md` — rank evidence, not popularity alone.
+- When designing structure, load `references/skill-anatomy.md`; write with `references/skill-authoring.md`, extract deterministic work with `references/skill-scripts.md`, and tune activation with `references/description-tuning.md` — keep the lobby lean and triggers strong.
+- When improving, load `references/skill-improve.md`; choose review/refactor mode with `references/self-improvement.md`, clean with `references/skill-cleanup.md`, and use `references/improve-loop.md` only if `octocode-eval` is unavailable — preserve intent and require measurable acceptance.
+- Before done, load `references/skill-review.md`; interpret findings with `references/skill-review-rules.md` — enforce structure, routing, prose, and standalone-folder gates.
+- When reviewing lifecycle automation, load `references/hooks.md`; when adding it, load `references/hooks-add.md` and use `assets/hooks/` — map the correct host event and avoid silent no-ops.
+- When installing, load `references/install-gates.md`, then `references/install-destinations.md`; remote sources use `references/fetch-remote.md`, local creation uses `references/create-local-skill.md`, and vendor links use `references/skill-sync.md` — secure approval, destination, and provenance before writes.
+- When evidence needs code/package/repository research, load `references/octocode.md` — delegate research mechanics instead of duplicating them.
+- When tracing source provenance, load `references/references.md`; when authoring a source appendix, start from `references/references-template.md` — keep claims auditable without bloating instructions.
 
-## Related skills
-- `octocode-eval` — goal→KPI for skill changes · `octocode-prompt-optimizer` — wording
-- `octocode-research` — evidence while judging · `octocode-awareness` — shared-repo edits
-- `octocode-rfc-generator` — design before large skill-system changes
+## Related routes
+- Use `octocode-research` to verify candidates; `octocode-prompt-optimizer` to improve wording; `octocode-eval` to measure behavior.
+- Use `octocode-awareness` for shared-repo edits; `octocode-rfc-generator` before a large skill-system redesign.
 
-## Scripts
-
-- `scripts/skill-review.mjs` — before reporting any create/edit done; best-practices + structure review gate
-- `scripts/skill-sync.mjs` — when symlinking a local skill to vendors; dry-run first, `--approve` only after human OK
-- `assets/hooks/` templates — when adding a lifecycle hook; copy after `references/hooks-add.md`
+## Scripts and done gate
+- Run `scripts/skill-review.mjs` after any create/edit — zero ERROR is required; `scripts/skill-lint.mjs` is its compatibility alias.
+- Run `scripts/skill-sync.mjs` only after a dry-run and human approval — synchronize one source safely.
 
 ## Installation
-When installing or creating: follow install/create routes above, then review before done.
+When creating or installing, follow the routed approval and destination gates, then run the review before reporting done.

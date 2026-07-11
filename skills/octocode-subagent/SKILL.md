@@ -1,44 +1,33 @@
 ---
 name: octocode-subagent
-description: "Use when work needs task breakdown, subagent delegation, parallel workers, model routing by difficulty, handoffs, A2A remote agents, or supervisor/orchestrator patterns."
+description: "Use when a task may benefit from delegation or parallelism: decide whether to spawn, decompose work into bounded objectives, choose worker topology and model capability, create self-contained handoffs, coordinate shared state, recover failures, and synthesize trustworthy results."
 ---
 
 # Octocode Subagent
 
-Host-agnostic meta-skill for decomposing work and running specialists. Parent owns the user, synthesis, and mutations unless a packet explicitly transfers write ownership. Map actions to whatever spawn/Task/teammate API the host provides.
+Host-agnostic delegation for local workers or independent remote agents. Flow: `GATE → DECOMPOSE → ROUTE → PACKET → SPAWN → COORDINATE → SYNTHESIZE → CLEANUP`.
 
-Flow: `GATE → DECOMPOSE → ROUTE → PACKET → SPAWN → COORDINATE → SYNTHESIZE → CLEANUP`.
-
-## Hard rules
-1. Prefer parent, loaded skill, or batched tool calls when one context finishes cheaply.
+## Lobby rules
+1. Spawn only when delegation changes speed, expertise, isolation, or context quality; otherwise keep work in the parent.
 2. One bounded objective per worker; no nested spawning unless the host explicitly allows it.
-3. Workers inherit no parent chat — packet must be self-contained.
+3. Workers inherit no parent chat: every packet carries goal, scope, context, authority, constraints, evidence needs, and return shape.
 4. Treat worker output as claims; re-check load-bearing anchors.
 5. Barrier before synthesize — wait/list every live worker (or stop+remove); merge conflicts first; then answer.
-6. Pick the smallest capable model from the host's configured model table.
-7. Shared workspaces are mutable — declare file ownership before parallel writes.
+6. Parent owns the user, synthesis, and mutations unless a packet explicitly transfers write ownership.
+7. Pick the smallest capable configured model; declare file ownership before parallel writes.
+Stop when solo work finishes, two High options need a winner, three angles add nothing, a user/auth gate is pending, or no live workers remain.
 
-## Stop when
-Solo finishes; two High options need a winner; three angles add nothing; a user/auth gate is pending; or no live workers remain to reconcile.
+## Smart routes — load only what the current step needs
+- When deciding solo, batch, specialist, or clean worker, load `references/spawn-gate.md` — delegation must earn its coordination cost.
+- When splitting work, load `references/decompose.md`; when choosing supervisor, pipeline, handoff, or swarm load `references/patterns.md` — create a dependency-aware topology.
+- Before spawning, load `references/packets.md`; when delegating technical research load `references/octocode.md` — make worker context and tool routing self-contained.
+- When selecting model/thinking effort, load `references/model-routing.md` — match capability and cost to objective difficulty.
+- When waiting, steering, messaging, or stopping workers, load `references/coordinate.md`; for independent remote peers load `references/a2a.md` — use the correct lifecycle contract.
+- When parallel writers share mutable state, load `references/workspace.md` — assign ownership and prevent collisions.
+- When workers stall, fail, or conflict, load `references/recovery.md`; before final output load `references/synthesize.md` — reconcile claims, gaps, and live workers.
+- When grounding orchestration guidance in sources, load `references/references.md` — preserve provenance.
+- When improving this skill, prefer `octocode-eval`; otherwise load `references/improve-loop.md` — require measurable acceptance.
 
-## Reference map
-- `references/spawn-gate.md` — when choosing solo, batch, specialist, or clean worker.
-- `references/decompose.md` — when splitting a goal into a dependency DAG.
-- `references/patterns.md` — when picking supervisor, handoff, pipeline, or swarm topology.
-- `references/packets.md` — when writing request/result briefs for workers.
-- `references/coordinate.md` — when waiting, steering, messaging, or stopping workers.
-- `references/model-routing.md` — when mapping task difficulty to model tier.
-- `references/a2a.md` — when calling an independent remote agent peer.
-- `references/synthesize.md` — when merging worker results before the final answer.
-- `references/recovery.md` — when workers fail, stall, or conflict.
-- `references/workspace.md` — when parallel writers share a repo or cwd.
-- `references/improve-loop.md` — stub; prefer `octocode-eval` for full goal→KPI
-- `references/octocode.md` — when workers need Octocode research tool routing.
-
-## Related skills
-- `octocode-research` — workers gathering code/GitHub evidence
-- `octocode-awareness` — shared-repo locks when parallel writers share cwd
-- `octocode-eval` — goal→KPI when improving this skill or judging worker quality
-- `octocode-rfc-generator` — design before multi-agent system changes
-- `octocode-prompt-optimizer` — agent-communication / packet wording
-- `octocode-skills` — edit/review this skill folder
+## Related routes
+- Use `octocode-research` for worker evidence; `octocode-awareness` for shared-repo coordination; `octocode-eval` to judge worker quality.
+- Use `octocode-rfc-generator` before changing a multi-agent architecture; `octocode-prompt-optimizer` for packet contracts; `octocode-skills` when changing this folder.

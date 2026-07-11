@@ -13,8 +13,16 @@ npm install --global @octocodeai/octocode-awareness
 octocode-awareness maintenance init --compact
 npx octocode skill --add \
   --path "$(npm root --global)/@octocodeai/octocode-awareness/dist/skills/octocode-awareness" \
+  --platform common --dry-run
+# after reviewing destinations and approving the write:
+npx octocode skill --add \
+  --path "$(npm root --global)/@octocodeai/octocode-awareness/dist/skills/octocode-awareness" \
   --platform common --force
 ```
+
+`common` installs to `~/.agents/skills`; use `claude`, `cursor`, `codex`, or `pi`
+when the host does not scan that shared directory. Verify the bundled runtime with
+`node "$(npm root --global)/@octocodeai/octocode-awareness/dist/skills/octocode-awareness/scripts/install.mjs"`.
 
 The Awareness skill teaches the collaboration lifecycle. The bundled
 `octocode-skills` skill is optional and is only needed for skill
@@ -23,7 +31,8 @@ install/review/improvement:
 ```bash
 npx octocode skill --add \
   --path "$(npm root --global)/@octocodeai/octocode-awareness/dist/skills/octocode-skills" \
-  --platform common --force
+  --platform common --dry-run
+# after approval, rerun with --force
 ```
 
 The examples below use the globally installed binary. For a one-off command, use
@@ -187,16 +196,21 @@ See [MEMORY_NAVIGATION.md](MEMORY_NAVIGATION.md).
 
 ## Hooks
 
+Codex/Cursor require project config. Claude skill frontmatter is already a hook
+surface; do not also install duplicate settings. Use `--host claude` only when
+frontmatter is unsupported or disabled.
+
 ```bash
-octocode-awareness hooks install --host <claude|codex|cursor> --project-dir . --dry-run --compact
+octocode-awareness hooks install --host <codex|cursor> --project-dir . --dry-run --compact
 # after reviewing the dry-run and obtaining approval:
-octocode-awareness hooks install --host <claude|codex|cursor> --project-dir . --compact
-octocode-awareness hooks check --host <claude|codex|cursor> --project-dir . --strict --compact
+octocode-awareness hooks install --host <codex|cursor> --project-dir . --compact
+octocode-awareness hooks check --host <codex|cursor> --project-dir . --strict --compact
 ```
 
 Pre-edit runs the harness guard, declares advisory work, and blocks only guard denial
 or exclusive conflicts. Post-edit logs/heartbeats and keeps the scoped HOOK aggregate
-ACTIVE; Stop or SessionEnd finalizes it once to PENDING.
+ACTIVE; Stop, PreCompact, or SessionEnd finalizes it once to PENDING. PreCompact
+keeps the session reusable; SessionEnd marks it ended.
 Prompt briefings and handoffs are deduplicated; stop debt is capped.
 
 Pi uses:
