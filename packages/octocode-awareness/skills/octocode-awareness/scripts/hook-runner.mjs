@@ -336,7 +336,7 @@ function connectDb(dbPath) {
     const journalMode = journalModeForSqliteVersion(versionRow.version);
     withSqliteBusyRetry(() => db2.exec(`PRAGMA journal_mode = ${journalMode}`));
     db2.exec("PRAGMA foreign_keys = ON");
-    initializeDb(db2, schemaState === "legacy");
+    initializeDb(db2, schemaState === "legacy", schemaState);
     _db = db2;
     return db2;
   } catch (error) {
@@ -397,7 +397,7 @@ function inspectSchemaState(db2) {
         `unsupported canonical Awareness schema version ${identity.userVersion}; expected ${AWARENESS_SCHEMA_VERSION}`
       );
     }
-    assertCanonicalRelationContract(db2);
+    assertCanonicalRelationContract(db2, identity.relations);
     assertCanonicalSchemaFingerprint(db2);
     return "canonical";
   }
@@ -1035,8 +1035,8 @@ function mainDatabasePath(db2) {
   const row = db2.prepare("PRAGMA database_list").all().find(({ name }) => name === "main");
   return row?.file?.trim() || null;
 }
-function initializeDb(db2, fileBackupCreated) {
-  const state = inspectSchemaState(db2);
+function initializeDb(db2, fileBackupCreated, knownState) {
+  const state = knownState ?? inspectSchemaState(db2);
   if (state === "canonical") {
     if (!db2.isTransaction) db2.exec("PRAGMA foreign_keys = ON");
     return;
@@ -1080,6 +1080,7 @@ function initDbSchema(db2, state) {
   if (state === "legacy") {
     db2.exec("DROP TABLE IF EXISTS memories_fts");
     rebuildAllCanonicalTables(db2);
+    normalizeImportedTimestamps(db2);
   }
   db2.exec(SCHEMA_INDEX_DDL);
   try {
@@ -1233,8 +1234,8 @@ function canonicalSchemaFingerprint(includeFts) {
     canonical.close();
   }
 }
-function assertCanonicalRelationContract(db2) {
-  const actualRows = readSchemaIdentity(db2).relations;
+function assertCanonicalRelationContract(db2, relations) {
+  const actualRows = relations ?? readSchemaIdentity(db2).relations;
   const expected = new Set(canonicalColumns().keys());
   const actual = new Set(actualRows.map(({ name }) => name));
   const missing = [...expected].filter((name) => !actual.has(name));
@@ -1258,8 +1259,28 @@ function assertCanonicalSchemaFingerprint(db2) {
   }
 }
 function checkClauses(createSql) {
-  const matches = createSql.match(/CHECK\s*\([^)]*\)/gi) ?? [];
-  return matches.map((c) => c.replace(/\s+/g, " ").trim().toLowerCase()).sort().join(" | ");
+  const clauses = [];
+  const opener = /CHECK\s*\(/gi;
+  let match;
+  while ((match = opener.exec(createSql)) !== null) {
+    let depth = 1;
+    let i = opener.lastIndex;
+    while (i < createSql.length && depth > 0) {
+      const ch = createSql[i];
+      if (ch === "'") {
+        i = createSql.indexOf("'", i + 1);
+        if (i === -1) {
+          i = createSql.length;
+          break;
+        }
+      } else if (ch === "(") depth++;
+      else if (ch === ")") depth--;
+      i++;
+    }
+    clauses.push(createSql.slice(match.index, i));
+    opener.lastIndex = i;
+  }
+  return clauses.map((c) => c.replace(/\s+/g, " ").trim().toLowerCase()).sort().join(" | ");
 }
 function rebuildTableFromCanonical(db2, table, canonSql) {
   const liveCols = tableColumns(db2, table);
@@ -1292,12 +1313,31 @@ function rebuildTableFromCanonical(db2, table, canonSql) {
       db2.exec(`RELEASE SAVEPOINT ${savepoint}`);
     } catch {
     }
+    const reason = err instanceof Error ? err.message : String(err);
+    if (/CHECK constraint failed/i.test(reason)) {
+      throw new Error(
+        `schema migration cannot rebuild table "${table}": existing rows violate a canonical CHECK constraint (${reason}); inspect that table's enum columns and update the offending rows before reopening`
+      );
+    }
     throw err;
   }
 }
 function rebuildAllCanonicalTables(db2) {
   for (const [table, sql] of canonicalTableSql()) {
     if (tableExists(db2, table)) rebuildTableFromCanonical(db2, table, sql);
+  }
+}
+function normalizeImportedTimestamps(db2) {
+  for (const [table, columns] of canonicalColumns()) {
+    if (!tableExists(db2, table)) continue;
+    for (const col of columns) {
+      if (col.type.toUpperCase() !== "TEXT") continue;
+      if (!/(_at|_from|_to)$/.test(col.name)) continue;
+      db2.prepare(
+        `UPDATE ${table} SET ${col.name} = substr(${col.name}, 1, 19) || 'Z'
+         WHERE ${col.name} LIKE '____-__-__T__:__:__.%'`
+      ).run();
+    }
   }
 }
 function migrateCheckConstraints(db2) {
@@ -1730,26 +1770,57 @@ function startWork(db2, params) {
     throw error;
   }
 }
-function touchWork(db2, params) {
+function renewWorkLease(db2, params, options = {}) {
   const run = getRun(db2, params.runId);
   if (run.agent_id !== params.agentId) throw new Error(`run ${params.runId} belongs to ${run.agent_id}`);
   if (run.status !== "ACTIVE") throw new Error(`run ${params.runId} is not ACTIVE`);
-  const targets = params.targetFiles?.length ? normalizeFiles(params.targetFiles, run.workspace_path) : fileRows(db2, params.runId).filter((file) => file.ended_at == null).map((file) => file.file_path);
-  if (targets.length === 0) throw new Error("run has no active file presence");
   const now = utcNow();
   const expiresAt = expiry(params.ttlMs);
   db2.exec("BEGIN IMMEDIATE");
   try {
+    const currentRun = getRun(db2, params.runId);
+    if (currentRun.agent_id !== params.agentId) {
+      throw new Error(`run ${params.runId} belongs to ${currentRun.agent_id}`);
+    }
+    if (currentRun.status !== "ACTIVE") throw new Error(`run ${params.runId} is not ACTIVE`);
+    const allLockRows = db2.prepare("SELECT file_path FROM locks WHERE run_id = ?").all(params.runId);
+    const lockedTargets = new Set(allLockRows.map((row) => row.file_path));
+    const targets = options.exclusiveOnly ? [...lockedTargets] : params.targetFiles?.length ? normalizeFiles(params.targetFiles, currentRun.workspace_path) : fileRows(db2, params.runId).filter((file) => file.ended_at == null).map((file) => file.file_path);
+    if (targets.length === 0) {
+      db2.exec("COMMIT");
+      if (options.exclusiveOnly) {
+        return { result: mutationResult(db2, params.runId, []), locksRenewed: 0, expiresAt: null };
+      }
+      throw new Error("run has no active file presence");
+    }
+    const present = db2.prepare(`SELECT file_path FROM run_files
+      WHERE run_id = ? AND ended_at IS NULL AND file_path IN (${targets.map(() => "?").join(",")})`).all(params.runId, ...targets);
+    if (present.length !== targets.length) throw new Error("one or more active file presences were not found for this run");
+    db2.prepare("DELETE FROM locks WHERE expires_at IS NOT NULL AND expires_at <= ?").run(now);
+    for (const file of targets) {
+      const conflicts = conflictRows(db2, params.runId, [file], lockedTargets.has(file));
+      if (conflicts.length > 0) {
+        throw new Error(`work lease conflict on ${file}: held by ${conflicts.map((item) => item.agent_id).join(", ")}`);
+      }
+    }
     const update = db2.prepare(`UPDATE run_files SET heartbeat_at = ?, expires_at = ?
       WHERE run_id = ? AND file_path = ? AND ended_at IS NULL`);
     for (const file of targets) {
       const result = update.run(now, expiresAt, params.runId, file);
       if (result.changes === 0) throw new Error(`active file presence not found: ${file}`);
+      if (lockedTargets.has(file)) {
+        db2.prepare(`INSERT INTO locks(lock_id, file_path, run_id, acquired_at, expires_at)
+          VALUES (?, ?, ?, ?, ?)
+          ON CONFLICT(file_path, run_id) DO UPDATE SET expires_at = excluded.expires_at`).run(`lock_${randomUUID4().replace(/-/g, "")}`, file, params.runId, now, expiresAt);
+      }
     }
-    db2.prepare(`UPDATE locks SET expires_at = ? WHERE run_id = ?
-      AND file_path IN (${targets.map(() => "?").join(",")})`).run(expiresAt, params.runId, ...targets);
     db2.prepare("UPDATE task_runs SET updated_at = ? WHERE run_id = ?").run(now, params.runId);
     db2.exec("COMMIT");
+    return {
+      result: mutationResult(db2, params.runId, targets),
+      locksRenewed: targets.filter((file) => lockedTargets.has(file)).length,
+      expiresAt
+    };
   } catch (error) {
     try {
       db2.exec("ROLLBACK");
@@ -1757,7 +1828,9 @@ function touchWork(db2, params) {
     }
     throw error;
   }
-  return mutationResult(db2, params.runId, targets);
+}
+function touchWork(db2, params) {
+  return renewWorkLease(db2, params).result;
 }
 function endWork(db2, params) {
   const run = getRun(db2, params.runId);
@@ -1854,8 +1927,16 @@ var RUN_LOG_INSERT_STALE_ABANDONED = `INSERT INTO run_log(event_id, run_id, agen
    VALUES (?, ?, ?, 'ABANDONED', 'stale active (no live file presence) abandoned by audit-unverified --abandon', ?)`;
 
 // src/verify.ts
-function targetFilesForRun(db2, runId) {
-  return db2.prepare("SELECT file_path FROM run_files WHERE run_id = ? ORDER BY file_path").all(runId).map((row) => String(row.file_path));
+function targetFilesForRuns(db2, runIds) {
+  const byRun = new Map(runIds.map((id) => [id, []]));
+  if (runIds.length === 0) return byRun;
+  const rows = db2.prepare(
+    `SELECT run_id, file_path FROM run_files
+     WHERE run_id IN (${runIds.map(() => "?").join(",")})
+     ORDER BY file_path`
+  ).all(...runIds);
+  for (const row of rows) byRun.get(row.run_id)?.push(row.file_path);
+  return byRun;
 }
 function closeRunFiles(db2, runId, now) {
   db2.prepare("DELETE FROM locks WHERE run_id = ?").run(runId);
@@ -1920,6 +2001,7 @@ function auditUnverified(db2, params = {}) {
      WHERE ${where.join(" AND ")}
      ORDER BY created_at ASC`
   ).all(...binds);
+  const unverifiedFiles = targetFilesForRuns(db2, rows.map((r) => r.run_id));
   const unverified = rows.map((r) => ({
     run_id: r.run_id,
     agent_id: r.agent_id,
@@ -1927,19 +2009,21 @@ function auditUnverified(db2, params = {}) {
     test_plan: r.test_plan,
     context_ref: r.context_ref,
     rationale: r.rationale,
-    target_files: targetFilesForRun(db2, r.run_id),
+    target_files: unverifiedFiles.get(r.run_id) ?? [],
     workspace_path: r.workspace_path,
     artifact: r.artifact,
     created_at: r.created_at
   }));
   if (params.abandon && unverified.length > 0) {
     const now = utcNow();
+    const markFailed = db2.prepare(RUNS_UPDATE_PENDING_TO_FAILED);
+    const logAbandoned = db2.prepare(RUN_LOG_INSERT_ABANDONED);
     for (const intent of unverified) {
-      db2.prepare(RUNS_UPDATE_PENDING_TO_FAILED).run(now, intent.run_id);
+      markFailed.run(now, intent.run_id);
       closeRunFiles(db2, intent.run_id, now);
       abandonLinkedTask(db2, intent.run_id, intent.agent_id, now, "pending run abandoned by verification audit");
       try {
-        db2.prepare(RUN_LOG_INSERT_ABANDONED).run(
+        logAbandoned.run(
           "evt_" + randomUUID5().replace(/-/g, ""),
           intent.run_id,
           intent.agent_id,
@@ -1997,6 +2081,7 @@ function auditUnverified(db2, params = {}) {
        WHERE ${staleWhere.join(" AND ")}
        ORDER BY ai.created_at ASC`
     ).all(...staleBinds);
+    const staleFiles = targetFilesForRuns(db2, staleRows.map((r) => r.run_id));
     for (const r of staleRows) {
       const ageMs = Date.now() - new Date(r.created_at).getTime();
       staleActive.push({
@@ -2005,7 +2090,7 @@ function auditUnverified(db2, params = {}) {
         status: "ACTIVE",
         rationale: r.rationale,
         context_ref: r.context_ref,
-        target_files: targetFilesForRun(db2, r.run_id),
+        target_files: staleFiles.get(r.run_id) ?? [],
         workspace_path: r.workspace_path,
         artifact: r.artifact,
         created_at: r.created_at,
@@ -2017,12 +2102,14 @@ function auditUnverified(db2, params = {}) {
   }
   if (params.abandon && staleActive.length > 0) {
     const now = utcNow();
+    const markFailed = db2.prepare(RUNS_UPDATE_ACTIVE_TO_FAILED);
+    const logStaleAbandoned = db2.prepare(RUN_LOG_INSERT_STALE_ABANDONED);
     for (const intent of staleActive) {
-      db2.prepare(RUNS_UPDATE_ACTIVE_TO_FAILED).run(now, intent.run_id);
+      markFailed.run(now, intent.run_id);
       closeRunFiles(db2, intent.run_id, now);
       abandonLinkedTask(db2, intent.run_id, intent.agent_id, now, "stale task run abandoned by verification audit");
       try {
-        db2.prepare(RUN_LOG_INSERT_STALE_ABANDONED).run(
+        logStaleAbandoned.run(
           "evt_" + randomUUID5().replace(/-/g, ""),
           intent.run_id,
           intent.agent_id,

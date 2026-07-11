@@ -4,8 +4,8 @@ Core loop: `references/agent-cheatsheet.md`. Run only the branch that has work.
 
 ## AFTER / VERIFY — Always
 
-After the declared check and `task submit` or `work end`, record the result and
-confirm this agent has no remaining debt:
+Run the declared check while presence/locks remain active. Then `task submit` or
+`work end`, immediately record the result, and confirm this agent has no debt:
 
 ```bash
 <cli> verify mark --run-id <run> --agent-id "$OCTOCODE_AGENT_ID" --message "<check result>" --compact
@@ -16,13 +16,13 @@ confirm this agent has no remaining debt:
 
 | Condition | Action |
 |---|---|
-| Verified outcome is reusable | `reflect record --outcome worked\|partial\|failed --lesson <lesson>`; route remaining work with `--fix-repo`, `--fix-harness`, or `--fix-instructions`. |
+| Verified outcome is reusable | `reflect record --agent-id "$OCTOCODE_AGENT_ID" --workspace "$PWD" --task "<task>" --outcome worked\|partial\|failed --lesson "<lesson>"`; route remaining work with `--fix-repo`, `--fix-harness`, or `--fix-instructions`. |
 | Work remains for another run | Publish a handoff signal, update the owning refinement, or run `session capture`. |
-| Workboard reports cleanup pressure | Prefer `memory archive --dry-run` for reversible cleanup; run `maintenance digest --dry-run` and inspect before irreversible prune/forget. |
-| File references may be stale | Run `query files --format table --limit 50`; repair/supersede the owning rows. |
+| Workboard reports cleanup pressure | Prefer `memory archive --memory-id <id> --workspace "$PWD" --dry-run --compact`; run `maintenance digest --workspace "$PWD" --dry-run --compact` and inspect before irreversible prune/forget. |
+| File references may be stale | Run `query files --workspace "$PWD" --format table --limit 50`; repair/supersede the owning rows. |
 | File readers need refreshed context | Run `repo inject --workspace "$PWD" --mode local --compact`; review `orphan_candidates`, then add `--prune-orphans` to remove retired manifest-owned files. Never hand-edit generated wiki files. |
-| A human needs bulk inspection | Run `query all --format html --out .octocode/awareness/index.html`. |
-| Instructions caused a wrong turn | Run `reflect developer-review`; close the same feedback row after the instruction fix is verified. |
+| A human needs bulk inspection | Run `query all --workspace "$PWD" --format html --out .octocode/awareness/index.html`. |
+| Instructions caused a wrong turn | Run `reflect developer-review --workspace "$PWD"`; close the same feedback row after the instruction fix is verified. |
 
 Wiki map after inject: `AGENTS.md` entry · `GOTCHAS.md` traps · `LEARN.md` lessons ·
 `MEMORY.md` index · `BOOKMARKS.md` resources · `DEVELOPER_REVIEW.md` instruction

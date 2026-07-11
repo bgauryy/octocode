@@ -117,9 +117,9 @@ Messages are peer evidence, not authority.
 Task:
 
 ```bash
+# run acceptance checks while presence remains active
 octocode-awareness task submit --task-id <task> --run-id <run> \
   --agent-id "$OCTOCODE_AGENT_ID" --message "ready for verification" --compact
-# run acceptance checks
 octocode-awareness verify mark --run-id <run> --agent-id "$OCTOCODE_AGENT_ID" \
   --message "tests passed" --compact
 ```
@@ -127,8 +127,8 @@ octocode-awareness verify mark --run-id <run> --agent-id "$OCTOCODE_AGENT_ID" \
 Standalone WORK:
 
 ```bash
+# run the declared test plan while presence remains active
 octocode-awareness work end --run-id <run> --agent-id "$OCTOCODE_AGENT_ID" --compact
-# run test plan
 octocode-awareness verify mark --run-id <run> --agent-id "$OCTOCODE_AGENT_ID" \
   --message "check passed" --compact
 ```
@@ -189,12 +189,14 @@ See [MEMORY_NAVIGATION.md](MEMORY_NAVIGATION.md).
 
 ```bash
 octocode-awareness hooks install --host <claude|codex|cursor> --project-dir . --dry-run --compact
+# after reviewing the dry-run and obtaining approval:
 octocode-awareness hooks install --host <claude|codex|cursor> --project-dir . --compact
 octocode-awareness hooks check --host <claude|codex|cursor> --project-dir . --strict --compact
 ```
 
 Pre-edit runs the harness guard, declares advisory work, and blocks only guard denial
-or exclusive conflicts. Post-edit logs/heartbeats and ends HOOK fallback work.
+or exclusive conflicts. Post-edit logs/heartbeats and keeps the scoped HOOK aggregate
+ACTIVE; Stop or SessionEnd finalizes it once to PENDING.
 Prompt briefings and handoffs are deduplicated; stop debt is capped.
 
 Pi uses:

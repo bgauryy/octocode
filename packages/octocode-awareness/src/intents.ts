@@ -7,7 +7,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import { normalizeArtifact, utcNow } from './helpers.js';
 import { evictExpiredLocks } from './db.js';
 import { canonicalizePath, normalizeWorkspacePath } from './git.js';
-import { startWork } from './work.js';
+import { renewWorkLease, startWork } from './work.js';
 import type {
   PreFlightRunParams, PreFlightRunResult,
   ReleaseFileLockParams, ReleaseFileLockResult,
@@ -22,10 +22,6 @@ type ReleaseStatus = 'PENDING' | 'ACTIVE' | 'SUCCESS' | 'FAILED';
 
 function effectiveTtlMs(ttlMs: number | null | undefined): number {
   return Math.min(Math.max(1, ttlMs ?? MAX_LOCK_TTL_MS), MAX_LOCK_TTL_MS);
-}
-
-function expiresAtFromNow(ttlMs: number | null | undefined): string {
-  return new Date(Date.now() + effectiveTtlMs(ttlMs)).toISOString().replace(/\.\d{3}Z$/, 'Z');
 }
 
 function workspaceScopeRoot(workspacePath?: string | null): string {
@@ -298,6 +294,10 @@ export function releaseFileLock(
       }
       const remaining = db.prepare('SELECT 1 FROM locks WHERE run_id = ? LIMIT 1').get(tid);
       if (!remaining) {
+        if (effectiveStatus !== 'ACTIVE' && metadata?.origin !== 'TASK') {
+          db.prepare(`UPDATE run_files SET heartbeat_at = ?, expires_at = ?, ended_at = ?
+            WHERE run_id = ? AND ended_at IS NULL`).run(now, now, now, tid);
+        }
         const updated = db.prepare(
           `UPDATE task_runs SET status = ?, updated_at = ?
            WHERE run_id = ? AND agent_id = ? AND status IN ('ACTIVE','PENDING')`
@@ -388,36 +388,16 @@ export function fileLock(db: DatabaseSync, params: FileLockParams): FileLockResu
     case 'renew': {
       if (!params.runId) throw new Error('fileLock renew requires runId');
       const agentId = params.agentId ?? 'agent';
-      const expiresAt = expiresAtFromNow(params.ttlMs);
-      const now = utcNow();
-      db.exec('BEGIN IMMEDIATE');
-      let res: { changes: number };
-      try {
-        const owner = db.prepare('SELECT agent_id, status FROM task_runs WHERE run_id = ?')
-          .get(params.runId) as { agent_id: string; status: string } | undefined;
-        if (!owner) throw new Error(`run ${params.runId} not found`);
-        if (owner.agent_id !== agentId) throw new Error(`run ${params.runId} belongs to ${owner.agent_id}, not ${agentId}`);
-        if (owner.status !== 'ACTIVE') throw new Error(`run ${params.runId} is not ACTIVE`);
-        res = db.prepare('UPDATE locks SET expires_at = ? WHERE run_id = ?')
-          .run(expiresAt, params.runId) as { changes: number };
-        if (res.changes > 0) {
-          db.prepare(`UPDATE run_files SET heartbeat_at = ?, expires_at = ?
-            WHERE run_id = ? AND ended_at IS NULL`).run(now, expiresAt, params.runId);
-          db.prepare('UPDATE task_runs SET updated_at = ? WHERE run_id = ? AND agent_id = ?')
-            .run(now, params.runId, agentId);
-        }
-        db.exec('COMMIT');
-      } catch (error) {
-        try { db.exec('ROLLBACK'); } catch { /* transaction did not open */ }
-        throw error;
-      }
+      const renewed = renewWorkLease(db, {
+        agentId, runId: params.runId, ttlMs: params.ttlMs,
+      }, { exclusiveOnly: true });
       return {
         ok: true,
         type: 'renew',
         runId: params.runId,
-        renewed: res.changes > 0,
-        locks_renewed: res.changes,
-        expiresAt: res.changes > 0 ? expiresAt : null,
+        renewed: renewed.locksRenewed > 0,
+        locks_renewed: renewed.locksRenewed,
+        expiresAt: renewed.expiresAt,
       };
     }
   }

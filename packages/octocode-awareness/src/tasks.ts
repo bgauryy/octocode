@@ -260,7 +260,7 @@ export function addTaskDependency(
 
 export function listTasks(
   db: DatabaseSync,
-  params: { planId?: string | null; status?: PlanTaskStatus | null; agentId?: string | null; limit?: number | null } = {},
+  params: { planId?: string | null; status?: PlanTaskStatus | null; agentId?: string | null; workspacePath?: string | null; limit?: number | null } = {},
 ): PlanTaskRecord[] {
   evictExpiredTaskClaims(db);
   const where: string[] = ['1 = 1'];
@@ -270,6 +270,10 @@ export function listTasks(
   if (params.agentId) {
     where.push('EXISTS (SELECT 1 FROM task_claims c WHERE c.task_id = t.task_id AND c.agent_id = ?)');
     binds.push(params.agentId);
+  }
+  if (params.workspacePath) {
+    where.push('EXISTS (SELECT 1 FROM plans p WHERE p.plan_id = t.plan_id AND p.workspace_path = ?)');
+    binds.push(params.workspacePath);
   }
   const limit = params.limit == null ? null : Math.max(1, Math.floor(params.limit));
   const limitSql = limit == null ? '' : 'LIMIT ?';
@@ -281,7 +285,7 @@ export function listTasks(
 
 export function countTasks(
   db: DatabaseSync,
-  params: { planId?: string | null; status?: PlanTaskStatus | null; agentId?: string | null } = {},
+  params: { planId?: string | null; status?: PlanTaskStatus | null; agentId?: string | null; workspacePath?: string | null } = {},
 ): number {
   evictExpiredTaskClaims(db);
   const where: string[] = ['1 = 1'];
@@ -292,23 +296,29 @@ export function countTasks(
     where.push('EXISTS (SELECT 1 FROM task_claims c WHERE c.task_id = t.task_id AND c.agent_id = ?)');
     binds.push(params.agentId);
   }
+  if (params.workspacePath) {
+    where.push('EXISTS (SELECT 1 FROM plans p WHERE p.plan_id = t.plan_id AND p.workspace_path = ?)');
+    binds.push(params.workspacePath);
+  }
   return (db.prepare(`SELECT COUNT(*) AS count FROM tasks t WHERE ${where.join(' AND ')}`)
     .get(...binds) as { count: number }).count;
 }
 
 export function listReadyTasks(
   db: DatabaseSync,
-  params: { planId?: string | null; limit?: number | null } = {},
+  params: { planId?: string | null; workspacePath?: string | null; limit?: number | null } = {},
 ): PlanTaskRecord[] {
   evictExpiredTaskClaims(db);
   const binds: Array<string | number> = [];
   const planWhere = params.planId ? 'AND t.plan_id = ?' : '';
   if (params.planId) binds.push(params.planId);
+  const workspaceWhere = params.workspacePath ? 'AND p.workspace_path = ?' : '';
+  if (params.workspacePath) binds.push(params.workspacePath);
   const limit = params.limit == null ? null : Math.max(1, Math.floor(params.limit));
   const limitSql = limit == null ? '' : 'LIMIT ?';
   if (limit != null) binds.push(limit);
   const rows = db.prepare(`SELECT t.* FROM tasks t JOIN plans p ON p.plan_id = t.plan_id
-    WHERE t.status = 'OPEN' AND p.status = 'ACTIVE' ${planWhere}
+    WHERE t.status = 'OPEN' AND p.status = 'ACTIVE' ${planWhere} ${workspaceWhere}
       AND NOT EXISTS (SELECT 1 FROM task_claims c WHERE c.task_id = t.task_id)
       AND NOT EXISTS (
         SELECT 1 FROM task_dependencies td
@@ -320,13 +330,15 @@ export function listReadyTasks(
   return rows.map((row) => hydrateTask(db, row));
 }
 
-export function countReadyTasks(db: DatabaseSync, params: { planId?: string | null } = {}): number {
+export function countReadyTasks(db: DatabaseSync, params: { planId?: string | null; workspacePath?: string | null } = {}): number {
   evictExpiredTaskClaims(db);
   const binds: string[] = [];
   const planWhere = params.planId ? 'AND t.plan_id = ?' : '';
   if (params.planId) binds.push(params.planId);
+  const workspaceWhere = params.workspacePath ? 'AND p.workspace_path = ?' : '';
+  if (params.workspacePath) binds.push(params.workspacePath);
   return (db.prepare(`SELECT COUNT(*) AS count FROM tasks t JOIN plans p ON p.plan_id = t.plan_id
-    WHERE t.status = 'OPEN' AND p.status = 'ACTIVE' ${planWhere}
+    WHERE t.status = 'OPEN' AND p.status = 'ACTIVE' ${planWhere} ${workspaceWhere}
       AND NOT EXISTS (SELECT 1 FROM task_claims c WHERE c.task_id = t.task_id)
       AND NOT EXISTS (
         SELECT 1 FROM task_dependencies td
@@ -416,10 +428,20 @@ export function heartbeatTaskClaim(
   const now = utcNow();
   const leaseMs = Math.min(Math.max(1, params.leaseMs ?? DEFAULT_CLAIM_LEASE_MS), MAX_CLAIM_LEASE_MS);
   const expiresAt = new Date(Date.parse(now) + leaseMs).toISOString().replace(/\.\d{3}Z$/, 'Z');
-  const result = db.prepare(`UPDATE task_claims SET heartbeat_at = ?, expires_at = ?
-    WHERE task_id = ? AND run_id = ? AND agent_id = ?`)
-    .run(now, expiresAt, params.taskId, params.runId, params.agentId) as { changes: number };
-  if (result.changes === 0) throw new Error('active task claim not found for this agent and run');
+  let found = false;
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    evictExpiredTaskClaims(db, now);
+    const result = db.prepare(`UPDATE task_claims SET heartbeat_at = ?, expires_at = ?
+      WHERE task_id = ? AND run_id = ? AND agent_id = ? AND expires_at > ?`)
+      .run(now, expiresAt, params.taskId, params.runId, params.agentId, now) as { changes: number };
+    found = result.changes > 0;
+    db.exec('COMMIT');
+  } catch (error) {
+    try { db.exec('ROLLBACK'); } catch { /* transaction did not begin */ }
+    throw error;
+  }
+  if (!found) throw new Error('active task claim not found for this agent and run');
   return db.prepare('SELECT * FROM task_claims WHERE task_id = ?').get(params.taskId) as unknown as TaskClaimRecord;
 }
 

@@ -172,6 +172,34 @@ describe('advisory work presence', () => {
 });
 
 describe('exclusive work', () => {
+  it('does not revive expired exclusivity after another run acquires the file', () => {
+    const db = freshDb();
+    const ws = workspace();
+    try {
+      const first = startWork(db, {
+        agentId: 'agent-a', workspacePath: ws.path, targetFiles: ['src/a.ts'], exclusive: true,
+        rationale: 'first sensitive rewrite', testPlan: 'security suite',
+      });
+      if (!first.ok) throw new Error('first exclusive start failed');
+      const past = '2000-01-01T00:00:00Z';
+      db.prepare('UPDATE run_files SET expires_at = ? WHERE run_id = ?').run(past, first.run.run_id);
+      db.prepare('UPDATE locks SET expires_at = ? WHERE run_id = ?').run(past, first.run.run_id);
+
+      const second = startWork(db, {
+        agentId: 'agent-b', workspacePath: ws.path, targetFiles: ['src/a.ts'], exclusive: true,
+        rationale: 'replacement sensitive rewrite', testPlan: 'security suite',
+      });
+      if (!second.ok) throw new Error('second exclusive start failed');
+
+      expect(() => touchWork(db, {
+        agentId: 'agent-a', runId: first.run.run_id, targetFiles: ['src/a.ts'],
+      })).toThrow(/conflict/i);
+      expect(db.prepare(`SELECT COUNT(*) AS count FROM locks
+        WHERE file_path = ? AND (expires_at IS NULL OR expires_at > datetime('now'))`)
+        .get(canonicalizePath(join(ws.path, 'src/a.ts')))).toEqual({ count: 1 });
+    } finally { ws.cleanup(); }
+  });
+
   it('rejects exclusive escalation while another run is actively present', () => {
     const db = freshDb();
     const ws = workspace();

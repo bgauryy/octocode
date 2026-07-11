@@ -304,6 +304,7 @@ export function resolveNotification(
   params: ResolveNotificationParams,
 ): ResolveNotificationResult {
   const { notificationIds = [], threadId = null, cwd, agentId = null } = params;
+  assertSignalsExist(db, notificationIds);
   const hasExplicitScope = params.workspacePath != null || params.artifact != null;
   const scope = hasExplicitScope
     ? fillScope(
@@ -364,6 +365,23 @@ function requireSignalText(value: string | null | undefined, field: string): str
   return value;
 }
 
+/**
+ * Explicitly named ids must exist: a typo'd --signal-id otherwise ack/resolves
+ * zero rows and reports ok, so the caller believes the signal was handled.
+ */
+function assertSignalsExist(db: DatabaseSync, signalIds: string[]): void {
+  if (signalIds.length === 0) return;
+  const unique = [...new Set(signalIds)];
+  const rows = db.prepare(
+    `SELECT signal_id FROM signals WHERE signal_id IN (${unique.map(() => '?').join(',')})`,
+  ).all(...unique) as unknown as Array<{ signal_id: string }>;
+  const found = new Set(rows.map((r) => r.signal_id));
+  const missing = unique.filter((id) => !found.has(id));
+  if (missing.length > 0) {
+    throw new Error(`signal(s) not found: ${missing.join(', ')}`);
+  }
+}
+
 function acknowledgeNotifications(
   db: DatabaseSync,
   agentId: string,
@@ -371,6 +389,7 @@ function acknowledgeNotifications(
   threadId: string | null = null,
   params: { workspacePath?: string | null; artifact?: string | null; cwd?: string } = {},
 ): { acknowledged: number; signal_ids: string[] } {
+  assertSignalsExist(db, signalIds);
   const where: string[] = ["status = 'open'", '(to_agent IS NULL OR to_agent = ?)', 'from_agent <> ?'];
   const binds: (string | number)[] = [agentId, agentId];
   if (signalIds.length > 0) {

@@ -73,9 +73,9 @@ Wait observes only; acquire after a clear result.
 Explicit work:
 
 ```bash
+# run the declared check
 octocode-awareness work end --agent-id "$OCTOCODE_AGENT_ID" \
   --run-id run_abc --compact
-# run the declared check
 octocode-awareness verify mark --agent-id "$OCTOCODE_AGENT_ID" \
   --run-id run_abc --message "auth tests passed" --compact
 ```
@@ -84,6 +84,7 @@ octocode-awareness verify mark --agent-id "$OCTOCODE_AGENT_ID" \
 standalone WORK run to `PENDING`. A TASK run must use `task submit` or `task release`.
 
 ```bash
+# run the acceptance check while presence remains active
 octocode-awareness task submit --task-id task_abc --run-id run_abc \
   --agent-id "$OCTOCODE_AGENT_ID" --message "ready for verification" --compact
 octocode-awareness verify mark --run-id run_abc \

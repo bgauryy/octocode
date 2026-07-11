@@ -264,7 +264,7 @@ function connectDb(dbPath2) {
     const journalMode = journalModeForSqliteVersion(versionRow.version);
     withSqliteBusyRetry(() => db3.exec(`PRAGMA journal_mode = ${journalMode}`));
     db3.exec("PRAGMA foreign_keys = ON");
-    initializeDb(db3, schemaState === "legacy");
+    initializeDb(db3, schemaState === "legacy", schemaState);
     _db = db3;
     return db3;
   } catch (error) {
@@ -325,7 +325,7 @@ function inspectSchemaState(db3) {
         `unsupported canonical Awareness schema version ${identity.userVersion}; expected ${AWARENESS_SCHEMA_VERSION}`
       );
     }
-    assertCanonicalRelationContract(db3);
+    assertCanonicalRelationContract(db3, identity.relations);
     assertCanonicalSchemaFingerprint(db3);
     return "canonical";
   }
@@ -966,8 +966,8 @@ function mainDatabasePath(db3) {
   const row = db3.prepare("PRAGMA database_list").all().find(({ name }) => name === "main");
   return row?.file?.trim() || null;
 }
-function initializeDb(db3, fileBackupCreated) {
-  const state = inspectSchemaState(db3);
+function initializeDb(db3, fileBackupCreated, knownState) {
+  const state = knownState ?? inspectSchemaState(db3);
   if (state === "canonical") {
     if (!db3.isTransaction) db3.exec("PRAGMA foreign_keys = ON");
     return;
@@ -1011,6 +1011,7 @@ function initDbSchema(db3, state) {
   if (state === "legacy") {
     db3.exec("DROP TABLE IF EXISTS memories_fts");
     rebuildAllCanonicalTables(db3);
+    normalizeImportedTimestamps(db3);
   }
   db3.exec(SCHEMA_INDEX_DDL);
   try {
@@ -1164,8 +1165,8 @@ function canonicalSchemaFingerprint(includeFts) {
     canonical.close();
   }
 }
-function assertCanonicalRelationContract(db3) {
-  const actualRows = readSchemaIdentity(db3).relations;
+function assertCanonicalRelationContract(db3, relations) {
+  const actualRows = relations ?? readSchemaIdentity(db3).relations;
   const expected = new Set(canonicalColumns().keys());
   const actual = new Set(actualRows.map(({ name }) => name));
   const missing = [...expected].filter((name) => !actual.has(name));
@@ -1189,8 +1190,28 @@ function assertCanonicalSchemaFingerprint(db3) {
   }
 }
 function checkClauses(createSql) {
-  const matches = createSql.match(/CHECK\s*\([^)]*\)/gi) ?? [];
-  return matches.map((c) => c.replace(/\s+/g, " ").trim().toLowerCase()).sort().join(" | ");
+  const clauses = [];
+  const opener = /CHECK\s*\(/gi;
+  let match;
+  while ((match = opener.exec(createSql)) !== null) {
+    let depth = 1;
+    let i = opener.lastIndex;
+    while (i < createSql.length && depth > 0) {
+      const ch = createSql[i];
+      if (ch === "'") {
+        i = createSql.indexOf("'", i + 1);
+        if (i === -1) {
+          i = createSql.length;
+          break;
+        }
+      } else if (ch === "(") depth++;
+      else if (ch === ")") depth--;
+      i++;
+    }
+    clauses.push(createSql.slice(match.index, i));
+    opener.lastIndex = i;
+  }
+  return clauses.map((c) => c.replace(/\s+/g, " ").trim().toLowerCase()).sort().join(" | ");
 }
 function rebuildTableFromCanonical(db3, table, canonSql) {
   const liveCols = tableColumns(db3, table);
@@ -1223,12 +1244,31 @@ function rebuildTableFromCanonical(db3, table, canonSql) {
       db3.exec(`RELEASE SAVEPOINT ${savepoint}`);
     } catch {
     }
+    const reason = err instanceof Error ? err.message : String(err);
+    if (/CHECK constraint failed/i.test(reason)) {
+      throw new Error(
+        `schema migration cannot rebuild table "${table}": existing rows violate a canonical CHECK constraint (${reason}); inspect that table's enum columns and update the offending rows before reopening`
+      );
+    }
     throw err;
   }
 }
 function rebuildAllCanonicalTables(db3) {
   for (const [table, sql] of canonicalTableSql()) {
     if (tableExists(db3, table)) rebuildTableFromCanonical(db3, table, sql);
+  }
+}
+function normalizeImportedTimestamps(db3) {
+  for (const [table, columns] of canonicalColumns()) {
+    if (!tableExists(db3, table)) continue;
+    for (const col of columns) {
+      if (col.type.toUpperCase() !== "TEXT") continue;
+      if (!/(_at|_from|_to)$/.test(col.name)) continue;
+      db3.prepare(
+        `UPDATE ${table} SET ${col.name} = substr(${col.name}, 1, 19) || 'Z'
+         WHERE ${col.name} LIKE '____-__-__T__:__:__.%'`
+      ).run();
+    }
   }
 }
 function migrateCheckConstraints(db3) {
@@ -2924,6 +2964,12 @@ var REFINEMENTS_SELECT_BY_WORKSPACE = `SELECT ${COLS} FROM refinements
 var REFINEMENTS_DELETE = `DELETE FROM refinements WHERE refinement_id IN `;
 
 // src/refinements.ts
+var REFINEMENT_QUALITIES = ["good", "bad", "handoff", "instructions"];
+function assertRefinementQuality(quality) {
+  if (!REFINEMENT_QUALITIES.includes(quality)) {
+    throw new Error(`invalid refinement quality "${quality}"; allowed: ${REFINEMENT_QUALITIES.join(", ")}`);
+  }
+}
 function insertRefinement(db3, params) {
   const {
     agentId: agentId2 = "agent",
@@ -2941,6 +2987,7 @@ function insertRefinement(db3, params) {
   if (state === "done") {
     throw new Error("terminal refinement creation is not allowed; create open/ongoing, then close it with an actor and check receipt");
   }
+  assertRefinementQuality(quality);
   const refinementId = "ref_" + randomUUID3().replace(/-/g, "");
   const now = utcNow();
   const scope = fillScope(
@@ -3116,6 +3163,7 @@ function getRefinements(db3, params = {}) {
 }
 function updateRefinement(db3, params) {
   const { refinementId, state, quality, reasoning, remember, files, actorAgentId, checkReceipt } = params;
+  if (quality !== void 0) assertRefinementQuality(quality);
   const existing = db3.prepare("SELECT * FROM refinements WHERE refinement_id = ?").get(refinementId);
   if (!existing) return { updated: false, refinement: null };
   let effectiveReasoning = reasoning;
@@ -3475,26 +3523,57 @@ function startWork(db3, params) {
     throw error;
   }
 }
-function touchWork(db3, params) {
+function renewWorkLease(db3, params, options = {}) {
   const run = getRun(db3, params.runId);
   if (run.agent_id !== params.agentId) throw new Error(`run ${params.runId} belongs to ${run.agent_id}`);
   if (run.status !== "ACTIVE") throw new Error(`run ${params.runId} is not ACTIVE`);
-  const targets = params.targetFiles?.length ? normalizeFiles(params.targetFiles, run.workspace_path) : fileRows(db3, params.runId).filter((file) => file.ended_at == null).map((file) => file.file_path);
-  if (targets.length === 0) throw new Error("run has no active file presence");
   const now = utcNow();
   const expiresAt = expiry(params.ttlMs);
   db3.exec("BEGIN IMMEDIATE");
   try {
+    const currentRun = getRun(db3, params.runId);
+    if (currentRun.agent_id !== params.agentId) {
+      throw new Error(`run ${params.runId} belongs to ${currentRun.agent_id}`);
+    }
+    if (currentRun.status !== "ACTIVE") throw new Error(`run ${params.runId} is not ACTIVE`);
+    const allLockRows = db3.prepare("SELECT file_path FROM locks WHERE run_id = ?").all(params.runId);
+    const lockedTargets = new Set(allLockRows.map((row) => row.file_path));
+    const targets = options.exclusiveOnly ? [...lockedTargets] : params.targetFiles?.length ? normalizeFiles(params.targetFiles, currentRun.workspace_path) : fileRows(db3, params.runId).filter((file) => file.ended_at == null).map((file) => file.file_path);
+    if (targets.length === 0) {
+      db3.exec("COMMIT");
+      if (options.exclusiveOnly) {
+        return { result: mutationResult(db3, params.runId, []), locksRenewed: 0, expiresAt: null };
+      }
+      throw new Error("run has no active file presence");
+    }
+    const present = db3.prepare(`SELECT file_path FROM run_files
+      WHERE run_id = ? AND ended_at IS NULL AND file_path IN (${targets.map(() => "?").join(",")})`).all(params.runId, ...targets);
+    if (present.length !== targets.length) throw new Error("one or more active file presences were not found for this run");
+    db3.prepare("DELETE FROM locks WHERE expires_at IS NOT NULL AND expires_at <= ?").run(now);
+    for (const file of targets) {
+      const conflicts = conflictRows(db3, params.runId, [file], lockedTargets.has(file));
+      if (conflicts.length > 0) {
+        throw new Error(`work lease conflict on ${file}: held by ${conflicts.map((item) => item.agent_id).join(", ")}`);
+      }
+    }
     const update = db3.prepare(`UPDATE run_files SET heartbeat_at = ?, expires_at = ?
       WHERE run_id = ? AND file_path = ? AND ended_at IS NULL`);
     for (const file of targets) {
       const result = update.run(now, expiresAt, params.runId, file);
       if (result.changes === 0) throw new Error(`active file presence not found: ${file}`);
+      if (lockedTargets.has(file)) {
+        db3.prepare(`INSERT INTO locks(lock_id, file_path, run_id, acquired_at, expires_at)
+          VALUES (?, ?, ?, ?, ?)
+          ON CONFLICT(file_path, run_id) DO UPDATE SET expires_at = excluded.expires_at`).run(`lock_${randomUUID5().replace(/-/g, "")}`, file, params.runId, now, expiresAt);
+      }
     }
-    db3.prepare(`UPDATE locks SET expires_at = ? WHERE run_id = ?
-      AND file_path IN (${targets.map(() => "?").join(",")})`).run(expiresAt, params.runId, ...targets);
     db3.prepare("UPDATE task_runs SET updated_at = ? WHERE run_id = ?").run(now, params.runId);
     db3.exec("COMMIT");
+    return {
+      result: mutationResult(db3, params.runId, targets),
+      locksRenewed: targets.filter((file) => lockedTargets.has(file)).length,
+      expiresAt
+    };
   } catch (error) {
     try {
       db3.exec("ROLLBACK");
@@ -3502,7 +3581,9 @@ function touchWork(db3, params) {
     }
     throw error;
   }
-  return mutationResult(db3, params.runId, targets);
+}
+function touchWork(db3, params) {
+  return renewWorkLease(db3, params).result;
 }
 function endWork(db3, params) {
   const run = getRun(db3, params.runId);
@@ -3823,6 +3904,10 @@ function releaseFileLock(db3, params) {
       }
       const remaining = db3.prepare("SELECT 1 FROM locks WHERE run_id = ? LIMIT 1").get(tid);
       if (!remaining) {
+        if (effectiveStatus !== "ACTIVE" && metadata?.origin !== "TASK") {
+          db3.prepare(`UPDATE run_files SET heartbeat_at = ?, expires_at = ?, ended_at = ?
+            WHERE run_id = ? AND ended_at IS NULL`).run(now, now, now, tid);
+        }
         const updated = db3.prepare(
           `UPDATE task_runs SET status = ?, updated_at = ?
            WHERE run_id = ? AND agent_id = ? AND status IN ('ACTIVE','PENDING')`
@@ -4259,6 +4344,10 @@ function listTasks(db3, params = {}) {
     where.push("EXISTS (SELECT 1 FROM task_claims c WHERE c.task_id = t.task_id AND c.agent_id = ?)");
     binds.push(params.agentId);
   }
+  if (params.workspacePath) {
+    where.push("EXISTS (SELECT 1 FROM plans p WHERE p.plan_id = t.plan_id AND p.workspace_path = ?)");
+    binds.push(params.workspacePath);
+  }
   const limit = params.limit == null ? null : Math.max(1, Math.floor(params.limit));
   const limitSql = limit == null ? "" : "LIMIT ?";
   const queryBinds = limit == null ? binds : [...binds, limit];
@@ -4281,6 +4370,10 @@ function countTasks(db3, params = {}) {
     where.push("EXISTS (SELECT 1 FROM task_claims c WHERE c.task_id = t.task_id AND c.agent_id = ?)");
     binds.push(params.agentId);
   }
+  if (params.workspacePath) {
+    where.push("EXISTS (SELECT 1 FROM plans p WHERE p.plan_id = t.plan_id AND p.workspace_path = ?)");
+    binds.push(params.workspacePath);
+  }
   return db3.prepare(`SELECT COUNT(*) AS count FROM tasks t WHERE ${where.join(" AND ")}`).get(...binds).count;
 }
 function listReadyTasks(db3, params = {}) {
@@ -4288,11 +4381,13 @@ function listReadyTasks(db3, params = {}) {
   const binds = [];
   const planWhere = params.planId ? "AND t.plan_id = ?" : "";
   if (params.planId) binds.push(params.planId);
+  const workspaceWhere = params.workspacePath ? "AND p.workspace_path = ?" : "";
+  if (params.workspacePath) binds.push(params.workspacePath);
   const limit = params.limit == null ? null : Math.max(1, Math.floor(params.limit));
   const limitSql = limit == null ? "" : "LIMIT ?";
   if (limit != null) binds.push(limit);
   const rows = db3.prepare(`SELECT t.* FROM tasks t JOIN plans p ON p.plan_id = t.plan_id
-    WHERE t.status = 'OPEN' AND p.status = 'ACTIVE' ${planWhere}
+    WHERE t.status = 'OPEN' AND p.status = 'ACTIVE' ${planWhere} ${workspaceWhere}
       AND NOT EXISTS (SELECT 1 FROM task_claims c WHERE c.task_id = t.task_id)
       AND NOT EXISTS (
         SELECT 1 FROM task_dependencies td
@@ -4307,8 +4402,10 @@ function countReadyTasks(db3, params = {}) {
   const binds = [];
   const planWhere = params.planId ? "AND t.plan_id = ?" : "";
   if (params.planId) binds.push(params.planId);
+  const workspaceWhere = params.workspacePath ? "AND p.workspace_path = ?" : "";
+  if (params.workspacePath) binds.push(params.workspacePath);
   return db3.prepare(`SELECT COUNT(*) AS count FROM tasks t JOIN plans p ON p.plan_id = t.plan_id
-    WHERE t.status = 'OPEN' AND p.status = 'ACTIVE' ${planWhere}
+    WHERE t.status = 'OPEN' AND p.status = 'ACTIVE' ${planWhere} ${workspaceWhere}
       AND NOT EXISTS (SELECT 1 FROM task_claims c WHERE c.task_id = t.task_id)
       AND NOT EXISTS (
         SELECT 1 FROM task_dependencies td
@@ -4400,9 +4497,22 @@ function heartbeatTaskClaim(db3, params) {
   const now = utcNow();
   const leaseMs = Math.min(Math.max(1, params.leaseMs ?? DEFAULT_CLAIM_LEASE_MS), MAX_CLAIM_LEASE_MS);
   const expiresAt = new Date(Date.parse(now) + leaseMs).toISOString().replace(/\.\d{3}Z$/, "Z");
-  const result = db3.prepare(`UPDATE task_claims SET heartbeat_at = ?, expires_at = ?
-    WHERE task_id = ? AND run_id = ? AND agent_id = ?`).run(now, expiresAt, params.taskId, params.runId, params.agentId);
-  if (result.changes === 0) throw new Error("active task claim not found for this agent and run");
+  let found = false;
+  db3.exec("BEGIN IMMEDIATE");
+  try {
+    evictExpiredTaskClaims(db3, now);
+    const result = db3.prepare(`UPDATE task_claims SET heartbeat_at = ?, expires_at = ?
+      WHERE task_id = ? AND run_id = ? AND agent_id = ? AND expires_at > ?`).run(now, expiresAt, params.taskId, params.runId, params.agentId, now);
+    found = result.changes > 0;
+    db3.exec("COMMIT");
+  } catch (error) {
+    try {
+      db3.exec("ROLLBACK");
+    } catch {
+    }
+    throw error;
+  }
+  if (!found) throw new Error("active task claim not found for this agent and run");
   return db3.prepare("SELECT * FROM task_claims WHERE task_id = ?").get(params.taskId);
 }
 function submitTask(db3, params) {
@@ -4932,6 +5042,7 @@ function getNotifications(db3, params) {
 }
 function resolveNotification(db3, params) {
   const { notificationIds = [], threadId = null, cwd, agentId: agentId2 = null } = params;
+  assertSignalsExist(db3, notificationIds);
   const hasExplicitScope = params.workspacePath != null || params.artifact != null;
   const scope = hasExplicitScope ? fillScope(
     { workspace_path: params.workspacePath ?? null, artifact: normalizeArtifact(params.artifact), repo: null, ref: null },
@@ -4981,7 +5092,20 @@ function requireSignalText(value, field) {
   }
   return value;
 }
+function assertSignalsExist(db3, signalIds) {
+  if (signalIds.length === 0) return;
+  const unique = [...new Set(signalIds)];
+  const rows = db3.prepare(
+    `SELECT signal_id FROM signals WHERE signal_id IN (${unique.map(() => "?").join(",")})`
+  ).all(...unique);
+  const found = new Set(rows.map((r) => r.signal_id));
+  const missing = unique.filter((id) => !found.has(id));
+  if (missing.length > 0) {
+    throw new Error(`signal(s) not found: ${missing.join(", ")}`);
+  }
+}
 function acknowledgeNotifications(db3, agentId2, signalIds = [], threadId = null, params = {}) {
+  assertSignalsExist(db3, signalIds);
   const where = ["status = 'open'", "(to_agent IS NULL OR to_agent = ?)", "from_agent <> ?"];
   const binds = [agentId2, agentId2];
   if (signalIds.length > 0) {
@@ -6268,8 +6392,16 @@ function exportHarness(db3, params = {}) {
 // src/verify.ts
 import { randomUUID as randomUUID10 } from "node:crypto";
 var VALID_VERIFY_STATUSES = /* @__PURE__ */ new Set(["SUCCESS", "FAILED"]);
-function targetFilesForRun(db3, runId) {
-  return db3.prepare("SELECT file_path FROM run_files WHERE run_id = ? ORDER BY file_path").all(runId).map((row) => String(row.file_path));
+function targetFilesForRuns(db3, runIds) {
+  const byRun = new Map(runIds.map((id) => [id, []]));
+  if (runIds.length === 0) return byRun;
+  const rows = db3.prepare(
+    `SELECT run_id, file_path FROM run_files
+     WHERE run_id IN (${runIds.map(() => "?").join(",")})
+     ORDER BY file_path`
+  ).all(...runIds);
+  for (const row of rows) byRun.get(row.run_id)?.push(row.file_path);
+  return byRun;
 }
 function closeRunFiles(db3, runId, now) {
   db3.prepare("DELETE FROM locks WHERE run_id = ?").run(runId);
@@ -6352,6 +6484,7 @@ function auditUnverified(db3, params = {}) {
      WHERE ${where.join(" AND ")}
      ORDER BY created_at ASC`
   ).all(...binds);
+  const unverifiedFiles = targetFilesForRuns(db3, rows.map((r) => r.run_id));
   const unverified = rows.map((r) => ({
     run_id: r.run_id,
     agent_id: r.agent_id,
@@ -6359,19 +6492,21 @@ function auditUnverified(db3, params = {}) {
     test_plan: r.test_plan,
     context_ref: r.context_ref,
     rationale: r.rationale,
-    target_files: targetFilesForRun(db3, r.run_id),
+    target_files: unverifiedFiles.get(r.run_id) ?? [],
     workspace_path: r.workspace_path,
     artifact: r.artifact,
     created_at: r.created_at
   }));
   if (params.abandon && unverified.length > 0) {
     const now = utcNow();
+    const markFailed = db3.prepare(RUNS_UPDATE_PENDING_TO_FAILED);
+    const logAbandoned = db3.prepare(RUN_LOG_INSERT_ABANDONED);
     for (const intent of unverified) {
-      db3.prepare(RUNS_UPDATE_PENDING_TO_FAILED).run(now, intent.run_id);
+      markFailed.run(now, intent.run_id);
       closeRunFiles(db3, intent.run_id, now);
       abandonLinkedTask(db3, intent.run_id, intent.agent_id, now, "pending run abandoned by verification audit");
       try {
-        db3.prepare(RUN_LOG_INSERT_ABANDONED).run(
+        logAbandoned.run(
           "evt_" + randomUUID10().replace(/-/g, ""),
           intent.run_id,
           intent.agent_id,
@@ -6429,6 +6564,7 @@ function auditUnverified(db3, params = {}) {
        WHERE ${staleWhere.join(" AND ")}
        ORDER BY ai.created_at ASC`
     ).all(...staleBinds);
+    const staleFiles = targetFilesForRuns(db3, staleRows.map((r) => r.run_id));
     for (const r of staleRows) {
       const ageMs = Date.now() - new Date(r.created_at).getTime();
       staleActive.push({
@@ -6437,7 +6573,7 @@ function auditUnverified(db3, params = {}) {
         status: "ACTIVE",
         rationale: r.rationale,
         context_ref: r.context_ref,
-        target_files: targetFilesForRun(db3, r.run_id),
+        target_files: staleFiles.get(r.run_id) ?? [],
         workspace_path: r.workspace_path,
         artifact: r.artifact,
         created_at: r.created_at,
@@ -6449,12 +6585,14 @@ function auditUnverified(db3, params = {}) {
   }
   if (params.abandon && staleActive.length > 0) {
     const now = utcNow();
+    const markFailed = db3.prepare(RUNS_UPDATE_ACTIVE_TO_FAILED);
+    const logStaleAbandoned = db3.prepare(RUN_LOG_INSERT_STALE_ABANDONED);
     for (const intent of staleActive) {
-      db3.prepare(RUNS_UPDATE_ACTIVE_TO_FAILED).run(now, intent.run_id);
+      markFailed.run(now, intent.run_id);
       closeRunFiles(db3, intent.run_id, now);
       abandonLinkedTask(db3, intent.run_id, intent.agent_id, now, "stale task run abandoned by verification audit");
       try {
-        db3.prepare(RUN_LOG_INSERT_STALE_ABANDONED).run(
+        logStaleAbandoned.run(
           "evt_" + randomUUID10().replace(/-/g, ""),
           intent.run_id,
           intent.agent_id,
@@ -11083,7 +11221,7 @@ var KNOWN_FLAGS = {
   "hooks-install": ["host", "project_dir", "global", "check", "strict", "dry_run", "remove"],
   "schema": ["examples"],
   "plan-command": ["action", "plan_id", "name", "objective", "lead_agent_id", "agent_id", "workspace", "artifact", "status", "path", "title", "limit", "full"],
-  "task-command": ["action", "task_id", "plan_id", "title", "reasoning", "acceptance", "path", "created_by", "agent_id", "priority", "depends_on", "run_id", "lease_minutes", "message", "blocked_reason", "test_plan", "status", "next", "limit", "full"],
+  "task-command": ["action", "task_id", "plan_id", "workspace", "title", "reasoning", "acceptance", "path", "created_by", "agent_id", "priority", "depends_on", "run_id", "lease_minutes", "message", "blocked_reason", "test_plan", "status", "next", "limit", "full"],
   "work-command": ["action", "agent_id", "session_id", "workspace", "artifact", "run_id", "rationale", "test_plan", "context_ref", "target_file", "file", "exclusive", "ttl_minutes", "ttl_seconds", "all", "full", "limit"]
 };
 function validateFlags(command2, args2) {
@@ -11421,8 +11559,7 @@ function cmdGetMemory(db3, args2, dbPath2, opts2) {
     explain: Boolean(args2["explain"]),
     recordAccess: !Boolean(args2["semantic"])
   };
-  const result = getMemory(db3, recallParams);
-  const payload = { db_path: dbPath2, ...result };
+  const payload = { db_path: dbPath2 };
   if (args2["semantic"]) {
     const embedCmd = resolveEmbedCommand();
     const queryText = String(args2["query"] ?? "").trim();
@@ -11446,15 +11583,15 @@ function cmdGetMemory(db3, args2, dbPath2, opts2) {
           ];
         } else {
           const simById = new Map(hits.map((hit) => [hit.memory_id, hit.similarity]));
-          const scoped = getMemory(db3, {
+          const scopedResult = getMemory(db3, {
             ...recallParams,
             query: "",
             limit: hits.length,
             candidateMemoryIds: hits.map((hit) => hit.memory_id),
             recordAccess: false,
             explain: false
-          }).memories;
-          const ranked = scoped.map((memory) => {
+          });
+          const ranked = scopedResult.memories.map((memory) => {
             const similarity = simById.get(memory.memory_id) ?? 0;
             memory.score = similarity;
             memory.lexical = similarity;
@@ -11466,6 +11603,7 @@ function cmdGetMemory(db3, args2, dbPath2, opts2) {
             ];
           } else {
             bumpAccess(db3, ranked.map((memory) => memory.memory_id));
+            Object.assign(payload, scopedResult);
             delete payload["judgment_required"];
             delete payload["judgment_reason"];
             payload["memories"] = ranked.slice(0, limit);
@@ -11480,6 +11618,9 @@ function cmdGetMemory(db3, args2, dbPath2, opts2) {
         ];
       }
     }
+  }
+  if (payload["mode"] !== "semantic") {
+    Object.assign(payload, getMemory(db3, recallParams));
   }
   if (args2["semantic"] && payload["mode"] !== "semantic") {
     const fallback = payload["memories"] ?? [];
@@ -11957,14 +12098,16 @@ function cmdTask(db3, args2, dbPath2, opts2) {
     return emit({ db_path: dbPath2, ...result }, 0, opts2);
   }
   if (action === "list" || action === "ready") {
+    const rawTaskWs = args2["workspace"] ? String(args2["workspace"]) : null;
     const filters = {
       planId: args2["plan_id"] ? String(args2["plan_id"]) : null,
       status: args2["status"] ? String(args2["status"]).toUpperCase() : null,
-      agentId: args2["agent_id"] ? agentId2 : null
+      agentId: args2["agent_id"] ? agentId2 : null,
+      workspacePath: rawTaskWs ? normalizeWorkspacePath(rawTaskWs, rawTaskWs) : null
     };
     const limit = listLimit(args2);
-    const totalCount = action === "ready" ? countReadyTasks(db3, { planId: filters.planId }) : countTasks(db3, filters);
-    const tasks = action === "ready" ? listReadyTasks(db3, { planId: filters.planId, limit }) : listTasks(db3, { ...filters, limit });
+    const totalCount = action === "ready" ? countReadyTasks(db3, { planId: filters.planId, workspacePath: filters.workspacePath }) : countTasks(db3, filters);
+    const tasks = action === "ready" ? listReadyTasks(db3, { planId: filters.planId, workspacePath: filters.workspacePath, limit }) : listTasks(db3, { ...filters, limit });
     const projected = Boolean(args2["full"]) ? tasks : tasks.map((task) => ({
       task_id: task.task_id,
       plan_id: task.plan_id,
@@ -12015,7 +12158,8 @@ function cmdTask(db3, args2, dbPath2, opts2) {
       leaseMs: leaseMinutes == null ? void 0 : leaseMinutes * 6e4,
       testPlan: args2["test_plan"] ? String(args2["test_plan"]) : void 0
     });
-    return emit({ db_path: dbPath2, ...result }, result.ok ? 0 : 2, opts2);
+    const exitCode2 = result.ok ? 0 : result.error.startsWith("task is already claimed by ") ? 2 : 1;
+    return emit({ db_path: dbPath2, ...result }, exitCode2, opts2);
   }
   const runId = firstValue(args2, "run_id") ?? "";
   if (!runId) die("--run-id is required");
@@ -12404,10 +12548,10 @@ function cmdStatus(db3, dbPath2, args2, opts2) {
     memScopeBinds.push(artifact2);
   }
   const memWhere = memScope.length > 0 ? `WHERE ${memScope.join(" AND ")}` : "";
-  const memCount = db3.prepare(`SELECT COUNT(*) AS count FROM memories ${memWhere}`).get(...memScopeBinds).count;
   const memStates = Object.fromEntries(
     db3.prepare(`SELECT state, COUNT(*) AS count FROM memories ${memWhere} GROUP BY state`).all(...memScopeBinds).map((r) => [r.state, r.count])
   );
+  const memCount = Object.values(memStates).reduce((sum, count) => sum + count, 0);
   const memLabels = Object.fromEntries(
     db3.prepare(`SELECT COALESCE(label,'OTHER') AS label, COUNT(*) AS count FROM memories ${memWhere} GROUP BY label`).all(...memScopeBinds).map((r) => [r.label, r.count])
   );
@@ -12532,7 +12676,7 @@ examples:
   octocode-awareness repo inject --workspace "$PWD" --mode local --compact
 
 Run "octocode-awareness <command> --help" for command flags.
-Exit codes: 0 ok; 1 validation/unknown flag/verify debt (verify audit); 2 lock conflict, lock wait timeout, or hooks check --strict.`;
+Exit codes: 0 ok; 1 validation/unknown flag/verify debt (verify audit); 2 live task/lock conflict, lock wait timeout, or hooks check --strict.`;
 var HELP_COMPACT = `octocode-awareness: canonical noun/verb CLI. Use --compact for JSON.
 bundled-skills: ${BUNDLED_SKILLS_DIR}/octocode-awareness | ${BUNDLED_SKILLS_DIR}/octocode-skills
 start: attend; workspace status; plan create|list|show|join|doc|status; task create|list|ready|show|claim|heartbeat|submit|release|depend; memory recall; signal list; docs list
@@ -12540,7 +12684,7 @@ edit: work start|touch|end|list|show; lock acquire|wait|release|prune; verify au
 msg: signal publish|list|reply|ack|resolve|prune; agent register|list
 learn: memory record|archive|restore|forget; refinement set|get|delete; reflect record|mine-weakness|export-harness|developer-review; maintenance digest
 repo: query files|workboard|all|developer-review --format json|table|csv|markdown|html; repo inject
-inspect: schema commands --compact; docs list|show; <command> --help; exits 0 ok / 1 validation|verify debt / 2 lock|wait|hooks --strict`;
+inspect: schema commands --compact; docs list|show; <command> --help; exits 0 ok / 1 validation|verify debt / 2 live claim|lock|wait|hooks --strict`;
 var COMMAND_TO_SCHEMA = {
   "tell-memory": "tell_memory",
   "get-memory": "get_memory",
@@ -12733,6 +12877,10 @@ schema: octocode-awareness schema json-schema memory_lifecycle --compact`,
 example: octocode-awareness memory forget --memory-id mem_123 --dry-run --compact
 note: hard deletion is irreversible; prefer archive for reversible cleanup and always preview broad selectors
 schema: octocode-awareness schema json-schema forget_memory --compact`,
+  "refine-set": `usage: octocode-awareness refinement set --agent-id <id> --reasoning <t> --remember <t> [--quality good|bad|handoff|instructions] [--state open|ongoing|done] [--workspace <p>] [--artifact <a>] [--repo <r>] [--ref <r>] [--file <p>]... [--refinement-id <id>] [--check-receipt <t>]
+example: octocode-awareness refinement set --agent-id agent --reasoning "handoff" --remember "next step" --workspace "$PWD" --compact
+note: --quality accepts good|bad|handoff|instructions only; create open/ongoing, then close an existing --refinement-id with --state done, --agent-id, and --check-receipt
+schema: octocode-awareness schema json-schema refinement --compact`,
   "refine-delete": `usage: octocode-awareness refinement delete --refinement-id <id>... [--workspace <p>] [--artifact <a>] [--dry-run]
 example: octocode-awareness refinement delete --refinement-id ref_123 --dry-run --compact
 note: hard deletion is irreversible; close completed work with refinement set --state done instead
@@ -12757,12 +12905,13 @@ list options: [--limit <n>] [--all|--unread-only] [--mark-read] [--include-bodie
 note: --format hook returns the notify briefing shape used by host hooks (list only)
 schema: octocode-awareness schema json-schema agent_signal --compact`,
   "verify": `usage: octocode-awareness verify mark (--run-id <id>... | --all-pending) --agent-id <id> [--status SUCCESS|FAILED] [--message <t>] [--workspace <p>] [--artifact <a>]
-example: octocode-awareness verify mark --agent-id agent --all-pending --message "yarn test passed" --workspace "$PWD" --compact
+example: octocode-awareness verify mark --agent-id agent --run-id run_123 --message "yarn test passed" --compact
+note: prefer explicit --run-id; scope deliberate --all-pending use with --workspace
 schema: octocode-awareness schema json-schema verify --compact`,
-  "reflect": `usage: octocode-awareness reflect record --agent-id <id> --task <text> --outcome worked|partial|failed [--lesson <t>] [--fix-repo <t>] [--fix-instructions <t>] [--fix-file <p>]... [--failure-signature <s>]
+  "reflect": `usage: octocode-awareness reflect record --agent-id <id> [--workspace <p>] --task <text> --outcome worked|partial|failed [--lesson <t>] [--fix-repo <t>] [--fix-harness <t>] [--fix-instructions <t>] [--fix-file <p>]... [--failure-signature <s>]
 example: octocode-awareness reflect record --agent-id agent --task "fix CLI" --outcome worked --lesson "Keep CLI nouns canonical" --compact
 note: --outcome must be worked|partial|failed; unknown values hard-error
-note: --fix-repo \u2192 coding refinement; --fix-harness \u2192 skill/tooling; --fix-instructions \u2192 feedback to the human instruction author (see reflect developer-review)
+note: --fix-repo \u2192 repo-code refinement; --fix-harness \u2192 skill/tooling; --fix-instructions \u2192 feedback to the human instruction author (see reflect developer-review); refinement --quality values are good|bad|handoff|instructions
 schema: octocode-awareness schema json-schema reflect --compact`,
   "developer-review": `usage: octocode-awareness reflect developer-review [--workspace <repo>] [--state open|ongoing|done]... [--format json|markdown] [--limit <n>]
 example: octocode-awareness reflect developer-review --workspace "$PWD" --format markdown --compact
@@ -12778,8 +12927,9 @@ schema: octocode-awareness schema json-schema query --compact`,
 example: octocode-awareness attend --query "current task" --workspace "$PWD" --agent-id "$OCTOCODE_AGENT_ID" --compact
 note: pass --agent-id (or OCTOCODE_AGENT_ID) so next routes owned Verify/Claimed before generic evidence
 schema: octocode-awareness schema json-schema attend --compact`,
-  "repo-inject": `usage: octocode-awareness repo inject [--workspace <repo>] [--out .octocode] [--mode local|share] [--no-check] [--no-include-view]
+  "repo-inject": `usage: octocode-awareness repo inject [--workspace <repo>] [--out .octocode] [--mode local|share] [--no-check] [--no-include-view] [--prune-orphans]
 example: octocode-awareness repo inject --workspace "$PWD" --out .octocode --mode local --compact
+note: review orphan_candidates before rerunning with --prune-orphans
 schema: octocode-awareness schema json-schema repo_inject --compact`,
   "docs-catalog": `usage: octocode-awareness docs list|show [name] [--full]
 examples:
@@ -12796,8 +12946,8 @@ schema: octocode-awareness schema json-schema plan --compact`,
   "task-command": `usage: octocode-awareness task create|list|ready|show|claim|heartbeat|submit|release|depend [options]
 create: --plan-id <id> --title <text> --reasoning <text> --acceptance <text> --path <workspace-relative>... --agent-id <id> [--depends-on <task-id>]...
 list/ready: [--plan-id <id>] [--limit <1-200>] [--full]
-claim: --task-id <id> --agent-id <id>; or --next --plan-id <id> --agent-id <id>. Returns run_id for lock/submit/verify.
-heartbeat/submit/release: --task-id <id> --run-id <id> --agent-id <id>; release optionally --blocked-reason <text>
+claim: --task-id <id> --agent-id <id>; or --next --plan-id <id> --agent-id <id>. Returns run_id for lock/submit/verify; exit 2 only when another live claimant owns it.
+heartbeat/submit/release: --task-id <id> --run-id <id> --agent-id <id>; submit optionally --message <text>; release optionally --blocked-reason <text>
 example: octocode-awareness task ready --plan-id plan_123 --compact
 schema: octocode-awareness schema json-schema task --compact`,
   "work-command": `usage: octocode-awareness work start|touch|end|list|show [options]

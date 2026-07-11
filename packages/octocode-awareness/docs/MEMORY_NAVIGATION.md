@@ -44,7 +44,7 @@ default.
 |---|---|
 | Start/resume | `attend --compact` |
 | Shared task choices | `task ready|list|show` |
-| Active file peers | `work list --compact`, then `work show --file <path>` |
+| Active file peers | `work list --compact`, then `work show --workspace "$PWD" --file <path>` |
 | Operational counts | `workspace status --compact` |
 | Verification debt | `verify audit --compact` |
 | Reusable lessons | `memory recall --compact`; use `--explain --full` for score components |
@@ -56,7 +56,7 @@ Compact workspace status returns exact `lock_count`, `lock_shown_count`, and
 `--limit` only when full lock rows are needed.
 
 Compact `work start|touch|end` likewise returns exact file/peer totals and at most
-one lean lead for each. Use non-compact output or targeted `work show --file` when
+one lean lead for each. Use non-compact output or targeted `work show --workspace "$PWD" --file` when
 full presence records are needed.
 
 `query workboard` groups active work by relative path. Each FilesUnderWork row caps

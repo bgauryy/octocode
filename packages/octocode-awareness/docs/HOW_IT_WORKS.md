@@ -79,8 +79,9 @@ Pre-edit performs the harness self-edit guard first, then declares advisory work
 Normal success is silent. If the peer set changes, the hook emits one bounded
 summary; if an exclusive conflict exists, it blocks before creating presence.
 
-Post-edit writes `edit_log` and heartbeats. Task and explicit work runs remain
-active; hook fallback runs end as `PENDING`. Prompt briefing uses the transient
+Post-edit writes `edit_log` and heartbeats. Task, explicit work, and scoped hook
+fallback runs remain active; Stop or SessionEnd finalizes the fallback once to
+`PENDING`. Prompt briefing uses the transient
 current prompt to select at most one grounded memory lead or stay silent; operational
 signals/overrides remain independent. Briefing and session capture use fingerprints
 so unchanged state is not re-injected or duplicated. Stop output is capped.

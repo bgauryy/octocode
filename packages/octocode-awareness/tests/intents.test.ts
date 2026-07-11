@@ -9,6 +9,7 @@ import { canonicalizePath } from '../src/git.js';
 import { fileLock, preFlightIntent, releaseFileLock } from '../src/intents.js';
 import { pruneStale } from '../src/maintenance.js';
 import { markVerified } from '../src/verify.js';
+import { startWork } from '../src/work.js';
 
 function freshDb(): DatabaseSync {
   const db = new DatabaseSync(':memory:');
@@ -416,6 +417,54 @@ describe('pruneStale', () => {
 });
 
 describe('fileLock', () => {
+  it('rejects late renewal after expired exclusivity is reacquired by another run', () => {
+    const db = freshDb();
+    const { dir, cleanup } = tempFile();
+    try {
+      const first = fileLock(db, {
+        type: 'lock', agentId: 'agent-a', workspacePath: dir, targetFiles: ['src/a.ts'],
+      });
+      if (!first.ok || first.type !== 'lock') throw new Error('first lock failed');
+      db.prepare("UPDATE run_files SET expires_at = '2000-01-01T00:00:00Z' WHERE run_id = ?")
+        .run(first.runId);
+      db.prepare("UPDATE locks SET expires_at = '2000-01-01T00:00:00Z' WHERE run_id = ?")
+        .run(first.runId);
+
+      const second = startWork(db, {
+        agentId: 'agent-b', workspacePath: dir, targetFiles: ['src/a.ts'], exclusive: true,
+        rationale: 'replacement exclusive owner', testPlan: 'security suite',
+      });
+      if (!second.ok) throw new Error('second lock failed');
+
+      expect(() => fileLock(db, { type: 'renew', agentId: 'agent-a', runId: first.runId }))
+        .toThrow(/conflict/i);
+      const active = fileLock(db, { type: 'status', workspacePath: dir });
+      if (active.type !== 'status') throw new Error('status failed');
+      expect(active.locks.map((lock) => lock.run_id)).toEqual([second.run.run_id]);
+    } finally { cleanup(); }
+  });
+
+  it('closes every advisory presence when the final lock release makes a run pending', () => {
+    const db = freshDb();
+    const { dir, cleanup } = tempFile();
+    try {
+      const locked = fileLock(db, {
+        type: 'lock', agentId: 'agent-a', workspacePath: dir, targetFiles: ['src/a.ts'],
+      });
+      if (!locked.ok || locked.type !== 'lock') throw new Error('lock failed');
+      const attached = startWork(db, {
+        agentId: 'agent-a', runId: locked.runId, workspacePath: dir, targetFiles: ['src/b.ts'],
+      });
+      if (!attached.ok) throw new Error('advisory attachment failed');
+
+      releaseFileLock(db, { agentId: 'agent-a', runId: locked.runId, status: 'PENDING' });
+      expect(db.prepare('SELECT status FROM task_runs WHERE run_id = ?').get(locked.runId))
+        .toEqual({ status: 'PENDING' });
+      expect(db.prepare('SELECT COUNT(*) AS count FROM run_files WHERE run_id = ? AND ended_at IS NULL')
+        .get(locked.runId)).toEqual({ count: 0 });
+    } finally { cleanup(); }
+  });
+
   it('locks, reports status, renews, and releases by task id', () => {
     const db = freshDb();
     const { dir, cleanup } = tempFile();

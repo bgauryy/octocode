@@ -12,13 +12,13 @@ hooks:
 # Octocode Awareness
 Coordinate repository work through canonical SQLite state; treat memory and `.octocode/` wiki output as bounded leads, never authority.
 ## Loop
-Choose `<cli>`: `npx @octocodeai/octocode-awareness` (or global `octocode-awareness`); local monorepo build `node packages/octocode-awareness/dist/bin/awareness.js`; bundled `node scripts/awareness.mjs` only as fallback. Export one `OCTOCODE_AGENT_ID`; install host hooks so edits declare presence.
+Choose `<cli>`: `npx @octocodeai/octocode-awareness` (or global `octocode-awareness`); local monorepo build `node packages/octocode-awareness/dist/bin/awareness.js`; bundled `node scripts/awareness.mjs` only as fallback. Export one `OCTOCODE_AGENT_ID`; check hook health, then preview and obtain approval before installing missing/drifted hooks.
 ```text
 BEFORE/READ+REASON -> DURING/DO -> AFTER/VERIFY -> LEARN? -> CLEAN? -> PROJECT?
 ```
-1. **BEFORE/READ+REASON:** `<cli> attend --workspace "$PWD" --query "<task>" --agent-id "$OCTOCODE_AGENT_ID" --compact`; follow `next`; prefer live state to wiki. State goal, acceptance, affected scope, and evidence; claim `task ready` or open WORK.
+1. **BEFORE/READ+REASON:** `<cli> attend --workspace "$PWD" --query "<task>" --agent-id "$OCTOCODE_AGENT_ID" --compact`; follow `next`; prefer live state to wiki. State goal, acceptance, affected scope, and evidence; run `task ready`, claim a returned ID, or open WORK.
 2. **DURING/DO:** declare every edited path via hooks or `work start`; read peer reason before interacting changes. Ordinary overlap is allowed; exclusivity only for sensitive paths — never bypass a conflict.
-3. **AFTER/VERIFY:** `task submit` or `work end`, run the declared check, `verify mark`, then `verify audit`. Ending work is not verified success.
+3. **AFTER/VERIFY:** run the declared check while presence remains active; `task submit` or `work end`, immediately `verify mark`, then `verify audit`. Ending work is not verified success.
 4. **LEARN / CLEAN / PROJECT only when due:** record reusable outcomes; cleanup dry-run under workboard pressure; `repo inject` only when file readers need refreshed leads.
 ## Routes (load one owner; core work needs none)
 - When a start, finish, or command recipe is unknown, load `references/agent-cheatsheet.md` for the executable path.

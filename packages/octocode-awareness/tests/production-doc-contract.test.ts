@@ -221,6 +221,38 @@ describe('production guidance contract', () => {
     expect(readme).not.toContain('## Hooks');
   });
 
+  it('keeps lifecycle recipes scoped, executable, and ordered around active presence', () => {
+    const finish = read(resolve(SKILL_ROOT, 'references/agent-cheatsheet-finish.md'));
+    expect(finish).toMatch(/reflect record --agent-id "\$OCTOCODE_AGENT_ID" --workspace "\$PWD" --task/);
+    expect(finish).toMatch(/memory archive --memory-id <id> --workspace "\$PWD" --dry-run/);
+    expect(finish).toMatch(/maintenance digest --workspace "\$PWD" --dry-run/);
+    expect(finish).toMatch(/query files --workspace "\$PWD"/);
+
+    const collisionGuides = [
+      read(resolve(SKILL_ROOT, 'references/agent-cheatsheet.md')),
+      read(resolve(SKILL_ROOT, 'references/files-awareness.md')),
+      read(resolve(SKILL_ROOT, 'references/lock-protocol.md')),
+      read(resolve(PACKAGE_ROOT, 'docs/MEMORY_NAVIGATION.md')),
+    ].join('\n');
+    expect(collisionGuides).not.toContain('work show --file');
+    expect(collisionGuides).toContain('work show --workspace "$PWD" --file');
+
+    const hookGuides = [
+      read(resolve(PACKAGE_ROOT, 'AGENTS.md')),
+      read(resolve(PACKAGE_ROOT, 'docs/HOW_IT_WORKS.md')),
+      read(resolve(PACKAGE_ROOT, 'docs/SKILLS.md')),
+      read(resolve(SKILL_ROOT, 'references/lock-protocol.md')),
+    ].join('\n');
+    expect(hookGuides).toMatch(/Post-edit[\s\S]*ACTIVE[\s\S]*Stop or SessionEnd[\s\S]*PENDING/i);
+    expect(hookGuides).not.toMatch(/post-edit[^\n]*(ends|becomes)[^\n]*PENDING/i);
+
+    const taskFlow = read(resolve(PACKAGE_ROOT, 'docs/SKILLS.md'));
+    expect(taskFlow.indexOf('# run acceptance checks while presence remains active'))
+      .toBeLessThan(taskFlow.indexOf('octocode-awareness task submit'));
+    expect(taskFlow.indexOf('octocode-awareness task submit'))
+      .toBeLessThan(taskFlow.indexOf('octocode-awareness verify mark'));
+  });
+
   it('publishes a bounded, measurable Homeostatic Awareness thesis', () => {
     const readme = read(resolve(PACKAGE_ROOT, 'README.md'));
     const docsIndex = read(resolve(PACKAGE_ROOT, 'docs/README.md'));

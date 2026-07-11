@@ -19,7 +19,8 @@ or `docs list` only when the next action needs that contract or reference owner.
 CLI order: `npx @octocodeai/octocode-awareness` (or global `octocode-awareness`);
 monorepo local build `node packages/octocode-awareness/dist/bin/awareness.js`;
 bundled skill fallback `node scripts/awareness.mjs` only when the package CLI is
-unavailable. Install host hooks so structured edits declare presence.
+unavailable. Check hook health; preview and obtain approval before installing
+missing or drifted host hooks so structured edits declare presence.
 
 ## Dogfooding Contract
 
@@ -42,6 +43,7 @@ $AWARENESS work start --agent-id "$OCTOCODE_AGENT_ID" --workspace "$PWD" \
   --file packages/octocode-awareness/<path> --rationale "<why>" \
   --test-plan "<exact check>" --compact
 # edit; add files with work start --run-id <run> --file <path>, or heartbeat with work touch
+# run the declared test plan while presence remains active
 $AWARENESS work end --agent-id "$OCTOCODE_AGENT_ID" --run-id <run> --compact
 $AWARENESS verify mark --agent-id "$OCTOCODE_AGENT_ID" --run-id <run> \
   --message "<check result>" --compact
@@ -67,7 +69,8 @@ ATTEND -> CHOOSE -> DECLARE -> ACT -> SUBMIT -> VERIFY -> REFLECT/HAND OFF -> MA
 `pre-edit` runs the harness guard first, then extends existing WORK/TASK presence or
 declares HOOK advisory presence; it blocks on live exclusive conflicts (it does not
 silently acquire exclusivity). `post-edit` logs/heartbeats; task and explicit work
-runs remain active, while automatic fallback runs become `PENDING`.
+runs remain active, and scoped HOOK fallback stays `ACTIVE` until Stop or SessionEnd
+finalizes it once to `PENDING`.
 `notify-deliver` emits only changed briefing state. `stop-verify` caps outstanding
 items and blocks/reminds. `session-end` deduplicates handoffs.
 

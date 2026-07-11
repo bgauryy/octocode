@@ -266,6 +266,9 @@ describe('plan and task collaboration', () => {
       expect(locked.ok).toBe(true);
       db.prepare("UPDATE task_claims SET expires_at = '2000-01-01T00:00:00Z' WHERE task_id = ?")
         .run(first.task_id);
+      expect(() => heartbeatTaskClaim(db, {
+        taskId: first.task_id, runId: claim.run.run_id, agentId: 'worker', leaseMs: 6_000,
+      })).toThrow(/active task claim not found/);
       expect(listTasks(db, { planId: plan.plan_id }).find((task) => task.task_id === first.task_id)?.status)
         .toBe('OPEN');
       expect(db.prepare('SELECT status FROM task_runs WHERE run_id = ?').get(claim.run.run_id))

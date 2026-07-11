@@ -189,7 +189,7 @@ const KNOWN_FLAGS: Record<string, string[]> = {
   'hooks-install': ['host', 'project_dir', 'global', 'check', 'strict', 'dry_run', 'remove'],
   'schema': ['examples'],
   'plan-command': ['action', 'plan_id', 'name', 'objective', 'lead_agent_id', 'agent_id', 'workspace', 'artifact', 'status', 'path', 'title', 'limit', 'full'],
-  'task-command': ['action', 'task_id', 'plan_id', 'title', 'reasoning', 'acceptance', 'path', 'created_by', 'agent_id', 'priority', 'depends_on', 'run_id', 'lease_minutes', 'message', 'blocked_reason', 'test_plan', 'status', 'next', 'limit', 'full'],
+  'task-command': ['action', 'task_id', 'plan_id', 'workspace', 'title', 'reasoning', 'acceptance', 'path', 'created_by', 'agent_id', 'priority', 'depends_on', 'run_id', 'lease_minutes', 'message', 'blocked_reason', 'test_plan', 'status', 'next', 'limit', 'full'],
   'work-command': ['action', 'agent_id', 'session_id', 'workspace', 'artifact', 'run_id', 'rationale', 'test_plan', 'context_ref', 'target_file', 'file', 'exclusive', 'ttl_minutes', 'ttl_seconds', 'all', 'full', 'limit'],
 };
 
@@ -586,9 +586,9 @@ function cmdGetMemory(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts: 
     explain: Boolean(args['explain']),
     recordAccess: !Boolean(args['semantic']),
   };
-  const result = getMemory(db, recallParams);
-
-  const payload: Record<string, unknown> = { db_path: dbPath, ...result };
+  // The lexical query is deferred: on a successful semantic run its result set
+  // is fully replaced, so running it eagerly would be a discarded full FTS pass.
+  const payload: Record<string, unknown> = { db_path: dbPath };
   if (args['semantic']) {
     const embedCmd = resolveEmbedCommand();
     const queryText = String(args['query'] ?? '').trim();
@@ -618,15 +618,15 @@ function cmdGetMemory(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts: 
           // provenance, file, regex, label, tags, importance) to the embedding
           // candidates, then re-rank the survivors by cosine similarity.
           const simById = new Map(hits.map(hit => [hit.memory_id, hit.similarity]));
-          const scoped = getMemory(db, {
+          const scopedResult = getMemory(db, {
             ...recallParams,
             query: '',
             limit: hits.length,
             candidateMemoryIds: hits.map(hit => hit.memory_id),
             recordAccess: false,
             explain: false,
-          }).memories;
-          const ranked = scoped
+          });
+          const ranked = scopedResult.memories
             .map(memory => {
               const similarity = simById.get(memory.memory_id) ?? 0;
               memory.score = similarity;
@@ -640,8 +640,9 @@ function cmdGetMemory(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts: 
             ];
           } else {
             bumpAccess(db, ranked.map(memory => memory.memory_id));
-            // Switching to semantic mode: drop the lexical-run judgment fields so
-            // they don't misdescribe the semantic result set.
+            Object.assign(payload, scopedResult);
+            // Semantic mode: the candidate-scoped run's judgment fields describe
+            // a lexical pass, not the semantic result set.
             delete payload['judgment_required'];
             delete payload['judgment_reason'];
             payload['memories'] = ranked.slice(0, limit);
@@ -656,6 +657,11 @@ function cmdGetMemory(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts: 
         ];
       }
     }
+  }
+  if (payload['mode'] !== 'semantic') {
+    // Lexical run — the direct path without --semantic, and the fallback for
+    // every non-success semantic branch above (warnings already in payload).
+    Object.assign(payload, getMemory(db, recallParams));
   }
   if (args['semantic'] && payload['mode'] !== 'semantic') {
     const fallback = (payload['memories'] ?? []) as Array<{ memory_id?: string }>;
@@ -1195,17 +1201,19 @@ function cmdTask(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts: EmitO
     return emit({ db_path: dbPath, ...result }, 0, opts);
   }
   if (action === 'list' || action === 'ready') {
+    const rawTaskWs = args['workspace'] ? String(args['workspace']) : null;
     const filters = {
         planId: args['plan_id'] ? String(args['plan_id']) : null,
         status: args['status'] ? String(args['status']).toUpperCase() as PlanTaskStatus : null,
         agentId: args['agent_id'] ? agentId : null,
+        workspacePath: rawTaskWs ? normalizeWorkspacePath(rawTaskWs, rawTaskWs) : null,
       };
     const limit = listLimit(args);
     const totalCount = action === 'ready'
-      ? countReadyTasks(db, { planId: filters.planId })
+      ? countReadyTasks(db, { planId: filters.planId, workspacePath: filters.workspacePath })
       : countTasks(db, filters);
     const tasks = action === 'ready'
-      ? listReadyTasks(db, { planId: filters.planId, limit })
+      ? listReadyTasks(db, { planId: filters.planId, workspacePath: filters.workspacePath, limit })
       : listTasks(db, { ...filters, limit });
     const projected = Boolean(args['full']) ? tasks : tasks.map((task) => ({
       task_id: task.task_id,
@@ -1259,7 +1267,8 @@ function cmdTask(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts: EmitO
       leaseMs: leaseMinutes == null ? undefined : leaseMinutes * 60_000,
       testPlan: args['test_plan'] ? String(args['test_plan']) : undefined,
     });
-    return emit({ db_path: dbPath, ...result }, result.ok ? 0 : 2, opts);
+    const exitCode = result.ok ? 0 : result.error.startsWith('task is already claimed by ') ? 2 : 1;
+    return emit({ db_path: dbPath, ...result }, exitCode, opts);
   }
   const runId = firstValue(args, 'run_id') ?? '';
   if (!runId) die('--run-id is required');
@@ -1674,11 +1683,11 @@ function cmdStatus(db: DatabaseSync, dbPath: string, args: ParsedArgs, opts: Emi
   if (wsPath) { memScope.push('(workspace_path = ? OR workspace_path IS NULL)'); memScopeBinds.push(wsPath); }
   if (artifact) { memScope.push('(artifact = ? OR artifact IS NULL)'); memScopeBinds.push(artifact); }
   const memWhere = memScope.length > 0 ? `WHERE ${memScope.join(' AND ')}` : '';
-  const memCount = (db.prepare(`SELECT COUNT(*) AS count FROM memories ${memWhere}`).get(...memScopeBinds) as { count: number }).count;
   const memStates = Object.fromEntries(
     (db.prepare(`SELECT state, COUNT(*) AS count FROM memories ${memWhere} GROUP BY state`).all(...memScopeBinds) as Array<{ state: string; count: number }>)
       .map(r => [r.state, r.count])
   );
+  const memCount = Object.values(memStates).reduce((sum, count) => sum + count, 0);
   const memLabels = Object.fromEntries(
     (db.prepare(`SELECT COALESCE(label,'OTHER') AS label, COUNT(*) AS count FROM memories ${memWhere} GROUP BY label`).all(...memScopeBinds) as Array<{ label: string; count: number }>)
       .map(r => [r.label, r.count])
@@ -1817,7 +1826,7 @@ examples:
   octocode-awareness repo inject --workspace "$PWD" --mode local --compact
 
 Run "octocode-awareness <command> --help" for command flags.
-Exit codes: 0 ok; 1 validation/unknown flag/verify debt (verify audit); 2 lock conflict, lock wait timeout, or hooks check --strict.`;
+Exit codes: 0 ok; 1 validation/unknown flag/verify debt (verify audit); 2 live task/lock conflict, lock wait timeout, or hooks check --strict.`;
 
 const HELP_COMPACT = `octocode-awareness: canonical noun/verb CLI. Use --compact for JSON.
 bundled-skills: ${BUNDLED_SKILLS_DIR}/octocode-awareness | ${BUNDLED_SKILLS_DIR}/octocode-skills
@@ -1826,7 +1835,7 @@ edit: work start|touch|end|list|show; lock acquire|wait|release|prune; verify au
 msg: signal publish|list|reply|ack|resolve|prune; agent register|list
 learn: memory record|archive|restore|forget; refinement set|get|delete; reflect record|mine-weakness|export-harness|developer-review; maintenance digest
 repo: query files|workboard|all|developer-review --format json|table|csv|markdown|html; repo inject
-inspect: schema commands --compact; docs list|show; <command> --help; exits 0 ok / 1 validation|verify debt / 2 lock|wait|hooks --strict`;
+inspect: schema commands --compact; docs list|show; <command> --help; exits 0 ok / 1 validation|verify debt / 2 live claim|lock|wait|hooks --strict`;
 
 const COMMAND_TO_SCHEMA: Record<string, string> = {
   'tell-memory': 'tell_memory',
@@ -2025,6 +2034,10 @@ schema: octocode-awareness schema json-schema memory_lifecycle --compact`,
 example: octocode-awareness memory forget --memory-id mem_123 --dry-run --compact
 note: hard deletion is irreversible; prefer archive for reversible cleanup and always preview broad selectors
 schema: octocode-awareness schema json-schema forget_memory --compact`,
+  'refine-set': `usage: octocode-awareness refinement set --agent-id <id> --reasoning <t> --remember <t> [--quality good|bad|handoff|instructions] [--state open|ongoing|done] [--workspace <p>] [--artifact <a>] [--repo <r>] [--ref <r>] [--file <p>]... [--refinement-id <id>] [--check-receipt <t>]
+example: octocode-awareness refinement set --agent-id agent --reasoning "handoff" --remember "next step" --workspace "$PWD" --compact
+note: --quality accepts good|bad|handoff|instructions only; create open/ongoing, then close an existing --refinement-id with --state done, --agent-id, and --check-receipt
+schema: octocode-awareness schema json-schema refinement --compact`,
   'refine-delete': `usage: octocode-awareness refinement delete --refinement-id <id>... [--workspace <p>] [--artifact <a>] [--dry-run]
 example: octocode-awareness refinement delete --refinement-id ref_123 --dry-run --compact
 note: hard deletion is irreversible; close completed work with refinement set --state done instead
@@ -2049,12 +2062,13 @@ list options: [--limit <n>] [--all|--unread-only] [--mark-read] [--include-bodie
 note: --format hook returns the notify briefing shape used by host hooks (list only)
 schema: octocode-awareness schema json-schema agent_signal --compact`,
   'verify': `usage: octocode-awareness verify mark (--run-id <id>... | --all-pending) --agent-id <id> [--status SUCCESS|FAILED] [--message <t>] [--workspace <p>] [--artifact <a>]
-example: octocode-awareness verify mark --agent-id agent --all-pending --message "yarn test passed" --workspace "$PWD" --compact
+example: octocode-awareness verify mark --agent-id agent --run-id run_123 --message "yarn test passed" --compact
+note: prefer explicit --run-id; scope deliberate --all-pending use with --workspace
 schema: octocode-awareness schema json-schema verify --compact`,
-  'reflect': `usage: octocode-awareness reflect record --agent-id <id> --task <text> --outcome worked|partial|failed [--lesson <t>] [--fix-repo <t>] [--fix-instructions <t>] [--fix-file <p>]... [--failure-signature <s>]
+  'reflect': `usage: octocode-awareness reflect record --agent-id <id> [--workspace <p>] --task <text> --outcome worked|partial|failed [--lesson <t>] [--fix-repo <t>] [--fix-harness <t>] [--fix-instructions <t>] [--fix-file <p>]... [--failure-signature <s>]
 example: octocode-awareness reflect record --agent-id agent --task "fix CLI" --outcome worked --lesson "Keep CLI nouns canonical" --compact
 note: --outcome must be worked|partial|failed; unknown values hard-error
-note: --fix-repo → coding refinement; --fix-harness → skill/tooling; --fix-instructions → feedback to the human instruction author (see reflect developer-review)
+note: --fix-repo → repo-code refinement; --fix-harness → skill/tooling; --fix-instructions → feedback to the human instruction author (see reflect developer-review); refinement --quality values are good|bad|handoff|instructions
 schema: octocode-awareness schema json-schema reflect --compact`,
   'developer-review': `usage: octocode-awareness reflect developer-review [--workspace <repo>] [--state open|ongoing|done]... [--format json|markdown] [--limit <n>]
 example: octocode-awareness reflect developer-review --workspace "$PWD" --format markdown --compact
@@ -2070,8 +2084,9 @@ schema: octocode-awareness schema json-schema query --compact`,
 example: octocode-awareness attend --query "current task" --workspace "$PWD" --agent-id "$OCTOCODE_AGENT_ID" --compact
 note: pass --agent-id (or OCTOCODE_AGENT_ID) so next routes owned Verify/Claimed before generic evidence
 schema: octocode-awareness schema json-schema attend --compact`,
-  'repo-inject': `usage: octocode-awareness repo inject [--workspace <repo>] [--out .octocode] [--mode local|share] [--no-check] [--no-include-view]
+  'repo-inject': `usage: octocode-awareness repo inject [--workspace <repo>] [--out .octocode] [--mode local|share] [--no-check] [--no-include-view] [--prune-orphans]
 example: octocode-awareness repo inject --workspace "$PWD" --out .octocode --mode local --compact
+note: review orphan_candidates before rerunning with --prune-orphans
 schema: octocode-awareness schema json-schema repo_inject --compact`,
   'docs-catalog': `usage: octocode-awareness docs list|show [name] [--full]
 examples:
@@ -2088,8 +2103,8 @@ schema: octocode-awareness schema json-schema plan --compact`,
   'task-command': `usage: octocode-awareness task create|list|ready|show|claim|heartbeat|submit|release|depend [options]
 create: --plan-id <id> --title <text> --reasoning <text> --acceptance <text> --path <workspace-relative>... --agent-id <id> [--depends-on <task-id>]...
 list/ready: [--plan-id <id>] [--limit <1-200>] [--full]
-claim: --task-id <id> --agent-id <id>; or --next --plan-id <id> --agent-id <id>. Returns run_id for lock/submit/verify.
-heartbeat/submit/release: --task-id <id> --run-id <id> --agent-id <id>; release optionally --blocked-reason <text>
+claim: --task-id <id> --agent-id <id>; or --next --plan-id <id> --agent-id <id>. Returns run_id for lock/submit/verify; exit 2 only when another live claimant owns it.
+heartbeat/submit/release: --task-id <id> --run-id <id> --agent-id <id>; submit optionally --message <text>; release optionally --blocked-reason <text>
 example: octocode-awareness task ready --plan-id plan_123 --compact
 schema: octocode-awareness schema json-schema task --compact`,
   'work-command': `usage: octocode-awareness work start|touch|end|list|show [options]

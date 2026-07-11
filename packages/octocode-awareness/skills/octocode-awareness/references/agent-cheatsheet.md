@@ -33,7 +33,7 @@ owned Claimed → FilesUnderWork → Inbox → evidence). Use `--help` / `schema
 # run check, then verify mark
 ```
 
-Ordinary peers allowed; `work show --file <path>` when overlap matters. Sensitive work
+Ordinary peers allowed; `work show --workspace "$PWD" --file <path>` when overlap matters. Sensitive work
 adds `--exclusive`; exit `2` = wait/signal/switch. `lock wait` ≠ peer gone — re-check
 presence before exclusive acquire.
 

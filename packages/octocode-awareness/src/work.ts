@@ -226,35 +226,80 @@ export function startWork(db: DatabaseSync, params: StartWorkParams): StartWorkR
   }
 }
 
-export function touchWork(db: DatabaseSync, params: TouchWorkParams): WorkMutationResult {
+export function renewWorkLease(
+  db: DatabaseSync,
+  params: TouchWorkParams,
+  options: { exclusiveOnly?: boolean } = {},
+): { result: WorkMutationResult; locksRenewed: number; expiresAt: string | null } {
   const run = getRun(db, params.runId);
   if (run.agent_id !== params.agentId) throw new Error(`run ${params.runId} belongs to ${run.agent_id}`);
   if (run.status !== 'ACTIVE') throw new Error(`run ${params.runId} is not ACTIVE`);
-  const targets = params.targetFiles?.length
-    ? normalizeFiles(params.targetFiles, run.workspace_path)
-    : fileRows(db, params.runId).filter((file) => file.ended_at == null).map((file) => file.file_path);
-  if (targets.length === 0) throw new Error('run has no active file presence');
   const now = utcNow();
   const expiresAt = expiry(params.ttlMs);
 
   db.exec('BEGIN IMMEDIATE');
   try {
+    const currentRun = getRun(db, params.runId);
+    if (currentRun.agent_id !== params.agentId) {
+      throw new Error(`run ${params.runId} belongs to ${currentRun.agent_id}`);
+    }
+    if (currentRun.status !== 'ACTIVE') throw new Error(`run ${params.runId} is not ACTIVE`);
+    const allLockRows = db.prepare('SELECT file_path FROM locks WHERE run_id = ?')
+      .all(params.runId) as unknown as Array<{ file_path: string }>;
+    const lockedTargets = new Set(allLockRows.map((row) => row.file_path));
+    const targets = options.exclusiveOnly
+      ? [...lockedTargets]
+      : params.targetFiles?.length
+        ? normalizeFiles(params.targetFiles, currentRun.workspace_path)
+        : fileRows(db, params.runId).filter((file) => file.ended_at == null).map((file) => file.file_path);
+    if (targets.length === 0) {
+      db.exec('COMMIT');
+      if (options.exclusiveOnly) {
+        return { result: mutationResult(db, params.runId, []), locksRenewed: 0, expiresAt: null };
+      }
+      throw new Error('run has no active file presence');
+    }
+
+    const present = db.prepare(`SELECT file_path FROM run_files
+      WHERE run_id = ? AND ended_at IS NULL AND file_path IN (${targets.map(() => '?').join(',')})`)
+      .all(params.runId, ...targets) as unknown as Array<{ file_path: string }>;
+    if (present.length !== targets.length) throw new Error('one or more active file presences were not found for this run');
+
+    db.prepare('DELETE FROM locks WHERE expires_at IS NOT NULL AND expires_at <= ?').run(now);
+    for (const file of targets) {
+      const conflicts = conflictRows(db, params.runId, [file], lockedTargets.has(file));
+      if (conflicts.length > 0) {
+        throw new Error(`work lease conflict on ${file}: held by ${conflicts.map((item) => item.agent_id).join(', ')}`);
+      }
+    }
+
     const update = db.prepare(`UPDATE run_files SET heartbeat_at = ?, expires_at = ?
       WHERE run_id = ? AND file_path = ? AND ended_at IS NULL`);
     for (const file of targets) {
       const result = update.run(now, expiresAt, params.runId, file) as { changes: number };
       if (result.changes === 0) throw new Error(`active file presence not found: ${file}`);
+      if (lockedTargets.has(file)) {
+        db.prepare(`INSERT INTO locks(lock_id, file_path, run_id, acquired_at, expires_at)
+          VALUES (?, ?, ?, ?, ?)
+          ON CONFLICT(file_path, run_id) DO UPDATE SET expires_at = excluded.expires_at`)
+          .run(`lock_${randomUUID().replace(/-/g, '')}`, file, params.runId, now, expiresAt);
+      }
     }
-    db.prepare(`UPDATE locks SET expires_at = ? WHERE run_id = ?
-      AND file_path IN (${targets.map(() => '?').join(',')})`)
-      .run(expiresAt, params.runId, ...targets);
     db.prepare('UPDATE task_runs SET updated_at = ? WHERE run_id = ?').run(now, params.runId);
     db.exec('COMMIT');
+    return {
+      result: mutationResult(db, params.runId, targets),
+      locksRenewed: targets.filter((file) => lockedTargets.has(file)).length,
+      expiresAt,
+    };
   } catch (error) {
     try { db.exec('ROLLBACK'); } catch { /* transaction did not open */ }
     throw error;
   }
-  return mutationResult(db, params.runId, targets);
+}
+
+export function touchWork(db: DatabaseSync, params: TouchWorkParams): WorkMutationResult {
+  return renewWorkLease(db, params).result;
 }
 
 export function endWork(db: DatabaseSync, params: EndWorkParams): WorkMutationResult {

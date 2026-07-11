@@ -16,7 +16,7 @@ editing would be unsafe. Locks are exclusive-only.
 
 `lock wait` observes **other agents' lock rows only**. It does **not** mean peers are
 gone: advisory `run_files` presence can still block exclusive acquire (`ACTIVE_WORK`).
-After wait returns clear, re-check `work show --file <path>` before acquire. Expiry
+After wait returns clear, re-check `work show --workspace "$PWD" --file <path>` before acquire. Expiry
 cleans coordination state; it never proves completion. `verify audit` lists
 `stale_active` when a run is ACTIVE with no live presence.
 
@@ -28,16 +28,17 @@ steal live exclusivity.
 Explicit WORK:
 
 ```bash
-<cli> work end --run-id <run> --agent-id "$OCTOCODE_AGENT_ID" --compact
 # run declared check
+<cli> work end --run-id <run> --agent-id "$OCTOCODE_AGENT_ID" --compact
 <cli> verify mark --run-id <run> --agent-id "$OCTOCODE_AGENT_ID" --message "passed" --compact
 ```
 
 TASK work uses `task submit`/`task release`; terminal `work end` is rejected. Successful
 `verify mark` closes the run and linked task. Failure closes them as failed.
 
-Automatic HOOK fallback becomes PENDING after post-edit. Stop output caps debt; Pi
-may remind instead of block. `verify audit` lists debt (exit **1** when debt remains).
+Post-edit logs/heartbeats and keeps the scoped HOOK aggregate ACTIVE. Stop or
+SessionEnd finalizes it once to PENDING. Stop output caps debt; Pi may remind instead
+of block. `verify audit` lists debt (exit **1** when debt remains).
 If deliberately using `verify mark --all-pending`, scope it by workspace.
 `verify audit --abandon` is only for real abandonment.
 

@@ -406,6 +406,7 @@ export const schemas = {
       action: z.enum(["create", "list", "ready", "show", "claim", "heartbeat", "submit", "release", "depend"]),
       task_id: z.string().trim().min(1).max(128).optional(),
       plan_id: z.string().trim().min(1).max(128).optional(),
+      workspace: z.string().trim().min(1).max(1024).optional().describe("Workspace filter for list/ready (matches the owning plan's workspace_path)."),
       run_id: z.string().trim().min(1).max(128).optional(),
       title: nonEmptyText("Task title.", 300).optional(),
       reasoning: nonEmptyText("Why this work exists and what decisions constrain it.", 4000).optional(),

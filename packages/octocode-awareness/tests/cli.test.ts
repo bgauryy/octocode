@@ -1721,6 +1721,16 @@ describe('CLI', () => {
     }
   });
 
+  it('focused help exposes skill-prescribed reflection and projection flags', () => {
+    const reflect = runSource(['reflect', 'record', '--help']);
+    expect(reflect.status).toBe(0);
+    expect(reflect.stdout).toContain('--fix-harness');
+
+    const inject = runSource(['repo', 'inject', '--help']);
+    expect(inject.status).toBe(0);
+    expect(inject.stdout).toContain('--prune-orphans');
+  });
+
   it('every command in schema commands has focused help or is schema/hook utility', () => {
     const schemaScript = resolve(dirname(fileURLToPath(import.meta.url)), '../skills/octocode-awareness/scripts/schema.mjs');
     const result = spawnSync(NODE, [schemaScript, 'commands', '--compact'], { encoding: 'utf8', timeout: 5000 });
@@ -2453,6 +2463,31 @@ describe('signal', () => {
 // ─── integration: full round-trip ────────────────────────────────────────────
 
 describe('integration: full round-trip', () => {
+  it('reserves exit 2 for a live task-claim conflict', () => {
+    const dir = mktemp();
+    const db = join(dir, 'test.sqlite3');
+    try {
+      const createdPlan = ok(db, [
+        'plan', 'create', '--name', 'Claim exits', '--objective', 'Classify task claim failures',
+        '--lead-agent-id', 'lead', '--workspace', dir,
+      ]);
+      const planId = String((createdPlan['plan'] as Record<string, unknown>)['plan_id']);
+      const createdTask = ok(db, [
+        'task', 'create', '--plan-id', planId, '--title', 'Claim once',
+        '--reasoning', 'Exercise coordination exits', '--acceptance', 'Exit codes match',
+        '--path', 'src/a.ts', '--agent-id', 'lead',
+      ]);
+      const taskId = String((createdTask['task'] as Record<string, unknown>)['task_id']);
+
+      expect(runSource(['--db', db, 'task', 'claim', '--task-id', 'task_missing', '--agent-id', 'worker']).status)
+        .toBe(1);
+      expect(runSource(['--db', db, 'task', 'claim', '--task-id', taskId, '--agent-id', 'worker']).status)
+        .toBe(0);
+      expect(runSource(['--db', db, 'task', 'claim', '--task-id', taskId, '--agent-id', 'other']).status)
+        .toBe(2);
+    } finally { rmSync(dir, { recursive: true }); }
+  });
+
   it('creates a plan, chooses a ready task, claims, submits, and verifies it', () => {
     const dir = mktemp();
     const db = join(dir, 'test.sqlite3');

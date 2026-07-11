@@ -94,7 +94,7 @@ export function connectDb(dbPath: string): DatabaseSync {
     // first opener, so both modes use the same bounded BUSY retry.
     withSqliteBusyRetry(() => db.exec(`PRAGMA journal_mode = ${journalMode}`));
     db.exec('PRAGMA foreign_keys = ON');
-    initializeDb(db, schemaState === 'legacy');
+    initializeDb(db, schemaState === 'legacy', schemaState);
     _db = db;
     return db;
   } catch (error) {
@@ -169,7 +169,7 @@ function inspectSchemaState(db: DatabaseSync): SchemaState {
         `unsupported canonical Awareness schema version ${identity.userVersion}; expected ${AWARENESS_SCHEMA_VERSION}`,
       );
     }
-    assertCanonicalRelationContract(db);
+    assertCanonicalRelationContract(db, identity.relations);
     assertCanonicalSchemaFingerprint(db);
     return 'canonical';
   }
@@ -315,6 +315,13 @@ export function setDeliveryFingerprint(
  * are migrated against it column-by-column (see migrateExistingTables), so a
  * column added here is automatically backfilled everywhere — never add
  * hand-written ensureColumn calls for new columns.
+ *
+ * Timestamps: always INSERT explicit second-precision values (helpers.utcNow).
+ * The strftime('%f') DEFAULTs below emit millisecond precision, which breaks
+ * TEXT-comparison ordering against utcNow values; they cannot be edited to %S
+ * because any change to this DDL alters the canonical schema fingerprint and
+ * locks out every existing canonical store (needs a user_version bump + a
+ * v1→v2 migration ladder that does not exist yet).
  */
 const SCHEMA_DDL = `
     CREATE TABLE IF NOT EXISTS sessions (
@@ -907,8 +914,11 @@ function mainDatabasePath(db: DatabaseSync): string | null {
   return row?.file?.trim() || null;
 }
 
-function initializeDb(db: DatabaseSync, fileBackupCreated: boolean): void {
-  const state = inspectSchemaState(db);
+function initializeDb(db: DatabaseSync, fileBackupCreated: boolean, knownState?: SchemaState): void {
+  // connectDb passes the state it already classified; re-inspecting here would
+  // repeat the full fingerprint read+hash on every open. Callers without a
+  // prior classification (initDb) still inspect.
+  const state = knownState ?? inspectSchemaState(db);
   if (state === 'canonical') {
     if (!db.isTransaction) db.exec('PRAGMA foreign_keys = ON');
     return;
@@ -965,6 +975,7 @@ function initDbSchema(db: DatabaseSync, state: Exclude<SchemaState, 'canonical'>
     // ordinary tables from the one DDL so PK/FK/UNIQUE/CHECK drift cannot survive.
     db.exec('DROP TABLE IF EXISTS memories_fts');
     rebuildAllCanonicalTables(db);
+    normalizeImportedTimestamps(db);
   }
 
   // ── 2. All indexes in a single canonical block ──────────────────────────────
@@ -1197,8 +1208,11 @@ function canonicalSchemaFingerprint(includeFts: boolean): string {
   }
 }
 
-function assertCanonicalRelationContract(db: DatabaseSync): void {
-  const actualRows = readSchemaIdentity(db).relations;
+function assertCanonicalRelationContract(
+  db: DatabaseSync,
+  relations?: SchemaIdentity['relations'],
+): void {
+  const actualRows = relations ?? readSchemaIdentity(db).relations;
   const expected = new Set(canonicalColumns().keys());
   const actual = new Set(actualRows.map(({ name }) => name));
   const missing = [...expected].filter((name) => !actual.has(name));
@@ -1225,10 +1239,32 @@ function assertCanonicalSchemaFingerprint(db: DatabaseSync): void {
   }
 }
 
-/** Normalized, order-insensitive fingerprint of a table's CHECK clauses. */
+/**
+ * Normalized, order-insensitive fingerprint of a table's CHECK clauses.
+ * Extraction is paren-balanced (and skips 'string' literals), so a CHECK with
+ * nested parens — CHECK(a > 0 AND (b < 10)) — is captured whole; a first-')'
+ * regex would truncate it and silently mis-compare drift.
+ */
 function checkClauses(createSql: string): string {
-  const matches = createSql.match(/CHECK\s*\([^)]*\)/gi) ?? [];
-  return matches.map((c) => c.replace(/\s+/g, ' ').trim().toLowerCase()).sort().join(' | ');
+  const clauses: string[] = [];
+  const opener = /CHECK\s*\(/gi;
+  let match: RegExpExecArray | null;
+  while ((match = opener.exec(createSql)) !== null) {
+    let depth = 1;
+    let i = opener.lastIndex;
+    while (i < createSql.length && depth > 0) {
+      const ch = createSql[i];
+      if (ch === "'") {
+        i = createSql.indexOf("'", i + 1);
+        if (i === -1) { i = createSql.length; break; }
+      } else if (ch === '(') depth++;
+      else if (ch === ')') depth--;
+      i++;
+    }
+    clauses.push(createSql.slice(match.index, i));
+    opener.lastIndex = i;
+  }
+  return clauses.map((c) => c.replace(/\s+/g, ' ').trim().toLowerCase()).sort().join(' | ');
 }
 
 /**
@@ -1262,6 +1298,15 @@ function rebuildTableFromCanonical(db: DatabaseSync, table: string, canonSql: st
   } catch (err) {
     try { db.exec(`ROLLBACK TO SAVEPOINT ${savepoint}`); } catch { /* already rolled back */ }
     try { db.exec(`RELEASE SAVEPOINT ${savepoint}`); } catch { /* already released */ }
+    const reason = err instanceof Error ? err.message : String(err);
+    if (/CHECK constraint failed/i.test(reason)) {
+      // Row data the new CHECK forbids (an enum narrowing/rename) — name the
+      // table so the store can be repaired instead of just failing to open.
+      throw new Error(
+        `schema migration cannot rebuild table "${table}": existing rows violate a canonical CHECK constraint (${reason}); ` +
+        'inspect that table\'s enum columns and update the offending rows before reopening',
+      );
+    }
     throw err;
   }
 }
@@ -1269,6 +1314,27 @@ function rebuildTableFromCanonical(db: DatabaseSync, table: string, canonSql: st
 function rebuildAllCanonicalTables(db: DatabaseSync): void {
   for (const [table, sql] of canonicalTableSql()) {
     if (tableExists(db, table)) rebuildTableFromCanonical(db, table, sql);
+  }
+}
+
+/**
+ * Second-precision normalization for rows imported from pre-v1 stores. Legacy
+ * generations stored millisecond ISO strings while every canonical write is
+ * second-precision (helpers.utcNow); TEXT timestamps compare as strings, so
+ * '…:10.350Z' sorts before '…:10Z' and an imported lease can be judged expired
+ * early. Timestamp columns are derived from the canonical DDL, not hand-listed.
+ */
+function normalizeImportedTimestamps(db: DatabaseSync): void {
+  for (const [table, columns] of canonicalColumns()) {
+    if (!tableExists(db, table)) continue;
+    for (const col of columns) {
+      if (col.type.toUpperCase() !== 'TEXT') continue;
+      if (!/(_at|_from|_to)$/.test(col.name)) continue;
+      db.prepare(
+        `UPDATE ${table} SET ${col.name} = substr(${col.name}, 1, 19) || 'Z'
+         WHERE ${col.name} LIKE '____-__-__T__:__:__.%'`,
+      ).run();
+    }
   }
 }
 

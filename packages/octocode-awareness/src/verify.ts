@@ -128,9 +128,17 @@ interface AgentStatusRow {
   status: string;
 }
 
-function targetFilesForRun(db: DatabaseSync, runId: string): string[] {
-  return db.prepare('SELECT file_path FROM run_files WHERE run_id = ? ORDER BY file_path')
-    .all(runId).map((row) => String((row as { file_path: string }).file_path));
+/** Batched target-file lookup — one IN query instead of one SELECT per run. */
+function targetFilesForRuns(db: DatabaseSync, runIds: string[]): Map<string, string[]> {
+  const byRun = new Map<string, string[]>(runIds.map((id) => [id, []]));
+  if (runIds.length === 0) return byRun;
+  const rows = db.prepare(
+    `SELECT run_id, file_path FROM run_files
+     WHERE run_id IN (${runIds.map(() => '?').join(',')})
+     ORDER BY file_path`,
+  ).all(...runIds) as unknown as Array<{ run_id: string; file_path: string }>;
+  for (const row of rows) byRun.get(row.run_id)?.push(row.file_path);
+  return byRun;
 }
 
 function closeRunFiles(db: DatabaseSync, runId: string, now: string): void {
@@ -246,6 +254,7 @@ export function auditUnverified(
      ORDER BY created_at ASC`,
   ).all(...binds) as unknown as IntentDbRow[];
 
+  const unverifiedFiles = targetFilesForRuns(db, rows.map((r) => r.run_id));
   const unverified: UnverifiedIntent[] = rows.map(r => ({
     run_id: r.run_id,
     agent_id: r.agent_id,
@@ -253,7 +262,7 @@ export function auditUnverified(
     test_plan: r.test_plan,
     context_ref: r.context_ref,
     rationale: r.rationale,
-    target_files: targetFilesForRun(db, r.run_id),
+    target_files: unverifiedFiles.get(r.run_id) ?? [],
     workspace_path: r.workspace_path,
     artifact: r.artifact,
     created_at: r.created_at,
@@ -261,12 +270,14 @@ export function auditUnverified(
 
   if (params.abandon && unverified.length > 0) {
     const now = utcNow();
+    const markFailed = db.prepare(RUNS_UPDATE_PENDING_TO_FAILED);
+    const logAbandoned = db.prepare(RUN_LOG_INSERT_ABANDONED);
     for (const intent of unverified) {
-      db.prepare(RUNS_UPDATE_PENDING_TO_FAILED).run(now, intent.run_id);
+      markFailed.run(now, intent.run_id);
       closeRunFiles(db, intent.run_id, now);
       abandonLinkedTask(db, intent.run_id, intent.agent_id, now, 'pending run abandoned by verification audit');
       try {
-        db.prepare(RUN_LOG_INSERT_ABANDONED).run(
+        logAbandoned.run(
           'evt_' + randomUUID().replace(/-/g, ''), intent.run_id, intent.agent_id, now,
         );
       } catch { /* non-critical audit log */ }
@@ -311,6 +322,7 @@ export function auditUnverified(
        ORDER BY ai.created_at ASC`
     ).all(...staleBinds) as unknown as IntentDbRow[];
 
+    const staleFiles = targetFilesForRuns(db, staleRows.map((r) => r.run_id));
     for (const r of staleRows) {
       const ageMs = Date.now() - new Date(r.created_at).getTime();
       staleActive.push({
@@ -319,7 +331,7 @@ export function auditUnverified(
         status: 'ACTIVE',
         rationale: r.rationale,
         context_ref: r.context_ref,
-        target_files: targetFilesForRun(db, r.run_id),
+        target_files: staleFiles.get(r.run_id) ?? [],
         workspace_path: r.workspace_path,
         artifact: r.artifact,
         created_at: r.created_at,
@@ -330,12 +342,14 @@ export function auditUnverified(
 
   if (params.abandon && staleActive.length > 0) {
     const now = utcNow();
+    const markFailed = db.prepare(RUNS_UPDATE_ACTIVE_TO_FAILED);
+    const logStaleAbandoned = db.prepare(RUN_LOG_INSERT_STALE_ABANDONED);
     for (const intent of staleActive) {
-      db.prepare(RUNS_UPDATE_ACTIVE_TO_FAILED).run(now, intent.run_id);
+      markFailed.run(now, intent.run_id);
       closeRunFiles(db, intent.run_id, now);
       abandonLinkedTask(db, intent.run_id, intent.agent_id, now, 'stale task run abandoned by verification audit');
       try {
-        db.prepare(RUN_LOG_INSERT_STALE_ABANDONED).run(
+        logStaleAbandoned.run(
           'evt_' + randomUUID().replace(/-/g, ''), intent.run_id, intent.agent_id, now,
         );
       } catch { /* non-critical audit log */ }

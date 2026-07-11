@@ -13,6 +13,15 @@ import type {
   RefinementRow, RefinementQuality,
 } from './types.js';
 
+export const REFINEMENT_QUALITIES: readonly RefinementQuality[] = ['good', 'bad', 'handoff', 'instructions'];
+
+/** Validate before INSERT/UPDATE so callers get an allow-list message instead of a raw SQL CHECK failure. */
+function assertRefinementQuality(quality: string): void {
+  if (!REFINEMENT_QUALITIES.includes(quality as RefinementQuality)) {
+    throw new Error(`invalid refinement quality "${quality}"; allowed: ${REFINEMENT_QUALITIES.join(', ')}`);
+  }
+}
+
 /**
  * Insert a new refinement record.
  * Returns { refinementId, refinement } — does NOT emit JSON.
@@ -38,6 +47,7 @@ export function insertRefinement(
   if (state === 'done') {
     throw new Error('terminal refinement creation is not allowed; create open/ongoing, then close it with an actor and check receipt');
   }
+  assertRefinementQuality(quality);
 
   const refinementId = 'ref_' + randomUUID().replace(/-/g, '');
   const now = utcNow();
@@ -239,6 +249,7 @@ export function updateRefinement(
   },
 ): UpdateRefinementResult {
   const { refinementId, state, quality, reasoning, remember, files, actorAgentId, checkReceipt } = params;
+  if (quality !== undefined) assertRefinementQuality(quality);
 
   const existing = db.prepare('SELECT * FROM refinements WHERE refinement_id = ?')
     .get(refinementId) as unknown as RefinementRow | undefined;

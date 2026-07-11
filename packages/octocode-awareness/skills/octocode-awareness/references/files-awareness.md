@@ -8,7 +8,7 @@ blocking it. Without hooks or manual `work start`, edits are invisible to peers.
 
 1. Read the bounded peer packet: agent, task/run, short reason, exclusive state.
 2. If changes are independent, continue; unchanged peer state will not repeat.
-3. If changes interact, inspect `work show --file <path>` and signal the peer.
+3. If changes interact, inspect `work show --workspace "$PWD" --file <path>` and signal the peer.
 4. If sensitive exclusivity is needed, request it; acquisition fails until other live
    presence ends. Never surprise active peers with a lock.
 
