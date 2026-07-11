@@ -110,22 +110,19 @@ console.log('✓ @octocodeai/octocode-awareness built → dist/');
 
 const distSkillsDest = join(__dirname, 'dist', 'skills');
 
-// ─── Sync package-owned skills ─────────────────────────────────────────────
-// The complete awareness skill is owned by this package. The package skill
-// folder (packages/octocode-awareness/skills/octocode-awareness) is the ONLY
-// canonical source. They are intentionally never mirrored into the repo-root
-// skills/ directory — that folder is reserved for user-facing repo skills,
-// not this package's internal/compatibility skills. The only generated
-// mirror is the local, gitignored agent install surface below.
+// ─── Sync package-bundled skills ───────────────────────────────────────────
+// The Awareness package ships both the CLI and Agent Skills. Their canonical
+// sources live under the repo-root skills/ directory; this build refreshes the
+// generated scripts, local agent mirror, and published dist/skills bundle.
 
 const repoRoot    = resolve(__dirname, '../..');
+// Remove the retired package-local staging tree so the old canonical path can
+// never linger after a build. Published skills are copied directly to dist/.
+rmSync(join(__dirname, 'skills'), { recursive: true, force: true });
 // Local-only skill install surface for repo agents. This is intentionally not
 // package source and is ignored by git via the repo-level `.agents` rule.
 const agentSkillsRoot = join(repoRoot, '.agents', 'skills');
-// Stale copies from before internal skills stopped being mirrored to repo-root
-// skills/. Actively pruned on every build so they can't linger or drift.
 const skillsDestRoot = join(repoRoot, 'skills');
-const skillsSrcRoot  = join(__dirname, 'skills');
 const distBin     = join(__dirname, 'dist', 'bin');
 const mirroredPackageSkills = new Set([
   'octocode-awareness',
@@ -135,10 +132,11 @@ const retiredPackageSkills = [
   'octocode-agent-communication',
   'octocode-reflection',
 ];
-// Skills owned at repo-root skills/ and vendored into this package at build time.
-// Gitignored under packages/octocode-awareness/skills/ so GitHub stays clean while
-// dist/skills ships the built copy.
 const bundledFromRepoRoot = [
+  {
+    name: 'octocode-awareness',
+    src: join(repoRoot, 'skills', 'octocode-awareness'),
+  },
   {
     name: 'octocode-skills',
     src: join(repoRoot, 'skills', 'octocode-skills'),
@@ -147,7 +145,6 @@ const bundledFromRepoRoot = [
 const generatedSkillMirrorRoots = [agentSkillsRoot];
 
 for (const skillName of retiredPackageSkills) {
-  rmSync(join(skillsSrcRoot, skillName), { recursive: true, force: true });
   rmSync(join(skillsDestRoot, skillName), { recursive: true, force: true });
   for (const mirrorRoot of generatedSkillMirrorRoots) {
     rmSync(join(mirrorRoot, skillName), { recursive: true, force: true });
@@ -155,33 +152,15 @@ for (const skillName of retiredPackageSkills) {
 }
 
 for (const bundled of bundledFromRepoRoot) {
-  const dest = join(skillsSrcRoot, bundled.name);
   if (!existsSync(join(bundled.src, 'SKILL.md'))) {
-    if (existsSync(join(dest, 'SKILL.md'))) {
-      console.warn(`⚠ bundled ${bundled.name} source missing at ${bundled.src}; keeping existing package copy`);
-      continue;
-    }
     throw new Error(`bundled skill missing SKILL.md: ${bundled.src}`);
   }
-  rmSync(dest, { recursive: true, force: true });
-  mkdirSync(skillsSrcRoot, { recursive: true });
-  cpSync(bundled.src, dest, {
-    recursive: true,
-    filter: (src) => !src.includes('node_modules'),
-  });
-  console.log(`✓ bundled ${bundled.name} ← ${bundled.src}`);
 }
 
-const packageSkills = [];
-for (const entry of readdirSync(skillsSrcRoot, { withFileTypes: true })) {
-  if (!entry.isDirectory()) continue;
-  const skillSrc = join(skillsSrcRoot, entry.name);
-  if (!existsSync(join(skillSrc, 'SKILL.md'))) continue;
-  packageSkills.push(entry.name);
-}
+const packageSkills = bundledFromRepoRoot.map(({ name }) => name);
 
 for (const skillName of packageSkills) {
-  const skillSrc = join(skillsSrcRoot, skillName);
+  const skillSrc = bundledFromRepoRoot.find((skill) => skill.name === skillName).src;
   const packageScriptDest = join(skillSrc, 'scripts');
 
   // 1. Compiled scripts. The octocode-awareness skill owns all operational
@@ -204,17 +183,7 @@ for (const skillName of packageSkills) {
     }
   }
 
-  // Prune stale package-owned mirrors from repo-root skills/. Never delete
-  // skills that are sourced FROM repo-root (bundledFromRepoRoot) — those are
-  // the canonical upstream copies this package vendors at build time.
-  const isVendoredFromRepoRoot = bundledFromRepoRoot.some((b) => b.name === skillName);
-  if (!isVendoredFromRepoRoot) {
-    rmSync(join(skillsDestRoot, skillName), { recursive: true, force: true });
-  }
-
   if (!mirroredPackageSkills.has(skillName)) {
-    // The package source is canonical. Keep generated mirror roots free of
-    // package-only skills so agents do not edit generated/stale copies.
     for (const mirrorRoot of generatedSkillMirrorRoots) {
       rmSync(join(mirrorRoot, skillName), { recursive: true, force: true });
     }
@@ -244,17 +213,20 @@ for (const skillName of packageSkills) {
 }
 
 // ─── Bundle skills into dist/skills/ ───────────────────────────────────────
-// Copy after generated scripts are refreshed so the npm/dist CLI resolves the
-// same awareness.mjs/schema.mjs as the package-owned skill source.
+// Copy after generated scripts are refreshed so npm/dist resolves the same
+// awareness.mjs/schema.mjs as the repo-root canonical skill source.
 rmSync(distSkillsDest, { recursive: true, force: true });
-cpSync(join(__dirname, 'skills'), distSkillsDest, {
-  recursive: true,
-  filter: (src) => !src.includes('node_modules'),
-});
+mkdirSync(distSkillsDest, { recursive: true });
+for (const bundled of bundledFromRepoRoot) {
+  cpSync(bundled.src, join(distSkillsDest, bundled.name), {
+    recursive: true,
+    filter: (src) => !src.includes('node_modules'),
+  });
+}
 
-console.log(`✓ package-owned skills refreshed: ${packageSkills.join(', ')}`);
+console.log(`✓ package-bundled skills refreshed: ${packageSkills.join(', ')}`);
 console.log(`✓ skills bundled into dist/skills/ (${readdirSync(distSkillsDest).join(', ')})`);
-console.log(`✓ package-owned skill mirrors refreshed: ${[...mirroredPackageSkills].join(', ')} → .agents/skills/ (repo-root skills/ is never used as a mirror target)`);
+console.log(`✓ package-bundled skill mirrors refreshed: ${[...mirroredPackageSkills].join(', ')} → .agents/skills/`);
 console.log(`✓ retired awareness skill mirrors pruned: ${retiredPackageSkills.join(', ')}`);
 console.log('✓ Pi extension skill output is owned by packages/octocode-pi-extension/scripts/build.mjs');
 console.log('✓ local agent skill install mirror refreshed → .agents/skills/ (ignored, not source)');

@@ -1,57 +1,38 @@
 # RFC Prerequisites
 
-Load this when an RFC changes existing code. Write `PREREQUISITES.md` before `IMPLEMENTATION.md` or any step-by-step implementation plan.
+Load when an RFC changes existing code. Why: readiness facts, setup, owners, blockers, and baselines must be proven before implementation planning.
+Write `PREREQUISITES.md` before `IMPLEMENTATION.md`; use `octocode-research` for repository, artifact, dependency, history, and migration evidence.
 
-Purpose: separate facts that must be true before building from the build steps. Prerequisites are evidence, setup, owners, blockers, and baseline checks; they are not Phase 0 code tasks unless they change code.
-
-## Research Before Writing
-
-Use `octocode-research` for repository facts, packaged artifacts, generated binaries, dependencies, prior art, history, and migration examples.
-If the skill is not installed, use https://github.com/bgauryy/octocode/tree/main/skills/octocode-research or install it with `npx octocode skill --name octocode-research`.
-When the evidence list is long, keep the full source inventory in `RESOURCES.md` and cite only the prerequisites that gate implementation here.
-
-Every prerequisite needs one of:
-
-- Local citation: `path:line`.
-- External citation: GitHub file/line, PR, commit, package, or docs link.
-- Explicit open question: owner, next proof, and why implementation cannot start until it is answered.
-
-## Output Template
+Every prerequisite needs an exact local/external citation or an open question with owner, next proof, and why work cannot start.
 
 ```markdown
-# PREREQUISITES
+# Prerequisites: {Title}
+
+> RFC anchor: `RFC.md` §{section}
 
 ## Scope
-
-Existing-code area affected:
-RFC anchor:
+Existing-code area and contracts affected.
 
 ## Required Current-State Evidence
-
 | Requirement | Evidence | Confidence | Owner |
 |---|---|---|---|
 
-## Environment And Setup
-
+## Environment and Setup
 | Need | How to verify | Source |
 |---|---|---|
 
 ## Baseline Verification
-
 | Check | Command or method | Expected baseline | Evidence |
 |---|---|---|---|
 
 ## Blockers Before Implementation
-
-| Blocker | Impact | Owner | Resolution needed before Step 1 |
+| Blocker | Impact | Owner | Resolution before Step 1 |
 |---|---|---|---|
 
-## Contracts And Migration Constraints
-
+## Contracts and Migration Constraints
 | Contract/data/API | Compatibility constraint | Rollback or guardrail |
 |---|---|---|
 ```
 
-## Gate
-
-Do not write `IMPLEMENTATION.md` as if prerequisites are satisfied when any blocker is unresolved. Put unresolved prerequisite facts into `RFC.md` Open Questions and close or defer them in `IMPLEMENTATION.md` with `octocode-research` evidence.
+Gate: do not plan as though an unresolved blocker is satisfied. Put unresolved facts in `RFC.md` Open Questions and close or explicitly defer them in `IMPLEMENTATION.md`.
+Keep long source inventories in `RESOURCES.md`; cite only implementation-gating facts here.

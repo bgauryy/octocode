@@ -11,6 +11,7 @@ hooks:
 ---
 # Octocode Awareness
 Coordinate repository work through canonical SQLite state; treat memory and `.octocode/` wiki output as bounded leads, never authority.
+The Octocode Awareness Agent Skill ships with the `@octocodeai/octocode-awareness` CLI package: use `npx @octocodeai/octocode-awareness` when installed, or the local package build in this monorepo.
 ## Loop
 Choose `<cli>`: `npx @octocodeai/octocode-awareness` (or global `octocode-awareness`); local monorepo build `node packages/octocode-awareness/dist/bin/awareness.js`; bundled `node scripts/awareness.mjs` only as fallback. Export one `OCTOCODE_AGENT_ID`; use First activation below for setup and host wiring.
 ```text
@@ -45,4 +46,4 @@ Prefer package CLI above; `scripts/awareness.mjs` is bundled fallback. Use `scri
 ## Installation and first activation
 Package/skill install and refresh live in `README.md`. After activation: export one stable `OCTOCODE_AGENT_ID`; run `scripts/install.mjs` when the bundled runtime needs diagnosis; run `<cli> maintenance init --compact` once; then `attend` in each repo.
 Claude skill frontmatter is already one hook surface — do not also install duplicate project settings. Codex/Cursor load `references/hooks.md` for preview → approval → install → strict check; Pi uses its bridge only.
-Devs edit sources then `yarn workspace @octocodeai/octocode-awareness build` — never hand-edit mirrors. Hard: one agent ID/workspace; secrets out; manual CLI fallback; config ≠ runtime health; rebuild after edits; hooks + stable ID required for multi-agent presence.
+Developers edit this repo-root skill and CLI/runtime sources under `packages/octocode-awareness`; rebuild with `yarn workspace @octocodeai/octocode-awareness build`. Never hand-edit mirrors. Hard: one agent ID/workspace; secrets out; manual fallback; config ≠ runtime health; hooks + stable ID for multi-agent presence.

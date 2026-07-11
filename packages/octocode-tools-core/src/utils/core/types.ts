@@ -21,34 +21,9 @@ export interface ExecOptions {
   tolerateOutputLimit?: boolean;
 }
 
-export interface PaginationInfo {
-  currentPage: number;
-  totalPages: number;
-  hasMore: boolean;
-  nextPage?: number;
-  nextMatchPage?: number;
+/** Canonical pagination type — single source in types/toolResults.ts. */
+export type { PaginationInfo } from '../../types/toolResults.js';
 
-  charOffset?: number;
-  charLength?: number;
-  totalChars?: number;
-
-  chunkMode?: 'semantic' | 'char-limit';
-
-  nextBlockChar?: number;
-
-  perPage?: number;
-  itemsPerPage?: number;
-  filesPerPage?: number;
-  totalFiles?: number;
-  entriesPerPage?: number;
-  totalEntries?: number;
-  matchesPerPage?: number;
-  totalMatches?: number;
-  reportedTotalMatches?: number;
-  reachableTotalMatches?: number;
-  totalMatchesKind?: 'exact' | 'reported' | 'lowerBound';
-  totalMatchesCapped?: boolean;
-}
 
 export interface SearchStats {
   totalOccurrences?: number;

@@ -16,7 +16,7 @@ const DIST_DIR = resolve(dirname(fileURLToPath(import.meta.url)), '../dist/bin')
 const SCRIPT = resolve(DIST_DIR, 'extract-hook-files.js');
 const HOOK_RUNNER = resolve(DIST_DIR, 'hook-runner.js');
 const AWARENESS = resolve(DIST_DIR, 'awareness.js');
-const SKILL_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../skills/octocode-awareness');
+const SKILL_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../../skills/octocode-awareness');
 const HOOKS_DIR = resolve(SKILL_ROOT, 'scripts/hooks');
 const NODE = process.execPath;
 

@@ -1,55 +1,26 @@
-# Language-Specific Sins & Search Patterns
+# Language-Specific Sins and Search Patterns
 
-Per-language sin tables plus copy-paste detection queries. Pair with the tiered catalog in sin-catalog.md. These are leads; cite only after exact code evidence proves impact and confidence.
+Load when generic categories need language-specific leads. Why: syntax varies, but every cited finding still needs exact impact and confidence.
+Pair with `sin-catalog.md`; use these as candidate patterns for `octocode-research`, not conclusions.
 
----
-
-## Language-Specific Sins
-
-### TypeScript/JavaScript
-
-| Sin | Pattern | Roast |
-|-----|---------|-------|
-| `any` overuse | `: any` | "TypeScript asked for a divorce." |
-| `@ts-ignore` abuse | `@ts-ignore` | "Silencing the type checker. Very mature." |
-| Prototype pollution | `obj[userInput] =` | "Prototype pollution vector. `__proto__` says hello." |
-
-### Python
-
-| Sin | Pattern | Roast |
-|-----|---------|-------|
-| `except: pass` | `except:` with `pass` | "Catching literally everything and doing nothing. Peak nihilism." |
-| `import *` | `from x import *` | "`import *` — Who knows what's in scope? Surprise!" |
-| Mutable default args | `def fn(x=[])` | "Mutable default argument. Classic Python trap." |
-
-### React
-
-| Sin | Pattern | Roast |
-|-----|---------|-------|
-| Missing key prop | `map` without `key` | "Missing key prop. React is confused. So am I." |
-| State in render | `useState` in conditions | "Conditional hooks. React's rules? More like guidelines." |
-| Stale closure | useEffect/useCallback deps | "Stale closure detected. Your state is living in the past." |
-
-### SQL/Database
-
-| Sin | Pattern | Roast |
-|-----|---------|-------|
-| `SELECT *` | `SELECT *` | "`SELECT *` — Because bandwidth is free, right?" |
-| No indexes hint | Large table scans | "Full table scan. Your DBA just felt a disturbance in the force." |
-| String concatenation | `"SELECT..." + var` | "SQL injection delivery mechanism activated." |
-
----
-
-## Search Patterns
-
-Use these as pattern families for `octocode-research`; do not run or document Octocode research commands here. Exclude docs, examples, fixtures, generated files, and tests before ranking unless the user asked to roast those surfaces.
-
-| Category | Patterns |
+## Examples by ecosystem
+| Ecosystem | High-signal leads |
 |---|---|
-| Security | `password\s*=`, `api_key\s*=`, `secret\s*=`, `token\s*=`, `eval\(`, `new Function\(`, `innerHTML\s*=`, `dangerouslySetInnerHTML`, `verify\s*=\s*False`, `rejectUnauthorized:\s*false` |
-| Architecture and size | parent-directory import climbs, unusually large files, dense directories, high fan-in/fan-out |
-| Type safety and error handling | `: any`, `as any`, `@ts-ignore`, non-null assertions, empty catches, `except ... pass`, `panic!`, `unwrap()` |
-| Performance and data access | sync file I/O, `SELECT *`, async `forEach`, blocking calls in hot paths |
-| Quality, frontend, and residue | `TODO`, `FIXME`, `HACK`, `XXX`, disables, large `z-index`, `!important`, `console.log`, `debugger`, merge markers |
+| TypeScript/JavaScript | repeated `any`/`@ts-ignore`, unsafe dynamic keys, `eval`, async `forEach`, unhandled promises |
+| Python | bare `except` plus `pass`, mutable defaults, unsafe loaders, sync I/O in async paths |
+| React | conditional hooks, missing keys, stale effect dependencies, unsafe HTML, absent error boundaries |
+| SQL/data | string-built queries, unbounded reads, N+1 access, full scans on hot paths |
+| Rust | unchecked `unwrap`/`panic` on user paths, blocking in async, unsafe blocks without invariants |
 
-Ask `octocode-research` to upgrade any match into exact evidence before the roast cites it. If the evidence only proves style or taste, demote it to Slop or Misdemeanor.
+## Search families
+| Category | Candidate patterns |
+|---|---|
+| Security | credential-shaped assignments, dynamic execution, unsafe HTML, disabled TLS, user input in query/path/shell |
+| Architecture | large mixed-responsibility units, dense directories, import climbs, cycles, high fan-in/fan-out |
+| Types/errors | broad escapes, suppressed diagnostics, empty catches, panic/unwrap, ignored results |
+| Performance/data | sync hot-path I/O, unbounded loops/reads, per-item network/DB calls, missing pagination |
+| Quality/residue | stale TODO/FIXME, blanket disables, debug output, conflict markers, generated-looking filler |
+
+Exclude docs, examples, fixtures, generated files, and tests before ranking unless they are in scope.
+Ask `octocode-research` to upgrade each lead to exact evidence, mechanism, impact, and confidence.
+Demote taste-only evidence to Slop or Misdemeanor; never infer exploitability or production impact from syntax alone.

@@ -19,7 +19,7 @@ complete command inventory.
 | [VERIFY.md](VERIFY.md) | Any-agent quick, installed, host, monorepo, and release verification runbook |
 | [REFERENCES.md](REFERENCES.md) | Evidence map, prior art, hypotheses, and design limits |
 
-Agent-facing procedures live under `../skills/octocode-awareness/references/` and
+Agent-facing procedures live under repo-root `skills/octocode-awareness/references/` and
 are listed by `octocode-awareness docs list --compact`.
 
 Canonical data lives in the global Awareness SQLite database. Generated

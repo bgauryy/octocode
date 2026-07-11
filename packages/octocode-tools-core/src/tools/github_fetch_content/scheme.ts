@@ -12,35 +12,35 @@ import {
   describeQuerySchema,
 } from '../../scheme/coreSchemas.js';
 import { responseEnvelopeFields } from '../../scheme/responseEnvelope.js';
+import {
+  CharPaginationSchema,
+  ItemPaginationSchema,
+  ToolContinuationSchema,
+} from '../../scheme/pagination.js';
 
 const minifyField = z
   .enum(['none', 'standard', 'symbols'])
   .optional()
   .default('standard');
 
-// File entry pagination mirrors the PaginationInfo the finalizer emits: item
-// page coordinates are always present, and char-window fields (charOffset/
-// charLength/nextCharOffset) appear when the content was char-paginated.
-const GitHubFetchFilePaginationSchema = z.object({
-  currentPage: z.number(),
-  totalPages: z.number(),
-  hasMore: z.boolean(),
-  nextPage: z.number().optional(),
-  charOffset: z.number().optional(),
-  charLength: z.number().optional(),
-  totalChars: z.number().optional(),
-  nextCharOffset: z.number().optional(),
-});
+// Parity with local_fetch_content: compose shared char/item pagination +
+// ToolContinuation (continueChars) instead of inline duplicates.
+const GitHubFetchFilePaginationSchema = z.union([
+  CharPaginationSchema.extend({
+    nextPage: z.number().optional(),
+  }),
+  ItemPaginationSchema.extend({
+    charOffset: z.number().optional(),
+    charLength: z.number().optional(),
+    totalChars: z.number().optional(),
+    nextCharOffset: z.number().optional(),
+  }),
+]);
 
-// Machine-ready continuation the finalizer attaches to a char-paginated file so
-// the agent can fetch the next window with a ready-made ghGetFileContent query.
 const GitHubFetchFileNextSchema = z.object({
-  continueChars: z
-    .object({
-      tool: z.literal('ghGetFileContent'),
-      query: z.record(z.string(), z.unknown()),
-    })
-    .optional(),
+  continueChars: ToolContinuationSchema.extend({
+    tool: z.literal('ghGetFileContent'),
+  }).optional(),
 });
 
 const GitHubFetchFileEntrySchema = z.object({

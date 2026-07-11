@@ -13,6 +13,7 @@ import {
   type QueryWithPagination,
 } from '../../utils/response/groupedFinalizer.js';
 import { resolveUniqueQueryIds } from '../../utils/response/bulk.js';
+import { buildContinueCharsContinuation } from '../../scheme/pagination.js';
 import type { GitHubFetchContentOutputLocal } from './scheme.js';
 import type { WithOptionalMeta } from '../../types/execution.js';
 
@@ -218,31 +219,17 @@ function buildContinueChars(
   pagination: PaginationInfo | undefined,
   query: PartialFileContentQuery
 ): FileContentNextMap | undefined {
-  if (
-    !pagination ||
-    !pagination.hasMore ||
-    pagination.nextCharOffset === undefined
-  ) {
-    return undefined;
-  }
-  // Same `next.continueChars` shape convention as localSearchCode/localGetFileContent;
-  // built from the data already present so the agent can fetch the next page.
-  return {
-    continueChars: {
-      tool: 'ghGetFileContent',
-      query: {
-        owner: query.owner,
-        repo: query.repo,
-        ...(query.branch !== undefined ? { branch: query.branch } : {}),
-        path: query.path,
-        charOffset: pagination.nextCharOffset,
-        ...(pagination.charLength !== undefined
-          ? { charLength: pagination.charLength }
-          : {}),
-        ...(query.minify !== undefined ? { minify: query.minify } : {}),
-      },
+  return buildContinueCharsContinuation(
+    'ghGetFileContent',
+    {
+      owner: query.owner,
+      repo: query.repo,
+      ...(query.branch !== undefined ? { branch: query.branch } : {}),
+      path: query.path,
+      ...(query.minify !== undefined ? { minify: query.minify } : {}),
     },
-  };
+    pagination
+  ) as FileContentNextMap | undefined;
 }
 
 function readFileEntry(

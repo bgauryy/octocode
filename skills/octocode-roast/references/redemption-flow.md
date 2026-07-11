@@ -1,81 +1,42 @@
-# Redemption Flow — Phases 5-6 & Verification
+# Redemption Flow
 
-The constructive half of the roast. Reach here after the autopsy in roast-playbook.md.
+Load after the autopsy when the user may want fixes. Why: separate critique from mutation and obtain a precise repair choice.
 
----
+## Checkpoint
+Stop and present a compact menu:
 
-## Phase 5: Redemption Menu
+```text
+Redemption options
+| # | Finding | Repair | Priority |
+|---|---|---|---|
+| 1 | {finding} | {smallest safe fix} | NOW/HIGH/MED |
 
-**CRITICAL**: Stop here. Wait for user selection.
-
-```
-─────────────────────────────────
-      REDEMPTION OPTIONS
-─────────────────────────────────
-
-The roast is complete. Choose your penance.
-
-| # | Sin | Fix | Priority |
-|---|-----|-----|----------|
-| 1 | Hardcoded secrets | Move to env vars + ROTATE KEYS | 🔴 NOW |
-| 2 | N+1 queries | Batch query with JOIN | 🔴 NOW |
-| 3 | God function | Split into 6 functions | 🟠 HIGH |
-| 4 | `any` types | Add proper types | 🟠 HIGH |
-| 5 | Callbacks | Convert to async/await | 🟡 MED |
-
-CHOOSE YOUR PATH:
-
-- `1` — Fix single sin
-- `1,2,3` — Fix specific sins
-- `security` — Fix all security issues (RECOMMENDED FIRST)
-- `all` — Full redemption arc
-- `shame` — Just roast me more
-- `exit` — Stop after the review
-
-What'll it be?
+Choose: one number, several numbers, a category, all, more critique, or stop.
 ```
 
----
+Do not edit until the user selects a path. Security findings come first, but consent still governs scope.
 
-## Phase 6: Resurrection
+## Execute selected repairs
+- Re-read the exact evidence and current file state.
+- Apply the smallest fix that addresses the mechanism.
+- Preserve unrelated behavior; avoid drive-by cleanup.
+- Run targeted checks, then any required package/repository checks.
+- For credential-shaped literals, remove the value and advise rotation if real; claim exposure only with supporting evidence.
 
-Execute chosen fixes with before/after.
-
-```
-─────────────────────────────────
-      RESURRECTION COMPLETE
-─────────────────────────────────
-
-Sins absolved: 4
-Files modified: 3
-Lines deleted: 412 (good riddance)
-Lines added: 187 (quality > quantity)
-
-CHANGES:
-✓ Moved credentials to environment variables
-  ⚠️ IMPORTANT: Rotate real API keys; this code finding alone does not prove exposure
-✓ Refactored N+1 query to batched JOIN
-✓ Split processUserRequest() → 6 focused functions
-
-BEFORE: A cautionary tale
-AFTER: Merely concerning
-
-Remaining sins: 6 CRIMES, 11 MISDEMEANORS
-(Ask for another pass to continue the redemption arc)
+## Report
+```text
+Repairs completed: {count}
+Files modified: {count}
+Checks: {command/result}
+Remaining high-value findings: {count}
+Next checkpoint: {one action}
 ```
 
----
-
-## Verification Checklist (before delivering)
-
-- [ ] Every roast cites `file:line`
-- [ ] No personal attacks, only pattern mockery
-- [ ] Security issues (CAPITAL) flagged prominently with action items
-- [ ] **Credential values are NEVER output** — report pattern + location, redact the value
-- [ ] Fixes are actionable
-- [ ] Important findings are separated from redundant or low-value findings
-- [ ] Confidence is stated when evidence is partial or inferred
-- [ ] User checkpoint before any code modifications
-- [ ] Severity matches request and context
-- [ ] Humor, if used, stays professionally safe
-- [ ] Overflow handled (20+ sins → show top 10)
+## Verification gate
+- Every original finding has an exact anchor, impact, confidence, and repair move.
+- No personal attacks or secret values appear.
+- Severity matches evidence; security/data/correctness outrank style.
+- Important findings remain separate from redundant noise.
+- User consent matches every mutation.
+- Tests/checks actually ran and their failures are reported.
+- Twenty or more findings remain triaged to the top ten.

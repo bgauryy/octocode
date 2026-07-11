@@ -18,15 +18,15 @@ const INDEX_SCRIPT = resolve(
 );
 const SKILL_SCRIPT = resolve(
   REPO_ROOT,
-  'packages/octocode-awareness/skills/octocode-awareness/scripts/awareness.mjs',
+  'skills/octocode-awareness/scripts/awareness.mjs',
 );
 const SKILL_INSTALL_SCRIPT = resolve(
   REPO_ROOT,
-  'packages/octocode-awareness/skills/octocode-awareness/scripts/install.mjs',
+  'skills/octocode-awareness/scripts/install.mjs',
 );
 const SKILL_SMOKE_SCRIPT = resolve(
   REPO_ROOT,
-  'packages/octocode-awareness/skills/octocode-awareness/scripts/smoke-multi-agent.mjs',
+  'skills/octocode-awareness/scripts/smoke-multi-agent.mjs',
 );
 const NODE = process.execPath;
 
@@ -99,7 +99,7 @@ describe('install-hooks', () => {
   it('runs the hook installer directly for help, install, strict check, and remove', () => {
     expect(hooksInstallUsage()).toContain('hooks install|check|remove');
     const projectDir = mkdtempSync(resolve(tmpdir(), 'octocode-direct-hooks-'));
-    const hookDir = resolve(REPO_ROOT, 'packages/octocode-awareness/skills/octocode-awareness/scripts/hooks');
+    const hookDir = resolve(REPO_ROOT, 'skills/octocode-awareness/scripts/hooks');
     try {
       const help = runHooksInstall(['--help'], { cwd: projectDir, hookDir });
       expect(help.exitCode).toBe(0);
@@ -140,7 +140,7 @@ describe('install-hooks', () => {
 
   it('reports direct installer validation failures', () => {
     const projectDir = mkdtempSync(resolve(tmpdir(), 'octocode-direct-hooks-fail-'));
-    const hookDir = resolve(REPO_ROOT, 'packages/octocode-awareness/skills/octocode-awareness/scripts/hooks');
+    const hookDir = resolve(REPO_ROOT, 'skills/octocode-awareness/scripts/hooks');
     try {
       expect(runHooksInstall(['--global', '--project-dir', projectDir], { cwd: projectDir, hookDir }).payload).toMatchObject({
         ok: false,
@@ -379,7 +379,7 @@ describe('install-hooks', () => {
     const unrelated = '/tmp/unrelated-cursor-hook.sh';
     const preEdit = resolve(
       REPO_ROOT,
-      'packages/octocode-awareness/skills/octocode-awareness/scripts/hooks/pre-edit.sh',
+      'skills/octocode-awareness/scripts/hooks/pre-edit.sh',
     );
     try {
       mkdirSync(resolve(projectDir, '.cursor'), { recursive: true });
@@ -410,7 +410,7 @@ describe('install-hooks', () => {
     const projectDir = mkdtempSync(resolve(tmpdir(), 'octocode-codex-drift-'));
     const preEdit = resolve(
       REPO_ROOT,
-      'packages/octocode-awareness/skills/octocode-awareness/scripts/hooks/pre-edit.sh',
+      'skills/octocode-awareness/scripts/hooks/pre-edit.sh',
     );
     try {
       mkdirSync(resolve(projectDir, '.codex'), { recursive: true });
@@ -453,7 +453,7 @@ describe('install-hooks', () => {
 
   it('removes the obsolete standalone harness guard during repair', () => {
     const projectDir = mkdtempSync(resolve(tmpdir(), 'octocode-obsolete-guard-'));
-    const hookDir = resolve(REPO_ROOT, 'packages/octocode-awareness/skills/octocode-awareness/scripts/hooks');
+    const hookDir = resolve(REPO_ROOT, 'skills/octocode-awareness/scripts/hooks');
     try {
       mkdirSync(resolve(projectDir, '.codex'), { recursive: true });
       writeFileSync(resolve(projectDir, '.codex/hooks.json'), JSON.stringify({
@@ -481,7 +481,7 @@ describe('install-hooks', () => {
     const projectDir = mkdtempSync(resolve(tmpdir(), 'octocode-codex-stale-root-'));
     const stalePreEdit = resolve(
       REPO_ROOT,
-      'packages/octocode-awareness/skills/octocode-awareness/scripts/hooks/pre-edit.sh',
+      'skills/octocode-awareness/scripts/hooks/pre-edit.sh',
     );
     try {
       mkdirSync(resolve(projectDir, '.codex'), { recursive: true });
@@ -517,7 +517,7 @@ describe('install-hooks', () => {
     const projectDir = mkdtempSync(resolve(tmpdir(), 'octocode-codex-duplicate-drift-'));
     const preEdit = resolve(
       REPO_ROOT,
-      'packages/octocode-awareness/skills/octocode-awareness/scripts/hooks/pre-edit.sh',
+      'skills/octocode-awareness/scripts/hooks/pre-edit.sh',
     );
     try {
       const exact = runInstallHooks(['hooks', 'install', '--host', 'codex', '--project-dir', projectDir, '--dry-run']);

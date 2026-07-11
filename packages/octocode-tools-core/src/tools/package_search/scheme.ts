@@ -11,6 +11,7 @@ import {
 import { responseEnvelopeFields } from '../../scheme/responseEnvelope.js';
 import {
   ItemPaginationSchema,
+  ToolContinuationSchema,
   ToolDiagnosticSchema,
 } from '../../scheme/pagination.js';
 
@@ -64,7 +65,9 @@ export const NpmSearchOutputLocalSchema = z
                       repository: z.string().optional(),
                       repositoryDirectory: z.string().optional(),
                       repositoryId: z.string().optional(),
-                      next: z.record(z.string(), z.unknown()).optional(),
+                      next: z
+                        .record(z.string(), ToolContinuationSchema)
+                        .optional(),
                       warnings: z.array(z.string()).optional(),
                       diagnostics: z.array(ToolDiagnosticSchema).optional(),
                     })
@@ -80,7 +83,7 @@ export const NpmSearchOutputLocalSchema = z
                       owner: z.string(),
                       repo: z.string(),
                       repositoryDirectory: z.string().optional(),
-                      next: z.record(z.string(), z.unknown()),
+                      next: z.record(z.string(), ToolContinuationSchema),
                     })
                     .passthrough()
                 )

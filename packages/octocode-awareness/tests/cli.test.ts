@@ -15,7 +15,7 @@ import { fileURLToPath } from 'node:url';
 
 const SCRIPT = resolve(dirname(fileURLToPath(import.meta.url)), '../dist/bin/awareness.js');
 const INDEX_SCRIPT = resolve(dirname(fileURLToPath(import.meta.url)), '../dist/index.js');
-const SKILL_SCRIPT = resolve(dirname(fileURLToPath(import.meta.url)), '../skills/octocode-awareness/scripts/awareness.mjs');
+const SKILL_SCRIPT = resolve(dirname(fileURLToPath(import.meta.url)), '../../../skills/octocode-awareness/scripts/awareness.mjs');
 const SOURCE_SCRIPT = resolve(dirname(fileURLToPath(import.meta.url)), '../bin/awareness.ts');
 const TSX_SCRIPT = resolve(dirname(fileURLToPath(import.meta.url)), '../../../node_modules/tsx/dist/cli.mjs');
 const NODE = process.execPath;
@@ -1590,7 +1590,7 @@ describe('CLI', () => {
   });
 
   it('schema list maps to canonical CLI commands', () => {
-    const schemaScript = resolve(dirname(fileURLToPath(import.meta.url)), '../skills/octocode-awareness/scripts/schema.mjs');
+    const schemaScript = resolve(dirname(fileURLToPath(import.meta.url)), '../../../skills/octocode-awareness/scripts/schema.mjs');
     expect(existsSync(schemaScript), 'generated schema.mjs must exist after build').toBe(true);
     const schema = spawnSync(NODE, [schemaScript, 'list'], { encoding: 'utf8', timeout: 5000 });
     expect(schema.status).toBe(0);
@@ -1650,7 +1650,7 @@ describe('CLI', () => {
   });
 
   it('schema commands is the compact command-to-schema map for agents', () => {
-    const schemaScript = resolve(dirname(fileURLToPath(import.meta.url)), '../skills/octocode-awareness/scripts/schema.mjs');
+    const schemaScript = resolve(dirname(fileURLToPath(import.meta.url)), '../../../skills/octocode-awareness/scripts/schema.mjs');
     const result = spawnSync(NODE, [schemaScript, 'commands', '--compact'], { encoding: 'utf8', timeout: 5000 });
     expect(result.status).toBe(0);
     expect(result.stdout.trim().split('\n')).toHaveLength(1);
@@ -1675,7 +1675,7 @@ describe('CLI', () => {
   });
 
   it('schema commands --examples restores recipe lines', () => {
-    const schemaScript = resolve(dirname(fileURLToPath(import.meta.url)), '../skills/octocode-awareness/scripts/schema.mjs');
+    const schemaScript = resolve(dirname(fileURLToPath(import.meta.url)), '../../../skills/octocode-awareness/scripts/schema.mjs');
     const result = spawnSync(NODE, [schemaScript, 'commands', '--examples', '--compact'], { encoding: 'utf8', timeout: 5000 });
     expect(result.status).toBe(0);
     const parsed = JSON.parse(result.stdout) as {
@@ -1755,7 +1755,7 @@ describe('CLI', () => {
   });
 
   it('every command in schema commands has focused help or is schema/hook utility', () => {
-    const schemaScript = resolve(dirname(fileURLToPath(import.meta.url)), '../skills/octocode-awareness/scripts/schema.mjs');
+    const schemaScript = resolve(dirname(fileURLToPath(import.meta.url)), '../../../skills/octocode-awareness/scripts/schema.mjs');
     const result = spawnSync(NODE, [schemaScript, 'commands', '--compact'], { encoding: 'utf8', timeout: 5000 });
     expect(result.status).toBe(0);
     const parsed = JSON.parse(result.stdout) as { commands: Array<{ command: string }> };
@@ -1779,7 +1779,7 @@ describe('CLI', () => {
   });
 
   it('every listed schema resolves and its example validates', { timeout: 30_000 }, () => {
-    const schemaScript = resolve(dirname(fileURLToPath(import.meta.url)), '../skills/octocode-awareness/scripts/schema.mjs');
+    const schemaScript = resolve(dirname(fileURLToPath(import.meta.url)), '../../../skills/octocode-awareness/scripts/schema.mjs');
     expect(existsSync(schemaScript), 'generated schema.mjs must exist after build').toBe(true);
     const schema = spawnSync(NODE, [schemaScript, 'list'], { encoding: 'utf8', timeout: 5000 });
     expect(schema.status).toBe(0);
@@ -1802,7 +1802,7 @@ describe('CLI', () => {
   });
 
   it('memory label schema stays aligned with runtime labels', () => {
-    const schemaScript = resolve(dirname(fileURLToPath(import.meta.url)), '../skills/octocode-awareness/scripts/schema.mjs');
+    const schemaScript = resolve(dirname(fileURLToPath(import.meta.url)), '../../../skills/octocode-awareness/scripts/schema.mjs');
     expect(existsSync(schemaScript), 'generated schema.mjs must exist after build').toBe(true);
     const schema = spawnSync(NODE, [schemaScript, 'json-schema', 'tell_memory'], { encoding: 'utf8', timeout: 5000 });
     expect(schema.status).toBe(0);
@@ -1811,7 +1811,7 @@ describe('CLI', () => {
   });
 
   it('schema exposes only implemented memory recall options', () => {
-    const schemaScript = resolve(dirname(fileURLToPath(import.meta.url)), '../skills/octocode-awareness/scripts/schema.mjs');
+    const schemaScript = resolve(dirname(fileURLToPath(import.meta.url)), '../../../skills/octocode-awareness/scripts/schema.mjs');
     expect(existsSync(schemaScript), 'generated schema.mjs must exist after build').toBe(true);
     const schema = spawnSync(NODE, [schemaScript, 'json-schema', 'get_memory'], { encoding: 'utf8', timeout: 5000 });
     expect(schema.status).toBe(0);
@@ -1824,7 +1824,7 @@ describe('CLI', () => {
   });
 
   it('attend schema exposes the agent identity used by CLI and skill guidance', () => {
-    const schemaScript = resolve(dirname(fileURLToPath(import.meta.url)), '../skills/octocode-awareness/scripts/schema.mjs');
+    const schemaScript = resolve(dirname(fileURLToPath(import.meta.url)), '../../../skills/octocode-awareness/scripts/schema.mjs');
     const schema = spawnSync(NODE, [schemaScript, 'json-schema', 'attend'], { encoding: 'utf8', timeout: 5000 });
     expect(schema.status).toBe(0);
     const parsed = JSON.parse(schema.stdout) as { properties: Record<string, Record<string, unknown>> };
@@ -1832,7 +1832,7 @@ describe('CLI', () => {
   });
 
   it('schema aligns pre-flight ttl and retry contract with CLI/runtime', () => {
-    const schemaScript = resolve(dirname(fileURLToPath(import.meta.url)), '../skills/octocode-awareness/scripts/schema.mjs');
+    const schemaScript = resolve(dirname(fileURLToPath(import.meta.url)), '../../../skills/octocode-awareness/scripts/schema.mjs');
     expect(existsSync(schemaScript), 'generated schema.mjs must exist after build').toBe(true);
     const schema = spawnSync(NODE, [schemaScript, 'json-schema', 'pre_flight_intent'], { encoding: 'utf8', timeout: 5000 });
     expect(schema.status).toBe(0);
@@ -1854,7 +1854,7 @@ describe('CLI', () => {
   });
 
   it('schema covers runtime drift cases for verify, audit, and handoff refinements', () => {
-    const schemaScript = resolve(dirname(fileURLToPath(import.meta.url)), '../skills/octocode-awareness/scripts/schema.mjs');
+    const schemaScript = resolve(dirname(fileURLToPath(import.meta.url)), '../../../skills/octocode-awareness/scripts/schema.mjs');
     expect(existsSync(schemaScript), 'generated schema.mjs must exist after build').toBe(true);
 
     const verify = spawnSync(NODE, [schemaScript, 'json-schema', 'verify'], { encoding: 'utf8', timeout: 5000 });
@@ -1873,7 +1873,7 @@ describe('CLI', () => {
   });
 
   it('schema exposes implemented forget scope filters', () => {
-    const schemaScript = resolve(dirname(fileURLToPath(import.meta.url)), '../skills/octocode-awareness/scripts/schema.mjs');
+    const schemaScript = resolve(dirname(fileURLToPath(import.meta.url)), '../../../skills/octocode-awareness/scripts/schema.mjs');
     expect(existsSync(schemaScript), 'generated schema.mjs must exist after build').toBe(true);
     const schema = spawnSync(NODE, [schemaScript, 'json-schema', 'forget_memory'], { encoding: 'utf8', timeout: 5000 });
     expect(schema.status).toBe(0);

@@ -13,7 +13,7 @@ import { fileURLToPath } from 'node:url';
  */
 
 const TEST_DIR = dirname(fileURLToPath(import.meta.url));
-const SKILL_MD = resolve(TEST_DIR, '../skills/octocode-awareness/SKILL.md');
+const SKILL_MD = resolve(TEST_DIR, '../../../skills/octocode-awareness/SKILL.md');
 
 function frontmatter(path: string): string {
   const text = readFileSync(path, 'utf8');

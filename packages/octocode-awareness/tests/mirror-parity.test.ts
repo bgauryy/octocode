@@ -35,11 +35,11 @@ function listFiles(root: string): string[] {
   return out.sort();
 }
 
-describe('package-owned skill mirrors', () => {
+describe('package-bundled skill mirrors', () => {
   for (const skill of PACKAGE_SKILLS) {
     for (const mirrorRoot of MIRROR_ROOTS) {
       it(`${skill} matches ${relative(REPO_ROOT, mirrorRoot)}`, () => {
-        const source = resolve(PACKAGE_ROOT, 'skills', skill);
+        const source = resolve(REPO_ROOT, 'skills', skill);
         const mirror = resolve(mirrorRoot, skill);
         expect(existsSync(mirror), `${mirror} should exist after awareness build`).toBe(true);
         expect(statSync(mirror).isDirectory()).toBe(true);

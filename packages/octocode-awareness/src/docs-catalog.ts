@@ -49,7 +49,7 @@ export function resolveSkillReferencesDir(here: string, cwd = process.cwd()): st
     join(here, 'skills', 'octocode-awareness', 'references'), // dist/index.js
     join(here, '..', 'skills', 'octocode-awareness', 'references'), // dist/bin or package src
     join(here, '..', '..', 'skills', 'octocode-awareness', 'references'),
-    join(cwd, 'packages', 'octocode-awareness', 'skills', 'octocode-awareness', 'references'),
+    join(here, '..', '..', '..', 'skills', 'octocode-awareness', 'references'), // repo-root source
     join(cwd, 'skills', 'octocode-awareness', 'references'),
   ];
   return candidates.find((candidate) => existsSync(candidate)) ?? candidates[0]!;

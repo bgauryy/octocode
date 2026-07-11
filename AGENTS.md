@@ -114,7 +114,9 @@ contracts; hooks automate lifecycle edges. SQLite is canonical. Treat generated
 never hand-edit projections, and run `repo inject` only when file readers need a
 refresh.
 
-Skill source: `packages/octocode-awareness/skills/octocode-awareness`. Rebuild after
+Skill source: `skills/octocode-awareness`. It ships with the
+`@octocodeai/octocode-awareness` CLI package; use the local package build in this
+monorepo and `npx @octocodeai/octocode-awareness` when installed. Rebuild after
 changes; never edit `.agents/skills/` or `dist/skills/` mirrors. Architecture and
 concept owners: [`packages/octocode-awareness/docs/README.md`](packages/octocode-awareness/docs/README.md).
 

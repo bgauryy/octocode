@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 
 const PACKAGE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const REPO_ROOT = resolve(PACKAGE_ROOT, '../..');
-const SKILL_ROOT = resolve(PACKAGE_ROOT, 'skills/octocode-awareness');
+const SKILL_ROOT = resolve(REPO_ROOT, 'skills/octocode-awareness');
 
 function read(path: string): string {
   return readFileSync(path, 'utf8');

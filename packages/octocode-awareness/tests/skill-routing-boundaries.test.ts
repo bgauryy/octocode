@@ -7,13 +7,14 @@ import { dirname } from 'node:path';
 
 const TEST_DIR = dirname(fileURLToPath(import.meta.url));
 const PACKAGE_ROOT = resolve(TEST_DIR, '..');
+const REPO_ROOT = resolve(PACKAGE_ROOT, '../..');
 
 function skill(path: string): string {
-  return readFileSync(resolve(PACKAGE_ROOT, 'skills', path, 'SKILL.md'), 'utf8');
+  return readFileSync(resolve(REPO_ROOT, 'skills', path, 'SKILL.md'), 'utf8');
 }
 
 function awarenessSkillFile(path: string): string {
-  return readFileSync(resolve(PACKAGE_ROOT, 'skills/octocode-awareness', path), 'utf8');
+  return readFileSync(resolve(REPO_ROOT, 'skills/octocode-awareness', path), 'utf8');
 }
 
 function description(markdown: string): string {
@@ -61,13 +62,13 @@ describe('skill routing boundaries', () => {
     expect(text).toContain('docs list --compact');
     expect(text).toContain('yarn workspace @octocodeai/octocode-awareness build');
     expect(text).toContain('scripts/smoke-multi-agent.mjs');
-    expect(existsSync(resolve(PACKAGE_ROOT, 'skills/octocode-skills/SKILL.md'))).toBe(true);
-    expect(existsSync(resolve(PACKAGE_ROOT, 'skills/octocode-skills/scripts/skill-review.mjs'))).toBe(true);
-    expect(existsSync(resolve(PACKAGE_ROOT, 'skills/octocode-skills/scripts/skill-lint.mjs'))).toBe(true);
+    expect(existsSync(resolve(REPO_ROOT, 'skills/octocode-skills/SKILL.md'))).toBe(true);
+    expect(existsSync(resolve(REPO_ROOT, 'skills/octocode-skills/scripts/skill-review.mjs'))).toBe(true);
+    expect(existsSync(resolve(REPO_ROOT, 'skills/octocode-skills/scripts/skill-lint.mjs'))).toBe(true);
   });
 
   it('keeps held-out repository intent behavior distinct from near misses', () => {
-    const evalPath = resolve(PACKAGE_ROOT, 'skills/octocode-awareness/evals/trigger-cases.json');
+    const evalPath = resolve(REPO_ROOT, 'skills/octocode-awareness/evals/trigger-cases.json');
     expect(existsSync(evalPath)).toBe(true);
     const cases = JSON.parse(readFileSync(evalPath, 'utf8')) as Record<string, Array<{ prompt: string; expect: boolean }>>;
     expect(cases['train_should_trigger']?.length).toBeGreaterThanOrEqual(10);
@@ -114,8 +115,8 @@ describe('skill routing boundaries', () => {
   });
 
   it('passes skill review with graph-routed progressive disclosure', () => {
-    const reviewer = resolve(PACKAGE_ROOT, 'skills/octocode-skills/scripts/skill-review.mjs');
-    const skillDir = resolve(PACKAGE_ROOT, 'skills/octocode-awareness');
+    const reviewer = resolve(REPO_ROOT, 'skills/octocode-skills/scripts/skill-review.mjs');
+    const skillDir = resolve(REPO_ROOT, 'skills/octocode-awareness');
     const result = spawnSync(process.execPath, [reviewer, skillDir, '--json'], { encoding: 'utf8' });
     expect(result.status, result.stderr).toBe(0);
     const report = JSON.parse(result.stdout) as { results: Array<{ findings: unknown[] }> };
@@ -123,12 +124,12 @@ describe('skill routing boundaries', () => {
   });
 
   it('does not ship retired routing stub directories', () => {
-    expect(existsSync(resolve(PACKAGE_ROOT, 'skills/octocode-agent-communication'))).toBe(false);
-    expect(existsSync(resolve(PACKAGE_ROOT, 'skills/octocode-reflection'))).toBe(false);
+    expect(existsSync(resolve(REPO_ROOT, 'skills/octocode-agent-communication'))).toBe(false);
+    expect(existsSync(resolve(REPO_ROOT, 'skills/octocode-reflection'))).toBe(false);
   });
 
   it('keeps generated runtime scripts only in the primary skill', () => {
-    expect(existsSync(resolve(PACKAGE_ROOT, 'skills/octocode-awareness/scripts/awareness.mjs'))).toBe(true);
+    expect(existsSync(resolve(REPO_ROOT, 'skills/octocode-awareness/scripts/awareness.mjs'))).toBe(true);
   });
 
   it('keeps standalone guidance portable outside the monorepo', () => {

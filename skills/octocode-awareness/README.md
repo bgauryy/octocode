@@ -1,6 +1,12 @@
 # Octocode Awareness Skill
 
-Agent operating skill for always-on workspace work: awareness, collaboration,
+This Agent Skill and the `octocode-awareness` CLI ship together in the
+`@octocodeai/octocode-awareness` npm package. The public CLI is
+`npx @octocodeai/octocode-awareness`; in this monorepo, build and run the CLI from
+`packages/octocode-awareness` while editing this skill at repo-root
+`skills/octocode-awareness`.
+
+The skill provides always-on workspace awareness, collaboration,
 learning, memory/wiki, bookkeeping, housekeeping, locks, verification, hooks,
 reflection, and repo context. Users get a compact lobby; developers get
 deterministic scripts, schemas, host hooks, and a canonical-source build workflow.
@@ -9,7 +15,7 @@ The operational model is a Homeostatic Awareness Loop: sense shared SQLite/hook
 state, compare it with bounded targets, recommend the smallest guarded correction,
 then re-measure. “Living system” is a metaphor for adaptive repository maintenance,
 not sentience or autonomous authority. Human-facing details live in
-[THESIS.md](../../docs/THESIS.md); the skill lobby routes agents to focused references.
+[THESIS.md](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-awareness/docs/THESIS.md); the skill lobby routes agents to focused references.
 
 ## Install
 
@@ -102,7 +108,7 @@ From the monorepo:
 yarn workspace @octocodeai/octocode-awareness build
 yarn workspace @octocodeai/octocode-awareness test:quiet
 node skills/octocode-skills/scripts/skill-review.mjs \
-  packages/octocode-awareness/skills/octocode-awareness
+  skills/octocode-awareness
 ```
 
 Build mirrors this skill to package `dist/skills/` and local `.agents/skills/`.

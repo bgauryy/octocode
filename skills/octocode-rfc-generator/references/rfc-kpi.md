@@ -1,65 +1,46 @@
-# KPI.md Template — Success & Verification
+# KPI.md Template — Success and Verification
 
-`KPI.md` is the **verification document**: it outlives the ship date and answers "how do we know the RFC *and* its implementation actually worked?"
-KPI.md is more than dashboards: it holds the **acceptance criteria to check**, the **measurable success signals**, and the **traceability matrix** that binds the document set and detects drift.
+Load when defining acceptance and post-ship success. Why: bind RFC goals to testable behavior, measurable outcomes, guardrails, and a decision rule.
+Reference `RFC.md` goals; never restate them.
 
-This file **references `RFC.md` goals — it does not restate them.** Each goal in `RFC.md` §Goals maps to at least one user story and one measurable signal here.
+````markdown
+# Success and Verification: {Title}
 
-```markdown
-# Success & Verification: {Title}
+> Verifies `RFC.md` §Goals and the `IMPLEMENTATION.md` build.
 
-> Verifies `RFC.md` §Goals and the `IMPLEMENTATION.md` build. Goals are referenced, not restated.
+## User Stories
+- As a {persona}, I want {capability}, so that {benefit}. → RFC goal #{n}
 
-## User Stories to Check
-
-- **As a** {persona}, **I want** {capability}, **so that** {benefit}.  (→ `RFC.md` §Goals #{n})
-
-## Acceptance Criteria (Gherkin)
-
-Testable pass/fail conditions — these double as the post-ship verification script.
-
-\```gherkin
+## Acceptance Criteria
+```gherkin
 Feature: {feature}
   Scenario: {name}
     Given {known state}
     When {action}
-    Then {observable expected outcome}
-\```
-
-## Definition of Done
-
-Whole-feature quality bar (applies on top of per-story criteria):
-- [ ] Acceptance scenarios pass
-- [ ] Tests added and green (see `IMPLEMENTATION.md` V&V)
-- [ ] Docs and `RESOURCES.md` updated
-- [ ] Rolled out per `IMPLEMENTATION.md`
-
-## Success Metrics
-
-Never a single metric — pair a system/telemetry signal with a perceptual/qualitative one, and name what must *not* regress.
-
-| Metric | Type | Baseline | Target | Window | Source |
-|--------|------|----------|--------|--------|--------|
-| {primary outcome} | lagging (did it work) | {value} | {value} | {e.g. 4 weeks} | {measurement} |
-| {driver} | leading (predicts outcome) | {value} | {value} | {window} | {measurement} |
-| {guardrail} | counter-metric (must not regress) | {value} | ≥ {floor} | {window} | {measurement} |
-
-_Delivery health (optional, for shipped code):_ note any DORA signal (change-fail rate, lead time, recovery time) that must not degrade.
-
-## Decision Rule
-
-- **Success if** {primary metric ≥ target within window}.
-- **Roll back / iterate if** {metric < X after N period} — mirror the `IMPLEMENTATION.md` rollback trigger.
-
-## Traceability Matrix
-
-The anti-drift, anti-rot spine. Every `RFC.md` requirement must appear here, mapped forward to a check and a post-ship status.
-
-| RFC requirement (§) | User story | Acceptance criteria | Verification method | Post-ship status |
-|---|---|---|---|---|
-| {req} | {story} | {Gherkin scenario} | {test / metric / manual} | pending / pass / fail |
+    Then {observable outcome}
 ```
 
-> Naming note: the file is `KPI.md` but its H1 is "Success & Verification".
-> Its job spans acceptance criteria, one-time post-ship verification, and ongoing metrics — not dashboards alone.
-> A stale KPI file asserting untracked targets is worse than none. Keep the traceability matrix current or mark rows `pending`.
+## Definition of Done
+- [ ] Acceptance scenarios pass
+- [ ] V&V checks pass
+- [ ] Documentation/resources updated
+- [ ] Rollout completed per implementation plan
+
+## Success Metrics
+| Metric | Type | Baseline | Target | Window | Source |
+|---|---|---|---|---|---|
+| {primary outcome} | lagging | | | | |
+| {driver} | leading | | | | |
+| {must-not-regress} | guardrail | | | | |
+
+## Decision Rule
+- Success if {primary reaches target within window and guardrails hold}.
+- Roll back or iterate if {threshold/condition}; mirror the implementation rollback trigger.
+
+## Traceability
+| RFC requirement (§) | Story | Acceptance check | Verification | Post-ship status |
+|---|---|---|---|---|
+````
+
+Gate: every RFC requirement has a story, pass/fail check, verification method, and current status.
+Use at least one outcome, one leading signal, and one guardrail; mark untracked or stale rows pending rather than asserting success.

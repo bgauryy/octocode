@@ -3,7 +3,7 @@ import type { FileContentQuerySchema } from '@octocodeai/octocode-core/schemas';
 import type { MinifyMode } from '../../scheme/fields.js';
 
 type FileContentQuery = z.infer<typeof FileContentQuerySchema>;
-import type { PaginationInfo } from '../../utils/core/types.js';
+import type { PaginationInfo } from '../../types/toolResults.js';
 
 export type FileContentExecutionQuery = FileContentQuery & {
   noTimestamp?: boolean;

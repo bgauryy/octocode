@@ -375,12 +375,13 @@ function selectCommand(argv: string[]): { command: string | undefined; rest: str
 
 function packageSkillScriptPath(...segments: string[]): string {
   const here = dirname(fileURLToPath(import.meta.url));
-  // Prefer dist/skills/ (self-contained bundle) over root skills/ (source tree).
+  // Prefer dist/skills/ (self-contained bundle) over repo-root skills/ (source tree).
   // dist/skills/ is populated by build.mjs so dist/ is fully self-contained for
   // CLI installs and npm consumers that only ship dist/.
   const candidates = [
     join(here, '..', 'skills', 'octocode-awareness', 'scripts'),   // dist/skills/ — bundled, preferred
-    join(here, '..', '..', 'skills', 'octocode-awareness', 'scripts'), // <packageRoot>/skills/ — source fallback
+    join(here, '..', '..', '..', 'skills', 'octocode-awareness', 'scripts'), // package bin/ or dist/ source fallback
+    join(here, '..', '..', '..', '..', 'skills', 'octocode-awareness', 'scripts'), // dist/bin source fallback
     here, // dist/bin/ — last resort
   ];
   const scriptsDir = candidates.find((candidate) =>

@@ -30,7 +30,7 @@ Flow: `UNDERSTAND → DISCOVER → INSPECT → JUDGE → RECOMMEND → USER GATE
 - Use `octocode-awareness` for shared-repo edits; `octocode-rfc-generator` before a large skill-system redesign.
 
 ## Scripts and done gate
-- Run `scripts/skill-review.mjs` after any create/edit — zero ERROR is required; `scripts/skill-lint.mjs` is its compatibility alias.
+- Run `scripts/skill-review.mjs` after any create/edit — zero ERROR is required.
 - Run `scripts/skill-sync.mjs` only after a dry-run and human approval — synchronize one source safely.
 
 ## Installation

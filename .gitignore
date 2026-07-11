@@ -25,13 +25,12 @@ coverage
 !/skills/octocode-research/output/
 # Build artifact injected by skills/scripts/sync.mjs — regenerated from packages/octocode-config/dist/
 /skills/*/scripts/octocode-config.mjs
-# Package-owned awareness skill mirrors regenerated from packages/octocode-awareness/skills/.
+# Canonical Agent Skills live here; generated scripts have targeted ignores above.
 /skills/octocode-agent-communication/
-/skills/octocode-awareness/
 /skills/octocode-reflection/
-# Vendored at packages/octocode-awareness build from repo-root skills/octocode-skills.
-# Ships on npm via package files skills/**; keep out of git.
-/packages/octocode-awareness/skills/octocode-skills/
+# Legacy package-local skill staging; the Awareness package now bundles repo-root
+# skills/octocode-awareness and skills/octocode-skills directly into dist/skills/.
+/packages/octocode-awareness/skills/
 # Build artifact regenerated from root skills/ + packages/octocode-awareness/skills/.
 /packages/octocode-pi-extension/skills/
 # Bundled skills copied into the octocode CLI package during build/prepack.

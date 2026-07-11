@@ -2868,7 +2868,8 @@ function resolveSkillReferencesDir(here, cwd = process.cwd()) {
     join3(here, "..", "skills", "octocode-awareness", "references"),
     // dist/bin or package src
     join3(here, "..", "..", "skills", "octocode-awareness", "references"),
-    join3(cwd, "packages", "octocode-awareness", "skills", "octocode-awareness", "references"),
+    join3(here, "..", "..", "..", "skills", "octocode-awareness", "references"),
+    // repo-root source
     join3(cwd, "skills", "octocode-awareness", "references")
   ];
   return candidates.find((candidate) => existsSync(candidate)) ?? candidates[0];
@@ -11422,8 +11423,10 @@ function packageSkillScriptPath(...segments) {
   const candidates = [
     join9(here, "..", "skills", "octocode-awareness", "scripts"),
     // dist/skills/ — bundled, preferred
-    join9(here, "..", "..", "skills", "octocode-awareness", "scripts"),
-    // <packageRoot>/skills/ — source fallback
+    join9(here, "..", "..", "..", "skills", "octocode-awareness", "scripts"),
+    // package bin/ or dist/ source fallback
+    join9(here, "..", "..", "..", "..", "skills", "octocode-awareness", "scripts"),
+    // dist/bin source fallback
     here
     // dist/bin/ — last resort
   ];

@@ -26,6 +26,7 @@ import { LOCAL_TOOL_ERROR_CODES } from '../../errors/localToolErrors.js';
 import { fallbackOnBestEffortFailure } from '../../utils/core/bestEffort.js';
 import { attachRawResponseChars } from '../../utils/response/charSavings.js';
 import { markdownHeadingOutlineToText } from '../../utils/markdownOutline.js';
+import { buildContinueCharsContinuation } from '../../scheme/pagination.js';
 
 type FileStats = NonNullable<Awaited<ReturnType<typeof stat>>>;
 type ContentView = 'none' | 'standard' | 'symbols';
@@ -526,20 +527,15 @@ function paginateContentWindow(
 
   // Ready continuation query for the next char page. Same shape convention as
   // localSearchCode's `next` map (see ripgrepResultBuilder buildSearchNextMap).
-  const next =
-    pagination.hasMore && pagination.nextCharOffset !== undefined
-      ? {
-          continueChars: {
-            tool: 'localGetFileContent' as const,
-            query: {
-              path: queryPath,
-              charOffset: pagination.nextCharOffset,
-              charLength: effectiveCharLength ?? pagination.charLength,
-              minify: query.minify,
-            },
-          },
-        }
-      : undefined;
+  const next = buildContinueCharsContinuation(
+    'localGetFileContent',
+    {
+      path: queryPath,
+      charLength: effectiveCharLength ?? pagination.charLength,
+      minify: query.minify,
+    },
+    pagination
+  ) as ContentWindow['next'];
 
   return {
     windowedContent: pagination.paginatedContent,

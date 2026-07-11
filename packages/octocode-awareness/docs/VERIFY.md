@@ -124,7 +124,7 @@ yarn workspace @octocodeai/octocode-awareness typecheck
 yarn workspace @octocodeai/octocode-awareness test
 yarn workspace @octocodeai/octocode-awareness test:smoke
 node skills/octocode-skills/scripts/skill-review.mjs \
-  packages/octocode-awareness/skills/octocode-awareness
+  skills/octocode-awareness
 node packages/octocode-awareness/dist/bin/awareness.js \
   maintenance self-test --compact
 ```

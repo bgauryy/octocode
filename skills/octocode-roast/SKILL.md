@@ -27,7 +27,6 @@ If there are 20+ issues, triage the top 10 by impact and confidence, then separa
 ## Smart routes — load only what the current step needs
 - When running a complete review, load `references/roast-playbook.md` — get inspection, autopsy, output, and verification gates.
 - When categorizing generic smells, load `references/sin-catalog.md`; for language-specific patterns or structural queries load `references/language-sins.md` — choose evidence appropriate to the code.
-- When adapting intensity, persona, audience, or an awkward target, load `references/tone-personas.md` — stay sharp without becoming abusive or unsafe.
 - When the user chooses repairs, load `references/redemption-flow.md` — turn findings into consent-gated fixes and verification.
 - When scope spans a monorepo or many categories, load `references/parallel-roasting.md` — divide inspection without duplicating findings.
 - When research tooling is needed, load `references/octocode.md` and use `octocode-research` if available — verify before joking; mark reduced coverage otherwise.

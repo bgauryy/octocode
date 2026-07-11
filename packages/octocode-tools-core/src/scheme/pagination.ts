@@ -96,6 +96,42 @@ export function buildNextPageContinuation(
   };
 }
 
+/**
+ * Build `next.continueChars` for file-content tools when a char window has more.
+ * Shared by ghGetFileContent finalizer and localGetFileContent.
+ */
+export function buildContinueCharsContinuation<TTool extends string>(
+  tool: TTool,
+  query: Record<string, unknown>,
+  pagination: {
+    hasMore?: boolean;
+    nextCharOffset?: number;
+    charLength?: number;
+  } | null | undefined,
+  options?: { includeCharLength?: boolean }
+): { continueChars: ToolContinuation & { tool: TTool } } | undefined {
+  if (
+    !pagination ||
+    !pagination.hasMore ||
+    pagination.nextCharOffset === undefined
+  ) {
+    return undefined;
+  }
+  const includeCharLength = options?.includeCharLength !== false;
+  return {
+    continueChars: {
+      tool,
+      query: {
+        ...query,
+        charOffset: pagination.nextCharOffset,
+        ...(includeCharLength && pagination.charLength !== undefined
+          ? { charLength: pagination.charLength }
+          : {}),
+      },
+    },
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Diagnostic — structured tool-level diagnostic message
 // ---------------------------------------------------------------------------

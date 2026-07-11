@@ -51,10 +51,4 @@ export const GenericToolResultRowSchema = makeToolResultRowSchema(
 );
 
 // Shared envelope fields present on every BulkToolOutput.
-export const bulkOutputEnvelopeFields = {
-  base: z.string().optional(),
-  shared: z
-    .record(z.string(), z.union([z.string(), z.number(), z.boolean()]))
-    .optional(),
-  responsePagination: ResponsePaginationSchema,
-} as const;
+export const bulkOutputEnvelopeFields = responseEnvelopeFields;

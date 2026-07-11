@@ -3,7 +3,7 @@
 The meta-layer: how to think, plan, measure, delegate, and stay efficient across a whole research task. `algorithm.md` owns the per-query route; this owns the campaign around it.
 
 ## State of Mind
-- Hold the question, not a tool. You are proving or disproving a claim, not "running a search."
+- Hold the question above the tool. Prove or disprove a claim; search is only a means.
 - Every result is a lead until a second, stronger grade agrees. One snippet, one grep, one LSP zero is never a conclusion.
 - Keep two live hypotheses. Look for the cheapest step that KILLS one, not the step that flatters your favorite.
 - Distrust silence: empty / zero / unsupported means "this lane can't see it," not "it isn't there." Say which one you mean.
@@ -24,8 +24,8 @@ Before trusting any surface, learn what is actually available:
 ## Measure the Research
 Progress is claims resolved, not calls made. Each iteration ask:
 - Did this change a confidence label or kill a hypothesis? If not, change surface or query shape — don't repeat the same call.
-- Coverage: for a nontrivial claim, did I read at least two of structure / stream / connections? Did I cross-check any "impact / unused / only / safe / absent" claim across lanes, including tests, scripts, and configs?
-- Done when: the framed question is answered with grounded evidence and the alternate is killed; or no cheap step can change the conclusion; or the budget is hit. Then report remaining gaps honestly rather than padding certainty.
+- Coverage: for a nontrivial claim, inspect at least two of structure, stream, and connections. Cross-check impact, unused, only, safe, or absent claims across code, tests, scripts, and configs.
+- Done when grounded evidence answers the question and rejects the alternative, no cheap step can change the conclusion, or the budget is hit. Report remaining gaps without padding certainty.
 
 ## Take Several Directions (subagents)
 When a question is broad, contested, or splits into independent probes, fan out parallel subagents instead of one serial chain:

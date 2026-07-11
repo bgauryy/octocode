@@ -58,7 +58,8 @@ npx octocode skill --add \
 # after approval, rerun with --force
 ```
 
-The npm package is installed normally from npm. For the Agent Skill, use the
+The npm package is one product with two surfaces: the
+`npx @octocodeai/octocode-awareness` CLI and the bundled Agent Skill. For the skill, use the
 packaged `dist/skills/octocode-awareness` path; do not use a skill installer’s
 registry/name lookup.
 
@@ -129,7 +130,7 @@ octocode-awareness schema commands --compact
 - [docs/HARNESS.md](docs/HARNESS.md) — maintainer invariants and verification matrix
 - [docs/VERIFY.md](docs/VERIFY.md) — any-agent end-to-end health and release check
 - [docs/REFERENCES.md](docs/REFERENCES.md) — evidence, prior art, and design limits
-- [skills/octocode-awareness/SKILL.md](skills/octocode-awareness/SKILL.md) — agent lobby
+- [skills/octocode-awareness/SKILL.md](https://github.com/bgauryy/octocode-mcp/blob/main/skills/octocode-awareness/SKILL.md) — agent lobby
 
 The mechanical command source of truth is always:
 
@@ -147,6 +148,5 @@ yarn workspace @octocodeai/octocode-awareness test:smoke
 yarn workspace @octocodeai/octocode-awareness pack:check
 ```
 
-Edit the canonical skill only under
-`packages/octocode-awareness/skills/octocode-awareness`; the package build refreshes
+Edit the canonical skill only under repo-root `skills/octocode-awareness`; the package build refreshes
 `dist/` and `.agents/skills/`. The Pi-extension build owns its packaged copy.

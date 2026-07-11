@@ -28,7 +28,7 @@ use exclusivity only for sensitive, non-mergeable work and never bypass a confli
 ## Package Constraints
 
 - Edit runtime/CLI in `src/**`, `bin/**`, and `scripts/schema.mjs`.
-- Edit the canonical skill only in `skills/octocode-awareness/**`.
+- Edit the canonical skill only in repo-root `skills/octocode-awareness/**`.
 - Edit package guidance in `README.md` and `docs/**`.
 - Never hand-edit `dist/**`, `.agents/skills/**`, vendored
   `skills/octocode-skills/**`, or generated script copies.
@@ -63,7 +63,7 @@ Skill changes also require:
 
 ```bash
 node skills/octocode-skills/scripts/skill-review.mjs \
-  packages/octocode-awareness/skills/octocode-awareness
+  skills/octocode-awareness
 ```
 
 Preserve failed-check evidence. Record only reusable learning. The executable user

@@ -1,70 +1,49 @@
 # IMPLEMENTATION.md Template — Build Document
 
-`IMPLEMENTATION.md` is the **build document**: implementer-facing and **live** during the work. Its distinctive job is to **close every open question left in `RFC.md` using `octocode-research` evidence**, then lay out a dependency-ordered, verifiable plan.
-
-This file **references `RFC.md` section anchors — it does not restate goals or scope.** Steps trace back to RFC design decisions; success metrics live in `KPI.md`.
-
+Load when writing the live implementer plan. Why: close every RFC question with evidence, then order build and verification by dependency.
+Reference `RFC.md` anchors; never restate goals or scope. Success metrics stay in `KPI.md`.
 ```markdown
 # Implementation: {Title}
 
-> Decision: see `RFC.md` §Summary / §Rationale. This file does not restate goals — it references them.
+> Decision: `RFC.md` §Summary / §Rationale
 
-## Resolved Questions (were open in RFC.md)
-
-Every `RFC.md` open question, closed with evidence or explicitly deferred. Nothing here may stay `uncertain`.
-
-| Open question (RFC §) | Resolution | Evidence (`octocode-research`) | Confidence |
+## Resolved Questions
+| RFC open question (§) | Resolution or explicit deferral | Evidence | Confidence |
 |---|---|---|---|
-| {question} | {answer} | [`src/x.ts:42`](https://github.com/owner/repo/blob/main/src/x.ts#L42) — {why it settles the question} | confirmed / likely |
-| {question} | Deferred — {reason}; revisit when {trigger} | — | n/a |
+
+Nothing remains uncertain. A deferral names reason and revisit trigger.
 
 ## Approach
-
-{Which recommendation from `RFC.md` §Rationale is being implemented, in one or two lines.}
-
-## Steps (dependency-ordered)
-
-Ordered so each step is shippable and reversible where possible; foundational/riskiest pieces land where they can be validated cheaply. No time estimates.
-
+One or two lines linking the selected RFC recommendation.
+## Steps
 ### Phase 1: {name}
-- [ ] Step — `path/to/file:line` (traces to `RFC.md` §Reference-Level)
-- [ ] Step — `path/to/file`
-
+- [ ] {dependency-ordered, shippable step} — `path:line` — RFC §{anchor}
 ### Phase 2: {name}
-- [ ] Step — `path/to/file`
+- [ ] {next step} — `path:line` — RFC §{anchor}
 
-## Files / APIs / Contracts Touched
-
-- `path/to/file:line` — what changes and why; cite the blast radius returned by `octocode-research`.
+## Files, APIs, and Contracts
+| Surface | Change | Blast-radius evidence | Compatibility |
+|---|---|---|---|
 
 ## Risk Mitigations
+| RFC risk/pre-mortem | Preventive action | Detection |
+|---|---|---|
 
-{Concrete action per risk — traces to `RFC.md` §Drawbacks / §Pre-mortem.}
-
-## Test and Verification Plan (V&V)
-
-Verification = did we build it to the design? Validation = did it move the KPIs (see `KPI.md`)?
-
+## Test and Verification Plan
 | Type | Scope | Approach | Command |
-|------|-------|----------|---------|
-| Unit | {components} | {approach} | `{command}` |
-| Integration | {flows} | {approach} | `{command}` |
-| Performance | {metrics} | {approach} | `{command}` |
+|---|---|---|---|
 
-## Rollout / Migration / Rollback
+Verification asks whether the build matches design; validation asks whether `KPI.md` moved.
 
-- **Sequencing:** ordered, each step with its blast radius and the observable signal that it's safe to proceed.
-- **Flags / gating:** {feature flags? canary? percentage rollout?}
-- **Rollback trigger:** {condition that reverses rollout} — mirror in `KPI.md` decision rule.
-- **Owner / approver:** {person or team}.
+## Rollout, Migration, and Rollback
+- Sequence and observable proceed signal
+- Flags/canary/percentage gate
+- Rollback trigger mirrored in `KPI.md`
+- Owner/approver
 
-## References
-
-Every reference states **how it supports the plan**. Local claims need `file:line`; external claims need a GitHub path/line or PR/commit link.
-Use `RESOURCES.md` for the full source inventory; keep this section to implementation-critical references.
-
-- [`src/auth/middleware.ts:42`](https://github.com/owner/repo/blob/main/src/auth/middleware.ts#L42) — current behavior the plan extends.
-- [owner/repo#123](https://github.com/owner/repo/pull/123) — prior change showing the rollout pattern used here.
+## Critical References
+- {exact local or external anchor} — how it constrains the plan
 ```
 
-> **Tip:** When closing an open question, delegate the research loop to `octocode-research`; a resolution without a citation is not resolved.
+Gate: every RFC question is resolved with `octocode-research` evidence or explicitly deferred. Steps have no time estimates and remain reversible where possible.
+Use `RESOURCES.md` for the full inventory.
