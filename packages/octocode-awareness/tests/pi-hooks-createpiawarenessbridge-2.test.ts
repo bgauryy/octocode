@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -20,6 +20,19 @@ function createTask(db: Parameters<typeof createTaskBase>[0], params: TestTaskPa
 }
 
 describe('createPiAwarenessBridge', () => {
+  // Pi resolves agent id from OCTOCODE_AGENT_ID before per-session identity (see
+  // getPiAwarenessAgentId), so an ambient value would collapse the distinct
+  // per-session/per-claim identities these tests exercise into one agent.
+  let previousAgentId: string | undefined;
+  beforeEach(() => {
+    previousAgentId = process.env.OCTOCODE_AGENT_ID;
+    delete process.env.OCTOCODE_AGENT_ID;
+  });
+  afterEach(() => {
+    if (previousAgentId === undefined) delete process.env.OCTOCODE_AGENT_ID;
+    else process.env.OCTOCODE_AGENT_ID = previousAgentId;
+  });
+
   it('keeps Pi fallback active until session shutdown finalizes it once', async () => {
     const tmp = tempDb();
     try {

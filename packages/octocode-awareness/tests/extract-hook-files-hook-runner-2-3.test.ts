@@ -82,6 +82,7 @@ it('prefers explicit payload agent ids over shared session ids', () => {
       const env = {
         OCTOCODE_MEMORY_HOME: memoryHome,
         OCTOCODE_NO_DIGEST: '1',
+        OCTOCODE_AGENT_ID: '',
       };
       const result = runScript(
         HOOK_RUNNER,

@@ -226,6 +226,7 @@ describe('core branch coverage helpers', () => {
 
   it('derives Pi awareness ids from env, session files, and fallbacks', () => {
     const previous = process.env.OCTOCODE_AGENT_ID;
+    delete process.env.OCTOCODE_AGENT_ID;
     const dir = mkdtempSync(join(tmpdir(), 'oc-pi-id-'));
     try {
       const ctx = { sessionManager: { getSessionFile: () => join(dir, 'session.jsonl') } };
