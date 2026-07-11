@@ -31,10 +31,8 @@ import {
 import {
   parseSetupScope,
   getAppendSystemTarget,
-  splitArgs,
 } from './utils.js';
 import { registerOctocodeTools, registerUniqueTool } from './tools/octocode-tools.js';
-import { executeMemoryOperation } from './tools/memory.js';
 import { registerContextTools } from './tools/context-tools.js';
 import { cleanupSpawnedAgentsForShutdown, registerAgentTools } from './tools/agent-tools.js';
 import { registerWebTool } from './tools/web-tool.js';
@@ -66,7 +64,7 @@ export {
   MANAGED_BLOCK_START,
   MANAGED_BLOCK_END,
 } from './constants.js';
-export { getAssetPaths, getOctocodeMemoryHome, readTextIfExists, listBundledSkills, getInstallSource, getCLIPath } from './assets.js';
+export { getAssetPaths, getAwarenessCLIPath, readTextIfExists, listBundledSkills, getInstallSource, getCLIPath } from './assets.js';
 export {
   shouldAppendSystemPrompt,
   renderSystemPromptAddendum,
@@ -192,10 +190,11 @@ export function formatStatus(baseDir?: string): string {
     'Octocode Pi extension',
     `system prompt: ${promptStatus}`,
     `skills: ${skills.length}${skills.length > 0 ? ` (${skills.join(', ')})` : ''}`,
-    `memory DB: ${dbStatus}`,
-    `memory module: @octocodeai/octocode-awareness (direct import)`,
+    `awareness DB: ${dbStatus}`,
+    `awareness runtime: @octocodeai/octocode-awareness (direct import)`,
+    `awareness CLI: ${getAwarenessCLIPath(baseDir)} — use via: node $OCTOCODE_AWARENESS_CLI <noun> <verb>`,
     `octocode tools: ${formatOctocodeToolStatus()}`,
-    `bundled CLI: ${getCLIPath()} — use via: node $OCTOCODE_CLI <command>`,
+    `bundled CLI: ${getCLIPath(baseDir)} — use via: node $OCTOCODE_CLI <command>`,
     `disabled/replaced built-ins: overridden: ${OVERRIDDEN_BUILTIN_TOOL_NAMES.join(', ')}${DISABLED_BUILTIN_TOOL_NAMES.length ? `; removed: ${DISABLED_BUILTIN_TOOL_NAMES.join(', ')}` : ''}`,
     `web search: ${searchStatus}`,
     `package assets: ${paths.baseDir}`,
@@ -212,6 +211,7 @@ export interface ExtensionHarness {
   extensionCommands: string[];
   skills: string[];
   cliNote: string;
+  awarenessCliNote: string;
 }
 
 export function listExtensionHarness(baseDir?: string): ExtensionHarness {
@@ -226,11 +226,10 @@ export function listExtensionHarness(baseDir?: string): ExtensionHarness {
       '/octocode-harness',
       '/octocode-setup',
       '/octocode-skills-update',
-      '/octocode-memory-digest',
-      '/octocode-memory-forget',
     ],
     skills: listBundledSkills(baseDir),
-    cliNote: `bundled CLI at ${getCLIPath()} — run via: node $OCTOCODE_CLI <command>`,
+    cliNote: `bundled CLI at ${getCLIPath(baseDir)} — run via: node $OCTOCODE_CLI <command>`,
+    awarenessCliNote: `bundled Awareness CLI at ${getAwarenessCLIPath(baseDir)} — run via: node $OCTOCODE_AWARENESS_CLI <noun> <verb>`,
   };
 }
 
@@ -247,6 +246,7 @@ function renderExtensionHarness(baseDir?: string): string {
       : 'builtin passthrough: (none)',
     `extension commands: ${harness.extensionCommands.join(', ')}`,
     `CLI: ${harness.cliNote}`,
+    `Awareness CLI: ${harness.awarenessCliNote}`,
     `skills (${harness.skills.length}): ${harness.skills.join(', ')}`,
   ].join('\n');
 }
@@ -321,111 +321,6 @@ async function installAppendSystem(args: string, ctx: PiContext | undefined): Pr
       'error',
     );
   }
-}
-
-function parseMemoryCommandArgs(args: string): Record<string, unknown> {
-  const tokens = splitArgs(args);
-  const params: Record<string, unknown> = {};
-  const tags: string[] = [];
-  const memoryIds: string[] = [];
-  for (let i = 0; i < tokens.length; i += 1) {
-    const token = tokens[i];
-    const next = tokens[i + 1];
-    switch (token) {
-      case '--apply':
-        params['apply'] = true;
-        break;
-      case '--yes':
-        params['yes'] = true;
-        break;
-      case '--dry-run':
-        params['dry_run'] = true;
-        break;
-      case '--export-doc':
-        params['export_doc'] = true;
-        break;
-      case '--retention-days':
-        if (next) params['retention_days'] = Number(tokens[++i]);
-        break;
-      case '--workspace':
-        if (next) params['workspace_path'] = tokens[++i];
-        break;
-      case '--tag':
-        if (next) tags.push(tokens[++i]);
-        break;
-      case '--id':
-        if (next) memoryIds.push(tokens[++i]);
-        break;
-      case '--before':
-        if (next) params['before'] = tokens[++i];
-        break;
-      case '--max-importance':
-        if (next) params['max_importance'] = Number(tokens[++i]);
-        break;
-      default:
-        break;
-    }
-  }
-  if (tags.length) params['tags'] = tags;
-  if (memoryIds.length) params['memory_ids'] = memoryIds;
-  return params;
-}
-
-function memoryResultText(result: { content: Array<{ text: string }> }): string {
-  return result.content[0]?.text ?? '{}';
-}
-
-async function runMemoryDigestCommand(args: string, ctx: PiContext | undefined): Promise<void> {
-  const parsed = parseMemoryCommandArgs(args);
-  const apply = parsed['apply'] === true;
-  const params: Record<string, unknown> = {
-    ...parsed,
-    dry_run: !apply,
-    workspace_path: (parsed['workspace_path'] as string | undefined) ?? ctx?.cwd ?? process.cwd(),
-  };
-  delete params['apply'];
-  delete params['yes'];
-  if (apply) {
-    if (ctx?.hasUI) {
-      const ok = await confirm(ctx, 'Run memory digest?', 'This archives/prunes memory store rows. Continue?');
-      if (!ok) {
-        notify(ctx, 'Memory digest cancelled.', 'info');
-        return;
-      }
-    } else if (parsed['yes'] !== true) {
-      notify(ctx, 'Pass --yes with --apply to run memory digest outside the UI.', 'error');
-      return;
-    }
-  }
-  const result = executeMemoryOperation('digest', params, (commandCtx) => getAwarenessAgentId(commandCtx), ctx);
-  notify(ctx, `memory_digest ${apply ? 'applied' : 'preview'}: ${memoryResultText(result)}`, result.details && (result.details as { exit?: number }).exit ? 'error' : 'info');
-}
-
-async function runMemoryForgetCommand(args: string, ctx: PiContext | undefined): Promise<void> {
-  const parsed = parseMemoryCommandArgs(args);
-  const apply = parsed['apply'] === true;
-  const hasFilter = Boolean(parsed['memory_ids'] || parsed['tags'] || parsed['before'] || parsed['max_importance']);
-  if (!hasFilter) {
-    notify(ctx, 'memory_forget requires --id, --tag, --before, or --max-importance.', 'error');
-    return;
-  }
-  const params: Record<string, unknown> = { ...parsed, dry_run: !apply };
-  delete params['apply'];
-  delete params['yes'];
-  if (apply) {
-    if (ctx?.hasUI) {
-      const ok = await confirm(ctx, 'Apply memory forget?', 'This permanently deletes matching memories. Continue?');
-      if (!ok) {
-        notify(ctx, 'Memory forget cancelled.', 'info');
-        return;
-      }
-    } else if (parsed['yes'] !== true) {
-      notify(ctx, 'Pass --yes with --apply to delete memories outside the UI.', 'error');
-      return;
-    }
-  }
-  const result = executeMemoryOperation('forget', params, (commandCtx) => getAwarenessAgentId(commandCtx), ctx);
-  notify(ctx, `memory_forget ${apply ? 'applied' : 'preview'}: ${memoryResultText(result)}`, result.details && (result.details as { exit?: number }).exit ? 'error' : 'info');
 }
 
 function existingDirectory(filePath: string): string | null {
@@ -616,12 +511,12 @@ async function wireOctocodePiExtension(
     // (or Pi defaulting the full builtin set) cannot leave read/grep/find/ls active.
     disableBuiltinTools(pi);
 
-    // Memory/coordination is NOT registered as agent tools. The agent reaches
+    // Awareness is NOT duplicated as Pi tools or commands. The agent reaches
     // awareness state through the octocode-awareness CLI (node $OCTOCODE_AWARENESS_CLI …),
     // driven by the octocode-awareness skill; the lifecycle (file presence,
     // conflict block, verify gate, briefings, handoff) is automated by the
-    // awareness hooks wired above. Only the user-facing digest/forget slash
-    // commands still call executeMemoryOperation in-process.
+    // awareness hooks wired above. Memory remains available through that CLI
+    // (`memory recall`, `memory record`, `memory forget`) and its bundled skill.
   }
 
   if (!pi.registerCommand) return;
@@ -654,20 +549,6 @@ async function wireOctocodePiExtension(
     },
     handler: async (args, ctx) => {
       await installAppendSystem(args, ctx);
-    },
-  });
-
-  pi.registerCommand('octocode-memory-digest', {
-    description: 'Preview or apply memory store cleanup. Default is dry-run; pass --apply to mutate.',
-    handler: async (args, ctx) => {
-      await runMemoryDigestCommand(args, ctx);
-    },
-  });
-
-  pi.registerCommand('octocode-memory-forget', {
-    description: 'Preview or apply memory deletion by --id, --tag, --before, or --max-importance. Default is dry-run; pass --apply to mutate.',
-    handler: async (args, ctx) => {
-      await runMemoryForgetCommand(args, ctx);
     },
   });
 

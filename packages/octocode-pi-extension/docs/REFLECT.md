@@ -103,14 +103,16 @@ effect, and propose the smallest correction.
 
 ## Cleanup and projection
 
-User-owned maintenance is report-first:
+Awareness CLI maintenance is report-first:
 
-```text
-/octocode-memory-digest
-/octocode-memory-forget --tag EXPERIENCE --before 2026-01-01
+```bash
+node "$OCTOCODE_AWARENESS_CLI" maintenance digest \
+  --workspace "$PWD" --dry-run --compact
+node "$OCTOCODE_AWARENESS_CLI" memory forget \
+  --tag EXPERIENCE --before 2026-01-01 --dry-run --compact
 ```
 
-Both preview by default; `--apply` requires confirmation. After approved cleanup,
+Review the dry-run output before any mutation. After approved cleanup,
 refresh `.octocode/` only if file-based readers need current projections:
 
 ```bash

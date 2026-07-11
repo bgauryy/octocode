@@ -32,7 +32,7 @@ Cursor; `{ block: true }` for Pi. Correlation loss never marks success.
 | After | PostToolUse | postToolUse | tool result/end |
 | Brief | UserPromptSubmit | sessionStart | before agent start |
 | Verify | Stop/SubagentStop | stop/subagentStop | bounded agent-end reminder |
-| Finalize/capture | SessionEnd/PreCompact | sessionEnd/preCompact | shutdown/pre-compact |
+| Finalize/capture | SessionEnd (Claude) or PreCompact (Codex, no SessionEnd) | sessionEnd/preCompact | shutdown/pre-compact |
 
 Claude/Codex context uses event-named `hookSpecificOutput`. Cursor uses
 `additional_context` at session start and `agent_message` around tool use, but host

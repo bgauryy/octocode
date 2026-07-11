@@ -8,7 +8,7 @@ const section = (file: string): string => fs.readFileSync(path.join(dir, file), 
 export const authority = section('authority.md');
 export const thinkFirst = section('think-first.md');
 export const workMode = section('work-mode.md');
-export const memory = section('memory.md');
+export const awareness = section('awareness.md');
 export const tools = section('tools.md');
 export const searchAndResearch = section('search-and-research.md');
 export const octocodeCli = section('octocode-cli.md');

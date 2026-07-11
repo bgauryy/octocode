@@ -80,6 +80,8 @@ export interface RepoContextInjectParams extends AwarenessQueryParams {
   pruneOrphans?: boolean | null;
   prune_orphans?: boolean | null;
   check?: boolean | null;
+  /** Actual resolved store path for this run; reported verbatim as manifest source.canonical. */
+  dbPath?: string | null;
 }
 
 export interface RepoContextInjectResult {

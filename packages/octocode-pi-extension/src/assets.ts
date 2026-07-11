@@ -1,7 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { memoryHome as resolveMemoryHome } from '@octocodeai/octocode-awareness';
 
 const extensionDir = path.dirname(fileURLToPath(import.meta.url));
 
@@ -49,14 +48,6 @@ export function getAwarenessCLIPath(baseDir = extensionDir): string {
   return fs.existsSync(sourceMode) ? sourceMode : bundled;
 }
 
-/**
- * Awareness memory home: delegates to @octocodeai/octocode-awareness.
- * Kept as a named export for backward compat with external callers.
- */
-export function getOctocodeMemoryHome(): string {
-  return resolveMemoryHome();
-}
-
 export function readTextIfExists(filePath: string): string {
   try {
     return fs.readFileSync(filePath, 'utf8');
@@ -90,4 +81,3 @@ export function getInstallSource(baseDir = extensionDir): string {
   }
   return packageRoot;
 }
-

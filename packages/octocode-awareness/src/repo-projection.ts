@@ -3,6 +3,7 @@ import { existsSync, lstatSync, mkdirSync, readFileSync, renameSync, rmSync, wri
 import { isAbsolute, join, relative, resolve } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { ATTEND_COMPACT_BUDGET, AwarenessQueryParams, AwarenessQueryResult, AwarenessQueryRow, CSV_VIEWS, PROJECTION_MARKDOWN_BUDGETS, ProjectionMarkdownBudgetStatus, RepoContextInjectParams, RepoContextInjectResult, SCOPE_CACHE, WORKBOARD_BUDGET, limitOf, normalizeMode, utcNow } from './repo-model.js';
+import { resolveDbPath } from './db-runtime.js';
 import { queryAwareness, renderAwarenessHtml } from './repo-query.js';
 import { scopeFromParams } from './repo-scope.js';
 import { renderBookmarksDoc, renderDeveloperReviewDoc, renderReferenceDoc, renderRepoAgentsMd, renderRowsDoc } from './repo-docs.js';
@@ -302,7 +303,7 @@ export function injectRepoContext(db: DatabaseSync, params: RepoContextInjectPar
     repo: scope.repo,
     ref: scope.ref,
     source: {
-      canonical: '~/.octocode/memory/awareness.sqlite3',
+      canonical: params.dbPath ?? resolveDbPath(),
       projection: '.octocode',
       revision: sourceRevision,
       revision_algorithm: 'sha256:bounded-live-sections-v1',

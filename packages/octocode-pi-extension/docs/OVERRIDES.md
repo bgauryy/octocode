@@ -185,6 +185,6 @@ Exact `oldText` matching was never the bottleneck; the O(N·M) preview was.
 ## See also
 
 - [TOOLS.md](./TOOLS.md) — parameters and routing for every tool
-- [MEMORY_AGENT_FLOW.md](./MEMORY_AGENT_FLOW.md) — Awareness coordination around edits
+- [AWARENESS_AGENT_FLOW.md](./AWARENESS_AGENT_FLOW.md) — Awareness coordination around edits
 - Pi upstream: same-name `registerTool` override pattern in
   `@earendil-works/pi-coding-agent` extension docs

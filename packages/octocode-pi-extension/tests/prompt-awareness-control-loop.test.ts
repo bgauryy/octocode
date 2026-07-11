@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { memory, skills, thinkFirst, workMode } from '../src/prompts/sections/index.js';
+import { awareness, skills, thinkFirst, workMode } from '../src/prompts/sections/index.js';
 
-const loopPrompt = [thinkFirst, workMode, memory, skills].join('\n');
+const loopPrompt = [thinkFirst, workMode, awareness, skills].join('\n');
 
 describe('Awareness prompt control loop', () => {
   it('routes authorized changes through ordered phases with conditional tail work', () => {
@@ -27,26 +27,20 @@ describe('Awareness prompt control loop', () => {
 
   it('keeps recipes in the skill and makes persistence pressure-driven', () => {
     expect(skills).toMatch(/It owns plan\/task\/WORK.*recipes/);
-    expect(memory).toMatch(/only for reusable, verified future value/);
-    expect(memory).toMatch(/only when live reads measure pressure/);
-    expect(memory).toMatch(/pending verification.*declared check.*verify mark.*verify audit/);
-    expect(memory).toMatch(/stale memory.*octocode-memory-digest.*octocode-memory-forget/);
-    expect(memory).toMatch(/stale locks\/signals.*lock prune.*signal prune.*--dry-run/);
-    expect(memory).toMatch(/Dry-run cleanup first/);
-    expect(memory).toMatch(/never clean after every task/);
-    expect(memory).toMatch(/repo inject.*only when file readers need/);
-    expect(memory).toMatch(/SQLite\/live queries remain canonical/);
-    expect(memory).not.toMatch(/after work, run stale-memory/i);
-    expect(memory).not.toContain('GOTCHAS.md');
+    expect(awareness).toMatch(/skill owns routing and the CLI owns live state/);
+    expect(awareness).toMatch(/memory recall/);
+    expect(awareness).toMatch(/maintenance digest/);
+    expect(awareness).toMatch(/repo inject.*only when file readers need/);
+    expect(awareness).toMatch(/SQLite and live CLI queries remain canonical/);
+    expect(awareness).not.toMatch(/octocode-memory-(digest|forget)/);
     expect(skills).not.toMatch(/then verify, hand off, and clean stale state/);
   });
 
   it('preserves the operational command surface without prompt growth', () => {
     for (const command of [
-      'attend', 'task ready', 'work start', 'work start --exclusive',
-      'memory recall', 'refinement get', 'task submit', 'verify mark', 'verify audit',
-      'memory record', 'reflect record', '/octocode-memory-digest',
-      '/octocode-memory-forget', 'repo inject',
+      'attend', 'memory recall', 'memory record', 'task submit',
+      'verify mark', 'verify audit', 'maintenance digest', 'memory forget',
+      'repo inject',
     ]) {
       expect(loopPrompt).toContain(command);
     }

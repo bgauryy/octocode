@@ -66,7 +66,7 @@ node "$OCTOCODE_AWARENESS_CLI" verify mark \
 ```
 
 Do not batch-verify another agent’s work. See
-[docs/MEMORY_AGENT_FLOW.md](docs/MEMORY_AGENT_FLOW.md) and
+[docs/AWARENESS_AGENT_FLOW.md](docs/AWARENESS_AGENT_FLOW.md) and
 [docs/REFLECT.md](docs/REFLECT.md).
 
 ## Native Octocode tools (13)
@@ -106,23 +106,23 @@ Awareness commands such as `attend`, `task ready`, `work start`, `signal list`,
 `memory recall`, and `reflect record` are invoked through
 `$OCTOCODE_AWARENESS_CLI`, not registered again as tools.
 
-## Slash commands (6)
+## Slash commands (4)
 
 | Command | Purpose |
 |---|---|
-| `/octocode-status` | Health, prompt, skills, memory home, and providers. |
+| `/octocode-status` | Health, prompt, skills, Awareness runtime, and providers. |
 | `/octocode-harness` | Exact registered surface inventory. |
 | `/octocode-setup` | Install/update the managed system-prompt block; `--global` targets user scope. |
 | `/octocode-skills-update` | Refresh bundled skill installs. |
-| `/octocode-memory-digest` | Preview report-first cleanup; `--apply` requires confirmation. |
-| `/octocode-memory-forget` | Preview targeted memory deletion; `--apply` requires confirmation. |
-
-The two memory maintenance commands are user controls. Agent-facing recall,
-recording, signals, tasks, verification, and reflection stay on the Awareness CLI.
+Memory maintenance, recall, recording, signals, tasks, verification, and reflection
+all stay on the bundled Awareness CLI. The extension does not maintain a parallel
+memory adapter or slash-command schema.
 
 ## Bundled skills (9)
 
-Pi discovers one generated skill tree under `out/skills/`:
+Pi discovers the npm-published, build-generated skill tree under `skills/`.
+The build also mirrors it to `dist/skills/` for extension runtime assets. The
+generated package-root tree is intentionally gitignored and recreated before pack.
 
 - `octocode-awareness`
 - `octocode-brainstorming`

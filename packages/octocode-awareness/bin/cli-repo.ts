@@ -105,6 +105,7 @@ export function cmdRepoInject(db: DatabaseSync, args: ParsedArgs, dbPath: string
     includeView: flagBool(args['include_view']),
     pruneOrphans: flagBool(args['prune_orphans']),
     check: flagBool(args['check']),
+    dbPath,
   });
   return emit({ db_path: dbPath, ...result }, 0, opts);
 }

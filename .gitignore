@@ -28,7 +28,7 @@ coverage
 # Canonical Agent Skills live here; generated scripts have targeted ignores above.
 /skills/octocode-agent-communication/
 /skills/octocode-reflection/
-# Build artifact regenerated from canonical repo-root skills/.
+# npm publish staging regenerated from canonical repo-root skills/ by the Pi build.
 /packages/octocode-pi-extension/skills/
 # Bundled skills copied into the octocode CLI package during build/prepack.
 /packages/octocode/skills/

@@ -125,6 +125,6 @@ second task queue.
 
 ## Cleanup
 
-`/octocode-memory-digest` and `/octocode-memory-forget` are user-owned maintenance
-commands. They preview by default and mutate only after confirmation. Repo
-projection is optional and should run last, only when file readers need refresh.
+Use the same bundled CLI for maintenance. `maintenance digest` is report-first;
+`memory forget` requires an explicit filter and should be previewed before mutation.
+Repo projection is optional and should run last, only when file readers need refresh.

@@ -1,7 +1,7 @@
 {
   "name": "@octocodeai/pi-extension",
   "version": "1.0.2",
-  "description": "Official Octocode Pi package: system prompt, skills, harness docs, and setup commands for coding agents.",
+  "description": "Official Octocode Pi package: native tools, bundled CLIs, Awareness runtime and skills, prompts, and harness wiring.",
   "keywords": [
     "ai-coding",
     "coding-agent",
@@ -81,7 +81,7 @@
       "./dist/index.js"
     ],
     "skills": [
-      "./out/skills"
+      "./skills"
     ]
   },
   "publishConfig": {

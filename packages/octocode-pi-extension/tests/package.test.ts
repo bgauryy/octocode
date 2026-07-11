@@ -21,7 +21,6 @@ import {
   getAssetPaths,
   getAppendSystemTarget,
   getInstallSource,
-  getOctocodeMemoryHome,
   listBundledSkills,
   listExtensionHarness,
   mergeManagedAppendSystem,
@@ -38,7 +37,6 @@ import {
   clearEditReadStateForTests,
   recordFileReadState,
 } from '../src/tools/edit-tool.js';
-import { executeMemoryOperation } from '../src/tools/memory.js';
 import { assertPathAllowed } from '../src/tools/path-guard.js';
 import { connectDb, startWork } from '@octocodeai/octocode-awareness';
 
@@ -358,24 +356,22 @@ test('build copies bundled Octocode skills without secret env files', () => {
     'awareness runtime assets are not copied as a separate dist/awareness directory'
   );
 
-  const SKIPPED = [
-    'octocode',
-    'octocode-agent-communication',
-    'octocode-awareness',
-    'octocode-reflection',
-    'octocode-stats',
-  ];
-  // Skills whose canonical source lives in @octocodeai/octocode-awareness.
-  const AWARENESS_OWNED = ['octocode-awareness'];
   const skills = listBundledSkills(distDir);
   const sourceSkills = listBundledSkills(packageRoot);
   const rootSkills = listBundledSkills(path.resolve(packageRoot, '../..'));
   assert.deepEqual(skills, sourceSkills, 'dist matches package skills');
   assert.deepEqual(
-    rootSkills.filter(s => !SKIPPED.includes(s)),
-    sourceSkills.filter(s => !AWARENESS_OWNED.includes(s)),
-    'package skills = synced root skills + awareness-owned skills'
+    sourceSkills,
+    rootSkills,
+    'every repo-root skill is staged into the npm package'
   );
+  for (const skill of rootSkills) {
+    assert.equal(
+      fs.readFileSync(path.join(packageRoot, 'skills', skill, 'SKILL.md'), 'utf8'),
+      fs.readFileSync(path.resolve(packageRoot, '../..', 'skills', skill, 'SKILL.md'), 'utf8'),
+      `${skill} SKILL.md is copied from the repo-root bundle`
+    );
+  }
   assert.deepEqual(
     skills,
     [
@@ -415,9 +411,16 @@ test('build copies bundled Octocode skills without secret env files', () => {
   const packageJson = JSON.parse(
     fs.readFileSync(path.join(packageRoot, 'package.json'), 'utf8')
   ) as {
+    files?: string[];
     pi?: { skills?: string[] };
   };
-  assert.deepEqual(packageJson.pi?.skills, ['./out/skills']);
+  assert.ok(packageJson.files?.includes('skills/**'), 'npm files includes generated skills');
+  assert.deepEqual(packageJson.pi?.skills, ['./skills']);
+  assert.match(
+    fs.readFileSync(path.resolve(packageRoot, '../..', '.gitignore'), 'utf8'),
+    /^\/packages\/octocode-pi-extension\/skills\/$/m,
+    'generated npm skill staging remains gitignored'
+  );
 
   const forbiddenEnv = path.join(
     distDir,
@@ -529,16 +532,17 @@ test('getInstallSource returns npm source for node_modules installs, local path 
 });
 
 test(
-  'formatStatus reports the dist assets and memory module',
+  'formatStatus reports the dist assets and Awareness runtime',
   withTempMemoryHome(() => {
     const status = formatStatus(distDir);
     assert.match(status, /system prompt: found/);
     assert.match(status, /octocode-research/);
     assert.match(
       status,
-      /memory module: @octocodeai\/octocode-awareness \(direct import\)/
+      /awareness runtime: @octocodeai\/octocode-awareness \(direct import\)/
     );
-    assert.match(status, /memory DB: not yet created/);
+    assert.match(status, /awareness DB: not yet created/);
+    assert.match(status, /awareness CLI:.*awareness\.mjs/);
     assert.match(status, /octocode tools: 13 native Pi tools/);
     assert.match(status, /bundled CLI:.*octocode\.js/);
     assert.match(
@@ -549,19 +553,6 @@ test(
     assert.doesNotMatch(status, /passthrough: bash/);
   })
 );
-
-test('getOctocodeMemoryHome honors OCTOCODE_MEMORY_HOME', () => {
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'octocode-home-'));
-  const previous = process.env['OCTOCODE_MEMORY_HOME'];
-  process.env['OCTOCODE_MEMORY_HOME'] = tmp;
-  try {
-    assert.equal(getOctocodeMemoryHome(), tmp);
-  } finally {
-    if (previous === undefined) delete process.env['OCTOCODE_MEMORY_HOME'];
-    else process.env['OCTOCODE_MEMORY_HOME'] = previous;
-    fs.rmSync(tmp, { recursive: true, force: true });
-  }
-});
 
 test('write target extraction supports Pi write and edit inputs', () => {
   assert.deepEqual(extractWriteTargetPaths('read', { path: 'src/a.js' }), []);
@@ -1911,16 +1902,8 @@ test('CLI slash commands removed — extension commands are lean', async () => {
     true,
     'skills-update command is registered'
   );
-  assert.equal(
-    commands.has('octocode-memory-digest'),
-    true,
-    'memory digest command is registered'
-  );
-  assert.equal(
-    commands.has('octocode-memory-forget'),
-    true,
-    'memory forget command is registered'
-  );
+  assert.equal(commands.has('octocode-memory-digest'), false, 'legacy memory digest command removed');
+  assert.equal(commands.has('octocode-memory-forget'), false, 'legacy memory forget command removed');
   // Session-control internal trampoline stays for manage_context type:"new" path.
   assert.equal(
     commands.has('_octocode-handoff-impl'),
@@ -2042,17 +2025,6 @@ test('extension commands and lifecycle handlers execute user-visible wiring path
     assert.match(notifications.at(-1)!.message, /builtin removed: read, grep, find, ls/);
     assert.match(notifications.at(-1)!.message, /builtin passthrough: \(none\)/);
 
-    await commands.get('octocode-memory-forget')!.handler('', ctx);
-    assert.match(
-      notifications.at(-1)!.message,
-      /requires --id, --tag, --before, or --max-importance/
-    );
-
-    await commands
-      .get('octocode-memory-digest')!
-      .handler('--apply', { ...ctx, hasUI: false });
-    assert.match(notifications.at(-1)!.message, /Pass --yes with --apply/);
-
     await commands.get('octocode-setup')!.handler('', { ...ctx, hasUI: false });
     assert.match(
       notifications.at(-1)!.message,
@@ -2111,126 +2083,6 @@ test('extension commands and lifecycle handlers execute user-visible wiring path
     );
   } finally {
     fs.rmSync(ctx.cwd, { recursive: true, force: true });
-  }
-});
-
-test(
-  'memory commands and direct operations cover digest, forget, harness export, weakness mining, and errors',
-  withIsolatedDb(async dbCtx => {
-    const { commands } = await captureExtensions();
-    const notifications: Array<{ message: string; level?: string }> = [];
-    let confirmAnswer = false;
-    const ctx = {
-      cwd: dbCtx.cwd,
-      dbPath: dbCtx.dbPath,
-      hasUI: true,
-      ui: {
-        notify: (message: string, level?: string) =>
-          notifications.push({ message, level }),
-        confirm: async () => confirmAnswer,
-      },
-    };
-    const getAgentId = () => 'memory-coverage-agent';
-
-    await commands
-      .get('octocode-memory-digest')!
-      .handler(
-        `--retention-days 1 --workspace "${dbCtx.cwd}" --export-doc`,
-        ctx
-      );
-    assert.match(notifications.at(-1)!.message, /memory_digest preview/);
-    assert.match(notifications.at(-1)!.message, /would_archive/);
-    assert.equal(
-      fs.existsSync(path.join(dbCtx.cwd, '.octocode', 'memory-reports')),
-      true
-    );
-
-    await commands.get('octocode-memory-digest')!.handler('--apply', ctx);
-    assert.equal(notifications.at(-1)!.message, 'Memory digest cancelled.');
-
-    confirmAnswer = true;
-    await commands
-      .get('octocode-memory-digest')!
-      .handler('--apply --retention-days 1', ctx);
-    assert.match(notifications.at(-1)!.message, /memory_digest applied/);
-
-    await commands
-      .get('octocode-memory-forget')!
-      .handler(
-        '--tag TEST --before 2099-01-01 --max-importance 9 --id mem_missing',
-        ctx
-      );
-    assert.match(notifications.at(-1)!.message, /memory_forget preview/);
-
-    confirmAnswer = false;
-    await commands
-      .get('octocode-memory-forget')!
-      .handler('--apply --tag TEST', ctx);
-    assert.equal(notifications.at(-1)!.message, 'Memory forget cancelled.');
-
-    await commands
-      .get('octocode-memory-forget')!
-      .handler('--apply --tag TEST', { ...ctx, hasUI: false });
-    assert.match(notifications.at(-1)!.message, /Pass --yes with --apply/);
-
-    const dryDigest = executeMemoryOperation(
-      'digest',
-      {
-        dry_run: true,
-        export_doc: true,
-        workspace_path: dbCtx.cwd,
-      },
-      getAgentId,
-      dbCtx
-    );
-    const dryPayload = JSON.parse(dryDigest.content[0]!.text) as {
-      dry_run?: boolean;
-      doc_path?: string;
-    };
-    assert.equal(dryPayload.dry_run, true);
-    assert.ok(dryPayload.doc_path?.endsWith('.md'));
-
-    const forget = executeMemoryOperation(
-      'forget',
-      {
-        tags: ['TEST'],
-        memory_ids: ['mem_missing'],
-        dry_run: true,
-      },
-      getAgentId,
-      dbCtx
-    );
-    assert.match(forget.content[0]!.text, /dry_run|preview|deleted|previewed/);
-  })
-);
-
-test('memory adapter delegates operation policy to awareness package', () => {
-  const source = fs.readFileSync(
-    path.join(packageRoot, 'src', 'tools', 'memory.ts'),
-    'utf8'
-  );
-  const importBlock =
-    source.match(
-      /import \{([\s\S]*?)\} from '@octocodeai\/octocode-awareness';/
-    )?.[1] ?? '';
-  assert.match(importBlock, /runAwarenessToolOperation/);
-  for (const duplicatedOperation of [
-    'connectDb',
-    'getMemory',
-    'insertMemory',
-    'findSimilarMemories',
-    'reflect',
-    'getRefinements',
-    'auditUnverified',
-    'markVerified',
-    'agentSignal',
-    'fileLock',
-  ]) {
-    assert.equal(
-      importBlock.includes(duplicatedOperation),
-      false,
-      `${duplicatedOperation} stays behind awareness runner`
-    );
   }
 });
 
@@ -2496,6 +2348,11 @@ test('lists every extension harness surface', () => {
     harness.cliNote,
     /bundled CLI.*octocode\.js/,
     'cliNote shows bundled CLI path'
+  );
+  assert.match(
+    harness.awarenessCliNote,
+    /bundled Awareness CLI.*awareness\.mjs/,
+    'awarenessCliNote shows bundled Awareness CLI path'
   );
   assert.ok(!('cliCommands' in harness), 'cliCommands removed from harness');
 });

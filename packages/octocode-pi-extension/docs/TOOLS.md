@@ -240,7 +240,7 @@ CLI: `node $OCTOCODE_AWARENESS_CLI <noun> <verb> --compact` (agent id + workspac
 inherited from the environment), following the **octocode-awareness skill**. The
 edit/verify lifecycle is automated by the awareness hooks.
 
-See [`MEMORY_AGENT_FLOW.md`](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-pi-extension/docs/MEMORY_AGENT_FLOW.md) for live coordination and [`REFLECT.md`](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-pi-extension/docs/REFLECT.md) for the Awareness learning loop.
+See [`AWARENESS_AGENT_FLOW.md`](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-pi-extension/docs/AWARENESS_AGENT_FLOW.md) for live coordination and [`REFLECT.md`](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-pi-extension/docs/REFLECT.md) for the Awareness learning loop.
 
 ### Lifecycle pattern
 

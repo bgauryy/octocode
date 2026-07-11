@@ -21,8 +21,8 @@ entry is removed during install/repair to guarantee guard ordering.
 
 | Host | Surface | Notes |
 |---|---|---|
-| Claude Code | Skill frontmatter while active, or `.claude/settings.json` | Choose one surface; do not install duplicate settings when frontmatter runs. |
-| Codex | `.codex/hooks.json` | PreCompact substitutes for SessionEnd; project and hook-definition trust are separate runtime gates. |
+| Claude Code | Skill frontmatter while active, or `.claude/settings.json` | Choose one surface; do not install duplicate settings when frontmatter runs. No PreCompact hook is installed; SessionEnd is the only finalize/capture edge. |
+| Codex | `.codex/hooks.json` | PreCompact substitutes for SessionEnd (Codex has no supported SessionEnd hook); project and hook-definition trust are separate runtime gates. |
 | Cursor | `.cursor/hooks.json` | Native JSON outputs; model-context delivery varies by version/surface, so smoke local/cloud separately. |
 | Pi | `wirePiAwarenessHooks(pi)` / Pi extension | In-process; never run shell hook install. |
 | Custom | Library API or `hook run` payload | Must provide stable identity/path events. |
@@ -149,17 +149,28 @@ omitted counts.
   open so the editor remains usable.
 - A missing correlation never marks success; TTL and verification audit expose debt.
 
-Environment controls:
+Environment controls, read identically by every host (shell hooks and Pi share
+`bin/hook-payload.ts` / `src/pi-hooks-inputs.ts`):
 
 | Variable | Effect |
 |---|---|
 | `OCTOCODE_AGENT_ID` | Stable cooperative identity. |
+| `OCTOCODE_AGENT_NAME` | Optional display name attached to registered agent identity. |
+| `OCTOCODE_ARTIFACT` (aliases `OCTOCODE_PACKAGE`, `OCTOCODE_SERVICE`) | Scope presence/coordination to one artifact inside a monorepo workspace. |
 | `OCTOCODE_MEMORY_HOME` | Canonical DB directory. |
 | `OCTOCODE_NO_VERIFY_GATE=1` | Disable stop gate only with replacement process. |
 | `OCTOCODE_NO_NOTIFY=1` | Disable prompt briefing. |
 | `OCTOCODE_NO_SESSION_CAPTURE=1` | Disable automatic handoff capture. |
 | `OCTOCODE_NOTIFY_RUN_DIGEST=1` | Opt in to a scoped, deduped prompt-time maintenance preview; never applies cleanup. |
+| `OCTOCODE_NO_DIGEST=1` | Force-disable the digest preview even when `OCTOCODE_NOTIFY_RUN_DIGEST=1` is set. |
+| `OCTOCODE_DIGEST_INTERVAL_HOURS` | Minimum hours between digest previews (default 4). |
 | `OCTOCODE_ALLOW_HARNESS_APPLY=1` | Open harness edit gate; branch rule still applies. |
+| `OCTOCODE_SKILL_ROOT` | Skill root the pre-edit guard checks edits against; exported by the shell wrapper, or passed to `wirePiAwarenessHooks`/`createPiAwarenessBridge` for Pi. Guard is a no-op when unset. |
+| `OCTOCODE_HARNESS_BRANCH_OK=1` | Acknowledge a detached/non-repo skill root when the branch cannot be confirmed. |
+
+Installer-managed, not for manual tuning: `OCTOCODE_AGENT_HOST` and `OCTOCODE_NODE_BIN`
+are written into the generated hook command by `hooks install` so the shared runner
+knows which host/Node binary invoked it.
 
 Shell/Pi parity, wrapper extraction, installer repair, peer dedupe, guard order, and
 verification caps are covered by focused tests.

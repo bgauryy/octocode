@@ -17,6 +17,7 @@ complete command inventory.
 | [WIKI.md](WIKI.md) | Live queries and generated `.octocode/` projections |
 | [HARNESS.md](HARNESS.md) | Maintainer invariants and verification matrix |
 | [VERIFY.md](VERIFY.md) | Any-agent quick, installed, host, monorepo, and release verification runbook |
+| [COMPREHENSIVE_AUDIT.md](COMPREHENSIVE_AUDIT.md) | Scored whole-system audit for coordination, storage, delivery, and read cost |
 | [FEATURE_SWEEP.md](FEATURE_SWEEP.md) | Isolated end-to-end proof for planning, learning, wiki, registry, and maintenance surfaces |
 | [REFERENCES.md](REFERENCES.md) | Evidence map, prior art, hypotheses, and design limits |
 

@@ -13,6 +13,7 @@ the CLI, hook semantics by [HOOKS.md](HOOKS.md), and invariants by
 | Host | Rely on Claude, Codex, Cursor, or Pi automation | Installed + config check + observed runtime event |
 | Monorepo | Change package source, docs, hooks, or skill | Full build/test/smoke/review matrix |
 | Release | Publish or validate an npm artifact | Monorepo + pack check |
+| Complete | All | [audit](COMPREHENSIVE_AUDIT.md) |
 | Interview | Multiple agents must judge agent-experience or coordination-health questions | Quick + independent panel + synthesized scorecard ([Peer Interview](#peer-interview)) |
 
 Run only the lanes in scope. Never report “all working” when a required lane was
@@ -76,6 +77,7 @@ clearance, signal delivery, stale-lock cleanup, and a zero-debt final audit.
 Run the isolated [full feature sweep](FEATURE_SWEEP.md) for planning, learning,
 wiki, registry, and maintenance surfaces. Every listed pass signal is required;
 an errored, missing, or wrong-workspace step makes Installed scope FAIL.
+
 ## Host Hook Check
 
 Config check is read-only:
