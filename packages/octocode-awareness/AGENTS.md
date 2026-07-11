@@ -27,10 +27,10 @@ use exclusivity only for sensitive, non-mergeable work and never bypass a confli
 
 ## Package Constraints
 
-- Edit runtime/CLI in `src/**`, `bin/**`, and `scripts/schema.mjs`.
+- Edit runtime/CLI and Zod contracts in `src/**` and `bin/**`.
 - Edit the canonical skill only in repo-root `skills/octocode-awareness/**`.
 - Edit package guidance in `README.md` and `docs/**`.
-- Never hand-edit `dist/**`, `.agents/skills/**`, vendored
+- Never hand-edit `out/**`, `.agents/skills/**`, vendored
   `skills/octocode-skills/**`, or generated script copies.
 - Declare every edited file. Structured-write hooks automate presence when healthy;
   explicit CLI presence remains the fallback.

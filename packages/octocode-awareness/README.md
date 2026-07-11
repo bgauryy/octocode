@@ -153,4 +153,4 @@ yarn workspace @octocodeai/octocode-awareness pack:check
 ```
 
 Edit the canonical skill only under repo-root `skills/octocode-awareness`; the package build refreshes
-`dist/` and `.agents/skills/`. The Pi-extension build owns its packaged copy.
+`out/` and `.agents/skills/`. The Pi-extension build owns its packaged copy.

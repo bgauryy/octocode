@@ -14,15 +14,12 @@ import {
   normalizeMCPClient,
   printNodeDoctorHintCLI,
 } from './shared.js';
-import {
-  DETECTABLE_MCP_CLIENTS,
-  getMCPConfigPath,
-} from '../../utils/mcp-paths.js';
-import { existsSync, copyFileSync, accessSync, constants } from 'node:fs';
-import { mkdirSync } from 'node:fs';
+import { DETECTABLE_MCP_CLIENTS } from '../../utils/mcp-paths.js';
+import { existsSync, accessSync, constants } from 'node:fs';
 import { readMCPConfig } from '../../utils/mcp-io.js';
 import { EXIT } from '../exit-codes.js';
 import path from 'node:path';
+import { runRollback } from './install/rollback.js';
 
 const SUPPORTED_INSTALL_CLIENTS = DETECTABLE_MCP_CLIENTS;
 const SUPPORTED_INSTALL_CLIENTS_TEXT = formatSupportedMCPClients();
@@ -79,80 +76,12 @@ export const installCommand: CLICommand = {
     const client = normalizeMCPClient(rawIde);
 
     if (rollback) {
-      const installClient = client as MCPClient;
-      const cfgPath = getMCPConfigPath(installClient);
-      const backupPath =
-        typeof rawBackupPath === 'string' && rawBackupPath.length > 0
-          ? rawBackupPath
-          : `${cfgPath}.bak`;
-
-      if (!existsSync(backupPath)) {
-        if (jsonOutput) {
-          console.log(
-            JSON.stringify({
-              success: false,
-              ide: rawIde,
-              configPath: cfgPath,
-              backupPath,
-              error: `Backup not found: ${backupPath}`,
-            })
-          );
-        } else {
-          console.log();
-          console.log(`  ${c('red', '✗')} Backup not found: ${backupPath}`);
-          console.log(`  ${dim('Provide the path via --backup-path <path>')}`);
-          console.log();
-        }
-        process.exitCode = EXIT.NOT_FOUND;
-        return;
-      }
-
-      try {
-        mkdirSync(path.dirname(cfgPath), { recursive: true, mode: 0o700 });
-        copyFileSync(backupPath, cfgPath);
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        if (jsonOutput) {
-          console.log(
-            JSON.stringify({
-              success: false,
-              ide: rawIde,
-              configPath: cfgPath,
-              backupPath,
-              error: msg,
-            })
-          );
-        } else {
-          console.log();
-          console.log(`  ${c('red', '✗')} Rollback failed: ${msg}`);
-          console.log();
-        }
-        process.exitCode = EXIT.GENERAL;
-        return;
-      }
-
-      if (jsonOutput) {
-        console.log(
-          JSON.stringify({
-            success: true,
-            ide: rawIde,
-            configPath: cfgPath,
-            backupPath,
-          })
-        );
-      } else {
-        console.log();
-        console.log(
-          `  ${c('green', '✓')} Rolled back ${c('cyan', rawIde!)} config from backup`
-        );
-        console.log(`  ${dim('Config:')}  ${cfgPath}`);
-        console.log(`  ${dim('Backup:')} ${backupPath}`);
-        console.log();
-        console.log(
-          `  ${bold('Next:')} Restart ${getIDEDisplayName(installClient)} to apply.`
-        );
-        console.log();
-      }
+      runRollback({
+        client: client as MCPClient,
+        rawIde,
+        rawBackupPath,
+        jsonOutput,
+      });
       return;
     }
 

@@ -37,20 +37,10 @@ copyBundledSkills();
 
 function copyBundledSkills() {
   const source = join(repoRoot, 'skills');
-  const awarenessSource = join(
-    repoRoot,
-    'packages',
-    'octocode-awareness',
-    'skills',
-    'octocode-awareness'
-  );
   const destination = join(packageRoot, 'skills');
-  const awarenessDestination = join(destination, 'octocode-awareness');
 
   rmSync(destination, { recursive: true, force: true });
   copyDirectoryFiltered(source, destination);
-  rmSync(awarenessDestination, { recursive: true, force: true });
-  copyDirectoryFiltered(awarenessSource, awarenessDestination);
   removeEnvExamples(destination);
 }
 

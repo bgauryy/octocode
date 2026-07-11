@@ -17,7 +17,7 @@ afterEach(() => {
 function isolatedPackage(): string {
   const root = mkdtempSync(join(tmpdir(), 'octocode-awareness-package-'));
   tempRoots.push(root);
-  cpSync(resolve(PACKAGE_ROOT, 'out'), resolve(root, 'dist'), { recursive: true });
+  cpSync(resolve(PACKAGE_ROOT, 'out'), resolve(root, 'out'), { recursive: true });
   cpSync(resolve(PACKAGE_ROOT, 'README.md'), resolve(root, 'README.md'));
   if (existsSync(resolve(PACKAGE_ROOT, 'LICENSE'))) {
     cpSync(resolve(PACKAGE_ROOT, 'LICENSE'), resolve(root, 'LICENSE'));
@@ -37,7 +37,7 @@ describe('published package artifact', () => {
       dependencies?: Record<string, string>;
     };
 
-    expect(pkg.files).toContain('dist/**');
+    expect(pkg.files).toContain('out/**');
     expect(pkg.files).not.toContain('skills/**');
     expect(pkg.scripts?.prepack).toContain('build');
     expect(pkg.scripts?.prepack).toContain('verify-package.mjs');

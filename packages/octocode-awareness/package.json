@@ -33,7 +33,7 @@
     "./bin/awareness": "./out/octocode-awareness.js",
     "./bin/octocode-awareness": "./out/octocode-awareness.js",
     "./bin/extract-hook-files": "./out/extract-hook-files.js",
-    "./schema": "./out/schema.js"
+    "./schema": "./out/schema-api.js"
   },
   "bin": {
     "octocode-awareness": "./out/octocode-awareness.js"

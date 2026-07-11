@@ -8,7 +8,7 @@ generated projections. Architecture narrative lives in [HOW_IT_WORKS.md](HOW_IT_
 - Global SQLite is operational truth. `.octocode/` is a projection; plan folders
   contain narrative only.
 - `schema commands` and JSON schemas own the public command contract.
-- Canonical code lives in `src/**`, `bin/**`, and `scripts/schema.mjs`.
+- Canonical code and Zod contracts live in `src/**` and `bin/**`.
 - Canonical skill guidance lives in repo-root `skills/octocode-awareness/**`.
 - Build outputs and `.agents/skills/**` are regenerated, never hand-edited.
 

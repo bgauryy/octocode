@@ -6,7 +6,7 @@
  * Prints one path per line, deduplicated.
  * Exits 0 on any error (fail-open).
  *
- * Compiled to dist/bin/extract-hook-files.js.
+ * Compiled to out/extract-hook-files.js.
  */
 
 const USAGE = `usage: extract-hook-files < hook-payload.json

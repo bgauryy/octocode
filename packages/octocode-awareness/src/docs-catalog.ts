@@ -6,7 +6,7 @@
  */
 
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
-import { basename, dirname, join } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 export interface DocCatalogEntry {
@@ -44,14 +44,18 @@ export interface DocCatalogShowResult {
 }
 
 export function resolveSkillReferencesDir(here: string, cwd = process.cwd()): string {
+  const invokedDir = process.argv[1] ? dirname(resolve(process.argv[1])) : here;
   const candidates = [
+    process.env.OCTOCODE_SKILL_ROOT ? join(process.env.OCTOCODE_SKILL_ROOT, 'references') : null,
+    join(invokedDir, 'skills', 'octocode-awareness', 'references'), // out/ CLI
+    join(invokedDir, '..', 'references'), // standalone skill scripts/
     join(here, '..', 'references'), // standalone skill scripts/
-    join(here, 'skills', 'octocode-awareness', 'references'), // dist/index.js
-    join(here, '..', 'skills', 'octocode-awareness', 'references'), // dist/bin or package src
+    join(here, 'skills', 'octocode-awareness', 'references'), // out/index.js
+    join(here, '..', 'skills', 'octocode-awareness', 'references'), // out/chunks or package src
     join(here, '..', '..', 'skills', 'octocode-awareness', 'references'),
     join(here, '..', '..', '..', 'skills', 'octocode-awareness', 'references'), // repo-root source
     join(cwd, 'skills', 'octocode-awareness', 'references'),
-  ];
+  ].filter((candidate): candidate is string => Boolean(candidate));
   return candidates.find((candidate) => existsSync(candidate)) ?? candidates[0]!;
 }
 

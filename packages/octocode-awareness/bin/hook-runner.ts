@@ -3,8 +3,6 @@ export type { HookRunOptions } from './hook-payload.js';
 export type { HookControlOutcome } from './hook-payload.js';
 export { hookContextEnvelope } from './hook-payload.js';
 export { hookBlockOutcome } from './hook-payload.js';
-import { basename, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { HookRunOptions, INTERNAL_HOOK_HOST, INTERNAL_SKILL_ROOT, normalizeShellHookHost, parsePayload, readStdin } from './hook-payload.js';
 import { runHarnessGuard, runPostEdit, runPreEdit } from './hook-edit-events.js';
 import { runNotifyDeliver, runSessionCompact, runSessionEnd, runStopVerify } from './hook-lifecycle.js';
@@ -52,15 +50,4 @@ export async function main(): Promise<number> {
     ...(host ? { host } : {}),
     ...(skillRoot ? { skillRoot } : {}),
   });
-}
-
-export const isMain = process.argv[1]
-  ? fileURLToPath(import.meta.url) === resolve(process.argv[1])
-  : false;
-export const invokedAsHookRunner = process.argv[1]
-  ? /^hook-runner\.(js|mjs|ts)$/.test(basename(process.argv[1]))
-  : false;
-
-if (isMain && invokedAsHookRunner) {
-  process.exitCode = await main();
 }

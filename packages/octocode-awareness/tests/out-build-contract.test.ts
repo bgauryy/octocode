@@ -52,7 +52,7 @@ describe('Awareness out build contract', () => {
     expect(existsSync(library)).toBe(true);
     expect(existsSync(resolve(PACKAGE_ROOT, 'out/types/src/index.d.ts'))).toBe(true);
     expect(existsSync(resolve(PACKAGE_ROOT, 'out/skills/octocode-awareness/SKILL.md'))).toBe(true);
-    expect(existsSync(resolve(PACKAGE_ROOT, 'out'))).toBe(false);
+    expect(existsSync(resolve(PACKAGE_ROOT, 'dist'))).toBe(false);
 
     const schema = spawnSync(process.execPath, [cli, 'schema', 'list', '--compact'], {
       encoding: 'utf8',

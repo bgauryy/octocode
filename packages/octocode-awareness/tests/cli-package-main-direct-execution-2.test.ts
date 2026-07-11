@@ -6,7 +6,7 @@
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, rmSync, existsSync, realpathSync } from 'node:fs';
+import { mkdtempSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -53,28 +53,15 @@ function fail(dbPath: string, args: string[], expectedStatus = 1): Record<string
     return r.parsed;
 }
 
-describe('package main direct execution', () => {
-  it('delegates to the CLI when out/index.js is executed directly', () => {
-    const dir = mktemp();
-    const db = join(dir, 'test.sqlite3');
-    try {
-      const result = spawnSync(NODE, [
-        INDEX_SCRIPT,
-        '--db', db,
-        'workspace', 'status',
-        '--workspace', dir,
-        '--compact',
-      ], {
-        encoding: 'utf8',
-        timeout: 10000,
-      });
-      expect(result.status, `stderr=${result.stderr} stdout=${result.stdout}`).toBe(0);
-      const parsed = JSON.parse(result.stdout) as Record<string, unknown>;
-      expect(parsed['ok']).toBe(true);
-      expect(parsed['workspace_path']).toBe(realpathSync(dir));
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
+describe('package entry separation', () => {
+  it('keeps out/index.js import-only and exposes the CLI separately', () => {
+    const result = spawnSync(NODE, [
+      '--input-type=module',
+      '--eval',
+      `const m = await import(${JSON.stringify(INDEX_SCRIPT)}); if (typeof m.getMemory !== 'function') process.exit(1);`,
+    ], { encoding: 'utf8', timeout: 10000 });
+    expect(result.status, `stderr=${result.stderr} stdout=${result.stdout}`).toBe(0);
+    expect(result.stdout).toBe('');
   });
 });
 

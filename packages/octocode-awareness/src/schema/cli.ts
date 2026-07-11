@@ -1,7 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 import { memorySchemas } from './definitions-memory.js';
 import { workSchemas } from './definitions-work.js';
@@ -93,6 +92,7 @@ const commandIndex = [
   { command: "hook run", schema: null, use: "Internal hook dispatcher used by wrappers.", example: "octocode-awareness hook run pre-edit < hook-payload.json" },
   { command: "schema commands", schema: null, use: "Print this command-to-schema map.", example: "octocode-awareness schema commands --compact" },
   { command: "schema list", schema: null, use: "Print schema names only.", example: "octocode-awareness schema list --compact" },
+  { command: "schema path", schema: null, use: "Expose one standalone JSON Schema file to an agent.", example: "octocode-awareness schema path get_memory --compact" },
   { command: "schema json-schema", schema: null, use: "Print one JSON schema.", example: "octocode-awareness schema json-schema get_memory --compact" },
   { command: "schema example", schema: null, use: "Print example JSON for one schema.", example: "octocode-awareness schema example get_memory --compact" },
   { command: "schema validate", schema: null, use: "Validate JSON payload against one schema.", example: "octocode-awareness schema validate get_memory payload.json --compact" },
@@ -103,12 +103,12 @@ function printJson(payload: unknown, compact = false): void {
 
 function usage() {
   return `Usage:
-  node scripts/schema.mjs commands [--compact] [--examples]
-  node scripts/schema.mjs list
-  node scripts/schema.mjs path <schema-name>
-  node scripts/schema.mjs json-schema <schema-name>
-  node scripts/schema.mjs example <schema-name>
-  node scripts/schema.mjs validate <schema-name> <json-file|->`;
+  octocode-awareness schema commands [--compact] [--examples]
+  octocode-awareness schema list
+  octocode-awareness schema path <schema-name>
+  octocode-awareness schema json-schema <schema-name>
+  octocode-awareness schema example <schema-name>
+  octocode-awareness schema validate <schema-name> <json-file|->`;
 }
 
 function toJsonSchema(schema: z.ZodType) {
@@ -250,22 +250,4 @@ async function readStdin() {
     chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
   }
   return Buffer.concat(chunks).toString("utf8");
-}
-
-const isMain = process.argv[1]
-  ? fileURLToPath(import.meta.url) === resolve(process.argv[1])
-  : false;
-
-if (isMain) {
-  runSchemaCli(process.argv.slice(2)).then(
-    (code) => { process.exitCode = code; },
-    (error: unknown) => {
-      console.log(JSON.stringify({
-        ok: false,
-        error_code: "SCHEMA_RUNTIME_ERROR",
-        error: error instanceof Error ? error.message : String(error),
-      }, null, 2));
-      process.exitCode = 1;
-    },
-  );
 }

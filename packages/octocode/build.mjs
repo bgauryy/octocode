@@ -139,23 +139,9 @@ console.log('✓ esbuild complete');
 // during local dev (from out/../skills) and when installed from npm (node_modules/octocode/skills/).
 const repoRoot = resolve(__dirname, '..', '..');
 const skillsSource = resolve(repoRoot, 'skills');
-const awarenessSkillSource = resolve(
-  repoRoot,
-  'packages',
-  'octocode-awareness',
-  'skills',
-  'octocode-awareness'
-);
 const skillsDest = resolve(__dirname, 'skills');
 await rm(skillsDest, { recursive: true, force: true });
 await cp(skillsSource, skillsDest, { recursive: true });
-await rm(resolve(skillsDest, 'octocode-awareness'), {
-  recursive: true,
-  force: true,
-});
-await cp(awarenessSkillSource, resolve(skillsDest, 'octocode-awareness'), {
-  recursive: true,
-});
 console.log('✓ bundled skills copied');
 
 const cliEntry = resolve(__dirname, 'out', 'octocode.js');

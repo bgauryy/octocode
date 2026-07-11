@@ -5,7 +5,7 @@ import { BUNDLED_SKILLS, BUNDLED_SKILLS_BLOCK, BUNDLED_SKILLS_DIR } from './cli-
 export const HELP = `usage: octocode-awareness <command> [options]
 common: --db <path> --compact (except hook run; hooks use OCTOCODE_MEMORY_HOME)
 agent map: octocode-awareness schema commands --compact
-schema: octocode-awareness schema commands|list|json-schema <name>|example <name>|validate <name> <json-file|->
+schema: octocode-awareness schema commands|list|path <name>|json-schema <name>|example <name>|validate <name> <json-file|->
 
 <AGENT_INSTRUCTIONS>
 You are reading the octocode-awareness CLI. Use --compact for operational JSON; read docs show as raw Markdown.

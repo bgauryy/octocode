@@ -49,11 +49,21 @@ function assert(condition, message) {
 
 const pack = JSON.parse(run('npm', ['pack', '--dry-run', '--json', '--ignore-scripts']));
 const files = (pack[0]?.files ?? []).map((entry) => entry.path);
-for (const required of ['LICENSE', 'README.md', 'package.json', 'dist/index.js', 'out/types/src/index.d.ts', 'out/octocode-awareness.js']) {
+for (const required of [
+  'LICENSE',
+  'README.md',
+  'package.json',
+  'out/index.js',
+  'out/types/src/index.d.ts',
+  'out/octocode-awareness.js',
+  'out/schema.js',
+]) {
   assert(files.includes(required), `packed artifact is missing ${required}`);
 }
 assert(pkg.types === './out/types/src/index.d.ts', `package types must point at the verified declaration entry, got ${String(pkg.types)}`);
 assert(readFileSync(join(packageRoot, 'out/types/src/index.d.ts'), 'utf8').includes('export'), 'declaration entry is empty or malformed');
+assert(Object.keys(pkg.dependencies ?? {}).length === 0, 'Awareness must keep zero npm runtime dependencies');
+assert(!files.some((path) => path.startsWith('dist/')), 'legacy dist/ artifacts must not ship');
 assert(packageSkills.length > 0, 'skill discovery found zero skills under repo-root skills/');
 for (const skill of packageSkills) {
   assert(
@@ -67,29 +77,46 @@ assert(
   !files.some((path) => path.endsWith('octocode-config.mjs')),
   'gitignored, machine-generated octocode-config.mjs must never be vendored into the published package',
 );
+for (const path of files.filter((path) => path.startsWith('out/') && !path.startsWith('out/skills/') && /\.(?:m?js)$/.test(path))) {
+  const source = readFileSync(join(packageRoot, path), 'utf8');
+  assert(
+    !source.includes('@octocodeai/octocode-tools-core') && !source.includes('packages/octocode/out/octocode.js'),
+    `${path} must not bundle or delegate to the Octocode research CLI`,
+  );
+}
 
 const isolated = mkdtempSync(join(tmpdir(), 'octocode-awareness-pack-check-'));
 try {
-  cpSync(join(packageRoot, 'dist'), join(isolated, 'dist'), { recursive: true });
+  cpSync(join(packageRoot, 'out'), join(isolated, 'out'), { recursive: true });
   cpSync(join(packageRoot, 'README.md'), join(isolated, 'README.md'));
   cpSync(join(packageRoot, 'LICENSE'), join(isolated, 'LICENSE'));
   writeFileSync(join(isolated, 'package.json'), JSON.stringify(pkg));
 
   const cli = join(isolated, 'out/octocode-awareness.js');
-  const schema = join(isolated, 'out/skills/octocode-awareness/scripts/schema.mjs');
   const names = JSON.parse(run(process.execPath, [cli, 'schema', 'list', '--compact'], { cwd: isolated }));
+  const schemaFiles = readdirSync(join(isolated, 'out/schemas'))
+    .filter((name) => name.endsWith('.schema.json'))
+    .sort();
+  assert(schemaFiles.length === names.length, 'out/schemas must contain exactly one file per public schema');
   for (const name of names) {
-    run(process.execPath, [schema, 'json-schema', name, '--compact'], { cwd: isolated });
-    const example = run(process.execPath, [schema, 'example', name, '--compact'], { cwd: isolated });
-    run(process.execPath, [schema, 'validate', name, '-', '--compact'], { cwd: isolated, input: example });
+    const exposed = JSON.parse(run(process.execPath, [cli, 'schema', 'path', name, '--compact'], { cwd: isolated }));
+    assert(exposed.ok === true && existsSync(exposed.path), `schema path must expose ${name}`);
+    assert(exposed.path === join(isolated, 'out/schemas', `${name}.schema.json`), `schema path for ${name} escaped the package artifact`);
+    const staticSchema = JSON.parse(readFileSync(exposed.path, 'utf8'));
+    assert(staticSchema.$id === `urn:octocode-awareness:schema:${name}`, `${name} schema has a wrong or missing $id`);
+    assert(Array.isArray(staticSchema.examples) && staticSchema.examples.length === 1, `${name} schema needs one generated example`);
+    run(process.execPath, [cli, 'schema', 'json-schema', name, '--compact'], { cwd: isolated });
+    const example = run(process.execPath, [cli, 'schema', 'example', name, '--compact'], { cwd: isolated });
+    run(process.execPath, [cli, 'schema', 'validate', name, '-', '--compact'], { cwd: isolated, input: example });
   }
 
   run(process.execPath, [cli, 'maintenance', 'self-test', '--compact'], { cwd: isolated });
-  run(process.execPath, [
+  const libraryImport = run(process.execPath, [
     '--input-type=module',
     '--eval',
-    `const m = await import(${JSON.stringify(pathToFileURL(join(isolated, 'dist/index.js')).href)}); if (!Object.keys(m).length) process.exit(1);`,
+    `const m = await import(${JSON.stringify(pathToFileURL(join(isolated, 'out/index.js')).href)}); if (!Object.keys(m).length) process.exit(1);`,
   ], { cwd: isolated });
+  assert(libraryImport === '', 'importing the library entry must not run the CLI or write output');
 } finally {
   rmSync(isolated, { recursive: true, force: true });
 }

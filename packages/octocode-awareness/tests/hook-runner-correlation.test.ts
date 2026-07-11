@@ -11,7 +11,7 @@ import { describe, expect, it } from 'vitest';
 const TEST_DIR = dirname(fileURLToPath(import.meta.url));
 const PACKAGE_ROOT = resolve(TEST_DIR, '..');
 const REPO_ROOT = resolve(PACKAGE_ROOT, '../..');
-const SOURCE_RUNNER = resolve(PACKAGE_ROOT, 'bin/hook-runner.ts');
+const SOURCE_RUNNER = resolve(PACKAGE_ROOT, 'bin/hook-runner-entry.ts');
 const SOURCE_LIFECYCLE = resolve(PACKAGE_ROOT, 'bin/hook-lifecycle.ts');
 const TSX_CLI = resolve(REPO_ROOT, 'node_modules/tsx/dist/cli.mjs');
 

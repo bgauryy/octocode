@@ -70,6 +70,13 @@ export default tseslint.config(
   },
 
   {
+    files: ['packages/octocode/src/**/*.ts'],
+    rules: {
+      'max-lines': ['error', { max: 400 }],
+    },
+  },
+
+  {
     files: ['packages/octocode/tests/**/*.ts'],
     rules: {
       '@typescript-eslint/no-explicit-any': 'off',

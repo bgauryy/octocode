@@ -44,9 +44,10 @@ const shared = {
 const coreEntries = {
   index: 'src/index.ts',
   'octocode-awareness': 'bin/awareness.ts',
-  'hook-runner': 'bin/hook-runner.ts',
+  'hook-runner': 'bin/hook-runner-entry.ts',
   'extract-hook-files': 'bin/extract-hook-files.ts',
-  schema: 'src/schema/cli.ts',
+  schema: 'bin/schema.ts',
+  'schema-api': 'src/schema/cli.ts',
 };
 
 // One Awareness-owned output graph. Shared domain modules become chunks; the
@@ -68,9 +69,9 @@ await esbuild.build({
 mkdirSync(skillStageDir, { recursive: true });
 await Promise.all([
   esbuild.build({ ...shared, entryPoints: ['bin/awareness.ts'], outfile: join(skillStageDir, 'awareness.mjs'), minify: true }),
-  esbuild.build({ ...shared, entryPoints: ['bin/hook-runner.ts'], outfile: join(skillStageDir, 'hook-runner.mjs'), minify: true }),
+  esbuild.build({ ...shared, entryPoints: ['bin/hook-runner-entry.ts'], outfile: join(skillStageDir, 'hook-runner.mjs'), minify: true }),
   esbuild.build({ ...shared, entryPoints: ['bin/extract-hook-files.ts'], outfile: join(skillStageDir, 'extract-hook-files.mjs'), minify: true }),
-  esbuild.build({ ...shared, entryPoints: ['src/schema/cli.ts'], outfile: join(skillStageDir, 'schema.mjs'), minify: true }),
+  esbuild.build({ ...shared, entryPoints: ['bin/schema.ts'], outfile: join(skillStageDir, 'schema.mjs'), minify: true }),
 ]);
 
 execSync(`${tscBin} --emitDeclarationOnly --outDir out/types -p tsconfig.build.json`, {

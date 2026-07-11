@@ -1,21 +1,6 @@
 import { fileURLToPath } from 'node:url';
-import {
-  basename,
-  dirname,
-  isAbsolute,
-  join,
-  relative,
-  resolve,
-  sep,
-} from 'node:path';
-import {
-  existsSync,
-  readFileSync,
-  writeFileSync,
-  mkdirSync,
-  rmSync,
-  symlinkSync,
-} from 'node:fs';
+import { basename, dirname, join, resolve } from 'node:path';
+import { existsSync, mkdirSync, rmSync, symlinkSync } from 'node:fs';
 import {
   copyDirectory,
   dirExists,
@@ -24,21 +9,23 @@ import {
   readFileContent,
 } from './fs.js';
 import { HOME, isWindows, getAppDataPath } from './platform.js';
-import { paths } from '@octocodeai/octocode-tools-core/paths';
-import { trySafe } from './try-safe.js';
 import { parseSkillFrontmatter } from './parsers/frontmatter.js';
-import { z } from '@octocodeai/octocode-tools-core/zod';
+import {
+  getCustomSkillsDestDir,
+  getDefaultSkillsDestDir,
+} from './skills/config.js';
+import { isSafeSkillName, resolveSkillDestination } from './skills/paths.js';
 
-const OCTOCODE_DIR = paths.home;
-const CONFIG_FILE = paths.cliConfig;
-
-const OctocodeConfigSchema = z
-  .object({
-    skillsDestDir: z.string().optional(),
-  })
-  .passthrough();
-
-type OctocodeConfig = z.infer<typeof OctocodeConfigSchema>;
+export {
+  setCustomSkillsDestDir,
+  getCustomSkillsDestDir,
+  getDefaultSkillsDestDir,
+} from './skills/config.js';
+export {
+  isPathInside,
+  isSafeSkillName,
+  resolveSkillDestination,
+} from './skills/paths.js';
 
 export type SkillInstallMode = 'copy' | 'symlink';
 export type SkillInstallStrategy = SkillInstallMode | 'hybrid';
@@ -105,53 +92,6 @@ const SKILL_TARGET_IDS: Record<string, SkillInstallTarget> = {
   agent: 'agents',
   common: 'agents',
 };
-
-function loadConfig(): OctocodeConfig {
-  return trySafe(() => {
-    if (existsSync(CONFIG_FILE)) {
-      const content = readFileSync(CONFIG_FILE, 'utf-8');
-      const parsed = OctocodeConfigSchema.safeParse(JSON.parse(content));
-      return parsed.success ? parsed.data : {};
-    }
-    return {};
-  }, {});
-}
-
-function saveConfig(config: OctocodeConfig): void {
-  trySafe(() => {
-    if (!existsSync(OCTOCODE_DIR)) {
-      mkdirSync(OCTOCODE_DIR, { recursive: true, mode: 0o700 });
-    }
-    writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2), {
-      encoding: 'utf-8',
-      mode: 0o600,
-    });
-    return true;
-  }, false);
-}
-
-export function setCustomSkillsDestDir(path: string | null): void {
-  const config = loadConfig();
-  if (path) {
-    config.skillsDestDir = path;
-  } else {
-    delete config.skillsDestDir;
-  }
-  saveConfig(config);
-}
-
-export function getCustomSkillsDestDir(): string | null {
-  const config = loadConfig();
-  return config.skillsDestDir || null;
-}
-
-export function getDefaultSkillsDestDir(): string {
-  if (isWindows) {
-    const appData = getAppDataPath();
-    return join(appData, 'Claude', 'skills');
-  }
-  return join(HOME, '.claude', 'skills');
-}
 
 export function normalizeSkillTarget(
   target: string
@@ -224,43 +164,6 @@ export function resolveModeForTarget(
   }
 
   return strategy;
-}
-
-export function isPathInside(baseDir: string, targetPath: string): boolean {
-  const normalizedBase = resolve(baseDir);
-  const normalizedTarget = resolve(targetPath);
-  const relativePath = relative(normalizedBase, normalizedTarget);
-
-  return (
-    relativePath !== '..' &&
-    !relativePath.startsWith(`..${sep}`) &&
-    !isAbsolute(relativePath)
-  );
-}
-
-export function isSafeSkillName(skillName: string): boolean {
-  const trimmed = skillName.trim();
-  return (
-    trimmed.length > 0 &&
-    trimmed === skillName &&
-    trimmed !== '.' &&
-    trimmed !== '..' &&
-    !trimmed.includes('\0') &&
-    !trimmed.includes('/') &&
-    !trimmed.includes('\\')
-  );
-}
-
-export function resolveSkillDestination(
-  destDir: string,
-  skillName: string
-): string | null {
-  if (!isSafeSkillName(skillName)) {
-    return null;
-  }
-
-  const destinationPath = resolve(destDir, skillName);
-  return isPathInside(destDir, destinationPath) ? destinationPath : null;
 }
 
 interface SkillMetadata {

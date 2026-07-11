@@ -23,10 +23,10 @@ const SRC = join(process.cwd(), 'src');
  * file" cases — exactly the most common agent grep ("find where X lives").
  */
 const FIXTURES: Array<{ query: string; defFile: string }> = [
-  { query: 'scoreFile', defFile: 'rankingProfile.ts' },
-  { query: 'classifyPathRole', defFile: 'rankingProfile.ts' },
-  { query: 'buildSearchNextMap', defFile: 'ripgrepResultBuilder.ts' },
-  { query: 'buildSearchResult', defFile: 'ripgrepResultBuilder.ts' },
+  { query: 'scoreFile', defFile: 'rankingScoring.ts' },
+  { query: 'classifyPathRole', defFile: 'rankingProfiles.ts' },
+  { query: 'buildSearchNextMap', defFile: 'searchNext.ts' },
+  { query: 'buildSearchResult', defFile: 'buildResult.ts' },
   { query: 'validateToolPath', defFile: 'toolHelpers.ts' },
   { query: 'executeRipgrepSearchInternal', defFile: 'ripgrepExecutor.ts' },
 ];

@@ -11,7 +11,7 @@ hooks:
 ---
 # Octocode Awareness
 Coordinate repository work through canonical SQLite state; treat memory and `.octocode/` wiki output as bounded leads, never authority.
-The `@octocodeai/octocode-awareness` package includes this skill and the CLI; this skill supplies operating policy; run every live-state action through the CLI.
+The `@octocodeai/octocode-awareness` package includes this skill and CLI; this skill supplies operating policy; run every live-state action through the CLI.
 ## Loop
 Choose `<cli>`: local monorepo `node packages/octocode-awareness/out/octocode-awareness.js`; installed package `npx @octocodeai/octocode-awareness` (or global `octocode-awareness`); bundled `node scripts/awareness.mjs` only as fallback. Export one `OCTOCODE_AGENT_ID`; use First activation below for setup and host wiring.
 ```text
@@ -41,8 +41,8 @@ Unknown owner only: `docs list --compact`; then `docs show <name>`.
 - `octocode-skills` — skill folder create/edit/review (bundled sibling)
 - `octocode-subagent` — parallel writers in this repo
 - `octocode-rfc-generator` — design before large coordination changes
-## Scripts
-Prefer package CLI above; `scripts/awareness.mjs` is bundled fallback. Use `scripts/schema.mjs` for contracts, `scripts/hook-runner.mjs` for host events, `scripts/extract-hook-files.mjs` for payloads, `scripts/install.mjs` for setup diagnostics, and `scripts/smoke-multi-agent.mjs` for end-to-end coordination smoke.
+`scripts/awareness.mjs` is CLI fallback; `scripts/schema.mjs` exposes contracts (`schema path|json-schema`); `scripts/hook-runner.mjs` handles events; `scripts/extract-hook-files.mjs` extracts paths; `scripts/install.mjs` diagnoses setup.
+Run `scripts/smoke-multi-agent.mjs` when verifying end-to-end coordination.
 ## Installation and first activation
 Package/skill install and refresh live in `README.md`. After activation: export one stable `OCTOCODE_AGENT_ID`; run `scripts/install.mjs` when the bundled runtime needs diagnosis; run `<cli> maintenance init --compact` once; then `attend` in each repo.
 Claude skill frontmatter is already one hook surface — do not also install duplicate project settings. Codex/Cursor load `references/hooks.md` for preview → approval → install → strict check; Pi uses its bridge only.
