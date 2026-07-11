@@ -7,6 +7,7 @@ description: "Use when a consequential change needs a decision before implementa
 
 Produce evidence-backed decisions that an implementer and reviewer can execute. Flow:
 `UNDERSTAND → RESEARCH → PREREQUISITES? → COMPARE → WRITE → CLOSE QUESTIONS → KPIs → VALIDATE → DELIVER`.
+For existing RFCs, run `REASSESS` (see `references/workflow.md` § Reassess existing RFCs) instead of WRITE — audit against live code, not prior checkboxes.
 
 ## Lobby rules
 - Skip RFC mode for trivial edits. Ask one focused question when uncertainty changes shape, owner, scope, or decision criteria.
@@ -15,6 +16,8 @@ Produce evidence-backed decisions that an implementer and reviewer can execute. 
 - `RFC.md` owns goals, scope, and decision. Other files link to its anchors rather than restating them.
 - Resolve every open question with evidence or an explicit deferral; no recommendation may rest on an uncertain claim.
 - Order implementation by dependency, not estimates; bind requirements to acceptance and verification.
+- Reviewing, rating, or cleaning up `.octocode/rfc/` (delete/implemented/fixed calls) always requires a dated `## Audit Reasoning` block written into the RFC itself, backed by fresh reads of the live code.
+- Never assert RFC status from memory or from another RFC's claims.
 
 ## Artifact route
 - Small, reversible, single-package work: produce only `RFC.md` with plan, acceptance, and inline references.

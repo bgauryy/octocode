@@ -26,6 +26,9 @@ my-skill/
 - Every link states WHEN and WHY; load one ref at a time.
 - Ref→ref OK for depth — end with the next load when needed.
 - Gotchas stay in the lobby only if the agent must know them before the trigger.
+- Tabular content → a real markdown table, never prose describing rows/columns.
+- Every reference/citation states why it matters — no bare links.
+- Every sentence earns its tokens: dense, no filler, no duplicate phrasing, no data loss.
 
 ## Context cut
 

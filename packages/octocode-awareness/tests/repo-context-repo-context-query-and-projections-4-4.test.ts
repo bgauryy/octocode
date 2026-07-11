@@ -148,7 +148,10 @@ it('surfaces missing file references across query, workboard, projections, and H
         check: false,
       });
       expect(readFileSync(join(dir, '.octocode', 'GOTCHAS.md'), 'utf8')).toContain(`Missing refs: file:${missing}:27`);
-      expect(readFileSync(join(dir, '.octocode', 'BOOKMARKS.md'), 'utf8')).toContain('[missing file]');
+      const bookmarks = readFileSync(join(dir, '.octocode', 'BOOKMARKS.md'), 'utf8');
+      expect(bookmarks).not.toContain('[missing file]');
+      expect(bookmarks).not.toContain(missing);
+      expect(bookmarks).not.toContain(existing);
       const agents = readFileSync(join(dir, '.octocode', 'AGENTS.md'), 'utf8');
       expect(agents).toContain('MissingFiles 1');
       expect(agents).not.toContain('Do not trust old generated viewer paths without checking file refs');

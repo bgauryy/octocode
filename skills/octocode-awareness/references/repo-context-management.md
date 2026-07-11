@@ -2,9 +2,11 @@
 
 Use this when publishing, sharing, debugging, or linking workspace `.octocode/` context. If output selection is still unresolved and its owner is not already loaded, consult `references/output-routing.md`. Label→file map: `references/learning-loop.md`.
 
-Canonical data lives in global `~/.octocode/memory/awareness.sqlite3`. `query <view>` is the live read API; `repo inject` publishes selected DB state as bounded Markdown, CSV, HTML, manifest, and references under the workspace.
+Canonical data lives in global `~/.octocode/memory/awareness.sqlite3`. `query <view>` is the live read API.
 
-Do not hand-edit generated files. Correct the DB/source, then regenerate.
+`repo inject` publishes selected DB state as bounded Markdown, CSV, HTML, manifest, and references under the workspace. Never hand-edit generated files; fix the DB/source, then regenerate.
+
+Six wiki files, their SQLite source, and how they relate to each other: `references/wiki-files-map.md`.
 
 ## When To Inject
 
@@ -16,7 +18,7 @@ Skip inject for routine edits, transient locks, or every signal. Active work sho
 octocode-awareness repo inject --workspace "$PWD" --out .octocode --mode local --compact
 ```
 
-Relative output paths resolve under `--workspace`. Markdown is capped; overflow points to full CSV/HTML/query rows. Use `query files` before trusting old file/bookmark references.
+Relative output paths resolve under `--workspace`. Markdown is capped; overflow points to full CSV/HTML/query rows. Use `query files` before trusting old file references.
 The manifest stores a live-source revision. `attend` warns when SQLite would generate a different snapshot. Injection reports retired manifest-owned files as `orphan_candidates`; rerun with `--prune-orphans` only after review. Unknown files and `.octocode/plan/**` are never removed.
 
 ## Share Policy
@@ -41,7 +43,5 @@ Agents load root `AGENTS.md`, while inject writes only `.octocode/AGENTS.md`. Af
 ## Octocode Awareness
 For shared-repo memory, locks, gotchas, and live context, start with `attend --compact`. Read `.octocode/AGENTS.md` only when live SQLite is unavailable, `attend.next` routes there, or projection history matters. SQLite is canonical; wiki files are leads — prefer live `attend` / `query` / `memory recall`. Create/learn via `memory record` / `reflect record`; run `repo inject` only when file readers need a fresh snapshot. Never hand-edit `.octocode/*.md`.
 ```
-
-Wiki files: `AGENTS` · `GOTCHAS` · `LEARN` · `MEMORY` · `BOOKMARKS` · `DEVELOPER_REVIEW` (see learning-loop label map).
 
 Publication closes when generated files match the intended DB revision/scope, manifest and orphan warnings are reviewed, root discovery works, and current source/tests still confirm the projected claims.

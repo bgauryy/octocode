@@ -37,17 +37,8 @@ Load when presenting the chat brief, assigning confidence, or preparing an RFC h
 - <URL or path:line> — <claim it supports, author/org/date where unstable>
 ```
 
-**`Sources` is mandatory, not optional** — always close with it, even for a chat-only answer that is never saved as a brief. One line per URL/path actually cited above (Evidence by Surface, Landscape, or inline); do not introduce new sources here that weren't already used in the body. Empty only when zero external evidence was used (pure reasoning/framing turn).
+**`Sources` is mandatory, not optional** — always close with it, even for a chat-only answer that is never saved as a brief.
+One line per URL/path actually cited above (Evidence by Surface, Landscape, or inline); do not introduce new sources here that weren't already used in the body.
+Empty only when zero external evidence was used (pure reasoning/framing turn).
 
-## Confidence
-
-| Marker | Minimum evidence |
-|---|---|
-| strong | independent validated sources, or direct code/data plus strong activity/usage |
-| moderate | one validated source plus corroborating evidence |
-| weak | popularity/marketing/forum only, stale source, or no independent validation |
-
-Every prior-art entry carries a marker. Search snippets are leads; cite fetched pages, exact code, package metadata, PRs, commits, or tests.
-Marketing remains weak. Require an independent source or direct code/data before calling a claim proven. Present material contradictions; treat zero prior art as a risk, not a moat.
-
-Decision labels route as follows: Build RFC → `octocode-rfc-generator`; Prototype First → test one unknown; Narrow → tighter user/problem; Park → weak evidence/timing; Do Not Build → prior art or risks dominate.
+Confidence markers for `Evidence by Surface` entries, and Decision-label routing: `references/confidence.md`.

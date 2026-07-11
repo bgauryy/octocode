@@ -32,11 +32,12 @@ Capture so errors cluster: `reflect record --outcome failed --failure-signature 
 | `--label GOTCHA` or `--failure-signature` | `.octocode/GOTCHAS.md` |
 | `--lesson` / `DECISION`/`ARCHITECTURE`/`WORKFLOW`/… | `.octocode/LEARN.md` |
 | any durable memory | `.octocode/MEMORY.md` |
-| `--reference` / `--file` | `.octocode/BOOKMARKS.md` |
+| `--reference` (URL/repo/doc — external) | `.octocode/BOOKMARKS.md` |
+| `--reference file:…` / `--file` (local path) | `Refs:`/`Missing refs:` lines above, `query files` — never `BOOKMARKS.md` |
 | `--fix-instructions` | `.octocode/DEVELOPER_REVIEW.md` |
 | digest of the above | `.octocode/AGENTS.md` |
 
-SQLite is canonical; inject only when file readers need refresh.
+SQLite is canonical; inject only when file readers need refresh. Relation between these six files: `references/wiki-files-map.md`.
 
 ## Sequence
 

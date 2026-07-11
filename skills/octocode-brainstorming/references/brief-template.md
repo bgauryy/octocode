@@ -1,5 +1,5 @@
 # Idea Brief Template
-Load when the user approves a saved brief. Save under `.octocode/brainstorming/<date>-<slug>.md`; use the global `<doc_placement>` fallback only when needed. This is exploratory research, not a specification. Keep only sections supported by evidence — except `## Resources`, which is **mandatory whenever any external evidence was used**: always close the brief with it, consolidating every URL/path already cited in the body.
+Load when the user approves a saved brief; save under `.octocode/brainstorming/<date>-<slug>.md` or `<doc_placement>`. Exploratory research, not a spec — keep evidence-backed sections; `## Resources` is **mandatory** when external evidence was used, closing with every cited URL/path.
 ```markdown
 # Idea Brief: {one-line restatement}
 | Field | Value |

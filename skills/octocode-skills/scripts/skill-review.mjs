@@ -200,6 +200,11 @@ function isHookScript(name) {
   return name.split('/').includes('hooks');
 }
 
+function isLibScript(name) {
+  // Shared modules imported by CLI scripts, not a separate agent-invoked entry point.
+  return name.split('/').includes('lib');
+}
+
 function isGeneratedSupportScript(name) {
   const base = basename(name);
   // Compatibility aliases / injected helpers are not separate agent capabilities.
@@ -207,7 +212,7 @@ function isGeneratedSupportScript(name) {
 }
 
 function isAgentFacingScript(name) {
-  return isCodeScript(name) && !isHookScript(name) && !isGeneratedSupportScript(name);
+  return isCodeScript(name) && !isHookScript(name) && !isLibScript(name) && !isGeneratedSupportScript(name);
 }
 
 function hasScript(scriptFiles, mention) {

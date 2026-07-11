@@ -1,7 +1,7 @@
 # RFC.md Template — Decision Body
 
 Load when writing `RFC.md`. Why: this reviewer-facing document is the single source of truth for goals, scope, and decision; freeze it when accepted.
-Implementation detail belongs in `rfc-implementation.md`, metrics in `rfc-kpi.md`, and source inventories in `rfc-resources.md`.
+Implementation detail belongs in `rfc-implementation.md`, metrics in `rfc-kpi.md`, and source inventories in `rfc-resources.md`. On (re)read against live code, insert the audit block right after the header fields: `references/rfc-audit.md`.
 
 ```markdown
 # RFC: {Title}
@@ -45,3 +45,4 @@ Optional extensions that remain outside this decision.
 ```
 
 Quality gate: exact citations support non-obvious claims; recommendation relies on no uncertain claim; goals and scope appear only here.
+Every citation states why it matters; option comparisons render as a markdown table; no filler or duplicate phrasing.

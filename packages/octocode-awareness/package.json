@@ -40,8 +40,6 @@
   },
   "files": [
     "out/**",
-    "docs/**",
-    "assets/**",
     "README.md",
     "LICENSE"
   ],

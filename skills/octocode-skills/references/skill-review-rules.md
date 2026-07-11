@@ -22,12 +22,12 @@ Load when interpreting or fixing review findings — after running `scripts/skil
 | README (`readme-*`) | overview, features, how-it-works, audiences, `npx octocode skill` install |
 | Scripts/hooks (`script-quality`, `deterministic-prose`, `hooks-*`) | `--help`/flags, extract script, route hook + `timeout` |
 | Frontmatter/metadata | drop authoring keys/headings → README |
-| Prose (`rigid`, `verbose`, `clarity`, …) | direct verb, named object, IF/THEN |
-| Output/gates | concrete template; complete gate sections |
+| Prose (`rigid`, `verbose`, `clarity`, `tautology`, `duplicate-content`) | direct verb, named object, IF/THEN; cut filler — dense, no redundant tokens, no data loss |
+| Output/gates | concrete template — real markdown table for tabular data, not prose; complete gate sections |
 | `description-concise` | chars 1–50 = `Use when <trigger>`; ≤1024 total |
 | `description-rigid` | no MUST/NEVER/ALWAYS/SOLE/ONLY-skill; no internals dump — intents only |
 | `description-redundant` | one Use-when; no second `Triggers:`; no "This skill should be used"; no quote spam |
 
-Key limits: `SKILL.md` ≤50 lines; each `references/*.md` ≤50 lines, one short H1; every non-audit ref listed from `SKILL.md` or reachable via ref→ref.
+Key limits: `SKILL.md` ≤50 lines; each `references/*.md` ≤50 lines, one short H1; every non-audit ref listed from `SKILL.md` or reachable via ref→ref; every citation states why it matters.
 
 Next: when re-running the loop load `references/skill-review.md`; for design rationale load `references/skill-anatomy.md`.

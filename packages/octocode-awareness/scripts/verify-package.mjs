@@ -57,8 +57,19 @@ for (const required of [
   'out/types/src/index.d.ts',
   'out/octocode-awareness.js',
   'out/schema.js',
+  'out/docs/README.md',
+  'out/assets/logo.png',
 ]) {
   assert(files.includes(required), `packed artifact is missing ${required}`);
+}
+// Publish surface must nest under one folder (out/) — only the npm-mandated
+// root files may live outside it.
+const topLevelGroups = new Set(files.map((path) => path.split('/')[0]));
+for (const group of topLevelGroups) {
+  assert(
+    ['out', 'LICENSE', 'README.md', 'package.json'].includes(group),
+    `unexpected top-level published path "${group}" — everything but out/, LICENSE, README.md, package.json must nest under out/`,
+  );
 }
 assert(pkg.types === './out/types/src/index.d.ts', `package types must point at the verified declaration entry, got ${String(pkg.types)}`);
 assert(readFileSync(join(packageRoot, 'out/types/src/index.d.ts'), 'utf8').includes('export'), 'declaration entry is empty or malformed');
