@@ -37,15 +37,22 @@ export const OCTOCODE_SKILLS_SOURCE: MarketplaceSource = {
   url: `https://github.com/${OCTOCODE_SKILLS_GITHUB.owner}/${OCTOCODE_SKILLS_GITHUB.repo}/tree/${OCTOCODE_SKILLS_GITHUB.branch}/${OCTOCODE_SKILLS_GITHUB.skillsPath}`,
 };
 
+// Last-resort fallback when both the bundled skills/ dir and the GitHub
+// fetch are unavailable (e.g. running from source, unbuilt, and offline).
+// Must mirror the skill folders under repo-root skills/ — keep in sync with
+// `getAvailableSkills()`. 'octocode' and 'octocode-stats' are intentionally
+// excluded: they are pi-extension-only meta skills with no folder under
+// skills/, so they are not installable through this marketplace.
 export const KNOWN_OCTOCODE_SKILLS = [
-  'octocode',
   'octocode-awareness',
   'octocode-brainstorming',
-  'octocode-roast',
+  'octocode-eval',
+  'octocode-prompt-optimizer',
   'octocode-research',
   'octocode-rfc-generator',
+  'octocode-roast',
   'octocode-skills',
-  'octocode-stats',
+  'octocode-subagent',
 ];
 
 export const RECOMMENDED_SKILL = 'octocode-research';
