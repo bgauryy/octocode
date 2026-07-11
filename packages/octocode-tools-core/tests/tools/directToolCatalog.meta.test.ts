@@ -38,6 +38,12 @@ describe('prepareDirectToolInput', () => {
         canonical: 'keywords',
       },
       {
+        tool: 'ghSearchRepos',
+        query: { keywordsToSearch: ['octocode'], concise: true, limit: 3 },
+        alias: 'keywordsToSearch',
+        canonical: 'keywords',
+      },
+      {
         tool: 'ghViewRepoStructure',
         query: { owner: 'o', repo: 'r', path: '', depth: 1 },
         alias: 'depth',
@@ -96,5 +102,16 @@ describe('prepareDirectToolInput', () => {
         .details;
       expect(details?.some(d => d.includes('did you mean'))).toBe(false);
     }
+  });
+
+  it('keeps ghSearchRepos canonical keywords (does not rewrite to keywordsToSearch)', () => {
+    const prepared = prepareDirectToolInput(
+      'ghSearchRepos',
+      { keywords: ['octocode'], concise: true, limit: 3 },
+      { rejectUnknownFields: true }
+    ) as { queries: Array<Record<string, unknown>> };
+    const first = prepared.queries[0]!;
+    expect(first.keywords).toEqual(['octocode']);
+    expect(first.keywordsToSearch).toBeUndefined();
   });
 });

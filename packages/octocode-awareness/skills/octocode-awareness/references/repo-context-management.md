@@ -1,6 +1,6 @@
 # Repo Context Publication
 
-Use this when publishing, sharing, debugging, or linking workspace `.octocode/` context. For which live/durable/generated output to choose, read `references/output-routing.md`. Label→file map: `references/learning-loop.md`.
+Use this when publishing, sharing, debugging, or linking workspace `.octocode/` context. If output selection is still unresolved and its owner is not already loaded, consult `references/output-routing.md`. Label→file map: `references/learning-loop.md`.
 
 Canonical data lives in global `~/.octocode/memory/awareness.sqlite3`. `query <view>` is the live read API; `repo inject` publishes selected DB state as bounded Markdown, CSV, HTML, manifest, and references under the workspace.
 

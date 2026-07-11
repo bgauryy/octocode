@@ -128,16 +128,21 @@ interface AgentStatusRow {
   status: string;
 }
 
-/** Batched target-file lookup — one IN query instead of one SELECT per run. */
+/**
+ * Batched target-file lookup — chunked IN queries instead of one SELECT per
+ * run. Chunking keeps huge audits under SQLITE_MAX_VARIABLE_NUMBER.
+ */
 function targetFilesForRuns(db: DatabaseSync, runIds: string[]): Map<string, string[]> {
   const byRun = new Map<string, string[]>(runIds.map((id) => [id, []]));
-  if (runIds.length === 0) return byRun;
-  const rows = db.prepare(
-    `SELECT run_id, file_path FROM run_files
-     WHERE run_id IN (${runIds.map(() => '?').join(',')})
-     ORDER BY file_path`,
-  ).all(...runIds) as unknown as Array<{ run_id: string; file_path: string }>;
-  for (const row of rows) byRun.get(row.run_id)?.push(row.file_path);
+  for (let offset = 0; offset < runIds.length; offset += 500) {
+    const chunk = runIds.slice(offset, offset + 500);
+    const rows = db.prepare(
+      `SELECT run_id, file_path FROM run_files
+       WHERE run_id IN (${chunk.map(() => '?').join(',')})
+       ORDER BY file_path`,
+    ).all(...chunk) as unknown as Array<{ run_id: string; file_path: string }>;
+    for (const row of rows) byRun.get(row.run_id)?.push(row.file_path);
+  }
   return byRun;
 }
 

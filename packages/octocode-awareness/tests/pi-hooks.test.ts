@@ -126,9 +126,31 @@ describe('createPiAwarenessBridge', () => {
       await bridge.handleSessionShutdown({ reason: 'quit' }, ctx);
       expect((db.prepare("SELECT COUNT(*) AS c FROM task_runs WHERE status='PENDING'").get() as { c: number }).c).toBe(1);
       expect((db.prepare('SELECT COUNT(*) AS c FROM locks').get() as { c: number }).c).toBe(0);
+      expect((db.prepare('SELECT COUNT(*) AS c FROM sessions WHERE ended_at IS NOT NULL').get() as { c: number }).c).toBe(1);
       expect(db.prepare('SELECT origin FROM task_runs').get()).toMatchObject({ origin: 'HOOK' });
       expect((db.prepare('SELECT COUNT(*) AS c FROM run_files WHERE ended_at IS NOT NULL').get() as { c: number }).c).toBe(5);
       expect((db.prepare('SELECT COUNT(*) AS c FROM edit_log').get() as { c: number }).c).toBe(5);
+      db.close();
+    } finally {
+      tmp.cleanup();
+    }
+  });
+
+  it('finalizes before compact without ending the reusable Pi session', async () => {
+    const tmp = tempDb();
+    try {
+      const db = connectDb(tmp.dbPath);
+      const bridge = createPiAwarenessBridge({ getDb: () => db });
+      const ctx = { cwd: tmp.dir, sessionManager: { getSessionFile: () => join(tmp.dir, 'compact.jsonl') } };
+
+      await bridge.handleToolCall({ toolName: 'write', toolCallId: 'before-compact', input: { path: 'src/before.ts' } }, ctx);
+      await bridge.handleToolResult({ toolCallId: 'before-compact' }, ctx);
+      await bridge.handleSessionCompact({ reason: 'compact:auto' }, ctx);
+
+      expect((db.prepare("SELECT COUNT(*) AS c FROM task_runs WHERE status='PENDING'").get() as { c: number }).c).toBe(1);
+      expect((db.prepare('SELECT COUNT(*) AS c FROM sessions WHERE ended_at IS NULL').get() as { c: number }).c).toBe(1);
+      expect(await bridge.handleToolCall({ toolName: 'write', toolCallId: 'after-compact', input: { path: 'src/after.ts' } }, ctx)).toBeUndefined();
+      expect((db.prepare("SELECT COUNT(*) AS c FROM task_runs WHERE status='ACTIVE'").get() as { c: number }).c).toBe(1);
       db.close();
     } finally {
       tmp.cleanup();

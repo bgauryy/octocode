@@ -1,6 +1,7 @@
 # Learning Loop Closure
 
-Use this when reflection, evals, recurring failures, developer review, or harness proposals should change future behavior. This is **bookkeeping (learning)**; read `references/bookkeeping.md` for cleanup and triggers. Skip routine successful edits with no reusable lesson.
+Use this when reflection, evals, recurring failures, developer review, or harness proposals should change future behavior.
+Learning-loop work is **bookkeeping (learning)**. Consult `references/bookkeeping.md` only when cleanup/trigger policy is still needed and not already loaded. Skip routine successful edits with no reusable lesson.
 
 A loop is closed only when its output has an owner, an applied action, fresh verification, and a terminal state or refreshed projection.
 

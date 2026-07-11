@@ -11,7 +11,7 @@ import type {
 } from './githubAPI.js';
 import type { GitHubPullRequestSearchApiResult } from '../tools/github_search_pull_requests/types.js';
 import { SEARCH_ERRORS } from '../errors/domainErrors.js';
-import { getOctokit, OctokitWithThrottling } from './client.js';
+import { getOctokit, OctokitWithThrottling, resolveCacheAuthFingerprint } from './client.js';
 import { handleGitHubAPIError, isNoResultsSearchError } from './errors.js';
 import {
   buildPullRequestSearchQuery,
@@ -105,7 +105,8 @@ async function resolveCanonicalSearchRepo(
 // on one cache entry and serve stale results.
 export function buildPullRequestSearchCacheKey(
   params: GitHubPullRequestsSearchParams,
-  sessionId?: string
+  sessionId?: string,
+  authFingerprint: string = 'anon'
 ): string {
   return generateCacheKey(
     'gh-api-prs',
@@ -158,6 +159,7 @@ export function buildPullRequestSearchCacheKey(
       commentPage: params.commentPage,
       commitPage: params.commitPage,
       itemsPerPage: params.itemsPerPage,
+      auth: authFingerprint,
     },
     sessionId
   );
@@ -168,7 +170,8 @@ export async function searchGitHubPullRequestsAPI(
   authInfo?: AuthInfo,
   sessionId?: string
 ): Promise<GitHubPullRequestSearchApiResult> {
-  const cacheKey = buildPullRequestSearchCacheKey(params, sessionId);
+  const auth = await resolveCacheAuthFingerprint(authInfo);
+  const cacheKey = buildPullRequestSearchCacheKey(params, sessionId, auth);
 
   const result = await withDataCache<GitHubPullRequestSearchApiResult>(
     cacheKey,

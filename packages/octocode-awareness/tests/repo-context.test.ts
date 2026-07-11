@@ -226,7 +226,7 @@ describe('repo context query and projections', () => {
       expect(result.workboard.Verify?.map(row => row.id)).toContain('run_pending_a');
       expect(result.evidence[0]?.why_selected.join(' ')).toContain('auth');
       expect(result.next).toContain('verify audit');
-      expect(result.next).toContain('--run-id run_pending_');
+      expect(result.next).toContain("--run-id 'run_pending_");
       expect(result.next).not.toContain('--all-pending');
       expect(result).not.toHaveProperty('profile');
       expect(result).not.toHaveProperty('organ_state');
@@ -298,7 +298,9 @@ describe('repo context query and projections', () => {
         .run(dir, now, now);
 
       const worker = attendAwareness(db, { agentId: 'worker', workspacePath: dir, compact: true });
-      expect(worker.next).toContain('--run-id run_verify_exact');
+      expect(worker.next).toContain("--run-id 'run_verify_exact'");
+      expect(worker.next).toContain(`--workspace '${dir}'`);
+      expect(worker.next).toContain("--agent-id 'worker'");
       const lead = attendAwareness(db, { agentId: 'lead', workspacePath: dir, compact: true });
       expect(lead.next).not.toContain('verify audit');
     } finally {
@@ -337,8 +339,7 @@ describe('repo context query and projections', () => {
         query: 'claimed mid-loop',
         compact: true,
       });
-      expect(claimed.next).toContain('Continue claimed task task_next');
-      expect(claimed.next).toContain('run_next');
+      expect(claimed.next).toBe("octocode-awareness task heartbeat --task-id 'task_next' --run-id 'run_next' --agent-id 'owner' --compact");
 
       const peer = attendAwareness(db, {
         agentId: 'peer',
@@ -346,7 +347,7 @@ describe('repo context query and projections', () => {
         query: 'peer sees claimed',
         compact: true,
       });
-      expect(peer.next).not.toContain('Continue claimed task');
+      expect(peer.next).not.toContain('task heartbeat');
 
       db.prepare(`INSERT INTO run_files
         (run_id, file_path, source, started_at, heartbeat_at, expires_at)
@@ -360,6 +361,7 @@ describe('repo context query and projections', () => {
       });
       expect(files.next).toContain('work show');
       expect(files.next).toContain('src/auth.ts');
+      expect(files.next).toContain(`--workspace '${dir}'`);
 
       db.prepare(`UPDATE run_files SET ended_at = ?, expires_at = ?`).run(now, now);
       agentSignal(db, {
@@ -379,6 +381,8 @@ describe('repo context query and projections', () => {
         compact: true,
       });
       expect(inbox.next).toContain('signal list');
+      expect(inbox.next).toContain("--agent-id 'peer'");
+      expect(inbox.next).toContain(`--workspace '${dir}'`);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -444,7 +448,7 @@ describe('repo context query and projections', () => {
         compact: true,
       });
       expect(result.next).toBe(
-        'octocode-awareness query workboard --workspace "$PWD" --format json --limit 5 --compact',
+        `octocode-awareness query workboard --workspace '${dir}' --format json --limit 5 --compact`,
       );
       expect(result.next).not.toContain(';');
       expect(result.next).not.toContain('memory forget --workspace');

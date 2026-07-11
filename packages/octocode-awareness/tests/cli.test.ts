@@ -1724,7 +1724,30 @@ describe('CLI', () => {
   it('focused help exposes skill-prescribed reflection and projection flags', () => {
     const reflect = runSource(['reflect', 'record', '--help']);
     expect(reflect.status).toBe(0);
-    expect(reflect.stdout).toContain('--fix-harness');
+    for (const flag of ['--fix-harness', '--duo', '--eval-failure-json', '--worked', '--didnt-work', '--judgment-note', '--allow-similar', '--artifact', '--repo', '--ref']) {
+      expect(reflect.stdout).toContain(flag);
+    }
+
+    const refinement = runSource(['refinement', 'set', '--help']);
+    expect(refinement.status).toBe(0);
+    expect(refinement.stdout).toContain('update: --refinement-id <id> --state');
+
+    const task = runSource(['task', 'create', '--help']);
+    expect(task.status).toBe(0);
+    for (const token of ['show:', 'depend:', '--test-plan', '--priority', '--lease-minutes', '--workspace']) {
+      expect(task.stdout).toContain(token);
+    }
+
+    const query = runSource(['query', '--help']);
+    expect(query.status).toBe(0);
+    for (const flag of ['--query', '--limit', '--agent-id', '--state', '--include-bodies']) {
+      expect(query.stdout).toContain(flag);
+    }
+
+    const hook = runSource(['hook', 'run', '--help']);
+    expect(hook.status).toBe(0);
+    expect(hook.stdout).toContain('session-compact');
+    expect(hook.stdout).toContain('intentionally rejects --db');
 
     const inject = runSource(['repo', 'inject', '--help']);
     expect(inject.status).toBe(0);

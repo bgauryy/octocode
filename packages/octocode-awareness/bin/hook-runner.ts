@@ -1088,13 +1088,38 @@ async function runSessionEnd(payload: Record<string, unknown>): Promise<number> 
   return 0;
 }
 
+async function runSessionCompact(payload: Record<string, unknown>): Promise<number> {
+  try {
+    const database = db();
+    registerHookAgent(database, payload, 'hook:session-compact');
+    withHookDbRetry(() => finalizeActiveFallbackHookRuns(
+      database,
+      payload,
+      workspace(payload) ?? process.cwd(),
+    ));
+    if (process.env.OCTOCODE_NO_SESSION_CAPTURE !== '1' && hookReason(payload) !== 'clear') {
+      sessionCapture(database, {
+        agent_id: agentId(payload),
+        workspace: workspace(payload) ?? undefined,
+        artifact: artifact(payload) ?? undefined,
+        reason: hookReason(payload) || 'compact',
+      });
+    }
+    // PreCompact is a turn boundary, not a session boundary. Keep the session
+    // reusable so the host can continue with the same correlation id.
+  } catch {
+    // fail-open
+  }
+  return 0;
+}
+
 export async function runHookCommand(
   command: string,
   rawPayload?: string,
   options: HookRunOptions = {},
 ): Promise<number> {
   if (command === 'help' || command === '--help' || command === '-h') {
-    process.stdout.write('usage: hook-runner <pre-edit|post-edit|harness-guard|stop-verify|notify-deliver|session-end> < hook-payload.json\n');
+    process.stdout.write('usage: hook-runner <pre-edit|post-edit|harness-guard|stop-verify|notify-deliver|session-compact|session-end> < hook-payload.json\n');
     return 0;
   }
 
@@ -1109,6 +1134,7 @@ export async function runHookCommand(
     case 'harness-guard': return runHarnessGuard(payload);
     case 'stop-verify': return runStopVerify(payload);
     case 'notify-deliver': return runNotifyDeliver(payload);
+    case 'session-compact': return runSessionCompact(payload);
     case 'session-end': return runSessionEnd(payload);
     default:
       console.error(`unknown hook command: ${command}`);

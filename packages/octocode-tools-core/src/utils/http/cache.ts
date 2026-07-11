@@ -3,7 +3,9 @@ import crypto from 'crypto';
 import { incrementGitHubCacheHits } from '../../shared/index.js';
 import type { CacheStats } from '../core/types.js';
 
-const VERSION = 'v1';
+// Bump when cache-key shape changes (auth fingerprint, new fields) so stale
+// entries from older key schemas cannot be served.
+const VERSION = 'v2';
 
 const PENDING_REQUEST_MAX_AGE_MS = 5 * 60 * 1000;
 
@@ -27,6 +29,9 @@ const CACHE_TTL_CONFIG = {
   'gh-api-code': 3600,
   'gh-api-repos': 7200,
   'gh-api-prs': 1800,
+  'gh-api-issues': 1800,
+  'gh-api-history': 1800,
+  'gh-api-releases': 3600,
   'gh-api-file-content': 300,
   'gh-repo-structure-api': 7200,
   'github-user': 900,

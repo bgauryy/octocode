@@ -9,11 +9,9 @@ process.on('warning', (w) => {
 import { writeFileSync as writeFileSync5, mkdirSync as mkdirSync6, existsSync as existsSync7 } from "node:fs";
 import { spawnSync as spawnSync6 } from "node:child_process";
 import { basename as basename4, dirname as dirname6, isAbsolute as isAbsolute8, join as join9, resolve as resolve15 } from "node:path";
-import { DatabaseSync as DatabaseSync2 } from "node:sqlite";
 import { fileURLToPath as fileURLToPath4 } from "node:url";
 
 // src/db.ts
-import { DatabaseSync } from "node:sqlite";
 import { createHash } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { join, resolve as resolve2, dirname } from "node:path";
@@ -217,6 +215,17 @@ function journalModeForSqliteVersion(sqliteVersion) {
 }
 
 // src/db.ts
+var previousWarningListeners = process.listeners("warning");
+process.removeAllListeners("warning");
+var sqliteWarningFilter = (warning) => {
+  if (warning?.name === "ExperimentalWarning" && String(warning?.message).includes("SQLite")) return;
+  for (const listener of previousWarningListeners) listener.call(process, warning);
+};
+process.on("warning", sqliteWarningFilter);
+var { DatabaseSync } = await import("node:sqlite");
+await new Promise((resolveTick) => setImmediate(resolveTick));
+process.removeAllListeners("warning");
+for (const listener of previousWarningListeners) process.on("warning", listener);
 var DEFAULT_DB_NAME = "awareness.sqlite3";
 var MEMORY_HOME_ENV = "OCTOCODE_MEMORY_HOME";
 var AWARENESS_APPLICATION_ID = 1329812529;
@@ -1266,7 +1275,7 @@ function normalizeImportedTimestamps(db3) {
       if (!/(_at|_from|_to)$/.test(col.name)) continue;
       db3.prepare(
         `UPDATE ${table} SET ${col.name} = substr(${col.name}, 1, 19) || 'Z'
-         WHERE ${col.name} LIKE '____-__-__T__:__:__.%'`
+         WHERE ${col.name} LIKE '____-__-__T__:__:__.___Z'`
       ).run();
     }
   }
@@ -6394,13 +6403,15 @@ import { randomUUID as randomUUID10 } from "node:crypto";
 var VALID_VERIFY_STATUSES = /* @__PURE__ */ new Set(["SUCCESS", "FAILED"]);
 function targetFilesForRuns(db3, runIds) {
   const byRun = new Map(runIds.map((id) => [id, []]));
-  if (runIds.length === 0) return byRun;
-  const rows = db3.prepare(
-    `SELECT run_id, file_path FROM run_files
-     WHERE run_id IN (${runIds.map(() => "?").join(",")})
-     ORDER BY file_path`
-  ).all(...runIds);
-  for (const row of rows) byRun.get(row.run_id)?.push(row.file_path);
+  for (let offset = 0; offset < runIds.length; offset += 500) {
+    const chunk = runIds.slice(offset, offset + 500);
+    const rows = db3.prepare(
+      `SELECT run_id, file_path FROM run_files
+       WHERE run_id IN (${chunk.map(() => "?").join(",")})
+       ORDER BY file_path`
+    ).all(...chunk);
+    for (const row of rows) byRun.get(row.run_id)?.push(row.file_path);
+  }
   return byRun;
 }
 function closeRunFiles(db3, runId, now) {
@@ -6916,7 +6927,8 @@ function hookCommand(name, params) {
       scriptPath = "${CLAUDE_PROJECT_DIR}/" + rel.split(sep3).join("/");
     }
   }
-  return `OCTOCODE_AGENT_HOST=${params.host} "${scriptPath.replace(/["\\]/g, "\\$&")}"`;
+  const quoted = (value) => `"${value.replace(/["\\$`]/g, "\\$&")}"`;
+  return `OCTOCODE_AGENT_HOST=${params.host} OCTOCODE_NODE_BIN=${quoted(process.execPath)} ${quoted(scriptPath)}`;
 }
 function hookCommandWindows(name, params) {
   if (params.host !== "codex") return void 0;
@@ -6948,7 +6960,7 @@ function specsFor(host, params) {
       spec("stop", "stop-verify.sh"),
       spec("subagentStop", "stop-verify.sh"),
       spec("sessionEnd", "session-end.sh"),
-      spec("preCompact", "session-end.sh"),
+      spec("preCompact", "session-compact.sh"),
       spec("sessionStart", "notify-deliver.sh")
     ];
   }
@@ -6958,7 +6970,7 @@ function specsFor(host, params) {
       spec("PostToolUse", "post-edit.sh", WRITE_MATCHER),
       spec("Stop", "stop-verify.sh"),
       spec("SubagentStop", "stop-verify.sh"),
-      spec("PreCompact", "session-end.sh"),
+      spec("PreCompact", "session-compact.sh"),
       spec("UserPromptSubmit", "notify-deliver.sh")
     ];
   }
@@ -6999,9 +7011,9 @@ function entry(host, spec) {
 function awarenessHookName(command2) {
   const normalized = command2?.replace(/\\/g, "/");
   if (!normalized) return null;
-  const wrapper = /\/octocode-awareness\/scripts\/hooks\/(pre-edit|post-edit|harness-guard|stop-verify|notify-deliver|session-end)\.sh/.exec(normalized);
+  const wrapper = /\/octocode-awareness\/scripts\/hooks\/(pre-edit|post-edit|harness-guard|stop-verify|notify-deliver|session-compact|session-end)\.sh/.exec(normalized);
   if (wrapper?.[1]) return `${wrapper[1]}.sh`;
-  const runner = /\/octocode-awareness\/scripts\/hook-runner\.mjs["']?\s+(pre-edit|post-edit|harness-guard|stop-verify|notify-deliver|session-end)(?:\s|$)/.exec(normalized);
+  const runner = /\/octocode-awareness\/scripts\/hook-runner\.mjs["']?\s+(pre-edit|post-edit|harness-guard|stop-verify|notify-deliver|session-compact|session-end)(?:\s|$)/.exec(normalized);
   return runner?.[1] ? `${runner[1]}.sh` : null;
 }
 function sameAwarenessCommand(actual, expected) {
@@ -9674,6 +9686,9 @@ function chooseMode(query, evidenceCount, verifyCount, gapCount) {
   if (evidenceCount === 0 || /(design|rfc|brainstorm|research|unknown|approach|why|how)/i.test(query)) return verifyCount > 0 ? "mixed" : "explore";
   return gapCount > 0 ? "mixed" : "exploit";
 }
+function shellQuote(value) {
+  return `'${value.replace(/'/g, `'"'"'`)}'`;
+}
 function attendAwareness(db3, params = {}) {
   const cwd = params.cwd ? resolve13(params.cwd) : process.cwd();
   const workspacePath = resolve13(String(params.workspacePath ?? params.workspace_path ?? params.workspace ?? cwd));
@@ -9848,7 +9863,9 @@ function attendAwareness(db3, params = {}) {
   const filesUnderWork = rawWorkboard["FilesUnderWork"] ?? [];
   const filesUnderWorkPath = filesUnderWork.map((row) => String(row["path"] ?? row["file_path"] ?? "")).find((path2) => path2.length > 0);
   const inboxCount = (rawWorkboard["Inbox"] ?? []).length > 0 ? Number((rawWorkboard["Inbox"] ?? [])[0]?.["column_total"] ?? (rawWorkboard["Inbox"] ?? []).length) : 0;
-  const next = verificationTargets.length > 0 ? `octocode-awareness verify audit --agent-id "$OCTOCODE_AGENT_ID" --workspace "$PWD" --compact; then verify mark ${verificationRunId ? `--run-id ${verificationRunId}` : "--run-id <exact-run-id>"} --message "<check + result>" after its declared test plan` : readyTasks.length > 0 ? `octocode-awareness task claim --task-id ${String(readyTasks[0]?.["id"])} --agent-id "$OCTOCODE_AGENT_ID" --compact` : ownedClaimedTask ? `Continue claimed task ${String(ownedClaimedTask["id"])}: work start --run-id ${ownedClaimedRunId ?? "<run>"} --file <path> or task heartbeat; then task submit + verify mark` : filesUnderWorkPath ? `octocode-awareness work show --workspace "$PWD" --file ${filesUnderWorkPath} --compact; read peer reason before overlapping edits` : inboxCount > 0 ? `octocode-awareness signal list --agent-id "$OCTOCODE_AGENT_ID" --workspace "$PWD" --compact` : !query && bloatWarnings.length > 0 ? 'octocode-awareness query workboard --workspace "$PWD" --format json --limit 5 --compact' : evidence.length > 0 ? "Treat evidence as leads; re-check cited files, then work start before edits" : 'octocode-awareness attend --workspace "$PWD" --query "<narrower task>" --compact; or query workboard / workspace status';
+  const workspaceArg = shellQuote(workspacePath);
+  const agentArg = agentId2 ? shellQuote(agentId2) : '"$OCTOCODE_AGENT_ID"';
+  const next = verificationTargets.length > 0 ? `octocode-awareness verify audit --agent-id ${agentArg} --workspace ${workspaceArg} --compact${verificationRunId ? `; after its declared test plan: octocode-awareness verify mark --run-id ${shellQuote(verificationRunId)} --agent-id ${agentArg} --message "<check + result>" --compact` : ""}` : readyTasks.length > 0 ? `octocode-awareness task claim --task-id ${shellQuote(String(readyTasks[0]?.["id"]))} --agent-id ${agentArg} --compact` : ownedClaimedTask && ownedClaimedRunId ? `octocode-awareness task heartbeat --task-id ${shellQuote(String(ownedClaimedTask["id"]))} --run-id ${shellQuote(ownedClaimedRunId)} --agent-id ${agentArg} --compact` : ownedClaimedTask ? `octocode-awareness task show --task-id ${shellQuote(String(ownedClaimedTask["id"]))} --compact` : filesUnderWorkPath ? `octocode-awareness work show --workspace ${workspaceArg} --file ${shellQuote(filesUnderWorkPath)} --compact; read peer reason before overlapping edits` : inboxCount > 0 ? `octocode-awareness signal list --agent-id ${agentArg} --workspace ${workspaceArg} --compact` : !query && bloatWarnings.length > 0 ? `octocode-awareness query workboard --workspace ${workspaceArg} --format json --limit 5 --compact` : evidence.length > 0 ? "Treat evidence as leads; re-check cited files, then work start before edits" : `octocode-awareness attend --workspace ${workspaceArg} --agent-id ${agentArg} --query "<narrower task>" --compact`;
   if (compact2) {
     const columnCount = (column) => {
       const rows = rawWorkboard[column] ?? [];
@@ -10932,9 +10949,30 @@ async function runSessionEnd(payload) {
   }
   return 0;
 }
+async function runSessionCompact(payload) {
+  try {
+    const database = db();
+    registerHookAgent(database, payload, "hook:session-compact");
+    withHookDbRetry(() => finalizeActiveFallbackHookRuns(
+      database,
+      payload,
+      workspace(payload) ?? process.cwd()
+    ));
+    if (process.env.OCTOCODE_NO_SESSION_CAPTURE !== "1" && hookReason(payload) !== "clear") {
+      sessionCapture(database, {
+        agent_id: agentId(payload),
+        workspace: workspace(payload) ?? void 0,
+        artifact: artifact(payload) ?? void 0,
+        reason: hookReason(payload) || "compact"
+      });
+    }
+  } catch {
+  }
+  return 0;
+}
 async function runHookCommand(command2, rawPayload, options = {}) {
   if (command2 === "help" || command2 === "--help" || command2 === "-h") {
-    process.stdout.write("usage: hook-runner <pre-edit|post-edit|harness-guard|stop-verify|notify-deliver|session-end> < hook-payload.json\n");
+    process.stdout.write("usage: hook-runner <pre-edit|post-edit|harness-guard|stop-verify|notify-deliver|session-compact|session-end> < hook-payload.json\n");
     return 0;
   }
   const payload = {
@@ -10953,6 +10991,8 @@ async function runHookCommand(command2, rawPayload, options = {}) {
       return runStopVerify(payload);
     case "notify-deliver":
       return runNotifyDeliver(payload);
+    case "session-compact":
+      return runSessionCompact(payload);
     case "session-end":
       return runSessionEnd(payload);
     default:
@@ -12584,7 +12624,7 @@ function cmdInit(db3, dbPath2, opts2) {
   return emit({ db_path: dbPath2, initialized: true, memory_count: memCount }, 0, opts2);
 }
 function cmdSelfTest(opts2) {
-  const testDb = new DatabaseSync2(":memory:");
+  const testDb = new DatabaseSync(":memory:");
   testDb.exec("PRAGMA foreign_keys = ON");
   initDb(testDb);
   const testAgent = "self-test-agent";
@@ -12623,7 +12663,7 @@ function cmdSelfTest(opts2) {
   }, 0, opts2);
 }
 var HELP = `usage: octocode-awareness <command> [options]
-common: --db <path> --compact
+common: --db <path> --compact (except hook run; hooks use OCTOCODE_MEMORY_HOME)
 agent map: octocode-awareness schema commands --compact
 schema: octocode-awareness schema commands|list|json-schema <name>|example <name>|validate <name> <json-file|->
 
@@ -12877,7 +12917,7 @@ schema: octocode-awareness schema json-schema memory_lifecycle --compact`,
 example: octocode-awareness memory forget --memory-id mem_123 --dry-run --compact
 note: hard deletion is irreversible; prefer archive for reversible cleanup and always preview broad selectors
 schema: octocode-awareness schema json-schema forget_memory --compact`,
-  "refine-set": `usage: octocode-awareness refinement set --agent-id <id> --reasoning <t> --remember <t> [--quality good|bad|handoff|instructions] [--state open|ongoing|done] [--workspace <p>] [--artifact <a>] [--repo <r>] [--ref <r>] [--file <p>]... [--refinement-id <id>] [--check-receipt <t>]
+  "refine-set": `usage: octocode-awareness refinement set [create: --agent-id <id> --reasoning <t> --remember <t> --workspace <p> | update: --refinement-id <id> --state open|ongoing|done] [--quality good|bad|handoff|instructions] [--agent-id <id>] [--artifact <a>] [--repo <r>] [--ref <r>] [--file <p>]... [--check-receipt <t>]
 example: octocode-awareness refinement set --agent-id agent --reasoning "handoff" --remember "next step" --workspace "$PWD" --compact
 note: --quality accepts good|bad|handoff|instructions only; create open/ongoing, then close an existing --refinement-id with --state done, --agent-id, and --check-receipt
 schema: octocode-awareness schema json-schema refinement --compact`,
@@ -12908,7 +12948,7 @@ schema: octocode-awareness schema json-schema agent_signal --compact`,
 example: octocode-awareness verify mark --agent-id agent --run-id run_123 --message "yarn test passed" --compact
 note: prefer explicit --run-id; scope deliberate --all-pending use with --workspace
 schema: octocode-awareness schema json-schema verify --compact`,
-  "reflect": `usage: octocode-awareness reflect record --agent-id <id> [--workspace <p>] --task <text> --outcome worked|partial|failed [--lesson <t>] [--fix-repo <t>] [--fix-harness <t>] [--fix-instructions <t>] [--fix-file <p>]... [--failure-signature <s>]
+  "reflect": `usage: octocode-awareness reflect record --agent-id <id> --task <text> --outcome worked|partial|failed [--worked <t>] [--didnt-work <t>] [--judgment-note <t>] [--lesson <t>] [--fix-repo <t>] [--fix-harness <t>] [--fix-instructions <t>] [--fix-file <p>]... [--failure-signature <s>] [--eval-failure-json <json>]... [--duo] [--allow-similar] [--importance <1..10>] [--workspace <p>] [--artifact <a>] [--repo <r>] [--ref <r>]
 example: octocode-awareness reflect record --agent-id agent --task "fix CLI" --outcome worked --lesson "Keep CLI nouns canonical" --compact
 note: --outcome must be worked|partial|failed; unknown values hard-error
 note: --fix-repo \u2192 repo-code refinement; --fix-harness \u2192 skill/tooling; --fix-instructions \u2192 feedback to the human instruction author (see reflect developer-review); refinement --quality values are good|bad|handoff|instructions
@@ -12916,7 +12956,7 @@ schema: octocode-awareness schema json-schema reflect --compact`,
   "developer-review": `usage: octocode-awareness reflect developer-review [--workspace <repo>] [--state open|ongoing|done]... [--format json|markdown] [--limit <n>]
 example: octocode-awareness reflect developer-review --workspace "$PWD" --format markdown --compact
 note: reads agent feedback on the instructions themselves (from reflect record --fix-instructions); same rows feed .octocode/DEVELOPER_REVIEW.md`,
-  "query": `usage: octocode-awareness query <all|repo-profile|memories|gotchas|lessons|plans|tasks|runs|locks|agents|signals|refinements|files|activity|workboard|developer-review> [--workspace <repo>] [--format json|table|csv|markdown|html] [--out <path>]
+  "query": `usage: octocode-awareness query <all|repo-profile|memories|gotchas|lessons|plans|tasks|runs|locks|agents|signals|refinements|files|activity|workboard|developer-review> [--query <text>] [--limit <1..500>] [--workspace <repo>] [--artifact <a>] [--repo <r>] [--ref <r>] [--agent-id <id>] [--state <s>]... [--label <l>]... [--file <p>] [--since <iso>] [--include-bodies] [--format json|table|csv|markdown|html] [--out <path>]
 examples:
   octocode-awareness query files --workspace "$PWD" --format table --limit 50
   octocode-awareness query workboard --workspace "$PWD" --format json --limit 10 --compact
@@ -12944,10 +12984,12 @@ show/join/doc/status: --plan-id <id>; join also --agent-id <id>; doc uses --agen
 example: octocode-awareness plan create --name "Release" --objective "Ship safely" --lead-agent-id agent --workspace "$PWD" --compact
 schema: octocode-awareness schema json-schema plan --compact`,
   "task-command": `usage: octocode-awareness task create|list|ready|show|claim|heartbeat|submit|release|depend [options]
-create: --plan-id <id> --title <text> --reasoning <text> --acceptance <text> --path <workspace-relative>... --agent-id <id> [--depends-on <task-id>]...
-list/ready: [--plan-id <id>] [--limit <1-200>] [--full]
+create: --plan-id <id> --title <text> --reasoning <text> --acceptance <text> --path <workspace-relative>... --agent-id <id> [--depends-on <task-id>]... [--priority <-1000..1000>] [--lease-minutes <1..60>] [--test-plan <text>]
+list/ready: [--plan-id <id>] [--workspace <repo>] [--status <s>] [--limit <1-200>] [--full]
+show: --task-id <id>
 claim: --task-id <id> --agent-id <id>; or --next --plan-id <id> --agent-id <id>. Returns run_id for lock/submit/verify; exit 2 only when another live claimant owns it.
 heartbeat/submit/release: --task-id <id> --run-id <id> --agent-id <id>; submit optionally --message <text>; release optionally --blocked-reason <text>
+depend: --task-id <id> --depends-on <task-id>...
 example: octocode-awareness task ready --plan-id plan_123 --compact
 schema: octocode-awareness schema json-schema task --compact`,
   "work-command": `usage: octocode-awareness work start|touch|end|list|show [options]
@@ -12958,7 +13000,9 @@ list: [--workspace <repo>] [--agent-id <id>] [--run-id <id>] [--all] [--limit <1
 show: --workspace <repo> --file <path> [--all] [--limit <1-200>] [--full]
 example: octocode-awareness work start --agent-id agent --workspace "$PWD" --file src/a.ts --rationale "edit parser" --test-plan "yarn test" --compact
 schema: octocode-awareness schema json-schema work --compact`,
-  "hook-run": `usage: octocode-awareness hook run <pre-edit|post-edit|harness-guard|stop-verify|notify-deliver|session-end> < hook-payload.json`,
+  "hook-run": `usage: octocode-awareness hook run <pre-edit|post-edit|harness-guard|stop-verify|notify-deliver|session-compact|session-end> < hook-payload.json
+payload: host JSON on stdin; common fields are cwd/workspace, session_id, tool_name, and tool_input/path
+store: hook run intentionally rejects --db; set OCTOCODE_MEMORY_HOME to select the hook database`,
   "hooks-install": hooksInstallUsage(),
   "schema": `usage: octocode-awareness schema commands|list|json-schema <name>|example <name>|validate <name> <json-file|->
 examples:

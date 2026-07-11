@@ -544,6 +544,18 @@ function buildKnownDirectToolCommandPatternQueries(
           perPage: 5,
         },
       },
+      {
+        label: 'issues search',
+        query: {
+          type: 'issues',
+          owner: 'microsoft',
+          repo: 'TypeScript',
+          keywordsToSearch: ['crash'],
+          state: 'open',
+          concise: true,
+          limit: 5,
+        },
+      },
     ];
   }
 
@@ -965,8 +977,9 @@ function suggestField(
  * silently stripped. Real typos still hit the did-you-mean path.
  */
 const TOOL_FIELD_ALIASES: Record<string, Record<string, string>> = {
+  // Map alias → canonical schema field (never the reverse).
   ghSearchCode: { keywordsToSearch: 'keywords' },
-  ghSearchRepos: { keywords: 'keywordsToSearch' },
+  ghSearchRepos: { keywordsToSearch: 'keywords' },
   npmSearch: { name: 'packageName' },
   ghViewRepoStructure: { depth: 'maxDepth' },
   lspGetSemantics: { op: 'type', line: 'lineHint', path: 'uri' },

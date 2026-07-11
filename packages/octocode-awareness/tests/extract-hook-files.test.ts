@@ -74,6 +74,16 @@ describe('extract-hook-files', () => {
       'src/moved.ts',
     ]);
   });
+
+  it('does not treat Write file bodies as apply_patch commands', () => {
+    expect(extract({
+      tool_name: 'Write',
+      tool_input: {
+        file_path: 'docs/example.md',
+        content: 'documentation example:\n*** Add File: src/phantom.ts',
+      },
+    })).toEqual(['docs/example.md']);
+  });
 });
 
 describe('hook-runner', () => {

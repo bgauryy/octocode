@@ -11,7 +11,7 @@ import type {
   GitHubRepositoryStructureError,
 } from '../tools/github_view_repo_structure/types.js';
 import { GITHUB_STRUCTURE_DEFAULTS as STRUCTURE_DEFAULTS } from '../tools/github_view_repo_structure/constants.js';
-import { getOctokit, resolveDefaultBranch } from './client.js';
+import { getOctokit, resolveDefaultBranch, resolveCacheAuthFingerprint } from './client.js';
 import { handleGitHubAPIError } from './errors.js';
 import { generateCacheKey, withDataCache } from '../utils/http/cache.js';
 import { generateStructurePaginationHints } from '../utils/pagination/hints.js';
@@ -28,6 +28,10 @@ import {
   fetchDirectoryContentsRecursivelyAPI,
   getRecursiveFetchFailureCount,
 } from './repoStructureRecursive.js';
+import {
+  fetchStructureViaGitTree,
+  isGitStructureTreesEnabled,
+} from './repoStructureTree.js';
 
 import type { Octokit } from 'octokit';
 
@@ -217,6 +221,7 @@ export async function viewGitHubRepositoryStructureAPI(
   authInfo?: AuthInfo,
   sessionId?: string
 ): Promise<GitHubRepositoryStructureResult | GitHubRepositoryStructureError> {
+  const auth = await resolveCacheAuthFingerprint(authInfo);
   const cacheKey = generateCacheKey(
     'gh-repo-structure-api',
     {
@@ -225,6 +230,7 @@ export async function viewGitHubRepositoryStructureAPI(
       branch: params.branch,
       path: params.path,
       depth: params.maxDepth,
+      auth,
     },
     sessionId
   );
@@ -265,6 +271,18 @@ async function viewGitHubRepositoryStructureAPIInternal(
     const { owner, repo, branch, path = '', maxDepth: depth = 1 } = params;
     const cleanPath = path.replace(/^\/+|\/+$/g, '');
 
+    // Depth 1: single Contents listing. Depth > 1: prefer recursive Git Trees
+    // (O(1) API calls) unless OCTOCODE_GH_STRUCTURE_TREES=0.
+    if (depth > 1 && isGitStructureTreesEnabled()) {
+      return await viewStructureViaTrees(
+        octokit,
+        params,
+        cleanPath,
+        depth,
+        authInfo
+      );
+    }
+
     const resolution = await resolveContentWithBranchFallback(
       octokit,
       owner,
@@ -282,6 +300,134 @@ async function viewGitHubRepositoryStructureAPIInternal(
     let partialTreeFailures = 0;
 
     if (depth > 1) {
+      // Contents fallback: recursive fetch already loads the root path — do not
+      // keep the duplicate root listing from resolveContentWithBranchFallback.
+      const recursiveItems = await fetchDirectoryContentsRecursivelyAPI(
+        octokit,
+        owner,
+        repo,
+        workingBranch,
+        cleanPath,
+        1,
+        depth
+      );
+      partialTreeFailures = getRecursiveFetchFailureCount(recursiveItems);
+      rawResponseChars = getRawResponseChars(recursiveItems) ?? 0;
+      allItems = recursiveItems;
+    }
+
+    return buildStructureResult({
+      owner,
+      repo,
+      workingBranch,
+      repoDefaultBranch,
+      cleanPath,
+      depth,
+      allItems,
+      partialTreeFailures,
+      incompleteTree: false,
+      rawResponseChars,
+      includeSizes: params.includeSizes === true,
+      itemsPerPage: params.itemsPerPage,
+      page: params.page,
+    });
+  } catch (error: unknown) {
+    const apiError = handleGitHubAPIError(error);
+    return {
+      error: REPOSITORY_ERRORS.STRUCTURE_EXPLORATION_FAILED.message,
+      status: apiError.status,
+      rateLimitRemaining: apiError.rateLimitRemaining,
+      rateLimitReset: apiError.rateLimitReset,
+      retryAfter: apiError.retryAfter,
+    };
+  }
+}
+
+async function viewStructureViaTrees(
+  octokit: Octokit,
+  params: GitHubStructureFetchQuery,
+  cleanPath: string,
+  depth: number,
+  authInfo?: AuthInfo
+): Promise<GitHubRepositoryStructureResult | GitHubRepositoryStructureError> {
+  const { owner, repo, branch } = params;
+  let workingBranch: string;
+  let repoDefaultBranch: string | undefined;
+  try {
+    if (branch) {
+      workingBranch = branch;
+    } else {
+      repoDefaultBranch = await resolveDefaultBranch(owner, repo, authInfo);
+      workingBranch = repoDefaultBranch;
+    }
+  } catch (repoError) {
+    const apiError = handleGitHubAPIError(repoError);
+    return {
+      error: REPOSITORY_ERRORS.NOT_FOUND.message(owner, repo, apiError.error),
+      status: apiError.status,
+    };
+  }
+
+  let treeResult;
+  try {
+    treeResult = await fetchStructureViaGitTree(octokit, {
+      owner,
+      repo,
+      workingBranch,
+      pathPrefix: cleanPath,
+      maxDepth: depth,
+    });
+  } catch (error: unknown) {
+    // Trees failed (missing ref, etc.) — fall back to Contents recursion.
+    const resolution = await resolveContentWithBranchFallback(
+      octokit,
+      owner,
+      repo,
+      cleanPath,
+      workingBranch,
+      authInfo
+    );
+    if ('error' in resolution) return resolution;
+    const recursiveItems = await fetchDirectoryContentsRecursivelyAPI(
+      octokit,
+      owner,
+      repo,
+      resolution.workingBranch,
+      cleanPath,
+      1,
+      depth
+    );
+    return buildStructureResult({
+      owner,
+      repo,
+      workingBranch: resolution.workingBranch,
+      repoDefaultBranch,
+      cleanPath,
+      depth,
+      allItems: recursiveItems,
+      partialTreeFailures: getRecursiveFetchFailureCount(recursiveItems),
+      incompleteTree: false,
+      rawResponseChars: getRawResponseChars(recursiveItems) ?? 0,
+      includeSizes: params.includeSizes === true,
+      itemsPerPage: params.itemsPerPage,
+      page: params.page,
+      extraHints: [
+        `Git Trees fetch failed (${error instanceof Error ? error.message : String(error)}); used Contents recursion instead.`,
+      ],
+    });
+  }
+
+  let allItems = treeResult.items;
+  let partialTreeFailures = 0;
+  let rawResponseChars = treeResult.rawResponseChars;
+  const incompleteTree = treeResult.truncated;
+  const extraHints: string[] = [];
+
+  if (incompleteTree) {
+    extraHints.push(
+      'Git Trees response was truncated by GitHub — this structure listing may be incomplete. Narrow path/depth or set OCTOCODE_GH_STRUCTURE_TREES=0 for Contents recursion.'
+    );
+    try {
       const recursiveItems = await fetchDirectoryContentsRecursivelyAPI(
         octokit,
         owner,
@@ -298,113 +444,155 @@ async function viewGitHubRepositoryStructureAPIInternal(
         (item, index, array) =>
           array.findIndex(i => i.path === item.path) === index
       );
+    } catch {
+      void 0;
     }
-
-    const filteredItems = allItems.filter(item =>
-      item.type === 'dir'
-        ? !shouldIgnoreDir(item.name)
-        : !shouldIgnoreFile(item.path)
-    );
-
-    filteredItems.sort((a, b) => {
-      if (a.type !== b.type) return a.type === 'dir' ? -1 : 1;
-      const aDepth = a.path.split('/').length;
-      const bDepth = b.path.split('/').length;
-      if (aDepth !== bDepth) return aDepth - bDepth;
-      return a.path.localeCompare(b.path);
-    });
-
-    const entriesPerPage =
-      params.itemsPerPage ?? STRUCTURE_DEFAULTS.ENTRIES_PER_PAGE;
-    const currentPage = params.page ?? 1;
-    const totalEntries = filteredItems.length;
-    const totalPages = Math.max(1, Math.ceil(totalEntries / entriesPerPage));
-    const startIdx = (currentPage - 1) * entriesPerPage;
-    const endIdx = Math.min(startIdx + entriesPerPage, totalEntries);
-    const paginatedItems = filteredItems.slice(startIdx, endIdx);
-
-    const sortedStructure = buildStructureTree(paginatedItems, cleanPath);
-
-    const cachedFileSizeMap:
-      Record<string, Record<string, number>> | undefined =
-      params.includeSizes === true
-        ? buildFileSizeMap(filteredItems, cleanPath)
-        : undefined;
-    const fileSizeMap: Record<string, Record<string, number>> | undefined =
-      cachedFileSizeMap !== undefined
-        ? buildFileSizeMap(paginatedItems, cleanPath)
-        : undefined;
-
-    const pageFiles = paginatedItems.filter(i => i.type === 'file').length;
-    const pageFolders = paginatedItems.filter(i => i.type === 'dir').length;
-    const allFiles = filteredItems.filter(i => i.type === 'file').length;
-    const allFolders = filteredItems.filter(i => i.type === 'dir').length;
-    const hasMore = currentPage < totalPages;
-
-    const paginationInfo = {
-      currentPage,
-      totalPages,
-      hasMore,
-      ...(hasMore ? { nextPage: currentPage + 1 } : {}),
-      entriesPerPage,
-      totalEntries,
-    };
-
-    const hints = generateStructurePaginationHints(paginationInfo, {
-      owner,
-      repo,
-      branch: workingBranch,
-      path: cleanPath,
-      depth,
-      pageFiles,
-      pageFolders,
-      allFiles,
-      allFolders,
-    });
-
-    if (partialTreeFailures > 0) {
-      hints.unshift(
-        `Partial tree: ${partialTreeFailures} subdirectory subtree(s) failed to load and are missing from this structure. The listing is incomplete — retry or narrow the path/depth.`
-      );
-    }
-
-    return {
-      owner,
-      repo,
-      branch: workingBranch,
-      ...(repoDefaultBranch !== undefined && {
-        defaultBranch: repoDefaultBranch,
-      }),
-      path: cleanPath || '/',
-      apiSource: true,
-      summary: {
-        totalFiles: allFiles,
-        totalFolders: allFolders,
-        truncated: hasMore,
-        filtered: true,
-        originalCount: filteredItems.length,
-      },
-      structure: sortedStructure,
-      ...(fileSizeMap !== undefined && { fileSizeMap }),
-      ...(cachedFileSizeMap !== undefined && {
-        _cachedFileSizeMap: cachedFileSizeMap,
-      }),
-      pagination: paginationInfo,
-      hints,
-      rawResponseChars,
-      _cachedItems: filteredItems.map(item => ({
-        path: item.path,
-        type: item.type as 'file' | 'dir',
-      })),
-    };
-  } catch (error: unknown) {
-    const apiError = handleGitHubAPIError(error);
-    return {
-      error: REPOSITORY_ERRORS.STRUCTURE_EXPLORATION_FAILED.message,
-      status: apiError.status,
-      rateLimitRemaining: apiError.rateLimitRemaining,
-      rateLimitReset: apiError.rateLimitReset,
-      retryAfter: apiError.retryAfter,
-    };
   }
+
+  return buildStructureResult({
+    owner,
+    repo,
+    workingBranch,
+    repoDefaultBranch,
+    cleanPath,
+    depth,
+    allItems,
+    partialTreeFailures,
+    incompleteTree,
+    rawResponseChars,
+    includeSizes: params.includeSizes === true,
+    itemsPerPage: params.itemsPerPage,
+    page: params.page,
+    extraHints,
+  });
+}
+
+function buildStructureResult(args: {
+  owner: string;
+  repo: string;
+  workingBranch: string;
+  repoDefaultBranch?: string;
+  cleanPath: string;
+  depth: number;
+  allItems: GitHubApiFileItem[];
+  partialTreeFailures: number;
+  incompleteTree: boolean;
+  rawResponseChars: number;
+  includeSizes: boolean;
+  itemsPerPage?: number;
+  page?: number;
+  extraHints?: string[];
+}): GitHubRepositoryStructureResult {
+  const {
+    owner,
+    repo,
+    workingBranch,
+    repoDefaultBranch,
+    cleanPath,
+    depth,
+    partialTreeFailures,
+    incompleteTree,
+    rawResponseChars,
+    includeSizes,
+    extraHints = [],
+  } = args;
+
+  const filteredItems = args.allItems.filter(item =>
+    item.type === 'dir'
+      ? !shouldIgnoreDir(item.name)
+      : !shouldIgnoreFile(item.path)
+  );
+
+  filteredItems.sort((a, b) => {
+    if (a.type !== b.type) return a.type === 'dir' ? -1 : 1;
+    const aDepth = a.path.split('/').length;
+    const bDepth = b.path.split('/').length;
+    if (aDepth !== bDepth) return aDepth - bDepth;
+    return a.path.localeCompare(b.path);
+  });
+
+  const entriesPerPage =
+    args.itemsPerPage ?? STRUCTURE_DEFAULTS.ENTRIES_PER_PAGE;
+  const currentPage = args.page ?? 1;
+  const totalEntries = filteredItems.length;
+  const totalPages = Math.max(1, Math.ceil(totalEntries / entriesPerPage));
+  const startIdx = (currentPage - 1) * entriesPerPage;
+  const endIdx = Math.min(startIdx + entriesPerPage, totalEntries);
+  const paginatedItems = filteredItems.slice(startIdx, endIdx);
+
+  const sortedStructure = buildStructureTree(paginatedItems, cleanPath);
+
+  const cachedFileSizeMap: Record<string, Record<string, number>> | undefined =
+    includeSizes ? buildFileSizeMap(filteredItems, cleanPath) : undefined;
+  const fileSizeMap: Record<string, Record<string, number>> | undefined =
+    cachedFileSizeMap !== undefined
+      ? buildFileSizeMap(paginatedItems, cleanPath)
+      : undefined;
+
+  const pageFiles = paginatedItems.filter(i => i.type === 'file').length;
+  const pageFolders = paginatedItems.filter(i => i.type === 'dir').length;
+  const allFiles = filteredItems.filter(i => i.type === 'file').length;
+  const allFolders = filteredItems.filter(i => i.type === 'dir').length;
+  const hasMore = currentPage < totalPages;
+
+  const paginationInfo = {
+    currentPage,
+    totalPages,
+    hasMore,
+    ...(hasMore ? { nextPage: currentPage + 1 } : {}),
+    entriesPerPage,
+    totalEntries,
+  };
+
+  const hints = generateStructurePaginationHints(paginationInfo, {
+    owner,
+    repo,
+    branch: workingBranch,
+    path: cleanPath,
+    depth,
+    pageFiles,
+    pageFolders,
+    allFiles,
+    allFolders,
+  });
+
+  if (partialTreeFailures > 0) {
+    hints.unshift(
+      `Partial tree: ${partialTreeFailures} subdirectory subtree(s) failed to load and are missing from this structure. The listing is incomplete — retry or narrow the path/depth.`
+    );
+  }
+  for (const hint of extraHints) {
+    hints.unshift(hint);
+  }
+
+  return {
+    owner,
+    repo,
+    branch: workingBranch,
+    ...(repoDefaultBranch !== undefined && {
+      defaultBranch: repoDefaultBranch,
+    }),
+    path: cleanPath || '/',
+    apiSource: true,
+    summary: {
+      totalFiles: allFiles,
+      totalFolders: allFolders,
+      truncated: hasMore,
+      filtered: true,
+      originalCount: filteredItems.length,
+      ...(incompleteTree ? { incompleteTree: true } : {}),
+    },
+    structure: sortedStructure,
+    ...(fileSizeMap !== undefined && { fileSizeMap }),
+    ...(cachedFileSizeMap !== undefined && {
+      _cachedFileSizeMap: cachedFileSizeMap,
+    }),
+    pagination: paginationInfo,
+    hints,
+    rawResponseChars,
+    _cachedItems: filteredItems.map(item => ({
+      path: item.path,
+      type: item.type as 'file' | 'dir',
+    })),
+  };
 }

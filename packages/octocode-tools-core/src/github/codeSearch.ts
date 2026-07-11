@@ -11,7 +11,7 @@ type GitHubCodeSearchQuery = z.infer<typeof GitHubCodeSearchQuerySchema>;
 import type { WithOptionalMeta } from '../types/execution.js';
 import { ContentSanitizer } from '@octocodeai/octocode-engine/contentSanitizer';
 import { contextUtils } from '../utils/contextUtils.js';
-import { getOctokit } from './client.js';
+import { getOctokit, resolveCacheAuthFingerprint } from './client.js';
 import { handleGitHubAPIError, isNoResultsSearchError } from './errors.js';
 import { buildCodeSearchQuery } from './queryBuilders.js';
 import { generateCacheKey, withDataCache } from '../utils/http/cache.js';
@@ -33,6 +33,7 @@ export async function searchGitHubCodeAPI(
   authInfo?: AuthInfo,
   sessionId?: string
 ): Promise<GitHubAPIResponse<OptimizedCodeSearchResult>> {
+  const auth = await resolveCacheAuthFingerprint(authInfo);
   const cacheKey = generateCacheKey(
     'gh-api-code',
     {
@@ -46,6 +47,7 @@ export async function searchGitHubCodeAPI(
       match: params.match,
       limit: params.limit,
       page: params.page,
+      auth,
     },
     sessionId
   );

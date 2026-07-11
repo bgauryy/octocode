@@ -7,7 +7,7 @@
  *   artifact is the optional workspace-local package/service/component slice.
  */
 
-import { DatabaseSync, type SQLInputValue } from 'node:sqlite';
+import type { DatabaseSync as NodeDatabaseSync, SQLInputValue } from 'node:sqlite';
 import { createHash } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { join, resolve, dirname } from 'node:path';
@@ -16,6 +16,25 @@ import { homedir, platform } from 'node:os';
 import { parseJsonList, utcNow } from './helpers.js';
 import type { TableInfoRow, MemoryRow } from './types.js';
 import { journalModeForSqliteVersion } from './sqlite-runtime.js';
+
+type DatabaseSync = NodeDatabaseSync;
+
+// Node 24 can emit the node:sqlite ExperimentalWarning after a static import has
+// already bypassed executable banners. Load it after installing a one-tick,
+// precise filter; forward every unrelated warning and restore host listeners.
+const previousWarningListeners = process.listeners('warning');
+process.removeAllListeners('warning');
+const sqliteWarningFilter = (warning: Error & { name?: string }) => {
+  if (warning?.name === 'ExperimentalWarning' && String(warning?.message).includes('SQLite')) return;
+  for (const listener of previousWarningListeners) listener.call(process, warning);
+};
+process.on('warning', sqliteWarningFilter);
+const { DatabaseSync } = await import('node:sqlite');
+await new Promise<void>((resolveTick) => setImmediate(resolveTick));
+process.removeAllListeners('warning');
+for (const listener of previousWarningListeners) process.on('warning', listener);
+
+export { DatabaseSync };
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -1330,9 +1349,12 @@ function normalizeImportedTimestamps(db: DatabaseSync): void {
     for (const col of columns) {
       if (col.type.toUpperCase() !== 'TEXT') continue;
       if (!/(_at|_from|_to)$/.test(col.name)) continue;
+      // Exactly '.mmmZ' — every legacy generation wrote toISOString()/strftime('%f')
+      // (3 fractional digits, Z). A looser pattern would rewrite a foreign
+      // '+HH:MM'-offset value to the wrong instant.
       db.prepare(
         `UPDATE ${table} SET ${col.name} = substr(${col.name}, 1, 19) || 'Z'
-         WHERE ${col.name} LIKE '____-__-__T__:__:__.%'`,
+         WHERE ${col.name} LIKE '____-__-__T__:__:__.___Z'`,
       ).run();
     }
   }

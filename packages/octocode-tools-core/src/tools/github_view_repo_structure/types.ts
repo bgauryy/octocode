@@ -17,6 +17,8 @@ export interface GitHubRepositoryStructureResult {
     truncated: boolean;
     filtered: boolean;
     originalCount: number;
+    /** True when Git Trees reported truncation — listing may be incomplete. */
+    incompleteTree?: boolean;
   };
   structure: Record<string, GitHubRepoStructureDirectoryEntry>;
   fileSizeMap?: Record<string, Record<string, number>>;

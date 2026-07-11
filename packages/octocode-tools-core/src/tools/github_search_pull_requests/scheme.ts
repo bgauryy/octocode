@@ -26,17 +26,17 @@ import { responseEnvelopeFields } from '../../scheme/responseEnvelope.js';
 // omits .describe() so the description is inherited from core (see copyDescription
 // in ../../scheme/coreSchemas.ts). One source of truth; no duplicated prose.
 const queryOverrides = {
-  // Extends core's enum (prs|commits) with 'releases' — releases/tags listing
-  // with a latest-stable marker. Carries its own description until core ships
-  // the new value.
+  // Extends core's enum (prs|commits) with 'releases' and 'issues'. Carries its
+  // own description until core ships the new values.
   type: z
-    .enum(['prs', 'commits', 'releases'])
+    .enum(['prs', 'commits', 'releases', 'issues'])
     .optional()
     .describe(
-      'Research mode: "prs" (default) searches pull requests; "commits" walks commit history for a repo or path; "releases" lists the repository releases (tagName, publishedAt, prerelease flag) and surfaces the latest stable release.'
+      'Research mode: "prs" (default) searches pull requests; "commits" walks commit history for a repo or path; "releases" lists the repository releases (tagName, publishedAt, prerelease flag) and surfaces the latest stable release; "issues" searches or reads GitHub issues (body/discussion comments — not PRs).'
     ),
   perPage: clampedInt(1, 100).optional().default(30),
   prNumber: clampedInt(1, 1_000_000_000).optional(),
+  issueNumber: clampedInt(1, 1_000_000_000).optional(),
   limit: clampedInt(1, GITHUB_SEARCH_MAX_LIMIT)
     .optional()
     .default(GITHUB_SEARCH_DEFAULT_LIMIT),
@@ -65,6 +65,12 @@ export const GitHubPullRequestSearchQueryLocalSchema = describeQuerySchema(
 export const GitHubPullRequestSearchBulkQueryLocalSchema =
   createRelaxedBulkQuerySchema(GitHubPullRequestSearchQueryShape);
 
+// concise:true returns flat "#N title" strings; full mode returns objects.
+const ConciseOrDetailRowSchema = z.union([
+  z.string(),
+  z.object({}).passthrough(),
+]);
+
 export const GitHubSearchPullRequestsOutputLocalSchema =
   UpstreamPRsOutput.extend({
     results: z
@@ -75,7 +81,9 @@ export const GitHubSearchPullRequestsOutputLocalSchema =
             status: z.string().optional(),
             data: z
               .object({
-                pull_requests: z.array(z.object({}).passthrough()).optional(),
+                pull_requests: z.array(ConciseOrDetailRowSchema).optional(),
+                // type:"issues" reuses this tool; same concise/object shapes.
+                issues: z.array(ConciseOrDetailRowSchema).optional(),
               })
               .passthrough()
               .optional(),

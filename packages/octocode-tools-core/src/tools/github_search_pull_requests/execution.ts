@@ -34,6 +34,7 @@ import { normalizePullRequestContentRequest } from './contentRequest.js';
 import { shapePullRequestForContent } from './contentResponse.js';
 import { fetchHistory } from '../../github/history.js';
 import { fetchReleases } from '../../github/releases.js';
+import { fetchIssues } from '../../github/issues.js';
 import { isGitHubAPIError } from '../../github/githubAPI.js';
 
 export async function searchMultipleGitHubPullRequests(
@@ -93,6 +94,118 @@ export async function searchMultipleGitHubPullRequests(
           );
         }
         // --- end releases mode ---
+
+        // --- issues mode: search/list/read GitHub issues (not PRs) ---
+        if ((parsed.data as { type?: string }).type === 'issues') {
+          const q = parsed.data as {
+            owner?: string;
+            repo?: string;
+            issueNumber?: number;
+            prNumber?: number;
+            keywordsToSearch?: string[];
+            query?: string;
+            state?: 'open' | 'closed' | 'merged';
+            author?: string;
+            assignee?: string;
+            mentions?: string;
+            commenter?: string;
+            involves?: string;
+            label?: string | string[];
+            milestone?: string;
+            created?: string;
+            updated?: string;
+            closed?: string;
+            comments?: number | string;
+            reactions?: number | string;
+            interactions?: number | string;
+            locked?: boolean;
+            visibility?: 'public' | 'private';
+            'no-assignee'?: boolean;
+            'no-label'?: boolean;
+            'no-milestone'?: boolean;
+            'no-project'?: boolean;
+            match?: ('title' | 'body' | 'comments')[];
+            archived?: boolean;
+            sort?: 'created' | 'updated' | 'best-match' | 'comments' | 'reactions';
+            order?: 'asc' | 'desc';
+            limit?: number;
+            page?: number;
+            concise?: boolean;
+            content?: {
+              body?: boolean;
+              comments?: { discussion?: boolean; includeBots?: boolean };
+            };
+            charOffset?: number;
+            charLength?: number;
+            commentPage?: number;
+            itemsPerPage?: number;
+          };
+          if (!q.owner || !q.repo) {
+            return createErrorResult(
+              'owner and repo are required for issues mode.',
+              query
+            );
+          }
+          const issueNumber = q.issueNumber ?? q.prNumber;
+          const result = await fetchIssues(
+            {
+              owner: q.owner,
+              repo: q.repo,
+              ...(issueNumber != null ? { issueNumber } : {}),
+              keywordsToSearch: q.keywordsToSearch,
+              query: q.query,
+              state: q.state,
+              author: q.author,
+              assignee: q.assignee,
+              mentions: q.mentions,
+              commenter: q.commenter,
+              involves: q.involves,
+              label: q.label,
+              milestone: q.milestone,
+              created: q.created,
+              updated: q.updated,
+              closed: q.closed,
+              comments: q.comments,
+              reactions: q.reactions,
+              interactions: q.interactions,
+              locked: q.locked,
+              visibility: q.visibility,
+              'no-assignee': q['no-assignee'],
+              'no-label': q['no-label'],
+              'no-milestone': q['no-milestone'],
+              'no-project': q['no-project'],
+              match: q.match,
+              archived: q.archived,
+              sort: q.sort,
+              order: q.order,
+              limit: q.limit,
+              page: Number(q.page) || 1,
+              concise: q.concise,
+              content: q.content,
+              charOffset: q.charOffset,
+              charLength: q.charLength,
+              commentPage: q.commentPage,
+              itemsPerPage: q.itemsPerPage,
+            },
+            authInfo
+          );
+          if (isGitHubAPIError(result)) {
+            return createErrorResult(result, query, {
+              toolName: TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS,
+            });
+          }
+          const hasContent = Array.isArray(result.data.issues)
+            ? result.data.issues.length > 0
+            : false;
+          return createSuccessResult(
+            query,
+            result.data as unknown as Record<string, unknown>,
+            hasContent,
+            TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS,
+            { rawResponse: result.rawResponseChars }
+          );
+        }
+        // --- end issues mode ---
 
         // --- commits mode: route to commit history API ---
         if ((parsed.data as { type?: string }).type === 'commits') {
@@ -322,6 +435,7 @@ export async function searchMultipleGitHubPullRequests(
       toolName: TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS,
       keysPriority: [
         'pull_requests',
+        'issues',
         'releases',
         'latest',
         'tagName',

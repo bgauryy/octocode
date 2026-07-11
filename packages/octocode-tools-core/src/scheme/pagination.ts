@@ -10,6 +10,9 @@ import { z } from 'zod';
 // Item pagination — for search results, directory listings, archive entries
 // ---------------------------------------------------------------------------
 
+// Tool-specific pagination extras (perPage, totalFound, …) listed explicitly so
+// MCP structuredContent validation accepts live envelopes without loosening
+// assignability of typed pagination records via .passthrough().
 export const ItemPaginationSchema = z.object({
   currentPage: z.number(),
   totalPages: z.number(),
@@ -17,6 +20,17 @@ export const ItemPaginationSchema = z.object({
   nextPage: z.number().optional(),
   pageSize: z.number().optional(),
   totalItems: z.number().optional(),
+  perPage: z.number().optional(),
+  totalFound: z.number().optional(),
+  returned: z.number().optional(),
+  totalMatches: z.number().optional(),
+  reportedTotalMatches: z.number().optional(),
+  reachableTotalMatches: z.number().optional(),
+  totalMatchesKind: z.enum(['exact', 'reported', 'lowerBound']).optional(),
+  totalMatchesCapped: z.boolean().optional(),
+  // LSP / local list envelopes
+  totalResults: z.number().optional(),
+  itemsPerPage: z.number().optional(),
 });
 
 export type ItemPagination = z.infer<typeof ItemPaginationSchema>;

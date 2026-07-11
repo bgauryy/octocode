@@ -3,7 +3,7 @@ import type {
   FileContentExecutionQuery,
   GitHubFileContentApiResult,
 } from '../tools/github_fetch_content/types.js';
-import { getOctokit } from './client.js';
+import { getOctokit, resolveCacheAuthFingerprint } from './client.js';
 import { generateCacheKey, withDataCache } from '../utils/http/cache.js';
 import { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types';
 
@@ -22,6 +22,7 @@ export async function fetchGitHubFileContentAPI(
   authInfo?: AuthInfo,
   sessionId?: string
 ): Promise<GitHubAPIResponse<GitHubFileContentApiResult>> {
+  const auth = await resolveCacheAuthFingerprint(authInfo);
   const cacheKey = generateCacheKey(
     'gh-api-file-content',
     {
@@ -29,6 +30,7 @@ export async function fetchGitHubFileContentAPI(
       repo: params.repo,
       path: params.path,
       branch: params.branch,
+      auth,
     },
     sessionId
   );
@@ -103,6 +105,7 @@ export async function fetchGitHubFileContentAPI(
             path: params.path,
             branch: params.branch,
             ts: true,
+            auth,
           },
           sessionId
         ),

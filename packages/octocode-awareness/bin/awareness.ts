@@ -8,10 +8,11 @@
 import { writeFileSync, mkdirSync, existsSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
-import { DatabaseSync } from 'node:sqlite';
+import type { DatabaseSync } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
 
 import {
+  DatabaseSync as DatabaseSyncCtor,
   connectDb, initDb, hasFts, resolveDbPath,
 } from '../src/db.js';
 import { insertMemory, insertMemoryWithSimilarityGate, getMemory, mineWeakness, forgetMemory, archiveMemories, restoreMemories, storeEmbedding, searchByEmbedding, bumpAccess } from '../src/memory.js';
@@ -1726,7 +1727,7 @@ function cmdInit(db: DatabaseSync, dbPath: string, opts: EmitOptions): number {
 }
 
 function cmdSelfTest(opts: EmitOptions): number {
-  const testDb = new DatabaseSync(':memory:');
+  const testDb = new DatabaseSyncCtor(':memory:');
   testDb.exec('PRAGMA foreign_keys = ON');
   initDb(testDb);
 
@@ -1773,7 +1774,7 @@ function cmdSelfTest(opts: EmitOptions): number {
 // ─── Help text ────────────────────────────────────────────────────────────────
 
 const HELP = `usage: octocode-awareness <command> [options]
-common: --db <path> --compact
+common: --db <path> --compact (except hook run; hooks use OCTOCODE_MEMORY_HOME)
 agent map: octocode-awareness schema commands --compact
 schema: octocode-awareness schema commands|list|json-schema <name>|example <name>|validate <name> <json-file|->
 
@@ -2034,7 +2035,7 @@ schema: octocode-awareness schema json-schema memory_lifecycle --compact`,
 example: octocode-awareness memory forget --memory-id mem_123 --dry-run --compact
 note: hard deletion is irreversible; prefer archive for reversible cleanup and always preview broad selectors
 schema: octocode-awareness schema json-schema forget_memory --compact`,
-  'refine-set': `usage: octocode-awareness refinement set --agent-id <id> --reasoning <t> --remember <t> [--quality good|bad|handoff|instructions] [--state open|ongoing|done] [--workspace <p>] [--artifact <a>] [--repo <r>] [--ref <r>] [--file <p>]... [--refinement-id <id>] [--check-receipt <t>]
+  'refine-set': `usage: octocode-awareness refinement set [create: --agent-id <id> --reasoning <t> --remember <t> --workspace <p> | update: --refinement-id <id> --state open|ongoing|done] [--quality good|bad|handoff|instructions] [--agent-id <id>] [--artifact <a>] [--repo <r>] [--ref <r>] [--file <p>]... [--check-receipt <t>]
 example: octocode-awareness refinement set --agent-id agent --reasoning "handoff" --remember "next step" --workspace "$PWD" --compact
 note: --quality accepts good|bad|handoff|instructions only; create open/ongoing, then close an existing --refinement-id with --state done, --agent-id, and --check-receipt
 schema: octocode-awareness schema json-schema refinement --compact`,
@@ -2065,7 +2066,7 @@ schema: octocode-awareness schema json-schema agent_signal --compact`,
 example: octocode-awareness verify mark --agent-id agent --run-id run_123 --message "yarn test passed" --compact
 note: prefer explicit --run-id; scope deliberate --all-pending use with --workspace
 schema: octocode-awareness schema json-schema verify --compact`,
-  'reflect': `usage: octocode-awareness reflect record --agent-id <id> [--workspace <p>] --task <text> --outcome worked|partial|failed [--lesson <t>] [--fix-repo <t>] [--fix-harness <t>] [--fix-instructions <t>] [--fix-file <p>]... [--failure-signature <s>]
+  'reflect': `usage: octocode-awareness reflect record --agent-id <id> --task <text> --outcome worked|partial|failed [--worked <t>] [--didnt-work <t>] [--judgment-note <t>] [--lesson <t>] [--fix-repo <t>] [--fix-harness <t>] [--fix-instructions <t>] [--fix-file <p>]... [--failure-signature <s>] [--eval-failure-json <json>]... [--duo] [--allow-similar] [--importance <1..10>] [--workspace <p>] [--artifact <a>] [--repo <r>] [--ref <r>]
 example: octocode-awareness reflect record --agent-id agent --task "fix CLI" --outcome worked --lesson "Keep CLI nouns canonical" --compact
 note: --outcome must be worked|partial|failed; unknown values hard-error
 note: --fix-repo → repo-code refinement; --fix-harness → skill/tooling; --fix-instructions → feedback to the human instruction author (see reflect developer-review); refinement --quality values are good|bad|handoff|instructions
@@ -2073,7 +2074,7 @@ schema: octocode-awareness schema json-schema reflect --compact`,
   'developer-review': `usage: octocode-awareness reflect developer-review [--workspace <repo>] [--state open|ongoing|done]... [--format json|markdown] [--limit <n>]
 example: octocode-awareness reflect developer-review --workspace "$PWD" --format markdown --compact
 note: reads agent feedback on the instructions themselves (from reflect record --fix-instructions); same rows feed .octocode/DEVELOPER_REVIEW.md`,
-  'query': `usage: octocode-awareness query <all|repo-profile|memories|gotchas|lessons|plans|tasks|runs|locks|agents|signals|refinements|files|activity|workboard|developer-review> [--workspace <repo>] [--format json|table|csv|markdown|html] [--out <path>]
+  'query': `usage: octocode-awareness query <all|repo-profile|memories|gotchas|lessons|plans|tasks|runs|locks|agents|signals|refinements|files|activity|workboard|developer-review> [--query <text>] [--limit <1..500>] [--workspace <repo>] [--artifact <a>] [--repo <r>] [--ref <r>] [--agent-id <id>] [--state <s>]... [--label <l>]... [--file <p>] [--since <iso>] [--include-bodies] [--format json|table|csv|markdown|html] [--out <path>]
 examples:
   octocode-awareness query files --workspace "$PWD" --format table --limit 50
   octocode-awareness query workboard --workspace "$PWD" --format json --limit 10 --compact
@@ -2101,10 +2102,12 @@ show/join/doc/status: --plan-id <id>; join also --agent-id <id>; doc uses --agen
 example: octocode-awareness plan create --name "Release" --objective "Ship safely" --lead-agent-id agent --workspace "$PWD" --compact
 schema: octocode-awareness schema json-schema plan --compact`,
   'task-command': `usage: octocode-awareness task create|list|ready|show|claim|heartbeat|submit|release|depend [options]
-create: --plan-id <id> --title <text> --reasoning <text> --acceptance <text> --path <workspace-relative>... --agent-id <id> [--depends-on <task-id>]...
-list/ready: [--plan-id <id>] [--limit <1-200>] [--full]
+create: --plan-id <id> --title <text> --reasoning <text> --acceptance <text> --path <workspace-relative>... --agent-id <id> [--depends-on <task-id>]... [--priority <-1000..1000>] [--lease-minutes <1..60>] [--test-plan <text>]
+list/ready: [--plan-id <id>] [--workspace <repo>] [--status <s>] [--limit <1-200>] [--full]
+show: --task-id <id>
 claim: --task-id <id> --agent-id <id>; or --next --plan-id <id> --agent-id <id>. Returns run_id for lock/submit/verify; exit 2 only when another live claimant owns it.
 heartbeat/submit/release: --task-id <id> --run-id <id> --agent-id <id>; submit optionally --message <text>; release optionally --blocked-reason <text>
+depend: --task-id <id> --depends-on <task-id>...
 example: octocode-awareness task ready --plan-id plan_123 --compact
 schema: octocode-awareness schema json-schema task --compact`,
   'work-command': `usage: octocode-awareness work start|touch|end|list|show [options]
@@ -2115,7 +2118,9 @@ list: [--workspace <repo>] [--agent-id <id>] [--run-id <id>] [--all] [--limit <1
 show: --workspace <repo> --file <path> [--all] [--limit <1-200>] [--full]
 example: octocode-awareness work start --agent-id agent --workspace "$PWD" --file src/a.ts --rationale "edit parser" --test-plan "yarn test" --compact
 schema: octocode-awareness schema json-schema work --compact`,
-  'hook-run': `usage: octocode-awareness hook run <pre-edit|post-edit|harness-guard|stop-verify|notify-deliver|session-end> < hook-payload.json`,
+  'hook-run': `usage: octocode-awareness hook run <pre-edit|post-edit|harness-guard|stop-verify|notify-deliver|session-compact|session-end> < hook-payload.json
+payload: host JSON on stdin; common fields are cwd/workspace, session_id, tool_name, and tool_input/path
+store: hook run intentionally rejects --db; set OCTOCODE_MEMORY_HOME to select the hook database`,
   'hooks-install': hooksInstallUsage(),
   'schema': `usage: octocode-awareness schema commands|list|json-schema <name>|example <name>|validate <name> <json-file|->
 examples:

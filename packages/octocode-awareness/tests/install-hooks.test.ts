@@ -12,6 +12,10 @@ const SCRIPT = resolve(
   REPO_ROOT,
   'packages/octocode-awareness/dist/bin/awareness.js',
 );
+const INDEX_SCRIPT = resolve(
+  REPO_ROOT,
+  'packages/octocode-awareness/dist/index.js',
+);
 const SKILL_SCRIPT = resolve(
   REPO_ROOT,
   'packages/octocode-awareness/skills/octocode-awareness/scripts/awareness.mjs',
@@ -194,6 +198,20 @@ describe('install-hooks', () => {
     expect(result.stderr).not.toContain('ExperimentalWarning');
   });
 
+  it('package CLI and library imports selectively suppress node:sqlite ExperimentalWarning', () => {
+    const cli = spawnSync(NODE, [SCRIPT, '--help'], { encoding: 'utf8', timeout: 5000 });
+    expect(cli.status, cli.stderr || cli.stdout).toBe(0);
+    expect(cli.stderr).not.toContain('ExperimentalWarning');
+
+    const library = spawnSync(NODE, [
+      '--input-type=module', '-e',
+      `await import(${JSON.stringify(INDEX_SCRIPT)}); process.emitWarning('awareness-warning-probe'); await new Promise((resolve) => setImmediate(resolve))`,
+    ], { encoding: 'utf8', timeout: 5000 });
+    expect(library.status, library.stderr || library.stdout).toBe(0);
+    expect(library.stderr).not.toContain('ExperimentalWarning');
+    expect(library.stderr).toContain('awareness-warning-probe');
+  });
+
   it('rejects host shortcut aliases', () => {
     const result = spawnSync(NODE, [SCRIPT, 'hooks', 'install', '--codex', '--dry-run'], {
       encoding: 'utf8',
@@ -226,6 +244,41 @@ describe('install-hooks', () => {
     }
   });
 
+  it('installed Codex hook commands run when Node is absent from PATH', () => {
+    const projectDir = mkdtempSync(resolve(tmpdir(), 'octocode-codex-node-path-'));
+    const memoryHome = mkdtempSync(resolve(tmpdir(), 'octocode-codex-node-memory-'));
+    try {
+      const preview = runInstallHooks([
+        'hooks', 'install', '--host', 'codex', '--project-dir', projectDir, '--dry-run', '--compact',
+      ]);
+      const preToolUse = preview.resultingSettings.hooks?.PreToolUse?.[0] as {
+        hooks?: Array<{ command?: string }>;
+      };
+      const command = preToolUse.hooks?.[0]?.command ?? '';
+      expect(command).toContain('OCTOCODE_NODE_BIN=');
+      expect(command).toContain(NODE);
+
+      const result = spawnSync(command, {
+        shell: true,
+        cwd: projectDir,
+        input: JSON.stringify({ workspace: projectDir, eventId: 'no-node-path', file_path: 'src/a.ts' }),
+        encoding: 'utf8',
+        timeout: 5000,
+        env: {
+          ...process.env,
+          PATH: '/usr/bin:/bin',
+          OCTOCODE_MEMORY_HOME: memoryHome,
+          OCTOCODE_AGENT_ID: 'no-node-path-agent',
+        },
+      });
+      expect(result.status, result.stderr || result.stdout).toBe(0);
+      expect(result.stderr).not.toContain('node: not found');
+    } finally {
+      rmSync(projectDir, { recursive: true, force: true });
+      rmSync(memoryHome, { recursive: true, force: true });
+    }
+  });
+
   it('previews Codex hooks in .codex/hooks.json without unsupported SessionEnd', () => {
     const projectDir = mkdtempSync(resolve(tmpdir(), 'octocode-codex-hooks-'));
     try {
@@ -242,6 +295,8 @@ describe('install-hooks', () => {
         'UserPromptSubmit',
       ]);
       expect(result.resultingSettings.hooks).not.toHaveProperty('SessionEnd');
+      expect(JSON.stringify(result.resultingSettings.hooks?.PreCompact)).toContain('session-compact.sh');
+      expect(JSON.stringify(result.resultingSettings.hooks?.PreCompact)).not.toContain('session-end.sh');
       expect(JSON.stringify(result.resultingSettings)).not.toContain('CLAUDE_PROJECT_DIR');
       const preToolUse = result.resultingSettings.hooks?.PreToolUse ?? [];
       expect(preToolUse).toHaveLength(1);
@@ -290,6 +345,8 @@ describe('install-hooks', () => {
       });
       expect(result.resultingSettings.hooks?.preToolUse?.[0]).not.toHaveProperty('hooks');
       expect(result.resultingSettings.hooks?.preToolUse).toHaveLength(1);
+      expect(JSON.stringify(result.resultingSettings.hooks?.preCompact)).toContain('session-compact.sh');
+      expect(JSON.stringify(result.resultingSettings.hooks?.sessionEnd)).toContain('session-end.sh');
       expect(JSON.stringify(result.resultingSettings.hooks?.preToolUse)).not.toContain('harness-guard.sh');
       expect(JSON.stringify(result.resultingSettings)).not.toContain('CLAUDE_PROJECT_DIR');
     } finally {

@@ -5,7 +5,7 @@ import type {
 } from './githubAPI.js';
 import type { GitHubPullRequestSearchApiResult } from '../tools/github_search_pull_requests/types.js';
 import { SEARCH_ERRORS } from '../errors/domainErrors.js';
-import { getOctokit } from './client.js';
+import { getOctokit, resolveCacheAuthFingerprint } from './client.js';
 import { handleGitHubAPIError } from './errors.js';
 import { generateCacheKey, withDataCache } from '../utils/http/cache.js';
 import { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types';
@@ -38,6 +38,7 @@ export async function fetchGitHubPullRequestByNumberAPI(
   authInfo?: AuthInfo,
   sessionId?: string
 ): Promise<GitHubPullRequestSearchApiResult> {
+  const auth = await resolveCacheAuthFingerprint(authInfo);
   const cacheKey = generateCacheKey(
     'gh-api-prs',
     {
@@ -46,6 +47,7 @@ export async function fetchGitHubPullRequestByNumberAPI(
       prNumber: params.prNumber,
       content: params.content,
       reviewMode: params.reviewMode,
+      auth,
     },
     sessionId
   );

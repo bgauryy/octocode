@@ -92,7 +92,7 @@ describe('full-loop host hook contracts', () => {
         hooks: Record<string, Array<{ hooks?: Array<Record<string, unknown>> }>>;
       };
       const commandHook = settings.hooks.PreToolUse?.[0]?.hooks?.[0];
-      expect(commandHook?.command).toContain('OCTOCODE_AGENT_HOST=codex "');
+      expect(commandHook?.command).toContain('OCTOCODE_AGENT_HOST=codex OCTOCODE_NODE_BIN="');
       expect(commandHook?.command).toContain('skill with spaces/scripts/hooks/pre-edit.sh"');
       expect(commandHook?.commandWindows).toContain('hook-runner.mjs');
       expect(commandHook?.commandWindows).toContain('--host codex');
@@ -207,6 +207,38 @@ describe('full-loop host hook contracts', () => {
         message: 'session-end finalized aggregate',
       }).ok).toBe(true);
       expect(auditUnverified(database, { agentId: 'hook-contract-agent', workspacePath: workspace }).count).toBe(0);
+
+      const compactEdit = JSON.stringify({
+        cwd: workspace,
+        session_id: 'hook-compact-contract',
+        tool_name: 'Write',
+        tool_use_id: 'compact-edit',
+        tool_input: { path: 'src/compact.ts' },
+      });
+      expect(await runHookCommand('pre-edit', compactEdit, { host: 'codex' })).toBe(0);
+      expect(await runHookCommand('post-edit', compactEdit, { host: 'codex' })).toBe(0);
+      expect(await runHookCommand('session-compact', JSON.stringify({
+        cwd: workspace,
+        session_id: 'hook-compact-contract',
+        reason: 'compact:auto',
+      }), { host: 'codex' })).toBe(0);
+      expect(database.prepare("SELECT ended_at FROM sessions WHERE session_id = 'hook-compact-contract'").get()).toEqual({ ended_at: null });
+
+      const compactPending = database.prepare("SELECT run_id FROM task_runs WHERE origin = 'HOOK' AND status = 'PENDING' ORDER BY created_at DESC LIMIT 1").get() as { run_id: string };
+      expect(markVerified(database, {
+        agentId: 'hook-contract-agent',
+        runId: compactPending.run_id,
+        status: 'SUCCESS',
+        message: 'pre-compact finalized aggregate without ending session',
+      }).ok).toBe(true);
+      expect(await runHookCommand('pre-edit', JSON.stringify({
+        cwd: workspace,
+        session_id: 'hook-compact-contract',
+        tool_name: 'Write',
+        tool_use_id: 'after-compact-edit',
+        tool_input: { path: 'src/after-compact.ts' },
+      }), { host: 'codex' })).toBe(0);
+      expect(database.prepare("SELECT COUNT(*) AS count FROM task_runs WHERE origin = 'HOOK' AND status = 'ACTIVE'").get()).toEqual({ count: 1 });
       database.close();
     } finally {
       if (priorMemoryHome === undefined) delete process.env.OCTOCODE_MEMORY_HOME;

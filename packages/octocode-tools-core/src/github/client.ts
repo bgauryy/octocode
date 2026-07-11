@@ -8,8 +8,32 @@ import type { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types.js';
 import { version } from '../../package.json';
 import { recordRateLimit } from '../session.js';
 
-function hashToken(token: string): string {
+export function hashGitHubToken(token: string): string {
   return createHash('sha256').update(token).digest('hex').substring(0, 16);
+}
+
+/** @deprecated Use hashGitHubToken — kept as internal alias during migration. */
+const hashToken = hashGitHubToken;
+
+/**
+ * Auth segment for GitHub API cache keys. Distinct tokens (and Enterprise
+ * hosts) must not share cache entries. Never puts the raw token in the key.
+ */
+export async function resolveCacheAuthFingerprint(
+  authInfo?: AuthInfo
+): Promise<string> {
+  const token = authInfo?.token ?? (await getGitHubToken());
+  const auth = token ? hashGitHubToken(token) : 'anon';
+  const baseUrl = getServerConfig().githubApiUrl || 'https://api.github.com';
+  try {
+    const host = new URL(baseUrl).host;
+    if (host && host !== 'api.github.com') {
+      return `${auth}@${host}`;
+    }
+  } catch {
+    void 0;
+  }
+  return auth;
 }
 
 export const OctokitWithThrottling = Octokit.plugin(throttling);

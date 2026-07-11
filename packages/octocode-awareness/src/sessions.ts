@@ -3,7 +3,7 @@
  * Requires Node >=22.13.0 (unflagged node:sqlite built-in).
  */
 
-import { DatabaseSync } from 'node:sqlite';
+import type { DatabaseSync } from 'node:sqlite';
 import { randomUUID } from 'node:crypto';
 import { normalizeArtifact, utcNow } from './helpers.js';
 import { normalizeWorkspacePath } from './git.js';

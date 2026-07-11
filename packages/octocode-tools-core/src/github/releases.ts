@@ -1,8 +1,9 @@
 import type { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types.js';
-import { getOctokit } from './client.js';
+import { getOctokit, resolveCacheAuthFingerprint } from './client.js';
 import { handleGitHubAPIError } from './errors.js';
 import { parseHasMore } from './history.js';
 import type { GitHubAPIResponse } from './githubAPI.js';
+import { generateCacheKey, withDataCache } from '../utils/http/cache.js';
 
 type ReleaseRow = {
   tagName: string;
@@ -30,8 +31,42 @@ export type ReleasesResult = {
   };
 };
 
+type FetchReleasesParams = {
+  owner: string;
+  repo: string;
+  page: number;
+  perPage: number;
+};
+
 export async function fetchReleases(
-  params: { owner: string; repo: string; page: number; perPage: number },
+  params: FetchReleasesParams,
+  authInfo?: AuthInfo,
+  sessionId?: string
+): Promise<GitHubAPIResponse<ReleasesResult>> {
+  const auth = await resolveCacheAuthFingerprint(authInfo);
+  const cacheKey = generateCacheKey(
+    'gh-api-releases',
+    {
+      owner: params.owner,
+      repo: params.repo,
+      page: params.page,
+      perPage: params.perPage,
+      auth,
+    },
+    sessionId
+  );
+
+  return withDataCache<GitHubAPIResponse<ReleasesResult>>(
+    cacheKey,
+    () => fetchReleasesInternal(params, authInfo),
+    {
+      shouldCache: value => 'data' in value && !('error' in value),
+    }
+  );
+}
+
+async function fetchReleasesInternal(
+  params: FetchReleasesParams,
   authInfo?: AuthInfo
 ): Promise<GitHubAPIResponse<ReleasesResult>> {
   try {

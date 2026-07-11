@@ -244,7 +244,6 @@ function insertEditLog(db2, params) {
 }
 
 // src/db.ts
-import { DatabaseSync } from "node:sqlite";
 import { createHash as createHash2 } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { join as join2, resolve as resolve3, dirname as dirname2 } from "node:path";
@@ -289,6 +288,17 @@ function journalModeForSqliteVersion(sqliteVersion) {
 }
 
 // src/db.ts
+var previousWarningListeners = process.listeners("warning");
+process.removeAllListeners("warning");
+var sqliteWarningFilter = (warning) => {
+  if (warning?.name === "ExperimentalWarning" && String(warning?.message).includes("SQLite")) return;
+  for (const listener of previousWarningListeners) listener.call(process, warning);
+};
+process.on("warning", sqliteWarningFilter);
+var { DatabaseSync } = await import("node:sqlite");
+await new Promise((resolveTick) => setImmediate(resolveTick));
+process.removeAllListeners("warning");
+for (const listener of previousWarningListeners) process.on("warning", listener);
 var DEFAULT_DB_NAME = "awareness.sqlite3";
 var MEMORY_HOME_ENV = "OCTOCODE_MEMORY_HOME";
 var AWARENESS_APPLICATION_ID = 1329812529;
@@ -1335,7 +1345,7 @@ function normalizeImportedTimestamps(db2) {
       if (!/(_at|_from|_to)$/.test(col.name)) continue;
       db2.prepare(
         `UPDATE ${table} SET ${col.name} = substr(${col.name}, 1, 19) || 'Z'
-         WHERE ${col.name} LIKE '____-__-__T__:__:__.%'`
+         WHERE ${col.name} LIKE '____-__-__T__:__:__.___Z'`
       ).run();
     }
   }
@@ -1929,13 +1939,15 @@ var RUN_LOG_INSERT_STALE_ABANDONED = `INSERT INTO run_log(event_id, run_id, agen
 // src/verify.ts
 function targetFilesForRuns(db2, runIds) {
   const byRun = new Map(runIds.map((id) => [id, []]));
-  if (runIds.length === 0) return byRun;
-  const rows = db2.prepare(
-    `SELECT run_id, file_path FROM run_files
-     WHERE run_id IN (${runIds.map(() => "?").join(",")})
-     ORDER BY file_path`
-  ).all(...runIds);
-  for (const row of rows) byRun.get(row.run_id)?.push(row.file_path);
+  for (let offset = 0; offset < runIds.length; offset += 500) {
+    const chunk = runIds.slice(offset, offset + 500);
+    const rows = db2.prepare(
+      `SELECT run_id, file_path FROM run_files
+       WHERE run_id IN (${chunk.map(() => "?").join(",")})
+       ORDER BY file_path`
+    ).all(...chunk);
+    for (const row of rows) byRun.get(row.run_id)?.push(row.file_path);
+  }
   return byRun;
 }
 function closeRunFiles(db2, runId, now) {
@@ -4668,9 +4680,30 @@ async function runSessionEnd(payload) {
   }
   return 0;
 }
+async function runSessionCompact(payload) {
+  try {
+    const database = db();
+    registerHookAgent(database, payload, "hook:session-compact");
+    withHookDbRetry(() => finalizeActiveFallbackHookRuns(
+      database,
+      payload,
+      workspace(payload) ?? process.cwd()
+    ));
+    if (process.env.OCTOCODE_NO_SESSION_CAPTURE !== "1" && hookReason(payload) !== "clear") {
+      sessionCapture(database, {
+        agent_id: agentId(payload),
+        workspace: workspace(payload) ?? void 0,
+        artifact: artifact(payload) ?? void 0,
+        reason: hookReason(payload) || "compact"
+      });
+    }
+  } catch {
+  }
+  return 0;
+}
 async function runHookCommand(command, rawPayload, options = {}) {
   if (command === "help" || command === "--help" || command === "-h") {
-    process.stdout.write("usage: hook-runner <pre-edit|post-edit|harness-guard|stop-verify|notify-deliver|session-end> < hook-payload.json\n");
+    process.stdout.write("usage: hook-runner <pre-edit|post-edit|harness-guard|stop-verify|notify-deliver|session-compact|session-end> < hook-payload.json\n");
     return 0;
   }
   const payload = {
@@ -4689,6 +4722,8 @@ async function runHookCommand(command, rawPayload, options = {}) {
       return runStopVerify(payload);
     case "notify-deliver":
       return runNotifyDeliver(payload);
+    case "session-compact":
+      return runSessionCompact(payload);
     case "session-end":
       return runSessionEnd(payload);
     default:

@@ -6,11 +6,12 @@ process.on("warning", (warning) => {
 });
 
 import { spawnSync } from "node:child_process";
-import { DatabaseSync } from "node:sqlite";
 import { appendFile, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+
+const { DatabaseSync } = await import("node:sqlite");
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const awareness = join(scriptDir, "awareness.mjs");

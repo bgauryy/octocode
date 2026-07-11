@@ -25,5 +25,5 @@ review indexes plus CSV/HTML/manifest. They are snapshots and may contain local 
 Generate only after meaningful durable changes or explicit snapshot requests.
 
 Close the owning row: verify work, ack/resolve signals, complete refinements, supersede
-stale memory, or re-run cleanup/query. Projection mechanics:
-`references/repo-context-management.md`.
+stale memory, or re-run cleanup/query. If projection mechanics are the next unresolved
+question and that owner is not already loaded, use `references/repo-context-management.md`.

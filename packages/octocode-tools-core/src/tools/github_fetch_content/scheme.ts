@@ -54,6 +54,9 @@ const GitHubFetchFileEntrySchema = z.object({
   sourceChars: z.number().optional(),
   sourceBytes: z.number().optional(),
   resolvedBranch: z.string().optional(),
+  // Runtime also emits `modified` (ISO mtime); keep lastModified for older shapes.
+  modified: z.string().optional(),
+  fileSize: z.number().optional(),
   pagination: GitHubFetchFilePaginationSchema.optional(),
   next: GitHubFetchFileNextSchema.optional(),
   isPartial: z.boolean().optional(),

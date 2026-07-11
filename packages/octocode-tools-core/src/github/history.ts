@@ -1,7 +1,8 @@
 import type { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types.js';
-import { getOctokit } from './client.js';
+import { getOctokit, resolveCacheAuthFingerprint } from './client.js';
 import { handleGitHubAPIError } from './errors.js';
 import { buildDiffPreview } from '../utils/parsers/diff.js';
+import { generateCacheKey, withDataCache } from '../utils/http/cache.js';
 import type {
   GitHubAPIResponse,
   HistoryCommit,
@@ -9,10 +10,35 @@ import type {
   HistoryResult,
 } from './githubAPI.js';
 
+/** Cap parallel repos.getCommit calls when includeDiff is true. */
+const COMMIT_DIFF_CONCURRENCY = 5;
+
 /** GitHub REST pagination: a `rel="next"` Link header means more pages exist. */
 export function parseHasMore(linkHeader: string | undefined): boolean {
   if (!linkHeader) return false;
   return linkHeader.includes('rel="next"');
+}
+
+async function mapPool<T, R>(
+  items: T[],
+  concurrency: number,
+  mapper: (item: T, index: number) => Promise<R>
+): Promise<R[]> {
+  if (items.length === 0) return [];
+  const results: R[] = new Array(items.length);
+  let nextIndex = 0;
+  const workers = Array.from(
+    { length: Math.min(concurrency, items.length) },
+    async () => {
+      while (true) {
+        const index = nextIndex++;
+        if (index >= items.length) return;
+        results[index] = await mapper(items[index] as T, index);
+      }
+    }
+  );
+  await Promise.all(workers);
+  return results;
 }
 
 function windowPatch(
@@ -51,24 +77,64 @@ function windowPatch(
   };
 }
 
+type FetchHistoryParams = {
+  type: 'file' | 'repo';
+  owner: string;
+  repo: string;
+  path?: string;
+  branch?: string;
+  since?: string;
+  until?: string;
+  author?: string;
+  page: number;
+  perPage: number;
+  filePage?: number;
+  itemsPerPage?: number;
+  includeDiff: boolean;
+  charOffset?: number;
+  charLength?: number;
+};
+
 export async function fetchHistory(
-  params: {
-    type: 'file' | 'repo';
-    owner: string;
-    repo: string;
-    path?: string;
-    branch?: string;
-    since?: string;
-    until?: string;
-    author?: string;
-    page: number;
-    perPage: number;
-    filePage?: number;
-    itemsPerPage?: number;
-    includeDiff: boolean;
-    charOffset?: number;
-    charLength?: number;
-  },
+  params: FetchHistoryParams,
+  authInfo?: AuthInfo,
+  sessionId?: string
+): Promise<GitHubAPIResponse<HistoryResult>> {
+  const auth = await resolveCacheAuthFingerprint(authInfo);
+  const cacheKey = generateCacheKey(
+    'gh-api-history',
+    {
+      type: params.type,
+      owner: params.owner,
+      repo: params.repo,
+      path: params.path,
+      branch: params.branch,
+      since: params.since,
+      until: params.until,
+      author: params.author,
+      page: params.page,
+      perPage: params.perPage,
+      filePage: params.filePage,
+      itemsPerPage: params.itemsPerPage,
+      includeDiff: params.includeDiff,
+      charOffset: params.charOffset,
+      charLength: params.charLength,
+      auth,
+    },
+    sessionId
+  );
+
+  return withDataCache<GitHubAPIResponse<HistoryResult>>(
+    cacheKey,
+    () => fetchHistoryInternal(params, authInfo),
+    {
+      shouldCache: value => 'data' in value && !('error' in value),
+    }
+  );
+}
+
+async function fetchHistoryInternal(
+  params: FetchHistoryParams,
   authInfo?: AuthInfo
 ): Promise<GitHubAPIResponse<HistoryResult>> {
   try {
@@ -160,9 +226,11 @@ export async function fetchHistory(
       };
     }
 
-    // Phase 2: fetch per-commit diffs in parallel — non-fatal on failure
-    const commitsWithDiff = await Promise.all(
-      baseCommits.map(async (commit, idx) => {
+    // Phase 2: fetch per-commit diffs with bounded concurrency — non-fatal
+    const commitsWithDiff = await mapPool(
+      baseCommits,
+      COMMIT_DIFF_CONCURRENCY,
+      async (commit, idx) => {
         try {
           const sha = response.data[idx]?.sha ?? commit.sha;
           const detail = await octokit.rest.repos.getCommit({
@@ -262,7 +330,7 @@ export async function fetchHistory(
           // diff fetch is non-fatal — return base commit without diff
         }
         return commit;
-      })
+      }
     );
 
     return {

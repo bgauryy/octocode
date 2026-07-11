@@ -11,7 +11,7 @@ type GitHubReposSearchSingleQuery = z.infer<
   typeof GitHubReposSearchSingleQuerySchema
 >;
 import type { WithOptionalMeta } from '../types/execution.js';
-import { getOctokit } from './client.js';
+import { getOctokit, resolveCacheAuthFingerprint } from './client.js';
 import { handleGitHubAPIError, isNoResultsSearchError } from './errors.js';
 import { buildRepoSearchQuery } from './queryBuilders.js';
 import { generateCacheKey, withDataCache } from '../utils/http/cache.js';
@@ -65,21 +65,32 @@ export async function searchGitHubReposAPI(
   authInfo?: AuthInfo,
   sessionId?: string
 ): Promise<GitHubAPIResponse<RepoSearchAPIData>> {
+  const auth = await resolveCacheAuthFingerprint(authInfo);
+  const extra = params as Record<string, unknown>;
   const cacheKey = generateCacheKey(
     'gh-api-repos',
     {
       keywords: params.keywords,
       topicsToSearch: params.topicsToSearch,
       owner: params.owner,
+      repo: params.repo,
       stars: params.stars,
       size: params.size,
       created: params.created,
       updated: params.updated,
-      language: (params as Record<string, unknown>).language,
+      language: extra.language,
       match: params.match,
       sort: params.sort,
       limit: params.limit,
       page: params.page,
+      // Query-affecting filters (see RepoSearchQueryBuilder) — omitting any
+      // lets two different searches collide on one cache entry.
+      archived: extra.archived,
+      visibility: extra.visibility,
+      forks: extra.forks,
+      license: extra.license,
+      goodFirstIssues: extra.goodFirstIssues,
+      auth,
     },
     sessionId
   );

@@ -6,6 +6,7 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SKILL_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 RUNNER="$ROOT/hook-runner.mjs"
-[ -f "$RUNNER" ] && OCTOCODE_SKILL_ROOT="$SKILL_ROOT" exec node "$RUNNER" pre-edit
+NODE_BIN="${OCTOCODE_NODE_BIN:-node}"
+[ -f "$RUNNER" ] && OCTOCODE_SKILL_ROOT="$SKILL_ROOT" exec "$NODE_BIN" "$RUNNER" pre-edit
 echo "octocode-awareness: missing hook runner at $RUNNER; pre-edit hook skipped. Rebuild or reinstall octocode-awareness hooks." >&2
 exit 0

@@ -304,6 +304,10 @@ function chooseMode(query: string, evidenceCount: number, verifyCount: number, g
   return gapCount > 0 ? 'mixed' : 'exploit';
 }
 
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, `'"'"'`)}'`;
+}
+
 export function attendAwareness(db: DatabaseSync, params: AttendParams = {}): AttendResult {
   const cwd = params.cwd ? resolve(params.cwd) : process.cwd();
   // D1 fix lives in repo-context `scopeFromParams`/`workspaceAliases`: the raw
@@ -527,21 +531,26 @@ export function attendAwareness(db: DatabaseSync, params: AttendParams = {}): At
     ? Number((rawWorkboard['Inbox'] ?? [])[0]?.['column_total'] ?? (rawWorkboard['Inbox'] ?? []).length)
     : 0;
 
+  const workspaceArg = shellQuote(workspacePath);
+  const agentArg = agentId ? shellQuote(agentId) : '"$OCTOCODE_AGENT_ID"';
+
   const next = verificationTargets.length > 0
-    ? `octocode-awareness verify audit --agent-id "$OCTOCODE_AGENT_ID" --workspace "$PWD" --compact; then verify mark ${verificationRunId ? `--run-id ${verificationRunId}` : '--run-id <exact-run-id>'} --message "<check + result>" after its declared test plan`
+    ? `octocode-awareness verify audit --agent-id ${agentArg} --workspace ${workspaceArg} --compact${verificationRunId ? `; after its declared test plan: octocode-awareness verify mark --run-id ${shellQuote(verificationRunId)} --agent-id ${agentArg} --message "<check + result>" --compact` : ''}`
     : readyTasks.length > 0
-      ? `octocode-awareness task claim --task-id ${String(readyTasks[0]?.['id'])} --agent-id "$OCTOCODE_AGENT_ID" --compact`
-      : ownedClaimedTask
-        ? `Continue claimed task ${String(ownedClaimedTask['id'])}: work start --run-id ${ownedClaimedRunId ?? '<run>'} --file <path> or task heartbeat; then task submit + verify mark`
+      ? `octocode-awareness task claim --task-id ${shellQuote(String(readyTasks[0]?.['id']))} --agent-id ${agentArg} --compact`
+      : ownedClaimedTask && ownedClaimedRunId
+        ? `octocode-awareness task heartbeat --task-id ${shellQuote(String(ownedClaimedTask['id']))} --run-id ${shellQuote(ownedClaimedRunId!)} --agent-id ${agentArg} --compact`
+        : ownedClaimedTask
+          ? `octocode-awareness task show --task-id ${shellQuote(String(ownedClaimedTask['id']))} --compact`
         : filesUnderWorkPath
-          ? `octocode-awareness work show --workspace "$PWD" --file ${filesUnderWorkPath} --compact; read peer reason before overlapping edits`
+          ? `octocode-awareness work show --workspace ${workspaceArg} --file ${shellQuote(filesUnderWorkPath)} --compact; read peer reason before overlapping edits`
         : inboxCount > 0
-          ? `octocode-awareness signal list --agent-id "$OCTOCODE_AGENT_ID" --workspace "$PWD" --compact`
+          ? `octocode-awareness signal list --agent-id ${agentArg} --workspace ${workspaceArg} --compact`
           : !query && bloatWarnings.length > 0
-            ? 'octocode-awareness query workboard --workspace "$PWD" --format json --limit 5 --compact'
+            ? `octocode-awareness query workboard --workspace ${workspaceArg} --format json --limit 5 --compact`
             : evidence.length > 0
               ? 'Treat evidence as leads; re-check cited files, then work start before edits'
-              : 'octocode-awareness attend --workspace "$PWD" --query "<narrower task>" --compact; or query workboard / workspace status';
+              : `octocode-awareness attend --workspace ${workspaceArg} --agent-id ${agentArg} --query "<narrower task>" --compact`;
 
   if (compact) {
     const columnCount = (column: string): number => {

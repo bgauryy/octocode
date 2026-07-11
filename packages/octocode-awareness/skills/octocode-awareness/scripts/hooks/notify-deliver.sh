@@ -4,6 +4,7 @@
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 RUNNER="$ROOT/hook-runner.mjs"
-[ -f "$RUNNER" ] && exec node "$RUNNER" notify-deliver
+NODE_BIN="${OCTOCODE_NODE_BIN:-node}"
+[ -f "$RUNNER" ] && exec "$NODE_BIN" "$RUNNER" notify-deliver
 echo "octocode-awareness: missing hook runner at $RUNNER; notify-deliver hook skipped. Rebuild or reinstall octocode-awareness hooks." >&2
 exit 0

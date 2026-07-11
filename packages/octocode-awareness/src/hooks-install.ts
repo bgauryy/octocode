@@ -187,7 +187,8 @@ function hookCommand(name: string, params: {
       scriptPath = '${CLAUDE_PROJECT_DIR}/' + rel.split(sep).join('/');
     }
   }
-  return `OCTOCODE_AGENT_HOST=${params.host} "${scriptPath.replace(/["\\]/g, '\\$&')}"`;
+  const quoted = (value: string) => `"${value.replace(/["\\$`]/g, '\\$&')}"`;
+  return `OCTOCODE_AGENT_HOST=${params.host} OCTOCODE_NODE_BIN=${quoted(process.execPath)} ${quoted(scriptPath)}`;
 }
 
 function hookCommandWindows(name: string, params: {
@@ -230,7 +231,7 @@ function specsFor(host: HookHost, params: {
       spec('stop', 'stop-verify.sh'),
       spec('subagentStop', 'stop-verify.sh'),
       spec('sessionEnd', 'session-end.sh'),
-      spec('preCompact', 'session-end.sh'),
+      spec('preCompact', 'session-compact.sh'),
       spec('sessionStart', 'notify-deliver.sh'),
     ];
   }
@@ -240,7 +241,7 @@ function specsFor(host: HookHost, params: {
       spec('PostToolUse', 'post-edit.sh', WRITE_MATCHER),
       spec('Stop', 'stop-verify.sh'),
       spec('SubagentStop', 'stop-verify.sh'),
-      spec('PreCompact', 'session-end.sh'),
+      spec('PreCompact', 'session-compact.sh'),
       spec('UserPromptSubmit', 'notify-deliver.sh'),
     ];
   }
@@ -288,9 +289,9 @@ function entry(host: HookHost, spec: HookSpec): HookEntry {
 function awarenessHookName(command: string | undefined): string | null {
   const normalized = command?.replace(/\\/g, '/');
   if (!normalized) return null;
-  const wrapper = /\/octocode-awareness\/scripts\/hooks\/(pre-edit|post-edit|harness-guard|stop-verify|notify-deliver|session-end)\.sh/.exec(normalized);
+  const wrapper = /\/octocode-awareness\/scripts\/hooks\/(pre-edit|post-edit|harness-guard|stop-verify|notify-deliver|session-compact|session-end)\.sh/.exec(normalized);
   if (wrapper?.[1]) return `${wrapper[1]}.sh`;
-  const runner = /\/octocode-awareness\/scripts\/hook-runner\.mjs["']?\s+(pre-edit|post-edit|harness-guard|stop-verify|notify-deliver|session-end)(?:\s|$)/.exec(normalized);
+  const runner = /\/octocode-awareness\/scripts\/hook-runner\.mjs["']?\s+(pre-edit|post-edit|harness-guard|stop-verify|notify-deliver|session-compact|session-end)(?:\s|$)/.exec(normalized);
   return runner?.[1] ? `${runner[1]}.sh` : null;
 }
 

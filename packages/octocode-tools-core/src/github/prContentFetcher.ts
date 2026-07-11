@@ -85,6 +85,25 @@ function shouldFetchReviews(params: GitHubPullRequestsSearchParams): boolean {
   return Boolean(params.reviewMode === 'full' || content?.reviews);
 }
 
+/**
+ * Whether search hits need a per-PR `pulls.get` enrichment call.
+ * Lean list searches skip it (~1 REST call per hit); detail/content/review
+ * modes still enrich.
+ */
+export function shouldEnrichPullRequestFromSearch(
+  params: GitHubPullRequestsSearchParams
+): boolean {
+  if (params.prNumber !== undefined) return true;
+  if (params.reviewMode === 'full') return true;
+  return (
+    shouldFetchFileChanges(params) ||
+    shouldFetchDiscussionComments(params) ||
+    shouldFetchInlineComments(params) ||
+    shouldFetchCommits(params) ||
+    shouldFetchReviews(params)
+  );
+}
+
 function shouldIncludeBotComments(
   params: GitHubPullRequestsSearchParams
 ): boolean {
@@ -307,7 +326,7 @@ export async function transformPullRequestItemFromSearch(
 
   let rawResponseChars = 0;
 
-  if (item.pull_request) {
+  if (item.pull_request && shouldEnrichPullRequestFromSearch(params)) {
     try {
       const { owner, repo } = normalizeOwnerRepo(params);
 

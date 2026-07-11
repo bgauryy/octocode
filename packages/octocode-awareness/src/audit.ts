@@ -3,7 +3,7 @@
  * Records file edits and harness lifecycle events into the SQLite store.
  */
 
-import { DatabaseSync } from 'node:sqlite';
+import type { DatabaseSync } from 'node:sqlite';
 import { randomUUID } from 'node:crypto';
 import { createHash } from 'node:crypto';
 import { normalizeArtifact, utcNow } from './helpers.js';

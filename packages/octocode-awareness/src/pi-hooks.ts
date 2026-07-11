@@ -19,7 +19,7 @@ import type { WorkPeer } from './types.js';
 import { auditUnverified } from './verify.js';
 import { notifyGet, sessionCapture } from './maintenance.js';
 import { registerAgent } from './agents.js';
-import { ensureRunSession } from './sessions.js';
+import { endSession, ensureRunSession } from './sessions.js';
 
 export interface PiLikeSessionManager {
   getSessionFile?: () => string | null | undefined;
@@ -665,21 +665,49 @@ export function createPiAwarenessBridge(options: PiAwarenessBridgeOptions = {}) 
       latestPromptBySession.delete(getPiAwarenessSessionId(ctx));
       try {
         const db = getDb(ctx);
+        const agentId = getPiAwarenessAgentId(ctx);
+        const sessionId = getPiAwarenessSessionId(ctx);
+        const workspacePath = ctx?.cwd ?? process.cwd();
+        const artifact = artifactFrom(ctx, event);
+        finalizeActivePiFallbackRuns(db, {
+          agentId,
+          sessionId,
+          workspacePath,
+          artifact,
+        });
+        endSession(db, { sessionId, agentId, workspacePath, artifact });
+        if (process.env.OCTOCODE_NO_SESSION_CAPTURE === '1' || event.reason === 'new') return undefined;
+        sessionCapture(db, {
+          agent_id: agentId,
+          workspace: workspacePath,
+          artifact,
+          reason: event.reason,
+        });
+      } catch {
+        // fail-open: shutdown hooks must never wedge session replacement/quit
+      }
+      return undefined;
+    },
+
+    async handleSessionCompact(event: Record<string, unknown> = {}, ctx?: PiLikeContext) {
+      latestPromptBySession.delete(getPiAwarenessSessionId(ctx));
+      try {
+        const db = getDb(ctx);
         finalizeActivePiFallbackRuns(db, {
           agentId: getPiAwarenessAgentId(ctx),
           sessionId: getPiAwarenessSessionId(ctx),
           workspacePath: ctx?.cwd ?? process.cwd(),
           artifact: artifactFrom(ctx, event),
         });
-        if (process.env.OCTOCODE_NO_SESSION_CAPTURE === '1' || event.reason === 'new') return undefined;
+        if (process.env.OCTOCODE_NO_SESSION_CAPTURE === '1') return undefined;
         sessionCapture(db, {
           agent_id: getPiAwarenessAgentId(ctx),
           workspace: ctx?.cwd ?? process.cwd(),
           artifact: artifactFrom(ctx, event),
-          reason: event.reason,
+          reason: event.reason ?? 'compact',
         });
       } catch {
-        // fail-open: shutdown hooks must never wedge session replacement/quit
+        // fail-open: compaction hooks must never wedge the host
       }
       return undefined;
     },
@@ -755,7 +783,7 @@ export function wirePiAwarenessHooks(pi: PiLikeApi, options: PiAwarenessBridgeOp
       return undefined;
     }
   });
-  pi.on('session_before_compact', async (event, ctx) => bridge.handleSessionShutdown({
+  pi.on('session_before_compact', async (event, ctx) => bridge.handleSessionCompact({
     reason: typeof event?.reason === 'string' ? `compact:${event.reason}` : 'compact',
   }, ctx));
   pi.on('session_shutdown', async (event, ctx) => bridge.handleSessionShutdown(event, ctx));

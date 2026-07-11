@@ -70,7 +70,7 @@ process.stdin.on('end', () => {
 
     const command = typeof toolInput === 'string'
       ? toolInput
-      : ti['command'] ?? root['command'] ?? ti['patch'] ?? root['patch'] ?? ti['text'] ?? root['text'] ?? ti['content'] ?? root['content'];
+      : ti['command'] ?? root['command'] ?? ti['patch'] ?? root['patch'];
     if (typeof command === 'string') {
       for (const line of command.split('\n')) {
         const addUpdDel = line.match(/^\*\*\* (?:Add|Update|Delete) File: (.+)$/);

@@ -20,6 +20,7 @@ owned Claimed → FilesUnderWork → Inbox → evidence). Use `--help` / `schema
 <cli> task claim --task-id <task> --agent-id "$OCTOCODE_AGENT_ID" --compact
 # hooks declare paths; without hooks:
 <cli> work start --run-id <run> --agent-id "$OCTOCODE_AGENT_ID" --file <path> --compact
+# run the declared check while claim/presence remains active
 <cli> task submit --task-id <task> --run-id <run> --agent-id "$OCTOCODE_AGENT_ID" --compact
 <cli> verify mark --run-id <run> --agent-id "$OCTOCODE_AGENT_ID" --message "passed" --compact
 ```
@@ -29,8 +30,9 @@ owned Claimed → FilesUnderWork → Inbox → evidence). Use `--help` / `schema
 ```bash
 <cli> work start --agent-id "$OCTOCODE_AGENT_ID" --workspace "$PWD" \
   --file <path> --rationale "<why>" --test-plan "<check>" --compact
+# run the declared check while presence remains active
 <cli> work end --run-id <run> --agent-id "$OCTOCODE_AGENT_ID" --compact
-# run check, then verify mark
+# then verify mark
 ```
 
 Ordinary peers allowed; `work show --workspace "$PWD" --file <path>` when overlap matters. Sensitive work
