@@ -270,7 +270,7 @@ describe('OQL local execution (target:"content")', () => {
         fetch: {
           content: {
             range: { startLine: 1, endLine: 5 },
-            contentView: 'exact',
+            contentView: 'none',
           },
         },
       })
@@ -289,7 +289,7 @@ describe('OQL local execution (target:"content")', () => {
           fetch: {
             content: {
               range: { startLine: 12, contextLines: 2 },
-              contentView: 'exact',
+              contentView: 'none',
             },
           },
         })

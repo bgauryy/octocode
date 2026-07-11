@@ -122,7 +122,6 @@ describe('signal', () => {
         'signal', 'list',
         '--agent-id', 'agent-b',
         '--workspace', dir,
-        '--compact',
       ]);
       expect(summarized['bodies']).toBe('summarized');
       const shortBody = String((summarized['signals'] as Record<string, unknown>[])[0]!['body'] ?? '');

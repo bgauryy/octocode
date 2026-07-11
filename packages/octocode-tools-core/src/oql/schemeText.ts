@@ -63,7 +63,7 @@ export const OQL_SCHEMA_DOC = {
   },
   agentBestPractices: [
     'Start with cheap orientation: --tree, --search path, --view discovery, or --content-view symbols.',
-    'Then narrow and read exact evidence: --match-string, --start-line/--end-line, --char-offset/--char-length, or --content-view exact.',
+    'Then narrow and read exact evidence: --match-string, --start-line/--end-line, --char-offset/--char-length, or --content-view none.',
     'Use snippets as discovery only; make decisions from exact content, PR/commit metadata, or LSP/graph proof.',
     'For semantics, run documentSymbols first to get line anchors, then references/callers/hover with symbolName + lineHint.',
     'For GitHub zero rows / providerUnindexed, do NOT claim absence — follow evidenceSemantics.providerUnindexed (verify path with structure, then materialize a bounded path).',
@@ -83,7 +83,7 @@ export const OQL_SCHEMA_DOC = {
     'read a file (local or owner/repo/path)':
       'search ./src/index.ts   |   search vercel/next.js/packages/next/src/server/config.ts',
     'read a remote file (exact)':
-      'search vercel/next.js/README.md --content-view exact',
+      'search vercel/next.js/README.md --content-view none',
     'semantics (local/materialized)':
       'search ./src/index.ts --op documentSymbols   |   search ./src/index.ts --op references --symbol runCLI --line 42',
     'artifact inspect/list':
@@ -153,7 +153,7 @@ export const OQL_SCHEMA_DOC = {
     materialize:
       '{ mode:"never"|"auto"|"required", strategy?:"file"|"tree"|"subtree"|"repo", allowFullRepo?, forceRefresh? }',
     fetch:
-      '{ content?: { contentView:"exact"|"compact"|"symbols", fullContent?, match?:{text|regex,case?}, range?:{startLine?,endLine?,contextLines?}, charOffset?, charLength? }, tree?:{ maxDepth?, pattern?, includeSizes?, extensions?, filesOnly?, directoriesOnly?, sortBy?:"name"|"size"|"time"|"extension", reverse? } } — read options for known files/trees; fetch.content.fullContent:true returns the WHOLE file in one shot (lossless, no char-window paging); to read the region around a string, anchor with fetch.content.match (NOT a top-level where, which is code/files only)',
+      '{ content?: { contentView:"none"|"standard"|"symbols", fullContent?, match?:{text|regex,case?}, range?:{startLine?,endLine?,contextLines?}, charOffset?, charLength? }, tree?:{ maxDepth?, pattern?, includeSizes?, extensions?, filesOnly?, directoriesOnly?, sortBy?:"name"|"size"|"time"|"extension", reverse? } } — read options for known files/trees; fetch.content.fullContent:true returns the WHOLE file in one shot (lossless, no char-window paging); to read the region around a string, anchor with fetch.content.match (NOT a top-level where, which is code/files only)',
     params:
       'target options (validated by OQL for common fields and by the backing tool exhaustively) — see params hints below',
     select: 'string[] projection of result/continuation fields',

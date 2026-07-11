@@ -27,13 +27,13 @@ Representative unit and CLI tests require compact attend to remain at or below 2
 not sufficient; output-size assertions protect token cost. Workboard columns that are
 empty are omitted; `counts` still reports totals for Ready/Claimed/Verify/FilesUnderWork/Inbox.
 
-`--compact` is not a universal field-reduction promise. It minifies JSON for every
-command, while documented lean surfaces such as `attend`, memory recall, and selected
-lists also reduce fields or summarize bodies. `docs show` raw Markdown is the smaller
+`--compact` minifies JSON and bounds agent-facing list defaults; explicit `--limit`,
+`--full`, or `--include-bodies` restores deliberate depth. `attend`, memory recall,
+and selected lists also reduce fields. `docs show` raw Markdown is the smaller
 agent-readable form; its compact form is a JSON envelope.
 
 For generic `query workboard --limit N`, the limit applies per lane, not to the whole
-response. It can be much larger than compact attend. Use `attend` for the next action,
+response; compact mode defaults to one row per lane. It can still exceed compact attend. Use `attend` for the next action,
 targeted `verify audit`/`signal list`/`work show` for one concern, and CSV/HTML for
 bulk review. Noncompact `attend` is a deliberate deep diagnostic, not a prompt-safe
 default.
@@ -48,7 +48,7 @@ default.
 | Operational counts | `workspace status --compact` |
 | Verification debt | `verify audit --compact` |
 | Reusable lessons | `memory recall --compact`; use `--explain --full` for score components |
-| Inbox | `signal list --limit 5`; include bodies only when acting |
+| Inbox | `signal list --limit 3`; include bodies only when acting |
 | Human cross-view inspection | `query all --format html` |
 
 Compact workspace status returns exact `lock_count`, `lock_shown_count`, and
@@ -93,7 +93,10 @@ query/filter; they do not prove absence.
 `memory recall --smart` first uses requested filters, then widens an under-filled
 result by dropping label/tag/minimum-importance restrictions. Output reports
 `smart_expanded` and `smart_dropped_filters`; widening is never silent. File-backed
-attend evidence is not `verified_lead` when its referenced file is missing.
+attend evidence is an `existing_file_lead` when the path exists and `needs_refs` when
+missing; neither label proves the cited content. Explicit recall updates popularity,
+not evidence recency. Lean rows cap tags/references and omit absent optional fields;
+use `--full` only for the selected row.
 
 Use file/scope filters before increasing limits. Prefer relative paths in compact
 output. Use HTML/CSV or explicit full rows for bulk inspection rather than raising

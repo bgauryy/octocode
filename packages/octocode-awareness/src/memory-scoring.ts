@@ -114,7 +114,9 @@ export function decayComponents(
   weights = DECAY_WEIGHTS,
 ): NonNullable<MemoryRecord['score_components']> {
   const halfLife = memory.decay_half_life_days ?? DEFAULT_HALF_LIFE_DAYS;
-  const lastUsedStr = memory.last_accessed_at ?? memory.created_at;
+  // Reading is popularity, not evidence freshness. Only source mutation time
+  // may refresh recency; access_count remains a separate bounded component.
+  const lastUsedStr = memory.updated_at ?? memory.created_at;
   let recency = 0;
   if (lastUsedStr) {
     const ageDays = Math.max(0, (Date.now() - new Date(lastUsedStr).getTime()) / 86400000);

@@ -282,7 +282,7 @@ describe('provider regressions: GitHub content/structure and proof gates', () =>
         repo: 'microsoft/playwright-mcp',
         path: 'README.md',
         fetch: {
-          content: { contentView: 'exact', charOffset: 0, charLength: 3 },
+          content: { contentView: 'none', charOffset: 0, charLength: 3 },
         },
       })
     );
@@ -567,7 +567,7 @@ describe('provider regressions: GitHub content/structure and proof gates', () =>
       target: 'content',
       fetch: {
         content: {
-          contentView: 'exact',
+          contentView: 'none',
           match: { text: '_streamChatModelEvents' },
         },
       },

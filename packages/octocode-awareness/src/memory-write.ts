@@ -75,6 +75,7 @@ export function insertMemory(db: DatabaseSync, params: InsertMemoryParams): Inse
     { workspace_path: workspacePath ?? null, artifact: normalizeArtifact(artifact), repo: repoArg ?? null, ref: refArg ?? null },
     cwd ?? process.cwd()
   );
+  const supersedeIds = [...new Set(supersedes.filter(Boolean))];
 
   const halfLifeDefault = LABEL_HALF_LIFE_DAYS[normalizedLabel] ?? null;
 
@@ -86,6 +87,25 @@ export function insertMemory(db: DatabaseSync, params: InsertMemoryParams): Inse
   const ownsTransaction = !db.isTransaction;
   if (ownsTransaction) db.exec('BEGIN IMMEDIATE');
   try {
+    if (supersedeIds.length > 0) {
+      const placeholders = supersedeIds.map(() => '?').join(',');
+      const rows = db.prepare(`
+        SELECT memory_id, agent_id, state, workspace_path, artifact, repo, ref
+        FROM memories WHERE memory_id IN (${placeholders})
+      `).all(...supersedeIds) as unknown as Array<Record<string, string | null>>;
+      const byId = new Map(rows.map(row => [String(row['memory_id']), row]));
+      for (const oldId of supersedeIds) {
+        const row = byId.get(oldId);
+        if (!row) throw new Error(`supersedes target not found: ${oldId}`);
+        if (row['agent_id'] !== agentId) throw new Error(`supersedes target has a different owner: ${oldId}`);
+        if (row['state'] !== 'ACTIVE') throw new Error(`supersedes target is not ACTIVE: ${oldId}`);
+        for (const field of ['workspace_path', 'artifact', 'repo', 'ref'] as const) {
+          if ((row[field] ?? null) !== (scope[field] ?? null)) {
+            throw new Error(`supersedes target has a different scope: ${oldId}`);
+          }
+        }
+      }
+    }
     // FIX #8 (P1): findSimilarMemories moved inside the transaction for read consistency —
     // ensures the similarity check and the insert see the same set of ACTIVE memories.
     // TOOL-2: Use preComputedSimilar if provided (avoids double findSimilarMemories call
@@ -139,14 +159,15 @@ export function insertMemory(db: DatabaseSync, params: InsertMemoryParams): Inse
     // FIX #1 (P0): supersede UPDATE loop moved INSIDE BEGIN IMMEDIATE (before COMMIT)
     // so the supersede and insert are atomic — no window where the old memory is still
     // ACTIVE after the new one is visible to concurrent readers.
-    for (const oldId of supersedes) {
+    for (const oldId of supersedeIds) {
       const r = db.prepare(`
         UPDATE memories
         SET state = 'SUPERSEDED', superseded_by = ?, updated_at = ?,
             valid_to = COALESCE(valid_to, ?), expired_at = ?
-        WHERE memory_id = ? AND memory_id <> ?
-      `).run(memoryId, createdAt, validFromVal, createdAt, oldId, memoryId) as { changes: number };
-      if (r.changes) superseded.push(oldId);
+        WHERE memory_id = ? AND state = 'ACTIVE'
+      `).run(memoryId, createdAt, validFromVal, createdAt, oldId) as { changes: number };
+      if (r.changes !== 1) throw new Error(`supersedes target changed concurrently: ${oldId}`);
+      superseded.push(oldId);
     }
 
     if (ownsTransaction) db.exec('COMMIT');

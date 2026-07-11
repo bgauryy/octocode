@@ -183,16 +183,28 @@ export function summarizeText(value: string, max: number): string {
 
 /** Default memory recall projection — ids + routing fields, not full rows. */
 export function projectMemoryLean(memory: MemoryRecord): Record<string, unknown> {
-  return {
+  const result: Record<string, unknown> = {
     memory_id: memory.memory_id,
     label: memory.label,
     importance: memory.importance,
     task_context: summarizeText(memory.task_context ?? '', 120),
     observation: summarizeText(memory.observation ?? '', 200),
-    tags: memory.tags,
-    references: memory.references,
-    score: memory.score,
-    failure_signature: memory.failure_signature,
-    created_at: memory.created_at,
   };
+  const tags = memory.tags ?? [];
+  if (tags.length > 0) result['tags'] = tags.slice(0, 3);
+  if (tags.length > 3) {
+    result['tag_count'] = tags.length;
+    result['tag_omitted_count'] = tags.length - 3;
+  }
+  const references = memory.references ?? [];
+  if (references.length > 0) result['references'] = references.slice(0, 3);
+  if (references.length > 3) {
+    result['reference_count'] = references.length;
+    result['reference_omitted_count'] = references.length - 3;
+  }
+  if (typeof memory.score === 'number' && Number.isFinite(memory.score)) {
+    result['score'] = Math.round(memory.score * 10_000) / 10_000;
+  }
+  if (memory.failure_signature) result['failure_signature'] = memory.failure_signature;
+  return result;
 }

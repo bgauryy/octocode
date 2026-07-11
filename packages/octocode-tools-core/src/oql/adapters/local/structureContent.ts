@@ -65,12 +65,9 @@ export async function executeContent(
   searchPath: string
 ): Promise<AdapterResult> {
   const c = query.fetch?.content;
-  const minify =
-    c?.contentView === 'exact'
-      ? 'none'
-      : c?.contentView === 'symbols'
-        ? 'symbols'
-        : 'standard';
+  // contentView and minify now share one vocabulary (none/standard/symbols),
+  // so this is a direct passthrough rather than a translation.
+  const minify = c?.contentView ?? 'standard';
   const range = normalizeContentRange(c?.range);
   const toolQuery: Partial<LocalFetchToolQuery> = {
     path: searchPath,
@@ -90,12 +87,7 @@ export async function executeContent(
     ...(c?.fullContent ? { fullContent: true } : {}),
   };
   const result = await fetchContent(toolQuery as LocalFetchToolQuery);
-  const requestedView =
-    c?.contentView === 'exact'
-      ? 'exact'
-      : c?.contentView === 'symbols'
-        ? 'symbols'
-        : 'compact';
+  const requestedView = minify;
   const mapped = mapContentResult(result, source, searchPath, requestedView);
   return {
     ...mapped,

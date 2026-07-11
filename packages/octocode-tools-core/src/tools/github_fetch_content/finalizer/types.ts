@@ -17,7 +17,6 @@ export type FileEntry = {
   repoRoot?: string;
   fileSize?: number;
   contentView?: 'none' | 'standard' | 'symbols';
-  isSkeleton?: boolean;
   totalLines?: number;
   sourceChars?: number;
   sourceBytes?: number;
@@ -40,6 +39,12 @@ export type FileContentNextMap = {
   continueChars?: {
     tool: 'ghGetFileContent';
     query: Record<string, unknown>;
+  };
+  cloneForSemantics?: {
+    tool: 'ghCloneRepo';
+    query: Record<string, unknown>;
+    why: string;
+    confidence: 'exact';
   };
 };
 

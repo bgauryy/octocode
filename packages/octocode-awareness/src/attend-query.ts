@@ -49,14 +49,13 @@ export function attendAwareness(db: DatabaseSync, params: AttendParams = {}): At
   const readyTasks = rawWorkboard['Ready'] ?? [];
   const claimedTasks = (rawWorkboard['Claimed'] ?? []).filter(row => row['item_type'] === 'task');
   const projectionHealth = projectionStats(workspacePath);
-  const liveSourceRevision = projectionSourceRevision(db, {
+  const bloatWarnings = projectionWarnings(workspacePath, projectionHealth, () => projectionSourceRevision(db, {
     workspacePath,
     artifact: scope.artifact,
     repo: scope.repo,
     ref: scope.ref,
     limit: 500,
-  });
-  const bloatWarnings = projectionWarnings(workspacePath, projectionHealth, liveSourceRevision);
+  }));
   const outputBloatWarnings = compact
     ? bloatWarnings.map(warning => warning
       .replace(/\.octocode\//g, '')
@@ -110,7 +109,7 @@ export function attendAwareness(db: DatabaseSync, params: AttendParams = {}): At
   });
 
   const trustWarnings = evidence
-    .filter(item => item.trust !== 'verified_lead')
+    .filter(item => item.trust !== 'existing_file_lead')
     .map(item => `${item.id}: ${item.trust}`);
   const gaps = [
     query ? null : 'No query supplied; packet is a general workspace briefing.',
@@ -241,7 +240,7 @@ export function attendAwareness(db: DatabaseSync, params: AttendParams = {}): At
         : filesUnderWorkPath
           ? `octocode-awareness work show --workspace ${workspaceArg} --file ${shellQuote(filesUnderWorkPath)} --compact; read peer reason before overlapping edits`
         : inboxCount > 0
-          ? `octocode-awareness signal list --agent-id ${agentArg} --workspace ${workspaceArg} --compact`
+          ? `octocode-awareness signal list --agent-id ${agentArg} --workspace ${workspaceArg} --limit 3 --compact`
           : !query && bloatWarnings.length > 0
             ? `octocode-awareness query workboard --workspace ${workspaceArg} --format json --limit 5 --compact`
             : evidence.length > 0
@@ -257,9 +256,9 @@ export function attendAwareness(db: DatabaseSync, params: AttendParams = {}): At
       ok: true,
       generated_at: profileResult.generated_at,
       workspace_path: workspacePath,
-      artifact: params.artifact ?? null,
-      repo: params.repo ?? null,
-      ref: params.ref ?? null,
+      ...(params.artifact ? { artifact: params.artifact } : {}),
+      ...(params.repo ? { repo: params.repo } : {}),
+      ...(params.ref ? { ref: params.ref } : {}),
       counts: {
         Inbox: columnCount('Inbox'),
         Ready: columnCount('Ready'),

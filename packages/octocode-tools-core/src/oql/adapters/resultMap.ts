@@ -266,7 +266,7 @@ export function mapContentResult(
    * the minify mode back (e.g. a `symbols` read reports `standard`), so the row
    * must report the requested view to satisfy "report the view used".
    */
-  requestedView: OqlContentResultRow['contentView'] = 'compact'
+  requestedView: OqlContentResultRow['contentView'] = 'standard'
 ): MappedResult {
   // CharPagination (char window) carries charOffset/charLength/totalChars; a
   // plain PaginationInfo does not. Detect by presence of charOffset.

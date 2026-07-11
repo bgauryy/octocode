@@ -187,7 +187,7 @@ function symbolNext(
         fetch: {
           content: {
             range: { startLine: s.line, contextLines: 3 },
-            contentView: 'exact',
+            contentView: 'none',
           },
         },
       },

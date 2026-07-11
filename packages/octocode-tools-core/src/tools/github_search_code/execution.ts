@@ -28,7 +28,9 @@ import { buildGhSearchCodeFinalizer } from './finalizer.js';
 
 type PartialCodeSearchQuery = WithOptionalMeta<GitHubCodeSearchQuery>;
 
-export function hasValidCodeSearchParams(query: PartialCodeSearchQuery): boolean {
+export function hasValidCodeSearchParams(
+  query: PartialCodeSearchQuery
+): boolean {
   const keywords = query.keywords ?? [];
   return Boolean(
     keywords.some(keyword => keyword.trim().length > 0) ||

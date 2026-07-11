@@ -107,7 +107,7 @@ describe('buildShorthandInput (CLI shorthand lowering, owned by tools-core)', ()
     const query = input(
       buildShorthandInput({
         target: 'content',
-        contentView: 'exact',
+        contentView: 'none',
         startLine: 10,
         endLine: 20,
         contextLines: 2,
@@ -119,7 +119,7 @@ describe('buildShorthandInput (CLI shorthand lowering, owned by tools-core)', ()
       from: { kind: 'local', path: './src/index.ts' },
       fetch: {
         content: {
-          contentView: 'exact',
+          contentView: 'none',
           range: { startLine: 10, endLine: 20, contextLines: 2 },
         },
       },

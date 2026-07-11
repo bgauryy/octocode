@@ -50,7 +50,7 @@ examples:
   octocode-awareness docs list --compact
   octocode-awareness docs show agent-cheatsheet
   octocode-awareness lock acquire --agent-id agent --target-file src/file.ts --rationale "edit" --compact
-  octocode-awareness signal list --agent-id agent --workspace "$PWD" --compact
+  octocode-awareness signal list --agent-id agent --workspace "$PWD" --limit 3 --compact
   octocode-awareness schema commands --compact
   octocode-awareness query files --workspace "$PWD" --format table --limit 50
   octocode-awareness query all --workspace "$PWD" --format html --out .octocode/awareness/index.html
@@ -155,16 +155,16 @@ export const COMMAND_EXAMPLE: Record<string, string> = {
   'audit-unverified': 'octocode-awareness verify audit --agent-id agent --workspace "$PWD" --compact',
   'verify': 'octocode-awareness verify mark --agent-id agent --all-pending --message "yarn test passed" --workspace "$PWD" --compact',
   'refine-set': 'octocode-awareness refinement set --agent-id agent --reasoning "handoff" --remember "next step" --workspace "$PWD" --compact',
-  'refine-get': 'octocode-awareness refinement get --workspace "$PWD" --state open --compact',
+  'refine-get': 'octocode-awareness refinement get --workspace "$PWD" --state open --limit 3 --compact',
   'refine-delete': 'octocode-awareness refinement delete --refinement-id ref_123 --dry-run --compact',
   'agent-registry': 'octocode-awareness agent register --agent-id agent --agent-name "Codex" --workspace "$PWD" --compact',
-  'agent-signal': 'octocode-awareness signal list --agent-id agent --workspace "$PWD" --compact',
+  'agent-signal': 'octocode-awareness signal list --agent-id agent --workspace "$PWD" --limit 3 --compact',
   'notify-prune': 'octocode-awareness signal prune --workspace "$PWD" --resolved --dry-run --compact',
   'status': 'octocode-awareness workspace status --workspace "$PWD" --compact',
   'attend': 'octocode-awareness attend --query "current task" --workspace "$PWD" --compact',
   'export-harness': 'octocode-awareness reflect export-harness --workspace "$PWD" --compact',
   'developer-review': 'octocode-awareness reflect developer-review --workspace "$PWD" --format markdown --compact',
-  'query': 'octocode-awareness query workboard --workspace "$PWD" --format json --limit 10 --compact',
+  'query': 'octocode-awareness query workboard --workspace "$PWD" --format json --limit 1 --compact',
   'repo-inject': 'octocode-awareness repo inject --workspace "$PWD" --out .octocode --mode local --compact',
   'session-capture': 'octocode-awareness session capture --agent-id agent --workspace "$PWD" --reason handoff --compact',
   'mine-weakness': 'octocode-awareness reflect mine-weakness --workspace "$PWD" --compact',
@@ -184,12 +184,12 @@ export const COMMAND_EXAMPLE: Record<string, string> = {
 
 export const ROUTE_EXAMPLE: Record<string, string> = {
   'signal publish': 'octocode-awareness signal publish --agent-id agent --kind blocker --subject "File locked" --workspace "$PWD" --compact',
-  'signal list': 'octocode-awareness signal list --agent-id agent --workspace "$PWD" --compact',
+  'signal list': 'octocode-awareness signal list --agent-id agent --workspace "$PWD" --limit 3 --compact',
   'signal reply': 'octocode-awareness signal reply --agent-id agent --in-reply-to ntf_123 --subject "Re: File locked" --body "done" --compact',
   'signal ack': 'octocode-awareness signal ack --agent-id agent --signal-id ntf_123 --compact',
   'signal resolve': 'octocode-awareness signal resolve --agent-id agent --thread-id ntf_123 --compact',
   'agent register': 'octocode-awareness agent register --agent-id agent --agent-name "Codex" --workspace "$PWD" --compact',
-  'agent list': 'octocode-awareness agent list --workspace "$PWD" --compact',
+  'agent list': 'octocode-awareness agent list --workspace "$PWD" --limit 5 --compact',
   'reflect developer-review': 'octocode-awareness reflect developer-review --workspace "$PWD" --format markdown --compact',
   'docs list': 'octocode-awareness docs list --compact',
   'docs show': 'octocode-awareness docs show agent-cheatsheet',

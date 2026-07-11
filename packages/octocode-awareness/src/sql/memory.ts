@@ -77,15 +77,6 @@ export const MEMORY_UPDATE_ACCESS = `
   WHERE memory_id = ?
 `;
 
-// Mark a memory as SUPERSEDED, recording which memory replaced it and clamping valid_to
-// Params: superseded_by, updated_at, valid_from (for COALESCE), expired_at, memory_id, new_memory_id
-export const MEMORY_SUPERSEDE_UPDATE = `
-  UPDATE memories
-  SET state = 'SUPERSEDED', superseded_by = ?, updated_at = ?,
-      valid_to = COALESCE(valid_to, ?), expired_at = ?
-  WHERE memory_id = ? AND memory_id <> ?
-`;
-
 // Persist a dense embedding BLOB and its model identifier onto an existing memory row
 // Params: embedding (BLOB), embedding_model, updated_at, memory_id
 export const MEMORY_EMBEDDING_UPDATE = `

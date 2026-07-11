@@ -107,7 +107,7 @@ function contentEnvelope() {
         kind: 'content',
         source: { kind: 'local', path: '.' },
         path: 'a.ts',
-        contentView: 'exact',
+        contentView: 'none',
         content: 'export const value = 1;',
       },
     ],
@@ -155,7 +155,7 @@ describe('octocode search command', () => {
     expect(stdout).toContain('TARGET');
     // npm + remote-file-read recipes (Haiku gaps) are surfaced
     expect(stdout).toContain('--target packages');
-    expect(stdout).toContain('--content-view exact');
+    expect(stdout).toContain('--content-view none');
     // references vs callers distinction
     expect(stdout).toContain('references');
     expect(stdout).toContain('callers');
@@ -442,7 +442,7 @@ describe('octocode search command', () => {
           kind: 'content',
           source: { kind: 'local', path: '.' },
           path: 'a.ts',
-          contentView: 'exact',
+          contentView: 'none',
           // embedded newline, tab, quote, backslash — the exact code-char case
           content: 'line1\nline2\t"q"\\end',
         },
@@ -460,7 +460,7 @@ describe('octocode search command', () => {
       json: true,
       compact: true,
       query:
-        '{"target":"content","from":{"kind":"local","path":"a.ts"},"fetch":{"content":{"contentView":"exact"}}}',
+        '{"target":"content","from":{"kind":"local","path":"a.ts"},"fetch":{"content":{"contentView":"none"}}}',
     });
     const out = stdout.replace(/\n$/, '');
     // single line: the embedded newline is escaped (\n), never a raw line break
@@ -1209,7 +1209,7 @@ describe('octocode search shorthand sugar', () => {
 
   it('--repo preserves repo-relative path for content reads', async () => {
     runOqlSearch.mockResolvedValue(contentEnvelope());
-    await run({ repo: 'facebook/react', 'content-view': 'exact' }, [
+    await run({ repo: 'facebook/react', 'content-view': 'none' }, [
       'README.md',
     ]);
     const [input] = runOqlSearch.mock.calls[0]! as [Record<string, unknown>];
@@ -1217,17 +1217,17 @@ describe('octocode search shorthand sugar', () => {
       target: 'content',
       from: { kind: 'github', repo: 'facebook/react' },
       scope: { path: 'README.md' },
-      fetch: { content: { contentView: 'exact' } },
+      fetch: { content: { contentView: 'none' } },
     });
   });
 
   it('--content-view lowers to canonical fetch.content.contentView', async () => {
     runOqlSearch.mockResolvedValue(contentEnvelope());
-    await run({ 'content-view': 'exact' }, ['./a.ts']);
+    await run({ 'content-view': 'none' }, ['./a.ts']);
     const [input] = runOqlSearch.mock.calls[0]! as [Record<string, unknown>];
     expect(input).toMatchObject({
       target: 'content',
-      fetch: { content: { contentView: 'exact' } },
+      fetch: { content: { contentView: 'none' } },
     });
   });
 
@@ -1574,7 +1574,7 @@ describe('octocode search shorthand sugar', () => {
 
   it('--raw renders content rows only', async () => {
     runOqlSearch.mockResolvedValue(contentEnvelope());
-    await run({ target: 'content', raw: true, 'content-view': 'exact' }, [
+    await run({ target: 'content', raw: true, 'content-view': 'none' }, [
       './a.ts',
     ]);
     expect(stdout).toBe('export const value = 1;\n');
@@ -1587,7 +1587,7 @@ describe('octocode search shorthand sugar', () => {
   });
 
   it('rejects invalid --content-view values', async () => {
-    await run({ 'content-view': 'none' }, ['./a.ts']);
+    await run({ 'content-view': 'bogus' }, ['./a.ts']);
     expect(process.exitCode).toBe(EXIT.USAGE);
     expect(runOqlSearch).not.toHaveBeenCalled();
   });

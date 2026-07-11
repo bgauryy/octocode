@@ -5,6 +5,7 @@ import type { WithOptionalMeta } from '../../types/execution.js';
 
 import { GITHUB_SEARCH_DEFAULT_LIMIT } from '../../config.js';
 import { quoteSearchKeyword } from '../../github/searchKeyword.js';
+import { isBotAuthor } from '../../github/botFilter.js';
 import { countMetadata, toProviderProjectId } from './shared.js';
 
 type GitHubPullRequestSearchQuery = z.infer<
@@ -95,24 +96,52 @@ export function mapPullRequestToolQuery(query: PartialPRQuery) {
 type ProviderPrComment = NonNullable<
   ProviderPullRequestSearchResult['items'][number]['comments']
 >[number];
+type ProviderPrReview = NonNullable<
+  ProviderPullRequestSearchResult['items'][number]['reviews']
+>[number];
 
-function detectReviewThemes(comments: readonly ProviderPrComment[]): string[] {
-  const bodies = comments.map(comment => comment.body.toLowerCase());
+// Review `state` (APPROVED/CHANGES_REQUESTED/COMMENTED/DISMISSED) is GitHub's
+// own verdict — ground truth, unlike guessing intent from comment text. A
+// single clean APPROVED review must never be mislabeled by a keyword that
+// happens to appear in an unrelated bot comment (e.g. a size-check bot
+// commenting "this PR **changes** 500 lines" was previously read as
+// "changes-requested").
+function detectReviewThemes(
+  comments: readonly ProviderPrComment[],
+  reviews: readonly ProviderPrReview[]
+): string[] {
   const themes: string[] = [];
 
+  if (reviews.some(review => review.state === 'APPROVED')) {
+    themes.push('approval');
+  }
+  if (reviews.some(review => review.state === 'CHANGES_REQUESTED')) {
+    themes.push('changes-requested');
+  }
+
+  // Comment-body heuristics are a weaker secondary signal — restricted to
+  // human (non-bot) comments so automated tool output can't inject a theme.
+  const humanBodies = comments
+    .filter(comment => !isBotAuthor(comment.author ?? ''))
+    .map(comment => comment.body.toLowerCase());
+
   if (
-    bodies.some(body => /\b(lgtm|looks good|approved|ship it)\b/.test(body))
+    themes.length === 0 &&
+    humanBodies.some(body =>
+      /\b(lgtm|looks good|approved|ship it)\b/.test(body)
+    )
   ) {
     themes.push('approval');
   }
   if (
-    bodies.some(body =>
+    !themes.includes('changes-requested') &&
+    humanBodies.some(body =>
       /\b(change|fix|concern|blocker|blocking|request changes?)\b/.test(body)
     )
   ) {
     themes.push('changes-requested');
   }
-  if (bodies.some(body => body.includes('?'))) {
+  if (humanBodies.some(body => body.includes('?'))) {
     themes.push('question');
   }
 
@@ -120,7 +149,8 @@ function detectReviewThemes(comments: readonly ProviderPrComment[]): string[] {
 }
 
 function buildReviewSummary(
-  comments: readonly ProviderPrComment[] | undefined
+  comments: readonly ProviderPrComment[] | undefined,
+  reviews: readonly ProviderPrReview[] | undefined
 ):
   | {
       totalComments: number;
@@ -151,7 +181,7 @@ function buildReviewSummary(
     discussionComments: comments.length - inlineComments,
     commenters: commenters.slice(0, 8),
     ...(latestCommentAt ? { latestCommentAt } : {}),
-    themes: detectReviewThemes(comments),
+    themes: detectReviewThemes(comments, reviews ?? []),
   };
 }
 
@@ -164,7 +194,7 @@ export function mapPullRequestProviderResultData(
     const fileChanges = pr.fileChanges;
     const originalFileChangeCount = fileChanges?.length ?? 0;
     const comments = Array.isArray(pr.comments) ? pr.comments : undefined;
-    const reviewSummary = buildReviewSummary(comments);
+    const reviewSummary = buildReviewSummary(comments, pr.reviews);
     return {
       number: pr.number,
       title: pr.title,

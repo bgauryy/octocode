@@ -16,7 +16,7 @@ function single(r: Awaited<ReturnType<typeof runOqlSearch>>) {
   if (isBatchEnvelope(r)) throw new Error('expected single');
   return r;
 }
-async function readContent(contentView: 'exact' | 'compact' | 'symbols') {
+async function readContent(contentView: 'none' | 'standard' | 'symbols') {
   return single(
     await runOqlSearch({
       target: 'content',
@@ -31,13 +31,13 @@ describe('OQL content view labelling (contract: report the view used)', () => {
     const row = await readContent('symbols');
     expect(row.contentView).toBe('symbols');
   });
-  it('exact request -> row.contentView === "exact"', async () => {
-    const row = await readContent('exact');
-    expect(row.contentView).toBe('exact');
+  it('none request -> row.contentView === "none"', async () => {
+    const row = await readContent('none');
+    expect(row.contentView).toBe('none');
   });
-  it('compact request -> row.contentView === "compact"', async () => {
-    const row = await readContent('compact');
-    expect(row.contentView).toBe('compact');
+  it('standard request -> row.contentView === "standard"', async () => {
+    const row = await readContent('standard');
+    expect(row.contentView).toBe('standard');
   });
 });
 
@@ -51,7 +51,7 @@ describe('OQL content fetch capabilities: match string + context lines', () => {
           content: {
             match: { text: 'OqlContinuation' },
             range: { contextLines: 1 },
-            contentView: 'exact',
+            contentView: 'none',
           },
         },
       })
@@ -73,7 +73,7 @@ describe('OQL content fetch capabilities: match string + context lines', () => {
           content: {
             match: { text: 'OqlContinuation' },
             range: { contextLines: 0 },
-            contentView: 'exact',
+            contentView: 'none',
           },
         },
       })
@@ -86,7 +86,7 @@ describe('OQL content fetch capabilities: match string + context lines', () => {
           content: {
             match: { text: 'OqlContinuation' },
             range: { contextLines: 4 },
-            contentView: 'exact',
+            contentView: 'none',
           },
         },
       })
@@ -102,7 +102,7 @@ describe('OQL content char-window pagination -> next.charRange (not next.page)',
         target: 'content',
         from: { kind: 'local', path: TYPES },
         fetch: {
-          content: { contentView: 'exact', charOffset: 0, charLength: 200 },
+          content: { contentView: 'none', charOffset: 0, charLength: 200 },
         },
       })
     );

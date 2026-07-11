@@ -36,16 +36,16 @@ export interface AttendEvidence {
   reference_count?: number;
   omitted_reference_count?: number;
   why_selected: string[];
-  trust: 'verified_lead' | 'needs_refs' | 'generated_or_external_lead';
+  trust: 'existing_file_lead' | 'needs_refs' | 'generated_or_external_lead';
 }
 
 export interface AttendResult {
   ok: true;
   generated_at: string;
   workspace_path: string;
-  artifact: string | null;
-  repo: string | null;
-  ref: string | null;
+  artifact?: string | null;
+  repo?: string | null;
+  ref?: string | null;
   counts?: Record<string, number>;
   profile?: Record<string, number>;
   organ_state?: Record<string, unknown>;
@@ -189,7 +189,7 @@ export function projectionStats(workspacePath: string): Array<{ file: string; li
 export function manifestWarnings(
   workspacePath: string,
   stats: Array<{ file: string; mtime_ms: number | null }>,
-  liveSourceRevision: string,
+  liveSourceRevision: string | (() => string),
 ): string[] {
   const manifestPath = join(workspacePath, '.octocode', 'awareness', 'manifest.json');
   if (!existsSync(manifestPath)) return ['.octocode/awareness/manifest.json missing; run repo inject when projection context is needed'];
@@ -198,10 +198,13 @@ export function manifestWarnings(
       generated_at?: string;
       files?: string[];
       source?: { revision?: string };
+      completeness?: Record<string, { is_partial?: boolean; omitted_count?: number | null }>;
       budgets?: { markdown?: Record<string, { within_budget?: boolean }> };
     };
     const warnings: string[] = [];
     const files = manifest.files ?? [];
+    const missingManagedCount = files.filter(file => !existsSync(resolve(workspacePath, file))).length;
+    if (missingManagedCount > 0) warnings.push(`manifest has ${missingManagedCount} missing generated file(s); regenerate repo projection`);
     if (!files.some(file => file.endsWith('/BOOKMARKS.md') || file.endsWith('\\BOOKMARKS.md') || file === 'BOOKMARKS.md')) {
       warnings.push('manifest missing BOOKMARKS.md; regenerate repo projection');
     }
@@ -209,9 +212,12 @@ export function manifestWarnings(
     for (const [file, budget] of Object.entries(markdownBudgets)) {
       if (budget.within_budget === false) warnings.push(`manifest budget exceeded for ${file}`);
     }
-    if (!manifest.source?.revision) {
+    const partialSections = Object.values(manifest.completeness ?? {}).filter(section => section.is_partial);
+    if (partialSections.length > 0) {
+      warnings.push(`manifest is a partial snapshot (${partialSections.length} section(s)); use live SQLite for omitted rows`);
+    } else if (!manifest.source?.revision) {
       warnings.push('manifest missing source revision; regenerate repo projection');
-    } else if (manifest.source.revision !== liveSourceRevision) {
+    } else if (manifest.source.revision !== (typeof liveSourceRevision === 'function' ? liveSourceRevision() : liveSourceRevision)) {
       warnings.push('manifest source revision differs from live SQLite; regenerate repo projection');
     }
     if (manifest.generated_at) {
@@ -229,7 +235,7 @@ export function manifestWarnings(
 export function projectionWarnings(
   workspacePath: string,
   stats: Array<{ file: string; lines: number | null; mtime_ms: number | null }>,
-  liveSourceRevision: string,
+  liveSourceRevision: string | (() => string),
 ): string[] {
   const budgets: Record<string, number> = {
     '.octocode/AGENTS.md': 80,
@@ -257,7 +263,7 @@ export function evidenceTrust(references: string[], workspacePath: string): Atte
   });
   if (missingFileReference) return 'needs_refs';
   if (references.some(ref => ref.includes('.octocode/') || ref.startsWith('http'))) return 'generated_or_external_lead';
-  return 'verified_lead';
+  return 'existing_file_lead';
 }
 
 export function resourceLeads(query: string, workspacePath: string): Array<Record<string, string>> {

@@ -22,7 +22,7 @@ export function cmdDeveloperReview(db: DatabaseSync, args: ParsedArgs, dbPath: s
     repo: args['repo'] ? String(args['repo']) : null,
     ref: args['ref'] ? String(args['ref']) : null,
     query: args['query'] ? String(args['query']) : null,
-    limit: args['limit'] ? parseInt(String(args['limit']), 10) : undefined,
+    limit: args['limit'] ? parseInt(String(args['limit']), 10) : opts.compact ? 5 : undefined,
     state: Array.isArray(args['state']) ? args['state'].map(String) : args['state'] ? String(args['state']) : null,
   });
   if (format === 'markdown') {
@@ -50,7 +50,9 @@ export function cmdQuery(db: DatabaseSync, args: ParsedArgs, dbPath: string, opt
     repo: args['repo'] ? String(args['repo']) : null,
     ref: args['ref'] ? String(args['ref']) : null,
     query: args['query'] ? String(args['query']) : null,
-    limit: args['limit'] ? parseInt(String(args['limit']), 10) : undefined,
+    limit: args['limit']
+      ? parseInt(String(args['limit']), 10)
+      : opts.compact ? (view === 'workboard' ? 1 : 5) : undefined,
     agentId: args['agent_id'] ? String(args['agent_id']) : null,
     state: Array.isArray(args['state']) ? args['state'].map(String) : args['state'] ? String(args['state']) : null,
     label: Array.isArray(args['label']) ? args['label'].map(String) : args['label'] ? String(args['label']) : null,

@@ -91,8 +91,6 @@ export interface FileContentResult {
 
   contentView?: 'none' | 'standard' | 'symbols';
 
-  isSkeleton?: boolean;
-
   ref: string;
 
   lastModified?: string;

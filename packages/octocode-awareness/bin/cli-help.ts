@@ -49,7 +49,7 @@ note: export OCTOCODE_AGENT_ID for CLI+hooks; --strict-agent-id / OCTOCODE_STRIC
 schema: octocode-awareness schema json-schema pre_flight_intent --compact`,
   'agent-signal': `usage: octocode-awareness signal publish|list|reply|ack|resolve --agent-id <id> [--to-agent <id>]... [--signal-id <id>]... [--thread-id <id>] [--kind <k>] [--subject <t>] [--body <t>] [--file <p>]...
 examples:
-  octocode-awareness signal list --agent-id agent --workspace "$PWD" --compact
+  octocode-awareness signal list --agent-id agent --workspace "$PWD" --limit 3 --compact
   octocode-awareness signal list --agent-id agent --workspace "$PWD" --format hook --compact
   octocode-awareness signal publish --agent-id agent --kind blocker --subject "File locked" --file src/file.ts --workspace "$PWD" --compact
   octocode-awareness signal reply --agent-id agent --in-reply-to ntf_123 --subject "Re: File locked" --body "done" --compact
@@ -71,7 +71,7 @@ note: reads agent feedback on the instructions themselves (from reflect record -
   'query': `usage: octocode-awareness query <all|repo-profile|memories|gotchas|lessons|plans|tasks|runs|locks|agents|signals|refinements|files|activity|workboard|developer-review> [--query <text>] [--limit <1..500>] [--workspace <repo>] [--artifact <a>] [--repo <r>] [--ref <r>] [--agent-id <id>] [--state <s>]... [--label <l>]... [--file <p>] [--since <iso>] [--include-bodies] [--format json|table|csv|markdown|html] [--out <path>]
 examples:
   octocode-awareness query files --workspace "$PWD" --format table --limit 50
-  octocode-awareness query workboard --workspace "$PWD" --format json --limit 10 --compact
+  octocode-awareness query workboard --workspace "$PWD" --format json --limit 1 --compact
   octocode-awareness query all --workspace "$PWD" --format html --out .octocode/awareness/index.html
 note: files/memories expose missing file references as file_exists, missing_file, missing_references, and stale_file_refs workboard reasons
 schema: octocode-awareness schema json-schema query --compact`,

@@ -38,22 +38,28 @@ export function sanitizeShareString(value: string, workspacePath: string): strin
     return filePrefix ? 'file:<external-path-redacted>' : '<absolute-path-redacted>';
   };
 
-  if (value.startsWith('file:') || isAbsolute(value)) return sanitizeAbsolute(value);
+  const redactSecrets = (text: string): string => text
+    .replace(/-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g, '<redacted-secret>')
+    .replace(/\b(?:ghp_|github_pat_|sk-)[A-Za-z0-9_-]{16,}\b/g, '<redacted-secret>')
+    .replace(/\bAKIA[A-Z0-9]{16}\b/g, '<redacted-secret>')
+    .replace(/\b(api[_-]?key|token|password|secret)\s*[:=]\s*[^\s,;]{8,}/gi, '$1=<redacted-secret>');
+
+  if (value.startsWith('file:') || isAbsolute(value)) return redactSecrets(sanitizeAbsolute(value));
   const withoutWorkspace = value.split(workspacePath).join('<workspace>');
-  return withoutWorkspace.replace(
+  return redactSecrets(withoutWorkspace.replace(
     /(?:file:)?\/(?:Users|home|private|tmp|var|Volumes|opt)\/[^\s,;)"'\]]+/g,
     sanitizeAbsolute,
-  );
+  ));
 }
 
 export function sanitizeShareRow(row: AwarenessQueryRow, workspacePath: string): AwarenessQueryRow {
   const sanitized: AwarenessQueryRow = {};
   for (const [key, value] of Object.entries(row)) {
     if (key === 'body' || (key === 'detail' && (row['item_type'] === 'signal' || row['kind'] === 'signal'))) {
-      sanitized[key] = '';
-      sanitized['body_redacted'] = Boolean(value) || sanitized['body_redacted'] === true;
+      if (value) sanitized['body_redacted'] = true;
       continue;
     }
+    if (value == null || value === '' || (Array.isArray(value) && value.length === 0)) continue;
     if (typeof value === 'string') {
       sanitized[key] = sanitizeShareString(value, workspacePath);
     } else if (Array.isArray(value)) {
@@ -218,22 +224,6 @@ export function injectRepoContext(db: DatabaseSync, params: RepoContextInjectPar
     'Use the live command `octocode-awareness query files --workspace <repo>` when freshness matters.',
     'Missing file references are excluded from Top Rows; review them through the live query or CSV cleanup lane.',
   ], validFileRows));
-  write(join('references', 'commands.md'), renderReferenceDoc('Awareness Commands', [
-    '`octocode-awareness query <view>` reads the SQLite store for agents and scripts.',
-    '`octocode-awareness query all --format html --out .octocode/awareness/index.html` writes a static human browser view; use `npx @octocodeai/octocode-awareness` only when no local CLI exists.',
-    '`octocode-awareness repo inject --out .octocode` regenerates these Markdown, CSV, and HTML projections.',
-  ]));
-  write(join('references', 'testing.md'), renderReferenceDoc('Testing And Verification', [
-    'Treat generated memories as leads. Verify current files and command output before acting.',
-    'End editing with `work end` or `lock release --status PENDING`; only `verify mark --message "<check + result>"` records success.',
-    'Record new durable failures with `reflect record --failure-signature` or `memory record --label GOTCHA`.',
-  ]));
-  write(join('references', 'architecture.md'), renderReferenceDoc('Architecture Notes', [
-    'The SQLite awareness DB is canonical. Files under `.octocode/` are generated projections.',
-    'Keep workspace AGENTS.md concise and point agents here for repo-specific memory indexes.',
-    'Do not edit generated CSV/Markdown snapshots by hand; regenerate after important memory changes.',
-  ]));
-
   if (check) {
     const ignored = gitCheckIgnored(workspacePath, outDir);
     if (ignored.ignored) {
@@ -268,6 +258,9 @@ export function injectRepoContext(db: DatabaseSync, params: RepoContextInjectPar
     .filter((file): file is string => Boolean(file)));
   // Known output retired before manifest-owned cleanup existed.
   previousOwned.push(join(outDir, 'awareness', 'csv', 'all.csv'));
+  for (const retired of ['commands.md', 'testing.md', 'architecture.md']) {
+    previousOwned.push(join(outDir, 'references', retired));
+  }
   const orphanCandidates = [...new Set(previousOwned.map(file => resolve(file)))]
     .filter(file => isInside(outDir, file))
     .filter(file => !currentManaged.has(file))

@@ -21,7 +21,7 @@ Plan narrative is authored; live task checklists are not.
 | Plan and coordinate | `plan`, `task`, `work`, `lock`, `signal`, `refinement`, `verify mark` | Writes operational rows to SQLite. |
 | Learn across runs | `memory record`, `reflect record`, `memory record --supersedes` | Writes durable knowledge or immutable replacement history. |
 | Reversible cleanup | `memory archive --dry-run`, then archive/restore | Hides archived rows from active recall; restore never revives replacement history. |
-| Read learned context | `memory recall` | Reads memories and updates access metadata used by ranking. |
+| Read learned context | `memory recall` | Reads memories and updates access metadata for popularity; reads never refresh evidence age. |
 | Mark communication read | `signal list --mark-read`, `signal ack` | Writes recipient/read state. Plain `signal list` does not. |
 | Clean stale state | digest/prune/forget/delete commands | Mutates only after an explicit reviewed call; dry-run first. Digest preserves open/ongoing handoffs and reports signal/reference pressure without deleting those rows. |
 | Author plan reasoning | `.octocode/plan/<timestamp-name>/`, then `plan doc` | Writes narrative; task status stays in SQLite. |
@@ -65,7 +65,7 @@ Generated surfaces include:
 - `DEVELOPER_REVIEW.md`;
 - sortable CSV and HTML views, 50 rows by default and at most 500 per section;
 - `awareness/manifest.json` with generation scope, live-source revision, completeness, budgets, and retired-file cleanup receipts;
-- compact generated references.
+- `references/repo-map.md`; invariant command/testing/architecture prose stays in the skill/docs instead of being duplicated.
 
 Active run files, locks, signals, and tasks remain live-query concerns; do not dump
 them into every Markdown projection.
@@ -79,9 +79,11 @@ them into every Markdown projection.
 - Generate after meaningful durable changes or when an explicitly requested snapshot
   is stale—not after every edit.
 
-Check `query files` before trusting file/bookmark references. Generated timestamps do
-not prove underlying files are current; `attend` compares the manifest source revision
-with live SQLite and routes stale snapshots back to `repo inject`.
+`AGENTS.md` contains no memory observations; agents fetch one targeted live row when
+needed. Check `query files` before trusting references. Path existence is still only a
+lead, not content verification. A complete manifest may compare its bounded source
+revision with live SQLite. A partial manifest skips that expensive comparison and
+routes agents to live SQLite for omitted rows.
 
 ## Root Discovery
 
@@ -92,7 +94,8 @@ editing root instructions unless the user already authorized that change.
 ## Editing And Sharing
 
 - Local generated files may include machine-local paths. Share mode redacts known
-  absolute-path fields and body excerpts, but review remains required before commit.
+  absolute paths, signal bodies, and recognized secret patterns; it is not complete
+  DLP. Never store secrets, and review share output before commit.
 - Memories/signals/projections are leads; current user instructions/source/tests win.
 - `repo inject` never edits `.gitignore`.
 - `maintenance digest` does not regenerate or shrink existing Markdown; inject after

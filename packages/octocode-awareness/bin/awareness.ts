@@ -69,7 +69,7 @@ if (command === UNKNOWN_COMMAND) {
     examples: [
       'octocode-awareness memory recall --query "current task" --workspace "$PWD" --compact',
       'octocode-awareness lock acquire --agent-id agent --target-file src/file.ts --rationale "edit" --compact',
-      'octocode-awareness signal list --agent-id agent --workspace "$PWD" --compact',
+      'octocode-awareness signal list --agent-id agent --workspace "$PWD" --limit 3 --compact',
       'octocode-awareness query gotchas --workspace "$PWD" --format json --limit 20 --compact',
     ],
   };

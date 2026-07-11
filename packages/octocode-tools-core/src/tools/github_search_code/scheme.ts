@@ -20,6 +20,15 @@ import {
 const queryOverrides = {
   limit: clampedInt(1, GITHUB_SEARCH_MAX_LIMIT).optional(),
   page: relaxedPageNumberField.default(1),
+  // `match` here selects WHERE the search looks (file contents vs paths) — a
+  // different concept from `match` on ghSearchRepos/ghHistoryResearch, which
+  // select WHICH text fields to search. Don't carry intuition across tools.
+  match: z
+    .enum(['file', 'path'])
+    .default('file')
+    .describe(
+      '"file" searches file contents and returns snippets with matchIndices. "path" searches only file paths/names — no snippets, far cheaper; use it to confirm a file exists before reading it. (Unlike ghSearchRepos/ghHistoryResearch, where `match` instead selects which text FIELDS to search — a different concept sharing this name.)'
+    ),
 } as const;
 
 export const GitHubCodeSearchQueryLocalSchema = describeQuerySchema(

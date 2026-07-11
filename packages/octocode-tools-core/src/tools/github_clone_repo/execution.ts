@@ -76,17 +76,19 @@ export async function executeCloneRepo(
             ...(query.sparsePath ? { requestedPath: query.sparsePath } : {}),
           };
 
+          // localSearchCode always requires real `keywords` (enforced by its
+          // core schema) except in mode:"structural", which needs a
+          // pattern/rule — clone has neither, so any pre-filled localSearch
+          // hint would fail validation on the first copy-paste. Point at
+          // viewStructure (genuinely ready-to-run) instead; once the agent
+          // knows what to search for, it can call localSearchCode directly
+          // with real keywords against this localPath.
           const next: Record<string, unknown> = {
-            localSearch: {
-              tool: 'localSearchCode',
-              query: {
-                path: result.localPath,
-                mode: 'discovery',
-              },
-            },
             viewStructure: {
               tool: 'localViewStructure',
               query: { path: result.localPath },
+              why: 'Browse the cloned directory; once you know what to search for, call localSearchCode with real keywords against this localPath',
+              confidence: 'exact',
             },
           };
 

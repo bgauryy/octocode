@@ -134,7 +134,6 @@ describe('fetchContent minify:"symbols" char pagination', () => {
     } as never);
 
     expect(result.contentView).toBe('symbols');
-    expect((result as { isSkeleton?: boolean }).isSkeleton).toBe(true);
 
     const pagination = result.pagination as {
       hasMore?: boolean;
@@ -209,7 +208,6 @@ describe('fetchContent minify:"symbols" char pagination', () => {
     } as never);
 
     expect(result.contentView).toBe('symbols');
-    expect((result as { isSkeleton?: boolean }).isSkeleton).toBe(true);
     expect((result as { next?: unknown }).next).toBeUndefined();
     expect(result.pagination).toBeUndefined();
     // Skeleton lists all three function signatures.

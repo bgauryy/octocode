@@ -42,6 +42,8 @@ export function cmdAgentSignal(db: DatabaseSync, args: ParsedArgs, dbPath: strin
     : undefined;
   const rawSignalIds = args['signal_id'];
   const signalIds = Array.isArray(rawSignalIds) ? rawSignalIds : rawSignalIds ? [String(rawSignalIds)] : [];
+  const compactList = action === 'list' && opts.compact && !Boolean(args['include_bodies']);
+  const requestedLimit = limit ?? (compactList ? 3 : undefined);
   const result = agentSignal(db, {
     action: action as import('../src/types.js').AgentSignalAction,
     agentId: resolveAgentId(args),
@@ -62,8 +64,41 @@ export function cmdAgentSignal(db: DatabaseSync, args: ParsedArgs, dbPath: strin
     unreadOnly: args['all'] ? false : args['unread_only'] as boolean | undefined,
     markRead: Boolean(args['mark_read']),
     kinds: kinds.length ? kinds.map((k) => normalizeNotificationKind(k)) : [],
-    limit,
+    limit: compactList && requestedLimit !== undefined ? requestedLimit + 1 : requestedLimit,
   });
+  if (compactList && result.action === 'list') {
+    const compactLimit = requestedLimit ?? 3;
+    const shown = result.signals.slice(0, compactLimit);
+    const signals = shown.map((signal) => {
+      const shownFiles = signal.files.slice(0, 3);
+      return {
+        signal_id: signal.signal_id,
+        from_agent: signal.from_agent,
+        to_agents: signal.to_agents,
+        kind: signal.kind,
+        subject: signal.subject,
+        thread_id: signal.thread_id,
+        reply_to: signal.reply_to,
+        importance: signal.importance,
+        status: signal.status,
+        created_at: signal.created_at,
+        files: shownFiles,
+        file_count: signal.files.length,
+        file_omitted_count: Math.max(0, signal.files.length - shownFiles.length),
+        has_body: Boolean(signal.body),
+      };
+    });
+    return emit({
+      db_path: dbPath,
+      action: 'list',
+      count: signals.length,
+      signals,
+      unread_only: result.unread_only,
+      bodies: 'omitted',
+      has_more: result.signals.length > compactLimit,
+      next_limit: result.signals.length > compactLimit ? Math.min(200, compactLimit * 2) : null,
+    }, 0, opts);
+  }
   if (result.action === 'list' && !Boolean(args['include_bodies'])) {
     return emit({
       db_path: dbPath,
@@ -114,14 +149,24 @@ export function cmdAgentRegistry(db: DatabaseSync, args: ParsedArgs, dbPath: str
     return emit({ db_path: dbPath, action: 'register', agent }, 0, opts);
   }
 
-  const limit = Math.min(200, Math.max(1, parseInt(String(args['limit'] ?? '50'), 10) || 50));
+  const defaultLimit = opts.compact ? 5 : 50;
+  const limit = Math.min(200, Math.max(1, parseInt(String(args['limit'] ?? defaultLimit), 10) || defaultLimit));
   const result = listAgents(db, { workspacePath, artifact });
-  const agents = result.agents.slice(0, limit);
+  const rows = result.agents.slice(0, limit);
+  const agents = opts.compact
+    ? rows.map((agent) => ({
+        agent_id: agent.agent_id,
+        agent_name: agent.agent_name,
+        last_seen_at: agent.last_seen_at,
+        context_summary: agent.context == null ? null : summarizeText(agent.context, 80),
+      }))
+    : rows;
   return emit({
     db_path: dbPath,
     action: 'list',
     count: agents.length,
     total_count: result.count,
+    omitted_count: Math.max(0, result.count - agents.length),
     agents,
     workspace_path: workspacePath,
     artifact,

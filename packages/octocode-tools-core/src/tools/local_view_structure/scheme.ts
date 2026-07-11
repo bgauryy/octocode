@@ -25,6 +25,15 @@ const queryOverrides = {
   limit: clampedInt(1, LOCAL_MAX_LIMIT).optional(),
   page: relaxedPageNumberField.default(1),
   itemsPerPage: clampedInt(1, LOCAL_MAX_FILES_PER_PAGE).optional(),
+  // Filters a directory LISTING down to file entries (excludes
+  // subdirectories). Unrelated to localSearchCode's `filesOnly`, which
+  // instead filters search results down to matching file paths.
+  filesOnly: z
+    .boolean()
+    .optional()
+    .describe(
+      "Returns files only. Mutually exclusive with directoriesOnly. (Unlike localSearchCode's `filesOnly`, which filters search results to matching file paths — a different concept sharing this name.)"
+    ),
 } as const;
 
 const ViewStructureQueryShape = createQueryShapeSchema(

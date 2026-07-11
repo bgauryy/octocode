@@ -24,7 +24,7 @@ export interface FetchInstructions {
   content?: {
     range?: { startLine?: number; endLine?: number; contextLines?: number };
     match?: { text: string; regex?: boolean; caseSensitive?: boolean };
-    contentView?: 'exact' | 'compact' | 'symbols';
+    contentView?: 'none' | 'standard' | 'symbols';
     charOffset?: number;
     charLength?: number;
     fullContent?: boolean;

@@ -177,12 +177,9 @@ export async function githubCode(query: OqlQuery): Promise<AdapterResult> {
 export async function githubContent(query: OqlQuery): Promise<AdapterResult> {
   const { owner, repo } = splitRepo(ghFrom(query));
   const c = query.fetch?.content;
-  const minify =
-    c?.contentView === 'exact'
-      ? 'none'
-      : c?.contentView === 'symbols'
-        ? 'symbols'
-        : 'standard';
+  // contentView and minify now share one vocabulary (none/standard/symbols),
+  // so this is a direct passthrough rather than a translation.
+  const minify = c?.contentView ?? 'standard';
   const range = normalizeContentRange(c?.range);
   const toolQuery: Record<string, unknown> = {
     ...(owner ? { owner } : {}),
@@ -208,8 +205,7 @@ export async function githubContent(query: OqlQuery): Promise<AdapterResult> {
     pagination?: GitHubContentPagination;
   }>(result);
   // Report the requested view (the tool does not reliably echo the minify mode).
-  const requestedView: OqlContentResultRow['contentView'] =
-    minify === 'none' ? 'exact' : minify === 'symbols' ? 'symbols' : 'compact';
+  const requestedView: OqlContentResultRow['contentView'] = minify;
   const pag = data?.pagination;
   const fileRows = data?.results ?? data?.files ?? [];
   const rows: OqlContentResultRow[] = fileRows.map(d => {

@@ -34,7 +34,7 @@ function buildAgentInstructionsBlock(): string[] {
     '· npm name · --query <oql>), then a LANE: text · --tree · --search path',
     '· --op (LSP) · --target repositories|packages|pullRequests|commits|artifacts|diff.',
     'Loop: orient cheap (tree/discovery) → narrow → read exact',
-    '(--content-view exact) → prove. Snippets are discovery, not proof;',
+    '(--content-view none) → prove. Snippets are discovery, not proof;',
     'status:empty is a real run, not absence — follow next.* continuations.',
     'Before any raw `tools` call read `tools <name> --scheme` (never guess',
     'fields). Full protocol + playbook: `context`.',

@@ -94,7 +94,7 @@ describe('runCLI', () => {
 
       expect(handled).toBe(true);
       expect(out).toContain('compact agent guide');
-      expect(out).toContain('--content-view exact');
+      expect(out).toContain('--content-view none');
       expect(out).toContain('search --scheme');
       expect(out).not.toContain('"schema": "oql"');
       expect(mocks.loadCommand).not.toHaveBeenCalled();

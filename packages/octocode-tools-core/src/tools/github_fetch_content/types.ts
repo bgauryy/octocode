@@ -21,7 +21,6 @@ export interface GitHubFileContentApiData {
   path?: string;
   content?: string;
   contentView?: 'none' | 'standard' | 'symbols';
-  isSkeleton?: boolean;
   branch?: string;
   resolvedBranch?: string;
   startLine?: number;

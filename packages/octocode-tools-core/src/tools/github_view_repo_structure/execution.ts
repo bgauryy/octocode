@@ -98,17 +98,53 @@ export async function exploreMultipleRepositoryStructures(
       try {
         const currentProviderContext = getProviderContext();
         const projectId = `${query.owner}/${query.repo}`;
+        const explicitBranch = query.branch;
         const resolvedBranch =
-          query.branch ??
+          explicitBranch ??
           (await currentProviderContext.provider.resolveDefaultBranch(
             projectId
           ));
 
-        const providerResult = await executeProviderOperation(query, () =>
+        let providerResult = await executeProviderOperation(query, () =>
           currentProviderContext.provider.getRepoStructure(
             mapRepoStructureToolQuery(query, resolvedBranch)
           )
         );
+
+        let effectiveBranch = resolvedBranch;
+        let branchFallbackWarning: string | undefined;
+
+        // The schema documents that an unresolvable ref falls back to the
+        // default branch with a warning — but that only ever worked when
+        // `branch` was omitted (resolved upfront, above). An EXPLICIT bad
+        // branch 404s outright with no retry, contradicting the documented
+        // contract. Retry once against the actual default branch so the
+        // fallback promise holds for explicit branches too.
+        if (providerResult.ok === false && explicitBranch) {
+          const rawError = providerResult.result.error;
+          const status =
+            typeof rawError === 'object' && rawError !== null
+              ? (rawError as { status?: unknown }).status
+              : undefined;
+          if (status === 404) {
+            const defaultBranch =
+              await currentProviderContext.provider.resolveDefaultBranch(
+                projectId
+              );
+            if (defaultBranch !== explicitBranch) {
+              const retryResult = await executeProviderOperation(query, () =>
+                currentProviderContext.provider.getRepoStructure(
+                  mapRepoStructureToolQuery(query, defaultBranch)
+                )
+              );
+              if (retryResult.ok !== false) {
+                providerResult = retryResult;
+                effectiveBranch = defaultBranch;
+                branchFallbackWarning = `Branch/ref '${explicitBranch}' was not found. Showing '${defaultBranch}' (default branch) instead. Re-query with the correct branch name if branch-specific results are required.`;
+              }
+            }
+          }
+        }
 
         if (providerResult.ok === false) {
           return normalizeStructureErrorResult(providerResult.result, query);
@@ -122,8 +158,15 @@ export async function exploreMultipleRepositoryStructures(
           providerResult.response.data,
           query,
           filteredStructure,
-          resolvedBranch
+          effectiveBranch
         );
+        if (branchFallbackWarning) {
+          (resultData as Record<string, unknown>).branchFallback = {
+            requestedBranch: explicitBranch,
+            actualBranch: effectiveBranch,
+            warning: branchFallbackWarning,
+          };
+        }
 
         // Ready-to-run follow-ups: read the first listed file, or materialize
         // the whole directory for local search/LSP.

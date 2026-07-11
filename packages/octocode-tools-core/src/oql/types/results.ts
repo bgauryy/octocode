@@ -103,7 +103,7 @@ export interface OqlContentResultRow extends OqlProofGradedRow {
     charOffset?: number;
     charLength?: number;
   };
-  contentView: 'exact' | 'compact' | 'symbols';
+  contentView: 'none' | 'standard' | 'symbols';
   next?: Record<string, OqlContinuation>;
 }
 

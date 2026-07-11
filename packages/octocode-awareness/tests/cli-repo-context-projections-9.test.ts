@@ -139,7 +139,7 @@ describe('repo context projections', () => {
       expect(result['counts']).toMatchObject({ Inbox: 1, Ready: 0, Claimed: 0, Verify: 0, FilesUnderWork: 0 });
       expect(result['workboard']).toMatchObject({ Inbox: expect.any(Array) });
       expect(result['evidence']).toEqual(expect.arrayContaining([
-        expect.objectContaining({ kind: 'memory', trust: 'verified_lead' }),
+        expect.objectContaining({ kind: 'memory', trust: 'existing_file_lead' }),
       ]));
       expect(result['profile']).toBeUndefined();
       expect(result['drive_state']).toBeUndefined();

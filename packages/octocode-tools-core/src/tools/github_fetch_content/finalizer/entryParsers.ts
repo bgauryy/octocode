@@ -116,12 +116,35 @@ function buildContinueChars(
   ) as FileContentNextMap | undefined;
 }
 
+// This was the ONLY fetch/search tool that could emit zero next-hints (a
+// fully-read, non-paginated file has nothing left to continue). lspGetSemantics
+// only resolves definitions/references against local files, not GitHub reads
+// directly, so hand the agent the one-step bridge instead of a dead end.
+function buildCloneForSemanticsHint(
+  query: PartialFileContentQuery
+): FileContentNextMap['cloneForSemantics'] {
+  return {
+    tool: 'ghCloneRepo',
+    query: {
+      owner: query.owner,
+      repo: query.repo,
+      ...(query.branch !== undefined ? { branch: query.branch } : {}),
+      sparsePath: query.path,
+    },
+    why: 'lspGetSemantics (definitions/references) only works on local files — clone this path locally, then run localSearchCode or lspGetSemantics on it',
+    confidence: 'exact',
+  };
+}
+
 export function readFileEntry(
   data: Record<string, unknown>,
   query: PartialFileContentQuery
 ): FileEntry {
   const pagination = readPagination(data.pagination);
-  const next = buildContinueChars(pagination, query);
+  const next: FileContentNextMap = {
+    ...buildContinueChars(pagination, query),
+    cloneForSemantics: buildCloneForSemanticsHint(query),
+  };
   return {
     path: readString(data.path) ?? String(query.path ?? ''),
     content: typeof data.content === 'string' ? data.content : '',
@@ -136,13 +159,12 @@ export function readFileEntry(
       data.contentView === 'symbols'
         ? data.contentView
         : undefined,
-    ...(data.isSkeleton === true ? { isSkeleton: true } : {}),
     totalLines: readNumber(data.totalLines),
     sourceChars: readNumber(data.sourceChars),
     sourceBytes: readNumber(data.sourceBytes),
     resolvedBranch: readString(data.resolvedBranch),
     pagination,
-    ...(next ? { next } : {}),
+    next,
     ...(data.isPartial === true ? { isPartial: true } : {}),
     startLine: readNumber(data.startLine),
     endLine: readNumber(data.endLine),

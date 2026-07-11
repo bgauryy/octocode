@@ -18,7 +18,7 @@ export const KNOWN_FLAGS: Record<string, string[]> = {
   'memory-restore': ['memory_id', 'workspace', 'artifact', 'repo', 'ref', 'dry_run'],
   'reflect': ['agent_id', 'task', 'outcome', 'lesson', 'worked', 'didnt_work', 'fix_repo', 'fix_file', 'fix_harness', 'fix_instructions', 'failure_signature', 'importance', 'judgment_note', 'duo', 'eval_failure_json', 'workspace', 'artifact', 'repo', 'ref', 'allow_similar'],
   'refine-set': ['agent_id', 'reasoning', 'remember', 'quality', 'state', 'workspace', 'artifact', 'repo', 'ref', 'file', 'refinement_id', 'check_receipt'],
-  'refine-get': ['workspace', 'artifact', 'repo', 'ref', 'quality', 'include_handoffs', 'state', 'limit'],
+  'refine-get': ['workspace', 'artifact', 'repo', 'ref', 'quality', 'include_handoffs', 'state', 'limit', 'full'],
   'refine-delete': ['refinement_id', 'workspace', 'artifact', 'dry_run'],
   'pre-flight-intent': ['agent_id', 'workspace', 'artifact', 'run_id', 'rationale', 'test_plan', 'context_ref', 'target_file', 'file', 'ttl_minutes', 'ttl_seconds', 'wait_seconds', 'retry_interval', 'strict_agent_id'],
   'release-file-lock': ['agent_id', 'run_id', 'lock_id', 'target_file', 'file', 'status', 'workspace', 'artifact'],
@@ -93,8 +93,8 @@ export function parseBoundedSeconds(args: ParsedArgs, key: string, min: number, 
   return value;
 }
 
-export function listLimit(args: ParsedArgs): number {
-  const value = Number(String(args['limit'] ?? '20'));
+export function listLimit(args: ParsedArgs, defaultLimit = 20): number {
+  const value = Number(String(args['limit'] ?? defaultLimit));
   if (!Number.isInteger(value) || value < 1) die('--limit must be a positive integer');
   return Math.min(value, 200);
 }

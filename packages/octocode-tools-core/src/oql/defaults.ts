@@ -13,7 +13,7 @@ export const DEFAULTS = {
   textCase: 'smart' as const,
   regexDialectLocal: 'rust' as const,
   regexCase: 'smart' as const,
-  contentView: 'compact' as const,
+  contentView: 'standard' as const,
   contentCharLength: 20000,
   matchContentLength: 500,
   maxPlanNodes: 128,

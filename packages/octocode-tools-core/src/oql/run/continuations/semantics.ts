@@ -34,7 +34,7 @@ export function buildSemanticsContinuations(
         from: { kind: 'local', path: uri },
         fetch: {
           content: {
-            contentView: 'exact',
+            contentView: 'none',
             ...(line ? { range: { startLine: line, contextLines: 2 } } : {}),
           },
         },

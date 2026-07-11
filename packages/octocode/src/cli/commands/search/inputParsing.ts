@@ -162,8 +162,8 @@ export function validateShorthandOptions(
     return '--search is only valid for code/files/content-style queries.';
   }
   const contentView = getString(options, 'content-view');
-  if (contentView && !['exact', 'compact', 'symbols'].includes(contentView)) {
-    return '--content-view must be exact, compact, or symbols.';
+  if (contentView && !['none', 'standard', 'symbols'].includes(contentView)) {
+    return '--content-view must be none, standard, or symbols.';
   }
   const materialize = getString(options, 'materialize');
   if (materialize && !['never', 'auto', 'required'].includes(materialize)) {

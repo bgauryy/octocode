@@ -34,12 +34,34 @@ const LOCAL_SEARCH_MODES = [
 const REMOVED_CORE_FIELDS = ['semanticRanking'] as const;
 
 const queryOverrides = {
+  // This `mode` selects the SEARCH ALGORITHM (paginated/discovery/detailed/
+  // structural). It's unrelated to `mode` on localBinaryInspect (inspection
+  // target) or the nested `patches.mode` on ghHistoryResearch (diff detail
+  // level) — three different concepts sharing this field name across tools.
   mode: z
     .enum(LOCAL_SEARCH_MODES)
     .optional()
     .default('paginated')
     .describe(
-      '"paginated" snippets; "discovery" paths only; "detailed" snippets plus context; "structural" AST/code-shape search with pattern or rule. Structural matches return line/capture anchors that can feed lspGetSemantics when symbol identity matters.'
+      '"paginated" snippets; "discovery" paths only; "detailed" snippets plus context; "structural" AST/code-shape search with pattern or rule. Structural matches return line/capture anchors that can feed lspGetSemantics when symbol identity matters. (Unrelated to localBinaryInspect\'s `mode` or ghHistoryResearch\'s `patches.mode` — different concepts sharing this name.)'
+    ),
+  // A single text/regex pattern (unlike ghSearchCode/ghSearchRepos, where
+  // `keywords` is an ARRAY of ANDed terms) — passing an array here fails
+  // validation.
+  keywords: z
+    .string()
+    .optional()
+    .describe(
+      'The search pattern (text or regex). Set fixedString:true for a literal match, or perlRegex:true for advanced regex features (lookaheads, backreferences). (Unlike ghSearchCode/ghSearchRepos, where `keywords` is an array of ANDed terms — this is a single string.)'
+    ),
+  // Filters SEARCH RESULTS down to matching file paths (drops line content).
+  // Unrelated to localViewStructure's `filesOnly`, which instead filters a
+  // directory LISTING down to file entries (excluding subdirectories).
+  filesOnly: z
+    .boolean()
+    .optional()
+    .describe(
+      "Returns matching file paths without line content. Mutually exclusive with filesWithoutMatch. (Unlike localViewStructure's `filesOnly`, which filters a directory listing to file entries only — a different concept sharing this name.)"
     ),
   pattern: z
     .string()

@@ -39,7 +39,7 @@ export function cmdPlan(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts
       status: args['status'] ? String(args['status']).toUpperCase() as PlanStatus : null,
     };
     const totalCount = countPlans(db, filters);
-    const plans = listPlans(db, { ...filters, limit: listLimit(args) });
+    const plans = listPlans(db, { ...filters, limit: listLimit(args, opts.compact ? 5 : 20) });
     const projected = Boolean(args['full']) ? plans : plans.map((plan) => ({
       plan_id: plan.plan_id,
       name: plan.name,
@@ -114,27 +114,37 @@ export function cmdTask(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts
         agentId: args['agent_id'] ? agentId : null,
         workspacePath: rawTaskWs ? normalizeWorkspacePath(rawTaskWs, rawTaskWs) : null,
       };
-    const limit = listLimit(args);
+    const limit = listLimit(args, opts.compact ? 5 : 20);
     const totalCount = action === 'ready'
       ? countReadyTasks(db, { planId: filters.planId, workspacePath: filters.workspacePath })
       : countTasks(db, filters);
     const tasks = action === 'ready'
       ? listReadyTasks(db, { planId: filters.planId, workspacePath: filters.workspacePath, limit })
       : listTasks(db, { ...filters, limit });
-    const projected = Boolean(args['full']) ? tasks : tasks.map((task) => ({
-      task_id: task.task_id,
-      plan_id: task.plan_id,
-      title: task.title,
-      status: task.status,
-      priority: task.priority,
-      paths: task.paths,
-      dependencies: task.dependencies,
-      claim: task.claim ? {
-        run_id: task.claim.run_id,
-        agent_id: task.claim.agent_id,
-        expires_at: task.claim.expires_at,
-      } : null,
-    }));
+    const projected = Boolean(args['full']) ? tasks : tasks.map((task) => {
+      const paths = opts.compact ? task.paths.slice(0, 3) : task.paths;
+      const dependencies = opts.compact ? task.dependencies.slice(0, 3) : task.dependencies;
+      return {
+        task_id: task.task_id,
+        plan_id: task.plan_id,
+        title: task.title,
+        status: task.status,
+        priority: task.priority,
+        paths,
+        ...(opts.compact ? {
+          path_count: task.paths.length,
+          path_omitted_count: Math.max(0, task.paths.length - paths.length),
+          dependency_count: task.dependencies.length,
+          dependency_omitted_count: Math.max(0, task.dependencies.length - dependencies.length),
+        } : {}),
+        dependencies,
+        claim: task.claim ? {
+          run_id: task.claim.run_id,
+          agent_id: task.claim.agent_id,
+          expires_at: task.claim.expires_at,
+        } : null,
+      };
+    });
     return emit({
       db_path: dbPath,
       count: projected.length,

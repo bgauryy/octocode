@@ -6,7 +6,7 @@ Read this before planning, editing, recording, superseding, or trusting a rememb
 
 `memory recall` reads canonical SQLite rows, not `.octocode/MEMORY.md`. Run it when prior lessons may change the plan:
 
-A successful explicit recall also updates access count/time used by later ranking; startup `attend` deliberately opts out of that feedback.
+A successful explicit recall updates bounded popularity metadata, not evidence recency; startup `attend` opts out of that feedback.
 
 ```bash
 octocode-awareness memory recall --query "<task>" --workspace "$PWD" --smart --compact
@@ -43,7 +43,7 @@ Reserve `memory forget --dry-run` plus apply for reviewed irreversible deletion;
 
 - Zero results mean broaden vocabulary/filtering or use `--smart`; they do not prove absence.
 - A low-confidence result with `judgment_required` needs more evidence before use.
-- After using a memory, verify the claim in current context.
+- After using a memory, verify the claim in current context. An existing path is only a lead.
 - When the claim changes, supersede/archive it; forget only after review. Regenerate projections only if file readers need the update.
 
 Use recall to inform the plan; proof comes from current artifacts and checks.

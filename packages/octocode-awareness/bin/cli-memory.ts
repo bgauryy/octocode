@@ -4,7 +4,7 @@ import { resolveEmbedCommand, runHostEmbedder } from '../src/embed-host.js';
 import { insertRefinement, getRefinements, updateRefinement } from '../src/refinements.js';
 import { reflect } from '../src/reflect.js';
 import type { EvalFailure, MemoryRecord, RefinementQuality } from '../src/types.js';
-import { normalizeFilePath, projectMemoryLean } from '../src/helpers.js';
+import { normalizeFilePath, projectMemoryLean, summarizeText } from '../src/helpers.js';
 import { MEMORY_SORTS, ParsedArgs } from './cli-model.js';
 import { EmitOptions, die, emit, resolveAgentId, valuesFor } from './cli-routing.js';
 
@@ -220,7 +220,12 @@ export function cmdGetMemory(db: DatabaseSync, args: ParsedArgs, dbPath: string,
   if (!Boolean(args['full'])) {
     const memories = (payload['memories'] ?? []) as Array<Record<string, unknown>>;
     payload['memories'] = memories.map((memory) => projectMemoryLean(memory as unknown as MemoryRecord));
-    payload['projection'] = 'lean';
+    if (memories.length > 0) payload['projection'] = 'lean';
+    if (payload['as_of'] == null) delete payload['as_of'];
+    if (payload['global_only'] === false) delete payload['global_only'];
+    if (Array.isArray(payload['states']) && payload['states'].length === 1 && payload['states'][0] === 'ACTIVE') {
+      delete payload['states'];
+    }
   }
   return emit(payload, 0, opts);
 }
@@ -279,6 +284,8 @@ export function cmdRefineSet(db: DatabaseSync, args: ParsedArgs, dbPath: string,
 export function cmdRefineGet(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts: EmitOptions): number {
   const rawState = args['state'];
   const states = rawState ? (Array.isArray(rawState) ? rawState : [String(rawState)]) : undefined;
+  const full = Boolean(args['full']);
+  const requestedLimit = parseInt(String(args['limit'] ?? (opts.compact && !full ? '3' : '10')), 10);
 
   const result = getRefinements(db, {
     workspacePath: args['workspace'] ? String(args['workspace']) : null,
@@ -288,9 +295,36 @@ export function cmdRefineGet(db: DatabaseSync, args: ParsedArgs, dbPath: string,
     quality: args['quality'] ? String(args['quality']) as RefinementQuality : undefined,
     includeHandoffs: Boolean(args['include_handoffs']),
     states,
-    limit: parseInt(String(args['limit'] ?? '10'), 10),
+    limit: opts.compact && !full ? requestedLimit + 1 : requestedLimit,
   });
 
+  if (opts.compact && !full) {
+    const hasMore = result.refinements.length > requestedLimit;
+    const refinements = result.refinements.slice(0, requestedLimit).map((row) => {
+      const files = row.files.slice(0, 3);
+      return {
+        refinement_id: row.refinement_id,
+        agent_id: row.agent_id,
+        quality: row.quality,
+        state: row.state,
+        files,
+        file_count: row.files.length,
+        file_omitted_count: Math.max(0, row.files.length - files.length),
+        reasoning_summary: summarizeText(row.reasoning, 120),
+        remember_summary: summarizeText(row.remember, 160),
+        updated_at: row.updated_at,
+      };
+    });
+    return emit({
+      db_path: dbPath,
+      count: refinements.length,
+      refinements,
+      handoff_count: result.handoff_count,
+      instructions_count: result.instructions_count,
+      has_more: hasMore,
+      next_limit: hasMore ? Math.min(50, requestedLimit * 2) : null,
+    }, 0, opts);
+  }
   return emit({ db_path: dbPath, ...result }, 0, opts);
 }
 

@@ -298,7 +298,7 @@ export function cmdWork(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts
       agentId: args['agent_id'] ? String(args['agent_id']) : null,
       runId,
       activeOnly: !Boolean(args['all']),
-      limit: listLimit(args),
+      limit: listLimit(args, opts.compact ? 5 : 20),
     };
     const result = action === 'show'
       ? showWork(db, { ...params, filePath: targetFiles[0] ?? '' })

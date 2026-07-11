@@ -87,7 +87,7 @@ export const FetchInstructionsSchema = z.strictObject({
           caseSensitive: z.boolean().optional(),
         })
         .optional(),
-      contentView: z.enum(['exact', 'compact', 'symbols']).optional(),
+      contentView: z.enum(['none', 'standard', 'symbols']).optional(),
       // Bounds mirror the shared response clamps (scheme/fields.ts) so OQL
       // content paging can't request an out-of-range window.
       charOffset: z.number().int().min(0).max(100_000_000).optional(),

@@ -89,7 +89,7 @@ describe('#12 golden parity: file content (localGetFileContent vs target:content
       await runOqlSearch({
         target: 'content',
         from: { kind: 'local', path: TYPES },
-        fetch: { content: { contentView: 'exact', fullContent: true } },
+        fetch: { content: { contentView: 'none', fullContent: true } },
       })
     );
     const oqlContent = (env.results[0] as OqlContentResultRow).content;

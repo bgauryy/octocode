@@ -53,7 +53,7 @@ describe('command option validation', () => {
     expect(
       findUnknownOptions(
         searchCommand,
-        args({ 'content-view': 'exact', 'items-per-page': '5' }, 'search')
+        args({ 'content-view': 'none', 'items-per-page': '5' }, 'search')
       )
     ).toEqual([]);
   });

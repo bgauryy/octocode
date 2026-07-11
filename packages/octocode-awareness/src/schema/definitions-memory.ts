@@ -35,7 +35,7 @@ tell_memory: z
         .min(1)
         .max(256)
         .optional()
-        .describe("Workspace hash."),
+        .describe("Opaque source fingerprint for provenance; Awareness does not validate it or use it as freshness proof."),
       supersedes: z
         .array(z.string().trim().min(1).max(128))
         .max(200)

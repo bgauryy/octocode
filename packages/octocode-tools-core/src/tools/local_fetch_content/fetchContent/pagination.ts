@@ -238,7 +238,6 @@ export async function buildSymbolsSkeletonResult(
     path: query.path,
     content: window.windowedContent,
     contentView: 'symbols',
-    isSkeleton: true,
     ...(window.pagination.hasMore && { isPartial: true }),
     totalLines,
     ...sourceSizeFields(sourceChars, sourceBytes),
@@ -258,13 +257,11 @@ export async function buildSymbolsSkeletonResult(
 
 export function withContentView(
   result: LocalGetFileContentToolResult,
-  contentView: ContentView,
-  isSkeleton = false
+  contentView: ContentView
 ): LocalGetFileContentToolResult {
   if (typeof result.content !== 'string') return result;
   return {
     ...result,
     contentView,
-    ...(isSkeleton ? { isSkeleton: true } : {}),
   };
 }

@@ -37,10 +37,23 @@ const queryOverrides = {
     ),
   perPage: clampedInt(1, 100).optional().default(30),
   prNumber: clampedInt(1, 1_000_000_000).optional(),
-  issueNumber: clampedInt(1, 1_000_000_000).optional(),
+  issueNumber: clampedInt(1, 1_000_000_000)
+    .optional()
+    .describe(
+      'Issue number for type:"issues" detail mode — reads that specific issue (body/discussion comments). Requires owner+repo. Falls back to prNumber if omitted.'
+    ),
   limit: clampedInt(1, GITHUB_SEARCH_MAX_LIMIT)
     .optional()
     .default(GITHUB_SEARCH_DEFAULT_LIMIT),
+  // `match` here selects WHICH text fields keywords are matched against — a
+  // different concept from ghSearchCode's `match` (file contents vs paths).
+  // Don't carry intuition across tools.
+  match: z
+    .array(z.enum(['title', 'body', 'comments']))
+    .optional()
+    .describe(
+      'Fields to match keywords against: "title", "body", "comments". Default searches all three. Use ["title"] for the most precise and fastest match. (Unlike ghSearchCode, where `match` instead selects file-contents vs file-paths — a different concept sharing this name.)'
+    ),
   page: relaxedPageNumberField.default(1),
   filePage: relaxedPageNumberField.optional(),
   commentPage: relaxedPageNumberField.optional(),

@@ -46,11 +46,6 @@ export function getMemory(db: DatabaseSync, params: GetMemoryParams = {}): GetMe
   let minImportance = Math.max(1, Number(minImpRaw) || 1);
   let smartExpanded = false;
   const droppedSmartFilters: string[] = [];
-  if (smartEnabled && minImportance > 1) {
-    minImportance = Math.max(1, minImportance - 1);
-    smartExpanded = true;
-    droppedSmartFilters.push('min_importance');
-  }
 
   const states = statesRaw ?? (asOf ? ['ACTIVE', 'SUPERSEDED'] : ['ACTIVE']);
   const labels = label

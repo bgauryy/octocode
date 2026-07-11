@@ -48,8 +48,9 @@ const GitHubFetchFileEntrySchema = z.object({
   content: z.string(),
   localPath: z.string().optional(),
   repoRoot: z.string().optional(),
+  // isSkeleton was dropped — always equal to contentView==='symbols', so it
+  // carried no information a consumer couldn't already derive from contentView.
   contentView: z.enum(['none', 'standard', 'symbols']).optional(),
-  isSkeleton: z.boolean().optional(),
   totalLines: z.number().optional(),
   sourceChars: z.number().optional(),
   sourceBytes: z.number().optional(),

@@ -216,6 +216,15 @@ export function shapePullRequestForContent(
   const fullShape =
     isDetailFetch || (query as { verbose?: boolean }).verbose === true;
 
+  const fileSurfaces = shapeFileSurfaces(pr, query, request, shouldMinify);
+  // If this response already fetched the changed-file list, hand nextCalls
+  // a real path instead of the literal "path/from/changedFiles" placeholder
+  // that previously always required a prior round-trip to resolve.
+  const firstChangedFilePath = Array.isArray(fileSurfaces.changedFiles)
+    ? (fileSurfaces.changedFiles as Array<{ path?: string }>).find(f => f.path)
+        ?.path
+    : undefined;
+
   const metadata = {
     number: pr.number,
     title: pr.title,
@@ -253,7 +262,11 @@ export function shapePullRequestForContent(
           ),
         }
       : {}),
-    ...(emitContentMap ? { next: nextCalls(query, prNumber, request) } : {}),
+    ...(emitContentMap
+      ? {
+          next: nextCalls(query, prNumber, request, firstChangedFilePath),
+        }
+      : {}),
   };
 
   const shaped: Record<string, unknown> = {
@@ -263,7 +276,7 @@ export function shapePullRequestForContent(
         ? { body: body.content, bodyPagination: body.pagination }
         : { bodyEmpty: true }
       : {}),
-    ...shapeFileSurfaces(pr, query, request, shouldMinify),
+    ...fileSurfaces,
     ...shapeComments(pr, query, request),
     ...shapeReviews(pr, query, request),
     ...shapeCommits(pr, query, request),

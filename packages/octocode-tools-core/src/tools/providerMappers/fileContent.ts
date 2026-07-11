@@ -56,9 +56,6 @@ export function mapFileContentProviderResult(
     ...(data.contentView && {
       contentView: data.contentView,
     }),
-    ...(data.isSkeleton === true && {
-      isSkeleton: true,
-    }),
     ...(data.isPartial && {
       isPartial: data.isPartial,
     }),

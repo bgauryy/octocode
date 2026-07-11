@@ -40,13 +40,13 @@ export function checkOutputFeatures(query: OqlQuery): OqlDiagnostic[] {
     out.push(
       diagnostic(
         'signatureUnsupported',
-        `A "symbols" content view is not available for target:"${query.target}" (PR/commit/diff content has no symbol skeleton); request "exact" or "compact".`,
+        `A "symbols" content view is not available for target:"${query.target}" (PR/commit/diff content has no symbol skeleton); request "none" or "standard".`,
         {
           queryPath: 'fetch.content.contentView',
           severity: 'warning',
           blocksAnswer: false,
           repair: {
-            message: 'Set fetch.content.contentView to "exact" or "compact".',
+            message: 'Set fetch.content.contentView to "none" or "standard".',
           },
         }
       )

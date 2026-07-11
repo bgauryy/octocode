@@ -16,6 +16,15 @@ import { ItemPaginationSchema } from '../../scheme/pagination.js';
 const queryOverrides = {
   limit: clampedInt(1, GITHUB_SEARCH_MAX_LIMIT).optional(),
   page: relaxedPageNumberField.default(1),
+  // `match` here selects WHICH text fields to search — a different concept
+  // from ghSearchCode's `match`, which selects WHERE the search looks (file
+  // contents vs paths). Don't carry intuition across tools.
+  match: z
+    .array(z.enum(['name', 'description', 'readme']))
+    .optional()
+    .describe(
+      "Which text fields to search: name, description, and/or readme. Defaults to name+description; add 'readme' for broader, slower full-text search. (Unlike ghSearchCode, where `match` instead selects file-contents vs file-paths — a different concept sharing this name.)"
+    ),
 } as const;
 
 export const GitHubReposSearchSingleQueryLocalSchema = describeQuerySchema(

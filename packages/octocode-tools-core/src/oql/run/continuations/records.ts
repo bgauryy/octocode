@@ -58,7 +58,7 @@ export function buildCodeContinuations(
         ...(ctx.fileFrom ? {} : { scope: { path: code.path } }),
         fetch: {
           content: {
-            contentView: 'exact',
+            contentView: 'none',
             ...(range ? { range } : {}),
             ...(match ? { match } : {}),
           },

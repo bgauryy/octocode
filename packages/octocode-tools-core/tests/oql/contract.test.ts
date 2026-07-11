@@ -88,7 +88,7 @@ const CANONICAL_EXAMPLES: Record<string, unknown> = {
     target: 'content',
     from: { kind: 'local', path: './src/index.ts' },
     fetch: {
-      content: { range: { startLine: 40, endLine: 90 }, contentView: 'exact' },
+      content: { range: { startLine: 40, endLine: 90 }, contentView: 'none' },
     },
     select: ['path', 'content', 'next.search'],
   },

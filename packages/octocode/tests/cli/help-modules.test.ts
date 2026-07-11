@@ -115,7 +115,7 @@ describe('command-help-specs', () => {
     // Haiku gaps: npm, remote file read, references-vs-callers
     expect(blob).toContain('--target packages');
     expect(blob).toContain(
-      'search facebook/react/README.md --content-view exact'
+      'search facebook/react/README.md --content-view none'
     );
     expect(blob).toContain('callers = incoming calls only');
   });

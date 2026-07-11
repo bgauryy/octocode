@@ -27,7 +27,6 @@ export function transformFileContentResult(
     sourceChars: data.sourceChars,
     sourceBytes: data.sourceBytes,
     contentView: data.contentView,
-    isSkeleton: data.isSkeleton,
     ref: data.branch || query.ref || '',
     lastModified: data.lastModified,
     lastModifiedBy: data.lastModifiedBy,

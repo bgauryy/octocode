@@ -131,12 +131,12 @@ export function resolveView(
 
 function contentViewMode(
   value: string | undefined
-): 'exact' | 'compact' | 'symbols' | undefined {
+): 'none' | 'standard' | 'symbols' | undefined {
   switch (value) {
-    case 'exact':
-      return 'exact';
-    case 'compact':
-      return 'compact';
+    case 'none':
+      return 'none';
+    case 'standard':
+      return 'standard';
     case 'symbols':
       return 'symbols';
     default:

@@ -77,7 +77,7 @@ describe('github fetch content finalizer next.continueChars', () => {
     });
   });
 
-  it('omits next when there is no further page', () => {
+  it('omits continueChars when there is no further page, but still offers the clone-for-semantics bridge (regression: this tool used to emit zero next-hints for a fully-read file)', () => {
     const query: Query = {
       id: 'q1',
       owner: 'octo',
@@ -104,8 +104,19 @@ describe('github fetch content finalizer next.continueChars', () => {
     const out = run([query], [result]);
     const file = (
       out.structuredContent.results as Array<{ data?: { files?: unknown[] } }>
-    )[0]?.data?.files?.[0] as { next?: unknown };
+    )[0]?.data?.files?.[0] as {
+      next?: {
+        continueChars?: unknown;
+        cloneForSemantics?: { tool: string; query: Record<string, unknown> };
+      };
+    };
 
-    expect(file.next).toBeUndefined();
+    expect(file.next?.continueChars).toBeUndefined();
+    expect(file.next?.cloneForSemantics).toEqual({
+      tool: 'ghCloneRepo',
+      query: { owner: 'octo', repo: 'engine', sparsePath: 'src/small.ts' },
+      why: expect.stringContaining('lspGetSemantics'),
+      confidence: 'exact',
+    });
   });
 });

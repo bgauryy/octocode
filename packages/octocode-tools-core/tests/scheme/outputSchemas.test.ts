@@ -365,7 +365,6 @@ describe('LocalGetFileContentOutputSchema', () => {
             path: '/project/src/big.ts',
             content: '1| export function foo() {}\n2| export function bar() {}',
             contentView: 'symbols',
-            isSkeleton: true,
             totalLines: 500,
           },
         },
