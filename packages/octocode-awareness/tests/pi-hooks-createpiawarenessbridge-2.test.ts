@@ -62,6 +62,25 @@ describe('createPiAwarenessBridge', () => {
     }
   });
 
+  it('rolls back a failed Pi write without edit log or verification debt', async () => {
+    const tmp = tempDb();
+    try {
+      const db = connectDb(tmp.dbPath);
+      const bridge = createPiAwarenessBridge({ getDb: () => db });
+      const ctx = { cwd: tmp.dir, sessionManager: { getSessionFile: () => join(tmp.dir, 'failed.jsonl') } };
+
+      await bridge.handleToolCall({ toolName: 'write', toolCallId: 'failed-write', input: { path: 'src/failed.ts' } }, ctx);
+      await bridge.handleToolResult({ toolCallId: 'failed-write', isError: true }, ctx);
+
+      expect((db.prepare('SELECT COUNT(*) AS c FROM edit_log').get() as { c: number }).c).toBe(0);
+      expect((db.prepare('SELECT COUNT(*) AS c FROM run_files').get() as { c: number }).c).toBe(0);
+      expect((db.prepare('SELECT COUNT(*) AS c FROM task_runs').get() as { c: number }).c).toBe(0);
+      db.close();
+    } finally {
+      tmp.cleanup();
+    }
+  });
+
   it('finalizes before compact without ending the reusable Pi session', async () => {
     const tmp = tempDb();
     try {

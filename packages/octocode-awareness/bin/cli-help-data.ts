@@ -23,7 +23,7 @@ ${BUNDLED_SKILLS_BLOCK}
   Do not use a skill installer's registry/name lookup for these; always install from the bundled path.
 
 FIRST COMMANDS after install:
-  octocode-awareness attend --workspace "$PWD" --compact           # start packet
+  octocode-awareness attend --workspace "$PWD" --query "<task>" --agent-id "$OCTOCODE_AGENT_ID" --compact
   octocode-awareness workspace status --compact                    # DB health
   octocode-awareness schema commands --compact                     # full command map
   octocode-awareness docs show agent-cheatsheet                    # operating loop
@@ -35,18 +35,18 @@ COMMAND SURFACES:
   messages:  signal publish, signal list, signal reply, signal ack, signal resolve, signal prune, agent register, agent list
   learning:  memory record, memory archive, memory restore, memory forget, refinement set, refinement get, refinement delete, reflect record, reflect mine-weakness, reflect export-harness, reflect developer-review, docs list, docs show, docs staleness
   repo:      query files|workboard|all|developer-review [--format json|table|csv|markdown|html], repo inject
-  hooks:     hook run <pre-edit|post-edit|harness-guard|stop-verify|notify-deliver|session-end>, hooks install|check|remove --host claude|codex|cursor
+  hooks:     hook run <pre-edit|post-edit|stop-verify|notify-deliver|session-compact|session-end>, hooks install|check|remove --host claude|codex|cursor
   utility:   session capture, maintenance init, maintenance self-test, maintenance digest
 </AGENT_INSTRUCTIONS>
 
 supported agents: Codex, Claude Code, Cursor, Pi, and custom library/CLI hosts
-surfaces: CLI = control plane; Agent Skill = operating loop; hooks/Pi bridge = lifecycle automation
+activation: AGENTS.md = trigger/router; Agent Skill = operating policy; CLI/SQLite = canonical live state; hooks/Pi bridge = deterministic lifecycle automation
 
 examples:
   octocode-awareness workspace status --workspace "$PWD" --compact
   octocode-awareness attend --workspace "$PWD" --query "current task" --compact
   octocode-awareness task ready --plan-id plan_123 --compact
-  octocode-awareness memory recall --query "current task" --workspace "$PWD" --compact
+  octocode-awareness memory recall --query "current task" --workspace "$PWD" --smart --compact
   octocode-awareness docs list --compact
   octocode-awareness docs show agent-cheatsheet
   octocode-awareness lock acquire --agent-id agent --target-file src/file.ts --rationale "edit" --compact
@@ -59,7 +59,7 @@ examples:
 Run "octocode-awareness <command> --help" for command flags.
 Exit codes: 0 ok; 1 validation/unknown flag/verify debt (verify audit); 2 live task/lock conflict, lock wait timeout, or hooks check --strict.`;
 
-export const HELP_COMPACT = `octocode-awareness: canonical noun/verb CLI. Use --compact for JSON.
+export const HELP_COMPACT = `octocode-awareness: canonical noun/verb CLI; AGENTS routes → skill decides → CLI/SQLite acts → hooks automate edges. Use --compact for JSON.
 bundled-skills(${BUNDLED_SKILLS.length}): ${BUNDLED_SKILLS_DIR} — octocode-awareness+octocode-skills required, others optional (see --help)
 start: attend; workspace status; plan create|list|show|join|doc|status; task create|list|ready|show|claim|heartbeat|submit|release|depend; memory recall; signal list; docs list
 edit: work start|touch|end|list|show; lock acquire|wait|release|prune; verify audit|mark

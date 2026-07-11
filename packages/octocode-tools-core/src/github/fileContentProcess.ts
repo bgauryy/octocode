@@ -306,8 +306,14 @@ export async function processFileContentAPI(
 
     if (effectiveStartLine < 1 || effectiveStartLine > totalLines) {
       finalContent = decodedContent;
+      matchLocationsSet.add(
+        `Requested startLine ${effectiveStartLine} is out of range for this ${totalLines}-line file — returning the full file instead of a range.`
+      );
     } else if (effectiveEndLine < effectiveStartLine) {
       finalContent = decodedContent;
+      matchLocationsSet.add(
+        `Requested range startLine=${effectiveStartLine}, endLine=${effectiveEndLine} is invalid (endLine before startLine) — returning the full file instead of a range.`
+      );
     } else {
       const adjustedStartLine = Math.max(1, effectiveStartLine);
       const adjustedEndLine = Math.min(totalLines, effectiveEndLine);
@@ -374,9 +380,11 @@ export async function processFileContentAPI(
     repo,
     path: filePath,
     content: finalContent,
-    ...(fallbackContentView !== 'standard' && {
-      contentView: fallbackContentView,
-    }),
+    // Always surface contentView so agents know when default minify:"standard"
+    // has altered the returned bytes — it's the only lossy mode that isn't
+    // opted into explicitly, so it's the one most likely to surprise a caller
+    // who expected verbatim content.
+    contentView: fallbackContentView,
     branch,
     totalLines,
     ...sourceSizeFields(sourceChars, sourceBytes),

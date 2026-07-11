@@ -49,7 +49,7 @@ Options:
 Examples:
   node scripts/install.mjs
   node scripts/awareness.mjs hooks install --host codex --project-dir . --dry-run --compact
-  node scripts/awareness.mjs hooks check --host claude --project-dir . --strict --compact`);
+  node scripts/awareness.mjs hooks check --host codex --project-dir . --strict --compact`);
 }
 
 if (args.has("--help") || args.has("-h")) {
@@ -148,9 +148,6 @@ console.log(
         awareness: `${awarenessCommand} workspace status --workspace "$PWD" --compact`,
         init: `${awarenessCommand} maintenance init --compact`,
         attend: `${awarenessCommand} attend --workspace "$PWD" --agent-id "$OCTOCODE_AGENT_ID" --compact`,
-        hooks_preview_claude: `${awarenessCommand} hooks install --host claude --project-dir "$PWD" --dry-run --compact`,
-        hooks_install_claude: `${awarenessCommand} hooks install --host claude --project-dir "$PWD" --compact`,
-        hooks_check_claude: `${awarenessCommand} hooks check --host claude --project-dir "$PWD" --strict --compact`,
         hooks_preview_codex: `${awarenessCommand} hooks install --host codex --project-dir "$PWD" --dry-run --compact`,
         hooks_install_codex: `${awarenessCommand} hooks install --host codex --project-dir "$PWD" --compact`,
         hooks_check_codex: `${awarenessCommand} hooks check --host codex --project-dir "$PWD" --strict --compact`,

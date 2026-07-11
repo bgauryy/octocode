@@ -94,7 +94,7 @@ export const getAwarenessAgentId = getPiAwarenessAgentId;
 /**
  * The octocode-awareness harness skill dir bundled with this extension. It is
  * passed as `skillRoot` so the harness self-edit gate engages under Pi exactly
- * as it does for the shell hosts, whose harness-guard.sh derives its own
+ * as it does for shell hosts, whose pre-edit.sh derives its own
  * OCTOCODE_SKILL_ROOT from the script location. Without a skillRoot the Pi gate
  * is a silent no-op. Returns undefined if the bundle is absent (dev checkouts),
  * leaving the awareness default (env OCTOCODE_SKILL_ROOT, else disabled).

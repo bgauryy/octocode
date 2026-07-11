@@ -104,15 +104,20 @@ Prefer `node packages/octocode/out/octocode.js` over global `octocode` / npx whe
 
 ## Awareness
 
-For repository work, activate the `octocode-awareness` skill and start with
-`attend --compact` using the local CLI. Work in this package also reads
+For non-trivial repo work, activate `octocode-awareness` and run local CLI
+`attend --query "<task>" --compact`. This file routes; the skill owns judgment, the
+CLI owns live state, and hooks automate lifecycle edges. Package work also reads
 [`packages/octocode-awareness/AGENTS.md`](packages/octocode-awareness/AGENTS.md).
 
-`AGENTS.md` routes; the skill owns operating policy; the CLI owns live state and
-contracts; hooks automate lifecycle edges. SQLite is canonical. Treat generated
-`.octocode/*.md` as fallback leads: prefer live `attend` / `query` / `memory recall`,
-never hand-edit projections, and run `repo inject` only when file readers need a
-refresh.
+Loop: claim a ready task or open WORK; declare edited paths; reserve exclusivity for
+sensitive work; check while present; submit/end → `verify mark` → `verify audit`.
+Use `memory recall --smart` for prior learning; record only verified reusable outcomes.
+
+SQLite is canonical. `.octocode/` is a discovery shelf: plan docs explain intent;
+generated memory/wiki/manifest/HTML files are snapshots that route to `attend`,
+`query`, `memory recall`, or `docs show`. Never hand-edit projections; run
+`repo inject` only when file readers need refreshed leads. Full lifecycle:
+[`docs/HOW_IT_WORKS.md`](packages/octocode-awareness/docs/HOW_IT_WORKS.md).
 
 Skill source: `skills/octocode-awareness`. It ships with the
 `@octocodeai/octocode-awareness` CLI package; use the local package build in this

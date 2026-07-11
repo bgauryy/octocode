@@ -12,7 +12,7 @@ import { resolveDbPath } from '../src/db.js';
 import { auditUnverified } from '../src/verify.js';
 import { digest, notifyGet, sessionCapture } from '../src/maintenance.js';
 import { endSession } from '../src/sessions.js';
-import { agentId, artifact, completeHookControl, db, emitHookContext, hookBlockOutcome, hookReason, hookSessionCorrelation, isStopHookActive, promptQuery, sessionId, shellHookHost, workspace } from './hook-payload.js';
+import { agentId, artifact, completeHookControl, db, emitHookContext, hookBlockOutcome, hookEventName, hookReason, hookSessionCorrelation, isStopHookActive, promptQuery, sessionId, shellHookHost, workspace } from './hook-payload.js';
 import { registerHookAgent, scopeArgs } from './hook-peers.js';
 import { finalizeActiveFallbackHookRuns, withHookDbRetry } from './hook-run-state.js';
 
@@ -116,7 +116,11 @@ export async function runNotifyDeliver(payload: Record<string, unknown>): Promis
     if (additionalContext) {
       emitHookContext(
         payload,
-        shellHookHost(payload) === 'cursor' ? 'sessionStart' : 'UserPromptSubmit',
+        shellHookHost(payload) === 'cursor'
+          ? hookEventName(payload) === 'subagentStart' ? 'subagentStart' : 'sessionStart'
+          : hookEventName(payload) === 'SubagentStart'
+            ? 'SubagentStart'
+            : hookEventName(payload) === 'SessionStart' ? 'SessionStart' : 'UserPromptSubmit',
         additionalContext,
       );
     }

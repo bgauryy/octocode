@@ -154,6 +154,30 @@ export function buildGhSearchCodeFinalizer<
       );
     }
 
+    // Unlike ghSearchRepos (which GitHub rejects with a 422 for an overly
+    // long/complex query), the code-search endpoint has been observed to
+    // silently under-match instead of erroring — a genuine absence and a
+    // too-complex query both come back as a clean zero-result response. Flag
+    // it heuristically so an unexplained empty result with many keywords
+    // isn't mistaken for proof of absence.
+    const COMPLEX_QUERY_KEYWORD_THRESHOLD = 8;
+    const unexplainedComplexEmpty = emptyQueries.filter(
+      ({ id, nonExistentScope, incompleteResults }) => {
+        if (nonExistentScope || incompleteResults) return false;
+        const kws = (queriesById.get(id) as { keywords?: unknown } | undefined)
+          ?.keywords;
+        return (
+          Array.isArray(kws) && kws.length > COMPLEX_QUERY_KEYWORD_THRESHOLD
+        );
+      }
+    );
+    if (unexplainedComplexEmpty.length > 0) {
+      warn(
+        'ghQueryPossiblyTooComplex',
+        `Quer${unexplainedComplexEmpty.length > 1 ? 'ies' : 'y'} ${unexplainedComplexEmpty.map(q => q.id).join(', ')} used more than ${COMPLEX_QUERY_KEYWORD_THRESHOLD} keywords and returned zero results. GitHub code search can silently under-match an overly long/complex query instead of erroring — narrow to fewer, more specific keywords before concluding absence.`
+      );
+    }
+
     // Repo-state disambiguation for scoped-zero queries: say WHY it was empty
     // (renamed / archived / gone) and hand a corrected retry when renamed.
     for (const { id, state, query } of repoStates) {

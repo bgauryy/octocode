@@ -36,7 +36,7 @@ function workspaceRoot(workspacePath?: string | null): string {
   return normalizeWorkspacePath(candidate, candidate) ?? resolve(candidate);
 }
 
-function normalizeFiles(files: string[], workspacePath?: string | null): string[] {
+export function normalizeFiles(files: string[], workspacePath?: string | null): string[] {
   if (files.length === 0) throw new Error('at least one target file is required');
   const base = canonicalizePath(workspacePath ? resolve(workspacePath) : process.cwd());
   return [...new Set(files.map((file) => {
@@ -50,7 +50,7 @@ function expiry(ttlMs?: number | null): string {
   return new Date(Date.now() + effective).toISOString().replace(/\.\d{3}Z$/, 'Z');
 }
 
-function getRun(db: DatabaseSync, runId: string): WorkRunRecord {
+export function getRun(db: DatabaseSync, runId: string): WorkRunRecord {
   const row = db.prepare('SELECT * FROM task_runs WHERE run_id = ?').get(runId) as unknown as WorkRunRecord | undefined;
   if (!row) throw new Error(`run not found: ${runId}`);
   return row;

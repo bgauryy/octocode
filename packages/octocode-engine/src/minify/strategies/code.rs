@@ -107,8 +107,12 @@ fn minify_js_oxc_inner(content: &str, file_path: &str, mangle: bool) -> Option<S
 /// the OXC pipeline declines the input.
 pub fn minify_javascript_core(content: &str) -> String {
     let s = remove_comments(content, &["c-style"]);
-    let s = super::collapse_whitespace(&s);
-    let s = re_tighten_punct_js(&s);
+    // "c-style" already carries `regex: true` and the default quote/backtick
+    // delimiters, so a single literal-range scan protects string, template,
+    // and regex literals from the whitespace/punctuation passes below.
+    let rules = crate::comment_remover::rules_for("c-style");
+    let s = super::collapse_whitespace(&s, rules.as_ref());
+    let s = re_tighten_punct_js(&s, rules.as_ref());
     // Split back to lines, drop empty
     s.lines()
         .map(|l| l.trim())
@@ -117,11 +121,20 @@ pub fn minify_javascript_core(content: &str) -> String {
         .join("\n")
 }
 
-fn re_tighten_punct_js(s: &str) -> String {
+fn re_tighten_punct_js(s: &str, rules: Option<&crate::comment_remover::CommentRules>) -> String {
+    let ranges = rules
+        .map(|r| crate::comment_remover::literal_ranges(s, r))
+        .unwrap_or_default();
+    let mut ri = 0usize;
     let bytes = s.as_bytes();
     let mut result = String::with_capacity(s.len());
     let mut i = 0;
     while i < bytes.len() {
+        if let Some((_, end)) = super::in_literal_at(&ranges, &mut ri, i) {
+            result.push_str(&s[i..end]);
+            i = end;
+            continue;
+        }
         let b = bytes[i];
         if b == b' '
             && matches!(

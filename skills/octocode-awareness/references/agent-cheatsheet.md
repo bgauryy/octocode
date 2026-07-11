@@ -14,6 +14,7 @@ Claude frontmatter or checked Codex/Cursor config, never both Claude surfaces.
 Inspect Ready, Claimed, Verify, FilesUnderWork, Inbox. Follow `next` (Verify → Ready →
 owned Claimed → FilesUnderWork → Inbox → evidence). Use `--help` / `schema json-schema`
 / `docs list` only when the next action needs them.
+If prior learning could alter the plan, run `memory recall --query "<task>" --workspace "$PWD" --smart --compact`; re-check ranked leads. `.octocode/` is a menu, not live state.
 
 ## DURING / DO — Shared Task
 

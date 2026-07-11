@@ -147,6 +147,73 @@ for (const ext of Object.keys(fileTypes).sort()) {
   if (!testedExtensions.has(ext)) failures.push(`configured extension .${ext} was not tested`)
 }
 
+// ── Adversarial regression: literal preservation + re-parseability ─────────
+// The checks above only assert "didn't fail, produced non-empty output,
+// didn't grow, and is deterministic" — none of which catch a minifier that
+// corrupts string/regex/template literal content or JSON numeric precision
+// while still producing plausible-looking, deterministic output. These cases
+// pin the exact adversarial inputs found by a prior audit so a regression
+// fails loudly here instead of shipping silently.
+const adversarialCases = [
+  {
+    name: 'adversarial:lua-string-content',
+    ext: 'lua',
+    content: 'local s = "hello    world"\nlocal t = "a: b, c"',
+    check: (out) => out.includes('hello    world') && out.includes('a: b, c'),
+    describe: 'aggressive strategy must not collapse whitespace or tighten punctuation inside a string literal',
+  },
+  {
+    name: 'adversarial:elixir-newline-separator',
+    ext: 'exs',
+    content: 'x = 1\ny = 2',
+    check: (out) => out.includes('\n'),
+    describe: 'aggressive strategy must not flatten a newline statement separator into a space',
+  },
+  {
+    name: 'adversarial:js-template-literal',
+    ext: 'mjs',
+    content: 'const s = `key: ${v}, end`; @@@ deliberately invalid syntax so OXC declines and the heuristic fallback runs',
+    check: (out) => out.includes('`key: ${v}, end`'),
+    describe: 'JS heuristic fallback must not mutate template literal content',
+  },
+  {
+    name: 'adversarial:json-bignum-precision',
+    ext: 'json',
+    content: '{"n": 123456789012345678901234567890, "pi": 3.14159265365358979}',
+    check: (out) => {
+      let parsed
+      try { parsed = JSON.parse(out) } catch { return false }
+      return out.includes('123456789012345678901234567890') && out.includes('3.14159265365358979') && parsed !== null
+    },
+    describe: 'JSON minify must not lose numeric precision on large integers or long decimals',
+  },
+  {
+    name: 'adversarial:json-key-order',
+    ext: 'json',
+    content: '{"z": 1, "a": 2, "m": 3}',
+    check: (out) => out.indexOf('"z"') < out.indexOf('"a"') && out.indexOf('"a"') < out.indexOf('"m"'),
+    describe: 'JSON minify must preserve original key order',
+  },
+]
+
+for (const { name, ext, content, check, describe } of adversarialCases) {
+  const filePath = `sample.${ext}`
+  let res = null
+  try { res = engine.minifyContentResult(content, filePath) } catch (e) {
+    failures.push(`${name}: minify threw: ${e.message}`)
+    continue
+  }
+  const out = res.content || ''
+  if (res.failed) {
+    failures.push(`${name}: minify reported failed=true, out=${out.length}B (${describe})`)
+    continue
+  }
+  if (!check(out)) {
+    failures.push(`${name}: literal/precision was corrupted — ${describe}\n    in:  ${JSON.stringify(content)}\n    out: ${JSON.stringify(out)}`)
+  }
+}
+console.log(`\nAdversarial regression: ${adversarialCases.length} cases (literal preservation + JSON precision/order)`)
+
 const pad = (s, n) => String(s).padEnd(n)
 const padL = (s, n) => String(s).padStart(n)
 const realCount = rows.filter((row) => row.kind === 'real').length

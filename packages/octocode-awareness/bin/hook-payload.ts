@@ -149,11 +149,11 @@ export function completeHookControl(outcome: HookControlOutcome): number {
 export function agentId(payload: Record<string, unknown>): string {
   const input = objectOrEmpty(payloadInput(payload));
   const explicit = firstString(
-    process.env.OCTOCODE_AGENT_ID,
     payload.agent_id,
     payload.agentId,
     input.agent_id,
     input.agentId,
+    process.env.OCTOCODE_AGENT_ID,
     payload.session_id,
     payload.sessionId,
     input.session_id,
@@ -287,6 +287,24 @@ export function hookReason(payload: Record<string, unknown>): string {
 
 export function isStopHookActive(payload: Record<string, unknown>): boolean {
   return Boolean(payload.stop_hook_active);
+}
+
+export function hookEventName(payload: Record<string, unknown>): string | null {
+  return firstString(payload.hook_event_name, payload.eventName);
+}
+
+export function hookToolFailed(payload: Record<string, unknown>): boolean {
+  const input = objectOrEmpty(payloadInput(payload));
+  const response = objectOrEmpty(payload.tool_response ?? payload.toolResponse ?? payload.result);
+  const event = hookEventName(payload)?.toLowerCase() ?? '';
+  return event.includes('failure')
+    || payload.is_error === true
+    || payload.isError === true
+    || input.is_error === true
+    || input.isError === true
+    || response.is_error === true
+    || response.isError === true
+    || response.success === false;
 }
 
 export function extractFiles(payload: Record<string, unknown>): string[] {

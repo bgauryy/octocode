@@ -1,4 +1,15 @@
 // ── JSON ─────────────────────────────────────────────────────────────────────
+//
+// Numbers round-trip exactly (the crate's `arbitrary_precision` feature is
+// enabled) and object keys keep their original order (`preserve_order`) —
+// without these, a 30-digit integer would come back as lossy scientific
+// notation and keys would be alphabetized rather than preserved.
+//
+// KNOWN LIMITATION: duplicate object keys still collapse to last-wins.
+// `serde_json::Value`'s map can hold only one entry per key regardless of
+// these features — surviving duplicates would require a custom
+// non-`Value`-based parser, which is out of scope here. This only affects
+// non-conformant JSON (the spec doesn't define duplicate-key semantics).
 
 pub fn minify_json_core_inner(content: &str) -> (String, bool) {
     // Try direct parse first

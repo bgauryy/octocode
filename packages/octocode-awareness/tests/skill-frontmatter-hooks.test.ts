@@ -45,4 +45,14 @@ describe('SKILL.md hook frontmatter', () => {
     expect(fm).toContain('scripts/hooks/pre-edit.sh');
     expect(fm).not.toContain('scripts/hooks/harness-guard.sh');
   });
+
+  it('captures before compaction and handles failed writes', () => {
+    const fm = frontmatter(SKILL_MD);
+    expect(fm).toContain('PreCompact:');
+    expect(fm).toContain('scripts/hooks/session-compact.sh');
+    expect(fm).toContain('PostToolUseFailure:');
+    expect(fm).toContain('scripts/hooks/post-edit.sh');
+    expect(fm).toContain('SubagentStart:');
+    expect(fm).toContain('scripts/hooks/notify-deliver.sh');
+  });
 });

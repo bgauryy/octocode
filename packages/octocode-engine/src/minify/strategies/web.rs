@@ -8,8 +8,9 @@ use std::sync::LazyLock;
 /// Regex baseline — always available, fast.
 pub fn minify_css_core(content: &str) -> String {
     let s = remove_comments(content, &["c-style"]);
-    let s = super::collapse_whitespace(&s);
-    let s = super::re_tighten_punct(&s);
+    let rules = crate::comment_remover::rules_for("c-style");
+    let s = super::collapse_whitespace(&s, rules.as_ref());
+    let s = super::re_tighten_punct(&s, rules.as_ref());
     s.trim().to_owned()
 }
 
@@ -34,11 +35,19 @@ pub fn minify_css_quality(content: &str) -> String {
 
 // ── HTML ─────────────────────────────────────────────────────────────────────
 
+static TAG_GAP_WHITESPACE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r">[ \t\r\n]+<").expect("tag gap regex must compile"));
+
 /// Regex baseline — always available.
 pub fn minify_html_core(content: &str) -> String {
     let s = remove_comments(content, &["html"]);
-    let s = super::collapse_whitespace(&s);
-    let s = s.replace("> <", "><");
+    let rules = crate::comment_remover::rules_for("html");
+    let s = super::collapse_whitespace(&s, rules.as_ref());
+    // `collapse_whitespace` now preserves a `\n` where a whitespace run
+    // contained one (see its doc comment), so a single literal-space replace
+    // no longer catches every inter-tag gap — tighten any whitespace run
+    // between tags, not just a single space.
+    let s = TAG_GAP_WHITESPACE.replace_all(&s, "><");
     s.trim().to_owned()
 }
 
@@ -182,7 +191,16 @@ fn collapse_blank_lines(s: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::minify_html_quality;
+    use super::{minify_html_core, minify_html_quality};
+
+    #[test]
+    fn html_core_tightens_newline_separated_tags() {
+        // Regression: collapse_whitespace preserves a `\n` where a run
+        // contained one, so the tag-gap tightener must handle `>\n<`, not
+        // just a literal `> <`.
+        let out = minify_html_core("<div>\n  <span>hi</span>\n</div>");
+        assert_eq!(out, "<div><span>hi</span></div>");
+    }
 
     #[test]
     fn html_quality_strips_comments_and_minifies_style_blocks() {

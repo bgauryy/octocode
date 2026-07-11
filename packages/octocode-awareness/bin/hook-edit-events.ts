@@ -2,8 +2,9 @@ import { relative } from 'node:path';
 import { insertEditLog } from '../src/audit.js';
 import { activeTaskClaimForAgent } from '../src/tasks.js';
 import { endWork, startWork, touchWork } from '../src/work.js';
+import { discardUncommittedHookFiles } from '../src/work-hook.js';
 import { evaluateHarnessGuard } from '../src/pi-hooks.js';
-import { agentId, artifact, completeHookControl, db, emitHookContext, extractFiles, hookBlockOutcome, hookSkillRoot, resolveHookPath, shellHookHost, workspace } from './hook-payload.js';
+import { agentId, artifact, completeHookControl, db, emitHookContext, extractFiles, hookBlockOutcome, hookSkillRoot, hookToolFailed, resolveHookPath, shellHookHost, workspace } from './hook-payload.js';
 import { emitPeerDelta, registerHookAgent } from './hook-peers.js';
 import { activeRunForFiles, consumeHookRun, isAggregatedFallbackHookRun, recordHookRun, refreshFallbackVerificationPlan, runOrigin, startOrAttachFallbackHookRun, withHookDbRetry } from './hook-run-state.js';
 
@@ -120,6 +121,21 @@ export async function runPostEdit(payload: Record<string, unknown>): Promise<num
     }
     stage = 'read run origin';
     const origin = withHookDbRetry(() => runOrigin(database, correlatedRunId));
+    if (hookToolFailed(payload)) {
+      if (origin === 'HOOK') {
+        const discarded = withHookDbRetry(() => discardUncommittedHookFiles(database, {
+          agentId: hookAgentId,
+          runId: correlatedRunId,
+          targetFiles: files,
+          workspacePath: hookWorkspace,
+        }));
+        if (!discarded.deletedRun) {
+          withHookDbRetry(() => refreshFallbackVerificationPlan(database, correlatedRunId, hookWorkspace));
+        }
+      }
+      consumedRunId = null;
+      return 0;
+    }
     stage = 'finish work lifecycle';
     if (origin === 'HOOK' && isAggregatedFallbackHookRun(database, correlatedRunId)) {
       withHookDbRetry(() => touchWork(database, {
@@ -163,27 +179,6 @@ export async function runPostEdit(payload: Record<string, unknown>): Promise<num
       try { recordHookRun(payload, files, hookWorkspace, consumedRunId); } catch { /* best effort */ }
     }
     console.error(`octocode-awareness post-edit warning during ${stage} (continuing): ${error instanceof Error ? error.message : String(error)}`);
-  }
-  return 0;
-}
-
-export async function runHarnessGuard(payload: Record<string, unknown>): Promise<number> {
-  // Gate logic is shared with the Pi bridge (evaluateHarnessGuard in
-  // src/pi-hooks.ts) so the shell hosts (claude/codex/cursor) and Pi can never
-  // drift. OCTOCODE_SKILL_ROOT is exported by harness-guard.sh; a missing root
-  // (unset) makes the guard a no-op, matching the Pi default when no skill root
-  // is wired.
-  const reason = evaluateHarnessGuard({
-    targetFiles: extractFiles(payload),
-    skillRoot: hookSkillRoot(payload),
-    cwd: process.cwd(),
-  });
-  if (reason) {
-    return completeHookControl(hookBlockOutcome(
-      shellHookHost(payload),
-      'pre-edit',
-      `${reason} Edit blocked.`,
-    ));
   }
   return 0;
 }

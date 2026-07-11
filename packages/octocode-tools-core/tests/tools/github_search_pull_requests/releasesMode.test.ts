@@ -70,6 +70,55 @@ describe('ghHistoryResearch type:"releases"', () => {
     expect(text).toContain('owner and repo are required for releases mode');
   });
 
+  it('honors `limit` as a perPage alias when perPage was left at its default (regression)', async () => {
+    fetchReleases.mockResolvedValue(releasesData());
+    await searchMultipleGitHubPullRequests({
+      queries: [
+        { type: 'releases', owner: 'microsoft', repo: 'TypeScript', limit: 5 },
+      ],
+    } as never);
+
+    expect(fetchReleases).toHaveBeenCalledWith(
+      expect.objectContaining({ perPage: 5 }),
+      undefined
+    );
+  });
+
+  it('an explicit perPage always wins over limit', async () => {
+    fetchReleases.mockResolvedValue(releasesData());
+    await searchMultipleGitHubPullRequests({
+      queries: [
+        {
+          type: 'releases',
+          owner: 'microsoft',
+          repo: 'TypeScript',
+          limit: 5,
+          perPage: 50,
+        },
+      ],
+    } as never);
+
+    expect(fetchReleases).toHaveBeenCalledWith(
+      expect.objectContaining({ perPage: 50 }),
+      undefined
+    );
+  });
+
+  it('emits a next.nextPage continuation when there is another page (regression: releases used to dead-end)', async () => {
+    const data = releasesData();
+    data.data.pagination = { currentPage: 1, perPage: 30, hasMore: true } as never;
+    (data.data.pagination as { nextPage?: number }).nextPage = 2;
+    fetchReleases.mockResolvedValue(data);
+
+    const result = await searchMultipleGitHubPullRequests({
+      queries: [{ type: 'releases', owner: 'microsoft', repo: 'TypeScript' }],
+    } as never);
+
+    const text = JSON.stringify(result.structuredContent ?? result);
+    expect(text).toContain('nextPage');
+    expect(text).toContain('"page":2');
+  });
+
   it('the local query schema accepts type:"releases"', async () => {
     const { GitHubPullRequestSearchQueryLocalSchema } = await import(
       '../../../src/tools/github_search_pull_requests/scheme.js'

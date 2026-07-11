@@ -2,6 +2,7 @@ import path from 'node:path';
 import { insertEditLog } from './audit.js';
 import { activeTaskClaimForAgent } from './tasks.js';
 import { endWork, startWork, touchWork } from './work.js';
+import { discardUncommittedHookFiles } from './work-hook.js';
 import { notifyGet, sessionCapture } from './maintenance.js';
 import { registerAgent } from './agents.js';
 import { endSession } from './sessions.js';
@@ -143,6 +144,17 @@ export function createPiAwarenessBridge(options: PiAwarenessBridgeOptions = {}) 
           notify(ctx, 'Octocode awareness post-edit warning; continuing: missing correlated work run.', 'warning');
           return undefined;
         }
+        if (event.isError === true) {
+          if (workRunOrigin(db, runId) === 'HOOK') {
+            discardUncommittedHookFiles(db, {
+              agentId,
+              runId,
+              targetFiles: fallbackFiles,
+              workspacePath,
+            });
+          }
+          return undefined;
+        }
         if (workRunOrigin(db, runId) === 'HOOK' && isAggregatedPiFallbackRun(db, runId)) {
           touchWork(db, { agentId, runId, ttlMs: 10 * 60_000 });
         } else if (workRunOrigin(db, runId) === 'HOOK') {
@@ -212,6 +224,25 @@ export function createPiAwarenessBridge(options: PiAwarenessBridgeOptions = {}) 
         notify(ctx, `Octocode awareness briefing warning; continuing: ${error instanceof Error ? error.message : String(error)}`, 'warning');
         return undefined;
       }
+    },
+
+    async handleSessionStart(event: Record<string, unknown> = {}, ctx?: PiLikeContext) {
+      try {
+        const db = getDb(ctx);
+        const agentId = getPiAwarenessAgentId(ctx);
+        const workspacePath = ctx?.cwd ?? process.cwd();
+        const artifact = artifactFrom(ctx, event);
+        ensurePiSession(db, {
+          agentId,
+          sessionId: getPiAwarenessSessionId(ctx),
+          workspacePath,
+          artifact,
+        });
+        registerAgent(db, { agentId, workspacePath, artifact, context: 'pi' });
+      } catch {
+        // fail-open: session registration is advisory
+      }
+      return undefined;
     },
 
     async handleSessionShutdown(event: Record<string, unknown> = {}, ctx?: PiLikeContext) {

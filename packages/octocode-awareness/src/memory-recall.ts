@@ -56,6 +56,9 @@ export function getMemory(db: DatabaseSync, params: GetMemoryParams = {}): GetMe
   const labels = label
     ? (Array.isArray(label) ? label.map((value) => normalizeLabel(value)) : [normalizeLabel(label)])
     : [];
+  let appliedMinImportance = minImportance;
+  let appliedLabels = [...labels];
+  let appliedTags = [...tags];
 
   const effectiveCwd = cwdParam ?? workspacePath ?? undefined;
   const normalizedAsOf = canonicalMemoryInstant(asOf, 'as_of');
@@ -119,6 +122,9 @@ export function getMemory(db: DatabaseSync, params: GetMemoryParams = {}): GetMe
     for (const memory of expanded) byId.set(memory.memory_id, memory);
     memories = [...byId.values()];
     smartExpanded = true;
+    appliedMinImportance = 1;
+    appliedLabels = [];
+    appliedTags = [];
   }
   attachMemoryReferences(db, memories);
 
@@ -167,16 +173,18 @@ export function getMemory(db: DatabaseSync, params: GetMemoryParams = {}): GetMe
   }
 
   // Sort
+  const stableTieBreak = (a: (typeof memories)[number], b: (typeof memories)[number]) =>
+    (a.memory_id ?? '').localeCompare(b.memory_id ?? '');
   if (sort === 'importance') {
     memories.sort((a, b) =>
-      (b.importance - a.importance) || ((b.score ?? 0) - (a.score ?? 0)));
+      (b.importance - a.importance) || ((b.score ?? 0) - (a.score ?? 0)) || stableTieBreak(a, b));
   } else if (sort === 'recent') {
-    memories.sort((a, b) => (b.created_at ?? '').localeCompare(a.created_at ?? ''));
+    memories.sort((a, b) => (b.created_at ?? '').localeCompare(a.created_at ?? '') || stableTieBreak(a, b));
   } else if (sort === 'accessed') {
     memories.sort((a, b) =>
-      (b.last_accessed_at ?? b.created_at ?? '').localeCompare(a.last_accessed_at ?? a.created_at ?? ''));
+      (b.last_accessed_at ?? b.created_at ?? '').localeCompare(a.last_accessed_at ?? a.created_at ?? '') || stableTieBreak(a, b));
   } else {
-    memories.sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
+    memories.sort((a, b) => ((b.score ?? 0) - (a.score ?? 0)) || stableTieBreak(a, b));
   }
 
   memories = memories.slice(0, limit);
@@ -201,6 +209,29 @@ export function getMemory(db: DatabaseSync, params: GetMemoryParams = {}): GetMe
     as_of: normalizedAsOf,
     global_only: Boolean(globalOnly),
     states,
+    ...(explain ? {
+      applied_filters: {
+        query,
+        limit,
+        min_importance: appliedMinImportance,
+        labels: appliedLabels,
+        tags: appliedTags,
+        references: refFilters,
+        files,
+        file_regex: fileRegex,
+        regex,
+        workspace_path: workspacePath ?? cwdParam ?? null,
+        artifact: artifact ?? null,
+        repo: repoArg ?? null,
+        ref: refArg ?? null,
+        strict_scope: Boolean(strictScope),
+        global_only: Boolean(globalOnly),
+        states,
+        as_of: normalizedAsOf,
+        sort,
+        smart: smartEnabled,
+      },
+    } : {}),
     ...(smartExpanded ? {
       smart_expanded: true,
       smart_dropped_filters: droppedSmartFilters,

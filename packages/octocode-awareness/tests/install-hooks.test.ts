@@ -160,14 +160,15 @@ it('skill install script prints the hook init flow without SQLite warnings', () 
       runtime: { dependencies: string; writes: boolean };
     };
     expect(parsed.runtime).toEqual({ dependencies: 'bundled', writes: false });
-    expect(parsed.commands.hooks_preview_claude).toContain('hooks install --host claude');
-    expect(parsed.commands.hooks_check_claude).toContain('hooks check --host claude');
+    expect(parsed.commands).not.toHaveProperty('hooks_preview_claude');
+    expect(parsed.commands).not.toHaveProperty('hooks_install_claude');
+    expect(parsed.commands).not.toHaveProperty('hooks_check_claude');
     expect(parsed.commands.hooks_preview_codex).toContain('hooks install --host codex');
     expect(parsed.commands.hooks_check_codex).toContain('hooks check --host codex');
     expect(parsed.commands.hooks_install_cursor).toContain('hooks install --host cursor');
     expect(parsed.commands.hooks_check_cursor).toContain('hooks check --host cursor');
     expect(parsed.commands.pi_bridge).toContain('wirePiAwarenessHooks');
-    for (const key of ['schema', 'awareness', 'init', 'attend', 'hooks_preview_claude', 'hooks_preview_codex', 'hooks_preview_cursor']) {
+    for (const key of ['schema', 'awareness', 'init', 'attend', 'hooks_preview_codex', 'hooks_preview_cursor']) {
       expect(parsed.commands[key]).toContain(parsed.scriptsDir);
     }
     const arbitraryCwd = mkdtempSync(resolve(tmpdir(), 'octocode-install-command-cwd-'));
@@ -282,8 +283,10 @@ it('previews Codex hooks in .codex/hooks.json without unsupported SessionEnd', (
       expect(result.host).toBe('codex');
       expect(result.settingsPath).toBe(resolve(projectDir, '.codex/hooks.json'));
       expect(Object.keys(result.resultingSettings.hooks ?? {})).toEqual([
+        'SessionStart',
         'PreToolUse',
         'PostToolUse',
+        'SubagentStart',
         'Stop',
         'SubagentStop',
         'PreCompact',
@@ -309,7 +312,10 @@ it('keeps Claude hooks in .claude/settings.json with SessionEnd', () => {
       expect(result.host).toBe('claude');
       expect(result.settingsPath).toBe(resolve(projectDir, '.claude/settings.json'));
       expect(result.resultingSettings.hooks).toHaveProperty('SessionEnd');
-      expect(result.resultingSettings.hooks).not.toHaveProperty('PreCompact');
+      expect(result.resultingSettings.hooks).toHaveProperty('PreCompact');
+      expect(result.resultingSettings.hooks).toHaveProperty('PostToolUseFailure');
+      expect(result.resultingSettings.hooks).toHaveProperty('SubagentStart');
+      expect(JSON.stringify(result.resultingSettings.hooks?.PreCompact)).toContain('session-compact.sh');
     } finally {
       rmSync(projectDir, { recursive: true, force: true });
     }

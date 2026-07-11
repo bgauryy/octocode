@@ -17,16 +17,22 @@ function runScript(script: string, args: string[], payload: unknown, env: Record
     });
 }
 
-describe('hook-runner harness-guard containment', () => {
-  // Exercises the harness-guard CLI dispatch end-to-end (payload extraction +
-  // path resolution + containment check), which previously had no integration
-  // test — hiding a relative-path traversal bypass of the self-edit gate.
+describe('pre-edit integrated harness-guard containment', () => {
+  // Exercises the single pre-edit dispatch end-to-end. Keeping a second public
+  // guard command previously allowed lifecycle ordering to drift.
   function guard(skillRoot: string | undefined, files: string[], cwd: string, extraEnv: Record<string, string | undefined> = {}) {
+    const args = ['pre-edit', '--host', 'claude'];
+    if (skillRoot) args.push('--skill-root', skillRoot);
     return runScript(
       HOOK_RUNNER,
-      ['harness-guard'],
+      args,
       { tool_name: 'Edit', tool_input: { file_paths: files } },
-      { OCTOCODE_SKILL_ROOT: skillRoot, OCTOCODE_ALLOW_HARNESS_APPLY: undefined, ...extraEnv },
+      {
+        OCTOCODE_MEMORY_HOME: join(cwd, '.memory'),
+        OCTOCODE_AGENT_ID: 'containment-test',
+        OCTOCODE_ALLOW_HARNESS_APPLY: undefined,
+        ...extraEnv,
+      },
       cwd,
     );
   }
@@ -35,6 +41,17 @@ describe('hook-runner harness-guard containment', () => {
     const tmp = mkdtempSync(join(tmpdir(), 'octocode-guard-'));
     try {
       expect(guard(undefined, ['SKILL.md'], tmp).status).toBe(0);
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it('removes the retired standalone guard command', () => {
+    const tmp = mkdtempSync(join(tmpdir(), 'octocode-guard-'));
+    try {
+      const result = runScript(HOOK_RUNNER, ['harness-guard'], {}, {}, tmp);
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain('unknown hook command');
     } finally {
       rmSync(tmp, { recursive: true, force: true });
     }

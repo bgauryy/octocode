@@ -9,6 +9,7 @@ export interface HookSpec {
   matcher?: string;
   command: string;
   commandWindows?: string;
+  targetPath: string;
 }
 
 export interface NestedHook {
@@ -44,7 +45,11 @@ export interface HooksInstallOptions {
   hookDir: string;
 }
 
-export const WRITE_MATCHER = 'Write|Edit|MultiEdit|NotebookEdit|apply_patch|ApplyPatch';
+export const WRITE_MATCHERS: Record<HookHost, string> = {
+  claude: '^(?:Write|Edit|MultiEdit|NotebookEdit)$',
+  codex: '^(?:apply_patch|Write|Edit)$',
+  cursor: '^(?:Write|Edit|StrReplace|Delete|MultiEdit|NotebookEdit|apply_patch|ApplyPatch)$',
+};
 export const HOSTS = new Set<HookHost>(['claude', 'codex', 'cursor']);
 export const CONFIG_LOCK_WAIT = new Int32Array(new SharedArrayBuffer(4));
 export const CONFIG_LOCK_RETRY_MS = 25;
@@ -185,6 +190,12 @@ export function hookCommand(name: string, params: {
   }
   const quoted = (value: string) => `"${value.replace(/["\\$`]/g, '\\$&')}"`;
   return `OCTOCODE_AGENT_HOST=${params.host} OCTOCODE_NODE_BIN=${quoted(process.execPath)} ${quoted(scriptPath)}`;
+}
+
+export function projectHookDir(host: HookHost, globalMode: boolean, projectDir: string, hookDir: string): string {
+  if (host !== 'claude' || globalMode) return hookDir;
+  const canonical = join(projectDir, 'skills', 'octocode-awareness', 'scripts', 'hooks');
+  return existsSync(canonical) ? canonical : hookDir;
 }
 
 export function hookCommandWindows(name: string, params: {

@@ -1,4 +1,6 @@
-import { hookCommand, hookCommandWindows, HookEntry, HookHost, HookSpec, WRITE_MATCHER } from './hooks-install-specs.js';
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
+import { hookCommand, hookCommandWindows, HookEntry, HookHost, HookSpec, WRITE_MATCHERS } from './hooks-install-specs.js';
 
 export function specsFor(host: HookHost, params: {
   globalMode: boolean;
@@ -12,11 +14,14 @@ export function specsFor(host: HookHost, params: {
     ...(hookCommandWindows(name, { host, hookDir: params.hookDir })
       ? { commandWindows: hookCommandWindows(name, { host, hookDir: params.hookDir }) }
       : {}),
+    targetPath: join(params.hookDir, name),
   });
   if (host === 'cursor') {
     return [
-      spec('preToolUse', 'pre-edit.sh', WRITE_MATCHER),
-      spec('postToolUse', 'post-edit.sh', WRITE_MATCHER),
+      spec('preToolUse', 'pre-edit.sh', WRITE_MATCHERS.cursor),
+      spec('postToolUse', 'post-edit.sh', WRITE_MATCHERS.cursor),
+      spec('postToolUseFailure', 'post-edit.sh', WRITE_MATCHERS.cursor),
+      spec('subagentStart', 'notify-deliver.sh'),
       spec('stop', 'stop-verify.sh'),
       spec('subagentStop', 'stop-verify.sh'),
       spec('sessionEnd', 'session-end.sh'),
@@ -26,8 +31,10 @@ export function specsFor(host: HookHost, params: {
   }
   if (host === 'codex') {
     return [
-      spec('PreToolUse', 'pre-edit.sh', WRITE_MATCHER),
-      spec('PostToolUse', 'post-edit.sh', WRITE_MATCHER),
+      spec('SessionStart', 'notify-deliver.sh'),
+      spec('PreToolUse', 'pre-edit.sh', WRITE_MATCHERS.codex),
+      spec('PostToolUse', 'post-edit.sh', WRITE_MATCHERS.codex),
+      spec('SubagentStart', 'notify-deliver.sh'),
       spec('Stop', 'stop-verify.sh'),
       spec('SubagentStop', 'stop-verify.sh'),
       spec('PreCompact', 'session-compact.sh'),
@@ -35,10 +42,13 @@ export function specsFor(host: HookHost, params: {
     ];
   }
   return [
-    spec('PreToolUse', 'pre-edit.sh', WRITE_MATCHER),
-    spec('PostToolUse', 'post-edit.sh', WRITE_MATCHER),
+    spec('PreToolUse', 'pre-edit.sh', WRITE_MATCHERS.claude),
+    spec('PostToolUse', 'post-edit.sh', WRITE_MATCHERS.claude),
+    spec('PostToolUseFailure', 'post-edit.sh', WRITE_MATCHERS.claude),
+    spec('SubagentStart', 'notify-deliver.sh'),
     spec('Stop', 'stop-verify.sh'),
     spec('SubagentStop', 'stop-verify.sh'),
+    spec('PreCompact', 'session-compact.sh'),
     spec('SessionEnd', 'session-end.sh'),
     spec('UserPromptSubmit', 'notify-deliver.sh'),
   ];
@@ -51,8 +61,9 @@ export function obsoleteSpecsFor(host: HookHost, params: {
 }): HookSpec[] {
   return [{
     event: host === 'cursor' ? 'preToolUse' : 'PreToolUse',
-    matcher: WRITE_MATCHER,
+    matcher: WRITE_MATCHERS[host],
     command: hookCommand('harness-guard.sh', { host, ...params }),
+    targetPath: join(params.hookDir, 'harness-guard.sh'),
   }];
 }
 
@@ -209,4 +220,8 @@ export function runtimeHealth(host: HookHost, globalMode: boolean): Record<strin
     cloud_runtime: 'not_probed',
     windows_command: 'not_guaranteed_by_cursor_flat_hook_format',
   };
+}
+
+export function hookTargetExists(spec: HookSpec): boolean {
+  return existsSync(spec.targetPath);
 }

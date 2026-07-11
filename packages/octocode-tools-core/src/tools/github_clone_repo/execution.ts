@@ -123,7 +123,6 @@ export async function executeCloneRepo(
         'cached',
         'sparsePath',
         'totalSize',
-        'fileCount',
         'location',
         'error',
       ],

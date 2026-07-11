@@ -18,7 +18,9 @@ export function wirePiAwarenessHooks(pi: PiLikeApi, options: PiAwarenessBridgeOp
   pi.on('tool_execution_end', async (event, ctx) => bridge.handleToolResult({
     toolCallId: String(event?.toolCallId ?? ''),
     toolName: String(event?.toolName ?? ''),
+    isError: event?.isError === true,
   }, ctx));
+  pi.on('session_start', async (event, ctx) => bridge.handleSessionStart(event, ctx));
   pi.on('input', async (event, ctx) => bridge.handleInput(event, ctx));
   pi.on('before_agent_start', async (event, ctx) => bridge.handleBeforeAgentStart(event, ctx));
   pi.on('agent_end', async (_event, ctx) => {

@@ -1,5 +1,5 @@
 # Hook Runtime Semantics
-Identity order: environment agent ID, payload agent, payload session, warned
+Identity order: host payload agent ID, environment agent ID, payload session, warned
 host/workspace fallback. Export one stable `OCTOCODE_AGENT_ID`.
 
 ## Write Path

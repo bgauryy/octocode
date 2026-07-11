@@ -9,7 +9,9 @@ the same runtime and canonical SQLite database.
 |---|---|---|
 | Prompt/session start | Register agent; deliver changed operational state plus at most one prompt-grounded memory lead. | Silent for unrelated memory or an unchanged fingerprint. |
 | Before write | Run harness guard, resolve task/explicit work, declare advisory path; honor exclusivity. | Silent normally; compact peer delta; host-native denial on guard or exclusive conflict. |
-| After write | Write edit audit and heartbeat; keep a scoped automatic HOOK active. | Best-effort, nonblocking. |
+| Successful write | Write edit audit and heartbeat; keep a scoped automatic HOOK active. | Best-effort, nonblocking. |
+| Failed write | Discard hook-created path presence that has no successful edit audit. | No edit audit or verification debt for a change that never happened. |
+| Subagent start | Register the host child identity and deliver changed state where the host supports child-context injection. | Cursor registration is useful, but child-context injection remains version/surface-dependent. |
 | Stop/subagent stop | Finalize the scoped HOOK once, then audit verification debt. | First 3 items + omitted count; block/remind where supported. |
 | PreCompact | Finalize scoped HOOK state and capture a deduplicated handoff; keep the session reusable. | Best-effort, nonblocking. |
 | SessionEnd | Finalize/capture, then mark the host session ended without claiming work success. | Best-effort, nonblocking. |
@@ -21,10 +23,10 @@ entry is removed during install/repair to guarantee guard ordering.
 
 | Host | Surface | Notes |
 |---|---|---|
-| Claude Code | Skill frontmatter while active, or `.claude/settings.json` | Choose one surface; do not install duplicate settings when frontmatter runs. No PreCompact hook is installed; SessionEnd is the only finalize/capture edge. |
-| Codex | `.codex/hooks.json` | PreCompact substitutes for SessionEnd (Codex has no supported SessionEnd hook); project and hook-definition trust are separate runtime gates. |
-| Cursor | `.cursor/hooks.json` | Native JSON outputs; model-context delivery varies by version/surface, so smoke local/cloud separately. |
-| Pi | `wirePiAwarenessHooks(pi)` / Pi extension | In-process; never run shell hook install. |
+| Claude Code | Skill frontmatter while active, or `.claude/settings.json` | Success/failure writes, subagent start/stop, PreCompact, SessionEnd, prompt briefing. Choose one surface. |
+| Codex | `.codex/hooks.json` | SessionStart, success writes, subagent start/stop, PreCompact, prompt/stop. No SessionEnd or distinct failure event; PostToolUse failure metadata is handled when present. |
+| Cursor | `.cursor/hooks.json` | Success/failure writes plus session/subagent/compact/end edges. Native output varies by local/cloud/version; child-context injection is not assumed. |
+| Pi | `wirePiAwarenessHooks(pi)` / Pi extension | Native `session_start`, tool start/end with `isError`, before-agent, compact, agent-end, shutdown; never shell install. |
 | Custom | Library API or `hook run` payload | Must provide stable identity/path events. |
 
 ## Install And Verify
@@ -54,7 +56,9 @@ octocode-awareness hooks remove --host <claude|codex|cursor> \
 ```
 
 Installers modify only Awareness-owned entries, quote command paths, add a Codex
-Windows command, and repair obsolete paths/standalone guard entries.
+Windows command, and repair obsolete paths/standalone guard entries. Strict health
+also verifies every configured script target exists; an exact command pointing at a
+missing generated path is drift, not a healthy install.
 
 `hooks check --strict` is deliberately config-scoped. Read:
 
@@ -79,8 +83,9 @@ that the exact hook runs, and that model-visible context or continuation arrives
 
 ## Identity And Run Resolution
 
-Identity order: `OCTOCODE_AGENT_ID`, payload agent, payload session, then a warned
-host/workspace fallback. Set one stable ID so manual commands and hooks agree.
+Identity order: host payload agent, `OCTOCODE_AGENT_ID`, payload session, then a
+warned host/workspace fallback. A host child ID prevents subagents collapsing into
+their parent; set one stable environment ID so main-agent CLI and hook work agree.
 
 Pre-edit resolves the run in this order:
 
@@ -147,6 +152,8 @@ omitted counts.
 - Stop debt uses exit 2 on Claude/Codex, Cursor `followup_message`, and Pi follow-up.
 - Infrastructure, extraction, post-edit, briefing, and session failures warn and fail
   open so the editor remains usable.
+- A failed write rolls back hook-created file presence without an edit audit; TASK or
+  explicit WORK ownership is preserved because the user may retry or investigate.
 - A missing correlation never marks success; TTL and verification audit expose debt.
 
 Environment controls, read identically by every host (shell hooks and Pi share

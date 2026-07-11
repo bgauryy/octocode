@@ -36,9 +36,11 @@ describe('Awareness out build contract', () => {
 
   it('builds only Awareness-owned entries and never imports the octocode CLI', () => {
     const build = read('build.mjs');
+    const buildConfig = read('buildConfig.mjs');
     const source = `${read('src/index.ts')}\n${read('bin/awareness.ts')}`;
 
-    expect(build).toContain("'octocode-awareness': 'bin/awareness.ts'");
+    expect(build).toContain('entryPoints: coreEntryPoints');
+    expect(buildConfig).toContain("'octocode-awareness': 'bin/awareness.ts'");
     expect(build).toContain("outdir: 'out'");
     expect(build).not.toContain("packages/octocode/out");
     expect(source).not.toMatch(/from ['"]octocode(?:\/|['"])/);

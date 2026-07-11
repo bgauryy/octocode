@@ -252,6 +252,28 @@ export interface GetMemoryResult {
   as_of: string | null;
   global_only: boolean;
   states: string[];
+  /** Present with explain=true so callers can audit the effective query after smart widening. */
+  applied_filters?: {
+    query: string;
+    limit: number;
+    min_importance: number;
+    labels: string[];
+    tags: string[];
+    references: string[];
+    files: string[];
+    file_regex: string[];
+    regex: string[];
+    workspace_path: string | null;
+    artifact: string | null;
+    repo: string | null;
+    ref: string | null;
+    strict_scope: boolean;
+    global_only: boolean;
+    states: string[];
+    as_of: string | null;
+    sort: string;
+    smart: boolean;
+  };
   /** Set when recall confidence is low — verify results before relying on them. */
   judgment_required?: boolean;
   judgment_reason?: string;

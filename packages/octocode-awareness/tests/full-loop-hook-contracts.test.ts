@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { spawn } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import {
@@ -8,6 +8,7 @@ import {
   hookContextEnvelope,
   runHookCommand,
 } from '../bin/hook-runner.js';
+import { agentId } from '../bin/hook-payload.js';
 import { connectDb, resolveDbPath } from '../src/db.js';
 import { runHooksInstall } from '../src/hooks-install.js';
 import { wirePiAwarenessHooks } from '../src/pi-hooks.js';
@@ -34,6 +35,21 @@ function runPreEditChild(payload: Record<string, unknown>, env: NodeJS.ProcessEn
 }
 
 describe('full-loop host hook contracts', () => {
+  it('uses the host subagent identity instead of collapsing it into the parent agent', () => {
+    const previous = process.env.OCTOCODE_AGENT_ID;
+    process.env.OCTOCODE_AGENT_ID = 'parent-agent';
+    try {
+      expect(agentId({
+        hook_event_name: 'SubagentStart',
+        agent_id: 'child-agent',
+        agent_type: 'Explore',
+      })).toBe('child-agent');
+    } finally {
+      if (previous === undefined) delete process.env.OCTOCODE_AGENT_ID;
+      else process.env.OCTOCODE_AGENT_ID = previous;
+    }
+  });
+
   it('uses event-specific model-context envelopes for Claude and Codex', () => {
     for (const host of ['claude', 'codex'] as const) {
       expect(hookContextEnvelope(host, 'PreToolUse', 'peer changed')).toEqual({
@@ -81,6 +97,15 @@ describe('full-loop host hook contracts', () => {
     const projectDir = mkdtempSync(join(tmpdir(), 'awareness hook contract '));
     const hookDir = resolve(projectDir, 'skill with spaces/scripts/hooks');
     mkdirSync(hookDir, { recursive: true });
+    for (const script of [
+      'pre-edit.sh',
+      'post-edit.sh',
+      'stop-verify.sh',
+      'session-compact.sh',
+      'notify-deliver.sh',
+    ]) {
+      writeFileSync(resolve(hookDir, script), '#!/bin/sh\n');
+    }
     try {
       const installed = runHooksInstall(
         ['--host', 'codex', '--project-dir', projectDir],
@@ -239,6 +264,44 @@ describe('full-loop host hook contracts', () => {
         tool_input: { path: 'src/after-compact.ts' },
       }), { host: 'codex' })).toBe(0);
       expect(database.prepare("SELECT COUNT(*) AS count FROM task_runs WHERE origin = 'HOOK' AND status = 'ACTIVE'").get()).toEqual({ count: 1 });
+      database.close();
+    } finally {
+      if (priorMemoryHome === undefined) delete process.env.OCTOCODE_MEMORY_HOME;
+      else process.env.OCTOCODE_MEMORY_HOME = priorMemoryHome;
+      if (priorAgentId === undefined) delete process.env.OCTOCODE_AGENT_ID;
+      else process.env.OCTOCODE_AGENT_ID = priorAgentId;
+      rmSync(memoryDir, { recursive: true, force: true });
+    }
+  });
+
+  it('discards a failed shell write instead of creating verification debt', async () => {
+    const memoryDir = mkdtempSync(join(tmpdir(), 'awareness failed hook '));
+    const workspace = join(memoryDir, 'workspace');
+    mkdirSync(workspace, { recursive: true });
+    const priorMemoryHome = process.env.OCTOCODE_MEMORY_HOME;
+    const priorAgentId = process.env.OCTOCODE_AGENT_ID;
+    process.env.OCTOCODE_MEMORY_HOME = memoryDir;
+    process.env.OCTOCODE_AGENT_ID = 'hook-failure-agent';
+    try {
+      const payload = {
+        cwd: workspace,
+        session_id: 'hook-failure-session',
+        tool_name: 'Write',
+        tool_use_id: 'failed-edit',
+        tool_input: { path: 'src/failed.ts' },
+      };
+      expect(await runHookCommand('pre-edit', JSON.stringify(payload), { host: 'claude' })).toBe(0);
+      expect(await runHookCommand('post-edit', JSON.stringify({
+        ...payload,
+        hook_event_name: 'PostToolUseFailure',
+        is_error: true,
+      }), { host: 'claude' })).toBe(0);
+
+      const database = connectDb(resolveDbPath(null));
+      expect(database.prepare('SELECT COUNT(*) AS count FROM edit_log').get()).toEqual({ count: 0 });
+      expect(database.prepare('SELECT COUNT(*) AS count FROM run_files').get()).toEqual({ count: 0 });
+      expect(database.prepare('SELECT COUNT(*) AS count FROM task_runs').get()).toEqual({ count: 0 });
+      expect(auditUnverified(database, { agentId: 'hook-failure-agent', workspacePath: workspace }).count).toBe(0);
       database.close();
     } finally {
       if (priorMemoryHome === undefined) delete process.env.OCTOCODE_MEMORY_HOME;

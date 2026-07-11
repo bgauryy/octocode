@@ -28,14 +28,15 @@ import { buildGhSearchCodeFinalizer } from './finalizer.js';
 
 type PartialCodeSearchQuery = WithOptionalMeta<GitHubCodeSearchQuery>;
 
-function hasValidCodeSearchParams(query: PartialCodeSearchQuery): boolean {
+export function hasValidCodeSearchParams(query: PartialCodeSearchQuery): boolean {
   const keywords = query.keywords ?? [];
   return Boolean(
     keywords.some(keyword => keyword.trim().length > 0) ||
     query.owner ||
     query.path ||
     query.extension ||
-    query.filename
+    query.filename ||
+    query.language
   );
 }
 

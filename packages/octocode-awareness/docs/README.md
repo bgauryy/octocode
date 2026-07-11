@@ -7,7 +7,7 @@ complete command inventory.
 | Document | Owns |
 |---|---|
 | [THESIS.md](THESIS.md) | Homeostatic control model, metaphor boundary, pressures, and success measures |
-| [HOW_IT_WORKS.md](HOW_IT_WORKS.md) | Architecture, boundaries, lifecycle relationships |
+| [HOW_IT_WORKS.md](HOW_IT_WORKS.md) | Canonical complete bootstrap, operating, state, hook, memory, projection, and exit lifecycle |
 | [DB.md](DB.md) | SQLite schema, relationships, migration, scope |
 | [LOCKS.md](LOCKS.md) | Advisory file work, exclusive locks, verification |
 | [HOOKS.md](HOOKS.md) | Host installation and runtime behavior |

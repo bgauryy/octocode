@@ -37,6 +37,7 @@ export interface PiToolEvent {
   toolName?: string;
   toolCallId?: string;
   input?: unknown;
+  isError?: boolean;
 }
 
 export interface PiAwarenessBridgeOptions {

@@ -41,9 +41,32 @@ pub fn minify_aggressive(content: &str, comments: Option<&[&str]>) -> String {
     } else {
         content.to_owned()
     };
-    let s = super::collapse_whitespace(&s);
-    let s = super::re_tighten_punct(&s);
+    // Merge the comment groups' quote/regex rules so the whitespace and
+    // punctuation passes below can skip string/regex literal spans instead
+    // of mutating their contents (see comment_remover::literal_ranges).
+    let merged_rules = comments.map(merge_comment_rules);
+    let s = super::collapse_whitespace(&s, merged_rules.as_ref());
+    let s = super::re_tighten_punct(&s, merged_rules.as_ref());
     s.trim().to_owned()
+}
+
+/// Combine the `CommentRules` for a set of comment groups into one, so a
+/// single literal-range scan covers every quote/regex convention active for
+/// this language (e.g. `["hash", "template"]`-style multi-group configs).
+pub(super) fn merge_comment_rules(groups: &[&str]) -> crate::comment_remover::CommentRules {
+    use crate::comment_remover::{rules_for, CommentRules};
+    let mut merged = CommentRules::default();
+    for &group in groups {
+        if let Some(rules) = rules_for(group) {
+            merged.regex = merged.regex || rules.regex;
+            merged.powershell_here_strings =
+                merged.powershell_here_strings || rules.powershell_here_strings;
+            if !rules.quote_delimiters.is_empty() {
+                merged.quote_delimiters = rules.quote_delimiters;
+            }
+        }
+    }
+    merged
 }
 
 // ── Code (whitespace only, preserve indent) ───────────────────────────────────

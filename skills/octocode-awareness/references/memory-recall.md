@@ -18,7 +18,7 @@ Useful filters:
 - Kind: repeat `--label`, `--tag`, or lifecycle `--state`; default state is `ACTIVE`.
 - Provenance: repeat `--file`, `--file-regex`, `--reference`, or broad `--regex`.
 - Time/value: `--as-of`, `--min-importance`, `--limit`, `--sort`.
-- Judgment: `--smart`, `--semantic`, `--explain`.
+- Judgment: `--smart`, `--semantic`, `--explain`; explain adds score components and effective `applied_filters` after widening.
 
 Use `schema json-schema get_memory` when payload fields matter. CLI flags and schema names can differ, such as `--file` versus stored arrays.
 

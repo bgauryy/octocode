@@ -22,6 +22,33 @@ describe('getMemory', () => {
     expect(scores[0]).toBeGreaterThanOrEqual(scores[scores.length - 1]!);
   });
 
+  it('uses a deterministic memory-id tie break for equal sort values', () => {
+    const db = freshDb();
+    const first = insertMemory(db, { taskContext: 'stable order', observation: 'same', importance: 5 });
+    const second = insertMemory(db, { taskContext: 'stable order', observation: 'same', importance: 5 });
+    db.prepare("UPDATE memories SET created_at = '2026-01-01T00:00:00Z', last_accessed_at = '2026-01-01T00:00:00Z'").run();
+
+    const ids = getMemory(db, { query: 'stable order', sort: 'recent', limit: 10, recordAccess: false })
+      .memories.map(memory => memory.memory_id);
+    expect(ids).toEqual([first.memoryId, second.memoryId].sort());
+  });
+
+  it('explains the exact search, scope, filter, and ranking contract on request', () => {
+    const db = freshDb();
+    const result = getMemory(db, {
+      query: 'parser failure', workspacePath: '/tmp/project', label: ['GOTCHA'],
+      tags: ['parser'], files: ['src/parser.ts'], sort: 'importance', smart: true,
+      strictScope: true, minImportance: 6, limit: 4, explain: true, recordAccess: false,
+    });
+
+    expect(result.applied_filters).toMatchObject({
+      query: 'parser failure', limit: 4, min_importance: 1, labels: [],
+      tags: [], files: ['src/parser.ts'], workspace_path: '/tmp/project',
+      strict_scope: true, global_only: false, states: ['ACTIVE'], sort: 'importance',
+      smart: true,
+    });
+  });
+
   // 30s timeout: 10 inserts each run similar-memory Jaccard scans; under the
   // full parallel coverage suite this occasionally exceeds the default 5s on CPU contention.
   it('respects limit', { timeout: 30_000 }, () => {

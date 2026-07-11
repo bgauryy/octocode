@@ -259,17 +259,6 @@ describe('hook wrapper scripts', () => {
     }
   });
 
-  it('harness-guard.sh passes OCTOCODE_SKILL_ROOT to the runner', () => {
-    const result = runHookWrapper(
-      'harness-guard.sh',
-      { tool_name: 'Edit', tool_input: { file_path: 'SKILL.md' } },
-      { OCTOCODE_ALLOW_HARNESS_APPLY: undefined },
-      SKILL_ROOT,
-    );
-    expect(result.status).toBe(2);
-    expect(result.stderr).toContain('editing the skill itself is gated');
-  });
-
   it('pre-edit.sh guards before presence without a second host hook', () => {
     const memoryHome = mkdtempSync(join(tmpdir(), 'octocode-wrapper-guard-first-'));
     try {

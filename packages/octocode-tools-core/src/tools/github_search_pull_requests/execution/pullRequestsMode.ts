@@ -88,7 +88,12 @@ export async function handlePullRequestsMode(
   };
   const shouldMinify =
     (effectiveQuery as { minify?: string }).minify === 'standard';
-  const showContentMap = hasPrNumber;
+  // Always emit per-row drill-down hints (getBody/getChangedFiles/etc, keyed
+  // off that row's own PR number via baseQuery) — list mode used to dead-end
+  // with no next-step guidance because this was gated to detail-fetch only,
+  // even though nextCalls() already targets the correct row regardless of
+  // which mode produced it.
+  const showContentMap = true;
   const shapedPullRequests = pullRequests.map(pr =>
     shapePullRequestForContent(
       pr,

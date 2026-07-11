@@ -43,7 +43,9 @@ it('previews Cursor hooks in native .cursor/hooks.json shape', () => {
       expect(Object.keys(result.resultingSettings.hooks ?? {})).toEqual([
         'preToolUse',
         'postToolUse',
-        'stop',
+                  'postToolUseFailure',
+                  'subagentStart',
+                  'stop',
         'subagentStop',
         'sessionEnd',
         'preCompact',
@@ -60,6 +62,37 @@ it('previews Cursor hooks in native .cursor/hooks.json shape', () => {
       expect(JSON.stringify(result.resultingSettings.hooks?.sessionEnd)).toContain('session-end.sh');
       expect(JSON.stringify(result.resultingSettings.hooks?.preToolUse)).not.toContain('harness-guard.sh');
       expect(JSON.stringify(result.resultingSettings)).not.toContain('CLAUDE_PROJECT_DIR');
+    } finally {
+      rmSync(projectDir, { recursive: true, force: true });
+    }
+  });
+it('strict check rejects an exact config whose hook target disappeared', () => {
+    const projectDir = mkdtempSync(resolve(tmpdir(), 'octocode-missing-hook-target-'));
+    const hookDir = resolve(projectDir, 'portable-skill/scripts/hooks');
+    try {
+      mkdirSync(hookDir, { recursive: true });
+      for (const name of [
+        'pre-edit.sh', 'post-edit.sh', 'stop-verify.sh', 'session-compact.sh',
+        'session-end.sh', 'notify-deliver.sh',
+      ]) {
+        writeFileSync(resolve(hookDir, name), '#!/bin/sh\n');
+      }
+      const installed = runHooksInstall(['--host', 'codex', '--project-dir', projectDir], {
+        cwd: projectDir,
+        hookDir,
+      });
+      expect(installed.exitCode).toBe(0);
+      rmSync(resolve(hookDir, 'stop-verify.sh'));
+
+      const checked = runHooksInstall([
+        '--host', 'codex', '--project-dir', projectDir, '--check', '--strict',
+      ], { cwd: projectDir, hookDir });
+      expect(checked.exitCode).toBe(2);
+      expect(checked.payload).toMatchObject({
+        ok: false,
+        health: { config: { status: 'needs_repair' } },
+      });
+      expect(JSON.stringify(checked.payload)).toContain('target_missing');
     } finally {
       rmSync(projectDir, { recursive: true, force: true });
     }
@@ -132,7 +165,7 @@ it('strict check reports drifted hooks and install repairs them', () => {
       const preEditEntries = preToolUse.filter((entry) => JSON.stringify(entry).includes('pre-edit.sh'));
       expect(preEditEntries).toHaveLength(1);
       expect(preEditEntries[0]).toMatchObject({
-        matcher: 'Write|Edit|MultiEdit|NotebookEdit|apply_patch|ApplyPatch',
+        matcher: '^(?:apply_patch|Write|Edit)$',
       });
       expect(JSON.stringify(preEditEntries[0])).toContain('"timeout":20');
     } finally {
@@ -235,7 +268,7 @@ it('strict check reports exact hooks with stale duplicate awareness entries', ()
       const preEditEntries = preToolUse.filter((entry) => JSON.stringify(entry).includes('pre-edit.sh'));
       expect(preEditEntries).toHaveLength(1);
       expect(preEditEntries[0]).toMatchObject({
-        matcher: 'Write|Edit|MultiEdit|NotebookEdit|apply_patch|ApplyPatch',
+        matcher: '^(?:apply_patch|Write|Edit)$',
       });
       expect(JSON.stringify(preEditEntries[0])).toContain('"timeout":20');
     } finally {

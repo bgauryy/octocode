@@ -4,7 +4,7 @@ export type { HookControlOutcome } from './hook-payload.js';
 export { hookContextEnvelope } from './hook-payload.js';
 export { hookBlockOutcome } from './hook-payload.js';
 import { HookRunOptions, INTERNAL_HOOK_HOST, INTERNAL_SKILL_ROOT, normalizeShellHookHost, parsePayload, readStdin } from './hook-payload.js';
-import { runHarnessGuard, runPostEdit, runPreEdit } from './hook-edit-events.js';
+import { runPostEdit, runPreEdit } from './hook-edit-events.js';
 import { runNotifyDeliver, runSessionCompact, runSessionEnd, runStopVerify } from './hook-lifecycle.js';
 
 export async function runHookCommand(
@@ -13,7 +13,7 @@ export async function runHookCommand(
   options: HookRunOptions = {},
 ): Promise<number> {
   if (command === 'help' || command === '--help' || command === '-h') {
-    process.stdout.write('usage: hook-runner <pre-edit|post-edit|harness-guard|stop-verify|notify-deliver|session-compact|session-end> < hook-payload.json\n');
+    process.stdout.write('usage: hook-runner <pre-edit|post-edit|stop-verify|notify-deliver|session-compact|session-end> < hook-payload.json\n');
     return 0;
   }
 
@@ -25,7 +25,6 @@ export async function runHookCommand(
   switch (command) {
     case 'pre-edit': return runPreEdit(payload);
     case 'post-edit': return runPostEdit(payload);
-    case 'harness-guard': return runHarnessGuard(payload);
     case 'stop-verify': return runStopVerify(payload);
     case 'notify-deliver': return runNotifyDeliver(payload);
     case 'session-compact': return runSessionCompact(payload);

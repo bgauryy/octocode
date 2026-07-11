@@ -1,7 +1,7 @@
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { acquireConfigLock, fail, flag, HookHost, HookSettings, HooksInstallOptions, HooksInstallResult, hooksInstallUsage, HOSTS, loadSettings, opt, requestedHost, targetConfig, writeSettingsAtomic } from './hooks-install-specs.js';
-import { awarenessHookName, entry, hasCommand, hasDriftedCommand, hasExactCommand, hookStatusKey, matchingCommandCount, obsoleteSpecsFor, removeCommand, runtimeHealth, specsFor } from './hooks-install-health.js';
+import { acquireConfigLock, fail, flag, HookHost, HookSettings, HooksInstallOptions, HooksInstallResult, hooksInstallUsage, HOSTS, loadSettings, opt, projectHookDir, requestedHost, targetConfig, writeSettingsAtomic } from './hooks-install-specs.js';
+import { awarenessHookName, entry, hasCommand, hasDriftedCommand, hasExactCommand, hookStatusKey, hookTargetExists, matchingCommandCount, obsoleteSpecsFor, removeCommand, runtimeHealth, specsFor } from './hooks-install-health.js';
 
 export function runHooksInstall(argv: string[], options: HooksInstallOptions): HooksInstallResult {
   const hostValue = requestedHost(argv);
@@ -68,12 +68,12 @@ export function runHooksInstallUnlocked(argv: string[], options: HooksInstallOpt
   const specs = specsFor(host, {
     globalMode,
     projectDir,
-    hookDir: options.hookDir,
+    hookDir: projectHookDir(host, globalMode, projectDir, options.hookDir),
   });
   const obsoleteSpecs = obsoleteSpecsFor(host, {
     globalMode,
     projectDir,
-    hookDir: options.hookDir,
+    hookDir: projectHookDir(host, globalMode, projectDir, options.hookDir),
   });
 
   const checks = specs.map((spec) => {
@@ -81,15 +81,19 @@ export function runHooksInstallUnlocked(argv: string[], options: HooksInstallOpt
     const present = hasCommand(groups, spec.command);
     const exact = hasExactCommand(groups, host, spec);
     const matchingCount = matchingCommandCount(groups, spec.command);
-    const drifted = present && (!exact || hasDriftedCommand(groups, host, spec) || matchingCount > 1);
+    const targetExists = hookTargetExists(spec);
+    const drifted = present && (!exact || !targetExists || hasDriftedCommand(groups, host, spec) || matchingCount > 1);
     return {
       key: hookStatusKey(spec),
       event: spec.event,
       hook: awarenessHookName(spec.command) ?? spec.command.split(/[\\/]/).pop(),
-      installed: exact,
+      installed: exact && targetExists,
       present,
       matching_count: matchingCount,
       drifted,
+      target_path: spec.targetPath,
+      target_exists: targetExists,
+      issue: targetExists ? null : 'target_missing',
       expected: {
         matcher: spec.matcher ?? null,
         command: spec.command,

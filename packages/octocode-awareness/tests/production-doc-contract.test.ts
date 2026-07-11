@@ -22,6 +22,20 @@ function markdownFiles(root: string): string[] {
 }
 
 describe('production guidance contract', () => {
+  it('owns the complete Awareness lifecycle in one architecture document', () => {
+    const lifecycle = read(resolve(PACKAGE_ROOT, 'docs/HOW_IT_WORKS.md'));
+    const catalog = read(resolve(PACKAGE_ROOT, 'docs/README.md'));
+    const rootAgents = read(resolve(REPO_ROOT, 'AGENTS.md'));
+
+    expect(lifecycle).toMatch(/AGENTS\.md.*entry.*router[\s\S]*Agent Skills?.*policy[\s\S]*CLI.*control plane[\s\S]*hooks.*automation/i);
+    expect(lifecycle).toContain('ENTER -> ACTIVATE -> ATTEND -> CHOOSE');
+    expect(lifecycle).toContain('The Awareness CLI is the only agent-facing control plane for durable Awareness state.');
+    expect(lifecycle).toMatch(/Plan[\s\S]*Task[\s\S]*Run[\s\S]*RunFile[\s\S]*Lock/);
+    expect(lifecycle).toMatch(/successful write[\s\S]*failed write[\s\S]*PreCompact[\s\S]*SessionEnd/i);
+    expect(catalog).toContain('complete bootstrap, operating, state, hook, memory, projection, and exit lifecycle');
+    expect(rootAgents).toContain('docs/HOW_IT_WORKS.md');
+  });
+
   it('uses one standalone WORK term and lazy command/reference discovery', () => {
     const authored = [
       resolve(PACKAGE_ROOT, 'README.md'),
@@ -42,6 +56,12 @@ describe('production guidance contract', () => {
     const agents = read(resolve(PACKAGE_ROOT, 'AGENTS.md'));
     expect(agents).not.toContain('$AWARENESS schema commands --compact');
     expect(read(resolve(PACKAGE_ROOT, 'docs/SKILLS.md'))).not.toContain('<command> --help --compact');
+
+    const helpData = read(resolve(PACKAGE_ROOT, 'bin/cli-help-data.ts'));
+    expect(helpData).toContain('AGENTS.md = trigger/router');
+    expect(helpData).toContain('Agent Skill = operating policy');
+    expect(helpData).toContain('CLI/SQLite = canonical live state');
+    expect(helpData).toContain('hooks/Pi bridge = deterministic lifecycle automation');
   });
 
   it('routes every skill reference explicitly and removes mutating compatibility setup', () => {
@@ -76,9 +96,9 @@ describe('production guidance contract', () => {
 
   it('makes Pi advisory-first and reserves exclusivity for sensitive files', () => {
     const skillsPrompt = read(resolve(REPO_ROOT, 'packages/octocode-pi-extension/src/prompts/sections/skills.md'));
-    const memoryPrompt = read(resolve(REPO_ROOT, 'packages/octocode-pi-extension/src/prompts/sections/memory.md'));
+    const awarenessPrompt = read(resolve(REPO_ROOT, 'packages/octocode-pi-extension/src/prompts/sections/awareness.md'));
     const piReadme = read(resolve(REPO_ROOT, 'packages/octocode-pi-extension/README.md'));
-    const combined = `${skillsPrompt}\n${memoryPrompt}\n${piReadme}`;
+    const combined = `${skillsPrompt}\n${awarenessPrompt}\n${piReadme}`;
 
     expect(combined).toMatch(/advisory (?:file )?(?:work|presence)/i);
     expect(combined).toMatch(/exclusive.{0,80}sensitive|sensitive.{0,80}exclusive/is);
@@ -87,9 +107,13 @@ describe('production guidance contract', () => {
     expect(piReadme).not.toContain('Before edits (`file_lock` or CLI `lock acquire`)');
     expect(piReadme).not.toContain('Before edit:** Claims a file lock for each target path');
 
-    const piMemoryTool = read(resolve(REPO_ROOT, 'packages/octocode-pi-extension/src/tools/memory.ts'));
-    expect(piMemoryTool).not.toMatch(/memory_workspace_status|memory_file_lock|memory_notify/);
-    expect(piMemoryTool).not.toMatch(/FILE_LOCK_KINDS|lock_type|SHARED/);
+    const piToolsRoot = resolve(REPO_ROOT, 'packages/octocode-pi-extension/src/tools');
+    const piToolSource = readdirSync(piToolsRoot, { withFileTypes: true })
+      .filter((entry) => entry.isFile() && entry.name.endsWith('.ts'))
+      .map((entry) => read(resolve(piToolsRoot, entry.name)))
+      .join('\n');
+    expect(piToolSource).not.toMatch(/memory_workspace_status|memory_file_lock|memory_notify/);
+    expect(piToolSource).not.toMatch(/FILE_LOCK_KINDS|lock_type/);
   });
 
   it('removes legacy notify and lock-kind inputs from the shared tool adapter', () => {
@@ -263,7 +287,8 @@ describe('production guidance contract', () => {
     expect(packageAgents).not.toContain('## Lifecycle');
     expect(packageAgents).not.toContain('## Hooks');
     expect(packageAgents).not.toContain('Standalone WORK');
-    expect(skill).toContain('## Loop');
+    expect(skill).toContain('## Lifecycle');
+    expect(skill).toContain('## Feature map');
     expect(userGuide).toContain('## Operating Loop');
     expect(hooks).toContain('## Lifecycle');
     expect(architecture).toMatch(/AGENTS\.md \/ CLAUDE\.md[\s\S]*Agent Skill[\s\S]*CLI[\s\S]*hooks/i);

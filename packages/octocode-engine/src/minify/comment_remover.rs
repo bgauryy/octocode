@@ -106,6 +106,21 @@ pub fn rules_for(group: &str) -> Option<CommentRules> {
             }],
             ..Default::default()
         }),
+        // Clojure/ClojureScript: `'` and `` ` `` are quote/syntax-quote prefixes,
+        // never string delimiters (strings are `"..."` only) — unlike the
+        // `DEFAULT_QUOTE_DELIMITERS` fallback, which would treat a stray `'foo`
+        // as an unterminated string and swallow everything after it, including
+        // real string literals, so their whitespace never gets protected from
+        // the aggressive strategy's collapse/tighten passes.
+        "clojure" => Some(CommentRules {
+            line: vec![LineRule {
+                token: ";",
+                require_boundary: true,
+                preserve_shebang: false,
+            }],
+            quote_delimiters: &["\"\"\"", "\""],
+            ..Default::default()
+        }),
         "wasm-text" => Some(CommentRules {
             block: vec![BlockRule {
                 start: "(;",
@@ -389,6 +404,106 @@ pub fn strip_string_aware_comments(content: &str, rules: &CommentRules) -> Strin
         }
     }
     result
+}
+
+/// Byte ranges of string/regex/raw-string literals in `content`, using the
+/// same recognition rules as `strip_string_aware_comments` (PowerShell
+/// here-strings, Rust raw strings, C# verbatim strings, JS/TS regex literals,
+/// quoted strings) — minus comment detection, since callers run this on
+/// content that has already had comments stripped.
+///
+/// Ranges are non-overlapping, sorted by start position, and byte-index
+/// aligned to `content`'s char boundaries (mirrors the same scan used for
+/// comment stripping, so it inherits the same UTF-8 safety). Callers that
+/// need to skip transformation inside literals — e.g. the whitespace/
+/// punctuation passes below — walk `content` with a cursor into this list
+/// instead of re-implementing quote tracking.
+pub fn literal_ranges(content: &str, rules: &CommentRules) -> Vec<(usize, usize)> {
+    let bytes = content.as_bytes();
+    let len = bytes.len();
+    let mut pos = 0usize;
+    let mut qstate = QuoteState::Outside;
+    let mut ranges = Vec::new();
+    let mut cur_start = 0usize;
+
+    let mut sorted_delims: Vec<&'static str> = effective_delimiters(rules).to_vec();
+    sorted_delims.sort_by_key(|d| std::cmp::Reverse(d.len()));
+
+    while pos < len {
+        match &mut qstate {
+            QuoteState::Multi { end } => {
+                let end_str: &'static str = end;
+                if content[pos..].starts_with(end_str) {
+                    pos += end_str.len();
+                    ranges.push((cur_start, pos));
+                    qstate = QuoteState::Outside;
+                } else {
+                    pos += next_char_len(bytes, pos);
+                }
+            }
+            QuoteState::Single { delim, escaped } => {
+                let ch = bytes[pos];
+                let ch_len = next_char_len(bytes, pos);
+                if *escaped {
+                    *escaped = false;
+                    pos += ch_len;
+                } else if ch == b'\\' {
+                    *escaped = true;
+                    pos += ch_len;
+                } else if ch == *delim {
+                    pos += ch_len;
+                    ranges.push((cur_start, pos));
+                    qstate = QuoteState::Outside;
+                } else {
+                    pos += ch_len;
+                }
+            }
+            QuoteState::Outside => {
+                if rules.powershell_here_strings {
+                    if let Some(end_pos) = find_powershell_here_string(content, pos) {
+                        ranges.push((pos, end_pos));
+                        pos = end_pos;
+                        continue;
+                    }
+                }
+                if let Some(end_pos) = find_rust_raw_string(content, pos) {
+                    ranges.push((pos, end_pos));
+                    pos = end_pos;
+                    continue;
+                }
+                if let Some(end_pos) = find_csharp_verbatim(content, pos) {
+                    ranges.push((pos, end_pos));
+                    pos = end_pos;
+                    continue;
+                }
+                if rules.regex {
+                    if let Some(end_pos) = find_regex_literal(content, pos) {
+                        ranges.push((pos, end_pos));
+                        pos = end_pos;
+                        continue;
+                    }
+                }
+                if let Some(&delim) = sorted_delims
+                    .iter()
+                    .find(|&&d| content[pos..].starts_with(d))
+                {
+                    cur_start = pos;
+                    pos += delim.len();
+                    qstate = if delim.len() == 1 {
+                        QuoteState::Single {
+                            delim: delim.as_bytes()[0],
+                            escaped: false,
+                        }
+                    } else {
+                        QuoteState::Multi { end: delim }
+                    };
+                    continue;
+                }
+                pos += next_char_len(bytes, pos);
+            }
+        }
+    }
+    ranges
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -747,5 +862,31 @@ mod tests {
     #[test]
     fn unknown_comment_group_returns_content_unchanged() {
         assert_eq!(remove_comments("hello", &["nonexistent-type"]), "hello");
+    }
+
+    #[test]
+    fn literal_ranges_finds_quoted_strings() {
+        let rules = rules_for("c-style").unwrap();
+        let content = r#"a = "hello world"; b = 1;"#;
+        let ranges = literal_ranges(content, &rules);
+        assert_eq!(ranges.len(), 1);
+        let (start, end) = ranges[0];
+        assert_eq!(&content[start..end], "\"hello world\"");
+    }
+
+    #[test]
+    fn literal_ranges_finds_js_regex_literal() {
+        let rules = rules_for("c-style").unwrap();
+        let content = "const re = /a\\/b*c/g;";
+        let ranges = literal_ranges(content, &rules);
+        assert_eq!(ranges.len(), 1);
+        let (start, end) = ranges[0];
+        assert_eq!(&content[start..end], "/a\\/b*c/g");
+    }
+
+    #[test]
+    fn literal_ranges_ignores_content_with_no_strings() {
+        let rules = rules_for("hash").unwrap();
+        assert!(literal_ranges("x = 1\ny = 2", &rules).is_empty());
     }
 }
