@@ -163,7 +163,7 @@ yarn workspace @octocodeai/pi-extension build      # runs scripts/build.mjs
 | Output | From | Notes |
 |--------|------|-------|
 | `dist/system/APPEND_SYSTEM.md` | `docs/PI/APPEND_SYSTEM.md` | the harness system prompt |
-| `out/skills/` | root `skills/` | minus `octocode`, `octocode-awareness`, `octocode-stats` (SKIPPED_SKILLS) |
+| `out/skills/` | root `skills/` | minus `octocode`, `octocode-awareness`, `octocode-stats`, and retired names (`skills/scripts/sync.mjs` `SKIPPED_SKILLS`) |
 | `dist/env.js` | `@octocodeai/config` source | **inlined** — the loader itself, not a re-export |
 | `out/skills/<skill>/scripts/octocode-config.mjs` | `@octocodeai/config` source | **copied into every skill with a `scripts/` dir** (`injectConfigIntoSkills`) so skills load env standalone |
 | `dist/web.js` | `src/web.js` | the `web` search/fetch tool |

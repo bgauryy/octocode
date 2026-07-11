@@ -248,14 +248,15 @@ This installs the bundled Octocode skills:
 
 | Skill | What it does |
 |-------|-------------|
-| `octocode` | Quick Octocode MCP or CLI code lookup |
 | `octocode-awareness` | Memory, file locks, handoffs, and verify-before-done |
 | `octocode-brainstorming` | Idea validation and prior-art decision briefs |
+| `octocode-eval` | Quality measurement, goal-to-KPI contracts, eval suites, and keep/discard decisions |
+| `octocode-prompt-optimizer` | Sharpen prompts, `SKILL.md`, and `AGENTS.md` for clarity and reliability |
 | `octocode-research` | Code exploration, multi-source research, implementation, refactoring, PR review, and evidence loops |
 | `octocode-rfc-generator` | Technical design documents, RFCs, and research-backed plans |
 | `octocode-roast` | Brutally honest code review |
 | `octocode-skills` | Search, evaluate, install, create, lint, and update Agent Skills |
-| `octocode-stats` | Local Octocode usage, savings, cache, error, and rate-limit dashboard |
+| `octocode-subagent` | Delegation decisions, worker topology, handoffs, and result synthesis |
 
 After install, verify:
 ```bash

@@ -40,7 +40,17 @@ function copyBundledSkills() {
   const destination = join(packageRoot, 'skills');
 
   rmSync(destination, { recursive: true, force: true });
-  copyDirectoryFiltered(source, destination);
+  // Only real skill folders (containing SKILL.md) ship — repo-root skills/
+  // also holds non-skill tooling (e.g. skills/scripts/) that must never be
+  // published.
+  for (const entry of readdirSync(source, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    if (!existsSync(join(source, entry.name, 'SKILL.md'))) continue;
+    copyDirectoryFiltered(
+      join(source, entry.name),
+      join(destination, entry.name)
+    );
+  }
   removeEnvExamples(destination);
 }
 

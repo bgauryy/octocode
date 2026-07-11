@@ -25,7 +25,7 @@ The build bundles both command lines:
 | Pi support tools | 7 |
 | Replacement edit + write + bash tools | 3 |
 | Slash commands | 6 |
-| Bundled main-agent skills | 7 |
+| Bundled main-agent skills | 9 |
 
 Awareness memory and coordination are deliberately not Pi tools. Agents use the
 bundled CLI under the `octocode-awareness` skill, while in-process hooks automate

@@ -8,6 +8,7 @@ Load proactively — before or during work when context matches. Always read `SK
 - `octocode-rfc-generator` — RFCs, architecture proposals, migrations, risky cross-package decisions
 - `octocode-roast` — brutal critique / code-quality roast, severity-ranked findings
 - `octocode-skills` — find, lint, install, create, or tune Skills and SKILL.md packages
+- `octocode-eval` — measure quality, goal-to-KPI contracts, eval suites, benchmarks, keep/discard decisions
 - `octocode-subagent` — host-agnostic task breakdown, spawn gates, model routing, worker coordination
 - `browser-agent` — Chrome DevTools Protocol browser subagent: security audits, network analysis, DOM inspection, coverage, workers, emulation, automation. Read before any multi-turn browser task.
 

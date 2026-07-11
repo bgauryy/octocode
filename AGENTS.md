@@ -132,7 +132,7 @@ concept owners: [`packages/octocode-awareness/docs/README.md`](packages/octocode
 | Benchmarks | [`BENCHMARKS.md`](packages/octocode-benchmark/docs/BENCHMARKS.md) |
 | Release | [`release/RELEASE_GUIDE.md`](release/RELEASE_GUIDE.md) |
 | Context | [`docs/context/`](docs/context/) — [SEARCH_GUIDE](docs/context/SEARCH_GUIDE.md) · [OQL_RESEARCH_GRAPH_FLOW](docs/context/OQL_RESEARCH_GRAPH_FLOW.md) · [LSP_GUIDE](docs/context/LSP_GUIDE.md) · [AGENT_RESEARCH_WORKFLOWS](docs/context/AGENT_RESEARCH_WORKFLOWS.md) · [RUST_BEST_PRACTICES](docs/context/RUST_BEST_PRACTICES.md) |
-| Skills (repo) | [`skills/`](skills/) — research, brainstorming, prompt-optimizer, rfc-generator, roast, skills; Awareness skill lives under the awareness package |
+| Skills (repo) | [`skills/`](skills/) — 9 skills, each a folder with `SKILL.md`: awareness, brainstorming, eval, prompt-optimizer, research, rfc-generator, roast, skills, subagent |
 
 ## Config / env — single source
 

@@ -190,8 +190,10 @@ npx octocode skill --list
 npx octocode skill --list --json
 ```
 
-`--list` fetches the live marketplace listing from GitHub (cached 24 hours). It
-shows all available named Octocode skills with descriptions.
+`--list` shows the skills bundled with this install (offline, matches
+`--install-all` exactly). If no bundle is found (e.g. running unbuilt from
+source), it falls back to the live marketplace listing from GitHub (cached 24
+hours), then to a known-names list if that also fails.
 
 ### Platforms
 

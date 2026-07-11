@@ -357,16 +357,16 @@ Four code-intelligence axes; three are native to the Rust engine and need no ext
 > [Agent Skills](https://agentskills.io/what-are-skills) are a lightweight, open format for extending AI agent capabilities.
 > Browse and install on [**skills.sh/bgauryy/octocode-mcp**](https://www.skills.sh/bgauryy/octocode-mcp)
 
-These are the skills the Octocode team itself uses to build Octocode. **Six source skills** live under [`skills/`](https://github.com/bgauryy/octocode/tree/main/skills); the separately managed **Awareness** skill lives under [`packages/octocode-awareness/skills/`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-awareness/skills) and is bundled alongside them. The table below is the full seven-skill index. ⭐ **[Research](https://www.skills.sh/bgauryy/octocode-mcp/octocode-research)** is the recommended starting skill for technical research, code work, reviews, refactors, and repeated evidence loops.
+These are the skills the Octocode team itself uses to build Octocode. **Nine skills** live under [`skills/`](https://github.com/bgauryy/octocode/tree/main/skills) (every folder with a `SKILL.md`; the sibling `skills/scripts/` is internal sync tooling, not a skill) and are bundled into the `octocode` npm package. The table below is the full nine-skill index. ⭐ **[Research](https://www.skills.sh/bgauryy/octocode-mcp/octocode-research)** is the recommended starting skill for technical research, code work, reviews, refactors, and repeated evidence loops.
 
 Each skill folder includes a human README with purpose, features, workflow, developer notes, and `npx octocode skill` installation. `SKILL.md` stays the compact agent-facing router.
 
 Install them with the Octocode CLI through `npx octocode`; no global install is required. Octocode refreshes the canonical source in `~/.octocode/skills/<skill>` and links it into the platform location by default. Pick the platform your agent reads from, or use `common` for the shared `~/.agents/skills` folder.
 
 ```bash
-npx octocode skill --list                                      # browse available Octocode skills
+npx octocode skill --list                                      # browse bundled Octocode skills (offline)
 npx octocode skill --name octocode-research                    # install to ~/.agents/skills (common)
-npx octocode skill --name octocode-awareness                   # install Octocode's bundled Awareness copy
+npx octocode skill --name octocode-awareness                   # install the Awareness skill
 npx octocode skill --name octocode-research --platform pi      # install for Pi
 npx octocode skill --name octocode-research --platform all --dry-run  # preview before installing everywhere
 npx octocode skill --add --path /path/to/skills/octocode-awareness  # install from an agent-known local skill path
@@ -384,15 +384,17 @@ Workflow contracts are equally explicit: Brainstorming run ledgers and hooks sta
 
 | Skill | Directory | Install with `npx octocode` | Use it when |
 |-------|-----------|-----------------------------|-------------|
+| [**Awareness**](https://www.skills.sh/bgauryy/octocode-mcp/octocode-awareness) | `octocode-awareness/` | `npx octocode skill --name octocode-awareness` | You need shared plans/tasks, advisory file awareness, sensitive exclusive locks, signals, handoffs, reflection, hooks, or verify-before-conclude in a shared repo. |
 | [**Brainstorming**](https://www.skills.sh/bgauryy/octocode-mcp/octocode-brainstorming) | `octocode-brainstorming/` | `npx octocode skill --name octocode-brainstorming` | The idea is fuzzy and needs prior-art or opportunity validation. |
+| [**Eval**](https://www.skills.sh/bgauryy/octocode-mcp/octocode-eval) | `octocode-eval/` | `npx octocode skill --name octocode-eval` | You need to measure quality, build or audit eval suites, benchmark a change, or decide whether it genuinely helped. |
+| [**Prompt Optimizer**](https://github.com/bgauryy/octocode/tree/main/skills/octocode-prompt-optimizer) | `octocode-prompt-optimizer/` | `npx octocode skill --name octocode-prompt-optimizer` | You want to optimize, strengthen, or shorten a prompt, `SKILL.md`, or `AGENTS.md`. |
 | ⭐ [**Research**](https://www.skills.sh/bgauryy/octocode-mcp/octocode-research) | `octocode-research/` | `npx octocode skill --name octocode-research` | You need evidence-first technical research, code work, review, refactor, architecture analysis, or repeated proof loops. |
 | [**RFC Generator**](https://www.skills.sh/bgauryy/octocode-mcp/octocode-rfc-generator) | `octocode-rfc-generator/` | `npx octocode skill --name octocode-rfc-generator` | You need a design doc, RFC, architecture proposal, migration plan, or rollout plan before coding. |
 | [**Roast**](https://www.skills.sh/bgauryy/octocode-mcp/octocode-roast) | `octocode-roast/` | `npx octocode skill --name octocode-roast` | You want blunt but actionable code critique. |
 | [**Skills**](https://www.skills.sh/bgauryy/octocode-mcp/octocode-skills) | `octocode-skills/` | `npx octocode skill --name octocode-skills` | You are working on Agent Skills themselves. |
-| [**Prompt Optimizer**](https://github.com/bgauryy/octocode/tree/main/skills/octocode-prompt-optimizer) | `octocode-prompt-optimizer/` | `npx octocode skill --name octocode-prompt-optimizer` | You want to optimize, strengthen, or shorten a prompt, `SKILL.md`, or `AGENTS.md`. |
-| [**Awareness**](https://www.skills.sh/bgauryy/octocode-mcp/octocode-awareness) | `skills/octocode-awareness/` | Bundled with `npx @octocodeai/octocode-awareness` | You need shared plans/tasks, advisory file awareness, sensitive exclusive locks, signals, handoffs, reflection, hooks, or verify-before-conclude in a shared repo. |
+| [**Subagent**](https://www.skills.sh/bgauryy/octocode-mcp/octocode-subagent) | `octocode-subagent/` | `npx octocode skill --name octocode-subagent` | You are deciding whether to delegate or parallelize work, and need worker topology, handoffs, coordination, or result synthesis. |
 
-Awareness is the primary skill for plans/tasks, advisory file work, sensitive exclusive locks, memory, signals, reflection, schemas, and hooks. The `--name` command above resolves Octocode's bundled copy; direct consumers of `@octocodeai/octocode-awareness` should install its `out/skills/octocode-awareness` path. Older prompts that name `octocode-reflection` or `octocode-agent-communication` should load the same [`@octocodeai/octocode-awareness`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-awareness) runtime.
+Awareness is the primary skill for plans/tasks, advisory file work, sensitive exclusive locks, memory, signals, reflection, schemas, and hooks. Its canonical source lives at `skills/octocode-awareness/`; the [`@octocodeai/octocode-awareness`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-awareness) package ships the same skill under its own `out/skills/octocode-awareness` for direct consumers. Older prompts that name `octocode-reflection` or `octocode-agent-communication` should load the same runtime.
 
 ---
 
