@@ -30,8 +30,11 @@ use exclusivity only for sensitive, non-mergeable work and never bypass a confli
 - Edit runtime/CLI and Zod contracts in `src/**` and `bin/**`.
 - Edit the canonical skill only in repo-root `skills/octocode-awareness/**`.
 - Edit package guidance in `README.md` and `docs/**`.
-- Never hand-edit `out/**`, `.agents/skills/**`, vendored
-  `skills/octocode-skills/**`, or generated script copies.
+- Never hand-edit `out/**`, `.agents/skills/**`, or build-generated Awareness
+  helpers/schemas under repo-root `skills/octocode-awareness/scripts/**`.
+- `out/**` is the ignored, publishable build tree: separate CLI, import-only
+  library/schema API, declarations, per-contract JSON schemas, and bundled skills.
+  Do not restore `dist/**` or a package-local `skills/**` source tree.
 - Declare every edited file. Structured-write hooks automate presence when healthy;
   explicit CLI presence remains the fallback.
 - Harness changes require user authorization, `OCTOCODE_ALLOW_HARNESS_APPLY=1`,
@@ -56,6 +59,7 @@ the run verified:
 yarn workspace @octocodeai/octocode-awareness typecheck
 yarn workspace @octocodeai/octocode-awareness test:quiet
 yarn workspace @octocodeai/octocode-awareness test:smoke
+yarn workspace @octocodeai/octocode-awareness pack:check
 yarn workspace @octocodeai/octocode-awareness verify
 ```
 

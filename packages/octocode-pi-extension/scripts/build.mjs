@@ -26,6 +26,7 @@ const SOURCE_PATHS = {
     repoRoot,
     'packages',
     'octocode-awareness',
+    'out',
     'skills'
   ),
   subagents: path.join(packageRoot, 'subagents'),
@@ -66,7 +67,7 @@ const SKIPPED_FILES = new Set([
 ]);
 
 // Skills excluded from root/skills/ → packages/octocode-pi-extension/skills/ sync:
-//   octocode-awareness — copied below from the package-owned source in packages/octocode-awareness/skills/.
+//   octocode-awareness — copied below from the package-owned build output in packages/octocode-awareness/out/skills/.
 //   octocode-agent-communication / octocode-reflection — retired legacy awareness skill names;
 //                   skipped so stale root copies are never bundled.
 //   octocode / octocode-stats — architecture docs and utilities, not user-facing skills.
@@ -77,7 +78,7 @@ const SKIPPED_SKILLS = new Set([
   'octocode-agent-communication',
   'octocode-awareness',
   'octocode-reflection',
-  'octocode-skills', // also vendored via packages/octocode-awareness/skills/ at awareness build
+  'octocode-skills', // also vendored via packages/octocode-awareness/out/skills/ at awareness build
   'octocode-stats',
   'browser-agent',
 ]);
@@ -258,7 +259,9 @@ function syncPackageSkills() {
   }
   console.log(`Synced ${skillNames.length} skills into ${SOURCE_PATHS.skills}`);
   console.log(`Skills: ${skillNames.join(', ')}`);
-  console.log('Sources: root skills/ + packages/octocode-awareness/skills/');
+  console.log(
+    'Sources: root skills/ + packages/octocode-awareness/out/skills/'
+  );
   return skillNames;
 }
 

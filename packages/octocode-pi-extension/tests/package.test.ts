@@ -398,7 +398,7 @@ test('build copies bundled Octocode skills without secret env files', () => {
     fs.readFileSync(
       path.resolve(
         packageRoot,
-        '../octocode-awareness/skills/octocode-awareness/SKILL.md'
+        '../octocode-awareness/out/skills/octocode-awareness/SKILL.md'
       ),
       'utf8'
     )

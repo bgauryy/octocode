@@ -111,10 +111,10 @@ function runAstGrep(testCase) {
   }
 }
 
-function runOctocode(testCase) {
+async function runOctocode(testCase) {
   const started = performance.now()
   const rule = testCase.kind ? `rule:\n  kind: ${testCase.kind}\n` : null
-  const matches = engine.structuralSearch(
+  const matches = await engine.structuralSearch(
     testCase.content,
     `case.${testCase.ext}`,
     testCase.pattern || null,
@@ -137,7 +137,7 @@ const failures = []
 
 for (const testCase of CASES) {
   const ast = runAstGrep(testCase)
-  const octo = runOctocode(testCase)
+  const octo = await runOctocode(testCase)
   const astTexts = normalized(ast.matches)
   const octoTexts = normalized(octo.matches)
   const ok = JSON.stringify(astTexts) === JSON.stringify(octoTexts)

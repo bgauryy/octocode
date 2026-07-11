@@ -113,8 +113,8 @@ const GRAMMARS = [
 
 const structuralExts = new Set(engine.getSupportedStructuralExtensions())
 const signatureExts = new Set(engine.getSupportedSignatureExtensions())
-const sc = (content, ext, pattern) => engine.structuralSearch(content, `probe.${ext}`, pattern, null).length
-const scRule = (content, ext, rule) => engine.structuralSearch(content, `probe.${ext}`, null, rule).length
+const sc = async (content, ext, pattern) => (await engine.structuralSearch(content, `probe.${ext}`, pattern, null)).length
+const scRule = async (content, ext, rule) => (await engine.structuralSearch(content, `probe.${ext}`, null, rule)).length
 
 const rows = []
 const failures = []
@@ -136,18 +136,18 @@ for (const g of GRAMMARS) {
   let parseInfo = 'no sample'
   if (content) {
     let nodes = 0
-    try { nodes = sc(content, g.ext, PARSE_PROBE) } catch (e) { issues.push(`parse threw: ${e.message}`) }
+    try { nodes = await sc(content, g.ext, PARSE_PROBE) } catch (e) { issues.push(`parse threw: ${e.message}`) }
     if (nodes <= 0) issues.push('real sample parsed 0 nodes')
     parseInfo = `${nodes} nodes`
     for (const a of g.aliases) {
-      try { if (sc(content, a, PARSE_PROBE) <= 0) issues.push(`alias ${a} parsed 0 nodes`) } catch (e) { issues.push(`alias ${a} threw: ${e.message}`) }
+      try { if ((await sc(content, a, PARSE_PROBE)) <= 0) issues.push(`alias ${a} parsed 0 nodes`) } catch (e) { issues.push(`alias ${a} threw: ${e.message}`) }
     }
   }
 
   // MATCH (canonical snippet)
   let matches = 0
   const queryLabel = g.pattern || g.rule.trim().split('\n').join(' ')
-  try { matches = g.pattern ? sc(g.snippet, g.ext, g.pattern) : scRule(g.snippet, g.ext, g.rule) } catch (e) { issues.push(`match threw: ${e.message}`) }
+  try { matches = g.pattern ? await sc(g.snippet, g.ext, g.pattern) : await scRule(g.snippet, g.ext, g.rule) } catch (e) { issues.push(`match threw: ${e.message}`) }
   if (matches < g.min) issues.push(`canonical match got ${matches}, expected >=${g.min} for \`${queryLabel}\``)
 
   // SIGNATURE (signature-tier)

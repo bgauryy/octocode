@@ -76,7 +76,7 @@ for (const ext of allExts) {
   let ast = '—'
   if (structural.has(ext)) {
     let nodes = 0
-    try { nodes = engine.structuralSearch('foo(a)\nbar(b)\n', path, '$$$').length } catch { nodes = -1 }
+    try { nodes = (await engine.structuralSearch('foo(a)\nbar(b)\n', path, '$$$')).length } catch { nodes = -1 }
     if (nodes > 0) ast = '✓'
     else { ast = 'BROKEN'; anomalies.push(`ast ${ext}: in structural list but parsed ${nodes} nodes`) }
   }

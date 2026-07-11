@@ -63,10 +63,10 @@ async function runTextSearch(repoPath, pattern, ext) {
   }
 }
 
-function runStructural(repoPath, pattern, ext) {
+async function runStructural(repoPath, pattern, ext) {
   const start = Date.now();
   try {
-    const r = engine.structuralSearchFiles({
+    const r = await engine.structuralSearchFiles({
       path: repoPath,
       pattern,
       include: [`*.${ext}`],
@@ -80,13 +80,13 @@ function runStructural(repoPath, pattern, ext) {
   }
 }
 
-function runDocumentSymbols(repoPath, filePath) {
+async function runDocumentSymbols(repoPath, filePath) {
   const start = Date.now();
   try {
     const absPath = join(repoPath, filePath);
     const content = readFileSync(absPath, 'utf8');
     const ext = filePath.split('.').pop() ?? 'ts';
-    const r = engine.structuralSearch(content, `probe.${ext}`, '$$$', null);
+    const r = await engine.structuralSearch(content, `probe.${ext}`, '$$$', null);
     const elapsed = Date.now() - start;
     const count = Array.isArray(r) ? r.length : 0;
     return { ok: count > 0, hits: count, elapsed, detail: `${count} nodes parsed` };

@@ -16,11 +16,10 @@ Awareness gives an agent four things that chat history cannot reliably provide:
 SQLite is canonical. `<workspace>/.octocode/` contains authored plan documents and
 generated projections, never a second task database. There is no server or daemon.
 
-The design thesis is a **Homeostatic Awareness Loop**: a human/agent-in-the-loop
-software controller senses coordination, token, verification, memory, projection,
-and harness pressure, then recommends the smallest bounded corrective action. The
-repository is a “living system” only as an operational metaphor—not sentience,
-autonomy, or authority. See [docs/THESIS.md](docs/THESIS.md).
+The **Homeostatic Awareness Loop** senses coordination, verification, memory,
+projection, token, and harness pressure, then recommends one bounded correction.
+“Living system” is an operational metaphor—not sentience or authority. See
+[docs/THESIS.md](docs/THESIS.md).
 
 ## Install
 
@@ -62,10 +61,16 @@ The package bundles every other repo skill under `out/skills/` too, all optional
 installed the same way; run `octocode-awareness --help` or
 `scripts/install.mjs` (see its `bundled_skills` field) for the current, resolved list.
 
-The npm package is one product with two surfaces: the
-`npx @octocodeai/octocode-awareness` CLI and the bundled Agent Skill. For the skill, use the
-packaged `out/skills/octocode-awareness` path; do not use a skill installer’s
-registry/name lookup.
+Published surfaces:
+
+- CLI: `npx @octocodeai/octocode-awareness` → `out/octocode-awareness.js`;
+- import-only library: `@octocodeai/octocode-awareness` → `out/index.js` plus declarations;
+- import-only schema API: `@octocodeai/octocode-awareness/schema` → `out/schema-api.js`;
+- portable Agent Skills under `out/skills/`.
+
+Imports never execute the CLI; Awareness never bundles or delegates to the
+Octocode research CLI. Install the required skill from
+`out/skills/octocode-awareness`, never through registry/name lookup.
 
 For one-off CLI use, prefer `npx @octocodeai/octocode-awareness`. In this monorepo
 after build, use the local package entry
@@ -117,7 +122,12 @@ snapshot. Command flags and payloads come from focused help and schema:
 ```bash
 octocode-awareness <command> --help
 octocode-awareness schema commands --compact
+octocode-awareness schema path get_memory --compact
 ```
+
+`schema path <name>` exposes the matching generated
+`out/schemas/<name>.schema.json` file to an agent. Consumers can import Zod-backed
+contracts from `@octocodeai/octocode-awareness/schema`.
 
 ## Documentation
 
@@ -136,21 +146,18 @@ octocode-awareness schema commands --compact
 - [docs/REFERENCES.md](docs/REFERENCES.md) — evidence, prior art, and design limits
 - [skills/octocode-awareness/SKILL.md](https://github.com/bgauryy/octocode-mcp/blob/main/skills/octocode-awareness/SKILL.md) — agent lobby
 
-The mechanical command source of truth is always:
-
-```bash
-octocode-awareness schema commands --compact
-```
-
 ## Develop and verify
 
 ```bash
 yarn workspace @octocodeai/octocode-awareness build
 yarn workspace @octocodeai/octocode-awareness typecheck
-yarn workspace @octocodeai/octocode-awareness test
+yarn workspace @octocodeai/octocode-awareness test:quiet
 yarn workspace @octocodeai/octocode-awareness test:smoke
 yarn workspace @octocodeai/octocode-awareness pack:check
+yarn workspace @octocodeai/octocode-awareness verify
 ```
 
-Edit the canonical skill only under repo-root `skills/octocode-awareness`; the package build refreshes
-`out/` and `.agents/skills/`. The Pi-extension build owns its packaged copy.
+Edit the canonical skill only under repo-root `skills/octocode-awareness`; the
+package build refreshes its generated runtime/schema helpers, `out/`, and
+`.agents/skills/`. There is no package-local skill source tree. The Pi-extension
+build owns its packaged copy.

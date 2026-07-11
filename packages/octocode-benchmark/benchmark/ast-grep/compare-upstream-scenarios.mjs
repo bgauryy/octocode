@@ -493,10 +493,10 @@ function includeGlobs(testCase) {
   return testCase.extensions.map(ext => `*.${ext}`)
 }
 
-function runRawNativeOnce(corpusDir, testCase, maxFileBytes) {
+async function runRawNativeOnce(corpusDir, testCase, maxFileBytes) {
   const engine = loadEngine()
   const started = performance.now()
-  const result = engine.structuralSearchFiles({
+  const result = await engine.structuralSearchFiles({
     path: corpusDir,
     rule: ruleFor(testCase),
     include: includeGlobs(testCase),
@@ -513,15 +513,15 @@ function runRawNativeOnce(corpusDir, testCase, maxFileBytes) {
   }
 }
 
-function runRawNative(corpusDir, testCase, options) {
-  const warmups = Array.from(
-    { length: options.warmups },
-    () => runRawNativeOnce(corpusDir, testCase, options.maxFileBytes),
-  )
-  const runs = Array.from(
-    { length: options.repeats },
-    () => runRawNativeOnce(corpusDir, testCase, options.maxFileBytes),
-  )
+async function runRawNative(corpusDir, testCase, options) {
+  const warmups = []
+  for (let i = 0; i < options.warmups; i++) {
+    warmups.push(await runRawNativeOnce(corpusDir, testCase, options.maxFileBytes))
+  }
+  const runs = []
+  for (let i = 0; i < options.repeats; i++) {
+    runs.push(await runRawNativeOnce(corpusDir, testCase, options.maxFileBytes))
+  }
   assertStableCounts('octocode raw native', runs)
   assertWarmupCounts('octocode raw native', runs, warmups)
   return summarizeRuns(runs, warmups)
@@ -789,7 +789,7 @@ for (const scenario of scenarios) {
     selectedBytes = corpus.bytes
     hash = corpusHash(files)
     astGrep = runAstGrep(corpus.dir, testCase, options)
-    rawNative = runRawNative(corpus.dir, testCase, options)
+    rawNative = await runRawNative(corpus.dir, testCase, options)
     localSearchCode = await runLocalSearchTool(corpus.dir, testCase, options)
     octocodeCli = runOctocode(octocode, corpus.dir, testCase, options)
     rows.push({
