@@ -51,10 +51,14 @@ test('awareness consolidation: skill, CLI, hooks, and env are the only surfaces'
       encoding: 'utf8', timeout: 5000,
     });
     expect(smoke.status, smoke.stderr || smoke.stdout).toBe(0);
-    const cliCommands = JSON.parse(smoke.stdout).commands as Array<{ command: string }>;
-    expect(cliCommands.length).toBeGreaterThan(10);
+    const cliCommands = JSON.parse(smoke.stdout).commands as Record<string, Record<string, string[]>>;
+    const hasCommand = (command: string) => {
+      const [noun, action] = command.split(' ');
+      return Object.values(cliCommands).some((group) => group[noun!]?.includes(action!));
+    };
+    expect(Object.keys(cliCommands)).toEqual(['core', 'advanced']);
     for (const command of ['memory recall', 'memory record', 'memory forget', 'maintenance digest']) {
-      expect(cliCommands.some((entry) => entry.command === command), `${command} is available through Awareness CLI`).toBe(true);
+      expect(hasCommand(command), `${command} is available through Awareness CLI`).toBe(true);
     }
     for (const h of shutdownHandlers) await h({}, context('session-two'));
     expect(process.env.OCTOCODE_AGENT_ID).toBeUndefined();

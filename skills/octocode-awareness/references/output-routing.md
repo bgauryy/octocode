@@ -23,9 +23,9 @@ never the whole set.
 Empty results stay empty. Lean rows omit absent optional fields and cap repeated
 tags/references with omitted counts. Filter server-side before raising limits.
 
-Generated `.octocode/` files include a prose-free AGENTS map, bounded memory/gotcha/
-lesson/bookmark/developer-review indexes, CSV/HTML/manifest, and one repo map. They are
-snapshots and may contain local paths.
+Generated `.octocode/` files include a lean AGENTS map, optional nonempty bounded
+KNOWLEDGE, and the awareness manifest. They are snapshots and may contain local paths;
+CSV/HTML remain explicit query exports only.
 Generate only after meaningful durable changes or explicit snapshot requests.
 
 Close the owning row: verify work, ack/resolve signals, complete refinements, supersede

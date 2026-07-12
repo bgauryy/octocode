@@ -64,7 +64,7 @@ describe('Awareness out build contract', () => {
       timeout: 10_000,
     });
     expect(schema.status, schema.stderr || schema.stdout).toBe(0);
-    expect(JSON.parse(schema.stdout)).toContain('get_memory');
+    expect(JSON.parse(schema.stdout)).toContain('memory_recall');
 
     const imported = spawnSync(process.execPath, [
       '--input-type=module',

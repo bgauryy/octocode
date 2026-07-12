@@ -179,13 +179,13 @@ it('schema list maps to canonical CLI commands', () => {
     expect(schema.status).toBe(0);
     const listed = JSON.parse(schema.stdout) as string[];
     const commands: Record<string, string> = {
-      tell_memory: 'memory record',
-      get_memory: 'memory recall',
-      pre_flight_intent: 'lock acquire',
-      wait_for_lock: 'lock wait',
-      prune_stale_locks: 'lock prune',
-      release_file_lock: 'lock release',
-      audit_unverified: 'verify audit',
+      memory_record: 'memory record',
+      memory_recall: 'memory recall',
+      lock_acquire: 'lock acquire',
+      lock_wait: 'lock wait',
+      lock_prune: 'lock prune',
+      lock_release: 'lock release',
+      verify_audit: 'verify audit',
       verify: 'verify mark',
       forget_memory: 'memory forget',
       memory_lifecycle: 'memory archive',
@@ -206,7 +206,7 @@ it('schema list maps to canonical CLI commands', () => {
       reflect: 'reflect record',
       attend: 'attend',
       query: 'query',
-      repo_inject: 'wiki sync',
+      wiki_sync: 'wiki sync',
       plan: 'plan create',
       task: 'task create',
       work: 'work start',
@@ -221,7 +221,7 @@ it('schema list maps to canonical CLI commands', () => {
       'docs_catalog',
       'workspace_status',
       'export_harness',
-      'audit_unverified',
+      'verify_audit',
     ]));
     for (const key of listed) {
       const command = commands[key];

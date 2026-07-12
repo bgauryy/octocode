@@ -20,7 +20,7 @@ Useful filters:
 - Time/value: `--as-of`, `--min-importance`, `--limit`, `--sort`.
 - Judgment: `--smart`, `--semantic`, `--explain`; explain adds score components and effective `applied_filters` after widening.
 
-Use `schema json-schema get_memory` when payload fields matter. CLI flags and schema names can differ, such as `--file` versus stored arrays.
+Use `schema command memory recall` when payload fields matter. CLI flags and schema property names can differ, such as `--file` versus stored arrays.
 
 ## Automatic Prompt-Time Lead
 

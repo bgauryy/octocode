@@ -14,6 +14,7 @@ const scriptsDir = dirname(fileURLToPath(import.meta.url));
 const skillRoot = dirname(scriptsDir);
 const bundledSkillsDir = dirname(skillRoot);
 const args = new Set(process.argv.slice(2));
+const compact = args.delete("--compact");
 const nodeBin = process.execPath;
 const quote = (value) => JSON.stringify(value);
 const awarenessCommand = `${quote(nodeBin)} ${quote(join(scriptsDir, "awareness.mjs"))}`;
@@ -21,7 +22,7 @@ const schemaCommand = `${quote(nodeBin)} ${quote(join(scriptsDir, "schema.mjs"))
 
 // Discovered at runtime — a sibling of this skill's own folder — so this list
 // can never silently drift from whatever build.mjs actually bundled here.
-const REQUIRED_BUNDLED_SKILLS = new Set(["octocode-awareness", "octocode-skills"]);
+const REQUIRED_BUNDLED_SKILLS = new Set(["octocode-awareness"]);
 function discoverBundledSkills(dir) {
   if (!existsSync(dir)) return [];
   return readdirSync(dir, { withFileTypes: true })
@@ -36,7 +37,7 @@ function discoverBundledSkills(dir) {
 const bundledSkills = discoverBundledSkills(bundledSkillsDir);
 
 function printHelp() {
-  console.log(`Usage: node scripts/install.mjs [--help]
+  console.log(`Usage: node scripts/install.mjs [--compact] [--help]
 
 Check the octocode-awareness standalone runtime and print the host hook init flow.
 The package bundles every runtime dependency. This script never installs packages
@@ -44,6 +45,7 @@ or writes Codex/Cursor/Claude hook config; preview and install hooks with
 scripts/awareness.mjs after explicit user approval.
 
 Options:
+  --compact     Print one bounded agent receipt.
   --help, -h    Show this help.
 
 Examples:
@@ -94,7 +96,7 @@ function ensureRuntime() {
 }
 
 function runSmokeChecks() {
-  const schema = run(nodeBin, [join(scriptsDir, "schema.mjs"), "example", "tell_memory"], {
+  const schema = run(nodeBin, [join(scriptsDir, "schema.mjs"), "example", "memory_record"], {
     cwd: scriptsDir,
     capture: true,
   });
@@ -104,7 +106,7 @@ function runSmokeChecks() {
 
   const validate = spawnSync(
     nodeBin,
-    [join(scriptsDir, "schema.mjs"), "validate", "tell_memory", "-"],
+    [join(scriptsDir, "schema.mjs"), "validate", "memory_record", "-"],
     {
       cwd: scriptsDir,
       input: schema.stdout,
@@ -134,6 +136,16 @@ function runSmokeChecks() {
 ensureRuntime();
 runSmokeChecks();
 
+if (compact) {
+  console.log(JSON.stringify({
+    ok: true,
+    required_skills: bundledSkills.filter((skill) => skill.required).map((skill) => skill.name),
+    optional_skill_count: bundledSkills.filter((skill) => !skill.required).length,
+    next: "Run maintenance init once, then attend --compact.",
+  }));
+  process.exit(0);
+}
+
 console.log(
   JSON.stringify(
     {
@@ -157,7 +169,7 @@ console.log(
         pi_bridge: "import { wirePiAwarenessHooks } from '@octocodeai/octocode-awareness'; wirePiAwarenessHooks(pi, { skillRoot })",
       },
       next_steps: [
-        `This package bundles ${bundledSkills.length} skill(s) under bundled_skills above (octocode-awareness + octocode-skills are required, the rest optional); install any of them with npx octocode skill --add --path <bundled_skills[i].path> --platform common.`,
+        `This package bundles ${bundledSkills.length} skill(s) under bundled_skills above (only octocode-awareness is required; the rest are optional); install any optional skill with npx octocode skill --add --path <bundled_skills[i].path> --platform common.`,
         "Use npx octocode for skill install/update/lint and research/search operations; do not fetch bundled skills by registry name — always install from the bundled path above.",
         "Export one stable OCTOCODE_AGENT_ID for the CLI and host hooks.",
         "Run maintenance init once for the store, then workspace status and attend from each repo.",

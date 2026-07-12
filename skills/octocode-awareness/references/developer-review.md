@@ -27,8 +27,8 @@ One call writes a tagged durable memory and an `instructions` refinement. The co
 - Human-readable: `reflect developer-review --format markdown`.
 - Script/API: `query developer-review` JSON.
 - Workboard: `DeveloperReview` column for open feedback.
-- Published snapshot: `.octocode/DEVELOPER_REVIEW.md` after `wiki sync`; never hand-edit.
+- File readers get only the generic bounded knowledge projection; inspect instruction feedback through the live views above.
 
-After updating the owning instruction, verify the changed behavior. Close the same row with `refinement set --refinement-id <id> --agent-id "$OCTOCODE_AGENT_ID" --state done --check-receipt "<check and result>"`. Inject only if file readers need refreshed Open/Resolved output.
+After updating the owning instruction, verify the changed behavior. Close the same row with `refinement set --refinement-id <id> --agent-id "$OCTOCODE_AGENT_ID" --state done --check-receipt "<check and result>"`. Re-run the live view to confirm closure.
 
 Package maintainers: use this channel if Awareness's own instructions misled the agent. Strong, closed feedback should reduce repeat items.

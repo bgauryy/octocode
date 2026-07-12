@@ -24,10 +24,9 @@ Run the declared check while presence/locks remain active. Then `task submit` or
 | A human needs bulk inspection | Run `query all --workspace "$PWD" --format html --out .octocode/awareness/index.html`. |
 | Instructions caused a wrong turn | Run `reflect developer-review --workspace "$PWD"`; close the same feedback row after the instruction fix is verified. |
 
-Wiki map after inject: `AGENTS.md` entry · `GOTCHAS.md` traps · `LEARN.md` lessons ·
-`MEMORY.md` index · `BOOKMARKS.md` resources · `DEVELOPER_REVIEW.md` instruction
-feedback. SQLite is canonical; `references/repo-context-management.md` owns root
-pointer permissions and publication details.
+Wiki sync publishes a lean `AGENTS.md`, optional nonempty bounded `KNOWLEDGE.md`, and
+`awareness/manifest.json`. SQLite is canonical; `references/repo-context-management.md`
+owns root pointer permissions and publication details.
 
 ## Hard ideas
 

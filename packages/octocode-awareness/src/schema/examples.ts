@@ -1,6 +1,6 @@
 /* v8 ignore file -- exercised through built CLI and isolated-package subprocess tests */
 export const examples = {
-  tell_memory: {
+  memory_record: {
     agent_id: "agent",
     task_context: "task",
     observation: "lesson",
@@ -16,7 +16,7 @@ export const examples = {
     file_tree_fingerprint: "git:HEAD",
     failure_signature: "sig",
   },
-  get_memory: {
+  memory_recall: {
     query: "task",
     limit: 3,
     min_importance: 4,
@@ -53,7 +53,7 @@ export const examples = {
     include_bodies: false,
     explain_organ: false,
   },
-  repo_inject: {
+  wiki_sync: {
     workspace_path: "/repo",
     out_dir: "/repo/.octocode",
     mode: "local",
@@ -78,7 +78,7 @@ export const examples = {
     ref: "main",
     reason: "handoff",
   },
-  pre_flight_intent: {
+  lock_acquire: {
     agent_id: "agent",
     workspace: "/repo",
     artifact: "pkg",
@@ -116,7 +116,7 @@ export const examples = {
     exclusive: false,
     ttl_minutes: 10,
   },
-  wait_for_lock: {
+  lock_wait: {
     agent_id: "agent",
     workspace: "/repo",
     artifact: "pkg",
@@ -124,7 +124,7 @@ export const examples = {
     wait_seconds: 120,
     retry_interval: 5,
   },
-  prune_stale_locks: {
+  lock_prune: {
     older_than_minutes: 20,
     expired_only: false,
     workspace: "/repo",
@@ -159,7 +159,7 @@ export const examples = {
     workspace: "/repo",
     artifact: "pkg",
   },
-  release_file_lock: {
+  lock_release: {
     agent_id: "agent",
     run_id: "run_abc123",
     workspace: "/repo",
@@ -175,7 +175,7 @@ export const examples = {
     status: "SUCCESS",
     message: "test passed",
   },
-            audit_unverified: {
+            verify_audit: {
               agent_id: "agent",
               workspace: "/repo",
               artifact: "pkg",

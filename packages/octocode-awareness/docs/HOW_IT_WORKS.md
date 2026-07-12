@@ -45,7 +45,7 @@ Each layer has one job:
    surface verification debt. They never choose goals, create a plan, decide a lock
    is warranted, mark tests successful, or turn memory into authority.
 5. **Human docs and `.octocode/` are read surfaces.** Authored plan documents explain
-   intent. Generated wiki/memory/HTML/manifest output is a bounded snapshot that
+   intent. Generated AGENTS/KNOWLEDGE/manifest output is a bounded snapshot that
    routes readers back to live commands; it is never canonical state.
 
 Authority descends from current user instructions and current source/tests, to live
@@ -246,9 +246,10 @@ The memory lifecycle is deliberately conservative:
 5. Correct facts with `--supersedes`; archive reversibly; hard-forget only after a
    narrow dry-run and review.
 
-`query <view>` reads the live DB. `wiki sync` publishes bounded Markdown, CSV,
-HTML, and a manifest under `.octocode/`. Generated files are leads and may contain
-machine-local paths; current source/tests/user instructions always win.
+`query <view>` reads the live DB. `wiki sync` publishes lean AGENTS, optional nonempty
+bounded KNOWLEDGE, and a manifest under `.octocode/`. Explicit query exports provide
+CSV/HTML when requested. Generated files are leads and may contain machine-local paths;
+current source/tests/user instructions always win.
 
 ## Completion Contract
 

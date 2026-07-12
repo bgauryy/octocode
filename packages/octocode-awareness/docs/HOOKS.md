@@ -181,9 +181,10 @@ Environment controls, read identically by every host (shell hooks and Pi share
 | `OCTOCODE_SKILL_ROOT` | Skill root the pre-edit guard checks edits against; exported by the shell wrapper, or passed to `wirePiAwarenessHooks`/`createPiAwarenessBridge` for Pi. Guard is a no-op when unset. |
 | `OCTOCODE_HARNESS_BRANCH_OK=1` | Acknowledge a detached/non-repo skill root when the branch cannot be confirmed. |
 
-Installer-managed, not for manual tuning: `OCTOCODE_AGENT_HOST` and `OCTOCODE_NODE_BIN`
-are written into the generated hook command by `hooks install` so the shared runner
-knows which host/Node binary invoked it.
+Invocation plumbing, not ordinary agent configuration: project hooks pass `--host`
+and invoke the resolved Node executable directly. Claude skill wrappers instead accept
+`OCTOCODE_NODE_BIN` when the host environment must override `node`; host payloads or
+the runner's Claude default identify that surface.
 
 Shell/Pi parity, wrapper extraction, installer repair, peer dedupe, guard order, and
 verification caps are covered by focused tests.

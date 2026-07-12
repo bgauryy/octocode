@@ -43,6 +43,13 @@ function runSource(args: string[], opts: {
 }
 
 describe('source CLI regressions', () => {
+  it('advertises every supported schema discovery route', () => {
+    const result = runSource(['schema', '--help']);
+    expect(result.status, result.stderr || result.stdout).toBe(0);
+    expect(result.stdout).toContain('path <name>');
+    expect(result.stdout).toContain('command <noun> [action]');
+  });
+
   it('hard-errors on a missing --db path before opening the canonical store', () => {
     const dir = mktemp();
     try {

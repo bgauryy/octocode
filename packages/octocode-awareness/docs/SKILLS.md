@@ -63,7 +63,7 @@ Follow `attend.next`. Load inventories only when the next action needs them.
 | `.octocode/` | Discover authored plan docs and bounded generated snapshots when live SQLite is unavailable to a reader. |
 
 Agents should begin with `attend`, not by reading all of `.octocode/`. A plan document
-may explain intent; generated memory/wiki/manifest/HTML files only identify targeted
+may explain intent; generated AGENTS/KNOWLEDGE/manifest files only identify targeted
 `memory recall`, `query`, or `docs show` calls. Never hand-edit projections.
 
 When the host supports delegation, batch routine deterministic Awareness CLI operations

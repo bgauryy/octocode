@@ -17,7 +17,7 @@ vars inline per command — an open stdin hangs instead of failing, and a droppe
 | Tasks and verify | dependency block/unblock; submit/mark/audit | predecessor stays blocked until verified; zero final debt |
 | Communication | register; signal publish/list/reply/ack/resolve; refinement lifecycle | recipient/thread/unread ownership holds; unrelated work is preserved |
 | Memory and reflection | record/recall/supersede/archive/restore; reflect record | scoped/ranked SQLite truth; immutable replacement history; current evidence wins |
-| Wiki | inject; manifest; source-revision comparison; local/share review | bounded/stale-aware projection; `manifest.source.canonical` matches the run's real `db_path`; live work is not treated as wiki truth |
+| Wiki | sync; manifest; source-revision comparison; local/share review | bounded/stale-aware projection; `manifest.source.canonical` matches the run's real `db_path`; live work is not treated as wiki truth |
 | Hooks | strict check; harmless observed host event; lifecycle edge | config ready and runtime observed; guard/presence/audit/finalize parity |
 | Skill | docs list/show; bundled-skill inspection; skill review | live-state routing, manual fallback, no secret handling, focused owners |
 | Token delivery | compact tests; unchanged repeat; changed signal/peer/memory lead | stable state silent; one bounded decision packet; full details queryable |

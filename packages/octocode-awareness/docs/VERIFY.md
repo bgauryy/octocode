@@ -167,7 +167,7 @@ Scope: quick | installed | host:<name> | monorepo | release
 Runtime: node=<version> awareness=<version/path> workspace=<path>
 Checks: <command/lane>=<exit + decisive signal>; ...
 Hooks: config=<ready|missing|drifted|n/a> runtime=<observed|unverified|n/a>
-Wiki: inject=<generated|stale|not_run> manifest_complete=<true|false|n/a>
+Wiki: sync=<generated|stale|not_run> manifest_complete=<true|false|n/a>
 Debt: pending=<count> active=<count> locks=<count>
 Blocked/skipped: <none or exact prerequisite + next action>
 Evidence: <test counts, coverage, smoke receipt, relevant paths>

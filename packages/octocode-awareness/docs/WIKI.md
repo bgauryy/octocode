@@ -68,7 +68,7 @@ This replaces the generated `MEMORY.md`, `GOTCHAS.md`, `LEARN.md`, `BOOKMARKS.md
 `DEVELOPER_REVIEW.md`, default CSV/HTML, and repo-map outputs. Existing generated
 files appear as reviewed orphan candidates; rerun with `--prune-orphans` only after
 confirming them. Authored `.octocode/plan/**` and unknown `.octocode/` content are
-preserved. Explicit `query --format csv|html --output <path>` exports remain supported.
+preserved. Explicit `query --format csv|html --out <path>` exports remain supported.
 
 Active run files, locks, signals, and tasks remain live-query concerns; do not dump
 them into every Markdown projection.

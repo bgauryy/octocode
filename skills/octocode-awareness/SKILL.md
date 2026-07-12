@@ -40,6 +40,6 @@ Loop: `attend -> work start -> edit/check -> work end -> verify mark -> verify a
 - **Maintenance/contracts:** maintenance and schema commands/list/path/json-schema/example/validate. When cleaning/learning, load `references/bookkeeping.md` for pressure gates.
 - **Recipes:** when a start, finish, or command recipe is unknown, load `references/agent-cheatsheet.md`; unknown owner only: `docs list --compact`, then `docs show <name>`.
 - **Skill evolution:** when shipping a skill change, load `references/skill-evolution.md`; use `octocode-eval` for goal/KPI, `octocode-research` for evidence, and `octocode-skills` for review.
-Scripts: use `scripts/awareness.mjs` for fallback, `scripts/schema.mjs` for contracts, `scripts/hook-runner.mjs` for events, `scripts/extract-hook-files.mjs` for paths, `scripts/install.mjs` for diagnosis; run `scripts/smoke-multi-agent.mjs` when validating coordination.
+Scripts: use `scripts/awareness.mjs` for fallback, `scripts/schema.mjs` for contracts, `scripts/hook-runner.mjs` for events, `scripts/extract-hook-files.mjs` for paths, `scripts/install.mjs --compact` for diagnosis; run `scripts/smoke-multi-agent.mjs` when validating coordination.
 ## Installation and first activation
 Load `README.md`; initialize once, then `attend`. Claude uses frontmatter; do not install duplicate project hooks. When configuring Codex/Cursor, load `references/hooks.md`; Pi uses its bridge. Rebuild with `yarn workspace @octocodeai/octocode-awareness build`; never edit mirrors.

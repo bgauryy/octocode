@@ -165,7 +165,7 @@ describe('runAwarenessToolOperation', () => {
       expect(view.payload).toMatchObject({ ok: true, path: htmlPath });
       expect(existsSync(htmlPath)).toBe(true);
 
-      const injected = run(db, 'repo_inject', { workspace_path: dir, out_dir: join(dir, '.octocode'), mode: 'local', check: false }, dir);
+      const injected = run(db, 'wiki_sync', { workspace_path: dir, out_dir: join(dir, '.octocode'), mode: 'local', check: false }, dir);
       expect((injected.payload as { files: string[] }).files.some(file => file.endsWith('AGENTS.md'))).toBe(true);
 
       const forgotten = run(db, 'forget', { memory_id: memoryId, dry_run: true, workspace_path: dir }, dir);
@@ -212,7 +212,7 @@ describe('runAwarenessToolOperation', () => {
       }, dir);
       expect(pending.exitCode).toBe(0);
 
-      const audit = run(db, 'audit_unverified', {}, dir);
+      const audit = run(db, 'verify_audit', {}, dir);
       expect(audit.exitCode).toBe(1);
       expect((audit.payload as { count: number }).count).toBe(1);
 
@@ -309,7 +309,7 @@ describe('runAwarenessToolOperation', () => {
       db.prepare('DELETE FROM locks WHERE run_id = ?').run(staleTask);
       db.prepare('UPDATE run_files SET expires_at = ? WHERE run_id = ?')
         .run('2000-01-01T00:00:00Z', staleTask);
-      const staleAudit = run(db, 'audit_unverified', {}, dir);
+      const staleAudit = run(db, 'verify_audit', {}, dir);
       expect(staleAudit.exitCode).toBe(1);
       expect(staleAudit.payload).toHaveProperty('stale_active');
 

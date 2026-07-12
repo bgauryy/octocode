@@ -212,7 +212,7 @@ describe('structured domain errors (finding 3)', () => {
       expect(r.parsed?.['ok']).toBe(false);
       expect(r.parsed?.['error']).toContain('--importance');
       expect(r.parsed?.['command']).toBe('memory record');
-      expect(String(r.parsed?.['schema'])).toContain('schema json-schema tell_memory');
+      expect(String(r.parsed?.['schema'])).toContain('schema json-schema memory_record');
       expect(String(r.parsed?.['example'])).toContain('memory record');
     } finally {
       rmSync(tmp, { recursive: true, force: true });
@@ -236,7 +236,7 @@ describe('structured domain errors (finding 3)', () => {
       expect(r.status).toBe(1);
       expect(r.parsed?.['ok']).toBe(false);
       expect(r.parsed?.['command']).toBe('memory record');
-      expect(String(r.parsed?.['schema'])).toContain('tell_memory');
+      expect(String(r.parsed?.['schema'])).toContain('memory_record');
     } finally {
       rmSync(tmp, { recursive: true, force: true });
     }

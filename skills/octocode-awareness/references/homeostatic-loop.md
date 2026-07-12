@@ -32,4 +32,4 @@ The loop closes only when its output has an owner, is applied, freshly verified,
 - Keep agent context bounded; use targeted query, CSV, or HTML for complete data.
 - Treat memory, generated wiki, drive fields, and role dialogue as diagnostic leads; current user instructions, source, and tests win.
 
-Start with `attend --compact`; inspect targeted pressure; use reflection only for reusable outcomes; preview cleanup; re-run live reads after action; inject only when file readers need a snapshot.
+Start with `attend --compact`; inspect targeted pressure; use reflection only for reusable outcomes; preview cleanup; re-run live reads after action; sync only when file readers need a snapshot.

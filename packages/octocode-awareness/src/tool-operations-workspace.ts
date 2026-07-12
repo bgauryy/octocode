@@ -106,7 +106,7 @@ case 'refine_get': {
       });
       return { payload: { count: refinements.length, refinements }, exitCode: 0 };
     }
-case 'audit_unverified': {
+case 'verify_audit': {
       const result = auditUnverified(db, {
         agentId,
         workspacePath: cwd,

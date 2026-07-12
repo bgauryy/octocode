@@ -122,7 +122,7 @@ snapshot. Command flags and payloads come from focused help and schema:
 ```bash
 octocode-awareness <command> --help
 octocode-awareness schema commands --compact
-octocode-awareness schema path get_memory --compact
+octocode-awareness schema path memory_recall --compact
 ```
 
 `schema path <name>` exposes the matching generated

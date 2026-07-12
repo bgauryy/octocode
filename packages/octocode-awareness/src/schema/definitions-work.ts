@@ -77,7 +77,7 @@ task: z
       if (value.action === "show" && value.target_files.length !== 1) ctx.addIssue({ code: "custom", path: ["target_files"], message: "exactly one target file is required for show" });
     })
     .describe("Declare, heartbeat, inspect, or end advisory file work; exclusivity is opt-in."),
-  wait_for_lock: z
+  lock_wait: z
     .object({
       agent_id: agentId.describe("Waiting agent."),
       workspace: workspacePath.optional(),
@@ -88,7 +88,7 @@ task: z
     })
     .strict()
     .describe("Wait for locks."),
-  prune_stale_locks: z
+  lock_prune: z
     .object({
       older_than_minutes: z.number().int().min(1).max(10080).default(20),
       expired_only: z.boolean().default(false),
@@ -154,7 +154,7 @@ task: z
     })
     .strict()
     .describe("Prune/archive/reindex."),
-  release_file_lock: z
+  lock_release: z
     .object({
       agent_id: agentId,
       run_id: z.string().trim().min(1).max(128).optional(),
@@ -198,7 +198,7 @@ task: z
       }
     })
     .describe("Mark verified."),
-  audit_unverified: z
+  verify_audit: z
     .object({
       agent_id: agentId,
       workspace: workspacePath.optional(),

@@ -34,12 +34,12 @@ npx octocode skill --add \
 
 `common` installs to `~/.agents/skills`; use `claude`, `cursor`, `codex`, or `pi`
 when the target host does not scan that shared directory. Run
-`node "$(npm root --global)/@octocodeai/octocode-awareness/out/skills/octocode-awareness/scripts/install.mjs"`
+`node "$(npm root --global)/@octocodeai/octocode-awareness/out/skills/octocode-awareness/scripts/install.mjs" --compact`
 to verify the bundled runtime and receive cwd-independent next commands.
 
-The package also bundles sibling `octocode-skills` for skill install/review/
-improvement. Install both skills from their packaged paths; do not depend on
-registry/name lookup.
+The package also bundles optional sibling `octocode-skills` for skill install,
+review, and improvement. Install it from its packaged path only when that work is
+needed; do not depend on registry/name lookup.
 
 ## Features
 

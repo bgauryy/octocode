@@ -41,7 +41,7 @@ PreCompact, or SessionEnd finalizes it once to PENDING. PreCompact keeps the ses
 reusable; SessionEnd marks it ended. Stop output caps debt; Pi may remind instead of
 block. `verify audit` lists debt (exit **1** when debt remains).
 If deliberately using `verify mark --all-pending`, scope it by workspace.
-`verify audit --abandon` is only for real abandonment.
+For proven abandonment, mark the exact run `FAILED`; `verify audit` remains read-only.
 
 Presence/lock expiry never moves a live TASK run to PENDING. Task claim expiry is a
 separate atomic lifecycle that fails its attempt and returns the task to OPEN.

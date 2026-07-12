@@ -11,7 +11,7 @@ export type AwarenessToolOperation =
   | 'reflect'
   | 'workspace_status'
   | 'refine_get'
-  | 'audit_unverified'
+  | 'verify_audit'
   | 'verify'
   | 'digest'
   | 'forget'
@@ -22,7 +22,7 @@ export type AwarenessToolOperation =
   | 'attend'
   | 'query'
   | 'view'
-  | 'repo_inject';
+  | 'wiki_sync';
 export interface AwarenessToolOperationContext {
   agentId?: string | null;
   cwd?: string | null;

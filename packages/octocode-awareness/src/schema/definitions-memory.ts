@@ -7,7 +7,7 @@ import {
 } from './common.js';
 
 export const memorySchemas = {
-tell_memory: z
+memory_record: z
     .object({
       agent_id: agentId,
       task_context: nonEmptyText("Source task.", 1000),
@@ -55,7 +55,7 @@ tell_memory: z
     })
     .strict()
     .describe("Record a memory."),
-  get_memory: z
+  memory_recall: z
     .object({
       query: z.string().trim().max(1000).default("").describe("Recall query."),
       limit: z.number().int().min(1).max(50).default(3),
@@ -161,7 +161,7 @@ tell_memory: z
     })
     .strict()
     .describe("Build a bounded read-only lobby: actionable workboard state, relevant evidence/gaps, and one next command; noncompact mode adds diagnostics."),
-  repo_inject: z
+  wiki_sync: z
     .object({
       workspace_path: workspacePath.optional().describe("Workspace filter."),
       artifact: artifactScope.optional(),
@@ -212,7 +212,7 @@ tell_memory: z
     })
     .strict()
     .describe("Capture session handoff."),
-  pre_flight_intent: z
+  lock_acquire: z
     .object({
       agent_id: agentId,
       workspace: z.string().trim().min(1).max(1024).optional().describe("Workspace scope."),

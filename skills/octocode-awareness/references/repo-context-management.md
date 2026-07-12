@@ -4,9 +4,9 @@ Use this when publishing, sharing, debugging, or linking workspace `.octocode/` 
 
 Canonical data lives in global `~/.octocode/memory/awareness.sqlite3`. `query <view>` is the live read API.
 
-`wiki sync` publishes selected DB state as bounded Markdown, CSV, HTML, manifest, and references under the workspace. Never hand-edit generated files; fix the DB/source, then regenerate.
+`wiki sync` publishes selected DB state as bounded Markdown plus its manifest under the workspace. Never hand-edit generated files; fix the DB/source, then regenerate.
 
-Six wiki files, their SQLite source, and how they relate to each other: `references/wiki-files-map.md`.
+Minimal projection files, their SQLite source, and relationships: `references/wiki-files-map.md`.
 
 ## When To Sync
 
@@ -18,8 +18,8 @@ Skip sync for routine edits, transient locks, or every signal. Active work shoul
 octocode-awareness wiki sync --workspace "$PWD" --out .octocode --mode local --compact
 ```
 
-Relative output paths resolve under `--workspace`. Markdown is capped; overflow points to full CSV/HTML/query rows. Use `query files` before trusting old file references.
-The manifest stores a live-source revision. `attend` warns when SQLite would generate a different snapshot. Injection reports retired manifest-owned files as `orphan_candidates`; rerun with `--prune-orphans` only after review. Unknown files and `.octocode/plan/**` are never removed.
+Relative output paths resolve under `--workspace`. Markdown is capped; use explicit query CSV/HTML exports or live rows for depth. Use `query files` before trusting old file references.
+The manifest stores a live-source revision. `attend` warns when SQLite would generate a different snapshot. Sync reports retired manifest-owned files as `orphan_candidates`; rerun with `--prune-orphans` only after review. Unknown files and `.octocode/plan/**` are never removed.
 
 ## Share Policy
 

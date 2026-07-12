@@ -12,7 +12,7 @@ A loop is closed only when its output has an owner, an applied action, fresh ver
 | Reusable outcome | `reflect record --lesson` | later `attend` / `memory recall` | Re-check; supersede/forget when stale. |
 | Repo/code fix | `--fix-repo` refinement | `refinement get --state open` | Apply, verify, then close with agent and check receipt. |
 | Harness gap | `--fix-harness` memory | `reflect export-harness` | Human applies; skill review/tests; re-reflect. |
-| Bad instructions | `--fix-instructions` | `reflect developer-review` | Update instructions; mark done; optional inject. |
+| Bad instructions | `--fix-instructions` | `reflect developer-review` | Update instructions; mark done; confirm the live view. |
 | Repeated failure | `--failure-signature` / `--eval-failure-json` | `reflect mine-weakness` | One cluster → one fix → re-reflect same signature. |
 | Role prompts | `reflect record --duo` | one internal dialogue | Capture synthesis only. |
 | Independent challenge | rubber-duck subagent | main revises + next check | Never treat agreement as proof. |
@@ -25,19 +25,17 @@ Terminal recipe: `refinement set --refinement-id <id> --agent-id "$OCTOCODE_AGEN
 
 Capture so errors cluster: `reflect record --outcome failed --failure-signature "<stable key>" --lesson "…"`. Stable key = `test:<name>` or `<class>:<site>`, not the full message. Bulk: `--eval-failure-json '[...]'`. Mine with `reflect mine-weakness`; route `--fix-repo|harness|instructions`; re-reflect with the **same** signature. `--outcome` must be `worked|partial|failed`.
 
-## Label → wiki (after `wiki sync`)
+## Durable output (after `wiki sync`)
 
 | Write with | Lands in |
 |---|---|
-| `--label GOTCHA` or `--failure-signature` | `.octocode/GOTCHAS.md` |
-| `--lesson` / `DECISION`/`ARCHITECTURE`/`WORKFLOW`/… | `.octocode/LEARN.md` |
-| any durable memory | `.octocode/MEMORY.md` |
-| `--reference` (URL/repo/doc — external) | `.octocode/BOOKMARKS.md` |
-| `--reference file:…` / `--file` (local path) | `Refs:`/`Missing refs:` lines above, `query files` — never `BOOKMARKS.md` |
-| `--fix-instructions` | `.octocode/DEVELOPER_REVIEW.md` |
-| digest of the above | `.octocode/AGENTS.md` |
+| Verified reusable knowledge, gotchas, lessons, or external references | bounded `.octocode/KNOWLEDGE.md` when nonempty |
+| Local `--reference file:…` / `--file` paths | live `query files`; projection only when the selected knowledge lead includes them |
+| `--fix-instructions` feedback | live `reflect developer-review` / `query developer-review`; not projected by default |
+| Discovery and command routing | lean `.octocode/AGENTS.md` |
+| Projection ownership/completeness | `.octocode/awareness/manifest.json` |
 
-SQLite is canonical; inject only when file readers need refresh. Relation between these six files: `references/wiki-files-map.md`.
+SQLite is canonical; sync only when file readers need refresh. Current projection ownership: `references/wiki-files-map.md`.
 
 ## Sequence
 

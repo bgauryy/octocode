@@ -5,7 +5,7 @@ context. `AGENTS.md` routes maintainers; the Awareness skill owns operating poli
 the CLI owns live state and contracts; hooks automate lifecycle edges; package docs
 own architecture and feature depth.
 
-## Enter
+## Enter 
 
 Activate `octocode-awareness`, export one stable identity, then ask live state for
 the next action:

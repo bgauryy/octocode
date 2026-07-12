@@ -80,7 +80,7 @@ describe('production guidance contract', () => {
     expect(existsSync(resolve(SKILL_ROOT, 'scripts/install-hooks.mjs'))).toBe(false);
     expect(existsSync(resolve(SKILL_ROOT, 'scripts/package.json'))).toBe(false);
     const install = read(resolve(SKILL_ROOT, 'scripts/install.mjs'));
-    expect(install).not.toMatch(/npm install|check-only|skip-deps|findNpm|installDependencies/);
+    expect(install).not.toMatch(/npm install|check-only|skip-deps|findNpm|installDependencies|REQUIRED_BUNDLED_SKILLS[^\n]*octocode-skills/);
   });
   it('makes Pi advisory-first and reserves exclusivity for sensitive files', () => {
     const skillsPrompt = read(resolve(REPO_ROOT, 'packages/octocode-pi-extension/src/prompts/sections/skills.md'));

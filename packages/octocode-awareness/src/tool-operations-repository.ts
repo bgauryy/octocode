@@ -60,7 +60,7 @@ case 'view': {
       });
       return { payload: result, exitCode: 0 };
     }
-case 'repo_inject': {
+case 'wiki_sync': {
       const result = injectRepoContext(db, {
         workspacePath: (request['workspace_path'] as string | undefined) ?? cwd,
         artifact: request['artifact'] as string | undefined,

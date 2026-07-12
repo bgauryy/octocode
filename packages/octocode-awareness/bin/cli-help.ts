@@ -9,14 +9,14 @@ lifecycle: [--valid-from <iso>] [--valid-to <iso>] [--failure-signature <key>]
 example: octocode-awareness memory record --agent-id agent --task-context "build failure" --observation "Run yarn build before tests" --importance 7 --label GOTCHA --workspace "$PWD" --compact
 note: unknown --label values hard-error
 note: --supersedes atomically records a replacement and preserves the replaced row as history
-schema: octocode-awareness schema json-schema tell_memory --compact`,
+schema: octocode-awareness schema json-schema memory_record --compact`,
   'get-memory': `usage: octocode-awareness memory recall [options]
 filters: [--query <text>] [--limit <n>] [--min-importance <n>] [--label <l>]... [--tag <t>]... [--reference <r>]... [--file <p>]... [--regex <r>]... [--file-regex <r>]...
 scope: [--workspace <p>] [--artifact <a>] [--repo <r>] [--ref <r>] [--strict-scope] [--global-only]
 rank: [--smart] [--sort smart|score|importance|recent|accessed] [--state ACTIVE|SUPERSEDED]... [--as-of <iso>] [--semantic] [--explain]
 output: lean/truncated by default; --full restores full memory rows
 example: octocode-awareness memory recall --query "current task" --workspace "$PWD" --smart --compact
-schema: octocode-awareness schema json-schema get_memory --compact`,
+schema: octocode-awareness schema json-schema memory_recall --compact`,
   'memory-archive': `usage: octocode-awareness memory archive --memory-id <id>... [--workspace <p>] [--artifact <a>] [--repo <r>] [--ref <r>] [--dry-run]
 example: octocode-awareness memory archive --memory-id mem_123 --dry-run --compact
 note: reversible archive hides ACTIVE recall while preserving the row; preview first
@@ -46,7 +46,7 @@ example: octocode-awareness lock acquire --agent-id agent --target-file src/file
 note: lock acquire is exclusive protection for sensitive work; ordinary work uses work start
 note: --run-id attaches exclusive protection to a claimed task run
 note: export OCTOCODE_AGENT_ID for CLI+hooks; --strict-agent-id / OCTOCODE_STRICT_AGENT_ID=1 hard-fails when missing
-schema: octocode-awareness schema json-schema pre_flight_intent --compact`,
+schema: octocode-awareness schema json-schema lock_acquire --compact`,
   'agent-signal': `usage: octocode-awareness signal publish|list|reply|ack|resolve --agent-id <id> [--to-agent <id>]... [--signal-id <id>]... [--thread-id <id>] [--kind <k>] [--subject <t>] [--body <t>] [--file <p>]...
 examples:
   octocode-awareness signal list --agent-id agent --workspace "$PWD" --limit 3 --compact
@@ -82,7 +82,7 @@ schema: octocode-awareness schema json-schema attend --compact`,
   'repo-inject': `usage: octocode-awareness wiki sync [--workspace <repo>] [--out .octocode] [--mode local|share] [--no-check] [--no-include-view] [--prune-orphans]
 example: octocode-awareness wiki sync --workspace "$PWD" --out .octocode --mode local --compact
 note: review orphan_candidates before rerunning with --prune-orphans
-schema: octocode-awareness schema json-schema repo_inject --compact`,
+schema: octocode-awareness schema json-schema wiki_sync --compact`,
   'docs-catalog': `usage: octocode-awareness docs list|show [name] [--full]
 examples:
   octocode-awareness docs list --compact
@@ -116,9 +116,10 @@ schema: octocode-awareness schema json-schema work --compact`,
 payload: host JSON on stdin; common fields are cwd/workspace, session_id, tool_name, and tool_input/path
 store: hook run intentionally rejects --db; set OCTOCODE_MEMORY_HOME to select the hook database`,
   'hooks-install': hooksInstallUsage(),
-  'schema': `usage: octocode-awareness schema commands|list|json-schema <name>|example <name>|validate <name> <json-file|->
+  'schema': `usage: octocode-awareness schema commands|list|path <name>|command <noun> [action]|json-schema <name>|example <name>|validate <name> <json-file|->
 examples:
   octocode-awareness schema commands --compact
+  octocode-awareness schema command memory recall --compact
   octocode-awareness schema json-schema query --compact`,
   'init': `usage: octocode-awareness maintenance init [--db <path>]
 example: octocode-awareness maintenance init --db .octocode/awareness.sqlite3 --compact`,
