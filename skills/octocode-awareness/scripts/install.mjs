@@ -175,7 +175,7 @@ console.log(
         "Run maintenance init once for the store, then workspace status and attend from each repo.",
         "When Claude skill frontmatter is active, use it as the hook surface and do not also install duplicate project settings; hooks check inspects settings files only.",
         "For Codex and Cursor project hooks: preview with --dry-run, install after user approval, then run hooks check --strict for that host.",
-        "For Pi: do not run shell hook install; call wirePiAwarenessHooks(pi, { skillRoot }) or use @octocodeai/pi-extension, then smoke tool_call/tool_result and agent_end behavior.",
+        "For Pi: do not run shell hook install; call wirePiAwarenessHooks(pi, { skillRoot }), then smoke tool_call/tool_result and agent_end behavior.",
       ],
     },
     null,

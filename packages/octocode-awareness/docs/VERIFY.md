@@ -112,7 +112,7 @@ Then make one approved harmless structured edit and observe the complete edge:
 4. The declared check plus `verify mark` clears `verify audit`.
 5. PreCompact keeps the session reusable; SessionEnd marks it ended.
 
-For Pi, call `wirePiAwarenessHooks(pi)` or use `@octocodeai/pi-extension`; verify
+For Pi, call `wirePiAwarenessHooks(pi)`; verify
 tool-call guard/presence, tool-result audit/heartbeat, prompt briefing, pre-compact,
 and agent-end behavior. Never run shell hook install for Pi.
 ## Full Monorepo Check

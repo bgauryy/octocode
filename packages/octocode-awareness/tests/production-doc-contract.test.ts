@@ -82,27 +82,6 @@ describe('production guidance contract', () => {
     const install = read(resolve(SKILL_ROOT, 'scripts/install.mjs'));
     expect(install).not.toMatch(/npm install|check-only|skip-deps|findNpm|installDependencies|REQUIRED_BUNDLED_SKILLS[^\n]*octocode-skills/);
   });
-  it('makes Pi advisory-first and reserves exclusivity for sensitive files', () => {
-    const skillsPrompt = read(resolve(REPO_ROOT, 'packages/octocode-pi-extension/src/prompts/sections/skills.md'));
-    const awarenessPrompt = read(resolve(REPO_ROOT, 'packages/octocode-pi-extension/src/prompts/sections/awareness.md'));
-    const piReadme = read(resolve(REPO_ROOT, 'packages/octocode-pi-extension/README.md'));
-    const combined = `${skillsPrompt}\n${awarenessPrompt}\n${piReadme}`;
-
-    expect(combined).toMatch(/advisory (?:file )?(?:work|presence)/i);
-    expect(combined).toMatch(/exclusive.{0,80}sensitive|sensitive.{0,80}exclusive/is);
-    expect(combined).not.toMatch(/taskless lock|lock exact files|file_lock without a task for quick work/i);
-    expect(piReadme).not.toContain('Before every Pi write/edit call, the awareness bridge claims a lock');
-    expect(piReadme).not.toContain('Before edits (`file_lock` or CLI `lock acquire`)');
-    expect(piReadme).not.toContain('Before edit:** Claims a file lock for each target path');
-
-    const piToolsRoot = resolve(REPO_ROOT, 'packages/octocode-pi-extension/src/tools');
-    const piToolSource = readdirSync(piToolsRoot, { withFileTypes: true })
-      .filter((entry) => entry.isFile() && entry.name.endsWith('.ts'))
-      .map((entry) => read(resolve(piToolsRoot, entry.name)))
-      .join('\n');
-    expect(piToolSource).not.toMatch(/memory_workspace_status|memory_file_lock|memory_notify/);
-    expect(piToolSource).not.toMatch(/FILE_LOCK_KINDS|lock_type/);
-  });
   it('removes legacy notify and lock-kind inputs from the shared tool adapter', () => {
     const operations = read(resolve(PACKAGE_ROOT, 'src/tool-operations.ts'));
     const types = read(resolve(PACKAGE_ROOT, 'src/types.ts'));
@@ -152,17 +131,6 @@ describe('production guidance contract', () => {
       read(resolve(PACKAGE_ROOT, 'src/repo-projection.ts')),
     ].join('\n');
     expect(ownedArtifacts).not.toContain('schema_version');
-  });
-
-  it('publishes and verifies Awareness before the Pi extension', () => {
-    const release = read(resolve(REPO_ROOT, 'release/RELEASE_GUIDE.md'));
-    const awarenessOrder = release.indexOf('@octocodeai/octocode-awareness');
-    const piOrder = release.indexOf('@octocodeai/pi-extension', awarenessOrder + 1);
-    expect(awarenessOrder).toBeGreaterThanOrEqual(0);
-    expect(piOrder).toBeGreaterThan(awarenessOrder);
-    expect(release).toContain('yarn workspace @octocodeai/octocode-awareness pack:check');
-    expect(release).toContain('npm publish packages/octocode-awareness --access public --provenance');
-    expect(release).toMatch(/npm install[^\n]*@octocodeai\/octocode-awareness/);
   });
 
   it('documents serialized initialization and separates flat work rows from grouped FilesUnderWork', () => {

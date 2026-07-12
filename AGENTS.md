@@ -37,7 +37,7 @@ Logic lives in tools-core / octocode-core / engine. Interface packages only regi
 
 ## Packages
 
-All workspace packages (10). Prefer package `ARCHITECTURE.md` / `AGENTS.md` / `docs/` over guessing.
+All workspace packages (8). Prefer package `ARCHITECTURE.md` / `AGENTS.md` / `docs/` over guessing.
 
 | Package | npm name | What it is | Dig deeper |
 |---|---|---|---|
@@ -47,8 +47,6 @@ All workspace packages (10). Prefer package `ARCHITECTURE.md` / `AGENTS.md` / `d
 | [`packages/octocode-mcp`](packages/octocode-mcp) | `@octocodeai/mcp` | Thin MCP stdio server: lifecycle → security → tool registration → sanitized output. No business logic. | [ARCHITECTURE](packages/octocode-mcp/ARCHITECTURE.md) · [docs/OCTOCODE_MCP.md](docs/OCTOCODE_MCP.md) |
 | [`packages/octocode`](packages/octocode) | `octocode` | CLI — same tool runners as MCP, plus install/auth/MCP-marketplace, `search` (OQL), `skill`, `context`, `lsp-server`. Prefer `node packages/octocode/out/octocode.js` in this monorepo. | [ARCHITECTURE](packages/octocode/ARCHITECTURE.md) · [CLI](packages/octocode/docs/OCTOCODE_CLI.md) · [OQL](packages/octocode/docs/OCTOCODE_QUERY_LANGUAGE.md) |
 | [`packages/octocode-vscode`](packages/octocode-vscode) | `octocode-mcp-vscode` | VS Code / multi-editor management extension: GitHub OAuth, MCP install into Cursor/Windsurf/etc., token sync. | package README |
-| [`packages/octocode-pi-extension`](packages/octocode-pi-extension) | `@octocodeai/pi-extension` | Pi harness: bundles MCP tools, system prompt, skills, Awareness wiring; build injects `octocode-config.mjs` into skill `scripts/`. | [TOOLS](packages/octocode-pi-extension/docs/TOOLS.md) · [MEMORY flow](packages/octocode-pi-extension/docs/MEMORY_AGENT_FLOW.md) · [REFLECT](packages/octocode-pi-extension/docs/REFLECT.md) |
-| [`packages/octocode-agent`](packages/octocode-agent) | `octocode-agent` | Branded self-working agent CLI — launches Pi with `@octocodeai/pi-extension` as the harness (`octocode-agent`). One command, one update path. | [PI_INTEGRATION](packages/octocode-agent/docs/PI_INTEGRATION.md) |
 | [`packages/octocode-awareness`](packages/octocode-awareness) | `@octocodeai/octocode-awareness` | Shared-repo coordination + memory/wiki/hooks/reflection (SQLite, zero npm runtime deps). Canonical skill source: `skills/octocode-awareness`. Dogfood zone. | [AGENTS](packages/octocode-awareness/AGENTS.md) · [HOW_IT_WORKS](packages/octocode-awareness/docs/HOW_IT_WORKS.md) · [docs/](packages/octocode-awareness/docs/) |
 | [`packages/octocode-benchmark`](packages/octocode-benchmark) | `@octocodeai/octocode-benchmark` | Internal benchmarks/evals — flow benchmarks, AST grep comparisons, format support matrix. | [BENCHMARKS](packages/octocode-benchmark/docs/BENCHMARKS.md) |
 
@@ -131,10 +129,8 @@ edit `.agents/skills/` or `out/skills/`. Concept owners:
 | Global | [`docs/OCTOCODE_MCP.md`](docs/OCTOCODE_MCP.md) · [`docs/CONFIGURATION.md`](docs/CONFIGURATION.md) · [`docs/OCTOCODE_TOOLS.md`](docs/OCTOCODE_TOOLS.md) · [`docs/SECURITY.md`](docs/SECURITY.md) · [`docs/OCTOCODE_RESEARCH_MANIFEST.md`](docs/OCTOCODE_RESEARCH_MANIFEST.md) · [`docs/ROUTING_EVIDENCE_POSITION_PAPER.md`](docs/ROUTING_EVIDENCE_POSITION_PAPER.md) |
 | CLI / OQL | [`OCTOCODE_CLI.md`](packages/octocode/docs/OCTOCODE_CLI.md) · [`OCTOCODE_QUERY_LANGUAGE.md`](packages/octocode/docs/OCTOCODE_QUERY_LANGUAGE.md) · [`OQL_LANGUAGE_REFERENCE.md`](packages/octocode/docs/OQL_LANGUAGE_REFERENCE.md) · [`OQL_RESULTS_AND_EVIDENCE.md`](packages/octocode/docs/OQL_RESULTS_AND_EVIDENCE.md) · [`OQL_INTERNALS.md`](packages/octocode/docs/OQL_INTERNALS.md) |
 | Engine | [`LSP_SERVER_LIFECYCLE.md`](packages/octocode-engine/docs/LSP_SERVER_LIFECYCLE.md) |
-| Agent / Pi | [`PI_INTEGRATION.md`](packages/octocode-agent/docs/PI_INTEGRATION.md) · pi-extension [TOOLS](packages/octocode-pi-extension/docs/TOOLS.md) / [MEMORY](packages/octocode-pi-extension/docs/MEMORY_AGENT_FLOW.md) / [REFLECT](packages/octocode-pi-extension/docs/REFLECT.md) |
 | Awareness | [`packages/octocode-awareness/docs/`](packages/octocode-awareness/docs/) (see Awareness section) |
 | Benchmarks | [`BENCHMARKS.md`](packages/octocode-benchmark/docs/BENCHMARKS.md) |
-| Release | [`release/RELEASE_GUIDE.md`](release/RELEASE_GUIDE.md) |
 | Context | [`docs/context/`](docs/context/) — [SEARCH_GUIDE](docs/context/SEARCH_GUIDE.md) · [OQL_RESEARCH_GRAPH_FLOW](docs/context/OQL_RESEARCH_GRAPH_FLOW.md) · [LSP_GUIDE](docs/context/LSP_GUIDE.md) · [AGENT_RESEARCH_WORKFLOWS](docs/context/AGENT_RESEARCH_WORKFLOWS.md) · [RUST_BEST_PRACTICES](docs/context/RUST_BEST_PRACTICES.md) |
 | Skills (repo) | [`skills/`](skills/) — 2 skills, each a folder with `SKILL.md`: awareness, research |
 

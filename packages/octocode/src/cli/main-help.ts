@@ -213,7 +213,8 @@ export async function showHelp(): Promise<void> {
     `  ${bold('MORE COMMANDS')}  ${dim('· full usage:')} ${c('cyan', '<command> --help')}`,
     ...COMMAND_SPECS.filter(
       s =>
-        !QUICK_COMMAND_NAMES.has(s.name) && REGISTERED_COMMAND_NAME_SET.has(s.name)
+        !QUICK_COMMAND_NAMES.has(s.name) &&
+        REGISTERED_COMMAND_NAME_SET.has(s.name)
     ).map(s => commandIndexLine(s.name)),
     '',
 

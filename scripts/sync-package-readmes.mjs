@@ -14,8 +14,6 @@ const packagesDir = join(rootDir, 'packages');
 // via the !/packages/<name>/README.md rules.
 const PROTECTED_PACKAGES = new Set([
   'octocode-awareness',
-  'octocode-pi-extension',
-  'octocode-agent',
 ]);
 
 // Every other public (non-`private`) package under packages/ gets the shared

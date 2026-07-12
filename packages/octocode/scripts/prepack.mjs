@@ -41,8 +41,7 @@ function copyBundledSkills() {
 
   rmSync(destination, { recursive: true, force: true });
   // Only real skill folders (containing SKILL.md) ship — repo-root skills/
-  // also holds non-skill tooling (e.g. skills/scripts/) that must never be
-  // published.
+  // Only directories with SKILL.md are treated as shippable skills.
   for (const entry of readdirSync(source, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue;
     if (!existsSync(join(source, entry.name, 'SKILL.md'))) continue;

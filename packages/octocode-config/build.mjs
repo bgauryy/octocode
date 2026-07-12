@@ -5,7 +5,7 @@
  *
  * The package has zero external dependencies; only Node built-ins are used.
  * esbuild produces a self-contained ESM file for each entry point, which is
- * then injected by skills/scripts/sync.mjs into each skill's scripts/ dir
+ * then injected by package builds into each skill's scripts/ dir
  * as octocode-config.mjs for standalone use without npm.
  */
 

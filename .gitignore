@@ -18,6 +18,7 @@ target/
 out
 coverage
 .octocode
+.codex
 .env
 .cursor
 .context
@@ -34,8 +35,6 @@ coverage
 # Canonical Agent Skills live here; generated scripts have targeted ignores above.
 /skills/octocode-agent-communication/
 /skills/octocode-reflection/
-# npm publish staging regenerated from canonical repo-root skills/ by the Pi build.
-/packages/octocode-pi-extension/skills/
 # Bundled skills copied into the octocode CLI package during build/prepack.
 /packages/octocode/skills/
 # sqlite DB
@@ -55,8 +54,6 @@ devScripts
 # Generated from root README.md during package build/prepack
 /packages/*/README.md
 !/packages/octocode-awareness/README.md
-!/packages/octocode-pi-extension/README.md
-!/packages/octocode-agent/README.md
 output
 __pycache__
 output

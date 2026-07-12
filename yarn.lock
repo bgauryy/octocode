@@ -2327,27 +2327,6 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@octocodeai/pi-extension@workspace:*, @octocodeai/pi-extension@workspace:packages/octocode-pi-extension":
-  version: 0.0.0-use.local
-  resolution: "@octocodeai/pi-extension@workspace:packages/octocode-pi-extension"
-  dependencies:
-    "@octocodeai/config": "workspace:*"
-    "@octocodeai/octocode-awareness": "workspace:*"
-    "@octocodeai/octocode-core": "npm:^16.6.3"
-    "@octocodeai/octocode-engine": "workspace:*"
-    "@octocodeai/octocode-tools-core": "workspace:*"
-    "@types/node": "npm:^25.9.3"
-    "@vitest/coverage-v8": "npm:^4.1.9"
-    typescript: "npm:^5.8.3"
-    vitest: "npm:^4.1.9"
-  peerDependencies:
-    typebox: "*"
-  peerDependenciesMeta:
-    typebox:
-      optional: true
-  languageName: unknown
-  linkType: soft
-
 "@octokit/app@npm:^16.1.2":
   version: 16.1.2
   resolution: "@octokit/app@npm:16.1.2"
@@ -7384,17 +7363,6 @@ __metadata:
   checksum: 10c0/cb8187fed0a5fc8445507c950e89f3c1bd43895658c398b5803f6b7804dfa0c562975ecce1e67f3d9247d521452a5bfade9e0e951cc0326b7444272f7c24d25f
   languageName: node
   linkType: hard
-
-"octocode-agent@workspace:packages/octocode-agent":
-  version: 0.0.0-use.local
-  resolution: "octocode-agent@workspace:packages/octocode-agent"
-  dependencies:
-    "@earendil-works/pi-coding-agent": "npm:0.80.3"
-    "@octocodeai/pi-extension": "workspace:*"
-  bin:
-    octocode-agent: ./bin/octocode-agent.mjs
-  languageName: unknown
-  linkType: soft
 
 "octocode-mcp-vscode@workspace:packages/octocode-vscode":
   version: 0.0.0-use.local

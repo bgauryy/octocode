@@ -138,7 +138,7 @@ console.log('✓ esbuild complete');
 // Copy bundled skills into packages/octocode/skills/ so they are available both
 // during local dev (from out/../skills) and when installed from npm (node_modules/octocode/skills/).
 // Only real skill folders (containing SKILL.md) are copied — repo-root skills/
-// also holds non-skill tooling (e.g. skills/scripts/) that must never ship.
+// Only directories with SKILL.md are treated as shippable skills.
 const repoRoot = resolve(__dirname, '..', '..');
 const skillsSource = resolve(repoRoot, 'skills');
 const skillsDest = resolve(__dirname, 'skills');
