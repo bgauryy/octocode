@@ -3,8 +3,8 @@
   "name": "octocode-mcp",
   "display_name": "Octocode MCP Extension",
   "version": "16.2.0",
-  "description": "Code research MCP server for GitHub, npm, local files, LSP semantics, binary inspection, and OQL workflows",
-  "long_description": "A comprehensive MCP server that provides AI assistants with code research tools across GitHub repositories, npm packages, local files, LSP semantics, binary/archive inspection, and OQL multi-step workflows. It helps agents orient, search, read exact evidence, and prove findings with typed continuations and sanitized output.",
+  "description": "Code research MCP server for GitHub, npm, local files, LSP semantics, and OQL workflows",
+  "long_description": "MCP server with code research tools across GitHub, npm, local files, LSP semantics, and OQL. Agents orient, search, read exact evidence, and prove findings with typed continuations and sanitized output.",
   "author": {
     "name": "Guy Bary",
     "email": "bgauryy@octocodeai.com",

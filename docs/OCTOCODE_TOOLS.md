@@ -1860,7 +1860,7 @@ npx knip
 
 Do not mark a tool-surface change complete until these are true:
 
-1. All 14 tools still register with input and output schemas.
+1. All 12 always-on tools still register with input and output schemas.
 2. All public schema defaults, caps, hidden fields, and mutex rules have tests.
 3. Every tool has success, empty, error, mixed-bulk, pagination, lean-output (`base`/`shared`), and verbosity coverage.
 4. Remote tools cover auth, rate limit, provider error, no results, and provider-mapper edge cases.

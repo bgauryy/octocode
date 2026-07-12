@@ -15,7 +15,7 @@ For LSP rows, first run a symbol-discovery row and carry the returned line into 
 | LCL-SCHEMA-01 | quick-cli | Does top-level help expose search-first local commands, raw tools, and LSP line-hint guidance? | `octocode --help --no-color` | `search`, remaining quick commands (`clone`, `cache`), local raw tools, minification, and line-hint instructions are present; removed legacy shortcuts (`cat`, `ls`, `find`, `grep`, `history`, `repo`, `pkg`, `pr`, `lsp`, `binary`, `diff`, `unzip`) are absent as commands. |
 | LCL-SCHEMA-02 | raw-tool | Do all local raw tool schemes document fields used below? | `octocode tools localSearchCode localGetFileContent localViewStructure localFindFiles lspGetSemantics oqlSearch --scheme --compact --no-color` | Required fields, pagination fields, minification modes, match fields, LSP ops, and OQL local target fields are present. |
 | LCL-SCHEMA-03 | search-cli | Does `octocode search` describe local shorthand and OQL routing? | `octocode search --scheme --compact --no-color` and `octocode search --help --no-color` | Active targets include `code`, `content`, `structure`, `files`, `semantics`, `research`, and `graph`; help explains local file/dir routing and `--explain --dry-run`. |
-| LCL-SCHEMA-04 | metadata | Does the offline metadata gate pass? | `NO_COLOR=1 node packages/octocode-benchmark/benchmark/cli/check-cli-metadata.mjs` | Reports 13 tools, expected command counts, and no stale schema/help/route failures. |
+| LCL-SCHEMA-04 | metadata | Does the offline metadata gate pass? | `NO_COLOR=1 node packages/octocode-benchmark/benchmark/cli/check-cli-metadata.mjs` | Reports 12 tools, expected command counts, and no stale schema/help/route failures. |
 
 ## Tool-By-Tool Questions
 

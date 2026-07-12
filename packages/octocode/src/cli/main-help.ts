@@ -211,10 +211,12 @@ export async function showHelp(): Promise<void> {
 
     // ── Every other command — an INDEX (short summary), full usage in --help ─
     `  ${bold('MORE COMMANDS')}  ${dim('· full usage:')} ${c('cyan', '<command> --help')}`,
+    // `context` is dispatched in cli/index.ts (not a command loader) but must
+    // appear in MORE COMMANDS — cli:check asserts `context [--full] [--json]`.
     ...COMMAND_SPECS.filter(
       s =>
         !QUICK_COMMAND_NAMES.has(s.name) &&
-        REGISTERED_COMMAND_NAME_SET.has(s.name)
+        (REGISTERED_COMMAND_NAME_SET.has(s.name) || s.name === 'context')
     ).map(s => commandIndexLine(s.name)),
     '',
 

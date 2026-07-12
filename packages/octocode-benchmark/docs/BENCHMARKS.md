@@ -171,7 +171,7 @@ python -m lcb_runner.runner.main --model claude-opus-4-7 --scenario codegenerati
 
 | Dimension | Existing Script | Maps To |
 |---|---|---|
-| Tool reliability (all 13 tools) | `benchmark/octocode/run-live-smoke.mjs` | Artificial Analysis tool coverage |
+| Tool reliability (all 12 tools) | `benchmark/octocode/run-live-smoke.mjs` | Artificial Analysis tool coverage |
 | Code navigation (text/AST/symbols) | `benchmark/repo/run.mjs` — React, Tokio, Spring, Next.js, Chromium | SWE-Atlas-QnA upstream capability |
 | Language/format support | `benchmark/check-matrix.mjs` — 151 extensions | Artificial Analysis format matrix |
 | Minification / token efficiency | `benchmark/minify/check-minify.mjs` | Cost-per-task metric on AA index |

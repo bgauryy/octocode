@@ -686,7 +686,7 @@ not omission:
 
 | What you ask for | Relative size | When |
 |---|---|---|
-| `tools --json`: tool catalog, names + one-liners | small | default orientation: which of the 13 tools is this? |
+| `tools --json`: tool catalog, names + one-liners | small | default orientation: which of the 12 tools is this? |
 | `tools <name> --scheme --json`: one tool's full field-level schema | large | right before calling that tool raw, avoid guessing a field |
 | `search --scheme --compact`: lean OQL agent guide (source/target/recipes) | small | read this first for any non-trivial OQL query |
 | `search --scheme`: full OQL contract (every target/predicate/param) | large | only when the compact guide didn't resolve an edge case |

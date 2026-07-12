@@ -436,7 +436,7 @@ npx octocode tools localSearchCode --queries '{"path":"./src","keywords":"runCLI
 The code boundary is intentionally thin:
 - `@octocodeai/octocode-core` owns tool and command metadata.
 - `@octocodeai/octocode-tools-core` owns execution logic.
-- `@octocodeai/octocode-engine` owns native primitives (minify, structural search, LSP, binary inspection, secret scanning).
+- `@octocodeai/octocode-engine` owns native primitives (minify, structural search, LSP, secret scanning).
 - `octocode` renders commands in a terminal.
 - `octocode-mcp` registers the same tools for MCP clients.
 

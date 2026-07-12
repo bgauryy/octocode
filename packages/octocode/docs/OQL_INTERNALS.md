@@ -24,7 +24,7 @@ OQL query
 ```
 
 Transformers keep the public OQL shape stable while GitHub, npm, local search,
-LSP, binary inspection, and future providers keep their own vocabulary. Agents
+LSP and future providers keep their own vocabulary. Agents
 write OQL intent; transformers decide how that intent maps to the vendor or local
 primitive.
 

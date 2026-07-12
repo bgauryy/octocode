@@ -2,7 +2,7 @@
 
 OQL is the JSON language behind `npx octocode search`. It is a typed routing
 layer over Octocode's primitives — ripgrep text/regex/AST, native graph facts,
-content reads, LSP semantics, GitHub, npm, history, binary inspection, and clone.
+content reads, LSP semantics, GitHub, npm, history, and clone.
 The schema name is always `"oql"`.
 
 **The critical rule:** OQL returns candidates, proof, and executable next steps.

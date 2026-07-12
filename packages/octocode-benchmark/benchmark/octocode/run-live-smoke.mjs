@@ -210,7 +210,7 @@ const flows = [
       {
         id: 'META-TOOLS',
         args: ['tools', '--json', '--compact', '--no-color'],
-        check: json => Number(json?.toolCount) >= 14,
+        check: json => Number(json?.toolCount) >= 12,
       },
       {
         id: 'SCHEME-LOCAL-SEARCH',
@@ -448,7 +448,7 @@ const toolCount =
   commands.find(command => command.id === 'META-TOOLS')?.parsed?.toolCount ?? 0;
 const ratings = {
   rawMcpTools: {
-    score: toolCount >= 14 ? 9 : 6,
+    score: toolCount >= 12 ? 9 : 6,
     reason: `tools --json reported ${toolCount} tool(s).`,
   },
   oqlSearch: {
@@ -554,9 +554,9 @@ const summary = {
   surfaces: [
     {
       name: 'raw tools',
-      expected: 14,
+      expected: 12,
       observed: Number(toolCount),
-      status: toolCount >= 14 ? 'pass' : 'fail',
+      status: toolCount >= 12 ? 'pass' : 'fail',
     },
     {
       name: 'live flows',

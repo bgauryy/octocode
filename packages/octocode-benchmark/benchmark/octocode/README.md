@@ -115,7 +115,7 @@ Apply these checks to every row, even when a table does not repeat them.
 
 | Alias | Corpus | Use |
 |---|---|---|
-| `LOCAL` | This monorepo root | Local search, LSP, AST, binary/archive, OQL research, search CLI shorthand. |
+| `LOCAL` | This monorepo root | Local search, LSP, AST, OQL research, search CLI shorthand. |
 | `LCJS` | `langchain-ai/langchainjs` | TypeScript code search, PR archaeology, commit history, streaming APIs. |
 | `LCPY` | `langchain-ai/langchain` | Large Python repo pagination and cross-language comparison. |
 | `LGJS` | `langchain-ai/langgraphjs` | LangGraph.js comparison, tree pagination, docs/examples split. |

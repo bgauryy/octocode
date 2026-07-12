@@ -13,9 +13,7 @@
 
 **Evidence-first code research for AI agents and developers.**
 
-Octocode gives an agent the full context it needs to change, review, or explain code: real evidence from your **local workspace** and from **external** sources (GitHub repositories, pull requests, and npm packages). One toolset covers all of it: ripgrep and AST structural search, repository tree browsing, precise content fetching, LSP semantic navigation, and binary inspection.
-
-Run it as a **CLI** or an **MCP server**. A **Rust engine** keeps every call fast and token-efficient, minifying and skeletonizing code so an agent reads the shape of a file instead of every byte, from a single file to a mega-repo. It is also the best tool for **cross-repository research and exploration across millions of repositories**.
+Evidence from your **local workspace** and **external** sources (GitHub repos, PRs, npm). One toolset: ripgrep + AST search, trees, precise reads, and LSP — as a **CLI** or **MCP server**, backed by a **Rust engine** for fast, token-efficient results across single files or mega-repos.
 
 ---
 
@@ -53,7 +51,7 @@ npx octocode auth login
 npx octocode status       # verify the active token source
 ```
 
-**3. Choose your interface.** The same engine and 14 tools run identically either way.
+**3. Choose your interface.** The same engine and 12 tools run identically either way.
 
 **🖥️ CLI** — research straight from your terminal:
 
@@ -107,8 +105,7 @@ Octocode is useful whenever the next coding step depends on finding and proving 
 | **Semantic navigation** | Resolve definitions, references, callers/callees, call hierarchy, hovers, symbols, diagnostics, and type relationships through LSP. |
 | **Structural matching** | Run AST-shaped searches with patterns or YAML rules so comments and strings do not become false positives. |
 | **Large-file context** | Minify, skeletonize, or paginate code so agents spend tokens on relevant structure instead of boilerplate. |
-| **Binary or archive inspection** | Inspect archives, compressed streams, native binaries, and strings without leaving the research flow. |
-| **Agent workflows** | Expose the same engine through MCP, CLI, OQL, and Agent Skills so assistants and humans use one evidence model. |
+| **Agent workflows** | Same engine via MCP, CLI, OQL, and Agent Skills. |
 
 See [Quick Start](#quick-start) to install in your terminal or AI assistant.
 
@@ -116,7 +113,7 @@ See [Quick Start](#quick-start) to install in your terminal or AI assistant.
 
 ## Tools
 
-Octocode ships **14 research tools**; the same implementations run identically over [MCP](#mcp) and the [CLI](#cli). Local tools are enabled by default; `ENABLE_LOCAL=false` disables them. `ghCloneRepo` is opt-in for MCP (`ENABLE_CLONE=true`) and enabled by default for CLI. All flags: [Configuration Reference](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md).
+**12 always-on tools** (same on [MCP](#mcp) and [CLI](#cli)). Local tools on by default (`ENABLE_LOCAL=false` to disable). `ghCloneRepo` is MCP opt-in (`ENABLE_CLONE=true`), CLI on by default. Flags: [Configuration](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md).
 
 **Token knobs.** `concise:true` returns path/title-only lists. `minify` controls file read density: `symbols` = skeleton with line numbers, `standard` = comments/blanks stripped (default), `none` = exact bytes.
 
@@ -356,38 +353,19 @@ Four code-intelligence axes; three are native to the Rust engine and need no ext
 > [Agent Skills](https://agentskills.io/what-are-skills) are a lightweight, open format for extending AI agent capabilities.
 > Browse and install on [**skills.sh/bgauryy/octocode-mcp**](https://www.skills.sh/bgauryy/octocode-mcp)
 
-These are the skills the Octocode team itself uses to build Octocode. **2 skills** live under [`skills/`](https://github.com/bgauryy/octocode/tree/main/skills) (every folder with a `SKILL.md`) and are bundled into the `octocode` npm package. The table below is the full index. ⭐ **[Research](https://www.skills.sh/bgauryy/octocode-mcp/octocode-research)** is the recommended starting skill for technical research, code work, reviews, refactors, and repeated evidence loops.
-
-Each skill folder includes a human README with purpose, features, workflow, developer notes, and `npx octocode skill` installation. `SKILL.md` stays the compact agent-facing router.
-
-Install them with the Octocode CLI through `npx octocode`; no global install is required. Octocode refreshes the canonical source in `~/.octocode/skills/<skill>` and links it into the platform location by default. Pick the platform your agent reads from, or use `common` for the shared `~/.agents/skills` folder.
+**2 skills** under [`skills/`](https://github.com/bgauryy/octocode/tree/main/skills), bundled in the `octocode` package. Start with ⭐ [Research](https://www.skills.sh/bgauryy/octocode-mcp/octocode-research) for evidence-first code work.
 
 ```bash
-npx octocode skill --list                                      # browse bundled Octocode skills (offline)
-npx octocode skill --name octocode-research                    # install to ~/.agents/skills (common)
-npx octocode skill --name octocode-awareness                   # install the Awareness skill
-npx octocode skill --name octocode-research --platform pi      # install for Pi
-npx octocode skill --name octocode-research --platform all --dry-run  # preview before installing everywhere
-npx octocode skill --add --path /path/to/skills/octocode-awareness  # install from an agent-known local skill path
-npx octocode skill --add owner/repo/skills/my-skill            # install any GitHub skill folder
-npx octocode skill --add owner/repo/skills                     # install every skill in a GitHub skills library
-npx octocode skill --install-all                               # install every official Octocode skill to ~/.agents/skills
-npx octocode skill --help                                      # read live flags
+npx octocode skill --list
+npx octocode skill --name octocode-research
+npx octocode skill --name octocode-awareness
+npx octocode skill --help
 ```
 
-Platforms: `common` (default, `~/.agents/skills`), `cursor` (`~/.cursor/skills`), `claude` (`~/.claude/skills` and `~/.claude-desktop/skills`), `codex` (`~/.agents/skills`), `opencode` (`~/.config/opencode/skills`), `pi` (`~/.pi/agent/skills`), `copilot` (`~/.copilot/skills`), `gemini` (`~/.gemini/skills`), `all` · Modes: `symlink` (default), `copy`, `hybrid`
-
-The repository's cross-vendor sync helper is plan-first and path-safe: dry-run previews disclose replacements, writes require explicit approval, and destination names must be safe single path segments. Pi bundle sync also discloses removals during dry-run and preserves separately managed skills such as Awareness. Skill scripts use `@octocodeai/config` as the single environment-loading boundary.
-
-Workflow contracts are equally explicit: Research can review a clean file but only recommends `APPROVE` after applicable verification passes. Shared-repo coordination, locks, verification, and memory live in Awareness.
-
-| Skill | Directory | Install with `npx octocode` | Use it when |
-|-------|-----------|-----------------------------|-------------|
-| [**Awareness**](https://www.skills.sh/bgauryy/octocode-mcp/octocode-awareness) | `octocode-awareness/` | `npx octocode skill --name octocode-awareness` | You need shared plans/tasks, advisory file awareness, sensitive exclusive locks, signals, handoffs, reflection, hooks, or verify-before-conclude in a shared repo. |
-| ⭐ [**Research**](https://www.skills.sh/bgauryy/octocode-mcp/octocode-research) | `octocode-research/` | `npx octocode skill --name octocode-research` | You need evidence-first technical research, code work, review, refactor, architecture analysis, or repeated proof loops. |
-| ⭐ [**Research**](https://www.skills.sh/bgauryy/octocode-mcp/octocode-research) | `octocode-research/` | `npx octocode skill --name octocode-research` | You need evidence-first technical research, code work, review, refactor, architecture analysis, or repeated proof loops. |
-
-Awareness is the primary skill for plans/tasks, advisory file work, sensitive exclusive locks, memory, signals, reflection, schemas, and hooks. Its canonical source lives at `skills/octocode-awareness/`; the [`@octocodeai/octocode-awareness`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-awareness) package ships the same skill under its own `out/skills/octocode-awareness` for direct consumers. Older prompts that name `octocode-reflection` or `octocode-agent-communication` should load the same runtime.
+| Skill | Install | Use when |
+|-------|---------|----------|
+| [**Awareness**](https://www.skills.sh/bgauryy/octocode-mcp/octocode-awareness) | `npx octocode skill --name octocode-awareness` | Shared plans/tasks, file presence, locks, signals, hooks, verify-before-conclude. |
+| ⭐ [**Research**](https://www.skills.sh/bgauryy/octocode-mcp/octocode-research) | `npx octocode skill --name octocode-research` | Evidence-first research, review, refactor, architecture. |
 
 ---
 

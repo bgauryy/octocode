@@ -12,7 +12,7 @@ MCP gives assistants a stable tool catalog instead of asking them to shell out m
 |-------|----------------|
 | MCP server | stdio lifecycle, tool registration, client-facing descriptions, output sanitization boundary |
 | Tools core | GitHub/package/local/LSP/OQL runners, credentials, config, session, pagination, response shaping |
-| Engine | native ripgrep, structural AST search, minify/signatures, binary inspection, secret scan, LSP orchestration |
+| Engine | native ripgrep, structural AST search, minify/signatures, secret scan, LSP orchestration |
 
 ## Quick Start
 
@@ -70,7 +70,7 @@ At startup, Octocode reads configuration from environment variables and `<octoco
 
 ## Tool Catalog
 
-The MCP server registers the same 14 research tools exposed by the raw CLI tool runner:
+The MCP server registers the same **12** always-on research tools as the CLI tool runner (`oqlSearch` is optional when `ENABLE_OQL` is on):
 
 | Family | Tools |
 |--------|-------|

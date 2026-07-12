@@ -78,8 +78,7 @@ Evidence: research analyze packets are **candidates** — upgrade with `target:g
 yarn build · yarn test · yarn lint · yarn typecheck · yarn verify
 yarn workspace <pkg-name> <script>
 yarn build:native:all · yarn platforms:check
-yarn local:fix · yarn local:check          # workspace:* ↔ publish pins
-yarn sync:version:publish                    # before publish: restore pins
+yarn deps:dedupe · yarn deps:dedupe:fix
 ```
 
 Coverage target 90% (Vitest + v8). Rust: `yarn workspace @octocodeai/octocode-engine test:rust`.
@@ -87,7 +86,6 @@ Coverage target 90% (Vitest + v8). Rust: `yarn workspace @octocodeai/octocode-en
 Local end-to-end (when changing engine, tools-core, or CLI):
 
 ```bash
-yarn local:fix
 yarn workspace @octocodeai/octocode-engine build:dev
 yarn workspace @octocodeai/octocode-tools-core build
 yarn workspace octocode build:dev            # also: yarn workspace @octocodeai/mcp build:dev

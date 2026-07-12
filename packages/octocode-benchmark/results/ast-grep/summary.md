@@ -20,7 +20,7 @@ Internal Octocode benchmark suite also passed:
 - AST benchmark: 33 grammars, 61 declared structural extensions
 - LSP benchmark: 18 language checks
 - Minify benchmark: 148 samples
-- CLI metadata benchmark: 14 tools, 21 commands, 60 CLI help/scheme checks
+- CLI metadata benchmark: 12 tools, 21 commands, 60 CLI help/scheme checks
 - Final status: all 5 benchmark checks passed
 
 ## What Was Compared
