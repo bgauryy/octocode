@@ -1,6 +1,6 @@
 # AGENTS.md — Octocode Monorepo
 
-Default agent guide for this repo. Package exception: work in `packages/octocode-awareness` also reads [`packages/octocode-awareness/AGENTS.md`](packages/octocode-awareness/AGENTS.md). Internals: each package’s `ARCHITECTURE.md` when present.
+Default agent guide for this repo. Internals: each package’s `ARCHITECTURE.md` when present.
 
 ## Dogfood
 
@@ -13,7 +13,6 @@ This monorepo is the platform. Use what we ship — do not reinvent with host de
 | npm lookup | `npmSearch` | ad-hoc registry curls |
 | Unified research / OQL | CLI `search` (and `oqlSearch` when `ENABLE_OQL`) | hand-rolled multi-tool scripts |
 | Research / review / change flows | `octocode-research` skill | inventing search loops |
-| Shared-repo + cross-run memory | Awareness (`attend` / `work` / `memory` / `reflect`) | silent parallel edits |
 | After a package change | rebuild → real CLI / MCP / skill path | claim done from compile alone |
 
 If dogfooding hurts, fix or record it — do not silently bypass.
@@ -37,7 +36,7 @@ Logic lives in tools-core / octocode-core / engine. Interface packages only regi
 
 ## Packages
 
-All workspace packages (8). Prefer package `ARCHITECTURE.md` / `AGENTS.md` / `docs/` over guessing.
+All workspace packages (7). Prefer package `ARCHITECTURE.md` / `AGENTS.md` / `docs/` over guessing.
 
 | Package | npm name | What it is | Dig deeper |
 |---|---|---|---|
@@ -47,7 +46,6 @@ All workspace packages (8). Prefer package `ARCHITECTURE.md` / `AGENTS.md` / `do
 | [`packages/octocode-mcp`](packages/octocode-mcp) | `@octocodeai/mcp` | Thin MCP stdio server: lifecycle → security → tool registration → sanitized output. No business logic. | [ARCHITECTURE](packages/octocode-mcp/ARCHITECTURE.md) · [docs/OCTOCODE_MCP.md](docs/OCTOCODE_MCP.md) |
 | [`packages/octocode`](packages/octocode) | `octocode` | CLI — same tool runners as MCP, plus install/auth/MCP-marketplace, `search` (OQL), `skill`, `context`, `lsp-server`. Prefer `node packages/octocode/out/octocode.js` in this monorepo. | [ARCHITECTURE](packages/octocode/ARCHITECTURE.md) · [CLI](packages/octocode/docs/OCTOCODE_CLI.md) · [OQL](packages/octocode/docs/OCTOCODE_QUERY_LANGUAGE.md) |
 | [`packages/octocode-vscode`](packages/octocode-vscode) | `octocode-mcp-vscode` | VS Code / multi-editor management extension: GitHub OAuth, MCP install into Cursor/Windsurf/etc., token sync. | package README |
-| [`packages/octocode-awareness`](packages/octocode-awareness) | `@octocodeai/octocode-awareness` | Shared-repo coordination + memory/wiki/hooks/reflection (SQLite, zero npm runtime deps). Canonical skill source: `skills/octocode-awareness`. Dogfood zone. | [AGENTS](packages/octocode-awareness/AGENTS.md) · [HOW_IT_WORKS](packages/octocode-awareness/docs/HOW_IT_WORKS.md) · [docs/](packages/octocode-awareness/docs/) |
 | [`packages/octocode-benchmark`](packages/octocode-benchmark) | `@octocodeai/octocode-benchmark` | Internal benchmarks/evals — flow benchmarks, AST grep comparisons, format support matrix. | [BENCHMARKS](packages/octocode-benchmark/docs/BENCHMARKS.md) |
 
 External (not in this workspace): `@octocodeai/octocode-core` (sibling `octocode-mcp-host`) — single source for tool descriptions, schemas, and system prompt text. Never hand-write tool guidance in interface packages.
@@ -98,28 +96,6 @@ $OCTO tools localSearchCode lspGetSemantics --scheme
 
 Prefer `node packages/octocode/out/octocode.js` over global `octocode` / npx when validating monorepo changes. After engine or tools-core edits: rebuild the package, then `yarn workspace octocode build:dev`. `build:dev` skips clean + lint; engine uses debug (not `--release`).
 
-## Awareness
-
-For non-trivial repo work, activate `octocode-awareness` and run local CLI
-`attend --query "<task>" --compact`. This file routes; the skill owns judgment, the
-CLI owns live state, and hooks automate lifecycle edges. Package work also reads
-[`packages/octocode-awareness/AGENTS.md`](packages/octocode-awareness/AGENTS.md).
-
-Loop: claim a ready task or open WORK; declare edited paths; reserve exclusivity for
-sensitive work; check while present; submit/end → `verify mark` → `verify audit`.
-Use `memory recall --smart` for prior learning; record only verified reusable outcomes.
-
-SQLite is canonical. `.octocode/` is a discovery shelf: plan docs explain intent;
-generated wiki/memory files route to live `attend`, `query`, or `memory recall`.
-Never hand-edit projections; refresh them with `wiki sync` only for file readers.
-Exact flags: `schema command <noun> [action]`. Full lifecycle:
-[`docs/HOW_IT_WORKS.md`](packages/octocode-awareness/docs/HOW_IT_WORKS.md).
-
-Skill source: `skills/octocode-awareness`; use the local build here or
-`npx @octocodeai/octocode-awareness` when installed. Rebuild after changes; never
-edit `.agents/skills/` or `out/skills/`. Concept owners:
-[`packages/octocode-awareness/docs/README.md`](packages/octocode-awareness/docs/README.md).
-
 ## Docs and references
 
 | Area | Links |
@@ -127,10 +103,9 @@ edit `.agents/skills/` or `out/skills/`. Concept owners:
 | Global | [`docs/OCTOCODE_MCP.md`](docs/OCTOCODE_MCP.md) · [`docs/CONFIGURATION.md`](docs/CONFIGURATION.md) · [`docs/OCTOCODE_TOOLS.md`](docs/OCTOCODE_TOOLS.md) · [`docs/SECURITY.md`](docs/SECURITY.md) · [`docs/OCTOCODE_RESEARCH_MANIFEST.md`](docs/OCTOCODE_RESEARCH_MANIFEST.md) · [`docs/ROUTING_EVIDENCE_POSITION_PAPER.md`](docs/ROUTING_EVIDENCE_POSITION_PAPER.md) |
 | CLI / OQL | [`OCTOCODE_CLI.md`](packages/octocode/docs/OCTOCODE_CLI.md) · [`OCTOCODE_QUERY_LANGUAGE.md`](packages/octocode/docs/OCTOCODE_QUERY_LANGUAGE.md) · [`OQL_LANGUAGE_REFERENCE.md`](packages/octocode/docs/OQL_LANGUAGE_REFERENCE.md) · [`OQL_RESULTS_AND_EVIDENCE.md`](packages/octocode/docs/OQL_RESULTS_AND_EVIDENCE.md) · [`OQL_INTERNALS.md`](packages/octocode/docs/OQL_INTERNALS.md) |
 | Engine | [`LSP_SERVER_LIFECYCLE.md`](packages/octocode-engine/docs/LSP_SERVER_LIFECYCLE.md) |
-| Awareness | [`packages/octocode-awareness/docs/`](packages/octocode-awareness/docs/) (see Awareness section) |
 | Benchmarks | [`BENCHMARKS.md`](packages/octocode-benchmark/docs/BENCHMARKS.md) |
 | Context | [`docs/context/`](docs/context/) — [SEARCH_GUIDE](docs/context/SEARCH_GUIDE.md) · [OQL_RESEARCH_GRAPH_FLOW](docs/context/OQL_RESEARCH_GRAPH_FLOW.md) · [LSP_GUIDE](docs/context/LSP_GUIDE.md) · [AGENT_RESEARCH_WORKFLOWS](docs/context/AGENT_RESEARCH_WORKFLOWS.md) · [RUST_BEST_PRACTICES](docs/context/RUST_BEST_PRACTICES.md) |
-| Skills (repo) | [`skills/`](skills/) — 2 skills, each a folder with `SKILL.md`: awareness, research |
+| Skills (repo) | [`skills/`](skills/) — 1 skill, a folder with `SKILL.md`: research |
 
 ## Config / env — single source
 
