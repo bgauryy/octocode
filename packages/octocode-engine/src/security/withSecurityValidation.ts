@@ -185,7 +185,7 @@ export function withSecurityValidation<
   options?: { timeoutMs?: number }
 ): (
   args: unknown,
-  extra: { authInfo?: TAuth; sessionId?: string; signal?: AbortSignal }
+  extra?: { authInfo?: TAuth; sessionId?: string; signal?: AbortSignal }
 ) => Promise<ToolResult> {
   return (
     args: unknown,
