@@ -20,7 +20,6 @@ const TOOL_PAGINATION_KNOBS: Record<string, string[]> = {
   localViewStructure: ['page'],
   localFindFiles: ['page'],
   localGetFileContent: ['startLine', 'endLine'],
-  localBinaryInspect: ['path', 'mode'],
   lspGetSemantics: ['uri', 'lineHint', 'type'],
 };
 

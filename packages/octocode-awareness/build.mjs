@@ -153,7 +153,17 @@ cpSync(join(packageRoot, 'docs'), join(outDir, 'docs'), { recursive: true });
 rmSync(join(outDir, 'assets'), { recursive: true, force: true });
 cpSync(join(packageRoot, 'assets'), join(outDir, 'assets'), { recursive: true });
 
-const retiredSkills = new Set(['octocode-agent-communication', 'octocode-reflection']);
+const retiredSkills = new Set([
+  'octocode-agent-communication',
+  'octocode-reflection',
+  'octocode-brainstorming',
+  'octocode-eval',
+  'octocode-prompt-optimizer',
+  'octocode-rfc-generator',
+  'octocode-roast',
+  'octocode-skills',
+  'octocode-subagent',
+]);
 const skipGeneratedConfig = (path) => !path.endsWith('octocode-config.mjs');
 const bundledSkills = readdirSync(canonicalSkillsRoot, { withFileTypes: true })
   .filter((entry) => entry.isDirectory() && !retiredSkills.has(entry.name))

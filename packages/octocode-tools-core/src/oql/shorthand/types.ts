@@ -139,15 +139,6 @@ export interface SearchShorthand {
   baseRef?: string;
   headRef?: string;
   diffPath?: string;
-  artifactMode?: string;
-  detailed?: boolean;
-  verbose?: boolean;
-  maxEntries?: number;
-  minLength?: number;
-  entryPageNumber?: number;
-  scanOffset?: number;
-  includeOffsets?: boolean;
-  archiveFile?: string;
   intent?: string;
   facets?: string[];
   proof?: string;

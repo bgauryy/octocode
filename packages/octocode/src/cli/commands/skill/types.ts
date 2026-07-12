@@ -45,14 +45,7 @@ export const OCTOCODE_SKILLS_SOURCE: MarketplaceSource = {
 // skills/, so they are not installable through this marketplace.
 export const KNOWN_OCTOCODE_SKILLS = [
   'octocode-awareness',
-  'octocode-brainstorming',
-  'octocode-eval',
-  'octocode-prompt-optimizer',
   'octocode-research',
-  'octocode-rfc-generator',
-  'octocode-roast',
-  'octocode-skills',
-  'octocode-subagent',
 ];
 
 export const RECOMMENDED_SKILL = 'octocode-research';

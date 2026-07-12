@@ -22,7 +22,6 @@ import {
 import {
   resolveCorpus,
   normalizeEntryType,
-  resolveArtifactMode,
   resolveSemanticsOp,
 } from './corpusResolution.js';
 import { buildShorthandParts } from './shorthandParts.js';
@@ -157,7 +156,6 @@ export function buildSugar(args: ParsedArgs): Resolved {
   const resolvedCorpus = githubDiff?.corpus ?? corpus;
 
   const entry = normalizeEntryType(getString(options, 'entry'));
-  const artifactMode = resolveArtifactMode(options);
   const contentView = getString(options, 'content-view') || undefined;
   const view =
     getString(options, 'view') ||
@@ -182,7 +180,6 @@ export function buildSugar(args: ParsedArgs): Resolved {
     pullRequestFilePatch,
     githubDiff,
     diffPath,
-    artifactMode,
     numeric,
   });
 

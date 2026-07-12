@@ -24,12 +24,11 @@ Modes: investigate, review, change, refactor, prior-art validation, and evidence
 - When investigating or changing code, load `references/code-research.md`; for broader validation load `references/research-flow.md` — choose code semantics or general-source proof deliberately.
 - When planning progress or fan-out, load `references/researcher-mindset.md`; when evidence shifts, load `references/loop-mode.md` — budget checks and converge instead of searching indefinitely.
 - When mapping ecosystems, load `references/github-landscape.md`; when a decision is deep or contested, load `references/long-research.md` — rank prior art or produce a durable brief.
-- When command, MCP, or schema details matter, load `references/octocode.md` — use verified transport syntax; when improving this skill, prefer `octocode-eval`, otherwise load `references/improve-loop.md` — enforce an accept/revert gate.
+- When command, MCP, or schema details matter, load `references/octocode.md` — use verified transport syntax; when improving this skill, load `references/improve-loop.md` — enforce an accept/revert gate.
 
 ## Related routes
-- Use `octocode-brainstorming` when the question is whether to build; `octocode-rfc-generator` when the decision needs a design artifact.
-- Use `octocode-eval` for goal→KPI experiments; `octocode-roast` for critique tone; `octocode-subagent` for bounded fan-out.
-- Use `octocode-awareness` for shared-repo coordination and durable lessons; `octocode-skills` when changing this skill folder.
+- Use `octocode-awareness` for shared-repo coordination, locks, verification, and durable lessons.
+- Keep RFCs, brainstorming, eval suites, and skill-authoring as ordinary Research/docs workflows — those are no longer separate shipped Octocode skills.
 
 ## Script and output
 - When changing this skill, run `scripts/eval-research.mjs` for the matching case — catch routing regressions.

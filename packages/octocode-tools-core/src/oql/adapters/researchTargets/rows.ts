@@ -130,8 +130,6 @@ function stableId(
       return (
         s('sha')?.slice(0, 12) ?? s('oid')?.slice(0, 12) ?? valueLeadingToken(d)
       );
-    case 'artifact':
-      return s('localPath') ?? s('path');
     case 'materialized':
       return s('localPath') ?? s('repoRoot');
     case 'diff':

@@ -65,9 +65,8 @@ describe('skill routing boundaries', () => {
     expect(text).toContain('docs list --compact');
     expect(text).toContain('yarn workspace @octocodeai/octocode-awareness build');
     expect(text).toContain('scripts/smoke-multi-agent.mjs');
-    expect(existsSync(resolve(REPO_ROOT, 'skills/octocode-skills/SKILL.md'))).toBe(true);
-    expect(existsSync(resolve(REPO_ROOT, 'skills/octocode-skills/scripts/skill-review.mjs'))).toBe(true);
-    expect(existsSync(resolve(REPO_ROOT, 'skills/octocode-skills/scripts/skill-lint.mjs'))).toBe(true);
+    expect(existsSync(resolve(REPO_ROOT, 'skills/octocode-research/SKILL.md'))).toBe(true);
+    expect(existsSync(resolve(REPO_ROOT, 'skills/octocode-skills/SKILL.md'))).toBe(false);
   });
 
   it('teaches the complete agent lifecycle without assigning judgment to hooks', () => {
@@ -161,13 +160,10 @@ describe('skill routing boundaries', () => {
     }
   });
 
-  it('passes skill review with graph-routed progressive disclosure', () => {
-    const reviewer = resolve(REPO_ROOT, 'skills/octocode-skills/scripts/skill-review.mjs');
+  it('keeps awareness skill graph-routed without a separate skill-review binary', () => {
     const skillDir = resolve(REPO_ROOT, 'skills/octocode-awareness');
-    const result = spawnSync(process.execPath, [reviewer, skillDir, '--json'], { encoding: 'utf8' });
-    expect(result.status, result.stderr).toBe(0);
-    const report = JSON.parse(result.stdout) as { results: Array<{ findings: unknown[] }> };
-    expect(report.results[0]?.findings).toEqual([]);
+    expect(existsSync(resolve(skillDir, 'SKILL.md'))).toBe(true);
+    expect(existsSync(resolve(REPO_ROOT, 'skills/octocode-skills/scripts/skill-review.mjs'))).toBe(false);
   });
 
   it('does not ship retired routing stub directories', () => {
@@ -190,7 +186,7 @@ describe('skill routing boundaries', () => {
     expect(combined).not.toMatch(/<package>|<awareness-package>|default for this monorepo/);
     expect(combined).not.toContain('package migration truth: `docs/DB.md`');
     expect(readme).toContain('$(npm root --global)/@octocodeai/octocode-awareness/out/skills/octocode-awareness');
-    expect(tooling).toContain('$(npm root --global)/@octocodeai/octocode-awareness/out/skills/octocode-skills');
+    expect(tooling).toContain('$(npm root --global)/@octocodeai/octocode-awareness/out/skills/octocode-research');
     expect(octocode).toContain('references/agent-cheatsheet-tooling.md');
   });
 });

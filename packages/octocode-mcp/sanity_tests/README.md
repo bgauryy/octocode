@@ -39,7 +39,6 @@ comparisons.
 - [localViewStructure](./localViewStructure.md)
 - [localFindFiles](./localFindFiles.md)
 - [localGetFileContent](./localGetFileContent.md)
-- [localBinaryInspect](./localBinaryInspect.md)
 - [lspGetSemantics](./lspGetSemantics.md)
 - [oqlSearch](./oqlSearch.md)
 

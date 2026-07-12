@@ -117,23 +117,6 @@ describe('direct-tool command patterns', () => {
     });
     });
 
-  it('prefers native binary inspect over placeholder archive paths', () => {
-    const patterns = buildDirectToolCommandPatterns(
-      STATIC_TOOL_NAMES.LOCAL_BINARY_INSPECT
-    );
-    expect(patterns.map(p => p.label)).toEqual([
-      'native binary inspect',
-      'native strings preview',
-    ]);
-    expect(patterns[0]?.query).toMatchObject({
-      mode: 'inspect',
-      path: 'packages/octocode-engine/octocode-engine.darwin-arm64.node',
-    });
-    expect(patterns[1]?.query).toMatchObject({
-      mode: 'strings',
-    });
-  });
-
   it('groups structural search and semantic LSP under local code tooling', () => {
       const categoryLabels = DIRECT_TOOL_CATEGORIES as readonly string[];
 

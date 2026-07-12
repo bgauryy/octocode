@@ -196,8 +196,6 @@ function operationFor(target: OqlQuery['target']): string {
       return 'searchPullRequests';
     case 'commits':
       return 'searchCommits';
-    case 'artifacts':
-      return 'inspectArtifact';
     case 'diff':
       return 'diff';
     case 'research':

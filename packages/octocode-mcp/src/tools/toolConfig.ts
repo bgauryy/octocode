@@ -29,7 +29,6 @@ import { registerLocalViewStructureTool } from './local_view_structure/register.
 import { registerLocalFindFilesTool } from './local_find_files/register.js';
 import { registerLocalFetchContentTool } from './local_fetch_content/register.js';
 import { registerLspGetSemanticsTool } from './lsp/semantic_content/register.js';
-import { registerLocalBinaryInspectTool } from './local_binary_inspect/register.js';
 import { registerOqlSearchTool } from './oql_search/register.js';
 
 export type {
@@ -62,7 +61,6 @@ const MCP_FN_MAP: Record<string, McpToolConfig['fn']> = {
   [STATIC_TOOL_NAMES.LOCAL_FIND_FILES]: registerLocalFindFilesTool,
   [STATIC_TOOL_NAMES.LOCAL_FETCH_CONTENT]: registerLocalFetchContentTool,
   [LSP_GET_SEMANTICS_TOOL_NAME]: registerLspGetSemanticsTool,
-  [STATIC_TOOL_NAMES.LOCAL_BINARY_INSPECT]: registerLocalBinaryInspectTool,
   [OQL_SEARCH_TOOL_NAME]: registerOqlSearchTool,
 };
 
@@ -109,9 +107,6 @@ export const LOCAL_FETCH_CONTENT = requireTool(
 );
 export const LSP_GET_SEMANTIC_CONTENT = requireTool(
   LSP_GET_SEMANTICS_TOOL_NAME
-);
-export const LOCAL_BINARY_INSPECT = requireTool(
-  STATIC_TOOL_NAMES.LOCAL_BINARY_INSPECT
 );
 export const OQL_SEARCH: McpToolConfig = {
   ...CORE_OQL_SEARCH,

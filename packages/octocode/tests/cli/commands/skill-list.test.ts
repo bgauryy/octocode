@@ -62,9 +62,9 @@ describe('runListCommand', () => {
         folder: 'octocode-research',
       },
       {
-        name: 'octocode-eval',
-        description: 'Eval skill',
-        folder: 'octocode-eval',
+        name: 'octocode-awareness',
+        description: 'Awareness skill',
+        folder: 'octocode-awareness',
       },
     ]);
 
@@ -79,7 +79,7 @@ describe('runListCommand', () => {
     expect(payload.success).toBe(true);
     expect(payload.offline).toBe(true);
     expect(payload.skills.map(s => s.name).sort()).toEqual([
-      'octocode-eval',
+      'octocode-awareness',
       'octocode-research',
     ]);
   });
@@ -137,11 +137,10 @@ describe('runListCommand', () => {
     // folder — no meta-skills that have no folder under skills/.
     expect(payload.skills.map(s => s.name)).not.toContain('octocode');
     expect(payload.skills.map(s => s.name)).not.toContain('octocode-stats');
-    expect(payload.skills.map(s => s.name)).toContain('octocode-eval');
-    expect(payload.skills.map(s => s.name)).toContain(
-      'octocode-prompt-optimizer'
-    );
-    expect(payload.skills.map(s => s.name)).toContain('octocode-subagent');
+    expect(payload.skills.map(s => s.name)).toEqual([
+      'octocode-awareness',
+      'octocode-research',
+    ]);
   });
 
   it('treats an empty GitHub result the same as a failed fetch', async () => {

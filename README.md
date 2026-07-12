@@ -139,7 +139,6 @@ Octocode ships **14 research tools**; the same implementations run identically o
 | `localViewStructure` | Browse a local directory tree: depth, filters, pagination, metadata. | `concise` |
 | `localFindFiles` | Find local files and directories by name, path, regex, extension, size, time, permissions, type. | |
 | `localGetFileContent` | Read a local file or region: exact slice, match string, line range, or paginated chars. | `minify` |
-| `localBinaryInspect` | Inspect archives, compressed streams, and native binaries: inspect (format/symbols/imports/deps), list, extract, decompress, strings. | |
 
 ### Package Search
 
@@ -157,7 +156,7 @@ Octocode ships **14 research tools**; the same implementations run identically o
 
 | Tool | What it does |
 |------|--------------|
-| `oqlSearch` | Runs typed OQL queries across code, content, structure, files, semantics, repositories, packages, pull requests, commits, artifacts, diff, research, graph, and materialization targets. |
+| `oqlSearch` | Runs typed OQL queries across code, content, structure, files, semantics, repositories, packages, pull requests, commits, diff, research, graph, and materialization targets. |
 
 Full schemas, fields, and examples for every tool live in [`docs/OCTOCODE_TOOLS.md`](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_TOOLS.md) (linked under [Documentation](#documentation)).
 
@@ -225,13 +224,13 @@ npx octocode --help       # full usage
 | `npx octocode search <path\|owner/repo> --tree` | Browse directory or repository structure |
 | `npx octocode search <file>` | Read file content; `--content-view exact\|compact\|symbols` or `--raw` |
 | `npx octocode search <file> --symbols` | Symbol outline for a file or source tree |
-| `npx octocode search --query <oql-json>` | Full OQL across all target types (code, commits, PRs, packages, artifacts …) |
+| `npx octocode search --query <oql-json>` | Full OQL across all target types (code, commits, PRs, packages, …) |
 
 #### More commands
 
-- **GitHub & npm** — `npx octocode search <…> --target repositories|packages|pullRequests|commits|artifacts|diff`
+- **GitHub & npm** — `npx octocode search <…> --target repositories|packages|pullRequests|commits|diff`
 - **LSP** — `npx octocode search <file> --op definition|references|callers|callees|hover|diagnostic|callHierarchy` (`--symbol`, `--line` to narrow)
-- **Cache & clone** — `npx octocode clone`, `npx octocode unzip`, `npx octocode cache fetch|status|clear`
+- **Cache & clone** — `npx octocode clone`, `npx octocode cache fetch|status|clear`
 - **Skills** — `npx octocode skill --list | --name <skill> | --add <github-path> | --install-all`
 - **Language servers** — `npx octocode lsp-server list|install|status|uninstall|clean`
 - **Setup & introspection** — `npx octocode install`, `npx octocode auth`, `npx octocode status`, `npx octocode tools`, `npx octocode context`
@@ -380,19 +379,13 @@ Platforms: `common` (default, `~/.agents/skills`), `cursor` (`~/.cursor/skills`)
 
 The repository's cross-vendor sync helper is plan-first and path-safe: dry-run previews disclose replacements, writes require explicit approval, and destination names must be safe single path segments. Pi bundle sync also discloses removals during dry-run and preserves separately managed skills such as Awareness. Skill scripts use `@octocodeai/config` as the single environment-loading boundary.
 
-Workflow contracts are equally explicit: Brainstorming run ledgers and hooks stay workspace-scoped; Research can review a clean file but only recommends `APPROVE` after applicable verification passes; Prompt Optimizer accepts multiple intentional branches when every branch is unambiguous.
+Workflow contracts are equally explicit: Research can review a clean file but only recommends `APPROVE` after applicable verification passes. Shared-repo coordination, locks, verification, and memory live in Awareness.
 
 | Skill | Directory | Install with `npx octocode` | Use it when |
 |-------|-----------|-----------------------------|-------------|
 | [**Awareness**](https://www.skills.sh/bgauryy/octocode-mcp/octocode-awareness) | `octocode-awareness/` | `npx octocode skill --name octocode-awareness` | You need shared plans/tasks, advisory file awareness, sensitive exclusive locks, signals, handoffs, reflection, hooks, or verify-before-conclude in a shared repo. |
-| [**Brainstorming**](https://www.skills.sh/bgauryy/octocode-mcp/octocode-brainstorming) | `octocode-brainstorming/` | `npx octocode skill --name octocode-brainstorming` | The idea is fuzzy and needs prior-art or opportunity validation. |
-| [**Eval**](https://www.skills.sh/bgauryy/octocode-mcp/octocode-eval) | `octocode-eval/` | `npx octocode skill --name octocode-eval` | You need to measure quality, build or audit eval suites, benchmark a change, or decide whether it genuinely helped. |
-| [**Prompt Optimizer**](https://github.com/bgauryy/octocode/tree/main/skills/octocode-prompt-optimizer) | `octocode-prompt-optimizer/` | `npx octocode skill --name octocode-prompt-optimizer` | You want to optimize, strengthen, or shorten a prompt, `SKILL.md`, or `AGENTS.md`. |
 | ⭐ [**Research**](https://www.skills.sh/bgauryy/octocode-mcp/octocode-research) | `octocode-research/` | `npx octocode skill --name octocode-research` | You need evidence-first technical research, code work, review, refactor, architecture analysis, or repeated proof loops. |
-| [**RFC Generator**](https://www.skills.sh/bgauryy/octocode-mcp/octocode-rfc-generator) | `octocode-rfc-generator/` | `npx octocode skill --name octocode-rfc-generator` | You need a design doc, RFC, architecture proposal, migration plan, or rollout plan before coding. |
-| [**Roast**](https://www.skills.sh/bgauryy/octocode-mcp/octocode-roast) | `octocode-roast/` | `npx octocode skill --name octocode-roast` | You want blunt but actionable code critique. |
-| [**Skills**](https://www.skills.sh/bgauryy/octocode-mcp/octocode-skills) | `octocode-skills/` | `npx octocode skill --name octocode-skills` | You are working on Agent Skills themselves. |
-| [**Subagent**](https://www.skills.sh/bgauryy/octocode-mcp/octocode-subagent) | `octocode-subagent/` | `npx octocode skill --name octocode-subagent` | You are deciding whether to delegate or parallelize work, and need worker topology, handoffs, coordination, or result synthesis. |
+| ⭐ [**Research**](https://www.skills.sh/bgauryy/octocode-mcp/octocode-research) | `octocode-research/` | `npx octocode skill --name octocode-research` | You need evidence-first technical research, code work, review, refactor, architecture analysis, or repeated proof loops. |
 
 Awareness is the primary skill for plans/tasks, advisory file work, sensitive exclusive locks, memory, signals, reflection, schemas, and hooks. Its canonical source lives at `skills/octocode-awareness/`; the [`@octocodeai/octocode-awareness`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-awareness) package ships the same skill under its own `out/skills/octocode-awareness` for direct consumers. Older prompts that name `octocode-reflection` or `octocode-agent-communication` should load the same runtime.
 

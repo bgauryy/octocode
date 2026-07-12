@@ -296,7 +296,6 @@ const mockContent = {
     LOCAL_VIEW_STRUCTURE: 'localViewStructure',
     LSP_GET_SEMANTIC_CONTENT: 'lspGetSemantics',
     GITHUB_HISTORY: 'ghHistorySearch',
-    LOCAL_BINARY_INSPECT: 'localBinaryInspect',
   },
   baseSchema: {
     id: 'Stable query identifier.',
@@ -330,7 +329,6 @@ const mockContent = {
     localViewStructure: localViewStructureSchema,
     lspGetSemantics: lspGetSemanticsSchema,
     ghHistorySearch: mockToolSchema,
-    localBinaryInspect: mockToolSchema,
   },
   bulkOperations: {
     instructions: {

@@ -1,6 +1,6 @@
 # Octocode Research
 
-`octocode-research` gives an agent the discipline to answer technical questions with evidence instead of vibes. It covers investigation, planning, review, implementation, refactor analysis, artifact inspection, prior-art mapping, and repeated loops when one pass is not enough.
+`octocode-research` gives an agent the discipline to answer technical questions with evidence instead of vibes. It covers investigation, planning, review, implementation, refactor analysis, prior-art mapping, and repeated loops when one pass is not enough.
 
 Use it when the answer should be grounded in code, history, package data, exact files, or verifiable behavior.
 
@@ -18,8 +18,8 @@ The agent then searches cheaply, reads exact evidence, validates findings, and e
 - Problem contracts covering actual/desired behavior, authority, trigger, impact, success criteria, and non-goals.
 - Evidence-based classification of bugs, features, enhancements, and unknown symptoms.
 - Root-cause proof requiring mechanism, trigger, violated contract, divergence boundary, and disconfirmation.
-- Evidence surfaces that can include local code, GitHub, npm, PR history, artifacts, binaries, docs, specs, and papers.
-- Exact anchors such as `file:line`, repo path, package id, PR number, commit, artifact fact, or fetched URL.
+- Evidence surfaces that can include local code, GitHub, npm, PR history, docs, specs, and papers.
+- Exact anchors such as `file:line`, repo path, package id, PR number, commit, or fetched URL.
 - AST, structural search, LSP, history, package, GitHub, and local-file workflows through Octocode when available.
 - Confidence labels for confirmed, likely, uncertain, and weak claims.
 - Finding checks that keep alternate explanations alive until evidence resolves them.

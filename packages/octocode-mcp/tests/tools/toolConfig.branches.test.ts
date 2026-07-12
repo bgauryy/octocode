@@ -112,7 +112,7 @@ describe('toolConfig branch coverage - getDescription fallback (line 26)', () =>
 
     it('should mark all tools as default (except opt-in tools)', async () => {
       const { ALL_TOOLS } = await import('../../src/tools/toolConfig.js');
-      const optInTools = ['localBinaryInspect'];
+      const optInTools: string[] = [];
 
       for (const tool of ALL_TOOLS) {
         if (!optInTools.includes(tool.name)) {

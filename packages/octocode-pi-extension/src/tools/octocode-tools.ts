@@ -1,5 +1,5 @@
 /**
- * Registration of the 13 native Octocode direct tools.
+ * Registration of the 12 native Octocode direct tools.
  *
  * The tool schema + description are loaded from @octocodeai/octocode-tools-core/schema
  * (engine-free). Execution loads /direct + /config lazily so the native addon is

@@ -86,8 +86,6 @@ yarn workspace @octocodeai/octocode-awareness typecheck
 yarn workspace @octocodeai/octocode-awareness test:quiet
 yarn workspace @octocodeai/octocode-awareness build
 yarn workspace @octocodeai/octocode-awareness test:smoke
-node skills/octocode-skills/scripts/skill-review.mjs \
-  skills/octocode-awareness
 ```
 
 Migration tests must cover legacy generation-1 execution tables, generation-2

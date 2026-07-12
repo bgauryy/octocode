@@ -52,7 +52,6 @@ Record types:
 | `package` | package search result |
 | `pullRequest` | PR result |
 | `commit` | commit result |
-| `artifact` | artifact inspection result |
 | `diff` | diff result |
 | `research` | smart research flow with summary and paged packets |
 | `graph` | relationship graph with nodes, edges, facts, packets, and missing proof |
@@ -142,7 +141,6 @@ interface OqlContinuation {
 | `next.graph` | Upgrade a research or graph candidate page with bounded graph/LSP proof. |
 | `next.structure` | Inspect the tree of a materialized or extracted local path. |
 | `next.files` | Enumerate files in a materialized or extracted local path. |
-| `next.artifactStrings` | Continue a binary/artifact strings scan. |
 | `next.materialize` | Materialize the bounded corpus from the failed query. |
 
 Continuations carry path, range, source, and reasoning already validated by OQL.

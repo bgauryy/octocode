@@ -158,33 +158,6 @@ describe('gap 7: target:"materialize" returns a checkpoint row + continuations',
   });
 });
 
-/* --------------- gap 9: artifact extract -> tree continuations ---------- */
-
-describe('gap 9: extracted artifact rows carry next.structure / next.files', () => {
-  it('emits continuations rooted at the extracted localPath', async () => {
-    runDirect.mockResolvedValue(
-      toolResult({ localPath: '/extracted/pkg', mode: 'extract' })
-    );
-    const env = single(
-      await runOqlSearch({
-        target: 'artifacts',
-        from: { kind: 'local', path: '/tmp/pkg.tgz' },
-        params: { mode: 'extract' },
-      })
-    );
-    const row = env.results[0] as OqlRecordResultRow;
-    expect(row.recordType).toBe('artifact');
-    expect(row.next?.['next.structure']?.query).toMatchObject({
-      target: 'structure',
-      from: { kind: 'local', path: '/extracted/pkg' },
-    });
-    expect(row.next?.['next.files']?.query).toMatchObject({
-      target: 'files',
-      from: { kind: 'local', path: '/extracted/pkg' },
-    });
-  });
-});
-
 /* ---------------- #4: typed record-row data contracts ------------------ */
 
 describe('#4 typed record rows: data carries the documented fields', () => {
@@ -770,75 +743,6 @@ describe('provider regressions: GitHub content/structure and proof gates', () =>
         uri: '/cache/repo/src/index.ts',
       })
     );
-  });
-});
-
-/* ---------------- #6: binary strings scan-offset cursor ----------------- */
-
-describe('#6 per-domain continuation: binary strings nextScanOffset', () => {
-  it('emits next.artifactStrings carrying the next scanOffset', async () => {
-    runDirect.mockResolvedValue(
-      toolResult({ strings: ['libcurl', 'GET'], nextScanOffset: 4096 })
-    );
-    const env = single(
-      await runOqlSearch({
-        target: 'artifacts',
-        from: { kind: 'local', path: '/tmp/bin' },
-        params: { mode: 'strings' },
-      })
-    );
-    const row = env.results[0] as OqlRecordResultRow;
-    const cont = row.next?.['next.artifactStrings'];
-    expect(cont).toBeDefined();
-    expect(
-      (cont?.query as { params?: { scanOffset?: number } }).params?.scanOffset
-    ).toBe(4096);
-  });
-
-  it('marks paginated strings previews partial and exposes the char continuation', async () => {
-    runDirect.mockResolvedValue(
-      toolResult({
-        mode: 'strings',
-        path: '/tmp/bin',
-        content: 'libcurl\nGET',
-        localPath: '/tmp/bin.strings.txt',
-        isPartial: true,
-        pagination: {
-          hasMore: true,
-          charOffset: 0,
-          charLength: 4000,
-          nextCharOffset: 4000,
-          totalChars: 9000,
-        },
-      })
-    );
-
-    const env = single(
-      await runOqlSearch({
-        target: 'artifacts',
-        from: { kind: 'local', path: '/tmp/bin' },
-        params: { mode: 'strings' },
-      })
-    );
-
-    const row = env.results[0] as OqlRecordResultRow;
-    expect(env.evidence).toMatchObject({
-      answerReady: false,
-      complete: false,
-      kind: 'partial',
-    });
-    expect(env.diagnostics.map(d => d.code)).toContain('partialResult');
-    expect(
-      (
-        env.diagnostics.find(d => d.code === 'partialResult')?.continuation as
-          OqlContinuation | undefined
-      )?.query.params
-    ).toMatchObject({ charOffset: 4000, charLength: 4000 });
-    expect(row.next?.['next.artifactContent']?.query.params).toMatchObject({
-      charOffset: 4000,
-      charLength: 4000,
-    });
-    expect(row.next?.['next.search']).toBeDefined();
   });
 });
 

@@ -18,7 +18,6 @@ describe('parity gap #1: --scheme query.target lists every active target', () =>
       'packages',
       'pullRequests',
       'commits',
-      'artifacts',
       'diff',
       'research',
     ]) {
@@ -26,6 +25,10 @@ describe('parity gap #1: --scheme query.target lists every active target', () =>
         (OQL_SCHEMA_DOC.params as Record<string, unknown>)[t]
       ).toBeTruthy();
     }
+    expect(ACTIVE_TARGETS).not.toContain('artifacts');
+    expect(
+      (OQL_SCHEMA_DOC.params as Record<string, unknown>).artifacts
+    ).toBeUndefined();
   });
 });
 

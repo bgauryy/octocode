@@ -15,7 +15,6 @@ export const OCTOCODE_DIRECT_TOOL_NAMES = [
   'localGetFileContent',
   'localViewStructure',
   'lspGetSemantics',
-  'localBinaryInspect',
   'npmSearch',
 ] as const;
 

@@ -47,18 +47,17 @@ node "$(npm root --global)/@octocodeai/octocode-awareness/out/skills/octocode-aw
 ```
 
 The Awareness skill is required because it teaches agents when to use the CLI.
-The bundled `octocode-skills` skill is optional and useful only for discovering,
-reviewing, or improving skills:
+Optionally install Research for evidence-first code work:
 
 ```bash
 npx octocode skill --add \
-  --path "$(npm root --global)/@octocodeai/octocode-awareness/out/skills/octocode-skills" \
+  --path "$(npm root --global)/@octocodeai/octocode-awareness/out/skills/octocode-research" \
   --platform common --dry-run
 # after approval, rerun with --force
 ```
 
-The package bundles every other repo skill under `out/skills/` too, all optional and
-installed the same way; run `octocode-awareness --help` or
+The package bundles repo skills under `out/skills/` (Awareness and Research);
+run `octocode-awareness --help` or
 `scripts/install.mjs` (see its `bundled_skills` field) for the current, resolved list.
 
 Published surfaces:

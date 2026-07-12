@@ -50,7 +50,7 @@ describe('CLI command content is sourced from octocode-core', () => {
     // The runtime CLICommand.options and the core spec.options are independent
     // lists. getAllowedOptionNames() unions them, so a flag the handler reads
     // but the core spec omits is silently accepted yet never shown in --help
-    // (the cache --clone/--tree/--binary/--unzip regression). Enforce that every
+    // (the cache --clone/--tree regression). Enforce that every
     // runtime option name exists in core, and that hasValue agrees where both
     // declare it — so help can never under-document a working flag again.
     const offenders: string[] = [];

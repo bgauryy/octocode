@@ -4,21 +4,6 @@ export const ALLOWED_COMMANDS = [
   'find',
   'grep',
   'git',
-  'file',
-  'zcat',
-  'gunzip',
-  'bzcat',
-  'xzcat',
-  'zstdcat',
-  'zstd',
-  'lz4cat',
-  'brotli',
-  'lzfse',
-  'tar',
-  'unzip',
-  'bsdtar',
-  '7z',
-  '7zz',
 ] as const;
 
 export const DANGEROUS_PATTERNS = [

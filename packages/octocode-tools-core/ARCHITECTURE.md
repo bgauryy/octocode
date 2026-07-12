@@ -20,7 +20,7 @@ its own.
 ## Tool catalog
 
 `src/tools/toolConfig.ts` is the registry. Each `ToolConfig` declares its name,
-category flags (`isLocal`/`isClone`/`isBinary`), a display `schema` + bulk
+category flags (`isLocal`/`isClone`), a display `schema` + bulk
 `inputSchema` (Zod), an `executionFn`, a `security` mode (`basic` | `remote`),
 and runtime needs (`requiresServerRuntime`, `requiresProviders`). `ALL_TOOLS`
 is the single source of truth.
@@ -29,7 +29,7 @@ is the single source of truth.
   `github_fetch_content`, `github_view_repo_structure`, `github_search_repos`,
   `github_search_pull_requests`, `github_clone_repo`.
 - **Local** (`security: 'basic'`): `local_ripgrep`, `local_find_files`,
-  `local_fetch_content`, `local_view_structure`, `local_binary_inspect`.
+  `local_fetch_content`, `local_view_structure`.
 - **LSP**: `lsp_get_semantic_content` (needs server runtime).
 - **Package**: `package_search` (npm).
 - **OQL**: `oql_search`, the raw tool entrypoint for the shared OQL runner used

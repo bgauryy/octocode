@@ -79,10 +79,6 @@
       "description": "Run LSP semantic navigation over local files"
     },
     {
-      "name": "mcp_octocode_localBinaryInspect",
-      "description": "Inspect archives, compressed streams, binaries, and strings"
-    },
-    {
       "name": "mcp_octocode_oqlSearch",
       "description": "Run OQL research workflows with typed continuations"
     }

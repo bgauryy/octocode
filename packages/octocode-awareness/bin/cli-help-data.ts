@@ -11,13 +11,13 @@ operate: agent; session; hooks; hook; maintenance; schema
 first: octocode-awareness attend --workspace "$PWD" --query "<task>" --compact
 map: octocode-awareness schema commands --compact
 flags: octocode-awareness <noun> [action] --help
-skills(${BUNDLED_SKILLS.length}): ${BUNDLED_SKILLS_DIR}; use octocode-awareness and octocode-skills
+skills(${BUNDLED_SKILLS.length}): ${BUNDLED_SKILLS_DIR}; use octocode-awareness (required) and octocode-research
 policy: AGENTS.md = trigger/router; Agent Skill = operating policy; CLI/SQLite = canonical live state; hooks/Pi bridge = deterministic lifecycle automation
 output: use --compact for operational JSON; docs show emits Markdown
 exit: 0 ok; 1 validation/verify debt; 2 conflict/wait/strict hook health`;
 
 export const HELP_COMPACT = `octocode-awareness: canonical noun/verb CLI; AGENTS routes → skill decides → CLI/SQLite acts → hooks automate edges. Use --compact for JSON.
-bundled-skills(${BUNDLED_SKILLS.length}): ${BUNDLED_SKILLS_DIR} — octocode-awareness+octocode-skills required, others optional (see --help)
+bundled-skills(${BUNDLED_SKILLS.length}): ${BUNDLED_SKILLS_DIR} — octocode-awareness required; octocode-research optional (see --help)
 start: attend; workspace status; plan create|list|show|join|doc|status; task create|list|ready|show|claim|heartbeat|submit|release|depend; memory recall; signal list; docs list
 edit: work start|touch|end|list|show; lock acquire|wait|release|prune; verify audit|mark
 msg: signal publish|list|reply|ack|resolve|prune; agent register|list

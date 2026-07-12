@@ -2,7 +2,7 @@
 
 Load for Map/Validate/Investigate/Plan execution. `algorithm.md` owns proof; `octocode.md` owns syntax; `workflows.md` routes debug/change/review/local/external work.
 
-Start with a Surface Plan: local, GitHub, packages, PR/history, artifacts, web, and reasons for skips. Rare extensions: `long-research.md` for durable/contested decisions and `github-landscape.md` for repo ecosystems.
+Start with a Surface Plan: local, GitHub, packages, PR/history, web, and reasons for skips. Rare extensions: `long-research.md` for durable/contested decisions and `github-landscape.md` for repo ecosystems.
 
 ## Mode Flows
 | Mode | Chain |
@@ -22,7 +22,6 @@ Remote/package: package/repo search -> tree -> code search -> exact read -> hist
 Remote as local: directory fetch/clone -> local AST/LSP/search (bridge details: workflow-combination.md)
 PR intent: PR metadata/comments/selected patches -> exact changed paths -> history
 Dead code: research candidates -> returned graph query -> text+AST+LSP+tests
-Artifact: localBinaryInspect inspect|list|strings -> extract|unpack bounded entry -> local tree/search/exact/LSP
 ```
 
 ## Cross-Pollination

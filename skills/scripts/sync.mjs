@@ -192,7 +192,7 @@ function printCleanupPlan(plan, isDryRun) {
 function runSelfTest() {
   const root = fs.mkdtempSync(path.join(tmpdir(), 'octocode-skill-sync-'));
   const preserved = [...PRESERVED_DEST_SKILLS];
-  const removable = ['octocode-brainstorming', 'octocode-reflection'];
+  const removable = ['octocode-research', 'octocode-reflection'];
   const failures = [];
   try {
     for (const name of [...preserved, ...removable]) {

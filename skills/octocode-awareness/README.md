@@ -37,9 +37,8 @@ when the target host does not scan that shared directory. Run
 `node "$(npm root --global)/@octocodeai/octocode-awareness/out/skills/octocode-awareness/scripts/install.mjs" --compact`
 to verify the bundled runtime and receive cwd-independent next commands.
 
-The package also bundles optional sibling `octocode-skills` for skill install,
-review, and improvement. Install it from its packaged path only when that work is
-needed; do not depend on registry/name lookup.
+Optionally install sibling `octocode-research` from its packaged path for
+evidence-first code work. Do not depend on registry/name lookup for Awareness.
 
 ## Features
 
@@ -107,8 +106,6 @@ From the monorepo:
 ```bash
 yarn workspace @octocodeai/octocode-awareness build
 yarn workspace @octocodeai/octocode-awareness test:quiet
-node skills/octocode-skills/scripts/skill-review.mjs \
-  skills/octocode-awareness
 ```
 
 Build emits `out/octocode-awareness.js`, then mirrors this skill to package

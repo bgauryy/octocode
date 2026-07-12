@@ -328,7 +328,7 @@ describe('OQL gate 3: unknown fields fail', () => {
 });
 
 describe('OQL gate 4: reserved targets fail with unsupportedTarget', () => {
-  // research targets (semantics/repositories/packages/pullRequests/commits/artifacts/
+  // research targets (semantics/repositories/packages/pullRequests/commits/
   // diff) are now active; only reserved fixes/dataflow remain reserved.
   for (const target of ['fixes', 'dataflow']) {
     it(`rejects target:"${target}"`, () => {

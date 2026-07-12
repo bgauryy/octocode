@@ -309,42 +309,6 @@ const flows = [
     ],
   },
   {
-    name: 'archive-binary',
-    kind: 'binary-proof',
-    anchors: ['.octocode/eval-fixtures/sample.tgz'],
-    commands: [
-      {
-        id: 'BINARY-LIST',
-        args: [
-          'search',
-          '.octocode/eval-fixtures/sample.tgz',
-          '--target',
-          'artifacts',
-          '--list',
-          '--json',
-          '--compact',
-          '--no-color',
-        ],
-        check: json => assertJsonPath(json, ['results', 0]),
-      },
-      {
-        id: 'BINARY-EXTRACT',
-        args: [
-          'search',
-          '.octocode/eval-fixtures/sample.tgz',
-          '--target',
-          'artifacts',
-          '--extract',
-          'archive-src/package.json',
-          '--json',
-          '--compact',
-          '--no-color',
-        ],
-        check: json => assertJsonPath(json, ['results', 0]),
-      },
-    ],
-  },
-  {
     name: 'cache-fetch-file-tree-clone',
     kind: 'remote-as-local',
     network: true,
@@ -509,7 +473,7 @@ const ratings = {
   },
   researchQuality: {
     score: failFlows === 0 ? 9 : 6,
-    reason: 'The run covers grep, AST, LSP, OQL, binary, and remote-as-local proof paths.',
+    reason: 'The run covers grep, AST, LSP, OQL, and remote-as-local proof paths.',
   },
   outputQuality: {
     score: 9,
@@ -531,7 +495,7 @@ const ratings = {
 const reflection = {
   whatWorked: [
     'Live benchmark output is created in the required artifact layout.',
-    'The run exercises local grep, AST, LSP, OQL, archive/binary, and CLI metadata lanes.',
+    'The run exercises local grep, AST, LSP, OQL, and CLI metadata lanes.',
   ],
   whatDidNotWork:
     failFlows > 0

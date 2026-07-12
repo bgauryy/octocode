@@ -213,12 +213,6 @@ export function buildToolCallSummary(toolName: string, args: unknown): string {
       return (`${shortPath(p)}${names ? ` [${names}]` : ''}${pat ? ` ${pat}` : ''}` + more).trim();
     }
 
-    if (toolName === 'localBinaryInspect') {
-      const p = str(q.path);
-      const mode = str(q.mode);
-      return (`${basename(p)}${mode ? ` (${mode})` : ''}` + more).trim();
-    }
-
     if (toolName === 'lspGetSemantics') {
       const sym = str(q.symbolName);
       const type = str(q.type) || 'definition';
@@ -228,7 +222,6 @@ export function buildToolCallSummary(toolName: string, args: unknown): string {
       return (`${type}${sym ? ` "${sym}"` : ''}${file ? ` in ${file}${line}` : ''}` + more).trim();
     }
 
-    // localBinaryInspect fallthrough
     const p = str(q.path);
     return (shortPath(p) + more).trim();
   }

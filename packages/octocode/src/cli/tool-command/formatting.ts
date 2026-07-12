@@ -18,7 +18,6 @@ const RAW_LOCAL_PATH_TOOL_NAMES = new Set([
   'localFindFiles',
   'localGetFileContent',
   'localViewStructure',
-  'localBinaryInspect',
 ]);
 const RAW_LOCAL_PATH_GUIDANCE =
   'Path note: local tools need an absolute path — "." resolves against the command cwd and can mismatch.';
@@ -148,10 +147,6 @@ export function getToolPreviewLines(toolName: string): string[] {
 
   if (toolName === 'ghHistoryResearch') {
     return getFieldPreviewLines(toolName, 'type');
-  }
-
-  if (toolName === 'localBinaryInspect') {
-    return getFieldPreviewLines(toolName, 'mode');
   }
 
   if (toolName === 'ghSearchCode') {

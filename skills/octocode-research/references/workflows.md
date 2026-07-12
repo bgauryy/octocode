@@ -12,7 +12,7 @@ Load after `references/algorithm.md` and `references/problem-framing.md` to pick
 | `references/workflow-refactor.md` | reshape structure/names/modules/layout while preserving contracts | `refactor-mode` |
 | `references/workflow-pr-review.md` | PR URL/#N/safe-to-merge, local changes/diff, file review; sole Octocode review workflow | `pr-local-review` |
 
-Rare paths: `references/long-research.md` for durable/contested decisions (`long-decision-brief`); `references/github-landscape.md` for repo ecosystems (`github-landscape`); `references/loop-mode.md` after repeated evidence/check changes (`loop-mode`). Cross-task meta (planning, measuring, subagent fan-out, efficiency): `references/researcher-mindset.md`. For divergent idea generation or build/no-build validation, switch to the `octocode-brainstorming` skill.
+Rare paths: `references/long-research.md` for durable/contested decisions (`long-decision-brief`); `references/github-landscape.md` for repo ecosystems (`github-landscape`); `references/loop-mode.md` after repeated evidence/check changes (`loop-mode`). Cross-task meta (planning, measuring, subagent fan-out, efficiency): `references/researcher-mindset.md`. For divergent idea generation or build/no-build validation, stay in Research framing and decide explicitly before coding.
 
 ## Common Spine
 `problem contract → classify → system model → surface plan → cheap map → anchor → exact read → stronger proof → answer/patch/review`

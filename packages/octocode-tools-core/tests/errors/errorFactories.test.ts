@@ -16,10 +16,8 @@ describe('ToolErrors.binaryFileUnsupported', () => {
   it('points the agent to a recovery tool instead of dead-ending', () => {
     // Convention: recovery guidance lives in the message, like fileAccessFailed
     // ("Use localViewStructure instead", "...using localFindFiles"). A binary is
-    // not a dead end — localBinaryInspect reads format/strings and localSearchCode
-    // greps embedded strings.
+    // not a dead end — localSearchCode greps embedded strings.
     const err = ToolErrors.binaryFileUnsupported('/x/codex');
-    expect(err.message).toContain('localBinaryInspect');
     expect(err.message).toContain('localSearchCode');
   });
 });

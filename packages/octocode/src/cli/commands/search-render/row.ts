@@ -2,7 +2,6 @@
 import { c, dim } from '../../../utils/colors.js';
 import type { OqlResultEnvelope } from '@octocodeai/octocode-tools-core/oql';
 import {
-  renderArtifactRecord,
   renderResearchRecord,
   renderSemanticsRecord,
 } from './record-detail.js';
@@ -68,9 +67,6 @@ function renderRecord(row: {
         .join('  ');
       break;
     }
-    case 'artifact':
-      detail = renderArtifactRecord(d);
-      break;
     case 'diff':
       detail = [
         get('path') ?? get('filename'),

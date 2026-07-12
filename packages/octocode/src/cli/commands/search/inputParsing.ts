@@ -21,7 +21,6 @@ const TARGET_ALIASES: Record<string, string> = {
   package: 'packages',
   pkg: 'packages',
   npm: 'packages',
-  artifact: 'artifacts',
 };
 export function normalizeTargetAlias(options: Record<string, unknown>): void {
   const raw = options['target'];
@@ -96,10 +95,6 @@ export function parseNumericOptions(
     ['file-page', 'filePage', 1],
     ['comment-page', 'commentPage', 1],
     ['commit-page', 'commitPage', 1],
-    ['min-length', 'minLength', 1],
-    ['max-entries', 'maxEntries', 1],
-    ['entry-page', 'entryPageNumber', 1],
-    ['scan-offset', 'scanOffset', 0],
     ['proof-limit', 'proofLimit', 1],
   ];
   for (const [flag, prop, min] of fields) {

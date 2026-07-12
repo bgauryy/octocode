@@ -1,6 +1,6 @@
 /**
  * Research-target adapters: semantics (LSP), repositories, packages,
- * pullRequests, commits, artifacts, diff, and smart research packets.
+ * pullRequests, commits, diff, and smart research packets.
  *
  * Each compiles a canonical OQL query (from + scope + `params` bag) into the
  * existing bulk tool runner and maps the single query's `data` payload into
@@ -28,7 +28,6 @@ import {
   executeDiff,
   type LineDiff,
 } from './researchTargets/diff.js';
-import { executeArtifacts } from './researchTargets/artifacts.js';
 import { executeSemantics } from './researchTargets/semantics.js';
 import { executeResearch } from './researchTargets/research.js';
 import { executeGraph } from './researchTargets/graph.js';
@@ -53,7 +52,6 @@ export const RESEARCH_TARGET_ADAPTERS: Record<
   pullRequests: executeHistory,
   commits: executeHistory,
   diff: executeDiff,
-  artifacts: executeArtifacts,
   semantics: executeSemantics,
   research: executeResearch,
   graph: executeGraph,

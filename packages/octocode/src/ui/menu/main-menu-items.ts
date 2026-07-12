@@ -77,14 +77,14 @@ export function buildOctocodeSkillsMenuItem(skills: SkillsState): {
     return {
       name: `- Octocode Skills ${c('green', '✅')}`,
       value: 'octocode-skills',
-      description: `${octocodeSkillsInstalled} installed • Research, planning & review`,
+      description: `${octocodeSkillsInstalled} installed • Awareness & Research`,
     };
   }
 
   return {
     name: '- Octocode Skills',
     value: 'octocode-skills',
-    description: 'Install AI-powered research, planning & review skills',
+    description: 'Install Octocode Awareness and Research skills',
   };
 }
 

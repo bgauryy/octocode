@@ -47,10 +47,6 @@ export {
   LspGetSemanticsQueryDisplaySchema,
 } from './lsp/semantic_content/scheme.js';
 export {
-  LocalBinaryInspectQuerySchema,
-  LocalBinaryInspectBulkQuerySchema,
-} from './local_binary_inspect/scheme.js';
-export {
   OqlDisplayQuerySchema as OqlSearchQuerySchema,
   OqlSearchInputSchema,
 } from '../oql/schema.js';

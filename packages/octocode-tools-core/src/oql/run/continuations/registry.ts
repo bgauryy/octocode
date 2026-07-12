@@ -11,7 +11,6 @@
  * never another `else if`:
  *  - code        → next.fetch (read exact content) [+ next.semantic on local]
  *  - content     → next.charRange (page the body)
- *  - artifact    → next.structure / next.files rooted at the extracted path
  *  - materialized→ next.structure / next.files rooted at the checkpoint path
  *  - semantics   → next.fetch (read the code at a symbol location)
  *  - graph       → next.graph (bounded LSP proof for candidate graph pages)
@@ -27,7 +26,6 @@ import type {
 } from '../../types.js';
 import { localFileSource } from '../paths.js';
 import {
-  buildArtifactContinuations,
   buildCodeContinuations,
   buildContentContinuations,
   buildGraphContinuations,
@@ -199,7 +197,6 @@ export function hintsEqual(
 const ROW_CONTINUATION_BUILDERS: Record<string, RowContinuationBuilder> = {
   code: buildCodeContinuations,
   content: buildContentContinuations,
-  'record:artifact': buildArtifactContinuations,
   'record:materialized': buildMaterializedContinuations,
   'record:semantics': buildSemanticsContinuations,
   'record:research': buildResearchContinuations,

@@ -24,8 +24,6 @@ const { mockPaths } = vi.hoisted(() => ({
     tmp: '/fake/tmp',
     clone: '/fake/tmp/clone',
     tree: '/fake/tmp/tree',
-    binary: '/fake/tmp/binary',
-    unzip: '/fake/tmp/unzip',
     repos: '/fake/tmp/clone',
   },
 }));
@@ -85,8 +83,6 @@ describe('statusCommand', () => {
     mockPaths.tmp = '/fake/tmp';
     mockPaths.clone = '/fake/tmp/clone';
     mockPaths.tree = '/fake/tmp/tree';
-    mockPaths.binary = '/fake/tmp/binary';
-    mockPaths.unzip = '/fake/tmp/unzip';
     mockPaths.repos = '/fake/tmp/clone';
     logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
     originalExitCode = process.exitCode;
@@ -135,8 +131,6 @@ describe('statusCommand', () => {
     expect(out('Cache')).toBe(true);
     expect(out('clone:')).toBe(true);
     expect(out('tree:')).toBe(true);
-    expect(out('binary:')).toBe(true);
-    expect(out('unzip:')).toBe(true);
     expect(out('status --sync')).toBe(true);
     expect(process.exitCode).toBeUndefined();
   });
@@ -195,8 +189,6 @@ describe('statusCommand', () => {
 
     expect(getDirectorySizeBytes).toHaveBeenCalledWith('/fake/tmp/clone');
     expect(getDirectorySizeBytes).toHaveBeenCalledWith('/fake/tmp/tree');
-    expect(getDirectorySizeBytes).toHaveBeenCalledWith('/fake/tmp/binary');
-    expect(getDirectorySizeBytes).toHaveBeenCalledWith('/fake/tmp/unzip');
 
     const payload = JSON.parse(String(logSpy.mock.calls.at(-1)?.[0])) as {
       cache: {
@@ -204,16 +196,12 @@ describe('statusCommand', () => {
         tmp: { path: string };
         clone: { path: string };
         tree: { path: string };
-        binary: { path: string };
-        unzip: { path: string };
       };
     };
     expect(payload.cache.home).toBe('/fake/octocode');
     expect(payload.cache.tmp.path).toBe('/fake/tmp');
     expect(payload.cache.clone.path).toBe('/fake/tmp/clone');
     expect(payload.cache.tree.path).toBe('/fake/tmp/tree');
-    expect(payload.cache.binary.path).toBe('/fake/tmp/binary');
-    expect(payload.cache.unzip.path).toBe('/fake/tmp/unzip');
   });
 
   it('--json reports unauthenticated state without failing read-only status', async () => {

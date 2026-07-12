@@ -13,7 +13,6 @@ import type {
   OqlTreeResultRow,
 } from './results.js';
 import type {
-  OqlArtifactData,
   OqlCommitData,
   OqlDiffData,
   OqlGraphData,
@@ -41,10 +40,6 @@ export type OqlPullRequestRow = OqlRecordResultRow & {
 export type OqlCommitRow = OqlRecordResultRow & {
   recordType: 'commit';
   data: OqlCommitData;
-};
-export type OqlArtifactRow = OqlRecordResultRow & {
-  recordType: 'artifact';
-  data: OqlArtifactData;
 };
 export type OqlDiffRow = OqlRecordResultRow & {
   recordType: 'diff';

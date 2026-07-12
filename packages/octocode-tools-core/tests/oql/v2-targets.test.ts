@@ -40,15 +40,6 @@ describe('OQL research targets are active and route to their backend', () => {
     },
     {
       input: {
-        target: 'artifacts',
-        from: { kind: 'local', path: './a.node' },
-        params: { mode: 'inspect' },
-      },
-      backend: 'localBinaryInspect',
-      op: 'inspectArtifact',
-    },
-    {
-      input: {
         target: 'diff',
         repo: 'facebook/react',
         params: { prNumber: 1 },
@@ -84,6 +75,16 @@ describe('OQL research targets are active and route to their backend', () => {
       expect(p.backendCalls[0]?.operation).toBe(c.op);
     });
   }
+
+  it('does not treat artifacts as an active target', () => {
+    expect(() =>
+      plan({
+        target: 'artifacts',
+        from: { kind: 'local', path: './a.node' },
+        params: { mode: 'inspect' },
+      })
+    ).toThrow();
+  });
 
   it('local structural code search reports the structural transformer', () => {
     const { plan: p, executable } = plan({

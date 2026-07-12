@@ -2,7 +2,7 @@
  * Typed target-specific `params` schemas.
  *
  * Research targets (semantics/repositories/packages/pullRequests/commits/
- * artifacts/diff/research/graph) carry a `params` bag that the backing tool validates
+ * diff/research/graph) carry a `params` bag that the backing tool validates
  * exhaustively. These schemas type the documented common fields so a type
  * mistake (e.g. `prNumber:"abc"`) is caught at the OQL layer with a clear
  * `invalidQuery` instead of failing opaquely at the tool, while `.passthrough()`
@@ -156,27 +156,6 @@ const commitsParams = z
   })
   .passthrough();
 
-const artifactsParams = z
-  .object({
-    mode: z
-      .enum(['inspect', 'list', 'extract', 'decompress', 'strings', 'unpack'])
-      .optional(),
-    archiveFile: z.string().optional(),
-    entryPageNumber: intMin1.optional(),
-    maxEntries: intMin1.optional(),
-    entriesPerPage: intMin1.optional(),
-    minLength: z.number().int().min(1).max(128).optional(),
-    scanOffset: nonNegInt.optional(),
-    charOffset: nonNegInt.optional(),
-    charLength: intMin1.optional(),
-    matchString: z.string().optional(),
-    detailed: z.boolean().optional(),
-    format: z.string().optional(),
-    verbose: z.boolean().optional(),
-    includeOffsets: z.boolean().optional(),
-  })
-  .passthrough();
-
 const diffParams = z
   .object({
     prNumber: intMin1.optional(),
@@ -246,7 +225,6 @@ const TARGET_PARAM_SCHEMAS: Partial<Record<OqlActiveTarget, z.ZodTypeAny>> = {
   packages: packagesParams,
   pullRequests: pullRequestsParams,
   commits: commitsParams,
-  artifacts: artifactsParams,
   diff: diffParams,
   research: researchParams,
   graph: graphParams,

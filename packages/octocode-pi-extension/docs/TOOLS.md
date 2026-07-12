@@ -1,6 +1,6 @@
 # Tools Reference — Pi Extension
 
-Complete reference for every tool registered by `@octocodeai/pi-extension`. The 13 Octocode research tools delegate execution to `@octocodeai/octocode-tools-core`; the Pi-specific tools are implemented directly in `src/tools/`.
+Complete reference for every tool registered by `@octocodeai/pi-extension`. The 12 Octocode research tools delegate execution to `@octocodeai/octocode-tools-core`; the Pi-specific tools are implemented directly in `src/tools/`.
 
 Pi’s default `read`/`grep`/`find`/`ls` are removed and `edit`/`write`/`bash` are
 replaced by Octocode implementations. See **[OVERRIDES.md](./OVERRIDES.md)** for
@@ -14,7 +14,7 @@ why, the user-facing rules, and the developer code map.
 |--------|-------|
 | **Core** | `bash`, `edit`, `write` |
 | **GitHub** | `ghSearchCode` · `ghSearchRepos` · `ghHistoryResearch` · `ghGetFileContent` · `ghViewRepoStructure` · `ghCloneRepo` |
-| **Local** | `localSearchCode` · `localViewStructure` · `localFindFiles` · `localGetFileContent` · `localBinaryInspect` |
+| **Local** | `localSearchCode` · `localViewStructure` · `localFindFiles` · `localGetFileContent` |
 | **LSP** | `lspGetSemantics` |
 | **Package** | `npmSearch` |
 | **Browser** | `chromeDebug` · `browserAgent` · `spawnSubagent` |
@@ -44,7 +44,6 @@ Source of truth for names: `OCTOCODE_DIRECT_TOOL_NAMES` + `OCTOCODE_SUPPORT_TOOL
 | Browse local directory tree | `localViewStructure` |
 | Find files by name/size/time | `localFindFiles` |
 | Read a local file or range | `localGetFileContent` |
-| Inspect archives / binaries | `localBinaryInspect` |
 | Symbol identity, refs, callers, types | `lspGetSemantics` |
 | Resolve npm package to source | `npmSearch` |
 | Single-shot Chrome DevTools call | `chromeDebug` |
@@ -101,7 +100,6 @@ All accept absolute paths. Strip leading `@` if copied from a Pi file reference.
 | `localSearchCode` | `path`, `keywords`, `mode`, `perlRegex`, `fixedString`, `include`, `contextLines` | Modes: `discovery` · `paginated` · `detailed` · `structural` (AST) |
 | `localFindFiles` | `path`, `names`, `regex`, `entryType`, `maxDepth`, `modifiedWithin` | Name/size/time filters; use when content doesn't matter |
 | `localGetFileContent` | `path`, `startLine`/`endLine`, `matchString`, `minify`, `fullContent` | `symbols` first for large files; `none` for edits/citations |
-| `localBinaryInspect` | `path`, `mode` | Modes: `inspect` · `list` · `extract` · `decompress` · `strings` · `unpack` |
 
 **`localSearchCode` modes:**
 
@@ -288,6 +286,6 @@ Loaded via `@octocodeai/config`. Run `npx @octocodeai/config --keys` to inspect 
 # Exact active schema for any tool
 node $OCTOCODE_CLI tools <toolName> --scheme
 
-# List all 13 Octocode tools
+# List all 12 Octocode tools
 node $OCTOCODE_CLI tools
 ```

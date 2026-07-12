@@ -76,7 +76,7 @@ The MCP server registers the same 14 research tools exposed by the raw CLI tool 
 |--------|-------|
 | GitHub | `ghSearchCode`, `ghGetFileContent`, `ghViewRepoStructure`, `ghSearchRepos`, `ghHistoryResearch`, `ghCloneRepo` |
 | Package | `npmSearch` |
-| Local | `localSearchCode`, `localViewStructure`, `localFindFiles`, `localGetFileContent`, `localBinaryInspect` |
+| Local | `localSearchCode`, `localViewStructure`, `localFindFiles`, `localGetFileContent` |
 | LSP | `lspGetSemantics` |
 | OQL | `oqlSearch` |
 

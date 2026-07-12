@@ -109,7 +109,7 @@ export interface OqlContentResultRow extends OqlProofGradedRow {
 
 /**
  * Generic record row for targets whose payload is a typed research object
- * (repository, package, PR, commit, symbol/location, artifact, diff, packet).
+ * (repository, package, PR, commit, symbol/location, diff, packet).
  * `recordType` names the family; `data` is the row payload.
  */
 export interface OqlRecordResultRow extends OqlProofGradedRow {
@@ -120,7 +120,6 @@ export interface OqlRecordResultRow extends OqlProofGradedRow {
     | 'package'
     | 'pullRequest'
     | 'commit'
-    | 'artifact'
     | 'diff'
     | 'research'
     | 'graph'

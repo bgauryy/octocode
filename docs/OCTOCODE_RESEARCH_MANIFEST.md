@@ -136,7 +136,7 @@ Three research surfaces, one loop:
 ```
 LOCAL      workspace files, node_modules, cloned/materialized repos
            → localSearchCode, localGetFileContent, localViewStructure,
-             localFindFiles, localBinaryInspect, lspGetSemantics
+             localFindFiles, lspGetSemantics
 
 EXTERNAL   GitHub (code, trees, files, PRs, commits) and npm
            → ghSearchCode, ghGetFileContent, ghViewRepoStructure,
@@ -277,7 +277,6 @@ or "this is unused" built on a single angle (§12, item 2).
 | `localGetFileContent` | local | read file / matchString slices / line ranges | reading after you have coordinates |
 | `localViewStructure` | local | directory tree | orientation in an unfamiliar dir |
 | `localFindFiles` | local | find by name/size/time/permissions metadata | the constraint is *about the file*, not in it |
-| `localBinaryInspect` | local | archives, compressed streams, native binaries | non-text artifacts (list → extract; inspect; strings) |
 | `lspGetSemantics` | local | definitions, references, callers/callees, hover, symbols, types | proving identity and impact |
 | `ghSearchCode` | external | GitHub code/path search | locating code across repos you don't have |
 | `ghGetFileContent` | external | read GitHub file (slices/ranges/symbols); `type:"directory"` materializes a subtree | reading remote files; bridging remote→local |
@@ -285,7 +284,7 @@ or "this is unused" built on a single angle (§12, item 2).
 | `ghSearchRepos` | external | repo discovery | finding candidate repos/prior art |
 | `ghHistoryResearch` | external | PR search + PR deep-read + commit history | archaeology: why did this change |
 | `npmSearch` | external | package → source repo (+ `repositoryDirectory`) | resolving a dependency to its home |
-| `oqlSearch` | both | typed federated query; research/graph/diff/artifacts targets | multi-predicate queries, remote+local in one plan |
+| `oqlSearch` | both | typed federated query; research/graph/diff targets | multi-predicate queries, remote+local in one plan |
 | `ghCloneRepo` | bridge | full/sparse clone (**gated: `ENABLE_CLONE=true`**) | whole-repo local analysis |
 
 Bulk: every tool takes up to 5 parallel queries per call with per-query `id`.
@@ -370,9 +369,6 @@ WHAT DO I HOLD?
 │
 ├─ A "why" / history question
 │    → ghHistoryResearch (PRs: keywords+match:["title"], concise:true; commits: owner/repo/path)
-│
-└─ A binary / archive / huge artifact
-     → localBinaryInspect (list before extract; inspect for metadata; strings for leads)
 ```
 
 ---
@@ -440,8 +436,7 @@ Default read policy: **matchString first, line ranges second, fullContent last**
 (small files only). If you know *what* you're looking for but not *where*, this
 is always the cheapest correct read. Related but different: `ghHistoryResearch
 matchString` filters PR patches/comments to matching sections (same idea,
-different surface); `localBinaryInspect matchString` does it for
-extracted/decompressed streams with `matchStringContextLines`.
+different surface).
 
 ---
 
@@ -714,11 +709,10 @@ computing your own.** Every paginator here is lossless; nothing is silently drop
 
 | Family | Fields | Tools | Behavior |
 |---|---|---|---|
-| Char window (file) | `charOffset`/`charLength` → `nextCharOffset`, `isPartial` | local/gh GetFileContent, binary extract/decompress | a capped `charLength` on a large file returns `pagination.hasMore:true` plus a ready, copy-paste `next.charRange` query pre-filled with the next offset, and `nextHints.why:"Read the next content window."` explaining the offer. Nothing to compute, nothing silently dropped. |
+| Char window (file) | `charOffset`/`charLength` → `nextCharOffset`, `isPartial` | local/gh GetFileContent | a capped `charLength` on a large file returns `pagination.hasMore:true` plus a ready, copy-paste `next.charRange` query pre-filled with the next offset, and `nextHints.why:"Read the next content window."` explaining the offer. Nothing to compute, nothing silently dropped. |
 | Result page | `page` → `hasMore`/`nextPage` | all search tools, structure tools | later pages return the next slice of rows with a `reported`/`reachable`/`capped` breakdown |
 | Per-file match page | `matchPage` + `maxMatchesPerFile` | localSearchCode | walks a noisy file without re-fetching others |
 | List pages | `itemsPerPage` + `page`; `filePage`/`commentPage`/`commitPage` | LSP lists, PR content surfaces | large symbol lists page cleanly across calls |
-| Byte scan | `scanOffset` → `nextScanOffset`; `entryPageNumber` | binary strings / archive lists | for artifacts, not text |
 | Response window | `responseCharLength`/`responseCharOffset` | EVERY tool (outermost) | wraps the whole bulk response; advance only on `hasMore`. Wrinkle: on multi-query bulk repo-search, prefer bigger `responseCharLength` or per-query pages over advancing this offset |
 
 Budget levers, cheapest first: tighter scope (path/owner/repo/langType) → leaner mode
@@ -904,7 +898,6 @@ with lexical/structural/semantic lanes. Octocode primitive → common equivalent
 | `localGetFileContent minify:"symbols"` | aider repo-map (per-repo), ctags/tree-sitter outline (per-file) |
 | `localGetFileContent matchString` + `matchRanges` | `rg -n -C<k>` then read the line spans; no merged-slice or anchor handoff, that's the gap |
 | `localViewStructure` / `localFindFiles` | `tree`/`eza`, `fd` |
-| `localBinaryInspect` | `file`/`objdump`/`nm`/`strings`, `tar -t`, `zipinfo` |
 | `ghSearchCode` / `ghViewRepoStructure` / `ghGetFileContent` | `gh search code`, `gh api repos/.../git/trees`, `gh api .../contents` (same default-branch index limits apply) |
 | `ghCloneRepo sparsePath` / `type:"directory"` | `git clone --depth 1 --filter=blob:none --sparse` + `git sparse-checkout set <path>` |
 | `ghHistoryResearch` | `gh pr list/view`, `git log -- <path>`, `gh search prs` |

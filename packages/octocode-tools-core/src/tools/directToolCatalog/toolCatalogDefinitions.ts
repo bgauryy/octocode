@@ -36,8 +36,6 @@ import {
   LocalViewStructureBulkQuerySchema,
   BulkLspGetSemanticsQuerySchema,
   LspGetSemanticsQueryDisplaySchema,
-  LocalBinaryInspectQuerySchema,
-  LocalBinaryInspectBulkQuerySchema,
   OqlSearchQuerySchema,
   OqlSearchInputSchema,
 } from '../toolSchemaImports.js';
@@ -220,11 +218,6 @@ export const DIRECT_TOOL_DEFINITIONS: DirectToolDefinition[] = [
     name: LSP_GET_SEMANTICS_TOOL_NAME,
     schema: LspGetSemanticsQueryDisplaySchema,
     inputSchema: BulkLspGetSemanticsQuerySchema,
-  },
-  {
-    name: STATIC_TOOL_NAMES.LOCAL_BINARY_INSPECT,
-    schema: LocalBinaryInspectQuerySchema,
-    inputSchema: LocalBinaryInspectBulkQuerySchema,
   },
   ...(isOqlEnabled()
     ? [

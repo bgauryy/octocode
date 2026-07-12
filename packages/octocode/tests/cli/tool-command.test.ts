@@ -472,11 +472,11 @@ describe('toolCommand', () => {
     expect(context).toContain('2. ghCloneRepo');
     expect(context).toContain('3. localSearchCode');
     expect(context).toContain(
-      'Quick commands (search/unzip/clone/cache fetch)'
+      'Quick commands (search/clone/cache fetch)'
     );
     expect(context).not.toContain('Quick commands (search/ls/cat/repo');
     expect(context).not.toMatch(
-      /Quick commands \([^)]*\b(?:ls|cat|repo|history|binary|diff|pkg|lsp|find|grep)\b/
+      /Quick commands \([^)]*\b(?:ls|cat|repo|history|binary|unzip|diff|pkg|lsp|find|grep)\b/
     );
     // full mode includes complete tool descriptions
     expect(context).toContain('Search code in GitHub repositories.');

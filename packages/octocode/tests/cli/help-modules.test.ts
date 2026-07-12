@@ -68,7 +68,6 @@ describe('command-help-specs', () => {
       'search',
       'skill',
       'clone',
-      'unzip',
       'cache',
       'context',
     ];
@@ -131,7 +130,6 @@ describe('command-help-specs', () => {
       'search',
       'clone',
       'cache',
-      'unzip',
       // management commands now carry agent guidance too
       'install',
       'auth',

@@ -61,8 +61,7 @@ octocode-awareness reflect developer-review --workspace "$PWD" --format markdown
 ```
 
 Exports are previews. They never patch `AGENTS.md`, `SKILL.md`, docs, hooks, or code.
-Approved skill edits use `octocode-skills`, then build, skill review, focused tests,
-and a held-out check.
+Approved skill edits use Research + package tests + human review, then rebuild and a held-out check.
 
 Harness self-edits also require the pre-edit guard:
 

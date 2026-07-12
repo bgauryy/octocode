@@ -395,7 +395,7 @@ function validateCliCommandSurfaces(commandNames) {
   const mainHelp = runCli(['--help', '--no-color']);
   // `pr` was folded into `search owner/repo#N --target pullRequests` (same
   // search-first consolidation that removed grep/lsp/ast quick commands).
-  for (const commandName of ['search', 'unzip', 'clone', 'cache']) {
+  for (const commandName of ['search', 'clone', 'cache']) {
     assert(
       new RegExp(`\\n\\s+${commandName}\\s+`).test(mainHelp),
       `main help must include quick command ${commandName}`
@@ -617,8 +617,6 @@ function validateSearchRouteMatrix() {
   const evalDoc = 'packages/octocode-benchmark/benchmark/octocode/README.md';
   const oqlSource = 'packages/octocode-tools-core/src/oql';
   const searchCommand = 'packages/octocode/src/cli/commands/search.ts';
-  const nativeArtifact =
-    'packages/octocode-engine/npm/darwin-arm64/octocode-engine.darwin-arm64.node';
 
   const cases = [
     {
@@ -724,13 +722,6 @@ function validateSearchRouteMatrix() {
       target: 'commits',
       backend: 'ghHistoryResearch:searchCommits:exact',
       transformer: 'github.commits',
-    },
-    {
-      name: 'artifacts',
-      args: [nativeArtifact, '--target', 'artifacts', '--inspect'],
-      target: 'artifacts',
-      backend: 'localBinaryInspect:inspectArtifact:exact',
-      transformer: 'local.artifacts',
     },
     {
       name: 'local diff',

@@ -62,8 +62,6 @@ export * from './tools/github_view_repo_structure/constants.js';
 export * from './tools/github_view_repo_structure/execution.js';
 export * from './tools/github_view_repo_structure/scheme.js';
 export * from './tools/github_view_repo_structure/types.js';
-export * from './tools/local_binary_inspect/execution.js';
-export * from './tools/local_binary_inspect/scheme.js';
 export * from './tools/local_fetch_content/contentExtractor.js';
 export * from './tools/local_fetch_content/execution.js';
 export * from './tools/local_fetch_content/fetchContent.js';
@@ -380,8 +378,6 @@ export {
   ensureClone,
   ensureRepos,
   ensureTree,
-  ensureBinary,
-  ensureUnzip,
 } from './shared/paths.js';
 export { getDirectorySizeBytes, formatBytes } from './shared/fs-utils.js';
 

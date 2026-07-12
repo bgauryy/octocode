@@ -47,9 +47,7 @@ describe('paths', () => {
     expect(mod.paths.tmp).toBe('/Users/tester/.octocode/tmp');
     expect(mod.paths.clone).toBe('/Users/tester/.octocode/tmp/clone');
     expect(mod.paths.tree).toBe('/Users/tester/.octocode/tmp/tree');
-    expect(mod.paths.binary).toBe('/Users/tester/.octocode/tmp/binary');
     expect(mod.paths.repos).toBe('/Users/tester/.octocode/tmp/clone');
-    expect(mod.paths.unzip).toBe('/Users/tester/.octocode/tmp/unzip');
     expect(mod.paths.lspConfig).toBe(
       '/Users/tester/.octocode/lsp-servers.json'
     );
@@ -88,7 +86,7 @@ describe('paths', () => {
 
     expect(mod.paths.home).toBe('/tmp/custom-octocode-home');
     expect(mod.getDefaultOctocodeHome()).toBe('/tmp/custom-octocode-home');
-    expect(mod.paths.binary).toBe('/tmp/custom-octocode-home/tmp/binary');
+    expect(mod.paths.clone).toBe('/tmp/custom-octocode-home/tmp/clone');
   });
 
   it('ensureHome creates home with 0o700', async () => {
@@ -128,20 +126,6 @@ describe('paths', () => {
       mode: 0o700,
     });
     expect(mkdirSync).toHaveBeenCalledWith(mod.paths.tree, {
-      recursive: true,
-      mode: 0o700,
-    });
-  });
-
-  it('ensureBinary creates binary tmp with 0o700', async () => {
-    const mod = await import('../../../src/shared/paths.js');
-    mod.ensureBinary();
-
-    expect(mkdirSync).toHaveBeenCalledWith(mod.paths.tmp, {
-      recursive: true,
-      mode: 0o700,
-    });
-    expect(mkdirSync).toHaveBeenCalledWith(mod.paths.binary, {
       recursive: true,
       mode: 0o700,
     });

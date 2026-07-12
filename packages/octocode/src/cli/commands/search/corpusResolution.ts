@@ -108,19 +108,6 @@ export function resolveSemanticsOp(
   );
 }
 
-export function resolveArtifactMode(
-  options: ParsedArgs['options']
-): string | undefined {
-  if (getString(options, 'artifact-mode'))
-    return getString(options, 'artifact-mode');
-  if (getBool(options, 'inspect')) return 'inspect';
-  if (getBool(options, 'list')) return 'list';
-  if (getBool(options, 'strings')) return 'strings';
-  if (getBool(options, 'decompress')) return 'decompress';
-  if (getString(options, 'extract')) return 'extract';
-  return undefined;
-}
-
 export function normalizeEntryType(
   value: string | undefined
 ): 'file' | 'directory' | undefined {

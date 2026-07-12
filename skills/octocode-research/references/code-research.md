@@ -1,6 +1,6 @@
 # Code Research
 
-Load for code investigation, review, refactor, architecture, dead-code, artifact, or blast-radius work. Read `algorithm.md` and `problem-framing.md` first; load the matching `workflow-*.md` before this proof ladder.
+Load for code investigation, review, refactor, architecture, dead-code, or blast-radius work. Read `algorithm.md` and `problem-framing.md` first; load the matching `workflow-*.md` before this proof ladder.
 
 ## Route
 | Need | First proof path |
@@ -13,11 +13,10 @@ Load for code investigation, review, refactor, architecture, dead-code, artifact
 | PR/local review | changed region → symbols → consumers/tests → ranked findings |
 | dead code/delete | candidate → LSP/AST/broad text/tests |
 | architecture | entry points → dependencies/fan proxies → tradeoffs |
-| binary/archive | `localBinaryInspect` inspect/list/strings → extract/unpack → local research |
 
 ## Workflow
 1. State goal, scope, and expected output: research, review, plan, or patch.
-2. Map structure/change/artifact before body reads; keep a likely and alternate hypothesis.
+2. Map structure/change before body reads; keep a likely and alternate hypothesis.
 3. Read exact slices; use AST for shape and LSP for identity/reachability.
 4. For edits, find a local pattern and patch only the evidence-supported boundary.
 5. Run the declared test/build/typecheck/lint/smoke or deterministic read/search check.

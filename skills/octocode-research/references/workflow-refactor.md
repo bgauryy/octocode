@@ -1,7 +1,7 @@
 # Workflow: Refactor Mode
 
 Use when reshaping names, modules, files, or directories while preserving behavior and contracts. Why: structural change needs identity and blast-radius proof, not feature logic.
-Read `algorithm.md` first and use `code-research.md` for proof. New behavior routes to `workflow-change.md`; contested architecture routes to `octocode-rfc-generator`.
+Read `algorithm.md` first and use `code-research.md` for proof. New behavior routes to `workflow-change.md`; contested architecture routes to an explicit design doc before coding.
 
 Flow: `SKELETON → CONTRACTS → BLAST → PLAN → EXECUTE → VERIFY → CLEAN`.
 

@@ -44,13 +44,7 @@ const packageRoot = path.resolve(import.meta.dirname, '..');
 const distDir = path.join(packageRoot, 'dist');
 const EXPECTED_OCTOCODE_SKILLS = [
   'octocode-awareness',
-  'octocode-brainstorming',
-  'octocode-prompt-optimizer',
   'octocode-research',
-  'octocode-rfc-generator',
-  'octocode-roast',
-  'octocode-skills',
-  'octocode-subagent',
 ];
 
 let distAssetsReady = false;
@@ -376,14 +370,7 @@ test('build copies bundled Octocode skills without secret env files', () => {
     skills,
     [
       'octocode-awareness',
-      'octocode-brainstorming',
-      'octocode-eval',
-      'octocode-prompt-optimizer',
       'octocode-research',
-      'octocode-rfc-generator',
-      'octocode-roast',
-      'octocode-skills',
-      'octocode-subagent',
     ].sort()
   );
   assert.equal(
@@ -425,7 +412,7 @@ test('build copies bundled Octocode skills without secret env files', () => {
   const forbiddenEnv = path.join(
     distDir,
     'skills',
-    'octocode-brainstorming',
+    'octocode-research',
     '.env'
   );
   assert.equal(fs.existsSync(forbiddenEnv), false);
@@ -543,7 +530,7 @@ test(
     );
     assert.match(status, /awareness DB: not yet created/);
     assert.match(status, /awareness CLI:.*awareness\.mjs/);
-    assert.match(status, /octocode tools: 13 native Pi tools/);
+    assert.match(status, /octocode tools: 12 native Pi tools/);
     assert.match(status, /bundled CLI:.*octocode\.js/);
     assert.match(
       status,
@@ -1701,11 +1688,7 @@ test('registers all Octocode direct tools as native Pi tools', async () => {
     [],
     'every direct Octocode tool is registered as a Pi tool'
   );
-  assert.equal(OCTOCODE_DIRECT_TOOL_NAMES.length, 13);
-  assert.ok(
-    !OCTOCODE_DIRECT_TOOL_NAMES.includes('unzip' as never),
-    'unzip is not a native Pi tool — use npx octocode unzip via bash'
-  );
+  assert.equal(OCTOCODE_DIRECT_TOOL_NAMES.length, 12);
 
   for (const toolName of OCTOCODE_DIRECT_TOOL_NAMES) {
     const tool = tools.get(toolName)!;
@@ -3061,7 +3044,7 @@ test('spawnSubagent starts researcher, planner, and architect with all Octocode 
     const architectTools =
       architectArgs![architectArgs!.indexOf('--tools') + 1]!;
     assert.match(architectTools, /bash/);
-    assert.match(architectTools, /localBinaryInspect/);
+    assert.match(architectTools, /localGetFileContent/);
     assert.match(architectTools, /lspGetSemantics/);
   } finally {
     setAgentProcessFactoryForTests(null);

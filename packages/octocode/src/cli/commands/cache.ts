@@ -109,9 +109,7 @@ function renderMaterialization(result: RemoteMaterialization): void {
 function printStatus(jsonOutput: boolean): void {
   const cloneBytes = getDirectorySizeBytes(paths.clone);
   const treeBytes = getDirectorySizeBytes(paths.tree);
-  const binaryBytes = getDirectorySizeBytes(paths.binary);
-  const unzipBytes = getDirectorySizeBytes(paths.unzip);
-  const tmpBytes = cloneBytes + treeBytes + binaryBytes + unzipBytes;
+  const tmpBytes = cloneBytes + treeBytes;
   const payload = {
     home: paths.home,
     tmp: {
@@ -132,18 +130,6 @@ function printStatus(jsonOutput: boolean): void {
       sizeBytes: treeBytes,
       sizeFormatted: formatBytes(treeBytes),
     },
-    binary: {
-      path: paths.binary,
-      exists: existsSync(paths.binary),
-      sizeBytes: binaryBytes,
-      sizeFormatted: formatBytes(binaryBytes),
-    },
-    unzip: {
-      path: paths.unzip,
-      exists: existsSync(paths.unzip),
-      sizeBytes: unzipBytes,
-      sizeFormatted: formatBytes(unzipBytes),
-    },
   };
 
   if (jsonOutput) {
@@ -162,12 +148,6 @@ function printStatus(jsonOutput: boolean): void {
   console.log(
     `  ${dim('tree cache:')}   ${payload.tree.path} (${payload.tree.sizeFormatted})`
   );
-  console.log(
-    `  ${dim('binary cache:')} ${payload.binary.path} (${payload.binary.sizeFormatted})`
-  );
-  console.log(
-    `  ${dim('unzip cache:')}  ${payload.unzip.path} (${payload.unzip.sizeFormatted})`
-  );
   console.log();
 }
 
@@ -176,8 +156,6 @@ function clearCachePaths(
   selections: {
     clone: boolean;
     tree: boolean;
-    binary: boolean;
-    unzip: boolean;
     all: boolean;
   }
 ): void {
@@ -194,8 +172,6 @@ function clearCachePaths(
   } else {
     if (selections.clone) remove('clone', paths.clone);
     if (selections.tree) remove('tree', paths.tree);
-    if (selections.binary) remove('binary', paths.binary);
-    if (selections.unzip) remove('unzip', paths.unzip);
   }
 
   if (jsonOutput) {
@@ -224,8 +200,6 @@ export const cacheCommand: CLICommand = {
     { name: 'clone' },
     { name: 'repos' },
     { name: 'tree' },
-    { name: 'binary' },
-    { name: 'unzip' },
     { name: 'all' },
     { name: 'json' },
   ],
@@ -242,19 +216,11 @@ export const cacheCommand: CLICommand = {
       const selections = {
         clone: getBool(args.options, 'clone') || getBool(args.options, 'repos'),
         tree: getBool(args.options, 'tree'),
-        binary: getBool(args.options, 'binary'),
-        unzip: getBool(args.options, 'unzip'),
         all: getBool(args.options, 'all'),
       };
-      if (
-        !selections.clone &&
-        !selections.tree &&
-        !selections.binary &&
-        !selections.unzip &&
-        !selections.all
-      ) {
+      if (!selections.clone && !selections.tree && !selections.all) {
         printUsage(
-          'cache clear requires --clone, --tree, --binary, --unzip, --repos, or --all.',
+          'cache clear requires --clone, --tree, --repos, or --all.',
           jsonOutput
         );
         return;

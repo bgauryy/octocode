@@ -99,11 +99,6 @@ const registeredTools = [
       /attachRawResponseChars\(result,\s*countSerializedChars\(result\)\)/,
     ],
   },
-  {
-    name: 'localBinaryInspect',
-    executionFiles: ['src/tools/local_binary_inspect/execution.ts'],
-    rawEvidence: [/attachRawResponseChars\(result/],
-  },
 ] as const;
 
 async function readProjectFile(relativePath: string): Promise<string> {
@@ -125,7 +120,7 @@ describe('tool stats emission contract', () => {
       .sort();
     const coveredNames = registeredTools.map(tool => tool.name).sort();
 
-    expect(catalogNames).toHaveLength(13);
+    expect(catalogNames).toHaveLength(12);
     expect(coveredNames).toEqual(catalogNames);
   });
 

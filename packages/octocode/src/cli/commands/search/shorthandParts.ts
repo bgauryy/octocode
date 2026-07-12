@@ -24,7 +24,6 @@ export interface ShorthandPartsContext {
   pullRequestFilePatch: string | undefined;
   githubDiff: GithubDiffShortcut | undefined;
   diffPath: string | undefined;
-  artifactMode: string | undefined;
   numeric: Partial<CliSearchShorthand>;
 }
 
@@ -54,7 +53,6 @@ export function buildShorthandParts(
     pullRequestFilePatch,
     githubDiff,
     diffPath,
-    artifactMode,
     numeric,
   } = ctx;
 
@@ -260,18 +258,8 @@ export function buildShorthandParts(
       ? { headRef: getString(options, 'head') }
       : {}),
     ...(diffPath ? { diffPath } : {}),
-    ...(artifactMode ? { artifactMode } : {}),
     ...(getBool(options, 'detailed') ? { detailed: true } : {}),
     ...(getBool(options, 'verbose') ? { verbose: true } : {}),
-    ...(getString(options, 'match') && target === 'artifacts'
-      ? { matchString: getString(options, 'match') }
-      : {}),
-    ...(getString(options, 'extract')
-      ? { archiveFile: getString(options, 'extract'), artifactMode: 'extract' }
-      : {}),
-    ...(getString(options, 'archive-file')
-      ? { archiveFile: getString(options, 'archive-file') }
-      : {}),
     ...(getString(options, 'intent')
       ? { intent: getString(options, 'intent') }
       : {}),

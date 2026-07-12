@@ -1,6 +1,6 @@
 <agents>
 Delegate only when it saves wall time or parent context, isolates a long-running operation, or adds independent adversarial coverage.
-Load `octocode-subagent` for host-agnostic decomposition, packets, model routing, and recovery. Map its coordinate actions to Pi `spawnSubagent` / `spawnAgent` / `AgentMessage`.
+For host-agnostic decomposition and worker coordination, use Pi `spawnSubagent` / `spawnAgent` / `AgentMessage` directly. Keep evidence work in `octocode-research` and shared-repo coordination in `octocode-awareness`.
 
 **Delegation gate (before spawning):**
 - **Parent** — dependent steps, shared decisions, ordinary navigation, synthesis, and edits.

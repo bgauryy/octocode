@@ -15,7 +15,6 @@ const emptyCompleteMetadata = {
     LOCAL_FIND_FILES: 'localFindFiles',
     LOCAL_VIEW_STRUCTURE: 'localViewStructure',
     LSP_GET_SEMANTIC_CONTENT: 'lspGetSemantics',
-    LOCAL_BINARY_INSPECT: 'localBinaryInspect',
   },
   baseSchema: {
     mainResearchGoal: '',

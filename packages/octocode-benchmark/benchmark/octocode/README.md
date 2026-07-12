@@ -41,7 +41,7 @@ for tool in \
   ghSearchCode ghGetFileContent ghViewRepoStructure ghSearchRepos \
   ghHistoryResearch ghCloneRepo npmSearch localSearchCode \
   localViewStructure localFindFiles localGetFileContent \
-  localBinaryInspect lspGetSemantics oqlSearch
+  lspGetSemantics oqlSearch
 do
   "${CLI[@]}" tools "$tool" --scheme --compact --no-color \
     > "$BENCH_OUT/schemes/$tool.txt"

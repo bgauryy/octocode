@@ -9,12 +9,12 @@ import { ACTIVE_TARGETS, RESERVED_TARGETS } from './types.js';
 export const OQL_SCHEMA_DOC = {
   schema: 'oql',
   description:
-    'octocode search — typed read-only queries over code, files, symbols, repos, packages, history, artifacts, diffs, and graph evidence. Think source + answer type + filters + read/output options; use --explain for routing; follow next.* for pages, exact reads, materialization, or proof.',
+    'octocode search — typed read-only queries over code, files, symbols, repos, packages, history, diffs, and graph evidence. Think source + answer type + filters + read/output options; use --explain for routing; follow next.* for pages, exact reads, materialization, or proof.',
   activeTargets: ACTIVE_TARGETS,
   reservedTargets: RESERVED_TARGETS,
   sourceGuide: {
     local:
-      'from:{kind:"local",path:"./src"}; shorthand: search "term" ./src, search ./src --tree, search file.ts --op documentSymbols. Best for local code/content/files/tree/LSP/artifacts/diff.',
+      'from:{kind:"local",path:"./src"}; shorthand: search "term" ./src, search ./src --tree, search file.ts --op documentSymbols. Best for local code/content/files/tree/LSP/diff.',
     github:
       'from:{kind:"github",repo:"owner/repo",ref?}; shorthand: search "term" owner/repo, search owner/repo --tree, search owner/repo#123 --target pullRequests. GitHub code is indexed/default-branch scoped; materialize for AST/LSP/local proof.',
     npm: 'from:{kind:"npm"} with target:"packages"; shorthand: search zod --target packages. Use to resolve package metadata and source repo, then continue with GitHub or local/materialized proof.',
@@ -25,13 +25,13 @@ export const OQL_SCHEMA_DOC = {
     source:
       '`from` = where to look: local path, GitHub repo, npm, or a materialized checkout.',
     answerType:
-      '`target` = what kind of answer you want: code matches, file content, tree, files, symbols, repos, packages, PRs, commits, artifacts, diffs, research packets, graph proof, or materialization.',
+      '`target` = what kind of answer you want: code matches, file content, tree, files, symbols, repos, packages, PRs, commits, diffs, research packets, graph proof, or materialization.',
     filters:
       '`where` = match/filter conditions for code and file discovery only: text, regex, AST shape, file fields, and boolean combinations.',
     readOptions:
       '`fetch` = what to read once you know the file/tree: exact content, compact content, symbol outline, ranges, match slices, or tree depth.',
     targetOptions:
-      '`params` = options that belong to one answer type, such as LSP operation, PR number, package name, artifact mode, research intent, or graph proof.',
+      '`params` = options that belong to one answer type, such as LSP operation, PR number, package name, research intent, or graph proof.',
     output:
       '`view`, `select`, and `controls` = response shape, projected fields, search tuning, and cost limits.',
     paging:
@@ -54,8 +54,6 @@ export const OQL_SCHEMA_DOC = {
     'commit history': 'target:commits (--since/--until)',
     'a diff':
       'target:diff ({prNumber} for a PR patch, {baseRef,headRef,path} for two refs)',
-    'inspect a binary/archive':
-      'target:artifacts (--inspect/--list/--strings/--extract)',
     'dead-code / reachability sweep':
       'target:research, then upgrade with target:graph proof:"lsp"',
     'make a remote repo behave like local (AST/LSP/negation)':
@@ -86,8 +84,6 @@ export const OQL_SCHEMA_DOC = {
       'search vercel/next.js/README.md --content-view none',
     'semantics (local/materialized)':
       'search ./src/index.ts --op documentSymbols   |   search ./src/index.ts --op references --symbol runCLI --line 42',
-    'artifact inspect/list':
-      'search app.tgz --target artifacts --list   |   search dist/server.node --target artifacts --inspect',
     'PR diff (GitHub)':
       'search vercel/next.js#123 --target diff   |   search vercel/next.js --target diff --pr 123',
     'two-ref / two-file diff':
@@ -149,7 +145,7 @@ export const OQL_SCHEMA_DOC = {
     scope:
       '{ path?, language?, include?, exclude?, excludeDir?, hidden?, noIgnore?, minDepth?, maxDepth? } — minDepth/maxDepth bound directory recursion depth (0-64)',
     where:
-      'filters for code/files only: text | regex | structural | field | all | any | not. To read a matched file slice, use fetch.content.match. For PR/commit/artifact text narrowing, use that target params hint.',
+      'filters for code/files only: text | regex | structural | field | all | any | not. To read a matched file slice, use fetch.content.match. For PR/commit text narrowing, use that target params hint.',
     materialize:
       '{ mode:"never"|"auto"|"required", strategy?:"file"|"tree"|"subtree"|"repo", allowFullRepo?, forceRefresh? }',
     fetch:
@@ -164,7 +160,7 @@ export const OQL_SCHEMA_DOC = {
       'number — total result cap where supported. Prefer itemsPerPage for paged research/graph/file-history continuations.',
     page: 'number — top-level page number for OQL windowing/continuations',
     itemsPerPage:
-      'number — page size for the target primary result domain. For code search this may be matched files, not individual matches; per-file match paging uses controls.search.matchPage. Per-target params expose backing-tool sub-pages only (filePage/commentPage/commitPage, entryPageNumber, scanOffset, etc.).',
+      'number — page size for the target primary result domain. For code search this may be matched files, not individual matches; per-file match paging uses controls.search.matchPage. Per-target params expose backing-tool sub-pages only (filePage/commentPage/commitPage, etc.).',
     explain: 'boolean',
   },
   // Per-target `params` hints (full schema: `tools <name> --scheme`).
@@ -179,8 +175,6 @@ export const OQL_SCHEMA_DOC = {
       '{ state?:"open"|"closed"|"merged", author?, label?, keywordsToSearch?, prNumber?, reviewMode?, filePage?, commentPage?, commitPage?, limit?, page?, matchString?, matchScope?:"body"|"title"|"comments"|"reviews"|"all", content? } — backing tool ghHistoryResearch; matchString filters fetched PR title/body/comments/reviews per matchScope (default body), not a search-index query — no match → zeroMatches',
     commits:
       '{ path?, branch?, since?, until?, includeDiff?, limit?, page?, filePage?, itemsPerPage?, matchString? } — backing tool ghHistoryResearch type:"commits"; matchString filters commit messages; repo/directory diffs page changed files per commit with filePage/itemsPerPage',
-    artifacts:
-      '{ mode:"inspect"|"list"|"extract"|"decompress"|"strings"|"unpack", minLength?, entryPageNumber?, scanOffset?, charOffset?, charLength?, matchString? } — localBinaryInspect. matchString filters text-producing modes (extract/decompress/strings) over the current fetched payload. For large strings dumps, follow next.search on data.localPath for lossless ripgrep paging; next.artifactContent (charOffset) = next inline text window; next.artifactStrings (scanOffset) = next binary scan window. extract/unpack/decompress → tree at data.localPath (next.structure/next.files).',
     diff: '{ prNumber, files? } (PR patch via ghHistoryResearch) | { baseRef, headRef, path } (direct two-ref file diff via ghGetFileContent + local line diff); neither shape -> invalidQuery repair',
     research:
       '{ goal?, intent?:"general"|"reachability"|"dependencies"|"symbols", facets?:("symbols"|"files"|"dependencies"|"relations")[], mode?:"plan"|"analyze"|"prove", maxFiles? } — TWO-PHASE: page:1+itemsPerPage:1 → data.summary (full-scope counts) and may include a bounded first packet page; page:2+ → data.packets[] continuation pages (candidates w/ retainedBy edges + per-packet next.*). Always evidence:"candidate"/answerReady:false (normal). Follow the row\'s pre-filled next.graph (proof:"lsp", proofLimit-bounded) to upgrade a page to LSP-proven proofStatus.',

@@ -10,10 +10,7 @@ export function hasTargetIntent(options: ParsedArgs['options']): boolean {
     getString(options, 'op') ||
     getBool(options, 'symbols') ||
     getBool(options, 'tree') ||
-    getBool(options, 'inspect', 'list', 'strings', 'decompress') ||
     getBool(options, 'detailed') ||
-    getString(options, 'extract') ||
-    getString(options, 'artifact-mode') ||
     getString(options, 'content-view') ||
     getString(options, 'match-string') ||
     getString(options, 'start-line') ||
@@ -47,14 +44,6 @@ export function inferTarget(
   )
     return 'semantics';
   if (getBool(options, 'tree')) return 'structure';
-  if (
-    getBool(options, 'inspect', 'list', 'strings', 'decompress') ||
-    getString(options, 'extract') ||
-    getString(options, 'artifact-mode') ||
-    getBool(options, 'detailed')
-  ) {
-    return 'artifacts';
-  }
   if (
     hasContentIntent(options) ||
     (isLocalFileTarget(targetArg) && !hints.hasSearchPredicate)

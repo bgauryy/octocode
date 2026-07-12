@@ -68,11 +68,10 @@ yarn workspace @octocodeai/octocode-awareness pack:check
 yarn workspace @octocodeai/octocode-awareness verify
 ```
 
-Skill changes also require:
+Skill changes also require focused package tests after rebuild:
 
 ```bash
-node skills/octocode-skills/scripts/skill-review.mjs \
-  skills/octocode-awareness
+yarn workspace @octocodeai/octocode-awareness test:quiet
 ```
 
 Preserve failed-check evidence. Record only reusable learning. The executable user

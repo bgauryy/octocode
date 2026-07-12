@@ -1,6 +1,6 @@
 # Octocode Tools Reference
 
-One reference for every Octocode research tool exposed through MCP and the CLI. The schemas and descriptions come from `@octocodeai/octocode-core`; execution lives in `@octocodeai/octocode-tools-core`; native search, minify, binary, security, and LSP primitives live in `@octocodeai/octocode-engine`.
+One reference for every Octocode research tool exposed through MCP and the CLI. The schemas and descriptions come from `@octocodeai/octocode-core`; execution lives in `@octocodeai/octocode-tools-core`; native search, minify, security, and LSP primitives live in `@octocodeai/octocode-engine`.
 
 Use this page when you need field-level guidance, cross-tool workflows, known behavior, or release verification checks. For the exact active schema in a local checkout, run:
 
@@ -14,7 +14,7 @@ npx octocode tools <toolName> --scheme
 |--------|-------|
 | GitHub | `ghSearchCode`, `ghGetFileContent`, `ghViewRepoStructure`, `ghSearchRepos`, `ghHistoryResearch`, `ghCloneRepo` |
 | Packages | `npmSearch` |
-| Local | `localSearchCode`, `localViewStructure`, `localFindFiles`, `localGetFileContent`, `localBinaryInspect` |
+| Local | `localSearchCode`, `localViewStructure`, `localFindFiles`, `localGetFileContent` |
 | LSP | `lspGetSemantics` |
 | OQL | `oqlSearch` |
 
@@ -22,7 +22,6 @@ npx octocode tools <toolName> --scheme
 
 - [GitHub Tools Reference](#github-tools-reference)
 - [Local Code Tools Reference](#local-code-tools-reference)
-- [Binary Tools Reference](#binary-tools-reference)
 - [LSP Tools Reference](#lsp-tools-reference)
 - [OQL Search](#oql-search)
 - [Tool Behavior Guide](#tool-behavior-guide)
@@ -310,7 +309,6 @@ Related docs:
 | `localViewStructure` | Browse directory structure and metadata. |
 | `localFindFiles` | Find files/directories by name, path, time, size, type, and permissions. |
 | `localGetFileContent` | Read targeted file content by line range, match, signature skeleton, or char page. |
-| `localBinaryInspect` | Inspect archives, compressed streams, and native binaries. See [Binary Tools Reference](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_TOOLS.md#binary-tools-reference). |
 
 ---
 
@@ -697,171 +695,6 @@ localSearchCode(path=".", keywords="TODO|FIXME", perlRegex=true)
 
 ---
 
-## Binary Tools Reference
-
-Reference for `localBinaryInspect` — the Octocode MCP tool for inspecting archives, compressed streams, and native binaries.
-
-Local tools are enabled by default; `ENABLE_LOCAL=false` disables `localBinaryInspect`.
-
----
-
-### `localBinaryInspect`
-
-Inspect binary files without writing code. Pick the mode for the job:
-
-| Mode | Input | Output |
-|------|-------|--------|
-| `inspect` | Native binary / object (.so, .dylib, .node, .exe, .dll, .wasm, .o; ELF/Mach-O/PE) or any file | Format, arch, bits, endianness, stripped, symbols, imports, exports, sections, dynamic deps (+ type + magic bytes) |
-| `list` | Archive (.zip, .tar.gz, .jar, .7z, …) | Entry names, sizes, timestamps |
-| `extract` | Archive + entry name (from `list`) | Entry content |
-| `decompress` | Single-stream compressed file (.gz, .bz2, .xz, .zst, .lz4, .br, .lzfse) | Decompressed text |
-| `strings` | Native binary (.so, .dylib, .node, .exe, .wasm) | Readable strings (ASCII + UTF-16), symbols, URLs |
-
-`inspect` and `strings` are fully native (octocode-engine / `goblin`) — no `file`, `xxd`, `strings`, or binutils dependency, so they work identically on Windows and on distroless/Alpine Linux.
-
-#### Decision Flow
-
-```text
-Unknown / native binary → inspect
-Archive                 → list  → extract (one entry)
-Compressed              → decompress
-Want raw readable text  → strings
-```
-
----
-
-### Parameters
-
-#### Required
-
-| Parameter | Description |
-|-----------|-------------|
-| `path` | File path (absolute or workspace-relative). |
-| `mode` | One of: `inspect`, `list`, `extract`, `decompress`, `strings`. |
-
-#### `inspect` mode
-
-Takes no parameters beyond `path`. Returns identity (`format`, `description`, `magicBytes`) for any file, plus — for recognized executables — `arch`, `bits`, `endianness`, `stripped`, `entry`, `symbolCount`/`importCount`/`exportCount`, and capped `symbols`/`imports`/`exports`/`sections`/`libraries` lists.
-
-#### `list` mode
-
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| `verbose` | `false` | Include entry size and mtime. |
-| `maxEntries` | `1000` | Cap entries before pagination. |
-| `entriesPerPage` | unset | Entries per page. Pair with `entryPageNumber`. |
-| `entryPageNumber` | `1` | Page for large archives. |
-
-#### `extract` mode
-
-| Parameter | Description |
-|-----------|-------------|
-| `archiveFile` | Exact entry path (case-sensitive, no leading `-`). **Required.** Run `list` first. |
-| `matchString` | Filter decompressed lines by this string. |
-| `matchStringContextLines` | Lines around each match. Default `3`. |
-| `charOffset` | Char offset for content pagination. |
-| `charLength` | Max chars to return. Max `50000`. |
-
-#### `decompress` mode
-
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| `format` | `auto` | Force compression format: `gzip`, `bzip2`, `xz`, `lzma`, `zstd`, `lz4`, `brotli`, `lzfse`. |
-| `matchString` | — | Filter decompressed lines. |
-| `matchStringContextLines` | `3` | Context lines around each match. |
-| `charOffset` | — | Continuation offset for pagination (from `hints[]`). |
-| `charLength` | — | Max chars per page. |
-
-#### `strings` mode
-
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| `minLength` | `8` | Minimum printable run length. Raise (12–16) to surface symbols/URLs only. |
-| `includeOffsets` | `false` | Prefix each string with its absolute hex byte offset. |
-| `scanOffset` | `0` | Absolute byte offset to start the scan window. Follow the returned `nextScanOffset` cursor to page through a large binary losslessly. |
-
-Recovers both ASCII and UTF-16 (LE/BE) runs — the wide strings GNU `strings -a` misses.
-
-**Lossless scan pagination.** Each call scans a 64MB window; it never discards the tail of a large binary. When more of the file remains, the result carries `nextScanOffset` (an absolute byte offset) — re-call with `scanOffset` set to it to keep scanning. The window is rewound to a safe break, so **no string is ever split across a window boundary** and there are no duplicates. `nextScanOffset` is absent at EOF.
-
----
-
-### Supported Formats
-
-**Archives (list / extract):** `.zip`, `.jar`, `.war`, `.apk`, `.tar.gz`, `.tgz`, `.tar.bz2`, `.tbz2`, `.tar.xz`, `.txz`, `.tar.zst`, `.tzst`, `.7z`
-
-**Compressed streams (decompress):** `.gz`, `.bz2`, `.xz`, `.lzma`, `.zst`, `.lz4`, `.br`, `.lzfse`
-
-**Native binaries (inspect / strings):** `.so`, `.dylib`, `.node`, `.exe`, `.dll`, `.wasm`, `.o`, any ELF / Mach-O / PE binary or ar archive
-
-> `decompress` rejects multi-entry archives. Use `list`/`extract` for `.tar.gz`, `.zip`, etc.
-
----
-
-### Examples
-
-```bash
-# What is this binary? (format, arch, symbols, imports, exports, deps)
-localBinaryInspect(path="dist/server.node", mode="inspect")
-
-# List entries in a zip
-localBinaryInspect(path="build.zip", mode="list", verbose=true)
-
-# List a large archive page by page
-localBinaryInspect(path="release.tar.gz", mode="list", entriesPerPage=50, entryPageNumber=2)
-
-# Extract one entry (use exact path from list output)
-localBinaryInspect(path="build.zip", mode="extract", archiveFile="dist/index.js")
-
-# Extract and filter for a specific function
-localBinaryInspect(path="build.zip", mode="extract", archiveFile="dist/index.js",
-  matchString="createServer", matchStringContextLines=10)
-
-# Decompress a gzip file
-localBinaryInspect(path="report.txt.gz", mode="decompress")
-
-# Decompress and paginate large content
-localBinaryInspect(path="report.txt.gz", mode="decompress", charLength=10000)
-# → response hints[] contains charOffset=N for next page
-
-# Extract symbols from a native addon
-localBinaryInspect(path="packages/addon/bin/addon.node", mode="strings", minLength=12)
-
-# Extract strings with byte offsets (for binary diffing)
-localBinaryInspect(path="binary.exe", mode="strings", includeOffsets=true)
-```
-
----
-
-### Bulk Queries
-
-Up to 5 queries per call:
-
-```bash
-localBinaryInspect(queries=[
-  { path="a.zip", mode="list" },
-  { path="b.tar.gz", mode="list" }
-])
-```
-
----
-
-### Requirements
-
-- Local tools not explicitly disabled.
-- `inspect` and `strings` need **no** external CLI — they run natively in octocode-engine (works on Windows / distroless / Alpine).
-- Container modes shell out: `list`/`extract`/`unpack` need `unzip`, `tar`, `7z` (or `7zz`/`bsdtar` as fallbacks); `decompress` of `.lz4`/`.br`/`.lzfse` needs `lz4cat`/`brotli`/`lzfse`.
-- `extract`, `decompress`, and `strings` return `localPath` when they write derived text to `<octocode-home>/tmp/binary/`; `unpack` writes extracted trees to `<octocode-home>/tmp/unzip/`.
-
----
-
-### See Also
-
-- [Local Tools Reference](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_TOOLS.md#local-code-tools-reference)
-- [Configuration Reference](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md)
-
----
-
 ## LSP Tools Reference
 
 This is the canonical reference for Octocode's semantic code-intelligence operations. LSP is the protocol layer behind these operations; structural AST search remains part of `localSearchCode`.
@@ -1081,7 +914,7 @@ Diagnostics:
 
 ## OQL Search
 
-`oqlSearch` is the unified query interface behind `npx octocode search`. It routes typed queries across code, content, structure, files, semantics, repositories, packages, pull requests, commits, artifacts, diff, research, graph, and materialization targets.
+`oqlSearch` is the unified query interface behind `npx octocode search`. It routes typed queries across code, content, structure, files, semantics, repositories, packages, pull requests, commits, diff, research, graph, and materialization targets.
 
 For the language syntax and CLI-facing examples, see [Octocode Query Language](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_QUERY_LANGUAGE.md) and [Octocode CLI Guide](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_CLI.md). Use this file's [Tool Verification Playbook](#tool-verification-playbook) for the direct MCP/OQL contract checks.
 
@@ -1927,19 +1760,6 @@ Primary code: [packages/octocode-tools-core/src/tools/local_fetch_content/](http
 | Empty | A missing `matchString` result returns empty with no fake content. Missing file and invalid path are errors. |
 | Research quality | Returned content must include path, line range, total lines, `isPartial`, and enough source text to cite or reason from. Partial line-range reads emit a `startLine=N` continuation hint. |
 
-#### `localBinaryInspect`
-
-Primary code: [packages/octocode-tools-core/src/tools/local_binary_inspect/](https://github.com/bgauryy/octocode/tree/main/packages/octocode-tools-core/src/tools/local_binary_inspect). Schema: `LocalBinaryInspectQuerySchema`.
-
-| Surface | Checks |
-| --- | --- |
-| Params | Verify `path`, `mode`, `detailed`, `verbose`, `maxEntries`, `entriesPerPage`, `entryPageNumber`, `archiveFile`, `matchString`, `matchStringContextLines`, `charOffset`, `charLength`, `format`, `minLength`, `includeOffsets`, `scanOffset`, and `page`. |
-| Mode contracts | `inspect` reports binary metadata, `list` pages archive entries, `extract` requires an exact `archiveFile`, `decompress` rejects multi-entry archives, `strings` pages scan windows, and `unpack` returns a safe derived `localPath`. |
-| Security | Archive entry names must not escape the output root, entry names starting with `-` are rejected, and derived files never write outside Octocode tmp/cache roots. |
-| Pagination | Archive entry paging, extracted/decompressed text char windows, and string `scanOffset` cursors continue without duplicates or skipped bytes. |
-| Empty | No matching strings or extracted/decompressed lines are empty results, not tool errors. Missing archives, missing entries, invalid compression formats, and binary/read errors are structured errors. |
-| Research quality | Results should make the next local workflow obvious: list before extract, extract/unpack returns `localPath`, and string hits preserve offsets when requested. |
-
 #### `lspGetSemantics`
 
 Primary code: [packages/octocode-tools-core/src/tools/lsp/semantic_content/](https://github.com/bgauryy/octocode/tree/main/packages/octocode-tools-core/src/tools/lsp/semantic_content). Schema: `LspGetSemanticsQuerySchema`.
@@ -1959,7 +1779,7 @@ Primary code: [packages/octocode-tools-core/src/tools/oql_search/](https://githu
 | Surface | Checks |
 | --- | --- |
 | Params | Verify canonical `target`, `from`, `where`, `materialize`, `fetch`, `select`, `view`, `controls`, `limit`, `page`, `itemsPerPage`, `params`, and `explain`, plus shorthand fields such as `repo`, `owner`, `path`, `text`, `regex`, `pattern`, `rule`, `lang`, and boolean predicate sugar. |
-| Target coverage | Every active target (`code`, `content`, `structure`, `files`, `semantics`, `repositories`, `packages`, `pullRequests`, `commits`, `artifacts`, `diff`, `research`, `graph`, `materialize`) routes to the expected backing runner or returns a repair diagnostic. |
+| Target coverage | Every active target (`code`, `content`, `structure`, `files`, `semantics`, `repositories`, `packages`, `pullRequests`, `commits`, `diff`, `research`, `graph`, `materialize`) routes to the expected backing runner or returns a repair diagnostic. |
 | Planning | `explain` exposes normalized query shape, backend calls, materialization decisions, lossy transforms, and provider limitations without executing side effects beyond allowed read/cache behavior. |
 | Evidence | `answerReady`, `confidence`, `complete`, diagnostics, and provenance distinguish provider candidates from local/materialized proof. Research and graph targets may be intentionally not answer-ready until a continuation is followed. |
 | Continuations | Row-level and envelope `next.*` continuations are executable OQL objects and preserve pagination domains such as page, char range, string scan offset, graph proof, materialization, fetch, and semantics. |

@@ -15,7 +15,6 @@ export type OqlActiveTarget =
   | 'packages'
   | 'pullRequests'
   | 'commits'
-  | 'artifacts'
   | 'diff'
   | 'research'
   | 'graph'
@@ -38,7 +37,6 @@ export const ACTIVE_TARGETS: readonly OqlActiveTarget[] = [
   'packages',
   'pullRequests',
   'commits',
-  'artifacts',
   'diff',
   'research',
   'graph',

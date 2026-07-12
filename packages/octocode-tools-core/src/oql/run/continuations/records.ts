@@ -1,6 +1,6 @@
 /**
  * Per-row continuation builders for code/content rows and record rows
- * (artifact/materialized/research/graph). See registry.ts for how these are
+ * (materialized/research/graph). See registry.ts for how these are
  * wired into ROW_CONTINUATION_BUILDERS and attached to result rows.
  */
 import type {
@@ -133,83 +133,6 @@ function localRootContinuations(
 function derivedLocalPath(row: OqlResultRow): string | undefined {
   const data = (row as OqlRecordResultRow).data;
   return typeof data?.localPath === 'string' ? data.localPath : undefined;
-}
-
-export function buildArtifactContinuations(
-  row: OqlResultRow,
-  ctx: ContinuationCtx
-): Record<string, OqlContinuation> | undefined {
-  const out: Record<string, OqlContinuation> = {};
-  const data = (row as OqlRecordResultRow).data;
-  const mode = typeof data?.mode === 'string' ? data.mode : undefined;
-  const lp = derivedLocalPath(row);
-
-  if (lp) {
-    if (mode === 'strings') {
-      // `strings` writes this scan window's printable runs to a flat text file
-      // at localPath; the inline `content` is only a preview. Listing or file
-      // discovery over a flat dump is useless — the right move is to search the
-      // dump with local code search (ripgrep): a regex/pattern over a text file
-      // paginates losslessly (matchPage / maxMatchesPerFile) and never quits on
-      // NUL the way searching the raw binary would.
-      out['next.search'] = {
-        query: {
-          schema: 'oql',
-          target: 'code',
-          from: { kind: 'local', path: lp },
-          where: { kind: 'regex', value: 'https?://\\S+' },
-          controls: { search: { maxMatchesPerFile: 100, matchPage: 1 } },
-        },
-        why: 'Grep this strings dump with local code search (ripgrep) — swap the regex/pattern for what you need (URLs, hosts, symbols); page noisy hits losslessly with matchPage. For a huge binary this beats reading the capped inline preview.',
-        confidence: 'heuristic',
-      };
-    } else {
-      // extract / unpack / decompress materialize a real tree/file on disk.
-      Object.assign(out, localRootContinuations(lp, 'extracted'));
-    }
-  }
-
-  // Binary `strings` scan cursor: nextScanOffset → next scan window (a typed
-  // per-domain continuation instead of a raw params round-trip).
-  const nextScan =
-    typeof data?.nextScanOffset === 'number' ? data.nextScanOffset : undefined;
-  if (nextScan !== undefined) {
-    out['next.artifactStrings'] = {
-      query: {
-        ...ctx.query,
-        params: { ...(ctx.query.params ?? {}), scanOffset: nextScan },
-      },
-      why: 'Scan the next window of printable strings.',
-      confidence: 'exact',
-    };
-  }
-  const pagination =
-    data?.pagination && typeof data.pagination === 'object'
-      ? (data.pagination as Record<string, unknown>)
-      : undefined;
-  const nextCharOffset =
-    typeof pagination?.nextCharOffset === 'number'
-      ? pagination.nextCharOffset
-      : undefined;
-  if (pagination?.hasMore === true && nextCharOffset !== undefined) {
-    const charLength =
-      typeof pagination.charLength === 'number'
-        ? pagination.charLength
-        : undefined;
-    out['next.artifactContent'] = {
-      query: {
-        ...ctx.query,
-        params: {
-          ...(ctx.query.params ?? {}),
-          charOffset: nextCharOffset,
-          ...(charLength !== undefined ? { charLength } : {}),
-        },
-      },
-      why: 'Read the next inline artifact text window.',
-      confidence: 'exact',
-    };
-  }
-  return Object.keys(out).length ? out : undefined;
 }
 
 export function buildMaterializedContinuations(

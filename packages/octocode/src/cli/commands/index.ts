@@ -18,7 +18,6 @@ const commandLoaders: Record<string, CommandLoader> = {
   // are kept when they provide distinct materialization/cache actions.
   search: async () => (await import('./search.js')).searchCommand,
   skill: async () => (await import('./skill.js')).skillCommand,
-  unzip: async () => (await import('./unzip.js')).unzipCommand,
   cache: async () => (await import('./cache.js')).cacheCommand,
   clone: async () => (await import('./clone.js')).cloneCommand,
   install: async () => (await import('./install.js')).installCommand,

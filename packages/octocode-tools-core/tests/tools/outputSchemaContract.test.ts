@@ -24,19 +24,10 @@ import { LocalSearchCodeOutputSchema } from '../../src/tools/local_ripgrep/schem
 import { LocalFindFilesOutputSchema } from '../../src/tools/local_find_files/scheme.js';
 import { LocalViewStructureOutputSchema } from '../../src/tools/local_view_structure/scheme.js';
 import { LocalGetFileContentOutputSchema } from '../../src/tools/local_fetch_content/scheme.js';
-import { LocalBinaryInspectOutputSchema } from '../../src/tools/local_binary_inspect/scheme.js';
 import { LspGetSemanticsOutputSchema } from '../../src/tools/lsp/semantic_content/scheme.js';
 
-// The repo root, so local-tool queries resolve against real files. The vitest
-// cwd is the tools-core package dir.
+// Local-tool queries resolve against real files under the package dir.
 const PKG_DIR = process.cwd();
-const REPO_ROOT = path.resolve(PKG_DIR, '..', '..');
-const ENGINE_NODE = path.join(
-  REPO_ROOT,
-  'packages',
-  'octocode-engine',
-  'octocode-engine.darwin-arm64.node'
-);
 
 type StructuredContent = Record<string, unknown>;
 
@@ -133,23 +124,6 @@ describe('MCP outputSchema contract — emitted structuredContent parses', () =>
     });
     expect(
       LocalGetFileContentOutputSchema.parse(structuredOf(result))
-    ).toBeDefined();
-  });
-
-  it('localBinaryInspect', async () => {
-    const result = await executeDirectTool('localBinaryInspect', {
-      queries: [
-        {
-          path: ENGINE_NODE,
-          mode: 'inspect',
-          mainResearchGoal: 'contract test',
-          researchGoal: 'contract test',
-          reasoning: 'contract test',
-        },
-      ],
-    });
-    expect(
-      LocalBinaryInspectOutputSchema.parse(structuredOf(result))
     ).toBeDefined();
   });
 

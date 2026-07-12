@@ -50,10 +50,6 @@ const MINIMAL_QUERY: Record<string, Record<string, unknown>> = {
     owner: 'facebook',
     repo: 'react',
   },
-  [STATIC_TOOL_NAMES.LOCAL_BINARY_INSPECT]: {
-    path: '/tmp/test.bin',
-    mode: 'inspect',
-  },
   [OQL_SEARCH_TOOL_NAME]: {
     target: 'code',
     from: { kind: 'local', path: '.' },

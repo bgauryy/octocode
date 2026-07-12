@@ -3,7 +3,7 @@
 The Octocode CLI is the terminal interface over the same research engine used by
 the Octocode MCP server. One binary — `npx octocode` — covers code search, exact
 file reads, directory trees, LSP symbol navigation, GitHub repos, npm packages,
-PRs, commits, archive inspection, MCP client setup, GitHub auth, and agent skill
+PRs, commits, MCP client setup, GitHub auth, and agent skill
 management.
 
 ```text
@@ -19,8 +19,7 @@ They are not separate implementations.
 
 | Command | Purpose |
 |---|---|
-| `search` | Unified research: code text/regex/AST, file reads, trees, file discovery, LSP semantics, GitHub repos, npm packages, PRs, commits, archives, diffs, and materialization. |
-| `unzip` | Unpack an archive into Octocode storage, then research the extracted tree. |
+| `search` | Unified research: code text/regex/AST, file reads, trees, file discovery, LSP semantics, GitHub repos, npm packages, PRs, commits, diffs, and materialization. |
 | `clone` | Clone a GitHub repo or sparse subtree locally for repeated reads, AST search, or LSP work. |
 | `cache` | Fetch remote files, trees, or repos into local Octocode storage; also inspect or clear cached materialization. |
 | `tools` | List every Octocode MCP tool, read exact tool schemas, and run raw tool calls from the terminal. |
@@ -72,7 +71,6 @@ search, and `--op` requests to LSP.
 | Resolve npm packages | `npx octocode search zod --target packages` | `npmSearch` |
 | Read PRs | `npx octocode search bgauryy/octocode#123 --target pullRequests --comments` | `ghHistoryResearch` |
 | Read commits | `npx octocode search vercel/next.js/src --target commits --since 2024-01-01T00:00:00Z` | `ghHistoryResearch` |
-| Inspect archives | `npx octocode search app.zip --target artifacts --list` | `localBinaryInspect` |
 | Diff files or refs | `npx octocode search src/a.ts src/b.ts --target diff` | OQL diff lane |
 | Materialize remote code | `npx octocode search "useState" packages/next/src --repo vercel/next.js --materialize required` | `ghCloneRepo` + local tools |
 
@@ -99,7 +97,7 @@ npx octocode search ./packages/octocode/src/cli/tool-command.ts --op references 
 | `--search path\|content\|both` | Switch between file discovery and code search. |
 | `--pattern`, `--rule` | Run structural AST search. |
 | `--op documentSymbols\|definition\|references\|callers\|callees\|callHierarchy\|hover\|typeDefinition\|implementation` | Run semantic LSP search. |
-| `--target repositories\|packages\|pullRequests\|commits\|artifacts\|diff\|research\|graph\|materialize` | Ask for a specific answer type. |
+| `--target repositories\|packages\|pullRequests\|commits\|diff\|research\|graph\|materialize` | Ask for a specific answer type. |
 | `--repo owner/repo[@ref]` | Materialize a remote repo or subtree first, then run a local workflow. |
 | `--scheme` | Print the OQL contract. Use `--scheme --compact` for a shorter agent guide. |
 | `--explain --dry-run` | Show how a query routes without running it. |
@@ -128,7 +126,7 @@ npx octocode tools <name> --scheme
 | Category | Tools |
 |---|---|
 | GitHub | `ghSearchCode` · `ghSearchRepos` · `ghHistoryResearch` · `ghGetFileContent` · `ghViewRepoStructure` · `ghCloneRepo` |
-| Local Code | `localSearchCode` · `localFindFiles` · `localGetFileContent` · `localViewStructure` · `lspGetSemantics` · `localBinaryInspect` |
+| Local Code | `localSearchCode` · `localFindFiles` · `localGetFileContent` · `localViewStructure` · `lspGetSemantics` |
 | Package | `npmSearch` |
 
 ---
@@ -259,18 +257,6 @@ Use the returned absolute local path with `search`, `search --tree`,
 
 ---
 
-## `unzip` — Unpack Archives
-
-```bash
-npx octocode unzip app.zip
-npx octocode search <localPath-from-output> --tree
-```
-
-For a single compressed stream or binary strings, use
-`search --target artifacts` instead.
-
----
-
 ## `install` — MCP Client Setup
 
 ```bash
@@ -369,15 +355,6 @@ npx octocode search bgauryy/octocode#123 --target pullRequests --patches --comme
 npx octocode search bgauryy/octocode/packages/octocode/src --target commits --since 2024-01-01T00:00:00Z
 ```
 
-### Archives and binaries
-
-```bash
-npx octocode search app.zip --target artifacts --list
-npx octocode search app.zip --target artifacts --extract src/index.ts
-npx octocode search lib.node --target artifacts --inspect
-npx octocode search lib.node --target artifacts --strings --min-length 12
-```
-
 ### Agent or script mode
 
 ```bash
@@ -441,7 +418,6 @@ npx octocode tools localSearchCode --queries '{"path":"./src","keywords":"runCLI
 | `repo` | `search <keywords> --target repositories` |
 | `pr` | `search owner/repo#N --target pullRequests` |
 | `history` | `search owner/repo[/path] --target commits` |
-| `binary` | `search <file> --target artifacts` |
 | `diff` | `search <left> <right> --target diff` |
 
 ---

@@ -98,7 +98,6 @@ Active targets:
 | `packages` | `recordType:"package"` | npm package discovery | `npmSearch` |
 | `pullRequests` | `recordType:"pullRequest"` | PR search, PR detail, review, patch pages | `ghHistoryResearch` |
 | `commits` | `recordType:"commit"` | Commit history and optional diffs | `ghHistoryResearch` |
-| `artifacts` | `recordType:"artifact"` | Binary/archive/strings/decompress/extract | `localBinaryInspect` |
 | `diff` | `recordType:"diff"` | PR patch diff or two-ref file diff | `ghHistoryResearch` or content diff |
 | `research` | `recordType:"research"` | Smart local research packets | OQL research analyzer |
 | `graph` | `recordType:"graph"` | Relationship nodes, edges, facts, and missing proof | OQL graph analyzer |
@@ -545,24 +544,6 @@ Backs onto `ghHistoryResearch` with commit mode.
 | `matchString` | filters commit messages |
 | `filePage`, `itemsPerPage` | changed-file pagination for commit diffs |
 | `limit`, `page` | pagination |
-
-### `artifacts`
-
-Backs onto `localBinaryInspect`.
-
-| Field | Values |
-|---|---|
-| `mode` | `inspect`, `list`, `extract`, `decompress`, `strings`, `unpack` |
-| `entryPageNumber` | archive entry page |
-| `minLength` | string-scan minimum length, 1-128 |
-| `scanOffset` | string scan continuation offset |
-| `matchString` | filters text-producing modes over the current fetched payload |
-| `verbose` | expanded `list` output |
-
-For `strings`, the full scan is written to `data.localPath`; the inline
-`content` is a small preview. Grep the file for the real work: follow
-`next.search` on `data.localPath`, and `next.artifactStrings` to advance the
-binary scan. `extract`/`unpack`/`decompress` produce a tree at `data.localPath`.
 
 ### `diff`
 

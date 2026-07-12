@@ -37,7 +37,7 @@ your query (JSON, or CLI shorthand)
   ▼  1. NORMALIZE   sugar → strict canonical OQL; infer target when unambiguous
   ▼  2. PLAN/ROUTE  per-predicate: PUSHDOWN · RESIDUAL · ROUTE · UNSUPPORTED
   ▼  3. TRANSFORM   canonical fields → ONE backing tool (ghSearchCode, localSearchCode,
-  │                  lspGetSemantics, npmSearch, localBinaryInspect, …)
+  │                  lspGetSemantics, npmSearch, …)
   ▼  4. EXECUTE     the backing tool runs (same tool the raw `tools` CLI calls)
   ▼  5. MAP BACK    provider output → stable OQL rows + pagination + diagnostics +
   │                  evidence (proof/partial/candidate/unsupported) + runnable next.*
@@ -67,7 +67,6 @@ shorthand cannot express. Note: a bare `packages/foo` path is read as a GitHub
 | `packages` | npm package discovery | `npx octocode search zod --target packages` | Resolve a package + its source repo |
 | `pullRequests` | PR search / deep read | `npx octocode search vercel/next.js#1 --target pullRequests --comments --patches` | Inspect a PR's discussion, files, patches |
 | `commits` | Commit history + optional diffs | `npx octocode search vercel/next.js/packages/next/src --target commits --since 2024-01-01T00:00:00Z` | "What changed here / when / by whom" |
-| `artifacts` | Binary / archive / strings | `npx octocode search dist/server.node --target artifacts --inspect` | Inspect/list/extract/strings a binary or archive |
 | `diff` | PR patch OR two-file/two-ref diff | `npx octocode search src/a.ts src/b.ts --target diff` | Compare two files/refs, or read a PR patch |
 | `research` | Dead-code / reachability candidates | `--query '{"target":"research","from":{"kind":"local","path":"."},"params":{"intent":"reachability","facets":["symbols","files"]}}'` | "What looks dead, why, what keeps it alive?" Always candidate-grade |
 | `graph` | Retained-by chains + bounded LSP proof | `--query '{"target":"graph","from":{"kind":"local","path":"."},"params":{"intent":"reachability","proof":"lsp","proofLimit":5}}'` | Upgrade research candidates with proof |
@@ -101,7 +100,6 @@ STEP 2 — pick the TARGET (what answer family?)
     repos by topic/stars ............................. target:repositories (+ params)
     npm packages ..................................... target:packages   (+ params)
     PRs / commits .................................... target:pullRequests | commits (+ params)
-    binary / archive contents ........................ target:artifacts  (+ params)
 
   READ (you already know the file/tree/refs):
     a file / range / symbol outline .................. target:content    (+ fetch.content)
@@ -218,14 +216,6 @@ npx octocode search zod --target packages
 ```bash
 npx octocode search vercel/next.js#1 --target pullRequests --deep
 npx octocode search src/a.ts src/b.ts --target diff
-```
-
-### Inspect a binary / archive
-
-```bash
-npx octocode search dist/server.node --target artifacts --inspect
-npx octocode search app.zip --target artifacts --list
-npx octocode search dist/app.bin --target artifacts --strings --min-length 6
 ```
 
 ### Dead-code triage (research → graph proof)

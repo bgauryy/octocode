@@ -34,9 +34,7 @@ export const paths = {
   tmp: join(OCTOCODE_HOME, 'tmp'),
   clone: join(OCTOCODE_HOME, 'tmp', 'clone'),
   tree: join(OCTOCODE_HOME, 'tmp', 'tree'),
-  binary: join(OCTOCODE_HOME, 'tmp', 'binary'),
   repos: join(OCTOCODE_HOME, 'tmp', 'clone'),
-  unzip: join(OCTOCODE_HOME, 'tmp', 'unzip'),
   cliConfig: join(OCTOCODE_HOME, 'config.json'),
   lspConfig: join(OCTOCODE_HOME, 'lsp-servers.json'),
 } as const;
@@ -69,19 +67,5 @@ export function ensureTree(): void {
   ensureTmp();
   if (!existsSync(paths.tree)) {
     mkdirSync(paths.tree, { recursive: true, mode: DIR_MODE });
-  }
-}
-
-export function ensureBinary(): void {
-  ensureTmp();
-  if (!existsSync(paths.binary)) {
-    mkdirSync(paths.binary, { recursive: true, mode: DIR_MODE });
-  }
-}
-
-export function ensureUnzip(): void {
-  ensureTmp();
-  if (!existsSync(paths.unzip)) {
-    mkdirSync(paths.unzip, { recursive: true, mode: DIR_MODE });
   }
 }

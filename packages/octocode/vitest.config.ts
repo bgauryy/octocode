@@ -53,7 +53,6 @@ export default defineConfig({
         'src/cli/commands/binary.ts',
         'src/cli/commands/clone.ts',
         'src/cli/commands/history.ts',
-        'src/cli/commands/unzip.ts',
         'src/cli/commands/index.ts',
         'src/cli/commands/repo.ts',
         'src/cli/commands/symbol-outline.ts',

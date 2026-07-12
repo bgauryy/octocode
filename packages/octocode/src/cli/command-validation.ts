@@ -53,8 +53,6 @@ const NUMERIC_FLAGS = new Set([
   'max-files',
   'match-length',
   'match-page',
-  'max-entries',
-  'min-length',
   'start-line',
   'end-line',
   'char-offset',

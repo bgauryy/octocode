@@ -3,8 +3,6 @@ import { createRequire } from 'node:module';
 import type * as NativeContextUtils from '@octocodeai/octocode-engine';
 
 export type {
-  BinaryInspectInfo,
-  BinaryStrings,
   ExtractMatchingLinesOptions,
   ExtractMatchingLinesResult,
   FilterPatchOptions,
@@ -181,36 +179,6 @@ export const contextUtils = {
 
   getSupportedStructuralExtensions(): string[] {
     return loadNative().getSupportedStructuralExtensions();
-  },
-
-  /**
-   * Native binary inspection (format lane). Parses an executable / object /
-   * archive and returns identity + symbols/imports/exports/sections/deps.
-   * Degrades to magic-byte identity on malformed input; only unreadable or
-   * oversized files throw.
-   */
-  inspectBinaryNative(
-    path: string
-  ): Promise<NativeContextUtils.BinaryInspectInfo> {
-    return loadNative().inspectBinaryNative(path);
-  },
-
-  /**
-   * Native strings extraction — printable ASCII + UTF-16 (LE/BE) runs of at
-   * least `minLength`, longest-first, optionally hex offset-prefixed.
-   */
-  extractBinaryStringsNative(
-    path: string,
-    minLength: number,
-    includeOffsets: boolean,
-    scanOffset = 0
-  ): Promise<NativeContextUtils.BinaryStrings> {
-    return loadNative().extractBinaryStringsNative(
-      path,
-      minLength,
-      includeOffsets,
-      scanOffset
-    );
   },
 
   validateRipgrepPattern(

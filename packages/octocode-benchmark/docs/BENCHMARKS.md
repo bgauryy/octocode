@@ -17,7 +17,6 @@ Octocode's differentiated tools:
 - `ghHistoryResearch` — commit + PR history research
 - `localViewStructure` / `localFindFiles` — repo navigation
 - `npmSearch` — package registry search
-- `localBinaryInspect` — archive/binary inspection
 
 ---
 
@@ -261,7 +260,6 @@ python -m lcb_runner.runner.main --model claude-opus-4-7 --scenario codegenerati
 | **Caching** | ❌ No | ❌ No | ✅ Yes — per-session, deduplicates repeat calls |
 | **Secret redaction** | ❌ No | ❌ No | ✅ Yes — built-in across all output |
 | **npm package search** | ❌ No | ❌ No | ✅ Yes (`npmSearch`) |
-| **Binary/archive inspection** | ❌ No | ❌ No | ✅ Yes (`localBinaryInspect`) |
 | **Code search rate limit** | 10 req/min (shared API) | 10 req/min (shared API) | 10 req/min + session cache reduces calls |
 | **Token cost per operation** | ~200 tokens (raw command) | ~44K tokens (full schema upfront) | Optimized output — schema amortized, content minified |
 | **Primary failure mode** | Text-only, misses structural patterns | Schema bloat kills context window | Rate limit on heavy GitHub search sessions |

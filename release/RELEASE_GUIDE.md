@@ -172,7 +172,7 @@ yarn workspace @octocodeai/pi-extension build      # runs scripts/build.mjs
 
 **Key point — `@octocodeai/config` is a build-time (dev) dependency only.** The build inlines it into `dist/env.js` and injects `octocode-config.mjs` into skill `scripts/` dirs, so nothing resolves `@octocodeai/config` from npm at runtime and it need not be published *for pi-extension*. (It is still published for `octocode`/`@octocodeai/mcp`, which externalize declared deps — see Publish Order step 1.)
 
-- **Which skills use it:** only `octocode-brainstorming` (its `serper-search.mjs` / `tavily-search.mjs`) imports `./octocode-config.mjs` (with a local `.env` fallback). The other skills receive the copy but don't import it — harmless and future-proof.
+- **Which skills use it:** skill scripts that load env via injected `octocode-config.mjs` (currently none of the shipped Awareness/Research scripts require third-party search keys).
 - Build fails loudly if the config-loader source, bundled CLI, prompt, or any skill is missing.
 
 Verify: `yarn workspace @octocodeai/pi-extension verify` (lint + tests + build).

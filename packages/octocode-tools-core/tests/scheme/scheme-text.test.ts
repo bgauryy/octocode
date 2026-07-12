@@ -16,10 +16,11 @@ describe('oqlSchemaText (full --scheme)', () => {
       'predicates',
       'providerUnindexed',
       'materialize',
-      'artifacts',
     ]) {
       expect(full).toContain(field);
     }
+    expect(full).not.toContain('"artifacts"');
+    expect(ACTIVE_TARGETS).not.toContain('artifacts');
   });
 
   it('teaches field-predicate lane scoping and boolean sugar', () => {

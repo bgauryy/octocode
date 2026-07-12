@@ -15,14 +15,12 @@ Read the tool schema immediately before raw calls and `search --scheme --compact
 |---|---|---|
 | local search/read/tree/find | `localSearchCode`, `localGetFileContent`, `localViewStructure`, `localFindFiles` | discovery/content/tree/path |
 | semantics | `lspGetSemantics` | `--op documentSymbols|definition|references|callers|callees|hover` |
-| artifacts | `localBinaryInspect` | `--target artifacts --inspect|--list|--strings|--extract` |
 | GitHub code/read/tree/repos | `ghSearchCode`, `ghGetFileContent`, `ghViewRepoStructure`, `ghSearchRepos` | repo/ref/path discovery/content/tree |
 | history | `ghHistoryResearch` | `--target pullRequests|commits` |
 | packages | `npmSearch` | `--target packages` |
 | federated/diff/graph | `oqlSearch` | `--query <json>` / diff/research/graph targets |
 | materialize | `ghCloneRepo` or directory fetch | clone/cache fetch; CLI clones by default, MCP server gates clone behind `ENABLE_CLONE` |
 
-Artifact recipe: `inspect` or `list` → `strings` for leads → `extract`/`decompress`/`unpack` one bounded path → resume local search/read/LSP on the landed files. Never invent archive contents from the filename.
 
 Batch up to five independent queries per tool call. Materialize when remote providers cannot prove AST/LSP/negative/many-file predicates.
 
@@ -36,7 +34,7 @@ npx octocode search --scheme --compact
 npx octocode lsp-server status <file>
 ```
 
-Use `--json` for automation and `--compact` for orientation. Removed aliases (`grep`, `cat`, `ls`, `find`, `lsp`, `pr`, `pkg`, `repo`, `binary`, `diff`) map to `search` lanes.
+Use `--json` for automation and `--compact` for orientation. Removed aliases (`grep`, `cat`, `ls`, `find`, `lsp`, `pr`, `pkg`, `repo`, `diff`) map to `search` lanes.
 
 ## Diagnostics
 | Signal | Move |

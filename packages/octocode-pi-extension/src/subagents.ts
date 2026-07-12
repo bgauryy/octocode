@@ -78,13 +78,7 @@ const SKILLS_DIR = resolveSkillsDir();
 
 export const OCTOCODE_SKILL_NAMES = [
   'octocode-awareness',
-  'octocode-brainstorming',
-  'octocode-prompt-optimizer',
   'octocode-research',
-  'octocode-rfc-generator',
-  'octocode-roast',
-  'octocode-skills',
-  'octocode-subagent',
 ] as const;
 
 function subagentSkillPath(name: SubagentName, skillName: string): string {
@@ -147,7 +141,7 @@ export const SUBAGENT_REGISTRY = {
     name: 'researcher' as SubagentName,
     label: 'Researcher',
     description:
-      'Fast Octocode research specialist. Has web, GitHub, npm, local, binary, and LSP tools. ' +
+      'Fast Octocode research specialist. Has web, GitHub, npm, local, and LSP tools. ' +
       'Use for evidence gathering, prior art, package/repo lookup, and concise claim ledgers.',
     tools: [
       'web',
@@ -162,7 +156,6 @@ export const SUBAGENT_REGISTRY = {
       'localViewStructure',
       'localFindFiles',
       'localGetFileContent',
-      'localBinaryInspect',
       'lspGetSemantics',
     ],
     resourceMode: 'octocode' as ResourceMode,
@@ -189,7 +182,6 @@ export const SUBAGENT_REGISTRY = {
       'localViewStructure',
       'localFindFiles',
       'localGetFileContent',
-      'localBinaryInspect',
       'lspGetSemantics',
     ],
     resourceMode: 'octocode' as ResourceMode,
@@ -201,7 +193,7 @@ export const SUBAGENT_REGISTRY = {
     name: 'architect' as SubagentName,
     label: 'Architect',
     description:
-      'Root-cause and local-code architecture specialist. Has all Octocode skills, local/LSP/binary tools, ' +
+      'Root-cause and local-code architecture specialist. Has all Octocode skills, local/LSP tools, ' +
       'GitHub history, web, and bash for targeted debug/test loops.',
     tools: [
       'bash',
@@ -217,7 +209,6 @@ export const SUBAGENT_REGISTRY = {
       'localViewStructure',
       'localFindFiles',
       'localGetFileContent',
-      'localBinaryInspect',
       'lspGetSemantics',
     ],
     resourceMode: 'octocode' as ResourceMode,

@@ -1,6 +1,6 @@
 /**
  * OQL record `data` contracts — the documented payload shapes per
- * `recordType` (repository, package, PR, commit, artifact, diff, semantics,
+ * `recordType` (repository, package, PR, commit, diff, semantics,
  * materialized, research, graph). The backing tool owns the exhaustive
  * payload; these name the fields agents rely on to cite + continue. All
  * optional (backend-dependent); never fabricated.
@@ -48,17 +48,6 @@ export interface OqlCommitData {
   title?: string;
   author?: string;
   date?: string;
-  [k: string]: unknown;
-}
-export interface OqlArtifactData {
-  mode?: string;
-  format?: string;
-  /** Set when extract/decompress/unpack produced a derived local path. */
-  localPath?: string;
-  entries?: unknown[];
-  strings?: unknown[];
-  symbols?: unknown[];
-  nextScanOffset?: number;
   [k: string]: unknown;
 }
 export interface OqlDiffData {

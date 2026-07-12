@@ -66,7 +66,7 @@ export async function getToolsContextString(
       '  *** REFERENCES ***',
       '  Docs:  https://github.com/bgauryy/octocode/tree/main/docs',
       '  Research playbook: https://github.com/bgauryy/octocode/tree/main/skills/octocode-research',
-      '  Quick commands (search/unzip/clone/cache fetch) are the fastest path; use search for files, trees, content, repos, packages, PRs, history, artifacts, and diffs. Raw `tools` need a schema read first.',
+      '  Quick commands (search/clone/cache fetch) are the fastest path; use search for files, trees, content, repos, packages, PRs, history, and diffs. Raw `tools` need a schema read first.',
       '  Do not hallucinate paths, lines, or fields — verify with the tools; snippets are discovery, not proof.',
       '',
     ].join('\n'),

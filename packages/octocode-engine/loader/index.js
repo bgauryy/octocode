@@ -42,6 +42,7 @@ export const structuralSearchFiles = nativeBinding.structuralSearchFiles
 export const structuralSearchFilesDetailed = nativeBinding.structuralSearchFilesDetailed
 export const getSupportedStructuralExtensions = nativeBinding.getSupportedStructuralExtensions
 export const getSemanticBoundaryOffsets = nativeBinding.getSemanticBoundaryOffsets
+
 export const getSupportedSignatureExtensions = nativeBinding.getSupportedSignatureExtensions
 export const jsonToYamlString = nativeBinding.jsonToYamlString
 export const getMINIFY_CONFIG = nativeBinding.getMINIFY_CONFIG
@@ -61,8 +62,6 @@ export const extractMatchingLines = nativeBinding.extractMatchingLines
 export const filterPatch = nativeBinding.filterPatch
 export const computeLineDiff = nativeBinding.computeLineDiff
 export const PatchLineType = nativeBinding.PatchLineType
-export const inspectBinaryNative = nativeBinding.inspectBinaryNative
-export const extractBinaryStringsNative = nativeBinding.extractBinaryStringsNative
 export const NativeLspClient = nativeBinding.NativeLspClient
 export const resolvePosition = nativeBinding.resolvePosition
 export const resolvePositionFromContent = nativeBinding.resolvePositionFromContent

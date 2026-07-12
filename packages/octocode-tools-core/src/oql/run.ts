@@ -15,7 +15,7 @@
  *  - run/dryRun.ts                 — dry-run / non-executable-plan envelopes
  *  - run/paths.ts                  — local-path relativization (+ inverse)
  *  - run/continuations/registry.ts — next.* continuation attachment
- *  - run/continuations/records.ts  — code/content/artifact/materialized/research/graph builders
+ *  - run/continuations/records.ts  — code/content/materialized/research/graph builders
  *  - run/continuations/semantics.ts— semantics builder
  *
  * Everything previously importable from './run.js' stays importable from here,
@@ -37,7 +37,6 @@ import {
 } from './run/single.js';
 
 export type { RunOptions };
-export { buildArtifactContinuations } from './run/continuations/records.js';
 export type { ContinuationCtx } from './run/continuations/types.js';
 
 export async function runOqlSearch(

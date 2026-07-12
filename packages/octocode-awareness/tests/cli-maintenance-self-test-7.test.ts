@@ -79,7 +79,7 @@ it('--help exits 0', () => {
     expect(r.status).toBe(0);
     expect(r.stdout).toContain('memory record');
     expect(r.stdout).toContain('octocode-awareness');
-    expect(r.stdout).toContain('octocode-skills');
+    expect(r.stdout).toContain('octocode-research');
     expect(r.stdout).toContain('out/skills');
     expect(r.stdout).toContain('octocode-awareness schema commands --compact');
     expect(Buffer.byteLength(r.stdout, 'utf8')).toBeLessThanOrEqual(1536);

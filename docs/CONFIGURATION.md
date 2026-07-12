@@ -304,7 +304,7 @@ code ~/.octocode/.octocoderc
     "enableAdditional": null,
 
     // Remove specific tools from the default set.
-    // Example: ["ghCloneRepo", "localBinaryInspect"]
+    // Example: ["ghCloneRepo"]
     "disabled": null
   },
 

@@ -1,19 +1,10 @@
 # Local tool benchmark questions
 
-These rows exercise the local tool family and the local side of `octocode search`: ripgrep text search, structural AST search, file/content reads, directory and file discovery, LSP semantics, binary/archive inspection, and OQL local targets.
+These rows exercise the local tool family and the local side of `octocode search`: ripgrep text search, structural AST search, file/content reads, directory and file discovery, LSP semantics, and OQL local targets.
 
 Use `LOCAL` as the monorepo root. Run all commands from the repository root, and capture every raw output under `$BENCH_OUT/raw`.
 
 ## Local Setup
-
-Create the archive fixture only when artifact rows are included in the run:
-
-```bash
-mkdir -p .octocode/eval-fixtures/archive-src
-printf '{"name":"octocode-eval-fixture"}\n' > .octocode/eval-fixtures/archive-src/package.json
-printf 'export const fixture = "octocode-eval-fixture";\n' > .octocode/eval-fixtures/archive-src/index.ts
-tar -czf .octocode/eval-fixtures/sample.tgz -C .octocode/eval-fixtures archive-src
-```
 
 For LSP rows, first run a symbol-discovery row and carry the returned line into position-anchored operations. Do not guess `lineHint`.
 
@@ -21,10 +12,10 @@ For LSP rows, first run a symbol-discovery row and carry the returned line into 
 
 | ID | Surface | Question | Command | Pass criteria |
 |---|---|---|---|---|
-| LCL-SCHEMA-01 | quick-cli | Does top-level help expose search-first local commands, raw tools, and LSP line-hint guidance? | `octocode --help --no-color` | `search`, remaining quick commands (`clone`, `cache`, `unzip`), local raw tools, minification, and line-hint instructions are present; removed legacy shortcuts (`cat`, `ls`, `find`, `grep`, `history`, `repo`, `pkg`, `pr`, `lsp`, `binary`, `diff`) are absent as commands. |
-| LCL-SCHEMA-02 | raw-tool | Do all local raw tool schemes document fields used below? | `octocode tools localSearchCode localGetFileContent localViewStructure localFindFiles localBinaryInspect lspGetSemantics oqlSearch --scheme --compact --no-color` | Required fields, pagination fields, minification modes, match fields, LSP ops, binary modes, and OQL local target fields are present. |
-| LCL-SCHEMA-03 | search-cli | Does `octocode search` describe local shorthand and OQL routing? | `octocode search --scheme --compact --no-color` and `octocode search --help --no-color` | Active targets include `code`, `content`, `structure`, `files`, `semantics`, `artifacts`, `research`, and `graph`; help explains local file/dir routing and `--explain --dry-run`. |
-| LCL-SCHEMA-04 | metadata | Does the offline metadata gate pass? | `NO_COLOR=1 node packages/octocode-benchmark/benchmark/cli/check-cli-metadata.mjs` | Reports 14 tools, 12 commands, and no stale schema/help/route failures. |
+| LCL-SCHEMA-01 | quick-cli | Does top-level help expose search-first local commands, raw tools, and LSP line-hint guidance? | `octocode --help --no-color` | `search`, remaining quick commands (`clone`, `cache`), local raw tools, minification, and line-hint instructions are present; removed legacy shortcuts (`cat`, `ls`, `find`, `grep`, `history`, `repo`, `pkg`, `pr`, `lsp`, `binary`, `diff`, `unzip`) are absent as commands. |
+| LCL-SCHEMA-02 | raw-tool | Do all local raw tool schemes document fields used below? | `octocode tools localSearchCode localGetFileContent localViewStructure localFindFiles lspGetSemantics oqlSearch --scheme --compact --no-color` | Required fields, pagination fields, minification modes, match fields, LSP ops, and OQL local target fields are present. |
+| LCL-SCHEMA-03 | search-cli | Does `octocode search` describe local shorthand and OQL routing? | `octocode search --scheme --compact --no-color` and `octocode search --help --no-color` | Active targets include `code`, `content`, `structure`, `files`, `semantics`, `research`, and `graph`; help explains local file/dir routing and `--explain --dry-run`. |
+| LCL-SCHEMA-04 | metadata | Does the offline metadata gate pass? | `NO_COLOR=1 node packages/octocode-benchmark/benchmark/cli/check-cli-metadata.mjs` | Reports 13 tools, expected command counts, and no stale schema/help/route failures. |
 
 ## Tool-By-Tool Questions
 
@@ -48,11 +39,6 @@ For LSP rows, first run a symbol-discovery row and carry the returned line into 
 | LCL-LSP-01 | `lspGetSemantics` | Can document symbols outline a TypeScript file? | `tools lspGetSemantics --queries '{"uri":"packages/octocode/src/cli/commands/search.ts","type":"documentSymbols","itemsPerPage":25}' --json --compact` | Symbol rows include names/kinds/ranges or an honest capability diagnostic. |
 | LCL-LSP-02 | `lspGetSemantics` | Can a search/content anchor feed references without guessed lines? | Run LCL-LSP-01, select `searchCommand` line, then `tools lspGetSemantics --queries '{"uri":"packages/octocode/src/cli/commands/search.ts","type":"references","symbolName":"searchCommand","lineHint":<line>,"groupByFile":true}' --json --compact`. | Uses the discovered line; references are grouped or explicitly unavailable. |
 | LCL-LSP-03 | `octocode search` | Does search CLI semantics require/encourage exact line anchors? | `octocode search packages/octocode/src/cli/commands/search.ts --op documentSymbols --json --compact`, then `--op references --symbol searchCommand --line <line>`. | Help/schema line-hint warning matches behavior; wrong or missing line produces a useful diagnostic. |
-| LCL-BINARY-01 | `localBinaryInspect` | Can native binary inspect report format metadata? | `tools localBinaryInspect --queries '{"path":"packages/octocode-engine/npm/darwin-arm64/octocode-engine.darwin-arm64.node","mode":"inspect","detailed":false}' --json --compact` | Returns format/arch/counts/deps or an honest missing fixture/platform diagnostic. |
-| LCL-BINARY-02 | `localBinaryInspect` | Can archive listing page entries before extraction? | `tools localBinaryInspect --queries '{"path":".octocode/eval-fixtures/sample.tgz","mode":"list","entriesPerPage":5,"entryPageNumber":1,"verbose":true}' --json --compact` | Entries include `archive-src/package.json`; archive page fields are present. |
-| LCL-BINARY-03 | `localBinaryInspect` | Can archive extraction use exact listed entry names and content paging? | `tools localBinaryInspect --queries '{"path":".octocode/eval-fixtures/sample.tgz","mode":"extract","archiveFile":"archive-src/package.json","charLength":2000}' --json --compact` | Extracted content is exact or paginated with `nextCharOffset`; entry path came from LCL-BINARY-02. |
-| LCL-BINARY-04 | `localBinaryInspect` | Can unpack output become a normal local corpus? | `tools localBinaryInspect --queries '{"path":".octocode/eval-fixtures/sample.tgz","mode":"unpack"}' --json --compact`, then run `search` on returned `localPath`. | `localPath` is usable by search/OQL local targets and marked as generated artifact output. |
-| LCL-BINARY-05 | `localBinaryInspect` | Can strings mode page by scan offset? | `tools localBinaryInspect --queries '{"path":"packages/octocode-engine/npm/darwin-arm64/octocode-engine.darwin-arm64.node","mode":"strings","minLength":12,"includeOffsets":true,"scanOffset":0}' --json --compact` | Strings include offsets and `nextScanOffset` when partial; no unbounded dump. |
 | LCL-OQL-01 | `oqlSearch` | Does raw OQL local code preserve evidence and continuations? | `tools oqlSearch --queries '{"target":"code","from":{"kind":"local","path":"packages/octocode/src/cli/commands"},"where":{"kind":"text","value":"runOqlSearch"},"view":"paginated","itemsPerPage":5}' --json --compact` | Row has local source/path/line/snippet, evidence fields, and content continuation. |
 | LCL-OQL-02 | `octocode search` | Does `--explain --dry-run` show local route decisions before execution? | `octocode search --explain --dry-run --query '{"target":"code","from":{"kind":"local","path":"packages/octocode/src/cli/commands"},"where":{"kind":"text","value":"runOqlSearch"}}' --json` | Plan includes normalized query, backend route, transformer id, and no execution data. |
 | LCL-OQL-03 | `research` | Can research page 1 return summary without bulk payload? | `octocode search --query '{"target":"research","from":{"kind":"local","path":"packages/octocode-tools-core/src/oql"},"params":{"intent":"symbols","facets":["symbols","files"],"maxFiles":20},"itemsPerPage":1,"page":1}' --json --compact` | `data.summary` is present; evidence is candidate-grade; `answerReady:false` is expected and explained. |

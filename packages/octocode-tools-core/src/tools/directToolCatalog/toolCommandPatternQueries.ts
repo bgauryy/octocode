@@ -262,27 +262,6 @@ export function buildKnownDirectToolCommandPatternQueries(
     ];
   }
 
-  if (toolName === STATIC_TOOL_NAMES.LOCAL_BINARY_INSPECT) {
-    return [
-      {
-        label: 'native binary inspect',
-        query: {
-          path: 'packages/octocode-engine/octocode-engine.darwin-arm64.node',
-          mode: 'inspect',
-        },
-      },
-      {
-        label: 'native strings preview',
-        query: {
-          path: 'packages/octocode/out/octocode.js',
-          mode: 'strings',
-          minLength: 12,
-          charLength: 2000,
-        },
-      },
-    ];
-  }
-
   if (toolName === LSP_GET_SEMANTICS_TOOL_NAME) {
     return [
       {

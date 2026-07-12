@@ -16,6 +16,7 @@ describe('CLI command registry', () => {
       'repo',
       'pkg',
       'binary',
+      'unzip',
       'grep',
       'lsp',
     ];

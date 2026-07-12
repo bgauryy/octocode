@@ -60,7 +60,7 @@ function inferProofGrade(query: OqlQuery, row: OqlResultRow): OqlProofGrade {
     }
     return row.data.mode === 'prove' ? 'graph' : 'candidate';
   }
-  if (row.recordType === 'diff' || row.recordType === 'artifact') {
+  if (row.recordType === 'diff') {
     return 'text';
   }
 

@@ -2,7 +2,7 @@
  * `params` lowering for `octocode search` — target-specific parameter bags.
  *
  * Every active target (semantics, repositories, packages, pullRequests,
- * commits, artifacts, diff, research/graph) accepts its own flat `params`
+ * commits, diff, research/graph) accepts its own flat `params`
  * shape; this maps the shared shorthand flags onto each target's fields.
  */
 import type { SearchShorthand } from './types.js';
@@ -101,23 +101,6 @@ export function targetParams(parts: SearchShorthand): Record<string, unknown> {
         page: parts.page,
         filePage: parts.filePage,
         itemsPerPage: parts.itemsPerPage,
-      });
-    case 'artifacts':
-      return clean({
-        mode: parts.artifactMode ?? 'inspect',
-        detailed: parts.detailed,
-        verbose: parts.verbose,
-        maxEntries: parts.maxEntries,
-        entriesPerPage: parts.itemsPerPage,
-        minLength: parts.minLength,
-        entryPageNumber: parts.entryPageNumber,
-        scanOffset: parts.scanOffset,
-        charOffset: parts.charOffset,
-        charLength: parts.charLength,
-        matchString: parts.matchString,
-        format: parts.format,
-        includeOffsets: parts.includeOffsets,
-        archiveFile: parts.archiveFile,
       });
     case 'diff': {
       const localTwoFileDiff =

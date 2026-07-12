@@ -1,5 +1,5 @@
 /**
- * Per-recordType detail renderers for OQL `record` rows (artifact, semantics,
+ * Per-recordType detail renderers for OQL `record` rows (semantics,
  * research/graph). Dispatched from row.ts's renderRecord().
  */
 import {
@@ -13,48 +13,8 @@ import {
   renderLocationSummary,
   renderSymbolAnchor,
   renderSymbolSummary,
-  stringArray,
   stringField,
 } from './value-helpers.js';
-
-export function renderArtifactRecord(d: Record<string, unknown>): string {
-  const get = (k: string): string | undefined =>
-    d[k] === undefined || d[k] === null ? undefined : String(d[k]);
-  const mode = get('mode');
-  const base = [mode, get('format'), get('arch')].filter(Boolean);
-  if (mode === 'list') {
-    const entries = stringArray(d.entries);
-    return [
-      ...base,
-      get('backend'),
-      countPart('entries', get('totalEntries') ?? String(entries.length)),
-      previewList(entries, 5),
-    ]
-      .filter(Boolean)
-      .join('  ');
-  }
-  if (mode === 'inspect') {
-    const libraries = stringArray(d.libraries);
-    return [
-      ...base,
-      get('bits') && `${get('bits')}-bit`,
-      get('description'),
-      countPart('symbols', get('symbolCount')),
-      countPart('imports', get('importCount')),
-      countPart('exports', get('exportCount')),
-      libraries.length ? `libs=${previewList(libraries, 2)}` : undefined,
-    ]
-      .filter(Boolean)
-      .join('  ');
-  }
-  return [
-    ...base,
-    get('description'),
-    get('localPath') && `localPath=${get('localPath')}`,
-  ]
-    .filter(Boolean)
-    .join('  ');
-}
 
 export function renderSemanticsRecord(d: Record<string, unknown>): string {
   const get = (k: string): string | undefined =>

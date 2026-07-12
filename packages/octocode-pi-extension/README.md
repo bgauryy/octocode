@@ -21,7 +21,7 @@ The build bundles both command lines:
 
 | Surface | Count |
 |---|---:|
-| Native Octocode research tools | 13 |
+| Native Octocode research tools | 12 |
 | Pi support tools | 7 |
 | Replacement edit + write + bash tools | 3 |
 | Slash commands | 6 |
@@ -69,7 +69,7 @@ Do not batch-verify another agent’s work. See
 [docs/AWARENESS_AGENT_FLOW.md](docs/AWARENESS_AGENT_FLOW.md) and
 [docs/REFLECT.md](docs/REFLECT.md).
 
-## Native Octocode tools (13)
+## Native Octocode tools (12)
 
 These execute directly through `@octocodeai/octocode-tools-core`; no MCP process
 or duplicate interface layer is started:
@@ -77,7 +77,7 @@ or duplicate interface layer is started:
 | Area | Tools |
 |---|---|
 | GitHub | `ghSearchCode`, `ghSearchRepos`, `ghHistoryResearch`, `ghGetFileContent`, `ghViewRepoStructure`, `ghCloneRepo` |
-| Local | `localSearchCode`, `localFindFiles`, `localGetFileContent`, `localViewStructure`, `localBinaryInspect` |
+| Local | `localSearchCode`, `localFindFiles`, `localGetFileContent`, `localViewStructure` |
 | Semantics | `lspGetSemantics` |
 | Packages | `npmSearch` |
 
@@ -118,21 +118,14 @@ Memory maintenance, recall, recording, signals, tasks, verification, and reflect
 all stay on the bundled Awareness CLI. The extension does not maintain a parallel
 memory adapter or slash-command schema.
 
-## Bundled skills (9)
+## Bundled skills (2)
 
 Pi discovers the npm-published, build-generated skill tree under `skills/`.
 The build also mirrors it to `dist/skills/` for extension runtime assets. The
 generated package-root tree is intentionally gitignored and recreated before pack.
 
 - `octocode-awareness`
-- `octocode-brainstorming`
-- `octocode-eval`
-- `octocode-prompt-optimizer`
 - `octocode-research`
-- `octocode-rfc-generator`
-- `octocode-roast`
-- `octocode-skills`
-- `octocode-subagent`
 
 `octocode-awareness` is copied from the Awareness package’s canonical skill.
 The Pi build owns the generated copy; never edit it by hand.

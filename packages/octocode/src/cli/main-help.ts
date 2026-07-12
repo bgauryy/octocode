@@ -18,10 +18,12 @@ import {
   sortDirectToolNames,
 } from '@octocodeai/octocode-tools-core/schema';
 import { COMMAND_SPECS } from './commands/specs.js';
+import { REGISTERED_COMMAND_NAMES } from './commands/index.js';
 
 // Quick (read-first) commands get a rich arg hint; every other command is
 // derived from COMMAND_SPECS below so the list never drifts or misses one.
-const QUICK_COMMAND_NAMES = new Set(['search', 'unzip', 'clone', 'cache']);
+const QUICK_COMMAND_NAMES = new Set(['search', 'clone', 'cache']);
+const REGISTERED_COMMAND_NAME_SET = new Set(REGISTERED_COMMAND_NAMES);
 
 /**
  * Essence of the agent protocol; `context` (or `context --full`) has the full
@@ -32,7 +34,7 @@ function buildAgentInstructionsBlock(): string[] {
   const body = [
     'search = read-only research. Pick a SOURCE (local path · owner/repo[/path]',
     '· npm name · --query <oql>), then a LANE: text · --tree · --search path',
-    '· --op (LSP) · --target repositories|packages|pullRequests|commits|artifacts|diff.',
+    '· --op (LSP) · --target repositories|packages|pullRequests|commits|diff.',
     'Loop: orient cheap (tree/discovery) → narrow → read exact',
     '(--content-view none) → prove. Snippets are discovery, not proof;',
     'status:empty is a real run, not absence — follow next.* continuations.',
@@ -187,7 +189,6 @@ export async function showHelp(): Promise<void> {
       '<text> <path|repo> · --scheme',
       'read-only research; --scheme first'
     ),
-    quick('unzip', '<archive>', 'unpack an archive, then search it'),
     quick(
       'clone',
       '<owner/repo[/path][@branch]>',
@@ -210,9 +211,10 @@ export async function showHelp(): Promise<void> {
 
     // ── Every other command — an INDEX (short summary), full usage in --help ─
     `  ${bold('MORE COMMANDS')}  ${dim('· full usage:')} ${c('cyan', '<command> --help')}`,
-    ...COMMAND_SPECS.filter(s => !QUICK_COMMAND_NAMES.has(s.name)).map(s =>
-      commandIndexLine(s.name)
-    ),
+    ...COMMAND_SPECS.filter(
+      s =>
+        !QUICK_COMMAND_NAMES.has(s.name) && REGISTERED_COMMAND_NAME_SET.has(s.name)
+    ).map(s => commandIndexLine(s.name)),
     '',
 
     // ── Flags · exit codes · docs (compact, no repetition) ─────────────────

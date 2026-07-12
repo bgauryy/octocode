@@ -358,29 +358,6 @@ const TOOL_RESULT_SHAPES: Record<string, () => CallToolResult> = {
     },
   }),
 
-  localBinaryInspect: () => ({
-    content: [
-      {
-        type: 'text',
-        text: `strings:\n  token=${SECRETS.GITHUB_TOKEN}\n  key=${SECRETS.OPENAI_KEY}`,
-      },
-    ],
-    structuredContent: {
-      data: {
-        results: [
-          {
-            id: 'q1',
-            data: {
-              mode: 'strings',
-              path: '/workspace/dist/app.node',
-              content: secretPayload('binary'),
-            },
-          },
-        ],
-      },
-    },
-  }),
-
   lspGetSemantics: () => ({
     content: [
       {

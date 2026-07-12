@@ -42,7 +42,8 @@ describe('cross-tool field disambiguation (mode/match/keywords/filesOnly)', () =
 
   it('localSearchCode mode/keywords/filesOnly cross-reference other tools\' same-named fields', () => {
     const modeDesc = fieldDescription(LocalRipgrepQuerySchema, 'mode');
-    expect(modeDesc).toContain('localBinaryInspect');
+    expect(modeDesc).toContain('ghHistoryResearch');
+    expect(modeDesc).not.toContain('localBinaryInspect');
 
     const keywordsDesc = fieldDescription(LocalRipgrepQuerySchema, 'keywords');
     expect(keywordsDesc).toContain('ghSearchCode');

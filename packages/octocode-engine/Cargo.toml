@@ -52,15 +52,6 @@ which       = "8"
 grep   = { version = "0.3", features = ["pcre2"] }
 ignore = "0.4"
 
-# ── binary inspection (format lane) ───────────────────────────────────────────
-# `goblin` parses ELF / Mach-O (incl. fat) / PE / COFF / ar archives and exposes
-# symbols, imports, exports, sections, and dynamic deps with one `Object::parse`
-# dispatch. `no_std`-capable and small (~+0.1MB), it replaces the `file`/`xxd`
-# shell-outs and adds structural inspection the binutils path could never do.
-# NOTE: goblin is explicitly NOT hardened against malicious input — every call
-# from the napi layer is wrapped in `catch_unwind` and fed a size-capped buffer.
-goblin = "0.10"
-
 # ── line diff (Myers) for edit-tool / patch previews ────────────────────────
 similar = "2"
 

@@ -185,7 +185,7 @@ describe('production guidance contract', () => {
       expect(installDoc).not.toContain('<package>');
       expect(installDoc).toContain('npm install --global @octocodeai/octocode-awareness');
       expect(installDoc).toContain('$(npm root --global)/@octocodeai/octocode-awareness');
-      expect(installDoc).toMatch(/octocode-skills.{0,80}optional|optional.{0,80}octocode-skills/is);
+      expect(installDoc).toMatch(/octocode-research|out\/skills\/octocode-awareness/is);
     }
 
     expect(readme).not.toContain('Installed skill: `node scripts/awareness.mjs`');
@@ -304,7 +304,7 @@ describe('production guidance contract', () => {
     expect(verification).toContain('wirePiAwarenessHooks(pi)');
     expect(verification).toContain('yarn workspace @octocodeai/octocode-awareness lint');
     expect(verification).toContain('yarn workspace @octocodeai/octocode-awareness pack:check');
-    expect(verification).toContain('skill-review.mjs');
+    expect(verification).not.toContain('skill-review.mjs');
     expect(verification).toMatch(/PASS[\s\S]*FAIL[\s\S]*BLOCKED/);
     expect(verification).toContain('## Receipt');
     expect(verification).toMatch(/Yarn's isolated packed artifact/i);

@@ -328,62 +328,6 @@ describe('octocode search command', () => {
     expect(stdout).toContain('index.ts:99 runCLI();');
   });
 
-  it('renders artifact inspect records in text output', async () => {
-    runOqlSearch.mockResolvedValue(
-      recordEnvelope('artifact', {
-        mode: 'inspect',
-        path: 'server.node',
-        format: 'macho',
-        arch: 'aarch64',
-        bits: 64,
-        description: 'Mach-O object',
-        symbolCount: 230,
-        importCount: 246,
-        exportCount: 1,
-        libraries: [
-          'liboctocode_engine.dylib',
-          'libSystem.B.dylib',
-          'libExtra.dylib',
-        ],
-      })
-    );
-    await run({
-      query:
-        '{"target":"artifacts","from":{"kind":"local","path":"server.node"},"params":{"mode":"inspect"}}',
-    });
-    expect(stdout).toContain('inspect  macho  aarch64');
-    expect(stdout).toContain('64-bit');
-    expect(stdout).toContain('symbols=230');
-    expect(stdout).toContain('imports=246');
-    expect(stdout).toContain(
-      'libs=liboctocode_engine.dylib, libSystem.B.dylib, +1 more'
-    );
-  });
-
-  it('renders artifact list entries in text output', async () => {
-    runOqlSearch.mockResolvedValue(
-      recordEnvelope('artifact', {
-        mode: 'list',
-        path: 'sample.tgz',
-        backend: 'tar',
-        totalEntries: 3,
-        entries: [
-          'archive-src/',
-          'archive-src/package.json',
-          'archive-src/index.ts',
-        ],
-      })
-    );
-    await run({
-      query:
-        '{"target":"artifacts","from":{"kind":"local","path":"sample.tgz"},"params":{"mode":"list"}}',
-    });
-    expect(stdout).toContain('list');
-    expect(stdout).toContain('tar');
-    expect(stdout).toContain('entries=3');
-    expect(stdout).toContain('archive-src/package.json');
-  });
-
   it('--explain sets explain:true on the query', async () => {
     runOqlSearch.mockResolvedValue({
       ...proofEnvelope(),
@@ -1260,19 +1204,6 @@ describe('octocode search shorthand sugar', () => {
       from: { kind: 'github', repo: 'facebook/react' },
       scope: { path: 'packages/react/src/ReactHooks.js' },
       params: { type: 'references', symbolName: 'useState', lineHint: 42 },
-    });
-  });
-
-  it('bare artifact operation flags route local files to artifacts', async () => {
-    runOqlSearch.mockResolvedValue(proofEnvelope());
-    await run({ list: true, 'max-entries': '25', verbose: true }, [
-      'package.json',
-    ]);
-    const [input] = runOqlSearch.mock.calls[0]! as [Record<string, unknown>];
-    expect(input).toMatchObject({
-      target: 'artifacts',
-      from: { kind: 'local', path: expect.stringContaining('package.json') },
-      params: { mode: 'list', maxEntries: 25, verbose: true },
     });
   });
 

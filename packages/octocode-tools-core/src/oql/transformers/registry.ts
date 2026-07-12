@@ -245,23 +245,6 @@ const ENTRIES: readonly TransformerRegistryEntry[] = [
     adapterFunctions: ['executeDiff'],
   },
   {
-    id: 'local.artifacts',
-    target: 'artifacts',
-    sourceKinds: ['local', 'materialized'],
-    status: 'active',
-    backends: [
-      {
-        backend: 'localBinaryInspect',
-        operation: 'inspectArtifact',
-        exact: true,
-      },
-    ],
-    rowKind: 'record',
-    recordType: 'artifact',
-    adapterModule: 'adapters/researchTargets.ts',
-    adapterFunctions: ['executeArtifacts'],
-  },
-  {
     id: 'local.research',
     target: 'research',
     sourceKinds: ['local', 'materialized'],

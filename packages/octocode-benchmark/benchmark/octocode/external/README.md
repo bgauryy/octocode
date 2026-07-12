@@ -27,7 +27,7 @@ For any row that depends on live provider data, record `networkUsed:true`, `cach
 |---|---|---|---|---|
 | EXT-SCHEMA-01 | raw-tool | Do GitHub and npm schemes expose all fields used below? | `octocode tools ghSearchCode ghGetFileContent ghViewRepoStructure ghSearchRepos ghHistoryResearch ghCloneRepo npmSearch oqlSearch --scheme --compact --no-color` | Field names are documented: arrays vs strings, PR content selector, independent pages, minify modes, clone sparsePath, npm mode. |
 | EXT-SCHEMA-02 | search-cli | Does `search --scheme` document external targets and routing limits? | `octocode search --scheme --compact --no-color` | Active targets include `repositories`, `packages`, `pullRequests`, `commits`, `diff`, `materialize`; evidence semantics warn that GitHub empty is not absence. |
-| EXT-SCHEMA-03 | search-cli | Does `search --help` document external shorthand? | `octocode search --help --no-color` | Help explains owner/repo routing, `--repo`, `--materialize`, PR detail, commits, packages, artifacts, diff, and `--explain --dry-run`. |
+| EXT-SCHEMA-03 | search-cli | Does `search --help` document external shorthand? | `octocode search --help --no-color` | Help explains owner/repo routing, `--repo`, `--materialize`, PR detail, commits, packages, diff, and `--explain --dry-run`. |
 | EXT-SCHEMA-04 | status | Is auth/cache state visible without leaking secrets? | `octocode status --json --compact` | Reports token/auth/cache state without token values. |
 
 ## Tool-By-Tool Questions

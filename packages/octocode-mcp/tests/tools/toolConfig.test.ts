@@ -13,7 +13,6 @@ import {
   LOCAL_FIND_FILES,
   LOCAL_FETCH_CONTENT,
   LSP_GET_SEMANTIC_CONTENT,
-  LOCAL_BINARY_INSPECT,
   OQL_SEARCH,
 } from '../../src/tools/toolConfig.js';
 import {
@@ -31,8 +30,8 @@ const removedLspToolNames = [
 
 describe('Tool Configuration', () => {
   describe('ALL_TOOLS', () => {
-    it('should contain all expected tools by default (6 GitHub + 1 Clone + 4 Local + 1 LSP + 1 BinaryInspect = 13)', () => {
-      expect(ALL_TOOLS).toHaveLength(13);
+    it('should contain all expected tools by default (6 GitHub + 1 Clone + 4 Local + 1 LSP = 12)', () => {
+      expect(ALL_TOOLS).toHaveLength(12);
 
       const toolNames = ALL_TOOLS.map(t => t.name);
       expect([...toolNames].sort()).toEqual(
@@ -49,7 +48,6 @@ describe('Tool Configuration', () => {
           TOOL_NAMES.LOCAL_FIND_FILES,
           TOOL_NAMES.LOCAL_FETCH_CONTENT,
           LSP_GET_SEMANTICS_TOOL_NAME,
-          TOOL_NAMES.LOCAL_BINARY_INSPECT,
         ].sort()
       );
 
@@ -64,7 +62,6 @@ describe('Tool Configuration', () => {
       expect(toolNames).toContain(TOOL_NAMES.LOCAL_VIEW_STRUCTURE);
       expect(toolNames).toContain(TOOL_NAMES.LOCAL_FIND_FILES);
       expect(toolNames).toContain(TOOL_NAMES.LOCAL_FETCH_CONTENT);
-      expect(toolNames).toContain(TOOL_NAMES.LOCAL_BINARY_INSPECT);
       expect(toolNames).toContain(LSP_GET_SEMANTICS_TOOL_NAME);
       expect(toolNames).not.toContain(OQL_SEARCH_TOOL_NAME);
       for (const removedName of removedLspToolNames) {
@@ -95,7 +92,7 @@ describe('Tool Configuration', () => {
 
     it('should have isLocal correctly set for Local tools', () => {
       const localTools = ALL_TOOLS.filter(t => t.isLocal);
-      expect(localTools).toHaveLength(7);
+      expect(localTools).toHaveLength(6);
       localTools.forEach(tool => {
         expect(tool.isLocal).toBe(true);
       });
@@ -208,14 +205,6 @@ describe('Tool Configuration', () => {
       expect(LOCAL_FETCH_CONTENT.fn).toBeTypeOf('function');
     });
 
-    it('LOCAL_BINARY_INSPECT should have correct config', () => {
-      expect(LOCAL_BINARY_INSPECT.name).toBe(TOOL_NAMES.LOCAL_BINARY_INSPECT);
-      expect(LOCAL_BINARY_INSPECT.type).toBe('content');
-      expect(LOCAL_BINARY_INSPECT.isLocal).toBe(true);
-      expect(LOCAL_BINARY_INSPECT.isBinary).toBe(true);
-      expect(LOCAL_BINARY_INSPECT.fn).toBeTypeOf('function');
-    });
-
     it('LSP semantic tool should have correct config', () => {
       expect(LSP_GET_SEMANTIC_CONTENT.name).toBe(LSP_GET_SEMANTICS_TOOL_NAME);
       expect(LSP_GET_SEMANTIC_CONTENT.type).toBe('content');
@@ -245,7 +234,7 @@ describe('Tool Configuration', () => {
 
     it('non-clone tools should not have isClone set', () => {
       const nonCloneTools = ALL_TOOLS.filter(t => !t.isClone);
-      expect(nonCloneTools).toHaveLength(12);
+      expect(nonCloneTools).toHaveLength(11);
       nonCloneTools.forEach(tool => {
         expect(tool.isClone).toBeFalsy();
       });

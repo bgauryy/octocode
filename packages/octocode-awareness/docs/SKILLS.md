@@ -24,19 +24,18 @@ npx octocode skill --add \
 when the host does not scan that shared directory. Verify the bundled runtime with
 `node "$(npm root --global)/@octocodeai/octocode-awareness/out/skills/octocode-awareness/scripts/install.mjs"`.
 
-The Awareness skill is the only required skill and teaches the collaboration lifecycle. The bundled
-`octocode-skills` skill is optional and is only needed for skill
-install/review/improvement:
+The Awareness skill is the only required skill and teaches the collaboration lifecycle.
+Optionally install Research for evidence-first code work:
 
 ```bash
 npx octocode skill --add \
-  --path "$(npm root --global)/@octocodeai/octocode-awareness/out/skills/octocode-skills" \
+  --path "$(npm root --global)/@octocodeai/octocode-awareness/out/skills/octocode-research" \
   --platform common --dry-run
 # after approval, rerun with --force
 ```
 
-The package also bundles every other repo skill under `out/skills/`; all are optional
-and installed the same way. Discover the full, always-current list (with resolved
+The package bundles repo skills under `out/skills/` (currently Awareness and Research).
+Discover the full, always-current list (with resolved
 paths) via `octocode-awareness --help` or the `bundled_skills` field printed by
 `scripts/install.mjs` — do not hardcode a skill list from prose.
 

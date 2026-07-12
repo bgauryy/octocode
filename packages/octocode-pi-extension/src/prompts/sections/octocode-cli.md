@@ -4,12 +4,6 @@ Run it with `node`: `bash: node $OCTOCODE_CLI <command>`
 
 `node $OCTOCODE_CLI` is the **bundled equivalent of `npx octocode`** — same commands and flags, no separate installation needed.
 
-**Archive unpacking** — unpack an archive to a local dir, then research it with local tools.
-```
-bash: node $OCTOCODE_CLI unzip path/to/archive.zip
-# returns localPath → then use localViewStructure, localSearchCode, localGetFileContent
-```
-
 **Cache — materialize GitHub content locally** — fetch repos/files into local cache for local-tool research.
 ```
 bash: node $OCTOCODE_CLI cache fetch owner/repo [path]        # materialize a repo or subtree

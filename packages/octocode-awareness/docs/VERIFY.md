@@ -118,7 +118,7 @@ and agent-end behavior. Never run shell hook install for Pi.
 ## Full Monorepo Check
 
 Run from the monorepo root. Keep the explicit matrix: the package `verify` script
-does not replace artifact, smoke, or skill-review lanes.
+does not replace artifact or smoke lanes.
 
 ```bash
 yarn workspace @octocodeai/octocode-awareness build
@@ -126,14 +126,11 @@ yarn workspace @octocodeai/octocode-awareness lint
 yarn workspace @octocodeai/octocode-awareness typecheck
 yarn workspace @octocodeai/octocode-awareness test
 yarn workspace @octocodeai/octocode-awareness test:smoke
-node skills/octocode-skills/scripts/skill-review.mjs \
-  skills/octocode-awareness
 node packages/octocode-awareness/out/octocode-awareness.js \
   maintenance self-test --compact
 ```
 
-Pass when every command exits `0`, coverage thresholds pass, skill review has zero
-errors, and smoke ends with zero verification debt or active locks.
+Pass when every command exits `0`, coverage thresholds pass, and smoke ends with zero verification debt or active locks.
 ## Release Add-On
 
 ```bash

@@ -142,7 +142,6 @@ input/output mapping.
 | `local.research → OQL research analyzer` | Active | goal/intent/facets/mode/maxFiles, full-scope summary, packet-domain pagination, graph capabilities, native graph facts, packet continuations, candidate evidence. |
 | `local.graph → OQL graph analyzer + LSP proof` | Active | subject/relation/verdict/direction/proof/proofLimit/include flags, nodes/edges/facts/packets, missingProof, page-bounded LSP proof, proofStatus, `next.graph`, `next.fetch`, `next.semantic`. |
 | `npm.packages → npmSearch` | Active | packageName vs keywords, mode lean/full, page, package rows, source repository hints, npm pagination/errors, follow-up repository/materialize continuations. |
-| `local.artifacts → localBinaryInspect` | Active | inspect/list/extract/decompress/strings/unpack, archive entry pages, string scan offsets, char windows, minLength/matchString/verbose, artifact rows, `next.artifactStrings`, extraction/materialized local continuations. |
 
 ### Registry Rules
 
