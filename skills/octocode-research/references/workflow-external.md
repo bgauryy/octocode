@@ -8,7 +8,7 @@ npmSearch / ghSearchRepos for discovery
 -> ghViewRepoStructure for orientation
 -> ghSearchCode for anchors
 -> ghGetFileContent(matchString or symbols) for exact proof
--> ghHistoryResearch for PR/commit intent
+-> ghHistoryResearch for PR/commit intent, issue context (type:"issues" + issueNumber), or releases
 -> materialize when AST, LSP, negative proof, repeated reads, or local tests matter
 ```
 

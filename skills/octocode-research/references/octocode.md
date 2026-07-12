@@ -16,7 +16,7 @@ Read the tool schema immediately before raw calls and `search --scheme --compact
 | local search/read/tree/find | `localSearchCode`, `localGetFileContent`, `localViewStructure`, `localFindFiles` | discovery/content/tree/path |
 | semantics | `lspGetSemantics` | `--op documentSymbols|definition|references|callers|callees|hover` |
 | GitHub code/read/tree/repos | `ghSearchCode`, `ghGetFileContent`, `ghViewRepoStructure`, `ghSearchRepos` | repo/ref/path discovery/content/tree |
-| history | `ghHistoryResearch` | `--target pullRequests|commits` |
+| history / issues / releases | `ghHistoryResearch` (type:"prs"\|"commits"\|"issues"\|"releases"; use issueNumber for issue detail) | `--target pullRequests\|commits` |
 | packages | `npmSearch` | `--target packages` |
 | federated/diff/graph | `oqlSearch` | `--query <json>` / diff/research/graph targets |
 | materialize | `ghCloneRepo` or directory fetch | clone/cache fetch; CLI clones by default, MCP server gates clone behind `ENABLE_CLONE` |

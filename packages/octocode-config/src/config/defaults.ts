@@ -5,6 +5,7 @@ import type {
   RequiredNetworkConfig,
   RequiredLspConfig,
   RequiredOutputConfig,
+  RequiredSessionConfig,
   ResolvedConfig,
 } from './types.js';
 
@@ -41,6 +42,11 @@ export const DEFAULT_OUTPUT_CONFIG: RequiredOutputConfig = {
   },
 };
 
+export const DEFAULT_SESSION_CONFIG: RequiredSessionConfig = {
+  /** Stats persistence is opt-in: set OCTOCODE_ENABLE_STATS=1 to enable. */
+  enableStats: false,
+};
+
 export const DEFAULT_CONFIG: Omit<ResolvedConfig, 'source' | 'configPath'> = {
   version: 1,
   github: DEFAULT_GITHUB_CONFIG,
@@ -49,6 +55,7 @@ export const DEFAULT_CONFIG: Omit<ResolvedConfig, 'source' | 'configPath'> = {
   network: DEFAULT_NETWORK_CONFIG,
   lsp: DEFAULT_LSP_CONFIG,
   output: DEFAULT_OUTPUT_CONFIG,
+  session: DEFAULT_SESSION_CONFIG,
 };
 
 export const MIN_TIMEOUT = 5000;

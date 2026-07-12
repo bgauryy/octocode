@@ -6,6 +6,7 @@ import type {
   RequiredNetworkConfig,
   RequiredLspConfig,
   RequiredOutputConfig,
+  RequiredSessionConfig,
 } from './types.js';
 import {
   DEFAULT_GITHUB_CONFIG,
@@ -14,6 +15,7 @@ import {
   DEFAULT_NETWORK_CONFIG,
   DEFAULT_LSP_CONFIG,
   DEFAULT_OUTPUT_CONFIG,
+  DEFAULT_SESSION_CONFIG,
   MIN_TIMEOUT,
   MAX_TIMEOUT,
   MIN_RETRIES,
@@ -143,6 +145,17 @@ export function resolveLsp(
   return {
     configPath:
       envConfigPath ?? fileConfig?.configPath ?? DEFAULT_LSP_CONFIG.configPath,
+  };
+}
+
+/**
+ * Resolve session / stats-persistence config from env only.
+ * OCTOCODE_ENABLE_STATS=1|true turns on stats.json writes; default is off.
+ */
+export function resolveSession(): RequiredSessionConfig {
+  const envEnableStats = parseBooleanEnv(process.env.OCTOCODE_ENABLE_STATS);
+  return {
+    enableStats: envEnableStats ?? DEFAULT_SESSION_CONFIG.enableStats,
   };
 }
 

@@ -628,7 +628,14 @@ describe('getConfigSync', () => {
     expect(cfg.tools).toBeDefined();
     expect(cfg.network).toBeDefined();
     expect(cfg.output).toBeDefined();
+    expect(cfg.session).toBeDefined();
     expect(cfg.source).toMatch(/^(defaults|file|mixed)$/);
+  });
+
+  it('session.enableStats defaults to false', () => {
+    delete process.env['OCTOCODE_ENABLE_STATS'];
+    const cfg = getConfigSync();
+    expect(cfg.session.enableStats).toBe(false);
   });
 
   it('caches: same reference returned on second call', () => {
@@ -642,5 +649,74 @@ describe('getConfigSync', () => {
     invalidateConfigCache();
     const b = getConfigSync();
     expect(a).not.toBe(b);
+  });
+});
+
+// ─── resolveSession ───────────────────────────────────────────────────────────
+
+import { resolveSession } from '../src/config/resolverSections.js';
+import { DEFAULT_SESSION_CONFIG } from '../src/config/defaults.js';
+
+describe('resolveSession', () => {
+  afterEach(() => { delete process.env['OCTOCODE_ENABLE_STATS']; });
+
+  it('returns enableStats:false by default (env var unset)', () => {
+    delete process.env['OCTOCODE_ENABLE_STATS'];
+    expect(resolveSession().enableStats).toBe(false);
+  });
+
+  it('returns enableStats:true when OCTOCODE_ENABLE_STATS=1', () => {
+    process.env['OCTOCODE_ENABLE_STATS'] = '1';
+    expect(resolveSession().enableStats).toBe(true);
+  });
+
+  it('returns enableStats:true when OCTOCODE_ENABLE_STATS=true', () => {
+    process.env['OCTOCODE_ENABLE_STATS'] = 'true';
+    expect(resolveSession().enableStats).toBe(true);
+  });
+
+  it('returns enableStats:false when OCTOCODE_ENABLE_STATS=false', () => {
+    process.env['OCTOCODE_ENABLE_STATS'] = 'false';
+    expect(resolveSession().enableStats).toBe(false);
+  });
+
+  it('returns enableStats:false when OCTOCODE_ENABLE_STATS=0', () => {
+    process.env['OCTOCODE_ENABLE_STATS'] = '0';
+    expect(resolveSession().enableStats).toBe(false);
+  });
+
+  it('DEFAULT_SESSION_CONFIG.enableStats is false', () => {
+    expect(DEFAULT_SESSION_CONFIG.enableStats).toBe(false);
+  });
+});
+
+// ─── isStatsEnabled ───────────────────────────────────────────────────────────
+
+import { isStatsEnabled } from '../src/index.js';
+
+describe('isStatsEnabled', () => {
+  it('returns false when env var is unset', () => {
+    expect(isStatsEnabled({})).toBe(false);
+  });
+
+  it('returns true for "1"', () => {
+    expect(isStatsEnabled({ OCTOCODE_ENABLE_STATS: '1' })).toBe(true);
+  });
+
+  it('returns true for "true"', () => {
+    expect(isStatsEnabled({ OCTOCODE_ENABLE_STATS: 'true' })).toBe(true);
+  });
+
+  it('returns false for "false"', () => {
+    expect(isStatsEnabled({ OCTOCODE_ENABLE_STATS: 'false' })).toBe(false);
+  });
+
+  it('returns false for "0"', () => {
+    expect(isStatsEnabled({ OCTOCODE_ENABLE_STATS: '0' })).toBe(false);
+  });
+
+  it('returns false for any other string', () => {
+    expect(isStatsEnabled({ OCTOCODE_ENABLE_STATS: 'yes' })).toBe(false);
+    expect(isStatsEnabled({ OCTOCODE_ENABLE_STATS: 'on' })).toBe(false);
   });
 });

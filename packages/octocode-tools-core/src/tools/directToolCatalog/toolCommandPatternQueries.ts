@@ -76,6 +76,16 @@ export function buildKnownDirectToolCommandPatternQueries(
           limit: 5,
         },
       },
+      {
+        label: 'issue detail',
+        query: {
+          type: 'issues',
+          owner: 'bgauryy',
+          repo: 'octocode',
+          issueNumber: 443,
+          content: { body: true, comments: { discussion: true } },
+        },
+      },
     ];
   }
 

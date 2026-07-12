@@ -77,6 +77,7 @@ describe('Session Storage Edge Cases', () => {
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
+    process.env['OCTOCODE_ENABLE_STATS'] = '1';
 
     _resetSessionState();
 
@@ -120,6 +121,7 @@ describe('Session Storage Edge Cases', () => {
   afterEach(() => {
     _resetSessionState();
     vi.resetAllMocks();
+    delete process.env['OCTOCODE_ENABLE_STATS'];
   });
 
   describe('File Corruption Handling', () => {
@@ -256,17 +258,30 @@ describe('Session Storage Edge Cases', () => {
       });
 
       it('should handle negative stats values', () => {
+        // Stats live in stats.json; session.json holds identity only.
         mockFileStore.set(
           SESSION_FILE,
-          JSON.stringify(
-            createTestSession({
-              stats: {
-                toolCalls: -5,
-                errors: -1,
-                rateLimits: -3,
-              },
-            })
-          )
+          JSON.stringify({
+            version: 1,
+            sessionId: 'test-uuid',
+            createdAt: '2026-01-09T10:00:00.000Z',
+            lastActiveAt: '2026-01-09T10:00:00.000Z',
+          })
+        );
+        mockFileStore.set(
+          STATS_FILE,
+          JSON.stringify({
+            version: 1,
+            stats: {
+              toolCalls: -5,
+              errors: -1,
+              rateLimits: -3,
+              rateLimitsByProvider: {},
+              charsSavedByTool: {},
+              githubCacheHits: { hits: {}, rateLimits: 0 },
+              packageRegistryFailures: {},
+            },
+          })
         );
         _resetSessionState();
 
@@ -558,6 +573,35 @@ describe('Session Storage Edge Cases', () => {
         _resetSessionState();
         const session = readSession();
         expect(session).toBeNull();
+      });
+    });
+
+    describe('Read Permission Denied (stats.json)', () => {
+      it('should fall back to default stats when stats.json read throws', () => {
+        // SESSION_FILE is valid; STATS_FILE exists but is unreadable.
+        mockFileStore.set(
+          SESSION_FILE,
+          JSON.stringify({
+            version: 1,
+            sessionId: 'test-stats-unreadable',
+            createdAt: '2026-01-09T10:00:00.000Z',
+            lastActiveAt: '2026-01-09T10:00:00.000Z',
+          })
+        );
+        mockFileStore.set(STATS_FILE, '{}'); // exists so existsSync passes
+
+        // Override readFileSync to throw only on STATS_FILE.
+        vi.mocked(fs.readFileSync).mockImplementation((path: unknown) => {
+          if (String(path) === STATS_FILE) throw FS_ERRORS.EACCES();
+          const content = mockFileStore.get(String(path));
+          if (content === undefined) throw FS_ERRORS.ENOENT(String(path));
+          return content;
+        });
+
+        _resetSessionState();
+        const session = readSession();
+        expect(session?.sessionId).toBe('test-stats-unreadable');
+        expect(session?.stats.toolCalls).toBe(0); // default, not from unreadable file
       });
     });
 

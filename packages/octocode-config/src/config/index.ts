@@ -20,6 +20,7 @@ export type {
   RequiredLspConfig,
   RequiredOutputConfig,
   RequiredOutputPaginationConfig,
+  RequiredSessionConfig,
   MinifyMode,
 } from './types.js';
 
@@ -39,6 +40,7 @@ export {
   MAX_RETRIES,
   MIN_OUTPUT_DEFAULT_CHAR_LENGTH,
   MAX_OUTPUT_DEFAULT_CHAR_LENGTH,
+  DEFAULT_SESSION_CONFIG,
 } from './defaults.js';
 
 export {
@@ -67,6 +69,7 @@ export {
   resolveNetwork,
   resolveLsp,
   resolveOutput,
+  resolveSession,
 } from './resolverSections.js';
 
 export {

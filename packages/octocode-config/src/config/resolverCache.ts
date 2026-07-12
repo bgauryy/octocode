@@ -9,6 +9,7 @@ import {
   resolveNetwork,
   resolveLsp,
   resolveOutput,
+  resolveSession,
 } from './resolverSections.js';
 
 function buildResolvedConfig(
@@ -29,7 +30,8 @@ function buildResolvedConfig(
     process.env.MAX_RETRIES !== undefined ||
     process.env.OCTOCODE_LSP_CONFIG !== undefined ||
     process.env.OCTOCODE_OUTPUT_FORMAT !== undefined ||
-    process.env.OCTOCODE_OUTPUT_DEFAULT_CHAR_LENGTH !== undefined;
+    process.env.OCTOCODE_OUTPUT_DEFAULT_CHAR_LENGTH !== undefined ||
+    process.env.OCTOCODE_ENABLE_STATS !== undefined;
 
   let source: ResolvedConfig['source'];
   if (hasFile && hasEnvOverrides) {
@@ -48,6 +50,7 @@ function buildResolvedConfig(
     network: resolveNetwork(fileConfig?.network),
     lsp: resolveLsp(fileConfig?.lsp),
     output: resolveOutput(fileConfig?.output),
+    session: resolveSession(),
     source,
     configPath: hasFile ? configPath : undefined,
   };

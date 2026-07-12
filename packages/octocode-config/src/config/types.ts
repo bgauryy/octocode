@@ -114,9 +114,21 @@ export interface ResolvedConfig {
 
   output: RequiredOutputConfig;
 
+  session: RequiredSessionConfig;
+
   source: 'file' | 'defaults' | 'mixed';
 
   configPath?: string;
+}
+
+/**
+ * Session / stats persistence options (env-var only — no .octocoderc equivalent).
+ * Resolved entirely from OCTOCODE_ENABLE_STATS; default is off to avoid
+ * unnecessary SSD writes on long-running agent sessions.
+ */
+export interface RequiredSessionConfig {
+  /** Write stats.json on every flush. Stats are always tracked in memory. */
+  enableStats: boolean;
 }
 
 export interface ValidationResult {

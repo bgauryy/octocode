@@ -5,6 +5,7 @@ import {
   unlinkSync,
   renameSync,
 } from 'node:fs';
+import { isStatsEnabled } from '@octocodeai/config';
 import { ensureOctocodeDir } from '../credentials/storage.js';
 import { paths } from '../paths.js';
 import {
@@ -18,23 +19,10 @@ import type { PersistedSession, SessionStats } from './types.js';
 export const SESSION_FILE = paths.session;
 export const STATS_FILE = paths.stats;
 
-type SessionDiskPayload = Omit<PersistedSession, 'stats'> & {
-  stats?: SessionStats;
-};
-
 function writeJsonAtomic(file: string, data: unknown): void {
   const tempFile = `${file}.tmp`;
-
-  writeFileSync(tempFile, JSON.stringify(data, null, 2), {
-    mode: 0o600,
-  });
-
+  writeFileSync(tempFile, JSON.stringify(data, null, 2), { mode: 0o600 });
   renameSync(tempFile, file);
-}
-
-function toSessionDiskPayload(session: PersistedSession): SessionDiskPayload {
-  const { stats: _stats, ...sessionWithoutStats } = session;
-  return sessionWithoutStats;
 }
 
 function parseStatsFileContent(content: string): SessionStats | null {
@@ -53,35 +41,32 @@ function parseStatsFileContent(content: string): SessionStats | null {
   return null;
 }
 
-function readStatsFromDisk(fallbackStats?: SessionStats): SessionStats {
-  const fallback = fallbackStats
-    ? withDerivedUsageTotals(fallbackStats)
-    : createDefaultStats();
-
+function readStatsFromDisk(): SessionStats {
   if (!existsSync(STATS_FILE)) {
-    return fallback;
+    return createDefaultStats();
   }
-
   try {
     const content = readFileSync(STATS_FILE, 'utf8');
-    const stats = parseStatsFileContent(content);
-    if (!stats) {
-      return fallback;
-    }
-    return stats;
+    return parseStatsFileContent(content) ?? createDefaultStats();
   } catch {
-    return fallback;
+    return createDefaultStats();
   }
 }
 
 export function writeSessionToDisk(session: PersistedSession): void {
   ensureOctocodeDir();
 
-  writeJsonAtomic(STATS_FILE, {
-    version: session.version,
-    stats: withDerivedUsageTotals(session.stats),
-  });
-  writeJsonAtomic(SESSION_FILE, toSessionDiskPayload(session));
+  // stats.json is opt-in — set OCTOCODE_ENABLE_STATS=1 to persist tool usage stats.
+  if (isStatsEnabled()) {
+    writeJsonAtomic(STATS_FILE, {
+      version: session.version,
+      stats: withDerivedUsageTotals(session.stats),
+    });
+  }
+
+  // session.json holds identity only — no stats.
+  const { stats: _stats, ...sessionWithoutStats } = session;
+  writeJsonAtomic(SESSION_FILE, sessionWithoutStats);
 }
 
 export function readSessionFromDisk(): PersistedSession | null {
@@ -99,7 +84,7 @@ export function readSessionFromDisk(): PersistedSession | null {
 
     return {
       ...result.data,
-      stats: readStatsFromDisk(result.data.stats),
+      stats: isStatsEnabled() ? readStatsFromDisk() : createDefaultStats(),
     };
   } catch {
     return null;
@@ -111,7 +96,6 @@ export function deleteSessionFile(): boolean {
 
   for (const file of [SESSION_FILE, STATS_FILE]) {
     if (!existsSync(file)) continue;
-
     try {
       unlinkSync(file);
       deleted = true;

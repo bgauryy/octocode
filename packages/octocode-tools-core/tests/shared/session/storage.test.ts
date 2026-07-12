@@ -78,6 +78,7 @@ describe('Session Storage', () => {
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
+    process.env['OCTOCODE_ENABLE_STATS'] = '1';
 
     _resetSessionState();
 
@@ -125,6 +126,7 @@ describe('Session Storage', () => {
   afterEach(() => {
     _resetSessionState();
     vi.resetAllMocks();
+    delete process.env['OCTOCODE_ENABLE_STATS'];
   });
 
   describe('SESSION_FILE constant', () => {
@@ -248,6 +250,56 @@ describe('Session Storage', () => {
       expect(diskStats.stats.toolCalls).toBe(5);
     });
 
+    it('should NOT write stats.json when OCTOCODE_ENABLE_STATS is off', () => {
+      // Temporarily override the env set by beforeEach.
+      process.env['OCTOCODE_ENABLE_STATS'] = '0';
+
+      getOrCreateSession();
+      incrementToolCalls(3);
+      flushSession();
+
+      expect(mockFileStore.has(SESSION_FILE)).toBe(true);
+      expect(mockFileStore.has(STATS_FILE)).toBe(false);
+
+      process.env['OCTOCODE_ENABLE_STATS'] = '1'; // restore for remaining tests
+    });
+
+    it('should NOT read stats.json when OCTOCODE_ENABLE_STATS is off (returns defaults)', () => {
+      // Put a stats.json on disk but disable the flag — session should return defaults.
+      mockFileStore.set(
+        STATS_FILE,
+        JSON.stringify({
+          version: 1,
+          stats: {
+            toolCalls: 99,
+            errors: 5,
+            rateLimits: 7,
+            rateLimitsByProvider: {},
+            charsSavedByTool: {},
+            githubCacheHits: { hits: {}, rateLimits: 0 },
+            packageRegistryFailures: {},
+          },
+        })
+      );
+      mockFileStore.set(
+        SESSION_FILE,
+        JSON.stringify({
+          version: 1,
+          sessionId: 'test-no-stats',
+          createdAt: '2026-01-09T10:00:00.000Z',
+          lastActiveAt: '2026-01-09T10:00:00.000Z',
+        })
+      );
+
+      process.env['OCTOCODE_ENABLE_STATS'] = '0';
+      _resetSessionState();
+
+      const session = readSession();
+      expect(session?.stats.toolCalls).toBe(0); // default, not 99
+
+      process.env['OCTOCODE_ENABLE_STATS'] = '1'; // restore
+    });
+
     it('should return null for invalid JSON on disk', () => {
       mockFileStore.set(SESSION_FILE, 'invalid json {{{');
 
@@ -288,6 +340,59 @@ describe('Session Storage', () => {
       expect(session).toBeNull();
     });
 
+    it('should read stats from stats.json written as raw SessionStats (legacy format)', () => {
+      // stats.json without the PersistedStats { version, stats } wrapper —
+      // falls through to the SessionStatsSchema raw-parse path.
+      mockFileStore.set(
+        SESSION_FILE,
+        JSON.stringify({
+          version: 1,
+          sessionId: 'test-raw-stats',
+          createdAt: '2026-01-09T10:00:00.000Z',
+          lastActiveAt: '2026-01-09T10:00:00.000Z',
+        })
+      );
+      mockFileStore.set(
+        STATS_FILE,
+        JSON.stringify({
+          toolCalls: 7,
+          errors: 2,
+          rateLimits: 1,
+          rateLimitsByProvider: {},
+          charsSavedByTool: {},
+          githubCacheHits: { hits: {}, rateLimits: 0 },
+          packageRegistryFailures: {},
+        })
+      );
+
+      _resetSessionState();
+
+      const session = readSession();
+      expect(session?.stats.toolCalls).toBe(7);
+      expect(session?.stats.errors).toBe(2);
+    });
+
+    it('should fall back to default stats when stats.json matches no known schema', () => {
+      // Valid JSON but neither PersistedStats nor SessionStats shape —
+      // parseStatsFileContent returns null → readStatsFromDisk returns createDefaultStats().
+      mockFileStore.set(
+        SESSION_FILE,
+        JSON.stringify({
+          version: 1,
+          sessionId: 'test-bad-stats-schema',
+          createdAt: '2026-01-09T10:00:00.000Z',
+          lastActiveAt: '2026-01-09T10:00:00.000Z',
+        })
+      );
+      mockFileStore.set(STATS_FILE, JSON.stringify({ totally: 'unexpected' }));
+
+      _resetSessionState();
+
+      const session = readSession();
+      expect(session?.sessionId).toBe('test-bad-stats-schema');
+      expect(session?.stats.toolCalls).toBe(0); // default, not from unrecognised file
+    });
+
     it('should return null for session with wrong field types', () => {
       mockFileStore.set(
         SESSION_FILE,
@@ -306,7 +411,8 @@ describe('Session Storage', () => {
       expect(session).toBeNull();
     });
 
-    it('should add default extended stats when reading older sessions', () => {
+    it('should read stats from stats.json and extend with computed totals', () => {
+      // session.json holds identity only; inline stats fields are ignored.
       mockFileStore.set(
         SESSION_FILE,
         JSON.stringify({
@@ -314,10 +420,21 @@ describe('Session Storage', () => {
           sessionId: 'test-id',
           createdAt: '2026-01-09T10:00:00.000Z',
           lastActiveAt: '2026-01-09T10:00:00.000Z',
+        })
+      );
+      // Stats come from stats.json.
+      mockFileStore.set(
+        STATS_FILE,
+        JSON.stringify({
+          version: 1,
           stats: {
             toolCalls: 1,
             errors: 3,
             rateLimits: 4,
+            rateLimitsByProvider: {},
+            charsSavedByTool: {},
+            githubCacheHits: { hits: {}, rateLimits: 0 },
+            packageRegistryFailures: {},
           },
         })
       );

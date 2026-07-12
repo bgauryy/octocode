@@ -152,6 +152,16 @@ export function propagateOctocodeEnv({
 }
 
 /**
+ * True when stats.json writes are enabled via OCTOCODE_ENABLE_STATS=1|true.
+ * Stats are always tracked in memory; this flag controls disk persistence only.
+ * Keeping it off (the default) eliminates one write per 60-second flush cycle.
+ */
+export function isStatsEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  const v = env['OCTOCODE_ENABLE_STATS'];
+  return v === '1' || v === 'true';
+}
+
+/**
  * Read and parse `<home>/.octocoderc`.
  * Delegates to the robust JSON5 loader (state-machine based, handles // inside strings).
  * Returns {} when absent or invalid. No secrets belong here.

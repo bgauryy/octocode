@@ -180,7 +180,7 @@ export OCTOCODE_HOME=/custom/path
 | `.env` | Your third-party API keys (Tavily, Serper, …). Loaded by agents and skills. |
 | `.octocoderc` | Octocode behavior settings (tools, network, paths, output). Read by the MCP server and CLI. |
 | `credentials.json` | Encrypted GitHub token from `octocode auth login`. Don't edit manually. |
-| `stats.json` | Usage counters (tool calls, cache hits, …). |
+| `stats.json` | Usage counters (tool calls, cache hits, …). Written only when `OCTOCODE_ENABLE_STATS=1`. |
 | `session.json` | Session identity. |
 
 ---
@@ -464,6 +464,12 @@ Run `npx octocode install --ide cursor` (or `vscode`, `claude`, `windsurf`, etc.
 
 These are lower-level knobs read directly by `octocode-tools-core`. They do **not** have a `.octocoderc` equivalent — set them in your shell or MCP `env` block.
 
+#### Stats persistence
+
+| Env var | Default | Notes |
+|---------|---------|-------|
+| `OCTOCODE_ENABLE_STATS` | `false` (off) | Set to `1` or `true` to write `stats.json` on every flush. Stats are tracked in memory regardless; this only controls whether they are persisted to disk. Keeping it off eliminates one file write per 60-second flush cycle, which reduces SSD wear on long-running agent sessions. |
+
 #### Clone cache
 
 | Env var | Default | Notes |
@@ -541,6 +547,7 @@ npx octocode status --json
 | A tool is missing | Check `TOOLS_TO_RUN` (strict whitelist), `ENABLE_TOOLS`, `DISABLE_TOOLS` |
 | Slow / timeouts | Raise `REQUEST_TIMEOUT` (max `300000` ms) |
 | Web search low quality | Add `TAVILY_API_KEY` to `~/.octocode/.env` |
+| `stats.json` not being written | Set `OCTOCODE_ENABLE_STATS=1` in your shell or MCP `env` block (off by default) |
 | `.env` key ignored | Token vars are blocked in `.env` — use shell or MCP `env` block |
 | `.env` key not loading | Confirm the agent session restarted and the project is trusted |
 | Enterprise hitting github.com | Set `GITHUB_API_URL` in both shell and `.octocoderc` |
