@@ -235,8 +235,50 @@ it('generated skill CLI resolves hook paths from its own scripts directory', () 
     try {
       const result = runInstallHooks(['hooks', 'install', '--host', 'codex', '--project-dir', projectDir, '--dry-run'], SKILL_SCRIPT);
       const serialized = JSON.stringify(result.resultingSettings);
-      expect(serialized).toContain('/skills/octocode-awareness/scripts/hooks/pre-edit.sh');
+      expect(serialized).toContain('/skills/octocode-awareness/scripts/hook-runner.mjs');
+      expect(serialized).toContain(' pre-edit --host codex --skill-root ');
       expect(serialized).not.toContain('/skills/skills/');
+    } finally {
+      rmSync(projectDir, { recursive: true, force: true });
+    }
+  });
+it('project hook configs prefer the canonical direct runner and preserve Claude project expansion', () => {
+    const projectDir = mkdtempSync(resolve(tmpdir(), 'octocode-project-runner-'));
+    const canonicalHookDir = resolve(projectDir, 'skills/octocode-awareness/scripts/hooks');
+    const transientHookDir = resolve(projectDir, 'packages/octocode-awareness/out/skills/octocode-awareness/scripts/hooks');
+    try {
+      mkdirSync(canonicalHookDir, { recursive: true });
+      mkdirSync(transientHookDir, { recursive: true });
+      writeFileSync(resolve(canonicalHookDir, '..', 'hook-runner.mjs'), '#!/usr/bin/env node\n');
+      writeFileSync(resolve(transientHookDir, '..', 'hook-runner.mjs'), '#!/usr/bin/env node\n');
+
+      for (const host of ['codex', 'cursor'] as const) {
+        const result = runHooksInstall(['--host', host, '--project-dir', projectDir, '--dry-run'], {
+          cwd: projectDir,
+          hookDir: transientHookDir,
+        });
+        const serialized = JSON.stringify(result.payload);
+        expect(serialized).toContain('/skills/octocode-awareness/scripts/hook-runner.mjs');
+        expect(serialized).not.toContain('/packages/octocode-awareness/out/');
+        expect(serialized).toContain(`--host ${host}`);
+        expect(serialized).toContain('--skill-root');
+      }
+
+      const claude = runHooksInstall(['--host', 'claude', '--project-dir', projectDir, '--dry-run'], {
+        cwd: projectDir,
+        hookDir: transientHookDir,
+      });
+      const serializedClaude = JSON.stringify(claude.payload);
+      expect(serializedClaude).toContain('${CLAUDE_PROJECT_DIR}/skills/octocode-awareness/scripts/hook-runner.mjs');
+      expect(serializedClaude).toContain('${CLAUDE_PROJECT_DIR}/skills/octocode-awareness');
+      expect(serializedClaude).not.toContain('\\\\${CLAUDE_PROJECT_DIR}');
+
+      rmSync(resolve(canonicalHookDir, '..', 'hook-runner.mjs'));
+      const fallback = runHooksInstall(['--host', 'codex', '--project-dir', projectDir, '--dry-run'], {
+        cwd: projectDir,
+        hookDir: transientHookDir,
+      });
+      expect(JSON.stringify(fallback.payload)).toContain('/packages/octocode-awareness/out/');
     } finally {
       rmSync(projectDir, { recursive: true, force: true });
     }
@@ -246,14 +288,15 @@ it('installed Codex hook commands run when Node is absent from PATH', () => {
     const memoryHome = mkdtempSync(resolve(tmpdir(), 'octocode-codex-node-memory-'));
     try {
       const preview = runInstallHooks([
-        'hooks', 'install', '--host', 'codex', '--project-dir', projectDir, '--dry-run', '--compact',
+        'hooks', 'install', '--host', 'codex', '--project-dir', projectDir, '--dry-run',
       ]);
       const preToolUse = preview.resultingSettings.hooks?.PreToolUse?.[0] as {
         hooks?: Array<{ command?: string }>;
       };
       const command = preToolUse.hooks?.[0]?.command ?? '';
-      expect(command).toContain('OCTOCODE_NODE_BIN=');
-      expect(command).toContain(NODE);
+      expect(command).toContain(`"${NODE}"`);
+      expect(command).toContain('hook-runner.mjs" pre-edit --host codex --skill-root');
+      expect(command).not.toContain('OCTOCODE_NODE_BIN=');
 
       const result = spawnSync(command, {
         shell: true,
@@ -293,13 +336,44 @@ it('previews Codex hooks in .codex/hooks.json without unsupported SessionEnd', (
         'UserPromptSubmit',
       ]);
       expect(result.resultingSettings.hooks).not.toHaveProperty('SessionEnd');
-      expect(JSON.stringify(result.resultingSettings.hooks?.PreCompact)).toContain('session-compact.sh');
-      expect(JSON.stringify(result.resultingSettings.hooks?.PreCompact)).not.toContain('session-end.sh');
+      const preCompact = JSON.stringify(result.resultingSettings.hooks?.PreCompact);
+      expect(preCompact).toContain('hook-runner.mjs');
+      expect(preCompact).toContain(' session-compact --host codex --skill-root ');
+      expect(preCompact).not.toContain(' session-end --host codex ');
       expect(JSON.stringify(result.resultingSettings)).not.toContain('CLAUDE_PROJECT_DIR');
       const preToolUse = result.resultingSettings.hooks?.PreToolUse ?? [];
       expect(preToolUse).toHaveLength(1);
-      expect(JSON.stringify(preToolUse[0])).toContain('pre-edit.sh');
-      expect(JSON.stringify(preToolUse)).not.toContain('harness-guard.sh');
+      expect(JSON.stringify(preToolUse[0])).toContain('hook-runner.mjs');
+      expect(JSON.stringify(preToolUse[0])).toContain(' pre-edit --host codex --skill-root ');
+      expect(JSON.stringify(preToolUse)).not.toContain(' harness-guard --host codex ');
+    } finally {
+      rmSync(projectDir, { recursive: true, force: true });
+    }
+  });
+it('removes misplaced legacy Awareness hooks while preserving unrelated hooks', () => {
+    const projectDir = mkdtempSync(resolve(tmpdir(), 'octocode-stale-event-hooks-'));
+    const settingsPath = resolve(projectDir, '.codex/hooks.json');
+    try {
+      mkdirSync(dirname(settingsPath), { recursive: true });
+      writeFileSync(settingsPath, JSON.stringify({
+        hooks: {
+          PreCompact: [
+            { hooks: [{ type: 'command', command: 'node /old/octocode-awareness/scripts/hook-runner.mjs session-end --host codex', timeout: 20 }] },
+            { hooks: [{ type: 'command', command: '/tmp/unrelated.sh', timeout: 20 }] },
+          ],
+        },
+      }));
+
+      const installed = runInstallHooks(['hooks', 'install', '--host', 'codex', '--project-dir', projectDir, '--dry-run']);
+      const serializedInstall = JSON.stringify(installed.resultingSettings);
+      expect(serializedInstall).not.toContain('session-end');
+      expect(serializedInstall).toContain('session-compact');
+      expect(serializedInstall).toContain('/tmp/unrelated.sh');
+
+      const removed = runInstallHooks(['hooks', 'remove', '--host', 'codex', '--project-dir', projectDir, '--dry-run']);
+      const serializedRemove = JSON.stringify(removed.resultingSettings);
+      expect(serializedRemove).not.toContain('octocode-awareness');
+      expect(serializedRemove).toContain('/tmp/unrelated.sh');
     } finally {
       rmSync(projectDir, { recursive: true, force: true });
     }
@@ -315,7 +389,9 @@ it('keeps Claude hooks in .claude/settings.json with SessionEnd', () => {
       expect(result.resultingSettings.hooks).toHaveProperty('PreCompact');
       expect(result.resultingSettings.hooks).toHaveProperty('PostToolUseFailure');
       expect(result.resultingSettings.hooks).toHaveProperty('SubagentStart');
-      expect(JSON.stringify(result.resultingSettings.hooks?.PreCompact)).toContain('session-compact.sh');
+      const preCompact = JSON.stringify(result.resultingSettings.hooks?.PreCompact);
+      expect(preCompact).toContain('hook-runner.mjs');
+      expect(preCompact).toContain(' session-compact --host claude --skill-root ');
     } finally {
       rmSync(projectDir, { recursive: true, force: true });
     }

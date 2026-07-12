@@ -148,11 +148,7 @@ export interface ProjectionMarkdownBudgetStatus extends ProjectionMarkdownBudget
 
 export const PROJECTION_MARKDOWN_BUDGETS: Record<string, ProjectionMarkdownBudget> = {
   'AGENTS.md': { max_lines: 80, role: 'agent start summary' },
-  'MEMORY.md': { max_lines: 200, role: 'active memory index' },
-  'GOTCHAS.md': { max_lines: 200, role: 'gotcha index' },
-  'LEARN.md': { max_lines: 200, role: 'lesson/opportunity index' },
-  'BOOKMARKS.md': { max_lines: 200, role: 'external learnable resource index (no local files)' },
-  'DEVELOPER_REVIEW.md': { max_lines: 200, role: 'agent feedback to the instruction author' },
+  'KNOWLEDGE.md': { max_lines: 200, role: 'bounded verified-knowledge leads' },
 };
 export const ATTEND_COMPACT_BUDGET = { max_lines: 40, max_json_bytes: 2 * 1024 };
 export const WORKBOARD_BUDGET = { max_rows_per_column: 10 };

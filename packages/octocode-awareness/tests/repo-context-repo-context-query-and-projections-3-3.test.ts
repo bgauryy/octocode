@@ -123,19 +123,20 @@ it('writes HTML views and generated wiki files from the DB projection', () => {
         artifact: 'svc',
         outDir: join(dir, '.octocode'),
         mode: 'local',
-        includeView: true,
+        includeView: false,
         check: false,
       });
       expect(injected.ok).toBe(true);
       expect(injected.files.some(file => file.endsWith('AGENTS.md'))).toBe(true);
-      expect(readFileSync(join(dir, '.octocode', 'GOTCHAS.md'), 'utf8')).toContain('Token migration order matters');
-      expect(readFileSync(join(dir, '.octocode', 'MEMORY.md'), 'utf8')).toContain('Total: 2 · Shown: 2');
-      expect(readFileSync(join(dir, '.octocode', 'BOOKMARKS.md'), 'utf8')).toContain('https://example.com/auth-guide');
-      expect(readFileSync(join(dir, '.octocode', 'BOOKMARKS.md'), 'utf8')).toContain('repo:bgauryy/octocode-mcp');
+      const knowledge = readFileSync(join(dir, '.octocode', 'KNOWLEDGE.md'), 'utf8');
+      expect(knowledge).toContain('Token migration order matters');
+      expect(knowledge).toContain('https://example.com/auth-guide');
+      expect(knowledge).toContain('file:src/auth.ts');
+      expect(knowledge).not.toContain(file);
       const agentsMd = readFileSync(join(dir, '.octocode', 'AGENTS.md'), 'utf8');
       expect(agentsMd).toContain('Octocode Awareness Map');
       expect(agentsMd).toContain('Projection Health');
-      expect(agentsMd).toContain('Root `AGENTS.md` should point here');
+      expect(agentsMd).toContain('Root `AGENTS.md` may point here');
       expect(agentsMd).not.toContain('append a root `AGENTS.md`');
       expect(agentsMd).not.toContain('Read GOTCHAS + LEARN');
       expect(agentsMd).not.toContain('## Files Under Work');
@@ -143,7 +144,11 @@ it('writes HTML views and generated wiki files from the DB projection', () => {
       expect(agentsMd).toContain('memory recall');
       expect(agentsMd).toMatch(/ask before editing root `AGENTS\.md`/i);
       expect(agentsMd).not.toContain('or more detail is needed');
-      expect(readFileSync(join(dir, '.octocode', 'references', 'repo-map.md'), 'utf8')).not.toContain(file);
+      expect(existsSync(join(dir, '.octocode', 'references', 'repo-map.md'))).toBe(false);
+      expect(existsSync(join(dir, '.octocode', 'MEMORY.md'))).toBe(false);
+      expect(existsSync(join(dir, '.octocode', 'BOOKMARKS.md'))).toBe(false);
+      expect(existsSync(join(dir, '.octocode', 'awareness', 'csv', 'files.csv'))).toBe(false);
+      expect(existsSync(view.path)).toBe(true); // explicit query export is preserved
       const manifest = JSON.parse(readFileSync(join(dir, '.octocode', 'awareness', 'manifest.json'), 'utf8')) as {
         files: string[];
         source: { revision: string };
@@ -154,10 +159,10 @@ it('writes HTML views and generated wiki files from the DB projection', () => {
       const agentsBudget = manifest.budgets.markdown['AGENTS.md'];
       expect(agentsBudget).toMatchObject({ max_lines: 80, within_budget: true });
       expect(agentsBudget?.actual_lines).toBeGreaterThan(0);
-      expect(manifest.budgets.markdown['BOOKMARKS.md']).toMatchObject({ max_lines: 200, within_budget: true });
+      expect(manifest.budgets.markdown['KNOWLEDGE.md']).toMatchObject({ max_lines: 200, within_budget: true });
       const attend = attendAwareness(db, { workspacePath: dir, artifact: 'svc', compact: false });
       const projectionFiles = ((attend.organ_state?.senses as Record<string, unknown>).projection_health as Array<{ file: string }>).map(row => row.file);
-      expect(projectionFiles).toEqual(expect.arrayContaining(['.octocode/BOOKMARKS.md', '.octocode/awareness/manifest.json']));
+      expect(projectionFiles).toEqual(expect.arrayContaining(['.octocode/KNOWLEDGE.md', '.octocode/awareness/manifest.json']));
       expect(attend.bloat_warnings ?? []).not.toContain('manifest older than generated projection files; regenerate repo projection');
       expect(attend.bloat_warnings ?? []).not.toContain('manifest source revision differs from live SQLite; regenerate repo projection');
       insertMemory(db, {
@@ -170,27 +175,35 @@ it('writes HTML views and generated wiki files from the DB projection', () => {
       });
       const staleAttend = attendAwareness(db, { workspacePath: dir, artifact: 'svc', compact: false });
       expect(staleAttend.bloat_warnings ?? []).toContain('manifest source revision differs from live SQLite; regenerate repo projection');
-      expect(readFileSync(join(dir, '.octocode', 'awareness', 'csv', 'files.csv'), 'utf8')).toContain('auth.ts');
+      expect(knowledge).not.toContain(file);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
   });
-it('previews and prunes only retired manifest-owned projection files', () => {
+it('previews and prunes only retired Awareness-owned projection artifacts', () => {
     const dir = mkdtempSync(join(tmpdir(), 'oc-repo-orphans-'));
     try {
       const { db } = seededDb(dir);
-      injectRepoContext(db, { workspacePath: dir, includeView: true, check: false });
+      mkdirSync(join(dir, '.octocode', 'awareness'), { recursive: true });
       const html = join(dir, '.octocode', 'awareness', 'index.html');
+      const legacyMemory = join(dir, '.octocode', 'MEMORY.md');
+      writeFileSync(html, 'legacy generated viewer\n');
+      writeFileSync(legacyMemory, 'legacy generated memory\n');
       const notes = join(dir, '.octocode', 'notes.md');
+      const legacyAgentId = join(dir, '.octocode', '.agent-id');
       const plan = join(dir, '.octocode', 'plan', 'kept', 'PLAN.md');
       mkdirSync(join(dir, '.octocode', 'plan', 'kept'), { recursive: true });
       writeFileSync(notes, 'user-owned\n');
+      writeFileSync(legacyAgentId, 'shared-workspace-agent\n');
       writeFileSync(plan, 'authored plan\n');
 
       const preview = injectRepoContext(db, { workspacePath: dir, includeView: false, check: false });
       expect(preview.orphan_candidates).toContain(html);
+      expect(preview.orphan_candidates).toContain(legacyMemory);
+      expect(preview.orphan_candidates).not.toContain(legacyAgentId);
       expect(preview.pruned_orphans).toEqual([]);
       expect(existsSync(html)).toBe(true);
+      expect(existsSync(legacyAgentId)).toBe(false);
 
       const pruned = injectRepoContext(db, {
         workspacePath: dir,
@@ -199,6 +212,7 @@ it('previews and prunes only retired manifest-owned projection files', () => {
         check: false,
       });
       expect(pruned.pruned_orphans).toContain(html);
+      expect(pruned.pruned_orphans).toContain(legacyMemory);
       expect(existsSync(html)).toBe(false);
       expect(readFileSync(notes, 'utf8')).toBe('user-owned\n');
       expect(readFileSync(plan, 'utf8')).toBe('authored plan\n');

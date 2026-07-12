@@ -217,6 +217,9 @@ export function cmdGetMemory(db: DatabaseSync, args: ParsedArgs, dbPath: string,
     const fallback = (payload['memories'] ?? []) as Array<{ memory_id?: string }>;
     bumpAccess(db, fallback.flatMap(memory => memory.memory_id ? [memory.memory_id] : []));
   }
+  if (opts.compact && payload['count'] === 0) {
+    return emit({ count: 0, memories: [] }, 0, opts);
+  }
   if (!Boolean(args['full'])) {
     const memories = (payload['memories'] ?? []) as Array<Record<string, unknown>>;
     payload['memories'] = memories.map((memory) => projectMemoryLean(memory as unknown as MemoryRecord));

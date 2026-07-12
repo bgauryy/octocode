@@ -209,7 +209,7 @@ describe('repo context projections', () => {
         '--agent-id', 'agent-a',
         '--workspace', dir,
         '--task-context', 'inject projection',
-        '--observation', 'inject writes markdown csv html and manifest',
+        '--observation', 'inject writes lean knowledge and manifest',
         '--importance', '7',
         '--label', 'DECISION',
         '--reference', 'https://example.com/inject-guide',
@@ -220,7 +220,7 @@ describe('repo context projections', () => {
       expect(result['out_dir']).toBe(join(dir, '.octocode'));
       expect(result['files']).toEqual(expect.arrayContaining([
         join(dir, '.octocode', 'AGENTS.md'),
-        join(dir, '.octocode', 'BOOKMARKS.md'),
+        join(dir, '.octocode', 'KNOWLEDGE.md'),
         join(dir, '.octocode', 'awareness', 'manifest.json'),
       ]));
       const manifest = JSON.parse(readFileSync(join(dir, '.octocode', 'awareness', 'manifest.json'), 'utf8')) as Record<string, unknown>;
@@ -236,8 +236,10 @@ describe('repo context projections', () => {
       expect(readFileSync(join(dir, '.gitignore'), 'utf8')).toBe('.octocode\n');
       expect(readFileSync(join(dir, '.octocode', 'AGENTS.md'), 'utf8')).toContain('Octocode Awareness Map');
       expect(readFileSync(join(dir, '.octocode', 'AGENTS.md'), 'utf8')).toContain('Projection Health');
-      expect(readFileSync(join(dir, '.octocode', 'BOOKMARKS.md'), 'utf8')).toContain('https://example.com/inject-guide');
-      expect(readFileSync(join(dir, '.octocode', 'awareness', 'csv', 'lessons.csv'), 'utf8')).toContain('DECISION');
+      expect(readFileSync(join(dir, '.octocode', 'KNOWLEDGE.md'), 'utf8')).toContain('https://example.com/inject-guide');
+      expect(existsSync(join(dir, '.octocode', 'BOOKMARKS.md'))).toBe(false);
+      expect(existsSync(join(dir, '.octocode', 'awareness', 'csv', 'lessons.csv'))).toBe(false);
+      expect(existsSync(join(dir, '.octocode', 'awareness', 'index.html'))).toBe(false);
     } finally { rmSync(dir, { recursive: true }); }
   });
 });

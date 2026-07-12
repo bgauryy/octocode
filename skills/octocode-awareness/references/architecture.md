@@ -3,7 +3,7 @@
 ```text
 agent lobby -> CLI / hooks / Pi bridge -> runtime -> global awareness.sqlite3
                                                    |-> live views
-                                                   `-> repo inject -> .octocode/
+                                                   `-> wiki sync -> .octocode/
 ```
 
 SQLite is canonical and scoped. Generated `.octocode/` files are leads; managed

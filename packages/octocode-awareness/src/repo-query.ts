@@ -1,6 +1,6 @@
 import { join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
-import { AWARENESS_QUERY_VIEWS, AwarenessQueryParams, AwarenessQueryResult, AwarenessQueryRow, AwarenessQuerySection, AwarenessQueryView, PROJECTION_MARKDOWN_BUDGETS, boundedRows, limitOf, normalizeFormat, normalizeView, stringList, utcNow } from './repo-model.js';
+import { AWARENESS_QUERY_VIEWS, AwarenessQueryParams, AwarenessQueryResult, AwarenessQueryRow, AwarenessQuerySection, AwarenessQueryView, boundedRows, limitOf, normalizeFormat, normalizeView, stringList, utcNow } from './repo-model.js';
 import { activityRows, fileRows, repoProfileRows } from './repo-files.js';
 import { memoryRows, planRows, runRows, taskRows } from './repo-plans.js';
 import { agentRows, developerReviewRows, lockRows, refinementRows, signalRows } from './repo-coordination.js';
@@ -9,6 +9,8 @@ import { scopeFromParams, withScope } from './repo-scope.js';
 import { renderDeveloperReviewDoc } from './repo-docs.js';
 import { escapeHtml, renderHtmlSection, toCsv, toMarkdown, toTable } from './repo-formats.js';
 import { atomicWriteText, resolveWorkspaceOutputPath } from './repo-projection.js';
+
+const DEVELOPER_REVIEW_EXPORT_MAX_LINES = 200;
 
 export function rowsForView(db: DatabaseSync, view: AwarenessQueryView, params: AwarenessQueryParams): AwarenessQueryRow[] {
   switch (view) {
@@ -120,8 +122,8 @@ export function queryAwareness(db: DatabaseSync, params: AwarenessQueryParams = 
 }
 
 /**
- * Developer-review digest for the CLI `reflect developer-review` command: the same
- * rows that feed `.octocode/DEVELOPER_REVIEW.md`, plus the rendered Markdown doc.
+ * Developer-review digest for the CLI `reflect developer-review` command, including
+ * an explicit bounded Markdown export.
  */
 export function developerReviewDoc(
   db: DatabaseSync,
@@ -133,7 +135,7 @@ export function developerReviewDoc(
     rows,
     open,
     resolved: rows.length - open,
-    markdown: renderDeveloperReviewDoc(rows, PROJECTION_MARKDOWN_BUDGETS['DEVELOPER_REVIEW.md']!.max_lines),
+    markdown: renderDeveloperReviewDoc(rows, DEVELOPER_REVIEW_EXPORT_MAX_LINES),
   };
 }
 

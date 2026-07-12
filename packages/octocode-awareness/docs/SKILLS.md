@@ -24,7 +24,7 @@ npx octocode skill --add \
 when the host does not scan that shared directory. Verify the bundled runtime with
 `node "$(npm root --global)/@octocodeai/octocode-awareness/out/skills/octocode-awareness/scripts/install.mjs"`.
 
-The Awareness skill teaches the collaboration lifecycle. The bundled
+The Awareness skill is the only required skill and teaches the collaboration lifecycle. The bundled
 `octocode-skills` skill is optional and is only needed for skill
 install/review/improvement:
 
@@ -65,6 +65,10 @@ Follow `attend.next`. Load inventories only when the next action needs them.
 Agents should begin with `attend`, not by reading all of `.octocode/`. A plan document
 may explain intent; generated memory/wiki/manifest/HTML files only identify targeted
 `memory recall`, `query`, or `docs show` calls. Never hand-edit projections.
+
+When the host supports delegation, batch routine deterministic Awareness CLI operations
+into one phase for the smallest capable low-cost agent. The lead retains scope and
+judgment, destructive approvals, conflicts, memory truth, and final verification.
 
 ## Concepts
 
@@ -220,11 +224,15 @@ surface; do not also install duplicate settings. Use `--host claude` only when
 frontmatter is unsupported or disabled.
 
 ```bash
-octocode-awareness hooks install --host <codex|cursor> --project-dir . --dry-run --compact
+octocode-awareness hooks install --host <codex|cursor> --project-dir . --dry-run
 # after reviewing the dry-run and obtaining approval:
 octocode-awareness hooks install --host <codex|cursor> --project-dir . --compact
-octocode-awareness hooks check --host <codex|cursor> --project-dir . --strict --compact
+octocode-awareness hooks check --host <codex|cursor> --project-dir . --strict
 ```
+
+Use non-compact dry-run/check output to review settings and runtime details. Compact
+output is an execution receipt. Repair drift with previewed remove → remove → install
+→ strict check; removal sweeps obsolete Awareness roots/events but preserves other hooks.
 
 Pre-edit runs the harness guard, declares advisory work, and blocks only guard denial
 or exclusive conflicts. A successful post-edit logs/heartbeats and keeps the scoped
@@ -248,18 +256,21 @@ See [HOOKS.md](HOOKS.md) for host differences.
 octocode-awareness query workboard --workspace "$PWD" --format table --limit 3
 octocode-awareness query all --workspace "$PWD" --format html \
   --out .octocode/awareness/index.html
-octocode-awareness repo inject --workspace "$PWD" --mode local --compact
+octocode-awareness wiki sync --workspace "$PWD" --mode local --compact
 ```
 
 SQLite is canonical. Generated Markdown is bounded and may contain local absolute
-paths; review before sharing. `repo inject` preserves plan documents.
+paths; review before sharing. `wiki sync` preserves plan documents. `attend` reports
+projection freshness; `docs staleness` compares authored docs with source edit times.
 
 ## Command Discovery
 
 Do not copy a static CLI reference into prompts or docs:
 
 ```bash
-octocode-awareness schema commands --compact
+octocode-awareness schema commands --compact       # grouped core/advanced map
+octocode-awareness schema commands --all --compact # flat command map
+octocode-awareness schema command task create --compact # exact schema-backed route
 octocode-awareness <command> --help
 octocode-awareness schema json-schema <name> --compact
 octocode-awareness docs list --compact

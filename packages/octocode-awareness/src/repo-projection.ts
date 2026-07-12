@@ -2,12 +2,12 @@ import { createHash } from 'node:crypto';
 import { existsSync, lstatSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
-import { ATTEND_COMPACT_BUDGET, AwarenessQueryParams, AwarenessQueryResult, AwarenessQueryRow, CSV_VIEWS, PROJECTION_MARKDOWN_BUDGETS, ProjectionMarkdownBudgetStatus, RepoContextInjectParams, RepoContextInjectResult, SCOPE_CACHE, WORKBOARD_BUDGET, limitOf, normalizeMode, utcNow } from './repo-model.js';
+import { ATTEND_COMPACT_BUDGET, AwarenessQueryParams, AwarenessQueryResult, AwarenessQueryRow, PROJECTION_MARKDOWN_BUDGETS, ProjectionMarkdownBudgetStatus, RepoContextInjectParams, RepoContextInjectResult, SCOPE_CACHE, WORKBOARD_BUDGET, limitOf, normalizeMode, utcNow } from './repo-model.js';
 import { resolveDbPath } from './db-runtime.js';
-import { queryAwareness, renderAwarenessHtml } from './repo-query.js';
+import { queryAwareness } from './repo-query.js';
 import { scopeFromParams } from './repo-scope.js';
-import { renderBookmarksDoc, renderDeveloperReviewDoc, renderReferenceDoc, renderRepoAgentsMd, renderRowsDoc } from './repo-docs.js';
-import { gitCheckIgnored, lineCount, toCsv } from './repo-formats.js';
+import { renderRepoAgentsMd, renderRowsDoc } from './repo-docs.js';
+import { gitCheckIgnored, lineCount } from './repo-formats.js';
 
 export function resolveWorkspaceOutputPath(output: string | null | undefined, workspacePath: string, defaultPath: string): string {
   const target = output?.trim() || defaultPath;
@@ -131,6 +131,10 @@ export interface PreviousProjectionManifest {
   orphan_cleanup?: { candidates?: string[] };
 }
 
+// Exact Awareness-owned artifacts retired before projection manifests existed.
+// Delete silently during projection; unknown files remain user-owned.
+const RETIRED_AWARENESS_ARTIFACTS = ['.agent-id'] as const;
+
 export function previousProjectionManifest(outDir: string): PreviousProjectionManifest | null {
   const path = join(outDir, 'awareness', 'manifest.json');
   if (!existsSync(path)) return null;
@@ -160,7 +164,7 @@ export function injectRepoContext(db: DatabaseSync, params: RepoContextInjectPar
   const rawOutDir = params.outDir ?? params.out_dir;
   const outDir = resolveWorkspaceOutputPath(rawOutDir, workspacePath, join(workspacePath, '.octocode'));
   const mode = normalizeMode(params.mode);
-  const includeView = params.includeView ?? params.include_view ?? true;
+  const includeView = params.includeView ?? params.include_view ?? false;
   const pruneOrphans = params.pruneOrphans ?? params.prune_orphans ?? false;
   const check = params.check ?? true;
   const previousManifest = previousProjectionManifest(outDir);
@@ -199,31 +203,28 @@ export function injectRepoContext(db: DatabaseSync, params: RepoContextInjectPar
   const profileCounts = Object.fromEntries(
     (sections['repo-profile']?.rows ?? []).map(row => [String(row['metric']), Number(row['count'] ?? 0)]),
   );
-
   write('AGENTS.md', renderRepoAgentsMd(all));
-  write('MEMORY.md', renderRowsDoc('Memory', sections['memories']?.rows ?? [], 'Active awareness memories for this repo.', PROJECTION_MARKDOWN_BUDGETS['MEMORY.md']!.max_lines, profileCounts['active_memories']));
-  write('GOTCHAS.md', renderRowsDoc('Gotchas', sections['gotchas']?.rows ?? [], 'Failures, traps, and sharp edges agents should check before editing.', PROJECTION_MARKDOWN_BUDGETS['GOTCHAS.md']!.max_lines, profileCounts['gotchas']));
-  write('LEARN.md', renderRowsDoc('Learning And Opportunities', sections['lessons']?.rows ?? [], 'Decisions, architecture notes, workflows, and improvement ideas.', PROJECTION_MARKDOWN_BUDGETS['LEARN.md']!.max_lines, profileCounts['lessons']));
-  write('BOOKMARKS.md', renderBookmarksDoc(sections['memories']?.rows ?? []));
-  write('DEVELOPER_REVIEW.md', renderDeveloperReviewDoc(sections['developer-review']?.rows ?? [], PROJECTION_MARKDOWN_BUDGETS['DEVELOPER_REVIEW.md']!.max_lines));
-
-  for (const view of CSV_VIEWS) {
-    write(join('awareness', 'csv', `${view}.csv`), toCsv(sections[view]?.rows ?? []));
+  const knowledgeCandidates = [
+    ...(sections['gotchas']?.rows ?? []),
+    ...(sections['lessons']?.rows ?? []),
+    ...(sections['memories']?.rows ?? []),
+    ...(sections['developer-review']?.rows ?? []),
+  ];
+  const knowledgeRows = [...new Map(knowledgeCandidates.map((row, index) => [
+    String(row['memory_id'] ?? row['refinement_id'] ?? row['id'] ?? `row:${index}`),
+    row,
+  ])).values()];
+  if (knowledgeRows.length > 0) {
+    const projectedKnowledge = knowledgeRows.map(row => sanitizeShareRow(row, workspacePath));
+    write('KNOWLEDGE.md', renderRowsDoc(
+      'Octocode Knowledge',
+      projectedKnowledge,
+      'Bounded knowledge leads from Awareness. SQLite is canonical; verify current evidence before acting.',
+      PROJECTION_MARKDOWN_BUDGETS['KNOWLEDGE.md']!.max_lines,
+      Math.max(knowledgeRows.length, Number(profileCounts['active_memories'] ?? 0), Number(profileCounts['developer_review'] ?? 0)),
+    ));
   }
-
-  if (includeView) {
-    write(join('awareness', 'index.html'), renderAwarenessHtml(all));
-  }
-
-  const validFileRows = (sections['files']?.rows ?? []).filter(row => (
-    row['missing_file'] !== true && row['file_exists'] !== false
-  ));
-  write(join('references', 'repo-map.md'), renderReferenceDoc('Repo Map', [
-    'Generated overview of awareness-tracked files and activity.',
-    'Use `.octocode/awareness/csv/files.csv` when filtering or sorting by file path.',
-    'Use the live command `octocode-awareness query files --workspace <repo>` when freshness matters.',
-    'Missing file references are excluded from Top Rows; review them through the live query or CSV cleanup lane.',
-  ], validFileRows));
+  if (includeView) warnings.push('include-view is retired for wiki sync; use an explicit query --format html export');
   if (check) {
     const ignored = gitCheckIgnored(workspacePath, outDir);
     if (ignored.ignored) {
@@ -258,8 +259,26 @@ export function injectRepoContext(db: DatabaseSync, params: RepoContextInjectPar
     .filter((file): file is string => Boolean(file)));
   // Known output retired before manifest-owned cleanup existed.
   previousOwned.push(join(outDir, 'awareness', 'csv', 'all.csv'));
+  for (const retired of ['MEMORY.md', 'GOTCHAS.md', 'LEARN.md', 'BOOKMARKS.md', 'DEVELOPER_REVIEW.md', join('awareness', 'index.html'), join('references', 'repo-map.md')]) {
+    previousOwned.push(join(outDir, retired));
+  }
+  for (const view of ['memories', 'gotchas', 'lessons', 'plans', 'tasks', 'runs', 'agents', 'locks', 'signals', 'refinements', 'files', 'activity', 'workboard']) {
+    previousOwned.push(join(outDir, 'awareness', 'csv', `${view}.csv`));
+  }
   for (const retired of ['commands.md', 'testing.md', 'architecture.md']) {
     previousOwned.push(join(outDir, 'references', retired));
+  }
+  const prunedOrphans: string[] = [];
+  for (const retired of RETIRED_AWARENESS_ARTIFACTS) {
+    const file = join(outDir, retired);
+    if (!existsSync(file)) continue;
+    try {
+      const entry = lstatSync(file);
+      if (!entry.isFile() && !entry.isSymbolicLink()) continue;
+      rmSync(file, { force: true });
+    } catch (error) {
+      warnings.push(`could not remove retired Awareness artifact ${relative(workspacePath, file)}: ${String(error)}`);
+    }
   }
   const orphanCandidates = [...new Set(previousOwned.map(file => resolve(file)))]
     .filter(file => isInside(outDir, file))
@@ -267,7 +286,6 @@ export function injectRepoContext(db: DatabaseSync, params: RepoContextInjectPar
     .filter(file => !relative(outDir, file).replace(/\\/g, '/').startsWith('plan/'))
     .filter(file => existsSync(file))
     .sort();
-  const prunedOrphans: string[] = [];
   if (pruneOrphans) {
     for (const file of orphanCandidates) {
       try {
@@ -280,7 +298,7 @@ export function injectRepoContext(db: DatabaseSync, params: RepoContextInjectPar
       }
     }
   } else if (orphanCandidates.length > 0) {
-    warnings.push(`${orphanCandidates.length} retired manifest-owned projection file(s) found; rerun repo inject with --prune-orphans after review`);
+    warnings.push(`${orphanCandidates.length} retired Awareness-owned projection artifact(s) found; rerun wiki sync with --prune-orphans after review`);
   }
   const sourceRevision = projectionRevisionFromResult(queried);
   const manifestFiles = [

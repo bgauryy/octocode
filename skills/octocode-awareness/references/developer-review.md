@@ -27,7 +27,7 @@ One call writes a tagged durable memory and an `instructions` refinement. The co
 - Human-readable: `reflect developer-review --format markdown`.
 - Script/API: `query developer-review` JSON.
 - Workboard: `DeveloperReview` column for open feedback.
-- Published snapshot: `.octocode/DEVELOPER_REVIEW.md` after `repo inject`; never hand-edit.
+- Published snapshot: `.octocode/DEVELOPER_REVIEW.md` after `wiki sync`; never hand-edit.
 
 After updating the owning instruction, verify the changed behavior. Close the same row with `refinement set --refinement-id <id> --agent-id "$OCTOCODE_AGENT_ID" --state done --check-receipt "<check and result>"`. Inject only if file readers need refreshed Open/Resolved output.
 

@@ -10,7 +10,7 @@ Use this for the living-system intuition behind work, learning, cleanup, and pub
 | Coordination | file presence, claims, locks, signals | CHOOSE/DECLARE, signal, sensitive lock | ordinary overlap stays allowed; locks do not authorize edits |
 | Verification | pending/stale runs | declared check + `verify mark` | TTL/end/submit never mean success |
 | Memory | stale/missing refs, weak recall | reflect, supersede, digest/forget preview | retrieved rows are leads; dry-run before removal |
-| Projection | manifest budgets/staleness | optional `repo inject` | SQLite stays canonical; wiki is not a live sensor |
+| Projection | manifest budgets/staleness | optional `wiki sync` | SQLite stays canonical; wiki is not a live sensor |
 | Harness | recurring failures/evals | proposal + human apply | held-out validation; no silent self-edit |
 
 ## Loop

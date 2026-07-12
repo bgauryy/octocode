@@ -1,21 +1,23 @@
 #!/usr/bin/env node
 
 import * as esbuild from 'esbuild';
-import { execFileSync, execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import {
   chmodSync, cpSync, existsSync, mkdirSync, readFileSync, readdirSync,
-  rmSync, writeFileSync,
+  renameSync, rmSync, writeFileSync,
 } from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { sharedBuildOptions, coreEntryPoints, skillScriptEntries } from './buildConfig.mjs';
 
 const packageRoot = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(packageRoot, '../..');
-const outDir = join(packageRoot, 'out');
+const publishedOutDir = join(packageRoot, 'out');
+const outDir = join(packageRoot, `.out-build-${process.pid}-${randomUUID()}`);
 const legacyDistDir = join(packageRoot, 'dist');
-// Permanent (not staged-then-deleted) home for the standalone skill bundles —
-// out/ is the single generated-artifact root; every other copy derives from it.
+// Staged home for standalone skill bundles. The completed tree is atomically
+// promoted to out/, and every other copy derives from these generated files.
 const skillScriptsOutDir = join(outDir, 'skill-scripts');
 const canonicalSkillsRoot = join(repoRoot, 'skills');
 const canonicalAwarenessSkill = join(canonicalSkillsRoot, 'octocode-awareness');
@@ -29,13 +31,16 @@ rmSync(legacyDistDir, { recursive: true, force: true });
 rmSync(join(packageRoot, 'skills'), { recursive: true, force: true });
 
 const shared = sharedBuildOptions;
+let published = false;
+
+try {
 
 // One Awareness-owned output graph. Shared domain modules become chunks; the
 // schema lane stays lazy from the main CLI and carries the bundled Zod runtime.
 await esbuild.build({
   ...shared,
   entryPoints: coreEntryPoints,
-  outdir: 'out',
+  outdir: outDir,
   entryNames: '[name]',
   chunkNames: 'chunks/[name]-[hash]',
   splitting: true,
@@ -61,7 +66,7 @@ await Promise.all(
   )
 );
 
-execSync(`${tscBin} --emitDeclarationOnly --outDir out/types -p tsconfig.build.json`, {
+execFileSync(tscBin, ['--emitDeclarationOnly', '--outDir', join(outDir, 'types'), '-p', 'tsconfig.build.json'], {
   cwd: packageRoot,
   stdio: 'inherit',
 });
@@ -179,7 +184,35 @@ for (const skillName of bundledSkills) {
   });
 }
 
+// Keep the previous published tree usable until the complete replacement has
+// been generated. Node does not expose rename-exchange, so publication uses a
+// rollback-capable two-rename handoff with only the final filesystem swap at
+// risk rather than deleting out/ at build start.
+const backupOutDir = join(packageRoot, `.out-backup-${process.pid}-${randomUUID()}`);
+let movedExisting = false;
+try {
+  if (existsSync(publishedOutDir)) {
+    renameSync(publishedOutDir, backupOutDir);
+    movedExisting = true;
+  }
+  renameSync(outDir, publishedOutDir);
+  published = true;
+} catch (error) {
+  if (movedExisting && existsSync(backupOutDir) && !existsSync(publishedOutDir)) {
+    renameSync(backupOutDir, publishedOutDir);
+    movedExisting = false;
+  }
+  throw error;
+} finally {
+  if (published && movedExisting) {
+    rmSync(backupOutDir, { recursive: true, force: true });
+  }
+}
+
 console.log('✓ @octocodeai/octocode-awareness built → out/');
-console.log(`✓ Awareness CLI → out/octocode-awareness.js (${readdirSync(join(outDir, 'chunks')).length} shared chunks)`);
+console.log(`✓ Awareness CLI → out/octocode-awareness.js (${readdirSync(join(publishedOutDir, 'chunks')).length} shared chunks)`);
 console.log(`✓ generated ${schemaNames.length} standalone Zod schema files`);
 console.log(`✓ bundled skills → out/skills/ (${bundledSkills.join(', ')})`);
+} finally {
+  if (!published) rmSync(outDir, { recursive: true, force: true });
+}

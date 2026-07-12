@@ -106,7 +106,7 @@ describe('source CLI regressions', () => {
     const dir = mktemp();
     const db = join(dir, 'test.sqlite3');
     try {
-      const schema = runSource(['schema', 'commands', '--examples', '--compact']);
+        const schema = runSource(['schema', 'commands', '--all', '--examples', '--compact']);
       expect(schema.status, schema.stderr || schema.stdout).toBe(0);
       const commands = schema.parsed?.['commands'] as Array<Record<string, unknown>>;
       expect(commands.length).toBeGreaterThan(10);

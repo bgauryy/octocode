@@ -54,6 +54,14 @@ generated projections. A lower layer cannot override a higher one.
 
 Rows are isolated by normalized `workspace_path` and optional artifact/repo/ref scope.
 
+The default agent surface is deliberately small: `attend`, `plan`, `task`, `work`,
+`verify`, `memory`, `signal`, `wiki`, and `query`. `schema commands --compact` groups
+these before advanced recovery/diagnostic nouns; `schema command <noun> [action]`
+returns one action contract with router-injected fields removed. Locks are normally
+requested through `work start --exclusive`, and generated knowledge is refreshed
+through `wiki sync`. Raw lock, hook, maintenance, refinement, session, docs, and schema
+commands remain available when the lifecycle requires them.
+
 ## Bootstrap Lifecycle
 
 ```text
@@ -197,7 +205,7 @@ silent; signals and overrides remain independent. Stop output is capped.
 | Need | Hook/Pi automation | Manual control-plane equivalent |
 |---|---|---|
 | Enter/orient | session/prompt registration and changed briefing | `attend`, `agent register`, targeted reads |
-| Declare write | pre-edit presence and exclusivity check | `work start|touch`; optional `lock acquire` |
+| Declare write | pre-edit presence and exclusivity check | `work start|touch`; add `--exclusive` when required |
 | Successful write | heartbeat and edit audit | keep work active; record/check through the owning run |
 | Failed write | discard uncommitted HOOK presence | preserve or explicitly end/release TASK/WORK after judgment |
 | Conclude editing | Stop/compact/end finalizes HOOK fallback | `task submit` or `work end` |
@@ -238,7 +246,7 @@ The memory lifecycle is deliberately conservative:
 5. Correct facts with `--supersedes`; archive reversibly; hard-forget only after a
    narrow dry-run and review.
 
-`query <view>` reads the live DB. `repo inject` publishes bounded Markdown, CSV,
+`query <view>` reads the live DB. `wiki sync` publishes bounded Markdown, CSV,
 HTML, and a manifest under `.octocode/`. Generated files are leads and may contain
 machine-local paths; current source/tests/user instructions always win.
 

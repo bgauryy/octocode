@@ -266,7 +266,7 @@ it('clears exclusive locks when a task claim is released', () => {
       rmSync(workspace, { recursive: true, force: true });
     }
   });
-it('fails the durable task when its pending run is explicitly abandoned', () => {
+it('fails the durable task when its pending run is explicitly marked FAILED', () => {
     const db = freshDb();
     const workspace = mkdtempSync(join(tmpdir(), 'oc-plan-'));
     try {
@@ -282,7 +282,12 @@ it('fails the durable task when its pending run is explicitly abandoned', () => 
       if (!claim.ok) throw new Error(claim.error);
       submitTask(db, { taskId: task.task_id, runId: claim.run.run_id, agentId: 'worker' });
 
-      auditUnverified(db, { agentId: 'worker', workspacePath: workspace, abandon: true });
+      expect(markVerified(db, {
+        runId: claim.run.run_id,
+        agentId: 'worker',
+        status: 'FAILED',
+        message: 'declared verification failed',
+      })).toMatchObject({ ok: true, status: 'FAILED' });
       expect(db.prepare('SELECT status FROM tasks WHERE task_id = ?').get(task.task_id))
         .toEqual({ status: 'FAILED' });
     } finally {

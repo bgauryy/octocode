@@ -114,8 +114,12 @@ describe('command-help-specs', () => {
     expect(blob).toContain('search --scheme');
     // Haiku gaps: npm, remote file read, references-vs-callers
     expect(blob).toContain('--target packages');
+    // This example is sourced verbatim from the external @octocodeai/octocode-core
+    // CLI spec, which still uses the pre-rename "exact" value — accepted as a
+    // deprecated alias for "none" (see contentViewMode/schema.ts), so the
+    // example still runs correctly even though its text predates the rename.
     expect(blob).toContain(
-      'search facebook/react/README.md --content-view none'
+      'search facebook/react/README.md --content-view exact'
     );
     expect(blob).toContain('callers = incoming calls only');
   });

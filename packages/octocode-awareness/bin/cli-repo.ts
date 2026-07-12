@@ -69,6 +69,9 @@ export function cmdQuery(db: DatabaseSync, args: ParsedArgs, dbPath: string, opt
     return emit({ db_path: dbPath, path: resolvedOutPath, view: result.view, count: result.count }, 0, opts);
   }
 
+  if (opts.compact && format === 'json' && result.count === 0) {
+    return emit({ view: result.view, count: 0, rows: [] }, 0, opts);
+  }
   if (format === 'json') return emit({ db_path: dbPath, ...result }, 0, opts);
   process.stdout.write(formatAwarenessQueryResult(result, format));
   return 0;
@@ -109,6 +112,18 @@ export function cmdRepoInject(db: DatabaseSync, args: ParsedArgs, dbPath: string
     check: flagBool(args['check']),
     dbPath,
   });
+  if (opts.compact) {
+    return emit({
+      ok: result.ok,
+      mode: result.mode,
+      out_dir: result.out_dir,
+      written: result.count,
+      warning_count: result.warnings.length,
+      orphan_count: result.orphan_candidates.length,
+      pruned_count: result.pruned_orphans.length,
+      manifest: `${result.out_dir}/awareness/manifest.json`,
+    }, 0, opts);
+  }
   return emit({ db_path: dbPath, ...result }, 0, opts);
 }
 

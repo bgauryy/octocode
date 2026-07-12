@@ -1,6 +1,6 @@
 # LLM Wiki And Repo Context
 
-Live SQLite is operational truth. `query` reads it; `repo inject` publishes bounded
+Live SQLite is operational truth. `query` reads it; `wiki sync` publishes bounded
 workspace files when agents/humans need context without DB access.
 
 ## Locations
@@ -25,7 +25,7 @@ Plan narrative is authored; live task checklists are not.
 | Mark communication read | `signal list --mark-read`, `signal ack` | Writes recipient/read state. Plain `signal list` does not. |
 | Clean stale state | digest/prune/forget/delete commands | Mutates only after an explicit reviewed call; dry-run first. Digest preserves open/ongoing handoffs and reports signal/reference pressure without deleting those rows. |
 | Author plan reasoning | `.octocode/plan/<timestamp-name>/`, then `plan doc` | Writes narrative; task status stays in SQLite. |
-| Publish a file snapshot | `repo inject` | Regenerates bounded projections; never becomes operational truth. |
+| Publish a file snapshot | `wiki sync` | Regenerates bounded projections; never becomes operational truth. |
 
 Hook briefing may update delivery fingerprints so unchanged context stays silent.
 That bookkeeping does not acknowledge signals or prove work complete.
@@ -47,9 +47,9 @@ safety probe found more rows but did not scan far enough to claim an exact total
 ## Generate
 
 ```bash
-octocode-awareness repo inject --workspace "$PWD" --mode local --compact
+octocode-awareness wiki sync --workspace "$PWD" --mode local --compact
 # If orphan_candidates are correct after review:
-octocode-awareness repo inject --workspace "$PWD" --mode local --prune-orphans --compact
+octocode-awareness wiki sync --workspace "$PWD" --mode local --prune-orphans --compact
 ```
 
 `local` is machine-local. `share` means the owner intends to review/commit the
@@ -60,12 +60,15 @@ complete.
 
 Generated surfaces include:
 
-- `AGENTS.md`: small map and pointers;
-- `MEMORY.md`, `GOTCHAS.md`, `LEARN.md`, `BOOKMARKS.md`;
-- `DEVELOPER_REVIEW.md`;
-- sortable CSV and HTML views, 50 rows by default and at most 500 per section;
+- `AGENTS.md`: lean map and live-command pointers;
+- nonempty bounded `KNOWLEDGE.md`: combined knowledge leads;
 - `awareness/manifest.json` with generation scope, live-source revision, completeness, budgets, and retired-file cleanup receipts;
-- `references/repo-map.md`; invariant command/testing/architecture prose stays in the skill/docs instead of being duplicated.
+
+This replaces the generated `MEMORY.md`, `GOTCHAS.md`, `LEARN.md`, `BOOKMARKS.md`,
+`DEVELOPER_REVIEW.md`, default CSV/HTML, and repo-map outputs. Existing generated
+files appear as reviewed orphan candidates; rerun with `--prune-orphans` only after
+confirming them. Authored `.octocode/plan/**` and unknown `.octocode/` content are
+preserved. Explicit `query --format csv|html --output <path>` exports remain supported.
 
 Active run files, locks, signals, and tasks remain live-query concerns; do not dump
 them into every Markdown projection.
@@ -97,9 +100,11 @@ editing root instructions unless the user already authorized that change.
   absolute paths, signal bodies, and recognized secret patterns; it is not complete
   DLP. Never store secrets, and review share output before commit.
 - Memories/signals/projections are leads; current user instructions/source/tests win.
-- `repo inject` never edits `.gitignore`.
-- `maintenance digest` does not regenerate or shrink existing Markdown; inject after
+- `wiki sync` never edits `.gitignore`.
+- `maintenance digest` does not regenerate or shrink existing Markdown; sync after
   approved cleanup when file readers need the update.
+- Cleanup live SQLite first; use `wiki sync`, then reviewed `--prune-orphans`, so stale
+  projections cannot recreate or masquerade as current knowledge.
 
-Projection behavior is separate from plan documents: `repo inject` preserves
+Projection behavior is separate from plan documents: `wiki sync` preserves
 `.octocode/plan/**`.

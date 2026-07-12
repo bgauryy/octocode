@@ -129,19 +129,21 @@ export function resolveView(
   };
 }
 
+// 'exact'/'compact' are deprecated pre-rename aliases for 'none'/'standard',
+// accepted so an already-written --query JSON or external doc example
+// doesn't silently start failing.
+const CONTENT_VIEW_ALIASES: Record<string, 'none' | 'standard' | 'symbols'> = {
+  none: 'none',
+  exact: 'none',
+  standard: 'standard',
+  compact: 'standard',
+  symbols: 'symbols',
+};
+
 function contentViewMode(
   value: string | undefined
 ): 'none' | 'standard' | 'symbols' | undefined {
-  switch (value) {
-    case 'none':
-      return 'none';
-    case 'standard':
-      return 'standard';
-    case 'symbols':
-      return 'symbols';
-    default:
-      return undefined;
-  }
+  return value !== undefined ? CONTENT_VIEW_ALIASES[value] : undefined;
 }
 
 export function hasContentFetch(parts: SearchShorthand): boolean {

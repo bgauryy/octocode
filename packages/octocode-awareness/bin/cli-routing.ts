@@ -26,7 +26,7 @@ export const KNOWN_FLAGS: Record<string, string[]> = {
   'init': [],
   'self-test': [],
   'prune-stale-locks': ['older_than_minutes', 'expired_only', 'agent_id', 'target_file', 'workspace', 'artifact', 'dry_run'],
-  'audit-unverified': ['agent_id', 'workspace', 'artifact', 'abandon', 'older_than_days', 'origin', 'before'],
+  'audit-unverified': ['agent_id', 'workspace', 'artifact', 'older_than_days', 'origin', 'before'],
   'verify': ['run_id', 'all_pending', 'agent_id', 'status', 'message', 'workspace', 'artifact'],
   'mine-weakness': ['agent_id', 'workspace', 'artifact', 'min_count', 'limit', 'cwd'],
   'doc-staleness': ['agent_id', 'workspace', 'artifact', 'targets_json', 'min_edits', 'min_lines', 'propose', 'session_id'],
@@ -44,7 +44,7 @@ export const KNOWN_FLAGS: Record<string, string[]> = {
   'digest': ['retention_days', 'refinement_handoff_retention_days', 'refinement_done_retention_days', 'operational_retention_days', 'pressure_age_days', 'dry_run', 'export_doc', 'workspace', 'artifact'],
   'hook-run': [],
   'hooks-install': ['host', 'project_dir', 'global', 'check', 'strict', 'dry_run', 'remove'],
-  'schema': ['examples'],
+  'schema': ['examples', 'all'],
   'plan-command': ['action', 'plan_id', 'name', 'objective', 'lead_agent_id', 'agent_id', 'workspace', 'artifact', 'status', 'path', 'title', 'limit', 'full'],
   'task-command': ['action', 'task_id', 'plan_id', 'workspace', 'title', 'reasoning', 'acceptance', 'path', 'created_by', 'agent_id', 'priority', 'depends_on', 'run_id', 'lease_minutes', 'message', 'blocked_reason', 'test_plan', 'status', 'next', 'limit', 'full'],
   'work-command': ['action', 'agent_id', 'session_id', 'workspace', 'artifact', 'run_id', 'rationale', 'test_plan', 'context_ref', 'target_file', 'file', 'exclusive', 'ttl_minutes', 'ttl_seconds', 'all', 'full', 'limit'],
@@ -175,6 +175,7 @@ export const COMMAND_ROUTES: Record<string, CommandRoute> = {
   'maintenance digest': { command: 'digest' },
   'maintenance init': { command: 'init' },
   'maintenance self-test': { command: 'self-test' },
+  'wiki sync': { command: 'repo-inject' },
   'repo inject': { command: 'repo-inject' },
 };
 
@@ -271,6 +272,36 @@ export function flagBool(value: ArgValue | undefined, fallback?: boolean): boole
 
 export interface EmitOptions { compact?: boolean }
 
+function compactValue(value: unknown, key?: string): unknown {
+  if (key === 'db_path' || value === null || value === undefined) return undefined;
+  if (Array.isArray(value)) return value.map((item) => compactValue(item)).filter((item) => item !== undefined);
+  if (typeof value !== 'object') return value;
+  const out: Record<string, unknown> = {};
+  for (const [childKey, childValue] of Object.entries(value as Record<string, unknown>)) {
+    const compacted = compactValue(childValue, childKey);
+    if (compacted !== undefined) out[childKey] = compacted;
+  }
+  if (key === 'filters') {
+    delete out['limit'];
+    for (const [filterKey, filterValue] of Object.entries(out)) {
+      if (Array.isArray(filterValue) && filterValue.length === 0) delete out[filterKey];
+    }
+    if (Object.keys(out).length === 0) return undefined;
+  }
+  if (typeof out['count'] === 'number' && out['total'] === out['count']) delete out['total'];
+  if (out['omitted_count'] === 0) delete out['omitted_count'];
+  if (out['is_partial'] === false) delete out['is_partial'];
+  if (typeof out['workspace_path'] === 'string' && Array.isArray(out['rows'])) {
+    out['rows'] = out['rows'].map((row) => {
+      if (!row || typeof row !== 'object' || Array.isArray(row)) return row;
+      const projected = { ...(row as Record<string, unknown>) };
+      delete projected['workspace_path'];
+      return projected;
+    });
+  }
+  return out;
+}
+
 // Set once command routing resolves (see selectCommand call at the bottom);
 // lets every error path — flag parsing, domain validation, thrown domain
 // errors — carry the same {command,schema,example} recovery context instead
@@ -298,7 +329,8 @@ export function emit(payload: Record<string, unknown>, exitCode = 0, opts: EmitO
     Object.assign(payload, { ...errorContext(), ...payload });
   }
   const compact = opts.compact === true || process.env['OCTOCODE_AWARENESS_COMPACT'] === '1';
-  process.stdout.write((compact ? JSON.stringify(payload) : JSON.stringify(payload, null, 2)) + '\n');
+  const output = compact ? compactValue(payload) : payload;
+  process.stdout.write((compact ? JSON.stringify(output) : JSON.stringify(output, null, 2)) + '\n');
   return exitCode;
 }
 

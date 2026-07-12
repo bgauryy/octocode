@@ -87,7 +87,16 @@ export const FetchInstructionsSchema = z.strictObject({
           caseSensitive: z.boolean().optional(),
         })
         .optional(),
-      contentView: z.enum(['none', 'standard', 'symbols']).optional(),
+      // Accepts the pre-rename vocabulary (exact/compact) as input aliases for
+      // none/standard so an already-written --query JSON or external doc
+      // example doesn't silently start failing; every internally-generated
+      // query, default, and hint always emits the canonical 3 values.
+      contentView: z
+        .enum(['none', 'standard', 'symbols', 'exact', 'compact'])
+        .transform((v): 'none' | 'standard' | 'symbols' =>
+          v === 'exact' ? 'none' : v === 'compact' ? 'standard' : v
+        )
+        .optional(),
       // Bounds mirror the shared response clamps (scheme/fields.ts) so OQL
       // content paging can't request an out-of-range window.
       charOffset: z.number().int().min(0).max(100_000_000).optional(),

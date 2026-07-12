@@ -96,7 +96,7 @@ approval for a real project:
 
 ```bash
 $AWARENESS hooks install --host <claude|codex|cursor> \
-  --project-dir . --dry-run --compact
+  --project-dir . --dry-run
 # after review and approval:
 $AWARENESS hooks install --host <claude|codex|cursor> \
   --project-dir . --compact
@@ -140,9 +140,8 @@ errors, and smoke ends with zero verification debt or active locks.
 yarn workspace @octocodeai/octocode-awareness pack:check
 ```
 
-Pass when the isolated packed artifact loads its CLI, schemas, and library
-entrypoint. `pack:check` requires an `npm` executable; missing `npm` makes the
-release lane **BLOCKED**, not failed. It does not block the monorepo lane.
+Pass when Yarn's isolated packed artifact loads its CLI, schemas, and library
+entrypoint with only the intended publish surface.
 ## Peer Interview
 
 Use when the question is “how do agents judge a capability,” not “does a command pass or fail” — auditing Awareness itself or any multi-agent coordination question. One agent is the **interviewer**; it spawns independent **panelists** with no shared context, each required to cite a command it ran for every claim. Quick-Check scope only: read-only, no hook install, no lock/work/task claims, no source mutation.

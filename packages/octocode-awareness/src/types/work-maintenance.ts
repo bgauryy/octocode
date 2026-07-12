@@ -320,8 +320,7 @@ export interface AuditUnverifiedParams {
   agentId?: string | null;
   workspacePath?: string;
   artifact?: string | null;
-  abandon?: boolean;             // dismiss all found PENDING runs as orphaned
-  olderThanDays?: number | null; // restrict inspection/abandonment to stale debt
+  olderThanDays?: number | null; // restrict inspection to stale debt
   origins?: RunOrigin[];
   before?: string | null;        // created before ISO timestamp
 }

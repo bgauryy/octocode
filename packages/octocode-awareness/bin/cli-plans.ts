@@ -30,6 +30,14 @@ export function cmdPlan(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts
       docsPath: explicitWorkspace,
       artifact: args['artifact'] ? String(args['artifact']) : null,
     });
+    if (opts.compact) {
+      return emit({
+        ok: true,
+        plan_id: result.plan.plan_id,
+        status: result.plan.status,
+        document: result.document_path,
+      }, 0, opts);
+    }
     return emit({ db_path: dbPath, ...result }, 0, opts);
   }
   if (action === 'list') {
@@ -64,6 +72,7 @@ export function cmdPlan(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts
   }
   if (action === 'join') {
     const member = joinPlan(db, { planId, agentId: String(args['agent_id'] ?? process.env.OCTOCODE_AGENT_ID ?? '').trim() });
+    if (opts.compact) return emit({ ok: true, plan_id: planId, agent_id: member.agent_id }, 0, opts);
     return emit({ db_path: dbPath, plan_id: planId, member }, 0, opts);
   }
   if (action === 'doc') {
@@ -73,6 +82,7 @@ export function cmdPlan(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts
       relativePath: valuesFor(args, 'path')[0] ?? '',
       title: requiredArg(args, 'title'),
     });
+    if (opts.compact) return emit({ ok: true, plan_id: planId, path: document.relative_path, title: document.title }, 0, opts);
     return emit({ db_path: dbPath, plan_id: planId, document }, 0, opts);
   }
   if (action === 'status') {
@@ -85,6 +95,7 @@ export function cmdPlan(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts
       status,
       agentId: String(args['agent_id'] ?? process.env.OCTOCODE_AGENT_ID ?? '').trim(),
     });
+    if (opts.compact) return emit({ ok: true, plan_id: plan.plan_id, status: plan.status }, 0, opts);
     return emit({ db_path: dbPath, plan }, 0, opts);
   }
   return emit({ db_path: dbPath, error: `unknown plan action: ${action}` }, 1, opts);
@@ -104,6 +115,15 @@ export function cmdTask(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts
       priority: args['priority'] == null ? undefined : Number(args['priority']),
       dependsOn: valuesFor(args, 'depends_on'),
     });
+    if (opts.compact) {
+      return emit({
+        ok: true,
+        task_id: result.task.task_id,
+        plan_id: result.task.plan_id,
+        status: result.task.status,
+        path_count: result.task.paths.length,
+      }, 0, opts);
+    }
     return emit({ db_path: dbPath, ...result }, 0, opts);
   }
   if (action === 'list' || action === 'ready') {
@@ -172,7 +192,9 @@ export function cmdTask(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts
     for (const dependsOnTaskId of dependencies) {
       addTaskDependency(db, { taskId, dependsOnTaskId, agentId });
     }
-    return emit({ db_path: dbPath, task: getTask(db, taskId) }, 0, opts);
+    const task = getTask(db, taskId);
+    if (opts.compact) return emit({ ok: true, task_id: taskId, status: task?.status, dependency_count: task?.dependencies.length }, 0, opts);
+    return emit({ db_path: dbPath, task }, 0, opts);
   }
   const leaseMinutes = args['lease_minutes'] == null ? undefined : Number(args['lease_minutes']);
   if (leaseMinutes != null && (leaseMinutes < 1 || leaseMinutes > 60)) die('--lease-minutes must be between 1 and 60');
@@ -184,6 +206,15 @@ export function cmdTask(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts
       testPlan: args['test_plan'] ? String(args['test_plan']) : undefined,
     });
     const exitCode = result.ok ? 0 : result.error.startsWith('task is already claimed by ') ? 2 : 1;
+    if (opts.compact && result.ok) {
+      return emit({
+        ok: true,
+        task_id: result.task.task_id,
+        run_id: result.run.run_id,
+        status: result.run.status,
+        expires_at: result.claim.expires_at,
+      }, 0, opts);
+    }
     return emit({ db_path: dbPath, ...result }, exitCode, opts);
   }
   const runId = firstValue(args, 'run_id') ?? '';
@@ -193,6 +224,7 @@ export function cmdTask(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts
       taskId, runId, agentId,
       leaseMs: leaseMinutes == null ? undefined : leaseMinutes * 60_000,
     });
+    if (opts.compact) return emit({ ok: true, task_id: taskId, run_id: runId, status: 'ACTIVE', expires_at: claim.expires_at }, 0, opts);
     return emit({ db_path: dbPath, claim }, 0, opts);
   }
   if (action === 'submit') {
@@ -200,6 +232,7 @@ export function cmdTask(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts
       taskId, runId, agentId,
       message: args['message'] ? String(args['message']) : undefined,
     });
+    if (opts.compact) return emit({ ok: true, task_id: taskId, run_id: runId, status: result.run.status }, 0, opts);
     return emit({ db_path: dbPath, ...result }, 0, opts);
   }
   if (action === 'release') {
@@ -207,6 +240,7 @@ export function cmdTask(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts
       taskId, runId, agentId,
       blockedReason: args['blocked_reason'] ? String(args['blocked_reason']) : null,
     });
+    if (opts.compact) return emit({ ok: true, task_id: task.task_id, status: task.status }, 0, opts);
     return emit({ db_path: dbPath, task }, 0, opts);
   }
   return emit({ db_path: dbPath, error: `unknown task action: ${action}` }, 1, opts);

@@ -15,8 +15,8 @@ import type { DatabaseSync } from 'node:sqlite';
 import { normalizeArtifact, utcNow } from './helpers.js';
 import { normalizeWorkspacePath } from './git.js';
 import type { RunStatus } from './types.js';
-import { RUN_LOG_INSERT_VERIFIED, RUNS_UPDATE_PENDING_VERIFIED_BY_AGENT, RUNS_SELECT_STATUS, RUNS_SELECT_PENDING_IDS } from './sql/runs.js';
-import { AgentStatusRow, closeRunFiles, finishLinkedTask, MarkVerifiedParams, MarkVerifiedResult, VALID_VERIFY_STATUSES } from './verify-shared.js';
+import { RUN_LOG_INSERT_VERIFIED, RUNS_UPDATE_ACTIVE_TO_FAILED, RUNS_UPDATE_PENDING_VERIFIED_BY_AGENT, RUNS_SELECT_STATUS, RUNS_SELECT_PENDING_IDS } from './sql/runs.js';
+import { AgentStatusRow, closeRunFiles, failStaleLinkedTask, finishLinkedTask, MarkVerifiedParams, MarkVerifiedResult, VALID_VERIFY_STATUSES } from './verify-shared.js';
 
 /**
  * Transition a PENDING task to SUCCESS or FAILED.
@@ -112,20 +112,56 @@ export function markVerified(
     ) as { changes: number };
 
     if (result.changes === 0) {
-      db.exec('ROLLBACK');
-      // Distinguish: no such run / wrong agent / not PENDING
+      // Distinguish: no such run / wrong agent / not PENDING. The one safe
+      // non-PENDING transition is an explicit stale ACTIVE -> FAILED request.
       const row = db.prepare(RUNS_SELECT_STATUS).get(runId) as unknown as AgentStatusRow | undefined;
 
       if (!row) {
+        db.exec('ROLLBACK');
         return { ok: false, error: `no run found with run_id=${runId}`, run_id: runId };
       }
       if (row.agent_id !== agentId) {
+        db.exec('ROLLBACK');
         return {
           ok: false,
           error: `run ${runId} belongs to agent "${row.agent_id}", not "${agentId}"`,
           run_id: runId,
         };
       }
+      if (row.status === 'ACTIVE' && status === 'FAILED') {
+        if (!receipt) {
+          db.exec('ROLLBACK');
+          return { ok: false, error: 'failing a stale ACTIVE run requires a non-empty evidence receipt in message', run_id: runId };
+        }
+        const presence = db.prepare(`SELECT
+          EXISTS(SELECT 1 FROM run_files WHERE run_id = ?) AS has_files,
+          EXISTS(SELECT 1 FROM run_files WHERE run_id = ? AND ended_at IS NULL AND expires_at > ?) AS live_files,
+          EXISTS(SELECT 1 FROM task_claims WHERE run_id = ? AND expires_at > ?) AS live_claim`)
+          .get(runId, runId, now, runId, now) as { has_files: number; live_files: number; live_claim: number };
+        if (!presence.has_files || presence.live_files || presence.live_claim) {
+          db.exec('ROLLBACK');
+          return {
+            ok: false,
+            error: `run ${runId} is ACTIVE and still live — only stale ACTIVE runs with expired file presence and claim can be marked FAILED`,
+            run_id: runId,
+          };
+        }
+        const failed = db.prepare(RUNS_UPDATE_ACTIVE_TO_FAILED).run(now, runId) as { changes: number };
+        if (failed.changes !== 1) {
+          db.exec('ROLLBACK');
+          return { ok: false, error: `run ${runId} changed while stale failure was being recorded`, run_id: runId };
+        }
+        closeRunFiles(db, runId, now);
+        failStaleLinkedTask(db, runId, agentId, now, receipt);
+        try {
+          db.prepare(RUN_LOG_INSERT_VERIFIED).run(
+            'evt_' + randomUUID().replace(/-/g, ''), runId, agentId, receipt, now,
+          );
+        } catch { /* non-critical audit log */ }
+        db.exec('COMMIT');
+        return { ok: true, run_id: runId, status: 'FAILED', updated_at: now };
+      }
+      db.exec('ROLLBACK');
       return {
         ok: false,
         error: `run ${runId} has status "${row.status}" — only PENDING runs can be verified`,

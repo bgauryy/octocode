@@ -46,7 +46,7 @@ describe('skill routing boundaries', () => {
     expect(desc.length).toBeLessThanOrEqual(1024);
     expect(desc).not.toContain('dogfood');
     expect(desc).not.toContain('packages/octocode-awareness');
-    expect(text).toMatch(/this skill supplies operating policy; run every live-state action through the CLI/i);
+    expect(text).toMatch(/run live-state actions through the CLI/i);
     expect(text).toContain('npx @octocodeai/octocode-awareness');
     expect(text).toContain('node packages/octocode-awareness/out/octocode-awareness.js');
     expect(text).toContain('## Lifecycle');
@@ -85,14 +85,14 @@ describe('skill routing boundaries', () => {
     expect(text).toContain('AGENTS routes; skill decides; CLI/SQLite acts; hooks automate deterministic edges');
     expect(text).toMatch(/plan\/task/i);
     expect(text).toContain('work start');
-    expect(text).toContain('lock acquire');
-    expect(text).toContain('lock release --status PENDING');
+    expect(text).toContain('work start --exclusive');
+    expect(text).toContain('lock wait/prune');
     expect(text).toContain('verify mark');
     expect(text).toContain('verify audit');
     expect(text).toContain('memory recall --smart');
     expect(text).toContain('reflect record --lesson');
     expect(text).toContain('query');
-    expect(text).toContain('repo inject');
+    expect(text).toContain('wiki sync');
     expect(text).toContain('Never hand-edit `.octocode/`');
     expect(text).toMatch(/hooks never choose plans, locks, success, learning, cleanup, or projection/i);
     expect(text).toMatch(/expiry.*never.*success/i);
@@ -104,7 +104,7 @@ describe('skill routing boundaries', () => {
     for (const feature of [
       'attend', 'workspace status', 'plan', 'task', 'WORK', 'lock', 'verify',
       'signal', 'refinement', 'agent registry', 'query', 'memory', 'session capture',
-      'reflect', 'docs', 'repo inject', 'hooks', 'maintenance', 'schema',
+      'reflect', 'docs', 'wiki sync', 'hooks', 'maintenance', 'schema',
     ]) {
       expect(text, `missing feature overview: ${feature}`).toContain(feature);
     }
@@ -145,10 +145,10 @@ describe('skill routing boundaries', () => {
       ['**Recipes:**', 'agent-cheatsheet.md'],
       ['**Plan/task:**', 'plan-task-workflow.md'],
       ['**Work/files:**', 'files-awareness.md'],
-      ['**Locks/verify:**', 'lock-protocol.md'],
+      ['**Exclusive work/verify:**', 'lock-protocol.md'],
       ['**Signals/refinements:**', 'coordination-protocol.md'],
       ['**Hooks/hosts:**', 'hooks.md'],
-      ['**Knowledge/projection:**', 'output-routing.md'],
+      ['**Knowledge/wiki:**', 'output-routing.md'],
       ['**Memory:**', 'memory-recall.md'],
       ['**Maintenance/contracts:**', 'bookkeeping.md'],
       ['**Orient/state:**', 'architecture.md'],

@@ -44,6 +44,9 @@ export function fileRows(db: DatabaseSync, params: AwarenessQueryParams): Awaren
   const scope = scopeFromParams(params);
   const limit = limitOf(params.limit, 80, 500);
   const files = new Map<string, AwarenessQueryRow>();
+  const requestedFile = params.file?.trim()
+    ? (localPathFromReference(params.file, scope.workspacePath) ?? resolve(scope.workspacePath ?? process.cwd(), params.file))
+    : null;
 
   const memoryWhere = ["m.state = 'ACTIVE'", "r.reference LIKE 'file:%'"];
   const memoryBinds: BindValue[] = [];
@@ -96,6 +99,7 @@ export function fileRows(db: DatabaseSync, params: AwarenessQueryParams): Awaren
   }
 
   return [...files.values()]
+    .filter(row => !requestedFile || row['file_path'] === requestedFile)
     .sort((a, b) => {
       const scoreA = (a['missing_file'] ? 20 : 0) + Number(a['locks'] ?? 0) * 10 + Number(a['gotchas'] ?? 0) * 6 + Number(a['memories'] ?? 0) * 4 + Number(a['tasks'] ?? 0) * 3 + Number(a['runs'] ?? 0) + Number(a['edits'] ?? 0);
       const scoreB = (b['missing_file'] ? 20 : 0) + Number(b['locks'] ?? 0) * 10 + Number(b['gotchas'] ?? 0) * 6 + Number(b['memories'] ?? 0) * 4 + Number(b['tasks'] ?? 0) * 3 + Number(b['runs'] ?? 0) + Number(b['edits'] ?? 0);
@@ -235,6 +239,8 @@ export function displayPath(filePath: string, workspacePath: string | null): str
 
 export function filesUnderWorkRows(db: DatabaseSync, params: AwarenessQueryParams): AwarenessQueryRow[] {
   const scope = scopeFromParams(params);
+  const limit = limitOf(params.limit, 80, 500);
+  const rowLimit = Math.min(2000, Math.max(limit, limit * 4));
   const where = ["tr.status = 'ACTIVE'", 'rf.ended_at IS NULL', 'rf.expires_at > ?'];
   const binds: BindValue[] = [utcNow()];
   addExactScope(where, binds, workspaceArtifactScope(scope), 'tr');
@@ -260,8 +266,9 @@ export function filesUnderWorkRows(db: DatabaseSync, params: AwarenessQueryParam
        LEFT JOIN locks l ON l.run_id = rf.run_id AND l.file_path = rf.file_path
          AND (l.expires_at IS NULL OR l.expires_at > ?)
       WHERE ${where.join(' AND ')}
-      ORDER BY rf.file_path, datetime(rf.heartbeat_at) DESC, tr.agent_id, rf.run_id`
-  ).all(utcNow(), ...binds) as unknown as Array<Record<string, string | number | null>>;
+      ORDER BY rf.file_path, datetime(rf.heartbeat_at) DESC, tr.agent_id, rf.run_id
+      LIMIT ?`
+  ).all(utcNow(), ...binds, rowLimit) as unknown as Array<Record<string, string | number | null>>;
 
   const grouped = new Map<string, Array<Record<string, string | number | null>>>();
   for (const row of rows) {
@@ -271,7 +278,7 @@ export function filesUnderWorkRows(db: DatabaseSync, params: AwarenessQueryParam
     grouped.set(path, peers);
   }
 
-  return [...grouped.entries()].map(([filePath, peers]) => {
+  return [...grouped.entries()].slice(0, limit).map(([filePath, peers]) => {
     const shown = peers.slice(0, 3);
     const lock = peers.find(peer => Number(peer['locked']) === 1);
     const workspacePath = String(peers[0]?.['workspace_path'] ?? scope.workspacePath ?? '') || null;

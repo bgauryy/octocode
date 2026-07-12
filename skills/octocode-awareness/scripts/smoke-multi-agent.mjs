@@ -85,11 +85,13 @@ const workB = run("work-agent-b", [
   "--agent-id", "agent-b", "--workspace", workspace, "--artifact", artifact,
   "--file", target, "--rationale", "smoke: advisory edit B", "--test-plan", "smoke reads final file",
 ]);
-assert(workA.run?.run_id && workB.run?.run_id, "both advisory workers should get runs");
+const workRunA = workA.run_id ?? workA.run?.run_id;
+const workRunB = workB.run_id ?? workB.run?.run_id;
+assert(workRunA && workRunB, "both advisory workers should get runs");
 assert(workB.peer_count === 1, "second advisory worker should see the first peer");
 const visibleWork = run("work-show", ["work", "show", "--compact", "--workspace", workspace, "--file", target]);
 assert(visibleWork.count === 2, "both advisory workers should be visible");
-for (const [agent, runId] of [["agent-a", workA.run.run_id], ["agent-b", workB.run.run_id]]) {
+for (const [agent, runId] of [["agent-a", workRunA], ["agent-b", workRunB]]) {
   run(`work-end-${agent}`, ["work", "end", "--compact", "--agent-id", agent, "--run-id", runId]);
   run(`work-verify-${agent}`, ["verify", "mark", "--compact", "--agent-id", agent, "--run-id", runId, "--message", "advisory smoke passed"]);
 }

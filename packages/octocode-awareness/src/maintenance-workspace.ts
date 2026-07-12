@@ -337,6 +337,6 @@ export function exportHarness(
     harness_count: harnessCount,
     markdown: lines.join('\n'),
     memories,
-    next: 'Human review required: apply approved guidance to its owning AGENTS.md, SKILL.md, or doc; run that surface\'s verification and skill review; then record the outcome with octocode-awareness reflect record. Run repo inject only when workspace projections should refresh.',
+    next: 'Human review required: apply approved guidance to its owning AGENTS.md, SKILL.md, or doc; run that surface\'s verification and skill review; then record the outcome with octocode-awareness reflect record. Run wiki sync only when workspace projections should refresh.',
   };
 }

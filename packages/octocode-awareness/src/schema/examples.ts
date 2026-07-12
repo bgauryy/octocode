@@ -175,12 +175,11 @@ export const examples = {
     status: "SUCCESS",
     message: "test passed",
   },
-  audit_unverified: {
-    agent_id: "agent",
-    workspace: "/repo",
-    artifact: "pkg",
-    abandon: false,
-  },
+            audit_unverified: {
+              agent_id: "agent",
+              workspace: "/repo",
+              artifact: "pkg",
+            },
   forget_memory: {
     tags: ["tag"],
     workspace_path: "/repo",

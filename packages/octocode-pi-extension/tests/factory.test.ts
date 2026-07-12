@@ -39,6 +39,7 @@ test('createAwarenessHooksAddon returns a standalone Pi hooks addon', () => {
     'tool_result',
     'tool_execution_start',
     'tool_execution_end',
+    'session_start',
     'input',
     'before_agent_start',
     'agent_end',

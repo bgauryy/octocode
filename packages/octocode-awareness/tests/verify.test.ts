@@ -123,7 +123,7 @@ describe('auditUnverified', () => {
     expect(result.unverified.map(u => u.run_id).sort()).toEqual([aId, bId].sort());
   });
 
-  it('can inspect only age-qualified debt before explicit abandonment', () => {
+  it('can inspect only age-qualified debt without mutating it', () => {
     const db = freshDb();
     const oldId = makePending(db, 'agent-a', '/tmp/ws-a');
     const freshId = makePending(db, 'agent-a', '/tmp/ws-a');
@@ -136,7 +136,7 @@ describe('auditUnverified', () => {
     expect(result.unverified.map((run) => run.run_id)).not.toContain(freshId);
   });
 
-  it('migrates legacy HOOK debt by origin and creation cutoff without touching WORK', () => {
+  it('filters legacy HOOK debt by origin and creation cutoff without touching WORK', () => {
     const db = freshDb();
     const hookId = makePending(db, 'legacy-agent', '/tmp/ws-a');
     const workId = makePending(db, 'legacy-agent', '/tmp/ws-a');
@@ -146,10 +146,10 @@ describe('auditUnverified', () => {
       .run(workId);
 
     const migrated = auditUnverified(db, {
-      workspacePath: '/tmp/ws-a', origins: ['HOOK'], before: '2021-01-01T00:00:00Z', abandon: true,
+      workspacePath: '/tmp/ws-a', origins: ['HOOK'], before: '2021-01-01T00:00:00Z',
     });
     expect(migrated.unverified.map((run) => run.run_id)).toEqual([hookId]);
-    expect(db.prepare('SELECT status FROM task_runs WHERE run_id = ?').get(hookId)).toEqual({ status: 'FAILED' });
+    expect(db.prepare('SELECT status FROM task_runs WHERE run_id = ?').get(hookId)).toEqual({ status: 'PENDING' });
     expect(db.prepare('SELECT status FROM task_runs WHERE run_id = ?').get(workId)).toEqual({ status: 'PENDING' });
   });
 });
@@ -195,6 +195,40 @@ describe('markVerified', () => {
     expect(result.ok).toBe(true);
     const row = db.prepare('SELECT status FROM task_runs WHERE run_id = ?').get(runId);
     expect((row as { status: string }).status).toBe('FAILED');
+  });
+
+  it('explicitly marks a stale ACTIVE run FAILED with an evidence receipt', () => {
+    const db = freshDb();
+    const claim = preFlightIntent(db, {
+      agentId: 'agent-a', workspacePath: '/tmp/ws-a', targetFiles: ['/tmp/stale-active.ts'],
+    });
+    if (!claim.ok) throw new Error('claim failed');
+    db.prepare('DELETE FROM locks WHERE run_id = ?').run(claim.run.run_id);
+    db.prepare('UPDATE run_files SET expires_at = ? WHERE run_id = ?')
+      .run('2000-01-01T00:00:00Z', claim.run.run_id);
+
+    expect(markVerified(db, {
+      runId: claim.run.run_id,
+      agentId: 'agent-a',
+      status: 'FAILED',
+      message: 'expired presence confirmed; work was not completed',
+    })).toMatchObject({ ok: true, run_id: claim.run.run_id, status: 'FAILED' });
+  });
+
+  it('never marks a live ACTIVE run FAILED or any ACTIVE run SUCCESS', () => {
+    const db = freshDb();
+    const claim = preFlightIntent(db, {
+      agentId: 'agent-a', workspacePath: '/tmp/ws-a', targetFiles: ['/tmp/live-active.ts'],
+    });
+    if (!claim.ok) throw new Error('claim failed');
+    expect(markVerified(db, {
+      runId: claim.run.run_id, agentId: 'agent-a', status: 'FAILED', message: 'premature failure',
+    })).toMatchObject({ ok: false });
+    expect(markVerified(db, {
+      runId: claim.run.run_id, agentId: 'agent-a', status: 'SUCCESS', message: 'premature success',
+    })).toMatchObject({ ok: false });
+    expect(db.prepare('SELECT status FROM task_runs WHERE run_id = ?').get(claim.run.run_id))
+      .toEqual({ status: 'ACTIVE' });
   });
 
   it('defaults to SUCCESS when status is omitted but still requires a receipt', () => {

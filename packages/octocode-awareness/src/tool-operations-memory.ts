@@ -90,6 +90,7 @@ case 'recall': {
         return lean;
       });
       const payload: Record<string, unknown> = { count: result.count, memories };
+      if (result.count === 0) return { payload, exitCode: 0 };
       if (result.judgment_required) {
         payload['judgment_required'] = true;
         payload['judgment_reason'] = result.judgment_reason;

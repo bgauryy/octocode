@@ -17,17 +17,16 @@ $AWARENESS attend --workspace "$PWD" --query "<current task>" \
   --agent-id "$OCTOCODE_AGENT_ID" --compact
 ```
 
-Always follow `attend.next`. Load focused help, one skill reference, or one package
-doc only when that action needs more detail. Do not preload inventories.
+Always follow `attend.next`. Use `schema command <noun> [action]` only for unclear flags;
+load one reference only when the action needs depth. Do not preload inventories.
 
-Use `.octocode/` plan docs/indexes as a menu, not state. Confirm live work with
-`attend`/`query`, learning with `memory recall --smart`, and guidance with `docs show`.
-Never edit projections; only authored `.octocode/plan/**` docs are source material.
+Use `.octocode/` as a menu, not state. Confirm live work with `attend`/`query`, recall
+learning with `memory recall --smart`, and refresh generated knowledge with `wiki sync`.
+Never edit projections; only authored `.octocode/plan/**` docs are source.
 
-If the skill or hooks are unavailable, keep the manual fallback: attend; declare
-edited paths with `work start`; run the declared check while presence is active;
-then `work end`, `verify mark`, and `verify audit`. Ordinary overlap is advisory;
-use exclusivity only for sensitive, non-mergeable work and never bypass a conflict.
+Manual fallback: attend; `work start`; check while present; `work end`; `verify mark`;
+`verify audit`. Overlap is advisory; use `--exclusive` only for sensitive work and
+never bypass a conflict.
 
 ## Package Constraints
 

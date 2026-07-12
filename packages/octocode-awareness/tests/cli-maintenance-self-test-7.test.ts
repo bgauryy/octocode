@@ -6,26 +6,13 @@
  */
 import { describe, it, expect } from 'vitest';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, rmSync, existsSync, readFileSync, readdirSync } from 'node:fs';
+import { mkdtempSync, rmSync, existsSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 const SCRIPT = resolve(dirname(fileURLToPath(import.meta.url)), '../out/octocode-awareness.js');
 const SKILL_SCRIPT = resolve(dirname(fileURLToPath(import.meta.url)), '../../../skills/octocode-awareness/scripts/awareness.mjs');
 const NODE = process.execPath;
-// Independent discovery (not imported from build.mjs) so CLI help assertions
-// verify the real invariant — "every repo skill is enumerated" — rather than
-// just agreeing with whatever the build happened to produce.
-const REPO_SKILLS_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../../skills');
-const RETIRED_REPO_SKILLS = ['octocode-agent-communication', 'octocode-reflection'];
-function discoverRepoSkillNames(): string[] {
-    return readdirSync(REPO_SKILLS_ROOT, { withFileTypes: true })
-        .filter((entry) => entry.isDirectory())
-        .map((entry) => entry.name)
-        .filter((name) => name !== 'scripts' && !RETIRED_REPO_SKILLS.includes(name))
-        .filter((name) => existsSync(resolve(REPO_SKILLS_ROOT, name, 'SKILL.md')))
-        .sort();
-}
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 function mktemp(): string {
     return mkdtempSync(join(tmpdir(), 'oc-cli-test-'));
@@ -91,21 +78,11 @@ it('--help exits 0', () => {
     const r = spawnSync(NODE, [SCRIPT, '--help'], { encoding: 'utf8', timeout: 5000 });
     expect(r.status).toBe(0);
     expect(r.stdout).toContain('memory record');
-    expect(r.stdout).toContain('<AGENT_INSTRUCTIONS>');
-    expect(r.stdout).toContain('</AGENT_INSTRUCTIONS>');
-    expect(r.stdout).toMatch(/BUNDLED SKILLS \(\d+\)/);
     expect(r.stdout).toContain('octocode-awareness');
     expect(r.stdout).toContain('octocode-skills');
-    // Structural: every repo skill discovered independently must be enumerated,
-    // and every enumerated skill path must resolve under out/skills/.
-    const repoSkillNames = discoverRepoSkillNames();
-    expect(repoSkillNames.length).toBeGreaterThanOrEqual(2);
-    for (const name of repoSkillNames) {
-      expect(r.stdout).toContain(name);
-      expect(r.stdout).toContain(`out/skills/${name}`);
-    }
-    expect(r.stdout).toContain("Do not use a skill installer's registry/name lookup for these");
+    expect(r.stdout).toContain('out/skills');
     expect(r.stdout).toContain('octocode-awareness schema commands --compact');
+    expect(Buffer.byteLength(r.stdout, 'utf8')).toBeLessThanOrEqual(1536);
     expect(r.stdout).not.toContain('tell-memory');
     expect(r.stdout).not.toContain('get-memory');
     expect(r.stdout).not.toContain('<awareness-package>');
@@ -114,21 +91,14 @@ it('installed skill help resolves sibling bundled skills from the skill root', (
     const r = spawnSync(NODE, [SKILL_SCRIPT, '--help'], { encoding: 'utf8', timeout: 5000 });
     expect(r.status).toBe(0);
     const skillsRoot = resolve(dirname(SKILL_SCRIPT), '..', '..');
-    for (const name of discoverRepoSkillNames()) {
-      const skillPath = resolve(skillsRoot, name);
-      expect(r.stdout).toContain(skillPath);
-      expect(existsSync(skillPath)).toBe(true);
-    }
+    expect(r.stdout).toContain(skillsRoot);
+    expect(existsSync(resolve(skillsRoot, 'octocode-awareness', 'SKILL.md'))).toBe(true);
   });
 it('no command prints the agent-instructions discovery guide', () => {
     const r = spawnSync(NODE, [SCRIPT], { encoding: 'utf8', timeout: 5000 });
     expect(r.status).toBe(0);
-    expect(r.stdout).toContain('<AGENT_INSTRUCTIONS>');
-    expect(r.stdout).toMatch(/BUNDLED SKILLS \(\d+\)/);
-    for (const name of discoverRepoSkillNames()) {
-      expect(r.stdout).toContain(`out/skills/${name}`);
-    }
-    expect(r.stdout).toContain('FIRST COMMANDS');
+    expect(r.stdout).toContain('start:');
+    expect(Buffer.byteLength(r.stdout, 'utf8')).toBeLessThanOrEqual(1536);
     expect(r.stdout).not.toContain('<awareness-package>');
   });
 it('--help --compact returns a short agent guide', () => {
@@ -208,8 +178,6 @@ it('schema list maps to canonical CLI commands', () => {
     const schema = spawnSync(NODE, [schemaScript, 'list'], { encoding: 'utf8', timeout: 5000 });
     expect(schema.status).toBe(0);
     const listed = JSON.parse(schema.stdout) as string[];
-    const help = spawnSync(NODE, [SCRIPT, '--help'], { encoding: 'utf8', timeout: 5000 });
-    expect(help.status).toBe(0);
     const commands: Record<string, string> = {
       tell_memory: 'memory record',
       get_memory: 'memory recall',
@@ -238,7 +206,7 @@ it('schema list maps to canonical CLI commands', () => {
       reflect: 'reflect record',
       attend: 'attend',
       query: 'query',
-      repo_inject: 'repo inject',
+      repo_inject: 'wiki sync',
       plan: 'plan create',
       task: 'task create',
       work: 'work start',
@@ -258,36 +226,30 @@ it('schema list maps to canonical CLI commands', () => {
     for (const key of listed) {
       const command = commands[key];
       expect(command, `${key} should have canonical command mapping`).toBeTruthy();
-      expect(help.stdout, `${key} should map to CLI command ${command}`).toContain(command);
+      const focused = spawnSync(NODE, [SCRIPT, ...command!.split(' '), '--help'], { encoding: 'utf8', timeout: 5000 });
+      expect(focused.status, `${command} help failed`).toBe(0);
+      expect(focused.stdout, `${key} should map to CLI command ${command}`).toContain(command!);
     }
   });
-it('schema commands is the compact command-to-schema map for agents', () => {
+it('schema commands is grouped and core-first for agents', () => {
     const schemaScript = resolve(dirname(fileURLToPath(import.meta.url)), '../../../skills/octocode-awareness/scripts/schema.mjs');
     const result = spawnSync(NODE, [schemaScript, 'commands', '--compact'], { encoding: 'utf8', timeout: 5000 });
     expect(result.status).toBe(0);
     expect(result.stdout.trim().split('\n')).toHaveLength(1);
     const parsed = JSON.parse(result.stdout) as {
       ok: boolean;
-      commands: Array<{ command: string; schema: string | null; use?: string; example?: string }>;
+      commands: { core: Record<string, string[]>; advanced: Record<string, string[]> };
     };
     expect(parsed.ok).toBe(true);
-    expect(parsed.commands).toEqual(expect.arrayContaining([
-      expect.objectContaining({ command: 'workspace status', schema: 'workspace_status' }),
-      expect.objectContaining({ command: 'lock acquire', schema: 'pre_flight_intent' }),
-      expect.objectContaining({ command: 'query files', schema: 'query' }),
-      expect.objectContaining({ command: 'query all', schema: 'query' }),
-      expect.objectContaining({ command: 'schema commands', schema: null }),
-    ]));
-    for (const row of parsed.commands) {
-      expect(row.command).not.toMatch(/tell-memory|get-memory|notify|agent-registry|pre-flight/);
-      expect(row).not.toHaveProperty('use');
-      expect(row).not.toHaveProperty('example');
-    }
-    expect(Buffer.byteLength(result.stdout, 'utf8')).toBeLessThanOrEqual(5 * 1024);
+    expect(parsed.commands.core.plan).toEqual(expect.arrayContaining(['create', 'status']));
+    expect(parsed.commands.core.task).toContain('claim');
+    expect(parsed.commands.core.wiki).toEqual(['sync']);
+    expect(parsed.commands.advanced.lock).toEqual(expect.arrayContaining(['acquire', 'release']));
+    expect(Buffer.byteLength(result.stdout, 'utf8')).toBeLessThanOrEqual(2 * 1024);
   });
 it('schema commands --examples restores recipe lines', () => {
     const schemaScript = resolve(dirname(fileURLToPath(import.meta.url)), '../../../skills/octocode-awareness/scripts/schema.mjs');
-    const result = spawnSync(NODE, [schemaScript, 'commands', '--examples', '--compact'], { encoding: 'utf8', timeout: 5000 });
+    const result = spawnSync(NODE, [schemaScript, 'commands', '--all', '--examples', '--compact'], { encoding: 'utf8', timeout: 5000 });
     expect(result.status).toBe(0);
     const parsed = JSON.parse(result.stdout) as {
       commands: Array<{ command: string; use: string; example: string }>;

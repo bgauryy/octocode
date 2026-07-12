@@ -180,22 +180,47 @@ export function hookCommand(name: string, params: {
   projectDir: string;
   hookDir: string;
 }): string {
-  const abs = join(params.hookDir, name);
-  let scriptPath = abs;
-  if (params.host !== 'codex' && params.host !== 'cursor' && !params.globalMode) {
-    const rel = relative(params.projectDir, abs);
-    if (rel && !rel.startsWith('..') && !isAbsolute(rel)) {
-      scriptPath = '${CLAUDE_PROJECT_DIR}/' + rel.split(sep).join('/');
+  const runner = resolve(params.hookDir, '..', 'hook-runner.mjs');
+  const skillRoot = resolve(params.hookDir, '..', '..');
+  const command = name.replace(/\.sh$/, '');
+  const projectPath = (absolutePath: string): { value: string; expandsProjectDir: boolean } => {
+    if (params.host !== 'claude' || params.globalMode) {
+      return { value: absolutePath, expandsProjectDir: false };
     }
-  }
-  const quoted = (value: string) => `"${value.replace(/["\\$`]/g, '\\$&')}"`;
-  return `OCTOCODE_AGENT_HOST=${params.host} OCTOCODE_NODE_BIN=${quoted(process.execPath)} ${quoted(scriptPath)}`;
+    const rel = relative(params.projectDir, absolutePath);
+    if (rel && !rel.startsWith('..') && !isAbsolute(rel)) {
+      return {
+        value: '${CLAUDE_PROJECT_DIR}/' + rel.split(sep).join('/'),
+        expandsProjectDir: true,
+      };
+    }
+    return { value: absolutePath, expandsProjectDir: false };
+  };
+  const quoted = (value: string, expandsVariables = false) => {
+    const pattern = expandsVariables ? /["\\`]/g : /["\\$`]/g;
+    return `"${value.replace(pattern, '\\$&')}"`;
+  };
+  const runnerPath = projectPath(runner);
+  const skillRootPath = projectPath(skillRoot);
+  return [
+    quoted(process.execPath),
+    quoted(runnerPath.value, runnerPath.expandsProjectDir),
+    command,
+    '--host',
+    params.host,
+    '--skill-root',
+    quoted(skillRootPath.value, skillRootPath.expandsProjectDir),
+  ].join(' ');
 }
 
-export function projectHookDir(host: HookHost, globalMode: boolean, projectDir: string, hookDir: string): string {
-  if (host !== 'claude' || globalMode) return hookDir;
+export function projectHookDir(_host: HookHost, globalMode: boolean, projectDir: string, hookDir: string): string {
+  if (globalMode) return hookDir;
   const canonical = join(projectDir, 'skills', 'octocode-awareness', 'scripts', 'hooks');
-  return existsSync(canonical) ? canonical : hookDir;
+  return existsSync(hookTargetPath(canonical)) ? canonical : hookDir;
+}
+
+export function hookTargetPath(hookDir: string): string {
+  return resolve(hookDir, '..', 'hook-runner.mjs');
 }
 
 export function hookCommandWindows(name: string, params: {

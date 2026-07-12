@@ -1,63 +1,20 @@
-import { BUNDLED_SKILLS, BUNDLED_SKILLS_BLOCK, BUNDLED_SKILLS_DIR } from './cli-model.js';
+import { BUNDLED_SKILLS, BUNDLED_SKILLS_DIR } from './cli-model.js';
 
 // ─── Help text ────────────────────────────────────────────────────────────────
 
 export const HELP = `usage: octocode-awareness <command> [options]
-common: --db <path> --compact (except hook run; hooks use OCTOCODE_MEMORY_HOME)
-agent map: octocode-awareness schema commands --compact
-schema: octocode-awareness schema commands|list|path <name>|json-schema <name>|example <name>|validate <name> <json-file|->
-
-<AGENT_INSTRUCTIONS>
-You are reading the octocode-awareness CLI. Use --compact for operational JSON; read docs show as raw Markdown.
-
-BUNDLED SKILLS (${BUNDLED_SKILLS.length}):
-${BUNDLED_SKILLS_BLOCK}
-
-  The octocode-awareness skill owns operating policy for memory, locks, planning,
-  coordination, verification, repo context, and hooks. Focused help/schema owns flags and payloads.
-  octocode-skills is required only to discover, install, or review skills; every other skill
-  above is optional — install only the ones the current task needs.
-
-  Install any bundled skill from its path above using your agent platform's skill mechanism, e.g.:
-    npx octocode skill --add --path "<path from above>" --platform <claude|codex|cursor|common>
-  Do not use a skill installer's registry/name lookup for these; always install from the bundled path.
-
-FIRST COMMANDS after install:
-  octocode-awareness attend --workspace "$PWD" --query "<task>" --agent-id "$OCTOCODE_AGENT_ID" --compact
-  octocode-awareness workspace status --compact                    # DB health
-  octocode-awareness schema commands --compact                     # full command map
-  octocode-awareness docs show agent-cheatsheet                    # operating loop
-
-COMMAND SURFACES:
-  start:     attend, workspace status, plan list, task ready, memory recall, signal list, query <view>
-  planning:  plan create|list|show|join|doc|status; task create|list|ready|show|claim|heartbeat|submit|release|depend
-  edit:      work start|touch|end|list|show; lock acquire, lock wait, lock release, lock prune; verify mark, verify audit
-  messages:  signal publish, signal list, signal reply, signal ack, signal resolve, signal prune, agent register, agent list
-  learning:  memory record, memory archive, memory restore, memory forget, refinement set, refinement get, refinement delete, reflect record, reflect mine-weakness, reflect export-harness, reflect developer-review, docs list, docs show, docs staleness
-  repo:      query files|workboard|all|developer-review [--format json|table|csv|markdown|html], repo inject
-  hooks:     hook run <pre-edit|post-edit|stop-verify|notify-deliver|session-compact|session-end>, hooks install|check|remove --host claude|codex|cursor
-  utility:   session capture, maintenance init, maintenance self-test, maintenance digest
-</AGENT_INSTRUCTIONS>
-
-supported agents: Codex, Claude Code, Cursor, Pi, and custom library/CLI hosts
-activation: AGENTS.md = trigger/router; Agent Skill = operating policy; CLI/SQLite = canonical live state; hooks/Pi bridge = deterministic lifecycle automation
-
-examples:
-  octocode-awareness workspace status --workspace "$PWD" --compact
-  octocode-awareness attend --workspace "$PWD" --query "current task" --compact
-  octocode-awareness task ready --plan-id plan_123 --compact
-  octocode-awareness memory recall --query "current task" --workspace "$PWD" --smart --compact
-  octocode-awareness docs list --compact
-  octocode-awareness docs show agent-cheatsheet
-  octocode-awareness lock acquire --agent-id agent --target-file src/file.ts --rationale "edit" --compact
-  octocode-awareness signal list --agent-id agent --workspace "$PWD" --limit 3 --compact
-  octocode-awareness schema commands --compact
-  octocode-awareness query files --workspace "$PWD" --format table --limit 50
-  octocode-awareness query all --workspace "$PWD" --format html --out .octocode/awareness/index.html
-  octocode-awareness repo inject --workspace "$PWD" --mode local --compact
-
-Run "octocode-awareness <command> --help" for command flags.
-Exit codes: 0 ok; 1 validation/unknown flag/verify debt (verify audit); 2 live task/lock conflict, lock wait timeout, or hooks check --strict.`;
+common: --db <path> --compact; hook run uses OCTOCODE_MEMORY_HOME
+start: attend; workspace status; plan list; task ready; memory recall; signal list
+work: plan; task; work; lock; verify; signal; refinement
+learn: memory record|recall; reflect; docs; wiki; query
+operate: agent; session; hooks; hook; maintenance; schema
+first: octocode-awareness attend --workspace "$PWD" --query "<task>" --compact
+map: octocode-awareness schema commands --compact
+flags: octocode-awareness <noun> [action] --help
+skills(${BUNDLED_SKILLS.length}): ${BUNDLED_SKILLS_DIR}; use octocode-awareness and octocode-skills
+policy: AGENTS.md = trigger/router; Agent Skill = operating policy; CLI/SQLite = canonical live state; hooks/Pi bridge = deterministic lifecycle automation
+output: use --compact for operational JSON; docs show emits Markdown
+exit: 0 ok; 1 validation/verify debt; 2 conflict/wait/strict hook health`;
 
 export const HELP_COMPACT = `octocode-awareness: canonical noun/verb CLI; AGENTS routes → skill decides → CLI/SQLite acts → hooks automate edges. Use --compact for JSON.
 bundled-skills(${BUNDLED_SKILLS.length}): ${BUNDLED_SKILLS_DIR} — octocode-awareness+octocode-skills required, others optional (see --help)
@@ -65,7 +22,7 @@ start: attend; workspace status; plan create|list|show|join|doc|status; task cre
 edit: work start|touch|end|list|show; lock acquire|wait|release|prune; verify audit|mark
 msg: signal publish|list|reply|ack|resolve|prune; agent register|list
 learn: memory record|archive|restore|forget; refinement set|get|delete; reflect record|mine-weakness|export-harness|developer-review; maintenance digest
-repo: query files|workboard|all|developer-review --format json|table|csv|markdown|html; repo inject
+wiki: wiki sync; query files|workboard|all|developer-review --format json|table|csv|markdown|html
 inspect: schema commands --compact; docs list|show; <command> --help; exits 0 ok / 1 validation|verify debt / 2 live claim|lock|wait|hooks --strict`;
 
 export const COMMAND_TO_SCHEMA: Record<string, string> = {
@@ -125,7 +82,7 @@ export const COMMAND_DISPLAY: Record<string, string> = {
   'export-harness': 'reflect export-harness',
   'developer-review': 'reflect developer-review',
   'query': 'query',
-  'repo-inject': 'repo inject',
+  'repo-inject': 'wiki sync',
   'session-capture': 'session capture',
   'mine-weakness': 'reflect mine-weakness',
   'doc-staleness': 'docs staleness',
@@ -165,7 +122,7 @@ export const COMMAND_EXAMPLE: Record<string, string> = {
   'export-harness': 'octocode-awareness reflect export-harness --workspace "$PWD" --compact',
   'developer-review': 'octocode-awareness reflect developer-review --workspace "$PWD" --format markdown --compact',
   'query': 'octocode-awareness query workboard --workspace "$PWD" --format json --limit 1 --compact',
-  'repo-inject': 'octocode-awareness repo inject --workspace "$PWD" --out .octocode --mode local --compact',
+  'repo-inject': 'octocode-awareness wiki sync --workspace "$PWD" --out .octocode --mode local --compact',
   'session-capture': 'octocode-awareness session capture --agent-id agent --workspace "$PWD" --reason handoff --compact',
   'mine-weakness': 'octocode-awareness reflect mine-weakness --workspace "$PWD" --compact',
   'doc-staleness': 'octocode-awareness docs staleness --targets-json \'[{"docFile":"README.md","sourceDirs":["src"]}]\' --compact',
@@ -178,7 +135,7 @@ export const COMMAND_EXAMPLE: Record<string, string> = {
   'task-command': 'octocode-awareness task ready --plan-id plan_123 --compact',
   'work-command': 'octocode-awareness work start --agent-id agent --workspace "$PWD" --file src/a.ts --rationale "edit parser" --test-plan "yarn test" --compact',
   'hook-run': 'octocode-awareness hook run pre-edit < hook-payload.json',
-  'hooks-install': 'octocode-awareness hooks install --host codex --dry-run --compact',
+  'hooks-install': 'octocode-awareness hooks install --host codex --dry-run',
   'schema': 'octocode-awareness schema commands --compact',
 };
 
@@ -193,9 +150,9 @@ export const ROUTE_EXAMPLE: Record<string, string> = {
   'reflect developer-review': 'octocode-awareness reflect developer-review --workspace "$PWD" --format markdown --compact',
   'docs list': 'octocode-awareness docs list --compact',
   'docs show': 'octocode-awareness docs show agent-cheatsheet',
-  'hooks install': 'octocode-awareness hooks install --host codex --dry-run --compact',
-  'hooks check': 'octocode-awareness hooks check --host codex --strict --compact',
-  'hooks remove': 'octocode-awareness hooks remove --host codex --dry-run --compact',
+  'hooks install': 'octocode-awareness hooks install --host codex --dry-run',
+  'hooks check': 'octocode-awareness hooks check --host codex --strict',
+  'hooks remove': 'octocode-awareness hooks remove --host codex --dry-run',
   'schema commands': 'octocode-awareness schema commands --compact',
   'schema list': 'octocode-awareness schema list --compact',
   'schema json-schema': 'octocode-awareness schema json-schema get_memory --compact',

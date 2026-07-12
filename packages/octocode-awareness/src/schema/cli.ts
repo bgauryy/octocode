@@ -74,8 +74,8 @@ const commandIndex = [
   { command: "query files", schema: "query", use: "Filter/sort tracked paths and stale file references; rows include file_exists and missing_file.", example: 'octocode-awareness query files --workspace "$PWD" --format table --limit 50' },
   { command: "query workboard", schema: "query", use: "Read the smart agent queue, including stale_file_refs memory-review items.", example: 'octocode-awareness query workboard --workspace "$PWD" --format json --limit 1 --compact' },
   { command: "query all", schema: "query", use: "Export all live views; use html for the sortable/filterable browser view.", example: 'octocode-awareness query all --workspace "$PWD" --format html --out .octocode/awareness/index.html' },
-  { command: "query developer-review", schema: "query", use: "Read instruction-feedback rows that also feed DEVELOPER_REVIEW.md.", example: 'octocode-awareness query developer-review --workspace "$PWD" --format markdown --compact' },
-  { command: "repo inject", schema: "repo_inject", use: "Generate .octocode projections and preview retired manifest-owned files; --prune-orphans removes only those owned files.", example: 'octocode-awareness repo inject --workspace "$PWD" --mode local --compact' },
+  { command: "query developer-review", schema: "query", use: "Read instruction-feedback rows; request Markdown only for an explicit export.", example: 'octocode-awareness query developer-review --workspace "$PWD" --format markdown --compact' },
+  { command: "wiki sync", schema: "repo_inject", use: "Refresh the local .octocode wiki/projections from canonical SQLite state.", example: 'octocode-awareness wiki sync --workspace "$PWD" --mode local --compact' },
   { command: "session capture", schema: "session_capture", use: "Hook-driven handoff capture from locks + dirty git tree.", example: 'octocode-awareness session capture --agent-id agent --workspace "$PWD" --reason handoff --compact' },
   { command: "reflect record", schema: "reflect", use: "Record outcome and lessons after work.", example: 'octocode-awareness reflect record --agent-id agent --task "fix CLI" --outcome worked --lesson "lesson" --compact' },
   { command: "reflect mine-weakness", schema: "mine_weakness", use: "Find recurring failure clusters.", example: 'octocode-awareness reflect mine-weakness --workspace "$PWD" --compact' },
@@ -87,9 +87,9 @@ const commandIndex = [
   { command: "maintenance digest", schema: "digest", use: "Preview or run memory, expired-lock, terminal-refinement, and terminal-run cleanup; signal/reference pressure is report-only.", example: 'octocode-awareness maintenance digest --dry-run --workspace "$PWD" --compact' },
   { command: "maintenance init", schema: null, use: "Initialize the awareness DB.", example: "octocode-awareness maintenance init --compact" },
   { command: "maintenance self-test", schema: null, use: "Run in-memory DB smoke checks.", example: "octocode-awareness maintenance self-test --compact" },
-  { command: "hooks install", schema: null, use: "Install hook config after preview/approval.", example: "octocode-awareness hooks install --host codex --dry-run --compact" },
-  { command: "hooks check", schema: null, use: "Check installed hook config and detect drift.", example: "octocode-awareness hooks check --host codex --strict --compact" },
-  { command: "hooks remove", schema: null, use: "Remove awareness-owned hook config.", example: "octocode-awareness hooks remove --host codex --dry-run --compact" },
+  { command: "hooks install", schema: null, use: "Install hook config after preview/approval; use non-compact preview for settings detail.", example: "octocode-awareness hooks install --host codex --dry-run" },
+  { command: "hooks check", schema: null, use: "Check installed hook config and detect drift; use non-compact output for runtime detail.", example: "octocode-awareness hooks check --host codex --strict" },
+  { command: "hooks remove", schema: null, use: "Remove awareness-owned hook config after a detailed preview.", example: "octocode-awareness hooks remove --host codex --dry-run" },
   { command: "hook run", schema: null, use: "Internal hook dispatcher used by wrappers.", example: "octocode-awareness hook run pre-edit < hook-payload.json" },
   { command: "schema commands", schema: null, use: "Print this command-to-schema map.", example: "octocode-awareness schema commands --compact" },
   { command: "schema list", schema: null, use: "Print schema names only.", example: "octocode-awareness schema list --compact" },
@@ -98,13 +98,77 @@ const commandIndex = [
   { command: "schema example", schema: null, use: "Print example JSON for one schema.", example: "octocode-awareness schema example get_memory --compact" },
   { command: "schema validate", schema: null, use: "Validate JSON payload against one schema.", example: "octocode-awareness schema validate get_memory payload.json --compact" },
 ];
+
+const CORE_NOUNS = new Set(["attend", "plan", "task", "work", "verify", "memory", "signal", "wiki", "query"]);
+const CLI_REQUIRED: Record<string, string[]> = {
+  "plan create": ["name", "objective", "lead_agent_id", "workspace"],
+  "plan show": ["plan_id"],
+  "plan join": ["plan_id", "agent_id"],
+  "plan doc": ["plan_id", "agent_id", "path", "title"],
+  "plan status": ["plan_id", "agent_id", "status"],
+  "task create": ["plan_id", "title", "reasoning", "acceptance", "path", "agent_id"],
+  "task show": ["task_id"],
+  "task claim": ["agent_id"],
+  "task heartbeat": ["task_id", "run_id", "agent_id"],
+  "task submit": ["task_id", "run_id", "agent_id"],
+  "task release": ["task_id", "run_id", "agent_id"],
+  "task depend": ["task_id", "depends_on", "agent_id"],
+  "work start": ["agent_id", "file"],
+  "work touch": ["agent_id", "run_id"],
+  "work end": ["agent_id", "run_id"],
+  "work show": ["workspace", "file"],
+  "memory record": ["agent_id", "task_context", "observation", "importance"],
+  "signal publish": ["agent_id", "kind", "subject"],
+  "signal reply": ["agent_id", "in_reply_to", "subject"],
+  "signal ack": ["agent_id", "signal_id"],
+  "signal resolve": ["agent_id"],
+};
+const CLI_ALLOWED: Record<string, string[]> = {
+  "plan create": ["name", "objective", "lead_agent_id", "workspace", "artifact"],
+  "plan list": ["workspace", "artifact", "status", "limit", "full"],
+  "plan show": ["plan_id", "full"],
+  "plan join": ["plan_id", "agent_id"],
+  "plan doc": ["plan_id", "agent_id", "path", "title"],
+  "plan status": ["plan_id", "agent_id", "status"],
+  "task create": ["plan_id", "title", "reasoning", "acceptance", "path", "depends_on", "agent_id", "priority", "lease_minutes", "test_plan"],
+  "task list": ["plan_id", "workspace", "status", "limit", "full"],
+  "task ready": ["plan_id", "workspace", "limit", "full"],
+  "task show": ["task_id", "full"],
+  "task claim": ["task_id", "plan_id", "agent_id", "next", "lease_minutes"],
+  "task heartbeat": ["task_id", "run_id", "agent_id", "lease_minutes"],
+  "task submit": ["task_id", "run_id", "agent_id", "message"],
+  "task release": ["task_id", "run_id", "agent_id", "blocked_reason"],
+  "task depend": ["task_id", "depends_on", "agent_id"],
+  "work start": ["agent_id", "session_id", "workspace", "artifact", "run_id", "rationale", "test_plan", "context_ref", "file", "exclusive", "ttl_minutes", "ttl_seconds"],
+  "work touch": ["agent_id", "run_id", "file", "ttl_minutes", "ttl_seconds"],
+  "work end": ["agent_id", "run_id", "file"],
+  "work list": ["agent_id", "workspace", "artifact", "run_id", "all", "full"],
+  "work show": ["workspace", "artifact", "file", "all", "full"],
+  "signal publish": ["agent_id", "workspace", "artifact", "repo", "ref", "kind", "subject", "body", "to_agent", "file", "ref_id", "importance"],
+  "signal list": ["agent_id", "workspace", "artifact", "repo", "ref", "all", "unread_only", "mark_read", "limit", "include_bodies", "format"],
+  "signal reply": ["agent_id", "in_reply_to", "subject", "body", "to_agent", "file", "ref_id", "importance"],
+  "signal ack": ["agent_id", "signal_id"],
+  "signal resolve": ["agent_id", "signal_id", "thread_id"],
+};
+
+function groupedCommandIndex() {
+  const grouped: Record<"core" | "advanced", Record<string, string[]>> = { core: {}, advanced: {} };
+  for (const row of commandIndex) {
+    const [noun, ...rest] = row.command.split(" ");
+    const tier = CORE_NOUNS.has(noun!) ? "core" : "advanced";
+    (grouped[tier][noun!] ??= []).push(rest.length > 0 ? rest.join(" ") : noun === "query" ? "<view>" : "run");
+  }
+  return grouped;
+}
+
 function printJson(payload: unknown, compact = false): void {
   console.log(JSON.stringify(payload, null, compact ? 0 : 2));
 }
 
 function usage() {
   return `Usage:
-  octocode-awareness schema commands [--compact] [--examples]
+  octocode-awareness schema commands [--compact] [--all] [--examples]
+  octocode-awareness schema command <noun> [action] [--compact]
   octocode-awareness schema list
   octocode-awareness schema path <schema-name>
   octocode-awareness schema json-schema <schema-name>
@@ -117,6 +181,48 @@ function toJsonSchema(schema: z.ZodType) {
     return z.toJSONSchema(schema);
   }
   throw new Error("This script requires Zod v4 with z.toJSONSchema().");
+}
+
+function cliCommandSchema(commandName: string): Record<string, unknown> | null {
+  const row = commandIndex.find((candidate) => candidate.command === commandName);
+  if (!row?.schema) return null;
+  const schema = schemas[row.schema as SchemaName];
+  if (!schema) return null;
+  const output = structuredClone(toJsonSchema(schema)) as Record<string, unknown>;
+  const properties = output.properties as Record<string, unknown> | undefined;
+  const action = commandName.split(" ")[1];
+  if (properties && action && properties.action) delete properties.action;
+  const aliases: Record<string, string> = {
+    workspace_path: "workspace",
+    target_files: "file",
+    tags: "tag",
+    references: "reference",
+  };
+  if (properties) {
+    for (const [from, to] of Object.entries(aliases)) {
+      if (properties[from] && !properties[to]) properties[to] = properties[from];
+      delete properties[from];
+    }
+    const allowed = CLI_ALLOWED[commandName];
+    if (allowed) {
+      for (const property of Object.keys(properties)) {
+        if (!allowed.includes(property)) delete properties[property];
+      }
+    }
+  }
+  const existingRequired = Array.isArray(output.required)
+    ? (output.required as string[])
+      .filter((field) => field !== "action")
+      .map((field) => aliases[field] ?? field)
+      .filter((field) => properties?.[field] && !Object.hasOwn(properties[field] as object, "default"))
+    : [];
+  const required = [...new Set([...existingRequired, ...(CLI_REQUIRED[commandName] ?? [])])];
+  if (required.length > 0) output.required = required;
+  else delete output.required;
+  output["x-cli-command"] = commandName;
+  output["x-cli-example"] = row.example;
+  output["x-cli-note"] = "CLI flags use kebab-case; repeat array flags. The router injects the action.";
+  return output;
 }
 
 function parseJson(input: string): unknown {
@@ -152,7 +258,8 @@ function schemaFilePath(schemaName: SchemaName): string {
 export async function runSchemaCli(argv: string[]): Promise<number> {
   const compact = argv.includes("--compact") || process.env.OCTOCODE_AWARENESS_COMPACT === "1";
   const includeExamples = argv.includes("--examples");
-  const filteredArgv = argv.filter((arg) => arg !== "--compact" && arg !== "--examples");
+  const includeAll = argv.includes("--all");
+  const filteredArgv = argv.filter((arg) => arg !== "--compact" && arg !== "--examples" && arg !== "--all");
   const [command, schemaName, file] = filteredArgv;
 
   if (!command || command === "--help" || command === "-h") {
@@ -161,16 +268,30 @@ export async function runSchemaCli(argv: string[]): Promise<number> {
   }
 
   if (command === "commands") {
-    const commands = includeExamples
-      ? commandIndex
-      : commandIndex.map(({ command: cmd, schema }) => ({ command: cmd, schema }));
+    const commands = includeAll
+      ? (includeExamples ? commandIndex : commandIndex.map(({ command: cmd, schema }) => ({ command: cmd, schema })))
+      : groupedCommandIndex();
     printJson({
       ok: true,
-      hint: includeExamples
-        ? "Use `octocode-awareness <command> --help` for flags. Add --compact to JSON commands."
-        : "Lean command/schema index. Pass --examples for purpose and recipes; use `<command> --help` for flags.",
+      hint: includeAll
+        ? "Flat command detail. Use `<command> --help` or `schema command <noun> [action]` for one exact contract."
+        : "Core first; advanced remains available. Pass --all for the flat catalog.",
       commands,
     }, compact);
+    return 0;
+  }
+
+  if (command === "command") {
+    const commandName = [schemaName, file].filter(Boolean).join(" ");
+    const commandSchema = cliCommandSchema(commandName);
+    if (!commandSchema) {
+      return printJsonError({
+        error_code: "UNKNOWN_CLI_COMMAND",
+        error: `Unknown or schema-less CLI command: ${commandName || "<missing>"}`,
+        hint: "Use `schema commands --all --compact` to list command names.",
+      }, 1, compact);
+    }
+    printJson(commandSchema, compact);
     return 0;
   }
 
@@ -188,8 +309,8 @@ export async function runSchemaCli(argv: string[]): Promise<number> {
       error_code: "UNKNOWN_SCHEMA",
       error: `Unknown schema: ${schemaName || "<missing>"}`,
       hint: "Use one of the schemas returned by `schema list`.",
-      known_schemas: listableSchemas,
-    }, 2, compact);
+      ...(compact ? {} : { known_schemas: listableSchemas }),
+    }, 1, compact);
   }
 
   if (command === "path") {
@@ -213,7 +334,7 @@ export async function runSchemaCli(argv: string[]): Promise<number> {
         error_code: "MISSING_INPUT",
         error: "Missing <json-file|->.",
         hint: "Use `schema validate <schema-name> <json-file|->`.",
-      }, 2, compact);
+      }, 1, compact);
     }
     const raw = file === "-" ? await readStdin() : await readFile(file, "utf8");
     let parsed;
@@ -225,7 +346,7 @@ export async function runSchemaCli(argv: string[]): Promise<number> {
         schema: schemaName,
         error: error instanceof Error ? error.message : String(error),
         hint: "Pass valid JSON matching the selected schema.",
-      }, 2, compact);
+      }, 1, compact);
     }
     const result = schema.safeParse(parsed);
     if (!result.success) {
@@ -242,7 +363,7 @@ export async function runSchemaCli(argv: string[]): Promise<number> {
     error_code: "UNKNOWN_COMMAND",
     error: `Unknown command: ${command}`,
     hint: usage(),
-  }, 2, compact);
+  }, 1, compact);
 }
 
 async function readStdin() {

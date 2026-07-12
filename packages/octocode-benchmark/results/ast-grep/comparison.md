@@ -254,8 +254,8 @@ AST_GREP_BIN=/path/to/ast-grep \
 | File | Contents |
 |---|---|
 | `target/ast-grep-upstream/latest.json` | Full JSON — all lanes, scenarios, versions, raw timings |
-| `output/comparison.md` | This file — full human-readable comparison |
-| `output/summary.md` | Short pass/fail summary |
+| `results/ast-grep/comparison.md` | This file — full human-readable comparison |
+| `results/ast-grep/summary.md` | Short pass/fail summary |
 
 ---
 
@@ -431,9 +431,9 @@ methodology that anyone can re-run.
 | `benchmark/ast/compare-ast-grep-cli.mjs` | Small case-by-case correctness comparison |
 | `target/ast-grep-upstream/repos/` | Cached scenario repos (git shallow clones at pinned commits) |
 | `target/ast-grep-upstream/latest.json` | Raw JSON from last run |
-| `output/comparison.md` | This file |
-| `output/summary.md` | Short pass/fail summary |
-| `docs/STRUCTURAL-GREP-COMPARISON-RECIPES.md` | Recipes for one-off manual comparisons |
+| `results/ast-grep/comparison.md` | This file |
+| `results/ast-grep/summary.md` | Short pass/fail summary |
+| `recipes/ast-grep.md` | Recipes for one-off manual comparisons |
 | `BENCHMARK.md` | Quick-reference card (results + how-to) |
 
 ---

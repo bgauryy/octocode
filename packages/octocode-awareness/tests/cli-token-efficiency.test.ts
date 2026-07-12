@@ -161,11 +161,93 @@ describe('CLI token efficiency', () => {
 
       const empty = run(db, ['memory', 'recall', '--query', 'definitely-absent-term', '--workspace', workspace, '--compact']);
       expect(empty.status).toBe(0);
-      expect(empty.parsed).toMatchObject({ count: 0, memories: [] });
-      expect(empty.parsed).not.toHaveProperty('projection');
-      expect(empty.parsed).not.toHaveProperty('as_of');
-      expect(empty.parsed).not.toHaveProperty('global_only');
-      expect(empty.parsed).not.toHaveProperty('states');
+      expect(empty.parsed).toEqual({ count: 0, memories: [], ok: true });
+      expect(Buffer.byteLength(empty.stdout, 'utf8')).toBeLessThanOrEqual(64);
+    } finally {
+      rmSync(workspace, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps discovery, exact contracts, hooks, and wiki receipts byte-lean', () => {
+    const workspace = mkdtempSync(join(tmpdir(), 'oc-token-contract-'));
+    const db = join(workspace, 'awareness.sqlite3');
+    try {
+      const commands = run(db, ['schema', 'commands', '--compact']);
+      expect(commands.status).toBe(0);
+      expect(commands.parsed?.['commands']).toMatchObject({
+        core: { wiki: ['sync'], task: expect.arrayContaining(['create', 'claim']) },
+        advanced: { lock: expect.arrayContaining(['acquire', 'release']) },
+      });
+      expect(Buffer.byteLength(commands.stdout, 'utf8')).toBeLessThanOrEqual(2 * 1024);
+
+      const taskCreate = run(db, ['schema', 'command', 'task', 'create', '--compact']);
+      expect(taskCreate.status).toBe(0);
+      expect(taskCreate.parsed?.['required']).toEqual(expect.arrayContaining(['plan_id', 'path', 'agent_id']));
+      expect((taskCreate.parsed?.['properties'] as Record<string, unknown>)).not.toHaveProperty('action');
+      expect((taskCreate.parsed?.['properties'] as Record<string, unknown>)).not.toHaveProperty('run_id');
+      expect(Buffer.byteLength(taskCreate.stdout, 'utf8')).toBeLessThanOrEqual(2 * 1024);
+
+      const wiki = run(db, ['wiki', 'sync', '--workspace', workspace, '--out', join(workspace, '.octocode'), '--compact']);
+      expect(wiki.status).toBe(0);
+      expect(wiki.parsed).toMatchObject({ ok: true, written: expect.any(Number), warning_count: 0 });
+      expect(wiki.parsed).not.toHaveProperty('files');
+      expect(Buffer.byteLength(wiki.stdout, 'utf8')).toBeLessThanOrEqual(768);
+
+      const hooks = run(db, ['hooks', 'install', '--host', 'claude', '--project-dir', workspace, '--dry-run', '--compact']);
+      expect(hooks.status).toBe(0);
+      expect(hooks.parsed).toMatchObject({ ok: true, action: 'dry-run', host: 'claude', hook_count: 9 });
+      expect(hooks.parsed).not.toHaveProperty('resultingSettings');
+      expect(Buffer.byteLength(hooks.stdout, 'utf8')).toBeLessThanOrEqual(512);
+
+      expect(run(db, ['hooks', 'install', '--host', 'claude', '--project-dir', workspace, '--compact']).status).toBe(0);
+      const hookHealth = run(db, ['hooks', 'check', '--host', 'claude', '--project-dir', workspace, '--strict', '--compact']);
+      expect(hookHealth.status).toBe(0);
+      expect(hookHealth.parsed).toMatchObject({
+        ok: true,
+        health: { config: 'ready', runtime: 'unverified' },
+      });
+      expect(hookHealth.parsed).not.toHaveProperty('next');
+      expect(hookHealth.parsed).not.toHaveProperty('ready');
+      expect(Buffer.byteLength(hookHealth.stdout, 'utf8')).toBeLessThanOrEqual(256);
+
+      const plan = run(db, ['plan', 'create', '--name', 'Lean', '--objective', 'Bound receipts', '--lead-agent-id', 'lead', '--workspace', workspace, '--compact']);
+      expect(plan.status).toBe(0);
+      expect(plan.parsed).toMatchObject({ ok: true, plan_id: expect.stringMatching(/^plan_/), status: 'ACTIVE' });
+      expect(plan.parsed).not.toHaveProperty('plan');
+      expect(Buffer.byteLength(plan.stdout, 'utf8')).toBeLessThanOrEqual(512);
+
+      const task = run(db, ['task', 'create', '--plan-id', String(plan.parsed?.['plan_id']), '--title', 'Lean task', '--reasoning', 'Keep the receipt bounded', '--acceptance', 'token test passes', '--path', 'src/a.ts', '--agent-id', 'lead', '--compact']);
+      expect(task.status).toBe(0);
+      const exactFile = run(db, ['query', 'files', '--workspace', workspace, '--file', 'src/a.ts', '--compact']);
+      expect(exactFile.status).toBe(0);
+      expect(exactFile.parsed).toMatchObject({ count: 1, rows: [{ file_path: join(workspace, 'src/a.ts') }] });
+      expect(exactFile.parsed).not.toHaveProperty('total');
+      expect(exactFile.parsed).not.toHaveProperty('omitted_count');
+      expect(exactFile.parsed).not.toHaveProperty('is_partial');
+      expect(exactFile.parsed?.['filters']).toEqual({ file: 'src/a.ts' });
+      expect(Buffer.byteLength(exactFile.stdout, 'utf8')).toBeLessThanOrEqual(768);
+      const missingFile = run(db, ['query', 'files', '--workspace', workspace, '--file', 'missing.ts', '--compact']);
+      expect(missingFile.status).toBe(0);
+      expect(missingFile.parsed).toMatchObject({ count: 0, rows: [] });
+      expect(Buffer.byteLength(missingFile.stdout, 'utf8')).toBeLessThanOrEqual(256);
+
+      ok(db, [
+        'memory', 'record', '--agent-id', 'writer', '--task-context', 'compact query scope',
+        '--observation', 'Do not repeat the top-level workspace on every row.', '--importance', '7',
+        '--workspace', workspace,
+      ]);
+      const scoped = run(db, ['query', 'memories', '--workspace', workspace, '--query', 'compact query scope', '--compact']);
+      expect(scoped.status).toBe(0);
+      expect(scoped.parsed?.['filters']).toEqual({ query: 'compact query scope' });
+      expect(scoped.parsed).not.toHaveProperty('total');
+      expect(scoped.parsed).not.toHaveProperty('omitted_count');
+      expect(scoped.parsed).not.toHaveProperty('is_partial');
+      expect((scoped.parsed?.['rows'] as Array<Record<string, unknown>>)[0]).not.toHaveProperty('workspace_path');
+      const claim = run(db, ['task', 'claim', '--task-id', String(task.parsed?.['task_id']), '--agent-id', 'worker', '--compact']);
+      expect(claim.status).toBe(0);
+      expect(claim.parsed).toMatchObject({ ok: true, task_id: task.parsed?.['task_id'], run_id: expect.stringMatching(/^run_/), status: 'ACTIVE' });
+      expect(claim.parsed).not.toHaveProperty('task');
+      expect(Buffer.byteLength(claim.stdout, 'utf8')).toBeLessThanOrEqual(512);
     } finally {
       rmSync(workspace, { recursive: true, force: true });
     }

@@ -246,9 +246,7 @@ it('routes bloat to one valid bounded review command when verify is clear', () =
     try {
       const { db } = seededDb(dir);
       mkdirSync(join(dir, '.octocode'), { recursive: true });
-      writeFileSync(join(dir, '.octocode', 'MEMORY.md'), `${'x\n'.repeat(250)}`, 'utf8');
-      writeFileSync(join(dir, '.octocode', 'GOTCHAS.md'), `${'y\n'.repeat(250)}`, 'utf8');
-      writeFileSync(join(dir, '.octocode', 'LEARN.md'), `${'z\n'.repeat(250)}`, 'utf8');
+      writeFileSync(join(dir, '.octocode', 'KNOWLEDGE.md'), `${'x\n'.repeat(250)}`, 'utf8');
       // Clear mid-loop lanes so projection bloat drives next.
       db.prepare(`UPDATE task_runs SET status = 'SUCCESS'`).run();
       db.prepare(`UPDATE run_files SET ended_at = '2000-01-01T00:00:00Z', expires_at = '2000-01-01T00:00:00Z'`).run();

@@ -142,7 +142,7 @@ export interface ReflectParams {
    * (AGENTS.md, SKILL.md, system prompt, task brief). Use when the instructions —
    * not the code and not the harness — were ambiguous, wrong, over-constraining, or
    * missing context. Tags the learning memory `developer-review` and opens a tracked
-   * `instructions`-quality refinement; both surface in `.octocode/DEVELOPER_REVIEW.md`.
+   * `instructions`-quality refinement; both surface in the live developer-review view.
    */
   fixInstructions?: string | null;
   failureSignature?: string | null;

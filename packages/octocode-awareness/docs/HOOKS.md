@@ -37,7 +37,7 @@ Preview writes, install after approval, then check exact host config:
 
 ```bash
 octocode-awareness hooks install --host <codex|cursor> \
-  --project-dir . --dry-run --compact
+  --project-dir . --dry-run
 octocode-awareness hooks install --host <codex|cursor> \
   --project-dir . --compact
 octocode-awareness hooks check --host <codex|cursor> \
@@ -50,13 +50,15 @@ Remove (preview first) when uninstalling host wiring:
 
 ```bash
 octocode-awareness hooks remove --host <claude|codex|cursor> \
-  --project-dir . --dry-run --compact
+  --project-dir . --dry-run
 octocode-awareness hooks remove --host <claude|codex|cursor> \
   --project-dir . --compact
 ```
 
-Installers modify only Awareness-owned entries, quote command paths, add a Codex
-Windows command, and repair obsolete paths/standalone guard entries. Strict health
+Installers modify only recognizable Awareness-owned entries, including obsolete roots
+or event placements, while preserving unrelated hooks. For drift, preview removal,
+remove, reinstall, then strict-check. Commands are quoted and Codex gets a Windows
+command. Strict health
 also verifies every configured script target exists; an exact command pointing at a
 missing generated path is drift, not a healthy install.
 

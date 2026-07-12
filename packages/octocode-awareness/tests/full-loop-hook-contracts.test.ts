@@ -106,6 +106,7 @@ describe('full-loop host hook contracts', () => {
     ]) {
       writeFileSync(resolve(hookDir, script), '#!/bin/sh\n');
     }
+    writeFileSync(resolve(hookDir, '..', 'hook-runner.mjs'), '#!/usr/bin/env node\n');
     try {
       const installed = runHooksInstall(
         ['--host', 'codex', '--project-dir', projectDir],
@@ -117,8 +118,8 @@ describe('full-loop host hook contracts', () => {
         hooks: Record<string, Array<{ hooks?: Array<Record<string, unknown>> }>>;
       };
       const commandHook = settings.hooks.PreToolUse?.[0]?.hooks?.[0];
-      expect(commandHook?.command).toContain('OCTOCODE_AGENT_HOST=codex OCTOCODE_NODE_BIN="');
-      expect(commandHook?.command).toContain('skill with spaces/scripts/hooks/pre-edit.sh"');
+      expect(commandHook?.command).toContain(`"${process.execPath}"`);
+      expect(commandHook?.command).toContain('skill with spaces/scripts/hook-runner.mjs" pre-edit --host codex --skill-root');
       expect(commandHook?.commandWindows).toContain('hook-runner.mjs');
       expect(commandHook?.commandWindows).toContain('--host codex');
       expect(commandHook?.commandWindows).toContain('--skill-root');

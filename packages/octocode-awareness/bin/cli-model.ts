@@ -21,10 +21,9 @@ export const BUNDLED_SKILLS_DIR = process.env.OCTOCODE_SKILL_ROOT
     ? resolve(invokedDir, '..', '..')
     : resolve(invokedDir, 'skills');
 
-// Skills that coordination itself depends on (own operating skill + the
-// skill-lifecycle skill needed to install the rest); every other bundled
-// skill is optional and installed only when the task needs it.
-export const REQUIRED_BUNDLED_SKILLS = new Set(['octocode-awareness', 'octocode-skills']);
+// Awareness is the only required operating skill. Skill lifecycle support and
+// every other bundled skill are optional and installed only when needed.
+export const REQUIRED_BUNDLED_SKILLS = new Set(['octocode-awareness']);
 
 export interface BundledSkill {
   name: string;
@@ -126,7 +125,7 @@ export const RETENTION_DAY_FLAGS = new Set([
 export const BOOLEAN_FLAGS = new Set([
   'compact', 'help', 'smart', 'global_only', 'strict_scope', 'explain',
   'semantic', 'full', 'dry_run', 'include_handoffs', 'strict_agent_id',
-  'verified', 'expired_only', 'abandon', 'all_pending', 'propose',
+  'verified', 'expired_only', 'all_pending', 'propose',
   'include_bodies', 'explain_organ', 'check', 'include_view', 'all',
   'unread_only', 'mark_read', 'resolved', 'global', 'strict', 'remove',
   'exclusive', 'next', 'duo', 'examples',

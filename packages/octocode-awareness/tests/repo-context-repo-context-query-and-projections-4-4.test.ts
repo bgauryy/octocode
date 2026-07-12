@@ -144,21 +144,19 @@ it('surfaces missing file references across query, workboard, projections, and H
         workspacePath: dir,
         outDir: join(dir, '.octocode'),
         mode: 'local',
-        includeView: true,
+        includeView: false,
         check: false,
       });
-      expect(readFileSync(join(dir, '.octocode', 'GOTCHAS.md'), 'utf8')).toContain(`Missing refs: file:${missing}:27`);
-      const bookmarks = readFileSync(join(dir, '.octocode', 'BOOKMARKS.md'), 'utf8');
-      expect(bookmarks).not.toContain('[missing file]');
-      expect(bookmarks).not.toContain(missing);
-      expect(bookmarks).not.toContain(existing);
+      const knowledge = readFileSync(join(dir, '.octocode', 'KNOWLEDGE.md'), 'utf8');
+      expect(knowledge).toContain('Missing refs: file:src/missing.ts:27');
+      expect(knowledge).not.toContain(missing);
+      const sourceIds = [...knowledge.matchAll(/Source id: `([^`]+)`/g)].map(match => match[1]);
+      expect(sourceIds).toEqual([...new Set(sourceIds)]);
       const agents = readFileSync(join(dir, '.octocode', 'AGENTS.md'), 'utf8');
       expect(agents).toContain('MissingFiles 1');
       expect(agents).not.toContain('Do not trust old generated viewer paths without checking file refs');
-      const html = readFileSync(join(dir, '.octocode', 'awareness', 'index.html'), 'utf8');
-      expect(html).toContain('id="global-filter"');
-      expect(html).toContain('id="missing-filter"');
-      expect(html).toContain('data-missing="true"');
+      expect(existsSync(join(dir, '.octocode', 'awareness', 'index.html'))).toBe(false);
+      expect(existsSync(join(dir, '.octocode', 'awareness', 'csv', 'files.csv'))).toBe(false);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -196,7 +194,7 @@ it('resolves relative projection output paths against the requested workspace', 
     }
   });
 // Inserts and projection writes contend with the full parallel package suite.
-  it('keeps generated memory markdown within projection budgets', { timeout: 15_000 }, () => {
+  it('keeps generated knowledge markdown within projection budgets', { timeout: 15_000 }, () => {
     const dir = mkdtempSync(join(tmpdir(), 'oc-repo-budget-'));
     try {
       const db = freshDb();
@@ -220,13 +218,15 @@ it('resolves relative projection output paths against the requested workspace', 
         check: false,
       });
 
-      const memoryMarkdown = readFileSync(join(dir, '.octocode', 'MEMORY.md'), 'utf8');
+      const memoryMarkdown = readFileSync(join(dir, '.octocode', 'KNOWLEDGE.md'), 'utf8');
       const memoryLines = memoryMarkdown.split(/\r?\n/).length;
       expect(memoryLines).toBeLessThanOrEqual(200);
       expect(memoryMarkdown).toContain('Omitted by projection cap');
       const summary = memoryMarkdown.match(/Total: (\d+) · Shown: (\d+) · Omitted: (\d+)/);
       expect(summary).not.toBeNull();
       const renderedRows = memoryMarkdown.match(/^## /gm)?.length ?? 0;
+      const renderedIds = [...memoryMarkdown.matchAll(/Source id: `([^`]+)`/g)].map(match => match[1]);
+      expect(new Set(renderedIds).size).toBe(renderedRows);
       expect({
         total: Number(summary?.[1]),
         shown: Number(summary?.[2]),
@@ -239,12 +239,12 @@ it('resolves relative projection output paths against the requested workspace', 
       const manifest = JSON.parse(readFileSync(join(dir, '.octocode', 'awareness', 'manifest.json'), 'utf8')) as {
         budgets: { markdown: Record<string, { within_budget: boolean }> };
       };
-      expect(manifest.budgets.markdown['MEMORY.md']).toMatchObject({ within_budget: true });
+      expect(manifest.budgets.markdown['KNOWLEDGE.md']).toMatchObject({ within_budget: true });
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
   });
-it('surfaces instruction feedback via the developer-review view and DEVELOPER_REVIEW.md projection', () => {
+it('surfaces instruction feedback via the developer-review view and KNOWLEDGE.md projection', () => {
     const dir = mkdtempSync(join(tmpdir(), 'oc-repo-devreview-'));
     try {
       const db = freshDb();
@@ -270,24 +270,38 @@ it('surfaces instruction feedback via the developer-review view and DEVELOPER_RE
         check: false,
       });
 
-      const devReview = readFileSync(join(dir, '.octocode', 'DEVELOPER_REVIEW.md'), 'utf8');
-      expect(devReview).toContain('# Developer Review');
+      const devReview = readFileSync(join(dir, '.octocode', 'KNOWLEDGE.md'), 'utf8');
+      expect(devReview).toContain('# Octocode Knowledge');
       expect(devReview).toContain('default lock TTL');
-      expect(devReview).toContain('Open: 1');
 
       const agentsMd = readFileSync(join(dir, '.octocode', 'AGENTS.md'), 'utf8');
-      expect(agentsMd).toContain('Retro Files Map');
-      expect(agentsMd).toContain('.octocode/DEVELOPER_REVIEW.md');
+      expect(agentsMd).toContain('## Knowledge');
+      expect(agentsMd).toContain('.octocode/KNOWLEDGE.md');
 
       const manifest = JSON.parse(readFileSync(join(dir, '.octocode', 'awareness', 'manifest.json'), 'utf8')) as {
         counts: Record<string, number>;
         budgets: { markdown: Record<string, { within_budget: boolean }> };
       };
       expect(manifest.counts['developer-review']).toBe(1);
-      expect(manifest.budgets.markdown['DEVELOPER_REVIEW.md']).toMatchObject({ within_budget: true });
+      expect(manifest.budgets.markdown['KNOWLEDGE.md']).toMatchObject({ within_budget: true });
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+
+it('omits KNOWLEDGE.md when the workspace has no knowledge rows', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'oc-repo-empty-knowledge-'));
+  try {
+    const db = freshDb();
+    const result = injectRepoContext(db, { workspacePath: dir, check: false });
+    expect(result.files).toEqual(expect.arrayContaining([
+      join(dir, '.octocode', 'AGENTS.md'),
+      join(dir, '.octocode', 'awareness', 'manifest.json'),
+    ]));
+    expect(existsSync(join(dir, '.octocode', 'KNOWLEDGE.md'))).toBe(false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
 
 });

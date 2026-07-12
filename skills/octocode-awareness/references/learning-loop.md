@@ -25,7 +25,7 @@ Terminal recipe: `refinement set --refinement-id <id> --agent-id "$OCTOCODE_AGEN
 
 Capture so errors cluster: `reflect record --outcome failed --failure-signature "<stable key>" --lesson "…"`. Stable key = `test:<name>` or `<class>:<site>`, not the full message. Bulk: `--eval-failure-json '[...]'`. Mine with `reflect mine-weakness`; route `--fix-repo|harness|instructions`; re-reflect with the **same** signature. `--outcome` must be `worked|partial|failed`.
 
-## Label → wiki (after `repo inject`)
+## Label → wiki (after `wiki sync`)
 
 | Write with | Lands in |
 |---|---|
@@ -45,4 +45,4 @@ SQLite is canonical; inject only when file readers need refresh. Relation betwee
 VERIFIED OUTCOME -> REFLECT -> ROUTE -> APPLY -> VERIFY -> CLOSE ROW -> PROJECT IF USEFUL -> ATTEND
 ```
 
-Use `--duo` for hard judgments; `subagent-rubber-duck.md` for a real second agent. `none` closes when nothing durable remains. `export-harness` is preview-only; `repo inject` publishes DB state separately. Keep memory/refinement IDs until closure.
+Use `--duo` for hard judgments; `subagent-rubber-duck.md` for a real second agent. `none` closes when nothing durable remains. `export-harness` is preview-only; `wiki sync` publishes DB state separately. Keep memory/refinement IDs until closure.

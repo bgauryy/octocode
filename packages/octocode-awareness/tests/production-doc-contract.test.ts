@@ -2,15 +2,12 @@ import { describe, expect, it } from 'vitest';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-
 const PACKAGE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const REPO_ROOT = resolve(PACKAGE_ROOT, '../..');
 const SKILL_ROOT = resolve(REPO_ROOT, 'skills/octocode-awareness');
-
 function read(path: string): string {
   return readFileSync(path, 'utf8');
 }
-
 function markdownFiles(root: string): string[] {
   const files: string[] = [];
   for (const entry of readdirSync(root, { withFileTypes: true })) {
@@ -20,13 +17,11 @@ function markdownFiles(root: string): string[] {
   }
   return files;
 }
-
 describe('production guidance contract', () => {
   it('owns the complete Awareness lifecycle in one architecture document', () => {
     const lifecycle = read(resolve(PACKAGE_ROOT, 'docs/HOW_IT_WORKS.md'));
     const catalog = read(resolve(PACKAGE_ROOT, 'docs/README.md'));
     const rootAgents = read(resolve(REPO_ROOT, 'AGENTS.md'));
-
     expect(lifecycle).toMatch(/AGENTS\.md.*entry.*router[\s\S]*Agent Skills?.*policy[\s\S]*CLI.*control plane[\s\S]*hooks.*automation/i);
     expect(lifecycle).toContain('ENTER -> ACTIVATE -> ATTEND -> CHOOSE');
     expect(lifecycle).toContain('The Awareness CLI is the only agent-facing control plane for durable Awareness state.');
@@ -35,7 +30,6 @@ describe('production guidance contract', () => {
     expect(catalog).toContain('complete bootstrap, operating, state, hook, memory, projection, and exit lifecycle');
     expect(rootAgents).toContain('docs/HOW_IT_WORKS.md');
   });
-
   it('uses one standalone WORK term and lazy command/reference discovery', () => {
     const authored = [
       resolve(PACKAGE_ROOT, 'README.md'),
@@ -47,23 +41,19 @@ describe('production guidance contract', () => {
       .filter((path) => /quick work|quick independent work|taskless/i.test(read(path)))
       .map((path) => relative(REPO_ROOT, path));
     expect(terminologyFailures).toEqual([]);
-
     const cheatSheet = read(resolve(SKILL_ROOT, 'references/agent-cheatsheet.md'));
     expect(cheatSheet).not.toContain('<cli> schema commands --compact');
     expect(cheatSheet).not.toContain('<cli> docs list --compact');
     expect(cheatSheet).toContain('only when');
-
     const agents = read(resolve(PACKAGE_ROOT, 'AGENTS.md'));
     expect(agents).not.toContain('$AWARENESS schema commands --compact');
     expect(read(resolve(PACKAGE_ROOT, 'docs/SKILLS.md'))).not.toContain('<command> --help --compact');
-
     const helpData = read(resolve(PACKAGE_ROOT, 'bin/cli-help-data.ts'));
     expect(helpData).toContain('AGENTS.md = trigger/router');
     expect(helpData).toContain('Agent Skill = operating policy');
     expect(helpData).toContain('CLI/SQLite = canonical live state');
     expect(helpData).toContain('hooks/Pi bridge = deterministic lifecycle automation');
   });
-
   it('routes every skill reference explicitly and removes mutating compatibility setup', () => {
     const skill = read(resolve(SKILL_ROOT, 'SKILL.md'));
     const referenceNames = readdirSync(resolve(SKILL_ROOT, 'references'), { withFileTypes: true })
@@ -87,13 +77,11 @@ describe('production guidance contract', () => {
     expect([...reachable].sort()).toEqual(referenceNames.sort());
     expect(direct.size).toBeLessThanOrEqual(12);
     expect(skill).not.toContain('scripts/install-hooks.mjs');
-
     expect(existsSync(resolve(SKILL_ROOT, 'scripts/install-hooks.mjs'))).toBe(false);
     expect(existsSync(resolve(SKILL_ROOT, 'scripts/package.json'))).toBe(false);
     const install = read(resolve(SKILL_ROOT, 'scripts/install.mjs'));
     expect(install).not.toMatch(/npm install|check-only|skip-deps|findNpm|installDependencies/);
   });
-
   it('makes Pi advisory-first and reserves exclusivity for sensitive files', () => {
     const skillsPrompt = read(resolve(REPO_ROOT, 'packages/octocode-pi-extension/src/prompts/sections/skills.md'));
     const awarenessPrompt = read(resolve(REPO_ROOT, 'packages/octocode-pi-extension/src/prompts/sections/awareness.md'));
@@ -115,7 +103,6 @@ describe('production guidance contract', () => {
     expect(piToolSource).not.toMatch(/memory_workspace_status|memory_file_lock|memory_notify/);
     expect(piToolSource).not.toMatch(/FILE_LOCK_KINDS|lock_type/);
   });
-
   it('removes legacy notify and lock-kind inputs from the shared tool adapter', () => {
     const operations = read(resolve(PACKAGE_ROOT, 'src/tool-operations.ts'));
     const types = read(resolve(PACKAGE_ROOT, 'src/types.ts'));
@@ -319,7 +306,7 @@ describe('production guidance contract', () => {
     expect(verification).toContain('skill-review.mjs');
     expect(verification).toMatch(/PASS[\s\S]*FAIL[\s\S]*BLOCKED/);
     expect(verification).toContain('## Receipt');
-    expect(verification).toMatch(/missing `npm`[\s\S]*BLOCKED/i);
+    expect(verification).toMatch(/Yarn's isolated packed artifact/i);
     expect(verification.indexOf('--dry-run')).toBeLessThan(verification.indexOf('hooks install --host <claude|codex|cursor>'));
   });
 

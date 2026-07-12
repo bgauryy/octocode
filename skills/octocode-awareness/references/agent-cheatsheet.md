@@ -1,9 +1,8 @@
 # Agent Cheat Sheet
 
-Use `<cli>`: local monorepo `node packages/octocode-awareness/out/octocode-awareness.js`;
-installed package `npx @octocodeai/octocode-awareness` (or global `octocode-awareness`); bundled
-`node scripts/awareness.mjs` only as fallback. Export `OCTOCODE_AGENT_ID`; use active
-Claude frontmatter or checked Codex/Cursor config, never both Claude surfaces.
+Use `<cli>`: local `node packages/octocode-awareness/out/octocode-awareness.js`; installed
+`npx @octocodeai/octocode-awareness`; bundled `node scripts/awareness.mjs` only as fallback.
+Export `OCTOCODE_AGENT_ID`; use Claude frontmatter or checked host config, never both.
 
 ## BEFORE / READ
 
@@ -12,9 +11,9 @@ Claude frontmatter or checked Codex/Cursor config, never both Claude surfaces.
 ```
 
 Inspect Ready, Claimed, Verify, FilesUnderWork, Inbox. Follow `next` (Verify → Ready →
-owned Claimed → FilesUnderWork → Inbox → evidence). Use `--help` / `schema json-schema`
-/ `docs list` only when the next action needs them.
-If prior learning could alter the plan, run `memory recall --query "<task>" --workspace "$PWD" --smart --compact`; re-check ranked leads. `.octocode/` is a menu, not live state.
+owned Claimed → FilesUnderWork → Inbox → evidence). Use `--help`,
+`schema command <noun> [action]`, or docs only when the next action needs them.
+If prior learning could alter the plan, run `memory recall --query "<task>" --workspace "$PWD" --smart --compact`; re-check ranked leads. `.octocode/` is a menu, not live state; refresh it only with `wiki sync`.
 
 ## DURING / DO — Shared Task
 
@@ -38,12 +37,13 @@ If prior learning could alter the plan, run `memory recall --query "<task>" --wo
 ```
 
 Ordinary peers allowed; `work show --workspace "$PWD" --file <path>` when overlap matters. Sensitive work
-adds `--exclusive`; exit `2` = wait/signal/switch. `lock wait` ≠ peer gone — re-check
-presence before exclusive acquire.
+adds `--exclusive`; exit `2` = wait/signal/switch. `lock wait/prune` are advanced
+recovery commands; re-check presence before retrying.
 
 ## Token Discipline
-Compact `attend` for the next action. Prefer `verify audit`, `signal list`, `work show`;
-CSV/HTML for bulk. Recall and docs list are lean by default.
+Compact `attend` for the next action. Prefer grouped `schema commands`, one exact
+`schema command`, targeted `verify audit`/`signal list`/`work show`, and CSV/HTML for
+bulk. Add `--full` only when the compact receipt cannot drive the next decision.
 
 AFTER/VERIFY and LEARN/CLEAN: `references/agent-cheatsheet-finish.md`. Agents/skills:
 `references/agent-cheatsheet-tooling.md`. Files: `references/files-awareness.md`.

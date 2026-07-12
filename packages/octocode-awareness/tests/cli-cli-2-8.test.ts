@@ -132,7 +132,7 @@ it('focused help exposes skill-prescribed reflection and projection flags', () =
   });
 it('every command in schema commands has focused help or is schema/hook utility', () => {
     const schemaScript = resolve(dirname(fileURLToPath(import.meta.url)), '../../../skills/octocode-awareness/scripts/schema.mjs');
-    const result = spawnSync(NODE, [schemaScript, 'commands', '--compact'], { encoding: 'utf8', timeout: 5000 });
+    const result = spawnSync(NODE, [schemaScript, 'commands', '--all', '--compact'], { encoding: 'utf8', timeout: 5000 });
     expect(result.status).toBe(0);
     const parsed = JSON.parse(result.stdout) as { commands: Array<{ command: string }> };
     const commandNames = parsed.commands.map((row) => row.command);
@@ -235,7 +235,7 @@ it('schema covers runtime drift cases for verify, audit, and handoff refinements
 
     const audit = spawnSync(NODE, [schemaScript, 'json-schema', 'audit_unverified'], { encoding: 'utf8', timeout: 5000 });
     expect(audit.status).toBe(0);
-    expect(audit.stdout).toContain('"abandon"');
+    expect(audit.stdout).not.toContain('"abandon"');
 
     const refinement = spawnSync(NODE, [schemaScript, 'json-schema', 'refinement'], { encoding: 'utf8', timeout: 5000 });
     expect(refinement.status).toBe(0);

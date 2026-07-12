@@ -1,6 +1,5 @@
 import { existsSync } from 'node:fs';
-import { join } from 'node:path';
-import { hookCommand, hookCommandWindows, HookEntry, HookHost, HookSpec, WRITE_MATCHERS } from './hooks-install-specs.js';
+import { hookCommand, hookCommandWindows, hookTargetPath, HookEntry, HookHost, HookSpec, WRITE_MATCHERS } from './hooks-install-specs.js';
 
 export function specsFor(host: HookHost, params: {
   globalMode: boolean;
@@ -14,7 +13,7 @@ export function specsFor(host: HookHost, params: {
     ...(hookCommandWindows(name, { host, hookDir: params.hookDir })
       ? { commandWindows: hookCommandWindows(name, { host, hookDir: params.hookDir }) }
       : {}),
-    targetPath: join(params.hookDir, name),
+    targetPath: hookTargetPath(params.hookDir),
   });
   if (host === 'cursor') {
     return [
@@ -63,7 +62,7 @@ export function obsoleteSpecsFor(host: HookHost, params: {
     event: host === 'cursor' ? 'preToolUse' : 'PreToolUse',
     matcher: WRITE_MATCHERS[host],
     command: hookCommand('harness-guard.sh', { host, ...params }),
-    targetPath: join(params.hookDir, 'harness-guard.sh'),
+    targetPath: hookTargetPath(params.hookDir),
   }];
 }
 
@@ -182,6 +181,35 @@ export function removeCommand(groups: HookEntry[] | undefined, command: string):
     }
     const hooks = group.hooks.filter((hook) => {
       if (sameAwarenessCommand(hook.command, command)) {
+        removed = true;
+        return false;
+      }
+      return true;
+    });
+    if (hooks.length > 0) out.push({ ...group, hooks });
+  }
+  return { groups: out, removed };
+}
+
+export function removeUnexpectedAwarenessCommands(
+  groups: HookEntry[] | undefined,
+  keepNames: ReadonlySet<string> = new Set(),
+): { groups: HookEntry[]; removed: boolean } {
+  let removed = false;
+  const out: HookEntry[] = [];
+  for (const group of groups ?? []) {
+    const flatName = awarenessHookName(group.command);
+    if (flatName && !keepNames.has(flatName)) {
+      removed = true;
+      continue;
+    }
+    if (!Array.isArray(group.hooks)) {
+      out.push(group);
+      continue;
+    }
+    const hooks = group.hooks.filter((hook) => {
+      const name = awarenessHookName(hook.command);
+      if (name && !keepNames.has(name)) {
         removed = true;
         return false;
       }

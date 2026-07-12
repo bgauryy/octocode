@@ -8,17 +8,17 @@ by CLI and hooks — without it, presence and peer packets do not join correctly
 | Codex | trusted `.codex/hooks.json` | SessionStart, successful writes, subagent start/stop, PreCompact, prompt/stop; no SessionEnd/failure event |
 | Cursor | `.cursor/hooks.json` | success/failure writes and lifecycle; subagent context delivery varies by surface/version; native deny/follow-up output |
 | Pi | `wirePiAwarenessHooks(pi)` | in-process block/context/follow-up; never shell install |
-Choose one surface. When Claude runs this skill's frontmatter, do not also install
-project settings; `hooks check` inspects settings files only. Codex/Cursor require config.
+Choose one surface. With Claude frontmatter, preview/remove legacy project or global
+Awareness hooks; do not also install them. Codex/Cursor require project config.
 Preview, install after approval, then check:
 
 ```bash
-<cli> hooks install --host <codex|cursor> --project-dir . --dry-run --compact
+<cli> hooks install --host <codex|cursor> --project-dir . --dry-run
 <cli> hooks install --host <codex|cursor> --project-dir . --compact
-<cli> hooks check --host <codex|cursor> --project-dir . --strict --compact
+<cli> hooks check --host <codex|cursor> --project-dir . --strict
 ```
 
-`--strict` validates exact Awareness-owned entries and their script targets. Read `health.config` separately
+Noncompact dry-run exposes the settings diff; compact output is only a receipt. `--strict` validates exact Awareness-owned entries and their script targets. Read `health.config` separately
 from `health.runtime`; runtime remains `unverified` until a harmless write proves the
 hook fired. For Codex also inspect project trust, hook-definition trust, and the hooks
 feature. For Cursor smoke local and cloud separately; flat config has no guaranteed
@@ -27,12 +27,12 @@ Windows command override. Use `--host claude` only when frontmatter is unavailab
 Remove (preview first) when uninstalling host wiring:
 
 ```bash
-<cli> hooks remove --host <claude|codex|cursor> --project-dir . --dry-run --compact
+<cli> hooks remove --host <claude|codex|cursor> --project-dir . --dry-run
 <cli> hooks remove --host <claude|codex|cursor> --project-dir . --compact
 ```
 
-The installer quotes hook paths, tags the host, adds a Codex Windows command, repairs
-obsolete roots, and removes the old standalone guard. Pre-edit remains the single
+The installer quotes paths, adds a Codex Windows command, and removes Awareness hooks
+at obsolete roots/events. For drift: preview remove, remove, install, strict-check. Pre-edit remains the single
 ordered guard+presence edge.
 
 Smoke: session/subagent registration; ordinary peer context once; exclusive denial before presence; a failed write creates no audit/debt; N successful writes in one

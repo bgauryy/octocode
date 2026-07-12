@@ -1,0 +1,71 @@
+{
+  "note": "JUDGE-ONLY. Solvers must never read this. GitHub facts (PR/issue state, line numbers) are time-sensitive -- re-verify before scoring an old snapshot. v2 (2026-07-12): replaced Q3 (was docs-only) with a deep multi-file PR review; added Q7-Q10.",
+  "verificationCaveat": "Ground truth must be verified with a method outside BOTH arms (not octocode, not gh/rtk). v1's Q2/Q4 were originally verified with octocode itself (a conflict since it's Arm B) -- remediated via WebFetch against raw.githubusercontent.com, see verification.independentChecks. v2's Q3/Q7/Q8/Q9/Q10 were verified independently from the start (WebFetch/api.github.com/registry.npmjs.org); the one remaining gap is the itemized per-file diff breakdown for Q3 (8 files) and Q10b (2 files), sourced via `gh pr view --json files`, cross-checked against the PR's own aggregate stats fetched via WebFetch (exact match, 677/239/8 for Q3).",
+  "verification": {
+    "independentChecks": [
+      {"question": "q2", "method": "WebFetch raw.githubusercontent.com/vercel/next.js/canary/.../route-regex.ts", "result": "Confirmed getParametrizedRoute defined before getRouteRegex, called as its first statement. Line numbers (149/93) trace to the original LSP documentSymbols pass, not re-confirmable via WebFetch (rendering strips indentation)."},
+      {"question": "q4", "method": "WebFetch raw.githubusercontent.com/pmndrs/zustand/main/src/middleware/devtools.ts", "result": "Confirmed verbatim: v8StackLineRe = /.+ (.+) .+/, unchanged on main as of 2026-07-12."},
+      {"question": "q3, q4 (PR/issue state)", "method": "Cross-arm convergence, run rtk-gh-vs-octocode-flows-20260712T070819Z", "result": "All 6 agents (3 octocode, 3 rtk-gh) independently reached identical PR #3541/#3531 facts."}
+    ]
+  },
+  "questions": {
+    "q1": {
+      "answer": "(a) vercel/next.js examples/with-zustand/src/lib/store.ts uses React Context (createContext/useContext wrapping zustand's createStore/useStore) -- a per-request factory, not a module singleton. (b) zustand package.json: peerDependencies.react exists but peerDependenciesMeta.react.optional is true -- OPTIONAL. (c) Zustand's vanilla store has no React dependency; Next.js needs a NEW store per server request (Context factory), not one shared singleton, to avoid leaking state across requests/users.",
+      "scoring": "1.0 = Context+file, optional-peer-dep, coherent (c); 0.5 = (a)+(b) right, (c) generic/wrong, or one of (a)/(b) wrong; 0 = wrong file, singleton claim, or react-required claim.",
+      "keyTerms": ["createContext", "useContext", "createStore", "peerDependencies", "optional"]
+    },
+    "q2": {
+      "answer": "(a) getRouteRegex, packages/next/src/shared/lib/router/utils/route-regex.ts:149. (b) Calls getParametrizedRoute first, same file, line 93 -- tokenizes into named groups before getRouteRegex builds the RegExp+groups.",
+      "scoring": "1.0 = both names+file+lines (\u00b110); 0.5 = correct file+getRouteRegex only; 0 = wrong file/function (e.g. getRouteMatcher, which matches rather than builds).",
+      "keyTerms": ["getRouteRegex", "getParametrizedRoute"]
+    },
+    "q3": {
+      "answer": "PR #15035 'preserve VNode anchors in dynamic component hydration', merged 2026-07-03. (a) 8 files, +677/-239 net. (b) 5 source files across 2 packages: runtime-core/src/{hydration.ts (+24/-21), renderer.ts (+4/-0)}, runtime-vapor/src/{block.ts (+3/-2), component.ts (+13/-2), vdomInterop.ts (+84/-44)}; other 3 are test specs. (c) vdomInterop.ts is largest at 128 combined lines, well above hydration.ts(45)/component.ts(15)/block.ts(5)/renderer.ts(4). (d) Fixes Vapor-mode hydration bugs interoperating with vdom: Teleport hydration with an invalid/null target, async/Suspense components leaving stale adopted SSR DOM on late resolution, and slot-fallback content stability across updates/unmounts. runtime-core owns the shared vdom-side hydration algorithm both classic and interop rely on; runtime-vapor owns the Vapor-specific block/component/vdomInterop machinery that must cooperate with it.",
+      "scoring": "1.0 = file count(8)+delta(677/239), correct source/test split across both packages, vdomInterop.ts as largest, and 2+ named interop scenarios in (d); 0.5 = (a)-(c) right but (d) vague/single-scenario, or 3-4 of 4 right; 0 = wrong counts, claims docs-only/single-package, or (d) unsubstantiated.",
+      "keyTerms": ["vdomInterop.ts", "runtime-vapor", "runtime-core", "677", "Teleport", "hydration"]
+    },
+    "q4": {
+      "answer": "(a) v8StackLineRe = /.+ (.+) .+/ at src/middleware/devtools.ts (~line 168 on main; judge on the regex, not the line). (b) PR #3531 is OPEN, not merged. (c) Bug is still live -- the greedy pattern still mis-captures the caller name whenever the source path contains a space.",
+      "scoring": "1.0 = correct regex + correct PR/open-state + states still-live; 0.5 = one of regex/PR-state right, other wrong/missing; 0 = claims fixed/merged, or wrong file/PR.",
+      "keyTerms": ["v8StackLineRe", "3531", "open"]
+    },
+    "q5": {
+      "answer": "(a) WorkbenchKeybindingService (line 175) in src/vs/workbench/services/keybinding/browser/keybindingService.ts. (b) Base class AbstractKeybindingService in src/vs/platform/keybinding/common/abstractKeybindingService.ts owns dispatch: dispatchEvent at line 134 (also softDispatch at 140 for context-key-only resolution).",
+      "scoring": "1.0 = correct class+file (a) and base class+file+method (b) (line \u00b110 ok); 0.5 = one side right; 0 = neither correct (e.g. only menuService.ts).",
+      "keyTerms": ["WorkbenchKeybindingService", "AbstractKeybindingService", "dispatchEvent"],
+      "criticalKeyTerm": "dispatchEvent",
+      "criticalKeyTermNote": "The internal _dispatch/_doDispatch resolver is easy to mistake for the public entry point this question asks for. An answer that never mentions dispatchEvent anywhere is a coverage failure regardless of confidence."
+    },
+    "q6": {
+      "exploratory": true,
+      "answer": "(a) vuejs/core: yes, vdom diff/patch exists -- patch (PatchFn), a closure inside baseCreateRenderer in packages/runtime-core/src/renderer.ts, re-invoked on every reactive update. (b) sveltejs/svelte: no equivalent runtime diffing -- compiled code calls granular DOM ops directly, e.g. create_element/create_text/create_fragment/create_comment/set_attribute in packages/svelte/src/internal/client/dom/operations.js. (c) Svelte's compiler reconciles ahead of time so the runtime never compares trees, trading a heavier compiler for a smaller diff-free runtime; Vue keeps a small/optional compiler but still walks a generic runtime patch every update, trading diffing cost for a more dynamic/general-purpose renderer. Bonus (not required): packages/svelte/.../dom/blocks/each.js's exported reconcile(state, array, anchor, flags, get_key) does runtime reconciliation for keyed {#each} blocks -- so Svelte isn't fully diff-free.",
+      "answerCorrection_20260712": "Corrected post-run: original bonus text named dom/reconciler.js. Independent judge WebFetch found this wrong -- reconciler.js is actually create_trusted_html/create_fragment_from_html (static HTML materialization), unrelated to list diffing. Real reconciler is blocks/each.js, as corrected above. Did not change any correctness score (bonus never required) but affected quality scoring (rewarded verifiers over guessers); rtk-gh-1 cited the wrong reconciler.js and was flagged as a near-miss.",
+      "scoring": "EXPLORATORY, looser than Q1-Q5, bonus not required. 1.0 = Vue patch+file AND Svelte 2+ functions+file AND coherent trade-off; 0.5 = one side right, other vague; 0 = neither grounded in an actual citation. Finding each.js is a positive depth signal, not required; citing reconciler.js is a near-miss (plausible filename, unverified), not the bonus.",
+      "keyTerms": ["patch", "renderer.ts", "create_element"]
+    },
+    "q7": {
+      "answer": "(a) Base Stream constructor lives in lib/internal/streams/legacy.js: `function Stream(opts) { EE.call(this, opts); }` + `ObjectSetPrototypeOf(Stream.prototype, EE.prototype); ObjectSetPrototypeOf(Stream, EE);` (EE = require('events')) -- old-style prototype-chain wiring, NOT `class extends`. lib/stream.js is just `Stream = module.exports = require('internal/streams/legacy').Stream` plus glue -- confirming it's an aggregator. (b) lib/internal/streams/readable.js is by far the largest file (~54.7KB/54,729 bytes), holding the real Readable implementation; next-largest is writable.js (~33.6KB/33,651 bytes), ~1.6x smaller. (c) once() does NOT reimplement bookkeeping -- calls `this.on(type, _onceWrap(this, type, listener))`; _onceWrap builds a bound onceWrapper that calls `this.target.removeListener(...)` on first fire before invoking the real listener -- a thin wrapper delegating to on()/removeListener().",
+      "scoring": "1.0 = legacy.js's ObjectSetPrototypeOf pattern (not class extends) for (a) AND readable.js largest + writable.js runner-up for (b) AND once()->on()/removeListener() via _onceWrap/onceWrapper for (c); 0.5 = 2/3 right, or all 3 directionally right but missing specific names; 0 = claims class-extends, wrong largest file, or claims independent storage for once().",
+      "keyTerms": ["ObjectSetPrototypeOf", "legacy.js", "readable.js", "_onceWrap", "onceWrapper"]
+    },
+    "q8": {
+      "answer": "(a) evanw/esbuild. (b) Go dominates by a wide margin (~5.1MB Go vs 1.16MB JS vs 413KB TS per GitHub's language breakdown -- Go alone is 2x+ JS+TS combined), despite the published npm lib/ folder being only main.js (~95KB) + main.d.ts (~23KB) plus prebuilt native binaries. (c) The Node JS API (lib/npm/node.ts, esbuildCommandAndArgs) does NOT compile into JS/WASM and run in-process for the normal path -- it spawns the native Go binary as a SEPARATE PROCESS via child_process (spawn for the long-lived '--service' mode, execFileSync for the sync API) and talks to it over stdio via esbuild's own binary protocol; the JS API is an RPC client, not the implementation.",
+      "scoring": "1.0 = correct repo AND Go (not JS/TS) dominant with roughly-correct magnitude AND child_process spawn/execFileSync (separate process over stdio) for (c); 0.5 = (a)+(b) right but (c) vague, or (a)+(c) right but assumes JS/TS dominant; 0 = wrong repo, or claims core logic is JS/TS.",
+      "keyTerms": ["evanw/esbuild", "Go", "child_process", "spawn"],
+      "criticalKeyTerm": "Go",
+      "criticalKeyTermNote": "The point of this question is the npm-name-vs-actual-language gap. An answer that never states Go is dominant has missed the point even if it finds the repo and describes spawn -- treat as a coverage failure."
+    },
+    "q9": {
+      "answer": "(a) Per docs/Reference/Lifecycle.md: Incoming Request -> Routing -> Instance Logger -> onRequest -> preParsing -> Parsing -> preValidation -> Validation -> preHandler -> User Handler. onRequest before preParsing before Parsing itself; preValidation after Parsing but before Validation; preHandler after Validation, immediately before the handler. (b) preSerialization, then onSend -- only after onSend does the response go out; onResponse fires AFTER, not before. (c) lib/route.js checks `if (context.onRequest !== null)` on the per-route context, then calls `onRequestHookRunner(context.onRequest, request, reply, handleRequest.bind(request.server))`; the hook-runner functions are defined in lib/hooks.js.",
+      "scoring": "1.0 = correct order for (a) AND preSerialization-then-onSend-before-onResponse for (b) AND context.onRequest check + onRequestHookRunner for (c); 0.5 = (a)+(b) right, (c) vague/wrong, or one order slip; 0 = materially wrong order (e.g. preHandler before Validation) or unrelated hooks (onReady/onClose are server- not request-lifecycle).",
+      "keyTerms": ["onRequest", "preParsing", "preHandler", "preSerialization", "onSend", "onResponse"]
+    },
+    "q10": {
+      "answer": "(a) Issue #15389 'BITFIELD #offset Signed Overflow DoS'. Root cause: getBitOffsetFromArgument() in src/bitops.c multiplies the parsed #offset by the field's bit width (loffset *= bits) in signed long long BEFORE any bounds check; for i64 (width 64), any offset > floor(LLONG_MAX/64) (PoC: 144115188075855872) overflows -- UB in C, aborts on UBSAN/hardened builds -- unauthenticated remote DoS via BITFIELD or BITFIELD_RO. (b) PR #15433, merged 2026-07-10. Touches src/bitops.c (+9/-3) and tests/unit/bitfield.tcl (+9/-0); net +18/-3. (c) Adds `if (loffset > LLONG_MAX / bits)` check BEFORE the multiplication, returning the existing range error instead of letting the multiply run unconditionally. (d) Yes -- confirmed present in current redis/unstable src/bitops.c: inside getBitOffsetFromArgument() (~line 713), the usehash branch (~729) has `if (loffset > LLONG_MAX / bits) { ... return C_ERR; }` at ~line 730, immediately before `loffset *= bits` at ~line 734.",
+      "scoring": "1.0 = correct issue#(15389)+root cause AND correct PR#(15433)+file+delta AND correct guard description AND confirms present on unstable with the actual current-source condition (not just paraphrasing the PR); 0.5 = (a)+(b) right but (c)/(d) vague or unverified against current source, or 3/4 right; 0 = wrong issue/PR#, wrong root cause, or claims fix absent/still vulnerable.",
+      "keyTerms": ["15389", "15433", "getBitOffsetFromArgument", "LLONG_MAX", "bitops.c"],
+      "criticalKeyTerm": "LLONG_MAX",
+      "criticalKeyTermNote": "Part (d) forbids trusting the PR description at face value -- an answer that only paraphrases PR #15433 without opening current src/bitops.c and quoting the actual guard has not done the verification step asked for, even if correct. Mirrors Q4's pattern in a different language."
+    }
+  }
+}

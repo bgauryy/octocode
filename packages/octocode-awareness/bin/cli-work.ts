@@ -75,7 +75,6 @@ export function cmdAuditUnverified(db: DatabaseSync, args: ParsedArgs, dbPath: s
     agentId: args['agent_id'] ? String(args['agent_id']) : null,
     workspacePath: rawAuditWs ? normalizeWorkspacePath(rawAuditWs, rawAuditWs) : null,
     artifact: args['artifact'] ? String(args['artifact']) : null,
-    abandon: Boolean(args['abandon']),
     olderThanDays: args['older_than_days'] !== undefined ? Number(args['older_than_days']) : null,
     origins: valuesFor(args, 'origin').map((origin) => origin.toUpperCase() as 'TASK' | 'WORK' | 'HOOK'),
     before: args['before'] ? String(args['before']) : null,
@@ -203,29 +202,20 @@ export function cmdReleaseFileLock(db: DatabaseSync, args: ParsedArgs, dbPath: s
 }
 
 export function projectCompactWorkMutation(result: WorkMutationResult): Record<string, unknown> {
-  const files = result.files.slice(0, 1).map(file => ({
-    file_path: file.file_path,
-    source: file.source,
-    expires_at: file.expires_at,
-    ...(file.ended_at ? { ended_at: file.ended_at } : {}),
-  }));
   const peers = result.peers.slice(0, 1).map(peer => ({
     run_id: peer.run_id,
-    task_id: peer.task_id,
     agent_id: peer.agent_id,
     file_path: peer.file_path,
     exclusive: peer.exclusive,
     expires_at: peer.expires_at,
   }));
   return {
-    ...result,
+    run_id: result.run.run_id,
+    agent_id: result.run.agent_id,
+    status: result.run.status,
     file_count: result.files.length,
-    file_shown_count: files.length,
-    file_omitted_count: Math.max(0, result.files.length - files.length),
-    files,
-    peer_shown_count: peers.length,
-    peer_omitted_count: Math.max(0, result.peer_count - peers.length),
-    peers,
+    peer_count: result.peer_count,
+    ...(peers.length > 0 ? { peers, peer_omitted_count: Math.max(0, result.peer_count - peers.length) } : {}),
   };
 }
 

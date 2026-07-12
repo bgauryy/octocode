@@ -30,7 +30,7 @@ describe('Awareness prompt control loop', () => {
     expect(awareness).toMatch(/skill owns routing and the CLI owns live state/);
     expect(awareness).toMatch(/memory recall/);
     expect(awareness).toMatch(/maintenance digest/);
-    expect(awareness).toMatch(/repo inject.*only when file readers need/);
+    expect(awareness).toMatch(/wiki sync.*only when file readers need/);
     expect(awareness).toMatch(/SQLite and live CLI queries remain canonical/);
     expect(awareness).not.toMatch(/octocode-memory-(digest|forget)/);
     expect(skills).not.toMatch(/then verify, hand off, and clean stale state/);
@@ -40,7 +40,7 @@ describe('Awareness prompt control loop', () => {
     for (const command of [
       'attend', 'memory recall', 'memory record', 'task submit',
       'verify mark', 'verify audit', 'maintenance digest', 'memory forget',
-      'repo inject',
+      'wiki sync',
     ]) {
       expect(loopPrompt).toContain(command);
     }

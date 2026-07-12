@@ -57,7 +57,6 @@ export interface AuditUnverifiedParams {
   agentId?: string | null;
   workspacePath?: string | null;
   artifact?: string | null;
-  abandon?: boolean;         // dismiss all PENDING runs as FAILED (clear orphaned)
   olderThanDays?: number | null;
   origins?: Array<'TASK' | 'WORK' | 'HOOK'>;
   before?: string | null;
@@ -161,7 +160,7 @@ export function finishLinkedTask(
       status === 'SUCCESS' ? 'VERIFIED' : 'VERIFICATION_FAILED', message ?? taskStatus, now);
 }
 
-export function abandonLinkedTask(
+export function failStaleLinkedTask(
   db: DatabaseSync,
   runId: string,
   agentId: string,
@@ -177,6 +176,6 @@ export function abandonLinkedTask(
   if (updated.changes === 0) return;
   db.prepare('DELETE FROM task_claims WHERE task_id = ?').run(linked.task_id);
   db.prepare(`INSERT INTO task_events(event_id, task_id, run_id, agent_id, event_type, message, created_at)
-    VALUES (?, ?, ?, ?, 'ABANDONED', ?, ?)`)
+    VALUES (?, ?, ?, ?, 'VERIFICATION_FAILED', ?, ?)`)
     .run(`tevt_${randomUUID().replace(/-/g, '')}`, linked.task_id, runId, agentId, message, now);
 }

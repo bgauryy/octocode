@@ -114,16 +114,15 @@ sensitive work; check while present; submit/end → `verify mark` → `verify au
 Use `memory recall --smart` for prior learning; record only verified reusable outcomes.
 
 SQLite is canonical. `.octocode/` is a discovery shelf: plan docs explain intent;
-generated memory/wiki/manifest/HTML files are snapshots that route to `attend`,
-`query`, `memory recall`, or `docs show`. Never hand-edit projections; run
-`repo inject` only when file readers need refreshed leads. Full lifecycle:
+generated wiki/memory files route to live `attend`, `query`, or `memory recall`.
+Never hand-edit projections; refresh them with `wiki sync` only for file readers.
+Exact flags: `schema command <noun> [action]`. Full lifecycle:
 [`docs/HOW_IT_WORKS.md`](packages/octocode-awareness/docs/HOW_IT_WORKS.md).
 
-Skill source: `skills/octocode-awareness`. It ships with the
-`@octocodeai/octocode-awareness` CLI package; use the local package build in this
-monorepo and `npx @octocodeai/octocode-awareness` when installed. Rebuild after
-changes; never edit `.agents/skills/` or `out/skills/` mirrors. Architecture and
-concept owners: [`packages/octocode-awareness/docs/README.md`](packages/octocode-awareness/docs/README.md).
+Skill source: `skills/octocode-awareness`; use the local build here or
+`npx @octocodeai/octocode-awareness` when installed. Rebuild after changes; never
+edit `.agents/skills/` or `out/skills/`. Concept owners:
+[`packages/octocode-awareness/docs/README.md`](packages/octocode-awareness/docs/README.md).
 
 ## Docs and references
 

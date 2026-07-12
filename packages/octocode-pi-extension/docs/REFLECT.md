@@ -116,6 +116,6 @@ Review the dry-run output before any mutation. After approved cleanup,
 refresh `.octocode/` only if file-based readers need current projections:
 
 ```bash
-node "$OCTOCODE_AWARENESS_CLI" repo inject \
+node "$OCTOCODE_AWARENESS_CLI" wiki sync \
   --workspace "$PWD" --mode local --compact
 ```

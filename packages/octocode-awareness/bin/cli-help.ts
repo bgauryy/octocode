@@ -67,7 +67,7 @@ note: --fix-repo → repo-code refinement; --fix-harness → skill/tooling; --fi
 schema: octocode-awareness schema json-schema reflect --compact`,
   'developer-review': `usage: octocode-awareness reflect developer-review [--workspace <repo>] [--state open|ongoing|done]... [--format json|markdown] [--limit <n>]
 example: octocode-awareness reflect developer-review --workspace "$PWD" --format markdown --compact
-note: reads agent feedback on the instructions themselves (from reflect record --fix-instructions); same rows feed .octocode/DEVELOPER_REVIEW.md`,
+note: reads agent feedback on the instructions themselves (from reflect record --fix-instructions); use --format markdown for an explicit export`,
   'query': `usage: octocode-awareness query <all|repo-profile|memories|gotchas|lessons|plans|tasks|runs|locks|agents|signals|refinements|files|activity|workboard|developer-review> [--query <text>] [--limit <1..500>] [--workspace <repo>] [--artifact <a>] [--repo <r>] [--ref <r>] [--agent-id <id>] [--state <s>]... [--label <l>]... [--file <p>] [--since <iso>] [--include-bodies] [--format json|table|csv|markdown|html] [--out <path>]
 examples:
   octocode-awareness query files --workspace "$PWD" --format table --limit 50
@@ -79,8 +79,8 @@ schema: octocode-awareness schema json-schema query --compact`,
 example: octocode-awareness attend --query "current task" --workspace "$PWD" --agent-id "$OCTOCODE_AGENT_ID" --compact
 note: pass --agent-id (or OCTOCODE_AGENT_ID) so next routes owned Verify/Claimed before generic evidence
 schema: octocode-awareness schema json-schema attend --compact`,
-  'repo-inject': `usage: octocode-awareness repo inject [--workspace <repo>] [--out .octocode] [--mode local|share] [--no-check] [--no-include-view] [--prune-orphans]
-example: octocode-awareness repo inject --workspace "$PWD" --out .octocode --mode local --compact
+  'repo-inject': `usage: octocode-awareness wiki sync [--workspace <repo>] [--out .octocode] [--mode local|share] [--no-check] [--no-include-view] [--prune-orphans]
+example: octocode-awareness wiki sync --workspace "$PWD" --out .octocode --mode local --compact
 note: review orphan_candidates before rerunning with --prune-orphans
 schema: octocode-awareness schema json-schema repo_inject --compact`,
   'docs-catalog': `usage: octocode-awareness docs list|show [name] [--full]
@@ -131,6 +131,19 @@ export function hyphenFlag(flag: string): string {
 }
 
 export function helpFor(command: string | null, options: { compact?: boolean; routeKey?: string } = {}): string {
+  if (!command && options.routeKey?.startsWith('noun:')) {
+    const noun = options.routeKey.slice('noun:'.length);
+    const actions = [...new Set(Object.keys(COMMAND_ROUTES)
+      .filter((route) => route.startsWith(`${noun} `))
+      .map((route) => route.slice(noun.length + 1)))];
+    const actionList = actions.join('|');
+    const firstRoute = actions.length > 0 ? `${noun} ${actions[0]}` : noun;
+    return [
+      `usage: octocode-awareness ${noun}${actionList ? ` ${actionList}` : ''} [options]`,
+      `details: octocode-awareness ${firstRoute} --help`,
+      `map: octocode-awareness schema command ${firstRoute} --compact`,
+    ].join('\n');
+  }
   if (!command) return options.compact ? HELP_COMPACT : HELP;
   const normalized = command.replace(/_/g, '-');
   const flags = KNOWN_FLAGS[normalized];
@@ -166,5 +179,9 @@ export function commandFromHelpArgv(argv: string[]): { command: string | null; r
   else if (first === 'schema' && second && ['commands', 'list', 'json-schema', 'example', 'validate'].includes(second)) routeKey = `schema ${second}`;
   else if (first && second && COMMAND_ROUTES[`${first} ${second}`]) routeKey = `${first} ${second}`;
   else if (first && SINGLE_COMMANDS.has(first)) routeKey = first;
-  return { command: selectCommand(filtered).command ?? null, routeKey };
+  const command = selectCommand(filtered).command ?? null;
+  if (!command && first && !second && Object.keys(COMMAND_ROUTES).some((route) => route.startsWith(`${first} `))) {
+    routeKey = `noun:${first}`;
+  }
+  return { command, routeKey };
 }

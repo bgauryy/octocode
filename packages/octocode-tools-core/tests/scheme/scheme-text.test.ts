@@ -65,7 +65,7 @@ describe('oqlCompactSchemeText (--scheme --compact)', () => {
 
   it('surfaces the npm and remote-file-read recipes (Haiku gaps)', () => {
     expect(compact).toContain('--target packages');
-    expect(compact).toContain('--content-view exact');
+    expect(compact).toContain('--content-view none');
   });
 
   it('distinguishes references from callers', () => {

@@ -178,7 +178,7 @@ export function lineCount(path: string): number | null {
 }
 
 export function projectionStats(workspacePath: string): Array<{ file: string; lines: number | null; mtime_ms: number | null }> {
-  return ['AGENTS.md', 'MEMORY.md', 'GOTCHAS.md', 'LEARN.md', 'BOOKMARKS.md', join('awareness', 'manifest.json')].map(file => {
+  return ['AGENTS.md', 'KNOWLEDGE.md', join('awareness', 'manifest.json')].map(file => {
     const path = join(workspacePath, '.octocode', file);
     let mtimeMs: number | null = null;
     try { mtimeMs = existsSync(path) ? statSync(path).mtimeMs : null; } catch { /* ignore projection stat errors */ }
@@ -192,7 +192,7 @@ export function manifestWarnings(
   liveSourceRevision: string | (() => string),
 ): string[] {
   const manifestPath = join(workspacePath, '.octocode', 'awareness', 'manifest.json');
-  if (!existsSync(manifestPath)) return ['.octocode/awareness/manifest.json missing; run repo inject when projection context is needed'];
+  if (!existsSync(manifestPath)) return ['.octocode/awareness/manifest.json missing; run wiki sync when projection context is needed'];
   try {
     const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as {
       generated_at?: string;
@@ -205,9 +205,6 @@ export function manifestWarnings(
     const files = manifest.files ?? [];
     const missingManagedCount = files.filter(file => !existsSync(resolve(workspacePath, file))).length;
     if (missingManagedCount > 0) warnings.push(`manifest has ${missingManagedCount} missing generated file(s); regenerate repo projection`);
-    if (!files.some(file => file.endsWith('/BOOKMARKS.md') || file.endsWith('\\BOOKMARKS.md') || file === 'BOOKMARKS.md')) {
-      warnings.push('manifest missing BOOKMARKS.md; regenerate repo projection');
-    }
     const markdownBudgets = manifest.budgets?.markdown ?? {};
     for (const [file, budget] of Object.entries(markdownBudgets)) {
       if (budget.within_budget === false) warnings.push(`manifest budget exceeded for ${file}`);
@@ -239,14 +236,12 @@ export function projectionWarnings(
 ): string[] {
   const budgets: Record<string, number> = {
     '.octocode/AGENTS.md': 80,
-    '.octocode/MEMORY.md': 200,
-    '.octocode/GOTCHAS.md': 200,
-    '.octocode/LEARN.md': 200,
-    '.octocode/BOOKMARKS.md': 200,
+    '.octocode/KNOWLEDGE.md': 200,
   };
   const markdownWarnings = stats.flatMap(stat => {
     const budget = budgets[stat.file];
-    if (stat.lines == null) return [`${stat.file} missing; run repo inject when projection context is needed`];
+    if (stat.file === '.octocode/KNOWLEDGE.md' && stat.lines == null) return [];
+    if (stat.lines == null) return [`${stat.file} missing; run wiki sync when projection context is needed`];
     if (budget != null && stat.lines > budget) return [`${stat.file} has ${stat.lines} lines over budget ${budget}`];
     return [];
   });

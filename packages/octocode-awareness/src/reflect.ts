@@ -85,7 +85,7 @@ export function reflect(db: DatabaseSync, params: ReflectParams): ReflectResult 
   const tags = [
     'reflection', resolvedOutcome,
     ...(fixHarness ? ['harness'] : []),
-    // `developer-review` is the query tag the DEVELOPER_REVIEW.md projection reads;
+        // `developer-review` is the query tag used by the live review view;
     // `instructions` scopes it to the instruction-author feedback channel.
     ...(fixInstructions ? ['instructions', 'developer-review'] : []),
     ...(hasEvalFailures ? ['eval'] : []),
@@ -189,7 +189,7 @@ export function reflect(db: DatabaseSync, params: ReflectParams): ReflectResult 
   // Optional instructions-feedback refinement — a tracked, human-owned item addressed
   // to the developer who authored this agent's operating instructions. Quality
   // 'instructions' keeps it out of the coding refinement queue; it surfaces via
-  // `reflect developer-review` and `.octocode/DEVELOPER_REVIEW.md`.
+      // `reflect developer-review` and the bounded KNOWLEDGE projection.
   let developerReviewRefinementId: string | null = null;
   if (fixInstructions) {
     const { refinementId: rid } = insertRefinement(db, {

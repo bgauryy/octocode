@@ -1,7 +1,7 @@
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { acquireConfigLock, fail, flag, HookHost, HookSettings, HooksInstallOptions, HooksInstallResult, hooksInstallUsage, HOSTS, loadSettings, opt, projectHookDir, requestedHost, targetConfig, writeSettingsAtomic } from './hooks-install-specs.js';
-import { awarenessHookName, entry, hasCommand, hasDriftedCommand, hasExactCommand, hookStatusKey, hookTargetExists, matchingCommandCount, obsoleteSpecsFor, removeCommand, runtimeHealth, specsFor } from './hooks-install-health.js';
+import { awarenessHookName, entry, hasCommand, hasDriftedCommand, hasExactCommand, hookStatusKey, hookTargetExists, matchingCommandCount, obsoleteSpecsFor, removeCommand, removeUnexpectedAwarenessCommands, runtimeHealth, specsFor } from './hooks-install-health.js';
 
 export function runHooksInstall(argv: string[], options: HooksInstallOptions): HooksInstallResult {
   const hostValue = requestedHost(argv);
@@ -120,6 +120,23 @@ export function runHooksInstallUnlocked(argv: string[], options: HooksInstallOpt
   if (flag(argv, '--check')) {
     const strict = flag(argv, '--strict');
     const configReady = status.installed_all && status.drifted.length === 0;
+    if (flag(argv, '--compact')) {
+      return {
+        exitCode: strict && !configReady ? 2 : 0,
+        payload: {
+          ok: configReady,
+          action: 'check',
+          host,
+          hook_count: checks.length,
+          missing: status.missing,
+          drifted: status.drifted,
+          health: {
+            config: configReady ? 'ready' : 'needs_repair',
+            runtime: 'unverified',
+          },
+        },
+      };
+    }
     return {
       exitCode: strict && !configReady ? 2 : 0,
       payload: {
@@ -147,6 +164,25 @@ export function runHooksInstallUnlocked(argv: string[], options: HooksInstallOpt
     changed = true;
   }
 
+  const removing = flag(argv, '--remove');
+  const expectedByEvent = new Map<string, Set<string>>();
+  if (!removing) {
+    for (const spec of specs) {
+      const name = awarenessHookName(spec.command);
+      if (!name) continue;
+      const names = expectedByEvent.get(spec.event) ?? new Set<string>();
+      names.add(name);
+      expectedByEvent.set(spec.event, names);
+    }
+  }
+  for (const [event, groups] of Object.entries(settings.hooks)) {
+    const cleaned = removeUnexpectedAwarenessCommands(groups, expectedByEvent.get(event));
+    if (!cleaned.removed) continue;
+    changed = true;
+    if (cleaned.groups.length > 0) settings.hooks[event] = cleaned.groups;
+    else delete settings.hooks[event];
+  }
+
   for (const spec of obsoleteSpecs) {
     const result = removeCommand(settings.hooks[spec.event], spec.command);
     if (!result.removed) continue;
@@ -155,7 +191,7 @@ export function runHooksInstallUnlocked(argv: string[], options: HooksInstallOpt
     else delete settings.hooks[spec.event];
   }
 
-  if (flag(argv, '--remove')) {
+  if (removing) {
     for (const spec of specs) {
       const result = removeCommand(settings.hooks[spec.event], spec.command);
       if (result.removed) {
@@ -181,6 +217,19 @@ export function runHooksInstallUnlocked(argv: string[], options: HooksInstallOpt
   }
 
   if (flag(argv, '--dry-run')) {
+    if (flag(argv, '--compact')) {
+      return {
+        exitCode: 0,
+        payload: {
+          ok: true,
+          action: 'dry-run',
+          host,
+          changed,
+          settings_path: settingsPath,
+          hook_count: specs.length,
+        },
+      };
+    }
     return {
       exitCode: 0,
       payload: {
@@ -197,6 +246,20 @@ export function runHooksInstallUnlocked(argv: string[], options: HooksInstallOpt
 
   if (changed) {
     writeSettingsAtomic(settingsPath, settings);
+  }
+
+  if (flag(argv, '--compact')) {
+    return {
+      exitCode: 0,
+      payload: {
+        ok: true,
+        action: flag(argv, '--remove') ? 'remove' : 'install',
+        host,
+        changed,
+        settings_path: settingsPath,
+        hook_count: specs.length,
+      },
+    };
   }
 
   return {

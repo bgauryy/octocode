@@ -59,3 +59,4 @@ devScripts
 !/packages/octocode-agent/README.md
 output
 __pycache__
+output

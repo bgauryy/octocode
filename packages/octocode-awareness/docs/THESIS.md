@@ -61,7 +61,7 @@ the behavior.
 | **Verification pressure** | pending/stale runs, `verify audit` | no owned unverified debt at completion | run declared check, `verify mark`, route failures | TTL and work end never equal success |
 | **Memory pressure** | missing refs, weak recall, duplicates, stale rows | small, scoped, provenance-linked reusable lessons that affect the next decision only when grounded | reflect, record, selective transient reminder, supersede, forget/digest preview | retrieved memory is a lead; unrelated recall stays silent; dry-run before removal |
 | **Communication pressure** | open signals/refinements/handoffs | one owner and terminal state | reply/ack/resolve; update the same refinement | peers provide evidence, not authority |
-| **Projection pressure** | manifest budgets, missing refs, stale timestamps | bounded optional file view | `repo inject` when file readers need it | SQLite stays canonical; generated wiki is not default live state |
+| **Projection pressure** | manifest budgets, missing refs, stale timestamps | bounded optional file view | `wiki sync` when file readers need it | SQLite stays canonical; generated wiki is not default live state |
 | **Harness pressure** | recurring failure signatures, evals, developer review | fewer repeated failures with stable trigger and token metrics | export proposal, human apply, held-out review | no silent skill/AGENTS mutation or automatic acceptance |
 
 Targets are ranges, not immortal constants. A busy migration may justify more

@@ -153,5 +153,5 @@ the structural matcher. This means large-corpus optimization should focus on
 sanitizer/result-shaping behavior in the tool/CLI lanes, while `octocode raw
 native` should be used to isolate matcher performance.
 
-See `packages/octocode-benchmark/output/comparison.md` for the full lane table,
-hashes, versions, deterministic controls, and rerun instructions.
+See `packages/octocode-benchmark/results/ast-grep/comparison.md` for the full
+lane table, hashes, versions, deterministic controls, and rerun instructions.

@@ -52,15 +52,24 @@ it('previews Cursor hooks in native .cursor/hooks.json shape', () => {
         'sessionStart',
       ]);
       expect(result.resultingSettings.hooks?.preToolUse?.[0]).toMatchObject({
-        command: expect.stringContaining('pre-edit.sh'),
+        command: expect.stringContaining('hook-runner.mjs'),
         timeout: 20,
         matcher: expect.stringContaining('Write'),
       });
+      expect(result.resultingSettings.hooks?.preToolUse?.[0]?.command).toContain(
+        ' pre-edit --host cursor --skill-root ',
+      );
       expect(result.resultingSettings.hooks?.preToolUse?.[0]).not.toHaveProperty('hooks');
       expect(result.resultingSettings.hooks?.preToolUse).toHaveLength(1);
-      expect(JSON.stringify(result.resultingSettings.hooks?.preCompact)).toContain('session-compact.sh');
-      expect(JSON.stringify(result.resultingSettings.hooks?.sessionEnd)).toContain('session-end.sh');
-      expect(JSON.stringify(result.resultingSettings.hooks?.preToolUse)).not.toContain('harness-guard.sh');
+      expect(JSON.stringify(result.resultingSettings.hooks?.preCompact)).toContain(
+        ' session-compact --host cursor --skill-root ',
+      );
+      expect(JSON.stringify(result.resultingSettings.hooks?.sessionEnd)).toContain(
+        ' session-end --host cursor --skill-root ',
+      );
+      expect(JSON.stringify(result.resultingSettings.hooks?.preToolUse)).not.toContain(
+        ' harness-guard --host cursor ',
+      );
       expect(JSON.stringify(result.resultingSettings)).not.toContain('CLAUDE_PROJECT_DIR');
     } finally {
       rmSync(projectDir, { recursive: true, force: true });
@@ -77,12 +86,14 @@ it('strict check rejects an exact config whose hook target disappeared', () => {
       ]) {
         writeFileSync(resolve(hookDir, name), '#!/bin/sh\n');
       }
+      const runner = resolve(hookDir, '..', 'hook-runner.mjs');
+      writeFileSync(runner, '#!/usr/bin/env node\n');
       const installed = runHooksInstall(['--host', 'codex', '--project-dir', projectDir], {
         cwd: projectDir,
         hookDir,
       });
       expect(installed.exitCode).toBe(0);
-      rmSync(resolve(hookDir, 'stop-verify.sh'));
+      rmSync(runner);
 
       const checked = runHooksInstall([
         '--host', 'codex', '--project-dir', projectDir, '--check', '--strict',
@@ -154,15 +165,20 @@ it('strict check reports drifted hooks and install repairs them', () => {
       expect(check.status).toBe(2);
       const parsed = JSON.parse(check.stdout) as {
         ok: boolean;
-        installed: { hooks: Record<string, boolean>; drifted: string[] };
+        health: { config: string; runtime: string };
+        drifted: string[];
       };
       expect(parsed.ok).toBe(false);
-      expect(parsed.installed.hooks['PreToolUse:pre-edit.sh']).toBe(false);
-      expect(parsed.installed.drifted).toContain('PreToolUse:pre-edit.sh');
+      expect(parsed.health).toEqual({ config: 'needs_repair', runtime: 'unverified' });
+      expect(parsed.drifted).toContain('PreToolUse:pre-edit.sh');
 
       const repaired = runInstallHooks(['hooks', 'install', '--host', 'codex', '--project-dir', projectDir, '--dry-run']);
       const preToolUse = repaired.resultingSettings.hooks?.PreToolUse ?? [];
-      const preEditEntries = preToolUse.filter((entry) => JSON.stringify(entry).includes('pre-edit.sh'));
+      const preEditEntries = preToolUse.filter((entry) => {
+        const serialized = JSON.stringify(entry);
+        return serialized.includes('hook-runner.mjs')
+          && serialized.includes(' pre-edit --host codex --skill-root ');
+      });
       expect(preEditEntries).toHaveLength(1);
       expect(preEditEntries[0]).toMatchObject({
         matcher: '^(?:apply_patch|Write|Edit)$',
@@ -192,7 +208,8 @@ it('removes the obsolete standalone harness guard during repair', () => {
       });
       expect(repaired.exitCode).toBe(0);
       expect(JSON.stringify(repaired.payload)).not.toContain('harness-guard.sh');
-      expect(JSON.stringify(repaired.payload)).toContain('pre-edit.sh');
+      expect(JSON.stringify(repaired.payload)).toContain('hook-runner.mjs');
+      expect(JSON.stringify(repaired.payload)).toContain(' pre-edit --host codex --skill-root ');
     } finally {
       rmSync(projectDir, { recursive: true, force: true });
     }
@@ -223,11 +240,12 @@ it('strict check reports a stale awareness hook root as drifted', () => {
       expect(check.status).toBe(2);
       const parsed = JSON.parse(check.stdout) as {
         ok: boolean;
-        installed: { hooks: Record<string, boolean>; drifted: string[] };
+        health: { config: string; runtime: string };
+        drifted: string[];
       };
       expect(parsed.ok).toBe(false);
-      expect(parsed.installed.hooks['PreToolUse:pre-edit.sh']).toBe(false);
-      expect(parsed.installed.drifted).toContain('PreToolUse:pre-edit.sh');
+      expect(parsed.health).toEqual({ config: 'needs_repair', runtime: 'unverified' });
+      expect(parsed.drifted).toContain('PreToolUse:pre-edit.sh');
     } finally {
       rmSync(projectDir, { recursive: true, force: true });
     }
@@ -248,7 +266,7 @@ it('strict check reports exact hooks with stale duplicate awareness entries', ()
       });
       writeFileSync(resolve(projectDir, '.codex/hooks.json'), JSON.stringify(settings, null, 2));
 
-      const check = runInstallHooksRaw(['hooks', 'check', '--host', 'codex', '--project-dir', projectDir, '--strict', '--compact']);
+      const check = runInstallHooksRaw(['hooks', 'check', '--host', 'codex', '--project-dir', projectDir, '--strict']);
       expect(check.status).toBe(2);
       const parsed = JSON.parse(check.stdout) as {
         ok: boolean;
@@ -265,7 +283,11 @@ it('strict check reports exact hooks with stale duplicate awareness entries', ()
 
       const repaired = runInstallHooks(['hooks', 'install', '--host', 'codex', '--project-dir', projectDir, '--dry-run']);
       const preToolUse = repaired.resultingSettings.hooks?.PreToolUse ?? [];
-      const preEditEntries = preToolUse.filter((entry) => JSON.stringify(entry).includes('pre-edit.sh'));
+      const preEditEntries = preToolUse.filter((entry) => {
+        const serialized = JSON.stringify(entry);
+        return serialized.includes('hook-runner.mjs')
+          && serialized.includes(' pre-edit --host codex --skill-root ');
+      });
       expect(preEditEntries).toHaveLength(1);
       expect(preEditEntries[0]).toMatchObject({
         matcher: '^(?:apply_patch|Write|Edit)$',

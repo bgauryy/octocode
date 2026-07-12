@@ -76,8 +76,8 @@ describe('work CLI', () => {
         '--test-plan', 'parser tests',
         '--compact',
       ]);
-      const runId = (started['run'] as Record<string, unknown>)['run_id'] as string;
-      expect((started['run'] as Record<string, unknown>)['status']).toBe('ACTIVE');
+      const runId = started['run_id'] as string;
+      expect(started['status']).toBe('ACTIVE');
       expect(started['peer_count']).toBe(0);
 
       const listed = ok(db, ['work', 'list', '--workspace', dir, '--compact']);
@@ -93,7 +93,7 @@ describe('work CLI', () => {
       ok(db, ['work', 'touch', '--agent-id', 'agent-work', '--run-id', runId, '--compact']);
 
       const ended = ok(db, ['work', 'end', '--agent-id', 'agent-work', '--run-id', runId, '--compact']);
-      expect((ended['run'] as Record<string, unknown>)['status']).toBe('PENDING');
+      expect(ended['status']).toBe('PENDING');
       const checkDb = new DatabaseSync(db);
       try {
         expect(checkDb.prepare('SELECT COUNT(*) AS count FROM locks').get()).toEqual({ count: 0 });
@@ -119,14 +119,14 @@ describe('work CLI', () => {
       ];
       for (let index = 0; index < 8; index++) args.push('--file', `src/file-${index}.ts`);
       const started = ok(db, args);
-      const runId = (started['run'] as Record<string, unknown>)['run_id'] as string;
+      const runId = started['run_id'] as string;
       const ended = run(db, [
         'work', 'end', '--agent-id', 'agent-many-files', '--run-id', runId, '--compact',
       ]);
       expect(ended.status).toBe(0);
-      expect(ended.parsed).toMatchObject({ file_count: 8, file_shown_count: 1, file_omitted_count: 7 });
-      expect(ended.parsed?.['files']).toHaveLength(1);
-      expect(Buffer.byteLength(ended.stdout, 'utf8')).toBeLessThanOrEqual(2 * 1024);
+      expect(ended.parsed).toMatchObject({ ok: true, run_id: runId, status: 'PENDING', file_count: 8, peer_count: 0 });
+      expect(ended.parsed).not.toHaveProperty('files');
+      expect(Buffer.byteLength(ended.stdout, 'utf8')).toBeLessThanOrEqual(512);
       ok(db, ['verify', 'mark', '--agent-id', 'agent-many-files', '--run-id', runId,
         '--message', 'compact closeout fixture passed', '--compact']);
     } finally { rmSync(dir, { recursive: true, force: true }); }
@@ -146,7 +146,7 @@ describe('work CLI', () => {
       });
       expect(result.status, result.stderr || result.stdout).toBe(0);
       const parsed = JSON.parse(result.stdout) as Record<string, unknown>;
-      expect((parsed['run'] as Record<string, unknown>)['agent_id']).toBe('agent-from-env');
+      expect(parsed['agent_id']).toBe('agent-from-env');
     } finally { rmSync(dir, { recursive: true }); }
   });
 

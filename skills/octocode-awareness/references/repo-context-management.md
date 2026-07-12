@@ -4,18 +4,18 @@ Use this when publishing, sharing, debugging, or linking workspace `.octocode/` 
 
 Canonical data lives in global `~/.octocode/memory/awareness.sqlite3`. `query <view>` is the live read API.
 
-`repo inject` publishes selected DB state as bounded Markdown, CSV, HTML, manifest, and references under the workspace. Never hand-edit generated files; fix the DB/source, then regenerate.
+`wiki sync` publishes selected DB state as bounded Markdown, CSV, HTML, manifest, and references under the workspace. Never hand-edit generated files; fix the DB/source, then regenerate.
 
 Six wiki files, their SQLite source, and how they relate to each other: `references/wiki-files-map.md`.
 
-## When To Inject
+## When To Sync
 
-Run `repo inject` when a high-value gotcha/decision/lesson/handoff should be discoverable from files, a human requests an inspectable snapshot, or stale projection health could mislead the next agent.
+Run `wiki sync` when a high-value gotcha/decision/lesson/handoff should be discoverable from files, a human requests an inspectable snapshot, or stale projection health could mislead the next agent.
 
-Skip inject for routine edits, transient locks, or every signal. Active work should use `attend` and `query`.
+Skip sync for routine edits, transient locks, or every signal. Active work should use `attend` and `query`.
 
 ```bash
-octocode-awareness repo inject --workspace "$PWD" --out .octocode --mode local --compact
+octocode-awareness wiki sync --workspace "$PWD" --out .octocode --mode local --compact
 ```
 
 Relative output paths resolve under `--workspace`. Markdown is capped; overflow points to full CSV/HTML/query rows. Use `query files` before trusting old file references.
@@ -23,7 +23,7 @@ The manifest stores a live-source revision. `attend` warns when SQLite would gen
 
 ## Share Policy
 
-`repo inject` never edits `.gitignore`.
+`wiki sync` never edits `.gitignore`.
 
 - `--mode local`: personal/machine-local projection; default until sharing is intentional.
 - `--mode share`: owner intentionally plans to review/commit projections.
@@ -33,7 +33,7 @@ Review machine-local absolute paths before committing any generated file.
 
 ## Root Discovery Pointer
 
-Agents load root `AGENTS.md`, while inject writes only `.octocode/AGENTS.md`. After inject:
+Agents load root `AGENTS.md`, while sync writes only `.octocode/AGENTS.md`. After sync:
 
 1. Read root `AGENTS.md`; stop if it already mentions `.octocode/AGENTS.md`.
 2. If it is hand-authored, ask before appending unless the user already approved.
@@ -41,7 +41,7 @@ Agents load root `AGENTS.md`, while inject writes only `.octocode/AGENTS.md`. Af
 
 ```markdown
 ## Octocode Awareness
-For shared-repo memory, locks, gotchas, and live context, start with `attend --compact`. Read `.octocode/AGENTS.md` only when live SQLite is unavailable, `attend.next` routes there, or projection history matters. SQLite is canonical; wiki files are leads — prefer live `attend` / `query` / `memory recall`. Create/learn via `memory record` / `reflect record`; run `repo inject` only when file readers need a fresh snapshot. Never hand-edit `.octocode/*.md`.
+For shared-repo memory, locks, gotchas, and live context, start with `attend --compact`. Read `.octocode/AGENTS.md` only when live SQLite is unavailable, `attend.next` routes there, or projection history matters. SQLite is canonical; wiki files are leads — prefer live `attend` / `query` / `memory recall`. Create/learn via `memory record` / `reflect record`; run `wiki sync` only when file readers need a fresh snapshot. Never hand-edit `.octocode/*.md`.
 ```
 
 Publication closes when generated files match the intended DB revision/scope, manifest and orphan warnings are reviewed, root discovery works, and current source/tests still confirm the projected claims.

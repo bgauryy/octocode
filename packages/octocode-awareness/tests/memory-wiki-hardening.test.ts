@@ -115,7 +115,7 @@ describe('memory and wiki trust with lean retrieval', () => {
       mkdirSync(join(workspace, '.octocode', 'awareness'), { recursive: true });
       writeFileSync(join(workspace, '.octocode', 'awareness', 'manifest.json'), JSON.stringify({
         generated_at: '2026-01-01T00:00:00Z',
-        files: ['.octocode/AGENTS.md', '.octocode/BOOKMARKS.md'],
+        files: ['.octocode/AGENTS.md', '.octocode/KNOWLEDGE.md'],
         source: { revision: 'sha256:bounded' },
         completeness: { memories: { is_partial: true, omitted_count: 10 } },
       }), 'utf8');

@@ -11,7 +11,7 @@ Use this to see how the six `.octocode/` projection files relate to canonical SQ
 | `DEVELOPER_REVIEW.md` | `query developer-review` | Independent of MEMORY: feedback on the instructions themselves, written via `reflect record --fix-instructions`. |
 | `AGENTS.md` | repo-profile counts + top rows | Digest of the other five: snapshot counts, top Gotchas/Lessons, pointers. Entry point agents read first, capped at 80 lines. |
 
-State flow: `attend` / `memory record` / `reflect record` write SQLite (canonical, live) → `repo inject` projects it into these six files (capped leads, not proof).
+State flow: `attend` / `memory record` / `reflect record` write SQLite (canonical, live) → `wiki sync` projects it into these six files (capped leads, not proof).
 
 Next agent's `attend` / `query` / `memory recall` reads live SQLite first; open a file here only when SQLite is unavailable or `attend.next` routes there.
 

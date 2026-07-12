@@ -9,6 +9,10 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 const packageRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
 const pkg = JSON.parse(readFileSync(join(packageRoot, 'package.json'), 'utf8'));
 
+// The outer verifier invokes yarn pack; its prepack recursively invokes this
+// script. The inner pass only needs the build, so stop before packing again.
+if (process.env.OCTOCODE_VERIFY_PACKAGE_INNER === '1') process.exit(0);
+
 // Same discovery rule as build.mjs — kept independent (not imported) so this
 // verification catches a real build-vs-source mismatch instead of trivially
 // agreeing with whatever build.mjs produced.
@@ -47,8 +51,15 @@ function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
 
-const pack = JSON.parse(run('npm', ['pack', '--dry-run', '--json', '--ignore-scripts']));
-const files = (pack[0]?.files ?? []).map((entry) => entry.path);
+const yarnPath = process.env.npm_execpath;
+assert(yarnPath && existsSync(yarnPath), 'pack verification must run through the repository Yarn runtime');
+const packLines = run(yarnPath, ['pack', '--dry-run', '--json'], {
+  env: { ...process.env, OCTOCODE_VERIFY_PACKAGE_INNER: '1' },
+});
+const files = packLines.trim().split('\n').flatMap((line) => {
+  const row = JSON.parse(line);
+  return row.location ? [String(row.location)] : [];
+});
 for (const required of [
   'LICENSE',
   'README.md',

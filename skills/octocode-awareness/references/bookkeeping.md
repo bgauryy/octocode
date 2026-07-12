@@ -23,6 +23,7 @@ Drift sensors feed both: `query workboard` (surfaces `stale_file_refs` + memory-
 ## Rules
 
 - Dry-run before any mutation; report evidence before removing.
+- Delete exact synthetic duplicates and expired handoffs; archive weak old memories. Never delete or mark work successful from age alone: stale unproved runs become `FAILED`.
 - Prefer supersession, reversible archive, and decay over destructive deletion; restore is valid only for archived rows, not replacement history.
 - Route each lesson to its owner (`references/learning-loop.md`); a loop closes only when applied, verified, and terminal.
 - `query workboard` is the upkeep sensor — drain due rows, but create no cleanup work when sensors are clean; then re-run `attend` / `query` to confirm health.

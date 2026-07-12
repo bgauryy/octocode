@@ -129,7 +129,7 @@ describe('core branch coverage helpers', () => {
     expect(listSessions(db, { agentId: 'agent-a', workspacePath: '/repo', artifact: 'svc', active: true, limit: 5 })).toHaveLength(1);
   });
 
-  it('abandons pending and stale active verification work', () => {
+  it('fails pending and stale active verification work only by explicit run id', () => {
     const db = freshDb();
     const pending = preFlightIntent(db, {
       agentId: 'agent-a',
@@ -160,12 +160,12 @@ describe('core branch coverage helpers', () => {
     expect(audit.count).toBe(2);
     expect(audit.stale_active).toHaveLength(1);
 
-    const abandoned = auditUnverified(db, { agentId: 'agent-a', workspacePath: '/repo', artifact: 'svc', abandon: true });
-    expect(abandoned.count).toBe(2);
-    expect(markVerified(db, { runId: pending.run.run_id, agentId: 'agent-a', message: 'coverage fixture passed' })).toMatchObject({
-      ok: false,
-      run_id: pending.run.run_id,
-    });
+    expect(markVerified(db, {
+      runId: pending.run.run_id, agentId: 'agent-a', status: 'FAILED', message: 'pending work failed',
+    })).toMatchObject({ ok: true, run_id: pending.run.run_id, status: 'FAILED' });
+    expect(markVerified(db, {
+      runId: stale.run.run_id, agentId: 'agent-a', status: 'FAILED', message: 'stale presence confirmed',
+    })).toMatchObject({ ok: true, run_id: stale.run.run_id, status: 'FAILED' });
     expect(markVerified(db, { runId: '', agentId: 'agent-a' })).toMatchObject({ ok: false, run_id: null });
     expect(markVerified(db, { runId: 'task_missing', agentId: 'agent-a' })).toMatchObject({ ok: false });
   });

@@ -203,16 +203,15 @@ task: z
       agent_id: agentId,
       workspace: workspacePath.optional(),
       artifact: artifactScope.optional(),
-      abandon: z.boolean().default(false).describe("Mark pending runs FAILED instead of only listing."),
-      older_than_days: z.number().int().min(1).max(3650).optional()
-        .describe("Only include debt older than this age; inspect before --abandon."),
+                older_than_days: z.number().int().min(1).max(3650).optional()
+                  .describe("Only include debt older than this age."),
       origin: z.array(z.enum(["TASK", "WORK", "HOOK"])).max(3).default([])
         .describe("Restrict migration/audit to selected run origins."),
       before: z.string().datetime().optional()
         .describe("Only runs created before this ISO timestamp."),
     })
     .strict()
-    .describe("List or abandon unverified runs."),
+              .describe("Read-only listing of unverified and stale ACTIVE runs."),
   forget_memory: z
     .object({
       memory_id: z

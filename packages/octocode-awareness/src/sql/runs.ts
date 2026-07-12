@@ -18,11 +18,3 @@ export const RUNS_UPDATE_ACTIVE_TO_FAILED =
 export const RUN_LOG_INSERT_VERIFIED =
   `INSERT INTO run_log(event_id, run_id, agent_id, event_type, message, created_at)
    VALUES (?, ?, ?, 'VERIFIED', ?, ?)`;
-
-export const RUN_LOG_INSERT_ABANDONED =
-  `INSERT INTO run_log(event_id, run_id, agent_id, event_type, message, created_at)
-   VALUES (?, ?, ?, 'ABANDONED', 'orphaned by audit-unverified --abandon', ?)`;
-
-export const RUN_LOG_INSERT_STALE_ABANDONED =
-  `INSERT INTO run_log(event_id, run_id, agent_id, event_type, message, created_at)
-   VALUES (?, ?, ?, 'ABANDONED', 'stale active (no live file presence) abandoned by audit-unverified --abandon', ?)`;

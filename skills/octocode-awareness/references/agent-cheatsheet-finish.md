@@ -20,7 +20,7 @@ Run the declared check while presence/locks remain active. Then `task submit` or
 | Work remains for another run | Publish a handoff signal, update the owning refinement, or run `session capture`. |
 | Workboard reports cleanup pressure | Prefer `memory archive --memory-id <id> --workspace "$PWD" --dry-run --compact`; run `maintenance digest --workspace "$PWD" --dry-run --compact` and inspect before irreversible prune/forget. |
 | File references may be stale | Run `query files --workspace "$PWD" --format table --limit 50`; repair/supersede the owning rows. |
-| File readers need refreshed context | Run `repo inject --workspace "$PWD" --mode local --compact`; review `orphan_candidates`, then add `--prune-orphans` to remove retired manifest-owned files. Never hand-edit generated wiki files. |
+| File readers need refreshed context | Run `wiki sync --workspace "$PWD" --mode local --compact`; review `orphan_candidates`, then add `--prune-orphans` to remove retired manifest-owned files. Never hand-edit generated wiki files. |
 | A human needs bulk inspection | Run `query all --workspace "$PWD" --format html --out .octocode/awareness/index.html`. |
 | Instructions caused a wrong turn | Run `reflect developer-review --workspace "$PWD"`; close the same feedback row after the instruction fix is verified. |
 

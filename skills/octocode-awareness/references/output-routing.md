@@ -11,8 +11,8 @@ files only for discovery without SQLite.
 | Reusable learning | memory recall/record; verify before trust |
 | Owned follow-up | task, signal, refinement, session capture |
 | Automation/human bulk | query JSON/CSV or HTML; not prompt expansion |
-| Repo discovery | bounded `repo inject` projection |
-| Contracts | `schema commands --compact`; add `--examples` only if needed; `<command> --help`; `docs show` |
+| Repo discovery | bounded `wiki sync` projection |
+| Contracts | grouped `schema commands --compact`; `schema commands --all` for the flat catalog; exact `schema command <noun> [action]` for schema-backed routes |
 
 Compact `attend` caps paths/peers/bodies/IDs and keeps ≤1 row per actionable lane.
 Compact list defaults are bounded; explicit limits/full flags restore depth.

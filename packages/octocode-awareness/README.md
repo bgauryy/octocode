@@ -116,7 +116,7 @@ only durable work queue. “Today’s tasks” is a query, not another entity. S
 overlap decisions, sensitive locks, hooks, memory, and conditional closeout.
 
 SQLite at `~/.octocode/memory/awareness.sqlite3` is canonical. Generated wiki
-files are capped leads; run `repo inject` only when file readers need a refreshed
+files are capped leads; run `wiki sync` only when file readers need a refreshed
 snapshot. Command flags and payloads come from focused help and schema:
 
 ```bash

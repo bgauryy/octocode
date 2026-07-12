@@ -41,7 +41,10 @@ describe('Awareness out build contract', () => {
 
     expect(build).toContain('entryPoints: coreEntryPoints');
     expect(buildConfig).toContain("'octocode-awareness': 'bin/awareness.ts'");
-    expect(build).toContain("outdir: 'out'");
+    expect(build).toContain('outdir: outDir');
+    expect(build).toContain('.out-build-');
+    expect(build).toContain('renameSync(outDir, publishedOutDir)');
+    expect(build).not.toContain('rmSync(publishedOutDir');
     expect(build).not.toContain("packages/octocode/out");
     expect(source).not.toMatch(/from ['"]octocode(?:\/|['"])/);
     expect(source).not.toContain('@octocodeai/octocode-tools-core');

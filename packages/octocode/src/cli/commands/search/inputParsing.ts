@@ -162,7 +162,12 @@ export function validateShorthandOptions(
     return '--search is only valid for code/files/content-style queries.';
   }
   const contentView = getString(options, 'content-view');
-  if (contentView && !['none', 'standard', 'symbols'].includes(contentView)) {
+  // 'exact'/'compact' are accepted as deprecated aliases for 'none'/'standard'
+  // (pre-rename vocabulary) so an existing example or script isn't broken.
+  if (
+    contentView &&
+    !['none', 'standard', 'symbols', 'exact', 'compact'].includes(contentView)
+  ) {
     return '--content-view must be none, standard, or symbols.';
   }
   const materialize = getString(options, 'materialize');

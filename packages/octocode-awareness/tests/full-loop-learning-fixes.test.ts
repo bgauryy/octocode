@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { DatabaseSync } from 'node:sqlite';
-import { mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { initDb } from '../src/db.js';
@@ -129,7 +129,7 @@ describe('READ -> DO -> LEARN closure fixes', () => {
     }
   });
 
-  it('marks bounded queries partial and publishes complete, sanitized, formula-safe snapshots atomically', () => {
+  it('marks bounded explicit exports partial and publishes a complete sanitized lean snapshot atomically', () => {
     const dir = mkdtempSync(join(tmpdir(), 'awareness-share-safe-'));
     try {
       const db = freshDb();
@@ -161,6 +161,10 @@ describe('READ -> DO -> LEARN closure fixes', () => {
       const boundedCsv = formatAwarenessQueryResult(bounded, 'csv');
       expect(boundedCsv).toContain('__awareness_is_partial');
       expect(boundedCsv).toContain('true');
+      const explicitCsv = formatAwarenessQueryResult(
+        queryAwareness(db, { view: 'memories', workspacePath: dir, limit: 500 }),
+        'csv',
+      );
 
       const injected = injectRepoContext(db, {
         workspacePath: dir, outDir: '.octocode-share', mode: 'share', check: false, limit: 500,
@@ -174,12 +178,9 @@ describe('READ -> DO -> LEARN closure fixes', () => {
       expect(manifest.completeness['memories']).toMatchObject({ is_partial: false, visible: 55 });
       expect(manifest.workspace_path).not.toContain(dir);
 
-      const csvRoot = join(dir, '.octocode-share', 'awareness', 'csv');
-      const memoriesCsv = readFileSync(join(csvRoot, 'memories.csv'), 'utf8');
-      const signalsCsv = readFileSync(join(csvRoot, 'signals.csv'), 'utf8');
-      expect(memoriesCsv).toContain("'=HYPERLINK");
-      expect(signalsCsv).not.toContain('PRIVATE_PLACEHOLDER');
-      expect(signalsCsv).not.toContain(dir);
+      expect(explicitCsv).toContain("'=HYPERLINK");
+      expect(existsSync(join(dir, '.octocode-share', 'awareness', 'csv'))).toBe(false);
+      expect(existsSync(join(dir, '.octocode-share', 'awareness', 'index.html'))).toBe(false);
       const leakingFiles = injected.files.filter(file => readFileSync(file, 'utf8').includes('PRIVATE_PLACEHOLDER'));
       expect(leakingFiles).toEqual([]);
       expect(injected.files.some(file => file.includes('.tmp-'))).toBe(false);

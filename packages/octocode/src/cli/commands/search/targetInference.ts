@@ -86,7 +86,9 @@ export function hasContentIntent(options: ParsedArgs['options']): boolean {
     getString(options, 'end-line') ||
     getString(options, 'char-offset') ||
     getString(options, 'char-length') ||
-    ['none', 'standard', 'symbols'].includes(getString(options, 'content-view'))
+    ['none', 'standard', 'symbols', 'exact', 'compact'].includes(
+      getString(options, 'content-view')
+    )
   );
 }
 

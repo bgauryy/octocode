@@ -10,12 +10,10 @@
  *                  transitions to prevent orphaning ACTIVE locks as SUCCESS.
  *                  A linked plan task moves VERIFY → DONE | FAILED with it.
  */
-import { randomUUID } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
 import { normalizeArtifact, utcNow } from './helpers.js';
 import { normalizeWorkspacePath } from './git.js';
-import { RUNS_UPDATE_PENDING_TO_FAILED, RUNS_UPDATE_ACTIVE_TO_FAILED, RUN_LOG_INSERT_ABANDONED, RUN_LOG_INSERT_STALE_ABANDONED } from './sql/runs.js';
-import { abandonLinkedTask, AuditUnverifiedParams, AuditUnverifiedResult, closeRunFiles, IntentDbRow, StaleActiveIntent, targetFilesForRuns, UnverifiedIntent } from './verify-shared.js';
+import { AuditUnverifiedParams, AuditUnverifiedResult, IntentDbRow, StaleActiveIntent, targetFilesForRuns, UnverifiedIntent } from './verify-shared.js';
 
 // ─── Exports ──────────────────────────────────────────────────────────────────
 
@@ -96,22 +94,6 @@ export function auditUnverified(
     created_at: r.created_at,
   }));
 
-  if (params.abandon && unverified.length > 0) {
-    const now = utcNow();
-    const markFailed = db.prepare(RUNS_UPDATE_PENDING_TO_FAILED);
-    const logAbandoned = db.prepare(RUN_LOG_INSERT_ABANDONED);
-    for (const intent of unverified) {
-      markFailed.run(now, intent.run_id);
-      closeRunFiles(db, intent.run_id, now);
-      abandonLinkedTask(db, intent.run_id, intent.agent_id, now, 'pending run abandoned by verification audit');
-      try {
-        logAbandoned.run(
-          'evt_' + randomUUID().replace(/-/g, ''), intent.run_id, intent.agent_id, now,
-        );
-      } catch { /* non-critical audit log */ }
-    }
-  }
-
   // VER-2: Detect standalone ACTIVE runs whose file presence expired, plus task
   // runs whose claim lease and file presence both expired. Ordinary work may
   // validly have no lock, so lock absence is never verification debt.
@@ -167,22 +149,6 @@ export function auditUnverified(
       });
     }
   } catch (e) { if (!(e instanceof Error && e.message.includes('no such table'))) throw e; }
-
-  if (params.abandon && staleActive.length > 0) {
-    const now = utcNow();
-    const markFailed = db.prepare(RUNS_UPDATE_ACTIVE_TO_FAILED);
-    const logStaleAbandoned = db.prepare(RUN_LOG_INSERT_STALE_ABANDONED);
-    for (const intent of staleActive) {
-      markFailed.run(now, intent.run_id);
-      closeRunFiles(db, intent.run_id, now);
-      abandonLinkedTask(db, intent.run_id, intent.agent_id, now, 'stale task run abandoned by verification audit');
-      try {
-        logStaleAbandoned.run(
-          'evt_' + randomUUID().replace(/-/g, ''), intent.run_id, intent.agent_id, now,
-        );
-      } catch { /* non-critical audit log */ }
-    }
-  }
 
   const total = unverified.length + staleActive.length;
   return { ok: true, unverified, stale_active: staleActive, count: total };

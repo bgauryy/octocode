@@ -14,7 +14,6 @@ Core loop: `references/agent-cheatsheet.md`. Finish/handoffs: `references/agent-
 reference. Neither indexes package `docs/**`.
 
 ## Skills (install / update / lint)
-
 Sibling skill `octocode-skills` ships next to this skill in the awareness package bundle. Use `npx octocode` for skill install/update/lint and for Octocode research/search operations — gate every write.
 ```bash
 # `common` means ~/.agents/skills; use claude/cursor/codex/pi for a host-specific destination.
@@ -30,10 +29,11 @@ export OCTOCODE_AGENT_ID="${OCTOCODE_AGENT_ID:-my-agent}"
 <cli> attend --workspace "$PWD" --query "smoke" --agent-id "$OCTOCODE_AGENT_ID" --compact
 
 # Codex/Cursor: preview first, install after approval, then verify host wiring.
-<cli> hooks install --host <codex|cursor> --project-dir "$PWD" --dry-run --compact
+<cli> hooks install --host <codex|cursor> --project-dir "$PWD" --dry-run
 <cli> hooks install --host <codex|cursor> --project-dir "$PWD" --compact
-<cli> hooks check --host <codex|cursor> --project-dir "$PWD" --strict --compact
+<cli> hooks check --host <codex|cursor> --project-dir "$PWD" --strict
 ```
+Noncompact dry-run/check exposes settings and runtime-health detail; compact output is only a receipt.
 Claude skill frontmatter is already a hook surface; do not also install project
 settings. Use `--host claude` only when frontmatter is unsupported or disabled.
 
