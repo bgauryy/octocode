@@ -329,6 +329,20 @@ describe('runCLI', () => {
     expect(mocks.showHelp).not.toHaveBeenCalled();
   });
 
+  it('treats global output flags with no command as a no-op (exit 0, not an error)', async () => {
+    const { runCLI } = await import('../../src/cli/index.js');
+
+    for (const flag of ['--json', '--compact', '--raw']) {
+      process.exitCode = undefined;
+      const handled = await runCLI([flag]);
+
+      expect(handled).toBe(false);
+      expect(process.exitCode).toBeUndefined();
+      expect(mocks.loadCommand).not.toHaveBeenCalled();
+      expect(mocks.showHelp).not.toHaveBeenCalled();
+    }
+  });
+
   it('prints error for unknown top-level options', async () => {
     const { runCLI } = await import('../../src/cli/index.js');
 

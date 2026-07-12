@@ -28,10 +28,10 @@
   "homepage": "https://octocode.ai",
   "repository": {
     "type": "git",
-    "url": "https://github.com/bgauryy/octocode-mcp.git",
+    "url": "https://github.com/bgauryy/octocode.git",
     "directory": "packages/octocode-vscode"
   },
-  "bugs": "https://github.com/bgauryy/octocode-mcp/issues",
+  "bugs": "https://github.com/bgauryy/octocode/issues",
   "license": "MIT",
   "main": "./out/extension.js",
   "engines": {

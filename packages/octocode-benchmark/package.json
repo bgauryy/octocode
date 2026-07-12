@@ -3,6 +3,12 @@
   "version": "1.0.2",
   "private": true,
   "description": "Private internal benchmark suite for Octocode tools and engine behavior.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bgauryy/octocode.git",
+    "directory": "packages/octocode-benchmark"
+  },
+  "bugs": "https://github.com/bgauryy/octocode/issues",
   "type": "module",
   "scripts": {
     "ast:check": "node benchmark/ast/check-ast.mjs",

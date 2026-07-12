@@ -1,6 +1,6 @@
 {
   "name": "octocode",
-  "version": "1.0.2",
+  "version": "2.4.0",
   "description": "Code research CLI for Octocode tools, local workspaces, GitHub repositories, LSP, and MCP setup",
   "keywords": [
     "ai-coding",
@@ -21,10 +21,10 @@
   "homepage": "https://octocode.ai",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/bgauryy/octocode-mcp.git",
+    "url": "git+https://github.com/bgauryy/octocode.git",
     "directory": "packages/octocode"
   },
-  "bugs": "https://github.com/bgauryy/octocode-mcp/issues",
+  "bugs": "https://github.com/bgauryy/octocode/issues",
   "license": "MIT",
   "type": "module",
   "bin": "./out/octocode.js",
@@ -48,6 +48,7 @@
     "postpack": "rm -rf ./skills",
     "prepack": "yarn readme:sync && node scripts/check-no-workspace-protocol.mjs && node scripts/prepack.mjs",
     "prepublishOnly": "node scripts/check-no-workspace-protocol.mjs",
+    "sync:version:publish": "node scripts/sync-version-publish.mjs",
     "start": "node ./out/octocode.js",
     "test": "vitest run --coverage",
     "test:quiet": "vitest run --reporter=dot --silent",
@@ -63,7 +64,7 @@
   "dependencies": {
     "@inquirer/prompts": "^8.5.2",
     "@octocodeai/octocode-core": "^16.6.3",
-    "@octocodeai/octocode-engine": "workspace:*",
+    "@octocodeai/octocode-engine": "^16.7.0",
     "@octokit/auth-oauth-device": "^8.0.3",
     "@octokit/oauth-methods": "^6.0.2",
     "@octokit/plugin-throttling": "^11.0.3",

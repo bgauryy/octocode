@@ -70,6 +70,11 @@ const KNOWN_TOP_LEVEL_OPTIONS = new Set([
   'help',
   'version',
   'context',
+  // Global output modifiers (help FLAGS line). With no command they are no-ops
+  // that fall through to the main help (exit 0) rather than "unknown options".
+  'json',
+  'compact',
+  'raw',
 ]);
 
 let staleBuildWarningShown = false;

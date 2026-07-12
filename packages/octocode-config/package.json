@@ -12,10 +12,10 @@
   "homepage": "https://octocode.ai",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/bgauryy/octocode-mcp.git",
+    "url": "git+https://github.com/bgauryy/octocode.git",
     "directory": "packages/octocode-config"
   },
-  "bugs": "https://github.com/bgauryy/octocode-mcp/issues",
+  "bugs": "https://github.com/bgauryy/octocode/issues",
   "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",

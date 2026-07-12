@@ -22,7 +22,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/bgauryy/octocode-mcp.git",
+    "url": "https://github.com/bgauryy/octocode.git",
     "directory": "packages/octocode-engine"
   },
   "scripts": {

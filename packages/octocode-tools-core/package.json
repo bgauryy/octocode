@@ -3,6 +3,12 @@
   "version": "1.0.2",
   "description": "Core tool implementations for Octocode: GitHub, local filesystem, LSP, and package search tools.",
   "author": "Guy Bary <bgauryy@octocodeai.com>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bgauryy/octocode.git",
+    "directory": "packages/octocode-tools-core"
+  },
+  "bugs": "https://github.com/bgauryy/octocode/issues",
   "license": "MIT",
   "type": "module",
   "publishConfig": {
