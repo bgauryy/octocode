@@ -1,4 +1,5 @@
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { hookCommand, hookCommandWindows, hookTargetPath, HookEntry, HookHost, HookSpec, WRITE_MATCHERS } from './hooks-install-specs.js';
 
 export function specsFor(host: HookHost, params: {
@@ -165,6 +166,37 @@ export function hasDriftedCommand(groups: HookEntry[] | undefined, host: HookHos
 
 export function hookStatusKey(spec: HookSpec): string {
   return `${spec.event}:${awarenessHookName(spec.command) ?? spec.command.split(/[\\/]/).pop()}`;
+}
+
+export interface FrontmatterHookDefinition {
+  exists: boolean;
+  complete: boolean;
+  path: string | null;
+}
+
+export function frontmatterHookDefinition(projectDir: string, specs: HookSpec[]): FrontmatterHookDefinition {
+  const candidates = [
+    join(projectDir, '.claude', 'skills', 'octocode-awareness', 'SKILL.md'),
+    join(projectDir, '.agents', 'skills', 'octocode-awareness', 'SKILL.md'),
+    join(projectDir, 'skills', 'octocode-awareness', 'SKILL.md'),
+  ];
+  for (const path of candidates) {
+    if (!existsSync(path)) continue;
+    let text = '';
+    try { text = readFileSync(path, 'utf8'); } catch { return { exists: true, complete: false, path }; }
+    if (!text.startsWith('---')) return { exists: true, complete: false, path };
+    const end = text.indexOf('\n---', 3);
+    if (end < 0) return { exists: true, complete: false, path };
+    const frontmatter = text.slice(3, end);
+    const complete = /(?:^|\n)name:\s*["']?octocode-awareness["']?\s*(?:\n|$)/.test(frontmatter)
+      && /(?:^|\n)hooks:\s*(?:\n|$)/.test(frontmatter)
+      && specs.every((spec) => {
+        const hook = awarenessHookName(spec.command)?.replace(/\.sh$/, '') ?? '';
+        return frontmatter.includes(`${spec.event}:`) && Boolean(hook) && frontmatter.includes(hook);
+      });
+    return { exists: true, complete, path };
+  }
+  return { exists: false, complete: false, path: null };
 }
 
 export function removeCommand(groups: HookEntry[] | undefined, command: string): { groups: HookEntry[]; removed: boolean } {

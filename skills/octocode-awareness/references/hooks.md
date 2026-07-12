@@ -18,12 +18,12 @@ Preview, install after approval, then check:
 <cli> hooks check --host <codex|cursor> --project-dir . --strict
 ```
 
-Noncompact dry-run exposes the settings diff; compact output is only a receipt. `--strict` validates exact Awareness-owned entries and their script targets. Read `health.config` separately
-from `health.runtime`; runtime remains `unverified` until a harmless write proves the
-hook fired. For Codex also inspect project trust, hook-definition trust, and the hooks
-feature. For Cursor smoke local and cloud separately; flat config has no guaranteed
+Noncompact dry-run exposes the settings diff; compact output is only a receipt.
+`--strict` validates exact entries and their runner; Claude frontmatter is a separate definition surface.
+Read definition/config separately from runtime. Bounded SQLite upserts report
+`unverified|observed|stale|failed`, `coverage`, and `last_seen` without payloads.
+Codex: inspect project trust, definition trust, and feature enablement. Cursor: smoke local/cloud; flat config lacks a guaranteed
 Windows command override. Use `--host claude` only when frontmatter is unavailable.
-
 Remove (preview first) when uninstalling host wiring:
 
 ```bash

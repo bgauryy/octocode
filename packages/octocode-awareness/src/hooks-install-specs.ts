@@ -43,6 +43,7 @@ export interface HooksInstallOptions {
   cwd?: string;
   homeDir?: string;
   hookDir: string;
+  dbPath?: string;
 }
 
 export const WRITE_MATCHERS: Record<HookHost, string> = {

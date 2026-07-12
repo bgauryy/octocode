@@ -77,6 +77,7 @@ export function schemaObjectsFingerprint(objects: SchemaObject[]): string {
 }
 
 export const _canonicalSchemaFingerprints = new Map<boolean, string>();
+export const _priorHookReceiptSchemaFingerprints = new Map<boolean, string>();
 
 export function canonicalSchemaFingerprint(includeFts: boolean): string {
   const cached = _canonicalSchemaFingerprints.get(includeFts);
@@ -92,6 +93,38 @@ export function canonicalSchemaFingerprint(includeFts: boolean): string {
   } finally {
     canonical.close();
   }
+}
+
+/** Exact immediately-prior schema: canonical in every respect except the new receipt table. */
+export function priorHookReceiptSchemaFingerprint(includeFts: boolean): string {
+  const cached = _priorHookReceiptSchemaFingerprints.get(includeFts);
+  if (cached) return cached;
+  const prior = new DatabaseSync(':memory:');
+  try {
+    prior.exec(SCHEMA_DDL);
+    prior.exec(SCHEMA_INDEX_DDL);
+    if (includeFts) prior.exec(FTS_SCHEMA_DDL);
+    prior.exec('DROP TABLE hook_receipts');
+    const fingerprint = schemaObjectsFingerprint(readSchemaObjects(prior));
+    _priorHookReceiptSchemaFingerprints.set(includeFts, fingerprint);
+    return fingerprint;
+  } finally {
+    prior.close();
+  }
+}
+
+export function isExactPriorHookReceiptSchema(
+  db: DatabaseSync,
+  relations?: SchemaIdentity['relations'],
+): boolean {
+  const actualRelations = relations ?? readSchemaIdentity(db).relations;
+  const expected = new Set([...canonicalColumns().keys()].filter((name) => name !== 'hook_receipts'));
+  const actual = actualRelations.filter(({ name }) => name !== 'memories_fts');
+  if (actual.some(({ type }) => type !== 'table')) return false;
+  if (actual.length !== expected.size || actual.some(({ name }) => !expected.has(name))) return false;
+  const objects = readSchemaObjects(db);
+  const includeFts = objects.some(({ type, name }) => type === 'table' && name === 'memories_fts');
+  return schemaObjectsFingerprint(objects) === priorHookReceiptSchemaFingerprint(includeFts);
 }
 
 export function assertCanonicalRelationContract(

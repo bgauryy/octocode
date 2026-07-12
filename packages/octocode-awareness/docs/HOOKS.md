@@ -32,7 +32,8 @@ entry is removed during install/repair to guarantee guard ordering.
 ## Install And Verify
 
 Codex/Cursor require project config. When Claude skill frontmatter is active, use it
-and do not also install project settings; `hooks check` inspects settings files only.
+and do not also install project settings; `hooks check` reports that definition as a
+separate surface without pretending activation was observed.
 Preview writes, install after approval, then check exact host config:
 
 ```bash
@@ -56,16 +57,19 @@ octocode-awareness hooks remove --host <claude|codex|cursor> \
 ```
 
 Installers modify only recognizable Awareness-owned entries, including obsolete roots
-or event placements, while preserving unrelated hooks. For drift, preview removal,
-remove, reinstall, then strict-check. Commands are quoted and Codex gets a Windows
-command. Strict health
-also verifies every configured script target exists; an exact command pointing at a
-missing generated path is drift, not a healthy install.
+or event placements, while preserving unrelated hooks. Project hooks call the canonical
+`hook-runner.mjs` directly; generated `out/` is only a fallback when no project skill
+exists. Commands are quoted and Codex gets a Windows command. Strict health verifies
+the runner target; a missing target is drift.
 
-`hooks check --strict` is deliberately config-scoped. Read:
+`hooks check --strict` remains definition/config-scoped. Runtime receipts are one bounded
+SQLite upsert per workspace, host, and event—no payloads or append-only hook logs. Read:
 
-- `health.config`: whether Awareness-owned entries are exact;
-- `health.runtime`: always `unverified` until a real event fires;
+- `surface`: settings or Claude skill frontmatter;
+- `health.config` / `health.definition`: whether the selected surface is exact;
+- `health.activation`: still unverified when a host cannot expose it;
+- `health.runtime`: `unverified`, `observed`, `stale` after seven days, or `failed`;
+- `health.coverage` and `last_seen`: which expected events have actually executed;
 - Codex runtime notes: project trust, hook-definition trust, and feature enablement
   are not discoverable from the config file alone;
 - Cursor runtime notes: local/cloud and model-context delivery require separate
@@ -111,8 +115,8 @@ without looping forever on unchanged debt.
 
 ## Guard
 
-The pre-edit wrapper exports `OCTOCODE_SKILL_ROOT`; the runner evaluates the guard
-before touching `run_files`.
+The configured runner receives `--skill-root`; Claude frontmatter wrappers export the
+equivalent value. The guard runs before touching `run_files`.
 
 Protected harness/skill edits require:
 

@@ -5,8 +5,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "OCTOCODE_AGENT_HOST=codex OCTOCODE_NODE_BIN=\"/opt/homebrew/Cellar/node/26.3.1/bin/node\" \"/Users/guybary/Documents/octocode-mcp/packages/octocode-awareness/out/skills/octocode-awareness/scripts/hooks/notify-deliver.sh\"",
-            "commandWindows": "\"/opt/homebrew/Cellar/node/26.3.1/bin/node\" \"/Users/guybary/Documents/octocode-mcp/packages/octocode-awareness/out/skills/octocode-awareness/scripts/hook-runner.mjs\" notify-deliver --host codex --skill-root \"/Users/guybary/Documents/octocode-mcp/packages/octocode-awareness/out/skills/octocode-awareness\"",
+            "command": "\"/Users/guybary/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node\" \"/Users/guybary/Documents/octocode-mcp/skills/octocode-awareness/scripts/hook-runner.mjs\" notify-deliver --host codex --skill-root \"/Users/guybary/Documents/octocode-mcp/skills/octocode-awareness\"",
+            "commandWindows": "\"/Users/guybary/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node\" \"/Users/guybary/Documents/octocode-mcp/skills/octocode-awareness/scripts/hook-runner.mjs\" notify-deliver --host codex --skill-root \"/Users/guybary/Documents/octocode-mcp/skills/octocode-awareness\"",
             "timeout": 20
           }
         ]
@@ -18,8 +18,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "OCTOCODE_AGENT_HOST=codex OCTOCODE_NODE_BIN=\"/opt/homebrew/Cellar/node/26.3.1/bin/node\" \"/Users/guybary/Documents/octocode-mcp/packages/octocode-awareness/out/skills/octocode-awareness/scripts/hooks/pre-edit.sh\"",
-            "commandWindows": "\"/opt/homebrew/Cellar/node/26.3.1/bin/node\" \"/Users/guybary/Documents/octocode-mcp/packages/octocode-awareness/out/skills/octocode-awareness/scripts/hook-runner.mjs\" pre-edit --host codex --skill-root \"/Users/guybary/Documents/octocode-mcp/packages/octocode-awareness/out/skills/octocode-awareness\"",
+            "command": "\"/Users/guybary/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node\" \"/Users/guybary/Documents/octocode-mcp/skills/octocode-awareness/scripts/hook-runner.mjs\" pre-edit --host codex --skill-root \"/Users/guybary/Documents/octocode-mcp/skills/octocode-awareness\"",
+            "commandWindows": "\"/Users/guybary/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node\" \"/Users/guybary/Documents/octocode-mcp/skills/octocode-awareness/scripts/hook-runner.mjs\" pre-edit --host codex --skill-root \"/Users/guybary/Documents/octocode-mcp/skills/octocode-awareness\"",
             "timeout": 20
           }
         ]
@@ -31,8 +31,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "OCTOCODE_AGENT_HOST=codex OCTOCODE_NODE_BIN=\"/opt/homebrew/Cellar/node/26.3.1/bin/node\" \"/Users/guybary/Documents/octocode-mcp/packages/octocode-awareness/out/skills/octocode-awareness/scripts/hooks/post-edit.sh\"",
-            "commandWindows": "\"/opt/homebrew/Cellar/node/26.3.1/bin/node\" \"/Users/guybary/Documents/octocode-mcp/packages/octocode-awareness/out/skills/octocode-awareness/scripts/hook-runner.mjs\" post-edit --host codex --skill-root \"/Users/guybary/Documents/octocode-mcp/packages/octocode-awareness/out/skills/octocode-awareness\"",
+            "command": "\"/Users/guybary/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node\" \"/Users/guybary/Documents/octocode-mcp/skills/octocode-awareness/scripts/hook-runner.mjs\" post-edit --host codex --skill-root \"/Users/guybary/Documents/octocode-mcp/skills/octocode-awareness\"",
+            "commandWindows": "\"/Users/guybary/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node\" \"/Users/guybary/Documents/octocode-mcp/skills/octocode-awareness/scripts/hook-runner.mjs\" post-edit --host codex --skill-root \"/Users/guybary/Documents/octocode-mcp/skills/octocode-awareness\"",
             "timeout": 20
           }
         ]
@@ -43,8 +43,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "OCTOCODE_AGENT_HOST=codex OCTOCODE_NODE_BIN=\"/opt/homebrew/Cellar/node/26.3.1/bin/node\" \"/Users/guybary/Documents/octocode-mcp/packages/octocode-awareness/out/skills/octocode-awareness/scripts/hooks/notify-deliver.sh\"",
-            "commandWindows": "\"/opt/homebrew/Cellar/node/26.3.1/bin/node\" \"/Users/guybary/Documents/octocode-mcp/packages/octocode-awareness/out/skills/octocode-awareness/scripts/hook-runner.mjs\" notify-deliver --host codex --skill-root \"/Users/guybary/Documents/octocode-mcp/packages/octocode-awareness/out/skills/octocode-awareness\"",
+            "command": "\"/Users/guybary/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node\" \"/Users/guybary/Documents/octocode-mcp/skills/octocode-awareness/scripts/hook-runner.mjs\" notify-deliver --host codex --skill-root \"/Users/guybary/Documents/octocode-mcp/skills/octocode-awareness\"",
+            "commandWindows": "\"/Users/guybary/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node\" \"/Users/guybary/Documents/octocode-mcp/skills/octocode-awareness/scripts/hook-runner.mjs\" notify-deliver --host codex --skill-root \"/Users/guybary/Documents/octocode-mcp/skills/octocode-awareness\"",
             "timeout": 20
           }
         ]
@@ -55,8 +55,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "OCTOCODE_AGENT_HOST=codex OCTOCODE_NODE_BIN=\"/opt/homebrew/Cellar/node/26.3.1/bin/node\" \"/Users/guybary/Documents/octocode-mcp/packages/octocode-awareness/out/skills/octocode-awareness/scripts/hooks/stop-verify.sh\"",
-            "commandWindows": "\"/opt/homebrew/Cellar/node/26.3.1/bin/node\" \"/Users/guybary/Documents/octocode-mcp/packages/octocode-awareness/out/skills/octocode-awareness/scripts/hook-runner.mjs\" stop-verify --host codex --skill-root \"/Users/guybary/Documents/octocode-mcp/packages/octocode-awareness/out/skills/octocode-awareness\"",
+            "command": "\"/Users/guybary/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node\" \"/Users/guybary/Documents/octocode-mcp/skills/octocode-awareness/scripts/hook-runner.mjs\" stop-verify --host codex --skill-root \"/Users/guybary/Documents/octocode-mcp/skills/octocode-awareness\"",
+            "commandWindows": "\"/Users/guybary/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node\" \"/Users/guybary/Documents/octocode-mcp/skills/octocode-awareness/scripts/hook-runner.mjs\" stop-verify --host codex --skill-root \"/Users/guybary/Documents/octocode-mcp/skills/octocode-awareness\"",
             "timeout": 20
           }
         ]
@@ -67,8 +67,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "OCTOCODE_AGENT_HOST=codex OCTOCODE_NODE_BIN=\"/opt/homebrew/Cellar/node/26.3.1/bin/node\" \"/Users/guybary/Documents/octocode-mcp/packages/octocode-awareness/out/skills/octocode-awareness/scripts/hooks/stop-verify.sh\"",
-            "commandWindows": "\"/opt/homebrew/Cellar/node/26.3.1/bin/node\" \"/Users/guybary/Documents/octocode-mcp/packages/octocode-awareness/out/skills/octocode-awareness/scripts/hook-runner.mjs\" stop-verify --host codex --skill-root \"/Users/guybary/Documents/octocode-mcp/packages/octocode-awareness/out/skills/octocode-awareness\"",
+            "command": "\"/Users/guybary/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node\" \"/Users/guybary/Documents/octocode-mcp/skills/octocode-awareness/scripts/hook-runner.mjs\" stop-verify --host codex --skill-root \"/Users/guybary/Documents/octocode-mcp/skills/octocode-awareness\"",
+            "commandWindows": "\"/Users/guybary/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node\" \"/Users/guybary/Documents/octocode-mcp/skills/octocode-awareness/scripts/hook-runner.mjs\" stop-verify --host codex --skill-root \"/Users/guybary/Documents/octocode-mcp/skills/octocode-awareness\"",
             "timeout": 20
           }
         ]
@@ -79,8 +79,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "OCTOCODE_AGENT_HOST=codex OCTOCODE_NODE_BIN=\"/opt/homebrew/Cellar/node/26.3.1/bin/node\" \"/Users/guybary/Documents/octocode-mcp/packages/octocode-awareness/out/skills/octocode-awareness/scripts/hooks/session-compact.sh\"",
-            "commandWindows": "\"/opt/homebrew/Cellar/node/26.3.1/bin/node\" \"/Users/guybary/Documents/octocode-mcp/packages/octocode-awareness/out/skills/octocode-awareness/scripts/hook-runner.mjs\" session-compact --host codex --skill-root \"/Users/guybary/Documents/octocode-mcp/packages/octocode-awareness/out/skills/octocode-awareness\"",
+            "command": "\"/Users/guybary/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node\" \"/Users/guybary/Documents/octocode-mcp/skills/octocode-awareness/scripts/hook-runner.mjs\" session-compact --host codex --skill-root \"/Users/guybary/Documents/octocode-mcp/skills/octocode-awareness\"",
+            "commandWindows": "\"/Users/guybary/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node\" \"/Users/guybary/Documents/octocode-mcp/skills/octocode-awareness/scripts/hook-runner.mjs\" session-compact --host codex --skill-root \"/Users/guybary/Documents/octocode-mcp/skills/octocode-awareness\"",
             "timeout": 20
           }
         ]
@@ -91,8 +91,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "OCTOCODE_AGENT_HOST=codex OCTOCODE_NODE_BIN=\"/opt/homebrew/Cellar/node/26.3.1/bin/node\" \"/Users/guybary/Documents/octocode-mcp/packages/octocode-awareness/out/skills/octocode-awareness/scripts/hooks/notify-deliver.sh\"",
-            "commandWindows": "\"/opt/homebrew/Cellar/node/26.3.1/bin/node\" \"/Users/guybary/Documents/octocode-mcp/packages/octocode-awareness/out/skills/octocode-awareness/scripts/hook-runner.mjs\" notify-deliver --host codex --skill-root \"/Users/guybary/Documents/octocode-mcp/packages/octocode-awareness/out/skills/octocode-awareness\"",
+            "command": "\"/Users/guybary/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node\" \"/Users/guybary/Documents/octocode-mcp/skills/octocode-awareness/scripts/hook-runner.mjs\" notify-deliver --host codex --skill-root \"/Users/guybary/Documents/octocode-mcp/skills/octocode-awareness\"",
+            "commandWindows": "\"/Users/guybary/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node\" \"/Users/guybary/Documents/octocode-mcp/skills/octocode-awareness/scripts/hook-runner.mjs\" notify-deliver --host codex --skill-root \"/Users/guybary/Documents/octocode-mcp/skills/octocode-awareness\"",
             "timeout": 20
           }
         ]

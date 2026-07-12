@@ -125,7 +125,7 @@ describe('production guidance contract', () => {
     expect(existsSync(resolve(PACKAGE_ROOT, 'src/stubs.ts'))).toBe(false);
   });
 
-  it('ships one current database contract without migration or version layers', () => {
+  it('ships one current database contract with only the exact receipt-table upgrade', () => {
     const databaseFiles = [
       'db.ts',
       'db-init.ts',
@@ -139,11 +139,12 @@ describe('production guidance contract', () => {
       .join('\n');
 
     expect(databaseSource).toContain('AWARENESS_APPLICATION_ID = 0x4f435431');
-    expect(databaseSource).not.toMatch(/\b(?:legacy|migrat(?:e|ion)|user_version|AWARENESS_SCHEMA_VERSION)\b/i);
+    expect(databaseSource).not.toMatch(/\b(?:legacy|user_version|AWARENESS_SCHEMA_VERSION)\b/i);
+    expect(databaseSource).toContain("'prior-hook-receipts'");
+    expect(databaseSource).toContain('HOOK_RECEIPTS_DDL');
     expect(existsSync(resolve(PACKAGE_ROOT, 'src/db-legacy.ts'))).toBe(false);
     expect(existsSync(resolve(PACKAGE_ROOT, 'src/db-rebuild.ts'))).toBe(false);
     expect(existsSync(resolve(PACKAGE_ROOT, 'tests/legacy-migration.test.ts'))).toBe(false);
-
     const ownedArtifacts = [
       read(resolve(PACKAGE_ROOT, 'src/attend-model.ts')),
       read(resolve(PACKAGE_ROOT, 'src/attend-query.ts')),

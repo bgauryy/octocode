@@ -1,7 +1,9 @@
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { connectDb } from './db.js';
+import { hookReceipts, hookRuntimeReceiptHealth } from './hook-receipts.js';
 import { acquireConfigLock, fail, flag, HookHost, HookSettings, HooksInstallOptions, HooksInstallResult, hooksInstallUsage, HOSTS, loadSettings, opt, projectHookDir, requestedHost, targetConfig, writeSettingsAtomic } from './hooks-install-specs.js';
-import { awarenessHookName, entry, hasCommand, hasDriftedCommand, hasExactCommand, hookStatusKey, hookTargetExists, matchingCommandCount, obsoleteSpecsFor, removeCommand, removeUnexpectedAwarenessCommands, runtimeHealth, specsFor } from './hooks-install-health.js';
+import { awarenessHookName, entry, frontmatterHookDefinition, hasCommand, hasDriftedCommand, hasExactCommand, hookStatusKey, hookTargetExists, matchingCommandCount, obsoleteSpecsFor, removeCommand, removeUnexpectedAwarenessCommands, runtimeHealth, specsFor } from './hooks-install-health.js';
 
 export function runHooksInstall(argv: string[], options: HooksInstallOptions): HooksInstallResult {
   const hostValue = requestedHost(argv);
@@ -119,7 +121,32 @@ export function runHooksInstallUnlocked(argv: string[], options: HooksInstallOpt
 
   if (flag(argv, '--check')) {
     const strict = flag(argv, '--strict');
-    const configReady = status.installed_all && status.drifted.length === 0;
+    const settingsPresent = checks.some((check) => check.present) || obsolete.length > 0;
+    const definition = host === 'claude' && !globalMode
+      ? frontmatterHookDefinition(projectDir, specs)
+      : { exists: false, complete: false, path: null };
+    const frontmatterSurface = !settingsPresent && definition.exists;
+    const configReady = frontmatterSurface
+      ? definition.complete
+      : status.installed_all && status.drifted.length === 0;
+    let receiptHealth = hookRuntimeReceiptHealth([], specs.map((spec) => spec.event));
+    if (options.dbPath) {
+      let database: ReturnType<typeof connectDb> | undefined;
+      try {
+        database = connectDb(options.dbPath);
+        receiptHealth = hookRuntimeReceiptHealth(hookReceipts(database, projectDir, host), specs.map((spec) => spec.event));
+      } catch {
+        // A missing/unreadable receipt store is unverified, never inferred healthy.
+      } finally {
+        try { database?.close(); } catch { /* best effort */ }
+      }
+    }
+    const surface = frontmatterSurface ? 'skill_frontmatter' : 'settings';
+    const compactRuntime = {
+      runtime: receiptHealth.status,
+      coverage: receiptHealth.coverage,
+      ...(receiptHealth.last_seen ? { last_seen: receiptHealth.last_seen } : {}),
+    };
     if (flag(argv, '--compact')) {
       return {
         exitCode: strict && !configReady ? 2 : 0,
@@ -127,12 +154,15 @@ export function runHooksInstallUnlocked(argv: string[], options: HooksInstallOpt
           ok: configReady,
           action: 'check',
           host,
-          hook_count: checks.length,
-          missing: status.missing,
-          drifted: status.drifted,
+          surface,
+          ...(frontmatterSurface ? {} : { hook_count: checks.length, missing: status.missing, drifted: status.drifted }),
           health: {
-            config: configReady ? 'ready' : 'needs_repair',
-            runtime: 'unverified',
+            ...(frontmatterSurface ? {
+              definition: definition.complete ? 'ready' : 'needs_repair',
+              config: 'not_required',
+              activation: 'unverified',
+            } : { config: configReady ? 'ready' : 'needs_repair' }),
+            ...compactRuntime,
           },
         },
       };
@@ -143,15 +173,28 @@ export function runHooksInstallUnlocked(argv: string[], options: HooksInstallOpt
         ok: configReady,
         action: 'check',
         strict,
-        strict_scope: 'config_only',
+        strict_scope: frontmatterSurface ? 'definition_only' : 'config_only',
+        surface,
         installed: status,
         health: {
-          config: {
-            status: configReady ? 'ready' : 'needs_repair',
-            verified: configReady,
-            settings_path: settingsPath,
+          ...(frontmatterSurface ? {
+            definition: { status: definition.complete ? 'ready' : 'needs_repair', path: definition.path },
+            config: { status: 'not_required', verified: true },
+            activation: { status: 'unverified' },
+          } : {
+            config: {
+              status: configReady ? 'ready' : 'needs_repair',
+              verified: configReady,
+              settings_path: settingsPath,
+            },
+          }),
+          runtime: {
+            ...runtimeHealth(host, globalMode),
+            status: receiptHealth.status,
+            verified: receiptHealth.status === 'observed',
+            last_seen: receiptHealth.last_seen,
+            coverage: receiptHealth.coverage,
           },
-          runtime: runtimeHealth(host, globalMode),
         },
       },
     };

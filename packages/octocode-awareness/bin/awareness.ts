@@ -95,7 +95,7 @@ if (command === 'hook-run') {
 }
 
 if (command === 'hooks-install') {
-  const result = runHooksInstall(rest, { hookDir: packageSkillScriptPath('hooks') });
+  const result = runHooksInstall(rest, { hookDir: packageSkillScriptPath('hooks'), dbPath });
   if (result.text !== undefined) process.stdout.write(result.text);
   else if (result.payload) emit(result.payload, result.exitCode, opts);
   process.exit(result.exitCode);

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -37,7 +37,7 @@ it('allows two agents to declare ordinary work on the same file without locks', 
     const workspace = resolve(memoryHome, 'repo');
     mkdirSync(workspace, { recursive: true });
     try {
-      const payload = { workspace, file_path: 'src/shared.ts' };
+      const payload = { workspace, file_path: 'src/shared.ts', hook_event_name: 'PreToolUse' };
       const first = runScript(HOOK_RUNNER, ['pre-edit'], payload, {
         OCTOCODE_MEMORY_HOME: memoryHome,
         OCTOCODE_AGENT_ID: 'agent-a',
@@ -52,6 +52,9 @@ it('allows two agents to declare ordinary work on the same file without locks', 
       const db = new DatabaseSync(join(memoryHome, 'awareness.sqlite3'));
       expect((db.prepare('SELECT COUNT(*) AS count FROM run_files WHERE ended_at IS NULL').get() as { count: number }).count).toBe(2);
       expect((db.prepare('SELECT COUNT(*) AS count FROM locks').get() as { count: number }).count).toBe(0);
+      expect(db.prepare('SELECT host, event, status FROM hook_receipts').all()).toEqual([
+        { host: 'claude', event: 'PreToolUse', status: 'success' },
+      ]);
       db.close();
     } finally {
       rmSync(memoryHome, { recursive: true, force: true });
@@ -181,7 +184,10 @@ it('runs the harness guard before declaring file work', () => {
 
       expect(result.status).toBe(2);
       expect(result.stderr).toContain('editing the skill itself is gated');
-      expect(existsSync(join(memoryHome, 'awareness.sqlite3'))).toBe(false);
+      const inspect = new DatabaseSync(join(memoryHome, 'awareness.sqlite3'));
+      expect((inspect.prepare('SELECT COUNT(*) AS count FROM task_runs').get() as { count: number }).count).toBe(0);
+      expect(inspect.prepare('SELECT event, status FROM hook_receipts').get()).toMatchObject({ event: 'pre-edit', status: 'success' });
+      inspect.close();
     } finally {
       rmSync(memoryHome, { recursive: true, force: true });
     }

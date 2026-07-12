@@ -12,6 +12,17 @@ import { DatabaseSync } from './db-runtime.js';
  * TEXT-comparison ordering against utcNow values; they cannot be edited to %S
  * because any change to this DDL alters the canonical schema fingerprint.
  */
+export const HOOK_RECEIPTS_DDL = `
+    CREATE TABLE IF NOT EXISTS hook_receipts (
+      workspace_path TEXT NOT NULL,
+      host           TEXT NOT NULL CHECK(host IN ('claude','codex','cursor')),
+      event          TEXT NOT NULL,
+      status         TEXT NOT NULL CHECK(status IN ('success','failure')),
+      last_seen_at   TEXT NOT NULL,
+      PRIMARY KEY(workspace_path, host, event)
+    );
+`;
+
 export const SCHEMA_DDL = `
     CREATE TABLE IF NOT EXISTS sessions (
       session_id     TEXT PRIMARY KEY,
@@ -181,6 +192,8 @@ export const SCHEMA_DDL = `
       delivered_at TEXT NOT NULL,
       PRIMARY KEY(consumer_id, channel, scope_key)
     );
+
+    ${HOOK_RECEIPTS_DDL}
 
     CREATE TABLE IF NOT EXISTS run_log (
       event_id   TEXT PRIMARY KEY,

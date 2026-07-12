@@ -275,7 +275,10 @@ describe('hook wrapper scripts', () => {
       );
       expect(result.status).toBe(2);
       expect(result.stderr).toContain('editing the skill itself is gated');
-      expect(existsSync(join(memoryHome, 'awareness.sqlite3'))).toBe(false);
+      const inspect = new DatabaseSync(join(memoryHome, 'awareness.sqlite3'));
+      expect((inspect.prepare('SELECT COUNT(*) AS count FROM task_runs').get() as { count: number }).count).toBe(0);
+      expect(inspect.prepare('SELECT event, status FROM hook_receipts').get()).toMatchObject({ event: 'pre-edit', status: 'success' });
+      inspect.close();
     } finally {
       rmSync(memoryHome, { recursive: true, force: true });
     }

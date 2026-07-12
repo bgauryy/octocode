@@ -3,9 +3,10 @@ export type { HookRunOptions } from './hook-payload.js';
 export type { HookControlOutcome } from './hook-payload.js';
 export { hookContextEnvelope } from './hook-payload.js';
 export { hookBlockOutcome } from './hook-payload.js';
-import { HookRunOptions, INTERNAL_HOOK_HOST, INTERNAL_SKILL_ROOT, normalizeShellHookHost, parsePayload, readStdin } from './hook-payload.js';
+import { HookRunOptions, INTERNAL_HOOK_HOST, INTERNAL_SKILL_ROOT, hookEventName, normalizeShellHookHost, parsePayload, readStdin, shellHookHost, workspace } from './hook-payload.js';
 import { runPostEdit, runPreEdit } from './hook-edit-events.js';
 import { runNotifyDeliver, runSessionCompact, runSessionEnd, runStopVerify } from './hook-lifecycle.js';
+import { recordHookReceiptBestEffort } from '../src/hook-receipts.js';
 
 export async function runHookCommand(
   command: string,
@@ -22,16 +23,30 @@ export async function runHookCommand(
     ...(options.host ? { [INTERNAL_HOOK_HOST]: options.host } : {}),
     ...(options.skillRoot ? { [INTERNAL_SKILL_ROOT]: options.skillRoot } : {}),
   };
-  switch (command) {
-    case 'pre-edit': return runPreEdit(payload);
-    case 'post-edit': return runPostEdit(payload);
-    case 'stop-verify': return runStopVerify(payload);
-    case 'notify-deliver': return runNotifyDeliver(payload);
-    case 'session-compact': return runSessionCompact(payload);
-    case 'session-end': return runSessionEnd(payload);
-    default:
-      console.error(`unknown hook command: ${command}`);
-      return 1;
+  const receipt = (status: 'success' | 'failure') => recordHookReceiptBestEffort({
+    workspacePath: workspace(payload) ?? process.cwd(),
+    host: shellHookHost(payload),
+    event: hookEventName(payload) ?? command,
+    status,
+  });
+  try {
+    let exitCode: number;
+    switch (command) {
+      case 'pre-edit': exitCode = await runPreEdit(payload); break;
+      case 'post-edit': exitCode = await runPostEdit(payload); break;
+      case 'stop-verify': exitCode = await runStopVerify(payload); break;
+      case 'notify-deliver': exitCode = await runNotifyDeliver(payload); break;
+      case 'session-compact': exitCode = await runSessionCompact(payload); break;
+      case 'session-end': exitCode = await runSessionEnd(payload); break;
+      default:
+        console.error(`unknown hook command: ${command}`);
+        return 1;
+    }
+    receipt(exitCode === 1 ? 'failure' : 'success');
+    return exitCode;
+  } catch (error) {
+    receipt('failure');
+    throw error;
   }
 }
 

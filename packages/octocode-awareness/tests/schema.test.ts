@@ -82,6 +82,7 @@ describe('initDb table set', () => {
       'run_files',
       'locks',
       'delivery_state',
+      'hook_receipts',
       'run_log',
       'refinements',
       'signals',

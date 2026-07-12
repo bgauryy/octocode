@@ -169,7 +169,7 @@ it('strict check reports drifted hooks and install repairs them', () => {
         drifted: string[];
       };
       expect(parsed.ok).toBe(false);
-      expect(parsed.health).toEqual({ config: 'needs_repair', runtime: 'unverified' });
+      expect(parsed.health).toMatchObject({ config: 'needs_repair', runtime: 'unverified', coverage: '0/8' });
       expect(parsed.drifted).toContain('PreToolUse:pre-edit.sh');
 
       const repaired = runInstallHooks(['hooks', 'install', '--host', 'codex', '--project-dir', projectDir, '--dry-run']);
@@ -244,7 +244,7 @@ it('strict check reports a stale awareness hook root as drifted', () => {
         drifted: string[];
       };
       expect(parsed.ok).toBe(false);
-      expect(parsed.health).toEqual({ config: 'needs_repair', runtime: 'unverified' });
+      expect(parsed.health).toMatchObject({ config: 'needs_repair', runtime: 'unverified', coverage: '0/8' });
       expect(parsed.drifted).toContain('PreToolUse:pre-edit.sh');
     } finally {
       rmSync(projectDir, { recursive: true, force: true });

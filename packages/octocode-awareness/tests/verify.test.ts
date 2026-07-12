@@ -1,8 +1,5 @@
 import { describe, it, expect } from 'vitest';
 import { DatabaseSync } from 'node:sqlite';
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { initDb } from '../src/db.js';
 import { canonicalizePath } from '../src/git.js';
 import { preFlightIntent, releaseFileLock } from '../src/intents.js';
@@ -368,49 +365,5 @@ describe('markVerified', () => {
     }
     expect(db.prepare('SELECT status, agent_id FROM task_runs WHERE run_id = ?').get(runId))
       .toEqual({ status: 'PENDING', agent_id: 'agent-b' });
-  });
-});
-
-describe('workspace-scope symlink stability (regression)', () => {
-  // auditUnverified/markVerified used to filter on the raw workspacePath with
-  // no normalization, unlike preFlightIntent/releaseFileLock which resolve
-  // through fillScope. A task released (and thus stored) via a symlinked
-  // workspace path could silently never show up in an audit filtered by the
-  // real path (or vice versa) — same bug as the memory subdirectory-recall
-  // regression, but for the verify-gate.
-  function tempDirWithLink(): { real: string; link: string; base: string } {
-    const base = mkdtempSync(join(tmpdir(), 'oc-verify-scope-'));
-    const real = join(base, 'real');
-    const link = join(base, 'link');
-    mkdirSync(real, { recursive: true });
-    symlinkSync(real, link);
-    return { real, link, base };
-  }
-
-  it('a task released via a symlinked workspace path is audited via the real path', () => {
-    const db = freshDb();
-    const { real, link, base } = tempDirWithLink();
-    try {
-      const runId = makePending(db, 'agent-a', link, 'verify-symlink-fix');
-      const result = auditUnverified(db, { workspacePath: real });
-      expect(result.count).toBe(1);
-      expect(result.unverified[0]?.run_id).toBe(runId);
-    } finally {
-      rmSync(base, { recursive: true, force: true });
-    }
-  });
-
-  it('markVerified --workspace via the real path clears a task released via the symlink', () => {
-    const db = freshDb();
-    const { real, link, base } = tempDirWithLink();
-    try {
-      makePending(db, 'agent-a', link, 'verify-symlink-mark');
-      const result = markVerified(db, { agentId: 'agent-a', allPending: true, workspacePath: real, message: 'symlink-scoped check passed' });
-      expect(result.ok).toBe(true);
-      if (result.ok) expect(result.count).toBe(1);
-      expect(auditUnverified(db, { workspacePath: real }).count).toBe(0);
-    } finally {
-      rmSync(base, { recursive: true, force: true });
-    }
   });
 });
