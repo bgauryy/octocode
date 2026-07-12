@@ -23,6 +23,8 @@ jobs:
         # floating toolchain can red an unrelated PR the day upstream adds a
         # new lint. Bump deliberately alongside packages/octocode-engine/rust-toolchain.toml.
         uses: dtolnay/rust-toolchain@1.96.0
+        with:
+          components: clippy
 
       - name: Cache Rust
         uses: Swatinem/rust-cache@v2
