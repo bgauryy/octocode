@@ -1578,8 +1578,8 @@ __metadata:
     "@modelcontextprotocol/sdk": "npm:^1.29.0"
     "@octocodeai/config": "workspace:*"
     "@octocodeai/octocode-core": "npm:^16.6.3"
-    "@octocodeai/octocode-engine": "workspace:*"
-    "@octocodeai/octocode-tools-core": "workspace:*"
+    "@octocodeai/octocode-engine": "npm:^16.7.0"
+    "@octocodeai/octocode-tools-core": "npm:16.6.3"
     "@octokit/oauth-methods": "npm:^6.0.2"
     "@octokit/plugin-throttling": "npm:^11.0.3"
     "@octokit/request": "npm:^10.0.10"
@@ -1651,7 +1651,7 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@octocodeai/octocode-engine@npm:^16.7.0, @octocodeai/octocode-engine@workspace:*, @octocodeai/octocode-engine@workspace:packages/octocode-engine":
+"@octocodeai/octocode-engine@npm:^16.7.0, @octocodeai/octocode-engine@workspace:packages/octocode-engine":
   version: 0.0.0-use.local
   resolution: "@octocodeai/octocode-engine@workspace:packages/octocode-engine"
   dependencies:
@@ -1690,14 +1690,14 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@octocodeai/octocode-tools-core@workspace:*, @octocodeai/octocode-tools-core@workspace:packages/octocode-tools-core":
+"@octocodeai/octocode-tools-core@npm:16.6.3, @octocodeai/octocode-tools-core@workspace:packages/octocode-tools-core":
   version: 0.0.0-use.local
   resolution: "@octocodeai/octocode-tools-core@workspace:packages/octocode-tools-core"
   dependencies:
     "@modelcontextprotocol/sdk": "npm:^1.29.0"
     "@octocodeai/config": "workspace:*"
     "@octocodeai/octocode-core": "npm:^16.6.3"
-    "@octocodeai/octocode-engine": "workspace:*"
+    "@octocodeai/octocode-engine": "npm:^16.7.0"
     "@octokit/core": "npm:^7.0.6"
     "@octokit/oauth-methods": "npm:^6.0.2"
     "@octokit/openapi-types": "npm:^27.0.0"
@@ -6316,7 +6316,7 @@ __metadata:
     "@octocodeai/config": "workspace:*"
     "@octocodeai/octocode-core": "npm:^16.6.3"
     "@octocodeai/octocode-engine": "npm:^16.7.0"
-    "@octocodeai/octocode-tools-core": "workspace:*"
+    "@octocodeai/octocode-tools-core": "npm:16.6.3"
     "@octokit/auth-oauth-device": "npm:^8.0.3"
     "@octokit/oauth-methods": "npm:^6.0.2"
     "@octokit/plugin-throttling": "npm:^11.0.3"

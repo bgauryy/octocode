@@ -1,6 +1,6 @@
 {
   "name": "@octocodeai/octocode-tools-core",
-  "version": "1.0.2",
+  "version": "16.6.3",
   "description": "Core tool implementations for Octocode: GitHub, local filesystem, LSP, and package search tools.",
   "author": "Guy Bary <bgauryy@octocodeai.com>",
   "repository": {
@@ -91,7 +91,7 @@
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@octocodeai/config": "workspace:*",
     "@octocodeai/octocode-core": "^16.6.3",
-    "@octocodeai/octocode-engine": "workspace:*",
+    "@octocodeai/octocode-engine": "^16.7.0",
     "@octokit/oauth-methods": "^6.0.2",
     "@octokit/plugin-throttling": "^11.0.3",
     "@octokit/request": "^10.0.10",

@@ -72,7 +72,7 @@
   },
   "devDependencies": {
     "@octocodeai/config": "workspace:*",
-    "@octocodeai/octocode-tools-core": "workspace:*",
+    "@octocodeai/octocode-tools-core": "16.6.3",
     "@types/node": "^25.9.3",
     "@vitest/coverage-v8": "^4.1.9",
     "esbuild": "^0.28.1",
