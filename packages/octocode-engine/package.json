@@ -319,7 +319,7 @@
     "check:rust": "cargo check --all-targets --all-features",
     "fmt:rust": "cargo fmt --all",
     "fmt:rust:check": "cargo fmt --all -- --check",
-    "test:rust": "cargo test --all-targets --all-features",
+    "test:rust": "cargo test --lib --tests --all-features && cargo build --benches --all-features",
     "test:node": "vitest run",
     "test:node:coverage": "vitest run --coverage",
     "test:watch": "vitest watch",

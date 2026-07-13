@@ -121,8 +121,8 @@ tree-sitter-swift   = ["dep:tree-sitter-swift"]
 tree-sitter-large-grammars = ["tree-sitter-cpp", "tree-sitter-c-sharp", "tree-sitter-swift"]
 
 [dev-dependencies]
-napi = { version = "3", default-features = false, features = ["noop", "napi4", "tokio_rt", "serde-json"] }
-proptest = "1"
+napi      = { version = "3", default-features = false, features = ["noop", "napi4", "tokio_rt", "serde-json"] }
+proptest  = "1"
 criterion = { version = "0.5", features = ["html_reports"] }
 
 [[bench]]
