@@ -55,6 +55,14 @@ ignore = "0.4"
 # ── line diff (Myers) for edit-tool / patch previews ────────────────────────
 similar = "2"
 
+# ── security pins: transitive deps pinned to patched versions ────────────────
+# crossbeam-epoch <0.9.20: RUSTSEC-2026-0204 (invalid pointer dereference)
+# Pulled in by rayon → crossbeam-deque → crossbeam-epoch.
+crossbeam-epoch = "0.9.20"
+# memmap2 <0.9.11: RUSTSEC-2026-0186 (unchecked pointer offset — unsound)
+# Pulled in by grep → grep-searcher → memmap2.
+memmap2 = "0.9.11"
+
 # ── high-quality CSS minifier ─────────────────────────────────────────────────
 lightningcss = { version = "1.0.0-alpha.71", default-features = false }
 
