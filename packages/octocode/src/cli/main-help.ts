@@ -131,7 +131,6 @@ function buildToolBlock(
  * `context [--full] [--json]` form (a contract checked by cli:check).
  */
 const COMMAND_INDEX: Record<string, { label?: string; desc: string }> = {
-  skill: { desc: 'install / list agent skills' },
   context: {
     label: 'context [--full] [--json]',
     desc: 'agent protocol + tools',

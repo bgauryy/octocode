@@ -8,16 +8,12 @@ import {
   hasEnvironmentIssues,
 } from '../install/index.js';
 import { printGoodbye, printWelcome } from '../header.js';
-import { runSkillsMenu } from '../skills-menu/index.js';
-import { runOctocodeSkillsFlow } from '../skills-menu/marketplace.js';
 import { getAppState, type AppState } from '../state.js';
 import { runToolTerminalFlow } from '../tool-terminal.js';
 import type { MenuChoice } from './types.js';
 import {
   buildStatusLine,
   buildOctocodeMenuItem,
-  buildOctocodeSkillsMenuItem,
-  buildSkillsMenuItem,
   buildAuthMenuItem,
   printContextualHints,
 } from './main-menu-items.js';
@@ -37,10 +33,6 @@ async function showMainMenu(state: AppState): Promise<MenuChoice> {
   }> = [];
 
   choices.push(buildOctocodeMenuItem(state));
-
-  choices.push(buildOctocodeSkillsMenuItem(state.skills));
-
-  choices.push(buildSkillsMenuItem(state.skills));
 
   choices.push(buildAuthMenuItem(state.githubAuth));
 
@@ -83,14 +75,6 @@ async function handleMenuChoice(choice: MenuChoice): Promise<boolean> {
   switch (choice) {
     case 'octocode':
       await runOctocodeFlow();
-      return true;
-
-    case 'octocode-skills':
-      await runOctocodeSkillsFlow();
-      return true;
-
-    case 'skills':
-      await runSkillsMenu();
       return true;
 
     case 'auth':

@@ -83,9 +83,6 @@ export async function runLoginFlow(): Promise<boolean> {
     console.log();
     console.log(`  ${c('cyan', 'Tip:')} ${bold("What's next?")}`);
     console.log(
-      `     ${dim('•')} Install ${c('magenta', 'Skills')} for AI-powered research & PR reviews`
-    );
-    console.log(
       `     ${dim('•')} Use ${c('cyan', '/research')} prompt to explore any GitHub repo`
     );
     console.log(

@@ -30,7 +30,6 @@
   "bin": "./out/octocode.js",
   "files": [
     "out",
-    "skills",
     "docs/**",
     "assets/example.png",
     "README.md",
@@ -45,7 +44,6 @@
     "clean": "rm -rf out/",
     "lint": "eslint src tests",
     "lint:fix": "eslint src tests --fix",
-    "postpack": "rm -rf ./skills",
     "prepack": "yarn readme:sync && node scripts/check-no-workspace-protocol.mjs && node scripts/prepack.mjs",
     "prepublishOnly": "node scripts/check-no-workspace-protocol.mjs",
     "sync:version:publish": "node scripts/sync-version-publish.mjs",
@@ -56,9 +54,7 @@
     "typecheck": "tsc --noEmit",
     "validate:mcp": "npx tsx scripts/validate-mcp-registry.ts",
     "validate:mcp:json": "npx tsx scripts/validate-mcp-registry.ts --json",
-    "validate:skills": "npx tsx scripts/validate-skills-marketplace.ts",
-    "validate:skills:json": "npx tsx scripts/validate-skills-marketplace.ts --json",
-    "verify": "yarn lint && yarn typecheck && yarn test && yarn validate:mcp && yarn validate:skills",
+    "verify": "yarn lint && yarn typecheck && yarn test && yarn validate:mcp",
     "readme:sync": "node ../../scripts/sync-package-readmes.mjs ."
   },
   "dependencies": {

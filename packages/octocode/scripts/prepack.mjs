@@ -4,7 +4,6 @@ import {
   existsSync,
   mkdirSync,
   readdirSync,
-  rmSync,
   statSync,
   unlinkSync,
 } from 'node:fs';
@@ -32,26 +31,6 @@ const SKIPPED_FILES = new Set([
   'npm-debug.log',
   'yarn-error.log',
 ]);
-
-copyBundledSkills();
-
-function copyBundledSkills() {
-  const source = join(repoRoot, 'skills');
-  const destination = join(packageRoot, 'skills');
-
-  rmSync(destination, { recursive: true, force: true });
-  // Only real skill folders (containing SKILL.md) ship — repo-root skills/
-  // Only directories with SKILL.md are treated as shippable skills.
-  for (const entry of readdirSync(source, { withFileTypes: true })) {
-    if (!entry.isDirectory()) continue;
-    if (!existsSync(join(source, entry.name, 'SKILL.md'))) continue;
-    copyDirectoryFiltered(
-      join(source, entry.name),
-      join(destination, entry.name)
-    );
-  }
-  removeEnvExamples(destination);
-}
 
 function isHiddenLocalOnlyEntry(name) {
   return name.startsWith('.') && name !== '.env.example';

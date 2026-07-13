@@ -3,8 +3,7 @@
 The Octocode CLI is the terminal interface over the same research engine used by
 the Octocode MCP server. One binary — `npx octocode` — covers code search, exact
 file reads, directory trees, LSP symbol navigation, GitHub repos, npm packages,
-PRs, commits, MCP client setup, GitHub auth, and agent skill
-management.
+PRs, commits, MCP client setup, and GitHub auth.
 
 ```text
 octocode CLI quick command  ──► same core runners ──► GitHub, local, npm, LSP
@@ -24,7 +23,6 @@ They are not separate implementations.
 | `cache` | Fetch remote files, trees, or repos into local Octocode storage; also inspect or clear cached materialization. |
 | `tools` | List every Octocode MCP tool, read exact tool schemas, and run raw tool calls from the terminal. |
 | `context` | Print the agent protocol, system prompt, tool descriptions, and schemas. |
-| `skill` | List, install, update, or preview Octocode and GitHub Agent Skill folders for Claude, Cursor, Codex, Pi, and others. |
 | `install` | Write or check MCP client configuration for supported IDEs and agent hosts. |
 | `auth` | Manage GitHub auth with `login`, `logout`, `refresh`, and `status` subcommands. |
 | `login` | Top-level shortcut for GitHub login. |
@@ -128,103 +126,6 @@ npx octocode tools <name> --scheme
 | GitHub | `ghSearchCode` · `ghSearchRepos` · `ghHistoryResearch` · `ghGetFileContent` · `ghViewRepoStructure` · `ghCloneRepo` |
 | Local Code | `localSearchCode` · `localFindFiles` · `localGetFileContent` · `localViewStructure` · `lspGetSemantics` |
 | Package | `npmSearch` |
-
----
-
-## `skill` — Agent Skill Management
-
-Install Agent Skill folders into supported agent destinations. Official Octocode
-skills are **bundled inside the npm package** — no network call needed, works
-offline, always the correct version for this release.
-
-### Install a named Octocode skill
-
-```bash
-npx octocode skill --name octocode-research
-npx octocode skill --name octocode-awareness
-npx octocode skill --name octocode-research --platform cursor
-npx octocode skill --name octocode-research --platform claude
-npx octocode skill --name octocode-research --platform all --dry-run
-```
-
-`--name` checks the bundled skills first. If the skill is in the bundle it is
-installed directly from there. If it is not in the bundle (e.g. a newer skill
-published after this CLI release), the CLI falls back to fetching from GitHub.
-
-### Install from an agent-known local skill path
-
-```bash
-npx octocode skill --add --path /absolute/path/to/skills --platform common
-npx octocode skill --add --path /absolute/path/to/skills/octocode-awareness --platform codex --dry-run
-npx octocode skill --add --path /absolute/path/to/skills/octocode-awareness/SKILL.md --platform pi
-```
-
-Use `--add --path` when the agent already knows the bundled skill location. The
-path may point at a skill folder, its `SKILL.md`, or a local skills library
-folder; a library path installs every direct child skill folder.
-
-### Install all bundled Octocode skills
-
-```bash
-npx octocode skill --install-all
-npx octocode skill --install-all --platform pi
-npx octocode skill --install-all --platform all --mode hybrid --dry-run
-```
-
-### Install a skill from GitHub
-
-```bash
-npx octocode skill --add owner/repo/skills/code-review --platform cursor,codex
-npx octocode skill --add https://github.com/owner/repo/tree/main/skills/review --platform common
-```
-
-`--add <github-path>` fetches from GitHub. Use `--add --path <local-path>` for a
-local bundled or agent-known skill folder.
-
-### List available skills
-
-```bash
-npx octocode skill --list
-npx octocode skill --list --json
-```
-
-`--list` shows the skills bundled with this install (offline, matches
-`--install-all` exactly). If no bundle is found (e.g. running unbuilt from
-source), it falls back to the live marketplace listing from GitHub (cached 24
-hours), then to a known-names list if that also fails.
-
-### Platforms
-
-| Platform | Destination |
-|---|---|
-| `common` (default) | `~/.agents/skills` |
-| `cursor` | `~/.cursor/skills` |
-| `claude` | Claude Code + Claude Desktop skill folders |
-| `codex` | `~/.agents/skills` |
-| `opencode` | `~/.config/opencode/skills` |
-| `pi` | `~/.pi/agent/skills` |
-| `copilot` | `~/.copilot/skills` |
-| `gemini` | `~/.gemini/skills` |
-| `all` | All platforms |
-
-### Install modes
-
-| Mode | Meaning |
-|---|---|
-| `symlink` (default) | Symlink each target to Octocode's skill-sources cache — one reinstall updates all targets. |
-| `copy` | Embed a standalone copy in each target directory. |
-| `hybrid` | Copy for Claude targets (where direct file access matters), symlink for everything else. |
-
-### Useful flags
-
-| Flag | Meaning |
-|---|---|
-| `--force` / `--update` | Overwrite existing installed skill folders. |
-| `--dry-run` | Preview destinations and actions without installing. |
-| `--verbose` | Show source URL and cache path. |
-| `--json` | Structured JSON output. |
-| `--branch <ref>` | Branch, tag, or SHA when fetching from GitHub. |
-| `--path <path>` | Local skill folder, `SKILL.md`, or local skills library path; use with `--add`. |
 
 ---
 

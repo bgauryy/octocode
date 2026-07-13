@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach, vi, beforeEach } from 'vitest';
+import { describe, it, expect, afterEach } from 'vitest';
 import { statSync, mkdirSync, rmSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -7,7 +7,6 @@ import {
   getOctocodeServerConfig,
   getOctocodeServerConfigWindows,
 } from '../../src/utils/mcp-config.js';
-import { fetchRawContent } from '../../src/utils/skills-fetch.js';
 
 describe('Finding 3 — writeFileContent uses restrictive permissions', () => {
   const testDir = join(tmpdir(), `octocode-audit-f3-${Date.now()}`);
@@ -74,75 +73,4 @@ describe('Finding 4 — Direct installer removed (RCE/supply-chain risk)', () =>
   });
 });
 
-describe('Finding 5 — Skills download guardrails', () => {
-  const source = {
-    id: 'test',
-    name: 'Test',
-    type: 'github' as const,
-    owner: 'test',
-    repo: 'test',
-    branch: 'main',
-    skillsPath: '',
-    skillPattern: 'flat-md' as const,
-    description: 'test',
-    url: 'https://github.com/test/test',
-  };
 
-  const originalFetch = global.fetch;
-
-  beforeEach(() => {
-    vi.restoreAllMocks();
-  });
-
-  afterEach(() => {
-    global.fetch = originalFetch;
-  });
-
-  it('rejects body exceeding MAX_CONTENT_SIZE (2MB > 1MB limit)', async () => {
-    global.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      headers: { get: () => null },
-      text: () => Promise.resolve('x'.repeat(2 * 1024 * 1024)),
-    });
-
-    await expect(fetchRawContent(source, 'SKILL.md')).rejects.toThrow(
-      /Content too large/
-    );
-  });
-
-  it('rejects when Content-Length header exceeds limit', async () => {
-    global.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      headers: {
-        get: (h: string) => (h === 'Content-Length' ? '5000000' : null),
-      },
-      text: () => Promise.resolve('small'),
-    });
-
-    await expect(fetchRawContent(source, 'SKILL.md')).rejects.toThrow(
-      /Content too large/
-    );
-  });
-
-  it('throws on non-OK HTTP response', async () => {
-    global.fetch = vi.fn().mockResolvedValue({
-      ok: false,
-      statusText: 'Not Found',
-    });
-
-    await expect(fetchRawContent(source, 'SKILL.md')).rejects.toThrow(
-      /Failed to fetch/
-    );
-  });
-
-  it('returns content when within size limits', async () => {
-    const content = '# My Skill\nValid content.';
-    global.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      headers: { get: () => null },
-      text: () => Promise.resolve(content),
-    });
-
-    expect(await fetchRawContent(source, 'SKILL.md')).toBe(content);
-  });
-});

@@ -7,6 +7,7 @@ describe('CLI command registry', () => {
 
     const removed = [
       'token',
+      'skill',
       'skills',
       'cat',
       'ls',
@@ -34,11 +35,4 @@ describe('CLI command registry', () => {
     expect(cmd!.name).toBe('status');
   });
 
-  it('loads the singular skill command', async () => {
-    const { findCommand, loadCommand } =
-      await import('../../src/cli/commands/index.js');
-
-    expect(findCommand('skill')).toBeUndefined();
-    expect((await loadCommand('skill'))?.name).toBe('skill');
-  });
 });

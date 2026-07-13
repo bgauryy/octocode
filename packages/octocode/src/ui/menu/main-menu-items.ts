@@ -3,7 +3,7 @@ import {
   MCP_CLIENTS,
   type ClientInstallStatus,
 } from '../../utils/mcp-config.js';
-import type { AppState, SkillsState } from '../state.js';
+import type { AppState } from '../state.js';
 import type { OctocodeAuthStatus } from '../../types/index.js';
 import type { MenuChoice } from './types.js';
 
@@ -26,66 +26,6 @@ export function printInstalledIDEs(
       `    ${dim('•')} ${dim(clientName)} ${dim('->')} ${c('cyan', client.configPath)}`
     );
   }
-}
-
-export function buildSkillsMenuItem(skills: SkillsState): {
-  name: string;
-  value: MenuChoice;
-  description: string;
-} {
-  if (!skills.sourceExists || !skills.hasSkills) {
-    return {
-      name: `${dim('- Manage System Skills')}`,
-      value: 'skills',
-      description: dim('Not available — no skill sources found'),
-    };
-  }
-
-  if (skills.allInstalled) {
-    return {
-      name: `- Manage System Skills ${c('green', '✅')}`,
-      value: 'skills',
-      description: `${skills.totalInstalledCount} installed • Research, PR Review & more`,
-    };
-  }
-
-  if (skills.totalInstalledCount > 0) {
-    return {
-      name: '- Manage System Skills',
-      value: 'skills',
-      description: `${skills.totalInstalledCount}/${skills.skills.length} installed • Get more skills!`,
-    };
-  }
-
-  return {
-    name: `- ${bold('Manage System Skills')} ${c('cyan', '[NEW]')}`,
-    value: 'skills',
-    description: `Install skills for AI-powered coding workflows`,
-  };
-}
-
-export function buildOctocodeSkillsMenuItem(skills: SkillsState): {
-  name: string;
-  value: MenuChoice;
-  description: string;
-} {
-  const octocodeSkillsInstalled = skills.skills.filter(
-    s => s.name.startsWith('octocode-') && s.installed
-  ).length;
-
-  if (octocodeSkillsInstalled > 0) {
-    return {
-      name: `- Octocode Skills ${c('green', '✅')}`,
-      value: 'octocode-skills',
-      description: `${octocodeSkillsInstalled} installed • Awareness & Research`,
-    };
-  }
-
-  return {
-    name: '- Octocode Skills',
-    value: 'octocode-skills',
-    description: 'Install Octocode Awareness and Research skills',
-  };
 }
 
 export function getAuthSourceDisplay(auth: OctocodeAuthStatus): string {
@@ -142,12 +82,6 @@ export function buildStatusLine(state: AppState): string {
     parts.push(`${c('yellow', '○')} Not installed`);
   }
 
-  if (state.skills.totalInstalledCount > 0) {
-    parts.push(`${c('green', '●')} ${state.skills.totalInstalledCount} skills`);
-  } else if (state.skills.sourceExists && state.skills.hasSkills) {
-    parts.push(`${c('yellow', '○')} ${state.skills.skills.length} skills`);
-  }
-
   return parts.join(dim('  │  '));
 }
 
@@ -186,14 +120,6 @@ export function printContextualHints(state: AppState): void {
     console.log();
     console.log(
       `  ${c('yellow', 'Warning:')} ${bold('Auth required!')} Run ${c('cyan', 'Manage Auth')} to access GitHub repos`
-    );
-  } else if (
-    state.octocode.isInstalled &&
-    state.skills.totalInstalledCount === 0
-  ) {
-    console.log();
-    console.log(
-      `  ${c('cyan', 'Tip:')} ${dim('Boost your AI coding:')} Install ${c('magenta', 'Skills')} for research, PR review & more!`
     );
   }
 }

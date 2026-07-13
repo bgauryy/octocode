@@ -11,7 +11,6 @@ const OPTIONS_WITH_VALUES = new Set([
   'branch',
   'add',
   'platform',
-  'skill',
   'local',
   'limit',
   'depth',

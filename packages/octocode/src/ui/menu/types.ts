@@ -1,5 +1,5 @@
 export type MenuChoice =
-  'octocode' | 'octocode-skills' | 'skills' | 'auth' | 'terminal' | 'exit';
+  'octocode' | 'auth' | 'terminal' | 'exit';
 
 export type OctocodeMenuChoice = 'configure' | 'install' | 'back';
 
