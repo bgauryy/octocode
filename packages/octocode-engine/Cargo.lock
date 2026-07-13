@@ -1140,9 +1140,11 @@ name = "octocode-engine"
 version = "16.7.0"
 dependencies = [
  "criterion",
+ "crossbeam-epoch",
  "grep",
  "ignore",
  "lightningcss",
+ "memmap2",
  "napi",
  "napi-build",
  "napi-derive",
