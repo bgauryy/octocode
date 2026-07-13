@@ -72,5 +72,3 @@ describe('Finding 4 — Direct installer removed (RCE/supply-chain risk)', () =>
     expect(config.args).toEqual(['-y', '@octocodeai/mcp@latest']);
   });
 });
-
-

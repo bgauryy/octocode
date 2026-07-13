@@ -14,6 +14,7 @@
   },
   "scripts": {
     "build": "yarn prepublish && node ./scripts/workspace-health.mjs run build",
+    "build:ci": "yarn prepublish && node ./scripts/workspace-health.mjs run build --exclude @octocodeai/octocode-engine",
     "build:native:all": "yarn workspace @octocodeai/octocode-engine build:all",
     "platforms:check": "yarn workspace @octocodeai/octocode-engine platforms:check",
     "build:publish": "yarn prepublish && yarn build:native:all && yarn platforms:check && yarn workspace @octocodeai/mcp build:publish",
@@ -21,12 +22,15 @@
     "health:check": "node ./scripts/workspace-health.mjs check",
     "health:report": "node ./scripts/workspace-health.mjs report",
     "lint": "node ./scripts/workspace-health.mjs run lint",
+    "lint:ci": "node ./scripts/workspace-health.mjs run lint --exclude @octocodeai/octocode-engine",
     "lint:fix": "yarn workspaces foreach -Apt run lint:fix",
     "deps:dedupe": "node ./scripts/dedupe-deps.mjs",
     "deps:dedupe:fix": "node ./scripts/dedupe-deps.mjs --fix",
     "test": "node ./scripts/workspace-health.mjs run test",
+    "test:ci": "node ./scripts/workspace-health.mjs run test --exclude @octocodeai/octocode-engine",
     "test:quiet": "yarn workspaces foreach -Apt run test:quiet",
     "typecheck": "node ./scripts/workspace-health.mjs run typecheck",
+    "typecheck:ci": "node ./scripts/workspace-health.mjs run typecheck --exclude @octocodeai/octocode-engine",
     "verify": "node ./scripts/workspace-health.mjs verify",
     "prepublish": "yarn readme:sync",
     "readme:sync": "node ./scripts/sync-package-readmes.mjs"

@@ -34,5 +34,4 @@ describe('CLI command registry', () => {
     expect(cmd).toBeDefined();
     expect(cmd!.name).toBe('status');
   });
-
 });
