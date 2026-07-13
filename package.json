@@ -32,7 +32,8 @@
     "typecheck": "node ./scripts/workspace-health.mjs run typecheck",
     "typecheck:ci": "node ./scripts/workspace-health.mjs run typecheck --exclude @octocodeai/octocode-engine",
     "verify": "node ./scripts/workspace-health.mjs verify",
-    "prepublish": "yarn readme:sync",
+    "devScript": "node ./scripts/dev-setup.mjs",
+    "prepublish": "node ./scripts/prepublish.mjs && yarn readme:sync",
     "readme:sync": "node ./scripts/sync-package-readmes.mjs"
   },
   "devDependencies": {

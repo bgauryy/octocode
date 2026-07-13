@@ -96,6 +96,51 @@ $OCTO tools localSearchCode lspGetSemantics --scheme
 
 Prefer `node packages/octocode/out/octocode.js` over global `octocode` / npx when validating monorepo changes. After engine or tools-core edits: rebuild the package, then `yarn workspace octocode build:dev`. `build:dev` skips clean + lint; engine uses debug (not `--release`).
 
+## Dev setup and publish guard
+
+Two scripts manage workspace resolution overrides for local development vs. publish safety.
+
+### `yarn devScript` — local dev: resolve internal packages from workspace
+
+```bash
+yarn devScript                         # adds workspace:* to root resolutions
+yarn install                           # apply resolutions
+```
+
+Adds the four internal packages to the `resolutions` field in the root `package.json` so Yarn uses the local build for every consumer, including transitive ones:
+
+| Package | Role |
+|---|---|
+| `@octocodeai/octocode-tools-core` | Brain / all tool runners |
+| `@octocodeai/config` | Zero-dep env + config loader |
+| `@octocodeai/octocode-core` | External schemas + system prompt (sibling repo) |
+| `@octocodeai/octocode-engine` | Rust/napi engine |
+
+Script: [`scripts/dev-setup.mjs`](scripts/dev-setup.mjs). Idempotent — safe to re-run.
+
+### `scripts/prepublish.mjs` — publish guard: remove resolutions + align versions
+
+Runs automatically as part of `yarn prepublish` (before `readme:sync`). Also callable directly:
+
+```bash
+node ./scripts/prepublish.mjs             # check only — exit 1 if issues found
+node ./scripts/prepublish.mjs --fix       # remove workspace:* resolutions + align dep versions, then yarn install
+node ./scripts/prepublish.mjs --dry-run   # preview fixes without writing
+```
+
+Two checks:
+
+1. **Resolutions** — root `package.json` must not have `workspace:*` for the four managed packages. Yarn rewrites these during publish and can produce wrong pinned versions in tarballs.
+2. **Version alignment** — every workspace package that pins one of the four managed packages (non-`workspace:*`) must match the package's current `version` in the repo (written as `^<version>`). Packages not in this workspace (e.g. `@octocodeai/octocode-core`) are skipped.
+
+**Typical flow before publishing any package:**
+
+```bash
+node ./scripts/prepublish.mjs --fix   # remove dev resolutions + align versions
+yarn install                          # update lockfile
+yarn prepublish                       # runs check again + readme:sync (must pass clean)
+```
+
 ## Docs and references
 
 | Area | Links |
