@@ -17,7 +17,8 @@ async function setupPair() {
   const server = new McpServer({ name: 'test-server', version: '0.0.0' });
   const secure = withOutputSanitization(server);
   const client = new Client({ name: 'test-client', version: '0.0.0' });
-  const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
+  const [serverTransport, clientTransport] =
+    InMemoryTransport.createLinkedPair();
   return { server, secure, client, serverTransport, clientTransport };
 }
 
@@ -31,7 +32,13 @@ describe('secureServer — registerResource proxy (wrapNonToolCallback)', () => 
       'file:///static-doc',
       { description: 'A static document' },
       async () => ({
-        contents: [{ uri: 'file:///static-doc', text: 'hello resource', mimeType: 'text/plain' }],
+        contents: [
+          {
+            uri: 'file:///static-doc',
+            text: 'hello resource',
+            mimeType: 'text/plain',
+          },
+        ],
       })
     );
 
@@ -67,7 +74,9 @@ describe('secureServer — registerResource proxy (wrapNonToolCallback)', () => 
 
     await expect(
       client.readResource({ uri: 'file:///failing-doc' })
-    ).rejects.toMatchObject({ message: expect.stringContaining('failing-doc') });
+    ).rejects.toMatchObject({
+      message: expect.stringContaining('failing-doc'),
+    });
 
     await client.close();
     await server.close();
@@ -77,14 +86,12 @@ describe('secureServer — registerResource proxy (wrapNonToolCallback)', () => 
     const { server, secure, client, serverTransport, clientTransport } =
       await setupPair();
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (secure as any).registerResource(
       'string-error-doc',
       'file:///string-error-doc',
       { description: 'Throws a string' },
       async () => {
         // normalizeError string branch
-        // eslint-disable-next-line @typescript-eslint/no-throw-literal
         throw 'plain string error';
       }
     );
@@ -96,7 +103,9 @@ describe('secureServer — registerResource proxy (wrapNonToolCallback)', () => 
 
     await expect(
       client.readResource({ uri: 'file:///string-error-doc' })
-    ).rejects.toMatchObject({ message: expect.stringContaining('string-error-doc') });
+    ).rejects.toMatchObject({
+      message: expect.stringContaining('string-error-doc'),
+    });
 
     await client.close();
     await server.close();
@@ -106,14 +115,12 @@ describe('secureServer — registerResource proxy (wrapNonToolCallback)', () => 
     const { server, secure, client, serverTransport, clientTransport } =
       await setupPair();
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (secure as any).registerResource(
       'obj-error-doc',
       'file:///obj-error-doc',
       { description: 'Throws a plain object without message' },
       async () => {
         // normalizeError object-without-message branch → safeStringify
-        // eslint-disable-next-line @typescript-eslint/no-throw-literal
         throw { code: 'ERR_NO_MESSAGE', status: 503 };
       }
     );
@@ -125,7 +132,9 @@ describe('secureServer — registerResource proxy (wrapNonToolCallback)', () => 
 
     await expect(
       client.readResource({ uri: 'file:///obj-error-doc' })
-    ).rejects.toMatchObject({ message: expect.stringContaining('obj-error-doc') });
+    ).rejects.toMatchObject({
+      message: expect.stringContaining('obj-error-doc'),
+    });
 
     await client.close();
     await server.close();
@@ -137,8 +146,12 @@ describe('secureServer — Proxy Reflect.get fallthrough', () => {
     const server = new McpServer({ name: 'test-server', version: '0.0.0' });
     const secure = withOutputSanitization(server);
     // 'connect' is not 'registerTool' nor 'registerResource' — exercises Reflect.get branch
-    expect(typeof (secure as unknown as Record<string, unknown>).connect).toBe('function');
-    expect(typeof (secure as unknown as Record<string, unknown>).name).toBe('undefined');
+    expect(typeof (secure as unknown as Record<string, unknown>).connect).toBe(
+      'function'
+    );
+    expect(typeof (secure as unknown as Record<string, unknown>).name).toBe(
+      'undefined'
+    );
   });
 });
 
@@ -153,8 +166,11 @@ describe('secureServer — normalizeError edge cases via resource handler throws
       { description: 'throws object with message' },
       async () => {
         // normalizeError: object branch, obj.message is string → line 42
-        // eslint-disable-next-line @typescript-eslint/no-throw-literal
-        throw { name: 'CustomError', message: 'detailed failure', code: 'E_CUSTOM' };
+        throw {
+          name: 'CustomError',
+          message: 'detailed failure',
+          code: 'E_CUSTOM',
+        };
       }
     );
 
@@ -165,7 +181,9 @@ describe('secureServer — normalizeError edge cases via resource handler throws
 
     await expect(
       client.readResource({ uri: 'file:///obj-msg-res' })
-    ).rejects.toMatchObject({ message: expect.stringContaining('obj-msg-res') });
+    ).rejects.toMatchObject({
+      message: expect.stringContaining('obj-msg-res'),
+    });
 
     await client.close();
     await server.close();
@@ -181,7 +199,6 @@ describe('secureServer — normalizeError edge cases via resource handler throws
       { description: 'throws undefined' },
       async () => {
         // normalizeError final return: error === undefined → 'undefined'
-        // eslint-disable-next-line @typescript-eslint/no-throw-literal
         throw undefined;
       }
     );
@@ -211,7 +228,6 @@ describe('secureServer — normalizeError edge cases via resource handler throws
         // safeStringify catch → return undefined → ?? 'Unknown error'
         const circular: Record<string, unknown> = { code: 'CIRC' };
         circular.self = circular;
-        // eslint-disable-next-line @typescript-eslint/no-throw-literal
         throw circular;
       }
     );
@@ -223,7 +239,9 @@ describe('secureServer — normalizeError edge cases via resource handler throws
 
     await expect(
       client.readResource({ uri: 'file:///circular-res' })
-    ).rejects.toMatchObject({ message: expect.stringContaining('circular-res') });
+    ).rejects.toMatchObject({
+      message: expect.stringContaining('circular-res'),
+    });
 
     await client.close();
     await server.close();
@@ -240,7 +258,6 @@ describe('secureServer — normalizeError edge cases via tool throws', () => {
       { description: 'throws undefined', inputSchema: {} },
       async () => {
         // normalizeError: error === undefined branch
-        // eslint-disable-next-line @typescript-eslint/no-throw-literal
         throw undefined;
       }
     );
@@ -250,7 +267,10 @@ describe('secureServer — normalizeError edge cases via tool throws', () => {
       client.connect(clientTransport),
     ]);
 
-    const result = await client.callTool({ name: 'undef-throw', arguments: {} });
+    const result = await client.callTool({
+      name: 'undef-throw',
+      arguments: {},
+    });
     expect(result.isError).toBe(true);
 
     await client.close();
@@ -266,7 +286,6 @@ describe('secureServer — normalizeError edge cases via tool throws', () => {
       { description: 'throws null', inputSchema: {} },
       async () => {
         // normalizeError: String(null) = 'null'
-        // eslint-disable-next-line @typescript-eslint/no-throw-literal
         throw null;
       }
     );
@@ -292,8 +311,11 @@ describe('secureServer — normalizeError edge cases via tool throws', () => {
       { description: 'throws object with message', inputSchema: {} },
       async () => {
         // normalizeError: object branch, obj.message is string
-        // eslint-disable-next-line @typescript-eslint/no-throw-literal
-        throw { name: 'CustomError', message: 'structured failure', code: 'E_CUSTOM' };
+        throw {
+          name: 'CustomError',
+          message: 'structured failure',
+          code: 'E_CUSTOM',
+        };
       }
     );
 
@@ -302,7 +324,10 @@ describe('secureServer — normalizeError edge cases via tool throws', () => {
       client.connect(clientTransport),
     ]);
 
-    const result = await client.callTool({ name: 'obj-msg-throw', arguments: {} });
+    const result = await client.callTool({
+      name: 'obj-msg-throw',
+      arguments: {},
+    });
     expect(result.isError).toBe(true);
 
     await client.close();
@@ -320,7 +345,6 @@ describe('secureServer — normalizeError edge cases via tool throws', () => {
         // safeStringify catch branch: circular reference → JSON.stringify throws
         const circular: Record<string, unknown> = { code: 'CIRC' };
         circular.self = circular;
-        // eslint-disable-next-line @typescript-eslint/no-throw-literal
         throw circular;
       }
     );
@@ -330,7 +354,10 @@ describe('secureServer — normalizeError edge cases via tool throws', () => {
       client.connect(clientTransport),
     ]);
 
-    const result = await client.callTool({ name: 'circular-throw', arguments: {} });
+    const result = await client.callTool({
+      name: 'circular-throw',
+      arguments: {},
+    });
     expect(result.isError).toBe(true);
 
     await client.close();
