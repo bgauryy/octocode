@@ -81,6 +81,11 @@ jobs:
       - name: Test Rust core
         run: yarn workspace @octocodeai/octocode-engine test:rust
 
+      - name: Install cargo-audit
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
+
       - name: Audit Rust dependencies
         working-directory: packages/octocode-engine
         run: cargo audit -D unmaintained -D unsound -D yanked
