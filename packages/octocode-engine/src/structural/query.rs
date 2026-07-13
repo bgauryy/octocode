@@ -55,7 +55,7 @@ impl<'a> StructuralQuery<'a> {
 
     /// Returns the single literal anchor if any, for backward-compatible callers.
     /// Returns `None` for union prefilters; use `prefilter()` for the full descriptor.
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub(super) fn literal_anchor(self) -> Option<&'a str> {
         match self.prefilter() {
             Prefilter::Single(s) => Some(s),

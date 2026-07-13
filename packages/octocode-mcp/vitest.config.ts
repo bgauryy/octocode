@@ -105,6 +105,7 @@ export default defineConfig({
       'tests/scheme/**/*.test.ts',
       'tests/utils/bulkOperations.test.ts',
       'tests/flows/**/*.test.ts',
+      'tests/integration/**/*.test.ts',
     ],
     testTimeout: 10000,
     hookTimeout: 1000,
@@ -116,6 +117,12 @@ export default defineConfig({
       reporter: ['text', 'json', 'html'],
       include: ['src/**/*.ts'],
       exclude: ['src/**/*.test.ts', 'src/**/*.spec.ts'],
+      thresholds: {
+        statements: 45,
+        branches: 39,
+        functions: 36,
+        lines: 46,
+      },
     },
   },
   plugins: [

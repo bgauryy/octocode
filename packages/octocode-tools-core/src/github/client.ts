@@ -12,9 +12,6 @@ export function hashGitHubToken(token: string): string {
   return createHash('sha256').update(token).digest('hex').substring(0, 16);
 }
 
-/** @deprecated Use hashGitHubToken — kept as internal alias during migration. */
-const hashToken = hashGitHubToken;
-
 /**
  * Auth segment for GitHub API cache keys. Distinct tokens (and Enterprise
  * hosts) must not share cache entries. Never puts the raw token in the key.
@@ -164,7 +161,7 @@ export async function getOctokit(
   ensurePurgeTimer();
 
   const token = authInfo?.token ?? (await getGitHubToken());
-  const key = token ? hashToken(token) : 'ANONYMOUS';
+  const key = token ? hashGitHubToken(token) : 'ANONYMOUS';
 
   const cached = instances.get(key);
   if (cached && !isExpired(cached)) {

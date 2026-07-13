@@ -1358,6 +1358,5 @@ fn structural_match_from_byte_range_with_index(
 }
 
 #[cfg(test)]
-#[cfg(test)]
 #[path = "octo_tests.rs"]
 mod tests;

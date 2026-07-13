@@ -20,6 +20,12 @@ export default defineConfig({
         '*.d.ts',
       ],
       reporter: ['text'],
+      thresholds: {
+        statements: 58,
+        branches: 48,
+        functions: 73,
+        lines: 59,
+      },
     },
   },
 })
