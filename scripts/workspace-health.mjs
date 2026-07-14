@@ -17,6 +17,7 @@ const BUILD_OUTPUTS = {
   'packages/octocode-mcp': ['dist/index.js'],
   'packages/octocode': ['out/octocode.js'],
   'packages/octocode-vscode': ['out/extension.js'],
+  'packages/octocode-skills': ['out/cli.js', 'out/index.js'],
 };
 
 function readJson(filePath) {

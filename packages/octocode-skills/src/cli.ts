@@ -113,20 +113,13 @@ ${bold('Commands')}
   check  [<name>...]      Verify installations — home, platform links, broken symlinks
   info   <name>           Show full SKILL.md content
 
-${bold('Install — override vs keep')}
-  ${dim('Override is ON by default')} — always installs the latest bundled copy.
-  ${cyan('octocode-skills install octocode-research')}          override existing
-  ${cyan('octocode-skills install octocode-research --keep')}   skip if already installed
-
 ${bold('Install options')}
   --all                   Install all bundled skills
-  --platform <p>          Also link into platform agent dir  ${dim('(comma-separated)')}
-                          ${dim('pi | cursor | claude | claude-desktop | codex')}
-                          ${dim('opencode | copilot | gemini | common | all')}
+  --platform <p>          Link into platform dir  ${dim('(comma-sep: pi | cursor | claude | claude-desktop | codex | opencode | copilot | gemini | common | all)')}
   --workspace, --repo     Also link into <cwd>/.agents/skills/
-  --path <dir>            Install directly to <dir>  ${dim('(skips canonical home)')}
-  --mode copy|symlink|hybrid  Mode  ${dim('[default: symlink · hybrid = copy for claude, symlink for others]')}
-  --keep                  ${dim('Preserve existing — skip overwrite')}  ${dim('[default: override]')}
+  --path <dir>            Install directly to <dir>  ${dim('(skips home)')}
+  --mode copy|symlink|hybrid  ${dim('[default: symlink · hybrid = copy for claude]')}
+  --keep                  Preserve existing  ${dim('[default: override]')}
   --dry-run               Preview without writing
 
 ${bold('Remove options')}
@@ -146,32 +139,12 @@ ${bold('Global flags')}
   --version               Show version
 
 ${bold('Examples')}
-  octocode-skills list
-  octocode-skills install --all
+  octocode-skills list --json
   octocode-skills install --all --platform pi,cursor
-  octocode-skills install octocode-research --platform pi --workspace
-  octocode-skills install octocode-research --path ~/.claude-desktop/skills
-  octocode-skills install octocode-research --keep
-  octocode-skills install octocode-research --platform claude --mode hybrid
-  octocode-skills remove octocode-research
+  octocode-skills install octocode-research --workspace --keep
   octocode-skills remove octocode-research --platform pi
-  octocode-skills remove --all --dry-run
-  octocode-skills check
   octocode-skills check --fix
-  octocode-skills check octocode-research --platform pi
   octocode-skills info octocode-research
-
-${bold('Installation model')}
-  Home:      ${dim('~/.octocode/skills/<name>/')}   ← one copy, never duplicated
-  Platform:  ${dim('~/.pi/agent/skills/<name>')}  →  home
-  Workspace: ${dim('<cwd>/.agents/skills/<name>')} →  home
-
-${bold('Agent workflow')}
-  ${cyan('octocode-skills list --json')}            discover skills + install status
-  ${cyan('octocode-skills install <n> --json')}     install and parse outcome
-  ${cyan('octocode-skills remove <n> --json')}      uninstall and parse outcome
-  ${cyan('octocode-skills check --json')}           verify all installations
-  ${cyan('octocode-skills info <n> --json')}        read SKILL.md content
 `);
 }
 
