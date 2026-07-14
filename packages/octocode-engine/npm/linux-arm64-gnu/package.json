@@ -1,27 +1,27 @@
 {
   "name": "@octocodeai/octocode-engine-linux-arm64-gnu",
+  "description": "High-performance Rust minification for Octocode — linux-arm64",
   "version": "17.0.1",
-  "os": [
-    "linux"
-  ],
+  "author": "Guy Bary <bgauryy@octocodeai.com>",
   "cpu": [
     "arm64"
+  ],
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "files": [
+    "octocode-engine.linux-arm64-gnu.node"
   ],
   "libc": [
     "glibc"
   ],
-  "main": "octocode-engine.linux-arm64-gnu.node",
-  "files": [
-    "octocode-engine.linux-arm64-gnu.node"
-  ],
-  "description": "High-performance Rust minification for Octocode — linux-arm64",
-  "author": "Guy Bary <bgauryy@octocodeai.com>",
   "license": "MIT",
+  "main": "octocode-engine.linux-arm64-gnu.node",
+  "os": [
+    "linux"
+  ],
   "publishConfig": {
     "access": "public"
-  },
-  "engines": {
-    "node": ">=20.0.0"
   },
   "repository": {
     "type": "git",

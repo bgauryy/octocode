@@ -1,21 +1,35 @@
 {
   "name": "@octocodeai/octocode-tools-core",
-  "version": "17.0.1",
   "description": "Core tool implementations for Octocode: GitHub, local filesystem, LSP, and package search tools.",
+  "version": "17.0.1",
   "author": "Guy Bary <bgauryy@octocodeai.com>",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/bgauryy/octocode.git",
-    "directory": "packages/octocode-tools-core"
-  },
   "bugs": "https://github.com/bgauryy/octocode/issues",
-  "license": "MIT",
-  "type": "module",
-  "publishConfig": {
-    "access": "public"
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@octocodeai/config": "17.0.1",
+    "@octocodeai/octocode-core": "^16.6.3",
+    "@octocodeai/octocode-engine": "17.0.1",
+    "@octokit/oauth-methods": "^6.0.2",
+    "@octokit/plugin-throttling": "^11.0.3",
+    "@octokit/request": "^10.0.10",
+    "node-cache": "^5.1.2",
+    "octokit": "^5.0.5",
+    "zod": "^4.4.3"
   },
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
+  "devDependencies": {
+    "@octokit/core": "^7.0.6",
+    "@octokit/openapi-types": "^27.0.0",
+    "@octokit/plugin-rest-endpoint-methods": "^17.0.0",
+    "@types/node": "^25.9.3",
+    "@vitest/coverage-v8": "^4.1.9",
+    "esbuild": "^0.28.1",
+    "eslint": "^9.18.0",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.9"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -71,8 +85,15 @@
     "LICENSE",
     "README.md"
   ],
-  "engines": {
-    "node": ">=20.0.0"
+  "license": "MIT",
+  "main": "dist/index.js",
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bgauryy/octocode.git",
+    "directory": "packages/octocode-tools-core"
   },
   "scripts": {
     "build": "yarn readme:sync && yarn clean && node build.mjs && tsc --emitDeclarationOnly -p tsconfig.build.json",
@@ -80,35 +101,14 @@
     "clean": "rm -rf dist/",
     "lint": "eslint src",
     "lint:fix": "eslint src --fix",
+    "prepack": "yarn readme:sync && node ../octocode/scripts/check-no-workspace-protocol.mjs",
+    "prepublishOnly": "node ../octocode/scripts/check-no-workspace-protocol.mjs",
+    "readme:sync": "node ../../scripts/sync-package-readmes.mjs .",
     "test": "vitest run --coverage",
     "test:quiet": "vitest run --reporter=dot --silent",
     "typecheck": "tsc --noEmit --skipLibCheck -p tsconfig.json",
-    "verify": "yarn lint && yarn typecheck && yarn test",
-    "readme:sync": "node ../../scripts/sync-package-readmes.mjs .",
-    "prepack": "yarn readme:sync && node ../octocode/scripts/check-no-workspace-protocol.mjs",
-    "prepublishOnly": "node ../octocode/scripts/check-no-workspace-protocol.mjs"
+    "verify": "yarn lint && yarn typecheck && yarn test"
   },
-  "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.29.0",
-    "@octocodeai/config": "^17.0.1",
-    "@octocodeai/octocode-core": "^16.6.3",
-    "@octocodeai/octocode-engine": "^17.0.1",
-    "@octokit/oauth-methods": "^6.0.2",
-    "@octokit/plugin-throttling": "^11.0.3",
-    "@octokit/request": "^10.0.10",
-    "node-cache": "^5.1.2",
-    "octokit": "^5.0.5",
-    "zod": "^4.4.3"
-  },
-  "devDependencies": {
-    "@octokit/core": "^7.0.6",
-    "@octokit/openapi-types": "^27.0.0",
-    "@octokit/plugin-rest-endpoint-methods": "^17.0.0",
-    "@types/node": "^25.9.3",
-    "@vitest/coverage-v8": "^4.1.9",
-    "esbuild": "^0.28.1",
-    "eslint": "^9.18.0",
-    "typescript": "^5.9.3",
-    "vitest": "^4.1.9"
-  }
+  "type": "module",
+  "types": "dist/index.d.ts"
 }

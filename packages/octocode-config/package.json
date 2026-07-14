@@ -1,52 +1,12 @@
 {
   "name": "@octocodeai/config",
-  "version": "17.0.1",
   "description": "Octocode unified env + config loader — zero deps, shared by MCP, CLI, extension, agent, and standalone skills.",
-  "keywords": [
-    "octocode",
-    "config",
-    "env",
-    "dotenv"
-  ],
+  "version": "17.0.1",
   "author": "Guy Bary <bgauryy@octocodeai.com>",
-  "homepage": "https://octocode.ai",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/bgauryy/octocode.git",
-    "directory": "packages/octocode-config"
-  },
-  "bugs": "https://github.com/bgauryy/octocode/issues",
-  "license": "MIT",
-  "type": "module",
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
-  "exports": {
-    ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js",
-      "default": "./dist/index.js"
-    }
-  },
   "bin": {
     "octocode-config": "./dist/cli.js"
   },
-  "files": [
-    "dist/**",
-    "README.md",
-    "LICENSE"
-  ],
-  "engines": {
-    "node": ">=20.0.0"
-  },
-  "scripts": {
-    "build": "node build.mjs",
-    "clean": "rm -rf dist/",
-    "lint": "tsc --noEmit -p tsconfig.json",
-    "test": "node ../../node_modules/vitest/vitest.mjs run --coverage",
-    "test:quiet": "node ../../node_modules/vitest/vitest.mjs run --reporter=dot --silent",
-    "typecheck": "tsc --noEmit -p tsconfig.json",
-    "verify": "yarn lint && yarn test && yarn build"
-  },
+  "bugs": "https://github.com/bgauryy/octocode/issues",
   "devDependencies": {
     "@types/node": "^25.9.3",
     "@vitest/coverage-v8": "^4.1.9",
@@ -54,7 +14,48 @@
     "typescript": "^5.9.3",
     "vitest": "^4.1.9"
   },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist/**",
+    "README.md",
+    "LICENSE"
+  ],
+  "homepage": "https://octocode.ai",
+  "keywords": [
+    "config",
+    "dotenv",
+    "env",
+    "octocode"
+  ],
+  "license": "MIT",
+  "main": "./dist/index.js",
   "publishConfig": {
     "access": "public"
-  }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bgauryy/octocode.git",
+    "directory": "packages/octocode-config"
+  },
+  "scripts": {
+    "build": "node build.mjs",
+    "clean": "rm -rf dist/",
+    "lint": "tsc --noEmit -p tsconfig.json",
+    "prepublishOnly": "node ../octocode/scripts/check-no-workspace-protocol.mjs",
+    "test": "node ../../node_modules/vitest/vitest.mjs run --coverage",
+    "test:quiet": "node ../../node_modules/vitest/vitest.mjs run --reporter=dot --silent",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "verify": "yarn lint && yarn test && yarn build"
+  },
+  "type": "module",
+  "types": "./dist/index.d.ts"
 }

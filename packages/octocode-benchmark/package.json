@@ -1,37 +1,37 @@
 {
   "name": "@octocodeai/octocode-benchmark",
-  "version": "1.0.2",
-  "private": true,
   "description": "Private internal benchmark suite for Octocode tools and engine behavior.",
+  "version": "1.0.2",
+  "bugs": "https://github.com/bgauryy/octocode/issues",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "private": true,
   "repository": {
     "type": "git",
     "url": "git+https://github.com/bgauryy/octocode.git",
     "directory": "packages/octocode-benchmark"
   },
-  "bugs": "https://github.com/bgauryy/octocode/issues",
-  "type": "module",
   "scripts": {
     "ast:check": "node benchmark/ast/check-ast.mjs",
-    "lsp:check": "node benchmark/lsp/check-lsp.mjs",
-    "lsp:live": "node benchmark/lsp/check-lsp-live.mjs",
-    "lsp:custom": "node benchmark/lsp/check-custom-lsp.mjs",
-    "minify:check": "node benchmark/minify/check-minify.mjs",
-    "matrix:check": "node benchmark/check-matrix.mjs",
-    "cli:check": "node benchmark/cli/check-cli-metadata.mjs",
-    "support:gen": "node benchmark/check-matrix.mjs --write",
     "ast:compare": "node benchmark/ast/compare-ast-grep-cli.mjs",
     "ast:compare:upstream": "node benchmark/ast-grep/compare-upstream-scenarios.mjs",
-    "repo:clone": "node benchmark/repo/clone.mjs",
-    "repo:bench": "node benchmark/repo/run.mjs",
     "benchmark": "node benchmark/run-all.mjs",
     "build": "echo 'No build step for benchmark package'",
+    "cli:check": "node benchmark/cli/check-cli-metadata.mjs",
+    "lint": "echo 'No benchmark source files to lint'",
+    "lsp:check": "node benchmark/lsp/check-lsp.mjs",
+    "lsp:custom": "node benchmark/lsp/check-custom-lsp.mjs",
+    "lsp:live": "node benchmark/lsp/check-lsp-live.mjs",
+    "matrix:check": "node benchmark/check-matrix.mjs",
+    "minify:check": "node benchmark/minify/check-minify.mjs",
+    "repo:bench": "node benchmark/repo/run.mjs",
+    "repo:clone": "node benchmark/repo/clone.mjs",
+    "support:gen": "node benchmark/check-matrix.mjs --write",
     "test": "node benchmark/run-all.mjs",
     "test:quiet": "node benchmark/run-all.mjs",
-    "lint": "echo 'No benchmark source files to lint'",
     "typecheck": "echo 'No TypeScript source files to typecheck'",
     "verify": "yarn lint && yarn typecheck && yarn test"
   },
-  "engines": {
-    "node": ">=20.0.0"
-  }
+  "type": "module"
 }

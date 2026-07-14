@@ -1557,16 +1557,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@octocodeai/config@npm:17.0.0":
-  version: 17.0.0
-  resolution: "@octocodeai/config@npm:17.0.0"
-  bin:
-    octocode-config: dist/cli.js
-  checksum: 10c0/be516ef6f25c78e4d1c78dd09229264ea3032f2e3453f50019cf0e3c58917ecbca07be7128e2c8b0a7c8012178e96776762851ef3c97391f5cee6eec56487bd2
-  languageName: node
-  linkType: hard
-
-"@octocodeai/config@npm:17.0.1, @octocodeai/config@npm:^17.0.1, @octocodeai/config@workspace:packages/octocode-config":
+"@octocodeai/config@npm:17.0.1, @octocodeai/config@workspace:packages/octocode-config":
   version: 0.0.0-use.local
   resolution: "@octocodeai/config@workspace:packages/octocode-config"
   dependencies:
@@ -1660,12 +1651,12 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@octocodeai/octocode-engine@npm:17.0.1, @octocodeai/octocode-engine@npm:^17.0.1, @octocodeai/octocode-engine@workspace:packages/octocode-engine":
+"@octocodeai/octocode-engine@npm:17.0.1, @octocodeai/octocode-engine@workspace:packages/octocode-engine":
   version: 0.0.0-use.local
   resolution: "@octocodeai/octocode-engine@workspace:packages/octocode-engine"
   dependencies:
     "@napi-rs/cli": "npm:^3.7.2"
-    "@octocodeai/config": "npm:17.0.0"
+    "@octocodeai/config": "npm:17.0.1"
     "@octocodeai/octocode-engine-darwin-arm64": "npm:17.0.1"
     "@octocodeai/octocode-engine-darwin-x64": "npm:17.0.1"
     "@octocodeai/octocode-engine-linux-arm64-gnu": "npm:17.0.1"
@@ -1705,9 +1696,9 @@ __metadata:
   resolution: "@octocodeai/octocode-tools-core@workspace:packages/octocode-tools-core"
   dependencies:
     "@modelcontextprotocol/sdk": "npm:^1.29.0"
-    "@octocodeai/config": "npm:^17.0.1"
+    "@octocodeai/config": "npm:17.0.1"
     "@octocodeai/octocode-core": "npm:^16.6.3"
-    "@octocodeai/octocode-engine": "npm:^17.0.1"
+    "@octocodeai/octocode-engine": "npm:17.0.1"
     "@octokit/core": "npm:^7.0.6"
     "@octokit/oauth-methods": "npm:^6.0.2"
     "@octokit/openapi-types": "npm:^27.0.0"
@@ -1730,7 +1721,7 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@octocodeai/skills@workspace:packages/octocode-skills"
   dependencies:
-    "@octocodeai/config": "npm:17.0.0"
+    "@octocodeai/config": "npm:17.0.1"
     "@types/node": "npm:^25.9.3"
     esbuild: "npm:^0.28.1"
     typescript: "npm:^5.9.3"

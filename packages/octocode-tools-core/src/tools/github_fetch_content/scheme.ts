@@ -37,10 +37,7 @@ const GitHubFetchFilePaginationSchema = z.union([
   }),
 ]);
 
-const GitHubFetchFileNextSchema = z.record(
-  z.string(),
-  ToolContinuationSchema
-);
+const GitHubFetchFileNextSchema = z.record(z.string(), ToolContinuationSchema);
 
 const GitHubFetchFileEntrySchema = z.object({
   path: z.string(),

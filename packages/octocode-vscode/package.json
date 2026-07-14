@@ -1,45 +1,11 @@
 {
   "name": "octocode-mcp-vscode",
-  "version": "1.0.2",
   "description": "Management extension for Octocode MCP Server. Enables AI assistants to search, analyze, and understand codebases across GitHub. Supports Cursor, Windsurf, Antigravity, Cline, Roo Code, Trae, and more.",
-  "keywords": [
-    "agentic",
-    "ai",
-    "ai-assistant",
-    "antigravity",
-    "claude",
-    "cline",
-    "code-analysis",
-    "code-research",
-    "code-search",
-    "copilot",
-    "cursor",
-    "gemini",
-    "github",
-    "mcp",
-    "model-context-protocol",
-    "octocode",
-    "pull-request",
-    "repository-explorer",
-    "roo-code",
-    "trae",
-    "windsurf"
-  ],
-  "homepage": "https://octocode.ai",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/bgauryy/octocode.git",
-    "directory": "packages/octocode-vscode"
-  },
-  "bugs": "https://github.com/bgauryy/octocode/issues",
-  "license": "MIT",
-  "main": "./out/extension.js",
-  "engines": {
-    "vscode": "^1.107.0"
-  },
+  "version": "1.0.2",
   "activationEvents": [
     "onStartupFinished"
   ],
+  "bugs": "https://github.com/bgauryy/octocode/issues",
   "categories": [
     "Other",
     "Machine Learning",
@@ -109,31 +75,6 @@
       }
     }
   },
-  "publisher": "bgauryy",
-  "displayName": "Octocode MCP",
-  "icon": "images/icon.png",
-  "files": [
-    "out/extension.js",
-    "images/icon.png",
-    "README.md",
-    "LICENSE"
-  ],
-  "scripts": {
-    "build": "yarn readme:sync && yarn esbuild src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node --minify",
-    "compile": "npm run build",
-    "lint": "eslint src",
-    "lint:fix": "eslint src --fix",
-    "package": "npx @vscode/vsce package --allow-missing-repository --no-dependencies",
-    "publish": "npx @vscode/vsce publish",
-    "test": "vitest run --coverage",
-    "test:quiet": "vitest run --reporter=dot --silent",
-    "typecheck": "tsc --noEmit",
-    "verify": "yarn lint && yarn typecheck && yarn test && yarn build",
-    "vscode:prepublish": "npm run build",
-    "watch": "esbuild src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node --watch",
-    "readme:sync": "node ../../scripts/sync-package-readmes.mjs .",
-    "prepack": "yarn readme:sync"
-  },
   "devDependencies": {
     "@types/node": "^25.9.3",
     "@types/vscode": "^1.125.0",
@@ -143,5 +84,64 @@
     "eslint": "^9.18.0",
     "typescript": "^5.9.3",
     "vitest": "^4.1.9"
+  },
+  "displayName": "Octocode MCP",
+  "engines": {
+    "vscode": "^1.107.0"
+  },
+  "files": [
+    "out/extension.js",
+    "images/icon.png",
+    "README.md",
+    "LICENSE"
+  ],
+  "homepage": "https://octocode.ai",
+  "icon": "images/icon.png",
+  "keywords": [
+    "agentic",
+    "ai",
+    "ai-assistant",
+    "antigravity",
+    "claude",
+    "cline",
+    "code-analysis",
+    "code-research",
+    "code-search",
+    "copilot",
+    "cursor",
+    "gemini",
+    "github",
+    "mcp",
+    "model-context-protocol",
+    "octocode",
+    "pull-request",
+    "repository-explorer",
+    "roo-code",
+    "trae",
+    "windsurf"
+  ],
+  "license": "MIT",
+  "main": "./out/extension.js",
+  "publisher": "bgauryy",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/bgauryy/octocode.git",
+    "directory": "packages/octocode-vscode"
+  },
+  "scripts": {
+    "build": "yarn readme:sync && yarn esbuild src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node --minify",
+    "compile": "npm run build",
+    "lint": "eslint src",
+    "lint:fix": "eslint src --fix",
+    "package": "npx @vscode/vsce package --allow-missing-repository --no-dependencies",
+    "prepack": "yarn readme:sync",
+    "publish": "npx @vscode/vsce publish",
+    "readme:sync": "node ../../scripts/sync-package-readmes.mjs .",
+    "test": "vitest run --coverage",
+    "test:quiet": "vitest run --reporter=dot --silent",
+    "typecheck": "tsc --noEmit",
+    "verify": "yarn lint && yarn typecheck && yarn test && yarn build",
+    "vscode:prepublish": "npm run build",
+    "watch": "esbuild src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node --watch"
   }
 }

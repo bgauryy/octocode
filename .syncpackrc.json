@@ -1,0 +1,17 @@
+{
+  "versionGroups": [
+    {
+      "label": "Internal Octocode package versions are enforced by scripts/prepublish.mjs",
+      "dependencies": [
+        "@octocodeai/config",
+        "@octocodeai/octocode-engine",
+        "@octocodeai/octocode-engine-*",
+        "@octocodeai/octocode-tools-core",
+        "@octocodeai/mcp",
+        "@octocodeai/skills",
+        "octocode"
+      ],
+      "isIgnored": true
+    }
+  ]
+}

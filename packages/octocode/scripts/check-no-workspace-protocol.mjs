@@ -20,6 +20,7 @@ const rootPkg = readJson(join(repoRoot, 'package.json'));
 const rootVersion = rootPkg.version;
 
 const PUBLISHED_PACKAGE_DIRS = [
+  'packages/octocode-config',
   'packages/octocode-tools-core',
   'packages/octocode-mcp',
   'packages/octocode-skills',
