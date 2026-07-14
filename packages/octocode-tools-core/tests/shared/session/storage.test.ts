@@ -250,6 +250,17 @@ describe('Session Storage', () => {
       expect(diskStats.stats.toolCalls).toBe(5);
     });
 
+    it('should NOT write stats.json when OCTOCODE_ENABLE_STATS is unset', () => {
+      delete process.env['OCTOCODE_ENABLE_STATS'];
+
+      getOrCreateSession();
+      incrementToolCalls(3);
+      flushSession();
+
+      expect(mockFileStore.has(SESSION_FILE)).toBe(true);
+      expect(mockFileStore.has(STATS_FILE)).toBe(false);
+    });
+
     it('should NOT write stats.json when OCTOCODE_ENABLE_STATS is off', () => {
       // Temporarily override the env set by beforeEach.
       process.env['OCTOCODE_ENABLE_STATS'] = '0';
