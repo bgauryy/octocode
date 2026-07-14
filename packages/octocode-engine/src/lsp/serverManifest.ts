@@ -1,7 +1,8 @@
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, statSync } from 'node:fs';
-import { homedir } from 'node:os';
 import path from 'node:path';
+
+import { getOctocodeHome } from '@octocodeai/config';
 
 import { detectPlatformId, type PlatformId } from './platform.js';
 import { MANIFEST } from './serverManifestData.js';
@@ -18,7 +19,7 @@ import { MANIFEST } from './serverManifestData.js';
  * Live network download is gated and requires a pinned `sha256` per asset.
  * Until SHAs are pinned the manifest still drives (a) honest detect-and-instruct
  * guidance and (b) reuse of a server a user/CI has pre-populated into the
- * managed cache `~/.octocode/lsp/<server>/<releaseTag>/<binName>`.
+ * managed cache `<octocode-home>/lsp/<server>/<releaseTag>/<binName>`.
  */
 export type ArchiveKind = 'none' | 'gz' | 'zip' | 'tar.gz' | 'tar.xz';
 
@@ -118,16 +119,16 @@ export function isAutoDownloadable(serverName: string): boolean {
 }
 
 /**
- * Root of the managed server cache. Defaults to `~/.octocode/lsp` (consistent
- * with the rest of octocode's home), overridable via `OCTOCODE_LSP_CACHE_DIR`
- * for read-only/ephemeral sandbox HOMEs or to point at a pre-baked image path.
+ * Root of the managed server cache. Defaults to `<octocode-home>/lsp` via
+ * @octocodeai/config, overridable via `OCTOCODE_LSP_CACHE_DIR` for
+ * read-only/ephemeral sandbox HOMEs or to point at a pre-baked image path.
  */
 export function managedCacheRoot(
   env: NodeJS.ProcessEnv = process.env
 ): string {
   const override = env.OCTOCODE_LSP_CACHE_DIR?.trim();
   if (override) return path.resolve(override);
-  return path.join(homedir(), '.octocode', 'lsp');
+  return path.join(getOctocodeHome(env), 'lsp');
 }
 
 /** Where a provisioned binary lives once installed/extracted. */

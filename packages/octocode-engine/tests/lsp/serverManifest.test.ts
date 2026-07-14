@@ -1,7 +1,9 @@
 import { createHash } from 'node:crypto';
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { homedir, tmpdir } from 'node:os';
+import { tmpdir } from 'node:os';
+
+import { getOctocodeHome } from '@octocodeai/config';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import {
@@ -59,8 +61,8 @@ describe('serverManifest', () => {
     expect(provisionMode({ OCTOCODE_LSP_AUTO_INSTALL: 'garbage' })).toBe('prompt');
   });
 
-  it('locates the managed cache under ~/.octocode/lsp', () => {
-    expect(managedCacheRoot()).toBe(path.join(homedir(), '.octocode', 'lsp'));
+  it('locates the managed cache under the configured Octocode home', () => {
+    expect(managedCacheRoot()).toBe(path.join(getOctocodeHome(), 'lsp'));
     const binPath = cachedServerBinPath('rust-analyzer', 'linux-x64');
     expect(binPath).toContain(path.join('.octocode', 'lsp', 'rust-analyzer'));
   });

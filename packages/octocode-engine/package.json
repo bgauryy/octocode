@@ -341,6 +341,7 @@
     "prepublishOnly": "yarn version:sync"
   },
   "dependencies": {
+    "@octocodeai/config": "17.0.0",
     "bash-language-server": "^5.6.0",
     "intelephense": "^1.14.1",
     "pyright": "^1.1.411",

@@ -53,6 +53,9 @@
     "test:quiet": "echo 'no tests yet'",
     "verify": "yarn lint && yarn build"
   },
+  "dependencies": {
+    "@octocodeai/config": "17.0.0"
+  },
   "devDependencies": {
     "@types/node": "^25.9.3",
     "esbuild": "^0.28.1",

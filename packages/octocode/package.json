@@ -71,7 +71,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@octocodeai/config": "workspace:*",
+    "@octocodeai/config": "17.0.0",
     "@octocodeai/octocode-tools-core": "16.6.3",
     "@types/node": "^25.9.3",
     "@vitest/coverage-v8": "^4.1.9",
