@@ -1,6 +1,6 @@
 {
   "name": "@octocodeai/config",
-  "version": "1.0.2",
+  "version": "17.0.0",
   "description": "Octocode unified env + config loader — zero deps, shared by MCP, CLI, extension, agent, and standalone skills.",
   "keywords": [
     "octocode",

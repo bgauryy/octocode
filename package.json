@@ -1,6 +1,6 @@
 {
   "name": "octocode-monorepo",
-  "version": "1.0.0",
+  "version": "17.0.0",
   "description": "Monorepo for Octocode MCP and related packages - Model Context Protocol server for advanced GitHub repository analysis and code discovery.",
   "author": "Guy Bary <bgauryy@octocodeai.com>",
   "homepage": "https://octocode.ai",
@@ -26,6 +26,8 @@
     "lint:fix": "yarn workspaces foreach -Apt run lint:fix",
     "deps:dedupe": "node ./scripts/dedupe-deps.mjs",
     "deps:dedupe:fix": "node ./scripts/dedupe-deps.mjs --fix",
+    "versions:align": "node ./scripts/alignVersions.js",
+    "versions:check": "node ./scripts/alignVersions.js --check",
     "test": "node ./scripts/workspace-health.mjs run test",
     "test:ci": "node ./scripts/workspace-health.mjs run test --exclude @octocodeai/octocode-engine --exclude @octocodeai/octocode-benchmark",
     "test:quiet": "yarn workspaces foreach -Apt run test:quiet",
