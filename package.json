@@ -14,7 +14,7 @@
   },
   "scripts": {
     "build": "yarn prepublish && node ./scripts/workspace-health.mjs run build",
-    "build:ci": "yarn prepublish && node ./scripts/workspace-health.mjs run build --exclude @octocodeai/octocode-engine",
+    "build:ci": "yarn prepublish && yarn workspace @octocodeai/octocode-engine build:ts && node ./scripts/workspace-health.mjs run build --exclude @octocodeai/octocode-engine",
     "build:native:all": "yarn workspace @octocodeai/octocode-engine build:all",
     "platforms:check": "yarn workspace @octocodeai/octocode-engine platforms:check",
     "build:publish": "yarn prepublish && yarn build:native:all && yarn platforms:check && yarn workspace @octocodeai/mcp build:publish",
