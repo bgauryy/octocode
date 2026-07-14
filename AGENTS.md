@@ -107,7 +107,7 @@ yarn devScript                         # adds workspace:* to root resolutions
 yarn install                           # apply resolutions
 ```
 
-Adds the four internal packages to the `resolutions` field in the root `package.json` so Yarn uses the local build for every consumer, including transitive ones:
+Adds the internal packages and octocode-engine platform packages to the `resolutions` field in the root `package.json` so Yarn uses the local build for every consumer, including transitive ones:
 
 | Package | Role |
 |---|---|
@@ -115,6 +115,7 @@ Adds the four internal packages to the `resolutions` field in the root `package.
 | `@octocodeai/config` | Zero-dep env + config loader |
 | `@octocodeai/octocode-core` | External schemas + system prompt (sibling repo) |
 | `@octocodeai/octocode-engine` | Rust/napi engine |
+| `@octocodeai/octocode-engine-*` | Platform-native engine packages from `packages/octocode-engine/npm/*` |
 
 Script: [`scripts/dev-setup.mjs`](scripts/dev-setup.mjs). Idempotent — safe to re-run.
 
@@ -130,8 +131,8 @@ node ./scripts/prepublish.mjs --dry-run   # preview fixes without writing
 
 Two checks:
 
-1. **Resolutions** — root `package.json` must not have `workspace:*` for the four managed packages. Yarn rewrites these during publish and can produce wrong pinned versions in tarballs.
-2. **Version alignment** — every workspace package that pins one of the four managed packages (non-`workspace:*`) must match the package's current `version` in the repo (written as `^<version>`). Packages not in this workspace (e.g. `@octocodeai/octocode-core`) are skipped.
+1. **Resolutions** — root `package.json` must not have `workspace:*` for managed packages. Yarn rewrites these during publish and can produce wrong pinned versions in tarballs.
+2. **Version alignment** — every workspace package that pins a managed package (non-`workspace:*`) must match the package's current `version` in the repo (written as `^<version>`). Packages not in this workspace (e.g. `@octocodeai/octocode-core`) are skipped.
 
 **Typical flow before publishing any package:**
 

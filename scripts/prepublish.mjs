@@ -36,11 +36,17 @@ const FIX = process.argv.includes('--fix');
 const DRY_RUN = process.argv.includes('--dry-run');
 
 /** Packages whose resolutions + dep versions this script manages. */
+const ENGINE_PKG_PATH = join(ROOT, 'packages/octocode-engine/package.json');
+const enginePkg = JSON.parse(readFileSync(ENGINE_PKG_PATH, 'utf8'));
+const enginePlatformPackages = Object.keys(enginePkg.optionalDependencies ?? {}).filter((name) =>
+  name.startsWith('@octocodeai/octocode-engine-')
+);
 const MANAGED_PACKAGES = new Set([
   '@octocodeai/octocode-tools-core',
   '@octocodeai/config',
   '@octocodeai/octocode-core',
   '@octocodeai/octocode-engine',
+  ...enginePlatformPackages,
 ]);
 
 /** Dependency fields that are included in a published package. */

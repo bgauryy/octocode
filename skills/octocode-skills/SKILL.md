@@ -10,6 +10,7 @@ Flow: `UNDERSTAND → DISCOVER → INSPECT → JUDGE → RECOMMEND → USER GATE
 
 ## Lobby rules
 - `SKILL.md` owns workflows, hard gates, and routes; each reference owns one concept and never restates the flow.
+- MUST read and navigate between routed reference files to understand the complete flow; this skill is intentionally simplified into reference units for efficiency, including reference-to-reference handoffs.
 - Inspect the real `SKILL.md` before quoting, judging, or installing; identify candidates by path and gate every write.
 - Stop when one fit is clear, two High candidates need a winner, three angles add nothing, or user/auth approval is pending.
 - Ship a standalone folder with one owner per concept; prune dead or duplicated material before done.
