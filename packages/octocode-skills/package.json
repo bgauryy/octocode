@@ -1,6 +1,6 @@
 {
   "name": "@octocodeai/skills",
-  "version": "1.0.0",
+  "version": "17.0.1",
   "description": "Octocode skills distribution — list, install, and link agent skills to any platform or custom path.",
   "keywords": [
     "ai-agent",
@@ -48,13 +48,13 @@
     "clean": "rm -rf out/",
     "lint": "tsc --noEmit -p tsconfig.json",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "prepublishOnly": "node build.mjs",
+    "prepublishOnly": "node ../octocode/scripts/check-no-workspace-protocol.mjs && node build.mjs",
     "test": "echo 'no tests yet'",
     "test:quiet": "echo 'no tests yet'",
     "verify": "yarn lint && yarn build"
   },
   "dependencies": {
-    "@octocodeai/config": "17.0.0"
+    "@octocodeai/config": "17.0.1"
   },
   "devDependencies": {
     "@types/node": "^25.9.3",

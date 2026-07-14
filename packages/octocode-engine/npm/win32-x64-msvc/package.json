@@ -26,6 +26,6 @@
     "directory": "packages/octocode-engine"
   },
   "scripts": {
-    "prepublishOnly": "node ../verify-binary.cjs"
+    "prepublishOnly": "node ../../../octocode/scripts/check-no-workspace-protocol.mjs && node ../verify-binary.cjs"
   }
 }

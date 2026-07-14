@@ -85,7 +85,8 @@
     "typecheck": "tsc --noEmit --skipLibCheck -p tsconfig.json",
     "verify": "yarn lint && yarn typecheck && yarn test",
     "readme:sync": "node ../../scripts/sync-package-readmes.mjs .",
-    "prepack": "yarn readme:sync"
+    "prepack": "yarn readme:sync && node ../octocode/scripts/check-no-workspace-protocol.mjs",
+    "prepublishOnly": "node ../octocode/scripts/check-no-workspace-protocol.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",

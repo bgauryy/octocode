@@ -338,10 +338,10 @@
     "verify": "yarn verify:patterns && yarn verify:manifest && yarn typecheck && yarn verify:rust && yarn test && yarn benchmark && yarn pack:check && yarn version:check && yarn loader:check && yarn binary-size:check",
     "readme:sync": "node ../../scripts/sync-package-readmes.mjs .",
     "prepack": "yarn readme:sync",
-    "prepublishOnly": "yarn version:sync"
+    "prepublishOnly": "yarn version:sync && node ../octocode/scripts/check-no-workspace-protocol.mjs"
   },
   "dependencies": {
-    "@octocodeai/config": "17.0.0",
+    "@octocodeai/config": "17.0.1",
     "bash-language-server": "^5.6.0",
     "intelephense": "^1.14.1",
     "pyright": "^1.1.411",
