@@ -31,9 +31,7 @@ const PUBLISHED_DEP_FIELDS = [
   'bundleDependencies',
 ];
 
-const UNPUBLISHED_RUNTIME_PACKAGES = new Set([
-  '@octocodeai/octocode-tools-core',
-]);
+const UNPUBLISHED_RUNTIME_PACKAGES = new Set();
 
 const offenders = [];
 for (const field of PUBLISHED_DEP_FIELDS) {
