@@ -1,6 +1,6 @@
 [package]
 name = "octocode-engine"
-version = "16.7.0"
+version = "17.0.1"
 edition = "2021"
 description = "Rust native Octocode engine for context compression, structural search, and LSP semantic navigation"
 license = "MIT"

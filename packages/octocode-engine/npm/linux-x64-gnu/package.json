@@ -1,6 +1,6 @@
 {
   "name": "@octocodeai/octocode-engine-linux-x64-gnu",
-  "version": "17.0.0",
+  "version": "17.0.1",
   "os": [
     "linux"
   ],
