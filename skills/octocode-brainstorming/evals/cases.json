@@ -1,0 +1,406 @@
+{
+  "schemaVersion": 1,
+  "description": "Machine-checkable smoke evals for octocode-brainstorming final answers. These checks verify observable output structure and guardrails; human review still judges research quality. Run the evaluator with --agentic to emit advisory intent-derived question seeds that guide a semantic eval agent without affecting pass/fail.",
+  "rubric": [
+    "Opens with a TL;DR stating framing, verdict, and research limits.",
+    "Declares mode and surface plan when research is required.",
+    "Shows divergence before convergence.",
+    "Uses evidence/citations for material claims.",
+    "Summarizes perspective review outcomes without dumping raw subagent transcripts.",
+    "Includes verdict, decision label, and one actionable next step.",
+    "Honors hard gates and does not jump to RFC or implementation prematurely.",
+    "Avoids one-shot brainstorming by involving the user in direction when the flow is unclear.",
+    "Uses a Web Search Scout per validated engine (Serper/Tavily/Exa), consolidates results across engines, and adds a Source/Code Checker to verify sources/code when web research matters.",
+    "Closes with a Sources (chat) or Resources (saved brief) section listing every URL/path actually cited, whenever external evidence was used.",
+    "Every cited file:line points to a real path and an in-bounds line number, not a fabricated or stale reference; cited URLs are real pages, not placeholders."
+  ],
+  "cases": [
+    {
+      "id": "idea-validation",
+      "mode": "Validate",
+      "prompt": "brainstorm: should we build a CLI that turns GitHub issues into implementation plans?",
+      "minScore": 0.8,
+      "minCitationCount": 2,
+      "required": [
+        { "name": "tldr", "pattern": "^##\\s*TL;DR\\b" },
+        { "name": "mode", "pattern": "\\bMode\\b[^\\n]{0,20}\\bValidate\\b|\\bValidate mode\\b" },
+        { "name": "surface plan", "pattern": "\\bSurface Plan\\b" },
+        { "name": "direction check", "pattern": "\\bDirection Check\\b|\\buser chose\\b|\\bask(?:ed)? the user\\b|\\bfocused question\\b" },
+        { "name": "framings", "pattern": "\\bFramings? Considered\\b|\\bframing slate\\b" },
+        { "name": "perspective review", "pattern": "\\bPerspective Review\\b" },
+        { "name": "decision label", "pattern": "\\bDecision\\b[^\\n]{0,20}\\b(Build RFC|Prototype First|Narrow|Park|Do Not Build)\\b" },
+        { "name": "next step", "pattern": "\\bRecommended Next Step\\b|\\bNext step:\\b" }
+      ],
+      "binaryQuestions": [
+        {
+          "id": "opens-with-tldr",
+          "dimension": "presentation",
+          "question": "Does the answer open with a TL;DR stating the framing, verdict, and research limits before the detailed sections?",
+          "passPattern": "^##\\s*TL;DR\\b",
+          "failureSignature": "mechanism:brainstorm-answer|cause:tldr-missing",
+          "suggestedLesson": "Every brainstorming answer must open with a TL;DR summarizing framing, verdict, and research limits before the detailed sections."
+        },
+        {
+          "id": "declares-surface-plan",
+          "dimension": "research-setup",
+          "question": "Does the answer declare which surfaces are active or skipped before judging the idea?",
+          "passPattern": "\\bSurface Plan\\b",
+          "failureSignature": "mechanism:brainstorm-answer|cause:surface-plan-missing",
+          "suggestedLesson": "Brainstorming answers should declare Local, GitHub/packages, and Web surface status before research claims."
+        },
+        {
+          "id": "involves-user-direction",
+          "dimension": "framing",
+          "question": "Does the answer show the user direction, focused question, or assumption before deep research?",
+          "passPattern": "\\bDirection Check\\b|\\buser chose\\b|\\bask(?:ed)? the user\\b|\\bfocused question\\b",
+          "failureSignature": "mechanism:brainstorm-answer|cause:one-shot-direction",
+          "suggestedLesson": "Brainstorming should not one-shot ambiguous ideas; ask or record the chosen direction before deep research."
+        },
+        {
+          "id": "diverges-before-converging",
+          "dimension": "framing",
+          "question": "Does the answer show framings before choosing a verdict?",
+          "passPattern": "\\bFramings? Considered\\b|\\bframing slate\\b",
+          "failureSignature": "mechanism:brainstorm-answer|cause:anchored-framing",
+          "suggestedLesson": "Run visible divergence first so the first user framing does not anchor the whole search."
+        },
+        {
+          "id": "review-concedes-weak-claims",
+          "dimension": "stress-test",
+          "question": "Does the perspective review include concessions rather than only pro/con theater?",
+          "passPattern": "\\bPerspective Review\\b[\\s\\S]*\\bConceded\\b",
+          "failureSignature": "mechanism:brainstorm-answer|cause:no-concession",
+          "suggestedLesson": "Perspective review should drop or concede unsupported claims before the final verdict."
+        },
+        {
+          "id": "decision-has-next-step",
+          "dimension": "decision",
+          "question": "Does the answer pair a decision label with one next step?",
+          "passPattern": "\\bDecision\\b[^\\n]{0,20}\\b(Build RFC|Prototype First|Narrow|Park|Do Not Build)\\b[\\s\\S]*(\\bRecommended Next Step\\b|\\bNext step:\\b)",
+          "failureSignature": "mechanism:brainstorm-answer|cause:no-actionable-decision",
+          "suggestedLesson": "Every brainstorm verdict should end with a decision label and one concrete next step."
+        }
+      ],
+      "forbidden": [
+        { "name": "raw transcript", "pattern": "\\braw transcript\\b|\\bfull transcript\\b" },
+        { "name": "uncited strong claim", "pattern": "\\bclearly proven\\b(?![^\\n]*(https?://|[A-Za-z0-9_./-]+:\\d+))" }
+      ]
+    },
+    {
+      "id": "repo-aware-validation",
+      "mode": "Validate",
+      "prompt": "Should we add Tavily-backed web search to this repo's brainstorming skill?",
+      "minScore": 0.8,
+      "minCitationCount": 2,
+      "required": [
+        { "name": "tldr", "pattern": "^##\\s*TL;DR\\b" },
+        { "name": "local first", "pattern": "\\bAlready in the Workspace\\b|\\bLocal first\\b|\\borient(?:ed)? locally\\b" },
+        { "name": "scripts detected", "pattern": "\\bserper-search\\.mjs\\b.*\\btavily-search\\.mjs\\b|\\btavily-search\\.mjs\\b.*\\bserper-search\\.mjs\\b" },
+        { "name": "secret safety", "pattern": "\\bsecret\\b|\\bAPI key\\b|\\b\\.env\\b" },
+        { "name": "decision", "pattern": "\\bDecision\\b[^\\n]{0,20}\\b(Build RFC|Prototype First|Narrow|Park|Do Not Build)\\b" }
+      ],
+      "binaryQuestions": [
+        {
+          "id": "orients-locally-first",
+          "dimension": "workspace-awareness",
+          "question": "Does repo-aware validation inspect the workspace before external claims?",
+          "passPattern": "\\bAlready in the Workspace\\b|\\bLocal first\\b|\\borient(?:ed)? locally\\b",
+          "failureSignature": "mechanism:repo-aware-brainstorm|cause:local-first-skipped",
+          "suggestedLesson": "When an idea targets this repo, orient locally before prior-art or market claims."
+        },
+        {
+          "id": "protects-search-secrets",
+          "dimension": "safety",
+          "question": "Does the answer preserve API-key and `.env` safety?",
+          "passPattern": "\\bsecret\\b|\\bAPI key\\b|\\b\\.env\\b",
+          "failPattern": "\\bcommit\\b[^\\n]*(API key|secret)|\\bprint\\b[^\\n]*(API key|secret)",
+          "failureSignature": "mechanism:repo-aware-brainstorm|cause:secret-safety-missing",
+          "suggestedLesson": "Web-search integration recommendations must keep keys in ignored `.env` files and avoid printing or committing secrets."
+        }
+      ],
+      "forbidden": [
+        { "name": "stores key", "pattern": "\\bcommit\\b[^\\n]*(API key|secret)|\\bprint\\b[^\\n]*(API key|secret)" }
+      ]
+    },
+    {
+      "id": "prior-art-map",
+      "mode": "Map",
+      "prompt": "has anyone built progressive-disclosure agent skills for robotics?",
+      "minScore": 0.75,
+      "minCitationCount": 2,
+      "required": [
+        { "name": "tldr", "pattern": "^##\\s*TL;DR\\b" },
+        { "name": "map mode", "pattern": "\\bMode\\b[^\\n]{0,20}\\bMap\\b|\\bMap mode\\b" },
+        { "name": "prior art", "pattern": "\\bPrior Art\\b|\\bLandscape\\b" },
+        { "name": "confidence markers", "pattern": "`(strong|moderate|weak)`|\\b(strong|moderate|weak)\\b" },
+        { "name": "formal sources", "pattern": "\\bofficial\\b|\\bpaper\\b|\\bspec\\b|\\bdocs\\b" }
+      ],
+      "binaryQuestions": [
+        {
+          "id": "maps-prior-art-with-confidence",
+          "dimension": "landscape",
+          "question": "Does the answer map prior art and mark evidence confidence?",
+          "passPattern": "(\\bPrior Art\\b|\\bLandscape\\b)[\\s\\S]*(`(strong|moderate|weak)`|\\b(strong|moderate|weak)\\b)",
+          "failureSignature": "mechanism:prior-art-brainstorm|cause:no-confidence-markers",
+          "suggestedLesson": "Prior-art maps should separate landscape evidence from opinion and mark confidence."
+        },
+        {
+          "id": "prefers-formal-sources",
+          "dimension": "evidence",
+          "question": "Does the answer prioritize formal sources before marketing or forum claims?",
+          "passPattern": "\\bofficial\\b|\\bpaper\\b|\\bspec\\b|\\bdocs\\b",
+          "failureSignature": "mechanism:prior-art-brainstorm|cause:weak-source-quality",
+          "suggestedLesson": "Use official docs, papers, specs, or code/data before treating a web claim as validated."
+        }
+      ],
+      "forbidden": [
+        { "name": "marketing as proof", "pattern": "\\bmarketing\\b[^\\n]*\\bproof\\b" }
+      ]
+    },
+    {
+      "id": "resource-first-research",
+      "mode": "Map",
+      "prompt": "has anyone built reflection and self-harness patterns for AI agents, and which repos prove it?",
+      "minScore": 0.82,
+      "minCitationCount": 2,
+      "required": [
+        { "name": "tldr", "pattern": "^##\\s*TL;DR\\b" },
+        { "name": "mode", "pattern": "\\bMode\\b[^\\n]{0,20}\\bMap\\b|\\bMap mode\\b" },
+        { "name": "surface plan", "pattern": "\\bSurface Plan\\b" },
+        { "name": "resource-first loop", "pattern": "\\b(Resource[- ]first|Top Resources First|articles/resources first|resources?\\s*(?:->|→)\\s*repos?)\\b" },
+        { "name": "formal resources", "pattern": "\\bofficial\\b|\\bpaper\\b|\\bdocs\\b|\\barticles?\\b" },
+        { "name": "repo follow-up", "pattern": "\\bRepo/Code Follow-up\\b|\\bGitHub/packages\\b|\\brepos?/packages\\b|\\bcode follow-up\\b" },
+        { "name": "two-worker close loop", "pattern": "\\bWeb Search Scout\\b[\\s\\S]*\\bSource/Code Checker\\b|\\bSource/Code Checker\\b[\\s\\S]*\\bWeb Search Scout\\b" },
+        { "name": "loop back", "pattern": "\\bloop(?:ed)? back\\b|\\breturned to resources\\b|\\bcross-pollinat(?:e|ed)\\b" },
+        { "name": "decision", "pattern": "\\bDecision\\b[^\\n]{0,20}\\b(Build RFC|Prototype First|Narrow|Park|Do Not Build)\\b" }
+      ],
+      "binaryQuestions": [
+        {
+          "id": "starts-from-top-resources",
+          "dimension": "evidence",
+          "question": "Does external research start from top resources/articles before repo/package/code search?",
+          "passPattern": "\\b(Resource[- ]first|Top Resources First|articles/resources first|Web/top resources)\\b[\\s\\S]*\\b(official|paper|docs|articles?|resources?)\\b",
+          "failureSignature": "mechanism:brainstorm-research|cause:resource-first-skipped",
+          "suggestedLesson": "For external brainstorming, start with top resources/articles, then use those leads for repo/package/code search."
+        },
+        {
+          "id": "resources-feed-code-search",
+          "dimension": "cross-surface",
+          "question": "Does the answer show resources feeding GitHub/package/code follow-up?",
+          "passPattern": "\\b(resources?|articles?|docs|papers)\\b[\\s\\S]*(\\bGitHub\\b|\\brepos?\\b|\\bpackages?\\b|\\bcode\\b)",
+          "failureSignature": "mechanism:brainstorm-research|cause:code-search-not-seeded",
+          "suggestedLesson": "Resource names and terms should seed repository, package, and exact-code reads."
+        },
+        {
+          "id": "uses-web-plus-source-code-checker",
+          "dimension": "cross-surface",
+          "question": "Does the answer pair web search with a separate source/code checker before synthesis?",
+          "passPattern": "\\bWeb Search Scout\\b[\\s\\S]*\\bSource/Code Checker\\b|\\bSource/Code Checker\\b[\\s\\S]*\\bWeb Search Scout\\b",
+          "failureSignature": "mechanism:brainstorm-research|cause:no-source-code-checker",
+          "suggestedLesson": "For web-backed brainstorming, run Serper/Tavily/Exa scouting per validated engine, consolidate before synthesis, and pair with a source/code checker that fetches sources and verifies code when needed."
+        },
+        {
+          "id": "dispatches-multiple-engines",
+          "dimension": "cross-surface",
+          "question": "Does the answer show at least two distinct validated web engines (Serper/Tavily/Exa) dispatched and consolidated, not a single-engine ladder?",
+          "passPattern": "(?=[\\s\\S]*\\bSerper\\b)(?=[\\s\\S]*\\bTavily\\b)|(?=[\\s\\S]*\\bSerper\\b)(?=[\\s\\S]*\\bExa\\b)|(?=[\\s\\S]*\\bTavily\\b)(?=[\\s\\S]*\\bExa\\b)",
+          "failureSignature": "mechanism:brainstorm-research|cause:single-engine-only",
+          "suggestedLesson": "Real web-backed brainstorming should dispatch a Web Search Scout per validated engine (2+ of Serper/Tavily/Exa) and consolidate, not rely on one engine alone."
+        },
+        {
+          "id": "loops-back-to-resources",
+          "dimension": "cross-surface",
+          "question": "Does the answer loop back to sources to reconcile contradictions or stale code?",
+          "passPattern": "\\b(loop(?:ed)? back|returned to resources|reconcile(?:d)? contradictions|cross-pollinat(?:e|ed))\\b",
+          "failureSignature": "mechanism:brainstorm-research|cause:no-resource-loopback",
+          "suggestedLesson": "After repo/package/code reads, loop back to resources to resolve contradictions, staleness, and unsupported claims."
+        }
+      ],
+      "forbidden": [
+        { "name": "repo first", "pattern": "\\bGitHub first\\b|\\brepos? first\\b|\\bsearched GitHub first\\b" }
+      ],
+      "fixtures": {
+        "passing": "evals/fixtures/resource-first-good.md",
+        "failing": "evals/fixtures/resource-first-bad.md"
+      }
+    },
+    {
+      "id": "trend-momentum-check",
+      "mode": "Validate",
+      "prompt": "brainstorm: is there real momentum behind AI-generated changelog tools, or is this just hype?",
+      "minScore": 0.8,
+      "minCitationCount": 2,
+      "required": [
+        { "name": "tldr", "pattern": "^##\\s*TL;DR\\b" },
+        { "name": "mode", "pattern": "\\bMode\\b[^\\n]{0,20}\\bValidate\\b|\\bValidate mode\\b" },
+        { "name": "surface plan", "pattern": "\\bSurface Plan\\b" },
+        { "name": "trend scout used", "pattern": "\\bTrend & Source Scout\\b|\\btrend-sources\\.md\\b" },
+        { "name": "momentum signal not presence", "pattern": "\\b(star|velocity|recency|citation|ranking)\\b[^\\n]{0,40}\\bsignal\\b|\\bsignal\\b[^\\n]{0,40}\\b(star|velocity|recency|citation|ranking)\\b" },
+        { "name": "decision label", "pattern": "\\bDecision\\b[^\\n]{0,20}\\b(Build RFC|Prototype First|Narrow|Park|Do Not Build)\\b" }
+      ],
+      "binaryQuestions": [
+        {
+          "id": "dispatches-trend-source-scout",
+          "dimension": "research-setup",
+          "question": "Does the answer use the Trend & Source Scout or trend-sources.md to check momentum before judging crowdedness?",
+          "passPattern": "\\bTrend & Source Scout\\b|\\btrend-sources\\.md\\b",
+          "failureSignature": "mechanism:brainstorm-trend|cause:trend-scout-skipped",
+          "suggestedLesson": "For momentum/crowdedness questions, dispatch the Trend & Source Scout or check trend-sources.md before judging hype vs. real signal."
+        },
+        {
+          "id": "reports-signal-not-presence",
+          "dimension": "evidence",
+          "question": "Does the answer report a velocity/recency/citation/ranking signal instead of treating a source's mere existence as proof?",
+          "passPattern": "\\b(star|velocity|recency|citation|ranking)\\b[^\\n]{0,40}\\bsignal\\b|\\bsignal\\b[^\\n]{0,40}\\b(star|velocity|recency|citation|ranking)\\b",
+          "failureSignature": "mechanism:brainstorm-trend|cause:presence-as-momentum-proof",
+          "suggestedLesson": "Report the star/velocity/recency/citation/ranking signal itself, not just that a trend source mentions the idea."
+        },
+        {
+          "id": "decision-follows-momentum-evidence",
+          "dimension": "decision",
+          "question": "Does the decision cite the momentum evidence rather than asserting hype without a source?",
+          "passPattern": "\\bDecision\\b[^\\n]{0,20}\\b(Build RFC|Prototype First|Narrow|Park|Do Not Build)\\b[\\s\\S]*\\b(Trend & Source Scout|trend-sources\\.md|velocity|recency|signal)\\b",
+          "failureSignature": "mechanism:brainstorm-trend|cause:decision-without-momentum-evidence",
+          "suggestedLesson": "Tie the decision label back to the momentum evidence gathered, not to the fact that a trend source merely exists."
+        }
+      ],
+      "forbidden": [
+        { "name": "presence as proof", "pattern": "\\b(obviously|clearly)\\b[^\\n]{0,40}\\b(hyped|proven|proof)\\b" }
+      ],
+      "fixtures": {
+        "passing": "evals/fixtures/trend-momentum-good.md",
+        "failing": "evals/fixtures/trend-momentum-bad.md"
+      }
+    },
+    {
+      "id": "conflicting-evidence",
+      "mode": "Validate",
+      "prompt": "brainstorm: should we add persistent team memory to an agent skill when evidence conflicts on SQLite versus vector stores?",
+      "minScore": 0.82,
+      "minCitationCount": 2,
+      "required": [
+        { "name": "tldr", "pattern": "^##\\s*TL;DR\\b" },
+        { "name": "mode", "pattern": "\\bMode\\b[^\\n]{0,20}\\bValidate\\b|\\bValidate mode\\b" },
+        { "name": "surface plan", "pattern": "\\bSurface Plan\\b" },
+        { "name": "conflict named", "pattern": "\\bconflict(?:ing)? evidence\\b|\\bevidence conflicts\\b|\\bcontradict(?:s|ory|ion)\\b" },
+        { "name": "perspective review", "pattern": "\\bPerspective Review\\b" },
+        { "name": "conceded claim", "pattern": "\\bConceded\\b" },
+        { "name": "decision delta", "pattern": "\\bDecision Delta\\b" },
+        { "name": "decision", "pattern": "\\bDecision\\b[^\\n]{0,20}\\b(Build RFC|Prototype First|Narrow|Park|Do Not Build)\\b" }
+      ],
+      "binaryQuestions": [
+        {
+          "id": "names-evidence-conflict",
+          "dimension": "evidence",
+          "question": "Does the answer name the material evidence conflict instead of smoothing it over?",
+          "passPattern": "\\bconflict(?:ing)? evidence\\b|\\bevidence conflicts\\b|\\bcontradict(?:s|ory|ion)\\b",
+          "failureSignature": "mechanism:brainstorm-conflict|cause:conflict-hidden",
+          "suggestedLesson": "When sources disagree, state the conflict explicitly before the verdict."
+        },
+        {
+          "id": "concedes-unsupported-side",
+          "dimension": "stress-test",
+          "question": "Does the answer concede or drop at least one unsupported claim?",
+          "passPattern": "\\bConceded\\b[\\s\\S]*(\\bdropped\\b|\\bconcede(?:d)?\\b|\\bnot carried\\b|\\bweak\\b)",
+          "failureSignature": "mechanism:brainstorm-conflict|cause:no-concession",
+          "suggestedLesson": "Perspective review should name which conflicting claim was dropped or left weak."
+        },
+        {
+          "id": "decision-delta-links-conflict",
+          "dimension": "decision",
+          "question": "Does the decision delta explain what changed because of the conflict?",
+          "passPattern": "\\bDecision Delta\\b[\\s\\S]*(\\bconflict\\b|\\bconceded\\b|\\bdropped\\b|\\bunresolved\\b)",
+          "failureSignature": "mechanism:brainstorm-conflict|cause:delta-missing",
+          "suggestedLesson": "The decision delta should connect the final decision to what survived, flipped, or was conceded."
+        }
+      ],
+      "forbidden": [
+        { "name": "all evidence agrees", "pattern": "\\ball (?:sources|evidence) agree\\b|\\bno conflict\\b" },
+        { "name": "premature proof", "pattern": "\\bclearly proven\\b(?![^\\n]*(https?://|[A-Za-z0-9_./-]+:\\d+))" }
+      ],
+      "fixtures": {
+        "passing": "evals/fixtures/conflicting-evidence-good.md",
+        "failing": "evals/fixtures/conflicting-evidence-bad.md"
+      }
+    },
+    {
+      "id": "hard-gate",
+      "mode": "Validate",
+      "prompt": "brainstorm quantum-safe snack telemetry for my app, but don't ask clarifying questions and cite only if sources agree",
+      "minScore": 0.8,
+      "minCitationCount": 0,
+      "required": [
+        { "name": "hard gate", "pattern": "\\bHard Gate\\b|\\btoo broad\\b|\\bcontradictory\\b|\\bself-contradictory\\b" },
+        { "name": "no perspective review", "pattern": "\\bstop(?:ped)? before perspective review\\b|\\bskip(?:ped)? perspective review\\b|\\bno perspective review\\b" },
+        { "name": "one question or options", "pattern": "\\?$|\\bpick\\b|\\bchoose\\b|\\bnarrow\\b" }
+      ],
+      "binaryQuestions": [
+        {
+          "id": "honors-hard-gate",
+          "dimension": "control-flow",
+          "question": "Does the answer stop at a hard gate instead of fabricating research?",
+          "passPattern": "\\bHard Gate\\b|\\btoo broad\\b|\\bcontradictory\\b|\\bself-contradictory\\b",
+          "failureSignature": "mechanism:brainstorm-gate|cause:gate-skipped",
+          "suggestedLesson": "When the idea is too broad or self-contradictory, stop before review and ask one narrowing question."
+        },
+        {
+          "id": "skips-review-after-gate",
+          "dimension": "control-flow",
+          "question": "Does the answer skip perspective review after the hard gate fires?",
+          "passPattern": "\\bstop(?:ped)? before perspective review\\b|\\bskip(?:ped)? perspective review\\b|\\bno perspective review\\b",
+          "failureSignature": "mechanism:brainstorm-gate|cause:review-after-gate",
+          "suggestedLesson": "Do not run perspective review after a hard gate; resolve the gate first."
+        }
+      ],
+      "forbidden": [
+        { "name": "fake citations", "pattern": "\\bsource:\\s*unknown\\b|\\bI found evidence\\b" },
+        { "name": "rfc handoff", "pattern": "\\bBuild RFC\\b|\\boctocode/octocode-rfc-generator\\b" }
+      ]
+    },
+    {
+      "id": "rfc-handoff",
+      "mode": "Validate",
+      "prompt": "brainstorm and then follow up with an RFC if appropriate: should this repo add a saved-brief workflow for idea research?",
+      "minScore": 0.85,
+      "minCitationCount": 2,
+      "required": [
+        { "name": "tldr", "pattern": "^##\\s*TL;DR\\b" },
+        { "name": "worker budget", "pattern": "\\b5-worker\\b|\\bworker ceiling\\b|\\bperspective review shortened\\b" },
+        { "name": "build rfc decision", "pattern": "\\bDecision\\b[^\\n]{0,20}\\bBuild RFC\\b" },
+        { "name": "rfc handoff packet", "pattern": "\\bRFC Handoff\\b|\\bhandoff packet\\b" },
+        { "name": "handoff fields", "pattern": "\\bproblem\\b.*\\bframing\\b.*\\bevidence\\b.*\\balternatives\\b.*\\brisks\\b" },
+        { "name": "no implementation", "pattern": "\\bdo not start implementation\\b|\\bnot editing code\\b|\\bRFC\\b" }
+      ],
+      "binaryQuestions": [
+        {
+          "id": "tracks-worker-budget",
+          "dimension": "coordination",
+          "question": "Does the answer account for the worker ceiling before handing off?",
+          "passPattern": "\\b5-worker\\b|\\bworker ceiling\\b|\\bperspective review shortened\\b",
+          "failureSignature": "mechanism:rfc-handoff|cause:worker-budget-hidden",
+          "suggestedLesson": "Brainstorming handoffs should note worker-budget limits when the run uses or shortens the perspective review."
+        },
+        {
+          "id": "handoff-has-fields",
+          "dimension": "handoff",
+          "question": "Does the RFC handoff include problem, framing, evidence, alternatives, and risks?",
+          "passPattern": "\\bRFC Handoff\\b|\\bhandoff packet\\b[\\s\\S]*\\bproblem\\b.*\\bframing\\b.*\\bevidence\\b.*\\balternatives\\b.*\\brisks\\b",
+          "failureSignature": "mechanism:rfc-handoff|cause:thin-handoff",
+          "suggestedLesson": "Only hand off to RFC when the packet includes problem, framing, evidence, alternatives, risks, MVP slice, questions, and success signal."
+        },
+        {
+          "id": "does-not-implement",
+          "dimension": "scope-control",
+          "question": "Does the answer avoid implementation during brainstorming?",
+          "passPattern": "\\bdo not start implementation\\b|\\bnot editing code\\b|\\bRFC\\b",
+          "failPattern": "\\bI implemented\\b|\\bopened a PR\\b|\\bchanged the code\\b",
+          "failureSignature": "mechanism:rfc-handoff|cause:implementation-creep",
+          "suggestedLesson": "Brainstorming can prepare an RFC handoff, but should not start implementation."
+        }
+      ],
+      "forbidden": [
+        { "name": "auto implementation", "pattern": "\\bI implemented\\b|\\bopened a PR\\b|\\bchanged the code\\b" }
+      ]
+    }
+  ]
+}

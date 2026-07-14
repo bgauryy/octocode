@@ -1,0 +1,47 @@
+{
+  "_note": "Pi hooks are registered via pi.on() in the extension (src/index.ts), not via hooks.json. This file is kept for Claude Code compatibility only (CLAUDE_SKILL_DIR / CLAUDE_PROJECT_DIR env vars).",
+  "UserPromptSubmit": [
+    {
+      "hooks": [
+        {
+          "type": "command",
+          "command": "sh -c 'd=\"${CLAUDE_SKILL_DIR}\"; [ -n \"$d\" ] || d=\"${CLAUDE_PROJECT_DIR}/skills/octocode-brainstorming\"; s=\"$d/scripts/brainstorm-run.mjs\"; [ -f \"$s\" ] && exec node \"$s\" hook --event UserPromptSubmit || exit 0'",
+          "timeout": 10
+        }
+      ]
+    }
+  ],
+  "Stop": [
+    {
+      "hooks": [
+        {
+          "type": "command",
+          "command": "sh -c 'd=\"${CLAUDE_SKILL_DIR}\"; [ -n \"$d\" ] || d=\"${CLAUDE_PROJECT_DIR}/skills/octocode-brainstorming\"; s=\"$d/scripts/brainstorm-run.mjs\"; [ -f \"$s\" ] && exec node \"$s\" hook --event Stop || exit 0'",
+          "timeout": 10
+        }
+      ]
+    }
+  ],
+  "SubagentStop": [
+    {
+      "hooks": [
+        {
+          "type": "command",
+          "command": "sh -c 'd=\"${CLAUDE_SKILL_DIR}\"; [ -n \"$d\" ] || d=\"${CLAUDE_PROJECT_DIR}/skills/octocode-brainstorming\"; s=\"$d/scripts/brainstorm-run.mjs\"; [ -f \"$s\" ] && exec node \"$s\" hook --event SubagentStop || exit 0'",
+          "timeout": 10
+        }
+      ]
+    }
+  ],
+  "SessionEnd": [
+    {
+      "hooks": [
+        {
+          "type": "command",
+          "command": "sh -c 'd=\"${CLAUDE_SKILL_DIR}\"; [ -n \"$d\" ] || d=\"${CLAUDE_PROJECT_DIR}/skills/octocode-brainstorming\"; s=\"$d/scripts/brainstorm-run.mjs\"; [ -f \"$s\" ] && exec node \"$s\" hook --event SessionEnd || exit 0'",
+          "timeout": 10
+        }
+      ]
+    }
+  ]
+}

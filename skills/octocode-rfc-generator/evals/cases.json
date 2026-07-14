@@ -1,0 +1,81 @@
+{
+  "schemaVersion": 1,
+  "description": "Machine-checkable smoke evals for octocode-rfc-generator outputs. These checks verify structure and guardrails; human review still judges evidence quality.",
+  "rubric": [
+    "Consumes brainstorming handoff packets instead of restarting from scratch.",
+    "Keeps recommendations tied to cited claims.",
+    "Compares real alternatives, including do-nothing/minimal/phased options when useful.",
+    "Gates public contract and migration risk with rollout and rollback details.",
+    "Produces implementation-ready acceptance criteria and verification commands.",
+    "Adds PREREQUISITES.md before the implementation plan for RFCs on existing code.",
+    "Adds RESOURCES.md when sources, prior art, or research artifacts matter.",
+    "For a new RFC without a handoff, asks to use octocode-brainstorming first when available and researches with octocode-research plus local and external tools if continuing.",
+    "Avoids one-shot RFCs by asking focused questions when the decision flow is unclear."
+  ],
+  "cases": [
+    {
+      "id": "brainstorm-handoff-rfc",
+      "mode": "RFC",
+      "prompt": "Turn this brainstorming RFC handoff into a reviewable RFC: problem, chosen framing, evidence, alternatives, constraints, risks, first slice, open questions, success signal.",
+      "minScore": 0.8,
+      "minCitationCount": 2,
+      "required": [
+        { "name": "status or mode", "pattern": "\\b(Status|Mode):\\s*(Draft|Ready for Review|Blocked|RFC)\\b|\\bRFC mode\\b" },
+        { "name": "handoff intake", "pattern": "\\bhandoff\\b|\\bchosen framing\\b|\\bvalue thesis\\b|\\bfirst slice\\b" },
+        { "name": "claim ledger", "pattern": "\\bclaim ledger\\b|\\bclaim\\s*\\|\\s*evidence\\s*\\|\\s*confidence" },
+        { "name": "alternatives", "pattern": "\\bAlternatives? Considered\\b|\\bAlternative A\\b|\\bdo nothing\\b" },
+        { "name": "risks or open questions", "pattern": "\\bRisks?\\b|\\bOpen Questions?\\b|\\bUnresolved Questions?\\b" },
+        { "name": "acceptance criteria", "pattern": "\\bAcceptance Criteria\\b|\\bDone when\\b|\\bSuccess signal\\b" },
+        { "name": "rollback", "pattern": "\\brollback\\b|\\bRollback trigger\\b" }
+      ],
+      "forbidden": [
+        { "name": "unreplaced placeholders", "pattern": "\\{[^}]+\\}|\\bTBD\\b|\\bTODO\\b" },
+        { "name": "uncertain recommendation", "pattern": "\\bDecision:\\s*(?!Draft|Blocked)[^\\n]+\\n(?:.*\\n){0,4}.*\\buncertain\\b" }
+      ]
+    },
+    {
+      "id": "public-contract-migration",
+      "mode": "Migration",
+      "prompt": "Write a migration plan for changing a public API used by multiple packages.",
+      "minScore": 0.8,
+      "minCitationCount": 1,
+      "required": [
+        { "name": "migration mode", "pattern": "\\bMode:\\s*Migration\\b|\\bMigration plan\\b" },
+        { "name": "current and target state", "pattern": "\\bCurrent State\\b.*\\bTarget State\\b|\\bTarget State\\b.*\\bCurrent State\\b" },
+        { "name": "public contract gate", "pattern": "\\bpublic (API|contract)\\b|\\bcompatibility\\b|\\bbreaking change\\b" },
+        { "name": "phased rollout", "pattern": "\\bPhase 1\\b|\\bphased rollout\\b|\\bincremental migration\\b" },
+        { "name": "question gate", "pattern": "\\bQuestion Gate\\b|\\bClarifying Questions?\\b|\\bAssumptions?\\b" },
+        { "name": "verification commands", "pattern": "\\bVerification commands?\\b|\\byarn (test|typecheck|lint|verify)\\b|\\bnpm test\\b" },
+        { "name": "rollback trigger", "pattern": "\\bRollback trigger\\b|\\brollback\\b" },
+        { "name": "owner approver", "pattern": "\\bOwner\\b|\\bapprover\\b" }
+      ],
+      "forbidden": [
+        { "name": "no time estimates", "pattern": "\\b\\d+\\s*(days?|weeks?|months?)\\b|\\bETA\\b" }
+      ]
+    },
+    {
+      "id": "existing-code-folder-rfc",
+      "mode": "RFC",
+      "prompt": "Write a full RFC for an irreversible existing-code cross-package change as the folder set (RFC.md, PREREQUISITES.md, IMPLEMENTATION.md, KPI.md, RESOURCES.md): goals/non-goals, reversibility, alternatives, prerequisites before the plan, open questions closed via research, resources/refs, acceptance criteria, success metrics, and a traceability matrix.",
+      "minScore": 0.85,
+      "minCitationCount": 2,
+      "required": [
+        { "name": "RFC.md file", "pattern": "\\bRFC\\.md\\b" },
+        { "name": "PREREQUISITES.md file", "pattern": "\\bPREREQUISITES\\.md\\b" },
+        { "name": "IMPLEMENTATION.md file", "pattern": "\\bIMPLEMENTATION\\.md\\b" },
+        { "name": "KPI.md file", "pattern": "\\bKPI\\.md\\b" },
+        { "name": "RESOURCES.md file", "pattern": "\\bRESOURCES\\.md\\b" },
+        { "name": "goals and non-goals", "pattern": "\\bNon-Goals?\\b" },
+        { "name": "reversibility classification", "pattern": "\\b(reversible|irreversible|two-way door|one-way door)\\b" },
+        { "name": "open questions closed", "pattern": "\\bResolved Questions?\\b|\\bResolution\\b|closed[^\\n]*open question" },
+        { "name": "gherkin acceptance", "pattern": "\\bGiven\\b[^\\n]*\\n?[^\\n]*\\bWhen\\b[^\\n]*\\n?[^\\n]*\\bThen\\b|\\bGherkin\\b" },
+        { "name": "success metric with target", "pattern": "\\bbaseline\\b|\\bTarget\\b|\\bguardrail\\b" },
+        { "name": "decision rule or rollback", "pattern": "\\bDecision Rule\\b|\\bRoll ?back\\b" },
+        { "name": "traceability matrix", "pattern": "\\btraceability\\b" }
+      ],
+      "forbidden": [
+        { "name": "unreplaced placeholders", "pattern": "\\{[^}]+\\}|\\bTBD\\b|\\bTODO\\b" }
+      ]
+    }
+  ]
+}
