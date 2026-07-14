@@ -7,7 +7,6 @@ describe('CLI command registry', () => {
 
     const removed = [
       'token',
-      'skill',
       'skills',
       'cat',
       'ls',

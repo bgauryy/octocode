@@ -37,6 +37,8 @@ coverage
 /skills/octocode-reflection/
 # Bundled skills copied into the octocode CLI package during build/prepack.
 /packages/octocode/skills/
+# Bundled skills copied into the @octocodeai/skills package during build.
+/packages/octocode-skills/skills/
 # sqlite DB
 mcp.sqlite
 

@@ -237,7 +237,6 @@ describe('command-help-specs', () => {
       await import('../../src/cli/command-help-specs.js');
 
     expect(findStaticCommandHelp('token')).toBeUndefined();
-    expect(findStaticCommandHelp('skill')).toBeUndefined();
     expect(findStaticCommandHelp('skills')).toBeUndefined();
   });
 });

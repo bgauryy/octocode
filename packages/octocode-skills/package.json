@@ -1,0 +1,64 @@
+{
+  "name": "@octocodeai/skills",
+  "version": "1.0.0",
+  "description": "Octocode skills distribution — list, install, and link agent skills to any platform or custom path.",
+  "keywords": [
+    "ai-agent",
+    "claude",
+    "cursor",
+    "gemini",
+    "octocode",
+    "pi",
+    "skills"
+  ],
+  "author": "Guy Bary <bgaryy@octocodeai.com>",
+  "homepage": "https://octocode.ai",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bgauryy/octocode-mcp.git",
+    "directory": "packages/octocode-skills"
+  },
+  "bugs": "https://github.com/bgauryy/octocode-mcp/issues",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "octocode-skills": "./out/cli.js"
+  },
+  "main": "./out/index.js",
+  "types": "./out/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./out/index.d.ts",
+      "import": "./out/index.js",
+      "default": "./out/index.js"
+    }
+  },
+  "files": [
+    "out/**",
+    "skills/**",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20.12.0"
+  },
+  "scripts": {
+    "build": "node build.mjs",
+    "build:dev": "node build.mjs",
+    "clean": "rm -rf out/",
+    "lint": "tsc --noEmit -p tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "prepublishOnly": "node build.mjs",
+    "test": "echo 'no tests yet'",
+    "test:quiet": "echo 'no tests yet'",
+    "verify": "yarn lint && yarn build"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.3",
+    "esbuild": "^0.28.1",
+    "typescript": "^5.9.3"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
