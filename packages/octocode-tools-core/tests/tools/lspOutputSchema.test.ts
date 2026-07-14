@@ -54,6 +54,14 @@ describe('LspGetSemanticsOutputSchema — MCP structuredContent contract', () =>
       },
     ],
     base: '/abs',
+    responsePagination: {
+      currentPage: 1,
+      totalPages: 1,
+      hasMore: false,
+      charOffset: 0,
+      charLength: 100,
+      totalChars: 100,
+    },
   };
 
   it('accepts success results that include next.readSite', () => {
@@ -79,6 +87,13 @@ describe('LspGetSemanticsOutputSchema — MCP structuredContent contract', () =>
       next?: { readSite?: { tool?: string } };
     };
     expect(data.next?.readSite?.tool).toBe('localGetFileContent');
+  });
+
+  it('keeps responsePagination after parse (does not strip)', () => {
+    const parsed = LspGetSemanticsOutputSchema.parse(definitionWithNext) as {
+      responsePagination?: { totalChars?: number };
+    };
+    expect(parsed.responsePagination?.totalChars).toBe(100);
   });
 
   it('still accepts success without next', () => {

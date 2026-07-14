@@ -242,6 +242,47 @@ describe('MCP outputSchema contract — emitted structuredContent parses', () =>
     ).toBeDefined();
   });
 
+  it('ghGetFileContent keeps cloneForSemantics continuation in schema output', () => {
+    const fixture = {
+      results: [
+        {
+          id: 'octo/repo',
+          data: {
+            owner: 'octo',
+            repo: 'repo',
+            files: [
+              {
+                path: 'README.md',
+                content: '# Hello',
+                next: {
+                  cloneForSemantics: {
+                    tool: 'ghCloneRepo',
+                    query: {
+                      owner: 'octo',
+                      repo: 'repo',
+                      sparsePath: 'README.md',
+                    },
+                    why: 'clone before LSP semantics',
+                    confidence: 'exact' as const,
+                  },
+                },
+              },
+            ],
+          },
+        },
+      ],
+    };
+
+    const parsed = GitHubFetchContentOutputLocalSchema.parse(fixture) as {
+      results: Array<{
+        data?: { files?: Array<{ next?: Record<string, unknown> }> };
+      }>;
+    };
+    expect(parsed.results[0]?.data?.files?.[0]?.next?.cloneForSemantics).toMatchObject({
+      tool: 'ghCloneRepo',
+    });
+  });
+
   it('ghGetFileContent — error row', () => {
     const finalize = buildGithubFetchContentFinalizer();
     const out = finalize({

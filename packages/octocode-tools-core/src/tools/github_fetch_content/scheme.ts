@@ -24,7 +24,7 @@ const minifyField = z
   .default('standard');
 
 // Parity with local_fetch_content: compose shared char/item pagination +
-// ToolContinuation (continueChars) instead of inline duplicates.
+// ToolContinuation instead of inline duplicates.
 const GitHubFetchFilePaginationSchema = z.union([
   CharPaginationSchema.extend({
     nextPage: z.number().optional(),
@@ -37,11 +37,10 @@ const GitHubFetchFilePaginationSchema = z.union([
   }),
 ]);
 
-const GitHubFetchFileNextSchema = z.object({
-  continueChars: ToolContinuationSchema.extend({
-    tool: z.literal('ghGetFileContent'),
-  }).optional(),
-});
+const GitHubFetchFileNextSchema = z.record(
+  z.string(),
+  ToolContinuationSchema
+);
 
 const GitHubFetchFileEntrySchema = z.object({
   path: z.string(),

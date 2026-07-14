@@ -13,6 +13,7 @@ import {
 } from '../../../scheme/coreSchemas.js';
 import { SEMANTIC_CONTENT_TYPES } from '../shared/semanticTypes.js';
 import {
+  CharPaginationSchema,
   ItemPaginationSchema,
   ToolContinuationSchema,
 } from '../../../scheme/pagination.js';
@@ -279,6 +280,7 @@ export const LspGetSemanticsOutputSchema = z.object({
   shared: z
     .record(z.string(), z.union([z.string(), z.number(), z.boolean()]))
     .optional(),
+  responsePagination: CharPaginationSchema.optional(),
   results: z.array(
     z.union([
       z.object({
