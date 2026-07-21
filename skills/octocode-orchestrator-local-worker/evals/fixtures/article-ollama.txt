@@ -1,0 +1,86 @@
+SOURCE_URL: https://ollama.com/blog/thinking
+TITLE: Thinking · Ollama Blog
+BODY:
+Ollama now has the ability to enable or disable thinking. This gives users the flexibility to choose the model’s thinking behavior for different applications and use cases.
+
+When thinking is enabled, the output will separate the model’s thinking from the model’s output. When thinking is disabled, the model will not think and directly output the content.
+
+Models that support thinking:
+
+DeepSeek R1
+
+Qwen 3
+
+more will be added under thinking models .
+
+Thinking in action
+
+Enable thinking in DeepSeek R1
+
+In the CLI, thinking is enabled by default.
+
+This can be useful in getting the model to think through different viewpoints to arrive at more accurate answer.
+
+The model shown is the 8 billion parameter DeepSeek-R1-0528 Qwen 3 distilled model. This video is not sped up.
+
+Disable thinking in DeepSeek R1
+
+In the CLI, thinking is disabled using followed by the prompt.
+
+This is useful in getting answers fast out of the model.
+
+The model shown is the 8 billion parameter DeepSeek-R1-0528 Qwen 3 distilled model. This video is not sped up.
+
+Get started
+
+Download the latest version of Ollama .
+
+CLI
+
+From the Ollama CLI, thinking can be enabled or disabled:
+
+Enable thinking
+
+Disable thinking
+
+Interactive sessions
+
+When chatting inside an interactive session, thinking can be enabled or disabled:
+
+Enable thinking
+
+Disable thinking
+
+Scripting
+
+For scripting, a command is available. This helps users who want to use thinking models but simply want to see the answer.
+
+Example:
+
+Both of Ollama’s generate API ( ) and chat API ( ) have been updated to support thinking.
+
+There is a new parameter that can be set to or for enabling a model’s thinking process. When the parameter is set to true, the output will separate the model’s thinking from the model’s output. This can help users craft new application experiences like animating the thinking process via a graphical interface, or for NPCs in games to have a thinking bubble before the output. When the parameter is set to false, the model will not think and directly output the content.
+
+Example using Ollama’s chat API with thinking enabled
+
+Output
+
+Output is truncated for brevity.
+
+Python library
+
+Please update to the latest Ollama Python library .
+
+Example of enabling thinking
+
+Please visit the Ollama Python library for more information about its usage. More examples are available.
+
+JavaScript library
+
+Please update to the latest Ollama JavaScript library .
+
+Example of enabling thinking
+
+Example of streaming responses with thinking
+
+Please visit the Ollama JavaScript library for more information about its usage. More examples are available.

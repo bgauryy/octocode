@@ -1,0 +1,7 @@
+Return ONLY JSON:
+{
+  "summary": "string (<=40 words)",
+  "quality": "ok|weak",
+  "confidence": "high|medium|low"
+}
+Summarize the INPUT in one short sentence. Small-task: be brief.

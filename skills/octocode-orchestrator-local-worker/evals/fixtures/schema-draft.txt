@@ -1,0 +1,2 @@
+Draft a short TypeScript unit test skeleton for the INPUT functions.
+Return plain text code only (no markdown fences required). Include at least one test( or it( call.

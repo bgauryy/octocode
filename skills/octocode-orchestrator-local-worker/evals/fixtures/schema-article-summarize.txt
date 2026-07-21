@@ -1,0 +1,20 @@
+# Article summarization output schema
+
+Given INPUT article plain text (SOURCE_URL / TITLE / BODY), produce ONLY valid JSON matching:
+
+{
+  "title": "string",
+  "tldr": "string (<=60 words)",
+  "key_points": ["string"],
+  "claims": [{"claim": "string", "support_quote": "string"}],
+  "confidence": "high|medium|low"
+}
+
+Rules:
+- support_quote must be a verbatim substring of INPUT (BODY). Do not invent facts.
+- Do not invent facts not present in INPUT.
+- If unsure about accuracy or grounding, set confidence to "low".
+- title may mirror or lightly normalize TITLE / article headline.
+- tldr must be <= 60 words.
+- key_points: concise bullets grounded in INPUT.
+- claims: each claim must be backed by a support_quote copied verbatim from INPUT.

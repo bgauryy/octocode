@@ -1,0 +1,3 @@
+Return ONLY valid JSON:
+{"rows":[{"symbol":"string","kind":"function","notes":"string"}],"unknowns":[]}
+Must include symbol createToken if present in INPUT.

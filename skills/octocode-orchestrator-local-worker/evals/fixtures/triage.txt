@@ -1,0 +1,6 @@
+Items to classify:
+1. Fix null pointer in token refresh
+2. Update README badges
+3. Should we migrate Mongo indexes this quarter?
+4. Possible XSS in error page HTML
+5. Bump lodash version

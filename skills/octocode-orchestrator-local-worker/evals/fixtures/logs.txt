@@ -1,0 +1,5 @@
+LOG 1: connection timeout after 30s on /mcp
+LOG 2: retry succeeded for session abc
+LOG 3: rate limit 429 from upstream github
+LOG 4: health check ok
+LOG 5: oauth refresh rotated token

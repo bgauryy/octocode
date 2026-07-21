@@ -1,0 +1,2 @@
+Return ONLY valid JSON. Each item.label must be EXACTLY one of: bug, chore, question, risk (not a pipe-separated list).
+{"items":[{"id":"string","label":"bug","reason":"string","confidence":"high|medium|low"}]}

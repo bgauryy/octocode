@@ -1,0 +1,3 @@
+Implement the requested TypeScript function from INPUT.
+Return code only (no markdown fences). Must include: export function add
+Do NOT write tests — implementation only.

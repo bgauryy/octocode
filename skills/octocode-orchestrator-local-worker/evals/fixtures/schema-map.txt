@@ -1,0 +1,2 @@
+Return ONLY valid JSON:
+{"items":[{"line":"string","tag":"error|ok|warn","note":"string"}]}

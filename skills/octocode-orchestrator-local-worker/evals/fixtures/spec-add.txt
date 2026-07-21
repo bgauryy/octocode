@@ -1,0 +1,3 @@
+Draft a minimal TypeScript implementation that satisfies:
+- export function add(a: number, b: number): number
+Return code only.

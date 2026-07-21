@@ -1,0 +1,2 @@
+Return ONLY valid JSON:
+{"summary":"string (<=80 words)","key_events":["string"],"confidence":"high|medium|low"}

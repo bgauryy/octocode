@@ -1,0 +1,6 @@
+Checklist input — mark each item pass/fail with short reason:
+1. Function names are verbs
+2. Errors are thrown with messages
+3. No hardcoded secrets in source
+4. Types are explicit on public APIs
+Source under review is api-client.ts style TypeScript fetch helpers.

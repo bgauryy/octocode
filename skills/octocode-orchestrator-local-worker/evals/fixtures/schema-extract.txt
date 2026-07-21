@@ -1,0 +1,2 @@
+Return ONLY valid JSON:
+{"rows":[{"symbol":"string","kind":"function|class|other","notes":"string"}],"unknowns":["string"]}

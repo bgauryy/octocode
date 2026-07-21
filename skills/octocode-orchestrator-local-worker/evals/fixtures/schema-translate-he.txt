@@ -1,0 +1,8 @@
+Return ONLY JSON:
+{
+  "source_lang": "en|he|other",
+  "target_lang": "he",
+  "translation": "string",
+  "notes": ["string"]
+}
+Translate the INPUT from English to Hebrew. Keep meaning; do not invent facts.
