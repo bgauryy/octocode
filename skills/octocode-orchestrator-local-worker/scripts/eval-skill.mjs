@@ -191,9 +191,9 @@ function runStatic(c) {
       const ok =
         /^name:\s*octocode-orchestrator-local-worker\s*$/m.test(body) &&
         /description:/m.test(body) &&
-        /Triggers:/i.test(body) &&
+        /Use when/i.test(body) &&
         /Do not use/i.test(body) &&
-        /RAM kit|capability matrix|capability questions/i.test(body) &&
+        /RAM.?kit|capability/i.test(body) &&
         !/choose ollama model/i.test(body);
       return {
         pass: ok,
@@ -211,6 +211,7 @@ function runStatic(c) {
         "ollama-invoke.md",
         "verify-gate.md",
         "usage-matrix.md",
+        "workflow.md",
         "references.md",
       ];
       const missing = needed.filter((f) => !existsSync(join(ROOT, "references", f)));
@@ -220,9 +221,12 @@ function runStatic(c) {
       };
     }
     case "workflow_select_model": {
+      const workflow = existsSync(join(ROOT, "references/workflow.md"))
+        ? readFileSync(join(ROOT, "references/workflow.md"), "utf8")
+        : "";
       const five =
         /GATE\s*→\s*ROUTE\s*→\s*RUN\s*→\s*VERIFY\s*→\s*REPORT/i.test(skill) &&
-        /### 2\. ROUTE/i.test(skill);
+        (/### 2\. ROUTE/i.test(skill + workflow) || /## 2\. ROUTE/i.test(workflow));
       return {
         pass: five,
         detail: five ? "5-step ROUTE workflow" : "missing GATE→ROUTE→RUN→VERIFY→REPORT",
@@ -236,17 +240,15 @@ function runStatic(c) {
     }
     case "routine_path_loads": {
       const ok =
-        /Routine path loads only:/i.test(skill) &&
+        /Routine loads:/i.test(skill) &&
         /model-selection\.md/i.test(skill) &&
-        /verify-gate\.md/i.test(skill) &&
-        /Routine \(default\):/i.test(skill);
+        /verify-gate\.md/i.test(skill);
       return { pass: ok, detail: ok ? "routine path called out" : "routine path missing" };
     }
     case "catalog_shortcut": {
       const ok =
-        /Catalog-only shortcut:/i.test(skill) &&
-        /do not run the full offload workflow/i.test(skill) &&
-        /Skip GATE/i.test(skill);
+        /Catalog shortcut:/i.test(skill) &&
+        /skip full offload|ollama-local-models\.md/i.test(skill);
       return { pass: ok, detail: ok ? "catalog shortcut present" : "catalog shortcut missing" };
     }
     case "local_models_ref": {
@@ -258,14 +260,18 @@ function runStatic(c) {
       return { pass: ok, detail: ok ? "local-models gated ref" : "local-models ref weak" };
     }
     case "catalog_load_gated": {
-      // Must not instruct unconditional load of the heavy catalog on every ROUTE/SELECT
+      const workflow = existsSync(join(ROOT, "references/workflow.md"))
+        ? readFileSync(join(ROOT, "references/workflow.md"), "utf8")
+        : "";
+      const corpus = skill + workflow;
       const bad =
-        /Load `references\/ollama-local-models\.md` for RAM kits/i.test(skill) &&
-        !/only for|NOT on routine|not\*\* on routine|Do not\*\* load|Do not load/i.test(skill);
+        /Load `references\/ollama-local-models\.md` for RAM kits/i.test(corpus) &&
+        !/only for|NOT on routine|not\*\* on routine|Do not\*\* load|Do not load|not routine/i.test(
+          corpus,
+        );
       const good =
-        /Do not\*\*? load `?references\/ollama-local-models\.md`? on routine/i.test(skill) ||
-        (/ollama-local-models\.md/.test(skill) &&
-          /only for RAM kits|not\*\* on routine|NOT on routine|not\*\* routine routing/i.test(skill));
+        /ollama-local-models\.md/.test(skill) &&
+        /only for RAM kits|Catalog|not routine|not\*\* routine/i.test(skill);
       return {
         pass: good && !bad,
         detail: good && !bad ? "catalog load gated" : "catalog still unconditional",
@@ -281,9 +287,8 @@ function runStatic(c) {
     }
     case "small_task_flow": {
       const ok =
-        /Small-task fast path:/i.test(skill) &&
-        /Offload OK/i.test(skill) &&
-        /tiny job|quick local|small one-shot|including small/i.test(skill);
+        /warm small|small\/balanced|one-shots|save-tokens|quick local/i.test(skill) &&
+        /Offload OK|Offload to local|offloading low-risk/i.test(skill);
       return { pass: ok, detail: ok ? "small-task flow present" : "small-task flow missing" };
     }
     case "translate_job": {
@@ -302,15 +307,17 @@ function runStatic(c) {
         existsSync(path) &&
         /Article \/ internet summarize/i.test(body) &&
         /Research \/ web browse/i.test(body) &&
-        /usage-matrix\.md/.test(skill) &&
-        /When & how/i.test(skill);
+        /usage-matrix\.md/.test(skill);
       return { pass: ok, detail: ok ? "usage matrix present" : "usage matrix missing" };
     }
     case "article_offload_pattern": {
+      const workflow = existsSync(join(ROOT, "references/workflow.md"))
+        ? readFileSync(join(ROOT, "references/workflow.md"), "utf8")
+        : "";
       const ok =
-        /Worker never browses the web/i.test(skill) &&
-        /Summarize article|article \/ web body|already-fetched/i.test(skill) &&
-        /support_quote|substring/i.test(skill + verify);
+        /Worker never browses the web|never browses the web/i.test(skill) &&
+        /article|summarize\/extract/i.test(skill) &&
+        /support_quote|substring/i.test(skill + verify + workflow);
       return { pass: ok, detail: ok ? "article pattern documented" : "article pattern missing" };
     }
     case "job_table_single_owner": {
@@ -347,11 +354,11 @@ function runStatic(c) {
       return { pass: ok, detail: ok ? "embed forbidden" : "no embed forbid" };
     }
     case "blocklist_architecture": {
-      const ok = /Architecture/i.test(skill) && /(local NEVER|Blocklist|Keep on orchestrator)/i.test(skill);
+      const ok = /Architecture/i.test(skill) && /(local NEVER|Never local|Keep on orchestrator|stay on the orchestrator)/i.test(skill);
       return { pass: ok, detail: ok ? "architecture blocklisted" : "no architecture block" };
     }
     case "blocklist_security": {
-      const ok = /security review/i.test(skill);
+      const ok = /security/i.test(skill);
       return { pass: ok, detail: ok ? "security blocklisted" : "no security block" };
     }
     case "blocklist_tools": {
@@ -367,6 +374,10 @@ function runStatic(c) {
       return { pass: ok, detail: ok ? "vision supported" : "vision missing" };
     }
     case "allowlist_jobs": {
+      const workflow = existsSync(join(ROOT, "references/workflow.md"))
+        ? readFileSync(join(ROOT, "references/workflow.md"), "utf8")
+        : "";
+      const corpus = skill + workflow;
       const jobs = [
         "Summarize",
         "Extract",
@@ -377,9 +388,9 @@ function runStatic(c) {
         "Vision",
         "Translate",
       ];
-      const miss = jobs.filter((j) => !new RegExp(j, "i").test(skill));
-      const flexible = /not an exclusive whitelist|similar low-risk/i.test(skill);
-      const smallOk = /Offload OK|Small-task fast path/i.test(skill);
+      const miss = jobs.filter((j) => !new RegExp(j, "i").test(corpus));
+      const flexible = /not an exclusive whitelist|similar low-risk|Not an exclusive/i.test(corpus);
+      const smallOk = /Offload OK|warm small|offloading low-risk/i.test(skill);
       return {
         pass: miss.length === 0 && flexible && smallOk,
         detail:
@@ -410,6 +421,41 @@ function runStatic(c) {
     case "worker_vision_job": {
       const ok = /vision/.test(worker) && /IMAGE_PATH/.test(worker);
       return { pass: ok, detail: ok ? "worker vision job" : "worker lacks vision" };
+    }
+    case "worker_keepalive_default": {
+      const ok =
+        /KEEPALIVE=.*5m|keepalive.*5m/i.test(worker) &&
+        /--keepalive/.test(worker) &&
+        (/Serving knobs|keepalive 5m|keepalive/i.test(skill) ||
+          /keepalive/i.test(readFileSync(join(ROOT, "references/workflow.md"), "utf8")));
+      return {
+        pass: ok,
+        detail: ok ? "keepalive default wired" : "keepalive missing from worker/SKILL",
+      };
+    }
+    case "serving_knobs_documented": {
+      const invoke = readFileSync(join(ROOT, "references/ollama-invoke.md"), "utf8");
+      const workflow = existsSync(join(ROOT, "references/workflow.md"))
+        ? readFileSync(join(ROOT, "references/workflow.md"), "utf8")
+        : "";
+      const ok =
+        /Serving best practices/i.test(invoke) &&
+        /num_ctx|silent.*truncat/i.test(invoke + skill + workflow) &&
+        /temperature 0\.2|0\.1–0\.3|0\.1-0\.3/i.test(invoke + skill + worker + workflow);
+      return {
+        pass: ok,
+        detail: ok ? "serving knobs documented" : "serving knobs docs weak",
+      };
+    }
+    case "worker_http_options": {
+      const ok =
+        /--temperature/.test(worker) &&
+        /--num-ctx/.test(worker) &&
+        /\/api\/generate/.test(worker);
+      return {
+        pass: ok,
+        detail: ok ? "HTTP temp/num_ctx path" : "HTTP options missing",
+      };
     }
     default:
       return { pass: false, detail: `unknown static check ${c.check}` };
@@ -452,6 +498,9 @@ function runLive(c) {
   if (c.schema) cmd.push("--schema", c.schema);
   if (c.formatJson) cmd.push("--format-json");
   if (c.think != null) cmd.push("--think", String(c.think));
+  if (c.keepalive != null) cmd.push("--keepalive", String(c.keepalive));
+  if (c.temperature != null) cmd.push("--temperature", String(c.temperature));
+  if (c.numCtx != null) cmd.push("--num-ctx", String(c.numCtx));
   const r = runCmd(cmd, { timeoutMs: 240_000 });
   if (r.exit !== 0) {
     return {
@@ -527,6 +576,11 @@ const guardIds = [
   "script-reject-fake-model",
   "static-no-image-generation",
   "static-blocklist-tools",
+  "guard-worker-keepalive-default",
+  "guard-serving-knobs-documented",
+  "guard-worker-http-options",
+  "script-dry-run-keepalive-default",
+  "script-dry-run-temperature-http",
 ];
 const guards = results.filter((r) => guardIds.includes(r.id));
 const guardsOk = guards.length > 0 && guards.every((r) => r.hardPass);

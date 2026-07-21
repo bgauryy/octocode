@@ -1,30 +1,42 @@
-# Loop report — audit FIX + validation update
+# Loop report — serving knobs + live suite
 
-**Date:** 2026-07-20  
+**Date:** 2026-07-21  
 **Subject:** `skills/octocode-orchestrator-local-worker`
 
-## Failures fixed (earlier)
+## Goal
+Agents offload low-risk work via a 5-step portable flow, with verifiable worker output and sound Ollama serving knobs (keepalive, ctx, structured temp).
 
-| Issue | Fix |
-|---|---|
-| HTML entities in SKILL/usage/model-selection | Replaced with real `<` |
-| Stale **SELECT MODEL** in decision/invoke/local-models refs | Renamed to **ROUTE** |
-| Soft evals masking garbage (`live-classify-tiny` 0.5b, soft article-qwen) | Removed soft cases; classify uses strict 7b only |
-| Ambiguous classify schema (`label: bug\|chore\|…`) | Schema requires one exact label |
-| Eval accepted legacy 9-step wording | `workflow_select_model` requires GATE→ROUTE→… only |
-| `references.md` missing usage-matrix / article dogfood | Provenance rows added |
+## KPI
+- primary (lagging): `suite_pass_rate` (higher-better) baseline=1.0 result=1.0 target=0.85
+- leading: script_gate=1.0 · live_worker_hard=1.0 · held_out_hard=1.0
+- guardrails: ok (keepalive default, HTTP temp/num_ctx, embed/fuzzy/think/tool/image-gen)
 
-## Validation update (same day)
+## Loop level
+experiment (subject: worker script + docs + cases for serving knobs)
 
-| Issue | Fix |
-|---|---|
-| `kodama-summariser` cited as Local Ollama | Corrected: map-reduce prior art; runtime is **Groq** |
-| Missing cascade paper grounding | Added FrugalGPT + cascade-routing + multi-LLM survey to `references.md` |
-| Adjacent skills unclear (setup / triage / hermes / subagent) | Added **Not this skill** table + skills.sh re-check notes |
-| Soft hard-rules language | MUST/NEVER/FORBIDDEN on verify, invent-model, tool-loop, browse |
-| VERIFY as quality gate not explicit | Named quality-estimator + cascade path in SKILL + verify-gate + usage-matrix |
+## Budget / trials
+static+script+live · ≤25 live calls · skip qwen2.5:32b · ~133s wall
+
+## Subject changed
+- `scripts/ollama-worker.sh`: default `--keepalive 5m`; `--temperature` / `--num-ctx` → `/api/generate`
+- Docs: SKILL RUN/Recovery, ollama-invoke serving table, cli/usage/packet/family
+- Eval cases: keepalive/temp dry-run gates; structured live jobs use `temperature: 0.2`
+- Discovery: skill-sync to top vendors + project scopes; AGENTS.md dogfood row
+
+## Harness unchanged? (yes/no)
+no — suite evolved between experiments (new serving-knob cases/guards only)
+
+## Checks run
+- `node scripts/eval-skill.mjs` → exit 0 · 62/62 · hardFails=0 · held-out 5/5
+- report: `.octocode/orchestrator-local-worker/evals/last-report.json` (temp; not under `evals/`)
+- `skill-review.mjs` → 0 errors (after README + description tighten)
+- skill-sync `--platforms top --project-root … --approve --force` → 7 linked
+
+## Transcript note
+Live path exercised vision, translate, article grounding, JSON extract/classify/check with keepalive + low-temp HTTP.
 
 ## Verdict
+**ACCEPT**
 
-**ACCEPT** (static+script `--skip-live`) — hardFails=0 after restoring eval phrase `Worker never browses the web`.
-Live suite last green: 57/57 (pre-edit); re-run live if inventory changes.
+## Next
+No further subject change required for this KPI. Optional later: split long refs (review WARNs only).

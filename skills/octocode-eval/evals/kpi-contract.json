@@ -1,0 +1,23 @@
+{
+  "goal": "Agents measure skill/harness changes with evidence (ACCEPT/REVERT), not vibes — including TDD failing-case-first.",
+  "primaryKpi": {
+    "name": "suite_pass_rate",
+    "direction": "higher-better",
+    "baseline": 1.0,
+    "target": 0.85,
+    "servesGoal": "Self-test + case grades stay green while improving the skill"
+  },
+  "leading": [
+    { "name": "eval_eval_self_test", "target": 1.0 },
+    { "name": "loop_report_self_test", "target": 1.0 },
+    { "name": "skill_review_error_count", "target": 0, "direction": "lower-better" }
+  ],
+  "guardrails": [
+    { "name": "no_harness_cheat", "rule": "do not edit cases/graders mid-experiment to pass" },
+    { "name": "tdd_case_present", "rule": "tdd-red-green case exists and passes self-test" },
+    { "name": "held_out_discipline", "rule": "ACCEPT only with held-out / guardrails language in Run reports" }
+  ],
+  "budget": "self-test always; optional --case spot checks; skill-review 0 ERROR",
+  "heldOutIds": ["tdd-red-green", "reject-vibe"],
+  "decisionRule": "ACCEPT if suite_pass_rate >= 0.85 AND skill_review_error_count == 0 AND guardrails pass; else CONTINUE or REVERT"
+}

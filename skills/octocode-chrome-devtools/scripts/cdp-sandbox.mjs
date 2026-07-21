@@ -1,12 +1,37 @@
 #!/usr/bin/env node
 
-import { spawn }                          from 'child_process';
+import { spawn, spawnSync }               from 'child_process';
 import { createRequire }                  from 'module';
 import { resolve, dirname, join }         from 'path';
 import { fileURLToPath }                  from 'url';
 import { existsSync, realpathSync,
          mkdirSync, copyFileSync }        from 'fs';
 import { getOctocodeHome, propagateOctocodeEnv } from '@octocodeai/config';
+
+/**
+ * `--allow-net` exists only on Node 25+ (Permission Model network scope).
+ * Prefer version gate; confirm via --help when version is ambiguous/custom builds.
+ */
+function nodeSupportsAllowNet() {
+  const [major] = process.versions.node.split('.').map(Number);
+  if (Number.isFinite(major) && major >= 25) return true;
+  if (Number.isFinite(major) && major < 25) return false;
+  const help = spawnSync(process.execPath, ['--help'], {
+    encoding: 'utf8',
+    timeout: 5000,
+  });
+  const text = `${help.stdout || ''}${help.stderr || ''}`;
+  return /--allow-net\b/.test(text);
+}
+
+function requireNode22() {
+  const [major] = process.versions.node.split('.').map(Number);
+  if (!Number.isFinite(major) || major < 22) {
+    console.error(`[CDP_SANDBOX] Node.js 22+ required (you have ${process.versions.node}).`);
+    process.exit(1);
+  }
+}
+requireNode22();
 
 const __dir  = dirname(fileURLToPath(import.meta.url));
 const RUNNER = resolve(__dir, 'cdp-runner.mjs');
@@ -107,9 +132,10 @@ const writePaths = [...new Set([
   SESSION_META_REAL,
 ])];
 
+const allowNet = nodeSupportsAllowNet();
 const permFlags = [
   '--permission',
-  '--allow-net',
+  ...(allowNet ? ['--allow-net'] : []),
   ...readPaths.map(p  => `--allow-fs-read=${p}`),
   ...writePaths.map(p => `--allow-fs-write=${p}`),
 ];
@@ -150,7 +176,11 @@ console.error(`[CDP_SANDBOX]  FS read:       .octocode output tree + runner`);
 console.error(`[CDP_SANDBOX]  child_process: blocked`);
 console.error(`[CDP_SANDBOX]  workers:       blocked`);
 console.error(`[CDP_SANDBOX]  env:           minimal allowlist (parent env not inherited)`);
-console.error(`[CDP_SANDBOX]  Network:       enabled for runner; generated script fetch+WebSocket patched to localhost only`);
+console.error(`[CDP_SANDBOX]  Node:           ${process.versions.node}`);
+console.error(`[CDP_SANDBOX]  Network:       CDP localhost only; --allow-net=${allowNet ? 'yes (Node 25+)' : 'skipped (Node <25)'}`);
+if (!allowNet) {
+  console.error('[CDP_SANDBOX]  Note: Node 22–24 grant net under --permission; Node 25+ requires --allow-net');
+}
 
 const child = spawn(process.execPath, [...permFlags, RUNNER_REAL, ...spawnArgv], {
   stdio: 'inherit',

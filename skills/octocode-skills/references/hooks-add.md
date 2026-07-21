@@ -6,7 +6,7 @@ Load when wiring a new lifecycle hook into a skill. Why: wrong host surface or m
 
 ```yaml
 hooks:
-  PreToolUse: [{ matcher: "Write|Edit", hooks: [{ type: command, command: "${CLAUDE_SKILL_DIR}/scripts/hooks/<name>.sh", timeout: 20 }] }]
+  PreToolUse: [{ matcher: "Write|Edit", hooks: [{ type: command, command: "${CLAUDE_SKILL_DIR}/scripts/hooks/example-hook.sh", timeout: 20 }] }]
 ```
 
 - `${CLAUDE_SKILL_DIR}` only (Claude Code v2.1.196+). No `$SKILL_DIR` / `${SKILL_DIR}` — those resolve to nothing.
@@ -24,7 +24,7 @@ Project hooks run from repo root. Cloud agents support a subset of events only.
 ## Steps
 
 1. Pick event + matcher from `hooks.md`.
-2. Copy `assets/hooks/example-hook.sh` → target `scripts/hooks/`; rename.
+2. Copy `assets/hooks/example-hook.sh` → target `scripts/hooks/example-hook.sh` (rename if needed).
 3. Copy `assets/hooks/example-hook-brain.mjs`; replace TODO; keep `--help` + stdin parse.
 4. Claude: add frontmatter with `${CLAUDE_SKILL_DIR}/…` + `timeout`. Cursor/Codex: native config or installer with `--dry-run` first.
 5. Document in `SKILL.md` body (host, event, what it does, how to verify) — review requires `hooks-handling`.

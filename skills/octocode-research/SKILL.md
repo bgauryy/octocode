@@ -1,6 +1,6 @@
 ---
 name: octocode-research
-description: "Use when a technical question or code change needs evidence before conclusions: locate behavior, explain systems, diagnose failures, review diffs, validate dependencies or prior art, prove dead code, plan refactors, or implement the smallest verified fix."
+description: "Use when a technical question or code change needs evidence before conclusions: find or locate behavior, explain systems, diagnose failures, review diffs, validate dependencies or prior art, prove dead code, plan refactors, or ship the smallest verified fix."
 ---
 
 # Octocode Research
@@ -24,11 +24,12 @@ Modes: investigate, review, change, refactor, prior-art validation, and evidence
 - When investigating or changing code, load `references/code-research.md`; for broader validation load `references/research-flow.md` — choose code semantics or general-source proof deliberately.
 - When planning progress or fan-out, load `references/researcher-mindset.md`; when evidence shifts, load `references/loop-mode.md` — budget checks and converge instead of searching indefinitely.
 - When mapping ecosystems, load `references/github-landscape.md`; when a decision is deep or contested, load `references/long-research.md` — rank prior art or produce a durable brief.
-- When command, MCP, or schema details matter, load `references/octocode.md` — use verified transport syntax; when improving this skill, load `references/improve-loop.md` — enforce an accept/revert gate.
+- When command, MCP, or schema details matter, load `references/octocode.md` — use verified transport syntax; when improving this skill, prefer `octocode-eval` (else `references/improve-loop.md`) — enforce an accept/revert gate.
 
 ## Related routes
 - Use `octocode-awareness` for shared-repo coordination, locks, verification, and durable lessons.
-- Keep RFCs, brainstorming, eval suites, and skill-authoring as ordinary Research/docs workflows — those are no longer separate shipped Octocode skills.
+- Use `octocode-brainstorming` when worth-building is unresolved; `octocode-eval` for goal→KPI / keep-discard; `octocode-rfc-generator` for design contracts; `octocode-skills` for skill-folder lifecycle.
+- Use `octocode-subagent` for bounded fan-out; `octocode-roast` for critique tone.
 
 ## Script and output
 - When changing this skill, run `scripts/eval-research.mjs` for the matching case — catch routing regressions.

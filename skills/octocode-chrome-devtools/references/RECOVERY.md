@@ -7,6 +7,8 @@
 | `Chrome not running on port` | Run `open-browser.mjs --headless` first |
 | Chrome already open, no CDP | Handled automatically — `open-browser.mjs` launches isolated CDP session |
 | `WebSocket unavailable` | Upgrade to Node.js 22+ (native WebSocket required, no install needed) |
+| `bad option: --allow-net` from sandbox | `--allow-net` is Node **25+** only. Sandbox gates on `process.versions.node` major ≥ 25 (skips on 22–24). Pull latest `cdp-sandbox.mjs` if you still see this. |
+| Cookie bridge / profile lock | Chrome already open with Default profile → use `--from-port` or `--from-storage-state`, or quit Chrome before `--from-profile`. |
 | `Script not found` | Use `.octocode/tmp/cdp-<task>.mjs`, never hardcode `/tmp/` |
 | `CDP timeout for <method>` | Domain not enabled — add the required `enable` call before using it |
 | `No page targets found` | Use `--new-tab about:blank` to open a fresh tab |
@@ -17,7 +19,7 @@
 | `[AUTH_TIMEOUT]` — user-auth script timed out | User did not authenticate within `TIMEOUT_MS`. Increase the timeout, verify `POST_AUTH_PATTERN` matches the actual post-login URL fragment, or set `AUTH_COOKIE_NAME` to the exact cookie the app sets on successful login. |
 | Events not firing | Page loaded before listeners attached — attach listeners first, then call `Page.navigate` inside `run()` |
 | `--new-tab <url>` misses network/script events | Tab loads before script connects — use `--new-tab about:blank` + `Page.navigate` inside `run()` |
-| JavaScript dialog blocking all commands | Add dialog guard before navigate: `cdp.on('Page.javascriptDialogOpening', () => cdp.send('Page.handleJavaScriptDialog', { accept: true }))` — see Dialog guard in `CDP_AGENT_REFERENCE.md` section 0 |
+| JavaScript dialog blocking all commands | Add dialog guard before navigate: `cdp.on('Page.javascriptDialogOpening', () => cdp.send('Page.handleJavaScriptDialog', { accept: true }))` — see Dialog guard in `cdp-agent.md` section 0 |
 | URL with `?` or `&` fails in zsh | Always quote the URL: `--url "http://..."` |
 | `Runtime.evaluate` hangs after `Debugger.enable` | Add `await cdp.send('Debugger.setSkipAllPauses', { skip: true })` immediately after `Debugger.enable` |
 | `Page.navigate` times out on ALL URLs | Chrome session is stale — run `open-browser.mjs --cleanup` then relaunch with `--headless` |

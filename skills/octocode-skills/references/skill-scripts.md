@@ -17,7 +17,7 @@ Use one-off shell only when an existing tool already does the job; pin versions 
 - Idempotent or safe to retry; reject ambiguous input.
 - `--dry-run` for destructive/stateful ops.
 - Meaningful exit codes; bounded or paginated output.
-- Reference from `SKILL.md` as `scripts/<name>` with when/why.
+- Reference from `SKILL.md` as `scripts/skill-review.mjs` (or the real script name) with when/why.
 
 ## When to extract
 

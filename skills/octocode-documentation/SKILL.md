@@ -1,6 +1,6 @@
 ---
 name: octocode-documentation
-description: Use when writing or updating docs, README, API docs, runbooks, AGENTS.md, CLAUDE.md, ADRs, Diátaxis restructuring, or codebase docs for humans or coding agents. Do not use for pure code research without a docs deliverable, or for authoring Agent Skills (SKILL.md).
+description: "Use when writing or updating docs: README, API docs, runbooks, AGENTS.md, CLAUDE.md, ADRs, Diátaxis restructuring, or codebase documentation for humans or coding agents."
 ---
 
 # Octocode Documentation
@@ -41,8 +41,9 @@ Load only what the step needs:
 
 ## Related
 
-- Full multi-file pack → `octocode-documentation-writer` if installed.
+- Pure code/repo evidence with no docs deliverable → `octocode-research`.
 - Authoring a `SKILL.md` → `octocode-skills`.
+- Full multi-file pack → `octocode-documentation-writer` if installed.
 - Unclear mode → ask once: agent-docs / human-docs / adr / codebase-pack.
 - Conflicting conventions → surface; do not add a second scheme.
 - Missing command → omit or mark unverified. No Octocode → host search tools.

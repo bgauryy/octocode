@@ -26,7 +26,7 @@ Confirm the target host executes the surface before relying on it.
 
 ## Script contract
 
-Thin `scripts/hooks/<name>.sh` → exec brain under `scripts/`. Stdin JSON; exit 0 allow, 2 block (pre/stop only); fail open on bugs. Always set `timeout`. Fast pre-tool; best-effort post; stop = reminder not undo.
+Thin wrapper at `scripts/hooks/example-hook.sh` → exec brain under `scripts/`. Stdin JSON; exit 0 allow, 2 block (pre/stop only); fail open on bugs. Always set `timeout`. Fast pre-tool; best-effort post; stop = reminder not undo. Rename the example when adding a real hook.
 
 ## Review before install
 

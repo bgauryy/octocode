@@ -9,7 +9,7 @@ Load when interpreting or fixing review findings — after running `scripts/skil
 | `frontmatter` | `---` with non-empty `name` + `description` |
 | `missing-readme` | `README.md` present |
 | `missing-reference` | every mentioned `references/*.md` exists (fenced + `references*.md` exempt) |
-| `missing-script` | every mentioned `scripts/<file>` exists |
+| `missing-script` | every mentioned `scripts/*.mjs` / `scripts/*.sh` path exists |
 | `missing-scheme-script` | Protocol/scheme declared → script exposes it |
 | `link-outside-skill` | no `../`, `/`, `~/`, `file://` links — use GitHub URL |
 

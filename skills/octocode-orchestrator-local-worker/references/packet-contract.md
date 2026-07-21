@@ -118,6 +118,7 @@ ACCEPTANCE:
 - Asking the worker to “fix” or “run tests”
 - Asking the worker to open/fetch URLs
 - Accepting free-form prose when JSON was required
-- Packets larger than the local context window — shard instead
+- Packets larger than the local context window — shard instead (or raise `num_ctx`)
 - Skipping local for every small task when a warm model is ready and the user wants local
 - Integrating article summaries without quote substring checks
+- Structured jobs without `--format-json` + schema text (+ prefer `--temperature 0.2`)

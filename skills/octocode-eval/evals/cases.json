@@ -1,0 +1,240 @@
+{
+  "schemaVersion": 1,
+  "description": "Machine-checkable smoke evals for octocode-eval answers. Deterministic floor only; human review still judges evidence quality.",
+  "rubric": [
+    "Links every KPI to a parent goal (cascade).",
+    "Declares measurable primary with baseline/target and decision rule.",
+    "Keeps the eval harness frozen; never edits cases to pass.",
+    "Uses keep/discard or ACCEPT/REVERT with checks run.",
+    "Mentions held-out or guardrails when accepting a change.",
+    "Chooses graders thoughtfully; knows public vs private benches.",
+    "Picks the right nested loop; grows suites from error analysis."
+  ],
+  "cases": [
+    {
+      "id": "define-kpi",
+      "mode": "Define",
+      "prompt": "Define a KPI contract before changing a skill description.",
+      "minScore": 0.85,
+      "required": [
+        { "name": "mode define", "pattern": "\\bMode:\\s*Define\\b|\\bDefine\\b[\\s\\S]{0,40}\\bKPI\\b" },
+        { "name": "goal", "pattern": "\\bGoal:" },
+        { "name": "primary KPI", "pattern": "\\bPrimary KPI\\b|\\bprimary\\b[\\s\\S]{0,80}\\b(baseline|target)\\b" },
+        { "name": "baseline and target", "pattern": "\\bbaseline\\b[\\s\\S]{0,80}\\btarget\\b" },
+        { "name": "guardrails", "pattern": "\\bGuardrails?:" },
+        { "name": "held-out", "pattern": "\\bHeld-out\\b|\\bheld-out\\b" }
+      ],
+      "binaryQuestions": [
+        {
+          "id": "measurable-primary",
+          "dimension": "kpi",
+          "question": "Is the primary KPI measurable with baseline and target?",
+          "passPattern": "\\b(baseline|target)\\b[\\s\\S]{0,120}\\b(baseline|target)\\b",
+          "failureSignature": "mechanism:eval-kpi|cause:unmeasurable-primary",
+          "suggestedLesson": "Write baseline and target numbers before mutating the subject."
+        }
+      ],
+      "forbidden": [
+        { "name": "feels better KPI", "pattern": "\\bKPI\\b[\\s\\S]{0,40}\\bfeels better\\b" }
+      ]
+    },
+    {
+      "id": "link-goal-kpi",
+      "mode": "Define",
+      "prompt": "Cascade a user goal into leading and lagging KPIs with a decision rule.",
+      "minScore": 0.85,
+      "required": [
+        { "name": "goal", "pattern": "\\bGoal:" },
+        { "name": "lagging or primary", "pattern": "\\blagging\\b|\\bPrimary KPI\\b|\\bprimary\\b" },
+        { "name": "leading", "pattern": "\\b[Ll]eading\\b" },
+        { "name": "guardrails", "pattern": "\\bGuardrails?:" },
+        { "name": "decision rule", "pattern": "\\bDecision\\b|\\bACCEPT if\\b" }
+      ],
+      "binaryQuestions": [
+        {
+          "id": "kpi-serves-goal",
+          "dimension": "cascade",
+          "question": "Does the answer tie the primary KPI back to the goal?",
+          "passPattern": "\\bserves? (the )?goal\\b|\\bparent goal\\b|\\bGoal:[\\s\\S]{0,400}\\b(Primary|primary|lagging)",
+          "failureSignature": "mechanism:eval-kpi|cause:orphan-metric",
+          "suggestedLesson": "Every KPI must name the parent goal it serves."
+        }
+      ],
+      "forbidden": [
+        { "name": "orphan vanity metric", "pattern": "\\boptimize tokens\\b[\\s\\S]{0,80}\\bwithout\\b[\\s\\S]{0,40}\\bgoal\\b" }
+      ]
+    },
+    {
+      "id": "run-keep-discard",
+      "mode": "Run",
+      "prompt": "Run a keep/discard improvement loop and report.",
+      "minScore": 0.85,
+      "required": [
+        { "name": "goal section", "pattern": "#{1,3}\\s*Goal\\b|\\bGoal:" },
+        { "name": "KPI with baseline result", "pattern": "\\bprimary\\b[\\s\\S]{0,160}\\bbaseline\\b[\\s\\S]{0,160}\\bresult\\b" },
+        { "name": "checks run", "pattern": "#{1,3}\\s*Checks run\\b|\\bChecks run\\b" },
+        { "name": "harness frozen", "pattern": "\\bHarness unchanged\\b|\\bharness\\b[\\s\\S]{0,40}\\bunchanged\\b" },
+        { "name": "verdict", "pattern": "\\bVerdict\\b[\\s\\S]{0,40}\\b(ACCEPT|REVERT|CONTINUE)\\b" }
+      ],
+      "binaryQuestions": [
+        {
+          "id": "keep-or-discard",
+          "dimension": "loop",
+          "question": "Does the report end in ACCEPT, REVERT, or CONTINUE with measured result?",
+          "passPattern": "\\b(ACCEPT|REVERT|CONTINUE)\\b[\\s\\S]{0,200}\\b(result|baseline|score|exit)\\b|\\b(result|baseline|score|exit)\\b[\\s\\S]{0,200}\\b(ACCEPT|REVERT|CONTINUE)\\b",
+          "failureSignature": "mechanism:eval-loop|cause:no-keep-discard",
+          "suggestedLesson": "Close every loop with measured result and ACCEPT/REVERT/CONTINUE."
+        }
+      ],
+      "forbidden": [
+        { "name": "edit cases to pass", "pattern": "\\bedited (the )?(eval|cases|grader).*pass\\b" }
+      ]
+    },
+    {
+      "id": "nested-loops-pick",
+      "mode": "Run",
+      "prompt": "Primary metric is flat after many keep/discard trials. Which loop next?",
+      "minScore": 0.8,
+      "required": [
+        { "name": "names experiment loop", "pattern": "\\bexperiment\\b" },
+        { "name": "names suite or meta", "pattern": "\\bsuite\\b|\\bmeta\\b|\\bharness\\b" },
+        { "name": "escalate", "pattern": "\\bescalat|\\bsuite loop\\b|\\berror analys|\\bfailure (mode|taxonom)" }
+      ],
+      "binaryQuestions": [
+        {
+          "id": "no-harness-cheat",
+          "dimension": "loop",
+          "question": "Does the answer refuse to edit graders just to pass the flat experiment?",
+          "passPattern": "\\bnot (edit|change) (the )?(grader|cases|harness).*pass\\b|\\bfrozen harness\\b|\\bnever.*greenwash\\b|\\bdo not edit.*grader",
+          "failureSignature": "mechanism:eval-loop|cause:escalate-by-cheating",
+          "suggestedLesson": "When flat, escalate to suite/meta — never edit graders to pass."
+        }
+      ],
+      "forbidden": [
+        { "name": "edit graders to pass", "pattern": "\\bedit( the)? (grader|cases) to (make it )?pass\\b" }
+      ]
+    },
+    {
+      "id": "choose-graders",
+      "mode": "Suite",
+      "prompt": "Choose graders for an agent coding task.",
+      "minScore": 0.8,
+      "required": [
+        { "name": "deterministic first", "pattern": "\\bdeterministic\\b" },
+        { "name": "capability or regression", "pattern": "\\bcapability\\b|\\bregression\\b" },
+        { "name": "outcome over path", "pattern": "\\boutcome\\b|\\bpath\\b|\\btool-call\\b" },
+        { "name": "fail-to-pass or pass-to-pass", "pattern": "\\bfail-to-pass\\b|\\bpass-to-pass\\b" }
+      ],
+      "binaryQuestions": [
+        {
+          "id": "mentions-binary-or-llm",
+          "dimension": "graders",
+          "question": "Does the plan mention binary questions or LLM rubric as secondary layers?",
+          "passPattern": "\\bbinary\\b|\\bBinEval\\b|\\bLLM\\b|\\brubric\\b",
+          "failureSignature": "mechanism:eval-graders|cause:no-secondary-layer",
+          "suggestedLesson": "Stack deterministic floors with binary/LLM layers when nuance is needed."
+        }
+      ],
+      "forbidden": [
+        { "name": "path-only grading", "pattern": "\\bmust follow exact tool order\\b|\\bonly grade the path\\b" }
+      ]
+    },
+    {
+      "id": "pick-benchmark",
+      "mode": "Benchmark",
+      "prompt": "Should we gate a ship on SWE-bench Verified alone?",
+      "minScore": 0.85,
+      "required": [
+        { "name": "private suite", "pattern": "\\bprivate (suite|eval|cases)\\b|\\bown failures\\b|\\breal failures\\b" },
+        { "name": "contamination or saturation", "pattern": "\\bcontaminat|\\bsaturat|\\bleakage\\b|\\bbenchmaxx" },
+        { "name": "orientation not sole gate", "pattern": "\\borient|\\bnot (a |the )?sole\\b|\\bweak\\b|\\bnot.*ship gate\\b|\\bdo not gate\\b" }
+      ],
+      "binaryQuestions": [
+        {
+          "id": "prefers-private-gate",
+          "dimension": "benchmark",
+          "question": "Does the answer prefer a private failure-derived suite as the ship gate?",
+          "passPattern": "\\bprivate\\b[\\s\\S]{0,80}\\b(gate|ship|ACCEPT|primary)\\b|\\b(gate|ship|ACCEPT|primary)\\b[\\s\\S]{0,80}\\bprivate\\b",
+          "failureSignature": "mechanism:eval-bench|cause:public-only-gate",
+          "suggestedLesson": "Public benches orient; private failure suites gate ships."
+        }
+      ],
+      "forbidden": [
+        { "name": "sole public gate", "pattern": "\\bSWE-bench (Verified )?is (our |the )?(sole|only) (proof|gate|ship gate)\\b|\\bonly (need|use) SWE-bench\\b" }
+      ]
+    },
+    {
+      "id": "error-analyze",
+      "mode": "ErrorAnalyze",
+      "prompt": "Build an eval suite for a flaky research agent. Where do cases come from?",
+      "minScore": 0.85,
+      "required": [
+        { "name": "traces or dataset", "pattern": "\\btraces?\\b|\\bdataset\\b" },
+        { "name": "open or axial coding", "pattern": "\\bopen coding\\b|\\baxial\\b|\\bfailure taxonom" },
+        { "name": "failure modes", "pattern": "\\bfailure (mode|taxonom|signature)" }
+      ],
+      "binaryQuestions": [
+        {
+          "id": "not-generic-metrics",
+          "dimension": "error-analysis",
+          "question": "Does the answer avoid starting from generic vanity metrics?",
+          "passPattern": "\\bnot (start|begin) from generic\\b|\\breal (failures|traces)\\b|\\bfrequency\\b|\\btaxonom",
+          "failureSignature": "mechanism:eval-error-analysis|cause:generic-metrics-first",
+          "suggestedLesson": "Write evals from a failure taxonomy, not generic platform metrics."
+        }
+      ],
+      "forbidden": [
+        { "name": "generic only", "pattern": "\\bonly (use|need) (toxicity|helpfulness) scores\\b" }
+      ]
+    },
+    {
+      "id": "reject-vibe",
+      "mode": "Audit",
+      "prompt": "Audit a vibe-only improvement claim.",
+      "minScore": 0.85,
+      "required": [
+        { "name": "revert", "pattern": "\\bREVERT\\b" },
+        { "name": "calls out vibes or narrative", "pattern": "\\bvibes?\\b|\\bnarrative-only\\b|\\bfeels better\\b" },
+        { "name": "harness freeze", "pattern": "\\bharness\\b|\\bcases\\b" }
+      ],
+      "binaryQuestions": [
+        {
+          "id": "results-over-words",
+          "dimension": "discipline",
+          "question": "Does the audit insist results beat words?",
+          "passPattern": "\\bresults beat words\\b|\\bno baseline\\b|\\bnarrative-only\\b",
+          "failureSignature": "mechanism:eval-audit|cause:accepted-vibes",
+          "suggestedLesson": "Reject narrative-only accepts; demand baseline KPI and frozen harness."
+        }
+      ],
+      "forbidden": [
+        { "name": "accept vibes", "pattern": "\\bACCEPT\\b[\\s\\S]{0,60}\\bfeels better\\b" }
+      ]
+    },
+    {
+      "id": "tdd-red-green",
+      "mode": "Run",
+      "prompt": "Run a TDD-style eval loop: failing case before the subject change.",
+      "minScore": 0.85,
+      "required": [
+        { "name": "red or failing first", "pattern": "\\b[Rr]ed\\b|\\bfailing (case|check|test)\\b|\\bbaseline\\b" },
+        { "name": "green or remmeasure", "pattern": "\\b[Gg]reen\\b|\\bre-?measur|\\bsame (command|harness)\\b" },
+        { "name": "keep or discard", "pattern": "\\b(KEEP|DISCARD|ACCEPT|REVERT)\\b" },
+        { "name": "harness frozen", "pattern": "\\bharness\\b[\\s\\S]{0,40}\\bunchanged\\b|\\bfrozen harness\\b|\\bHarness unchanged\\b" }
+      ],
+      "binaryQuestions": [
+        {
+          "id": "fail-before-fix",
+          "dimension": "tdd",
+          "question": "Does the answer require a failing check before mutating the subject?",
+          "passPattern": "\\bbefore (mutating|changing|the (subject|patch))\\b|\\bfailing (case|check).{0,40}before\\b|\\b[Rr]ed\\b[\\s\\S]{0,80}\\b[Gg]reen\\b",
+          "failureSignature": "mechanism:eval-tdd|cause:fix-before-fail",
+          "suggestedLesson": "Write or select the failing case/KPI before editing the subject."
+        }
+      ],
+      "forbidden": [
+        { "name": "edit grader to pass", "pattern": "\\bedit(ed|ing)? (the )?(grader|cases) to pass\\b" }
+      ]
+    }
+  ]
+}

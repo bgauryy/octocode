@@ -1,6 +1,6 @@
 ---
 name: octocode-skills
-description: "Use when any Agent Skill lifecycle work is needed: discover, compare, inspect, review, create, improve, repair, install, or synchronize a SKILL.md folder from local workspaces, registries, or remote sources."
+description: "Use when working on Agent Skills (SKILL.md folders): discover, compare, inspect, review, create, improve, repair, install, sync, or rate skills from local workspaces, registries, or remote sources."
 ---
 
 # Octocode Skills

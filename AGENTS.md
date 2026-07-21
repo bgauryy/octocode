@@ -13,6 +13,8 @@ This monorepo is the platform. Use what we ship — do not reinvent with host de
 | npm lookup | `npmSearch` | ad-hoc registry curls |
 | Unified research / OQL | CLI `search` (and `oqlSearch` when `ENABLE_OQL`) | hand-rolled multi-tool scripts |
 | Research / review / change flows | `octocode-research` skill | inventing search loops |
+| Measure “did this help?” / keep-discard | `octocode-eval` skill | vibe acceptance / editing graders to pass |
+| Offload low-risk bulk to local Ollama | `octocode-orchestrator-local-worker` skill | cloud-only token burn / inventing Ollama loops |
 | After a package change | rebuild → real CLI / MCP / skill path | claim done from compile alone |
 
 If dogfooding hurts, fix or record it — do not silently bypass.
@@ -152,7 +154,7 @@ yarn prepublish                       # runs prepublish + shared final guard + r
 | Engine | [`LSP_SERVER_LIFECYCLE.md`](packages/octocode-engine/docs/LSP_SERVER_LIFECYCLE.md) |
 | Benchmarks | [`BENCHMARKS.md`](packages/octocode-benchmark/docs/BENCHMARKS.md) |
 | Context | [`docs/context/`](docs/context/) — [SEARCH_GUIDE](docs/context/SEARCH_GUIDE.md) · [OQL_RESEARCH_GRAPH_FLOW](docs/context/OQL_RESEARCH_GRAPH_FLOW.md) · [LSP_GUIDE](docs/context/LSP_GUIDE.md) · [AGENT_RESEARCH_WORKFLOWS](docs/context/AGENT_RESEARCH_WORKFLOWS.md) · [RUST_BEST_PRACTICES](docs/context/RUST_BEST_PRACTICES.md) |
-| Skills (repo) | [`skills/`](skills/) — 1 skill, a folder with `SKILL.md`: research |
+| Skills (repo) | [`skills/`](skills/) — linked into [`.agents/skills/`](.agents/skills/); all `octocode-*` skills dogfood from here |
 
 ## Config / env — single source
 

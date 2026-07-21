@@ -21,6 +21,7 @@ Env (common):
 |---|---|
 | `OLLAMA_HOST` | Server address (default `127.0.0.1:11434`) |
 | `OLLAMA_WORKER_MODEL` | Exact model name this skill selected (skill-specific) |
+| `OLLAMA_WORKER_KEEPALIVE` | Default keepalive for `ollama-worker.sh` (default `5m`) |
 
 ## Lifecycle
 
@@ -63,16 +64,17 @@ Useful flags:
 
 | Flag | When |
 |---|---|
-| `--format json` | Extract/classify jobs that require JSON |
+| `--format json` | Extract/classify jobs that require JSON (**also** instruct JSON in the prompt) |
 | `--verbose` | Timing / debug slow runs |
-| `--keepalive 5m` | Keep model loaded across shards |
-| `--think=false` | **Default for Gemma 4 bulk shards** — must be one argv (`--think=false`), not `--think false` |
+| `--keepalive 5m` | **Required for map-reduce** — keep model loaded across shards (`0` unloads) |
+| `--think=false` | **Default for bulk shards** — must be one argv (`--think=false`), not `--think false` |
 | `--think=true` | Enable thinking when the packet needs deeper reasoning |
 | `--hidethinking` | Hide thinking spans if the model emits them |
-| `--keepalive 5m` | Keep model loaded across map-reduce shards |
 | `--nowordwrap` | Cleaner capture for scripts |
 
-Gemma 4 library sampling defaults (Modelfile/API): `temperature=1.0`, `top_p=0.95`, `top_k=64` — already present on local `gemma4:*` via `ollama show --parameters`.
+`ollama run` does **not** expose `temperature` / `num_ctx` as flags — use `scripts/ollama-worker.sh --temperature` / `--num-ctx` (HTTP `/api/generate`) or a Modelfile.
+
+Gemma 4 library sampling defaults (Modelfile/API): `temperature=1.0`, `top_p=0.95`, `top_k=64` — already present on local `gemma4:*` via `ollama show --parameters`. For JSON extract/classify, override with `--temperature 0.2`.
 
 ### Non-interactive patterns (preferred for agents)
 
@@ -127,6 +129,8 @@ export OLLAMA_WORKER_MODEL='<exact-tag-from-ollama-list>'
 |---|---|
 | `ollama list` then pick | Hardcode `llama3.2` without checking |
 | Exact tagged names | Prefix-match (`llama3.2` ≠ `llama3.2-vision`) |
-| `--format json` for schemas | Ask embed models to summarize |
-| One model per map-reduce job | Swap models mid-shard set without reason |
+| `--format json` + schema text for structured jobs | Ask embed models to summarize |
+| `--keepalive` on every shard invoke | Rely on accidental warm loads |
+| Size shards to `num_ctx` (+ headroom) | Stuff a huge page into default ctx and hope |
+| One model per map-reduce job | Swap 7B↔32B mid-shard set (VRAM thrash) |
 | Ask before `pull` / `rm` | Download multi-GB models silently |

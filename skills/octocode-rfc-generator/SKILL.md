@@ -1,6 +1,6 @@
 ---
 name: octocode-rfc-generator
-description: "Use when a consequential change needs a decision before implementation: create or improve an RFC, design document, architecture proposal, migration strategy, option comparison, rollout plan, or measurable implementation contract."
+description: "Use when a consequential change needs a decision before coding: write or improve an RFC, design doc, architecture proposal, migration plan, option comparison, rollout plan, or measurable implementation contract."
 ---
 
 # Octocode RFC Generator

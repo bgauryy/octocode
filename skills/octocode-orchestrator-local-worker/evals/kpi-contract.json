@@ -1,16 +1,17 @@
 {
-  "goal": "Agents offload low-risk work including small one-shots (summarize/translate/vision/code) via a 5-step portable flow, with verifiable worker output.",
+  "goal": "Agents offload low-risk work including small one-shots (summarize/translate/vision/code) via a 5-step portable flow, with verifiable worker output and sound Ollama serving knobs (keepalive, ctx, structured temp).",
   "primaryKpi": {
     "name": "suite_pass_rate",
     "direction": "higher-better",
     "baseline": 1.0,
     "target": 0.85,
-    "servesGoal": "Small-task + translate surfaces without regressing safety"
+    "servesGoal": "Small-task + translate + serving-knob surfaces without regressing safety"
   },
   "leading": [
     { "name": "flow_static_pass_rate", "target": 1.0 },
     { "name": "script_gate_pass_rate", "target": 1.0 },
-    { "name": "live_worker_hard_pass_rate", "target": 0.8 }
+    { "name": "live_worker_hard_pass_rate", "target": 0.8 },
+    { "name": "serving_knob_gate_pass_rate", "target": 1.0 }
   ],
   "guardrails": [
     { "name": "embed_never_selected", "rule": "nomic-embed rejected / never preferred" },
@@ -18,7 +19,9 @@
     { "name": "think_flag_safe", "rule": "--think=false must not be parsed as model name; equals form accepted" },
     { "name": "image_gen_blocked", "rule": "skill forbids image generation" },
     { "name": "tool_loop_blocked", "rule": "skill forbids local tool-agent loops" },
-    { "name": "not_setup_locked", "rule": "no hard-coded gemma/qwen defaults as requirements" }
+    { "name": "not_setup_locked", "rule": "no hard-coded gemma/qwen defaults as requirements" },
+    { "name": "keepalive_default_wired", "rule": "worker defaults --keepalive 5m; dry-run reports it" },
+    { "name": "http_temp_num_ctx", "rule": "--temperature/--num-ctx force HTTP generate path" }
   ],
   "budget": "static+script always; live ≤25 calls if Ollama up; skip qwen2.5:32b",
   "heldOutIds": ["heldout-extract-paths", "heldout-gemma-json", "heldout-summarize-api", "heldout-checks-gemma", "heldout-article-llm"],

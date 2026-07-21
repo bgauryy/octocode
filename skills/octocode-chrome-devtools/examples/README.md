@@ -50,9 +50,21 @@ node skills/octocode-chrome-devtools/examples/har-pager.mjs live-network.har --f
 
 # compact JSON for agents
 node skills/octocode-chrome-devtools/examples/har-pager.mjs live-network.har --format json --page-size 10
+
+# redact before sharing
+node skills/octocode-chrome-devtools/examples/har-redact.mjs live-network.har --strip-bodies
 ```
 
 The pager returns small pages of metadata and points back to the HAR for full evidence.
+
+## 2b. Cookie bridge (opt-in, never prints values)
+
+```bash
+node skills/octocode-chrome-devtools/scripts/cookie-bridge.mjs --i-understand-secrets \
+  --from-port 9333 --to-port 9222 --urls "https://example.com"
+```
+
+Prefer `--from-storage-state` or `--from-port` over `--from-profile` when Chrome is already open.
 
 ## 3. Check and operate on DOM elements
 

@@ -1,6 +1,6 @@
 ---
 name: octocode-brainstorming
-description: "Use when an idea needs disciplined exploration before commitment: generate options, test whether something is worth building, map existing solutions and adjacent patterns, challenge assumptions, narrow scope, or choose Build RFC, Prototype, Narrow, or Park — even without saying 'brainstorm'. Prefer octocode-research for pure code/repo evidence-gathering and octocode-rfc-generator once the decision is already made."
+description: "Use when an idea needs disciplined exploration before building: generate options, test worth-building, map adjacent solutions, challenge assumptions, narrow scope, or choose Build RFC / Prototype / Narrow / Park — even without saying brainstorm."
 ---
 
 # Octocode Brainstorming

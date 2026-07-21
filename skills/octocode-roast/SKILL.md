@@ -1,6 +1,6 @@
 ---
 name: octocode-roast
-description: "Use when code needs blunt but constructive, evidence-backed critique: expose correctness, security, performance, design, testing, and maintainability smells; rank cleanup debt; review a diff or hot path; and offer practical redemption paths."
+description: "Use when code needs a blunt evidence-backed critique or roast: correctness, security, performance, design, testing, and maintainability smells; rank cleanup debt; review a diff or hot path; offer practical redemption paths."
 ---
 
 # Octocode Roast

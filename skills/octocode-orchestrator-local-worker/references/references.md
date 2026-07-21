@@ -54,6 +54,7 @@ Sources consulted to research, create, and validate this skill.
 | live ollama CLI | `ollama list` / `show` / `ps` | Exact-match routing; warm-model preference |
 | usage-matrix | `references/usage-matrix.md` | Surface when/how |
 | article dogfood | `evals/fixtures/article-*.txt`, `.octocode/worker/dogfood*` | Fetch≠worker; quote substring verify; cascade on partial grounding |
+| serving knobs (2026-07-21) | Ollama API `keep_alive` / `format` / `options.num_ctx` + Thinking blog | Default `--keepalive 5m`; `--temperature`/`--num-ctx` via HTTP; silent truncation risk |
 | validation research (2026-07-20) | `.octocode/worker/validate-research/` | Re-checked code+articles; Thinking blog grounded_rate 3/3; kodama provenance corrected |
 | Wikipedia LLM | https://en.wikipedia.org/wiki/Large_language_model | Held-out article body for grounded summarize |
 | web-summarizer-ai | vishruth-tech/web-summarizer-ai | Map-reduce oversized webpage lead (inspect before citing runtime) |

@@ -57,8 +57,10 @@ ollama run --think=false "$MODEL" < packet.txt
 Often strong at instruction following, structured/JSON extract, and classify. Context and tags vary by generation (`qwen2.5` ~32K; newer Qwen3.x often longer — trust `ollama show`).
 
 ```bash
-# example only
-./scripts/ollama-worker.sh --model "$OLLAMA_WORKER_MODEL" --format-json --job extract --input shard.txt
+# example only — low temp for JSON fidelity
+./scripts/ollama-worker.sh --model "$OLLAMA_WORKER_MODEL" \
+  --format-json --temperature 0.2 --keepalive 5m \
+  --job extract --input shard.txt
 ```
 
 ## Other families

@@ -2,16 +2,31 @@
 
 Use this skill when you want an agent to investigate a website or web app through a real Chrome session.
 
-It is built for browser evidence: network calls, console errors, DOM state, storage, workers, screenshots, authenticated pages, and repeated monitoring.
+## Features
+- CDP forensics: network, console, performance, DOM/CSS, storage, workers, screenshots
+- Sandboxed script runner with session reuse across checks
+- HAR capture, paging, and redaction before share
+- Opt-in cookie bridge from profile/CDP/storageState into isolated sessions
+- Live-page attach for manual auth, MFA, and interactive debugging
 
-Use it when normal browser automation cannot explain what Chrome actually saw.
+## How It Works
+1. `open-browser.mjs` starts or reuses Chrome on a CDP port.
+2. Agent picks one intent and writes a focused `run(cdp)` script.
+3. `cdp-sandbox.mjs` runs it under Node permissions; artifacts land under `.octocode/chrome-devtools/`.
+4. Agent parses prefixed evidence (`[FINDING]`, `[NETWORK_ERROR]`, …) and iterates on the same port.
+
+## Installation
+```bash
+npx octocode skill --name octocode-chrome-devtools
+# or: npx octocode skill --add --path ./skills/octocode-chrome-devtools --platform cursor
+```
 
 ## Prerequisites
 
 For normal chat usage, you usually only need:
 
 - Chrome installed locally
-- Node.js available for the bundled launcher/runner scripts
+- Node.js 22+ for the bundled launcher/runner scripts
 - a URL, local app route, or already-open browser page to inspect
 
 Optional setup:
@@ -432,7 +447,7 @@ In practice, this means users get signal faster, rerun less, and keep context wh
 
 Intent router:
 
-- `references/INTENTS.md`
+- `references/intents.md`
 
 | Intent | What You Get |
 |---|---|
@@ -494,7 +509,7 @@ Example:
 Also see:
 
 - `scripts/octocode-chrome-devtools.vpn.example.json`
-- `references/CHROME_FLAGS.md`
+- `references/chrome-flags.md`
 
 ## Troubleshooting
 
@@ -502,7 +517,7 @@ If a run fails or is flaky:
 
 1. Ask the agent to inspect retry guidance from `[CDP_RETRY_NEEDED]`.
 2. Ask it to re-list and re-target browser tabs.
-3. If it is still failing, direct it to `references/RECOVERY.md`.
+3. If it is still failing, direct it to `references/recovery.md`.
 
 ## Script Inventory
 
@@ -550,14 +565,14 @@ Important files:
 
 ## Reference Files
 
-- `references/INTENTS.md`
-- `references/INTENTS_DEBUG.md`
-- `references/INTENTS_AUTOMATION.md`
-- `references/INTENTS_AUTH.md`
-- `references/INTENTS_ENVIRONMENT.md`
-- `references/INTENTS_INSPECT.md`
-- `references/INTENTS_STORAGE_CONSENT.md`
-- `references/CHROME_FLAGS.md`
-- `references/RECOVERY.md`
-- `references/HAR_PLAYWRIGHT_DATA.md`
+- `references/intents.md`
+- `references/intents-debug.md`
+- `references/intents-automation.md`
+- `references/intents-auth.md`
+- `references/intents-environment.md`
+- `references/intents-inspect.md`
+- `references/intents-storage.md`
+- `references/chrome-flags.md`
+- `references/recovery.md`
+- `references/har-playwright.md`
 - `examples/README.md`

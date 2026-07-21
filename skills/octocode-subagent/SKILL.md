@@ -1,6 +1,6 @@
 ---
 name: octocode-subagent
-description: "Use when a task may benefit from delegation or parallelism: decide whether to spawn, decompose work into bounded objectives, choose worker topology and model capability, create self-contained handoffs, coordinate shared state, recover failures, and synthesize trustworthy results."
+description: "Use when spawning workers, parallel agents, Task/subagents, specialist handoffs, or A2A peers: gate spawn vs solo, decompose into bounded objectives, pick topology and model tier, write sealed packets, coordinate shared state, recover failures, and synthesize trustworthy results."
 ---
 
 # Octocode Subagent
@@ -30,4 +30,5 @@ Stop when solo work finishes, two High options need a winner, three angles add n
 
 ## Related routes
 - Use `octocode-research` for worker evidence; `octocode-awareness` for shared-repo coordination; `octocode-eval` to judge worker quality.
+- Local Ollama one-shots / save-tokens → `octocode-orchestrator-local-worker` (not this skill).
 - Use `octocode-rfc-generator` before changing a multi-agent architecture; `octocode-prompt-optimizer` for packet contracts; `octocode-skills` when changing this folder.

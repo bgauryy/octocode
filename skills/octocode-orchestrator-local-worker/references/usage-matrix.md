@@ -54,4 +54,7 @@ Same surfaces, smaller packets. Prefer **warm** installed models. User-facing tr
 - Using embedding models as chat summarizers
 - Thinking **on** for bulk article shards (`--think=false` by default)
 - Silent-accepting failed JSON / ungrounded quotes without cascade or solo redo
+- Omitting `--keepalive` on map-reduce (cold reload each shard)
+- Oversized shards vs `num_ctx` (silent truncation — no Ollama error)
+- High temperature on extract/classify (prefer `0.1–0.3` via `--temperature`)
 - Confusing this skill with Ollama **setup** skills or full local **agent** bridges (tools/browser)
