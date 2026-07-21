@@ -1,0 +1,7 @@
+interface:
+  display_name: "Chrome DevTools"
+  short_description: "Debug webpages with Chrome CDP"
+  default_prompt: "Use $octocode-chrome-devtools to inspect a webpage with Chrome DevTools signals."
+
+policy:
+  allow_implicit_invocation: true
