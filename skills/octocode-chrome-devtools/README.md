@@ -27,7 +27,7 @@ Ask naturally. Include the URL, the behavior you expect, and the signal you care
 Good prompts:
 
 - "Open this page and debug why submit fails."
-- "Watch network calls when I click checkout."
+- "Watch network calls when I perform this action."
 - "Open a visible browser, I'll log in, then inspect API errors."
 - "Detect whether this page is blocking bots or showing a CAPTCHA."
 - "Run the auth flow, pause for MFA/CAPTCHA if needed, then inspect the app."
@@ -82,6 +82,7 @@ Use this skill when you need browser evidence, not guesses:
 Use a different tool when:
 
 - you need production-grade E2E tests, assertions, retries, and cross-browser coverage: use Playwright
+- you need deterministic request replay in CI: Playwright `recordHar` / `routeFromHAR` is usually better
 - you only need simple click/fill/navigation from accessibility snapshots: Chrome DevTools MCP or Playwright MCP may be faster
 - you need managed scraping infrastructure, proxies, CAPTCHA services, or hosted browsers: use a dedicated browser automation service
 - you want a reusable app test suite rather than one-off browser forensics: write tests instead of ad-hoc CDP scripts
@@ -92,7 +93,7 @@ Use a different tool when:
 
 Prompt:
 
-- "Debug why this flow fails after clicking Pay."
+- "Debug why this flow fails after the main action."
 
 Expected output:
 
@@ -142,6 +143,19 @@ Expected output:
 
 - browser launched with the configured proxy route
 - normal intent execution on top
+
+### HAR And Curl Replay
+
+Prompt:
+
+- "Watch this site while I use it, save the network evidence, then show me the API I can curl."
+
+Expected output:
+
+- `[ARTIFACT]` paths for HAR/NDJSON/summary files
+- paged HAR findings instead of a full HAR dump
+- a safe curl/API reproduction when the endpoint is public or approved
+- header names and request shape, never secret values
 
 ## OOTB Flows
 
@@ -279,6 +293,8 @@ Use these as default bundles when a prompt names an outcome instead of CDP inter
 | Authenticated bug | `user-auth` + `debug` or `network` | Visible Chrome, `--keep-tab`, no reload after login unless requested | Post-login console/network/storage metadata with secret values redacted |
 | Data extraction from a live app | `user-auth` + `scrape` or `scrape` + `emulate` | Visible for manual login, headless for public pages | `[SCRAPE]` rows, selector/resource notes, `[REASON]` decisions |
 | Performance regression | `performance`, optionally `automate` or `emulate` | New tab; attach metrics before navigation/action | `[PERFORMANCE]`, long tasks, timing metrics, slow requests |
+| Live network capture / HAR export | `network`, `monitor`, optionally `performance` | Visible `--keep-tab` for user-driven work | `[ARTIFACT]` HAR/NDJSON paths, failed/slow request pages |
+| API/curl mimic from a website | `network` then external API/curl | Start in browser only to discover the endpoint | request shape, documented API URL, safe non-secret headers |
 | Memory leak suspicion | `memory` | Headless or visible, narrow action loop | Heap metrics, detached-node signals, repeated measurements |
 | Layout, DOM, or accessibility issue | `dom`, `accessibility`, optionally `screenshot` | Reuse current tab for live state, new tab for load evidence | `[DOM]`, accessibility tree findings, `[SCREENSHOT]` path |
 | Storage, cookie, or consent audit | `storage`, `consent`, optionally `security` | Headless isolated unless real session is explicitly approved | Cookie/storage key names, quota/cache metadata, pre-consent tracker findings |
@@ -315,9 +331,9 @@ Expected path:
 
 Example output:
 
-- `[NETWORK_ERROR] POST /api/checkout returned 500`
-- `[SOURCE_TRACE] Local handler candidate: packages/app/src/routes/checkout.ts`
-- `[FINDING] The browser failure maps to the checkout submit handler, not the payment iframe.`
+- `[NETWORK_ERROR] POST /api/action returned 500`
+- `[SOURCE_TRACE] Local handler candidate: packages/app/src/routes/action.ts`
+- `[FINDING] The browser failure maps to the action handler, not the button click.`
 
 ### External Code Flow
 
@@ -332,8 +348,8 @@ Expected path:
 
 Example output:
 
-- `[EXCEPTION] TypeError thrown from vendor checkout SDK`
-- `[SOURCE_TRACE] External package candidate: @vendor/checkout-widget`
+- `[EXCEPTION] TypeError thrown from a third-party SDK`
+- `[SOURCE_TRACE] External package candidate: @vendor/browser-sdk`
 - `[FINDING] Local code passes an unsupported option; the external SDK rejects it during initialization.`
 
 ### Combined Browser + Code Loop
@@ -353,13 +369,13 @@ Reports should be short, evidence-first, and prefixed so you can scan them quick
 Example:
 
 ```text
-[ACTION] Clicked "Pay" after attaching Network and Runtime listeners.
-[NETWORK_ERROR] POST /api/checkout returned 500 in 184ms.
-[EXCEPTION] TypeError: Cannot read properties of undefined (reading 'total')
-[EXCEPTION_LOCATION] app.checkout.bundle.js:2:91822
-[SOURCEMAP] Candidate source: src/checkout/submitOrder.ts:87
-[FINDING] The failure is in the submit handler after the payment API response, not in the button click.
-[ACTION] Trace /api/checkout or submitOrder.ts with Octocode local tools next.
+[ACTION] Clicked the primary button after attaching Network and Runtime listeners.
+[NETWORK_ERROR] POST /api/action returned 500 in 184ms.
+[EXCEPTION] TypeError: Cannot read properties of undefined (reading 'id')
+[EXCEPTION_LOCATION] app.bundle.js:2:91822
+[SOURCEMAP] Candidate source: src/actions/submit.ts:87
+[FINDING] The failure is in the action handler after the API response, not in the button click.
+[ACTION] Trace /api/action or submit.ts with Octocode local tools next.
 ```
 
 Good reports should include:
@@ -499,6 +515,10 @@ If a run fails or is flaky:
 | `scripts/sourcemap-resolver.mjs` | Resolve generated JS stack locations through source maps without retaining `sourcesContent` | Source-traced console exception investigations |
 | `scripts/undercover.mjs` | Apply and verify headless-fingerprint masking | One guarded retry for public bot-wall triage before visible user gate |
 | `scripts/octocode-chrome-devtools.vpn.example.json` | Example proxy config | Copying the shape of `.octocode/chrome-devtools.json` |
+| `examples/live-har-monitor.mjs` | Visible-tab monitor that writes HAR, NDJSON, summary, and resource timing files | Letting a user browse while collecting bounded network/perf evidence |
+| `examples/har-pager.mjs` | Compact HAR reader with filters and pages | Reviewing large HAR files without loading all entries into agent context |
+| `examples/dom-operations-check.mjs` | Selector actionability and optional click/fill with DOM/a11y facts | Checking whether an element exists, is visible, stable, covered, or operable |
+| `examples/api-replay.mjs` | Generic HTTP/API replay helper | Browser-discover-to-curl/API pattern for website data extraction with non-secret request data |
 
 ## Optional CLI
 
@@ -517,7 +537,7 @@ node "$SKILL_DIR/scripts/open-browser.mjs" --port "$PORT" --cleanup
 Session metadata location, shared by all runs on the same port:
 
 ```bash
-$TMPDIR/.octocode-chrome-devtools/session-meta/port-$PORT/
+.octocode/chrome-devtools/session-meta/port-$PORT/
 ```
 
 Important files:
@@ -539,3 +559,5 @@ Important files:
 - `references/INTENTS_STORAGE_CONSENT.md`
 - `references/CHROME_FLAGS.md`
 - `references/RECOVERY.md`
+- `references/HAR_PLAYWRIGHT_DATA.md`
+- `examples/README.md`

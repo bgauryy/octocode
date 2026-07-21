@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 
 import { spawn, execSync, execFileSync } from 'child_process';
-import { platform, tmpdir }  from 'os';
+import { platform }  from 'os';
 import { existsSync, writeFileSync, readFileSync, rmSync, mkdirSync } from 'fs';
-import { join } from 'path';
+import { join, resolve } from 'path';
+import { getOctocodeHome, propagateOctocodeEnv } from '@octocodeai/config';
 
 const argv = process.argv.slice(2);
 const getArg  = (flag, def) => { const i = argv.indexOf(flag); return i !== -1 && argv[i + 1] ? argv[i + 1] : def; };
@@ -23,9 +24,25 @@ const PROXY_BYPASS_LIST = getArg('--proxyBypassList', '');
 const PROXY_PAC_URL = getArg('--proxyPacUrl', '');
 const CONFIG_PATH = getArg('--config', '');
 
-const TMP         = tmpdir();
-const SESSION_FILE = join(TMP, `cdp-session-${PORT}.json`);
-const HEADLESS_PROFILE_DIR = join(TMP, `cdp-chrome-profile-${PORT}`);
+propagateOctocodeEnv({ cwd: process.cwd(), trusted: true });
+
+function octocodeOutputBase() {
+  const workspace = resolve(process.cwd(), '.octocode');
+  try {
+    mkdirSync(workspace, { recursive: true, mode: 0o700 });
+    return workspace;
+  } catch {
+    const home = getOctocodeHome();
+    mkdirSync(home, { recursive: true, mode: 0o700 });
+    return home;
+  }
+}
+
+const OCTOCODE_OUTPUT_BASE = octocodeOutputBase();
+const CHROME_STATE_DIR = join(OCTOCODE_OUTPUT_BASE, 'chrome-devtools', 'browser-state');
+mkdirSync(CHROME_STATE_DIR, { recursive: true, mode: 0o700 });
+const SESSION_FILE = join(CHROME_STATE_DIR, `cdp-session-${PORT}.json`);
+const HEADLESS_PROFILE_DIR = join(CHROME_STATE_DIR, `cdp-chrome-profile-${PORT}`);
 
 function ok(payload)  { console.log(JSON.stringify(payload)); }
 function err(message) { console.log(JSON.stringify({ status: 'ERROR', message })); process.exit(1); }
@@ -57,7 +74,7 @@ function normalizeProxyConfig(raw) {
 
 function loadProxyConfig() {
   const cwdConfig = join(process.cwd(), '.octocode', 'chrome-devtools.json');
-  const homeConfig = join(process.env.HOME ?? process.env.USERPROFILE ?? '', '.octocode', 'config.json');
+  const homeConfig = join(getOctocodeHome(), 'config.json');
   if (CONFIG_PATH && !existsSync(CONFIG_PATH)) err(`Config file not found: ${CONFIG_PATH}`);
   const candidateFiles = CONFIG_PATH ? [CONFIG_PATH] : [cwdConfig, homeConfig];
 
@@ -148,6 +165,8 @@ function getProcessCommand(pid) {
 }
 
 function processMatchesTrackedSession(session) {
+  // Cleanup only kills Chrome instances launched with this exact CDP port and
+  // isolated profile path; never trust a stale pid file alone.
   const command = getProcessCommand(session.pid);
   if (!command) return false;
 

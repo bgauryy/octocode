@@ -7,7 +7,7 @@
 | `Chrome not running on port` | Run `open-browser.mjs --headless` first |
 | Chrome already open, no CDP | Handled automatically — `open-browser.mjs` launches isolated CDP session |
 | `WebSocket unavailable` | Upgrade to Node.js 22+ (native WebSocket required, no install needed) |
-| `Script not found` | Use `$TMPDIR/cdp-<task>.mjs`, never hardcode `/tmp/` |
+| `Script not found` | Use `.octocode/tmp/cdp-<task>.mjs`, never hardcode `/tmp/` |
 | `CDP timeout for <method>` | Domain not enabled — add the required `enable` call before using it |
 | `No page targets found` | Use `--new-tab about:blank` to open a fresh tab |
 | Need to inspect an iframe or service worker | Use `--list-targets` to discover, then `--target-url <pattern>` or `--target-type service_worker` |
@@ -21,7 +21,7 @@
 | URL with `?` or `&` fails in zsh | Always quote the URL: `--url "http://..."` |
 | `Runtime.evaluate` hangs after `Debugger.enable` | Add `await cdp.send('Debugger.setSkipAllPauses', { skip: true })` immediately after `Debugger.enable` |
 | `Page.navigate` times out on ALL URLs | Chrome session is stale — run `open-browser.mjs --cleanup` then relaunch with `--headless` |
-| Unsure whether cleanup will kill the tracked browser | Run `open-browser.mjs --cleanup --dry-run`; it reports whether the tracked PID matches both the CDP port and temp profile without killing anything |
+| Unsure whether cleanup will kill the tracked browser | Run `open-browser.mjs --cleanup --dry-run`; it reports whether the tracked PID matches both the CDP port and .octocode profile without killing anything |
 | `Security.getSecurityState` not found | Removed from current CDP — use `Security.visibleSecurityStateChanged` event instead |
 | `Storage.enable` not found (exit 2) | Not available in Chrome CDP (Chrome 120+). Remove the call — cookies, localStorage, sessionStorage, and IndexedDB are accessible without it via `Network.getAllCookies`, `Runtime.evaluate`, and `IndexedDB.*` domain calls |
 | `IndexedDB.requestDatabaseNames` not found | Use `Runtime.evaluate` with `indexedDB.databases()` instead — it is a Promise-based browser API available in Chrome 71+ |

@@ -17,6 +17,7 @@ Use this skill when a browser task needs CDP-level evidence or control: network/
 | local app bug | collect browser signal, then trace stack/URL/symbol to source |
 | flaky CDP script | read `[CDP_RETRY_NEEDED]`, then `references/RECOVERY.md` |
 | exact API shape | official `https://chromedevtools.github.io/devtools-protocol/tot/<Domain>/` or local `/json/protocol` |
+| HAR / Playwright / curl replay | write HAR to files, page with `examples/har-pager.mjs`, read `references/HAR_PLAYWRIGHT_DATA.md` |
 
 ## Reference Loading
 
@@ -38,11 +39,14 @@ rg -n "^## |<domain-or-method>"     <skill-dir>/references/CDP_AGENT_REFERENCE.m
 | enables / CDP gotchas | `references/CDP_AGENT_REFERENCE.md`, section 0 first |
 | launch flags / proxies / mobile | `references/CHROME_FLAGS.md` |
 | repeated failure | `references/RECOVERY.md` |
+| HAR, Playwright, API replay, token budget | `references/HAR_PLAYWRIGHT_DATA.md` |
+| runnable live monitor / HAR pager / DOM checks / API replay | `examples/README.md` |
 
 Bundled CDP docs are working notes, not the source of truth. Before using unfamiliar methods, optional params, experimental/deprecated APIs, or anything that failed with "not found"/"invalid parameters", verify the official domain page. If a Chrome instance is already running and exact support matters:
 
 ```bash
-curl -fsS "http://127.0.0.1:9222/json/protocol" > "$TMPDIR/cdp-protocol.json"
+mkdir -p .octocode/tmp
+curl -fsS "http://127.0.0.1:9222/json/protocol" > ".octocode/tmp/cdp-protocol.json"
 ```
 
 Browser APIs inside `Runtime.evaluate` also move. Feature-detect APIs such as `PerformanceObserver`, `navigator.storage`, `indexedDB.databases()`, Cache Storage, Service Workers, and WebAuthn before relying on them.
@@ -52,12 +56,14 @@ Browser APIs inside `Runtime.evaluate` also move. Feature-detect APIs such as `P
 1. Ensure Chrome session: `open-browser.mjs` once per task family.
 2. Discover targets: `cdp-sandbox.mjs --list-targets` when tab state may have changed.
 3. Select intent: read `INTENTS.md`, then the matching detail file only.
-4. Write one focused `$TMPDIR/cdp-<task>.mjs` exporting `async function run(cdp)`.
+4. Write one focused `.octocode/tmp/cdp-<task>.mjs` exporting `async function run(cdp)`.
 5. Run with `cdp-sandbox.mjs`; parse `[CDP_RETRY_NEEDED]`, errors, then findings.
 6. Iterate by changing one meaningful thing; avoid unchanged reruns.
 7. Report evidence plainly and trace to source when a stack, URL, route, selector, symbol, or package is useful.
 
 For broad requests, split into small scripts against the same session/tabs instead of one huge audit unless the user explicitly asks for a full audit.
+
+For network-heavy tasks, print summaries and write raw evidence to files. Use HAR for portable request evidence, `events.ndjson` for streaming/diff review, and a pager for agent-readable chunks. If browser network reveals a documented endpoint, switch to curl/API replay instead of scraping DOM; keep secret header values out of reports.
 
 ## Launch And Attach
 
@@ -70,15 +76,15 @@ node <skill-dir>/scripts/open-browser.mjs --headless --config ".octocode/chrome-
 node <skill-dir>/scripts/open-browser.mjs --port 9222 --cleanup [--dry-run]
 ```
 
-Headless uses an isolated temp profile. Visible real-profile mode exposes cookies, tokens, and sessions to CDP scripts; ask first and use it only for auth-dependent tasks. Proxy flags/config require a fresh launch; if output says `"reused": true` and `"proxyRequested": true`, cleanup or change port.
+Headless uses an isolated `.octocode/chrome-devtools/browser-state/` profile. Visible real-profile mode exposes cookies, tokens, and sessions to CDP scripts; ask first and use it only for auth-dependent tasks. Proxy flags/config require a fresh launch; if output says `"reused": true` and `"proxyRequested": true`, cleanup or change port.
 
 Run generated scripts through the sandbox:
 
 ```bash
-node <skill-dir>/scripts/cdp-sandbox.mjs "$TMPDIR/cdp-<task>.mjs" \
+node <skill-dir>/scripts/cdp-sandbox.mjs ".octocode/tmp/cdp-<task>.mjs" \
   [--port 9222] [--new-tab about:blank] [--target <id>] [--target-url <pattern>] \
   [--target-type <type>] [--timeout <ms>] [--script-timeout <ms>] [--keep-tab] \
-  > "$TMPDIR/cdp-output-<task>.txt" 2>&1
+  > ".octocode/tmp/cdp-output-<task>.txt" 2>&1
 ```
 
 Use `cdp-runner.mjs` only for trusted local iteration. Attach priority: `--target <id>` first, then unique `--target-url`, then `--target-type`, then first page as last resort. For load-event evidence, use `--new-tab about:blank` and call `Page.navigate` inside `run()` after listeners are attached.
@@ -87,7 +93,7 @@ Use `cdp-runner.mjs` only for trusted local iteration. Attach priority: `--targe
 
 - Reuse the same `--port` for related checks; cleanup once at the end unless the user wants Chrome left open.
 - Keep tabs alive for iterative, auth, and live-page work with `--keep-tab`.
-- In multi-tab work, keep a short role map (`checkout-tab`, `admin-tab`) and refresh it after user navigation/auth.
+- In multi-tab work, keep a short role map (`primary-tab`, `secondary-tab`) and refresh it after user navigation/auth.
 - If multiple tabs match the same URL pattern, list targets and switch to `--target <id>`.
 - On-demand scripts in an existing tab must not navigate unless the user asked; read current state with `Runtime.evaluate`.
 
@@ -100,6 +106,8 @@ node <skill-dir>/scripts/open-browser.mjs --url "<url>" [--port 9222]
 ```
 
 Tell the user Chrome is open and wait. For each later check, attach to the existing tab with `--keep-tab`; do not call `Page.navigate`. Listeners added after load miss past events, so use `Runtime.evaluate` for current DOM, storage keys, performance/resource entries, and app globals. Reuse a matching output file younger than 10 minutes only when URL and intent clearly match.
+
+For long monitoring, run bounded windows (`MONITOR_MS=30000` style), emit deltas, and leave the tab alive. Prefer `examples/live-har-monitor.mjs` when the user wants to browse manually while the agent records network/console/runtime evidence to HAR/NDJSON files.
 
 ## Write `run(cdp)`
 
@@ -132,9 +140,9 @@ cdp.writeSessionMetadata(patch)
 
 For flat Target sessions, route worker commands with the third `sessionId` argument. Session-routed events pass `{ sessionId }` as handler metadata.
 
-Session metadata lives in `$TMPDIR/.octocode-chrome-devtools/session-meta/port-<port>/`: `session-metadata.json`, `targets-latest.json`, `resource-map.json`, `reasoning-log.json`, and `run-history.json`. Keep it factual and safe: no token/cookie values.
+Session metadata lives in `.octocode/chrome-devtools/session-meta/port-<port>/` when the workspace is writable, otherwise global `~/.octocode/chrome-devtools/session-meta/port-<port>/`: `session-metadata.json`, `targets-latest.json`, `resource-map.json`, `reasoning-log.json`, and `run-history.json`. Keep it factual and safe: no token/cookie values.
 
-Use prefixes for machine-readable output. Core: `[FINDING]`, `[ACTION]`, `[METRIC]`, `[REASON]`, `[NETWORK_ERROR]`, `[NETWORK_FAILED]`, `[EXCEPTION]`, `[CONSOLE:TYPE]`, `[LOG:LEVEL]`, `[SCREENSHOT]`, `[AUTH_COMPLETE]`, `[AUTH_TIMEOUT]`, `[SOURCEMAP]`. Full list: `references/INTENTS.md`.
+Use prefixes for machine-readable output. Core: `[FINDING]`, `[ACTION]`, `[METRIC]`, `[REASON]`, `[NETWORK_ERROR]`, `[NETWORK_FAILED]`, `[EXCEPTION]`, `[CONSOLE:TYPE]`, `[LOG:LEVEL]`, `[SCREENSHOT]`, `[ARTIFACT]`, `[AUTH_COMPLETE]`, `[AUTH_TIMEOUT]`, `[SOURCEMAP]`. Full list: `references/INTENTS.md`.
 
 For source maps, import `./sourcemap-resolver.mjs`; the sandbox stages it next to generated scripts. For public sites likely to fingerprint headless Chrome, import `./undercover.mjs`, call `applyStealthPatches(cdp)` before navigation, and use the CAPTCHA/auth user gate if blocking persists.
 

@@ -11,10 +11,26 @@ import {
   existsSync,
 } from "node:fs";
 import { dirname, join, resolve } from "node:path";
+import { getOctocodeHome, propagateOctocodeEnv } from "@octocodeai/config";
 import { fileURLToPath } from "node:url";
+
+propagateOctocodeEnv({ cwd: process.cwd(), trusted: true });
+
+function octocodeOutputBase() {
+  const workspace = resolve(process.cwd(), ".octocode");
+  try {
+    mkdirSync(workspace, { recursive: true, mode: 0o700 });
+    return workspace;
+  } catch {
+    const home = getOctocodeHome();
+    mkdirSync(home, { recursive: true, mode: 0o700 });
+    return home;
+  }
+}
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "..");
+const OUTPUT_BASE = octocodeOutputBase();
 const cases = JSON.parse(readFileSync(join(ROOT, "evals/cases.json"), "utf8"));
 const kpi = JSON.parse(readFileSync(join(ROOT, "evals/kpi-contract.json"), "utf8"));
 
@@ -428,7 +444,7 @@ function runScript(c) {
 }
 
 function runLive(c) {
-  const outPath = join(ROOT, ".octocode/worker", `${c.id}.out`);
+  const outPath = join(OUTPUT_BASE, "worker", `${c.id}.out`);
   mkdirSync(dirname(outPath), { recursive: true });
   const cmd = ["scripts/ollama-worker.sh", "--model", c.model, "--job", c.job, "--out", outPath];
   if (c.input) cmd.push("--input", c.input);
@@ -547,7 +563,8 @@ const report = {
   results,
 };
 
-mkdirSync(join(ROOT, "evals"), { recursive: true });
-writeFileSync(join(ROOT, "evals/last-report.json"), JSON.stringify(report, null, 2));
+const reportDir = join(OUTPUT_BASE, "orchestrator-local-worker", "evals");
+mkdirSync(reportDir, { recursive: true });
+writeFileSync(join(reportDir, "last-report.json"), JSON.stringify(report, null, 2));
 console.log(JSON.stringify(report, null, 2));
 process.exit(verdict === "ACCEPT" || (hardFails.length === 0 && rate >= kpi.primaryKpi.target) ? 0 : 1);

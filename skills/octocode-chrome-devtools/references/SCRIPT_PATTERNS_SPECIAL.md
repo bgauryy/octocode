@@ -1,18 +1,12 @@
-# CDP Special Pattern Pointers
+# CDP Special Patterns
+
+Load for compound audits only. Why: broad checks should still be small scripts.
 
 ## Storage Audit
-
-> **Detailed recipe in `INTENTS_STORAGE_CONSENT.md` -> `## storage`** — grep: `rg -n "^## storage" references/INTENTS_STORAGE_CONSENT.md`
-
-Inventories cookies, localStorage, sessionStorage, IndexedDB, Cache Storage, Service Workers, and quota.
-Also detects **cookie resurrection** (tracking IDs mirrored across storage to survive clearing).
+Combine `storage` intent with security redaction. Report key names, stores, counts, quota, and risky categories only.
 
 ## Consent Audit
+Combine DOM/a11y inspection with storage/cookie metadata. Do not click consent choices unless asked.
 
-> **Detailed recipe in `INTENTS_STORAGE_CONSENT.md` -> `## consent`** — grep: `rg -n "^## consent" references/INTENTS_STORAGE_CONSENT.md`
-
-Detects CMP presence, pre-granted consent state, and tracker firing before user consent.
-
-## Full Audit (combine all)
-
-Combine the Network Console, Performance Audit, DOM Accessibility, and Security Audit `run()` functions above into a single script — enable all required domains at the top, attach all event listeners before navigating, run all sync checks after the page settles.
+## Full Audit
+Run debug/network first, then security, storage, accessibility, performance, and screenshot scripts on the same port. Merge findings in the final answer; do not build one giant script.

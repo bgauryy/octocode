@@ -32,7 +32,7 @@ Hooks stay fast, deterministic, workspace-scoped, and fail-open except the delib
 
 ```bash
 node skills/octocode-brainstorming/scripts/eval-brainstorm.mjs --list
-node skills/octocode-brainstorming/scripts/eval-brainstorm.mjs --case idea-validation --input /tmp/answer.md --json
+node skills/octocode-brainstorming/scripts/eval-brainstorm.mjs --case idea-validation --input .octocode/tmp/answer.md --json
 node skills/octocode-brainstorming/scripts/brainstorm-run.mjs --self-test
 ```
 

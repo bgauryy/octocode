@@ -1,14 +1,21 @@
 #!/usr/bin/env node
 
 import { spawn }                          from 'child_process';
+import { createRequire }                  from 'module';
 import { resolve, dirname, join }         from 'path';
 import { fileURLToPath }                  from 'url';
 import { existsSync, realpathSync,
          mkdirSync, copyFileSync }        from 'fs';
-import { tmpdir }                         from 'os';
+import { getOctocodeHome, propagateOctocodeEnv } from '@octocodeai/config';
 
 const __dir  = dirname(fileURLToPath(import.meta.url));
 const RUNNER = resolve(__dir, 'cdp-runner.mjs');
+const requireForResolve = createRequire(import.meta.url);
+const CONFIG_ENTRY = requireForResolve.resolve('@octocodeai/config');
+// Node's permission model must allow the resolved package path and the
+// workspace symlink path; Yarn/workspace installs can use either at runtime.
+const CONFIG_ROOT = resolve(dirname(CONFIG_ENTRY), '..');
+const CONFIG_NODE_MODULES_ROOT = resolve(process.cwd(), 'node_modules/@octocodeai/config');
 
 const argv     = process.argv.slice(2);
 const getArg   = (flag, def) => { const i = argv.indexOf(flag); return i !== -1 && argv[i + 1] ? argv[i + 1] : def; };
@@ -25,17 +32,34 @@ if (!scriptArg && !LIST_TARGETS) {
   process.exit(1);
 }
 
+propagateOctocodeEnv({ cwd: process.cwd(), trusted: true });
+
+function octocodeOutputBase() {
+  const workspace = resolve(process.cwd(), '.octocode');
+  try {
+    mkdirSync(workspace, { recursive: true, mode: 0o700 });
+    return workspace;
+  } catch {
+    const home = getOctocodeHome();
+    mkdirSync(home, { recursive: true, mode: 0o700 });
+    return home;
+  }
+}
+
+const OCTOCODE_OUTPUT_BASE = octocodeOutputBase();
 const timestamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
-const OUTPUT_DIR = join(tmpdir(), '.octocode-chrome-devtools', timestamp);
+const OUTPUT_DIR = join(OCTOCODE_OUTPUT_BASE, 'chrome-devtools', timestamp);
 mkdirSync(OUTPUT_DIR, { recursive: true, mode: 0o700 });
-const SESSION_META_DIR = join(tmpdir(), '.octocode-chrome-devtools', 'session-meta', `port-${PORT}`);
+const SESSION_META_DIR = join(OCTOCODE_OUTPUT_BASE, 'chrome-devtools', 'session-meta', `port-${PORT}`);
 mkdirSync(SESSION_META_DIR, { recursive: true, mode: 0o700 });
 
 const safePath = (p) => { try { return realpathSync(p); } catch { return p; } };
 
-const TMPDIR_RAW  = tmpdir();
+const TMPDIR_RAW  = OCTOCODE_OUTPUT_BASE;
 const TMPDIR_REAL = safePath(TMPDIR_RAW);
 const RUNNER_REAL = safePath(RUNNER);
+const CONFIG_ROOT_REAL = safePath(CONFIG_ROOT);
+const CONFIG_NODE_MODULES_ROOT_REAL = safePath(CONFIG_NODE_MODULES_ROOT);
 const OUTPUT_REAL = safePath(OUTPUT_DIR);
 const SESSION_META_REAL = safePath(SESSION_META_DIR);
 
@@ -63,21 +87,57 @@ if (scriptArg) {
 
 const spawnArgv = argv.map(a => (a === scriptArg && scriptReal) ? scriptReal : a);
 
-const readPaths  = [...new Set([RUNNER, RUNNER_REAL, TMPDIR_RAW, TMPDIR_REAL, ...allowReadExtra])];
-const writePaths = [...new Set([OUTPUT_DIR, OUTPUT_REAL, SESSION_META_DIR, SESSION_META_REAL])];
+const readPaths  = [...new Set([
+  RUNNER,
+  RUNNER_REAL,
+  CONFIG_ROOT,
+  CONFIG_ROOT_REAL,
+  CONFIG_NODE_MODULES_ROOT,
+  CONFIG_NODE_MODULES_ROOT_REAL,
+  TMPDIR_RAW,
+  TMPDIR_REAL,
+  ...allowReadExtra,
+])];
+const writePaths = [...new Set([
+  TMPDIR_RAW,
+  TMPDIR_REAL,
+  OUTPUT_DIR,
+  OUTPUT_REAL,
+  SESSION_META_DIR,
+  SESSION_META_REAL,
+])];
 
 const permFlags = [
   '--permission',
+  '--allow-net',
   ...readPaths.map(p  => `--allow-fs-read=${p}`),
   ...writePaths.map(p => `--allow-fs-write=${p}`),
 ];
 
+// Keep the sandbox hermetic: pass only documented knobs used by examples,
+// never the parent env where tokens/cookies may live.
+const SCRIPT_ENV_ALLOWLIST = [
+  'MONITOR_MS',
+  'SLOW_MS',
+  'MAX_STDOUT_ITEMS',
+  'DOM_SELECTOR',
+  'DOM_ACTION',
+  'DOM_VALUE',
+  'DOM_STABILITY_MS',
+];
+const scriptEnv = Object.fromEntries(
+  SCRIPT_ENV_ALLOWLIST
+    .filter(key => process.env[key] !== undefined)
+    .map(key => [key, process.env[key]])
+);
+
 const childEnv = {
   CDP_OUTPUT_DIR: OUTPUT_DIR,
   CDP_SESSION_META_DIR: SESSION_META_DIR,
-  ...(process.env.TMPDIR ? { TMPDIR: process.env.TMPDIR } : {}),
-  ...(process.env.TMP ? { TMP: process.env.TMP } : {}),
-  ...(process.env.TEMP ? { TEMP: process.env.TEMP } : {}),
+  TMPDIR: OCTOCODE_OUTPUT_BASE,
+  TMP: OCTOCODE_OUTPUT_BASE,
+  TEMP: OCTOCODE_OUTPUT_BASE,
+  ...scriptEnv,
   ...(process.env.SystemRoot ? { SystemRoot: process.env.SystemRoot } : {}),
   ...(process.env.WINDIR ? { WINDIR: process.env.WINDIR } : {}),
 };
@@ -86,11 +146,11 @@ console.error('[CDP_SANDBOX] Launching runner in sandbox (Node.js Permission Mod
 console.error(`[CDP_SANDBOX]  Output dir:    ${OUTPUT_DIR}`);
 console.error(`[CDP_SANDBOX]  Session meta:  ${SESSION_META_DIR}`);
 console.error(`[CDP_SANDBOX]  FS write:      output dir + session meta dir (mode 0700)`);
-console.error(`[CDP_SANDBOX]  FS read:       $TMPDIR tree + runner`);
+console.error(`[CDP_SANDBOX]  FS read:       .octocode output tree + runner`);
 console.error(`[CDP_SANDBOX]  child_process: blocked`);
 console.error(`[CDP_SANDBOX]  workers:       blocked`);
 console.error(`[CDP_SANDBOX]  env:           minimal allowlist (parent env not inherited)`);
-console.error(`[CDP_SANDBOX]  Network:       localhost only (fetch+WebSocket patched in runner)`);
+console.error(`[CDP_SANDBOX]  Network:       enabled for runner; generated script fetch+WebSocket patched to localhost only`);
 
 const child = spawn(process.execPath, [...permFlags, RUNNER_REAL, ...spawnArgv], {
   stdio: 'inherit',

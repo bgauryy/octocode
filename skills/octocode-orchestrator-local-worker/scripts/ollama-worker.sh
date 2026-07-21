@@ -68,6 +68,9 @@ if [[ -z "${MODEL}" ]]; then
   exit 2
 fi
 
+WORKSPACE_OCTOCODE_DIR="$(node -e 'const path=require("node:path"); process.stdout.write(path.resolve(process.cwd(), ".octocode"))')"
+GLOBAL_OCTOCODE_DIR="$(node -e 'import("@octocodeai/config").then(m=>process.stdout.write(m.getOctocodeHome())).catch(e=>{console.error(e.message); process.exit(1);})')"
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if ! "${SCRIPT_DIR}/ollama-health.sh" --model "${MODEL}"; then
   exit 1
@@ -107,7 +110,9 @@ ${input_body}
 EOF
 }
 
-PROMPT_FILE="$(mktemp)"
+PROMPT_DIR="${WORKSPACE_OCTOCODE_DIR}/tmp/ollama-worker"
+mkdir -p "${PROMPT_DIR}"
+PROMPT_FILE="${PROMPT_DIR}/prompt-$$.txt"
 cleanup() { rm -f "${PROMPT_FILE}"; }
 trap cleanup EXIT
 
@@ -163,9 +168,14 @@ fi
 RESULT="$(ollama "${RUN_ARGS[@]}" <"${PROMPT_FILE}")"
 
 if [[ -n "${OUT_PATH}" ]]; then
-  mkdir -p "$(dirname "${OUT_PATH}")"
-  printf '%s\n' "${RESULT}" >"${OUT_PATH}"
-  echo "wrote ${OUT_PATH} (model=${MODEL})" >&2
+  ABS_OUT="$(node -e 'const path=require("node:path"); process.stdout.write(path.resolve(process.argv[1]))' "${OUT_PATH}")"
+  case "${ABS_OUT}" in
+    "${WORKSPACE_OCTOCODE_DIR}"/*|"${GLOBAL_OCTOCODE_DIR}"/*) ;;
+    *) echo "error: --out must be under ${WORKSPACE_OCTOCODE_DIR} or ${GLOBAL_OCTOCODE_DIR}" >&2; exit 2 ;;
+  esac
+  mkdir -p "$(dirname "${ABS_OUT}")"
+  printf '%s\n' "${RESULT}" >"${ABS_OUT}"
+  echo "wrote ${ABS_OUT} (model=${MODEL})" >&2
 else
   printf '%s\n' "${RESULT}"
 fi

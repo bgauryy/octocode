@@ -3,8 +3,23 @@
 import { resolve, join } from 'path';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { pathToFileURL } from 'url';
-import { tmpdir } from 'os';
+import { getOctocodeHome, propagateOctocodeEnv } from '@octocodeai/config';
 
+propagateOctocodeEnv({ cwd: process.cwd(), trusted: true });
+
+function octocodeOutputBase() {
+  const workspace = resolve(process.cwd(), '.octocode');
+  try {
+    mkdirSync(workspace, { recursive: true, mode: 0o700 });
+    return workspace;
+  } catch {
+    const home = getOctocodeHome();
+    mkdirSync(home, { recursive: true, mode: 0o700 });
+    return home;
+  }
+}
+
+const OCTOCODE_OUTPUT_BASE = octocodeOutputBase();
 const argv      = process.argv.slice(2);
 const scriptArg = argv.find(a => !a.startsWith('--') && (a.endsWith('.mjs') || a.endsWith('.js')));
 const getArg    = (flag, def) => { const i = argv.indexOf(flag); return i !== -1 && argv[i + 1] ? argv[i + 1] : def; };
@@ -174,7 +189,7 @@ async function main() {
   }
   console.error(`[CDP_RUNNER] Chrome: ${version.Browser}`);
   const sessionMetaDir = process.env.CDP_SESSION_META_DIR ?? (() => {
-    const dir = join(tmpdir(), '.octocode-chrome-devtools', 'session-meta', `port-${PORT}`);
+    const dir = join(OCTOCODE_OUTPUT_BASE, 'chrome-devtools', 'session-meta', `port-${PORT}`);
     mkdirSync(dir, { recursive: true, mode: 0o700 });
     return dir;
   })();
@@ -274,7 +289,7 @@ async function main() {
 
   const outputDir = process.env.CDP_OUTPUT_DIR ?? (() => {
     const ts  = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
-    const dir = join(tmpdir(), '.octocode-chrome-devtools', ts);
+    const dir = join(OCTOCODE_OUTPUT_BASE, 'chrome-devtools', ts);
     mkdirSync(dir, { recursive: true });
     return dir;
   })();
@@ -391,6 +406,9 @@ async function main() {
   console.error(`[CDP_RUNNER] Session meta dir: ${sessionMetaDir}`);
   console.error(`[CDP_RUNNER] Connected - running ${scriptArg}`);
 
+  // Scripts use CDP over local Chrome only. Blocking arbitrary outbound
+  // fetch/WebSocket keeps generated examples from becoming network clients;
+  // use browser-discovered API replay outside this runner when needed.
   const _origFetch = globalThis.fetch;
   const _OrigWS    = globalThis.WebSocket;
   function isLocalhost(url) {

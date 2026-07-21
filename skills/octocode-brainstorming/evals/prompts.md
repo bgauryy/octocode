@@ -6,7 +6,7 @@ Use when changing `octocode-brainstorming`. Run mentally for substance, and use 
 
 ```bash
 node skills/octocode-brainstorming/scripts/eval-brainstorm.mjs --list
-node skills/octocode-brainstorming/scripts/eval-brainstorm.mjs --case idea-validation --input /tmp/answer.md --json
+node skills/octocode-brainstorming/scripts/eval-brainstorm.mjs --case idea-validation --input .octocode/tmp/answer.md --json
 node skills/octocode-brainstorming/scripts/eval-brainstorm.mjs --self-test
 ```
 
