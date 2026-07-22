@@ -99,7 +99,7 @@ const FindFilesEntrySchema = z.object({
 
 const LocalFindFilesDataSchema = z.object({
   path: z.string().optional(),
-  files: z.array(FindFilesEntrySchema).optional(),
+  files: z.array(z.union([z.string(), FindFilesEntrySchema])).optional(),
   summary: z.string().optional(),
   pagination: LocalItemPaginationSchema.optional(),
   next: z.record(z.string(), ToolContinuationSchema).optional(),

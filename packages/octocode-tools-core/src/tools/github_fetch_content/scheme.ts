@@ -130,6 +130,13 @@ export const FileContentBulkQueryLocalSchema = createRelaxedBulkQuerySchema(
   FileContentQueryBaseLocalSchema
 );
 
+const GitHubFetchRepoDataSchema = z.object({
+  owner: z.string(),
+  repo: z.string(),
+  files: z.array(GitHubFetchFileEntrySchema).optional(),
+  directories: z.array(GitHubFetchDirectoryEntrySchema).optional(),
+});
+
 export const GitHubFetchContentOutputLocalSchema = z.object({
   base: z.string().optional(),
   shared: z
@@ -139,14 +146,11 @@ export const GitHubFetchContentOutputLocalSchema = z.object({
   results: z.array(
     z.object({
       id: z.string(),
-      data: z
-        .object({
-          owner: z.string(),
-          repo: z.string(),
-          files: z.array(GitHubFetchFileEntrySchema).optional(),
-          directories: z.array(GitHubFetchDirectoryEntrySchema).optional(),
-        })
-        .optional(),
+      owner: z.string().optional(),
+      repo: z.string().optional(),
+      files: z.array(GitHubFetchFileEntrySchema).optional(),
+      directories: z.array(GitHubFetchDirectoryEntrySchema).optional(),
+      data: GitHubFetchRepoDataSchema.optional(),
     })
   ),
   errors: z

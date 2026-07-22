@@ -914,9 +914,9 @@ Diagnostics:
 
 ## OQL Search
 
-`oqlSearch` is the unified query interface behind `npx octocode search`. It routes typed queries across code, content, structure, files, semantics, repositories, packages, pull requests, commits, diff, research, graph, and materialization targets.
+`oqlSearch` is an experimental/internal MCP tool for the same typed query runner used by `npx octocode search --query`. It is **not** part of the default MCP tool catalog; servers register it only when `ENABLE_OQL` is explicitly set to `1`, `true`, `yes`, or `on`. Prefer the 12 direct tools for portable MCP/plugin integrations.
 
-For the language syntax and CLI-facing examples, see [Octocode Query Language](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_QUERY_LANGUAGE.md) and [Octocode CLI Guide](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_CLI.md). Use this file's [Tool Verification Playbook](#tool-verification-playbook) for the direct MCP/OQL contract checks.
+For the language syntax and CLI-facing examples, see [Octocode Query Language](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_QUERY_LANGUAGE.md) and [Octocode CLI Guide](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_CLI.md). Use this file's [Tool Verification Playbook](#tool-verification-playbook) for optional direct MCP/OQL contract checks.
 
 ---
 
@@ -1783,7 +1783,7 @@ Primary code: [packages/octocode-tools-core/src/tools/oql_search/](https://githu
 | Planning | `explain` exposes normalized query shape, backend calls, materialization decisions, lossy transforms, and provider limitations without executing side effects beyond allowed read/cache behavior. |
 | Evidence | `answerReady`, `confidence`, `complete`, diagnostics, and provenance distinguish provider candidates from local/materialized proof. Research and graph targets may be intentionally not answer-ready until a continuation is followed. |
 | Continuations | Row-level and envelope `next.*` continuations are executable OQL objects and preserve pagination domains such as page, char range, string scan offset, graph proof, materialization, fetch, and semantics. |
-| CLI parity | Direct MCP `oqlSearch` and CLI `search --query` use the same runner, schema semantics, diagnostics, evidence model, and output pagination. |
+| CLI parity | Optional MCP `oqlSearch` and CLI `search --query` use the same runner, schema semantics, diagnostics, evidence model, and output pagination. MCP registration remains opt-in via `ENABLE_OQL`; CLI `search --query` remains available. |
 
 ### Cross-Tool Research Quality Suites
 

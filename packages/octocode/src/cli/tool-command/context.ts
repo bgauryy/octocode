@@ -57,7 +57,6 @@ export async function getToolsContextString(
       "  tools <name> --queries '<json>'           # run tool, YAML output",
       "  tools <name> --queries '<json>' --json    # run tool, full CallToolResult JSON",
       "  tools <name> --queries '<json>' --compact # run tool, lean structuredContent JSON",
-      "  search --query '<oql-json>' --json        # native OQL envelope JSON (results are OQL rows, not CallToolResult)",
       '',
       '  Output: clean YAML by default; use --compact for lean structuredContent JSON, --json for the full CallToolResult envelope.',
       '',

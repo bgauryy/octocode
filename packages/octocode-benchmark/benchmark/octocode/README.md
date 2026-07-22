@@ -41,11 +41,17 @@ for tool in \
   ghSearchCode ghGetFileContent ghViewRepoStructure ghSearchRepos \
   ghHistoryResearch ghCloneRepo npmSearch localSearchCode \
   localViewStructure localFindFiles localGetFileContent \
-  lspGetSemantics oqlSearch
+  lspGetSemantics
 do
   "${CLI[@]}" tools "$tool" --scheme --compact --no-color \
     > "$BENCH_OUT/schemes/$tool.txt"
 done
+
+# Optional/internal MCP surface: only score oqlSearch when ENABLE_OQL is set.
+if [[ "${ENABLE_OQL:-}" =~ ^(1|true|yes|on)$ ]]; then
+  "${CLI[@]}" tools oqlSearch --scheme --compact --no-color \
+    > "$BENCH_OUT/schemes/oqlSearch.txt"
+fi
 
 NO_COLOR=1 "$NODE_BIN" packages/octocode-benchmark/benchmark/cli/check-cli-metadata.mjs
 ```

@@ -90,6 +90,12 @@ function rawExtension(text) {
   return parseJson(text).ok ? 'json' : 'txt';
 }
 
+function isEnabled(value) {
+  return ['1', 'true', 'yes', 'on'].includes(String(value ?? '').trim().toLowerCase());
+}
+
+const oqlMcpEnabled = isEnabled(process.env.ENABLE_OQL);
+
 function writeRaw(id, stream, text) {
   const ext = rawExtension(text);
   const fileName = `${id}.${stream}.${ext}`;
@@ -228,7 +234,11 @@ const flows = [
   {
     name: 'local-grep-pagination',
     kind: 'local',
-    anchors: ['packages/octocode/src/cli/commands/search.ts', 'runOqlSearch'],
+    anchors: [
+      'packages/octocode/src/cli/commands/search.ts',
+      'packages/octocode/src/cli/commands/search/',
+      'runOqlSearch',
+    ],
     bestContinuation: 'Use returned next/search pagination from raw output.',
     commands: [
       {
@@ -253,7 +263,7 @@ const flows = [
           'search',
           '--regex',
           'getString\\([^)]*\\)',
-          'packages/octocode/src/cli/commands/search.ts',
+          'packages/octocode/src/cli/commands/search/',
           '--only-matching',
           '--unique',
           '--match-window',
@@ -279,7 +289,7 @@ const flows = [
           'search',
           '--pattern',
           'getString($$$ARGS)',
-          'packages/octocode/src/cli/commands/search.ts',
+          'packages/octocode/src/cli/commands/search/',
           '--lang',
           'ts',
           '--json',
@@ -451,10 +461,19 @@ const ratings = {
     score: toolCount >= 12 ? 9 : 6,
     reason: `tools --json reported ${toolCount} tool(s).`,
   },
-  oqlSearch: {
-    score: commands.find(command => command.id === 'LOCAL-OQL')?.status === 'pass' ? 9 : 5,
-    reason: 'OQL local code route is exercised as a durable command artifact.',
-  },
+  ...(oqlMcpEnabled
+    ? {
+        oqlSearch: {
+          score:
+            commands.find(command => command.id === 'LOCAL-OQL')?.status ===
+            'pass'
+              ? 9
+              : 5,
+          reason:
+            'ENABLE_OQL is set, so the optional MCP OQL surface is scored against the CLI search --query runner.',
+        },
+      }
+    : {}),
   quickCli: {
     score: failFlows === 0 ? 9 : 6,
     reason: 'search/cache quick commands are represented with raw outputs.',
@@ -473,7 +492,8 @@ const ratings = {
   },
   researchQuality: {
     score: failFlows === 0 ? 9 : 6,
-    reason: 'The run covers grep, AST, LSP, OQL, and remote-as-local proof paths.',
+    reason:
+      'The run covers grep, AST, LSP, CLI search --query, and remote-as-local proof paths.',
   },
   outputQuality: {
     score: 9,
@@ -495,7 +515,7 @@ const ratings = {
 const reflection = {
   whatWorked: [
     'Live benchmark output is created in the required artifact layout.',
-    'The run exercises local grep, AST, LSP, OQL, and CLI metadata lanes.',
+    'The run exercises local grep, AST, LSP, CLI search --query, and CLI metadata lanes.',
   ],
   whatDidNotWork:
     failFlows > 0

@@ -1,5 +1,6 @@
 import { completeMetadata } from '@octocodeai/octocode-core';
 import type { CompleteMetadata } from '@octocodeai/octocode-core/types';
+import { isOqlEnabled } from '../toolNames.js';
 
 /**
  * Core (`@octocodeai/octocode-core`) still ships stale tool-level prose for a
@@ -21,6 +22,31 @@ const GH_HISTORY_RESEARCH_STALE =
 
 const GH_HISTORY_RESEARCH_TRUTH =
   'type:"prs" searches PRs; add prNumber to read selected content. type:"commits" reads owner/repo/path history. type:"issues" searches or reads GitHub issues; add issueNumber to read a specific issue (body + comments). type:"releases" lists repo releases.';
+
+const OQL_TOOL_NAME = 'oqlSearch';
+
+function stripOqlPromptLines(systemPrompt: string): string {
+  return systemPrompt
+    .split('\n')
+    .filter(line => !/\b(?:OQL|oqlSearch)\b/i.test(line))
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+function stripOqlMetadata(source: CompleteMetadata): CompleteMetadata {
+  if (isOqlEnabled()) return source;
+
+  const { [OQL_TOOL_NAME]: _removedTool, ...tools } = source.tools ?? {};
+  const { OQL_SEARCH: _removedToolName, ...toolNames } = source.toolNames ?? {};
+
+  return {
+    ...source,
+    systemPrompt: stripOqlPromptLines(source.systemPrompt ?? ''),
+    tools,
+    toolNames: toolNames as CompleteMetadata['toolNames'],
+  };
+}
 
 let patched: CompleteMetadata | null = null;
 
@@ -74,6 +100,8 @@ export function getPatchedToolMetadata(
       },
     };
   }
+
+  next = stripOqlMetadata(next);
 
   if (source === completeMetadata) patched = next;
   return next;

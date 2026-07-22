@@ -70,7 +70,7 @@ At startup, Octocode reads configuration from environment variables and `<octoco
 
 ## Tool Catalog
 
-The MCP server registers the same **12** always-on research tools as the CLI tool runner (`oqlSearch` is optional when `ENABLE_OQL` is on):
+The MCP server registers **12** always-on research tools by default. `oqlSearch` is an experimental/internal MCP surface and is not registered unless `ENABLE_OQL` is explicitly set to `1`, `true`, `yes`, or `on`.
 
 | Family | Tools |
 |--------|-------|
@@ -78,7 +78,6 @@ The MCP server registers the same **12** always-on research tools as the CLI too
 | Package | `npmSearch` |
 | Local | `localSearchCode`, `localViewStructure`, `localFindFiles`, `localGetFileContent` |
 | LSP | `lspGetSemantics` |
-| OQL | `oqlSearch` |
 
 Every tool accepts bulk input via `queries` with up to 5 items. Responses use a structured bulk envelope with per-query success, empty, and error states, plus pagination hints when more content is available. See [Octocode Tools Reference](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_TOOLS.md).
 

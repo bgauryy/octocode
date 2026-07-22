@@ -142,7 +142,6 @@ function ratingsFor(passCount, warnCount, failCount, totalCount) {
   const reliability = failCount > 0 ? Math.min(base, 6) : base;
   return {
     rawMcpTools: rating(reliability, 'Raw tool and scheme rows were captured with command evidence.'),
-    oqlSearch: rating(base, 'OQL/search rows include evidence and continuation checks.'),
     quickCli: rating(base, 'Quick command lanes have raw stdout/stderr artifacts.'),
     flowQuality: rating(base, 'Rows are grouped into benchmark flows with pass/warn/fail status.'),
     schemaQuality: rating(9, 'summary.json validates against output-run.schema.json.'),

@@ -2,10 +2,8 @@
 // ALL locations must be updated together when changing help text:
 //   1. THIS FILE (main-help.ts)                    — top-level `--help`
 //   2. packages/octocode/src/cli/commands/search.ts — renderEnvelope, per-command hints
-//   3. packages/octocode-tools-core/src/oql/schemeText.ts — `--scheme` JSON output
-//   4. octocode-mcp-host/…/resources/tools/oqlSearch.ts — MCP tool description (sibling repo resources)
-//   5. octocode-mcp-host/…/resources/cli/search.ts  — CLICommandSpec (scheme[], whenToUse[])
-//   6. octocode-mcp-host/…/resources/systemPrompt.ts — MCP + CLI system prompt
+//   3. octocode-mcp-host/…/resources/cli/search.ts  — CLICommandSpec (scheme[], whenToUse[])
+//   4. octocode-mcp-host/…/resources/systemPrompt.ts — MCP + CLI system prompt
 // ─────────────────────────────────────────────────────────────────────────────
 import { c, bold, dim, underline } from '../utils/colors.js';
 import { getAuthStatus } from '../features/github-oauth.js';
@@ -33,8 +31,8 @@ const REGISTERED_COMMAND_NAME_SET = new Set(REGISTERED_COMMAND_NAMES);
 function buildAgentInstructionsBlock(): string[] {
   const body = [
     'search = read-only research. Pick a SOURCE (local path · owner/repo[/path]',
-    '· npm name · --query <oql>), then a LANE: text · --tree · --search path',
-    '· --op (LSP) · --target repositories|packages|pullRequests|commits|diff.',
+    '· npm name), then a LANE: text · --tree · --search path · --op (LSP)',
+    '· --target repositories|packages|pullRequests|commits|diff.',
     'Loop: orient cheap (tree/discovery) → narrow → read exact',
     '(--content-view none) → prove. Snippets are discovery, not proof;',
     'status:empty is a real run, not absence — follow next.* continuations.',

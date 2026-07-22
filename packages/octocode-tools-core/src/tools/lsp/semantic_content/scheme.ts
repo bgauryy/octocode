@@ -14,7 +14,7 @@ import {
 import { SEMANTIC_CONTENT_TYPES } from '../shared/semanticTypes.js';
 import {
   CharPaginationSchema,
-  ItemPaginationSchema,
+  LocalItemPaginationSchema,
   ToolContinuationSchema,
 } from '../../../scheme/pagination.js';
 
@@ -123,8 +123,9 @@ const EmptyStateSchema = z.object({
   reason: z.string(),
 });
 
-// Use the canonical shared pagination schema — no inline duplicates.
-const PaginationSchema = ItemPaginationSchema;
+// Use the canonical local pagination schema — LSP output uses local aliases
+// such as filesPerPage/totalFiles in the shared bulk envelope.
+const PaginationSchema = LocalItemPaginationSchema;
 
 const CompactSymbolSchema = z.object({
   name: z.string(),

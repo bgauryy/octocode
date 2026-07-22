@@ -16,7 +16,6 @@ import {
   STARTUP_ERRORS,
   startCacheGC,
   stopCacheGC,
-  completeMetadata,
   getOctocodeDir,
   configureSecurity,
   securityRegistry,
@@ -129,10 +128,11 @@ async function createServer(): Promise<McpServer> {
   } = {
     tools: { listChanged: false },
   };
+  const metadata = await loadToolContent();
 
   return new McpServer(SERVER_CONFIG, {
     capabilities,
-    instructions: completeMetadata.systemPrompt,
+    instructions: metadata.systemPrompt,
   });
 }
 

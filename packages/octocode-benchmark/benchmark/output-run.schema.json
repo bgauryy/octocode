@@ -151,7 +151,6 @@
       "additionalProperties": false,
       "required": [
         "rawMcpTools",
-        "oqlSearch",
         "quickCli",
         "flowQuality",
         "schemaQuality",

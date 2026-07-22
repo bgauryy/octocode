@@ -266,9 +266,9 @@ This is the canonical question catalog for proving that Octocode's agent-facing 
 | Surface | What is measured |
 |---------|-----------------|
 | **GitHub tools** | `ghSearchRepos`, `ghSearchCode`, `ghGetFileContent`, `ghViewRepoStructure`, `ghHistoryResearch` — repo search, code search, file fetch, PR list/detail/comments/reviews/commits, commit history |
-| **MCP tools** | All 13 shared MCP/CLI tool runners via `tools <name> --queries` — schema, routing, pagination, error honesty |
+| **MCP tools** | The 12 default MCP/CLI tool runners via `tools <name> --queries` — schema, routing, pagination, error honesty |
 | **npm / packages** | `npmSearch` — package lookup and source-repo handoff |
-| **OQL (`octocode search`)** | All active search targets, OQL-to-tool transformations, proof grades, parity with raw tools |
+| **CLI search / optional OQL** | Direct `octocode search` flows are covered; `oqlSearch` MCP parity is scored only when `ENABLE_OQL` is explicitly enabled |
 | **Local search** | Text/regex, structural (AST), file finding, content ranges, minification |
 | **LSP flows** | `lspGetSemantics` — definitions, references, call hierarchy, symbols within research flows |
 | **Cross-repo flows** | Compare related implementations across LangChain, LangGraph, Zustand, Hermes repos |
