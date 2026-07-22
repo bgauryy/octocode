@@ -1137,7 +1137,7 @@ dependencies = [
 
 [[package]]
 name = "octocode-engine"
-version = "17.0.1"
+version = "17.0.2"
 dependencies = [
  "criterion",
  "crossbeam-epoch",

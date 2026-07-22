@@ -1,7 +1,7 @@
 {
   "name": "@octocodeai/octocode-engine-darwin-arm64",
   "description": "High-performance Rust minification for Octocode — darwin-arm64",
-  "version": "17.0.1",
+  "version": "17.0.2",
   "author": "Guy Bary <bgauryy@octocodeai.com>",
   "cpu": [
     "arm64"

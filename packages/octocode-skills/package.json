@@ -1,14 +1,14 @@
 {
   "name": "@octocodeai/skills",
   "description": "Octocode skills distribution — list, install, and link agent skills to any platform or custom path.",
-  "version": "17.0.1",
+  "version": "17.0.2",
   "author": "Guy Bary <bgaryy@octocodeai.com>",
   "bin": {
     "octocode-skills": "./out/cli.js"
   },
   "bugs": "https://github.com/bgauryy/octocode-mcp/issues",
   "dependencies": {
-    "@octocodeai/config": "17.0.1"
+    "@octocodeai/config": "^17.0.2"
   },
   "devDependencies": {
     "@types/node": "^25.9.3",

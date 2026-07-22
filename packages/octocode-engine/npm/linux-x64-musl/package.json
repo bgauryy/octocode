@@ -1,7 +1,7 @@
 {
   "name": "@octocodeai/octocode-engine-linux-x64-musl",
   "description": "High-performance Rust minification for Octocode — linux-x64",
-  "version": "17.0.1",
+  "version": "17.0.2",
   "author": "Guy Bary <bgauryy@octocodeai.com>",
   "cpu": [
     "x64"
