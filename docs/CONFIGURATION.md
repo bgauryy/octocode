@@ -287,7 +287,8 @@ code ~/.octocode/.octocoderc
     // Must be an absolute path. Example: "/home/user/projects"
     "workspaceRoot": null,
 
-    // Restrict local tools to these paths only. Empty = unrestricted.
+    // Extra directories to allow, ADDED on top of the always-allowed home dir.
+    // Empty = home directory only (paths outside home are denied).
     // Example: ["/home/user/projects", "/tmp/sandbox"]
     "allowedPaths": []
   },
@@ -421,8 +422,8 @@ Run `npx octocode install --ide cursor` (or `vscode`, `claude`, `windsurf`, etc.
 |---------|------------------|---------|-------|
 | `ENABLE_LOCAL` | `local.enabled` | `true` | `false` → disable all local tools |
 | `ENABLE_CLONE` | `local.enableClone` | CLI: `true` · MCP: `false` | Enable `ghCloneRepo` |
-| `WORKSPACE_ROOT` | `local.workspaceRoot` | `process.cwd()` | Must be absolute |
-| `ALLOWED_PATHS` | `local.allowedPaths` | `[]` unrestricted | Env: comma-separated; rc: JSON array |
+| `WORKSPACE_ROOT` | `local.workspaceRoot` | `process.cwd()` | Must be absolute. Base for resolving relative paths — not itself an allowed root; add it to `allowedPaths` to access a location outside home. |
+| `ALLOWED_PATHS` | `local.allowedPaths` | `[]` (home only) | Extra roots added on top of the always-allowed home directory. Env: comma-separated; rc: JSON array. |
 
 #### Tools
 

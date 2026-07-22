@@ -81,6 +81,14 @@ export class PathValidator {
     }
   }
 
+  // Names the configured allowed roots so an agent hitting an out-of-root
+  // denial can self-correct in one step (move the worktree / pick an allowed
+  // location) instead of guessing. Empty when no roots are configured.
+  private describeAllowedRoots(): string {
+    if (this.allowedRoots.length === 0) return '';
+    return ` (allowed: ${this.allowedRoots.join(', ')})`;
+  }
+
   private isResolvedPathAllowed(
     _absolutePath: string,
     resolvedPath: string
@@ -105,6 +113,20 @@ export class PathValidator {
     const absolutePath = path.resolve(expandedPath);
 
     try {
+      // Invariant: a path is allowed iff its *real* (symlink-resolved) location
+      // is within an allowed root — regardless of how it was spelled. This is
+      // gated on realPath only (not the lexical path) on purpose:
+      //   • It blocks the dangerous direction — a symlink INSIDE a root whose
+      //     target escapes OUTSIDE resolves to an out-of-root realPath → denied.
+      //   • It permits the harmless direction — a symlink OUTSIDE a root that
+      //     points back INSIDE resolves to an in-root realPath → allowed. A
+      //     symlink cannot expand the reachable real-file set, so this is safe.
+      //   • It accepts realpath-equivalent spellings (macOS /var→/private/var,
+      //     /tmp→/private/tmp), which a canonical "lexical path must ALSO be
+      //     inside" two-stage gate would wrongly reject.
+      // Do NOT tighten this to also require the lexical path to be in-root: it
+      // would regress the two bullets above for no confidentiality gain. See
+      // pathValidator.test.ts "realpath-only invariant".
       const realPath = fs.realpathSync(absolutePath);
       const isRealPathAllowed = this.isResolvedPathAllowed(
         absolutePath,
@@ -112,9 +134,22 @@ export class PathValidator {
       );
 
       if (!isRealPathAllowed) {
+        // Classify the denial the way the reference MCP filesystem server does:
+        // check the lexical (pre-symlink) path first. If that was already
+        // outside the allowed roots, the path is simply out of scope — no
+        // symlink is involved, so do not blame one. Only when the lexical path
+        // was inside but a symlink resolved to a target outside the roots is
+        // this a genuine symlink escape.
+        const lexicalPathAllowed = this.isResolvedPathAllowed(
+          absolutePath,
+          absolutePath
+        );
+        const allowed = this.describeAllowedRoots();
         return {
           isValid: false,
-          error: `Symlink target '${redactPath(realPath)}' is outside allowed directories`,
+          error: lexicalPathAllowed
+            ? `Symlink target '${redactPath(realPath)}' is outside allowed directories${allowed}`
+            : `Path '${redactPath(absolutePath)}' is outside allowed directories${allowed}`,
         };
       }
 
@@ -201,7 +236,7 @@ export class PathValidator {
     if (!isAllowed) {
       return {
         isValid: false,
-        error: `Path '${redactPath(inputPath)}' is outside allowed directories`,
+        error: `Path '${redactPath(inputPath)}' is outside allowed directories${this.describeAllowedRoots()}`,
       };
     }
 

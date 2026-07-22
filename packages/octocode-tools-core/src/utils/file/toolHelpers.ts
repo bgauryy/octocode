@@ -17,6 +17,27 @@ type ToolPathValidationResult =
   | { isValid: false; errorResult: LocalErrorResult; sanitizedPath?: undefined }
   | { isValid: true; sanitizedPath: string; errorResult?: undefined };
 
+/**
+ * Apply `.octocoderc` `local.allowedPaths` to the shared PathValidator so the
+ * file-config allowlist behaves identically to the `ALLOWED_PATHS` env var
+ * (which the PathValidator reads directly at construction). Without this, a
+ * user setting `allowedPaths` in `.octocoderc` gets a silent no-op — the field
+ * is validated by the config layer but never reaches the validator.
+ *
+ * `addAllowedRoot` de-duplicates and expands `~`, so this is idempotent and
+ * cheap to call per request (the common case is an empty array — a no-op).
+ * Exported for testing.
+ */
+export function applyConfiguredAllowedRoots(
+  allowedPaths: readonly string[] = getConfigSync().local.allowedPaths
+): void {
+  for (const p of allowedPaths) {
+    if (typeof p === 'string' && p.trim() !== '') {
+      pathValidator.addAllowedRoot(p);
+    }
+  }
+}
+
 export function validateToolPath(
   query: PartialBaseQueryLocal & { path?: string },
   toolName: string
@@ -28,6 +49,10 @@ export function validateToolPath(
       errorResult: createErrorResult(toolError, query, { toolName }),
     };
   }
+  // Honor `.octocoderc` local.allowedPaths (parity with the ALLOWED_PATHS env
+  // var) before validating — otherwise file-config allowlist entries are a
+  // silent no-op.
+  applyConfiguredAllowedRoots();
   const cwd =
     process.env.WORKSPACE_ROOT?.trim() ||
     getConfigSync().local.workspaceRoot ||

@@ -332,7 +332,7 @@ Useful local-tool environment variables:
 |----------|-------------|
 | `ENABLE_LOCAL` | Enables local filesystem tools. Defaults to `true`; set `false` to disable. |
 | `WORKSPACE_ROOT` | Root used to resolve relative local paths. Overrides `local.workspaceRoot` in config. |
-| `ALLOWED_PATHS` | Optional comma-separated allowlist. Empty means all paths are allowed after normal validation. |
+| `ALLOWED_PATHS` | Optional comma-separated allowlist of extra roots, added on top of the always-allowed home directory. Empty means home directory only (paths outside home are denied). |
 | `ENABLE_CLONE` | Enables clone-backed workflows and GitHub directory fetches that materialize local files. |
 
 Config reference: [Configuration Reference](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md).

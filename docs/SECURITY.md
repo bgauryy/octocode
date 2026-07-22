@@ -158,7 +158,7 @@ flowchart TD
 
 Canonical sources: `src/security/filePatterns.ts` · `src/security/pathPatterns.ts`.
 
-`ALLOWED_PATHS` adds roots on top of the HOME default. Disable local tools entirely with `ENABLE_LOCAL=false`.
+`ALLOWED_PATHS` (or `local.allowedPaths` in `.octocoderc`) adds roots on top of the HOME default. Disable local tools entirely with `ENABLE_LOCAL=false`.
 
 ---
 

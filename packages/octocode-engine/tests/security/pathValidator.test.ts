@@ -89,6 +89,68 @@ describe('PathValidator.validate — input & existing-path branches', () => {
     const r = v.validate(link);
     expect(r.isValid).toBe(false);
     expect(r.error).toMatch(/outside allowed directories/);
+    // A genuine symlink escape (lexical path inside, target outside) keeps the
+    // "Symlink target" wording.
+    expect(r.error).toMatch(/Symlink target/i);
+
+    rmSync(outside, { recursive: true, force: true });
+  });
+
+  it('allows a symlink located OUTSIDE allowed roots whose target resolves INTO an allowed root (realpath-only invariant)', () => {
+    // Deliberate design: a path is allowed iff its *real* (symlink-resolved)
+    // location is within an allowed root, regardless of how it was spelled.
+    // This is why macOS /var -> /private/var and /tmp -> /private/tmp prefixes
+    // work, and why tightening to a "lexical path must also be inside"
+    // canonical two-stage gate would regress those. A symlink cannot EXPAND the
+    // reachable set here — the target is already inside an allowed root — so
+    // this is safe. (The dangerous inside->outside direction is blocked by the
+    // "symlink whose target resolves outside" test above.)
+    const v = newValidator();
+    const outside = realpathSync(
+      mkdtempSync(join(tmpdir(), 'octocode-inbound-'))
+    );
+    const link = join(outside, 'inbound-link');
+    symlinkSync(tempRoot, link);
+
+    const r = v.validate(link);
+    expect(r.isValid).toBe(true);
+    expect(r.sanitizedPath).toBe(tempRoot);
+
+    rmSync(outside, { recursive: true, force: true });
+  });
+
+  it('rejects an existing symlink-free path outside allowed roots WITHOUT blaming a symlink (issue #450)', () => {
+    const v = newValidator();
+    // A plain, existing directory with no symlinks anywhere on the path, simply
+    // living outside the allowed roots.
+    const outside = realpathSync(
+      mkdtempSync(join(tmpdir(), 'octocode-plain-outside-'))
+    );
+    const dir = join(outside, 'src', 'Core');
+    mkdirSync(dir, { recursive: true });
+
+    const r = v.validate(dir);
+    expect(r.isValid).toBe(false);
+    // The denial is correct; the wording must name the real cause…
+    expect(r.error).toMatch(/is outside allowed directories/);
+    expect(r.error).toMatch(/^Path /);
+    // …and must NOT invent a nonexistent symlink.
+    expect(r.error).not.toMatch(/Symlink/i);
+
+    rmSync(outside, { recursive: true, force: true });
+  });
+
+  it('names the configured allowed roots in the out-of-root error so agents can self-correct (issue #450)', () => {
+    const v = newValidator();
+    const outside = realpathSync(
+      mkdtempSync(join(tmpdir(), 'octocode-plain-outside-'))
+    );
+    const dir = join(outside, 'src');
+    mkdirSync(dir, { recursive: true });
+
+    const r = v.validate(dir);
+    expect(r.isValid).toBe(false);
+    expect(r.error).toContain(tempRoot);
 
     rmSync(outside, { recursive: true, force: true });
   });
