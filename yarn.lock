@@ -1638,37 +1638,37 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@octocodeai/octocode-engine-darwin-arm64@npm:17.0.2, @octocodeai/octocode-engine-darwin-arm64@workspace:packages/octocode-engine/npm/darwin-arm64":
+"@octocodeai/octocode-engine-darwin-arm64@npm:^17.0.2, @octocodeai/octocode-engine-darwin-arm64@workspace:packages/octocode-engine/npm/darwin-arm64":
   version: 0.0.0-use.local
   resolution: "@octocodeai/octocode-engine-darwin-arm64@workspace:packages/octocode-engine/npm/darwin-arm64"
   languageName: unknown
   linkType: soft
 
-"@octocodeai/octocode-engine-darwin-x64@npm:17.0.2, @octocodeai/octocode-engine-darwin-x64@workspace:packages/octocode-engine/npm/darwin-x64":
+"@octocodeai/octocode-engine-darwin-x64@npm:^17.0.2, @octocodeai/octocode-engine-darwin-x64@workspace:packages/octocode-engine/npm/darwin-x64":
   version: 0.0.0-use.local
   resolution: "@octocodeai/octocode-engine-darwin-x64@workspace:packages/octocode-engine/npm/darwin-x64"
   languageName: unknown
   linkType: soft
 
-"@octocodeai/octocode-engine-linux-arm64-gnu@npm:17.0.2, @octocodeai/octocode-engine-linux-arm64-gnu@workspace:packages/octocode-engine/npm/linux-arm64-gnu":
+"@octocodeai/octocode-engine-linux-arm64-gnu@npm:^17.0.2, @octocodeai/octocode-engine-linux-arm64-gnu@workspace:packages/octocode-engine/npm/linux-arm64-gnu":
   version: 0.0.0-use.local
   resolution: "@octocodeai/octocode-engine-linux-arm64-gnu@workspace:packages/octocode-engine/npm/linux-arm64-gnu"
   languageName: unknown
   linkType: soft
 
-"@octocodeai/octocode-engine-linux-x64-gnu@npm:17.0.2, @octocodeai/octocode-engine-linux-x64-gnu@workspace:packages/octocode-engine/npm/linux-x64-gnu":
+"@octocodeai/octocode-engine-linux-x64-gnu@npm:^17.0.2, @octocodeai/octocode-engine-linux-x64-gnu@workspace:packages/octocode-engine/npm/linux-x64-gnu":
   version: 0.0.0-use.local
   resolution: "@octocodeai/octocode-engine-linux-x64-gnu@workspace:packages/octocode-engine/npm/linux-x64-gnu"
   languageName: unknown
   linkType: soft
 
-"@octocodeai/octocode-engine-linux-x64-musl@npm:17.0.2, @octocodeai/octocode-engine-linux-x64-musl@workspace:packages/octocode-engine/npm/linux-x64-musl":
+"@octocodeai/octocode-engine-linux-x64-musl@npm:^17.0.2, @octocodeai/octocode-engine-linux-x64-musl@workspace:packages/octocode-engine/npm/linux-x64-musl":
   version: 0.0.0-use.local
   resolution: "@octocodeai/octocode-engine-linux-x64-musl@workspace:packages/octocode-engine/npm/linux-x64-musl"
   languageName: unknown
   linkType: soft
 
-"@octocodeai/octocode-engine-win32-x64-msvc@npm:17.0.2, @octocodeai/octocode-engine-win32-x64-msvc@workspace:packages/octocode-engine/npm/win32-x64-msvc":
+"@octocodeai/octocode-engine-win32-x64-msvc@npm:^17.0.2, @octocodeai/octocode-engine-win32-x64-msvc@workspace:packages/octocode-engine/npm/win32-x64-msvc":
   version: 0.0.0-use.local
   resolution: "@octocodeai/octocode-engine-win32-x64-msvc@workspace:packages/octocode-engine/npm/win32-x64-msvc"
   languageName: unknown
@@ -1680,12 +1680,12 @@ __metadata:
   dependencies:
     "@napi-rs/cli": "npm:^3.7.2"
     "@octocodeai/config": "npm:^17.0.2"
-    "@octocodeai/octocode-engine-darwin-arm64": "npm:17.0.2"
-    "@octocodeai/octocode-engine-darwin-x64": "npm:17.0.2"
-    "@octocodeai/octocode-engine-linux-arm64-gnu": "npm:17.0.2"
-    "@octocodeai/octocode-engine-linux-x64-gnu": "npm:17.0.2"
-    "@octocodeai/octocode-engine-linux-x64-musl": "npm:17.0.2"
-    "@octocodeai/octocode-engine-win32-x64-msvc": "npm:17.0.2"
+    "@octocodeai/octocode-engine-darwin-arm64": "npm:^17.0.2"
+    "@octocodeai/octocode-engine-darwin-x64": "npm:^17.0.2"
+    "@octocodeai/octocode-engine-linux-arm64-gnu": "npm:^17.0.2"
+    "@octocodeai/octocode-engine-linux-x64-gnu": "npm:^17.0.2"
+    "@octocodeai/octocode-engine-linux-x64-musl": "npm:^17.0.2"
+    "@octocodeai/octocode-engine-win32-x64-msvc": "npm:^17.0.2"
     "@types/node": "npm:^25.9.3"
     "@vitest/coverage-v8": "npm:^4.1.9"
     bash-language-server: "npm:^5.6.0"
