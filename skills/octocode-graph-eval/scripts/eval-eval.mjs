@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 /**
- * Machine-checkable smoke evals for octocode-eval answers / loop reports.
+ * Machine-checkable smoke evals for octocode-graph-eval answers / loop reports.
  * Usage:
  *   node scripts/eval-eval.mjs --list
  *   node scripts/eval-eval.mjs --case define-kpi --input answer.md
  *   node scripts/eval-eval.mjs --self-test
  */
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -14,7 +14,7 @@ const SKILL_DIR = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const CASES_PATH = resolve(SKILL_DIR, 'evals', 'cases.json');
 
 function parseArgs(argv) {
-  const opts = { caseId: '', input: '', json: false, list: false, selfTest: false, help: false };
+  const opts = { caseId: '', input: '', batch: '', json: false, list: false, selfTest: false, help: false };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === '--help' || arg === '-h') { opts.help = true; continue; }
@@ -22,6 +22,7 @@ function parseArgs(argv) {
     if (arg === '--json') { opts.json = true; continue; }
     if (arg === '--self-test') { opts.selfTest = true; continue; }
     if (arg === '--case') { opts.caseId = argv[++i] || ''; continue; }
+    if (arg === '--batch') { opts.batch = argv[++i] || ''; continue; }
     if (arg === '--input' || arg === '-i') { opts.input = argv[++i] || ''; continue; }
     throw new Error(`Unknown argument: ${arg}`);
   }
@@ -77,7 +78,7 @@ function readAnswer(input) {
 function strongSample(caseId) {
   const samples = {
     'define-kpi': `Mode: Define
-Goal: Cut false skill triggers for octocode-eval.
+Goal: Cut false skill triggers for octocode-graph-eval.
 Primary KPI: false-trigger rate on held-out prompts (lower-better) baseline=0.40 target=0.10
 Guardrails: true-trigger recall >= 0.90; skill-review ERROR count = 0
 Budget: 20 prompts, 1 trial each
@@ -90,6 +91,14 @@ Primary KPI (lagging): held-out ACCEPT/REVERT accuracy (higher-better) baseline=
 Leading: eval-eval pass rate on link-goal-kpi + define-kpi cases
 Guardrails: skill-review ERROR=0; true-trigger recall >= 0.9
 Decision: ACCEPT if primary>=0.85 AND guardrails hold`,
+    'graph-eval': `Mode: Run
+Goal: restore end-to-end pipeline quality.
+Primary KPI: end-to-end pass rate at the graph boundary (higher-better) baseline=0.62 target=0.85.
+Leading: per-node sensors — each node's agent loop keeps its own case score and exit code.
+Guardrails: total latency, token cost, and per-node budgets do not regress.
+Attribution: bisect by node with frozen inputs; blame a node only after its own sensor reproduces the failure; grade node outcomes, not paths.
+Fix: strengthen the weak node's verifier/sensor first — do not add a node; then smallest subject change, re-measure with the same command.
+Verdict: KEEP if end-to-end recovers and guardrails hold, else DISCARD.`,
     'run-keep-discard': `Mode: Run
 ## Goal
 Improve loop-report completeness.
@@ -145,6 +154,14 @@ Stop when new traces add no categories; real failures beat vanity metrics.`,
 Verdict: REVERT
 Reason: narrative-only claim ("feels better") with no baseline KPI and an attempt to edit eval cases to pass.
 Harness must stay frozen; results beat words.`,
+    'loop-until-target': `Mode: Run
+Goal: p95 latency under 300ms.
+Sensor: profiler + fixed benchmark command; measure baseline before the first mutation.
+Primary KPI: p95 latency (lower-better) baseline=420ms target=300ms
+Budget: 10 trials per iteration, pinned environment, same command every run.
+Loop: baseline -> smallest change -> re-measure -> KEEP if p95 drops and guardrails hold, else DISCARD; repeat without pausing until target or stop gate.
+Guardrails: throughput and memory RSS do not regress.
+Verdict at target: ACCEPT with held-out re-run.`,
     'tdd-red-green': `Mode: Run
 ## Goal
 Prove the subject change with a TDD-shaped eval loop.
@@ -181,6 +198,7 @@ function main() {
     console.log(`Usage:
   node scripts/eval-eval.mjs --list
   node scripts/eval-eval.mjs --case <id> --input answer.md [--json]
+  node scripts/eval-eval.mjs --batch <dir> [--json]   # grades every <case-id>.md in dir; exit 1 if any fail
   node scripts/eval-eval.mjs --self-test [--json]
 `);
     return;
@@ -197,7 +215,26 @@ function main() {
     process.exitCode = passed ? 0 : 1;
     return;
   }
-  if (!opts.caseId) throw new Error('Provide --case <id> or --self-test');
+  if (opts.batch) {
+    const dir = resolve(process.cwd(), opts.batch);
+    const results = [];
+    const missing = [];
+    for (const c of data.cases) {
+      const file = resolve(dir, `${c.id}.md`);
+      if (!existsSync(file)) { missing.push(c.id); continue; }
+      results.push(evaluateCase(c, readFileSync(file, 'utf8')));
+    }
+    if (!results.length) throw new Error(`No <case-id>.md answer files found in ${dir}`);
+    const passed = results.filter((r) => r.passed);
+    if (opts.json) console.log(JSON.stringify({ dir, passRate: passed.length / results.length, results, missing }, null, 2));
+    else {
+      for (const r of results) console.log(`${r.id}: ${r.passed ? 'pass' : 'fail'} score=${r.score}${r.failedChecks.length ? ` failed: ${r.failedChecks.join(', ')}` : ''}`);
+      console.log(`batch: ${passed.length}/${results.length} pass${missing.length ? ` (no answer file: ${missing.join(', ')})` : ''}`);
+    }
+    process.exitCode = passed.length === results.length ? 0 : 1;
+    return;
+  }
+  if (!opts.caseId) throw new Error('Provide --case <id>, --batch <dir>, or --self-test');
   const testCase = data.cases.find((c) => c.id === opts.caseId);
   if (!testCase) throw new Error(`Unknown case: ${opts.caseId}`);
   const result = evaluateCase(testCase, readAnswer(opts.input));

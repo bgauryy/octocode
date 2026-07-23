@@ -13,7 +13,7 @@ This monorepo is the platform. Use what we ship — do not reinvent with host de
 | npm lookup | `npmSearch` | ad-hoc registry curls |
 | Unified research / OQL | CLI `search` (and `oqlSearch` when `ENABLE_OQL`) | hand-rolled multi-tool scripts |
 | Research / review / change flows | `octocode-research` skill | inventing search loops |
-| Measure “did this help?” / keep-discard | `octocode-eval` skill | vibe acceptance / editing graders to pass |
+| Measure “did this help?” / keep-discard | `octocode-graph-eval` skill | vibe acceptance / editing graders to pass |
 | Offload low-risk bulk to local Ollama | `octocode-orchestrator-local-worker` skill | cloud-only token burn / inventing Ollama loops |
 | After a package change | rebuild → real CLI / MCP / skill path | claim done from compile alone |
 

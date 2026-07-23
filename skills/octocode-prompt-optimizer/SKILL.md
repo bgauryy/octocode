@@ -23,8 +23,8 @@ Optimize instruction behavior, not prose aesthetics. Flow: `READ → UNDERSTAND 
 - When context can overflow, load `references/context-budget.md`; when repeated calls share stable prefixes load `references/prompt-caching.md` — control relevance, pagination, latency, and cost.
 - When reliability must be measured, load `references/evaluation-data.md` — build realistic held-out scenarios, verifiers, metrics, and a failure ledger.
 - When instructions consume retrieved or user-supplied content, load `references/untrusted-content.md` — preserve the boundary between data and authority.
-- When improving this skill, prefer `octocode-eval`; otherwise load `references/improve-loop.md` — require measurable acceptance instead of intuition.
+- When improving this skill, prefer `octocode-graph-eval`; otherwise load `references/improve-loop.md` — require measurable acceptance instead of intuition.
 
 ## Related routes
-- Use `octocode-skills` for skill-folder architecture/review; `octocode-research` to verify cited contracts; `octocode-eval` for held-out behavior.
+- Use `octocode-skills` for skill-folder architecture/review; `octocode-research` to verify cited contracts; `octocode-graph-eval` for held-out behavior.
 - Use `octocode-subagent` for delegation topology; `octocode-awareness` for coordinated instruction-file edits.

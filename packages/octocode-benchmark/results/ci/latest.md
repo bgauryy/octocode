@@ -8,8 +8,8 @@
 
 | Check | Status | Last run |
 |-------|--------|----------|
-| matrix:check | PASS | 2026-07-14T16:34:05.120Z |
-| ast:check | PASS | 2026-07-14T16:34:05.120Z |
-| lsp:check | PASS | 2026-07-14T16:34:05.120Z |
-| minify:check | PASS | 2026-07-14T16:34:05.120Z |
-| cli:check | PASS | 2026-07-14T16:34:05.120Z |
+| matrix:check | PASS | 2026-07-23T09:12:32.547Z |
+| ast:check | PASS | 2026-07-23T09:12:32.547Z |
+| lsp:check | PASS | 2026-07-23T09:12:32.547Z |
+| minify:check | PASS | 2026-07-23T09:12:32.547Z |
+| cli:check | FAIL (exit 1) | 2026-07-23T09:12:32.547Z |

@@ -27,6 +27,7 @@ BASELINE → MUTATE (one subject) → MEASURE (fixed budget) → KEEP | DISCARD 
 
 ## Isolation
 Each trial starts clean. Shared state or peeking at prior-trial artifacts corrupts independence.
+N independent hypotheses in one round → fan out via `octocode-subagent` (one sealed packet each); measurement and keep/discard return here under the frozen harness.
 
 ## Creativity vs path grading
 Grade **outcomes** over exact tool-call sequences.

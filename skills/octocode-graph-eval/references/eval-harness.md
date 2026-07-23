@@ -27,7 +27,7 @@ Examples: `octocode-research`, `octocode-brainstorming`, `octocode-rfc-generator
 6. Run artifacts → `.octocode/` (temp). Keep `evals/` suite files permanent.
 
 ## This skill’s scripts
-- `scripts/eval-eval.mjs` — grade answers for this skill’s cases
+- `scripts/eval-eval.mjs` — grade answers for this skill’s cases (`--case <id>`, `--batch <dir>` for one-command answer-set grading, `--self-test`)
 - `scripts/loop-report.mjs` — structural check that a loop report is complete
 
 Next: held-out split → `held-out-and-guards.md`; close improve cycle → `improve-loop.md`.

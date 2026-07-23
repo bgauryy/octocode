@@ -1,6 +1,6 @@
-# Octocode Eval
+# Octocode Graph Eval
 
-`octocode-eval` teaches agents how to evaluate work, cascade goals into KPIs, benchmark honestly, run nested improve loops, and self-improve with evidence instead of vibes.
+`octocode-graph-eval` teaches agents how to evaluate work, cascade goals into KPIs, benchmark honestly, run nested improve loops, and self-improve with evidence instead of vibes — for a single agent loop or a graph of loops (multi-agent workflow).
 
 ## Who It’s For
 
@@ -20,6 +20,8 @@ Agents claim “better” without baseline, held-out, or keep/discard. Public be
 - Benchmarking hygiene: private ship gates; public boards orient; contamination/saturation checks
 - Coding: fail-to-pass + pass-to-pass; outcomes over brittle paths
 - TDD for agents: red (failing case) → green (same harness) → keep|discard
+- Feedback-loop prerequisites: runnable sensor + numeric target + budget before any loop starts
+- Graph of loops: end-to-end primary at the graph boundary, per-node sensors, attribution by bisection, strengthen verifiers before adding nodes
 - Scripts: `loop-report.mjs`, `eval-eval.mjs`
 
 ## Operating Model
@@ -33,8 +35,8 @@ Grounded in Karpathy (Software 2.0, RLVR, autoresearch), Anthropic agent evals, 
 ## Installation
 
 ```bash
-npx octocode skill --name octocode-eval
-npx octocode skill --add --path skills/octocode-eval --platform common --force
+npx octocode skill --name octocode-graph-eval
+npx octocode skill --add --path skills/octocode-graph-eval --platform common --force
 ```
 
 ## Scripts

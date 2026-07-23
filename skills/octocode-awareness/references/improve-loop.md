@@ -1,6 +1,6 @@
 # Improve Loop
 
-Stub only. Full goal→KPI cascade, nested loops, graders, held-out: load **`octocode-eval`**.
+Stub only. Full goal→KPI cascade, nested loops, graders, held-out: load **`octocode-graph-eval`**.
 
 ```text
 SET GOAL + KPI → SMALLEST CHANGE → MEASURE ACTUAL RESULTS → ACCEPT | REVERT

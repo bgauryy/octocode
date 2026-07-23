@@ -18,11 +18,16 @@ experiment | suite | meta
 - held-out: …
 ## Transcript note
 ## Verdict
-ACCEPT | REVERT | CONTINUE
+ACCEPT | REVERT | CONTINUE  (inner-loop KEEP maps to ACCEPT, DISCARD to REVERT)
 ## Next
 ```
 
 Validate with `scripts/loop-report.mjs` before claiming done.
+Write run artifacts (answers, grades, loop reports) under `.octocode/` in the workspace — never a session temp dir; only permanent suite files live in `evals/`.
+
+## Loop retrospective (multi-iteration runs)
+After the final verdict, add one short block: iterations run · hypotheses kept/killed ·
+metric trajectory (baseline → … → final) · where the loop stalled or escalated (suite/meta).
 
 ## Confidence markers
 | Marker | Minimum |

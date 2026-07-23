@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Validate an octocode-eval loop report has the required sections.
+ * Validate an octocode-graph-eval loop report has the required sections.
  * Usage:
  *   node scripts/loop-report.mjs --input report.md
  *   node scripts/loop-report.mjs --self-test
@@ -57,7 +57,7 @@ function readText(input) {
 }
 
 const GOOD = `## Goal
-Raise skill-review pass rate for octocode-eval.
+Raise skill-review pass rate for octocode-graph-eval.
 
 ## KPI
 - primary (lagging): skill-review ERROR count (lower-better) baseline=2 result=0 target=0 — serves goal

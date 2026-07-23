@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "description": "Machine-checkable smoke evals for octocode-eval answers. Deterministic floor only; human review still judges evidence quality.",
+  "description": "Machine-checkable smoke evals for octocode-graph-eval answers. Deterministic floor only; human review still judges evidence quality.",
   "rubric": [
     "Links every KPI to a parent goal (cascade).",
     "Declares measurable primary with baseline/target and decision rule.",
@@ -18,10 +18,10 @@
       "minScore": 0.85,
       "required": [
         { "name": "mode define", "pattern": "\\bMode:\\s*Define\\b|\\bDefine\\b[\\s\\S]{0,40}\\bKPI\\b" },
-        { "name": "goal", "pattern": "\\bGoal:" },
+        { "name": "goal", "pattern": "\\bGoal:|#{1,3}\\s*Goal\\b" },
         { "name": "primary KPI", "pattern": "\\bPrimary KPI\\b|\\bprimary\\b[\\s\\S]{0,80}\\b(baseline|target)\\b" },
         { "name": "baseline and target", "pattern": "\\bbaseline\\b[\\s\\S]{0,80}\\btarget\\b" },
-        { "name": "guardrails", "pattern": "\\bGuardrails?:" },
+        { "name": "guardrails", "pattern": "\\bGuardrails?:|#{1,3}\\s*Guardrails?\\b" },
         { "name": "held-out", "pattern": "\\bHeld-out\\b|\\bheld-out\\b" }
       ],
       "binaryQuestions": [
@@ -35,7 +35,7 @@
         }
       ],
       "forbidden": [
-        { "name": "feels better KPI", "pattern": "\\bKPI\\b[\\s\\S]{0,40}\\bfeels better\\b" }
+        { "name": "feels better KPI", "pattern": "\\bKPI\\b[^\\n]{0,12}\\bfeels better\\b" }
       ]
     },
     {
@@ -44,10 +44,10 @@
       "prompt": "Cascade a user goal into leading and lagging KPIs with a decision rule.",
       "minScore": 0.85,
       "required": [
-        { "name": "goal", "pattern": "\\bGoal:" },
+        { "name": "goal", "pattern": "\\bGoal:|#{1,3}\\s*Goal\\b" },
         { "name": "lagging or primary", "pattern": "\\blagging\\b|\\bPrimary KPI\\b|\\bprimary\\b" },
         { "name": "leading", "pattern": "\\b[Ll]eading\\b" },
-        { "name": "guardrails", "pattern": "\\bGuardrails?:" },
+        { "name": "guardrails", "pattern": "\\bGuardrails?:|#{1,3}\\s*Guardrails?\\b" },
         { "name": "decision rule", "pattern": "\\bDecision\\b|\\bACCEPT if\\b" }
       ],
       "binaryQuestions": [
@@ -74,7 +74,7 @@
         { "name": "KPI with baseline result", "pattern": "\\bprimary\\b[\\s\\S]{0,160}\\bbaseline\\b[\\s\\S]{0,160}\\bresult\\b" },
         { "name": "checks run", "pattern": "#{1,3}\\s*Checks run\\b|\\bChecks run\\b" },
         { "name": "harness frozen", "pattern": "\\bHarness unchanged\\b|\\bharness\\b[\\s\\S]{0,40}\\bunchanged\\b" },
-        { "name": "verdict", "pattern": "\\bVerdict\\b[\\s\\S]{0,40}\\b(ACCEPT|REVERT|CONTINUE)\\b" }
+        { "name": "verdict", "pattern": "\\bVerdict\\b[\\s\\S]{0,40}\\b(ACCEPT|REVERT|CONTINUE|KEEP|DISCARD)\\b" }
       ],
       "binaryQuestions": [
         {
@@ -87,7 +87,7 @@
         }
       ],
       "forbidden": [
-        { "name": "edit cases to pass", "pattern": "\\bedited (the )?(eval|cases|grader).*pass\\b" }
+        { "name": "edit cases to pass", "pattern": "(?<!\\bnot )(?<!\\bnever )\\bedited (the )?(eval|cases|grader)[^\\n.]{0,60}\\bpass\\b" }
       ]
     },
     {
@@ -111,7 +111,7 @@
         }
       ],
       "forbidden": [
-        { "name": "edit graders to pass", "pattern": "\\bedit( the)? (grader|cases) to (make it )?pass\\b" }
+        { "name": "edit graders to pass", "pattern": "(?<!\\bnot )(?<!\\bnever )\\bedit( the)? (grader|cases) to (make it )?pass\\b" }
       ]
     },
     {
@@ -136,7 +136,7 @@
         }
       ],
       "forbidden": [
-        { "name": "path-only grading", "pattern": "\\bmust follow exact tool order\\b|\\bonly grade the path\\b" }
+        { "name": "path-only grading", "pattern": "\\bmust follow exact tool order\\b|(?<!\\bnot )(?<!\\bnever )\\bonly grade the path\\b" }
       ]
     },
     {
@@ -160,7 +160,7 @@
         }
       ],
       "forbidden": [
-        { "name": "sole public gate", "pattern": "\\bSWE-bench (Verified )?is (our |the )?(sole|only) (proof|gate|ship gate)\\b|\\bonly (need|use) SWE-bench\\b" }
+        { "name": "sole public gate", "pattern": "\\bSWE-bench (Verified )?is (our |the )?(sole|only) (proof|gate|ship gate)\\b|(?<!\\bnot )(?<!n't )\\bonly (need|use) SWE-bench\\b" }
       ]
     },
     {
@@ -184,7 +184,7 @@
         }
       ],
       "forbidden": [
-        { "name": "generic only", "pattern": "\\bonly (use|need) (toxicity|helpfulness) scores\\b" }
+        { "name": "generic only", "pattern": "(?<!\\bnot )(?<!n't )\\bonly (use|need) (toxicity|helpfulness) scores\\b" }
       ]
     },
     {
@@ -208,7 +208,59 @@
         }
       ],
       "forbidden": [
-        { "name": "accept vibes", "pattern": "\\bACCEPT\\b[\\s\\S]{0,60}\\bfeels better\\b" }
+        { "name": "accept vibes", "pattern": "(?<!\\bnot )(?<!\\bnever )\\bACCEPT\\b[\\s\\S]{0,60}\\bfeels better\\b" }
+      ]
+    },
+    {
+      "id": "graph-eval",
+      "mode": "Run",
+      "prompt": "Our multi-agent pipeline's end-to-end quality dropped. Evaluate it and decide what to fix.",
+      "minScore": 0.85,
+      "required": [
+        { "name": "end-to-end primary", "pattern": "\\bend-to-end\\b|\\bgraph boundary\\b|\\bgraph-level\\b" },
+        { "name": "per-node sensors", "pattern": "\\bper-node\\b|\\bnode-level\\b|\\beach (node|agent|loop)\\b" },
+        { "name": "attribution", "pattern": "\\bbisect\\b|\\battribut|\\bwhich node\\b|\\bfrozen inputs\\b" },
+        { "name": "verdict", "pattern": "\\b(ACCEPT|REVERT|CONTINUE|KEEP|DISCARD)\\b" },
+        { "name": "guardrails", "pattern": "\\bguardrail" }
+      ],
+      "binaryQuestions": [
+        {
+          "id": "verifier-before-nodes",
+          "dimension": "graph",
+          "question": "Does the answer strengthen sensors/verifiers before changing topology or adding nodes?",
+          "passPattern": "\\bstrengthen[\\s\\S]{0,60}\\b(verifier|sensor)\\b|\\bbefore adding (a )?node\\b|\\bnot add (a )?node\\b",
+          "failureSignature": "mechanism:eval-graph|cause:add-nodes-first",
+          "suggestedLesson": "Strengthen per-node sensors before changing topology."
+        }
+      ],
+      "forbidden": [
+        { "name": "add agents as first fix", "pattern": "\\bjust add (more|another) agents?\\b" }
+      ]
+    },
+    {
+      "id": "loop-until-target",
+      "mode": "Run",
+      "prompt": "Get p95 latency under 300ms. Don't stop till you're done — use a profiler.",
+      "minScore": 0.85,
+      "required": [
+        { "name": "sensor named", "pattern": "\\bprofil|\\bsensor\\b|\\bbenchmark\\b" },
+        { "name": "numeric target", "pattern": "\\btarget\\b[\\s\\S]{0,60}\\d|\\b300\\s?ms\\b" },
+        { "name": "budget declared", "pattern": "\\bbudget\\b|\\btrials\\b" },
+        { "name": "keep or discard loop", "pattern": "\\b(KEEP|DISCARD|keep/discard|ACCEPT|REVERT)\\b" },
+        { "name": "no mid-loop pause", "pattern": "\\bwithout paus|\\bdo(es)? not (pause|stop)\\b|\\bno paus" }
+      ],
+      "binaryQuestions": [
+        {
+          "id": "sensor-before-loop",
+          "dimension": "loop",
+          "question": "Does the answer verify a runnable sensor and target before the first mutation?",
+          "passPattern": "\\b(sensor|profiler|benchmark|baseline)\\b[\\s\\S]{0,120}\\bbefore (the )?first (mutation|change|iteration)\\b|\\bbefore (mutating|iterating|the loop)\\b",
+          "failureSignature": "mechanism:eval-loop|cause:loop-without-sensor",
+          "suggestedLesson": "Verify a runnable sensor and numeric target before the first mutation."
+        }
+      ],
+      "forbidden": [
+        { "name": "vibes stop condition", "pattern": "\\bstop (when|once|if) (it )?(looks|feels) faster\\b" }
       ]
     },
     {
@@ -233,7 +285,7 @@
         }
       ],
       "forbidden": [
-        { "name": "edit grader to pass", "pattern": "\\bedit(ed|ing)? (the )?(grader|cases) to pass\\b" }
+        { "name": "edit grader to pass", "pattern": "(?<!\\bnot )(?<!\\bnever )\\bedit(ed|ing)? (the )?(grader|cases) to pass\\b" }
       ]
     }
   ]
