@@ -17,6 +17,7 @@
     "build:native:all": "yarn workspace @octocodeai/octocode-engine build:all",
     "platforms:check": "yarn workspace @octocodeai/octocode-engine platforms:check",
     "build:publish": "yarn prepublish && yarn build:native:all && yarn platforms:check && yarn workspace @octocodeai/mcp build:publish",
+    "release": "node scripts/release.mjs --target mcp && node scripts/release.mjs --target cli",
     "docs:verify": "node ./scripts/docs-verify.mjs",
     "health:check": "node ./scripts/workspace-health.mjs check",
     "health:report": "node ./scripts/workspace-health.mjs report",

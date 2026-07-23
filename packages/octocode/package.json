@@ -41,6 +41,7 @@
   },
   "scripts": {
     "build": "yarn readme:sync && yarn lint && node build.mjs",
+    "release": "node ../../scripts/release.mjs --target cli",
     "build:dev": "yarn readme:sync && yarn workspace @octocodeai/octocode-tools-core build:dev && node build.mjs",
     "clean": "rm -rf out/",
     "lint": "eslint src tests",

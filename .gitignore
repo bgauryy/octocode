@@ -57,3 +57,5 @@ devScripts
 output
 __pycache__
 output
+releases/**
+!releases/README.md
