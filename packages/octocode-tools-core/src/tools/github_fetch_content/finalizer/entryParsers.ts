@@ -1,5 +1,6 @@
 import type { PaginationInfo } from '../../../types/toolResults.js';
 import { buildContinueCharsContinuation } from '../../../scheme/pagination.js';
+import { isCloneEnabled } from '../../../serverConfig.js';
 import type {
   DirectoryEntry,
   FileContentNextMap,
@@ -141,9 +142,20 @@ export function readFileEntry(
   query: PartialFileContentQuery
 ): FileEntry {
   const pagination = readPagination(data.pagination);
+  // Only offer the ghCloneRepo bridge when clone is actually enabled —
+  // otherwise the hint names a tool that isn't registered in this session.
+  // Fail-safe: an uninitialized config must suppress the hint, never throw.
+  let cloneHintEnabled = false;
+  try {
+    cloneHintEnabled = isCloneEnabled();
+  } catch {
+    cloneHintEnabled = false;
+  }
   const next: FileContentNextMap = {
     ...buildContinueChars(pagination, query),
-    cloneForSemantics: buildCloneForSemanticsHint(query),
+    ...(cloneHintEnabled
+      ? { cloneForSemantics: buildCloneForSemanticsHint(query) }
+      : {}),
   };
   return {
     path: readString(data.path) ?? String(query.path ?? ''),
@@ -164,7 +176,7 @@ export function readFileEntry(
     sourceBytes: readNumber(data.sourceBytes),
     resolvedBranch: readString(data.resolvedBranch),
     pagination,
-    next,
+    ...(Object.keys(next).length > 0 ? { next } : {}),
     ...(data.isPartial === true ? { isPartial: true } : {}),
     startLine: readNumber(data.startLine),
     endLine: readNumber(data.endLine),

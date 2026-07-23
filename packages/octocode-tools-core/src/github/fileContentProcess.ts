@@ -176,9 +176,11 @@ export async function processFileContentAPI(
     actualStartLine = firstRange.start;
     actualEndLine = lastRange.end;
     isPartial = true;
-    if (extraction.matchRanges.length > 1) {
-      matchRanges = extraction.matchRanges;
-    }
+    // Always emit matchRanges — startLine/endLine include ±context lines, so
+    // for a single match they do NOT pinpoint the matched line; without this
+    // the only structured lineHint anchor for lspGetSemantics is lost.
+    // (Mirrors the identical fix in local_fetch_content/fetchContent/extraction.ts.)
+    matchRanges = extraction.matchRanges;
 
     const shownLines = extraction.matchingLines.slice(0, 5).join(', ');
     const extraCount =

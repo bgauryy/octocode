@@ -75,6 +75,10 @@ const LocalGetFileContentDataSchema = z.object({
   totalLines: z.number().optional(),
   sourceChars: z.number().optional(),
   sourceBytes: z.number().optional(),
+  // Chars actually returned in `content` after minification + windowing —
+  // compare against sourceChars to see what a contentView saved (mirrors
+  // ghGetFileContent's per-view fileSize signal).
+  returnedChars: z.number().optional(),
   startLine: z.number().optional(),
   endLine: z.number().optional(),
   isPartial: z.boolean().optional(),

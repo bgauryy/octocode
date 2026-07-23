@@ -11,7 +11,10 @@ import {
   describeQuerySchema,
 } from '../../scheme/coreSchemas.js';
 import { responseEnvelopeFields } from '../../scheme/responseEnvelope.js';
-import { ItemPaginationSchema } from '../../scheme/pagination.js';
+import {
+  ItemPaginationSchema,
+  ToolContinuationSchema,
+} from '../../scheme/pagination.js';
 
 const queryOverrides = {
   limit: clampedInt(1, GITHUB_SEARCH_MAX_LIMIT).optional(),
@@ -71,6 +74,10 @@ const RepositoryResultDataSchema = z
       .array(z.union([z.string(), LocalRepositoryDetailSchema]))
       .optional(),
     pagination: RepoSearchPaginationSchema,
+    // Ready-to-run follow-ups for the top-ranked hit (viewStructure/searchCode).
+    next: z.record(z.string(), ToolContinuationSchema).optional(),
+    // Partial-variant failures and empty-result guidance.
+    warnings: z.array(z.string()).optional(),
   })
   .passthrough();
 

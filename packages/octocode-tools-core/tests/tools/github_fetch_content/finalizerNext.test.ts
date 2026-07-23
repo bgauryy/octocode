@@ -1,6 +1,14 @@
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildGithubFetchContentFinalizer } from '../../../src/tools/github_fetch_content/finalizer.js';
 import type { FlatQueryResult } from '../../../src/types/toolResults.js';
+
+// cloneForSemantics must only be offered when clone is actually enabled —
+// otherwise the hint names a tool (ghCloneRepo) that isn't registered.
+const mockIsCloneEnabled = vi.fn<() => boolean>(() => true);
+vi.mock('../../../src/serverConfig.js', async importOriginal => ({
+  ...(await importOriginal<typeof import('../../../src/serverConfig.js')>()),
+  isCloneEnabled: () => mockIsCloneEnabled(),
+}));
 
 type Query = {
   id: string;
@@ -18,6 +26,10 @@ function run(queries: Query[], results: FlatQueryResult[]) {
 }
 
 describe('github fetch content finalizer next.continueChars', () => {
+  beforeEach(() => {
+    mockIsCloneEnabled.mockReturnValue(true);
+  });
+
   it('emits a ready continuation query when char pagination hasMore', () => {
     const query: Query = {
       id: 'q1',
@@ -118,5 +130,75 @@ describe('github fetch content finalizer next.continueChars', () => {
       why: expect.stringContaining('lspGetSemantics'),
       confidence: 'exact',
     });
+  });
+
+  it('omits cloneForSemantics (and an empty next map entirely) when clone is disabled', () => {
+    mockIsCloneEnabled.mockReturnValue(false);
+    const query: Query = {
+      id: 'q1',
+      owner: 'octo',
+      repo: 'engine',
+      path: 'src/small.ts',
+    };
+    const result: FlatQueryResult = {
+      id: 'q1',
+      status: 'success',
+      data: {
+        path: 'src/small.ts',
+        content: 'all',
+        pagination: {
+          currentPage: 1,
+          totalPages: 1,
+          hasMore: false,
+          charOffset: 0,
+          charLength: 3,
+          totalChars: 3,
+        },
+      },
+    };
+
+    const out = run([query], [result]);
+    const file = (
+      out.structuredContent.results as Array<{ data?: { files?: unknown[] } }>
+    )[0]?.data?.files?.[0] as { next?: Record<string, unknown> };
+
+    expect(file.next).toBeUndefined();
+  });
+
+  it('keeps continueChars when clone is disabled but more pages exist', () => {
+    mockIsCloneEnabled.mockReturnValue(false);
+    const query: Query = {
+      id: 'q1',
+      owner: 'octo',
+      repo: 'engine',
+      path: 'src/big.ts',
+    };
+    const result: FlatQueryResult = {
+      id: 'q1',
+      status: 'success',
+      data: {
+        path: 'src/big.ts',
+        content: 'chunk-1',
+        pagination: {
+          currentPage: 1,
+          totalPages: 2,
+          hasMore: true,
+          charOffset: 0,
+          charLength: 2000,
+          totalChars: 4000,
+          nextCharOffset: 2000,
+        },
+      },
+    };
+
+    const out = run([query], [result]);
+    const file = (
+      out.structuredContent.results as Array<{ data?: { files?: unknown[] } }>
+    )[0]?.data?.files?.[0] as {
+      next?: { continueChars?: unknown; cloneForSemantics?: unknown };
+    };
+
+    expect(file.next?.continueChars).toBeDefined();
+    expect(file.next?.cloneForSemantics).toBeUndefined();
   });
 });

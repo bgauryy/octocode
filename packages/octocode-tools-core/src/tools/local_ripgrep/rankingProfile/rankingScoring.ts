@@ -266,6 +266,10 @@ function fileRoleScore(
     reasons.push(`${role} file (penalized)`);
     return RANK_WEIGHTS.lowSignalPathPenalty;
   }
+  if (role === 'test') {
+    reasons.push('test file (penalized)');
+    return RANK_WEIGHTS.testPathPenalty;
+  }
   return 0;
 }
 

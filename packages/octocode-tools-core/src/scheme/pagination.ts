@@ -24,8 +24,18 @@ export const ItemPaginationSchema = z.object({
   totalFound: z.number().optional(),
   returned: z.number().optional(),
   totalMatches: z.number().optional(),
-  reportedTotalMatches: z.number().optional(),
-  reachableTotalMatches: z.number().optional(),
+  reportedTotalMatches: z
+    .number()
+    .optional()
+    .describe(
+      "Provider-reported raw total (e.g. GitHub's match count) — may exceed what pagination can actually reach."
+    ),
+  reachableTotalMatches: z
+    .number()
+    .optional()
+    .describe(
+      "Matches reachable by walking pages (bounded by the provider's result window, e.g. GitHub caps at 1000); totalPages is computed from this, not from reportedTotalMatches."
+    ),
   totalMatchesKind: z.enum(['exact', 'reported', 'lowerBound']).optional(),
   totalMatchesCapped: z.boolean().optional(),
   // LSP / local list envelopes

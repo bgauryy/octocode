@@ -279,9 +279,23 @@ export async function searchMultipleGitHubRepos(
         // Some query variants (e.g. the topics or keywords lane of a split
         // search) failed while others succeeded. Surface it so an empty or
         // thin result set isn't read as a confident, complete answer.
-        const warnings = buildPartialFailureWarnings(failedVariants);
+        const partialFailureWarnings =
+          buildPartialFailureWarnings(failedVariants);
 
-        const resultData = warnings ? { ...shape.data, warnings } : shape.data;
+        // A genuine zero-result response previously carried no guidance at
+        // all (unlike localSearchCode's in-band hints) — tell the agent how
+        // to widen instead of leaving a bare status:"empty".
+        const warnings = [
+          ...(partialFailureWarnings ?? []),
+          ...(!hasContent
+            ? [
+                'No repositories matched. Keywords are ANDed — try fewer or broader keywords, drop a topic/filter (topics are sparse), or add match:"readme" for full-text search.',
+              ]
+            : []),
+        ];
+
+        const resultData =
+          warnings.length > 0 ? { ...shape.data, warnings } : shape.data;
 
         return createSuccessResult(
           query,

@@ -177,6 +177,17 @@ export const contextUtils = {
     return loadNative().structuralSearchFiles(options);
   },
 
+  /**
+   * Detailed structural search: same matching as structuralSearchFiles plus a
+   * query explanation (kind, literal anchor, pre-filter mode) and staged
+   * diagnostics with recovery hints — the payload zero-match guidance needs.
+   */
+  structuralSearchFilesDetailed(
+    options: NativeContextUtils.StructuralSearchFilesOptions
+  ): NativeContextUtils.StructuralSearchFilesDetailedResult {
+    return loadNative().structuralSearchFilesDetailed(options);
+  },
+
   getSupportedStructuralExtensions(): string[] {
     return loadNative().getSupportedStructuralExtensions();
   },

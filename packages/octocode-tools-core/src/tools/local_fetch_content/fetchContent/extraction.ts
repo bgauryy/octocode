@@ -53,9 +53,10 @@ function buildMatchExtractionState(
     if (firstRange && lastRange) {
       actualStartLine = firstRange.start;
       actualEndLine = lastRange.end;
-      if (result.matchRanges.length > 1) {
-        matchRanges = result.matchRanges;
-      }
+      // Always emit matchRanges — startLine/endLine include ±context lines,
+      // so for a single match they do NOT pinpoint the matched line; without
+      // this the only structured anchor for lspGetSemantics lineHint is lost.
+      matchRanges = result.matchRanges;
     }
   }
 

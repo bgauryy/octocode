@@ -147,6 +147,11 @@ const HOIST_EXCLUDED_KEYS = new Set<string>([
   'repo',
   'name',
   'id',
+  // 'type' is REQUIRED by some tool output schemas (e.g. localViewStructure's
+  // entries[].type) — hoisting it out of a homogeneous entry list (all-files
+  // dir, filesOnly/directoriesOnly) made structuredContent fail MCP output
+  // validation and killed the whole batch with -32602.
+  'type',
 ]);
 
 export function hoistSharedFields(

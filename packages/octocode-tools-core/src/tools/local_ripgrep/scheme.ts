@@ -1,6 +1,10 @@
 import { z } from 'zod';
 import { RipgrepQuerySchema as CoreRipgrepQuerySchema } from '@octocodeai/octocode-core/schemas';
-import { MAX_MATCH_CONTENT_LENGTH, MAX_PAGE_NUMBER } from '../../config.js';
+import {
+  LOCAL_MAX_DEPTH,
+  MAX_MATCH_CONTENT_LENGTH,
+  MAX_PAGE_NUMBER,
+} from '../../config.js';
 import {
   clampedInt,
   contextLinesField,
@@ -67,7 +71,15 @@ const queryOverrides = {
     .string()
     .optional()
     .describe(
-      'Structural only: code-shaped AST pattern with $X (one node) or $$$ARGS (node list). Use this to find syntax shape, then use lspGetSemantics for semantic proof.'
+      'Structural only: code-shaped AST pattern with $X (one node) or $$$ARGS (node list). Modifiers are part of the node — `function $NAME` does not match `async function` or `export function`; include the modifiers or use a YAML `kind` rule for modifier-agnostic matches. Use this to find syntax shape, then use lspGetSemantics for semantic proof.'
+    ),
+  // Engine walker supports maxDepth on the structural lane
+  // (StructuralSearchFilesOptions.maxDepth); previously only reachable by
+  // direct napi callers.
+  maxDepth: clampedInt(0, LOCAL_MAX_DEPTH)
+    .optional()
+    .describe(
+      'Structural mode only: keep files at most this many directory levels below the search root (0 = files directly in the root). Ignored by text/regex modes.'
     ),
   rule: z
     .string()
@@ -98,7 +110,23 @@ const queryOverrides = {
 
 const bulkQueryOverrides = {
   ...queryOverrides,
-  semanticRanking: z.never().optional(),
+  // Disabled feature: reject loudly instead of z.never()'s opaque type error —
+  // the field is still visible in older clients/docs, so the rejection must
+  // say WHY and what to do.
+  semanticRanking: z
+    .unknown()
+    .optional()
+    .superRefine((v, ctx) => {
+      if (v === undefined) return;
+      ctx.addIssue({
+        code: 'custom',
+        message:
+          'semanticRanking is disabled in this build — sort:"relevance" already includes declaration/export/AST signals; remove this field.',
+      });
+    })
+    .describe(
+      'DISABLED in this build — do not pass. sort:"relevance" already includes declaration/export/AST signals.'
+    ),
 } as const;
 
 const RipgrepQueryShape = createQueryShapeSchema(

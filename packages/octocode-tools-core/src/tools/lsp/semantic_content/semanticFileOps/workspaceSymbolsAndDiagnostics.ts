@@ -1,8 +1,10 @@
 import path from 'node:path';
+import { readFile } from 'node:fs/promises';
 import {
   acquirePooledClient,
   isLanguageServerAvailable,
 } from '@octocodeai/octocode-engine/lsp/manager';
+import { resolveImportAliasDefinitions } from '@octocodeai/octocode-engine/lsp/resolver';
 import { resolveWorkspaceRootForFile } from '@octocodeai/octocode-engine/lsp/workspaceRoot';
 import type {
   LspSemanticEnvelope,
@@ -87,7 +89,10 @@ export async function getWorkspaceSymbols(
       },
     } satisfies LspSemanticEnvelope;
   }
-  const symbols = compactWorkspaceSymbols(raw);
+  const symbols = await preferDefinitionLocations(
+    client,
+    compactWorkspaceSymbols(raw)
+  );
   const { pageItems, pagination } = paginateItems(
     symbols,
     query.page ?? 1,
@@ -114,6 +119,67 @@ export async function getWorkspaceSymbols(
           },
     pagination,
   } satisfies LspSemanticEnvelope;
+}
+
+// workspace/symbol servers often index the IMPORT BINDING (alias site) rather
+// than the defining declaration — observed: querying a function returned only
+// its import line in a consumer file, not the definition. For small result
+// sets, chase each hit through gotoDefinition and keep the definition
+// location; failures keep the server-reported location (best-effort).
+const MAX_DEFINITION_RESOLVE = 10;
+
+async function preferDefinitionLocations(
+  client: NonNullable<Awaited<ReturnType<typeof acquirePooledClient>>>,
+  symbols: CompactWorkspaceSymbol[]
+): Promise<CompactWorkspaceSymbol[]> {
+  if (symbols.length === 0 || symbols.length > MAX_DEFINITION_RESOLVE) {
+    return symbols;
+  }
+  return Promise.all(
+    symbols.map(async sym => {
+      try {
+        if (!sym.uri) return sym;
+        const fsPath = sym.uri.startsWith('file://')
+          ? decodeURIComponent(sym.uri.slice('file://'.length))
+          : sym.uri;
+        const content = await readFile(fsPath, 'utf8');
+        await client.openDocument(fsPath);
+        // gotoDefinition on an import specifier returns the import binding
+        // itself — chase aliases to the real definition the same way the
+        // anchored definition path does.
+        const defs = await resolveImportAliasDefinitions({
+          anchorUri: fsPath,
+          symbolName: sym.name,
+          locations: await client.gotoDefinition(
+            fsPath,
+            { line: sym.line - 1, character: sym.character },
+            content
+          ),
+        });
+        if (!Array.isArray(defs) || defs.length !== 1) return sym;
+        const def = defs[0] as {
+          uri?: string;
+          range?: {
+            start?: { line?: number; character?: number };
+            end?: { line?: number };
+          };
+        };
+        const defLine = (def.range?.start?.line ?? -1) + 1;
+        if (!def.uri || defLine < 1) return sym;
+        if (def.uri === sym.uri && defLine === sym.line) return sym;
+        return {
+          ...sym,
+          uri: def.uri,
+          line: defLine,
+          endLine:
+            (def.range?.end?.line ?? def.range?.start?.line ?? defLine - 1) + 1,
+          character: def.range?.start?.character ?? sym.character,
+        };
+      } catch {
+        return sym;
+      }
+    })
+  );
 }
 
 export function compactWorkspaceSymbols(

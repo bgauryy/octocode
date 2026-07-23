@@ -121,6 +121,7 @@ function formatLocalFetchContentText(responseData: BulkToolResponse): string {
       'pagination',
       'sourceChars',
       'sourceBytes',
+      'returnedChars',
       'warnings',
       'error',
     ]).trimEnd();
