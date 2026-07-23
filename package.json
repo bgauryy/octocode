@@ -22,7 +22,7 @@
   "private": true,
   "repository": "bgauryy/octocode.git",
   "scripts": {
-    "build": "yarn prepublish && node ./scripts/workspace-health.mjs run build",
+    "build": "yarn workspaces foreach -Apt --exclude octocode-monorepo run build",
     "build:ci": "yarn prepublish && yarn workspace @octocodeai/octocode-engine build && node ./scripts/workspace-health.mjs run build --exclude @octocodeai/octocode-engine --exclude @octocodeai/octocode-benchmark",
     "build:native:all": "yarn workspace @octocodeai/octocode-engine build:all",
     "build:publish": "yarn prepublish && yarn build:native:all && yarn platforms:check && yarn workspace @octocodeai/mcp build:publish",
@@ -50,5 +50,15 @@
     "packages/*",
     "packages/octocode-engine/npm/*",
     "skills"
-  ]
+  ],
+  "resolutions": {
+    "@octocodeai/octocode-tools-core": "workspace:*",
+    "@octocodeai/octocode-engine": "workspace:*",
+    "@octocodeai/octocode-engine-darwin-arm64": "workspace:*",
+    "@octocodeai/octocode-engine-darwin-x64": "workspace:*",
+    "@octocodeai/octocode-engine-linux-arm64-gnu": "workspace:*",
+    "@octocodeai/octocode-engine-linux-x64-gnu": "workspace:*",
+    "@octocodeai/octocode-engine-linux-x64-musl": "workspace:*",
+    "@octocodeai/octocode-engine-win32-x64-msvc": "workspace:*"
+  }
 }
