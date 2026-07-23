@@ -8,7 +8,6 @@ describe('createRemoteToolRegistration registrationGuard (#T4)', () => {
       name: 'testTool',
       title: 'Test',
       inputSchema: {},
-      outputSchema: {} as never,
       executionFn: async () =>
         ({ content: [] }) as unknown as ReturnType<
           () => Promise<{ content: [] }>

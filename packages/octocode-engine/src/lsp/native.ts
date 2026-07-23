@@ -75,4 +75,9 @@ type NativeBinding = {
   toLspSymbolKind(kind: string): number;
 };
 
-export const nativeBinding = require('../../index.cjs') as NativeBinding;
+// Embedded single-file builds (Node SEA) pre-load the addon and publish it on
+// globalThis; the createRequire path below cannot resolve once this file is
+// inlined into a bundle with no package files on disk.
+export const nativeBinding = ((
+  globalThis as { __OCTOCODE_ENGINE_BINDING__?: unknown }
+).__OCTOCODE_ENGINE_BINDING__ ?? require('../../index.cjs')) as NativeBinding;

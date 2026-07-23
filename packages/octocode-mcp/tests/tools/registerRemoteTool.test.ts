@@ -14,7 +14,6 @@ function createMockServer() {
 }
 
 const trivialInput = z.object({ queries: z.array(z.object({})).optional() });
-const trivialOutput = z.object({});
 
 describe('createRemoteToolRegistration — registrationGuard', () => {
   it('registers the tool synchronously when no guard is provided', () => {
@@ -23,7 +22,6 @@ describe('createRemoteToolRegistration — registrationGuard', () => {
       name: 'sync_tool',
       title: 'Sync',
       inputSchema: trivialInput,
-      outputSchema: trivialOutput,
       executionFn: async () => ({
         content: [{ type: 'text' as const, text: 'ok' }],
       }),
@@ -40,7 +38,6 @@ describe('createRemoteToolRegistration — registrationGuard', () => {
       name: 'guarded_tool',
       title: 'Guarded',
       inputSchema: trivialInput,
-      outputSchema: trivialOutput,
       registrationGuard: async () => false,
       executionFn: async () => ({
         content: [{ type: 'text' as const, text: 'ok' }],
@@ -57,7 +54,6 @@ describe('createRemoteToolRegistration — registrationGuard', () => {
       name: 'guarded_tool',
       title: 'Guarded',
       inputSchema: trivialInput,
-      outputSchema: trivialOutput,
       registrationGuard: async () => true,
       executionFn: async () => ({
         content: [{ type: 'text' as const, text: 'ok' }],

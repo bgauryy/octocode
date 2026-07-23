@@ -44,6 +44,14 @@ function envFlag(name: string): boolean {
 // (incl. musl detection), so we simply require it — both dist/security/native.js
 // and src/security/native.ts sit two levels below the package root.
 function loadNative(): NativeModule {
+  // Embedded single-file builds (Node SEA) pre-load the addon and publish it
+  // on globalThis; the createRequire path below cannot resolve once this file
+  // is inlined into a bundle with no package files on disk.
+  const embedded = (
+    globalThis as { __OCTOCODE_ENGINE_BINDING__?: NativeModule }
+  ).__OCTOCODE_ENGINE_BINDING__;
+  if (embedded) return embedded;
+
   const candidates: string[] = [];
   if (process.env.OCTOCODE_SECURITY_NATIVE_PATH) {
     candidates.push(process.env.OCTOCODE_SECURITY_NATIVE_PATH);

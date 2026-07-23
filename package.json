@@ -43,7 +43,9 @@
     "test:quiet": "yarn workspaces foreach -Apt run test:quiet",
     "typecheck": "node ./scripts/workspace-health.mjs run typecheck",
     "typecheck:ci": "node ./scripts/workspace-health.mjs run typecheck --exclude @octocodeai/octocode-engine --exclude @octocodeai/octocode-benchmark",
-    "verify": "node ./scripts/workspace-health.mjs verify"
+    "verify": "node ./scripts/workspace-health.mjs verify",
+    "release": "node scripts/release.mjs --target mcp && node scripts/release.mjs --target cli",
+    "dev": "node scripts/dev.js"
   },
   "type": "module",
   "workspaces": [
