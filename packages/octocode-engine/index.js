@@ -72,6 +72,7 @@ export const detectLanguageId = nativeBinding.detectLanguageId
 export const getLanguageServerForFile = nativeBinding.getLanguageServerForFile
 export const isCommandAvailable = nativeBinding.isCommandAvailable
 export const safeReadFile = nativeBinding.safeReadFile
+export const safeReadLineWindow = nativeBinding.safeReadLineWindow
 export const validateLspServerPath = nativeBinding.validateLspServerPath
 export const convertSymbolKind = nativeBinding.convertSymbolKind
 export const toLspSymbolKind = nativeBinding.toLspSymbolKind

@@ -41,7 +41,7 @@ export async function warmLikelyConsumers(
 ): Promise<void> {
   if (typeof client.openDocument !== 'function') return;
   try {
-    const ext = path.extname(anchor.uri).slice(1);
+    const ext = path.extname(anchor.absolutePath).slice(1);
     const family = JS_TS_FAMILY.includes(ext) ? JS_TS_FAMILY : [ext];
     const result = await searchContentRipgrep({
       path: workspaceRoot,
@@ -58,7 +58,7 @@ export async function warmLikelyConsumers(
       const abs = path.isAbsolute(filePath)
         ? filePath
         : path.join(workspaceRoot, filePath);
-      if (path.resolve(abs) === path.resolve(anchor.uri)) continue;
+      if (path.resolve(abs) === path.resolve(anchor.absolutePath)) continue;
       try {
         const content = await readFile(abs, 'utf-8');
         if (content.length > WARM_MAX_BYTES) continue;
@@ -96,7 +96,7 @@ export async function dispatchAnchoredSemantic(
           anchorUri: anchor.uri,
           symbolName: anchor.resolvedSymbol.name,
           locations: await client.gotoDefinition(
-            anchor.uri,
+            anchor.absolutePath,
             anchor.resolvedSymbol.position,
             anchor.content
           ),
@@ -117,7 +117,7 @@ export async function dispatchAnchoredSemantic(
         'typeDefinition',
         'typeDefinitionProvider',
         await client.typeDefinition(
-          anchor.uri,
+          anchor.absolutePath,
           anchor.resolvedSymbol.position,
           anchor.content
         )
@@ -137,7 +137,7 @@ export async function dispatchAnchoredSemantic(
         'implementation',
         'implementationProvider',
         await client.implementation(
-          anchor.uri,
+          anchor.absolutePath,
           anchor.resolvedSymbol.position,
           anchor.content
         )
@@ -155,7 +155,7 @@ export async function dispatchAnchoredSemantic(
         query,
         anchor,
         await client.findReferences(
-          anchor.uri,
+          anchor.absolutePath,
           anchor.resolvedSymbol.position,
           query.includeDeclaration ?? true,
           anchor.content
@@ -174,7 +174,7 @@ export async function dispatchAnchoredSemantic(
         query,
         anchor,
         await client.hover(
-          anchor.uri,
+          anchor.absolutePath,
           anchor.resolvedSymbol.position,
           anchor.content
         )

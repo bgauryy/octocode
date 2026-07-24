@@ -35,7 +35,7 @@ export function registerOqlSearchTool(
     },
     withSecurityValidation<Record<string, unknown>>(
       OQL_SEARCH_TOOL_NAME,
-      async (args, authInfo, sessionId) => {
+      async (args, context) => {
         await invokeCallbackSafely(
           callback,
           OQL_SEARCH_TOOL_NAME,
@@ -43,8 +43,9 @@ export function registerOqlSearchTool(
         );
         return executeOqlSearchTool({
           ...args,
-          authInfo,
-          sessionId,
+          authInfo: context.authInfo,
+          sessionId: context.sessionId,
+          signal: context.signal,
         });
       }
     )

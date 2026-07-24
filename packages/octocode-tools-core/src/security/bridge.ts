@@ -1,6 +1,9 @@
 import { type CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types.js';
-import type { ToolResult } from '@octocodeai/octocode-engine/security';
+import type {
+  ToolResult,
+  ToolSecurityContext,
+} from '@octocodeai/octocode-engine/security';
 import {
   withSecurityValidation as _wsv,
   withBasicSecurityValidation as _wbsv,
@@ -10,8 +13,7 @@ export function withSecurityValidation<T extends Record<string, unknown>>(
   toolName: string,
   toolHandler: (
     sanitizedArgs: T,
-    authInfo?: AuthInfo,
-    sessionId?: string
+    context: ToolSecurityContext<AuthInfo>
   ) => Promise<CallToolResult>
 ): (
   args: unknown,
@@ -19,21 +21,25 @@ export function withSecurityValidation<T extends Record<string, unknown>>(
 ) => Promise<CallToolResult> {
   const inner = _wsv<T, AuthInfo>(
     toolName,
-    (sanitizedArgs, authInfo, sessionId) =>
-      toolHandler(sanitizedArgs, authInfo, sessionId) as Promise<ToolResult>
+    (sanitizedArgs, context) =>
+      toolHandler(sanitizedArgs, context) as Promise<ToolResult>
   );
   return (args, extra) => inner(args, extra) as Promise<CallToolResult>;
 }
 
 export function withBasicSecurityValidation<T extends object>(
-  toolHandler: (sanitizedArgs: T) => Promise<CallToolResult>,
+  toolHandler: (
+    sanitizedArgs: T,
+    context: ToolSecurityContext<unknown>
+  ) => Promise<CallToolResult>,
   toolName?: string
 ): (
   args: unknown,
   extra?: { signal?: AbortSignal }
 ) => Promise<CallToolResult> {
   const inner = _wbsv<T>(
-    sanitizedArgs => toolHandler(sanitizedArgs) as Promise<ToolResult>,
+    (sanitizedArgs, context) =>
+      toolHandler(sanitizedArgs, context) as Promise<ToolResult>,
     toolName
   );
   return (args, extra) => inner(args, extra) as Promise<CallToolResult>;

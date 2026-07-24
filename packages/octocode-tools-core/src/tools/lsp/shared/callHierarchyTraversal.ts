@@ -5,21 +5,88 @@ import type {
   LSPRange,
   OutgoingCall,
 } from '@octocodeai/octocode-engine/lsp/types';
-import { safeReadFile } from '@octocodeai/octocode-engine/lsp/validation';
+import { safeReadLineWindow } from '@octocodeai/octocode-engine/lsp/validation';
 import { splitLines } from '../../../utils/core/lines.js';
 
 export type TraversalResult<T> = {
   calls: T[];
   truncatedByDepth: boolean;
+  truncatedByBudget: boolean;
+  visitedNodeCount: number;
+  requestCount: number;
   cycleCount: number;
   failedRequestCount: number;
 };
 
+export type TraversalBudget = {
+  maxNodes: number;
+  maxRequests: number;
+};
+
+const DEFAULT_TRAVERSAL_BUDGET: TraversalBudget = {
+  maxNodes: 100,
+  maxRequests: 50,
+};
+
 const EMPTY_TRAVERSAL_RESULT = {
   truncatedByDepth: false,
+  truncatedByBudget: false,
+  visitedNodeCount: 0,
+  requestCount: 0,
   cycleCount: 0,
   failedRequestCount: 0,
 } as const;
+
+export type MutableTraversalBudget = TraversalBudget & {
+  visitedNodeCount: number;
+  requestCount: number;
+  truncatedByBudget: boolean;
+};
+
+function createMutableBudget(
+  budget: Partial<TraversalBudget> | undefined
+): MutableTraversalBudget {
+  return {
+    ...DEFAULT_TRAVERSAL_BUDGET,
+    ...budget,
+    visitedNodeCount: 0,
+    requestCount: 0,
+    truncatedByBudget: false,
+  };
+}
+
+function consumeRequest(budget: MutableTraversalBudget): boolean {
+  if (budget.requestCount >= budget.maxRequests) {
+    budget.truncatedByBudget = true;
+    return false;
+  }
+  budget.requestCount += 1;
+  return true;
+}
+
+function consumeNode(budget: MutableTraversalBudget): boolean {
+  if (budget.visitedNodeCount >= budget.maxNodes) {
+    budget.truncatedByBudget = true;
+    return false;
+  }
+  budget.visitedNodeCount += 1;
+  return true;
+}
+
+function withBudget<T>(
+  result: Omit<
+    TraversalResult<T>,
+    'visitedNodeCount' | 'requestCount' | 'truncatedByBudget'
+  >,
+  budget: MutableTraversalBudget
+): TraversalResult<T> {
+  return {
+    ...result,
+    truncatedByBudget: budget.truncatedByBudget,
+    visitedNodeCount: budget.visitedNodeCount,
+    requestCount: budget.requestCount,
+  };
+}
 
 export function createCallItemKey(item: CallHierarchyItem): string {
   return `${item.uri}:${item.range.start.line}:${item.name}`;
@@ -32,23 +99,13 @@ async function enhanceCallItem(
 ): Promise<CallHierarchyItem> {
   if (contextLines <= 0) return item;
 
-  const content = await safeReadFile(item.uri);
-  if (!content) return item;
-
-  const lines = splitLines(content);
-
   const anchorLine = callSiteRanges?.[0]?.start.line ?? item.range.start.line;
-  const startLine = Math.max(0, anchorLine - contextLines);
-  const endLine = Math.min(lines.length - 1, anchorLine + contextLines);
+  const snippet = await safeReadLineWindow(item.uri, anchorLine, contextLines);
+  if (!snippet) return item;
 
-  const snippet = lines
-    .slice(startLine, endLine + 1)
-    .map((line, index) => {
-      const lineNumber = startLine + index + 1;
-      const isTarget = lineNumber === anchorLine + 1;
-      return `${isTarget ? '>' : ' '}${String(lineNumber).padStart(4, ' ')}| ${line}`;
-    })
-    .join('\n');
+  const lineCount = splitLines(snippet).length;
+  const startLine = Math.max(0, anchorLine - contextLines);
+  const endLine = startLine + Math.max(0, lineCount - 1);
 
   return {
     ...item,
@@ -89,10 +146,22 @@ export async function gatherIncomingCallsRecursive(
   item: CallHierarchyItem,
   remainingDepth: number,
   visited: Set<string>,
-  contextLines: number
+  contextLines: number,
+  budget: MutableTraversalBudget = createMutableBudget(undefined)
 ): Promise<TraversalResult<IncomingCall>> {
   if (remainingDepth <= 0 || !client) {
     return { calls: [], ...EMPTY_TRAVERSAL_RESULT };
+  }
+  if (!consumeRequest(budget)) {
+    return withBudget(
+      {
+        calls: [],
+        truncatedByDepth: false,
+        cycleCount: 0,
+        failedRequestCount: 0,
+      },
+      budget
+    );
   }
 
   try {
@@ -103,52 +172,71 @@ export async function gatherIncomingCallsRecursive(
         : directCalls;
 
     if (remainingDepth === 1) {
-      return {
-        calls: enhancedCalls,
-        truncatedByDepth: enhancedCalls.length > 0,
-        cycleCount: 0,
-        failedRequestCount: 0,
-      };
+      return withBudget(
+        {
+          calls: enhancedCalls,
+          truncatedByDepth: enhancedCalls.length > 0,
+          cycleCount: 0,
+          failedRequestCount: 0,
+        },
+        budget
+      );
     }
 
-    const nestedResults = await Promise.all(
-      enhancedCalls.map(async call => {
-        const key = createCallItemKey(call.from);
-        if (visited.has(key)) {
-          return {
-            calls: [] as IncomingCall[],
-            truncatedByDepth: false,
-            cycleCount: 1,
-            failedRequestCount: 0,
-          };
-        }
-        visited.add(key);
-        return gatherIncomingCallsRecursive(
+    const nestedResults: Array<TraversalResult<IncomingCall>> = [];
+    for (const call of enhancedCalls) {
+      const key = createCallItemKey(call.from);
+      if (visited.has(key)) {
+        nestedResults.push(
+          withBudget(
+            {
+              calls: [] as IncomingCall[],
+              truncatedByDepth: false,
+              cycleCount: 1,
+              failedRequestCount: 0,
+            },
+            budget
+          )
+        );
+        continue;
+      }
+      if (!consumeNode(budget)) break;
+      visited.add(key);
+      nestedResults.push(
+        await gatherIncomingCallsRecursive(
           client,
           call.from,
           remainingDepth - 1,
           visited,
-          contextLines
-        );
-      })
-    );
+          contextLines,
+          budget
+        )
+      );
+      if (budget.truncatedByBudget) break;
+    }
 
-    return {
-      calls: [...enhancedCalls, ...nestedResults.flatMap(r => r.calls)],
-      truncatedByDepth: nestedResults.some(r => r.truncatedByDepth),
-      cycleCount: nestedResults.reduce((sum, r) => sum + r.cycleCount, 0),
-      failedRequestCount: nestedResults.reduce(
-        (sum, r) => sum + r.failedRequestCount,
-        0
-      ),
-    };
+    return withBudget(
+      {
+        calls: [...enhancedCalls, ...nestedResults.flatMap(r => r.calls)],
+        truncatedByDepth: nestedResults.some(r => r.truncatedByDepth),
+        cycleCount: nestedResults.reduce((sum, r) => sum + r.cycleCount, 0),
+        failedRequestCount: nestedResults.reduce(
+          (sum, r) => sum + r.failedRequestCount,
+          0
+        ),
+      },
+      budget
+    );
   } catch {
-    return {
-      calls: [],
-      truncatedByDepth: false,
-      cycleCount: 0,
-      failedRequestCount: 1,
-    };
+    return withBudget(
+      {
+        calls: [],
+        truncatedByDepth: false,
+        cycleCount: 0,
+        failedRequestCount: 1,
+      },
+      budget
+    );
   }
 }
 
@@ -157,10 +245,22 @@ export async function gatherOutgoingCallsRecursive(
   item: CallHierarchyItem,
   remainingDepth: number,
   visited: Set<string>,
-  contextLines: number
+  contextLines: number,
+  budget: MutableTraversalBudget = createMutableBudget(undefined)
 ): Promise<TraversalResult<OutgoingCall>> {
   if (remainingDepth <= 0 || !client) {
     return { calls: [], ...EMPTY_TRAVERSAL_RESULT };
+  }
+  if (!consumeRequest(budget)) {
+    return withBudget(
+      {
+        calls: [],
+        truncatedByDepth: false,
+        cycleCount: 0,
+        failedRequestCount: 0,
+      },
+      budget
+    );
   }
 
   try {
@@ -171,51 +271,70 @@ export async function gatherOutgoingCallsRecursive(
         : directCalls;
 
     if (remainingDepth === 1) {
-      return {
-        calls: enhancedCalls,
-        truncatedByDepth: enhancedCalls.length > 0,
-        cycleCount: 0,
-        failedRequestCount: 0,
-      };
+      return withBudget(
+        {
+          calls: enhancedCalls,
+          truncatedByDepth: enhancedCalls.length > 0,
+          cycleCount: 0,
+          failedRequestCount: 0,
+        },
+        budget
+      );
     }
 
-    const nestedResults = await Promise.all(
-      enhancedCalls.map(async call => {
-        const key = createCallItemKey(call.to);
-        if (visited.has(key)) {
-          return {
-            calls: [] as OutgoingCall[],
-            truncatedByDepth: false,
-            cycleCount: 1,
-            failedRequestCount: 0,
-          };
-        }
-        visited.add(key);
-        return gatherOutgoingCallsRecursive(
+    const nestedResults: Array<TraversalResult<OutgoingCall>> = [];
+    for (const call of enhancedCalls) {
+      const key = createCallItemKey(call.to);
+      if (visited.has(key)) {
+        nestedResults.push(
+          withBudget(
+            {
+              calls: [] as OutgoingCall[],
+              truncatedByDepth: false,
+              cycleCount: 1,
+              failedRequestCount: 0,
+            },
+            budget
+          )
+        );
+        continue;
+      }
+      if (!consumeNode(budget)) break;
+      visited.add(key);
+      nestedResults.push(
+        await gatherOutgoingCallsRecursive(
           client,
           call.to,
           remainingDepth - 1,
           visited,
-          contextLines
-        );
-      })
-    );
+          contextLines,
+          budget
+        )
+      );
+      if (budget.truncatedByBudget) break;
+    }
 
-    return {
-      calls: [...enhancedCalls, ...nestedResults.flatMap(r => r.calls)],
-      truncatedByDepth: nestedResults.some(r => r.truncatedByDepth),
-      cycleCount: nestedResults.reduce((sum, r) => sum + r.cycleCount, 0),
-      failedRequestCount: nestedResults.reduce(
-        (sum, r) => sum + r.failedRequestCount,
-        0
-      ),
-    };
+    return withBudget(
+      {
+        calls: [...enhancedCalls, ...nestedResults.flatMap(r => r.calls)],
+        truncatedByDepth: nestedResults.some(r => r.truncatedByDepth),
+        cycleCount: nestedResults.reduce((sum, r) => sum + r.cycleCount, 0),
+        failedRequestCount: nestedResults.reduce(
+          (sum, r) => sum + r.failedRequestCount,
+          0
+        ),
+      },
+      budget
+    );
   } catch {
-    return {
-      calls: [],
-      truncatedByDepth: false,
-      cycleCount: 0,
-      failedRequestCount: 1,
-    };
+    return withBudget(
+      {
+        calls: [],
+        truncatedByDepth: false,
+        cycleCount: 0,
+        failedRequestCount: 1,
+      },
+      budget
+    );
   }
 }

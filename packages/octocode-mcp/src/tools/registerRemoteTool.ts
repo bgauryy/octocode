@@ -78,8 +78,7 @@ export function createRemoteToolRegistration<TQuery>(
               responseCharOffset?: number;
               responseCharLength?: number;
             },
-            authInfo,
-            sessionId
+            context
           ): Promise<CallToolResult> => {
             const queries = args.queries || [];
 
@@ -89,8 +88,9 @@ export function createRemoteToolRegistration<TQuery>(
               queries,
               responseCharOffset: args.responseCharOffset,
               responseCharLength: args.responseCharLength,
-              authInfo,
-              sessionId,
+              authInfo: context.authInfo,
+              sessionId: context.sessionId,
+              signal: context.signal,
             });
           }
         )

@@ -8,6 +8,22 @@ export async function safeReadFile(filePath: string): Promise<string | null> {
   }
 }
 
+export async function safeReadLineWindow(
+  filePath: string,
+  lineZeroBased: number,
+  contextLines: number
+): Promise<string | null> {
+  try {
+    return nativeBinding.safeReadLineWindow(
+      filePath,
+      lineZeroBased,
+      contextLines
+    );
+  } catch {
+    return null;
+  }
+}
+
 export function validateLSPServerPath(
   command: string,
   _workspaceRoot?: string

@@ -295,6 +295,8 @@ export interface FileSystemQueryOptions {
   readable?: boolean
   writable?: boolean
   excludeDir?: Array<string>
+  /** Stop walking after limit returned entries (default true). */
+  stopAtLimit?: boolean
   /** Store at most this many matching entries while still counting matches. */
   limit?: number
 }
@@ -757,6 +759,8 @@ export interface RipgrepSearchOptions {
    * (char-boundary safe), marking trimmed sides with `…`. 0/unset = bare span.
    */
   matchWindow?: number
+  /** Native collection guard distinct from tools-core per-page maxFiles. */
+  maxCollectedFiles?: number
 }
 
 export interface RipgrepStats {
@@ -766,6 +770,8 @@ export interface RipgrepStats {
   filesSearched?: number
   bytesSearched?: number
   searchTime?: string
+  capped?: boolean
+  capReason?: string
 }
 
 /**
@@ -773,6 +779,7 @@ export interface RipgrepStats {
  * absolute regular file.
  */
 export declare function safeReadFile(filePath: string): string
+export declare function safeReadLineWindow(filePath: string, lineZeroBased: number, contextLines: number): string
 
 export const SIGNATURES_ONLY_HINT: string
 

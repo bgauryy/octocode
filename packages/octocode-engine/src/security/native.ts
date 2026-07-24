@@ -197,6 +197,21 @@ function maskWithJsFallback(text: string): string {
   return applyMaskToSpans(text, deduplicateSpans(spans));
 }
 
+export function getSecurityBackendStatus(): {
+  backend: 'native' | 'fallback';
+  error?: string;
+} {
+  const module = getNativeModule();
+  if (module) return { backend: 'native' };
+  const error =
+    nativeLoadState?.kind === 'fallback' && nativeLoadState.error !== undefined
+      ? nativeLoadState.error instanceof Error
+        ? nativeLoadState.error.message
+        : String(nativeLoadState.error)
+      : undefined;
+  return { backend: 'fallback', ...(error ? { error } : {}) };
+}
+
 export const nativeSanitizeContent = (
   content: string,
   filePath: string | null

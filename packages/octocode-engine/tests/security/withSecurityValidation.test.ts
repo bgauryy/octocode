@@ -62,8 +62,11 @@ describe('withSecurityValidation', () => {
     expect(errorText(result)).toBe('done');
     expect(handler).toHaveBeenCalledWith(
       { q: 'hello' },
-      { user: 'alice' },
-      'sess-1'
+      expect.objectContaining({
+        authInfo: { user: 'alice' },
+        sessionId: 'sess-1',
+        signal: expect.any(AbortSignal),
+      })
     );
   });
 
@@ -110,17 +113,25 @@ describe('withSecurityValidation', () => {
     expect(errorText(result)).toContain('Unknown error');
   });
 
-  it('times out a slow handler and returns a timeout error', async () => {
+  it('times out a slow handler, returns a timeout error, and aborts the handler signal', async () => {
     configureSecurity({ sanitizer: passthroughSanitizer() });
+    let handlerSignal: AbortSignal | undefined;
+    const onAbort = vi.fn();
     const wrapped = withSecurityValidation(
       'slowTool',
-      () => new Promise<ToolResult>(() => {}), // never resolves
+      (_args, context) => {
+        handlerSignal = context.signal;
+        context.signal?.addEventListener('abort', onAbort, { once: true });
+        return new Promise<ToolResult>(() => {}); // never resolves
+      },
       { timeoutMs: 20 }
     );
 
     const result = await wrapped({ q: 'x' }, {});
     expect(result.isError).toBe(true);
     expect(errorText(result)).toMatch(/timed out after/);
+    expect(handlerSignal?.aborted).toBe(true);
+    expect(onAbort).toHaveBeenCalledOnce();
   });
 
   it('returns "cancelled before execution" when the signal is already aborted', async () => {
@@ -187,7 +198,10 @@ describe('withBasicSecurityValidation', () => {
 
     const result = await wrapped({ q: 'hi' });
     expect(errorText(result)).toBe('basic-done');
-    expect(handler).toHaveBeenCalledWith({ q: 'hi' });
+    expect(handler).toHaveBeenCalledWith(
+      { q: 'hi' },
+      expect.objectContaining({ signal: expect.any(AbortSignal) })
+    );
   });
 
   it("defaults the tool name to 'tool' when none is provided", async () => {

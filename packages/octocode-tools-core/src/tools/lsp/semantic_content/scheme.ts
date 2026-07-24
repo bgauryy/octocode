@@ -160,6 +160,9 @@ const CompactCallRowSchema = z.string();
 const CompletenessSchema = z.object({
   complete: z.boolean(),
   truncatedByDepth: z.boolean(),
+  truncatedByBudget: z.boolean().optional(),
+  visitedNodeCount: z.number().optional(),
+  requestCount: z.number().optional(),
   cycleCount: z.number(),
   failedRequestCount: z.number(),
   dynamicCallsExcluded: z.literal(true),

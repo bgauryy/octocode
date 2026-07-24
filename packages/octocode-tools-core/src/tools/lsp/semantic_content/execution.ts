@@ -82,9 +82,9 @@ async function getSemanticContent(
 
   const workspaceRoot =
     query.workspaceRoot ??
-    (await resolveWorkspaceRootForFile(anchor.value.uri));
+    (await resolveWorkspaceRootForFile(anchor.value.absolutePath));
   const serverAvailable = await isLanguageServerAvailable(
-    anchor.value.uri,
+    anchor.value.absolutePath,
     workspaceRoot
   );
   if (!serverAvailable) {
@@ -95,7 +95,7 @@ async function getSemanticContent(
 
   const clientResult = await acquirePooledClientDetailed(
     workspaceRoot,
-    anchor.value.uri
+    anchor.value.absolutePath
   );
   if (clientResult.ok === false) {
     throwLspUnavailable(anchor.value.uri, query.type, clientResult);

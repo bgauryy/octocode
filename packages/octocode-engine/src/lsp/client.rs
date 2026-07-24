@@ -17,6 +17,43 @@ const CONTENT_MODIFIED_RETRIES: u8 = 3;
 const CONTENT_MODIFIED_RETRY_DELAY_MS: u64 = 500;
 const STDERR_RING_CAPACITY: usize = 100;
 const STDERR_LINE_MAX_CHARS: usize = 2_000;
+const MAX_SNIPPET_SOURCE_BYTES: u64 = 1_000_000;
+
+fn lsp_spawn_program(validated_command: &str, args: &mut Vec<String>) -> Result<String> {
+    if executable_has_node_shebang(validated_command)? {
+        args.insert(0, validated_command.to_owned());
+        return std::env::current_exe()
+            .map(|path| path.to_string_lossy().into_owned())
+            .map_err(|err| {
+                Error::new(
+                    Status::GenericFailure,
+                    format!("Failed to resolve current Node executable: {err}"),
+                )
+            });
+    }
+    Ok(validated_command.to_owned())
+}
+
+fn executable_has_node_shebang(path: &str) -> Result<bool> {
+    let mut file = std::fs::File::open(path).map_err(|err| {
+        Error::new(
+            Status::GenericFailure,
+            format!("Failed to inspect language server executable {path}: {err}"),
+        )
+    })?;
+    let mut buf = [0_u8; 128];
+    let read = std::io::Read::read(&mut file, &mut buf).map_err(|err| {
+        Error::new(
+            Status::GenericFailure,
+            format!("Failed to inspect language server executable {path}: {err}"),
+        )
+    })?;
+    let first_line = std::str::from_utf8(&buf[..read])
+        .ok()
+        .and_then(|text| text.lines().next())
+        .unwrap_or_default();
+    Ok(first_line.starts_with("#!") && first_line.contains("node"))
+}
 
 #[napi]
 pub struct NativeLspClient {
@@ -84,9 +121,13 @@ impl NativeLspClient {
             open_docs.clear();
         }
 
-        let mut command = tokio::process::Command::new(&self.config.command);
+        let validated_command =
+            crate::lsp::validation::validate_lsp_server_path(self.config.command.clone())?;
+        let mut command_args = self.config.args.clone().unwrap_or_default();
+        let command_program = lsp_spawn_program(&validated_command, &mut command_args)?;
+        let mut command = tokio::process::Command::new(&command_program);
         command
-            .args(self.config.args.clone().unwrap_or_default())
+            .args(command_args)
             .current_dir(&self.config.workspace_root)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -713,6 +754,19 @@ struct SnippetContentCache {
 impl SnippetContentCache {
     async fn read_range_content(&mut self, file_path: &str, range: &JsRange) -> Result<String> {
         if !self.files.contains_key(file_path) {
+            let metadata = tokio::fs::metadata(file_path)
+                .await
+                .map_err(|err| Error::new(Status::GenericFailure, err.to_string()))?;
+            if metadata.len() > MAX_SNIPPET_SOURCE_BYTES {
+                return Err(Error::new(
+                    Status::InvalidArg,
+                    format!(
+                        "file too large for LSP snippet content ({} bytes > {} bytes)",
+                        metadata.len(),
+                        MAX_SNIPPET_SOURCE_BYTES
+                    ),
+                ));
+            }
             let content = tokio::fs::read_to_string(file_path)
                 .await
                 .map_err(|err| Error::new(Status::GenericFailure, err.to_string()))?;

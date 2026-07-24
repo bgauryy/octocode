@@ -70,6 +70,11 @@ type NativeBinding = {
   ): unknown | undefined;
   isCommandAvailable(command: string): boolean;
   safeReadFile(filePath: string): string;
+  safeReadLineWindow(
+    filePath: string,
+    lineZeroBased: number,
+    contextLines: number
+  ): string;
   validateLspServerPath(command: string): string;
   convertSymbolKind(kind?: number): string;
   toLspSymbolKind(kind: string): number;

@@ -72,6 +72,7 @@ function toSearchOptions(
     unique: query.unique,
     countUnique: query.countUnique,
     matchWindow: query.matchWindow,
+    maxCollectedFiles: 10_000,
   };
 }
 
@@ -210,7 +211,15 @@ export async function executeRipgrepSearchInternal(
     filesSearched: parsed.stats.filesSearched,
     bytesSearched: parsed.stats.bytesSearched ?? undefined,
     searchTime: parsed.stats.searchTime,
+    capped: parsed.stats.capped ?? undefined,
+    capReason: parsed.stats.capReason ?? undefined,
   };
+
+  if (parsed.stats.capped) {
+    chunkingWarnings.push(
+      `Search hit native collection cap (${parsed.stats.capReason ?? 'resource limit'}); narrow path/include/keywords for exhaustive results.`
+    );
+  }
 
   if (files.length === 0) {
     return attachRawResponseChars(

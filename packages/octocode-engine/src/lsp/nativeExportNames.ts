@@ -62,6 +62,7 @@ export const PUBLIC_NATIVE_EXPORT_NAMES = [
   'getLanguageServerForFile',
   'isCommandAvailable',
   'safeReadFile',
+  'safeReadLineWindow',
   'validateLspServerPath',
   'convertSymbolKind',
   'toLspSymbolKind',

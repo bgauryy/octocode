@@ -3,6 +3,7 @@ import {
   SymbolResolver,
   SymbolResolutionError,
 } from '@octocodeai/octocode-engine/lsp/resolver';
+import { toUri } from '@octocodeai/octocode-engine/lsp/uri';
 import type {
   ExactPosition,
   LSPRange,
@@ -80,7 +81,7 @@ export async function resolveFileAnchor(
     return {
       ok: true,
       value: {
-        uri: absolutePath,
+        uri: toUri(absolutePath),
         absolutePath,
         content: await readFile(absolutePath, 'utf-8'),
       },
@@ -140,7 +141,7 @@ export async function resolveSymbolAnchor(
         ...file.value,
         resolvedSymbol: {
           name: query.symbolName,
-          uri: file.value.absolutePath,
+          uri: file.value.uri,
           range: rangeFromPosition(resolved.position),
           foundAtLine: resolved.foundAtLine,
           orderHint: query.orderHint,

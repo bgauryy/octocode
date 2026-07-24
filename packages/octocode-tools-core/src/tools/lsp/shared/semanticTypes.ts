@@ -184,6 +184,9 @@ export type LspSemanticEnvelope = {
         completeness: {
           complete: boolean;
           truncatedByDepth: boolean;
+          truncatedByBudget?: boolean;
+          visitedNodeCount?: number;
+          requestCount?: number;
           cycleCount: number;
           failedRequestCount: number;
           dynamicCallsExcluded: true;
