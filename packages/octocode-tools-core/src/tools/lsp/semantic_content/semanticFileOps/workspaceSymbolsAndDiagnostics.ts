@@ -54,7 +54,10 @@ export async function getWorkspaceSymbols(
     throwLspUnavailable(anchorFile, 'workspaceSymbol');
   }
 
-  const clientResult = await acquirePooledClientDetailed(workspaceRoot, anchorFile);
+  const clientResult = await acquirePooledClientDetailed(
+    workspaceRoot,
+    anchorFile
+  );
   if (clientResult.ok === false) {
     throwLspUnavailable(anchorFile, 'workspaceSymbol', clientResult);
   }

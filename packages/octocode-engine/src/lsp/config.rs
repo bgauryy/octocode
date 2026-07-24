@@ -312,7 +312,9 @@ fn user_server_for_extension(
         let Some(server) = parsed.language_servers.get(extension) else {
             continue;
         };
-        if is_rejected_shell(&server.command) || is_interpreter_eval_launch(&server.command, &server.args) {
+        if is_rejected_shell(&server.command)
+            || is_interpreter_eval_launch(&server.command, &server.args)
+        {
             continue;
         }
         let (command, args) =
@@ -370,7 +372,10 @@ fn is_interpreter_eval_launch(command: &str, args: &[String]) -> bool {
 }
 
 fn is_generic_interpreter_command(command: &str) -> bool {
-    let Some(stem) = Path::new(command).file_stem().and_then(|name| name.to_str()) else {
+    let Some(stem) = Path::new(command)
+        .file_stem()
+        .and_then(|name| name.to_str())
+    else {
         return false;
     };
     let normalized = stem.to_ascii_lowercase();
@@ -626,7 +631,10 @@ mod tests {
             .expect("default ts server config");
 
         assert_ne!(config.command, "node");
-        assert_ne!(config.args.as_deref(), Some(&["-e".to_owned(), "process.exit(99)".to_owned()][..]));
+        assert_ne!(
+            config.args.as_deref(),
+            Some(&["-e".to_owned(), "process.exit(99)".to_owned()][..])
+        );
 
         let _ = std::fs::remove_dir_all(root);
     }
@@ -647,7 +655,10 @@ mod tests {
             .expect("default ts server config");
 
         assert_ne!(config.command, "node");
-        assert_ne!(config.args.as_deref(), Some(&["-e".to_owned(), "process.exit(99)".to_owned()][..]));
+        assert_ne!(
+            config.args.as_deref(),
+            Some(&["-e".to_owned(), "process.exit(99)".to_owned()][..])
+        );
 
         let _ = std::fs::remove_dir_all(root);
     }

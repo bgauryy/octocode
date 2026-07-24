@@ -779,7 +779,9 @@ mod tests {
 
         assert_eq!(result.entries.len(), 1);
         assert_eq!(result.entries[0].name, "scheme.ts");
-        assert!(result.entries[0].path.contains("packages/a/src/tools/scheme.ts"));
+        assert!(result.entries[0]
+            .path
+            .contains("packages/a/src/tools/scheme.ts"));
         fs::remove_dir_all(root).expect("cleanup");
     }
 }

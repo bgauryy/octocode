@@ -14,7 +14,8 @@ const LOCAL_FIND_FILES_TRUTH =
   'Nothing is excluded by default — pass excludeDir (e.g. ["node_modules","dist","coverage"]) to prune build/vendor dirs.';
 
 function withLocalFindFilesTruth(description: string): string {
-  if (description.includes('Nothing is excluded by default')) return description;
+  if (description.includes('Nothing is excluded by default'))
+    return description;
   if (LOCAL_FIND_FILES_STALE.test(description)) {
     return description.replace(LOCAL_FIND_FILES_STALE, LOCAL_FIND_FILES_TRUTH);
   }
@@ -34,11 +35,17 @@ const GH_HISTORY_RESEARCH_EXTRA =
   'type:"issues" searches or reads GitHub issues; add issueNumber to read a specific issue (body + comments). type:"releases" lists repo releases.';
 
 function withGhHistoryResearchTruth(description: string): string {
-  if (description.includes('type:"issues"') && description.includes('type:"releases"')) {
+  if (
+    description.includes('type:"issues"') &&
+    description.includes('type:"releases"')
+  ) {
     return description;
   }
   if (GH_HISTORY_RESEARCH_STALE.test(description)) {
-    return description.replace(GH_HISTORY_RESEARCH_STALE, GH_HISTORY_RESEARCH_TRUTH);
+    return description.replace(
+      GH_HISTORY_RESEARCH_STALE,
+      GH_HISTORY_RESEARCH_TRUTH
+    );
   }
   return `${description} ${GH_HISTORY_RESEARCH_EXTRA}`;
 }
