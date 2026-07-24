@@ -59,6 +59,38 @@ describe('getOctocodeHome', () => {
     expect(() => getOctocodeHome()).not.toThrow();
     expect(typeof getOctocodeHome()).toBe('string');
   });
+
+  it('uses APPDATA on Windows when OCTOCODE_HOME is absent', async () => {
+    vi.resetModules();
+    vi.doMock('node:os', () => ({
+      default: { homedir: () => 'C:\\Users\\Test', platform: () => 'win32' },
+      homedir: () => 'C:\\Users\\Test',
+      platform: () => 'win32',
+    }));
+
+    const { getOctocodeHome: getMockedHome } = await import('../src/home.js');
+    expect(getMockedHome({ APPDATA: 'D:\\Roaming' })).toBe(join('D:\\Roaming', '.octocode'));
+    expect(getMockedHome({})).toBe(join('C:\\Users\\Test', 'AppData', 'Roaming', '.octocode'));
+
+    vi.doUnmock('node:os');
+    vi.resetModules();
+  });
+
+  it('uses XDG_CONFIG_HOME on non-macOS Unix platforms', async () => {
+    vi.resetModules();
+    vi.doMock('node:os', () => ({
+      default: { homedir: () => '/home/test', platform: () => 'linux' },
+      homedir: () => '/home/test',
+      platform: () => 'linux',
+    }));
+
+    const { getOctocodeHome: getMockedHome } = await import('../src/home.js');
+    expect(getMockedHome({ XDG_CONFIG_HOME: '/xdg' })).toBe('/xdg/.octocode');
+    expect(getMockedHome({})).toBe('/home/test/.config/.octocode');
+
+    vi.doUnmock('node:os');
+    vi.resetModules();
+  });
 });
 
 // ─── PROTECTED_KEYS ──────────────────────────────────────────────────────────
@@ -491,6 +523,130 @@ describe('validateConfig', () => {
     expect(r.warnings.some(w => w.includes('unknownKey'))).toBe(true);
   });
 
+  it('warns when config version is newer than this package supports', () => {
+    const r = validateConfig({ version: 999 });
+    expect(r.valid).toBe(true);
+    expect(r.warnings).toEqual([expect.stringContaining('newer than supported')]);
+  });
+
+  it('rejects non-integer config versions', () => {
+    expect(validateConfig({ version: 1.5 }).errors).toContain('version: Must be an integer');
+    expect(validateConfig({ version: '1' }).errors).toContain('version: Must be an integer');
+  });
+
+  it('rejects invalid section shapes', () => {
+    const r = validateConfig({
+      github: [],
+      local: 'nope',
+      tools: [],
+      network: [],
+      lsp: [],
+      output: [],
+    });
+    expect(r.valid).toBe(false);
+    expect(r.errors).toEqual(expect.arrayContaining([
+      'github: Must be an object',
+      'local: Must be an object',
+      'tools: Must be an object',
+      'network: Must be an object',
+      'lsp: Must be an object',
+      'output: Must be an object',
+    ]));
+  });
+
+  it('rejects unsupported github URL protocols and non-string URLs', () => {
+    expect(validateConfig({ github: { apiUrl: 'ftp://example.com' } }).errors).toContain(
+      'github.apiUrl: Only http/https URLs allowed',
+    );
+    expect(validateConfig({ github: { apiUrl: 123 } }).errors).toContain(
+      'github.apiUrl: Must be a string',
+    );
+  });
+
+  it('rejects invalid local booleans, allowedPaths, and workspaceRoot types', () => {
+    const r = validateConfig({
+      local: {
+        enabled: 'true',
+        enableClone: 1,
+        allowedPaths: ['/tmp', 42],
+        workspaceRoot: 99,
+      },
+    });
+    expect(r.errors).toEqual(expect.arrayContaining([
+      'local.enabled: Must be a boolean',
+      'local.enableClone: Must be a boolean',
+      'local.allowedPaths[1]: Must be a string',
+      'local.workspaceRoot: Must be a string',
+    ]));
+  });
+
+  it('rejects relative, empty, and whitespace-only local paths', () => {
+    const r = validateConfig({
+      local: {
+        allowedPaths: ['relative/path', '   ', '~/safe'],
+        workspaceRoot: 'relative/workspace',
+      },
+    });
+    expect(r.valid).toBe(false);
+    expect(r.errors).toEqual(expect.arrayContaining([
+      expect.stringContaining('local.allowedPaths[0]: must be absolute path'),
+      expect.stringContaining('local.allowedPaths[1]: empty or whitespace-only path'),
+      expect.stringContaining('local.workspaceRoot: must be absolute path'),
+    ]));
+  });
+
+  it('accepts null optional arrays and rejects non-array tool lists', () => {
+    expect(validateConfig({ tools: { enabled: null, enableAdditional: null, disabled: null } }).valid).toBe(true);
+
+    const r = validateConfig({
+      tools: {
+        enabled: 'localSearchCode',
+        enableAdditional: [1],
+        disabled: [false],
+      },
+    });
+    expect(r.errors).toEqual(expect.arrayContaining([
+      'tools.enabled: Must be an array',
+      'tools.enableAdditional[0]: Must be a string',
+      'tools.disabled[0]: Must be a string',
+    ]));
+  });
+
+  it('rejects invalid network numbers and ranges', () => {
+    const r = validateConfig({ network: { timeout: 'fast', maxRetries: Number.NaN } });
+    expect(r.errors).toEqual(expect.arrayContaining([
+      'network.timeout: Must be a number',
+      'network.maxRetries: Must be a number',
+    ]));
+
+    const range = validateConfig({ network: { timeout: 1, maxRetries: 999 } });
+    expect(range.errors).toEqual(expect.arrayContaining([
+      expect.stringContaining('network.timeout: Must be between'),
+      expect.stringContaining('network.maxRetries: Must be between'),
+    ]));
+  });
+
+  it('rejects invalid lsp and output values', () => {
+    const r = validateConfig({
+      lsp: { configPath: 10 },
+      output: {
+        format: 'xml',
+        pagination: { defaultCharLength: 10 },
+      },
+    });
+    expect(r.errors).toEqual(expect.arrayContaining([
+      'lsp.configPath: Must be a string',
+      'output.format: Must be one of: yaml, json',
+      expect.stringContaining('output.pagination.defaultCharLength: Must be between'),
+    ]));
+
+    expect(validateConfig({ output: { format: 1 } }).errors).toContain('output.format: Must be a string');
+    expect(validateConfig({ output: { pagination: [] } }).errors).toContain('output.pagination: Must be an object');
+    expect(validateConfig({ output: { pagination: { defaultCharLength: 'long' } } }).errors).toContain(
+      'output.pagination.defaultCharLength: Must be a number',
+    );
+  });
+
   it('accepts Windows absolute local paths', () => {
     const r = validateConfig({
       local: {
@@ -552,6 +708,47 @@ describe('loadConfigSync', () => {
     expect((r.config as Record<string, Record<string, string>>).github?.apiUrl).toBe('https://api.github.com');
   });
 
+  it('preserves escaped characters and comment markers inside strings', () => {
+    writeFileSync(
+      join(tmpDir, '.octocoderc'),
+      '{ "message": "quoted \\\" // still string /* not comment */", "keep": true }',
+    );
+    const r = loadConfigSync(tmpDir);
+    expect(r.success).toBe(true);
+    expect((r.config as Record<string, unknown>).message).toBe('quoted " // still string /* not comment */');
+  });
+
+  it('rejects JSON values whose top-level shape is not an object', () => {
+    writeFileSync(join(tmpDir, '.octocoderc'), '[]');
+    const arrayResult = loadConfigSync(tmpDir);
+    expect(arrayResult.success).toBe(false);
+    expect(arrayResult.error).toContain('must be a JSON object');
+
+    writeFileSync(join(tmpDir, '.octocoderc'), 'null');
+    const nullResult = loadConfigSync(tmpDir);
+    expect(nullResult.success).toBe(false);
+    expect(nullResult.error).toContain('must be a JSON object');
+  });
+
+  it('async loadConfig delegates to sync loader', async () => {
+    writeFileSync(join(tmpDir, '.octocoderc'), '{ "network": { "timeout": 5000 } }');
+    const { loadConfig } = await import('../src/config/loader.js');
+    await expect(loadConfig(tmpDir)).resolves.toMatchObject({
+      success: true,
+      config: { network: { timeout: 5000 } },
+    });
+  });
+
+  it('getConfigFilePath uses getOctocodeHome default when home is omitted', async () => {
+    const oldHome = process.env['OCTOCODE_HOME'];
+    try {
+      process.env['OCTOCODE_HOME'] = tmpDir;
+      expect(getConfigFilePath()).toBe(join(tmpDir, '.octocoderc'));
+    } finally {
+      if (oldHome === undefined) delete process.env['OCTOCODE_HOME']; else process.env['OCTOCODE_HOME'] = oldHome;
+    }
+  });
+
   it('returns success:false for bad JSON', () => {
     writeFileSync(join(tmpDir, '.octocoderc'), '{bad}');
     const r = loadConfigSync(tmpDir);
@@ -585,7 +782,11 @@ import {
   parseIntEnv,
   parseStringArrayEnv,
   resolveGitHub,
+  resolveLocal,
+  resolveTools,
   resolveNetwork,
+  resolveLsp,
+  resolveOutput,
 } from '../src/config/resolverSections.js';
 
 describe('parseBooleanEnv', () => {
@@ -619,29 +820,181 @@ describe('parseStringArrayEnv', () => {
 });
 
 describe('resolveGitHub', () => {
+  const oldApiUrl = process.env['GITHUB_API_URL'];
+
+  afterEach(() => {
+    if (oldApiUrl === undefined) delete process.env['GITHUB_API_URL']; else process.env['GITHUB_API_URL'] = oldApiUrl;
+  });
+
   it('uses GITHUB_API_URL env when set', () => {
-    const r = resolveGitHub(undefined);
-    // Without env override, returns default
-    expect(r.apiUrl).toBe('https://api.github.com');
+    process.env['GITHUB_API_URL'] = ' https://ghe.env.example.com ';
+    expect(resolveGitHub({ apiUrl: 'https://ghe.file.example.com' }).apiUrl).toBe('https://ghe.env.example.com');
   });
 
   it('uses fileConfig.apiUrl when no env override', () => {
-    const r = resolveGitHub({ apiUrl: 'https://ghe.example.com' });
-    // process.env.GITHUB_API_URL not set in test → fileConfig wins
-    expect(['https://api.github.com', 'https://ghe.example.com']).toContain(r.apiUrl);
+    delete process.env['GITHUB_API_URL'];
+    expect(resolveGitHub({ apiUrl: 'https://ghe.example.com' }).apiUrl).toBe('https://ghe.example.com');
+  });
+});
+
+describe('resolveLocal', () => {
+  const savedEnv: Record<string, string | undefined> = {};
+
+  beforeEach(() => {
+    for (const key of ['ENABLE_LOCAL', 'ENABLE_CLONE', 'ALLOWED_PATHS', 'WORKSPACE_ROOT']) {
+      savedEnv[key] = process.env[key];
+      delete process.env[key];
+    }
+    _resetRuntimeSurface();
+  });
+
+  afterEach(() => {
+    for (const [key, value] of Object.entries(savedEnv)) {
+      if (value === undefined) delete process.env[key]; else process.env[key] = value;
+    }
+    _resetRuntimeSurface();
+  });
+
+  it('resolves from file config and CLI default clone behavior', () => {
+    setRuntimeSurface('cli');
+    expect(resolveLocal().enableClone).toBe(true);
+    expect(resolveLocal({ enabled: false, enableClone: false, allowedPaths: ['/tmp'], workspaceRoot: '/tmp' })).toEqual({
+      enabled: false,
+      enableClone: false,
+      allowedPaths: ['/tmp'],
+      workspaceRoot: '/tmp',
+    });
+  });
+
+  it('env overrides local file config', () => {
+    process.env['ENABLE_LOCAL'] = 'false';
+    process.env['ENABLE_CLONE'] = 'true';
+    process.env['ALLOWED_PATHS'] = ' /a, /b ,, ';
+    process.env['WORKSPACE_ROOT'] = ' /workspace ';
+    expect(resolveLocal({ enabled: true, enableClone: false, allowedPaths: ['/file'], workspaceRoot: '/file' })).toEqual({
+      enabled: false,
+      enableClone: true,
+      allowedPaths: ['/a', '/b'],
+      workspaceRoot: '/workspace',
+    });
+  });
+});
+
+describe('resolveTools', () => {
+  const keys = ['TOOLS_TO_RUN', 'ENABLE_TOOLS', 'DISABLE_TOOLS'];
+  const savedEnv: Record<string, string | undefined> = {};
+
+  beforeEach(() => {
+    for (const key of keys) {
+      savedEnv[key] = process.env[key];
+      delete process.env[key];
+    }
+  });
+
+  afterEach(() => {
+    for (const [key, value] of Object.entries(savedEnv)) {
+      if (value === undefined) delete process.env[key]; else process.env[key] = value;
+    }
+  });
+
+  it('uses file config when env is absent and env lists when present', () => {
+    expect(resolveTools({ enabled: ['a'], enableAdditional: ['b'], disabled: ['c'] })).toEqual({
+      enabled: ['a'],
+      enableAdditional: ['b'],
+      disabled: ['c'],
+    });
+
+    process.env['TOOLS_TO_RUN'] = 'x,y';
+    process.env['ENABLE_TOOLS'] = 'extra';
+    process.env['DISABLE_TOOLS'] = 'blocked';
+    expect(resolveTools({ enabled: ['a'], enableAdditional: ['b'], disabled: ['c'] })).toEqual({
+      enabled: ['x', 'y'],
+      enableAdditional: ['extra'],
+      disabled: ['blocked'],
+    });
   });
 });
 
 describe('resolveNetwork', () => {
+  const savedEnv: Record<string, string | undefined> = {};
+
+  beforeEach(() => {
+    for (const key of ['REQUEST_TIMEOUT', 'MAX_RETRIES']) {
+      savedEnv[key] = process.env[key];
+      delete process.env[key];
+    }
+  });
+
+  afterEach(() => {
+    for (const [key, value] of Object.entries(savedEnv)) {
+      if (value === undefined) delete process.env[key]; else process.env[key] = value;
+    }
+  });
+
   it('clamps timeout to MIN/MAX bounds', () => {
     const r = resolveNetwork({ timeout: 1, maxRetries: 3 });
     expect(r.timeout).toBeGreaterThanOrEqual(MIN_TIMEOUT);
+  });
+
+  it('uses env overrides and clamps max retries', () => {
+    process.env['REQUEST_TIMEOUT'] = '999999';
+    process.env['MAX_RETRIES'] = '-10';
+    expect(resolveNetwork({ timeout: 5000, maxRetries: 10 })).toEqual({ timeout: 300000, maxRetries: 0 });
+  });
+});
+
+describe('resolveLsp', () => {
+  const oldConfig = process.env['OCTOCODE_LSP_CONFIG'];
+  afterEach(() => { if (oldConfig === undefined) delete process.env['OCTOCODE_LSP_CONFIG']; else process.env['OCTOCODE_LSP_CONFIG'] = oldConfig; });
+
+  it('uses env config path before file config', () => {
+    process.env['OCTOCODE_LSP_CONFIG'] = ' /env/lsp.json ';
+    expect(resolveLsp({ configPath: '/file/lsp.json' }).configPath).toBe('/env/lsp.json');
+  });
+
+  it('falls back to file config when env is blank', () => {
+    process.env['OCTOCODE_LSP_CONFIG'] = '   ';
+    expect(resolveLsp({ configPath: '/file/lsp.json' }).configPath).toBe('/file/lsp.json');
+  });
+});
+
+describe('resolveOutput', () => {
+  const savedEnv: Record<string, string | undefined> = {};
+
+  beforeEach(() => {
+    for (const key of ['OCTOCODE_OUTPUT_FORMAT', 'OCTOCODE_OUTPUT_DEFAULT_CHAR_LENGTH']) {
+      savedEnv[key] = process.env[key];
+      delete process.env[key];
+    }
+  });
+
+  afterEach(() => {
+    for (const [key, value] of Object.entries(savedEnv)) {
+      if (value === undefined) delete process.env[key]; else process.env[key] = value;
+    }
+  });
+
+  it('uses valid env output format and clamps default char length', () => {
+    process.env['OCTOCODE_OUTPUT_FORMAT'] = ' JSON ';
+    process.env['OCTOCODE_OUTPUT_DEFAULT_CHAR_LENGTH'] = '999999';
+    expect(resolveOutput({ format: 'yaml', pagination: { defaultCharLength: 1000 } })).toEqual({
+      format: 'json',
+      pagination: { defaultCharLength: 50000 },
+    });
+  });
+
+  it('falls back to default format for invalid values and clamps file values', () => {
+    expect(resolveOutput({ format: 'xml' as 'yaml', pagination: { defaultCharLength: 10 } })).toEqual({
+      format: 'yaml',
+      pagination: { defaultCharLength: 1000 },
+    });
   });
 });
 
 // ─── resolverCache / getConfigSync ───────────────────────────────────────────
 
-import { getConfigSync, invalidateConfigCache, resolveConfigSync, _getCacheState, _resetConfigCache } from '../src/config/resolverCache.js';
+import { getConfig, getConfigSync, invalidateConfigCache, reloadConfig, resolveConfig, resolveConfigSync, _getCacheState, _resetConfigCache } from '../src/config/resolverCache.js';
+import { getConfigValue } from '../src/config/resolver.js';
 
 describe('getConfigSync', () => {
   beforeEach(() => _resetConfigCache());
@@ -671,6 +1024,45 @@ describe('getConfigSync', () => {
     } finally {
       if (oldHome === undefined) delete process.env['OCTOCODE_HOME']; else process.env['OCTOCODE_HOME'] = oldHome;
       if (oldEnableLocal === undefined) delete process.env['ENABLE_LOCAL']; else process.env['ENABLE_LOCAL'] = oldEnableLocal;
+    }
+  });
+
+  it('reports file source for valid .octocoderc without env overrides', () => {
+    const oldEnv = { ...process.env };
+    const home = mkdtempSync(join(tmpdir(), 'octo-source-file-'));
+    writeFileSync(join(home, '.octocoderc'), JSON.stringify({ network: { timeout: 5000 } }));
+    try {
+      for (const key of [
+        'GITHUB_API_URL', 'ENABLE_LOCAL', 'ENABLE_CLONE', 'ALLOWED_PATHS', 'WORKSPACE_ROOT',
+        'TOOLS_TO_RUN', 'ENABLE_TOOLS', 'DISABLE_TOOLS', 'REQUEST_TIMEOUT', 'MAX_RETRIES',
+        'OCTOCODE_LSP_CONFIG', 'OCTOCODE_OUTPUT_FORMAT', 'OCTOCODE_OUTPUT_DEFAULT_CHAR_LENGTH',
+        'OCTOCODE_ENABLE_STATS',
+      ]) delete process.env[key];
+      process.env['OCTOCODE_HOME'] = home;
+      const cfg = resolveConfigSync();
+      expect(cfg.source).toBe('file');
+      expect(cfg.configPath).toBe(join(home, '.octocoderc'));
+      expect(cfg.network.timeout).toBe(5000);
+    } finally {
+      process.env = oldEnv;
+    }
+  });
+
+  it('reports mixed source for valid .octocoderc plus env overrides', () => {
+    const oldHome = process.env['OCTOCODE_HOME'];
+    const oldTimeout = process.env['REQUEST_TIMEOUT'];
+    const home = mkdtempSync(join(tmpdir(), 'octo-source-mixed-'));
+    writeFileSync(join(home, '.octocoderc'), JSON.stringify({ network: { timeout: 5000 } }));
+    try {
+      process.env['OCTOCODE_HOME'] = home;
+      process.env['REQUEST_TIMEOUT'] = '6000';
+      const cfg = resolveConfigSync();
+      expect(cfg.source).toBe('mixed');
+      expect(cfg.configPath).toBe(join(home, '.octocoderc'));
+      expect(cfg.network.timeout).toBe(6000);
+    } finally {
+      if (oldHome === undefined) delete process.env['OCTOCODE_HOME']; else process.env['OCTOCODE_HOME'] = oldHome;
+      if (oldTimeout === undefined) delete process.env['REQUEST_TIMEOUT']; else process.env['REQUEST_TIMEOUT'] = oldTimeout;
     }
   });
 
@@ -729,6 +1121,29 @@ describe('getConfigSync', () => {
     const a = getConfigSync();
     const b = getConfigSync();
     expect(a).not.toBe(b);
+  });
+
+  it('async resolver helpers return resolved config and do not cache', async () => {
+    const resolved = await resolveConfig();
+    const got = await getConfig();
+    const reloaded = await reloadConfig();
+    expect(resolved.github).toBeDefined();
+    expect(got.github).toBeDefined();
+    expect(reloaded.github).toBeDefined();
+    expect(got).not.toBe(reloaded);
+  });
+
+  it('getConfigValue reads nested resolved config paths', () => {
+    const oldEnableLocal = process.env['ENABLE_LOCAL'];
+    try {
+      process.env['ENABLE_LOCAL'] = 'false';
+      expect(getConfigValue<boolean>('local.enabled')).toBe(false);
+      expect(getConfigValue<string>('github.apiUrl')).toBe('https://api.github.com');
+      expect(getConfigValue('local.enabled.missing')).toBeUndefined();
+      expect(getConfigValue('does.not.exist')).toBeUndefined();
+    } finally {
+      if (oldEnableLocal === undefined) delete process.env['ENABLE_LOCAL']; else process.env['ENABLE_LOCAL'] = oldEnableLocal;
+    }
   });
 
   it('invalidateConfigCache remains a compatibility no-op', () => {
