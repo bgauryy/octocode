@@ -68,10 +68,14 @@ export function unavailableHintFor(languageId?: string, command?: string): strin
   return LSP_UNAVAILABLE_HINT;
 }
 
-const POOL_IDLE_TIMEOUT_MS = parseInt(
-  process.env.OCTOCODE_LSP_POOL_IDLE_MS || '60000',
-  10
-);
+export function parsePoolIdleTimeoutMs(
+  raw: string | undefined = process.env.OCTOCODE_LSP_POOL_IDLE_MS
+): number {
+  const parsed = Number.parseInt(raw ?? '', 10);
+  return Number.isFinite(parsed) && parsed >= 1_000 ? parsed : 60_000;
+}
+
+const POOL_IDLE_TIMEOUT_MS = parsePoolIdleTimeoutMs();
 
 // Languages whose servers emit $/progress notifications and need waitForReady.
 // TypeScript, Python, C/C++, and data-format servers (JSON/YAML/HTML/CSS)
@@ -132,20 +136,68 @@ const sharedPool = new LspClientPool<LSPClient>({
         await client.waitForReady(readyTimeoutForLanguage(key.languageId));
       }
       return client;
-    } catch {
+    } catch (error) {
       await client.stop().catch(() => undefined);
-      return null;
+      throw error;
     }
   },
 });
+
+export type LspClientAcquireFailureKind = 'unavailable' | 'startupFailed';
+
+export type LspClientAcquireResult =
+  | { ok: true; client: LSPClient }
+  | {
+      ok: false;
+      kind: LspClientAcquireFailureKind;
+      message: string;
+      filePath: string;
+      workspaceRoot: string;
+    };
+
+export async function acquirePooledClientDetailed(
+  workspaceRoot: string,
+  filePath: string
+): Promise<LspClientAcquireResult> {
+  const key = await poolKeyForFile(workspaceRoot, filePath);
+  if (!key) {
+    return {
+      ok: false,
+      kind: 'unavailable',
+      message: 'No language server is available for this file.',
+      filePath,
+      workspaceRoot,
+    };
+  }
+  try {
+    const client = await sharedPool.acquire(key);
+    if (!client) {
+      return {
+        ok: false,
+        kind: 'startupFailed',
+        message: 'Language server failed to start.',
+        filePath,
+        workspaceRoot,
+      };
+    }
+    return { ok: true, client };
+  } catch (error) {
+    return {
+      ok: false,
+      kind: 'startupFailed',
+      message: error instanceof Error ? error.message : String(error),
+      filePath,
+      workspaceRoot,
+    };
+  }
+}
 
 export async function acquirePooledClient(
   workspaceRoot: string,
   filePath: string
 ): Promise<LSPClient | null> {
-  const key = await poolKeyForFile(workspaceRoot, filePath);
-  if (!key) return null;
-  return sharedPool.acquire(key);
+  const result = await acquirePooledClientDetailed(workspaceRoot, filePath);
+  return result.ok ? result.client : null;
 }
 
 export async function releaseAllPooledClients(): Promise<void> {

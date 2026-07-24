@@ -3,7 +3,7 @@ import { executeBulkOperation } from '../../../utils/response/bulk.js';
 import type { ToolExecutionArgs } from '../../../types/execution.js';
 import { executeWithToolBoundary } from '../../executionGuard.js';
 import {
-  acquirePooledClient,
+  acquirePooledClientDetailed,
   isLanguageServerAvailable,
 } from '@octocodeai/octocode-engine/lsp/manager';
 import { resolveWorkspaceRootForFile } from '@octocodeai/octocode-engine/lsp/workspaceRoot';
@@ -93,10 +93,14 @@ async function getSemanticContent(
     throwLspUnavailable(anchor.value.uri, query.type);
   }
 
-  const client = await acquirePooledClient(workspaceRoot, anchor.value.uri);
-  if (!client) {
-    throwLspUnavailable(anchor.value.uri, query.type);
+  const clientResult = await acquirePooledClientDetailed(
+    workspaceRoot,
+    anchor.value.uri
+  );
+  if (clientResult.ok === false) {
+    throwLspUnavailable(anchor.value.uri, query.type, clientResult);
   }
+  const client = clientResult.client;
 
   if (CONSUMER_SCOPED_TYPES.has(query.type)) {
     await warmLikelyConsumers(client, anchor.value, workspaceRoot);

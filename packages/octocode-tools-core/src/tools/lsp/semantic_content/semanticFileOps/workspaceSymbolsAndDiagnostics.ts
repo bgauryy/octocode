@@ -1,7 +1,8 @@
 import path from 'node:path';
 import { readFile } from 'node:fs/promises';
+import type { LSPClient } from '@octocodeai/octocode-engine/lsp/client';
 import {
-  acquirePooledClient,
+  acquirePooledClientDetailed,
   isLanguageServerAvailable,
 } from '@octocodeai/octocode-engine/lsp/manager';
 import { resolveImportAliasDefinitions } from '@octocodeai/octocode-engine/lsp/resolver';
@@ -53,10 +54,11 @@ export async function getWorkspaceSymbols(
     throwLspUnavailable(anchorFile, 'workspaceSymbol');
   }
 
-  const client = await acquirePooledClient(workspaceRoot, anchorFile);
-  if (!client) {
-    throwLspUnavailable(anchorFile, 'workspaceSymbol');
+  const clientResult = await acquirePooledClientDetailed(workspaceRoot, anchorFile);
+  if (clientResult.ok === false) {
+    throwLspUnavailable(anchorFile, 'workspaceSymbol', clientResult);
   }
+  const client = clientResult.client;
 
   if (!client.hasCapability('workspaceSymbolProvider')) {
     return {
@@ -129,7 +131,7 @@ export async function getWorkspaceSymbols(
 const MAX_DEFINITION_RESOLVE = 10;
 
 async function preferDefinitionLocations(
-  client: NonNullable<Awaited<ReturnType<typeof acquirePooledClient>>>,
+  client: LSPClient,
   symbols: CompactWorkspaceSymbol[]
 ): Promise<CompactWorkspaceSymbol[]> {
   if (symbols.length === 0 || symbols.length > MAX_DEFINITION_RESOLVE) {
@@ -234,10 +236,11 @@ export async function getFileDiagnostics(
     throwLspUnavailable(uri, 'diagnostic');
   }
 
-  const client = await acquirePooledClient(workspaceRoot, uri);
-  if (!client) {
-    throwLspUnavailable(uri, 'diagnostic');
+  const clientResult = await acquirePooledClientDetailed(workspaceRoot, uri);
+  if (clientResult.ok === false) {
+    throwLspUnavailable(uri, 'diagnostic', clientResult);
   }
+  const client = clientResult.client;
 
   if (!client.hasCapability('diagnosticProvider')) {
     return {

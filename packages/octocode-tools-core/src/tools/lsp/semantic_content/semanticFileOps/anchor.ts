@@ -36,13 +36,17 @@ export function isNativeJsTsFile(uri: string): boolean {
  */
 export function throwLspUnavailable(
   uri: string,
-  op: SemanticContentType
+  op: SemanticContentType,
+  detail?: { kind?: string; message?: string }
 ): never {
   const languageId = detectLanguageId(uri);
   const hint = unavailableHintFor(languageId, undefined);
+  const startupDetail = detail?.message
+    ? ` LSP startup detail (${detail.kind ?? 'startupFailed'}): ${detail.message}.`
+    : '';
   throw new ToolError(
     LOCAL_TOOL_ERROR_CODES.LSP_SERVER_UNAVAILABLE,
-    `No ${languageId} language server is available for ${uri}, so "${op}" cannot be answered semantically. ${hint} ` +
+    `No ${languageId} language server is available for ${uri}, so "${op}" cannot be answered semantically.${startupDetail} ${hint} ` +
       `Meanwhile, use localSearchCode (text or structural search) to find the symbol's occurrences and localGetFileContent to read the surrounding code.`
   );
 }

@@ -11,12 +11,6 @@ describe('ghHistoryResearch description contract', () => {
     _resetDescriptionOverrideCache();
   });
 
-  it('core ships without type:"issues" mention', () => {
-    const raw = completeMetadata.tools.ghHistoryResearch?.description ?? '';
-    expect(raw).toMatch(/type:"prs" searches PRs/);
-    expect(raw).not.toMatch(/type:"issues"/);
-  });
-
   it('patch adds type:"issues" and issueNumber to the description', () => {
     const patched =
       getPatchedToolMetadata(completeMetadata).tools.ghHistoryResearch

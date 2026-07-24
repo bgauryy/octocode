@@ -490,6 +490,31 @@ describe('validateConfig', () => {
     const r = validateConfig({ unknownKey: true });
     expect(r.warnings.some(w => w.includes('unknownKey'))).toBe(true);
   });
+
+  it('accepts Windows absolute local paths', () => {
+    const r = validateConfig({
+      local: {
+        allowedPaths: ['C:\\Users\\Test'],
+        workspaceRoot: 'C:\\Users\\Test',
+      },
+    });
+    expect(r.valid).toBe(true);
+  });
+
+  it('rejects traversal path segments but allows literal dots inside a segment', () => {
+    expect(validateConfig({ local: { allowedPaths: ['/tmp/project..backup'] } }).valid).toBe(true);
+    const r = validateConfig({
+      local: {
+        allowedPaths: ['/tmp/../etc'],
+        workspaceRoot: 'C:\\Users\\..\\Windows',
+      },
+    });
+    expect(r.valid).toBe(false);
+    expect(r.errors).toEqual(expect.arrayContaining([
+      expect.stringContaining('local.allowedPaths[0]'),
+      expect.stringContaining('local.workspaceRoot'),
+    ]));
+  });
 });
 
 // ─── loadConfigSync (via loader) ─────────────────────────────────────────────
@@ -616,7 +641,7 @@ describe('resolveNetwork', () => {
 
 // ─── resolverCache / getConfigSync ───────────────────────────────────────────
 
-import { getConfigSync, invalidateConfigCache, _resetConfigCache } from '../src/config/resolverCache.js';
+import { getConfigSync, invalidateConfigCache, resolveConfigSync, _getCacheState, _resetConfigCache } from '../src/config/resolverCache.js';
 
 describe('getConfigSync', () => {
   beforeEach(() => _resetConfigCache());
@@ -629,7 +654,69 @@ describe('getConfigSync', () => {
     expect(cfg.network).toBeDefined();
     expect(cfg.output).toBeDefined();
     expect(cfg.session).toBeDefined();
-    expect(cfg.source).toMatch(/^(defaults|file|mixed)$/);
+    expect(cfg.source).toMatch(/^(defaults|env|file|mixed|invalid)$/);
+  });
+
+  it('reports env-only overrides as env source', () => {
+    const oldHome = process.env['OCTOCODE_HOME'];
+    const oldEnableLocal = process.env['ENABLE_LOCAL'];
+    const home = mkdtempSync(join(tmpdir(), 'octo-source-env-'));
+    try {
+      process.env['OCTOCODE_HOME'] = home;
+      process.env['ENABLE_LOCAL'] = 'false';
+      const cfg = resolveConfigSync();
+      expect(cfg.source).toBe('env');
+      expect(cfg.local.enabled).toBe(false);
+      expect(cfg.configPath).toBeUndefined();
+    } finally {
+      if (oldHome === undefined) delete process.env['OCTOCODE_HOME']; else process.env['OCTOCODE_HOME'] = oldHome;
+      if (oldEnableLocal === undefined) delete process.env['ENABLE_LOCAL']; else process.env['ENABLE_LOCAL'] = oldEnableLocal;
+    }
+  });
+
+  it('reports invalid semantic config as invalid without applying invalid values', () => {
+    const oldHome = process.env['OCTOCODE_HOME'];
+    const home = mkdtempSync(join(tmpdir(), 'octo-source-invalid-'));
+    writeFileSync(join(home, '.octocoderc'), JSON.stringify({ local: { enabled: 'nope' } }));
+    try {
+      process.env['OCTOCODE_HOME'] = home;
+      const cfg = resolveConfigSync();
+      expect(cfg.source).toBe('invalid');
+      expect(cfg.configPath).toBe(join(home, '.octocoderc'));
+      expect(cfg.local.enabled).toBe(true);
+    } finally {
+      if (oldHome === undefined) delete process.env['OCTOCODE_HOME']; else process.env['OCTOCODE_HOME'] = oldHome;
+    }
+  });
+
+  it('reports invalid parse config as invalid', () => {
+    const oldHome = process.env['OCTOCODE_HOME'];
+    const home = mkdtempSync(join(tmpdir(), 'octo-source-parse-invalid-'));
+    writeFileSync(join(home, '.octocoderc'), '{bad');
+    try {
+      process.env['OCTOCODE_HOME'] = home;
+      const cfg = resolveConfigSync();
+      expect(cfg.source).toBe('invalid');
+      expect(cfg.configPath).toBe(join(home, '.octocoderc'));
+    } finally {
+      if (oldHome === undefined) delete process.env['OCTOCODE_HOME']; else process.env['OCTOCODE_HOME'] = oldHome;
+    }
+  });
+
+  it('getConfigSync reflects env changes without manual invalidation', () => {
+    const oldEnableLocal = process.env['ENABLE_LOCAL'];
+    try {
+      delete process.env['ENABLE_LOCAL'];
+      const before = getConfigSync();
+      process.env['ENABLE_LOCAL'] = 'false';
+      const after = getConfigSync();
+      expect(before.local.enabled).toBe(true);
+      expect(after.local.enabled).toBe(false);
+      expect(after).not.toBe(before);
+      expect(_getCacheState().cached).toBe(false);
+    } finally {
+      if (oldEnableLocal === undefined) delete process.env['ENABLE_LOCAL']; else process.env['ENABLE_LOCAL'] = oldEnableLocal;
+    }
   });
 
   it('session.enableStats defaults to false', () => {
@@ -638,17 +725,16 @@ describe('getConfigSync', () => {
     expect(cfg.session.enableStats).toBe(false);
   });
 
-  it('caches: same reference returned on second call', () => {
+  it('does not cache: a fresh object is returned on each call', () => {
     const a = getConfigSync();
-    const b = getConfigSync();
-    expect(a).toBe(b);
-  });
-
-  it('invalidateConfigCache clears the cache', () => {
-    const a = getConfigSync();
-    invalidateConfigCache();
     const b = getConfigSync();
     expect(a).not.toBe(b);
+  });
+
+  it('invalidateConfigCache remains a compatibility no-op', () => {
+    getConfigSync();
+    invalidateConfigCache();
+    expect(_getCacheState()).toEqual({ cached: false, timestamp: 0 });
   });
 });
 

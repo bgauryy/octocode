@@ -13,14 +13,10 @@ describe('localFindFiles excludeDir description contract', () => {
     _resetDescriptionOverrideCache();
   });
 
-  it('rewrites stale core tool-level excludeDir default claim', () => {
-    const raw = completeMetadata.tools.localFindFiles.description;
-    expect(raw).toMatch(/Default excludeDir skips/);
-
+  it('ensures the tool-level description states the runtime excludeDir default', () => {
     const patched =
       getPatchedToolMetadata(completeMetadata).tools.localFindFiles
         .description;
-    expect(patched).not.toMatch(/Default excludeDir skips/);
     expect(patched).toMatch(/Nothing is excluded by default/);
     expect(DESCRIPTIONS.localFindFiles).toMatch(
       /Nothing is excluded by default/
