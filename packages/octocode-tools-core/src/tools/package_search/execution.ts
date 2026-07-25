@@ -4,6 +4,10 @@ import type { NpmPackageQuerySchema } from '@octocodeai/octocode-core/schemas';
 
 type NpmSearchQuery = z.input<typeof NpmPackageQuerySchema>;
 import { searchPackage } from '../../utils/package/common.js';
+import { isExactPackageName } from '../../utils/package/npm.js';
+import { foldKeywords, isPackageNotFoundError } from './queryHelpers.js';
+// Re-exported so importers/tests of './execution.js' keep a single entry point.
+export { foldKeywords, isPackageNotFoundError } from './queryHelpers.js';
 import type {
   NpmSearchAPIResult,
   NpmSearchError,
@@ -41,13 +45,24 @@ function cleanRelativePath(
   return clean.length > 0 ? clean : undefined;
 }
 
+// npm's shorthand repository hosts (`github:owner/repo`, `gitlab:…`,
+// `bitbucket:…`) map to these canonical hosts.
+const SHORTHAND_REPO_HOSTS: Record<string, string> = {
+  github: 'github.com',
+  gitlab: 'gitlab.com',
+  bitbucket: 'bitbucket.org',
+};
+
 /**
  * Normalize the many repository URL shapes npm packages carry
- * (ssh://git@…, git+https://…, git://…, git@host:owner/repo) into a
+ * (ssh://git@…, git+https://…, git://…, git@host:owner/repo, and npm's
+ * `github:owner/repo` / `gitlab:` / `bitbucket:` shorthands) into a
  * canonical `https://host/owner/repo` form. Falls back to the cleaned
  * original when the shape is unrecognized.
  */
-function normalizeRepoUrl(url: string | null | undefined): string | undefined {
+export function normalizeRepoUrl(
+  url: string | null | undefined
+): string | undefined {
   if (!url) return undefined;
   let u = url.trim();
   if (!u) return undefined;
@@ -56,6 +71,15 @@ function normalizeRepoUrl(url: string | null | undefined): string | undefined {
   u = u.replace(/^git\+/, '');
   // Drop a trailing .git suffix.
   const stripGit = (s: string): string => s.replace(/\.git$/, '');
+
+  // npm shorthand: github:owner/repo, gitlab:owner/repo, bitbucket:owner/repo.
+  // Must run before the scheme match — these have no `//` so they'd otherwise
+  // fall through to the bare-form branch and never resolve to a GitHub repo.
+  const shorthandMatch = u.match(/^(github|gitlab|bitbucket):(.+)$/i);
+  if (shorthandMatch && shorthandMatch[1] && shorthandMatch[2]) {
+    const host = SHORTHAND_REPO_HOSTS[shorthandMatch[1].toLowerCase()];
+    return stripGit(`https://${host}/${shorthandMatch[2]}`);
+  }
 
   // scp-like syntax: git@github.com:owner/repo(.git)
   const scpMatch = u.match(/^[^@/]+@([^:/]+):(.+)$/);
@@ -274,15 +298,20 @@ export async function searchPackages(
     args.queries,
     async (query: NpmSearchQuery) => {
       try {
-        if (!query.packageName) {
+        // Explicit packageName wins; otherwise derive the registry query from
+        // `keywords` (folding an array to a space-joined string).
+        const searchName =
+          query.packageName ??
+          foldKeywords((query as { keywords?: string | string[] }).keywords);
+        if (!searchName) {
           return createErrorResult(
-            'Package name is required for package search',
+            'Provide a packageName or keywords for package search',
             query
           );
         }
 
         const apiResult = await searchPackage({
-          name: query.packageName,
+          name: searchName,
           page: (query as { page?: number }).page,
           mainResearchGoal: (query as { mainResearchGoal?: string })
             .mainResearchGoal,
@@ -291,6 +320,26 @@ export async function searchPackages(
         });
 
         if (isNpmSearchError(apiResult)) {
+          // An exact-name lookup that 404s means the registry has no package
+          // under that name — surface a guided empty (check spelling / scoped
+          // vs unscoped) rather than a hard error. Network failures stay errors.
+          if (
+            isExactPackageName(searchName) &&
+            isPackageNotFoundError(apiResult.error)
+          ) {
+            return createSuccessResult(
+              query,
+              {
+                packages: [],
+                hints: [
+                  `No package published under the exact name "${searchName}". Check the spelling, and try the scoped (@scope/name) vs unscoped form.`,
+                ],
+              },
+              false,
+              TOOL_NAMES.PACKAGE_SEARCH,
+              { rawResponse: apiResult }
+            );
+          }
           return createErrorResult(apiResult.error, query, {
             rawResponse: apiResult,
           });

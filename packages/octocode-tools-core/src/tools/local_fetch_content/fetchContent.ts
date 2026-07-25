@@ -95,7 +95,15 @@ export async function fetchContent(
       ? `Secrets detected and redacted: ${sanitized.secretsDetected.join(', ')}`
       : undefined;
 
-    const minifyMode = query.minify;
+    // Resolve the effective minify mode here rather than via a schema default.
+    // `fullContent` promises the whole file verbatim, so it defaults to 'none'
+    // (otherwise 'standard' would strip comments/blank lines and "reads the
+    // whole file" would be a lie); every other read defaults to 'standard'. An
+    // explicit minify always wins. Resolving here (not at the schema) is what
+    // lets us tell "caller omitted minify" from "caller chose standard":
+    // inputSchema is parsed upstream before execution, applying any schema default.
+    const minifyMode =
+      query.minify ?? (query.fullContent === true ? 'none' : 'standard');
     const shouldMinify = minifyMode === 'standard' || minifyMode === 'symbols';
     const fallbackContentView: ContentView = shouldMinify ? 'standard' : 'none';
 
@@ -180,11 +188,7 @@ export async function fetchContent(
       return attachRawResponseChars(
         withSourceSize(
           withSecretWarning(
-            finalizeFetchContentResult(
-              withContentView(minifiedEarlyResult, fallbackContentView),
-              query,
-              totalLines
-            )
+            withContentView(minifiedEarlyResult, fallbackContentView)
           ),
           sourceChars,
           sourceBytes
@@ -203,13 +207,7 @@ export async function fetchContent(
       fallbackContentView
     );
     return attachRawResponseChars(
-      withSourceSize(
-        withSecretWarning(
-          finalizeFetchContentResult(fullResult, query, totalLines)
-        ),
-        sourceChars,
-        sourceBytes
-      ),
+      withSourceSize(withSecretWarning(fullResult), sourceChars, sourceBytes),
       sourceChars
     );
   } catch (error) {
@@ -217,12 +215,4 @@ export async function fetchContent(
       toolName: TOOL_NAMES.LOCAL_FETCH_CONTENT,
     }) as LocalGetFileContentToolResult;
   }
-}
-
-export function finalizeFetchContentResult(
-  result: LocalGetFileContentToolResult,
-  _query: FetchContentQuery,
-  _totalLines: number
-): LocalGetFileContentToolResult {
-  return result;
 }

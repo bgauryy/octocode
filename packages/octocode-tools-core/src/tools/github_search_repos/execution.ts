@@ -101,46 +101,6 @@ function buildRepositoryDetail(repo: GitHubRepositoryOutput): RepositoryDetail {
   ) as RepositoryDetail;
 }
 
-export function formatRepoLine(repo: GitHubRepositoryOutput): string {
-  const r = repo as GitHubRepositoryOutput & {
-    pushedAt?: string;
-    visibility?: string;
-    topics?: string[];
-    forksCount?: number;
-    openIssuesCount?: number;
-    defaultBranch?: string;
-    license?: string;
-    homepage?: string;
-  };
-
-  const name = `${r.owner ? `${r.owner}/` : ''}${r.repo}`;
-  const parts: string[] = [name];
-
-  if (typeof r.stars === 'number') parts.push(`${r.stars} stars`);
-  if (typeof r.forksCount === 'number' && r.forksCount > 0)
-    parts.push(`${r.forksCount} forks`);
-  if (typeof r.openIssuesCount === 'number' && r.openIssuesCount > 0)
-    parts.push(`${r.openIssuesCount} issues`);
-  if (r.language) parts.push(r.language);
-  if (r.license) parts.push(r.license);
-  if (r.pushedAt) parts.push(r.pushedAt.slice(0, 10));
-  if (
-    r.defaultBranch &&
-    r.defaultBranch !== 'main' &&
-    r.defaultBranch !== 'master'
-  )
-    parts.push(`@${r.defaultBranch}`);
-  if (r.visibility && r.visibility !== 'public') parts.push(r.visibility);
-  if (Array.isArray(r.topics) && r.topics.length > 0)
-    parts.push(`#${r.topics.slice(0, 4).join(',')}`);
-  if (r.description && r.description !== 'No description') {
-    const desc = r.description.replace(/\s+/g, ' ').trim();
-    parts.push(desc.length > 100 ? `${desc.slice(0, 99)}...` : desc);
-  }
-
-  return parts.join(' | ');
-}
-
 function buildReposSearchOutput(
   data: { repositories: GitHubRepositoryOutput[]; pagination?: unknown },
   query: PartialReposSearchQuery

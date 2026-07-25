@@ -152,15 +152,13 @@ function createBulkResponse<
     if (shared) responseData.shared = shared;
   }
 
-  const formattedText = createResponseFormat(
-    responseData,
-    fullKeysPriority
-  );
+  const formattedText = createResponseFormat(responseData, fullKeysPriority);
   const paginated = paginateBulkText(formattedText, pagination);
   const structuredContent = appendResponsePagination(
-    sanitizeStructuredContent(
-      cleanJsonObject(responseData) ?? {}
-    ) as Record<string, unknown>,
+    sanitizeStructuredContent(cleanJsonObject(responseData) ?? {}) as Record<
+      string,
+      unknown
+    >,
     paginated.pagination
   );
   recordBulkCharSavings(

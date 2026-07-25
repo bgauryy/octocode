@@ -57,6 +57,48 @@ describe('localGetFileContent direct text output', () => {
     expect(text).not.toContain('\n          return nested;');
   });
 
+  it('fullContent defaults to verbatim (minify:none) through the real executor — comments survive', async () => {
+    const file = join(dir, 'commented.ts');
+    const source = [
+      '// leading comment',
+      'const x = 1;',
+      '',
+      '/* block comment */',
+      'const y = 2;',
+      '',
+    ].join('\n');
+    await writeFile(file, source, 'utf8');
+
+    // No explicit minify: the schema must not inject 'standard', and execution
+    // must resolve fullContent→none so the whole file comes back byte-exact.
+    const result = await executeDirectTool('localGetFileContent', {
+      queries: [{ path: file, fullContent: true }],
+    });
+
+    const data = firstData<{ content?: string; contentView?: string }>(result);
+    expect(data?.contentView).toBe('none');
+    expect(data?.content).toBe(source);
+    expect(data?.content).toContain('// leading comment');
+    expect(data?.content).toContain('/* block comment */');
+  });
+
+  it('a plain read (no fullContent, no minify) still defaults to standard', async () => {
+    const file = join(dir, 'plain.ts');
+    await writeFile(
+      file,
+      '// strip me\nconst a = 1;\n\nconst b = 2;\n',
+      'utf8'
+    );
+
+    const result = await executeDirectTool('localGetFileContent', {
+      queries: [{ path: file }],
+    });
+
+    expect(firstData<{ contentView?: string }>(result)?.contentView).toBe(
+      'standard'
+    );
+  });
+
   it('rejects minify:"symbols" combined with a line range instead of silently ignoring it', async () => {
     const file = join(dir, 'symbols-range.ts');
     await writeFile(file, 'export const a = 1;\nexport const b = 2;\n', 'utf8');

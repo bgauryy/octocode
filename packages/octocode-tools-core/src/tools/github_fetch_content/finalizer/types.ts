@@ -89,7 +89,6 @@ export type RepoGroup = {
   repo: string;
   files?: FileEntry[];
   directories?: DirectoryEntry[];
-  data?: RepoGroupData;
 };
 
 export type RepoGroupData = {

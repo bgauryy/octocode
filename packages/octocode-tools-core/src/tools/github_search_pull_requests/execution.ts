@@ -11,7 +11,7 @@ import { handlePullRequestsMode } from './execution/pullRequestsMode.js';
 import { GitHubPullRequestSearchQueryLocalSchema } from './scheme.js';
 import type { GitHubPullRequestSearchInput } from './execution/types.js';
 
-// PR/issue SEARCH filters that commits/releases modes silently ignore. With
+// PR/issue SEARCH filters that only the prs/issues modes understand. With
 // 179 input fields across four modes, a filter passed in the wrong mode must
 // say so in-band instead of quietly returning unfiltered results.
 const PR_SEARCH_ONLY_FIELDS = [
@@ -43,14 +43,40 @@ const PR_SEARCH_ONLY_FIELDS = [
   'updated',
 ] as const;
 
-function modeFieldWarnings(
+// Commit-history filters that only the commits mode consumes. `perPage` is
+// deliberately excluded — it has a schema default (always "present") and is
+// also honored by releases mode, so it is not commits-exclusive.
+const COMMITS_ONLY_FIELDS = [
+  'since',
+  'until',
+  'branch',
+  'path',
+  'includeDiff',
+] as const;
+
+// Foreign fields each mode silently ignores. prs/issues share one filter
+// vocabulary; commits and releases each have their own. Releases understands
+// neither PR-search nor commit-history filters.
+const IGNORED_FIELDS_BY_MODE = {
+  prs: COMMITS_ONLY_FIELDS,
+  issues: COMMITS_ONLY_FIELDS,
+  commits: PR_SEARCH_ONLY_FIELDS,
+  releases: [...PR_SEARCH_ONLY_FIELDS, ...COMMITS_ONLY_FIELDS],
+} as const satisfies Record<
+  'prs' | 'issues' | 'commits' | 'releases',
+  readonly string[]
+>;
+
+export function modeFieldWarnings(
   data: Record<string, unknown> | undefined,
-  mode: 'commits' | 'releases'
+  mode: 'prs' | 'issues' | 'commits' | 'releases'
 ): string[] {
-  const present = PR_SEARCH_ONLY_FIELDS.filter(f => data?.[f] !== undefined);
+  const present = IGNORED_FIELDS_BY_MODE[mode].filter(
+    f => data?.[f] !== undefined
+  );
   return present.length > 0
     ? [
-        `Ignored in ${mode} mode (PR/issue search filters have no effect here): ${present.join(', ')}.`,
+        `Ignored in ${mode} mode (these filters have no effect here): ${present.join(', ')}.`,
       ]
     : [];
 }
@@ -97,7 +123,10 @@ export async function searchMultipleGitHubPullRequests(
         }
 
         if (type === 'issues') {
-          return handleIssuesMode(query, parsed.data, authInfo);
+          return withModeWarnings(
+            await handleIssuesMode(query, parsed.data, authInfo),
+            modeFieldWarnings(parsed.data as Record<string, unknown>, 'issues')
+          );
         }
 
         if (type === 'commits') {
@@ -107,7 +136,10 @@ export async function searchMultipleGitHubPullRequests(
           );
         }
 
-        return handlePullRequestsMode(query, parsed.data, getProviderContext);
+        return withModeWarnings(
+          await handlePullRequestsMode(query, parsed.data, getProviderContext),
+          modeFieldWarnings(parsed.data as Record<string, unknown>, 'prs')
+        );
       } catch (error) {
         return handleCatchError(
           error,

@@ -15,11 +15,11 @@ import {
   createQueryShapeSchema,
   describeQuerySchema,
 } from '../../scheme/coreSchemas.js';
-import { bulkOutputEnvelopeFields } from '../../scheme/responseEnvelope.js';
-import {
-  LocalItemPaginationSchema,
-  ToolContinuationSchema,
+import type {
+  LocalItemPagination,
+  ToolContinuation,
 } from '../../scheme/pagination.js';
+import type { BulkToolOutput } from '../../types/toolOutput.js';
 
 const LOCAL_SEARCH_MODES = [
   'paginated',
@@ -226,89 +226,71 @@ export const LocalRipgrepBulkQuerySchema = createRelaxedBulkQuerySchema(
 );
 
 // ---------------------------------------------------------------------------
-// Output schema — describes what localSearchCode returns per query result row.
+// Output TYPES — describes what localSearchCode returns per query result row.
+// No zod: the MCP server registers no outputSchema, so the output is a plain
+// type. Shared envelope lives in types/toolOutput.ts.
 // ---------------------------------------------------------------------------
 
-const SearchMatchSchema = z.object({
-  line: z.number(),
-  endLine: z.number().optional(),
-  value: z.string().optional(),
-  column: z.number().optional(),
-  endColumn: z.number().optional(),
-  count: z.number().optional(),
+export interface LocalSearchMatch {
+  line: number;
+  endLine?: number;
+  value?: string;
+  column?: number;
+  endColumn?: number;
+  count?: number;
   /** AST node-kind label when classifyMatches ran (declaration|callsite|…). */
-  kind: z.string().optional(),
+  kind?: string;
   /** Deterministic hint derived from kind (0.0..1.0); not a ranker score. */
-  scoreHint: z.number().optional(),
-  metavars: z.record(z.string(), z.array(z.string())).optional(),
-  metavarRanges: z
-    .record(
-      z.string(),
-      z.array(
-        z.object({
-          text: z.string(),
-          line: z.number(),
-          column: z.number(),
-          endLine: z.number(),
-          endColumn: z.number(),
-        })
-      )
-    )
-    .optional(),
-});
+  scoreHint?: number;
+  metavars?: Record<string, string[]>;
+  metavarRanges?: Record<
+    string,
+    Array<{
+      text: string;
+      line: number;
+      column: number;
+      endLine: number;
+      endColumn: number;
+    }>
+  >;
+}
 
-const SearchFileSchema = z.object({
-  path: z.string(),
-  absolutePath: z.string().optional(),
-  uri: z.string().optional(),
-  matches: z.array(SearchMatchSchema).optional(),
-  totalOccurrences: z.number().optional(),
-  totalMatchedLines: z.number().optional(),
-  totalMatchRows: z.number().optional(),
-  returnedMatchRows: z.number().optional(),
-  ranking: z
-    .object({
-      score: z.number(),
-      profile: z.string().optional(),
-      pathRole: z.string().optional(),
-      reasons: z.array(z.string()).optional(),
-    })
-    .optional(),
-  matchPagination: LocalItemPaginationSchema.optional(),
-  pagination: LocalItemPaginationSchema.optional(),
-  next: z.record(z.string(), ToolContinuationSchema).optional(),
-});
+export interface LocalSearchFile {
+  path: string;
+  absolutePath?: string;
+  uri?: string;
+  matches?: LocalSearchMatch[];
+  totalOccurrences?: number;
+  totalMatchedLines?: number;
+  totalMatchRows?: number;
+  returnedMatchRows?: number;
+  ranking?: {
+    score: number;
+    profile?: string;
+    pathRole?: string;
+    reasons?: string[];
+  };
+  matchPagination?: LocalItemPagination;
+  pagination?: LocalItemPagination;
+  next?: Record<string, ToolContinuation>;
+}
 
-const LocalSearchCodeDataSchema = z.object({
-  files: z.array(SearchFileSchema).optional(),
-  summary: z.string().optional(),
-  searchEngine: z.string().optional(),
-  stats: z
-    .object({
-      totalOccurrences: z.number().optional(),
-      matchedLines: z.number().optional(),
-      filesMatched: z.number().optional(),
-      filesSearched: z.number().optional(),
-      bytesSearched: z.number().optional(),
-      searchTime: z.string().optional(),
-    })
-    .passthrough()
-    .optional(),
-  pagination: LocalItemPaginationSchema.optional(),
-  next: z.record(z.string(), ToolContinuationSchema).optional(),
-  warnings: z.array(z.string()).optional(),
-});
+export interface LocalSearchCodeData {
+  files?: LocalSearchFile[];
+  summary?: string;
+  searchEngine?: string;
+  stats?: {
+    totalOccurrences?: number;
+    matchedLines?: number;
+    filesMatched?: number;
+    filesSearched?: number;
+    bytesSearched?: number;
+    searchTime?: string;
+    [key: string]: unknown;
+  };
+  pagination?: LocalItemPagination;
+  next?: Record<string, ToolContinuation>;
+  warnings?: string[];
+}
 
-export const LocalSearchCodeOutputSchema = z
-  .object({
-    results: z.array(
-      z.object({
-        id: z.string(),
-        status: z.enum(['empty', 'error']).optional(),
-        data: LocalSearchCodeDataSchema,
-      })
-    ),
-  })
-  .extend(bulkOutputEnvelopeFields);
-
-export type LocalSearchCodeOutput = z.infer<typeof LocalSearchCodeOutputSchema>;
+export type LocalSearchCodeOutput = BulkToolOutput<LocalSearchCodeData>;

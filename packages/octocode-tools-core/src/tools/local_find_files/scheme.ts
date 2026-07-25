@@ -10,11 +10,11 @@ import {
   createQueryShapeSchema,
   describeQuerySchema,
 } from '../../scheme/coreSchemas.js';
-import { bulkOutputEnvelopeFields } from '../../scheme/responseEnvelope.js';
-import {
-  LocalItemPaginationSchema,
-  ToolContinuationSchema,
+import type {
+  LocalItemPagination,
+  ToolContinuation,
 } from '../../scheme/pagination.js';
+import type { BulkToolOutput } from '../../types/toolOutput.js';
 
 const queryOverrides = {
   maxDepth: clampedInt(0, 100).optional(),
@@ -82,42 +82,32 @@ export const LocalFindFilesBulkQuerySchema = createRelaxedBulkQuerySchema(
 );
 
 // ---------------------------------------------------------------------------
-// Output schema — describes what localFindFiles returns per query result.
+// Output TYPES — localFindFiles result shape. No zod: the output was never
+// validated at runtime (MCP registers no outputSchema), so it is a plain type.
+// Shared envelope lives in types/toolOutput.ts.
 // ---------------------------------------------------------------------------
 
-const FindFilesEntrySchema = z.object({
-  name: z.string().optional(),
-  path: z.string().optional(),
-  absolutePath: z.string().optional(),
-  uri: z.string().optional(),
-  type: z.enum(['file', 'dir', 'directory', 'link', 'symlink']).optional(),
-  size: z.union([z.number(), z.string()]).optional(),
-  sizeFormatted: z.string().optional(),
-  modified: z.string().optional(),
-  accessed: z.string().optional(),
-  created: z.string().optional(),
-  permissions: z.string().optional(),
-});
+export interface LocalFindFilesEntryOutput {
+  name?: string;
+  path?: string;
+  absolutePath?: string;
+  uri?: string;
+  type?: 'file' | 'dir' | 'directory' | 'link' | 'symlink';
+  size?: number | string;
+  sizeFormatted?: string;
+  modified?: string;
+  accessed?: string;
+  created?: string;
+  permissions?: string;
+}
 
-const LocalFindFilesDataSchema = z.object({
-  path: z.string().optional(),
-  files: z.array(FindFilesEntrySchema).optional(),
-  summary: z.string().optional(),
-  pagination: LocalItemPaginationSchema.optional(),
-  next: z.record(z.string(), ToolContinuationSchema).optional(),
-  warnings: z.array(z.string()).optional(),
-});
+export interface LocalFindFilesData {
+  path?: string;
+  files?: LocalFindFilesEntryOutput[];
+  summary?: string;
+  pagination?: LocalItemPagination;
+  next?: Record<string, ToolContinuation>;
+  warnings?: string[];
+}
 
-export const LocalFindFilesOutputSchema = z
-  .object({
-    results: z.array(
-      z.object({
-        id: z.string(),
-        status: z.enum(['empty', 'error']).optional(),
-        data: LocalFindFilesDataSchema,
-      })
-    ),
-  })
-  .extend(bulkOutputEnvelopeFields);
-
-export type LocalFindFilesOutput = z.infer<typeof LocalFindFilesOutputSchema>;
+export type LocalFindFilesOutput = BulkToolOutput<LocalFindFilesData>;

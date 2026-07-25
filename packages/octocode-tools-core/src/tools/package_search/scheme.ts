@@ -8,11 +8,11 @@ import {
   createQueryShapeSchema,
   describeQuerySchema,
 } from '../../scheme/coreSchemas.js';
-import { responseEnvelopeFields } from '../../scheme/responseEnvelope.js';
-import {
-  ItemPaginationSchema,
-  ToolContinuationSchema,
+import type {
+  ItemPagination,
+  ToolContinuation,
 } from '../../scheme/pagination.js';
+import type { BulkToolOutput } from '../../types/toolOutput.js';
 
 const queryOverrides = {
   page: relaxedPageNumberField,
@@ -44,54 +44,41 @@ export const NpmSearchBulkQueryLocalSchema = createRelaxedBulkQuerySchema(
   { maxQueries: 5 }
 );
 
-export const NpmSearchOutputLocalSchema = z
-  .object({
-    results: z
-      .array(
-        z.looseObject({
-          id: z.string(),
-          data: z
-            .looseObject({
-              packages: z
-                .array(
-                  z
-                    .object({
-                      name: z.string(),
-                      version: z.string().optional(),
-                      description: z.string().optional(),
-                      license: z.string().optional(),
-                      downloads: z.number().optional(),
-                      repository: z.string().optional(),
-                      repositoryDirectory: z.string().optional(),
-                      repositoryId: z.string().optional(),
-                      next: z
-                        .record(z.string(), ToolContinuationSchema)
-                        .optional(),
-                      warnings: z.array(z.string()).optional(),
-                    })
-                    .passthrough()
-                )
-                .optional(),
-              repositories: z
-                .record(
-                  z.string(),
-                  z
-                    .object({
-                      repository: z.string(),
-                      owner: z.string(),
-                      repo: z.string(),
-                      repositoryDirectory: z.string().optional(),
-                      next: z.record(z.string(), ToolContinuationSchema),
-                    })
-                    .passthrough()
-                )
-                .optional(),
-              pagination: ItemPaginationSchema.optional(),
-            })
-            .optional(),
-          status: z.string().optional(),
-        })
-      )
-      .optional(),
-  })
-  .extend(responseEnvelopeFields);
+// ---------------------------------------------------------------------------
+// Output TYPES — describes what packageSearch returns. No zod: the MCP server
+// registers no outputSchema. Index signatures mirror the original
+// z.looseObject/.passthrough() for additive runtime fields. Shared envelope
+// lives in types/toolOutput.ts.
+// ---------------------------------------------------------------------------
+
+export interface NpmSearchPackage {
+  name: string;
+  version?: string;
+  description?: string;
+  license?: string;
+  downloads?: number;
+  repository?: string;
+  repositoryDirectory?: string;
+  repositoryId?: string;
+  next?: Record<string, ToolContinuation>;
+  warnings?: string[];
+  [key: string]: unknown;
+}
+
+export interface NpmSearchRepository {
+  repository: string;
+  owner: string;
+  repo: string;
+  repositoryDirectory?: string;
+  next: Record<string, ToolContinuation>;
+  [key: string]: unknown;
+}
+
+export interface NpmSearchData {
+  packages?: NpmSearchPackage[];
+  repositories?: Record<string, NpmSearchRepository>;
+  pagination?: ItemPagination;
+  [key: string]: unknown;
+}
+
+export type NpmSearchOutputLocal = BulkToolOutput<NpmSearchData>;

@@ -45,7 +45,7 @@ export async function executeLspGetSemantics(
         execute: async () => {
           const result = await getSemanticContent(query);
           return attachSemanticRawEvidence(
-            withSemanticNext(formatSemanticResult(query, result))
+            withSemanticNext(query, formatSemanticResult(query, result))
           );
         },
       });

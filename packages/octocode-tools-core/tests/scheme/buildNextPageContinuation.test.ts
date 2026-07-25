@@ -1,0 +1,48 @@
+/**
+ * Regression test for the continuation meta-leak fix.
+ *
+ * buildNextPageContinuation must strip auto-filled per-call metadata
+ * (id / mainResearchGoal / researchGoal / reasoning) from the replayable
+ * continuation query, so an agent running `next` does not resend stale meta
+ * from the originating call. Affects localFindFiles, localViewStructure, and
+ * any list-style local tool that paginates via this helper.
+ */
+import { describe, expect, it } from 'vitest';
+
+import { buildNextPageContinuation } from '../../src/scheme/pagination.js';
+
+describe('buildNextPageContinuation', () => {
+  it('strips auto-filled per-call metadata from the continuation query', () => {
+    const cont = buildNextPageContinuation('localFindFiles', {
+      id: 'localFindFiles-1',
+      researchGoal: 'Execute localFindFiles via octocode',
+      mainResearchGoal: 'top-level goal',
+      reasoning: 'Executed via octocode tool command',
+      pattern: '**/*.ts',
+      page: 2,
+    });
+
+    expect(cont.tool).toBe('localFindFiles');
+    expect(cont.confidence).toBe('exact');
+    // Real query params survive.
+    expect(cont.query).toMatchObject({ pattern: '**/*.ts', page: 2 });
+    // Auto-filled meta is gone.
+    expect(cont.query).not.toHaveProperty('id');
+    expect(cont.query).not.toHaveProperty('researchGoal');
+    expect(cont.query).not.toHaveProperty('mainResearchGoal');
+    expect(cont.query).not.toHaveProperty('reasoning');
+  });
+
+  it('does not mutate the caller-supplied query object', () => {
+    const original = { id: 'x-1', researchGoal: 'g', page: 3 };
+    buildNextPageContinuation('localViewStructure', original);
+    expect(original).toHaveProperty('id', 'x-1');
+    expect(original).toHaveProperty('researchGoal', 'g');
+  });
+
+  it('returns the query unchanged when there is no meta to strip', () => {
+    const q = { pattern: '*.md', page: 2 };
+    const cont = buildNextPageContinuation('localFindFiles', q);
+    expect(cont.query).toEqual(q);
+  });
+});

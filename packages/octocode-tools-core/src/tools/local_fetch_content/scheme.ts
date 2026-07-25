@@ -12,17 +12,19 @@ import {
   createQueryShapeSchema,
   describeQuerySchema,
 } from '../../scheme/coreSchemas.js';
-import { bulkOutputEnvelopeFields } from '../../scheme/responseEnvelope.js';
-import {
-  CharPaginationSchema,
-  ItemPaginationSchema,
-  ToolContinuationSchema,
+import type {
+  CharPagination,
+  ItemPagination,
+  ToolContinuation,
 } from '../../scheme/pagination.js';
+import type { BulkToolOutput } from '../../types/toolOutput.js';
 
-const minifyField = z
-  .enum(['none', 'standard', 'symbols'])
-  .optional()
-  .default('standard');
+// No schema-level default: the direct-tool executor parses inputSchema (applying
+// any default) before execution runs, which would erase the distinction between
+// "caller omitted minify" and "caller chose standard". The effective default is
+// resolved in fetchContent instead — 'none' for fullContent (verbatim, or
+// "returns the whole file" would silently strip comments), 'standard' otherwise.
+const minifyField = z.enum(['none', 'standard', 'symbols']).optional();
 
 const queryOverrides = {
   startLine: lineNumberField,
@@ -61,60 +63,39 @@ export const LocalFetchContentBulkQuerySchema = createRelaxedBulkQuerySchema(
 // Both modes share the same result row shape; pagination discriminates.
 // ---------------------------------------------------------------------------
 
-const FileContentMatchRangeSchema = z.object({
-  start: z.number(),
-  end: z.number(),
-});
+export interface FileContentMatchRange {
+  start: number;
+  end: number;
+}
 
-const LocalGetFileContentDataSchema = z.object({
-  path: z.string().optional(),
-  absolutePath: z.string().optional(),
-  uri: z.string().optional(),
-  content: z.string().optional(),
+export interface LocalGetFileContentData {
+  path?: string;
+  absolutePath?: string;
+  uri?: string;
+  content?: string;
   // isSkeleton was dropped — always equal to contentView==='symbols', so it
   // carried no information a consumer couldn't already derive from contentView.
-  contentView: z.enum(['none', 'standard', 'symbols']).optional(),
-  totalLines: z.number().optional(),
-  sourceChars: z.number().optional(),
-  sourceBytes: z.number().optional(),
+  contentView?: 'none' | 'standard' | 'symbols';
+  totalLines?: number;
+  sourceChars?: number;
+  sourceBytes?: number;
   // Chars actually returned in `content` after minification + windowing —
   // compare against sourceChars to see what a contentView saved (mirrors
   // ghGetFileContent's per-view fileSize signal).
-  returnedChars: z.number().optional(),
-  startLine: z.number().optional(),
-  endLine: z.number().optional(),
-  isPartial: z.boolean().optional(),
-  matchRanges: z.array(FileContentMatchRangeSchema).optional(),
+  returnedChars?: number;
+  startLine?: number;
+  endLine?: number;
+  isPartial?: boolean;
+  matchRanges?: FileContentMatchRange[];
   // Char pagination for content windows
-  pagination: z
-    .union([
-      CharPaginationSchema.extend({
-        nextBlockChar: z.number().optional(),
-      }),
-      ItemPaginationSchema,
-    ])
-    .optional(),
-  next: z.record(z.string(), ToolContinuationSchema).optional(),
-  modified: z.string().optional(),
-  lastModified: z.string().optional(),
-  lastModifiedBy: z.string().optional(),
-  warnings: z.array(z.string()).optional(),
-  matchNotFound: z.boolean().optional(),
-  searchedFor: z.string().optional(),
-});
+  pagination?: (CharPagination & { nextBlockChar?: number }) | ItemPagination;
+  next?: Record<string, ToolContinuation>;
+  modified?: string;
+  lastModified?: string;
+  lastModifiedBy?: string;
+  warnings?: string[];
+  matchNotFound?: boolean;
+  searchedFor?: string;
+}
 
-export const LocalGetFileContentOutputSchema = z
-  .object({
-    results: z.array(
-      z.object({
-        id: z.string(),
-        status: z.enum(['empty', 'error']).optional(),
-        data: LocalGetFileContentDataSchema,
-      })
-    ),
-  })
-  .extend(bulkOutputEnvelopeFields);
-
-export type LocalGetFileContentOutput = z.infer<
-  typeof LocalGetFileContentOutputSchema
->;
+export type LocalGetFileContentOutput = BulkToolOutput<LocalGetFileContentData>;

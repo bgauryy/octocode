@@ -90,8 +90,37 @@ export const LocalItemPaginationSchema = ItemPaginationSchema.extend({
 export type LocalItemPagination = z.infer<typeof LocalItemPaginationSchema>;
 
 /**
+ * Auto-filled per-call metadata that the direct-tool executor injects into every
+ * query (id, research goals, reasoning). These are NOT real query parameters, so
+ * they must be stripped from a replayable continuation — otherwise an agent that
+ * runs `next` resends stale meta from the originating call.
+ * Mirrors DIRECT_TOOL_AUTO_FILLED_FIELDS in tools/directToolCatalog; kept local
+ * to avoid a scheme→tools upward (circular) import.
+ */
+const AUTO_FILLED_META_KEYS: readonly string[] = [
+  'id',
+  'mainResearchGoal',
+  'researchGoal',
+  'reasoning',
+];
+
+function stripAutoFilledMeta(
+  query: Record<string, unknown>
+): Record<string, unknown> {
+  let next: Record<string, unknown> | undefined;
+  for (const key of AUTO_FILLED_META_KEYS) {
+    if (key in query) {
+      next ??= { ...query };
+      delete next[key];
+    }
+  }
+  return next ?? query;
+}
+
+/**
  * Build a machine-ready next-page continuation for list-style local tools.
- * Callers pass the full original query with the advanced page field already set.
+ * Callers pass the full original query with the advanced page field already set;
+ * auto-filled per-call metadata is stripped so the continuation is cleanly replayable.
  */
 export function buildNextPageContinuation(
   tool: string,
@@ -100,7 +129,7 @@ export function buildNextPageContinuation(
 ): ToolContinuation {
   return {
     tool,
-    query,
+    query: stripAutoFilledMeta(query),
     why,
     confidence: 'exact',
   };
@@ -144,5 +173,3 @@ export function buildContinueCharsContinuation<TTool extends string>(
     },
   };
 }
-
-

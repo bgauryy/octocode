@@ -10,11 +10,8 @@ import {
   createQueryShapeSchema,
   describeQuerySchema,
 } from '../../scheme/coreSchemas.js';
-import { responseEnvelopeFields } from '../../scheme/responseEnvelope.js';
-import {
-  ItemPaginationSchema,
-  ToolContinuationSchema,
-} from '../../scheme/pagination.js';
+import type { ItemPagination } from '../../scheme/pagination.js';
+import type { BulkToolOutput } from '../../types/toolOutput.js';
 
 const queryOverrides = {
   limit: clampedInt(1, GITHUB_SEARCH_MAX_LIMIT).optional(),
@@ -40,81 +37,53 @@ export const GitHubCodeSearchBulkQueryLocalSchema =
     createQueryShapeSchema(CoreGitHubCodeSearchQuerySchema, queryOverrides)
   );
 
+// ---------------------------------------------------------------------------
+// Output TYPES — describes what ghSearchCode returns. No zod: the MCP server
+// registers no outputSchema. Shared envelope lives in types/toolOutput.ts.
+// ---------------------------------------------------------------------------
+
 // Search-specific pagination: extends the canonical base with fields that are
 // semantically unique to code-search (not aliases for existing canonical fields).
-const CodeSearchPaginationSchema = ItemPaginationSchema.extend({
-  totalMatchesKind: z.enum(['exact', 'reported', 'lowerBound']).optional(),
-  totalMatchesCapped: z.boolean().optional(),
-  uniqueFileCount: z.number().optional(),
-});
+export interface CodeSearchPaginationLocal extends ItemPagination {
+  totalMatchesKind?: 'exact' | 'reported' | 'lowerBound';
+  totalMatchesCapped?: boolean;
+  uniqueFileCount?: number;
+}
 
-export const GitHubCodeSearchOutputLocalSchema = z.object({
-  base: z.string().optional(),
-  shared: z
-    .record(z.string(), z.union([z.string(), z.number(), z.boolean()]))
-    .optional(),
-  responsePagination: responseEnvelopeFields.responsePagination,
-  results: z.array(
-    z.object({
-      id: z.string(),
-      data: z.object({
-        // concise:true collapses each file to "owner/repo:path" strings;
-        // default mode returns structured file objects with matches.
-        files: z.array(
-          z.union([
-            z.string(),
-            z.object({
-              owner: z.string(),
-              repo: z.string(),
-              path: z.string(),
-              queryId: z.string().optional(),
-              matches: z.array(
-                z.object({
-                  value: z.string().optional(),
-                  pathOnly: z.boolean().optional(),
-                  matchIndices: z
-                    .array(
-                      z.object({
-                        start: z.number(),
-                        end: z.number(),
-                        lineOffset: z.number(),
-                      })
-                    )
-                    .optional(),
-                  url: z.string().optional(),
-                })
-              ),
-            }),
-          ])
-        ),
-        pagination: CodeSearchPaginationSchema.optional(),
-      }),
-    })
-  ),
-  emptyQueries: z
-    .array(
-      z.object({
-        id: z.string(),
-        nonExistentScope: z.literal(true).optional(),
-        incompleteResults: z.literal(true).optional(),
-      })
-    )
-    .optional(),
-  warnings: z.array(z.string()).optional(),
-  // GitHub code search returns no absolute line numbers; `next` carries a
-  // ready-made ghGetFileContent matchString call per result record so agents
-  // can resolve exact file:line anchors in one step instead of cloning.
-  next: z.record(z.string(), ToolContinuationSchema).optional(),
-  errors: z
-    .array(
-      z.object({
-        id: z.string(),
-        error: z.string(),
-      })
-    )
-    .optional(),
-});
+export interface GitHubCodeSearchFileMatch {
+  value?: string;
+  pathOnly?: boolean;
+  matchIndices?: Array<{ start: number; end: number; lineOffset: number }>;
+}
 
-export type GitHubCodeSearchOutputLocal = z.infer<
-  typeof GitHubCodeSearchOutputLocalSchema
->;
+export interface GitHubCodeSearchFile {
+  owner: string;
+  repo: string;
+  path: string;
+  queryId?: string;
+  matches: GitHubCodeSearchFileMatch[];
+}
+
+export interface GitHubCodeSearchData {
+  // concise:true collapses each file to "owner/repo:path" strings;
+  // default mode returns structured file objects with matches.
+  files: Array<string | GitHubCodeSearchFile>;
+  pagination?: CodeSearchPaginationLocal;
+}
+
+export type GitHubCodeSearchOutputLocal =
+  BulkToolOutput<GitHubCodeSearchData> & {
+    emptyQueries?: Array<{
+      id: string;
+      nonExistentScope?: true;
+      incompleteResults?: true;
+    }>;
+    warnings?: string[];
+    // GitHub code search returns no absolute line numbers; `next` carries a
+    // ready-made ghGetFileContent matchString call per result record so agents
+    // can resolve exact file:line anchors in one step instead of cloning.
+    errors?: Array<{ id: string; error: string }>;
+    // Index signature: satisfies BulkFinalizer's `TOutput extends
+    // Record<string, unknown>` constraint (the old zod-inferred type did too).
+    [key: string]: unknown;
+  };

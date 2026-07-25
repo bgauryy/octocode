@@ -1,5 +1,5 @@
 import { type CallToolResult } from '@modelcontextprotocol/sdk/types.js';
-import { getDirectorySizeBytes } from '../../shared/index.js';
+import { getCheckedOutSizeBytes } from './contentSize.js';
 import { TOOL_NAMES } from '../toolMetadata/proxies.js';
 import { executeBulkOperation } from '../../utils/response/bulk.js';
 import type {
@@ -63,7 +63,7 @@ export async function executeCloneRepo(
             );
           }
 
-          const totalSize = getDirectorySizeBytes(result.localPath);
+          const totalSize = getCheckedOutSizeBytes(result.localPath);
 
           const location: Record<string, unknown> = {
             kind: query.sparsePath ? 'tree' : 'repo',

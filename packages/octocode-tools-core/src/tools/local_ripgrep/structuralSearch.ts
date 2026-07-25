@@ -27,15 +27,24 @@ const ZERO_MATCH_GUIDANCE =
   '0 structural matches. A pattern matches a complete AST node — a class/function usually needs a body (add `$$$BODY`), and Python/TS definitions may carry a return type (`-> $RET:`) or decorators the pattern must include. For partial or relational matches use a YAML `rule` instead of `pattern`.';
 
 /**
- * The #1 structural miss is a function pattern that omits the return type. When
- * the pattern has a parameter list directly followed by a body brace and no
- * return-type annotation, suggest the typed variant (insert `: $R`) as a
- * concrete, copy-pasteable next step appended to ZERO_MATCH_GUIDANCE.
+ * The #1 structural miss is a function/method pattern that omits the return
+ * type: the natural `function $NAME($$$ARGS) { $$$BODY }` matches 0 real
+ * functions because production code carries a return type between `)` and `{`.
+ * When the pattern has a parameter list directly followed by a body brace and
+ * no return-type position, return the typed variant (insert `: $R`); otherwise
+ * undefined. Used both to auto-retry and, as a fallback, to suggest the variant.
  */
-function relaxedFunctionPatternSuggestion(pattern: string | undefined): string {
-  if (!pattern || !/\)\s*\{/.test(pattern)) return '';
+function relaxedFunctionReturnTypePattern(
+  pattern: string | undefined
+): string | undefined {
+  if (!pattern || !/\)\s*\{/.test(pattern)) return undefined;
   const relaxed = pattern.replace(/\)\s*\{/, '): $R {');
-  return relaxed === pattern ? '' : ` Try: \`${relaxed}\`.`;
+  return relaxed === pattern ? undefined : relaxed;
+}
+
+function relaxedFunctionPatternSuggestion(pattern: string | undefined): string {
+  const relaxed = relaxedFunctionReturnTypePattern(pattern);
+  return relaxed ? ` Try: \`${relaxed}\`.` : '';
 }
 
 /**
@@ -130,6 +139,7 @@ export async function searchContentStructural(
     ReturnType<typeof contextUtils.structuralSearchFiles>
   >;
   let semicolonNormalized = false;
+  let returnTypeRelaxed: string | undefined;
   try {
     nativeResult = await runNative();
     // Statement-level patterns (const/let/var/return/…) must parse as complete
@@ -150,6 +160,27 @@ export async function searchContentStructural(
         }
       } catch {
         // Terminator retry is best-effort — keep the original zero-match result.
+      }
+    }
+    // Same failure mode for declarations: the natural
+    // `function $NAME($$$ARGS) { $$$BODY }` matches 0 real functions because
+    // production code carries a return type between `)` and `{`. Retry once
+    // with a return-type metavar inserted (`): $R {`) so the bare pattern
+    // matches typed functions. Only fires on 0 matches and only when the
+    // pattern lacks a return-type position, so it can never override or change
+    // an existing positive result.
+    if (nativeResult.totalMatches === 0 && query.pattern && !query.rule) {
+      const relaxed = relaxedFunctionReturnTypePattern(query.pattern);
+      if (relaxed) {
+        try {
+          const retried = await runNative(relaxed);
+          if (retried.totalMatches > 0) {
+            nativeResult = retried;
+            returnTypeRelaxed = relaxed;
+          }
+        } catch {
+          // Return-type retry is best-effort — keep the original zero-match result.
+        }
       }
     }
   } catch (error) {
@@ -227,6 +258,11 @@ export async function searchContentStructural(
   if (semicolonNormalized) {
     warnings.push(
       `Matched after appending ';' — statement patterns must parse as complete statements; the bare pattern parsed as an expression fragment. Results are for "${query.pattern};".`
+    );
+  }
+  if (returnTypeRelaxed) {
+    warnings.push(
+      `Matched after adding a return-type metavar — the bare pattern missed functions that declare a return type. Results are for "${returnTypeRelaxed}".`
     );
   }
   // Zero matches: ask the engine's detailed variant WHY. It returns the query

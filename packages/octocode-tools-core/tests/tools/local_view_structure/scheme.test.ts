@@ -32,6 +32,16 @@ describe('localViewStructure schema', () => {
     expect(result.success).toBe(true);
   });
 
+  it('documents the effective maxDepth default for each mode', () => {
+    const description =
+      LocalViewStructureQuerySchema.shape.maxDepth.description ?? '';
+
+    // Overrides the (inaccurate) inherited core text; states the real defaults.
+    expect(description).toMatch(/immediate children/i);
+    expect(description).toMatch(/or 5 if recursive:true/i);
+    expect(description).toMatch(/recursive:true is not required/i);
+  });
+
   it('keeps bulk parsing relaxed so execution can report per-query errors', () => {
     const result = LocalViewStructureBulkQuerySchema.safeParse({
       queries: [

@@ -1,0 +1,73 @@
+name: Engine - Rust & Native Tests
+
+# The main `ci` job deliberately excludes @octocodeai/octocode-engine (Rust/clippy
+# compilation is too costly to run on every PR). That left the engine's cargo tests,
+# clippy gate, and the Rust↔JS redaction-parity vitest suite running nowhere in CI.
+# This workflow closes that gap WITHOUT taxing unrelated PRs: it only runs when
+# engine sources change (paths filter below).
+
+on:
+  pull_request:
+    paths:
+      - 'packages/octocode-engine/**'
+      - '.github/workflows/engine.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'packages/octocode-engine/**'
+      - '.github/workflows/engine.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  engine:
+    name: Engine Rust + Native Parity
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: '20'
+          cache: 'yarn'
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install dependencies
+        run: yarn install --immutable
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: packages/octocode-engine
+
+      - name: Build native addon (debug)
+        run: yarn workspace @octocodeai/octocode-engine build:dev
+
+      - name: Clippy (-D warnings gate)
+        working-directory: packages/octocode-engine
+        run: cargo clippy --lib --all-features -- -D warnings
+
+      - name: Cargo tests
+        working-directory: packages/octocode-engine
+        run: cargo test --lib --tests --all-features
+
+      - name: Vitest (native required — no silent skip)
+        # OCTOCODE_REQUIRE_NATIVE makes the redaction-parity suite HARD-FAIL if the
+        # native addon didn't load, instead of silently skipping to a false green.
+        env:
+          OCTOCODE_REQUIRE_NATIVE: '1'
+        run: yarn workspace @octocodeai/octocode-engine test:node

@@ -20,6 +20,7 @@ import { LOCAL_DEFAULT_FILES_PER_PAGE, LOCAL_MAX_LIMIT } from '../../config.js';
 import { attachRawResponseChars } from '../../utils/response/charSavings.js';
 import { buildNextPageContinuation } from '../../scheme/pagination.js';
 import { buildWalkWarnings } from '../local_view_structure/structureResponse.js';
+import { buildFindFilesNextMap } from './findFilesNext.js';
 
 type FindFilesQuery = WithOptionalMeta<UpstreamFindFilesQuery>;
 
@@ -130,6 +131,24 @@ export async function findFiles(
     const allWarnings = [...timeFormatWarnings, ...nativeWarnings];
 
     const hasMore = currentPage < totalPages;
+    // Per-result evidence hints (read the first file / orient into the first
+    // dir) plus the pagination continuation when there are more pages.
+    const rowNext = buildFindFilesNextMap(finalFiles) ?? {};
+    const next: Record<string, unknown> = {
+      ...rowNext,
+      ...(hasMore
+        ? {
+            nextPage: buildNextPageContinuation(
+              TOOL_NAMES.LOCAL_FIND_FILES,
+              {
+                ...queryWithSanitizedPath,
+                page: currentPage + 1,
+              } as Record<string, unknown>,
+              'Continue to the next page of matched files.'
+            ),
+          }
+        : {}),
+    };
     const fullResult: LocalFindFilesToolResult = {
       ...(totalFiles === 0 ? { status: 'empty' as const } : {}),
       path: queryWithSanitizedPath.path,
@@ -145,25 +164,12 @@ export async function findFiles(
           ? { totalFilesFound: discoveredFileCount }
           : {}),
       },
-      ...(hasMore
-        ? {
-            next: {
-              nextPage: buildNextPageContinuation(
-                TOOL_NAMES.LOCAL_FIND_FILES,
-                {
-                  ...queryWithSanitizedPath,
-                  page: currentPage + 1,
-                } as Record<string, unknown>,
-                'Continue to the next page of matched files.'
-              ),
-            },
-          }
-        : {}),
+      ...(Object.keys(next).length > 0 ? { next } : {}),
       ...(allWarnings.length > 0 && { warnings: allWarnings }),
     };
 
     return attachRawResponseChars(
-      finalizeFindFilesResult(fullResult, query, { totalFiles }),
+      fullResult,
       nativeResult.entries.reduce((sum, entry) => sum + entry.path.length, 0)
     );
   } catch (error) {
@@ -192,14 +198,6 @@ function nativeEntryToFindFile(
     file.modified = new Date(entry.modifiedMs).toISOString();
   }
   return file;
-}
-
-export function finalizeFindFilesResult(
-  result: LocalFindFilesToolResult,
-  _query: FindFilesQuery,
-  _totals: { totalFiles: number }
-): LocalFindFilesToolResult {
-  return result;
 }
 
 function sortLocalFindFilesEntrys(

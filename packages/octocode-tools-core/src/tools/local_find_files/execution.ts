@@ -6,7 +6,6 @@ import { findFiles } from './findFiles.js';
 import { safeParseOrError } from '../utils.js';
 import { executeWithToolBoundary } from '../executionGuard.js';
 import type { ToolExecutionArgs } from '../../types/execution.js';
-export { finalizeFindFilesResult } from './findFiles.js';
 
 export async function executeFindFiles(
   args: ToolExecutionArgs<FindFilesQuery>

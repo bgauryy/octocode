@@ -126,7 +126,10 @@ function shouldApplyPattern(
   return applies;
 }
 
-function sanitizeWithJsFallback(
+// Exported for the Rust↔JS redaction-parity differential test: the drift guard
+// (`verify:patterns`) only proves patterns.rs == the TS pattern source; it does
+// NOT prove this JS fallback and the Rust engine produce the same redaction.
+export function sanitizeWithJsFallback(
   content: string,
   filePath: string | null
 ): NativeSanitizationResult {

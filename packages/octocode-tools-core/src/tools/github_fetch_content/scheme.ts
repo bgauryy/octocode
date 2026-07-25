@@ -11,101 +11,18 @@ import {
   createQueryShapeSchema,
   describeQuerySchema,
 } from '../../scheme/coreSchemas.js';
-import { responseEnvelopeFields } from '../../scheme/responseEnvelope.js';
-import {
-  CharPaginationSchema,
-  ItemPaginationSchema,
-  ToolContinuationSchema,
+import type {
+  CharPagination,
+  ItemPagination,
+  ToolContinuation,
 } from '../../scheme/pagination.js';
+import type { ResponsePaginationInfo } from '../../types/toolOutput.js';
 
-const minifyField = z
-  .enum(['none', 'standard', 'symbols'])
-  .optional()
-  .default('standard');
-
-// Parity with local_fetch_content: compose shared char/item pagination +
-// ToolContinuation instead of inline duplicates.
-const GitHubFetchFilePaginationSchema = z.union([
-  CharPaginationSchema.extend({
-    nextPage: z.number().optional(),
-  }),
-  ItemPaginationSchema.extend({
-    charOffset: z.number().optional(),
-    charLength: z.number().optional(),
-    totalChars: z.number().optional(),
-    nextCharOffset: z.number().optional(),
-  }),
-]);
-
-const GitHubFetchFileNextSchema = z.record(z.string(), ToolContinuationSchema);
-
-const GitHubFetchFileEntrySchema = z.object({
-  path: z.string(),
-  content: z.string(),
-  localPath: z.string().optional(),
-  repoRoot: z.string().optional(),
-  // isSkeleton was dropped — always equal to contentView==='symbols', so it
-  // carried no information a consumer couldn't already derive from contentView.
-  contentView: z.enum(['none', 'standard', 'symbols']).optional(),
-  totalLines: z.number().optional(),
-  sourceChars: z.number().optional(),
-  sourceBytes: z.number().optional(),
-  resolvedBranch: z.string().optional(),
-  // Runtime also emits `modified` (ISO mtime); keep lastModified for older shapes.
-  modified: z.string().optional(),
-  fileSize: z.number().optional(),
-  pagination: GitHubFetchFilePaginationSchema.optional(),
-  next: GitHubFetchFileNextSchema.optional(),
-  isPartial: z.boolean().optional(),
-  startLine: z.number().optional(),
-  endLine: z.number().optional(),
-  matchRanges: z
-    .array(z.object({ start: z.number(), end: z.number() }))
-    .optional(),
-  lastModified: z.string().optional(),
-  lastModifiedBy: z.string().optional(),
-  warnings: z.array(z.string()).optional(),
-  matchNotFound: z.boolean().optional(),
-  searchedFor: z.string().optional(),
-  cached: z.boolean().optional(),
-});
-
-const GitHubFetchDirectoryEntrySchema = z.object({
-  path: z.string(),
-  localPath: z.string(),
-  repoRoot: z.string().optional(),
-  fileCount: z.number(),
-  totalSize: z.number(),
-  complete: z.boolean().optional(),
-  directoryEntryCount: z.number().optional(),
-  eligibleFileCount: z.number().optional(),
-  savedFileCount: z.number().optional(),
-  skipped: z
-    .object({
-      nonFile: z.number(),
-      missingDownloadUrl: z.number(),
-      oversized: z.number(),
-      binary: z.number(),
-      fileLimit: z.number(),
-      fetchFailed: z.number(),
-      totalSizeLimit: z.number(),
-      pathTraversal: z.number(),
-    })
-    .optional(),
-  limits: z
-    .object({
-      maxDirectoryFiles: z.number(),
-      maxTotalSize: z.number(),
-      maxFileSize: z.number(),
-    })
-    .optional(),
-  warnings: z.array(z.string()).optional(),
-  files: z
-    .array(z.object({ path: z.string(), size: z.number(), type: z.string() }))
-    .optional(),
-  cached: z.boolean().optional(),
-  resolvedBranch: z.string().optional(),
-});
+// No schema-level default: the direct-tool executor parses inputSchema (applying
+// any default) before execution runs, which would erase the distinction between
+// "caller omitted minify" and "caller chose standard". The effective default is
+// resolved in execution instead — 'none' for fullContent, 'standard' otherwise.
+const minifyField = z.enum(['none', 'standard', 'symbols']).optional();
 
 const queryOverrides = {
   startLine: lineNumberField,
@@ -130,38 +47,101 @@ export const FileContentBulkQueryLocalSchema = createRelaxedBulkQuerySchema(
   FileContentQueryBaseLocalSchema
 );
 
-export const GitHubFetchContentOutputLocalSchema = z.object({
-  base: z.string().optional(),
-  shared: z
-    .record(z.string(), z.union([z.string(), z.number(), z.boolean()]))
-    .optional(),
-  responsePagination: responseEnvelopeFields.responsePagination,
-  results: z.array(
-    z.object({
-      id: z.string(),
-      data: z
-        .object({
-          owner: z.string(),
-          repo: z.string(),
-          files: z.array(GitHubFetchFileEntrySchema).optional(),
-          directories: z.array(GitHubFetchDirectoryEntrySchema).optional(),
-        })
-        .optional(),
-    })
-  ),
-  errors: z
-    .array(
-      z.object({
-        id: z.string(),
-        owner: z.string().optional(),
-        repo: z.string().optional(),
-        path: z.string().optional(),
-        error: z.string(),
-      })
-    )
-    .optional(),
-});
+// ---------------------------------------------------------------------------
+// Output TYPES — describes what ghGetFileContent returns. No zod: the MCP
+// server registers no outputSchema. The result rows carry an OPTIONAL `data`
+// (error rows omit it), so this uses a bespoke envelope rather than the
+// data-required BulkToolOutput generic.
+// ---------------------------------------------------------------------------
 
-export type GitHubFetchContentOutputLocal = z.infer<
-  typeof GitHubFetchContentOutputLocalSchema
->;
+// Parity with local_fetch_content: compose shared char/item pagination.
+export type GitHubFetchFilePagination =
+  | (CharPagination & { nextPage?: number })
+  | (ItemPagination & {
+      charOffset?: number;
+      charLength?: number;
+      totalChars?: number;
+      nextCharOffset?: number;
+    });
+
+export interface GitHubFetchFileEntry {
+  path: string;
+  content: string;
+  localPath?: string;
+  repoRoot?: string;
+  // isSkeleton was dropped — always equal to contentView==='symbols', so it
+  // carried no information a consumer couldn't already derive from contentView.
+  contentView?: 'none' | 'standard' | 'symbols';
+  totalLines?: number;
+  sourceChars?: number;
+  sourceBytes?: number;
+  resolvedBranch?: string;
+  fileSize?: number;
+  pagination?: GitHubFetchFilePagination;
+  next?: Record<string, ToolContinuation>;
+  isPartial?: boolean;
+  startLine?: number;
+  endLine?: number;
+  matchRanges?: Array<{ start: number; end: number }>;
+  lastModified?: string;
+  lastModifiedBy?: string;
+  warnings?: string[];
+  matchNotFound?: boolean;
+  searchedFor?: string;
+  cached?: boolean;
+}
+
+export interface GitHubFetchDirectoryEntry {
+  path: string;
+  localPath: string;
+  repoRoot?: string;
+  fileCount: number;
+  totalSize: number;
+  complete?: boolean;
+  directoryEntryCount?: number;
+  eligibleFileCount?: number;
+  savedFileCount?: number;
+  skipped?: {
+    nonFile: number;
+    missingDownloadUrl: number;
+    oversized: number;
+    binary: number;
+    fileLimit: number;
+    fetchFailed: number;
+    totalSizeLimit: number;
+    pathTraversal: number;
+  };
+  limits?: {
+    maxDirectoryFiles: number;
+    maxTotalSize: number;
+    maxFileSize: number;
+  };
+  warnings?: string[];
+  files?: Array<{ path: string; size: number; type: string }>;
+  cached?: boolean;
+  resolvedBranch?: string;
+}
+
+export interface GitHubFetchContentData {
+  owner: string;
+  repo: string;
+  files?: GitHubFetchFileEntry[];
+  directories?: GitHubFetchDirectoryEntry[];
+}
+
+export interface GitHubFetchContentOutputLocal {
+  base?: string;
+  shared?: Record<string, string | number | boolean>;
+  responsePagination?: ResponsePaginationInfo;
+  results: Array<{ id: string; data?: GitHubFetchContentData }>;
+  errors?: Array<{
+    id: string;
+    owner?: string;
+    repo?: string;
+    path?: string;
+    error: string;
+  }>;
+  // Index signature: satisfies BulkFinalizer's `TOutput extends
+  // Record<string, unknown>` constraint (the old zod-inferred type did too).
+  [key: string]: unknown;
+}

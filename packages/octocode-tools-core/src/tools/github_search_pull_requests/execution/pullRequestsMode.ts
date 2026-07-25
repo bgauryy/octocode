@@ -118,7 +118,8 @@ export async function handlePullRequestsMode(
   const hasContent = shapedPullRequests.length > 0;
 
   // Per-call result/file-change/matchString hints were computed only from
-  // populated results and dropped centrally by createSuccessResult on the
+  // populated results and are dropped centrally by createSuccessResult on
+  // success, so this mode no longer builds them here.
   return createSuccessResult(
     effectiveQuery,
     resultData as unknown as Record<string, unknown>,

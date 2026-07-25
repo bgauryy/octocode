@@ -206,7 +206,8 @@ export function buildGhSearchCodeFinalizer<
         );
       }
     }
-    if (warnings.length > 0) responseData.warnings = [...(responseData.warnings ?? []), ...warnings];
+    if (warnings.length > 0)
+      responseData.warnings = [...(responseData.warnings ?? []), ...warnings];
 
     return formatFinalizedResponse<GitHubCodeSearchOutputLocal>(
       responseData,
