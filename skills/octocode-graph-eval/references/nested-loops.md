@@ -13,10 +13,18 @@ Load when choosing which improvement loop to run. Why: one flat loop conflates e
    Owner: human + agent; harness *may* grow (new cases), never to pass a bad subject
    KPI: coverage of top failure modes; regression stay-green rate
 
-3) META / HARNESS LOOP (outer)
+3) META / HARNESS LOOP (outer) — includes bilevel
    improve program.md / skill / graders / budgets
    Owner: human gate; held-out review required
    KPI: fewer repeated failure signatures; skill-review / thesis guards
+
+   BILEVEL variant: when inner loop is flat with no new hypotheses, suspect the
+   search strategy itself is stuck in model priors. The outer loop reads the inner
+   loop's execution trace, identifies recurrent search patterns, and generates a new
+   search strategy (code or program changes) — then reinjects and reruns.
+   Signal to escalate to bilevel: inner loop flat + no new hypothesis category +
+   error analysis finds no new failure mode. Do not just tune program.md wording;
+   change how the inner loop searches.
 ```
 
 ## Coupling rules

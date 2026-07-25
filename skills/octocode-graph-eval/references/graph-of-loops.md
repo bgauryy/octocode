@@ -14,6 +14,14 @@ A loop is a graph with one node and an edge back to itself. A graph composes loo
 ## Attribution
 When the end-to-end primary drops: bisect by node with frozen inputs; grade node **outcomes**, not internal paths; blame a node only after its own sensor reproduces the failure.
 
+## Edge detection — real vs fake dependencies
+Before measuring a graph, verify its topology is real. For every "and then" in the workflow:
+- Does the next step actually **read** the previous step's output?
+  - **Yes** → real edge; ordering is required.
+  - **No** → no real edge; the wait is wasted; steps can run in parallel.
+
+A graph whose steps all wait for prior steps with no data crossing between them is a line masquerading as a graph. It adds coordination cost with zero throughput gain. Measure fake graphs by removing sequential waits and timing the result.
+
 ## When a loop should become a graph — escalation signals
 1. Distinct specialties needing separate context/constraints
 2. Parallel fan-out then merge
@@ -22,10 +30,18 @@ When the end-to-end primary drops: bisect by node with frozen inputs; grade node
 5. One verifier judging too many dimensions
 Rule: **strengthen the verifier before adding a node**; delete nodes that collapse back into the loop.
 
-## Graph-specific failure modes to eval
-Opaque state (no typed snapshot) · no checkpoint/resume · unbounded tool permissions per node · missing human gates. Add suite cases for each the first time it appears in a trace.
+## When NOT to use a graph
+- Task is small or isolated — one function, one bug; a graph is pure overhead.
+- Oversight required at every step — a graph's whole value is running wide without you; that works against tight approval loops.
+- Exploratory / unknown shape — one steerable agent beats a fleet committed to a plan you don't understand yet.
+- Steps genuinely depend on each other — if every step reads the last step's output, there's no parallel width to exploit. Forcing a graph onto a truly sequential task adds coordination cost for zero speedup.
+
+Test: if edge detection (above) finds no two boxes with no arrow between them, build a loop, not a graph.
+
+## Graph-specific failure modes
+Load `references/graph-failure-modes.md` — shared-context verifier, race conditions, Goodhart's Law, missing anchors. Add suite cases on first trace appearance.
 
 ## Ownership
 Topology, spawning, and sealed packets → `octocode-subagent`. This skill owns measuring the graph: contract, sensors, attribution, verdict.
 
-Next: node sensors → `feedback-loops.md`; inner loop per node → `agent-loop.md`; improvement-loop levels → `nested-loops.md`.
+Next: node sensors → `feedback-loops.md`; inner loop per node → `agent-loop.md`; improvement-loop levels → `nested-loops.md`; bilevel escalation → `karpathy-patterns.md`.

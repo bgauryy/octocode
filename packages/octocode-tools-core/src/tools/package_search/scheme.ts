@@ -12,7 +12,6 @@ import { responseEnvelopeFields } from '../../scheme/responseEnvelope.js';
 import {
   ItemPaginationSchema,
   ToolContinuationSchema,
-  ToolDiagnosticSchema,
 } from '../../scheme/pagination.js';
 
 const queryOverrides = {
@@ -69,7 +68,6 @@ export const NpmSearchOutputLocalSchema = z
                         .record(z.string(), ToolContinuationSchema)
                         .optional(),
                       warnings: z.array(z.string()).optional(),
-                      diagnostics: z.array(ToolDiagnosticSchema).optional(),
                     })
                     .passthrough()
                 )

@@ -68,6 +68,8 @@ const FileContentMatchRangeSchema = z.object({
 
 const LocalGetFileContentDataSchema = z.object({
   path: z.string().optional(),
+  absolutePath: z.string().optional(),
+  uri: z.string().optional(),
   content: z.string().optional(),
   // isSkeleton was dropped — always equal to contentView==='symbols', so it
   // carried no information a consumer couldn't already derive from contentView.

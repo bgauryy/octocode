@@ -102,7 +102,7 @@ export async function handleCommitsMode(
                 prNumber: Number(prRef),
               },
               why: `Open PR #${prRef} referenced by the first commit for review context`,
-              confidence: 'heuristic',
+              confidence: 'low',
             },
           },
         }

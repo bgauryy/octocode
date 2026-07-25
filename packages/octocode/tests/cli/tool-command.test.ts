@@ -531,19 +531,18 @@ describe('toolCommand', () => {
     const parsed = JSON.parse(output) as {
       kind: string;
       toolCount: number;
-      commands: { schema: string; fullCatalog: string };
+      commands: { schema: string; fullCatalog: string; run: string };
       tools: Array<{
         name: string;
         category: string;
         description: string;
         fields: string;
-        schemaCommand: string;
-        runCommand: string;
       }>;
     };
     expect(parsed.kind).toBe('octocode.toolCatalog');
     expect(parsed.commands.schema).toBe('tools <name> --scheme --json');
     expect(parsed.commands.fullCatalog).toBe('tools --json --full');
+    expect(parsed.commands.run).toContain('--compact');
 
     const { TOOL_DEFINITIONS } = await import('../../src/cli/tool-command.js');
     const names = parsed.tools.map(entry => entry.name).sort();
@@ -555,8 +554,6 @@ describe('toolCommand', () => {
       expect(entry).toHaveProperty('category');
       expect(entry).toHaveProperty('description');
       expect(typeof entry.fields).toBe('string');
-      expect(entry.schemaCommand).toBe(`tools ${entry.name} --scheme --json`);
-      expect(entry.runCommand).toContain('--compact');
     }
   });
 
@@ -660,17 +657,22 @@ describe('toolCommand', () => {
       .trim();
 
     const parsed = JSON.parse(output) as {
-      inputSchema: { type?: string };
-      fields?: unknown[];
+      kind: string;
+      inputSchema?: unknown;
+      fields?: string[];
       fieldNames?: string[];
       fullDescription?: string;
       guidance?: string[];
+      commands: { full: string; run: string };
     };
 
-    expect(parsed.inputSchema.type).toBe('object');
-    expect(parsed.fields).toBeUndefined();
+    expect(parsed.kind).toBe('octocode.toolSchema.compact');
+    expect(parsed.inputSchema).toBeUndefined();
     expect(parsed.fullDescription).toBeUndefined();
-    expect(parsed.fieldNames).toContain('path');
+    expect(parsed.fieldNames).toBeUndefined();
+    expect(parsed.fields?.some(field => field.startsWith('path*:'))).toBe(true);
+    expect(parsed.commands.full).toBe('tools localSearchCode --scheme --json');
+    expect(parsed.commands.run).toContain('--compact');
     expect(parsed.guidance?.join('\n')).toContain('absolute path');
   });
 });

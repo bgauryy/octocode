@@ -147,7 +147,7 @@ export async function handleIssuesMode(
         content: { body: true },
       },
       why: `Read issue #${firstIssueNumber} body/discussion from this list`,
-      confidence: 'heuristic',
+      confidence: 'low',
     };
   }
   next.searchCode = {
@@ -157,7 +157,7 @@ export async function handleIssuesMode(
       repo: q.repo,
     },
     why: 'Search code in this repository for symbols mentioned in the issue(s)',
-    confidence: 'heuristic',
+    confidence: 'low',
   };
 
   return createSuccessResult(

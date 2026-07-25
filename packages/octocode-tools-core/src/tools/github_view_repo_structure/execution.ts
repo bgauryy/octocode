@@ -193,7 +193,7 @@ export async function exploreMultipleRepositoryStructures(
                     ...(query.branch ? { branch: query.branch } : {}),
                   },
                   why: 'Read the first listed file',
-                  confidence: 'heuristic',
+                  confidence: 'low',
                 },
               }
             : {}),

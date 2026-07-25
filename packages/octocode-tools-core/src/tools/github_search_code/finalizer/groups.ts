@@ -164,7 +164,7 @@ export function buildNextMap(
         matchString,
       },
       why: 'GitHub code search returns no line numbers; fetch the top hit with matchString to get exact file:line anchors',
-      confidence: 'heuristic',
+      confidence: 'low',
     };
   }
   return Object.keys(next).length > 0 ? next : undefined;

@@ -264,6 +264,106 @@
       ]
     },
     {
+      "id": "shared-context-verifier",
+      "mode": "Audit",
+      "prompt": "Our graph has a verifier agent that receives the full conversation history from the executor agent before grading. Is this a valid independent check?",
+      "minScore": 0.85,
+      "required": [
+        { "name": "not independent", "pattern": "\\bnot independent\\b|\\bshared context\\b|\\bsame context\\b" },
+        { "name": "fresh context required", "pattern": "\\bfresh (context|session|instance)\\b|\\bclean context\\b|\\bisolated context\\b" },
+        { "name": "agreeing with itself", "pattern": "\\bagreeing\\b|\\bnodding\\b|\\bconfirms its own\\b|\\bself.confirm\\b|\\bgrade its own\\b" },
+        { "name": "fix or reject", "pattern": "\\b(REVERT|fix|invalid|not valid|restructure|separate)\\b" }
+      ],
+      "binaryQuestions": [
+        {
+          "id": "verifier-must-be-fresh",
+          "dimension": "graph",
+          "question": "Does the answer require the verifier to use fresh context rather than the executor's conversation history?",
+          "passPattern": "\\bfresh (context|instance|session)\\b|\\bisolated\\b[\\s\\S]{0,80}\\bverif|\\bverif[\\s\\S]{0,80}\\bfresh\\b",
+          "failureSignature": "mechanism:eval-graph|cause:shared-context-verifier",
+          "suggestedLesson": "A verifier with the executor's context is not independent — it agrees in a different font. Require fresh context per verifier node."
+        }
+      ],
+      "forbidden": [
+        { "name": "accepts shared context verifier", "pattern": "(?<!\\bnot )(?<!\\bnever )\\bshared context\\b[\\s\\S]{0,60}\\bvalid (check|verif)\\b" }
+      ]
+    },
+    {
+      "id": "fake-parallelism",
+      "mode": "Audit",
+      "prompt": "Our workflow runs: fetch data, then summarize, then send report. We called it a graph and ran all three in parallel. Was that correct?",
+      "minScore": 0.85,
+      "required": [
+        { "name": "edge detection", "pattern": "\\bedge\\b|\\bdependenc|\\breads? (the |prior |previous )?output\\b|\\breal (edge|dependenc)\\b" },
+        { "name": "actual dependency check", "pattern": "\\bactually (reads?|uses?|needs?)\\b|\\bdoes (the )?next step\\b|\\bdata crossing\\b|\\bdata flow\\b" },
+        { "name": "not a real graph or sequential required", "pattern": "\\bnot (a )?real graph\\b|\\bsequential\\b|\\bfake (graph|parallelism)\\b|\\bchain\\b|\\bgenuinely depend\\b" },
+        { "name": "coordination cost", "pattern": "\\bcoordination (cost|overhead)\\b|\\bno speedup\\b|\\bno (width|parallel width)\\b" }
+      ],
+      "binaryQuestions": [
+        {
+          "id": "real-vs-fake-edge",
+          "dimension": "graph",
+          "question": "Does the answer correctly identify that summarize depends on fetched data and report depends on summary — making these real sequential edges, not a parallel graph?",
+          "passPattern": "\\bsequential\\b|\\breal edge\\b|\\bgenuinely depend\\b|\\bnot independent\\b|\\bcannot parallelize\\b",
+          "failureSignature": "mechanism:eval-graph|cause:fake-parallelism",
+          "suggestedLesson": "For every 'and then': does the next step actually read the previous output? If yes, it is a real edge. Forcing parallelism onto genuinely sequential steps adds coordination overhead for zero speedup."
+        }
+      ],
+      "forbidden": [
+        { "name": "approves fake parallel graph", "pattern": "(?<!\\bnot )(?<!\\bnever )\\b(correct|fine|ok|valid)\\b[\\s\\S]{0,80}\\bparallel\\b[\\s\\S]{0,80}\\b(fetch|summarize|report)\\b" }
+      ]
+    },
+    {
+      "id": "goodhart-detection",
+      "mode": "Audit",
+      "prompt": "Our support bot's ticket-resolution rate improved 30% over three months. But customer satisfaction scores dropped in the same period. The agent is still optimizing. What do we do?",
+      "minScore": 0.85,
+      "required": [
+        { "name": "goodhart or metric mismatch", "pattern": "\\bGoodhart\\b|\\bwrong metric\\b|\\boptimizing the metric\\b|\\bmetric instead of the goal\\b|\\bproxy metric\\b" },
+        { "name": "stop the loop", "pattern": "\\bstop\\b|\\bhalt\\b|\\bpause\\b|\\bREVERT\\b|\\bdo not continue\\b" },
+        { "name": "reframe goal not loop", "pattern": "\\breframe\\b|\\bnew (goal|KPI|primary)\\b|\\bredefine\\b|\\bchange the metric\\b|\\bgoal is wrong\\b|\\bprimary is wrong\\b" },
+        { "name": "counter-metric or guardrail", "pattern": "\\bcounter.metric\\b|\\bguardrail\\b|\\bsatisfaction\\b[\\s\\S]{0,60}\\b(guardrail|floor|minimum)\\b" }
+      ],
+      "binaryQuestions": [
+        {
+          "id": "stop-dont-optimize",
+          "dimension": "goodhart",
+          "question": "Does the answer stop the optimization loop and reframe the goal rather than continuing to optimize the resolution rate?",
+          "passPattern": "\\b(stop|halt|pause|REVERT)\\b[\\s\\S]{0,150}\\b(reframe|goal|KPI|primary|metric)\\b|\\b(reframe|goal|KPI|primary)\\b[\\s\\S]{0,150}\\b(stop|halt|pause|REVERT)\\b",
+          "failureSignature": "mechanism:eval-goodhart|cause:optimize-wrong-metric",
+          "suggestedLesson": "Primary improving while guardrail degrades means the primary is wrong. Stop and reframe the goal — Goodhart's Law. Every KPI must have a counter-metric the agent cannot tune."
+        }
+      ],
+      "forbidden": [
+        { "name": "keep optimizing resolution rate", "pattern": "(?<!\\bnot )(?<!\\bnever )\\b(continue|keep) optimizing\\b[\\s\\S]{0,60}\\b(resolution rate|ticket resolution)\\b" }
+      ]
+    },
+    {
+      "id": "bilevel-escalation",
+      "mode": "Run",
+      "prompt": "The improvement loop for our code generation agent has run 80 trials. The primary metric has been flat for the last 30 trials and error analysis finds no new failure mode categories. What do you do next?",
+      "minScore": 0.85,
+      "required": [
+        { "name": "not more inner-loop trials", "pattern": "\\bnot (more|another) (trial|experiment|iteration)\\b|\\bdo not continue (the inner|inner loop)\\b|\\bflat\\b" },
+        { "name": "stuck priors or search pattern", "pattern": "\\b(stuck|trapped)\\b[\\s\\S]{0,80}\\b(prior|pattern|search)\\b|\\bmodel prior\\b|\\bsearch pattern\\b|\\bsame hypothesis\\b" },
+        { "name": "bilevel or meta or outer loop", "pattern": "\\bbilevel\\b|\\bmeta.loop\\b|\\bouter loop\\b|\\bloop on top\\b" },
+        { "name": "rewrite search strategy", "pattern": "\\brewrite (the )?search\\b|\\bnew (strategy|search strategy|exploration)\\b|\\bhow the (inner )?loop searches\\b|\\bchange (how|the way) it searches\\b" }
+      ],
+      "binaryQuestions": [
+        {
+          "id": "outer-loop-not-more-trials",
+          "dimension": "bilevel",
+          "question": "Does the answer escalate to a meta/outer loop that rewrites the search strategy, rather than running more inner-loop trials or simply editing program.md wording?",
+          "passPattern": "\\bbilevel\\b|\\bouter loop\\b[\\s\\S]{0,150}\\b(search|strategy|rewrite)\\b|\\brewrite[\\s\\S]{0,80}\\b(search|strategy|how it)\\b",
+          "failureSignature": "mechanism:eval-bilevel|cause:more-inner-trials-when-flat",
+          "suggestedLesson": "When the inner loop is flat and error analysis has no new categories, the search strategy itself is stuck in model priors. Escalate to bilevel: an outer loop that reads the inner loop's trace and rewrites how it searches — not just what it searches for."
+        }
+      ],
+      "forbidden": [
+        { "name": "run more inner trials", "pattern": "(?<!\\bnot )(?<!\\bnever )\\brun (more|additional) (trials|experiments|iterations)\\b" }
+      ]
+    },
+    {
       "id": "tdd-red-green",
       "mode": "Run",
       "prompt": "Run a TDD-style eval loop: failing case before the subject change.",

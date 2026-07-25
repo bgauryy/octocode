@@ -259,6 +259,8 @@ const SearchMatchSchema = z.object({
 
 const SearchFileSchema = z.object({
   path: z.string(),
+  absolutePath: z.string().optional(),
+  uri: z.string().optional(),
   matches: z.array(SearchMatchSchema).optional(),
   totalOccurrences: z.number().optional(),
   totalMatchedLines: z.number().optional(),

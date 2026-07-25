@@ -6,7 +6,7 @@ import {
 } from '../../../utils/response/groupedFinalizer.js';
 import type { GitHubCodeSearchOutputLocal } from '../scheme.js';
 import type { RepoState } from '../execution.js';
-import type { ToolDiagnostic } from '../../../scheme/pagination.js';
+
 import { type CodeSearchPagination } from '../../providerMappers.js';
 import {
   applyExactMatchRanking,
@@ -123,16 +123,9 @@ export function buildGhSearchCodeFinalizer<
     }
     if (errors.length > 0) responseData.errors = errors;
 
-    // Every advisory goes out twice on purpose: `warnings` is the rendered
-    // string, `diagnostics` the machine-routable duplicate with a stable code.
-    const diagnostics: ToolDiagnostic[] = [];
-    const warn = (
-      code: string,
-      message: string,
-      level: ToolDiagnostic['level'] = 'warning'
-    ): void => {
-      responseData.warnings = [...(responseData.warnings ?? []), message];
-      diagnostics.push({ level, code, message });
+    const warnings: string[] = [];
+    const warn = (_code: string, message: string): void => {
+      warnings.push(message);
     };
 
     // GitHub's index did not fully complete for at least one query — empty or
@@ -209,12 +202,11 @@ export function buildGhSearchCodeFinalizer<
       } else {
         warn(
           'ghRepoNotFound',
-          `Query ${id}: the repository was NOT FOUND — it does not exist (or is private to this token). Check the owner/repo spelling.`,
-          'error'
+          `Query ${id}: the repository was NOT FOUND — it does not exist (or is private to this token). Check the owner/repo spelling.`
         );
       }
     }
-    if (diagnostics.length > 0) responseData.diagnostics = diagnostics;
+    if (warnings.length > 0) responseData.warnings = [...(responseData.warnings ?? []), ...warnings];
 
     return formatFinalizedResponse<GitHubCodeSearchOutputLocal>(
       responseData,

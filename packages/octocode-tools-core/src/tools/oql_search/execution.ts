@@ -55,6 +55,7 @@ function stripTransportFields(
   const next = { ...input };
   delete next.authInfo;
   delete next.sessionId;
+  delete next.signal;
   delete next.responseCharOffset;
   delete next.responseCharLength;
   return next;

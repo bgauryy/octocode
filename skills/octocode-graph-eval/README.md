@@ -22,6 +22,9 @@ Agents claim “better” without baseline, held-out, or keep/discard. Public be
 - TDD for agents: red (failing case) → green (same harness) → keep|discard
 - Feedback-loop prerequisites: runnable sensor + numeric target + budget before any loop starts
 - Graph of loops: end-to-end primary at the graph boundary, per-node sensors, attribution by bisection, strengthen verifiers before adding nodes
+- Graph eval gates: edge detection (real vs fake dependencies), verifier independence (fresh context required), Goodhart guard (counter-metric per KPI), anchor requirement (tests that actually ran)
+- Graph failure modes: shared-context self-agreement, race conditions / isolation protocol (3 questions before fan-out), Goodhart metric drift, missing anchors
+- Bilevel escalation: when inner loop is flat with no new hypotheses, outer loop rewrites the search strategy — not just tunes program.md
 - Scripts: `loop-report.mjs`, `eval-eval.mjs`
 
 ## Operating Model
@@ -30,7 +33,7 @@ Agents claim “better” without baseline, held-out, or keep/discard. Public be
 ERROR-ANALYZE → FRAME(goal→KPI) → BASELINE → LOOP → JUDGE → CAPTURE → VERIFY → SUITE-EVOLVE
 ```
 
-Grounded in Karpathy (Software 2.0, RLVR, autoresearch), Anthropic agent evals, BinEval, Hamel error analysis, and Octocode’s `Agent = Model + Harness` thesis.
+Grounded in Karpathy (Software 2.0, RLVR, autoresearch, Bilevel Autoresearch), Anthropic agent evals, BinEval, Hamel error analysis, and Octocode's `Agent = Model + Harness` thesis.
 
 ## Installation
 

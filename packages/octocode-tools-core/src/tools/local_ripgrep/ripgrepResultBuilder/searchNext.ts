@@ -48,7 +48,7 @@ const BARE_IDENTIFIER = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
 type NextToolName =
   'localGetFileContent' | 'lspGetSemantics' | 'localSearchCode';
 
-type NextConfidence = 'exact' | 'heuristic';
+type NextConfidence = 'exact' | 'low';
 
 type SearchNextCall = {
   tool: NextToolName;
@@ -119,7 +119,7 @@ export function buildSearchNextMap(
         tool: 'localGetFileContent',
         query: { path: firstFile.path, minify: 'standard' },
         why: 'Read the first matched file (minify:"symbols" gives a skeleton for orientation; minify:"none" gives exact bytes).',
-        confidence: options.isFileListMode ? 'heuristic' : 'exact',
+        confidence: options.isFileListMode ? 'low' : 'exact',
       };
     }
 
@@ -134,13 +134,13 @@ export function buildSearchNextMap(
         tool: 'lspGetSemantics',
         query: { ...lspBase, type: 'definition' },
         why: 'Use the grep line as an LSP lineHint to resolve the symbol definition.',
-        confidence: 'heuristic',
+        confidence: 'low',
       };
       next.lspReferences = {
         tool: 'lspGetSemantics',
         query: { ...lspBase, type: 'references' },
         why: 'Use the grep line as an LSP lineHint to inspect semantic usages.',
-        confidence: 'heuristic',
+        confidence: 'low',
       };
     }
   }

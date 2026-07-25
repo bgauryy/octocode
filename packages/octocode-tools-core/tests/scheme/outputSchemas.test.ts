@@ -17,7 +17,6 @@ import {
   ItemPaginationSchema,
   CharPaginationSchema,
   ToolContinuationSchema,
-  ToolDiagnosticSchema,
 } from '../../src/scheme/pagination.js';
 
 // ---------------------------------------------------------------------------
@@ -103,14 +102,6 @@ describe('shared pagination schemas', () => {
     ).toBe(false);
   });
 
-  it('ToolDiagnosticSchema validates level enum', () => {
-    expect(
-      ToolDiagnosticSchema.safeParse({ level: 'warning', message: 'too many files' }).success
-    ).toBe(true);
-    expect(
-      ToolDiagnosticSchema.safeParse({ level: 'critical', message: 'x' }).success
-    ).toBe(false);
-  });
 });
 
 // ---------------------------------------------------------------------------

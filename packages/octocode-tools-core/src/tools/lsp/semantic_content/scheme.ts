@@ -17,6 +17,7 @@ import {
   ItemPaginationSchema,
   ToolContinuationSchema,
 } from '../../../scheme/pagination.js';
+import { responseEnvelopeFields } from '../../../scheme/responseEnvelope.js';
 
 const requiredLineHintField = clampedInt(1, 1_000_000_000).describe(
   '1-based source line for symbol-anchored semantic operations. Get it from search/localSearchCode, structural AST captures, or documentSymbols; never guess.'
@@ -86,6 +87,8 @@ const DisplayRangeSchema = z.object({
 
 const LocationSchema = z.object({
   uri: z.string(),
+  absolutePath: z.string().optional(),
+  path: z.string().optional(),
   content: z.string().optional(),
   displayRange: DisplayRangeSchema.optional(),
   isDefinition: z.boolean().optional(),
@@ -95,6 +98,8 @@ const LocationRowSchema = z.string();
 const ResolvedSymbolSchema = z.object({
   name: z.string(),
   uri: z.string(),
+  absolutePath: z.string().optional(),
+  path: z.string().optional(),
   foundAtLine: z.number(),
   orderHint: z.number().optional(),
 });
@@ -171,6 +176,8 @@ const CompletenessSchema = z.object({
 
 const ReferencesByFileSchema = z.object({
   uri: z.string(),
+  absolutePath: z.string().optional(),
+  path: z.string().optional(),
   count: z.number(),
   firstLine: z.number(),
   firstCharacter: z.number(),
@@ -262,6 +269,8 @@ const PayloadSchema = z.discriminatedUnion('kind', [
 const SemanticDataSchema = z.object({
   type: z.string(),
   uri: z.string(),
+  absolutePath: z.string().optional(),
+  path: z.string().optional(),
   format: z.enum(['structured', 'compact']).optional(),
   resolvedSymbol: ResolvedSymbolSchema.optional(),
   // Omitted on early-return paths (e.g. symbolNotFound) where the LSP server is
@@ -278,28 +287,26 @@ const SemanticDataSchema = z.object({
   hints: z.array(z.string()).optional(),
 });
 
-export const LspGetSemanticsOutputSchema = z.object({
-  base: z.string().optional(),
-  shared: z
-    .record(z.string(), z.union([z.string(), z.number(), z.boolean()]))
-    .optional(),
-  responsePagination: CharPaginationSchema.optional(),
-  results: z.array(
-    z.union([
-      z.object({
-        id: z.string().min(1),
-        status: z.literal('empty'),
-        data: SemanticDataSchema,
-      }),
-      z.object({
-        id: z.string().min(1),
-        status: z.literal('error'),
-        data: ErrorDataSchema,
-      }),
-      z.object({
-        id: z.string().min(1),
-        data: SemanticDataSchema,
-      }),
-    ])
-  ),
-});
+export const LspGetSemanticsOutputSchema = z
+  .object({
+    responsePagination: CharPaginationSchema.optional(),
+    results: z.array(
+      z.union([
+        z.object({
+          id: z.string().min(1),
+          status: z.literal('empty'),
+          data: SemanticDataSchema,
+        }),
+        z.object({
+          id: z.string().min(1),
+          status: z.literal('error'),
+          data: ErrorDataSchema,
+        }),
+        z.object({
+          id: z.string().min(1),
+          data: SemanticDataSchema,
+        }),
+      ])
+    ),
+  })
+  .extend(responseEnvelopeFields);

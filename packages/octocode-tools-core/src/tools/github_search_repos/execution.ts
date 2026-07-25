@@ -161,13 +161,13 @@ function buildReposSearchOutput(
             tool: 'ghViewRepoStructure',
             query: { owner: top.owner, repo: top.repo, path: '' },
             why: 'Orient in the top-ranked repository before reading code',
-            confidence: 'heuristic',
+            confidence: 'low',
           },
           searchCode: {
             tool: 'ghSearchCode',
             query: { owner: top.owner, repo: top.repo },
             why: 'Scope a code search to the top-ranked repository',
-            confidence: 'heuristic',
+            confidence: 'low',
           },
         }
       : undefined;

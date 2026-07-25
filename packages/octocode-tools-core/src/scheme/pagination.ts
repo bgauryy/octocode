@@ -70,7 +70,7 @@ export const ToolContinuationSchema = z.object({
   tool: z.string(),
   query: z.record(z.string(), z.unknown()),
   why: z.string().optional(),
-  confidence: z.enum(['exact', 'heuristic']).optional(),
+  confidence: z.enum(['exact', 'high', 'medium', 'low']).optional(),
 });
 
 export type ToolContinuation = z.infer<typeof ToolContinuationSchema>;
@@ -145,15 +145,4 @@ export function buildContinueCharsContinuation<TTool extends string>(
   };
 }
 
-// ---------------------------------------------------------------------------
-// Diagnostic — structured tool-level diagnostic message
-// ---------------------------------------------------------------------------
 
-export const ToolDiagnosticSchema = z.object({
-  level: z.enum(['info', 'warning', 'error']),
-  message: z.string(),
-  field: z.string().optional(),
-  code: z.string().optional(),
-});
-
-export type ToolDiagnostic = z.infer<typeof ToolDiagnosticSchema>;

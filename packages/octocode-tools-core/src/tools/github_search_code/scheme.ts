@@ -14,7 +14,6 @@ import { responseEnvelopeFields } from '../../scheme/responseEnvelope.js';
 import {
   ItemPaginationSchema,
   ToolContinuationSchema,
-  ToolDiagnosticSchema,
 } from '../../scheme/pagination.js';
 
 const queryOverrides = {
@@ -102,10 +101,6 @@ export const GitHubCodeSearchOutputLocalSchema = z.object({
     )
     .optional(),
   warnings: z.array(z.string()).optional(),
-  // Machine-routable duplicates of `warnings` — route on `code`
-  // (ghIncompleteResults, ghScopedZeroUnproven, ghRepoRenamed, ghRepoArchived,
-  // ghRepoNotFound) instead of parsing prose.
-  diagnostics: z.array(ToolDiagnosticSchema).optional(),
   // GitHub code search returns no absolute line numbers; `next` carries a
   // ready-made ghGetFileContent matchString call per result record so agents
   // can resolve exact file:line anchors in one step instead of cloning.

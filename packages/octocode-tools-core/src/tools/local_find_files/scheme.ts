@@ -88,6 +88,8 @@ export const LocalFindFilesBulkQuerySchema = createRelaxedBulkQuerySchema(
 const FindFilesEntrySchema = z.object({
   name: z.string().optional(),
   path: z.string().optional(),
+  absolutePath: z.string().optional(),
+  uri: z.string().optional(),
   type: z.enum(['file', 'dir', 'directory', 'link', 'symlink']).optional(),
   size: z.union([z.number(), z.string()]).optional(),
   sizeFormatted: z.string().optional(),

@@ -1,3 +1,6 @@
+import path from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+
 export function commonDirPrefix(paths: readonly string[]): string {
   if (paths.length === 0) return '';
   let prefix = paths[0] ?? '';
@@ -13,7 +16,7 @@ export function commonDirPrefix(paths: readonly string[]): string {
   return lastSlash > 0 ? prefix.slice(0, lastSlash) : '';
 }
 
-const PATH_LIKE_KEYS = ['path', 'uri'] as const;
+const PATH_LIKE_KEYS = ['path', 'uri', 'absolutePath'] as const;
 
 // Preserve absolute paths inside these top-level keys so agents can pass them
 // directly to local tool calls (localSearchCode, localViewStructure, etc.).
@@ -30,15 +33,11 @@ function collectPathHolders(
     return;
   }
   const obj = node as Record<string, unknown>;
-  for (const key of PATH_LIKE_KEYS) {
-    const v = obj[key];
-    if (typeof v !== 'string') continue;
-    if (v.startsWith('file:///')) {
-      obj[key] = v.slice('file://'.length);
-      holders.push({ obj, key });
-    } else if (v.startsWith('/')) {
-      holders.push({ obj, key });
-    }
+  const absolutePath = normalizeLocalAbsolutePath(obj);
+  if (absolutePath) {
+    obj.absolutePath = absolutePath;
+    obj.uri = pathToFileURL(absolutePath).href;
+    holders.push({ obj, key: 'absolutePath' });
   }
   for (const [key, value] of Object.entries(obj)) {
     if (SKIP_TRAVERSAL_KEYS.has(key)) continue;
@@ -46,6 +45,28 @@ function collectPathHolders(
       collectPathHolders(value, holders, depth + 1);
     }
   }
+}
+
+function normalizeLocalAbsolutePath(
+  obj: Record<string, unknown>
+): string | undefined {
+  const existing = obj.absolutePath;
+  if (typeof existing === 'string' && path.isAbsolute(existing)) {
+    return existing;
+  }
+
+  const uri = obj.uri;
+  if (typeof uri === 'string' && uri.startsWith('file://')) {
+    try {
+      return fileURLToPath(uri);
+    } catch {
+      return undefined;
+    }
+  }
+
+  const value = obj.path;
+  if (typeof value === 'string' && path.isAbsolute(value)) return value;
+  return undefined;
 }
 
 export function relativizeResultPaths(
@@ -62,9 +83,14 @@ export function relativizeResultPaths(
 
   const prefix = base + '/';
   const cut = prefix.length;
-  for (const { obj, key } of holders) {
-    const p = obj[key] as string;
-    if (p.startsWith(prefix)) obj[key] = p.slice(cut);
+  for (const { obj } of holders) {
+    const absolutePath = obj.absolutePath;
+    if (typeof absolutePath !== 'string' || !absolutePath.startsWith(prefix)) {
+      continue;
+    }
+    obj.path = absolutePath.slice(cut);
+    obj.absolutePath = absolutePath;
+    obj.uri = pathToFileURL(absolutePath).href;
   }
 
   stripBaseFromStringElements(results, prefix);

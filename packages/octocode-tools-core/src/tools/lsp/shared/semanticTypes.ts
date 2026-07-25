@@ -237,7 +237,7 @@ export type LspSemanticEnvelope = {
       tool: string;
       query: Record<string, unknown>;
       why?: string;
-      confidence?: 'exact' | 'heuristic';
+      confidence?: 'exact' | 'high' | 'medium' | 'low';
     }
   >;
 };

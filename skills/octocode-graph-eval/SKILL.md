@@ -15,6 +15,10 @@ Modes: **ErrorAnalyze** · **Define** · **Run** · **Suite** · **Benchmark** �
 - **TDD for agents:** write or select a failing case / KPI check **before** mutating the subject; green only after the change (red → green → keep|discard).
 - Public benches orient; private failure suites gate ships. Distrust saturated/contaminated boards.
 - Freeze the harness during an experiment; evolve the suite only between experiments.
+- **Graph check:** before evaluating a multi-agent workflow, run edge detection — if no two nodes are independent (every step reads the prior step's output), it is a loop, not a graph. Build a loop.
+- **Goodhart guard:** every primary KPI must have a counter-metric guardrail the agent cannot tune. Primary improving + guardrail degrading → reframe the goal, not the loop.
+- **Verifier independence:** a verifier sharing the executor's context is not independent. Require fresh context before calling a result verified.
+- **Anchor requirement:** every graph must have at least one node whose output cannot be argued with (tests that ran, build exit codes, type errors). No anchors → build one before trusting the graph.
 
 ## Workflow
 1. Error-analyze traces into a failure taxonomy; frame success, primary/leading metrics, guardrails, and decision rule.
@@ -26,7 +30,8 @@ Stop when goal/KPI is undefined, checks did not run, the harness changed to pass
 ## Smart routes — load only what the current step needs
 - When deriving failures, load `references/error-analysis.md`; when connecting intent to measures load `references/goal-kpi-cascade.md`, then fill `references/kpi-contract.md` — make success and budget explicit.
 - When choosing experiment, suite, or meta scope, load `references/nested-loops.md`; before the first iteration load `references/feedback-loops.md`, then for the inner keep/discard cycle load `references/agent-loop.md` — no workable sensor, no loop.
-- When the subject is a multi-agent workflow (graph of loops), load `references/graph-of-loops.md` — primary KPI at the graph boundary, sensors per node, strengthen verifiers before adding nodes.
+- When the subject is a multi-agent workflow (graph of loops), load `references/graph-of-loops.md` — run edge detection first, require anchor nodes, check verifier independence, name Goodhart guardrails, then set primary KPI at the graph boundary with per-node sensors.
+- When inner loop is flat and no new hypothesis exists, suspect stuck search priors — load `references/nested-loops.md` for bilevel escalation, then `references/karpathy-patterns.md` for the Bilevel Autoresearch pattern.
 - When selecting graders or statistical checks, load `references/eval-techniques.md`; when trusting public/private suites load `references/benchmarking.md` — match evidence strength to the decision.
 - When creating cases and runners, load `references/eval-harness.md`; before acceptance load `references/held-out-and-guards.md` — prevent leakage, overfitting, and greenwashing.
 - When grounding methods in primary patterns, load `references/karpathy-patterns.md` — anchor techniques in proven loops.

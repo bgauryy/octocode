@@ -60,6 +60,8 @@ const ViewStructureEntrySchema = z.object({
   name: z.string().optional(),
   type: z.enum(['file', 'dir', 'directory', 'link', 'symlink']),
   path: z.string().optional(),
+  absolutePath: z.string().optional(),
+  uri: z.string().optional(),
   depth: z.number().optional(),
   size: z.union([z.number(), z.string()]).optional(),
   sizeBytes: z.number().optional(),
