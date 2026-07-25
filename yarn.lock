@@ -1851,19 +1851,6 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@octocodeai/skills@workspace:packages/octocode-skills":
-  version: 0.0.0-use.local
-  resolution: "@octocodeai/skills@workspace:packages/octocode-skills"
-  dependencies:
-    "@octocodeai/config": "npm:^18.0.0"
-    "@types/node": "npm:^25.9.3"
-    esbuild: "npm:^0.28.1"
-    typescript: "npm:^5.9.3"
-  bin:
-    octocode-skills: ./out/cli.js
-  languageName: unknown
-  linkType: soft
-
 "@octokit/app@npm:^16.1.2":
   version: 16.1.2
   resolution: "@octokit/app@npm:16.1.2"

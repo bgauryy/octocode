@@ -29,6 +29,7 @@ They are not separate implementations.
 | `logout` | Top-level shortcut for clearing stored GitHub credentials. |
 | `status` | Show auth, token source, cache, install, and optional MCP sync health. |
 | `lsp-server` | List, inspect, install, uninstall, or clean language servers used by semantic search. |
+| `skill` | List, install, check, inspect, or remove bundled Octocode Agent Skills. |
 
 Use `npx octocode <command> --help` for the live command help for any command.
 
@@ -43,6 +44,8 @@ npx octocode search ./src/index.ts --content-view exact
 npx octocode search ./src/index.ts --op documentSymbols
 npx octocode tools
 npx octocode tools localSearchCode --scheme
+npx octocode skill list
+npx octocode skill install octocode-research --platform pi
 ```
 
 Replace `npx octocode` with `octocode` when the package is installed globally.
@@ -199,6 +202,41 @@ Use when `search --op ...` reports an LSP server is unavailable.
 
 ---
 
+## `skill` — Bundled Agent Skills
+
+The `octocode` package bundles the canonical Octocode skills from this repo's
+`skills/` directory at build/publish time. Install copies a skill into the
+canonical Octocode home, then optionally links it into agent-specific skill
+directories.
+
+```bash
+npx octocode skill list
+npx octocode skill info octocode-research
+npx octocode skill install octocode-research --platform pi
+npx octocode skill install --all --platform pi,cursor
+npx octocode skill check --json
+npx octocode skill remove octocode-research --platform pi
+```
+
+Useful flags:
+
+| Flag | Meaning |
+|---|---|
+| `--platform pi,cursor,claude,codex,opencode,copilot,gemini,common,all` | Link installed skills into one or more agent skill directories. |
+| `--workspace` / `--repo` | Link into `<cwd>/.agents/skills/`. |
+| `--path <dir>` | Install directly into a custom directory instead of Octocode home. |
+| `--mode symlink\|copy\|hybrid` | Link strategy; `hybrid` copies Claude targets and symlinks the rest. |
+| `--keep` | Preserve existing installs; default behavior overwrites with the bundled copy. |
+| `--dry-run` | Preview actions without writing. |
+| `--fix` | `check` only: repair missing/broken installed locations. |
+| `--no-env` | `check` only: skip skill environment-readiness checks. |
+
+Legacy forms such as `npx octocode skill --list` and
+`npx octocode skill --name octocode-research` still route to `list` and
+`install`, but the subcommands above are preferred.
+
+---
+
 ## `context` — Agent Protocol
 
 ```bash
@@ -320,6 +358,9 @@ npx octocode tools localSearchCode --queries '{"path":"./src","keywords":"runCLI
 | `pr` | `search owner/repo#N --target pullRequests` |
 | `history` | `search owner/repo[/path] --target commits` |
 | `diff` | `search <left> <right> --target diff` |
+| `skill --list` | `skill list` |
+| `skill --name <name>` | `skill install <name>` |
+| `skill --install-all` | `skill install --all` |
 
 ---
 
@@ -333,6 +374,7 @@ npx octocode tools localSearchCode --queries '{"path":"./src","keywords":"runCLI
 | `context` | The same agent-facing protocol, system prompt, and tool descriptions used to guide MCP/CLI research. |
 | `install --ide <client>` | Writes MCP client configuration so editors and assistants can call `octocode-mcp`. |
 | `auth` | Manages credentials used by both CLI and MCP flows. |
+| `skill` | Installs bundled Agent Skills locally; no MCP transport required. |
 
 The code boundary is intentionally thin:
 - `@octocodeai/octocode-core` owns tool and command metadata.

@@ -228,7 +228,7 @@ npx octocode --help       # full usage
 - **GitHub & npm** — `npx octocode search <…> --target repositories|packages|pullRequests|commits|diff`
 - **LSP** — `npx octocode search <file> --op definition|references|callers|callees|hover|diagnostic|callHierarchy` (`--symbol`, `--line` to narrow)
 - **Cache & clone** — `npx octocode clone`, `npx octocode cache fetch|status|clear`
-- **Skills** — `npx octocode skill --list | --name <skill> | --add <github-path> | --install-all`
+- **Skills** — `npx octocode skill list|install|check|info|remove` for bundled Octocode skills
 - **Language servers** — `npx octocode lsp-server list|install|status|uninstall|clean`
 - **Setup & introspection** — `npx octocode install`, `npx octocode auth`, `npx octocode status`, `npx octocode tools`, `npx octocode context`
 
@@ -356,9 +356,10 @@ Four code-intelligence axes; three are native to the Rust engine and need no ext
 **12 skills** under [`skills/`](https://github.com/bgauryy/octocode/tree/main/skills), bundled in the `octocode` package. Every skill shares one architecture — a lean `SKILL.md` lobby with hard gates, references loaded only when a step needs them, and cross-skill routes — so they compose. Start with ⭐ [Research](https://www.skills.sh/bgauryy/octocode-mcp/octocode-research) for evidence-first code work.
 
 ```bash
-npx octocode skill --list
-npx octocode skill --name octocode-research
-npx octocode skill --help
+npx octocode skill list
+npx octocode skill install octocode-research --platform pi
+npx octocode skill check --json
+npx octocode skill help
 ```
 
 | Skill | Use when |
@@ -461,7 +462,7 @@ Read the output and fix accordingly.
 - **Skill route — recommended, leanest.** Drop the [`octocode-research`](https://www.skills.sh/bgauryy/octocode-mcp/octocode-research) skill into Pi's global skills dir. It drives the Octocode **CLI** directly — no MCP transport, minimal token overhead — and Pi auto-discovers it:
 
   ```bash
-  npx octocode skill --name octocode-research --platform pi
+  npx octocode skill install octocode-research --platform pi
   ```
 
 - **Adapter route — full tool surface.** Install [`pi-mcp-adapter`](https://github.com/nicobailon/pi-mcp-adapter) to expose Octocode MCP tools behind a single ~200-token proxy tool, so servers stay disconnected until a tool is actually called. Enable clone tools with `ENABLE_CLONE=true`.

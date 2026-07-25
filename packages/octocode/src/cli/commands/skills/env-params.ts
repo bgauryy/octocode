@@ -87,7 +87,8 @@ const GITHUB_TOKEN_PARAMS: EnvParam[] = [
   },
   {
     key: 'GITHUB_TOKEN',
-    description: 'GitHub token (alternate name — either GH_TOKEN or GITHUB_TOKEN)',
+    description:
+      'GitHub token (alternate name — either GH_TOKEN or GITHUB_TOKEN)',
     required: 'recommended',
     group: 'github-token',
     link: 'https://github.com/settings/tokens',
@@ -122,13 +123,16 @@ export function getSkillEnvStatus(skillName: string): SkillEnvStatus {
     return { skillName, params: [], readiness: 'ok' };
   }
 
-  const paramStatuses: EnvParamStatus[] = params.map((p) => ({
+  const paramStatuses: EnvParamStatus[] = params.map(p => ({
     param: p,
     status: isEnvSet(p.key) ? 'set' : 'missing',
   }));
 
   // Evaluate group satisfication
-  const groups = new Map<string, { level: EnvRequirement; anySatisfied: boolean }>();
+  const groups = new Map<
+    string,
+    { level: EnvRequirement; anySatisfied: boolean }
+  >();
   const standaloneUnsatisfied: EnvRequirement[] = [];
 
   for (const ps of paramStatuses) {
@@ -138,7 +142,10 @@ export function getSkillEnvStatus(skillName: string): SkillEnvStatus {
       if (existing) {
         if (ps.status === 'set') existing.anySatisfied = true;
       } else {
-        groups.set(group, { level: required, anySatisfied: ps.status === 'set' });
+        groups.set(group, {
+          level: required,
+          anySatisfied: ps.status === 'set',
+        });
       }
     } else {
       if (ps.status === 'missing') standaloneUnsatisfied.push(required);
@@ -186,15 +193,21 @@ export function groupLabel(group: string): string {
 }
 
 /** True when the group that contains this param is satisfied by ANY other set param in the list. */
-export function isGroupSatisfied(ps: EnvParamStatus, all: EnvParamStatus[]): boolean {
+export function isGroupSatisfied(
+  ps: EnvParamStatus,
+  all: EnvParamStatus[]
+): boolean {
   const { group } = ps.param;
   if (!group) return ps.status === 'set';
-  return all.some((other) => other.param.group === group && other.status === 'set');
+  return all.some(
+    other => other.param.group === group && other.status === 'set'
+  );
 }
 
 /** Compact summary of what's missing, for inline display. */
 export function missingHint(envStatus: SkillEnvStatus): string {
-  if (envStatus.readiness === 'ok' || envStatus.readiness === 'ready') return '';
+  if (envStatus.readiness === 'ok' || envStatus.readiness === 'ready')
+    return '';
 
   const unsatisfiedGroups = new Set<string>();
   const standaloneKeys: string[] = [];
@@ -215,6 +228,7 @@ export function missingHint(envStatus: SkillEnvStatus): string {
   ];
 
   if (parts.length === 0) return '';
-  const verb = envStatus.readiness === 'needs-config' ? 'missing' : 'recommended';
+  const verb =
+    envStatus.readiness === 'needs-config' ? 'missing' : 'recommended';
   return `${verb}: ${parts.join(', ')}`;
 }

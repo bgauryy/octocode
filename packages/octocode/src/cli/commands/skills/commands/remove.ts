@@ -1,5 +1,5 @@
 /**
- * `octocode-skills remove <name> [options]`
+ * `octocode skill remove <name> [options]`
  *
  * Uninstall a skill — removes the canonical home copy and any platform
  * symlinks (or copies) that point to it.
@@ -17,7 +17,7 @@ import { listSkills, getSkill } from '../registry.js';
 import { getSkillsHome } from '../home.js';
 import { getPlatformSkillsDir, parsePlatforms } from '../platforms.js';
 import type { Platform } from '../platforms.js';
-import { bold, dim, green, yellow, red, cyan } from '../utils/colors.js';
+import { bold, dim, c } from '../../../../utils/colors.js';
 import { shortPath } from '../utils/paths.js';
 
 export interface RemoveOptions {
@@ -28,10 +28,14 @@ export interface RemoveOptions {
 }
 
 type RemoveTarget = { location: string; path: string };
-type RemoveResult = { target: string; path: string; status: 'removed' | 'skipped' | 'failed'; error?: string };
+type RemoveResult = {
+  target: string;
+  path: string;
+  status: 'removed' | 'skipped' | 'failed';
+  error?: string;
+};
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-
 
 function removeEntry(entryPath: string): { ok: boolean; error?: string } {
   try {
@@ -43,17 +47,35 @@ function removeEntry(entryPath: string): { ok: boolean; error?: string } {
     }
     return { ok: true };
   } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : String(err),
+    };
   }
 }
 
 function existsOnDisk(p: string): boolean {
-  try { fs.lstatSync(p); return true; } catch { return false; }
+  try {
+    fs.lstatSync(p);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /** Find all platform locations where a skill is currently installed. */
 function detectPlatformLocations(skillName: string): RemoveTarget[] {
-  const all: Platform[] = ['pi', 'cursor', 'claude', 'claude-desktop', 'codex', 'opencode', 'copilot', 'gemini', 'common'];
+  const all: Platform[] = [
+    'pi',
+    'cursor',
+    'claude',
+    'claude-desktop',
+    'codex',
+    'opencode',
+    'copilot',
+    'gemini',
+    'common',
+  ];
   const found: RemoveTarget[] = [];
   const seen = new Set<string>();
 
@@ -85,29 +107,47 @@ export function runRemove(skillNames: string[], opts: RemoveOptions): void {
   if (opts.all) {
     const home = getSkillsHome();
     try {
-      names = fs.readdirSync(home, { withFileTypes: true })
-        .filter((e) => e.isDirectory() || e.isSymbolicLink())
-        .map((e) => e.name);
+      names = fs
+        .readdirSync(home, { withFileTypes: true })
+        .filter(e => e.isDirectory() || e.isSymbolicLink())
+        .map(e => e.name);
     } catch {
-      names = listSkills().map((s) => s.folder);
+      names = listSkills().map(s => s.folder);
     }
     if (names.length === 0) {
       const msg = 'No installed skills found in ~/.octocode/skills/';
-      if (opts.json) console.log(JSON.stringify({ success: true, removed: 0, skills: [], message: msg }));
-      else { console.log(); console.log(`  ${dim(msg)}`); console.log(); }
+      if (opts.json)
+        console.log(
+          JSON.stringify({
+            success: true,
+            removed: 0,
+            skills: [],
+            message: msg,
+          })
+        );
+      else {
+        console.log();
+        console.log(`  ${dim(msg)}`);
+        console.log();
+      }
       return;
     }
   } else {
     if (skillNames.length === 0) {
       if (opts.json) {
-        console.log(JSON.stringify({ success: false, error: 'Specify a skill name or use --all.' }));
+        console.log(
+          JSON.stringify({
+            success: false,
+            error: 'Specify a skill name or use --all.',
+          })
+        );
       } else {
         console.log();
-        console.log(`  ${red('✗')}  No skill specified.`);
+        console.log(`  ${c('red', '✗')}  No skill specified.`);
         console.log();
-        console.log(`  ${dim('Usage:')}  octocode-skills remove <name>`);
-        console.log(`           octocode-skills remove --all`);
-        console.log(`  ${dim('Browse:')} octocode-skills list`);
+        console.log(`  ${dim('Usage:')}  octocode skill remove <name>`);
+        console.log(`           octocode skill remove --all`);
+        console.log(`  ${dim('Browse:')} octocode skill list`);
         console.log();
       }
       process.exitCode = 1;
@@ -117,10 +157,12 @@ export function runRemove(skillNames: string[], opts: RemoveOptions): void {
     // Validate all names exist as bundled skills (warn but don't block for
     // skills that may have been installed externally / manually).
     names = skillNames;
-    const notBundled = skillNames.filter((n) => !getSkill(n));
+    const notBundled = skillNames.filter(n => !getSkill(n));
     if (notBundled.length > 0 && !opts.json) {
       console.log();
-      console.log(`  ${yellow('⚠')}  Not in bundled registry (removing anyway if found on disk): ${notBundled.join(', ')}`);
+      console.log(
+        `  ${c('yellow', '⚠')}  Not in bundled registry (removing anyway if found on disk): ${notBundled.join(', ')}`
+      );
     }
   }
 
@@ -130,8 +172,9 @@ export function runRemove(skillNames: string[], opts: RemoveOptions): void {
   if (opts.platform) {
     const parsed = parsePlatforms(opts.platform);
     if (parsed.error) {
-      if (opts.json) console.log(JSON.stringify({ success: false, error: parsed.error }));
-      else console.log(`\n  ${red('✗')}  ${parsed.error}\n`);
+      if (opts.json)
+        console.log(JSON.stringify({ success: false, error: parsed.error }));
+      else console.log(`\n  ${c('red', '✗')}  ${parsed.error}\n`);
       process.exitCode = 1;
       return;
     }
@@ -143,19 +186,27 @@ export function runRemove(skillNames: string[], opts: RemoveOptions): void {
   if (!opts.json) {
     console.log();
     const header = opts.dryRun
-      ? `${cyan('Dry-run preview')}${dim(' — no files deleted')}`
+      ? `${c('cyan', 'Dry-run preview')}${dim(' — no files deleted')}`
       : platformFilter
         ? dim(`removing platform links only (home kept)`)
         : dim(`removing home + all platform links`);
-    console.log(`  ${bold('Removing')} ${dim(`${names.length} skill(s)  ·  ${header}`)}`);
+    console.log(
+      `  ${bold('Removing')} ${dim(`${names.length} skill(s)  ·  ${header}`)}`
+    );
     console.log();
   }
 
   // ── Remove per skill ──────────────────────────────────────────────────────
 
-  type SkillRemoveRecord = { name: string; results: RemoveResult[]; nothingFound: boolean };
+  type SkillRemoveRecord = {
+    name: string;
+    results: RemoveResult[];
+    nothingFound: boolean;
+  };
   const records: SkillRemoveRecord[] = [];
-  let totalRemoved = 0, totalSkipped = 0, totalFailed = 0;
+  let totalRemoved = 0,
+    totalSkipped = 0,
+    totalFailed = 0;
 
   for (const skillName of names) {
     const results: RemoveResult[] = [];
@@ -170,7 +221,12 @@ export function runRemove(skillNames: string[], opts: RemoveOptions): void {
           results.push({ target: platform, path: p, status: 'removed' });
         } else {
           const { ok, error } = removeEntry(p);
-          results.push({ target: platform, path: p, status: ok ? 'removed' : 'failed', ...(error ? { error } : {}) });
+          results.push({
+            target: platform,
+            path: p,
+            status: ok ? 'removed' : 'failed',
+            ...(error ? { error } : {}),
+          });
         }
       }
     } else {
@@ -181,7 +237,12 @@ export function runRemove(skillNames: string[], opts: RemoveOptions): void {
           results.push({ target: 'home', path: homePath, status: 'removed' });
         } else {
           const { ok, error } = removeEntry(homePath);
-          results.push({ target: 'home', path: homePath, status: ok ? 'removed' : 'failed', ...(error ? { error } : {}) });
+          results.push({
+            target: 'home',
+            path: homePath,
+            status: ok ? 'removed' : 'failed',
+            ...(error ? { error } : {}),
+          });
         }
       }
 
@@ -189,16 +250,30 @@ export function runRemove(skillNames: string[], opts: RemoveOptions): void {
       const detected = detectPlatformLocations(skillName);
       for (const loc of detected) {
         if (opts.dryRun) {
-          results.push({ target: loc.location, path: loc.path, status: 'removed' });
+          results.push({
+            target: loc.location,
+            path: loc.path,
+            status: 'removed',
+          });
         } else {
           const { ok, error } = removeEntry(loc.path);
-          results.push({ target: loc.location, path: loc.path, status: ok ? 'removed' : 'failed', ...(error ? { error } : {}) });
+          results.push({
+            target: loc.location,
+            path: loc.path,
+            status: ok ? 'removed' : 'failed',
+            ...(error ? { error } : {}),
+          });
         }
       }
     }
 
     const nothingFound = results.length === 0;
-    if (nothingFound) results.push({ target: 'home', path: path.join(getSkillsHome(), skillName), status: 'skipped' });
+    if (nothingFound)
+      results.push({
+        target: 'home',
+        path: path.join(getSkillsHome(), skillName),
+        status: 'skipped',
+      });
 
     for (const r of results) {
       if (r.status === 'removed') totalRemoved++;
@@ -214,16 +289,27 @@ export function runRemove(skillNames: string[], opts: RemoveOptions): void {
   // ── JSON output ───────────────────────────────────────────────────────────
 
   if (opts.json) {
-    console.log(JSON.stringify({
-      success,
-      dryRun: opts.dryRun,
-      skills: records.map((r) => ({
-        name: r.name,
-        nothingFound: r.nothingFound,
-        targets: r.results.map((t) => ({ target: t.target, path: t.path, status: t.status, ...(t.error ? { error: t.error } : {}) })),
-      })),
-      summary: { removed: totalRemoved, skipped: totalSkipped, failed: totalFailed },
-    }));
+    console.log(
+      JSON.stringify({
+        success,
+        dryRun: opts.dryRun,
+        skills: records.map(r => ({
+          name: r.name,
+          nothingFound: r.nothingFound,
+          targets: r.results.map(t => ({
+            target: t.target,
+            path: t.path,
+            status: t.status,
+            ...(t.error ? { error: t.error } : {}),
+          })),
+        })),
+        summary: {
+          removed: totalRemoved,
+          skipped: totalSkipped,
+          failed: totalFailed,
+        },
+      })
+    );
     if (!success) process.exitCode = 1;
     return;
   }
@@ -231,21 +317,37 @@ export function runRemove(skillNames: string[], opts: RemoveOptions): void {
   // ── Human output ──────────────────────────────────────────────────────────
 
   for (const record of records) {
-    const anyRemoved = record.results.some((r) => r.status === 'removed');
-    const anyFailed  = record.results.some((r) => r.status === 'failed');
-    const icon = anyFailed ? red('✗') : anyRemoved ? green('✓') : yellow('~');
+    const anyRemoved = record.results.some(r => r.status === 'removed');
+    const anyFailed = record.results.some(r => r.status === 'failed');
+    const icon = anyFailed
+      ? c('red', '✗')
+      : anyRemoved
+        ? c('green', '✓')
+        : c('yellow', '~');
 
-    console.log(`  ${icon}  ${bold(record.name)}${record.nothingFound ? `  ${dim('(not installed — nothing to remove)')}` : ''}`);
+    console.log(
+      `  ${icon}  ${bold(record.name)}${record.nothingFound ? `  ${dim('(not installed — nothing to remove)')}` : ''}`
+    );
 
     if (!record.nothingFound) {
       for (const r of record.results) {
-        const rIcon = r.status === 'removed' ? green('✓') : r.status === 'failed' ? red('✗') : yellow('~');
-        const note = r.status === 'removed'
-          ? (opts.dryRun ? dim('  (would remove)') : dim('  removed'))
-          : r.status === 'skipped'
-            ? dim('  (not installed)')
-            : red(`  ${r.error ?? 'failed'}`);
-        console.log(`     ${rIcon}  ${r.target.padEnd(14)} ${dim(shortPath(r.path))}${note}`);
+        const rIcon =
+          r.status === 'removed'
+            ? c('green', '✓')
+            : r.status === 'failed'
+              ? c('red', '✗')
+              : c('yellow', '~');
+        const note =
+          r.status === 'removed'
+            ? opts.dryRun
+              ? dim('  (would remove)')
+              : dim('  removed')
+            : r.status === 'skipped'
+              ? dim('  (not installed)')
+              : c('red', `  ${r.error ?? 'failed'}`);
+        console.log(
+          `     ${rIcon}  ${r.target.padEnd(14)} ${dim(shortPath(r.path))}${note}`
+        );
       }
     }
 
@@ -255,10 +357,12 @@ export function runRemove(skillNames: string[], opts: RemoveOptions): void {
   // ── Summary ───────────────────────────────────────────────────────────────
 
   const parts = [
-    totalRemoved > 0 ? green(`${totalRemoved} removed`) : null,
-    totalSkipped > 0 ? yellow(`${totalSkipped} not installed`) : null,
-    totalFailed  > 0 ? red(`${totalFailed} failed`)   : null,
-  ].filter(Boolean).join('  ·  ');
+    totalRemoved > 0 ? c('green', `${totalRemoved} removed`) : null,
+    totalSkipped > 0 ? c('yellow', `${totalSkipped} not installed`) : null,
+    totalFailed > 0 ? c('red', `${totalFailed} failed`) : null,
+  ]
+    .filter(Boolean)
+    .join('  ·  ');
 
   console.log(`  ${dim('─'.repeat(60))}`);
   console.log(`  ${parts}`);

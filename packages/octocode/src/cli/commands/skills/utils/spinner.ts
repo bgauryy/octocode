@@ -6,7 +6,11 @@
 const FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 
 function isTTY(): boolean {
-  return Boolean(process.stderr.isTTY) && !process.env['CI'] && !process.env['NO_COLOR'];
+  return (
+    Boolean(process.stderr.isTTY) &&
+    !process.env['CI'] &&
+    !process.env['NO_COLOR']
+  );
 }
 
 export class Spinner {
@@ -26,7 +30,9 @@ export class Spinner {
     this.interval = setInterval(() => {
       const f = FRAMES[this.frame % FRAMES.length]!;
       const line = `  ${f}  ${this.text}`;
-      process.stderr.write(`\r${line}${' '.repeat(Math.max(0, this.lastLen - line.length))}`);
+      process.stderr.write(
+        `\r${line}${' '.repeat(Math.max(0, this.lastLen - line.length))}`
+      );
       this.lastLen = line.length;
       this.frame++;
     }, 80);

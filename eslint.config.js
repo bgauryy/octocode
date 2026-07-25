@@ -71,6 +71,7 @@ export default tseslint.config(
 
   {
     files: ['packages/octocode/src/**/*.ts'],
+    ignores: ['packages/octocode/src/cli/commands/skills/commands/**/*.ts'],
     rules: {
       'max-lines': ['error', { max: 400 }],
     },

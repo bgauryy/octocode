@@ -110,6 +110,9 @@ const OPTIONS_WITH_VALUES = new Set([
   'facets',
   'proof',
   'proof-limit',
+  // skill install/list/check/remove merged from the former octocode-skills CLI.
+  'platform',
+  'target',
 ]);
 
 const BOOLEAN_OPTIONS = new Set([
@@ -176,6 +179,14 @@ const BOOLEAN_OPTIONS = new Set([
   'repos',
   'all',
   'pcre2',
+  // skill subcommand flags.
+  'workspace',
+  'repo',
+  'keep',
+  'fix',
+  'no-env',
+  'install-all',
+  'all-skills',
 ]);
 
 function shouldConsumeNextValue(args: ParsedArgs, key: string): boolean {

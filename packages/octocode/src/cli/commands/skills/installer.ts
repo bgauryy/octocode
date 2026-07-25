@@ -13,12 +13,12 @@
  */
 
 import fs from 'node:fs';
-import os from 'node:os';
+import { platform as osPlatform } from 'node:os';
 import path from 'node:path';
 import { getPlatformSkillsDir, type Platform } from './platforms.js';
 import { getSkillsHome } from './home.js';
 
-const isWindows = os.platform() === 'win32';
+const isWindows = osPlatform() === 'win32';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -26,8 +26,15 @@ const isWindows = os.platform() === 'win32';
 export type InstallMode = 'copy' | 'symlink' | 'hybrid';
 
 /** Resolve the effective write mode for a specific platform when mode is hybrid */
-function resolveEffectiveMode(mode: InstallMode, platform: string): 'copy' | 'symlink' {
-  if (mode === 'hybrid' && (platform === 'claude' || platform === 'claude-desktop')) return 'copy';
+function resolveEffectiveMode(
+  mode: InstallMode,
+  platform: string
+): 'copy' | 'symlink' {
+  if (
+    mode === 'hybrid' &&
+    (platform === 'claude' || platform === 'claude-desktop')
+  )
+    return 'copy';
   if (mode === 'copy') return 'copy';
   return 'symlink';
 }
@@ -79,7 +86,10 @@ function ensureParent(p: string): void {
   fs.mkdirSync(path.dirname(p), { recursive: true });
 }
 
-function removeIfExists(p: string, force: boolean): 'removed' | 'present' | 'absent' {
+function removeIfExists(
+  p: string,
+  force: boolean
+): 'removed' | 'present' | 'absent' {
   try {
     fs.lstatSync(p); // lstat succeeds for broken symlinks; existsSync does not
   } catch {
@@ -105,7 +115,12 @@ function installToDest(params: InstallToDestParams): LinkResult {
 
   try {
     if (!fs.existsSync(sourcePath)) {
-      return { target: label, destPath, status: 'failed', error: `Source not found: ${sourcePath}` };
+      return {
+        target: label,
+        destPath,
+        status: 'failed',
+        error: `Source not found: ${sourcePath}`,
+      };
     }
 
     const existing = removeIfExists(destPath, force);
@@ -212,7 +227,11 @@ export function installSkill(params: InstallSkillParams): SkillInstallOutcome {
 
   // ── Step 3: Platform symlinks ──────────────────────────────────────────────
 
-  if (!customPath && homePath && (homeStatus === 'installed' || homeStatus === 'skipped')) {
+  if (
+    !customPath &&
+    homePath &&
+    (homeStatus === 'installed' || homeStatus === 'skipped')
+  ) {
     for (const platform of platforms) {
       const platformDir = getPlatformSkillsDir(platform);
       const linkPath = path.join(platformDir, skillName);
@@ -225,7 +244,13 @@ export function installSkill(params: InstallSkillParams): SkillInstallOutcome {
       const effectiveMode = resolveEffectiveMode(mode, platform);
       if (effectiveMode === 'copy') {
         links.push(
-          installToDest({ sourcePath, destPath: linkPath, mode: 'copy', force, label: platform })
+          installToDest({
+            sourcePath,
+            destPath: linkPath,
+            mode: 'copy',
+            force,
+            label: platform,
+          })
         );
       } else {
         links.push(
@@ -237,14 +262,28 @@ export function installSkill(params: InstallSkillParams): SkillInstallOutcome {
 
   // ── Step 4: Workspace symlink ─────────────────────────────────────────────
 
-  if (!customPath && workspace && homePath && (homeStatus === 'installed' || homeStatus === 'skipped')) {
+  if (
+    !customPath &&
+    workspace &&
+    homePath &&
+    (homeStatus === 'installed' || homeStatus === 'skipped')
+  ) {
     const wsLinkPath = path.join(process.cwd(), '.agents', 'skills', skillName);
 
     if (dryRun) {
-      links.push({ target: 'workspace', destPath: wsLinkPath, status: 'linked' });
+      links.push({
+        target: 'workspace',
+        destPath: wsLinkPath,
+        status: 'linked',
+      });
     } else {
       links.push(
-        createLink({ targetPath: homePath, linkPath: wsLinkPath, label: 'workspace', force })
+        createLink({
+          targetPath: homePath,
+          linkPath: wsLinkPath,
+          label: 'workspace',
+          force,
+        })
       );
     }
   }

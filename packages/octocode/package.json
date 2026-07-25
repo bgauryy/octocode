@@ -35,6 +35,7 @@
   "files": [
     "out",
     "docs/**",
+    "skills/**",
     "assets/example.png",
     "README.md",
     "LICENSE"

@@ -2,7 +2,7 @@
 
 One reference for every Octocode research tool exposed through MCP and the CLI. The schemas and descriptions come from `@octocodeai/octocode-core`; execution lives in `@octocodeai/octocode-tools-core`; native search, minify, security, and LSP primitives live in `@octocodeai/octocode-engine`.
 
-Use this page when you need field-level guidance, cross-tool workflows, known behavior, or release verification checks. For the exact active schema in a local checkout, run:
+Use this page when you need field-level guidance, cross-tool workflows, known behavior, or release verification checks. For MCP tool ratings, quality gaps, per-tool improvement backlogs, and the recommended agent workflow, see [`MCP_TOOL_QUALITY_AND_AGENT_WORKFLOW.md`](./MCP_TOOL_QUALITY_AND_AGENT_WORKFLOW.md). For the exact active schema in a local checkout, run:
 
 ```bash
 npx octocode tools <toolName> --scheme
@@ -27,6 +27,7 @@ npx octocode tools <toolName> --scheme
 - [Tool Behavior Guide](#tool-behavior-guide)
 - [Clone and Local Tools Workflow](#clone-and-local-tools-workflow)
 - [Tool Verification Playbook](#tool-verification-playbook)
+- [MCP Tool Quality and Agent Workflow](./MCP_TOOL_QUALITY_AND_AGENT_WORKFLOW.md)
 
 
 ---

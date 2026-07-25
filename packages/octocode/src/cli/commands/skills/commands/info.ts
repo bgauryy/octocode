@@ -1,5 +1,5 @@
 /**
- * `octocode-skills info <name>`
+ * `octocode skill info <name>`
  *
  * Shows full skill details — name, description, env params, and SKILL.md content.
  * Use --json for agent-parseable output.
@@ -12,16 +12,20 @@ import {
   groupLabel,
   type SkillEnvStatus,
 } from '../env-params.js';
-import { bold, dim, green, yellow, red, cyan } from '../utils/colors.js';
+import { bold, dim, c } from '../../../../utils/colors.js';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function envStatusLine(env: SkillEnvStatus): string {
   switch (env.readiness) {
-    case 'ok':           return dim('none needed');
-    case 'ready':        return green('all set');
-    case 'partial':      return yellow('partial — some recommended keys missing');
-    case 'needs-config': return red('configuration required');
+    case 'ok':
+      return dim('none needed');
+    case 'ready':
+      return c('green', 'all set');
+    case 'partial':
+      return c('yellow', 'partial — some recommended keys missing');
+    case 'needs-config':
+      return c('red', 'configuration required');
   }
 }
 
@@ -31,11 +35,11 @@ export function runInfo(skillName: string, opts: { json: boolean }): void {
   const skill = getSkill(skillName);
 
   if (!skill) {
-    const msg = `Skill not found: "${skillName}". Run \`octocode-skills list\` to see available skills.`;
+    const msg = `Skill not found: "${skillName}". Run \`octocode skill list\` to see available skills.`;
     if (opts.json) {
       console.log(JSON.stringify({ success: false, error: msg }));
     } else {
-      console.error(`\n  ${red('✗')} ${msg}\n`);
+      console.error(`\n  ${c('red', '✗')} ${msg}\n`);
     }
     process.exitCode = 1;
     return;
@@ -59,13 +63,16 @@ export function runInfo(skillName: string, opts: { json: boolean }): void {
             skillMd: content ?? null,
             env: {
               readiness: env.readiness,
-              params: env.params.map((ps) => ({
+              params: env.params.map(ps => ({
                 key: ps.param.key,
                 status: ps.status,
                 required: ps.param.required,
                 description: ps.param.description,
                 ...(ps.param.group
-                  ? { group: ps.param.group, groupSatisfied: isGroupSatisfied(ps, env.params) }
+                  ? {
+                      group: ps.param.group,
+                      groupSatisfied: isGroupSatisfied(ps, env.params),
+                    }
                   : {}),
                 ...(ps.param.link ? { link: ps.param.link } : {}),
               })),
@@ -103,23 +110,40 @@ export function runInfo(skillName: string, opts: { json: boolean }): void {
         if (shownGroups.has(group)) continue;
         shownGroups.add(group);
 
-        const anySet = env.params.some((p) => p.param.group === group && p.status === 'set');
-        const groupIcon = anySet ? green('✓') : required === 'required' ? red('✗') : yellow('⚠');
+        const anySet = env.params.some(
+          p => p.param.group === group && p.status === 'set'
+        );
+        const groupIcon = anySet
+          ? c('green', '✓')
+          : required === 'required'
+            ? c('red', '✗')
+            : c('yellow', '⚠');
         const groupStr = `${groupLabel(group)}  ${dim(`[${required} — at least one]`)}`;
-        console.log(`  ${groupIcon}  ${anySet ? groupStr : yellow(groupStr)}`);
+        console.log(
+          `  ${groupIcon}  ${anySet ? groupStr : c('yellow', groupStr)}`
+        );
 
-        for (const gp of env.params.filter((p) => p.param.group === group)) {
-          const setStr = gp.status === 'set' ? green(' ✓ set') : dim(' – not set');
+        for (const gp of env.params.filter(p => p.param.group === group)) {
+          const setStr =
+            gp.status === 'set' ? c('green', ' ✓ set') : dim(' – not set');
           const linkStr = gp.param.link ? `  ${dim(gp.param.link)}` : '';
-          console.log(`       ${(gp.status === 'set' ? green(gp.param.key) : dim(gp.param.key)).padEnd(32)}${setStr}${linkStr}`);
+          console.log(
+            `       ${(gp.status === 'set' ? c('green', gp.param.key) : dim(gp.param.key)).padEnd(32)}${setStr}${linkStr}`
+          );
         }
         console.log();
       } else {
-        const icon = ps.status === 'set'
-          ? green('✓')
-          : required === 'required' ? red('✗') : yellow('⚠');
-        const keyStr = ps.status === 'set' ? green(key) : yellow(key);
-        const statusStr = ps.status === 'set' ? green('set') : dim(`not set  [${required}]`);
+        const icon =
+          ps.status === 'set'
+            ? c('green', '✓')
+            : required === 'required'
+              ? c('red', '✗')
+              : c('yellow', '⚠');
+        const keyStr = ps.status === 'set' ? c('green', key) : c('yellow', key);
+        const statusStr =
+          ps.status === 'set'
+            ? c('green', 'set')
+            : dim(`not set  [${required}]`);
         const linkStr = link ? `  ${dim(link)}` : '';
         console.log(`  ${icon}  ${keyStr.padEnd(32)} ${statusStr}${linkStr}`);
         console.log(`       ${dim(description)}`);
@@ -129,7 +153,9 @@ export function runInfo(skillName: string, opts: { json: boolean }): void {
 
     if (env.readiness !== 'ready') {
       console.log(`  ${dim('Add to')} ~/.octocode/.env${dim(':')}  KEY=value`);
-      console.log(`  ${dim('Verify:')} ${cyan(`octocode-skills check ${skill.folder}`)}`);
+      console.log(
+        `  ${dim('Verify:')} ${c('cyan', `octocode skill check ${skill.folder}`)}`
+      );
       console.log();
     }
   }

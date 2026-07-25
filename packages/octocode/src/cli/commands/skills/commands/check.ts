@@ -1,5 +1,5 @@
 /**
- * `octocode-skills check [<name>...]`
+ * `octocode skill check [<name>...]`
  *
  * Verify skill installations AND env param readiness.
  *
@@ -17,14 +17,11 @@
  *   --json       Machine-readable output
  */
 
-import path from 'node:path';
 import { listSkills, getSkill } from '../registry.js';
 import {
-  checkSkill,
   checkSkills,
   isInstalledAtHome,
   linkedPlatforms,
-  hasBroken,
   overallStatus,
   SCAN_PLATFORMS,
   type CheckedLocation,
@@ -41,7 +38,7 @@ import {
 import { parsePlatforms, type Platform } from '../platforms.js';
 import { installSkill } from '../installer.js';
 import { getSkillsHome } from '../home.js';
-import { bold, dim, green, yellow, red, cyan } from '../utils/colors.js';
+import { bold, dim, c } from '../../../../utils/colors.js';
 import { Spinner } from '../utils/spinner.js';
 import { shortPath as short } from '../utils/paths.js';
 
@@ -60,10 +57,14 @@ export interface CheckOptions {
 
 function locationIcon(status: CheckedLocation['status']): string {
   switch (status) {
-    case 'installed': return green('✓');
-    case 'linked':    return green('→');
-    case 'broken':    return red('✗');
-    case 'missing':   return dim('·');
+    case 'installed':
+      return c('green', '✓');
+    case 'linked':
+      return c('green', '→');
+    case 'broken':
+      return c('red', '✗');
+    case 'missing':
+      return dim('·');
   }
 }
 
@@ -77,7 +78,7 @@ function locationLabel(loc: CheckedLocation): string {
     case 'linked':
       return `${icon}  ${loc.label.padEnd(14)} ${p}  ${dim('→')} ${dim(short(loc.linkTarget ?? ''))}`;
     case 'broken':
-      return `${icon}  ${loc.label.padEnd(14)} ${p}  ${red('broken symlink')} → ${dim(short(loc.linkTarget ?? ''))}`;
+      return `${icon}  ${loc.label.padEnd(14)} ${p}  ${c('red', 'broken symlink')} → ${dim(short(loc.linkTarget ?? ''))}`;
     case 'missing':
       return `${icon}  ${loc.label.padEnd(14)} ${dim('not installed')}`;
   }
@@ -86,9 +87,12 @@ function locationLabel(loc: CheckedLocation): string {
 function envIcon(readiness: SkillEnvStatus['readiness']): string {
   switch (readiness) {
     case 'ok':
-    case 'ready':        return green('✓');
-    case 'partial':      return yellow('⚠');
-    case 'needs-config': return red('✗');
+    case 'ready':
+      return c('green', '✓');
+    case 'partial':
+      return c('yellow', '⚠');
+    case 'needs-config':
+      return c('red', '✗');
   }
 }
 
@@ -100,7 +104,12 @@ interface JsonCheckResult {
     name: string;
     installStatus: 'ok' | 'broken' | 'not-installed';
     home: { path: string; status: string; linkTarget?: string };
-    platforms: Array<{ label: string; path: string; status: string; linkTarget?: string }>;
+    platforms: Array<{
+      label: string;
+      path: string;
+      status: string;
+      linkTarget?: string;
+    }>;
     workspace: { path: string; status: string; linkTarget?: string };
     env: {
       readiness: string;
@@ -117,8 +126,18 @@ interface JsonCheckResult {
     };
   }>;
   summary: {
-    install: { ok: number; broken: number; notInstalled: number; total: number };
-    env: { ready: number; partial: number; needsConfig: number; noParamsNeeded: number };
+    install: {
+      ok: number;
+      broken: number;
+      notInstalled: number;
+      total: number;
+    };
+    env: {
+      ready: number;
+      partial: number;
+      needsConfig: number;
+      noParamsNeeded: number;
+    };
   };
 }
 
@@ -127,7 +146,9 @@ interface JsonCheckResult {
 function fixSkill(result: SkillCheckResult, platforms: Platform[]): void {
   const skill = getSkill(result.skillName);
   if (!skill) {
-    console.log(`  ${red('✗')}  Cannot fix ${result.skillName}: not found in bundled skills`);
+    console.log(
+      `  ${c('red', '✗')}  Cannot fix ${result.skillName}: not found in bundled skills`
+    );
     return;
   }
 
@@ -137,11 +158,13 @@ function fixSkill(result: SkillCheckResult, platforms: Platform[]): void {
     platforms:
       result.home.status === 'missing' || result.home.status === 'broken'
         ? platforms
-        : platforms.filter((p) => {
-            const loc = result.platforms.find((pl) => pl.label === p);
+        : platforms.filter(p => {
+            const loc = result.platforms.find(pl => pl.label === p);
             return !loc || loc.status === 'missing' || loc.status === 'broken';
           }),
-    workspace: result.workspace.status === 'missing' || result.workspace.status === 'broken',
+    workspace:
+      result.workspace.status === 'missing' ||
+      result.workspace.status === 'broken',
     customPath: null,
     mode: 'symlink',
     force: true,
@@ -163,15 +186,17 @@ export function runCheck(opts: CheckOptions): void {
         if (opts.json) {
           console.log(JSON.stringify({ success: false, error: msg }));
         } else {
-          console.error(`  ${red('✗')} ${msg}`);
-          console.error(`  Run ${cyan('octocode-skills list')} to see available skills.`);
+          console.error(`  ${c('red', '✗')} ${msg}`);
+          console.error(
+            `  Run ${c('cyan', 'octocode skill list')} to see available skills.`
+          );
         }
         process.exitCode = 1;
         return;
       }
     }
   } else {
-    skillNames = listSkills().map((s) => s.folder);
+    skillNames = listSkills().map(s => s.folder);
   }
 
   // Resolve platforms
@@ -182,7 +207,7 @@ export function runCheck(opts: CheckOptions): void {
       if (opts.json) {
         console.log(JSON.stringify({ success: false, error: parsed.error }));
       } else {
-        console.error(`  ${red('✗')} ${parsed.error}`);
+        console.error(`  ${c('red', '✗')} ${parsed.error}`);
       }
       process.exitCode = 1;
       return;
@@ -191,7 +216,9 @@ export function runCheck(opts: CheckOptions): void {
   }
 
   // Check installations
-  const spinner = opts.json ? null : new Spinner(`Checking ${skillNames.length} skill(s)…`).start();
+  const spinner = opts.json
+    ? null
+    : new Spinner(`Checking ${skillNames.length} skill(s)…`).start();
   let results = checkSkills(skillNames, platforms);
   const envStatuses = opts.noEnv ? [] : getSkillsEnvStatus(skillNames);
   spinner?.stop();
@@ -200,7 +227,7 @@ export function runCheck(opts: CheckOptions): void {
   if (opts.fix && !opts.json) {
     for (const r of results) {
       if (overallStatus(r) !== 'ok') {
-        console.log(`  ${cyan('→')} Fixing ${bold(r.skillName)}…`);
+        console.log(`  ${c('cyan', '→')} Fixing ${bold(r.skillName)}…`);
         fixSkill(r, platforms);
       }
     }
@@ -208,7 +235,9 @@ export function runCheck(opts: CheckOptions): void {
   }
 
   // Summaries
-  let okCount = 0, brokenCount = 0, notInstalledCount = 0;
+  let okCount = 0,
+    brokenCount = 0,
+    notInstalledCount = 0;
   for (const r of results) {
     const s = overallStatus(r);
     if (s === 'ok') okCount++;
@@ -216,7 +245,10 @@ export function runCheck(opts: CheckOptions): void {
     else notInstalledCount++;
   }
 
-  let envReadyCount = 0, envPartialCount = 0, envNeedsConfigCount = 0, envNoParamsCount = 0;
+  let envReadyCount = 0,
+    envPartialCount = 0,
+    envNeedsConfigCount = 0,
+    envNoParamsCount = 0;
   if (!opts.noEnv) {
     for (const e of envStatuses) {
       if (e.readiness === 'ok') envNoParamsCount++;
@@ -245,7 +277,7 @@ export function runCheck(opts: CheckOptions): void {
             status: r.home.status,
             ...(r.home.linkTarget ? { linkTarget: r.home.linkTarget } : {}),
           },
-          platforms: r.platforms.map((p) => ({
+          platforms: r.platforms.map(p => ({
             label: p.label,
             path: p.path,
             status: p.status,
@@ -254,16 +286,23 @@ export function runCheck(opts: CheckOptions): void {
           workspace: {
             path: r.workspace.path,
             status: r.workspace.status,
-            ...(r.workspace.linkTarget ? { linkTarget: r.workspace.linkTarget } : {}),
+            ...(r.workspace.linkTarget
+              ? { linkTarget: r.workspace.linkTarget }
+              : {}),
           },
           env: {
             readiness: env.readiness,
-            params: env.params.map((ps) => ({
+            params: env.params.map(ps => ({
               key: ps.param.key,
               status: ps.status,
               required: ps.param.required,
               description: ps.param.description,
-              ...(ps.param.group ? { group: ps.param.group, groupSatisfied: isGroupSatisfied(ps, env.params) } : {}),
+              ...(ps.param.group
+                ? {
+                    group: ps.param.group,
+                    groupSatisfied: isGroupSatisfied(ps, env.params),
+                  }
+                : {}),
               ...(ps.param.link ? { link: ps.param.link } : {}),
             })),
             hint: missingHint(env),
@@ -271,10 +310,25 @@ export function runCheck(opts: CheckOptions): void {
         };
       }),
       summary: {
-        install: { ok: okCount, broken: brokenCount, notInstalled: notInstalledCount, total: results.length },
+        install: {
+          ok: okCount,
+          broken: brokenCount,
+          notInstalled: notInstalledCount,
+          total: results.length,
+        },
         env: opts.noEnv
-          ? { ready: 0, partial: 0, needsConfig: 0, noParamsNeeded: skillNames.length }
-          : { ready: envReadyCount, partial: envPartialCount, needsConfig: envNeedsConfigCount, noParamsNeeded: envNoParamsCount },
+          ? {
+              ready: 0,
+              partial: 0,
+              needsConfig: 0,
+              noParamsNeeded: skillNames.length,
+            }
+          : {
+              ready: envReadyCount,
+              partial: envPartialCount,
+              needsConfig: envNeedsConfigCount,
+              noParamsNeeded: envNoParamsCount,
+            },
       },
     };
     console.log(JSON.stringify(out, null, 2));
@@ -295,14 +349,18 @@ export function runCheck(opts: CheckOptions): void {
     const st = overallStatus(r);
 
     const installBadge =
-      st === 'ok' ? green('✓') : st === 'broken' ? red('✗') : yellow('–');
+      st === 'ok'
+        ? c('green', '✓')
+        : st === 'broken'
+          ? c('red', '✗')
+          : c('yellow', '–');
 
     const links = linkedPlatforms(r);
     const hasHome = isInstalledAtHome(r);
     const installSummary = hasHome
       ? dim(`installed${links.length ? ` · linked: ${links.join(', ')}` : ''}`)
       : st === 'broken'
-        ? red('broken symlink(s)')
+        ? c('red', 'broken symlink(s)')
         : dim('not installed');
 
     const envSummary = opts.noEnv
@@ -310,17 +368,19 @@ export function runCheck(opts: CheckOptions): void {
       : `  ${envIcon(env.readiness)} env: ${
           env.readiness === 'ok' || env.readiness === 'ready'
             ? dim(env.readiness === 'ok' ? 'none needed' : 'ready')
-            : yellow(missingHint(env) || env.readiness)
+            : c('yellow', missingHint(env) || env.readiness)
         }`;
 
-    console.log(`  ${installBadge}  ${bold(r.skillName)}  ${installSummary}${envSummary}`);
+    console.log(
+      `  ${installBadge}  ${bold(r.skillName)}  ${installSummary}${envSummary}`
+    );
 
     // Install locations
     console.log(`       ${locationLabel(r.home)}`);
 
     const platformsToShow = opts.platform
       ? r.platforms
-      : r.platforms.filter((p) => p.status !== 'missing');
+      : r.platforms.filter(p => p.status !== 'missing');
 
     for (const p of platformsToShow) {
       console.log(`       ${locationLabel(p)}`);
@@ -335,27 +395,48 @@ export function runCheck(opts: CheckOptions): void {
       const shownGroups = new Set<string>();
       for (const ps of env.params) {
         const { group } = ps.param;
-        const satisfied = isGroupSatisfied(ps, env.params);
-
         if (group) {
           if (shownGroups.has(group)) continue;
           shownGroups.add(group);
           // Show group as a single row
-          const anySet = env.params.some((p) => p.param.group === group && p.status === 'set');
-          const icon = anySet ? green('✓') : ps.param.required === 'required' ? red('✗') : yellow('⚠');
+          const anySet = env.params.some(
+            p => p.param.group === group && p.status === 'set'
+          );
+          const icon = anySet
+            ? c('green', '✓')
+            : ps.param.required === 'required'
+              ? c('red', '✗')
+              : c('yellow', '⚠');
           const keys = env.params
-            .filter((p) => p.param.group === group)
-            .map((p) => (p.status === 'set' ? green(p.param.key) : dim(p.param.key)))
+            .filter(p => p.param.group === group)
+            .map(p =>
+              p.status === 'set' ? c('green', p.param.key) : dim(p.param.key)
+            )
             .join(dim(' | '));
-          const label = anySet ? dim(groupLabel(group)) : yellow(groupLabel(group));
-          console.log(`       ${icon}  ${'env'.padEnd(14)} ${label}  ${dim('→')}  ${keys}`);
+          const label = anySet
+            ? dim(groupLabel(group))
+            : c('yellow', groupLabel(group));
+          console.log(
+            `       ${icon}  ${'env'.padEnd(14)} ${label}  ${dim('→')}  ${keys}`
+          );
         } else {
-          const icon = ps.status === 'set'
-            ? green('✓')
-            : ps.param.required === 'required' ? red('✗') : yellow('⚠');
-          const keyStr = ps.status === 'set' ? green(ps.param.key) : yellow(ps.param.key);
-          const statusStr = ps.status === 'set' ? dim('set') : dim(`${ps.param.required} — not set`);
-          console.log(`       ${icon}  ${'env'.padEnd(14)} ${keyStr}  ${statusStr}`);
+          const icon =
+            ps.status === 'set'
+              ? c('green', '✓')
+              : ps.param.required === 'required'
+                ? c('red', '✗')
+                : c('yellow', '⚠');
+          const keyStr =
+            ps.status === 'set'
+              ? c('green', ps.param.key)
+              : c('yellow', ps.param.key);
+          const statusStr =
+            ps.status === 'set'
+              ? dim('set')
+              : dim(`${ps.param.required} — not set`);
+          console.log(
+            `       ${icon}  ${'env'.padEnd(14)} ${keyStr}  ${statusStr}`
+          );
         }
       }
     }
@@ -367,17 +448,25 @@ export function runCheck(opts: CheckOptions): void {
   console.log(`  ${dim('─'.repeat(60))}`);
 
   const installParts = [
-    `${green(String(okCount))} ok`,
-    ...(notInstalledCount ? [`${yellow(String(notInstalledCount))} not installed`] : []),
-    ...(brokenCount ? [`${red(String(brokenCount))} broken`] : []),
+    `${c('green', String(okCount))} ok`,
+    ...(notInstalledCount
+      ? [`${c('yellow', String(notInstalledCount))} not installed`]
+      : []),
+    ...(brokenCount ? [`${c('red', String(brokenCount))} broken`] : []),
   ];
   console.log(`  ${dim('Install:')} ${installParts.join('  ·  ')}`);
 
   if (!opts.noEnv) {
     const envParts = [
-      ...(envNoParamsCount + envReadyCount > 0 ? [`${green(String(envNoParamsCount + envReadyCount))} ready`] : []),
-      ...(envPartialCount ? [`${yellow(String(envPartialCount))} partial`] : []),
-      ...(envNeedsConfigCount ? [`${red(String(envNeedsConfigCount))} needs config`] : []),
+      ...(envNoParamsCount + envReadyCount > 0
+        ? [`${c('green', String(envNoParamsCount + envReadyCount))} ready`]
+        : []),
+      ...(envPartialCount
+        ? [`${c('yellow', String(envPartialCount))} partial`]
+        : []),
+      ...(envNeedsConfigCount
+        ? [`${c('red', String(envNeedsConfigCount))} needs config`]
+        : []),
     ];
     if (envParts.length > 0) {
       console.log(`  ${dim('Env:')}     ${envParts.join('  ·  ')}`);
@@ -388,14 +477,20 @@ export function runCheck(opts: CheckOptions): void {
 
   // Actionable hints
   if (notInstalledCount > 0) {
-    console.log(`  ${dim('Install missing:')}   ${cyan('octocode-skills install --all')}`);
+    console.log(
+      `  ${dim('Install missing:')}   ${c('cyan', 'octocode skill install --all')}`
+    );
   }
   if (brokenCount > 0) {
-    console.log(`  ${dim('Fix broken links:')}  ${cyan('octocode-skills check --fix')}`);
+    console.log(
+      `  ${dim('Fix broken links:')}  ${c('cyan', 'octocode skill check --fix')}`
+    );
   }
 
   if (!opts.noEnv && (envNeedsConfigCount > 0 || envPartialCount > 0)) {
-    console.log(`  ${dim('Env params missing — add to')} ${dim('~/.octocode/.env')}${dim(':')}`);
+    console.log(
+      `  ${dim('Env params missing — add to')} ${dim('~/.octocode/.env')}${dim(':')}`
+    );
     console.log();
 
     // Collect all unsatisfied params (deduplicate groups)
@@ -414,7 +509,7 @@ export function runCheck(opts: CheckOptions): void {
         if (group) {
           if (shownGroups.has(group)) continue;
           shownGroups.add(group);
-          const groupKeys = env.params.filter((p) => p.param.group === group);
+          const groupKeys = env.params.filter(p => p.param.group === group);
           console.log(`  ${dim(groupLabel(group))}  ${dim(`[${required}]`)}`);
           for (const gp of groupKeys) {
             const linkStr = gp.param.link ? `  ${dim(gp.param.link)}` : '';

@@ -32,7 +32,10 @@ export interface SkillInfo {
  * Handles: name: value, description: "quoted value"
  * Does NOT handle multi-line values — not needed for SKILL.md.
  */
-function parseFrontmatter(content: string): { name?: string; description?: string } {
+function parseFrontmatter(content: string): {
+  name?: string;
+  description?: string;
+} {
   const match = /^---\s*\n([\s\S]*?)\n---/.exec(content);
   if (!match || !match[1]) return {};
 
@@ -50,7 +53,8 @@ function parseFrontmatter(content: string): { name?: string; description?: strin
 
   const parsed: { name?: string; description?: string } = {};
   if (result['name'] !== undefined) parsed.name = result['name'];
-  if (result['description'] !== undefined) parsed.description = result['description'];
+  if (result['description'] !== undefined)
+    parsed.description = result['description'];
   return parsed;
 }
 
@@ -67,14 +71,24 @@ function findBundledSkillsDir(): string {
   const thisDir = path.dirname(thisFile);
 
   const candidates = [
-    // After build: out/ → ../skills
+    // After build: out/chunks/<chunk>.js → ../../skills
+    path.resolve(thisDir, '..', '..', 'skills'),
+    // Non-split build fallback: out/ → ../skills
     path.resolve(thisDir, '..', 'skills'),
-    // During dev: src/ → ../skills (same level)
-    path.resolve(thisDir, 'skills'),
+    // During dev: src/cli/commands/skills → ../../../../skills
+    path.resolve(thisDir, '..', '..', '..', '..', 'skills'),
   ];
 
   for (const candidate of candidates) {
-    if (fs.existsSync(candidate)) return candidate;
+    if (!fs.existsSync(candidate)) continue;
+    const hasSkill = fs
+      .readdirSync(candidate, { withFileTypes: true })
+      .some(entry =>
+        entry.isDirectory()
+          ? fs.existsSync(path.join(candidate, entry.name, 'SKILL.md'))
+          : false
+      );
+    if (hasSkill) return candidate;
   }
 
   // Return first candidate so callers get a meaningful path in error messages
@@ -140,7 +154,7 @@ export function listSkills(): SkillInfo[] {
 export function getSkill(nameOrFolder: string): SkillInfo | null {
   return (
     listSkills().find(
-      (s) => s.name === nameOrFolder || s.folder === nameOrFolder
+      s => s.name === nameOrFolder || s.folder === nameOrFolder
     ) ?? null
   );
 }

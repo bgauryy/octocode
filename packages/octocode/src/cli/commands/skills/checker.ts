@@ -72,7 +72,9 @@ function probe(label: string, p: string): CheckedLocation {
     const lstat = fs.lstatSync(p);
     if (lstat.isSymbolicLink()) {
       const target = fs.readlinkSync(p);
-      const resolved = path.isAbsolute(target) ? target : path.resolve(path.dirname(p), target);
+      const resolved = path.isAbsolute(target)
+        ? target
+        : path.resolve(path.dirname(p), target);
       return { label, path: p, status: 'linked', linkTarget: resolved };
     }
 
@@ -116,7 +118,7 @@ export function checkSkills(
   skillNames: string[],
   platforms?: Platform[]
 ): SkillCheckResult[] {
-  return skillNames.map((n) => checkSkill(n, platforms));
+  return skillNames.map(n => checkSkill(n, platforms));
 }
 
 // ─── Derived helpers ──────────────────────────────────────────────────────────
@@ -129,8 +131,8 @@ export function isInstalledAtHome(r: SkillCheckResult): boolean {
 /** Platform labels where the skill is linked or installed. */
 export function linkedPlatforms(r: SkillCheckResult): string[] {
   return r.platforms
-    .filter((p) => p.status === 'linked' || p.status === 'installed')
-    .map((p) => p.label);
+    .filter(p => p.status === 'linked' || p.status === 'installed')
+    .map(p => p.label);
 }
 
 /** Any location has a broken symlink. */
@@ -138,12 +140,14 @@ export function hasBroken(r: SkillCheckResult): boolean {
   return (
     r.home.status === 'broken' ||
     r.workspace.status === 'broken' ||
-    r.platforms.some((p) => p.status === 'broken')
+    r.platforms.some(p => p.status === 'broken')
   );
 }
 
 /** Overall health: ok | partial | not-installed */
-export function overallStatus(r: SkillCheckResult): 'ok' | 'broken' | 'not-installed' {
+export function overallStatus(
+  r: SkillCheckResult
+): 'ok' | 'broken' | 'not-installed' {
   if (hasBroken(r)) return 'broken';
   if (isInstalledAtHome(r)) return 'ok';
   return 'not-installed';

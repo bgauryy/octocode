@@ -264,6 +264,30 @@
       ]
     },
     {
+      "id": "trajectory-mode-selection",
+      "mode": "Audit",
+      "prompt": "Our customer support agent must always call a policy_lookup tool before calling a refund_tool. Both tools are called in every run. Which trajectory match mode should we use and why?",
+      "minScore": 0.85,
+      "required": [
+        { "name": "strict mode chosen", "pattern": "\\bstrict\\b" },
+        { "name": "ordering requirement stated", "pattern": "\\border(ing)?\\b|\\bsequence\\b|\\bbefore\\b|\\bprecede\\b|\\bpolicy.+before\\b" },
+        { "name": "why ordering matters", "pattern": "\\bpolic(y|ies)\\b[\\s\\S]{0,80}\\b(before|first|prior)\\b|\\bbusiness rule\\b|\\brequirement\\b" }
+      ],
+      "binaryQuestions": [
+        {
+          "id": "strict-when-ordering-required",
+          "dimension": "trajectory",
+          "question": "Does the answer choose strict mode AND explain that ordering is required because policy_lookup must precede refund_tool?",
+          "passPattern": "\\bstrict\\b[\\s\\S]{0,200}\\border|\\border[\\s\\S]{0,200}\\bstrict\\b",
+          "failureSignature": "mechanism:eval-trajectory|cause:wrong-match-mode",
+          "suggestedLesson": "Default to unordered; use strict only when you can articulate why sequence matters. Policy enforcement (step A before step B) is the canonical strict-mode use case."
+        }
+      ],
+      "forbidden": [
+        { "name": "wrong mode chosen", "pattern": "\\b(unordered|subset|superset)\\b[\\s\\S]{0,60}\\b(recommend|use|choose|select)\\b" }
+      ]
+    },
+    {
       "id": "shared-context-verifier",
       "mode": "Audit",
       "prompt": "Our graph has a verifier agent that receives the full conversation history from the executor agent before grading. Is this a valid independent check?",

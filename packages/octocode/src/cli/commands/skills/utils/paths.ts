@@ -2,9 +2,9 @@
  * Path display helpers — shared across commands.
  */
 
-import os from 'node:os';
+import { homedir } from 'node:os';
 
-const HOME = os.homedir();
+const HOME = homedir();
 
 /**
  * Shorten an absolute path for display by replacing the home directory with ~.

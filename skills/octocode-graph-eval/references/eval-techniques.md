@@ -10,7 +10,9 @@ Outcome ≠ what the agent *said* — check real state.
 |---|---|---|
 | **Code / deterministic** | Objective checks | regex, unit tests, lint/type, state checks, tool presence |
 | **Binary (BinEval-style)** | Interpretable failures | atomic yes/no; `failureSignature` |
-| **Model / LLM judge** | Open-ended quality | rubric, pairwise, multi-judge; allow “Unknown”; calibrate |
+| **Model / LLM judge** | Open-ended quality | rubric, pairwise, multi-judge; allow "Unknown"; calibrate |
+| **G-Eval (multi-step LLM)** | Criteria known, sub-steps uncertain | judge generates its own rubric steps from criteria; score 0–1 |
+| **DAG-structured** | Multi-criteria, early failure obvious | compose graders as a directed graph; early nodes short-circuit later ones |
 | **Human** | Gold / calibration | SME spot-checks |
 | **Council** | Contested synthesis | multi-model peer rank |
 
@@ -42,4 +44,4 @@ Don’t trust a single green.
 ## Anti-patterns
 Opaque holistic scores · path-only grading · ambiguous tasks · harness cheats · saturated benches without transcript reads
 
-Next: benches → `benchmarking.md`; cases → `eval-harness.md`.
+Next: benches → `benchmarking.md`; cases → `eval-harness.md`; trajectory modes → `trajectory-grading.md`.

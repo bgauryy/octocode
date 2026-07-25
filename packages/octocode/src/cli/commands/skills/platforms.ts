@@ -6,11 +6,11 @@
  * home at ~/.octocode/skills/<name>.
  */
 
-import os from 'node:os';
+import { homedir, platform as osPlatform } from 'node:os';
 import path from 'node:path';
 
-const HOME = os.homedir();
-const isWindows = os.platform() === 'win32';
+const HOME = homedir();
+const isWindows = osPlatform() === 'win32';
 
 export type Platform =
   | 'pi'
@@ -95,7 +95,14 @@ export function getPlatformSkillsDir(platform: Platform): string {
 }
 
 const ALL_PLATFORMS: Platform[] = [
-  'pi', 'cursor', 'claude', 'codex', 'opencode', 'copilot', 'gemini', 'common',
+  'pi',
+  'cursor',
+  'claude',
+  'codex',
+  'opencode',
+  'copilot',
+  'gemini',
+  'common',
 ];
 
 const PLATFORM_ALIASES: Record<string, Platform | 'all'> = {
@@ -119,10 +126,13 @@ const PLATFORM_ALIASES: Record<string, Platform | 'all'> = {
   all: 'all',
 };
 
-export function parsePlatforms(raw: string): { platforms: Platform[]; error?: string } {
+export function parsePlatforms(raw: string): {
+  platforms: Platform[];
+  error?: string;
+} {
   const parts = raw
     .split(',')
-    .map((p) => p.trim().toLowerCase())
+    .map(p => p.trim().toLowerCase())
     .filter(Boolean);
 
   const platforms: Platform[] = [];

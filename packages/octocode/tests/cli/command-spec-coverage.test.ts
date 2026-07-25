@@ -60,6 +60,15 @@ describe('CLI command content is sourced from octocode-core', () => {
     // the moment the core spec catches up so the guard re-arms.
     const pendingCoreSpec = new Set([
       'search:quiet', // rows-only token-frugal mode (benchmark fix P0-2)
+      // Bundled octocode-skills subcommands merged into `octocode skill`; remove
+      // these once octocode-core's skill command spec documents the local
+      // list/install/check/info/remove surface.
+      'skill:keep',
+      'skill:workspace',
+      'skill:repo',
+      'skill:path',
+      'skill:fix',
+      'skill:no-env',
     ]);
 
     for (const name of REGISTERED_COMMAND_NAMES) {

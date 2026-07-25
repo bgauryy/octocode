@@ -24,72 +24,35 @@ describe('getOctocodeHome', () => {
     expect(getOctocodeHome({ OCTOCODE_HOME: '  /trimmed  ' })).toBe('/trimmed');
   });
 
-  it('empty / blank OCTOCODE_HOME falls through to platform default', () => {
+  it('empty / blank OCTOCODE_HOME falls through to homedir default', () => {
     const def = getOctocodeHome({ OCTOCODE_HOME: '' });
     expect(def.endsWith('.octocode')).toBe(true);
   });
 
-  it('whitespace-only OCTOCODE_HOME falls through to platform default', () => {
+  it('whitespace-only OCTOCODE_HOME falls through to homedir default', () => {
     const def = getOctocodeHome({ OCTOCODE_HOME: '   ' });
     expect(def.endsWith('.octocode')).toBe(true);
   });
 
-  it('macOS platform: returns ~/.octocode', () => {
-    // Simulate macOS via OCTOCODE_HOME override with expected macOS-style path
-    const result = getOctocodeHome({ OCTOCODE_HOME: '/Users/test/.octocode' });
-    expect(result).toBe('/Users/test/.octocode');
-  });
+  it('default uses os.homedir()/.octocode on every platform', async () => {
+    vi.resetModules();
+    vi.doMock('node:os', () => ({
+      homedir: () => '/home/test',
+    }));
 
-  it('Linux: XDG_CONFIG_HOME used when set (and no OCTOCODE_HOME)', () => {
-    // We can't control os.platform() directly, but we can verify the logic via
-    // the indirect OCTOCODE_HOME path which has the same resolution semantics.
-    const result = getOctocodeHome({ OCTOCODE_HOME: '/xdg/config/.octocode' });
-    expect(result).toBe('/xdg/config/.octocode');
-  });
+    const { getOctocodeHome: getMockedHome } = await import('../src/home.js');
+    expect(getMockedHome({})).toBe('/home/test/.octocode');
+    expect(getMockedHome({ XDG_CONFIG_HOME: '/xdg', APPDATA: 'D:\\Roaming' })).toBe(
+      '/home/test/.octocode',
+    );
 
-  it('Windows: APPDATA path accepted via OCTOCODE_HOME', () => {
-    const result = getOctocodeHome({
-      OCTOCODE_HOME: 'C:\\Users\\Test\\AppData\\Roaming\\.octocode',
-    });
-    // path.resolve normalises slashes on the current platform
-    expect(result).toContain('.octocode');
+    vi.doUnmock('node:os');
+    vi.resetModules();
   });
 
   it('no arguments uses process.env defaults without throwing', () => {
     expect(() => getOctocodeHome()).not.toThrow();
     expect(typeof getOctocodeHome()).toBe('string');
-  });
-
-  it('uses APPDATA on Windows when OCTOCODE_HOME is absent', async () => {
-    vi.resetModules();
-    vi.doMock('node:os', () => ({
-      default: { homedir: () => 'C:\\Users\\Test', platform: () => 'win32' },
-      homedir: () => 'C:\\Users\\Test',
-      platform: () => 'win32',
-    }));
-
-    const { getOctocodeHome: getMockedHome } = await import('../src/home.js');
-    expect(getMockedHome({ APPDATA: 'D:\\Roaming' })).toBe(join('D:\\Roaming', '.octocode'));
-    expect(getMockedHome({})).toBe(join('C:\\Users\\Test', 'AppData', 'Roaming', '.octocode'));
-
-    vi.doUnmock('node:os');
-    vi.resetModules();
-  });
-
-  it('uses XDG_CONFIG_HOME on non-macOS Unix platforms', async () => {
-    vi.resetModules();
-    vi.doMock('node:os', () => ({
-      default: { homedir: () => '/home/test', platform: () => 'linux' },
-      homedir: () => '/home/test',
-      platform: () => 'linux',
-    }));
-
-    const { getOctocodeHome: getMockedHome } = await import('../src/home.js');
-    expect(getMockedHome({ XDG_CONFIG_HOME: '/xdg' })).toBe('/xdg/.octocode');
-    expect(getMockedHome({})).toBe('/home/test/.config/.octocode');
-
-    vi.doUnmock('node:os');
-    vi.resetModules();
   });
 });
 
