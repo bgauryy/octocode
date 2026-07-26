@@ -85,9 +85,10 @@ export function applyFieldPredicate(
       break;
     }
     case 'size':
-      if (f.op === '>' || f.op === '>=') toolQuery.sizeGreater = String(value);
+      if (f.op === '>' || f.op === '>=')
+        (toolQuery.size ??= {}).greater = String(value);
       else if (f.op === '<' || f.op === '<=')
-        toolQuery.sizeLess = String(value);
+        (toolQuery.size ??= {}).less = String(value);
       else diags.push(unsupportedField(f));
       break;
     case 'modified':
@@ -95,8 +96,9 @@ export function applyFieldPredicate(
       // It has no absolute-date filter, so >/>=/</<= (absolute timestamps)
       // are unsupported — mapping them to a duration field would be both a
       // type mismatch and a semantic inversion.
-      if (f.op === 'within') toolQuery.modifiedWithin = String(value);
-      else if (f.op === 'before') toolQuery.modifiedBefore = String(value);
+      if (f.op === 'within') (toolQuery.time ??= {}).modifiedWithin = String(value);
+      else if (f.op === 'before')
+        (toolQuery.time ??= {}).modifiedBefore = String(value);
       else
         diags.push(
           diagnostic(
@@ -107,7 +109,8 @@ export function applyFieldPredicate(
         );
       break;
     case 'accessed':
-      if (f.op === 'within') toolQuery.accessedWithin = String(value);
+      if (f.op === 'within')
+        (toolQuery.time ??= {}).accessedWithin = String(value);
       else diags.push(unsupportedField(f));
       break;
     case 'empty':

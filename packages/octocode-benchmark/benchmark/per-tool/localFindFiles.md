@@ -20,8 +20,8 @@ ROOT=$(pwd)
 | minDepth / maxDepth | int 0–100 | depth window (equal = exact band) |
 | entryType | enum(f,d) | files or dirs; omit = both |
 | empty | boolean | 0-byte files / childless dirs |
-| modifiedWithin / modifiedBefore / accessedWithin | string | `7d`,`2h`,`1w`,`30m` |
-| sizeGreater / sizeLess | string | `100k`,`1m`,`500b` |
+| time | object | `{ modifiedWithin?, modifiedBefore?, accessedWithin? }` — `7d`,`2h`,`1w`,`30m` |
+| size | object | `{ greater?, less? }` — `100k`,`1m`,`500b` |
 | permissions | string | exact permission filter |
 | access | enum(executable,readable,writable) | permission-class filter |
 | excludeDir | array<string> | prune dirs (nothing excluded by default!) |
@@ -35,8 +35,8 @@ ROOT=$(pwd)
    → PASS: only matching files.
 2. **Monorepo path glob** — `... '{"path":"'$ROOT'","pathPattern":"packages/*/src/tools/**","entryType":"f","itemsPerPage":20}'` → PASS: tool sources across packages.
 3. **Prune build dirs** — `... "excludeDir":["node_modules","dist","coverage","out"]` → PASS: no vendor/build noise.
-4. **Size filter** — `"sizeGreater":"100k","detail":"full"` → PASS: only large files, with metadata.
-5. **Time window** — `"modifiedWithin":"7d"` → PASS: recently changed files.
+4. **Size filter** — `"size":{"greater":"100k"},"detail":"full"` → PASS: only large files, with metadata.
+5. **Time window** — `"time":{"modifiedWithin":"7d"}` → PASS: recently changed files.
 6. **entryType=d** — directories only → PASS: no files.
 7. **regex basename** — `"regex":"^(index|main)\\.(ts|js)$"` → PASS: precise basename match.
 8. **Pagination** — small `itemsPerPage` → PASS: page 2 preserves filters.
@@ -44,4 +44,4 @@ ROOT=$(pwd)
 ## Workflows
 
 - **Locate config/entrypoints**: `names`/`regex` → hand paths to `localGetFileContent`.
-- **Audit large/stale artifacts**: `sizeGreater` / `modifiedBefore` → cleanup candidates.
+- **Audit large/stale artifacts**: `size.greater` / `time.modifiedBefore` → cleanup candidates.

@@ -86,11 +86,11 @@ export async function findFiles(
       regex: nativeQuery.regex,
       entryType: nativeQuery.entryType,
       empty: nativeQuery.empty,
-      modifiedWithin: nativeQuery.modifiedWithin,
-      modifiedBefore: nativeQuery.modifiedBefore,
-      accessedWithin: nativeQuery.accessedWithin,
-      sizeGreater: nativeQuery.sizeGreater,
-      sizeLess: nativeQuery.sizeLess,
+      modifiedWithin: nativeQuery.time?.modifiedWithin,
+      modifiedBefore: nativeQuery.time?.modifiedBefore,
+      accessedWithin: nativeQuery.time?.accessedWithin,
+      sizeGreater: nativeQuery.size?.greater,
+      sizeLess: nativeQuery.size?.less,
       permissions: nativeQuery.permissions,
       executable: nativeQuery.access === 'executable',
       readable: nativeQuery.access === 'readable',
@@ -262,19 +262,21 @@ function validateTimeFilterFormats<T extends FindFilesQuery>(
   query: T;
 } {
   const warnings: string[] = [];
-  const sanitized = { ...query } as T;
+  const time = query.time;
+  if (!time) return { warnings, query };
+  const sanitizedTime = { ...time };
   const fields: Array<{ key: TimeFilterKey; value: string | undefined }> = [
-    { key: 'modifiedBefore', value: query.modifiedBefore },
-    { key: 'modifiedWithin', value: query.modifiedWithin },
-    { key: 'accessedWithin', value: query.accessedWithin },
+    { key: 'modifiedBefore', value: time.modifiedBefore },
+    { key: 'modifiedWithin', value: time.modifiedWithin },
+    { key: 'accessedWithin', value: time.accessedWithin },
   ];
   for (const { key, value } of fields) {
     if (value && !VALID_TIME_STRING_RE.test(value)) {
       warnings.push(
-        `${key}="${value}" has an unsupported format — filter was skipped. Use a relative duration like "7d", "2h", "1w", or "3m".`
+        `time.${key}="${value}" has an unsupported format — filter was skipped. Use a relative duration like "7d", "2h", "1w", or "3m".`
       );
-      delete sanitized[key];
+      delete sanitizedTime[key];
     }
   }
-  return { warnings, query: sanitized };
+  return { warnings, query: { ...query, time: sanitizedTime } };
 }
