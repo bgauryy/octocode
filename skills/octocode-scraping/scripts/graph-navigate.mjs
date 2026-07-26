@@ -3,7 +3,7 @@ import { resolve } from 'node:path';
 import { readJson as readJsonFile, takeArg } from './lib/cli.mjs';
 
 function usage(code = 2) {
-  console.error('Usage: graph-navigate.mjs --session-dir <dir> [--from <nodeId>] [--kind <edgeKind>] [--workflow <type>] [--risk <risk>] [--limit <n>]');
+  console.error('Usage: graph-navigate.mjs --session-dir <dir> [--from <nodeId>] [--kind <edgeKind>] [--workflow <type>] [--risk <risk>] [--limit <n>] [--no-dedupe]');
   process.exit(code);
 }
 const args = process.argv.slice(2);
@@ -16,6 +16,7 @@ const from = take('--from');
 const kind = take('--kind');
 const workflow = take('--workflow');
 const risk = take('--risk');
+const dedupe = !args.includes('--no-dedupe');
 const limit = Number(take('--limit') || 50);
 const graph = await readJsonFile(dir, 'graph/graph.json', { nodes: [], edges: [], totals: {} });
 const nodeById = new Map((graph.nodes || []).map((n) => [n.id, n]));
@@ -24,7 +25,18 @@ if (from) edges = edges.filter((e) => e.from === from);
 if (kind) edges = edges.filter((e) => e.kind === kind);
 if (workflow) edges = edges.filter((e) => e.workflowType === workflow);
 if (risk) edges = edges.filter((e) => e.risk === risk);
-const routes = edges.sort((a, b) => (b.score || 0) - (a.score || 0)).slice(0, limit).map((e) => {
+const sortedEdges = edges.sort((a, b) => (b.score || 0) - (a.score || 0));
+const selectedEdges = [];
+const seen = new Set();
+for (const edge of sortedEdges) {
+  const target = nodeById.get(edge.to) || {};
+  const key = `${edge.kind}:${target.url || edge.to}:${edge.label || ''}:${edge.workflowType || ''}`;
+  if (dedupe && seen.has(key)) continue;
+  seen.add(key);
+  selectedEdges.push(edge);
+  if (selectedEdges.length >= limit) break;
+}
+const routes = selectedEdges.map((e) => {
   const source = nodeById.get(e.from) || {};
   const target = nodeById.get(e.to) || {};
   return {
@@ -44,4 +56,4 @@ const routes = edges.sort((a, b) => (b.score || 0) - (a.score || 0)).slice(0, li
   };
 });
 const actionNodes = (graph.nodes || []).filter((n) => ['form', 'input', 'button', 'table', 'pagination'].includes(n.kind)).slice(0, limit);
-console.log(JSON.stringify({ ok: true, sessionDir: dir, filters: { from: from || null, kind: kind || null, workflow: workflow || null, risk: risk || null }, totals: graph.totals || {}, routes, actionNodes, next: ['graph/graph.json', 'graph/site-graph.json', 'graph/workflows.json', 'indexes/top-links.jsonl', 'indexes/workflow-candidates.jsonl'] }, null, 2));
+console.log(JSON.stringify({ ok: true, sessionDir: dir, filters: { from: from || null, kind: kind || null, workflow: workflow || null, risk: risk || null, dedupe }, totals: graph.totals || {}, routes, actionNodes, next: ['graph/graph.json', 'graph/site-graph.json', 'graph/workflows.json', 'indexes/top-links.jsonl', 'indexes/workflow-candidates.jsonl'] }, null, 2));

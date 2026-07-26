@@ -12,6 +12,24 @@ function attrs(tag) {
   return out;
 }
 
+function cssString(value) {
+  return String(value || '').replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+}
+
+function selectorFor(tag, a = {}, fallback = '') {
+  const name = String(tag || '').toLowerCase();
+  if (a.id) return `${name}#${cssString(a.id)}`;
+  for (const key of ['data-testid', 'data-test', 'data-cy', 'data-qa']) {
+    if (a[key]) return `${name}[${key}="${cssString(a[key])}"]`;
+  }
+  if (a.name) return `${name}[name="${cssString(a.name)}"]`;
+  if (a['aria-label']) return `${name}[aria-label="${cssString(a['aria-label'])}"]`;
+  if (a.href) return `${name}[href="${cssString(a.href)}"]`;
+  if (a.action) return `${name}[action="${cssString(a.action)}"]`;
+  if (a.type) return `${name}[type="${cssString(a.type)}"]`;
+  return fallback || name;
+}
+
 // Structural, not fuzzy: HTML5's own rel=next/prev is the actual standard for pagination links.
 // A "pagination" class name (pagination-nav, pager, ...) is the common fallback when rel is absent
 // (e.g. Docusaurus). Checked against the isolated rel/class attribute values only — never against
@@ -32,8 +50,10 @@ export function extractLinksFromHtml(html, baseUrl, pageId) {
     const relAttr = attrValue(m[1], 'rel');
     const classAttr = attrValue(m[1], 'class');
     const hint = isPaginationLink(relAttr, classAttr) ? 'pagination' : workflowHint(`${href} ${text}`);
-    try { rows.push({ pageId, href: new URL(href, baseUrl).href, text, source: 'html', workflowHint: hint }); }
-    catch { rows.push({ pageId, href, text, source: 'html', workflowHint: hint }); }
+    const linkAttrs = attrs(m[1]);
+    const selector = selectorFor('a', linkAttrs, href ? `a[href="${cssString(href)}"]` : 'a');
+    try { rows.push({ pageId, href: new URL(href, baseUrl).href, text, selector, source: 'html', workflowHint: hint }); }
+    catch { rows.push({ pageId, href, text, selector, source: 'html', workflowHint: hint }); }
     if (rows.length >= 1000) break;
   }
   return rows;
@@ -100,11 +120,11 @@ export function extractFormsFromHtml(html, baseUrl, pageId) {
   while ((m = rx.exec(html || ''))) {
     const a = attrs(m[1]);
     const body = m[2] || '';
-    const inputs = [...body.matchAll(/<(input|select|textarea)\b([^>]*)>/gi)].map((x) => ({ tag: x[1].toLowerCase(), name: attrValue(x[2], 'name') || null, type: attrValue(x[2], 'type') || x[1].toLowerCase(), placeholder: attrValue(x[2], 'placeholder') || null })).slice(0, 50);
+    const inputs = [...body.matchAll(/<(input|select|textarea)\b([^>]*)>/gi)].map((x) => { const inputAttrs = attrs(x[2]); return { tag: x[1].toLowerCase(), name: inputAttrs.name || null, type: inputAttrs.type || x[1].toLowerCase(), placeholder: inputAttrs.placeholder || null, selector: selectorFor(x[1], inputAttrs) }; }).slice(0, 50);
     const labels = [...body.matchAll(/<label\b[^>]*>([\s\S]*?)<\/label>/gi)].map((x) => stripTags(x[1]).slice(0, 200)).filter(Boolean).slice(0, 50);
     let action = a.action || '';
     try { if (action) action = new URL(action, baseUrl).href; } catch {}
-    rows.push({ pageId, kind: 'form', action: action || null, method: (a.method || 'get').toLowerCase(), labels, inputs, inputTypes: inputs.map((i) => i.type).filter(Boolean), workflowHint: workflowHint(`${action} ${labels.join(' ')} ${inputs.map((i) => i.name || '').join(' ')}`), source: 'html' });
+    rows.push({ pageId, kind: 'form', action: action || null, method: (a.method || 'get').toLowerCase(), selector: selectorFor('form', a), labels, inputs, inputTypes: inputs.map((i) => i.type).filter(Boolean), workflowHint: workflowHint(`${action} ${labels.join(' ')} ${inputs.map((i) => i.name || '').join(' ')}`), source: 'html' });
   }
   return rows.slice(0, 100);
 }
@@ -113,7 +133,8 @@ export function extractButtonsFromHtml(html, baseUrl, pageId) {
   const rows = [];
   for (const m of String(html || '').matchAll(/<button\b([^>]*)>([\s\S]*?)<\/button>/gi)) {
     const text = stripTags(m[2]).slice(0, 300);
-    rows.push({ pageId, kind: 'button', text, type: attrValue(m[1], 'type') || null, href: null, workflowHint: workflowHint(text), source: 'html' });
+    const buttonAttrs = attrs(m[1]);
+    rows.push({ pageId, kind: 'button', text, selector: selectorFor('button', buttonAttrs), type: buttonAttrs.type || null, href: null, workflowHint: workflowHint(text), source: 'html' });
   }
   for (const m of String(html || '').matchAll(/<a\b([^>]*)>([\s\S]*?)<\/a>/gi)) {
     const text = stripTags(m[2]).slice(0, 300);
@@ -122,7 +143,8 @@ export function extractButtonsFromHtml(html, baseUrl, pageId) {
     if (!hint || !/signup|login|pricing|checkout|contact|support/.test(hint)) continue;
     let href = hrefRaw;
     try { href = new URL(hrefRaw, baseUrl).href; } catch {}
-    rows.push({ pageId, kind: 'cta-link', text, type: null, href, workflowHint: hint, source: 'html' });
+    const linkAttrs = attrs(m[1]);
+    rows.push({ pageId, kind: 'cta-link', text, selector: selectorFor('a', linkAttrs, hrefRaw ? `a[href="${cssString(hrefRaw)}"]` : 'a'), type: null, href, workflowHint: hint, source: 'html' });
   }
   return rows.slice(0, 300);
 }
@@ -136,7 +158,7 @@ export function extractTablesFromHtml(html, pageId) {
     const headers = [...table.matchAll(/<th\b[^>]*>([\s\S]*?)<\/th>/gi)].map((x) => stripTags(x[1]).slice(0, 200)).filter(Boolean);
     const rowCount = [...table.matchAll(/<tr\b[^>]*>/gi)].length;
     const preview = stripTags(table).slice(0, 500);
-    rows.push({ pageId, kind: 'table', headers, rowCount, preview, workflowHint: workflowHint(`${headers.join(' ')} ${preview}`), source: 'html' });
+    rows.push({ pageId, kind: 'table', selector: `table:nth-of-type(${rows.length + 1})`, headers, rowCount, preview, workflowHint: workflowHint(`${headers.join(' ')} ${preview}`), source: 'html' });
   }
   return rows.slice(0, 100);
 }

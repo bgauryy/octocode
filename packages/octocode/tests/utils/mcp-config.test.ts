@@ -74,7 +74,9 @@ describe('MCP Config Utilities', () => {
       const config = getOctocodeServerConfig('npx');
 
       expect(config.command).toBe('npx');
-      expect(config.args).toContain('@octocodeai/mcp@latest');
+      expect(config.type).toBe('stdio');
+      expect(config.args).toContain('octocode-mcp@latest');
+      expect(config.args).not.toContain('-y');
     });
 
     it('should throw for unknown method (direct removed)', async () => {

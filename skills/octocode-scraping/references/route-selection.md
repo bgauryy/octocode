@@ -12,7 +12,8 @@ Run `provider-check.mjs` (no flags) to confirm which route is active. See `provi
 3. JS-rendered page (SPAs, deferred content) → `--browser` flag with scrapingant, or auto-selects cdp if no key. Add `--wait-for <selector>` for readiness proof.
 4. Cost-free / no key / plain static HTML → `--provider direct` explicitly, or set no `SCRAPING_ANT` and let auto pick cdp then direct.
 5. Live page state, auth, interaction, network evidence, screenshots, or current tab → load `octocode-chrome-devtools` skill and follow read-only CDP scraping (not `--provider cdp` — that is for passive fetch only).
-6. CAPTCHA/MFA/private account/high-volume crawl → stop and ask; do not invent bypasses.
+6. Direct/static blocked or too thin → use CDP read-only validation/fetch if needed; hosted anti-bot route requires user-approved need/scope.
+7. CAPTCHA/MFA/private account/high-volume crawl → stop and ask; do not invent bypasses.
 
 ## Cost rule
 Start with one representative URL and a small output. Expand only after the session corpus has a useful `reports/summary.md` and the user-approved scope requires more.

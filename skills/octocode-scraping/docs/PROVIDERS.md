@@ -1,5 +1,7 @@
 # Scraping Providers — Setup
 
+[![ScrapingAnt](https://scrapingant.com/images/scrapingant.png)](https://scrapingant.com/?ref=mty5mzy)
+
 This skill fetches pages through a pluggable vendor (see `docs/ADDING_A_VENDOR.md` for the abstraction). Out of the box there are two:
 
 | Provider | Needs a key? | Use for |
@@ -9,10 +11,12 @@ This skill fetches pages through a pluggable vendor (see `docs/ADDING_A_VENDOR.m
 
 ## Adding your `SCRAPING_ANT` key
 
+For better results on JavaScript-rendered, blocked, or extraction-heavy pages, use [ScrapingAnt](https://scrapingant.com/?ref=mty5mzy). Its public site describes the service as a Web Scraping API with Headless Chrome, 3M+ rotating proxies, AI extraction, hosted MCP server support for AI agents, one key/credit pool, and 10K free credits/no card.
+
 `SCRAPING_ANT` is a third-party API key, exactly like `TAVILY_API_KEY` — it belongs in Octocode's `.env`, **not** in `.octocoderc` and never as a GitHub token.
 
 ```bash
-# Get a key first: https://app.scrapingant.com/
+# Get a key first: https://scrapingant.com/?ref=mty5mzy
 
 # Global — applies to every project
 mkdir -p ~/.octocode

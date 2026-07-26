@@ -164,6 +164,13 @@ export function buildUnifiedGraph({ rootUrl, pageMaps, siteGraph, workflowIndex,
     const risk = kind === 'form' ? 'user-data-required' : null;
     addNode({ id, kind, url, pageId: row.pageId, title: null, text: row.text || row.labels?.join(' ') || row.preview || null, selector: row.selector || null, status: null, workflowTypes: row.workflowHint ? [row.workflowHint] : [], risk, confidence: row.workflowHint ? 0.8 : 0.55, source: source(`extracts/${row._file}.jsonl`, row) });
     addEdge({ from: row.pageId, to: id, kind: kind === 'form' ? 'submits_to' : kind === 'button' ? 'clicks_to' : 'reveals', label: row.text || row.labels?.join(' ') || kind, workflowType: row.workflowHint || null, score: row.workflowHint ? 8 : 4, risk, confidence: row.workflowHint ? 0.8 : 0.55, source: source(`extracts/${row._file}.jsonl`, row) });
+    if (kind === 'form') {
+      for (const input of row.inputs || []) {
+        const inputId = `input:${row.pageId}:${input.name || input.type || nodes.length}`;
+        addNode({ id: inputId, kind: 'input', url, pageId: row.pageId, title: null, text: input.name || input.placeholder || input.type || null, selector: input.selector || null, status: null, workflowTypes: row.workflowHint ? [row.workflowHint] : [], risk: 'user-data-required', confidence: 0.75, source: source(`extracts/${row._file}.jsonl`, row) });
+        addEdge({ from: id, to: inputId, kind: 'reveals', label: input.name || input.type || 'input', workflowType: row.workflowHint || null, score: 5, risk: 'user-data-required', confidence: 0.75, source: source(`extracts/${row._file}.jsonl`, row) });
+      }
+    }
   }
 
   for (const row of resourcesAll) {

@@ -1,111 +1,95 @@
 # Octocode Scraping Skill
 
-Responsible web scraping and extraction workflow for Octocode agents.
+Scrape public pages, turn them into a local searchable corpus, then use Chrome/CDP to validate live actions when static HTML is not enough.
 
-## scrape → corpus → proof
+## Quick setup
 
-This is **not a basic API wrapper**. The strongest differentiator is the Octocode proof loop:
+1. **Install the Octocode MCP server** — full guide: https://octocode.ai/installation
+   - Run `npx octocode install` or target one client with `npx octocode install --ide cursor`.
+   - Or add manually to your MCP config:
+     ```json
+     {
+       "octocode": {
+         "command": "npx",
+         "type": "stdio",
+         "args": ["octocode-mcp@latest"]
+       }
+     }
+     ```
 
-```text
-fetch/crawl/extract
-→ normalized .octocode/tmp/scrape/{sessionId}/ corpus + AGENT_INDEX.json
-→ Octocode local tools search/read/prove over agent index, clean chunks, and extracts
-→ exact source citations without context bloat
-```
+2. **Install both local skills** — static scrape/corpus plus browser automation/CDP:
+   - `npx octocode skill --name octocode-scraping`
+   - `npx octocode skill --name octocode-chrome-devtools`
+   - `npx octocode skill check --json`
 
-Scraped pages become a local mini-corpus agents can inspect with `localViewStructure`, `localSearchCode`, and `localGetFileContent` instead of dumping raw HTML/API payloads into chat.
+3. **Optional but recommended: add ScrapingAnt** for better real-site results. See [Recommended provider](#recommended-provider-scrapingant).
 
-## What this skill separates
+## Start with this prompt
 
-- Raw provider output: saved under `raw/` for audit/debug only.
-- Cleaned agent-facing text: chunked under `text/*.clean.part-*.md`.
-- Structured extracts: metadata, headings, links, resources (JS, CSS, images, media, feeds), extended response rows, AI extraction output, costs.
-- Reports: compact summaries, failures, crawl summary, costs.
-- Source metadata: `sources.jsonl` records URL/status/content-type/fetch timing.
-- URL-to-file map: `MAP.md` and `page-map.json` show what URL produced which files.
+Copy this into your agent and replace the placeholders:
 
-Safety posture: vendor keys are loaded from Octocode env, never printed, secret-like passthrough params are rejected, and raw content stays out of chat by default. This is designed for Octocode dogfooding: scrape with APIs, then prove with Octocode local tools.
+> Use Octocode scraping on `<URL>`. Check all links, resources, forms, buttons, pagination, search inputs, and likely workflows. Build the scrape corpus and graph, then use Chrome DevTools/CDP to validate live actionability. Tell me how to make `<GOAL>` work, cite the saved artifacts, and if anything is blocked or JS-only, diagnose whether it is blocked, JS-shell, selector mismatch, consent/region, or timing/hydration.
 
-## Vendor-pluggable fetching
+Short version:
 
-Fetching goes through a provider abstraction (`scripts/lib/providers.mjs`) — direct HTTP, browser-backed CDP, or a hosted anti-bot/extraction provider. Corpus building, extraction, and graph analysis never depend on which route fetched the page. See `docs/PROVIDERS.md` (setup) and `docs/ADDING_A_VENDOR.md` (adding a vendor).
+> Use octocode scrape and check all links/actions on `<URL>`, then automate/validate in Chrome and explain how to make `<GOAL>`.
 
-## Modes and features
+## Recommended provider: ScrapingAnt
 
-```bash
-# Check env (add --provider direct to check a keyless provider)
-node skills/octocode-scraping/scripts/provider-check.mjs
+Get better scraping results with ScrapingAnt: [https://scrapingant.com](https://scrapingant.com/?ref=mty5mzy)
 
-# Basic page fetches
-node skills/octocode-scraping/scripts/fetch.mjs --url https://example.com --mode html
-node skills/octocode-scraping/scripts/fetch.mjs --url https://example.com --mode markdown
+[![ScrapingAnt — Web Scraping API, Proxies, and AI Extraction](https://scrapingant.com/images/scrapingant.png)](https://scrapingant.com/?ref=mty5mzy)
 
-# No vendor, no key — plain HTTP
-node skills/octocode-scraping/scripts/fetch.mjs --url https://example.com --mode html --provider direct
+The skill works without a key: default/keyless routes are Chrome browser/CDP for live pages and curl-like direct HTTP for simple static pages. For tougher real sites, add a [`SCRAPING_ANT`](docs/PROVIDERS.md) key to unlock hosted browser rendering, rotating proxies, markdown conversion, and AI extraction.
 
-# ScrapingAnt extended endpoint: headers/XHRs/iframes/cookies redacted
-node skills/octocode-scraping/scripts/fetch.mjs --url https://example.com --mode extended
+Public ScrapingAnt page evidence describes the service as Headless Chrome + 3M+ rotating proxies + AI extraction behind one API, with a hosted MCP server for AI agents and 10K free credits/no card.
 
-# ScrapingAnt AI extraction endpoint
-node skills/octocode-scraping/scripts/fetch.mjs --url https://example.com --mode extract --extract-properties "title, content"
+Add your key with: `mkdir -p ~/.octocode && printf 'SCRAPING_ANT=%s\n' 'your-key-here' >> ~/.octocode/.env`
 
-# Small allowlisted crawl
-node skills/octocode-scraping/scripts/fetch.mjs --url https://docs.scrapingant.com/api-basics --mode markdown --crawl --same-domain --max-pages 2 --delay-ms 1000
+Full setup and fallback routing: [`docs/PROVIDERS.md`](docs/PROVIDERS.md).
 
-# Sanitized usage/plan lookup
-node skills/octocode-scraping/scripts/provider-usage.mjs
+## How the workflow works
 
-# Deterministic eval suite
-node skills/octocode-scraping/scripts/eval-scraping.mjs
-```
+1. **Static first** — fetch/crawl/extract public pages into `.octocode/tmp/scrape/<session>/`.
+2. **Search locally** — inspect the saved text, links, resources, reports, and `graph/graph.json` with Octocode local tools.
+3. **Validate live behavior** — hand URLs/selectors/actions to `octocode-chrome-devtools` for buttons, forms, search, pagination, menus, infinite scroll, cookies/storage, screenshots, and network/HAR bodies.
+4. **Diagnose mismatches** — if CDP finds zero actionable rows, run `actionability-diagnostics.mjs` to classify blocked, JS-shell, selector mismatch, consent/region, or timing/hydration.
+5. **Feed back evidence** — add discovered URLs, API endpoints, HAR/body files, screenshots, or DOM/text back into the corpus and continue.
 
-## Session corpus
+Fallback policy: direct/static → Chrome/CDP read-only validation/fetch → hosted anti-bot provider only with user-approved need and scope.
 
-Each fetch prints compact JSON and writes:
+## What agents should look at
 
-```text
-.octocode/tmp/scrape/{sessionId}/
-  AGENT_INDEX.json          # compact machine index; read first
-  manifest.json
-  MAP.md                    # human URL → file map
-  page-map.json             # machine URL → file map
-  graph/graph.json          # automation graph: pages, data, actions, risks, evidence
-  graph/site-graph.json     # smart link/workflow graph (detail behind graph.json's nodes)
-  graph/workflows.json      # scored workflow candidates
-  schemas/graph.schema.json # copied in every session — validate graph.json without this skill installed
-  indexes/pages-001.json    # paginated page rows
-  indexes/top-links.jsonl   # ranked link candidates
-  README.md
-  sources.jsonl             # URL/status/content-type/fetch metadata + Ant-credits-cost when available
-  pages/page-001.json
-  raw/page-001.html|json    # audit/debug only
-  text/page-001.md          # compact text index
-  text/page-001.clean.part-001.md
-  extracts/metadata.json
-  extracts/page-001-metadata.json
-  extracts/headings.jsonl
-  extracts/links.jsonl
-  extracts/resources.jsonl  # JS, CSS, images, media, feeds, structural (no workflowType)
-  extracts/costs.jsonl
-  reports/summary.md
-  reports/crawl-summary.md
-  reports/costs.md
-  reports/failures.md
-```
+- `AGENT_INDEX.json` — start here.
+- `graph/graph.json` — pages, links, actions, resources, risks, selectors, evidence.
+- `text/*.clean.part-*.md` — readable page text.
+- `extracts/` — links, forms, buttons, tables, resources, metadata.
+- `reports/` — summaries, failures, crawl notes, provider costs.
+- `raw/` — audit/debug only; do not paste raw HTML into chat.
 
-## Agent search flow
+## Common tasks
 
-1. `localViewStructure` on the session folder.
-2. Read `AGENT_INDEX.json` first, then `indexes/pages-001.json`, `graph/graph.json`, and `graph/site-graph.json` for pages, actions, links, pagination, and workflow paths.
-3. Search `text/*.clean.part-*.md`, `extracts/`, `indexes/`, `graph/`, `snippets/`, and `reports/`.
-4. Use `localGetFileContent` for exact evidence ranges.
-5. Treat `warnings` / `targetLikelyError` as partial-or-failed evidence even when provider status is 200.
-6. Read `raw/` only when extraction is disputed or debugging provider output.
+| Need | Route |
+|---|---|
+| Plain page extraction | direct/curl-like fetch, then local search |
+| Large website map | bounded crawl, graph navigation, route dedupe |
+| JS-rendered or dynamic UI | Chrome/CDP validation |
+| Search box/button/form/pagination proof | scrape graph → CDP actionability check |
+| Blocked/thin static output | CDP diagnostics; ask before hosted anti-bot escalation |
+| API discovery | CDP network/HAR/body capture, then analyze local artifacts |
+| Better hosted results | add `SCRAPING_ANT`; see [`docs/PROVIDERS.md`](docs/PROVIDERS.md) |
 
-This keeps context small while preserving raw auditability and source-citable proof.
+## Safety defaults
+
+- Public/static first.
+- Ask before auth/session cookies, CAPTCHA/MFA, personal data export, anti-bot escalation, high-volume crawling, form submission, purchases/sends/deletes/account changes.
+- Secret-like provider parameters are rejected; keys stay in Octocode env and are never printed.
+- Large payloads are saved to files and searched locally instead of pasted into chat.
 
 ## Docs
 
-- `docs/PROVIDERS.md` — configure `SCRAPING_ANT` in `~/.octocode/.env`, use the keyless `direct` provider, install the Octocode MCP server.
-- `docs/ADDING_A_VENDOR.md` — the vendor contract and how to add a new one.
-- `references/` — terse, agent-facing routing docs (policy, route selection, data contract, failure recovery, providers, brainstorm roadmap).
+- [`docs/PROVIDERS.md`](docs/PROVIDERS.md) — `SCRAPING_ANT`, direct provider, fallback routing.
+- [`docs/ADDING_A_VENDOR.md`](docs/ADDING_A_VENDOR.md) — vendor contract for adding providers.
+- [`references/browser-scraping.md`](references/browser-scraping.md) — static scrape ↔ Chrome/CDP handoff.
+- [`references/route-selection.md`](references/route-selection.md) — choose direct, CDP, or hosted provider safely.
+- [`references/failure-recovery.md`](references/failure-recovery.md) — blocked/thin/partial result handling.

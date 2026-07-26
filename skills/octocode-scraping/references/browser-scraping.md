@@ -1,20 +1,30 @@
 # Browser Scraping
 
-Load when the target needs live page state, auth, interaction, screenshots, network evidence, or CDP. Why: `octocode-chrome-devtools` already owns browser automation safety.
+Load when static graph candidates need live validation or interaction. Why: `octocode-chrome-devtools` owns CDP safety, actionability, cookies/storage, screenshots, and network proof.
 
-## Handoff
-Use `octocode-chrome-devtools`; load that skill's automation route and script patterns as needed. It owns two capabilities relevant to bot-walled targets — ask for them by name rather than re-deriving CDP calls:
-- **Stealth**: its stealth-patch helper (apply/verify pair) — apply before navigating a site likely to fingerprint headless Chrome; self-test before trusting the fetch.
-- **Human-like input**: its trusted-input helper — CDP `Input.*` event sequences (Bezier mouse, WPM typing) for targets with behavioral anti-bot checks, not just fingerprint checks.
+## Static → CDP → corpus loop
+1. Use this skill first for public/static fetch, corpus, and graph candidates.
+2. Hand candidate URLs/selectors/actions to `octocode-chrome-devtools` for live checks: visible/enabled/clickable, search input, pagination button, menu reveal, infinite scroll, cookies/storage, network, screenshot, auth-gated state.
+3. If CDP finds 0 actionability rows, run `actionability-diagnostics.mjs` to classify blocked, JS-shell, selector-mismatch, consent-region, or timing-hydration.
+4. Save CDP outputs under `.octocode/tmp/scrape/{sessionId}/cdp/` or the CDP output dir.
+5. Feed newly discovered URLs, API endpoints, or saved DOM/text back into this corpus and continue `session-corpus.md` proof search.
 
-Do not reimplement CDP/stealth logic here — `octocode-scraping`'s `--provider direct`/`scrapingant` are single-shot fetches; CDP automation is stateful and belongs on the other side of this handoff.
+## Handoff packet
+```json
+{
+  "url": "https://site/page",
+  "intent": "validate actionability and discover resulting URL/data",
+  "selectors": ["form[role=search]", "button[type=submit]", "a[rel=next]"],
+  "evidencePrefix": "[SCRAPE_GRAPH]",
+  "outputDir": ".octocode/tmp/scrape/<session>/cdp"
+}
+```
 
-## Read-only CDP scraping rules
-- Lock target, trigger, readiness signal, and evidence prefixes before scripting.
+## CDP rules
 - Attach listeners before navigation; use `about:blank` then `Page.navigate` for new loads.
-- Use visible/enabled selectors and smart waits.
-- Emit counts and sample rows; write large DOM/HAR/output under `.octocode/tmp/scrape/{sessionId}/` or the CDP output dir.
-- Never print cookies, tokens, session IDs, or localStorage secrets.
+- Use smart waits and visible/enabled selectors.
+- Emit counts, sample rows, new URLs, screenshots/HAR paths, and storage counts — not raw secrets.
+- Never print cookies, tokens, session IDs, or localStorage values.
 
 ## Ask first
 Real profile, cookie bridge, CAPTCHA/MFA, destructive writes, form submission with real user data, purchases, sends, deletes, or account changes require explicit user approval.

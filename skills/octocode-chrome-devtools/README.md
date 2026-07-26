@@ -15,6 +15,10 @@ Use this skill when you want an agent to investigate a website or web app throug
 3. `cdp-sandbox.mjs` runs it under Node permissions; artifacts land under `.octocode/chrome-devtools/`.
 4. Agent parses prefixed evidence (`[FINDING]`, `[NETWORK_ERROR]`, …) and iterates on the same port.
 
+## Static scrape graph handoff
+
+Pair with [`octocode-scraping`](https://github.com/bgauryy/octocode/tree/main/skills/octocode-scraping): scrape public pages statically first, build `graph/graph.json`, then use this skill only for live evidence — actionability, search inputs/buttons, pagination, menus, infinite scroll, cookies/storage, screenshots, network/HAR bodies, and auth-gated state. If actionability returns zero rows, run `examples/actionability-diagnostics.mjs` to classify blocked, JS-shell, selector-mismatch, consent-region, or timing-hydration. Feed discovered URLs/data/artifacts back into the scraping corpus.
+
 ## Installation
 ```bash
 npx octocode skill --name octocode-chrome-devtools
@@ -543,7 +547,7 @@ If a run fails or is flaky:
 Run launcher scripts directly when you want to inspect the raw workflow.
 
 ```bash
-SKILL_DIR="/Users/guybary/Documents/octocode-mcp/skills/octocode-chrome-devtools"
+SKILL_DIR="$(npx octocode skill dir octocode-chrome-devtools)"
 TMPDIR="$(node -e "process.stdout.write(require('os').tmpdir())")"
 PORT=9222
 

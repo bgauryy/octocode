@@ -29,8 +29,9 @@ assert('agent has element/workflow totals', agent.totals.elements >= 5 && agent.
 assert('title prefers h1', agent.pages[0].title === 'Developer Platform', agent.pages[0].title);
 const automationGraph = JSON.parse(await readFile(join(dir, 'graph/graph.json'), 'utf8'));
 assert('automation graph is schema v2', automationGraph.schemaVersion === 2);
-assert('automation graph has form/button/table/resource nodes', ['form', 'button', 'table', 'resource'].every((kind) => automationGraph.nodes.some((n) => n.kind === kind)));
+assert('automation graph has form/input/button/table/resource nodes', ['form', 'input', 'button', 'table', 'resource'].every((kind) => automationGraph.nodes.some((n) => n.kind === kind)));
 assert('automation graph edges carry evidence', automationGraph.edges.every((e) => e.source && e.source.file));
+assert('automation action nodes carry selectors', automationGraph.nodes.filter((n) => ['form', 'input', 'button', 'table'].includes(n.kind)).every((n) => typeof n.selector === 'string' && n.selector.length > 0));
 const workflows = JSON.parse(await readFile(join(dir, 'graph/workflows.json'), 'utf8'));
 assert('api workflow found', workflows.workflows.some((w) => w.workflowType === 'api-reference'));
 assert('pricing workflow found', workflows.workflows.some((w) => w.workflowType === 'pricing'));

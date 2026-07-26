@@ -15,7 +15,7 @@ const checks = [];
 const assert = (name, condition, detail = '') => checks.push({ name, ok: Boolean(condition), detail });
 await rm(outBase, { recursive: true, force: true });
 await mkdir(outBase, { recursive: true });
-const html = '<html><head><meta name="description" content="API pricing"><link rel="canonical" href="/home"><script type="application/ld+json">{"@type":"WebSite","name":"Smart"}</script></head><body><h1>Smart Navigation</h1><nav><a href="/docs/api">API Reference</a><a href="/pricing">Pricing</a><a href="/support">Support</a></nav><a href="/signup">Start free</a><form action="/signup"><input name="email" type="email"><button>Sign up</button></form><table><tr><th>Plan</th><th>Price</th></tr></table><pre><code>curl https://api.example.com</code></pre></body></html>';
+const html = '<html><head><meta name="description" content="API pricing"><link rel="canonical" href="/home"><script type="application/ld+json">{"@type":"WebSite","name":"Smart"}</script></head><body><h1>Smart Navigation</h1><nav><a href="/docs/api">API Reference</a><a href="/pricing">Pricing</a><a href="/pricing">Pricing</a><a href="/support">Support</a></nav><a href="/signup">Start free</a><form action="/signup"><input name="email" type="email"><button>Sign up</button></form><table><tr><th>Plan</th><th>Price</th></tr></table><pre><code>curl https://api.example.com</code></pre></body></html>';
 const mockFile = join(outBase, 'mock.html');
 await writeFile(mockFile, html);
 const fetch = spawnSync(process.execPath, [fetchScript, '--url', 'https://example.com', '--mode', 'html', '--session', 'smart-nav', '--mock-status', '200', '--mock-content-type', 'text/html', '--mock-body-file', mockFile, '--out', outBase], { cwd: root, encoding: 'utf8' });
@@ -30,6 +30,12 @@ assert('resource list finds api', resources.stdout.includes('/docs/api'));
 const graph = spawnSync(process.execPath, [graphScript, '--session-dir', dir, '--workflow', 'pricing'], { cwd: root, encoding: 'utf8' });
 assert('graph navigate ok', graph.status === 0, graph.stderr);
 assert('graph navigate finds pricing', graph.stdout.includes('/pricing'));
+try {
+  const parsedGraph = JSON.parse(graph.stdout);
+  assert('graph navigate dedupes duplicate pricing navigation route by default', parsedGraph.routes.filter((route) => route.edgeKind === 'navigates_to' && route.toUrl?.endsWith('/pricing')).length === 1, JSON.stringify(parsedGraph.routes));
+} catch (error) {
+  assert('graph navigate output is JSON', false, error.message);
+}
 for (const rel of ['extracts/elements.jsonl', 'graph/workflows.json', 'indexes/top-links.jsonl']) assert(`${rel} exists`, existsSync(join(dir, rel)));
 const failed = checks.filter((c) => !c.ok);
 console.log(JSON.stringify({ ok: failed.length === 0, checks }, null, 2));

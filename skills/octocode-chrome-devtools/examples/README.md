@@ -89,7 +89,64 @@ Supported `DOM_ACTION` values: `inspect`, `click`, `fill`. For fill, set `DOM_VA
 
 The DOM example reports only bounded facts: visibility, disabled state, hit-test coverage, accessibility name/role, stable bounding box, and shadow-aware selector path. It writes `dom-check.json` for full structured details.
 
-## 4. Browser-discover to API/curl replay
+## 4. Validate scrape graph actionability
+
+After `octocode-scraping` creates `graph/graph.json`, validate candidate action nodes in a live browser:
+
+```bash
+node skills/octocode-chrome-devtools/scripts/cdp-sandbox.mjs \
+  skills/octocode-chrome-devtools/examples/graph-actionability-check.mjs \
+  --port 9222 \
+  --target-url "example.com" \
+  --keep-tab \
+  --graph .octocode/tmp/scrape/<session>/graph/graph.json
+```
+
+Writes `graph-actionability.json` and emits `[ACTIONABILITY]` rows with visible/enabled/stable/covered/accessibility facts.
+
+## 5. Diagnose zero actionability rows
+
+When a scraping graph has action nodes but CDP actionability returns 0 rows, run:
+
+```bash
+node skills/octocode-chrome-devtools/scripts/cdp-sandbox.mjs \
+  skills/octocode-chrome-devtools/examples/actionability-diagnostics.mjs \
+  --port 9222 --new-tab "https://example.com" --timeout 60000
+```
+
+It classifies likely causes: blocked, JS-shell, selector-mismatch, consent-region, or timing-hydration; writes JSON plus a screenshot for proof.
+
+## 6. Cookie and storage audit
+
+```bash
+node skills/octocode-chrome-devtools/scripts/cdp-sandbox.mjs \
+  skills/octocode-chrome-devtools/examples/storage-cookies-audit.mjs \
+  --port 9222 --target-url "example.com" --keep-tab
+```
+
+Writes `storage-cookies-audit.json`. It prints cookie metadata and storage key counts only — never cookie/localStorage values.
+
+## 7. Build a local CDP protocol corpus
+
+```bash
+node skills/octocode-chrome-devtools/scripts/protocol-corpus.mjs --out .octocode/cdp-protocol
+```
+
+Uses `octocode-scraping` to fetch protocol domain docs so agents can search exact current CDP methods locally.
+
+## 8. HAR + response body capture with request interception
+
+`network-body-har-fetch-check.mjs` demonstrates `Fetch.enable` before navigation, fulfills a mocked API response, captures `Network.getResponseBody`, and writes both HAR and body artifacts.
+
+```bash
+node skills/octocode-chrome-devtools/scripts/cdp-sandbox.mjs \
+  skills/octocode-chrome-devtools/examples/network-body-har-fetch-check.mjs \
+  --port 9222 --new-tab about:blank
+```
+
+Use this pattern for API discovery: intercept or observe safely, capture body immediately, write HAR/body files, then analyze them with Octocode local tools instead of pasting payloads.
+
+## 9. Browser-discover to API/curl replay
 
 For public data flows, first use browser/network evidence to identify the request shape, then prefer a documented endpoint or direct HTTP replay over DOM scraping.
 
@@ -108,7 +165,7 @@ curl -s -H "accept: application/json" "https://example.com/api/items?page=1"
 
 Use the browser only when UI behavior matters. For data returned by an endpoint, replay the request with non-secret headers and page the response instead of scraping brittle DOM text.
 
-## 5. Stealth check before scraping a bot-walled site
+## 10. Stealth check before scraping a bot-walled site
 
 ```bash
 node skills/octocode-chrome-devtools/scripts/cdp-sandbox.mjs \

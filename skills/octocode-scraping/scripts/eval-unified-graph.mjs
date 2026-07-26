@@ -55,8 +55,9 @@ assert('pricing workflow attached to page node', graph.nodes.find((n) => n.kind 
 assert('same-host link becomes a resolvable edge target', graph.edges.some((e) => e.to.startsWith('link:') && e.to.includes('/pricing') && e.kind === 'navigates_to'));
 assert('subdomain/external link present as link node', graph.nodes.some((n) => n.kind === 'link' && n.url.includes('other.example.com')));
 assert('form node captured with risk', graph.nodes.some((n) => n.kind === 'form' && n.risk === 'user-data-required'));
-assert('button node captured', graph.nodes.some((n) => n.kind === 'button' && /Start trial/.test(n.text || '')));
-assert('table node captured', graph.nodes.some((n) => n.kind === 'table'));
+assert('input node captured with selector', graph.nodes.some((n) => n.kind === 'input' && n.selector));
+assert('button node captured with selector', graph.nodes.some((n) => n.kind === 'button' && /Start trial/.test(n.text || '') && n.selector));
+assert('table node captured with selector', graph.nodes.some((n) => n.kind === 'table' && n.selector));
 assert('resource node captured', graph.nodes.some((n) => n.kind === 'resource' && n.url.endsWith('/app.js')));
 assert('pagination edge captured', graph.edges.some((e) => e.kind === 'paginates_to' && e.to.includes('/page/2')));
 assert('boilerplate skip/hash links filtered from graph edges', !graph.edges.some((e) => /Skip to main content|Products/.test(e.label || '')));
