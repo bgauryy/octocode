@@ -108,6 +108,16 @@ curl -s -H "accept: application/json" "https://example.com/api/items?page=1"
 
 Use the browser only when UI behavior matters. For data returned by an endpoint, replay the request with non-secret headers and page the response instead of scraping brittle DOM text.
 
+## 5. Stealth check before scraping a bot-walled site
+
+```bash
+node skills/octocode-chrome-devtools/scripts/cdp-sandbox.mjs \
+  skills/octocode-chrome-devtools/examples/stealth-check.mjs \
+  --port 9222 --new-tab "about:blank" --timeout 30000
+```
+
+Applies `scripts/undercover.mjs`'s stealth patches, navigates to `STEALTH_CHECK_URL` (default: `bot.sannysoft.com`), then self-tests with `verifyStealth`. Writes `stealth-check.json` with the full per-signal breakdown. Run this before scraping a site likely to fingerprint headless Chrome — a `MOSTLY_CLEAN`/`DETECTED` result means switch to a visible user gate instead.
+
 ## Playwright vs CDP quick rule
 
 - Use these CDP examples for live forensics, manual browsing, console/network/perf evidence, and current DOM state.

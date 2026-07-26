@@ -13,7 +13,7 @@ const PR = {
   mergedAt: null,
 };
 
-describe('ghHistoryResearch nextCalls — copy-paste-ready fragments (regression)', () => {
+describe('ghSearchPullRequests nextCalls — copy-paste-ready fragments (regression)', () => {
   it('every fragment carries owner/repo/prNumber merged in, not just `target`', () => {
     const request = normalizePullRequestContentRequest({} as never);
     const shaped = shapePullRequestForContent(
@@ -58,7 +58,9 @@ describe('ghHistoryResearch nextCalls — copy-paste-ready fragments (regression
       false,
       true
     ) as {
-      next: { getSelectedPatches?: { content: { patches: { files: string[] } } } };
+      next: {
+        getSelectedPatches?: { content: { patches: { files: string[] } } };
+      };
     };
 
     expect(shaped.next.getSelectedPatches?.content.patches.files).toEqual([
@@ -75,7 +77,9 @@ describe('ghHistoryResearch nextCalls — copy-paste-ready fragments (regression
       false,
       true
     ) as {
-      next: { getSelectedPatches?: { content: { patches: { files: string[] } } } };
+      next: {
+        getSelectedPatches?: { content: { patches: { files: string[] } } };
+      };
     };
 
     expect(shaped.next.getSelectedPatches?.content.patches.files).toEqual([

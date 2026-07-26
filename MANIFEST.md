@@ -425,9 +425,9 @@ GitHub search is default-branch and index-limited: **empty is not absence**; ver
 **6. History archaeology**
 
 ```
-ghHistoryResearch (type:"commits", path-scoped)          ← who touched this and when
+ghSearchCommits (path-scoped)                            ← who touched this and when
   → next.prDetail (PR number parsed from the commit)
-  → type:"prs" + prNumber + content selectors            ← select ONLY what you need
+  → ghSearchPullRequests (prNumber + content selectors)  ← select ONLY what you need
   → patches mode:"selected" + files/ranges               ← cheapest diff read
 ```
 
@@ -482,7 +482,7 @@ The corpus is an evidence graph, not a pile of files — the semantic-extraction
 
 - Search tools discover nodes; `next.*` proposes edges.
 - `lspGetSemantics` provides the *typed* edges — references, callers/callees, type hierarchy — the only edges that prove identity rather than co-occurrence.
-- `ghHistoryResearch` adds the **time axis**: commit → PR → patch edges answer *why* a node looks the way it does.
+- `ghSearchCommits`/`ghSearchPullRequests` add the **time axis**: commit → PR → patch edges answer *why* a node looks the way it does.
 - Materialization is the edge *between graphs* (remote → local), unlocking typed edges on remote code.
 
 ### The theory, field-validated

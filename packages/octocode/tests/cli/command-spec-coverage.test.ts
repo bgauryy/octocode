@@ -38,9 +38,9 @@ describe('CLI command content is sourced from octocode-core', () => {
   it('command files no longer hardcode description/usage (only core has them)', async () => {
     // Spot-check a representative command object: it should expose name +
     // options + handler, but NOT a description/usage of its own.
-    const { searchCommand } = await import('../../src/cli/commands/search.js');
-    const obj = searchCommand as unknown as Record<string, unknown>;
-    expect(obj.name).toBe('search');
+    const { cloneCommand } = await import('../../src/cli/commands/clone.js');
+    const obj = cloneCommand as unknown as Record<string, unknown>;
+    expect(obj.name).toBe('clone');
     expect(typeof obj.handler).toBe('function');
     expect(obj.description).toBeUndefined();
     expect(obj.usage).toBeUndefined();
@@ -59,7 +59,6 @@ describe('CLI command content is sourced from octocode-core', () => {
     // KNOWN missing from --help until core documents it — remove the entry
     // the moment the core spec catches up so the guard re-arms.
     const pendingCoreSpec = new Set([
-      'search:quiet', // rows-only token-frugal mode (benchmark fix P0-2)
       // Bundled octocode-skills subcommands merged into `octocode skill`; remove
       // these once octocode-core's skill command spec documents the local
       // list/install/check/info/remove surface.

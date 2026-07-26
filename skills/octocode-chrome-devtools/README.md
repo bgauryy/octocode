@@ -528,12 +528,15 @@ If a run fails or is flaky:
 | `scripts/cdp-runner.mjs` | Attach to a target and provide the `run(cdp)` API | Trusted local iteration, target listing, target selection, retry metadata |
 | `scripts/cdp-template.mjs` | Baseline `export async function run(cdp)` script | Starting point for network/console/log evidence collection |
 | `scripts/sourcemap-resolver.mjs` | Resolve generated JS stack locations through source maps without retaining `sourcesContent` | Source-traced console exception investigations |
-| `scripts/undercover.mjs` | Apply and verify headless-fingerprint masking | One guarded retry for public bot-wall triage before visible user gate |
+| `scripts/undercover.mjs` | Apply and verify headless-fingerprint masking (27 evasions) | One guarded retry for public bot-wall triage before visible user gate |
+| `scripts/human-input.mjs` | Build Bezier mouse / WPM typing / scroll as trusted CDP Input event sequences | Interaction on targets where behavioral (not just fingerprint) anti-bot checks matter |
+| `scripts/eval-undercover.mjs` | Deterministic checks: human-input builder assertions (no browser) + real headless-Chrome stealth self-test against a `data:` URL | Run after changing `undercover.mjs`/`human-input.mjs`; no third-party site dependency |
 | `scripts/octocode-chrome-devtools.vpn.example.json` | Example proxy config | Copying the shape of `.octocode/chrome-devtools.json` |
 | `examples/live-har-monitor.mjs` | Visible-tab monitor that writes HAR, NDJSON, summary, and resource timing files | Letting a user browse while collecting bounded network/perf evidence |
 | `examples/har-pager.mjs` | Compact HAR reader with filters and pages | Reviewing large HAR files without loading all entries into agent context |
 | `examples/dom-operations-check.mjs` | Selector actionability and optional click/fill with DOM/a11y facts | Checking whether an element exists, is visible, stable, covered, or operable |
 | `examples/api-replay.mjs` | Generic HTTP/API replay helper | Browser-discover-to-curl/API pattern for website data extraction with non-secret request data |
+| `examples/stealth-check.mjs` | Apply stealth, navigate, self-test | Full launch → patch → navigate → verify flow against a real detection site |
 
 ## Optional CLI
 

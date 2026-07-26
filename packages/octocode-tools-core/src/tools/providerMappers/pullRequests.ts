@@ -188,7 +188,6 @@ export function mapPullRequestProviderResultData(
       title: pr.title,
       body: pr.body ?? undefined,
       ...(pr.bodyPagination && { bodyPagination: pr.bodyPagination }),
-      url: pr.url,
       state: pr.state,
       draft: pr.draft,
       author: pr.author,
@@ -245,10 +244,10 @@ export function mapPullRequestProviderResultData(
   return {
     pullRequests,
     resultData: {
-      pull_requests: pullRequests,
+      pullRequests,
       ...(pagination
         ? { pagination }
-        : { total_count: data.totalCount || pullRequests.length }),
+        : { totalCount: data.totalCount || pullRequests.length }),
     } as Record<string, unknown>,
     pagination,
   };

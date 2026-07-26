@@ -25,7 +25,6 @@ export function transformFileContentResult(
     size: data.content?.length || 0,
     totalLines: data.totalLines,
     sourceChars: data.sourceChars,
-    sourceBytes: data.sourceBytes,
     contentView: data.contentView,
     ref: data.branch || query.ref || '',
     lastModified: data.lastModified,

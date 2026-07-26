@@ -9,7 +9,9 @@ import { extractMatchingLines } from '../../../src/tools/local_fetch_content/con
 type NativeContextUtilsModule = typeof import('@octocodeai/octocode-engine');
 
 function installNative(partial: Partial<NativeContextUtilsModule>): void {
-  setContextUtilsNativeLoaderForTesting(() => partial as NativeContextUtilsModule);
+  setContextUtilsNativeLoaderForTesting(
+    () => partial as NativeContextUtilsModule
+  );
 }
 
 describe('extractMatchingLines wrapper contract', () => {

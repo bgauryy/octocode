@@ -7,12 +7,11 @@ Validated locally with the built MCP stdio server:
 ```bash
 ENABLE_LOCAL=true \
 ENABLE_CLONE=true \
-ENABLE_OQL=true \
 OCTOCODE_TRUST_PROJECT_LSP_CONFIG=1 \
 node packages/octocode-mcp/dist/index.js
 ```
 
-MCP runtime result: **13/13 tools passed**.
+MCP runtime result: **12/12 tools passed**.
 
 ## Rating scale
 
@@ -32,7 +31,7 @@ MCP runtime result: **13/13 tools passed**.
 | Depth | **8.5/10** | Local/LSP excellent; GitHub strong; repo/npm discovery naturally shallower. |
 | Output quality | **8.6/10** | Structured content, pagination, summaries, and next hints are broadly good. |
 | Resource safety | **9.0/10** | Bounded local search/read, LSP guards, clone gating, pagination. |
-| Ease of use | **8.0/10** | Powerful; OQL/AST/GitHub search still need better repair guidance. |
+| Ease of use | **8.0/10** | Powerful; AST/GitHub search still need better repair guidance. |
 
 Suite score: **8.7/10**.
 
@@ -43,8 +42,10 @@ Suite score: **8.7/10**.
 | `localSearchCode` | 9.5 | 9.6 | 9.0 | **9.4** | Local text/regex/AST discovery. |
 | `lspGetSemantics` | 9.3 | 9.5 | 8.8 | **9.2** | Semantic proof: symbols, refs, defs, hover, hierarchy. |
 | `localGetFileContent` | 9.0 | 9.3 | 9.0 | **9.1** | Exact local evidence fetch. |
-| `oqlSearch` | 8.8 | 8.6 | 8.0 | **8.5** | Unified cross-tool query router. |
-| `ghHistoryResearch` | 8.7 | 8.7 | 8.4 | **8.6** | GitHub PR/commit archaeology. |
+| `ghSearchPullRequests` | 8.7 | 8.7 | 8.4 | **8.6** | GitHub PR search and archaeology. |
+| `ghSearchIssues` | 8.7 | 8.7 | 8.4 | **8.6** | GitHub issue search and triage. |
+| `ghSearchCommits` | 8.7 | 8.7 | 8.4 | **8.6** | Commit history walk and ref compare. |
+| `ghListReleases` | 8.7 | 8.7 | 8.4 | **8.6** | Release listing (opt-in). |
 | `ghCloneRepo` | 8.6 | 9.0 | 8.5 | **8.7** | Remote -> local materialization bridge. |
 | `ghGetFileContent` | 8.5 | 8.8 | 8.5 | **8.6** | Exact GitHub file evidence. |
 | `localFindFiles` | 8.4 | 8.6 | 8.7 | **8.6** | Local metadata/file discovery. |
@@ -65,7 +66,7 @@ Use this workflow by default. It keeps cost low, increases proof quality step by
    localViewStructure / ghViewRepoStructure / npmSearch / ghSearchRepos
 
 2. Discover candidates
-   localFindFiles / localSearchCode / ghSearchCode / ghHistoryResearch
+   localFindFiles / localSearchCode / ghSearchCode / ghSearchCommits / ghSearchPullRequests
 
 3. Inspect exact evidence
    localGetFileContent / ghGetFileContent
@@ -119,8 +120,8 @@ Rules:
 ## Default history workflow
 
 ```text
-ghHistoryResearch(type:"commits", path?)
-  -> ghHistoryResearch(type:"prs", prNumber, content)
+ghSearchCommits(owner, repo, path?)
+  -> ghSearchPullRequests(owner, repo, prNumber, content)
   -> ghGetFileContent(branch/SHA, path)
   -> ghCloneRepo(branch/SHA) for deeper local inspection
 ```
@@ -144,35 +145,6 @@ Rules:
 
 - Exact package lookup is preferred over keyword lookup when the name is known.
 - Use package health fields for triage, not correctness proof.
-
-## Default OQL workflow
-
-Use direct tools when the next step is obvious. Use `oqlSearch` when the query spans multiple targets or you need unified routing.
-
-Canonical object form is preferred for MCP:
-
-```json
-{
-  "queries": [
-    {
-      "target": "files",
-      "from": { "kind": "local", "path": "/repo/src" },
-      "where": {
-        "kind": "field",
-        "field": "basename",
-        "op": "glob",
-        "value": "*.ts"
-      }
-    }
-  ]
-}
-```
-
-Rules:
-
-- Include `target` unless it is clearly inferable from documented sugar.
-- Prefer object form over raw query strings in MCP tests and automation.
-- Treat OQL research packets as candidates until upgraded with exact content or LSP proof.
 
 ---
 
@@ -212,9 +184,9 @@ Expected chains:
 | `ghGetFileContent` file | `ghCloneRepo` for multi-file/LSP work. |
 | `ghCloneRepo` result | `localViewStructure`, `localSearchCode`, `localFindFiles`. |
 | `npmSearch` GitHub repo | `ghViewRepoStructure`, `ghSearchCode`, `ghCloneRepo`. |
-| `ghHistoryResearch` changed file | `ghGetFileContent`, selected patch follow-up, `ghCloneRepo`. |
+| `ghSearchPullRequests` changed file | `ghGetFileContent`, selected patch follow-up, `ghCloneRepo`. |
+| `ghSearchCommits` commit | `ghGetFileContent` at SHA, selected diff follow-up, `ghCloneRepo`. |
 | `lspGetSemantics` references | `localGetFileContent` around reference lines, callers/callees follow-up. |
-| `oqlSearch` rows | target-specific direct tool follow-ups and proof-upgrade hints. |
 
 Acceptance criteria:
 
@@ -321,9 +293,9 @@ Suggested mapping:
 | `ghSearchCode` | `candidate` or `exact-text` snippet | `ghGetFileContent`/`ghCloneRepo`. |
 | `ghViewRepoStructure` | `orientation` | `ghGetFileContent`/`ghCloneRepo`. |
 | `ghGetFileContent` | `exact-text` | clone for local proof. |
-| `ghHistoryResearch` | `historical-context` | fetch exact files/patches. |
+| `ghSearchPullRequests` | `historical-context` | fetch exact files/patches. |
+| `ghSearchCommits` | `historical-context` | fetch exact files/diffs at SHA. |
 | `ghCloneRepo` | `orientation` bridge | local tools. |
-| `oqlSearch` | varies by target | target-specific direct tools/LSP proof. |
 
 Acceptance criteria:
 
@@ -600,15 +572,15 @@ Improvements:
 4. Add candidate-triage mode: official-looking, active, source-available, likely package repo.
 5. Emit evidence level `orientation`.
 
-## `ghHistoryResearch`
+## `ghSearchPullRequests`
 
-Role: inspect GitHub PRs, commits, changed files, reviews, comments, and patches.
+Role: search GitHub PRs, or read one PR's files/diffs/reviews via a `content:{}` selector (metadata, body, changedFiles, patches, comments, reviews, commits).
 
 Best for:
 
-- Understanding why code changed.
-- Finding commits or PRs touching a path.
-- Reviewing selected PR patches and discussion.
+- Finding merged PRs touching a symbol or path.
+- Understanding why code changed via review discussion.
+- Reviewing selected PR patches without pulling all diffs.
 
 Depth/alignment/quality:
 
@@ -618,11 +590,79 @@ Depth/alignment/quality:
 
 Improvements:
 
-1. Add archaeology recipes: first commit touching path, merged PRs by symbol, regressions by date range.
-2. Improve PR mode vs commit mode diagnostics and examples.
-3. Prefer selected patches/ranges; warn when fetching all patches/comments.
-4. Add next hints from changed files to `ghGetFileContent`, selected patch fetches, and `ghCloneRepo`.
-5. Emit evidence level `historical-context`; exact patches can upgrade to `exact-text`.
+1. Add archaeology recipes: merged PRs by symbol, regressions by date range.
+2. Prefer selected `content` fields/patch ranges; warn when fetching all patches/comments.
+3. Add next hints from changed files to `ghGetFileContent`, selected patch fetches, and `ghCloneRepo`.
+4. Emit evidence level `historical-context`; exact patches can upgrade to `exact-text`.
+
+## `ghSearchIssues`
+
+Role: search GitHub issues, or read one issue via a `content:{}` selector (metadata, body, comments).
+
+Best for:
+
+- Triaging reported bugs and feature requests.
+- Tracing a symptom to its discussion thread.
+- Linking issues to the PRs that resolved them.
+
+Depth/alignment/quality:
+
+- Depth: **8.7/10**
+- Alignment: **8.7/10**
+- Quality: **8.4/10**
+
+Improvements:
+
+1. Add triage recipes: open issues by label, recently updated, linked-PR discovery.
+2. Prefer selected `content` fields; warn when fetching all comments.
+3. Add next hints to `ghSearchPullRequests` for resolving PRs.
+4. Emit evidence level `historical-context`.
+
+## `ghSearchCommits`
+
+Role: walk a repo's commit history for a path/range (`path`, `since`/`until`, `branch`, `author`, `committer`, `includeDiff`), or compare two refs via `base`+`head` (returns aheadBy/behindBy/totalCommits + commit list). No sort/order.
+
+Best for:
+
+- Finding the first/last commit touching a path.
+- Auditing changes in a date or ref range.
+- Comparing two branches, tags, or SHAs.
+
+Depth/alignment/quality:
+
+- Depth: **8.7/10**
+- Alignment: **8.7/10**
+- Quality: **8.4/10**
+
+Improvements:
+
+1. Add recipes: first commit touching path, ref-vs-ref divergence, author history.
+2. Prefer omitting `includeDiff` for listing; warn on large diff pulls.
+3. Add next hints from commits to `ghGetFileContent` at SHA and `ghCloneRepo`.
+4. Emit evidence level `historical-context`; exact diffs can upgrade to `exact-text`.
+
+## `ghListReleases`
+
+Role: list a repo's releases plus latest stable, with opt-in `includeAssets`. Opt-in tool (`ENABLE_RELEASES=true`).
+
+Best for:
+
+- Finding the latest stable release and tag.
+- Mapping versions to release notes.
+- Locating downloadable assets when needed.
+
+Depth/alignment/quality:
+
+- Depth: **8.7/10**
+- Alignment: **8.7/10**
+- Quality: **8.4/10**
+
+Improvements:
+
+1. Make `ENABLE_RELEASES=true` remediation explicit when disabled.
+2. Keep `includeAssets` opt-in to bound output.
+3. Add next hints from a release tag to `ghSearchCommits` (ref compare) and `ghGetFileContent` at tag.
+4. Emit evidence level `historical-context`.
 
 ## `ghCloneRepo`
 
@@ -672,30 +712,6 @@ Improvements:
 4. Add package-risk diagnostics for deprecated/unmaintained packages and typo-like names.
 5. Emit evidence level `package-metadata`.
 
-## `oqlSearch`
-
-Role: unified query router over local, GitHub, npm, content, structure, semantics, research, and graph targets.
-
-Best for:
-
-- Multi-target research.
-- Declarative agent queries.
-- Combining or comparing result lanes.
-
-Depth/alignment/quality:
-
-- Depth: **8.8/10**
-- Alignment: **8.6/10**
-- Quality: **8.0/10**
-
-Improvements:
-
-1. Keep regression coverage for MCP transport fields: `authInfo`, `sessionId`, `signal`, `responseCharOffset`, `responseCharLength`.
-2. Prefer canonical object examples in MCP docs; raw strings need clearer target inference repairs.
-3. Add compact `primaryError` and `repair` fields for failed queries.
-4. Ensure every OQL row emits target-specific `next` hints and proof-upgrade hints.
-5. Emit evidence level according to target and proof state.
-
 ---
 
 # Implementation backlog by impact
@@ -705,7 +721,6 @@ Improvements:
 1. Standardize `next` hints for local search/content/LSP and GitHub clone flows.
 2. Add structured diagnostics alongside free-form warnings.
 3. Normalize local/LSP path fields.
-4. Preserve and expand OQL MCP transport-field tests.
 
 ## P1
 
@@ -719,7 +734,6 @@ Improvements:
 1. Add extension histograms to tree/file discovery tools.
 2. Add repo/package quality scoring.
 3. Add cache-age reporting for clone/materialized content.
-4. Add compact OQL `primaryError` formatting.
 
 # Verification checklist for future changes
 
@@ -736,7 +750,7 @@ yarn workspace @octocodeai/octocode-engine test:rust
 yarn platforms:check
 ```
 
-And then smoke every MCP tool through the built stdio server with local, clone, and OQL enabled.
+And then smoke every MCP tool through the built stdio server with local and clone enabled.
 
 Acceptance:
 

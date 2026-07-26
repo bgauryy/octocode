@@ -43,10 +43,6 @@
       "types": "./dist/schema.d.ts",
       "import": "./dist/schema.js"
     },
-    "./oql": {
-      "types": "./dist/oql/index.d.ts",
-      "import": "./dist/oql/index.js"
-    },
     "./zod": {
       "types": "./dist/zod.d.ts",
       "import": "./dist/zod.js"

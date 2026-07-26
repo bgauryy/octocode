@@ -4,8 +4,8 @@ export type IssueCommentRow = {
   id: string;
   user: string;
   body: string;
-  created_at: string;
-  updated_at: string;
+  createdAt: string;
+  updatedAt: string;
   commentType: 'discussion';
 };
 
@@ -15,10 +15,9 @@ export type IssueRow = {
   state: string;
   author: string;
   labels: string[];
-  created_at: string;
-  updated_at: string;
-  closed_at?: string;
-  url: string;
+  createdAt: string;
+  updatedAt: string;
+  closedAt?: string;
   body?: string;
   comments?: IssueCommentRow[];
   contentPagination?: {
@@ -44,9 +43,10 @@ export type IssuesResult = {
   owner: string;
   repo: string;
   issues: IssueRow[] | string[];
-  total_count?: number;
+  totalCount?: number;
   effectiveQuery?: string;
-  incomplete_results?: boolean;
+  warnings?: string[];
+  incompleteResults?: boolean;
   pagination?: {
     currentPage: number;
     perPage: number;

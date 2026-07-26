@@ -1,5 +1,6 @@
-// Focused per-tool schemes for the 4 tools that replace the ghHistoryResearch
-// mega-tool. Field set / enums / defaults / prose come from octocode-core
+// Focused per-tool schemes for the 4 focused GitHub history tools
+// (ghSearchPullRequests / ghSearchIssues / ghSearchCommits / ghListReleases).
+// Field set / enums / defaults / prose come from octocode-core
 // (SearchPullRequestsQuerySchema / SearchIssuesQuerySchema /
 // SearchCommitsQuerySchema / ListReleasesQuerySchema). The runtime only relaxes
 // numeric / pagination validation (clamp instead of reject), mirroring
@@ -85,11 +86,15 @@ export const SearchCommitsBulkLocalSchema = createRelaxedBulkQuerySchema(
   createQueryShapeSchema(CoreSearchCommitsQuerySchema, commitsOverrides)
 );
 
-// ghListReleases
+// ghListReleases — releases have no discovery-search, so no `limit`; the core
+// schema supplies page + itemsPerPage (only `page` needs the relaxed form).
+const releasesOverrides = {
+  page: relaxedPageNumberField.default(1),
+} as const;
 export const ListReleasesLocalSchema = describeQuerySchema(
   CoreListReleasesQuerySchema,
-  paginationOverrides
+  releasesOverrides
 );
 export const ListReleasesBulkLocalSchema = createRelaxedBulkQuerySchema(
-  createQueryShapeSchema(CoreListReleasesQuerySchema, paginationOverrides)
+  createQueryShapeSchema(CoreListReleasesQuerySchema, releasesOverrides)
 );

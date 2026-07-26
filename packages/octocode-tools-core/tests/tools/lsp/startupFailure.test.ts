@@ -23,9 +23,8 @@ vi.mock('@octocodeai/octocode-engine/lsp/config', () => ({
   detectLanguageId: mocks.detectLanguageId,
 }));
 
-const { executeLspGetSemantics } = await import(
-  '../../../src/tools/lsp/semantic_content/execution.js'
-);
+const { executeLspGetSemantics } =
+  await import('../../../src/tools/lsp/semantic_content/execution.js');
 
 const tempDirs: string[] = [];
 

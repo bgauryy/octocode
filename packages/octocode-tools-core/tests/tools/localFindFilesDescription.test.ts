@@ -15,8 +15,7 @@ describe('localFindFiles excludeDir description contract', () => {
 
   it('ensures the tool-level description states the runtime excludeDir default', () => {
     const patched =
-      getPatchedToolMetadata(completeMetadata).tools.localFindFiles
-        .description;
+      getPatchedToolMetadata(completeMetadata).tools.localFindFiles.description;
     expect(patched).toMatch(/Nothing is excluded by default/);
     expect(DESCRIPTIONS.localFindFiles).toMatch(
       /Nothing is excluded by default/

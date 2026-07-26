@@ -81,13 +81,10 @@ const queryOverrides = {
     .describe(
       'Structural only: code-shaped AST pattern with $X (one node) or $$$ARGS (node list). Modifiers are part of the node — `function $NAME` does not match `async function` or `export function`; include the modifiers or use a YAML `kind` rule for modifier-agnostic matches. Use this to find syntax shape, then use lspGetSemantics for semantic proof.'
     ),
-  // Engine walker supports maxDepth on the structural lane
-  // (StructuralSearchFilesOptions.maxDepth); previously only reachable by
-  // direct napi callers.
   maxDepth: clampedInt(0, LOCAL_MAX_DEPTH)
     .optional()
     .describe(
-      'Structural mode only: keep files at most this many directory levels below the search root (0 = files directly in the root). Ignored by text/regex modes.'
+      'Keep files at most this many directory levels below the search root (0 = files directly in the root). Structural mode pushes this into the native walker; text/regex mode applies it after the native search and emits a warning when it filters deeper matches.'
     ),
   rule: z
     .string()
@@ -98,7 +95,10 @@ const queryOverrides = {
   contextLines: contextLinesField,
   matchContentLength: clampedInt(1, MAX_MATCH_CONTENT_LENGTH)
     .optional()
-    .default(500),
+    .default(500)
+    .describe(
+      'Max characters of matched-line content kept per hit (default 500; longer lines are truncated).'
+    ),
   maxMatchesPerFile: clampedInt(1, MAX_MATCH_CONTENT_LENGTH).optional(),
   maxFiles: clampedInt(1, MAX_MATCH_CONTENT_LENGTH).optional(),
   matchPage: relaxedPageNumberField.optional(),

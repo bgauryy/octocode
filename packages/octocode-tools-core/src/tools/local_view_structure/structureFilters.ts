@@ -13,14 +13,9 @@ export interface DirectoryEntry {
   depth?: number;
 }
 
-type EntryFilterQuery = Pick<
-  {
-    pattern?: string;
-    directoriesOnly?: boolean;
-    filesOnly?: boolean;
-  },
-  'pattern' | 'directoriesOnly' | 'filesOnly'
->;
+type EntryFilterQuery = {
+  pattern?: string;
+};
 
 export function applyEntryFilters(
   entries: DirectoryEntry[],
@@ -79,14 +74,6 @@ export function applyEntryFilters(
         return filename.includes(pattern);
       });
     }
-  }
-
-  if (query.directoriesOnly) {
-    filtered = filtered.filter(e => e.type === 'directory');
-  }
-
-  if (query.filesOnly) {
-    filtered = filtered.filter(e => e.type === 'file');
   }
 
   return filtered;

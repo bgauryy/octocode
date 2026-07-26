@@ -14,10 +14,10 @@ vi.mock('../../../src/responses.js', () => ({
   sanitizeStructuredContent: mockSanitizeStructuredContent,
 }));
 
-const { sanitizeCallToolResult } = await import(
-  '../../../src/utils/response/callToolResult.js'
-);
-const { setRuntimeSurface, _resetRuntimeSurface } = await import('@octocodeai/config');
+const { sanitizeCallToolResult } =
+  await import('../../../src/utils/response/callToolResult.js');
+const { setRuntimeSurface, _resetRuntimeSurface } =
+  await import('@octocodeai/config');
 
 const AWS_KEY = 'AKIAIOSFODNN7EXAMPLE';
 const REDACTED = '[REDACTED-AWS_ACCESS_KEY_ID]';
@@ -51,8 +51,12 @@ describe('sanitizeCallToolResult', () => {
     } as CallToolResult);
 
     const textBlock = result.content?.[0];
-    expect(textBlock && 'text' in textBlock ? textBlock.text : '').not.toContain(AWS_KEY);
-    expect(textBlock && 'text' in textBlock ? textBlock.text : '').toContain(REDACTED);
+    expect(
+      textBlock && 'text' in textBlock ? textBlock.text : ''
+    ).not.toContain(AWS_KEY);
+    expect(textBlock && 'text' in textBlock ? textBlock.text : '').toContain(
+      REDACTED
+    );
   });
 
   it('passes clean text through unchanged when no secrets detected', () => {
@@ -241,6 +245,8 @@ describe('sanitizeCallToolResult', () => {
     } as CallToolResult);
 
     const textBlock = result.content?.[0];
-    expect(textBlock && 'text' in textBlock ? textBlock.text : '').toBe('fallback text');
+    expect(textBlock && 'text' in textBlock ? textBlock.text : '').toBe(
+      'fallback text'
+    );
   });
 });

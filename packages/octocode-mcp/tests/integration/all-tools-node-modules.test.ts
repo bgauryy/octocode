@@ -121,7 +121,7 @@ describe('Integration Tests: All Tools on node_modules', () => {
     it('should list directory contents', async () => {
       const result = await viewStructure({
         path: NODE_MODULES_PATH,
-        details: false,
+        detail: 'basic',
         itemsPerPage: 20,
         researchGoal: 'List top-level node_modules contents',
         reasoning: 'Testing basic directory listing',
@@ -139,7 +139,7 @@ describe('Integration Tests: All Tools on node_modules', () => {
     it('should provide detailed file information', async () => {
       const result = await viewStructure({
         path: NODE_MODULES_PATH,
-        details: true,
+        detail: 'full',
         itemsPerPage: 10,
         sortBy: 'size',
         researchGoal: 'Get detailed file information sorted by size',

@@ -30,14 +30,15 @@ describe('buildPullRequestSearchCacheKey', () => {
   it.each([
     ['checks', { checks: 'success' }, { checks: 'failure' }],
     ['archived', { archived: true }, { archived: false }],
-  ] as [string, Partial<GitHubPullRequestsSearchParams>, Partial<GitHubPullRequestsSearchParams>][])(
-    'differs when only `%s` differs',
-    (_field, left, right) => {
-      expect(buildPullRequestSearchCacheKey({ ...base, ...left })).not.toBe(
-        buildPullRequestSearchCacheKey({ ...base, ...right })
-      );
-    }
-  );
+  ] as [
+    string,
+    Partial<GitHubPullRequestsSearchParams>,
+    Partial<GitHubPullRequestsSearchParams>,
+  ][])('differs when only `%s` differs', (_field, left, right) => {
+    expect(buildPullRequestSearchCacheKey({ ...base, ...left })).not.toBe(
+      buildPullRequestSearchCacheKey({ ...base, ...right })
+    );
+  });
 
   it('is stable for identical params', () => {
     expect(buildPullRequestSearchCacheKey({ ...base, review: 'none' })).toBe(

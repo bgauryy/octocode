@@ -6,7 +6,7 @@ import { formatToolExampleCommand } from './formatting.js';
 
 const TOOL_RUNTIME_OPTION_KEYS = new Set([
   'queries',
-  'query', // alias for --queries (the OQL `search --query` flag agents reach for)
+  'query', // alias for --queries (the singular name agents naturally reach for)
   'json',
   'help',
   'version',
@@ -51,9 +51,9 @@ export function getInputText(
     );
   }
 
-  // Accept `--query` as an alias for `--queries`: `--query` is the OQL flag on
-  // `search`, so agents routinely reach for it on raw tools too. Don't make them
-  // pay for the easy-to-conflate name — treat both as the queries payload.
+  // Accept `--query` as an alias for `--queries`: agents routinely reach for
+  // the singular form. Don't make them pay for the easy-to-conflate name —
+  // treat both as the queries payload.
   if (typeof args.options.queries === 'string') return args.options.queries;
   if (typeof args.options.query === 'string') return args.options.query;
   return args.args[1];

@@ -34,7 +34,7 @@ function releasesData() {
   };
 }
 
-describe('ghHistoryResearch type:"releases"', () => {
+describe('ghListReleases type:"releases"', () => {
   beforeEach(() => {
     fetchReleases.mockReset();
   });
@@ -50,7 +50,8 @@ describe('ghHistoryResearch type:"releases"', () => {
         owner: 'microsoft',
         repo: 'TypeScript',
         page: 1,
-        perPage: 30,
+        // itemsPerPage default (20) feeds the release list per_page.
+        perPage: 20,
       }),
       undefined
     );
@@ -70,11 +71,16 @@ describe('ghHistoryResearch type:"releases"', () => {
     expect(text).toContain('owner and repo are required for releases mode');
   });
 
-  it('honors `limit` as a perPage alias when perPage was left at its default (regression)', async () => {
+  it('itemsPerPage sets the release list page size (canonical page-size field)', async () => {
     fetchReleases.mockResolvedValue(releasesData());
     await searchMultipleGitHubPullRequests({
       queries: [
-        { type: 'releases', owner: 'microsoft', repo: 'TypeScript', limit: 5 },
+        {
+          type: 'releases',
+          owner: 'microsoft',
+          repo: 'TypeScript',
+          itemsPerPage: 5,
+        },
       ],
     } as never);
 
@@ -84,29 +90,13 @@ describe('ghHistoryResearch type:"releases"', () => {
     );
   });
 
-  it('an explicit perPage always wins over limit', async () => {
-    fetchReleases.mockResolvedValue(releasesData());
-    await searchMultipleGitHubPullRequests({
-      queries: [
-        {
-          type: 'releases',
-          owner: 'microsoft',
-          repo: 'TypeScript',
-          limit: 5,
-          perPage: 50,
-        },
-      ],
-    } as never);
-
-    expect(fetchReleases).toHaveBeenCalledWith(
-      expect.objectContaining({ perPage: 50 }),
-      undefined
-    );
-  });
-
   it('emits a next.nextPage continuation when there is another page (regression: releases used to dead-end)', async () => {
     const data = releasesData();
-    data.data.pagination = { currentPage: 1, perPage: 30, hasMore: true } as never;
+    data.data.pagination = {
+      currentPage: 1,
+      perPage: 30,
+      hasMore: true,
+    } as never;
     (data.data.pagination as { nextPage?: number }).nextPage = 2;
     fetchReleases.mockResolvedValue(data);
 
@@ -120,9 +110,8 @@ describe('ghHistoryResearch type:"releases"', () => {
   });
 
   it('the local query schema accepts type:"releases"', async () => {
-    const { GitHubPullRequestSearchQueryLocalSchema } = await import(
-      '../../../src/tools/github_search_pull_requests/scheme.js'
-    );
+    const { GitHubPullRequestSearchQueryLocalSchema } =
+      await import('../../../src/tools/github_search_pull_requests/scheme.js');
     const parsed = GitHubPullRequestSearchQueryLocalSchema.safeParse({
       type: 'releases',
       owner: 'o',

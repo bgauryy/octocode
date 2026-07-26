@@ -8,12 +8,18 @@ import { executeDirectTool } from '../../../src/tools/directToolCatalog.js';
 
 const ROOT = process.env.HOME || homedir() || tmpdir();
 
-function firstText(result: Awaited<ReturnType<typeof executeDirectTool>>): string {
-  const block = result.content?.find(part => 'text' in part && typeof part.text === 'string');
+function firstText(
+  result: Awaited<ReturnType<typeof executeDirectTool>>
+): string {
+  const block = result.content?.find(
+    part => 'text' in part && typeof part.text === 'string'
+  );
   return block && 'text' in block ? block.text : '';
 }
 
-function firstData<T>(result: Awaited<ReturnType<typeof executeDirectTool>>): T | undefined {
+function firstData<T>(
+  result: Awaited<ReturnType<typeof executeDirectTool>>
+): T | undefined {
   return (
     result.structuredContent as { results?: Array<{ data?: T }> } | undefined
   )?.results?.[0]?.data;
@@ -96,6 +102,34 @@ describe('localGetFileContent direct text output', () => {
 
     expect(firstData<{ contentView?: string }>(result)?.contentView).toBe(
       'standard'
+    );
+  });
+
+  it('line ranges default to verbatim numbered slices', async () => {
+    const file = join(dir, 'range.ts');
+    await writeFile(
+      file,
+      ['// keep me', 'const a = 1;', '', 'const b = 2;', ''].join('\n'),
+      'utf8'
+    );
+
+    const result = await executeDirectTool('localGetFileContent', {
+      queries: [{ path: file, startLine: 1, endLine: 4 }],
+    });
+
+    const data = firstData<{
+      content?: string;
+      contentView?: string;
+      startLine?: number;
+      endLine?: number;
+    }>(result);
+    expect(data?.contentView).toBe('none');
+    expect(data?.startLine).toBe(1);
+    expect(data?.endLine).toBe(4);
+    expect(data?.content).toBe(
+      ['1→ // keep me', '2→ const a = 1;', '3→ ', '4→ const b = 2;'].join(
+        '\n'
+      )
     );
   });
 

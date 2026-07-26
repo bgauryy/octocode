@@ -89,11 +89,11 @@ describe('PR search canonical repository resolution', () => {
     );
     // Lean list search skips per-hit pulls.get; merged_at comes from search hit.
     expect(mocks.pullsGet).not.toHaveBeenCalled();
-    expect(result.pull_requests[0]).toMatchObject({
+    expect(result.pullRequests[0]).toMatchObject({
       number: 36809,
       state: 'closed',
       merged: true,
-      merged_at: '2026-06-17T23:07:24Z',
+      mergedAt: '2026-06-17T23:07:24Z',
     });
   });
 });

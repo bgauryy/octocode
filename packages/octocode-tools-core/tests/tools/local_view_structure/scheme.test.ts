@@ -8,28 +8,30 @@ import {
 describe('localViewStructure schema', () => {
   const baseQuery = { path: '/repo' };
 
-  it('rejects contradictory entry filters', () => {
-    const result = LocalViewStructureQuerySchema.safeParse({
-      ...baseQuery,
-      filesOnly: true,
-      directoriesOnly: true,
-    });
-
-    expect(result.success).toBe(false);
-    if (!result.success) {
+  it('accepts the entryType enum values (f / d)', () => {
+    for (const entryType of ['f', 'd'] as const) {
       expect(
-        result.error.issues.map(issue => issue.message).join('\n')
-      ).toMatch(/filesOnly and directoriesOnly are mutually exclusive/);
+        LocalViewStructureQuerySchema.safeParse({ ...baseQuery, entryType })
+          .success
+      ).toBe(true);
     }
   });
 
-  it('accepts filesOnly alone', () => {
-    const result = LocalViewStructureQuerySchema.safeParse({
-      ...baseQuery,
-      filesOnly: true,
-    });
+  it('rejects an invalid entryType value', () => {
+    expect(
+      LocalViewStructureQuerySchema.safeParse({ ...baseQuery, entryType: 'x' })
+        .success
+    ).toBe(false);
+  });
 
-    expect(result.success).toBe(true);
+  it('accepts excludeDir so callers can override default pruning', () => {
+    expect(
+      LocalViewStructureQuerySchema.safeParse({
+        ...baseQuery,
+        recursive: true,
+        excludeDir: [],
+      }).success
+    ).toBe(true);
   });
 
   it('documents the effective maxDepth default for each mode', () => {
@@ -45,7 +47,7 @@ describe('localViewStructure schema', () => {
   it('keeps bulk parsing relaxed so execution can report per-query errors', () => {
     const result = LocalViewStructureBulkQuerySchema.safeParse({
       queries: [
-        { ...baseQuery, filesOnly: true, directoriesOnly: true },
+        { ...baseQuery, entryType: 'f' },
         { ...baseQuery, path: '/repo/src' },
       ],
     });

@@ -243,7 +243,8 @@ describe('Token Storage', () => {
         mockDecipher as unknown as crypto.DecipherGCM
       );
 
-      const { getToken } = await import('../../../src/shared/credentials/storage.js');
+      const { getToken } =
+        await import('../../../src/shared/credentials/storage.js');
       const result = await getToken('github.com');
 
       expect(result).toBe('ghp_MOCK_TOKEN_00000000000000000000');
@@ -252,7 +253,8 @@ describe('Token Storage', () => {
     it('should return null when credentials do not exist', async () => {
       vi.mocked(fs.existsSync).mockReturnValue(false);
 
-      const { getToken } = await import('../../../src/shared/credentials/storage.js');
+      const { getToken } =
+        await import('../../../src/shared/credentials/storage.js');
       const result = await getToken('github.com');
 
       expect(result).toBeNull();
@@ -849,7 +851,8 @@ describe('Token Storage', () => {
         mockDecipher as unknown as crypto.DecipherGCM
       );
 
-      const { getTokenSync } = await import('../../../src/shared/credentials/storage.js');
+      const { getTokenSync } =
+        await import('../../../src/shared/credentials/storage.js');
       const result = getTokenSync('github.com');
 
       expect(result).toBe('ghp_MOCK_TOKEN_00000000000000000000');
@@ -858,7 +861,8 @@ describe('Token Storage', () => {
     it('should return null when credentials do not exist', async () => {
       vi.mocked(fs.existsSync).mockReturnValue(false);
 
-      const { getTokenSync } = await import('../../../src/shared/credentials/storage.js');
+      const { getTokenSync } =
+        await import('../../../src/shared/credentials/storage.js');
       const result = getTokenSync('github.com');
 
       expect(result).toBeNull();
@@ -893,7 +897,8 @@ describe('Token Storage', () => {
         mockDecipher as unknown as crypto.DecipherGCM
       );
 
-      const { getTokenSync } = await import('../../../src/shared/credentials/storage.js');
+      const { getTokenSync } =
+        await import('../../../src/shared/credentials/storage.js');
       const result = getTokenSync('github.com');
 
       expect(result).toBeNull();
@@ -925,7 +930,8 @@ describe('Token Storage', () => {
         mockDecipher as unknown as crypto.DecipherGCM
       );
 
-      const { getTokenSync } = await import('../../../src/shared/credentials/storage.js');
+      const { getTokenSync } =
+        await import('../../../src/shared/credentials/storage.js');
       const result = getTokenSync('github.com');
 
       expect(result).toBeNull();
@@ -962,7 +968,8 @@ describe('Token Storage', () => {
         mockDecipher as unknown as crypto.DecipherGCM
       );
 
-      const { getToken } = await import('../../../src/shared/credentials/storage.js');
+      const { getToken } =
+        await import('../../../src/shared/credentials/storage.js');
       const result = await getToken('github.com');
 
       expect(result).toBeNull();
@@ -1938,7 +1945,8 @@ describe('Token Storage', () => {
         mockCipher as unknown as crypto.CipherGCM
       );
 
-      const { updateToken } = await import('../../../src/shared/credentials/storage.js');
+      const { updateToken } =
+        await import('../../../src/shared/credentials/storage.js');
       const result = await updateToken('github.com', {
         token: 'new-token-value',
         tokenType: 'oauth',
@@ -1951,7 +1959,8 @@ describe('Token Storage', () => {
     it('should return false when credentials do not exist', async () => {
       vi.mocked(fs.existsSync).mockReturnValue(false);
 
-      const { updateToken } = await import('../../../src/shared/credentials/storage.js');
+      const { updateToken } =
+        await import('../../../src/shared/credentials/storage.js');
       const result = await updateToken('github.com', {
         token: 'new-token',
         tokenType: 'oauth',

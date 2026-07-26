@@ -27,7 +27,7 @@ use types::{structural_query_fingerprint, STRUCTURAL_ANALYZER, STRUCTURAL_ANALYZ
 /// Defense-in-depth cap on content handed to the single-content structural
 /// entry points (`search`, `search_detailed`). The file walker already bounds
 /// per-file bytes via `max_file_bytes`; this mirrors that backstop on the path
-/// OQL continuations and the public napi export hand off to, so a multi-MB blob
+/// the public napi export hands off to, so a multi-MB blob
 /// can't hang tree-sitter parsing or `match_multi_capture` backtracking with no
 /// timeoutMs escape. At-or-below passes; over returns an error / `truncated`.
 const MAX_STRUCTURAL_CONTENT_BYTES: usize = 1_000_000;

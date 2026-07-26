@@ -51,11 +51,10 @@ describe('formatPRForResponse', () => {
 
       expect(result.number).toBe(123);
       expect(result.title).toBe('Test PR');
-      expect(result.url).toBe('https://github.com/owner/repo/pull/123');
       expect(result.state).toBe('open');
       expect(result.draft).toBe(false);
-      expect(result.created_at).toBe('2024-01-01T00:00:00Z');
-      expect(result.updated_at).toBe('2024-01-02T00:00:00Z');
+      expect(result.createdAt).toBe('2024-01-01T00:00:00Z');
+      expect(result.updatedAt).toBe('2024-01-02T00:00:00Z');
       expect(result.author).toBe('testuser');
       expect(result.body).toBe('Test body');
     });
@@ -69,10 +68,10 @@ describe('formatPRForResponse', () => {
       });
       const result = formatPRForResponse(pr);
 
-      expect(result.head_ref).toBe('feature-branch');
-      expect(result.head_sha).toBe('abc123def456');
-      expect(result.base_ref).toBe('main');
-      expect(result.base_sha).toBe('xyz789012345');
+      expect(result.headRef).toBe('feature-branch');
+      expect(result.headSha).toBe('abc123def456');
+      expect(result.baseRef).toBe('main');
+      expect(result.baseSha).toBe('xyz789012345');
     });
 
     it('should default head/base refs to empty strings and omit SHAs when undefined', () => {
@@ -84,10 +83,10 @@ describe('formatPRForResponse', () => {
       });
       const result = formatPRForResponse(pr);
 
-      expect(result.head_ref).toBe('');
-      expect(result).not.toHaveProperty('head_sha');
-      expect(result.base_ref).toBe('');
-      expect(result).not.toHaveProperty('base_sha');
+      expect(result.headRef).toBe('');
+      expect(result).not.toHaveProperty('headSha');
+      expect(result.baseRef).toBe('');
+      expect(result).not.toHaveProperty('baseSha');
     });
   });
 
@@ -100,7 +99,7 @@ describe('formatPRForResponse', () => {
       const result = formatPRForResponse(pr);
 
       expect(result.merged).toBe(true);
-      expect(result.merged_at).toBe('2024-01-03T00:00:00Z');
+      expect(result.mergedAt).toBe('2024-01-03T00:00:00Z');
     });
 
     it('should set merged to false when state is closed but merged_at is not set', () => {
@@ -112,7 +111,7 @@ describe('formatPRForResponse', () => {
       const result = formatPRForResponse(pr);
 
       expect(result.merged).toBe(false);
-      expect(result.merged_at).toBeUndefined();
+      expect(result.mergedAt).toBeUndefined();
     });
 
     it('should set merged to false when state is open', () => {
@@ -148,7 +147,7 @@ describe('formatPRForResponse', () => {
       });
       const result = formatPRForResponse(pr);
 
-      expect(result.closed_at).toBe('2024-01-03T00:00:00Z');
+      expect(result.closedAt).toBe('2024-01-03T00:00:00Z');
     });
 
     it('should set closed_at to undefined when null', () => {
@@ -157,7 +156,7 @@ describe('formatPRForResponse', () => {
       });
       const result = formatPRForResponse(pr);
 
-      expect(result.closed_at).toBeUndefined();
+      expect(result.closedAt).toBeUndefined();
     });
   });
 
@@ -169,15 +168,15 @@ describe('formatPRForResponse', () => {
             id: '1',
             user: 'user1',
             body: 'Comment 1',
-            created_at: '2024-01-01T00:00:00Z',
-            updated_at: '2024-01-01T00:00:00Z',
+            createdAt: '2024-01-01T00:00:00Z',
+            updatedAt: '2024-01-01T00:00:00Z',
           },
           {
             id: '2',
             user: 'user2',
             body: 'Comment 2',
-            created_at: '2024-01-02T00:00:00Z',
-            updated_at: '2024-01-02T00:00:00Z',
+            createdAt: '2024-01-02T00:00:00Z',
+            updatedAt: '2024-01-02T00:00:00Z',
           },
         ],
       });
@@ -273,7 +272,7 @@ describe('formatPRForResponse', () => {
 
       expect(result.additions).toBe(60);
       expect(result.deletions).toBe(35);
-      expect(result.changed_files).toBe(3);
+      expect(result.changedFiles).toBe(3);
     });
 
     it('should return 0 for additions, deletions, changed_files when file_changes is undefined', () => {
@@ -282,7 +281,7 @@ describe('formatPRForResponse', () => {
 
       expect(result.additions).toBe(0);
       expect(result.deletions).toBe(0);
-      expect(result.changed_files).toBe(0);
+      expect(result.changedFiles).toBe(0);
     });
 
     it('should include file_changes array with formatted files', () => {
@@ -311,16 +310,16 @@ describe('formatPRForResponse', () => {
       });
       const result = formatPRForResponse(pr);
 
-      expect(result.file_changes).toBeDefined();
-      expect(result.file_changes).toHaveLength(2);
-      expect(result.file_changes![0]).toEqual({
+      expect(result.fileChanges).toBeDefined();
+      expect(result.fileChanges).toHaveLength(2);
+      expect(result.fileChanges![0]).toEqual({
         filename: 'src/index.ts',
         status: 'modified',
         additions: 10,
         deletions: 5,
         patch: '@@ -1,5 +1,10 @@\n content',
       });
-      expect(result.file_changes![1]).toEqual({
+      expect(result.fileChanges![1]).toEqual({
         filename: 'src/utils.ts',
         status: 'added',
         additions: 20,
@@ -333,7 +332,7 @@ describe('formatPRForResponse', () => {
       const pr = createBasePR({ file_changes: undefined });
       const result = formatPRForResponse(pr);
 
-      expect(result.file_changes).toBeUndefined();
+      expect(result.fileChanges).toBeUndefined();
     });
   });
 
@@ -360,17 +359,17 @@ describe('formatPRForResponse', () => {
       });
       const result = formatPRForResponse(pr);
 
-      expect(result.commit_details).toBeDefined();
-      expect(result.commit_details).toHaveLength(1);
-      expect(result.commit_details?.[0]?.sha).toBe('abc123');
-      expect(result.commit_details?.[0]?.message).toBe('Fix bug');
+      expect(result.commitDetails).toBeDefined();
+      expect(result.commitDetails).toHaveLength(1);
+      expect(result.commitDetails?.[0]?.sha).toBe('abc123');
+      expect(result.commitDetails?.[0]?.message).toBe('Fix bug');
     });
 
     it('should not include commit_details when commits is undefined', () => {
       const pr = createBasePR({ commits: undefined });
       const result = formatPRForResponse(pr);
 
-      expect(result.commit_details).toBeUndefined();
+      expect(result.commitDetails).toBeUndefined();
     });
   });
 
@@ -384,9 +383,9 @@ describe('formatPRForResponse', () => {
       });
       const result = formatPRForResponse(pr);
 
-      expect(result._sanitization_warnings).toBeDefined();
-      expect(result._sanitization_warnings).toHaveLength(2);
-      expect(result._sanitization_warnings).toContain(
+      expect(result.sanitizationWarnings).toBeDefined();
+      expect(result.sanitizationWarnings).toHaveLength(2);
+      expect(result.sanitizationWarnings).toContain(
         'Warning: potentially harmful content detected'
       );
     });
@@ -395,7 +394,7 @@ describe('formatPRForResponse', () => {
       const pr = createBasePR({ _sanitization_warnings: undefined });
       const result = formatPRForResponse(pr);
 
-      expect(result._sanitization_warnings).toBeUndefined();
+      expect(result.sanitizationWarnings).toBeUndefined();
     });
   });
 
@@ -410,8 +409,8 @@ describe('formatPRForResponse', () => {
             id: '1',
             user: 'reviewer',
             body: 'LGTM',
-            created_at: '2024-01-02T00:00:00Z',
-            updated_at: '2024-01-02T00:00:00Z',
+            createdAt: '2024-01-02T00:00:00Z',
+            updatedAt: '2024-01-02T00:00:00Z',
           },
         ],
         commits: [
@@ -443,9 +442,9 @@ describe('formatPRForResponse', () => {
       expect(result.comments).toBe(1);
       expect(result.commits).toBe(1);
       expect(result.additions).toBe(100);
-      expect(result.file_changes).toHaveLength(1);
-      expect(result.commit_details).toHaveLength(1);
-      expect(result._sanitization_warnings).toHaveLength(1);
+      expect(result.fileChanges).toHaveLength(1);
+      expect(result.commitDetails).toHaveLength(1);
+      expect(result.sanitizationWarnings).toHaveLength(1);
     });
 
     it('should handle a minimal PR with mostly undefined fields', () => {
@@ -474,16 +473,16 @@ describe('formatPRForResponse', () => {
       expect(result.title).toBe('Minimal');
       expect(result.body).toBeUndefined();
       expect(result.draft).toBe(false);
-      expect(result.head_ref).toBe('');
-      expect(result.base_ref).toBe('');
+      expect(result.headRef).toBe('');
+      expect(result.baseRef).toBe('');
       expect(result.comments).toBe(0);
       expect(result.commits).toBe(0);
       expect(result.additions).toBe(0);
       expect(result.deletions).toBe(0);
-      expect(result.changed_files).toBe(0);
-      expect(result.file_changes).toBeUndefined();
-      expect(result.commit_details).toBeUndefined();
-      expect(result._sanitization_warnings).toBeUndefined();
+      expect(result.changedFiles).toBe(0);
+      expect(result.fileChanges).toBeUndefined();
+      expect(result.commitDetails).toBeUndefined();
+      expect(result.sanitizationWarnings).toBeUndefined();
     });
   });
 });

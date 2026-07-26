@@ -151,9 +151,9 @@ function buildNext(
       },
     },
     latestRelease: {
-      tool: 'ghSearchPullRequests',
-      query: { type: 'releases', owner, repo },
-      why: 'npm latest can diverge from the repo release line — verify against the repo releases/tags',
+      tool: 'ghListReleases',
+      query: { owner, repo },
+      why: 'npm latest can diverge from the repo release line — verify against the repo releases/tags (requires ENABLE_RELEASES)',
     },
     searchCode: {
       tool: 'ghSearchCode',
@@ -320,19 +320,19 @@ export async function searchPackages(
         });
 
         if (isNpmSearchError(apiResult)) {
-          // An exact-name lookup that 404s means the registry has no package
-          // under that name — surface a guided empty (check spelling / scoped
-          // vs unscoped) rather than a hard error. Network failures stay errors.
-          if (
-            isExactPackageName(searchName) &&
-            isPackageNotFoundError(apiResult.error)
-          ) {
+          // A genuine not-found (registry has nothing under this name/terms) —
+          // whether an exact lookup or a keyword miss — is a guided empty, not
+          // a hard error. Only true network/transport failures stay errors.
+          if (isPackageNotFoundError(apiResult.error)) {
+            const exact = isExactPackageName(searchName);
             return createSuccessResult(
               query,
               {
                 packages: [],
                 hints: [
-                  `No package published under the exact name "${searchName}". Check the spelling, and try the scoped (@scope/name) vs unscoped form.`,
+                  exact
+                    ? `No package published under the exact name "${searchName}". Check the spelling, and try the scoped (@scope/name) vs unscoped form.`
+                    : `No packages matched "${searchName}". Try different or fewer keywords, or search by an exact package name.`,
                 ],
               },
               false,

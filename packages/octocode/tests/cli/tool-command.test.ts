@@ -1,18 +1,4 @@
-import {
-  afterAll,
-  afterEach,
-  beforeEach,
-  describe,
-  expect,
-  it,
-  vi,
-} from 'vitest';
-
-const oqlEnv = vi.hoisted(() => {
-  const previous = process.env.ENABLE_OQL;
-  process.env.ENABLE_OQL = '1';
-  return { previous };
-});
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const publicMocks = vi.hoisted(() => ({
   initialize: vi.fn().mockResolvedValue(undefined),
@@ -42,7 +28,7 @@ const publicMocks = vi.hoisted(() => ({
         description: 'Search local code with ripgrep.',
         schema: {
           path: 'Path to search',
-          keywords: 'Pattern to find',
+          searchText: 'Pattern to find',
         },
         hints: { hasResults: [], empty: [] },
       },
@@ -112,11 +98,6 @@ vi.mock('@octocodeai/octocode-tools-core/direct', async importOriginal => {
 });
 
 describe('toolCommand', () => {
-  afterAll(() => {
-    if (oqlEnv.previous === undefined) delete process.env.ENABLE_OQL;
-    else process.env.ENABLE_OQL = oqlEnv.previous;
-  });
-
   let consoleSpy: ReturnType<typeof vi.spyOn>;
   let originalExitCode: typeof process.exitCode;
 
@@ -140,7 +121,7 @@ describe('toolCommand', () => {
       command: 'tools',
       args: [
         'localSearchCode',
-        '{"path":".","keywords":"runCLI","fixedString":true,"include":["ts","tsx"],"maxFiles":5,"matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
+        '{"path":".","searchText":"runCLI","regex":"fixed","include":["ts","tsx"],"maxFiles":5,"matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
       ],
       options: {},
     });
@@ -152,8 +133,8 @@ describe('toolCommand', () => {
         queries: [
           expect.objectContaining({
             path: '.',
-            keywords: 'runCLI',
-            fixedString: true,
+            searchText: 'runCLI',
+            regex: 'fixed',
             include: ['ts', 'tsx'],
             maxFiles: 5,
             researchGoal: 'Execute localSearchCode via octocode',
@@ -204,7 +185,7 @@ describe('toolCommand', () => {
       command: 'tools',
       args: [
         'localSearchCode',
-        '{"path":".","keywords":"runCLI","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
+        '{"path":".","searchText":"runCLI","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
       ],
       options: {
         json: true,
@@ -253,7 +234,7 @@ describe('toolCommand', () => {
       .map((call: unknown[]) => call.map(String).join(' '))
       .join('\n');
     expect(output).toContain('Command Patterns');
-    expect(output).toContain('"keywords":"buildDirectToolCommandPatterns"');
+    expect(output).toContain('"searchText":"buildDirectToolCommandPatterns"');
     expect(output).toContain('"pattern":"eval($X)"');
     expect(output).toContain('absolute path');
   });
@@ -266,7 +247,7 @@ describe('toolCommand', () => {
       args: ['localSearchCode'],
       options: {
         input:
-          '{"path":".","keywords":"buildDirectToolCommandPatterns","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
+          '{"path":".","searchText":"buildDirectToolCommandPatterns","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
       },
     });
 
@@ -301,7 +282,7 @@ describe('toolCommand', () => {
 
     await toolCommand.handler!({
       command: 'tools',
-      args: ['localSearchCode', '{"path":".","keywords":"runCLI"'],
+      args: ['localSearchCode', '{"path":".","searchText":"runCLI"'],
       options: {},
     });
 
@@ -319,7 +300,7 @@ describe('toolCommand', () => {
       command: 'tools',
       args: [
         'localSearchCode',
-        '{"path":".","keywords":999,"matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
+        '{"path":".","searchText":999,"matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
       ],
       options: {},
     });
@@ -329,7 +310,7 @@ describe('toolCommand', () => {
       expect.stringContaining('Tool input does not match the expected schema.')
     );
     expect(consoleSpy).toHaveBeenCalledWith(
-      expect.stringContaining('keywords:')
+      expect.stringContaining('searchText:')
     );
     expect(process.exitCode).toBe(2);
   });
@@ -364,7 +345,7 @@ describe('toolCommand', () => {
       command: 'tools',
       args: [
         'localSearchCode',
-        '{"path":".","keywords":"runCLI","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
+        '{"path":".","searchText":"runCLI","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
       ],
       options: {},
     });
@@ -383,7 +364,7 @@ describe('toolCommand', () => {
       command: 'tools',
       args: [
         'localSearchCode',
-        '{"path":".","keywords":"runCLI","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
+        '{"path":".","searchText":"runCLI","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
       ],
       options: {},
     });
@@ -453,8 +434,10 @@ describe('toolCommand', () => {
     });
 
     const output = consoleSpy.mock.calls.flat().join('\n');
-    expect(output).toContain('localSearchCode.keywords must be a string');
-    expect(output).toContain('ghSearchCode uses keywords as an array');
+    expect(output).toContain(
+      'localSearchCode.searchText must be a single string, not an array.'
+    );
+    expect(output).toContain('an array of ANDed terms');
     expect(process.exitCode).toBe(2);
   });
 
@@ -471,10 +454,9 @@ describe('toolCommand', () => {
     expect(context).toContain('1. ghSearchCode');
     expect(context).toContain('2. ghCloneRepo');
     expect(context).toContain('3. localSearchCode');
-    expect(context).toContain('Quick commands (search/clone/cache fetch)');
-    expect(context).not.toContain('Quick commands (search/ls/cat/repo');
+    expect(context).toContain('Quick commands (clone/cache fetch)');
     expect(context).not.toMatch(
-      /Quick commands \([^)]*\b(?:ls|cat|repo|history|binary|unzip|diff|pkg|lsp|find|grep)\b/
+      /Quick commands \([^)]*\b(?:search|ls|cat|repo|history|binary|unzip|diff|pkg|lsp|find|grep)\b/
     );
     // full mode includes complete tool descriptions
     expect(context).toContain('Search code in GitHub repositories.');
@@ -505,11 +487,6 @@ describe('toolCommand', () => {
     for (const tool of TOOL_DEFINITIONS) {
       await expect(showToolHelp(tool.name)).resolves.toBe(true);
     }
-  });
-
-  it('renders --scheme help for oqlSearch without throwing', async () => {
-    const { showToolHelp } = await import('../../src/cli/tool-command.js');
-    await expect(showToolHelp('oqlSearch')).resolves.toBe(true);
   });
 
   // Bug 2: bare `tools --json` (no tool name) must emit a lean machine-readable

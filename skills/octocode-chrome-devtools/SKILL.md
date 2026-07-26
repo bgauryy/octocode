@@ -16,6 +16,8 @@ Flow: launch/attach → pick one intent → write focused `run(cdp)` → run san
 | starter `run(cdp)` | `scripts/cdp-template.mjs` | copy shape before writing task script |
 | source maps | `scripts/sourcemap-resolver.mjs` | map frames; sandbox stages beside script |
 | bot-wall triage | `scripts/undercover.mjs` | one stealth pass before visible gate |
+| human-like click/type/scroll | `scripts/human-input.mjs` | trusted CDP Input events for behavioral anti-bot targets |
+| verify stealth + human-input | `scripts/eval-undercover.mjs` | pure builder checks + real headless Chrome stealth self-test (data: URL, no network dependency) |
 | cookie transfer | `scripts/cookie-bridge.mjs` | opt-in profile/CDP/storageState → isolated session |
 
 ## References

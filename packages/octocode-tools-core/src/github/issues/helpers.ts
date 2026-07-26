@@ -77,10 +77,9 @@ export function toIssueRow(item: {
     state: item.state ?? 'open',
     author: item.user?.login ?? 'unknown',
     labels: mapIssueLabels(item.labels),
-    created_at: item.created_at ?? '',
-    updated_at: item.updated_at ?? '',
-    ...(item.closed_at ? { closed_at: item.closed_at } : {}),
-    url: item.html_url ?? '',
+    createdAt: item.created_at ?? '',
+    updatedAt: item.updated_at ?? '',
+    ...(item.closed_at ? { closedAt: item.closed_at } : {}),
   };
 }
 

@@ -1,6 +1,8 @@
 import type { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types.js';
 import { ContentSanitizer } from '@octocodeai/octocode-engine/contentSanitizer';
 import { getOctokit } from '../client.js';
+import { resolveCanonicalOwnerRepo } from '../canonicalRepo.js';
+import { rateLimitWarning } from '../responseHeaders.js';
 import { isBotAuthor } from '../botFilter.js';
 import { parseHasMore } from '../history.js';
 import type { GitHubAPIResponse } from '../githubAPI.js';
@@ -83,8 +85,8 @@ export async function fetchIssueByNumber(
       id: String(comment.id),
       user: comment.user?.login ?? 'unknown',
       body: ContentSanitizer.sanitizeContent(comment.body ?? '').content,
-      created_at: comment.created_at ?? '',
-      updated_at: comment.updated_at ?? '',
+      createdAt: comment.created_at ?? '',
+      updatedAt: comment.updated_at ?? '',
       commentType: 'discussion' as const,
     }));
     const hasMoreComments = parseHasMore(
@@ -109,7 +111,7 @@ export async function fetchIssueByNumber(
       owner,
       repo,
       issues: [row],
-      total_count: 1,
+      totalCount: 1,
     },
     status: 200,
   };
@@ -123,7 +125,25 @@ export async function searchIssues(
   const owner = firstString(params.owner) ?? '';
   const repo = firstString(params.repo) ?? '';
   const octokit = await getOctokit(authInfo);
-  const q = buildIssueSearchQuery(searchParams);
+  // GitHub's Search API does not follow repo renames, so a search scoped to a
+  // stale owner/repo silently returns 0 (false absence). Resolve the canonical
+  // name and warn, mirroring the PR/code search paths.
+  const searchWarnings: string[] = [];
+  let effectiveSearchParams = searchParams;
+  if (owner && repo) {
+    const canonical = await resolveCanonicalOwnerRepo(octokit, owner, repo);
+    if (canonical.renamed) {
+      searchWarnings.push(
+        `Repository ${owner}/${repo} was renamed to ${canonical.owner}/${canonical.repo} — GitHub search does not follow renames, so the canonical name was searched instead.`
+      );
+      effectiveSearchParams = {
+        ...searchParams,
+        owner: canonical.owner,
+        repo: canonical.repo,
+      };
+    }
+  }
+  const q = buildIssueSearchQuery(effectiveSearchParams);
   const perPage = Math.min(
     params.limit ?? GITHUB_SEARCH_DEFAULT_LIMIT,
     GITHUB_SEARCH_MAX_LIMIT
@@ -141,6 +161,9 @@ export async function searchIssues(
     page: currentPage,
   });
 
+  const rateWarn = rateLimitWarning(searchResult.headers);
+  if (rateWarn) searchWarnings.push(rateWarn);
+
   const issues = (searchResult.data.items ?? [])
     .filter(item => !hasPullRequestField(item))
     .map(item => toIssueRow(item));
@@ -157,19 +180,20 @@ export async function searchIssues(
       issues: params.concise
         ? issues.map(i => `#${i.number} ${i.title}`)
         : issues,
-      total_count: totalMatches,
+      totalCount: totalMatches,
       effectiveQuery: q,
+      ...(searchWarnings.length ? { warnings: searchWarnings } : {}),
       ...(searchResult.data.incomplete_results
-        ? { incomplete_results: true }
+        ? { incompleteResults: true }
         : {}),
       pagination: {
         currentPage,
         perPage,
         hasMore,
         ...(hasMore ? { nextPage: currentPage + 1 } : {}),
-        totalMatches,
-        reportedTotalMatches: totalMatches,
-        totalMatchesKind: 'reported',
+        // totalCount (above) is the single count; GitHub search caps the
+        // reachable window at 1000, so flag when the real total exceeds it.
+        ...(totalMatches > 1000 ? { totalMatchesCapped: true } : {}),
       },
     },
     status: 200,
@@ -232,7 +256,7 @@ export async function listIssues(
       issues: params.concise
         ? issues.map(i => `#${i.number} ${i.title}`)
         : issues,
-      total_count: issues.length,
+      totalCount: issues.length,
       pagination: {
         currentPage,
         perPage,

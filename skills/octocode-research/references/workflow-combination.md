@@ -20,9 +20,6 @@ CLI clone works by default; the MCP-server surface requires `ENABLE_CLONE=true` 
 
 **Materialize when:** AST / structural, LSP, multi-file regex, exact absence, or the 3rd+ read into one remote area is coming.
 
-## Federated in one shot (OQL)
-`oqlSearch from:{kind:"github",owner,repo}` plans provider search plus optional materialization (`materialize:"auto"/"required"`). GitHub rows come back as provider-grade text with a prefilled `next.fetch` to upgrade to exact content; zero rows plus `providerUnindexed` is a blind spot, not absence — follow `next.materialize`.
-
 ## The loop
 Loop local clue → external evidence → local proof until the claim reaches the strongest available grade. Check external facts against local reality and local upstream guesses against the source that shipped them.
 

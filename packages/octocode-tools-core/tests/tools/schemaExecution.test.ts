@@ -56,25 +56,6 @@ describe('tool execution schema validation', () => {
     expect(getError(rows[0])).toContain('unique requires output:"matchOnly"');
   });
 
-  it('returns a per-query error for contradictory localViewStructure flags', async () => {
-    const result = await executeViewStructure({
-      queries: [
-        {
-          path: '/repo',
-          filesOnly: true,
-          directoriesOnly: true,
-        },
-      ],
-    });
-
-    const rows = getRows(result);
-    expect(result.isError).toBe(true);
-    expect(rows[0]?.status).toBe('error');
-    expect(getError(rows[0])).toContain(
-      'filesOnly and directoriesOnly are mutually exclusive'
-    );
-  });
-
   it('returns a per-query error for inverted localFindFiles depth', async () => {
     const result = await executeFindFiles({
       queries: [

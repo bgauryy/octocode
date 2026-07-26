@@ -29,8 +29,8 @@ export interface PRReviewInfo {
   user: string;
   state: string;
   body: string;
-  submitted_at?: string;
-  commit_id?: string;
+  submittedAt?: string;
+  commitId?: string;
 }
 
 export interface CommitFileInfo {
@@ -75,7 +75,6 @@ export interface HistoryCommit {
   /** Present when the message body was cut at 500 chars — the '…' is a real cut. */
   messageTruncated?: true;
   messageHeadline: string;
-  url: string;
   author: {
     name: string;
     email: string;
@@ -219,8 +218,8 @@ export interface PRCommentItem {
   id: string;
   user: string;
   body: string;
-  created_at: string;
-  updated_at: string;
+  createdAt: string;
+  updatedAt: string;
 
   commentType?: 'discussion' | 'review_inline';
 
@@ -228,7 +227,7 @@ export interface PRCommentItem {
 
   line?: number;
 
-  in_reply_to_id?: number | null;
+  inReplyToId?: number | null;
 }
 
 export type GitHubPullRequestItem = Pick<

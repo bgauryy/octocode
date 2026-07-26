@@ -34,7 +34,10 @@ function item(name: string, uri: string): CallHierarchyItem {
   };
 }
 
-function fakeClient(branching: number, uri: string): Pick<LSPClient, 'getIncomingCalls'> {
+function fakeClient(
+  branching: number,
+  uri: string
+): Pick<LSPClient, 'getIncomingCalls'> {
   return {
     async getIncomingCalls(parent: CallHierarchyItem): Promise<IncomingCall[]> {
       return Array.from({ length: branching }, (_, index) => {

@@ -67,9 +67,9 @@ describe('findFiles malformed time filters', () => {
       time: { modifiedWithin: 'banana' },
     } as Parameters<typeof findFiles>[0]);
 
-    expect(withBadFilter.warnings?.some(w => w.includes('modifiedWithin'))).toBe(
-      true
-    );
+    expect(
+      withBadFilter.warnings?.some(w => w.includes('modifiedWithin'))
+    ).toBe(true);
     expect(withBadFilter.files.map(f => basename(f.path)).sort()).toEqual(
       baseline.files.map(f => basename(f.path)).sort()
     );

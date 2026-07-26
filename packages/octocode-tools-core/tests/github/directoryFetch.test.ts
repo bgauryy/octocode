@@ -24,9 +24,8 @@ vi.mock('../../src/shared/index.js', () => ({
 
 global.fetch = mocks.fetch as typeof fetch;
 
-const { fetchDirectoryContents } = await import(
-  '../../src/github/directoryFetch.js'
-);
+const { fetchDirectoryContents } =
+  await import('../../src/github/directoryFetch.js');
 
 // Matches getTreeDir: join(octocodeDir, 'tmp', 'tree', owner, repo, branch)
 function buildTreeRoot(

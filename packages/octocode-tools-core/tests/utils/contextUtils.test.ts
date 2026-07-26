@@ -21,7 +21,9 @@ describe('contextUtils native boundary', () => {
     await expect(
       import('../../src/github/fileContentProcess.js')
     ).resolves.toBeDefined();
-    await expect(import('../../src/github/codeSearch.js')).resolves.toBeDefined();
+    await expect(
+      import('../../src/github/codeSearch.js')
+    ).resolves.toBeDefined();
 
     expect(() => contextUtils.jsonToYamlString({ ok: true })).toThrow(
       ContextUtilsLoadError

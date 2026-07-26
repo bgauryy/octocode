@@ -6,9 +6,7 @@ import { LOCAL_TOOL_ERROR_CODES } from '../../src/errors/localToolErrors.js';
 describe('ToolErrors.binaryFileUnsupported', () => {
   it('keeps the binary error code and a redacted basename in the message', () => {
     const err = ToolErrors.binaryFileUnsupported('/Applications/x/app.asar');
-    expect(err.errorCode).toBe(
-      LOCAL_TOOL_ERROR_CODES.BINARY_FILE_UNSUPPORTED
-    );
+    expect(err.errorCode).toBe(LOCAL_TOOL_ERROR_CODES.BINARY_FILE_UNSUPPORTED);
     expect(err.message).toContain('Binary file unsupported');
     expect(err.message).toContain('app.asar');
   });

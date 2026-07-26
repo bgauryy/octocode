@@ -8,35 +8,20 @@
  */
 import {
   LSP_GET_SEMANTICS_TOOL_NAME,
-  OQL_SEARCH_TOOL_NAME,
   STATIC_TOOL_NAMES,
 } from '../toolNames.js';
 
 export function buildKnownDirectToolCommandPatternQueries(
   toolName: string
 ): Array<{ label: string; query: Record<string, unknown> }> {
-  if (toolName === OQL_SEARCH_TOOL_NAME) {
-    return [
-      {
-        label: 'local code query',
-        query: {
-          schema: 'oql',
-          target: 'code',
-          from: { kind: 'local', path: '.' },
-          where: { kind: 'text', value: 'executeDirectTool' },
-          view: 'discovery',
-          limit: 5,
-        },
-      },
-    ];
-  }
-
   if (toolName === STATIC_TOOL_NAMES.GITHUB_PULL_REQUESTS) {
+    // Split tool: PRs only (no `type` field — commits/issues/releases are their
+    // own tools now). List mode uses keywords+filters; detail mode uses prNumber
+    // + content selectors.
     return [
       {
-        label: 'PR search',
+        label: 'PR search (list)',
         query: {
-          type: 'prs',
           owner: 'bgauryy',
           repo: 'octocode',
           keywordsToSearch: ['localSearchCode'],
@@ -45,45 +30,16 @@ export function buildKnownDirectToolCommandPatternQueries(
         },
       },
       {
-        label: 'commit history',
+        label: 'PR detail (diffs + reviews)',
         query: {
-          type: 'commits',
-          owner: 'bgauryy',
-          repo: 'octocode',
-          path: 'packages/octocode-tools-core/src',
-          since: '2024-01-01T00:00:00Z',
-          perPage: 5,
-        },
-      },
-      {
-        label: 'releases + latest',
-        query: {
-          type: 'releases',
-          owner: 'microsoft',
-          repo: 'TypeScript',
-          perPage: 5,
-        },
-      },
-      {
-        label: 'issues search',
-        query: {
-          type: 'issues',
-          owner: 'microsoft',
-          repo: 'TypeScript',
-          keywordsToSearch: ['crash'],
-          state: 'open',
-          concise: true,
-          limit: 5,
-        },
-      },
-      {
-        label: 'issue detail',
-        query: {
-          type: 'issues',
-          owner: 'bgauryy',
-          repo: 'octocode',
-          issueNumber: 443,
-          content: { body: true, comments: { discussion: true } },
+          owner: 'sindresorhus',
+          repo: 'slugify',
+          prNumber: 1,
+          content: {
+            comments: { discussion: true },
+            reviews: true,
+            patches: { mode: 'all' },
+          },
         },
       },
     ];
@@ -250,6 +206,26 @@ export function buildKnownDirectToolCommandPatternQueries(
     ];
   }
 
+  if (toolName === STATIC_TOOL_NAMES.LOCAL_FIND_DEAD_CODE) {
+    return [
+      {
+        label: 'default entrypoints (package.json + tests)',
+        query: {
+          path: 'packages/octocode-tools-core',
+          itemsPerPage: 20,
+        },
+      },
+      {
+        label: 'explicit entrypoints',
+        query: {
+          path: 'packages/octocode-tools-core',
+          entrypoints: ['src/index.ts', 'src/direct.ts'],
+          includeTests: false,
+        },
+      },
+    ];
+  }
+
   if (toolName === STATIC_TOOL_NAMES.LOCAL_VIEW_STRUCTURE) {
     return [
       {
@@ -265,7 +241,7 @@ export function buildKnownDirectToolCommandPatternQueries(
         query: {
           path: 'packages/octocode-engine/src',
           maxDepth: 1,
-          filesOnly: true,
+          entryType: 'f',
           itemsPerPage: 100,
         },
       },

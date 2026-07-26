@@ -7,7 +7,9 @@ const emptyCompleteMetadata = {
     GITHUB_FETCH_CONTENT: 'ghGetFileContent',
     GITHUB_SEARCH_CODE: 'ghSearchCode',
     GITHUB_SEARCH_REPOSITORIES: 'ghSearchRepos',
-    GITHUB_SEARCH_PULL_REQUESTS: 'ghHistoryResearch',
+    GITHUB_PULL_REQUESTS: 'ghSearchPullRequests',
+    GITHUB_ISSUES: 'ghSearchIssues',
+    GITHUB_COMMITS: 'ghSearchCommits',
     GITHUB_VIEW_REPO_STRUCTURE: 'ghViewRepoStructure',
     PACKAGE_SEARCH: 'npmSearch',
     LOCAL_RIPGREP: 'localSearchCode',
@@ -59,7 +61,7 @@ describe('toolMetadata - TOOL_NAMES static fallback (lines 236-243)', () => {
     );
     const desc4 = Object.getOwnPropertyDescriptor(
       TOOL_NAMES,
-      'GITHUB_SEARCH_PULL_REQUESTS'
+      'GITHUB_PULL_REQUESTS'
     );
     const desc5 = Object.getOwnPropertyDescriptor(
       TOOL_NAMES,

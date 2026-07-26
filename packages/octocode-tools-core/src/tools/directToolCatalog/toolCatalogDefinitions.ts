@@ -6,9 +6,8 @@
  */
 import { z } from 'zod';
 import {
-  isOqlEnabled,
   isReleasesEnabled,
-  OQL_SEARCH_TOOL_NAME,
+  isDiscussionsEnabled,
   STATIC_TOOL_NAMES,
 } from '../toolNames.js';
 import { LSP_GET_SEMANTICS_TOOL_NAME } from '../lsp/shared/semanticTypes.js';
@@ -27,6 +26,8 @@ import {
   SearchCommitsBulkLocalSchema,
   ListReleasesLocalSchema,
   ListReleasesBulkLocalSchema,
+  SearchDiscussionsLocalSchema,
+  SearchDiscussionsBulkLocalSchema,
   GitHubReposSearchSingleQueryLocalSchema,
   GitHubReposSearchBulkQueryLocalSchema,
   GitHubViewRepoStructureQueryLocalSchema,
@@ -37,14 +38,14 @@ import {
   LocalFetchContentBulkQuerySchema,
   LocalFindFilesQuerySchema,
   LocalFindFilesBulkQuerySchema,
+  LocalFindDeadCodeQuerySchema,
+  LocalFindDeadCodeBulkQuerySchema,
   LocalRipgrepQuerySchema,
   LocalRipgrepBulkQuerySchema,
   LocalViewStructureQuerySchema,
   LocalViewStructureBulkQuerySchema,
   BulkLspGetSemanticsQuerySchema,
   LspGetSemanticsQueryDisplaySchema,
-  OqlSearchQuerySchema,
-  OqlSearchInputSchema,
 } from '../toolSchemaImports.js';
 
 export type DirectToolInput = Record<string, unknown> & {
@@ -79,11 +80,12 @@ const DIRECT_TOOL_RELEVANCE_ORDER = new Map<string, number>(
     STATIC_TOOL_NAMES.GITHUB_CLONE_REPO,
     STATIC_TOOL_NAMES.LOCAL_RIPGREP,
     STATIC_TOOL_NAMES.LOCAL_FIND_FILES,
+    STATIC_TOOL_NAMES.LOCAL_FIND_DEAD_CODE,
     STATIC_TOOL_NAMES.LOCAL_FETCH_CONTENT,
     STATIC_TOOL_NAMES.LOCAL_VIEW_STRUCTURE,
     LSP_GET_SEMANTICS_TOOL_NAME,
     STATIC_TOOL_NAMES.PACKAGE_SEARCH,
-    ...(isOqlEnabled() ? [OQL_SEARCH_TOOL_NAME] : []),
+    ...(isDiscussionsEnabled() ? [STATIC_TOOL_NAMES.GITHUB_DISCUSSIONS] : []),
   ].map((name, index) => [name, index])
 );
 export interface DirectToolDisplayField {
@@ -213,6 +215,16 @@ export const DIRECT_TOOL_DEFINITIONS: DirectToolDefinition[] = [
         },
       ]
     : []),
+  // ghSearchDiscussions is opt-in (ENABLE_DISCUSSIONS=1) — gated to match ALL_TOOLS.
+  ...(isDiscussionsEnabled()
+    ? [
+        {
+          name: STATIC_TOOL_NAMES.GITHUB_DISCUSSIONS,
+          schema: SearchDiscussionsLocalSchema,
+          inputSchema: SearchDiscussionsBulkLocalSchema,
+        },
+      ]
+    : []),
   {
     name: STATIC_TOOL_NAMES.PACKAGE_SEARCH,
     schema: NpmSearchQueryLocalSchema,
@@ -239,6 +251,11 @@ export const DIRECT_TOOL_DEFINITIONS: DirectToolDefinition[] = [
     inputSchema: LocalFindFilesBulkQuerySchema,
   },
   {
+    name: STATIC_TOOL_NAMES.LOCAL_FIND_DEAD_CODE,
+    schema: LocalFindDeadCodeQuerySchema,
+    inputSchema: LocalFindDeadCodeBulkQuerySchema,
+  },
+  {
     name: STATIC_TOOL_NAMES.LOCAL_FETCH_CONTENT,
     schema: LocalFetchContentQuerySchema,
     inputSchema: LocalFetchContentBulkQuerySchema,
@@ -248,15 +265,6 @@ export const DIRECT_TOOL_DEFINITIONS: DirectToolDefinition[] = [
     schema: LspGetSemanticsQueryDisplaySchema,
     inputSchema: BulkLspGetSemanticsQuerySchema,
   },
-  ...(isOqlEnabled()
-    ? [
-        {
-          name: OQL_SEARCH_TOOL_NAME,
-          schema: OqlSearchQuerySchema,
-          inputSchema: OqlSearchInputSchema,
-        },
-      ]
-    : []),
 ];
 
 export function findDirectToolDefinition(

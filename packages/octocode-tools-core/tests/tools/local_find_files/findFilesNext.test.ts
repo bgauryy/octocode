@@ -4,7 +4,10 @@ import { buildFindFilesNextMap } from '../../../src/tools/local_find_files/findF
 import type { LocalFindFilesEntry } from '@octocodeai/octocode-core/types';
 
 const file = (path: string): LocalFindFilesEntry => ({ path, type: 'file' });
-const dir = (path: string): LocalFindFilesEntry => ({ path, type: 'directory' });
+const dir = (path: string): LocalFindFilesEntry => ({
+  path,
+  type: 'directory',
+});
 
 describe('buildFindFilesNextMap', () => {
   it('points fetch at the first file with its absolute path, meta-free', () => {

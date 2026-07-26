@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://octocode.dev/schemas/scraping/provider.schema.json",
+  "title": "Octocode Scraping Vendor Provider Contract",
+  "description": "Any scraping vendor plugs in by implementing FetchResponse and registering a ProviderDescriptor in scripts/lib/providers.mjs. Corpus building and extraction (scripts/lib/corpus.mjs, analyzers.mjs, extractors.mjs) only ever consume FetchResponse — they do not know which vendor produced it.",
+  "$defs": {
+    "FetchResponse": {
+      "type": "object",
+      "description": "Return shape every provider.fetch({ url, pageId, config, apiKey }) must produce.",
+      "required": ["pageId", "url", "status", "contentType", "body", "fetchError", "creditCost", "fetchedAt"],
+      "properties": {
+        "pageId": { "type": "string" },
+        "url": { "type": "string" },
+        "status": { "type": "integer" },
+        "contentType": { "type": "string" },
+        "body": { "type": "string", "description": "Raw response text; may be JSON-in-a-string (vendor envelope) or raw HTML/markdown." },
+        "fetchError": { "type": ["string", "null"] },
+        "creditCost": { "type": ["string", "number", "null"], "description": "Vendor-reported per-request cost, or null when the vendor has no cost concept (e.g. a keyless direct fetch)." },
+        "fetchedAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "ProviderDescriptor": {
+      "type": "object",
+      "description": "Registry entry shape in the PROVIDERS map in scripts/lib/providers.mjs.",
+      "required": ["name", "fetch", "supportsModes", "requiresApiKey", "apiKeyEnv"],
+      "properties": {
+        "name": { "type": "string" },
+        "fetch": { "description": "async ({ url, pageId, config, apiKey }) => FetchResponse" },
+        "supportsModes": { "type": "array", "items": { "enum": ["html", "markdown", "extended", "extract"] }, "minItems": 1 },
+        "requiresApiKey": { "type": "boolean" },
+        "apiKeyEnv": { "type": ["string", "null"], "description": "Env var name to read the key from; null when requiresApiKey is false." },
+        "cleanup": { "description": "optional async (config) => void, called once after the fetch/crawl loop completes — for providers that hold a persistent resource (e.g. a launched browser)" }
+      }
+    }
+  }
+}

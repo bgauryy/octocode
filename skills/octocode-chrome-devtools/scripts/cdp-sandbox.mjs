@@ -88,7 +88,7 @@ const CONFIG_NODE_MODULES_ROOT_REAL = safePath(CONFIG_NODE_MODULES_ROOT);
 const OUTPUT_REAL = safePath(OUTPUT_DIR);
 const SESSION_META_REAL = safePath(SESSION_META_DIR);
 
-const HELPERS = ['sourcemap-resolver.mjs', 'undercover.mjs'];
+const HELPERS = ['sourcemap-resolver.mjs', 'undercover.mjs', 'human-input.mjs'];
 for (const helper of HELPERS) {
   const src = resolve(__dir, helper);
   const dst = join(TMPDIR_RAW, helper);

@@ -62,15 +62,16 @@ describe('localViewStructure native filter pushdown', () => {
       recursive: true,
       depth: 3,
       pattern: 'target-[ab].ts',
-      filesOnly: true,
+      entryType: 'f',
       limit: 2,
-      details: true,
+      detail: 'full',
     });
 
     expect(queryFileSystem).toHaveBeenCalledWith(
       expect.objectContaining({
         names: undefined,
         entryType: 'f',
+        excludeDir: expect.arrayContaining(['node_modules', 'dist', 'target']),
         limit: 10000,
       })
     );
@@ -80,7 +81,7 @@ describe('localViewStructure native filter pushdown', () => {
     ]);
   });
 
-  it('pushes extension filters into the native query before capping', async () => {
+  it('pushes extension filters into the native query without limiting before sort', async () => {
     const queryFileSystem = vi.fn().mockReturnValue({
       entries: [fileEntry('beta.ts', 'ts')],
       totalDiscovered: 1,
@@ -96,9 +97,9 @@ describe('localViewStructure native filter pushdown', () => {
       recursive: true,
       depth: 2,
       extensions: ['ts'],
-      filesOnly: true,
+      entryType: 'f',
       limit: 1,
-      details: true,
+      detail: 'full',
     });
 
     expect(queryFileSystem).toHaveBeenCalledWith(
@@ -106,7 +107,8 @@ describe('localViewStructure native filter pushdown', () => {
         extensions: ['ts'],
         names: undefined,
         entryType: 'f',
-        limit: 2,
+        excludeDir: expect.arrayContaining(['node_modules', 'dist', 'target']),
+        limit: 10000,
       })
     );
     expect(result.entries?.map(entry => entry.path)).toEqual(['/repo/beta.ts']);
@@ -128,7 +130,7 @@ describe('localViewStructure native filter pushdown', () => {
       recursive: true,
       depth: 2,
       pattern: 'target-*.ts',
-      filesOnly: true,
+      entryType: 'f',
       limit: 2,
     });
 
@@ -136,8 +138,58 @@ describe('localViewStructure native filter pushdown', () => {
       expect.objectContaining({
         names: ['target-*.ts'],
         entryType: 'f',
-        limit: 4,
+        excludeDir: expect.arrayContaining(['node_modules', 'dist', 'target']),
+        limit: 10000,
       })
+    );
+  });
+
+  it('allows callers to opt out of default generated/vendor directory excludes', async () => {
+    const queryFileSystem = vi.fn().mockReturnValue({
+      entries: [fileEntry('node_modules/pkg/index.js', 'js')],
+      totalDiscovered: 1,
+      wasCapped: false,
+      skipped: 0,
+      permissionDenied: 0,
+      warnings: [],
+    });
+    installQueryFileSystem(queryFileSystem);
+
+    await viewStructure({
+      path: validBasePath,
+      recursive: true,
+      excludeDir: [],
+      detail: 'full',
+    } as Parameters<typeof viewStructure>[0]);
+
+    expect(queryFileSystem).toHaveBeenCalledWith(
+      expect.objectContaining({
+        excludeDir: [],
+      })
+    );
+  });
+
+  it('warns when a capped sorted result can only sort a partial walk', async () => {
+    const queryFileSystem = vi.fn().mockReturnValue({
+      entries: [fileEntry('small.ts', 'ts')],
+      totalDiscovered: 10001,
+      wasCapped: true,
+      skipped: 0,
+      permissionDenied: 0,
+      warnings: [],
+    });
+    installQueryFileSystem(queryFileSystem);
+
+    const result = await viewStructure({
+      path: validBasePath,
+      recursive: true,
+      sortBy: 'size',
+      reverse: true,
+      detail: 'full',
+    });
+
+    expect(result.warnings?.join('\n')).toContain(
+      'sortBy:"size" only orders that partial set'
     );
   });
 });

@@ -1,18 +1,15 @@
-export type OqlLanguageSelectorKind = 'extension' | 'language' | 'unknown';
+export type LanguageSelectorKind = 'extension' | 'language' | 'unknown';
 
-export type OqlLanguageSelector = {
+export type LanguageSelector = {
   raw: string;
   normalized: string;
-  kind: OqlLanguageSelectorKind;
+  kind: LanguageSelectorKind;
   canonicalLanguage?: string;
   extension?: string;
   extensions?: readonly string[];
 };
 
-export type SelectorDefinition = Omit<
-  OqlLanguageSelector,
-  'raw' | 'normalized'
->;
+export type SelectorDefinition = Omit<LanguageSelector, 'raw' | 'normalized'>;
 
 export const EXTENSION_SELECTORS: Readonly<Record<string, SelectorDefinition>> =
   {

@@ -41,11 +41,21 @@ const queryOverrides = {
     ),
   lineHint: requiredLineHintField.optional(),
   orderHint: orderHintField,
-  depth: clampedInt(0, LOCAL_MAX_DEPTH).optional(),
+  depth: clampedInt(0, LOCAL_MAX_DEPTH)
+    .optional()
+    .describe(
+      'Traversal depth for call-hierarchy / type-hierarchy queries (0 = direct only).'
+    ),
   includeDeclaration: z.boolean().optional().default(true),
-  page: relaxedPageNumberField,
-  itemsPerPage: clampedInt(1, 100).optional(),
-  contextLines: clampedInt(0, 100).optional(),
+  page: relaxedPageNumberField.describe(
+    'Result page for paginated reference/symbol lists (advance while pagination.hasMore).'
+  ),
+  itemsPerPage: clampedInt(1, 100)
+    .optional()
+    .describe('References/symbols returned per page (with page).'),
+  contextLines: clampedInt(0, 100)
+    .optional()
+    .describe('Lines of surrounding source shown around each result location.'),
   format: z.enum(SEMANTIC_OUTPUT_FORMATS).optional().default('structured'),
 } as const;
 

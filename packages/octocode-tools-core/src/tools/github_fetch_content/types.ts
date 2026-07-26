@@ -28,7 +28,6 @@ export interface GitHubFileContentApiData {
   isPartial?: boolean;
   totalLines?: number;
   sourceChars?: number;
-  sourceBytes?: number;
 
   matchRanges?: Array<{ start: number; end: number }>;
   matchLocations?: string[];

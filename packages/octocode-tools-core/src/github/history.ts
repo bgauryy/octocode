@@ -1,7 +1,7 @@
 import type { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types.js';
 import { getOctokit, resolveCacheAuthFingerprint } from './client.js';
+import { resolveDateWindow } from './dateWindow.js';
 import { handleGitHubAPIError } from './errors.js';
-import { buildDiffPreview } from '../utils/parsers/diff.js';
 import { generateCacheKey, withDataCache } from '../utils/http/cache.js';
 import type {
   GitHubAPIResponse,
@@ -86,6 +86,7 @@ type FetchHistoryParams = {
   since?: string;
   until?: string;
   author?: string;
+  committer?: string;
   page: number;
   perPage: number;
   filePage?: number;
@@ -112,6 +113,7 @@ export async function fetchHistory(
       since: params.since,
       until: params.until,
       author: params.author,
+      committer: params.committer,
       page: params.page,
       perPage: params.perPage,
       filePage: params.filePage,
@@ -140,6 +142,18 @@ async function fetchHistoryInternal(
   try {
     const octokit = await getOctokit(authInfo);
 
+    const dateWarnings: string[] = [];
+    const sinceResolved = params.since
+      ? resolveDateWindow(params.since)
+      : undefined;
+    const untilResolved = params.until
+      ? resolveDateWindow(params.until)
+      : undefined;
+    if (sinceResolved?.warning)
+      dateWarnings.push(`since ${sinceResolved.warning}`);
+    if (untilResolved?.warning)
+      dateWarnings.push(`until ${untilResolved.warning}`);
+
     const listParams = {
       owner: params.owner,
       repo: params.repo,
@@ -147,9 +161,10 @@ async function fetchHistoryInternal(
       page: params.page,
       ...(params.path ? { path: params.path } : {}),
       ...(params.branch ? { sha: params.branch } : {}),
-      ...(params.since ? { since: params.since } : {}),
-      ...(params.until ? { until: params.until } : {}),
+      ...(sinceResolved?.value ? { since: sinceResolved.value } : {}),
+      ...(untilResolved?.value ? { until: untilResolved.value } : {}),
       ...(params.author ? { author: params.author } : {}),
+      ...(params.committer ? { committer: params.committer } : {}),
     };
 
     const response = await octokit.rest.repos.listCommits(listParams);
@@ -185,7 +200,6 @@ async function fetchHistoryInternal(
         ...(message === messageHeadline ? {} : { message }),
         ...(bodyTruncated ? { messageTruncated: true as const } : {}),
         messageHeadline,
-        url: item.html_url,
         author: {
           name: authorObj?.name ?? 'unknown',
           email: authorObj?.email ?? '',
@@ -221,6 +235,7 @@ async function fetchHistoryInternal(
           ...(params.path ? { path: params.path } : {}),
           commits: baseCommits,
           pagination,
+          ...(dateWarnings.length ? { warnings: dateWarnings } : {}),
         },
         status: 200,
       };
@@ -264,7 +279,6 @@ async function fetchHistoryInternal(
                       ...(patchWindow.patchPagination
                         ? { patchPagination: patchWindow.patchPagination }
                         : {}),
-                      diff: buildDiffPreview(patchWindow.patch),
                     }
                   : {}),
                 ...(fileData.previous_filename
@@ -293,7 +307,6 @@ async function fetchHistoryInternal(
                         ...(patchWindow.patchPagination
                           ? { patchPagination: patchWindow.patchPagination }
                           : {}),
-                        diff: buildDiffPreview(patchWindow.patch),
                       }
                     : {}),
                   ...(f.previous_filename
@@ -341,6 +354,7 @@ async function fetchHistoryInternal(
         ...(params.path ? { path: params.path } : {}),
         commits: commitsWithDiff,
         pagination,
+        ...(dateWarnings.length ? { warnings: dateWarnings } : {}),
       },
       status: 200,
     };

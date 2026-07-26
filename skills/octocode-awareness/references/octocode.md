@@ -12,20 +12,20 @@ npx octocode <command> ... --no-color
 
 ```bash
 # Structure and local evidence
-npx octocode search <dir> --tree --max-depth 2 --no-color
-npx octocode search "<term>" <path> --no-color
-npx octocode search <file> --content-view symbols --no-color
-npx octocode search <file> --op references --symbol <Name> --line <N> --no-color
-npx octocode search <dir> --search path --name "<glob>" --no-color
+npx octocode tools localViewStructure --queries '{"path":"<dir>","maxDepth":2}' --no-color
+npx octocode tools localSearchCode --queries '{"path":"<path>","searchText":"<term>"}' --no-color
+npx octocode tools localGetFileContent --queries '{"path":"<file>","minify":"symbols"}' --no-color
+npx octocode tools lspGetSemantics --queries '{"uri":"<file>","type":"references","symbolName":"<Name>","lineHint":<N>}' --no-color
+npx octocode tools localFindFiles --queries '{"path":"<dir>","names":["<glob>"]}' --no-color
 
 # Repositories, packages, PRs, commits
-npx octocode search <keywords> --target repositories --no-color
-npx octocode search <pkg> --target packages --no-color
-npx octocode search owner/repo#N --target pullRequests --no-color
-npx octocode search owner/repo/path --target commits --no-color
+npx octocode tools ghSearchRepos --queries '{"keywords":["<keywords>"]}' --no-color
+npx octocode tools npmSearch --queries '{"packageName":"<pkg>"}' --no-color
+npx octocode tools ghSearchPullRequests --queries '{"owner":"<owner>","repo":"<repo>","prNumber":<N>}' --no-color
+npx octocode tools ghSearchCommits --queries '{"owner":"<owner>","repo":"<repo>","path":"<path>"}' --no-color
 
-# Contract before raw OQL
-npx octocode search --scheme --compact --no-color
+# Contract before any raw tool call
+npx octocode tools <name> --scheme --compact --no-color
 ```
 
 Treat hits as leads. Cite paths/lines/IDs in locks, signals, memories, and refinements. Zero matches require one scope/mode/spelling adjustment before an absence claim. Load `octocode-research` for deeper evidence workflows when available.

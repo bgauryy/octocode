@@ -97,7 +97,7 @@ export async function handleIssuesMode(
   );
   if (isGitHubAPIError(result)) {
     return createErrorResult(result, query, {
-      toolName: TOOL_NAMES.GITHUB_PULL_REQUESTS,
+      toolName: TOOL_NAMES.GITHUB_ISSUES,
     });
   }
   const hasContent = Array.isArray(result.data.issues)
@@ -154,7 +154,7 @@ export async function handleIssuesMode(
       next,
     },
     hasContent,
-    TOOL_NAMES.GITHUB_PULL_REQUESTS,
+    TOOL_NAMES.GITHUB_ISSUES,
     { rawResponse: result.rawResponseChars }
   );
 }

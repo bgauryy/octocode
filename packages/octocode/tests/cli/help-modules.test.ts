@@ -65,7 +65,6 @@ describe('command-help-specs', () => {
       'login',
       'logout',
       'status',
-      'search',
       'clone',
       'cache',
       'context',
@@ -91,35 +90,10 @@ describe('command-help-specs', () => {
       'binary',
       'grep',
       'lsp',
+      'search',
     ]) {
       expect(findStaticCommandHelp(name)).toBeUndefined();
     }
-  });
-
-  it('search help teaches the two scheme views and the Haiku-gap recipes', async () => {
-    const { findStaticCommandHelp } =
-      await import('../../src/cli/command-help-specs.js');
-    const search = findStaticCommandHelp('search');
-    expect(search).toBeDefined();
-    const blob = [
-      ...(search!.scheme ?? []),
-      ...(search!.examples ?? []),
-      ...(search!.options ?? []).map(o => o.description),
-    ].join('\n');
-
-    // both schema entry points
-    expect(blob).toContain('search --scheme --compact');
-    expect(blob).toContain('search --scheme');
-    // Haiku gaps: npm, remote file read, references-vs-callers
-    expect(blob).toContain('--target packages');
-    // This example is sourced verbatim from the external @octocodeai/octocode-core
-    // CLI spec, which still uses the pre-rename "exact" value — accepted as a
-    // deprecated alias for "none" (see contentViewMode/schema.ts), so the
-    // example still runs correctly even though its text predates the rename.
-    expect(blob).toContain(
-      'search facebook/react/README.md --content-view exact'
-    );
-    expect(blob).toContain('callers = incoming calls only');
   });
 
   it('keeps static command help option lists documented and unique', async () => {
@@ -159,11 +133,6 @@ describe('command-help-specs', () => {
     const { findStaticCommandHelp } =
       await import('../../src/cli/command-help-specs.js');
 
-    expect(findStaticCommandHelp('search')!.usage).toContain('--lang');
-    expect(findStaticCommandHelp('search')!.usage).toContain('--op');
-    expect(findStaticCommandHelp('search')!.usage).toContain(
-      '--target packages'
-    );
     expect(findStaticCommandHelp('install')!.usage).toContain(
       '--backup-path <path>'
     );
@@ -199,35 +168,6 @@ describe('command-help-specs', () => {
     expect(output).toContain('--ide');
     expect(output).toContain('--method');
     expect(output).toContain('--force');
-
-    stdoutSpy.mockRestore();
-  });
-
-  it('renders research command usage guidance and examples', async () => {
-    const stdoutSpy = vi
-      .spyOn(process.stdout, 'write')
-      .mockImplementation(() => true);
-
-    const { findStaticCommandHelp } =
-      await import('../../src/cli/command-help-specs.js');
-    const { showCommandHelp } = await import('../../src/cli/help.js');
-    const cmd = findStaticCommandHelp('search')!;
-    showCommandHelp(cmd);
-
-    const output = stdoutSpy.mock.calls
-      .map((c: unknown[]) => String(c[0]))
-      .join('');
-    expect(output).toContain('WHEN TO USE');
-    expect(output).toContain('EXAMPLES');
-    expect(output).toContain('SCHEME');
-    expect(output).toContain('Sources: Local path, GitHub owner/repo');
-    expect(output).toContain(
-      'Answer types / targets: code, content, structure'
-    );
-    // semantics (formerly the lsp command) is now reachable via search --op
-    expect(output).toContain('--op');
-    expect(output).toContain('documentSymbols');
-    expect(output).toContain('search --scheme');
 
     stdoutSpy.mockRestore();
   });

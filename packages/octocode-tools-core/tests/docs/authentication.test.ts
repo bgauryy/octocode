@@ -19,7 +19,9 @@ const octokitMocks = vi.hoisted(() => {
   MockOctokit.plugin = vi.fn().mockReturnValue(MockOctokit);
   return {
     MockOctokit,
-    resetCounter: () => { counter = 0; },
+    resetCounter: () => {
+      counter = 0;
+    },
   };
 });
 
@@ -36,7 +38,8 @@ const serverConfigMocks = vi.hoisted(() => ({
 }));
 
 vi.mock('../../src/serverConfig.js', async importOriginal => {
-  const actual = await importOriginal<typeof import('../../src/serverConfig.js')>();
+  const actual =
+    await importOriginal<typeof import('../../src/serverConfig.js')>();
   return {
     ...actual,
     getGitHubToken: serverConfigMocks.getGitHubToken,
@@ -53,7 +56,9 @@ const ALL_ENV_VARS = [
   'GITHUB_PERSONAL_ACCESS_TOKEN',
 ] as const;
 
-const saved: Partial<Record<(typeof ALL_ENV_VARS)[number], string | undefined>> = {};
+const saved: Partial<
+  Record<(typeof ALL_ENV_VARS)[number], string | undefined>
+> = {};
 
 function saveAndClearTokenEnv() {
   for (const v of ALL_ENV_VARS) {
@@ -118,7 +123,10 @@ describe('resolveEnvToken — env-var priority (AUTHENTICATION.md §Token Priori
     process.env.GITHUB_TOKEN = 'loses';
     process.env.GITHUB_PERSONAL_ACCESS_TOKEN = 'loses';
     const { resolveEnvToken } = await import('@octocodeai/config');
-    expect(resolveEnvToken()).toMatchObject({ token: 'oc-wins', source: 'env:OCTOCODE_TOKEN' });
+    expect(resolveEnvToken()).toMatchObject({
+      token: 'oc-wins',
+      source: 'env:OCTOCODE_TOKEN',
+    });
   });
 
   it('GH_TOKEN wins when OCTOCODE_TOKEN absent (priority 2)', async () => {
@@ -176,7 +184,9 @@ describe('resolveTokenFull — storage + gh-cli fallback (AUTHENTICATION.md §To
     process.env.GH_TOKEN = 'env-wins';
     const mod = await import('../../src/shared/credentials/tokenResolution.js');
     mod.initTokenResolution({
-      getTokenWithRefresh: vi.fn().mockResolvedValue({ token: 'stored', source: 'stored' }),
+      getTokenWithRefresh: vi
+        .fn()
+        .mockResolvedValue({ token: 'stored', source: 'stored' }),
     });
     const r = await mod.resolveTokenFull({ getGhCliToken: () => null });
     expect(r?.source).toBe('env:GH_TOKEN');
@@ -192,21 +202,31 @@ describe('resolveTokenFull — storage + gh-cli fallback (AUTHENTICATION.md §To
       }),
     });
     const r = await mod.resolveTokenFull({ getGhCliToken: () => null });
-    expect(r).toMatchObject({ token: 'stored-tok', source: 'octocode-storage', wasRefreshed: false });
+    expect(r).toMatchObject({
+      token: 'stored-tok',
+      source: 'octocode-storage',
+      wasRefreshed: false,
+    });
   });
 
   it('wasRefreshed=true when storage auto-refreshed the token', async () => {
     const mod = await import('../../src/shared/credentials/tokenResolution.js');
     mod.initTokenResolution({
-      getTokenWithRefresh: vi.fn().mockResolvedValue({ token: 'new-tok', source: 'refreshed' }),
+      getTokenWithRefresh: vi
+        .fn()
+        .mockResolvedValue({ token: 'new-tok', source: 'refreshed' }),
     });
-    expect((await mod.resolveTokenFull({ getGhCliToken: () => null }))?.wasRefreshed).toBe(true);
+    expect(
+      (await mod.resolveTokenFull({ getGhCliToken: () => null }))?.wasRefreshed
+    ).toBe(true);
   });
 
   it('falls back to gh-cli when storage is empty, source is "gh-cli"', async () => {
     const mod = await import('../../src/shared/credentials/tokenResolution.js');
     mod.initTokenResolution({
-      getTokenWithRefresh: vi.fn().mockResolvedValue({ token: null, source: 'none' }),
+      getTokenWithRefresh: vi
+        .fn()
+        .mockResolvedValue({ token: null, source: 'none' }),
     });
     const r = await mod.resolveTokenFull({ getGhCliToken: () => 'gh-token' });
     expect(r).toMatchObject({ token: 'gh-token', source: 'gh-cli' });
@@ -215,41 +235,62 @@ describe('resolveTokenFull — storage + gh-cli fallback (AUTHENTICATION.md §To
   it('gh-cli token is trimmed before use', async () => {
     const mod = await import('../../src/shared/credentials/tokenResolution.js');
     mod.initTokenResolution({
-      getTokenWithRefresh: vi.fn().mockResolvedValue({ token: null, source: 'none' }),
+      getTokenWithRefresh: vi
+        .fn()
+        .mockResolvedValue({ token: null, source: 'none' }),
     });
-    expect((await mod.resolveTokenFull({ getGhCliToken: () => '  spaced  ' }))?.token).toBe('spaced');
+    expect(
+      (await mod.resolveTokenFull({ getGhCliToken: () => '  spaced  ' }))?.token
+    ).toBe('spaced');
   });
 
   it('passes hostname to gh-cli getter (Enterprise support)', async () => {
     const mod = await import('../../src/shared/credentials/tokenResolution.js');
     const ghGetter = vi.fn().mockReturnValue(null);
     mod.initTokenResolution({
-      getTokenWithRefresh: vi.fn().mockResolvedValue({ token: null, source: 'none' }),
+      getTokenWithRefresh: vi
+        .fn()
+        .mockResolvedValue({ token: null, source: 'none' }),
     });
-    await mod.resolveTokenFull({ hostname: 'enterprise.example.com', getGhCliToken: ghGetter });
+    await mod.resolveTokenFull({
+      hostname: 'enterprise.example.com',
+      getGhCliToken: ghGetter,
+    });
     expect(ghGetter).toHaveBeenCalledWith('enterprise.example.com');
   });
 
   it('gh-cli errors are swallowed and return null (not thrown)', async () => {
     const mod = await import('../../src/shared/credentials/tokenResolution.js');
     mod.initTokenResolution({
-      getTokenWithRefresh: vi.fn().mockResolvedValue({ token: null, source: 'none' }),
+      getTokenWithRefresh: vi
+        .fn()
+        .mockResolvedValue({ token: null, source: 'none' }),
     });
-    const r = await mod.resolveTokenFull({ getGhCliToken: () => { throw new Error('gh not found'); } });
+    const r = await mod.resolveTokenFull({
+      getGhCliToken: () => {
+        throw new Error('gh not found');
+      },
+    });
     expect(r).toBeNull();
   });
 
   it('returns null when all sources exhausted', async () => {
     const mod = await import('../../src/shared/credentials/tokenResolution.js');
     mod.initTokenResolution({
-      getTokenWithRefresh: vi.fn().mockResolvedValue({ token: null, source: 'none' }),
+      getTokenWithRefresh: vi
+        .fn()
+        .mockResolvedValue({ token: null, source: 'none' }),
     });
-    expect(await mod.resolveTokenFull({ getGhCliToken: () => null })).toBeNull();
+    expect(
+      await mod.resolveTokenFull({ getGhCliToken: () => null })
+    ).toBeNull();
   });
 
   it('throws when called before initTokenResolution', async () => {
     const mod = await import('../../src/shared/credentials/tokenResolution.js');
-    await expect(mod.resolveTokenFull()).rejects.toThrow('Token resolution not initialized');
+    await expect(mod.resolveTokenFull()).rejects.toThrow(
+      'Token resolution not initialized'
+    );
   });
 });
 
@@ -275,34 +316,30 @@ describe('TokenSource label strings match documented values (AUTHENTICATION.md �
 
 describe('Credential encryption format (AUTHENTICATION.md §Encryption)', () => {
   it('encrypt/decrypt roundtrip is lossless', async () => {
-    const { encrypt, decrypt } = await import(
-      '../../src/shared/credentials/credentialEncryption.js'
-    );
+    const { encrypt, decrypt } =
+      await import('../../src/shared/credentials/credentialEncryption.js');
     const plain = JSON.stringify({ hostname: 'github.com', username: 'octo' });
     expect(decrypt(encrypt(plain))).toBe(plain);
   });
 
   it('encrypted format is three colon-separated hex parts (iv:authTag:ciphertext)', async () => {
-    const { encrypt } = await import(
-      '../../src/shared/credentials/credentialEncryption.js'
-    );
+    const { encrypt } =
+      await import('../../src/shared/credentials/credentialEncryption.js');
     const parts = encrypt('test data').split(':');
     expect(parts).toHaveLength(3);
     parts.forEach(p => expect(p).toMatch(/^[0-9a-f]+$/i));
   });
 
   it('uses a fresh random IV each call — two encryptions differ', async () => {
-    const { encrypt } = await import(
-      '../../src/shared/credentials/credentialEncryption.js'
-    );
+    const { encrypt } =
+      await import('../../src/shared/credentials/credentialEncryption.js');
     const plain = 'same-plaintext';
     expect(encrypt(plain)).not.toBe(encrypt(plain));
   });
 
   it('IV portion has the expected length (16 bytes = 32 hex chars)', async () => {
-    const { encrypt } = await import(
-      '../../src/shared/credentials/credentialEncryption.js'
-    );
+    const { encrypt } =
+      await import('../../src/shared/credentials/credentialEncryption.js');
     const ivHex = encrypt('anything').split(':')[0];
     expect(ivHex).toHaveLength(32);
   });
@@ -324,7 +361,8 @@ describe('Storage file paths (AUTHENTICATION.md §Credential Storage)', () => {
   });
 
   it('CREDENTIALS_FILE and KEY_FILE match paths.*', async () => {
-    const enc = await import('../../src/shared/credentials/credentialEncryption.js');
+    const enc =
+      await import('../../src/shared/credentials/credentialEncryption.js');
     const { paths } = await import('../../src/shared/paths.js');
     expect(enc.CREDENTIALS_FILE).toBe(paths.credentials);
     expect(enc.KEY_FILE).toBe(paths.key);
@@ -344,31 +382,38 @@ describe('Default home directory name (AUTHENTICATION.md §Credential Storage)',
 
 describe('Token expiry 5-minute guard (AUTHENTICATION.md §Token Refresh)', () => {
   it('no expiresAt → never expired (OAuth App tokens)', async () => {
-    const { isTokenExpired } = await import('../../src/shared/credentials/credentialUtils.js');
+    const { isTokenExpired } =
+      await import('../../src/shared/credentials/credentialUtils.js');
     expect(isTokenExpired(makeStoredCredentials({}))).toBe(false);
   });
 
   it('expires in 10 minutes → NOT expired yet', async () => {
-    const { isTokenExpired } = await import('../../src/shared/credentials/credentialUtils.js');
+    const { isTokenExpired } =
+      await import('../../src/shared/credentials/credentialUtils.js');
     const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
     expect(isTokenExpired(makeStoredCredentials({ expiresAt }))).toBe(false);
   });
 
   it('expires in 3 minutes → IS expired (inside 5-minute buffer)', async () => {
-    const { isTokenExpired } = await import('../../src/shared/credentials/credentialUtils.js');
+    const { isTokenExpired } =
+      await import('../../src/shared/credentials/credentialUtils.js');
     const expiresAt = new Date(Date.now() + 3 * 60 * 1000).toISOString();
     expect(isTokenExpired(makeStoredCredentials({ expiresAt }))).toBe(true);
   });
 
   it('already past expiry → expired', async () => {
-    const { isTokenExpired } = await import('../../src/shared/credentials/credentialUtils.js');
+    const { isTokenExpired } =
+      await import('../../src/shared/credentials/credentialUtils.js');
     const expiresAt = new Date(Date.now() - 1000).toISOString();
     expect(isTokenExpired(makeStoredCredentials({ expiresAt }))).toBe(true);
   });
 
   it('invalid expiresAt date string → treated as expired', async () => {
-    const { isTokenExpired } = await import('../../src/shared/credentials/credentialUtils.js');
-    expect(isTokenExpired(makeStoredCredentials({ expiresAt: 'not-a-date' }))).toBe(true);
+    const { isTokenExpired } =
+      await import('../../src/shared/credentials/credentialUtils.js');
+    expect(
+      isTokenExpired(makeStoredCredentials({ expiresAt: 'not-a-date' }))
+    ).toBe(true);
   });
 });
 
@@ -376,26 +421,29 @@ describe('Token expiry 5-minute guard (AUTHENTICATION.md §Token Refresh)', () =
 
 describe('Refresh token expiry (AUTHENTICATION.md §Token Refresh)', () => {
   it('no refreshTokenExpiresAt → not expired', async () => {
-    const { isRefreshTokenExpired } = await import(
-      '../../src/shared/credentials/credentialUtils.js'
-    );
+    const { isRefreshTokenExpired } =
+      await import('../../src/shared/credentials/credentialUtils.js');
     expect(isRefreshTokenExpired(makeStoredCredentials({}))).toBe(false);
   });
 
   it('future refreshTokenExpiresAt → not expired', async () => {
-    const { isRefreshTokenExpired } = await import(
-      '../../src/shared/credentials/credentialUtils.js'
-    );
-    const refreshTokenExpiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
-    expect(isRefreshTokenExpired(makeStoredCredentials({ refreshTokenExpiresAt }))).toBe(false);
+    const { isRefreshTokenExpired } =
+      await import('../../src/shared/credentials/credentialUtils.js');
+    const refreshTokenExpiresAt = new Date(
+      Date.now() + 60 * 60 * 1000
+    ).toISOString();
+    expect(
+      isRefreshTokenExpired(makeStoredCredentials({ refreshTokenExpiresAt }))
+    ).toBe(false);
   });
 
   it('past refreshTokenExpiresAt → expired, must re-login', async () => {
-    const { isRefreshTokenExpired } = await import(
-      '../../src/shared/credentials/credentialUtils.js'
-    );
+    const { isRefreshTokenExpired } =
+      await import('../../src/shared/credentials/credentialUtils.js');
     const refreshTokenExpiresAt = new Date(Date.now() - 1000).toISOString();
-    expect(isRefreshTokenExpired(makeStoredCredentials({ refreshTokenExpiresAt }))).toBe(true);
+    expect(
+      isRefreshTokenExpired(makeStoredCredentials({ refreshTokenExpiresAt }))
+    ).toBe(true);
   });
 });
 
@@ -414,7 +462,8 @@ describe('Octokit instance cache (AUTHENTICATION.md §Octokit Instance Cache)', 
   it('same token within TTL → same cached instance', async () => {
     vi.resetModules();
     serverConfigMocks.getGitHubToken.mockResolvedValue('stable-token');
-    const { getOctokit, clearOctokitInstances } = await import('../../src/github/client.js');
+    const { getOctokit, clearOctokitInstances } =
+      await import('../../src/github/client.js');
     clearOctokitInstances();
 
     const first = await getOctokit();
@@ -425,7 +474,8 @@ describe('Octokit instance cache (AUTHENTICATION.md §Octokit Instance Cache)', 
   it('authInfo.token overrides resolved token → different instances for different tokens', async () => {
     vi.resetModules();
     serverConfigMocks.getGitHubToken.mockResolvedValue('resolved-token');
-    const { getOctokit, clearOctokitInstances } = await import('../../src/github/client.js');
+    const { getOctokit, clearOctokitInstances } =
+      await import('../../src/github/client.js');
     clearOctokitInstances();
 
     const withExplicit = await getOctokit({ token: 'explicit-token' });
@@ -440,7 +490,8 @@ describe('Octokit instance cache (AUTHENTICATION.md §Octokit Instance Cache)', 
     serverConfigMocks.getGitHubToken.mockImplementation(() =>
       Promise.resolve(++callCount <= 999 ? 'always-fresh' : 'always-fresh')
     );
-    const { getOctokit, clearOctokitInstances } = await import('../../src/github/client.js');
+    const { getOctokit, clearOctokitInstances } =
+      await import('../../src/github/client.js');
     clearOctokitInstances();
 
     await getOctokit();
@@ -460,17 +511,17 @@ describe('Hostname normalisation (AUTHENTICATION.md §In-Memory Credential Cache
     ['github.com', 'github.com'],
     ['enterprise.example.com', 'enterprise.example.com'],
   ])('normalizeHostname(%s) → %s', async (input, expected) => {
-    const { normalizeHostname } = await import(
-      '../../src/shared/credentials/credentialUtils.js'
-    );
+    const { normalizeHostname } =
+      await import('../../src/shared/credentials/credentialUtils.js');
     expect(normalizeHostname(input)).toBe(expected);
   });
 
   it('"https://GitHub.com/" and "github.com" normalise to the same key', async () => {
-    const { normalizeHostname } = await import(
-      '../../src/shared/credentials/credentialUtils.js'
+    const { normalizeHostname } =
+      await import('../../src/shared/credentials/credentialUtils.js');
+    expect(normalizeHostname('https://GitHub.com/')).toBe(
+      normalizeHostname('github.com')
     );
-    expect(normalizeHostname('https://GitHub.com/')).toBe(normalizeHostname('github.com'));
   });
 });
 
@@ -493,7 +544,9 @@ describe('VALID_TOKEN_SOURCES covers all documented source strings (AUTHENTICATI
       // Import the real serverConfig and override _resolveTokenFull
       const sc = await import('../../src/serverConfig.js');
       sc._setTokenResolvers({
-        resolveTokenFull: vi.fn().mockResolvedValue({ token: 'tok', source: src }),
+        resolveTokenFull: vi
+          .fn()
+          .mockResolvedValue({ token: 'tok', source: src }),
       });
       const result = await sc.getTokenSource();
       expect(result).toBe(src);
@@ -515,7 +568,9 @@ describe('VALID_TOKEN_SOURCES covers all documented source strings (AUTHENTICATI
     vi.resetModules();
     const sc = await import('../../src/serverConfig.js');
     sc._setTokenResolvers({
-      resolveTokenFull: vi.fn().mockResolvedValue({ token: 'tok', source: 'bogus-source' }),
+      resolveTokenFull: vi
+        .fn()
+        .mockResolvedValue({ token: 'tok', source: 'bogus-source' }),
     });
     expect(await sc.getTokenSource()).toBe('none');
     sc._resetTokenResolvers();

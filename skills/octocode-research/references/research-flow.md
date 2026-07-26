@@ -35,7 +35,7 @@ State the strongest cited case for and against; rebut the claim most likely to f
 
 ## Before Answering
 - Corpus/ref and active/skipped surfaces are explicit.
-- Raw/OQL schemas were read; continuations/pagination were followed or declared unnecessary.
+- Raw tool schemas were read; continuations/pagination were followed or declared unnecessary.
 - Candidates became exact evidence; syntax/semantic/history/artifact/runtime proof are distinguished.
 - LSP uses a real anchor; empty/incomplete semantic results use another lane.
 - Output cites local `path:line` and remote URL/PR/commit IDs, names diagnostics/fallbacks, and reports verification.

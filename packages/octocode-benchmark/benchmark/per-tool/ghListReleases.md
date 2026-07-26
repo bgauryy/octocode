@@ -17,14 +17,16 @@ CLI="node packages/octocode/out/octocode.js"
 | param | type | notes |
 |---|---|---|
 | owner / repo | string **req** | repo scope |
-| limit / page / itemsPerPage | int | release-list paging |
+| page / itemsPerPage | int | release-list paging |
+| includeAssets | boolean | opt-in: attach `assets[]` (`name`, `size`, `downloadCount`, `url`) per release |
 
 ## Checks
 
-1. **Releases** — `ENABLE_RELEASES=1 $CLI tools ghListReleases --queries '{"owner":"microsoft","repo":"TypeScript","limit":5}' --compact`
+1. **Releases** — `ENABLE_RELEASES=1 $CLI tools ghListReleases --queries '{"owner":"microsoft","repo":"TypeScript","itemsPerPage":5}' --compact`
    → PASS: tagName/publishedAt rows + latest stable surfaced.
+2. **With assets** — `... "includeAssets":true` → PASS: `assets[]` with download counts (omitted by default to stay lean).
 
 ## Workflows
 
 - **What's the latest stable?** → `ghListReleases` → feed the tag into `ghViewRepoStructure`/`ghGetFileContent` at that ref.
-- **What shipped between releases?** → take two tags → `ghSearchCommits` with `since`/`until`.
+- **What shipped between releases?** → take two tags → `ghSearchCommits` with `base`/`head`.

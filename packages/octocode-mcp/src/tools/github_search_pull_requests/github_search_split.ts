@@ -1,4 +1,5 @@
-// MCP registrations for the 4 focused tools that replace ghHistoryResearch.
+// MCP registrations for the 4 focused GitHub history tools
+// (ghSearchPullRequests / ghSearchIssues / ghSearchCommits / ghListReleases).
 // Each reuses the shared bulk schema + thin `type`-injecting executor from
 // octocode-tools-core; the backend/router is unchanged.
 import type { z } from 'zod';
@@ -29,26 +30,29 @@ export const registerSearchGitHubPullRequestsSplitTool =
     executionFn: searchMultipleGitHubPullRequestsSplit,
   });
 
-export const registerSearchGitHubIssuesTool =
-  createRemoteToolRegistration<z.input<typeof SearchIssuesQuerySchema>>({
-    name: TOOL_NAMES.GITHUB_ISSUES,
-    title: 'GitHub Issue Search',
-    inputSchema: SearchIssuesBulkLocalSchema,
-    executionFn: searchMultipleGitHubIssues,
-  });
+export const registerSearchGitHubIssuesTool = createRemoteToolRegistration<
+  z.input<typeof SearchIssuesQuerySchema>
+>({
+  name: TOOL_NAMES.GITHUB_ISSUES,
+  title: 'GitHub Issue Search',
+  inputSchema: SearchIssuesBulkLocalSchema,
+  executionFn: searchMultipleGitHubIssues,
+});
 
-export const registerSearchGitHubCommitsTool =
-  createRemoteToolRegistration<z.input<typeof SearchCommitsQuerySchema>>({
-    name: TOOL_NAMES.GITHUB_COMMITS,
-    title: 'GitHub Commit History',
-    inputSchema: SearchCommitsBulkLocalSchema,
-    executionFn: searchMultipleGitHubCommits,
-  });
+export const registerSearchGitHubCommitsTool = createRemoteToolRegistration<
+  z.input<typeof SearchCommitsQuerySchema>
+>({
+  name: TOOL_NAMES.GITHUB_COMMITS,
+  title: 'GitHub Commit History',
+  inputSchema: SearchCommitsBulkLocalSchema,
+  executionFn: searchMultipleGitHubCommits,
+});
 
-export const registerListGitHubReleasesTool =
-  createRemoteToolRegistration<z.input<typeof ListReleasesQuerySchema>>({
-    name: TOOL_NAMES.GITHUB_RELEASES,
-    title: 'GitHub Releases',
-    inputSchema: ListReleasesBulkLocalSchema,
-    executionFn: listMultipleGitHubReleases,
-  });
+export const registerListGitHubReleasesTool = createRemoteToolRegistration<
+  z.input<typeof ListReleasesQuerySchema>
+>({
+  name: TOOL_NAMES.GITHUB_RELEASES,
+  title: 'GitHub Releases',
+  inputSchema: ListReleasesBulkLocalSchema,
+  executionFn: listMultipleGitHubReleases,
+});

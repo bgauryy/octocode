@@ -21,6 +21,7 @@ const TOOL_PAGINATION_KNOBS: Record<string, string[]> = {
   localSearchCode: ['page'],
   localViewStructure: ['page'],
   localFindFiles: ['page'],
+  localFindDeadCode: ['page'],
   localGetFileContent: ['startLine', 'endLine'],
   lspGetSemantics: ['uri', 'lineHint', 'type'],
 };

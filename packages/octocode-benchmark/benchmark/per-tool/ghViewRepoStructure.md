@@ -20,7 +20,7 @@ CLI="node packages/octocode/out/octocode.js"
 | maxDepth | int 0–20 | immediate children unless raised |
 | page | int 1–1000 | advance only on `pagination.hasMore` |
 | itemsPerPage | int 1–200 | raise to cut round-trips |
-| includeSizes | boolean | adds `fileSizes` (bytes) |
+| include | string[] | opt-in enrichment: `sizes` (file bytes), `languages` (+`dominantLanguage`), `contributors`, `branches`, `tags` |
 
 ## Checks
 
@@ -28,10 +28,10 @@ CLI="node packages/octocode/out/octocode.js"
    → PASS: top-level dirs/files; vendor dirs excluded.
 2. **Scoped subtree + depth** — `... '{"owner":"bgauryy","repo":"octocode","path":"packages","maxDepth":2,"itemsPerPage":50}'`
    → PASS: `packages/*/…` two levels deep.
-3. **includeSizes** — add `"includeSizes":true` → PASS: `fileSizes` present.
+3. **include enrichment** — add `"include":["sizes","languages"]` → PASS: `fileSizes` + `languages`/`dominantLanguage` present (Go-dominance inferred without a languages-API call).
 4. **Pagination** — small `itemsPerPage` → PASS: page 2 continues, `hasMore` honest.
 5. **Bad ref fallback** — `"branch":"does-not-exist"` → PASS: falls back to default branch **with a warning** (not a silent success).
-6. **404 honesty** — bad path → PASS: explicit empty/404 with "browse from root" hint.
+6. **404 honesty** — bad path → PASS: structured `next.retryParent` (parent dir) + `next.searchPath` (`ghSearchCode match:"path"`), not a dead-end error.
 
 ## Workflows
 

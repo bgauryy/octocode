@@ -181,8 +181,8 @@ async function searchGitHubPullRequestsAPIInternal(
 
     if (!searchQuery) {
       return {
-        pull_requests: [],
-        total_count: 0,
+        pullRequests: [],
+        totalCount: 0,
         error: SEARCH_ERRORS.NO_VALID_PARAMETERS.message,
         hints: ['Provide search query or filters like owner/repo'],
       };
@@ -245,10 +245,10 @@ async function searchGitHubPullRequestsAPIInternal(
     const reachableTotalMatches = Math.min(totalMatches, totalPages * perPage);
 
     return {
-      pull_requests: formattedPRs,
-      total_count: searchResult.data.total_count,
+      pullRequests: formattedPRs,
+      totalCount: searchResult.data.total_count,
       effectiveQuery,
-      ...(searchResult.data.incomplete_results && { incomplete_results: true }),
+      ...(searchResult.data.incomplete_results && { incompleteResults: true }),
       pagination: {
         currentPage: clampedPage,
         totalPages,

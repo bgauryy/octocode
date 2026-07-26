@@ -76,11 +76,11 @@ example with the exact tool output: §5.5.
 
 Seven mechanisms make the loop cheap in practice:
 
-1. **Hints: the tool plans your next call.** Every `search` code row ships a
-   prefilled, copy-paste OQL query for the obvious follow-up, not just a path.
-   A text hit for a symbol returns `next.semantic` (a documentSymbols query
-   against the containing file) and `next.fetch` (a content query anchored on
-   the match), both directly executable. Deeper results add `nextHints[].why`
+1. **Hints: the tool plans your next call.** Direct tool results ship
+   prefilled, copy-paste follow-up fields, not just a path. A text hit for a
+   symbol returns `next.semantic` (a documentSymbols query against the
+   containing file) and `next.fetch` (a content query anchored on the
+   match), both directly executable. Deeper results add `nextHints[].why`
    and `confidence`, explaining *why* a continuation is offered, not just
    that one exists.
 2. **Pagination: cursors are opaque, nothing silently drops.**
@@ -90,16 +90,13 @@ Seven mechanisms make the loop cheap in practice:
    Schema is tiered and opt-in. The tool catalog (`tools --json`, names and
    one-liners) is what an agent sees by default; a tool's full field-level
    schema (`tools <name> --scheme --json`) is far larger and is fetched only
-   right before that tool is called raw. Same split for OQL: the full
-   contract (`search --scheme`) is dense and complete, and the lean
-   agent-facing guide (`search --scheme --compact`) is a fraction of the
-   size and is what should be read first. Full breakdown: §9b.
+   right before that tool is called raw. Full breakdown: §9b.
 4. **Smart moves across local/external/federated.** The bridge is explicit
    at three depths (§8: `ghCloneRepo`, `ghCloneRepo sparsePath`,
    `ghGetFileContent type:"directory"`); one call converts remote code to
    local-grade evidence. Treat those explicit bridge calls as the reliable
-   mechanism; a plain `search` on a GitHub path does not reliably trigger
-   materialization on its own, so don't assume it will. Separately: a query
+   mechanism — a GitHub read never implicitly materializes, so call one of
+   them deliberately. Separately: a query
    against `colinhacks/zod/packages` surfaces §7's warning directly. The
    current default branch is a `packages/` monorepo (v3/v4 split), not the
    flat `src/` layout an agent might assume. GitHub's tree is not the
@@ -131,7 +128,7 @@ Seven mechanisms make the loop cheap in practice:
 
 ## 1. The Core Model
 
-Three research surfaces, one loop:
+Two research surfaces, bridged explicitly, one loop:
 
 ```
 LOCAL      workspace files, node_modules, cloned/materialized repos
@@ -140,11 +137,15 @@ LOCAL      workspace files, node_modules, cloned/materialized repos
 
 EXTERNAL   GitHub (code, trees, files, PRs, commits) and npm
            → ghSearchCode, ghGetFileContent, ghViewRepoStructure,
-             ghSearchRepos, ghHistoryResearch, npmSearch
+             ghSearchRepos, ghSearchPullRequests, ghSearchIssues,
+             ghSearchCommits, ghListReleases, ghSearchDiscussions, npmSearch
 
-FEDERATED  one typed query planned across both
-           → oqlSearch (run `search --scheme` for the full contract)
+BRIDGE     ghCloneRepo (or ghGetFileContent type:"directory") converts
+           remote code to local-grade evidence, then LOCAL tools take over
 ```
+
+There is no single query planned across both surfaces — call the bridge
+explicitly, then run local tools on the result.
 
 Evidence has grades. Treat them differently:
 
@@ -282,9 +283,12 @@ or "this is unused" built on a single angle (§12, item 2).
 | `ghGetFileContent` | external | read GitHub file (slices/ranges/symbols); `type:"directory"` materializes a subtree | reading remote files; bridging remote→local |
 | `ghViewRepoStructure` | external | GitHub tree browse | orienting in a remote repo |
 | `ghSearchRepos` | external | repo discovery | finding candidate repos/prior art |
-| `ghHistoryResearch` | external | PR search + PR deep-read + commit history | archaeology: why did this change |
+| `ghSearchPullRequests` | external | PR search + PR deep-read (files/diffs/reviews; `reviewMode:"full"`) | who changed this and why |
+| `ghSearchIssues` | external | issue search + read one issue | tracking reported problems/intent |
+| `ghSearchCommits` | external | commit history for a path/range, or `base`+`head` compare | archaeology: when/why a line changed |
+| `ghListReleases` | external | releases + latest stable (**gated: `ENABLE_RELEASES`**) | mapping versions to changes |
+| `ghSearchDiscussions` | external | repo Discussions Q&A/RFCs (GraphQL; **gated: `ENABLE_DISCUSSIONS`**) | mining Q&A, RFCs, announcements |
 | `npmSearch` | external | package → source repo (+ `repositoryDirectory`) | resolving a dependency to its home |
-| `oqlSearch` | both | typed federated query; research/graph/diff targets | multi-predicate queries, remote+local in one plan |
 | `ghCloneRepo` | bridge | full/sparse clone (**gated: `ENABLE_CLONE=true`**) | whole-repo local analysis |
 
 Bulk: every tool takes up to 5 parallel queries per call with per-query `id`.
@@ -368,7 +372,7 @@ WHAT DO I HOLD?
 │    → node_modules FIRST (§7), npmSearch only to find the repo
 │
 ├─ A "why" / history question
-│    → ghHistoryResearch (PRs: keywords+match:["title"], concise:true; commits: owner/repo/path)
+│    → ghSearchPullRequests (keywords+match:["title"], concise:true) or ghSearchCommits (owner/repo/path)
 ```
 
 ---
@@ -424,17 +428,17 @@ What you get:
 - **Works identically remote**: same anchors from a GitHub file, so you can go
   ghSearchCode (which file) to ghGetFileContent matchString (which lines) to
   materialize to LSP at those lines, without ever reading a full file.
-- **The federated `search` shorthand goes further than a warning string**: a
-  code-search row's `next` object is a directly-executable OQL query object,
-  not prose. `next.fetch` and `next.semantic` come back pre-populated with
-  `from`, `target`, and `params` filled in (§0). Some results add
-  `nextHints[].why` and `confidence` explaining *why* that continuation was
-  offered, e.g. `"Read the code at this symbol location."` /
-  `confidence:"exact"`. That's reasoning support, not just a pointer.
+- **Direct tool results go further than a warning string**: a code-search
+  row's `next` object is a directly-executable query, not prose. `next.fetch`
+  and `next.semantic` come back pre-populated with the target tool and params
+  filled in (§0). Some results add `nextHints[].why` and `confidence`
+  explaining *why* that continuation was offered, e.g. `"Read the code at
+  this symbol location."` / `confidence:"exact"`. That's reasoning support,
+  not just a pointer.
 
 Default read policy: **matchString first, line ranges second, fullContent last**
 (small files only). If you know *what* you're looking for but not *where*, this
-is always the cheapest correct read. Related but different: `ghHistoryResearch
+is always the cheapest correct read. Related but different: `ghSearchPullRequests
 matchString` filters PR patches/comments to matching sections (same idea,
 different surface).
 
@@ -546,11 +550,12 @@ minify:"symbols"`, which is tree-sitter based and language-wide.
                 before pulling bodies
               - startLine/endLine for known ranges; fullContent only for small files
 
-4. WHY        ghHistoryResearch:
-              - PR triage: keywords + match:["title"] + concise:true, then prNumber +
-                content selectors (body/patches mode:"selected"/comments) for depth
+4. WHY        PR/issue/commit history:
+              - PR triage (ghSearchPullRequests): keywords + match:["title"] + concise:true,
+                then owner+repo+prNumber + content:{} selectors (body/patches/comments,
+                reviewMode:"full") for depth
               - archaeology: state:"merged" sort:"created" order:"asc"
-              - commit lane: type:"commits" owner/repo/path (trailing "/" = subtree)
+              - commit lane (ghSearchCommits): owner/repo/path (trailing "/" = subtree)
 
 5. ESCALATE   the moment you need AST, LSP, multi-file grep, or >2 more reads:
               materialize and go local (§8).
@@ -624,8 +629,6 @@ The full §5 loop runs unmodified on the result at any of the three depths:
 | **repo** | `ghCloneRepo` (no sparsePath) | full shallow clone, `complete:true`, cached for a period (`forceRefresh` to bust) | repo-wide grep/AST/LSP, dead-code, reachability |
 
 Every result carries `localPath` + prefilled `next.localSearch` / `next.viewStructure`.
-OQL reaches the same machinery via `materialize: "auto"/"required"` or a row's
-`next.materialize`.
 
 **Post-bridge:** structural AST rules, native LSP `documentSymbols`, and
 matchString anchor reads all run unmodified on the materialized paths. Remote code
@@ -642,21 +645,9 @@ repo-wide reachability/dead-code conclusions (the warning says exactly this).
 ### Local → External (context enrichment)
 
 - symbol came from a dependency → §7 first, then npmSearch → repo → docs/tests/history
-- "why is this code like this" → `ghHistoryResearch type:"commits"` on the file path,
-  then the PR behind the commit (`reviewMode:"full"` for the whole story)
+- "why is this code like this" → `ghSearchCommits` on the file path,
+  then the PR behind the commit via `ghSearchPullRequests` (`reviewMode:"full"` for the whole story)
 - "has someone solved this" → `ghSearchRepos` (concise triage) → §6 on candidates
-
-### Federated in one shot (OQL)
-
-`oqlSearch from:{kind:"github",owner,repo}` plans provider search + optional
-materialization for you. Behaviors to rely on:
-- GitHub code rows come back `proofGrade:"text"` with `evidence.answerReady:false`
-  and a `providerSemanticsApproximate` diagnostic. That is NORMAL, not failure;
-  each row carries a prefilled `next.fetch` to upgrade to exact content
-- `target:"research"` page 1 is summary counts, packets from page 2 onward;
-  `next.graph` upgrades rows to proofStatus (confirmed-by-lsp / conflicting-evidence / etc.)
-- zero rows plus `providerUnindexed` does not mean absence; follow `next.materialize`
-- run `search --scheme` before authoring nontrivial OQL; `--explain` shows the routing PLAN and then also executes, while `--dry-run` prints the PLAN without executing
 
 ---
 
@@ -688,16 +679,11 @@ not omission:
 |---|---|---|
 | `tools --json`: tool catalog, names + one-liners | small | default orientation: which of the 12 tools is this? |
 | `tools <name> --scheme --json`: one tool's full field-level schema | large | right before calling that tool raw, avoid guessing a field |
-| `search --scheme --compact`: lean OQL agent guide (source/target/recipes) | small | read this first for any non-trivial OQL query |
-| `search --scheme`: full OQL contract (every target/predicate/param) | large | only when the compact guide didn't resolve an edge case |
 
-The compact OQL guide is a small fraction of the size of the full contract
-and answers the routing question ("which target, which source") that blocks
-most queries. Read it before the full contract, not instead of it when
-something is still ambiguous. The same logic applies one level up: read the
-tool catalog before any single tool's schema, and read a single tool's
-schema before ever calling it with guessed field names (§12 anti-pattern:
-avoid guessing a field that a one-line schema read would have shown you).
+Read the tool catalog before any single tool's schema, and read a single
+tool's schema before ever calling it with guessed field names (§12
+anti-pattern: avoid guessing a field that a one-line schema read would have
+shown you).
 
 ---
 
@@ -762,8 +748,8 @@ literal anchor.
    comments; quote only from `minify:"none"` (§9).
 10. **Serial single queries.** Up to 5 queries per call, per tool. Batch.
 11. **Calling a raw tool with a guessed field name instead of reading its schema
-    first.** The catalog and the OQL compact guide are both cheap to read;
-    a wrong field costs a full extra round-trip and, worse, a silently-ignored
+    first.** The catalog and per-tool schema are both cheap to read; a wrong
+    field costs a full extra round-trip and, worse, a silently-ignored
     parameter (§9b).
 12. **Spending a claim on one angle instead of one batch on several.** "Is X
     unused / always guarded / never reassigned" is a claim, not a location
@@ -819,10 +805,10 @@ manifest covers ground it doesn't, is the point of this section.
 | Field pattern | Source | This manifest's answer | Verdict |
 |---|---|---|---|
 | Just-in-time retrieval: hold a lightweight identifier, load content on demand instead of pre-loading it | Anthropic | `matchString` anchors, `next.fetch`/`next.semantic` (§4b). The toolset never had a pre-load path to begin with | Matches by construction |
-| Memory pointers: a short reference token stands in for content that can be re-fetched | StackOne | Materialized `localPath` + `next.materialize` (§8); OQL rows carry the same pattern | Matches |
+| Memory pointers: a short reference token stands in for content that can be re-fetched | StackOne | Materialized `localPath` (§8) | Matches |
 | Built-in filters as the pragmatic middle ground for tool *providers* (vs. sandboxed code-mode, which StackOne calls "heavy... most won't build it") | StackOne | `countMatchesPerFile`, `filesOnly`, `discovery`, structural metavars, `concise` (§9, §12) | Matches: independent validation of an existing design choice, not self-assessment |
-| Tiered/on-demand schema so tool definitions don't burn the budget up front | StackOne ("Tool Definition Catch-22") | §9b: a small tool catalog vs. a much larger per-tool schema; a compact OQL guide vs. the full contract | Matches: same discipline applied at the field level since the tool count (13) never grew large enough to need discovery-by-search |
-| Pre-flight cost awareness: let the agent see or estimate cost before committing | StackOne ("dry-run... their survival becomes their responsibility") | `search --dry-run` plans an OQL query without executing it (prints the routing PLAN and an evidence line, no result rows); `--explain` shows the same PLAN but then executes | Partial: the non-executing planner ships and is CLI-reachable. An `estimatedTokens` field and a 30k/50k token-warning path exist in `utils/pagination/{core,hints}.ts` but are currently unwired into any CLI-reachable response (dead code), so the cost-warning half is aspirational, not shipped |
+| Tiered/on-demand schema so tool definitions don't burn the budget up front | StackOne ("Tool Definition Catch-22") | §9b: a small tool catalog vs. a much larger per-tool schema | Matches: same discipline applied at the field level since the tool count (12) never grew large enough to need discovery-by-search |
+| Pre-flight cost awareness: let the agent see or estimate cost before committing | StackOne ("dry-run... their survival becomes their responsibility") | No dry-run/explain planner exists for direct tool calls | Gap: an `estimatedTokens` field and a 30k/50k token-warning path exist in `utils/pagination/{core,hints}.ts` but are unwired into any CLI-reachable response (dead code) — not shipped |
 | Structural/semantic code intelligence beats plain text retrieval for coding agents, measured | Sourcegraph (CodeScaleBench: file recall 0.127 to 0.277, P@5 0.140 to 0.478, F1@5 0.099 to 0.262 with an MCP code-graph layer vs. grep-only) | §1/§5 evidence grades (semantic > structural > lexical > provider) argue the same ordering qualitatively | Same conclusion, weaker proof: this manifest has never run the equivalent task-level A/B (§13 already lists this as an open item, not restated as new) |
 
 **Where this manifest doesn't compete, on purpose:**
@@ -900,9 +886,8 @@ with lexical/structural/semantic lanes. Octocode primitive → common equivalent
 | `localViewStructure` / `localFindFiles` | `tree`/`eza`, `fd` |
 | `ghSearchCode` / `ghViewRepoStructure` / `ghGetFileContent` | `gh search code`, `gh api repos/.../git/trees`, `gh api .../contents` (same default-branch index limits apply) |
 | `ghCloneRepo sparsePath` / `type:"directory"` | `git clone --depth 1 --filter=blob:none --sparse` + `git sparse-checkout set <path>` |
-| `ghHistoryResearch` | `gh pr list/view`, `git log -- <path>`, `gh search prs` |
+| `ghSearchPullRequests` / `ghSearchCommits` | `gh pr list/view`, `gh search prs`; `git log -- <path>` |
 | `npmSearch` → `repositoryDirectory` | `npm view <pkg> repository`, then the repo's `directory` field |
-| `oqlSearch` (federated) | no direct equivalent, compose the above manually |
 | evidence grades + dual-lane cross-check (§1, §5.5) | pure method, apply with any of the above |
 
 What does NOT transfer: prefilled `next.*` continuation queries, lineHint

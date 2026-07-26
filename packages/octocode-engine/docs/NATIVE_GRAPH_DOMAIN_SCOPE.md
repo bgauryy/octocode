@@ -4,6 +4,18 @@ Status: **SCOPE / design** (not yet implemented).
 Tracks ARCHITECTURE.md §"Research Graph Direction": move reachability/dead-code
 from tool-specific JS into a generic native graph domain.
 
+> **⚠ BLOCKED — premise invalidated.** This plan's verification strategy
+> (§4: differential-test the native port against the JS `analyzeResearchFlow`
+> pipeline as a "golden oracle") depends on `octocode-tools-core/src/oql/research/analyze/`,
+> which has been deleted along with the rest of the OQL subsystem. There is no
+> more JS reachability implementation to port from or verify against. Before
+> resuming this work: either capture a golden-verdict snapshot from history
+> (last commit before the OQL removal) to use as a frozen oracle, or design a
+> new verification strategy (e.g. hand-labeled corpus) that doesn't require a
+> live JS reference implementation. The native `graphFacts` API this plan
+> builds on is also currently orphaned — see ARCHITECTURE.md's "Research Graph
+> Direction" section.
+
 ## 0. Why this is not a greenfield build (the key finding)
 
 Research into the current code (2026-07) changed the framing. Reachability and

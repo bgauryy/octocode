@@ -172,6 +172,12 @@ export type LspSemanticEnvelope = {
         byFile?: unknown[];
         totalReferences: number;
         totalFiles: number;
+        warmup?: {
+          candidates: number;
+          warmedFiles: number;
+          skippedLarge: number;
+          possiblyTruncated: boolean;
+        };
         empty?: SemanticEmptyState;
       }
     | {

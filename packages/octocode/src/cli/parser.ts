@@ -119,7 +119,6 @@ const BOOLEAN_OPTIONS = new Set([
   'help',
   'version',
   'force',
-  'source',
   'json',
   'concise',
   'status',
@@ -190,10 +189,6 @@ const BOOLEAN_OPTIONS = new Set([
 ]);
 
 function shouldConsumeNextValue(args: ParsedArgs, key: string): boolean {
-  if (key === 'source' && args.command === 'search') {
-    return true;
-  }
-
   if (BOOLEAN_OPTIONS.has(key)) {
     return false;
   }

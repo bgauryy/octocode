@@ -58,7 +58,9 @@ describe('paths', () => {
     process.env.APPDATA = 'C:\\Users\\TestUser\\AppData\\Roaming';
     const mod = await import('../../../src/shared/paths.js');
 
-    expect(mod.paths.home.replaceAll('\\', '/')).toBe('C:/Users/TestUser/.octocode');
+    expect(mod.paths.home.replaceAll('\\', '/')).toBe(
+      'C:/Users/TestUser/.octocode'
+    );
   });
 
   it('uses ~/.octocode on Linux and ignores XDG_CONFIG_HOME', async () => {

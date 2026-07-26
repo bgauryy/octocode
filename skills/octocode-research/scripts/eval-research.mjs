@@ -232,11 +232,11 @@ Package health: last publish, maintainer count, issue ratio, release cadence, an
 - tree-sitter: parser ecosystem. \`moderate\` https://tree-sitter.github.io/tree-sitter/
 Confidence: likely
 Next: compare APIs against local use cases.`,
-    'oql-graph-proof': `Mode: Investigate
-First ran search --scheme --compact before OQL JSON.
-Used target:"research" then target:"graph" for research/graph proof.
+    'dead-code-proof': `Mode: Investigate
+First ran tools <name> --scheme before an unfamiliar raw call.
+Used localSearchCode structural search for candidate dead exports.
 Candidate rows are not proof; mark them as tentative until upgraded.
-Upgrade proof: exact read at packages/foo/src/index.ts:12, import search, AST checks, LSP references, and tests.
+Upgrade proof: exact read at packages/foo/src/index.ts:12, import search, AST checks, lspGetSemantics references/callers, and tests.
 Gate broad deletion until confirmed by LSP and tests.`,
     'degraded-transport': `Mode: Investigate
 Degraded transport: Octocode unavailable, so confidence degraded.

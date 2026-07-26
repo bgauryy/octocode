@@ -1,4 +1,5 @@
-// Thin executors for the 4 tools that replace ghHistoryResearch. Each injects
+// Thin executors for the 4 focused GitHub history tools
+// (ghSearchPullRequests / ghSearchIssues / ghSearchCommits / ghListReleases). Each injects
 // the mode `type` its tool owns, then delegates to the shared, already-tested
 // bulk executor + router (searchMultipleGitHubPullRequests). This keeps ONE
 // backend while giving the agent four focused, single-purpose tools.
@@ -16,7 +17,7 @@ function withType(
 ): ToolExecutionArgs<GitHubPullRequestSearchInput> {
   return {
     ...args,
-    queries: (args.queries as Array<Record<string, unknown>>).map((q) => ({
+    queries: (args.queries as Array<Record<string, unknown>>).map(q => ({
       ...q,
       type,
     })),

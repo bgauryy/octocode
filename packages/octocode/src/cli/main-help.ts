@@ -1,11 +1,8 @@
 // ── Help surface sync contract ────────────────────────────────────────────────
 // ALL locations must be updated together when changing help text:
 //   1. THIS FILE (main-help.ts)                    — top-level `--help`
-//   2. packages/octocode/src/cli/commands/search.ts — renderEnvelope, per-command hints
-//   3. packages/octocode-tools-core/src/oql/schemeText.ts — `--scheme` JSON output
-//   4. octocode-mcp-host/…/resources/tools/oqlSearch.ts — MCP tool description (sibling repo resources)
-//   5. octocode-mcp-host/…/resources/cli/search.ts  — CLICommandSpec (scheme[], whenToUse[])
-//   6. octocode-mcp-host/…/resources/systemPrompt.ts — MCP + CLI system prompt
+//   2. packages/octocode/src/cli/tool-command/context.ts — agent-context dump
+//   3. octocode-mcp-host/…/resources/systemPrompt.ts — MCP + CLI system prompt
 // ─────────────────────────────────────────────────────────────────────────────
 import { c, bold, dim, underline } from '../utils/colors.js';
 import { getAuthStatus } from '../features/github-oauth.js';
@@ -22,7 +19,7 @@ import { REGISTERED_COMMAND_NAMES } from './commands/index.js';
 
 // Quick (read-first) commands get a rich arg hint; every other command is
 // derived from COMMAND_SPECS below so the list never drifts or misses one.
-const QUICK_COMMAND_NAMES = new Set(['search', 'clone', 'cache']);
+const QUICK_COMMAND_NAMES = new Set(['clone', 'cache']);
 const REGISTERED_COMMAND_NAME_SET = new Set(REGISTERED_COMMAND_NAMES);
 
 /**
@@ -32,14 +29,12 @@ const REGISTERED_COMMAND_NAME_SET = new Set(REGISTERED_COMMAND_NAMES);
  */
 function buildAgentInstructionsBlock(): string[] {
   const body = [
-    'search = read-only research. Pick a SOURCE (local path · owner/repo[/path]',
-    '· npm name · --query <oql>), then a LANE: text · --tree · --search path',
-    '· --op (LSP) · --target repositories|packages|pullRequests|commits|diff.',
-    'Loop: orient cheap (tree/discovery) → narrow → read exact',
-    '(--content-view none) → prove. Snippets are discovery, not proof;',
+    'tools <name> = read-only research. Read `tools <name> --scheme` first',
+    "(never guess fields), then `tools <name> --queries '<json>'` to run it.",
+    'Loop: orient cheap (structure/discovery) → narrow → read exact',
+    '(minify:"none") → prove. Snippets are discovery, not proof;',
     'status:empty is a real run, not absence — follow next.* continuations.',
-    'Before any raw `tools` call read `tools <name> --scheme` (never guess',
-    'fields). Full protocol + playbook: `context`.',
+    'Full protocol + playbook: `context`.',
   ];
   return [
     `  ${dim('<AGENT_INSTRUCTIONS>')}`,
@@ -182,12 +177,7 @@ export async function showHelp(): Promise<void> {
     '',
 
     // ── Quick commands FIRST — the friendly, human-first surface ────────────
-    `  ${c('green', bold('QUICK COMMANDS'))}  ${dim('read-only research + materialization')}`,
-    quick(
-      'search',
-      '<text> <path|repo> · --scheme',
-      'read-only research; --scheme first'
-    ),
+    `  ${c('green', bold('QUICK COMMANDS'))}  ${dim('read-only materialization')}`,
     quick(
       'clone',
       '<owner/repo[/path][@branch]>',

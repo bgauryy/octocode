@@ -14,12 +14,7 @@ function runFinalizer(queries: AnyRec[], results: AnyRec[]) {
   return out.structuredContent as AnyRec;
 }
 
-function groupResult(
-  owner: string,
-  repo: string,
-  path: string,
-  value: string
-) {
+function groupResult(owner: string, repo: string, path: string, value: string) {
   return {
     id: `${owner}/${repo}`,
     owner,

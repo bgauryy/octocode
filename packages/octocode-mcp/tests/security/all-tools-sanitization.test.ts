@@ -175,7 +175,7 @@ const TOOL_RESULT_SHAPES: Record<string, () => CallToolResult> = {
     },
   }),
 
-  ghHistoryResearch: () => ({
+  ghSearchPullRequests: () => ({
     content: [
       {
         type: 'text',
@@ -219,11 +219,11 @@ const TOOL_RESULT_SHAPES: Record<string, () => CallToolResult> = {
     },
   }),
 
-  ghSearchPullRequests: () => ({
+  ghSearchDiscussions: () => ({
     content: [
       {
         type: 'text',
-        text: `PR #42: Rotate secrets\n- Patch: +AWS_KEY=${SECRETS.AWS_KEY}\n- Review: "token ${SECRETS.GITHUB_TOKEN}"`,
+        text: `Discussion #7: Leaked config\n- Body: uses ${SECRETS.AWS_KEY}\n- Comment: "token ${SECRETS.GITHUB_TOKEN}"`,
       },
     ],
     structuredContent: {
@@ -232,16 +232,13 @@ const TOOL_RESULT_SHAPES: Record<string, () => CallToolResult> = {
           {
             id: 'q1',
             data: {
-              pull_requests: [
+              discussions: [
                 {
-                  number: 42,
-                  title: 'Rotate secrets',
-                  file_changes: [
-                    {
-                      filename: '.env',
-                      patch: `+AWS_KEY=${SECRETS.AWS_KEY}\n+STRIPE=${SECRETS.STRIPE_KEY}`,
-                    },
-                  ],
+                  number: 7,
+                  title: 'Leaked config',
+                  url: 'https://github.com/org/repo/discussions/7',
+                  body: `AWS_KEY=${SECRETS.AWS_KEY} STRIPE=${SECRETS.STRIPE_KEY}`,
+                  category: 'Q&A',
                 },
               ],
             },
@@ -443,6 +440,28 @@ const TOOL_RESULT_SHAPES: Record<string, () => CallToolResult> = {
     },
   }),
 
+  localFindDeadCode: () => ({
+    content: [
+      {
+        type: 'text',
+        text: `Dead export candidate:\n  config.ts:5 exportedSecretDefault contains ${SECRETS.GITHUB_TOKEN} in a nearby comment`,
+      },
+    ],
+    structuredContent: {
+      data: {
+        deadExports: [
+          {
+            file: 'config.ts',
+            name: 'exportedSecretDefault',
+            kind: 'const',
+            line: 5,
+            reason: `token=${SECRETS.STRIPE_KEY}`,
+          },
+        ],
+      },
+    },
+  }),
+
   lspGetSemantics: () => ({
     content: [
       {
@@ -493,39 +512,6 @@ const TOOL_RESULT_SHAPES: Record<string, () => CallToolResult> = {
           },
         ],
       },
-    },
-  }),
-
-  oqlSearch: () => ({
-    content: [
-      {
-        type: 'text',
-        text: JSON.stringify({
-          results: [
-            {
-              kind: 'code',
-              path: '.env',
-              snippet: `OPENAI=${SECRETS.OPENAI_KEY}`,
-            },
-          ],
-        }),
-      },
-    ],
-    structuredContent: {
-      results: [
-        {
-          id: 'q1',
-          data: {
-            results: [
-              {
-                kind: 'code',
-                path: '.env',
-                snippet: `GITHUB=${SECRETS.GITHUB_TOKEN}`,
-              },
-            ],
-          },
-        },
-      ],
     },
   }),
 };

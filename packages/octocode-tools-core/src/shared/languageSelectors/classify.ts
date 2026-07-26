@@ -1,7 +1,7 @@
 import {
   EXTENSION_SELECTORS,
   LANGUAGE_SELECTORS,
-  type OqlLanguageSelector,
+  type LanguageSelector,
 } from './data.js';
 
 function normalizeLanguageInput(raw: string): string {
@@ -10,7 +10,7 @@ function normalizeLanguageInput(raw: string): string {
 
 export function classifyLanguageSelector(
   raw: string | undefined
-): OqlLanguageSelector | undefined {
+): LanguageSelector | undefined {
   if (!raw?.trim()) return undefined;
   const normalized = normalizeLanguageInput(raw);
   const definition =

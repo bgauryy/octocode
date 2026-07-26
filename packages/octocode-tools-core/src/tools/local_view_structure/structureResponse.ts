@@ -1,5 +1,5 @@
-import { RESOURCE_LIMITS } from '../../utils/core/constants.js';
 import { formatFileSize, parseFileSize } from '../../utils/file/size.js';
+import { LOCAL_DEFAULT_FILES_PER_PAGE } from '../../config.js';
 import type { DirectoryEntry } from './structureFilters.js';
 
 export interface WalkStats {
@@ -36,8 +36,7 @@ export function paginateEntries(
   };
 } {
   const totalEntries = entries.length;
-  const entriesPerPage =
-    query.itemsPerPage || RESOURCE_LIMITS.DEFAULT_ENTRIES_PER_PAGE;
+  const entriesPerPage = query.itemsPerPage || LOCAL_DEFAULT_FILES_PER_PAGE;
   const totalPages = Math.max(1, Math.ceil(totalEntries / entriesPerPage));
   const currentPage = Math.min(query.page || 1, totalPages);
   const startIdx = (currentPage - 1) * entriesPerPage;

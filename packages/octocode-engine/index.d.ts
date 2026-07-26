@@ -944,8 +944,8 @@ export interface StructuralSearchFilesOptions {
   include?: Array<string>
   /**
    * File-path globs to skip (gitignore-style, e.g. `"*.min.js"`, `"src/gen/**"`).
-   * Mirrors `localSearchCode.exclude` so OQL `scope.exclude` is honored on the
-   * structural lane — previously silently dropped (typed-contract violation).
+   * Mirrors `localSearchCode.exclude` so it is honored on the structural
+   * lane too — previously silently dropped (typed-contract violation).
    */
   exclude?: Array<string>
   excludeDir?: Array<string>

@@ -3,7 +3,6 @@ import { TOOL_NAMES } from '../../toolMetadata/proxies.js';
 import { createSuccessResult, createErrorResult } from '../../utils.js';
 import { fetchReleases } from '../../../github/releases.js';
 import { isGitHubAPIError } from '../../../github/githubAPI.js';
-import { GITHUB_SEARCH_DEFAULT_LIMIT } from '../../../config.js';
 import type { ProcessedBulkResult } from '../../../types/toolResults.js';
 import type {
   GitHubPullRequestSearchInput,
@@ -22,8 +21,8 @@ export async function handleReleasesMode(
     owner?: string;
     repo?: string;
     page?: number;
-    perPage?: number;
-    limit?: number;
+    itemsPerPage?: number;
+    includeAssets?: boolean;
   };
   if (!q.owner || !q.repo) {
     return createErrorResult(
@@ -31,29 +30,23 @@ export async function handleReleasesMode(
       query
     );
   }
-  // `perPage` is the mode-specific page-size field, but `limit` is the field
-  // shared across every other mode of this tool and the one a caller reaches
-  // for first — honor it when perPage was left at its default so `limit`
-  // isn't a silent no-op for releases mode. An explicitly-set perPage always
-  // wins.
-  const effectivePerPage =
-    q.perPage !== undefined && q.perPage !== RELEASES_PAGE_SIZE_DEFAULT
-      ? q.perPage
-      : q.limit !== undefined && q.limit !== GITHUB_SEARCH_DEFAULT_LIMIT
-        ? q.limit
-        : (q.perPage ?? RELEASES_PAGE_SIZE_DEFAULT);
+  // Releases have no discovery-search, so `itemsPerPage` (the view/page-size
+  // field shared with the other modes) is the single knob; it feeds GitHub's
+  // per_page for the release list.
+  const pageSize = Number(q.itemsPerPage) || RELEASES_PAGE_SIZE_DEFAULT;
   const result = await fetchReleases(
     {
       owner: q.owner,
       repo: q.repo,
       page: Number(q.page) || 1,
-      perPage: Number(effectivePerPage) || RELEASES_PAGE_SIZE_DEFAULT,
+      perPage: pageSize,
+      includeAssets: q.includeAssets === true,
     },
     authInfo
   );
   if (isGitHubAPIError(result)) {
     return createErrorResult(result, query, {
-      toolName: TOOL_NAMES.GITHUB_PULL_REQUESTS,
+      toolName: TOOL_NAMES.GITHUB_RELEASES,
     });
   }
   const hasContent =
@@ -74,7 +67,7 @@ export async function handleReleasesMode(
                 owner: q.owner,
                 repo: q.repo,
                 page: nextPage,
-                perPage: effectivePerPage,
+                itemsPerPage: pageSize,
               },
               why: 'Fetch the next page of releases',
               confidence: 'exact',
@@ -88,7 +81,7 @@ export async function handleReleasesMode(
     query,
     dataWithNext,
     hasContent,
-    TOOL_NAMES.GITHUB_PULL_REQUESTS,
+    TOOL_NAMES.GITHUB_RELEASES,
     { rawResponse: result.rawResponseChars }
   );
 }

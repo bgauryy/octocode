@@ -162,9 +162,6 @@ export function readFileEntry(
     content: typeof data.content === 'string' ? data.content : '',
     localPath: readString(data.localPath),
     repoRoot: readString(data.repoRoot),
-    ...(readNumber(data.fileSize) !== undefined
-      ? { fileSize: readNumber(data.fileSize) }
-      : {}),
     contentView:
       data.contentView === 'none' ||
       data.contentView === 'standard' ||
@@ -172,12 +169,17 @@ export function readFileEntry(
         ? data.contentView
         : undefined,
     totalLines: readNumber(data.totalLines),
+    // sourceChars is the single size unit (char-based, matching charOffset/
+    // charLength pagination); fileSize (served slice, derivable from content)
+    // and sourceBytes (duplicates sourceChars for ASCII) were dropped.
     sourceChars: readNumber(data.sourceChars),
-    sourceBytes: readNumber(data.sourceBytes),
     resolvedBranch: readString(data.resolvedBranch),
     pagination,
     ...(Object.keys(next).length > 0 ? { next } : {}),
-    ...(data.isPartial === true ? { isPartial: true } : {}),
+    ...(data.isPartial === true ||
+    (pagination as { hasMore?: boolean } | undefined)?.hasMore === true
+      ? { isPartial: true }
+      : {}),
     startLine: readNumber(data.startLine),
     endLine: readNumber(data.endLine),
     ...(Array.isArray(data.matchRanges) && data.matchRanges.length > 0

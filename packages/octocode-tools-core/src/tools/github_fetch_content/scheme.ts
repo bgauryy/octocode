@@ -74,9 +74,7 @@ export interface GitHubFetchFileEntry {
   contentView?: 'none' | 'standard' | 'symbols';
   totalLines?: number;
   sourceChars?: number;
-  sourceBytes?: number;
   resolvedBranch?: string;
-  fileSize?: number;
   pagination?: GitHubFetchFilePagination;
   next?: Record<string, ToolContinuation>;
   isPartial?: boolean;

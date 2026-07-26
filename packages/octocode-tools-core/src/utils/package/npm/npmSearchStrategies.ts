@@ -135,10 +135,11 @@ export async function searchNpmPackageViaRegistrySearch(
       const msg =
         fetchErr instanceof Error ? fetchErr.message : String(fetchErr);
       return {
-        error: `NPM registry search failed: ${msg}`,
+        error: `Could not reach the npm search API (${msg}). The package may not exist, or the registry search endpoint is unavailable.`,
         hints: [
-          'Check package name for typos',
-          'Try searching with a simpler term',
+          'Verify the exact package name / scope (e.g. "@scope/name")',
+          'For an exact known name, query it directly instead of a keyword search',
+          'Ensure the npm registry is accessible from this environment',
         ],
       };
     }

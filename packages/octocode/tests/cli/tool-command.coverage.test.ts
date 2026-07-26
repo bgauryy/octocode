@@ -1,18 +1,4 @@
-import {
-  afterAll,
-  afterEach,
-  beforeEach,
-  describe,
-  expect,
-  it,
-  vi,
-} from 'vitest';
-
-const oqlEnv = vi.hoisted(() => {
-  const previous = process.env.ENABLE_OQL;
-  process.env.ENABLE_OQL = '1';
-  return { previous };
-});
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   initialize: vi.fn().mockResolvedValue(undefined),
@@ -32,7 +18,7 @@ const mocks = vi.hoisted(() => ({
       localSearchCode: {
         name: 'localSearchCode',
         description: 'Local search.',
-        schema: { path: 'dir', keywords: 'regex' },
+        schema: { path: 'dir', searchText: 'regex' },
         hints: { hasResults: [], empty: [] },
       },
       ghCloneRepo: {
@@ -110,11 +96,6 @@ vi.mock('@octocodeai/octocode-tools-core/direct', async importOriginal => {
 });
 
 describe('tool-command coverage', () => {
-  afterAll(() => {
-    if (oqlEnv.previous === undefined) delete process.env.ENABLE_OQL;
-    else process.env.ENABLE_OQL = oqlEnv.previous;
-  });
-
   let consoleSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
@@ -228,7 +209,7 @@ describe('tool-command coverage', () => {
       command: 'tools',
       args: ['localSearchCode'],
       options: {
-        queries: '{"path":".","keywords":"x"}',
+        queries: '{"path":".","searchText":"x"}',
         compact: true,
       },
     });
@@ -392,7 +373,7 @@ describe('tool-command coverage', () => {
       command: 'tools',
       args: [
         'localSearchCode',
-        '[{"path":".","keywords":"foo","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1},{"path":"src","keywords":"bar","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}]',
+        '[{"path":".","searchText":"foo","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1},{"path":"src","searchText":"bar","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}]',
       ],
       options: {},
     });
@@ -400,8 +381,8 @@ describe('tool-command coverage', () => {
     expect(mocks.localSearchCode).toHaveBeenCalledWith(
       expect.objectContaining({
         queries: expect.arrayContaining([
-          expect.objectContaining({ path: '.', keywords: 'foo' }),
-          expect.objectContaining({ path: 'src', keywords: 'bar' }),
+          expect.objectContaining({ path: '.', searchText: 'foo' }),
+          expect.objectContaining({ path: 'src', searchText: 'bar' }),
         ]),
       })
     );
@@ -414,7 +395,7 @@ describe('tool-command coverage', () => {
       command: 'tools',
       args: [
         'localSearchCode',
-        '{"queries":[{"path":".","keywords":"foo","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}],"responseCharOffset":500}',
+        '{"queries":[{"path":".","searchText":"foo","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}],"responseCharOffset":500}',
       ],
       options: {},
     });
@@ -422,7 +403,7 @@ describe('tool-command coverage', () => {
     const callArg = mocks.localSearchCode.mock.calls[0]?.[0];
     expect(callArg).toEqual(
       expect.objectContaining({
-        queries: [expect.objectContaining({ path: '.', keywords: 'foo' })],
+        queries: [expect.objectContaining({ path: '.', searchText: 'foo' })],
         responseCharOffset: 500,
       })
     );
@@ -435,7 +416,7 @@ describe('tool-command coverage', () => {
       command: 'tools',
       args: [
         'localSearchCode',
-        '{"path":".","keywords":"x","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
+        '{"path":".","searchText":"x","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
         'extra',
       ],
       options: {},
@@ -485,7 +466,7 @@ describe('tool-command coverage', () => {
         command: 'tools',
         args: [
           'localSearchCode',
-          '{"path":".","keywords":"x","fixedString":true,"matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
+          '{"path":".","searchText":"x","regex":"fixed","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
         ],
         options: {},
       });
@@ -494,7 +475,7 @@ describe('tool-command coverage', () => {
         expect.objectContaining({
           queries: [
             expect.objectContaining({
-              fixedString: true,
+              regex: 'fixed',
               itemsPerPage: 1,
               page: 1,
               maxMatchesPerFile: 1,
@@ -520,7 +501,7 @@ describe('tool-command coverage', () => {
       command: 'tools',
       args: [
         'localSearchCode',
-        '{"path":".","keywords":"x","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
+        '{"path":".","searchText":"x","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
       ],
       options: {},
     });
@@ -540,7 +521,7 @@ describe('tool-command coverage', () => {
       command: 'tools',
       args: [
         'localSearchCode',
-        '{"path":".","keywords":"x","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
+        '{"path":".","searchText":"x","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
       ],
       options: {},
     });
@@ -562,7 +543,7 @@ describe('tool-command coverage', () => {
       command: 'tools',
       args: [
         'localSearchCode',
-        '{"path":".","keywords":"x","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
+        '{"path":".","searchText":"x","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
       ],
       options: { json: true },
     });
@@ -592,7 +573,7 @@ describe('tool-command coverage', () => {
       command: 'tools',
       args: [
         'localSearchCode',
-        '{"path":".","keywords":"x","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
+        '{"path":".","searchText":"x","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
       ],
       options: { json: true },
     });
@@ -618,7 +599,7 @@ describe('tool-command coverage', () => {
       command: 'tools',
       args: [
         'localSearchCode',
-        '{"path":".","keywords":"x","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
+        '{"path":".","searchText":"x","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
       ],
       options: { json: true },
     });
@@ -641,7 +622,7 @@ describe('tool-command coverage', () => {
       command: 'tools',
       args: [
         'localSearchCode',
-        '{"path":".","keywords":"x","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
+        '{"path":".","searchText":"x","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
       ],
       options: {},
     });
@@ -658,7 +639,7 @@ describe('tool-command coverage', () => {
       command: 'tools',
       args: [
         'localSearchCode',
-        '{"path":".","keywords":"x","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
+        '{"path":".","searchText":"x","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
       ],
       options: {},
     });
@@ -677,7 +658,7 @@ describe('tool-command coverage', () => {
       command: 'tools',
       args: [
         'localSearchCode',
-        '{"path":".","keywords":"x","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
+        '{"path":".","searchText":"x","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
       ],
       options: {},
     });
@@ -774,7 +755,7 @@ describe('tool-command coverage', () => {
 
       args: [
         'localSearchCode',
-        '[{"path":".","keywords":"ok","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1},{"path":".","keywords":999,"matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}]',
+        '[{"path":".","searchText":"ok","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1},{"path":".","searchText":999,"matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}]',
       ],
       options: {},
     });
@@ -856,7 +837,7 @@ describe('tool-command coverage', () => {
       command: 'tools',
       args: [
         'localSearchCode',
-        '{"path":".","keywords":"x","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
+        '{"path":".","searchText":"x","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
       ],
       options: {},
     });
@@ -880,7 +861,7 @@ describe('tool-command coverage', () => {
       command: 'tools',
       args: [
         'localSearchCode',
-        '{"path":".","keywords":"x","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
+        '{"path":".","searchText":"x","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
       ],
       options: {},
     });
@@ -902,7 +883,7 @@ describe('tool-command coverage', () => {
       command: 'tools',
       args: [
         'localSearchCode',
-        '{"path":".","keywords":"x","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
+        '{"path":".","searchText":"x","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
       ],
       options: { json: true },
     });
@@ -924,7 +905,7 @@ describe('tool-command coverage', () => {
       command: 'tools',
       args: [
         'localSearchCode',
-        '{"path":".","keywords":"x","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
+        '{"path":".","searchText":"x","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
       ],
       options: { json: true },
     });
@@ -949,34 +930,18 @@ describe('tool-command coverage', () => {
     expect(out).toContain('definition');
   });
 
-  it('buildDirectToolExampleQuery: emits concrete OQL and top-level tool examples', async () => {
-    const { buildDirectToolExampleQuery, getDirectToolDisplayFields } =
+  it('buildDirectToolExampleQuery: emits concrete top-level tool examples', async () => {
+    const { buildDirectToolExampleQuery } =
       await import('@octocodeai/octocode-tools-core/schema');
 
-    expect(buildDirectToolExampleQuery('oqlSearch')).toEqual({
-      schema: 'oql',
-      target: 'code',
-      from: { kind: 'local', path: '.' },
-      where: { kind: 'text', value: 'executeDirectTool' },
-      view: 'discovery',
-      limit: 5,
-    });
-    expect(buildDirectToolExampleQuery('ghHistoryResearch')).toMatchObject({
-      type: 'prs',
+    expect(buildDirectToolExampleQuery('ghSearchPullRequests')).toMatchObject({
       owner: 'bgauryy',
       repo: 'octocode',
       keywordsToSearch: ['localSearchCode'],
     });
-    expect(buildDirectToolExampleQuery('ghHistoryResearch')).not.toHaveProperty(
-      'content.patches.ranges.file'
-    );
-
-    const oqlTarget = getDirectToolDisplayFields('oqlSearch').find(
-      field => field.name === 'target'
-    );
-    expect(oqlTarget?.type).toContain('materialize');
-    expect(oqlTarget?.type).toContain('fixes');
-    expect(oqlTarget?.type).toContain('dataflow');
+    expect(
+      buildDirectToolExampleQuery('ghSearchPullRequests')
+    ).not.toHaveProperty('content.patches.ranges.file');
   });
 
   it('shows the tool list when no positional tool name is given', async () => {

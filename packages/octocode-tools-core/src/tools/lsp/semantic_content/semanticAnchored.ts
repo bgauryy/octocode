@@ -28,18 +28,31 @@ const CONSUMER_SCOPED_TYPES: ReadonlySet<string> = new Set([
   'callHierarchy',
   'implementation',
 ]);
-const WARM_MAX_FILES = 12;
+const WARM_MAX_FILES = 100;
 const WARM_MAX_BYTES = 512 * 1024;
 const JS_TS_FAMILY = ['ts', 'tsx', 'mts', 'cts', 'js', 'jsx', 'mjs', 'cjs'];
 
 export { CONSUMER_SCOPED_TYPES };
 
+export type ConsumerWarmupStats = {
+  candidates: number;
+  warmedFiles: number;
+  skippedLarge: number;
+  possiblyTruncated: boolean;
+};
+
 export async function warmLikelyConsumers(
   client: NonNullable<Awaited<ReturnType<typeof acquirePooledClient>>>,
   anchor: SymbolAnchor,
   workspaceRoot: string
-): Promise<void> {
-  if (typeof client.openDocument !== 'function') return;
+): Promise<ConsumerWarmupStats> {
+  const emptyStats: ConsumerWarmupStats = {
+    candidates: 0,
+    warmedFiles: 0,
+    skippedLarge: 0,
+    possiblyTruncated: false,
+  };
+  if (typeof client.openDocument !== 'function') return emptyStats;
   try {
     const ext = path.extname(anchor.absolutePath).slice(1);
     const family = JS_TS_FAMILY.includes(ext) ? JS_TS_FAMILY : [ext];
@@ -52,6 +65,14 @@ export async function warmLikelyConsumers(
       maxFiles: WARM_MAX_FILES,
       include: family.filter(Boolean).map(e => `*.${e}`),
     } as Parameters<typeof searchContentRipgrep>[0]);
+    const stats: ConsumerWarmupStats = {
+      candidates: result.files?.length ?? 0,
+      warmedFiles: 0,
+      skippedLarge: 0,
+      possiblyTruncated:
+        (result.files?.length ?? 0) >= WARM_MAX_FILES ||
+        Boolean((result as { stats?: { capped?: boolean } }).stats?.capped),
+    };
     for (const file of result.files ?? []) {
       const filePath = typeof file.path === 'string' ? file.path : undefined;
       if (!filePath) continue;
@@ -61,21 +82,28 @@ export async function warmLikelyConsumers(
       if (path.resolve(abs) === path.resolve(anchor.absolutePath)) continue;
       try {
         const content = await readFile(abs, 'utf-8');
-        if (content.length > WARM_MAX_BYTES) continue;
+        if (content.length > WARM_MAX_BYTES) {
+          stats.skippedLarge += 1;
+          continue;
+        }
         await client.openDocument(abs, content);
+        stats.warmedFiles += 1;
       } catch {
         // best-effort warm: unreadable candidates are skipped
       }
     }
+    return stats;
   } catch {
     // best-effort warm: the relation query still runs on the anchor alone
+    return emptyStats;
   }
 }
 
 export async function dispatchAnchoredSemantic(
   query: SymbolAnchoredSemanticQuery,
   anchor: SymbolAnchor,
-  client: NonNullable<Awaited<ReturnType<typeof acquirePooledClient>>>
+  client: NonNullable<Awaited<ReturnType<typeof acquirePooledClient>>>,
+  warmupStats?: ConsumerWarmupStats
 ): Promise<LspSemanticEnvelope> {
   switch (query.type) {
     case 'definition':
@@ -159,7 +187,8 @@ export async function dispatchAnchoredSemantic(
           anchor.resolvedSymbol.position,
           query.includeDeclaration ?? true,
           anchor.content
-        )
+        ),
+        warmupStats
       );
     case 'hover':
       if (!client.hasCapability('hoverProvider')) {

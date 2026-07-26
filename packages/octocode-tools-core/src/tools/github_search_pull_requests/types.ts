@@ -3,14 +3,13 @@ import type { PaginationInfo } from '../../types/toolResults.js';
 export interface GitHubPullRequestApiItem {
   number: number;
   title: string;
-  url: string;
   state: 'open' | 'closed';
   draft: boolean;
   merged: boolean;
-  created_at: string;
-  updated_at: string;
-  closed_at?: string;
-  merged_at?: string;
+  createdAt: string;
+  updatedAt: string;
+  closedAt?: string;
+  mergedAt?: string;
   author: string;
   assignees?: string[];
   labels?: Array<{
@@ -19,12 +18,12 @@ export interface GitHubPullRequestApiItem {
     color: string;
     description?: string;
   }>;
-  head_ref: string;
-  head_sha?: string;
-  base_ref: string;
-  base_sha?: string;
+  headRef: string;
+  headSha?: string;
+  baseRef: string;
+  baseSha?: string;
   body?: string | null;
-  body_pagination?: {
+  bodyPagination?: {
     charOffset: number;
     charLength: number;
     totalChars: number;
@@ -32,26 +31,26 @@ export interface GitHubPullRequestApiItem {
     nextCharOffset?: number;
   };
   comments?: number;
-  comment_details_breakdown?: {
-    inline_review: number;
+  commentDetailsBreakdown?: {
+    inlineReview: number;
     discussion: number;
   };
   commits?: number;
   additions?: number;
   deletions?: number;
-  changed_files?: number;
-  comment_details?: Array<{
+  changedFiles?: number;
+  commentDetails?: Array<{
     id: string;
     user: string;
     body: string;
-    created_at: string;
-    updated_at: string;
+    createdAt: string;
+    updatedAt: string;
     commentType?: 'discussion' | 'review_inline';
     path?: string;
     line?: number;
 
-    in_reply_to_id?: number | null;
-    body_pagination?: {
+    inReplyToId?: number | null;
+    bodyPagination?: {
       charOffset: number;
       charLength: number;
       totalChars: number;
@@ -59,10 +58,10 @@ export interface GitHubPullRequestApiItem {
       nextCharOffset?: number;
     };
   }>;
-  comment_details_shown?: number;
-  comment_details_total?: number;
-  comment_details_paginated?: boolean;
-  file_changes?: Array<{
+  commentDetailsShown?: number;
+  commentDetailsTotal?: number;
+  commentDetailsPaginated?: boolean;
+  fileChanges?: Array<{
     filename: string;
     status: string;
     additions: number;
@@ -75,10 +74,10 @@ export interface GitHubPullRequestApiItem {
     user: string;
     state: string;
     body: string;
-    submitted_at?: string;
-    commit_id?: string;
+    submittedAt?: string;
+    commitId?: string;
   }>;
-  commit_details?: Array<{
+  commitDetails?: Array<{
     sha: string;
     message: string;
     author: string;
@@ -93,15 +92,15 @@ export interface GitHubPullRequestApiItem {
     }>;
   }>;
 
-  _sanitization_warnings?: string[];
+  sanitizationWarnings?: string[];
 }
 
 export interface GitHubPullRequestSearchApiData {
   owner?: string;
   repo?: string;
-  pull_requests?: GitHubPullRequestApiItem[];
-  total_count?: number;
-  incomplete_results?: boolean;
+  pullRequests?: GitHubPullRequestApiItem[];
+  totalCount?: number;
+  incompleteResults?: boolean;
 
   effectiveQuery?: string;
   pagination?: PaginationInfo;

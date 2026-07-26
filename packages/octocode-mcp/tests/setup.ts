@@ -296,6 +296,7 @@ const mockContent = {
     LOCAL_RIPGREP: 'localSearchCode',
     LOCAL_FETCH_CONTENT: 'localGetFileContent',
     LOCAL_FIND_FILES: 'localFindFiles',
+    LOCAL_FIND_DEAD_CODE: 'localFindDeadCode',
     LOCAL_VIEW_STRUCTURE: 'localViewStructure',
     LSP_GET_SEMANTIC_CONTENT: 'lspGetSemantics',
     GITHUB_HISTORY: 'ghHistorySearch',

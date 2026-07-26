@@ -74,6 +74,21 @@ function hasLineRangeRequest(query: FetchContentQuery): boolean {
   return query.startLine !== undefined && query.endLine !== undefined;
 }
 
+function formatNumberedLines(
+  lines: string[],
+  startLine: number,
+  endLine: number
+): string {
+  const width = String(endLine).length;
+  return lines
+    .slice(startLine - 1, endLine)
+    .map(
+      (line, index) =>
+        `${String(startLine + index).padStart(width, ' ')}→ ${line}`
+    )
+    .join('\n');
+}
+
 function buildLineRangeExtractionState(
   query: FetchContentQuery,
   lines: string[],
@@ -122,9 +137,11 @@ function buildLineRangeExtractionState(
   }
 
   return {
-    resultContent: lines
-      .slice(effectiveStartLine - 1, effectiveEndLine)
-      .join('\n'),
+    resultContent: formatNumberedLines(
+      lines,
+      effectiveStartLine,
+      effectiveEndLine
+    ),
     isPartial: true,
     actualStartLine: effectiveStartLine,
     actualEndLine: effectiveEndLine,

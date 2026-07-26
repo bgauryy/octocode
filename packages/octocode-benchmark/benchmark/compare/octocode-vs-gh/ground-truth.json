@@ -18,7 +18,7 @@
     },
     "q3": {
       "verificationStatus": "draft-verify-before-scoring",
-      "answer": "Resolve the actual merged PR at run time (PR #5555 may not match; fall back to the latest merged PR touching lib/). Oracle = its real files-changed count, net additions/deletions, source-vs-test split, and the largest-diff source file, fetched via api.github.com. Octocode: ghHistoryResearch type:prs prNumber:<n> reviewMode:full. gh: gh pr view <n> --json files,additions,deletions.",
+      "answer": "Resolve the actual merged PR at run time (PR #5555 may not match; fall back to the latest merged PR touching lib/). Oracle = its real files-changed count, net additions/deletions, source-vs-test split, and the largest-diff source file, fetched via api.github.com. Octocode: ghSearchPullRequests prNumber:<n> reviewMode:full. gh: gh pr view <n> --json files,additions,deletions.",
       "scoring": "1.0 = correct file count + net delta + source/test split + largest source file + one-line summary; 0.5 = 3-4 of 5 right; 0 = wrong PR or fabricated stats.",
       "keyTerms": ["files changed", "net delta", "lib/"],
       "capabilityPoint": "Both can do this; measure token cost of the diff read (Octocode selected-patch vs gh full JSON)."
@@ -32,10 +32,10 @@
     },
     "q5": {
       "verificationStatus": "draft-verify-before-scoring",
-      "answer": "In pallets/flask, the route decorator is Flask.route (delegates to add_url_rule) defined in src/flask/app.py (historically flask/app.py before the src/ layout). Part (b): identify a real commit/PR that changed route/add_url_rule via ghHistoryResearch type:commits path:src/flask/app.py or type:prs -- oracle is any correctly-cited sha/PR with an accurate one-line summary.",
+      "answer": "In pallets/flask, the route decorator is Flask.route (delegates to add_url_rule) defined in src/flask/app.py (historically flask/app.py before the src/ layout). Part (b): identify a real commit/PR that changed route/add_url_rule via ghSearchCommits path:src/flask/app.py or ghSearchPullRequests -- oracle is any correctly-cited sha/PR with an accurate one-line summary.",
       "scoring": "1.0 = correct file (app.py) + Flask.route/add_url_rule AND a real cited commit/PR with accurate summary; 0.5 = correct file only; 0 = wrong file or fabricated citation.",
       "keyTerms": ["app.py", "add_url_rule", "route"],
-      "capabilityPoint": "History research: ghHistoryResearch commits vs gh api commits with path filtering."
+      "capabilityPoint": "History research: ghSearchCommits vs gh api commits with path filtering."
     },
     "q6": {
       "verificationStatus": "stable-absence-trap",

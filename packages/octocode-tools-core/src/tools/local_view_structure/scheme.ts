@@ -21,6 +21,12 @@ import type {
 import type { BulkToolOutput } from '../../types/toolOutput.js';
 
 const queryOverrides = {
+  excludeDir: z
+    .array(z.string())
+    .optional()
+    .describe(
+      'Directory names to prune from recursive walks (default: common generated/vendor dirs such as node_modules, dist, build, out, coverage, target). Pass [] to inspect everything.'
+    ),
   maxDepth: clampedInt(0, LOCAL_MAX_DEPTH)
     .optional()
     .describe(
@@ -29,15 +35,6 @@ const queryOverrides = {
   limit: clampedInt(1, LOCAL_MAX_LIMIT).optional(),
   page: relaxedPageNumberField.default(1),
   itemsPerPage: clampedInt(1, LOCAL_MAX_FILES_PER_PAGE).optional(),
-  // Filters a directory LISTING down to file entries (excludes
-  // subdirectories). Distinct from localSearchCode's `output:"files"`, which
-  // instead filters SEARCH results down to matching file paths.
-  filesOnly: z
-    .boolean()
-    .optional()
-    .describe(
-      'Returns files only. Mutually exclusive with directoriesOnly. (Distinct from localSearchCode\'s `output:"files"`, which filters SEARCH results to matching file paths.)'
-    ),
 } as const;
 
 const ViewStructureQueryShape = createQueryShapeSchema(

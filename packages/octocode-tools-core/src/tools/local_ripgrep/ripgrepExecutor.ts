@@ -11,6 +11,7 @@ import type { LocalSearchCodeToolResult } from '@octocodeai/octocode-core/extra-
 import { buildSearchResult } from './ripgrepResultBuilder.js';
 import { preflightValidateRipgrepPattern } from './patternValidation.js';
 import { attachRawResponseChars } from '../../utils/response/charSavings.js';
+import path from 'node:path';
 import {
   contextUtils,
   type RipgrepSearchOptions,
@@ -46,7 +47,7 @@ function toSearchOptions(
     caseInsensitive: query.caseMode === 'insensitive',
     wholeWord: query.wholeWord,
     invertMatch: query.invertMatch,
-    // Positive checks so an unparsed OQL query (defaults not applied, fields
+    // Positive checks so an unparsed query (defaults not applied, fields
     // undefined) collapses to the "off" behavior instead of `undefined !== 'off'`
     // wrongly reading as enabled.
     multiline: query.multiline === 'on' || query.multiline === 'dotall',
@@ -91,6 +92,23 @@ function estimateResponseChars(files: LocalSearchCodeFile[]): number {
     }
   }
   return total;
+}
+
+function fileDepthFromSearchRoot(filePath: string, searchRoot: string): number {
+  const absoluteFilePath = path.isAbsolute(filePath)
+    ? filePath
+    : path.join(searchRoot, filePath);
+  const relativePath = path.relative(searchRoot, absoluteFilePath);
+  if (
+    !relativePath ||
+    relativePath.startsWith('..') ||
+    path.isAbsolute(relativePath)
+  ) {
+    return 0;
+  }
+  const dir = path.dirname(relativePath);
+  if (dir === '.') return 0;
+  return dir.split(path.sep).filter(Boolean).length;
 }
 
 export async function executeRipgrepSearchInternal(
@@ -206,11 +224,25 @@ export async function executeRipgrepSearchInternal(
     }),
   }));
 
-  const responseChars = estimateResponseChars(files);
+  const maxDepth = (queryForExec as { maxDepth?: number }).maxDepth;
+  const depthFilteredFiles =
+    maxDepth === undefined
+      ? files
+      : files.filter(
+          file =>
+            fileDepthFromSearchRoot(file.path, queryForExec.path) <= maxDepth
+        );
+  if (maxDepth !== undefined && depthFilteredFiles.length !== files.length) {
+    chunkingWarnings.push(
+      `Applied maxDepth:${maxDepth} after native text search; filtered ${files.length - depthFilteredFiles.length} deeper file(s).`
+    );
+  }
+
+  const responseChars = estimateResponseChars(depthFilteredFiles);
   const stats = {
     totalOccurrences: parsed.stats.matchCount,
     matchedLines: parsed.stats.matchedLines,
-    filesMatched: parsed.stats.filesMatched,
+    filesMatched: depthFilteredFiles.length,
     filesSearched: parsed.stats.filesSearched,
     bytesSearched: parsed.stats.bytesSearched ?? undefined,
     searchTime: parsed.stats.searchTime,
@@ -224,7 +256,7 @@ export async function executeRipgrepSearchInternal(
     );
   }
 
-  if (files.length === 0) {
+  if (depthFilteredFiles.length === 0) {
     return attachRawResponseChars(
       {
         status: 'empty',
@@ -246,7 +278,7 @@ export async function executeRipgrepSearchInternal(
   }
 
   const searchResult = await buildSearchResult(
-    files,
+    depthFilteredFiles,
     query,
     'rg',
     [...validationWarnings, ...chunkingWarnings],

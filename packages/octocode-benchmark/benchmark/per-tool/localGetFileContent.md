@@ -26,7 +26,7 @@ ROOT=$(pwd)
 
 1. **Line range** — `$CLI tools localGetFileContent --queries '{"path":"'$ROOT'/packages/octocode-tools-core/package.json","startLine":1,"endLine":30,"minify":"none"}' --compact`
    → PASS: exactly lines 1–30 verbatim.
-2. **Matched slice + context** — `... '{"path":"'$ROOT'/packages/octocode-tools-core/src/tools/directToolCatalog.meta.ts","matchString":"buildKnownDirectToolCommandPatternQueries","contextLines":8,"minify":"standard"}'`
+2. **Matched slice + context** — `... '{"path":"'$ROOT'/packages/octocode-tools-core/src/tools/directToolCatalog/toolCommandPatternQueries.ts","matchString":"buildKnownDirectToolCommandPatternQueries","contextLines":8,"minify":"standard"}'`
    → PASS: merged slices + `matchRanges[]`.
 3. **Regex anchor** — `"matchStringIsRegex":true` with a signature pattern → PASS: flexible hit.
 4. **minify standard vs none** — same file both ways → PASS: standard is smaller yet faithful; none is byte-exact.

@@ -661,10 +661,10 @@ describe('config/resolver', () => {
       expect(config.source).toBe('file');
     });
 
-      it('source is "mixed" when file exists and env overrides are set', () => {
-        vi.mocked(existsSync).mockReturnValue(true);
-        vi.mocked(readFileSync).mockReturnValue(JSON.stringify({ version: 1 }));
-        process.env.ALLOWED_PATHS = '/some/path';
+    it('source is "mixed" when file exists and env overrides are set', () => {
+      vi.mocked(existsSync).mockReturnValue(true);
+      vi.mocked(readFileSync).mockReturnValue(JSON.stringify({ version: 1 }));
+      process.env.ALLOWED_PATHS = '/some/path';
 
       const config = resolveConfigSync();
       expect(config.source).toBe('mixed');

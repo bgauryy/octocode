@@ -50,7 +50,9 @@ describe('getOctokit', () => {
   });
 
   it('returns a new Octokit instance when the resolved token changes', async () => {
-    getGitHubToken.mockResolvedValueOnce('token-A').mockResolvedValueOnce('token-B');
+    getGitHubToken
+      .mockResolvedValueOnce('token-A')
+      .mockResolvedValueOnce('token-B');
     const { getOctokit } = await loadClient();
 
     const first = await getOctokit();

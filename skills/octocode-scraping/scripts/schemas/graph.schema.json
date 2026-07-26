@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://octocode.dev/schemas/scraping/graph.schema.json",
+  "title": "Octocode Scraping Automation Graph",
+  "description": "Evidence-backed graph for AI crawlers and automation bots: pages, links, static actions, resources, and typed edges with workflow/risk/source metadata.",
+  "type": "object",
+  "required": ["schemaVersion", "rootUrl", "totals", "nodes", "edges"],
+  "properties": {
+    "schemaVersion": { "type": "integer", "const": 2 },
+    "rootUrl": { "type": "string", "format": "uri" },
+    "totals": {
+      "type": "object",
+      "required": ["nodes", "edges"],
+      "properties": {
+        "nodes": { "type": "integer", "minimum": 0 },
+        "edges": { "type": "integer", "minimum": 0 },
+        "pages": { "type": "integer", "minimum": 0 },
+        "actions": { "type": "integer", "minimum": 0 },
+        "resources": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "nodes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "kind", "url"],
+        "properties": {
+          "id": { "type": "string" },
+          "kind": { "enum": ["page", "link", "form", "input", "button", "table", "resource", "api", "download", "modal", "pagination", "auth_gate", "error_state"] },
+          "url": { "type": "string" },
+          "pageId": { "type": ["string", "null"] },
+          "title": { "type": ["string", "null"] },
+          "text": { "type": ["string", "null"] },
+          "selector": { "type": ["string", "null"] },
+          "status": { "type": ["integer", "null"] },
+          "workflowTypes": { "type": "array", "items": { "type": "string" } },
+          "risk": { "type": ["string", "null"] },
+          "confidence": { "type": "number" },
+          "source": { "type": "object" }
+        }
+      }
+    },
+    "edges": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["from", "to", "kind"],
+        "properties": {
+          "from": { "type": "string" },
+          "to": { "type": "string" },
+          "kind": { "enum": ["navigates_to", "clicks_to", "submits_to", "reveals", "paginates_to", "downloads", "loads_resource", "calls_api", "requires_auth", "blocks_on_captcha"] },
+          "label": { "type": ["string", "null"] },
+          "workflowType": { "type": ["string", "null"] },
+          "score": { "type": "number" },
+          "risk": { "type": ["string", "null"] },
+          "confidence": { "type": "number" },
+          "source": { "type": "object" }
+        }
+      }
+    }
+  }
+}

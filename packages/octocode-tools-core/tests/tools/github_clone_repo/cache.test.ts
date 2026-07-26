@@ -35,7 +35,12 @@ describe('slash-branch cache directory encoding', () => {
   });
 
   it('getTreeDir keeps a slash-branch tree as a single directory level under owner/repo', () => {
-    const treeDir = getTreeDir(octocodeDir, 'owner', 'repo', 'dependabot/npm/foo');
+    const treeDir = getTreeDir(
+      octocodeDir,
+      'owner',
+      'repo',
+      'dependabot/npm/foo'
+    );
     const treeBase = join(octocodeDir, 'tmp', 'tree');
     // owner + repo + <one branch segment> = 3 levels, never 4+.
     expect(segmentCount(treeBase, treeDir)).toBe(3);
@@ -58,7 +63,12 @@ describe('slash-branch cache directory encoding', () => {
     // the walker found no meta at the "release" level and deleted it whole —
     // wiping the valid nested clone. getCloneDir now collapses it back to a
     // single segment, so this must no longer happen.
-    const slashBranchDir = getCloneDir(octocodeDir, 'microsoft', 'vscode', 'release/1.96');
+    const slashBranchDir = getCloneDir(
+      octocodeDir,
+      'microsoft',
+      'vscode',
+      'release/1.96'
+    );
     mkdirSync(slashBranchDir, { recursive: true });
     writeCacheMeta(
       slashBranchDir,
@@ -66,9 +76,19 @@ describe('slash-branch cache directory encoding', () => {
     );
 
     // An unrelated, already-expired entry to actually exercise eviction.
-    const expiredDir = getCloneDir(octocodeDir, 'octocat', 'Hello-World', 'main');
+    const expiredDir = getCloneDir(
+      octocodeDir,
+      'octocat',
+      'Hello-World',
+      'main'
+    );
     mkdirSync(expiredDir, { recursive: true });
-    const expiredMeta = createCacheMeta('octocat', 'Hello-World', 'main', 'clone');
+    const expiredMeta = createCacheMeta(
+      'octocat',
+      'Hello-World',
+      'main',
+      'clone'
+    );
     expiredMeta.expiresAt = new Date(Date.now() - 1000).toISOString();
     writeCacheMeta(expiredDir, expiredMeta);
 

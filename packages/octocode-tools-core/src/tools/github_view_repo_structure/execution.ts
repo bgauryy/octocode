@@ -37,6 +37,46 @@ function normalizeStructureErrorResult(
       ? (rawError as { error?: unknown; status?: unknown; type?: unknown })
       : undefined;
 
+  const status =
+    typeof apiError?.status === 'number' ? apiError.status : undefined;
+
+  // On a 404, hand back a structured recovery (mirrors ghGetFileContent's
+  // file-404): retry at the parent dir (deterministic) and/or locate the path
+  // by name in case it moved/renamed — instead of a dead-end error.
+  const cleanPath =
+    typeof query.path === 'string' ? query.path.replace(/\/+$/, '') : '';
+  const parent = cleanPath.includes('/')
+    ? cleanPath.slice(0, cleanPath.lastIndexOf('/'))
+    : '';
+  const leaf = cleanPath.split('/').pop() || query.repo;
+  const next =
+    status === 404
+      ? {
+          retryParent: {
+            tool: 'ghViewRepoStructure',
+            query: {
+              owner: query.owner,
+              repo: query.repo,
+              ...(parent ? { path: parent } : {}),
+              ...(query.branch ? { branch: query.branch } : {}),
+            },
+            why: 'Retry at the parent directory — the path or branch may be wrong.',
+            confidence: 'low',
+          },
+          searchPath: {
+            tool: 'ghSearchCode',
+            query: {
+              owner: query.owner,
+              repo: query.repo,
+              match: 'path',
+              keywords: [leaf],
+            },
+            why: 'Locate the path by name in case it moved or was renamed.',
+            confidence: 'low',
+          },
+        }
+      : undefined;
+
   return {
     status: 'error',
     owner: query.owner,
@@ -53,6 +93,7 @@ function normalizeStructureErrorResult(
       ? { statusCode: apiError.status }
       : {}),
     ...(typeof apiError?.type === 'string' ? { errorType: apiError.type } : {}),
+    ...(next ? { next } : {}),
   };
 }
 
@@ -176,10 +217,18 @@ export async function exploreMultipleRepositoryStructures(
           }
         ).structure;
         const firstDir = structure?.find(d => (d.files?.length ?? 0) > 0);
+        // `structure[].dir` is RELATIVE to the queried path, so a `fetchFile`
+        // hint must re-prefix `query.path` (like `materialize` below does) —
+        // otherwise it emits a bare filename that 404s for any non-root query.
+        const structureBase = String(query.path ?? '').replace(/\/+$/, '');
         const firstFile = firstDir
-          ? firstDir.dir === '.'
-            ? firstDir.files![0]
-            : `${firstDir.dir}/${firstDir.files![0]}`
+          ? (() => {
+              const rel =
+                firstDir.dir === '.'
+                  ? firstDir.files![0]
+                  : `${firstDir.dir}/${firstDir.files![0]}`;
+              return structureBase ? `${structureBase}/${rel}` : rel;
+            })()
           : undefined;
         (resultData as Record<string, unknown>).next = {
           ...(firstFile

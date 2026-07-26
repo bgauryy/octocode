@@ -51,7 +51,9 @@ describe('localSearchCode schema', () => {
 
     expect(result.success).toBe(false);
     if (!result.success) {
-      expect(result.error.issues.map(issue => issue.message).join('\n')).toMatch(
+      expect(
+        result.error.issues.map(issue => issue.message).join('\n')
+      ).toMatch(
         /Unrecognized key.*semanticRanking|unrecognized.*semanticRanking/i
       );
     }

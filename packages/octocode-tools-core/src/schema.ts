@@ -9,12 +9,6 @@
  * For execution, import `executeDirectTool` from `@octocodeai/octocode-tools-core/direct`.
  */
 export * from './tools/directToolCatalog.meta.js';
-export {
-  oqlSchemaText,
-  oqlCompactSchemeText,
-  oqlCompactSchemeJson,
-  OQL_SCHEMA_DOC,
-} from './oql/schemeText.js';
 // `loadToolContent` reads tool descriptions/system-prompt from octocode-core
 // text (engine-free) — needed by the CLI `--scheme`/`context`/help path.
 export { loadToolContent } from './tools/toolMetadata/state.js';

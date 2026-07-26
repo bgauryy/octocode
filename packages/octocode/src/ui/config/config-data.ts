@@ -23,9 +23,19 @@ export const ALL_AVAILABLE_TOOLS = {
       description: 'Search for GitHub repositories',
     },
     {
-      id: 'ghHistoryResearch',
-      name: 'History Research',
-      description: 'Search pull requests or commit history',
+      id: 'ghSearchPullRequests',
+      name: 'Search Pull Requests',
+      description: 'Search pull requests and their history',
+    },
+    {
+      id: 'ghSearchIssues',
+      name: 'Search Issues',
+      description: 'Search issues and their history',
+    },
+    {
+      id: 'ghSearchCommits',
+      name: 'Search Commits',
+      description: 'Search commit history',
     },
     {
       id: 'npmSearch',
@@ -245,7 +255,7 @@ export function getExampleValue(option: ConfigOption): string {
     case 'enableTools':
       return 'ENABLE_TOOLS=localSearchCode,localFindFiles';
     case 'disableTools':
-      return 'DISABLE_TOOLS=ghHistoryResearch';
+      return 'DISABLE_TOOLS=ghSearchPullRequests';
     case 'requestTimeout':
       return 'REQUEST_TIMEOUT=60000';
     case 'maxRetries':

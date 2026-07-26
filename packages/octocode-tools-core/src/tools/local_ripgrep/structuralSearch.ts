@@ -111,8 +111,8 @@ export async function searchContentStructural(
     // Honor langType by scoping to its extensions when no explicit include
     // was given; explicit include globs always win.
     ...(deriveInclude(query) ? { include: deriveInclude(query) } : {}),
-    // Scope parity: forward every OQL `scope` field the text lane forwards,
-    // so `exclude`/`hidden`/`noIgnore`/`maxDepth` are honored on AST search
+    // Scope parity: forward every scope field the text lane forwards, so
+    // `exclude`/`hidden`/`noIgnore`/`maxDepth` are honored on AST search
     // (previously silently dropped — typed-contract violation).
     ...(query.exclude?.length ? { exclude: query.exclude } : {}),
     ...(query.excludeDir?.length

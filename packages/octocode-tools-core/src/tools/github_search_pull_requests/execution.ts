@@ -63,7 +63,7 @@ export async function searchMultipleGitHubPullRequests(
     {
       toolName: TOOL_NAMES.GITHUB_PULL_REQUESTS,
       keysPriority: [
-        'pull_requests',
+        'pullRequests',
         'issues',
         'releases',
         'latest',
@@ -71,7 +71,7 @@ export async function searchMultipleGitHubPullRequests(
         'publishedAt',
         'prerelease',
         'pagination',
-        'total_count',
+        'totalCount',
         'error',
       ],
     },

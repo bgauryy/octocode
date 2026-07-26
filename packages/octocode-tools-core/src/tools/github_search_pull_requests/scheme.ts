@@ -34,7 +34,6 @@ const queryOverrides = {
     .describe(
       'Research mode: "prs" (default) searches pull requests; "commits" walks commit history for a repo or path; "releases" lists the repository releases (tagName, publishedAt, prerelease flag) and surfaces the latest stable release; "issues" searches or reads GitHub issues (body/discussion comments — not PRs).'
     ),
-  perPage: clampedInt(1, 100).optional().default(30),
   prNumber: clampedInt(1, 1_000_000_000).optional(),
   issueNumber: clampedInt(1, 1_000_000_000)
     .optional()
@@ -142,7 +141,6 @@ export interface HistoryRelease {
   publishedAt?: string;
   prerelease?: boolean;
   latest?: boolean;
-  url?: string;
   [key: string]: unknown;
 }
 
@@ -158,7 +156,7 @@ export interface HistoryPagination {
 }
 
 export interface PullRequestsResultData {
-  pull_requests?: ConciseOrDetailRow[];
+  pullRequests?: ConciseOrDetailRow[];
   // type:"issues" reuses this tool; same concise/object shapes.
   issues?: ConciseOrDetailRow[];
   // Mode identity + scope echoed by commits/releases/issues modes.
@@ -166,7 +164,7 @@ export interface PullRequestsResultData {
   owner?: string;
   repo?: string;
   path?: string;
-  total_count?: number;
+  totalCount?: number;
   effectiveQuery?: string;
   commits?: HistoryCommit[];
   releases?: HistoryRelease[];

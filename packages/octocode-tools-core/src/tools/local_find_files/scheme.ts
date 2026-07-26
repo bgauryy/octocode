@@ -19,7 +19,11 @@ import type { BulkToolOutput } from '../../types/toolOutput.js';
 const queryOverrides = {
   maxDepth: clampedInt(0, 100).optional(),
   minDepth: clampedInt(0, 100).optional(),
-  limit: clampedInt(1, LOCAL_MAX_LIMIT).optional(),
+  limit: clampedInt(1, LOCAL_MAX_LIMIT)
+    .optional()
+    .describe(
+      'Discovery cap applied after sort, before pagination — total results are capped here; itemsPerPage/page page within that cap.'
+    ),
   page: relaxedPageNumberField.default(1),
   itemsPerPage: clampedInt(1, LOCAL_MAX_FILES_PER_PAGE).optional(),
   // Core's description promises default vendor/build-dir exclusions, but the
@@ -90,14 +94,10 @@ export const LocalFindFilesBulkQuerySchema = createRelaxedBulkQuerySchema(
 export interface LocalFindFilesEntryOutput {
   name?: string;
   path?: string;
-  absolutePath?: string;
-  uri?: string;
   type?: 'file' | 'dir' | 'directory' | 'link' | 'symlink';
   size?: number | string;
   sizeFormatted?: string;
   modified?: string;
-  accessed?: string;
-  created?: string;
   permissions?: string;
 }
 

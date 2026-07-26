@@ -12,7 +12,9 @@ vi.mock('@octocodeai/octocode-tools-core', async importActual => {
   return {
     ...actual,
     sanitizeCallToolResult: () => {
-      throw new Error('sanitizer boom ghp_abc123xyz456789012345678901234567890');
+      throw new Error(
+        'sanitizer boom ghp_abc123xyz456789012345678901234567890'
+      );
     },
   };
 });
@@ -65,7 +67,9 @@ describe('secureServer — sanitization-failure policy', () => {
     proxy.registerTool(
       't',
       {} as never,
-      vi.fn().mockResolvedValue({ content: [] } satisfies CallToolResult) as never
+      vi
+        .fn()
+        .mockResolvedValue({ content: [] } satisfies CallToolResult) as never
     );
 
     const result = await getCb()({});

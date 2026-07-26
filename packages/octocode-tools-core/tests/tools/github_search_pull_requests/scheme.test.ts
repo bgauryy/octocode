@@ -60,7 +60,9 @@ describe('ghSearchPullRequests schema', () => {
   });
 
   it('emits input JSON schema so defaulted fields are not required from agents', () => {
-    const schema = JSON.parse(formatDirectToolSchemaText('ghSearchPullRequests'));
+    const schema = JSON.parse(
+      formatDirectToolSchemaText('ghSearchPullRequests')
+    );
     const querySchema = schema.properties.queries.items;
 
     expect(querySchema.required ?? []).not.toContain('itemsPerPage');

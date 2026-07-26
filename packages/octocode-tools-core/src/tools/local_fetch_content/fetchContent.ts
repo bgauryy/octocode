@@ -102,8 +102,11 @@ export async function fetchContent(
     // explicit minify always wins. Resolving here (not at the schema) is what
     // lets us tell "caller omitted minify" from "caller chose standard":
     // inputSchema is parsed upstream before execution, applying any schema default.
+    const hasLineRange =
+      query.startLine !== undefined && query.endLine !== undefined;
     const minifyMode =
-      query.minify ?? (query.fullContent === true ? 'none' : 'standard');
+      query.minify ??
+      (query.fullContent === true || hasLineRange ? 'none' : 'standard');
     const shouldMinify = minifyMode === 'standard' || minifyMode === 'symbols';
     const fallbackContentView: ContentView = shouldMinify ? 'standard' : 'none';
 

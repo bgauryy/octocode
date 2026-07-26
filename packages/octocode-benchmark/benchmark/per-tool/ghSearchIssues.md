@@ -26,10 +26,10 @@ CLI="node packages/octocode/out/octocode.js"
 
 ## Checks
 
-1. **Issue search (triage)** — `$CLI tools ghSearchIssues --queries '{"owner":"bgauryy","repo":"octocode","keywordsToSearch":["bug"],"state":"open","concise":true,"limit":5}' --compact`
+1. **Issue search (triage)** — `$CLI tools ghSearchIssues --queries '{"owner":"microsoft","repo":"vscode","keywordsToSearch":["crash"],"state":"open","concise":true,"limit":5}' --compact`
    → PASS: flat `#num title` rows.
 2. **Issue detail** — `... '{"owner":"bgauryy","repo":"octocode","issueNumber":<n>,"content":{"body":true,"comments":{"discussion":true}}}'` → PASS: body + comments.
-3. **Label triage** — `... '{"owner":"facebook","repo":"react","label":"bug","state":"open","limit":5}'` → PASS: only labeled issues.
+3. **Label triage** — `... '{"owner":"microsoft","repo":"vscode","label":"bug","state":"open","limit":5}'` → PASS: only labeled issues.
 
 ## Workflows
 

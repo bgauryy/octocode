@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 
 export function commonDirPrefix(paths: readonly string[]): string {
   if (paths.length === 0) return '';
@@ -24,7 +24,7 @@ const SKIP_TRAVERSAL_KEYS = new Set(['next', 'location']);
 
 function collectPathHolders(
   node: unknown,
-  holders: Array<{ obj: Record<string, unknown>; key: string }>,
+  holders: Array<{ obj: Record<string, unknown>; abs: string }>,
   depth: number
 ): void {
   if (depth > 8 || !node || typeof node !== 'object') return;
@@ -35,9 +35,11 @@ function collectPathHolders(
   const obj = node as Record<string, unknown>;
   const absolutePath = normalizeLocalAbsolutePath(obj);
   if (absolutePath) {
-    obj.absolutePath = absolutePath;
-    obj.uri = pathToFileURL(absolutePath).href;
-    holders.push({ obj, key: 'absolutePath' });
+    // Do NOT persist absolutePath/uri on the row: both are fully derivable from
+    // `base` + the relativized `path` (and lspGetSemantics accepts a plain
+    // path). Emitting them duplicated the full path twice per row and negated
+    // the `base` savings. Track the absolute value locally only, to compute base.
+    holders.push({ obj, abs: absolutePath });
   }
   for (const [key, value] of Object.entries(obj)) {
     if (SKIP_TRAVERSAL_KEYS.has(key)) continue;
@@ -72,25 +74,23 @@ function normalizeLocalAbsolutePath(
 export function relativizeResultPaths(
   results: ReadonlyArray<{ data?: unknown } | null | undefined>
 ): string | undefined {
-  const holders: Array<{ obj: Record<string, unknown>; key: string }> = [];
+  const holders: Array<{ obj: Record<string, unknown>; abs: string }> = [];
   for (const r of results) {
     collectPathHolders(r?.data, holders, 0);
   }
   if (holders.length === 0) return undefined;
 
-  const base = commonDirPrefix(holders.map(h => h.obj[h.key] as string));
+  const base = commonDirPrefix(holders.map(h => h.abs));
   if (base.length <= 1) return undefined;
 
   const prefix = base + '/';
   const cut = prefix.length;
-  for (const { obj } of holders) {
-    const absolutePath = obj.absolutePath;
-    if (typeof absolutePath !== 'string' || !absolutePath.startsWith(prefix)) {
-      continue;
-    }
-    obj.path = absolutePath.slice(cut);
-    obj.absolutePath = absolutePath;
-    obj.uri = pathToFileURL(absolutePath).href;
+  for (const { obj, abs } of holders) {
+    if (!abs.startsWith(prefix)) continue;
+    obj.path = abs.slice(cut);
+    // absolutePath/uri intentionally dropped — derivable from base + path.
+    delete obj.absolutePath;
+    delete obj.uri;
   }
 
   stripBaseFromStringElements(results, prefix);

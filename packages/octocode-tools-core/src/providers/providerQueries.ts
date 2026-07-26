@@ -208,4 +208,12 @@ export interface RepoStructureQuery extends BaseProviderQuery {
   page?: number;
 
   includeSizes?: boolean;
+
+  includeLanguages?: boolean;
+
+  includeContributors?: boolean;
+
+  includeBranches?: boolean;
+
+  includeTags?: boolean;
 }

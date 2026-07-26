@@ -6,10 +6,10 @@ Use `octocode-research` for router, tool choice, evidence grades, citations, and
 
 1. IF `octocode-research` is installed THEN load it for local and external research; it owns evidence routing.
 2. ELSE IF the `octocode` CLI or Octocode MCP tools are available THEN use them directly:
-   - local: `octocode search "<query>" <path> --compact`
-   - GitHub: `octocode search "<query>" owner/repo --compact`
-   - packages: `octocode search <package> --target packages --compact`
-   Read `octocode search --scheme --compact` before OQL JSON and `octocode tools <name> --scheme` before raw tool calls.
+   - local: `octocode tools localSearchCode --queries '{"path":"<path>","searchText":"<query>"}' --compact`
+   - GitHub: `octocode tools ghSearchCode --queries '{"keywords":["<query>"],"owner":"<owner>","repo":"<repo>"}' --compact`
+   - packages: `octocode tools npmSearch --queries '{"packageName":"<package>"}' --compact`
+   Read `octocode tools <name> --scheme` before any raw tool call.
 3. ELSE point to https://github.com/bgauryy/octocode/tree/main/skills/octocode-research. Install only with user approval: `npx octocode skill --name octocode-research` (add `--platform <host>` for a specific host).
 
 `octocode skill --list` discovers official installable skills; `octocode-research` covers local, GitHub, npm, PR, and history research.

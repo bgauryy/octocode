@@ -7,7 +7,7 @@ Load after `references/algorithm.md` and `references/problem-framing.md` to pick
 | `references/workflow-local.md` | running repo, checkout, artifact, installed dependency | `local-research` |
 | `references/workflow-external.md` | remote repo/PR/package/upstream | `external-research` |
 | `references/workflow-combination.md` | local clue → upstream, or remote code needing local-grade AST/LSP/negative proof | `campaign-combination` |
-| `references/workflow-debug.md` | failure, error, behavior/root cause | `code-investigation`, `oql-graph-proof` |
+| `references/workflow-debug.md` | failure, error, behavior/root cause | `code-investigation`, `dead-code-proof` |
 | `references/workflow-change.md` | implement/migrate/patch (new or changed behavior) | `change-mode` |
 | `references/workflow-refactor.md` | reshape structure/names/modules/layout while preserving contracts | `refactor-mode` |
 | `references/workflow-pr-review.md` | PR URL/#N/safe-to-merge, local changes/diff, file review; sole Octocode review workflow | `pr-local-review` |

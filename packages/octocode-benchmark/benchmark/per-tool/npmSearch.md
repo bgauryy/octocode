@@ -15,7 +15,6 @@ CLI="node packages/octocode/out/octocode.js"
 |---|---|---|
 | packageName | string **req** | exact name or keyword query; scoped needs full scope (`@octokit/rest`) |
 | keywords | string \| array<string> | registry keyword query (array joined with spaces) |
-| mode | enum(lean,full) | detail level |
 | page | int 1–1000 | keyword results; exact-name = page 1 |
 
 ## Checks
@@ -23,8 +22,8 @@ CLI="node packages/octocode/out/octocode.js"
 1. **Exact name** — `$CLI tools npmSearch --queries '{"packageName":"zod"}' --compact`
    → PASS: one rich result incl. `repository` (owner/repo) + `repositoryDirectory`.
 2. **Scoped package** — `... '{"packageName":"@octokit/rest"}'` → PASS: resolves the scoped name.
-3. **Keyword query (paginated)** — `... '{"packageName":"state management","mode":"lean"}'` → PASS: lean list; `pagination.hasMore`.
-4. **full mode** — `"mode":"full"` on an exact name → PASS: richer metadata.
+3. **Keyword query (paginated)** — `... '{"keywords":"state management"}'` → PASS: lean list; `pagination.hasMore`.
+4. **Keyword page 2** — `... '{"keywords":"state management","page":2}'` → PASS: distinct results, pagination preserved.
 5. **Monorepo dir scope** — a package inside a monorepo → PASS: `repositoryDirectory` points at its subdir.
 6. **Honest empty** — misspelled name → PASS: empty + "check spelling / scoped vs unscoped" hint.
 

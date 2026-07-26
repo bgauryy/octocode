@@ -102,14 +102,19 @@ async function getSemanticContent(
   }
   const client = clientResult.client;
 
-  if (CONSUMER_SCOPED_TYPES.has(query.type)) {
-    await warmLikelyConsumers(client, anchor.value, workspaceRoot);
-  }
+  const warmupStats = CONSUMER_SCOPED_TYPES.has(query.type)
+    ? await warmLikelyConsumers(client, anchor.value, workspaceRoot)
+    : undefined;
 
   // Readiness recorded when the pooled client warmed. `undefined` = the wait
   // was skipped for a server that answers immediately (no indexing caveat).
   const readiness = client.getReadiness?.();
 
-  const envelope = await dispatchAnchoredSemantic(query, anchor.value, client);
+  const envelope = await dispatchAnchoredSemantic(
+    query,
+    anchor.value,
+    client,
+    warmupStats
+  );
   return attachReadinessWarning(envelope, readiness);
 }

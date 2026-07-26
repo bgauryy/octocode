@@ -32,7 +32,10 @@ comparisons.
 - [ghGetFileContent](./ghGetFileContent.md)
 - [ghViewRepoStructure](./ghViewRepoStructure.md)
 - [ghSearchRepos](./ghSearchRepos.md)
-- [ghHistoryResearch](./ghHistoryResearch.md)
+- [ghSearchPullRequests](./ghSearchPullRequests.md)
+- [ghSearchIssues](./ghSearchIssues.md)
+- [ghSearchCommits](./ghSearchCommits.md)
+- [ghListReleases](./ghListReleases.md) (opt-in: `ENABLE_RELEASES`)
 - [npmSearch](./npmSearch.md)
 - [ghCloneRepo](./ghCloneRepo.md)
 - [localSearchCode](./localSearchCode.md)
@@ -40,7 +43,6 @@ comparisons.
 - [localFindFiles](./localFindFiles.md)
 - [localGetFileContent](./localGetFileContent.md)
 - [lspGetSemantics](./lspGetSemantics.md)
-- [oqlSearch](./oqlSearch.md)
 
 ## Open pagination gaps (tracked)
 

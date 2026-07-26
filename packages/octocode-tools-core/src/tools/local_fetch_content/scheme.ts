@@ -70,8 +70,6 @@ export interface FileContentMatchRange {
 
 export interface LocalGetFileContentData {
   path?: string;
-  absolutePath?: string;
-  uri?: string;
   content?: string;
   // isSkeleton was dropped — always equal to contentView==='symbols', so it
   // carried no information a consumer couldn't already derive from contentView.
@@ -91,8 +89,6 @@ export interface LocalGetFileContentData {
   pagination?: (CharPagination & { nextBlockChar?: number }) | ItemPagination;
   next?: Record<string, ToolContinuation>;
   modified?: string;
-  lastModified?: string;
-  lastModifiedBy?: string;
   warnings?: string[];
   matchNotFound?: boolean;
   searchedFor?: string;

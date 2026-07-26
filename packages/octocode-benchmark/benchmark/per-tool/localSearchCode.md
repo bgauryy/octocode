@@ -48,6 +48,6 @@ ROOT=$(pwd)   # run from repo root
 
 ## Workflows
 
-- **Find shape → prove identity**: `structural` pattern → feed matched anchor (uri+line) to `lspGetSemantics` for references/callers (semantic proof).
+- **Find shape → prove identity**: `structural` pattern → feed matched anchor (`base`+`path`+line) to `lspGetSemantics` for references/callers (semantic proof).
 - **Triage → read**: `discovery` for candidate files → `localGetFileContent` for the exact region.
 - **Dead-code hunt**: `structural` for a symbol's call shape + `lspGetSemantics` references = 0 → candidate.
