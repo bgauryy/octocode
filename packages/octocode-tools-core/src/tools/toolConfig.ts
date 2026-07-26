@@ -8,8 +8,6 @@ import {
   FileContentBulkQueryLocalSchema,
   GitHubCodeSearchQueryLocalSchema,
   GitHubCodeSearchBulkQueryLocalSchema,
-  GitHubPullRequestSearchQueryLocalSchema,
-  GitHubPullRequestSearchBulkQueryLocalSchema,
   GitHubReposSearchSingleQueryLocalSchema,
   GitHubReposSearchBulkQueryLocalSchema,
   GitHubViewRepoStructureQueryLocalSchema,
@@ -32,7 +30,22 @@ import {
 import { executeCloneRepo } from './github_clone_repo/execution.js';
 import { fetchMultipleGitHubFileContents } from './github_fetch_content/execution.js';
 import { searchMultipleGitHubCode } from './github_search_code/execution.js';
-import { searchMultipleGitHubPullRequests } from './github_search_pull_requests/execution.js';
+import {
+  SearchPullRequestsLocalSchema,
+  SearchPullRequestsBulkLocalSchema,
+  SearchIssuesLocalSchema,
+  SearchIssuesBulkLocalSchema,
+  SearchCommitsLocalSchema,
+  SearchCommitsBulkLocalSchema,
+  ListReleasesLocalSchema,
+  ListReleasesBulkLocalSchema,
+} from './github_search_pull_requests/splitSchemes.js';
+import {
+  searchMultipleGitHubPullRequestsSplit,
+  searchMultipleGitHubIssues,
+  searchMultipleGitHubCommits,
+  listMultipleGitHubReleases,
+} from './github_search_pull_requests/splitExecutions.js';
 import { searchMultipleGitHubRepos } from './github_search_repos/execution.js';
 import { exploreMultipleRepositoryStructures } from './github_view_repo_structure/execution.js';
 import { searchPackages } from './package_search/execution.js';
@@ -43,7 +56,11 @@ import { executeViewStructure } from './local_view_structure/execution.js';
 import { executeLspGetSemantics } from './lsp/semantic_content/execution.js';
 import { executeOqlSearchTool } from './oql_search/execution.js';
 import { LSP_GET_SEMANTICS_TOOL_NAME } from './lsp/shared/semanticTypes.js';
-import { isOqlEnabled, OQL_SEARCH_TOOL_NAME } from './toolNames.js';
+import {
+  isOqlEnabled,
+  isReleasesEnabled,
+  OQL_SEARCH_TOOL_NAME,
+} from './toolNames.js';
 import {
   DEFAULT_TOOL_METADATA_GATEWAY,
   type ToolMetadataGateway,
@@ -113,7 +130,10 @@ interface ToolCatalog {
   GITHUB_FETCH_CONTENT: ToolConfig;
   GITHUB_VIEW_REPO_STRUCTURE: ToolConfig;
   GITHUB_SEARCH_REPOSITORIES: ToolConfig;
-  GITHUB_SEARCH_PULL_REQUESTS: ToolConfig;
+  GITHUB_PULL_REQUESTS: ToolConfig;
+  GITHUB_ISSUES: ToolConfig;
+  GITHUB_COMMITS: ToolConfig;
+  GITHUB_RELEASES: ToolConfig;
   PACKAGE_SEARCH: ToolConfig;
   GITHUB_CLONE_REPO: ToolConfig;
   LOCAL_RIPGREP: ToolConfig;
@@ -192,23 +212,61 @@ function createToolCatalog(
     }
   );
 
-  const GITHUB_SEARCH_PULL_REQUESTS = createTool(
-    gateway,
-    'GITHUB_SEARCH_PULL_REQUESTS',
-    {
-      isDefault: true,
-      isLocal: false,
-      type: 'history',
-      direct: {
-        schema: GitHubPullRequestSearchQueryLocalSchema,
-        inputSchema: GitHubPullRequestSearchBulkQueryLocalSchema,
-        executionFn: searchMultipleGitHubPullRequests,
-        security: 'remote',
-        requiresServerRuntime: true,
-        requiresProviders: true,
-      },
-    }
-  );
+  const GITHUB_PULL_REQUESTS = createTool(gateway, 'GITHUB_PULL_REQUESTS', {
+    isDefault: true,
+    isLocal: false,
+    type: 'history',
+    direct: {
+      schema: SearchPullRequestsLocalSchema,
+      inputSchema: SearchPullRequestsBulkLocalSchema,
+      executionFn: searchMultipleGitHubPullRequestsSplit,
+      security: 'remote',
+      requiresServerRuntime: true,
+      requiresProviders: true,
+    },
+  });
+
+  const GITHUB_ISSUES = createTool(gateway, 'GITHUB_ISSUES', {
+    isDefault: true,
+    isLocal: false,
+    type: 'history',
+    direct: {
+      schema: SearchIssuesLocalSchema,
+      inputSchema: SearchIssuesBulkLocalSchema,
+      executionFn: searchMultipleGitHubIssues,
+      security: 'remote',
+      requiresServerRuntime: true,
+      requiresProviders: true,
+    },
+  });
+
+  const GITHUB_COMMITS = createTool(gateway, 'GITHUB_COMMITS', {
+    isDefault: true,
+    isLocal: false,
+    type: 'history',
+    direct: {
+      schema: SearchCommitsLocalSchema,
+      inputSchema: SearchCommitsBulkLocalSchema,
+      executionFn: searchMultipleGitHubCommits,
+      security: 'remote',
+      requiresServerRuntime: true,
+      requiresProviders: true,
+    },
+  });
+
+  const GITHUB_RELEASES = createTool(gateway, 'GITHUB_RELEASES', {
+    isDefault: false,
+    isLocal: false,
+    type: 'history',
+    direct: {
+      schema: ListReleasesLocalSchema,
+      inputSchema: ListReleasesBulkLocalSchema,
+      executionFn: listMultipleGitHubReleases,
+      security: 'remote',
+      requiresServerRuntime: true,
+      requiresProviders: true,
+    },
+  });
 
   const PACKAGE_SEARCH = createTool(gateway, 'PACKAGE_SEARCH', {
     isDefault: true,
@@ -324,7 +382,12 @@ function createToolCatalog(
     GITHUB_FETCH_CONTENT,
     GITHUB_VIEW_REPO_STRUCTURE,
     GITHUB_SEARCH_REPOSITORIES,
-    GITHUB_SEARCH_PULL_REQUESTS,
+    GITHUB_PULL_REQUESTS,
+    GITHUB_ISSUES,
+    GITHUB_COMMITS,
+    // ghListReleases is opt-in (ENABLE_RELEASES=1) — niche release-history
+    // surface kept out of the default toolset to stay lean.
+    ...(isReleasesEnabled() ? [GITHUB_RELEASES] : []),
     PACKAGE_SEARCH,
     GITHUB_CLONE_REPO,
     LOCAL_RIPGREP,
@@ -340,7 +403,10 @@ function createToolCatalog(
     GITHUB_FETCH_CONTENT,
     GITHUB_VIEW_REPO_STRUCTURE,
     GITHUB_SEARCH_REPOSITORIES,
-    GITHUB_SEARCH_PULL_REQUESTS,
+    GITHUB_PULL_REQUESTS,
+    GITHUB_ISSUES,
+    GITHUB_COMMITS,
+    GITHUB_RELEASES,
     PACKAGE_SEARCH,
     GITHUB_CLONE_REPO,
     LOCAL_RIPGREP,
@@ -361,8 +427,10 @@ export const GITHUB_VIEW_REPO_STRUCTURE =
   DEFAULT_TOOL_CATALOG.GITHUB_VIEW_REPO_STRUCTURE;
 export const GITHUB_SEARCH_REPOSITORIES =
   DEFAULT_TOOL_CATALOG.GITHUB_SEARCH_REPOSITORIES;
-export const GITHUB_SEARCH_PULL_REQUESTS =
-  DEFAULT_TOOL_CATALOG.GITHUB_SEARCH_PULL_REQUESTS;
+export const GITHUB_PULL_REQUESTS = DEFAULT_TOOL_CATALOG.GITHUB_PULL_REQUESTS;
+export const GITHUB_ISSUES = DEFAULT_TOOL_CATALOG.GITHUB_ISSUES;
+export const GITHUB_COMMITS = DEFAULT_TOOL_CATALOG.GITHUB_COMMITS;
+export const GITHUB_RELEASES = DEFAULT_TOOL_CATALOG.GITHUB_RELEASES;
 export const PACKAGE_SEARCH = DEFAULT_TOOL_CATALOG.PACKAGE_SEARCH;
 export const GITHUB_CLONE_REPO = DEFAULT_TOOL_CATALOG.GITHUB_CLONE_REPO;
 export const LOCAL_RIPGREP = DEFAULT_TOOL_CATALOG.LOCAL_RIPGREP;

@@ -219,6 +219,91 @@ const TOOL_RESULT_SHAPES: Record<string, () => CallToolResult> = {
     },
   }),
 
+  ghSearchPullRequests: () => ({
+    content: [
+      {
+        type: 'text',
+        text: `PR #42: Rotate secrets\n- Patch: +AWS_KEY=${SECRETS.AWS_KEY}\n- Review: "token ${SECRETS.GITHUB_TOKEN}"`,
+      },
+    ],
+    structuredContent: {
+      data: {
+        results: [
+          {
+            id: 'q1',
+            data: {
+              pull_requests: [
+                {
+                  number: 42,
+                  title: 'Rotate secrets',
+                  file_changes: [
+                    {
+                      filename: '.env',
+                      patch: `+AWS_KEY=${SECRETS.AWS_KEY}\n+STRIPE=${SECRETS.STRIPE_KEY}`,
+                    },
+                  ],
+                },
+              ],
+            },
+          },
+        ],
+      },
+    },
+  }),
+
+  ghSearchIssues: () => ({
+    content: [
+      {
+        type: 'text',
+        text: `Issue #7: leaked key ${SECRETS.OPENAI_KEY}`,
+      },
+    ],
+    structuredContent: {
+      data: {
+        results: [
+          {
+            id: 'q1',
+            data: {
+              issues: [
+                {
+                  number: 7,
+                  title: 'Leaked key',
+                  body: `The token is ${SECRETS.GITHUB_TOKEN}`,
+                },
+              ],
+            },
+          },
+        ],
+      },
+    },
+  }),
+
+  ghSearchCommits: () => ({
+    content: [
+      {
+        type: 'text',
+        text: `commit abc: set token to ${SECRETS.GITLAB_TOKEN}`,
+      },
+    ],
+    structuredContent: {
+      data: {
+        results: [
+          {
+            id: 'q1',
+            data: {
+              commits: [
+                {
+                  sha: 'abc',
+                  message: `rotate token to ${SECRETS.GITLAB_TOKEN}`,
+                },
+              ],
+            },
+          },
+        ],
+      },
+    },
+  }),
+
   npmSearch: () => ({
     content: [
       {

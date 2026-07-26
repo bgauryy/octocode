@@ -47,7 +47,7 @@ function rawData<T = Record<string, unknown>>(result: unknown): T | undefined {
 describe('#12 golden parity: local code search (localSearchCode vs target:code)', () => {
   it('same path:line match set', async () => {
     const raw = await runDirect('localSearchCode', {
-      keywords: 'runOqlSearch',
+      searchText: 'runOqlSearch',
       path: OQL_SRC,
       mode: 'paginated',
     });

@@ -75,7 +75,7 @@ export async function handleCommitsMode(
 
   if (isGitHubAPIError(result)) {
     return createErrorResult(result, query, {
-      toolName: TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS,
+      toolName: TOOL_NAMES.GITHUB_PULL_REQUESTS,
     });
   }
 
@@ -94,9 +94,8 @@ export async function handleCommitsMode(
       ? {
           next: {
             prDetail: {
-              tool: 'ghHistoryResearch',
+              tool: 'ghSearchPullRequests',
               query: {
-                type: 'prs',
                 owner: q.owner,
                 repo: q.repo,
                 prNumber: Number(prRef),
@@ -113,7 +112,7 @@ export async function handleCommitsMode(
     query,
     dataWithNext,
     hasContent,
-    TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS,
+    TOOL_NAMES.GITHUB_PULL_REQUESTS,
     {
       rawResponse: result.rawResponseChars,
     }

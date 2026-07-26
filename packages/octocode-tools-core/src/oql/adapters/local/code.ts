@@ -64,7 +64,7 @@ export async function executeCode(
   const toolQuery: Partial<LocalSearchToolQuery> = {
     path: searchPath,
     ...scopeToCommon(query.scope),
-    ...(query.view === 'discovery' ? { filesOnly: true } : {}),
+    ...(query.view === 'discovery' ? { output: 'files' as const } : {}),
     ...(query.view === 'detailed' ? { contextLines: 3 } : {}),
     ...(query.itemsPerPage ? { itemsPerPage: query.itemsPerPage } : {}),
     ...(query.page ? { page: query.page } : {}),
@@ -77,14 +77,14 @@ export async function executeCode(
     if (m.pattern !== undefined) toolQuery.pattern = m.pattern;
     if (typeof m.rule === 'string') toolQuery.rule = m.rule;
   } else {
-    toolQuery.keywords = m.keywords;
-    if (m.fixedString) toolQuery.fixedString = true;
-    if (m.perlRegex) toolQuery.perlRegex = true;
-    if (m.caseSensitive) toolQuery.caseSensitive = true;
-    if (m.caseInsensitive) toolQuery.caseInsensitive = true;
+    toolQuery.searchText = m.keywords;
+    if (m.fixedString) toolQuery.regex = 'fixed';
+    if (m.perlRegex) toolQuery.regex = 'perl';
+    if (m.caseSensitive) toolQuery.caseMode = 'sensitive';
+    if (m.caseInsensitive) toolQuery.caseMode = 'insensitive';
     if (m.wholeWord) toolQuery.wholeWord = true;
-    if (m.multiline) toolQuery.multiline = true;
-    if (m.multilineDotall) toolQuery.multilineDotall = true;
+    if (m.multilineDotall) toolQuery.multiline = 'dotall';
+    else if (m.multiline) toolQuery.multiline = 'on';
     if (compiled.negate) toolQuery.invertMatch = true;
   }
 

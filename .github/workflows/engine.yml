@@ -57,6 +57,13 @@ jobs:
       - name: Build native addon (debug)
         run: yarn workspace @octocodeai/octocode-engine build:dev
 
+      - name: NAPI ABI drift guard (generated ABI vs hand-maintained loader/index.d.ts)
+        # build:dev's postbuild snapshots napi's real generated .d.ts; this fails
+        # if the hand-maintained loader/index.d.ts drifts from the actual ABI
+        # (added/removed/renamed export or changed arity) — the same mechanical
+        # enforcement idea as verify:patterns, for the FFI type surface.
+        run: yarn workspace @octocodeai/octocode-engine verify:napi-abi
+
       - name: Clippy (-D warnings gate)
         working-directory: packages/octocode-engine
         run: cargo clippy --lib --all-features -- -D warnings

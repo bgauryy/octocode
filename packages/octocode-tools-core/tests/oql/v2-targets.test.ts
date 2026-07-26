@@ -26,7 +26,7 @@ describe('OQL research targets are active and route to their backend', () => {
         repo: 'facebook/react',
         params: { state: 'merged' },
       },
-      backend: 'ghHistoryResearch',
+      backend: 'ghSearchPullRequests',
       op: 'searchPullRequests',
     },
     {
@@ -35,7 +35,7 @@ describe('OQL research targets are active and route to their backend', () => {
         repo: 'facebook/react',
         params: { path: 'packages/react' },
       },
-      backend: 'ghHistoryResearch',
+      backend: 'ghSearchCommits',
       op: 'searchCommits',
     },
     {
@@ -44,7 +44,7 @@ describe('OQL research targets are active and route to their backend', () => {
         repo: 'facebook/react',
         params: { prNumber: 1 },
       },
-      backend: 'ghHistoryResearch',
+      backend: 'ghSearchPullRequests',
       op: 'diff',
     },
     {

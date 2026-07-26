@@ -66,7 +66,7 @@ export async function leafFieldFileRows(
   prov: OqlProvenance[],
   diags: OqlDiagnostic[]
 ): Promise<FileRowMap> {
-  const tq: Partial<LocalFindToolQuery> = { path: searchPath, details: true };
+  const tq: Partial<LocalFindToolQuery> = { path: searchPath, detail: 'full' };
   applyFindFilesScope(tq, query.scope);
   applyFieldPredicate(leaf, tq, diags);
   if (findFilesNeedsScopePostFilter(query.scope)) {

@@ -56,7 +56,6 @@ const KNOWN_QUERY_KEYS = new Set<string>([
   'mainResearchGoal',
   'researchGoal',
   'reasoning',
-  'verbose',
 ]);
 
 export function normalizeQuery(input: OqlInputQuery): OqlQuery {

@@ -1,6 +1,6 @@
 /**
  * `target:"pullRequests"` and `target:"commits"` adapter (both route through
- * ghHistoryResearch): forwards OQL paging, then applies the P4 client-side
+ * ghSearchCommits/ghSearchPullRequests): forwards OQL paging, then applies the P4 client-side
  * `matchString` content filter (never a backing search-index claim) with
  * honest partial/zero-match diagnostics.
  */
@@ -17,7 +17,7 @@ export async function executeHistory(query: OqlQuery): Promise<AdapterResult> {
 
   // P4: `matchString` is an OQL-layer *content* filter applied to fetched
   // bodies — never a backing search-index claim. Strip it (and matchScope) from
-  // the params forwarded to ghHistoryResearch for BOTH lanes so the tool is not
+  // the params forwarded to the history tools for BOTH lanes so the tool is not
   // asked to interpret it as a query field, then apply it client-side with
   // honest partial/zero-match diagnostics. (Commits previously forwarded
   // matchString raw and never filtered — a silent drop if the backend ignored
@@ -30,16 +30,18 @@ export async function executeHistory(query: OqlQuery): Promise<AdapterResult> {
     delete forwarded.matchScope;
   }
 
-  const result = await runDirect('ghHistoryResearch', {
+  // ghHistoryResearch was split into focused tools; each executor injects its
+  // own `type`, so route by lane and drop the discriminator.
+  const toolName = commits ? 'ghSearchCommits' : 'ghSearchPullRequests';
+  const result = await runDirect(toolName, {
     ...(owner ? { owner } : {}),
     ...(repo ? { repo } : {}),
-    ...(commits ? { type: 'commits' } : {}),
     ...forwarded,
   });
   const mapped = finishRecords(
     result,
     commits ? 'commit' : 'pullRequest',
-    'ghHistoryResearch',
+    toolName,
     query.from ?? { kind: 'github' }
   );
   if (pr) return filterPullRequestsByMatch(mapped, pr);
@@ -93,7 +95,7 @@ export function filterCommitsByMatch(
       diagnostic(
         'zeroMatches',
         `No commit message matched "${needle}" (content filter over ${total} fetched commit(s); not a search-index query). Broaden the fetch (branch/perPage/page).`,
-        { backend: 'ghHistoryResearch', severity: 'info', blocksAnswer: false }
+        { backend: 'ghSearchCommits', severity: 'info', blocksAnswer: false }
       )
     );
   } else if (kept.length < total) {
@@ -101,7 +103,7 @@ export function filterCommitsByMatch(
       diagnostic(
         'partialResult',
         `Content filter kept ${kept.length} of ${total} fetched commit(s) matching "${needle}" in message. This filters fetched content only — page the fetch to widen the candidate set.`,
-        { backend: 'ghHistoryResearch', severity: 'info', blocksAnswer: false }
+        { backend: 'ghSearchCommits', severity: 'info', blocksAnswer: false }
       )
     );
   }
@@ -191,7 +193,7 @@ export function filterPullRequestsByMatch(
       diagnostic(
         'zeroMatches',
         `No pull request ${match.scope} matched "${match.needle}" (content filter over ${total} fetched PR(s); not a search-index query). Broaden the fetch (state/keywordsToSearch/page) or the match scope.`,
-        { backend: 'ghHistoryResearch', severity: 'info', blocksAnswer: false }
+        { backend: 'ghSearchPullRequests', severity: 'info', blocksAnswer: false }
       )
     );
   } else if (kept.length < total) {
@@ -199,7 +201,7 @@ export function filterPullRequestsByMatch(
       diagnostic(
         'partialResult',
         `Content filter kept ${kept.length} of ${total} fetched PR(s) matching "${match.needle}" in ${match.scope}. This filters fetched content only — page the fetch to widen the candidate set.`,
-        { backend: 'ghHistoryResearch', severity: 'info', blocksAnswer: false }
+        { backend: 'ghSearchPullRequests', severity: 'info', blocksAnswer: false }
       )
     );
   }

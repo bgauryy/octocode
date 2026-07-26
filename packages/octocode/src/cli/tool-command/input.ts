@@ -82,19 +82,24 @@ export function validateRawToolFootguns(
     return;
   }
 
-  const badIndex = getPayloadQueries(rawPayload).findIndex(
-    query =>
-      query &&
-      typeof query === 'object' &&
-      Array.isArray((query as { readonly keywords?: unknown }).keywords)
-  );
+  // A plain `keywords`/`keywordsToSearch` string is folded to `searchText` by
+  // the alias layer; only an ARRAY can't (searchText is a single string), so
+  // catch that here with a friendly redirect.
+  const badIndex = getPayloadQueries(rawPayload).findIndex(query => {
+    if (!query || typeof query !== 'object') return false;
+    const q = query as {
+      readonly searchText?: unknown;
+      readonly keywords?: unknown;
+    };
+    return Array.isArray(q.searchText) || Array.isArray(q.keywords);
+  });
   if (badIndex === -1) return;
 
   throw new DirectToolInputError(
-    'localSearchCode.keywords must be a string, not an array.',
+    'localSearchCode.searchText must be a single string, not an array.',
     [
-      'Use {"path":".","keywords":"runCLI"} for localSearchCode.',
-      'GitHub ghSearchCode uses keywords as an array; localSearchCode does not.',
+      'Use {"path":".","searchText":"runCLI"} for localSearchCode.',
+      'ghSearchCode/ghSearchRepos use `keywords` (an array of ANDed terms); localSearchCode uses `searchText` (one text/regex string).',
       `Run tools ${toolName} --scheme before raw calls.`,
     ]
   );

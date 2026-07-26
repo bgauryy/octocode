@@ -28,7 +28,7 @@ const manyFiles = (): LocalSearchCodeFile[] =>
   );
 
 const query = {
-  keywords: SYMBOL,
+  searchText: SYMBOL,
   sort: 'relevance',
 } as unknown as RipgrepQuery;
 

@@ -151,7 +151,7 @@ function buildNext(
       },
     },
     latestRelease: {
-      tool: 'ghHistoryResearch',
+      tool: 'ghSearchPullRequests',
       query: { type: 'releases', owner, repo },
       why: 'npm latest can diverge from the repo release line — verify against the repo releases/tags',
     },

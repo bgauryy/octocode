@@ -206,10 +206,10 @@ export function inferLspSymbolName(
 ): InferredLspSymbol | undefined {
   // Aggregate / count output has no single-symbol anchor.
   if (
-    query.countLinesPerFile ||
-    query.countMatchesPerFile ||
-    query.countUnique ||
-    query.unique
+    query.output === 'countLines' ||
+    query.output === 'countMatches' ||
+    query.unique === 'list' ||
+    query.unique === 'count'
   ) {
     return undefined;
   }
@@ -225,7 +225,7 @@ export function inferLspSymbolName(
 
   // onlyMatching returns the exact matched substring — infer when it is itself a
   // bare identifier.
-  if (query.onlyMatching) {
+  if (query.output === 'matchOnly') {
     const symbol = bareIdentifier(match?.value);
     return symbol ? { symbol } : undefined;
   }
@@ -233,7 +233,7 @@ export function inferLspSymbolName(
   // Otherwise infer only from an exact bare-identifier query. This suppresses
   // regex-like queries (`\w+_searched`), dotted fixed strings (`query.symbolName`),
   // and multi-token snippets, none of which are a single bare identifier.
-  const symbol = bareIdentifier(query.keywords);
+  const symbol = bareIdentifier(query.searchText);
   return symbol ? { symbol } : undefined;
 }
 

@@ -87,7 +87,7 @@ export function planQuery(query: OqlQuery, rawInput: unknown): PlanQueryResult {
             `No transformer registered for target:"diff" lane "${lane.kind}".`,
             {
               queryPath: 'target',
-              backend: 'ghHistoryResearch',
+              backend: 'ghSearchPullRequests',
               severity: 'error',
             }
           )
@@ -100,7 +100,7 @@ export function planQuery(query: OqlQuery, rawInput: unknown): PlanQueryResult {
           'target:"diff" needs either {prNumber} (PR patch diff) or {baseRef,headRef,path} (direct file diff between two refs).',
           {
             queryPath: 'params',
-            backend: 'ghHistoryResearch',
+            backend: 'ghSearchPullRequests',
             repair: {
               message:
                 'Add params.prNumber for a PR patch, or params.baseRef + params.headRef + params.path for a direct file diff.',

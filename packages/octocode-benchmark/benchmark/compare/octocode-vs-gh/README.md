@@ -9,7 +9,7 @@ test whether Octocode does better. Same LLM, same tasks, same budget.
 
 | Q | Stresses (gh weakness) | Repo |
 |---|---|---|
-| Q1 | Text search false positives — AST needed | `facebook/react` |
+| Q1 | Text search false positives — AST needed | `vuejs/core` |
 | Q2 | Token cost of reading one function from a big file (minify) | `microsoft/TypeScript` |
 | Q3 | Deep PR review — file/delta breakdown | `expressjs/express` |
 | Q4 | Navigate a large monorepo to one file | `vercel/next.js` |
@@ -34,9 +34,16 @@ routing.
 
 ⚠️ **Q1–Q10 oracles are DRAFT** — the answer text is architecturally plausible
 but line numbers, exact counts, and PR states are **time-sensitive and NOT yet
-independently verified**. Before a scored run, verify each `answer` with a method
-outside both arms (WebFetch `raw.githubusercontent.com` / `api.github.com`),
-freeze it, and record the date. Q6 (absence) and the capability shape of each
-question are stable regardless.
+independently verified**. Per the shared validity gate this suite is
+**orientation only, not a ship-gate** until a one-time verification pass freezes
+every oracle (WebFetch outside both arms). Q6 (absence) and each question's
+capability shape are stable regardless.
 
-Shared method + metrics: [`../README.md`](../README.md).
+**Contamination:** these are famous repos — run the **no-tools control arm** (see
+shared README) first; any question the control already answers measures LLM
+memory, not tools, and must be down-weighted or replaced. Each question's
+`capabilityPoint` drives the **tool-use grading layer** (did Arm B use AST / LSP
+/ minify / cache; did Arm A hit the rate limit).
+
+Shared method + metrics (three arms, trajectory grading, aggregation, validity
+gates): [`../README.md`](../README.md).

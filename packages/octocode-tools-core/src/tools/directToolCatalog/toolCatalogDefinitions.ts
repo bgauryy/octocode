@@ -7,6 +7,7 @@
 import { z } from 'zod';
 import {
   isOqlEnabled,
+  isReleasesEnabled,
   OQL_SEARCH_TOOL_NAME,
   STATIC_TOOL_NAMES,
 } from '../toolNames.js';
@@ -18,8 +19,14 @@ import {
   FileContentBulkQueryLocalSchema,
   GitHubCodeSearchQueryLocalSchema,
   GitHubCodeSearchBulkQueryLocalSchema,
-  GitHubPullRequestSearchQueryLocalSchema,
-  GitHubPullRequestSearchBulkQueryLocalSchema,
+  SearchPullRequestsLocalSchema,
+  SearchPullRequestsBulkLocalSchema,
+  SearchIssuesLocalSchema,
+  SearchIssuesBulkLocalSchema,
+  SearchCommitsLocalSchema,
+  SearchCommitsBulkLocalSchema,
+  ListReleasesLocalSchema,
+  ListReleasesBulkLocalSchema,
   GitHubReposSearchSingleQueryLocalSchema,
   GitHubReposSearchBulkQueryLocalSchema,
   GitHubViewRepoStructureQueryLocalSchema,
@@ -64,7 +71,9 @@ const DIRECT_TOOL_RELEVANCE_ORDER = new Map<string, number>(
   [
     STATIC_TOOL_NAMES.GITHUB_SEARCH_CODE,
     STATIC_TOOL_NAMES.GITHUB_SEARCH_REPOSITORIES,
-    STATIC_TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS,
+    STATIC_TOOL_NAMES.GITHUB_PULL_REQUESTS,
+    STATIC_TOOL_NAMES.GITHUB_ISSUES,
+    STATIC_TOOL_NAMES.GITHUB_COMMITS,
     STATIC_TOOL_NAMES.GITHUB_FETCH_CONTENT,
     STATIC_TOOL_NAMES.GITHUB_VIEW_REPO_STRUCTURE,
     STATIC_TOOL_NAMES.GITHUB_CLONE_REPO,
@@ -180,10 +189,30 @@ export const DIRECT_TOOL_DEFINITIONS: DirectToolDefinition[] = [
     inputSchema: GitHubReposSearchBulkQueryLocalSchema,
   },
   {
-    name: STATIC_TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS,
-    schema: GitHubPullRequestSearchQueryLocalSchema,
-    inputSchema: GitHubPullRequestSearchBulkQueryLocalSchema,
+    name: STATIC_TOOL_NAMES.GITHUB_PULL_REQUESTS,
+    schema: SearchPullRequestsLocalSchema,
+    inputSchema: SearchPullRequestsBulkLocalSchema,
   },
+  {
+    name: STATIC_TOOL_NAMES.GITHUB_ISSUES,
+    schema: SearchIssuesLocalSchema,
+    inputSchema: SearchIssuesBulkLocalSchema,
+  },
+  {
+    name: STATIC_TOOL_NAMES.GITHUB_COMMITS,
+    schema: SearchCommitsLocalSchema,
+    inputSchema: SearchCommitsBulkLocalSchema,
+  },
+  // ghListReleases is opt-in (ENABLE_RELEASES=1) — gated to match ALL_TOOLS.
+  ...(isReleasesEnabled()
+    ? [
+        {
+          name: STATIC_TOOL_NAMES.GITHUB_RELEASES,
+          schema: ListReleasesLocalSchema,
+          inputSchema: ListReleasesBulkLocalSchema,
+        },
+      ]
+    : []),
   {
     name: STATIC_TOOL_NAMES.PACKAGE_SEARCH,
     schema: NpmSearchQueryLocalSchema,

@@ -184,7 +184,7 @@ const ENTRIES: readonly TransformerRegistryEntry[] = [
     status: 'active',
     backends: [
       {
-        backend: 'ghHistoryResearch',
+        backend: 'ghSearchPullRequests',
         operation: 'searchPullRequests',
         exact: true,
       },
@@ -200,7 +200,7 @@ const ENTRIES: readonly TransformerRegistryEntry[] = [
     sourceKinds: ['github'],
     status: 'active',
     backends: [
-      { backend: 'ghHistoryResearch', operation: 'searchCommits', exact: true },
+      { backend: 'ghSearchCommits', operation: 'searchCommits', exact: true },
     ],
     rowKind: 'record',
     recordType: 'commit',
@@ -213,7 +213,7 @@ const ENTRIES: readonly TransformerRegistryEntry[] = [
     sourceKinds: ['github'],
     status: 'active',
     backends: [
-      { backend: 'ghHistoryResearch', operation: 'diff', exact: true },
+      { backend: 'ghSearchPullRequests', operation: 'diff', exact: true },
     ],
     rowKind: 'record',
     recordType: 'diff',

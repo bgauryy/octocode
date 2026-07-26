@@ -45,10 +45,10 @@ export async function warmLikelyConsumers(
     const family = JS_TS_FAMILY.includes(ext) ? JS_TS_FAMILY : [ext];
     const result = await searchContentRipgrep({
       path: workspaceRoot,
-      keywords: anchor.resolvedSymbol.name,
-      fixedString: true,
+      searchText: anchor.resolvedSymbol.name,
+      regex: 'fixed',
       wholeWord: true,
-      filesOnly: true,
+      output: 'files',
       maxFiles: WARM_MAX_FILES,
       include: family.filter(Boolean).map(e => `*.${e}`),
     } as Parameters<typeof searchContentRipgrep>[0]);

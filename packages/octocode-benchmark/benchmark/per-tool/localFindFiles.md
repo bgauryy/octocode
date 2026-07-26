@@ -22,9 +22,10 @@ ROOT=$(pwd)
 | empty | boolean | 0-byte files / childless dirs |
 | modifiedWithin / modifiedBefore / accessedWithin | string | `7d`,`2h`,`1w`,`30m` |
 | sizeGreater / sizeLess | string | `100k`,`1m`,`500b` |
-| permissions / executable / readable / writable | | permission filters |
+| permissions | string | exact permission filter |
+| access | enum(executable,readable,writable) | permission-class filter |
 | excludeDir | array<string> | prune dirs (nothing excluded by default!) |
-| details / showFileLastModified | boolean | add size/perms / timestamps |
+| detail | enum(basic,modified,full) | `basic` names only; `modified` +mtime; `full` +size/perms |
 | sortBy | enum(modified,name,path,size) | ordering |
 | limit / page / itemsPerPage | int | discovery cap + pagination |
 
@@ -34,7 +35,7 @@ ROOT=$(pwd)
    → PASS: only matching files.
 2. **Monorepo path glob** — `... '{"path":"'$ROOT'","pathPattern":"packages/*/src/tools/**","entryType":"f","itemsPerPage":20}'` → PASS: tool sources across packages.
 3. **Prune build dirs** — `... "excludeDir":["node_modules","dist","coverage","out"]` → PASS: no vendor/build noise.
-4. **Size filter** — `"sizeGreater":"100k"` → PASS: only large files, with `details`.
+4. **Size filter** — `"sizeGreater":"100k","detail":"full"` → PASS: only large files, with metadata.
 5. **Time window** — `"modifiedWithin":"7d"` → PASS: recently changed files.
 6. **entryType=d** — directories only → PASS: no files.
 7. **regex basename** — `"regex":"^(index|main)\\.(ts|js)$"` → PASS: precise basename match.

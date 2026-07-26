@@ -16,10 +16,8 @@ import type { BulkToolOutput } from '../../types/toolOutput.js';
 
 const queryOverrides = {
   page: relaxedPageNumberField,
-  // Accepted because `search --target packages --mode lean|full` sends it.
   // The strict npm bulk schema would otherwise reject it as an unrecognized key.
   // Execution currently no-ops it, but the field must stay part of the contract.
-  mode: z.enum(['lean', 'full']).optional(),
   // Core types this as a single string, but sibling tools take keyword ARRAYS
   // (ghSearchCode/localSearchCode) — agents reflexively pass arrays here too.
   // Accept both shapes; execution folds arrays to the space-joined registry

@@ -17,9 +17,6 @@ vi.mock('../src/tools/github_search_code/github_search_code.js');
 vi.mock('../src/tools/github_fetch_content/github_fetch_content.js');
 vi.mock('../src/tools/github_search_repos/github_search_repos.js');
 vi.mock(
-  '../src/tools/github_search_pull_requests/github_search_pull_requests.js'
-);
-vi.mock(
   '../src/tools/github_view_repo_structure/github_view_repo_structure.js'
 );
 vi.mock('../../octocode-tools-core/src/utils/exec/npm.js');
@@ -31,9 +28,6 @@ vi.mock('../../octocode-tools-core/src/providers/factory.js', () => ({
 }));
 vi.mock('../../octocode-tools-core/src/github/client.js', () => ({
   clearOctokitInstances: vi.fn(),
-}));
-vi.mock('octocode-security/withSecurityValidation', () => ({
-  configureSecurity: vi.fn(),
 }));
 vi.mock(
   '../../octocode-tools-core/src/tools/toolMetadata/proxies.js',
@@ -54,7 +48,6 @@ vi.mock(
 import { registerGitHubSearchCodeTool } from '../src/tools/github_search_code/github_search_code.js';
 import { registerFetchGitHubFileContentTool } from '../src/tools/github_fetch_content/github_fetch_content.js';
 import { registerSearchGitHubReposTool } from '../src/tools/github_search_repos/github_search_repos.js';
-import { registerSearchGitHubPullRequestsTool } from '../src/tools/github_search_pull_requests/github_search_pull_requests.js';
 import { registerViewGitHubRepoStructureTool } from '../src/tools/github_view_repo_structure/github_view_repo_structure.js';
 import {
   initialize,
@@ -94,9 +87,6 @@ const mockRegisterFetchGitHubFileContentTool = vi.mocked(
 );
 const mockRegisterSearchGitHubReposTool = vi.mocked(
   registerSearchGitHubReposTool
-);
-const mockRegisterSearchGitHubPullRequestsTool = vi.mocked(
-  registerSearchGitHubPullRequestsTool
 );
 const mockRegisterViewGitHubRepoStructureTool = vi.mocked(
   registerViewGitHubRepoStructureTool
@@ -175,9 +165,6 @@ describe('Index Module', () => {
       return mockRegisteredTool;
     });
     mockRegisterSearchGitHubReposTool.mockImplementation(function () {
-      return mockRegisteredTool;
-    });
-    mockRegisterSearchGitHubPullRequestsTool.mockImplementation(function () {
       return mockRegisteredTool;
     });
     mockRegisterViewGitHubRepoStructureTool.mockImplementation(function () {
@@ -352,7 +339,7 @@ describe('Index Module', () => {
       mockRegisterTools.mockImplementation(async () => {
         return {
           successCount: 3,
-          failedTools: [TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS],
+          failedTools: [TOOL_NAMES.GITHUB_PULL_REQUESTS],
         };
       });
 
@@ -616,7 +603,7 @@ describe('Index Module', () => {
     });
 
     it('should enable additional tools with ENABLE_TOOLS', async () => {
-      process.env.ENABLE_TOOLS = TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS;
+      process.env.ENABLE_TOOLS = TOOL_NAMES.GITHUB_PULL_REQUESTS;
 
       await import('../src/index.js');
       await waitForAsyncOperations();
@@ -634,7 +621,7 @@ describe('Index Module', () => {
     });
 
     it('should handle both ENABLE_TOOLS and DISABLE_TOOLS', async () => {
-      process.env.ENABLE_TOOLS = TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS;
+      process.env.ENABLE_TOOLS = TOOL_NAMES.GITHUB_PULL_REQUESTS;
       process.env.DISABLE_TOOLS = TOOL_NAMES.GITHUB_SEARCH_CODE;
 
       await import('../src/index.js');
@@ -644,7 +631,7 @@ describe('Index Module', () => {
     });
 
     it('should handle whitespace in tool configuration', async () => {
-      process.env.ENABLE_TOOLS = ' ghHistoryResearch ';
+      process.env.ENABLE_TOOLS = ' ghSearchPullRequests ';
       process.env.DISABLE_TOOLS = ' ghSearchCode ';
 
       await import('../src/index.js');
@@ -654,7 +641,7 @@ describe('Index Module', () => {
     });
 
     it('should handle invalid tool names gracefully', async () => {
-      process.env.ENABLE_TOOLS = 'ghHistoryResearch,invalidTool';
+      process.env.ENABLE_TOOLS = 'ghSearchPullRequests,invalidTool';
       process.env.DISABLE_TOOLS = 'nonExistentTool';
 
       await import('../src/index.js');

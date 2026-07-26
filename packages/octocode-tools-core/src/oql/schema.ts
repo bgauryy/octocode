@@ -282,7 +282,6 @@ const OqlInputQueryShape = {
   invert: z.unknown().optional(),
   filesOnly: z.boolean().optional(),
   filesWithoutMatch: z.boolean().optional(),
-  verbose: z.boolean().optional(),
 } as const;
 
 const OqlExecutableInputQueryShape = {

@@ -31,7 +31,7 @@ export function buildKnownDirectToolCommandPatternQueries(
     ];
   }
 
-  if (toolName === STATIC_TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS) {
+  if (toolName === STATIC_TOOL_NAMES.GITHUB_PULL_REQUESTS) {
     return [
       {
         label: 'PR search',
@@ -179,7 +179,7 @@ export function buildKnownDirectToolCommandPatternQueries(
         label: 'text search',
         query: {
           path: 'packages/octocode-tools-core/src',
-          keywords: 'buildDirectToolCommandPatterns',
+          searchText: 'buildDirectToolCommandPatterns',
           maxFiles: 20,
         },
       },

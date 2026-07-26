@@ -119,7 +119,7 @@ export function applyFieldPredicate(
     case 'executable':
     case 'readable':
     case 'writable':
-      toolQuery[f.field] = Boolean(value);
+      if (Boolean(value)) toolQuery.access = f.field;
       break;
     case 'entryType':
       toolQuery.entryType = String(value) === 'directory' ? 'd' : 'f';

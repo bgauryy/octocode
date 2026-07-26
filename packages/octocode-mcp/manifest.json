@@ -23,7 +23,9 @@
     "entry_point": "dist/index.js",
     "mcp_config": {
       "command": "node",
-      "args": ["${__dirname}/dist/index.js"],
+      "args": [
+        "${__dirname}/dist/index.js"
+      ],
       "env": {
         "NODE_ENV": "production"
       }
@@ -43,8 +45,16 @@
       "description": "Search GitHub repositories"
     },
     {
-      "name": "mcp_octocode_ghHistoryResearch",
-      "description": "Search pull requests or commit history"
+      "name": "mcp_octocode_ghSearchPullRequests",
+      "description": "Search pull requests, or read one PR: files, patches, comments, reviews, commits"
+    },
+    {
+      "name": "mcp_octocode_ghSearchIssues",
+      "description": "Search issues, or read one issue: body and comments"
+    },
+    {
+      "name": "mcp_octocode_ghSearchCommits",
+      "description": "Walk a repository commit history for a path or range"
     },
     {
       "name": "mcp_octocode_ghViewRepoStructure",
@@ -98,7 +108,11 @@
   "license": "MIT",
   "compatibility": {
     "claude_desktop": ">=0.10.0",
-    "platforms": ["darwin", "win32", "linux"],
+    "platforms": [
+      "darwin",
+      "win32",
+      "linux"
+    ],
     "runtimes": {
       "node": ">=20.0.0"
     }

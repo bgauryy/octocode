@@ -53,7 +53,7 @@ export async function handleReleasesMode(
   );
   if (isGitHubAPIError(result)) {
     return createErrorResult(result, query, {
-      toolName: TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS,
+      toolName: TOOL_NAMES.GITHUB_PULL_REQUESTS,
     });
   }
   const hasContent =
@@ -69,9 +69,8 @@ export async function handleReleasesMode(
       ? {
           next: {
             nextPage: {
-              tool: 'ghHistoryResearch',
+              tool: 'ghListReleases',
               query: {
-                type: 'releases',
                 owner: q.owner,
                 repo: q.repo,
                 page: nextPage,
@@ -89,7 +88,7 @@ export async function handleReleasesMode(
     query,
     dataWithNext,
     hasContent,
-    TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS,
+    TOOL_NAMES.GITHUB_PULL_REQUESTS,
     { rawResponse: result.rawResponseChars }
   );
 }

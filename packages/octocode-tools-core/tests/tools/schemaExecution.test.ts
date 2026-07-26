@@ -39,14 +39,13 @@ function getError(row: ResultRow | undefined): string {
 }
 
 describe('tool execution schema validation', () => {
-  it('returns a per-query error for contradictory localSearchCode flags', async () => {
+  it('returns a per-query error for a mis-gated localSearchCode query', async () => {
     const result = await executeRipgrepSearch({
       queries: [
         {
-          keywords: 'token',
+          searchText: 'token',
           path: '/repo',
-          caseSensitive: true,
-          caseInsensitive: true,
+          unique: 'list',
         },
       ],
     });
@@ -54,9 +53,7 @@ describe('tool execution schema validation', () => {
     const rows = getRows(result);
     expect(result.isError).toBe(true);
     expect(rows[0]?.status).toBe('error');
-    expect(getError(rows[0])).toContain(
-      'caseSensitive and caseInsensitive are mutually exclusive'
-    );
+    expect(getError(rows[0])).toContain('unique requires output:"matchOnly"');
   });
 
   it('returns a per-query error for contradictory localViewStructure flags', async () => {

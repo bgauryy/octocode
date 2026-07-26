@@ -1,137 +1,94 @@
-# GitHub Research-Flow Questions (solver-facing) — 10 questions
+# Octocode vs (rtk + gh) — Questions
 
-Remote-GitHub questions across `pmndrs/zustand`, `vercel/next.js`,
-`microsoft/vscode`, `vuejs/core`, `sveltejs/svelte`, `nodejs/node`,
-`evanw/esbuild`, `fastify/fastify`, `redis/redis` (spans TS, C, Go). Each
-exercises a different flow — don't assume one tool sequence solves all ten. Q6
-is open-ended/exploratory.
+## Q1
 
-Answer every question with: the answer, evidence anchors (`file:line`, PR/issue
-number, or sha), confidence (high/medium/low), and steps used.
+Both `pmndrs/zustand` and `vercel/next.js` ship an integration example
+(`vercel/next.js` path `examples/with-zustand/`). (a) In that example, does
+`src/lib/store.ts` create the store as a module-level singleton or through a
+React `Context` factory — give the file path and the exact API it wraps. (b) In
+zustand's `package.json` (repo root), is `react` a required dependency or an
+optional peer dependency — cite the field. (c) Why would a per-request Context
+factory matter for a library that treats React as optional?
 
-## Q1 — cross-repo comparison
+## Q2
 
-Both `pmndrs/zustand` and `vercel/next.js` ship an official integration example
-(`vercel/next.js` repo path `examples/with-zustand/`). (a) In that example, does
-`src/lib/store.ts` create the store through a plain module-level singleton, or
-through a React `Context` (`createContext`/`useContext`) factory — give the file
-path and name the exact API it wraps? (b) In zustand's own `package.json`
-(repo root), is `react` listed as a REQUIRED dependency or an OPTIONAL peer
-dependency (cite the exact field)? (c) In one sentence, connect (a) and (b): why
-would a per-request Context factory matter for a library that treats React as
-optional?
+Next.js converts a filesystem route pattern such as `app/blog/[slug]/page.tsx`
+into a request-time matcher. (a) Which exported function performs the
+string→regex conversion (name, file, line)? (b) Which internal helper does it
+call first to tokenize the route into named parameter groups (name, file, line)?
 
-## Q2 — how something works (Next.js internals)
+## Q3
 
-Next.js converts a file-system route pattern such as `app/blog/[slug]/page.tsx`
-into a matcher usable at request time. (a) Which exported function performs the
-string→regex conversion (name, file, line)? (b) Which internal helper function
-does it call FIRST to tokenize the route into named parameter groups (name,
-file, line)? Both live in `vercel/next.js`.
+`vuejs/core` PR **#15035** ("fix(runtime-vapor): preserve VNode anchors in
+dynamic component hydration"). (a) Total files changed and net line delta. (b)
+Which files are SOURCE (non-test) changes, across which two packages under
+`packages/`. (c) Of those source files, which single one has the largest combined
+(additions+deletions) diff, and roughly how large. (d) What class of hydration
+bug is this PR fixing — name at least two specific interop scenarios it
+addresses, and why the fix spans both `packages/runtime-core` and
+`packages/runtime-vapor`.
 
-## Q3 — deep/large PR review
+## Q4
 
-Find and review `vuejs/core` PR **#15035** ("fix(runtime-vapor): preserve
-VNode anchors in dynamic component hydration"). This is a real multi-file
-runtime bugfix, not a docs change — review it like you would before approving
-it. Report: (a) the total files changed and net line delta (additions/
-deletions); (b) which files are actual SOURCE (non-test) changes, across which
-TWO packages under `packages/`; (c) of those source files, which single one
-has the largest combined (additions+deletions) diff, and roughly how large; (d)
-in your own words, what class of hydration bug is this PR fixing — name at
-least two of the specific interop scenarios (e.g. Teleport, async components,
-slot fallback) it addresses, and why anchoring/cleanup logic for them lives
-partly in `packages/runtime-core` and partly in `packages/runtime-vapor`.
-
-## Q4 — bug / issue validation
-
-`pmndrs/zustand` discussion **#3530** reports that the devtools middleware's V8
+`pmndrs/zustand` discussion **#3530** reports the devtools middleware's V8
 stack-trace regex mis-captures the caller name when the source path contains a
-space. Do NOT trust any PR's claim at face value — verify against the CURRENT
-`main` branch of `src/middleware/devtools.ts`: (a) what is the exact regex
-literal currently assigned to `v8StackLineRe` (cite file+line)? (b) Is the fix
-PR for this bug merged or still open (give the PR number and its state)? (c)
-State plainly whether the bug is still live in `main` right now.
+space. In the current `main` branch of `src/middleware/devtools.ts`: (a) the
+exact regex literal assigned to `v8StackLineRe` (file+line). (b) The fix PR's
+number and state (merged or open). (c) Is the bug live in `main` now?
 
-## Q5 — find in a large repo
+## Q5
 
-`microsoft/vscode` is a large multi-package monorepo. (a) Which concrete class
-is the one actually wired into the workbench as the runtime keybinding service
-(name, file)? (b) The real keypress→command dispatch entry point is defined on
-a DIFFERENT (base) class than the one in (a) — name that base class, its file,
-and the dispatch method's name + line number.
+`microsoft/vscode`. (a) Which concrete class is wired into the workbench as the
+runtime keybinding service (name, file)? (b) The keypress→command dispatch entry
+point is defined on a different base class — name that base class, its file, and
+the dispatch method's name + line number.
 
-## Q6 — exploratory cross-repo comparison (open-ended)
+## Q6
 
 Compare the core rendering/update mechanism of Vue 3 (`vuejs/core`) and Svelte
-(`sveltejs/svelte`) — this is exploratory, go as deep as useful within your
-step budget, there is no single required anchor:
-
-(a) In `vuejs/core`, does the runtime maintain a virtual DOM that gets
-diffed/patched whenever reactive state changes? Name the core function that
-performs this diff/patch step and its file.
-
-(b) In `sveltejs/svelte`, does the COMPILED component runtime perform an
-equivalent virtual-DOM-diffing step at all, or does it call pre-determined,
-granular DOM-manipulation functions directly? Name at least two such
-functions and the file they live in.
-
-(c) In 2–4 sentences, explain the architectural trade-off this reveals
-(compile-time work and emitted-code size vs. runtime diffing cost and bundle
-size). Bonus (not required): is Svelte's approach ever NOT fully
-diff-free at runtime — is there any file whose whole job is runtime
+(`sveltejs/svelte`). (a) In `vuejs/core`, does the runtime maintain a virtual DOM
+that gets diffed/patched on reactive state change? Name the core diff/patch
+function and its file. (b) In `sveltejs/svelte`, does the compiled component
+runtime perform an equivalent virtual-DOM diff, or call granular DOM-manipulation
+functions directly? Name at least two such functions and their file. (c) The
+architectural trade-off this reveals (compile-time work / emitted-code size vs.
+runtime diffing cost / bundle size). (d) Is any Svelte file's whole job runtime
 reconciliation of a dynamic collection?
 
-## Q7 — deep dive / architecture exploration (nodejs/node)
+## Q7
 
-`nodejs/node`'s public `lib/stream.js` is a thin ~150-line aggregator, not the
-real implementation. Dig into `lib/internal/streams/` and `lib/events.js` to
-answer: (a) Where does the base `Stream` constructor actually live, and how
-is its prototype chain wired to `EventEmitter` — quote the specific pattern
-used (this codebase predates/avoids `class X extends Y` in this exact spot;
-say what it uses instead) and name the file. (b) Which single file under
-`lib/internal/streams/` is by far the largest (holds the real `Readable`
-base-class implementation) — name it, and name the next-largest file in that
-same directory for comparison. (c) In `lib/events.js`, does
-`EventEmitter.prototype.once()` reimplement listener bookkeeping itself, or
-does it just build a wrapper and delegate to `.on()`/`.removeListener()` —
-name the internal helper function(s) involved.
+`nodejs/node`. (a) Where does the base `Stream` constructor live, and how is its
+prototype chain wired to `EventEmitter` — quote the specific pattern used
+(not `class X extends Y`) and name the file. (b) Which single file under
+`lib/internal/streams/` is by far the largest, and which is the next-largest? (c)
+In `lib/events.js`, does `EventEmitter.prototype.once()` reimplement listener
+bookkeeping or wrap and delegate to `.on()`/`.removeListener()` — name the
+internal helper function(s).
 
-## Q8 — npm package → source-repo research
+## Q8
 
-Start from the npm package `esbuild` (~250M+ weekly downloads) using
-`npmSearch` (or the whitelisted equivalent). (a) Which GitHub org/repo is its
-source? (b) The published npm package's `lib/` folder is small and looks like
-plain JS/TS — but by GitHub's own per-language byte breakdown for that repo,
-what is the actual DOMINANT implementation language of the codebase (not the
-published npm package's `lib/` folder — the full source repo)? (c) Trace how
-the Node.js-side JS API actually runs the real implementation at request time:
-does it compile the core logic into JS/WASM and run it in-process, or does it
-spawn a separate native process and talk to it? If the latter, name the
-concrete Node core module/API used to launch and communicate with it.
+The npm package `esbuild`. (a) Its GitHub source org/repo. (b) By the repo's
+per-language byte breakdown, the dominant implementation language of the full
+source repo. (c) At request time, does the Node JS API compile the core logic
+into JS/WASM and run it in-process, or spawn a separate native process and talk
+to it? If the latter, name the Node core module/API used.
 
-## Q9 — how something works (Fastify request lifecycle)
+## Q9
 
-Per Fastify's own lifecycle documentation, trace a request from arrival to
-response: (a) List the ordered phases from "Incoming Request" through the
-User Handler running, explicitly placing `onRequest`, `preParsing`,
-`preValidation`, and `preHandler` in their correct relative order (and where
-the `Parsing` and `Validation` steps sit relative to those hooks). (b) After
-the User Handler produces a reply, name the TWO hooks that run, in order,
-before the response is actually written to the socket. (c) In the fastify
-source (`lib/route.js` / `lib/hooks.js`), which per-route-context property
-does the request-handling code check BEFORE it runs the `onRequest` hooks for
-a matched route, and what is the name of the function that actually runs them?
+`fastify/fastify`. (a) The ordered request lifecycle phases from "Incoming
+Request" through the User Handler, placing `onRequest`, `preParsing`,
+`preValidation`, `preHandler`, and the `Parsing`/`Validation` steps in order. (b)
+After the User Handler produces a reply, the two hooks that run, in order, before
+the response is written. (c) In `lib/route.js`/`lib/hooks.js`, which per-route
+context property is checked before the `onRequest` hooks run for a matched route,
+and what function runs them?
 
-## Q10 — root-cause analysis (redis/redis, security bug)
+## Q10
 
-`redis/redis` had a real reported denial-of-service bug in `BITFIELD` /
-`BITFIELD_RO`'s `#<offset>` parsing. (a) Find the GitHub issue reporting it —
-give its number and, in your own words, the exact root-cause mechanism (name
-the unsafe operation and the function it occurs in, and roughly how large an
-offset triggers it for an `i64` field). (b) Find the merged PR that fixed it —
-give its number, the file(s) it touched, and the net line delta. (c) Describe
-the fix: what check was added, and where relative to the unsafe operation? (d)
-Do NOT trust the PR description at face value — verify against the CURRENT
-`redis/unstable` branch: is the guard actually present in `src/bitops.c` right
-now? Quote the specific condition and roughly where (line/function) it sits.
+`redis/redis` had a denial-of-service bug in `BITFIELD` / `BITFIELD_RO`
+`#<offset>` parsing. (a) The GitHub issue number and the root-cause mechanism
+(the unsafe operation, the function it occurs in, and roughly how large an offset
+triggers it for an `i64` field). (b) The merged fix PR's number, the file(s) it
+touched, and the net line delta. (c) The fix: what check was added, and where
+relative to the unsafe operation. (d) In the current `redis/unstable`
+`src/bitops.c`, is the guard present? Quote the condition and roughly where.

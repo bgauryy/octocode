@@ -460,7 +460,7 @@ describe('provider regressions: GitHub content/structure and proof gates', () =>
 
     const second = single(await runOqlSearch(nextQuery!));
     expect(runDirect).toHaveBeenLastCalledWith(
-      'ghHistoryResearch',
+      'ghSearchPullRequests',
       expect.objectContaining({ page: 2, limit: 2 })
     );
     expect(second.pagination?.currentPage).toBe(2);

@@ -30,13 +30,13 @@ const queryOverrides = {
   page: relaxedPageNumberField.default(1),
   itemsPerPage: clampedInt(1, LOCAL_MAX_FILES_PER_PAGE).optional(),
   // Filters a directory LISTING down to file entries (excludes
-  // subdirectories). Unrelated to localSearchCode's `filesOnly`, which
-  // instead filters search results down to matching file paths.
+  // subdirectories). Distinct from localSearchCode's `output:"files"`, which
+  // instead filters SEARCH results down to matching file paths.
   filesOnly: z
     .boolean()
     .optional()
     .describe(
-      "Returns files only. Mutually exclusive with directoriesOnly. (Unlike localSearchCode's `filesOnly`, which filters search results to matching file paths — a different concept sharing this name.)"
+      'Returns files only. Mutually exclusive with directoriesOnly. (Distinct from localSearchCode\'s `output:"files"`, which filters SEARCH results to matching file paths.)'
     ),
 } as const;
 

@@ -39,19 +39,22 @@ function toSearchOptions(
     path: query.path,
     // keywords is required for every non-structural mode (schema-enforced);
     // structural search never reaches this executor.
-    pattern: query.keywords ?? '',
-    fixedString: query.fixedString,
-    perlRegex: query.perlRegex,
-    caseSensitive: query.caseSensitive,
-    caseInsensitive: query.caseInsensitive,
+    pattern: query.searchText ?? '',
+    fixedString: query.regex === 'fixed',
+    perlRegex: query.regex === 'perl',
+    caseSensitive: query.caseMode === 'sensitive',
+    caseInsensitive: query.caseMode === 'insensitive',
     wholeWord: query.wholeWord,
     invertMatch: query.invertMatch,
-    multiline: query.multiline,
-    multilineDotall: query.multilineDotall,
-    filesOnly: query.filesOnly,
-    filesWithoutMatch: query.filesWithoutMatch,
-    countLinesPerFile: query.countLinesPerFile,
-    countMatchesPerFile: query.countMatchesPerFile,
+    // Positive checks so an unparsed OQL query (defaults not applied, fields
+    // undefined) collapses to the "off" behavior instead of `undefined !== 'off'`
+    // wrongly reading as enabled.
+    multiline: query.multiline === 'on' || query.multiline === 'dotall',
+    multilineDotall: query.multiline === 'dotall',
+    filesOnly: query.output === 'files',
+    filesWithoutMatch: query.output === 'filesWithout',
+    countLinesPerFile: query.output === 'countLines',
+    countMatchesPerFile: query.output === 'countMatches',
     contextLines: query.contextLines,
     langType: query.langType,
     include: query.include,
@@ -68,9 +71,9 @@ function toSearchOptions(
     // cost when relevance ordering is actually requested.
     classifyMatches: query.sort === 'relevance' || query.sort === undefined,
     maxSnippetChars: query.matchContentLength,
-    onlyMatching: query.onlyMatching,
-    unique: query.unique,
-    countUnique: query.countUnique,
+    onlyMatching: query.output === 'matchOnly',
+    unique: query.unique === 'list' || query.unique === 'count',
+    countUnique: query.unique === 'count',
     matchWindow: query.matchWindow,
     maxCollectedFiles: 10_000,
   };
@@ -149,9 +152,9 @@ export async function executeRipgrepSearchInternal(
   const patternCheck = preflightValidateRipgrepPattern({
     // keywords is required for every non-structural mode (schema-enforced);
     // structural never reaches this executor.
-    pattern: queryForExec.keywords ?? '',
-    fixedString: queryForExec.fixedString,
-    perlRegex: queryForExec.perlRegex,
+    pattern: queryForExec.searchText ?? '',
+    fixedString: queryForExec.regex === 'fixed',
+    perlRegex: queryForExec.regex === 'perl',
   });
   if (!patternCheck.isValid) {
     return createErrorResult(
@@ -234,7 +237,7 @@ export async function executeRipgrepSearchInternal(
   }
 
   if (
-    !queryForExec.filesOnly &&
+    queryForExec.output !== 'files' &&
     responseChars > RESOURCE_LIMITS.LARGE_RESULT_BYTES_HINT
   ) {
     chunkingWarnings.push(

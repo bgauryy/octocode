@@ -315,11 +315,11 @@ Diffed lexical "formatDate" hits against LSP references before claiming impact.
 Confidence: confirmed
 Next: if behavior looks wrong, compare node_modules/date-fns against the lockfile pin, not upstream HEAD.`,
     'external-research': `Mode: Investigate
-Scope: remote vitejs/vite; active surfaces: npmSearch, ghViewRepoStructure, ghGetFileContent, ghHistoryResearch; skipped: local clone until needed.
+Scope: remote vitejs/vite; active surfaces: npmSearch, ghViewRepoStructure, ghGetFileContent, ghSearchPullRequests, ghSearchCommits; skipped: local clone until needed.
 Spine: npmSearch packageName:vite → ghViewRepoStructure packages/vite/src/node → ghSearchCode createServer (empty = provider blind spot, not absence) → verify path → ghGetFileContent exact read.
 Provider empty: GitHub code search returned no hits; treated as unindexed/provider evidence, verified path with structure, then exact-read — did not claim absence.
 Exact evidence: packages/vite/src/node/index.ts:48 exports createServer; packages/vite/src/node/cli.ts:216 calls createServer; resolvedBranch:main.
-History: ghHistoryResearch commits/PRs on packages/vite/src/node/cli.ts; recent PR #22912 touched related test wiring.
+History: ghSearchCommits/ghSearchPullRequests on packages/vite/src/node/cli.ts; recent PR #22912 touched related test wiring.
 Confidence: confirmed
 Next: materialize packages/vite/src/node only if AST/LSP on the CLI entry is required.`,
     'loop-mode': `Mode: Loop

@@ -40,10 +40,14 @@ format matrix spans far more than `ast-grep`'s grammar set.
 ## Oracle status
 
 - **Q1–Q5 (parity):** the oracle is **cross-tool agreement** — both tools must
-  return the **same match count** on the same checkout. This self-verifies at run
-  time; a nonzero count difference is the finding (record which tool differed).
+  return the **same match count** on the same checkout; a nonzero difference is
+  the finding. ⚠️ Agreement alone is self-referential (both tools can be wrong
+  the same way) — **spot-check a sample against a third method** (`grep -c`,
+  manual) before trusting parity. Status: `draft-verify-before-scoring`.
 - **Q6–Q10 (beyond):** oracle is the semantic answer (verify at run time on the
-  frozen SHA). `ast-grep`'s expected ceiling is noted per question — it can find
-  syntactic candidates but cannot complete the semantic/remote/read step.
+  frozen SHA). `astGrepCeiling` per question names what Arm A cannot do — the
+  grader's **tool-use layer** records whether Arm B used the differentiating tool
+  (LSP/materialize/minify) and whether Arm A had to fall back or go N/A.
 
-Shared method + metrics: [`../README.md`](../README.md).
+Shared method + metrics (three arms incl. no-tools control, trajectory grading,
+aggregation, validity gates): [`../README.md`](../README.md).

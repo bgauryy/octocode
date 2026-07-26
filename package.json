@@ -62,6 +62,7 @@
     "@octocodeai/octocode-engine-linux-x64-gnu": "portal:./packages/octocode-engine/npm/linux-x64-gnu",
     "@octocodeai/octocode-engine-linux-x64-musl": "portal:./packages/octocode-engine/npm/linux-x64-musl",
     "@octocodeai/octocode-engine-win32-x64-msvc": "portal:./packages/octocode-engine/npm/win32-x64-msvc",
-    "@octocodeai/octocode-tools-core": "portal:./packages/octocode-tools-core"
+    "@octocodeai/octocode-tools-core": "portal:./packages/octocode-tools-core",
+    "@octocodeai/octocode-core": "portal:/Users/guybary/Documents/code/octocode-host/packages/octocode-core"
   }
 }

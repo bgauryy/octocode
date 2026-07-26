@@ -261,6 +261,7 @@
     "udeps:rust": "cargo +nightly udeps --all-targets --all-features",
     "verify": "yarn verify:patterns && yarn verify:manifest && yarn typecheck && yarn verify:rust && yarn test && yarn benchmark && yarn pack:check && yarn version:check && yarn loader:check && yarn binary-size:check",
     "verify:manifest": "node scripts/gen-server-manifest.mjs && git diff --exit-code src/lsp/serverManifestData.ts || (echo 'ERROR: src/lsp/serverManifestData.ts is out of sync with serverManifest.json — run yarn manifest:gen and commit the result' && exit 1)",
+    "verify:napi-abi": "node scripts/check-napi-abi.cjs",
     "verify:patterns": "node scripts/gen-patterns.mjs && git diff --exit-code src/security/patterns.rs || (echo 'ERROR: src/security/patterns.rs is out of sync with the TS source — run yarn gen and commit the result' && exit 1)",
     "verify:rust": "yarn check:rust && yarn fmt:rust:check && yarn lint:rust && yarn test:rust && yarn deps:rust && yarn udeps:rust && yarn audit:rust",
     "version:check": "node scripts/check-version-consistency.cjs",

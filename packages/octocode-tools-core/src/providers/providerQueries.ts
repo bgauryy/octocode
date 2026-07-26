@@ -93,7 +93,7 @@ export interface RepoSearchQuery extends BaseProviderQuery {
 
   goodFirstIssues?: string;
 
-  sort?: 'stars' | 'forks' | 'updated' | 'created' | 'best-match';
+  sort?: 'stars' | 'forks' | 'help-wanted-issues' | 'updated' | 'best-match';
 
   order?: 'asc' | 'desc';
 
@@ -109,8 +109,6 @@ export interface PullRequestQuery extends BaseProviderQuery {
 
   repo?: string;
 
-  query?: string;
-
   number?: number;
 
   state?: 'open' | 'closed' | 'merged' | 'all';
@@ -120,8 +118,6 @@ export interface PullRequestQuery extends BaseProviderQuery {
   assignee?: string;
 
   commenter?: string;
-
-  involves?: string;
 
   mentions?: string;
 
@@ -155,13 +151,9 @@ export interface PullRequestQuery extends BaseProviderQuery {
 
   reactions?: number | string;
 
-  interactions?: number | string;
-
   draft?: boolean;
 
   match?: Array<'title' | 'body' | 'comments'>;
-
-  milestone?: string;
 
   language?: string;
 
@@ -169,13 +161,9 @@ export interface PullRequestQuery extends BaseProviderQuery {
 
   review?: 'none' | 'required' | 'approved' | 'changes_requested';
 
-  locked?: boolean;
-
   visibility?: 'public' | 'private';
 
   teamMentions?: string;
-
-  project?: string;
 
   archived?: boolean;
 

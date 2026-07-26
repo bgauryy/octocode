@@ -21,7 +21,12 @@ import { registerGitHubSearchCodeTool } from './github_search_code/github_search
 import { registerFetchGitHubFileContentTool } from './github_fetch_content/github_fetch_content.js';
 import { registerViewGitHubRepoStructureTool } from './github_view_repo_structure/github_view_repo_structure.js';
 import { registerSearchGitHubReposTool } from './github_search_repos/github_search_repos.js';
-import { registerSearchGitHubPullRequestsTool } from './github_search_pull_requests/github_search_pull_requests.js';
+import {
+  registerSearchGitHubPullRequestsSplitTool,
+  registerSearchGitHubIssuesTool,
+  registerSearchGitHubCommitsTool,
+  registerListGitHubReleasesTool,
+} from './github_search_pull_requests/github_search_split.js';
 import { registerNpmSearchTool } from './package_search/package_search.js';
 import { registerGitHubCloneRepoTool } from './github_clone_repo/github_clone_repo.js';
 import { registerLocalRipgrepTool } from './local_ripgrep/register.js';
@@ -52,8 +57,11 @@ const MCP_FN_MAP: Record<string, McpToolConfig['fn']> = {
   [STATIC_TOOL_NAMES.GITHUB_VIEW_REPO_STRUCTURE]:
     registerViewGitHubRepoStructureTool,
   [STATIC_TOOL_NAMES.GITHUB_SEARCH_REPOSITORIES]: registerSearchGitHubReposTool,
-  [STATIC_TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS]:
-    registerSearchGitHubPullRequestsTool,
+  [STATIC_TOOL_NAMES.GITHUB_PULL_REQUESTS]:
+    registerSearchGitHubPullRequestsSplitTool,
+  [STATIC_TOOL_NAMES.GITHUB_ISSUES]: registerSearchGitHubIssuesTool,
+  [STATIC_TOOL_NAMES.GITHUB_COMMITS]: registerSearchGitHubCommitsTool,
+  [STATIC_TOOL_NAMES.GITHUB_RELEASES]: registerListGitHubReleasesTool,
   [STATIC_TOOL_NAMES.PACKAGE_SEARCH]: registerNpmSearchTool,
   [STATIC_TOOL_NAMES.GITHUB_CLONE_REPO]: registerGitHubCloneRepoTool,
   [STATIC_TOOL_NAMES.LOCAL_RIPGREP]: registerLocalRipgrepTool,
@@ -89,9 +97,6 @@ export const GITHUB_VIEW_REPO_STRUCTURE = requireTool(
 );
 export const GITHUB_SEARCH_REPOSITORIES = requireTool(
   STATIC_TOOL_NAMES.GITHUB_SEARCH_REPOSITORIES
-);
-export const GITHUB_SEARCH_PULL_REQUESTS = requireTool(
-  STATIC_TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS
 );
 export const PACKAGE_SEARCH = requireTool(STATIC_TOOL_NAMES.PACKAGE_SEARCH);
 export const GITHUB_CLONE_REPO = requireTool(

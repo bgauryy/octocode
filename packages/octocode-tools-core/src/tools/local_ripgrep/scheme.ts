@@ -39,33 +39,41 @@ const REMOVED_CORE_FIELDS = ['semanticRanking'] as const;
 
 const queryOverrides = {
   // This `mode` selects the SEARCH ALGORITHM (paginated/discovery/detailed/
-  // structural). It's unrelated to the nested `patches.mode` on
-  // ghHistoryResearch (diff detail level) — different concepts sharing this
+  // structural). It's unrelated to the nested `content.patches.mode` on
+  // ghSearchPullRequests (diff detail level) — different concepts sharing this
   // field name across tools.
   mode: z
     .enum(LOCAL_SEARCH_MODES)
     .optional()
     .default('paginated')
     .describe(
-      '"paginated" snippets; "discovery" paths only; "detailed" snippets plus context; "structural" AST/code-shape search with pattern or rule. Structural matches return line/capture anchors that can feed lspGetSemantics when symbol identity matters. (Unrelated to ghHistoryResearch\'s `patches.mode` — different concepts sharing this name.)'
+      '"paginated" snippets; "discovery" paths only; "detailed" snippets plus context; "structural" AST/code-shape search with pattern or rule. Structural matches return line/capture anchors that can feed lspGetSemantics when symbol identity matters. (Unrelated to ghSearchPullRequests\'s `content.patches.mode` — different concepts sharing this name.)'
     ),
   // A single text/regex pattern (unlike ghSearchCode/ghSearchRepos, where
   // `keywords` is an ARRAY of ANDed terms) — passing an array here fails
   // validation.
-  keywords: z
+  searchText: z
     .string()
     .optional()
     .describe(
-      'The search pattern (text or regex). Set fixedString:true for a literal match, or perlRegex:true for advanced regex features (lookaheads, backreferences). (Unlike ghSearchCode/ghSearchRepos, where `keywords` is an array of ANDed terms — this is a single string.)'
+      'The search pattern. regex:"fixed" for a literal match, "perl" for advanced features (lookaheads, backreferences), else "smart". (Unlike ghSearchCode/ghSearchRepos, where `keywords` is an array of ANDed terms — this is a single string.)'
     ),
-  // Filters SEARCH RESULTS down to matching file paths (drops line content).
-  // Unrelated to localViewStructure's `filesOnly`, which instead filters a
-  // directory LISTING down to file entries (excluding subdirectories).
-  filesOnly: z
-    .boolean()
+  // The `output` enum's "files"/"filesWithout" shapes drop line content down to
+  // matching / non-matching file paths. Unrelated to localViewStructure's
+  // `filesOnly`, which instead filters a directory LISTING to file entries.
+  output: z
+    .enum([
+      'content',
+      'files',
+      'filesWithout',
+      'countLines',
+      'countMatches',
+      'matchOnly',
+    ])
     .optional()
+    .default('content')
     .describe(
-      "Returns matching file paths without line content. Mutually exclusive with filesWithoutMatch. (Unlike localViewStructure's `filesOnly`, which filters a directory listing to file entries only — a different concept sharing this name.)"
+      '"content" (default) matches with line text; "files"/"filesWithout" return matching/non-matching paths; "countLines"/"countMatches" return per-file counts; "matchOnly" returns just the matched substring (required for unique/matchWindow). ("files" is unlike localViewStructure\'s `filesOnly`, which filters a directory listing to file entries.)'
     ),
   pattern: z
     .string()
@@ -97,14 +105,11 @@ const queryOverrides = {
   itemsPerPage: clampedInt(1, MAX_PAGE_NUMBER).optional(),
   page: relaxedPageNumberField.default(1),
   unique: z
-    .boolean()
+    .enum(['off', 'list', 'count'])
     .optional()
-    .describe('With onlyMatching, return each matched value once per file.'),
-  countUnique: z
-    .boolean()
-    .optional()
+    .default('off')
     .describe(
-      'With onlyMatching, return each matched value once per file with its frequency.'
+      'Needs output:"matchOnly". "list" returns each matched value once per file; "count" adds its frequency.'
     ),
 } as const;
 
@@ -143,82 +148,117 @@ const LocalRipgrepBaseQuerySchema = describeQuerySchema(
   { strict: true, omit: REMOVED_CORE_FIELDS }
 );
 
+// The mutually-exclusive boolean clusters were collapsed to enums in
+// @octocodeai/octocode-core (regex/caseMode/multiline/output/unique), so those
+// pairings are now impossible by construction. describeQuerySchema rebuilds the
+// object from its shape and DROPS the core superRefine, so this local schema
+// must re-assert the full cross-field contract itself (mirrors the core
+// superRefine in localSearchCode.ts). Enum fields carry defaults, so they are
+// always defined here — a non-default value is an explicit agent choice.
 export const LocalRipgrepQuerySchema = LocalRipgrepBaseQuerySchema.superRefine(
   (query, ctx) => {
-    const ripgrepQuery = query as typeof query & {
-      unique?: boolean;
-      countUnique?: boolean;
-    };
-    if (ripgrepQuery.caseSensitive && ripgrepQuery.caseInsensitive) {
-      ctx.addIssue({
-        code: 'custom',
-        message: 'caseSensitive and caseInsensitive are mutually exclusive.',
-        path: ['caseSensitive'],
-      });
-    }
-    if (ripgrepQuery.fixedString && ripgrepQuery.perlRegex) {
-      ctx.addIssue({
-        code: 'custom',
-        message: 'fixedString and perlRegex are mutually exclusive.',
-        path: ['fixedString'],
-      });
-    }
-    if (ripgrepQuery.filesOnly && ripgrepQuery.filesWithoutMatch) {
-      ctx.addIssue({
-        code: 'custom',
-        message: 'filesOnly and filesWithoutMatch are mutually exclusive.',
-        path: ['filesOnly'],
-      });
-    }
-    if (ripgrepQuery.countLinesPerFile && ripgrepQuery.countMatchesPerFile) {
-      ctx.addIssue({
-        code: 'custom',
-        message:
-          'countLinesPerFile and countMatchesPerFile are mutually exclusive.',
-        path: ['countLinesPerFile'],
-      });
-    }
-    if (ripgrepQuery.multilineDotall && !ripgrepQuery.multiline) {
-      ctx.addIssue({
-        code: 'custom',
-        message: 'multilineDotall requires multiline=true.',
-        path: ['multilineDotall'],
-      });
-    }
-    if (ripgrepQuery.mode === 'structural') {
-      for (const field of ['unique', 'countUnique'] as const) {
-        if (ripgrepQuery[field]) {
-          ctx.addIssue({
-            code: 'custom',
-            message: `\`${field}\` is not valid with mode:"structural".`,
-            path: [field],
-          });
-        }
+    if (query.mode === 'structural') {
+      if (!query.pattern && !query.rule) {
+        ctx.addIssue({
+          code: 'custom',
+          message: 'mode:"structural" requires `pattern` or `rule`.',
+          path: ['pattern'],
+        });
+      }
+      if (query.pattern && query.rule) {
+        ctx.addIssue({
+          code: 'custom',
+          message: '`pattern` and `rule` are mutually exclusive.',
+          path: ['rule'],
+        });
+      }
+      // Search knobs are meaningless on an AST query — reject non-default values.
+      if (query.wholeWord) {
+        ctx.addIssue({
+          code: 'custom',
+          message: '`wholeWord` is not valid with mode:"structural".',
+          path: ['wholeWord'],
+        });
+      }
+      if (query.invertMatch) {
+        ctx.addIssue({
+          code: 'custom',
+          message: '`invertMatch` is not valid with mode:"structural".',
+          path: ['invertMatch'],
+        });
+      }
+      if (query.regex && query.regex !== 'smart') {
+        ctx.addIssue({
+          code: 'custom',
+          message: '`regex` is not valid with mode:"structural".',
+          path: ['regex'],
+        });
+      }
+      if (query.caseMode && query.caseMode !== 'smart') {
+        ctx.addIssue({
+          code: 'custom',
+          message: '`caseMode` is not valid with mode:"structural".',
+          path: ['caseMode'],
+        });
+      }
+      if (query.multiline && query.multiline !== 'off') {
+        ctx.addIssue({
+          code: 'custom',
+          message: '`multiline` is not valid with mode:"structural".',
+          path: ['multiline'],
+        });
+      }
+      if (query.output && query.output !== 'content') {
+        ctx.addIssue({
+          code: 'custom',
+          message: '`output` is not valid with mode:"structural".',
+          path: ['output'],
+        });
+      }
+      if (query.unique && query.unique !== 'off') {
+        ctx.addIssue({
+          code: 'custom',
+          message: '`unique` is not valid with mode:"structural".',
+          path: ['unique'],
+        });
       }
       return;
     }
-
-    if (ripgrepQuery.unique && !ripgrepQuery.onlyMatching) {
+    if (query.pattern || query.rule) {
       ctx.addIssue({
         code: 'custom',
-        message: 'unique requires onlyMatching:true.',
-        path: ['unique'],
+        message: '`pattern`/`rule` require mode:"structural".',
+        path: [query.pattern ? 'pattern' : 'rule'],
       });
     }
-    if (ripgrepQuery.countUnique && !ripgrepQuery.onlyMatching) {
+    if (!query.searchText) {
       ctx.addIssue({
         code: 'custom',
-        message: 'countUnique requires onlyMatching:true.',
-        path: ['countUnique'],
+        message: '`searchText` is required unless mode:"structural".',
+        path: ['searchText'],
+      });
+    }
+    if (query.matchWindow !== undefined && query.output !== 'matchOnly') {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'matchWindow requires output:"matchOnly".',
+        path: ['matchWindow'],
+      });
+    }
+    if (
+      (query.unique === 'list' || query.unique === 'count') &&
+      query.output !== 'matchOnly'
+    ) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'unique requires output:"matchOnly".',
+        path: ['unique'],
       });
     }
   }
 );
 
-export type RipgrepQuery = z.infer<typeof LocalRipgrepQuerySchema> & {
-  unique?: boolean;
-  countUnique?: boolean;
-};
+export type RipgrepQuery = z.infer<typeof LocalRipgrepQuerySchema>;
 
 export const LocalRipgrepBulkQuerySchema = createRelaxedBulkQuerySchema(
   RipgrepQueryShape,

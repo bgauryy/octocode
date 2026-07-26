@@ -8,7 +8,7 @@ describe('classifyDiffLane — single source of truth for target:"diff"', () => 
   it('classifies a PR-patch lane from {prNumber}', () => {
     const lane = classifyDiffLane({ prNumber: 1 });
     expect(lane).toEqual({ kind: 'prPatch', prNumber: 1 });
-    expect(diffLaneBackend(lane)).toBe('ghHistoryResearch');
+    expect(diffLaneBackend(lane)).toBe('ghSearchPullRequests');
   });
 
   it('carries files[] into the PR-patch lane when present', () => {

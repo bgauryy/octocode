@@ -100,7 +100,7 @@ describe('OQL transformer registry', () => {
         target: 'diff',
         variant: 'prPatch',
       })?.backends[0]?.backend
-    ).toBe('ghHistoryResearch');
+    ).toBe('ghSearchPullRequests');
     expect(
       findTransformerEntry({
         sourceKind: 'github',

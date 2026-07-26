@@ -172,10 +172,10 @@ export const OQL_SCHEMA_DOC = {
     packages:
       '{ packageName?: string | keywords?: string[], mode?:"lean"|"full", page? } — backing tool npmSearch',
     pullRequests:
-      '{ state?:"open"|"closed"|"merged", author?, label?, keywordsToSearch?, prNumber?, reviewMode?, filePage?, commentPage?, commitPage?, limit?, page?, matchString?, matchScope?:"body"|"title"|"comments"|"reviews"|"all", content? } — backing tool ghHistoryResearch; matchString filters fetched PR title/body/comments/reviews per matchScope (default body), not a search-index query — no match → zeroMatches',
+      '{ state?:"open"|"closed"|"merged", author?, label?, keywordsToSearch?, prNumber?, reviewMode?, filePage?, commentPage?, commitPage?, limit?, page?, matchString?, matchScope?:"body"|"title"|"comments"|"reviews"|"all", content? } — backing tool ghSearchPullRequests; matchString filters fetched PR title/body/comments/reviews per matchScope (default body), not a search-index query — no match → zeroMatches',
     commits:
-      '{ path?, branch?, since?, until?, includeDiff?, limit?, page?, filePage?, itemsPerPage?, matchString? } — backing tool ghHistoryResearch type:"commits"; matchString filters commit messages; repo/directory diffs page changed files per commit with filePage/itemsPerPage',
-    diff: '{ prNumber, files? } (PR patch via ghHistoryResearch) | { baseRef, headRef, path } (direct two-ref file diff via ghGetFileContent + local line diff); neither shape -> invalidQuery repair',
+      '{ path?, branch?, since?, until?, includeDiff?, limit?, page?, filePage?, itemsPerPage?, matchString? } — backing tool ghSearchCommits; matchString filters commit messages; repo/directory diffs page changed files per commit with filePage/itemsPerPage',
+    diff: '{ prNumber, files? } (PR patch via ghSearchPullRequests) | { baseRef, headRef, path } (direct two-ref file diff via ghGetFileContent + local line diff); neither shape -> invalidQuery repair',
     research:
       '{ goal?, intent?:"general"|"reachability"|"dependencies"|"symbols", facets?:("symbols"|"files"|"dependencies"|"relations")[], mode?:"plan"|"analyze"|"prove", maxFiles? } — TWO-PHASE: page:1+itemsPerPage:1 → data.summary (full-scope counts) and may include a bounded first packet page; page:2+ → data.packets[] continuation pages (candidates w/ retainedBy edges + per-packet next.*). Always evidence:"candidate"/answerReady:false (normal). Follow the row\'s pre-filled next.graph (proof:"lsp", proofLimit-bounded) to upgrade a page to LSP-proven proofStatus.',
     graph:

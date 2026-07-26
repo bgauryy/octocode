@@ -15,7 +15,7 @@ const SHARED_FIELDS = [
 ] as const;
 
 const MINIMAL_QUERY: Record<string, Record<string, unknown>> = {
-  [STATIC_TOOL_NAMES.LOCAL_RIPGREP]: { keywords: 'foo', path: '.' },
+  [STATIC_TOOL_NAMES.LOCAL_RIPGREP]: { searchText: 'foo', path: '.' },
   [STATIC_TOOL_NAMES.LOCAL_VIEW_STRUCTURE]: { path: '.' },
   [STATIC_TOOL_NAMES.LOCAL_FIND_FILES]: { path: '.' },
   [STATIC_TOOL_NAMES.LOCAL_FETCH_CONTENT]: { path: '/tmp/test.ts' },
@@ -41,7 +41,19 @@ const MINIMAL_QUERY: Record<string, Record<string, unknown>> = {
   [STATIC_TOOL_NAMES.GITHUB_SEARCH_REPOSITORIES]: {
     keywords: ['react'],
   },
-  [STATIC_TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS]: {
+  [STATIC_TOOL_NAMES.GITHUB_PULL_REQUESTS]: {
+    owner: 'facebook',
+    repo: 'react',
+  },
+  [STATIC_TOOL_NAMES.GITHUB_ISSUES]: {
+    owner: 'facebook',
+    repo: 'react',
+  },
+  [STATIC_TOOL_NAMES.GITHUB_COMMITS]: {
+    owner: 'facebook',
+    repo: 'react',
+  },
+  [STATIC_TOOL_NAMES.GITHUB_RELEASES]: {
     owner: 'facebook',
     repo: 'react',
   },
@@ -69,7 +81,7 @@ function getQueryShape(bulkSchema: z.ZodTypeAny): z.ZodRawShape | null {
 function unwrapOptionalSchema(schema: z.ZodTypeAny): z.ZodTypeAny {
   let current = schema;
   while (current instanceof z.ZodOptional || current instanceof z.ZodDefault) {
-    current = current.unwrap();
+    current = current.unwrap() as z.ZodTypeAny;
   }
   return current;
 }
@@ -346,13 +358,37 @@ describe('all-tools schema contract', () => {
           !file.startsWith('toolMetadata/')
       );
 
+      // The in-catalog split tools (ghSearchPullRequests/Issues/Commits, and
+      // opt-in ghListReleases) share github_search_pull_requests/splitSchemes.ts
+      // instead of a per-tool scheme.ts, so they're excluded from the count.
+      const SPLIT_TOOLS: string[] = [
+        STATIC_TOOL_NAMES.GITHUB_PULL_REQUESTS,
+        STATIC_TOOL_NAMES.GITHUB_ISSUES,
+        STATIC_TOOL_NAMES.GITHUB_COMMITS,
+        STATIC_TOOL_NAMES.GITHUB_RELEASES,
+      ];
+      // +1: github_search_pull_requests/scheme.ts is the internal 4-mode PR/
+      // commits schema the split executors parse with — it has no registered
+      // tool of its own, but still lives as a scheme.ts.
       expect(schemeFiles).toHaveLength(
-        ALL_TOOLS.filter(tool => tool.name !== OQL_SEARCH_TOOL_NAME).length
+        ALL_TOOLS.filter(
+          tool =>
+            tool.name !== OQL_SEARCH_TOOL_NAME &&
+            !SPLIT_TOOLS.includes(tool.name)
+        ).length + 1
       );
       expect(
         existsSync(
           new URL(
             '../../../octocode-tools-core/src/oql/schema.ts',
+            import.meta.url
+          )
+        )
+      ).toBe(true);
+      expect(
+        existsSync(
+          new URL(
+            '../../../octocode-tools-core/src/tools/github_search_pull_requests/splitSchemes.ts',
             import.meta.url
           )
         )

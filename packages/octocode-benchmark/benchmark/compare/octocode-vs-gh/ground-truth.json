@@ -4,10 +4,10 @@
   "questions": {
     "q1": {
       "verificationStatus": "draft-verify-before-scoring",
-      "answer": "The correct set is only the call expressions useState(...). Octocode localSearchCode mode:structural pattern 'useState($$$)' (after cloning packages/react/src) returns exactly the call sites; the count and file list are the oracle -- compute it at run time from the frozen SHA. A plain text search over-counts by including non-call occurrences: e.g. the import line `import { useState } from 'react'`, JSDoc/comment mentions, and the string in ReactHooks.js export declarations.",
-      "scoring": "1.0 = enumerates call sites via structural/AST (not raw text) AND names a concrete non-call false positive; 0.5 = right files but count includes text-only noise, or (b) vague; 0 = only a raw text count with no AST distinction.",
-      "keyTerms": ["structural", "useState($$$)", "call expression", "import", "false positive"],
-      "capabilityPoint": "Octocode has AST structural search; gh CLI has text search only -- this is the core gap."
+      "answer": "The correct set is only the call expressions ref(...) that create a reactive ref in vuejs/core packages/reactivity/src. The oracle = the structural (AST) call-expression count + file list on the frozen SHA (compute at run time by materializing the subtree and running a structural pattern ref($$$)). A plain text search over-counts by including non-call occurrences: e.g. import lines (`import { ref } from ...`), the substring inside longer identifiers like shallowRef/refIndex/isRef, type annotations, and comment/JSDoc mentions.",
+      "scoring": "1.0 = enumerates call sites via structural/AST (not raw text) AND names a concrete non-call false positive (import / substring-in-identifier / type / comment); 0.5 = right files but count includes text-only noise, or (b) vague; 0 = only a raw text count with no AST distinction.",
+      "keyTerms": ["structural", "call expression", "ref(", "import", "shallowRef", "false positive"],
+      "capabilityPoint": "Octocode has AST structural search; gh CLI has text search only -- this is the core gap. Grader must confirm Arm B used a structural/AST query, not a text count."
     },
     "q2": {
       "verificationStatus": "draft-verify-before-scoring",

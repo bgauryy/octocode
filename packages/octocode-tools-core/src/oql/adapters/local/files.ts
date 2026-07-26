@@ -65,8 +65,7 @@ export async function executeFiles(
 
   const toolQuery: Partial<LocalFindToolQuery> = {
     path: searchPath,
-    details: true,
-    showFileLastModified: true,
+    detail: 'full',
   };
   applyFindFilesScope(toolQuery, query.scope);
   applyFindFilesPagination(toolQuery, query);

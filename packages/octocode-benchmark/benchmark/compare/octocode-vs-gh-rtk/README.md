@@ -34,6 +34,12 @@ re-verify before trusting an old snapshot and record the date. Q8's
 Go-vs-JS/`child_process` facts are architectural and stable; only
 download-count/version figures drift.
 
-Shared method + metrics: [`../README.md`](../README.md). Ground truth was
-verified independently via WebFetch (not either arm) — see
-`ground-truth.json`'s `verificationCaveat`.
+This is the only **verified ship-gate** suite (oracles independently confirmed
+via WebFetch, not either arm — see `ground-truth.json`'s `verificationCaveat`).
+Still run the **no-tools control arm** first: several targets are famous repos, so
+any question the control already answers measures LLM memory, not tools, and must
+be down-weighted. The flow category per question maps to the capability the
+**tool-use grading layer** should confirm Arm B exercised.
+
+Shared method + metrics (three arms, trajectory grading, aggregation, validity
+gates): [`../README.md`](../README.md).

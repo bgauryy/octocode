@@ -156,11 +156,14 @@ export function searchControls(query: OqlQuery): Partial<LocalSearchToolQuery> {
   const out: Partial<LocalSearchToolQuery> = {};
   const s = query.controls?.search;
   if (s) {
-    if (s.onlyMatching) out.onlyMatching = true;
-    if (s.unique) out.unique = true;
-    if (s.countUnique) out.countUnique = true;
-    if (s.countMatchesPerFile) out.countMatchesPerFile = true;
-    if (s.countLinesPerFile) out.countLinesPerFile = true;
+    // Collapse the OQL boolean output flags onto the single `output` enum
+    // (counts win over match-only, matching the old precedence where a count
+    // flag shaped the result and onlyMatching only affected substring slicing).
+    if (s.countMatchesPerFile) out.output = 'countMatches';
+    else if (s.countLinesPerFile) out.output = 'countLines';
+    else if (s.onlyMatching || s.unique || s.countUnique) out.output = 'matchOnly';
+    if (s.countUnique) out.unique = 'count';
+    else if (s.unique) out.unique = 'list';
     if (s.contextLines !== undefined) out.contextLines = s.contextLines;
     if (s.invertMatch) out.invertMatch = true;
     if (s.matchWindow !== undefined) out.matchWindow = s.matchWindow;
@@ -179,7 +182,6 @@ export function searchControls(query: OqlQuery): Partial<LocalSearchToolQuery> {
     if (s.rankingProfile)
       out.rankingProfile =
         s.rankingProfile as LocalSearchToolQuery['rankingProfile'];
-    if (s.debugRanking) out.debugRanking = true;
   }
   // budget.maxFiles is the search --max-files file cap; apply it even when
   // controls.search is absent (the old early-return dropped it silently).

@@ -552,7 +552,7 @@
         { "name": "mode", "pattern": "\\bMode:\\s*Investigate\\b|\\bInvestigate mode\\b" },
         { "name": "discovery", "pattern": "\\bnpmSearch\\b|\\bghSearchRepos\\b|\\bghViewRepoStructure\\b" },
         { "name": "code or exact", "pattern": "\\bghSearchCode\\b|\\bghGetFileContent\\b|\\bexact(?:-read| read)\\b|[A-Za-z0-9_./-]+:\\d+" },
-        { "name": "history", "pattern": "\\bghHistoryResearch\\b|\\bPR\\b|\\bcommit\\b" },
+        { "name": "history", "pattern": "\\bghSearchPullRequests\\b|\\bghSearchCommits\\b|\\bghSearchIssues\\b|\\bghHistoryResearch\\b|\\bPR\\b|\\bcommit\\b" },
         { "name": "resolved branch", "pattern": "\\bresolvedBranch\\b|\\bdefault branch\\b|\\bmain\\b|\\bcanary\\b|\\bmaster\\b" },
         { "name": "confidence", "pattern": "\\bConfidence:\\s*(confirmed|likely|uncertain)\\b" },
         { "name": "next action", "pattern": "\\bNext:" }
@@ -562,9 +562,9 @@
           "id": "follows-external-spine",
           "dimension": "method",
           "question": "Does the answer follow discovery → structure → code/exact → history (not jump straight to a guessed path)?",
-          "passPattern": "(\\bnpmSearch\\b|\\bghSearchRepos\\b|\\bghViewRepoStructure\\b)[\\s\\S]*(\\bghSearchCode\\b|\\bghGetFileContent\\b|exact)[\\s\\S]*(\\bghHistoryResearch\\b|\\bPR\\b|\\bcommit\\b)",
+          "passPattern": "(\\bnpmSearch\\b|\\bghSearchRepos\\b|\\bghViewRepoStructure\\b)[\\s\\S]*(\\bghSearchCode\\b|\\bghGetFileContent\\b|exact)[\\s\\S]*(\\bghSearchPullRequests\\b|\\bghSearchCommits\\b|\\bghHistoryResearch\\b|\\bPR\\b|\\bcommit\\b)",
           "failureSignature": "mechanism:external-research|cause:skipped-external-spine",
-          "suggestedLesson": "External research should run npmSearch/ghSearchRepos → ghViewRepoStructure → ghSearchCode/ghGetFileContent → ghHistoryResearch."
+          "suggestedLesson": "External research should run npmSearch/ghSearchRepos → ghViewRepoStructure → ghSearchCode/ghGetFileContent → ghSearchPullRequests/ghSearchCommits."
         },
         {
           "id": "treats-empty-as-provider",

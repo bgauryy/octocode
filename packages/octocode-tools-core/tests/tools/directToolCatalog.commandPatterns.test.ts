@@ -22,12 +22,12 @@ describe('direct-tool command patterns', () => {
       label: 'text search',
       query: {
         path: 'packages/octocode-tools-core/src',
-        keywords: 'buildDirectToolCommandPatterns',
+        searchText: 'buildDirectToolCommandPatterns',
         maxFiles: 20,
       },
     });
     expect(patterns[0]?.command).toBe(
-      'tools localSearchCode --queries \'{"path":"packages/octocode-tools-core/src","keywords":"buildDirectToolCommandPatterns","maxFiles":20}\''
+      'tools localSearchCode --queries \'{"path":"packages/octocode-tools-core/src","searchText":"buildDirectToolCommandPatterns","maxFiles":20}\''
     );
     expect(patterns[1]).toMatchObject({
       label: 'structural code search',
@@ -41,7 +41,7 @@ describe('direct-tool command patterns', () => {
       buildDirectToolExampleQuery(STATIC_TOOL_NAMES.LOCAL_RIPGREP)
     ).toEqual({
       path: 'packages/octocode-tools-core/src',
-      keywords: 'buildDirectToolCommandPatterns',
+      searchText: 'buildDirectToolCommandPatterns',
       maxFiles: 20,
     });
   });

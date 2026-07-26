@@ -46,7 +46,7 @@ export async function leafContentFileRows(
   const m = compiled.match!;
   const tq: Partial<LocalSearchToolQuery> = {
     path: searchPath,
-    filesOnly: true,
+    output: 'files',
     maxFiles: LOCAL_SCOPE_FILTER_CANDIDATE_LIMIT,
     ...scopeToCommon(query.scope),
   };
@@ -56,11 +56,11 @@ export async function leafContentFileRows(
     if (m.pattern !== undefined) tq.pattern = m.pattern;
     if (typeof m.rule === 'string') tq.rule = m.rule;
   } else {
-    tq.keywords = m.keywords;
-    if (m.fixedString) tq.fixedString = true;
-    if (m.perlRegex) tq.perlRegex = true;
-    if (m.caseSensitive) tq.caseSensitive = true;
-    if (m.caseInsensitive) tq.caseInsensitive = true;
+    tq.searchText = m.keywords;
+    if (m.fixedString) tq.regex = 'fixed';
+    if (m.perlRegex) tq.regex = 'perl';
+    if (m.caseSensitive) tq.caseMode = 'sensitive';
+    if (m.caseInsensitive) tq.caseMode = 'insensitive';
     if (m.wholeWord) tq.wholeWord = true;
   }
   const r = await searchContentRipgrep(tq as LocalSearchToolQuery);
@@ -132,7 +132,7 @@ function withoutMatchToolQuery(
   const m = compiled.match!;
   const toolQuery: Partial<LocalSearchToolQuery> = {
     path: searchPath,
-    filesWithoutMatch: true,
+    output: 'filesWithout',
     ...scopeToCommon(query.scope),
     ...(query.itemsPerPage ? { itemsPerPage: query.itemsPerPage } : {}),
     ...(query.page ? { page: query.page } : {}),
@@ -140,13 +140,13 @@ function withoutMatchToolQuery(
   };
   applyLocalSearchLanguage(toolQuery, query.scope, m.langType);
 
-  toolQuery.keywords = m.keywords;
-  if (m.fixedString) toolQuery.fixedString = true;
-  if (m.perlRegex) toolQuery.perlRegex = true;
-  if (m.caseSensitive) toolQuery.caseSensitive = true;
-  if (m.caseInsensitive) toolQuery.caseInsensitive = true;
+  toolQuery.searchText = m.keywords;
+  if (m.fixedString) toolQuery.regex = 'fixed';
+  if (m.perlRegex) toolQuery.regex = 'perl';
+  if (m.caseSensitive) toolQuery.caseMode = 'sensitive';
+  if (m.caseInsensitive) toolQuery.caseMode = 'insensitive';
   if (m.wholeWord) toolQuery.wholeWord = true;
-  if (m.multiline) toolQuery.multiline = true;
-  if (m.multilineDotall) toolQuery.multilineDotall = true;
+  if (m.multilineDotall) toolQuery.multiline = 'dotall';
+  else if (m.multiline) toolQuery.multiline = 'on';
   return toolQuery;
 }

@@ -55,6 +55,8 @@ export * from './tools/github_search_pull_requests/contentRequest.js';
 export * from './tools/github_search_pull_requests/contentResponse.js';
 export * from './tools/github_search_pull_requests/execution.js';
 export * from './tools/github_search_pull_requests/scheme.js';
+export * from './tools/github_search_pull_requests/splitSchemes.js';
+export * from './tools/github_search_pull_requests/splitExecutions.js';
 export * from './tools/github_search_pull_requests/types.js';
 export * from './tools/github_search_repos/execution.js';
 export * from './tools/github_search_repos/scheme.js';

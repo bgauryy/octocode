@@ -19,7 +19,6 @@ const PR_SEARCH_ONLY_FIELDS = [
   'match',
   'state',
   'label',
-  'milestone',
   'head',
   'base',
   'draft',
@@ -29,14 +28,8 @@ const PR_SEARCH_ONLY_FIELDS = [
   'review-requested',
   'commenter',
   'mentions',
-  'involves',
-  'team-mentions',
-  'project',
   'reactions',
-  'interactions',
   'comments',
-  'locked',
-  'visibility',
   'merged-at',
   'closed',
   'created',
@@ -145,12 +138,12 @@ export async function searchMultipleGitHubPullRequests(
           error,
           query,
           undefined,
-          TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS
+          TOOL_NAMES.GITHUB_PULL_REQUESTS
         );
       }
     },
     {
-      toolName: TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS,
+      toolName: TOOL_NAMES.GITHUB_PULL_REQUESTS,
       keysPriority: [
         'pull_requests',
         'issues',

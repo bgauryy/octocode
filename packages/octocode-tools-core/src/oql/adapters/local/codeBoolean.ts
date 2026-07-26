@@ -158,14 +158,14 @@ async function leafCodeRows(
     if (m.pattern !== undefined) tq.pattern = m.pattern;
     if (typeof m.rule === 'string') tq.rule = m.rule;
   } else {
-    tq.keywords = m.keywords;
-    if (m.fixedString) tq.fixedString = true;
-    if (m.perlRegex) tq.perlRegex = true;
-    if (m.caseSensitive) tq.caseSensitive = true;
-    if (m.caseInsensitive) tq.caseInsensitive = true;
+    tq.searchText = m.keywords;
+    if (m.fixedString) tq.regex = 'fixed';
+    if (m.perlRegex) tq.regex = 'perl';
+    if (m.caseSensitive) tq.caseMode = 'sensitive';
+    if (m.caseInsensitive) tq.caseMode = 'insensitive';
     if (m.wholeWord) tq.wholeWord = true;
-    if (m.multiline) tq.multiline = true;
-    if (m.multilineDotall) tq.multilineDotall = true;
+    if (m.multilineDotall) tq.multiline = 'dotall';
+    else if (m.multiline) tq.multiline = 'on';
   }
   const r = await searchContentRipgrep(tq as LocalSearchToolQuery);
   prov.push({ backend: 'localSearchCode', source });

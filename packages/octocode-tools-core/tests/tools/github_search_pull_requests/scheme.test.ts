@@ -6,7 +6,7 @@ import {
 } from '../../../src/tools/github_search_pull_requests/scheme.js';
 import { formatDirectToolSchemaText } from '../../../src/tools/directToolCatalog.meta.js';
 
-describe('ghHistoryResearch schema', () => {
+describe('ghSearchPullRequests schema', () => {
   const baseQuery = { owner: 'octo', repo: 'repo', prNumber: 1 };
 
   it('rejects selected patch mode without files or ranges', () => {
@@ -60,13 +60,12 @@ describe('ghHistoryResearch schema', () => {
   });
 
   it('emits input JSON schema so defaulted fields are not required from agents', () => {
-    const schema = JSON.parse(formatDirectToolSchemaText('ghHistoryResearch'));
+    const schema = JSON.parse(formatDirectToolSchemaText('ghSearchPullRequests'));
     const querySchema = schema.properties.queries.items;
 
-    expect(querySchema.required ?? []).not.toContain('perPage');
     expect(querySchema.required ?? []).not.toContain('itemsPerPage');
     expect(querySchema.required ?? []).not.toContain('minify');
-    expect(querySchema.properties.perPage).toMatchObject({ minimum: 1, maximum: 100 });
+    expect(querySchema.properties.itemsPerPage).toMatchObject({ minimum: 1 });
     expect(querySchema.properties.minify.enum).toEqual(['none', 'standard']);
   });
 });

@@ -3,12 +3,12 @@ import { searchContentRipgrep } from '../../../octocode-tools-core/src/tools/loc
 import { viewStructure } from '../../../octocode-tools-core/src/tools/local_view_structure/local_view_structure.js';
 import { findFiles } from '../../../octocode-tools-core/src/tools/local_find_files/findFiles.js';
 import { fetchContent } from '../../../octocode-tools-core/src/tools/local_fetch_content/fetchContent.js';
-import type {
-  SearchContentResult,
-  ViewStructureResult,
-  FindFilesResult,
-  FetchContentResult,
-} from '../../src/public.js';
+// Derive result types from the functions under test (the old public.js type
+// aliases were removed in a refactor; deriving keeps this drift-proof).
+type SearchContentResult = Awaited<ReturnType<typeof searchContentRipgrep>>;
+type ViewStructureResult = Awaited<ReturnType<typeof viewStructure>>;
+type FindFilesResult = Awaited<ReturnType<typeof findFiles>>;
+type FetchContentResult = Awaited<ReturnType<typeof fetchContent>>;
 import { RipgrepQuerySchema } from '@octocodeai/octocode-core/schemas';
 import path from 'path';
 
@@ -82,7 +82,7 @@ describe('Integration Tests: All Tools on node_modules', () => {
   describe('localSearchCode - Pattern Search', () => {
     it('should find patterns in JavaScript files', async () => {
       const result = await runRipgrep({
-        keywords: 'export',
+        searchText: 'export',
         path: NODE_MODULES_PATH,
         include: ['*.js'],
         itemsPerPage: 5,
@@ -100,12 +100,12 @@ describe('Integration Tests: All Tools on node_modules', () => {
 
     it('should find files only mode', async () => {
       const result = await runRipgrep({
-        keywords: 'package.json',
+        searchText: 'package.json',
         path: NODE_MODULES_PATH,
-        filesOnly: true,
+        output: 'files',
         maxFiles: 10,
         researchGoal: 'Find package.json files',
-        reasoning: 'Testing filesOnly mode',
+        reasoning: 'Testing output:"files" mode',
       });
 
       verifySmartData(result, 'localSearchCode');
@@ -122,7 +122,7 @@ describe('Integration Tests: All Tools on node_modules', () => {
       const result = await viewStructure({
         path: NODE_MODULES_PATH,
         details: false,
-        entriesPerPage: 20,
+        itemsPerPage: 20,
         researchGoal: 'List top-level node_modules contents',
         reasoning: 'Testing basic directory listing',
       });
@@ -140,7 +140,7 @@ describe('Integration Tests: All Tools on node_modules', () => {
       const result = await viewStructure({
         path: NODE_MODULES_PATH,
         details: true,
-        entriesPerPage: 10,
+        itemsPerPage: 10,
         sortBy: 'size',
         researchGoal: 'Get detailed file information sorted by size',
         reasoning: 'Testing detailed listing with sorting',
@@ -158,7 +158,7 @@ describe('Integration Tests: All Tools on node_modules', () => {
     it('should generate tree view', async () => {
       const result = await viewStructure({
         path: NODE_MODULES_PATH,
-        depth: 2,
+        maxDepth: 2,
         researchGoal: 'Get tree structure view',
         reasoning: 'Testing tree view mode',
       });
@@ -177,9 +177,9 @@ describe('Integration Tests: All Tools on node_modules', () => {
     it('should find files by name', async () => {
       const result = await findFiles({
         path: NODE_MODULES_PATH,
-        name: 'package.json',
+        names: ['package.json'],
         maxDepth: 2,
-        filesPerPage: 20,
+        itemsPerPage: 20,
         researchGoal: 'Find package.json files',
         reasoning: 'Testing name-based file discovery',
       });
@@ -195,9 +195,9 @@ describe('Integration Tests: All Tools on node_modules', () => {
     it('should find files by extension', async () => {
       const result = await findFiles({
         path: NODE_MODULES_PATH,
-        type: 'f',
+        entryType: 'f',
         names: ['*.md'],
-        filesPerPage: 10,
+        itemsPerPage: 10,
         researchGoal: 'Find markdown documentation files',
         reasoning: 'Testing extension-based discovery',
       });
@@ -212,9 +212,9 @@ describe('Integration Tests: All Tools on node_modules', () => {
     it('should find directories', async () => {
       const result = await findFiles({
         path: NODE_MODULES_PATH,
-        type: 'd',
+        entryType: 'd',
         maxDepth: 1,
-        filesPerPage: 15,
+        itemsPerPage: 15,
         researchGoal: 'Find top-level directories',
         reasoning: 'Testing directory discovery',
       });
@@ -233,9 +233,9 @@ describe('Integration Tests: All Tools on node_modules', () => {
     it('should find a test file first', async () => {
       const findResult = await findFiles({
         path: NODE_MODULES_PATH,
-        name: 'package.json',
+        names: ['package.json'],
         maxDepth: 2,
-        filesPerPage: 5,
+        itemsPerPage: 5,
         researchGoal: 'Find package.json files',
         reasoning: 'Testing file discovery for fetch_content tests',
       });
@@ -252,7 +252,7 @@ describe('Integration Tests: All Tools on node_modules', () => {
         const jsFileResult = await findFiles({
           path: NODE_MODULES_PATH,
           names: ['*.js'],
-          filesPerPage: 1,
+          itemsPerPage: 1,
         });
 
         if (
@@ -280,6 +280,7 @@ describe('Integration Tests: All Tools on node_modules', () => {
         path: testFile,
         fullContent: true,
         contextLines: 5,
+        minify: 'standard',
         researchGoal: 'Read full package.json content',
         reasoning: 'Testing full content fetch',
       });
@@ -302,6 +303,7 @@ describe('Integration Tests: All Tools on node_modules', () => {
         charOffset: 0,
         charLength: 2000,
         contextLines: 5,
+        minify: 'standard',
         researchGoal: 'Read first 20 lines',
         reasoning: 'Testing line range fetch',
       });
@@ -322,6 +324,7 @@ describe('Integration Tests: All Tools on node_modules', () => {
         path: testFile,
         matchString: 'dependencies',
         contextLines: 5,
+        minify: 'standard',
         researchGoal: 'Extract dependencies section',
         reasoning: 'Testing pattern-based extraction',
       });

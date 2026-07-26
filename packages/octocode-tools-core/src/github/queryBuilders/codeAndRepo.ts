@@ -73,8 +73,6 @@ export class RepoSearchQueryBuilder extends BaseQueryBuilder {
   addRepoFilters(params: WithOptionalMeta<GitHubReposSearchSingleQuery>): this {
     this.addArrayFilter(params.topicsToSearch, 'topic');
     this.addSimpleFilter(params.stars, 'stars');
-    this.addSimpleFilter(params.size, 'size');
-    this.addSimpleFilter(params.created, 'created');
 
     if (params.updated) {
       this.queryParts.push(`pushed:${params.updated}`);

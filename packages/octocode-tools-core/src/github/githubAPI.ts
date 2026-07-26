@@ -277,7 +277,6 @@ export interface GitHubPullRequestsSearchParams {
   assignee?: string;
   mentions?: string;
   commenter?: string;
-  involves?: string;
   'reviewed-by'?: string;
   'review-requested'?: string;
   head?: string;
@@ -288,7 +287,6 @@ export interface GitHubPullRequestsSearchParams {
   closed?: string;
   comments?: number | string;
   reactions?: number | string;
-  interactions?: number | string;
   label?: string | string[];
   milestone?: string;
   language?: string;
@@ -296,12 +294,7 @@ export interface GitHubPullRequestsSearchParams {
   review?: 'none' | 'required' | 'approved' | 'changes_requested';
   locked?: boolean;
   visibility?: 'public' | 'private';
-  'team-mentions'?: string;
   project?: string;
-  'no-assignee'?: boolean;
-  'no-label'?: boolean;
-  'no-milestone'?: boolean;
-  'no-project'?: boolean;
   match?: ('title' | 'body' | 'comments')[];
 
   archived?: boolean;

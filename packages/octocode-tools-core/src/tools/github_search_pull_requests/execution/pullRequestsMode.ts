@@ -124,7 +124,7 @@ export async function handlePullRequestsMode(
     effectiveQuery,
     resultData as unknown as Record<string, unknown>,
     hasContent,
-    TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS,
+    TOOL_NAMES.GITHUB_PULL_REQUESTS,
     {
       rawResponse: providerResult.response.rawResponseChars,
     }

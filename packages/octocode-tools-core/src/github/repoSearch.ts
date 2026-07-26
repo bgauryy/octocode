@@ -75,8 +75,6 @@ export async function searchGitHubReposAPI(
       owner: params.owner,
       repo: extra.repo,
       stars: params.stars,
-      size: params.size,
-      created: params.created,
       updated: params.updated,
       language: extra.language,
       match: params.match,

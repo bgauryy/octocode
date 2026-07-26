@@ -48,7 +48,7 @@ export function classifyDiffLane(
 export function diffLaneBackend(lane: DiffLane): string {
   switch (lane.kind) {
     case 'prPatch':
-      return 'ghHistoryResearch';
+      return 'ghSearchPullRequests';
     case 'directFile':
       return 'ghGetFileContent';
     case 'neither':

@@ -22,34 +22,6 @@ function withLocalFindFilesTruth(description: string): string {
   return `${description} ${LOCAL_FIND_FILES_TRUTH}`;
 }
 
-// Core only mentions type:"prs" and type:"commits"; the runtime also supports
-// type:"issues" (search/read GitHub issues) and type:"releases". Patch the
-// description so agents can discover issue-fetch mode and issueNumber.
-const GH_HISTORY_RESEARCH_STALE =
-  /type:"prs" searches PRs; add prNumber to read selected content\. type:"commits" reads owner\/repo\/path history\./;
-
-const GH_HISTORY_RESEARCH_TRUTH =
-  'type:"prs" searches PRs; add prNumber to read selected content. type:"commits" reads owner/repo/path history. type:"issues" searches or reads GitHub issues; add issueNumber to read a specific issue (body + comments). type:"releases" lists repo releases.';
-
-const GH_HISTORY_RESEARCH_EXTRA =
-  'type:"issues" searches or reads GitHub issues; add issueNumber to read a specific issue (body + comments). type:"releases" lists repo releases.';
-
-function withGhHistoryResearchTruth(description: string): string {
-  if (
-    description.includes('type:"issues"') &&
-    description.includes('type:"releases"')
-  ) {
-    return description;
-  }
-  if (GH_HISTORY_RESEARCH_STALE.test(description)) {
-    return description.replace(
-      GH_HISTORY_RESEARCH_STALE,
-      GH_HISTORY_RESEARCH_TRUTH
-    );
-  }
-  return `${description} ${GH_HISTORY_RESEARCH_EXTRA}`;
-}
-
 let patched: CompleteMetadata | null = null;
 
 export function getPatchedToolMetadata(
@@ -74,25 +46,6 @@ export function getPatchedToolMetadata(
         localFindFiles: {
           ...findFilesTool,
           description: withLocalFindFilesTruth(findFilesTool.description),
-        },
-      },
-    };
-  }
-
-  // Patch ghHistoryResearch — add type:"issues" and type:"releases" modes
-  const historyTool = next.tools?.ghHistoryResearch;
-  if (
-    historyTool?.description &&
-    (!historyTool.description.includes('type:"issues"') ||
-      !historyTool.description.includes('type:"releases"'))
-  ) {
-    next = {
-      ...next,
-      tools: {
-        ...next.tools,
-        ghHistoryResearch: {
-          ...historyTool,
-          description: withGhHistoryResearchTruth(historyTool.description),
         },
       },
     };

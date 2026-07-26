@@ -1,6 +1,6 @@
 /**
  * `target:"diff"` has two typed lanes, discriminated by params shape:
- *   - PR patch:    { prNumber, files? }            -> ghHistoryResearch patches
+ *   - PR patch:    { prNumber, files? }            -> ghSearchPullRequests patches
  *   - direct file: { baseRef, headRef, path }      -> two ghGetFileContent reads
  *                                                     + a pure local line diff
  * A request that fits neither returns a repair diagnostic rather than silently
@@ -57,7 +57,7 @@ export async function executeDiff(query: OqlQuery): Promise<AdapterResult> {
 
   if (lane.kind === 'prPatch') {
     // PR patch lane (unchanged behavior).
-    const result = await runDirect('ghHistoryResearch', {
+    const result = await runDirect('ghSearchPullRequests', {
       ...(owner ? { owner } : {}),
       ...(repo ? { repo } : {}),
       content: { patches: { mode: 'all' } },
@@ -66,7 +66,7 @@ export async function executeDiff(query: OqlQuery): Promise<AdapterResult> {
     return finishRecords(
       result,
       'diff',
-      'ghHistoryResearch',
+      'ghSearchPullRequests',
       query.from ?? { kind: 'github' }
     );
   }
@@ -93,7 +93,7 @@ export async function executeDiff(query: OqlQuery): Promise<AdapterResult> {
         'invalidQuery',
         'target:"diff" needs either {prNumber} (PR patch diff) or {baseRef,headRef,path} (direct file diff between two refs).',
         {
-          backend: 'ghHistoryResearch',
+          backend: 'ghSearchPullRequests',
           repair: {
             message:
               'Add params.prNumber for a PR patch, or params.baseRef + params.headRef + params.path for a direct file diff.',

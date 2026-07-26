@@ -4,7 +4,7 @@ Use when no single surface can answer: a local clue points upstream, or remote c
 
 ## Local -> External (enrich)
 - local dependency / error string / config key -> `npmSearch` or `ghSearchRepos` -> repo -> docs, tests, history.
-- "why is this code like this" -> `ghHistoryResearch` commits on the path -> the PR behind the commit (`reviewMode:"full"` for the whole story).
+- "why is this code like this" -> `ghSearchCommits` on the path -> the PR behind the commit via `ghSearchPullRequests` (`reviewMode:"full"` for the whole story).
 - "has someone already solved this" -> `ghSearchRepos` triage -> external loop on the best candidates (`github-landscape.md` for ranking several).
 
 ## External -> Local (materialize, then prove)

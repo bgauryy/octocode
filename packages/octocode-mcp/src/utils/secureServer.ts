@@ -48,6 +48,33 @@ function normalizeError(error: unknown): NormalizedError {
   };
 }
 
+/**
+ * Output sanitization threw. We keep the tool result (availability) but must
+ * never let the failure pass silently, since the content was NOT scrubbed for
+ * secrets. Prepend a visible warning block so the caller knows the output is
+ * unsanitized, and mirror it to stderr. The failure reason is itself scrubbed
+ * so the warning can't leak a secret via the error text.
+ */
+function appendSanitizationWarning(
+  result: CallToolResult,
+  error: unknown
+): CallToolResult {
+  const reason = sanitizeErrorMessage(normalizeError(error).message);
+  const warning = {
+    type: 'text' as const,
+    text: `⚠️ Output sanitization failed — the content below was NOT scrubbed for secrets and may contain sensitive data. Reason: ${reason}`,
+  };
+  const content = Array.isArray(result.content) ? result.content : [];
+  try {
+    process.stderr.write(
+      `[octocode-mcp] output sanitization failed; returning unsanitized result with warning: ${reason}\n`
+    );
+  } catch {
+    // stderr unavailable — the in-band warning above still surfaces it
+  }
+  return { ...result, content: [warning, ...content] };
+}
+
 function safeStringify(value: unknown): string | undefined {
   try {
     return JSON.stringify(value);
@@ -76,8 +103,11 @@ function wrapToolCallback(
       )(...args);
       try {
         return sanitizeCallToolResult(result);
-      } catch {
-        return result;
+      } catch (sanitizeError) {
+        // Sanitization failed. Policy: do NOT hard-fail the call and do NOT
+        // return the result silently — the content was not scrubbed for
+        // secrets, so surface a visible warning and let the caller decide.
+        return appendSanitizationWarning(result, sanitizeError);
       }
     } catch (error) {
       return buildToolErrorResult(name, error);

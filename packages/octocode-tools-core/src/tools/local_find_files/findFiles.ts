@@ -42,8 +42,10 @@ function computeEffectiveExcludeDirs(
 export async function findFiles(
   query: FindFilesQuery
 ): Promise<LocalFindFilesToolResult> {
-  const details = query.details ?? false;
-  const showLastModified = query.showFileLastModified ?? false;
+  // `detail` collapses the old details/showFileLastModified booleans:
+  // "full" = all metadata, "modified" = just add mtime, "basic" = names only.
+  const details = query.detail === 'full';
+  const showLastModified = query.detail === 'modified' || details;
   const collectModified =
     showLastModified || (query.sortBy || 'modified') === 'modified';
 
@@ -90,9 +92,9 @@ export async function findFiles(
       sizeGreater: nativeQuery.sizeGreater,
       sizeLess: nativeQuery.sizeLess,
       permissions: nativeQuery.permissions,
-      executable: nativeQuery.executable,
-      readable: nativeQuery.readable,
-      writable: nativeQuery.writable,
+      executable: nativeQuery.access === 'executable',
+      readable: nativeQuery.access === 'readable',
+      writable: nativeQuery.access === 'writable',
       excludeDir: nativeQuery.excludeDir,
       limit: LOCAL_MAX_LIMIT,
     });

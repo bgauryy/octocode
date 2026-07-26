@@ -10,21 +10,15 @@ export type IssueSearchParams = {
   assignee?: string;
   mentions?: string;
   commenter?: string;
-  involves?: string;
   created?: string;
   updated?: string;
   closed?: string;
   comments?: number | string;
   reactions?: number | string;
-  interactions?: number | string;
   label?: string | string[];
   milestone?: string;
   locked?: boolean;
   visibility?: 'public' | 'private';
-  'no-assignee'?: boolean;
-  'no-label'?: boolean;
-  'no-milestone'?: boolean;
-  'no-project'?: boolean;
   match?: ('title' | 'body' | 'comments')[];
   archived?: boolean;
   sort?: 'created' | 'updated' | 'best-match' | 'comments' | 'reactions';
@@ -57,15 +51,10 @@ export class IssueSearchQueryBuilder extends BaseQueryBuilder {
     this.addSimpleFilter(params.assignee, 'assignee');
     this.addSimpleFilter(params.mentions, 'mentions');
     this.addSimpleFilter(params.commenter, 'commenter');
-    this.addSimpleFilter(params.involves, 'involves');
     return this;
   }
 
   addNegativeFilters(params: IssueSearchParams): this {
-    if (params['no-assignee']) this.queryParts.push('no:assignee');
-    if (params['no-label']) this.queryParts.push('no:label');
-    if (params['no-milestone']) this.queryParts.push('no:milestone');
-    if (params['no-project']) this.queryParts.push('no:project');
     if (params.locked === true) this.queryParts.push('is:locked');
     else if (params.locked === false) this.queryParts.push('is:unlocked');
     if (params.visibility === 'public') this.queryParts.push('is:public');
@@ -107,14 +96,8 @@ export function shouldUseSearchForIssues(params: IssueSearchParams): boolean {
         : params.label.length > 0)) ||
     params.mentions !== undefined ||
     params.commenter !== undefined ||
-    params.involves !== undefined ||
     params.reactions !== undefined ||
     params.comments !== undefined ||
-    params.interactions !== undefined ||
-    params['no-assignee'] !== undefined ||
-    params['no-label'] !== undefined ||
-    params['no-milestone'] !== undefined ||
-    params['no-project'] !== undefined ||
     params.milestone !== undefined ||
     params.locked !== undefined ||
     params.visibility !== undefined ||

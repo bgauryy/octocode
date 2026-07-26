@@ -15,6 +15,16 @@ export {
   GitHubPullRequestSearchBulkQueryLocalSchema,
 } from './github_search_pull_requests/scheme.js';
 export {
+  SearchPullRequestsLocalSchema,
+  SearchPullRequestsBulkLocalSchema,
+  SearchIssuesLocalSchema,
+  SearchIssuesBulkLocalSchema,
+  SearchCommitsLocalSchema,
+  SearchCommitsBulkLocalSchema,
+  ListReleasesLocalSchema,
+  ListReleasesBulkLocalSchema,
+} from './github_search_pull_requests/splitSchemes.js';
+export {
   GitHubReposSearchSingleQueryLocalSchema,
   GitHubReposSearchBulkQueryLocalSchema,
 } from './github_search_repos/scheme.js';
