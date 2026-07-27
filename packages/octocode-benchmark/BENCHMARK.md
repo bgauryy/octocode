@@ -10,7 +10,7 @@ packages/octocode-benchmark/
   benchmark/
     per-tool/             ← one file per Octocode tool: full schema + checks + workflows
       README.md           ← how to run + shared 2/1/0 scoring
-      <toolName>.md       ← 13 tools
+      <toolName>.md       ← one doc per active/default tool plus gated legacy docs
     compare/              ← Octocode vs others, 10 questions each
       README.md           ← shared A/B method + metrics
       octocode-vs-gh/           ← Arm A: gh CLI only
@@ -20,7 +20,7 @@ packages/octocode-benchmark/
 
 ## Lane 1 — Per-Tool ("does our own surface work")
 
-One file per tool proves it works across **its whole schema** and in **real
+One file per active/default tool proves it works across **its whole schema** and in **real
 workflows**. This is the internal lane — run it before trusting any comparison.
 
 Start here: [`benchmark/per-tool/README.md`](benchmark/per-tool/README.md).

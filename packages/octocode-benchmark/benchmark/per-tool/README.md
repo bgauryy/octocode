@@ -4,15 +4,12 @@ One file per Octocode tool. Each proves a single tool works across **its full
 schema** and in **real workflows** — this is the "does our own surface work"
 lane (for us), before any head-to-head comparison in [`../compare/`](../compare/).
 
-16 tools — 14 registered by default, plus 2 env-gated (`ghListReleases`,
-`ghSearchDiscussions`). The deprecated `ghHistoryResearch` was
-split into `ghSearchPullRequests` / `ghSearchIssues` / `ghSearchCommits` /
-`ghListReleases`.
+Current default CLI catalog: 15 tools. Gated/legacy docs remain for release checks that enable them: `ghListReleases`, `ghSearchDiscussions`, and deprecated `ghHistoryResearch`.
 
 | Surface | Tools |
 |---|---|
 | GitHub | [ghSearchCode](ghSearchCode.md) · [ghSearchRepos](ghSearchRepos.md) · [ghSearchPullRequests](ghSearchPullRequests.md) · [ghSearchIssues](ghSearchIssues.md) · [ghSearchCommits](ghSearchCommits.md) · [ghListReleases](ghListReleases.md) *(env-gated: `ENABLE_RELEASES=1`)* · [ghSearchDiscussions](ghSearchDiscussions.md) *(env-gated: `ENABLE_DISCUSSIONS=1`)* · [ghGetFileContent](ghGetFileContent.md) · [ghViewRepoStructure](ghViewRepoStructure.md) · [ghCloneRepo](ghCloneRepo.md) |
-| Local | [localSearchCode](localSearchCode.md) · [localFindFiles](localFindFiles.md) · [localGetFileContent](localGetFileContent.md) · [localViewStructure](localViewStructure.md) · [lspGetSemantics](lspGetSemantics.md) |
+| Local | [localSearchCode](localSearchCode.md) · [localFindFiles](localFindFiles.md) · [localFindDeadCode](localFindDeadCode.md) · [localGetFileContent](localGetFileContent.md) · [localViewStructure](localViewStructure.md) · [lspGetSemantics](lspGetSemantics.md) |
 | Package | [npmSearch](npmSearch.md) |
 
 ## How to run

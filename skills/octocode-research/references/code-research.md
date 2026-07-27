@@ -11,7 +11,7 @@ Load for code investigation, review, refactor, architecture, dead-code, or blast
 | unknown behavior | actual/authority evidence → classify → matching route |
 | refactor (preserve behavior) | skeleton → contracts → blast → big→small tasks → bulk move/rewire → verify (`workflow-refactor.md`) |
 | PR/local review | changed region → symbols → consumers/tests → ranked findings |
-| dead code/delete | candidate → LSP/AST/broad text/tests |
+| dead code/delete | `localFindDeadCode` candidate → exact read → LSP/AST/broad text/tests |
 | architecture | entry points → dependencies/fan proxies → tradeoffs |
 
 ## Workflow
@@ -33,7 +33,7 @@ Review findings lead and include `file:line`, impact, evidence, confidence, and 
 
 | Finding | Minimum corroboration |
 |---|---|
-| dead export / safe delete | broad text + LSP excluding declaration + AST/imports + tests/build |
+| dead export / safe delete | `localFindDeadCode` or search candidate + LSP excluding declaration + AST/imports + tests/build |
 | dependency cycle | imports both ways; mark SCC claims approximate without graph proof |
 | security sink | sink shape + exact read + source/callers + guard/sanitizer check |
 | test gap | important/changed symbol + no test refs + nearby test-tree read |

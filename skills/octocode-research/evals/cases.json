@@ -97,7 +97,8 @@
       "minCitationCount": 1,
       "required": [
         { "name": "scheme first", "pattern": "\\btools <name> --scheme\\b|\\b--scheme\\b" },
-        { "name": "structural or lexical scan", "pattern": "\\blocalSearchCode\\b|\\bstructural\\b|\\bgrep\\b|\\bripgrep\\b" },
+        { "name": "dead-code candidate tool", "pattern": "\\blocalFindDeadCode\\b|\\bdead-code candidates?\\b" },
+        { "name": "structural or lexical fallback", "pattern": "\\blocalSearchCode\\b|\\bstructural\\b|\\bgrep\\b|\\bripgrep\\b|\\bAST\\b" },
         { "name": "candidate not proof", "pattern": "\\bcandidate\\b.*\\bproof\\b|\\bcandidate rows?\\b|\\bnot safe to delete\\b" },
         { "name": "upgrade proof", "pattern": "\\bLSP\\b|\\blspGetSemantics\\b|\\breferences?\\b|\\bcallers?\\b|\\bexact read\\b|\\bimport\\b|\\bAST\\b|\\btests?\\b" },
         { "name": "gate broad deletion", "pattern": "\\bgate\\b|\\bdo not delete\\b|\\bbroad removals?\\b" }
@@ -114,10 +115,10 @@
         {
           "id": "upgrades-candidates-to-proof",
           "dimension": "evidence",
-          "question": "Does the answer distinguish search candidates from deletion proof and name the proof upgrade path (lspGetSemantics references/callers)?",
+          "question": "Does the answer distinguish localFindDeadCode/search candidates from deletion proof and name the proof upgrade path (lspGetSemantics references/callers)?",
           "passPattern": "(\\bcandidate\\b.*\\bproof\\b|\\bcandidate rows?\\b|\\bnot safe to delete\\b)[\\s\\S]*(\\bLSP\\b|\\blspGetSemantics\\b|\\breferences?\\b|\\bcallers?\\b|\\bexact read\\b|\\bimport\\b|\\bAST\\b|\\btests?\\b)",
           "failureSignature": "mechanism:dead-code|cause:candidate-as-proof",
-          "suggestedLesson": "Treat search/grep hits as candidates until lspGetSemantics references/callers, exact reads, AST checks, or tests confirm safety."
+          "suggestedLesson": "Treat localFindDeadCode/search hits as candidates until lspGetSemantics references/callers, exact reads, AST checks, or tests confirm safety."
         }
       ],
       "forbidden": [
