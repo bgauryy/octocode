@@ -42,13 +42,20 @@ function getOutputMode(args: ParsedArgs): OutputMode {
 
 function printToolResult(
   result: ToolResult,
+  args: ParsedArgs,
   outputMode: OutputMode,
   formatResult: typeof formatCallToolResultForOutput
 ): void {
   if (outputMode === 'compact') {
     const structured = (result as { structuredContent?: unknown })
       .structuredContent;
-    console.log(JSON.stringify(structured ?? result));
+    console.log(
+      JSON.stringify(
+        structured ?? result,
+        null,
+        args.options.pretty === true ? 2 : 0
+      )
+    );
     return;
   }
   console.log(formatResult(result, outputMode === 'json' ? 'json' : 'text'));
@@ -78,7 +85,8 @@ function printToolCommandError(
         error: message,
         ...(details.length > 0 ? { details } : {}),
       },
-      args.options.compact === true
+      args.options.compact === true,
+      args.options.pretty === true
     );
     return;
   }
@@ -100,6 +108,7 @@ export async function executeToolCommand(args: ParsedArgs): Promise<boolean> {
       await printToolCatalogJson({
         full: args.options.full === true,
         compact: args.options.compact === true,
+        pretty: args.options.pretty === true,
       });
       return true;
     }
@@ -146,6 +155,7 @@ export async function executeToolCommand(args: ParsedArgs): Promise<boolean> {
     if (args.options.json === true) {
       await printToolSchemaJson(tool.name, {
         compact: args.options.compact === true,
+        pretty: args.options.pretty === true,
       });
       return true;
     }
@@ -188,7 +198,12 @@ export async function executeToolCommand(args: ParsedArgs): Promise<boolean> {
     const { executeDirectTool, formatCallToolResultForOutput } =
       await import('@octocodeai/octocode-tools-core/direct');
     const result = await executeDirectTool(tool.name, input);
-    printToolResult(result, getOutputMode(args), formatCallToolResultForOutput);
+    printToolResult(
+      result,
+      args,
+      getOutputMode(args),
+      formatCallToolResultForOutput
+    );
     if (result.isError) {
       process.exitCode = classifyToolErrorText(JSON.stringify(result));
       return false;

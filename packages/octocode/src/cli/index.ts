@@ -25,8 +25,14 @@ async function loadStaticCommandHelpModule(): Promise<{
 
 async function loadToolCommandModule(): Promise<{
   executeToolCommand(args: ParsedArgs): Promise<boolean>;
-  getToolsContextString(options?: { full?: boolean }): Promise<string>;
-  printToolsContext(options?: { full?: boolean }): Promise<void>;
+  getToolsContextString(options?: {
+    full?: boolean;
+    minimal?: boolean;
+  }): Promise<string>;
+  printToolsContext(options?: {
+    full?: boolean;
+    minimal?: boolean;
+  }): Promise<void>;
   showToolHelp(toolName: string): Promise<boolean>;
   showAvailableTools(): Promise<void>;
   showMultipleToolSchemas(toolNames: string[]): Promise<void>;
@@ -35,7 +41,7 @@ async function loadToolCommandModule(): Promise<{
 }
 
 async function loadLightToolHelpModule(): Promise<{
-  printLightInstructions(options?: { full?: boolean }): void;
+  printLightInstructions(options?: { full?: boolean; minimal?: boolean }): void;
   printToolRuntimeUnavailable(): void;
   showLightAvailableTools(): void;
   showLightToolHelp(toolName: string): boolean;
@@ -74,6 +80,8 @@ const KNOWN_TOP_LEVEL_OPTIONS = new Set([
   // that fall through to the main help (exit 0) rather than "unknown options".
   'json',
   'compact',
+  'pretty',
+  'minimal',
   'raw',
 ]);
 
@@ -190,7 +198,10 @@ export async function runCLI(argv?: string[]): Promise<boolean> {
   if (!args.command && args.options.context === true) {
     const toolModule = await tryLoadToolCommandModule();
     if (toolModule) {
-      const options = { full: args.options['full'] === true };
+      const options = {
+        full: args.options['full'] === true,
+        minimal: args.options['minimal'] === true,
+      };
       if (args.options['json'] === true) {
         const context = await toolModule.getToolsContextString(options);
         console.log(JSON.stringify({ context }));
@@ -200,7 +211,10 @@ export async function runCLI(argv?: string[]): Promise<boolean> {
       return true;
     }
     const { printLightInstructions } = await loadLightToolHelpModule();
-    printLightInstructions({ full: args.options['full'] === true });
+    printLightInstructions({
+      full: args.options['full'] === true,
+      minimal: args.options['minimal'] === true,
+    });
     return true;
   }
 
@@ -252,7 +266,10 @@ export async function runCLI(argv?: string[]): Promise<boolean> {
   if (args.command === 'context') {
     const toolModule = await tryLoadToolCommandModule();
     if (toolModule) {
-      const options = { full: args.options['full'] === true };
+      const options = {
+        full: args.options['full'] === true,
+        minimal: args.options['minimal'] === true,
+      };
       if (args.options['json'] === true) {
         const context = await toolModule.getToolsContextString(options);
         console.log(JSON.stringify({ context }));
@@ -262,7 +279,10 @@ export async function runCLI(argv?: string[]): Promise<boolean> {
       return true;
     }
     const { printLightInstructions } = await loadLightToolHelpModule();
-    printLightInstructions({ full: args.options['full'] === true });
+    printLightInstructions({
+      full: args.options['full'] === true,
+      minimal: args.options['minimal'] === true,
+    });
     return true;
   }
 

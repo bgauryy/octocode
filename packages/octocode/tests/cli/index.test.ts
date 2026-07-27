@@ -61,7 +61,10 @@ describe('runCLI', () => {
     const handled = await runCLI(['context']);
 
     expect(handled).toBe(true);
-    expect(mocks.printToolsContext).toHaveBeenCalledWith({ full: false });
+    expect(mocks.printToolsContext).toHaveBeenCalledWith({
+      full: false,
+      minimal: false,
+    });
     expect(mocks.loadCommand).not.toHaveBeenCalled();
   });
 
@@ -71,7 +74,22 @@ describe('runCLI', () => {
     const handled = await runCLI(['context', '--full']);
 
     expect(handled).toBe(true);
-    expect(mocks.printToolsContext).toHaveBeenCalledWith({ full: true });
+    expect(mocks.printToolsContext).toHaveBeenCalledWith({
+      full: true,
+      minimal: false,
+    });
+  });
+
+  it('passes --minimal to context', async () => {
+    const { runCLI } = await import('../../src/cli/index.js');
+
+    const handled = await runCLI(['context', '--minimal']);
+
+    expect(handled).toBe(true);
+    expect(mocks.printToolsContext).toHaveBeenCalledWith({
+      full: false,
+      minimal: true,
+    });
   });
 
   it('prints real JSON for context --json', async () => {
@@ -80,7 +98,10 @@ describe('runCLI', () => {
     const handled = await runCLI(['context', '--json']);
 
     expect(handled).toBe(true);
-    expect(mocks.getToolsContextString).toHaveBeenCalledWith({ full: false });
+    expect(mocks.getToolsContextString).toHaveBeenCalledWith({
+      full: false,
+      minimal: false,
+    });
     expect(mocks.printToolsContext).not.toHaveBeenCalled();
     expect(JSON.parse(String(consoleSpy.mock.calls[0]?.[0]))).toEqual({
       context: 'agent context',
@@ -94,7 +115,10 @@ describe('runCLI', () => {
 
     expect(handled).toBe(true);
     expect(process.env.NO_COLOR).toBe('1');
-    expect(mocks.printToolsContext).toHaveBeenCalledWith({ full: true });
+    expect(mocks.printToolsContext).toHaveBeenCalledWith({
+      full: true,
+      minimal: false,
+    });
     expect(mocks.loadCommand).not.toHaveBeenCalled();
   });
 
@@ -104,7 +128,10 @@ describe('runCLI', () => {
     const handled = await runCLI(['--context', '--json', '--full']);
 
     expect(handled).toBe(true);
-    expect(mocks.getToolsContextString).toHaveBeenCalledWith({ full: true });
+    expect(mocks.getToolsContextString).toHaveBeenCalledWith({
+      full: true,
+      minimal: false,
+    });
     expect(JSON.parse(String(consoleSpy.mock.calls[0]?.[0]))).toEqual({
       context: 'agent context',
     });

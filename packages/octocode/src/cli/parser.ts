@@ -130,6 +130,8 @@ const BOOLEAN_OPTIONS = new Set([
   'list',
   'scheme',
   'compact',
+  'pretty',
+  'minimal',
   'no-color',
   'reveal',
   'raw',

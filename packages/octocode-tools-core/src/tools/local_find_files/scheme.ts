@@ -26,15 +26,13 @@ const queryOverrides = {
     ),
   page: relaxedPageNumberField.default(1),
   itemsPerPage: clampedInt(1, LOCAL_MAX_FILES_PER_PAGE).optional(),
-  // Core's description promises default vendor/build-dir exclusions, but the
-  // executor DELIBERATELY excludes nothing (findFiles.ts: find must never
-  // silently hide real files). Override the prose to match actual behavior
-  // until core's text is fixed.
+  // Core's description can lag runtime behavior. The executor prunes common
+  // generated/vendor dirs by default but honors excludeDir: [] to prune nothing.
   excludeDir: z
     .array(z.string())
     .optional()
     .describe(
-      'Directory names to prune from the walk (e.g. ["node_modules","dist","coverage"]). NOTHING is excluded by default — results include build output and vendor dirs unless you pass this explicitly.'
+      'Directory names to prune from the walk. Common generated/vendor dirs are pruned by default (node_modules, .git, dist, build, out, coverage, target, .next, .cache); pass [] to prune nothing, or pass an explicit list to choose pruned dirs.'
     ),
 } as const;
 

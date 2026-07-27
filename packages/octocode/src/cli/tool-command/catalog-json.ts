@@ -26,10 +26,15 @@ import {
 type ToolCatalogJsonOptions = {
   full?: boolean;
   compact?: boolean;
+  pretty?: boolean;
 };
 
-export function printJsonPayload(payload: unknown, compact = false): void {
-  console.log(JSON.stringify(payload, null, compact ? 0 : 2));
+export function printJsonPayload(
+  payload: unknown,
+  compact = false,
+  pretty = false
+): void {
+  console.log(JSON.stringify(payload, null, compact && !pretty ? 0 : 2));
 }
 
 function formatToolFieldsJson(toolName: string): Array<{
@@ -90,7 +95,7 @@ export async function printToolCatalogJson(
       })),
     };
 
-    printJsonPayload(catalog, options.compact);
+    printJsonPayload(catalog, options.compact, options.pretty);
     return;
   }
 
@@ -134,12 +139,12 @@ export async function printToolCatalogJson(
     }),
   };
 
-  printJsonPayload(catalog, options.compact);
+  printJsonPayload(catalog, options.compact, options.pretty);
 }
 
 export async function printToolSchemaJson(
   toolName: string,
-  options: { compact?: boolean } = {}
+  options: { compact?: boolean; pretty?: boolean } = {}
 ): Promise<boolean> {
   const tool = findToolDefinition(toolName);
   if (!tool) return false;
@@ -164,7 +169,8 @@ export async function printToolSchemaJson(
           run: compactRunCommand(tool.name),
         },
       },
-      true
+      options.compact === true,
+      options.pretty === true
     );
     return true;
   }

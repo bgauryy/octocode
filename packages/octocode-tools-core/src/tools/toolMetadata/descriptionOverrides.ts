@@ -7,19 +7,26 @@ import type { CompleteMetadata } from '@octocodeai/octocode-core/types';
  * behavior; rewrite the composed `description` here so CLI `--scheme` and MCP
  * registration stay consistent until the next core release.
  */
-const LOCAL_FIND_FILES_STALE =
-  /Default excludeDir skips common generated\/vendor dirs; pass \[\] to search all\./;
+const LOCAL_FIND_FILES_STALE_PATTERNS = [
+  /Default excludeDir skips common generated\/vendor dirs; pass \[\] to search all\./,
+  /node_modules\/\.git\/dist\/build\/out\/coverage\/target\/\.next\/\.cache are pruned by default — pass excludeDir explicitly \(including excludeDir: \[\] to prune nothing\) to inspect installed deps or build output\./,
+  /Nothing is excluded by default — pass excludeDir \(e\.g\. \["node_modules","dist","coverage"\]\) to prune build\/vendor dirs\./,
+];
 
 const LOCAL_FIND_FILES_TRUTH =
-  'Nothing is excluded by default — pass excludeDir (e.g. ["node_modules","dist","coverage"]) to prune build/vendor dirs.';
+  'localFindFiles prunes common generated/vendor dirs by default (node_modules, .git, dist, build, out, coverage, target, .next, .cache); pass excludeDir: [] to prune nothing, or pass excludeDir explicitly to choose pruned dirs.';
 
 function withLocalFindFilesTruth(description: string): string {
-  if (description.includes('Nothing is excluded by default'))
-    return description;
-  if (LOCAL_FIND_FILES_STALE.test(description)) {
-    return description.replace(LOCAL_FIND_FILES_STALE, LOCAL_FIND_FILES_TRUTH);
+  let next = description;
+  for (const pattern of LOCAL_FIND_FILES_STALE_PATTERNS) {
+    next = next
+      .replace(pattern, '')
+      .replace(/\s{2,}/g, ' ')
+      .trim();
   }
-  return `${description} ${LOCAL_FIND_FILES_TRUTH}`;
+  if (next.includes('prunes common generated/vendor dirs by default'))
+    return next;
+  return `${next} ${LOCAL_FIND_FILES_TRUTH}`.replace(/\s{2,}/g, ' ').trim();
 }
 
 let patched: CompleteMetadata | null = null;
@@ -35,10 +42,7 @@ export function getPatchedToolMetadata(
 
   // Patch localFindFiles
   const findFilesTool = next.tools?.localFindFiles;
-  if (
-    findFilesTool?.description &&
-    !findFilesTool.description.includes('Nothing is excluded by default')
-  ) {
+  if (findFilesTool?.description) {
     next = {
       ...next,
       tools: {

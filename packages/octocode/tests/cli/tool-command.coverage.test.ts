@@ -169,12 +169,9 @@ describe('tool-command coverage', () => {
     const output = consoleSpy.mock.calls.flat().join('\n');
     expect(output).toContain('Octocode CLI — Agent Context');
     expect(output).toContain('tools <name>');
-    // Smart commands section removed; verify RESEARCH LOOP and TOOL CALLS are present
-    expect(output).toContain('RESEARCH LOOP');
-    expect(output).toContain('TOOL CALLS');
-    expect(output).toContain('Server instructions.');
-    expect(output).toContain('Exit codes:');
-    expect(output).toContain('structuredContent.results[]');
+    expect(output).toContain('Protocol: schema first');
+    expect(output).toContain('Tools (');
+    expect(output).not.toContain('Server instructions.');
     expect(output).toContain('Output contract');
   });
 
@@ -187,7 +184,7 @@ describe('tool-command coverage', () => {
 
     // Schemas are no longer embedded in context — read them on demand via octocode tools <name>
     expect(compact).not.toContain('"$schema"');
-    expect(compact).toContain('RESEARCH LOOP');
+    expect(compact).toContain('Protocol: schema first');
     expect(full).toContain('RESEARCH LOOP');
     // full mode includes the complete description text on a separate line
     expect(full).toContain('Search code.');
@@ -253,15 +250,15 @@ describe('tool-command coverage', () => {
     expect(process.exitCode).toBe(3);
   });
 
-  it('getToolsContextString: includes metadata-only tool via formatMetadataSchemaText', async () => {
+  it('getToolsContextString: excludes metadata-only tools that are not active CLI tools', async () => {
     const { getToolsContextString } =
       await import('../../src/cli/tool-command.js');
 
     const context = await getToolsContextString();
 
-    expect(context).toContain('legacyTool');
-    // Schema is no longer embedded in context — tool description is shown instead
-    expect(context).toContain('Legacy tool.');
+    expect(context).not.toContain('legacyTool');
+    expect(context).not.toContain('Legacy tool.');
+    expect(context).toContain('Tools (');
   });
 
   it('rejects an unknown tool name and sets exitCode NOT_FOUND (3)', async () => {

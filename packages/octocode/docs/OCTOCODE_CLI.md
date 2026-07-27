@@ -20,7 +20,7 @@ They are not separate implementations.
 | `tools` | List every Octocode MCP tool, read exact tool schemas, and run raw tool calls from the terminal. This is the primary research surface. |
 | `clone` | Clone a GitHub repo or sparse subtree locally for repeated reads, AST search, or LSP work. |
 | `cache` | Fetch remote files, trees, or repos into local Octocode storage; also inspect or clear cached materialization. |
-| `context` | Print the agent protocol, system prompt, tool descriptions, and schemas. |
+| `context` | Print agent protocol and tool descriptions. Use `--minimal`, default compact, or `--full` depending on context budget. |
 | `install` | Write or check MCP client configuration for supported IDEs and agent hosts. |
 | `auth` | Manage GitHub auth with `login`, `logout`, `refresh`, and `status` subcommands. |
 | `login` | Top-level shortcut for GitHub login. |
@@ -60,6 +60,7 @@ npx octocode tools
 npx octocode tools --json --compact
 npx octocode tools localSearchCode --scheme
 npx octocode tools localSearchCode --scheme --json --compact
+npx octocode tools localSearchCode --scheme --json --compact --pretty
 npx octocode tools localSearchCode --queries '{"path":"./src","searchText":"runCLI"}' --compact
 ```
 
@@ -71,8 +72,8 @@ npx octocode tools <name> --scheme
 
 | Category | Tools |
 |---|---|
-| GitHub | `ghSearchCode` · `ghSearchRepos` · `ghSearchPullRequests` · `ghSearchIssues` · `ghSearchCommits` · `ghListReleases` · `ghSearchDiscussions` · `ghGetFileContent` · `ghViewRepoStructure` · `ghCloneRepo` |
-| Local Code | `localSearchCode` · `localFindFiles` · `localGetFileContent` · `localViewStructure` · `lspGetSemantics` |
+| GitHub | `ghSearchCode` · `ghSearchRepos` · `ghSearchPullRequests` · `ghSearchIssues` · `ghSearchCommits` · `ghGetFileContent` · `ghViewRepoStructure` · `ghCloneRepo` |
+| Local Code | `localSearchCode` · `localFindFiles` · `localFindDeadCode` · `localGetFileContent` · `localViewStructure` · `lspGetSemantics` |
 | Package | `npmSearch` |
 
 ### Research loop
@@ -97,6 +98,7 @@ npx octocode tools lspGetSemantics --queries '{"uri":"./packages/octocode/src/cl
 | `--queries '<json>'` | Run the tool. Accepts a single query object or `{"queries":[...]}` for a batch (up to 5). |
 | `--json` | Full `CallToolResult` envelope. |
 | `--compact` | Lean `structuredContent` only — cheapest output for agents. |
+| `--pretty` | Pretty-print compact JSON for humans; useful with `--compact` when reading locally. |
 | `--raw` | Content reads only: bare content without the envelope. |
 
 ---
@@ -212,13 +214,13 @@ Legacy forms such as `npx octocode skill --list` and
 ## `context` — Agent Protocol
 
 ```bash
-npx octocode context
-npx octocode context --full
+npx octocode context --minimal   # cheapest: protocol + active tool names
+npx octocode context             # compact protocol + short descriptions
+npx octocode context --full      # full MCP prompt + long descriptions
 npx octocode context --json
 ```
 
-Prints the research protocol and tool descriptions. Use for autonomous agents,
-debugging tool guidance, or producing a compact machine-readable context block.
+Prints the research protocol and active tool descriptions. Use `--minimal` for tight agent budgets, default `context` for normal agents, and `--full` only when debugging full guidance.
 
 ---
 
@@ -270,9 +272,11 @@ npx octocode tools ghSearchCommits --queries '{"owner":"bgauryy","repo":"octocod
 ### Agent or script mode
 
 ```bash
+npx octocode context --minimal
 npx octocode context --json
 npx octocode tools --json --compact
 npx octocode tools localSearchCode --scheme --json --compact
+npx octocode tools localSearchCode --scheme --json --compact --pretty
 npx octocode tools localSearchCode --queries '{"path":"./src","searchText":"runCLI"}' --json --compact
 ```
 
@@ -288,6 +292,8 @@ npx octocode tools localSearchCode --queries '{"path":"./src","searchText":"runC
 | `--version` | Show CLI version. |
 | `--json` | Structured JSON output. |
 | `--compact` | Leaner output for agents and scripts. |
+| `--pretty` | Pretty-print compact JSON for humans. |
+| `--minimal` | `context` only: cheapest protocol + active tool names. |
 | `--raw` | Bare file content where supported. |
 | `--no-color` | Disable ANSI color. `NO_COLOR=1` works too. |
 

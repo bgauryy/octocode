@@ -120,6 +120,10 @@ describe('CLI Parser', () => {
 
     it('should parse context and scheme flags', () => {
       expect(parseArgs(['context', '--full']).options.full).toBe(true);
+      expect(parseArgs(['context', '--minimal']).options.minimal).toBe(true);
+      expect(parseArgs(['tools', '--compact', '--pretty']).options.pretty).toBe(
+        true
+      );
       expect(parseArgs(['tools', '--no-color']).options['no-color']).toBe(true);
       expect(
         parseArgs(['tools', 'localSearchCode', '--scheme']).options.scheme

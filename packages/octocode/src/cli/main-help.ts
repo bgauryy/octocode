@@ -123,11 +123,11 @@ function buildToolBlock(
  * Short index summaries for non-quick commands. The full multi-flag usage lives
  * in `<command> --help`; the top-level help only needs a scannable one-liner
  * that fits a normal terminal. `context`'s label keeps the exact
- * `context [--full] [--json]` form (a contract checked by cli:check).
+ * `context [--full|--minimal] [--json]` form (a contract checked by cli:check).
  */
 const COMMAND_INDEX: Record<string, { label?: string; desc: string }> = {
   context: {
-    label: 'context [--full] [--json]',
+    label: 'context [--full|--minimal] [--json]',
     desc: 'agent protocol + tools',
   },
   install: { desc: 'add Octocode to an IDE / MCP client' },
@@ -201,7 +201,7 @@ export async function showHelp(): Promise<void> {
     // ── Every other command — an INDEX (short summary), full usage in --help ─
     `  ${bold('MORE COMMANDS')}  ${dim('· full usage:')} ${c('cyan', '<command> --help')}`,
     // `context` is dispatched in cli/index.ts (not a command loader) but must
-    // appear in MORE COMMANDS — cli:check asserts `context [--full] [--json]`.
+    // appear in MORE COMMANDS — cli:check asserts the context usage label.
     ...COMMAND_SPECS.filter(
       s =>
         !QUICK_COMMAND_NAMES.has(s.name) &&
@@ -210,7 +210,7 @@ export async function showHelp(): Promise<void> {
     '',
 
     // ── Flags · exit codes · docs (compact, no repetition) ─────────────────
-    `  ${bold('FLAGS')}  ${c('cyan', '--json')} ${dim('envelope ·')} ${c('cyan', '--compact')} ${dim('lean ·')} ${c('cyan', '--raw')} ${dim('bare file ·')} ${c('cyan', '--no-color')}`,
+    `  ${bold('FLAGS')}  ${c('cyan', '--json')} ${dim('envelope ·')} ${c('cyan', '--compact')} ${dim('lean ·')} ${c('cyan', '--pretty')} ${dim('readable JSON ·')} ${c('cyan', '--raw')} ${dim('bare file ·')} ${c('cyan', '--no-color')}`,
     `  ${bold('EXIT')}   ${dim('0 ok · 2 input · 3 not-found · 4 auth · 5 tool · 7 rate-limit')}`,
     `  ${bold('DOCS')}   ${underline('https://github.com/bgauryy/octocode/tree/main/docs')}`,
     '',

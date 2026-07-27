@@ -452,8 +452,8 @@ describe('toolCommand', () => {
     expect(context).toContain('tools <name>');
     expect(context).toContain('Use Octocode tools carefully.');
     expect(context).toContain('1. ghSearchCode');
-    expect(context).toContain('2. ghCloneRepo');
-    expect(context).toContain('3. localSearchCode');
+    expect(context).toContain('8. ghCloneRepo');
+    expect(context).toContain('9. localSearchCode');
     expect(context).toContain('Quick commands (clone/cache fetch)');
     expect(context).not.toMatch(
       /Quick commands \([^)]*\b(?:search|ls|cat|repo|history|binary|unzip|diff|pkg|lsp|find|grep)\b/
@@ -464,7 +464,7 @@ describe('toolCommand', () => {
   });
 
   it('builds a lean default tools context (compact field lists)', async () => {
-    const { getToolsContextString } =
+    const { getToolsContextString, TOOL_DEFINITIONS } =
       await import('../../src/cli/tool-command.js');
 
     const context = await getToolsContextString();
@@ -474,7 +474,28 @@ describe('toolCommand', () => {
       '1. ghSearchCode — Search code in GitHub repositories.'
     );
     expect(context).not.toContain('"$schema"');
-    expect(context).toContain('RESEARCH LOOP');
+    expect(context).toContain('Protocol: schema first');
+    expect(context).not.toContain('Use Octocode tools carefully.');
+    expect(context.length).toBeLessThanOrEqual(4000);
+    for (const tool of TOOL_DEFINITIONS) {
+      expect(context).toContain(tool.name);
+    }
+  });
+
+  it('supports minimal agent context for cheapest tool-name orientation', async () => {
+    const { getToolsContextString, TOOL_DEFINITIONS } =
+      await import('../../src/cli/tool-command.js');
+
+    const context = await getToolsContextString({ minimal: true });
+
+    expect(context).toContain('Octocode CLI — Minimal Context');
+    expect(context).toContain('Protocol: schema first');
+    expect(context).not.toContain('Output contract');
+    expect(context).not.toContain('Use Octocode tools carefully.');
+    expect(context.length).toBeLessThanOrEqual(1800);
+    for (const tool of TOOL_DEFINITIONS) {
+      expect(context).toContain(tool.name);
+    }
   });
 
   // Bug 1: `tools <name> --scheme` must never throw a ReferenceError for any
@@ -617,6 +638,24 @@ describe('toolCommand', () => {
     expect(parsed.commands.runCompact).toContain('--compact');
     expect(parsed.commands.runEnvelope).toContain('tools localSearchCode');
     expect(parsed.guidance?.join('\n')).toContain('absolute path');
+  });
+
+  it('pretty-prints compact JSON when --pretty is supplied', async () => {
+    const { toolCommand } = await import('../../src/cli/tool-command.js');
+
+    await toolCommand.handler!({
+      command: 'tools',
+      args: ['localSearchCode'],
+      options: { scheme: true, json: true, compact: true, pretty: true },
+    });
+
+    const output = consoleSpy.mock.calls
+      .map((call: unknown[]) => call.map(String).join(' '))
+      .join('\n')
+      .trim();
+
+    expect(output).toContain('\n  "kind"');
+    expect(JSON.parse(output).kind).toBe('octocode.toolSchema.compact');
   });
 
   it('deduplicates prose in compact tool schemas', async () => {
