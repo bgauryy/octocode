@@ -1,0 +1,40 @@
+<!doctype html>
+<html>
+<head><title>webmcp-fixture</title></head>
+<body>
+<h1>WebMCP fixture</h1>
+<p>Registers one WebMCP tool for the skill's webmcp intent check. Not a real product page.</p>
+<script>
+  window.__webmcpRegistered = false;
+  window.__webmcpError = null;
+  (async () => {
+    try {
+      if (!document.modelContext) {
+        window.__webmcpError = 'document.modelContext is undefined';
+        return;
+      }
+      await document.modelContext.registerTool({
+        name: 'echo_price',
+        title: 'Echo Price',
+        description: 'Fixture tool: echoes a name and doubles a price, for testing WebMCP discovery/invocation.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            name: { type: 'string' },
+            price: { type: 'number' }
+          },
+          required: ['name', 'price']
+        },
+        execute: async ({ name, price }) => {
+          return { ok: true, echoed: name, doubled: price * 2 };
+        },
+        annotations: { readOnlyHint: true, untrustedContentHint: false }
+      });
+      window.__webmcpRegistered = true;
+    } catch (e) {
+      window.__webmcpError = String((e && e.message) || e);
+    }
+  })();
+</script>
+</body>
+</html>

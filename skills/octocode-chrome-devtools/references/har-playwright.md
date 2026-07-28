@@ -20,6 +20,18 @@ node <skill-dir>/examples/har-pager.mjs live-network.har --filter failures --pag
 node <skill-dir>/examples/har-redact.mjs live-network.har --strip-bodies
 ```
 
+## Fetch One Response Body By requestId
+`examples/live-har-monitor.mjs` captures request/timing/status only — HAR entries always have empty `response.content.text`, by design, to stay fast and small. When you need the actual body for one specific request, write a focused script instead of relying on the HAR:
+
+```js
+// Inside a run(cdp) script, with Network already enabled and the requestId
+// captured from Network.responseReceived/requestWillBeSent:
+const { body, base64Encoded } = await cdp.send('Network.getResponseBody', { requestId });
+const text = base64Encoded ? Buffer.from(body, 'base64').toString('utf8') : body;
+```
+
+Call this while the request is still cached — Chrome evicts bodies after navigation/reload. If it returns nothing, see `references/recovery.md`.
+
 ## Hybrid
 Debug with CDP → save HAR/summary → promote stable flows to Playwright or API fixtures. Never copy cookie/bearer/CSRF values into reports — header names only.
 

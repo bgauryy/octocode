@@ -108,6 +108,44 @@ curl -s -H "accept: application/json" "https://example.com/api/items?page=1"
 
 Use the browser only when UI behavior matters. For data returned by an endpoint, replay the request with non-secret headers and page the response instead of scraping brittle DOM text.
 
+## 5. Discover and invoke page-declared WebMCP tools
+
+Requires Chrome 150+ launched fresh with the feature flag — an already-running/reused session can't add it:
+
+```bash
+node skills/octocode-chrome-devtools/scripts/open-browser.mjs \
+  --headless --port 9222 --enableFeatures WebMCP --url "https://example.com"
+```
+
+List whatever the page has registered via `document.modelContext.registerTool(...)`:
+
+```bash
+WEBMCP_ACTION=list node skills/octocode-chrome-devtools/scripts/cdp-sandbox.mjs \
+  skills/octocode-chrome-devtools/examples/webmcp-tools.mjs \
+  --port 9222 --target-url "example.com" --keep-tab
+```
+
+`[FINDING] WEBMCP_NO_TOOLS` is the expected result on most sites today — adoption is still low. When tools are found, check the `risk=` field on each `[WEBMCP_TOOL]` line, then invoke one by name with JSON input matching its `inputSchema`:
+
+```bash
+WEBMCP_ACTION=invoke WEBMCP_TOOL=<tool-name> WEBMCP_INPUT='{"...":"..."}' \
+node skills/octocode-chrome-devtools/scripts/cdp-sandbox.mjs \
+  skills/octocode-chrome-devtools/examples/webmcp-tools.mjs \
+  --port 9222 --target-url "example.com" --keep-tab
+```
+
+`risk=mutating` tools fall under the same Mutation Gate as a real click; only invoke those on explicit request. Full tool list and invocation payloads land in `webmcp-tools.json`/`webmcp-invocation.json` under the sandbox output dir.
+
+### Self-check (skill maintainers, not general page use)
+
+`examples/webmcp-tools.check.mjs` is a deterministic TDD grader, not a page-inspection tool: it launches an isolated Chrome against the bundled fixture (`examples/fixtures/webmcp-fixture.html`, which registers a real `echo_price` tool) and asserts discovery, invocation, and the no-tools fallback all behave correctly. Run it after touching `webmcp-tools.mjs`, `open-browser.mjs`, or `cdp-sandbox.mjs`:
+
+```bash
+node skills/octocode-chrome-devtools/examples/webmcp-tools.check.mjs --port 9245
+```
+
+Exit 0 and `[PASS]` on all lines means the intent still works end to end; any `[FAIL]` is a real regression, not a flaky page.
+
 ## Playwright vs CDP quick rule
 
 - Use these CDP examples for live forensics, manual browsing, console/network/perf evidence, and current DOM state.

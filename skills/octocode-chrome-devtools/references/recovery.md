@@ -1,5 +1,6 @@
 # Recovery Reference
 
+Load after two same-class failures or an unfamiliar CDP error. Why: match the exact message to a fix instead of guessing.
 
 | Situation | Fix |
 |-----------|-----|
