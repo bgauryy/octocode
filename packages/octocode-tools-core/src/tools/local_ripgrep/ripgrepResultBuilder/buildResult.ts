@@ -49,7 +49,7 @@ export async function buildSearchResult(
   let ranked: ReturnType<typeof rankFiles>;
   try {
     ranked = rankFiles(parsedFiles, sort, buildRankContext(configuredQuery), {
-      debug: Boolean(configuredQuery.debugRanking),
+      debug: false,
     });
   } catch {
     ranked = { files: parsedFiles, cappedCandidates: 0 };
@@ -64,12 +64,12 @@ export async function buildSearchResult(
   // We paginate over the FULL ranked set so every matched file stays reachable
   // by paging; `totalFiles` is the true total of the ranked set.
   const totalFiles = filesWithMetadata.length;
-  const isPathListMode = Boolean(
-    configuredQuery.filesOnly || configuredQuery.filesWithoutMatch
-  );
-  const isCountMode = Boolean(
-    configuredQuery.countLinesPerFile || configuredQuery.countMatchesPerFile
-  );
+  const isPathListMode =
+    configuredQuery.output === 'files' ||
+    configuredQuery.output === 'filesWithout';
+  const isCountMode =
+    configuredQuery.output === 'countLines' ||
+    configuredQuery.output === 'countMatches';
   const isFileListMode = isPathListMode || isCountMode;
   const summedMatches = filesWithMetadata.reduce(
     (sum: number, f: LocalSearchCodeFile & { modified?: string }) =>
@@ -121,9 +121,9 @@ export async function buildSearchResult(
         path: file.path,
         ...(isPathListMode
           ? {}
-          : configuredQuery.countLinesPerFile
+          : configuredQuery.output === 'countLines'
             ? { totalMatchedLines: file.matchCount || 1 }
-            : configuredQuery.countMatchesPerFile
+            : configuredQuery.output === 'countMatches'
               ? { totalOccurrences: file.matchCount || 1 }
               : {
                   totalMatchRows: totalFileMatches,
@@ -222,9 +222,9 @@ function buildRankContext(query: RipgrepQuery): RankContext {
   );
   return {
     queryPath: query.path,
-    keyword: query.keywords,
+    keyword: query.searchText,
     langType: query.langType,
-    caseSensitive: query.caseSensitive,
+    caseSensitive: query.caseMode === 'sensitive',
     wholeWord: query.wholeWord,
     profileOverride,
     explicitLowSignal,

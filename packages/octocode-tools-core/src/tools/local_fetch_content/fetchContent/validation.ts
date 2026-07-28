@@ -127,7 +127,7 @@ export function shouldFailForLargeFile(
     fileSizeKB > RESOURCE_LIMITS.LARGE_FILE_THRESHOLD_KB &&
     !query.matchString &&
     !query.startLine &&
-    !query.fullContent
+    !query.charLength
   );
 }
 

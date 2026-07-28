@@ -31,9 +31,9 @@ For existing RFCs, run `REASSESS` (see `references/workflow.md` § Reassess exis
 - When building the execution plan, load `references/rfc-implementation.md` — close questions, order dependencies, and define rollout/rollback.
 - When defining acceptance, load `references/rfc-kpi.md` — connect user stories, metrics, decision rules, and verification in a traceability matrix.
 - When preserving sources, load `references/rfc-resources.md` — record provenance without moving decisive citations out of the RFC.
-- When improving this skill, prefer `octocode-eval`; otherwise load `references/improve-loop.md` — enforce measurable accept/revert.
+- When improving this skill, prefer `octocode-graph-eval`; otherwise load `references/improve-loop.md` — enforce measurable accept/revert.
 
 ## Related routes and verification
-- Use `octocode-brainstorming` before RFC when worth-building is unresolved; `octocode-research` to close factual questions; `octocode-eval` for KPI rigor.
+- Use `octocode-brainstorming` before RFC when worth-building is unresolved; `octocode-research` to close factual questions; `octocode-graph-eval` for KPI rigor.
 - Use `octocode-awareness` while coordinating drafts; `octocode-skills` when changing this skill folder.
 - Before delivery run `scripts/eval-rfc.mjs --case <id>` — validate the document contract and report the real result.

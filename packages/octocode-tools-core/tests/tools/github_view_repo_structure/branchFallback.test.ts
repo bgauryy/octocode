@@ -62,6 +62,45 @@ describe('ghViewRepoStructure — explicit invalid branch falls back to default 
     expect(text).toContain('README.md');
   });
 
+  it('the emitted next.* hints carry the resolved branch, not the invalid requested one', async () => {
+    resolveDefaultBranch.mockResolvedValue('main');
+    getRepoStructure
+      .mockResolvedValueOnce(notFound())
+      .mockResolvedValueOnce(ok('main'));
+
+    const result = await exploreMultipleRepositoryStructures({
+      queries: [
+        {
+          owner: 'facebook',
+          repo: 'react',
+          branch: 'no-such-branch-zzz',
+          path: '',
+        },
+      ],
+    } as never);
+
+    // Locate the `next` block that carries the follow-up hints.
+    const found: Array<{ query?: { branch?: string } }> = [];
+    const visit = (node: unknown): void => {
+      if (!node || typeof node !== 'object') return;
+      const obj = node as Record<string, unknown>;
+      if ('fetchFile' in obj || 'materialize' in obj) {
+        if (obj.fetchFile)
+          found.push(obj.fetchFile as { query?: { branch?: string } });
+        if (obj.materialize)
+          found.push(obj.materialize as { query?: { branch?: string } });
+      }
+      for (const v of Object.values(obj)) visit(v);
+    };
+    visit(result.structuredContent ?? result);
+
+    expect(found.length).toBeGreaterThan(0);
+    for (const hint of found) {
+      expect(hint.query?.branch).toBe('main');
+      expect(hint.query?.branch).not.toBe('no-such-branch-zzz');
+    }
+  });
+
   it('a genuinely missing repo (both branches fail) still returns the original error, not a false fallback', async () => {
     resolveDefaultBranch.mockResolvedValue('main');
     getRepoStructure.mockResolvedValue(notFound());

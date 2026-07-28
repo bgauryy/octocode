@@ -141,8 +141,6 @@ export interface PullRequestItem {
     nextCharOffset?: number;
   };
 
-  url: string;
-
   state: 'open' | 'closed' | 'merged';
 
   draft: boolean;

@@ -155,7 +155,7 @@ describe('directToolCatalog', () => {
     );
 
     expect(localByName['id']).toBeUndefined();
-    expect(localByName['keywords']?.required).toBe(false);
+    expect(localByName['searchText']?.required).toBe(false);
     expect(localByName['include']?.type).toBe('array<string>');
     expect(localByName['matchContentLength']?.required).toBe(false);
     expect(localByName['page']?.required).toBe(false);
@@ -165,7 +165,7 @@ describe('directToolCatalog', () => {
       buildDirectToolExampleQuery(STATIC_TOOL_NAMES.LOCAL_RIPGREP)
     ).toEqual({
       path: 'packages/octocode-tools-core/src',
-      keywords: 'buildDirectToolCommandPatterns',
+      searchText: 'buildDirectToolCommandPatterns',
       maxFiles: 20,
     });
     expect(
@@ -181,8 +181,8 @@ describe('directToolCatalog', () => {
   it('prepares direct tool input from every CLI-supported JSON payload shape', () => {
     const query = {
       path: '.',
-      keywords: 'DIRECT_TOOL_CATEGORIES',
-      fixedString: true,
+      searchText: 'DIRECT_TOOL_CATEGORIES',
+      regex: 'fixed',
       matchContentLength: 200,
       itemsPerPage: 1,
       page: 1,
@@ -206,7 +206,7 @@ describe('directToolCatalog', () => {
         queries: [
           expect.objectContaining({
             id: `${STATIC_TOOL_NAMES.LOCAL_RIPGREP}-1`,
-            fixedString: true,
+            regex: 'fixed',
             researchGoal: `Execute ${STATIC_TOOL_NAMES.LOCAL_RIPGREP} via unit-test`,
             reasoning: 'Executed via unit-test tool command',
           }),
@@ -280,8 +280,8 @@ describe('directToolCatalog', () => {
     const prepared = prepareDirectToolInput(
       STATIC_TOOL_NAMES.LOCAL_RIPGREP,
       [
-        { keywords: 'a', path: '.', limit: 3, bogusKey: true },
-        { keywords: 'b', path: '.', fixed_string: true },
+        { searchText: 'a', path: '.', limit: 3, bogusKey: true },
+        { searchText: 'b', path: '.', fixed_string: true },
       ],
       {
         sourceLabel: 'unit-test',
@@ -295,7 +295,7 @@ describe('directToolCatalog', () => {
       { fields: ['fixed_string'], index: 1 },
     ]);
     // ...but the call proceeds with the valid fields, stray keys stripped.
-    expect(prepared.queries[0]).toMatchObject({ keywords: 'a', path: '.' });
+    expect(prepared.queries[0]).toMatchObject({ searchText: 'a', path: '.' });
     expect(prepared.queries[0]).not.toHaveProperty('bogusKey');
     expect(prepared.queries[0]).not.toHaveProperty('limit');
     expect(prepared.queries[1]).not.toHaveProperty('fixed_string');

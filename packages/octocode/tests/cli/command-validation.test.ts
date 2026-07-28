@@ -13,8 +13,7 @@ import {
   findInvalidNumericOptions,
   printUnknownOptionError,
 } from '../../src/cli/command-validation.js';
-import { searchCommand } from '../../src/cli/commands/search.js';
-import type { ParsedArgs } from '../../src/cli/types.js';
+import type { CLICommand, ParsedArgs } from '../../src/cli/types.js';
 
 function args(
   options: ParsedArgs['options'],
@@ -23,43 +22,59 @@ function args(
   return { command, args: [], options };
 }
 
+// Synthetic command with a representative option set (a numeric-looking flag
+// for typo-suggestion, plus canonical spellings that must be accepted) — kept
+// independent of any real command so this suite never breaks when commands
+// are added/renamed/removed.
+const fixtureCommand: CLICommand = {
+  name: 'fixture',
+  options: [
+    { name: 'depth', hasValue: true },
+    { name: 'content-view', hasValue: true },
+    { name: 'items-per-page', hasValue: true },
+  ],
+  handler: () => {},
+};
+
 describe('command option validation', () => {
   it('accepts a command-declared flag', () => {
-    expect(findUnknownOptions(searchCommand, args({ depth: '2' }))).toEqual([]);
+    expect(findUnknownOptions(fixtureCommand, args({ depth: '2' }))).toEqual(
+      []
+    );
   });
 
   it('accepts global flags on any command', () => {
     expect(
-      findUnknownOptions(searchCommand, args({ json: true, 'no-color': true }))
+      findUnknownOptions(fixtureCommand, args({ json: true, 'no-color': true }))
     ).toEqual([]);
   });
 
   it('flags an unknown option', () => {
-    expect(findUnknownOptions(searchCommand, args({ dpeth: '2' }))).toEqual([
+    expect(findUnknownOptions(fixtureCommand, args({ dpeth: '2' }))).toEqual([
       'dpeth',
     ]);
   });
 
-  it('rejects removed search aliases from command metadata too', () => {
+  it('rejects removed aliases from command metadata too', () => {
     expect(
       findUnknownOptions(
-        searchCommand,
-        args({ mode: 'none', 'page-size': '5', type: 'ts' }, 'search')
+        fixtureCommand,
+        args({ mode: 'none', 'page-size': '5', type: 'ts' }, 'fixture')
       )
     ).toEqual(['mode', 'page-size', 'type']);
   });
 
-  it('accepts canonical search spelling for content and pagination', () => {
+  it('accepts canonical spelling for content and pagination', () => {
     expect(
       findUnknownOptions(
-        searchCommand,
-        args({ 'content-view': 'none', 'items-per-page': '5' }, 'search')
+        fixtureCommand,
+        args({ 'content-view': 'none', 'items-per-page': '5' }, 'fixture')
       )
     ).toEqual([]);
   });
 
   it('always allows the global flag set', () => {
-    const allowed = getAllowedOptionNames(searchCommand);
+    const allowed = getAllowedOptionNames(fixtureCommand);
     for (const g of ['json', 'compact', 'no-color', 'help', 'version']) {
       expect(allowed.has(g)).toBe(true);
     }
@@ -73,15 +88,15 @@ describe('findInvalidNumericOptions', () => {
     ]);
   });
 
-  it('validates the search --context alias as numeric', () => {
+  it('validates the --context alias as numeric', () => {
     expect(findInvalidNumericOptions(args({ context: 'abc' }))).toEqual([
       '--context=abc',
     ]);
   });
 
-  it('validates search --items-per-page alias as numeric', () => {
+  it('validates --items-per-page as numeric', () => {
     expect(
-      findInvalidNumericOptions(args({ 'items-per-page': 'abc' }, 'search'))
+      findInvalidNumericOptions(args({ 'items-per-page': 'abc' }, 'fixture'))
     ).toEqual(['--items-per-page=abc']);
   });
 
@@ -103,7 +118,7 @@ describe('findInvalidNumericOptions', () => {
     );
   });
 
-  it('validates search --match-length as numeric', () => {
+  it('validates --match-length as numeric', () => {
     expect(findInvalidNumericOptions(args({ 'match-length': 'abc' }))).toEqual([
       '--match-length=abc',
     ]);
@@ -140,19 +155,19 @@ describe('printUnknownOptionError', () => {
   }
 
   it('names the offending flag and lists valid flags', () => {
-    printUnknownOptionError(searchCommand, ['bogus']);
+    printUnknownOptionError(fixtureCommand, ['bogus']);
     const out = output();
-    expect(out).toContain(`Unknown flag --bogus for '${searchCommand.name}'`);
-    expect(out).toContain(`Valid flags for ${searchCommand.name}`);
+    expect(out).toContain(`Unknown flag --bogus for '${fixtureCommand.name}'`);
+    expect(out).toContain(`Valid flags for ${fixtureCommand.name}`);
   });
 
   it('suggests a near-miss flag for a typo', () => {
-    printUnknownOptionError(searchCommand, ['depht']);
+    printUnknownOptionError(fixtureCommand, ['depht']);
     expect(output()).toContain('did you mean --depth?');
   });
 
   it('does not suggest anything for an unrelated flag', () => {
-    printUnknownOptionError(searchCommand, ['xxxxxxxxxx']);
+    printUnknownOptionError(fixtureCommand, ['xxxxxxxxxx']);
     expect(output()).not.toContain('did you mean');
   });
 });

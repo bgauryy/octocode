@@ -205,7 +205,7 @@ describe('config/loader', () => {
       expect(result.error).toContain('Config file has invalid structure');
     });
 
-    it('succeeds parsing when version is not an integer (field validation is validateConfig\'s job)', () => {
+    it("succeeds parsing when version is not an integer (field validation is validateConfig's job)", () => {
       vi.mocked(existsSync).mockReturnValue(true);
       vi.mocked(readFileSync).mockReturnValue('{"version": 1.5}');
 

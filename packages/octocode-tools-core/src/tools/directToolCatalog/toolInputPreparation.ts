@@ -226,7 +226,9 @@ const TOOL_FIELD_ALIASES: Record<string, Record<string, string>> = {
   ghViewRepoStructure: { depth: 'maxDepth' },
   lspGetSemantics: { op: 'type', line: 'lineHint', path: 'uri' },
   localGetFileContent: { filePath: 'path' },
-  localSearchCode: { keywordsToSearch: 'keywords' },
+  // `searchText` is a single string; fold the old `keywords` name and the
+  // GitHub-style `keywordsToSearch` to it so first-contact habits still work.
+  localSearchCode: { keywordsToSearch: 'searchText', keywords: 'searchText' },
 };
 
 function applyFieldAliases(

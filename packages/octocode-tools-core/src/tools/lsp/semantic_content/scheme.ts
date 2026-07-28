@@ -1,6 +1,5 @@
 import { z } from 'zod';
 import { LspGetSemanticsQuerySchema as CoreLspGetSemanticsQuerySchema } from '@octocodeai/octocode-core/schemas';
-import { ErrorDataSchema } from '@octocodeai/octocode-core/schemas/outputs';
 import { LOCAL_MAX_DEPTH } from '../../../config.js';
 import {
   clampedInt,
@@ -12,11 +11,11 @@ import {
   describeQuerySchema,
 } from '../../../scheme/coreSchemas.js';
 import { SEMANTIC_CONTENT_TYPES } from '../shared/semanticTypes.js';
-import {
-  CharPaginationSchema,
-  ItemPaginationSchema,
-  ToolContinuationSchema,
+import type {
+  ItemPagination,
+  ToolContinuation,
 } from '../../../scheme/pagination.js';
+import type { BulkToolOutput } from '../../../types/toolOutput.js';
 
 const requiredLineHintField = clampedInt(1, 1_000_000_000).describe(
   '1-based source line for symbol-anchored semantic operations. Get it from search/localSearchCode, structural AST captures, or documentSymbols; never guess.'
@@ -42,11 +41,21 @@ const queryOverrides = {
     ),
   lineHint: requiredLineHintField.optional(),
   orderHint: orderHintField,
-  depth: clampedInt(0, LOCAL_MAX_DEPTH).optional(),
+  depth: clampedInt(0, LOCAL_MAX_DEPTH)
+    .optional()
+    .describe(
+      'Traversal depth for call-hierarchy / type-hierarchy queries (0 = direct only).'
+    ),
   includeDeclaration: z.boolean().optional().default(true),
-  page: relaxedPageNumberField,
-  itemsPerPage: clampedInt(1, 100).optional(),
-  contextLines: clampedInt(0, 100).optional(),
+  page: relaxedPageNumberField.describe(
+    'Result page for paginated reference/symbol lists (advance while pagination.hasMore).'
+  ),
+  itemsPerPage: clampedInt(1, 100)
+    .optional()
+    .describe('References/symbols returned per page (with page).'),
+  contextLines: clampedInt(0, 100)
+    .optional()
+    .describe('Lines of surrounding source shown around each result location.'),
   format: z.enum(SEMANTIC_OUTPUT_FORMATS).optional().default('structured'),
 } as const;
 
@@ -69,234 +78,182 @@ export const BulkLspGetSemanticsQuerySchema = createRelaxedBulkQuerySchema(
   { maxQueries: 5 }
 );
 
-const PositionSchema = z.object({
-  line: z.number(),
-  character: z.number(),
-});
+// ---------------------------------------------------------------------------
+// Output TYPES — describes what lspGetSemantics returns per query result row.
+// No zod: the MCP server registers no outputSchema, so the output is a plain
+// type. Shared envelope lives in types/toolOutput.ts.
+// ---------------------------------------------------------------------------
 
-const RangeSchema = z.object({
-  start: PositionSchema,
-  end: PositionSchema,
-});
+interface LspLocation {
+  uri: string;
+  absolutePath?: string;
+  path?: string;
+  content?: string;
+  displayRange?: { startLine: number; endLine: number };
+  isDefinition?: boolean;
+}
 
-const DisplayRangeSchema = z.object({
-  startLine: z.number(),
-  endLine: z.number(),
-});
+interface LspRange {
+  start: { line: number; character: number };
+  end: { line: number; character: number };
+}
 
-const LocationSchema = z.object({
-  uri: z.string(),
-  content: z.string().optional(),
-  displayRange: DisplayRangeSchema.optional(),
-  isDefinition: z.boolean().optional(),
-});
-const LocationRowSchema = z.string();
+interface LspResolvedSymbol {
+  name: string;
+  uri: string;
+  absolutePath?: string;
+  path?: string;
+  foundAtLine: number;
+  orderHint?: number;
+}
 
-const ResolvedSymbolSchema = z.object({
-  name: z.string(),
-  uri: z.string(),
-  foundAtLine: z.number(),
-  orderHint: z.number().optional(),
-});
+interface LspInfo {
+  serverAvailable?: boolean;
+  provider?: string;
+  source?: string;
+}
 
-const LspSchema = z.object({
-  serverAvailable: z.boolean().optional(),
-  provider: z.string().optional(),
-  source: z.string().optional(),
-});
+type LspEmptyCategory =
+  | 'unsupportedOperation'
+  | 'symbolNotFound'
+  | 'anchorFailed'
+  | 'noLocations'
+  | 'noReferences'
+  | 'noHover'
+  | 'noCalls'
+  | 'noWorkspaceSymbols'
+  | 'noTypeHierarchy'
+  | 'noDiagnostics';
 
-const EmptyCategorySchema = z.enum([
-  'unsupportedOperation',
-  'symbolNotFound',
-  'anchorFailed',
-  'noLocations',
-  'noReferences',
-  'noHover',
-  'noCalls',
-  'noWorkspaceSymbols',
-  'noTypeHierarchy',
-  'noDiagnostics',
-]);
+interface LspEmptyState {
+  category: LspEmptyCategory;
+  reason: string;
+}
 
-const EmptyStateSchema = z.object({
-  category: EmptyCategorySchema,
-  reason: z.string(),
-});
+interface LspCompactCallTarget {
+  name: string;
+  kind: string;
+  uri: string;
+  line: number;
+  endLine: number;
+  selectionLine?: number;
+}
 
-// Use the canonical shared pagination schema — no inline duplicates.
-const PaginationSchema = ItemPaginationSchema;
+interface LspCompactCall {
+  direction: 'incoming' | 'outgoing';
+  item: LspCompactCallTarget;
+  ranges: Array<{ line: number; character: number }>;
+  rangeCount: number;
+  rangeSampleCount: number;
+  contentPreview?: string;
+}
 
-const CompactSymbolSchema = z.object({
-  name: z.string(),
-  kind: z.string(),
-  line: z.number(),
-  character: z.number(),
-  endLine: z.number(),
-  childCount: z.number(),
-  containerName: z.string().optional(),
-});
-const CompactSymbolRowSchema = z.string();
+interface LspCompleteness {
+  complete: boolean;
+  truncatedByDepth: boolean;
+  truncatedByBudget?: boolean;
+  visitedNodeCount?: number;
+  requestCount?: number;
+  cycleCount: number;
+  failedRequestCount: number;
+  dynamicCallsExcluded: true;
+  stdlibCallsExcluded?: number;
+}
 
-const CompactCallTargetSchema = z.object({
-  name: z.string(),
-  kind: z.string(),
-  uri: z.string(),
-  line: z.number(),
-  endLine: z.number(),
-  selectionLine: z.number().optional(),
-});
-const CompactCallTargetRowSchema = z.string();
+interface LspCompactSymbol {
+  name: string;
+  kind: string;
+  line: number;
+  character: number;
+  endLine: number;
+  childCount: number;
+  containerName?: string;
+}
 
-const CompactCallSchema = z.object({
-  direction: z.enum(['incoming', 'outgoing']),
-  item: CompactCallTargetSchema,
-  ranges: z.array(z.object({ line: z.number(), character: z.number() })),
-  rangeCount: z.number(),
-  rangeSampleCount: z.number(),
-  contentPreview: z.string().optional(),
-});
-const CompactCallRowSchema = z.string();
+interface LspReferencesByFile {
+  uri: string;
+  absolutePath?: string;
+  path?: string;
+  count: number;
+  firstLine: number;
+  firstCharacter: number;
+  lines: number[];
+  hasDefinition?: boolean;
+}
 
-const CompletenessSchema = z.object({
-  complete: z.boolean(),
-  truncatedByDepth: z.boolean(),
-  cycleCount: z.number(),
-  failedRequestCount: z.number(),
-  dynamicCallsExcluded: z.literal(true),
-  stdlibCallsExcluded: z.number().optional(),
-});
+// Row variants (LocationRow, CompactSymbolRow, …) are plain strings.
+type LspSemanticPayload =
+  | { kind: 'definition'; locations: Array<LspLocation | string> }
+  | { kind: 'typeDefinition'; locations: Array<LspLocation | string> }
+  | { kind: 'implementation'; locations: Array<LspLocation | string> }
+  | {
+      kind: 'references';
+      locations?: Array<LspLocation | string>;
+      byFile?: Array<LspReferencesByFile | string>;
+      totalReferences: number;
+      totalFiles: number;
+      empty?: LspEmptyState;
+    }
+  | {
+      kind: 'callers' | 'callees' | 'callHierarchy';
+      root?: LspCompactCallTarget | string;
+      direction: 'incoming' | 'outgoing' | 'both';
+      calls: Array<LspCompactCall | string>;
+      incomingCalls: number;
+      outgoingCalls: number;
+      completeness: LspCompleteness;
+      empty?: LspEmptyState;
+    }
+  | { kind: 'hover'; markdown?: string; text?: string; range?: LspRange }
+  | {
+      kind: 'documentSymbols';
+      symbols: Array<LspCompactSymbol | string>;
+      totalSymbols?: number;
+      topLevelSymbols?: number;
+      empty?: LspEmptyState;
+    }
+  | {
+      kind: 'workspaceSymbol';
+      query: string;
+      symbols: unknown[];
+      totalSymbols: number;
+      empty?: LspEmptyState;
+    }
+  | {
+      kind: 'typeHierarchy';
+      direction: 'supertypes' | 'subtypes';
+      root?: unknown;
+      items: unknown[];
+      totalItems: number;
+      empty?: LspEmptyState;
+    }
+  | {
+      kind: 'diagnostic';
+      diagnostics: unknown[];
+      totalDiagnostics: number;
+      errorCount: number;
+      warningCount: number;
+      empty?: LspEmptyState;
+    }
+  | { kind: 'empty'; category: LspEmptyCategory; reason: string };
 
-const ReferencesByFileSchema = z.object({
-  uri: z.string(),
-  count: z.number(),
-  firstLine: z.number(),
-  firstCharacter: z.number(),
-  lines: z.array(z.number()),
-  hasDefinition: z.boolean().optional(),
-});
-const ReferencesByFileRowSchema = z.string();
-
-const PayloadSchema = z.discriminatedUnion('kind', [
-  z.object({
-    kind: z.literal('definition'),
-    locations: z.array(z.union([LocationSchema, LocationRowSchema])),
-  }),
-  z.object({
-    kind: z.literal('typeDefinition'),
-    locations: z.array(z.union([LocationSchema, LocationRowSchema])),
-  }),
-  z.object({
-    kind: z.literal('implementation'),
-    locations: z.array(z.union([LocationSchema, LocationRowSchema])),
-  }),
-  z.object({
-    kind: z.literal('references'),
-    locations: z.array(z.union([LocationSchema, LocationRowSchema])).optional(),
-    byFile: z
-      .array(z.union([ReferencesByFileSchema, ReferencesByFileRowSchema]))
-      .optional(),
-    totalReferences: z.number(),
-    totalFiles: z.number(),
-    empty: EmptyStateSchema.optional(),
-  }),
-  ...(['callers', 'callees', 'callHierarchy'] as const).map(k =>
-    z.object({
-      kind: z.literal(k),
-      root: z
-        .union([CompactCallTargetSchema, CompactCallTargetRowSchema])
-        .optional(),
-      direction: z.enum(['incoming', 'outgoing', 'both']),
-      calls: z.array(z.union([CompactCallSchema, CompactCallRowSchema])),
-      incomingCalls: z.number(),
-      outgoingCalls: z.number(),
-      completeness: CompletenessSchema,
-      empty: EmptyStateSchema.optional(),
-    })
-  ),
-  z.object({
-    kind: z.literal('hover'),
-    markdown: z.string().optional(),
-    text: z.string().optional(),
-    range: RangeSchema.optional(),
-  }),
-  z.object({
-    kind: z.literal('documentSymbols'),
-    symbols: z.array(z.union([CompactSymbolSchema, CompactSymbolRowSchema])),
-    totalSymbols: z.number().optional(),
-    topLevelSymbols: z.number().optional(),
-    empty: EmptyStateSchema.optional(),
-  }),
-  z.object({
-    kind: z.literal('workspaceSymbol'),
-    query: z.string(),
-    symbols: z.array(z.unknown()),
-    totalSymbols: z.number(),
-    empty: EmptyStateSchema.optional(),
-  }),
-  z.object({
-    kind: z.literal('typeHierarchy'),
-    direction: z.enum(['supertypes', 'subtypes']),
-    root: z.unknown().optional(),
-    items: z.array(z.unknown()),
-    totalItems: z.number(),
-    empty: EmptyStateSchema.optional(),
-  }),
-  z.object({
-    kind: z.literal('diagnostic'),
-    diagnostics: z.array(z.unknown()),
-    totalDiagnostics: z.number(),
-    errorCount: z.number(),
-    warningCount: z.number(),
-    empty: EmptyStateSchema.optional(),
-  }),
-  z.object({
-    kind: z.literal('empty'),
-    category: EmptyCategorySchema,
-    reason: z.string(),
-  }),
-]);
-
-const SemanticDataSchema = z.object({
-  type: z.string(),
-  uri: z.string(),
-  format: z.enum(['structured', 'compact']).optional(),
-  resolvedSymbol: ResolvedSymbolSchema.optional(),
+export interface LspGetSemanticsData {
+  type: string;
+  uri: string;
+  absolutePath?: string;
+  path?: string;
+  format?: 'structured' | 'compact';
+  resolvedSymbol?: LspResolvedSymbol;
   // Omitted on early-return paths (e.g. symbolNotFound) where the LSP server is
   // never engaged; present on any path that reached a provider.
-  lsp: LspSchema.optional(),
-  payload: PayloadSchema,
-  pagination: PaginationSchema.optional(),
-  summary: z.record(z.string(), z.unknown()).optional(),
-  warnings: z.array(z.string()).optional(),
-  // Ready-to-run follow-ups (e.g. next.readSite). Must be declared: MCP
-  // structuredContent JSON Schema uses additionalProperties:false, while Zod
-  // would otherwise strip unknown keys — leaving Cursor MCP validation failing.
-  next: z.record(z.string(), ToolContinuationSchema).optional(),
-  hints: z.array(z.string()).optional(),
-});
+  lsp?: LspInfo;
+  payload: LspSemanticPayload;
+  pagination?: ItemPagination;
+  summary?: Record<string, unknown>;
+  warnings?: string[];
+  // Ready-to-run follow-ups (e.g. next.readSite).
+  next?: Record<string, ToolContinuation>;
+  hints?: string[];
+}
 
-export const LspGetSemanticsOutputSchema = z.object({
-  base: z.string().optional(),
-  shared: z
-    .record(z.string(), z.union([z.string(), z.number(), z.boolean()]))
-    .optional(),
-  responsePagination: CharPaginationSchema.optional(),
-  results: z.array(
-    z.union([
-      z.object({
-        id: z.string().min(1),
-        status: z.literal('empty'),
-        data: SemanticDataSchema,
-      }),
-      z.object({
-        id: z.string().min(1),
-        status: z.literal('error'),
-        data: ErrorDataSchema,
-      }),
-      z.object({
-        id: z.string().min(1),
-        data: SemanticDataSchema,
-      }),
-    ])
-  ),
-});
+export type LspGetSemanticsOutput = BulkToolOutput<LspGetSemanticsData>;

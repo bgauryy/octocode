@@ -27,7 +27,6 @@ export async function handleIssuesMode(
     assignee?: string;
     mentions?: string;
     commenter?: string;
-    involves?: string;
     label?: string | string[];
     milestone?: string;
     created?: string;
@@ -35,13 +34,8 @@ export async function handleIssuesMode(
     closed?: string;
     comments?: number | string;
     reactions?: number | string;
-    interactions?: number | string;
     locked?: boolean;
     visibility?: 'public' | 'private';
-    'no-assignee'?: boolean;
-    'no-label'?: boolean;
-    'no-milestone'?: boolean;
-    'no-project'?: boolean;
     match?: ('title' | 'body' | 'comments')[];
     archived?: boolean;
     sort?: 'created' | 'updated' | 'best-match' | 'comments' | 'reactions';
@@ -77,7 +71,6 @@ export async function handleIssuesMode(
       assignee: q.assignee,
       mentions: q.mentions,
       commenter: q.commenter,
-      involves: q.involves,
       label: q.label,
       milestone: q.milestone,
       created: q.created,
@@ -85,13 +78,8 @@ export async function handleIssuesMode(
       closed: q.closed,
       comments: q.comments,
       reactions: q.reactions,
-      interactions: q.interactions,
       locked: q.locked,
       visibility: q.visibility,
-      'no-assignee': q['no-assignee'],
-      'no-label': q['no-label'],
-      'no-milestone': q['no-milestone'],
-      'no-project': q['no-project'],
       match: q.match,
       archived: q.archived,
       sort: q.sort,
@@ -109,7 +97,7 @@ export async function handleIssuesMode(
   );
   if (isGitHubAPIError(result)) {
     return createErrorResult(result, query, {
-      toolName: TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS,
+      toolName: TOOL_NAMES.GITHUB_ISSUES,
     });
   }
   const hasContent = Array.isArray(result.data.issues)
@@ -138,16 +126,15 @@ export async function handleIssuesMode(
   const next: Record<string, unknown> = {};
   if (issueNumber == null && firstIssueNumber != null) {
     next.readIssue = {
-      tool: 'ghHistoryResearch',
+      tool: 'ghSearchIssues',
       query: {
-        type: 'issues',
         owner: q.owner,
         repo: q.repo,
         issueNumber: firstIssueNumber,
         content: { body: true },
       },
       why: `Read issue #${firstIssueNumber} body/discussion from this list`,
-      confidence: 'heuristic',
+      confidence: 'low',
     };
   }
   next.searchCode = {
@@ -157,7 +144,7 @@ export async function handleIssuesMode(
       repo: q.repo,
     },
     why: 'Search code in this repository for symbols mentioned in the issue(s)',
-    confidence: 'heuristic',
+    confidence: 'low',
   };
 
   return createSuccessResult(
@@ -167,7 +154,7 @@ export async function handleIssuesMode(
       next,
     },
     hasContent,
-    TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS,
+    TOOL_NAMES.GITHUB_ISSUES,
     { rawResponse: result.rawResponseChars }
   );
 }

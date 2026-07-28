@@ -15,6 +15,7 @@ import {
   DEFAULT_LOCATIONS_PER_PAGE,
   paginateItems,
 } from './envelopeHelpers.js';
+import type { ConsumerWarmupStats } from '../semanticAnchored.js';
 
 export function locationsEnvelope(
   query: SymbolAnchoredSemanticQuery,
@@ -49,7 +50,8 @@ export function locationsEnvelope(
 export function referencesEnvelope(
   query: SymbolAnchoredSemanticQuery,
   anchor: SymbolAnchor,
-  locations: CodeSnippet[]
+  locations: CodeSnippet[],
+  warmupStats?: ConsumerWarmupStats
 ): LspSemanticEnvelope {
   const refs = locations.map((location): ReferenceLocation => {
     const isDefinition =
@@ -74,6 +76,13 @@ export function referencesEnvelope(
         }
       : undefined;
 
+  const warmupWarnings =
+    warmupStats?.possiblyTruncated === true
+      ? [
+          `Reference warmup opened ${warmupStats.warmedFiles}/${warmupStats.candidates} candidate file(s) and may be incomplete because the candidate set hit the warmup cap; narrow workspaceRoot/path or confirm with localSearchCode before unused/safe-delete claims.`,
+        ]
+      : [];
+
   return {
     type: 'references',
     uri: anchor.uri,
@@ -88,9 +97,11 @@ export function referencesEnvelope(
       ...(byFile ? { byFile: pageItems } : { locations: pageItems }),
       totalReferences: refs.length,
       totalFiles: new Set(refs.map(ref => ref.uri)).size,
+      ...(warmupStats ? { warmup: warmupStats } : {}),
       ...(empty ? { empty } : {}),
     },
     pagination,
+    ...(warmupWarnings.length > 0 ? { warnings: warmupWarnings } : {}),
   };
 }
 

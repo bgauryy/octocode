@@ -228,7 +228,6 @@ export function shapePullRequestForContent(
   const metadata = {
     number: pr.number,
     title: pr.title,
-    ...(pr.url ? { url: pr.url } : {}),
     state: pr.state,
     ...(pr.draft ? { draft: pr.draft } : {}),
     author: pr.author,

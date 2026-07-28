@@ -29,34 +29,41 @@ export async function searchMultipleGitHubPullRequests(
           return parsed.error;
         }
 
+        // `type` is injected by the split executors (ghSearchCommits/Issues/…),
+        // each backed by a FOCUSED schema that strips foreign fields before this
+        // runs — so no cross-mode "ignored field" warning machinery is needed.
         const type = (parsed.data as { type?: string }).type;
 
         if (type === 'releases') {
-          return handleReleasesMode(query, parsed.data, authInfo);
+          return await handleReleasesMode(query, parsed.data, authInfo);
         }
 
         if (type === 'issues') {
-          return handleIssuesMode(query, parsed.data, authInfo);
+          return await handleIssuesMode(query, parsed.data, authInfo);
         }
 
         if (type === 'commits') {
-          return handleCommitsMode(query, parsed.data, authInfo);
+          return await handleCommitsMode(query, parsed.data, authInfo);
         }
 
-        return handlePullRequestsMode(query, parsed.data, getProviderContext);
+        return await handlePullRequestsMode(
+          query,
+          parsed.data,
+          getProviderContext
+        );
       } catch (error) {
         return handleCatchError(
           error,
           query,
           undefined,
-          TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS
+          TOOL_NAMES.GITHUB_PULL_REQUESTS
         );
       }
     },
     {
-      toolName: TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS,
+      toolName: TOOL_NAMES.GITHUB_PULL_REQUESTS,
       keysPriority: [
-        'pull_requests',
+        'pullRequests',
         'issues',
         'releases',
         'latest',
@@ -64,7 +71,7 @@ export async function searchMultipleGitHubPullRequests(
         'publishedAt',
         'prerelease',
         'pagination',
-        'total_count',
+        'totalCount',
         'error',
       ],
     },

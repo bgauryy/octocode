@@ -1,6 +1,6 @@
 export type {
-  OqlLanguageSelectorKind,
-  OqlLanguageSelector,
+  LanguageSelectorKind,
+  LanguageSelector,
 } from './languageSelectors/data.js';
 
 export {

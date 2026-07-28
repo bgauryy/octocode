@@ -1,10 +1,10 @@
 {
   "name": "@octocodeai/octocode-engine",
   "description": "Rust native Octocode engine for context compression, structural search, and LSP semantic navigation",
-  "version": "17.0.2",
+  "version": "18.0.0",
   "author": "Guy Bary <bgauryy@octocodeai.com>",
   "dependencies": {
-    "@octocodeai/config": "^17.0.2",
+    "@octocodeai/config": "^18.0.0",
     "bash-language-server": "^5.6.0",
     "intelephense": "^1.14.1",
     "pyright": "^1.1.411",
@@ -195,12 +195,12 @@
     ]
   },
   "optionalDependencies": {
-    "@octocodeai/octocode-engine-darwin-arm64": "^17.0.2",
-    "@octocodeai/octocode-engine-darwin-x64": "^17.0.2",
-    "@octocodeai/octocode-engine-linux-arm64-gnu": "^17.0.2",
-    "@octocodeai/octocode-engine-linux-x64-gnu": "^17.0.2",
-    "@octocodeai/octocode-engine-linux-x64-musl": "^17.0.2",
-    "@octocodeai/octocode-engine-win32-x64-msvc": "^17.0.2"
+    "@octocodeai/octocode-engine-darwin-arm64": "^18.0.0",
+    "@octocodeai/octocode-engine-darwin-x64": "^18.0.0",
+    "@octocodeai/octocode-engine-linux-arm64-gnu": "^18.0.0",
+    "@octocodeai/octocode-engine-linux-x64-gnu": "^18.0.0",
+    "@octocodeai/octocode-engine-linux-x64-musl": "^18.0.0",
+    "@octocodeai/octocode-engine-win32-x64-msvc": "^18.0.0"
   },
   "publishConfig": {
     "access": "public"
@@ -261,6 +261,7 @@
     "udeps:rust": "cargo +nightly udeps --all-targets --all-features",
     "verify": "yarn verify:patterns && yarn verify:manifest && yarn typecheck && yarn verify:rust && yarn test && yarn benchmark && yarn pack:check && yarn version:check && yarn loader:check && yarn binary-size:check",
     "verify:manifest": "node scripts/gen-server-manifest.mjs && git diff --exit-code src/lsp/serverManifestData.ts || (echo 'ERROR: src/lsp/serverManifestData.ts is out of sync with serverManifest.json — run yarn manifest:gen and commit the result' && exit 1)",
+    "verify:napi-abi": "node scripts/check-napi-abi.cjs",
     "verify:patterns": "node scripts/gen-patterns.mjs && git diff --exit-code src/security/patterns.rs || (echo 'ERROR: src/security/patterns.rs is out of sync with the TS source — run yarn gen and commit the result' && exit 1)",
     "verify:rust": "yarn check:rust && yarn fmt:rust:check && yarn lint:rust && yarn test:rust && yarn deps:rust && yarn udeps:rust && yarn audit:rust",
     "version:check": "node scripts/check-version-consistency.cjs",

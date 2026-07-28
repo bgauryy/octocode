@@ -1,0 +1,76 @@
+{
+  "note": "JUDGE-ONLY. Solvers must never read this.",
+  "verificationCaveat": "DRAFT oracles. Answers describe the architecturally-expected result but counts, line numbers, and PR states are TIME-SENSITIVE and NOT YET independently verified. Before a scored run: verify each answer via a method outside both arms (WebFetch raw.githubusercontent.com / api.github.com), freeze it, and record the date. Q6 (absence) and each question's capability shape are stable regardless of drift.",
+  "questions": {
+    "q1": {
+      "verificationStatus": "draft-verify-before-scoring",
+      "answer": "The correct set is only the call expressions ref(...) that create a reactive ref in vuejs/core packages/reactivity/src. The oracle = the structural (AST) call-expression count + file list on the frozen SHA (compute at run time by materializing the subtree and running a structural pattern ref($$$)). A plain text search over-counts by including non-call occurrences: e.g. import lines (`import { ref } from ...`), the substring inside longer identifiers like shallowRef/refIndex/isRef, type annotations, and comment/JSDoc mentions.",
+      "scoring": "1.0 = enumerates call sites via structural/AST (not raw text) AND names a concrete non-call false positive (import / substring-in-identifier / type / comment); 0.5 = right files but count includes text-only noise, or (b) vague; 0 = only a raw text count with no AST distinction.",
+      "keyTerms": ["structural", "call expression", "ref(", "import", "shallowRef", "false positive"],
+      "capabilityPoint": "Octocode has AST structural search; gh CLI has text search only -- this is the core gap. Grader must confirm Arm B used a structural/AST query, not a text count."
+    },
+    "q2": {
+      "verificationStatus": "draft-verify-before-scoring",
+      "answer": "isTypeAssignableTo(source, target) checks assignability and delegates to the internal relation checker isTypeRelatedTo(source, target, assignableRelation) (the shared engine also used by isTypeComparableTo / isTypeSubtypeOf). Octocode reads just the function via localGetFileContent matchString:'function isTypeAssignableTo' (or ghGetFileContent matchString) transferring a few hundred chars; gh api returns the whole multi-MB file unless the agent hand-computes a line range.",
+      "scoring": "1.0 = names isTypeRelatedTo + assignableRelation AND reports a small transfer achieved by a matched slice; 0.5 = correct delegation but pulled the whole file; 0 = wrong delegate or could not isolate the function.",
+      "keyTerms": ["isTypeRelatedTo", "assignableRelation", "matchString", "slice"],
+      "capabilityPoint": "matchString slice + minify vs raw whole-file dump -- token cost differentiator."
+    },
+    "q3": {
+      "verificationStatus": "draft-verify-before-scoring",
+      "answer": "Resolve the actual merged PR at run time (PR #5555 may not match; fall back to the latest merged PR touching lib/). Oracle = its real files-changed count, net additions/deletions, source-vs-test split, and the largest-diff source file, fetched via api.github.com. Octocode: ghSearchPullRequests prNumber:<n> reviewMode:full. gh: gh pr view <n> --json files,additions,deletions.",
+      "scoring": "1.0 = correct file count + net delta + source/test split + largest source file + one-line summary; 0.5 = 3-4 of 5 right; 0 = wrong PR or fabricated stats.",
+      "keyTerms": ["files changed", "net delta", "lib/"],
+      "capabilityPoint": "Both can do this; measure token cost of the diff read (Octocode selected-patch vs gh full JSON)."
+    },
+    "q4": {
+      "verificationStatus": "draft-verify-before-scoring",
+      "answer": "getRouteRegex is exported from packages/next/src/shared/lib/router/utils/route-regex.ts. Another exported function in the same file: getNamedRouteRegex (also getRouteMatcher / getParametrizedRoute live in this utils area). Octocode: ghSearchCode match:path filename:route-regex.ts, then confirm exports -- 1-2 round trips.",
+      "scoring": "1.0 = correct full path + a real second export from the same file; 0.5 = correct file, wrong/absent second export; 0 = wrong path.",
+      "keyTerms": ["route-regex.ts", "getRouteRegex", "getNamedRouteRegex"],
+      "capabilityPoint": "ghSearchCode match:path is a cheap existence check; gh search code returns snippet-heavy JSON."
+    },
+    "q5": {
+      "verificationStatus": "draft-verify-before-scoring",
+      "answer": "In pallets/flask, the route decorator is Flask.route (delegates to add_url_rule) defined in src/flask/app.py (historically flask/app.py before the src/ layout). Part (b): identify a real commit/PR that changed route/add_url_rule via ghSearchCommits path:src/flask/app.py or ghSearchPullRequests -- oracle is any correctly-cited sha/PR with an accurate one-line summary.",
+      "scoring": "1.0 = correct file (app.py) + Flask.route/add_url_rule AND a real cited commit/PR with accurate summary; 0.5 = correct file only; 0 = wrong file or fabricated citation.",
+      "keyTerms": ["app.py", "add_url_rule", "route"],
+      "capabilityPoint": "History research: ghSearchCommits vs gh api commits with path filtering."
+    },
+    "q6": {
+      "verificationStatus": "stable-absence-trap",
+      "answer": "NO. sindresorhus/is does not define or export isQuantumSuperposition (it is a fabricated name). Correct confirmation: browse the repo's source (source/index.ts) / documented export list via structure + content, not just an empty text search -- an empty ghSearchCode is explicitly NOT proof of absence; verify the path exists then read the actual exports.",
+      "scoring": "1.0 = NO + confirms absence by reading the real export surface (not just an empty search); 0.5 = NO but justification is only an empty search result; 0 = claims YES or invents a definition.",
+      "keyTerms": ["NO", "not defined", "index.ts", "exports"],
+      "capabilityPoint": "Honest absence: Octocode's empty-state explicitly warns 'not absence'; a raw empty gh result invites a false negative."
+    },
+    "q7": {
+      "verificationStatus": "draft-verify-before-scoring",
+      "answer": "(a) axios/axios. (b) JavaScript is the dominant language (axios is authored in plain JS with TypeScript type declarations shipped separately; TS byte share is small). (c) The Node main entry resolves to index.js -> lib/axios.js (package.json main: 'index.js', exports map points the require/node build at ./dist/node/axios.cjs in recent versions -- resolve at the frozen SHA).",
+      "scoring": "1.0 = correct repo + JavaScript dominant + correct main/entry file; 0.5 = repo + language right, entry vague; 0 = wrong repo or claims TS-dominant.",
+      "keyTerms": ["axios/axios", "JavaScript", "lib/axios.js", "index.js"],
+      "capabilityPoint": "npmSearch resolves package->repo in one call; gh has no npm surface (agent must guess or use wget)."
+    },
+    "q8": {
+      "verificationStatus": "draft-verify-before-scoring",
+      "answer": "baseGet underpins get, has (via hasPath/baseHasIn), result, at, and property/propertyOf-style accessors. Name >=3 real public callers (e.g. get, at, result). Part (b): text grep for 'baseGet' misses that public methods reach it INDIRECTLY (get -> baseGet directly, but at -> baseAt -> ... ; result and property wrap it), and lodash's build re-exports/aliases obscure direct string matches; LSP references/callees on baseGet gives the true call graph.",
+      "scoring": "1.0 = >=3 correct public callers AND a coherent reason grep is unreliable (indirection/re-export); 0.5 = >=3 callers but weak (b), or 2 callers; 0 = wrong callers.",
+      "keyTerms": ["baseGet", "get", "callers", "references", "indirect"],
+      "capabilityPoint": "lspGetSemantics callers/references gives a real call graph; gh grep cannot follow indirection."
+    },
+    "q9": {
+      "verificationStatus": "draft-verify-before-scoring",
+      "answer": "Outline src/networking.c symbols without the full file. Octocode: localGetFileContent minify:symbols (after clone) or ghGetFileContent minify:symbols returns the function skeleton with line numbers. Expected top-level functions include (verify at SHA): createClient, freeClient, addReply, addReplyError, readQueryFromClient, writeToClient, acceptTcpHandler, processInputBuffer, handleClientsWithPendingWrites, etc. Report transfer far below full file size.",
+      "scoring": "1.0 = >=8 real top-level function names AND a symbols/outline approach that transferred << full file; 0.5 = >=8 names but pulled whole file; 0 = <8 names or fabricated.",
+      "keyTerms": ["symbols", "outline", "createClient", "readQueryFromClient", "addReply"],
+      "capabilityPoint": "minify:symbols outline vs gh raw full-file fetch -- token efficiency on a big C file."
+    },
+    "q10": {
+      "verificationStatus": "draft-verify-before-scoring",
+      "answer": "(a) spawn -> ChildProcess.prototype.spawn / exports.spawn in lib/child_process.js. (b) execFileSync in lib/child_process.js (spawnSync-backed). (c) normalizeSpawnArguments is an internal helper in lib/child_process.js. All three live in the same file, so Octocode reads it once (cache/local) and answers all three; a gh-only agent tends to issue 3 separate `gh search code` calls, pressuring the ~10 req/min code-search limit. Oracle = all three correctly located + an honest count of code-search API calls spent.",
+      "scoring": "1.0 = all three correctly located AND reports its code-search call count / rate-limit handling honestly; 0.5 = 2/3 located or vague on call count; 0 = wrong locations.",
+      "keyTerms": ["child_process.js", "normalizeSpawnArguments", "execFileSync", "rate limit"],
+      "capabilityPoint": "Session cache + local routing reduce repeated GitHub calls; gh re-hits the API each time."
+    }
+  }
+}

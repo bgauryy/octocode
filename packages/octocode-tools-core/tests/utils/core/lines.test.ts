@@ -62,7 +62,16 @@ describe('splitLines', () => {
   });
 
   it('agrees with countLines on length', () => {
-    for (const c of ['', 'a', 'a\n', 'a\nb', 'a\nb\n', '\n', '\n\n', 'a\n\nb']) {
+    for (const c of [
+      '',
+      'a',
+      'a\n',
+      'a\nb',
+      'a\nb\n',
+      '\n',
+      '\n\n',
+      'a\n\nb',
+    ]) {
       expect(splitLines(c).length).toBe(countLines(c));
     }
   });

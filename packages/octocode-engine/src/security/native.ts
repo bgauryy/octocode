@@ -44,6 +44,14 @@ function envFlag(name: string): boolean {
 // (incl. musl detection), so we simply require it — both dist/security/native.js
 // and src/security/native.ts sit two levels below the package root.
 function loadNative(): NativeModule {
+  // Embedded single-file builds (Node SEA) pre-load the addon and publish it
+  // on globalThis; the createRequire path below cannot resolve once this file
+  // is inlined into a bundle with no package files on disk.
+  const embedded = (
+    globalThis as { __OCTOCODE_ENGINE_BINDING__?: NativeModule }
+  ).__OCTOCODE_ENGINE_BINDING__;
+  if (embedded) return embedded;
+
   const candidates: string[] = [];
   if (process.env.OCTOCODE_SECURITY_NATIVE_PATH) {
     candidates.push(process.env.OCTOCODE_SECURITY_NATIVE_PATH);
@@ -118,7 +126,10 @@ function shouldApplyPattern(
   return applies;
 }
 
-function sanitizeWithJsFallback(
+// Exported for the Rust↔JS redaction-parity differential test: the drift guard
+// (`verify:patterns`) only proves patterns.rs == the TS pattern source; it does
+// NOT prove this JS fallback and the Rust engine produce the same redaction.
+export function sanitizeWithJsFallback(
   content: string,
   filePath: string | null
 ): NativeSanitizationResult {
@@ -187,6 +198,21 @@ function maskWithJsFallback(text: string): string {
 
   if (spans.length === 0) return text;
   return applyMaskToSpans(text, deduplicateSpans(spans));
+}
+
+export function getSecurityBackendStatus(): {
+  backend: 'native' | 'fallback';
+  error?: string;
+} {
+  const module = getNativeModule();
+  if (module) return { backend: 'native' };
+  const error =
+    nativeLoadState?.kind === 'fallback' && nativeLoadState.error !== undefined
+      ? nativeLoadState.error instanceof Error
+        ? nativeLoadState.error.message
+        : String(nativeLoadState.error)
+      : undefined;
+  return { backend: 'fallback', ...(error ? { error } : {}) };
 }
 
 export const nativeSanitizeContent = (

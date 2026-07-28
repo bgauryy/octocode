@@ -52,7 +52,6 @@ const PUBLISH_VERSION_PACKAGE_DIRS = [
   'packages/octocode-config',
   'packages/octocode-tools-core',
   'packages/octocode-mcp',
-  'packages/octocode-skills',
   'packages/octocode-engine',
   'packages/octocode',
 ];

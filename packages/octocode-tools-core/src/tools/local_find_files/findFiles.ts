@@ -20,14 +20,27 @@ import { LOCAL_DEFAULT_FILES_PER_PAGE, LOCAL_MAX_LIMIT } from '../../config.js';
 import { attachRawResponseChars } from '../../utils/response/charSavings.js';
 import { buildNextPageContinuation } from '../../scheme/pagination.js';
 import { buildWalkWarnings } from '../local_view_structure/structureResponse.js';
+import { buildFindFilesNextMap } from './findFilesNext.js';
 
 type FindFilesQuery = WithOptionalMeta<UpstreamFindFilesQuery>;
 
-// No directories are excluded by default: `find` must never silently hide
-// real files (node_modules, build/, dist/, out/, target/, …). Hiding them
-// broke inspecting installed apps and compiled artifacts. Callers that want to
-// trim a search pass `excludeDir` explicitly.
-const DEFAULT_FIND_EXCLUDE_DIRS: string[] = [];
+// Common noise dirs are pruned by default — an unscoped find at repo root
+// would otherwise spend its walk budget almost entirely inside node_modules
+// (typically >90% of files on disk) and never reach real source. Callers that
+// need to inspect installed deps or build output pass `excludeDir: []`
+// explicitly (the `??` below only falls back to this default on `undefined`,
+// so an explicit empty array still means "exclude nothing").
+const DEFAULT_FIND_EXCLUDE_DIRS: string[] = [
+  'node_modules',
+  '.git',
+  'dist',
+  'build',
+  'out',
+  'coverage',
+  'target',
+  '.next',
+  '.cache',
+];
 
 function computeEffectiveExcludeDirs(
   searchPath: string,
@@ -41,8 +54,10 @@ function computeEffectiveExcludeDirs(
 export async function findFiles(
   query: FindFilesQuery
 ): Promise<LocalFindFilesToolResult> {
-  const details = query.details ?? false;
-  const showLastModified = query.showFileLastModified ?? false;
+  // `detail` collapses the old details/showFileLastModified booleans:
+  // "full" = all metadata, "modified" = just add mtime, "basic" = names only.
+  const details = query.detail === 'full';
+  const showLastModified = query.detail === 'modified' || details;
   const collectModified =
     showLastModified || (query.sortBy || 'modified') === 'modified';
 
@@ -79,19 +94,20 @@ export async function findFiles(
       maxDepth: nativeQuery.maxDepth,
       minDepth: nativeQuery.minDepth,
       names: nativeQuery.names,
+      extensions: nativeQuery.extensions,
       pathPattern: nativeQuery.pathPattern,
       regex: nativeQuery.regex,
       entryType: nativeQuery.entryType,
       empty: nativeQuery.empty,
-      modifiedWithin: nativeQuery.modifiedWithin,
-      modifiedBefore: nativeQuery.modifiedBefore,
-      accessedWithin: nativeQuery.accessedWithin,
-      sizeGreater: nativeQuery.sizeGreater,
-      sizeLess: nativeQuery.sizeLess,
+      modifiedWithin: nativeQuery.time?.modifiedWithin,
+      modifiedBefore: nativeQuery.time?.modifiedBefore,
+      accessedWithin: nativeQuery.time?.accessedWithin,
+      sizeGreater: nativeQuery.size?.greater,
+      sizeLess: nativeQuery.size?.less,
       permissions: nativeQuery.permissions,
-      executable: nativeQuery.executable,
-      readable: nativeQuery.readable,
-      writable: nativeQuery.writable,
+      executable: nativeQuery.access === 'executable',
+      readable: nativeQuery.access === 'readable',
+      writable: nativeQuery.access === 'writable',
       excludeDir: nativeQuery.excludeDir,
       limit: LOCAL_MAX_LIMIT,
     });
@@ -126,10 +142,38 @@ export async function findFiles(
     const nativeWarnings = [
       ...nativeResult.warnings,
       ...buildWalkWarnings(nativeResult),
+      // The native walk stops at LOCAL_MAX_LIMIT entries *during* traversal,
+      // before this file sorts — so a capped result's sort only orders
+      // whatever arbitrary subset the walk reached first, not the true
+      // top-N by `sortBy` across the whole tree. Narrow with excludeDir,
+      // names, or a deeper path to get a sort that covers everything.
+      ...(wasFileCapped
+        ? [
+            `results capped at ${LOCAL_MAX_LIMIT} during the walk before sorting — sortBy:"${sortBy}" only orders that partial set, not the true top-N across the whole tree`,
+          ]
+        : []),
     ];
     const allWarnings = [...timeFormatWarnings, ...nativeWarnings];
 
     const hasMore = currentPage < totalPages;
+    // Per-result evidence hints (read the first file / orient into the first
+    // dir) plus the pagination continuation when there are more pages.
+    const rowNext = buildFindFilesNextMap(finalFiles) ?? {};
+    const next: Record<string, unknown> = {
+      ...rowNext,
+      ...(hasMore
+        ? {
+            nextPage: buildNextPageContinuation(
+              TOOL_NAMES.LOCAL_FIND_FILES,
+              {
+                ...queryWithSanitizedPath,
+                page: currentPage + 1,
+              } as Record<string, unknown>,
+              'Continue to the next page of matched files.'
+            ),
+          }
+        : {}),
+    };
     const fullResult: LocalFindFilesToolResult = {
       ...(totalFiles === 0 ? { status: 'empty' as const } : {}),
       path: queryWithSanitizedPath.path,
@@ -145,25 +189,12 @@ export async function findFiles(
           ? { totalFilesFound: discoveredFileCount }
           : {}),
       },
-      ...(hasMore
-        ? {
-            next: {
-              nextPage: buildNextPageContinuation(
-                TOOL_NAMES.LOCAL_FIND_FILES,
-                {
-                  ...queryWithSanitizedPath,
-                  page: currentPage + 1,
-                } as Record<string, unknown>,
-                'Continue to the next page of matched files.'
-              ),
-            },
-          }
-        : {}),
+      ...(Object.keys(next).length > 0 ? { next } : {}),
       ...(allWarnings.length > 0 && { warnings: allWarnings }),
     };
 
     return attachRawResponseChars(
-      finalizeFindFilesResult(fullResult, query, { totalFiles }),
+      fullResult,
       nativeResult.entries.reduce((sum, entry) => sum + entry.path.length, 0)
     );
   } catch (error) {
@@ -192,14 +223,6 @@ function nativeEntryToFindFile(
     file.modified = new Date(entry.modifiedMs).toISOString();
   }
   return file;
-}
-
-export function finalizeFindFilesResult(
-  result: LocalFindFilesToolResult,
-  _query: FindFilesQuery,
-  _totals: { totalFiles: number }
-): LocalFindFilesToolResult {
-  return result;
 }
 
 function sortLocalFindFilesEntrys(
@@ -238,7 +261,7 @@ function formatForOutput(
     const result: LocalFindFilesEntry = { path: f.path, type: f.type };
     if (f.size !== undefined && f.type !== 'directory') {
       // One size per mode: human label by default, numeric in details mode
-      // (OQL files-lane sorting needs the number, never both).
+      // (sortBy:"size" needs the number, never both).
       if (details) result.size = f.size;
       else result.sizeFormatted = formatFileSize(f.size);
     }
@@ -262,19 +285,21 @@ function validateTimeFilterFormats<T extends FindFilesQuery>(
   query: T;
 } {
   const warnings: string[] = [];
-  const sanitized = { ...query } as T;
+  const time = query.time;
+  if (!time) return { warnings, query };
+  const sanitizedTime = { ...time };
   const fields: Array<{ key: TimeFilterKey; value: string | undefined }> = [
-    { key: 'modifiedBefore', value: query.modifiedBefore },
-    { key: 'modifiedWithin', value: query.modifiedWithin },
-    { key: 'accessedWithin', value: query.accessedWithin },
+    { key: 'modifiedBefore', value: time.modifiedBefore },
+    { key: 'modifiedWithin', value: time.modifiedWithin },
+    { key: 'accessedWithin', value: time.accessedWithin },
   ];
   for (const { key, value } of fields) {
     if (value && !VALID_TIME_STRING_RE.test(value)) {
       warnings.push(
-        `${key}="${value}" has an unsupported format — filter was skipped. Use a relative duration like "7d", "2h", "1w", or "3m".`
+        `time.${key}="${value}" has an unsupported format — filter was skipped. Use a relative duration like "7d", "2h", "1w", or "3m".`
       );
-      delete sanitized[key];
+      delete sanitizedTime[key];
     }
   }
-  return { warnings, query: sanitized };
+  return { warnings, query: { ...query, time: sanitizedTime } };
 }

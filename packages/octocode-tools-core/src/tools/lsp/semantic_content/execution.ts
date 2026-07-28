@@ -3,7 +3,7 @@ import { executeBulkOperation } from '../../../utils/response/bulk.js';
 import type { ToolExecutionArgs } from '../../../types/execution.js';
 import { executeWithToolBoundary } from '../../executionGuard.js';
 import {
-  acquirePooledClient,
+  acquirePooledClientDetailed,
   isLanguageServerAvailable,
 } from '@octocodeai/octocode-engine/lsp/manager';
 import { resolveWorkspaceRootForFile } from '@octocodeai/octocode-engine/lsp/workspaceRoot';
@@ -45,7 +45,7 @@ export async function executeLspGetSemantics(
         execute: async () => {
           const result = await getSemanticContent(query);
           return attachSemanticRawEvidence(
-            withSemanticNext(formatSemanticResult(query, result))
+            withSemanticNext(query, formatSemanticResult(query, result))
           );
         },
       });
@@ -82,9 +82,9 @@ async function getSemanticContent(
 
   const workspaceRoot =
     query.workspaceRoot ??
-    (await resolveWorkspaceRootForFile(anchor.value.uri));
+    (await resolveWorkspaceRootForFile(anchor.value.absolutePath));
   const serverAvailable = await isLanguageServerAvailable(
-    anchor.value.uri,
+    anchor.value.absolutePath,
     workspaceRoot
   );
   if (!serverAvailable) {
@@ -93,19 +93,28 @@ async function getSemanticContent(
     throwLspUnavailable(anchor.value.uri, query.type);
   }
 
-  const client = await acquirePooledClient(workspaceRoot, anchor.value.uri);
-  if (!client) {
-    throwLspUnavailable(anchor.value.uri, query.type);
+  const clientResult = await acquirePooledClientDetailed(
+    workspaceRoot,
+    anchor.value.absolutePath
+  );
+  if (clientResult.ok === false) {
+    throwLspUnavailable(anchor.value.uri, query.type, clientResult);
   }
+  const client = clientResult.client;
 
-  if (CONSUMER_SCOPED_TYPES.has(query.type)) {
-    await warmLikelyConsumers(client, anchor.value, workspaceRoot);
-  }
+  const warmupStats = CONSUMER_SCOPED_TYPES.has(query.type)
+    ? await warmLikelyConsumers(client, anchor.value, workspaceRoot)
+    : undefined;
 
   // Readiness recorded when the pooled client warmed. `undefined` = the wait
   // was skipped for a server that answers immediately (no indexing caveat).
   const readiness = client.getReadiness?.();
 
-  const envelope = await dispatchAnchoredSemantic(query, anchor.value, client);
+  const envelope = await dispatchAnchoredSemantic(
+    query,
+    anchor.value,
+    client,
+    warmupStats
+  );
   return attachReadinessWarning(envelope, readiness);
 }

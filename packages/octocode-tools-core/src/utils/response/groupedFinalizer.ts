@@ -5,6 +5,7 @@ import {
 } from '../../responses.js';
 import type { BulkFinalizerOutput } from '../../types/bulk.js';
 import type { FlatQueryResult } from '../../types/toolResults.js';
+import { relativizeResultPaths, hoistSharedFields } from './pathRelativize.js';
 
 export type QueryWithPagination = {
   id?: unknown;
@@ -90,9 +91,31 @@ export function formatFinalizedResponse<T extends Record<string, unknown>>(
   keysPriority: readonly string[],
   isError?: boolean
 ): BulkFinalizerOutput<T> {
+  // Dedupe repeated data across result rows BEFORE formatting (so text and
+  // structuredContent stay consistent): relativize shared path prefixes into
+  // `base`, and hoist scalars identical across every row into `shared`. Mirrors
+  // the non-finalize path in bulk/response.ts so finalized tools aren't the odd
+  // ones out. Both helpers mutate the rows in place + return the lifted map.
+  let effectiveKeys = keysPriority;
+  const rows = (responseData as { results?: unknown }).results;
+  if (Array.isArray(rows)) {
+    const rowRefs = rows as Array<{ data?: unknown }>;
+    const base = relativizeResultPaths(rowRefs);
+    if (base) (responseData as Record<string, unknown>).base = base;
+    const shared = hoistSharedFields(rowRefs);
+    if (shared) (responseData as Record<string, unknown>).shared = shared;
+    if (base || shared) {
+      effectiveKeys = [
+        ...(base ? ['base'] : []),
+        ...(shared ? ['shared'] : []),
+        ...keysPriority,
+      ];
+    }
+  }
+
   const text = createResponseFormat(
     responseData as Parameters<typeof createResponseFormat>[0],
-    [...keysPriority]
+    [...effectiveKeys]
   );
 
   return {

@@ -1,0 +1,66 @@
+{
+  "note": "JUDGE-ONLY. Solvers must never read this.",
+  "verificationCaveat": "Parity questions (q1-q5) self-verify: the oracle is that BOTH arms return the SAME match count on the same checkout -- a nonzero difference is the finding. Exact counts drift with the repo, so compute them at run time from the frozen commit; do NOT hard-code a count as truth. Beyond-AST questions (q6-q10) have a semantic oracle: verify on the frozen SHA. ast-grep's expected ceiling per question is noted.",
+  "questions": {
+    "q1": {
+      "lane": "parity",
+      "answer": "Oracle = cross-tool agreement. ast-grep run -p 'JSON.parse($X)' and octocode localSearchCode mode:structural pattern:'JSON.parse($X)' over the same path MUST return the identical match count and the same file:line set. Compute the count at run time.",
+      "scoring": "1.0 = both arms report the same count AND correct sample anchors; 0.5 = counts differ by a small margin explainable by one arm's known limitation (record which); 0 = an arm errors, misses obvious hits, or the pattern was not actually structural.",
+      "astGrepCeiling": "Fully capable -- this is ast-grep's home turf; parity expected."
+    },
+    "q2": {
+      "lane": "parity",
+      "answer": "Oracle = agreement on the count of `export function $NAME($$$ARGS) { $$$BODY }`. Key correctness check: a pattern WITHOUT the export modifier must NOT match exported functions (modifiers are part of the node) -- both tools should agree, and both should return 0 (or fewer) for a bare `function $NAME(...)` pattern against exported decls.",
+      "scoring": "1.0 = same count both arms AND the solver demonstrates the modifier-sensitivity (export vs bare) correctly; 0.5 = same count but no modifier awareness; 0 = counts differ or the solver claims a bare pattern matches exported functions.",
+      "astGrepCeiling": "Fully capable; parity expected."
+    },
+    "q3": {
+      "lane": "parity",
+      "answer": "Oracle = agreement on the count of `await $X` inside a try block, expressed relationally (ast-grep YAML rule: pattern await $X, inside: {kind: try_statement}; octocode rule: equivalent YAML with inside). Counts must match.",
+      "scoring": "1.0 = same count both arms via a genuine relational rule (not a flat pattern); 0.5 = same count but one arm used a non-relational approximation; 0 = counts differ or rule was not relational.",
+      "astGrepCeiling": "Fully capable via YAML rules; parity expected. Tests octocode's rule (inside/has) parity."
+    },
+    "q4": {
+      "lane": "parity",
+      "answer": "Oracle = agreement on the count of `$OBJ.push($$$ARGS)` plus the same top-3 files by hit count.",
+      "scoring": "1.0 = same total count AND same top-3 files both arms; 0.5 = same count, different file ranking; 0 = counts differ.",
+      "astGrepCeiling": "Fully capable; parity expected."
+    },
+    "q5": {
+      "lane": "parity",
+      "answer": "Oracle = both arms handle BOTH languages and agree per-language. TS call count `$FN($$$)` under tools-core/src and a Rust call/macro shape under octocode-engine/src. If either tool lacks a grammar for a language, that is the finding (record it). Octocode's grammar matrix is broad; ast-grep supports TS and Rust so parity is expected here, but the solver should note the general coverage difference.",
+      "scoring": "1.0 = both languages counted by both arms with per-language agreement AND a correct note on grammar coverage; 0.5 = one language done, or agreement on one only; 0 = a tool silently skipped a language.",
+      "astGrepCeiling": "Supports TS + Rust; parity on these two expected. Broader-matrix advantage shows in q10."
+    },
+    "q6": {
+      "lane": "beyond",
+      "answer": "isLocalTool is called from its own module's exported wrapper usage and from the direct-tool routing/execution layer. The correct oracle is the LSP references/callers set (run lspGetSemantics type:references symbolName:isLocalTool at its defining line) -- compute the file:line caller set at run time. (b) A structural pattern isLocalTool($X) matches only textual/AST call shapes with that exact name: it misses callers reached via re-export or aliasing, and can wrongly include a different same-named local symbol -- it resolves SHAPE, not IDENTITY.",
+      "scoring": "1.0 = caller set obtained via LSP references/callers (not just an AST/text name match) AND a correct explanation of shape-vs-identity (aliasing/re-export/shadowing); 0.5 = correct callers but justified only by AST/text matching; 0 = wrong callers or claims AST shape == real callers.",
+      "astGrepCeiling": "Can find call SHAPES named isLocalTool, but has NO way to resolve real callers across re-exports/aliases -- Arm A cannot complete (b). This is the core beyond-AST gap."
+    },
+    "q7": {
+      "lane": "beyond",
+      "answer": "Correct approach: octocode ghCloneRepo (or ghGetFileContent type:directory / --materialize) checks out pmndrs/zustand src/ to a localPath, then localSearchCode mode:structural pattern:'useState($$$)' runs AST on it. Oracle = the useState call-expression count in src/ at the frozen SHA (compute at run time). (b) Arm B accessed remote code by materializing it locally; ast-grep has no remote capability.",
+      "scoring": "1.0 = correct count via a materialize-then-AST flow AND explains the remote access step; 0.5 = count via reading files but not a true AST query; 0 = could not run AST on the remote repo.",
+      "astGrepCeiling": "Local-only -- Arm A cannot access GitHub at all without the agent hand-cloning outside its toolchain. If the harness forbids raw git, Arm A is un-runnable (N/A = the finding)."
+    },
+    "q8": {
+      "lane": "beyond",
+      "answer": "Oracle = the set of files under tools-core/src that both mention `scheme` (path or content) AND contain a `z.object($$$)` structural match, plus the z.object match count within them. Octocode does this by combining a text/path filter with mode:structural (include globs + pattern), in one tool.",
+      "scoring": "1.0 = correct combined file set + structural count; 0.5 = one filter applied but not the intersection; 0 = wrong set.",
+      "astGrepCeiling": "ast-grep can match z.object($$$) but has no built-in text/path pre-filter -- Arm A must shell out to grep/find and intersect manually (extra steps, more tokens); measure the difference."
+    },
+    "q9": {
+      "lane": "beyond",
+      "answer": "Find the first describe($$$) (or chosen call) match, then read its enclosing function/block via localGetFileContent minify:'symbols' or a matchString+contextLines slice -- transferring only the outline/enclosing region, not the whole file. Oracle = correct match file:line + a small transfer relative to full file size.",
+      "scoring": "1.0 = correct match anchor AND enclosing context read via minify/symbols or a bounded slice (small transfer); 0.5 = correct match but whole file read; 0 = wrong match or no enclosing read.",
+      "astGrepCeiling": "ast-grep prints the match (with -C context lines) but has no minify/symbols outline and no separate file-reader -- it cannot produce a token-cheap symbol outline of the enclosing function."
+    },
+    "q10": {
+      "lane": "beyond",
+      "answer": "Pick a format outside ast-grep's mainstream grammar set present in this repo (e.g. .json/.yaml/.md config, or another format in Octocode's matrix). Run a structural or symbol/minify query and report a real result. (b) State ast-grep's grammar support for that format; where it lacks one, Arm A is un-runnable for the task.",
+      "scoring": "1.0 = a real structural/symbol result on a format Octocode supports AND a correct statement of ast-grep's (lack of) support; 0.5 = result but no coverage comparison; 0 = no result or false coverage claim.",
+      "astGrepCeiling": "ast-grep's grammar set is far smaller than Octocode's 150+ format matrix -- for unsupported formats Arm A returns nothing (the finding)."
+    }
+  }
+}

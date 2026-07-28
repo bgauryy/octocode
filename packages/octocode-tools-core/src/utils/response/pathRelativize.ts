@@ -1,3 +1,6 @@
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
 export function commonDirPrefix(paths: readonly string[]): string {
   if (paths.length === 0) return '';
   let prefix = paths[0] ?? '';
@@ -13,7 +16,7 @@ export function commonDirPrefix(paths: readonly string[]): string {
   return lastSlash > 0 ? prefix.slice(0, lastSlash) : '';
 }
 
-const PATH_LIKE_KEYS = ['path', 'uri'] as const;
+const PATH_LIKE_KEYS = ['path', 'uri', 'absolutePath'] as const;
 
 // Preserve absolute paths inside these top-level keys so agents can pass them
 // directly to local tool calls (localSearchCode, localViewStructure, etc.).
@@ -21,7 +24,7 @@ const SKIP_TRAVERSAL_KEYS = new Set(['next', 'location']);
 
 function collectPathHolders(
   node: unknown,
-  holders: Array<{ obj: Record<string, unknown>; key: string }>,
+  holders: Array<{ obj: Record<string, unknown>; abs: string }>,
   depth: number
 ): void {
   if (depth > 8 || !node || typeof node !== 'object') return;
@@ -30,15 +33,13 @@ function collectPathHolders(
     return;
   }
   const obj = node as Record<string, unknown>;
-  for (const key of PATH_LIKE_KEYS) {
-    const v = obj[key];
-    if (typeof v !== 'string') continue;
-    if (v.startsWith('file:///')) {
-      obj[key] = v.slice('file://'.length);
-      holders.push({ obj, key });
-    } else if (v.startsWith('/')) {
-      holders.push({ obj, key });
-    }
+  const absolutePath = normalizeLocalAbsolutePath(obj);
+  if (absolutePath) {
+    // Do NOT persist absolutePath/uri on the row: both are fully derivable from
+    // `base` + the relativized `path` (and lspGetSemantics accepts a plain
+    // path). Emitting them duplicated the full path twice per row and negated
+    // the `base` savings. Track the absolute value locally only, to compute base.
+    holders.push({ obj, abs: absolutePath });
   }
   for (const [key, value] of Object.entries(obj)) {
     if (SKIP_TRAVERSAL_KEYS.has(key)) continue;
@@ -48,23 +49,48 @@ function collectPathHolders(
   }
 }
 
+function normalizeLocalAbsolutePath(
+  obj: Record<string, unknown>
+): string | undefined {
+  const existing = obj.absolutePath;
+  if (typeof existing === 'string' && path.isAbsolute(existing)) {
+    return existing;
+  }
+
+  const uri = obj.uri;
+  if (typeof uri === 'string' && uri.startsWith('file://')) {
+    try {
+      return fileURLToPath(uri);
+    } catch {
+      return undefined;
+    }
+  }
+
+  const value = obj.path;
+  if (typeof value === 'string' && path.isAbsolute(value)) return value;
+  return undefined;
+}
+
 export function relativizeResultPaths(
   results: ReadonlyArray<{ data?: unknown } | null | undefined>
 ): string | undefined {
-  const holders: Array<{ obj: Record<string, unknown>; key: string }> = [];
+  const holders: Array<{ obj: Record<string, unknown>; abs: string }> = [];
   for (const r of results) {
     collectPathHolders(r?.data, holders, 0);
   }
   if (holders.length === 0) return undefined;
 
-  const base = commonDirPrefix(holders.map(h => h.obj[h.key] as string));
+  const base = commonDirPrefix(holders.map(h => h.abs));
   if (base.length <= 1) return undefined;
 
   const prefix = base + '/';
   const cut = prefix.length;
-  for (const { obj, key } of holders) {
-    const p = obj[key] as string;
-    if (p.startsWith(prefix)) obj[key] = p.slice(cut);
+  for (const { obj, abs } of holders) {
+    if (!abs.startsWith(prefix)) continue;
+    obj.path = abs.slice(cut);
+    // absolutePath/uri intentionally dropped — derivable from base + path.
+    delete obj.absolutePath;
+    delete obj.uri;
   }
 
   stripBaseFromStringElements(results, prefix);
@@ -147,6 +173,11 @@ const HOIST_EXCLUDED_KEYS = new Set<string>([
   'repo',
   'name',
   'id',
+  // 'type' is REQUIRED by some tool output schemas (e.g. localViewStructure's
+  // entries[].type) — hoisting it out of a homogeneous entry list (all-files
+  // dir, filesOnly/directoriesOnly) made structuredContent fail MCP output
+  // validation and killed the whole batch with -32602.
+  'type',
 ]);
 
 export function hoistSharedFields(

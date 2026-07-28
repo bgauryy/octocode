@@ -26,9 +26,9 @@ Stop when solo work finishes, two High options need a winner, three angles add n
 - When parallel writers share mutable state, load `references/workspace.md` — assign ownership and prevent collisions.
 - When workers stall, fail, or conflict, load `references/recovery.md`; before final output load `references/synthesize.md` — reconcile claims, gaps, and live workers.
 - When grounding orchestration guidance in sources, load `references/references.md` — preserve provenance.
-- When improving this skill, prefer `octocode-eval`; otherwise load `references/improve-loop.md` — require measurable acceptance.
+- When improving this skill, prefer `octocode-graph-eval`; otherwise load `references/improve-loop.md` — require measurable acceptance.
 
 ## Related routes
-- Use `octocode-research` for worker evidence; `octocode-awareness` for shared-repo coordination; `octocode-eval` to judge worker quality.
+- Use `octocode-research` for worker evidence; `octocode-awareness` for shared-repo coordination; `octocode-graph-eval` to judge worker quality.
 - Local Ollama one-shots / save-tokens → `octocode-orchestrator-local-worker` (not this skill).
 - Use `octocode-rfc-generator` before changing a multi-agent architecture; `octocode-prompt-optimizer` for packet contracts; `octocode-skills` when changing this folder.

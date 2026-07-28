@@ -18,6 +18,7 @@ struct CompiledQuery {
     root: PathBuf,
     include_root: bool,
     recursive: bool,
+    stop_at_limit: bool,
     max_depth: Option<u32>,
     min_depth: u32,
     show_hidden: bool,
@@ -115,6 +116,7 @@ impl CompiledQuery {
             root,
             include_root: options.include_root.unwrap_or(false),
             recursive: options.recursive.unwrap_or(true),
+            stop_at_limit: options.stop_at_limit.unwrap_or(true),
             max_depth: options.max_depth,
             min_depth,
             show_hidden: options.show_hidden.unwrap_or(true),
@@ -173,6 +175,10 @@ fn walk_children(base: &Path, depth: u32, query: &CompiledQuery, state: &mut Que
     };
 
     for dir_entry in read_dir {
+        if query.stop_at_limit && state.entries.len() >= query.limit {
+            state.total_discovered = state.total_discovered.saturating_add(1);
+            return;
+        }
         let dir_entry = match dir_entry {
             Ok(entry) => entry,
             Err(err) => {
@@ -211,6 +217,9 @@ fn walk_children(base: &Path, depth: u32, query: &CompiledQuery, state: &mut Que
 
         if query.recursive && is_directory {
             walk_children(&path, depth + 1, query, state);
+            if query.stop_at_limit && state.entries.len() >= query.limit {
+                return;
+            }
         }
     }
 }
@@ -779,7 +788,9 @@ mod tests {
 
         assert_eq!(result.entries.len(), 1);
         assert_eq!(result.entries[0].name, "scheme.ts");
-        assert!(result.entries[0].path.contains("packages/a/src/tools/scheme.ts"));
+        assert!(result.entries[0]
+            .path
+            .contains("packages/a/src/tools/scheme.ts"));
         fs::remove_dir_all(root).expect("cleanup");
     }
 }

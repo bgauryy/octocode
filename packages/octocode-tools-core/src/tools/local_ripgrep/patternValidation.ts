@@ -37,7 +37,7 @@ export function preflightValidateRipgrepPattern(
 
   if (!input.fixedString && looksLikeLiteralSearch(pattern)) {
     warnings.push(
-      `pattern '${pattern}' looks literal — pass fixedString: true to skip regex parsing and avoid accidental wildcards`
+      `pattern '${pattern}' looks literal — set regex:"fixed" to skip regex parsing and avoid accidental wildcards`
     );
   }
 

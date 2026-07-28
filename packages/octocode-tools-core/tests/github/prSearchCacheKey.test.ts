@@ -4,9 +4,9 @@ import type { GitHubPullRequestsSearchParams } from '../../src/github/githubAPI.
 
 /**
  * Regression: the PR-search cache key must include every param that changes the
- * built search query. Fields like `review`, `checks`, `milestone`, `locked`,
- * etc. were previously omitted, so two searches differing only in one of them
- * collided on a single cache entry and served stale results.
+ * built search query, so two searches differing only in one of them do not
+ * collide on a single cache entry and serve stale results. (milestone/locked/
+ * visibility/language/team-mentions/project were removed from the PR surface.)
  */
 describe('buildPullRequestSearchCacheKey', () => {
   const base: GitHubPullRequestsSearchParams = {
@@ -28,32 +28,21 @@ describe('buildPullRequestSearchCacheKey', () => {
   });
 
   it.each([
-    ['milestone', { milestone: 'v1' }, { milestone: 'v2' }],
     ['checks', { checks: 'success' }, { checks: 'failure' }],
-    ['locked', { locked: true }, { locked: false }],
-    ['visibility', { visibility: 'public' }, { visibility: 'private' }],
-    ['language', { language: 'ts' }, { language: 'go' }],
-    ['team-mentions', { 'team-mentions': 'a' }, { 'team-mentions': 'b' }],
-    ['project', { project: 'p1' }, { project: 'p2' }],
     ['archived', { archived: true }, { archived: false }],
-  ] as [string, Partial<GitHubPullRequestsSearchParams>, Partial<GitHubPullRequestsSearchParams>][])(
-    'differs when only `%s` differs',
-    (_field, left, right) => {
-      expect(buildPullRequestSearchCacheKey({ ...base, ...left })).not.toBe(
-        buildPullRequestSearchCacheKey({ ...base, ...right })
-      );
-    }
-  );
+  ] as [
+    string,
+    Partial<GitHubPullRequestsSearchParams>,
+    Partial<GitHubPullRequestsSearchParams>,
+  ][])('differs when only `%s` differs', (_field, left, right) => {
+    expect(buildPullRequestSearchCacheKey({ ...base, ...left })).not.toBe(
+      buildPullRequestSearchCacheKey({ ...base, ...right })
+    );
+  });
 
   it('is stable for identical params', () => {
     expect(buildPullRequestSearchCacheKey({ ...base, review: 'none' })).toBe(
       buildPullRequestSearchCacheKey({ ...base, review: 'none' })
     );
-  });
-
-  it('keeps the `no-*` cousins distinct from their positive filters', () => {
-    expect(
-      buildPullRequestSearchCacheKey({ ...base, 'no-milestone': true })
-    ).not.toBe(buildPullRequestSearchCacheKey({ ...base, milestone: 'v1' }));
   });
 });

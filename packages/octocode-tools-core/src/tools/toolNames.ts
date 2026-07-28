@@ -6,12 +6,22 @@ export const STATIC_TOOL_NAMES = completeMetadata.toolNames;
 export const LSP_GET_SEMANTICS_TOOL_NAME =
   STATIC_TOOL_NAMES.LSP_GET_SEMANTIC_CONTENT;
 
-// OQL is currently a tools-core search surface; keep its name in one place
-// until it graduates into octocode-core tool metadata.
-export const OQL_SEARCH_TOOL_NAME = 'oqlSearch';
+// ghListReleases is a niche surface (release history) — opt-in only, so the
+// default toolset stays lean. Enable with ENABLE_RELEASES=1.
+export function isReleasesEnabled(
+  env: NodeJS.ProcessEnv = process.env
+): boolean {
+  const raw = env.ENABLE_RELEASES;
+  if (raw === undefined) return false;
+  return ['1', 'true', 'yes', 'on'].includes(raw.trim().toLowerCase());
+}
 
-export function isOqlEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
-  const raw = env.ENABLE_OQL;
+// ghSearchDiscussions is GraphQL-only (GitHub Discussions have no REST list
+// endpoint) and a niche surface — opt-in only. Enable with ENABLE_DISCUSSIONS=1.
+export function isDiscussionsEnabled(
+  env: NodeJS.ProcessEnv = process.env
+): boolean {
+  const raw = env.ENABLE_DISCUSSIONS;
   if (raw === undefined) return false;
   return ['1', 'true', 'yes', 'on'].includes(raw.trim().toLowerCase());
 }

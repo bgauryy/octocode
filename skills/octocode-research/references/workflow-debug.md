@@ -33,4 +33,4 @@ Verification: <test/build/search/history check run or still needed>
 
 If the fix requires an edit, hand off to `workflow-change.md` for blast-radius and patch discipline.
 
-Validate: `node scripts/eval-research.mjs --case code-investigation` (general root-cause shape) or `--case oql-graph-proof` (dead-code/reachability root causes).
+Validate: `node scripts/eval-research.mjs --case code-investigation` (general root-cause shape) or `--case dead-code-proof` (dead-code/reachability root causes).

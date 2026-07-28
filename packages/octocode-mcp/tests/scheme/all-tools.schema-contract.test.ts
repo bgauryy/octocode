@@ -2,10 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { z } from 'zod';
 import { existsSync, readdirSync } from 'node:fs';
 import { ALL_TOOLS } from '../../src/tools/toolConfig.js';
-import {
-  OQL_SEARCH_TOOL_NAME,
-  STATIC_TOOL_NAMES,
-} from '../../../octocode-tools-core/src/tools/toolNames.js';
+import { STATIC_TOOL_NAMES } from '../../../octocode-tools-core/src/tools/toolNames.js';
 import { LSP_GET_SEMANTICS_TOOL_NAME } from '../../../octocode-tools-core/src/tools/lsp/shared/semanticTypes.js';
 const SHARED_FIELDS = [
   'id',
@@ -15,9 +12,10 @@ const SHARED_FIELDS = [
 ] as const;
 
 const MINIMAL_QUERY: Record<string, Record<string, unknown>> = {
-  [STATIC_TOOL_NAMES.LOCAL_RIPGREP]: { keywords: 'foo', path: '.' },
+  [STATIC_TOOL_NAMES.LOCAL_RIPGREP]: { searchText: 'foo', path: '.' },
   [STATIC_TOOL_NAMES.LOCAL_VIEW_STRUCTURE]: { path: '.' },
   [STATIC_TOOL_NAMES.LOCAL_FIND_FILES]: { path: '.' },
+  [STATIC_TOOL_NAMES.LOCAL_FIND_DEAD_CODE]: { path: '.' },
   [STATIC_TOOL_NAMES.LOCAL_FETCH_CONTENT]: { path: '/tmp/test.ts' },
   [LSP_GET_SEMANTICS_TOOL_NAME]: {
     uri: '/tmp/test.ts',
@@ -41,7 +39,19 @@ const MINIMAL_QUERY: Record<string, Record<string, unknown>> = {
   [STATIC_TOOL_NAMES.GITHUB_SEARCH_REPOSITORIES]: {
     keywords: ['react'],
   },
-  [STATIC_TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS]: {
+  [STATIC_TOOL_NAMES.GITHUB_PULL_REQUESTS]: {
+    owner: 'facebook',
+    repo: 'react',
+  },
+  [STATIC_TOOL_NAMES.GITHUB_ISSUES]: {
+    owner: 'facebook',
+    repo: 'react',
+  },
+  [STATIC_TOOL_NAMES.GITHUB_COMMITS]: {
+    owner: 'facebook',
+    repo: 'react',
+  },
+  [STATIC_TOOL_NAMES.GITHUB_RELEASES]: {
     owner: 'facebook',
     repo: 'react',
   },
@@ -49,11 +59,6 @@ const MINIMAL_QUERY: Record<string, Record<string, unknown>> = {
   [STATIC_TOOL_NAMES.GITHUB_CLONE_REPO]: {
     owner: 'facebook',
     repo: 'react',
-  },
-  [OQL_SEARCH_TOOL_NAME]: {
-    target: 'code',
-    from: { kind: 'local', path: '.' },
-    where: { kind: 'text', value: 'foo' },
   },
 };
 
@@ -69,7 +74,7 @@ function getQueryShape(bulkSchema: z.ZodTypeAny): z.ZodRawShape | null {
 function unwrapOptionalSchema(schema: z.ZodTypeAny): z.ZodTypeAny {
   let current = schema;
   while (current instanceof z.ZodOptional || current instanceof z.ZodDefault) {
-    current = current.unwrap();
+    current = current.unwrap() as z.ZodTypeAny;
   }
   return current;
 }
@@ -217,12 +222,6 @@ describe('all-tools schema contract', () => {
       });
 
       it('rejects missing queries entirely', () => {
-        if (toolName === OQL_SEARCH_TOOL_NAME) {
-          expect(bulkSchema.safeParse(MINIMAL_QUERY[toolName]).success).toBe(
-            true
-          );
-          return;
-        }
         const r = bulkSchema.safeParse({});
         expect(r.success).toBe(false);
       });
@@ -233,9 +232,6 @@ describe('all-tools schema contract', () => {
       });
 
       it('rejects duplicate query ids with a structured Zod error', () => {
-        if (toolName === OQL_SEARCH_TOOL_NAME) {
-          return;
-        }
         const minQuery = MINIMAL_QUERY[toolName];
         if (!minQuery) return;
         const r = bulkSchema.safeParse({
@@ -346,13 +342,29 @@ describe('all-tools schema contract', () => {
           !file.startsWith('toolMetadata/')
       );
 
+      // The in-catalog split tools (ghSearchPullRequests/Issues/Commits, and
+      // opt-in ghListReleases) share github_search_pull_requests/splitSchemes.ts
+      // instead of a per-tool scheme.ts, so they're excluded from the count.
+      const SPLIT_TOOLS: string[] = [
+        STATIC_TOOL_NAMES.GITHUB_PULL_REQUESTS,
+        STATIC_TOOL_NAMES.GITHUB_ISSUES,
+        STATIC_TOOL_NAMES.GITHUB_COMMITS,
+        STATIC_TOOL_NAMES.GITHUB_RELEASES,
+      ];
+      // +2: two scheme.ts files exist on disk without a corresponding tool in
+      // the default ALL_TOOLS —
+      //   1. github_search_pull_requests/scheme.ts: the internal 4-mode PR/
+      //      commits schema the split executors parse with (no registered tool).
+      //   2. github_search_discussions/scheme.ts: ghSearchDiscussions is opt-in
+      //      (ENABLE_DISCUSSIONS), so it's gated out of the default catalog but
+      //      still ships its per-tool scheme.ts.
       expect(schemeFiles).toHaveLength(
-        ALL_TOOLS.filter(tool => tool.name !== OQL_SEARCH_TOOL_NAME).length
+        ALL_TOOLS.filter(tool => !SPLIT_TOOLS.includes(tool.name)).length + 2
       );
       expect(
         existsSync(
           new URL(
-            '../../../octocode-tools-core/src/oql/schema.ts',
+            '../../../octocode-tools-core/src/tools/github_search_pull_requests/splitSchemes.ts',
             import.meta.url
           )
         )

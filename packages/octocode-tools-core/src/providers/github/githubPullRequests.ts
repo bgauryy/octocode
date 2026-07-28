@@ -27,13 +27,12 @@ export function transformPullRequestResult(
     repo?: string;
   } = parseGitHubProjectId
 ): PullRequestSearchResult {
-  const items: PullRequestItem[] = (data.pull_requests || []).map(
+  const items: PullRequestItem[] = (data.pullRequests || []).map(
     (pr: GitHubPullRequestApiItem) => ({
       number: pr.number,
       title: pr.title,
       body: pr.body || null,
-      ...(pr.body_pagination && { bodyPagination: pr.body_pagination }),
-      url: pr.url,
+      ...(pr.bodyPagination && { bodyPagination: pr.bodyPagination }),
       state: pr.merged ? 'merged' : pr.state,
       draft: pr.draft || false,
       author: pr.author,
@@ -45,54 +44,54 @@ export function transformPullRequestResult(
         ) || [],
       labels:
         pr.labels?.map(l => (typeof l === 'string' ? l : (l.name ?? ''))) || [],
-      sourceBranch: pr.head_ref || '',
-      targetBranch: pr.base_ref || '',
-      sourceSha: pr.head_sha,
-      targetSha: pr.base_sha,
-      createdAt: pr.created_at,
-      updatedAt: pr.updated_at,
-      closedAt: pr.closed_at,
-      mergedAt: pr.merged_at,
+      sourceBranch: pr.headRef || '',
+      targetBranch: pr.baseRef || '',
+      sourceSha: pr.headSha,
+      targetSha: pr.baseSha,
+      createdAt: pr.createdAt,
+      updatedAt: pr.updatedAt,
+      closedAt: pr.closedAt,
+      mergedAt: pr.mergedAt,
       commentsCount: pr.comments,
-      changedFilesCount: pr.changed_files,
+      changedFilesCount: pr.changedFiles,
       additions: pr.additions,
       deletions: pr.deletions,
-      comments: pr.comment_details?.map(c => ({
+      comments: pr.commentDetails?.map(c => ({
         id: c.id,
         author: c.user,
         body: c.body,
-        ...(c.body_pagination && { bodyPagination: c.body_pagination }),
-        createdAt: c.created_at,
-        updatedAt: c.updated_at,
+        ...(c.bodyPagination && { bodyPagination: c.bodyPagination }),
+        createdAt: c.createdAt,
+        updatedAt: c.updatedAt,
         ...(c.commentType && { commentType: c.commentType }),
         ...(c.path && { path: c.path }),
         ...(c.line !== undefined && { line: c.line }),
-        ...(c.in_reply_to_id != null && { in_reply_to_id: c.in_reply_to_id }),
+        ...(c.inReplyToId != null && { inReplyToId: c.inReplyToId }),
       })) as PullRequestItem['comments'],
       reviews: pr.reviews?.map(review => ({
         id: review.id,
         user: review.user,
         state: review.state,
         body: review.body,
-        submittedAt: review.submitted_at,
-        commitId: review.commit_id,
+        submittedAt: review.submittedAt,
+        commitId: review.commitId,
       })),
-      commits: pr.commit_details?.map(c => ({
+      commits: pr.commitDetails?.map(c => ({
         sha: c.sha,
         message: c.message,
         author: c.author,
         date: c.date,
       })),
-      fileChanges: pr.file_changes?.map(f => ({
+      fileChanges: pr.fileChanges?.map(f => ({
         path: f.filename,
         status: f.status,
         additions: f.additions,
         deletions: f.deletions,
         patch: f.patch,
       })),
-      ...(Array.isArray(pr._sanitization_warnings) &&
-      pr._sanitization_warnings.length > 0
-        ? { sanitizationWarnings: pr._sanitization_warnings as string[] }
+      ...(Array.isArray(pr.sanitizationWarnings) &&
+      pr.sanitizationWarnings.length > 0
+        ? { sanitizationWarnings: pr.sanitizationWarnings as string[] }
         : {}),
     })
   );
@@ -104,7 +103,7 @@ export function transformPullRequestResult(
 
   return {
     items,
-    totalCount: data.total_count || items.length,
+    totalCount: data.totalCount || items.length,
     pagination: {
       currentPage: data.pagination?.currentPage || 1,
       totalPages: data.pagination?.totalPages || 1,
@@ -136,7 +135,6 @@ export async function searchPullRequests(
   const githubParams: GitHubPullRequestsSearchParams = {
     owner,
     repo,
-    query: query.query,
     prNumber: query.number,
     state:
       query.state === 'merged'
@@ -149,15 +147,10 @@ export async function searchPullRequests(
     author: query.author,
     assignee: query.assignee,
     commenter: query.commenter,
-    involves: query.involves,
     mentions: query.mentions,
     'reviewed-by': query.reviewedBy,
     'review-requested': query.reviewRequested,
     label: query.labels,
-    'no-assignee': query.noAssignee,
-    'no-label': query.noLabel,
-    'no-milestone': query.noMilestone,
-    'no-project': query.noProject,
     base: query.baseBranch,
     head: query.headBranch,
     created: query.created,
@@ -166,16 +159,9 @@ export async function searchPullRequests(
     'merged-at': query.mergedAt,
     comments: query.comments,
     reactions: query.reactions,
-    interactions: query.interactions,
     match: query.match,
-    milestone: query.milestone,
-    language: query.language,
     checks: query.checks,
     review: query.review,
-    locked: query.locked,
-    visibility: query.visibility,
-    'team-mentions': query.teamMentions,
-    project: query.project,
     archived: query.archived,
     content: query.content,
     reviewMode: query.reviewMode,

@@ -101,46 +101,6 @@ function buildRepositoryDetail(repo: GitHubRepositoryOutput): RepositoryDetail {
   ) as RepositoryDetail;
 }
 
-export function formatRepoLine(repo: GitHubRepositoryOutput): string {
-  const r = repo as GitHubRepositoryOutput & {
-    pushedAt?: string;
-    visibility?: string;
-    topics?: string[];
-    forksCount?: number;
-    openIssuesCount?: number;
-    defaultBranch?: string;
-    license?: string;
-    homepage?: string;
-  };
-
-  const name = `${r.owner ? `${r.owner}/` : ''}${r.repo}`;
-  const parts: string[] = [name];
-
-  if (typeof r.stars === 'number') parts.push(`${r.stars} stars`);
-  if (typeof r.forksCount === 'number' && r.forksCount > 0)
-    parts.push(`${r.forksCount} forks`);
-  if (typeof r.openIssuesCount === 'number' && r.openIssuesCount > 0)
-    parts.push(`${r.openIssuesCount} issues`);
-  if (r.language) parts.push(r.language);
-  if (r.license) parts.push(r.license);
-  if (r.pushedAt) parts.push(r.pushedAt.slice(0, 10));
-  if (
-    r.defaultBranch &&
-    r.defaultBranch !== 'main' &&
-    r.defaultBranch !== 'master'
-  )
-    parts.push(`@${r.defaultBranch}`);
-  if (r.visibility && r.visibility !== 'public') parts.push(r.visibility);
-  if (Array.isArray(r.topics) && r.topics.length > 0)
-    parts.push(`#${r.topics.slice(0, 4).join(',')}`);
-  if (r.description && r.description !== 'No description') {
-    const desc = r.description.replace(/\s+/g, ' ').trim();
-    parts.push(desc.length > 100 ? `${desc.slice(0, 99)}...` : desc);
-  }
-
-  return parts.join(' | ');
-}
-
 function buildReposSearchOutput(
   data: { repositories: GitHubRepositoryOutput[]; pagination?: unknown },
   query: PartialReposSearchQuery
@@ -161,13 +121,13 @@ function buildReposSearchOutput(
             tool: 'ghViewRepoStructure',
             query: { owner: top.owner, repo: top.repo, path: '' },
             why: 'Orient in the top-ranked repository before reading code',
-            confidence: 'heuristic',
+            confidence: 'low',
           },
           searchCode: {
             tool: 'ghSearchCode',
             query: { owner: top.owner, repo: top.repo },
             why: 'Scope a code search to the top-ranked repository',
-            confidence: 'heuristic',
+            confidence: 'low',
           },
         }
       : undefined;
@@ -279,9 +239,23 @@ export async function searchMultipleGitHubRepos(
         // Some query variants (e.g. the topics or keywords lane of a split
         // search) failed while others succeeded. Surface it so an empty or
         // thin result set isn't read as a confident, complete answer.
-        const warnings = buildPartialFailureWarnings(failedVariants);
+        const partialFailureWarnings =
+          buildPartialFailureWarnings(failedVariants);
 
-        const resultData = warnings ? { ...shape.data, warnings } : shape.data;
+        // A genuine zero-result response previously carried no guidance at
+        // all (unlike localSearchCode's in-band hints) — tell the agent how
+        // to widen instead of leaving a bare status:"empty".
+        const warnings = [
+          ...(partialFailureWarnings ?? []),
+          ...(!hasContent
+            ? [
+                'No repositories matched. Keywords are ANDed — try fewer or broader keywords, drop a topic/filter (topics are sparse), or add match:"readme" for full-text search.',
+              ]
+            : []),
+        ];
+
+        const resultData =
+          warnings.length > 0 ? { ...shape.data, warnings } : shape.data;
 
         return createSuccessResult(
           query,

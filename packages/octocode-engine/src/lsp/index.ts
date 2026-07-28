@@ -58,7 +58,11 @@ export {
   SymbolResolver,
   type ImportAliasDefinitionInput,
 } from './resolver.js';
-export { safeReadFile, validateLSPServerPath } from './validation.js';
+export {
+  safeReadFile,
+  safeReadLineWindow,
+  validateLSPServerPath,
+} from './validation.js';
 export { resolveWorkspaceRootForFile } from './workspaceRoot.js';
 export type {
   CallHierarchyItem,

@@ -53,7 +53,26 @@ export async function fetchMultipleGitHubFileContents(
           return parsed.error;
         }
 
-        const effectiveQuery = parsed.data as PartialFileContentQuery;
+        const parsedData = parsed.data as z.output<
+          typeof FileContentQueryLocalSchema
+        >;
+
+        // Resolve the effective minify mode here rather than via a schema
+        // default. `fullContent` promises the whole file verbatim, so it
+        // defaults to 'none' (unminified — otherwise 'standard' would silently
+        // strip comments/blank lines and "Returns the whole file" would be a
+        // lie); every other read defaults to 'standard'. An explicit minify
+        // always wins. Resolving here (not at the schema) is what lets us tell
+        // "caller omitted minify" from "caller chose standard": inputSchema is
+        // parsed upstream before execution, which would apply a schema default.
+        const resolvedMinify: MinifyMode =
+          parsedData.minify ??
+          (parsedData.fullContent === true ? 'none' : 'standard');
+        const effectiveQuery: PartialFileContentQuery = {
+          ...parsedData,
+          minify: resolvedMinify,
+        };
+
         const providerContext = getProviderContext();
 
         if (effectiveQuery.type === 'directory') {

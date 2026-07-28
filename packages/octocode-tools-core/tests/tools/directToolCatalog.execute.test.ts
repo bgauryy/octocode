@@ -3,10 +3,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { executeDirectTool } from '../../src/tools/directToolCatalog.js';
 import { STATIC_TOOL_NAMES } from '../../src/tools/toolNames.js';
 import { cleanup } from '../../src/serverConfig.js';
-import {
-  setRuntimeSurface,
-  _resetRuntimeSurface,
-} from '@octocodeai/config';
+import { setRuntimeSurface, _resetRuntimeSurface } from '@octocodeai/config';
 
 describe('executeDirectTool - invalid input handling (finding 3)', () => {
   const originalEnableClone = process.env.ENABLE_CLONE;
@@ -46,8 +43,7 @@ describe('executeDirectTool - invalid input handling (finding 3)', () => {
     });
 
     const structured = result.structuredContent as
-      | { error?: { code?: string } }
-      | undefined;
+      { error?: { code?: string } } | undefined;
     expect(structured?.error?.code).not.toBe('localToolsDisabled');
   });
 
@@ -71,8 +67,7 @@ describe('executeDirectTool - invalid input handling (finding 3)', () => {
 
     expect(result.isError).toBe(true);
     const structured = result.structuredContent as
-      | { error?: { code?: string; message?: string } }
-      | undefined;
+      { error?: { code?: string; message?: string } } | undefined;
     expect(structured?.error?.code).toBe('localToolsDisabled');
     expect(structured?.error?.message).toContain('ENABLE_LOCAL=true');
   });
@@ -96,8 +91,7 @@ describe('executeDirectTool - invalid input handling (finding 3)', () => {
 
     expect(result.isError).toBe(true);
     const structured = result.structuredContent as
-      | { error?: { code?: string; message?: string } }
-      | undefined;
+      { error?: { code?: string; message?: string } } | undefined;
     expect(structured?.error?.code).toBe('localToolsDisabled');
     expect(structured?.error?.message).toContain('ENABLE_LOCAL=true');
   });
@@ -113,8 +107,7 @@ describe('executeDirectTool - invalid input handling (finding 3)', () => {
 
     expect(result.isError).toBe(true);
     const structured = result.structuredContent as
-      | { status?: string; tool?: string }
-      | undefined;
+      { status?: string; tool?: string } | undefined;
     expect(structured?.status).toBe('error');
     expect(structured?.tool).toBe(STATIC_TOOL_NAMES.LOCAL_FIND_FILES);
   });
@@ -123,10 +116,6 @@ describe('executeDirectTool - invalid input handling (finding 3)', () => {
     await expect(
       executeDirectTool('definitely-not-a-real-tool', {})
     ).rejects.toThrow(/Unknown tool/);
-  });
-
-  it('does not expose oqlSearch as a direct tool; use the CLI search command or OQL API instead', async () => {
-    await expect(executeDirectTool('oqlSearch', {})).rejects.toThrow(/Unknown tool/);
   });
 
   // ENABLE_CLONE gate is MCP-only (packages/octocode-mcp/src/tools/toolFilters.ts).
@@ -146,7 +135,8 @@ describe('executeDirectTool - invalid input handling (finding 3)', () => {
             repo: 'Hello-World',
             mainResearchGoal: 'Verify clone gate is MCP-only',
             researchGoal: 'Confirm tools-core does not gate on ENABLE_CLONE',
-            reasoning: 'Architectural decision: clone gating belongs in the MCP layer',
+            reasoning:
+              'Architectural decision: clone gating belongs in the MCP layer',
           },
         ],
       }
@@ -154,7 +144,8 @@ describe('executeDirectTool - invalid input handling (finding 3)', () => {
 
     // tools-core must NOT return a cloneDisabled error — that code was removed.
     // The call may error for other reasons (network, auth) but not clone gating.
-    const structured = result.structuredContent as { error?: { code?: string } } | undefined;
+    const structured = result.structuredContent as
+      { error?: { code?: string } } | undefined;
     expect(structured?.error?.code).not.toBe('cloneDisabled');
   });
 
@@ -172,8 +163,10 @@ describe('executeDirectTool - invalid input handling (finding 3)', () => {
             repo: 'Hello-World',
             path: 'README.md',
             mainResearchGoal: 'Verify directory fetch clone gate is MCP-only',
-            researchGoal: 'Confirm tools-core does not gate directory fetch on ENABLE_CLONE',
-            reasoning: 'Architectural decision: clone gating belongs in the MCP layer',
+            researchGoal:
+              'Confirm tools-core does not gate directory fetch on ENABLE_CLONE',
+            reasoning:
+              'Architectural decision: clone gating belongs in the MCP layer',
           },
         ],
       }

@@ -6,53 +6,38 @@ import {
 } from '../../../src/tools/local_ripgrep/scheme.js';
 
 describe('localSearchCode schema', () => {
-  const baseQuery = { keywords: 'token', path: '/repo' };
+  const baseQuery = { searchText: 'token', path: '/repo' };
 
-  it('rejects contradictory case flags', () => {
-    const result = LocalRipgrepQuerySchema.safeParse({
-      ...baseQuery,
-      caseSensitive: true,
-      caseInsensitive: true,
-    });
-
-    expect(result.success).toBe(false);
-    if (!result.success) {
+  it('accepts the caseMode enum values', () => {
+    for (const caseMode of ['smart', 'sensitive', 'insensitive'] as const) {
       expect(
-        result.error.issues.map(issue => issue.message).join('\n')
-      ).toMatch(/caseSensitive and caseInsensitive are mutually exclusive/);
+        LocalRipgrepQuerySchema.safeParse({ ...baseQuery, caseMode }).success
+      ).toBe(true);
     }
   });
 
-  it('rejects multilineDotall without multiline', () => {
+  it('rejects an invalid caseMode value', () => {
     const result = LocalRipgrepQuerySchema.safeParse({
       ...baseQuery,
-      multilineDotall: true,
+      caseMode: 'both',
     });
-
     expect(result.success).toBe(false);
-    if (!result.success) {
-      expect(
-        result.error.issues.map(issue => issue.message).join('\n')
-      ).toMatch(/multilineDotall requires multiline=true/);
-    }
   });
 
-  it('accepts multilineDotall when multiline is enabled', () => {
+  it('accepts multiline:"dotall"', () => {
     const result = LocalRipgrepQuerySchema.safeParse({
       ...baseQuery,
-      multiline: true,
-      multilineDotall: true,
+      multiline: 'dotall',
     });
 
     expect(result.success).toBe(true);
   });
 
-  it('accepts unique matched values when onlyMatching is enabled', () => {
+  it('accepts unique output when output is "matchOnly"', () => {
     const result = LocalRipgrepQuerySchema.safeParse({
       ...baseQuery,
-      onlyMatching: true,
-      unique: true,
-      countUnique: true,
+      output: 'matchOnly',
+      unique: 'count',
     });
 
     expect(result.success).toBe(true);
@@ -66,47 +51,34 @@ describe('localSearchCode schema', () => {
 
     expect(result.success).toBe(false);
     if (!result.success) {
-      expect(result.error.issues.map(issue => issue.message).join('\n')).toMatch(
+      expect(
+        result.error.issues.map(issue => issue.message).join('\n')
+      ).toMatch(
         /Unrecognized key.*semanticRanking|unrecognized.*semanticRanking/i
       );
     }
   });
 
-  it('rejects unique matched values without onlyMatching', () => {
+  it('rejects unique output without output:"matchOnly"', () => {
     const result = LocalRipgrepQuerySchema.safeParse({
       ...baseQuery,
-      unique: true,
+      unique: 'list',
     });
 
     expect(result.success).toBe(false);
     if (!result.success) {
       expect(
         result.error.issues.map(issue => issue.message).join('\n')
-      ).toMatch(/unique requires onlyMatching:true/);
+      ).toMatch(/unique requires output:"matchOnly"/);
     }
   });
 
-  it('rejects countUnique without onlyMatching', () => {
-    const result = LocalRipgrepQuerySchema.safeParse({
-      ...baseQuery,
-      countUnique: true,
-    });
-
-    expect(result.success).toBe(false);
-    if (!result.success) {
-      expect(
-        result.error.issues.map(issue => issue.message).join('\n')
-      ).toMatch(/countUnique requires onlyMatching:true/);
-    }
-  });
-
-  it('rejects unique/countUnique in structural mode', () => {
+  it('rejects a non-default unique enum in structural mode', () => {
     const result = LocalRipgrepQuerySchema.safeParse({
       path: '/repo',
       mode: 'structural',
       pattern: 'eval($X)',
-      unique: true,
-      countUnique: true,
+      unique: 'count',
     });
 
     expect(result.success).toBe(false);
@@ -120,8 +92,8 @@ describe('localSearchCode schema', () => {
   it('keeps bulk parsing relaxed so execution can report per-query errors', () => {
     const result = LocalRipgrepBulkQuerySchema.safeParse({
       queries: [
-        { ...baseQuery, caseSensitive: true, caseInsensitive: true },
-        { ...baseQuery, keywords: 'valid' },
+        { ...baseQuery, unique: 'list' },
+        { ...baseQuery, searchText: 'valid' },
       ],
     });
 

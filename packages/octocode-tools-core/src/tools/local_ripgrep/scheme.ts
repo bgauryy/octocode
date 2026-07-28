@@ -1,6 +1,10 @@
 import { z } from 'zod';
 import { RipgrepQuerySchema as CoreRipgrepQuerySchema } from '@octocodeai/octocode-core/schemas';
-import { MAX_MATCH_CONTENT_LENGTH, MAX_PAGE_NUMBER } from '../../config.js';
+import {
+  LOCAL_MAX_DEPTH,
+  MAX_MATCH_CONTENT_LENGTH,
+  MAX_PAGE_NUMBER,
+} from '../../config.js';
 import {
   clampedInt,
   contextLinesField,
@@ -11,11 +15,11 @@ import {
   createQueryShapeSchema,
   describeQuerySchema,
 } from '../../scheme/coreSchemas.js';
-import { bulkOutputEnvelopeFields } from '../../scheme/responseEnvelope.js';
-import {
-  LocalItemPaginationSchema,
-  ToolContinuationSchema,
+import type {
+  LocalItemPagination,
+  ToolContinuation,
 } from '../../scheme/pagination.js';
+import type { BulkToolOutput } from '../../types/toolOutput.js';
 
 const LOCAL_SEARCH_MODES = [
   'paginated',
@@ -35,39 +39,52 @@ const REMOVED_CORE_FIELDS = ['semanticRanking'] as const;
 
 const queryOverrides = {
   // This `mode` selects the SEARCH ALGORITHM (paginated/discovery/detailed/
-  // structural). It's unrelated to the nested `patches.mode` on
-  // ghHistoryResearch (diff detail level) — different concepts sharing this
+  // structural). It's unrelated to the nested `content.patches.mode` on
+  // ghSearchPullRequests (diff detail level) — different concepts sharing this
   // field name across tools.
   mode: z
     .enum(LOCAL_SEARCH_MODES)
     .optional()
     .default('paginated')
     .describe(
-      '"paginated" snippets; "discovery" paths only; "detailed" snippets plus context; "structural" AST/code-shape search with pattern or rule. Structural matches return line/capture anchors that can feed lspGetSemantics when symbol identity matters. (Unrelated to ghHistoryResearch\'s `patches.mode` — different concepts sharing this name.)'
+      '"paginated" snippets; "discovery" paths only; "detailed" snippets plus context; "structural" AST/code-shape search with pattern or rule. Structural matches return line/capture anchors that can feed lspGetSemantics when symbol identity matters. (Unrelated to ghSearchPullRequests\'s `content.patches.mode` — different concepts sharing this name.)'
     ),
   // A single text/regex pattern (unlike ghSearchCode/ghSearchRepos, where
   // `keywords` is an ARRAY of ANDed terms) — passing an array here fails
   // validation.
-  keywords: z
+  searchText: z
     .string()
     .optional()
     .describe(
-      'The search pattern (text or regex). Set fixedString:true for a literal match, or perlRegex:true for advanced regex features (lookaheads, backreferences). (Unlike ghSearchCode/ghSearchRepos, where `keywords` is an array of ANDed terms — this is a single string.)'
+      'The search pattern. regex:"fixed" for a literal match, "perl" for advanced features (lookaheads, backreferences), else "smart". (Unlike ghSearchCode/ghSearchRepos, where `keywords` is an array of ANDed terms — this is a single string.)'
     ),
-  // Filters SEARCH RESULTS down to matching file paths (drops line content).
-  // Unrelated to localViewStructure's `filesOnly`, which instead filters a
-  // directory LISTING down to file entries (excluding subdirectories).
-  filesOnly: z
-    .boolean()
+  // The `output` enum's "files"/"filesWithout" shapes drop line content down to
+  // matching / non-matching file paths. Unrelated to localViewStructure's
+  // `filesOnly`, which instead filters a directory LISTING to file entries.
+  output: z
+    .enum([
+      'content',
+      'files',
+      'filesWithout',
+      'countLines',
+      'countMatches',
+      'matchOnly',
+    ])
     .optional()
+    .default('content')
     .describe(
-      "Returns matching file paths without line content. Mutually exclusive with filesWithoutMatch. (Unlike localViewStructure's `filesOnly`, which filters a directory listing to file entries only — a different concept sharing this name.)"
+      '"content" (default) matches with line text; "files"/"filesWithout" return matching/non-matching paths; "countLines"/"countMatches" return per-file counts; "matchOnly" returns just the matched substring (required for unique/matchWindow). ("files" is unlike localViewStructure\'s `filesOnly`, which filters a directory listing to file entries.)'
     ),
   pattern: z
     .string()
     .optional()
     .describe(
-      'Structural only: code-shaped AST pattern with $X (one node) or $$$ARGS (node list). Use this to find syntax shape, then use lspGetSemantics for semantic proof.'
+      'Structural only: code-shaped AST pattern with $X (one node) or $$$ARGS (node list). Modifiers are part of the node — `function $NAME` does not match `async function` or `export function`; include the modifiers or use a YAML `kind` rule for modifier-agnostic matches. Use this to find syntax shape, then use lspGetSemantics for semantic proof.'
+    ),
+  maxDepth: clampedInt(0, LOCAL_MAX_DEPTH)
+    .optional()
+    .describe(
+      'Keep files at most this many directory levels below the search root (0 = files directly in the root). Structural mode pushes this into the native walker; text/regex mode applies it after the native search and emits a warning when it filters deeper matches.'
     ),
   rule: z
     .string()
@@ -78,27 +95,43 @@ const queryOverrides = {
   contextLines: contextLinesField,
   matchContentLength: clampedInt(1, MAX_MATCH_CONTENT_LENGTH)
     .optional()
-    .default(500),
+    .default(500)
+    .describe(
+      'Max characters of matched-line content kept per hit (default 500; longer lines are truncated).'
+    ),
   maxMatchesPerFile: clampedInt(1, MAX_MATCH_CONTENT_LENGTH).optional(),
   maxFiles: clampedInt(1, MAX_MATCH_CONTENT_LENGTH).optional(),
   matchPage: relaxedPageNumberField.optional(),
   itemsPerPage: clampedInt(1, MAX_PAGE_NUMBER).optional(),
   page: relaxedPageNumberField.default(1),
   unique: z
-    .boolean()
+    .enum(['off', 'list', 'count'])
     .optional()
-    .describe('With onlyMatching, return each matched value once per file.'),
-  countUnique: z
-    .boolean()
-    .optional()
+    .default('off')
     .describe(
-      'With onlyMatching, return each matched value once per file with its frequency.'
+      'Needs output:"matchOnly". "list" returns each matched value once per file; "count" adds its frequency.'
     ),
 } as const;
 
 const bulkQueryOverrides = {
   ...queryOverrides,
-  semanticRanking: z.never().optional(),
+  // Disabled feature: reject loudly instead of z.never()'s opaque type error —
+  // the field is still visible in older clients/docs, so the rejection must
+  // say WHY and what to do.
+  semanticRanking: z
+    .unknown()
+    .optional()
+    .superRefine((v, ctx) => {
+      if (v === undefined) return;
+      ctx.addIssue({
+        code: 'custom',
+        message:
+          'semanticRanking is disabled in this build — sort:"relevance" already includes declaration/export/AST signals; remove this field.',
+      });
+    })
+    .describe(
+      'DISABLED in this build — do not pass. sort:"relevance" already includes declaration/export/AST signals.'
+    ),
 } as const;
 
 const RipgrepQueryShape = createQueryShapeSchema(
@@ -115,82 +148,117 @@ const LocalRipgrepBaseQuerySchema = describeQuerySchema(
   { strict: true, omit: REMOVED_CORE_FIELDS }
 );
 
+// The mutually-exclusive boolean clusters were collapsed to enums in
+// @octocodeai/octocode-core (regex/caseMode/multiline/output/unique), so those
+// pairings are now impossible by construction. describeQuerySchema rebuilds the
+// object from its shape and DROPS the core superRefine, so this local schema
+// must re-assert the full cross-field contract itself (mirrors the core
+// superRefine in localSearchCode.ts). Enum fields carry defaults, so they are
+// always defined here — a non-default value is an explicit agent choice.
 export const LocalRipgrepQuerySchema = LocalRipgrepBaseQuerySchema.superRefine(
   (query, ctx) => {
-    const ripgrepQuery = query as typeof query & {
-      unique?: boolean;
-      countUnique?: boolean;
-    };
-    if (ripgrepQuery.caseSensitive && ripgrepQuery.caseInsensitive) {
-      ctx.addIssue({
-        code: 'custom',
-        message: 'caseSensitive and caseInsensitive are mutually exclusive.',
-        path: ['caseSensitive'],
-      });
-    }
-    if (ripgrepQuery.fixedString && ripgrepQuery.perlRegex) {
-      ctx.addIssue({
-        code: 'custom',
-        message: 'fixedString and perlRegex are mutually exclusive.',
-        path: ['fixedString'],
-      });
-    }
-    if (ripgrepQuery.filesOnly && ripgrepQuery.filesWithoutMatch) {
-      ctx.addIssue({
-        code: 'custom',
-        message: 'filesOnly and filesWithoutMatch are mutually exclusive.',
-        path: ['filesOnly'],
-      });
-    }
-    if (ripgrepQuery.countLinesPerFile && ripgrepQuery.countMatchesPerFile) {
-      ctx.addIssue({
-        code: 'custom',
-        message:
-          'countLinesPerFile and countMatchesPerFile are mutually exclusive.',
-        path: ['countLinesPerFile'],
-      });
-    }
-    if (ripgrepQuery.multilineDotall && !ripgrepQuery.multiline) {
-      ctx.addIssue({
-        code: 'custom',
-        message: 'multilineDotall requires multiline=true.',
-        path: ['multilineDotall'],
-      });
-    }
-    if (ripgrepQuery.mode === 'structural') {
-      for (const field of ['unique', 'countUnique'] as const) {
-        if (ripgrepQuery[field]) {
-          ctx.addIssue({
-            code: 'custom',
-            message: `\`${field}\` is not valid with mode:"structural".`,
-            path: [field],
-          });
-        }
+    if (query.mode === 'structural') {
+      if (!query.pattern && !query.rule) {
+        ctx.addIssue({
+          code: 'custom',
+          message: 'mode:"structural" requires `pattern` or `rule`.',
+          path: ['pattern'],
+        });
+      }
+      if (query.pattern && query.rule) {
+        ctx.addIssue({
+          code: 'custom',
+          message: '`pattern` and `rule` are mutually exclusive.',
+          path: ['rule'],
+        });
+      }
+      // Search knobs are meaningless on an AST query — reject non-default values.
+      if (query.wholeWord) {
+        ctx.addIssue({
+          code: 'custom',
+          message: '`wholeWord` is not valid with mode:"structural".',
+          path: ['wholeWord'],
+        });
+      }
+      if (query.invertMatch) {
+        ctx.addIssue({
+          code: 'custom',
+          message: '`invertMatch` is not valid with mode:"structural".',
+          path: ['invertMatch'],
+        });
+      }
+      if (query.regex && query.regex !== 'smart') {
+        ctx.addIssue({
+          code: 'custom',
+          message: '`regex` is not valid with mode:"structural".',
+          path: ['regex'],
+        });
+      }
+      if (query.caseMode && query.caseMode !== 'smart') {
+        ctx.addIssue({
+          code: 'custom',
+          message: '`caseMode` is not valid with mode:"structural".',
+          path: ['caseMode'],
+        });
+      }
+      if (query.multiline && query.multiline !== 'off') {
+        ctx.addIssue({
+          code: 'custom',
+          message: '`multiline` is not valid with mode:"structural".',
+          path: ['multiline'],
+        });
+      }
+      if (query.output && query.output !== 'content') {
+        ctx.addIssue({
+          code: 'custom',
+          message: '`output` is not valid with mode:"structural".',
+          path: ['output'],
+        });
+      }
+      if (query.unique && query.unique !== 'off') {
+        ctx.addIssue({
+          code: 'custom',
+          message: '`unique` is not valid with mode:"structural".',
+          path: ['unique'],
+        });
       }
       return;
     }
-
-    if (ripgrepQuery.unique && !ripgrepQuery.onlyMatching) {
+    if (query.pattern || query.rule) {
       ctx.addIssue({
         code: 'custom',
-        message: 'unique requires onlyMatching:true.',
-        path: ['unique'],
+        message: '`pattern`/`rule` require mode:"structural".',
+        path: [query.pattern ? 'pattern' : 'rule'],
       });
     }
-    if (ripgrepQuery.countUnique && !ripgrepQuery.onlyMatching) {
+    if (!query.searchText) {
       ctx.addIssue({
         code: 'custom',
-        message: 'countUnique requires onlyMatching:true.',
-        path: ['countUnique'],
+        message: '`searchText` is required unless mode:"structural".',
+        path: ['searchText'],
+      });
+    }
+    if (query.matchWindow !== undefined && query.output !== 'matchOnly') {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'matchWindow requires output:"matchOnly".',
+        path: ['matchWindow'],
+      });
+    }
+    if (
+      (query.unique === 'list' || query.unique === 'count') &&
+      query.output !== 'matchOnly'
+    ) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'unique requires output:"matchOnly".',
+        path: ['unique'],
       });
     }
   }
 );
 
-export type RipgrepQuery = z.infer<typeof LocalRipgrepQuerySchema> & {
-  unique?: boolean;
-  countUnique?: boolean;
-};
+export type RipgrepQuery = z.infer<typeof LocalRipgrepQuerySchema>;
 
 export const LocalRipgrepBulkQuerySchema = createRelaxedBulkQuerySchema(
   RipgrepQueryShape,
@@ -198,87 +266,71 @@ export const LocalRipgrepBulkQuerySchema = createRelaxedBulkQuerySchema(
 );
 
 // ---------------------------------------------------------------------------
-// Output schema — describes what localSearchCode returns per query result row.
+// Output TYPES — describes what localSearchCode returns per query result row.
+// No zod: the MCP server registers no outputSchema, so the output is a plain
+// type. Shared envelope lives in types/toolOutput.ts.
 // ---------------------------------------------------------------------------
 
-const SearchMatchSchema = z.object({
-  line: z.number(),
-  endLine: z.number().optional(),
-  value: z.string().optional(),
-  column: z.number().optional(),
-  endColumn: z.number().optional(),
-  count: z.number().optional(),
+export interface LocalSearchMatch {
+  line: number;
+  endLine?: number;
+  value?: string;
+  column?: number;
+  endColumn?: number;
+  count?: number;
   /** AST node-kind label when classifyMatches ran (declaration|callsite|…). */
-  kind: z.string().optional(),
+  kind?: string;
   /** Deterministic hint derived from kind (0.0..1.0); not a ranker score. */
-  scoreHint: z.number().optional(),
-  metavars: z.record(z.string(), z.array(z.string())).optional(),
-  metavarRanges: z
-    .record(
-      z.string(),
-      z.array(
-        z.object({
-          text: z.string(),
-          line: z.number(),
-          column: z.number(),
-          endLine: z.number(),
-          endColumn: z.number(),
-        })
-      )
-    )
-    .optional(),
-});
+  scoreHint?: number;
+  metavars?: Record<string, string[]>;
+  metavarRanges?: Record<
+    string,
+    Array<{
+      text: string;
+      line: number;
+      column: number;
+      endLine: number;
+      endColumn: number;
+    }>
+  >;
+}
 
-const SearchFileSchema = z.object({
-  path: z.string(),
-  matches: z.array(SearchMatchSchema).optional(),
-  totalOccurrences: z.number().optional(),
-  totalMatchedLines: z.number().optional(),
-  totalMatchRows: z.number().optional(),
-  returnedMatchRows: z.number().optional(),
-  ranking: z
-    .object({
-      score: z.number(),
-      profile: z.string().optional(),
-      pathRole: z.string().optional(),
-      reasons: z.array(z.string()).optional(),
-    })
-    .optional(),
-  matchPagination: LocalItemPaginationSchema.optional(),
-  pagination: LocalItemPaginationSchema.optional(),
-  next: z.record(z.string(), ToolContinuationSchema).optional(),
-});
+export interface LocalSearchFile {
+  path: string;
+  absolutePath?: string;
+  uri?: string;
+  matches?: LocalSearchMatch[];
+  totalOccurrences?: number;
+  totalMatchedLines?: number;
+  totalMatchRows?: number;
+  returnedMatchRows?: number;
+  ranking?: {
+    score: number;
+    profile?: string;
+    pathRole?: string;
+    reasons?: string[];
+  };
+  matchPagination?: LocalItemPagination;
+  pagination?: LocalItemPagination;
+  next?: Record<string, ToolContinuation>;
+}
 
-const LocalSearchCodeDataSchema = z.object({
-  files: z.array(SearchFileSchema).optional(),
-  summary: z.string().optional(),
-  searchEngine: z.string().optional(),
-  stats: z
-    .object({
-      totalOccurrences: z.number().optional(),
-      matchedLines: z.number().optional(),
-      filesMatched: z.number().optional(),
-      filesSearched: z.number().optional(),
-      bytesSearched: z.number().optional(),
-      searchTime: z.string().optional(),
-    })
-    .passthrough()
-    .optional(),
-  pagination: LocalItemPaginationSchema.optional(),
-  next: z.record(z.string(), ToolContinuationSchema).optional(),
-  warnings: z.array(z.string()).optional(),
-});
+export interface LocalSearchCodeData {
+  files?: LocalSearchFile[];
+  summary?: string;
+  searchEngine?: string;
+  stats?: {
+    totalOccurrences?: number;
+    matchedLines?: number;
+    filesMatched?: number;
+    filesSearched?: number;
+    bytesSearched?: number;
+    searchTime?: string;
+    [key: string]: unknown;
+  };
+  pagination?: LocalItemPagination;
+  next?: Record<string, ToolContinuation>;
+  warnings?: string[];
+}
 
-export const LocalSearchCodeOutputSchema = z
-  .object({
-    results: z.array(
-      z.object({
-        id: z.string(),
-        status: z.enum(['empty', 'error']).optional(),
-        data: LocalSearchCodeDataSchema,
-      })
-    ),
-  })
-  .extend(bulkOutputEnvelopeFields);
-
-export type LocalSearchCodeOutput = z.infer<typeof LocalSearchCodeOutputSchema>;
+export type LocalSearchCodeOutput = BulkToolOutput<LocalSearchCodeData>;

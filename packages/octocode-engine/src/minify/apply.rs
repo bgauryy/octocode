@@ -1,7 +1,6 @@
 use crate::comment_remover::remove_comments;
-use crate::config::{indentation_sensitive_names, minify_config};
 use crate::file_extension::get_extension_internal;
-use crate::minifier::{minify_content_sync_inner, MAX_SIZE};
+use crate::minifier::{get_file_config, minify_content_sync_inner, MAX_SIZE};
 use crate::strategies::{
     minify_code_core, minify_css_quality, minify_embedded_web, minify_general_core, minify_js_oxc,
     minify_json_readable_inner, minify_markdown_core,
@@ -26,17 +25,15 @@ pub fn apply_content_view_minification_inner(content: &str, file_path: &str) -> 
     }
     let result = std::panic::catch_unwind(|| {
         let ext = get_extension_internal(file_path, true, "txt");
-        let basename = file_path
-            .rsplit(['/', '\\'])
-            .next()
-            .unwrap_or(file_path)
-            .to_lowercase();
-
-        let cfg = if indentation_sensitive_names().contains(basename.as_str()) {
-            minify_config().get("sh")
-        } else {
-            minify_config().get(ext.as_str())
-        };
+        // Resolve the file-type config through the SAME shared resolver the full
+        // minify path uses (`minifier::get_file_config`) rather than re-deriving
+        // the basename / indentation-sensitive lookup here. The two entry points
+        // otherwise drift silently — e.g. a new indentation-sensitive name added
+        // to `get_file_config` would never reach the content view. `ext` is still
+        // derived locally for the family checks below, because css and html both
+        // map to the "aggressive" strategy and strategy alone can't tell them
+        // apart (css → css_quality, html → embedded_web).
+        let cfg = get_file_config(file_path);
 
         if matches!(ext.as_str(), "json" | "jsonc" | "json5") {
             let (out, _) = minify_json_readable_inner(content);
@@ -216,6 +213,22 @@ mod tests {
         );
         assert!(!out.contains("footer"), "comment dropped: {out}");
         assert!(out.contains("<h1>Title</h1>"));
+    }
+
+    // ── shared config resolver (drift guard) ────────────────────────────────
+    #[test]
+    fn content_view_uses_shared_config_resolver_for_indentation_sensitive_names() {
+        // "Makefile" has no extension; only the shared `get_file_config` maps
+        // indentation-sensitive basenames to the "sh" config (hash comments).
+        // If the content view re-derived config inline and drifted, the comment
+        // would survive. This guards that both entry points share one resolver.
+        let src = "all:\n\t# build step comment\n\techo hi\n";
+        let out = apply_content_view_minification_inner(src, "Makefile");
+        assert!(
+            !out.contains("build step comment"),
+            "hash comment must be stripped via the shared sh config: {out}"
+        );
+        assert!(out.contains("echo hi"), "recipe body preserved: {out}");
     }
 
     // ── size cap ──────────────────────────────────────────────────────────────

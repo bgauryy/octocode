@@ -10,27 +10,29 @@ import {
   createQueryShapeSchema,
   describeQuerySchema,
 } from '../../scheme/coreSchemas.js';
-import { bulkOutputEnvelopeFields } from '../../scheme/responseEnvelope.js';
-import {
-  LocalItemPaginationSchema,
-  ToolContinuationSchema,
+import type {
+  LocalItemPagination,
+  ToolContinuation,
 } from '../../scheme/pagination.js';
+import type { BulkToolOutput } from '../../types/toolOutput.js';
 
 const queryOverrides = {
   maxDepth: clampedInt(0, 100).optional(),
   minDepth: clampedInt(0, 100).optional(),
-  limit: clampedInt(1, LOCAL_MAX_LIMIT).optional(),
+  limit: clampedInt(1, LOCAL_MAX_LIMIT)
+    .optional()
+    .describe(
+      'Discovery cap applied after sort, before pagination — total results are capped here; itemsPerPage/page page within that cap.'
+    ),
   page: relaxedPageNumberField.default(1),
   itemsPerPage: clampedInt(1, LOCAL_MAX_FILES_PER_PAGE).optional(),
-  // Core's description promises default vendor/build-dir exclusions, but the
-  // executor DELIBERATELY excludes nothing (findFiles.ts: find must never
-  // silently hide real files). Override the prose to match actual behavior
-  // until core's text is fixed.
+  // Core's description can lag runtime behavior. The executor prunes common
+  // generated/vendor dirs by default but honors excludeDir: [] to prune nothing.
   excludeDir: z
     .array(z.string())
     .optional()
     .describe(
-      'Directory names to prune from the walk (e.g. ["node_modules","dist","coverage"]). NOTHING is excluded by default — results include build output and vendor dirs unless you pass this explicitly.'
+      'Directory names to prune from the walk. Common generated/vendor dirs are pruned by default (node_modules, .git, dist, build, out, coverage, target, .next, .cache); pass [] to prune nothing, or pass an explicit list to choose pruned dirs.'
     ),
 } as const;
 
@@ -82,40 +84,28 @@ export const LocalFindFilesBulkQuerySchema = createRelaxedBulkQuerySchema(
 );
 
 // ---------------------------------------------------------------------------
-// Output schema — describes what localFindFiles returns per query result.
+// Output TYPES — localFindFiles result shape. No zod: the output was never
+// validated at runtime (MCP registers no outputSchema), so it is a plain type.
+// Shared envelope lives in types/toolOutput.ts.
 // ---------------------------------------------------------------------------
 
-const FindFilesEntrySchema = z.object({
-  name: z.string().optional(),
-  path: z.string().optional(),
-  type: z.enum(['file', 'dir', 'directory', 'link', 'symlink']).optional(),
-  size: z.union([z.number(), z.string()]).optional(),
-  sizeFormatted: z.string().optional(),
-  modified: z.string().optional(),
-  accessed: z.string().optional(),
-  created: z.string().optional(),
-  permissions: z.string().optional(),
-});
+export interface LocalFindFilesEntryOutput {
+  name?: string;
+  path?: string;
+  type?: 'file' | 'dir' | 'directory' | 'link' | 'symlink';
+  size?: number | string;
+  sizeFormatted?: string;
+  modified?: string;
+  permissions?: string;
+}
 
-const LocalFindFilesDataSchema = z.object({
-  path: z.string().optional(),
-  files: z.array(FindFilesEntrySchema).optional(),
-  summary: z.string().optional(),
-  pagination: LocalItemPaginationSchema.optional(),
-  next: z.record(z.string(), ToolContinuationSchema).optional(),
-  warnings: z.array(z.string()).optional(),
-});
+export interface LocalFindFilesData {
+  path?: string;
+  files?: LocalFindFilesEntryOutput[];
+  summary?: string;
+  pagination?: LocalItemPagination;
+  next?: Record<string, ToolContinuation>;
+  warnings?: string[];
+}
 
-export const LocalFindFilesOutputSchema = z
-  .object({
-    results: z.array(
-      z.object({
-        id: z.string(),
-        status: z.enum(['empty', 'error']).optional(),
-        data: LocalFindFilesDataSchema,
-      })
-    ),
-  })
-  .extend(bulkOutputEnvelopeFields);
-
-export type LocalFindFilesOutput = z.infer<typeof LocalFindFilesOutputSchema>;
+export type LocalFindFilesOutput = BulkToolOutput<LocalFindFilesData>;

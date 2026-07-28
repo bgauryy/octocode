@@ -69,6 +69,7 @@ describe('Finding 4 — Direct installer removed (RCE/supply-chain risk)', () =>
   it('npx is the only supported method', () => {
     const config = getOctocodeServerConfig('npx');
     expect(config.command).toBe('npx');
-    expect(config.args).toEqual(['-y', '@octocodeai/mcp@latest']);
+    expect(config.type).toBe('stdio');
+    expect(config.args).toEqual(['octocode-mcp@latest']);
   });
 });

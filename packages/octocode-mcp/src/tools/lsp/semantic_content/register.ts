@@ -1,6 +1,5 @@
 import {
   BulkLspGetSemanticsQuerySchema,
-  LspGetSemanticsOutputSchema,
   executeLspGetSemantics,
   LSP_GET_SEMANTICS_TOOL_NAME,
 } from '@octocodeai/octocode-tools-core';
@@ -10,6 +9,5 @@ export const registerLspGetSemanticsTool = createBasicToolRegistration({
   name: LSP_GET_SEMANTICS_TOOL_NAME,
   title: 'Get Semantic Content',
   inputSchema: BulkLspGetSemanticsQuerySchema,
-  outputSchema: LspGetSemanticsOutputSchema,
   executionFn: executeLspGetSemantics,
 });

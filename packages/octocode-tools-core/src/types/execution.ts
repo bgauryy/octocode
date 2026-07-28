@@ -13,5 +13,7 @@ export interface ToolExecutionArgs<TQuery> {
 
   sessionId?: string;
 
+  signal?: AbortSignal;
+
   hintContext?: Record<string, unknown>;
 }

@@ -7,6 +7,10 @@ const resolverMocks = vi.hoisted(() => ({
   resolvePositionFromContent: vi.fn(),
 }));
 
+vi.mock('@octocodeai/octocode-engine/lsp/uri', () => ({
+  toUri: (filePath: string) => `file://${filePath}`,
+}));
+
 vi.mock('@octocodeai/octocode-engine/lsp/resolver', () => ({
   SymbolResolutionError: class SymbolResolutionError extends Error {
     constructor(
@@ -62,6 +66,9 @@ describe('resolveSymbolAnchor', () => {
     );
 
     expect(result.ok).toBe(true);
+    expect(result.value.uri).toBe(`file://${filePath}`);
+    expect(result.value.absolutePath).toBe(filePath);
+    expect(result.value.resolvedSymbol.uri).toBe(`file://${filePath}`);
     expect(resolverMocks.resolvePosition).not.toHaveBeenCalled();
     expect(resolverMocks.resolvePositionFromContent).toHaveBeenCalledWith(
       content,

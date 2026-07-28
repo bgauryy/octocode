@@ -88,8 +88,8 @@ describe('PR search — nonexistent entity degrades to empty, not error', () => 
     });
 
     expect(result.error).toBeUndefined();
-    expect(result.pull_requests).toEqual([]);
-    expect(result.total_count).toBe(0);
+    expect(result.pullRequests).toEqual([]);
+    expect(result.totalCount).toBe(0);
     expect(result.pagination?.hasMore).toBe(false);
   });
 
@@ -113,6 +113,6 @@ describe('PR search — nonexistent entity degrades to empty, not error', () => 
     });
 
     expect(result.error).toBeDefined();
-    expect(result.pull_requests).toEqual([]);
+    expect(result.pullRequests).toEqual([]);
   });
 });

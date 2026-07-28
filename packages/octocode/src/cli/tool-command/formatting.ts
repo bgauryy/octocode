@@ -145,10 +145,6 @@ export function getToolPreviewLines(toolName: string): string[] {
     return getFieldPreviewLines(toolName, 'type');
   }
 
-  if (toolName === 'ghHistoryResearch') {
-    return getFieldPreviewLines(toolName, 'type');
-  }
-
   if (toolName === 'ghSearchCode') {
     return ['keywords: array<string> (AND terms)'];
   }

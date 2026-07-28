@@ -30,10 +30,10 @@ If there are 20+ issues, triage the top 10 by impact and confidence, then separa
 - When the user chooses repairs, load `references/redemption-flow.md` — turn findings into consent-gated fixes and verification.
 - When scope spans a monorepo or many categories, load `references/parallel-roasting.md` — divide inspection without duplicating findings.
 - When research tooling is needed, load `references/octocode.md` and use `octocode-research` if available — verify before joking; mark reduced coverage otherwise.
-- When improving this skill, prefer `octocode-eval`; otherwise load `references/improve-loop.md` — require an accept/revert criterion.
+- When improving this skill, prefer `octocode-graph-eval`; otherwise load `references/improve-loop.md` — require an accept/revert criterion.
 
 ## Related routes
-- Use `octocode-research` for evidence gathering; `octocode-eval` to measure roast usefulness; `octocode-prompt-optimizer` only for tone/instruction wording.
+- Use `octocode-research` for evidence gathering; `octocode-graph-eval` to measure roast usefulness; `octocode-prompt-optimizer` only for tone/instruction wording.
 - Use `octocode-awareness` when reviewing live shared work; `octocode-skills` when changing this skill folder.
 
 ## Output

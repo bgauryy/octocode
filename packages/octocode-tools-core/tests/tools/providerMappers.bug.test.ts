@@ -125,7 +125,9 @@ describe('mapRepoSearchProviderRepositories – owner/repo split (Bug #3)', () =
   }
 
   it('splits a standard owner/repo fullPath', () => {
-    const [result] = mapRepoSearchProviderRepositories([makeRepo('facebook/react')]);
+    const [result] = mapRepoSearchProviderRepositories([
+      makeRepo('facebook/react'),
+    ]);
     expect(result.owner).toBe('facebook');
     expect(result.repo).toBe('react');
   });

@@ -4,6 +4,7 @@ import {
   nativeSanitizeContent,
   nativeMaskSensitiveData,
   nativePatternCount,
+  getSecurityBackendStatus,
 } from '../../src/security/native.js';
 
 const FAKE_GH_TOKEN = 'ghp_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
@@ -88,6 +89,10 @@ describe('native security wrappers (JS fallback path)', () => {
     const count = nativePatternCount();
     expect(typeof count).toBe('number');
     expect(count).toBeGreaterThan(0);
+  });
+
+  it('reports fallback backend status when JS fallback is forced', () => {
+    expect(getSecurityBackendStatus()).toEqual({ backend: 'fallback' });
   });
 });
 

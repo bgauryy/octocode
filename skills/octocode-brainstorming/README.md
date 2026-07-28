@@ -47,14 +47,7 @@ npx octocode skill --name octocode-brainstorming
 
 ## Configuration — web search keys
 
-The skill runs web research via Tavily, Serper, and/or Exa. Put your keys in the **unified Octocode env file**, at `<octocode-home>/.env` — not in a skill-local `.env`. The Octocode home directory is resolved by `getOctocodeHome()` (`@octocodeai/config`) and is **platform-specific**, not just `~/.octocode`:
-
-| Platform | Octocode home | `.env` path |
-|---|---|---|
-| macOS | `~/.octocode` | `~/.octocode/.env` |
-| Linux | `${XDG_CONFIG_HOME:-~/.config}/.octocode` | `~/.config/.octocode/.env` (default) |
-| Windows | `%APPDATA%\.octocode` | `%APPDATA%\.octocode\.env` |
-| any platform | `$OCTOCODE_HOME` (override, if set) | `$OCTOCODE_HOME/.env` |
+The skill runs web research via Tavily, Serper, and/or Exa. Put your keys in the **unified Octocode env file**, at `<octocode-home>/.env` — not in a skill-local `.env`. The Octocode home directory is resolved by `getOctocodeHome()` (`@octocodeai/config`): by default it is `~/.octocode` on every platform (`path.join(homedir(), '.octocode')`), or `$OCTOCODE_HOME` when that override is set.
 
 ```bash
 # example content, regardless of which path above applies to your platform:
@@ -63,15 +56,15 @@ SERPER_API_KEY=...
 EXA_API_KEY=...
 ```
 
-Never assume `~/.octocode` — always resolve the path (`npx @octocodeai/config` prints the effective home; or call `getOctocodeHome()`) before reading or writing this file, since Linux and Windows use a different default than macOS.
+Use `~/.octocode` by default; if `OCTOCODE_HOME` may be set, resolve the effective path with `npx @octocodeai/config` or `getOctocodeHome()` before reading or writing this file.
 
 Get keys: [Tavily](https://app.tavily.com/) · [Serper](https://serper.dev/) · [Exa](https://dashboard.exa.ai/) · any one is enough, more gives redundancy/fallback.
 
 **How the keys reach the skill:**
-- Under the `octocode-agent` / Pi extension — `propagateOctocodeEnv` runs at session start and injects `<octocode-home>/.env` (per the table above) into `process.env`. Every subprocess (bash calls, hooks, script invocations) inherits the full env automatically.
-- When the scripts are run standalone from the published build — `octocode-config.mjs` is bundled alongside each script and loads the same file directly, using the same cross-platform `getOctocodeHome()` resolution.
+- Under the `octocode-agent` / Pi extension — `propagateOctocodeEnv` runs at session start and injects `<octocode-home>/.env` into `process.env`. Every subprocess (bash calls, hooks, script invocations) inherits the full env automatically.
+- When the scripts are run standalone from the published build — `octocode-config.mjs` is bundled alongside each script and loads the same file directly, using the same `getOctocodeHome()` resolution.
 
-**Key priority (highest to lowest):** `process.env` (shell / agent session) > `<project>/.octocode/.env` (project, when trusted) > `<octocode-home>/.env` (global, per platform table above). The search scripts never overwrite an already-set value.
+**Key priority (highest to lowest):** `process.env` (shell / agent session) > `<project>/.octocode/.env` (project, when trusted) > `<octocode-home>/.env` (global). The search scripts never overwrite an already-set value.
 
 Verify a key is working:
 

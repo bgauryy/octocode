@@ -109,7 +109,13 @@ function loadNativeBinding() {
   throw error
 }
 
-const nativeBinding = loadNativeBinding()
+// Embedded runtimes (Node SEA / compiled single-file builds) pre-load the
+// addon from an embedded asset and publish it on globalThis — the only path
+// that works when this loader is inlined into a bundle with no node_modules
+// on disk. The decoration below mutates that same object, so every consumer
+// (loader exports, lsp/security wrappers, tools-core) shares one binding.
+const nativeBinding =
+  globalThis.__OCTOCODE_ENGINE_BINDING__ ?? loadNativeBinding()
 
 nativeBinding.MINIFY_CONFIG = nativeBinding.getMINIFY_CONFIG()
 nativeBinding.SUPPORTED_SIGNATURE_EXTENSIONS = Object.freeze(

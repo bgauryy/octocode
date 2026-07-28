@@ -5,7 +5,7 @@ import { LocalFindFilesQuerySchema } from '../../../octocode-tools-core/src/tool
 import { LocalViewStructureQuerySchema } from '../../../octocode-tools-core/src/tools/local_view_structure/scheme.js';
 
 describe('localSearchCode langType (one public field)', () => {
-  const base = { keywords: 'foo', path: 'src' };
+  const base = { searchText: 'foo', path: 'src' };
 
   it('accepts langType', () => {
     const result = LocalRipgrepQuerySchema.safeParse({

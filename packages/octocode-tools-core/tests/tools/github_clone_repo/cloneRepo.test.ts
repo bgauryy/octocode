@@ -1,11 +1,4 @@
-import {
-  afterEach,
-  beforeEach,
-  describe,
-  expect,
-  it,
-  vi,
-} from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -29,9 +22,8 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('../../../src/shared/index.js', async importOriginal => {
-  const actual = await importOriginal<
-    typeof import('../../../src/shared/index.js')
-  >();
+  const actual =
+    await importOriginal<typeof import('../../../src/shared/index.js')>();
   return {
     ...actual,
     getOctocodeDir: () => mocks.octocodeDir,
@@ -44,9 +36,8 @@ vi.mock('../../../src/utils/exec/spawn.js', () => ({
     mocks.spawnWithTimeout(...args),
 }));
 
-const { cloneRepo } = await import(
-  '../../../src/tools/github_clone_repo/cloneRepo.js'
-);
+const { cloneRepo } =
+  await import('../../../src/tools/github_clone_repo/cloneRepo.js');
 
 describe('cloneRepo sparse checkout', () => {
   beforeEach(() => {

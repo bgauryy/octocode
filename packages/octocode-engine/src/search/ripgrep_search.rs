@@ -14,7 +14,7 @@
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::{
-    atomic::{AtomicU32, AtomicU64, Ordering},
+    atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
     Arc, Mutex,
 };
 use std::time::{Duration, Instant, SystemTime};
@@ -154,6 +154,8 @@ struct CollectResult {
     files_searched: u32,
     bytes_searched: u64,
     elapsed: Duration,
+    capped: bool,
+    cap_reason: Option<String>,
 }
 
 /// `grep_searcher::Sink` that accumulates matches/contexts for one file and,
@@ -332,9 +334,18 @@ fn build_searcher(opts: &RipgrepSearchOptions, context_lines: u32) -> Searcher {
     sb.build()
 }
 
-fn checked_push(recs: &Mutex<Vec<FileRec>>, rec: FileRec) -> bool {
+fn checked_push(
+    recs: &Mutex<Vec<FileRec>>,
+    rec: FileRec,
+    max_collected_files: Option<usize>,
+    capped: &AtomicBool,
+) -> bool {
     match recs.lock() {
         Ok(mut guard) => {
+            if max_collected_files.is_some_and(|max| guard.len() >= max) {
+                capped.store(true, Ordering::Relaxed);
+                return false;
+            }
             guard.push(rec);
             true
         }
@@ -370,11 +381,17 @@ fn collect<M: Matcher + Sync>(
     let recs = Arc::new(Mutex::new(Vec::<FileRec>::new()));
     let files_searched = Arc::new(AtomicU32::new(0));
     let bytes_searched = Arc::new(AtomicU64::new(0));
+    let capped = Arc::new(AtomicBool::new(false));
+    let max_collected_files = opts
+        .max_collected_files
+        .map(|n| n as usize)
+        .filter(|n| *n > 0);
 
     build_walk_builder(opts)?.build_parallel().run(|| {
         let recs = Arc::clone(&recs);
         let files_searched = Arc::clone(&files_searched);
         let bytes_searched = Arc::clone(&bytes_searched);
+        let capped = Arc::clone(&capped);
         let mut searcher = build_searcher(opts, context_lines);
 
         Box::new(move |dent| {
@@ -431,7 +448,7 @@ fn collect<M: Matcher + Sync>(
                 sort_time: capture_sort_time(opts, &dent),
             };
 
-            if checked_push(&recs, rec) {
+            if checked_push(&recs, rec, max_collected_files, &capped) {
                 WalkState::Continue
             } else {
                 WalkState::Quit
@@ -444,11 +461,14 @@ fn collect<M: Matcher + Sync>(
         std::mem::take(&mut *guard)
     };
 
+    let was_capped = capped.load(Ordering::Relaxed);
     Ok(CollectResult {
         recs,
         files_searched: files_searched.load(Ordering::Relaxed),
         bytes_searched: bytes_searched.load(Ordering::Relaxed),
         elapsed: started.elapsed(),
+        capped: was_capped,
+        cap_reason: was_capped.then(|| "maxCollectedFiles".to_owned()),
     })
 }
 
@@ -503,6 +523,8 @@ fn build_result(
         files_searched,
         bytes_searched,
         elapsed,
+        capped,
+        cap_reason,
     } = collected;
     sort_recs(opts, &mut recs);
 
@@ -568,6 +590,8 @@ fn build_result(
             files_searched: Some(files_searched),
             bytes_searched,
             search_time,
+            capped: Some(capped),
+            cap_reason: cap_reason.clone(),
         },
         Mode::CountLines => RipgrepStats {
             match_count: Some(total_matched_lines),
@@ -576,6 +600,8 @@ fn build_result(
             files_searched: Some(files_searched),
             bytes_searched,
             search_time,
+            capped: Some(capped),
+            cap_reason: cap_reason.clone(),
         },
         Mode::CountMatches => RipgrepStats {
             match_count: Some(total_submatches),
@@ -584,6 +610,8 @@ fn build_result(
             files_searched: Some(files_searched),
             bytes_searched,
             search_time,
+            capped: Some(capped),
+            cap_reason: cap_reason.clone(),
         },
         Mode::FilesOnly | Mode::FilesWithoutMatch => RipgrepStats {
             match_count: Some(total_submatches),
@@ -592,6 +620,8 @@ fn build_result(
             files_searched: Some(files_searched),
             bytes_searched,
             search_time,
+            capped: Some(capped),
+            cap_reason,
         },
     };
 

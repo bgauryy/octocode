@@ -10,13 +10,21 @@ type FilesShape = { files: Array<{ path: string }> };
 // ([z,m,a]) — making the chosen ordering unambiguous.
 const files = (): LocalSearchCodeFile[] =>
   [
-    { path: 'src/z.ts', matchCount: 9, matches: [{ line: 1, column: 0, value: 'foo()' }] },
+    {
+      path: 'src/z.ts',
+      matchCount: 9,
+      matches: [{ line: 1, column: 0, value: 'foo()' }],
+    },
     {
       path: 'src/a.ts',
       matchCount: 1,
       matches: [{ line: 1, column: 0, value: 'export function foo() {}' }],
     },
-    { path: 'src/m.ts', matchCount: 5, matches: [{ line: 1, column: 0, value: 'foo()' }] },
+    {
+      path: 'src/m.ts',
+      matchCount: 5,
+      matches: [{ line: 1, column: 0, value: 'foo()' }],
+    },
   ] as unknown as LocalSearchCodeFile[];
 
 const baseQuery = {
@@ -32,7 +40,11 @@ describe('structural search ordering', () => {
     })) as unknown as FilesShape;
     // AST matches are already precise; order by path (source/position-stable),
     // NOT by the relevance scorer (which would surface matchCount/declaration).
-    expect(r.files.map(f => f.path)).toEqual(['src/a.ts', 'src/m.ts', 'src/z.ts']);
+    expect(r.files.map(f => f.path)).toEqual([
+      'src/a.ts',
+      'src/m.ts',
+      'src/z.ts',
+    ]);
   });
 
   it('still honors an explicit sort on structural mode', async () => {
@@ -40,6 +52,10 @@ describe('structural search ordering', () => {
     const r = (await buildSearchResult(files(), q, 'structural', [], {
       totalStructuralMatches: 15,
     })) as unknown as FilesShape;
-    expect(r.files.map(f => f.path)).toEqual(['src/z.ts', 'src/m.ts', 'src/a.ts']);
+    expect(r.files.map(f => f.path)).toEqual([
+      'src/z.ts',
+      'src/m.ts',
+      'src/a.ts',
+    ]);
   });
 });

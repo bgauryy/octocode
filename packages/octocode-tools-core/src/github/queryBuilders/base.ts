@@ -119,11 +119,9 @@ export abstract class BaseQueryBuilder {
   addEngagementFilters(params: {
     comments?: number | string;
     reactions?: number | string;
-    interactions?: number | string;
   }): this {
     this.addSimpleFilter(params.comments, 'comments');
     this.addSimpleFilter(params.reactions, 'reactions');
-    this.addSimpleFilter(params.interactions, 'interactions');
     return this;
   }
 

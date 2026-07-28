@@ -3,7 +3,6 @@ import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { describe, expect, it } from 'vitest';
 import { ALL_TOOLS } from '../../src/tools/toolConfig.js';
-import { OQL_SEARCH_TOOL_NAME } from '../../../octocode-tools-core/src/tools/toolNames.js';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const CORE_ROOT = resolve(ROOT, '../octocode-tools-core');
@@ -33,7 +32,7 @@ const registeredTools = [
     rawEvidence: [/rawResponse:\s*sumVariantRawResponseChars\(/],
   },
   {
-    name: 'ghHistoryResearch',
+    name: 'ghSearchPullRequests',
     executionFiles: ['src/tools/github_search_pull_requests/execution.ts'],
     rawEvidence: [/rawResponse:\s*providerResult\.response\.rawResponseChars/],
   },
@@ -115,9 +114,7 @@ async function readProjectFile(relativePath: string): Promise<string> {
 
 describe('tool stats emission contract', () => {
   it('covers every legacy bulk tool from the catalog', async () => {
-    const catalogNames = ALL_TOOLS.map(tool => tool.name)
-      .filter(name => name !== OQL_SEARCH_TOOL_NAME)
-      .sort();
+    const catalogNames = ALL_TOOLS.map(tool => tool.name).sort();
     const coveredNames = registeredTools.map(tool => tool.name).sort();
 
     expect(catalogNames).toHaveLength(12);

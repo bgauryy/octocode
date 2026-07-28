@@ -304,7 +304,7 @@ fn detailed_file_search_explains_prefilter_and_unsupported_files() {
 // `search`/`search_detailed` entry points did NOT, so a multi-MB blob passed
 // straight to the public napi export could hang in tree-sitter parsing +
 // `match_multi_capture` backtracking with no timeoutMs escape. The cap is
-// the engine's own backstop — OQL defers caps to backends, so the contract
+// the engine's own backstop — callers defer caps to backends, so the contract
 // is satisfied by enforcing one here, mirroring `max_file_bytes`.
 
 fn content_of_at_least(byte_len: usize) -> String {
@@ -688,18 +688,19 @@ fn search_files_prefilters_operator_anchor_before_structural_match() {
     fs::remove_dir_all(root).expect("cleanup");
 }
 
-// ── prefilter vs unsupported conflation (OQL evidence: proof vs unevaluated) ─
+// ── prefilter vs unsupported conflation (evidence: proof vs unevaluated) ─
 //
 // A `.txt` file that textually contains the anchor is not "anchor-absent"
 // (proof of no match) — it's "unsupported extension" (not evaluated).
 // `search_files` must report them on separate counters so the warning text
 // can't collapse a proof-skip into an unevaluated-skip, the exact
-// anti-pattern OQL's evidence kinds forbid.
+// anti-pattern the evidence-grade contract forbids.
 
 // ── scope parity: exclude / hidden / no_ignore / max_depth ───────────────
-// OQL `QueryScope` defines `exclude`/`hidden`/`noIgnore`/`maxDepth` and the
-// text/regex lane forwards them. The structural lane previously dropped
-// them silently — a typed-contract violation. These tests pin the parity.
+// `localSearchCode`'s scope defines `exclude`/`hidden`/`noIgnore`/`maxDepth`
+// and the text/regex lane forwards them. The structural lane previously
+// dropped them silently — a typed-contract violation. These tests pin the
+// parity.
 
 fn write_scope_fixture(root: &std::path::Path) {
     fs::write(root.join("match.ts"), "target(value);\n").expect("match");

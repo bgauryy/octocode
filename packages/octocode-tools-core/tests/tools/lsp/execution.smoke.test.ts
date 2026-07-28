@@ -38,7 +38,9 @@ describe('lspGetSemantics tools-core smoke', () => {
 
     expect(result.isError).not.toBe(true);
     const structured = result.structuredContent as {
-      results?: Array<{ data?: { type?: string; payload?: { kind?: string } } }>;
+      results?: Array<{
+        data?: { type?: string; payload?: { kind?: string } };
+      }>;
     };
     const row = structured?.results?.[0]?.data;
     expect(row?.type).toBe('documentSymbols');

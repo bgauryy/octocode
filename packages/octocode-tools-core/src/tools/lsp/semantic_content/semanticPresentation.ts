@@ -46,40 +46,10 @@ export function formatSemanticResult(
   return compactSemanticEnvelope(result);
 }
 
-// Ready-to-run follow-up: read the top result location with context, so the
-// agent doesn't have to assemble the localGetFileContent call from ranges.
-export function withSemanticNext(
-  result: LspSemanticEnvelope | Record<string, unknown>
-): LspSemanticEnvelope | Record<string, unknown> {
-  if (!isSemanticEnvelope(result)) return result;
-  const payload = result.payload as {
-    locations?: Array<{
-      uri?: string;
-      displayRange?: { startLine?: number; endLine?: number };
-    }>;
-  };
-  const loc = payload.locations?.[0];
-  const start = loc?.displayRange?.startLine;
-  if (!loc?.uri || typeof start !== 'number') return result;
-  const path = loc.uri.startsWith('file://')
-    ? decodeURIComponent(loc.uri.slice('file://'.length))
-    : loc.uri;
-  return {
-    ...result,
-    next: {
-      readSite: {
-        tool: 'localGetFileContent',
-        query: {
-          path,
-          startLine: Math.max(1, start - 3),
-          endLine: (loc.displayRange?.endLine ?? start) + 10,
-        },
-        why: 'Read the top result location with surrounding context',
-        confidence: 'exact',
-      },
-    },
-  };
-}
+// The ready-to-run follow-up builder lives in ./semanticNext.js (split to keep
+// this module under the max-lines lint). Re-exported so existing importers of
+// './semanticPresentation.js' keep working unchanged.
+export { withSemanticNext } from './semanticNext.js';
 
 export function isSemanticEnvelope(
   value: LspSemanticEnvelope | Record<string, unknown>

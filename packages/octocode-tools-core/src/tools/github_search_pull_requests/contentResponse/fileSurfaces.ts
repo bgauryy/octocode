@@ -1,6 +1,5 @@
 import { PR_CONTENT_DEFAULT_ITEMS_PER_PAGE } from '../../../config.js';
 import type { NormalizedPrContentRequest } from '../contentRequest.js';
-import { buildDiffPreview } from '../../../utils/parsers/diff.js';
 import {
   containsNeedle,
   matchStringNeedle,
@@ -92,7 +91,6 @@ export function shapeFileSurfaces(
     return {
       ...base,
       patch: patch?.content ?? '',
-      diff: buildDiffPreview(patch?.content),
       ...(patch ? { patchPagination: patch.pagination } : {}),
     };
   });

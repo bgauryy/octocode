@@ -1,6 +1,5 @@
 import { z } from 'zod';
 import { GitHubPullRequestSearchQuerySchema as CoreGitHubPullRequestSearchQuerySchema } from '@octocodeai/octocode-core/schemas';
-import { GitHubSearchPullRequestsOutputSchema as UpstreamPRsOutput } from '@octocodeai/octocode-core/schemas/outputs';
 import {
   GITHUB_SEARCH_DEFAULT_LIMIT,
   GITHUB_SEARCH_MAX_LIMIT,
@@ -18,8 +17,8 @@ import {
   describeQuerySchema,
 } from '../../scheme/coreSchemas.js';
 
-import { responseEnvelopeFields } from '../../scheme/responseEnvelope.js';
-import { ToolContinuationSchema } from '../../scheme/pagination.js';
+import type { ToolContinuation } from '../../scheme/pagination.js';
+import type { ResponsePaginationInfo } from '../../types/toolOutput.js';
 
 // Field set, enums, defaults and descriptions all come from octocode-core
 // (GitHubPullRequestSearchQuerySchema). The runtime only overrides the numeric /
@@ -35,7 +34,6 @@ const queryOverrides = {
     .describe(
       'Research mode: "prs" (default) searches pull requests; "commits" walks commit history for a repo or path; "releases" lists the repository releases (tagName, publishedAt, prerelease flag) and surfaces the latest stable release; "issues" searches or reads GitHub issues (body/discussion comments — not PRs).'
     ),
-  perPage: clampedInt(1, 100).optional().default(30),
   prNumber: clampedInt(1, 1_000_000_000).optional(),
   issueNumber: clampedInt(1, 1_000_000_000)
     .optional()
@@ -79,35 +77,121 @@ export const GitHubPullRequestSearchQueryLocalSchema = describeQuerySchema(
 export const GitHubPullRequestSearchBulkQueryLocalSchema =
   createRelaxedBulkQuerySchema(GitHubPullRequestSearchQueryShape);
 
-// concise:true returns flat "#N title" strings; full mode returns objects.
-const ConciseOrDetailRowSchema = z.union([
-  z.string(),
-  z.object({}).passthrough(),
-]);
+// ---------------------------------------------------------------------------
+// Output TYPES — describes what ghSearchPullRequests returns. No zod: the MCP
+// server registers no outputSchema. Index signatures mirror the original
+// .passthrough() (upstream + local) for additive runtime fields.
+// ---------------------------------------------------------------------------
 
-export const GitHubSearchPullRequestsOutputLocalSchema =
-  UpstreamPRsOutput.extend({
-    results: z
-      .array(
-        z
-          .object({
-            id: z.string().optional(),
-            status: z.string().optional(),
-            data: z
-              .object({
-                pull_requests: z.array(ConciseOrDetailRowSchema).optional(),
-                // type:"issues" reuses this tool; same concise/object shapes.
-                issues: z.array(ConciseOrDetailRowSchema).optional(),
-                // Continuations (readIssue / searchCode / …) — declare so MCP
-                // JSON Schema does not reject under additionalProperties:false
-                // when upstream/passthrough compilation is strict.
-                next: z.record(z.string(), ToolContinuationSchema).optional(),
-              })
-              .passthrough()
-              .optional(),
-          })
-          .passthrough()
-      )
-      .optional(),
-    ...responseEnvelopeFields,
-  });
+export interface PRChangedFile {
+  path?: string;
+  status?: string;
+  additions?: number;
+  deletions?: number;
+  [key: string]: unknown;
+}
+
+// Detail-mode PR/issue row. All fields optional (list mode returns a subset);
+// the index signature keeps additive runtime fields valid.
+export interface PRDetailRow {
+  number?: number;
+  title?: string;
+  url?: string;
+  state?: string;
+  author?: string;
+  targetBranch?: string;
+  sourceBranch?: string;
+  sourceSha?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  closedAt?: string;
+  mergedAt?: string;
+  changedFilesCount?: number;
+  additions?: number;
+  deletions?: number;
+  changedFiles?: PRChangedFile[];
+  // Row-level continuations include non-ToolContinuation shapes (e.g.
+  // `target` carries bare owner/repo/prNumber) — keep values open.
+  next?: Record<string, unknown>;
+  contentPagination?: Record<string, unknown>;
+  [key: string]: unknown;
+}
+
+// concise:true returns flat "#N title" strings; full mode returns objects.
+export type ConciseOrDetailRow = string | PRDetailRow;
+
+export interface HistoryCommit {
+  sha?: string;
+  date?: string;
+  message?: string;
+  messageHeadline?: string;
+  url?: string;
+  author?: {
+    name?: string;
+    email?: string;
+    login?: string;
+    [key: string]: unknown;
+  };
+  [key: string]: unknown;
+}
+
+export interface HistoryRelease {
+  tagName?: string;
+  name?: string;
+  publishedAt?: string;
+  prerelease?: boolean;
+  latest?: boolean;
+  [key: string]: unknown;
+}
+
+// Commits-mode pagination omits totalPages (unbounded history walk), so the
+// canonical ItemPagination (which requires it) does not fit here.
+export interface HistoryPagination {
+  currentPage?: number;
+  totalPages?: number;
+  perPage?: number;
+  hasMore?: boolean;
+  nextPage?: number;
+  [key: string]: unknown;
+}
+
+export interface PullRequestsResultData {
+  pullRequests?: ConciseOrDetailRow[];
+  // type:"issues" reuses this tool; same concise/object shapes.
+  issues?: ConciseOrDetailRow[];
+  // Mode identity + scope echoed by commits/releases/issues modes.
+  type?: string;
+  owner?: string;
+  repo?: string;
+  path?: string;
+  totalCount?: number;
+  effectiveQuery?: string;
+  commits?: HistoryCommit[];
+  releases?: HistoryRelease[];
+  latest?: {
+    tagName?: string;
+    publishedAt?: string;
+    [key: string]: unknown;
+  };
+  pagination?: HistoryPagination;
+  // Mode-irrelevant-field notices and other in-band guidance.
+  warnings?: string[];
+  // Continuations (readIssue / searchCode / …).
+  next?: Record<string, ToolContinuation>;
+  [key: string]: unknown;
+}
+
+export interface GitHubSearchPullRequestsOutputLocal {
+  base?: string;
+  shared?: Record<string, string | number | boolean>;
+  responsePagination?: ResponsePaginationInfo;
+  next?: Record<string, ToolContinuation>;
+  results?: Array<{
+    id?: string;
+    status?: string;
+    data?: PullRequestsResultData;
+    [key: string]: unknown;
+  }>;
+  // Upstream output schema is passthrough — allow additive top-level fields.
+  [key: string]: unknown;
+}

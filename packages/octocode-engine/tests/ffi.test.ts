@@ -6,6 +6,7 @@
  */
 
 import { describe, it, expect, beforeAll } from 'vitest';
+import { PUBLIC_NATIVE_EXPORT_NAMES } from '../src/lsp/nativeExportNames.js';
 import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
@@ -107,20 +108,26 @@ const MINIFIER_FUNCTION_EXPORTS = [
   'computeLineDiff',
 ] as const satisfies readonly (keyof typeof import('../index.js'))[];
 
-const PUBLIC_NATIVE_EXPORTS = [
-  'SIGNATURES_ONLY_HINT',
-  ...MINIFIER_FUNCTION_EXPORTS,
-  'MINIFY_CONFIG',
-  'SUPPORTED_SIGNATURE_EXTENSIONS',
-  'SUPPORTED_GRAPH_FACT_EXTENSIONS',
-  'SUPPORTED_STRUCTURAL_EXTENSIONS',
-] as const satisfies readonly (keyof typeof import('../index.js'))[];
+const PUBLIC_NATIVE_EXPORTS = PUBLIC_NATIVE_EXPORT_NAMES satisfies readonly (keyof typeof import('../index.js'))[];
 
 beforeAll(async () => {
   if (!addonExists) return;
   addon = await import('../index.js');
 });
 
+
+
+describe('public native export parity', () => {
+  it('exports every symbol in the native export manifest', async () => {
+    const esm = await importEsmLoader();
+    for (const name of PUBLIC_NATIVE_EXPORT_NAMES) {
+      expect(esm, `missing ESM export: ${name}`).toHaveProperty(name);
+      expect(addon!, `missing loaded addon export: ${name}`).toHaveProperty(
+        name
+      );
+    }
+  });
+});
 
 
 describe('getExtension', () => {

@@ -116,7 +116,7 @@ export interface ResolvedConfig {
 
   session: RequiredSessionConfig;
 
-  source: 'file' | 'defaults' | 'mixed';
+  source: 'file' | 'defaults' | 'mixed' | 'env' | 'invalid';
 
   configPath?: string;
 }

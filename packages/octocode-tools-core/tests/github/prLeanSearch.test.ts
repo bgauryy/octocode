@@ -14,9 +14,9 @@ describe('shouldEnrichPullRequestFromSearch (Phase D lean)', () => {
   });
 
   it('is true when prNumber is set', () => {
-    expect(
-      shouldEnrichPullRequestFromSearch({ ...base, prNumber: 1 })
-    ).toBe(true);
+    expect(shouldEnrichPullRequestFromSearch({ ...base, prNumber: 1 })).toBe(
+      true
+    );
   });
 
   it('is true for reviewMode full', () => {
@@ -53,9 +53,8 @@ describe('transformPullRequestItemFromSearch lean path', () => {
       },
     };
 
-    const { transformPullRequestItemFromSearch } = await import(
-      '../../src/github/prContentFetcher.js'
-    );
+    const { transformPullRequestItemFromSearch } =
+      await import('../../src/github/prContentFetcher.js');
 
     await transformPullRequestItemFromSearch(
       {
@@ -97,9 +96,8 @@ describe('transformPullRequestItemFromSearch lean path', () => {
       },
     };
 
-    const { transformPullRequestItemFromSearch } = await import(
-      '../../src/github/prContentFetcher.js'
-    );
+    const { transformPullRequestItemFromSearch } =
+      await import('../../src/github/prContentFetcher.js');
 
     await transformPullRequestItemFromSearch(
       {

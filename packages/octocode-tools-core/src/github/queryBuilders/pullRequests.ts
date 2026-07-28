@@ -34,7 +34,6 @@ export class PullRequestSearchQueryBuilder extends BaseQueryBuilder {
     this.addSimpleFilter(params.assignee, 'assignee');
     this.addSimpleFilter(params.mentions, 'mentions');
     this.addSimpleFilter(params.commenter, 'commenter');
-    this.addSimpleFilter(params.involves, 'involves');
     this.addSimpleFilter(params['reviewed-by'], 'reviewed-by');
     this.addSimpleFilter(params['review-requested'], 'review-requested');
     return this;
@@ -52,17 +51,11 @@ export class PullRequestSearchQueryBuilder extends BaseQueryBuilder {
   }
 
   addNegativeFilters(params: GitHubPullRequestsSearchParams): this {
-    if (params['no-assignee']) this.queryParts.push('no:assignee');
-    if (params['no-label']) this.queryParts.push('no:label');
-    if (params['no-milestone']) this.queryParts.push('no:milestone');
-    if (params['no-project']) this.queryParts.push('no:project');
     if (params.locked === true) this.queryParts.push('is:locked');
     else if (params.locked === false) this.queryParts.push('is:unlocked');
     if (params.visibility === 'public') this.queryParts.push('is:public');
     else if (params.visibility === 'private')
       this.queryParts.push('is:private');
-    if (params['team-mentions'])
-      this.queryParts.push(`team:${params['team-mentions']}`);
     if (params.project) this.queryParts.push(`project:${params.project}`);
     return this;
   }
@@ -106,16 +99,10 @@ export function shouldUseSearchForPRs(
     (params.label && params.label.length > 0) ||
     params.mentions !== undefined ||
     params.commenter !== undefined ||
-    params.involves !== undefined ||
     params['reviewed-by'] !== undefined ||
     params['review-requested'] !== undefined ||
     params.reactions !== undefined ||
     params.comments !== undefined ||
-    params.interactions !== undefined ||
-    params['no-assignee'] !== undefined ||
-    params['no-label'] !== undefined ||
-    params['no-milestone'] !== undefined ||
-    params['no-project'] !== undefined ||
     params.state === 'merged' ||
     params.milestone !== undefined ||
     params.language !== undefined ||
@@ -123,7 +110,6 @@ export function shouldUseSearchForPRs(
     params.review !== undefined ||
     params.locked !== undefined ||
     params.visibility !== undefined ||
-    params['team-mentions'] !== undefined ||
     params.project !== undefined ||
     params.created !== undefined ||
     params.updated !== undefined ||

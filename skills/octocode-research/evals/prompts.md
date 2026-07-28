@@ -14,11 +14,11 @@ Prompt: `Map current npm/GitHub options for structural TypeScript search.`
 
 Pass criteria: chooses Map; searches packages and repositories; checks package health beyond downloads; fetches formal docs/papers when making method claims; reads source/README for top candidates; clusters solved/partial/abandoned/white-space.
 
-## Eval 3 — OQL / Graph Proof
+## Eval 3 — Dead Code Proof
 
 Prompt: `Find likely dead exports in this repo and say what is safe to delete.`
 
-Pass criteria: reads `search --scheme --compact` before OQL JSON; treats research/graph rows as candidates; upgrades with exact reads, import/AST/LSP proof, and tests before deletion; gates broad removals.
+Pass criteria: reads a tool's schema before an unfamiliar raw call; treats search/grep hits as candidates, not proof; upgrades with exact reads, import/AST checks, lspGetSemantics references/callers, and tests before deletion; gates broad removals.
 
 ## Eval 4 — Degraded Transport
 

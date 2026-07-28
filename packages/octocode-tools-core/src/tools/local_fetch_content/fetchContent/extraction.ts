@@ -53,9 +53,10 @@ function buildMatchExtractionState(
     if (firstRange && lastRange) {
       actualStartLine = firstRange.start;
       actualEndLine = lastRange.end;
-      if (result.matchRanges.length > 1) {
-        matchRanges = result.matchRanges;
-      }
+      // Always emit matchRanges — startLine/endLine include ±context lines,
+      // so for a single match they do NOT pinpoint the matched line; without
+      // this the only structured anchor for lspGetSemantics lineHint is lost.
+      matchRanges = result.matchRanges;
     }
   }
 
@@ -71,6 +72,21 @@ function buildMatchExtractionState(
 
 function hasLineRangeRequest(query: FetchContentQuery): boolean {
   return query.startLine !== undefined && query.endLine !== undefined;
+}
+
+function formatNumberedLines(
+  lines: string[],
+  startLine: number,
+  endLine: number
+): string {
+  const width = String(endLine).length;
+  return lines
+    .slice(startLine - 1, endLine)
+    .map(
+      (line, index) =>
+        `${String(startLine + index).padStart(width, ' ')}→ ${line}`
+    )
+    .join('\n');
 }
 
 function buildLineRangeExtractionState(
@@ -121,9 +137,11 @@ function buildLineRangeExtractionState(
   }
 
   return {
-    resultContent: lines
-      .slice(effectiveStartLine - 1, effectiveEndLine)
-      .join('\n'),
+    resultContent: formatNumberedLines(
+      lines,
+      effectiveStartLine,
+      effectiveEndLine
+    ),
     isPartial: true,
     actualStartLine: effectiveStartLine,
     actualEndLine: effectiveEndLine,

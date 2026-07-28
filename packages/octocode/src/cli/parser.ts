@@ -110,13 +110,15 @@ const OPTIONS_WITH_VALUES = new Set([
   'facets',
   'proof',
   'proof-limit',
+  // skill install/list/check/remove merged from the former octocode-skills CLI.
+  'platform',
+  'target',
 ]);
 
 const BOOLEAN_OPTIONS = new Set([
   'help',
   'version',
   'force',
-  'source',
   'json',
   'concise',
   'status',
@@ -128,6 +130,8 @@ const BOOLEAN_OPTIONS = new Set([
   'list',
   'scheme',
   'compact',
+  'pretty',
+  'minimal',
   'no-color',
   'reveal',
   'raw',
@@ -176,13 +180,17 @@ const BOOLEAN_OPTIONS = new Set([
   'repos',
   'all',
   'pcre2',
+  // skill subcommand flags.
+  'workspace',
+  'repo',
+  'keep',
+  'fix',
+  'no-env',
+  'install-all',
+  'all-skills',
 ]);
 
 function shouldConsumeNextValue(args: ParsedArgs, key: string): boolean {
-  if (key === 'source' && args.command === 'search') {
-    return true;
-  }
-
   if (BOOLEAN_OPTIONS.has(key)) {
     return false;
   }

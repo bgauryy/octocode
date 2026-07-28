@@ -22,9 +22,8 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('../../../src/shared/index.js', async importOriginal => {
-  const actual = await importOriginal<
-    typeof import('../../../src/shared/index.js')
-  >();
+  const actual =
+    await importOriginal<typeof import('../../../src/shared/index.js')>();
   return {
     ...actual,
     getOctocodeDir: () => mocks.octocodeDir,
@@ -37,9 +36,8 @@ vi.mock('../../../src/utils/exec/spawn.js', () => ({
     mocks.spawnWithTimeout(...args),
 }));
 
-const { executeCloneRepo } = await import(
-  '../../../src/tools/github_clone_repo/execution.js'
-);
+const { executeCloneRepo } =
+  await import('../../../src/tools/github_clone_repo/execution.js');
 
 describe('ghCloneRepo next-hints', () => {
   beforeEach(() => {

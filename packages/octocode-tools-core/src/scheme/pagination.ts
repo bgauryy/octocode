@@ -24,8 +24,18 @@ export const ItemPaginationSchema = z.object({
   totalFound: z.number().optional(),
   returned: z.number().optional(),
   totalMatches: z.number().optional(),
-  reportedTotalMatches: z.number().optional(),
-  reachableTotalMatches: z.number().optional(),
+  reportedTotalMatches: z
+    .number()
+    .optional()
+    .describe(
+      "Provider-reported raw total (e.g. GitHub's match count) — may exceed what pagination can actually reach."
+    ),
+  reachableTotalMatches: z
+    .number()
+    .optional()
+    .describe(
+      "Matches reachable by walking pages (bounded by the provider's result window, e.g. GitHub caps at 1000); totalPages is computed from this, not from reportedTotalMatches."
+    ),
   totalMatchesKind: z.enum(['exact', 'reported', 'lowerBound']).optional(),
   totalMatchesCapped: z.boolean().optional(),
   // LSP / local list envelopes
@@ -60,7 +70,7 @@ export const ToolContinuationSchema = z.object({
   tool: z.string(),
   query: z.record(z.string(), z.unknown()),
   why: z.string().optional(),
-  confidence: z.enum(['exact', 'heuristic']).optional(),
+  confidence: z.enum(['exact', 'high', 'medium', 'low']).optional(),
 });
 
 export type ToolContinuation = z.infer<typeof ToolContinuationSchema>;
@@ -80,8 +90,37 @@ export const LocalItemPaginationSchema = ItemPaginationSchema.extend({
 export type LocalItemPagination = z.infer<typeof LocalItemPaginationSchema>;
 
 /**
+ * Auto-filled per-call metadata that the direct-tool executor injects into every
+ * query (id, research goals, reasoning). These are NOT real query parameters, so
+ * they must be stripped from a replayable continuation — otherwise an agent that
+ * runs `next` resends stale meta from the originating call.
+ * Mirrors DIRECT_TOOL_AUTO_FILLED_FIELDS in tools/directToolCatalog; kept local
+ * to avoid a scheme→tools upward (circular) import.
+ */
+const AUTO_FILLED_META_KEYS: readonly string[] = [
+  'id',
+  'mainResearchGoal',
+  'researchGoal',
+  'reasoning',
+];
+
+function stripAutoFilledMeta(
+  query: Record<string, unknown>
+): Record<string, unknown> {
+  let next: Record<string, unknown> | undefined;
+  for (const key of AUTO_FILLED_META_KEYS) {
+    if (key in query) {
+      next ??= { ...query };
+      delete next[key];
+    }
+  }
+  return next ?? query;
+}
+
+/**
  * Build a machine-ready next-page continuation for list-style local tools.
- * Callers pass the full original query with the advanced page field already set.
+ * Callers pass the full original query with the advanced page field already set;
+ * auto-filled per-call metadata is stripped so the continuation is cleanly replayable.
  */
 export function buildNextPageContinuation(
   tool: string,
@@ -90,7 +129,7 @@ export function buildNextPageContinuation(
 ): ToolContinuation {
   return {
     tool,
-    query,
+    query: stripAutoFilledMeta(query),
     why,
     confidence: 'exact',
   };
@@ -134,16 +173,3 @@ export function buildContinueCharsContinuation<TTool extends string>(
     },
   };
 }
-
-// ---------------------------------------------------------------------------
-// Diagnostic — structured tool-level diagnostic message
-// ---------------------------------------------------------------------------
-
-export const ToolDiagnosticSchema = z.object({
-  level: z.enum(['info', 'warning', 'error']),
-  message: z.string(),
-  field: z.string().optional(),
-  code: z.string().optional(),
-});
-
-export type ToolDiagnostic = z.infer<typeof ToolDiagnosticSchema>;

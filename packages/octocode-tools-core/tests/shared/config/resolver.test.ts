@@ -661,21 +661,21 @@ describe('config/resolver', () => {
       expect(config.source).toBe('file');
     });
 
-      it('source is "mixed" when file exists and env overrides are set', () => {
-        vi.mocked(existsSync).mockReturnValue(true);
-        vi.mocked(readFileSync).mockReturnValue(JSON.stringify({ version: 1 }));
-        process.env.ALLOWED_PATHS = '/some/path';
+    it('source is "mixed" when file exists and env overrides are set', () => {
+      vi.mocked(existsSync).mockReturnValue(true);
+      vi.mocked(readFileSync).mockReturnValue(JSON.stringify({ version: 1 }));
+      process.env.ALLOWED_PATHS = '/some/path';
 
       const config = resolveConfigSync();
       expect(config.source).toBe('mixed');
     });
 
-    it('source is "defaults" when no file even with env overrides', () => {
+    it('source is "env" when no file and env overrides are set', () => {
       vi.mocked(existsSync).mockReturnValue(false);
       process.env.ALLOWED_PATHS = '/some/path';
 
       const config = resolveConfigSync();
-      expect(config.source).toBe('defaults');
+      expect(config.source).toBe('env');
     });
 
     it('detects ALLOWED_PATHS as env override for mixed source', () => {
@@ -698,7 +698,7 @@ describe('config/resolver', () => {
   });
 
   describe('getConfigSync', () => {
-    it('returns cached config on subsequent calls', () => {
+    it('does not cache config on subsequent calls', () => {
       vi.mocked(existsSync).mockReturnValue(false);
 
       const config1 = getConfigSync();
@@ -707,49 +707,27 @@ describe('config/resolver', () => {
       const config2 = getConfigSync();
       const callsAfterSecond = vi.mocked(existsSync).mock.calls.length;
 
-      expect(config1).toBe(config2);
-      expect(callsAfterSecond).toBe(callsAfterFirst);
+      expect(config1).not.toBe(config2);
+      expect(callsAfterSecond).toBeGreaterThan(callsAfterFirst);
+      expect(_getCacheState()).toEqual({ cached: false, timestamp: 0 });
     });
 
-    it('respects cache TTL', async () => {
-      vi.mocked(existsSync).mockReturnValue(false);
+    it('reflects file changes without reload or TTL expiry', () => {
+      vi.mocked(existsSync).mockReturnValue(true);
+      vi.mocked(readFileSync).mockReturnValue(
+        JSON.stringify({ version: 1, local: { enabled: false } })
+      );
 
-      getConfigSync();
-      expect(_getCacheState().cached).toBe(true);
-    });
+      const config1 = getConfigSync();
+      expect(config1.local.enabled).toBe(false);
 
-    it('expires cache after TTL and reloads fresh config', () => {
-      vi.useFakeTimers();
+      vi.mocked(readFileSync).mockReturnValue(
+        JSON.stringify({ version: 1, local: { enabled: true } })
+      );
 
-      try {
-        vi.mocked(existsSync).mockReturnValue(true);
-        vi.mocked(readFileSync).mockReturnValue(
-          JSON.stringify({ version: 1, local: { enabled: false } })
-        );
-
-        const config1 = getConfigSync();
-        expect(config1.local.enabled).toBe(false);
-        const callsAfterFirst = vi.mocked(existsSync).mock.calls.length;
-
-        const config2 = getConfigSync();
-        expect(config2).toBe(config1);
-        expect(vi.mocked(existsSync).mock.calls.length).toBe(callsAfterFirst);
-
-        vi.mocked(readFileSync).mockReturnValue(
-          JSON.stringify({ version: 1, local: { enabled: true } })
-        );
-
-        vi.advanceTimersByTime(61000);
-
-        const config3 = getConfigSync();
-        expect(config3).not.toBe(config1);
-        expect(config3.local.enabled).toBe(true);
-        expect(vi.mocked(existsSync).mock.calls.length).toBeGreaterThan(
-          callsAfterFirst
-        );
-      } finally {
-        vi.useRealTimers();
-      }
+      const config2 = getConfigSync();
+      expect(config2).not.toBe(config1);
+      expect(config2.local.enabled).toBe(true);
     });
   });
 
@@ -781,7 +759,7 @@ describe('config/resolver', () => {
       );
 
       const config2 = getConfigSync();
-      expect(config2.local.enabled).toBe(false);
+      expect(config2.local.enabled).toBe(true);
 
       const config3 = await reloadConfig();
       expect(config3.local.enabled).toBe(true);
@@ -793,10 +771,10 @@ describe('config/resolver', () => {
       vi.mocked(existsSync).mockReturnValue(false);
 
       getConfigSync();
-      expect(_getCacheState().cached).toBe(true);
+      expect(_getCacheState().cached).toBe(false);
 
       invalidateConfigCache();
-      expect(_getCacheState().cached).toBe(false);
+      expect(_getCacheState()).toEqual({ cached: false, timestamp: 0 });
     });
   });
 
@@ -967,7 +945,7 @@ describe('config/resolver', () => {
       vi.mocked(readFileSync).mockReturnValue('{ invalid json }');
 
       const config = resolveConfigSync();
-      expect(config.source).toBe('defaults');
+      expect(config.source).toBe('invalid');
       expect(config.github.apiUrl).toBe(DEFAULT_CONFIG.github.apiUrl);
     });
 
@@ -983,7 +961,7 @@ describe('config/resolver', () => {
 
       const config = resolveConfigSync();
 
-      expect(config.source).toBe('defaults');
+      expect(config.source).toBe('invalid');
       expect(config.github.apiUrl).toBe(DEFAULT_CONFIG.github.apiUrl);
       expect(config.local.enabled).toBe(DEFAULT_CONFIG.local.enabled);
     });
@@ -1016,6 +994,7 @@ describe('config/resolver', () => {
 
       const config = resolveConfigSync();
 
+      expect(config.source).toBe('invalid');
       expect(config.local.enabled).toBe(false);
       expect(config.network.timeout).toBe(DEFAULT_CONFIG.network.timeout);
     });

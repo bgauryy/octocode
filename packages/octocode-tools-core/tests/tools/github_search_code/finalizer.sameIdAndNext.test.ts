@@ -15,12 +15,7 @@ function runFinalizer(queries: AnyRec[], results: AnyRec[]) {
   return out.structuredContent as AnyRec;
 }
 
-function groupResult(
-  owner: string,
-  repo: string,
-  path: string,
-  value: string
-) {
+function groupResult(owner: string, repo: string, path: string, value: string) {
   return {
     id: `${owner}/${repo}`,
     owner,
@@ -110,7 +105,7 @@ describe('ghSearchCode finalizer — next.getLines continuation', () => {
       path: 'src/vanilla.ts',
       matchString: 'createStoreImpl',
     });
-    expect(next.getLines!.confidence).toBe('heuristic');
+    expect(next.getLines!.confidence).toBe('low');
   });
 
   it('emits per-query keys for multi-query bulk and uses each query own keyword', () => {
@@ -132,17 +127,19 @@ describe('ghSearchCode finalizer — next.getLines continuation', () => {
     ];
 
     const sc = runFinalizer(queries, results);
-    const next = sc.next as Record<
-      string,
-      { query: Record<string, unknown> }
-    >;
+    const next = sc.next as Record<string, { query: Record<string, unknown> }>;
     expect(next['getLines:q1']!.query.matchString).toBe('alpha');
     expect(next['getLines:q2']!.query.matchString).toBe('beta');
   });
 
-  it('maps repoState renamed → ghRepoRenamed diagnostic + corrected retry continuation', () => {
+  it('maps repoState renamed → warning + corrected retry continuation', () => {
     const queries = [
-      { id: 'q1', keywords: ['localSearchCode'], owner: 'bgauryy', repo: 'octocode-mcp' },
+      {
+        id: 'q1',
+        keywords: ['localSearchCode'],
+        owner: 'bgauryy',
+        repo: 'octocode-mcp',
+      },
     ];
     const results = [
       {
@@ -155,8 +152,8 @@ describe('ghSearchCode finalizer — next.getLines continuation', () => {
       },
     ];
     const sc = runFinalizer(queries, results);
-    const diags = sc.diagnostics as Array<{ code?: string; level: string }>;
-    expect(diags?.some(d => d.code === 'ghRepoRenamed')).toBe(true);
+    const warns = sc.warnings as string[];
+    expect(warns?.some(w => w.includes('RENAMED'))).toBe(true);
     const next = sc.next as Record<string, { query: Record<string, unknown> }>;
     expect(next['retryRenamed:q1']!.query).toMatchObject({
       owner: 'bgauryy',
@@ -165,7 +162,7 @@ describe('ghSearchCode finalizer — next.getLines continuation', () => {
     });
   });
 
-  it('maps repoState archived/notFound → coded diagnostics', () => {
+  it('maps repoState archived/notFound → warnings', () => {
     const queries = [{ id: 'q1' }, { id: 'q2' }];
     const results = [
       {
@@ -180,9 +177,9 @@ describe('ghSearchCode finalizer — next.getLines continuation', () => {
       },
     ];
     const sc = runFinalizer(queries, results);
-    const codes = (sc.diagnostics as Array<{ code?: string }>).map(d => d.code);
-    expect(codes).toContain('ghRepoArchived');
-    expect(codes).toContain('ghRepoNotFound');
+    const warns = sc.warnings as string[];
+    expect(warns?.some(w => w.includes('ARCHIVED'))).toBe(true);
+    expect(warns?.some(w => w.includes('NOT FOUND'))).toBe(true);
   });
 
   it('omits next when there are no keywords to anchor on', () => {

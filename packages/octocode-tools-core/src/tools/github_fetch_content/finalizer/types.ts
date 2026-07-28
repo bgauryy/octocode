@@ -15,11 +15,9 @@ export type FileEntry = {
   content: string;
   localPath?: string;
   repoRoot?: string;
-  fileSize?: number;
   contentView?: 'none' | 'standard' | 'symbols';
   totalLines?: number;
   sourceChars?: number;
-  sourceBytes?: number;
   resolvedBranch?: string;
   pagination?: PaginationInfo;
   isPartial?: boolean;
@@ -89,7 +87,6 @@ export type RepoGroup = {
   repo: string;
   files?: FileEntry[];
   directories?: DirectoryEntry[];
-  data?: RepoGroupData;
 };
 
 export type RepoGroupData = {

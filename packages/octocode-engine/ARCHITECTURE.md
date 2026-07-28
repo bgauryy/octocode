@@ -61,8 +61,12 @@ and deterministic graph algorithms:
 
 LSP remains the semantic proof layer for cross-file identity, references,
 definitions, implementations, callers, callees, and call hierarchy. Text/ripgrep
-is discovery only and must not produce deletion-grade proof. Framework/package
-entrypoint policy and agent-facing packets stay in `octocode-tools-core` / OQL.
+is discovery only and must not produce deletion-grade proof.
+
+**Note:** the native `graphFacts` API described above has no current JS/TS
+consumer — its only caller was the OQL `research`/`graph` subsystem, removed
+from `octocode-tools-core`. Treat this surface as orphaned pending a decision
+to either wire a new consumer or remove it from the native binding.
 
 ## Rules
 

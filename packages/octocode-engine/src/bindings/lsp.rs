@@ -68,6 +68,17 @@ pub fn safe_read_file(file_path: String) -> Result<String> {
     crate::lsp::validation::safe_read_file(file_path)
 }
 
+/// Read only a bounded line window around `line_zero_based` after canonicalizing
+/// the path or file:// URI and confirming it is an absolute regular file.
+#[napi(js_name = "safeReadLineWindow")]
+pub fn safe_read_line_window(
+    file_path: String,
+    line_zero_based: u32,
+    context_lines: u32,
+) -> Result<String> {
+    crate::lsp::validation::safe_read_line_window(file_path, line_zero_based, context_lines)
+}
+
 /// Validate that `command` resolves to an executable LSP server binary.
 #[napi(js_name = "validateLspServerPath")]
 pub fn validate_lsp_server_path(command: String) -> Result<String> {

@@ -1,6 +1,6 @@
 import * as esbuild from 'esbuild';
 import { builtinModules } from 'module';
-import { chmodSync, readFileSync, writeFileSync } from 'fs';
+import { chmodSync, cpSync, existsSync, readFileSync, writeFileSync } from 'fs';
 import { rm } from 'fs/promises';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
@@ -108,6 +108,16 @@ const shimBanner = [
 ].join('\n');
 
 await rm('out', { recursive: true, force: true });
+
+const monorepoSkillsDir = resolve(__dirname, '..', '..', 'skills');
+const packageSkillsDir = resolve(__dirname, 'skills');
+await rm(packageSkillsDir, { recursive: true, force: true });
+if (existsSync(monorepoSkillsDir)) {
+  cpSync(monorepoSkillsDir, packageSkillsDir, { recursive: true });
+  console.log('✓ skills synced → skills/');
+} else {
+  console.warn(`⚠ skills directory not found at ${monorepoSkillsDir}; bundled skill commands will list no skills`);
+}
 
 await esbuild.build({
   entryPoints: ['src/index.ts'],

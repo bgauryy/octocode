@@ -203,8 +203,8 @@ fn inside_with_nested_has_does_not_collide_on_secondary_capture() {
 
 #[test]
 fn bare_rule_without_document_wrapper_is_accepted() {
-    // Agents (and OQL's object form) write the rule body directly; the
-    // engine must accept it without a top-level `rule:` key.
+    // Agents write the rule body directly; the engine must accept it
+    // without a top-level `rule:` key.
     let src = "mod tests { fn t() { let v = w.unwrap(); } }\n";
     let bare = "pattern: $X.unwrap()\ninside:\n  kind: mod_item\n  stopBy: end\n";
     let wrapped = "rule:\n  pattern: $X.unwrap()\n  inside:\n    kind: mod_item\n    stopBy: end\n";

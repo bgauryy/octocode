@@ -6,7 +6,7 @@
     "Keeps more than one hypothesis alive for investigations.",
     "Uses exact evidence anchors rather than raw search snippets.",
     "Marks confidence honestly and gives one next action.",
-    "Reads OQL/search schemas before JSON research or graph proof.",
+    "Reads a tool's schema before an unfamiliar raw call.",
     "Handles degraded transports without pretending confidence is unchanged."
   ],
   "cases": [
@@ -90,34 +90,35 @@
       ]
     },
     {
-      "id": "oql-graph-proof",
+      "id": "dead-code-proof",
       "mode": "Investigate",
       "prompt": "Find likely dead exports in this repo and say what is safe to delete.",
       "minScore": 0.8,
       "minCitationCount": 1,
       "required": [
-        { "name": "scheme first", "pattern": "\\bsearch --scheme --compact\\b|\\bsearch --scheme\\b" },
-        { "name": "research graph", "pattern": "\\btarget\\s*:\\s*[\"']research[\"']|\\btarget\\s*:\\s*[\"']graph[\"']|\\bresearch/graph\\b" },
+        { "name": "scheme first", "pattern": "\\btools <name> --scheme\\b|\\b--scheme\\b" },
+        { "name": "dead-code candidate tool", "pattern": "\\blocalFindDeadCode\\b|\\bdead-code candidates?\\b" },
+        { "name": "structural or lexical fallback", "pattern": "\\blocalSearchCode\\b|\\bstructural\\b|\\bgrep\\b|\\bripgrep\\b|\\bAST\\b" },
         { "name": "candidate not proof", "pattern": "\\bcandidate\\b.*\\bproof\\b|\\bcandidate rows?\\b|\\bnot safe to delete\\b" },
-        { "name": "upgrade proof", "pattern": "\\bLSP\\b|\\bexact read\\b|\\bimport\\b|\\bAST\\b|\\btests?\\b" },
+        { "name": "upgrade proof", "pattern": "\\bLSP\\b|\\blspGetSemantics\\b|\\breferences?\\b|\\bcallers?\\b|\\bexact read\\b|\\bimport\\b|\\bAST\\b|\\btests?\\b" },
         { "name": "gate broad deletion", "pattern": "\\bgate\\b|\\bdo not delete\\b|\\bbroad removals?\\b" }
       ],
       "binaryQuestions": [
         {
           "id": "reads-scheme-first",
           "dimension": "tool-use",
-          "question": "Does the answer read the OQL/search scheme before constructing JSON graph proof?",
-          "passPattern": "\\bsearch --scheme --compact\\b|\\bsearch --scheme\\b",
-          "failureSignature": "mechanism:oql-research|cause:scheme-skipped",
-          "suggestedLesson": "Read `search --scheme` before OQL JSON so fields are not guessed."
+          "question": "Does the answer read a tool's schema before calling it raw?",
+          "passPattern": "\\btools <name> --scheme\\b|\\b--scheme\\b",
+          "failureSignature": "mechanism:dead-code|cause:scheme-skipped",
+          "suggestedLesson": "Read `tools <name> --scheme` before an unfamiliar raw call so fields are not guessed."
         },
         {
           "id": "upgrades-candidates-to-proof",
           "dimension": "evidence",
-          "question": "Does the answer distinguish candidates from deletion proof and name the proof upgrade path?",
-          "passPattern": "(\\bcandidate\\b.*\\bproof\\b|\\bcandidate rows?\\b|\\bnot safe to delete\\b)[\\s\\S]*(\\bLSP\\b|\\bexact read\\b|\\bimport\\b|\\bAST\\b|\\btests?\\b)",
-          "failureSignature": "mechanism:oql-research|cause:candidate-as-proof",
-          "suggestedLesson": "Treat OQL graph rows as candidates until exact reads, imports, LSP, AST checks, or tests confirm safety."
+          "question": "Does the answer distinguish localFindDeadCode/search candidates from deletion proof and name the proof upgrade path (lspGetSemantics references/callers)?",
+          "passPattern": "(\\bcandidate\\b.*\\bproof\\b|\\bcandidate rows?\\b|\\bnot safe to delete\\b)[\\s\\S]*(\\bLSP\\b|\\blspGetSemantics\\b|\\breferences?\\b|\\bcallers?\\b|\\bexact read\\b|\\bimport\\b|\\bAST\\b|\\btests?\\b)",
+          "failureSignature": "mechanism:dead-code|cause:candidate-as-proof",
+          "suggestedLesson": "Treat localFindDeadCode/search hits as candidates until lspGetSemantics references/callers, exact reads, AST checks, or tests confirm safety."
         }
       ],
       "forbidden": [
@@ -552,7 +553,7 @@
         { "name": "mode", "pattern": "\\bMode:\\s*Investigate\\b|\\bInvestigate mode\\b" },
         { "name": "discovery", "pattern": "\\bnpmSearch\\b|\\bghSearchRepos\\b|\\bghViewRepoStructure\\b" },
         { "name": "code or exact", "pattern": "\\bghSearchCode\\b|\\bghGetFileContent\\b|\\bexact(?:-read| read)\\b|[A-Za-z0-9_./-]+:\\d+" },
-        { "name": "history", "pattern": "\\bghHistoryResearch\\b|\\bPR\\b|\\bcommit\\b" },
+        { "name": "history", "pattern": "\\bghSearchPullRequests\\b|\\bghSearchCommits\\b|\\bghSearchIssues\\b|\\bghHistoryResearch\\b|\\bPR\\b|\\bcommit\\b" },
         { "name": "resolved branch", "pattern": "\\bresolvedBranch\\b|\\bdefault branch\\b|\\bmain\\b|\\bcanary\\b|\\bmaster\\b" },
         { "name": "confidence", "pattern": "\\bConfidence:\\s*(confirmed|likely|uncertain)\\b" },
         { "name": "next action", "pattern": "\\bNext:" }
@@ -562,9 +563,9 @@
           "id": "follows-external-spine",
           "dimension": "method",
           "question": "Does the answer follow discovery → structure → code/exact → history (not jump straight to a guessed path)?",
-          "passPattern": "(\\bnpmSearch\\b|\\bghSearchRepos\\b|\\bghViewRepoStructure\\b)[\\s\\S]*(\\bghSearchCode\\b|\\bghGetFileContent\\b|exact)[\\s\\S]*(\\bghHistoryResearch\\b|\\bPR\\b|\\bcommit\\b)",
+          "passPattern": "(\\bnpmSearch\\b|\\bghSearchRepos\\b|\\bghViewRepoStructure\\b)[\\s\\S]*(\\bghSearchCode\\b|\\bghGetFileContent\\b|exact)[\\s\\S]*(\\bghSearchPullRequests\\b|\\bghSearchCommits\\b|\\bghHistoryResearch\\b|\\bPR\\b|\\bcommit\\b)",
           "failureSignature": "mechanism:external-research|cause:skipped-external-spine",
-          "suggestedLesson": "External research should run npmSearch/ghSearchRepos → ghViewRepoStructure → ghSearchCode/ghGetFileContent → ghHistoryResearch."
+          "suggestedLesson": "External research should run npmSearch/ghSearchRepos → ghViewRepoStructure → ghSearchCode/ghGetFileContent → ghSearchPullRequests/ghSearchCommits."
         },
         {
           "id": "treats-empty-as-provider",

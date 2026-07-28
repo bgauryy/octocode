@@ -271,6 +271,8 @@ pub(crate) fn parse_ripgrep_json_inner(
                     files_searched: Some(s.stats.searches),
                     bytes_searched: Some(s.stats.bytes_searched),
                     search_time: Some(s.stats.elapsed.human),
+                    capped: Some(false),
+                    cap_reason: None,
                 };
             }
             RgMessage::Begin(_) | RgMessage::End(_) => {}

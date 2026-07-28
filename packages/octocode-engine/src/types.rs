@@ -55,6 +55,8 @@ pub struct RipgrepStats {
     pub files_searched: Option<u32>,
     pub bytes_searched: Option<i64>,
     pub search_time: Option<String>,
+    pub capped: Option<bool>,
+    pub cap_reason: Option<String>,
 }
 
 #[napi(object)]
@@ -146,6 +148,10 @@ pub struct RipgrepSearchOptions {
     /// With `only_matching`, collapse duplicate values and attach their
     /// frequency, sorted by count descending.
     pub count_unique: Option<bool>,
+    /// Native collection guard: stop after this many matched files have been
+    /// collected. Distinct from tools-core maxFiles, which is a per-page UI
+    /// size, not an engine resource cap.
+    pub max_collected_files: Option<u32>,
 }
 
 // ── filesystem query types ───────────────────────────────────────────────────
@@ -193,7 +199,12 @@ pub struct FileSystemQueryOptions {
     pub readable: Option<bool>,
     pub writable: Option<bool>,
     pub exclude_dir: Option<Vec<String>>,
-    /// Store at most this many matching entries while still counting matches.
+    /// Stop walking after `limit` returned entries. Default true for interactive
+    /// tools; set false when exact total_discovered is more important than
+    /// latency.
+    pub stop_at_limit: Option<bool>,
+    /// Store at most this many matching entries while still counting matches
+    /// when stop_at_limit is false.
     pub limit: Option<u32>,
 }
 

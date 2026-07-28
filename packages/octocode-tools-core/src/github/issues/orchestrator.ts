@@ -70,7 +70,7 @@ async function fetchIssuesInternal(
           owner: firstString(params.owner) ?? '',
           repo: firstString(params.repo) ?? '',
           issues: [],
-          total_count: 0,
+          totalCount: 0,
           pagination: {
             currentPage: params.page ?? 1,
             perPage: Math.min(

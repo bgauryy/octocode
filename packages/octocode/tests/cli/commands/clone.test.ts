@@ -59,7 +59,7 @@ describe('clone command', () => {
     );
   });
 
-  it('hints at search/cache fetch when sparse-checkout fails on a file path', async () => {
+  it('hints at cache fetch when sparse-checkout fails on a file path', async () => {
     executeDirectTool.mockResolvedValue({
       isError: true,
       content: [
@@ -89,10 +89,10 @@ describe('clone command', () => {
       expect.stringContaining('is a file, but clone checks out directories')
     );
     expect(console.error).toHaveBeenCalledWith(
-      expect.stringContaining('search bgauryy/octocode/README.md')
+      expect.stringContaining('cache fetch bgauryy/octocode README.md')
     );
     expect(console.error).toHaveBeenCalledWith(
-      expect.stringContaining('cache fetch bgauryy/octocode README.md')
+      expect.stringContaining('tools ghGetFileContent --scheme')
     );
   });
 });

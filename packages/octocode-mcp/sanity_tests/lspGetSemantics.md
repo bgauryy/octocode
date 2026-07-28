@@ -25,7 +25,6 @@
 ## 4. Agent Effectiveness
 - [ ] The output gives exact `uri` + line anchors usable by `localGetFileContent`.
 - [ ] Errors distinguish missing language server, invalid URI, and zero results.
-- [ ] OQL semantic rows emit executable `next.fetch` continuations.
 
 ## Example call
 ```json

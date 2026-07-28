@@ -10,9 +10,8 @@ vi.mock('../../../src/utils/contextUtils.js', () => ({
   },
 }));
 
-const { preflightValidateRipgrepPattern } = await import(
-  '../../../src/tools/local_ripgrep/patternValidation.js'
-);
+const { preflightValidateRipgrepPattern } =
+  await import('../../../src/tools/local_ripgrep/patternValidation.js');
 
 describe('preflightValidateRipgrepPattern', () => {
   beforeEach(() => {
@@ -52,9 +51,13 @@ describe('preflightValidateRipgrepPattern', () => {
 
   it('keeps literal and lookaround guidance warnings', () => {
     const literal = preflightValidateRipgrepPattern({ pattern: 'src/foo.ts' });
-    expect(literal.warnings.join('\n')).toContain('fixedString: true');
+    expect(literal.warnings.join('\n')).toContain('regex:"fixed"');
 
-    const lookaround = preflightValidateRipgrepPattern({ pattern: '(?<=foo)bar' });
-    expect(lookaround.warnings.join('\n')).toContain('requires perlRegex: true');
+    const lookaround = preflightValidateRipgrepPattern({
+      pattern: '(?<=foo)bar',
+    });
+    expect(lookaround.warnings.join('\n')).toContain(
+      'requires perlRegex: true'
+    );
   });
 });

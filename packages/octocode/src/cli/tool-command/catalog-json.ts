@@ -26,10 +26,15 @@ import {
 type ToolCatalogJsonOptions = {
   full?: boolean;
   compact?: boolean;
+  pretty?: boolean;
 };
 
-export function printJsonPayload(payload: unknown, compact = false): void {
-  console.log(JSON.stringify(payload, null, compact ? 0 : 2));
+export function printJsonPayload(
+  payload: unknown,
+  compact = false,
+  pretty = false
+): void {
+  console.log(JSON.stringify(payload, null, compact && !pretty ? 0 : 2));
 }
 
 function formatToolFieldsJson(toolName: string): Array<{
@@ -46,6 +51,13 @@ function formatToolFieldsJson(toolName: string): Array<{
     ...(field.constraints ? { constraints: field.constraints } : {}),
     ...(field.description ? { description: field.description } : {}),
   }));
+}
+
+function formatCompactField(
+  field: ReturnType<typeof formatToolFieldsJson>[number]
+): string {
+  const marker = field.required ? '*' : '?';
+  return `${field.name}${marker}:${field.type}${field.constraints ? ` ${field.constraints}` : ''}`;
 }
 
 function compactRunCommand(toolName: string): string {
@@ -65,18 +77,12 @@ export async function printToolCatalogJson(
       kind: 'octocode.toolCatalog',
       version: 1,
       toolCount: toolNames.length,
-      guidance: [
-        'Discovery only: this catalog intentionally omits full schemas.',
-        'Read one schema before raw execution: tools <name> --scheme --json.',
-        'Run tools with --compact unless you need the full CallToolResult envelope.',
-      ],
+      note: 'Lean catalog. Use schema/run templates with $.tools[].name.',
+      output: 'results + evidence? + next? + diagnostics?',
       commands: {
-        list: 'tools --json',
         fullCatalog: 'tools --json --full',
         schema: 'tools <name> --scheme --json',
-        humanSchema: 'tools <name> --scheme',
-        runCompact: "tools <name> --queries '<json>' --compact",
-        runEnvelope: "tools <name> --queries '<json>' --json",
+        run: "tools <name> --queries '<json>' --compact",
       },
       tools: toolNames.map(toolName => ({
         name: toolName,
@@ -86,12 +92,10 @@ export async function printToolCatalogJson(
         ...(getToolPreviewLines(toolName).length > 0
           ? { hints: getToolPreviewLines(toolName) }
           : {}),
-        schemaCommand: `tools ${toolName} --scheme --json`,
-        runCommand: compactRunCommand(toolName),
       })),
     };
 
-    printJsonPayload(catalog, options.compact);
+    printJsonPayload(catalog, options.compact, options.pretty);
     return;
   }
 
@@ -135,23 +139,45 @@ export async function printToolCatalogJson(
     }),
   };
 
-  printJsonPayload(catalog, options.compact);
+  printJsonPayload(catalog, options.compact, options.pretty);
 }
 
 export async function printToolSchemaJson(
   toolName: string,
-  options: { compact?: boolean } = {}
+  options: { compact?: boolean; pretty?: boolean } = {}
 ): Promise<boolean> {
   const tool = findToolDefinition(toolName);
   if (!tool) return false;
 
   const metadata = await getOptionalToolMetadata();
-  const inputSchema = JSON.parse(formatDirectToolSchemaText(tool.name));
   const fullDescription = getDirectToolDescription(tool.name, metadata);
-  const commandPatterns = buildDirectToolCommandPatterns(tool.name);
-  const autoFilledFields = getDirectToolAutoFilledFields(tool.name);
   const fields = formatToolFieldsJson(tool.name);
   const guidance = getToolSchemaGuidance(tool.name);
+
+  if (options.compact) {
+    printJsonPayload(
+      {
+        kind: 'octocode.toolSchema.compact',
+        version: 1,
+        name: tool.name,
+        category: getDirectToolCategory(tool.name),
+        description: extractShortDescription(fullDescription),
+        fields: fields.map(formatCompactField),
+        ...(guidance.length > 0 ? { guidance } : {}),
+        commands: {
+          full: `tools ${tool.name} --scheme --json`,
+          run: compactRunCommand(tool.name),
+        },
+      },
+      options.compact === true,
+      options.pretty === true
+    );
+    return true;
+  }
+
+  const inputSchema = JSON.parse(formatDirectToolSchemaText(tool.name));
+  const commandPatterns = buildDirectToolCommandPatterns(tool.name);
+  const autoFilledFields = getDirectToolAutoFilledFields(tool.name);
 
   printJsonPayload(
     {
@@ -161,9 +187,8 @@ export async function printToolSchemaJson(
       category: getDirectToolCategory(tool.name),
       description: extractShortDescription(fullDescription),
       inputSchema,
-      ...(options.compact
-        ? { fieldNames: fields.map(field => field.name) }
-        : { fullDescription, fields }),
+      fullDescription,
+      fields,
       ...(guidance.length > 0 ? { guidance } : {}),
       autoFilledFields,
       commands: {
@@ -174,11 +199,9 @@ export async function printToolSchemaJson(
         runCompact: compactRunCommand(tool.name),
         runEnvelope: `tools ${tool.name} --queries '<json>' --json`,
       },
-      ...(!options.compact && commandPatterns.length > 0
-        ? { commandPatterns }
-        : {}),
+      ...(commandPatterns.length > 0 ? { commandPatterns } : {}),
     },
-    options.compact
+    false
   );
   return true;
 }

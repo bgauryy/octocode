@@ -240,6 +240,22 @@ fn exclude_dir_prunes_directory() {
 }
 
 #[test]
+fn caps_collected_files_and_reports_non_exhaustive_stats() {
+    let t = TmpDir::new();
+    t.write("a.txt", "needle\n");
+    t.write("b.txt", "needle\n");
+    t.write("c.txt", "needle\n");
+    let mut o = opts(t.path(), "needle");
+    o.max_collected_files = Some(2);
+
+    let r = search(o).expect("ok");
+
+    assert_eq!(r.files.len(), 2);
+    assert_eq!(r.stats.capped, Some(true));
+    assert_eq!(r.stats.cap_reason.as_deref(), Some("maxCollectedFiles"));
+}
+
+#[test]
 fn results_are_sorted_by_path() {
     let t = TmpDir::new();
     t.write("z.txt", "m\n");

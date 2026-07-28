@@ -13,7 +13,7 @@ function fieldDescription(schema: unknown, field: string): string | undefined {
 }
 
 describe('cross-tool field disambiguation (mode/match/keywords/filesOnly)', () => {
-  it('ghSearchCode match cross-references ghSearchRepos/ghHistoryResearch', () => {
+  it('ghSearchCode match cross-references ghSearchRepos/ghSearchPullRequests', () => {
     const desc = fieldDescription(GitHubCodeSearchQueryLocalSchema, 'match');
     expect(desc).toContain('ghSearchRepos');
   });
@@ -26,7 +26,7 @@ describe('cross-tool field disambiguation (mode/match/keywords/filesOnly)', () =
     expect(desc).toContain('ghSearchCode');
   });
 
-  it('ghHistoryResearch match cross-references ghSearchCode; issueNumber is now described', () => {
+  it('ghSearchPullRequests match cross-references ghSearchCode; issueNumber is now described', () => {
     const matchDesc = fieldDescription(
       GitHubPullRequestSearchQueryLocalSchema,
       'match'
@@ -40,20 +40,18 @@ describe('cross-tool field disambiguation (mode/match/keywords/filesOnly)', () =
     expect(issueNumberDesc).toBeTruthy();
   });
 
-  it('localSearchCode mode/keywords/filesOnly cross-reference other tools\' same-named fields', () => {
+  it("localSearchCode mode/searchText/output cross-reference other tools' same-named fields", () => {
     const modeDesc = fieldDescription(LocalRipgrepQuerySchema, 'mode');
-    expect(modeDesc).toContain('ghHistoryResearch');
+    expect(modeDesc).toContain('ghSearchPullRequests');
     expect(modeDesc).not.toContain('localBinaryInspect');
 
-    const keywordsDesc = fieldDescription(LocalRipgrepQuerySchema, 'keywords');
-    expect(keywordsDesc).toContain('ghSearchCode');
+    const searchTextDesc = fieldDescription(
+      LocalRipgrepQuerySchema,
+      'searchText'
+    );
+    expect(searchTextDesc).toContain('ghSearchCode');
 
-    const filesOnlyDesc = fieldDescription(LocalRipgrepQuerySchema, 'filesOnly');
-    expect(filesOnlyDesc).toContain('localViewStructure');
-  });
-
-  it('localViewStructure filesOnly cross-references localSearchCode', () => {
-    const desc = fieldDescription(LocalViewStructureQuerySchema, 'filesOnly');
-    expect(desc).toContain('localSearchCode');
+    const outputDesc = fieldDescription(LocalRipgrepQuerySchema, 'output');
+    expect(outputDesc).toContain('localViewStructure');
   });
 });

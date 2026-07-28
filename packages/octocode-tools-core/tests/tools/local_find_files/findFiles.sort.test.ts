@@ -33,7 +33,7 @@ describe('findFiles sorting', () => {
       sortBy: 'size',
       limit: 2,
       itemsPerPage: 2,
-      details: true,
+      detail: 'full',
     });
 
     expect(result.files.map(file => basename(file.path))).toEqual([
@@ -55,21 +55,21 @@ describe('findFiles malformed time filters', () => {
       path: dir,
       entryType: 'f',
       names: ['*.ts'],
-      details: true,
+      detail: 'full',
     });
     const withBadFilter = await findFiles({
       path: dir,
       entryType: 'f',
       names: ['*.ts'],
-      details: true,
+      detail: 'full',
       // Not a relative duration ("7d"/"2h"/…): the filter must be dropped, not
       // forwarded to the native walk where it could silently suppress results.
-      modifiedWithin: 'banana',
+      time: { modifiedWithin: 'banana' },
     } as Parameters<typeof findFiles>[0]);
 
-    expect(withBadFilter.warnings?.some(w => w.includes('modifiedWithin'))).toBe(
-      true
-    );
+    expect(
+      withBadFilter.warnings?.some(w => w.includes('modifiedWithin'))
+    ).toBe(true);
     expect(withBadFilter.files.map(f => basename(f.path)).sort()).toEqual(
       baseline.files.map(f => basename(f.path)).sort()
     );

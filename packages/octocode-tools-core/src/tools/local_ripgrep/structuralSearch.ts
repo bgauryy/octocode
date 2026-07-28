@@ -27,15 +27,24 @@ const ZERO_MATCH_GUIDANCE =
   '0 structural matches. A pattern matches a complete AST node — a class/function usually needs a body (add `$$$BODY`), and Python/TS definitions may carry a return type (`-> $RET:`) or decorators the pattern must include. For partial or relational matches use a YAML `rule` instead of `pattern`.';
 
 /**
- * The #1 structural miss is a function pattern that omits the return type. When
- * the pattern has a parameter list directly followed by a body brace and no
- * return-type annotation, suggest the typed variant (insert `: $R`) as a
- * concrete, copy-pasteable next step appended to ZERO_MATCH_GUIDANCE.
+ * The #1 structural miss is a function/method pattern that omits the return
+ * type: the natural `function $NAME($$$ARGS) { $$$BODY }` matches 0 real
+ * functions because production code carries a return type between `)` and `{`.
+ * When the pattern has a parameter list directly followed by a body brace and
+ * no return-type position, return the typed variant (insert `: $R`); otherwise
+ * undefined. Used both to auto-retry and, as a fallback, to suggest the variant.
  */
-function relaxedFunctionPatternSuggestion(pattern: string | undefined): string {
-  if (!pattern || !/\)\s*\{/.test(pattern)) return '';
+function relaxedFunctionReturnTypePattern(
+  pattern: string | undefined
+): string | undefined {
+  if (!pattern || !/\)\s*\{/.test(pattern)) return undefined;
   const relaxed = pattern.replace(/\)\s*\{/, '): $R {');
-  return relaxed === pattern ? '' : ` Try: \`${relaxed}\`.`;
+  return relaxed === pattern ? undefined : relaxed;
+}
+
+function relaxedFunctionPatternSuggestion(pattern: string | undefined): string {
+  const relaxed = relaxedFunctionReturnTypePattern(pattern);
+  return relaxed ? ` Try: \`${relaxed}\`.` : '';
 }
 
 /**
@@ -58,13 +67,14 @@ async function isRegularFile(path: string): Promise<boolean> {
 
 async function searchSingleFile(
   path: string,
-  query: RipgrepQuery
+  query: RipgrepQuery,
+  patternOverride?: string
 ): Promise<Awaited<ReturnType<typeof contextUtils.structuralSearchFiles>>> {
   const content = await readFile(path, 'utf8');
   const matches = await contextUtils.structuralSearch(
     content,
     path,
-    query.pattern,
+    patternOverride ?? query.pattern,
     query.rule
   );
 
@@ -93,36 +103,86 @@ export async function searchContentStructural(
     return pathValidation.errorResult as LocalSearchCodeToolResult;
   }
 
+  const targetIsFile = await isRegularFile(pathValidation.sanitizedPath);
+  const buildFilesOptions = (patternOverride?: string) => ({
+    path: pathValidation.sanitizedPath,
+    pattern: patternOverride ?? query.pattern,
+    rule: query.rule,
+    // Honor langType by scoping to its extensions when no explicit include
+    // was given; explicit include globs always win.
+    ...(deriveInclude(query) ? { include: deriveInclude(query) } : {}),
+    // Scope parity: forward every scope field the text lane forwards, so
+    // `exclude`/`hidden`/`noIgnore`/`maxDepth` are honored on AST search
+    // (previously silently dropped — typed-contract violation).
+    ...(query.exclude?.length ? { exclude: query.exclude } : {}),
+    ...(query.excludeDir?.length
+      ? { excludeDir: query.excludeDir }
+      : DEFAULT_STRUCTURAL_EXCLUDE_DIRS.length
+        ? { excludeDir: DEFAULT_STRUCTURAL_EXCLUDE_DIRS }
+        : {}),
+    ...(query.hidden !== undefined ? { hidden: query.hidden } : {}),
+    ...(query.noIgnore !== undefined ? { noIgnore: query.noIgnore } : {}),
+    // maxDepth is deliberately NOT forwarded: the engine's anchored-prefilter
+    // path accepts it "for API uniformity" but cannot enforce it (ripgrep-native
+    // has no max_depth — see engine structural/files.rs). Enforced uniformly
+    // below in the tool layer instead, so behavior matches the schema contract
+    // on every structural path.
+    maxFiles: query.maxFiles ?? DEFAULT_MAX_STRUCTURAL_FILES,
+    maxFileBytes: MAX_STRUCTURAL_FILE_BYTES,
+  });
+  const runNative = (patternOverride?: string) =>
+    targetIsFile
+      ? searchSingleFile(pathValidation.sanitizedPath, query, patternOverride)
+      : contextUtils.structuralSearchFiles(buildFilesOptions(patternOverride));
+
   let nativeResult: Awaited<
     ReturnType<typeof contextUtils.structuralSearchFiles>
   >;
+  let semicolonNormalized = false;
+  let returnTypeRelaxed: string | undefined;
   try {
-    nativeResult = (await isRegularFile(pathValidation.sanitizedPath))
-      ? await searchSingleFile(pathValidation.sanitizedPath, query)
-      : await contextUtils.structuralSearchFiles({
-          path: pathValidation.sanitizedPath,
-          pattern: query.pattern,
-          rule: query.rule,
-          // Honor langType by scoping to its extensions when no explicit include
-          // was given; explicit include globs always win.
-          ...(deriveInclude(query) ? { include: deriveInclude(query) } : {}),
-          // Scope parity: forward every OQL `scope` field the text lane forwards,
-          // so `exclude`/`hidden`/`noIgnore`/`maxDepth` are honored on AST search
-          // (previously silently dropped — typed-contract violation).
-          ...(query.exclude?.length ? { exclude: query.exclude } : {}),
-          ...(query.excludeDir?.length
-            ? { excludeDir: query.excludeDir }
-            : DEFAULT_STRUCTURAL_EXCLUDE_DIRS.length
-              ? { excludeDir: DEFAULT_STRUCTURAL_EXCLUDE_DIRS }
-              : {}),
-          ...(query.hidden !== undefined ? { hidden: query.hidden } : {}),
-          ...(query.noIgnore !== undefined ? { noIgnore: query.noIgnore } : {}),
-          // maxDepth is a localFindFiles concept, not a RipgrepQuery field — the
-          // engine walker honors it (StructuralSearchFilesOptions.maxDepth) for
-          // direct napi callers, but the localSearchCode query path can't populate it.
-          maxFiles: query.maxFiles ?? DEFAULT_MAX_STRUCTURAL_FILES,
-          maxFileBytes: MAX_STRUCTURAL_FILE_BYTES,
-        });
+    nativeResult = await runNative();
+    // Statement-level patterns (const/let/var/return/…) must parse as complete
+    // statements; without a terminator the bare form parses as an expression
+    // fragment and silently matches nothing (`const $X = $Y` → 0 while
+    // `const $X = $Y;` matches). Retry once with ';' before reporting zero.
+    if (
+      nativeResult.totalMatches === 0 &&
+      query.pattern &&
+      !query.rule &&
+      !/[;}]\s*$/.test(query.pattern)
+    ) {
+      try {
+        const retried = await runNative(`${query.pattern};`);
+        if (retried.totalMatches > 0) {
+          nativeResult = retried;
+          semicolonNormalized = true;
+        }
+      } catch {
+        // Terminator retry is best-effort — keep the original zero-match result.
+      }
+    }
+    // Same failure mode for declarations: the natural
+    // `function $NAME($$$ARGS) { $$$BODY }` matches 0 real functions because
+    // production code carries a return type between `)` and `{`. Retry once
+    // with a return-type metavar inserted (`): $R {`) so the bare pattern
+    // matches typed functions. Only fires on 0 matches and only when the
+    // pattern lacks a return-type position, so it can never override or change
+    // an existing positive result.
+    if (nativeResult.totalMatches === 0 && query.pattern && !query.rule) {
+      const relaxed = relaxedFunctionReturnTypePattern(query.pattern);
+      if (relaxed) {
+        try {
+          const retried = await runNative(relaxed);
+          if (retried.totalMatches > 0) {
+            nativeResult = retried;
+            returnTypeRelaxed = relaxed;
+          }
+        } catch {
+          // Return-type retry is best-effort — keep the original zero-match result.
+        }
+      }
+    }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     const langType = query.langType || 'source';
@@ -160,23 +220,97 @@ export async function searchContentStructural(
     })
   );
 
+  // Depth guard — enforced here because the engine's anchored-prefilter path
+  // cannot honor maxDepth natively. Semantics match localViewStructure:
+  // 0 = files directly in the search root, 1 = plus one directory level, ….
+  const maxDepth = (query as { maxDepth?: number }).maxDepth;
+  let depthFiltered = files;
+  let depthDropped = 0;
+  if (typeof maxDepth === 'number' && !targetIsFile) {
+    const root = pathValidation.sanitizedPath.replace(/\/+$/, '');
+    depthFiltered = files.filter(f => {
+      const rel = f.path.startsWith(`${root}/`)
+        ? f.path.slice(root.length + 1)
+        : f.path;
+      return rel.split('/').length <= maxDepth + 1;
+    });
+    depthDropped = files.length - depthFiltered.length;
+  }
+  const totalAfterDepth = depthFiltered.reduce(
+    (sum, f) => sum + (f.matchCount ?? f.matches?.length ?? 0),
+    0
+  );
+
   const stats: SearchStats = {
-    totalStructuralMatches: nativeResult.totalMatches,
+    totalStructuralMatches:
+      typeof maxDepth === 'number'
+        ? totalAfterDepth
+        : nativeResult.totalMatches,
   };
   // A successful-but-empty structural search is almost always an incomplete
   // pattern; surface remediation through the typed warnings channel (not hints).
   const warnings = [...nativeResult.warnings];
+  if (depthDropped > 0) {
+    warnings.push(
+      `maxDepth ${maxDepth}: dropped ${depthDropped} deeper file(s) — raise maxDepth or omit it to include them.`
+    );
+  }
+  if (semicolonNormalized) {
+    warnings.push(
+      `Matched after appending ';' — statement patterns must parse as complete statements; the bare pattern parsed as an expression fragment. Results are for "${query.pattern};".`
+    );
+  }
+  if (returnTypeRelaxed) {
+    warnings.push(
+      `Matched after adding a return-type metavar — the bare pattern missed functions that declare a return type. Results are for "${returnTypeRelaxed}".`
+    );
+  }
+  // Zero matches: ask the engine's detailed variant WHY. It returns the query
+  // explanation (parsed kind, literal anchor, pre-filter mode) and staged
+  // diagnostics with recovery hints — far more actionable than generic advice.
+  // Extra engine run happens only in the otherwise-useless zero-match case.
+  if (nativeResult.totalMatches === 0 && !targetIsFile) {
+    try {
+      const detailed =
+        contextUtils.structuralSearchFilesDetailed(buildFilesOptions());
+      const q = detailed.query;
+      if (q) {
+        const parts = [`query parsed as ${q.kind}`];
+        if (q.literalAnchor) parts.push(`literal anchor "${q.literalAnchor}"`);
+        parts.push(`pre-filter: ${q.preFilter}`);
+        if (q.unsafeReason) parts.push(`unsafe: ${q.unsafeReason}`);
+        warnings.push(`Engine explanation: ${parts.join(', ')}.`);
+        for (const d of [
+          ...(q.diagnostics ?? []),
+          ...(detailed.diagnostics ?? []),
+        ].slice(0, 3)) {
+          warnings.push(
+            `Engine ${d.severity} [${d.stage}/${d.code}]: ${d.message}${d.recovery ? ` — ${d.recovery}` : ''}`
+          );
+        }
+      }
+    } catch {
+      // Explanation is best-effort — never fail the response over it.
+    }
+  }
   // The "complete AST node / use a YAML rule instead" advice only applies to a
   // `pattern`. Don't emit it when the query already uses a `rule` (it would tell
   // a rule author to switch to a rule).
   if (
-    (files.length === 0 || nativeResult.totalMatches === 0) &&
+    (depthFiltered.length === 0 || stats.totalStructuralMatches === 0) &&
     query.pattern &&
-    !query.rule
+    !query.rule &&
+    depthDropped === 0
   ) {
     warnings.push(
       ZERO_MATCH_GUIDANCE + relaxedFunctionPatternSuggestion(query.pattern)
     );
   }
-  return await buildSearchResult(files, query, 'structural', warnings, stats);
+  return await buildSearchResult(
+    depthFiltered,
+    query,
+    'structural',
+    warnings,
+    stats
+  );
 }

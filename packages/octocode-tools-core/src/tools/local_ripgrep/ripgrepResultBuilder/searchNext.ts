@@ -48,7 +48,7 @@ const BARE_IDENTIFIER = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
 type NextToolName =
   'localGetFileContent' | 'lspGetSemantics' | 'localSearchCode';
 
-type NextConfidence = 'exact' | 'heuristic';
+type NextConfidence = 'exact' | 'low';
 
 type SearchNextCall = {
   tool: NextToolName;
@@ -119,7 +119,7 @@ export function buildSearchNextMap(
         tool: 'localGetFileContent',
         query: { path: firstFile.path, minify: 'standard' },
         why: 'Read the first matched file (minify:"symbols" gives a skeleton for orientation; minify:"none" gives exact bytes).',
-        confidence: options.isFileListMode ? 'heuristic' : 'exact',
+        confidence: options.isFileListMode ? 'low' : 'exact',
       };
     }
 
@@ -134,13 +134,13 @@ export function buildSearchNextMap(
         tool: 'lspGetSemantics',
         query: { ...lspBase, type: 'definition' },
         why: 'Use the grep line as an LSP lineHint to resolve the symbol definition.',
-        confidence: 'heuristic',
+        confidence: 'low',
       };
       next.lspReferences = {
         tool: 'lspGetSemantics',
         query: { ...lspBase, type: 'references' },
         why: 'Use the grep line as an LSP lineHint to inspect semantic usages.',
-        confidence: 'heuristic',
+        confidence: 'low',
       };
     }
   }
@@ -206,10 +206,10 @@ export function inferLspSymbolName(
 ): InferredLspSymbol | undefined {
   // Aggregate / count output has no single-symbol anchor.
   if (
-    query.countLinesPerFile ||
-    query.countMatchesPerFile ||
-    query.countUnique ||
-    query.unique
+    query.output === 'countLines' ||
+    query.output === 'countMatches' ||
+    query.unique === 'list' ||
+    query.unique === 'count'
   ) {
     return undefined;
   }
@@ -225,7 +225,7 @@ export function inferLspSymbolName(
 
   // onlyMatching returns the exact matched substring — infer when it is itself a
   // bare identifier.
-  if (query.onlyMatching) {
+  if (query.output === 'matchOnly') {
     const symbol = bareIdentifier(match?.value);
     return symbol ? { symbol } : undefined;
   }
@@ -233,7 +233,7 @@ export function inferLspSymbolName(
   // Otherwise infer only from an exact bare-identifier query. This suppresses
   // regex-like queries (`\w+_searched`), dotted fixed strings (`query.symbolName`),
   // and multi-token snippets, none of which are a single bare identifier.
-  const symbol = bareIdentifier(query.keywords);
+  const symbol = bareIdentifier(query.searchText);
   return symbol ? { symbol } : undefined;
 }
 

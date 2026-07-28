@@ -1,18 +1,4 @@
-import {
-  afterAll,
-  afterEach,
-  beforeEach,
-  describe,
-  expect,
-  it,
-  vi,
-} from 'vitest';
-
-const oqlEnv = vi.hoisted(() => {
-  const previous = process.env.ENABLE_OQL;
-  process.env.ENABLE_OQL = '1';
-  return { previous };
-});
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const publicMocks = vi.hoisted(() => ({
   initialize: vi.fn().mockResolvedValue(undefined),
@@ -42,7 +28,7 @@ const publicMocks = vi.hoisted(() => ({
         description: 'Search local code with ripgrep.',
         schema: {
           path: 'Path to search',
-          keywords: 'Pattern to find',
+          searchText: 'Pattern to find',
         },
         hints: { hasResults: [], empty: [] },
       },
@@ -112,11 +98,6 @@ vi.mock('@octocodeai/octocode-tools-core/direct', async importOriginal => {
 });
 
 describe('toolCommand', () => {
-  afterAll(() => {
-    if (oqlEnv.previous === undefined) delete process.env.ENABLE_OQL;
-    else process.env.ENABLE_OQL = oqlEnv.previous;
-  });
-
   let consoleSpy: ReturnType<typeof vi.spyOn>;
   let originalExitCode: typeof process.exitCode;
 
@@ -140,7 +121,7 @@ describe('toolCommand', () => {
       command: 'tools',
       args: [
         'localSearchCode',
-        '{"path":".","keywords":"runCLI","fixedString":true,"include":["ts","tsx"],"maxFiles":5,"matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
+        '{"path":".","searchText":"runCLI","regex":"fixed","include":["ts","tsx"],"maxFiles":5,"matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
       ],
       options: {},
     });
@@ -152,8 +133,8 @@ describe('toolCommand', () => {
         queries: [
           expect.objectContaining({
             path: '.',
-            keywords: 'runCLI',
-            fixedString: true,
+            searchText: 'runCLI',
+            regex: 'fixed',
             include: ['ts', 'tsx'],
             maxFiles: 5,
             researchGoal: 'Execute localSearchCode via octocode',
@@ -204,7 +185,7 @@ describe('toolCommand', () => {
       command: 'tools',
       args: [
         'localSearchCode',
-        '{"path":".","keywords":"runCLI","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
+        '{"path":".","searchText":"runCLI","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
       ],
       options: {
         json: true,
@@ -253,7 +234,7 @@ describe('toolCommand', () => {
       .map((call: unknown[]) => call.map(String).join(' '))
       .join('\n');
     expect(output).toContain('Command Patterns');
-    expect(output).toContain('"keywords":"buildDirectToolCommandPatterns"');
+    expect(output).toContain('"searchText":"buildDirectToolCommandPatterns"');
     expect(output).toContain('"pattern":"eval($X)"');
     expect(output).toContain('absolute path');
   });
@@ -266,7 +247,7 @@ describe('toolCommand', () => {
       args: ['localSearchCode'],
       options: {
         input:
-          '{"path":".","keywords":"buildDirectToolCommandPatterns","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
+          '{"path":".","searchText":"buildDirectToolCommandPatterns","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
       },
     });
 
@@ -301,7 +282,7 @@ describe('toolCommand', () => {
 
     await toolCommand.handler!({
       command: 'tools',
-      args: ['localSearchCode', '{"path":".","keywords":"runCLI"'],
+      args: ['localSearchCode', '{"path":".","searchText":"runCLI"'],
       options: {},
     });
 
@@ -319,7 +300,7 @@ describe('toolCommand', () => {
       command: 'tools',
       args: [
         'localSearchCode',
-        '{"path":".","keywords":999,"matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
+        '{"path":".","searchText":999,"matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
       ],
       options: {},
     });
@@ -329,7 +310,7 @@ describe('toolCommand', () => {
       expect.stringContaining('Tool input does not match the expected schema.')
     );
     expect(consoleSpy).toHaveBeenCalledWith(
-      expect.stringContaining('keywords:')
+      expect.stringContaining('searchText:')
     );
     expect(process.exitCode).toBe(2);
   });
@@ -364,7 +345,7 @@ describe('toolCommand', () => {
       command: 'tools',
       args: [
         'localSearchCode',
-        '{"path":".","keywords":"runCLI","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
+        '{"path":".","searchText":"runCLI","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
       ],
       options: {},
     });
@@ -383,7 +364,7 @@ describe('toolCommand', () => {
       command: 'tools',
       args: [
         'localSearchCode',
-        '{"path":".","keywords":"runCLI","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
+        '{"path":".","searchText":"runCLI","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
       ],
       options: {},
     });
@@ -453,8 +434,10 @@ describe('toolCommand', () => {
     });
 
     const output = consoleSpy.mock.calls.flat().join('\n');
-    expect(output).toContain('localSearchCode.keywords must be a string');
-    expect(output).toContain('ghSearchCode uses keywords as an array');
+    expect(output).toContain(
+      'localSearchCode.searchText must be a single string, not an array.'
+    );
+    expect(output).toContain('an array of ANDed terms');
     expect(process.exitCode).toBe(2);
   });
 
@@ -469,12 +452,11 @@ describe('toolCommand', () => {
     expect(context).toContain('tools <name>');
     expect(context).toContain('Use Octocode tools carefully.');
     expect(context).toContain('1. ghSearchCode');
-    expect(context).toContain('2. ghCloneRepo');
-    expect(context).toContain('3. localSearchCode');
-    expect(context).toContain('Quick commands (search/clone/cache fetch)');
-    expect(context).not.toContain('Quick commands (search/ls/cat/repo');
+    expect(context).toContain('8. ghCloneRepo');
+    expect(context).toContain('9. localSearchCode');
+    expect(context).toContain('Quick commands (clone/cache fetch)');
     expect(context).not.toMatch(
-      /Quick commands \([^)]*\b(?:ls|cat|repo|history|binary|unzip|diff|pkg|lsp|find|grep)\b/
+      /Quick commands \([^)]*\b(?:search|ls|cat|repo|history|binary|unzip|diff|pkg|lsp|find|grep)\b/
     );
     // full mode includes complete tool descriptions
     expect(context).toContain('Search code in GitHub repositories.');
@@ -482,7 +464,7 @@ describe('toolCommand', () => {
   });
 
   it('builds a lean default tools context (compact field lists)', async () => {
-    const { getToolsContextString } =
+    const { getToolsContextString, TOOL_DEFINITIONS } =
       await import('../../src/cli/tool-command.js');
 
     const context = await getToolsContextString();
@@ -492,7 +474,28 @@ describe('toolCommand', () => {
       '1. ghSearchCode — Search code in GitHub repositories.'
     );
     expect(context).not.toContain('"$schema"');
-    expect(context).toContain('RESEARCH LOOP');
+    expect(context).toContain('Protocol: schema first');
+    expect(context).not.toContain('Use Octocode tools carefully.');
+    expect(context.length).toBeLessThanOrEqual(4000);
+    for (const tool of TOOL_DEFINITIONS) {
+      expect(context).toContain(tool.name);
+    }
+  });
+
+  it('supports minimal agent context for cheapest tool-name orientation', async () => {
+    const { getToolsContextString, TOOL_DEFINITIONS } =
+      await import('../../src/cli/tool-command.js');
+
+    const context = await getToolsContextString({ minimal: true });
+
+    expect(context).toContain('Octocode CLI — Minimal Context');
+    expect(context).toContain('Protocol: schema first');
+    expect(context).not.toContain('Output contract');
+    expect(context).not.toContain('Use Octocode tools carefully.');
+    expect(context.length).toBeLessThanOrEqual(1800);
+    for (const tool of TOOL_DEFINITIONS) {
+      expect(context).toContain(tool.name);
+    }
   });
 
   // Bug 1: `tools <name> --scheme` must never throw a ReferenceError for any
@@ -505,11 +508,6 @@ describe('toolCommand', () => {
     for (const tool of TOOL_DEFINITIONS) {
       await expect(showToolHelp(tool.name)).resolves.toBe(true);
     }
-  });
-
-  it('renders --scheme help for oqlSearch without throwing', async () => {
-    const { showToolHelp } = await import('../../src/cli/tool-command.js');
-    await expect(showToolHelp('oqlSearch')).resolves.toBe(true);
   });
 
   // Bug 2: bare `tools --json` (no tool name) must emit a lean machine-readable
@@ -531,19 +529,18 @@ describe('toolCommand', () => {
     const parsed = JSON.parse(output) as {
       kind: string;
       toolCount: number;
-      commands: { schema: string; fullCatalog: string };
+      commands: { schema: string; fullCatalog: string; run: string };
       tools: Array<{
         name: string;
         category: string;
         description: string;
         fields: string;
-        schemaCommand: string;
-        runCommand: string;
       }>;
     };
     expect(parsed.kind).toBe('octocode.toolCatalog');
     expect(parsed.commands.schema).toBe('tools <name> --scheme --json');
     expect(parsed.commands.fullCatalog).toBe('tools --json --full');
+    expect(parsed.commands.run).toContain('--compact');
 
     const { TOOL_DEFINITIONS } = await import('../../src/cli/tool-command.js');
     const names = parsed.tools.map(entry => entry.name).sort();
@@ -555,8 +552,6 @@ describe('toolCommand', () => {
       expect(entry).toHaveProperty('category');
       expect(entry).toHaveProperty('description');
       expect(typeof entry.fields).toBe('string');
-      expect(entry.schemaCommand).toBe(`tools ${entry.name} --scheme --json`);
-      expect(entry.runCommand).toContain('--compact');
     }
   });
 
@@ -645,6 +640,24 @@ describe('toolCommand', () => {
     expect(parsed.guidance?.join('\n')).toContain('absolute path');
   });
 
+  it('pretty-prints compact JSON when --pretty is supplied', async () => {
+    const { toolCommand } = await import('../../src/cli/tool-command.js');
+
+    await toolCommand.handler!({
+      command: 'tools',
+      args: ['localSearchCode'],
+      options: { scheme: true, json: true, compact: true, pretty: true },
+    });
+
+    const output = consoleSpy.mock.calls
+      .map((call: unknown[]) => call.map(String).join(' '))
+      .join('\n')
+      .trim();
+
+    expect(output).toContain('\n  "kind"');
+    expect(JSON.parse(output).kind).toBe('octocode.toolSchema.compact');
+  });
+
   it('deduplicates prose in compact tool schemas', async () => {
     const { toolCommand } = await import('../../src/cli/tool-command.js');
 
@@ -660,17 +673,22 @@ describe('toolCommand', () => {
       .trim();
 
     const parsed = JSON.parse(output) as {
-      inputSchema: { type?: string };
-      fields?: unknown[];
+      kind: string;
+      inputSchema?: unknown;
+      fields?: string[];
       fieldNames?: string[];
       fullDescription?: string;
       guidance?: string[];
+      commands: { full: string; run: string };
     };
 
-    expect(parsed.inputSchema.type).toBe('object');
-    expect(parsed.fields).toBeUndefined();
+    expect(parsed.kind).toBe('octocode.toolSchema.compact');
+    expect(parsed.inputSchema).toBeUndefined();
     expect(parsed.fullDescription).toBeUndefined();
-    expect(parsed.fieldNames).toContain('path');
+    expect(parsed.fieldNames).toBeUndefined();
+    expect(parsed.fields?.some(field => field.startsWith('path*:'))).toBe(true);
+    expect(parsed.commands.full).toBe('tools localSearchCode --scheme --json');
+    expect(parsed.commands.run).toContain('--compact');
     expect(parsed.guidance?.join('\n')).toContain('absolute path');
   });
 });

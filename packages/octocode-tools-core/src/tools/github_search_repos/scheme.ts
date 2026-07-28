@@ -10,8 +10,11 @@ import {
   createQueryShapeSchema,
   describeQuerySchema,
 } from '../../scheme/coreSchemas.js';
-import { responseEnvelopeFields } from '../../scheme/responseEnvelope.js';
-import { ItemPaginationSchema } from '../../scheme/pagination.js';
+import type {
+  ItemPagination,
+  ToolContinuation,
+} from '../../scheme/pagination.js';
+import type { BulkToolOutput } from '../../types/toolOutput.js';
 
 const queryOverrides = {
   limit: clampedInt(1, GITHUB_SEARCH_MAX_LIMIT).optional(),
@@ -40,52 +43,47 @@ export const GitHubReposSearchBulkQueryLocalSchema =
     )
   );
 
-const LocalRepositoryDetailSchema = z.object({
-  owner: z.string(),
-  repo: z.string(),
-  stars: z.number().optional(),
-  forks: z.number().optional(),
-  openIssuesCount: z.number().optional(),
-  language: z.string().optional(),
-  license: z.string().optional(),
-  description: z.string().optional(),
-  homepage: z.string().optional(),
-  pushedAt: z.string().optional(),
-  createdAt: z.string().optional(),
-  defaultBranch: z.string().optional(),
-  topics: z.array(z.string()).optional(),
-  visibility: z.string().optional(),
-  url: z.string().optional(),
-  updatedAt: z.string().optional(),
-});
+// ---------------------------------------------------------------------------
+// Output TYPES — describes what ghSearchRepos returns. No zod: the MCP server
+// registers no outputSchema. Index signature mirrors the original
+// .passthrough() for additive runtime fields. Shared envelope lives in
+// types/toolOutput.ts.
+// ---------------------------------------------------------------------------
+
+export interface LocalRepositoryDetail {
+  owner: string;
+  repo: string;
+  stars?: number;
+  forks?: number;
+  openIssuesCount?: number;
+  language?: string;
+  license?: string;
+  description?: string;
+  homepage?: string;
+  pushedAt?: string;
+  createdAt?: string;
+  defaultBranch?: string;
+  topics?: string[];
+  visibility?: string;
+  url?: string;
+  updatedAt?: string;
+}
 
 // Repo-search-specific pagination: canonical base + search-confidence fields.
-const RepoSearchPaginationSchema = ItemPaginationSchema.extend({
-  totalMatchesKind: z.enum(['exact', 'reported', 'lowerBound']).optional(),
-  totalMatchesCapped: z.boolean().optional(),
-}).optional();
+export interface RepoSearchPagination extends ItemPagination {
+  totalMatchesKind?: 'exact' | 'reported' | 'lowerBound';
+  totalMatchesCapped?: boolean;
+}
 
-const RepositoryResultDataSchema = z
-  .object({
-    repositories: z
-      .array(z.union([z.string(), LocalRepositoryDetailSchema]))
-      .optional(),
-    pagination: RepoSearchPaginationSchema,
-  })
-  .passthrough();
+export interface RepositoryResultData {
+  repositories?: Array<string | LocalRepositoryDetail>;
+  pagination?: RepoSearchPagination;
+  // Ready-to-run follow-ups for the top-ranked hit (viewStructure/searchCode).
+  next?: Record<string, ToolContinuation>;
+  // Partial-variant failures and empty-result guidance.
+  warnings?: string[];
+  [key: string]: unknown;
+}
 
-export const GitHubSearchRepositoriesOutputLocalSchema = z
-  .object({
-    results: z
-      .array(
-        z
-          .object({
-            id: z.string().optional(),
-            status: z.string().optional(),
-            data: RepositoryResultDataSchema.optional(),
-          })
-          .passthrough()
-      )
-      .optional(),
-  })
-  .extend(responseEnvelopeFields);
+export type GitHubSearchRepositoriesOutputLocal =
+  BulkToolOutput<RepositoryResultData>;

@@ -11,6 +11,7 @@ import type { LocalSearchCodeToolResult } from '@octocodeai/octocode-core/extra-
 import { buildSearchResult } from './ripgrepResultBuilder.js';
 import { preflightValidateRipgrepPattern } from './patternValidation.js';
 import { attachRawResponseChars } from '../../utils/response/charSavings.js';
+import path from 'node:path';
 import {
   contextUtils,
   type RipgrepSearchOptions,
@@ -39,19 +40,22 @@ function toSearchOptions(
     path: query.path,
     // keywords is required for every non-structural mode (schema-enforced);
     // structural search never reaches this executor.
-    pattern: query.keywords ?? '',
-    fixedString: query.fixedString,
-    perlRegex: query.perlRegex,
-    caseSensitive: query.caseSensitive,
-    caseInsensitive: query.caseInsensitive,
+    pattern: query.searchText ?? '',
+    fixedString: query.regex === 'fixed',
+    perlRegex: query.regex === 'perl',
+    caseSensitive: query.caseMode === 'sensitive',
+    caseInsensitive: query.caseMode === 'insensitive',
     wholeWord: query.wholeWord,
     invertMatch: query.invertMatch,
-    multiline: query.multiline,
-    multilineDotall: query.multilineDotall,
-    filesOnly: query.filesOnly,
-    filesWithoutMatch: query.filesWithoutMatch,
-    countLinesPerFile: query.countLinesPerFile,
-    countMatchesPerFile: query.countMatchesPerFile,
+    // Positive checks so an unparsed query (defaults not applied, fields
+    // undefined) collapses to the "off" behavior instead of `undefined !== 'off'`
+    // wrongly reading as enabled.
+    multiline: query.multiline === 'on' || query.multiline === 'dotall',
+    multilineDotall: query.multiline === 'dotall',
+    filesOnly: query.output === 'files',
+    filesWithoutMatch: query.output === 'filesWithout',
+    countLinesPerFile: query.output === 'countLines',
+    countMatchesPerFile: query.output === 'countMatches',
     contextLines: query.contextLines,
     langType: query.langType,
     include: query.include,
@@ -68,10 +72,11 @@ function toSearchOptions(
     // cost when relevance ordering is actually requested.
     classifyMatches: query.sort === 'relevance' || query.sort === undefined,
     maxSnippetChars: query.matchContentLength,
-    onlyMatching: query.onlyMatching,
-    unique: query.unique,
-    countUnique: query.countUnique,
+    onlyMatching: query.output === 'matchOnly',
+    unique: query.unique === 'list' || query.unique === 'count',
+    countUnique: query.unique === 'count',
     matchWindow: query.matchWindow,
+    maxCollectedFiles: 10_000,
   };
 }
 
@@ -87,6 +92,23 @@ function estimateResponseChars(files: LocalSearchCodeFile[]): number {
     }
   }
   return total;
+}
+
+function fileDepthFromSearchRoot(filePath: string, searchRoot: string): number {
+  const absoluteFilePath = path.isAbsolute(filePath)
+    ? filePath
+    : path.join(searchRoot, filePath);
+  const relativePath = path.relative(searchRoot, absoluteFilePath);
+  if (
+    !relativePath ||
+    relativePath.startsWith('..') ||
+    path.isAbsolute(relativePath)
+  ) {
+    return 0;
+  }
+  const dir = path.dirname(relativePath);
+  if (dir === '.') return 0;
+  return dir.split(path.sep).filter(Boolean).length;
 }
 
 export async function executeRipgrepSearchInternal(
@@ -148,9 +170,9 @@ export async function executeRipgrepSearchInternal(
   const patternCheck = preflightValidateRipgrepPattern({
     // keywords is required for every non-structural mode (schema-enforced);
     // structural never reaches this executor.
-    pattern: queryForExec.keywords ?? '',
-    fixedString: queryForExec.fixedString,
-    perlRegex: queryForExec.perlRegex,
+    pattern: queryForExec.searchText ?? '',
+    fixedString: queryForExec.regex === 'fixed',
+    perlRegex: queryForExec.regex === 'perl',
   });
   if (!patternCheck.isValid) {
     return createErrorResult(
@@ -202,17 +224,39 @@ export async function executeRipgrepSearchInternal(
     }),
   }));
 
-  const responseChars = estimateResponseChars(files);
+  const maxDepth = (queryForExec as { maxDepth?: number }).maxDepth;
+  const depthFilteredFiles =
+    maxDepth === undefined
+      ? files
+      : files.filter(
+          file =>
+            fileDepthFromSearchRoot(file.path, queryForExec.path) <= maxDepth
+        );
+  if (maxDepth !== undefined && depthFilteredFiles.length !== files.length) {
+    chunkingWarnings.push(
+      `Applied maxDepth:${maxDepth} after native text search; filtered ${files.length - depthFilteredFiles.length} deeper file(s).`
+    );
+  }
+
+  const responseChars = estimateResponseChars(depthFilteredFiles);
   const stats = {
     totalOccurrences: parsed.stats.matchCount,
     matchedLines: parsed.stats.matchedLines,
-    filesMatched: parsed.stats.filesMatched,
+    filesMatched: depthFilteredFiles.length,
     filesSearched: parsed.stats.filesSearched,
     bytesSearched: parsed.stats.bytesSearched ?? undefined,
     searchTime: parsed.stats.searchTime,
+    capped: parsed.stats.capped ?? undefined,
+    capReason: parsed.stats.capReason ?? undefined,
   };
 
-  if (files.length === 0) {
+  if (parsed.stats.capped) {
+    chunkingWarnings.push(
+      `Search hit native collection cap (${parsed.stats.capReason ?? 'resource limit'}); narrow path/include/keywords for exhaustive results.`
+    );
+  }
+
+  if (depthFilteredFiles.length === 0) {
     return attachRawResponseChars(
       {
         status: 'empty',
@@ -225,7 +269,7 @@ export async function executeRipgrepSearchInternal(
   }
 
   if (
-    !queryForExec.filesOnly &&
+    queryForExec.output !== 'files' &&
     responseChars > RESOURCE_LIMITS.LARGE_RESULT_BYTES_HINT
   ) {
     chunkingWarnings.push(
@@ -234,7 +278,7 @@ export async function executeRipgrepSearchInternal(
   }
 
   const searchResult = await buildSearchResult(
-    files,
+    depthFilteredFiles,
     query,
     'rg',
     [...validationWarnings, ...chunkingWarnings],

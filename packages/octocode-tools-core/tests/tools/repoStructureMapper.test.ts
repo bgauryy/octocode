@@ -5,7 +5,9 @@ import type { RepoStructureResult } from '../../src/providers/providerResults.js
 
 type Structure = RepoStructureResult['structure'];
 
-function makeResult(overrides: Partial<RepoStructureResult>): RepoStructureResult {
+function makeResult(
+  overrides: Partial<RepoStructureResult>
+): RepoStructureResult {
   return {
     projectPath: 'owner/repo',
     branch: 'main',

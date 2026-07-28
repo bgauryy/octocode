@@ -120,6 +120,10 @@ describe('CLI Parser', () => {
 
     it('should parse context and scheme flags', () => {
       expect(parseArgs(['context', '--full']).options.full).toBe(true);
+      expect(parseArgs(['context', '--minimal']).options.minimal).toBe(true);
+      expect(parseArgs(['tools', '--compact', '--pretty']).options.pretty).toBe(
+        true
+      );
       expect(parseArgs(['tools', '--no-color']).options['no-color']).toBe(true);
       expect(
         parseArgs(['tools', 'localSearchCode', '--scheme']).options.scheme
@@ -136,9 +140,9 @@ describe('CLI Parser', () => {
       );
     });
 
-    it('should parse search semantic value options', () => {
+    it('should parse semantic value options', () => {
       const result = parseArgs([
-        'search',
+        'lsp',
         'src/index.ts',
         '--op',
         'references',
@@ -150,7 +154,7 @@ describe('CLI Parser', () => {
         '.',
       ]);
 
-      expect(result.command).toBe('search');
+      expect(result.command).toBe('lsp');
       expect(result.args).toEqual(['src/index.ts']);
       expect(result.options).toEqual({
         op: 'references',
@@ -160,9 +164,9 @@ describe('CLI Parser', () => {
       });
     });
 
-    it('should parse search --items-per-page as a value option', () => {
+    it('should parse --items-per-page as a value option', () => {
       const result = parseArgs([
-        'search',
+        'query',
         './src',
         '--target',
         'research',
@@ -170,7 +174,7 @@ describe('CLI Parser', () => {
         '1',
       ]);
 
-      expect(result.command).toBe('search');
+      expect(result.command).toBe('query');
       expect(result.args).toEqual(['./src']);
       expect(result.options).toMatchObject({
         target: 'research',
@@ -178,9 +182,9 @@ describe('CLI Parser', () => {
       });
     });
 
-    it('should parse search symbol-outline value options', () => {
+    it('should parse symbol-outline value options', () => {
       const result = parseArgs([
-        'search',
+        'lsp',
         'src',
         '--symbols',
         '--ext',
@@ -191,7 +195,7 @@ describe('CLI Parser', () => {
         '10',
       ]);
 
-      expect(result.command).toBe('search');
+      expect(result.command).toBe('lsp');
       expect(result.args).toEqual(['src']);
       expect(result.options).toEqual({
         symbols: true,
@@ -201,9 +205,9 @@ describe('CLI Parser', () => {
       });
     });
 
-    it('should parse search repository value options', () => {
+    it('should parse repository value options', () => {
       const result = parseArgs([
-        'search',
+        'query',
         'agent',
         'tools',
         '--target',
@@ -241,7 +245,7 @@ describe('CLI Parser', () => {
         '10',
       ]);
 
-      expect(result.command).toBe('search');
+      expect(result.command).toBe('query');
       expect(result.args).toEqual(['agent', 'tools']);
       expect(result.options).toEqual({
         target: 'repositories',
@@ -264,13 +268,11 @@ describe('CLI Parser', () => {
       });
     });
 
-    it('should parse search file-discovery value and boolean options', () => {
+    it('should parse file-discovery value and boolean options', () => {
       const result = parseArgs([
-        'search',
+        'find',
         'auth',
         '.',
-        '--source',
-        'local',
         '--search',
         'both',
         '--ext',
@@ -305,10 +307,9 @@ describe('CLI Parser', () => {
         '20',
       ]);
 
-      expect(result.command).toBe('search');
+      expect(result.command).toBe('find');
       expect(result.args).toEqual(['auth', '.']);
       expect(result.options).toEqual({
-        source: 'local',
         search: 'both',
         ext: 'ts,tsx',
         path: 'src',
@@ -327,13 +328,6 @@ describe('CLI Parser', () => {
         fixed: true,
         limit: '20',
       });
-    });
-
-    it('keeps other --source boolean while search --source consumes a value', () => {
-      expect(parseArgs(['status', '--source']).options.source).toBe(true);
-      expect(
-        parseArgs(['search', 'x', '.', '--source', 'github']).options.source
-      ).toBe('github');
     });
 
     it('should parse unsupported top-level long options without rewriting them', () => {
@@ -355,8 +349,8 @@ describe('CLI Parser', () => {
     });
 
     it('should skip a standalone "--" separator (npm/yarn style) and keep parsing', () => {
-      const result = parseArgs(['--', 'search', '@x/y', '--json']);
-      expect(result.command).toBe('search');
+      const result = parseArgs(['--', 'query', '@x/y', '--json']);
+      expect(result.command).toBe('query');
       expect(result.args).toEqual(['@x/y']);
       expect(result.options).toEqual({ json: true });
       // never produces an empty-string option key
@@ -364,8 +358,8 @@ describe('CLI Parser', () => {
     });
 
     it('should skip "--" anywhere in the argv, not just at the front', () => {
-      const result = parseArgs(['search', 'zod', '--', '--mode', 'lean']);
-      expect(result.command).toBe('search');
+      const result = parseArgs(['query', 'zod', '--', '--mode', 'lean']);
+      expect(result.command).toBe('query');
       expect(result.args).toEqual(['zod']);
       expect(result.options).toEqual({ mode: 'lean' });
     });

@@ -171,14 +171,14 @@ export function formatPRForResponse(
       ...comment,
       body: bodyResult.value ?? '',
       ...(bodyResult.pagination
-        ? { body_pagination: bodyResult.pagination }
+        ? { bodyPagination: bodyResult.pagination }
         : {}),
     };
   });
   const commentDetailsPaginated =
     !options.includeFullCommentDetails &&
     (comments.length > visibleComments.length ||
-      commentDetails.some(comment => 'body_pagination' in comment));
+      commentDetails.some(comment => 'bodyPagination' in comment));
   const paginationWarnings = [
     ...(body.pagination && options.includeFullBody
       ? [
@@ -195,28 +195,27 @@ export function formatPRForResponse(
   return {
     number: pr.number,
     title: pr.title,
-    url: pr.url,
     state: pr.state as 'open' | 'closed',
     draft: pr.draft ?? false,
     merged: pr.state === 'closed' && !!pr.merged_at,
-    created_at: pr.created_at,
-    updated_at: pr.updated_at,
-    closed_at: pr.closed_at ?? undefined,
-    merged_at: pr.merged_at,
+    createdAt: pr.created_at,
+    updatedAt: pr.updated_at,
+    closedAt: pr.closed_at ?? undefined,
+    mergedAt: pr.merged_at,
     author: pr.author,
     ...(pr.labels?.length
       ? { labels: pr.labels.map(name => ({ id: 0, name, color: '' })) }
       : {}),
-    head_ref: pr.head || '',
-    ...(pr.head_sha ? { head_sha: pr.head_sha } : {}),
-    base_ref: pr.base || '',
-    ...(pr.base_sha ? { base_sha: pr.base_sha } : {}),
+    headRef: pr.head || '',
+    ...(pr.head_sha ? { headSha: pr.head_sha } : {}),
+    baseRef: pr.base || '',
+    ...(pr.base_sha ? { baseSha: pr.base_sha } : {}),
     body: body.value,
-    ...(body.pagination ? { body_pagination: body.pagination } : {}),
+    ...(body.pagination ? { bodyPagination: body.pagination } : {}),
     comments: pr.total_comment_count ?? comments.length,
     ...(comments.length > 0 && {
-      comment_details_breakdown: {
-        inline_review: inlineReviewCount,
+      commentDetailsBreakdown: {
+        inlineReview: inlineReviewCount,
         discussion: discussionCount,
       },
     }),
@@ -229,9 +228,9 @@ export function formatPRForResponse(
       pr.file_changes?.files.reduce((sum, file) => sum + file.deletions, 0) ||
       pr.deletions ||
       0,
-    changed_files: pr.file_changes?.total_count || 0,
+    changedFiles: pr.file_changes?.total_count || 0,
     ...(pr.file_changes && {
-      file_changes: pr.file_changes.files?.map(file => ({
+      fileChanges: pr.file_changes.files?.map(file => ({
         filename: file.filename,
         status: file.status,
         additions: file.additions,
@@ -243,16 +242,16 @@ export function formatPRForResponse(
       reviews: pr.reviews,
     }),
     ...(pr.commits && {
-      commit_details: pr.commits,
+      commitDetails: pr.commits,
     }),
     ...(commentDetails.length > 0 && {
-      comment_details: commentDetails,
-      comment_details_shown: commentDetails.length,
-      comment_details_total: comments.length,
-      ...(commentDetailsPaginated ? { comment_details_paginated: true } : {}),
+      commentDetails: commentDetails,
+      commentDetailsShown: commentDetails.length,
+      commentDetailsTotal: comments.length,
+      ...(commentDetailsPaginated ? { commentDetailsPaginated: true } : {}),
     }),
     ...((pr._sanitization_warnings || paginationWarnings.length > 0) && {
-      _sanitization_warnings: [
+      sanitizationWarnings: [
         ...(pr._sanitization_warnings || []),
         ...paginationWarnings,
       ],

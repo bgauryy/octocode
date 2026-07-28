@@ -32,7 +32,7 @@ function issuesData() {
   };
 }
 
-describe('ghHistoryResearch type:"issues"', () => {
+describe('ghSearchIssues type:"issues"', () => {
   beforeEach(() => {
     fetchIssues.mockReset();
   });
@@ -168,9 +168,8 @@ describe('ghHistoryResearch type:"issues"', () => {
   });
 
   it('the local query schema accepts type:"issues" and issueNumber', async () => {
-    const { GitHubPullRequestSearchQueryLocalSchema } = await import(
-      '../../../src/tools/github_search_pull_requests/scheme.js'
-    );
+    const { GitHubPullRequestSearchQueryLocalSchema } =
+      await import('../../../src/tools/github_search_pull_requests/scheme.js');
     const parsed = GitHubPullRequestSearchQueryLocalSchema.safeParse({
       type: 'issues',
       owner: 'o',

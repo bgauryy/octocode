@@ -11,8 +11,6 @@ import { executeWithToolBoundary } from '../executionGuard.js';
 import type { ToolExecutionArgs } from '../../types/execution.js';
 import type { LocalViewStructureToolResult } from '@octocodeai/octocode-core/extra-types';
 
-export { finalizeViewStructureResult } from './local_view_structure.js';
-
 export async function executeViewStructure(
   args: ToolExecutionArgs<ViewStructureQuery>
 ): Promise<CallToolResult> {

@@ -128,9 +128,7 @@ describe('scoreFile — the motivating broad-term example', () => {
     expect(reasons).toMatch(/rare query token: rankEvidence \(1\/2 files\)/);
     expect(
       ranked.debug?.get('/repo/src/common.ts')?.reasons.join(' ')
-    ).not.toMatch(
-      /rare query token/
-    );
+    ).not.toMatch(/rare query token/);
   });
 });
 

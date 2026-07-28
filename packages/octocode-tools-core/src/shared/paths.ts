@@ -6,10 +6,7 @@ const DIR_MODE = 0o700;
 
 /**
  * Octocode's home directory. Set OCTOCODE_HOME to isolate caches in tests/CI.
- * Default per platform:
- *   - macOS:   `~/.octocode`
- *   - Linux:   `${XDG_CONFIG_HOME:-~/.config}/.octocode`
- *   - Windows: `%APPDATA%\.octocode`
+ * Default: `~/.octocode` on every platform.
  *
  * Implementation delegated to @octocodeai/config — single source of truth.
  */

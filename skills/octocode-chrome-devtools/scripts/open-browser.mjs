@@ -23,6 +23,7 @@ const PROXY_SERVER = getArg('--proxyServer', '');
 const PROXY_BYPASS_LIST = getArg('--proxyBypassList', '');
 const PROXY_PAC_URL = getArg('--proxyPacUrl', '');
 const CONFIG_PATH = getArg('--config', '');
+const ENABLE_FEATURES = getArg('--enableFeatures', '');
 
 propagateOctocodeEnv({ cwd: process.cwd(), trusted: true });
 
@@ -261,6 +262,9 @@ const proxyRequested = Boolean(effectiveProxyServer || effectiveProxyPacUrl);
 
 const existing = await checkRunning();
 if (existing) {
+  const reuseWarnings = [];
+  if (proxyRequested) reuseWarnings.push('proxy settings cannot be applied to an already-running CDP session');
+  if (ENABLE_FEATURES) reuseWarnings.push('--enableFeatures cannot be applied to an already-running CDP session');
   ok({
     status: 'BROWSER_READY',
     wsUrl: existing.webSocketDebuggerUrl,
@@ -269,8 +273,9 @@ if (existing) {
     browser: existing.Browser,
     proxyConfigured: false,
     proxyRequested,
-    warning: proxyRequested
-      ? 'Existing Chrome was reused; proxy settings cannot be applied to an already-running CDP session. Run cleanup or use another port for a fresh proxied session.'
+    enableFeaturesRequested: ENABLE_FEATURES || undefined,
+    warning: reuseWarnings.length
+      ? `Existing Chrome was reused; ${reuseWarnings.join('; ')}. Run cleanup or use another port for a fresh session.`
       : undefined,
   });
   process.exit(0);
@@ -341,6 +346,7 @@ if (WINDOW_SIZE) {
 if (effectiveProxyServer) chromeArgs.push(`--proxy-server=${effectiveProxyServer}`);
 if (effectiveProxyBypassList) chromeArgs.push(`--proxy-bypass-list=${effectiveProxyBypassList}`);
 if (effectiveProxyPacUrl && !effectiveProxyServer) chromeArgs.push(`--proxy-pac-url=${effectiveProxyPacUrl}`);
+if (ENABLE_FEATURES) chromeArgs.push(`--enable-features=${ENABLE_FEATURES}`);
 if (URL_ARG)   chromeArgs.push(URL_ARG);
 
 const profileLabel = HEADLESS ? 'headless' : usingIsolatedProfile ? 'isolated-cdp' : PROFILE;
@@ -365,6 +371,7 @@ while (attempts < 40) {
       isolated: HEADLESS || usingIsolatedProfile,
       sessionFile: (HEADLESS || usingIsolatedProfile) ? SESSION_FILE : null,
       proxyConfigured: proxyRequested,
+      enableFeaturesConfigured: ENABLE_FEATURES || undefined,
     });
     process.exit(0);
   }

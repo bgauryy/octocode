@@ -144,7 +144,8 @@ export function showConfigInfo(): void {
   ${dim('  "mcpServers": {')}
   ${dim('    "octocode": {')}
   ${dim('      "command": "npx",')}
-  ${dim('      "args": ["-y", "@octocodeai/mcp@latest"],')}
+  ${dim('      "type": "stdio",')}
+  ${dim('      "args": ["octocode-mcp@latest"],')}
   ${c('green', '      "env": { "ENABLE_LOCAL": "1" }')}
   ${dim('    }')}
   ${dim('  }')}

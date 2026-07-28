@@ -14,26 +14,27 @@ import {
   createQueryShapeSchema,
   describeQuerySchema,
 } from '../../scheme/coreSchemas.js';
-import { bulkOutputEnvelopeFields } from '../../scheme/responseEnvelope.js';
-import {
-  LocalItemPaginationSchema,
-  ToolContinuationSchema,
+import type {
+  LocalItemPagination,
+  ToolContinuation,
 } from '../../scheme/pagination.js';
+import type { BulkToolOutput } from '../../types/toolOutput.js';
 
 const queryOverrides = {
-  maxDepth: clampedInt(0, LOCAL_MAX_DEPTH).optional(),
+  excludeDir: z
+    .array(z.string())
+    .optional()
+    .describe(
+      'Directory names to prune from recursive walks (default: common generated/vendor dirs such as node_modules, dist, build, out, coverage, target). Pass [] to inspect everything.'
+    ),
+  maxDepth: clampedInt(0, LOCAL_MAX_DEPTH)
+    .optional()
+    .describe(
+      `Maximum recursion depth: 1 = the target directory's immediate children, 2 = children + grandchildren, and so on (max ${LOCAL_MAX_DEPTH}). Setting maxDepth on its own enables recursion to that depth — recursive:true is not required. Effective depth when OMITTED: 1 (immediate children only) if recursive is unset, or 5 if recursive:true. maxDepth:0 is treated as unset and falls back to those defaults.`
+    ),
   limit: clampedInt(1, LOCAL_MAX_LIMIT).optional(),
   page: relaxedPageNumberField.default(1),
   itemsPerPage: clampedInt(1, LOCAL_MAX_FILES_PER_PAGE).optional(),
-  // Filters a directory LISTING down to file entries (excludes
-  // subdirectories). Unrelated to localSearchCode's `filesOnly`, which
-  // instead filters search results down to matching file paths.
-  filesOnly: z
-    .boolean()
-    .optional()
-    .describe(
-      "Returns files only. Mutually exclusive with directoriesOnly. (Unlike localSearchCode's `filesOnly`, which filters search results to matching file paths — a different concept sharing this name.)"
-    ),
 } as const;
 
 const ViewStructureQueryShape = createQueryShapeSchema(
@@ -53,45 +54,35 @@ export const LocalViewStructureBulkQuerySchema = createRelaxedBulkQuerySchema(
 );
 
 // ---------------------------------------------------------------------------
-// Output schema — describes what localViewStructure returns per query result.
+// Output TYPES — describes what localViewStructure returns per query result.
+// No zod: the MCP server registers no outputSchema, so the output is a plain
+// type. Shared envelope lives in types/toolOutput.ts.
 // ---------------------------------------------------------------------------
 
-const ViewStructureEntrySchema = z.object({
-  name: z.string().optional(),
-  type: z.enum(['file', 'dir', 'directory', 'link', 'symlink']),
-  path: z.string().optional(),
-  depth: z.number().optional(),
-  size: z.union([z.number(), z.string()]).optional(),
-  sizeBytes: z.number().optional(),
-  modified: z.string().optional(),
-  permissions: z.string().optional(),
-});
+export interface LocalViewStructureEntry {
+  name?: string;
+  type: 'file' | 'dir' | 'directory' | 'link' | 'symlink';
+  path?: string;
+  absolutePath?: string;
+  uri?: string;
+  depth?: number;
+  size?: number | string;
+  sizeBytes?: number;
+  modified?: string;
+  permissions?: string;
+}
 
-const LocalViewStructureDataSchema = z.object({
-  path: z.string().optional(),
-  entries: z.array(ViewStructureEntrySchema).optional(),
+export interface LocalViewStructureData {
+  path?: string;
+  entries?: LocalViewStructureEntry[];
   // grouped list variants
-  files: z.array(z.string()).optional(),
-  folders: z.array(z.string()).optional(),
-  links: z.array(z.string()).optional(),
-  summary: z.union([z.string(), z.record(z.string(), z.unknown())]).optional(),
-  pagination: LocalItemPaginationSchema.optional(),
-  next: z.record(z.string(), ToolContinuationSchema).optional(),
-  warnings: z.array(z.string()).optional(),
-});
+  files?: string[];
+  folders?: string[];
+  links?: string[];
+  summary?: string | Record<string, unknown>;
+  pagination?: LocalItemPagination;
+  next?: Record<string, ToolContinuation>;
+  warnings?: string[];
+}
 
-export const LocalViewStructureOutputSchema = z
-  .object({
-    results: z.array(
-      z.object({
-        id: z.string(),
-        status: z.enum(['empty', 'error']).optional(),
-        data: LocalViewStructureDataSchema,
-      })
-    ),
-  })
-  .extend(bulkOutputEnvelopeFields);
-
-export type LocalViewStructureOutput = z.infer<
-  typeof LocalViewStructureOutputSchema
->;
+export type LocalViewStructureOutput = BulkToolOutput<LocalViewStructureData>;

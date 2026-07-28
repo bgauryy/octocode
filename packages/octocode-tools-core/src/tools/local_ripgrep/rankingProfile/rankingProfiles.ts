@@ -67,6 +67,11 @@ export const RANK_WEIGHTS = {
   sourceDir: 1.5,
   // Penalize low-signal locations unless explicitly searched.
   lowSignalPathPenalty: -5,
+  // Tests reference the symbol by name in their PATH (foo.test.ts), which
+  // earns pathSegmentToken and outranks the defining source file. Milder than
+  // lowSignalPathPenalty — tests are legitimate evidence, just not the
+  // definition an unscoped symbol search is after.
+  testPathPenalty: -3.5,
   // Candidate-local IDF: rewards rarer query tokens within the bounded
   // candidate set, never by crawling or indexing the whole repo.
   rareQueryTokenScale: 2,

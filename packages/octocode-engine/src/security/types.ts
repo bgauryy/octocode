@@ -31,6 +31,12 @@ export interface ToolResult {
   isError?: boolean;
 }
 
+export interface ToolSecurityContext<TAuth = unknown> {
+  authInfo?: TAuth;
+  sessionId?: string;
+  signal?: AbortSignal;
+}
+
 export interface ISanitizer {
   sanitizeContent(content: string, filePath?: string): SanitizationResult;
   validateInputParameters(params: Record<string, unknown>): ValidationResult;

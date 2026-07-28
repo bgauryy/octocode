@@ -33,6 +33,13 @@ Use launch window size only for outer dimensions; still set CDP Emulation for vi
 ## Binary Path
 Prefer auto-detection. Override only when Chrome is nonstandard; quote paths in shell commands.
 
+## WebMCP (experimental)
+Requires Chrome 150+ and a fresh launch — reused sessions can't add flags:
+```bash
+node <skill-dir>/scripts/open-browser.mjs --headless --port 9222 --enableFeatures WebMCP --url "<url>"
+```
+Most real pages have not adopted WebMCP yet — treat `[FINDING] WEBMCP_NO_TOOLS` as the expected result, not a bug. See `references/intents-automation.md#webmcp`.
+
 ## Output
 Generated scripts and logs go under `.octocode/tmp`; browser state and session metadata go under `.octocode/chrome-devtools` or global `~/.octocode/chrome-devtools` fallback.
 
