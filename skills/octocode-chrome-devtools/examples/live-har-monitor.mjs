@@ -320,6 +320,9 @@ export async function run(cdp) {
   console.log(`[METRIC] requests=${summary.counts.requests} failed=${summary.counts.failed} slow=${summary.counts.slow} exceptions=${summary.counts.exceptions} consoleErrors=${summary.counts.consoleErrors} longTasks=${summary.counts.longTasks}`);
   for (const failure of summary.failures.slice(0, MAX_STDOUT_ITEMS)) {
     console.log(`[NETWORK_ERROR] status=${failure.status} method=${failure.method} url=${failure.url}`);
+    if (failure.errorText || failure.blockedReason) {
+      console.log(`[NETWORK_ERROR_DETAIL] error=${failure.errorText ?? ''} blocked=${failure.blockedReason ?? ''}`);
+    }
   }
   for (const slow of summary.slow.slice(0, MAX_STDOUT_ITEMS)) {
     console.log(`[METRIC] slow status=${slow.status} method=${slow.method} ms=${slow.ms} type=${slow.type} url=${slow.url}`);

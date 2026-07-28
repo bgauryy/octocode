@@ -30,7 +30,7 @@ Related workflow: if the user needs broad public scraping, site maps, structured
 | debug/network/console/perf | `references/intents-debug.md` | after intents router matches |
 | security/a11y/screenshot/audit | `references/intents-inspect.md` | after intents router matches |
 | storage/consent | `references/intents-storage.md` | when auditing keys/counts only |
-| automate/scrape/live-page | `references/intents-automation.md` | when automating with smart waits |
+| automate/scrape/live-page/webmcp | `references/intents-automation.md` | when automating with smart waits, or invoking page-declared AI tools |
 | login / real profile | `references/intents-auth.md` | before secrets / cookie transfer |
 | emulate/inject/monitor | `references/intents-environment.md` | when applying device/network patches |
 | HAR / Playwright / API replay | `references/har-playwright.md` | before sharing network evidence |

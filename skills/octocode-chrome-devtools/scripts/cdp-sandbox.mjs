@@ -156,6 +156,11 @@ const SCRIPT_ENV_ALLOWLIST = [
   'DOM_ACTION',
   'DOM_VALUE',
   'DOM_STABILITY_MS',
+  'WEBMCP_ACTION',
+  'WEBMCP_TOOL',
+  'WEBMCP_INPUT',
+  'WEBMCP_FRAME',
+  'WEBMCP_WAIT_MS',
 ];
 const scriptEnv = Object.fromEntries(
   SCRIPT_ENV_ALLOWLIST

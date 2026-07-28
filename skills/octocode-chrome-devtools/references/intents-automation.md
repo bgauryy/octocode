@@ -20,6 +20,16 @@ Read structured data without mutation. Emit counts and sample rows; page large o
 ## live-page
 Attach with `--keep-tab`. Listeners miss past events — re-read current state.
 
+## webmcp
+Try before falling back to `automate`/`scrape` when the page might expose page-native tools. Prefer this path: it gives structured JSON in/out instead of selector guessing, and it's the same trust boundary as a click — page code still runs with page privileges.
+
+1. Launch with `--enableFeatures WebMCP` (Chrome 150+; existing/reused sessions can't add this — start a fresh port). See `references/chrome-flags.md`.
+2. Run `examples/webmcp-tools.mjs` with `WEBMCP_ACTION=list`. `[WEBMCP_TOOL]` lines mean the page opted in; `[FINDING] WEBMCP_NO_TOOLS` is the common case today — fall back to `automate`/`scrape` instead of retrying.
+3. To call a discovered tool: `WEBMCP_ACTION=invoke WEBMCP_TOOL=<name> WEBMCP_INPUT='<json matching inputSchema>'`. Check the tool's `risk=` annotation in the list output first; treat `risk=mutating` the same as a real click under the Mutation Gate below.
+4. Read `[WEBMCP_RESULT] status=...` — `Completed`, `Error`, `Canceled`, or this script's own `Timeout` guard. Full payload lands in `webmcp-invocation.json`.
+
+WebMCP is an experimental (`tot`) CDP domain with low site adoption — treat a positive discovery as the exception, not the default path.
+
 ## Mutation Gate
 Ask before purchases, sends, deletes, account changes, or submitting real user data.
 

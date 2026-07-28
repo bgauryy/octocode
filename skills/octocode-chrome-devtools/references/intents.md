@@ -9,11 +9,11 @@ Pick one primary intent. Combine rows only for broad audits as separate scripts 
 | debug/network/console/performance/memory/dom/coverage | diagnose failures or metrics | `references/intents-debug.md` |
 | security/websocket/service-worker/workers/intercept/screenshot/accessibility/supply-chain/full-audit | inspect beyond page text | `references/intents-inspect.md` |
 | storage/consent | storage, IndexedDB, cache, consent banners | `references/intents-storage.md` |
-| automate/scrape/live-page | click/fill/read or attach live | `references/intents-automation.md` |
+| automate/scrape/live-page/webmcp | click/fill/read, attach live, or invoke page-declared AI tools | `references/intents-automation.md` |
 | login/user-auth/cookie-bridge | manual auth or cookie transfer | `references/intents-auth.md` |
 | emulate/inject/monitor | device patches, long observe | `references/intents-environment.md` |
 | HAR/Playwright/API-replay | network files, replay, token budget | `references/har-playwright.md` |
 
-Prefixes: `[FINDING]`, `[ACTION]`, `[METRIC]`, `[REASON]`, `[NETWORK_ERROR]`, `[NETWORK_FAILED]`, `[EXCEPTION]`, `[CONSOLE:TYPE]`, `[LOG:LEVEL]`, `[SCREENSHOT]`, `[ARTIFACT]`, `[AUTH_COMPLETE]`, `[AUTH_TIMEOUT]`, `[SOURCEMAP]`.
+Prefixes: `[FINDING]`, `[ACTION]`, `[METRIC]`, `[REASON]`, `[NETWORK_ERROR]`, `[NETWORK_ERROR_DETAIL]`, `[NETWORK_FAILED]`, `[EXCEPTION]`, `[EXCEPTION_LOCATION]`, `[CONSOLE:TYPE]`, `[LOG:LEVEL]`, `[SCREENSHOT]`, `[ARTIFACT]`, `[AUTH_COMPLETE]`, `[AUTH_TIMEOUT]`, `[SOURCEMAP]`, `[WEBMCP_TOOL]`, `[WEBMCP_RESULT]`, `[CDP_RETRY_NEEDED]`.
 
 Full audit: debug/network first, then security/storage/a11y/performance/screenshot as separate scripts.
