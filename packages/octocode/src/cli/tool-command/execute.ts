@@ -23,7 +23,11 @@ import {
   printToolSchemaJson,
 } from './catalog-json.js';
 import { showAvailableTools } from './list-view.js';
-import { showMultipleToolSchemas, showToolHelp } from './help.js';
+import {
+  showMultipleToolSchemas,
+  showToolHelp,
+  showToolHelpBrief,
+} from './help.js';
 
 type ToolResult = Parameters<typeof formatCallToolResultForOutput>[0];
 
@@ -152,6 +156,10 @@ export async function executeToolCommand(args: ParsedArgs): Promise<boolean> {
   }
 
   if (args.options.scheme === true) {
+    if (args.options.brief === true) {
+      await showToolHelpBrief(tool.name);
+      return true;
+    }
     if (args.options.json === true) {
       await printToolSchemaJson(tool.name, {
         compact: args.options.compact === true,

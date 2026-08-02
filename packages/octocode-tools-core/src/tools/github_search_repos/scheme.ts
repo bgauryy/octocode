@@ -81,7 +81,6 @@ export interface RepositoryResultData {
   // Ready-to-run follow-ups for the top-ranked hit (viewStructure/searchCode).
   next?: Record<string, ToolContinuation>;
   // Partial-variant failures and empty-result guidance.
-  warnings?: string[];
   [key: string]: unknown;
 }
 

@@ -12,6 +12,7 @@ import { TOOL_NAMES } from '../toolMetadata/proxies.js';
 import type { SearchStats } from '../../utils/core/types.js';
 import { toStructuralSearchIncludeGlobs } from '../../shared/languageSelectors.js';
 import { buildSearchResult } from './ripgrepResultBuilder.js';
+import { budgetCaptures } from './captureBudget.js';
 import type { RipgrepQuery } from './scheme.js';
 
 // No directories excluded by default — structural search must not silently
@@ -104,6 +105,7 @@ export async function searchContentStructural(
   }
 
   const targetIsFile = await isRegularFile(pathValidation.sanitizedPath);
+  const captureText = Boolean((query as { captureText?: boolean }).captureText);
   const buildFilesOptions = (patternOverride?: string) => ({
     path: pathValidation.sanitizedPath,
     pattern: patternOverride ?? query.pattern,
@@ -210,12 +212,13 @@ export async function searchContentStructural(
         value: match.text.replace(/\s+/g, ' ').trim().slice(0, 300),
         column: match.startCol,
         endColumn: match.endCol,
-        metavars: match.metavars,
-        // Precise per-capture ranges → an agent can feed a capture straight to
-        // lspGetSemantics (uri + line) without re-searching for the symbol.
-        ...(match.metavarRanges && Object.keys(match.metavarRanges).length > 0
-          ? { metavarRanges: match.metavarRanges }
-          : {}),
+        // Capture budget: `$$$` list captures (function bodies, arg lists)
+        // can dump entire function bodies twice (metavars text + ranges) — a
+        // token bomb. Default: keep single-capture text (cheap LSP anchors),
+        // drop list-capture text from `metavars`, prune comment-only entries
+        // and truncate long texts in `metavarRanges`. `captureText:true`
+        // restores verbatim passthrough.
+        ...budgetCaptures(match.metavars, match.metavarRanges, captureText),
       })),
     })
   );
@@ -241,11 +244,22 @@ export async function searchContentStructural(
     0
   );
 
+  // The structural maxFiles cap is LOSSY (the walker stops collecting
+  // candidates at the cap). When every unit of the budget was consumed the
+  // reported totals may understate reality — surface it as a typed stat.
+  const effectiveMaxFiles = query.maxFiles ?? DEFAULT_MAX_STRUCTURAL_FILES;
+  const candidatesConsumed =
+    (nativeResult.parsedFiles ?? 0) +
+    (nativeResult.skippedUnreadable ?? 0) +
+    (nativeResult.skippedLarge ?? 0);
+  const capReached = candidatesConsumed >= effectiveMaxFiles;
+
   const stats: SearchStats = {
     totalStructuralMatches:
       typeof maxDepth === 'number'
         ? totalAfterDepth
         : nativeResult.totalMatches,
+    ...(capReached ? { capReached: true } : {}),
   };
   // A successful-but-empty structural search is almost always an incomplete
   // pattern; surface remediation through the typed warnings channel (not hints).

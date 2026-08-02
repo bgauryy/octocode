@@ -27,11 +27,9 @@ const queryOverrides = {
     .describe(
       'Directory names to prune from recursive walks (default: common generated/vendor dirs such as node_modules, dist, build, out, coverage, target). Pass [] to inspect everything.'
     ),
-  maxDepth: clampedInt(0, LOCAL_MAX_DEPTH)
-    .optional()
-    .describe(
-      `Maximum recursion depth: 1 = the target directory's immediate children, 2 = children + grandchildren, and so on (max ${LOCAL_MAX_DEPTH}). Setting maxDepth on its own enables recursion to that depth — recursive:true is not required. Effective depth when OMITTED: 1 (immediate children only) if recursive is unset, or 5 if recursive:true. maxDepth:0 is treated as unset and falls back to those defaults.`
-    ),
+  // Description flows from @octocodeai/octocode-core prose (provenance:
+  // resources-only) — only the bounds are tightened here.
+  maxDepth: clampedInt(0, LOCAL_MAX_DEPTH).optional(),
   limit: clampedInt(1, LOCAL_MAX_LIMIT).optional(),
   page: relaxedPageNumberField.default(1),
   itemsPerPage: clampedInt(1, LOCAL_MAX_FILES_PER_PAGE).optional(),
@@ -82,7 +80,6 @@ export interface LocalViewStructureData {
   summary?: string | Record<string, unknown>;
   pagination?: LocalItemPagination;
   next?: Record<string, ToolContinuation>;
-  warnings?: string[];
 }
 
 export type LocalViewStructureOutput = BulkToolOutput<LocalViewStructureData>;

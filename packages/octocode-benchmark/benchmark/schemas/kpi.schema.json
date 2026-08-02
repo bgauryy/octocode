@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "octocode-benchmark/kpi",
+  "title": "Judged run KPIs — kpi.json emitted per run under output/<run>/",
+  "description": "The two KPIs every check reports: (1) tokens usage, (2) judge-scored response quality. Judged blind against frozen oracles verified outside all arms. Exemplar: output/compare-run-20260802/kpi.json.",
+  "type": "object",
+  "required": ["run", "date", "subjectSha", "questions", "suiteRollups"],
+  "properties": {
+    "run": { "type": "string" },
+    "date": { "type": "string", "format": "date" },
+    "subjectSha": { "type": "string", "description": "octocode repo SHA the local build was made from" },
+    "baselines": { "type": "object", "description": "Baseline tool versions, e.g. {\"ast-grep\": \"0.45.0\"}" },
+    "agentTotals": {
+      "type": "object",
+      "description": "Per suite per arm: runner-reported agent tokens (authoritative when available), tool uses, wall-clock",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": {
+          "type": "object",
+          "properties": {
+            "agentTokens": { "type": "integer", "description": "Runner/harness-reported total tokens for the solver agent — the authoritative tokens-usage KPI" },
+            "inputTokens": { "type": "integer" },
+            "outputTokens": { "type": "integer" },
+            "cacheReadTokens": { "type": "integer", "description": "Cache-aware accounting: MCP schema preamble is typically cache_read after turn 1" },
+            "cacheWriteTokens": { "type": "integer" },
+            "surfacePreambleBytes": { "type": "integer", "description": "L0: MCP = injected tool-definition chars (paid whether used or not); CLI = sum of --scheme output fetched on demand" },
+            "toolUses": { "type": "integer" },
+            "turns": { "type": "integer", "description": "Assistant turns incl. plumbing turns that produced no answer content" },
+            "wallClockSec": { "type": "number" }
+          }
+        }
+      }
+    },
+    "questions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["suite", "q", "topic", "contaminated", "arms"],
+        "properties": {
+          "suite": { "type": "string" },
+          "q": { "type": "integer" },
+          "topic": { "type": "string" },
+          "targetTools": { "type": "array", "items": { "type": "string" }, "description": "Octocode tools this question exercises (coverage tracking)" },
+          "contaminated": { "type": "boolean", "description": "Control arm scored >=1.0 → excluded from the correctness primary" },
+          "arms": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "object",
+              "required": ["correctness", "quality"],
+              "properties": {
+                "correctness": { "enum": [0, 0.5, 1.0], "description": "Rubric score vs frozen oracle" },
+                "quality": { "type": "integer", "minimum": 1, "maximum": 5, "description": "Judge 1-5: exactness, concision, anchoring (file:line/sha cited)" },
+                "bytes": { "type": "integer", "description": "Tool-output bytes received (tokens-usage KPI, raw)" },
+                "estTokens": { "type": "integer", "description": "bytes/4 approximation; superseded by agentTotals.agentTokens where present" },
+                "calls": { "type": "integer", "description": "Tool invocations spent on this question (fewer at equal correctness = better ergonomics)" },
+                "turns": { "type": "integer" },
+                "rawStdoutBytes": { "type": "integer", "description": "CLI arm: raw bytes before jq/head filtering; delta vs bytes = what plumbing saved" },
+                "toolUsed": { "type": "boolean", "description": "Trajectory layer: did the arm exercise the question's capabilityPoint tool?" },
+                "wallClockSec": { "type": "number" },
+                "falseConfidence": { "type": "boolean", "description": "Wrong claim asserted as verified (guardrail: must not increase)" },
+                "judgeNote": { "type": "string" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "suiteRollups": {
+      "type": "object",
+      "description": "Per suite: meanCorrectness / meanCorrectnessUncontaminated / meanQuality / totalBytes / estTokensFromBytes / falseConfidence per arm + verdict string",
+      "additionalProperties": { "type": "object" }
+    }
+  }
+}

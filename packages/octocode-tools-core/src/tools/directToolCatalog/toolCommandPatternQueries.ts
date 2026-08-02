@@ -248,6 +248,67 @@ export function buildKnownDirectToolCommandPatternQueries(
     ];
   }
 
+  if (toolName === STATIC_TOOL_NAMES.GITHUB_FETCH_CONTENT) {
+    return [
+      {
+        label: 'matched slice (cheap read of one function)',
+        query: {
+          owner: 'bgauryy',
+          repo: 'octocode',
+          path: 'packages/octocode-tools-core/src/responses.ts',
+          matchString: 'export function cleanJsonObject',
+          contextLines: 8,
+        },
+      },
+      {
+        label: 'symbols outline (unknown/large file)',
+        query: {
+          owner: 'bgauryy',
+          repo: 'octocode',
+          path: 'packages/octocode-tools-core/src/responses.ts',
+          minify: 'symbols',
+        },
+      },
+    ];
+  }
+
+  if (toolName === STATIC_TOOL_NAMES.GITHUB_COMMITS) {
+    return [
+      {
+        label: 'file history (bounded window)',
+        query: {
+          owner: 'bgauryy',
+          repo: 'octocode',
+          path: 'packages/octocode-tools-core/src/responses.ts',
+          since: '6m',
+          itemsPerPage: 10,
+        },
+      },
+      {
+        label: 'compare two refs (base...head)',
+        query: {
+          owner: 'bgauryy',
+          repo: 'octocode',
+          base: 'main',
+          head: 'update-tools',
+        },
+      },
+    ];
+  }
+
+  if (toolName === STATIC_TOOL_NAMES.PACKAGE_SEARCH) {
+    return [
+      {
+        label: 'exact package → source repo',
+        query: { packageName: 'zod' },
+      },
+      {
+        label: 'keyword discovery (paged candidates)',
+        query: { packageName: 'schema validation', page: 1 },
+      },
+    ];
+  }
+
   if (toolName === LSP_GET_SEMANTICS_TOOL_NAME) {
     return [
       {

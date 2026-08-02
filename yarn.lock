@@ -1599,7 +1599,6 @@ __metadata:
   resolution: "@octocodeai/mcp@workspace:packages/octocode-mcp"
   dependencies:
     "@modelcontextprotocol/sdk": "npm:^1.29.0"
-    "@octocodeai/config": "npm:^18.0.0"
     "@octocodeai/octocode-core": "npm:^16.6.3"
     "@octocodeai/octocode-engine": "npm:^18.0.0"
     "@octocodeai/octocode-tools-core": "npm:^18.0.0"
@@ -1631,10 +1630,10 @@ __metadata:
 
 "@octocodeai/octocode-core@file:/Users/bgaryy/code/octocode-mcp-host/packages/octocode-core::locator=octocode-monorepo%40workspace%3A.":
   version: 18.0.1
-  resolution: "@octocodeai/octocode-core@file:/Users/bgaryy/code/octocode-mcp-host/packages/octocode-core#/Users/bgaryy/code/octocode-mcp-host/packages/octocode-core::hash=d7db08&locator=octocode-monorepo%40workspace%3A."
+  resolution: "@octocodeai/octocode-core@file:/Users/bgaryy/code/octocode-mcp-host/packages/octocode-core#/Users/bgaryy/code/octocode-mcp-host/packages/octocode-core::hash=a55efa&locator=octocode-monorepo%40workspace%3A."
   peerDependencies:
     zod: ">=4.0.0"
-  checksum: 10c0/a0dbe1e3416177bef4096f89847eabf5e37d484f060687fafcbb6e86325e34f92300bda40ffd3296fcb909a4b49a1bb5e2cb4a3f75910a3b44f5279a54bf24a3
+  checksum: 10c0/b7c46522444685495cc0f4e9384afc093d49442921adcc2fa5e68484991b438ec9888cefa8c0a72fedf4ff349d58caff0118d86aeab47145c30012480cc70d30
   languageName: node
   linkType: hard
 

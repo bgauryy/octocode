@@ -28,6 +28,8 @@ use serde::Serialize;
 
 use crate::file_extension::is_js_ts_extension;
 
+use super::run_on_deep_stack;
+
 // LSP SymbolKind numeric codes (subset we emit). The TS side maps these back to
 // names via `symbolKindName`; keep them in sync with the LSP spec.
 mod kind {
@@ -197,13 +199,17 @@ pub fn extract_js_symbols(content: &str, file_path: &str) -> Option<String> {
     if content.len() > crate::minifier::MAX_SIZE {
         return None;
     }
+    let content = content.to_owned();
+    let file_path = file_path.to_owned();
     // oxc can ICE on pathological input; contain the unwind so it never crosses
     // the napi FFI boundary and aborts Node (mirrors the minifier/signature
     // guards elsewhere in the crate).
-    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        extract_js_symbols_inner(content, file_path)
-    }))
-    .unwrap_or(None)
+    run_on_deep_stack(move || {
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            extract_js_symbols_inner(&content, &file_path)
+        }))
+        .unwrap_or(None)
+    })
 }
 
 fn extract_js_symbols_inner(content: &str, file_path: &str) -> Option<String> {
@@ -247,10 +253,14 @@ pub fn find_in_file_references(
     if content.len() > crate::minifier::MAX_SIZE {
         return None;
     }
-    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        find_in_file_references_inner(content, file_path, line, character)
-    }))
-    .unwrap_or(None)
+    let content = content.to_owned();
+    let file_path = file_path.to_owned();
+    run_on_deep_stack(move || {
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            find_in_file_references_inner(&content, &file_path, line, character)
+        }))
+        .unwrap_or(None)
+    })
 }
 
 /// Native JS/TS graph facts as JSON.
@@ -263,10 +273,14 @@ pub fn extract_graph_facts(content: &str, file_path: &str) -> Option<String> {
     if content.len() > crate::minifier::MAX_SIZE {
         return None;
     }
-    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        extract_graph_facts_inner(content, file_path)
-    }))
-    .unwrap_or(None)
+    let content = content.to_owned();
+    let file_path = file_path.to_owned();
+    run_on_deep_stack(move || {
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            extract_graph_facts_inner(&content, &file_path)
+        }))
+        .unwrap_or(None)
+    })
 }
 
 fn extract_graph_facts_inner(content: &str, file_path: &str) -> Option<String> {

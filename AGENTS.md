@@ -146,7 +146,7 @@ yarn prepublish                       # runs prepublish + shared final guard + r
 |---|---|
 | Global | [`docs/OCTOCODE_MCP.md`](docs/OCTOCODE_MCP.md) · [`docs/CONFIGURATION.md`](docs/CONFIGURATION.md) · [`docs/OCTOCODE_TOOLS.md`](docs/OCTOCODE_TOOLS.md) · [`docs/SECURITY.md`](docs/SECURITY.md) · [`docs/OCTOCODE_RESEARCH_MANIFEST.md`](docs/OCTOCODE_RESEARCH_MANIFEST.md) · [`docs/ROUTING_EVIDENCE_POSITION_PAPER.md`](docs/ROUTING_EVIDENCE_POSITION_PAPER.md) |
 | CLI | [`OCTOCODE_CLI.md`](packages/octocode/docs/OCTOCODE_CLI.md) |
-| Engine | [`LSP_SERVER_LIFECYCLE.md`](packages/octocode-engine/docs/LSP_SERVER_LIFECYCLE.md) |
+| Engine | [`LSP_SERVER_LIFECYCLE.md`](packages/octocode-engine/docs/LSP_SERVER_LIFECYCLE.md) · [`SUPPORTED_LANGUAGES_AND_FEATURES.md`](packages/octocode-engine/docs/SUPPORTED_LANGUAGES_AND_FEATURES.md) |
 | Benchmarks | [`BENCHMARKS.md`](packages/octocode-benchmark/docs/BENCHMARKS.md) |
 | Context | [`docs/context/`](docs/context/) — [SEARCH_GUIDE](docs/context/SEARCH_GUIDE.md) · [LSP_GUIDE](docs/context/LSP_GUIDE.md) · [AGENT_RESEARCH_WORKFLOWS](docs/context/AGENT_RESEARCH_WORKFLOWS.md) · [RUST_BEST_PRACTICES](docs/context/RUST_BEST_PRACTICES.md) |
 | Skills (repo) | [`skills/`](skills/) — linked into [`.agents/skills/`](.agents/skills/); all `octocode-*` skills dogfood from here |

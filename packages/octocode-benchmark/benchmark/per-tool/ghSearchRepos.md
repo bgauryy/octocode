@@ -17,7 +17,9 @@ CLI="node packages/octocode/out/octocode.js"
 | language | string | repo language qualifier |
 | owner | string | without keywords, enumerates that owner's repos |
 | stars | string | range syntax `>100`, `<1000`, `50..500`, `>=500` |
-| updated | string | last-push date range; maps to GitHub `pushed:` |
+| updated / created | string | last-push / creation date range |
+| goodFirstIssues | string | good-first-issues count/range |
+| size | string | repository size range |
 | match | array<enum(name,description,readme)> | which text fields; readme = broader/slower |
 | sort | enum(stars,forks,help-wanted-issues,updated,best-match) | ordering (sort-only; `forks`/`help-wanted-issues` are sort keys, not filters) |
 | limit | int 1–100 | results per page (paginate with `page`) |
@@ -35,7 +37,8 @@ CLI="node packages/octocode/out/octocode.js"
 3. **Topic + keyword merge** — `... '{"keywords":["state"],"topicsToSearch":["react"],"limit":5}'` → PASS: results honor OR-merge semantics.
 4. **sort=stars vs best-match** — run with `"sort":"stars"` then `"sort":"best-match"` → PASS: distinct ordering.
 5. **Rich mode** — `concise:false` → PASS: stars/language/topics/dates present.
-6. **Honest empty** — impossible topic combo → PASS: empty with "drop a topic/filter" hint.
+6. **Pagination continuation** — run the same broad query with `limit:5`, then `page:2` → PASS: page 2 returns distinct repos and preserves keywords/language/stars filters plus pagination metadata.
+7. **Honest empty** — impossible topic combo → PASS: empty with "drop a topic/filter" hint.
 
 ## Workflows
 

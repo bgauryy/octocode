@@ -8,6 +8,7 @@ Search local files for text, regex, or AST patterns to find file + line.
 ```bash
 CLI="node packages/octocode/out/octocode.js"
 ROOT=$(pwd)   # run from repo root
+CORPUS=$ROOT/packages/octocode-benchmark/context/react   # frozen corpus — see BENCHMARK.md "Corpus"
 ```
 
 ## Params (`tools localSearchCode --scheme`) — key ones
@@ -23,22 +24,23 @@ ROOT=$(pwd)   # run from repo root
 | caseMode | enum(smart,sensitive,insensitive) | `smart` default |
 | multiline | enum(off,on,dotall) | `off` default; `dotall` = `.` spans newlines |
 | wholeWord / invertMatch | boolean | matchers |
-| include / exclude / excludeDir | array<string> | glob/dir filters |
+| include / exclude / excludeDir / noIgnore / hidden | filters | glob/dir filters, ignored files, dotfiles |
 | output | enum(content,files,filesWithout,countLines,countMatches,matchOnly) | `content` default; `files`/`filesWithout` = path-only; `count*` = per-file counts; `matchOnly` = matched substring |
 | unique | enum(off,list,count) | dedup matched values; needs `output:"matchOnly"` |
 | matchWindow | int | chars around match; needs `output:"matchOnly"` |
 | contextLines / matchContentLength / maxMatchesPerFile / maxFiles | int | shaping |
-| langType | filter | precise language filter |
-| sort / sortReverse / rankingProfile | | relevance ranking |
+| langType | filter | precise language filter (structural mode: maps to that language's include globs) |
+| captureText | boolean | structural only — verbatim `$$$` list-capture text; default keeps budgeted (comment-pruned, truncated) `metavarRanges` anchors |
+| sort / sortReverse / rankingProfile / semanticRanking | | relevance ranking and optional semantic boost |
 | page / itemsPerPage / matchPage / maxDepth | int | pagination (matchPage walks one noisy file) |
 
 ## Checks
 
-1. **Text** — `$CLI tools localSearchCode --queries '{"path":"'$ROOT'/packages/octocode-tools-core/src","searchText":"buildDirectToolCommandPatterns","maxFiles":20}' --compact`
+1. **Text** — `$CLI tools localSearchCode --queries '{"path":"'$CORPUS'/packages/react-reconciler/src","searchText":"scheduleUpdateOnFiber","maxFiles":20}' --compact`
    → PASS: file + line + snippet anchors.
 2. **discovery (paths)** — `... "mode":"discovery"` → PASS: paths only, no snippets.
 3. **detailed (context)** — `... "mode":"detailed","contextLines":5` → PASS: self-contained snippets.
-4. **structural pattern** — `... '{"path":"'$ROOT'/packages/octocode-tools-core/src/tools","mode":"structural","pattern":"eval($X)"}'` → PASS: AST matches with line/capture anchors (or honest empty — a bare signature without body matches nothing).
+4. **structural pattern** — `... '{"path":"'$CORPUS'/packages/react-reconciler/src","mode":"structural","pattern":"useState($$$ARGS)","include":["*.js"]}' → PASS: 274 matches at the pinned corpus SHA` → PASS: AST matches with line/capture anchors (or honest empty — a bare signature without body matches nothing).
 5. **structural rule** — a YAML `rule` with `inside`/`has` → PASS: relational match.
 6. **regex modes** — same needle with `regex:"fixed"` vs default `smart` → PASS: distinct results, no regex misfire.
 7. **output:"filesWithout"** — find files missing a required import → PASS: only non-matching files.

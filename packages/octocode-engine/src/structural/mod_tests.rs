@@ -160,6 +160,51 @@ fn search_files_finds_matches_and_prefilters_non_matching_files() {
 }
 
 #[test]
+fn search_files_errors_on_nonexistent_root_for_every_prefilter_branch() {
+    let root = temp_root("gone");
+    fs::remove_dir_all(&root).ok();
+    let missing = root.join("nope");
+
+    // Literal-anchored pattern (`target(` anchor → ripgrep prefilter branch),
+    // no-anchor pattern (`$FN($$$ARGS)` → walker branch), and a rule. A
+    // nonexistent root must be a LOUD error on all of them — the anchored
+    // branch used to return Ok(0 matches) because ripgrep yields zero
+    // candidates from a missing root without complaining.
+    for (pattern, rule) in [
+        (Some("target($X)".to_owned()), None),
+        (Some("$FN($$$ARGS)".to_owned()), None),
+        (
+            None,
+            Some("rule:\n  pattern: target($X)".to_owned()),
+        ),
+    ] {
+        let result = search_files(StructuralSearchFilesOptions {
+            path: missing.to_string_lossy().to_string(),
+            pattern,
+            rule,
+            include: None,
+            exclude_dir: None,
+            exclude: None,
+            hidden: None,
+            no_ignore: None,
+            max_depth: None,
+            max_files: Some(10),
+            max_file_bytes: None,
+        });
+        match result {
+            Ok(ok) => panic!(
+                "nonexistent root must error, not return {} matches",
+                ok.total_matches
+            ),
+            Err(err) => assert!(
+                err.contains("Cannot access structural search path"),
+                "unexpected error text: {err}"
+            ),
+        }
+    }
+}
+
+#[test]
 fn search_files_respects_excluded_directories_and_large_file_limit() {
     let root = temp_root("filters");
     fs::create_dir_all(root.join("src")).expect("src");

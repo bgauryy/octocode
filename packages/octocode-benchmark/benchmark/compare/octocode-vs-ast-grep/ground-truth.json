@@ -1,66 +1,135 @@
 {
   "note": "JUDGE-ONLY. Solvers must never read this.",
-  "verificationCaveat": "Parity questions (q1-q5) self-verify: the oracle is that BOTH arms return the SAME match count on the same checkout -- a nonzero difference is the finding. Exact counts drift with the repo, so compute them at run time from the frozen commit; do NOT hard-code a count as truth. Beyond-AST questions (q6-q10) have a semantic oracle: verify on the frozen SHA. ast-grep's expected ceiling per question is noted.",
+  "corpus": {
+    "path": "packages/octocode-benchmark/context/react",
+    "repo": "react/react (formerly facebook/react; moved to the React Foundation org — both URLs resolve)",
+    "commit": "9ceb1e7d9e20bd0302cf6ab31b038c5ec673178d",
+    "commitDate": "2026-07-27",
+    "verify": "git -C $CORPUS rev-parse HEAD must equal the pinned commit before ANY run; if it moved, re-seed every oracle below on the new SHA before judging.",
+    "clone": "git clone https://github.com/react/react.git packages/octocode-benchmark/context/react && git -C packages/octocode-benchmark/context/react checkout 9ceb1e7d9e20bd0302cf6ab31b038c5ec673178d",
+    "properties": "Flow-typed .js (~1,873 files under packages/). tree-sitter-javascript cannot parse Flow annotations; both engines run error-recovery inside those files — a FEATURE of the corpus (real-world dirty input); the seeded oracles below already reflect it."
+  },
+  "verificationCaveat": "All numbers seeded 2026-08-02 on the pinned commit with ast-grep 0.45.0 and the local octocode build (post P1-prescan, post $$-guard). Parity questions still self-verify (both arms, same scope, same count) — but on a PINNED corpus the seeded values below are stable oracles; a mismatch means the SHA moved, the scope differed, or a tool regressed. The judge recomputes at run time on the pinned SHA.",
+  "harnessRules": {
+    "note": "Gotchas that produce false divergences — HARNESS errors, not tool findings. Apply before comparing counts.",
+    "rules": [
+      "Line-number convention: ast-grep --json range.start.line is 0-BASED; octocode match lines are 1-BASED. Normalize (+1 on ast-grep) before diffing file:line sets.",
+      "File-set scope MUST be pinned: ast-grep '-l js' scans only .js; octocode structural with no include scans every supported extension (.ts test files too). Use include:[\"*.js\"] on octocode — observed +8 phantom divergence in packages/react/src from one .ts test file.",
+      "Counting runs MUST lift octocode caps: maxFiles/itemsPerPage/maxMatchesPerFile well above the expected result size; verify stats.capReached is absent.",
+      "Metavar syntax: $X = one node, $$$X = list. octocode REJECTS $$X with a remediation message (2026-08-02+); ast-grep treats it as a never-matching literal.",
+      "octocode relative paths resolve against process cwd — always pass ABSOLUTE paths ($CORPUS/...). (A nonexistent path now errors loudly on every prefilter branch — fixed 2026-08-02; before that, literal-anchored patterns returned a silent 0.)",
+      "Flow ERROR-subtree divergence: inside Flow-annotated regions the engines recover differently — corpus-wide count divergence up to ~0.2% is expected and must be ATTRIBUTED (q3/q5), never scored as one tool 'wrong'.",
+      "Modifier semantics differ by design: octocode's bare `function $NAME(...)` does NOT match `async function` (explicit-modifier matching); ast-grep's does. Both match `export function` via the inner declaration node. Reconcile with explicit modifier patterns or a modifier-agnostic `kind: function_declaration` rule.",
+      "ast-grep 0.45 DOES ship yaml/json/markdown grammars AND an `outline` subcommand — never claim it lacks them; verify any grammar-gap claim at run time.",
+      "Time both arms per query (cold process) and record wall-clock as a guardrail; rerun any slow batch query solo before concluding failure."
+    ]
+  },
   "questions": {
     "q1": {
+      "kind": "parity-count",
+      "oracle": "useState($$$ARGS) in $CORPUS/packages/react-reconciler/src, *.js scope",
+      "expected": 274,
+      "seededParity": "ast-grep 274 == octocode 274 (exact)",
+      "scoring": "1.0 exact count; 0.5 correct method with a capped count reported AS capped; 0 silent undercount.",
       "lane": "parity",
-      "answer": "Oracle = cross-tool agreement. ast-grep run -p 'JSON.parse($X)' and octocode localSearchCode mode:structural pattern:'JSON.parse($X)' over the same path MUST return the identical match count and the same file:line set. Compute the count at run time.",
-      "scoring": "1.0 = both arms report the same count AND correct sample anchors; 0.5 = counts differ by a small margin explainable by one arm's known limitation (record which); 0 = an arm errors, misses obvious hits, or the pattern was not actually structural.",
-      "astGrepCeiling": "Fully capable -- this is ast-grep's home turf; parity expected."
+      "capabilityPoint": "Structural call-shape parity: both arms must run a real AST pattern (useState($$$ARGS)), counts must match exactly; caps lifted."
     },
     "q2": {
+      "kind": "parity-set",
+      "oracle": "$OBJ.push($$$ARGS) in $CORPUS/packages/react/src, *.js scope",
+      "expected": 50,
+      "seededParity": "ast-grep 50 == octocode 50 with IDENTICAL 1-based file:line sets (after +1 on ast-grep)",
+      "scoring": "1.0 count + set match after normalization; 0.5 count only; 0 unexplained set mismatch.",
       "lane": "parity",
-      "answer": "Oracle = agreement on the count of `export function $NAME($$$ARGS) { $$$BODY }`. Key correctness check: a pattern WITHOUT the export modifier must NOT match exported functions (modifiers are part of the node) -- both tools should agree, and both should return 0 (or fewer) for a bare `function $NAME(...)` pattern against exported decls.",
-      "scoring": "1.0 = same count both arms AND the solver demonstrates the modifier-sensitivity (export vs bare) correctly; 0.5 = same count but no modifier awareness; 0 = counts differ or the solver claims a bare pattern matches exported functions.",
-      "astGrepCeiling": "Fully capable; parity expected."
+      "capabilityPoint": "Exact-set parity: identical 1-based file:line sets after normalization -- catches off-by-one and truncation bugs, not just counts."
     },
     "q3": {
-      "lane": "parity",
-      "answer": "Oracle = agreement on the count of `await $X` inside a try block, expressed relationally (ast-grep YAML rule: pattern await $X, inside: {kind: try_statement}; octocode rule: equivalent YAML with inside). Counts must match.",
-      "scoring": "1.0 = same count both arms via a genuine relational rule (not a flat pattern); 0.5 = same count but one arm used a non-relational approximation; 0 = counts differ or rule was not relational.",
-      "astGrepCeiling": "Fully capable via YAML rules; parity expected. Tests octocode's rule (inside/has) parity."
+      "kind": "reconciliation",
+      "oracle": "$OBJ.push($$$ARGS) in $CORPUS/packages/react-reconciler/src, *.js scope: ast-grep 342 vs octocode 332",
+      "expectedAttribution": "All 10 ast-grep-only anchors sit on lines containing Flow generic syntax and NO .push call at all — ReactChildFiber.js:282 (function unwrapThenable<T>(thenable: Thenable<T>)), ReactFiberScope.js:36 (scopedNodes: Array<any>), ReactTestSelectors.js:232/272(x3)/430/587, ReactFiberPerformanceTrack.js:1238/1450. Mechanism: tree-sitter-javascript ERROR-subtree recovery on Flow annotations differs between engines.",
+      "scoring": "1.0 both counts + mechanism + >=2 concrete file:line examples; 0.5 both counts + a 'Flow parse errors' hand-wave; 0 picking one count as 'the' answer or averaging.",
+      "lane": "analysis",
+      "capabilityPoint": "Divergence reconciliation: when tools disagree (342 vs 332), the arm must attribute every delta line to a concrete parser behavior (Flow generics), not hand-wave."
     },
     "q4": {
+      "kind": "parity-rule",
+      "oracle": "await $X inside try_statement (stopBy: end) in $CORPUS/packages/react-devtools-shared/src, *.js scope",
+      "expected": 1,
+      "expectedFile": "setupTests.js",
+      "seededParity": "ast-grep 1 == octocode 1, same file. NOTE: octocode accepts the ast-grep rule YAML verbatim (pattern/inside/kind/stopBy).",
+      "scoring": "1.0 count + file via a genuine relational rule; 0.5 count via a non-relational approximation; 0 wrong count.",
       "lane": "parity",
-      "answer": "Oracle = agreement on the count of `$OBJ.push($$$ARGS)` plus the same top-3 files by hit count.",
-      "scoring": "1.0 = same total count AND same top-3 files both arms; 0.5 = same count, different file ranking; 0 = counts differ.",
-      "astGrepCeiling": "Fully capable; parity expected."
+      "capabilityPoint": "Relational rule parity: ast-grep YAML rule (inside try_statement, stopBy end) accepted verbatim by octocode structural mode."
     },
     "q5": {
-      "lane": "parity",
-      "answer": "Oracle = both arms handle BOTH languages and agree per-language. TS call count `$FN($$$)` under tools-core/src and a Rust call/macro shape under octocode-engine/src. If either tool lacks a grammar for a language, that is the finding (record it). Octocode's grammar matrix is broad; ast-grep supports TS and Rust so parity is expected here, but the solver should note the general coverage difference.",
-      "scoring": "1.0 = both languages counted by both arms with per-language agreement AND a correct note on grammar coverage; 0.5 = one language done, or agreement on one only; 0 = a tool silently skipped a language.",
-      "astGrepCeiling": "Supports TS + Rust; parity on these two expected. Broader-matrix advantage shows in q10."
+      "kind": "scale-census",
+      "oracle": "$FN($$$ARGS) across ALL of $CORPUS/packages, *.js scope",
+      "expected": {
+        "astGrep": 122925,
+        "octocode": 122791,
+        "divergencePct": 0.11
+      },
+      "seededWallClock": {
+        "astGrep": "0.40 s (~11 threads)",
+        "octocode": "1.74 s (node startup + count assembly; P2 push-down pending)"
+      },
+      "scoring": "1.0 count matching the seeded pair for the tool(s) run + honest wall-clock + divergence attributed if both were run; 0.5 one tool with caps provably lifted; 0 a capped count presented as the total.",
+      "guardrail": "A solver reporting both tools agreeing EXACTLY on this corpus is suspect — recompute before accepting.",
+      "lane": "parity-scale",
+      "capabilityPoint": "Scale census: whole-corpus (~1,873 files) structural count under lifted caps; divergence must be reported with percentage, wall-clock recorded."
     },
     "q6": {
-      "lane": "beyond",
-      "answer": "isLocalTool is called from its own module's exported wrapper usage and from the direct-tool routing/execution layer. The correct oracle is the LSP references/callers set (run lspGetSemantics type:references symbolName:isLocalTool at its defining line) -- compute the file:line caller set at run time. (b) A structural pattern isLocalTool($X) matches only textual/AST call shapes with that exact name: it misses callers reached via re-export or aliasing, and can wrongly include a different same-named local symbol -- it resolves SHAPE, not IDENTITY.",
-      "scoring": "1.0 = caller set obtained via LSP references/callers (not just an AST/text name match) AND a correct explanation of shape-vs-identity (aliasing/re-export/shadowing); 0.5 = correct callers but justified only by AST/text matching; 0 = wrong callers or claims AST shape == real callers.",
-      "astGrepCeiling": "Can find call SHAPES named isLocalTool, but has NO way to resolve real callers across re-exports/aliases -- Arm A cannot complete (b). This is the core beyond-AST gap."
+      "kind": "beyond-identity",
+      "oracle": "cross-file references of scheduleUpdateOnFiber (defined $CORPUS/packages/react-reconciler/src/ReactFiberWorkLoop.js:973), includeDeclaration:false",
+      "expected": {
+        "totalReferences": 28,
+        "files": {
+          "ReactFiberReconciler.js": 13,
+          "ReactFiberHooks.js": 6,
+          "ReactFiberClassComponent.js": 4,
+          "ReactFiberBeginWork.js": 3,
+          "ReactFiberHotReloading.js": 2
+        }
+      },
+      "astGrepCeiling": "Pattern search finds name SHAPES but cannot prove identity (imports, aliasing, shadowing, strings/comments). Full credit requires a symbol-resolving method (LSP references or equivalent) or per-hit identity verification.",
+      "scoring": "1.0 5 files + counts + identity-safe method; 0.5 right files, counts polluted by comments/strings; 0 a grep dump presented as callers."
     },
     "q7": {
-      "lane": "beyond",
-      "answer": "Correct approach: octocode ghCloneRepo (or ghGetFileContent type:directory / --materialize) checks out pmndrs/zustand src/ to a localPath, then localSearchCode mode:structural pattern:'useState($$$)' runs AST on it. Oracle = the useState call-expression count in src/ at the frozen SHA (compute at run time). (b) Arm B accessed remote code by materializing it locally; ast-grep has no remote capability.",
-      "scoring": "1.0 = correct count via a materialize-then-AST flow AND explains the remote access step; 0.5 = count via reading files but not a true AST query; 0 = could not run AST on the remote repo.",
-      "astGrepCeiling": "Local-only -- Arm A cannot access GitHub at all without the agent hand-cloning outside its toolchain. If the harness forbids raw git, Arm A is un-runnable (N/A = the finding)."
+      "kind": "beyond-reachability",
+      "oracle": "localFindDeadCode on $CORPUS/packages/scheduler: 28 files scanned; candidates include feature-flag consts (enableProfiling — once per SchedulerFeatureFlags fork — frameYieldMs, userBlockingPriorityTimeout, normalPriorityTimeout, lowPriorityTimeout, enableRequestPaint, enableAlwaysYieldScheduler, runIdCounter, compare); the tool itself reports confidence 'low'.",
+      "astGrepCeiling": "Cannot express reachability — an export-without-import text join is acceptable ONLY with the verification step.",
+      "judgeNote": "scheduler has forked SchedulerFeatureFlags variants rooted externally by www/native builds — being flagged does NOT prove deletable. The question grades verification discipline, not deletion.",
+      "scoring": "1.0 candidate list + 2 independent verifications + honest confidence; 0.5 list without verification; 0 'no dead code' or unverified delete claims."
     },
     "q8": {
-      "lane": "beyond",
-      "answer": "Oracle = the set of files under tools-core/src that both mention `scheme` (path or content) AND contain a `z.object($$$)` structural match, plus the z.object match count within them. Octocode does this by combining a text/path filter with mode:structural (include globs + pattern), in one tool.",
-      "scoring": "1.0 = correct combined file set + structural count; 0.5 = one filter applied but not the intersection; 0 = wrong set.",
-      "astGrepCeiling": "ast-grep can match z.object($$$) but has no built-in text/path pre-filter -- Arm A must shell out to grep/find and intersect manually (extra steps, more tokens); measure the difference."
+      "kind": "parity-outline",
+      "oracle": "outline of $CORPUS/packages/react-reconciler/src/ReactFiberWorkLoop.js (203,233 bytes full)",
+      "expected": {
+        "topLevelFunctionSymbols": 99,
+        "astGrepOutlineBytes": 7772,
+        "octocodeSymbolsEnvelopeBytes": 20778,
+        "ratioCeiling": "outline must be <= 11% of full-file bytes to count as a condensed surface",
+        "note": "BOTH toolchains have an outline surface (ast-grep 0.45 `outline`; octocode minify:'symbols' / documentSymbols — 99 top-level functions via native-graph-facts). Byte counts include different content (bare lines vs JSON envelope with signatures); judge on ratio + symbol-count correctness, not raw bytes alone."
+      },
+      "scoring": "1.0 ~99 symbols + bytes + ratio; 0.5 outline produced, symbol count wrong/unreported; 0 full-file read presented as an outline.",
+      "lane": "parity-outline",
+      "capabilityPoint": "Condensed-surface parity: both arms produce an outline <= 11% of full-file bytes; compares outline byte cost head-to-head."
     },
     "q9": {
-      "lane": "beyond",
-      "answer": "Find the first describe($$$) (or chosen call) match, then read its enclosing function/block via localGetFileContent minify:'symbols' or a matchString+contextLines slice -- transferring only the outline/enclosing region, not the whole file. Oracle = correct match file:line + a small transfer relative to full file size.",
-      "scoring": "1.0 = correct match anchor AND enclosing context read via minify/symbols or a bounded slice (small transfer); 0.5 = correct match but whole file read; 0 = wrong match or no enclosing read.",
-      "astGrepCeiling": "ast-grep prints the match (with -C context lines) but has no minify/symbols outline and no separate file-reader -- it cannot produce a token-cheap symbol outline of the enclosing function."
+      "kind": "bounded-read",
+      "oracle": "scheduleUpdateOnFiber body spans lines 973-1099 (127 lines, ~5.5 KB source) of ReactFiberWorkLoop.js",
+      "expected": "returned bytes for the slice < 8 KB; a full-file read (203 KB) scores 0",
+      "scoring": "1.0 correct window + < 8 KB; 0.5 right window padded past 8 KB; 0 whole-file read.",
+      "capabilityPoint": "Bounded read: ghGetFileContent/localGetFileContent matchString slice (or startLine/endLine window) returns only the function body; ast-grep has no bounded-reader surface -- the arm must show how it avoided the 203 KB full-file read.",
+      "lane": "beyond"
     },
     "q10": {
-      "lane": "beyond",
-      "answer": "Pick a format outside ast-grep's mainstream grammar set present in this repo (e.g. .json/.yaml/.md config, or another format in Octocode's matrix). Run a structural or symbol/minify query and report a real result. (b) State ast-grep's grammar support for that format; where it lacks one, Arm A is un-runnable for the task.",
-      "scoring": "1.0 = a real structural/symbol result on a format Octocode supports AND a correct statement of ast-grep's (lack of) support; 0.5 = result but no coverage comparison; 0 = no result or false coverage claim.",
-      "astGrepCeiling": "ast-grep's grammar set is far smaller than Octocode's 150+ format matrix -- for unsupported formats Arm A returns nothing (the finding)."
+      "kind": "composite-flow",
+      "oracle": "flushSyncWork is defined at $CORPUS/packages/react-reconciler/src/ReactFiberWorkLoop.js:1934 (export function flushSyncWork(): boolean). Distractors: flushSyncWorkOnAllRoots / flushSyncWorkOnLegacyRootsOnly at ReactFiberRootScheduler.js:171/177 — an exact-symbol method must NOT return those.",
+      "expected": "file:line 1934; <= 4 tool calls excellent, <= 6 acceptable; byte accounting across all steps required",
+      "scoring": "1.0 exact file:line + distractors excluded + call/byte accounting; 0.5 found with extra manual steps; 0 wrong symbol (prefix match) or no accounting.",
+      "capabilityPoint": "Composite flow: exact-symbol resolution (lspGetSemantics definition or structural exact match) that rejects the flushSyncWorkOnAllRoots/OnLegacyRootsOnly distractors, chained with a bounded read -- text search alone cannot disambiguate; grade call count + byte accounting.",
+      "lane": "beyond"
     }
   }
 }

@@ -155,7 +155,7 @@ const lines = [
   '//   [\\d-X]     → [\\d\\-X] (invalid range boundary fix)',
   '',
   'use regex::{Regex, RegexSet, RegexSetBuilder};',
-  'use std::sync::LazyLock;',
+  'use std::sync::{LazyLock, OnceLock};',
   '',
   '#[derive(Debug, Clone)]',
   'pub struct Pattern {',
@@ -182,7 +182,10 @@ lines.push('];', '');
 
 // RegexSet for fast detection
 lines.push(
-  `/// Single-pass multi-pattern detection (256MB limit for ${finalPatterns.length} patterns).`,
+  `/// Legacy full RegexSet — retained ONLY as the differential-test oracle for`,
+  `/// the literal prescan (see detector.rs prescan_agrees_with_legacy_regexset_*).`,
+  `/// Runtime code must use the prescan + pattern_regex(idx) path instead.`,
+  '#[allow(dead_code)]',
   'pub static REGEX_SET: LazyLock<RegexSet> = LazyLock::new(|| {',
   '    RegexSetBuilder::new([',
 );
@@ -199,16 +202,33 @@ lines.push(
   ''
 );
 
-// Per-pattern Regex for replacement
+// Raw pattern strings — single source for lazy per-index compilation and
+// prescan literal extraction (see detector.rs). Index-aligned with PATTERNS.
 lines.push(
-  '/// Per-pattern Regex instances for find+replace',
-  'pub static PATTERN_REGEXES: LazyLock<Vec<Regex>> = LazyLock::new(|| {',
-  '    vec![',
+  '/// Raw regex strings, index-aligned with PATTERNS.',
+  'pub static PATTERN_STRINGS: &[&str] = &[',
 );
 for (const p of finalPatterns) {
-  lines.push(`        Regex::new(r###"${p.rustSource}"###).expect("${p.name}"),`);
+  lines.push(`    r###"${p.rustSource}"###,`);
 }
-lines.push('    ]', '});', '');
+lines.push('];', '');
+
+// Lazy per-index Regex cells: first call compiles ONLY the patterns the
+// prescan flagged, not all of them (the old eager Vec<Regex> cost hundreds of
+// ms on every fresh process).
+lines.push(
+  '/// Lazily-compiled per-pattern Regex instances (compile on first use per index).',
+  'static PATTERN_REGEX_CELLS: LazyLock<Vec<OnceLock<Regex>>> = LazyLock::new(|| {',
+  `    (0..${finalPatterns.length}).map(|_| OnceLock::new()).collect()`,
+  '});',
+  '',
+  '/// Get (compiling at most once) the Regex for pattern `idx`.',
+  'pub fn pattern_regex(idx: usize) -> &\'static Regex {',
+  '    PATTERN_REGEX_CELLS[idx].get_or_init(|| {',
+  '        Regex::new(PATTERN_STRINGS[idx]).expect(PATTERNS[idx].name)',
+  '    })',
+  '}',
+  '');
 
 writeFileSync(OUT_FILE, lines.join('\n'), 'utf8');
 console.log(`✅ Wrote ${finalPatterns.length} patterns → ${OUT_FILE}`);

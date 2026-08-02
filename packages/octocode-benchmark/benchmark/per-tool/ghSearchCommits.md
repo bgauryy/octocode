@@ -19,7 +19,7 @@ CLI="node packages/octocode/out/octocode.js"
 | author / committer | string | filter by commit author / committer login |
 | base / head | string | **compare mode**: diff `base…head` (ahead/behind + commits) |
 | includeDiff | boolean | attach per-commit diffs (costly) |
-| itemsPerPage / page | int | history paging |
+| itemsPerPage / page / limit | int | history paging / result cap |
 
 ## Checks
 
@@ -31,6 +31,7 @@ CLI="node packages/octocode/out/octocode.js"
 5. **Compare refs** — `... "base":"<real-tag-or-sha>","head":"<real-tag-or-sha>"` (verify the refs exist first, e.g. via `ghListReleases`) → PASS: `aheadBy`/`behindBy`/`totalCommits` + the commit list between the two refs.
 6. **includeDiff + directory path** — `... '{"owner":"bgauryy","repo":"octocode","path":"packages/octocode-tools-core/src","includeDiff":true,"itemsPerPage":2}'` → PASS: per-commit `files[]` (changed files under that directory, with patches) plus a warning that the path was treated as a directory filter — NOT bare commits with no diff and no explanation. Regression guard: a directory path (no trailing `/`) used to be classified as a file, silently dropping `includeDiff` entirely.
 7. **includeDiff + exact file path** — same query with a real file path (e.g. `.../deadCodeScan.ts`) → PASS: `patch`/`additions`/`deletions` attached directly to each commit.
+8. **Honest bad-ref failure** — compare with a fabricated `base` ref and real `head` → PASS: non-success diagnostic says the ref cannot be resolved; it must not fabricate `aheadBy`/`behindBy` or an empty-history proof.
 
 ## Workflows
 

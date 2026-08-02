@@ -22,6 +22,12 @@ pub fn search_files(
     options: StructuralSearchFilesOptions,
 ) -> Result<StructuralSearchFilesResult, String> {
     let root = PathBuf::from(&options.path);
+    // Existence guard for EVERY prefilter branch: the anchored ripgrep
+    // prefilter yields zero candidates from a missing root without
+    // complaining, so without this check a bad path (typo, wrong cwd on a
+    // relative path) returned Ok(0 matches) — a silent zero — while the
+    // no-anchor walker branch errored. One loud contract for all branches.
+    check_root_exists(&root)?;
     let query = StructuralQuery::new(options.pattern.as_deref(), options.rule.as_deref())?;
 
     let include = options.include.unwrap_or_default();
@@ -108,6 +114,13 @@ pub fn search_files(
     let mut skipped_unreadable = 0u32;
     let mut skipped_large = 0u32;
     let mut warnings = Vec::new();
+    // A pattern is language-shaped: `describe($$$ARGS)` parses under the TS
+    // grammar but not under Rust/YAML. On a mixed-language root each extension
+    // group compiles independently; groups where the pattern is not valid
+    // syntax are skipped, and the search only fails if NO group can compile.
+    let mut compiled_any = false;
+    let mut compile_skipped: Vec<(String, u32)> = Vec::new();
+    let mut first_compile_error: Option<String> = None;
 
     enum SearchOutcome {
         Unreadable,
@@ -124,7 +137,19 @@ pub fn search_files(
             continue;
         };
         let lang = AgLanguage::new(&ext, entry);
-        let run = compile_matcher(&lang, query)?;
+        let run = match compile_matcher(&lang, query) {
+            Ok(run) => {
+                compiled_any = true;
+                run
+            }
+            Err(err) => {
+                compile_skipped.push((ext.clone(), paths.len() as u32));
+                if first_compile_error.is_none() {
+                    first_compile_error = Some(err);
+                }
+                continue;
+            }
+        };
 
         let outcomes: Vec<SearchOutcome> = paths
             .into_par_iter()
@@ -165,6 +190,23 @@ pub fn search_files(
                 }
             }
         }
+    }
+
+    if !compiled_any {
+        if let Some(err) = first_compile_error {
+            // The pattern parsed under no present language — genuinely invalid
+            // for this tree; keep the hard error.
+            return Err(err);
+        }
+    } else if !compile_skipped.is_empty() {
+        let skipped_desc: Vec<String> = compile_skipped
+            .iter()
+            .map(|(ext, count)| format!(".{ext} ({count} file(s))"))
+            .collect();
+        warnings.push(format!(
+            "Pattern is not valid syntax for {} — those files were skipped; matches cover the languages where the pattern parses.",
+            skipped_desc.join(", ")
+        ));
     }
 
     match &prefilter {
@@ -265,6 +307,7 @@ pub fn search_files_detailed(
     };
 
     let root = PathBuf::from(&path);
+    check_root_exists(&root)?;
     let include = include.unwrap_or_default();
     let exclude = exclude.unwrap_or_default();
     let exclude_dir = exclude_dir.unwrap_or_else(default_exclude_dirs);
@@ -869,6 +912,17 @@ fn collect_candidate_files(
 }
 
 // Walker threads the 8 scope/output fields localSearchCode requires; a
+/// Loud existence check shared by every entry point — mirrors the message
+/// `collect_files` produces so all prefilter branches fail identically.
+fn check_root_exists(root: &Path) -> Result<(), String> {
+    fs::metadata(root).map(|_| ()).map_err(|err| {
+        format!(
+            "Cannot access structural search path '{}': {err}",
+            root.display()
+        )
+    })
+}
+
 // `FileScope` struct would trim this further but is out of scope here.
 fn collect_files(
     root: &Path,

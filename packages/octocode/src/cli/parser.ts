@@ -129,6 +129,7 @@ const BOOLEAN_OPTIONS = new Set([
   'direct',
   'list',
   'scheme',
+  'brief',
   'compact',
   'pretty',
   'minimal',

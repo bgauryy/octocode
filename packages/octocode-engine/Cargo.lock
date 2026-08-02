@@ -1139,6 +1139,7 @@ dependencies = [
 name = "octocode-engine"
 version = "18.0.0"
 dependencies = [
+ "aho-corasick",
  "criterion",
  "crossbeam-epoch",
  "grep",
@@ -1158,6 +1159,7 @@ dependencies = [
  "proptest",
  "rayon",
  "regex",
+ "regex-syntax",
  "serde",
  "serde_json",
  "serde_yaml_ng",

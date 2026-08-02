@@ -1,53 +1,73 @@
 # Octocode vs `ast-grep` — Structural Search Benchmark
 
-10 tasks. Two lanes: **parity** (Q1–Q5, where both tools apply — Octocode's AST
-results must match `ast-grep` exactly) and **beyond-AST** (Q6–Q10, where the task
-needs capabilities `ast-grep` doesn't have: semantic identity, remote repos,
-text+structural combos, minified reading).
+10 tasks against a **frozen React checkout**. Lanes: **parity** (both tools
+apply — counts must match exactly on a pinned scope), **reconciliation**
+(engineered divergence that must be *attributed*, not averaged), and
+**beyond-AST** (semantic identity, reachability, bounded reading).
 
 - **Arm A (`ast-grep`)**: ONLY the `ast-grep` CLI (`ast-grep run -p '<pattern>'`,
-  `ast-grep scan` with YAML rules). Local files only.
+  `ast-grep scan --inline-rules`, `ast-grep outline`). Local files only.
 - **Arm B (`octocode`)**: ONLY `node packages/octocode/out/octocode.js`
-  (`localSearchCode mode:"structural"`, plus its other surfaces).
+  (`localSearchCode mode:"structural"`, plus its other local surfaces).
 
-Both arms run against the **same local checkout** — this repo (deterministic, no
-network) for Q1–Q6, Q8–Q10; a pinned public repo for Q7 (remote-as-local).
+## Corpus (shared by ALL local-tool suites)
+
+Both arms run against the same **pinned** checkout — never against the
+octocode repo itself (a live repo drifts under the benchmark; a pinned corpus
+doesn't — counts moved 7555→8512 in one working day when we benchmarked
+against our own source).
+
+```bash
+git clone https://github.com/react/react.git packages/octocode-benchmark/context/react
+git -C packages/octocode-benchmark/context/react checkout 9ceb1e7d9e20bd0302cf6ab31b038c5ec673178d
+```
+
+- Pinned commit: `9ceb1e7d9e20bd0302cf6ab31b038c5ec673178d` (2026-07-27).
+  Verify with `git -C $CORPUS rev-parse HEAD` before any run; if it moved,
+  re-seed the ground truth.
+- The checkout is gitignored (`packages/octocode-benchmark/.gitignore`).
+- ~1,873 Flow-typed `.js` files under `packages/` — the same scale ast-grep's
+  own end-to-end benchmark uses (opencode, 2,311 TS files), and deliberately
+  *dirty* input: tree-sitter-javascript cannot parse Flow annotations, so both
+  engines exercise error recovery (Q3 turns that into a scored question).
+- React is famous → contamination risk. Run the no-tools control arm first
+  (shared method in [`../README.md`](../README.md)).
 
 | Q | Lane | Tests |
 |---|---|---|
-| Q1 | parity | Simple metavar pattern — identical match count |
-| Q2 | parity | Function pattern with body metavar (`$$$`) |
-| Q3 | parity | Relational YAML rule (`inside`/`has`) |
-| Q4 | parity | Method-call shape `$OBJ.$M($$$)` |
-| Q5 | parity | Same pattern across two languages (TS + Rust) |
-| Q6 | beyond | Semantic callers of a function (LSP, not text/AST shape) |
-| Q7 | beyond | Structural search on a GitHub repo without a manual clone |
-| Q8 | beyond | Files matching a regex AND a structural shape |
-| Q9 | beyond | Read the enclosing function of a match, minified/outlined |
-| Q10 | beyond | Match in a non-`ast-grep`-first format / broad language matrix |
+| Q1 | parity | Call-shape count (`useState($$$)`) — identical count (274) |
+| Q2 | parity | Member-call sites — identical count AND `file:line` set (50) |
+| Q3 | reconcile | Same pattern where engines diverge (342 vs 332) — attribution required |
+| Q4 | parity | Relational YAML rule (`inside` try) — octocode accepts ast-grep rule YAML verbatim |
+| Q5 | scale | Whole-corpus census (~123k matches) + cold wall-clock KPI |
+| Q6 | beyond | Cross-file callers with identity (LSP references, 28 refs / 5 files) |
+| Q7 | beyond | Dead-export candidates + verification discipline (reachability) |
+| Q8 | parity | Outline surfaces head-to-head (`ast-grep outline` vs `minify:"symbols"`) |
+| Q9 | beyond | Bounded read: one function's bytes, not the 203 KB file |
+| Q10 | beyond | Composite find→outline→read flow with distractor symbols |
 
 ## Why these
 
-`ast-grep` is excellent at one thing: local AST structural matching. Q1–Q5 verify
-Octocode is **at least as correct** on that turf (the historical result:
-structural match correctness ties with zero count differences). Q6–Q10 show the
-surface `ast-grep` lacks: `lspGetSemantics` resolves real call graphs (not just
-call *shapes*); Octocode can materialize a remote repo and run AST on it;
-`localSearchCode` combines text+structural filters; `localGetFileContent
-minify:"symbols"` turns a match into a cheap function outline; and Octocode's
-format matrix spans far more than `ast-grep`'s grammar set.
+`ast-grep` is excellent at local AST matching, and 0.45 added `outline` — so
+parity questions meet it at full strength (Q8 is outline-vs-outline, not a
+strawman). The beyond lane tests what patterns cannot express: identity
+(Q6 — name hits vs resolved references), reachability (Q7), and byte-bounded
+reading (Q9/Q10). Q3 and Q5 adopt ast-grep's own benchmark lesson (their
+tree-sitter-rewrite series): end-to-end numbers on a real corpus diverge from
+micro-numbers, and divergences must be *attributed one boundary at a time* —
+a solver that averages or cherry-picks a count scores 0.
 
 ## Oracle status
 
-- **Q1–Q5 (parity):** the oracle is **cross-tool agreement** — both tools must
-  return the **same match count** on the same checkout; a nonzero difference is
-  the finding. ⚠️ Agreement alone is self-referential (both tools can be wrong
-  the same way) — **spot-check a sample against a third method** (`grep -c`,
-  manual) before trusting parity. Status: `draft-verify-before-scoring`.
-- **Q6–Q10 (beyond):** oracle is the semantic answer (verify at run time on the
-  frozen SHA). `astGrepCeiling` per question names what Arm A cannot do — the
-  grader's **tool-use layer** records whether Arm B used the differentiating tool
-  (LSP/materialize/minify) and whether Arm A had to fall back or go N/A.
+- **Seeded 2026-08-02** on the pinned SHA with ast-grep 0.45.0 and the local
+  octocode build: every expected count/set/attribution in `ground-truth.json`
+  was computed by running BOTH tools and diffing normalized `file:line` sets.
+  Parity self-verification still applies, but on a pinned corpus the seeded
+  numbers are stable oracles — a mismatch means the SHA moved, the scope
+  differed (`-l js` vs `include:["*.js"]`), or a tool regressed.
+- `harnessRules` in `ground-truth.json` lists every gotcha that produced a
+  false divergence (0/1-based lines, file-set scope, caps, `$$X`, relative
+  paths, Flow error-recovery, modifier semantics) — apply before comparing.
 
-Shared method + metrics (three arms incl. no-tools control, trajectory grading,
-aggregation, validity gates): [`../README.md`](../README.md).
+Shared method + metrics (three arms incl. no-tools control, trajectory
+grading, aggregation, validity gates): [`../README.md`](../README.md).

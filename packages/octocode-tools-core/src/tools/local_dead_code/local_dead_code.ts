@@ -1,4 +1,5 @@
 import { TOOL_NAMES } from '../toolMetadata/proxies.js';
+import { LSP_GET_SEMANTICS_TOOL_NAME } from '../toolNames.js';
 import {
   validateToolPath,
   createErrorResult,
@@ -100,6 +101,31 @@ export async function findDeadCode(
           { ...query, page: currentPage + 1 },
           'Continue to the next page of dead-export candidates.'
         ),
+      };
+    }
+
+    // Candidate → proof escalation: every dead export is a CANDIDATE, not a
+    // verdict. Emit a prefilled lspGetSemantics references query for the
+    // first candidate so the verification loop needs zero query authoring —
+    // substitute uri/symbolName/lineHint per candidate from `deadExports`.
+    const firstCandidate = pageItems[0];
+    if (firstCandidate) {
+      const root = pathValidation.sanitizedPath.replace(/\/+$/, '');
+      output.next = {
+        ...output.next,
+        verifyReferences: {
+          tool: LSP_GET_SEMANTICS_TOOL_NAME,
+          query: {
+            type: 'references',
+            uri: `${root}/${firstCandidate.file}`,
+            symbolName: firstCandidate.name,
+            lineHint: firstCandidate.line,
+            includeDeclaration: false,
+            groupByFile: true,
+          },
+          why: `Verify candidate "${firstCandidate.name}" before any delete claim — zero references = confirmed dead. Repeat per candidate using each entry's file/name/line; start with viaHeuristic:"reexport-chain" candidates (most fragile).`,
+          confidence: 'high',
+        },
       };
     }
 

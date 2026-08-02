@@ -1,15 +1,27 @@
-# Comparison Benchmarks — Octocode vs Others
+# Comparison Benchmarks — Octocode vs Others (and vs Itself)
 
-Three head-to-head suites, **10 questions each**. Same LLM, same questions, same
-budget — the only variable is the **tool provider**. This answers the one
-question that matters: *does an agent solve real code tasks better with Octocode
-than with the standard tools?*
+Five head-to-head suites, **10 questions each**. Same LLM, same questions, same
+budget — the only variable is the **tool provider / surface**. This answers the
+one question that matters: *does an agent solve real code tasks better with
+Octocode than with the alternatives — and which Octocode surface is cheaper?*
 
 | Suite | Arm A (baseline) | Arm B | What it stresses |
 |---|---|---|---|
 | [octocode-vs-gh](octocode-vs-gh/) | `gh` CLI only | Octocode CLI | GitHub research: code search, file fetch, PRs, history, structure |
 | [octocode-vs-gh-rtk](octocode-vs-gh-rtk/) | `rtk` (grep/read/ls/tree/find/git/json/wget) + `gh` CLI | Octocode CLI | Full research-flow shapes across 9 repos, 3 languages |
 | [octocode-vs-ast-grep](octocode-vs-ast-grep/) | `ast-grep` CLI | Octocode CLI (`localSearchCode`) | Structural/AST search — parity where both apply, and where Octocode goes beyond AST (LSP/text/remote/minify) |
+| [octocode-vs-baseline-local-react](octocode-vs-baseline-local-react/) | bare POSIX (`grep/find/cat/ls/wc/awk/sed`) | Octocode CLI | Local research on a frozen Flow-typed React checkout — AST precision, LSP references, dead-code graph, symbol outlines, cost |
+| [octocode-mcp-vs-cli](octocode-mcp-vs-cli/) | Octocode **MCP** (`mcp__octocode__*`) | Octocode **CLI** | Self-eval: context-token cost of each surface, data parity between surfaces, all-15-tool coverage |
+
+## Suite taxonomy — external vs local/self
+
+| Kind | Suites | What differentiates them |
+|---|---|---|
+| **External research evals** | `octocode-vs-gh`, `octocode-vs-gh-rtk` | Remote GitHub/npm facts, time-sensitive oracles, independent judge re-fetch via GitHub/raw/npm APIs. |
+| **Local capability evals** | `octocode-vs-ast-grep`, `octocode-vs-baseline-local-react` | Same checkout/frozen SHA, local AST/text/LSP/minify capabilities; counts recompute at run time. |
+| **Surface self-eval** | `octocode-mcp-vs-cli` | Same Octocode engine on both arms; expected correctness tie, token/context and parity bugs are the finding. |
+
+Each question must name its differentiator in `ground-truth.json` via `capabilityPoint` or a suite-specific equivalent (`lane`, `astGrepCeiling`, `keyTerms`). This separates outcome correctness from tool-use attribution.
 
 Each suite folder has:
 
@@ -100,14 +112,44 @@ uncontaminated) **and** no guardrail regresses past its ceiling (e.g. correctnes
 and contaminated (control-passed) questions explicitly — silent truncation reads
 as coverage that didn't happen.
 
+## Run output contract — make it a KPI
+
+Canonical report structure: [`REPORT_TEMPLATE.md`](REPORT_TEMPLATE.md)
+(headline table, four required per-suite sections, presentation rules —
+ratios+medians, losses reported as prominently as wins).
+
+Every scored run writes `output/<run-name>/` containing:
+
+- one report per suite, with **three required sections per suite** so runs are
+  comparable and trendable:
+  1. **Tokens usage** — per-question table: bytes of tool output per arm,
+     estTokens (chars/4), calls; plus per-arm runner-reported agent tokens and
+     wall-clock (authoritative tokens KPI).
+  2. **Questions** — per-question table: topic, contamination flag, per-arm
+     rubric correctness (`1.0/0.5/0`).
+  3. **Quality of response (judge)** — per-question judge score `1–5`
+     (exactness, concision, anchoring) + one-line judge note per arm.
+- `kpi.json` conforming to
+  [`../schemas/kpi.schema.json`](../schemas/kpi.schema.json) — the
+  machine-readable rollup dashboards and future runs diff against.
+- `SUMMARY.md` with Goal / KPI / Loop level / Checks run / Verdict sections
+  (validated by `loop-report.mjs`, must pass score=1).
+
+Solver arms return JSON per
+[`../schemas/solver-output.schema.json`](../schemas/solver-output.schema.json);
+questions seal per
+[`../schemas/questions-input.schema.json`](../schemas/questions-input.schema.json).
+Contract fixture: [`../fixtures/compare-run-example/`](../fixtures/compare-run-example/). Real scored runs write to gitignored `output/<run-name>/`.
+
 ## Validity gates
 
 - **Runnable-sensor gate.** A suite is a **ship-gate only when every oracle is
-  independently verified and frozen.** Today: `octocode-vs-gh-rtk` is verified
-  (ship-gate). `octocode-vs-gh` and `octocode-vs-ast-grep` carry
-  `draft-verify-before-scoring` oracles — they are **orientation only** until a
-  one-time verification pass freezes them. Do not report a "win" from a draft
-  suite.
+  independently verified and frozen.** Status: `octocode-vs-gh-rtk` verified
+  (ship-gate); `octocode-vs-gh` verified 2026-08-02 (see its ground truth's
+  `verification` block — facts remain time-sensitive, re-verify per run);
+  `octocode-vs-ast-grep` scored 2026-08-02 with grep spot-checks (counts
+  recompute every run); `octocode-mcp-vs-cli` is **draft** — verify before its
+  first scored run. Do not report a "win" from a draft suite.
 - **Ground truth outside both arms.** Verify with a method neither arm uses
   (WebFetch `raw.githubusercontent.com` / `api.github.com`), never by a toolchain
   grading itself. Parity oracles (vs-ast-grep Q1–Q5) whose oracle is "both tools

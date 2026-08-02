@@ -93,6 +93,9 @@ function compactMcpTextContent(result: CallToolResult): CallToolResult {
   };
 }
 
+// Cap on the per-result triage entries embedded in the compact text block.
+const RESULT_PREVIEW_LIMIT = 3;
+
 function summarizeStructuredContent(value: unknown): string {
   const parts = ['structuredContent available'];
   if (isRecord(value)) {
@@ -111,9 +114,39 @@ function summarizeStructuredContent(value: unknown): string {
     if (isRecord(pagination) && typeof pagination.hasMore === 'boolean') {
       parts.push(`hasMore=${pagination.hasMore}`);
     }
+
+    // Bounded per-result triage so a client that never reads
+    // structuredContent still gets SOMETHING actionable (ids, statuses,
+    // paths) instead of an opaque stub.
+    if (Array.isArray(value.results) && value.results.length > 0) {
+      const preview = value.results
+        .slice(0, RESULT_PREVIEW_LIMIT)
+        .map(describeResultEntry)
+        .filter(Boolean);
+      if (preview.length > 0) {
+        const overflow = value.results.length - RESULT_PREVIEW_LIMIT;
+        parts.push(
+          `[${preview.join(' · ')}${overflow > 0 ? ` · +${overflow} more` : ''}]`
+        );
+      }
+    }
   }
 
-  return `${parts.join(' · ')}. Read structuredContent for full data.`;
+  return `${parts.join(' · ')}. Read structuredContent for full data; if your client cannot read structuredContent, set ${FULL_MCP_TEXT_ENV}=true.`;
+}
+
+/** One bounded triage token per result: `id status path?`. */
+function describeResultEntry(entry: unknown): string {
+  if (!isRecord(entry)) return '';
+  const bits: string[] = [];
+  if (typeof entry.id === 'string') bits.push(entry.id);
+  bits.push(typeof entry.status === 'string' ? entry.status : 'ok');
+  const data = entry.data;
+  if (isRecord(data) && typeof data.path === 'string' && data.path) {
+    // Keep only the basename-ish tail so long absolute paths don't bloat.
+    bits.push(data.path.split('/').slice(-2).join('/').slice(0, 80));
+  }
+  return bits.join(' ');
 }
 
 function countResultStatuses(results: unknown[]): {

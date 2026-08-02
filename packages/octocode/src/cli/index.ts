@@ -77,6 +77,7 @@ const KNOWN_TOP_LEVEL_OPTIONS = new Set([
   // that fall through to the main help (exit 0) rather than "unknown options".
   'json',
   'compact',
+  'brief',
   'pretty',
   'minimal',
   'raw',

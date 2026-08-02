@@ -1,4 +1,5 @@
-use super::patterns::{PATTERNS, PATTERN_REGEXES, REGEX_SET};
+use super::patterns::{pattern_regex, PATTERNS, PATTERN_STRINGS};
+use aho_corasick::{AhoCorasick, AhoCorasickBuilder};
 use std::sync::LazyLock;
 
 pub(crate) const CHUNK_SIZE: usize = 500_000;
@@ -47,8 +48,141 @@ fn replacement_for(idx: usize) -> &'static str {
     &REPLACEMENTS[idx]
 }
 
+// ---------------------------------------------------------------------------
+// Literal prescan — the cheap gate in front of regex compilation.
+//
+// The old path lazily built a 309-branch RegexSet DFA plus 309 individual
+// regexes on the FIRST sanitize call (~250-800 ms), a tax every fresh process
+// paid even for entirely clean content. The prescan replaces it:
+//
+//   1. At first call, extract the *required prefix literals* of every pattern
+//      via regex-syntax HIR (a parse, not a compile — milliseconds total).
+//      A pattern gates on its literals only when extraction proves the literal
+//      set is finite and every literal is a meaningful anchor (>= 3 bytes).
+//   2. Build ONE case-insensitive aho-corasick automaton over those literals.
+//   3. Per call: scan content once with aho-corasick; only patterns whose
+//      literal appears (plus the small no-literal fallback bucket) get their
+//      regex compiled (lazily, once per process) and confirmed with is_match.
+//
+// Correctness invariant: for a gated pattern, "regex matches content" implies
+// "content contains one of its extracted prefix literals" (regex-syntax
+// prefix-literal guarantee), and the automaton is ASCII-case-insensitive while
+// literals are stored lowercased, so case-insensitive patterns cannot slip
+// past the gate. Patterns whose literals cannot be proven (pure entropy
+// shapes, UUIDs) are ALWAYS candidates — they are never gated out.
+// ---------------------------------------------------------------------------
+
+struct Prescan {
+    /// One automaton over every gated pattern's literals (lowercased).
+    ac: AhoCorasick,
+    /// aho-corasick pattern id -> detector pattern index.
+    literal_owner: Vec<usize>,
+    /// Pattern indices with no provable literal — always candidates.
+    fallback: Vec<usize>,
+}
+
+static PRESCAN: LazyLock<Prescan> = LazyLock::new(build_prescan);
+
+/// Strip a single LEADING inline flag group like `(?i)`/`(?im)` — the
+/// generator only ever emits whole-pattern leading flags (JS regex semantics).
+/// Case-insensitivity is instead honored by the automaton itself.
+fn strip_leading_flags(pattern: &str) -> &str {
+    if let Some(rest) = pattern.strip_prefix("(?") {
+        if let Some(close) = rest.find(')') {
+            let flags = &rest[..close];
+            if !flags.is_empty() && flags.chars().all(|c| matches!(c, 'i' | 'm' | 's')) {
+                return &rest[close + 1..];
+            }
+        }
+    }
+    pattern
+}
+
+/// Extract the set of required (necessary) prefix literals for `pattern`, or
+/// `None` when no trustworthy finite literal set exists (=> fallback bucket).
+fn extract_gate_literals(pattern: &str) -> Option<Vec<Vec<u8>>> {
+    use regex_syntax::hir::literal::{ExtractKind, Extractor};
+    let stripped = strip_leading_flags(pattern);
+    let hir = regex_syntax::ParserBuilder::new()
+        .utf8(false)
+        .build()
+        .parse(stripped)
+        .ok()?;
+    let mut extractor = Extractor::new();
+    extractor.kind(ExtractKind::Prefix);
+    let seq = extractor.extract(&hir);
+    let lits = seq.literals()?; // None => infinite set => cannot gate
+    if lits.is_empty() {
+        return None;
+    }
+    let mut out: Vec<Vec<u8>> = Vec::new();
+    for lit in lits {
+        let bytes = lit.as_bytes();
+        // A shorter anchor gates too weakly to be worth trusting; send the
+        // pattern to the fallback bucket instead of risking a false negative
+        // on an anchor the extractor was unsure about.
+        if bytes.len() < 3 {
+            return None;
+        }
+        let lowered: Vec<u8> = bytes.to_ascii_lowercase();
+        if !out.contains(&lowered) {
+            out.push(lowered);
+        }
+    }
+    if out.is_empty() || out.len() > 64 {
+        return None;
+    }
+    Some(out)
+}
+
+fn build_prescan() -> Prescan {
+    let mut literals: Vec<Vec<u8>> = Vec::new();
+    let mut literal_owner: Vec<usize> = Vec::new();
+    let mut fallback: Vec<usize> = Vec::new();
+    for (idx, pattern) in PATTERN_STRINGS.iter().enumerate() {
+        match extract_gate_literals(pattern) {
+            Some(lits) => {
+                for lit in lits {
+                    literals.push(lit);
+                    literal_owner.push(idx);
+                }
+            }
+            None => fallback.push(idx),
+        }
+    }
+    let ac = AhoCorasickBuilder::new()
+        .ascii_case_insensitive(true)
+        .build(&literals)
+        .expect("prescan literal automaton must build");
+    Prescan {
+        ac,
+        literal_owner,
+        fallback,
+    }
+}
+
+/// Candidate pattern indices for `content`: gated patterns whose literal
+/// appears, plus the always-on fallback bucket — each CONFIRMED with the real
+/// pattern regex (compiled lazily, only for candidates) so callers still see
+/// exact match semantics, sorted in canonical pattern order.
+fn candidate_pattern_indices(content: &str) -> Vec<usize> {
+    let prescan = &*PRESCAN;
+    let mut seen = vec![false; PATTERNS.len()];
+    // Overlapping scan: a literal nested inside another match span must still
+    // register its own pattern, or that pattern would be silently gated out.
+    for hit in prescan.ac.find_overlapping_iter(content) {
+        seen[prescan.literal_owner[hit.pattern().as_usize()]] = true;
+    }
+    for &idx in &prescan.fallback {
+        seen[idx] = true;
+    }
+    (0..PATTERNS.len()).filter(|&idx| seen[idx]).collect()
+}
+
 fn matching_pattern_indices(content: &str) -> Vec<usize> {
-    REGEX_SET.matches(content).into_iter().collect()
+    let mut candidates = candidate_pattern_indices(content);
+    candidates.retain(|&idx| pattern_regex(idx).is_match(content));
+    candidates
 }
 
 fn empty_result(content: &str) -> DetectResult {
@@ -59,11 +193,11 @@ fn empty_result(content: &str) -> DetectResult {
 }
 
 fn matching_non_context_indices(content: &str) -> Vec<usize> {
-    REGEX_SET
-        .matches(content)
-        .into_iter()
-        .filter(|&idx| PATTERNS[idx].file_context.is_none())
-        .collect()
+    let mut candidates = candidate_pattern_indices(content);
+    candidates.retain(|&idx| {
+        PATTERNS[idx].file_context.is_none() && pattern_regex(idx).is_match(content)
+    });
+    candidates
 }
 
 fn replace_chunk(
@@ -122,7 +256,7 @@ pub(crate) fn detect_single(content: &str, file_path: Option<&str>) -> DetectRes
             continue;
         }
         let pattern = &PATTERNS[idx];
-        let regex = &PATTERN_REGEXES[idx];
+        let regex = pattern_regex(idx);
         let result = regex.replace_all(&sanitized, replacement_for(idx));
         if result != sanitized.as_str() {
             secrets_detected.push(pattern.name.to_string());
@@ -140,9 +274,11 @@ pub(crate) fn detect_single(content: &str, file_path: Option<&str>) -> DetectRes
 /// avoid loading the entire string into the regex engine at once.
 /// Mirrors the TypeScript chunked implementation.
 ///
-/// Uses `REGEX_SET` on the original content to pre-filter candidate patterns
-/// (same optimisation as `detect_single`), then runs the chunk loop only for
-/// those candidates.  `REGEX_SET` has no false negatives — a pattern excluded
+/// Uses the literal prescan + per-candidate `is_match` on the original content
+/// to pre-filter candidate patterns (same optimisation as `detect_single`),
+/// then runs the chunk loop only for those candidates. The prescan has no
+/// false negatives (gated patterns require their extracted literal; literal-free
+/// patterns are always candidates) — a pattern excluded
 /// here cannot match any chunk of the original content, and replacements
 /// produce `[REDACTED-*]` strings that do not re-trigger other patterns.
 ///
@@ -166,7 +302,7 @@ pub(crate) fn detect_chunked(content: &str, file_path: Option<&str>) -> DetectRe
         }
 
         let pattern = &PATTERNS[idx];
-        let regex = &PATTERN_REGEXES[idx];
+        let regex = pattern_regex(idx);
         let replacement = replacement_for(idx);
         let mut chunk_start = 0usize;
         let mut found_in_pattern = false;
@@ -197,7 +333,7 @@ pub(crate) fn detect_chunked(content: &str, file_path: Option<&str>) -> DetectRe
         // Straddle-proofing post-condition. The chunk walk can miss a match that
         // is longer than CHUNK_OVERLAP and lands across a 500 KB boundary: no
         // single chunk slice contains it, so `is_match(chunk)` never fires even
-        // though `REGEX_SET` proved the pattern matches the full content. A
+        // though the prefilter proved the pattern matches the full content. A
         // pattern can also match inside one chunk AND separately straddle a
         // boundary, so `found_in_pattern` alone does not guarantee the output is
         // clean. Run the pattern's regex once over the FULL sanitized string
@@ -254,7 +390,7 @@ pub(crate) fn mask_text(text: String) -> String {
 
     let mut matches: Vec<(usize, usize)> = Vec::new();
     for idx in candidate_indices {
-        let regex = &PATTERN_REGEXES[idx];
+        let regex = pattern_regex(idx);
         for m in regex.find_iter(&text) {
             matches.push((m.start(), m.end()));
         }
@@ -499,6 +635,38 @@ mod tests {
     // AKIA + 16 uppercase alphanum satisfies awsAccessKeyId regex.
     const FAKE_AWS_KEY: &str = "AKIAIOSFODNN7EXAMPLE";
 
+    /// Differential guardrail: the prescan-gated matcher must agree EXACTLY
+    /// with the legacy full RegexSet on a corpus spanning gated patterns,
+    /// fallback-bucket patterns, case-folded keywords, and clean content.
+    /// A divergence here means the literal gate dropped a real match.
+    #[test]
+    fn prescan_agrees_with_legacy_regexset_on_corpus() {
+        use super::super::patterns::REGEX_SET;
+        let jwt = format!("eyJ{}.eyJ{}.{}", "a".repeat(20), "b".repeat(20), "c".repeat(20));
+        let corpus: Vec<String> = vec![
+            format!("token={FAKE_GH_TOKEN}"),
+            format!("AWS_ACCESS_KEY_ID={FAKE_AWS_KEY}"),
+            format!("aws_secret_access_key = {}", "A".repeat(40)),
+            jwt,
+            format!("postgres://user:s3cr3t@db.example.com:5432/app"),
+            format!("-----BEGIN RSA PRIVATE KEY-----\nMII{}\n-----END RSA PRIVATE KEY-----", "A".repeat(64)),
+            format!("uuid-ish {}", "123e4567-e89b-12d3-a456-426614174000"),
+            format!("telegram 123456789:{}", "AAExampleExampleExampleExampleAAAAA"),
+            "perfectly clean prose with no secrets at all".to_string(),
+            format!("sk-proj-{}", "x".repeat(48)),
+            format!("xoxb-1234567890-1234567890123-{}", "x".repeat(24)),
+            format!("SLACK_TOKEN = \"xoxp-{}\"", "1".repeat(30)),
+        ];
+        for content in &corpus {
+            let legacy: Vec<usize> = REGEX_SET.matches(content).into_iter().collect();
+            let prescanned = matching_pattern_indices(content);
+            assert_eq!(
+                legacy, prescanned,
+                "prescan diverged from legacy RegexSet on: {content:?}"
+            );
+        }
+    }
+
     #[test]
     fn detect_single_redacts_aws_access_key_id() {
         let input = format!("AWS_ACCESS_KEY_ID={FAKE_AWS_KEY}");
@@ -568,7 +736,7 @@ mod tests {
                 .position(|p| p.name == *name)
                 .expect("reported pattern must exist in PATTERNS");
             assert!(
-                !PATTERN_REGEXES[idx].is_match(&result.sanitized),
+                !pattern_regex(idx).is_match(&result.sanitized),
                 "pattern `{name}` still matches sanitized output — post-condition violated"
             );
         }

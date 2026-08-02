@@ -1,0 +1,72 @@
+{
+  "note": "JUDGE-ONLY. Solvers must never read this.",
+  "suite": "octocode-vs-baseline-local-react",
+  "frozenRoot": "packages/octocode-benchmark/context/react",
+  "frozenCommit": "9ceb1e7d9e20bd0302cf6ab31b038c5ec673178d",
+  "judgeProtocol": "LLM-as-judge, fresh context, blind to arm identity. For EVERY answer: (1) recompute the oracle on the pinned commit yourself — never trust the solver's claimed count or a seed value; (2) compare the solver's value AND anchors to your recomputation; (3) score per sharedScoring; (4) record the recomputed value alongside the score so disagreements are auditable.",
+  "verificationCaveat": "Local suite on a frozen checkout: exact numbers drift if the checkout moves — recompute every count at run time on the pinned commit before grading; the seed values recorded here were measured on 2026-08-02 against that commit and are sanity anchors, not the oracle. Parity questions self-verify when both arms agree; precision questions (q1, q4) are the point where a lexical baseline is EXPECTED to overcount — an overcount there is the capability finding, not a harness error.",
+  "sharedScoring": "1.0 = correct value(s) with correct anchors; 0.5 = right method, off-by-small-margin explained by a documented arm limitation (record which); 0 = wrong value, hallucinated anchors, or the arm gave up. For precision questions, a baseline arm that reports the lexical overcount WITHOUT flagging it as approximate scores 0; flagging it as approximate scores 0.5.",
+  "questions": {
+    "q1": {
+      "lane": "precision",
+      "targetTools": ["localSearchCode"],
+      "answer": "Structural call-expression count of useState($X) in packages/react-dom/src. Seed measurement: 33 AST call matches; bare grep -c 'useState(' over the same tree reported 145 lexical hits (comments, strings, longer identifiers, JSX text). Oracle = the AST count recomputed at run time (octocode localSearchCode mode:structural pattern:'useState($X)' output:countMatches); top files come from the same run's per-file totals.",
+      "capabilityPoint": "AST call-shape precision vs lexical grep overcount — the ~4x gap IS the finding."
+    },
+    "q2": {
+      "lane": "parity",
+      "targetTools": ["localSearchCode"],
+      "answer": "packages/react-is/src: 14 exported function declarations, 0 non-exported (seed, recompute at run time). Structural: pattern 'export function $NAME($$$A) { $$$B }' and a not-inside-export_statement rule. Baseline can approximate with grep '^export function' / '^function ' here because the file is flat — parity expected on this question.",
+      "capabilityPoint": "Structural export/non-export split; baseline parity possible on flat files — divergence on either arm is a bug."
+    },
+    "q3": {
+      "lane": "relational",
+      "targetTools": ["localSearchCode"],
+      "answer": "await expressions inside try blocks in packages/react-reconciler/src excluding __tests__. Seed: 0 (only 5 await tokens exist outside tests, none inside try). Oracle = ast rule {kind: await_expression, inside: {kind: try_statement, stopBy: end}} recomputed at run time. Baseline has no reliable way to prove the inside-try relation — a baseline answer of 0 without positional proof scores 0.5 max.",
+      "capabilityPoint": "Relational AST query (inside) — impossible to prove with grep alone."
+    },
+    "q4": {
+      "lane": "precision",
+      "targetTools": ["lspGetSemantics", "localSearchCode"],
+      "answer": "Semantic references of createFiberFromText (declared ReactFiber.js:923). Seed: 4 reference sites, all in packages/react-reconciler/src/ReactChildFiber.js at lines 64 (import binding), 560, 723, 1692. Bare grep returns 5+ lexical hits including the declaration line and export plumbing. Oracle = lspGetSemantics references with includeDeclaration:false, recomputed at run time on the pinned commit.",
+      "capabilityPoint": "LSP semantic references vs lexical candidates; declaration/import-vs-usage distinction."
+    },
+    "q5": {
+      "lane": "parity",
+      "targetTools": ["lspGetSemantics"],
+      "answer": "Top-level function declarations in ReactFiberWorkLoop.js. Seed: 99 (documentSymbols, kinds all function; first = addTransitionStartCallbackToPendingTransition at line 546). Oracle = documentSymbols recomputed at run time; a baseline awk/grep '^function|^export function' count that matches is full parity credit.",
+      "capabilityPoint": "Symbol outline of a 200KB Flow file without reading the body; count parity checkable by baseline."
+    },
+    "q6": {
+      "lane": "analysis",
+      "targetTools": ["localFindDeadCode", "lspGetSemantics"],
+      "answer": "Dead-export candidates in packages/react-is with entrypoint index.js. Seed: 0 candidates (entrypointsResolved = index.js + the test file; every export retained). Oracle = localFindDeadCode recomputed at run time; a nonzero claim must be LSP-verified (references) to score. Baseline must hand-walk export/import chains — full credit requires it names every export and shows each is imported.",
+      "capabilityPoint": "Whole-package reachability graph vs manual import-chain walking."
+    },
+    "q7": {
+      "lane": "parity",
+      "targetTools": ["localFindFiles"],
+      "answer": "Largest non-test .js under packages/react-reconciler/src. Seed: src/ReactFiberWorkLoop.js, 203233 bytes. Oracle = recompute (localFindFiles sortBy:size vs find|wc -c) — exact parity expected; byte size must match exactly.",
+      "capabilityPoint": "Metadata query parity; both arms fully capable."
+    },
+    "q8": {
+      "lane": "capability",
+      "targetTools": ["lspGetSemantics"],
+      "answer": "scheduleUpdateOnFiber definition in packages/react-reconciler/src/ReactFiberWorkLoop.js (recompute exact line at the pinned SHA). Oracle = judge recomputes the semantic caller set at the frozen commit via lspGetSemantics callers/references, cross-checked with a manual grep sweep: every reported site must be a real call expression (not comment/string/type/re-export), each with enclosing caller function name + file:line, __tests__ excluded. Callers span multiple reconciler/dom files (e.g. ReactFiberHooks, ReactFiberClassComponent/ClassUpdateQueue, ReactFiberReconciler and root/DOM entry points) -- exact set recomputed per run, never trusted from this seed.",
+      "scoring": "1.0 = definition line + complete caller set (allow +/-1 site vs judge recompute) with correct enclosing-function names, no false sites; 0.5 = definition + majority of callers, or callers as bare file:line without enclosing functions; 0 = text-match dump presented as callers (contains comment/string/non-call sites) or definition wrong.",
+      "capabilityPoint": "Semantic call-graph: Arm B must use lspGetSemantics (callers/references); bare grep cannot separate call sites from mentions nor name the enclosing caller -- a grep-only answer scoring 1.0 would itself be a finding."
+    },
+    "q9": {
+      "lane": "parity",
+      "targetTools": ["localSearchCode"],
+      "answer": "Files containing __DEV__ under packages/react-reconciler/src excluding __tests__. Seed: 41 files (octocode output:files with exclude glob; bare grep -rl piped through a __tests__ filter must match). A mismatch is a harness scoping error (test exclusion), not a tool finding — normalize before comparing.",
+      "capabilityPoint": "files-with-match parity plus scoping discipline (exclude globs vs pipe filters)."
+    },
+    "q10": {
+      "lane": "efficiency",
+      "targetTools": ["localGetFileContent"],
+      "answer": "Symbol outline of ReactFiberBeginWork.js without printing bodies. Oracle = localGetFileContent minify:symbols top-level entries recomputed at run time; correctness = symbol count plus first/last top-level function name:line match the outline. Grade EFFICIENCY too: bytes-read anchor — an arm that cats the whole ~180KB file to answer scores at most 0.5 even when correct.",
+      "capabilityPoint": "Token-lean symbol outline vs full-file read; cost is part of the score."
+    }
+  }
+}

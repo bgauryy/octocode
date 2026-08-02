@@ -46,6 +46,15 @@ export interface WalkResult {
    * genuinely read off the dynamically-imported namespace object.
    */
   dynamicImportTargets: Set<string>;
+  /**
+   * Reverse star-re-export edges: target file → the files that
+   * `export * from` it. Needed for retention: a NAMED re-export whose barrel
+   * is itself star-re-exported (barrel → `export *` → entrypoint) is public
+   * API — `isBindingLive` must be able to hop the star edge, which carries no
+   * per-name entry in the named `reexportIndex`. Unfiltered (all scanned
+   * files); the scan filters to reachable re-exporters before use.
+   */
+  starReexporters: Map<string, string[]>;
 }
 
 function escapeRegExp(literal: string): string {
@@ -125,6 +134,7 @@ export function buildFileGraph(
   const fileGraph = new Map<string, FileNode>();
   const starReexportTargets = new Set<string>();
   const dynamicImportTargets = new Set<string>();
+  const starReexporters = new Map<string, string[]>();
   let filesSkipped = 0;
 
   for (const entry of entries) {
@@ -254,6 +264,9 @@ export function buildFileGraph(
       if (target && target !== relativePath) {
         importsFiles.add(target);
         starReexportTargets.add(target);
+        const list = starReexporters.get(target) ?? [];
+        list.push(relativePath);
+        starReexporters.set(target, list);
       }
     }
     fileGraph.set(relativePath, {
@@ -271,5 +284,6 @@ export function buildFileGraph(
     truncated,
     starReexportTargets,
     dynamicImportTargets,
+    starReexporters,
   };
 }

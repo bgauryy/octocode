@@ -40,7 +40,13 @@ export async function getWorkspaceSymbols(
   query: WorkspaceSymbolSemanticQuery
 ): Promise<LspSemanticEnvelope | Record<string, unknown>> {
   const symbolQuery = query.symbolName ?? '';
-  const workspaceRoot = path.resolve(query.workspaceRoot ?? process.cwd());
+  // Same default-root rule as every other sub-op: when a uri is given, the
+  // root is the file's project root (marker walk), not the process cwd —
+  // cwd is only the last resort for a rootless project-wide query.
+  const workspaceRoot = path.resolve(
+    query.workspaceRoot ??
+      (query.uri ? await resolveWorkspaceRootForFile(query.uri) : process.cwd())
+  );
 
   // workspace/symbol is project-wide, but language-server selection is
   // extension-based. Use an explicit uri when provided; otherwise pick a

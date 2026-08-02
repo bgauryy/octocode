@@ -248,6 +248,20 @@ export async function listIssues(
 
   const hasMore = parseHasMore(listResult.headers.link as string | undefined);
 
+  // Pagination honesty: the issues endpoint returns PRs too, filtered out
+  // above — so `issues.length` is a page-local, post-filter count, NOT a repo
+  // total. Only report it as `totalCount` when this single page is provably
+  // the complete result set (no further pages). And when a page filtered
+  // down to nothing while more pages exist, say WHY instead of emitting the
+  // contradictory-looking `totalCount:0` + `hasMore:true`.
+  const isCompleteResultSet = !hasMore && currentPage === 1;
+  const warnings: string[] = [];
+  if (issues.length === 0 && hasMore) {
+    warnings.push(
+      'This page contained only pull requests (the GitHub issues endpoint returns both; PRs are filtered out) — follow pagination.nextPage, later pages may contain issues.'
+    );
+  }
+
   return {
     data: {
       type: 'issues',
@@ -256,7 +270,8 @@ export async function listIssues(
       issues: params.concise
         ? issues.map(i => `#${i.number} ${i.title}`)
         : issues,
-      totalCount: issues.length,
+      ...(isCompleteResultSet ? { totalCount: issues.length } : {}),
+      ...(warnings.length ? { warnings } : {}),
       pagination: {
         currentPage,
         perPage,

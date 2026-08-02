@@ -132,7 +132,7 @@ describe('ghSearchCode finalizer — next.getLines continuation', () => {
     expect(next['getLines:q2']!.query.matchString).toBe('beta');
   });
 
-  it('maps repoState renamed → warning + corrected retry continuation', () => {
+  it('maps repoState renamed → corrected retry continuation (warnings stripped)', () => {
     const queries = [
       {
         id: 'q1',
@@ -152,8 +152,7 @@ describe('ghSearchCode finalizer — next.getLines continuation', () => {
       },
     ];
     const sc = runFinalizer(queries, results);
-    const warns = sc.warnings as string[];
-    expect(warns?.some(w => w.includes('RENAMED'))).toBe(true);
+    expect(sc.warnings).toBeUndefined();
     const next = sc.next as Record<string, { query: Record<string, unknown> }>;
     expect(next['retryRenamed:q1']!.query).toMatchObject({
       owner: 'bgauryy',
@@ -162,7 +161,7 @@ describe('ghSearchCode finalizer — next.getLines continuation', () => {
     });
   });
 
-  it('maps repoState archived/notFound → warnings', () => {
+  it('maps repoState archived/notFound → empty rows with no warnings channel', () => {
     const queries = [{ id: 'q1' }, { id: 'q2' }];
     const results = [
       {
@@ -177,9 +176,8 @@ describe('ghSearchCode finalizer — next.getLines continuation', () => {
       },
     ];
     const sc = runFinalizer(queries, results);
-    const warns = sc.warnings as string[];
-    expect(warns?.some(w => w.includes('ARCHIVED'))).toBe(true);
-    expect(warns?.some(w => w.includes('NOT FOUND'))).toBe(true);
+    expect(sc.warnings).toBeUndefined();
+    expect(sc.emptyQueries as unknown[]).toHaveLength(2);
   });
 
   it('omits next when there are no keywords to anchor on', () => {

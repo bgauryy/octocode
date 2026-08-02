@@ -8,7 +8,7 @@ import {
   computeReachableFiles,
   findStronglyConnectedComponents,
 } from './reachability.js';
-import type { FileFacts } from './types.js';
+import { bindingKey, computeLiveExportedNames } from './retention.js';
 import type {
   DeadClusterOutput,
   DeadExportOutput,
@@ -44,84 +44,6 @@ export interface DeadCodeScanResult {
   confidence?: 'low';
 }
 
-function bindingKey(file: string, name: string): string {
-  return `${file}::${name}`;
-}
-
-/**
- * Is `(file, name)` — a declaration or a re-export's own local binding —
- * consumed by something that isn't itself just a further pass-through?
- * Live if: it's the public surface of an entrypoint, something really
- * imports it directly, or it's re-exported by a file whose own binding of
- * the re-export is (recursively) live. A cycle guard handles re-export
- * loops; `visited` is per top-level call, not shared across candidates.
- */
-function isBindingLive(
-  file: string,
-  name: string,
-  entrypointSet: ReadonlySet<string>,
-  realImportIndex: ReadonlySet<string>,
-  reexportIndex: ReadonlyMap<
-    string,
-    ReadonlyArray<{ file: string; localName: string }>
-  >,
-  visited: Set<string>
-): boolean {
-  const key = bindingKey(file, name);
-  if (visited.has(key)) return false;
-  if (entrypointSet.has(file)) return true;
-  if (realImportIndex.has(key)) return true;
-  visited.add(key);
-  for (const reexporter of reexportIndex.get(key) ?? []) {
-    if (
-      isBindingLive(
-        reexporter.file,
-        reexporter.localName,
-        entrypointSet,
-        realImportIndex,
-        reexportIndex,
-        visited
-      )
-    ) {
-      return true;
-    }
-  }
-  return false;
-}
-
-/** Is `exportName` retained by anything already proven live? */
-function isRetained(
-  file: string,
-  exportName: string,
-  facts: FileFacts,
-  entrypointSet: ReadonlySet<string>,
-  realImportIndex: ReadonlySet<string>,
-  reexportIndex: ReadonlyMap<
-    string,
-    ReadonlyArray<{ file: string; localName: string }>
-  >
-): boolean {
-  // Same-file usage: some declaration in this file calls it directly.
-  if (facts.calls.some(c => c.callee === exportName)) return true;
-
-  // Same-file usage by value reference (spread, property access, argument
-  // passing) rather than invocation — `calls` never sees this, so fall back
-  // to a whole-word occurrence count against the declaration's own name.
-  if ((facts.referenceCounts.get(exportName) ?? 0) > 1) return true;
-
-  // Cross-file usage: someone really imports this name directly, or it's
-  // re-exported by a chain that ultimately terminates in a real import (or
-  // an entrypoint's public surface).
-  return isBindingLive(
-    file,
-    exportName,
-    entrypointSet,
-    realImportIndex,
-    reexportIndex,
-    new Set()
-  );
-}
-
 export function scanForDeadCode(
   rootAbsolutePath: string,
   query: FindDeadCodeQuery
@@ -138,8 +60,8 @@ export function scanForDeadCode(
     filesScanned,
     filesSkipped,
     truncated,
-    starReexportTargets,
     dynamicImportTargets,
+    starReexporters,
   } = buildFileGraph(rootAbsolutePath, excludeDir, maxFiles);
 
   const knownFiles = new Set(facts.keys());
@@ -263,6 +185,18 @@ export function scanForDeadCode(
     }
   }
 
+  // Star edges only count when the star-re-exporting file is itself
+  // reachable: an unreachable barrel's `export *` republishes nothing that
+  // any live code can see. Filter both the reverse map (used by the
+  // `isBindingLive` star hop) and the "whole surface is public" target set
+  // to reachable re-exporters.
+  const liveStarReexporters = new Map<string, string[]>();
+  for (const [target, reexporters] of starReexporters) {
+    const alive = reexporters.filter(f => reachableFiles.has(f));
+    if (alive.length > 0) liveStarReexporters.set(target, alive);
+  }
+  const liveStarReexportTargets = new Set(liveStarReexporters.keys());
+
   const deadExports: DeadExportOutput[] = [];
 
   const sccs = findStronglyConnectedComponents(fileGraph);
@@ -281,6 +215,8 @@ export function scanForDeadCode(
         'mutually-referencing cluster with no path from any entrypoint — each file looks locally referenced by the others, but the cluster as a whole is unreachable',
     });
   }
+
+  const liveNamesByFile = new Map<string, Set<string>>();
 
   for (const [file, fileFacts] of facts) {
     const isEntrypoint = entrypointSet.has(file);
@@ -307,26 +243,36 @@ export function scanForDeadCode(
       // re-export republishes every one of its target's exports.
       if (
         isEntrypoint ||
-        starReexportTargets.has(file) ||
+        liveStarReexportTargets.has(file) ||
         dynamicImportTargets.has(file)
       )
         continue;
 
-      const retained = isRetained(
-        file,
-        decl.name,
-        fileFacts,
-        entrypointSet,
-        realImportIndex,
-        reexportIndex
-      );
-      if (!retained) {
+      let liveNames = liveNamesByFile.get(file);
+      if (!liveNames) {
+        liveNames = computeLiveExportedNames(
+          file,
+          fileFacts,
+          entrypointSet,
+          realImportIndex,
+          reexportIndex,
+          liveStarReexporters
+        );
+        liveNamesByFile.set(file, liveNames);
+      }
+      if (!liveNames.has(decl.name)) {
         deadExports.push({
           file,
           name: decl.name,
           kind: decl.kind,
           line: decl.line,
           reason: 'unreferenced-export',
+          // Which negative-evidence path concluded "dead": a re-export chain
+          // that terminated without a consumer is more fragile than plain
+          // "nobody imports it" — LSP-verify those candidates first.
+          viaHeuristic: reexportIndex.has(bindingKey(file, decl.name))
+            ? 'reexport-chain'
+            : 'lexical-count',
         });
       }
     }

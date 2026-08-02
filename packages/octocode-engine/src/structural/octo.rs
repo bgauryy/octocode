@@ -5,7 +5,7 @@ use regex::Regex;
 use serde::Deserialize;
 use tree_sitter::{Language, Node, Parser, Tree};
 
-use super::language::AgLanguage;
+use super::language::{AgLanguage, Expando};
 use super::query::StructuralQuery;
 use super::types::{MetavarRange, StructuralMatch};
 
@@ -324,7 +324,7 @@ impl CaptureEnv {
 
 struct CompiledPattern {
     language: Language,
-    expando: char,
+    expando: Expando,
     source: String,
     tree: Option<Tree>,
     special: Option<SpecialPattern>,
@@ -346,7 +346,7 @@ impl CompiledPattern {
         if let Some(capture) = html_tag_name_capture(pattern) {
             return Ok(Self {
                 language: lang.tree_sitter_language(),
-                expando: lang.expando_char_value(),
+                expando: lang.expando(),
                 source: pattern.to_owned(),
                 tree: None,
                 special: Some(SpecialPattern::HtmlTagName { capture }),
@@ -360,7 +360,7 @@ impl CompiledPattern {
         if let Some((key_capture, value_capture)) = key_value_pair_capture(pattern) {
             return Ok(Self {
                 language: lang.tree_sitter_language(),
-                expando: lang.expando_char_value(),
+                expando: lang.expando(),
                 source: pattern.to_owned(),
                 tree: None,
                 special: Some(SpecialPattern::KeyValuePair {
@@ -378,20 +378,20 @@ impl CompiledPattern {
         let language = lang.tree_sitter_language();
         let tree = parse_tree(&language, &source)
             .ok_or_else(|| "invalid structural pattern: failed to parse pattern".to_string())?;
-        let root = effective_pattern_root(tree.root_node());
+        let root = effective_pattern_root(tree.root_node(), &source);
         if root.is_error() {
             return Err(
                 "invalid structural pattern: pattern parsed with syntax errors".to_string(),
             );
         }
-        let candidate_plan = if meta_from_node(root, &source, lang.expando_char_value()).is_some() {
+        let candidate_plan = if meta_from_node(root, &source, lang.expando()).is_some() {
             CandidatePlan::Any
         } else {
             CandidatePlan::from_kind(root.kind())
         };
         Ok(Self {
             language,
-            expando: lang.expando_char_value(),
+            expando: lang.expando(),
             source,
             tree: Some(tree),
             special: None,
@@ -455,7 +455,7 @@ impl CompiledPattern {
         let Some(tree) = &self.tree else {
             return false;
         };
-        let root = effective_pattern_root(tree.root_node());
+        let root = effective_pattern_root(tree.root_node(), &self.source);
         let mut attempts = MAX_MULTI_CAPTURE_ATTEMPTS;
         self.match_node(
             root,
@@ -608,7 +608,25 @@ impl CompiledPattern {
             return false;
         }
 
-        let pattern_children = children(pattern);
+        // Drop MISSING nodes from the PATTERN's own children before comparing
+        // shape. A MISSING node is tree-sitter's zero-width error-recovery
+        // stand-in for a token the grammar expected but never got — it can
+        // never represent user intent (nobody types a "missing token" into a
+        // pattern string). It shows up here specifically because some
+        // grammars parse a bare `$$$NAME`/`$X` expando identifier at
+        // statement position ambiguously (e.g. C/C++/C#/Zig treat an
+        // unrecognized identifier as the start of a declaration and then
+        // expect a trailing `;`) — the compiled pattern's root itself is not
+        // `is_error()` (so `CompiledPattern::new` accepts it), but the
+        // MISSING sibling it left behind can never match any real candidate
+        // child, which silently broke every `{ $$$BODY }`-shaped pattern for
+        // those grammars. The candidate side is deliberately left as-is: a
+        // MISSING token in the real document being searched is genuine
+        // evidence of broken source and must still fail to match.
+        let pattern_children: Vec<Node<'_>> = children(pattern)
+            .into_iter()
+            .filter(|node| !node.is_missing())
+            .collect();
         let candidate_children = children(candidate);
         if pattern_children.is_empty() && candidate_children.is_empty() {
             return node_text(pattern, pattern_source) == node_text(candidate, candidate_source);
@@ -713,8 +731,7 @@ impl CompiledPattern {
         depth: usize,
         attempts: &mut usize,
     ) -> bool {
-        let min_remaining =
-            minimum_candidate_nodes(remaining_pattern, pattern_source, self.expando);
+        let min_remaining = minimum_candidate_nodes(remaining_pattern, pattern_source, self.expando);
         if candidate_children.len() < min_remaining {
             return false;
         }
@@ -800,7 +817,7 @@ fn capture_name_from_token(token: &str) -> Option<String> {
     None
 }
 
-fn minimum_candidate_nodes(pattern_children: &[Node<'_>], source: &str, expando: char) -> usize {
+fn minimum_candidate_nodes(pattern_children: &[Node<'_>], source: &str, expando: Expando) -> usize {
     pattern_children
         .iter()
         .filter(|node| {
@@ -820,14 +837,21 @@ enum MetaVar {
     IgnoredMulti,
 }
 
-fn meta_from_node(node: Node<'_>, source: &str, expando: char) -> Option<MetaVar> {
+/// `expando.primary` and `expando.bare_word` differ only for PHP/Bash (see
+/// `Expando`'s doc comment) — a metavar substituted at a bare-word position
+/// (a function name) used `bare_word`, everything else used `primary`. Both
+/// must be recognized here: the leading char run is checked against
+/// *either*, and the repeat-count is taken against whichever one it actually
+/// is (never a mix of the two).
+fn meta_from_node(node: Node<'_>, source: &str, expando: Expando) -> Option<MetaVar> {
     let text = node_text(node, source);
     let mut chars = text.chars();
-    if chars.next()? != expando {
+    let leading = chars.next()?;
+    if !expando.matches_leading(leading) {
         return None;
     }
 
-    let expando_len = text.chars().take_while(|ch| *ch == expando).count();
+    let expando_len = text.chars().take_while(|ch| *ch == leading).count();
     let rest: String = text.chars().skip(expando_len).collect();
     match expando_len {
         1 if rest == "_" => Some(MetaVar::IgnoredSingle),
@@ -1173,12 +1197,47 @@ fn first_named_descendant_kind<'tree>(
     None
 }
 
-fn effective_pattern_root(mut node: Node<'_>) -> Node<'_> {
+/// Synthetic class name `preprocess_pattern` wraps every C# pattern in — see
+/// `AgLanguage::class_wrap`. Real user patterns essentially never target a
+/// class literally named this, so matching on it by name (rather than by
+/// kind, like the other wrapper cases below) is safe: it only unwraps
+/// *our own* synthetic wrapper, never a real `class $NAME { ... }` pattern
+/// whose outer class_declaration the user actually wants to match.
+const CSHARP_WRAP_MARKER: &str = "__OctoWrap";
+
+fn effective_pattern_root<'a>(mut node: Node<'a>, source: &str) -> Node<'a> {
     loop {
         let named = named_children(node);
         if named.len() == 1 && is_pattern_wrapper(node.kind()) {
             node = named[0];
             continue;
+        }
+        // PHP's `program` wraps a leading `php_tag` (from the `<?php `
+        // prefix `preprocess_pattern` adds) alongside the real content node
+        // — two named children, so the single-child unwrap above doesn't
+        // apply. Skip the tag and continue unwrapping from the real content.
+        if named.len() == 2 && node.kind() == "program" && named[0].kind() == "php_tag" {
+            node = named[1];
+            continue;
+        }
+        // C#'s synthetic wrapper class (see CSHARP_WRAP_MARKER doc above):
+        // unwrap `class __OctoWrap { <member> }` down to the single real
+        // member, giving it real class-body context (a bare `public int
+        // Foo(...) { ... }` parsed standalone isn't valid C# at all — no
+        // top-level member/method syntax exists outside a type body).
+        if node.kind() == "class_declaration" {
+            let is_wrapper = node
+                .child_by_field_name("name")
+                .is_some_and(|n| node_text(n, source) == CSHARP_WRAP_MARKER);
+            if is_wrapper {
+                if let Some(body) = node.child_by_field_name("body") {
+                    let body_named = named_children(body);
+                    if body_named.len() == 1 {
+                        node = body_named[0];
+                        continue;
+                    }
+                }
+            }
         }
         break node;
     }
@@ -1196,6 +1255,16 @@ fn is_pattern_wrapper(kind: &str) -> bool {
             | "fragment"
             | "document"
             | "expression_statement"
+            // Lua's top-level node kind. Without this, `effective_pattern_root`
+            // stopped at "chunk" itself instead of unwrapping to the single
+            // real statement inside it — `chunk` never appears as a candidate
+            // when walking a real document (only the tree's own root node has
+            // that kind, and the walk starts at its children), so every
+            // pattern silently matched nothing.
+            | "chunk"
+            // Elixir's top-level node kind — same failure mode as Lua's
+            // "chunk" above.
+            | "source"
     )
 }
 

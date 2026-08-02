@@ -38,6 +38,8 @@ serde       = { version = "1", features = ["derive"] }
 serde_json  = { version = "1", features = ["arbitrary_precision", "preserve_order"] }
 serde_yaml_ng = "0.10"  # maintained continuation of serde_yaml (archived upstream)
 regex       = "1"
+regex-syntax = "0.8"   # prescan literal extraction (already vendored via regex)
+aho-corasick = "1"     # sanitizer literal prescan (already vendored via regex)
 tokio       = { version = "1", features = ["fs", "io-util", "process", "rt-multi-thread", "sync", "time"] }
 url         = "2"
 which       = "8"

@@ -73,6 +73,57 @@ describe('localSearchCode schema', () => {
     }
   });
 
+  it('accepts langType in structural mode (mapped to include globs at runtime, not rejected)', () => {
+    const result = LocalRipgrepQuerySchema.safeParse({
+      path: '/repo',
+      mode: 'structural',
+      pattern: 'eval($X)',
+      langType: 'ts',
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it('rejects a two-dollar metavar ($$NAME) with a $$$-hint instead of silently matching nothing', () => {
+    const result = LocalRipgrepQuerySchema.safeParse({
+      path: '/repo',
+      mode: 'structural',
+      pattern: '$FN($$ARGS)',
+    });
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const messages = result.error.issues.map(issue => issue.message).join('\n');
+      expect(messages).toMatch(/\$\$ARGS/);
+      expect(messages).toMatch(/\$\$\$ARGS/);
+    }
+  });
+
+  it('accepts $$$ (triple) multi metavars and anonymous $$$', () => {
+    for (const pattern of ['$FN($$$ARGS)', 'foo($$$)', '$X']) {
+      expect(
+        LocalRipgrepQuerySchema.safeParse({
+          path: '/repo',
+          mode: 'structural',
+          pattern,
+        }).success
+      ).toBe(true);
+    }
+  });
+
+  it('exempts php/bash patterns from the two-dollar guard ($$ is real syntax there)', () => {
+    for (const langType of ['php', 'bash'] as const) {
+      expect(
+        LocalRipgrepQuerySchema.safeParse({
+          path: '/repo',
+          mode: 'structural',
+          pattern: '$$VAR = 1;',
+          langType,
+        }).success
+      ).toBe(true);
+    }
+  });
+
   it('rejects a non-default unique enum in structural mode', () => {
     const result = LocalRipgrepQuerySchema.safeParse({
       path: '/repo',

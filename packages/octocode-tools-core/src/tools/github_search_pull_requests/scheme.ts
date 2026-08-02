@@ -175,7 +175,6 @@ export interface PullRequestsResultData {
   };
   pagination?: HistoryPagination;
   // Mode-irrelevant-field notices and other in-band guidance.
-  warnings?: string[];
   // Continuations (readIssue / searchCode / …).
   next?: Record<string, ToolContinuation>;
   [key: string]: unknown;

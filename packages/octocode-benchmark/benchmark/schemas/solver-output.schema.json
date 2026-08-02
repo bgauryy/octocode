@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "octocode-benchmark/solver-output",
+  "title": "Solver arm output — one JSON document per arm per suite",
+  "description": "The solver agent's final message must be exactly this document. Bytes are self-logged (`<cmd> > out; wc -c < out`) for CLI arms; MCP arms log the chars of each tool_result content instead. Judges never see which arm produced which document (blind).",
+  "type": "object",
+  "required": ["arm", "suite", "questions"],
+  "properties": {
+    "arm": { "type": "string", "description": "A=<baseline> | B=octocode-cli | B-mcp=octocode-mcp | C=control-no-tools" },
+    "suite": { "type": "string" },
+    "questions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["q", "answer", "confidence", "evidence"],
+        "properties": {
+          "q": { "type": "integer", "minimum": 1 },
+          "answer": { "type": "string", "description": "Full answer with file:line / sha / count anchors. 'UNRESOLVED' when budget ran out — never guess." },
+          "confidence": { "enum": ["high", "medium", "low"] },
+          "evidence": { "enum": ["fetched", "memory-unverified", "mixed"], "description": "Any memory-derived claim must be labeled; unlabeled memory scored as false-confidence if wrong." },
+          "commands": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["cmd", "bytes"],
+              "properties": {
+                "cmd": { "type": "string", "description": "Short form of the command / tool call" },
+                "bytes": { "type": "integer", "description": "CLI: wc -c of stdout. MCP: length of tool_result content text." },
+                "tool": { "type": "string", "description": "Tool name (for trajectory grading)" },
+                "ms": { "type": "integer" }
+              }
+            }
+          },
+          "totalBytes": { "type": "integer" },
+          "codeSearchCalls": { "type": "integer", "description": "GitHub code-search API calls spent (rate-limit guardrail)" }
+        }
+      }
+    }
+  }
+}

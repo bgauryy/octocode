@@ -28,14 +28,22 @@ pub fn minify_content(content: String, file_path: String) -> AsyncTask<MinifyCon
 /// form only when it is shorter, otherwise the original. Panic-contained.
 #[napi(js_name = "applyMinification")]
 pub fn apply_minification(content: String, file_path: String) -> String {
-    crate::apply::apply_minification_inner(&content, &file_path)
+    // See `signatures::run_on_deep_stack`: the JS/TS strategy here parses with
+    // oxc, and napi's calling thread has less native stack headroom than a
+    // test thread — pathologically nested input can crash the whole process
+    // on this synchronous, main-thread-blocking entry point.
+    crate::signatures::run_on_deep_stack(move || {
+        crate::apply::apply_minification_inner(&content, &file_path)
+    })
 }
 
 /// Agent-readable "standard" view: strips comments and blank-line noise while
 /// preserving indentation and code shape. Capped at 1MB; panic-contained.
 #[napi(js_name = "applyContentViewMinification")]
 pub fn apply_content_view_minification(content: String, file_path: String) -> String {
-    crate::apply::apply_content_view_minification_inner(&content, &file_path)
+    crate::signatures::run_on_deep_stack(move || {
+        crate::apply::apply_content_view_minification_inner(&content, &file_path)
+    })
 }
 
 /// `commentTypes` accepts a single string or array of strings.

@@ -7,6 +7,32 @@ pub mod renderer;
 use crate::file_extension::get_extension_internal;
 use extractor::{extract, LangExtractConfig};
 
+/// Runs `f` (a parse + AST/tree walk) on a dedicated thread with a much
+/// larger stack than napi's calling thread provides.
+///
+/// A recursive-descent parser (oxc) or a naive recursive walk over a parsed
+/// tree (this crate's own symbol/skeleton renderers) can blow a default-size
+/// native stack on pathologically nested input — thousands of levels of `(`,
+/// `[`, or `{` — crashing the whole process with SIGSEGV, a fault
+/// `catch_unwind` cannot intercept (unlike a parser panic/ICE, which the
+/// `catch_unwind` wrapping each caller already contains). This matters most
+/// for the actual napi calling thread specifically, which has measurably less
+/// native stack headroom than e.g. a `cargo test` thread — content that
+/// parses fine in a unit test can still crash the real process. A bigger
+/// stack does not make unbounded recursion safe in the limit, but it raises
+/// the input depth needed to trigger it by roughly the same factor as the
+/// size increase — the standard mitigation for wrapping a recursive-descent
+/// parser or tree walker.
+pub(crate) fn run_on_deep_stack<T: Send + Default + 'static>(
+    f: impl FnOnce() -> T + Send + 'static,
+) -> T {
+    const STACK_SIZE: usize = 64 * 1024 * 1024;
+    match std::thread::Builder::new().stack_size(STACK_SIZE).spawn(f) {
+        Ok(handle) => handle.join().unwrap_or_default(),
+        Err(_) => T::default(),
+    }
+}
+
 pub const SIGNATURES_ONLY_HINT: &str = concat!(
     "Signatures/outline only — bodies and comments omitted; ",
     "the whole skeleton is returned in one response (never paginated). ",

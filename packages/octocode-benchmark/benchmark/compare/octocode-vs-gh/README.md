@@ -11,10 +11,10 @@ test whether Octocode does better. Same LLM, same tasks, same budget.
 |---|---|---|
 | Q1 | Text search false positives — AST needed | `vuejs/core` |
 | Q2 | Token cost of reading one function from a big file (minify) | `microsoft/TypeScript` |
-| Q3 | Deep PR review — file/delta breakdown | `expressjs/express` |
-| Q4 | Navigate a large monorepo to one file | `vercel/next.js` |
-| Q5 | Which PR/commit introduced a symbol (history) | `pallets/flask` |
-| Q6 | Absence trap — honest "not defined" | `sindresorhus/is` |
+| Q3 | Deep PR review — files/delta + diff-grounded root cause | `expressjs/express` |
+| Q4 | Cross-repo dependency hop (router moved out of the repo) | `expressjs/express` → `pillarjs/router` |
+| Q5 | Symbol history + deep commit-history **pagination** | `pallets/flask` |
+| Q6 | **Repo search** discovery + absence trap — honest "not defined" | `sindresorhus/is` |
 | Q7 | npm package → source repo → real language | `axios/axios` |
 | Q8 | Find every caller of a function (LSP vs grep) | `lodash/lodash` |
 | Q9 | Outline a large file cheaply (symbols mode) | `redis/redis` |
@@ -44,6 +44,25 @@ shared README) first; any question the control already answers measures LLM
 memory, not tools, and must be down-weighted or replaced. Each question's
 `capabilityPoint` drives the **tool-use grading layer** (did Arm B use AST / LSP
 / minify / cache; did Arm A hit the rate limit).
+
+## Tool/feature coverage map (enforced by `expectedWorkflow` in ground truth)
+
+| Feature | Questions |
+|---|---|
+| Code search with filters (`match:file`/`match:path`, repo/path scoping) | Q1, Q4, Q5, Q10 |
+| **Repo search** (`ghSearchRepos`, stars-sorted discovery) | Q6 |
+| Repo structure (`ghViewRepoStructure`, incl. file sizes) | Q4, Q6 |
+| Targeted fetch (`ghGetFileContent` **matchString** slice) | Q2, Q4, Q7 |
+| Minified/outline read (`minify:"symbols"`) | Q9 |
+| **Pagination** (history beyond page 1) | Q5 |
+| PR search + deep review (`ghSearchPullRequests` reviewMode) | Q3 |
+| Commit history (`ghSearchCommits`, path-filtered) | Q5 |
+| npm → source repo (`npmSearch`) | Q4, Q7 |
+| Clone + AST / LSP (`ghCloneRepo`, `localSearchCode`, `lspGetSemantics`) | Q1, Q8 |
+| Batching + session cache under rate limit | Q10 |
+
+Each ground-truth question now carries an `expectedWorkflow` — the trajectory
+layer grades Arm B's logged calls against it (substance, not exact order).
 
 Shared method + metrics (three arms, trajectory grading, aggregation, validity
 gates): [`../README.md`](../README.md).

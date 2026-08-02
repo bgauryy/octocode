@@ -59,7 +59,6 @@ export interface NpmSearchPackage {
   repositoryDirectory?: string;
   repositoryId?: string;
   next?: Record<string, ToolContinuation>;
-  warnings?: string[];
   [key: string]: unknown;
 }
 

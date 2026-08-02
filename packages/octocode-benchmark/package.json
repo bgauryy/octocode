@@ -14,8 +14,8 @@
   },
   "scripts": {
     "build": "echo 'No build step for benchmark package'",
-    "lint": "echo 'No benchmark source files to lint'",
-    "test": "echo 'Docs-driven benchmark — see BENCHMARK.md (per-tool + compare, run by an agent)'",
+    "lint": "node scripts/verify-benchmark.mjs",
+    "test": "node scripts/verify-benchmark.mjs",
     "typecheck": "echo 'No TypeScript source files to typecheck'",
     "verify": "yarn lint && yarn typecheck && yarn test"
   },

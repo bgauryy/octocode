@@ -41,5 +41,23 @@ any question the control already answers measures LLM memory, not tools, and mus
 be down-weighted. The flow category per question maps to the capability the
 **tool-use grading layer** should confirm Arm B exercised.
 
+## Tool/feature coverage map (judge-side `expectedWorkflow` per question)
+
+Questions are frozen (verified ship-gate); coverage is enforced through the
+trajectory layer, which checks Arm B's logged calls against each ground-truth
+question's `expectedWorkflow`:
+
+| Feature | Questions |
+|---|---|
+| Filtered code search (repo/path scoping) | Q2, Q5, Q6, Q10 |
+| Search **pagination / refinement** on a huge repo | Q5 |
+| Repo structure (incl. **file sizes**) | Q1, Q6, Q7 |
+| Targeted fetch (**matchString** slices, not whole files) | Q1, Q2, Q4, Q6, Q7, Q8, Q9, Q10 |
+| Branch-pinned fetch (verify on `main`/`unstable`, not the PR) | Q4, Q10 |
+| PR search + deep review (reviewMode:full) | Q3, Q4, Q10 |
+| Issue search → PR → current source workflow | Q10 |
+| npm → source repo + language metadata | Q8 |
+| Docs + source cross-check | Q9 |
+
 Shared method + metrics (three arms, trajectory grading, aggregation, validity
 gates): [`../README.md`](../README.md).

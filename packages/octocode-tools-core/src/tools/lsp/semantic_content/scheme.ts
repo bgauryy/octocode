@@ -250,7 +250,6 @@ export interface LspGetSemanticsData {
   payload: LspSemanticPayload;
   pagination?: ItemPagination;
   summary?: Record<string, unknown>;
-  warnings?: string[];
   // Ready-to-run follow-ups (e.g. next.readSite).
   next?: Record<string, ToolContinuation>;
   hints?: string[];

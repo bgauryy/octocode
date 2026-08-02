@@ -79,7 +79,11 @@ const commitsOverrides = {
   page: relaxedPageNumberField.default(1),
   // `limit` accepted as an alias for `itemsPerPage` (flow consistency with the
   // discovery-search tools); execution prefers it when explicitly provided.
-  limit: clampedInt(1, PR_CONTENT_MAX_ITEMS_PER_PAGE).optional(),
+  limit: clampedInt(1, PR_CONTENT_MAX_ITEMS_PER_PAGE)
+    .optional()
+    .describe(
+      'Commits per page — alias of itemsPerPage (preferred when both are set).'
+    ),
 } as const;
 export const SearchCommitsLocalSchema = describeQuerySchema(
   CoreSearchCommitsQuerySchema,
@@ -95,7 +99,11 @@ const releasesOverrides = {
   page: relaxedPageNumberField.default(1),
   // `limit` accepted as an alias for `itemsPerPage` (flow consistency); execution
   // prefers it when explicitly provided.
-  limit: clampedInt(1, PR_CONTENT_MAX_ITEMS_PER_PAGE).optional(),
+  limit: clampedInt(1, PR_CONTENT_MAX_ITEMS_PER_PAGE)
+    .optional()
+    .describe(
+      'Releases per page — alias of itemsPerPage (preferred when both are set).'
+    ),
 } as const;
 export const ListReleasesLocalSchema = describeQuerySchema(
   CoreListReleasesQuerySchema,

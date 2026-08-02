@@ -78,7 +78,6 @@ export type GitHubCodeSearchOutputLocal =
       nonExistentScope?: true;
       incompleteResults?: true;
     }>;
-    warnings?: string[];
     // GitHub code search returns no absolute line numbers; `next` carries a
     // ready-made ghGetFileContent matchString call per result record so agents
     // can resolve exact file:line anchors in one step instead of cloning.

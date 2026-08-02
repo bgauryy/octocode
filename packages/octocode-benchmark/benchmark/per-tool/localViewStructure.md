@@ -8,6 +8,7 @@ for files containing text. Absolute path.
 ```bash
 CLI="node packages/octocode/out/octocode.js"
 ROOT=$(pwd)
+CORPUS=$ROOT/packages/octocode-benchmark/context/react   # frozen corpus — see BENCHMARK.md "Corpus"
 ```
 
 ## Params (`tools localViewStructure --scheme`)
@@ -23,14 +24,15 @@ ROOT=$(pwd)
 | entryType | enum(f,d) | files only / dirs only; omit for both |
 | recursive | boolean | descend (set maxDepth to bound cost) |
 | extensions | array<string> | ext whitelist (no dots) |
+| excludeDir | array<string> | prune dirs such as `node_modules`, `dist`, `out` |
 | maxDepth | int 0–20 | 1 = immediate children; enables recursion on its own |
 | limit / page / itemsPerPage | int | discovery cap + pagination |
 
 ## Checks
 
-1. **Shallow tree** — `$CLI tools localViewStructure --queries '{"path":"'$ROOT'/packages/octocode-tools-core/src/tools","maxDepth":2,"itemsPerPage":50}' --compact`
+1. **Shallow tree** — `$CLI tools localViewStructure --queries '{"path":"'$CORPUS'/packages/react-dom/src","maxDepth":2,"itemsPerPage":50}' --compact`
    → PASS: two levels of the tools tree.
-2. **Files only at depth 1** — `... '{"path":"'$ROOT'/packages/octocode-engine/src","maxDepth":1,"entryType":"f","itemsPerPage":100}'` → PASS: files only.
+2. **Files only at depth 1** — `... '{"path":"'$CORPUS'/packages/scheduler/src","maxDepth":1,"entryType":"f","itemsPerPage":100}'` → PASS: files only.
 3. **entryType:"d"** → PASS: dirs only.
 4. **extensions whitelist** — `"extensions":["ts"]` → PASS: only `.ts` files (dirs still shown).
 5. **detail:"full"** — `"detail":"full"` → PASS: structured `entries[]` with size/perms/dates.

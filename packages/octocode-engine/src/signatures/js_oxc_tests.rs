@@ -406,3 +406,21 @@ fn never_aborts_on_adversarial_input() {
         let _ = extract_js_symbols(src, "x.ts");
     }
 }
+
+#[test]
+fn deeply_nested_parens_do_not_crash_symbol_extraction() {
+    // oxc's recursive-descent parser (and this module's own recursive AST
+    // walkers) can blow the default native stack on pathologically nested
+    // input — a fault `catch_unwind` cannot intercept, unlike a parser panic.
+    // `run_on_deep_stack` moves the parse+walk to a thread with a much larger
+    // stack; this must survive depth that would SIGSEGV a default-size one.
+    let depth = 5_000;
+    let src = format!(
+        "function f() {{ return {}1{}; }}",
+        "(".repeat(depth),
+        ")".repeat(depth)
+    );
+    let _ = extract_js_symbols(&src, "deep.js");
+    let _ = extract_graph_facts(&src, "deep.js");
+    let _ = find_in_file_references(&src, "deep.js", 0, 9);
+}

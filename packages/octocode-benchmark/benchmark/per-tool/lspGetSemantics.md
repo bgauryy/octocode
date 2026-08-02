@@ -8,6 +8,7 @@ pass that line to a symbol op. **Never guess `lineHint`.**
 ```bash
 CLI="node packages/octocode/out/octocode.js"
 ROOT=$(pwd)
+CORPUS=$ROOT/packages/octocode-benchmark/context/react   # frozen corpus — see BENCHMARK.md "Corpus"
 ```
 
 ## Params (`tools lspGetSemantics --scheme`)
@@ -29,7 +30,7 @@ ROOT=$(pwd)
 
 ## Checks (run `documentSymbols` first)
 
-1. **documentSymbols** — `$CLI tools lspGetSemantics --queries '{"uri":"'$ROOT'/packages/octocode-tools-core/src/tools/toolNames.ts","type":"documentSymbols"}' --compact`
+1. **documentSymbols** — `$CLI tools lspGetSemantics --queries '{"uri":"'$CORPUS'/packages/react-reconciler/src/ReactFiberWorkLoop.js","type":"documentSymbols"}' → PASS: ~99 top-level functions via native-graph-facts at the pinned SHA --compact`
    → PASS: outline with each symbol's line (the anchor source). (`N/A` if server missing.)
 2. **definition** — anchor a symbol from (1) → `"type":"definition","symbolName":"...","lineHint":<L>` → PASS: declaration location.
 3. **references** — `"type":"references"` → PASS: all usages; `groupByFile` gives per-file counts.

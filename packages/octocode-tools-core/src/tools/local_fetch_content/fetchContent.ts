@@ -35,6 +35,23 @@ import {
 // `./fetchContent/pagination.js`'s ContentView) keep resolving unchanged.
 export type { ContentView };
 
+/** Redacts secrets from a piece of text that's about to be returned to the
+ * caller. Deliberately called on the small, already-extracted/minified
+ * output — never on the whole raw file — so its cost scales with what's
+ * shipped, not with file size. */
+function sanitizeReturnedText(
+  text: string,
+  queryPath: string
+): { text: string; warning?: string } {
+  const sanitized = ContentSanitizer.sanitizeContent(text, queryPath);
+  return {
+    text: sanitized.content,
+    warning: sanitized.hasSecrets
+      ? `Secrets detected and redacted: ${sanitized.secretsDetected.join(', ')}`
+      : undefined,
+  };
+}
+
 export async function fetchContent(
   query: FetchContentQuery
 ): Promise<LocalGetFileContentToolResult> {
@@ -89,13 +106,12 @@ export async function fetchContent(
       return readError as LocalGetFileContentToolResult;
     }
 
-    const sanitized = ContentSanitizer.sanitizeContent(rawContent, queryPath);
-    const content = sanitized.content;
-    const sourceChars = content.length;
-    const sourceBytes = Buffer.byteLength(content, 'utf-8');
-    const secretWarning = sanitized.hasSecrets
-      ? `Secrets detected and redacted: ${sanitized.secretsDetected.join(', ')}`
-      : undefined;
+    // sourceChars/sourceBytes always describe the real file, independent of
+    // secret redaction — see withSanitizedContent below for why redaction
+    // itself is deferred to the content that's actually returned.
+    const sourceChars = rawContent.length;
+    const sourceBytes = Buffer.byteLength(rawContent, 'utf-8');
+    const content = rawContent;
 
     // Resolve the effective minify mode here rather than via a schema default.
     // `fullContent` promises the whole file verbatim, so it defaults to 'none'
@@ -131,14 +147,15 @@ export async function fetchContent(
           queryPath
         );
         if (markdownOutline !== null) {
+          const sanitized = sanitizeReturnedText(markdownOutline, queryPath);
           return attachRawResponseChars(
             await buildSymbolsSkeletonResult(
               query,
-              markdownOutline,
+              sanitized.text,
               countLines(content),
               sourceChars,
               sourceBytes,
-              secretWarning,
+              sanitized.warning,
               defaultOutputCharLength
             ),
             sourceChars
@@ -152,15 +169,16 @@ export async function fetchContent(
           sigs,
           queryPath
         );
+        const sanitized = sanitizeReturnedText(sigsProcessed, queryPath);
 
         return attachRawResponseChars(
           await buildSymbolsSkeletonResult(
             query,
-            sigsProcessed,
+            sanitized.text,
             totalLinesOrig,
             sourceChars,
             sourceBytes,
-            secretWarning,
+            sanitized.warning,
             defaultOutputCharLength
           ),
           sourceChars
@@ -175,17 +193,33 @@ export async function fetchContent(
       defaultOutputCharLength
     );
 
-    const withSecretWarning = (
+    // Secrets are redacted from whatever content is actually about to be
+    // returned (a bounded slice, a signature skeleton, ...) — never from the
+    // whole raw file up front. Scanning the whole file regardless of how
+    // small the requested window is would be wasteful, and for a file past
+    // the scanner's own size cap it used to substitute a single wholesale
+    // placeholder for the entire file *before* line-extraction ran, so a
+    // bounded startLine/endLine/matchString/charOffset read of a large file
+    // silently returned that placeholder instead of the real requested slice
+    // (with bogus totalLines/sourceChars to match) — exactly the escape hatch
+    // the "file too large" error above tells the caller to use.
+    const withSanitizedContent = (
       r: LocalGetFileContentToolResult
     ): LocalGetFileContentToolResult => {
+      const text = (r as { content?: unknown }).content;
+      if (typeof text !== 'string') return r;
+      const sanitized = sanitizeReturnedText(text, queryPath);
       const appended = [
         ...(signaturesSkippedWarning ? [signaturesSkippedWarning] : []),
         ...(matchStringMinifyWarning ? [matchStringMinifyWarning] : []),
-        ...(secretWarning ? [secretWarning] : []),
+        ...(sanitized.warning ? [sanitized.warning] : []),
       ];
-      if (appended.length === 0) return r;
       const existing = (r as { warnings?: string[] }).warnings ?? [];
-      return { ...r, warnings: [...existing, ...appended] };
+      return {
+        ...r,
+        content: sanitized.text,
+        ...(appended.length > 0 && { warnings: [...existing, ...appended] }),
+      };
     };
 
     if (extraction.earlyResult) {
@@ -203,7 +237,7 @@ export async function fetchContent(
           : extraction.earlyResult;
       return attachRawResponseChars(
         withSourceSize(
-          withSecretWarning(
+          withSanitizedContent(
             withContentView(minifiedEarlyResult, fallbackContentView)
           ),
           sourceChars,
@@ -223,7 +257,11 @@ export async function fetchContent(
       fallbackContentView
     );
     return attachRawResponseChars(
-      withSourceSize(withSecretWarning(fullResult), sourceChars, sourceBytes),
+      withSourceSize(
+        withSanitizedContent(fullResult),
+        sourceChars,
+        sourceBytes
+      ),
       sourceChars
     );
   } catch (error) {

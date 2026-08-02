@@ -155,7 +155,7 @@ describe('sanitizeCallToolResult', () => {
 
     const textBlock = result.content?.[0];
     expect(textBlock && 'text' in textBlock ? textBlock.text : '').toBe(
-      'structuredContent available · results=2 · empty=1 · hasMore=false. Read structuredContent for full data.'
+      'structuredContent available · results=2 · empty=1 · hasMore=false · [q1 ok a.ts · q2 empty]. Read structuredContent for full data; if your client cannot read structuredContent, set OCTOCODE_MCP_FULL_TEXT=true.'
     );
     expect(mockSanitizeContent).not.toHaveBeenCalled();
     expect(result.structuredContent).toEqual({
@@ -165,6 +165,28 @@ describe('sanitizeCallToolResult', () => {
       ],
       pagination: { hasMore: false },
     });
+  });
+
+  it('bounds the compact-text result preview to 3 entries with a +N more marker', () => {
+    mockSanitizeStructuredContent.mockImplementation((obj: unknown) => obj);
+
+    const result = sanitizeCallToolResult({
+      content: [{ type: 'text', text: 'dup' }],
+      structuredContent: {
+        results: [
+          { id: 'a', data: { path: 'one.ts' } },
+          { id: 'b', status: 'error', data: {} },
+          { id: 'c', data: {} },
+          { id: 'd', data: {} },
+          { id: 'e', data: {} },
+        ],
+      },
+    } as unknown as CallToolResult);
+
+    const textBlock = result.content?.[0];
+    const text = textBlock && 'text' in textBlock ? String(textBlock.text) : '';
+    expect(text).toContain('[a ok one.ts · b error · c ok · +2 more]');
+    expect(text).toContain('errors=1');
   });
 
   it('preserves full text blocks on the CLI surface', () => {

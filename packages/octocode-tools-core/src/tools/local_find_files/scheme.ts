@@ -105,7 +105,6 @@ export interface LocalFindFilesData {
   summary?: string;
   pagination?: LocalItemPagination;
   next?: Record<string, ToolContinuation>;
-  warnings?: string[];
 }
 
 export type LocalFindFilesOutput = BulkToolOutput<LocalFindFilesData>;

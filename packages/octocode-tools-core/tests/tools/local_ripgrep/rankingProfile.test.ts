@@ -165,6 +165,61 @@ describe('rankFiles — sort modes', () => {
   });
 });
 
+describe('rankFiles — sortReverse', () => {
+  // Regression: `sortReverse` used to only take effect for filesystem sorts
+  // (created/modified/accessed), where the native engine had already applied
+  // it before `rankFiles` ever saw the results. `matchCount`, `path`, and
+  // `relevance` each re-sort in TS and silently dropped the flag entirely —
+  // `sortReverse:true` had no observable effect for those three modes.
+  const f1 = file('/repo/src/a.ts', 5, ['x']);
+  const f2 = file('/repo/src/b.ts', 9, ['y']);
+  const f3 = file('/repo/src/c.ts', 1, ['z']);
+
+  it('reverses the path escape hatch', () => {
+    const r = rankFiles([f3, f1, f2], 'path', ctx(), { sortReverse: true });
+    expect(r.files.map(f => f.path)).toEqual([
+      '/repo/src/c.ts',
+      '/repo/src/b.ts',
+      '/repo/src/a.ts',
+    ]);
+  });
+
+  it('reverses the matchCount escape hatch', () => {
+    const r = rankFiles([f1, f2, f3], 'matchCount', ctx(), {
+      sortReverse: true,
+    });
+    expect(r.files.map(f => f.path)).toEqual([
+      '/repo/src/c.ts',
+      '/repo/src/a.ts',
+      '/repo/src/b.ts',
+    ]);
+  });
+
+  it('reverses relevance-ranked order', () => {
+    const forward = rankFiles([f1, f2, f3], 'relevance', ctx());
+    const reversed = rankFiles([f1, f2, f3], 'relevance', ctx(), {
+      sortReverse: true,
+    });
+    expect(reversed.files.map(f => f.path)).toEqual(
+      [...forward.files.map(f => f.path)].reverse()
+    );
+  });
+
+  it('does not double-reverse a filesystem sort the engine already reversed', () => {
+    // The engine, not rankFiles, is responsible for filesystem-sort reverse —
+    // rankFiles must pass its (already-reversed) order through unchanged.
+    const alreadyReversedByEngine = [f1, f3, f2];
+    const r = rankFiles(alreadyReversedByEngine, 'modified', ctx(), {
+      sortReverse: true,
+    });
+    expect(r.files.map(f => f.path)).toEqual([
+      '/repo/src/a.ts',
+      '/repo/src/c.ts',
+      '/repo/src/b.ts',
+    ]);
+  });
+});
+
 describe('rankFiles — determinism', () => {
   it('is stable across repeated runs (same input, same output)', () => {
     const files = [

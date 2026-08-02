@@ -15,7 +15,15 @@ pub const SIGNATURES_ONLY_HINT: &str = crate::signatures::SIGNATURES_ONLY_HINT;
 /// and any skeleton that would not be smaller than the source.
 #[napi(js_name = "extractSignatures")]
 pub fn extract_signatures(content: String, file_path: String) -> Option<String> {
-    crate::signatures::extract_signatures_inner(&content, &file_path)
+    // See `signatures::run_on_deep_stack`: the tree-sitter parse + skeleton
+    // render below is regular Rust recursion once inside this crate's own
+    // walkers, and napi's calling thread has less native stack headroom than
+    // a test thread — pathologically nested input (deep `(`/`[`/`{`) can
+    // crash the whole process here even though the same content is fine in a
+    // `cargo test` run.
+    crate::signatures::run_on_deep_stack(move || {
+        crate::signatures::extract_signatures_inner(&content, &file_path)
+    })
 }
 
 /// Native JS/TS document symbols (server-free) as a JSON `DocumentSymbol[]`.

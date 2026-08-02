@@ -97,6 +97,12 @@ export function referencesEnvelope(
       ...(byFile ? { byFile: pageItems } : { locations: pageItems }),
       totalReferences: refs.length,
       totalFiles: new Set(refs.map(ref => ref.uri)).size,
+      // Def-only is NOT proof of absence: the index scope may be narrow, the
+      // warmup may have missed consumers, or the symbol may be public API
+      // (re-exported). Typed signal — responses carry no warnings channel.
+      ...(refs.length > 0 && refs.every(ref => ref.isDefinition)
+        ? { definitionOnly: true }
+        : {}),
       ...(warmupStats ? { warmup: warmupStats } : {}),
       ...(empty ? { empty } : {}),
     },

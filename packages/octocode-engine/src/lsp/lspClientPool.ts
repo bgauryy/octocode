@@ -1,3 +1,5 @@
+import { resolve } from 'node:path';
+
 export interface PoolKey {
   workspaceRoot: string;
   filePath: string;
@@ -123,7 +125,11 @@ export class LspClientPool<T extends PooledClient> {
 }
 
 export function serializeKey(key: PoolKey): string {
-  return `${key.serverId ?? key.languageId}\u0000${key.workspaceRoot}`;
+  // Canonicalize the root: `/pkg` and `/pkg/` (or an unresolved relative path)
+  // must map to the SAME pooled client, or equivalent roots silently spawn
+  // parallel language servers with split index state.
+  const root = resolve(key.workspaceRoot).replace(/(?<=.)[\/\\]+$/, '');
+  return `${key.serverId ?? key.languageId}\u0000${root}`;
 }
 
 async function isEntryAlive(client: PooledClient): Promise<boolean> {

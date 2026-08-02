@@ -16,15 +16,17 @@ CLI="node packages/octocode/out/octocode.js"
 | owner / repo | string | repo scope |
 | keywordsToSearch | array<string> | across title/body/comments |
 | state | enum(open,closed,merged) | `merged` = is:merged |
-| author / reviewed-by / review-requested / label / base / head / created / merged-at | filters | PR search qualifiers |
-| checks / review / draft | filters | CI status / review state / draft |
+| author / assignee / commenter / mentions / reviewed-by / review-requested / label / base / head / created / updated / merged-at | filters | PR search qualifiers |
+| comments / reactions / checks / review / draft / archived | filters | activity, CI status, review state, draft, archive |
+| match | array<enum(title,body,comments)> | text fields searched |
 | sort / order | enums | `asc`+`created` = archaeology |
 | concise | boolean | flat `#number title` triage |
 | prNumber | int | detail mode; needs owner+repo |
 | reviewMode | "full" | body+files+patches+comments+reviews+commits |
 | content.{body,changedFiles,patches,comments,reviews,commits} | object | pick only what you need |
 | content.patches.mode | enum(none,selected,all) | `selected`+files = cheapest diff read |
-| filePage / commentPage / commitPage / charOffset / commentBodyOffset | paging | per-surface continuation |
+| matchString | string | anchor/filter body, comment, patch, or file content slices where supported |
+| page / filePage / commentPage / commitPage / itemsPerPage / charOffset / charLength / commentBodyOffset | paging | per-surface continuation |
 | minify | enum(none,standard) | patches; `none` = exact diff |
 
 ## Checks

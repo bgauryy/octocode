@@ -46,13 +46,13 @@ export async function getDocumentSymbols(
 
   const workspaceRoot =
     query.workspaceRoot ??
-    (await resolveWorkspaceRootForFile(anchor.value.uri));
+    (await resolveWorkspaceRootForFile(anchor.value.absolutePath));
   const serverAvailable = await isLanguageServerAvailable(
-    anchor.value.uri,
+    anchor.value.absolutePath,
     workspaceRoot
   );
   const client = serverAvailable
-    ? await acquirePooledClient(workspaceRoot, anchor.value.uri)
+    ? await acquirePooledClient(workspaceRoot, anchor.value.absolutePath)
     : null;
   const lspProvides = Boolean(client?.hasCapability('documentSymbolProvider'));
 
@@ -84,7 +84,7 @@ export async function getDocumentSymbols(
     source = 'native-graph-facts';
   } else if (lspProvides && client) {
     const raw = await client.documentSymbols(
-      anchor.value.uri,
+      anchor.value.absolutePath,
       anchor.value.content
     );
     symbols = Array.isArray(raw) ? raw : [];

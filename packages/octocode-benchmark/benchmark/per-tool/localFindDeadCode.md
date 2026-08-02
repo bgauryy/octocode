@@ -1,6 +1,6 @@
 # localFindDeadCode
 
-Purpose: find likely-unreferenced exports and dead-code clusters with repo-wide reachability. Results are candidates, not deletion proof.
+Purpose: find likely-unreferenced exports and dead-code clusters with repo-wide reachability. Results are candidates, not deletion proof. Always pass ABSOLUTE paths — relative paths resolve against the process cwd. (Nonexistent structural roots error loudly as of 2026-08-02.)
 
 ## Schema
 
@@ -10,12 +10,18 @@ $CLI tools localFindDeadCode --scheme --json --compact
 
 Must show: `path`, optional `entrypoints`, `includeTests`, `excludeDir`, `maxFiles`, `limit`, `page`, `itemsPerPage`.
 
+```bash
+CLI="node packages/octocode/out/octocode.js"
+ROOT=$(pwd)   # run from repo root
+CORPUS=$ROOT/packages/octocode-benchmark/context/react   # frozen corpus — see BENCHMARK.md "Corpus"
+```
+
 ## Checks
 
 1. Happy path — bounded package scan:
 
 ```bash
-$CLI tools localFindDeadCode --queries '{"path":"packages/octocode-tools-core/src","maxFiles":2000,"limit":5,"itemsPerPage":5}' --compact
+$CLI tools localFindDeadCode --queries '{"path":"'$CORPUS'/packages/scheduler","maxFiles":2000,"limit":5,"itemsPerPage":5}' --compact
 ```
 
 → exits 0; returns candidate rows or an honest empty result with stats/warnings.
@@ -23,7 +29,7 @@ $CLI tools localFindDeadCode --queries '{"path":"packages/octocode-tools-core/sr
 2. Entrypoint override:
 
 ```bash
-$CLI tools localFindDeadCode --queries '{"path":"packages/octocode/src","entrypoints":["packages/octocode/src/index.ts"],"includeTests":false,"maxFiles":2000,"limit":5}' --compact
+$CLI tools localFindDeadCode --queries '{"path":"'$CORPUS'/packages/scheduler","entrypoints":["'$CORPUS'/packages/scheduler/index.js"],"includeTests":false,"maxFiles":2000,"limit":5}' --compact
 ```
 
 → respects explicit roots; does not treat tests as roots when `includeTests:false`.
@@ -31,7 +37,7 @@ $CLI tools localFindDeadCode --queries '{"path":"packages/octocode/src","entrypo
 3. Pagination:
 
 ```bash
-$CLI tools localFindDeadCode --queries '{"path":"packages/octocode-tools-core/src","maxFiles":2000,"limit":20,"itemsPerPage":3,"page":2}' --compact
+$CLI tools localFindDeadCode --queries '{"path":"'$CORPUS'/packages/scheduler","maxFiles":2000,"limit":20,"itemsPerPage":3,"page":2}' --compact
 ```
 
 → page 2 preserves filters and includes continuation/completeness state.
@@ -47,7 +53,7 @@ $CLI tools localFindDeadCode --queries '{"path":"/definitely/missing","limit":5}
 5. Low-confidence entrypoint signal — point the tool at an internal subpackage with no `main`/`exports`/`bin` of its own (only consumed via cross-package relative imports), e.g.:
 
 ```bash
-$CLI tools localFindDeadCode --queries '{"path":"packages/octocode-tools-core/src/utils","maxFiles":2000,"limit":20}' --compact
+$CLI tools localFindDeadCode --queries '{"path":"'$CORPUS'/packages/react-reconciler/src","maxFiles":2000,"limit":20}' --compact
 ```
 
 → when `entrypointsResolved` comes only from the test-file heuristic (no manifest-derived entrypoint matched), the result includes `confidence:"low"` — not just a `warnings` string a caller can skim past (secondary finding from the 2026-07-28 React benchmark, Q8: 57 uninvestigated candidates from a subpackage scan with no real entrypoint).
@@ -55,7 +61,7 @@ $CLI tools localFindDeadCode --queries '{"path":"packages/octocode-tools-core/sr
 6. Entrypoint path forms — pass `entrypoints` as an ABSOLUTE path under the scanned root (the form every other local tool requires):
 
 ```bash
-$CLI tools localFindDeadCode --queries '{"path":"packages/octocode/src","entrypoints":["'$PWD'/packages/octocode/src/index.ts"],"includeTests":false,"limit":5}' --compact
+$CLI tools localFindDeadCode --queries '{"path":"'$CORPUS'/packages/scheduler","entrypoints":["'$CORPUS'/packages/scheduler/index.js"],"includeTests":false,"limit":5}' --compact
 ```
 
 → resolves the same as the scan-relative form (`entrypointsResolved` contains it, no "not found" warning). An unresolvable entrypoint's warning names the accepted forms. Regression guard: absolute paths used to be silently dropped, degrading the scan to a no-entrypoint candidate flood.

@@ -7,6 +7,7 @@ excluded by default — pass `excludeDir` to prune build/vendor dirs. Absolute p
 ```bash
 CLI="node packages/octocode/out/octocode.js"
 ROOT=$(pwd)
+CORPUS=$ROOT/packages/octocode-benchmark/context/react   # frozen corpus — see BENCHMARK.md "Corpus"
 ```
 
 ## Params (`tools localFindFiles --scheme`)
@@ -16,6 +17,7 @@ ROOT=$(pwd)
 | path | string **req** | absolute |
 | names | array<string> | basename globs; matches ANY |
 | pathPattern | string | glob over full path (monorepo slicing) |
+| extensions | array<string> | extension whitelist without dots |
 | regex | string | Rust regex over basename only |
 | minDepth / maxDepth | int 0–100 | depth window (equal = exact band) |
 | entryType | enum(f,d) | files or dirs; omit = both |
@@ -31,7 +33,7 @@ ROOT=$(pwd)
 
 ## Checks
 
-1. **Basename globs** — `$CLI tools localFindFiles --queries '{"path":"'$ROOT'/packages/octocode-tools-core","names":["scheme.ts","package.json"],"entryType":"f","itemsPerPage":20}' --compact`
+1. **Basename globs** — `$CLI tools localFindFiles --queries '{"path":"'$CORPUS'/packages/scheduler","names":["package.json","*.js"],"entryType":"f","itemsPerPage":20}' --compact`
    → PASS: only matching files.
 2. **Monorepo path glob** — `... '{"path":"'$ROOT'","pathPattern":"packages/*/src/tools/**","entryType":"f","itemsPerPage":20}'` → PASS: tool sources across packages.
 3. **Prune build dirs** — `... "excludeDir":["node_modules","dist","coverage","out"]` → PASS: no vendor/build noise.

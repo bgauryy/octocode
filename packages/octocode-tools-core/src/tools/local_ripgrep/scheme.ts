@@ -92,13 +92,18 @@ const queryOverrides = {
     .describe(
       'Structural only: YAML ast-grep rule for not/inside/has/all/any. Use for partial or relational AST queries before escalating matched anchors to lspGetSemantics.'
     ),
+  captureText: z
+    .boolean()
+    .optional()
+    .describe(
+      'Structural only: return full verbatim capture text for `$$$` list metavars (bodies, arg lists). Default false — list-capture text is omitted from `metavars`, and `metavarRanges` entries are comment-pruned and truncated to keep results lean; ranges always remain as line anchors.'
+    ),
   contextLines: contextLinesField,
+  // Description flows from @octocodeai/octocode-core prose (provenance:
+  // resources-only) — only the bounds/default are tightened here.
   matchContentLength: clampedInt(1, MAX_MATCH_CONTENT_LENGTH)
     .optional()
-    .default(500)
-    .describe(
-      'Max characters of matched-line content kept per hit (default 500; longer lines are truncated).'
-    ),
+    .default(500),
   maxMatchesPerFile: clampedInt(1, MAX_MATCH_CONTENT_LENGTH).optional(),
   maxFiles: clampedInt(1, MAX_MATCH_CONTENT_LENGTH).optional(),
   matchPage: relaxedPageNumberField.optional(),
@@ -208,10 +213,16 @@ export const LocalRipgrepQuerySchema = LocalRipgrepBaseQuerySchema.superRefine(
           path: ['multiline'],
         });
       }
-      if (query.output && query.output !== 'content') {
+      if (
+        query.output &&
+        query.output !== 'content' &&
+        query.output !== 'countMatches' &&
+        query.output !== 'files'
+      ) {
         ctx.addIssue({
           code: 'custom',
-          message: '`output` is not valid with mode:"structural".',
+          message:
+            'With mode:"structural", `output` supports only "content" (default), "countMatches" (per-file counts, no match content — cheapest for counting), or "files" (paths only).',
           path: ['output'],
         });
       }
@@ -222,6 +233,26 @@ export const LocalRipgrepQuerySchema = LocalRipgrepBaseQuerySchema.superRefine(
           path: ['unique'],
         });
       }
+      // A two-dollar metavar is not metavar syntax ($X = one node, $$$X =
+      // list): the matcher treats `$$NAME` as a literal identifier, so the
+      // pattern silently matches nothing. Reject with the fix instead. PHP
+      // ($$var variable-variables) and shell ($$ = PID) are exempt — there
+      // `$$` can be genuine source syntax.
+      const twoDollarMeta =
+        query.pattern && !['php', 'bash', 'sh', 'zsh'].includes(query.langType ?? '')
+          ? /(?<!\$)\$\$(?!\$)[A-Z_][A-Z0-9_]*/.exec(query.pattern)
+          : null;
+      if (twoDollarMeta) {
+        const name = twoDollarMeta[0].slice(2);
+        ctx.addIssue({
+          code: 'custom',
+          message: `\`${twoDollarMeta[0]}\` is not a metavariable and matches nothing — use \`$${name}\` for one node or \`$$$${name}\` for a list of nodes.`,
+          path: ['pattern'],
+        });
+      }
+      // `langType` IS valid with mode:"structural": structuralSearch derives
+      // include globs from it (deriveInclude → toStructuralSearchIncludeGlobs)
+      // so `langType:'ts'` scopes AST search without hand-written globs.
       return;
     }
     if (query.pattern || query.rule) {
@@ -330,7 +361,6 @@ export interface LocalSearchCodeData {
   };
   pagination?: LocalItemPagination;
   next?: Record<string, ToolContinuation>;
-  warnings?: string[];
 }
 
 export type LocalSearchCodeOutput = BulkToolOutput<LocalSearchCodeData>;

@@ -18,7 +18,7 @@ Every check is a CLI command. The CLI is the built entry:
 
 ```bash
 CLI="node packages/octocode/out/octocode.js"
-$CLI tools <name> --scheme --compact       # authoritative schema (params)
+$CLI tools <name> --scheme --brief         # cheapest schema read (params + one example); drop --brief for the full contract
 $CLI tools <name> --queries '<json>' --compact   # run the tool
 ```
 

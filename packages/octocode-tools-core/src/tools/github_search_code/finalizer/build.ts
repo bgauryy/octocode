@@ -206,8 +206,11 @@ export function buildGhSearchCodeFinalizer<
         );
       }
     }
-    if (warnings.length > 0)
-      responseData.warnings = [...(responseData.warnings ?? []), ...warnings];
+    // Responses carry no warnings channel (stripped at the envelope); the
+    // collected messages above remain only to document the conditions — the
+    // typed flags (incompleteResults, nonExistentScope, emptyQueries,
+    // repoState-derived next continuations) are the agent-facing signals.
+    void warnings;
 
     return formatFinalizedResponse<GitHubCodeSearchOutputLocal>(
       responseData,
@@ -233,7 +236,6 @@ export function buildGhSearchCodeFinalizer<
         'emptyQueries',
         'nonExistentScope',
         'incompleteResults',
-        'warnings',
         'errors',
       ],
       groups.length === 0 && errors.length > 0

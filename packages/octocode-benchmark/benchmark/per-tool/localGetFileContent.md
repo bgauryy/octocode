@@ -7,6 +7,7 @@ are LSP line anchors. `isPartial:true` → continue with `charOffset` from
 ```bash
 CLI="node packages/octocode/out/octocode.js"
 ROOT=$(pwd)
+CORPUS=$ROOT/packages/octocode-benchmark/context/react   # frozen corpus — see BENCHMARK.md "Corpus"
 ```
 
 ## Params (`tools localGetFileContent --scheme`)
@@ -24,9 +25,9 @@ ROOT=$(pwd)
 
 ## Checks
 
-1. **Line range** — `$CLI tools localGetFileContent --queries '{"path":"'$ROOT'/packages/octocode-tools-core/package.json","startLine":1,"endLine":30,"minify":"none"}' --compact`
+1. **Line range** — `$CLI tools localGetFileContent --queries '{"path":"'$CORPUS'/packages/react/package.json","startLine":1,"endLine":30,"minify":"none"}' --compact`
    → PASS: exactly lines 1–30 verbatim.
-2. **Matched slice + context** — `... '{"path":"'$ROOT'/packages/octocode-tools-core/src/tools/directToolCatalog/toolCommandPatternQueries.ts","matchString":"buildKnownDirectToolCommandPatternQueries","contextLines":8,"minify":"standard"}'`
+2. **Matched slice + context** — `... '{"path":"'$CORPUS'/packages/react-reconciler/src/ReactFiberWorkLoop.js","matchString":"scheduleUpdateOnFiber","contextLines":8,"minify":"standard"}'`
    → PASS: merged slices + `matchRanges[]`.
 3. **Regex anchor** — `"matchStringIsRegex":true` with a signature pattern → PASS: flexible hit.
 4. **minify standard vs none** — same file both ways → PASS: standard is smaller yet faithful; none is byte-exact.

@@ -54,6 +54,15 @@ export interface DeadExportOutput {
   line: number;
   reason: DeadCodeReason;
   clusterId?: number;
+  /**
+   * Only on `reason:"unreferenced-export"` — which negative-evidence path
+   * concluded "dead", so agents know which candidates to LSP-verify first:
+   * - `"reexport-chain"`: the binding IS re-exported somewhere, but every
+   *   chain terminated without a real consumer — the most fragile verdict.
+   * - `"lexical-count"`: no import and no unexplained same-file occurrence
+   *   beyond the declaration itself.
+   */
+  viaHeuristic?: 'lexical-count' | 'reexport-chain';
 }
 
 export interface DeadClusterOutput {
@@ -68,7 +77,6 @@ export interface DeadClusterOutput {
 // not something this tool builds itself.
 export interface FindDeadCodeOutput {
   status?: 'empty' | 'error';
-  warnings?: string[];
   error?: string;
   errorCode?: string;
   rawResponseChars?: number;

@@ -1,76 +1,172 @@
 {
   "note": "JUDGE-ONLY. Solvers must never read this.",
-  "verificationCaveat": "DRAFT oracles. Answers describe the architecturally-expected result but counts, line numbers, and PR states are TIME-SENSITIVE and NOT YET independently verified. Before a scored run: verify each answer via a method outside both arms (WebFetch raw.githubusercontent.com / api.github.com), freeze it, and record the date. Q6 (absence) and each question's capability shape are stable regardless of drift.",
+  "verificationCaveat": "Oracles VERIFIED 2026-08-02 by judge-side methods outside both arms (curl to api.github.com / raw.githubusercontent.com / registry.npmjs.org; git sparse clone + ast-grep for the q1 AST count). Counts, line numbers, and PR states remain TIME-SENSITIVE: re-verify before each scored run and record the date. Q6 (absence) and each question's capability shape are stable regardless of drift.",
+  "verification": {
+    "date": "2026-08-02",
+    "run": "output/compare-run-20260802",
+    "independentChecks": [
+      {
+        "question": "q1",
+        "method": "git sparse clone vuejs/core @ b5f8518379 + ast-grep ref($$$ARGS)",
+        "result": "AST call count = 1, packages/reactivity/src/ref.ts:512 (`return ref(source)` inside toRef); every other textual ref( occurrence in the dir is JSDoc/declaration. Recompute at the run's SHA."
+      },
+      {
+        "question": "q3",
+        "method": "curl api.github.com pulls",
+        "result": "Latest lib/-touching merged PR was #7377 (+46/-2, 3 files, lib/request.js only source file). Resolve fresh each run."
+      },
+      {
+        "question": "q5",
+        "method": "curl raw.githubusercontent.com",
+        "result": "def route lives at src/flask/sansio/scaffold.py:336 on main -- NOT app.py (pre-2.0 layout). Answer text corrected accordingly."
+      },
+      {
+        "question": "q2/q9/q10",
+        "method": "curl raw file + grep",
+        "result": "checker.ts 3,151,774 chars, delegate isTypeRelatedTo(source,target,assignableRelation); networking.c 243,964 B; child_process.js normalizeSpawnArguments:584 spawn:805 execFileSync:967 (line numbers drift -- re-grep each run)."
+      },
+      {
+        "question": "q4/q6/q7",
+        "method": "curl raw + registry.npmjs.org",
+        "result": "route-regex.ts path + getNamedRouteRegex/getNamedMiddlewareRegex confirmed; isQuantumSuperposition 0 hits; axios JS-dominant (971,401 B vs TS 101,082), npm main ./dist/node/axios.cjs."
+      }
+    ],
+    "contaminationBaseline": "No-tools control arm (2026-08-02) solved q4, q7, q8, q10 (and q2a) from memory -- treat as contaminated for the correctness primary unless the control re-run fails them; q1, q3, q5, q6b, q9b remain discriminating."
+  },
   "questions": {
     "q1": {
-      "verificationStatus": "draft-verify-before-scoring",
+      "verificationStatus": "verified-2026-08-02-time-sensitive",
       "answer": "The correct set is only the call expressions ref(...) that create a reactive ref in vuejs/core packages/reactivity/src. The oracle = the structural (AST) call-expression count + file list on the frozen SHA (compute at run time by materializing the subtree and running a structural pattern ref($$$)). A plain text search over-counts by including non-call occurrences: e.g. import lines (`import { ref } from ...`), the substring inside longer identifiers like shallowRef/refIndex/isRef, type annotations, and comment/JSDoc mentions.",
-      "scoring": "1.0 = enumerates call sites via structural/AST (not raw text) AND names a concrete non-call false positive (import / substring-in-identifier / type / comment); 0.5 = right files but count includes text-only noise, or (b) vague; 0 = only a raw text count with no AST distinction.",
-      "keyTerms": ["structural", "call expression", "ref(", "import", "shallowRef", "false positive"],
-      "capabilityPoint": "Octocode has AST structural search; gh CLI has text search only -- this is the core gap. Grader must confirm Arm B used a structural/AST query, not a text count."
+      "scoring": "1.0 = enumerates call sites via structural/AST (not raw text) AND names a concrete non-call false positive AND (c) states the method distinction plus a plausible raw-text hit count showing the over-count; 0.5 = right files but count includes text-only noise, or (b)/(c) vague; 0 = only a raw text count with no AST distinction.",
+      "keyTerms": [
+        "structural",
+        "call expression",
+        "ref(",
+        "import",
+        "shallowRef",
+        "false positive"
+      ],
+      "capabilityPoint": "Octocode has AST structural search; gh CLI has text search only -- this is the core gap. Grader must confirm Arm B used a structural/AST query, not a text count.",
+      "expectedWorkflow": "ghCloneRepo(or remote structural) -> localSearchCode mode:structural `ref($$$)` -> contrast with text-mode count. Feature: AST vs text."
     },
     "q2": {
-      "verificationStatus": "draft-verify-before-scoring",
+      "verificationStatus": "verified-2026-08-02-time-sensitive",
       "answer": "isTypeAssignableTo(source, target) checks assignability and delegates to the internal relation checker isTypeRelatedTo(source, target, assignableRelation) (the shared engine also used by isTypeComparableTo / isTypeSubtypeOf). Octocode reads just the function via localGetFileContent matchString:'function isTypeAssignableTo' (or ghGetFileContent matchString) transferring a few hundred chars; gh api returns the whole multi-MB file unless the agent hand-computes a line range.",
       "scoring": "1.0 = names isTypeRelatedTo + assignableRelation AND reports a small transfer achieved by a matched slice; 0.5 = correct delegation but pulled the whole file; 0 = wrong delegate or could not isolate the function.",
-      "keyTerms": ["isTypeRelatedTo", "assignableRelation", "matchString", "slice"],
-      "capabilityPoint": "matchString slice + minify vs raw whole-file dump -- token cost differentiator."
+      "keyTerms": [
+        "isTypeRelatedTo",
+        "assignableRelation",
+        "matchString",
+        "slice"
+      ],
+      "capabilityPoint": "matchString slice + minify vs raw whole-file dump -- token cost differentiator.",
+      "expectedWorkflow": "ghGetFileContent matchString:'isTypeAssignableTo' contextLines (targeted slice) -- NOT fullContent. Feature: matchString-anchored partial fetch on a multi-MB file."
     },
     "q3": {
-      "verificationStatus": "draft-verify-before-scoring",
-      "answer": "Resolve the actual merged PR at run time (PR #5555 may not match; fall back to the latest merged PR touching lib/). Oracle = its real files-changed count, net additions/deletions, source-vs-test split, and the largest-diff source file, fetched via api.github.com. Octocode: ghSearchPullRequests prNumber:<n> reviewMode:full. gh: gh pr view <n> --json files,additions,deletions.",
-      "scoring": "1.0 = correct file count + net delta + source/test split + largest source file + one-line summary; 0.5 = 3-4 of 5 right; 0 = wrong PR or fabricated stats.",
-      "keyTerms": ["files changed", "net delta", "lib/"],
-      "capabilityPoint": "Both can do this; measure token cost of the diff read (Octocode selected-patch vs gh full JSON)."
+      "verificationStatus": "verified-2026-08-02-time-sensitive",
+      "answer": "Resolve the actual merged PR at run time (PR #5555 may not match; fall back to the latest merged PR touching lib/). Oracle = its real files-changed count, net additions/deletions, source-vs-test split, the largest-diff source file, AND the motivating behavior/bug grounded in the diff hunks or linked issue (judge re-reads the diff + linked issue), fetched via api.github.com. Octocode: ghSearchPullRequests prNumber:<n> reviewMode:full. gh: gh pr view <n> --json files,additions,deletions + gh pr diff.",
+      "scoring": "1.0 = correct file count + net delta + source/test split + largest source file + motivation grounded in a cited diff hunk or linked issue; 0.5 = stats right but motivation is a title paraphrase, or 3-4 of 5 right; 0 = wrong PR, fabricated stats, or fabricated issue link.",
+      "keyTerms": [
+        "files changed",
+        "net delta",
+        "lib/"
+      ],
+      "capabilityPoint": "Both can do this; measure token cost of the diff read (Octocode selected-patch vs gh full JSON).",
+      "expectedWorkflow": "ghSearchPullRequests filters (repo, merged, path lib/) -> prNumber reviewMode:full for files/stats/diff hunks. Feature: PR search + selective diff read."
     },
     "q4": {
-      "verificationStatus": "draft-verify-before-scoring",
-      "answer": "getRouteRegex is exported from packages/next/src/shared/lib/router/utils/route-regex.ts. Another exported function in the same file: getNamedRouteRegex (also getRouteMatcher / getParametrizedRoute live in this utils area). Octocode: ghSearchCode match:path filename:route-regex.ts, then confirm exports -- 1-2 round trips.",
-      "scoring": "1.0 = correct full path + a real second export from the same file; 0.5 = correct file, wrong/absent second export; 0 = wrong path.",
-      "keyTerms": ["route-regex.ts", "getRouteRegex", "getNamedRouteRegex"],
-      "capabilityPoint": "ghSearchCode match:path is a cheap existence check; gh search code returns snippet-heavy JSON."
+      "verificationStatus": "verified-2026-08-02-time-sensitive",
+      "answer": "(a) NO -- express 5 removed lib/router; the layer-matching loop lives in the npm package `router` (expressjs/express package.json dependencies: \"router\": \"^2.2.0\"), source repo pillarjs/router (verified 2026-08-02: express lib/ contains only application/express/request/response/utils/view). (b) In pillarjs/router index.js: `function next(err)` at ~line 188 advances layers via `match = matchLayer(layer, path)` at ~line 237; `matchLayer(layer, path)` is defined at ~line 517 and delegates to layer.match (lib/layer.js matcher). Lines drift -- judge on names+files, lines +/-25. (c) A text search for matchLayer inside expressjs/express finds nothing current, because the implementation moved out of the repo -- the dependency graph, not the repo, holds the answer.",
+      "scoring": "1.0 = states NOT in express repo + names router pkg -> pillarjs/router with the package.json citation + next()/matchLayer names+files + coherent (c); 0.5 = finds pillarjs/router but misses function anchors, or anchors right with weak dependency proof; 0 = claims the loop is in expressjs/express lib/ (express-4 memory answer), or fabricates files.",
+      "keyTerms": [
+        "pillarjs/router",
+        "router",
+        "matchLayer",
+        "next"
+      ],
+      "criticalKeyTerm": "pillarjs/router",
+      "criticalKeyTermNote": "Verify-don't-assume cross-repo hop: express is famous for its in-repo router, but on current main it is gone. An answer describing express 4's lib/router is a contamination/memory failure regardless of confidence.",
+      "capabilityPoint": "Cross-repo dependency hop: ghViewRepoStructure + ghGetFileContent(package.json) + npmSearch(router) resolve the chain; gh code search inside expressjs/express dead-ends.",
+      "expectedWorkflow": "ghViewRepoStructure(lib/) -> ghGetFileContent(package.json, matchString:'router') -> npmSearch(router) -> ghSearchCode/ghGetFileContent in pillarjs/router. Feature: cross-repo workflow chaining structure+fetch+npm."
     },
     "q5": {
-      "verificationStatus": "draft-verify-before-scoring",
-      "answer": "In pallets/flask, the route decorator is Flask.route (delegates to add_url_rule) defined in src/flask/app.py (historically flask/app.py before the src/ layout). Part (b): identify a real commit/PR that changed route/add_url_rule via ghSearchCommits path:src/flask/app.py or ghSearchPullRequests -- oracle is any correctly-cited sha/PR with an accurate one-line summary.",
-      "scoring": "1.0 = correct file (app.py) + Flask.route/add_url_rule AND a real cited commit/PR with accurate summary; 0.5 = correct file only; 0 = wrong file or fabricated citation.",
-      "keyTerms": ["app.py", "add_url_rule", "route"],
-      "capabilityPoint": "History research: ghSearchCommits vs gh api commits with path filtering."
+      "verificationStatus": "verified-2026-08-02-time-sensitive",
+      "answer": "In pallets/flask (current main), the route decorator is defined on the Scaffold base class at src/flask/sansio/scaffold.py:336 (@setupmethod def route(...), delegating to add_url_rule); the Flask application class inherits it via the sansio App/Scaffold hierarchy. It lived in src/flask/scaffold.py until the 2023 sansio move, and directly on Flask in flask/app.py before 2.0 -- app.py alone is the outdated answer. Part (b): any real commit/PR that materially changed route/add_url_rule, correctly cited with an accurate one-line summary (verified examples: 705e5268 'Add syntatic sugar for route registration'; PR #4676 'Improve decorator typing'). Judge must re-fetch the cited sha/PR. Part (c): the commit that moved route to its current sansio location -- the 2023 'move app-level code to sansio' refactor (verify sha+date at run time via paginated path-filtered history of src/flask/sansio/scaffold.py / its predecessor scaffold.py); it is NOT on the first page of recent history.",
+      "scoring": "1.0 = (a) sansio/scaffold.py with hierarchy traced AND (b) real diff-verified citation AND (c) a real move commit sha+date reached via history pagination; 0.5 = (a)+(b) right, (c) missing/wrong, or app.py-only answer with otherwise-correct citations; 0 = wrong file or fabricated citation.",
+      "keyTerms": [
+        "sansio/scaffold.py",
+        "add_url_rule",
+        "route"
+      ],
+      "capabilityPoint": "History research: ghSearchCommits vs gh api commits with path filtering.",
+      "expectedWorkflow": "ghSearchCode(match:file 'def route') -> ghSearchCommits path-filtered, PAGINATED past page 1 to reach the sansio move commit -> verify diff. Feature: commit-history pagination."
     },
     "q6": {
       "verificationStatus": "stable-absence-trap",
-      "answer": "NO. sindresorhus/is does not define or export isQuantumSuperposition (it is a fabricated name). Correct confirmation: browse the repo's source (source/index.ts) / documented export list via structure + content, not just an empty text search -- an empty ghSearchCode is explicitly NOT proof of absence; verify the path exists then read the actual exports.",
-      "scoring": "1.0 = NO + confirms absence by reading the real export surface (not just an empty search); 0.5 = NO but justification is only an empty search result; 0 = claims YES or invents a definition.",
-      "keyTerms": ["NO", "not defined", "index.ts", "exports"],
-      "capabilityPoint": "Honest absence: Octocode's empty-state explicitly warns 'not absence'; a raw empty gh result invites a false negative."
+      "answer": "(a) sindresorhus/is -- the type-checking utility package `is`; solver must cite the star count observed via repository search at run time (order-of-magnitude check by judge). (b) NO. It does not define or export isQuantumSuperposition (fabricated name). Correct confirmation: browse source/index.ts / the documented export surface via structure + content -- an empty code search is explicitly NOT proof of absence.",
+      "scoring": "1.0 = repo found via search with observed star count + NO + absence confirmed by reading the real export surface; 0.5 = repo right but stars unobserved/memory, or NO justified only by an empty search; 0 = claims YES, invents a definition, or wrong repo.",
+      "keyTerms": [
+        "NO",
+        "not defined",
+        "index.ts",
+        "exports"
+      ],
+      "capabilityPoint": "Honest absence: Octocode's empty-state explicitly warns 'not absence'; a raw empty gh result invites a false negative.",
+      "expectedWorkflow": "ghSearchRepos(owner:sindresorhus, topic/name 'is', sort:stars) with observed star count -> ghViewRepoStructure -> ghGetFileContent(source/index.ts) export surface. Feature: repo search + honest-absence via structure+content, not empty code search."
     },
     "q7": {
-      "verificationStatus": "draft-verify-before-scoring",
-      "answer": "(a) axios/axios. (b) JavaScript is the dominant language (axios is authored in plain JS with TypeScript type declarations shipped separately; TS byte share is small). (c) The Node main entry resolves to index.js -> lib/axios.js (package.json main: 'index.js', exports map points the require/node build at ./dist/node/axios.cjs in recent versions -- resolve at the frozen SHA).",
-      "scoring": "1.0 = correct repo + JavaScript dominant + correct main/entry file; 0.5 = repo + language right, entry vague; 0 = wrong repo or claims TS-dominant.",
-      "keyTerms": ["axios/axios", "JavaScript", "lib/axios.js", "index.js"],
-      "capabilityPoint": "npmSearch resolves package->repo in one call; gh has no npm surface (agent must guess or use wget)."
+      "verificationStatus": "verified-2026-08-02-time-sensitive",
+      "answer": "(a) axios/axios. (b) JavaScript is the dominant language (axios is authored in plain JS with TypeScript type declarations shipped separately; TS byte share is small). (c) Full chain at the frozen SHA: package.json main: 'index.js'; the exports map routes Node require to ./dist/node/axios.cjs (rollup bundle) while index.js re-exports lib/axios.js -- the real source implementation under lib/. Full credit requires tracing the chain (main -> exports node/require target -> lib/axios.js as underlying source), not naming a single file.",
+      "scoring": "1.0 = correct repo + JavaScript dominant + traces main AND exports-map require target AND identifies lib/axios.js as the underlying source; 0.5 = repo + language right, entry chain partial/vague; 0 = wrong repo or claims TS-dominant.",
+      "keyTerms": [
+        "axios/axios",
+        "JavaScript",
+        "lib/axios.js",
+        "index.js"
+      ],
+      "capabilityPoint": "npmSearch resolves package->repo in one call; gh has no npm surface (agent must guess or use wget).",
+      "expectedWorkflow": "npmSearch(axios) -> repo languages -> ghGetFileContent(package.json matchString:'exports') -> trace index.js/lib/axios.js. Feature: npm->repo resolution + targeted fetch."
     },
     "q8": {
-      "verificationStatus": "draft-verify-before-scoring",
+      "verificationStatus": "verified-2026-08-02-time-sensitive",
       "answer": "baseGet underpins get, has (via hasPath/baseHasIn), result, at, and property/propertyOf-style accessors. Name >=3 real public callers (e.g. get, at, result). Part (b): text grep for 'baseGet' misses that public methods reach it INDIRECTLY (get -> baseGet directly, but at -> baseAt -> ... ; result and property wrap it), and lodash's build re-exports/aliases obscure direct string matches; LSP references/callees on baseGet gives the true call graph.",
       "scoring": "1.0 = >=3 correct public callers AND a coherent reason grep is unreliable (indirection/re-export); 0.5 = >=3 callers but weak (b), or 2 callers; 0 = wrong callers.",
-      "keyTerms": ["baseGet", "get", "callers", "references", "indirect"],
-      "capabilityPoint": "lspGetSemantics callers/references gives a real call graph; gh grep cannot follow indirection."
+      "keyTerms": [
+        "baseGet",
+        "get",
+        "callers",
+        "references",
+        "indirect"
+      ],
+      "capabilityPoint": "lspGetSemantics callers/references gives a real call graph; gh grep cannot follow indirection.",
+      "expectedWorkflow": "ghCloneRepo(lodash) -> lspGetSemantics references/callers on baseGet. Feature: semantic call graph over text grep."
     },
     "q9": {
-      "verificationStatus": "draft-verify-before-scoring",
+      "verificationStatus": "verified-2026-08-02-time-sensitive",
       "answer": "Outline src/networking.c symbols without the full file. Octocode: localGetFileContent minify:symbols (after clone) or ghGetFileContent minify:symbols returns the function skeleton with line numbers. Expected top-level functions include (verify at SHA): createClient, freeClient, addReply, addReplyError, readQueryFromClient, writeToClient, acceptTcpHandler, processInputBuffer, handleClientsWithPendingWrites, etc. Report transfer far below full file size.",
-      "scoring": "1.0 = >=8 real top-level function names AND a symbols/outline approach that transferred << full file; 0.5 = >=8 names but pulled whole file; 0 = <8 names or fabricated.",
-      "keyTerms": ["symbols", "outline", "createClient", "readQueryFromClient", "addReply"],
-      "capabilityPoint": "minify:symbols outline vs gh raw full-file fetch -- token efficiency on a big C file."
+      "scoring": "1.0 = >=8 real top-level function names AND the two largest-span functions plausibly identified from outline line numbers (judge recomputes spans at SHA) AND transferred << full file; 0.5 = names right but spans missing/wrong, or >=8 names via whole-file pull; 0 = <8 names or fabricated.",
+      "keyTerms": [
+        "symbols",
+        "outline",
+        "createClient",
+        "readQueryFromClient",
+        "addReply"
+      ],
+      "capabilityPoint": "minify:symbols outline vs gh raw full-file fetch -- token efficiency on a big C file.",
+      "expectedWorkflow": "ghGetFileContent(networking.c, minify:'symbols') -> derive spans from outline line numbers. Feature: symbols outline instead of full-file transfer."
     },
     "q10": {
-      "verificationStatus": "draft-verify-before-scoring",
+      "verificationStatus": "verified-2026-08-02-time-sensitive",
       "answer": "(a) spawn -> ChildProcess.prototype.spawn / exports.spawn in lib/child_process.js. (b) execFileSync in lib/child_process.js (spawnSync-backed). (c) normalizeSpawnArguments is an internal helper in lib/child_process.js. All three live in the same file, so Octocode reads it once (cache/local) and answers all three; a gh-only agent tends to issue 3 separate `gh search code` calls, pressuring the ~10 req/min code-search limit. Oracle = all three correctly located + an honest count of code-search API calls spent.",
       "scoring": "1.0 = all three correctly located AND reports its code-search call count / rate-limit handling honestly; 0.5 = 2/3 located or vague on call count; 0 = wrong locations.",
-      "keyTerms": ["child_process.js", "normalizeSpawnArguments", "execFileSync", "rate limit"],
-      "capabilityPoint": "Session cache + local routing reduce repeated GitHub calls; gh re-hits the API each time."
+      "keyTerms": [
+        "child_process.js",
+        "normalizeSpawnArguments",
+        "execFileSync",
+        "rate limit"
+      ],
+      "capabilityPoint": "Session cache + local routing reduce repeated GitHub calls; gh re-hits the API each time.",
+      "expectedWorkflow": "Multiple ghSearchCode queries batched via queries[] + session cache; count code-search API calls vs gh's per-invocation hits. Feature: batching + caching under the 10/min limit."
     }
   }
 }
