@@ -4,11 +4,13 @@ export type {
   ValidationResult,
   PathValidationResult,
   ToolResult,
+  ToolSecurityContext,
   ISanitizer,
 } from './types.js';
 
 export { ContentSanitizer } from './contentSanitizer.js';
 export { maskSensitiveData } from './mask.js';
+export { getSecurityBackendStatus } from './native.js';
 
 export {
   PathValidator,

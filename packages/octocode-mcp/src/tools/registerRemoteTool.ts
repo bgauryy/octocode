@@ -21,8 +21,6 @@ interface RemoteToolConfig<TQuery> {
 
   inputSchema: object;
 
-  outputSchema?: object;
-
   executionFn: (args: ToolExecutionArgs<TQuery>) => Promise<CallToolResult>;
 
   describe?: (base: string) => string;
@@ -47,7 +45,6 @@ export function createRemoteToolRegistration<TQuery>(
     name,
     title,
     inputSchema,
-    outputSchema,
     executionFn,
     describe,
     annotations,
@@ -65,7 +62,6 @@ export function createRemoteToolRegistration<TQuery>(
         {
           description,
           inputSchema: toMCPSchema(inputSchema),
-          ...(outputSchema ? { outputSchema: toMCPSchema(outputSchema) } : {}),
           annotations: {
             title,
             readOnlyHint: annotations?.readOnlyHint ?? true,
@@ -82,8 +78,7 @@ export function createRemoteToolRegistration<TQuery>(
               responseCharOffset?: number;
               responseCharLength?: number;
             },
-            authInfo,
-            sessionId
+            context
           ): Promise<CallToolResult> => {
             const queries = args.queries || [];
 
@@ -93,8 +88,9 @@ export function createRemoteToolRegistration<TQuery>(
               queries,
               responseCharOffset: args.responseCharOffset,
               responseCharLength: args.responseCharLength,
-              authInfo,
-              sessionId,
+              authInfo: context.authInfo,
+              sessionId: context.sessionId,
+              signal: context.signal,
             });
           }
         )

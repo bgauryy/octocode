@@ -152,6 +152,57 @@ describe('LSPClient native wrapper', () => {
     );
   });
 
+  it('detects a mid-session crash via isAlive(), for pool eviction', async () => {
+    const root = await mkdtemp(
+      path.join(os.tmpdir(), 'octocode-engine-crash-')
+    );
+    tempDirs.push(root);
+    const serverScript = path.join(root, 'crash-lsp-server.cjs');
+    // Answers `initialize` normally, then exits shortly after `initialized`
+    // — simulating a server that starts fine but crashes mid-session.
+    await writeFile(
+      serverScript,
+      `
+let buf = '';
+function send(m) {
+  const body = JSON.stringify(m);
+  process.stdout.write('Content-Length: ' + Buffer.byteLength(body, 'utf8') + '\\r\\n\\r\\n' + body);
+}
+process.stdin.on('data', d => {
+  buf += d;
+  for (;;) {
+    const m = buf.match(/Content-Length: (\\d+)\\r\\n\\r\\n/);
+    if (!m) break;
+    const len = +m[1], start = m.index + m[0].length;
+    if (buf.length < start + len) break;
+    let msg;
+    try { msg = JSON.parse(buf.slice(start, start + len)); } catch { msg = null; }
+    buf = buf.slice(start + len);
+    if (msg && msg.method === 'initialize') {
+      send({ jsonrpc: '2.0', id: msg.id, result: { capabilities: {} } });
+    } else if (msg && msg.method === 'initialized') {
+      setTimeout(() => process.exit(1), 30);
+    }
+  }
+});
+process.stdin.resume();
+`
+    );
+    const client = new LSPClient({
+      command: process.execPath,
+      args: [serverScript],
+      workspaceRoot: root,
+      languageId: 'plaintext',
+    });
+
+    await client.start();
+    expect(await client.isAlive()).toBe(true);
+
+    await waitForAsync(async () => !(await client.isAlive()));
+
+    await expect(client.stop()).resolves.toBeUndefined();
+  });
+
   it('fails startup promptly and preserves recent stderr when the server exits', async () => {
     const root = await mkdtemp(
       path.join(os.tmpdir(), 'octocode-engine-start-fail-')
@@ -231,6 +282,14 @@ describe('waitForReady $/progress tracking', () => {
 async function waitFor(predicate: () => boolean): Promise<void> {
   for (let attempt = 0; attempt < 50; attempt++) {
     if (predicate()) return;
+    await delay(10);
+  }
+  throw new Error('condition was not met');
+}
+
+async function waitForAsync(predicate: () => Promise<boolean>): Promise<void> {
+  for (let attempt = 0; attempt < 50; attempt++) {
+    if (await predicate()) return;
     await delay(10);
   }
   throw new Error('condition was not met');

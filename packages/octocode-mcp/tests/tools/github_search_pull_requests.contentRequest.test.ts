@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { normalizePullRequestContentRequest } from '../../../octocode-tools-core/src/tools/github_search_pull_requests/contentRequest.js';
 
-describe('ghHistoryResearch content request normalization', () => {
+describe('ghSearchPullRequests content request normalization', () => {
   it('keeps request lean by default', () => {
     const request = normalizePullRequestContentRequest({});
     expect(request).toMatchObject({

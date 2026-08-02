@@ -73,12 +73,12 @@ describe('GitHub PR Search Tool Refactor (Mocked)', () => {
     });
 
     expect(result.error).toBeUndefined();
-    expect(result.pull_requests).toHaveLength(1);
-    const pr = result.pull_requests![0]!;
+    expect(result.pullRequests).toHaveLength(1);
+    const pr = result.pullRequests![0]!;
 
-    expect(pr.file_changes).toBeDefined();
-    expect(pr.file_changes).toHaveLength(2);
-    pr.file_changes?.forEach(file => {
+    expect(pr.fileChanges).toBeDefined();
+    expect(pr.fileChanges).toHaveLength(2);
+    pr.fileChanges?.forEach(file => {
       expect(file.patch).toBeUndefined();
     });
   });
@@ -95,13 +95,13 @@ describe('GitHub PR Search Tool Refactor (Mocked)', () => {
     });
 
     expect(result.error).toBeUndefined();
-    expect(result.pull_requests).toHaveLength(1);
-    const pr = result.pull_requests![0]!;
+    expect(result.pullRequests).toHaveLength(1);
+    const pr = result.pullRequests![0]!;
 
-    expect(pr.file_changes).toBeDefined();
-    expect(pr.file_changes).toHaveLength(2);
-    expect(pr.file_changes![0]!.patch).toBeDefined();
-    expect(pr.file_changes![1]!.patch).toBeDefined();
+    expect(pr.fileChanges).toBeDefined();
+    expect(pr.fileChanges).toHaveLength(2);
+    expect(pr.fileChanges![0]!.patch).toBeDefined();
+    expect(pr.fileChanges![1]!.patch).toBeDefined();
   });
 
   it('should support selected patch content and return filtered patch', async () => {
@@ -129,14 +129,14 @@ describe('GitHub PR Search Tool Refactor (Mocked)', () => {
     });
 
     expect(result.error).toBeUndefined();
-    expect(result.pull_requests).toHaveLength(1);
-    const pr = result.pull_requests![0]!;
+    expect(result.pullRequests).toHaveLength(1);
+    const pr = result.pullRequests![0]!;
 
-    expect(pr.file_changes).toBeDefined();
-    expect(pr.file_changes).toHaveLength(1);
-    expect(pr.file_changes![0]!.filename).toBe(filename);
+    expect(pr.fileChanges).toBeDefined();
+    expect(pr.fileChanges).toHaveLength(1);
+    expect(pr.fileChanges![0]!.filename).toBe(filename);
 
-    const patch = pr.file_changes![0]!.patch;
+    const patch = pr.fileChanges![0]!.patch;
     expect(patch).toBeDefined();
 
     expect(patch).toContain('+756:');

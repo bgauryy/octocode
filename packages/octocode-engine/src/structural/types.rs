@@ -78,8 +78,8 @@ pub struct StructuralSearchFilesOptions {
     pub rule: Option<String>,
     pub include: Option<Vec<String>>,
     /// File-path globs to skip (gitignore-style, e.g. `"*.min.js"`, `"src/gen/**"`).
-    /// Mirrors `localSearchCode.exclude` so OQL `scope.exclude` is honored on the
-    /// structural lane — previously silently dropped (typed-contract violation).
+    /// Mirrors `localSearchCode.exclude` so it is honored on the structural
+    /// lane too — previously silently dropped (typed-contract violation).
     pub exclude: Option<Vec<String>>,
     pub exclude_dir: Option<Vec<String>>,
     /// Include hidden (dot) files. `None` preserves the default walker behavior

@@ -13,7 +13,12 @@ describe('filterGitTreeEntries', () => {
     { path: 'src/lib', type: 'tree', sha: 'd' },
     { path: 'src/lib/util.ts', type: 'blob', size: 30, sha: 'e' },
     { path: 'packages/octocode', type: 'tree', sha: 'f' },
-    { path: 'packages/octocode/package.json', type: 'blob', size: 40, sha: 'g' },
+    {
+      path: 'packages/octocode/package.json',
+      type: 'blob',
+      size: 40,
+      sha: 'g',
+    },
   ];
 
   it('caps at maxDepth from repo root', () => {

@@ -109,6 +109,9 @@ export interface FileContentResult {
 
   matchRanges?: Array<{ start: number; end: number }>;
 
+  /** Exact matched-line numbers (matchRanges are ±contextLines windows around them). */
+  matchedLines?: number[];
+
   warnings?: string[];
 
   matchNotFound?: boolean;
@@ -140,8 +143,6 @@ export interface PullRequestItem {
     hasMore: boolean;
     nextCharOffset?: number;
   };
-
-  url: string;
 
   state: 'open' | 'closed' | 'merged';
 
@@ -233,6 +234,14 @@ export interface PullRequestSearchResult {
   totalCount: number;
 
   pagination: PaginationInfo;
+
+  /**
+   * The exact search-qualifier string sent to the provider's search API
+   * (e.g. `"useTransition" is:pr repo:facebook/react`). Present only when
+   * the search path ran — its absence tells the caller a plain listing was
+   * served instead of a keyword search.
+   */
+  effectiveQuery?: string;
 
   repositoryContext?: {
     owner: string;

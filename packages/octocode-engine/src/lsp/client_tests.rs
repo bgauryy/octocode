@@ -1,6 +1,62 @@
 use super::*;
 use std::path::PathBuf;
 
+// `sh` is used to spawn a real, minimal child process for the two tests
+// below rather than a synthetic stand-in — the property under test
+// (`wait_for_graceful_exit` actually observing/killing a real OS process) is
+// not meaningfully testable without one. Gated to unix: this crate's CI runs
+// `cargo test` only on its native host (macOS/Linux); win32-x64-msvc is a
+// cross-compiled release target that is never executed in CI, and `sh` is
+// not guaranteed on a developer's native Windows machine.
+#[cfg(unix)]
+#[test]
+fn wait_for_graceful_exit_does_not_kill_a_promptly_exiting_process() {
+    let runtime = tokio::runtime::Runtime::new().expect("tokio runtime");
+    runtime.block_on(async {
+        let mut child = tokio::process::Command::new("sh")
+            .args(["-c", "exit 0"])
+            .kill_on_drop(true)
+            .spawn()
+            .expect("spawn sh");
+
+        let exited_on_own =
+            wait_for_graceful_exit(&mut child, tokio::time::Duration::from_millis(2_000)).await;
+
+        assert!(
+            exited_on_own,
+            "expected the process to exit on its own within the bound, not be killed"
+        );
+    });
+}
+
+#[cfg(unix)]
+#[test]
+fn wait_for_graceful_exit_kills_a_process_that_ignores_the_window() {
+    let runtime = tokio::runtime::Runtime::new().expect("tokio runtime");
+    runtime.block_on(async {
+        let mut child = tokio::process::Command::new("sh")
+            .args(["-c", "sleep 30"])
+            .kill_on_drop(true)
+            .spawn()
+            .expect("spawn sh");
+
+        let exited_on_own =
+            wait_for_graceful_exit(&mut child, tokio::time::Duration::from_millis(50)).await;
+
+        assert!(
+            !exited_on_own,
+            "expected escalation to kill for a process that outlives the graceful window"
+        );
+        // Confirm the process was actually terminated, not just abandoned —
+        // it must be reapable promptly after the kill.
+        let status = tokio::time::timeout(std::time::Duration::from_secs(2), child.wait())
+            .await
+            .expect("process should be reaped promptly after kill")
+            .expect("wait should succeed");
+        assert!(!status.success());
+    });
+}
+
 #[test]
 fn content_modified_detected_by_error_code() {
     let error = Error::new(

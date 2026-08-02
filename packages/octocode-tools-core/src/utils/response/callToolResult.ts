@@ -5,6 +5,14 @@ import { getRuntimeSurface } from '@octocodeai/config';
 
 const FULL_MCP_TEXT_ENV = 'OCTOCODE_MCP_FULL_TEXT';
 
+// Fail-CLOSED egress policy: sanitization here is the LAST (and for some
+// content, the only — e.g. ripgrep snippets) barrier before content leaves the
+// process. A sanitizer crash must withhold the affected content, never pass it
+// through raw — the moment the scanner is broken is exactly when leaking is
+// most likely. Mirrors secureServer's loud-failure policy at the item level.
+const WITHHELD_TEXT =
+  '[content withheld: sanitization failed — retry the call; if this persists, report it]';
+
 export function sanitizeCallToolResult(result: CallToolResult): CallToolResult {
   let sanitized = result;
 
@@ -17,7 +25,16 @@ export function sanitizeCallToolResult(result: CallToolResult): CallToolResult {
         ) as Record<string, unknown>,
       };
     } catch {
-      void 0;
+      sanitized = {
+        ...sanitized,
+        structuredContent: {
+          status: 'error',
+          code: 'SANITIZATION_FAILED',
+          error:
+            'structuredContent withheld: sanitization failed — retry the call; if this persists, report it',
+        },
+        isError: true,
+      };
     }
   }
 
@@ -40,7 +57,7 @@ export function sanitizeCallToolResult(result: CallToolResult): CallToolResult {
             );
             return { ...item, text };
           } catch {
-            return item;
+            return { ...item, text: WITHHELD_TEXT };
           }
         }
         return item;
@@ -76,6 +93,9 @@ function compactMcpTextContent(result: CallToolResult): CallToolResult {
   };
 }
 
+// Cap on the per-result triage entries embedded in the compact text block.
+const RESULT_PREVIEW_LIMIT = 3;
+
 function summarizeStructuredContent(value: unknown): string {
   const parts = ['structuredContent available'];
   if (isRecord(value)) {
@@ -94,9 +114,39 @@ function summarizeStructuredContent(value: unknown): string {
     if (isRecord(pagination) && typeof pagination.hasMore === 'boolean') {
       parts.push(`hasMore=${pagination.hasMore}`);
     }
+
+    // Bounded per-result triage so a client that never reads
+    // structuredContent still gets SOMETHING actionable (ids, statuses,
+    // paths) instead of an opaque stub.
+    if (Array.isArray(value.results) && value.results.length > 0) {
+      const preview = value.results
+        .slice(0, RESULT_PREVIEW_LIMIT)
+        .map(describeResultEntry)
+        .filter(Boolean);
+      if (preview.length > 0) {
+        const overflow = value.results.length - RESULT_PREVIEW_LIMIT;
+        parts.push(
+          `[${preview.join(' · ')}${overflow > 0 ? ` · +${overflow} more` : ''}]`
+        );
+      }
+    }
   }
 
-  return `${parts.join(' · ')}. Read structuredContent for full data.`;
+  return `${parts.join(' · ')}. Read structuredContent for full data; if your client cannot read structuredContent, set ${FULL_MCP_TEXT_ENV}=true.`;
+}
+
+/** One bounded triage token per result: `id status path?`. */
+function describeResultEntry(entry: unknown): string {
+  if (!isRecord(entry)) return '';
+  const bits: string[] = [];
+  if (typeof entry.id === 'string') bits.push(entry.id);
+  bits.push(typeof entry.status === 'string' ? entry.status : 'ok');
+  const data = entry.data;
+  if (isRecord(data) && typeof data.path === 'string' && data.path) {
+    // Keep only the basename-ish tail so long absolute paths don't bloat.
+    bits.push(data.path.split('/').slice(-2).join('/').slice(0, 80));
+  }
+  return bits.join(' ');
 }
 
 function countResultStatuses(results: unknown[]): {

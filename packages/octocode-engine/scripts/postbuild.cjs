@@ -81,6 +81,19 @@ function isDevBuild() {
   return process.env.npm_lifecycle_event === 'build:dev'
 }
 
+// Snapshot the napi-generated index.d.ts (the real ABI surface) BEFORE
+// restoreLoaders() overwrites it with the hand-authored loader/index.d.ts.
+// scripts/check-napi-abi.cjs diffs this snapshot's exported symbol surface
+// against loader/index.d.ts so a Rust ABI change that the hand types forget to
+// mirror fails the build instead of drifting silently.
+function snapshotNapiAbi() {
+  const generated = join(root, 'index.d.ts')
+  if (!existsSync(generated)) return
+  copyFileSync(generated, join(root, '.napi-abi-snapshot.d.ts'))
+  console.log('snapshotted napi-generated index.d.ts -> .napi-abi-snapshot.d.ts')
+}
+
+snapshotNapiAbi()
 restoreLoaders()
 discardGeneratedFiles()
 

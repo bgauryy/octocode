@@ -32,8 +32,6 @@ is the single source of truth.
   `local_fetch_content`, `local_view_structure`.
 - **LSP**: `lsp_get_semantic_content` (needs server runtime).
 - **Package**: `package_search` (npm).
-- **OQL**: `oql_search`, the raw tool entrypoint for the shared OQL runner used
-  by CLI `search`.
 
 Each tool lives in `src/tools/<tool_name>/` with a common core — `scheme.ts`
 (Zod single + bulk schemas) and `execution.ts` (the bulk-loop `executionFn`) —

@@ -14,10 +14,10 @@ vi.mock('../../../src/responses.js', () => ({
   sanitizeStructuredContent: mockSanitizeStructuredContent,
 }));
 
-const { sanitizeCallToolResult } = await import(
-  '../../../src/utils/response/callToolResult.js'
-);
-const { setRuntimeSurface, _resetRuntimeSurface } = await import('@octocodeai/config');
+const { sanitizeCallToolResult } =
+  await import('../../../src/utils/response/callToolResult.js');
+const { setRuntimeSurface, _resetRuntimeSurface } =
+  await import('@octocodeai/config');
 
 const AWS_KEY = 'AKIAIOSFODNN7EXAMPLE';
 const REDACTED = '[REDACTED-AWS_ACCESS_KEY_ID]';
@@ -51,8 +51,12 @@ describe('sanitizeCallToolResult', () => {
     } as CallToolResult);
 
     const textBlock = result.content?.[0];
-    expect(textBlock && 'text' in textBlock ? textBlock.text : '').not.toContain(AWS_KEY);
-    expect(textBlock && 'text' in textBlock ? textBlock.text : '').toContain(REDACTED);
+    expect(
+      textBlock && 'text' in textBlock ? textBlock.text : ''
+    ).not.toContain(AWS_KEY);
+    expect(textBlock && 'text' in textBlock ? textBlock.text : '').toContain(
+      REDACTED
+    );
   });
 
   it('passes clean text through unchanged when no secrets detected', () => {
@@ -151,7 +155,7 @@ describe('sanitizeCallToolResult', () => {
 
     const textBlock = result.content?.[0];
     expect(textBlock && 'text' in textBlock ? textBlock.text : '').toBe(
-      'structuredContent available · results=2 · empty=1 · hasMore=false. Read structuredContent for full data.'
+      'structuredContent available · results=2 · empty=1 · hasMore=false · [q1 ok a.ts · q2 empty]. Read structuredContent for full data; if your client cannot read structuredContent, set OCTOCODE_MCP_FULL_TEXT=true.'
     );
     expect(mockSanitizeContent).not.toHaveBeenCalled();
     expect(result.structuredContent).toEqual({
@@ -161,6 +165,28 @@ describe('sanitizeCallToolResult', () => {
       ],
       pagination: { hasMore: false },
     });
+  });
+
+  it('bounds the compact-text result preview to 3 entries with a +N more marker', () => {
+    mockSanitizeStructuredContent.mockImplementation((obj: unknown) => obj);
+
+    const result = sanitizeCallToolResult({
+      content: [{ type: 'text', text: 'dup' }],
+      structuredContent: {
+        results: [
+          { id: 'a', data: { path: 'one.ts' } },
+          { id: 'b', status: 'error', data: {} },
+          { id: 'c', data: {} },
+          { id: 'd', data: {} },
+          { id: 'e', data: {} },
+        ],
+      },
+    } as unknown as CallToolResult);
+
+    const textBlock = result.content?.[0];
+    const text = textBlock && 'text' in textBlock ? String(textBlock.text) : '';
+    expect(text).toContain('[a ok one.ts · b error · c ok · +2 more]');
+    expect(text).toContain('errors=1');
   });
 
   it('preserves full text blocks on the CLI surface', () => {
@@ -229,18 +255,50 @@ describe('sanitizeCallToolResult', () => {
     expect(mockSanitizeContent).toHaveBeenCalledTimes(1);
   });
 
-  it('returns item unchanged on sanitizeContent throw', () => {
+  it('fails CLOSED on sanitizeContent throw — text is withheld, never passed through unsanitized', () => {
+    // Egress sanitization is the ONLY protection for some content (e.g.
+    // ripgrep snippets are sanitized nowhere else). A sanitizer crash must
+    // withhold the item — passing the raw text through silently would leak
+    // exactly when the scanner is broken.
     mockSanitizeContent.mockImplementation(() => {
       throw new Error('native error');
     });
     mockSanitizeStructuredContent.mockImplementation((obj: unknown) => obj);
 
-    const original = { type: 'text' as const, text: 'fallback text' };
+    const original = {
+      type: 'text' as const,
+      text: `possibly secret: ${AWS_KEY}`,
+    };
     const result = sanitizeCallToolResult({
       content: [original],
     } as CallToolResult);
 
     const textBlock = result.content?.[0];
-    expect(textBlock && 'text' in textBlock ? textBlock.text : '').toBe('fallback text');
+    const text = textBlock && 'text' in textBlock ? String(textBlock.text) : '';
+    expect(text).not.toContain(AWS_KEY);
+    expect(text.toLowerCase()).toContain('withheld');
+  });
+
+  it('fails CLOSED on sanitizeStructuredContent throw — structured data is withheld', () => {
+    mockSanitizeContent.mockReturnValue({
+      content: 'clean',
+      hasSecrets: false,
+      secretsDetected: [],
+      warnings: [],
+    });
+    mockSanitizeStructuredContent.mockImplementation(() => {
+      throw new Error('native error');
+    });
+    setRuntimeSurface('cli');
+
+    const result = sanitizeCallToolResult({
+      content: [{ type: 'text', text: 'clean' }],
+      structuredContent: { raw: `secret: ${AWS_KEY}` },
+    } as unknown as CallToolResult);
+
+    expect(JSON.stringify(result.structuredContent)).not.toContain(AWS_KEY);
+    expect(
+      JSON.stringify(result.structuredContent).toLowerCase()
+    ).toContain('withheld');
   });
 });

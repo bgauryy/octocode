@@ -141,14 +141,14 @@ function validateRecursive(
     }
 
     if (typeof value === 'string') {
-      let v = value;
-      if (v.length > MAX_STRING_LENGTH) {
+      if (value.length > MAX_STRING_LENGTH) {
         warnings.add(
           `Parameter ${key} exceeds maximum length (${MAX_STRING_LENGTH_DISPLAY} characters)`
         );
-        v = v.substring(0, MAX_STRING_LENGTH);
+        hasValidationErrors = true;
+        continue;
       }
-      const r = ContentSanitizer.sanitizeContent(v, undefined);
+      const r = ContentSanitizer.sanitizeContent(value, undefined);
       if (r.hasSecrets) {
         hasSecrets = true;
         r.secretsDetected.forEach((s: string) =>
@@ -157,25 +157,32 @@ function validateRecursive(
       }
       sanitizedParams[key] = r.content;
     } else if (Array.isArray(value)) {
-      const truncated =
-        value.length > MAX_ARRAY_LENGTH
-          ? (() => {
-              warnings.add(
-                `Parameter ${key} array exceeds maximum length (${MAX_ARRAY_LENGTH} items)`
-              );
-              return value.slice(0, MAX_ARRAY_LENGTH);
-            })()
-          : value;
+      if (value.length > MAX_ARRAY_LENGTH) {
+        warnings.add(
+          `Parameter ${key} array exceeds maximum length (${MAX_ARRAY_LENGTH} items)`
+        );
+        hasValidationErrors = true;
+        continue;
+      }
 
       let arrHasSecrets = false;
       let arrHasErrors = false;
-      const sanitizedArr = truncated.map(item => {
+      const sanitizedArr: unknown[] = [];
+      for (const item of value) {
         if (typeof item === 'string') {
+          if (item.length > MAX_STRING_LENGTH) {
+            warnings.add(
+              `Parameter ${key}[] exceeds maximum length (${MAX_STRING_LENGTH_DISPLAY} characters)`
+            );
+            arrHasErrors = true;
+            continue;
+          }
           const r = ContentSanitizer.sanitizeContent(item, undefined);
           if (r.hasSecrets) {
             arrHasSecrets = true;
           }
-          return r.content;
+          sanitizedArr.push(r.content);
+          continue;
         }
         if (item !== null && typeof item === 'object' && !Array.isArray(item)) {
           const r = validateRecursive(
@@ -188,10 +195,11 @@ function validateRecursive(
             arrHasErrors = true;
             r.warnings.forEach(w => warnings.add(`${key}[]: ${w}`));
           }
-          return r.sanitizedParams;
+          sanitizedArr.push(r.sanitizedParams);
+          continue;
         }
-        return item;
-      });
+        sanitizedArr.push(item);
+      }
       if (arrHasSecrets) hasSecrets = true;
       if (arrHasErrors) hasValidationErrors = true;
       sanitizedParams[key] = sanitizedArr;

@@ -1,0 +1,57 @@
+{
+  "note": "JUDGE-ONLY. Solvers must never read this.",
+  "verificationCaveat": "DRAFT — verify before the first scored run. Same-engine parity is the primary oracle: both arms MUST return identical data (counts, file:line anchors) because they share the tool implementations; any data divergence is a surface bug and the run's most important finding. Repo-local facts (q7-q10) drift with this repo — compute at the run's frozen SHA, never hard-code. Remote facts re-verified by the judge outside both arms (curl api.github.com / raw.githubusercontent.com / registry.npmjs.org).",
+  "sharedScoring": "Each question: correctness 1.0 = both parts right with real anchors; 0.5 = partially right or right-without-anchor; 0 = wrong/fabricated. Quality 1-5 (exactness, concision, anchoring). Tokens KPI judged separately per README: context-cost bytes per question + runner-reported agent tokens per arm. TIE on correctness is the EXPECTED healthy result; the suite's verdict rides on the token measures and any parity break.",
+  "questions": {
+    "q1": {
+      "targetTools": ["npmSearch", "ghViewRepoStructure"],
+      "oracle": "fastify -> github.com/fastify/fastify (npm registry repository field). Top-level dirs on main include lib/, test/, docs/, types/, examples/, build/; the request-lifecycle implementation lives in lib/ (route.js, hooks.js, handleRequest.js).",
+      "capabilityPoint": "npmSearch resolves package->repo without memory; structure browse without clone."
+    },
+    "q2": {
+      "targetTools": ["ghSearchRepos", "ghSearchCode"],
+      "oracle": "colinhacks/zod. ZodString is declared in the schema source (historically src/types.ts; v4 layout splits under packages/zod/src -- resolve at run time and require a real file:line the judge can re-fetch).",
+      "capabilityPoint": "Repo discovery by topic/stars, then code search scoped to the repo."
+    },
+    "q3": {
+      "targetTools": ["ghGetFileContent"],
+      "oracle": "isTypeComparableTo(source, target) delegates to isTypeRelatedTo(source, target, comparableRelation). Full checker.ts is ~3.15 MB — transfer must be a matched slice (<~15 KB tool output), not the whole file. Verify delegate via raw fetch + grep at judge time.",
+      "capabilityPoint": "matchString slice on a multi-MB file — the transfer ratio IS the answer's (b)."
+    },
+    "q4": {
+      "targetTools": ["ghSearchPullRequests"],
+      "oracle": "Resolve at run time: latest merged fastify/fastify PR touching lib/. Judge re-resolves independently via api.github.com the same day and requires exact files/± stats, the source-vs-test split, the largest-diff source file, and a motivation grounded in a real diff hunk or linked issue (judge re-reads the diff; a title paraphrase caps at 0.5; a fabricated issue link = 0 + false-confidence).",
+      "capabilityPoint": "PR search + deep single-PR review (files+stats+selected patch) without pulling full patch JSON."
+    },
+    "q5": {
+      "targetTools": ["ghSearchIssues", "ghSearchCommits"],
+      "oracle": "Any real closed pallets/flask issue about add_url_rule behavior + a real commit touching src/flask/sansio/scaffold.py (or historical scaffold.py/app.py) that addressed it. Judge re-fetches the cited issue and sha; fabricated or mismatched cite = 0. Note: add_url_rule/route live at src/flask/sansio/scaffold.py on current main.",
+      "capabilityPoint": "Issue search + path-filtered commit history, cite-verified."
+    },
+    "q6": {
+      "targetTools": ["ghCloneRepo", "localSearchCode"],
+      "oracle": "Compute at run time on the frozen zod SHA: structural count of z.lazy($$$ARGS) under src/ (or packages/zod/src for v4 layout — record which). Judge verifies with judge-side clone + ast-grep. Both arms must report the identical count and top-2 files.",
+      "capabilityPoint": "Remote materialize -> AST structural, the flow ast-grep/gh can't do alone."
+    },
+    "q7": {
+      "targetTools": ["localViewStructure", "localFindFiles"],
+      "oracle": "Compute at the run's repo SHA. GitHub query building lives under src/github/ (queryBuilders/). Largest src/tools/*.ts files: verify with `find ... -size` / `ls -S` at judge time; sizes must match within the day's checkout.",
+      "capabilityPoint": "Tree orientation without content loads; metadata find (size sort)."
+    },
+    "q8": {
+      "targetTools": ["localGetFileContent"],
+      "oracle": "Compute at run SHA: exported symbols of src/tools/toolNames.ts with lines (includes isLocalTool at :37 as of 2026-08-02 — recompute). Outline bytes must be well under full-file bytes; judge greps the file to confirm the export list is complete.",
+      "capabilityPoint": "minify:'symbols' outline vs full read."
+    },
+    "q9": {
+      "targetTools": ["lspGetSemantics", "localSearchCode"],
+      "oracle": "Compute at run SHA: definition + full reference set of buildDirectToolCommandPatterns (defined in src/tools/directToolCatalog.meta.ts area — anchor first, never guess lineHint). Judge cross-checks the reference set with grep; LSP must not miss a textual reference nor invent one. KNOWN PITFALL (2026-08-02): auto workspaceRoot can resolve too narrow in this monorepo and return def-only — solvers should set workspaceRoot to the package root; judge treats a def-only answer as 0.5 unless grep confirms zero external references.",
+      "capabilityPoint": "Anchored LSP references/callers — identity, not text shape."
+    },
+    "q10": {
+      "targetTools": ["localFindDeadCode", "localSearchCode"],
+      "oracle": "Compute at run SHA via localFindDeadCode on the package; candidates must be real unreferenced exports (2026-08-02 example: isLocalTool in src/tools/toolNames.ts had zero source callers — recompute, code moves). The 'prove one dead' part requires a whole-package identifier search returning only the definition (dist/ and .octocode/ artifacts excluded).",
+      "capabilityPoint": "Reachability-based dead-code detection + honest absence proof."
+    }
+  }
+}

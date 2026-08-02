@@ -20,7 +20,7 @@ The agent then searches cheaply, reads exact evidence, validates findings, and e
 - Root-cause proof requiring mechanism, trigger, violated contract, divergence boundary, and disconfirmation.
 - Evidence surfaces that can include local code, GitHub, npm, PR history, docs, specs, and papers.
 - Exact anchors such as `file:line`, repo path, package id, PR number, commit, or fetched URL.
-- AST, structural search, LSP, history, package, GitHub, and local-file workflows through Octocode when available.
+- Current Octocode workflows across 15 active tools: local search/find/read/tree/dead-code, LSP semantics, GitHub code/repos/files/PRs/issues/commits/clone, and npm lookup.
 - Confidence labels for confirmed, likely, uncertain, and weak claims.
 - Finding checks that keep alternate explanations alive until evidence resolves them.
 - Review output ordered by severity, impact, confidence, and citation quality.

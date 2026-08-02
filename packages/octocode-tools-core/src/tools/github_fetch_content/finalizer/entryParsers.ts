@@ -1,5 +1,6 @@
 import type { PaginationInfo } from '../../../types/toolResults.js';
 import { buildContinueCharsContinuation } from '../../../scheme/pagination.js';
+import { isCloneEnabled } from '../../../serverConfig.js';
 import type {
   DirectoryEntry,
   FileContentNextMap,
@@ -141,18 +142,26 @@ export function readFileEntry(
   query: PartialFileContentQuery
 ): FileEntry {
   const pagination = readPagination(data.pagination);
+  // Only offer the ghCloneRepo bridge when clone is actually enabled —
+  // otherwise the hint names a tool that isn't registered in this session.
+  // Fail-safe: an uninitialized config must suppress the hint, never throw.
+  let cloneHintEnabled = false;
+  try {
+    cloneHintEnabled = isCloneEnabled();
+  } catch {
+    cloneHintEnabled = false;
+  }
   const next: FileContentNextMap = {
     ...buildContinueChars(pagination, query),
-    cloneForSemantics: buildCloneForSemanticsHint(query),
+    ...(cloneHintEnabled
+      ? { cloneForSemantics: buildCloneForSemanticsHint(query) }
+      : {}),
   };
   return {
     path: readString(data.path) ?? String(query.path ?? ''),
     content: typeof data.content === 'string' ? data.content : '',
     localPath: readString(data.localPath),
     repoRoot: readString(data.repoRoot),
-    ...(readNumber(data.fileSize) !== undefined
-      ? { fileSize: readNumber(data.fileSize) }
-      : {}),
     contentView:
       data.contentView === 'none' ||
       data.contentView === 'standard' ||
@@ -160,12 +169,17 @@ export function readFileEntry(
         ? data.contentView
         : undefined,
     totalLines: readNumber(data.totalLines),
+    // sourceChars is the single size unit (char-based, matching charOffset/
+    // charLength pagination); fileSize (served slice, derivable from content)
+    // and sourceBytes (duplicates sourceChars for ASCII) were dropped.
     sourceChars: readNumber(data.sourceChars),
-    sourceBytes: readNumber(data.sourceBytes),
     resolvedBranch: readString(data.resolvedBranch),
     pagination,
-    next,
-    ...(data.isPartial === true ? { isPartial: true } : {}),
+    ...(Object.keys(next).length > 0 ? { next } : {}),
+    ...(data.isPartial === true ||
+    (pagination as { hasMore?: boolean } | undefined)?.hasMore === true
+      ? { isPartial: true }
+      : {}),
     startLine: readNumber(data.startLine),
     endLine: readNumber(data.endLine),
     ...(Array.isArray(data.matchRanges) && data.matchRanges.length > 0
@@ -175,6 +189,9 @@ export function readFileEntry(
             end: number;
           }>,
         }
+      : {}),
+    ...(Array.isArray(data.matchedLines) && data.matchedLines.length > 0
+      ? { matchedLines: data.matchedLines as number[] }
       : {}),
     lastModified: readString(data.lastModified),
     lastModifiedBy: readString(data.lastModifiedBy),

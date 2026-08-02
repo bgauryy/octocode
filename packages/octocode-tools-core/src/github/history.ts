@@ -1,14 +1,14 @@
 import type { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types.js';
 import { getOctokit, resolveCacheAuthFingerprint } from './client.js';
+import { resolveDateWindow } from './dateWindow.js';
 import { handleGitHubAPIError } from './errors.js';
-import { buildDiffPreview } from '../utils/parsers/diff.js';
 import { generateCacheKey, withDataCache } from '../utils/http/cache.js';
 import type {
   GitHubAPIResponse,
   HistoryCommit,
-  HistoryCommitFile,
   HistoryResult,
 } from './githubAPI.js';
+import { shapeCommitDirFiles, windowPatch } from './history/commitFiles.js';
 
 /** Cap parallel repos.getCommit calls when includeDiff is true. */
 const COMMIT_DIFF_CONCURRENCY = 5;
@@ -41,42 +41,6 @@ async function mapPool<T, R>(
   return results;
 }
 
-function windowPatch(
-  patch: string | undefined,
-  charOffset: number | undefined,
-  charLength: number | undefined
-):
-  | {
-      patch: string;
-      patchPagination?: {
-        charOffset: number;
-        charLength: number;
-        totalChars: number;
-        hasMore: boolean;
-        nextCharOffset?: number;
-      };
-    }
-  | undefined {
-  if (!patch) return undefined;
-  if (!charLength && !charOffset) return { patch };
-
-  const totalChars = patch.length;
-  const start = Math.min(Math.max(0, charOffset ?? 0), totalChars);
-  const length = Math.max(1, charLength ?? totalChars);
-  const end = Math.min(start + length, totalChars);
-  const hasMore = end < totalChars;
-  return {
-    patch: patch.slice(start, end),
-    patchPagination: {
-      charOffset: start,
-      charLength: end - start,
-      totalChars,
-      hasMore,
-      ...(hasMore ? { nextCharOffset: end } : {}),
-    },
-  };
-}
-
 type FetchHistoryParams = {
   type: 'file' | 'repo';
   owner: string;
@@ -86,6 +50,7 @@ type FetchHistoryParams = {
   since?: string;
   until?: string;
   author?: string;
+  committer?: string;
   page: number;
   perPage: number;
   filePage?: number;
@@ -112,6 +77,7 @@ export async function fetchHistory(
       since: params.since,
       until: params.until,
       author: params.author,
+      committer: params.committer,
       page: params.page,
       perPage: params.perPage,
       filePage: params.filePage,
@@ -140,6 +106,18 @@ async function fetchHistoryInternal(
   try {
     const octokit = await getOctokit(authInfo);
 
+    const dateWarnings: string[] = [];
+    const sinceResolved = params.since
+      ? resolveDateWindow(params.since)
+      : undefined;
+    const untilResolved = params.until
+      ? resolveDateWindow(params.until)
+      : undefined;
+    if (sinceResolved?.warning)
+      dateWarnings.push(`since ${sinceResolved.warning}`);
+    if (untilResolved?.warning)
+      dateWarnings.push(`until ${untilResolved.warning}`);
+
     const listParams = {
       owner: params.owner,
       repo: params.repo,
@@ -147,9 +125,10 @@ async function fetchHistoryInternal(
       page: params.page,
       ...(params.path ? { path: params.path } : {}),
       ...(params.branch ? { sha: params.branch } : {}),
-      ...(params.since ? { since: params.since } : {}),
-      ...(params.until ? { until: params.until } : {}),
+      ...(sinceResolved?.value ? { since: sinceResolved.value } : {}),
+      ...(untilResolved?.value ? { until: untilResolved.value } : {}),
       ...(params.author ? { author: params.author } : {}),
+      ...(params.committer ? { committer: params.committer } : {}),
     };
 
     const response = await octokit.rest.repos.listCommits(listParams);
@@ -185,7 +164,6 @@ async function fetchHistoryInternal(
         ...(message === messageHeadline ? {} : { message }),
         ...(bodyTruncated ? { messageTruncated: true as const } : {}),
         messageHeadline,
-        url: item.html_url,
         author: {
           name: authorObj?.name ?? 'unknown',
           email: authorObj?.email ?? '',
@@ -205,6 +183,19 @@ async function fetchHistoryInternal(
       };
     });
 
+    // Empty walk under a date window reads as a false absence: GitHub's
+    // since/until match the COMMITTER date (a commit authored inside the
+    // window but merged/rebased later is excluded), and the path walk does
+    // not follow renames. Say so instead of returning a bare empty.
+    if (
+      baseCommits.length === 0 &&
+      (sinceResolved?.value !== undefined || untilResolved?.value !== undefined)
+    ) {
+      dateWarnings.push(
+        'no commits matched the since/until window — GitHub filters by committer date (not author date; rebases and squash-merges reset it), and a path-scoped walk does not follow renames. Widen or drop since/until and inspect commit dates directly.'
+      );
+    }
+
     const pagination = {
       currentPage: params.page,
       perPage: params.perPage,
@@ -221,12 +212,15 @@ async function fetchHistoryInternal(
           ...(params.path ? { path: params.path } : {}),
           commits: baseCommits,
           pagination,
+          ...(dateWarnings.length ? { warnings: dateWarnings } : {}),
         },
         status: 200,
       };
     }
 
     // Phase 2: fetch per-commit diffs with bounded concurrency — non-fatal
+    let dirFallbackUsed = false;
+    let fileDiffMissing = false;
     const commitsWithDiff = await mapPool(
       baseCommits,
       COMMIT_DIFF_CONCURRENCY,
@@ -264,7 +258,6 @@ async function fetchHistoryInternal(
                       ...(patchWindow.patchPagination
                         ? { patchPagination: patchWindow.patchPagination }
                         : {}),
-                      diff: buildDiffPreview(patchWindow.patch),
                     }
                   : {}),
                 ...(fileData.previous_filename
@@ -272,58 +265,33 @@ async function fetchHistoryInternal(
                   : {}),
               };
             }
+            // No file with that exact name — the caller's "file" path is
+            // usually a DIRECTORY written without a trailing slash (the mode
+            // classifier can't tell locally). Fall back to a dir-prefix
+            // filter instead of silently returning the commit without a
+            // diff; if nothing matches the prefix either, flag that too.
+            const prefix = filePath.endsWith('/') ? filePath : `${filePath}/`;
+            const dirFiles = (detail.data.files ?? []).filter(f =>
+              f.filename.startsWith(prefix)
+            );
+            if (dirFiles.length > 0) {
+              dirFallbackUsed = true;
+              return {
+                ...commit,
+                ...shapeCommitDirFiles(dirFiles, params),
+              };
+            }
+            fileDiffMissing = true;
+            return commit;
           } else {
             // type: "repo" — return all changed files (filtered to dir prefix if set)
             const dirPath = params.path;
-            const allFiles: HistoryCommitFile[] = (detail.data.files ?? [])
-              .filter(f => !dirPath || f.filename.startsWith(dirPath))
-              .map(f => {
-                const patchWindow =
-                  f.patch !== undefined
-                    ? windowPatch(f.patch, params.charOffset, params.charLength)
-                    : undefined;
-                return {
-                  filename: f.filename,
-                  status: f.status,
-                  additions: f.additions,
-                  deletions: f.deletions,
-                  ...(patchWindow !== undefined
-                    ? {
-                        patch: patchWindow.patch,
-                        ...(patchWindow.patchPagination
-                          ? { patchPagination: patchWindow.patchPagination }
-                          : {}),
-                        diff: buildDiffPreview(patchWindow.patch),
-                      }
-                    : {}),
-                  ...(f.previous_filename
-                    ? { previousFilename: f.previous_filename }
-                    : {}),
-                };
-              });
-            const filePage = Math.max(1, params.filePage ?? 1);
-            const itemsPerPage = Math.max(1, params.itemsPerPage ?? 20);
-            const totalFiles = allFiles.length;
-            const totalPages = Math.max(
-              1,
-              Math.ceil(totalFiles / itemsPerPage)
+            const matching = (detail.data.files ?? []).filter(
+              f => !dirPath || f.filename.startsWith(dirPath)
             );
-            const currentPage = Math.min(filePage, totalPages);
-            const start = (currentPage - 1) * itemsPerPage;
-            const files = allFiles.slice(start, start + itemsPerPage);
             return {
               ...commit,
-              files,
-              filesPagination: {
-                currentPage,
-                totalPages,
-                itemsPerPage,
-                totalFiles,
-                hasMore: currentPage < totalPages,
-                ...(currentPage < totalPages
-                  ? { nextFilePage: currentPage + 1 }
-                  : {}),
-              },
+              ...shapeCommitDirFiles(matching, params),
             };
           }
         } catch {
@@ -333,6 +301,19 @@ async function fetchHistoryInternal(
       }
     );
 
+    const diffWarnings: string[] = [];
+    if (dirFallbackUsed) {
+      diffWarnings.push(
+        `path '${params.path}' matched no single file in these commits but matches files under it — treated as a directory filter and returned per-commit changed files (append '/' to select directory mode explicitly).`
+      );
+    }
+    if (fileDiffMissing) {
+      diffWarnings.push(
+        `includeDiff: some commits contain no file matching '${params.path}' (rename or shallow diff?) — those commits are listed without a diff.`
+      );
+    }
+    const allWarnings = [...dateWarnings, ...diffWarnings];
+
     return {
       data: {
         type: params.type,
@@ -341,6 +322,7 @@ async function fetchHistoryInternal(
         ...(params.path ? { path: params.path } : {}),
         commits: commitsWithDiff,
         pagination,
+        ...(allWarnings.length ? { warnings: allWarnings } : {}),
       },
       status: 200,
     };

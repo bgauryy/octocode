@@ -85,7 +85,6 @@ export function buildPullRequestSearchCacheKey(
       assignee: params.assignee,
       mentions: params.mentions,
       commenter: params.commenter,
-      involves: params.involves,
       'reviewed-by': params['reviewed-by'],
       'review-requested': params['review-requested'],
       head: params.head,
@@ -96,7 +95,6 @@ export function buildPullRequestSearchCacheKey(
       closed: params.closed,
       comments: params.comments,
       reactions: params.reactions,
-      interactions: params.interactions,
       label: params.label,
       milestone: params.milestone,
       language: params.language,
@@ -104,13 +102,8 @@ export function buildPullRequestSearchCacheKey(
       review: params.review,
       locked: params.locked,
       visibility: params.visibility,
-      'team-mentions': params['team-mentions'],
       project: params.project,
       archived: params.archived,
-      'no-assignee': params['no-assignee'],
-      'no-label': params['no-label'],
-      'no-milestone': params['no-milestone'],
-      'no-project': params['no-project'],
       match: params.match,
       sort: params.sort,
       order: params.order,
@@ -188,8 +181,8 @@ async function searchGitHubPullRequestsAPIInternal(
 
     if (!searchQuery) {
       return {
-        pull_requests: [],
-        total_count: 0,
+        pullRequests: [],
+        totalCount: 0,
         error: SEARCH_ERRORS.NO_VALID_PARAMETERS.message,
         hints: ['Provide search query or filters like owner/repo'],
       };
@@ -252,10 +245,10 @@ async function searchGitHubPullRequestsAPIInternal(
     const reachableTotalMatches = Math.min(totalMatches, totalPages * perPage);
 
     return {
-      pull_requests: formattedPRs,
-      total_count: searchResult.data.total_count,
+      pullRequests: formattedPRs,
+      totalCount: searchResult.data.total_count,
       effectiveQuery,
-      ...(searchResult.data.incomplete_results && { incomplete_results: true }),
+      ...(searchResult.data.incomplete_results && { incompleteResults: true }),
       pagination: {
         currentPage: clampedPage,
         totalPages,

@@ -1,5 +1,5 @@
-import { RESOURCE_LIMITS } from '../../utils/core/constants.js';
 import { formatFileSize, parseFileSize } from '../../utils/file/size.js';
+import { LOCAL_DEFAULT_FILES_PER_PAGE } from '../../config.js';
 import type { DirectoryEntry } from './structureFilters.js';
 
 export interface WalkStats {
@@ -33,13 +33,19 @@ export function paginateEntries(
     totalEntries: number;
     hasMore: boolean;
     nextPage?: number;
+    outOfRange?: boolean;
   };
 } {
   const totalEntries = entries.length;
-  const entriesPerPage =
-    query.itemsPerPage || RESOURCE_LIMITS.DEFAULT_ENTRIES_PER_PAGE;
+  const entriesPerPage = query.itemsPerPage || LOCAL_DEFAULT_FILES_PER_PAGE;
   const totalPages = Math.max(1, Math.ceil(totalEntries / entriesPerPage));
-  const currentPage = Math.min(query.page || 1, totalPages);
+  const requestedPage = query.page || 1;
+  // Clamping to the last real page is kept (it's more useful than an empty
+  // response) — but doing so SILENTLY lets a caller believe `currentPage`
+  // (the clamped value) was what it actually asked for. `outOfRange` makes
+  // the clamp visible instead of indistinguishable from a genuine last page.
+  const currentPage = Math.min(requestedPage, totalPages);
+  const isOutOfRange = requestedPage > totalPages;
   const startIdx = (currentPage - 1) * entriesPerPage;
   const endIdx = Math.min(startIdx + entriesPerPage, totalEntries);
   const hasMore = currentPage < totalPages;
@@ -53,6 +59,7 @@ export function paginateEntries(
       totalEntries,
       hasMore,
       ...(hasMore ? { nextPage: currentPage + 1 } : {}),
+      ...(isOutOfRange ? { outOfRange: true } : {}),
     },
   };
 }

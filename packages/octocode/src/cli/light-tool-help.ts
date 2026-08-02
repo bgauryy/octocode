@@ -56,7 +56,23 @@ export function showLightToolHelp(_toolName: string): boolean {
   return false;
 }
 
-export function printLightInstructions(options: { full?: boolean } = {}): void {
+export function printLightInstructions(
+  options: { full?: boolean; minimal?: boolean } = {}
+): void {
+  if (options.minimal) {
+    console.log('Octocode CLI — Minimal Context');
+    console.log(
+      'Protocol: schema first → orient → search → read exact → prove → decide.'
+    );
+    console.log(
+      "Run: tools --json | tools <name> --scheme --json | tools <name> --queries '<json>' --compact"
+    );
+    console.log(
+      'Tool names unavailable because the Octocode runtime did not load.'
+    );
+    return;
+  }
+
   console.log('Octocode CLI — Agent Context');
   console.log();
   console.log(

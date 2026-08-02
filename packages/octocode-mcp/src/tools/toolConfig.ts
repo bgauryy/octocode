@@ -9,10 +9,8 @@ import type {
 } from '@octocodeai/octocode-tools-core';
 import {
   ALL_TOOLS as CORE_ALL_TOOLS,
-  OQL_SEARCH as CORE_OQL_SEARCH,
   STATIC_TOOL_NAMES,
   LSP_GET_SEMANTICS_TOOL_NAME,
-  OQL_SEARCH_TOOL_NAME,
   DEFAULT_TOOL_METADATA_GATEWAY,
   getDescription,
 } from '@octocodeai/octocode-tools-core';
@@ -21,15 +19,21 @@ import { registerGitHubSearchCodeTool } from './github_search_code/github_search
 import { registerFetchGitHubFileContentTool } from './github_fetch_content/github_fetch_content.js';
 import { registerViewGitHubRepoStructureTool } from './github_view_repo_structure/github_view_repo_structure.js';
 import { registerSearchGitHubReposTool } from './github_search_repos/github_search_repos.js';
-import { registerSearchGitHubPullRequestsTool } from './github_search_pull_requests/github_search_pull_requests.js';
+import {
+  registerSearchGitHubPullRequestsSplitTool,
+  registerSearchGitHubIssuesTool,
+  registerSearchGitHubCommitsTool,
+  registerListGitHubReleasesTool,
+} from './github_search_pull_requests/github_search_split.js';
+import { registerSearchGitHubDiscussionsTool } from './github_search_discussions/register.js';
 import { registerNpmSearchTool } from './package_search/package_search.js';
 import { registerGitHubCloneRepoTool } from './github_clone_repo/github_clone_repo.js';
 import { registerLocalRipgrepTool } from './local_ripgrep/register.js';
 import { registerLocalViewStructureTool } from './local_view_structure/register.js';
 import { registerLocalFindFilesTool } from './local_find_files/register.js';
+import { registerLocalFindDeadCodeTool } from './local_dead_code/register.js';
 import { registerLocalFetchContentTool } from './local_fetch_content/register.js';
 import { registerLspGetSemanticsTool } from './lsp/semantic_content/register.js';
-import { registerOqlSearchTool } from './oql_search/register.js';
 
 export type {
   ToolConfig,
@@ -52,16 +56,20 @@ const MCP_FN_MAP: Record<string, McpToolConfig['fn']> = {
   [STATIC_TOOL_NAMES.GITHUB_VIEW_REPO_STRUCTURE]:
     registerViewGitHubRepoStructureTool,
   [STATIC_TOOL_NAMES.GITHUB_SEARCH_REPOSITORIES]: registerSearchGitHubReposTool,
-  [STATIC_TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS]:
-    registerSearchGitHubPullRequestsTool,
+  [STATIC_TOOL_NAMES.GITHUB_PULL_REQUESTS]:
+    registerSearchGitHubPullRequestsSplitTool,
+  [STATIC_TOOL_NAMES.GITHUB_ISSUES]: registerSearchGitHubIssuesTool,
+  [STATIC_TOOL_NAMES.GITHUB_COMMITS]: registerSearchGitHubCommitsTool,
+  [STATIC_TOOL_NAMES.GITHUB_RELEASES]: registerListGitHubReleasesTool,
+  [STATIC_TOOL_NAMES.GITHUB_DISCUSSIONS]: registerSearchGitHubDiscussionsTool,
   [STATIC_TOOL_NAMES.PACKAGE_SEARCH]: registerNpmSearchTool,
   [STATIC_TOOL_NAMES.GITHUB_CLONE_REPO]: registerGitHubCloneRepoTool,
   [STATIC_TOOL_NAMES.LOCAL_RIPGREP]: registerLocalRipgrepTool,
   [STATIC_TOOL_NAMES.LOCAL_VIEW_STRUCTURE]: registerLocalViewStructureTool,
   [STATIC_TOOL_NAMES.LOCAL_FIND_FILES]: registerLocalFindFilesTool,
+  [STATIC_TOOL_NAMES.LOCAL_FIND_DEAD_CODE]: registerLocalFindDeadCodeTool,
   [STATIC_TOOL_NAMES.LOCAL_FETCH_CONTENT]: registerLocalFetchContentTool,
   [LSP_GET_SEMANTICS_TOOL_NAME]: registerLspGetSemanticsTool,
-  [OQL_SEARCH_TOOL_NAME]: registerOqlSearchTool,
 };
 
 export const ALL_TOOLS: McpToolConfig[] = CORE_ALL_TOOLS.map(tool => {
@@ -90,9 +98,6 @@ export const GITHUB_VIEW_REPO_STRUCTURE = requireTool(
 export const GITHUB_SEARCH_REPOSITORIES = requireTool(
   STATIC_TOOL_NAMES.GITHUB_SEARCH_REPOSITORIES
 );
-export const GITHUB_SEARCH_PULL_REQUESTS = requireTool(
-  STATIC_TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS
-);
 export const PACKAGE_SEARCH = requireTool(STATIC_TOOL_NAMES.PACKAGE_SEARCH);
 export const GITHUB_CLONE_REPO = requireTool(
   STATIC_TOOL_NAMES.GITHUB_CLONE_REPO
@@ -102,13 +107,12 @@ export const LOCAL_VIEW_STRUCTURE = requireTool(
   STATIC_TOOL_NAMES.LOCAL_VIEW_STRUCTURE
 );
 export const LOCAL_FIND_FILES = requireTool(STATIC_TOOL_NAMES.LOCAL_FIND_FILES);
+export const LOCAL_FIND_DEAD_CODE = requireTool(
+  STATIC_TOOL_NAMES.LOCAL_FIND_DEAD_CODE
+);
 export const LOCAL_FETCH_CONTENT = requireTool(
   STATIC_TOOL_NAMES.LOCAL_FETCH_CONTENT
 );
 export const LSP_GET_SEMANTIC_CONTENT = requireTool(
   LSP_GET_SEMANTICS_TOOL_NAME
 );
-export const OQL_SEARCH: McpToolConfig = {
-  ...CORE_OQL_SEARCH,
-  fn: registerOqlSearchTool,
-};

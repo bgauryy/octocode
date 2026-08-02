@@ -29,7 +29,7 @@ Evidence grades: semantic (LSP identity), structural (AST shape), lexical (cover
 - Prefer `matchString` anchors, then line ranges; use full exact content only for small files.
 - Quote/edit only exact content. Symbols orient; standard/minified output may rewrite text.
 - Materialize a remote area before AST/LSP, exact absence, repeated many-file reads, or a third deep read.
-- Read the tool/schema contract immediately before raw/OQL calls; follow returned cursors and `next.*`.
+- Read the tool/schema contract immediately before raw calls; follow returned cursors and `next.*`.
 - For `node_modules`, disable default exclusions and inspect the file the resolver actually loads.
 
 ## Failure Signals

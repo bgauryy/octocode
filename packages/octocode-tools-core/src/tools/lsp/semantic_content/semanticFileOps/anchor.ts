@@ -5,6 +5,7 @@ import { detectLanguageId } from '@octocodeai/octocode-engine/lsp/config';
 import { ToolError } from '../../../../errors/ToolError.js';
 import { LOCAL_TOOL_ERROR_CODES } from '../../../../errors/localToolErrors.js';
 import { contextUtils } from '../../../../utils/contextUtils.js';
+import { isValidJsSymbolName } from '../../../../utils/jsSymbolNames.js';
 import type {
   SemanticContentType,
   WorkspaceSymbolSemanticQuery,
@@ -36,13 +37,17 @@ export function isNativeJsTsFile(uri: string): boolean {
  */
 export function throwLspUnavailable(
   uri: string,
-  op: SemanticContentType
+  op: SemanticContentType,
+  detail?: { kind?: string; message?: string }
 ): never {
   const languageId = detectLanguageId(uri);
   const hint = unavailableHintFor(languageId, undefined);
+  const startupDetail = detail?.message
+    ? ` LSP startup detail (${detail.kind ?? 'startupFailed'}): ${detail.message}.`
+    : '';
   throw new ToolError(
     LOCAL_TOOL_ERROR_CODES.LSP_SERVER_UNAVAILABLE,
-    `No ${languageId} language server is available for ${uri}, so "${op}" cannot be answered semantically. ${hint} ` +
+    `No ${languageId} language server is available for ${uri}, so "${op}" cannot be answered semantically.${startupDetail} ${hint} ` +
       `Meanwhile, use localSearchCode (text or structural search) to find the symbol's occurrences and localGetFileContent to read the surrounding code.`
   );
 }
@@ -169,6 +174,66 @@ export function nativeDocumentSymbols(
     if (!json) return null;
     const parsed = JSON.parse(json);
     return Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+type RawGraphFactDeclaration = {
+  name?: unknown;
+  kind?: unknown;
+  range?: unknown;
+};
+
+function isRawLspRange(value: unknown): boolean {
+  if (!value || typeof value !== 'object') return false;
+  const range = value as { start?: unknown; end?: unknown };
+  const isPos = (p: unknown): boolean =>
+    !!p &&
+    typeof p === 'object' &&
+    typeof (p as { line?: unknown }).line === 'number' &&
+    typeof (p as { character?: unknown }).character === 'number';
+  return isPos(range.start) && isPos(range.end);
+}
+
+/**
+ * Fallback document-symbol source for JS/TS files oxc's full-fidelity symbol
+ * extractor (`extractJsSymbols`) declines — notably Flow-typed `.js` (Flow
+ * syntax like type annotations/generics can make oxc's default JS grammar
+ * fail the whole-file parse, returning an empty body). `extractGraphFacts`
+ * uses a more lenient extraction already proven elsewhere (localFindDeadCode)
+ * to tolerate this exact file class, and its declarations already carry
+ * 0-based LSP `range`s — so they slot into the same DocumentSymbol shape
+ * `nativeDocumentSymbols` produces, just without a full symbol hierarchy
+ * (flat top-level declarations only; `kind` is used as-is by `symbolKindName`,
+ * which already passes string kinds through unchanged).
+ */
+export function graphFactsDocumentSymbols(
+  uri: string,
+  content: string
+): unknown[] | null {
+  if (!isNativeJsTsFile(uri)) return null;
+  try {
+    const json = contextUtils.extractGraphFacts(content, uri);
+    if (!json) return null;
+    const parsed = JSON.parse(json) as {
+      declarations?: RawGraphFactDeclaration[];
+    };
+    const declarations = Array.isArray(parsed.declarations)
+      ? parsed.declarations
+      : [];
+    const symbols = declarations
+      .filter(
+        d =>
+          typeof d.name === 'string' &&
+          // Drop reserved-word "symbols" the extractor mis-emitted on some Flow
+          // files (e.g. `if`/`let` parsed as functions) — see jsSymbolNames.
+          isValidJsSymbolName(d.name) &&
+          typeof d.kind === 'string' &&
+          isRawLspRange(d.range)
+      )
+      .map(d => ({ name: d.name, kind: d.kind, range: d.range }));
+    return symbols.length > 0 ? symbols : null;
   } catch {
     return null;
   }

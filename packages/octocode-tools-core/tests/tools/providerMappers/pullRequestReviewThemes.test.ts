@@ -14,7 +14,7 @@ function basePr(overrides: Record<string, unknown> = {}) {
   };
 }
 
-describe('ghHistoryResearch reviewSummary.themes — ground-truth review states', () => {
+describe('ghSearchPullRequests reviewSummary.themes — ground-truth review states', () => {
   it('a single clean APPROVED review is never mislabeled by an unrelated bot comment (regression)', () => {
     const result = mapPullRequestProviderResultData({
       items: [

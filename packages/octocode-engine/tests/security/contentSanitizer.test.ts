@@ -104,18 +104,19 @@ describe('ContentSanitizer.validateInputParameters', () => {
     expect(String(r.sanitizedParams['key'])).not.toContain(FAKE_GH_TOKEN);
   });
 
-  it('truncates strings exceeding MAX_STRING_LENGTH', () => {
+  it('rejects strings exceeding MAX_STRING_LENGTH without silently truncating', () => {
     const long = 'x'.repeat(10_001);
     const r = ContentSanitizer.validateInputParameters({ text: long });
-    expect(String(r.sanitizedParams['text']).length).toBeLessThanOrEqual(10_000);
+    expect(r.isValid).toBe(false);
+    expect(r.sanitizedParams['text']).toBeUndefined();
     expect(r.warnings.some(w => /exceeds maximum length/i.test(w))).toBe(true);
   });
 
-  it('truncates arrays exceeding MAX_ARRAY_LENGTH', () => {
+  it('rejects arrays exceeding MAX_ARRAY_LENGTH without silently truncating', () => {
     const arr = Array.from({ length: 101 }, (_, i) => String(i));
     const r = ContentSanitizer.validateInputParameters({ items: arr });
-    expect(Array.isArray(r.sanitizedParams['items'])).toBe(true);
-    expect((r.sanitizedParams['items'] as unknown[]).length).toBeLessThanOrEqual(100);
+    expect(r.isValid).toBe(false);
+    expect(r.sanitizedParams['items']).toBeUndefined();
     expect(r.warnings.some(w => /array exceeds maximum/i.test(w))).toBe(true);
   });
 

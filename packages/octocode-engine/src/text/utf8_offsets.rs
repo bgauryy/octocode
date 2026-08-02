@@ -88,7 +88,7 @@ pub(crate) fn slice_content_inner(
 
     let total_chars = utf16_len(content);
 
-    if total_chars == 0 || char_length == 0 {
+    if total_chars == 0 {
         return SliceContentResult {
             text: String::new(),
             char_offset: 0,
@@ -154,6 +154,121 @@ fn snap_to_lines(content: &str, start_char: usize, end_char: usize) -> (usize, u
     // char_idx is now the total UTF-16 length: the fallback when end_char sits in
     // the final line (no newline after it).
     (actual_start, actual_end.unwrap_or(char_idx))
+}
+
+// ── LineIndex ─────────────────────────────────────────────────────────────────
+
+/// Maps byte offsets to/from 0-based `(line, UTF-16 code-unit column)`
+/// positions, and exposes the per-line UTF-16 line-start table. Built once in
+/// a single pass over `content`; every lookup after that is O(log n) via
+/// binary search over `line_starts_byte`.
+///
+/// This is the single shared implementation behind what were five
+/// independent reimplementations of "UTF-16 units per byte range":
+/// `structural/octo.rs`, `signatures/js_oxc.rs`, `signatures/graph_facts.rs`,
+/// and `signatures/mod.rs::build_js_char_offset_table`. Each of those keeps a
+/// thin, domain-specific wrapper (different method names/return types to
+/// match its own serde output or tree-sitter point convention) but delegates
+/// the actual counting to this struct.
+pub(crate) struct LineIndex<'a> {
+    content: &'a str,
+    /// Byte offset of the first byte of each 0-based line.
+    line_starts_byte: Vec<u32>,
+    /// UTF-16 code-unit offset of the first unit of each 0-based line — the
+    /// JS-string-offset equivalent of `line_starts_byte`.
+    line_starts_utf16: Vec<u32>,
+}
+
+impl<'a> LineIndex<'a> {
+    pub(crate) fn new(content: &'a str) -> Self {
+        let mut line_starts_byte = vec![0u32];
+        let mut line_starts_utf16 = vec![0u32];
+        let mut utf16_units: u32 = 0;
+        for (byte_idx, ch) in content.char_indices() {
+            utf16_units = utf16_units.saturating_add(ch.len_utf16() as u32);
+            if ch == '\n' {
+                line_starts_byte.push((byte_idx + ch.len_utf8()) as u32);
+                line_starts_utf16.push(utf16_units);
+            }
+        }
+        Self {
+            content,
+            line_starts_byte,
+            line_starts_utf16,
+        }
+    }
+
+    /// UTF-16 code-unit offset of the first unit of each 0-based line.
+    /// `table[i]` is the offset of the first unit on line `i` (0-based).
+    pub(crate) fn line_starts_utf16(&self) -> &[u32] {
+        &self.line_starts_utf16
+    }
+
+    /// 0-based `(line, UTF-16 column)` for a byte offset into `content`.
+    /// Clamps `byte_offset` beyond `content.len()` to the end of content.
+    pub(crate) fn byte_to_position(&self, byte_offset: u32) -> (u32, u32) {
+        let line = self
+            .line_starts_byte
+            .partition_point(|&start| start <= byte_offset)
+            .saturating_sub(1);
+        let line_start = self.line_starts_byte.get(line).copied().unwrap_or(0) as usize;
+        // Snap an offset that lands inside a multi-byte character down to that
+        // character's start; slicing on a non-char-boundary returns None and
+        // would otherwise silently collapse the column to 0.
+        let end = floor_char_boundary(self.content, (byte_offset as usize).min(self.content.len()));
+        let character = if line_start <= end {
+            self.content
+                .get(line_start..end)
+                .map(|slice| slice.chars().map(char::len_utf16).sum::<usize>() as u32)
+                .unwrap_or(0)
+        } else {
+            0
+        };
+        (line as u32, character)
+    }
+
+    /// Inverse of [`byte_to_position`](Self::byte_to_position): a 0-based
+    /// `(line, UTF-16 column)` to a byte offset into `content`. Clamps
+    /// out-of-range input to a valid offset.
+    pub(crate) fn position_to_byte(&self, line: u32, character: u32) -> u32 {
+        let line_start = self
+            .line_starts_byte
+            .get(line as usize)
+            .copied()
+            .unwrap_or(self.content.len() as u32) as usize;
+        let mut utf16 = 0u32;
+        let mut byte = line_start;
+        for ch in self.content.get(line_start..).unwrap_or("").chars() {
+            if utf16 >= character || ch == '\n' {
+                break;
+            }
+            utf16 += ch.len_utf16() as u32;
+            byte += ch.len_utf8();
+        }
+        byte as u32
+    }
+
+    /// UTF-16 column for a tree-sitter-style `(row, byte_column)` point,
+    /// where `row` is already known (no binary search needed) and
+    /// `byte_column` is a byte offset within that row. Clamped to the row's
+    /// bounds.
+    pub(crate) fn row_col_to_utf16_column(&self, row: u32, byte_column: u32) -> u32 {
+        let row = row as usize;
+        let line_start = self.line_starts_byte.get(row).copied().unwrap_or(0) as usize;
+        let line_end = self
+            .line_starts_byte
+            .get(row + 1)
+            .map(|start| (*start as usize).saturating_sub(1))
+            .unwrap_or(self.content.len())
+            .min(self.content.len());
+        let byte_end = line_start
+            .saturating_add(byte_column as usize)
+            .min(line_end);
+        self.content
+            .get(line_start..byte_end)
+            .map(|slice| slice.chars().map(char::len_utf16).sum::<usize>() as u32)
+            .unwrap_or(byte_column)
+    }
 }
 
 // ── unit tests ────────────────────────────────────────────────────────────────
@@ -322,6 +437,35 @@ mod tests {
     }
 
     #[test]
+    fn slice_content_offset_past_eof_reports_clamped_offset() {
+        // char_offset far beyond total_chars must clamp char_offset to
+        // total_chars (not reset it to 0) and report has_more: false —
+        // otherwise callers get a bogus next_char_offset that loops back to
+        // the start of the file.
+        let content = "abcde";
+        let r = slice_content_inner(content, 1000, 10, None);
+        assert_eq!(r.text, "");
+        assert_eq!(r.char_offset, 5);
+        assert_eq!(r.char_length, 0);
+        assert!(!r.has_more);
+        assert!(r.next_char_offset.is_none());
+    }
+
+    #[test]
+    fn slice_content_zero_length_preserves_offset() {
+        // An explicit char_length:0 request mid-content must not be treated
+        // as "no offset given" — it should report has_more relative to the
+        // requested offset, not the start of the file.
+        let content = "abcdefghij";
+        let r = slice_content_inner(content, 3, 0, None);
+        assert_eq!(r.text, "");
+        assert_eq!(r.char_offset, 3);
+        assert_eq!(r.char_length, 0);
+        assert!(r.has_more);
+        assert_eq!(r.next_char_offset, Some(3));
+    }
+
+    #[test]
     fn slice_content_multibyte_chars() {
         let content = "café world";
         let r = slice_content_inner(content, 0, 4, None);
@@ -353,5 +497,99 @@ mod tests {
                 "roundtrip failed at char_idx={char_idx}"
             );
         }
+    }
+
+    // ── LineIndex — shared line/UTF-16 index (consolidates the formerly
+    // duplicated implementations in structural/octo.rs, signatures/js_oxc.rs,
+    // and signatures/mod.rs::build_js_char_offset_table) ─────────────────────
+
+    #[test]
+    fn line_index_utf16_line_starts_counts_utf16_units() {
+        // ASCII-only: each char = 1 JS unit. Mirrors the former
+        // `build_js_char_offset_table` test in signatures/mod.rs.
+        let src = "ab\ncd\n";
+        let index = LineIndex::new(src);
+        assert_eq!(index.line_starts_utf16(), &[0, 3, 6]);
+    }
+
+    #[test]
+    fn line_index_utf16_line_starts_counts_surrogate_pairs() {
+        // "a🌍\nbb": 🌍 is 2 UTF-16 units, so line 2 starts at unit 4 (a=1,🌍=2,\n=1).
+        let src = "a🌍\nbb";
+        let index = LineIndex::new(src);
+        assert_eq!(index.line_starts_utf16(), &[0, 4]);
+    }
+
+    #[test]
+    fn line_index_byte_to_position_ascii() {
+        let src = "line1\nline2\nline3";
+        let index = LineIndex::new(src);
+        assert_eq!(index.byte_to_position(0), (0, 0));
+        assert_eq!(index.byte_to_position(3), (0, 3)); // inside "line1"
+        assert_eq!(index.byte_to_position(6), (1, 0)); // start of "line2"
+        assert_eq!(index.byte_to_position(12), (2, 0)); // start of "line3"
+    }
+
+    #[test]
+    fn line_index_byte_to_position_multibyte() {
+        // "a🌍b\ncd": line 0 is "a🌍b" (byte len 6), line 1 is "cd".
+        let src = "a🌍b\ncd";
+        let index = LineIndex::new(src);
+        assert_eq!(index.byte_to_position(0), (0, 0)); // 'a'
+        assert_eq!(index.byte_to_position(1), (0, 1)); // start of 🌍
+        assert_eq!(index.byte_to_position(5), (0, 3)); // 'b', after 2-unit emoji
+        assert_eq!(index.byte_to_position(7), (1, 0)); // start of "cd"
+    }
+
+    #[test]
+    fn line_index_byte_to_position_clamps_beyond_length() {
+        let src = "hi";
+        let index = LineIndex::new(src);
+        assert_eq!(index.byte_to_position(100), (0, 2));
+    }
+
+    #[test]
+    fn line_index_byte_to_position_snaps_mid_multibyte_offset_down() {
+        // A byte offset landing inside 🌍 (bytes 1..5) must report the column of
+        // the character it falls in — 🌍 starts at UTF-16 column 1 — rather than
+        // collapse to column 0 as a non-char-boundary slice silently would.
+        let src = "a🌍b\ncd";
+        let index = LineIndex::new(src);
+        assert_eq!(index.byte_to_position(2), (0, 1));
+        assert_eq!(index.byte_to_position(3), (0, 1));
+        assert_eq!(index.byte_to_position(4), (0, 1));
+        // Character boundaries are unaffected by the snap.
+        assert_eq!(index.byte_to_position(1), (0, 1));
+        assert_eq!(index.byte_to_position(5), (0, 3));
+    }
+
+    #[test]
+    fn line_index_position_to_byte_is_inverse_of_byte_to_position() {
+        let src = "hello\nworld\n世界 line";
+        let index = LineIndex::new(src);
+        for byte in [0usize, 1, 5, 6, 9, 12, 15, 20] {
+            let (line, character) = index.byte_to_position(byte as u32);
+            let back = index.position_to_byte(line, character);
+            // byte_to_position clamps to the nearest char boundary at/after
+            // `byte`'s line-relative UTF-16 unit, so round-tripping must land
+            // on a byte offset that maps back to the same (line, character).
+            assert_eq!(
+                index.byte_to_position(back),
+                (line, character),
+                "roundtrip failed at byte={byte}"
+            );
+        }
+    }
+
+    #[test]
+    fn line_index_row_col_to_utf16_column_matches_byte_to_position() {
+        // row_col_to_utf16_column (used by structural/octo.rs, which already
+        // has a tree-sitter (row, byte_column) point in hand) must agree with
+        // byte_to_position's within-line UTF-16 column for the same location.
+        let src = "abc\nd🌍fg\nhij";
+        let index = LineIndex::new(src);
+        assert_eq!(index.row_col_to_utf16_column(0, 2), 2); // "ab" -> col 2
+        assert_eq!(index.row_col_to_utf16_column(1, 5), 3); // "d🌍" -> col 3 (1 + 2 units)
+        assert_eq!(index.row_col_to_utf16_column(2, 3), 3); // "hij" -> col 3
     }
 }

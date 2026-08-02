@@ -53,30 +53,22 @@ describe('paths', () => {
     );
   });
 
-  it('uses %APPDATA%\\.octocode on Windows', async () => {
+  it('uses ~/.octocode on Windows and ignores APPDATA', async () => {
     mockPlatform('win32', 'C:\\Users\\TestUser');
     process.env.APPDATA = 'C:\\Users\\TestUser\\AppData\\Roaming';
     const mod = await import('../../../src/shared/paths.js');
 
     expect(mod.paths.home.replaceAll('\\', '/')).toBe(
-      'C:/Users/TestUser/AppData/Roaming/.octocode'
+      'C:/Users/TestUser/.octocode'
     );
   });
 
-  it('uses ${XDG_CONFIG_HOME}/.octocode on Linux when available', async () => {
+  it('uses ~/.octocode on Linux and ignores XDG_CONFIG_HOME', async () => {
     mockPlatform('linux', '/home/tester');
     process.env.XDG_CONFIG_HOME = '/xdg/config';
     const mod = await import('../../../src/shared/paths.js');
 
-    expect(mod.paths.home).toBe('/xdg/config/.octocode');
-  });
-
-  it('uses ~/.config/.octocode on Linux when XDG_CONFIG_HOME is unset', async () => {
-    mockPlatform('linux', '/home/tester');
-    delete process.env.XDG_CONFIG_HOME;
-    const mod = await import('../../../src/shared/paths.js');
-
-    expect(mod.paths.home).toBe('/home/tester/.config/.octocode');
+    expect(mod.paths.home).toBe('/home/tester/.octocode');
   });
 
   it('honors OCTOCODE_HOME for isolated test and agent caches', async () => {

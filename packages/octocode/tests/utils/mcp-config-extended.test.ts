@@ -33,7 +33,9 @@ describe('MCP Config Extended', () => {
       const result = getOctocodeServerConfig('npx');
 
       expect(result.command).toBe('npx');
-      expect(result.args).toContain('@octocodeai/mcp@latest');
+      expect(result.type).toBe('stdio');
+      expect(result.args).toContain('octocode-mcp@latest');
+      expect(result.args).not.toContain('-y');
     });
 
     it('should throw error for unknown method', async () => {
@@ -54,7 +56,8 @@ describe('MCP Config Extended', () => {
       const result = getOctocodeServerConfigWindows('npx');
 
       expect(result.command).toBe('npx');
-      expect(result.args).toContain('@octocodeai/mcp@latest');
+      expect(result.type).toBe('stdio');
+      expect(result.args).toContain('octocode-mcp@latest');
     });
   });
 

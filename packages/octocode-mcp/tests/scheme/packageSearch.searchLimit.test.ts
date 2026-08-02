@@ -23,14 +23,6 @@ describe('npmSearch schema', () => {
     expect('verbose' in q).toBe(false);
   });
 
-  it('accepts mode from the core npmSearch schema', () => {
-    const q = parsedQuery({
-      packageName: 'lodash',
-      mode: 'lean',
-    });
-    expect(q.mode).toBe('lean');
-  });
-
   it('rejects unknown fields', () => {
     expect(() =>
       parsedQuery({

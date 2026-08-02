@@ -29,7 +29,7 @@ export async function callsEnvelope(
   client: NonNullable<Awaited<ReturnType<typeof acquirePooledClient>>>
 ): Promise<LspSemanticEnvelope> {
   const items = await client.prepareCallHierarchy(
-    anchor.uri,
+    anchor.absolutePath,
     anchor.resolvedSymbol.position,
     anchor.content
   );
@@ -44,6 +44,9 @@ export async function callsEnvelope(
     truncatedByDepth: false,
     cycleCount: 0,
     failedRequestCount: 0,
+    truncatedByBudget: false,
+    visitedNodeCount: 0,
+    requestCount: 0,
   } as const;
   const incomingResult =
     query.type === 'callers' || query.type === 'callHierarchy'
@@ -103,6 +106,8 @@ export async function callsEnvelope(
   const traversalComplete =
     !incomingResult.truncatedByDepth &&
     !outgoingResult.truncatedByDepth &&
+    !incomingResult.truncatedByBudget &&
+    !outgoingResult.truncatedByBudget &&
     incomingResult.failedRequestCount + outgoingResult.failedRequestCount === 0;
   return {
     type: query.type,
@@ -120,6 +125,11 @@ export async function callsEnvelope(
         complete: traversalComplete,
         truncatedByDepth:
           incomingResult.truncatedByDepth || outgoingResult.truncatedByDepth,
+        truncatedByBudget:
+          incomingResult.truncatedByBudget || outgoingResult.truncatedByBudget,
+        visitedNodeCount:
+          incomingResult.visitedNodeCount + outgoingResult.visitedNodeCount,
+        requestCount: incomingResult.requestCount + outgoingResult.requestCount,
         cycleCount: incomingResult.cycleCount + outgoingResult.cycleCount,
         failedRequestCount:
           incomingResult.failedRequestCount + outgoingResult.failedRequestCount,
@@ -145,7 +155,7 @@ export async function typeHierarchyEnvelope(
   client: NonNullable<Awaited<ReturnType<typeof acquirePooledClient>>>
 ): Promise<LspSemanticEnvelope> {
   const items = await client.prepareTypeHierarchy(
-    anchor.uri,
+    anchor.absolutePath,
     anchor.resolvedSymbol.position,
     anchor.content
   );

@@ -1,31 +1,28 @@
 import type { PaginationInfo } from '../../types/toolResults.js';
 
 /**
- * Shared count-honesty fields from search/PR pagination envelopes.
- * Single source so githubSearch / githubPullRequests / mappers stay aligned.
+ * Agent-facing count-honesty fields for search/PR pagination envelopes.
+ * `totalMatches` (set on the base pagination) is the single count; here we add
+ * only `totalMatchesCapped` — true when GitHub reported more than the reachable
+ * 1000-result page window. The internal `reportedTotalMatches`/
+ * `reachableTotalMatches`/`totalMatchesKind` drive that flag but are redundant
+ * to emit (they duplicate `totalMatches` in the common uncapped case).
  */
 export function countPaginationMetadata(
   pagination: PaginationInfo | undefined
 ): {
-  reportedTotalMatches?: number;
-  reachableTotalMatches?: number;
-  totalMatchesKind?: PaginationInfo['totalMatchesKind'];
   totalMatchesCapped?: boolean;
   uniqueFileCount?: number;
 } {
+  const capped =
+    typeof pagination?.totalMatchesCapped === 'boolean'
+      ? pagination.totalMatchesCapped
+      : typeof pagination?.reportedTotalMatches === 'number' &&
+          typeof pagination?.reachableTotalMatches === 'number'
+        ? pagination.reportedTotalMatches > pagination.reachableTotalMatches
+        : undefined;
   return {
-    ...(typeof pagination?.reportedTotalMatches === 'number'
-      ? { reportedTotalMatches: pagination.reportedTotalMatches }
-      : {}),
-    ...(typeof pagination?.reachableTotalMatches === 'number'
-      ? { reachableTotalMatches: pagination.reachableTotalMatches }
-      : {}),
-    ...(pagination?.totalMatchesKind
-      ? { totalMatchesKind: pagination.totalMatchesKind }
-      : {}),
-    ...(typeof pagination?.totalMatchesCapped === 'boolean'
-      ? { totalMatchesCapped: pagination.totalMatchesCapped }
-      : {}),
+    ...(typeof capped === 'boolean' ? { totalMatchesCapped: capped } : {}),
     ...(typeof pagination?.uniqueFileCount === 'number'
       ? { uniqueFileCount: pagination.uniqueFileCount }
       : {}),

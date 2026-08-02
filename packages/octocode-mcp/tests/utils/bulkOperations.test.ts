@@ -560,7 +560,7 @@ describe('executeBulkOperation', () => {
         });
 
       const result = await executeBulkOperation(queries, processor, {
-        toolName: TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS,
+        toolName: TOOL_NAMES.GITHUB_PULL_REQUESTS,
       });
 
       expect(result.isError).toBe(false);
@@ -968,7 +968,7 @@ describe('executeBulkOperation', () => {
       });
 
       const result = await executeBulkOperation(queries, processor, {
-        toolName: TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS,
+        toolName: TOOL_NAMES.GITHUB_PULL_REQUESTS,
       });
 
       const responseText = getTextContent(result.content);
@@ -1060,7 +1060,7 @@ describe('executeBulkOperation', () => {
       const toolNames: ToolName[] = [
         TOOL_NAMES.GITHUB_SEARCH_CODE,
         TOOL_NAMES.GITHUB_SEARCH_REPOSITORIES,
-        TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS,
+        TOOL_NAMES.GITHUB_PULL_REQUESTS,
         TOOL_NAMES.GITHUB_FETCH_CONTENT,
         TOOL_NAMES.GITHUB_VIEW_REPO_STRUCTURE,
       ];
@@ -1633,7 +1633,7 @@ describe('executeBulkOperation', () => {
       });
 
       const result = await executeBulkOperation(queries, processor, {
-        toolName: TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS,
+        toolName: TOOL_NAMES.GITHUB_PULL_REQUESTS,
         keysPriority: ['items'],
       });
 
@@ -1668,7 +1668,7 @@ describe('executeBulkOperation', () => {
       });
 
       const result = await executeBulkOperation(queries, processor, {
-        toolName: TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS,
+        toolName: TOOL_NAMES.GITHUB_PULL_REQUESTS,
         keysPriority: ['items'],
       });
 

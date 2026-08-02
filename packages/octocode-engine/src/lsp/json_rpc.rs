@@ -179,6 +179,10 @@ where
     writer: SharedWriter<W>,
     next_id: AtomicU64,
     pending: PendingMap,
+    /// `true` once the read loop has exited (EOF/read error) and failed every
+    /// pending request. Lets the JS client pool tell a live connection from a
+    /// crashed one at `acquire()` time instead of only via the idle timer.
+    failed: Arc<AtomicBool>,
 }
 
 impl<W> JsonRpcConnection<W>
@@ -196,18 +200,27 @@ where
     {
         let pending: PendingMap = Arc::new(Mutex::new(HashMap::new()));
         let writer = Arc::new(Mutex::new(writer));
+        let failed = Arc::new(AtomicBool::new(false));
         tokio::spawn(read_loop(
             reader,
             Arc::clone(&pending),
             Arc::clone(&writer),
             context,
             Arc::clone(&progress),
+            Arc::clone(&failed),
         ));
         Self {
             writer,
             next_id: AtomicU64::new(1),
             pending,
+            failed,
         }
+    }
+
+    /// `false` once the read loop has observed the connection close (server
+    /// crashed or exited) and failed all pending requests.
+    pub fn is_alive(&self) -> bool {
+        !self.failed.load(Ordering::Acquire)
     }
 
     pub async fn request(&self, method: &str, params: Value, timeout_ms: u32) -> Result<Value> {
@@ -257,6 +270,7 @@ async fn read_loop<R, W>(
     writer: SharedWriter<W>,
     context: ClientRequestContext,
     progress: Arc<ProgressTracker>,
+    failed: Arc<AtomicBool>,
 ) where
     R: AsyncRead + Unpin,
     W: AsyncWrite + Unpin + Send + 'static,
@@ -318,6 +332,7 @@ async fn read_loop<R, W>(
             let _ = sender.send(result);
         }
     }
+    failed.store(true, Ordering::Release);
     fail_all_pending(&pending, "LSP connection closed").await;
 }
 
@@ -505,6 +520,49 @@ mod tests {
     }
 
     #[test]
+    fn connection_is_alive_until_the_server_stream_closes() {
+        // Drives the pool-crash-detection fix: the JS client pool must be able
+        // to tell a live connection from one whose read loop has already hit
+        // EOF (server crashed / stream closed) so it can evict a stale pooled
+        // entry instead of returning it to the next acquire().
+        let runtime = tokio::runtime::Runtime::new().expect("tokio runtime");
+        runtime.block_on(async {
+            let (client_w, server_r) = duplex(1024);
+            let (server_w, client_r) = duplex(1024);
+
+            let conn = JsonRpcConnection::new(
+                client_r,
+                client_w,
+                ClientRequestContext {
+                    configuration: Value::Null,
+                    workspace_folders: Value::Null,
+                },
+                ProgressTracker::new(),
+            );
+
+            assert!(conn.is_alive(), "connection should start alive");
+
+            // Close both ends of the "server" side so the client's read loop
+            // observes EOF, the same signal a real crashed server produces.
+            drop(server_w);
+            drop(server_r);
+
+            // The read loop runs as a spawned task on the same runtime; poll
+            // briefly for it to process the EOF rather than assuming it has
+            // already run by the time we check.
+            let mut became_dead = false;
+            for _ in 0..50 {
+                if !conn.is_alive() {
+                    became_dead = true;
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+            assert!(became_dead, "connection should be marked dead after EOF");
+        });
+    }
+
+    #[test]
     fn read_loop_survives_lengthless_frame_then_routes_next_response() {
         // A blank-line / length-less frame must NOT tear down the connection;
         // a subsequent well-formed response with a string id should still route.
@@ -535,6 +593,7 @@ mod tests {
                     workspace_folders: Value::Null,
                 },
                 ProgressTracker::new(),
+                Arc::new(AtomicBool::new(false)),
             )
             .await;
 
@@ -678,6 +737,7 @@ mod tests {
                     workspace_folders: Value::Null,
                 },
                 ProgressTracker::new(),
+                Arc::new(AtomicBool::new(false)),
             )
             .await;
 
@@ -717,6 +777,7 @@ mod tests {
                     workspace_folders: Value::Null,
                 },
                 ProgressTracker::new(),
+                Arc::new(AtomicBool::new(false)),
             )
             .await;
 

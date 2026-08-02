@@ -48,6 +48,30 @@ describe('sanitizeStructuredContent', () => {
     expect(out.count).toBe(2);
   });
 
+  it('strips `warnings` keys at every depth (no-warnings contract: structuredContent is an egress surface too)', () => {
+    const input = {
+      results: [
+        {
+          id: 'r1',
+          data: {
+            path: 'src/a.ts',
+            content: 'foo(bar)',
+            warnings: ['Found 1 occurrence of "x" on line 13'],
+          },
+        },
+      ],
+      warnings: ['top-level channel must not survive either'],
+    };
+
+    const out = sanitizeStructuredContent(input) as Record<string, unknown>;
+    const flat = JSON.stringify(out);
+
+    expect(flat).not.toContain('warnings');
+    expect(
+      (out.results as Array<{ data: Record<string, unknown> }>)[0].data.content
+    ).toBe('foo(bar)');
+  });
+
   it('handles a bare secret string and non-string primitives', () => {
     expect(sanitizeStructuredContent(PAT)).toContain('[REDACTED-');
     expect(sanitizeStructuredContent('foo(bar)')).toBe('foo(bar)');

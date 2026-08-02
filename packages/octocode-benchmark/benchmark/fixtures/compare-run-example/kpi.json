@@ -1,0 +1,68 @@
+{
+  "run": "compare-run-example",
+  "date": "2026-08-02",
+  "subjectSha": "fixture-not-a-real-run",
+  "baselines": {
+    "example-baseline": "fixture"
+  },
+  "agentTotals": {
+    "fixture-suite": {
+      "A": {
+        "agentTokens": 100,
+        "toolUses": 1,
+        "wallClockSec": 1
+      },
+      "B": {
+        "agentTokens": 80,
+        "toolUses": 1,
+        "wallClockSec": 1
+      }
+    }
+  },
+  "questions": [
+    {
+      "suite": "fixture-suite",
+      "q": 1,
+      "topic": "contract fixture",
+      "targetTools": ["ghSearchCode"],
+      "contaminated": false,
+      "arms": {
+        "A": {
+          "correctness": 1.0,
+          "quality": 4,
+          "bytes": 400,
+          "estTokens": 100,
+          "calls": 1,
+          "falseConfidence": false,
+          "judgeNote": "Fixture baseline."
+        },
+        "B": {
+          "correctness": 1.0,
+          "quality": 5,
+          "bytes": 200,
+          "estTokens": 50,
+          "calls": 1,
+          "falseConfidence": false,
+          "judgeNote": "Fixture treatment."
+        }
+      }
+    }
+  ],
+  "suiteRollups": {
+    "fixture-suite": {
+      "meanCorrectness": {
+        "A": 1.0,
+        "B": 1.0
+      },
+      "meanQuality": {
+        "A": 4,
+        "B": 5
+      },
+      "totalBytes": {
+        "A": 400,
+        "B": 200
+      },
+      "verdict": "Fixture only — validates shape, not product quality."
+    }
+  }
+}

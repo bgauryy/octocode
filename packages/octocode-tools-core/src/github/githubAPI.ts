@@ -29,8 +29,8 @@ export interface PRReviewInfo {
   user: string;
   state: string;
   body: string;
-  submitted_at?: string;
-  commit_id?: string;
+  submittedAt?: string;
+  commitId?: string;
 }
 
 export interface CommitFileInfo {
@@ -75,7 +75,6 @@ export interface HistoryCommit {
   /** Present when the message body was cut at 500 chars — the '…' is a real cut. */
   messageTruncated?: true;
   messageHeadline: string;
-  url: string;
   author: {
     name: string;
     email: string;
@@ -124,6 +123,8 @@ export interface HistoryResult {
     hasMore: boolean;
     nextPage?: number;
   };
+  /** Date-window / diff-fallback explanations (e.g. committer-date note). */
+  warnings?: string[];
 }
 
 export type GetContentParameters =
@@ -219,8 +220,8 @@ export interface PRCommentItem {
   id: string;
   user: string;
   body: string;
-  created_at: string;
-  updated_at: string;
+  createdAt: string;
+  updatedAt: string;
 
   commentType?: 'discussion' | 'review_inline';
 
@@ -228,7 +229,7 @@ export interface PRCommentItem {
 
   line?: number;
 
-  in_reply_to_id?: number | null;
+  inReplyToId?: number | null;
 }
 
 export type GitHubPullRequestItem = Pick<
@@ -277,7 +278,6 @@ export interface GitHubPullRequestsSearchParams {
   assignee?: string;
   mentions?: string;
   commenter?: string;
-  involves?: string;
   'reviewed-by'?: string;
   'review-requested'?: string;
   head?: string;
@@ -288,7 +288,6 @@ export interface GitHubPullRequestsSearchParams {
   closed?: string;
   comments?: number | string;
   reactions?: number | string;
-  interactions?: number | string;
   label?: string | string[];
   milestone?: string;
   language?: string;
@@ -296,12 +295,7 @@ export interface GitHubPullRequestsSearchParams {
   review?: 'none' | 'required' | 'approved' | 'changes_requested';
   locked?: boolean;
   visibility?: 'public' | 'private';
-  'team-mentions'?: string;
   project?: string;
-  'no-assignee'?: boolean;
-  'no-label'?: boolean;
-  'no-milestone'?: boolean;
-  'no-project'?: boolean;
   match?: ('title' | 'body' | 'comments')[];
 
   archived?: boolean;

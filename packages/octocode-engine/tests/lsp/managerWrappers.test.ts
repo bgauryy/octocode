@@ -1,9 +1,14 @@
 import { describe, expect, it, vi } from 'vitest';
 
-async function withMockedManager(run: () => Promise<void>) {
+async function withMockedManager(
+  run: (mocks: { client: { start: ReturnType<typeof vi.fn>; stop: ReturnType<typeof vi.fn> } }) => Promise<void>,
+  options: { startError?: Error } = {}
+) {
   vi.resetModules();
   const client = {
-    start: vi.fn().mockResolvedValue(undefined),
+    start: options.startError
+      ? vi.fn().mockRejectedValue(options.startError)
+      : vi.fn().mockResolvedValue(undefined),
     stop: vi.fn().mockResolvedValue(undefined),
   };
   const LSPClient = vi.fn(function LSPClient() {
@@ -38,7 +43,7 @@ async function withMockedManager(run: () => Promise<void>) {
     resolveWorkspaceRootForFile: vi.fn(() => Promise.resolve('/workspace')),
   }));
   try {
-    await run();
+    await run({ client });
   } finally {
     vi.doUnmock('../../src/lsp/client.js');
     vi.doUnmock('../../src/lsp/config.js');
@@ -83,6 +88,9 @@ describe('manager wrapper flow', () => {
       const manager = await import('../../src/lsp/manager.js');
 
       await expect(
+        manager.acquirePooledClientDetailed('/workspace', '/workspace/a.missing')
+      ).resolves.toMatchObject({ ok: false, kind: 'unavailable' });
+      await expect(
         manager.acquirePooledClient('/workspace', '/workspace/a.missing')
       ).resolves.toBeNull();
       await expect(
@@ -95,6 +103,36 @@ describe('manager wrapper flow', () => {
         languageId: undefined,
         serverAvailable: false,
       });
+    });
+  });
+
+  it('preserves startup failure details on detailed acquisition', async () => {
+    await withMockedManager(
+      async () => {
+        const manager = await import('../../src/lsp/manager.js');
+
+        await expect(
+          manager.acquirePooledClientDetailed('/workspace', '/workspace/a.ts')
+        ).resolves.toMatchObject({
+          ok: false,
+          kind: 'startupFailed',
+          message: 'boom from server',
+        });
+        await expect(
+          manager.acquirePooledClient('/workspace', '/workspace/a.ts')
+        ).resolves.toBeNull();
+      },
+      { startError: new Error('boom from server') }
+    );
+  });
+
+  it('parses invalid pool idle timeout env values back to default', async () => {
+    await withMockedManager(async () => {
+      const manager = await import('../../src/lsp/manager.js');
+
+      expect(manager.parsePoolIdleTimeoutMs('garbage')).toBe(60_000);
+      expect(manager.parsePoolIdleTimeoutMs('0')).toBe(60_000);
+      expect(manager.parsePoolIdleTimeoutMs('2500')).toBe(2_500);
     });
   });
 });

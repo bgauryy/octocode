@@ -49,8 +49,8 @@ export async function fetchPRComments(
         id: String(comment.id),
         user: comment.user?.login ?? 'unknown',
         body: ContentSanitizer.sanitizeContent(stripped).content,
-        created_at: comment.created_at ?? '',
-        updated_at: comment.updated_at ?? '',
+        createdAt: comment.created_at ?? '',
+        updatedAt: comment.updated_at ?? '',
         commentType: 'discussion',
       };
     });
@@ -103,8 +103,8 @@ export async function fetchPRReviews(
         body: ContentSanitizer.sanitizeContent(
           contextUtils.minifyMarkdownCore(stripMachineBlobs(review.body ?? ''))
         ).content,
-        submitted_at: review.submitted_at ?? undefined,
-        commit_id: review.commit_id ?? undefined,
+        submittedAt: review.submitted_at ?? undefined,
+        commitId: review.commit_id ?? undefined,
       })),
       rawResponseChars
     );
@@ -156,13 +156,13 @@ export async function fetchPRInlineComments(
         id: String(comment.id),
         user: comment.user?.login ?? 'unknown',
         body: ContentSanitizer.sanitizeContent(stripped).content,
-        created_at: comment.created_at ?? '',
-        updated_at: comment.updated_at ?? '',
+        createdAt: comment.created_at ?? '',
+        updatedAt: comment.updated_at ?? '',
         commentType: 'review_inline',
         path: comment.path,
         line: comment.line ?? comment.original_line ?? undefined,
         ...(comment.in_reply_to_id != null
-          ? { in_reply_to_id: comment.in_reply_to_id }
+          ? { inReplyToId: comment.in_reply_to_id }
           : {}),
       };
     });

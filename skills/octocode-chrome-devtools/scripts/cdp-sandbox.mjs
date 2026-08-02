@@ -51,6 +51,12 @@ const LIST_TARGETS = hasFlag('--list-targets');
 const scriptArg    = argv.find(a => !a.startsWith('--') && (a.endsWith('.mjs') || a.endsWith('.js')));
 const SCRIPT_TIMEOUT_MS = parseInt(getArg('--script-timeout', '300000'), 10);
 
+if (hasFlag('--help') || hasFlag('-h')) {
+  console.error('[CDP_SANDBOX] Usage: node cdp-sandbox.mjs <script.mjs> [--port 9222] [options]');
+  console.error('[CDP_SANDBOX] Options are the same as cdp-runner.mjs');
+  process.exit(0);
+}
+
 if (!scriptArg && !LIST_TARGETS) {
   console.error('[CDP_SANDBOX] Usage: node cdp-sandbox.mjs <script.mjs> [--port 9222] [options]');
   console.error('[CDP_SANDBOX] Options are the same as cdp-runner.mjs');
@@ -88,7 +94,7 @@ const CONFIG_NODE_MODULES_ROOT_REAL = safePath(CONFIG_NODE_MODULES_ROOT);
 const OUTPUT_REAL = safePath(OUTPUT_DIR);
 const SESSION_META_REAL = safePath(SESSION_META_DIR);
 
-const HELPERS = ['sourcemap-resolver.mjs', 'undercover.mjs'];
+const HELPERS = ['sourcemap-resolver.mjs', 'undercover.mjs', 'human-input.mjs'];
 for (const helper of HELPERS) {
   const src = resolve(__dir, helper);
   const dst = join(TMPDIR_RAW, helper);

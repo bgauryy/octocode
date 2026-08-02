@@ -4,10 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { parseArgs, hasHelpFlag, hasVersionFlag } from './parser.js';
 import { EXIT } from './exit-codes.js';
 import type { CLICommand, CLICommandSpec, ParsedArgs } from './types.js';
-import {
-  setRuntimeSurface,
-  invalidateConfigCache,
-} from '@octocodeai/octocode-tools-core/config';
+import { setRuntimeSurface, invalidateConfigCache } from '@octocodeai/config';
 
 declare const __APP_VERSION__: string;
 
@@ -25,8 +22,14 @@ async function loadStaticCommandHelpModule(): Promise<{
 
 async function loadToolCommandModule(): Promise<{
   executeToolCommand(args: ParsedArgs): Promise<boolean>;
-  getToolsContextString(options?: { full?: boolean }): Promise<string>;
-  printToolsContext(options?: { full?: boolean }): Promise<void>;
+  getToolsContextString(options?: {
+    full?: boolean;
+    minimal?: boolean;
+  }): Promise<string>;
+  printToolsContext(options?: {
+    full?: boolean;
+    minimal?: boolean;
+  }): Promise<void>;
   showToolHelp(toolName: string): Promise<boolean>;
   showAvailableTools(): Promise<void>;
   showMultipleToolSchemas(toolNames: string[]): Promise<void>;
@@ -35,7 +38,7 @@ async function loadToolCommandModule(): Promise<{
 }
 
 async function loadLightToolHelpModule(): Promise<{
-  printLightInstructions(options?: { full?: boolean }): void;
+  printLightInstructions(options?: { full?: boolean; minimal?: boolean }): void;
   printToolRuntimeUnavailable(): void;
   showLightAvailableTools(): void;
   showLightToolHelp(toolName: string): boolean;
@@ -74,6 +77,9 @@ const KNOWN_TOP_LEVEL_OPTIONS = new Set([
   // that fall through to the main help (exit 0) rather than "unknown options".
   'json',
   'compact',
+  'brief',
+  'pretty',
+  'minimal',
   'raw',
 ]);
 
@@ -190,7 +196,10 @@ export async function runCLI(argv?: string[]): Promise<boolean> {
   if (!args.command && args.options.context === true) {
     const toolModule = await tryLoadToolCommandModule();
     if (toolModule) {
-      const options = { full: args.options['full'] === true };
+      const options = {
+        full: args.options['full'] === true,
+        minimal: args.options['minimal'] === true,
+      };
       if (args.options['json'] === true) {
         const context = await toolModule.getToolsContextString(options);
         console.log(JSON.stringify({ context }));
@@ -200,7 +209,10 @@ export async function runCLI(argv?: string[]): Promise<boolean> {
       return true;
     }
     const { printLightInstructions } = await loadLightToolHelpModule();
-    printLightInstructions({ full: args.options['full'] === true });
+    printLightInstructions({
+      full: args.options['full'] === true,
+      minimal: args.options['minimal'] === true,
+    });
     return true;
   }
 
@@ -252,7 +264,10 @@ export async function runCLI(argv?: string[]): Promise<boolean> {
   if (args.command === 'context') {
     const toolModule = await tryLoadToolCommandModule();
     if (toolModule) {
-      const options = { full: args.options['full'] === true };
+      const options = {
+        full: args.options['full'] === true,
+        minimal: args.options['minimal'] === true,
+      };
       if (args.options['json'] === true) {
         const context = await toolModule.getToolsContextString(options);
         console.log(JSON.stringify({ context }));
@@ -262,23 +277,10 @@ export async function runCLI(argv?: string[]): Promise<boolean> {
       return true;
     }
     const { printLightInstructions } = await loadLightToolHelpModule();
-    printLightInstructions({ full: args.options['full'] === true });
-    return true;
-  }
-
-  if (args.command === 'search' && args.options.scheme === true) {
-    // Engine-free `/schema` subpath: print the schema without loading the
-    // native engine. --compact prints the lean agent guide (TEXT);
-    // --json --compact prints a small machine-readable guide.
-    const { oqlSchemaText, oqlCompactSchemeText, oqlCompactSchemeJson } =
-      await import('@octocodeai/octocode-tools-core/schema');
-    const schemeText =
-      args.options.json === true && args.options.compact === true
-        ? oqlCompactSchemeJson()
-        : args.options.compact === true
-          ? oqlCompactSchemeText()
-          : oqlSchemaText();
-    process.stdout.write(`${schemeText}\n`);
+    printLightInstructions({
+      full: args.options['full'] === true,
+      minimal: args.options['minimal'] === true,
+    });
     return true;
   }
 

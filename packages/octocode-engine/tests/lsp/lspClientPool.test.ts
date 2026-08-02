@@ -4,6 +4,7 @@ import { LspClientPool, type PoolKey } from '../../src/lsp/lspClientPool.js';
 type FakeClient = {
   readonly id: number;
   readonly stop: () => Promise<void>;
+  readonly isAlive?: () => Promise<boolean>;
 };
 
 function key(
@@ -110,6 +111,53 @@ describe('LspClientPool', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('evicts a crashed client and creates a fresh one on next acquire, without waiting for the idle timer', async () => {
+    const clientA = {
+      id: 1,
+      stop: vi.fn().mockResolvedValue(undefined),
+      isAlive: vi.fn().mockResolvedValue(true),
+    };
+    const clientB = {
+      id: 2,
+      stop: vi.fn().mockResolvedValue(undefined),
+      isAlive: vi.fn().mockResolvedValue(true),
+    };
+    const clients = [clientA, clientB];
+    const pool = new LspClientPool<FakeClient>({
+      idleTimeoutMs: 10_000,
+      factory: vi.fn(async () => {
+        const client = clients.shift();
+        if (!client) throw new Error('missing client');
+        return client;
+      }),
+    });
+    const poolKey = key('/repo');
+
+    expect(await pool.acquire(poolKey)).toBe(clientA);
+    expect(await pool.acquire(poolKey)).toBe(clientA); // still alive: cached, no factory call
+
+    // Backing process crashes mid-session.
+    clientA.isAlive.mockResolvedValue(false);
+
+    expect(await pool.acquire(poolKey)).toBe(clientB);
+    expect(clientA.stop).toHaveBeenCalledTimes(1); // evicted, not left for the idle timer
+    expect(pool.size()).toBe(1);
+    expect(pool.keys()).toEqual([poolKey]);
+  });
+
+  it('treats a client with no isAlive() as alive (backward compatible with an unrebuilt native binding)', async () => {
+    const client = { id: 1, stop: vi.fn().mockResolvedValue(undefined) };
+    const factory = vi.fn().mockResolvedValue(client);
+    const pool = new LspClientPool<FakeClient>({ idleTimeoutMs: 10_000, factory });
+    const poolKey = key('/repo');
+
+    await pool.acquire(poolKey);
+    await pool.acquire(poolKey);
+
+    expect(factory).toHaveBeenCalledTimes(1);
+    expect(client.stop).not.toHaveBeenCalled();
   });
 
   it('ignores stale idle timers and missing reset entries', async () => {

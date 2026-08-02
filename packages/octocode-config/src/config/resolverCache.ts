@@ -12,35 +12,47 @@ import {
   resolveSession,
 } from './resolverSections.js';
 
+const CONFIG_ENV_KEYS = [
+  'GITHUB_API_URL',
+  'ENABLE_LOCAL',
+  'ENABLE_CLONE',
+  'ALLOWED_PATHS',
+  'WORKSPACE_ROOT',
+  'TOOLS_TO_RUN',
+  'ENABLE_TOOLS',
+  'DISABLE_TOOLS',
+  'REQUEST_TIMEOUT',
+  'MAX_RETRIES',
+  'OCTOCODE_LSP_CONFIG',
+  'OCTOCODE_OUTPUT_FORMAT',
+  'OCTOCODE_OUTPUT_DEFAULT_CHAR_LENGTH',
+  'OCTOCODE_ENABLE_STATS',
+] as const;
+
+type FileState = 'absent' | 'valid' | 'invalid';
+
+function hasEnvOverrides(env: NodeJS.ProcessEnv = process.env): boolean {
+  return CONFIG_ENV_KEYS.some(key => env[key] !== undefined);
+}
+
+function sourceFor(fileState: FileState): ResolvedConfig['source'] {
+  if (fileState === 'invalid') return 'invalid';
+  const envOverrides = hasEnvOverrides();
+  if (fileState === 'valid') return envOverrides ? 'mixed' : 'file';
+  return envOverrides ? 'env' : 'defaults';
+}
+
+function warnInvalidConfig(configPath: string, errors: readonly string[]): void {
+  const message = errors.length > 0 ? errors.join('; ') : 'Invalid configuration';
+  process.stderr.write(`[octocode-config] Invalid .octocoderc at ${configPath}: ${message}\n`);
+}
+
 function buildResolvedConfig(
   fileConfig: OctocodeConfig | undefined,
-  configPath?: string
+  options: { configPath?: string; fileState?: FileState } = {}
 ): ResolvedConfig {
-  const hasFile = fileConfig !== undefined;
-  const hasEnvOverrides =
-    process.env.GITHUB_API_URL !== undefined ||
-    process.env.ENABLE_LOCAL !== undefined ||
-    process.env.ENABLE_CLONE !== undefined ||
-    process.env.ALLOWED_PATHS !== undefined ||
-    process.env.WORKSPACE_ROOT !== undefined ||
-    process.env.TOOLS_TO_RUN !== undefined ||
-    process.env.ENABLE_TOOLS !== undefined ||
-    process.env.DISABLE_TOOLS !== undefined ||
-    process.env.REQUEST_TIMEOUT !== undefined ||
-    process.env.MAX_RETRIES !== undefined ||
-    process.env.OCTOCODE_LSP_CONFIG !== undefined ||
-    process.env.OCTOCODE_OUTPUT_FORMAT !== undefined ||
-    process.env.OCTOCODE_OUTPUT_DEFAULT_CHAR_LENGTH !== undefined ||
-    process.env.OCTOCODE_ENABLE_STATS !== undefined;
-
-  let source: ResolvedConfig['source'];
-  if (hasFile && hasEnvOverrides) {
-    source = 'mixed';
-  } else if (hasFile) {
-    source = 'file';
-  } else {
-    source = 'defaults';
-  }
+  const fileState = options.fileState ?? (fileConfig === undefined ? 'absent' : 'valid');
+  const source = sourceFor(fileState);
 
   return {
     version: fileConfig?.version ?? DEFAULT_CONFIG.version,
@@ -52,7 +64,7 @@ function buildResolvedConfig(
     output: resolveOutput(fileConfig?.output),
     session: resolveSession(),
     source,
-    configPath: hasFile ? configPath : undefined,
+    configPath: fileState !== 'absent' ? options.configPath : undefined,
   };
 }
 
@@ -63,10 +75,25 @@ export function resolveConfigSync(): ResolvedConfig {
     const validation = validateConfig(loadResult.config);
 
     if (!validation.valid) {
-      return buildResolvedConfig(undefined);
+      warnInvalidConfig(loadResult.path, validation.errors);
+      return buildResolvedConfig(undefined, {
+        configPath: loadResult.path,
+        fileState: 'invalid',
+      });
     }
 
-    return buildResolvedConfig(loadResult.config, loadResult.path);
+    return buildResolvedConfig(loadResult.config, {
+      configPath: loadResult.path,
+      fileState: 'valid',
+    });
+  }
+
+  if (loadResult.error && loadResult.error !== 'Config file does not exist') {
+    warnInvalidConfig(loadResult.path, [loadResult.error]);
+    return buildResolvedConfig(undefined, {
+      configPath: loadResult.path,
+      fileState: 'invalid',
+    });
   }
 
   return buildResolvedConfig(undefined);
@@ -76,23 +103,8 @@ export async function resolveConfig(): Promise<ResolvedConfig> {
   return resolveConfigSync();
 }
 
-let cachedConfig: ResolvedConfig | null = null;
-
-let cacheTimestamp: number = 0;
-
-const CACHE_TTL_MS = 60000;
-
 export function getConfigSync(): ResolvedConfig {
-  const now = Date.now();
-
-  if (cachedConfig && now - cacheTimestamp < CACHE_TTL_MS) {
-    return cachedConfig;
-  }
-
-  cachedConfig = resolveConfigSync();
-  cacheTimestamp = now;
-
-  return cachedConfig;
+  return resolveConfigSync();
 }
 
 export async function getConfig(): Promise<ResolvedConfig> {
@@ -105,18 +117,14 @@ export async function reloadConfig(): Promise<ResolvedConfig> {
 }
 
 export function invalidateConfigCache(): void {
-  cachedConfig = null;
-  cacheTimestamp = 0;
+  // Kept as a compatibility no-op. Config resolution is intentionally uncached
+  // because it depends on mutable process.env, runtime surface, and home files.
 }
 
 export function _resetConfigCache(): void {
-  cachedConfig = null;
-  cacheTimestamp = 0;
+  // Test compatibility no-op; see invalidateConfigCache().
 }
 
 export function _getCacheState(): { cached: boolean; timestamp: number } {
-  return {
-    cached: cachedConfig !== null,
-    timestamp: cacheTimestamp,
-  };
+  return { cached: false, timestamp: 0 };
 }

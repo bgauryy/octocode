@@ -26,8 +26,8 @@ export function createPullRequestErrorResult(
   hints: string[]
 ): GitHubPullRequestSearchApiResult {
   return {
-    pull_requests: [],
-    total_count: 0,
+    pullRequests: [],
+    totalCount: 0,
     error,
     status: apiError.status,
     hints,
@@ -45,8 +45,8 @@ export function createPullRequestEmptyResult(
     GITHUB_SEARCH_MAX_LIMIT
   );
   return {
-    pull_requests: [],
-    total_count: 0,
+    pullRequests: [],
+    totalCount: 0,
     pagination: {
       currentPage: params.page || 1,
       totalPages: 0,
@@ -110,8 +110,8 @@ export async function searchPullRequestsWithREST(
     const seenThroughPage = (currentPage - 1) * perPage + formattedPRs.length;
 
     return {
-      pull_requests: formattedPRs,
-      total_count: formattedPRs.length,
+      pullRequests: formattedPRs,
+      totalCount: formattedPRs.length,
       pagination: {
         currentPage,
         totalPages: hasMore ? currentPage + 1 : currentPage,

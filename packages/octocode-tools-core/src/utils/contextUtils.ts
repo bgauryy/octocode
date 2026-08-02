@@ -34,9 +34,16 @@ type NativeLoader = () => NativeContextUtilsModule;
 const require = createRequire(import.meta.url);
 const NATIVE_PACKAGE_NAME = '@octocodeai/octocode-engine';
 
+// Embedded single-file builds (Node SEA) pre-load the engine addon and publish
+// it on globalThis; the require-by-package-name path below cannot resolve once
+// this file is inlined into a bundle with no node_modules on disk.
+const defaultNativeLoader: NativeLoader = () =>
+  ((globalThis as { __OCTOCODE_ENGINE_BINDING__?: NativeContextUtilsModule })
+    .__OCTOCODE_ENGINE_BINDING__ ??
+    require(NATIVE_PACKAGE_NAME)) as NativeContextUtilsModule;
+
 let cachedNative: NativeContextUtilsModule | undefined;
-let nativeLoader: NativeLoader = () =>
-  require(NATIVE_PACKAGE_NAME) as NativeContextUtilsModule;
+let nativeLoader: NativeLoader = defaultNativeLoader;
 
 export class ContextUtilsLoadError extends Error {
   constructor(readonly cause: unknown) {
@@ -64,7 +71,7 @@ export function setContextUtilsNativeLoaderForTesting(
 }
 
 export function resetContextUtilsNativeLoaderForTesting(): void {
-  nativeLoader = () => require(NATIVE_PACKAGE_NAME) as NativeContextUtilsModule;
+  nativeLoader = defaultNativeLoader;
   cachedNative = undefined;
 }
 
@@ -175,6 +182,17 @@ export const contextUtils = {
     options: NativeContextUtils.StructuralSearchFilesOptions
   ): Promise<NativeContextUtils.StructuralSearchFilesResult> {
     return loadNative().structuralSearchFiles(options);
+  },
+
+  /**
+   * Detailed structural search: same matching as structuralSearchFiles plus a
+   * query explanation (kind, literal anchor, pre-filter mode) and staged
+   * diagnostics with recovery hints — the payload zero-match guidance needs.
+   */
+  structuralSearchFilesDetailed(
+    options: NativeContextUtils.StructuralSearchFilesOptions
+  ): NativeContextUtils.StructuralSearchFilesDetailedResult {
+    return loadNative().structuralSearchFilesDetailed(options);
   },
 
   getSupportedStructuralExtensions(): string[] {

@@ -4,7 +4,8 @@ import { getOctocodeServerConfig } from '../src/utils/mcp-config.js';
 
 const EXPECTED_OCTOCODE_CONFIG = {
   command: 'npx',
-  args: ['-y', '@octocodeai/mcp@latest'],
+  type: 'stdio',
+  args: ['octocode-mcp@latest'],
 } as const;
 
 const jsonOutput = process.argv.includes('--json');
@@ -16,6 +17,12 @@ function validateOctocodeConfig(): { valid: boolean; errors: string[] } {
   if (config.command !== EXPECTED_OCTOCODE_CONFIG.command) {
     errors.push(
       `Expected command ${EXPECTED_OCTOCODE_CONFIG.command}, got ${config.command}`
+    );
+  }
+
+  if (config.type !== EXPECTED_OCTOCODE_CONFIG.type) {
+    errors.push(
+      `Expected type ${EXPECTED_OCTOCODE_CONFIG.type}, got ${config.type}`
     );
   }
 

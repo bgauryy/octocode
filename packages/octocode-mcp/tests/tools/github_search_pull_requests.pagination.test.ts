@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { createSuccessResult } from '../../../octocode-tools-core/src/tools/utils.js';
 
-describe('ghHistoryResearch Tool Handler - Pagination Fix', () => {
+describe('ghSearchPullRequests Tool Handler - Pagination Fix', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });

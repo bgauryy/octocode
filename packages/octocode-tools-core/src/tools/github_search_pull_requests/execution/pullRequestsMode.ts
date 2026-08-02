@@ -88,12 +88,11 @@ export async function handlePullRequestsMode(
   };
   const shouldMinify =
     (effectiveQuery as { minify?: string }).minify === 'standard';
-  // Always emit per-row drill-down hints (getBody/getChangedFiles/etc, keyed
-  // off that row's own PR number via baseQuery) — list mode used to dead-end
-  // with no next-step guidance because this was gated to detail-fetch only,
-  // even though nextCalls() already targets the correct row regardless of
-  // which mode produced it.
-  const showContentMap = true;
+  // Only detail mode (single prNumber) emits the full per-row drill-down menu
+  // (getBody/getChangedFiles/patches/…). On a LIST that ~8-fragment menu was
+  // repeated on every row — pure verbosity, since the agent already has each
+  // row's number and gets one runnable data-level `next` template below.
+  const showContentMap = hasPrNumber;
   const shapedPullRequests = pullRequests.map(pr =>
     shapePullRequestForContent(
       pr,
@@ -103,27 +102,55 @@ export async function handlePullRequestsMode(
       showContentMap
     )
   );
-  resultData.pull_requests = shapedPullRequests;
+  resultData.pullRequests = shapedPullRequests;
 
   if (
     !hasPrNumber &&
     (effectiveQuery as { concise?: boolean }).concise === true
   ) {
-    resultData.pull_requests = shapedPullRequests.map(pr => {
+    resultData.pullRequests = shapedPullRequests.map(pr => {
       const p = pr as { number?: unknown; title?: unknown };
       return `#${p.number} ${p.title}`;
-    }) as unknown as typeof resultData.pull_requests;
+    }) as unknown as typeof resultData.pullRequests;
   }
 
   const hasContent = shapedPullRequests.length > 0;
 
+  // List mode: one runnable data-level drill-down template (using the first
+  // row's number as a concrete example) replaces N per-row menus.
+  if (!hasPrNumber && hasContent) {
+    const firstNumber = (shapedPullRequests[0] as { number?: number }).number;
+    const owner = (effectiveQuery as { owner?: string }).owner;
+    const repo = (effectiveQuery as { repo?: string }).repo;
+    if (firstNumber != null && owner && repo) {
+      resultData.next = {
+        readPr: {
+          tool: 'ghSearchPullRequests',
+          query: {
+            owner,
+            repo,
+            prNumber: firstNumber,
+            content: {
+              body: true,
+              changedFiles: true,
+              comments: { discussion: true },
+            },
+          },
+          why: 'Read any PR from this list — swap prNumber for the # you want.',
+          confidence: 'low',
+        },
+      };
+    }
+  }
+
   // Per-call result/file-change/matchString hints were computed only from
-  // populated results and dropped centrally by createSuccessResult on the
+  // populated results and are dropped centrally by createSuccessResult on
+  // success, so this mode no longer builds them here.
   return createSuccessResult(
     effectiveQuery,
     resultData as unknown as Record<string, unknown>,
     hasContent,
-    TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS,
+    TOOL_NAMES.GITHUB_PULL_REQUESTS,
     {
       rawResponse: providerResult.response.rawResponseChars,
     }

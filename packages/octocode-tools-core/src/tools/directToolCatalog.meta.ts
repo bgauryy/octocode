@@ -21,6 +21,7 @@
  * should need to import those sibling modules directly; import from here.
  */
 export * from './directToolCatalog/toolCatalogDefinitions.js';
+export * from './directToolCatalog/toolCatalogFormatters.js';
 export * from './directToolCatalog/toolSchemaIntrospection.js';
 export * from './directToolCatalog/toolCommandPatterns.js';
 export * from './directToolCatalog/toolInputPreparation.js';

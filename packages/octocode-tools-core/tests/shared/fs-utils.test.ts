@@ -8,7 +8,10 @@ import {
 } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { getDirectorySizeBytes, formatBytes } from '../../src/shared/fs-utils.js';
+import {
+  getDirectorySizeBytes,
+  formatBytes,
+} from '../../src/shared/fs-utils.js';
 
 const testDir = join(tmpdir(), '@octocodeai/octocode-tools-core-fs-utils-test');
 

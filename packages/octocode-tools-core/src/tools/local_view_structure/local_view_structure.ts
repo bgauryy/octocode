@@ -19,14 +19,37 @@ import {
   paginateEntries,
   summarizeEntries,
 } from './structureResponse.js';
+import { LOCAL_MAX_LIMIT } from '../../config.js';
 import { attachRawResponseChars } from '../../utils/response/charSavings.js';
 import {
   contextUtils,
   type FileSystemEntry,
 } from '../../utils/contextUtils.js';
 import { buildNextPageContinuation } from '../../scheme/pagination.js';
+import { buildViewStructureNextMap } from './viewStructureNext.js';
 
 type ViewStructureQuery = WithOptionalMeta<LocalViewStructureQuery>;
+
+const DEFAULT_VIEW_STRUCTURE_EXCLUDE_DIRS: string[] = [
+  'node_modules',
+  '.git',
+  'dist',
+  'build',
+  'out',
+  'coverage',
+  'target',
+  '.next',
+  '.cache',
+];
+
+function computeEffectiveExcludeDirs(
+  searchPath: string,
+  excludeDir: string[] | undefined
+): string[] {
+  const rawExcludeDirs = excludeDir ?? DEFAULT_VIEW_STRUCTURE_EXCLUDE_DIRS;
+  const searchPathParts = new Set(searchPath.split('/').filter(Boolean));
+  return rawExcludeDirs.filter(dir => !searchPathParts.has(dir));
+}
 
 export async function viewStructure(
   query: ViewStructureQuery
@@ -41,8 +64,9 @@ export async function viewStructure(
     }
 
     const effectiveShowModified =
-      query.showFileLastModified ??
-      (query.sortBy === 'time' || query.details === true);
+      query.detail === 'modified' ||
+      query.detail === 'full' ||
+      query.sortBy === 'time';
 
     return viewStructureNative(
       query,
@@ -72,12 +96,13 @@ function viewStructureNative(
     ? query.maxDepth || (query.recursive ? 5 : 2)
     : 1;
   const nativeNamePatterns = nativeNamePatternsFromQuery(query);
+  const hasPostNativeFilter = hasPostNativeFilters(query, nativeNamePatterns);
   const maxEntries =
-    recursiveMode &&
-    query.limit &&
-    !hasPostNativeFilters(query, nativeNamePatterns)
-      ? query.limit * 2
-      : 10000;
+    recursiveMode && hasPostNativeFilter ? LOCAL_MAX_LIMIT : 10000;
+  const excludeDir = computeEffectiveExcludeDirs(
+    basePath,
+    (query as { excludeDir?: string[] }).excludeDir
+  );
 
   let nativeResult: ReturnType<typeof contextUtils.queryFileSystem>;
   try {
@@ -90,6 +115,7 @@ function viewStructureNative(
       names: nativeNamePatterns,
       extensions: query.extensions,
       entryType: nativeEntryTypeFromQuery(query),
+      excludeDir,
       limit: maxEntries,
     });
   } catch (error) {
@@ -97,7 +123,7 @@ function viewStructureNative(
   }
 
   const entries = nativeResult.entries.map(entry =>
-    nativeEntryToDirectoryEntry(entry, showModified, query.details ?? false)
+    nativeEntryToDirectoryEntry(entry, showModified, query.detail === 'full')
   );
 
   let filteredEntries = applyEntryFilters(entries, query);
@@ -139,8 +165,7 @@ function viewStructureNative(
     filteredEntries,
     query as { itemsPerPage?: number; page?: number }
   );
-  const richEntries =
-    query.details === true || query.showFileLastModified === true;
+  const richEntries = query.detail === 'full' || query.detail === 'modified';
   const entryPayload = richEntries
     ? {
         path: basePath,
@@ -158,40 +183,50 @@ function viewStructureNative(
     }),
     ...(nativeResult.wasCapped
       ? [
-          `Results capped at ${maxEntries} entries — add a pattern/extensions filter or reduce depth to narrow the scope.`,
+          `Results capped at ${maxEntries} entries during the walk before sorting — sortBy:"${sortBy}" only orders that partial set, not the true top-N across the whole tree. Add pattern/extensions/entryType/excludeDir or reduce depth to narrow the scope.`,
+        ]
+      : []),
+    ...(pagination.outOfRange
+      ? [
+          `page:${(query as { page?: number }).page} is out of range (only ${pagination.totalPages} page(s), ${pagination.totalEntries} total entries) — returned page ${pagination.currentPage} instead.`,
         ]
       : []),
   ];
   const isEmpty = totalEntries === 0;
   const summary = summarizeEntries(filteredEntries);
 
+  // Per-result evidence hints (read the first file / descend into the first
+  // subdirectory) plus the pagination continuation when there are more pages.
+  const rowNext = buildViewStructureNextMap(paginatedEntries) ?? {};
+  const next: Record<string, unknown> = {
+    ...rowNext,
+    ...(pagination.hasMore
+      ? {
+          nextPage: buildNextPageContinuation(
+            TOOL_NAMES.LOCAL_VIEW_STRUCTURE,
+            {
+              ...query,
+              page: pagination.currentPage + 1,
+            } as Record<string, unknown>,
+            'Continue to the next page of directory entries.'
+          ),
+        }
+      : {}),
+  };
+
   return attachRawResponseChars(
-    finalizeViewStructureResult(
-      {
-        ...(isEmpty ? { status: 'empty' as const } : {}),
-        ...entryPayload,
-        summary,
-        ...(pagination.hasMore || pagination.totalPages > 1
-          ? { pagination }
-          : {}),
-        ...(pagination.hasMore
-          ? {
-              next: {
-                nextPage: buildNextPageContinuation(
-                  TOOL_NAMES.LOCAL_VIEW_STRUCTURE,
-                  {
-                    ...query,
-                    page: pagination.currentPage + 1,
-                  } as Record<string, unknown>,
-                  'Continue to the next page of directory entries.'
-                ),
-              },
-            }
-          : {}),
-        ...(warnings.length > 0 && { warnings }),
-      },
-      query
-    ),
+    {
+      ...(isEmpty ? { status: 'empty' as const } : {}),
+      ...entryPayload,
+      summary,
+      ...(pagination.hasMore ||
+      pagination.totalPages > 1 ||
+      pagination.outOfRange
+        ? { pagination }
+        : {}),
+      ...(Object.keys(next).length > 0 ? { next } : {}),
+      ...(warnings.length > 0 && { warnings }),
+    },
     nativeResult.entries.reduce((sum, entry) => sum + entry.path.length, 0)
   );
 }
@@ -225,9 +260,7 @@ function nativeNamePatternsFromQuery(
 function nativeEntryTypeFromQuery(
   query: ViewStructureQuery
 ): 'f' | 'd' | undefined {
-  if (query.filesOnly && !query.directoriesOnly) return 'f';
-  if (query.directoriesOnly && !query.filesOnly) return 'd';
-  return undefined;
+  return query.entryType;
 }
 
 function nativeEntryToDirectoryEntry(
@@ -289,11 +322,4 @@ function createNativeAccessErrorResult(
   return createErrorResult(toolError, query, {
     toolName: TOOL_NAMES.LOCAL_VIEW_STRUCTURE,
   }) as LocalViewStructureToolResult;
-}
-
-export function finalizeViewStructureResult(
-  result: LocalViewStructureToolResult,
-  _query: ViewStructureQuery
-): LocalViewStructureToolResult {
-  return result;
 }

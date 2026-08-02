@@ -100,6 +100,7 @@ const PHP_BODY_QUERY: &str = r#"[
 /// Note: `#any-of?` is a tree-sitter built-in predicate — in Rust it is NOT returned by
 /// `query.general_predicates()` and is NOT automatically applied by `cursor.matches()`.
 /// The structural approach avoids this API gap entirely.
+#[cfg(feature = "tree-sitter-extended")]
 const ELIXIR_BODY_QUERY: &str = r#"
   (call
     (arguments
@@ -112,11 +113,13 @@ const KOTLIN_BODY_QUERY: &str = r#"[
   (anonymous_function (function_body) @body)
 ]"#;
 
+#[cfg(feature = "tree-sitter-extended")]
 const LUA_BODY_QUERY: &str = r#"[
   (function_declaration body: (block) @body)
   (function_definition body: (block) @body)
 ]"#;
 
+#[cfg(feature = "tree-sitter-extended")]
 const ERLANG_BODY_QUERY: &str = r#"
   (function_clause body: (clause_body) @body)
 "#;
@@ -125,10 +128,12 @@ const SWIFT_BODY_QUERY: &str = r#"
   (function_declaration body: (function_body) @body)
 "#;
 
+#[cfg(feature = "tree-sitter-extended")]
 const ZIG_BODY_QUERY: &str = r#"
   (function_declaration body: (block) @body)
 "#;
 
+#[cfg(feature = "tree-sitter-extended")]
 const R_BODY_QUERY: &str = r#"
   (function_definition body: (braced_expression) @body)
 "#;
@@ -138,6 +143,7 @@ const R_BODY_QUERY: &str = r#"
 /// nested blocks. Indent-style (first byte ≠ `{`), starts on the line after the header,
 /// so `sig_shares_row = false` → body lines are dropped; closing `}` remains (kept since
 /// `}` is part of the `block` node, not the `body`).
+#[cfg(feature = "tree-sitter-extended")]
 const HCL_BODY_QUERY: &str = r#"
   (block (body) @body)
 "#;
@@ -146,6 +152,7 @@ const HCL_BODY_QUERY: &str = r#"
 /// The `message_body` node starts with `{` (brace-style) → opening `{` line kept,
 /// interior and closing `}` dropped. Service bodies are NOT captured (no service_body
 /// node in the grammar), so RPC declarations remain visible — useful for API overview.
+#[cfg(feature = "tree-sitter-extended")]
 const PROTO_BODY_QUERY: &str = r#"
   (message (message_body) @body)
 "#;
@@ -153,6 +160,7 @@ const PROTO_BODY_QUERY: &str = r#"
 /// Scala: strip function/method bodies. Class/object/trait bodies are intentionally NOT
 /// dropped so method signatures inside them remain visible (mirrors Java/TS behaviour).
 /// `body:` is a named field in both node types.
+#[cfg(feature = "tree-sitter-extended")]
 const SCALA_BODY_QUERY: &str = r#"[
   (function_definition body: (block) @body)
 ]"#;
@@ -259,6 +267,7 @@ fn init_language_table() -> Vec<LanguageEntry> {
             body_query: KOTLIN_BODY_QUERY,
             comment_style: "c",
         },
+        #[cfg(feature = "tree-sitter-extended")]
         LanguageEntry {
             extensions: &["ex", "exs"],
             language_id: Some("elixir"),
@@ -266,6 +275,7 @@ fn init_language_table() -> Vec<LanguageEntry> {
             body_query: ELIXIR_BODY_QUERY,
             comment_style: "hash",
         },
+        #[cfg(feature = "tree-sitter-extended")]
         LanguageEntry {
             extensions: &["tf", "hcl", "tfvars"],
             language_id: Some("terraform"),
@@ -273,6 +283,7 @@ fn init_language_table() -> Vec<LanguageEntry> {
             body_query: HCL_BODY_QUERY,
             comment_style: "hash",
         },
+        #[cfg(feature = "tree-sitter-extended")]
         LanguageEntry {
             extensions: &["lua"],
             language_id: Some("lua"),
@@ -281,6 +292,7 @@ fn init_language_table() -> Vec<LanguageEntry> {
             comment_style: "c",
         },
         // ── Priority-2 language additions ────────────────────────────────────
+        #[cfg(feature = "tree-sitter-extended")]
         LanguageEntry {
             extensions: &["sql"],
             language_id: Some("sql"),
@@ -288,6 +300,7 @@ fn init_language_table() -> Vec<LanguageEntry> {
             body_query: "", // data-query language — no function bodies
             comment_style: "c",
         },
+        #[cfg(feature = "tree-sitter-extended")]
         LanguageEntry {
             extensions: &["proto"],
             language_id: Some("proto"),
@@ -295,6 +308,7 @@ fn init_language_table() -> Vec<LanguageEntry> {
             body_query: PROTO_BODY_QUERY,
             comment_style: "c",
         },
+        #[cfg(feature = "tree-sitter-extended")]
         LanguageEntry {
             extensions: &["ml"],
             language_id: Some("ocaml"),
@@ -302,6 +316,7 @@ fn init_language_table() -> Vec<LanguageEntry> {
             body_query: "", // structural-only; complex functional grammar
             comment_style: "c",
         },
+        #[cfg(feature = "tree-sitter-extended")]
         LanguageEntry {
             extensions: &["mli"],
             language_id: Some("ocaml"),
@@ -309,6 +324,7 @@ fn init_language_table() -> Vec<LanguageEntry> {
             body_query: "",
             comment_style: "c",
         },
+        #[cfg(feature = "tree-sitter-extended")]
         LanguageEntry {
             extensions: &["zig"],
             language_id: Some("zig"),
@@ -317,6 +333,7 @@ fn init_language_table() -> Vec<LanguageEntry> {
             comment_style: "c",
         },
         // ── Priority-3 language additions ────────────────────────────────────
+        #[cfg(feature = "tree-sitter-extended")]
         LanguageEntry {
             extensions: &["r"],
             language_id: Some("r"),
@@ -324,6 +341,7 @@ fn init_language_table() -> Vec<LanguageEntry> {
             body_query: R_BODY_QUERY,
             comment_style: "hash",
         },
+        #[cfg(feature = "tree-sitter-extended")]
         LanguageEntry {
             extensions: &["jl"],
             language_id: Some("julia"),
@@ -331,6 +349,7 @@ fn init_language_table() -> Vec<LanguageEntry> {
             body_query: "", // structural-only; Julia function bodies have no block container node
             comment_style: "hash",
         },
+        #[cfg(feature = "tree-sitter-extended")]
         LanguageEntry {
             extensions: &["erl", "hrl"],
             language_id: Some("erlang"),
@@ -375,6 +394,7 @@ fn init_language_table() -> Vec<LanguageEntry> {
         // member signatures remain visible (mirrors Java/TS behaviour).
         // No LSP server configured — `language_id: None` keeps it absent from
         // the LSP grammar map until a standard scala-ls binary path is established.
+        #[cfg(feature = "tree-sitter-extended")]
         LanguageEntry {
             extensions: &["scala", "sc", "sbt"],
             language_id: None,

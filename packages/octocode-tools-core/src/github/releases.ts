@@ -5,6 +5,13 @@ import { parseHasMore } from './history.js';
 import type { GitHubAPIResponse } from './githubAPI.js';
 import { generateCacheKey, withDataCache } from '../utils/http/cache.js';
 
+type ReleaseAsset = {
+  name: string;
+  size: number;
+  downloadCount: number;
+  url: string;
+};
+
 type ReleaseRow = {
   tagName: string;
   name?: string;
@@ -13,7 +20,8 @@ type ReleaseRow = {
   draft?: true;
   /** Marks the release GitHub reports as "latest" (stable, non-prerelease). */
   latest?: true;
-  url?: string;
+  /** Downloadable assets (opt-in via includeAssets). */
+  assets?: ReleaseAsset[];
 };
 
 export type ReleasesResult = {
@@ -36,6 +44,7 @@ type FetchReleasesParams = {
   repo: string;
   page: number;
   perPage: number;
+  includeAssets?: boolean;
 };
 
 export async function fetchReleases(
@@ -51,6 +60,7 @@ export async function fetchReleases(
       repo: params.repo,
       page: params.page,
       perPage: params.perPage,
+      includeAssets: params.includeAssets === true,
       auth,
     },
     sessionId
@@ -95,7 +105,16 @@ async function fetchReleasesInternal(
       ...(latestData !== undefined && r.id === latestData.id
         ? { latest: true as const }
         : {}),
-      url: r.html_url,
+      ...(params.includeAssets && r.assets && r.assets.length > 0
+        ? {
+            assets: r.assets.map(a => ({
+              name: a.name,
+              size: a.size,
+              downloadCount: a.download_count,
+              url: a.browser_download_url,
+            })),
+          }
+        : {}),
     }));
 
     const hasMore = parseHasMore(

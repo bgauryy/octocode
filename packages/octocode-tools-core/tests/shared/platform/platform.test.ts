@@ -108,7 +108,8 @@ describe('Platform Utilities (Windows-specific)', () => {
 
       process.env.APPDATA = 'C:\\Users\\TestUser\\AppData\\Roaming';
 
-      const { getAppDataPath } = await import('../../../src/shared/platform/platform.js');
+      const { getAppDataPath } =
+        await import('../../../src/shared/platform/platform.js');
       expect(getAppDataPath()).toBe('C:\\Users\\TestUser\\AppData\\Roaming');
     });
 
@@ -124,7 +125,8 @@ describe('Platform Utilities (Windows-specific)', () => {
 
       delete process.env.APPDATA;
 
-      const { getAppDataPath } = await import('../../../src/shared/platform/platform.js');
+      const { getAppDataPath } =
+        await import('../../../src/shared/platform/platform.js');
       expect(getAppDataPath()).toContain('AppData');
       expect(getAppDataPath()).toContain('Roaming');
     });

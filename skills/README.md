@@ -13,7 +13,7 @@ Sync / install / review: use **`octocode-skills`** (`scripts/skill-sync.mjs`, `s
 | [octocode-research](./octocode-research/) | Evidence before conclusions — find, explain, diagnose, review diffs, smallest verified fix |
 | [octocode-brainstorming](./octocode-brainstorming/) | Explore ideas before building — options, worth-building, Build / Prototype / Narrow / Park |
 | [octocode-rfc-generator](./octocode-rfc-generator/) | Decision before coding — RFC, design, migration, rollout, measurable contract |
-| [octocode-eval](./octocode-eval/) | Did the change help? — ACCEPT/REVERT, KPI contracts, suites, held-out, TDD-first |
+| [octocode-graph-eval](./octocode-graph-eval/) | Did the change help? — loop & graph-of-loops evals, sensors, ACCEPT/REVERT, KPI contracts, suites, held-out, TDD-first |
 | [octocode-awareness](./octocode-awareness/) | Shared-repo coordination — collisions, handoffs, verification debt, wiki, hooks |
 | [octocode-subagent](./octocode-subagent/) | Spawn / parallel host workers — topology, packets, ownership, synthesize |
 | [octocode-orchestrator-local-worker](./octocode-orchestrator-local-worker/) | Cloud keeps judgment; local Ollama burns tokens — summarize/extract/… sealed packets |
@@ -37,9 +37,9 @@ Disciplined idea exploration **before** commitment. Generates options, stress-te
 
 Turns a consequential choice into a durable decision artifact: RFC, architecture proposal, migration/rollout plan, or measurable implementation contract. Use when coding would lock you into the wrong path without an explicit decision.
 
-### octocode-eval
+### octocode-graph-eval
 
-Measurement and keep/discard. Defines goal→KPI contracts, suites, graders, held-out checks, and ACCEPT/REVERT. Also covers TDD failing-case-first for behavior changes. Use whenever “it feels better” is not enough.
+Measurement and keep/discard — for a single agent loop or a graph of loops (multi-agent workflow). Defines goal→KPI contracts, feedback-loop prerequisites (runnable sensor + numeric target + budget before iterating), suites, graders, held-out checks, and ACCEPT/REVERT. Covers loop engineering (don't-stop-till-done optimization against a sensor) and graph evals (primary KPI at the graph boundary, per-node sensors, attribution by bisection, strengthen verifiers before adding nodes). Also covers TDD failing-case-first; `eval-eval.mjs --batch <dir>` grades an answer set in one command. Use whenever “it feels better” is not enough.
 
 ### octocode-awareness
 
@@ -79,7 +79,8 @@ Browser debugging that needs **DevTools-grade** evidence via Chrome DevTools Pro
 Question about code?     → research
 Idea / is it worth it?   → brainstorming → (rfc | research | park)
 Need a design contract?  → rfc-generator
-Did the change help?     → eval
+Did the change help?     → graph-eval
+Loop until a target?     → graph-eval (sensor + target + budget first)
 Shared-repo collisions?  → awareness
 Spawn cloud workers?     → subagent
 Save tokens via Ollama?  → orchestrator-local-worker

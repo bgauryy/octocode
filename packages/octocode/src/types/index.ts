@@ -18,6 +18,7 @@ export type ColorName =
 
 export interface MCPServer {
   command?: string;
+  type?: string;
   args?: string[];
 
   url?: string;

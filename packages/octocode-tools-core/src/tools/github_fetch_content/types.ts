@@ -28,9 +28,10 @@ export interface GitHubFileContentApiData {
   isPartial?: boolean;
   totalLines?: number;
   sourceChars?: number;
-  sourceBytes?: number;
 
   matchRanges?: Array<{ start: number; end: number }>;
+  /** Exact matched-line numbers (matchRanges are ±contextLines windows around them). */
+  matchedLines?: number[];
   matchLocations?: string[];
   warnings?: string[];
   lastModified?: string;

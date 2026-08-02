@@ -37,19 +37,24 @@ export async function buildSearchResult(
 ): Promise<LocalSearchCodeToolResult> {
   // Structural (AST) matches are already precise — a `call_expression` match
   // IS a call, with no comment/string noise for a relevance scorer to filter.
-  // Default them to deterministic source/path order (matching ast-grep), and
-  // reserve the language-aware relevance scorer for noisy text search. An
-  // explicit `sort` always wins for either engine.
-  const defaultSort: RankSort =
-    searchEngine === 'structural' ? 'path' : 'relevance';
-  const sort: RankSort = (configuredQuery.sort as RankSort) ?? defaultSort;
+  // They always sort deterministically (path order, matching ast-grep) unless
+  // the caller picked a concrete non-relevance sort (matchCount/modified/...).
+  // The schema defaults `sort` to "relevance" before this code runs, so a
+  // `?? fallback` can never fire — the structural override must beat the
+  // schema default explicitly, not rely on undefined.
+  const requestedSort = (configuredQuery.sort as RankSort) ?? 'relevance';
+  const sort: RankSort =
+    searchEngine === 'structural' && requestedSort === 'relevance'
+      ? 'path'
+      : requestedSort;
   // Ranking enriches ordering; it must never gate results. Any unexpected
   // failure degrades to the engine's original order so every matched file is
   // still returned to the tool.
   let ranked: ReturnType<typeof rankFiles>;
   try {
     ranked = rankFiles(parsedFiles, sort, buildRankContext(configuredQuery), {
-      debug: Boolean(configuredQuery.debugRanking),
+      debug: false,
+      sortReverse: configuredQuery.sortReverse,
     });
   } catch {
     ranked = { files: parsedFiles, cappedCandidates: 0 };
@@ -64,12 +69,12 @@ export async function buildSearchResult(
   // We paginate over the FULL ranked set so every matched file stays reachable
   // by paging; `totalFiles` is the true total of the ranked set.
   const totalFiles = filesWithMetadata.length;
-  const isPathListMode = Boolean(
-    configuredQuery.filesOnly || configuredQuery.filesWithoutMatch
-  );
-  const isCountMode = Boolean(
-    configuredQuery.countLinesPerFile || configuredQuery.countMatchesPerFile
-  );
+  const isPathListMode =
+    configuredQuery.output === 'files' ||
+    configuredQuery.output === 'filesWithout';
+  const isCountMode =
+    configuredQuery.output === 'countLines' ||
+    configuredQuery.output === 'countMatches';
   const isFileListMode = isPathListMode || isCountMode;
   const summedMatches = filesWithMetadata.reduce(
     (sum: number, f: LocalSearchCodeFile & { modified?: string }) =>
@@ -97,6 +102,15 @@ export async function buildSearchResult(
   const startIdx = (currentPage - 1) * filesPerPage;
   const endIdx = Math.min(startIdx + filesPerPage, totalFiles);
   const paginatedFiles = filesWithMetadata.slice(startIdx, endIdx);
+  // A `page` beyond `totalFilePages` makes `startIdx` exceed `totalFiles`, so
+  // `.slice()` silently returns [] — the same footgun as the per-file
+  // `matchPage` case below, just one level up (files, not matches-per-file).
+  const isPageOutOfRange = totalFiles > 0 && startIdx >= totalFiles;
+  if (isPageOutOfRange) {
+    warnings.push(
+      `page:${currentPage} is out of range (only ${totalFilePages} page(s), ${totalFiles} total file(s)) — returned 0 files. Use page:1..${totalFilePages}.`
+    );
+  }
 
   const matchesPerPage =
     aligned.maxMatchesPerFile || RESOURCE_LIMITS.DEFAULT_MATCHES_PER_PAGE;
@@ -104,9 +118,21 @@ export async function buildSearchResult(
   const finalFiles: CountedLocalSearchFile[] = paginatedFiles.map(
     (file: LocalSearchCodeFile) => {
       const totalFileMatches = file.matches?.length ?? 0;
-      const totalMatchPages = Math.ceil(totalFileMatches / matchesPerPage);
+      const totalMatchPages = Math.max(
+        1,
+        Math.ceil(totalFileMatches / matchesPerPage)
+      );
       const matchPage = Math.max(1, aligned.matchPage || 1);
       const matchStartIdx = (matchPage - 1) * matchesPerPage;
+      // `matchPage` is a page NUMBER; if the caller changes `maxMatchesPerFile`
+      // between calls (a different page SIZE), the same page number can point
+      // past the end of this file's matches under the new size — e.g. page 2
+      // at 25/page when all 22 matches fit on page 1. `.slice()` would then
+      // silently return [] with nothing distinguishing "no more matches" from
+      // "you asked for a page that never existed under this cap". Surface it
+      // explicitly instead.
+      const isOutOfRange =
+        totalFileMatches > 0 && matchStartIdx >= totalFileMatches;
       const matchEndIdx = Math.min(
         matchStartIdx + matchesPerPage,
         totalFileMatches
@@ -116,14 +142,20 @@ export async function buildSearchResult(
         : file.matches?.slice(matchStartIdx, matchEndIdx);
       const returnedMatchRows = paginatedMatches?.length;
 
+      if (isOutOfRange) {
+        warnings.push(
+          `${file.path}: matchPage:${matchPage} is out of range under maxMatchesPerFile:${matchesPerPage} (only ${totalMatchPages} page(s), ${totalFileMatches} total match(es) for this file) — returned 0 rows for this file. Use matchPage:1..${totalMatchPages}, or drop matchPage to re-derive it from the current maxMatchesPerFile.`
+        );
+      }
+
       const debugScore = rankDebug?.get(file.path);
       const result = {
         path: file.path,
         ...(isPathListMode
           ? {}
-          : configuredQuery.countLinesPerFile
+          : configuredQuery.output === 'countLines'
             ? { totalMatchedLines: file.matchCount || 1 }
-            : configuredQuery.countMatchesPerFile
+            : configuredQuery.output === 'countMatches'
               ? { totalOccurrences: file.matchCount || 1 }
               : {
                   totalMatchRows: totalFileMatches,
@@ -143,7 +175,7 @@ export async function buildSearchResult(
             }
           : {}),
         pagination:
-          !isFileListMode && totalFileMatches > matchesPerPage
+          !isFileListMode && (totalFileMatches > matchesPerPage || isOutOfRange)
             ? {
                 currentPage: matchPage,
                 totalPages: totalMatchPages,
@@ -153,6 +185,7 @@ export async function buildSearchResult(
                 ...(matchPage < totalMatchPages
                   ? { nextMatchPage: matchPage + 1 }
                   : {}),
+                ...(isOutOfRange ? { outOfRange: true } : {}),
               }
             : undefined,
       } as LocalSearchCodeFile & { ranking?: RankingDebug };
@@ -183,6 +216,7 @@ export async function buildSearchResult(
       ...(isPathListMode ? {} : { totalMatches }),
       hasMore: currentPage < totalFilePages,
       ...(currentPage < totalFilePages ? { nextPage: currentPage + 1 } : {}),
+      ...(isPageOutOfRange ? { outOfRange: true } : {}),
     },
     ...(warnings.length > 0 ? { warnings } : {}),
     ...(Object.keys(next).length > 0 ? { next } : {}),
@@ -222,9 +256,9 @@ function buildRankContext(query: RipgrepQuery): RankContext {
   );
   return {
     queryPath: query.path,
-    keyword: query.keywords,
+    keyword: query.searchText,
     langType: query.langType,
-    caseSensitive: query.caseSensitive,
+    caseSensitive: query.caseMode === 'sensitive',
     wholeWord: query.wholeWord,
     profileOverride,
     explicitLowSignal,

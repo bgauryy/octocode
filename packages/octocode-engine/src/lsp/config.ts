@@ -110,6 +110,7 @@ export async function resolveServerForFile(
           config: {
             command: process.execPath,
             args: [cliPath, ...preNative.args],
+            workspaceRoot,
             languageId: langId,
           } as LanguageServerConfig,
           source: 'bundled',

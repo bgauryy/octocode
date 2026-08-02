@@ -6,7 +6,6 @@ file reads, directory trees, LSP symbol navigation, GitHub repos, npm packages,
 PRs, commits, MCP client setup, and GitHub auth.
 
 ```text
-octocode CLI quick command  ──► same core runners ──► GitHub, local, npm, LSP
 octocode CLI tools <name>   ──► same tool runner   ──► the MCP tool catalog
 octocode MCP tool call      ──► same core runners  ──► GitHub, local, npm, LSP
 ```
@@ -18,17 +17,17 @@ They are not separate implementations.
 
 | Command | Purpose |
 |---|---|
-| `search` | Unified research: code text/regex/AST, file reads, trees, file discovery, LSP semantics, GitHub repos, npm packages, PRs, commits, diffs, and materialization. |
+| `tools` | List every Octocode MCP tool, read exact tool schemas, and run raw tool calls from the terminal. This is the primary research surface. |
 | `clone` | Clone a GitHub repo or sparse subtree locally for repeated reads, AST search, or LSP work. |
 | `cache` | Fetch remote files, trees, or repos into local Octocode storage; also inspect or clear cached materialization. |
-| `tools` | List every Octocode MCP tool, read exact tool schemas, and run raw tool calls from the terminal. |
-| `context` | Print the agent protocol, system prompt, tool descriptions, and schemas. |
+| `context` | Print agent protocol and tool descriptions. Use `--minimal`, default compact, or `--full` depending on context budget. |
 | `install` | Write or check MCP client configuration for supported IDEs and agent hosts. |
 | `auth` | Manage GitHub auth with `login`, `logout`, `refresh`, and `status` subcommands. |
 | `login` | Top-level shortcut for GitHub login. |
 | `logout` | Top-level shortcut for clearing stored GitHub credentials. |
 | `status` | Show auth, token source, cache, install, and optional MCP sync health. |
 | `lsp-server` | List, inspect, install, uninstall, or clean language servers used by semantic search. |
+| `skill` | List, install, check, inspect, or remove bundled Octocode Agent Skills. |
 
 Use `npx octocode <command> --help` for the live command help for any command.
 
@@ -37,82 +36,32 @@ Use `npx octocode <command> --help` for the live command help for any command.
 ```bash
 npx octocode --help
 npx octocode status --json
-npx octocode search ./src --tree --depth 2
-npx octocode search "createServer" ./src --lang ts --view discovery
-npx octocode search ./src/index.ts --content-view exact
-npx octocode search ./src/index.ts --op documentSymbols
 npx octocode tools
+npx octocode tools localViewStructure --scheme
 npx octocode tools localSearchCode --scheme
+npx octocode tools localSearchCode --queries '{"path":"./src","searchText":"createServer"}'
+npx octocode tools localGetFileContent --queries '{"path":"./src/index.ts","fullContent":true}'
+npx octocode skill list
+npx octocode skill install octocode-research --platform pi
 ```
 
 Replace `npx octocode` with `octocode` when the package is installed globally.
 
 ---
 
-## `search` — The Research Command
+## `tools` — The Research Command
 
-`search` is the unified command for read-only work. It routes local paths to
-local tools, `owner/repo[/path]` refs to GitHub tools, npm names to package
-search, and `--op` requests to LSP.
-
-| Need | Example | Backing capability |
-|---|---|---|
-| Search code text | `npx octocode search "runCLI" ./src --lang ts` | `localSearchCode`, `ghSearchCode` |
-| Search with regex | `npx octocode search --regex "run[A-Z]\w+" ./src --lang ts` | Local regex search |
-| Search structurally | `npx octocode search --pattern "eval($X)" ./src --lang ts` | Structural AST engine |
-| Find files | `npx octocode search parser ./src --search path --ext ts` | `localFindFiles` |
-| Read exact content | `npx octocode search ./src/index.ts --content-view exact` | `localGetFileContent`, `ghGetFileContent` |
-| Read a proof slice | `npx octocode search ./src/index.ts --match-string "runCLI" --content-view exact` | Exact file with anchors |
-| Browse structure | `npx octocode search ./src --tree --depth 2` | `localViewStructure`, `ghViewRepoStructure` |
-| Trace symbols | `npx octocode search ./src/index.ts --op references --symbol runCLI --line 42` | `lspGetSemantics` |
-| Discover repos | `npx octocode search "mcp server" --target repositories --lang TypeScript` | `ghSearchRepos` |
-| Resolve npm packages | `npx octocode search zod --target packages` | `npmSearch` |
-| Read PRs | `npx octocode search bgauryy/octocode#123 --target pullRequests --comments` | `ghHistoryResearch` |
-| Read commits | `npx octocode search vercel/next.js/src --target commits --since 2024-01-01T00:00:00Z` | `ghHistoryResearch` |
-| Diff files or refs | `npx octocode search src/a.ts src/b.ts --target diff` | OQL diff lane |
-| Materialize remote code | `npx octocode search "useState" packages/next/src --repo vercel/next.js --materialize required` | `ghCloneRepo` + local tools |
-
-### Search loop
-
-```text
-map cheaply → search narrowly → read exact evidence → follow symbols or history
-```
-
-```bash
-npx octocode search ./packages/octocode/src --tree --depth 2
-npx octocode search "executeDirectTool" ./packages/octocode/src --lang ts --view discovery
-npx octocode search ./packages/octocode/src/cli/tool-command.ts --match-string "executeDirectTool" --content-view exact
-npx octocode search ./packages/octocode/src/cli/tool-command.ts --op references --symbol executeToolCommand --line 90
-```
-
-### Key flags
-
-| Flag | Meaning |
-|---|---|
-| `--tree` | Browse directory or repository structure. |
-| `--content-view exact\|compact\|symbols` | Control file-read detail. |
-| `--match-string`, `--start-line`, `--end-line` | Keep proof reads small. |
-| `--search path\|content\|both` | Switch between file discovery and code search. |
-| `--pattern`, `--rule` | Run structural AST search. |
-| `--op documentSymbols\|definition\|references\|callers\|callees\|callHierarchy\|hover\|typeDefinition\|implementation` | Run semantic LSP search. |
-| `--target repositories\|packages\|pullRequests\|commits\|diff\|research\|graph\|materialize` | Ask for a specific answer type. |
-| `--repo owner/repo[@ref]` | Materialize a remote repo or subtree first, then run a local workflow. |
-| `--scheme` | Print the OQL contract. Use `--scheme --compact` for a shorter agent guide. |
-| `--explain --dry-run` | Show how a query routes without running it. |
-
----
-
-## `tools` — Raw MCP Catalog
-
-`tools` exposes the same tool catalog that MCP clients call. Useful for agents
-and scripts that want exact tool inputs.
+`tools` is the unified command for read-only research. Every capability MCP
+clients get — GitHub code/repo/PR/commit search, local text/AST search, file
+reads, directory trees, npm lookup, and LSP semantics — is one named tool away.
 
 ```bash
 npx octocode tools
 npx octocode tools --json --compact
 npx octocode tools localSearchCode --scheme
 npx octocode tools localSearchCode --scheme --json --compact
-npx octocode tools localSearchCode --queries '{"path":"./src","keywords":"runCLI"}' --compact
+npx octocode tools localSearchCode --scheme --json --compact --pretty
+npx octocode tools localSearchCode --queries '{"path":"./src","searchText":"runCLI"}' --compact
 ```
 
 **Always read the schema before a raw call:**
@@ -123,9 +72,34 @@ npx octocode tools <name> --scheme
 
 | Category | Tools |
 |---|---|
-| GitHub | `ghSearchCode` · `ghSearchRepos` · `ghHistoryResearch` · `ghGetFileContent` · `ghViewRepoStructure` · `ghCloneRepo` |
-| Local Code | `localSearchCode` · `localFindFiles` · `localGetFileContent` · `localViewStructure` · `lspGetSemantics` |
+| GitHub | `ghSearchCode` · `ghSearchRepos` · `ghSearchPullRequests` · `ghSearchIssues` · `ghSearchCommits` · `ghGetFileContent` · `ghViewRepoStructure` · `ghCloneRepo` |
+| Local Code | `localSearchCode` · `localFindFiles` · `localFindDeadCode` · `localGetFileContent` · `localViewStructure` · `lspGetSemantics` |
 | Package | `npmSearch` |
+
+### Research loop
+
+```text
+map cheaply → search narrowly → read exact evidence → follow symbols or history
+```
+
+```bash
+npx octocode tools localViewStructure --queries '{"path":"./packages/octocode/src"}'
+npx octocode tools localSearchCode --queries '{"path":"./packages/octocode/src","searchText":"executeDirectTool","mode":"discovery"}'
+npx octocode tools localGetFileContent --queries '{"path":"./packages/octocode/src/cli/tool-command.ts","matchString":"executeDirectTool"}'
+npx octocode tools lspGetSemantics --queries '{"uri":"./packages/octocode/src/cli/tool-command.ts","type":"references","symbolName":"executeToolCommand","lineHint":90}'
+```
+
+### Key flags for `tools`
+
+| Flag | Meaning |
+|---|---|
+| `--scheme` | Print the tool's input schema: fields, types, bounds, defaults. Read this before any unfamiliar call. |
+| `--scheme --json` | Machine-readable schema. |
+| `--queries '<json>'` | Run the tool. Accepts a single query object or `{"queries":[...]}` for a batch (up to 5). |
+| `--json` | Full `CallToolResult` envelope. |
+| `--compact` | Lean `structuredContent` only — cheapest output for agents. |
+| `--pretty` | Pretty-print compact JSON for humans; useful with `--compact` when reading locally. |
+| `--raw` | Content reads only: bare content without the envelope. |
 
 ---
 
@@ -139,7 +113,9 @@ npx octocode clone vercel/next.js@canary/packages/next
 
 Use clone when you need to inspect several files, run structural (AST) search, or
 use LSP on remote code. Clone is enabled by default in the CLI unless
-`ENABLE_CLONE=false`; MCP clone requires `ENABLE_CLONE=true`.
+`ENABLE_CLONE=false`; MCP clone requires `ENABLE_CLONE=true`. After cloning, run
+`tools localSearchCode`, `tools localViewStructure`, `tools localGetFileContent`,
+or `tools lspGetSemantics` on the returned absolute local path.
 
 ---
 
@@ -153,8 +129,9 @@ npx octocode cache status
 npx octocode cache clear --all
 ```
 
-Use the returned absolute local path with `search`, `search --tree`,
-`search --search path`, or `search --op`.
+Use the returned absolute local path with `tools localSearchCode`,
+`tools localViewStructure`, `tools localFindFiles`, `tools localGetFileContent`,
+or `tools lspGetSemantics`.
 
 ---
 
@@ -195,20 +172,55 @@ npx octocode lsp-server install rust-analyzer
 npx octocode lsp-server install --all
 ```
 
-Use when `search --op ...` reports an LSP server is unavailable.
+Use when `tools lspGetSemantics` reports an LSP server is unavailable.
+
+---
+
+## `skill` — Bundled Agent Skills
+
+The `octocode` package bundles the canonical Octocode skills from this repo's
+`skills/` directory at build/publish time. Install copies a skill into the
+canonical Octocode home, then optionally links it into agent-specific skill
+directories.
+
+```bash
+npx octocode skill list
+npx octocode skill info octocode-research
+npx octocode skill install octocode-research --platform pi
+npx octocode skill install --all --platform pi,cursor
+npx octocode skill check --json
+npx octocode skill remove octocode-research --platform pi
+```
+
+Useful flags:
+
+| Flag | Meaning |
+|---|---|
+| `--platform pi,cursor,claude,codex,opencode,copilot,gemini,common,all` | Link installed skills into one or more agent skill directories. |
+| `--workspace` / `--repo` | Link into `<cwd>/.agents/skills/`. |
+| `--path <dir>` | Install directly into a custom directory instead of Octocode home. |
+| `--mode symlink\|copy\|hybrid` | Link strategy; `hybrid` copies Claude targets and symlinks the rest. |
+| `--keep` | Preserve existing installs; default behavior overwrites with the bundled copy. |
+| `--dry-run` | Preview actions without writing. |
+| `--fix` | `check` only: repair missing/broken installed locations. |
+| `--no-env` | `check` only: skip skill environment-readiness checks. |
+
+Legacy forms such as `npx octocode skill --list` and
+`npx octocode skill --name octocode-research` still route to `list` and
+`install`, but the subcommands above are preferred.
 
 ---
 
 ## `context` — Agent Protocol
 
 ```bash
-npx octocode context
-npx octocode context --full
+npx octocode context --minimal   # cheapest: protocol + active tool names
+npx octocode context             # compact protocol + short descriptions
+npx octocode context --full      # full MCP prompt + long descriptions
 npx octocode context --json
 ```
 
-Prints the research protocol and tool descriptions. Use for autonomous agents,
-debugging tool guidance, or producing a compact machine-readable context block.
+Prints the research protocol and active tool descriptions. Use `--minimal` for tight agent budgets, default `context` for normal agents, and `--full` only when debugging full guidance.
 
 ---
 
@@ -217,9 +229,9 @@ debugging tool guidance, or producing a compact machine-readable context block.
 ### Orient in a local codebase
 
 ```bash
-npx octocode search ./src --tree --depth 2
-npx octocode search "parseArgs" ./src --lang ts --view discovery
-npx octocode search ./src/cli/parser.ts --match-string "parseArgs" --content-view exact
+npx octocode tools localViewStructure --queries '{"path":"./src"}'
+npx octocode tools localSearchCode --queries '{"path":"./src","searchText":"parseArgs","mode":"discovery"}'
+npx octocode tools localGetFileContent --queries '{"path":"./src/cli/parser.ts","matchString":"parseArgs"}'
 ```
 
 ### Remote repo to local proof
@@ -228,8 +240,9 @@ GitHub code search can return zero rows when a provider has not indexed a repo.
 Treat that as a provider gap, not proof of absence.
 
 ```bash
-npx octocode search vercel/next.js/packages/next --tree --depth 2
-npx octocode search "useState" packages/next/src --repo vercel/next.js --materialize required --lang ts
+npx octocode tools ghViewRepoStructure --queries '{"owner":"vercel","repo":"next.js","path":"packages/next"}'
+npx octocode clone vercel/next.js/packages/next
+npx octocode tools localSearchCode --queries '{"path":"<clone localPath>/src","searchText":"useState"}'
 ```
 
 ### Symbols and references
@@ -237,32 +250,34 @@ npx octocode search "useState" packages/next/src --repo vercel/next.js --materia
 Get line anchors first, then trace the symbol:
 
 ```bash
-npx octocode search ./src/index.ts --op documentSymbols
-npx octocode search ./src/index.ts --op references --symbol runCLI --line 42
+npx octocode tools lspGetSemantics --queries '{"uri":"./src/index.ts","type":"documentSymbols"}'
+npx octocode tools lspGetSemantics --queries '{"uri":"./src/index.ts","type":"references","symbolName":"runCLI","lineHint":42}'
 ```
 
 ### Package to source
 
 ```bash
-npx octocode search zod --target packages
-npx octocode search "ZodObject" colinhacks/zod --lang ts
+npx octocode tools npmSearch --queries '{"packageName":"zod"}'
+npx octocode tools ghSearchCode --queries '{"keywords":["ZodObject"],"owner":"colinhacks","repo":"zod"}'
 ```
 
 ### Pull requests and history
 
 ```bash
-npx octocode search bgauryy/octocode --target pullRequests --state merged --limit 10
-npx octocode search bgauryy/octocode#123 --target pullRequests --patches --comments
-npx octocode search bgauryy/octocode/packages/octocode/src --target commits --since 2024-01-01T00:00:00Z
+npx octocode tools ghSearchPullRequests --queries '{"owner":"bgauryy","repo":"octocode","state":"merged","limit":10}'
+npx octocode tools ghSearchPullRequests --queries '{"owner":"bgauryy","repo":"octocode","prNumber":123,"content":{"patches":{"mode":"all"},"comments":{"discussion":true}}}'
+npx octocode tools ghSearchCommits --queries '{"owner":"bgauryy","repo":"octocode","path":"packages/octocode/src","since":"2024-01-01T00:00:00Z"}'
 ```
 
 ### Agent or script mode
 
 ```bash
+npx octocode context --minimal
 npx octocode context --json
 npx octocode tools --json --compact
 npx octocode tools localSearchCode --scheme --json --compact
-npx octocode tools localSearchCode --queries '{"path":"./src","keywords":"runCLI"}' --json --compact
+npx octocode tools localSearchCode --scheme --json --compact --pretty
+npx octocode tools localSearchCode --queries '{"path":"./src","searchText":"runCLI"}' --json --compact
 ```
 
 ---
@@ -277,6 +292,8 @@ npx octocode tools localSearchCode --queries '{"path":"./src","keywords":"runCLI
 | `--version` | Show CLI version. |
 | `--json` | Structured JSON output. |
 | `--compact` | Leaner output for agents and scripts. |
+| `--pretty` | Pretty-print compact JSON for humans. |
+| `--minimal` | `context` only: cheapest protocol + active tool names. |
 | `--raw` | Bare file content where supported. |
 | `--no-color` | Disable ANSI color. `NO_COLOR=1` works too. |
 
@@ -306,33 +323,16 @@ npx octocode tools localSearchCode --queries '{"path":"./src","keywords":"runCLI
 
 ---
 
-## Command Aliases (older → current)
-
-| Old habit | Use now |
-|---|---|
-| `cat` | `search <file> --content-view exact` |
-| `ls` | `search <dir> --tree` |
-| `find` | `search <query> <path> --search path` |
-| `grep` | `search "term" <path>` |
-| `lsp` | `search <file> --op <operation>` |
-| `pkg` | `search <package> --target packages` |
-| `repo` | `search <keywords> --target repositories` |
-| `pr` | `search owner/repo#N --target pullRequests` |
-| `history` | `search owner/repo[/path] --target commits` |
-| `diff` | `search <left> <right> --target diff` |
-
----
-
 ## How the CLI Aligns with MCP
 
 | CLI surface | MCP alignment |
 |---|---|
-| `search` | Friendly shorthand over OQL and the same core runners used by MCP tools. |
 | `tools <name>` | Direct terminal access to the same named tools exposed through MCP. |
 | `tools <name> --scheme` | The schema contract for that tool. Do not guess fields. |
 | `context` | The same agent-facing protocol, system prompt, and tool descriptions used to guide MCP/CLI research. |
 | `install --ide <client>` | Writes MCP client configuration so editors and assistants can call `octocode-mcp`. |
 | `auth` | Manages credentials used by both CLI and MCP flows. |
+| `skill` | Installs bundled Agent Skills locally; no MCP transport required. |
 
 The code boundary is intentionally thin:
 - `@octocodeai/octocode-core` owns tool and command metadata.
@@ -345,9 +345,6 @@ The code boundary is intentionally thin:
 
 ## Further Reading
 
-- [Octocode Query Language](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode/docs/OCTOCODE_QUERY_LANGUAGE.md) — cheatsheet, decision tree, common recipes, agent rules
-- [OQL Language Reference](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode/docs/OQL_LANGUAGE_REFERENCE.md) — full language spec: anatomy, targets, predicates, params, controls
-- [OQL Results and Evidence](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode/docs/OQL_RESULTS_AND_EVIDENCE.md) — result envelope, evidence tiers, diagnostics, continuations, safe deletion
 - [Authentication Setup](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md)
 - [MCP Configuration](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md)
 - [All 13 Tools](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_TOOLS.md)

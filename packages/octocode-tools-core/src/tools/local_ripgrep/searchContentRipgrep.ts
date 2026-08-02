@@ -13,8 +13,8 @@ function applyWorkflowMode(query: RipgrepQuery): RipgrepQuery {
   if (!mode) return query;
 
   const next: RipgrepQuery = { ...query };
-  if (mode === 'discovery' && next.filesOnly === undefined) {
-    next.filesOnly = true;
+  if (mode === 'discovery' && next.output === 'content') {
+    next.output = 'files';
   } else if (mode === 'detailed' && next.contextLines === undefined) {
     next.contextLines = 3;
   }

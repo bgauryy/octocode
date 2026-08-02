@@ -160,6 +160,51 @@ fn search_files_finds_matches_and_prefilters_non_matching_files() {
 }
 
 #[test]
+fn search_files_errors_on_nonexistent_root_for_every_prefilter_branch() {
+    let root = temp_root("gone");
+    fs::remove_dir_all(&root).ok();
+    let missing = root.join("nope");
+
+    // Literal-anchored pattern (`target(` anchor → ripgrep prefilter branch),
+    // no-anchor pattern (`$FN($$$ARGS)` → walker branch), and a rule. A
+    // nonexistent root must be a LOUD error on all of them — the anchored
+    // branch used to return Ok(0 matches) because ripgrep yields zero
+    // candidates from a missing root without complaining.
+    for (pattern, rule) in [
+        (Some("target($X)".to_owned()), None),
+        (Some("$FN($$$ARGS)".to_owned()), None),
+        (
+            None,
+            Some("rule:\n  pattern: target($X)".to_owned()),
+        ),
+    ] {
+        let result = search_files(StructuralSearchFilesOptions {
+            path: missing.to_string_lossy().to_string(),
+            pattern,
+            rule,
+            include: None,
+            exclude_dir: None,
+            exclude: None,
+            hidden: None,
+            no_ignore: None,
+            max_depth: None,
+            max_files: Some(10),
+            max_file_bytes: None,
+        });
+        match result {
+            Ok(ok) => panic!(
+                "nonexistent root must error, not return {} matches",
+                ok.total_matches
+            ),
+            Err(err) => assert!(
+                err.contains("Cannot access structural search path"),
+                "unexpected error text: {err}"
+            ),
+        }
+    }
+}
+
+#[test]
 fn search_files_respects_excluded_directories_and_large_file_limit() {
     let root = temp_root("filters");
     fs::create_dir_all(root.join("src")).expect("src");
@@ -304,7 +349,7 @@ fn detailed_file_search_explains_prefilter_and_unsupported_files() {
 // `search`/`search_detailed` entry points did NOT, so a multi-MB blob passed
 // straight to the public napi export could hang in tree-sitter parsing +
 // `match_multi_capture` backtracking with no timeoutMs escape. The cap is
-// the engine's own backstop — OQL defers caps to backends, so the contract
+// the engine's own backstop — callers defer caps to backends, so the contract
 // is satisfied by enforcing one here, mirroring `max_file_bytes`.
 
 fn content_of_at_least(byte_len: usize) -> String {
@@ -688,18 +733,19 @@ fn search_files_prefilters_operator_anchor_before_structural_match() {
     fs::remove_dir_all(root).expect("cleanup");
 }
 
-// ── prefilter vs unsupported conflation (OQL evidence: proof vs unevaluated) ─
+// ── prefilter vs unsupported conflation (evidence: proof vs unevaluated) ─
 //
 // A `.txt` file that textually contains the anchor is not "anchor-absent"
 // (proof of no match) — it's "unsupported extension" (not evaluated).
 // `search_files` must report them on separate counters so the warning text
 // can't collapse a proof-skip into an unevaluated-skip, the exact
-// anti-pattern OQL's evidence kinds forbid.
+// anti-pattern the evidence-grade contract forbids.
 
 // ── scope parity: exclude / hidden / no_ignore / max_depth ───────────────
-// OQL `QueryScope` defines `exclude`/`hidden`/`noIgnore`/`maxDepth` and the
-// text/regex lane forwards them. The structural lane previously dropped
-// them silently — a typed-contract violation. These tests pin the parity.
+// `localSearchCode`'s scope defines `exclude`/`hidden`/`noIgnore`/`maxDepth`
+// and the text/regex lane forwards them. The structural lane previously
+// dropped them silently — a typed-contract violation. These tests pin the
+// parity.
 
 fn write_scope_fixture(root: &std::path::Path) {
     fs::write(root.join("match.ts"), "target(value);\n").expect("match");

@@ -21,6 +21,8 @@
 //! built-in body queries. Unknown predicates default to *pass* so that
 //! adding new predicates to body queries does not silently break extraction.
 
+use std::collections::HashMap;
+use std::sync::{Arc, OnceLock, RwLock};
 use tree_sitter::{Language, Parser, Query, QueryCursor, QueryPredicateArg, StreamingIterator};
 
 pub struct LangExtractConfig {
@@ -114,6 +116,36 @@ fn capture_text<'a>(
     }
 }
 
+/// Compiled `Query` objects are static per language (`body_query` is a
+/// `&'static str` fixed in `languages.rs`) and safe to share across threads
+/// once built — `tree_sitter::Query` is `Send + Sync`, unlike `Parser`, which
+/// is why `structural/octo.rs` uses `thread_local!` for the parser
+/// specifically rather than caching it here. Caches one compiled `Query` per
+/// `(language, body_query)` pair instead of recompiling on every `extract()`
+/// call — previously once per file scanned, mirroring the reuse pattern
+/// `structural/files.rs` already uses for its matcher compilation.
+type QueryCacheKey = (Language, &'static str);
+type QueryCacheMap = HashMap<QueryCacheKey, Arc<Query>>;
+
+static QUERY_CACHE: OnceLock<RwLock<QueryCacheMap>> = OnceLock::new();
+
+fn cached_query(language: &Language, body_query: &'static str) -> Option<Arc<Query>> {
+    let cache = QUERY_CACHE.get_or_init(|| RwLock::new(HashMap::new()));
+    let key = (language.clone(), body_query);
+
+    if let Ok(cache) = cache.read() {
+        if let Some(query) = cache.get(&key) {
+            return Some(Arc::clone(query));
+        }
+    }
+
+    let query = Arc::new(Query::new(language, body_query).ok()?);
+    if let Ok(mut cache) = cache.write() {
+        cache.insert(key, Arc::clone(&query));
+    }
+    Some(query)
+}
+
 /// Returns `(1-based line number, trimmed text)` pairs.
 pub fn extract(content: &str, cfg: &LangExtractConfig) -> Option<Vec<(usize, String)>> {
     let lines: Vec<&str> = content.lines().collect();
@@ -128,9 +160,10 @@ pub fn extract(content: &str, cfg: &LangExtractConfig) -> Option<Vec<(usize, Str
     parser.set_language(&cfg.language).ok()?;
     let tree = parser.parse(content.as_bytes(), None)?;
 
-    // Compile the body query; if it fails (bad query or grammar mismatch) fall
-    // back gracefully to returning all non-blank lines (caller will fall back).
-    if let Ok(query) = Query::new(&cfg.language, cfg.body_query) {
+    // Compile (or reuse the cached compile of) the body query; if it fails
+    // (bad query or grammar mismatch) fall back gracefully to returning all
+    // non-blank lines (caller will fall back).
+    if let Some(query) = cached_query(&cfg.language, cfg.body_query) {
         let mut cursor = QueryCursor::new();
         let mut matches = cursor.matches(&query, tree.root_node(), content.as_bytes());
         while let Some(m) = matches.next() {
@@ -201,6 +234,39 @@ pub fn extract(content: &str, cfg: &LangExtractConfig) -> Option<Vec<(usize, Str
 mod tests {
     use super::*;
 
+    #[cfg(feature = "tree-sitter-extended")]
+    #[test]
+    fn cached_query_reuses_the_same_compiled_query_across_calls() {
+        // Repeated calls for the same (language, body_query) must return the
+        // same compiled Query (Arc::ptr_eq), not recompile it — the fix for
+        // `extractor.rs` recompiling a static per-language query on every
+        // file scanned.
+        let lang: Language = tree_sitter_elixir::LANGUAGE.into();
+        let query_src = r#"(call (arguments (call)) (do_block) @body)"#;
+
+        let first = cached_query(&lang, query_src).expect("query should compile");
+        let second = cached_query(&lang, query_src).expect("query should compile");
+
+        assert!(
+            std::sync::Arc::ptr_eq(&first, &second),
+            "expected the second call to reuse the cached Query, got a distinct instance"
+        );
+    }
+
+    #[cfg(feature = "tree-sitter-extended")]
+    #[test]
+    fn cached_query_returns_none_for_an_invalid_query_without_poisoning_the_cache() {
+        let lang: Language = tree_sitter_elixir::LANGUAGE.into();
+        // Malformed query text — not a valid tree-sitter S-expression.
+        let bad_query = "(this is not valid";
+        assert!(cached_query(&lang, bad_query).is_none());
+
+        // The cache must still work for a valid query afterward.
+        let good_query = r#"(call (arguments (call)) (do_block) @body)"#;
+        assert!(cached_query(&lang, good_query).is_some());
+    }
+
+    #[cfg(feature = "tree-sitter-extended")]
     #[test]
     fn elixir_structural_query_filters_defmodule() {
         let lang: Language = tree_sitter_elixir::LANGUAGE.into();

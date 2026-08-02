@@ -13,7 +13,7 @@ const PR = {
   mergedAt: null,
 };
 
-describe('ghHistoryResearch shapePullRequestForContent — next hints', () => {
+describe('ghSearchPullRequests shapePullRequestForContent — next hints', () => {
   it('emits a per-row next drill-down even for a lean list-mode row (regression: list mode used to dead-end)', () => {
     // Mirrors the lean shape pullRequestsMode builds for a plain list query
     // with no explicit content selection.
@@ -27,11 +27,14 @@ describe('ghHistoryResearch shapePullRequestForContent — next hints', () => {
     );
 
     expect(shaped.next).toBeDefined();
-    const next = shaped.next as Record<string, { target?: { prNumber?: number } }>;
+    const next = shaped.next as Record<
+      string,
+      { target?: { prNumber?: number } }
+    >;
     expect(next.target).toBeDefined();
-    expect((shaped.next as { target: { prNumber: number } }).target.prNumber).toBe(
-      42
-    );
+    expect(
+      (shaped.next as { target: { prNumber: number } }).target.prNumber
+    ).toBe(42);
   });
 
   it('omits next when showContentMap is explicitly false', () => {

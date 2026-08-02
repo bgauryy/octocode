@@ -8,7 +8,7 @@ localViewStructure / localFindFiles
 -> localSearchCode for terms, identifiers, or changed anchors
 -> localGetFileContent(symbols or matchString)
 -> lspGetSemantics for definition, references, callers, callees, hover
--> localSearchCode structural/OQL when shape, reachability, or drift matters
+-> localSearchCode structural for code shape; localFindDeadCode for repo-wide dead-export candidates
 ```
 
 Local-first defaults:

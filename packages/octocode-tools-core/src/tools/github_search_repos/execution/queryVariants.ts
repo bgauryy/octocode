@@ -66,9 +66,7 @@ export function hasValidRepositorySearchParams(
     query.owner ||
     query.language ||
     query.stars ||
-    query.created ||
     query.updated ||
-    query.size ||
     query.forks ||
     query.license ||
     query.goodFirstIssues ||

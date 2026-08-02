@@ -56,8 +56,6 @@ export interface CodeSearchGroupedMatch {
   pathOnly?: boolean;
 
   matchIndices?: Array<{ start: number; end: number; lineOffset: number }>;
-
-  url?: string;
 }
 
 export interface CodeSearchGroupedResult {
@@ -96,7 +94,6 @@ export function mapCodeSearchProviderResult(
   query: WithOptionalMeta<GitHubCodeSearchQuery>
 ): CodeSearchFlatResult {
   const isPathMatch = query.match === 'path';
-  const verbose = (query as { verbose?: boolean }).verbose === true;
   const groups = new Map<string, CodeSearchGroupedResult>();
 
   for (const item of data.items) {
@@ -104,7 +101,6 @@ export function mapCodeSearchProviderResult(
     const { owner, repo } = splitRepositoryPath(repoFullName);
     const id = `${owner}/${repo}`;
 
-    const itemExtra = item as { url?: string };
     let group = groups.get(id);
     if (!group) {
       group = { id, owner, repo, matches: [] };
@@ -115,30 +111,31 @@ export function mapCodeSearchProviderResult(
       group.matches.push({
         path: item.path,
         ...(!isPathMatch ? { pathOnly: true } : {}),
-        ...(verbose && itemExtra.url ? { url: itemExtra.url } : {}),
       });
       continue;
     }
 
-    let firstMatchForItem = true;
     let emittedMatchForItem = false;
     for (const m of item.matches) {
       if (!m.context) continue;
+      const value = truncateSnippetChars(m.context);
       const match: CodeSearchGroupedMatch = {
         path: item.path,
-        value: truncateSnippetChars(m.context),
+        value,
       };
       if (m.positions?.length > 0) {
-        match.matchIndices = m.positions.map(([start, end]) => ({
-          start,
-          end,
-          lineOffset:
-            (m.context ?? '').substring(0, start).split('\n').length - 1,
-        }));
-      }
-      if (verbose && firstMatchForItem && itemExtra.url) {
-        match.url = itemExtra.url;
-        firstMatchForItem = false;
+        // Truncation shortens the shown snippet; an index past its end would
+        // point at text the agent cannot see. Drop those rather than emit
+        // anchors into the elided tail.
+        const inRange = m.positions.filter(([, end]) => end <= value.length);
+        if (inRange.length > 0) {
+          match.matchIndices = inRange.map(([start, end]) => ({
+            start,
+            end,
+            lineOffset:
+              (m.context ?? '').substring(0, start).split('\n').length - 1,
+          }));
+        }
       }
       group.matches.push(match);
       emittedMatchForItem = true;
@@ -148,7 +145,6 @@ export function mapCodeSearchProviderResult(
       group.matches.push({
         path: item.path,
         pathOnly: true,
-        ...(verbose && itemExtra.url ? { url: itemExtra.url } : {}),
       });
     }
   }

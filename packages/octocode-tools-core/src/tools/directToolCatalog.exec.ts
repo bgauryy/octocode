@@ -202,8 +202,13 @@ async function runRemoteDirectTool(
 ): Promise<CallToolResult> {
   const handler = withSecurityValidation<DirectToolInput>(
     tool.name,
-    async (sanitizedArgs, authInfo, sessionId) =>
-      tool.execute({ ...sanitizedArgs, authInfo, sessionId })
+    async (sanitizedArgs, context) =>
+      tool.execute({
+        ...sanitizedArgs,
+        authInfo: context.authInfo,
+        sessionId: context.sessionId,
+        signal: context.signal,
+      })
   );
 
   return handler(input, {});

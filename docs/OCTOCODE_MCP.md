@@ -11,7 +11,7 @@ MCP gives assistants a stable tool catalog instead of asking them to shell out m
 | Layer | Responsibility |
 |-------|----------------|
 | MCP server | stdio lifecycle, tool registration, client-facing descriptions, output sanitization boundary |
-| Tools core | GitHub/package/local/LSP/OQL runners, credentials, config, session, pagination, response shaping |
+| Tools core | GitHub/package/local/LSP runners, credentials, config, session, pagination, response shaping |
 | Engine | native ripgrep, structural AST search, minify/signatures, secret scan, LSP orchestration |
 
 ## Quick Start
@@ -70,15 +70,14 @@ At startup, Octocode reads configuration from environment variables and `<octoco
 
 ## Tool Catalog
 
-The MCP server registers the same **12** always-on research tools as the CLI tool runner (`oqlSearch` is optional when `ENABLE_OQL` is on):
+The MCP server registers the same **12** always-on research tools as the CLI tool runner:
 
 | Family | Tools |
 |--------|-------|
-| GitHub | `ghSearchCode`, `ghGetFileContent`, `ghViewRepoStructure`, `ghSearchRepos`, `ghHistoryResearch`, `ghCloneRepo` |
+| GitHub | `ghSearchCode`, `ghGetFileContent`, `ghViewRepoStructure`, `ghSearchRepos`, `ghSearchPullRequests`, `ghSearchIssues`, `ghSearchCommits`, `ghListReleases` *(opt-in: `ENABLE_RELEASES`)*, `ghSearchDiscussions` *(opt-in: `ENABLE_DISCUSSIONS`)*, `ghCloneRepo` |
 | Package | `npmSearch` |
 | Local | `localSearchCode`, `localViewStructure`, `localFindFiles`, `localGetFileContent` |
 | LSP | `lspGetSemantics` |
-| OQL | `oqlSearch` |
 
 Every tool accepts bulk input via `queries` with up to 5 items. Responses use a structured bulk envelope with per-query success, empty, and error states, plus pagination hints when more content is available. See [Octocode Tools Reference](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_TOOLS.md).
 

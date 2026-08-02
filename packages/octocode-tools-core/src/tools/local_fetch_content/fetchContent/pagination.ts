@@ -185,6 +185,7 @@ export async function buildSuccessResult(
     // Always surface contentView so agents know when default minify:"standard"
     // rewrote the text (previously omitted for standard, which hid the footgun).
     contentView,
+    returnedChars: window.windowedContent.length,
     ...(isPartial && { isPartial }),
     totalLines,
     ...(extraction.actualStartLine !== undefined &&
@@ -193,6 +194,9 @@ export async function buildSuccessResult(
         endLine: extraction.actualEndLine,
         ...(extraction.matchRanges !== undefined && {
           matchRanges: extraction.matchRanges,
+        }),
+        ...(extraction.matchedLines !== undefined && {
+          matchedLines: extraction.matchedLines,
         }),
       }),
     ...(fileStats.mtime && { modified: fileStats.mtime.toISOString() }),
@@ -238,6 +242,7 @@ export async function buildSymbolsSkeletonResult(
     path: query.path,
     content: window.windowedContent,
     contentView: 'symbols',
+    returnedChars: window.windowedContent.length,
     ...(window.pagination.hasMore && { isPartial: true }),
     totalLines,
     ...sourceSizeFields(sourceChars, sourceBytes),

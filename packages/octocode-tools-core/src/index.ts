@@ -55,7 +55,11 @@ export * from './tools/github_search_pull_requests/contentRequest.js';
 export * from './tools/github_search_pull_requests/contentResponse.js';
 export * from './tools/github_search_pull_requests/execution.js';
 export * from './tools/github_search_pull_requests/scheme.js';
+export * from './tools/github_search_pull_requests/splitSchemes.js';
+export * from './tools/github_search_pull_requests/splitExecutions.js';
 export * from './tools/github_search_pull_requests/types.js';
+export * from './tools/github_search_discussions/scheme.js';
+export * from './tools/github_search_discussions/execution.js';
 export * from './tools/github_search_repos/execution.js';
 export * from './tools/github_search_repos/scheme.js';
 export * from './tools/github_view_repo_structure/constants.js';
@@ -69,6 +73,9 @@ export * from './tools/local_fetch_content/scheme.js';
 export * from './tools/local_find_files/execution.js';
 export * from './tools/local_find_files/findFiles.js';
 export * from './tools/local_find_files/scheme.js';
+export * from './tools/local_dead_code/execution.js';
+export * from './tools/local_dead_code/local_dead_code.js';
+export * from './tools/local_dead_code/scheme.js';
 export * from './tools/local_ripgrep/execution.js';
 export * from './tools/local_ripgrep/patternValidation.js';
 export * from './tools/local_ripgrep/ripgrepExecutor.js';
@@ -79,7 +86,6 @@ export * from './tools/local_view_structure/execution.js';
 export * from './tools/local_view_structure/local_view_structure.js';
 export * from './tools/local_view_structure/scheme.js';
 export * from './tools/local_view_structure/structureFilters.js';
-export * from './tools/oql_search/execution.js';
 export * from './tools/lsp/semantic_content/execution.js';
 export * from './tools/lsp/semantic_content/index.js';
 export * from './tools/lsp/semantic_content/scheme.js';
@@ -102,8 +108,6 @@ export * from './tools/toolMetadata/types.js';
 export * from './tools/directToolCatalog.js';
 export * from './tools/toolNames.js';
 export * from './tools/utils.js';
-export { OqlSearchInputSchema } from './oql/schema.js';
-export type { OqlSearchInput } from './oql/types.js';
 export * from './types/bulk.js';
 export * from './types/execution.js';
 export * from './types/promise.js';
@@ -263,14 +267,7 @@ export {
   KEY_FILE,
   getGhCliToken,
 } from './shared/credentials/index.js';
-export {
-  ENV_TOKEN_VARS,
-  type EnvTokenVar,
-  getTokenFromEnv,
-  getEnvTokenSource,
-  hasEnvToken,
-  resolveEnvToken,
-} from '@octocodeai/config';
+// Env-token helpers are single-sourced in @octocodeai/config — import them from there directly.
 export {
   isWindows,
   isMac,
@@ -312,61 +309,8 @@ export {
   incrementToolCharSavings,
   _resetSessionState,
 } from './shared/session/index.js';
-// Config types, defaults, and resolver — sourced directly from @octocodeai/config.
-export type {
-  OctocodeConfig,
-  ResolvedConfig,
-  ValidationResult,
-  LoadConfigResult,
-  GitHubConfigOptions,
-  LocalConfigOptions,
-  ToolsConfigOptions,
-  NetworkConfigOptions,
-  LspConfigOptions,
-  OutputConfigOptions,
-  OutputPaginationConfigOptions,
-  RequiredGitHubConfig,
-  RequiredLocalConfig,
-  RequiredToolsConfig,
-  RequiredNetworkConfig,
-  RequiredLspConfig,
-  RequiredOutputConfig,
-  RequiredOutputPaginationConfig,
-  RuntimeSurface,
-} from '@octocodeai/config';
-export {
-  CONFIG_SCHEMA_VERSION,
-  CONFIG_FILE_NAME,
-  DEFAULT_CONFIG,
-  DEFAULT_GITHUB_CONFIG,
-  DEFAULT_LOCAL_CONFIG,
-  DEFAULT_TOOLS_CONFIG,
-  DEFAULT_NETWORK_CONFIG,
-  DEFAULT_LSP_CONFIG,
-  DEFAULT_OUTPUT_CONFIG,
-  MIN_TIMEOUT,
-  MAX_TIMEOUT,
-  MIN_RETRIES,
-  MAX_RETRIES,
-  MIN_OUTPUT_DEFAULT_CHAR_LENGTH,
-  MAX_OUTPUT_DEFAULT_CHAR_LENGTH,
-  getConfigFilePath,
-  loadConfig,
-  loadConfigSync,
-  configExists,
-  validateConfig,
-  getConfig,
-  getConfigSync,
-  reloadConfig,
-  resolveConfig,
-  resolveConfigSync,
-  invalidateConfigCache,
-  getConfigValue,
-  _resetConfigCache,
-  _getCacheState,
-  setRuntimeSurface,
-  getRuntimeSurface,
-} from '@octocodeai/config';
+// Config types, defaults, resolver, and validation are single-sourced in
+// @octocodeai/config — import them from there directly, not through this barrel.
 export { OctocodeConfigSchema } from './shared/config/schemas.js';
 export {
   OCTOCODE_HOME,

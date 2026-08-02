@@ -218,7 +218,22 @@ function suggestField(
  * aliases and folded to the canonical field instead of erroring or being
  * silently stripped. Real typos still hit the did-you-mean path.
  */
-const TOOL_FIELD_ALIASES: Record<string, Record<string, string>> = {
+type FieldAlias =
+  | string
+  | {
+      field: string;
+      /**
+       * Optional value transform. Return the canonical value, or `undefined`
+       * to refuse the fold (the alias then stays unknown and errors — used
+       * when the alias value is not expressible in the canonical field,
+       * e.g. ghSearchPullRequests merged:false).
+       */
+      map: (value: unknown) => unknown | undefined;
+    };
+
+const MINIFY_VALUES = new Set(['none', 'standard', 'symbols']);
+
+const TOOL_FIELD_ALIASES: Record<string, Record<string, FieldAlias>> = {
   // Map alias → canonical schema field (never the reverse).
   ghSearchCode: { keywordsToSearch: 'keywords' },
   ghSearchRepos: { keywordsToSearch: 'keywords' },
@@ -226,7 +241,37 @@ const TOOL_FIELD_ALIASES: Record<string, Record<string, string>> = {
   ghViewRepoStructure: { depth: 'maxDepth' },
   lspGetSemantics: { op: 'type', line: 'lineHint', path: 'uri' },
   localGetFileContent: { filePath: 'path' },
-  localSearchCode: { keywordsToSearch: 'keywords' },
+  // `searchText` is a single string; fold the old `keywords` name and the
+  // GitHub-style `keywordsToSearch` to it so first-contact habits still work.
+  // `language` is the ast-grep/LSP-style name for ripgrep's `langType`.
+  localSearchCode: {
+    keywordsToSearch: 'searchText',
+    keywords: 'searchText',
+    language: 'langType',
+  },
+  // Benchmark-measured first-contact misses (compare-run-20260802-b):
+  ghGetFileContent: {
+    matchStringContextLines: 'contextLines',
+    minified: {
+      field: 'minify',
+      map: value => {
+        if (value === true) return 'standard';
+        if (value === false) return 'none';
+        if (typeof value === 'string' && MINIFY_VALUES.has(value)) return value;
+        return undefined;
+      },
+    },
+  },
+  ghSearchPullRequests: {
+    // merged:true is unambiguous; merged:false ("closed but not merged")
+    // is not expressible via state and must keep erroring.
+    merged: {
+      field: 'state',
+      map: value => (value === true ? 'merged' : undefined),
+    },
+  },
+  ghSearchCommits: { filePath: 'path' },
+  localFindFiles: { maxResults: 'limit' },
 };
 
 function applyFieldAliases(
@@ -236,12 +281,22 @@ function applyFieldAliases(
   const aliases = TOOL_FIELD_ALIASES[toolName];
   if (!aliases) return query;
   let next: Record<string, unknown> | undefined;
-  for (const [alias, canonical] of Object.entries(aliases)) {
-    if (alias in query && !(canonical in query)) {
+  for (const [alias, target] of Object.entries(aliases)) {
+    if (!(alias in query)) continue;
+    const canonical = typeof target === 'string' ? target : target.field;
+    if (canonical in query) {
+      // Canonical field explicitly set — the alias is redundant, drop it
+      // rather than letting it error as an unknown field.
       next ??= { ...query };
-      next[canonical] = next[alias];
       delete next[alias];
+      continue;
     }
+    const value =
+      typeof target === 'string' ? query[alias] : target.map(query[alias]);
+    if (value === undefined) continue; // refuse the fold → unknown-field path
+    next ??= { ...query };
+    next[canonical] = value;
+    delete next[alias];
   }
   return next ?? query;
 }

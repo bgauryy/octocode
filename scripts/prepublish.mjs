@@ -1,32 +1,32 @@
 #!/usr/bin/env node
 /**
- * prepublish.mjs — publish guard: workspace:* resolutions + version alignment.
+ * prepublish.mjs — publish guard: no workspace:* resolutions for managed packages.
  *
- * Runs three checks before any package in this monorepo is published:
+ * A single check runs before any package in this monorepo is published:
  *
- *   1. RESOLUTIONS CHECK — root package.json must not have workspace:* entries
- *      for managed internal packages. Publishing with workspace:*
- *      resolutions active causes Yarn to rewrite consumer deps via the local
- *      registry, producing incorrect pinned versions in published tarballs.
+ *   RESOLUTIONS CHECK — root package.json must not have workspace:* entries
+ *   for managed internal packages. Publishing with workspace:* resolutions
+ *   active causes Yarn to rewrite consumer deps via the local registry,
+ *   producing incorrect pinned versions in published tarballs. These entries
+ *   are added by `yarn devScript` for local development and must be removed
+ *   before publishing.
  *
- *   2. PACKAGE VERSION ALIGNMENT — publishable Octocode package versions must
- *      match the root package.json version.
- *
- *   3. DEPENDENCY VERSION ALIGNMENT — every workspace package that depends on
- *      a managed package must declare a version spec that matches the package's
- *      current version in this repo (format: "^<version>", or the exact version
- *      string). workspace:* in devDependencies is always valid and left untouched.
+ * This script does NOT enforce version alignment between packages — each
+ * package is versioned independently. The complementary npm-publish guard
+ * (packages/octocode/scripts/check-no-workspace-protocol.mjs) enforces the
+ * matching rule that no published package ships a local
+ * (workspace:/file:/link:/portal:) dependency.
  *
  * Usage:
- *   node ./scripts/prepublish.mjs          # check only (exit 1 on issues)
- *   node ./scripts/prepublish.mjs --fix    # fix issues and write files
+ *   node ./scripts/prepublish.mjs            # check only (exit 1 on issues)
+ *   node ./scripts/prepublish.mjs --fix      # remove offending resolutions and write
  *   node ./scripts/prepublish.mjs --dry-run  # preview fixes without writing
  *
  * Root publish flow:
  *   "prepublish": "node ./scripts/prepublish.mjs && node ./packages/octocode/scripts/check-no-workspace-protocol.mjs && yarn readme:sync"
  */
 
-import { readFileSync, writeFileSync, readdirSync, existsSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -34,7 +34,7 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const FIX = process.argv.includes('--fix');
 const DRY_RUN = process.argv.includes('--dry-run');
 
-/** Packages whose resolutions + dep versions this script manages. */
+/** Packages whose root resolutions this script manages. */
 const ENGINE_PKG_PATH = join(ROOT, 'packages/octocode-engine/package.json');
 const enginePkg = JSON.parse(readFileSync(ENGINE_PKG_PATH, 'utf8'));
 const enginePlatformPackages = Object.keys(enginePkg.optionalDependencies ?? {}).filter((name) =>
@@ -48,79 +48,8 @@ const MANAGED_PACKAGES = new Set([
   ...enginePlatformPackages,
 ]);
 
-const PUBLISH_VERSION_PACKAGE_DIRS = [
-  'packages/octocode-config',
-  'packages/octocode-tools-core',
-  'packages/octocode-mcp',
-  'packages/octocode-skills',
-  'packages/octocode-engine',
-  'packages/octocode',
-];
-const ENGINE_NPM_DIR = 'packages/octocode-engine/npm';
-
-/** Dependency fields that are included in a published package. */
-const PUBLISHED_DEP_FIELDS = ['dependencies', 'optionalDependencies', 'peerDependencies'];
-
-/** All dependency fields — also check devDependencies for version alignment (not published, but consistency matters). */
-const ALL_DEP_FIELDS = [...PUBLISHED_DEP_FIELDS, 'devDependencies'];
-
 // ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/** Build a name→version map for every workspace package in the repo. */
-function buildWorkspaceVersionMap() {
-  const map = new Map();
-  const rootPkgPath = join(ROOT, 'package.json');
-  if (!existsSync(rootPkgPath)) return map;
-
-  const rootPkg = JSON.parse(readFileSync(rootPkgPath, 'utf8'));
-  for (const wsGlob of rootPkg.workspaces ?? []) {
-    const baseDir = wsGlob.replace(/\/\*.*$/, '');
-    const absDir = join(ROOT, baseDir);
-    if (!existsSync(absDir)) continue;
-
-    for (const entry of readdirSync(absDir, { withFileTypes: true })) {
-      if (!entry.isDirectory()) continue;
-      const pkgJsonPath = join(absDir, entry.name, 'package.json');
-      if (!existsSync(pkgJsonPath)) continue;
-      try {
-        const { name, version } = JSON.parse(readFileSync(pkgJsonPath, 'utf8'));
-        if (name && version) map.set(name, version);
-      } catch {
-        /* skip unparseable entries */
-      }
-    }
-  }
-  return map;
-}
-
-/** Collect all workspace package.json paths (root + every packages/<name>). */
-function collectPackageJsons(rootPkg, rootPkgPath) {
-  const results = [{ file: rootPkgPath, json: rootPkg }];
-
-  for (const wsGlob of rootPkg.workspaces ?? []) {
-    const baseDir = wsGlob.replace(/\/\*.*$/, '');
-    const absDir = join(ROOT, baseDir);
-    if (!existsSync(absDir)) continue;
-
-    for (const entry of readdirSync(absDir, { withFileTypes: true })) {
-      if (!entry.isDirectory()) continue;
-      const pkgJsonPath = join(absDir, entry.name, 'package.json');
-      if (!existsSync(pkgJsonPath)) continue;
-      try {
-        results.push({ file: pkgJsonPath, json: JSON.parse(readFileSync(pkgJsonPath, 'utf8')) });
-      } catch {
-        /* skip */
-      }
-    }
-  }
-
-  return results;
-}
-
-// ---------------------------------------------------------------------------
-// Check 1: root resolutions must not contain workspace:* for managed packages
+// Check: root resolutions must not contain workspace:* for managed packages
 // ---------------------------------------------------------------------------
 
 function checkAndFixResolutions(rootPkg, rootPkgPath) {
@@ -154,241 +83,45 @@ function checkAndFixResolutions(rootPkg, rootPkgPath) {
 }
 
 // ---------------------------------------------------------------------------
-// Checks 2/3: package versions and dependency specs must match repo versions
-// ---------------------------------------------------------------------------
-
-/**
- * Normalise a dep spec so we can compare it to a bare version string.
- * "^16.6.3" → "16.6.3", "16.6.3" → "16.6.3".
- */
-function stripRange(spec) {
-  return String(spec).replace(/^[\^~>=<\s]+/, '').trim();
-}
-
-function collectPublishVersionPackageJsonPaths() {
-  const paths = PUBLISH_VERSION_PACKAGE_DIRS.map((dir) => join(ROOT, dir, 'package.json'));
-  const engineNpmRoot = join(ROOT, ENGINE_NPM_DIR);
-
-  if (existsSync(engineNpmRoot)) {
-    for (const entry of readdirSync(engineNpmRoot, { withFileTypes: true })) {
-      if (!entry.isDirectory()) continue;
-      paths.push(join(engineNpmRoot, entry.name, 'package.json'));
-    }
-  }
-
-  return [...new Set(paths)].sort();
-}
-
-function checkAndFixPackageVersions(rootVersion) {
-  const issues = [];
-
-  for (const file of collectPublishVersionPackageJsonPaths()) {
-    if (!existsSync(file)) {
-      issues.push({ file, pkg: '<missing>', current: '<missing>', expected: rootVersion, canFix: false });
-      console.log(`  ✗ ${file}: missing package.json`);
-      continue;
-    }
-
-    const json = JSON.parse(readFileSync(file, 'utf8'));
-    if (json.version === rootVersion) continue;
-
-    issues.push({ file, pkg: json.name ?? '<unnamed>', current: json.version ?? '<missing>', expected: rootVersion, canFix: true });
-    console.log(
-      `  ${DRY_RUN ? '~' : FIX ? '✓' : '✗'} ${json.name ?? file}: version "${json.version ?? '<missing>'}" → "${rootVersion}"`
-    );
-
-    if (FIX && !DRY_RUN) {
-      json.version = rootVersion;
-      writeFileSync(file, JSON.stringify(json, null, 2) + '\n');
-    }
-  }
-
-  return issues;
-}
-
-function checkAndFixVersions(allPkgs, versionMap) {
-  const issues = [];
-  const dirtyFiles = new Set();
-
-  for (const { file, json } of allPkgs) {
-    if (!json.name || json.name === 'octocode-monorepo') continue; // skip root manifest
-
-    for (const field of ALL_DEP_FIELDS) {
-      const deps = json[field];
-      if (!deps || typeof deps !== 'object') continue;
-
-      for (const name of MANAGED_PACKAGES) {
-        const currentSpec = deps[name];
-        if (!currentSpec) continue;
-        if (currentSpec === 'workspace:*') continue; // always valid
-
-        const repoVersion = versionMap.get(name);
-        if (!repoVersion) {
-          // Package not in this workspace (e.g. @octocodeai/octocode-core lives in a sibling repo).
-          // Nothing to align against — skip silently.
-          continue;
-        }
-
-        const expectedSpec = `^${repoVersion}`;
-        if (stripRange(currentSpec) !== repoVersion) {
-          issues.push({
-            pkg: json.name,
-            field,
-            dep: name,
-            current: currentSpec,
-            expected: expectedSpec,
-            canFix: true,
-          });
-
-          if ((FIX || DRY_RUN) && !DRY_RUN) {
-            deps[name] = expectedSpec;
-            dirtyFiles.add(file);
-          }
-
-          console.log(
-            `  ${DRY_RUN ? '~' : FIX ? '✓' : '✗'} ${json.name}: ${field}.${name}: "${currentSpec}" → "${expectedSpec}"`
-          );
-        }
-      }
-    }
-  }
-
-  // Write changed package.json files
-  if (FIX && !DRY_RUN) {
-    for (const file of dirtyFiles) {
-      const entry = allPkgs.find((p) => p.file === file);
-      if (entry) {
-        writeFileSync(file, JSON.stringify(entry.json, null, 2) + '\n');
-      }
-    }
-    if (dirtyFiles.size > 0) {
-      console.log(`  ✓ Updated ${dirtyFiles.size} package.json file(s).\n`);
-    }
-  }
-
-  return issues;
-}
-
-// ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
 
 const rootPkgPath = join(ROOT, 'package.json');
 const rootPkg = JSON.parse(readFileSync(rootPkgPath, 'utf8'));
-const versionMap = buildWorkspaceVersionMap();
-const allPkgs = collectPackageJsons(rootPkg, rootPkgPath);
 
 const mode = DRY_RUN ? ' (dry-run)' : FIX ? ' (--fix)' : '';
 console.log(`\n🔍 Prepublish check${mode}\n`);
 
-// --- Check 1: resolutions ---
-console.log('[ 1/3 ] Checking root resolutions…');
+// --- Check: resolutions ---
+console.log('[ 1/1 ] Checking root resolutions…');
 const resolutionIssues = checkAndFixResolutions(rootPkg, rootPkgPath);
 if (resolutionIssues.length === 0) {
   console.log('  ✓ No workspace:* resolutions for managed packages.\n');
 }
 
-// --- Check 2: package versions ---
-console.log('[ 2/3 ] Checking publish package versions…');
-const packageVersionIssues = checkAndFixPackageVersions(rootPkg.version);
-const fixablePackageVersionIssues = packageVersionIssues.filter((i) => i.canFix);
-const unfixablePackageVersionIssues = packageVersionIssues.filter((i) => !i.canFix);
-if (packageVersionIssues.length === 0) {
-  console.log('  ✓ All publish package versions match the root version.\n');
-} else if (FIX && unfixablePackageVersionIssues.length === 0) {
-  console.log(`  ✓ Updated ${fixablePackageVersionIssues.length} package version(s).\n`);
-} else {
-  console.log('');
-}
-
-// Refresh package data after --fix package version rewrites so dependency fixes do not overwrite them.
-const effectiveVersionMap = FIX && !DRY_RUN ? buildWorkspaceVersionMap() : versionMap;
-const effectiveRootPkg = FIX && !DRY_RUN ? JSON.parse(readFileSync(rootPkgPath, 'utf8')) : rootPkg;
-const effectiveAllPkgs = FIX && !DRY_RUN ? collectPackageJsons(effectiveRootPkg, rootPkgPath) : allPkgs;
-
-// --- Check 3: dependency version alignment ---
-console.log('[ 3/3 ] Checking dependency version alignment…');
-const versionIssues = checkAndFixVersions(effectiveAllPkgs, effectiveVersionMap);
-const fixableVersionIssues = versionIssues.filter((i) => i.canFix);
-const unfixableVersionIssues = versionIssues.filter((i) => !i.canFix);
-
-if (versionIssues.length === 0) {
-  console.log('  ✓ All managed dependency versions are aligned.\n');
-} else if (unfixableVersionIssues.length > 0 && !FIX) {
-  console.log('');
-  for (const { pkg, field, dep, current, expected } of unfixableVersionIssues) {
-    console.log(`  ⚠  ${pkg}: ${field}.${dep}: "${current}" — ${expected}`);
-  }
-  console.log('');
-}
-
 // --- Summary ---
-const totalIssues = resolutionIssues.length + packageVersionIssues.length + versionIssues.length;
-
-if (totalIssues === 0) {
+if (resolutionIssues.length === 0) {
   console.log('✅ Prepublish check passed — ready to publish.\n');
   process.exit(0);
 }
 
 if (FIX || DRY_RUN) {
-  const fixedCount = resolutionIssues.length + fixablePackageVersionIssues.length + fixableVersionIssues.length;
-  const unfixedCount = unfixablePackageVersionIssues.length + unfixableVersionIssues.length;
-  if (unfixedCount > 0) {
-    console.warn(
-      `⚠  ${unfixedCount} issue(s) could not be auto-fixed (external packages not in workspace). Fix manually.\n`
-    );
-    process.exit(1);
-  }
   if (DRY_RUN) {
-    console.log(`📋 Dry-run: ${fixedCount} fix(es) would be applied. Re-run without --dry-run to apply.\n`);
+    console.log(
+      `📋 Dry-run: ${resolutionIssues.length} fix(es) would be applied. Re-run without --dry-run to apply.\n`
+    );
   } else {
-    console.log(`✅ Fixed ${fixedCount} issue(s). Run \`yarn install\` to apply.\n`);
+    console.log(`✅ Fixed ${resolutionIssues.length} issue(s). Run \`yarn install\` to apply.\n`);
   }
   process.exit(0);
 }
 
-// Check-only mode: report all issues and exit 1
-console.error('\n✗ Prepublish checks failed:\n');
-
-if (resolutionIssues.length > 0) {
-  console.error(`  workspace:* resolutions still present in root package.json:`);
-  for (const name of resolutionIssues) {
-    console.error(`    resolutions.${name}: "workspace:*"`);
-  }
-  console.error(`\n  These were added by \`yarn devScript\` for local development.`);
-  console.error(`  Remove them before publishing: \`node ./scripts/prepublish.mjs --fix\`\n`);
+// Check-only mode: report and exit 1
+console.error('\n✗ Prepublish check failed:\n');
+console.error(`  workspace:* resolutions still present in root package.json:`);
+for (const name of resolutionIssues) {
+  console.error(`    resolutions.${name}: "workspace:*"`);
 }
-
-if (fixablePackageVersionIssues.length > 0) {
-  console.error(`  Publish package version mismatches (fixable):`);
-  for (const { pkg, current, expected, file } of fixablePackageVersionIssues) {
-    console.error(`    ${pkg}: ${file}: "${current}" (expected "${expected}")`);
-  }
-  console.error(`\n  Run \`node ./scripts/prepublish.mjs --fix\` to align publish package versions.\n`);
-}
-
-if (unfixablePackageVersionIssues.length > 0) {
-  console.error(`  Publish package version mismatches (manual fix required):`);
-  for (const { pkg, current, expected, file } of unfixablePackageVersionIssues) {
-    console.error(`    ${pkg}: ${file}: "${current}" (expected "${expected}")`);
-  }
-  console.error('');
-}
-
-if (fixableVersionIssues.length > 0) {
-  console.error(`  Dependency version mismatches (fixable):`);
-  for (const { pkg, field, dep, current, expected } of fixableVersionIssues) {
-    console.error(`    ${pkg}: ${field}.${dep}: "${current}" (expected "${expected}")`);
-  }
-  console.error(`\n  Run \`node ./scripts/prepublish.mjs --fix\` to align all versions.\n`);
-}
-
-if (unfixableVersionIssues.length > 0) {
-  console.error(`  Dependency version mismatches (manual fix required):`);
-  for (const { pkg, field, dep, current, expected } of unfixableVersionIssues) {
-    console.error(`    ${pkg}: ${field}.${dep}: "${current}" — ${expected}`);
-  }
-  console.error('');
-}
-
+console.error(`\n  These were added by \`yarn devScript\` for local development.`);
+console.error(`  Remove them before publishing: \`node ./scripts/prepublish.mjs --fix\`\n`);
 process.exit(1);

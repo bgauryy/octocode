@@ -14,6 +14,10 @@ export function mapRepoStructureToolQuery(
   query: PartialRepoStructureQuery,
   resolvedBranch: string
 ) {
+  // Single agent-facing `include` array → internal per-enrichment booleans, so
+  // the existing includeSizes plumbing is untouched and the new repo-level
+  // enrichments (contributors/branches/tags) share one lean param.
+  const include = (query as { include?: string[] }).include ?? [];
   return {
     projectId: `${query.owner}/${query.repo}`,
     ref: resolvedBranch,
@@ -26,7 +30,11 @@ export function mapRepoStructureToolQuery(
       const page = (query as { page?: number }).page;
       return typeof page === 'number' ? page : undefined;
     })(),
-    includeSizes: (query as { includeSizes?: boolean }).includeSizes,
+    includeSizes: include.includes('sizes'),
+    includeLanguages: include.includes('languages'),
+    includeContributors: include.includes('contributors'),
+    includeBranches: include.includes('branches'),
+    includeTags: include.includes('tags'),
     mainResearchGoal: query.mainResearchGoal,
     researchGoal: query.researchGoal,
     reasoning: query.reasoning,
@@ -88,9 +96,35 @@ export function mapRepoStructureProviderResult(
     { totalFiles: 0, totalFolders: 0 }
   );
 
+  const enrich = data as {
+    languages?: Record<string, number>;
+    dominantLanguage?: string;
+    contributors?: Array<{ login: string; contributions: number }>;
+    branches?: string[];
+    tags?: Array<{ name: string; sha: string }>;
+  };
+
   const resultData: Record<string, unknown> = {
     structure: structureArray,
     ...(Object.keys(fileSizes).length > 0 && { fileSizes }),
+    ...(enrich.languages
+      ? {
+          languages: enrich.languages,
+          dominantLanguage: enrich.dominantLanguage,
+        }
+      : {}),
+    ...(enrich.contributors
+      ? {
+          contributors: enrich.contributors,
+          totalContributors: enrich.contributors.length,
+        }
+      : {}),
+    ...(enrich.branches
+      ? { branches: enrich.branches, totalBranches: enrich.branches.length }
+      : {}),
+    ...(enrich.tags
+      ? { tags: enrich.tags, totalTags: enrich.tags.length }
+      : {}),
     summary: {
       totalFiles: filteredSummary.totalFiles,
       totalFolders: filteredSummary.totalFolders,

@@ -15,7 +15,7 @@ Load for page actions, scraping, or live-page attachment. Why: prevent accidenta
 Click/fill/submit only when requested. Record each step as `[ACTION]`.
 
 ## scrape
-Read structured data without mutation. Emit counts and sample rows; page large output to files.
+Read structured data without mutation. Emit counts and sample rows; page large output to files. For broad public crawls, first use `octocode-scraping` to build a corpus/graph; use CDP here to validate graph action nodes (search inputs, next buttons, menus, infinite scroll) and return discovered URLs/data to that corpus.
 
 ## live-page
 Attach with `--keep-tab`. Listeners miss past events — re-read current state.

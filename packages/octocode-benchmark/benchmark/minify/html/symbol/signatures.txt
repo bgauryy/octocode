@@ -1,6 +1,0 @@
- 1| <!DOCTYPE html>
- 5|     <meta name="author" content="Dr. Eleanor Gaye">
-54|     <h1>Re: Eileen Dover university application</h1>
-60|     <h2>Starting dates</h2>
-74|     <h2>Subjects of study</h2>
-86|     <h2>Exotic dance moves</h2>

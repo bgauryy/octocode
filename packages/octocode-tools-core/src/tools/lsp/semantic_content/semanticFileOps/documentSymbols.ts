@@ -17,7 +17,11 @@ import {
   paginateItems,
 } from '../semanticEnvelopes.js';
 import { symbolKindName } from '../semanticPresentation.js';
-import { nativeDocumentSymbols, throwLspUnavailable } from './anchor.js';
+import {
+  graphFactsDocumentSymbols,
+  nativeDocumentSymbols,
+  throwLspUnavailable,
+} from './anchor.js';
 
 export type CompactSymbol = {
   name: string;
@@ -42,13 +46,13 @@ export async function getDocumentSymbols(
 
   const workspaceRoot =
     query.workspaceRoot ??
-    (await resolveWorkspaceRootForFile(anchor.value.uri));
+    (await resolveWorkspaceRootForFile(anchor.value.absolutePath));
   const serverAvailable = await isLanguageServerAvailable(
-    anchor.value.uri,
+    anchor.value.absolutePath,
     workspaceRoot
   );
   const client = serverAvailable
-    ? await acquirePooledClient(workspaceRoot, anchor.value.uri)
+    ? await acquirePooledClient(workspaceRoot, anchor.value.absolutePath)
     : null;
   const lspProvides = Boolean(client?.hasCapability('documentSymbolProvider'));
 
@@ -56,21 +60,31 @@ export async function getDocumentSymbols(
   //   1. Native OXC (JS/TS only) — always fast, no server round-trip.
   //      Preferred even when a server is available; avoids indexing-wait on
   //      documentSymbols for the most common file types.
+  //   1b. Native graph-facts declarations — still fast/server-free, for the
+  //      JS/TS files oxc's full symbol extractor declines (notably Flow-typed
+  //      `.js`, where Flow syntax can fail oxc's default JS parse outright).
+  //      Flat top-level declarations only, no nested hierarchy.
   //   2. LSP server — for non-JS/TS languages with a documentSymbolProvider.
   //   3. Markdown heading outline — for .md files without a server.
   // Stamp `source` so callers know the fidelity tier.
   let symbols: unknown[] = [];
-  let source: 'lsp' | 'native' | 'markdown' | undefined;
+  let source: 'lsp' | 'native' | 'native-graph-facts' | 'markdown' | undefined;
   const nativeFast = nativeDocumentSymbols(
     anchor.value.uri,
     anchor.value.content
   );
+  const graphFactsFallback = nativeFast?.length
+    ? null
+    : graphFactsDocumentSymbols(anchor.value.uri, anchor.value.content);
   if (nativeFast?.length) {
     symbols = nativeFast;
     source = 'native';
+  } else if (graphFactsFallback?.length) {
+    symbols = graphFactsFallback;
+    source = 'native-graph-facts';
   } else if (lspProvides && client) {
     const raw = await client.documentSymbols(
-      anchor.value.uri,
+      anchor.value.absolutePath,
       anchor.value.content
     );
     symbols = Array.isArray(raw) ? raw : [];

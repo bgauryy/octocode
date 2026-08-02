@@ -58,4 +58,4 @@ Setup/pull → catalog. Tool-harness triage → triage skill. Parallel cloud wor
 | `references/verify-gate.md` | Every VERIFY |
 | `references/references.md` | Provenance |
 
-**Eval:** `evals/` permanent; `.octocode/` temp. Improving this skill → `octocode-eval`.
+**Eval:** `evals/` permanent; `.octocode/` temp. Improving this skill → `octocode-graph-eval`.

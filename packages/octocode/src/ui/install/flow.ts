@@ -226,7 +226,7 @@ async function showConfirmationAndPrompt(
   console.log();
   console.log(`  ${bold('Summary:')}`);
   console.log(`    ${dim('Client:')}       ${clientInfo.name}`);
-  console.log(`    ${dim('Method:')}       npx (@octocodeai/mcp@latest)`);
+  console.log(`    ${dim('Method:')}       npx (octocode-mcp@latest)`);
 
   const localStatus = state.enableLocal
     ? c('green', 'Enabled')

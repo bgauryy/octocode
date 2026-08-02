@@ -42,7 +42,15 @@ fn collect_statement_calls(stmt: &Statement, li: &LineIndex, calls: &mut Vec<Gra
             }
             _ => {}
         },
-        _ => {}
+        // Every other top-level statement kind — most commonly a bare call
+        // expression statement (`describe('...', () => {...})`, a top-level
+        // `it(...)` block) but also `if`/`try`/`for`/block statements at
+        // module scope. None of these have a declaration name of their own,
+        // so there's no better owner than a module-level placeholder. Without
+        // this arm, a top-level `ExpressionStatement` was silently dropped —
+        // every call made inside a top-level `describe`/`it` callback
+        // (including a `dynamic-import`) was invisible to the graph.
+        other => collect_owned_statement_calls("module", other, li, calls),
     }
 }
 
@@ -75,18 +83,61 @@ fn collect_variable_calls(
     calls: &mut Vec<GraphCall>,
 ) {
     for declarator in &variable.declarations {
-        let BindingPattern::BindingIdentifier(id) = &declarator.id else {
-            continue;
+        // A plain identifier gets its own name as the call-graph owner;
+        // a destructuring pattern (`const { a, b } = f()`, `const [x] = f()`)
+        // has no single bound name, so fall back to the first identifier
+        // found inside the pattern. Either way the init expression must still
+        // be walked — skipping it here used to drop every call (including a
+        // `dynamic-import`) made on the right-hand side of a destructured
+        // declarator, which made a file reached only through
+        // `const { x } = await import('./mod.js')` invisible to the
+        // dead-code reachability graph.
+        let owner = match &declarator.id {
+            BindingPattern::BindingIdentifier(id) => id.name.as_str().to_string(),
+            other => first_pattern_identifier(other).unwrap_or_else(|| "destructured".to_string()),
         };
         match &declarator.init {
             Some(Expression::ArrowFunctionExpression(arrow)) => {
-                collect_arrow_calls(id.name.as_str(), arrow, li, calls);
+                collect_arrow_calls(&owner, arrow, li, calls);
             }
             Some(Expression::FunctionExpression(function)) => {
-                collect_function_calls(id.name.as_str(), function, li, calls);
+                collect_function_calls(&owner, function, li, calls);
             }
-            Some(expression) => collect_expression_calls(id.name.as_str(), expression, li, calls),
+            Some(expression) => collect_expression_calls(&owner, expression, li, calls),
             None => {}
+        }
+    }
+}
+
+/// First bound identifier name found inside a (possibly nested) binding
+/// pattern, e.g. `a` in `{ a, b }` or `x` in `[{ x }]`. Used as a call-graph
+/// owner placeholder when a destructured declarator has no single name.
+fn first_pattern_identifier(pattern: &BindingPattern) -> Option<String> {
+    match pattern {
+        BindingPattern::BindingIdentifier(id) => Some(id.name.as_str().to_string()),
+        BindingPattern::ObjectPattern(object) => object
+            .properties
+            .iter()
+            .find_map(|prop| first_pattern_identifier(&prop.value))
+            .or_else(|| {
+                object
+                    .rest
+                    .as_ref()
+                    .and_then(|rest| first_pattern_identifier(&rest.argument))
+            }),
+        BindingPattern::ArrayPattern(array) => array
+            .elements
+            .iter()
+            .flatten()
+            .find_map(first_pattern_identifier)
+            .or_else(|| {
+                array
+                    .rest
+                    .as_ref()
+                    .and_then(|rest| first_pattern_identifier(&rest.argument))
+            }),
+        BindingPattern::AssignmentPattern(assignment) => {
+            first_pattern_identifier(&assignment.left)
         }
     }
 }
@@ -511,6 +562,23 @@ fn collect_expression_calls(
             }
         }
         Expression::ImportExpression(import) => {
+            // A string-literal specifier resolves to a file the same way a
+            // static `import`/`export ... from` does, so the dead-code graph
+            // can treat its target as reachable — without this, a file
+            // reached only via dynamic import is invisible to the graph and
+            // reads as a false-positive "dead" file. A computed specifier
+            // (`import(expr)`) can't be resolved statically and is
+            // deliberately left uncaptured rather than guessed at.
+            if let Expression::StringLiteral(literal) = unwrap_expr(&import.source) {
+                push_call(
+                    owner,
+                    literal.value.as_str().to_string(),
+                    import.span,
+                    li,
+                    "dynamic-import",
+                    calls,
+                );
+            }
             collect_expression_calls(owner, &import.source, li, calls);
             if let Some(options) = &import.options {
                 collect_expression_calls(owner, options, li, calls);
@@ -550,11 +618,25 @@ fn collect_expression_calls(
         Expression::JSXFragment(fragment) => {
             collect_jsx_fragment_calls(owner, fragment, li, calls);
         }
-        // Nested function/class bodies have their own owners via declaration/variable/object walkers.
-        // IIFE bodies are handled in collect_call_like.
-        Expression::ArrowFunctionExpression(_)
-        | Expression::FunctionExpression(_)
-        | Expression::ClassExpression(_) => {}
+        // A function/arrow/class expression with its own name (`const x = () =>
+        // {}`, an object method, an IIFE callee) already gets its own owner via
+        // the declaration/variable/object/call-like walkers above. This arm is
+        // the fallback for one appearing as a bare sub-expression instead — most
+        // commonly a callback argument (`describe(name, () => {...})`,
+        // `array.map(x => ...)`), but also an array element or a conditional
+        // branch. It has no name of its own, so attribute its body to the
+        // current owner (same treatment as an IIFE) rather than dropping it:
+        // skipping it here used to make every call made inside a callback body
+        // — including a `dynamic-import` — invisible to the graph.
+        Expression::ArrowFunctionExpression(arrow) => {
+            collect_arrow_calls(owner, arrow, li, calls);
+        }
+        Expression::FunctionExpression(function) => {
+            collect_function_calls(owner, function, li, calls);
+        }
+        Expression::ClassExpression(class) => {
+            collect_class_calls(class, li, calls);
+        }
         _ => {}
     }
 }

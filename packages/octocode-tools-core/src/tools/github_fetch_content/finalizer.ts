@@ -81,12 +81,19 @@ function collectFileErrors(
   const base = collectFlatErrors(results);
   return base.map(error => {
     const query = queryById.get(error.id);
+    // A 404 conflates bad path, bad branch, and missing repo — attach the
+    // recovery route in-band instead of only in the static tool description.
+    const isNotFound = /\b404\b|not found/i.test(error.error);
+    const message =
+      isNotFound && query?.owner && query?.repo
+        ? `${error.error} — verify the path (exact case, no leading slash) and the branch (a bad ref also 404s); list the tree with ghViewRepoStructure(owner:"${query.owner}", repo:"${query.repo}")`
+        : error.error;
     return {
       id: error.id,
       owner: query?.owner,
       repo: query?.repo,
       path: query?.path ? String(query.path) : undefined,
-      error: error.error,
+      error: message,
     };
   });
 }

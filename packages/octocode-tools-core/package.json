@@ -1,14 +1,14 @@
 {
   "name": "@octocodeai/octocode-tools-core",
   "description": "Core tool implementations for Octocode: GitHub, local filesystem, LSP, and package search tools.",
-  "version": "17.0.2",
+  "version": "18.0.1",
   "author": "Guy Bary <bgauryy@octocodeai.com>",
   "bugs": "https://github.com/bgauryy/octocode/issues",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
-    "@octocodeai/config": "^17.0.2",
-    "@octocodeai/octocode-core": "^16.6.3",
-    "@octocodeai/octocode-engine": "^17.0.2",
+    "@octocodeai/config": "18.0.1",
+    "@octocodeai/octocode-core": "18.0.2",
+    "@octocodeai/octocode-engine": "18.0.1",
     "@octokit/oauth-methods": "^6.0.2",
     "@octokit/plugin-throttling": "^11.0.3",
     "@octokit/request": "^10.0.10",
@@ -42,10 +42,6 @@
     "./schema": {
       "types": "./dist/schema.d.ts",
       "import": "./dist/schema.js"
-    },
-    "./oql": {
-      "types": "./dist/oql/index.d.ts",
-      "import": "./dist/oql/index.js"
     },
     "./zod": {
       "types": "./dist/zod.d.ts",

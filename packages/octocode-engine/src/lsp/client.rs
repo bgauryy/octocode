@@ -11,12 +11,70 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::{Child, ChildStderr, ChildStdin};
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
+use tokio::time::{timeout, Duration};
 
 const REQUEST_TIMEOUT_MS: u32 = 30_000;
 const CONTENT_MODIFIED_RETRIES: u8 = 3;
 const CONTENT_MODIFIED_RETRY_DELAY_MS: u64 = 500;
 const STDERR_RING_CAPACITY: usize = 100;
 const STDERR_LINE_MAX_CHARS: usize = 2_000;
+const MAX_SNIPPET_SOURCE_BYTES: u64 = 1_000_000;
+/// Bound on how long `stop()` waits for the server to exit on its own after
+/// `exit` before escalating to a hard kill. Keeps the common (graceful) path
+/// from discarding the exit status while still bounding worst-case shutdown
+/// latency — a server that never exits degrades to exactly today's
+/// unconditional-kill behavior, never worse.
+const GRACEFUL_EXIT_TIMEOUT_MS: u64 = 2_000;
+
+/// Give a spawned child process a bounded window to exit on its own (e.g.
+/// after an LSP `exit` notification) before escalating to a hard kill.
+/// Returns `true` if the process exited within `timeout_duration` without
+/// needing to be killed.
+async fn wait_for_graceful_exit(child: &mut Child, timeout_duration: Duration) -> bool {
+    match timeout(timeout_duration, child.wait()).await {
+        Ok(_) => true,
+        Err(_) => {
+            let _ = child.kill().await;
+            false
+        }
+    }
+}
+
+fn lsp_spawn_program(validated_command: &str, args: &mut Vec<String>) -> Result<String> {
+    if executable_has_node_shebang(validated_command)? {
+        args.insert(0, validated_command.to_owned());
+        return std::env::current_exe()
+            .map(|path| path.to_string_lossy().into_owned())
+            .map_err(|err| {
+                Error::new(
+                    Status::GenericFailure,
+                    format!("Failed to resolve current Node executable: {err}"),
+                )
+            });
+    }
+    Ok(validated_command.to_owned())
+}
+
+fn executable_has_node_shebang(path: &str) -> Result<bool> {
+    let mut file = std::fs::File::open(path).map_err(|err| {
+        Error::new(
+            Status::GenericFailure,
+            format!("Failed to inspect language server executable {path}: {err}"),
+        )
+    })?;
+    let mut buf = [0_u8; 128];
+    let read = std::io::Read::read(&mut file, &mut buf).map_err(|err| {
+        Error::new(
+            Status::GenericFailure,
+            format!("Failed to inspect language server executable {path}: {err}"),
+        )
+    })?;
+    let first_line = std::str::from_utf8(&buf[..read])
+        .ok()
+        .and_then(|text| text.lines().next())
+        .unwrap_or_default();
+    Ok(first_line.starts_with("#!") && first_line.contains("node"))
+}
 
 #[napi]
 pub struct NativeLspClient {
@@ -84,9 +142,13 @@ impl NativeLspClient {
             open_docs.clear();
         }
 
-        let mut command = tokio::process::Command::new(&self.config.command);
+        let validated_command =
+            crate::lsp::validation::validate_lsp_server_path(self.config.command.clone())?;
+        let mut command_args = self.config.args.clone().unwrap_or_default();
+        let command_program = lsp_spawn_program(&validated_command, &mut command_args)?;
+        let mut command = tokio::process::Command::new(&command_program);
         command
-            .args(self.config.args.clone().unwrap_or_default())
+            .args(command_args)
             .current_dir(&self.config.workspace_root)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -192,7 +254,8 @@ impl NativeLspClient {
             let _ = connection.notify("exit", Value::Null).await;
         }
         if let Some(mut child) = self.child.lock().await.take() {
-            let _ = child.kill().await;
+            wait_for_graceful_exit(&mut child, Duration::from_millis(GRACEFUL_EXIT_TIMEOUT_MS))
+                .await;
         }
         if let Some(task) = self.stderr_task.lock().await.take() {
             task.abort();
@@ -222,6 +285,19 @@ impl NativeLspClient {
             .await
             .as_str()
             .to_owned())
+    }
+
+    /// `false` if the client was never started/already stopped, or if its
+    /// connection's read loop has observed the server process close (crash).
+    /// Lets the JS client pool evict a stale pooled entry at the next
+    /// `acquire()` instead of returning a client whose requests will just
+    /// fail until the idle timer eventually reaps it.
+    #[napi]
+    pub async fn is_alive(&self) -> bool {
+        match self.connection.lock().await.as_ref() {
+            Some(connection) => connection.is_alive(),
+            None => false,
+        }
     }
 
     #[napi]
@@ -713,6 +789,19 @@ struct SnippetContentCache {
 impl SnippetContentCache {
     async fn read_range_content(&mut self, file_path: &str, range: &JsRange) -> Result<String> {
         if !self.files.contains_key(file_path) {
+            let metadata = tokio::fs::metadata(file_path)
+                .await
+                .map_err(|err| Error::new(Status::GenericFailure, err.to_string()))?;
+            if metadata.len() > MAX_SNIPPET_SOURCE_BYTES {
+                return Err(Error::new(
+                    Status::InvalidArg,
+                    format!(
+                        "file too large for LSP snippet content ({} bytes > {} bytes)",
+                        metadata.len(),
+                        MAX_SNIPPET_SOURCE_BYTES
+                    ),
+                ));
+            }
             let content = tokio::fs::read_to_string(file_path)
                 .await
                 .map_err(|err| Error::new(Status::GenericFailure, err.to_string()))?;

@@ -22,8 +22,8 @@ function createPullRequestByNumberErrorResult(
   hints: string[]
 ): GitHubPullRequestSearchApiResult {
   return {
-    pull_requests: [],
-    total_count: 0,
+    pullRequests: [],
+    totalCount: 0,
     error,
     status: apiError.status,
     hints,
@@ -73,8 +73,8 @@ export async function fetchGitHubPullRequestByNumberAPIInternal(
 
   if (!owner || !repo || !prNumber) {
     return {
-      pull_requests: [],
-      total_count: 0,
+      pullRequests: [],
+      totalCount: 0,
       error: SEARCH_ERRORS.PR_REQUIRED_PARAMS.message,
       hints: ['Provide owner, repo, and prNumber'],
     };
@@ -82,8 +82,8 @@ export async function fetchGitHubPullRequestByNumberAPIInternal(
 
   if (Array.isArray(owner) || Array.isArray(repo)) {
     return {
-      pull_requests: [],
-      total_count: 0,
+      pullRequests: [],
+      totalCount: 0,
       error: SEARCH_ERRORS.PR_SINGLE_VALUES.message,
       hints: ['Do not use array for owner or repo when fetching by number'],
     };
@@ -109,8 +109,8 @@ export async function fetchGitHubPullRequestByNumberAPIInternal(
     });
 
     return {
-      pull_requests: [formattedPR],
-      total_count: 1,
+      pullRequests: [formattedPR],
+      totalCount: 1,
       rawResponseChars:
         countSerializedChars(result.data) +
         (getRawResponseChars(transformedPR) ?? 0),

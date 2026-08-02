@@ -1,5 +1,5 @@
 import { type CallToolResult } from '@modelcontextprotocol/sdk/types.js';
-import { getDirectorySizeBytes } from '../../shared/index.js';
+import { getCheckedOutSizeBytes } from './contentSize.js';
 import { TOOL_NAMES } from '../toolMetadata/proxies.js';
 import { executeBulkOperation } from '../../utils/response/bulk.js';
 import type {
@@ -63,12 +63,11 @@ export async function executeCloneRepo(
             );
           }
 
-          const totalSize = getDirectorySizeBytes(result.localPath);
+          const totalSize = getCheckedOutSizeBytes(result.localPath);
 
           const location: Record<string, unknown> = {
             kind: query.sparsePath ? 'tree' : 'repo',
             localPath: result.localPath,
-            repoRoot: result.localPath,
             source: 'clone',
             cached: result.cached,
             complete: !query.sparsePath,
@@ -95,10 +94,9 @@ export async function executeCloneRepo(
           const resultData: Record<string, unknown> = {
             owner: query.owner,
             repo: query.repo,
-            localPath: result.localPath,
-            resolvedBranch: result.branch,
-            cached: result.cached,
-            ...(query.sparsePath ? { sparsePath: query.sparsePath } : {}),
+            // `location` is the canonical envelope for where content was saved
+            // (localPath/resolvedBranch/cached/requestedPath live there); the
+            // flat duplicates were dropped to avoid emitting each value twice.
             totalSize,
             location,
             next,
@@ -119,15 +117,7 @@ export async function executeCloneRepo(
       }),
     {
       toolName: TOOL_NAMES.GITHUB_CLONE_REPO,
-      keysPriority: [
-        'localPath',
-        'resolvedBranch',
-        'cached',
-        'sparsePath',
-        'totalSize',
-        'location',
-        'error',
-      ],
+      keysPriority: ['totalSize', 'location', 'error'],
     },
     args
   );

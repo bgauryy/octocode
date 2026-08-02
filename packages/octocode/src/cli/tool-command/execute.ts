@@ -23,7 +23,11 @@ import {
   printToolSchemaJson,
 } from './catalog-json.js';
 import { showAvailableTools } from './list-view.js';
-import { showMultipleToolSchemas, showToolHelp } from './help.js';
+import {
+  showMultipleToolSchemas,
+  showToolHelp,
+  showToolHelpBrief,
+} from './help.js';
 
 type ToolResult = Parameters<typeof formatCallToolResultForOutput>[0];
 
@@ -42,13 +46,20 @@ function getOutputMode(args: ParsedArgs): OutputMode {
 
 function printToolResult(
   result: ToolResult,
+  args: ParsedArgs,
   outputMode: OutputMode,
   formatResult: typeof formatCallToolResultForOutput
 ): void {
   if (outputMode === 'compact') {
     const structured = (result as { structuredContent?: unknown })
       .structuredContent;
-    console.log(JSON.stringify(structured ?? result));
+    console.log(
+      JSON.stringify(
+        structured ?? result,
+        null,
+        args.options.pretty === true ? 2 : 0
+      )
+    );
     return;
   }
   console.log(formatResult(result, outputMode === 'json' ? 'json' : 'text'));
@@ -78,7 +89,8 @@ function printToolCommandError(
         error: message,
         ...(details.length > 0 ? { details } : {}),
       },
-      args.options.compact === true
+      args.options.compact === true,
+      args.options.pretty === true
     );
     return;
   }
@@ -100,6 +112,7 @@ export async function executeToolCommand(args: ParsedArgs): Promise<boolean> {
       await printToolCatalogJson({
         full: args.options.full === true,
         compact: args.options.compact === true,
+        pretty: args.options.pretty === true,
       });
       return true;
     }
@@ -143,14 +156,34 @@ export async function executeToolCommand(args: ParsedArgs): Promise<boolean> {
   }
 
   if (args.options.scheme === true) {
+    if (args.options.brief === true) {
+      await showToolHelpBrief(tool.name);
+      return true;
+    }
     if (args.options.json === true) {
       await printToolSchemaJson(tool.name, {
         compact: args.options.compact === true,
+        pretty: args.options.pretty === true,
       });
       return true;
     }
     await showToolHelp(tool.name);
     return true;
+  }
+
+  // Opt-in tool (ghListReleases/ghSearchDiscussions) with its env var unset:
+  // schema/help discovery above already worked without it, but actually
+  // running it would otherwise fall through into executeDirectTool and fail
+  // there with a generic "Unknown tool" — a confusing message for a tool
+  // this command just showed the schema for. Fail clearly here instead.
+  if (tool.disabled) {
+    printToolCommandError(
+      args,
+      tool.name,
+      `Tool '${tool.name}' is disabled — set ${tool.disabled.envVar}=1 to enable it.`
+    );
+    process.exitCode = EXIT.NOT_FOUND;
+    return false;
   }
 
   let inputText: string | undefined;
@@ -188,7 +221,12 @@ export async function executeToolCommand(args: ParsedArgs): Promise<boolean> {
     const { executeDirectTool, formatCallToolResultForOutput } =
       await import('@octocodeai/octocode-tools-core/direct');
     const result = await executeDirectTool(tool.name, input);
-    printToolResult(result, getOutputMode(args), formatCallToolResultForOutput);
+    printToolResult(
+      result,
+      args,
+      getOutputMode(args),
+      formatCallToolResultForOutput
+    );
     if (result.isError) {
       process.exitCode = classifyToolErrorText(JSON.stringify(result));
       return false;

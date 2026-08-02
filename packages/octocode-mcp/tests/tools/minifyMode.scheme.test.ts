@@ -111,7 +111,7 @@ describe('minify enum — localGetFileContent scheme', () => {
   });
 });
 
-describe('minify enum — ghHistoryResearch scheme', () => {
+describe('minify enum — ghSearchPullRequests scheme', () => {
   it("defaults to 'standard' when omitted (schema-level default, token-saving patch view)", () => {
     expect(parseMinify(GitHubPullRequestSearchQueryLocalSchema, PR_BASE)).toBe(
       'standard'

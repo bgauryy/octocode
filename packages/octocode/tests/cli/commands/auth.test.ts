@@ -84,6 +84,12 @@ vi.mock('../../../src/features/github-oauth.js', () => {
 
 vi.mock('../../../src/utils/token-storage.js', () => ({
   getCredentials: vi.fn().mockResolvedValue(null),
+}));
+
+// hasEnvToken/getEnvTokenSource are single-sourced in @octocodeai/config; the
+// src imports them from there directly, so mock them on the config module.
+vi.mock('@octocodeai/config', async importOriginal => ({
+  ...(await importOriginal<typeof import('@octocodeai/config')>()),
   hasEnvToken: vi.fn().mockReturnValue(false),
   getEnvTokenSource: vi.fn().mockReturnValue(null),
 }));
@@ -139,7 +145,17 @@ describe('cli/commands/auth', () => {
     const storage = await import('../../../src/utils/token-storage.js');
     const prompts = await import('../../../src/utils/prompts.js');
     const auth = await import('../../../src/cli/commands/auth.js');
-    return { ...oauth, ...gh, ...storage, ...prompts, ...auth };
+    const { hasEnvToken, getEnvTokenSource } =
+      await import('@octocodeai/config');
+    return {
+      ...oauth,
+      ...gh,
+      ...storage,
+      ...prompts,
+      ...auth,
+      hasEnvToken,
+      getEnvTokenSource,
+    };
   }
 
   function jsonLines(): Array<Record<string, unknown>> {

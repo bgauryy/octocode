@@ -32,6 +32,10 @@ export interface SearchStats {
   filesSearched?: number;
   bytesSearched?: number;
   searchTime?: string;
+  /** The scan consumed its entire maxFiles candidate budget — totals reflect
+   * only the scanned subset and may understate the true count; raise maxFiles
+   * to count exhaustively. (Typed signal: responses carry no warnings.) */
+  capReached?: boolean;
 }
 
 export interface CacheStats {

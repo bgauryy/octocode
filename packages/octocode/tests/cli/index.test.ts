@@ -61,73 +61,11 @@ describe('runCLI', () => {
     const handled = await runCLI(['context']);
 
     expect(handled).toBe(true);
-    expect(mocks.printToolsContext).toHaveBeenCalledWith({ full: false });
+    expect(mocks.printToolsContext).toHaveBeenCalledWith({
+      full: false,
+      minimal: false,
+    });
     expect(mocks.loadCommand).not.toHaveBeenCalled();
-  });
-
-  it('prints the full OQL schema for search --scheme without loading the command', async () => {
-    const stdoutSpy = vi
-      .spyOn(process.stdout, 'write')
-      .mockImplementation(() => true);
-    try {
-      const { runCLI } = await import('../../src/cli/index.js');
-      const handled = await runCLI(['search', '--scheme']);
-      const out = stdoutSpy.mock.calls.map(c => String(c[0])).join('');
-
-      expect(handled).toBe(true);
-      expect(out).toContain('"schema": "oql"');
-      expect(out).not.toContain('compact agent guide');
-      expect(mocks.loadCommand).not.toHaveBeenCalled();
-    } finally {
-      stdoutSpy.mockRestore();
-    }
-  });
-
-  it('prints the compact agent guide for search --scheme --compact', async () => {
-    const stdoutSpy = vi
-      .spyOn(process.stdout, 'write')
-      .mockImplementation(() => true);
-    try {
-      const { runCLI } = await import('../../src/cli/index.js');
-      const handled = await runCLI(['search', '--scheme', '--compact']);
-      const out = stdoutSpy.mock.calls.map(c => String(c[0])).join('');
-
-      expect(handled).toBe(true);
-      expect(out).toContain('compact agent guide');
-      expect(out).toContain('--content-view none');
-      expect(out).toContain('search --scheme');
-      expect(out).not.toContain('"schema": "oql"');
-      expect(mocks.loadCommand).not.toHaveBeenCalled();
-    } finally {
-      stdoutSpy.mockRestore();
-    }
-  });
-
-  it('keeps search --scheme --json --compact machine-readable and compact', async () => {
-    const stdoutSpy = vi
-      .spyOn(process.stdout, 'write')
-      .mockImplementation(() => true);
-    try {
-      const { runCLI } = await import('../../src/cli/index.js');
-      const handled = await runCLI([
-        'search',
-        '--scheme',
-        '--json',
-        '--compact',
-      ]);
-      const out = stdoutSpy.mock.calls.map(c => String(c[0])).join('');
-
-      expect(handled).toBe(true);
-      // JSON + compact returns the lean guide as structured JSON.
-      expect(() => JSON.parse(out)).not.toThrow();
-      const parsed = JSON.parse(out) as { schema: string; kind: string };
-      expect(parsed.schema).toBe('oql');
-      expect(parsed.kind).toBe('octocode.search.compactScheme');
-      expect(out.length).toBeLessThan(8000);
-      expect(mocks.loadCommand).not.toHaveBeenCalled();
-    } finally {
-      stdoutSpy.mockRestore();
-    }
   });
 
   it('passes --full to context', async () => {
@@ -136,7 +74,22 @@ describe('runCLI', () => {
     const handled = await runCLI(['context', '--full']);
 
     expect(handled).toBe(true);
-    expect(mocks.printToolsContext).toHaveBeenCalledWith({ full: true });
+    expect(mocks.printToolsContext).toHaveBeenCalledWith({
+      full: true,
+      minimal: false,
+    });
+  });
+
+  it('passes --minimal to context', async () => {
+    const { runCLI } = await import('../../src/cli/index.js');
+
+    const handled = await runCLI(['context', '--minimal']);
+
+    expect(handled).toBe(true);
+    expect(mocks.printToolsContext).toHaveBeenCalledWith({
+      full: false,
+      minimal: true,
+    });
   });
 
   it('prints real JSON for context --json', async () => {
@@ -145,7 +98,10 @@ describe('runCLI', () => {
     const handled = await runCLI(['context', '--json']);
 
     expect(handled).toBe(true);
-    expect(mocks.getToolsContextString).toHaveBeenCalledWith({ full: false });
+    expect(mocks.getToolsContextString).toHaveBeenCalledWith({
+      full: false,
+      minimal: false,
+    });
     expect(mocks.printToolsContext).not.toHaveBeenCalled();
     expect(JSON.parse(String(consoleSpy.mock.calls[0]?.[0]))).toEqual({
       context: 'agent context',
@@ -159,7 +115,10 @@ describe('runCLI', () => {
 
     expect(handled).toBe(true);
     expect(process.env.NO_COLOR).toBe('1');
-    expect(mocks.printToolsContext).toHaveBeenCalledWith({ full: true });
+    expect(mocks.printToolsContext).toHaveBeenCalledWith({
+      full: true,
+      minimal: false,
+    });
     expect(mocks.loadCommand).not.toHaveBeenCalled();
   });
 
@@ -169,7 +128,10 @@ describe('runCLI', () => {
     const handled = await runCLI(['--context', '--json', '--full']);
 
     expect(handled).toBe(true);
-    expect(mocks.getToolsContextString).toHaveBeenCalledWith({ full: true });
+    expect(mocks.getToolsContextString).toHaveBeenCalledWith({
+      full: true,
+      minimal: false,
+    });
     expect(JSON.parse(String(consoleSpy.mock.calls[0]?.[0]))).toEqual({
       context: 'agent context',
     });

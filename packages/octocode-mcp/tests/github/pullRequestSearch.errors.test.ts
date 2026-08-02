@@ -50,8 +50,8 @@ describe('PR Search - Error Propagation', () => {
       content: { changedFiles: true, patches: { mode: 'all' } },
     });
 
-    expect(result.pull_requests?.length).toBe(1);
-    const pr = result.pull_requests?.[0] as
+    expect(result.pullRequests?.length).toBe(1);
+    const pr = result.pullRequests?.[0] as
       { _sanitization_warnings?: string[] } | undefined;
 
     expect(pr?._sanitization_warnings).toBeDefined();

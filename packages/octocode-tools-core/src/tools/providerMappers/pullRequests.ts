@@ -35,7 +35,6 @@ export function mapPullRequestToolQuery(query: PartialPRQuery) {
     author: query.author,
     assignee: query.assignee,
     commenter: query.commenter,
-    involves: query.involves,
     mentions: query.mentions,
     reviewRequested: query['review-requested'],
     reviewedBy: query['reviewed-by'],
@@ -44,10 +43,6 @@ export function mapPullRequestToolQuery(query: PartialPRQuery) {
       if (!labelValue) return undefined;
       return Array.isArray(labelValue) ? labelValue : [labelValue];
     })(),
-    noLabel: query['no-label'],
-    noMilestone: query['no-milestone'],
-    noProject: query['no-project'],
-    noAssignee: query['no-assignee'],
     baseBranch: query.base,
     headBranch: query.head,
     created: query.created,
@@ -56,17 +51,10 @@ export function mapPullRequestToolQuery(query: PartialPRQuery) {
     mergedAt: query['merged-at'],
     comments: query.comments,
     reactions: query.reactions,
-    interactions: query.interactions,
     draft: query.draft,
     match: query.match,
-    milestone: query.milestone,
-    language: query.language,
     checks: query.checks,
     review: query.review,
-    locked: query.locked,
-    visibility: query.visibility,
-    teamMentions: query['team-mentions'],
-    project: query.project,
     archived: (query as Record<string, unknown>).archived as
       boolean | undefined,
     content: (query as { content?: unknown }).content,
@@ -200,7 +188,6 @@ export function mapPullRequestProviderResultData(
       title: pr.title,
       body: pr.body ?? undefined,
       ...(pr.bodyPagination && { bodyPagination: pr.bodyPagination }),
-      url: pr.url,
       state: pr.state,
       draft: pr.draft,
       author: pr.author,
@@ -257,10 +244,14 @@ export function mapPullRequestProviderResultData(
   return {
     pullRequests,
     resultData: {
-      pull_requests: pullRequests,
+      pullRequests,
+      // Echo the exact search-qualifier string when the search path ran —
+      // the transparency signal that distinguishes real keyword matches
+      // from a plain recent-PR listing (ghSearchIssues does the same).
+      ...(data.effectiveQuery ? { effectiveQuery: data.effectiveQuery } : {}),
       ...(pagination
         ? { pagination }
-        : { total_count: data.totalCount || pullRequests.length }),
+        : { totalCount: data.totalCount || pullRequests.length }),
     } as Record<string, unknown>,
     pagination,
   };

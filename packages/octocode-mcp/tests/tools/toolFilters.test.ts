@@ -20,7 +20,6 @@ function makeTool(
     isClone: overrides.isClone,
     type: overrides.type ?? 'search',
     skipMetadataCheck: overrides.skipMetadataCheck,
-    fn: overrides.fn ?? (() => ({}) as never),
     direct: overrides.direct ?? {
       schema: z.object({}),
       inputSchema: z.object({}),

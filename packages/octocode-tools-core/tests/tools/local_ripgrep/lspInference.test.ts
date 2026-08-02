@@ -26,7 +26,7 @@ const infer = (
 describe('inferLspSymbolName — known bad examples (must NOT infer)', () => {
   it('regex query \\w+_searched does not infer "w"', () => {
     expect(
-      infer({ value: 'const w_searched = 1;' }, { keywords: '\\w+_searched' })
+      infer({ value: 'const w_searched = 1;' }, { searchText: '\\w+_searched' })
     ).toBeUndefined();
   });
 
@@ -44,28 +44,28 @@ describe('inferLspSymbolName — known bad examples (must NOT infer)', () => {
     expect(
       infer(
         { value: 'const result = query.symbolName;' },
-        { keywords: 'query.symbolName' }
+        { searchText: 'query.symbolName' }
       )
     ).toBeUndefined();
   });
 
   it('multi-token snippet query does not infer', () => {
     expect(
-      infer({ value: 'const foo = bar;' }, { keywords: 'const foo' })
+      infer({ value: 'const foo = bar;' }, { searchText: 'const foo' })
     ).toBeUndefined();
   });
 
-  it('dotted fixedString query does not infer', () => {
+  it('dotted fixed-string query does not infer', () => {
     expect(
-      infer({ value: 'a.b.c()' }, { keywords: 'a.b.c', fixedString: true })
+      infer({ value: 'a.b.c()' }, { searchText: 'a.b.c', regex: 'fixed' })
     ).toBeUndefined();
   });
 
-  it('windowed onlyMatching match does not infer', () => {
+  it('windowed matchOnly match does not infer', () => {
     expect(
       infer(
         { value: '= getUser(' },
-        { keywords: 'getUser', onlyMatching: true, matchWindow: 2 }
+        { searchText: 'getUser', output: 'matchOnly', matchWindow: 2 }
       )
     ).toBeUndefined();
   });
@@ -74,22 +74,22 @@ describe('inferLspSymbolName — known bad examples (must NOT infer)', () => {
     expect(
       infer(
         { value: 'getUser' },
-        { keywords: 'getUser', countMatchesPerFile: true }
+        { searchText: 'getUser', output: 'countMatches' }
       )
     ).toBeUndefined();
     expect(
       infer(
         { value: 'getUser' },
-        { keywords: 'getUser', countLinesPerFile: true }
+        { searchText: 'getUser', output: 'countLines' }
       )
     ).toBeUndefined();
   });
 
-  it('unique onlyMatching output does not infer', () => {
+  it('unique matchOnly output does not infer', () => {
     expect(
       infer(
         { value: 'getUser' },
-        { keywords: 'getUser', onlyMatching: true, unique: true }
+        { searchText: 'getUser', output: 'matchOnly', unique: 'list' }
       )
     ).toBeUndefined();
   });
@@ -105,7 +105,7 @@ describe('inferLspSymbolName — known bad examples (must NOT infer)', () => {
       'this',
       'super',
     ]) {
-      expect(infer({ value: lit }, { keywords: lit })).toBeUndefined();
+      expect(infer({ value: lit }, { searchText: lit })).toBeUndefined();
     }
   });
 });
@@ -113,24 +113,24 @@ describe('inferLspSymbolName — known bad examples (must NOT infer)', () => {
 describe('inferLspSymbolName — preserved good examples (must infer)', () => {
   it('exact bare-identifier query infers the symbol', () => {
     expect(
-      infer({ value: 'function getUser() {}' }, { keywords: 'getUser' })
+      infer({ value: 'function getUser() {}' }, { searchText: 'getUser' })
     ).toBe('getUser');
   });
 
-  it('exact bare-identifier query infers even in fixedString mode', () => {
+  it('exact bare-identifier query infers even in fixed-string mode', () => {
     expect(
       infer(
         { value: 'handleClick();' },
-        { keywords: 'handleClick', fixedString: true }
+        { searchText: 'handleClick', regex: 'fixed' }
       )
     ).toBe('handleClick');
   });
 
-  it('exact onlyMatching value infers the symbol', () => {
+  it('exact matchOnly value infers the symbol', () => {
     expect(
       infer(
         { value: 'createSession' },
-        { keywords: 'create\\w+', onlyMatching: true }
+        { searchText: 'create\\w+', output: 'matchOnly' }
       )
     ).toBe('createSession');
   });
@@ -146,10 +146,10 @@ describe('inferLspSymbolName — preserved good examples (must infer)', () => {
   });
 
   it('identifiers with $ and _ are valid bare identifiers', () => {
-    expect(infer({ value: '_privateFn' }, { keywords: '_privateFn' })).toBe(
+    expect(infer({ value: '_privateFn' }, { searchText: '_privateFn' })).toBe(
       '_privateFn'
     );
-    expect(infer({ value: '$store' }, { keywords: '$store' })).toBe('$store');
+    expect(infer({ value: '$store' }, { searchText: '$store' })).toBe('$store');
   });
 });
 
@@ -179,7 +179,7 @@ describe('inferLspSymbolName — precise metavarRanges line', () => {
   it('non-structural inference never sets a precise line', () => {
     const result = inferLspSymbolName(
       { value: 'function getUser() {}' },
-      q({ keywords: 'getUser' }),
+      q({ searchText: 'getUser' }),
       'rg'
     );
     expect(result).toEqual({ symbol: 'getUser', line: undefined });

@@ -175,7 +175,7 @@ const TOOL_RESULT_SHAPES: Record<string, () => CallToolResult> = {
     },
   }),
 
-  ghHistoryResearch: () => ({
+  ghSearchPullRequests: () => ({
     content: [
       {
         type: 'text',
@@ -210,6 +210,88 @@ const TOOL_RESULT_SHAPES: Record<string, () => CallToolResult> = {
                       patch: `+const token = "${SECRETS.OPENAI_KEY}";`,
                     },
                   ],
+                },
+              ],
+            },
+          },
+        ],
+      },
+    },
+  }),
+
+  ghSearchDiscussions: () => ({
+    content: [
+      {
+        type: 'text',
+        text: `Discussion #7: Leaked config\n- Body: uses ${SECRETS.AWS_KEY}\n- Comment: "token ${SECRETS.GITHUB_TOKEN}"`,
+      },
+    ],
+    structuredContent: {
+      data: {
+        results: [
+          {
+            id: 'q1',
+            data: {
+              discussions: [
+                {
+                  number: 7,
+                  title: 'Leaked config',
+                  url: 'https://github.com/org/repo/discussions/7',
+                  body: `AWS_KEY=${SECRETS.AWS_KEY} STRIPE=${SECRETS.STRIPE_KEY}`,
+                  category: 'Q&A',
+                },
+              ],
+            },
+          },
+        ],
+      },
+    },
+  }),
+
+  ghSearchIssues: () => ({
+    content: [
+      {
+        type: 'text',
+        text: `Issue #7: leaked key ${SECRETS.OPENAI_KEY}`,
+      },
+    ],
+    structuredContent: {
+      data: {
+        results: [
+          {
+            id: 'q1',
+            data: {
+              issues: [
+                {
+                  number: 7,
+                  title: 'Leaked key',
+                  body: `The token is ${SECRETS.GITHUB_TOKEN}`,
+                },
+              ],
+            },
+          },
+        ],
+      },
+    },
+  }),
+
+  ghSearchCommits: () => ({
+    content: [
+      {
+        type: 'text',
+        text: `commit abc: set token to ${SECRETS.GITLAB_TOKEN}`,
+      },
+    ],
+    structuredContent: {
+      data: {
+        results: [
+          {
+            id: 'q1',
+            data: {
+              commits: [
+                {
+                  sha: 'abc',
+                  message: `rotate token to ${SECRETS.GITLAB_TOKEN}`,
                 },
               ],
             },
@@ -358,6 +440,28 @@ const TOOL_RESULT_SHAPES: Record<string, () => CallToolResult> = {
     },
   }),
 
+  localFindDeadCode: () => ({
+    content: [
+      {
+        type: 'text',
+        text: `Dead export candidate:\n  config.ts:5 exportedSecretDefault contains ${SECRETS.GITHUB_TOKEN} in a nearby comment`,
+      },
+    ],
+    structuredContent: {
+      data: {
+        deadExports: [
+          {
+            file: 'config.ts',
+            name: 'exportedSecretDefault',
+            kind: 'const',
+            line: 5,
+            reason: `token=${SECRETS.STRIPE_KEY}`,
+          },
+        ],
+      },
+    },
+  }),
+
   lspGetSemantics: () => ({
     content: [
       {
@@ -408,39 +512,6 @@ const TOOL_RESULT_SHAPES: Record<string, () => CallToolResult> = {
           },
         ],
       },
-    },
-  }),
-
-  oqlSearch: () => ({
-    content: [
-      {
-        type: 'text',
-        text: JSON.stringify({
-          results: [
-            {
-              kind: 'code',
-              path: '.env',
-              snippet: `OPENAI=${SECRETS.OPENAI_KEY}`,
-            },
-          ],
-        }),
-      },
-    ],
-    structuredContent: {
-      results: [
-        {
-          id: 'q1',
-          data: {
-            results: [
-              {
-                kind: 'code',
-                path: '.env',
-                snippet: `GITHUB=${SECRETS.GITHUB_TOKEN}`,
-              },
-            ],
-          },
-        },
-      ],
     },
   }),
 };
@@ -665,7 +736,7 @@ describe('ALL-TOOLS: Unified output sanitization via withOutputSanitization prox
 
         const text = (result.content[0] as { type: 'text'; text: string }).text;
         expect(text).toBe(
-          'structuredContent available. Read structuredContent for full data.'
+          'structuredContent available. Read structuredContent for full data; if your client cannot read structuredContent, set OCTOCODE_MCP_FULL_TEXT=true.'
         );
 
         const sc = result.structuredContent as Record<string, unknown>;

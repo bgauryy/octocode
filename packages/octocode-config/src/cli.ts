@@ -27,7 +27,7 @@ Usage:
   npx @octocodeai/config --help           Show this help
 
 Env files loaded (in precedence order):
-  <home>/.env                             Global keys (OCTOCODE_HOME or platform default)
+  <home>/.env                             Global keys (OCTOCODE_HOME or ~/.octocode)
   <cwd>/.octocode/.env                    Project keys (trusted mode only)
 `);
   process.exit(0);

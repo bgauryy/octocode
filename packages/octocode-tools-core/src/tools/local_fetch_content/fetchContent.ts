@@ -14,6 +14,7 @@ import { markdownHeadingOutlineToText } from '../../utils/markdownOutline.js';
 import {
   validateExtractionOptions,
   getFileStatsOrError,
+  resolveMinifyMode,
   shouldFailForLargeFile,
   createLargeFileErrorResult,
   createBinaryFileErrorResult,
@@ -33,6 +34,23 @@ import {
 // `fetchContent.js` (e.g. `./fetchContent/validation.js`'s FileStats,
 // `./fetchContent/pagination.js`'s ContentView) keep resolving unchanged.
 export type { ContentView };
+
+/** Redacts secrets from a piece of text that's about to be returned to the
+ * caller. Deliberately called on the small, already-extracted/minified
+ * output — never on the whole raw file — so its cost scales with what's
+ * shipped, not with file size. */
+function sanitizeReturnedText(
+  text: string,
+  queryPath: string
+): { text: string; warning?: string } {
+  const sanitized = ContentSanitizer.sanitizeContent(text, queryPath);
+  return {
+    text: sanitized.content,
+    warning: sanitized.hasSecrets
+      ? `Secrets detected and redacted: ${sanitized.secretsDetected.join(', ')}`
+      : undefined,
+  };
+}
 
 export async function fetchContent(
   query: FetchContentQuery
@@ -74,7 +92,8 @@ export async function fetchContent(
       );
     }
 
-    if (shouldFailForLargeFile(query, fileSizeKB)) {
+    const minifyModeForGate = resolveMinifyMode(query);
+    if (shouldFailForLargeFile(query, fileSizeKB, minifyModeForGate)) {
       return attachRawResponseChars(
         createLargeFileErrorResult(query, absolutePath, fileSizeKB),
         fileSizeBytes
@@ -87,15 +106,35 @@ export async function fetchContent(
       return readError as LocalGetFileContentToolResult;
     }
 
-    const sanitized = ContentSanitizer.sanitizeContent(rawContent, queryPath);
-    const content = sanitized.content;
-    const sourceChars = content.length;
-    const sourceBytes = Buffer.byteLength(content, 'utf-8');
-    const secretWarning = sanitized.hasSecrets
-      ? `Secrets detected and redacted: ${sanitized.secretsDetected.join(', ')}`
-      : undefined;
+    // sourceChars/sourceBytes always describe the real file, independent of
+    // secret redaction — see withSanitizedContent below for why redaction
+    // itself is deferred to the content that's actually returned.
+    const sourceChars = rawContent.length;
+    const sourceBytes = Buffer.byteLength(rawContent, 'utf-8');
+    const content = rawContent;
 
-    const minifyMode = query.minify;
+    // Resolve the effective minify mode here rather than via a schema default.
+    // `fullContent` promises the whole file verbatim, so it defaults to 'none'
+    // (otherwise 'standard' would strip comments/blank lines and "reads the
+    // whole file" would be a lie); every other read defaults to 'standard'. An
+    // explicit minify always wins. Resolving here (not at the schema) is what
+    // lets us tell "caller omitted minify" from "caller chose standard":
+    // inputSchema is parsed upstream before execution, applying any schema default.
+    // Same resolution the large-file gate above already applied.
+    //
+    // matchString BLOCKS minification entirely (by design): minify runs AFTER
+    // extraction, so a match inside a comment/blank region could be stripped
+    // from the very slice whose matchRanges anchor it — evidence contradicting
+    // its own anchors. Matched slices are always verbatim; an explicit minify
+    // request is answered with a warning, never applied. (symbols+matchString
+    // is already rejected by validateExtractionOptions above.)
+    const matchStringBlocksMinify =
+      query.matchString !== undefined && minifyModeForGate !== 'none';
+    const minifyMode = matchStringBlocksMinify ? 'none' : minifyModeForGate;
+    const matchStringMinifyWarning =
+      matchStringBlocksMinify && query.minify !== undefined
+        ? `minify:"${query.minify}" is not applied to matchString extractions — matched slices are returned verbatim so the content always contains the matched text.`
+        : undefined;
     const shouldMinify = minifyMode === 'standard' || minifyMode === 'symbols';
     const fallbackContentView: ContentView = shouldMinify ? 'standard' : 'none';
 
@@ -108,14 +147,15 @@ export async function fetchContent(
           queryPath
         );
         if (markdownOutline !== null) {
+          const sanitized = sanitizeReturnedText(markdownOutline, queryPath);
           return attachRawResponseChars(
             await buildSymbolsSkeletonResult(
               query,
-              markdownOutline,
+              sanitized.text,
               countLines(content),
               sourceChars,
               sourceBytes,
-              secretWarning,
+              sanitized.warning,
               defaultOutputCharLength
             ),
             sourceChars
@@ -129,15 +169,16 @@ export async function fetchContent(
           sigs,
           queryPath
         );
+        const sanitized = sanitizeReturnedText(sigsProcessed, queryPath);
 
         return attachRawResponseChars(
           await buildSymbolsSkeletonResult(
             query,
-            sigsProcessed,
+            sanitized.text,
             totalLinesOrig,
             sourceChars,
             sourceBytes,
-            secretWarning,
+            sanitized.warning,
             defaultOutputCharLength
           ),
           sourceChars
@@ -152,16 +193,33 @@ export async function fetchContent(
       defaultOutputCharLength
     );
 
-    const withSecretWarning = (
+    // Secrets are redacted from whatever content is actually about to be
+    // returned (a bounded slice, a signature skeleton, ...) — never from the
+    // whole raw file up front. Scanning the whole file regardless of how
+    // small the requested window is would be wasteful, and for a file past
+    // the scanner's own size cap it used to substitute a single wholesale
+    // placeholder for the entire file *before* line-extraction ran, so a
+    // bounded startLine/endLine/matchString/charOffset read of a large file
+    // silently returned that placeholder instead of the real requested slice
+    // (with bogus totalLines/sourceChars to match) — exactly the escape hatch
+    // the "file too large" error above tells the caller to use.
+    const withSanitizedContent = (
       r: LocalGetFileContentToolResult
     ): LocalGetFileContentToolResult => {
+      const text = (r as { content?: unknown }).content;
+      if (typeof text !== 'string') return r;
+      const sanitized = sanitizeReturnedText(text, queryPath);
       const appended = [
         ...(signaturesSkippedWarning ? [signaturesSkippedWarning] : []),
-        ...(secretWarning ? [secretWarning] : []),
+        ...(matchStringMinifyWarning ? [matchStringMinifyWarning] : []),
+        ...(sanitized.warning ? [sanitized.warning] : []),
       ];
-      if (appended.length === 0) return r;
       const existing = (r as { warnings?: string[] }).warnings ?? [];
-      return { ...r, warnings: [...existing, ...appended] };
+      return {
+        ...r,
+        content: sanitized.text,
+        ...(appended.length > 0 && { warnings: [...existing, ...appended] }),
+      };
     };
 
     if (extraction.earlyResult) {
@@ -179,12 +237,8 @@ export async function fetchContent(
           : extraction.earlyResult;
       return attachRawResponseChars(
         withSourceSize(
-          withSecretWarning(
-            finalizeFetchContentResult(
-              withContentView(minifiedEarlyResult, fallbackContentView),
-              query,
-              totalLines
-            )
+          withSanitizedContent(
+            withContentView(minifiedEarlyResult, fallbackContentView)
           ),
           sourceChars,
           sourceBytes
@@ -204,9 +258,7 @@ export async function fetchContent(
     );
     return attachRawResponseChars(
       withSourceSize(
-        withSecretWarning(
-          finalizeFetchContentResult(fullResult, query, totalLines)
-        ),
+        withSanitizedContent(fullResult),
         sourceChars,
         sourceBytes
       ),
@@ -217,12 +269,4 @@ export async function fetchContent(
       toolName: TOOL_NAMES.LOCAL_FETCH_CONTENT,
     }) as LocalGetFileContentToolResult;
   }
-}
-
-export function finalizeFetchContentResult(
-  result: LocalGetFileContentToolResult,
-  _query: FetchContentQuery,
-  _totalLines: number
-): LocalGetFileContentToolResult {
-  return result;
 }

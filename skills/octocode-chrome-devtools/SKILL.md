@@ -7,6 +7,8 @@ description: "Use when browser debugging needs Chrome DevTools evidence: network
 
 Flow: launch/attach → pick one intent → write focused `run(cdp)` → run sandbox → parse prefixes → iterate → cleanup.
 
+Related workflow: if the user needs broad public scraping, site maps, structured extraction, or a static crawl first, use `octocode-scraping` to build the corpus/automation graph; return here only to validate or execute live actions (search inputs, buttons, menus, pagination, infinite scroll), cookies/storage, screenshots, network, auth-gated state, or actionability.
+
 ## Scripts
 | When | Script | Why |
 |---|---|---|
@@ -16,12 +18,15 @@ Flow: launch/attach → pick one intent → write focused `run(cdp)` → run san
 | starter `run(cdp)` | `scripts/cdp-template.mjs` | copy shape before writing task script |
 | source maps | `scripts/sourcemap-resolver.mjs` | map frames; sandbox stages beside script |
 | bot-wall triage | `scripts/undercover.mjs` | one stealth pass before visible gate |
+| human-like click/type/scroll | `scripts/human-input.mjs` | trusted CDP Input events for behavioral anti-bot targets |
+| verify stealth + actionability/storage/HAR/graph handoff | `scripts/eval-undercover.mjs`, `scripts/eval-actionability.mjs`, `scripts/eval-actionability-diagnostics.mjs`, `scripts/eval-storage-cookies.mjs`, `scripts/eval-network-har-fetch.mjs`, `scripts/eval-scrape-graph-handoff.mjs` | deterministic CDP behavior checks |
 | cookie transfer | `scripts/cookie-bridge.mjs` | opt-in profile/CDP/storageState → isolated session |
 
 ## References
 | When | Load | Why |
 |---|---|---|
 | choose intent / prefixes | `references/intents.md` | when routing to one detail file |
+| choose exact CDP domain/method | `references/cdp-domain-map.md` | when protocol call names matter |
 | debug/network/console/perf | `references/intents-debug.md` | after intents router matches |
 | security/a11y/screenshot/audit | `references/intents-inspect.md` | after intents router matches |
 | storage/consent | `references/intents-storage.md` | when auditing keys/counts only |
@@ -31,6 +36,7 @@ Flow: launch/attach → pick one intent → write focused `run(cdp)` → run san
 | HAR / Playwright / API replay | `references/har-playwright.md` | before sharing network evidence |
 | cookie inject design | `references/cookie-bridge.md` | before `cookie-bridge.mjs` |
 | reusable helpers | `references/script-patterns.md` | when needing one matching detail |
+| local CDP protocol docs corpus | `scripts/protocol-corpus.mjs` | when docs/version evidence is needed before choosing domains |
 | enables / session gotchas | `references/cdp-agent.md` | before enable/listen/navigate |
 | launch flags / proxy | `references/chrome-flags.md` | when launching a fresh process |
 | repeated failure | `references/recovery.md` | after two same-class failures |

@@ -293,6 +293,38 @@ fn spec_for_extension(extension: &str) -> Option<ServerSpec> {
             args: &[],
             env_var: Some("OCTOCODE_SWIFT_SERVER_PATH"),
         },
+        // Resolve-if-installed servers for grammars we already ship — additive:
+        // absent binary ⇒ same graceful "no server" behavior as before.
+        ".rb" | ".rake" | ".gemspec" | ".ru" => ServerSpec {
+            language_id: "ruby",
+            command: "ruby-lsp",
+            args: &[],
+            env_var: Some("OCTOCODE_RUBY_SERVER_PATH"),
+        },
+        ".kt" | ".kts" => ServerSpec {
+            language_id: "kotlin",
+            command: "kotlin-language-server",
+            args: &[],
+            env_var: Some("OCTOCODE_KOTLIN_SERVER_PATH"),
+        },
+        ".lua" => ServerSpec {
+            language_id: "lua",
+            command: "lua-language-server",
+            args: &[],
+            env_var: Some("OCTOCODE_LUA_SERVER_PATH"),
+        },
+        ".ex" | ".exs" => ServerSpec {
+            language_id: "elixir",
+            command: "elixir-ls",
+            args: &[],
+            env_var: Some("OCTOCODE_ELIXIR_SERVER_PATH"),
+        },
+        ".zig" => ServerSpec {
+            language_id: "zig",
+            command: "zls",
+            args: &[],
+            env_var: Some("OCTOCODE_ZIG_SERVER_PATH"),
+        },
         _ => return None,
     };
     Some(spec)
@@ -312,7 +344,9 @@ fn user_server_for_extension(
         let Some(server) = parsed.language_servers.get(extension) else {
             continue;
         };
-        if is_rejected_shell(&server.command) {
+        if is_rejected_shell(&server.command)
+            || is_interpreter_eval_launch(&server.command, &server.args)
+        {
             continue;
         }
         let (command, args) =
@@ -336,11 +370,53 @@ fn user_config_paths(workspace_root: &str) -> Vec<PathBuf> {
             paths.push(PathBuf::from(path));
         }
     }
-    paths.push(Path::new(workspace_root).join(".octocode/lsp-servers.json"));
+    if project_lsp_config_trusted() {
+        paths.push(Path::new(workspace_root).join(".octocode/lsp-servers.json"));
+    }
     if let Some(home) = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")) {
         paths.push(PathBuf::from(home).join(".octocode/lsp-servers.json"));
     }
     paths
+}
+
+fn project_lsp_config_trusted() -> bool {
+    std::env::var("OCTOCODE_TRUST_PROJECT_LSP_CONFIG")
+        .ok()
+        .map(|value| {
+            matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+        })
+        .unwrap_or(false)
+}
+
+fn is_interpreter_eval_launch(command: &str, args: &[String]) -> bool {
+    if !is_generic_interpreter_command(command) {
+        return false;
+    }
+    args.iter().any(|arg| {
+        matches!(
+            arg.as_str(),
+            "-e" | "--eval" | "-c" | "--command" | "-p" | "--print"
+        )
+    })
+}
+
+fn is_generic_interpreter_command(command: &str) -> bool {
+    let Some(stem) = Path::new(command)
+        .file_stem()
+        .and_then(|name| name.to_str())
+    else {
+        return false;
+    };
+    let normalized = stem.to_ascii_lowercase();
+    normalized == "node"
+        || normalized == "python"
+        || normalized.starts_with("python3")
+        || normalized == "ruby"
+        || normalized == "perl"
+        || normalized == "php"
 }
 
 fn is_rust_analyzer_command(command: &str) -> bool {
@@ -573,6 +649,74 @@ mod tests {
     }
 
     #[test]
+    fn workspace_lsp_config_is_ignored_by_default() {
+        let root = temp_test_root("octocode-engine-untrusted-lsp-config");
+        write_lsp_config(
+            &root,
+            r#"{"languageServers":{".ts":{"command":"node","args":["-e","process.exit(99)"],"languageId":"typescript"}}}"#,
+        );
+
+        let Some(root_str) = root.to_str() else {
+            panic!("temporary root is not utf-8");
+        };
+        let config = default_server_for_file("demo.ts".to_owned(), root_str.to_owned())
+            .expect("default ts server config");
+
+        assert_ne!(config.command, "node");
+        assert_ne!(
+            config.args.as_deref(),
+            Some(&["-e".to_owned(), "process.exit(99)".to_owned()][..])
+        );
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn trusted_workspace_lsp_config_rejects_interpreter_eval_launch() {
+        let root = temp_test_root("octocode-engine-trusted-lsp-config-eval");
+        write_lsp_config(
+            &root,
+            r#"{"languageServers":{".ts":{"command":"node","args":["-e","process.exit(99)"],"languageId":"typescript"}}}"#,
+        );
+        let _guard = EnvGuard::set("OCTOCODE_TRUST_PROJECT_LSP_CONFIG", "true");
+
+        let Some(root_str) = root.to_str() else {
+            panic!("temporary root is not utf-8");
+        };
+        let config = default_server_for_file("demo.ts".to_owned(), root_str.to_owned())
+            .expect("default ts server config");
+
+        assert_ne!(config.command, "node");
+        assert_ne!(
+            config.args.as_deref(),
+            Some(&["-e".to_owned(), "process.exit(99)".to_owned()][..])
+        );
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn env_override_still_wins_over_workspace_lsp_config() {
+        let root = temp_test_root("octocode-engine-env-wins-lsp-config");
+        write_lsp_config(
+            &root,
+            r#"{"languageServers":{".ts":{"command":"custom-language-server","args":["--stdio"],"languageId":"typescript"}}}"#,
+        );
+        let _trust = EnvGuard::set("OCTOCODE_TRUST_PROJECT_LSP_CONFIG", "true");
+        let _override = EnvGuard::set("OCTOCODE_TS_SERVER_PATH", "env-ts-server");
+
+        let Some(root_str) = root.to_str() else {
+            panic!("temporary root is not utf-8");
+        };
+        let config = default_server_for_file("demo.ts".to_owned(), root_str.to_owned())
+            .expect("default ts server config");
+
+        assert_eq!(config.command, "env-ts-server");
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
     fn keeps_unknown_server_commands_unchanged() {
         assert_eq!(
             resolve_known_server_command("definitely-not-an-octocode-server"),
@@ -667,12 +811,40 @@ mod tests {
         let _ = std::fs::remove_dir_all(root);
     }
 
-    #[cfg(unix)]
     fn temp_test_root(name: &str) -> PathBuf {
         let nanos = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|duration| duration.as_nanos())
             .unwrap_or(0);
         std::env::temp_dir().join(format!("{name}-{}-{nanos}", std::process::id()))
+    }
+
+    fn write_lsp_config(root: &std::path::Path, json: &str) {
+        let config_dir = root.join(".octocode");
+        std::fs::create_dir_all(&config_dir).expect("create .octocode dir");
+        std::fs::write(config_dir.join("lsp-servers.json"), json).expect("write lsp config");
+    }
+
+    struct EnvGuard {
+        key: &'static str,
+        previous: Option<String>,
+    }
+
+    impl EnvGuard {
+        fn set(key: &'static str, value: &str) -> Self {
+            let previous = std::env::var(key).ok();
+            std::env::set_var(key, value);
+            Self { key, previous }
+        }
+    }
+
+    impl Drop for EnvGuard {
+        fn drop(&mut self) {
+            if let Some(previous) = &self.previous {
+                std::env::set_var(self.key, previous);
+            } else {
+                std::env::remove_var(self.key);
+            }
+        }
     }
 }

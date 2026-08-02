@@ -87,7 +87,7 @@ if [[ -z "${MODEL}" ]]; then
 fi
 
 WORKSPACE_OCTOCODE_DIR="$(node -e 'const path=require("node:path"); process.stdout.write(path.resolve(process.cwd(), ".octocode"))')"
-GLOBAL_OCTOCODE_DIR="$(node -e 'import("@octocodeai/config").then(m=>process.stdout.write(m.getOctocodeHome())).catch(e=>{console.error(e.message); process.exit(1);})')"
+GLOBAL_OCTOCODE_DIR="$(node -e 'const os=require("node:os"); const path=require("node:path"); process.stdout.write(path.join(os.homedir(), ".octocode"))')"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if ! "${SCRIPT_DIR}/ollama-health.sh" --model "${MODEL}"; then

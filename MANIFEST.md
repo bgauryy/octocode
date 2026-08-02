@@ -7,6 +7,8 @@
 ## Overview
 This document serves as the **Manifest of Octocode for Research Driven Development (RDD)**. It introduces the methodology, the concept of **"Vibe-Research"**, the definition of **"Smart Research"**, and the **Process Context Oriented Flows** that drive high-quality software development. By leveraging Octocode's research capabilities, we shift from "guess-driven" to "research-driven" development without breaking your flow.
 
+**Parts 1–4 are the theory; [Part 5](#part-5-the-practice--proven-workflows) is the practice** — the concrete tool workflows and research patterns that instantiate the theory, each field-validated in a live eval campaign and rated by what it caught.
+
 ---
 
 ## Part 1: The Core Philosophy
@@ -356,6 +358,143 @@ Each action operates with a **fresh context window**, utilizing only the *output
 | **Relevance** | "Just in case" context | Evidence-based inclusion |
 | **Freshness** | Stale cached context | Real-time research |
 | **Isolation** | Shared mega-context | Per-session minimal context |
+
+---
+
+## Part 5: The Practice — Proven Workflows
+
+The theory above, instantiated. Every chain and pattern in this part was validated live in an eval campaign in which octocode diagnosed and improved itself, gated by the [live tool benchmark](packages/octocode-benchmark/benchmark/octocode/README.md). One rule governs everything: **every result carries the exact inputs of the next call** — `next.*` hints, `matchRanges`, line anchors, `localPath`, PR numbers, pagination params. Reuse them verbatim; never recompute or guess. This is "output bridges actions" (Part 2) made mechanical.
+
+### The core loop
+
+```
+SCOPE → ORIENT → SEARCH → READ EXACT → PROVE → DECIDE
+```
+
+Pick the cheapest surface that answers the next question. Start with tree/discovery/concise/count views; escalate to exact content only when the evidence demands it. This is the RDD equation's denominator (Context Noise) driven toward zero.
+
+### Local workflows
+
+**1. Find → read → prove (the workhorse)**
+
+```
+localViewStructure (orient the tree)
+  → localSearchCode (mode:"discovery" for paths, "paginated" for snippets)
+  → localGetFileContent (matchString → returns matchRanges line anchors)
+  → lspGetSemantics (references/callers, lineHint from matchRanges)
+```
+
+- Results include ready `next.fetch` / `next.lspReferences` queries — follow them.
+- `matchString` beats line ranges when you know the code but not the line; returned `matchRanges` are valid `lineHint` anchors (LSP tolerates ±2 lines).
+- Never guess `lineHint`. If you only have a file, run `type:"documentSymbols"` first.
+
+**2. Symbol-first (you know the name, not the place)**
+
+```
+localSearchCode (keywords:"<symbol>", sort:"relevance")   ← definition ranks above callers and tests
+  → lspGetSemantics (references/callers, lineHint from the top hit)
+```
+
+Use `mode:"paginated"` (not `"discovery"`) when definition-vs-caller order matters — discovery ranks by path only.
+
+**3. Structural (AST) → semantic proof**
+
+```
+localSearchCode (mode:"structural", pattern or YAML rule)
+  → matches carry per-capture metavarRanges → feed straight into lspGetSemantics
+```
+
+- Patterns match **complete nodes**: a function needs `{ $$$BODY }`; modifiers count (`function $F` misses `async function`). Statement patterns self-heal a missing `;`.
+- Zero matches return an engine explanation (query kind, literal anchor, pre-filter) — read it before rewriting blind.
+
+**4. Metadata sweep** — `localFindFiles` (names/time/size, e.g. `modifiedWithin:"1d"`) → read/search the returned paths. Nothing is excluded by default; pass `excludeDir`.
+
+### External workflows
+
+**5. Discover → orient → read**
+
+```
+ghSearchRepos (concise:true)  or  npmSearch (package → source repo)
+  → ghViewRepoStructure (root tree; resolvedBranch confirms the ref)
+  → ghSearchCode (match:"path" first — cheap; match:"file" only for snippets)
+  → ghGetFileContent (matchString → matchRanges, same anchor contract as local)
+```
+
+GitHub search is default-branch and index-limited: **empty is not absence**; verify with structure or go local.
+
+**6. History archaeology**
+
+```
+ghSearchCommits (path-scoped)                            ← who touched this and when
+  → next.prDetail (PR number parsed from the commit)
+  → ghSearchPullRequests (prNumber + content selectors)  ← select ONLY what you need
+  → patches mode:"selected" + files/ranges               ← cheapest diff read
+```
+
+**7. Remote → local (materialize for proof)** — choose a *bounded* subtree first via structure/search, then `ghGetFileContent (type:"directory")` or `ghCloneRepo (sparsePath)` → `result.localPath` → all local workflows apply unchanged. This is the Static/Dynamic Context bridge from Part 3.
+
+### Token discipline
+
+| Instead of | Use |
+|---|---|
+| full file read | `minify:"symbols"` (skeleton + line numbers), then exact range — `returnedChars` vs `sourceChars` shows the saving |
+| snippet search | `mode:"discovery"` or `concise:true`, then read the one file that matters |
+| counting by reading | `countMatchesPerFile` / `countLinesPerFile` |
+| paging blind | continue only on `hasMore`/`isPartial`, copying returned params exactly |
+
+### When results are empty or wrong
+
+- `status:"empty"` + warnings say what to change — the response self-corrects before you retry.
+- Errors carry the repair path (404s name branch-vs-path; missing files point to `localFindFiles`).
+- LSP `serverUnavailable` means capability absence, not "no usages" — fall back to search.
+
+### Research patterns — field-tested
+
+The Discriminator (Part 2) made concrete. Rated by what each caught in the campaign:
+
+| Pattern | When | Move | Value |
+|---|---|---|:-:|
+| **Layer bisection** | output contradicts source | Execute each layer in isolation (tool → facade → dist → engine) until the corrupting transform sits between two probes. Caught the critical compactor crash. | 10 |
+| **Red-first sensor** | before any fix | Write the failing check first; freeze it; fix; green. Never edit the check to pass — a platform-blocked check becomes an honest N/A with diagnosis that self-heals later. | 10 |
+| **Falsifiable predictions** | after forming a hypothesis | Derive 2–3 predictions about *untested* inputs and probe them. A hypothesis that predicts nothing new is a guess. | 9 |
+| **Mirror hunt** | after fixing any bug | Grep for the sibling code path before closing — twins hide in parallel lanes. | 9 |
+| **Escalation ladder** | search returns nothing/noise | text → `fixedString` → structural pattern → YAML rule → engine explanation → direct layer invocation. Each rung costlier and more truthful. | 9 |
+| **Dogfood sensor** | verifying a change set | Use the system's own tools as an independent sensor; disagreement means something slipped. | 8 |
+| **Policy-conflict withdrawal** | a fix contradicts a code-recorded design principle | The recorded principle wins until explicitly revisited — withdraw, cite the anchor. | 8 |
+
+### The search loop
+
+The check-and-balance mechanism (Part 4) as an operating loop; the ledger is what makes it converge instead of wander:
+
+```
+FRAME the claim → pick the cheapest probe → run → record
+  claim → evidence → confidence → next check
+→ confidence high enough? DECIDE : escalate one rung and repeat
+```
+
+- **Empty is a datapoint, not an answer** — check scope, spelling, branch, and one alternate surface before concluding absence.
+- **Budget the loop**: three probes without new signal → change the question, not the query.
+- **Anchors are the currency**: a probe that returns no follow-up anchor bought nothing.
+
+### Thinking in graphs
+
+The corpus is an evidence graph, not a pile of files — the semantic-extraction answer to the flattening problem (Part 4 §3). Results are **nodes**; `next.*`, `matchRanges`, PR numbers, SHAs, and `localPath` are **typed edges**. Research is a cheapest-edge-first walk:
+
+- Search tools discover nodes; `next.*` proposes edges.
+- `lspGetSemantics` provides the *typed* edges — references, callers/callees, type hierarchy — the only edges that prove identity rather than co-occurrence.
+- `ghSearchCommits`/`ghSearchPullRequests` add the **time axis**: commit → PR → patch edges answer *why* a node looks the way it does.
+- Materialization is the edge *between graphs* (remote → local), unlocking typed edges on remote code.
+
+### The theory, field-validated
+
+| Manifest principle | Field instantiation | Verdict |
+|---|---|:-:|
+| Minimal context, maximum quality (Part 4) | cheapest-surface routing + symbols/discovery/count views; a focused window beat full reads every round | 10 — validated |
+| Generator/Discriminator tension (Part 2) | red-first sensors *are* the discriminator, built before the generator moves; verify lanes gated every fix | 9 — validated |
+| Output bridges actions (Part 2) | conclusions doc + regression harness carried state across seven rounds; artifacts, not chat memory, were the bridge | 9 — validated |
+| Check-and-balance validation (Part 4) | falsifiable predictions + dogfood sensors made "map matches territory" concrete | 9 — validated |
+| Fresh context per action (Part 4) | strongest under delegation (sealed packets); within one session, artifact bridges substitute | 7 — directionally right |
+| Cross-model validation (Part 2) | not exercised in the campaign; promising, unproven here | 7 — untested |
 
 ---
 

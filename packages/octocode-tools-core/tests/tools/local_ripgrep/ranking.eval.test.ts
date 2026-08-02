@@ -35,7 +35,7 @@ type Sort = 'relevance' | 'matchCount';
 
 async function rankedPaths(query: string, sort: Sort): Promise<string[]> {
   const res = (await executeRipgrepSearchInternal({
-    keywords: query,
+    searchText: query,
     path: SRC,
     sort,
     itemsPerPage: 50,
@@ -89,10 +89,9 @@ describe('ranking eval — definition-first hit rate (relevance vs matchCount)',
 describe('ranking eval — agent off-switch', () => {
   it('sort:"matchCount" disables classification and ranking metadata', async () => {
     const res = (await executeRipgrepSearchInternal({
-      keywords: 'fallback',
+      searchText: 'fallback',
       path: SRC,
-      sort: 'matchCount',
-      debugRanking: true, // even when explicitly asked, off means off
+      sort: 'matchCount', // count-first mode pays no AST classification cost
       itemsPerPage: 5,
     } as never)) as {
       files?: Array<{

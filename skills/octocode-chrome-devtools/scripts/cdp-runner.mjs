@@ -34,6 +34,11 @@ const TIMEOUT     = parseInt(getArg('--timeout', '60000'), 10);
 const KEEP_TAB    = hasFlag('--keep-tab');
 const LIST_TARGETS = hasFlag('--list-targets');
 
+if (hasFlag('--help') || hasFlag('-h')) {
+  console.error('[CDP_RUNNER] Usage: node cdp-runner.mjs <script.mjs> [--port 9222] [--new-tab <url>] [--target <id>] [--target-url <pattern>] [--target-type <type>] [--list-targets] [--keep-tab]');
+  process.exit(0);
+}
+
 if (!scriptArg && !LIST_TARGETS) {
   console.error('[CDP_RUNNER] Usage: node cdp-runner.mjs <script.mjs> [--port 9222] [--new-tab <url>] [--target <id>] [--target-url <pattern>] [--target-type <type>] [--list-targets] [--keep-tab]');
   process.exit(1);

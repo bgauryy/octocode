@@ -1137,8 +1137,9 @@ dependencies = [
 
 [[package]]
 name = "octocode-engine"
-version = "17.0.2"
+version = "18.0.1"
 dependencies = [
+ "aho-corasick",
  "criterion",
  "crossbeam-epoch",
  "grep",
@@ -1158,6 +1159,7 @@ dependencies = [
  "proptest",
  "rayon",
  "regex",
+ "regex-syntax",
  "serde",
  "serde_json",
  "serde_yaml_ng",

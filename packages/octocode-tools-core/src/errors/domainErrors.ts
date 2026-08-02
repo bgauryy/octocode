@@ -162,7 +162,7 @@ export const PROMISE_ERRORS = {
   TIMEOUT: {
     code: 'PROMISE_TIMEOUT',
     message: (index: number, timeout: number) =>
-      `Promise ${index} timed out after ${timeout}ms`,
+      `Query ${index + 1} timed out after ${timeout}ms — retry it alone, with tighter caps (maxFiles/maxMatchesPerFile/itemsPerPage) if it was large`,
   },
   NOT_A_FUNCTION: {
     code: 'PROMISE_NOT_A_FUNCTION',

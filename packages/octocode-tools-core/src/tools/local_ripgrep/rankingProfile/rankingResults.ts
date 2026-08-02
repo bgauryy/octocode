@@ -36,22 +36,25 @@ export function rankFiles(
   files: LocalSearchCodeFile[],
   sort: RankSort,
   ctx: RankContext,
-  opts: { debug?: boolean; candidateCap?: number } = {}
+  opts: { debug?: boolean; candidateCap?: number; sortReverse?: boolean } = {}
 ): RankResult {
   if (sort === 'matchCount') {
+    const sorted = [...files].sort(compareByMatchCount);
     return {
-      files: [...files].sort(compareByMatchCount),
+      files: opts.sortReverse ? sorted.reverse() : sorted,
       cappedCandidates: 0,
     };
   }
   if (sort === 'path') {
+    const sorted = [...files].sort((a, b) => a.path.localeCompare(b.path));
     return {
-      files: [...files].sort((a, b) => a.path.localeCompare(b.path)),
+      files: opts.sortReverse ? sorted.reverse() : sorted,
       cappedCandidates: 0,
     };
   }
   if (sort === 'created' || sort === 'modified' || sort === 'accessed') {
-    // Engine already applied the filesystem sort; preserve it stably.
+    // Engine already applied the filesystem sort (including any reverse);
+    // preserve it stably — reversing again here would double-reverse it.
     return { files: [...files], cappedCandidates: 0 };
   }
 
@@ -90,10 +93,11 @@ export function rankFiles(
     return a.file.path.localeCompare(b.file.path);
   });
 
+  const relevanceOrdered = [...scored.map(x => x.file), ...tail];
   const result: RankResult = {
     // Relevance-scored files first, then the unscored matchCount-ordered tail.
     // The tail keeps every matched file reachable through pagination.
-    files: [...scored.map(x => x.file), ...tail],
+    files: opts.sortReverse ? relevanceOrdered.reverse() : relevanceOrdered,
     cappedCandidates,
   };
   if (opts.debug) {

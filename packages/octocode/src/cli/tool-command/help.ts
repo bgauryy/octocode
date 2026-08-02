@@ -17,6 +17,44 @@ import {
 } from './formatting.js';
 import { LSP_TYPE_EXAMPLES } from './lsp-examples.js';
 
+// `tools <name> --scheme --brief`: params + one example, nothing else — the
+// cheapest schema read for agents that just need callable field names.
+export async function showToolHelpBrief(toolName: string): Promise<boolean> {
+  const tool = findToolDefinition(toolName);
+  if (!tool) {
+    return false;
+  }
+
+  const metadata = await getOptionalToolMetadata();
+  const fields = getDirectToolDisplayFields(tool.name);
+  const shortDesc = extractShortDescription(
+    getDirectToolDescription(tool.name, metadata)
+  );
+
+  console.log();
+  console.log(`  ${c('magenta', bold(tool.name))}  ${dim(shortDesc)}`);
+  console.log();
+  for (const field of fields) {
+    const reqTag = field.required ? c('red', ' [required]') : '';
+    const meta = field.constraints ? `, ${field.constraints}` : '';
+    console.log(
+      `    ${c('cyan', field.name)} (${field.type}${meta})${reqTag}${field.description ? dim(` - ${field.description}`) : ''}`
+    );
+  }
+  console.log();
+  if (tool.name === LSP_TOOL_NAME) {
+    const [label, query] = LSP_TYPE_EXAMPLES[0]!;
+    console.log(`    ${dim('#')} ${label}`);
+    console.log(
+      `    ${c('yellow', `tools ${LSP_TOOL_NAME} --queries '${JSON.stringify(query)}'`)}`
+    );
+  } else {
+    console.log(`    ${c('yellow', formatToolExampleCommand(tool.name))}`);
+  }
+  console.log();
+  return true;
+}
+
 export async function showToolHelp(toolName: string): Promise<boolean> {
   const tool = findToolDefinition(toolName);
   if (!tool) {
@@ -77,7 +115,7 @@ export async function showToolHelp(toolName: string): Promise<boolean> {
   console.log(`  ${bold('Output Schema')}`);
   console.log(`    ${dim('Default (YAML):')}`);
   console.log(
-    `      ${dim('Clean YAML — read directly. Next steps come from typed fields: pagination, next, location, warnings, error.')}`
+    `      ${dim('Clean YAML — read directly. Next steps come from typed fields: pagination, next, location, error.')}`
   );
   console.log(`    ${dim('--json envelope:')}`);
   console.log(
@@ -105,9 +143,6 @@ export async function showToolHelp(toolName: string): Promise<boolean> {
   );
   console.log(
     `      ${c('cyan', 'structuredContent.location')}       ${dim('where remote content was saved (kind, localPath, repoRoot, ...)')}`
-  );
-  console.log(
-    `      ${c('cyan', 'structuredContent.warnings[]')}     ${dim('non-fatal issues to account for')}`
   );
   console.log(
     `      ${c('cyan', 'structuredContent.error')}          ${dim('failure detail when isError is true')}`

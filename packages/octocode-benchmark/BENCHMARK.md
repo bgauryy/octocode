@@ -1,380 +1,125 @@
-# Octocode Benchmark Suite
+# Octocode Benchmark
 
-Internal benchmark package (`@octocodeai/octocode-benchmark`) that proves every engine layer works correctly. Run by CI, developers, and agents to verify a build before shipping.
+## TL;DR — who wins? (Research Efficiency = tokens efficiency × quality·accuracy)
 
----
+**Winner metric — judging is three-dimensional: tokens × accuracy/quality × flow.**
+`REQ = correctness × (quality/5) × (flow/5) / read-KB` — value density per context kilobyte. *flow* (1–5) is a dedicated trajectory grade: capability fit, minimal calls, caps lifted, cross-checks, honest Unknowns, budget discipline (scored by a separate flow judge over the 8 run-c worker reports). A verbose correct answer, a cheap wrong answer, and a lucky right answer via a chaotic trajectory all lose. Two byte accountings, both reported (their disagreement is itself a finding): **raw** = raw tool stdout (run b, single-agent); **read** = worker-self-reported bytes actually read after shell filtering (run c, independent subagents + blind judges).
 
-## Quick Reference
+| Comparison (run c) | A: corr·qual·flow | B: corr·qual·flow | **REQ B/A** |
+|---|---|---|---:|
+| octocode vs `gh` | 0.85 · 4.6 · 4 | 0.85 · 4.5 · 4 | **139×** |
+| octocode vs `rtk`+`gh` | 1.00 · 5.0 · 4 | 0.95 · 4.5 · 4 | 0.24× |
+| octocode vs `ast-grep` | 0.90 · 4.1 · 5 | 0.95 · 4.7 · 5 | 1.21× value (bytes n/r) |
+| octocode vs bare POSIX | 0.85 · 4.5 · 4 | 0.95 · 4.1 · 4 | 0.25× |
 
-```bash
-# ── CI suite (no network, no servers) ───────────────────────
-yarn benchmark          # matrix + AST + LSP + minify + CLI metadata
+| Comparison | RES raw (run b) | RES read (run c) | Correctness b / c (B vs A) | Verdict |
+|---|---:|---:|---|---|
+| octocode vs `gh` | **≈69×** | **≈133×** | 1.00–0.80 / 0.85–0.85 | 🏆 **octocode WIN, robust** — `gh` has no range/symbol fetch, so multi-MB whole-file pulls are structural, not solver-fixable |
+| octocode vs `rtk`+`gh` | ≈11× | 0.24× | 0.95–0.90 / 0.95–1.00 | ⚖️ **TIE across 3 runs** — a disciplined `gh --jq` agent matches octocode; direction flips with accounting. Needs k≥3 + runner tokens to settle |
+| octocode vs `ast-grep` | ≈7.4× | B ahead (A bytes n/r) | 1.00–0.75 / 0.95–0.90 | 🏆 **octocode** — parity on clean AST, wins identity/reachability/outline; both runs re-found the Flow mis-parse |
+| octocode vs bare POSIX (react) | — | 0.25× (B more correct) | — / 0.95–0.85 | **split** — octocode more correct, filtered POSIX cheaper on read-bytes |
+| octocode CLI vs MCP (self) | ≈4× read-bytes, same engine | — | 1.00–1.00 | CLI cheaper warm; MCP fewer calls — and 1 real MCP bug found |
 
-# ── Individual checks ───────────────────────────────────────
-yarn ast:check          # tree-sitter grammar coverage (all languages)
-yarn lsp:check          # LSP config wiring (no servers needed)
-yarn lsp:live           # live TypeScript LSP protocol test (needs server)
-yarn minify:check       # minifier over every configured format
-yarn matrix:check       # full extension × feature support matrix
-yarn cli:check          # CLI/tool/OQL schema metadata gate
+**One sentence:** across 40 questions × 2 independent runs (2026-08-02), octocode is decisively better than plain `gh` (69–133× research efficiency) and better-or-equal everywhere else on accuracy — but a token-disciplined shell agent closes the byte gap on filtered baselines, so octocode's durable edge is **capabilities** (AST, LSP identity, outlines, bounded reads, reachability) plus raw-payload economy, not filtered-read economy.
 
-# ── External comparison (needs ast-grep CLI installed) ──────
-yarn ast:compare        # correctness comparison against ast-grep CLI
-yarn ast:compare:upstream   # upstream ast-grep benchmark scenarios
+**Honesty notes:** solver skill dominates at k=1 (run-c's octocode gh-worker lost 1.5 points to budget mismanagement, not toolchain limits); Flow-typed-JS AST unreliability is now confirmed by 3 independent solvers — top engine work item; false confidence = 0 in all 100 scored question-arms.
 
-# ── Cross-repo real-world probes (needs network, one-time) ──
-yarn repo:clone         # clone 5 repos at pinned tags into target/
-yarn repo:bench         # run text/AST/symbols probes → results/repo/<name>/results.md
+All 15 active tools, both surfaces (MCP + CLI), vs real alternatives and vs itself.
+Docs-driven: an agent runs the checks. Two KPIs per check, judged blind against frozen oracles:
 
-# ── Live eval: GitHub / MCP tools / npm / OQL / local flows ─
-# Run manually as an agent benchmark — see benchmark/octocode/README.md
-```
+1. **Tokens** — runner-reported agent tokens (authoritative); tool-output bytes / chars÷4 as fallback.
+2. **Quality** — rubric correctness `1.0/0.5/0` + judge quality `1–5` (exactness, concision, `file:line`/sha anchors).
 
----
+Guardrails (untunable): false-confidence must not increase; wall-clock, turns, code-search calls reported. A no-tools control arm (C) flags contaminated questions → excluded from the correctness primary.
 
-## Package Layout
+## Check matrix
 
-```
-packages/octocode-benchmark/
-  BENCHMARK.md              ← this file — benchmark guide for agents
-  package.json              ← yarn scripts for all benchmarks
-  benchmark/                ← scripts, fixtures, samples (source)
-    _engine.mjs             ← shared engine loader (napi)
-    run-all.mjs             ← CI orchestrator (checks 1–2, 4–6)
-    ast/                    ← AST grammar benchmark
-    lsp/                    ← LSP wiring benchmark
-    minify/                 ← minifier benchmark
-    check-matrix.mjs        ← full support matrix
-    cli/                    ← CLI metadata gate
-    octocode/               ← live CLI/raw-tool/OQL question catalog
-    ast-grep/               ← upstream scenario comparison
-    repo/                   ← cross-repo clone + probe scripts
-  recipes/                  ← agent runbooks and check recipes
-    agent-benchmark-runbook.md   ← required output layout + determinism rules
-    ast-grep.md             ← ast-grep correctness check recipes
-    dead-code.md            ← dead code / knip + Octocode recipes
-    cli-tools-and-flows.md  ← compatibility pointer → benchmark/octocode/
-  results/                  ← benchmark output (separate from source)
-    README.md
-    ci/latest.md            ← last CI suite run
-    ast-grep/               ← ast-grep timing results
-    repo/                   ← per-repo probe results (yarn repo:bench)
-  output/                   ← full timestamped run artifacts
-    <benchmark-name>-<YYYYMMDDTHHMMSSZ>/
-      README.md  manifest.json  summary.json  commands.ndjson
-      results.md  reflection.md  ratings.json  raw/  schemes/  artifacts/
-  target/                   ← cloned repos (generated, not committed)
-```
+| Check | Arms | Proves | Status |
+|---|---|---|---|
+| [`per-tool/`](benchmark/per-tool/) (15 docs) | octocode CLI solo | every tool works, full schema | maintained — run before any comparison |
+| [`octocode-vs-gh`](benchmark/compare/octocode-vs-gh/) | `gh` CLI vs octocode | GitHub research value vs standard CLI | **WIN 2026-08-02** (1.00 vs 0.67 uncontaminated; 0.098× bytes) · **replicated run b same day**: 1.00 vs 0.80; 0.022× bytes |
+| [`octocode-vs-gh-rtk`](benchmark/compare/octocode-vs-gh-rtk/) | `rtk`+`gh` vs octocode | value vs token-optimized baseline (ship-gate) | **scored 2026-08-02**: correctness TIE 0.90/0.90; 0.24× bytes; 1.4× wall-clock · **run b**: 0.95 vs 0.90 (noise); 0.112× bytes; 2.4× wall-clock |
+| [`octocode-vs-ast-grep`](benchmark/compare/octocode-vs-ast-grep/) | `ast-grep` vs octocode | AST parity + beyond-AST | **scored 2026-08-02 (run b)**: 1.00 vs 0.75 — AST parity zone TIE (counts equal/attributed), beyond-AST WIN (LSP identity refs, reachability, outline); ast-grep 0.45.0 Flow mis-parse attributed (+10 false matches Q3, 75/125 fns Q8); ast-grep 3–4× faster/call, best-in-class node-extract read (Q9) · [results](benchmark/compare/octocode-vs-ast-grep/results.md) |
+| [`octocode-vs-baseline-local-react`](benchmark/compare/octocode-vs-baseline-local-react/) | bare POSIX vs octocode | local research vs shell primitives | **scored 2026-08-02 (run c, subagents + blind judge)**: B more correct 0.95 vs 0.85; A cheaper on read-bytes; Flow-AST unreliability disclosed · [results](benchmark/compare/octocode-vs-baseline-local-react/results.md) |
+| [`octocode-mcp-vs-cli`](benchmark/compare/octocode-mcp-vs-cli/) | MCP vs CLI surface | context-token cost per surface + data parity | **scored 2026-08-02 (run b)**: correctness TIE 1.00/1.00; **1 surface bug found** (MCP silently drops unknown fields → unfiltered junk results — CLI alias-folds the same input), no `ghCloneRepo` without `ENABLE_CLONE`, 161-entry `entrypointsResolved` L2 tax; MCP 19 calls vs CLI 33; L0 cold ~183 KB vs 4.2 KB |
 
----
+Each compare suite = 10 questions. `questions.md` = solver-facing, frozen. `ground-truth.json` = judge-only.
 
-## Benchmark Index
+## Results ledger (required)
 
-| # | Script / Doc | Yarn command | Needs server? | Needs network? | In CI? | Results location |
-|---|-------------|-------------|---------------|----------------|--------|-----------------|
-| 1 | `benchmark/ast/check-ast.mjs` | `ast:check` | No | No | ✅ | `results/ci/latest.md` |
-| 2 | `benchmark/lsp/check-lsp.mjs` | `lsp:check` | No | No | ✅ | `results/ci/latest.md` |
-| 3 | `benchmark/lsp/check-lsp-live.mjs` | `lsp:live` | Yes (ts-server) | No | Manual | console |
-| 4 | `benchmark/minify/check-minify.mjs` | `minify:check` | No | No | ✅ | `results/ci/latest.md` |
-| 5 | `benchmark/check-matrix.mjs` | `matrix:check` | No | No | ✅ | `docs/LSP_SERVER_LIFECYCLE.md` (support-matrix markers) |
-| 6 | `benchmark/cli/check-cli-metadata.mjs` | `cli:check` | No | No | ✅ | `results/ci/latest.md` |
-| 7 | `benchmark/ast/compare-ast-grep-cli.mjs` | `ast:compare` | No | No | Optional | console |
-| 8 | `benchmark/ast-grep/compare-upstream-scenarios.mjs` | `ast:compare:upstream` | No | Optional | Optional | `results/ast-grep/` + `output/` |
-| 9 | `benchmark/repo/clone.mjs` + `run.mjs` | `repo:clone` + `repo:bench` | No | Yes (clone) | Manual | `results/repo/<name>/results.md` |
-| 10 | `benchmark/octocode/` | manual agent run | No | Yes (GitHub/npm) | Manual | `output/<name>-<ts>/` |
-| 11 | `benchmark/rtk-gh/` — agent toolchain comparisons (`rtk-gh-vs-octocode-flows/`) | manual multi-agent run | No | Yes (GitHub) | Manual | `output/<name>-<ts>/` |
+Every compare suite carries a **tracked** `results.md` next to its `questions.md` — the durable record, since `output/<run>/` is gitignored. **After every scored run you MUST refresh the suite's `results.md`** with, latest run first:
 
-`yarn benchmark` (alias `yarn test`) runs checks 1–2, 4–6 in order: matrix → AST → LSP → minify → CLI metadata.
+1. **Time of check** (date + local time of solves/judging) and run name.
+2. **Verdict line** (pre-registered decision rule applied) + provenance (SHA, versions, k, blind-or-not, oracle-verification date).
+3. **Performance comparison matrix** — markdown table, one row per metric: correctness (primary + all-N), quality, **flow (trajectory grade 1–5, judged separately)**, bytes, est. tokens, calls, wall-clock, false-confidence, each with the B/A ratio column, plus the combined **REQ = correctness × quality/5 × flow/5 per read-KB**. Judging is always three-dimensional: tokens AND accuracy/quality AND flow.
+4. **Per-question matrix** — correctness + bytes per arm per question, contamination flags.
+5. **Conclusion** — 2–5 sentences: what won, why (capability attribution), guardrails, watch items, what the next run must fix.
+6. **Prior-runs table** — append, never overwrite, so trends stay visible.
 
----
+Unscored suites keep a `results.md` stub ("NOT YET SCORED" + prerequisites + time of check).
 
-## 1. `ast:check` — AST Grammar Coverage
+## Current results — conclusion & performance matrix (as of 2026-08-02 16:15 IDT, run compare-run-20260802-b)
 
-**Script**: `benchmark/ast/check-ast.mjs`
+| Metric | octocode vs `gh` | octocode vs `rtk`+`gh` | MCP vs CLI (self) | octocode vs `ast-grep` |
+|---|---|---|---|---|
+| **Verdict** | **WIN** | **TIE correctness / WIN cost** | **TIE (by design) + 1 surface bug found** | **AST parity TIE / beyond-AST WIN** |
+| Correctness (primary) | **1.00 vs 0.80** (uncontaminated n=5) | 0.95 vs 0.90 (all-10, k=1 noise) | 1.00 vs 1.00 | **1.00 vs 0.75** (parity zone 1.00/1.00) |
+| Quality (judge 1–5) | **4.7** vs 3.9 | **4.8** vs 4.1 | 4.8 vs 5.0 | **5.0** vs 3.9 |
+| Bytes into context (B/A) | 93,905 / 4,273,866 = **0.022×** | 38,378 / 343,719 = **0.112×** | L2 ~73 KB unfiltered vs ~18 KB read | 345 KB vs 1.06 MB excl-Q5 (**0.33×**; A's Q5 json dump = 193 MB raw) |
+| Tool calls (B/A) | 34 / 45 | 25 / 28 | 19 / 33 | 17 / 18 |
+| Wall-clock (B/A) | 1.8× slower | 2.4× slower | n/a (per-call ≈ equal engine) | 2.3× slower (ast-grep very fast/call) |
+| False confidence | 0 / 0 | 0 / 0 | 0 / 0 | 0 / 0 |
+| Detail | [results](benchmark/compare/octocode-vs-gh/results.md) | [results](benchmark/compare/octocode-vs-gh-rtk/results.md) | [results](benchmark/compare/octocode-mcp-vs-cli/results.md) | [results](benchmark/compare/octocode-vs-ast-grep/results.md) |
 
-Proves every tree-sitter grammar loaded by `octocode-engine` works end-to-end through the napi binary. For each grammar it runs three probes:
+**Conclusion (ast-grep suite):** where ast-grep parses cleanly the engines agree exactly (274=274, 50=50 with identical sets, census Δ0.11%) and ast-grep is faster per call with a superb single-node extract; octocode wins everything requiring identity (LSP refs), reachability (dead exports), outlines, or Flow-typed files — ast-grep 0.45.0 `-l js` mis-parses Flow generics, producing spurious multi-line matches (attributed at `file:line`).
 
-| Probe | What it tests |
-|-------|--------------|
-| PARSE | `structuralSearch(realSample, "$$$")` returns nodes — confirms the grammar loaded and the ABI is intact |
-| MATCH | `structuralSearch(snippet, pattern/rule)` returns the expected count — confirms metavars and node-kind rules work |
-| SIGNATURE | `extractSignatures()` returns a non-empty skeleton for `sig:true` grammars |
+**Conclusion:** octocode decisively beats plain `gh` (more correct AND 45× cheaper in context); against the token-optimized `rtk`+`gh` baseline it ties on correctness while reading 9× fewer bytes — for LLM agents, where context is the binding constraint, **octocode is the better default**, at the cost of 1.8–2.4× tool wall-clock. Every correctness gap traced to a capability (AST vs text, matchString region reads, symbols outline, LSP call hierarchy, docs grounding), not luck. The MCP-vs-CLI self-eval confirmed engine parity and surfaced the run's most valuable finding: the MCP surface silently drops unknown fields (confidently-wrong results) where the CLI alias-folds them — fix queued. Open items: control arm for gh-rtk, ≥3 solvers + blind judge, re-oracle vscode-Q5, PR-metadata payload weight (the one lane where `gh --jq` is cheaper).
 
-Also asserts every extension in `getSupportedStructuralExtensions()` is claimed by exactly one grammar entry — a new grammar without a sample here fails the check.
+## Frozen corpus (all local-lane checks)
 
-**Samples**: `benchmark/ast/samples/` — one real file per grammar from popular open-source repos (provenance in `ast/manifest.json`).
-
----
-
-## 2. `lsp:check` — LSP Config Wiring (No Servers)
-
-**Script**: `benchmark/lsp/check-lsp.mjs`
-
-Verifies the engine's LSP config layer resolves correctly for every language, without spawning a server:
-
-| Probe | What it tests |
-|-------|--------------|
-| LANGUAGE-ID | `detectLanguageId(sample)` returns the expected LSP language id |
-| SERVER | `getLanguageServerForFile(sample)` resolves a non-empty command and correct languageId |
-| SEMANTICS | In-process: `getSemanticBoundaryOffsets` (tree-sitter) + `extractJsSymbols` for JS/TS (OXC) |
-
-Server availability (`isCommandAvailable`) is **reported** but never fails the check — servers are optional per developer.
-
-**Samples**: `benchmark/lsp/samples/` — real files covering every configured server language.
-
----
-
-## 3. `lsp:live` — Live LSP Protocol (Needs Server)
-
-**Script**: `benchmark/lsp/check-lsp-live.mjs`
-**Run manually**: `yarn lsp:live` — not in CI.
-
-Spawns a real `typescript-language-server` through `NativeLspClient` and exercises every LSP operation against a known TypeScript file:
-
-- `documentSymbols` — file outline
-- `definition` — go-to-definition
-- `references` — find all usages
-- `hover` — signature / type info
-- `typeDefinition` — resolve underlying type
-- `implementation` — interface → concrete class
-- `callHierarchy` — callers and callees
-
-Exits 0 (skip) if `typescript-language-server` is not on PATH.
-
----
-
-## 4. `minify:check` — Minifier Coverage
-
-**Script**: `benchmark/minify/check-minify.mjs`
-
-Runs the engine minifier over every language sample in `benchmark/minify/<lang>/` and asserts it produces output without errors. Exits non-zero if any sample returns empty output or an error.
-
-**Languages**: JS/TS, Python, Go, Rust, Java, C/C++/H/HPP, C#, CSS/SCSS/Less, HTML, JSON/JSONC, YAML/TOML, Bash, Ruby, PHP, Kotlin, Elixir, Erlang, Swift, Scala, Lua, SQL, R, Zig, OCaml, HCL, Proto, GraphQL, Clojure, Dart, Haskell, INI, and more (~70+ formats).
-
----
-
-## 5. `matrix:check` — Full Extension × Feature Matrix
-
-**Script**: `benchmark/check-matrix.mjs`
-
-Probes every extension the engine knows (union of minify config, structural grammars, signature list, and LSP server specs) and verifies each feature live:
-
-| Column | What it tests |
-|--------|--------------|
-| MINIFY | Configured strategy + live `minifyContentResult` probe |
-| AST | In `getSupportedStructuralExtensions()` AND `structuralSearch "$$$"` returns nodes |
-| SIG | In `getSupportedSignatureExtensions()` |
-| LSP | `detectLanguageId` + `getLanguageServerForFile` resolve a server |
-
-Exits non-zero on any anomaly (claimed-but-not-working, or list/behavior mismatch).
-
-Regenerate the support matrix (into `docs/LSP_SERVER_LIFECYCLE.md`, between the `support-matrix` markers) with the live data:
+Never benchmark against this repo (it drifts). One pinned checkout:
 
 ```bash
-yarn support:gen
+git clone https://github.com/react/react.git packages/octocode-benchmark/context/react
+git -C packages/octocode-benchmark/context/react checkout 9ceb1e7d9e20bd0302cf6ab31b038c5ec673178d
 ```
 
----
+~1,873 Flow-typed `.js` files; gitignored; verify `rev-parse HEAD` before any run.
 
-## 6. `cli:check` — CLI Metadata Gate
+## Contracts
 
-**Script**: `benchmark/cli/check-cli-metadata.mjs`
+Schemas in [`benchmark/schemas/`](benchmark/schemas/): [questions-input](benchmark/schemas/questions-input.schema.json) · [solver-output](benchmark/schemas/solver-output.schema.json) · [ground-truth](benchmark/schemas/ground-truth.schema.json) · [kpi](benchmark/schemas/kpi.schema.json) (fixture: [`fixtures/compare-run-example/`](benchmark/fixtures/compare-run-example/kpi.json)). Runs write gitignored `output/<run-name>/`.
 
-Offline gate (no auth, no network, no tool execution). Validates:
+## Judge protocol
 
-- All `octocode-core` tool descriptions, schema texts, and instructions load correctly
-- `octocode help`, `octocode context`, `octocode tools <name> --scheme`, `octocode search --scheme` render without errors
-- Direct tool definitions and display fields are complete and undrifted
+1. Oracles frozen before solvers run; verified **outside every arm** (curl api.github.com / raw / npm registry); dated — GitHub facts drift, re-verify per run.
+2. Solvers never read ground truth; judge blind to arm.
+3. Judge re-fetches every cited sha/PR/issue; fabricated cite = 0 + false-confidence.
+4. Trajectory layer: logged calls checked against `capabilityPoint`/`expectedWorkflow` (tool + features: matchString, pagination, reviewMode, structural). Right answer without them = "answered without the tool".
+5. Never edit questions/rubrics mid-run (REJECT). Evolve between runs; record corrections in ground truth.
 
-Run before publishing CLI or core packages.
-
----
-
-## 7. `ast:compare` — External ast-grep Correctness Comparison
-
-**Script**: `benchmark/ast/compare-ast-grep-cli.mjs`
-**Needs**: `ast-grep` CLI installed.
-
-Shells out to an installed `ast-grep` binary and runs identical structural patterns through both ast-grep and Octocode on temp file sets. Compares match counts and timing.
+## How to run
 
 ```bash
-# Install ast-grep first
-brew install ast-grep           # macOS
-npm install -g @ast-grep/cli    # via npm
-cargo install ast-grep --locked # via cargo
-
-# Run
-yarn ast:compare
-# or: AST_GREP_BIN=/path/to/ast-grep yarn ast:compare
+node ./scripts/dev-setup.mjs && yarn install   # pin local workspace build
+CLI="node packages/octocode/out/octocode.js"
+$CLI tools <name> --scheme --brief             # schema (source of truth)
+$CLI tools <name> --queries '<json>' --compact # run a check
 ```
 
----
+Scored run sequence:
 
-## 8. `ast:compare:upstream` — Upstream Scenario Benchmark
+1. Per-tool smoke — [`per-tool/README.md`](benchmark/per-tool/README.md).
+2. Freeze: verify oracles (curl), pin corpus SHA + model + step budget.
+3. Control arm (C) first — flags contamination.
+4. Arms A/B — ≥1 solver each (≥3 for pass^k), every call logged `{cmd|tool, exit, ms, bytes}`.
+5. Judge — fresh context, blind; correctness + quality + trajectory.
+6. Report — `output/<run>/` per [`REPORT_TEMPLATE.md`](benchmark/compare/REPORT_TEMPLATE.md).
 
-Full report, methodology, and options: [`results/ast-grep/comparison.md`](./results/ast-grep/comparison.md).
+Method/metrics/decision rule: [`compare/README.md`](benchmark/compare/README.md). Baselines: `gh` (authed), `rtk`, `ast-grep`; `OCTOCODE_TOKEN` or gh auth for remote.
 
-Short form:
+## Rules
 
-```bash
-# Quick run (repos already cached in target/ast-grep-upstream/repos/)
-node benchmark/ast-grep/compare-upstream-scenarios.mjs --repeats 3 --warmups 1
-
-# Full run with repo sync
-node benchmark/ast-grep/compare-upstream-scenarios.mjs --sync-repos --repeats 3 --warmups 1
-```
-
----
-
-## 9. `repo:clone` + `repo:bench` — Cross-Repo Real-World Probes
-
-**Scripts**: `benchmark/repo/clone.mjs`, `benchmark/repo/run.mjs`
-**Run manually**: not in CI (slow, requires network for clone).
-
-Clones five popular repos at pinned tags and runs text/AST/symbols probes at repo scale:
-
-| Key | Repo | Tag | Language |
-|-----|------|-----|----------|
-| `zustand` | pmndrs/zustand | v5.0.5 | TypeScript (state management) |
-| `tokio` | tokio-rs/tokio | tokio-1.45.0 | Rust |
-| `spring-boot` | spring-projects/spring-boot | v3.5.3 | Java |
-| `chromium` | chromium/src `base/` sparse | HEAD | C++ |
-| `nextjs` | vercel/next.js | v15.3.3 | JavaScript/TypeScript |
-
-Chromium uses `--filter=blob:none --sparse` to check out `base/` only (~250 MB vs 35 GB).
-
-```bash
-yarn repo:clone                 # clone all repos (one-time, ~minutes)
-yarn repo:bench                 # run all probes
-yarn repo:bench zustand nextjs  # specific repos only
-```
-
-**Probes per repo**: `engine.searchRipgrep` (text), `engine.structuralSearchFiles` (AST), `engine.structuralSearch("$$$")` (parse check). Results written to `results/repo/<name>/results.md`.
-
-**Reproducibility**: `benchmark/repo/pins.json` records the exact SHA cloned. Commit it after cloning to lock future runs.
-
----
-
-## 10. `benchmark/octocode/` — Live Octocode Tool Benchmark
-
-**Doc**: [`benchmark/octocode/README.md`](https://github.com/bgauryy/octocode/blob/main/packages/octocode-benchmark/benchmark/octocode/README.md)
-**Run**: manually by an agent following the runbook — not automated.
-**Needs**: GitHub token (`OCTOCODE_TOKEN`), network access, built CLI.
-
-This is the canonical question catalog for proving that Octocode's agent-facing surface works end-to-end across all tool surfaces — not just internal engine correctness. It covers:
-
-| Surface | What is measured |
-|---------|-----------------|
-| **GitHub tools** | `ghSearchRepos`, `ghSearchCode`, `ghGetFileContent`, `ghViewRepoStructure`, `ghHistoryResearch` — repo search, code search, file fetch, PR list/detail/comments/reviews/commits, commit history |
-| **MCP tools** | All 13 shared MCP/CLI tool runners via `tools <name> --queries` — schema, routing, pagination, error honesty |
-| **npm / packages** | `npmSearch` — package lookup and source-repo handoff |
-| **OQL (`octocode search`)** | All active search targets, OQL-to-tool transformations, proof grades, parity with raw tools |
-| **Local search** | Text/regex, structural (AST), file finding, content ranges, minification |
-| **LSP flows** | `lspGetSemantics` — definitions, references, call hierarchy, symbols within research flows |
-| **Cross-repo flows** | Compare related implementations across LangChain, LangGraph, Zustand, Hermes repos |
-| **Pagination** | `page`, `matchPage`, `charOffset`/`charLength`, `responseCharOffset` — lossless paging across all tools |
-| **Token efficiency** | Triage with `--compact`/`--discovery` before deep reads; `--mode symbols` vs full content |
-
-### Corpus
-
-| Alias | Repo | Why |
-|-------|------|-----|
-| `LCJS` | `langchain-ai/langchainjs` | TypeScript, PR archaeology, streaming APIs |
-| `LCPY` | `langchain-ai/langchain` | Python comparison, large-repo pagination |
-| `LGJS` | `langchain-ai/langgraphjs` | Cross-repo comparison with LangChain.js |
-| `LGPY` | `langchain-ai/langgraph` | Python graph/runtime, large tree structure |
-| `ZUSTAND` | `pmndrs/zustand` | Small real TS package, npm-to-repo handoff |
-| `HERMES_ENGINE` | `facebook/hermes` | Native/runtime repo, CMake/content, non-TS code |
-| `LOCAL` | This monorepo root | Dogfooding all local tools |
-
-### Running the eval
-
-Follow `recipes/agent-benchmark-runbook.md` exactly. The runbook defines the required output layout, determinism rules, and schema contract. Every completed run writes:
-
-```
-output/<benchmark-name>-<YYYYMMDDTHHMMSSZ>/
-  README.md          manifest.json       summary.json
-  commands.ndjson    results.md          reflection.md
-  ratings.json       raw/  schemes/  artifacts/
-```
-
-```bash
-# Quick start
-BENCHMARK_NAME="octocode-live-tools"
-BENCH_TIMESTAMP="$(date -u +%Y%m%dT%H%M%SZ)"
-BENCH_OUT="packages/octocode-benchmark/output/${BENCHMARK_NAME}-${BENCH_TIMESTAMP}"
-mkdir -p "$BENCH_OUT/raw" "$BENCH_OUT/artifacts" "$BENCH_OUT/schemes"
-```
-
----
-
-## Recipes
-
-Runbooks and check recipes live in `recipes/`:
-
-| File | Purpose |
-|------|---------|
-| `recipes/agent-benchmark-runbook.md` | **Required** before any manual benchmark run. Defines output layout, determinism rules, `manifest.json` contract, and evidence quality standards. |
-| `recipes/ast-grep.md` | Step-by-step checks proving Octocode structural search against ast-grep: link verification, CLI availability, correctness checks, known gaps. |
-| `recipes/dead-code.md` | Dead code and transitive dependency check: knip (entrypoint-aware deletion audit) + Octocode (symbol-level candidate triage and LSP proof). |
-| `recipes/cli-tools-and-flows.md` | Compatibility pointer to `benchmark/octocode/`. Do not add flow rows here. |
-
----
-
-## Results Location
-
-| Benchmark | Where results land |
-|-----------|-------------------|
-| CI suite (1–2, 4–6) | `results/ci/latest.md` |
-| Support matrix | `docs/LSP_SERVER_LIFECYCLE.md` § Full format support matrix (regenerated by `yarn support:gen`) |
-| ast-grep comparison | `results/ast-grep/comparison.md` + `results/ast-grep/summary.md` |
-| Cross-repo probes | `results/repo/<name>/results.md` |
-| Unified eval (GitHub/MCP/npm/OQL) | `output/<benchmark-name>-<YYYYMMDDTHHMMSSZ>/results.md` |
-
-See [`results/README.md`](./results/README.md) for the full results tree.
-
----
-
-## Engine Loader
-
-All benchmark scripts load the engine via `benchmark/_engine.mjs`:
-
-```js
-import { engine, engineRoot, benchmarkRoot, packageRoot } from '../_engine.mjs'
-```
-
-If the engine binary is missing, rebuild first:
-
-```bash
-cd packages/octocode-engine && yarn build
-```
-
----
-
-## Adding a New Benchmark
-
-1. Add a `.mjs` file under `benchmark/<domain>/`.
-2. Import `engine` from `../_engine.mjs`.
-3. Exit non-zero on failure; print a clear summary.
-4. Add a `yarn <name>:check` script to `package.json`.
-5. If it belongs in CI, add it to `benchmark/run-all.mjs`.
-6. If it needs real samples, add them to `samples/` and update `manifest.json`.
-
----
-
-## `ast:compare:upstream` — Full Report
-
-The full ast-grep-vs-Octocode report (results table, all four timing lanes,
-run instructions, methodology, scenario manifest, and context on why ast-grep
-has no official benchmark of its own) lives at
-[`results/ast-grep/comparison.md`](./results/ast-grep/comparison.md) — that
-file is the canonical, up-to-date source (the runner itself only writes raw
-JSON to `target/ast-grep-upstream/latest.json`; the markdown report is
-written from that JSON after each reported run). A shorter numeric summary is
-at [`results/ast-grep/summary.md`](./results/ast-grep/summary.md).
-
-Headline (see the linked report for the full table and methodology):
-structural match correctness is 6/6 scenarios matched with zero count
-differences; raw-matcher timing is ~2x faster than the ast-grep CLI, while the
-full agent-safe tool path trades that for validation/sanitization/pagination
-overhead that scales with match count, not file count.
+- `--scheme` is the source of truth — fix checks that drift from it.
+- Counting runs must lift caps (`maxFiles`/`itemsPerPage`/`maxMatchesPerFile`) — defaults truncate silently.
+- Report dropped/timed-out/contaminated questions explicitly. Snippets are discovery, not proof.

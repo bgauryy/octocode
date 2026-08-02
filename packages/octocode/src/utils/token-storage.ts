@@ -12,6 +12,5 @@ export {
   getTokenWithRefresh,
   getGhCliToken,
 } from '@octocodeai/octocode-tools-core/credentials';
-// Env-token helpers are single-sourced in @octocodeai/config — import directly
-// to avoid a re-export chain that breaks esbuild code splitting.
-export { hasEnvToken, getEnvTokenSource } from '@octocodeai/config';
+// Env-token helpers (hasEnvToken, getEnvTokenSource) are single-sourced in
+// @octocodeai/config — consumers import them from there directly.

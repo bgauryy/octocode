@@ -10,7 +10,11 @@ function emptyReferencesEnvelope(): LspSemanticEnvelope {
   return {
     type: 'references',
     uri: 'src/foo.ts',
-    lsp: { serverAvailable: true, provider: 'referencesProvider', source: 'lsp' },
+    lsp: {
+      serverAvailable: true,
+      provider: 'referencesProvider',
+      source: 'lsp',
+    },
     payload: {
       kind: 'references',
       locations: [],
@@ -76,7 +80,9 @@ describe('zeroResultEmptyCategory', () => {
   });
 
   it('returns undefined when the envelope carries real results', () => {
-    expect(zeroResultEmptyCategory(nonEmptyDefinitionEnvelope())).toBeUndefined();
+    expect(
+      zeroResultEmptyCategory(nonEmptyDefinitionEnvelope())
+    ).toBeUndefined();
   });
 });
 

@@ -1,7 +1,7 @@
 {
   "name": "@octocodeai/mcp",
   "description": "Model Context Protocol (MCP) server for advanced GitHub repository analysis and code discovery. Provides AI assistants with powerful tools to search, analyze, and understand codebases across GitHub.",
-  "version": "17.0.2",
+  "version": "18.0.1",
   "author": "Guy Bary <bgauryy@octocodeai.com>",
   "bin": {
     "octocode-mcp": "dist/index.js"
@@ -9,10 +9,9 @@
   "bugs": "https://github.com/bgauryy/octocode/issues",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
-    "@octocodeai/config": "^17.0.2",
-    "@octocodeai/octocode-core": "^16.6.3",
-    "@octocodeai/octocode-engine": "^17.0.2",
-    "@octocodeai/octocode-tools-core": "^17.0.2",
+    "@octocodeai/octocode-core": "18.0.2",
+    "@octocodeai/octocode-engine": "^18.0.0",
+    "@octocodeai/octocode-tools-core": "^18.0.0",
     "@octokit/oauth-methods": "^6.0.2",
     "@octokit/plugin-throttling": "^11.0.3",
     "@octokit/request": "^10.0.10",
@@ -91,14 +90,14 @@
   "repository": "bgauryy/octocode.git",
   "scripts": {
     "build": "yarn readme:sync && yarn clean && node build.mjs && yarn build:types",
-    "build:bin": "bun build ./src/index.ts --compile --minify --sourcemap --outfile dist/octocode-mcp && node scripts/bundle-security.mjs darwin-arm64 dist && node scripts/bundle-engine.mjs darwin-arm64 dist",
+    "build:bin": "bun build ./src/index.ts --compile --minify --sourcemap --outfile dist/octocode-mcp && node scripts/bundle-engine.mjs darwin-arm64 dist",
     "build:bin:all": "bun run build:bin:linux-x64 && bun run build:bin:linux-arm64 && bun run build:bin:linux-x64-musl && bun run build:bin:darwin-arm64 && bun run build:bin:darwin-x64 && bun run build:bin:windows-x64",
-    "build:bin:darwin-arm64": "bun build ./src/index.ts --compile --minify --sourcemap --target=bun-darwin-arm64 --outfile dist/octocode-mcp-darwin-arm64 && node scripts/bundle-security.mjs darwin-arm64 dist && node scripts/bundle-engine.mjs darwin-arm64 dist",
-    "build:bin:darwin-x64": "bun build ./src/index.ts --compile --minify --sourcemap --target=bun-darwin-x64 --outfile dist/octocode-mcp-darwin-x64 && node scripts/bundle-security.mjs darwin-x64 dist && node scripts/bundle-engine.mjs darwin-x64 dist",
-    "build:bin:linux-arm64": "bun build ./src/index.ts --compile --minify --sourcemap --target=bun-linux-arm64 --outfile dist/octocode-mcp-linux-arm64 && node scripts/bundle-security.mjs linux-arm64 dist && node scripts/bundle-engine.mjs linux-arm64 dist",
-    "build:bin:linux-x64": "bun build ./src/index.ts --compile --minify --sourcemap --target=bun-linux-x64 --outfile dist/octocode-mcp-linux-x64 && node scripts/bundle-security.mjs linux-x64 dist && node scripts/bundle-engine.mjs linux-x64 dist",
-    "build:bin:linux-x64-musl": "bun build ./src/index.ts --compile --minify --sourcemap --target=bun-linux-x64-musl --outfile dist/octocode-mcp-linux-x64-musl && node scripts/bundle-security.mjs linux-x64-musl dist && node scripts/bundle-engine.mjs linux-x64-musl dist",
-    "build:bin:windows-x64": "bun build ./src/index.ts --compile --minify --sourcemap --target=bun-windows-x64 --outfile dist/octocode-mcp-windows-x64.exe && node scripts/bundle-security.mjs windows-x64 dist && node scripts/bundle-engine.mjs windows-x64 dist",
+    "build:bin:darwin-arm64": "bun build ./src/index.ts --compile --minify --sourcemap --target=bun-darwin-arm64 --outfile dist/octocode-mcp-darwin-arm64 && node scripts/bundle-engine.mjs darwin-arm64 dist",
+    "build:bin:darwin-x64": "bun build ./src/index.ts --compile --minify --sourcemap --target=bun-darwin-x64 --outfile dist/octocode-mcp-darwin-x64 && node scripts/bundle-engine.mjs darwin-x64 dist",
+    "build:bin:linux-arm64": "bun build ./src/index.ts --compile --minify --sourcemap --target=bun-linux-arm64 --outfile dist/octocode-mcp-linux-arm64 && node scripts/bundle-engine.mjs linux-arm64 dist",
+    "build:bin:linux-x64": "bun build ./src/index.ts --compile --minify --sourcemap --target=bun-linux-x64 --outfile dist/octocode-mcp-linux-x64 && node scripts/bundle-engine.mjs linux-x64 dist",
+    "build:bin:linux-x64-musl": "bun build ./src/index.ts --compile --minify --sourcemap --target=bun-linux-x64-musl --outfile dist/octocode-mcp-linux-x64-musl && node scripts/bundle-engine.mjs linux-x64-musl dist",
+    "build:bin:windows-x64": "bun build ./src/index.ts --compile --minify --sourcemap --target=bun-windows-x64 --outfile dist/octocode-mcp-windows-x64.exe && node scripts/bundle-engine.mjs windows-x64 dist",
     "build:ci": "yarn verify && yarn build",
     "build:dev": "yarn readme:sync && yarn workspace @octocodeai/octocode-tools-core build:dev && OCTOCODE_RUNTIME_PLATFORMS=native node build.mjs && yarn build:types",
     "build:publish": "yarn build",
@@ -127,7 +126,8 @@
     "typecheck": "tsc --noEmit --skipLibCheck -p tsconfig.package.json",
     "typecheck:full": "tsc --noEmit --skipLibCheck",
     "verify": "yarn mcp:package",
-    "verify:full": "yarn lint && yarn typecheck:full && yarn test"
+    "verify:full": "yarn lint && yarn typecheck:full && yarn test",
+    "release": "node ../../scripts/release.mjs --target mcp"
   },
   "type": "module",
   "types": "dist/public.d.ts"

@@ -52,6 +52,10 @@ export function sanitizeStructuredContent(obj: unknown): unknown {
   if (typeof obj === 'object') {
     const result: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(obj as Record<string, unknown>)) {
+      // No-warnings contract: structuredContent is an egress surface like the
+      // text block (which strips this key in cleanJsonObject) — typed flags
+      // are the only agent-facing signals.
+      if (key === 'warnings') continue;
       result[key] = sanitizeStructuredContent(value);
     }
     return result;
@@ -231,6 +235,10 @@ export function cleanJsonObject(
       ) {
         cleaned[key] = [];
         hasValidProperties = true;
+        continue;
+      }
+
+      if (key === 'warnings') {
         continue;
       }
 

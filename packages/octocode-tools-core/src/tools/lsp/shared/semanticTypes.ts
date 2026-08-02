@@ -81,6 +81,9 @@ export type ResolvedSymbol = {
   orderHint?: number;
   position: ExactPosition;
   isAmbiguous?: boolean;
+  /** Lines between the caller's lineHint and the line actually bound —
+   * present only when nonzero, so a stale hint is visible in the result. */
+  lineDeviation?: number;
 };
 
 export type CompactResolvedSymbol = {
@@ -89,6 +92,7 @@ export type CompactResolvedSymbol = {
   foundAtLine: number;
   orderHint?: number;
   isAmbiguous?: boolean;
+  lineDeviation?: number;
 };
 
 export function compactResolvedSymbol(
@@ -100,6 +104,9 @@ export function compactResolvedSymbol(
     foundAtLine: symbol.foundAtLine,
     ...(symbol.orderHint !== undefined && { orderHint: symbol.orderHint }),
     ...(symbol.isAmbiguous === true && { isAmbiguous: true }),
+    ...(symbol.lineDeviation !== undefined && {
+      lineDeviation: symbol.lineDeviation,
+    }),
   };
 }
 
@@ -172,6 +179,12 @@ export type LspSemanticEnvelope = {
         byFile?: unknown[];
         totalReferences: number;
         totalFiles: number;
+        warmup?: {
+          candidates: number;
+          warmedFiles: number;
+          skippedLarge: number;
+          possiblyTruncated: boolean;
+        };
         empty?: SemanticEmptyState;
       }
     | {
@@ -184,6 +197,9 @@ export type LspSemanticEnvelope = {
         completeness: {
           complete: boolean;
           truncatedByDepth: boolean;
+          truncatedByBudget?: boolean;
+          visitedNodeCount?: number;
+          requestCount?: number;
           cycleCount: number;
           failedRequestCount: number;
           dynamicCallsExcluded: true;
@@ -234,7 +250,7 @@ export type LspSemanticEnvelope = {
       tool: string;
       query: Record<string, unknown>;
       why?: string;
-      confidence?: 'exact' | 'heuristic';
+      confidence?: 'exact' | 'high' | 'medium' | 'low';
     }
   >;
 };

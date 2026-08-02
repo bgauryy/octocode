@@ -15,17 +15,17 @@ export type FileEntry = {
   content: string;
   localPath?: string;
   repoRoot?: string;
-  fileSize?: number;
   contentView?: 'none' | 'standard' | 'symbols';
   totalLines?: number;
   sourceChars?: number;
-  sourceBytes?: number;
   resolvedBranch?: string;
   pagination?: PaginationInfo;
   isPartial?: boolean;
   startLine?: number;
   endLine?: number;
   matchRanges?: Array<{ start: number; end: number }>;
+  /** Exact matched-line numbers (matchRanges are ±contextLines windows around them). */
+  matchedLines?: number[];
   lastModified?: string;
   lastModifiedBy?: string;
   warnings?: string[];
@@ -89,7 +89,6 @@ export type RepoGroup = {
   repo: string;
   files?: FileEntry[];
   directories?: DirectoryEntry[];
-  data?: RepoGroupData;
 };
 
 export type RepoGroupData = {

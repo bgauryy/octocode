@@ -6,6 +6,9 @@ import { c, bold, dim } from '../utils/colors.js';
 const GLOBAL_FLAGS = new Set([
   'json',
   'compact',
+  'brief',
+  'pretty',
+  'minimal',
   'no-color',
   'help',
   'version',

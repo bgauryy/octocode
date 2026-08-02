@@ -49,7 +49,6 @@ export const entryPoints = [
   // Engine-free schema/help surface (P3): bundled independently so it carries no
   // @octocodeai/octocode-engine import and loads no native addon at eval.
   { entryPoints: ['src/schema.ts'], outfile: 'dist/schema.js' },
-  { entryPoints: ['src/oql/index.ts'], outfile: 'dist/oql/index.js' },
   { entryPoints: ['src/zod.ts'], outfile: 'dist/zod.js' },
   { entryPoints: ['src/shared/credentials/index.ts'], outfile: 'dist/shared/credentials/index.js' },
   { entryPoints: ['src/shared/platform/index.ts'], outfile: 'dist/shared/platform/index.js' },

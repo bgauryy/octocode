@@ -169,62 +169,54 @@ describe('FileContentQueryLocalSchema (github) three-mode mutual exclusion', () 
   });
 });
 
-describe('LocalRipgrepQuerySchema mutex checks', () => {
-  const baseQuery = { keywords: 'foo', path: '/repo' };
+describe('LocalRipgrepQuerySchema enum contract', () => {
+  // The old mutually-exclusive booleans (fixedString/perlRegex, filesOnly/
+  // filesWithoutMatch, countLinesPerFile/countMatchesPerFile) were collapsed to
+  // single enums (regex/output/unique), so those pairings are now impossible by
+  // construction. These check the surviving cross-field gates instead.
+  const baseQuery = { searchText: 'foo', path: '/repo' };
 
-  it('rejects filesOnly=true together with filesWithoutMatch=true', () => {
+  it('accepts the output enum values (files / filesWithout / count*)', () => {
+    for (const output of [
+      'content',
+      'files',
+      'filesWithout',
+      'countLines',
+      'countMatches',
+    ] as const) {
+      expect(
+        LocalRipgrepQuerySchema.safeParse({ ...baseQuery, output }).success
+      ).toBe(true);
+    }
+  });
+
+  it('accepts the regex enum values (smart / fixed / perl)', () => {
+    for (const regex of ['smart', 'fixed', 'perl'] as const) {
+      expect(
+        LocalRipgrepQuerySchema.safeParse({ ...baseQuery, regex }).success
+      ).toBe(true);
+    }
+  });
+
+  it('rejects unique without output:"matchOnly"', () => {
     const result = LocalRipgrepQuerySchema.safeParse({
       ...baseQuery,
-      filesOnly: true,
-      filesWithoutMatch: true,
+      unique: 'list',
     });
     expect(result.success).toBe(false);
     if (!result.success) {
       const messages = result.error.issues.map(i => i.message).join('\n');
-      expect(messages.toLowerCase()).toMatch(/mutually exclusive/);
+      expect(messages).toMatch(/unique requires output:"matchOnly"/);
     }
   });
 
-  it('rejects fixedString=true together with perlRegex=true', () => {
+  it('accepts unique:"count" with output:"matchOnly"', () => {
     const result = LocalRipgrepQuerySchema.safeParse({
       ...baseQuery,
-      fixedString: true,
-      perlRegex: true,
-    });
-    expect(result.success).toBe(false);
-    if (!result.success) {
-      const messages = result.error.issues.map(i => i.message).join('\n');
-      expect(messages.toLowerCase()).toMatch(/mutually exclusive/);
-    }
-  });
-
-  it('accepts filesOnly=true alone', () => {
-    const result = LocalRipgrepQuerySchema.safeParse({
-      ...baseQuery,
-      filesOnly: true,
+      output: 'matchOnly',
+      unique: 'count',
     });
     expect(result.success).toBe(true);
-  });
-
-  it('accepts fixedString=true alone', () => {
-    const result = LocalRipgrepQuerySchema.safeParse({
-      ...baseQuery,
-      fixedString: true,
-    });
-    expect(result.success).toBe(true);
-  });
-
-  it('rejects countLinesPerFile together with countMatchesPerFile', () => {
-    const result = LocalRipgrepQuerySchema.safeParse({
-      ...baseQuery,
-      countLinesPerFile: true,
-      countMatchesPerFile: true,
-    });
-    expect(result.success).toBe(false);
-    if (!result.success) {
-      const messages = result.error.issues.map(i => i.message).join('\n');
-      expect(messages.toLowerCase()).toMatch(/mutually exclusive/);
-    }
   });
 });
 

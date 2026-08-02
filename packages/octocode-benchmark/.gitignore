@@ -1,0 +1,3 @@
+# Frozen local corpora for benchmark runs — cloned, never committed.
+# See BENCHMARK.md "Corpus" for the pinned SHA and clone command.
+context/

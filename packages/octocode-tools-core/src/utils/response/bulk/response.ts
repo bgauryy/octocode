@@ -17,6 +17,7 @@ import type {
 } from '../../../types/bulk.js';
 import { countSerializedChars, getRawResponseChars } from '../charSavings.js';
 import { relativizeResultPaths, hoistSharedFields } from '../pathRelativize.js';
+
 import { paginateBulkText, appendResponsePagination } from './pagination.js';
 import {
   processBulkQueries,
@@ -153,10 +154,6 @@ function createBulkResponse<
 
   const formattedText = createResponseFormat(responseData, fullKeysPriority);
   const paginated = paginateBulkText(formattedText, pagination);
-  // Clean before sanitizing so structuredContent matches the text channel:
-  // compactMcpTextContent points MCP agents at structuredContent, so it must
-  // carry the same trimmed payload the text channel already produces via
-  // createResponseFormat (cleanJsonObject → sanitize).
   const structuredContent = appendResponsePagination(
     sanitizeStructuredContent(cleanJsonObject(responseData) ?? {}) as Record<
       string,

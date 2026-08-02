@@ -17,13 +17,12 @@ import {
   isTokenExpired,
   getCredentialsFilePath,
   getCredentialsSync,
-  getEnvTokenSource,
-  hasEnvToken,
   resolveTokenFull,
   refreshAuthToken as sharedRefreshAuthToken,
   getTokenWithRefresh,
   getGhCliToken as sharedGetGhCliToken,
 } from '../utils/token-storage.js';
+import { hasEnvToken, getEnvTokenSource } from '@octocodeai/config';
 
 const DEFAULT_CLIENT_ID = '178c6fc778ccc68e1d6a';
 

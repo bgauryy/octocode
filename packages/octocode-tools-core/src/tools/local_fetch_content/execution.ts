@@ -19,7 +19,6 @@ import {
 import { safeParseOrError } from '../utils.js';
 import { executeWithToolBoundary } from '../executionGuard.js';
 import type { ToolExecutionArgs } from '../../types/execution.js';
-export { finalizeFetchContentResult } from './fetchContent.js';
 
 type LocalFetchContentResponse = BulkToolResponse & Record<string, unknown>;
 
@@ -121,6 +120,7 @@ function formatLocalFetchContentText(responseData: BulkToolResponse): string {
       'pagination',
       'sourceChars',
       'sourceBytes',
+      'returnedChars',
       'warnings',
       'error',
     ]).trimEnd();

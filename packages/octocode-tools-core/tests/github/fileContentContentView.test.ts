@@ -50,9 +50,10 @@ describe('ghGetFileContent — contentView is always surfaced', () => {
 });
 
 describe('ghGetFileContent — out-of-range line requests are signaled, not silently substituted', () => {
-  const TWENTY_LINES = Array.from({ length: 20 }, (_, i) => `line ${i + 1}`).join(
-    '\n'
-  );
+  const TWENTY_LINES = Array.from(
+    { length: 20 },
+    (_, i) => `line ${i + 1}`
+  ).join('\n');
 
   it('an in-range startLine/endLine returns just that range with isPartial:true', async () => {
     const out = await processFileContentAPI(
@@ -95,7 +96,7 @@ describe('ghGetFileContent — out-of-range line requests are signaled, not sile
     // undefined/false and no warning — indistinguishable from a genuinely
     // valid 100-105 request on a longer file.
     expect(out.isPartial).toBeFalsy();
-    expect(out.warnings?.some((w) => w.includes('out of range'))).toBe(true);
+    expect(out.warnings?.some(w => w.includes('out of range'))).toBe(true);
   });
 
   it('endLine before startLine warns instead of silently returning the whole file unmarked', async () => {
@@ -115,6 +116,6 @@ describe('ghGetFileContent — out-of-range line requests are signaled, not sile
       'none'
     );
     expect(out.isPartial).toBeFalsy();
-    expect(out.warnings?.some((w) => w.includes('invalid'))).toBe(true);
+    expect(out.warnings?.some(w => w.includes('invalid'))).toBe(true);
   });
 });

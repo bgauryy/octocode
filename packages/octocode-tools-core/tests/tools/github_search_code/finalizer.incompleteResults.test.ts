@@ -25,7 +25,7 @@ function runFinalizerWithQueries(queries: AnyRec[], results: AnyRec[]) {
 }
 
 describe('ghSearchCode finalizer — incomplete_results (GitHub index degradation)', () => {
-  it('flags an empty query as incompleteResults and surfaces a visible warning', () => {
+  it('flags an empty query as incompleteResults (typed flag; warnings are stripped from responses)', () => {
     const sc = runFinalizer([
       {
         id: 'q1',
@@ -40,9 +40,8 @@ describe('ghSearchCode finalizer — incomplete_results (GitHub index degradatio
     expect(empty[0].incompleteResults).toBe(true);
     expect(empty[0].nonExistentScope).toBeUndefined();
 
-    const warnings = sc.warnings as string[];
-    expect(Array.isArray(warnings)).toBe(true);
-    expect(warnings.join(' ')).toContain('incomplete_results');
+    // Responses carry no warnings channel — the typed flag above is the signal.
+    expect(sc.warnings).toBeUndefined();
   });
 
   it('a genuine no-match (complete search) carries no incompleteResults and no warning', () => {
@@ -54,14 +53,14 @@ describe('ghSearchCode finalizer — incomplete_results (GitHub index degradatio
     expect(sc.warnings).toBeUndefined();
   });
 
-  it('warns that a scoped repo no-match is not proof of absence', () => {
+  it('a scoped repo no-match yields an empty query row with no warnings channel', () => {
     const sc = runFinalizerWithQueries(
       [{ id: 'q1', owner: 'facebook', repo: 'react' }],
       [{ id: 'q1', data: { results: [] } }]
     );
 
-    const warnings = sc.warnings as string[];
-    expect(warnings.join(' ')).toContain('unproven absence');
-    expect(warnings.join(' ')).toContain('materialize or clone');
+    const empty = sc.emptyQueries as Array<AnyRec>;
+    expect(empty).toHaveLength(1);
+    expect(sc.warnings).toBeUndefined();
   });
 });

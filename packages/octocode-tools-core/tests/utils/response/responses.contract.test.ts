@@ -9,7 +9,9 @@ import { createResponseFormat } from '../../../src/responses.js';
 type NativeContextUtilsModule = typeof import('@octocodeai/octocode-engine');
 
 function installNative(partial: Partial<NativeContextUtilsModule>): void {
-  setContextUtilsNativeLoaderForTesting(() => partial as NativeContextUtilsModule);
+  setContextUtilsNativeLoaderForTesting(
+    () => partial as NativeContextUtilsModule
+  );
 }
 
 describe('response YAML formatter contract', () => {

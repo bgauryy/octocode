@@ -5,7 +5,6 @@ import {
   GITHUB_FETCH_CONTENT,
   GITHUB_VIEW_REPO_STRUCTURE,
   GITHUB_SEARCH_REPOSITORIES,
-  GITHUB_SEARCH_PULL_REQUESTS,
   PACKAGE_SEARCH,
   GITHUB_CLONE_REPO,
   LOCAL_RIPGREP,
@@ -13,13 +12,11 @@ import {
   LOCAL_FIND_FILES,
   LOCAL_FETCH_CONTENT,
   LSP_GET_SEMANTIC_CONTENT,
-  OQL_SEARCH,
 } from '../../src/tools/toolConfig.js';
 import {
   TOOL_NAMES,
   DESCRIPTIONS,
 } from '../../../octocode-tools-core/src/tools/toolMetadata/proxies.js';
-import { OQL_SEARCH_TOOL_NAME } from '../../../octocode-tools-core/src/tools/toolNames.js';
 import { LSP_GET_SEMANTICS_TOOL_NAME } from '../../../octocode-tools-core/src/tools/lsp/shared/semanticTypes.js';
 
 const removedLspToolNames = [
@@ -30,8 +27,8 @@ const removedLspToolNames = [
 
 describe('Tool Configuration', () => {
   describe('ALL_TOOLS', () => {
-    it('should contain all expected tools by default (6 GitHub + 1 Clone + 4 Local + 1 LSP = 12)', () => {
-      expect(ALL_TOOLS).toHaveLength(12);
+    it('should contain all expected tools by default (8 remote + 7 local = 15; ghListReleases opt-in)', () => {
+      expect(ALL_TOOLS).toHaveLength(15);
 
       const toolNames = ALL_TOOLS.map(t => t.name);
       expect([...toolNames].sort()).toEqual(
@@ -40,12 +37,15 @@ describe('Tool Configuration', () => {
           TOOL_NAMES.GITHUB_FETCH_CONTENT,
           TOOL_NAMES.GITHUB_VIEW_REPO_STRUCTURE,
           TOOL_NAMES.GITHUB_SEARCH_REPOSITORIES,
-          TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS,
+          TOOL_NAMES.GITHUB_PULL_REQUESTS,
+          TOOL_NAMES.GITHUB_ISSUES,
+          TOOL_NAMES.GITHUB_COMMITS,
           TOOL_NAMES.PACKAGE_SEARCH,
           TOOL_NAMES.GITHUB_CLONE_REPO,
           TOOL_NAMES.LOCAL_RIPGREP,
           TOOL_NAMES.LOCAL_VIEW_STRUCTURE,
           TOOL_NAMES.LOCAL_FIND_FILES,
+          TOOL_NAMES.LOCAL_FIND_DEAD_CODE,
           TOOL_NAMES.LOCAL_FETCH_CONTENT,
           LSP_GET_SEMANTICS_TOOL_NAME,
         ].sort()
@@ -55,15 +55,17 @@ describe('Tool Configuration', () => {
       expect(toolNames).toContain(TOOL_NAMES.GITHUB_FETCH_CONTENT);
       expect(toolNames).toContain(TOOL_NAMES.GITHUB_VIEW_REPO_STRUCTURE);
       expect(toolNames).toContain(TOOL_NAMES.GITHUB_SEARCH_REPOSITORIES);
-      expect(toolNames).toContain(TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS);
+      expect(toolNames).toContain(TOOL_NAMES.GITHUB_PULL_REQUESTS);
+      expect(toolNames).toContain(TOOL_NAMES.GITHUB_ISSUES);
+      expect(toolNames).toContain(TOOL_NAMES.GITHUB_COMMITS);
       expect(toolNames).toContain(TOOL_NAMES.PACKAGE_SEARCH);
 
       expect(toolNames).toContain(TOOL_NAMES.LOCAL_RIPGREP);
       expect(toolNames).toContain(TOOL_NAMES.LOCAL_VIEW_STRUCTURE);
       expect(toolNames).toContain(TOOL_NAMES.LOCAL_FIND_FILES);
+      expect(toolNames).toContain(TOOL_NAMES.LOCAL_FIND_DEAD_CODE);
       expect(toolNames).toContain(TOOL_NAMES.LOCAL_FETCH_CONTENT);
       expect(toolNames).toContain(LSP_GET_SEMANTICS_TOOL_NAME);
-      expect(toolNames).not.toContain(OQL_SEARCH_TOOL_NAME);
       for (const removedName of removedLspToolNames) {
         expect(toolNames).not.toContain(removedName);
       }
@@ -84,7 +86,7 @@ describe('Tool Configuration', () => {
 
     it('should have isLocal correctly set for GitHub tools', () => {
       const remoteCapableTools = ALL_TOOLS.filter(t => !t.isLocal);
-      expect(remoteCapableTools).toHaveLength(6);
+      expect(remoteCapableTools).toHaveLength(8);
       remoteCapableTools.forEach(tool => {
         expect(tool.isLocal).toBe(false);
       });
@@ -92,19 +94,10 @@ describe('Tool Configuration', () => {
 
     it('should have isLocal correctly set for Local tools', () => {
       const localTools = ALL_TOOLS.filter(t => t.isLocal);
-      expect(localTools).toHaveLength(6);
+      expect(localTools).toHaveLength(7);
       localTools.forEach(tool => {
         expect(tool.isLocal).toBe(true);
       });
-    });
-  });
-
-  describe('OQL tool config', () => {
-    it('OQL_SEARCH should have correct config', () => {
-      expect(OQL_SEARCH.name).toBe(OQL_SEARCH_TOOL_NAME);
-      expect(OQL_SEARCH.type).toBe('search');
-      expect(OQL_SEARCH.isLocal).toBe(false);
-      expect(OQL_SEARCH.fn).toBeTypeOf('function');
     });
   });
 
@@ -151,18 +144,6 @@ describe('Tool Configuration', () => {
       expect(GITHUB_SEARCH_REPOSITORIES.type).toBe('search');
       expect(GITHUB_SEARCH_REPOSITORIES.isLocal).toBe(false);
       expect(GITHUB_SEARCH_REPOSITORIES.fn).toBeTypeOf('function');
-    });
-
-    it('GITHUB_SEARCH_PULL_REQUESTS should have correct config', () => {
-      expect(GITHUB_SEARCH_PULL_REQUESTS.name).toBe(
-        TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS
-      );
-      expect(GITHUB_SEARCH_PULL_REQUESTS.description).toBe(
-        DESCRIPTIONS[TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS]
-      );
-      expect(GITHUB_SEARCH_PULL_REQUESTS.type).toBe('history');
-      expect(GITHUB_SEARCH_PULL_REQUESTS.isLocal).toBe(false);
-      expect(GITHUB_SEARCH_PULL_REQUESTS.fn).toBeTypeOf('function');
     });
 
     it('PACKAGE_SEARCH should have correct config', () => {
@@ -234,7 +215,7 @@ describe('Tool Configuration', () => {
 
     it('non-clone tools should not have isClone set', () => {
       const nonCloneTools = ALL_TOOLS.filter(t => !t.isClone);
-      expect(nonCloneTools).toHaveLength(11);
+      expect(nonCloneTools).toHaveLength(14);
       nonCloneTools.forEach(tool => {
         expect(tool.isClone).toBeFalsy();
       });

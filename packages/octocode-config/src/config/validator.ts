@@ -1,3 +1,4 @@
+import path from 'node:path';
 import type { OctocodeConfig, ValidationResult } from './types.js';
 import { CONFIG_SCHEMA_VERSION } from './types.js';
 import {
@@ -72,23 +73,37 @@ function validateStringArray(value: unknown, field: string): string | null {
   return null;
 }
 
+function isAbsoluteOrHomePath(value: string): boolean {
+  return (
+    value.startsWith('~') ||
+    path.isAbsolute(value) ||
+    /^[A-Za-z]:[\\/]/.test(value)
+  );
+}
+
+function hasTraversalSegment(value: string): boolean {
+  return value.split(/[\\/]+/).includes('..');
+}
+
+function validateLocalPathValue(value: string, field: string): string | null {
+  if (value.trim() === '') return `${field}: empty or whitespace-only path`;
+  if (!isAbsoluteOrHomePath(value)) {
+    return `${field}: must be absolute path or start with ~ (got "${value}")`;
+  }
+  if (hasTraversalSegment(value)) {
+    return `${field}: path traversal (..) not allowed (got "${value}")`;
+  }
+  return null;
+}
+
 // Rejects empty strings, relative paths, and path traversal attempts.
 function validateAllowedPathElements(paths: unknown[]): string[] {
   const errors: string[] = [];
   for (let i = 0; i < paths.length; i++) {
     const p = paths[i];
     if (typeof p !== 'string') continue;
-    if (p.trim() === '') {
-      errors.push(`local.allowedPaths[${i}]: empty or whitespace-only path`);
-    } else if (!p.startsWith('/') && !p.startsWith('~')) {
-      errors.push(
-        `local.allowedPaths[${i}]: must be absolute path or start with ~ (got "${p}")`
-      );
-    } else if (p.includes('..')) {
-      errors.push(
-        `local.allowedPaths[${i}]: path traversal (..) not allowed (got "${p}")`
-      );
-    }
+    const error = validateLocalPathValue(p, `local.allowedPaths[${i}]`);
+    if (error) errors.push(error);
   }
   return errors;
 }
@@ -166,25 +181,12 @@ function validateLocal(local: unknown, errors: string[]): void {
     );
     if (workspaceRootError) {
       errors.push(workspaceRootError);
-    } else if (
-      typeof loc.workspaceRoot === 'string' &&
-      !loc.workspaceRoot.startsWith('/') &&
-      !loc.workspaceRoot.startsWith('~')
-    ) {
-      errors.push(
-        'local.workspaceRoot: must be an absolute path or start with ~ (got "' +
-          loc.workspaceRoot +
-          '")'
+    } else if (typeof loc.workspaceRoot === 'string') {
+      const pathError = validateLocalPathValue(
+        loc.workspaceRoot,
+        'local.workspaceRoot'
       );
-    } else if (
-      typeof loc.workspaceRoot === 'string' &&
-      loc.workspaceRoot.includes('..')
-    ) {
-      errors.push(
-        'local.workspaceRoot: path traversal (..) not allowed (got "' +
-          loc.workspaceRoot +
-          '")'
-      );
+      if (pathError) errors.push(pathError);
     }
   }
 }

@@ -38,7 +38,7 @@ export async function applyStealthPatches(cdp, opts = {}) {
   });
 
   await cdp.send('Browser.grantPermissions', {
-    permissions: ['geolocation', 'notifications', 'camera', 'microphone'],
+    permissions: ['geolocation', 'notifications', 'videoCapture', 'audioCapture'],
     origin: opts.origin ?? undefined,
   });
 
@@ -72,10 +72,11 @@ export async function applyStealthPatches(cdp, opts = {}) {
     def(navigator, 'cookieEnabled',       () => true);
     def(navigator, 'languages',           () => ['en-US', 'en']);
 
-    if (!window.chrome) window.chrome = {
-      runtime: { id: undefined, connect: () => {}, sendMessage: () => {}, onMessage: { addListener: () => {}, removeListener: () => {} } },
-      app: { isInstalled: false }, csi: () => {}, loadTimes: () => ({}),
-    };
+    if (!window.chrome) window.chrome = {};
+    if (!window.chrome.runtime) window.chrome.runtime = { id: undefined, connect: () => {}, sendMessage: () => {}, onMessage: { addListener: () => {}, removeListener: () => {} } };
+    if (!window.chrome.app) window.chrome.app = { isInstalled: false };
+    if (!window.chrome.csi) window.chrome.csi = () => {};
+    if (!window.chrome.loadTimes) window.chrome.loadTimes = () => ({});
 
     def(navigator, 'plugins', () => Object.assign(
       [{ name: 'Chrome PDF Plugin', filename: 'internal-pdf-viewer', description: 'Portable Document Format', length: 1 },
@@ -94,6 +95,12 @@ export async function applyStealthPatches(cdp, opts = {}) {
       return _origQuery(p);
     };
     _patchedFns.add(navigator.permissions.query);
+
+    try {
+      if (window.Notification && Notification.permission === 'denied') {
+        Object.defineProperty(Notification, 'permission', { get: () => 'default', configurable: true });
+      }
+    } catch (_) {}
 
     if (navigator.connection) {
       def(navigator.connection, 'rtt',          () => 50);
@@ -131,6 +138,20 @@ export async function applyStealthPatches(cdp, opts = {}) {
     };
     _patchedFns.add(HTMLCanvasElement.prototype.toDataURL);
 
+    try {
+      const _origCanPlayType = HTMLMediaElement.prototype.canPlayType;
+      HTMLMediaElement.prototype.canPlayType = function(type) {
+        const t = String(type || '');
+        const mime = t.split(';')[0].trim();
+        const codecs = (t.match(/codecs="([^"]+)"/)?.[1] || '').split(',').map(c => c.trim()).filter(Boolean);
+        if (mime === 'video/mp4' && codecs.includes('avc1.42E01E')) return 'probably';
+        if (mime === 'audio/x-m4a' && codecs.length === 0) return 'maybe';
+        if (mime === 'audio/aac' && codecs.length === 0) return 'probably';
+        return _origCanPlayType.apply(this, arguments);
+      };
+      _patchedFns.add(HTMLMediaElement.prototype.canPlayType);
+    } catch (_) {}
+
     if (window.AudioBuffer) {
       const _origGCD = AudioBuffer.prototype.getChannelData;
       AudioBuffer.prototype.getChannelData = function(ch) {
@@ -167,7 +188,7 @@ export async function applyStealthPatches(cdp, opts = {}) {
     }
   })();` });
 
-  console.log('[INJECT] Stealth patches applied (25 techniques)');
+  console.log('[INJECT] Stealth patches applied (27 techniques)');
 }
 
 export async function verifyStealth(cdp) {
@@ -189,10 +210,12 @@ export async function verifyStealth(cdp) {
           const c = document.createElement('canvas');
           const g = c.getContext('webgl');
           const e = g?.getExtension('WEBGL_debug_renderer_info');
-          return e ? g.getParameter(e.UNMASKED_VENDOR_WEBGL) : null;
-        } catch(_) { return null; }
+          return e ? g.getParameter(e.UNMASKED_VENDOR_WEBGL) : undefined;
+        } catch(_) { return undefined; }
       })(),
       toStringSpoof: Function.prototype.toString.call(navigator.__defineGetter__),
+      codecMp4: (() => { try { return document.createElement('video').canPlayType('video/mp4; codecs="avc1.42E01E"'); } catch(_) { return ''; } })(),
+      notificationPermission: (() => { try { return Notification.permission; } catch(_) { return null; } })(),
     })`,
     returnByValue: true,
   });
@@ -210,8 +233,10 @@ export async function verifyStealth(cdp) {
     ['screen.width',           v.screenWidth === 1920,          `expected 1920, got ${v.screenWidth}`],
     ['document.hasFocus()',    v.hasFocus === true,             `expected true, got ${v.hasFocus}`],
     ['window.chrome.runtime',  v.chromeRuntime === 'object',    `expected object, got ${v.chromeRuntime}`],
-    ['WebGL vendor',           v.webglVendor === 'Intel Inc.',  `expected "Intel Inc.", got "${v.webglVendor}"`],
+    ['WebGL vendor',           v.webglVendor === undefined || v.webglVendor === 'Intel Inc.', `no WebGL context is fine (real users can have it disabled); a wrong vendor string is not — got "${v.webglVendor}"`],
     ['toString native spoof',  (v.toStringSpoof ?? '').includes('[native code]'), `toString not spoofed`],
+    ['codec mp4/h264',         v.codecMp4 === 'probably',      `expected "probably", got "${v.codecMp4}"`],
+    ['Notification.permission', v.notificationPermission !== 'denied', `expected non-"denied", got "${v.notificationPermission}"`],
   ];
 
   let passed = 0, failed = 0;

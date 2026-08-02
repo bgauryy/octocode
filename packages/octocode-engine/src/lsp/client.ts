@@ -12,6 +12,8 @@ import type {
   OutgoingCall,
 } from './types.js';
 
+const MAX_LSP_DOCUMENT_BYTES = 1_000_000;
+
 export class LSPClient {
   private readonly nativeClient: NativeLspClientBinding;
   private readonly command: string;
@@ -208,15 +210,35 @@ export class LSPClient {
     );
   }
 
+  /**
+   * `false` once the server process/connection has died (crashed mid-session)
+   * — lets the shared client pool evict this entry at the next `acquire()`
+   * instead of returning a client whose requests will just fail until the
+   * idle timer eventually reaps it. An unrebuilt native binding (missing
+   * `isAlive`) degrades to always-alive, the same tolerance `hasCapability`
+   * uses.
+   */
+  async isAlive(): Promise<boolean> {
+    return this.initialized && ((await this.nativeClient.isAlive?.()) ?? true);
+  }
+
   getRecentStderr(): string[] {
     return this.nativeClient.getRecentStderr?.() ?? [];
   }
 
   async openDocument(filePath: string, content?: string): Promise<void> {
-    await this.nativeClient.openDocument(
-      filePath,
-      content ?? (await fs.readFile(filePath, 'utf8'))
-    );
+    const documentContent = content ?? (await this.readDocumentForOpen(filePath));
+    await this.nativeClient.openDocument(filePath, documentContent);
+  }
+
+  private async readDocumentForOpen(filePath: string): Promise<string> {
+    const stats = await fs.stat(filePath);
+    if (stats.size > MAX_LSP_DOCUMENT_BYTES) {
+      throw new Error(
+        `File is too large for LSP document open: ${filePath} (${stats.size} bytes > ${MAX_LSP_DOCUMENT_BYTES} bytes)`
+      );
+    }
+    return fs.readFile(filePath, 'utf8');
   }
 
   async closeDocument(filePath: string): Promise<void> {

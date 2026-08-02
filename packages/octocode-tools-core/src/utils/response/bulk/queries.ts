@@ -87,6 +87,31 @@ export async function processBulkQueries<TQuery extends object>(
       }>
     ) => {
       if (result.success && result.data) {
+        const processed = result.data.result;
+        // ProcessedBulkResult carries its payload either under `data` or as
+        // top-level keys (index signature) — "empty" means neither is present.
+        const hasPayloadKeys =
+          processed &&
+          Object.keys(processed).some(
+            k => k !== 'status' && k !== 'error' && k !== 'data'
+          );
+        const resolvedEmpty =
+          processed &&
+          processed.error === undefined &&
+          (processed.data === null || processed.data === undefined) &&
+          !hasPayloadKeys &&
+          processed.status !== 'error';
+        if (resolvedEmpty) {
+          // Resolved without an error but carrying no payload (seen when a
+          // heavy query dies mid-flight): surface an explicit error row —
+          // a null payload presented as success reads as a false result.
+          errors.push({
+            queryIndex: result.data.queryIndex,
+            error:
+              'Query resolved without a payload (possible timeout or resource exhaustion) — retry this query alone, with tighter caps if it was large',
+          });
+          return;
+        }
         results.push({
           result: result.data.result,
           queryIndex: result.data.queryIndex,

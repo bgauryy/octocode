@@ -1,6 +1,3 @@
-import { type CallToolResult } from '@modelcontextprotocol/sdk/types.js';
-import type { ToolNames } from '@octocodeai/octocode-core/types';
-import { type z } from 'zod';
 import {
   CloneRepoQueryLocalSchema,
   BulkCloneRepoLocalSchema,
@@ -8,8 +5,6 @@ import {
   FileContentBulkQueryLocalSchema,
   GitHubCodeSearchQueryLocalSchema,
   GitHubCodeSearchBulkQueryLocalSchema,
-  GitHubPullRequestSearchQueryLocalSchema,
-  GitHubPullRequestSearchBulkQueryLocalSchema,
   GitHubReposSearchSingleQueryLocalSchema,
   GitHubReposSearchBulkQueryLocalSchema,
   GitHubViewRepoStructureQueryLocalSchema,
@@ -20,110 +15,94 @@ import {
   LocalFetchContentBulkQuerySchema,
   LocalFindFilesQuerySchema,
   LocalFindFilesBulkQuerySchema,
+  LocalFindDeadCodeQuerySchema,
+  LocalFindDeadCodeBulkQuerySchema,
   LocalRipgrepQuerySchema,
   LocalRipgrepBulkQuerySchema,
   LocalViewStructureQuerySchema,
   LocalViewStructureBulkQuerySchema,
   BulkLspGetSemanticsQuerySchema,
   LspGetSemanticsQueryDisplaySchema,
-  OqlSearchQuerySchema,
-  OqlSearchInputSchema,
 } from './toolSchemaImports.js';
 import { executeCloneRepo } from './github_clone_repo/execution.js';
 import { fetchMultipleGitHubFileContents } from './github_fetch_content/execution.js';
 import { searchMultipleGitHubCode } from './github_search_code/execution.js';
-import { searchMultipleGitHubPullRequests } from './github_search_pull_requests/execution.js';
+import {
+  SearchPullRequestsLocalSchema,
+  SearchPullRequestsBulkLocalSchema,
+  SearchIssuesLocalSchema,
+  SearchIssuesBulkLocalSchema,
+  SearchCommitsLocalSchema,
+  SearchCommitsBulkLocalSchema,
+  ListReleasesLocalSchema,
+  ListReleasesBulkLocalSchema,
+} from './github_search_pull_requests/splitSchemes.js';
+import {
+  SearchDiscussionsLocalSchema,
+  SearchDiscussionsBulkLocalSchema,
+} from './github_search_discussions/scheme.js';
+import {
+  searchMultipleGitHubPullRequestsSplit,
+  searchMultipleGitHubIssues,
+  searchMultipleGitHubCommits,
+  listMultipleGitHubReleases,
+} from './github_search_pull_requests/splitExecutions.js';
+import { searchMultipleGitHubDiscussions } from './github_search_discussions/execution.js';
 import { searchMultipleGitHubRepos } from './github_search_repos/execution.js';
 import { exploreMultipleRepositoryStructures } from './github_view_repo_structure/execution.js';
 import { searchPackages } from './package_search/execution.js';
 import { executeFetchContent } from './local_fetch_content/execution.js';
 import { executeFindFiles } from './local_find_files/execution.js';
+import { executeFindDeadCode } from './local_dead_code/execution.js';
 import { executeRipgrepSearch } from './local_ripgrep/execution.js';
 import { executeViewStructure } from './local_view_structure/execution.js';
 import { executeLspGetSemantics } from './lsp/semantic_content/execution.js';
-import { executeOqlSearchTool } from './oql_search/execution.js';
 import { LSP_GET_SEMANTICS_TOOL_NAME } from './lsp/shared/semanticTypes.js';
-import { isOqlEnabled, OQL_SEARCH_TOOL_NAME } from './toolNames.js';
+import { isReleasesEnabled, isDiscussionsEnabled } from './toolNames.js';
 import {
   DEFAULT_TOOL_METADATA_GATEWAY,
   type ToolMetadataGateway,
 } from './toolMetadata/gateway.js';
+import {
+  createTool,
+  getDescription,
+  type ToolConfig,
+  type ToolDirectExecutionConfig,
+  type ToolDirectSecurity,
+} from './toolCatalogFactory.js';
 
 export type { ToolMetadataGateway };
 export { DEFAULT_TOOL_METADATA_GATEWAY };
+export { getDescription };
+export type { ToolConfig, ToolDirectExecutionConfig, ToolDirectSecurity };
 export type { ToolInvocationCallback } from '../types/toolResults.js';
-
-export type ToolDirectSecurity = 'basic' | 'remote';
-
-export interface ToolDirectExecutionConfig {
-  schema: z.ZodType;
-
-  inputSchema: z.ZodType;
-  executionFn: (input: never) => Promise<CallToolResult>;
-  security: ToolDirectSecurity;
-  requiresServerRuntime?: boolean;
-  requiresProviders?: boolean;
-}
-
-export interface ToolConfig {
-  name: string;
-  description: string;
-  isDefault: boolean;
-  isLocal: boolean;
-
-  isClone?: boolean;
-  type: 'search' | 'content' | 'history' | 'debug';
-
-  skipMetadataCheck?: boolean;
-  direct: ToolDirectExecutionConfig;
-}
-
-export const getDescription = (
-  toolName: string,
-  gateway: Pick<
-    ToolMetadataGateway,
-    'getDescription'
-  > = DEFAULT_TOOL_METADATA_GATEWAY
-): string => {
-  return gateway.getDescription(toolName);
-};
-
-function getToolName<TKey extends keyof ToolNames>(
-  key: TKey,
-  gateway: Pick<ToolMetadataGateway, 'getToolName'>
-): ToolNames[TKey] {
-  return gateway.getToolName(key);
-}
-
-function createTool(
-  gateway: ToolMetadataGateway,
-  nameKey: keyof ToolNames,
-  config: Omit<ToolConfig, 'name' | 'description'>
-): ToolConfig {
-  const name = getToolName(nameKey, gateway);
-  return {
-    ...config,
-    name,
-    description: getDescription(name, gateway),
-  };
-}
 
 interface ToolCatalog {
   GITHUB_SEARCH_CODE: ToolConfig;
   GITHUB_FETCH_CONTENT: ToolConfig;
   GITHUB_VIEW_REPO_STRUCTURE: ToolConfig;
   GITHUB_SEARCH_REPOSITORIES: ToolConfig;
-  GITHUB_SEARCH_PULL_REQUESTS: ToolConfig;
+  GITHUB_PULL_REQUESTS: ToolConfig;
+  GITHUB_ISSUES: ToolConfig;
+  GITHUB_COMMITS: ToolConfig;
+  GITHUB_RELEASES: ToolConfig;
+  GITHUB_DISCUSSIONS: ToolConfig;
   PACKAGE_SEARCH: ToolConfig;
   GITHUB_CLONE_REPO: ToolConfig;
   LOCAL_RIPGREP: ToolConfig;
   LOCAL_VIEW_STRUCTURE: ToolConfig;
   LOCAL_FIND_FILES: ToolConfig;
+  LOCAL_FIND_DEAD_CODE: ToolConfig;
   LOCAL_FETCH_CONTENT: ToolConfig;
   LSP_GET_SEMANTIC_CONTENT: ToolConfig;
-  OQL_SEARCH: ToolConfig;
   ALL_TOOLS: ToolConfig[];
 }
+
+const REMOTE_DIRECT = {
+  security: 'remote',
+  requiresServerRuntime: true,
+  requiresProviders: true,
+} as const;
 
 function createToolCatalog(
   gateway: ToolMetadataGateway = DEFAULT_TOOL_METADATA_GATEWAY
@@ -136,9 +115,7 @@ function createToolCatalog(
       schema: GitHubCodeSearchQueryLocalSchema,
       inputSchema: GitHubCodeSearchBulkQueryLocalSchema,
       executionFn: searchMultipleGitHubCode,
-      security: 'remote',
-      requiresServerRuntime: true,
-      requiresProviders: true,
+      ...REMOTE_DIRECT,
     },
   });
 
@@ -150,9 +127,7 @@ function createToolCatalog(
       schema: FileContentQueryLocalSchema,
       inputSchema: FileContentBulkQueryLocalSchema,
       executionFn: fetchMultipleGitHubFileContents,
-      security: 'remote',
-      requiresServerRuntime: true,
-      requiresProviders: true,
+      ...REMOTE_DIRECT,
     },
   });
 
@@ -167,9 +142,7 @@ function createToolCatalog(
         schema: GitHubViewRepoStructureQueryLocalSchema,
         inputSchema: GitHubViewRepoStructureBulkQueryLocalSchema,
         executionFn: exploreMultipleRepositoryStructures,
-        security: 'remote',
-        requiresServerRuntime: true,
-        requiresProviders: true,
+        ...REMOTE_DIRECT,
       },
     }
   );
@@ -185,30 +158,70 @@ function createToolCatalog(
         schema: GitHubReposSearchSingleQueryLocalSchema,
         inputSchema: GitHubReposSearchBulkQueryLocalSchema,
         executionFn: searchMultipleGitHubRepos,
-        security: 'remote',
-        requiresServerRuntime: true,
-        requiresProviders: true,
+        ...REMOTE_DIRECT,
       },
     }
   );
 
-  const GITHUB_SEARCH_PULL_REQUESTS = createTool(
-    gateway,
-    'GITHUB_SEARCH_PULL_REQUESTS',
-    {
-      isDefault: true,
-      isLocal: false,
-      type: 'history',
-      direct: {
-        schema: GitHubPullRequestSearchQueryLocalSchema,
-        inputSchema: GitHubPullRequestSearchBulkQueryLocalSchema,
-        executionFn: searchMultipleGitHubPullRequests,
-        security: 'remote',
-        requiresServerRuntime: true,
-        requiresProviders: true,
-      },
-    }
-  );
+  const GITHUB_PULL_REQUESTS = createTool(gateway, 'GITHUB_PULL_REQUESTS', {
+    isDefault: true,
+    isLocal: false,
+    type: 'history',
+    direct: {
+      schema: SearchPullRequestsLocalSchema,
+      inputSchema: SearchPullRequestsBulkLocalSchema,
+      executionFn: searchMultipleGitHubPullRequestsSplit,
+      ...REMOTE_DIRECT,
+    },
+  });
+
+  const GITHUB_ISSUES = createTool(gateway, 'GITHUB_ISSUES', {
+    isDefault: true,
+    isLocal: false,
+    type: 'history',
+    direct: {
+      schema: SearchIssuesLocalSchema,
+      inputSchema: SearchIssuesBulkLocalSchema,
+      executionFn: searchMultipleGitHubIssues,
+      ...REMOTE_DIRECT,
+    },
+  });
+
+  const GITHUB_COMMITS = createTool(gateway, 'GITHUB_COMMITS', {
+    isDefault: true,
+    isLocal: false,
+    type: 'history',
+    direct: {
+      schema: SearchCommitsLocalSchema,
+      inputSchema: SearchCommitsBulkLocalSchema,
+      executionFn: searchMultipleGitHubCommits,
+      ...REMOTE_DIRECT,
+    },
+  });
+
+  const GITHUB_RELEASES = createTool(gateway, 'GITHUB_RELEASES', {
+    isDefault: false,
+    isLocal: false,
+    type: 'history',
+    direct: {
+      schema: ListReleasesLocalSchema,
+      inputSchema: ListReleasesBulkLocalSchema,
+      executionFn: listMultipleGitHubReleases,
+      ...REMOTE_DIRECT,
+    },
+  });
+
+  const GITHUB_DISCUSSIONS = createTool(gateway, 'GITHUB_DISCUSSIONS', {
+    isDefault: false,
+    isLocal: false,
+    type: 'history',
+    direct: {
+      schema: SearchDiscussionsLocalSchema,
+      inputSchema: SearchDiscussionsBulkLocalSchema,
+      executionFn: searchMultipleGitHubDiscussions,
+      ...REMOTE_DIRECT,
+    },
+  });
 
   const PACKAGE_SEARCH = createTool(gateway, 'PACKAGE_SEARCH', {
     isDefault: true,
@@ -233,9 +246,7 @@ function createToolCatalog(
       schema: CloneRepoQueryLocalSchema,
       inputSchema: BulkCloneRepoLocalSchema,
       executionFn: executeCloneRepo,
-      security: 'remote',
-      requiresServerRuntime: true,
-      requiresProviders: true,
+      ...REMOTE_DIRECT,
     },
   });
 
@@ -275,6 +286,18 @@ function createToolCatalog(
     },
   });
 
+  const LOCAL_FIND_DEAD_CODE = createTool(gateway, 'LOCAL_FIND_DEAD_CODE', {
+    isDefault: true,
+    isLocal: true,
+    type: 'search',
+    direct: {
+      schema: LocalFindDeadCodeQuerySchema,
+      inputSchema: LocalFindDeadCodeBulkQuerySchema,
+      executionFn: executeFindDeadCode,
+      security: 'basic',
+    },
+  });
+
   const LOCAL_FETCH_CONTENT = createTool(gateway, 'LOCAL_FETCH_CONTENT', {
     isDefault: true,
     isLocal: true,
@@ -303,36 +326,24 @@ function createToolCatalog(
     },
   };
 
-  const OQL_SEARCH: ToolConfig = {
-    name: OQL_SEARCH_TOOL_NAME,
-    description: getDescription(OQL_SEARCH_TOOL_NAME, gateway),
-    isDefault: true,
-    isLocal: false,
-    type: 'search',
-    direct: {
-      schema: OqlSearchQuerySchema,
-      inputSchema: OqlSearchInputSchema,
-      executionFn: executeOqlSearchTool,
-      security: 'remote',
-      requiresServerRuntime: true,
-      requiresProviders: true,
-    },
-  };
-
   const ALL_TOOLS: ToolConfig[] = [
     GITHUB_SEARCH_CODE,
     GITHUB_FETCH_CONTENT,
     GITHUB_VIEW_REPO_STRUCTURE,
     GITHUB_SEARCH_REPOSITORIES,
-    GITHUB_SEARCH_PULL_REQUESTS,
+    GITHUB_PULL_REQUESTS,
+    GITHUB_ISSUES,
+    GITHUB_COMMITS,
+    ...(isReleasesEnabled() ? [GITHUB_RELEASES] : []), // ENABLE_RELEASES=1
+    ...(isDiscussionsEnabled() ? [GITHUB_DISCUSSIONS] : []), // ENABLE_DISCUSSIONS=1 (GraphQL)
     PACKAGE_SEARCH,
     GITHUB_CLONE_REPO,
     LOCAL_RIPGREP,
     LOCAL_VIEW_STRUCTURE,
     LOCAL_FIND_FILES,
+    LOCAL_FIND_DEAD_CODE,
     LOCAL_FETCH_CONTENT,
     LSP_GET_SEMANTIC_CONTENT,
-    ...(isOqlEnabled() ? [OQL_SEARCH] : []),
   ];
 
   return {
@@ -340,15 +351,19 @@ function createToolCatalog(
     GITHUB_FETCH_CONTENT,
     GITHUB_VIEW_REPO_STRUCTURE,
     GITHUB_SEARCH_REPOSITORIES,
-    GITHUB_SEARCH_PULL_REQUESTS,
+    GITHUB_PULL_REQUESTS,
+    GITHUB_ISSUES,
+    GITHUB_COMMITS,
+    GITHUB_RELEASES,
+    GITHUB_DISCUSSIONS,
     PACKAGE_SEARCH,
     GITHUB_CLONE_REPO,
     LOCAL_RIPGREP,
     LOCAL_VIEW_STRUCTURE,
     LOCAL_FIND_FILES,
+    LOCAL_FIND_DEAD_CODE,
     LOCAL_FETCH_CONTENT,
     LSP_GET_SEMANTIC_CONTENT,
-    OQL_SEARCH,
     ALL_TOOLS,
   };
 }
@@ -361,15 +376,18 @@ export const GITHUB_VIEW_REPO_STRUCTURE =
   DEFAULT_TOOL_CATALOG.GITHUB_VIEW_REPO_STRUCTURE;
 export const GITHUB_SEARCH_REPOSITORIES =
   DEFAULT_TOOL_CATALOG.GITHUB_SEARCH_REPOSITORIES;
-export const GITHUB_SEARCH_PULL_REQUESTS =
-  DEFAULT_TOOL_CATALOG.GITHUB_SEARCH_PULL_REQUESTS;
+export const GITHUB_PULL_REQUESTS = DEFAULT_TOOL_CATALOG.GITHUB_PULL_REQUESTS;
+export const GITHUB_ISSUES = DEFAULT_TOOL_CATALOG.GITHUB_ISSUES;
+export const GITHUB_COMMITS = DEFAULT_TOOL_CATALOG.GITHUB_COMMITS;
+export const GITHUB_RELEASES = DEFAULT_TOOL_CATALOG.GITHUB_RELEASES;
+export const GITHUB_DISCUSSIONS = DEFAULT_TOOL_CATALOG.GITHUB_DISCUSSIONS;
 export const PACKAGE_SEARCH = DEFAULT_TOOL_CATALOG.PACKAGE_SEARCH;
 export const GITHUB_CLONE_REPO = DEFAULT_TOOL_CATALOG.GITHUB_CLONE_REPO;
 export const LOCAL_RIPGREP = DEFAULT_TOOL_CATALOG.LOCAL_RIPGREP;
 export const LOCAL_VIEW_STRUCTURE = DEFAULT_TOOL_CATALOG.LOCAL_VIEW_STRUCTURE;
 export const LOCAL_FIND_FILES = DEFAULT_TOOL_CATALOG.LOCAL_FIND_FILES;
+export const LOCAL_FIND_DEAD_CODE = DEFAULT_TOOL_CATALOG.LOCAL_FIND_DEAD_CODE;
 export const LOCAL_FETCH_CONTENT = DEFAULT_TOOL_CATALOG.LOCAL_FETCH_CONTENT;
 export const LSP_GET_SEMANTIC_CONTENT =
   DEFAULT_TOOL_CATALOG.LSP_GET_SEMANTIC_CONTENT;
-export const OQL_SEARCH = DEFAULT_TOOL_CATALOG.OQL_SEARCH;
 export const ALL_TOOLS = DEFAULT_TOOL_CATALOG.ALL_TOOLS;

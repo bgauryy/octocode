@@ -15,6 +15,20 @@ export {
   GitHubPullRequestSearchBulkQueryLocalSchema,
 } from './github_search_pull_requests/scheme.js';
 export {
+  SearchPullRequestsLocalSchema,
+  SearchPullRequestsBulkLocalSchema,
+  SearchIssuesLocalSchema,
+  SearchIssuesBulkLocalSchema,
+  SearchCommitsLocalSchema,
+  SearchCommitsBulkLocalSchema,
+  ListReleasesLocalSchema,
+  ListReleasesBulkLocalSchema,
+} from './github_search_pull_requests/splitSchemes.js';
+export {
+  SearchDiscussionsLocalSchema,
+  SearchDiscussionsBulkLocalSchema,
+} from './github_search_discussions/scheme.js';
+export {
   GitHubReposSearchSingleQueryLocalSchema,
   GitHubReposSearchBulkQueryLocalSchema,
 } from './github_search_repos/scheme.js';
@@ -35,6 +49,10 @@ export {
   LocalFindFilesBulkQuerySchema,
 } from './local_find_files/scheme.js';
 export {
+  LocalFindDeadCodeQuerySchema,
+  LocalFindDeadCodeBulkQuerySchema,
+} from './local_dead_code/scheme.js';
+export {
   LocalRipgrepQuerySchema,
   LocalRipgrepBulkQuerySchema,
 } from './local_ripgrep/scheme.js';
@@ -46,7 +64,3 @@ export {
   BulkLspGetSemanticsQuerySchema,
   LspGetSemanticsQueryDisplaySchema,
 } from './lsp/semantic_content/scheme.js';
-export {
-  OqlDisplayQuerySchema as OqlSearchQuerySchema,
-  OqlSearchInputSchema,
-} from '../oql/schema.js';

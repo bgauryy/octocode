@@ -422,6 +422,8 @@ Run `npx octocode install --ide cursor` (or `vscode`, `claude`, `windsurf`, etc.
 |---------|------------------|---------|-------|
 | `ENABLE_LOCAL` | `local.enabled` | `true` | `false` → disable all local tools |
 | `ENABLE_CLONE` | `local.enableClone` | CLI: `true` · MCP: `false` | Enable `ghCloneRepo` |
+| `ENABLE_RELEASES` | — (env-only) | `false` | Enable `ghListReleases` (CLI + MCP) |
+| `ENABLE_DISCUSSIONS` | — (env-only) | `false` | Enable `ghSearchDiscussions` (CLI + MCP) |
 | `WORKSPACE_ROOT` | `local.workspaceRoot` | `process.cwd()` | Must be absolute. Base for resolving relative paths — not itself an allowed root; add it to `allowedPaths` to access a location outside home. |
 | `ALLOWED_PATHS` | `local.allowedPaths` | `[]` (home only) | Extra roots added on top of the always-allowed home directory. Env: comma-separated; rc: JSON array. |
 

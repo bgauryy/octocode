@@ -104,6 +104,7 @@ export default defineConfig({
       'tests/security/all-tools-sanitization.test.ts',
       'tests/scheme/**/*.test.ts',
       'tests/utils/bulkOperations.test.ts',
+      'tests/utils/secureServer*.test.ts',
       'tests/flows/**/*.test.ts',
       'tests/integration/**/*.test.ts',
     ],

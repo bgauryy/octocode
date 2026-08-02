@@ -12,6 +12,7 @@ export type NativeLspClientBinding = {
   // wrapper coerces to the conservative `settledFallback`.
   waitForReady(timeoutMs?: number): Promise<LspReadiness | undefined>;
   hasCapability?(capability: string): boolean;
+  isAlive?(): Promise<boolean>;
   getRecentStderr?(): string[];
   openDocument(filePath: string, content: string): Promise<void>;
   closeDocument?(filePath: string): Promise<void>;
@@ -70,9 +71,19 @@ type NativeBinding = {
   ): unknown | undefined;
   isCommandAvailable(command: string): boolean;
   safeReadFile(filePath: string): string;
+  safeReadLineWindow(
+    filePath: string,
+    lineZeroBased: number,
+    contextLines: number
+  ): string;
   validateLspServerPath(command: string): string;
   convertSymbolKind(kind?: number): string;
   toLspSymbolKind(kind: string): number;
 };
 
-export const nativeBinding = require('../../index.cjs') as NativeBinding;
+// Embedded single-file builds (Node SEA) pre-load the addon and publish it on
+// globalThis; the createRequire path below cannot resolve once this file is
+// inlined into a bundle with no package files on disk.
+export const nativeBinding = ((
+  globalThis as { __OCTOCODE_ENGINE_BINDING__?: unknown }
+).__OCTOCODE_ENGINE_BINDING__ ?? require('../../index.cjs')) as NativeBinding;

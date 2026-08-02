@@ -17,15 +17,14 @@ function runFinalizerWithQueries(queries: AnyRec[], results: AnyRec[]) {
 const MANY_KEYWORDS = Array.from({ length: 12 }, (_, i) => `term${i}`);
 
 describe('ghSearchCode finalizer — overly-long query zero-result honesty', () => {
-  it('warns when a >8-keyword query returns zero unexplained results', () => {
+  it('a >8-keyword zero-result query yields no warnings channel (warnings are stripped)', () => {
     const sc = runFinalizerWithQueries(
       [{ id: 'q1', keywords: MANY_KEYWORDS }],
       [{ id: 'q1', data: { results: [] } }]
     );
 
-    const warnings = sc.warnings as string[];
-    expect(Array.isArray(warnings)).toBe(true);
-    expect(warnings.join(' ')).toContain('silently under-match');
+    expect(sc.warnings).toBeUndefined();
+    expect(sc.emptyQueries as unknown[]).toHaveLength(1);
   });
 
   it('does not warn for a short keyword query with zero results', () => {

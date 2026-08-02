@@ -65,7 +65,9 @@ vi.mock('node:fs', () => ({
 
 vi.mock('../../../src/shared/credentials/storage.js', async importOriginal => {
   const actual =
-    await importOriginal<typeof import('../../../src/shared/credentials/storage.js')>();
+    await importOriginal<
+      typeof import('../../../src/shared/credentials/storage.js')
+    >();
   return {
     ...actual,
     ensureOctocodeDir: vi.fn(),

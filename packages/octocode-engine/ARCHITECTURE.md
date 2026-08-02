@@ -47,22 +47,32 @@ secret regex catalog. Rust is tested with `cargo test`; the TS wrappers with
 
 ## Research Graph Direction
 
-Future reachability/dead-code work belongs in a generic native graph domain, not
-in tool-specific regex logic. The engine should provide language-neutral facts
-and deterministic graph algorithms:
+Reachability/dead-code detection lives today in
+`octocode-tools-core/src/tools/local_dead_code/` (the `localFindDeadCode` MCP
+tool), consuming this engine's per-file facts rather than tool-specific regex
+logic:
 
-- parse files through the shared grammar registry;
-- extract AST facts for declarations, imports, exports, calls, classes, and
-  functions;
-- normalize language-specific syntax into common symbol/relation facts;
-- connect facts into file/symbol/dependency graph nodes and edges;
-- run reachability, retainer lookup, strongly connected components, and
-  transitive-dead pruning.
+- `signatures/graph_facts.rs` (JS/TS via `js_oxc.rs`, ~24 other languages via
+  tree-sitter) parses files through the shared grammar registry and extracts
+  AST facts for declarations, imports, exports, calls, classes, and functions,
+  normalized into common symbol/relation facts;
+- `local_dead_code/graphBuilder.ts` calls the native `extractGraphFacts`
+  binding (`bindings/signatures.rs`) for every scanned file and connects facts
+  into file/symbol/dependency graph nodes and edges;
+- `local_dead_code/reachability.ts` runs BFS reachability and iterative
+  Tarjan's SCC (`dead-cluster` verdicts for mutually-referencing-but-unreachable
+  file clusters); `deadCodeScan.ts` performs transitive-dead pruning.
 
 LSP remains the semantic proof layer for cross-file identity, references,
 definitions, implementations, callers, callees, and call hierarchy. Text/ripgrep
-is discovery only and must not produce deletion-grade proof. Framework/package
-entrypoint policy and agent-facing packets stay in `octocode-tools-core` / OQL.
+is discovery only; `local_dead_code` output is candidate-grade and must be
+confirmed with `lspGetSemantics` before a deletion claim, matching that rule.
+
+**Note:** `signatures/graph_facts.rs`/`extractGraphFacts` has a live consumer
+(`local_dead_code/graphBuilder.ts`) — it is not orphaned. A native Rust port of
+the graph algorithms above (reachability/SCC/retainer-lookup/pruning) was
+scoped in `docs/NATIVE_GRAPH_DOMAIN_SCOPE.md` but is superseded by this
+TypeScript implementation; see that doc's status before reviving the idea.
 
 ## Rules
 
