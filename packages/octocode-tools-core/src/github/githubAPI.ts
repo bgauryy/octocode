@@ -123,6 +123,8 @@ export interface HistoryResult {
     hasMore: boolean;
     nextPage?: number;
   };
+  /** Date-window / diff-fallback explanations (e.g. committer-date note). */
+  warnings?: string[];
 }
 
 export type GetContentParameters =

@@ -183,6 +183,19 @@ async function fetchHistoryInternal(
       };
     });
 
+    // Empty walk under a date window reads as a false absence: GitHub's
+    // since/until match the COMMITTER date (a commit authored inside the
+    // window but merged/rebased later is excluded), and the path walk does
+    // not follow renames. Say so instead of returning a bare empty.
+    if (
+      baseCommits.length === 0 &&
+      (sinceResolved?.value !== undefined || untilResolved?.value !== undefined)
+    ) {
+      dateWarnings.push(
+        'no commits matched the since/until window — GitHub filters by committer date (not author date; rebases and squash-merges reset it), and a path-scoped walk does not follow renames. Widen or drop since/until and inspect commit dates directly.'
+      );
+    }
+
     const pagination = {
       currentPage: params.page,
       perPage: params.perPage,

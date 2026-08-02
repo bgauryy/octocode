@@ -127,8 +127,17 @@ export async function handleCommitsMode(
   const prRef = commits
     .map(c => c.messageHeadline?.match(/\(#(\d+)\)/)?.[1])
     .find(Boolean);
+  // On an EMPTY walk the explanation IS the payload: fetchHistory's
+  // warnings (e.g. "since/until filter by committer date") would be stripped
+  // by the no-warnings egress contract, so hoist them onto the hints channel.
+  const emptyWalkHints =
+    !hasContent && result.data.warnings?.length
+      ? { hints: result.data.warnings }
+      : {};
+
   const dataWithNext = {
     ...(result.data as unknown as Record<string, unknown>),
+    ...emptyWalkHints,
     ...(prRef
       ? {
           next: {

@@ -70,5 +70,28 @@ Method, metrics, decision rule: [`../README.md`](../README.md). Output contract:
 
 ## Status
 
-`draft` — questions frozen, not yet scored. First scored run should pin: this
-repo's SHA, the remote repos' SHAs, and identical model + step budget per arm.
+`scored` — first scored run 2026-08-02 (`output/compare-run-20260802-b/octocode-mcp-vs-cli.md`),
+repo SHA `e166f62d`, k=1 single-agent (limitation: not blind, no runner L3 tokens).
+
+**Result: correctness TIE 1.00/1.00 (as designed). Findings:**
+
+1. **Surface bug** — MCP silently drops unknown fields: `ghSearchCode` with
+   `keywordsToSearch` ran an unfiltered repo search (434 junk matches, no error,
+   deterministic); the CLI alias-folds the same input to `keywords` and answers
+   correctly. Fix direction: share the direct-catalog alias folding +
+   unknown-field rejection (`toolInputPreparation.ts`) with the MCP registration path.
+2. **Tool-set divergence** — MCP server exposes 14 tools without `ENABLE_CLONE`
+   (no `ghCloneRepo`); Q6's clone→structural flow needs the shallow
+   `type:"directory"` materializer (1 level per call).
+3. **L2 payload tax** — `localFindDeadCode`'s 161-entry `entrypointsResolved`
+   enters MCP context wholesale; CLI arm filtered it to ~300 B.
+4. **Engine (both surfaces, parity-equal)** — LSP `references` warmup misses
+   the tests dir (known tool-audit caveat); identical undercount on both arms
+   proves it is not a surface issue.
+
+Cost layers measured (bytes; L3 unavailable): L0 cold ≈ 183 KB (MCP full-catalog
+proxy) vs 4.2 KB (CLI on-demand `--scheme`); L2 ≈ 73 KB unfiltered (MCP) vs
+53 KB raw / ≈18 KB read (CLI); calls 19 (MCP) vs 33 (CLI).
+
+Next scored run should pin identical model + step budget per arm, use ≥3
+solvers, and a harness that reports runner L3 tokens (cold vs warm cache split).

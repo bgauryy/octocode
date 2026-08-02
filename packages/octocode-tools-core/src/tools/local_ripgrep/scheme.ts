@@ -239,7 +239,8 @@ export const LocalRipgrepQuerySchema = LocalRipgrepBaseQuerySchema.superRefine(
       // ($$var variable-variables) and shell ($$ = PID) are exempt — there
       // `$$` can be genuine source syntax.
       const twoDollarMeta =
-        query.pattern && !['php', 'bash', 'sh', 'zsh'].includes(query.langType ?? '')
+        query.pattern &&
+        !['php', 'bash', 'sh', 'zsh'].includes(query.langType ?? '')
           ? /(?<!\$)\$\$(?!\$)[A-Z_][A-Z0-9_]*/.exec(query.pattern)
           : null;
       if (twoDollarMeta) {
