@@ -90,6 +90,54 @@ function checkPackage(packagePath) {
   checkPublishedDeps(packagePath, pkg);
 }
 
+/** Collect every workspace-member package name (packages/* and engine npm platform dirs). */
+function collectWorkspaceMemberNames() {
+  const names = new Set();
+  // Root workspace package (e.g. octocode-monorepo) resolves via workspace:. legitimately.
+  const rootPkgPath = join(repoRoot, 'package.json');
+  if (existsSync(rootPkgPath)) {
+    const rootName = readJson(rootPkgPath).name;
+    if (typeof rootName === 'string') names.add(rootName);
+  }
+  const roots = [join(repoRoot, 'packages'), ENGINE_NPM_DIR];
+  for (const root of roots) {
+    if (!existsSync(root)) continue;
+    for (const entry of readdirSync(root, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const pkgPath = join(root, entry.name, 'package.json');
+      if (!existsSync(pkgPath)) continue;
+      const name = readJson(pkgPath).name;
+      if (typeof name === 'string') names.add(name);
+    }
+  }
+  return names;
+}
+
+/**
+ * yarn.lock guard: no EXTERNAL (non-workspace) dependency may resolve via a local
+ * protocol. Workspace members legitimately resolve to workspace: and are excluded;
+ * anything else with workspace:/file:/link:/portal: (e.g. a stray octocode-core
+ * resolution pointing at a sibling repo) would bake a local path into published
+ * lockfiles and is rejected.
+ */
+function checkLockfile() {
+  const lockPath = join(repoRoot, 'yarn.lock');
+  if (!existsSync(lockPath)) {
+    fail(lockPath, 'yarn.lock is missing');
+    return;
+  }
+  const workspaceMembers = collectWorkspaceMemberNames();
+  const lines = readFileSync(lockPath, 'utf8').split('\n');
+  const resolutionRe = /^\s+resolution:\s+"(.+)@(workspace|file|link|portal):/;
+  for (const line of lines) {
+    const match = resolutionRe.exec(line);
+    if (!match) continue;
+    const [, name, proto] = match;
+    if (workspaceMembers.has(name)) continue;
+    fail(lockPath, `${name}: resolved via ${proto}: in yarn.lock (external dep must resolve from the npm registry, not a local path)`);
+  }
+}
+
 // Published packages.
 for (const packageDir of PUBLISHED_PACKAGE_DIRS) {
   checkPackage(join(repoRoot, packageDir, 'package.json'));
@@ -103,6 +151,9 @@ if (existsSync(ENGINE_NPM_DIR)) {
   }
 }
 
+// Root lockfile: no external dependency may resolve via a local protocol.
+checkLockfile();
+
 if (offenders.length > 0) {
   console.error(
     `\n✗ Octocode publish guard failed — local dependencies must not ship to npm.\n\n` +
@@ -115,5 +166,6 @@ if (offenders.length > 0) {
 
 console.log(
   `✓ Octocode publish guard passed for ${checkedPackages.length} package(s): ` +
-    `no local (${LOCAL_PROTOCOLS.join(' / ')}) deps in published dependency fields.`
+    `no local (${LOCAL_PROTOCOLS.join(' / ')}) deps in published dependency fields, ` +
+    `and no external dep resolves via a local protocol in yarn.lock.`
 );

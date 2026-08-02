@@ -736,7 +736,7 @@ describe('ALL-TOOLS: Unified output sanitization via withOutputSanitization prox
 
         const text = (result.content[0] as { type: 'text'; text: string }).text;
         expect(text).toBe(
-          'structuredContent available. Read structuredContent for full data.'
+          'structuredContent available. Read structuredContent for full data; if your client cannot read structuredContent, set OCTOCODE_MCP_FULL_TEXT=true.'
         );
 
         const sc = result.structuredContent as Record<string, unknown>;

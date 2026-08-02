@@ -1,5 +1,7 @@
 # Results — octocode-vs-gh-rtk
 
+**TL;DR ⚖️ genuine TIE after 3 runs** (0.90/0.90 → 0.95/0.90 → 0.95/1.00). A disciplined `gh --jq` agent matches octocode on accuracy AND flow; byte direction flips with accounting (raw-stdout: octocode 9× cheaper; self-reported read: gh+jq 3.6× cheaper). octocode's edge here is capabilities (matchString, symbols, LSP), not economy. Needs k≥3 + runner tokens to settle; run control arm first.
+
 > Tracked results ledger. Latest scored run first; full artifacts in the (gitignored) `output/<run>/` dir it names. Refresh this file after every scored run (see BENCHMARK.md § Results ledger).
 
 ## Run: compare-run-20260802-b
@@ -46,6 +48,8 @@ rtk closes much of the raw-token gap vs plain gh, and a skilled shell agent matc
 
 - **Time of check:** 2026-08-02 16:36–17:01 IDT · independent solvers + blind judge
 - **Verdict: baseline WIN this sample** — the `gh --jq` worker was exceptional: 14 calls, ~11.9 KB read, correctness **1.00**, quality 5.0; octocode worker 0.95/4.5 at ~43 KB (lost 0.5 on Q5 vscode dispatch, same as every prior solver). Across 3 runs the suite is a **genuine TIE**: 0.90/0.90 → 0.95/0.90 → 0.95/1.00; byte direction flips with accounting (raw-stdout favors octocode 9×; self-reported read favors gh+jq 3.6×). Settling this needs k≥3 and runner L3 tokens.
+
+- **Flow (trajectory judge):** A 4/5 (efficient ~14 cmds, verified live-on-main claims) · B 4/5 (anchored ranges/symbols, ~16 cmds). **REQ B/A = 0.24×** — the gh--jq worker wins the full three-dimensional judgment on this sample.
 
 ## Prior runs
 

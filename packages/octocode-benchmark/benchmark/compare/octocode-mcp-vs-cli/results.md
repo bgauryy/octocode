@@ -1,5 +1,7 @@
 # Results — octocode-mcp-vs-cli
 
+**TL;DR 🔬 correctness TIE 1.00/1.00 (same engine, by design) — the findings are the result.** 1 real surface bug: MCP **silently drops unknown fields** → confidently-wrong unfiltered results (CLI alias-folds the same input); plus no `ghCloneRepo` without ENABLE_CLONE, a 161-entry unfilterable payload tax, and an engine-level LSP warmup gap proven surface-independent. MCP: fewer calls, ~183 KB cold preamble; CLI: plumbing turns, ~4× cheaper read-bytes warm.
+
 > Tracked results ledger. Latest scored run first; full artifacts in the (gitignored) `output/<run>/` dir it names. Refresh this file after every scored run (see BENCHMARK.md § Results ledger).
 
 ## Run: compare-run-20260802-b (first scored run of this suite)

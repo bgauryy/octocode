@@ -2,7 +2,15 @@
 
 ## TL;DR — who wins? (Research Efficiency = tokens efficiency × quality·accuracy)
 
-**Winner metric (RES ratio):** `RES(B/A) = TokenEff × QualEff`, where `TokenEff = bytes_A / bytes_B` and `QualEff = (correctness_B × quality_B/5) / (correctness_A × quality_A/5)`. Rewards being right AND cheap — a verbose correct answer and a cheap wrong answer both lose. Two accountings, both reported (they disagree, and that disagreement is a finding): **raw** = raw tool stdout (run b, single-agent); **read** = worker-self-reported bytes actually read after shell filtering (run c, independent subagents + blind judges).
+**Winner metric — judging is three-dimensional: tokens × accuracy/quality × flow.**
+`REQ = correctness × (quality/5) × (flow/5) / read-KB` — value density per context kilobyte. *flow* (1–5) is a dedicated trajectory grade: capability fit, minimal calls, caps lifted, cross-checks, honest Unknowns, budget discipline (scored by a separate flow judge over the 8 run-c worker reports). A verbose correct answer, a cheap wrong answer, and a lucky right answer via a chaotic trajectory all lose. Two byte accountings, both reported (their disagreement is itself a finding): **raw** = raw tool stdout (run b, single-agent); **read** = worker-self-reported bytes actually read after shell filtering (run c, independent subagents + blind judges).
+
+| Comparison (run c) | A: corr·qual·flow | B: corr·qual·flow | **REQ B/A** |
+|---|---|---|---:|
+| octocode vs `gh` | 0.85 · 4.6 · 4 | 0.85 · 4.5 · 4 | **139×** |
+| octocode vs `rtk`+`gh` | 1.00 · 5.0 · 4 | 0.95 · 4.5 · 4 | 0.24× |
+| octocode vs `ast-grep` | 0.90 · 4.1 · 5 | 0.95 · 4.7 · 5 | 1.21× value (bytes n/r) |
+| octocode vs bare POSIX | 0.85 · 4.5 · 4 | 0.95 · 4.1 · 4 | 0.25× |
 
 | Comparison | RES raw (run b) | RES read (run c) | Correctness b / c (B vs A) | Verdict |
 |---|---:|---:|---|---|
@@ -43,7 +51,7 @@ Every compare suite carries a **tracked** `results.md` next to its `questions.md
 
 1. **Time of check** (date + local time of solves/judging) and run name.
 2. **Verdict line** (pre-registered decision rule applied) + provenance (SHA, versions, k, blind-or-not, oracle-verification date).
-3. **Performance comparison matrix** — markdown table, one row per metric: correctness (primary + all-N), quality, bytes, est. tokens, calls, wall-clock, false-confidence, each with the B/A ratio column.
+3. **Performance comparison matrix** — markdown table, one row per metric: correctness (primary + all-N), quality, **flow (trajectory grade 1–5, judged separately)**, bytes, est. tokens, calls, wall-clock, false-confidence, each with the B/A ratio column, plus the combined **REQ = correctness × quality/5 × flow/5 per read-KB**. Judging is always three-dimensional: tokens AND accuracy/quality AND flow.
 4. **Per-question matrix** — correctness + bytes per arm per question, contamination flags.
 5. **Conclusion** — 2–5 sentences: what won, why (capability attribution), guardrails, watch items, what the next run must fix.
 6. **Prior-runs table** — append, never overwrite, so trends stay visible.

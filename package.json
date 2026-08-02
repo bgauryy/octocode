@@ -52,17 +52,5 @@
     "packages/*",
     "packages/octocode-engine/npm/*",
     "skills"
-  ],
-  "resolutions": {
-    "@octocodeai/config": "workspace:*",
-    "@octocodeai/octocode-engine": "workspace:*",
-    "@octocodeai/octocode-engine-darwin-arm64": "workspace:*",
-    "@octocodeai/octocode-engine-darwin-x64": "workspace:*",
-    "@octocodeai/octocode-engine-linux-arm64-gnu": "workspace:*",
-    "@octocodeai/octocode-engine-linux-x64-gnu": "workspace:*",
-    "@octocodeai/octocode-engine-linux-x64-musl": "workspace:*",
-    "@octocodeai/octocode-engine-win32-x64-msvc": "workspace:*",
-    "@octocodeai/octocode-tools-core": "workspace:*",
-    "@octocodeai/octocode-core": "/Users/bgaryy/code/octocode-mcp-host/packages/octocode-core"
-  }
+  ]
 }

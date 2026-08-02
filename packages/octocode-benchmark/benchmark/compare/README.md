@@ -1,5 +1,17 @@
 # Comparison Benchmarks — Octocode vs Others (and vs Itself)
 
+## TL;DR — all five suites (as of 2026-08-02, runs b+c, 100 scored question-arms, falseConfidence=0)
+
+| Suite | Verdict | One line |
+|---|---|---|
+| [vs `gh`](octocode-vs-gh/results.md) | 🏆 **WIN, robust** | 69–139× REQ — gh's whole-file pulls are structural, unfixable by solver skill |
+| [vs `rtk`+`gh`](octocode-vs-gh-rtk/results.md) | ⚖️ **TIE (3 runs)** | disciplined `gh --jq` matches octocode; direction flips with byte accounting |
+| [vs `ast-grep`](octocode-vs-ast-grep/results.md) | 🏆 **WIN beyond-AST** | exact parity on clean AST; wins identity/reachability/outline/Flow-typed JS |
+| [vs bare POSIX (react)](octocode-vs-baseline-local-react/results.md) | 📊 **split** | octocode more correct (0.95 vs 0.85); filtered grep cheaper on read-bytes |
+| [MCP vs CLI (self)](octocode-mcp-vs-cli/results.md) | 🔬 **TIE + 1 bug** | engine parity proven; MCP silently drops unknown fields → fix queued |
+
+**Metric:** REQ = correctness × quality/5 × flow/5 per read-KB — judging is always tokens × accuracy/quality × flow. Cross-run detail: [`../../BENCHMARK.md`](../../BENCHMARK.md) TL;DR.
+
 Five head-to-head suites, **10 questions each**. Same LLM, same questions, same
 budget — the only variable is the **tool provider / surface**. This answers the
 one question that matters: *does an agent solve real code tasks better with

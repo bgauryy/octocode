@@ -1,5 +1,7 @@
 # Results — octocode-vs-baseline-local-react
 
+**TL;DR 📊 split decision (first scored run).** octocode more correct (**0.95 vs 0.85** — wins AST-precision and semantic-reference questions); filtered bare-POSIX cheaper on read-bytes (REQ B/A 0.25×). Headline engine finding: octocode's structural/AST + documentSymbols are unreliable on Flow-typed `.js` (silent undercounts, honestly disclosed by the worker) — top work item.
+
 > Tracked results ledger. Latest scored run first; full artifacts in the (gitignored) `output/<run>/` dir it names. Refresh this file after every scored run (see BENCHMARK.md § Results ledger).
 
 ## Run: compare-run-20260802-c (first scored run — subagents, blind judge)
@@ -21,6 +23,8 @@
 ### Per-question correctness (A / B)
 
 Q1 0.5/1.0 · Q2 1.0/1.0 · Q3 1.0/1.0 · Q4 1.0/1.0 · Q5 0.5/1.0 · Q6 1.0/1.0 · Q7 1.0/1.0 · Q8 0.5/0.5 · Q9 1.0/1.0 · Q10 1.0/1.0
+
+- **Flow (trajectory judge):** A 4/5 (disciplined POSIX, cap-free) · B 4/5 (good routing + honest AST disclosure; ~10 wasteful byte-probe calls on Q7). **REQ B/A = 0.25×.**
 
 ### Conclusion
 

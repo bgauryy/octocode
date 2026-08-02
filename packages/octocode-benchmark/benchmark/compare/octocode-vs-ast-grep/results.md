@@ -1,5 +1,7 @@
 # Results — octocode-vs-ast-grep
 
+**TL;DR 🏆 octocode — parity on clean AST, wins beyond-AST.** Counts identical where ast-grep parses (274=274, 50=50, census Δ0.11%); ast-grep is 3–4× faster per call and best-in-class at single-node extraction (Q9). octocode wins everything needing identity (LSP refs), reachability (dead exports), outlines, or **Flow-typed JS** — ast-grep `-l js` mis-parses Flow generics (confirmed by 3 independent solvers). 1.00 vs 0.75 (run b), 0.95 vs 0.90 (run c).
+
 > Tracked results ledger. Latest scored run first; full artifacts in the (gitignored) `output/<run>/` dir it names. Refresh this file after every scored run (see BENCHMARK.md § Results ledger).
 
 ## Run: compare-run-20260802-b (first scored run of this suite)
@@ -45,6 +47,8 @@ Where ast-grep's grammar parses cleanly, the two engines agree **exactly** (Q1/Q
 
 - **Time of check:** 2026-08-02 16:36–17:01 IDT · independent solvers + blind judge
 - **Verdict: B ahead 0.95 vs 0.90 (quality 4.7 vs 4.1).** Both workers independently rediscovered the Flow-typed-JS parse degradation and attributed their count divergences (A: "tree-sitter parse degradation… undercounts"; B: "AST both misses real calls and fabricates spurious nodes — cross-check required"). Engine finding now confirmed by 3 independent solvers across 2 runs → top work item: Flow-aware grammar or documented fallback.
+
+- **Flow (trajectory judge):** A **5/5** and B **5/5** — both textbook (relational rules, caps lifted, divergences attributed not averaged). Value score (corr×qual×flow) B/A = **1.21×**; A's read-bytes unreported so REQ n/a.
 
 ## Prior runs
 

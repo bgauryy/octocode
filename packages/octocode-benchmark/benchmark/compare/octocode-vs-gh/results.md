@@ -1,5 +1,7 @@
 # Results — octocode-vs-gh
 
+**TL;DR 🏆 octocode WIN — robust across 3 runs.** Correctness 1.00 vs 0.67–0.85; REQ (tokens×quality×flow) **69–139× better**. `gh` has no range/symbol fetch, so multi-MB whole-file pulls (checker.ts = 3.15 MB for a 3-line answer) are structural and no solver can filter them away. Only lane gh wins: tight `--jq` PR-metadata reads.
+
 > Tracked results ledger. Latest scored run first; full artifacts in the (gitignored) `output/<run>/` dir it names. Refresh this file after every scored run (see BENCHMARK.md § Results ledger).
 
 ## Run: compare-run-20260802-b
@@ -48,6 +50,8 @@ Octocode wins on every KPI except raw speed: **more correct** where the tools ma
 - **Time of check:** 2026-08-02 16:36–17:01 IDT · 2 independent solver subagents + blind judge (arm labels shuffled, anchors spot-verified via curl)
 - **Verdict: cost WIN, correctness tie 0.85/0.85.** B's worker lost Q5 (budget exhausted → honest Unknown → 0.0) and Q6 (lazy absence proof → 0.5) — solver variance, not toolchain ceiling (run b: 1.00). A structurally forced ~7.5 MB of whole-file pulls (checker.ts 3.15 MB, lodash.js 546 KB, networking.c 244 KB) vs B ~55 KB → **RES ≈ 133×**.
 - Bytes are worker-self-reported READ bytes — not comparable to run b's raw-stdout numbers.
+
+- **Flow (trajectory judge):** A 4/5 (solid verification, but gh's tool constraint forces multi-MB brute force) · B 4/5 (anchored fetches + LSP call hierarchy; Q5 starved by budget, honestly marked Unknown). **REQ B/A = 139×** (corr×qual×flow per read-KB).
 
 ## Prior runs
 

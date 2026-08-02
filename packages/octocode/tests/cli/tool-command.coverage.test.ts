@@ -709,7 +709,10 @@ describe('tool-command coverage', () => {
     const output = consoleSpy.mock.calls.flat().join('\n');
     expect(output).toContain('"packageName"');
     expect(output).toContain('zod');
-    expect(output).not.toContain('"page":');
+    // npmSearch now surfaces two curated examples: the exact-package lookup and a
+    // paged keyword-discovery example ({"packageName":"schema validation","page":1}).
+    // The paged example legitimately includes "page"; assert the primary example stays clean of pagination noise.
+    expect(output).toContain('{"packageName":"zod"}');
     expect(output).not.toContain('"limit"');
   });
 
