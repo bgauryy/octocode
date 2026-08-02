@@ -12,6 +12,7 @@ export type NativeLspClientBinding = {
   // wrapper coerces to the conservative `settledFallback`.
   waitForReady(timeoutMs?: number): Promise<LspReadiness | undefined>;
   hasCapability?(capability: string): boolean;
+  isAlive?(): Promise<boolean>;
   getRecentStderr?(): string[];
   openDocument(filePath: string, content: string): Promise<void>;
   closeDocument?(filePath: string): Promise<void>;

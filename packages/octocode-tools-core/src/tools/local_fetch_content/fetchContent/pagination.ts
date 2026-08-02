@@ -195,6 +195,9 @@ export async function buildSuccessResult(
         ...(extraction.matchRanges !== undefined && {
           matchRanges: extraction.matchRanges,
         }),
+        ...(extraction.matchedLines !== undefined && {
+          matchedLines: extraction.matchedLines,
+        }),
       }),
     ...(fileStats.mtime && { modified: fileStats.mtime.toISOString() }),
     ...(window.showPagination && {

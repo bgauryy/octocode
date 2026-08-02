@@ -2,11 +2,8 @@ import { c, dim } from '../../utils/colors.js';
 import { selectWithCancel } from '../../utils/prompts.js';
 import { separatorChoice } from '../../utils/prompt-separator.js';
 import { checkGitHubAuth } from '../../features/gh-auth.js';
-import {
-  getGhCliToken,
-  getCredentials,
-  hasEnvToken,
-} from '../../utils/token-storage.js';
+import { getGhCliToken, getCredentials } from '../../utils/token-storage.js';
+import { hasEnvToken } from '@octocodeai/config';
 import type { OctocodeAuthStatus } from '../../types/index.js';
 import type { AuthMenuChoice } from './types.js';
 

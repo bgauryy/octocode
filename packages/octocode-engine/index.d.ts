@@ -7,6 +7,8 @@ export declare class NativeLspClient {
   /** Readiness after post-`initialized` indexing: `progressIdle` = a `$/progress` cycle drained to idle; `settledFallback` = no progress seen, only the settle window elapsed; `timeout` = progress still active at the deadline. */
   waitForReady(timeoutMs?: number | undefined | null): Promise<'progressIdle' | 'settledFallback' | 'timeout'>
   hasCapability(capability: string): boolean
+  /** `false` if never started/already stopped, or once the connection's read loop has observed the server process close (crash). */
+  isAlive(): Promise<boolean>
   /** Server-selected LSP `positionEncoding` (utf-16 unless the server is non-conformant); null if omitted/not started. */
   positionEncoding(): string | null
   getRecentStderr(): Array<string>

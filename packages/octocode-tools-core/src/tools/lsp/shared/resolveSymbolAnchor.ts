@@ -129,11 +129,21 @@ export async function resolveSymbolAnchor(
     const occurrenceRegex = new RegExp(`\\b${escapedName}\\b`, 'g');
     const totalOccurrences = (file.value.content.match(occurrenceRegex) ?? [])
       .length;
-    const lineDeviation = Math.abs(
-      resolved.foundAtLine - (query.lineHint ?? 0)
-    );
+    // The resolver searches within a radius around the hint — with multiple
+    // same-named occurrences, ANY nonzero deviation means a stale hint could
+    // have bound a neighboring occurrence, not the intended one. Surface
+    // both the flag and the raw deviation instead of resolving silently
+    // under full confidence (the old threshold of >3 left deviations 1-3 —
+    // well inside the radius-5 search — silently unflagged). No hint → no
+    // deviation to reason about.
+    const lineDeviation =
+      query.lineHint !== undefined
+        ? Math.abs(resolved.foundAtLine - query.lineHint)
+        : undefined;
     const isAmbiguous =
-      totalOccurrences > 1 && lineDeviation > 3 ? true : undefined;
+      totalOccurrences > 1 && lineDeviation !== undefined && lineDeviation > 0
+        ? true
+        : undefined;
 
     return {
       ok: true,
@@ -147,6 +157,9 @@ export async function resolveSymbolAnchor(
           orderHint: query.orderHint,
           position: resolved.position,
           ...(isAmbiguous && { isAmbiguous }),
+          ...(lineDeviation !== undefined && lineDeviation > 0
+            ? { lineDeviation }
+            : {}),
         },
       },
     };

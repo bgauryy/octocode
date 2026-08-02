@@ -44,7 +44,9 @@ ROOT=$(pwd)   # run from repo root
 7. **output:"filesWithout"** — find files missing a required import → PASS: only non-matching files.
 8. **output:"matchOnly" + unique:"count"** — extract + count distinct matches → PASS: deduped values with frequency.
 9. **Pagination** — small `maxMatchesPerFile` on a noisy file → PASS: `file.pagination.hasMore` + `matchPage` walks it.
-10. **Honest empty** — nonsense searchText → PASS: empty + broaden hint.
+10. **Honest empty** — nonsense searchText → PASS: `status:"empty"` + a `hints` array with an actionable broaden suggestion (caseMode:"insensitive" / shorter term / drop include/maxDepth/wholeWord filters when active) — never a bare empty with stats only.
+11. **matchPage + changed maxMatchesPerFile composes honestly** — first call with default `maxMatchesPerFile`, then a second call combining `matchPage:2` with a *larger* `maxMatchesPerFile` such that page 2 no longer exists under the new cap → PASS: `file.pagination.outOfRange:true` and/or a `warnings` entry naming the valid page range — never a bare empty `matches:[]` with no explanation (P1 bug).
+12. **File-level page out of range** — a search with several matched files, `maxFiles` small, `page` set well beyond `pagination.totalPages` → PASS: `pagination.outOfRange:true` and/or a warning — not a silent empty `files:[]` indistinguishable from "valid last page, no more results".
 
 ## Workflows
 

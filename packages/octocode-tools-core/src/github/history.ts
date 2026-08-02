@@ -6,9 +6,9 @@ import { generateCacheKey, withDataCache } from '../utils/http/cache.js';
 import type {
   GitHubAPIResponse,
   HistoryCommit,
-  HistoryCommitFile,
   HistoryResult,
 } from './githubAPI.js';
+import { shapeCommitDirFiles, windowPatch } from './history/commitFiles.js';
 
 /** Cap parallel repos.getCommit calls when includeDiff is true. */
 const COMMIT_DIFF_CONCURRENCY = 5;
@@ -39,42 +39,6 @@ async function mapPool<T, R>(
   );
   await Promise.all(workers);
   return results;
-}
-
-function windowPatch(
-  patch: string | undefined,
-  charOffset: number | undefined,
-  charLength: number | undefined
-):
-  | {
-      patch: string;
-      patchPagination?: {
-        charOffset: number;
-        charLength: number;
-        totalChars: number;
-        hasMore: boolean;
-        nextCharOffset?: number;
-      };
-    }
-  | undefined {
-  if (!patch) return undefined;
-  if (!charLength && !charOffset) return { patch };
-
-  const totalChars = patch.length;
-  const start = Math.min(Math.max(0, charOffset ?? 0), totalChars);
-  const length = Math.max(1, charLength ?? totalChars);
-  const end = Math.min(start + length, totalChars);
-  const hasMore = end < totalChars;
-  return {
-    patch: patch.slice(start, end),
-    patchPagination: {
-      charOffset: start,
-      charLength: end - start,
-      totalChars,
-      hasMore,
-      ...(hasMore ? { nextCharOffset: end } : {}),
-    },
-  };
 }
 
 type FetchHistoryParams = {
@@ -242,6 +206,8 @@ async function fetchHistoryInternal(
     }
 
     // Phase 2: fetch per-commit diffs with bounded concurrency — non-fatal
+    let dirFallbackUsed = false;
+    let fileDiffMissing = false;
     const commitsWithDiff = await mapPool(
       baseCommits,
       COMMIT_DIFF_CONCURRENCY,
@@ -286,57 +252,33 @@ async function fetchHistoryInternal(
                   : {}),
               };
             }
+            // No file with that exact name — the caller's "file" path is
+            // usually a DIRECTORY written without a trailing slash (the mode
+            // classifier can't tell locally). Fall back to a dir-prefix
+            // filter instead of silently returning the commit without a
+            // diff; if nothing matches the prefix either, flag that too.
+            const prefix = filePath.endsWith('/') ? filePath : `${filePath}/`;
+            const dirFiles = (detail.data.files ?? []).filter(f =>
+              f.filename.startsWith(prefix)
+            );
+            if (dirFiles.length > 0) {
+              dirFallbackUsed = true;
+              return {
+                ...commit,
+                ...shapeCommitDirFiles(dirFiles, params),
+              };
+            }
+            fileDiffMissing = true;
+            return commit;
           } else {
             // type: "repo" — return all changed files (filtered to dir prefix if set)
             const dirPath = params.path;
-            const allFiles: HistoryCommitFile[] = (detail.data.files ?? [])
-              .filter(f => !dirPath || f.filename.startsWith(dirPath))
-              .map(f => {
-                const patchWindow =
-                  f.patch !== undefined
-                    ? windowPatch(f.patch, params.charOffset, params.charLength)
-                    : undefined;
-                return {
-                  filename: f.filename,
-                  status: f.status,
-                  additions: f.additions,
-                  deletions: f.deletions,
-                  ...(patchWindow !== undefined
-                    ? {
-                        patch: patchWindow.patch,
-                        ...(patchWindow.patchPagination
-                          ? { patchPagination: patchWindow.patchPagination }
-                          : {}),
-                      }
-                    : {}),
-                  ...(f.previous_filename
-                    ? { previousFilename: f.previous_filename }
-                    : {}),
-                };
-              });
-            const filePage = Math.max(1, params.filePage ?? 1);
-            const itemsPerPage = Math.max(1, params.itemsPerPage ?? 20);
-            const totalFiles = allFiles.length;
-            const totalPages = Math.max(
-              1,
-              Math.ceil(totalFiles / itemsPerPage)
+            const matching = (detail.data.files ?? []).filter(
+              f => !dirPath || f.filename.startsWith(dirPath)
             );
-            const currentPage = Math.min(filePage, totalPages);
-            const start = (currentPage - 1) * itemsPerPage;
-            const files = allFiles.slice(start, start + itemsPerPage);
             return {
               ...commit,
-              files,
-              filesPagination: {
-                currentPage,
-                totalPages,
-                itemsPerPage,
-                totalFiles,
-                hasMore: currentPage < totalPages,
-                ...(currentPage < totalPages
-                  ? { nextFilePage: currentPage + 1 }
-                  : {}),
-              },
+              ...shapeCommitDirFiles(matching, params),
             };
           }
         } catch {
@@ -346,6 +288,19 @@ async function fetchHistoryInternal(
       }
     );
 
+    const diffWarnings: string[] = [];
+    if (dirFallbackUsed) {
+      diffWarnings.push(
+        `path '${params.path}' matched no single file in these commits but matches files under it — treated as a directory filter and returned per-commit changed files (append '/' to select directory mode explicitly).`
+      );
+    }
+    if (fileDiffMissing) {
+      diffWarnings.push(
+        `includeDiff: some commits contain no file matching '${params.path}' (rename or shallow diff?) — those commits are listed without a diff.`
+      );
+    }
+    const allWarnings = [...dateWarnings, ...diffWarnings];
+
     return {
       data: {
         type: params.type,
@@ -354,7 +309,7 @@ async function fetchHistoryInternal(
         ...(params.path ? { path: params.path } : {}),
         commits: commitsWithDiff,
         pagination,
-        ...(dateWarnings.length ? { warnings: dateWarnings } : {}),
+        ...(allWarnings.length ? { warnings: allWarnings } : {}),
       },
       status: 200,
     };

@@ -49,6 +49,33 @@ function emptyStateOf(
   return undefined;
 }
 
+/**
+ * Top-level-declaration regex in the file's own idiom, for the
+ * documentSymbols outline fallback. `^export` is a JS/TS-ism — pointing a
+ * Rust or Python caller at it guarantees an empty follow-up search.
+ */
+function declarationRegexForFile(filePath: string): string {
+  const ext = filePath.slice(filePath.lastIndexOf('.') + 1).toLowerCase();
+  switch (ext) {
+    case 'rs':
+      return '^\\s*pub\\s';
+    case 'py':
+    case 'pyi':
+      return '^\\s*(def|class)\\s';
+    case 'go':
+      return '^(func|type|var|const)\\s';
+    case 'java':
+    case 'kt':
+    case 'scala':
+    case 'cs':
+      return '^\\s*(public|protected|internal)\\s';
+    case 'rb':
+      return '^\\s*(def|class|module)\\s';
+    default:
+      return '^\\s*export\\s';
+  }
+}
+
 // The symbol to hand off to a text search. Symbol-anchored and workspaceSymbol
 // queries carry `symbolName`; fall back to the resolved symbol's name.
 function fallbackSymbolName(
@@ -105,6 +132,39 @@ export function withSemanticNext(
   // Empty/incomplete: only emit a fallback when there's a symbol to search for
   // and the empty state is one this fallback can actually help with.
   const empty = emptyStateOf(payload);
+
+  // documentSymbols has no single symbolName to fall back on — it lists
+  // every symbol in a file, not one — so the symbolName-gated fallback below
+  // never fires for it, leaving a caller who hits an unsupported language
+  // server (e.g. Flow-typed .js, no documentSymbolProvider) with no
+  // pointer to the regex/AST outline workaround. Point at a FILE-scoped
+  // declaration search instead of a symbol-scoped one, in the file's own
+  // declaration idiom (`^export` finds nothing in Rust/Python/Go).
+  if (
+    empty?.category === 'unsupportedOperation' &&
+    result.type === 'documentSymbols' &&
+    result.uri
+  ) {
+    const filePath = result.uri.startsWith('file://')
+      ? decodeURIComponent(result.uri.slice('file://'.length))
+      : result.uri;
+    return {
+      ...result,
+      next: {
+        textSearch: {
+          tool: 'localSearchCode',
+          query: {
+            path: filePath,
+            searchText: declarationRegexForFile(filePath),
+            regex: 'perl',
+          },
+          why: "documentSymbols is unsupported for this file's language server — fall back to a regex search over top-level declarations for an outline.",
+          confidence: 'low',
+        },
+      },
+    };
+  }
+
   const symbolName = fallbackSymbolName(query, result);
   if (!empty || !symbolName || !FALLBACK_EMPTY_CATEGORIES.has(empty.category)) {
     return result;

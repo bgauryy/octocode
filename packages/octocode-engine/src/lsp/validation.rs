@@ -69,7 +69,21 @@ pub fn safe_read_line_window(
     line_zero_based: u32,
     context_lines: u32,
 ) -> Result<String> {
-    let (canonical, _metadata) = canonical_regular_file(&file_path)?;
+    let (canonical, metadata) = canonical_regular_file(&file_path)?;
+    // Mirror safe_read_file's cap: BufReader::lines() pulls a whole physical
+    // line into a String, so a single-huge-line file (minified/generated
+    // bundle) would otherwise allocate unbounded memory. Reject before reading.
+    if metadata.len() > MAX_SAFE_READ_FILE_BYTES {
+        return Err(Error::new(
+            Status::InvalidArg,
+            format!(
+                "File is too large for safe LSP context read: {} ({} bytes > {} bytes)",
+                canonical.display(),
+                metadata.len(),
+                MAX_SAFE_READ_FILE_BYTES
+            ),
+        ));
+    }
     let start = line_zero_based.saturating_sub(context_lines) as usize;
     let end = line_zero_based.saturating_add(context_lines) as usize;
     let file = std::fs::File::open(&canonical).map_err(|err| {
@@ -138,7 +152,7 @@ pub fn validate_lsp_server_path(command: String) -> Result<String> {
                 format!("Language server path is not executable: {command}"),
             ));
         }
-        return canonical_string(command_path);
+        return absolute_string(command_path);
     }
 
     let resolved = which::which(&command).map_err(|err| {
@@ -156,12 +170,31 @@ pub fn validate_lsp_server_path(command: String) -> Result<String> {
             ),
         ));
     }
-    canonical_string(&resolved)
+    absolute_string(&resolved)
 }
 
-fn canonical_string(path: &Path) -> Result<String> {
-    std::fs::canonicalize(path)
-        .unwrap_or_else(|_| PathBuf::from(path))
+/// Absolute path as a string, preserving the executable's own filename
+/// (unlike `fs::canonicalize`, this never resolves symlinks). A rustup-style
+/// toolchain proxy (`rust-analyzer`, `rustfmt`, `cargo-clippy`, ...) is a
+/// symlink to a single `rustup` binary that decides which tool to run by
+/// looking at its own invoked name (`argv[0]`'s basename) — canonicalizing
+/// `~/.cargo/bin/rust-analyzer` resolves it to `~/.cargo/bin/rustup`, so the
+/// spawned process runs as bare `rustup` (prints its own CLI help and exits)
+/// instead of proxying to rust-analyzer. `which::which` and the explicit
+/// absolute-path branch above already resolve to a real, executable file;
+/// this only needs to make the path absolute, not canonical.
+fn absolute_string(path: &Path) -> Result<String> {
+    let absolute = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        std::path::absolute(path).map_err(|err| {
+            Error::new(
+                Status::InvalidArg,
+                format!("Failed to resolve {}: {err}", path.display()),
+            )
+        })?
+    };
+    absolute
         .to_str()
         .map(str::to_owned)
         .ok_or_else(|| Error::new(Status::InvalidArg, "Path is not valid UTF-8"))
@@ -248,6 +281,23 @@ mod tests {
         assert!(!result.contains("one"), "{result}");
     }
 
+    #[test]
+    fn safe_read_line_window_rejects_oversized_file() {
+        // A single physical line larger than the cap would otherwise be pulled
+        // fully into memory by BufReader::lines(); the size guard (mirroring
+        // safe_read_file) must reject it before any read.
+        let path = temp_path("window_oversized");
+        fs::write(&path, vec![b'a'; (MAX_SAFE_READ_FILE_BYTES + 1) as usize])
+            .expect("write fixture");
+        let result = safe_read_line_window(path.to_string_lossy().into_owned(), 0, 0);
+        let _ = fs::remove_file(&path);
+        assert!(result.is_err());
+        assert!(result
+            .expect_err("oversized file must be rejected")
+            .reason
+            .contains("too large"));
+    }
+
     // ── validate_lsp_server_path ──────────────────────────────────────────────
 
     #[test]
@@ -303,6 +353,34 @@ mod tests {
             result.is_ok(),
             "executable file must be accepted: {:?}",
             result
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn validate_lsp_server_path_preserves_a_symlinked_proxy_binary_name() {
+        // A rustup-style toolchain proxy is a symlink whose target dispatches
+        // on argv[0]'s basename (e.g. `rust-analyzer` -> `rustup`, which then
+        // decides to run rust-analyzer only because it was invoked *as*
+        // `rust-analyzer`). Canonicalizing here would resolve the symlink to
+        // `.../rustup` and silently break that dispatch — the validated path
+        // must keep the original (symlink) filename, not the resolved target.
+        use std::os::unix::fs::{symlink, PermissionsExt};
+        let target = temp_path("proxy_target");
+        fs::write(&target, b"#!/bin/sh\necho ok\n").expect("write target");
+        fs::set_permissions(&target, fs::Permissions::from_mode(0o755)).expect("chmod");
+        let link = temp_path("rust-analyzer");
+        symlink(&target, &link).expect("symlink");
+
+        let result = validate_lsp_server_path(link.to_string_lossy().into_owned());
+        let _ = fs::remove_file(&target);
+        let _ = fs::remove_file(&link);
+
+        let resolved = result.expect("symlinked executable must be accepted");
+        assert_eq!(
+            Path::new(&resolved).file_name(),
+            link.file_name(),
+            "expected the symlink's own name to be preserved, got: {resolved}"
         );
     }
 }

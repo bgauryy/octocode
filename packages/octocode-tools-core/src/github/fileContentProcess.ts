@@ -114,6 +114,7 @@ export async function processFileContentAPI(
   let actualEndLine: number | undefined;
   let isPartial = false;
   let matchRanges: Array<{ start: number; end: number }> | undefined;
+  let matchedLines: number[] | undefined;
 
   if (fullContent) {
     finalContent = decodedContent;
@@ -181,6 +182,7 @@ export async function processFileContentAPI(
     // the only structured lineHint anchor for lspGetSemantics is lost.
     // (Mirrors the identical fix in local_fetch_content/fetchContent/extraction.ts.)
     matchRanges = extraction.matchRanges;
+    matchedLines = extraction.matchingLines;
 
     const shownLines = extraction.matchingLines.slice(0, 5).join(', ');
     const extraCount =
@@ -287,6 +289,7 @@ export async function processFileContentAPI(
       isPartial,
     }),
     ...(matchRanges && { matchRanges }),
+    ...(matchedLines && { matchedLines }),
     ...(matchLocations.length > 0 && {
       matchLocations,
     }),

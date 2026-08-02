@@ -146,46 +146,18 @@ struct GraphEdge {
 
 /// Maps byte offsets to LSP `(line, character)` positions, where `character`
 /// counts UTF-16 code units from the line start (the LSP wire convention).
-struct LineIndex<'a> {
-    content: &'a str,
-    /// Byte offset of the first character of each 0-based line.
-    line_starts: Vec<u32>,
-}
+/// Thin wrapper over the shared `text::utf8_offsets::LineIndex` — see that
+/// type for the actual line-start/UTF-16 counting logic.
+struct LineIndex<'a>(crate::text::utf8_offsets::LineIndex<'a>);
 
 impl<'a> LineIndex<'a> {
     fn new(content: &'a str) -> Self {
-        let mut line_starts = vec![0u32];
-        for (i, b) in content.bytes().enumerate() {
-            if b == b'\n' {
-                line_starts.push((i + 1) as u32);
-            }
-        }
-        Self {
-            content,
-            line_starts,
-        }
+        Self(crate::text::utf8_offsets::LineIndex::new(content))
     }
 
     fn position(&self, byte_offset: u32) -> Position {
-        // Highest line whose start byte is <= byte_offset.
-        let line = self
-            .line_starts
-            .partition_point(|&start| start <= byte_offset)
-            .saturating_sub(1);
-        let line_start = self.line_starts.get(line).copied().unwrap_or(0) as usize;
-        let end = (byte_offset as usize).min(self.content.len());
-        let character = if line_start <= end {
-            self.content
-                .get(line_start..end)
-                .map(|slice| slice.chars().map(char::len_utf16).sum::<usize>() as u32)
-                .unwrap_or(0)
-        } else {
-            0
-        };
-        Position {
-            line: line as u32,
-            character,
-        }
+        let (line, character) = self.0.byte_to_position(byte_offset);
+        Position { line, character }
     }
 
     fn range(&self, span: Span) -> Range {
@@ -198,21 +170,7 @@ impl<'a> LineIndex<'a> {
     /// Inverse of [`position`]: an LSP `(line, character)` (0-based, UTF-16) to a
     /// byte offset into `content`. Clamps out-of-range input to a valid offset.
     fn byte_offset(&self, line: u32, character: u32) -> u32 {
-        let line_start = self
-            .line_starts
-            .get(line as usize)
-            .copied()
-            .unwrap_or(self.content.len() as u32) as usize;
-        let mut utf16 = 0u32;
-        let mut byte = line_start;
-        for ch in self.content.get(line_start..).unwrap_or("").chars() {
-            if utf16 >= character || ch == '\n' {
-                break;
-            }
-            utf16 += ch.len_utf16() as u32;
-            byte += ch.len_utf8();
-        }
-        byte as u32
+        self.0.position_to_byte(line, character)
     }
 }
 

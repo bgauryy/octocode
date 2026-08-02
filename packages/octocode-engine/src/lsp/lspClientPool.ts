@@ -7,6 +7,11 @@ export interface PoolKey {
 
 interface PooledClient {
   stop(): Promise<void>;
+  /** Optional health check: `false` means the backing process/connection has
+   * died and this entry must not be returned from the pool. Absent (older
+   * native binding) is treated as always-alive, the same forward-compatible
+   * default `LSPClient.hasCapability` uses for a missing native method. */
+  isAlive?(): Promise<boolean>;
 }
 
 interface LspClientPoolOptions<T extends PooledClient> {
@@ -35,8 +40,17 @@ export class LspClientPool<T extends PooledClient> {
 
     const cached = this.entries.get(k);
     if (cached) {
-      this.resetIdleTimer(k);
-      return cached.client;
+      if (await isEntryAlive(cached.client)) {
+        this.resetIdleTimer(k);
+        return cached.client;
+      }
+      // Backing process/connection died mid-session: evict now instead of
+      // leaving every request against it failing until the idle timer
+      // eventually reaps it, then fall through to the factory path below as
+      // if this were a cache miss.
+      clearTimeout(cached.timer);
+      this.entries.delete(k);
+      void safeStop(cached.client);
     }
 
     const inflight = this.inflight.get(k);
@@ -110,6 +124,19 @@ export class LspClientPool<T extends PooledClient> {
 
 export function serializeKey(key: PoolKey): string {
   return `${key.serverId ?? key.languageId}\u0000${key.workspaceRoot}`;
+}
+
+async function isEntryAlive(client: PooledClient): Promise<boolean> {
+  if (!client.isAlive) return true;
+  try {
+    return await client.isAlive();
+  } catch {
+    // A failing health check must not itself evict a possibly-fine client —
+    // an eviction's cost (kill + respawn + reinitialize a whole language
+    // server) is real, while a missed crash just falls back to the
+    // pre-existing idle-timer eviction. Fail open.
+    return true;
+  }
 }
 
 async function safeStop(client: PooledClient): Promise<void> {

@@ -267,14 +267,7 @@ export {
   KEY_FILE,
   getGhCliToken,
 } from './shared/credentials/index.js';
-export {
-  ENV_TOKEN_VARS,
-  type EnvTokenVar,
-  getTokenFromEnv,
-  getEnvTokenSource,
-  hasEnvToken,
-  resolveEnvToken,
-} from '@octocodeai/config';
+// Env-token helpers are single-sourced in @octocodeai/config — import them from there directly.
 export {
   isWindows,
   isMac,
@@ -316,61 +309,8 @@ export {
   incrementToolCharSavings,
   _resetSessionState,
 } from './shared/session/index.js';
-// Config types, defaults, and resolver — sourced directly from @octocodeai/config.
-export type {
-  OctocodeConfig,
-  ResolvedConfig,
-  ValidationResult,
-  LoadConfigResult,
-  GitHubConfigOptions,
-  LocalConfigOptions,
-  ToolsConfigOptions,
-  NetworkConfigOptions,
-  LspConfigOptions,
-  OutputConfigOptions,
-  OutputPaginationConfigOptions,
-  RequiredGitHubConfig,
-  RequiredLocalConfig,
-  RequiredToolsConfig,
-  RequiredNetworkConfig,
-  RequiredLspConfig,
-  RequiredOutputConfig,
-  RequiredOutputPaginationConfig,
-  RuntimeSurface,
-} from '@octocodeai/config';
-export {
-  CONFIG_SCHEMA_VERSION,
-  CONFIG_FILE_NAME,
-  DEFAULT_CONFIG,
-  DEFAULT_GITHUB_CONFIG,
-  DEFAULT_LOCAL_CONFIG,
-  DEFAULT_TOOLS_CONFIG,
-  DEFAULT_NETWORK_CONFIG,
-  DEFAULT_LSP_CONFIG,
-  DEFAULT_OUTPUT_CONFIG,
-  MIN_TIMEOUT,
-  MAX_TIMEOUT,
-  MIN_RETRIES,
-  MAX_RETRIES,
-  MIN_OUTPUT_DEFAULT_CHAR_LENGTH,
-  MAX_OUTPUT_DEFAULT_CHAR_LENGTH,
-  getConfigFilePath,
-  loadConfig,
-  loadConfigSync,
-  configExists,
-  validateConfig,
-  getConfig,
-  getConfigSync,
-  reloadConfig,
-  resolveConfig,
-  resolveConfigSync,
-  invalidateConfigCache,
-  getConfigValue,
-  _resetConfigCache,
-  _getCacheState,
-  setRuntimeSurface,
-  getRuntimeSurface,
-} from '@octocodeai/config';
+// Config types, defaults, resolver, and validation are single-sourced in
+// @octocodeai/config — import them from there directly, not through this barrel.
 export { OctocodeConfigSchema } from './shared/config/schemas.js';
 export {
   OCTOCODE_HOME,

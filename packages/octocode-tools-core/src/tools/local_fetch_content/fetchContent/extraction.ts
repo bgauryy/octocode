@@ -11,6 +11,12 @@ export interface ExtractionState {
   actualStartLine?: number;
   actualEndLine?: number;
   matchRanges?: Array<{ start: number; end: number }>;
+  /**
+   * Exact matched-line numbers (as opposed to `matchRanges`, which are
+   * ±contextLines windows around them) — previously only readable by parsing
+   * the "Found ... on line N" prose in `warnings`.
+   */
+  matchedLines?: number[];
   warnings?: string[];
   earlyResult?: LocalGetFileContentToolResult;
 }
@@ -66,6 +72,7 @@ function buildMatchExtractionState(
     actualStartLine,
     actualEndLine,
     matchRanges,
+    matchedLines: result.matchingLines,
     warnings: [matchSummary],
   };
 }

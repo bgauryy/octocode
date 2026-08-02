@@ -545,26 +545,81 @@ fn compile_globs(values: Vec<String>, label: &str, warnings: &mut Vec<String>) -
         .collect()
 }
 
+#[derive(Debug)]
 struct GlobError {
     reason: String,
 }
 
 fn compile_glob(pattern: &str, label: &str) -> std::result::Result<Regex, GlobError> {
-    // Collapse `**` to a single wildcard token before translating `*` so
-    // `packages/**/src` does not become `.*.*` (two greedy dots).
-    let collapsed = pattern.replace("**", "\u{0001}");
-    let mut out = String::from("^");
-    for ch in collapsed.chars() {
-        match ch {
-            '\u{0001}' | '*' => out.push_str(".*"),
-            '?' => out.push('.'),
-            _ => out.push_str(&regex::escape(&ch.to_string())),
-        }
-    }
-    out.push('$');
+    let out = format!("^{}$", glob_body_to_regex(pattern));
     Regex::new(&out).map_err(|err| GlobError {
         reason: format!("{label} glob skipped: invalid pattern '{pattern}' ({err})"),
     })
+}
+
+/// Translates one glob pattern into a regex body (no `^`/`$` anchors).
+///
+/// Supports `**`/`*` (any run of characters), `?` (single character), and one
+/// level of shell-style brace alternation (`{a,b,c}` -> `(?:a|b|c)`), with
+/// each alternative itself glob-translated — `*.{ts,tsx}` and
+/// `{*.test.js,*.spec.js}` both work, not just literal-string alternatives.
+/// Nested braces and an unclosed `{` are not parsed as a group — the `{` is
+/// treated as a literal character, the same fallback this function used for
+/// every character before brace support existed, rather than mis-parsing a
+/// pattern this function doesn't fully understand.
+fn glob_body_to_regex(pattern: &str) -> String {
+    // Collapse `**` to a single wildcard token before translating `*` so
+    // `packages/**/src` does not become `.*.*` (two greedy dots).
+    let collapsed = pattern.replace("**", "\u{0001}");
+    let chars: Vec<char> = collapsed.chars().collect();
+    let mut out = String::new();
+    let mut i = 0;
+    while i < chars.len() {
+        match chars[i] {
+            '\u{0001}' | '*' => {
+                out.push_str(".*");
+                i += 1;
+            }
+            '?' => {
+                out.push('.');
+                i += 1;
+            }
+            '{' => match find_matching_brace(&chars, i) {
+                Some(close) if !chars[i + 1..close].contains(&'{') => {
+                    let inner: String = chars[i + 1..close].iter().collect();
+                    let alternatives = inner
+                        .split(',')
+                        .map(glob_body_to_regex)
+                        .collect::<Vec<_>>()
+                        .join("|");
+                    out.push_str("(?:");
+                    out.push_str(&alternatives);
+                    out.push(')');
+                    i = close + 1;
+                }
+                _ => {
+                    out.push_str(&regex::escape("{"));
+                    i += 1;
+                }
+            },
+            ch => {
+                out.push_str(&regex::escape(&ch.to_string()));
+                i += 1;
+            }
+        }
+    }
+    out
+}
+
+/// Index of the `}` matching the `{` at `open_idx`, ignoring nested braces
+/// (a nested `{` inside the scanned range makes the caller reject the whole
+/// group rather than trying to resolve nesting).
+fn find_matching_brace(chars: &[char], open_idx: usize) -> Option<usize> {
+    chars
+        .iter()
+        .skip(open_idx + 1)
+        .position(|&c| c == '}')
+        .map(|offset| open_idx + 1 + offset)
 }
 
 fn normalize_path(path: &Path) -> String {
@@ -792,5 +847,66 @@ mod tests {
             .path
             .contains("packages/a/src/tools/scheme.ts"));
         fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn path_pattern_supports_brace_expansion() {
+        // Shell-style `{a,b}` alternation — previously translated to a
+        // literal (regex-escaped) substring match, so it silently matched
+        // nothing instead of alternating between "react" and "react-dom".
+        let root = temp_root("path_pattern_brace");
+        fs::create_dir_all(root.join("packages/react/src")).expect("react dir");
+        fs::create_dir_all(root.join("packages/react-dom/src")).expect("react-dom dir");
+        fs::create_dir_all(root.join("packages/scheduler/src")).expect("scheduler dir");
+        File::create(root.join("packages/react/src/ReactHooks.js")).expect("react hooks");
+        File::create(root.join("packages/react-dom/src/ReactDOMHooks.js"))
+            .expect("react-dom hooks");
+        File::create(root.join("packages/scheduler/src/Scheduler.js")).expect("scheduler file");
+
+        let result = query_file_system_inner(FileSystemQueryOptions {
+            path: root.to_string_lossy().to_string(),
+            path_pattern: Some("packages/{react,react-dom}/src/**".to_owned()),
+            entry_type: Some("f".to_owned()),
+            recursive: Some(true),
+            ..Default::default()
+        })
+        .expect("query pathPattern with brace expansion");
+
+        let mut names = result
+            .entries
+            .iter()
+            .map(|entry| entry.name.as_str())
+            .collect::<Vec<_>>();
+        names.sort_unstable();
+        assert_eq!(names, vec!["ReactDOMHooks.js", "ReactHooks.js"]);
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn compile_glob_brace_alternatives_are_each_glob_translated() {
+        // Each alternative inside `{...}` must itself support glob wildcards,
+        // not just be a literal string — `*.{ts,tsx}` should match both a
+        // plain `.ts` file and any `.tsx` file, and `{*.test.js,*.spec.js}`
+        // should match either whole-alternative wildcard.
+        let re = compile_glob("*.{ts,tsx}", "pathPattern").expect("compiles");
+        assert!(re.is_match("Button.ts"));
+        assert!(re.is_match("Button.tsx"));
+        assert!(!re.is_match("Button.js"));
+
+        let re2 = compile_glob("{*.test.js,*.spec.js}", "pathPattern").expect("compiles");
+        assert!(re2.is_match("Foo.test.js"));
+        assert!(re2.is_match("Foo.spec.js"));
+        assert!(!re2.is_match("Foo.js"));
+    }
+
+    #[test]
+    fn compile_glob_unclosed_brace_falls_back_to_literal() {
+        // A malformed pattern (no closing `}`) must not panic or silently
+        // eat the rest of the pattern — treat the stray `{` as a literal
+        // character, matching this implementation's pre-brace-expansion
+        // behavior for any pattern it didn't previously understand either.
+        let re = compile_glob("packages/{react/src", "pathPattern").expect("compiles");
+        assert!(re.is_match("packages/{react/src"));
+        assert!(!re.is_match("packages/react/src"));
     }
 }

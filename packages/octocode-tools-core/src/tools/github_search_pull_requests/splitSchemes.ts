@@ -77,6 +77,9 @@ export const SearchIssuesBulkLocalSchema = createRelaxedBulkQuerySchema(
 // ghSearchCommits
 const commitsOverrides = {
   page: relaxedPageNumberField.default(1),
+  // `limit` accepted as an alias for `itemsPerPage` (flow consistency with the
+  // discovery-search tools); execution prefers it when explicitly provided.
+  limit: clampedInt(1, PR_CONTENT_MAX_ITEMS_PER_PAGE).optional(),
 } as const;
 export const SearchCommitsLocalSchema = describeQuerySchema(
   CoreSearchCommitsQuerySchema,
@@ -90,6 +93,9 @@ export const SearchCommitsBulkLocalSchema = createRelaxedBulkQuerySchema(
 // schema supplies page + itemsPerPage (only `page` needs the relaxed form).
 const releasesOverrides = {
   page: relaxedPageNumberField.default(1),
+  // `limit` accepted as an alias for `itemsPerPage` (flow consistency); execution
+  // prefers it when explicitly provided.
+  limit: clampedInt(1, PR_CONTENT_MAX_ITEMS_PER_PAGE).optional(),
 } as const;
 export const ListReleasesLocalSchema = describeQuerySchema(
   CoreListReleasesQuerySchema,

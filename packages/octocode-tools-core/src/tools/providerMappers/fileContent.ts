@@ -64,6 +64,7 @@ export function mapFileContentProviderResult(
     }),
     ...(data.endLine && { endLine: data.endLine }),
     ...(data.matchRanges?.length && { matchRanges: data.matchRanges }),
+    ...(data.matchedLines?.length && { matchedLines: data.matchedLines }),
     ...(data.lastModified && {
       lastModified: data.lastModified,
     }),

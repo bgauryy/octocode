@@ -58,6 +58,15 @@ export interface DirectToolDefinition {
   schema: z.ZodType;
 
   inputSchema: z.ZodType;
+
+  /**
+   * Present only for opt-in tools (ghListReleases/ghSearchDiscussions) that
+   * are NOT currently enabled. Their entry still appears here (schema/help
+   * stay discoverable via `tools <name> --scheme` without already knowing the
+   * env var) — the runtime execution registry (`ALL_TOOLS` in toolConfig.ts)
+   * is the actual enforcement point and still omits them until enabled.
+   */
+  disabled?: { envVar: string };
 }
 
 export type DirectToolCategory = 'GitHub' | 'Local Code' | 'Package' | 'Other';
@@ -104,12 +113,6 @@ export interface DirectToolCommandPattern {
   command: string;
 }
 
-export interface DirectToolOutputField {
-  name: string;
-  type: string;
-  optional?: boolean;
-}
-
 export interface DirectToolMetadata {
   tools?: Record<
     string,
@@ -143,26 +146,6 @@ const DIRECT_TOOL_AUTO_FILLED_FIELD_NAMES: readonly DirectToolAutoFilledField[] 
 export const DIRECT_TOOL_AUTO_FILLED_FIELDS: ReadonlySet<string> = new Set([
   ...DIRECT_TOOL_AUTO_FILLED_FIELD_NAMES,
 ]);
-
-const DIRECT_TOOL_BASE_AUTO_FILLED_FIELDS: readonly DirectToolAutoFilledField[] =
-  ['id', 'researchGoal', 'reasoning'];
-
-const DIRECT_TOOL_OUTPUT_FIELDS: readonly DirectToolOutputField[] = [
-  {
-    name: 'content',
-    type: 'Array<{ type: string; text: string }>',
-  },
-  {
-    name: 'structuredContent',
-    type: 'object',
-    optional: true,
-  },
-  {
-    name: 'isError',
-    type: 'boolean',
-    optional: true,
-  },
-];
 
 /**
  * Engine-free tool definitions (name + display/bulk schema). Order mirrors
@@ -206,6 +189,9 @@ export const DIRECT_TOOL_DEFINITIONS: DirectToolDefinition[] = [
     inputSchema: SearchCommitsBulkLocalSchema,
   },
   // ghListReleases is opt-in (ENABLE_RELEASES=1) — gated to match ALL_TOOLS.
+  // Listings/agent context stay clean (a disabled tool has no business being
+  // advertised to an agent that can't call it) — see DISABLED_TOOL_DEFINITIONS
+  // below for the single-name lookup path that keeps `--scheme` discoverable.
   ...(isReleasesEnabled()
     ? [
         {
@@ -267,10 +253,41 @@ export const DIRECT_TOOL_DEFINITIONS: DirectToolDefinition[] = [
   },
 ];
 
+// Opt-in tools when NOT enabled, kept OUT of DIRECT_TOOL_DEFINITIONS (so
+// listings/agent context never advertise a tool that can't actually be
+// called) but still resolvable by exact name — `tools ghListReleases
+// --scheme` needs to work without already knowing the env var, rather than
+// hard-failing with "Unknown tool" for a name that just isn't enabled yet.
+const DISABLED_TOOL_DEFINITIONS: DirectToolDefinition[] = [
+  ...(isReleasesEnabled()
+    ? []
+    : [
+        {
+          name: STATIC_TOOL_NAMES.GITHUB_RELEASES,
+          schema: ListReleasesLocalSchema,
+          inputSchema: ListReleasesBulkLocalSchema,
+          disabled: { envVar: 'ENABLE_RELEASES' },
+        },
+      ]),
+  ...(isDiscussionsEnabled()
+    ? []
+    : [
+        {
+          name: STATIC_TOOL_NAMES.GITHUB_DISCUSSIONS,
+          schema: SearchDiscussionsLocalSchema,
+          inputSchema: SearchDiscussionsBulkLocalSchema,
+          disabled: { envVar: 'ENABLE_DISCUSSIONS' },
+        },
+      ]),
+];
+
 export function findDirectToolDefinition(
   name: string
 ): DirectToolDefinition | undefined {
-  return DIRECT_TOOL_DEFINITIONS.find(tool => tool.name === name);
+  return (
+    DIRECT_TOOL_DEFINITIONS.find(tool => tool.name === name) ??
+    DISABLED_TOOL_DEFINITIONS.find(tool => tool.name === name)
+  );
 }
 
 export function getDirectToolCategory(toolName: string): DirectToolCategory {
@@ -313,66 +330,4 @@ export function sortDirectToolNames(toolNames: string[]): string[] {
 
     return left.localeCompare(right);
   });
-}
-
-export function formatDirectToolSchemaText(toolName: string): string {
-  const tool = findDirectToolDefinition(toolName);
-  if (!tool) {
-    return '{}';
-  }
-
-  try {
-    return JSON.stringify(
-      z.toJSONSchema(tool.inputSchema, { io: 'input' }),
-      null,
-      2
-    );
-  } catch {
-    return JSON.stringify(
-      z.toJSONSchema(tool.schema, { io: 'input' }),
-      null,
-      2
-    );
-  }
-}
-
-export function formatDirectToolMetadataSchemaText(
-  schema: Record<string, string> | undefined
-): string {
-  return JSON.stringify(schema ?? {}, null, 2);
-}
-
-export function getDirectToolAutoFilledFields(toolName: string): string[] {
-  const category = getDirectToolCategory(toolName);
-  const fields = [...DIRECT_TOOL_BASE_AUTO_FILLED_FIELDS];
-
-  if (category === 'GitHub' || category === 'Package') {
-    fields.splice(1, 0, 'mainResearchGoal');
-  }
-
-  return fields;
-}
-
-export function getDirectToolOutputFields(): DirectToolOutputField[] {
-  return DIRECT_TOOL_OUTPUT_FIELDS.map(field => ({ ...field }));
-}
-
-export function formatDirectToolOutputSchemaText(): string {
-  return JSON.stringify(
-    Object.fromEntries(
-      DIRECT_TOOL_OUTPUT_FIELDS.map(field => [
-        field.name,
-        field.optional ? `${field.type} (optional)` : field.type,
-      ])
-    ),
-    null,
-    2
-  );
-}
-
-export function getDirectToolDescription(
-  toolName: string,
-  metadata?: DirectToolMetadata | null
-): string {
-  return metadata?.tools?.[toolName]?.description ?? toolName;
 }

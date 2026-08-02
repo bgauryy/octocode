@@ -79,4 +79,101 @@ describe('resolveSymbolAnchor', () => {
       }
     );
   });
+
+  /**
+   * Regression for the audit-found silent-misbind: with multiple same-named
+   * occurrences in a file, a stale lineHint that resolves 1-3 lines away used
+   * to bind silently under full confidence (isAmbiguous only fired at
+   * deviation > 3, while the resolver searches radius 5). ANY nonzero
+   * deviation with multiple candidates is lower-confidence evidence and must
+   * say so.
+   */
+  it('flags isAmbiguous + lineDeviation when a multi-occurrence symbol resolves off the hint line', async () => {
+    tempDir = await mkdtemp(join(process.cwd(), '.tmp-octocode-anchor-'));
+    const filePath = join(tempDir, 'fixture.ts');
+    // Two occurrences of `target`; hint points at line 5, resolver finds line 3.
+    const content = [
+      'function target() {}',
+      '',
+      'function target(x: number) {}',
+      '',
+      'const unrelated = 1;',
+      '',
+    ].join('\n');
+    await writeFile(filePath, content);
+    resolverMocks.resolvePositionFromContent.mockReturnValue({
+      position: { line: 2, character: 9 },
+      foundAtLine: 3,
+      lineOffset: 0,
+      lineContent: 'function target(x: number) {}',
+    });
+
+    const result = await resolveSymbolAnchor(
+      {
+        uri: filePath,
+        type: 'definition',
+        symbolName: 'target',
+        lineHint: 5,
+      } as never,
+      'lspGetSemantics'
+    );
+
+    expect(result.ok).toBe(true);
+    expect(result.value.resolvedSymbol.isAmbiguous).toBe(true);
+    expect(result.value.resolvedSymbol.lineDeviation).toBe(2);
+  });
+
+  it('does not flag a unique symbol that resolves off the hint line', async () => {
+    tempDir = await mkdtemp(join(process.cwd(), '.tmp-octocode-anchor-'));
+    const filePath = join(tempDir, 'fixture.ts');
+    const content = 'const pad = 1;\n\nfunction target() {}\n';
+    await writeFile(filePath, content);
+    resolverMocks.resolvePositionFromContent.mockReturnValue({
+      position: { line: 2, character: 9 },
+      foundAtLine: 3,
+      lineOffset: 0,
+      lineContent: 'function target() {}',
+    });
+
+    const result = await resolveSymbolAnchor(
+      {
+        uri: filePath,
+        type: 'definition',
+        symbolName: 'target',
+        lineHint: 5,
+      } as never,
+      'lspGetSemantics'
+    );
+
+    expect(result.ok).toBe(true);
+    // Single occurrence — the resolver cannot have bound the wrong one.
+    expect(result.value.resolvedSymbol.isAmbiguous).toBeUndefined();
+  });
+
+  it('an exact-line resolution of a multi-occurrence symbol stays unflagged', async () => {
+    tempDir = await mkdtemp(join(process.cwd(), '.tmp-octocode-anchor-'));
+    const filePath = join(tempDir, 'fixture.ts');
+    const content = 'function target() {}\nfunction target(x: number) {}\n';
+    await writeFile(filePath, content);
+    resolverMocks.resolvePositionFromContent.mockReturnValue({
+      position: { line: 1, character: 9 },
+      foundAtLine: 2,
+      lineOffset: 0,
+      lineContent: 'function target(x: number) {}',
+    });
+
+    const result = await resolveSymbolAnchor(
+      {
+        uri: filePath,
+        type: 'definition',
+        symbolName: 'target',
+        lineHint: 2,
+      } as never,
+      'lspGetSemantics'
+    );
+
+    expect(result.ok).toBe(true);
+    expect(result.value.resolvedSymbol.isAmbiguous).toBeUndefined();
+    expect(result.value.resolvedSymbol.lineDeviation).toBeUndefined();
+  });
 });

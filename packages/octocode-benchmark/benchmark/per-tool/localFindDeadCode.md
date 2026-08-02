@@ -44,6 +44,24 @@ $CLI tools localFindDeadCode --queries '{"path":"/definitely/missing","limit":5}
 
 → reports not-found/invalid path; no false dead-code claim.
 
+5. Low-confidence entrypoint signal — point the tool at an internal subpackage with no `main`/`exports`/`bin` of its own (only consumed via cross-package relative imports), e.g.:
+
+```bash
+$CLI tools localFindDeadCode --queries '{"path":"packages/octocode-tools-core/src/utils","maxFiles":2000,"limit":20}' --compact
+```
+
+→ when `entrypointsResolved` comes only from the test-file heuristic (no manifest-derived entrypoint matched), the result includes `confidence:"low"` — not just a `warnings` string a caller can skim past (secondary finding from the 2026-07-28 React benchmark, Q8: 57 uninvestigated candidates from a subpackage scan with no real entrypoint).
+
+6. Entrypoint path forms — pass `entrypoints` as an ABSOLUTE path under the scanned root (the form every other local tool requires):
+
+```bash
+$CLI tools localFindDeadCode --queries '{"path":"packages/octocode/src","entrypoints":["'$PWD'/packages/octocode/src/index.ts"],"includeTests":false,"limit":5}' --compact
+```
+
+→ resolves the same as the scan-relative form (`entrypointsResolved` contains it, no "not found" warning). An unresolvable entrypoint's warning names the accepted forms. Regression guard: absolute paths used to be silently dropped, degrading the scan to a no-entrypoint candidate flood.
+
+7. Out-of-range page honesty — `page` far beyond `totalPages` → the response returns the last REAL page's items with `pagination.currentPage` equal to that clamped page (never echoing the requested number), `pagination.outOfRange:true`, and a warning naming the valid range. Regression guard: page 99 of a 2-page result used to return page-2 items labeled `currentPage:99`.
+
 ## Workflows
 
 - Safe delete proof: `localFindDeadCode` candidate → `localGetFileContent` exact export → `lspGetSemantics references` → broad `localSearchCode`/AST/import search → tests/build before deletion.

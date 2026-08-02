@@ -1,7 +1,6 @@
 // Home resolution is owned by @octocodeai/config.
 import path from 'node:path';
 
-export { getOctocodeHome } from '@octocodeai/config';
 import { getOctocodeHome } from '@octocodeai/config';
 
 /**

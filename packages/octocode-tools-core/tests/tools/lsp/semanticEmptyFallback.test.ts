@@ -58,6 +58,76 @@ describe('withSemanticNext — empty-state fallback', () => {
     });
   });
 
+  it('points documentSymbols unsupportedOperation to a file-scoped export search (no symbolName needed)', () => {
+    // Regression for the benchmark-found gap: documentSymbols never has a
+    // symbolName (it lists every symbol in a file), so the symbolName-gated
+    // fallback never fired for it — leaving a Flow-typed .js (or any
+    // language server without documentSymbolProvider) caller with no pointer
+    // to the regex/AST outline workaround.
+    const query = {
+      type: 'documentSymbols',
+      uri: 'file:///repo/src/Big.js',
+    } as LspGetSemanticsQuery;
+    const result: LspSemanticEnvelope = {
+      type: 'documentSymbols',
+      uri: 'file:///repo/src/Big.js',
+      lsp: { serverAvailable: true },
+      payload: {
+        kind: 'documentSymbols',
+        symbols: [],
+        totalSymbols: 0,
+        empty: {
+          category: 'unsupportedOperation',
+          reason: 'documentSymbolProvider unsupported',
+        },
+      },
+    };
+
+    const withNext = withSemanticNext(query, result) as LspSemanticEnvelope;
+    const textSearch = withNext.next?.textSearch;
+
+    expect(textSearch?.tool).toBe('localSearchCode');
+    expect(textSearch?.query.path).toBe('/repo/src/Big.js');
+    expect(typeof textSearch?.query.searchText).toBe('string');
+    expect(textSearch?.query.regex).toBe('perl');
+  });
+
+  it('picks a language-appropriate fallback regex per file extension', () => {
+    // `^export` finds nothing in Rust/Python/Go — the fallback must speak the
+    // file's own declaration idiom or it sends the caller to a guaranteed
+    // empty search.
+    const cases: Array<{ uri: string; mustMatch: RegExp }> = [
+      { uri: 'file:///repo/src/lib.rs', mustMatch: /pub/ },
+      { uri: 'file:///repo/src/app.py', mustMatch: /def|class/ },
+      { uri: 'file:///repo/src/main.go', mustMatch: /func/ },
+      { uri: 'file:///repo/src/Big.js', mustMatch: /export/ },
+    ];
+
+    for (const { uri, mustMatch } of cases) {
+      const query = { type: 'documentSymbols', uri } as LspGetSemanticsQuery;
+      const result: LspSemanticEnvelope = {
+        type: 'documentSymbols',
+        uri,
+        lsp: { serverAvailable: true },
+        payload: {
+          kind: 'documentSymbols',
+          symbols: [],
+          totalSymbols: 0,
+          empty: {
+            category: 'unsupportedOperation',
+            reason: 'documentSymbolProvider unsupported',
+          },
+        },
+      };
+
+      const withNext = withSemanticNext(query, result) as LspSemanticEnvelope;
+      const searchText = String(
+        withNext.next?.textSearch?.query.searchText ?? ''
+      );
+      expect(searchText, `fallback regex for ${uri}`).toMatch(mustMatch);
+    }
+  });
+
   it('emits no fallback when there is no symbolName to search for', () => {
     const query = {
       type: 'documentSymbols',

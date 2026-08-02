@@ -1,20 +1,25 @@
 # Native Graph Domain — Scope
 
-Status: **SCOPE / design** (not yet implemented).
-Tracks ARCHITECTURE.md §"Research Graph Direction": move reachability/dead-code
-from tool-specific JS into a generic native graph domain.
+Status: **Superseded** — reachability/dead-code detection now ships in
+`octocode-tools-core/src/tools/local_dead_code/` (the `localFindDeadCode` MCP
+tool), consuming the native `graphFacts` API this doc scoped a Rust port
+around. See ARCHITECTURE.md §"Research Graph Direction" for the current
+implementation. This doc is kept as a historical record of the original
+native-port design — its import-resolution risk analysis (§7) remains
+accurate and relevant if a native port is revisited later — not as an active
+plan.
 
-> **⚠ BLOCKED — premise invalidated.** This plan's verification strategy
-> (§4: differential-test the native port against the JS `analyzeResearchFlow`
-> pipeline as a "golden oracle") depends on `octocode-tools-core/src/oql/research/analyze/`,
-> which has been deleted along with the rest of the OQL subsystem. There is no
-> more JS reachability implementation to port from or verify against. Before
-> resuming this work: either capture a golden-verdict snapshot from history
-> (last commit before the OQL removal) to use as a frozen oracle, or design a
-> new verification strategy (e.g. hand-labeled corpus) that doesn't require a
-> live JS reference implementation. The native `graphFacts` API this plan
-> builds on is also currently orphaned — see ARCHITECTURE.md's "Research Graph
-> Direction" section.
+> **Historical note (superseded 2026-07-28):** the blocker below described the
+> state right after `octocode-tools-core/src/oql/research/analyze/` was
+> deleted, before its replacement existed. That replacement is
+> `local_dead_code/`, which reimplements reachability (BFS) and — unlike the
+> deleted OQL pipeline — also implements SCC (`local_dead_code/reachability.ts`,
+> iterative Tarjan's, used by `deadCodeScan.ts` for `dead-cluster` verdicts).
+> The native `graphFacts` API this plan builds on is **not** orphaned — see
+> ARCHITECTURE.md. A native Rust port of the graph algorithms below is no
+> longer scoped against the deleted OQL pipeline; it would need `local_dead_code`
+> as its new differential-test oracle if ever revived (see Future Possibilities
+> in `.octocode/rfc/20260728-engine-quality-fixes/RFC.md`).
 
 ## 0. Why this is not a greenfield build (the key finding)
 
@@ -35,8 +40,11 @@ TypeScript, inside the OQL analyze pipeline:
     (retainers from native `imports`/`calls`), `tokenAppears()` lexical fallback
     → `reachable` / `transitive-dead` / `candidate-unused-export` /
     `unused-export`, tagged `retentionSource: 'ast' | 'ripgrep'`.
-- **SCC exists nowhere** (JS or Rust). Cyclic-but-dead clusters (mutually
-  referencing unused files) are the known blind spot of the current DFS.
+- **SCC is implemented in TS, not Rust** (superseded — see status note above).
+  `local_dead_code/reachability.ts` runs iterative Tarjan's SCC and
+  `deadCodeScan.ts` flags cyclic-but-unreachable clusters as `dead-cluster`;
+  what's still missing is only a *native* (Rust) port of that algorithm, not
+  the algorithm itself.
 
 So the native graph domain is a **strangler port + one new algorithm**, not a
 from-scratch design — and the existing JS implementation is a ready-made

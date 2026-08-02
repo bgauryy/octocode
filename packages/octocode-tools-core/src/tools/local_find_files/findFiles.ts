@@ -10,7 +10,12 @@ import type { LocalFindFilesToolResult } from '@octocodeai/octocode-core/extra-t
 import {
   contextUtils,
   type FileSystemEntry,
+  type FileSystemQueryResult,
 } from '../../utils/contextUtils.js';
+import {
+  expandBracePattern,
+  mergeFileSystemQueryResults,
+} from './pathPatternBraces.js';
 
 type UpstreamFindFilesQuery = z.infer<typeof FindFilesQuerySchema>;
 import type { WithOptionalMeta } from '../../types/execution.js';
@@ -86,7 +91,7 @@ export async function findFiles(
       validateTimeFilterFormats(queryWithDefaults);
 
     const requestedLimit = query.limit ?? LOCAL_MAX_LIMIT;
-    const nativeResult = contextUtils.queryFileSystem({
+    const baseNativeQueryOptions = {
       path: nativeQuery.path,
       recursive: true,
       includeRoot: true,
@@ -95,7 +100,6 @@ export async function findFiles(
       minDepth: nativeQuery.minDepth,
       names: nativeQuery.names,
       extensions: nativeQuery.extensions,
-      pathPattern: nativeQuery.pathPattern,
       regex: nativeQuery.regex,
       entryType: nativeQuery.entryType,
       empty: nativeQuery.empty,
@@ -110,7 +114,29 @@ export async function findFiles(
       writable: nativeQuery.access === 'writable',
       excludeDir: nativeQuery.excludeDir,
       limit: LOCAL_MAX_LIMIT,
-    });
+    };
+    // pathPattern has no brace-alternation support in the native glob compiler
+    // (see pathPatternBraces.ts) — expand `{a,b}` groups here into one native
+    // call per alternative and merge, so a pattern like
+    // `packages/{react,react-reconciler}/**` matches instead of silently
+    // returning nothing.
+    const expandedPathPatterns = nativeQuery.pathPattern
+      ? expandBracePattern(nativeQuery.pathPattern)
+      : undefined;
+    const nativeResult: FileSystemQueryResult =
+      expandedPathPatterns && expandedPathPatterns.length > 1
+        ? mergeFileSystemQueryResults(
+            expandedPathPatterns.map(pathPattern =>
+              contextUtils.queryFileSystem({
+                ...baseNativeQueryOptions,
+                pathPattern,
+              })
+            )
+          )
+        : contextUtils.queryFileSystem({
+            ...baseNativeQueryOptions,
+            pathPattern: nativeQuery.pathPattern,
+          });
 
     const discoveredFileCount = nativeResult.totalDiscovered;
     const wasFileCapped = nativeResult.wasCapped;
@@ -136,6 +162,10 @@ export async function findFiles(
     const startIdx = (currentPage - 1) * filesPerPage;
     const endIdx = Math.min(startIdx + filesPerPage, totalFiles);
     const paginatedFiles = filesForOutput.slice(startIdx, endIdx);
+    // A `page` beyond `totalPages` makes `startIdx` exceed `totalFiles`, so
+    // `.slice()` silently returns [] — indistinguishable from "you're on a
+    // valid last page with no more results" unless flagged explicitly.
+    const isPageOutOfRange = totalFiles > 0 && startIdx >= totalFiles;
 
     const finalFiles = paginatedFiles;
 
@@ -150,6 +180,11 @@ export async function findFiles(
       ...(wasFileCapped
         ? [
             `results capped at ${LOCAL_MAX_LIMIT} during the walk before sorting — sortBy:"${sortBy}" only orders that partial set, not the true top-N across the whole tree`,
+          ]
+        : []),
+      ...(isPageOutOfRange
+        ? [
+            `page:${currentPage} is out of range (only ${totalPages} page(s), ${totalFiles} total file(s)) — returned 0 files. Use page:1..${totalPages}.`,
           ]
         : []),
     ];
@@ -188,6 +223,7 @@ export async function findFiles(
         ...(wasFileCapped || discoveredFileCount > totalFiles
           ? { totalFilesFound: discoveredFileCount }
           : {}),
+        ...(isPageOutOfRange ? { outOfRange: true } : {}),
       },
       ...(Object.keys(next).length > 0 ? { next } : {}),
       ...(allWarnings.length > 0 && { warnings: allWarnings }),

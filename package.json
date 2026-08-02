@@ -54,15 +54,15 @@
     "skills"
   ],
   "resolutions": {
-    "@octocodeai/config": "portal:./packages/octocode-config",
-    "@octocodeai/octocode-engine": "portal:./packages/octocode-engine",
-    "@octocodeai/octocode-engine-darwin-arm64": "portal:./packages/octocode-engine/npm/darwin-arm64",
-    "@octocodeai/octocode-engine-darwin-x64": "portal:./packages/octocode-engine/npm/darwin-x64",
-    "@octocodeai/octocode-engine-linux-arm64-gnu": "portal:./packages/octocode-engine/npm/linux-arm64-gnu",
-    "@octocodeai/octocode-engine-linux-x64-gnu": "portal:./packages/octocode-engine/npm/linux-x64-gnu",
-    "@octocodeai/octocode-engine-linux-x64-musl": "portal:./packages/octocode-engine/npm/linux-x64-musl",
-    "@octocodeai/octocode-engine-win32-x64-msvc": "portal:./packages/octocode-engine/npm/win32-x64-msvc",
-    "@octocodeai/octocode-tools-core": "portal:./packages/octocode-tools-core",
-    "@octocodeai/octocode-core": "portal:/Users/guybary/Documents/code/octocode-host/packages/octocode-core"
+    "@octocodeai/config": "workspace:*",
+    "@octocodeai/octocode-engine": "workspace:*",
+    "@octocodeai/octocode-engine-darwin-arm64": "workspace:*",
+    "@octocodeai/octocode-engine-darwin-x64": "workspace:*",
+    "@octocodeai/octocode-engine-linux-arm64-gnu": "workspace:*",
+    "@octocodeai/octocode-engine-linux-x64-gnu": "workspace:*",
+    "@octocodeai/octocode-engine-linux-x64-musl": "workspace:*",
+    "@octocodeai/octocode-engine-win32-x64-msvc": "workspace:*",
+    "@octocodeai/octocode-tools-core": "workspace:*",
+    "@octocodeai/octocode-core": "/Users/bgaryy/code/octocode-mcp-host/packages/octocode-core"
   }
 }

@@ -31,6 +31,7 @@ export async function handleCommitsMode(
     page?: number;
     filePage?: number;
     itemsPerPage?: number;
+    limit?: number;
     includeDiff?: boolean;
     charOffset?: number;
     charLength?: number;
@@ -79,6 +80,13 @@ export async function handleCommitsMode(
     );
   }
 
+  // `limit` is an alias for the commits-per-page size; prefer it only when it is
+  // explicitly present in the raw query. parsedData may carry a defaulted `limit`
+  // from the unified PR schema, which must not override an explicit itemsPerPage.
+  const rawLimit = (query as { limit?: unknown }).limit;
+  const effectivePerPage =
+    typeof rawLimit === 'number' ? rawLimit : q.itemsPerPage;
+
   const result = await fetchHistory(
     {
       type: historyType,
@@ -91,12 +99,12 @@ export async function handleCommitsMode(
       author: q.author,
       committer: q.committer,
       page: Number(q.page) || 1,
-      // itemsPerPage is the agent-facing commits-per-page field (aligned with
-      // the other tools); it feeds the GitHub per_page for the commit list.
-      perPage: Number(q.itemsPerPage) || 30,
+      // itemsPerPage is the agent-facing commits-per-page field; it feeds the
+      // GitHub per_page for the commit list.
+      perPage: Number(effectivePerPage) || 30,
       filePage: typeof q.filePage === 'number' ? q.filePage : undefined,
       itemsPerPage:
-        typeof q.itemsPerPage === 'number' ? q.itemsPerPage : undefined,
+        typeof effectivePerPage === 'number' ? effectivePerPage : undefined,
       includeDiff: Boolean(q.includeDiff),
       charOffset: typeof q.charOffset === 'number' ? q.charOffset : undefined,
       charLength: typeof q.charLength === 'number' ? q.charLength : undefined,

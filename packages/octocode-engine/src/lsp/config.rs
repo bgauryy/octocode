@@ -293,6 +293,38 @@ fn spec_for_extension(extension: &str) -> Option<ServerSpec> {
             args: &[],
             env_var: Some("OCTOCODE_SWIFT_SERVER_PATH"),
         },
+        // Resolve-if-installed servers for grammars we already ship — additive:
+        // absent binary ⇒ same graceful "no server" behavior as before.
+        ".rb" | ".rake" | ".gemspec" | ".ru" => ServerSpec {
+            language_id: "ruby",
+            command: "ruby-lsp",
+            args: &[],
+            env_var: Some("OCTOCODE_RUBY_SERVER_PATH"),
+        },
+        ".kt" | ".kts" => ServerSpec {
+            language_id: "kotlin",
+            command: "kotlin-language-server",
+            args: &[],
+            env_var: Some("OCTOCODE_KOTLIN_SERVER_PATH"),
+        },
+        ".lua" => ServerSpec {
+            language_id: "lua",
+            command: "lua-language-server",
+            args: &[],
+            env_var: Some("OCTOCODE_LUA_SERVER_PATH"),
+        },
+        ".ex" | ".exs" => ServerSpec {
+            language_id: "elixir",
+            command: "elixir-ls",
+            args: &[],
+            env_var: Some("OCTOCODE_ELIXIR_SERVER_PATH"),
+        },
+        ".zig" => ServerSpec {
+            language_id: "zig",
+            command: "zls",
+            args: &[],
+            env_var: Some("OCTOCODE_ZIG_SERVER_PATH"),
+        },
         _ => return None,
     };
     Some(spec)

@@ -119,10 +119,39 @@ export async function getFileStatsOrError(
   }
 }
 
+/**
+ * The effective minify mode a read will use, resolved the same way
+ * `fetchContent` resolves it: an explicit `minify` always wins; otherwise
+ * `fullContent`/a line range defaults to `'none'` (verbatim), and every other
+ * read defaults to `'standard'`. Exposed so the large-file gate can be
+ * computed from the *actual* read mode instead of duplicating this ternary.
+ */
+export function resolveMinifyMode(
+  query: FetchContentQuery
+): 'none' | 'standard' | 'symbols' {
+  const hasLineRange =
+    query.startLine !== undefined && query.endLine !== undefined;
+  return (
+    query.minify ??
+    (query.fullContent === true || hasLineRange ? 'none' : 'standard')
+  );
+}
+
 export function shouldFailForLargeFile(
   query: FetchContentQuery,
-  fileSizeKB: number
+  fileSizeKB: number,
+  minifyMode: 'none' | 'standard' | 'symbols'
 ): boolean {
+  // `standard`/`symbols` compress the file (symbols: a skeleton that never
+  // grows beyond the source; standard: comments/blank-line stripping) and the
+  // result is still subject to the normal charOffset/charLength pagination —
+  // so the raw source-size gate would otherwise reject exactly the large
+  // files these modes exist to make readable. Only a truly verbatim read
+  // (`minify:"none"`, e.g. via `fullContent:true`) with no bounded window is
+  // gated on raw size.
+  if (minifyMode !== 'none') {
+    return false;
+  }
   return (
     fileSizeKB > RESOURCE_LIMITS.LARGE_FILE_THRESHOLD_KB &&
     !query.matchString &&

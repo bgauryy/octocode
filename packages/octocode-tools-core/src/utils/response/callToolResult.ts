@@ -5,6 +5,14 @@ import { getRuntimeSurface } from '@octocodeai/config';
 
 const FULL_MCP_TEXT_ENV = 'OCTOCODE_MCP_FULL_TEXT';
 
+// Fail-CLOSED egress policy: sanitization here is the LAST (and for some
+// content, the only — e.g. ripgrep snippets) barrier before content leaves the
+// process. A sanitizer crash must withhold the affected content, never pass it
+// through raw — the moment the scanner is broken is exactly when leaking is
+// most likely. Mirrors secureServer's loud-failure policy at the item level.
+const WITHHELD_TEXT =
+  '[content withheld: sanitization failed — retry the call; if this persists, report it]';
+
 export function sanitizeCallToolResult(result: CallToolResult): CallToolResult {
   let sanitized = result;
 
@@ -17,7 +25,16 @@ export function sanitizeCallToolResult(result: CallToolResult): CallToolResult {
         ) as Record<string, unknown>,
       };
     } catch {
-      void 0;
+      sanitized = {
+        ...sanitized,
+        structuredContent: {
+          status: 'error',
+          code: 'SANITIZATION_FAILED',
+          error:
+            'structuredContent withheld: sanitization failed — retry the call; if this persists, report it',
+        },
+        isError: true,
+      };
     }
   }
 
@@ -40,7 +57,7 @@ export function sanitizeCallToolResult(result: CallToolResult): CallToolResult {
             );
             return { ...item, text };
           } catch {
-            return item;
+            return { ...item, text: WITHHELD_TEXT };
           }
         }
         return item;

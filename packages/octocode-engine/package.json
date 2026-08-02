@@ -195,12 +195,12 @@
     ]
   },
   "optionalDependencies": {
-    "@octocodeai/octocode-engine-darwin-arm64": "^18.0.0",
-    "@octocodeai/octocode-engine-darwin-x64": "^18.0.0",
-    "@octocodeai/octocode-engine-linux-arm64-gnu": "^18.0.0",
-    "@octocodeai/octocode-engine-linux-x64-gnu": "^18.0.0",
-    "@octocodeai/octocode-engine-linux-x64-musl": "^18.0.0",
-    "@octocodeai/octocode-engine-win32-x64-msvc": "^18.0.0"
+    "@octocodeai/octocode-engine-darwin-arm64": "18.0.0",
+    "@octocodeai/octocode-engine-darwin-x64": "18.0.0",
+    "@octocodeai/octocode-engine-linux-arm64-gnu": "18.0.0",
+    "@octocodeai/octocode-engine-linux-x64-gnu": "18.0.0",
+    "@octocodeai/octocode-engine-linux-x64-musl": "18.0.0",
+    "@octocodeai/octocode-engine-win32-x64-msvc": "18.0.0"
   },
   "publishConfig": {
     "access": "public"

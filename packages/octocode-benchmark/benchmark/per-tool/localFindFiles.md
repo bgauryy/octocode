@@ -40,6 +40,8 @@ ROOT=$(pwd)
 6. **entryType=d** — directories only → PASS: no files.
 7. **regex basename** — `"regex":"^(index|main)\\.(ts|js)$"` → PASS: precise basename match.
 8. **Pagination** — small `itemsPerPage` → PASS: page 2 preserves filters.
+9. **Brace-expansion path glob** — `... '{"path":"'$ROOT'","pathPattern":"packages/{octocode,octocode-mcp}/src/**","entryType":"f","itemsPerPage":20}'` → PASS: files from *both* alternatives, matching shell `{a,b}` semantics (P1 bug: this used to silently match nothing — brace syntax was regex-escaped as a literal substring).
+10. **Out-of-range page** — `itemsPerPage` small, `page` set well beyond the true `totalPages` → PASS: `pagination.outOfRange:true` and/or a warning — not a silent empty `files:[]` indistinguishable from "valid last page, no more results".
 
 ## Workflows
 

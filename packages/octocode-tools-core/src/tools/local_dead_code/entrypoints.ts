@@ -113,17 +113,34 @@ export function resolveEntrypoints(
   explicitEntrypoints: string[] | undefined,
   includeTests: boolean,
   knownFiles: ReadonlySet<string>
-): { entrypoints: string[]; warnings: string[] } {
+): { entrypoints: string[]; warnings: string[]; lowConfidence: boolean } {
   const warnings: string[] = [];
   const resolved = new Set<string>();
+  // Set only when the auto-detect path (no explicit entrypoints) found
+  // nothing from package.json — every entrypoint that follows comes from the
+  // test-file heuristic alone, so a real-but-unpublished package's whole
+  // export surface reads as unreachable "dead" noise. An explicit
+  // entrypoints list is never low-confidence: the caller told us directly.
+  let lowConfidence = false;
 
   if (explicitEntrypoints && explicitEntrypoints.length > 0) {
+    // Accept both scan-root-relative paths AND absolute paths under the
+    // scanned root (the form every other local tool requires) — an absolute
+    // entrypoint used to be silently dropped, degrading the whole scan to a
+    // no-entrypoint candidate flood.
+    const rootPrefix = normalizeSlashes(rootAbsolutePath).replace(/\/$/, '');
     for (const raw of explicitEntrypoints) {
-      const normalized = stripLeadingDotSlash(normalizeSlashes(raw));
+      let normalized = stripLeadingDotSlash(normalizeSlashes(raw));
+      if (normalized.startsWith(rootPrefix + '/')) {
+        normalized = normalized.slice(rootPrefix.length + 1);
+      }
+      normalized = posix.normalize(normalized);
       if (knownFiles.has(normalized)) {
         resolved.add(normalized);
       } else {
-        warnings.push(`entrypoint not found in scan: ${raw}`);
+        warnings.push(
+          `entrypoint not found in scan: ${raw} — pass it relative to the scanned path (e.g. "src/index.ts"), or as an absolute path under it`
+        );
       }
     }
   } else {
@@ -169,6 +186,7 @@ export function resolveEntrypoints(
       warnings.push(
         'no entrypoints resolved from package.json — pass `entrypoints` explicitly, or every export in a reachable file will read as unreachable'
       );
+      lowConfidence = true;
     }
   }
 
@@ -178,5 +196,5 @@ export function resolveEntrypoints(
     }
   }
 
-  return { entrypoints: [...resolved], warnings };
+  return { entrypoints: [...resolved], warnings, lowConfidence };
 }

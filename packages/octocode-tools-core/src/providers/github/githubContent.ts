@@ -34,6 +34,7 @@ export function transformFileContentResult(
     startLine: data.startLine,
     endLine: data.endLine,
     matchRanges: data.matchRanges,
+    matchedLines: data.matchedLines,
     warnings: buildContentWarnings(data, query),
     matchNotFound: data.matchNotFound,
     searchedFor: data.searchedFor,

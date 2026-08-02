@@ -76,36 +76,6 @@ vi.mock('../../src/utils/token-storage.js', () => ({
     .fn()
     .mockReturnValue('/home/test/.octocode/credentials.json'),
 
-  hasEnvToken: vi.fn().mockImplementation(() => {
-    for (const envVar of ENV_TOKEN_VARS) {
-      const token = process.env[envVar];
-      if (token && token.trim()) {
-        return true;
-      }
-    }
-    return false;
-  }),
-
-  getTokenFromEnv: vi.fn().mockImplementation(() => {
-    for (const envVar of ENV_TOKEN_VARS) {
-      const token = process.env[envVar];
-      if (token && token.trim()) {
-        return token.trim();
-      }
-    }
-    return null;
-  }),
-
-  getEnvTokenSource: vi.fn().mockImplementation(() => {
-    for (const envVar of ENV_TOKEN_VARS) {
-      const token = process.env[envVar];
-      if (token && token.trim()) {
-        return `env:${envVar}`;
-      }
-    }
-    return null;
-  }),
-
   resolveTokenFull: vi.fn(),
 
   refreshAuthToken: vi.fn(),
@@ -115,6 +85,30 @@ vi.mock('../../src/utils/token-storage.js', () => ({
     .mockResolvedValue({ token: null, source: 'none' }),
 
   getGhCliToken: vi.fn().mockReturnValue(null),
+}));
+
+// hasEnvToken/getEnvTokenSource are single-sourced in @octocodeai/config; the
+// src now imports them from there directly, so mock them on the config module.
+vi.mock('@octocodeai/config', async importOriginal => ({
+  ...(await importOriginal<typeof import('@octocodeai/config')>()),
+  hasEnvToken: vi.fn().mockImplementation(() => {
+    for (const envVar of ENV_TOKEN_VARS) {
+      const token = process.env[envVar];
+      if (token && token.trim()) {
+        return true;
+      }
+    }
+    return false;
+  }),
+  getEnvTokenSource: vi.fn().mockImplementation(() => {
+    for (const envVar of ENV_TOKEN_VARS) {
+      const token = process.env[envVar];
+      if (token && token.trim()) {
+        return `env:${envVar}`;
+      }
+    }
+    return null;
+  }),
 }));
 
 vi.mock('../../src/features/gh-auth.js', () => ({
@@ -350,7 +344,7 @@ describe('GitHub OAuth', () => {
 
     it('should return authenticated when env token exists (priority 1)', async () => {
       const { hasEnvToken, getEnvTokenSource } =
-        await import('../../src/utils/token-storage.js');
+        await import('@octocodeai/config');
 
       vi.mocked(hasEnvToken).mockReturnValue(true);
       vi.mocked(getEnvTokenSource).mockReturnValue('env:GH_TOKEN');
@@ -367,7 +361,9 @@ describe('GitHub OAuth', () => {
     });
 
     it('should prioritize env token over gh CLI and stored credentials', async () => {
-      const { hasEnvToken, getEnvTokenSource, getCredentialsSync } =
+      const { hasEnvToken, getEnvTokenSource } =
+        await import('@octocodeai/config');
+      const { getCredentialsSync } =
         await import('../../src/utils/token-storage.js');
       const { checkGitHubAuth } = await import('../../src/features/gh-auth.js');
 
@@ -396,7 +392,8 @@ describe('GitHub OAuth', () => {
     });
 
     it('should fall back to gh CLI when no env token', async () => {
-      const { hasEnvToken, getCredentialsSync } =
+      const { hasEnvToken } = await import('@octocodeai/config');
+      const { getCredentialsSync } =
         await import('../../src/utils/token-storage.js');
       const { checkGitHubAuth } = await import('../../src/features/gh-auth.js');
 

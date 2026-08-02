@@ -14,6 +14,7 @@ import { markdownHeadingOutlineToText } from '../../utils/markdownOutline.js';
 import {
   validateExtractionOptions,
   getFileStatsOrError,
+  resolveMinifyMode,
   shouldFailForLargeFile,
   createLargeFileErrorResult,
   createBinaryFileErrorResult,
@@ -74,7 +75,8 @@ export async function fetchContent(
       );
     }
 
-    if (shouldFailForLargeFile(query, fileSizeKB)) {
+    const minifyModeForGate = resolveMinifyMode(query);
+    if (shouldFailForLargeFile(query, fileSizeKB, minifyModeForGate)) {
       return attachRawResponseChars(
         createLargeFileErrorResult(query, absolutePath, fileSizeKB),
         fileSizeBytes
@@ -102,11 +104,21 @@ export async function fetchContent(
     // explicit minify always wins. Resolving here (not at the schema) is what
     // lets us tell "caller omitted minify" from "caller chose standard":
     // inputSchema is parsed upstream before execution, applying any schema default.
-    const hasLineRange =
-      query.startLine !== undefined && query.endLine !== undefined;
-    const minifyMode =
-      query.minify ??
-      (query.fullContent === true || hasLineRange ? 'none' : 'standard');
+    // Same resolution the large-file gate above already applied.
+    //
+    // matchString BLOCKS minification entirely (by design): minify runs AFTER
+    // extraction, so a match inside a comment/blank region could be stripped
+    // from the very slice whose matchRanges anchor it — evidence contradicting
+    // its own anchors. Matched slices are always verbatim; an explicit minify
+    // request is answered with a warning, never applied. (symbols+matchString
+    // is already rejected by validateExtractionOptions above.)
+    const matchStringBlocksMinify =
+      query.matchString !== undefined && minifyModeForGate !== 'none';
+    const minifyMode = matchStringBlocksMinify ? 'none' : minifyModeForGate;
+    const matchStringMinifyWarning =
+      matchStringBlocksMinify && query.minify !== undefined
+        ? `minify:"${query.minify}" is not applied to matchString extractions — matched slices are returned verbatim so the content always contains the matched text.`
+        : undefined;
     const shouldMinify = minifyMode === 'standard' || minifyMode === 'symbols';
     const fallbackContentView: ContentView = shouldMinify ? 'standard' : 'none';
 
@@ -168,6 +180,7 @@ export async function fetchContent(
     ): LocalGetFileContentToolResult => {
       const appended = [
         ...(signaturesSkippedWarning ? [signaturesSkippedWarning] : []),
+        ...(matchStringMinifyWarning ? [matchStringMinifyWarning] : []),
         ...(secretWarning ? [secretWarning] : []),
       ];
       if (appended.length === 0) return r;

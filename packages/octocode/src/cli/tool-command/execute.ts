@@ -163,6 +163,21 @@ export async function executeToolCommand(args: ParsedArgs): Promise<boolean> {
     return true;
   }
 
+  // Opt-in tool (ghListReleases/ghSearchDiscussions) with its env var unset:
+  // schema/help discovery above already worked without it, but actually
+  // running it would otherwise fall through into executeDirectTool and fail
+  // there with a generic "Unknown tool" — a confusing message for a tool
+  // this command just showed the schema for. Fail clearly here instead.
+  if (tool.disabled) {
+    printToolCommandError(
+      args,
+      tool.name,
+      `Tool '${tool.name}' is disabled — set ${tool.disabled.envVar}=1 to enable it.`
+    );
+    process.exitCode = EXIT.NOT_FOUND;
+    return false;
+  }
+
   let inputText: string | undefined;
   try {
     inputText = getInputText(tool.name, args);

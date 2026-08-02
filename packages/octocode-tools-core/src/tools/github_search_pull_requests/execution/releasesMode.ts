@@ -22,6 +22,7 @@ export async function handleReleasesMode(
     repo?: string;
     page?: number;
     itemsPerPage?: number;
+    limit?: number;
     includeAssets?: boolean;
   };
   if (!q.owner || !q.repo) {
@@ -33,7 +34,13 @@ export async function handleReleasesMode(
   // Releases have no discovery-search, so `itemsPerPage` (the view/page-size
   // field shared with the other modes) is the single knob; it feeds GitHub's
   // per_page for the release list.
-  const pageSize = Number(q.itemsPerPage) || RELEASES_PAGE_SIZE_DEFAULT;
+  // `limit` is an alias for the page size; prefer it only when explicitly present
+  // in the raw query. parsedData may carry a defaulted `limit` from the unified PR
+  // schema, which must not override an explicit itemsPerPage.
+  const rawLimit = (query as { limit?: unknown }).limit;
+  const pageSize =
+    Number(typeof rawLimit === 'number' ? rawLimit : q.itemsPerPage) ||
+    RELEASES_PAGE_SIZE_DEFAULT;
   const result = await fetchReleases(
     {
       owner: q.owner,

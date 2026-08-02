@@ -115,26 +115,29 @@ export function transformPullRequestResult(
       entriesPerPage: data.pagination?.perPage,
       ...countPaginationMetadata(data.pagination),
     },
+    ...((data as { effectiveQuery?: string }).effectiveQuery
+      ? { effectiveQuery: (data as { effectiveQuery?: string }).effectiveQuery }
+      : {}),
     repositoryContext: owner && repo ? { owner, repo } : undefined,
   };
 }
 
-export async function searchPullRequests(
+/**
+ * Provider-shape query → GitHub search params. Exported as its own seam:
+ * every field the search-vs-listing dispatcher (`shouldUseSearchForPRs`) or
+ * the query builder reads MUST be mapped here — `query` (keywords) was once
+ * omitted, so keyword searches silently fell back to a plain `pulls.list`
+ * listing presented as matches.
+ */
+export function buildGitHubPullRequestsSearchParams(
   query: PullRequestQuery,
-  authInfo?: AuthInfo,
-  parseProjectId: (projectId?: string) => {
-    owner?: string;
-    repo?: string;
-  } = parseGitHubProjectId
-): Promise<ProviderResponse<PullRequestSearchResult>> {
-  const { owner: projectOwner, repo } = query.projectId
-    ? parseProjectId(query.projectId)
-    : { owner: undefined, repo: undefined };
-  const owner = projectOwner || query.owner;
-
-  const githubParams: GitHubPullRequestsSearchParams = {
+  owner: string | undefined,
+  repo: string | undefined
+): GitHubPullRequestsSearchParams {
+  return {
     owner,
     repo,
+    query: query.query,
     prNumber: query.number,
     state:
       query.state === 'merged'
@@ -176,6 +179,22 @@ export async function searchPullRequests(
     charOffset: query.charOffset,
     charLength: query.charLength,
   };
+}
+
+export async function searchPullRequests(
+  query: PullRequestQuery,
+  authInfo?: AuthInfo,
+  parseProjectId: (projectId?: string) => {
+    owner?: string;
+    repo?: string;
+  } = parseGitHubProjectId
+): Promise<ProviderResponse<PullRequestSearchResult>> {
+  const { owner: projectOwner, repo } = query.projectId
+    ? parseProjectId(query.projectId)
+    : { owner: undefined, repo: undefined };
+  const owner = projectOwner || query.owner;
+
+  const githubParams = buildGitHubPullRequestsSearchParams(query, owner, repo);
 
   const result = await searchGitHubPullRequestsAPI(githubParams, authInfo);
 

@@ -3,6 +3,8 @@ import type { GitHubRepositoryOutput } from '@octocodeai/octocode-core/extra-typ
 import { TOOL_NAMES } from '../toolMetadata/proxies.js';
 import { executeBulkOperation } from '../../utils/response/bulk.js';
 import type { ToolExecutionArgs } from '../../types/execution.js';
+import { getOctokit } from '../../github/client.js';
+import { resolveCanonicalOwnerRepo } from '../../github/canonicalRepo.js';
 import {
   handleCatchError,
   handleProviderError,
@@ -19,6 +21,7 @@ import {
 } from '../providerExecution.js';
 import {
   createSearchVariants,
+  hasValidKeywords,
   hasValidRepositorySearchParams,
   type PartialReposSearchQuery,
   type RepoSearchVariantExecution,
@@ -242,20 +245,83 @@ export async function searchMultipleGitHubRepos(
         const partialFailureWarnings =
           buildPartialFailureWarnings(failedVariants);
 
+        // An owner-scoped search whose keywords include a candidate repo name
+        // with no exact-name hit among the results is ambiguous the same way
+        // a scoped ghSearchCode miss is: true absence, a near-miss (other repos
+        // just happen to match too), or the repo was transferred out from
+        // under this owner (GitHub's search index has no redirect for that,
+        // unlike `repos.get`) — the transferred repo silently vanishes behind
+        // whatever else the owner still has matching the same keyword, so
+        // this isn't only a zero-result symptom. Best-effort, never blocks or
+        // fails the search over it; bounded to a few keyword candidates.
+        let transferHint:
+          { warning: string; next: Record<string, unknown> } | undefined;
+        if (query.owner && hasValidKeywords(query)) {
+          const candidates = (
+            Array.isArray(query.keywords) ? query.keywords : [query.keywords]
+          )
+            .filter(
+              (keyword): keyword is string =>
+                typeof keyword === 'string' && keyword.trim().length > 0
+            )
+            .slice(0, 3);
+          const hasExactNameMatch = candidates.some(candidate =>
+            repositories.some(
+              r => r.repo?.toLowerCase() === candidate.toLowerCase()
+            )
+          );
+          if (candidates.length > 0 && !hasExactNameMatch) {
+            try {
+              const octokit = await getOctokit(authInfo);
+              for (const candidate of candidates) {
+                const resolved = await resolveCanonicalOwnerRepo(
+                  octokit,
+                  String(query.owner),
+                  candidate
+                );
+                if (resolved.renamed) {
+                  transferHint = {
+                    warning: `No repositories matched under owner "${query.owner}", but "${query.owner}/${candidate}" now resolves to "${resolved.owner}/${resolved.repo}" — the repository may have been transferred. Retry scoped to owner:"${resolved.owner}" (see next.retryUnderCanonicalOwner).`,
+                    next: {
+                      retryUnderCanonicalOwner: {
+                        tool: 'ghSearchRepos',
+                        query: {
+                          ...query,
+                          owner: resolved.owner,
+                          keywords: [resolved.repo],
+                        },
+                        why: "Re-run scoped to the repository's current owner after a detected transfer.",
+                        confidence: 'exact',
+                      },
+                    },
+                  };
+                  break;
+                }
+              }
+            } catch {
+              // Metadata probe is best-effort — never fail the search over it.
+            }
+          }
+        }
+
         // A genuine zero-result response previously carried no guidance at
         // all (unlike localSearchCode's in-band hints) — tell the agent how
         // to widen instead of leaving a bare status:"empty".
         const warnings = [
           ...(partialFailureWarnings ?? []),
-          ...(!hasContent
+          ...(transferHint ? [transferHint.warning] : []),
+          ...(!hasContent && !transferHint
             ? [
                 'No repositories matched. Keywords are ANDed — try fewer or broader keywords, drop a topic/filter (topics are sparse), or add match:"readme" for full-text search.',
               ]
             : []),
         ];
 
-        const resultData =
-          warnings.length > 0 ? { ...shape.data, warnings } : shape.data;
+        const resultData = {
+          ...shape.data,
+          ...(warnings.length > 0 ? { warnings } : {}),
+          ...(transferHint ? { next: transferHint.next } : {}),
+        };
 
         return createSuccessResult(
           query,

@@ -36,6 +36,7 @@ CLI="node packages/octocode/out/octocode.js"
    → PASS: only Rust files.
 5. **Pagination** — repeat check 1 with `"limit":2` then `"page":2` → PASS: page 2 preserves filters; `pagination.nextPage` honest.
 6. **Honest empty** — search a nonsense keyword → PASS: explicit empty state that does **not** claim absence (suggests structure/clone verification).
+7. **matchIndices point at real text** — for each match row, verify `value.slice(start, end)` equals a real occurrence of the searched term (spot-check the first few rows). → PASS: every emitted index lands on the matched text inside the SHOWN snippet; matches the transform stripped (minified comments) or truncation cut off carry no index at all rather than a stale one. Regression guard: indices used to be GitHub's raw-fragment offsets passed through sanitize→minify→truncate untouched.
 
 ## Workflows
 

@@ -210,6 +210,18 @@ export class LSPClient {
     );
   }
 
+  /**
+   * `false` once the server process/connection has died (crashed mid-session)
+   * — lets the shared client pool evict this entry at the next `acquire()`
+   * instead of returning a client whose requests will just fail until the
+   * idle timer eventually reaps it. An unrebuilt native binding (missing
+   * `isAlive`) degrades to always-alive, the same tolerance `hasCapability`
+   * uses.
+   */
+  async isAlive(): Promise<boolean> {
+    return this.initialized && ((await this.nativeClient.isAlive?.()) ?? true);
+  }
+
   getRecentStderr(): string[] {
     return this.nativeClient.getRecentStderr?.() ?? [];
   }

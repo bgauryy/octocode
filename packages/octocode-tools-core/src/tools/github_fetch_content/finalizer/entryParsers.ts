@@ -190,6 +190,9 @@ export function readFileEntry(
           }>,
         }
       : {}),
+    ...(Array.isArray(data.matchedLines) && data.matchedLines.length > 0
+      ? { matchedLines: data.matchedLines as number[] }
+      : {}),
     lastModified: readString(data.lastModified),
     lastModifiedBy: readString(data.lastModifiedBy),
     warnings: readStringArray(data.warnings),

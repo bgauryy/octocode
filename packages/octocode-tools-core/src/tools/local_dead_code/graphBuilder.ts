@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { posix } from 'node:path';
 import { contextUtils } from '../../utils/contextUtils.js';
+import { isValidJsSymbolName } from '../../utils/jsSymbolNames.js';
 import { resolveImportSpecifier } from './importResolver.js';
 import type { FileFacts, FileNode } from './types.js';
 
@@ -34,6 +35,17 @@ export interface WalkResult {
    * treatment as an entrypoint file, not individually retention-checked.
    */
   starReexportTargets: Set<string>;
+  /**
+   * Files that are the target of a string-literal dynamic `import('./x')`
+   * somewhere in the scan. A dynamic import resolves the whole module
+   * namespace, not a specific named binding, so — unlike a static
+   * `import { x } from './y'` — there is no reliable way to attribute which
+   * of the target's exports are actually used. Treated the same as
+   * `starReexportTargets`: reachable, and not individually retention-checked,
+   * rather than risk a false-positive "unreferenced export" on a name that's
+   * genuinely read off the dynamically-imported namespace object.
+   */
+  dynamicImportTargets: Set<string>;
 }
 
 function escapeRegExp(literal: string): string {
@@ -66,7 +78,7 @@ interface RawGraphFacts {
     importedName: string;
     line: number;
   }>;
-  calls?: Array<{ caller: string; callee: string }>;
+  calls?: Array<{ caller: string; callee: string; kind?: string }>;
   exports?: Array<{
     name: string;
     line: number;
@@ -112,6 +124,7 @@ export function buildFileGraph(
   const facts = new Map<string, FileFacts>();
   const fileGraph = new Map<string, FileNode>();
   const starReexportTargets = new Set<string>();
+  const dynamicImportTargets = new Set<string>();
   let filesSkipped = 0;
 
   for (const entry of entries) {
@@ -145,13 +158,19 @@ export function buildFileGraph(
       continue;
     }
 
-    const declarations = (parsed.declarations ?? []).map(d => ({
-      id: d.id,
-      name: d.name,
-      kind: d.kind,
-      line: d.line,
-      exported: d.exported ?? false,
-    }));
+    const declarations = (parsed.declarations ?? [])
+      // Drop declarations the native extractor mis-emitted with a reserved-word
+      // name (e.g. a Flow file whose `if`/`let` statements parsed as exported
+      // functions) — they can never be a real export, and left in they became
+      // bogus `if`/`let` dead-export candidates.
+      .filter(d => isValidJsSymbolName(d.name))
+      .map(d => ({
+        id: d.id,
+        name: d.name,
+        kind: d.kind,
+        line: d.line,
+        exported: d.exported ?? false,
+      }));
 
     const referenceCounts = new Map<string, number>();
     for (const decl of declarations) {
@@ -175,6 +194,14 @@ export function buildFileGraph(
         line: exp.line,
       }));
 
+    // String-literal dynamic `import('./x')` specifiers resolve to a file the
+    // same way a static import does — kept separate from `calls` (which is
+    // real call-graph edges, not module linking) and from `imports` (which
+    // carries local/imported binding names a dynamic import doesn't have).
+    const dynamicImportSpecifiers = (parsed.calls ?? [])
+      .filter(c => c.kind === 'dynamic-import')
+      .map(c => c.callee);
+
     const fileFacts: FileFacts = {
       relativePath,
       declarations,
@@ -185,15 +212,18 @@ export function buildFileGraph(
         line: i.line,
       })),
       namedReexports,
-      calls: (parsed.calls ?? []).map(c => ({
-        caller: c.caller,
-        callee: c.callee,
-      })),
+      calls: (parsed.calls ?? [])
+        .filter(c => c.kind !== 'dynamic-import')
+        .map(c => ({
+          caller: c.caller,
+          callee: c.callee,
+        })),
       referenceCounts,
     };
     facts.set(relativePath, fileFacts);
 
     const importsFiles = new Set<string>();
+    const dynamicImportsFiles = new Set<string>();
     for (const imp of [...fileFacts.imports, ...fileFacts.namedReexports]) {
       const target = resolveImportSpecifier(
         imp.specifier,
@@ -201,6 +231,18 @@ export function buildFileGraph(
         knownFiles
       );
       if (target && target !== relativePath) importsFiles.add(target);
+    }
+    for (const specifier of dynamicImportSpecifiers) {
+      const target = resolveImportSpecifier(
+        specifier,
+        relativePath,
+        knownFiles
+      );
+      if (target && target !== relativePath) {
+        importsFiles.add(target);
+        dynamicImportsFiles.add(target);
+        dynamicImportTargets.add(target);
+      }
     }
     for (const exp of parsed.exports ?? []) {
       if (!exp.source || exp.name !== '*') continue;
@@ -214,7 +256,11 @@ export function buildFileGraph(
         starReexportTargets.add(target);
       }
     }
-    fileGraph.set(relativePath, { relativePath, importsFiles });
+    fileGraph.set(relativePath, {
+      relativePath,
+      importsFiles,
+      dynamicImportsFiles,
+    });
   }
 
   return {
@@ -224,5 +270,6 @@ export function buildFileGraph(
     filesSkipped,
     truncated,
     starReexportTargets,
+    dynamicImportTargets,
   };
 }

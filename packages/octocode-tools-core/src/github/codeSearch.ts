@@ -25,7 +25,8 @@ import {
   GITHUB_SEARCH_DEFAULT_LIMIT,
   GITHUB_SEARCH_MAX_LIMIT,
 } from '../config.js';
-
+import { recomputeMatchPositions } from './codeSearch/matchPositions.js';
+export { recomputeMatchPositions };
 const RAW_API_DEFAULT_LIMIT = GITHUB_SEARCH_DEFAULT_LIMIT;
 
 export async function searchGitHubCodeAPI(
@@ -253,14 +254,23 @@ async function transformToOptimizedFormat(
             hasMinificationFailures = true;
           }
 
+          const rawPositions =
+            match.matches?.flatMap(m =>
+              Array.isArray(m.indices) && m.indices.length >= 2
+                ? [[m.indices[0], m.indices[1]] as [number, number]]
+                : []
+            ) || [];
+
           return {
             context: processedFragment || '',
-            positions:
-              match.matches?.map(m =>
-                Array.isArray(m.indices) && m.indices.length >= 2
-                  ? ([m.indices[0], m.indices[1]] as [number, number])
-                  : ([0, 0] as [number, number])
-              ) || [],
+            // GitHub's indices point into the RAW fragment; the context above
+            // is sanitized+minified, so re-anchor them (or drop the ones the
+            // transform removed) instead of passing stale offsets through.
+            positions: recomputeMatchPositions(
+              match.fragment || '',
+              rawPositions,
+              processedFragment || ''
+            ),
           };
         })
       );

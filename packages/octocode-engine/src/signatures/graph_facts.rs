@@ -113,23 +113,13 @@ struct GraphFactCapability {
     fact_families: Vec<&'static str>,
 }
 
-struct LineIndex<'a> {
-    content: &'a str,
-    line_starts: Vec<usize>,
-}
+/// Thin wrapper over the shared `text::utf8_offsets::LineIndex` — see that
+/// type for the actual line-start/UTF-16 counting logic.
+struct LineIndex<'a>(crate::text::utf8_offsets::LineIndex<'a>);
 
 impl<'a> LineIndex<'a> {
     fn new(content: &'a str) -> Self {
-        let mut line_starts = vec![0usize];
-        for (i, b) in content.bytes().enumerate() {
-            if b == b'\n' {
-                line_starts.push(i + 1);
-            }
-        }
-        Self {
-            content,
-            line_starts,
-        }
+        Self(crate::text::utf8_offsets::LineIndex::new(content))
     }
 
     fn range(&self, node: Node<'_>) -> Range {
@@ -140,24 +130,8 @@ impl<'a> LineIndex<'a> {
     }
 
     fn position(&self, byte_offset: usize) -> Position {
-        let line = self
-            .line_starts
-            .partition_point(|&start| start <= byte_offset)
-            .saturating_sub(1);
-        let line_start = self.line_starts.get(line).copied().unwrap_or(0);
-        let end = byte_offset.min(self.content.len());
-        let character = if line_start <= end {
-            self.content
-                .get(line_start..end)
-                .map(|slice| slice.chars().map(char::len_utf16).sum::<usize>() as u32)
-                .unwrap_or(0)
-        } else {
-            0
-        };
-        Position {
-            line: line as u32,
-            character,
-        }
+        let (line, character) = self.0.byte_to_position(byte_offset as u32);
+        Position { line, character }
     }
 }
 
@@ -635,8 +609,11 @@ fn language_label(ext: &str, language_id: Option<&str>) -> String {
 fn fact_families_for_extension(ext: &str) -> Vec<&'static str> {
     let mut families = vec!["declarations", "contains", "calls"];
     match ext {
-        "rs" | "py" | "pyi" | "go" | "java" | "c" | "h" | "cpp" | "hpp" | "cc" | "cxx" | "hh"
-        | "hxx" | "rb" | "php" | "kt" | "kts" | "ex" | "exs" | "swift" | "scala" | "sc" | "sbt" => {
+        // JS/TS (oxc lane) already emit import/export facts — advertise them so
+        // `getGraphFactCapabilities` matches what `extractGraphFacts` returns.
+        "ts" | "mts" | "cts" | "tsx" | "js" | "jsx" | "mjs" | "cjs" | "rs" | "py" | "pyi"
+        | "go" | "java" | "c" | "h" | "cpp" | "hpp" | "cc" | "cxx" | "hh" | "hxx" | "rb"
+        | "php" | "kt" | "kts" | "ex" | "exs" | "swift" | "scala" | "sc" | "sbt" => {
             families.push("imports");
             families.push("exports");
         }

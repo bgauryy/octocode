@@ -2,12 +2,19 @@
 /**
  * Publish guard for every published Octocode package.
  *
- * Fails before npm publish/prepack when:
- *   - a published dependency still uses workspace:
- *   - a published Octocode package version differs from the monorepo version
- *   - a published internal dependency points at a stale Octocode version
- *   - engine optional platform packages do not match the engine version
- *   - publish hooks are missing this guard
+ * Single responsibility: no published package may ship a LOCAL dependency.
+ *
+ * Fails before npm publish/prepack when any published dependency field
+ * (dependencies, optionalDependencies, peerDependencies, bundled[D]ependencies)
+ * references a local protocol — workspace:, file:, link:, or portal: — because
+ * those never resolve from the npm registry for consumers.
+ *
+ * devDependencies are intentionally NOT checked: they are never installed by
+ * consumers, so a workspace:* devDependency is valid and normal for local dev.
+ *
+ * This guard does NOT enforce version alignment between packages — each package
+ * is versioned independently. If you want to sync every package version to the
+ * monorepo root, run `node ./scripts/prepublish.mjs --fix` explicitly.
  */
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
@@ -16,8 +23,6 @@ import { fileURLToPath } from 'node:url';
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const packageRoot = resolve(join(scriptDir, '..'));
 const repoRoot = resolve(join(packageRoot, '..', '..'));
-const rootPkg = readJson(join(repoRoot, 'package.json'));
-const rootVersion = rootPkg.version;
 
 const PUBLISHED_PACKAGE_DIRS = [
   'packages/octocode-config',
@@ -27,6 +32,7 @@ const PUBLISHED_PACKAGE_DIRS = [
   'packages/octocode',
 ];
 
+/** Dependency fields that ship inside a published tarball. */
 const PUBLISHED_DEP_FIELDS = [
   'dependencies',
   'optionalDependencies',
@@ -35,17 +41,10 @@ const PUBLISHED_DEP_FIELDS = [
   'bundleDependencies',
 ];
 
-const INTERNAL_VERSIONED_PACKAGES = new Set([
-  '@octocodeai/config',
-  '@octocodeai/octocode-engine',
-  '@octocodeai/octocode-tools-core',
-  '@octocodeai/mcp',
-  'octocode',
-]);
+/** Local dependency protocols that must never ship to npm. */
+const LOCAL_PROTOCOLS = ['workspace:', 'file:', 'link:', 'portal:'];
 
-const GUARD_SCRIPT = 'check-no-workspace-protocol.mjs';
-const ENGINE_DIR = join(repoRoot, 'packages/octocode-engine');
-const ENGINE_NPM_DIR = join(ENGINE_DIR, 'npm');
+const ENGINE_NPM_DIR = join(repoRoot, 'packages/octocode-engine/npm');
 const offenders = [];
 const checkedPackages = [];
 
@@ -57,12 +56,13 @@ function rel(path) {
   return relative(repoRoot, path).replaceAll('\\', '/');
 }
 
-function stripRange(spec) {
-  return String(spec).replace(/^[\^~>=<\s]+/, '').trim();
-}
-
 function fail(path, message) {
   offenders.push(`  ${rel(path)}: ${message}`);
+}
+
+/** Return the local protocol prefix a spec uses, or undefined if it's a normal registry spec. */
+function localProtocol(spec) {
+  return typeof spec === 'string' ? LOCAL_PROTOCOLS.find((proto) => spec.startsWith(proto)) : undefined;
 }
 
 function checkPublishedDeps(packagePath, pkg) {
@@ -71,121 +71,49 @@ function checkPublishedDeps(packagePath, pkg) {
     if (!deps || typeof deps !== 'object') continue;
 
     for (const [name, spec] of Object.entries(deps)) {
-      if (typeof spec === 'string' && spec.startsWith('workspace:')) {
-        fail(packagePath, `${field}.${name}: "${spec}" (workspace: must not ship to npm)`);
-        continue;
-      }
-
-      if (INTERNAL_VERSIONED_PACKAGES.has(name) && stripRange(spec) !== rootVersion) {
-        fail(packagePath, `${field}.${name}: "${spec}" (expected ${rootVersion})`);
+      const proto = localProtocol(spec);
+      if (proto) {
+        fail(packagePath, `${field}.${name}: "${spec}" (${proto} local dep must not ship to npm)`);
       }
     }
   }
 }
 
-function checkPackageVersion(packagePath, pkg, expectedVersion) {
-  if (pkg.version !== expectedVersion) {
-    fail(packagePath, `version "${pkg.version}" (expected ${expectedVersion})`);
-  }
-}
-
-function checkPublishHook(packagePath, pkg) {
-  const prepublishOnly = pkg.scripts?.prepublishOnly;
-  if (typeof prepublishOnly !== 'string' || !prepublishOnly.includes(GUARD_SCRIPT)) {
-    fail(packagePath, `scripts.prepublishOnly must run ${GUARD_SCRIPT}`);
-  }
-}
-
-function checkPackage(packageDir) {
-  const packagePath = join(repoRoot, packageDir, 'package.json');
+function checkPackage(packagePath) {
   if (!existsSync(packagePath)) {
     fail(packagePath, 'package.json is missing');
-    return null;
+    return;
   }
 
   const pkg = readJson(packagePath);
   checkedPackages.push(`${pkg.name}@${pkg.version}`);
-  checkPackageVersion(packagePath, pkg, rootVersion);
   checkPublishedDeps(packagePath, pkg);
-  checkPublishHook(packagePath, pkg);
-  return { packagePath, pkg };
 }
 
-function checkEnginePlatforms(enginePkg) {
-  const engineVersion = enginePkg.version;
-  const optionalDependencies = enginePkg.optionalDependencies ?? {};
-
-  if (!existsSync(ENGINE_NPM_DIR)) {
-    fail(ENGINE_NPM_DIR, 'engine npm platform directory is missing');
-    return;
-  }
-
-  const platformDirs = readdirSync(ENGINE_NPM_DIR, { withFileTypes: true }).filter((entry) =>
-    entry.isDirectory()
-  );
-
-  for (const dir of platformDirs) {
-    const platformPath = join(ENGINE_NPM_DIR, dir.name, 'package.json');
-    if (!existsSync(platformPath)) {
-      fail(platformPath, 'platform package.json is missing');
-      continue;
-    }
-
-    const platformPkg = readJson(platformPath);
-    checkedPackages.push(`${platformPkg.name}@${platformPkg.version}`);
-    checkPackageVersion(platformPath, platformPkg, engineVersion);
-    checkPublishedDeps(platformPath, platformPkg);
-    checkPublishHook(platformPath, platformPkg);
-
-    const optionalSpec = optionalDependencies[platformPkg.name];
-    if (!optionalSpec) {
-      fail(join(ENGINE_DIR, 'package.json'), `optionalDependencies.${platformPkg.name} is missing`);
-    } else if (stripRange(optionalSpec) !== engineVersion) {
-      fail(
-        join(ENGINE_DIR, 'package.json'),
-        `optionalDependencies.${platformPkg.name}: "${optionalSpec}" (expected ${engineVersion})`
-      );
-    }
-  }
-
-  for (const name of Object.keys(optionalDependencies)) {
-    if (!name.startsWith('@octocodeai/octocode-engine-')) continue;
-    const found = platformDirs.some((dir) => {
-      const platformPath = join(ENGINE_NPM_DIR, dir.name, 'package.json');
-      return existsSync(platformPath) && readJson(platformPath).name === name;
-    });
-    if (!found) {
-      fail(join(ENGINE_DIR, 'package.json'), `optionalDependencies.${name} has no npm platform package`);
-    }
-  }
-}
-
-if (!rootVersion) {
-  console.error(`\n✗ ${rel(join(repoRoot, 'package.json'))}: version is missing.\n`);
-  process.exit(1);
-}
-
-let enginePackage = null;
+// Published packages.
 for (const packageDir of PUBLISHED_PACKAGE_DIRS) {
-  const result = checkPackage(packageDir);
-  if (packageDir === 'packages/octocode-engine') {
-    enginePackage = result?.pkg ?? null;
-  }
+  checkPackage(join(repoRoot, packageDir, 'package.json'));
 }
 
-if (enginePackage) {
-  checkEnginePlatforms(enginePackage);
+// Engine optional platform packages (packages/octocode-engine/npm/*).
+if (existsSync(ENGINE_NPM_DIR)) {
+  for (const entry of readdirSync(ENGINE_NPM_DIR, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    checkPackage(join(ENGINE_NPM_DIR, entry.name, 'package.json'));
+  }
 }
 
 if (offenders.length > 0) {
   console.error(
-    `\n✗ Octocode publish guard failed (expected version ${rootVersion}).\n\n` +
+    `\n✗ Octocode publish guard failed — local dependencies must not ship to npm.\n\n` +
       offenders.join('\n') +
-      `\n\n  Run the package version sync/prepublish step, update stale package.json files, and retry.\n`
+      `\n\n  Replace local (${LOCAL_PROTOCOLS.join(' / ')}) specs in published dependency fields ` +
+      `with real published version ranges, then retry.\n`
   );
   process.exit(1);
 }
 
 console.log(
-  `✓ Octocode publish guard passed for ${checkedPackages.length} package(s): version ${rootVersion}, no workspace: published deps, engine platforms aligned.`
+  `✓ Octocode publish guard passed for ${checkedPackages.length} package(s): ` +
+    `no local (${LOCAL_PROTOCOLS.join(' / ')}) deps in published dependency fields.`
 );

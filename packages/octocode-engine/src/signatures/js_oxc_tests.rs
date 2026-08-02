@@ -71,6 +71,94 @@ fn extracts_graph_facts_for_imports_exports_and_calls() {
 }
 
 #[test]
+fn extracts_string_literal_dynamic_import_as_a_dynamic_import_call() {
+    // A dynamic `import('./mod.js')` with a string-literal source must be
+    // captured so the dead-code graph can treat the target as reachable —
+    // previously invisible, causing a false-positive "dead" verdict on files
+    // reached only through a dynamic import.
+    let src =
+        "export async function loadPlugin() {\n  const mod = await import('./plugin.js');\n  return mod;\n}\n";
+    let v = graph(src, "loader.ts");
+    let calls = v["calls"].as_array().unwrap();
+    let dynamic_import = calls
+        .iter()
+        .find(|call| call["kind"] == "dynamic-import")
+        .unwrap_or_else(|| panic!("expected a dynamic-import call, got: {calls:?}"));
+    assert_eq!(dynamic_import["callee"], "./plugin.js");
+    assert_eq!(dynamic_import["caller"], "loadPlugin");
+}
+
+#[test]
+fn does_not_synthesize_a_dynamic_import_for_a_computed_specifier() {
+    // A non-literal specifier can't be resolved to a file statically — it
+    // must not be silently treated as either reachable or dead. Scope is
+    // deliberately limited to string-literal specifiers only.
+    let src = "export async function loadPlugin(name) {\n  return await import(name);\n}\n";
+    let v = graph(src, "loader.ts");
+    let calls = v["calls"].as_array().unwrap();
+    assert!(
+        !calls.iter().any(|call| call["kind"] == "dynamic-import"),
+        "computed specifier must not produce a dynamic-import fact: {calls:?}"
+    );
+}
+
+#[test]
+fn captures_a_dynamic_import_inside_a_bare_callback_argument() {
+    // The common test-framework shape: `it('...', async () => { ... })` passes
+    // the arrow function as a bare call argument, not a named declaration or an
+    // IIFE callee. A dynamic import made inside that callback's body must still
+    // be captured — previously any function/arrow expression found as a plain
+    // sub-expression (a callback argument, an array element, a conditional
+    // branch) was skipped entirely, silently dropping every call made inside
+    // it, including a `dynamic-import`.
+    let src = "it('loads', async () => {\n  const { loadConfig } = await import('./loader.js');\n  loadConfig();\n});\n";
+    let v = graph(src, "loader.test.ts");
+    let calls = v["calls"].as_array().unwrap();
+    let dynamic_import = calls
+        .iter()
+        .find(|call| call["kind"] == "dynamic-import")
+        .unwrap_or_else(|| panic!("expected a dynamic-import call, got: {calls:?}"));
+    assert_eq!(dynamic_import["callee"], "./loader.js");
+}
+
+#[test]
+fn captures_calls_inside_a_destructured_dynamic_import_declarator() {
+    // `const { x } = await import(...)` — the binding pattern is an
+    // ObjectPattern, not a plain identifier, so the module-level variable
+    // walker has no single owner name for it. It must still walk the init
+    // expression rather than skip the whole declarator, or the dynamic-import
+    // fact (and file-level reachability of its target) is lost entirely.
+    let src =
+        "export async function main() {\n  const { run } = await import('./plugin.js');\n  run();\n}\n";
+    let v = graph(src, "entry.ts");
+    let calls = v["calls"].as_array().unwrap();
+    assert!(
+        calls
+            .iter()
+            .any(|call| call["kind"] == "dynamic-import" && call["callee"] == "./plugin.js"),
+        "expected a dynamic-import call for a destructured declarator, got: {calls:?}"
+    );
+}
+
+#[test]
+fn captures_a_call_inside_a_map_callback_argument() {
+    // Non-import calls inside a bare callback argument (`array.map(x => ...)`)
+    // must also survive — this is the same code path as the dynamic-import
+    // callback case above, exercised for an ordinary function call.
+    let src = "export function run(items) {\n  return items.map(x => helper(x));\n}\nfunction helper(x) {\n  return x;\n}\n";
+    let v = graph(src, "run.ts");
+    let calls = v["calls"].as_array().unwrap();
+    let callees = calls
+        .iter()
+        .map(|call| call["callee"].as_str().unwrap())
+        .collect::<Vec<_>>();
+    assert!(
+        callees.contains(&"helper"),
+        "callee list missing call made inside a map() callback: {callees:?}"
+    );
+}
+
+#[test]
 fn extracts_calls_nested_in_return_binary_and_args() {
     let src = "export function run(x: number) {\n  return helper(x) + other(x);\n}\nfunction helper(n: number) { return n; }\nfunction other(n: number) { return n; }\n";
     let v = graph(src, "nested.ts");

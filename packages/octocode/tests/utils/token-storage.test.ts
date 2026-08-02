@@ -1,12 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-// hasEnvToken and getEnvTokenSource are sourced directly from @octocodeai/config
-// (single-source rule; avoids esbuild code-splitting cross-chunk reference bugs).
-vi.mock('@octocodeai/config', () => ({
-  hasEnvToken: vi.fn().mockReturnValue(false),
-  getEnvTokenSource: vi.fn().mockReturnValue(null),
-}));
-
 // Mock only what the real @octocodeai/octocode-tools-core/credentials module exports.
 // Keys that were never in the real module (getEnvTokenSource, hasEnvToken,
 // getTokenFromEnv, ENV_TOKEN_VARS, isWindows, isMac, isLinux, HOME) are removed.
@@ -83,10 +76,6 @@ describe('Token Storage (CLI re-exports from @octocodeai/octocode-tools-core)', 
       '/mock/.octocode/credentials.json'
     );
     vi.mocked(shared.resolveTokenFull).mockResolvedValue(null);
-
-    const config = await import('@octocodeai/config');
-    vi.mocked(config.hasEnvToken).mockReturnValue(false);
-    vi.mocked(config.getEnvTokenSource).mockReturnValue(null);
   });
 
   describe('storeCredentials', () => {
@@ -270,33 +259,6 @@ describe('Token Storage (CLI re-exports from @octocodeai/octocode-tools-core)', 
       const result = getCredentialsFilePath();
 
       expect(result).toBe('/home/user/.octocode/credentials.json');
-    });
-  });
-
-  describe('getEnvTokenSource', () => {
-    it('should return source from @octocodeai/config', async () => {
-      const config = await import('@octocodeai/config');
-      const { getEnvTokenSource } =
-        await import('../../src/utils/token-storage.js');
-
-      vi.mocked(config.getEnvTokenSource).mockReturnValue('env:GITHUB_TOKEN');
-
-      const result = getEnvTokenSource();
-
-      expect(result).toBe('env:GITHUB_TOKEN');
-    });
-  });
-
-  describe('hasEnvToken', () => {
-    it('should return result from @octocodeai/config', async () => {
-      const config = await import('@octocodeai/config');
-      const { hasEnvToken } = await import('../../src/utils/token-storage.js');
-
-      vi.mocked(config.hasEnvToken).mockReturnValue(true);
-
-      const result = hasEnvToken();
-
-      expect(result).toBe(true);
     });
   });
 

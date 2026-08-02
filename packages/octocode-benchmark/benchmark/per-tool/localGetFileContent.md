@@ -34,6 +34,9 @@ ROOT=$(pwd)
 6. **Large-file paging** — small `charLength` → PASS: `isPartial` + `nextCharOffset` walk to end losslessly.
 7. **Not-found honesty** — bad path → PASS: explicit error + "list dir with localViewStructure" hint.
 8. **Redaction warning** — a file with a secret-shaped token → PASS: `warnings` note redaction (built-in).
+9. **minify:"symbols" over the raw-size threshold** — a file >100KB (generate one, or use a large real file such as a vendored bundle) with `"minify":"symbols"` and no `startLine`/`matchString`/`charLength` → PASS: skeleton returned, no `fileTooLarge` error. Regression guard for the size gate applying to raw/`minify:"none"` reads only (P0 bug: the gate used to fire on source size before minification ran, making `minify:"symbols"` unusable on exactly the large files it exists for).
+10. **minify:"none" still gated on raw size** — same large file with `"minify":"none"` and no bounds → PASS: `fileTooLarge` error (the gate must still block a genuinely unbounded verbatim read).
+11. **matchString blocks minify (by design)** — anchor `matchString` on text that lives INSIDE A COMMENT, with an explicit `"minify":"standard"` → PASS: the returned slice contains the matched comment line verbatim, plus a warning that minify is not applied to matchString extractions. Regression guard: standard minification used to run AFTER extraction and could delete the very line `matchRanges` pointed at — evidence contradicting its own anchors.
 
 ## Workflows
 

@@ -80,5 +80,8 @@ export interface FindDeadCodeOutput {
   deadClusters?: DeadClusterOutput[];
   pagination?: LocalItemPagination;
   next?: Record<string, ToolContinuation>;
+  /** See `DeadCodeScanResult.confidence` — present (always `"low"`) only when
+   * `entrypointsResolved` came entirely from the test-file heuristic. */
+  confidence?: 'low';
   [key: string]: unknown;
 }

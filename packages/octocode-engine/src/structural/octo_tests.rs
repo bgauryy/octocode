@@ -17,9 +17,9 @@ fn point_column_uses_utf16_code_units_not_code_points() {
     let index = LineIndex::new(content);
     // "const " = 6 bytes, "🌍" = 4 bytes → byte column of `x` is 10.
     // UTF-16: 6 (ascii) + 2 (emoji) = 8.
-    assert_eq!(index.point_column_to_char_column(content, 0, 10), 8);
+    assert_eq!(index.point_column_to_char_column(0, 10), 8);
     // Pure-ASCII prefix is unchanged (byte == utf-16).
-    assert_eq!(index.point_column_to_char_column(content, 0, 6), 6);
+    assert_eq!(index.point_column_to_char_column(0, 6), 6);
 }
 
 fn run_pattern(src: &str, ext: &str, pattern: &str) -> Vec<StructuralMatch> {
@@ -63,6 +63,35 @@ fn simple_call_pattern_captures_single_metavar() {
     assert_eq!(
         matches[1].metavars.get("X").map(Vec::as_slice),
         Some(&["baz".to_string()][..])
+    );
+}
+
+#[test]
+fn bare_metavar_does_not_match_a_missing_named_node() {
+    // "${}" is an empty template-literal interpolation — tree-sitter's error
+    // recovery inserts a MISSING (zero-width) `identifier` node in place of
+    // the missing expression, rather than an ERROR node (verified via a
+    // direct parse-tree dump). A bare `$X` metavar pattern matches every
+    // named node (`CandidatePlan::Any`), so without an explicit exclusion it
+    // would report a phantom identifier match with empty captured text at
+    // that position.
+    let src = "x = `${}`;\nconst real = 1;\n";
+    let matches = run_pattern(src, "ts", "$X");
+    let empty_text_matches: Vec<_> = matches.iter().filter(|m| m.text.is_empty()).collect();
+    assert!(
+        empty_text_matches.is_empty(),
+        "bare metavar matched {} MISSING/empty-text node(s), first at line {}",
+        empty_text_matches.len(),
+        empty_text_matches
+            .first()
+            .map(|m| m.start_line)
+            .unwrap_or(0)
+    );
+    // Sanity: the exclusion doesn't over-reject — real identifiers elsewhere
+    // in the same file still match.
+    assert!(
+        matches.iter().any(|m| m.text == "real"),
+        "expected a real identifier match to survive the exclusion"
     );
 }
 

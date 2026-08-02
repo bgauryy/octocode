@@ -582,6 +582,17 @@ impl CompiledPattern {
             return false;
         }
         if let Some(meta) = meta_from_node(pattern, pattern_source, self.expando) {
+            // A MISSING node is tree-sitter's zero-width error-recovery
+            // placeholder for a token the grammar expected but the source
+            // never had. A bare metavar (`$X`/`$_`) would otherwise bind to
+            // it unconditionally, reporting a phantom match with empty
+            // captured text on a syntactically broken file. This does not
+            // exclude `is_error()` subtrees generally — those wrap real
+            // (if malformed) source text and a legitimate match can still
+            // occur inside them.
+            if candidate.is_missing() {
+                return false;
+            }
             return match meta {
                 MetaVar::Single(name) => captures.capture_one(
                     &name,
@@ -1214,34 +1225,19 @@ fn node_text<'a>(node: Node<'_>, source: &'a str) -> &'a str {
         .unwrap_or_default()
 }
 
-struct LineIndex {
-    line_starts: Vec<usize>,
-}
+/// Thin wrapper over the shared `text::utf8_offsets::LineIndex` — see that
+/// type for the actual line-start/UTF-16 counting logic. Keeps this module's
+/// 1-based-line, tree-sitter-point-shaped call sites unchanged.
+struct LineIndex<'a>(crate::text::utf8_offsets::LineIndex<'a>);
 
-impl LineIndex {
-    fn new(content: &str) -> Self {
-        let mut line_starts = vec![0];
-        for (index, byte) in content.bytes().enumerate() {
-            if byte == b'\n' {
-                line_starts.push(index + 1);
-            }
-        }
-        Self { line_starts }
+impl<'a> LineIndex<'a> {
+    fn new(content: &'a str) -> Self {
+        Self(crate::text::utf8_offsets::LineIndex::new(content))
     }
 
-    fn byte_to_line_col(&self, content: &str, byte: usize) -> (usize, usize) {
-        let byte = byte.min(content.len());
-        let row = match self.line_starts.binary_search(&byte) {
-            Ok(index) => index,
-            Err(0) => 0,
-            Err(index) => index - 1,
-        };
-        let line_start = self.line_starts.get(row).copied().unwrap_or_default();
-        let byte_column = byte.saturating_sub(line_start);
-        (
-            row + 1,
-            self.point_column_to_char_column(content, row, byte_column),
-        )
+    fn byte_to_line_col(&self, byte: usize) -> (usize, usize) {
+        let (row, column) = self.0.byte_to_position(byte as u32);
+        (row as usize + 1, column as usize)
     }
 
     /// Convert a tree-sitter byte column to an LSP-compatible **UTF-16 code-unit**
@@ -1250,26 +1246,15 @@ impl LineIndex {
     /// (`char::len_utf16`). Counting Unicode scalar values (`chars().count()`)
     /// instead would disagree with every other layer on any line containing a
     /// non-BMP character (e.g. an emoji is one code point but two UTF-16 units).
-    fn point_column_to_char_column(&self, content: &str, row: usize, byte_column: usize) -> usize {
-        let line_start = self.line_starts.get(row).copied().unwrap_or_default();
-        let line_end = self
-            .line_starts
-            .get(row + 1)
-            .map(|start| start.saturating_sub(1))
-            .unwrap_or(content.len())
-            .min(content.len());
-        let byte_end = line_start.saturating_add(byte_column).min(line_end);
-        content
-            .get(line_start..byte_end)
-            .map(|slice| slice.chars().map(char::len_utf16).sum::<usize>())
-            .unwrap_or(byte_column)
+    fn point_column_to_char_column(&self, row: usize, byte_column: usize) -> usize {
+        self.0
+            .row_col_to_utf16_column(row as u32, byte_column as u32) as usize
     }
 }
 
 /// Converts raw tree-sitter capture positions into `MetavarRange`s (1-based
 /// line, char column), pairing each range with its captured text by index.
 fn build_metavar_ranges(
-    content: &str,
     line_index: &LineIndex,
     values: &HashMap<String, Vec<String>>,
     raw: HashMap<String, Vec<RawRange>>,
@@ -1283,17 +1268,10 @@ fn build_metavar_ranges(
                 .map(|(i, (sr, sc, er, ec))| MetavarRange {
                     text: texts.and_then(|t| t.get(i)).cloned().unwrap_or_default(),
                     line: sr + 1,
-                    column: line_index.point_column_to_char_column(
-                        content,
-                        sr as usize,
-                        sc as usize,
-                    ) as u32,
+                    column: line_index.point_column_to_char_column(sr as usize, sc as usize) as u32,
                     end_line: er + 1,
-                    end_column: line_index.point_column_to_char_column(
-                        content,
-                        er as usize,
-                        ec as usize,
-                    ) as u32,
+                    end_column: line_index.point_column_to_char_column(er as usize, ec as usize)
+                        as u32,
                 })
                 .collect();
             (name, mapped)
@@ -1320,12 +1298,12 @@ fn to_structural_match_with_index(
 ) -> StructuralMatch {
     let start = node.start_position();
     let end = node.end_position();
-    let metavar_ranges = build_metavar_ranges(content, line_index, &metavars, metavar_ranges_raw);
+    let metavar_ranges = build_metavar_ranges(line_index, &metavars, metavar_ranges_raw);
     StructuralMatch {
         start_line: (start.row as u32) + 1,
         end_line: (end.row as u32) + 1,
-        start_col: line_index.point_column_to_char_column(content, start.row, start.column) as u32,
-        end_col: line_index.point_column_to_char_column(content, end.row, end.column) as u32,
+        start_col: line_index.point_column_to_char_column(start.row, start.column) as u32,
+        end_col: line_index.point_column_to_char_column(end.row, end.column) as u32,
         text: node_text(node, content).to_owned(),
         metavars,
         metavar_ranges,
@@ -1340,9 +1318,9 @@ fn structural_match_from_byte_range_with_index(
     metavars: HashMap<String, Vec<String>>,
     metavar_ranges_raw: HashMap<String, Vec<RawRange>>,
 ) -> StructuralMatch {
-    let (start_line, start_col) = line_index.byte_to_line_col(content, start_byte);
-    let (end_line, end_col) = line_index.byte_to_line_col(content, end_byte);
-    let metavar_ranges = build_metavar_ranges(content, line_index, &metavars, metavar_ranges_raw);
+    let (start_line, start_col) = line_index.byte_to_line_col(start_byte);
+    let (end_line, end_col) = line_index.byte_to_line_col(end_byte);
+    let metavar_ranges = build_metavar_ranges(line_index, &metavars, metavar_ranges_raw);
     StructuralMatch {
         start_line: start_line as u32,
         end_line: end_line as u32,

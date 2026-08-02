@@ -29,6 +29,19 @@ export interface DeadCodeScanResult {
   deadExports: DeadExportOutput[];
   deadClusters: DeadClusterOutput[];
   warnings: string[];
+  /**
+   * Present (and always `"low"`) when the scan's reachability base is shaky, so
+   * the raw candidate count should not be trusted as-is. Two triggers, each
+   * with its own explanatory `warnings` entry:
+   *  - `entrypointsResolved` came entirely from the test-file heuristic (no
+   *    package.json main/exports/bin matched and no explicit `entrypoints`),
+   *    so every export in an otherwise-live file reads as "dead"; re-scope to
+   *    the real entrypoint-bearing package or pass `entrypoints` explicitly.
+   *  - one or more resolved entrypoints parsed to zero edges (a native
+   *    extractor parse failure on that file), so reachability can't leave them
+   *    and files they should reach show as false "unreachable-file".
+   */
+  confidence?: 'low';
 }
 
 function bindingKey(file: string, name: string): string {
@@ -126,10 +139,15 @@ export function scanForDeadCode(
     filesSkipped,
     truncated,
     starReexportTargets,
+    dynamicImportTargets,
   } = buildFileGraph(rootAbsolutePath, excludeDir, maxFiles);
 
   const knownFiles = new Set(facts.keys());
-  const { entrypoints, warnings } = resolveEntrypoints(
+  const {
+    entrypoints,
+    warnings,
+    lowConfidence: lowConfidenceEntrypoints,
+  } = resolveEntrypoints(
     rootAbsolutePath,
     query.entrypoints,
     query.includeTests ?? true,
@@ -142,8 +160,64 @@ export function scanForDeadCode(
     );
   }
 
+  // A resolved entrypoint that extracted to NO outgoing edges and NO
+  // declarations of its own almost always means the native extractor failed to
+  // parse it (a known failure mode on some Flow-typed `.js` files), not a
+  // genuinely self-contained leaf. Reachability can't leave such an entrypoint,
+  // so every file it should have reached reads as a false "unreachable-file".
+  // Detect it and lower confidence rather than emitting a confidently-wrong
+  // dead-code verdict.
+  const zeroSignalEntrypoints = entrypoints.filter(ep => {
+    const epFacts = facts.get(ep);
+    const node = fileGraph.get(ep);
+    return (
+      (node?.importsFiles.size ?? 0) === 0 &&
+      (epFacts?.declarations.length ?? 0) === 0 &&
+      (epFacts?.namedReexports.length ?? 0) === 0
+    );
+  });
+  const extractorFailedEntrypoints = zeroSignalEntrypoints.length > 0;
+  if (extractorFailedEntrypoints) {
+    warnings.push(
+      `${zeroSignalEntrypoints.length} entrypoint file(s) parsed to no imports/exports (likely an extractor parse failure on that file) — reachability from them is unreliable, so "unreachable-file" results here are low-confidence and may be false positives: ${zeroSignalEntrypoints.join(', ')}`
+    );
+  }
+
   const reachableFiles = computeReachableFiles(fileGraph, entrypoints);
   const entrypointSet = new Set(entrypoints);
+
+  // A file reachable only through a string-literal dynamic import() has
+  // lower-confidence reachability than one reachable through a static
+  // import: the dynamic path is proven by parsing the specifier, not by
+  // proving how the resulting namespace object's properties get used.
+  // Surface this instead of silently treating it as equally certain —
+  // recompute reachability over the static-edges-only graph and diff.
+  const staticOnlyGraph = new Map(
+    [...fileGraph].map(([file, node]) => [
+      file,
+      {
+        relativePath: node.relativePath,
+        importsFiles: new Set(
+          [...node.importsFiles].filter(
+            target => !node.dynamicImportsFiles.has(target)
+          )
+        ),
+        dynamicImportsFiles: new Set<string>(),
+      },
+    ])
+  );
+  const staticReachableFiles = computeReachableFiles(
+    staticOnlyGraph,
+    entrypoints
+  );
+  const dynamicImportOnlyReachable = [...reachableFiles]
+    .filter(file => !staticReachableFiles.has(file))
+    .sort();
+  if (dynamicImportOnlyReachable.length > 0) {
+    warnings.push(
+      `${dynamicImportOnlyReachable.length} file(s) reachable only through a dynamic import() — lower confidence than static analysis, verify with lspGetSemantics before treating as proof: ${dynamicImportOnlyReachable.join(', ')}`
+    );
+  }
 
   // Precompute each file's `localName -> resolved target file` map once
   // (same resolver the graph builder used), then fold into two reverse
@@ -231,7 +305,12 @@ export function scanForDeadCode(
       // Entrypoint exports are the public API surface; a file re-published
       // wholesale via `export * from` is treated the same way, since a star
       // re-export republishes every one of its target's exports.
-      if (isEntrypoint || starReexportTargets.has(file)) continue;
+      if (
+        isEntrypoint ||
+        starReexportTargets.has(file) ||
+        dynamicImportTargets.has(file)
+      )
+        continue;
 
       const retained = isRetained(
         file,
@@ -260,5 +339,8 @@ export function scanForDeadCode(
     deadExports,
     deadClusters,
     warnings,
+    ...(lowConfidenceEntrypoints || extractorFailedEntrypoints
+      ? { confidence: 'low' as const }
+      : {}),
   };
 }

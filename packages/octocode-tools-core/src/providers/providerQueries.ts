@@ -109,6 +109,14 @@ export interface PullRequestQuery extends BaseProviderQuery {
 
   repo?: string;
 
+  /**
+   * Free-text search string (the tool's `keywordsToSearch`, already quoted
+   * and space-joined by the mapper). Presence forces the GitHub search API
+   * path — a plain `pulls.list` listing cannot filter by text, and silently
+   * dropping this once presented recent PRs as keyword matches.
+   */
+  query?: string;
+
   number?: number;
 
   state?: 'open' | 'closed' | 'merged' | 'all';

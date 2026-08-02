@@ -17,6 +17,7 @@ type PartialDiscussionsQuery = {
   repo?: string;
   keywordsToSearch?: string[];
   itemsPerPage?: number;
+  limit?: number;
   after?: string;
   mainResearchGoal?: string;
   researchGoal?: string;
@@ -40,7 +41,8 @@ export async function searchMultipleGitHubDiscussions(
         }
 
         const perPage =
-          Number(query.itemsPerPage) || DISCUSSIONS_PAGE_SIZE_DEFAULT;
+          Number(query.limit ?? query.itemsPerPage) ||
+          DISCUSSIONS_PAGE_SIZE_DEFAULT;
         const result = await fetchDiscussions(
           {
             owner: query.owner,
@@ -61,11 +63,25 @@ export async function searchMultipleGitHubDiscussions(
 
         const hasContent = result.data.discussions.length > 0;
 
+        // `totalCount:0` alone can't distinguish "Discussions disabled" from
+        // "enabled, nothing posted yet" — surface the repo-level flag (now
+        // threaded through from the GraphQL query) explicitly when it's the
+        // more likely explanation for an empty result.
+        const discussionsWarnings =
+          !hasContent && result.data.hasDiscussionsEnabled === false
+            ? [
+                'This repository has Discussions disabled — an empty result here means the feature is off, not that no matching discussions exist.',
+              ]
+            : [];
+
         // Cursor-based continuation: hand back a ready-to-run next page when
         // GitHub reports more, matching the next-hint convention of other tools.
         const nextCursor = result.data.pagination.nextCursor;
         const dataWithNext = {
           ...(result.data as unknown as Record<string, unknown>),
+          ...(discussionsWarnings.length > 0
+            ? { warnings: discussionsWarnings }
+            : {}),
           ...(nextCursor
             ? {
                 next: {

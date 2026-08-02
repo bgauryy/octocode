@@ -9,10 +9,7 @@ import {
   type VerificationInfo,
 } from '../../../features/github-oauth.js';
 import { Spinner } from '../../../utils/spinner.js';
-import {
-  hasEnvToken,
-  getEnvTokenSource,
-} from '../../../utils/token-storage.js';
+import { hasEnvToken, getEnvTokenSource } from '@octocodeai/config';
 import {
   isOctocodeAuthStatus,
   normalizeGitProtocol,

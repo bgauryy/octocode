@@ -35,6 +35,8 @@ CLI="node packages/octocode/out/octocode.js"
    → PASS: body + changedFiles + patches + reviews; per-surface `contentPagination`.
 3. **Selected patch** — `content.patches.mode:"selected"` + `files:[...]` → PASS: only listed files' diffs.
 4. **Archaeology** — `state:"merged","sort":"created","order":"asc"` → PASS: oldest merged PR first.
+5. **Keywords actually filter (anti-fabrication)** — run the SAME repo scope twice: once with `keywordsToSearch:["<nonsense-token-zqxwv>"]` and once with a real term. → PASS: results DIFFER — nonsense returns an honest `status:"empty"`, the real term returns matches, and the result echoes `effectiveQuery` (the exact search-qualifier string sent). Regression guard for the P0 where `keywordsToSearch` was silently dropped (a plain recent-PR listing was presented as keyword matches, byte-identical for nonsense vs real terms).
+6. **Canonical repo echo** — search a renamed/transferred repo under its OLD name (e.g. `facebook/react`, now `react/react`). → PASS: `effectiveQuery` shows the CANONICAL `repo:` qualifier (search APIs don't follow renames; the tool resolves via repos.get first) — this echo is truth, not a bug.
 
 ## Workflows
 

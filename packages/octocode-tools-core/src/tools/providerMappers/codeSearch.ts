@@ -118,17 +118,24 @@ export function mapCodeSearchProviderResult(
     let emittedMatchForItem = false;
     for (const m of item.matches) {
       if (!m.context) continue;
+      const value = truncateSnippetChars(m.context);
       const match: CodeSearchGroupedMatch = {
         path: item.path,
-        value: truncateSnippetChars(m.context),
+        value,
       };
       if (m.positions?.length > 0) {
-        match.matchIndices = m.positions.map(([start, end]) => ({
-          start,
-          end,
-          lineOffset:
-            (m.context ?? '').substring(0, start).split('\n').length - 1,
-        }));
+        // Truncation shortens the shown snippet; an index past its end would
+        // point at text the agent cannot see. Drop those rather than emit
+        // anchors into the elided tail.
+        const inRange = m.positions.filter(([, end]) => end <= value.length);
+        if (inRange.length > 0) {
+          match.matchIndices = inRange.map(([start, end]) => ({
+            start,
+            end,
+            lineOffset:
+              (m.context ?? '').substring(0, start).split('\n').length - 1,
+          }));
+        }
       }
       group.matches.push(match);
       emittedMatchForItem = true;

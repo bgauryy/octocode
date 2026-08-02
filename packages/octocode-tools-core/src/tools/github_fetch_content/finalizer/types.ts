@@ -24,6 +24,8 @@ export type FileEntry = {
   startLine?: number;
   endLine?: number;
   matchRanges?: Array<{ start: number; end: number }>;
+  /** Exact matched-line numbers (matchRanges are ±contextLines windows around them). */
+  matchedLines?: number[];
   lastModified?: string;
   lastModifiedBy?: string;
   warnings?: string[];

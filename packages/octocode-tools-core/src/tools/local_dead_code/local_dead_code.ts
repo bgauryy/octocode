@@ -21,12 +21,26 @@ function paginate<T>(
   items: T[],
   page: number,
   itemsPerPage: number
-): { pageItems: T[]; totalPages: number; hasMore: boolean } {
+): {
+  pageItems: T[];
+  /** The page actually returned — the requested page clamped into range. */
+  currentPage: number;
+  totalPages: number;
+  hasMore: boolean;
+  /** True when the requested page exceeded totalPages and was clamped. */
+  outOfRange: boolean;
+} {
   const totalPages = Math.max(1, Math.ceil(items.length / itemsPerPage));
   const currentPage = Math.min(Math.max(1, page), totalPages);
   const start = (currentPage - 1) * itemsPerPage;
   const pageItems = items.slice(start, start + itemsPerPage);
-  return { pageItems, totalPages, hasMore: currentPage < totalPages };
+  return {
+    pageItems,
+    currentPage,
+    totalPages,
+    hasMore: currentPage < totalPages,
+    outOfRange: page > totalPages,
+  };
 }
 
 export async function findDeadCode(
@@ -45,11 +59,20 @@ export async function findDeadCode(
 
     const itemsPerPage = query.itemsPerPage ?? DEFAULT_ITEMS_PER_PAGE;
     const page = query.page ?? 1;
-    const { pageItems, totalPages, hasMore } = paginate<DeadExportOutput>(
-      result.deadExports,
-      page,
-      itemsPerPage
-    );
+    const { pageItems, currentPage, totalPages, hasMore, outOfRange } =
+      paginate<DeadExportOutput>(result.deadExports, page, itemsPerPage);
+
+    // The envelope must report the page actually returned (the clamp), never
+    // echo an out-of-range request as if it were served — page:99 of a 2-page
+    // result returns page 2's items and must say so.
+    const warnings = [
+      ...result.warnings,
+      ...(outOfRange
+        ? [
+            `page:${page} is out of range (only ${totalPages} page(s), ${result.deadExports.length} total candidates) — returned page ${currentPage} instead.`,
+          ]
+        : []),
+    ];
 
     const output: FindDeadCodeOutput = {
       path: query.path,
@@ -59,20 +82,22 @@ export async function findDeadCode(
       deadExports: pageItems,
       deadClusters: result.deadClusters,
       pagination: {
-        currentPage: page,
+        currentPage,
         totalPages,
         entriesPerPage: itemsPerPage,
         totalEntries: result.deadExports.length,
         hasMore,
+        ...(outOfRange ? { outOfRange: true } : {}),
       },
-      ...(result.warnings.length > 0 ? { warnings: result.warnings } : {}),
+      ...(warnings.length > 0 ? { warnings } : {}),
+      ...(result.confidence ? { confidence: result.confidence } : {}),
     };
 
     if (hasMore) {
       output.next = {
         nextPage: buildNextPageContinuation(
           TOOL_NAMES.LOCAL_FIND_DEAD_CODE,
-          { ...query, page: page + 1 },
+          { ...query, page: currentPage + 1 },
           'Continue to the next page of dead-export candidates.'
         ),
       };

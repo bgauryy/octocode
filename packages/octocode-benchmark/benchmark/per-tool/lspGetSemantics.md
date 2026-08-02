@@ -40,6 +40,13 @@ ROOT=$(pwd)
 8. **workspaceSymbol** — `"type":"workspaceSymbol","symbolName":"isLocalTool"` → PASS: fuzzy project-wide hits.
 9. **diagnostic** — `"type":"diagnostic","uri":...` → PASS: diagnostics or clean.
 10. **Honest gate** — no server → PASS: `serverUnavailable`/`unsupported` = capability absence, **not** "no usage".
+11. **documentSymbols unsupportedOperation fallback** — a file whose language server lacks `documentSymbolProvider` and has no native (OXC)/markdown outline path (e.g. a Flow-typed `.js` file, or force it by picking a language with no configured server) → PASS: `payload.empty.category:"unsupportedOperation"` **and** a `next.textSearch` hint scoped to that file (`path` = the file, a declaration-shaped `searchText`, `regex:"perl"`) — not a dead end the caller has to rediscover a workaround for (P0 bug).
+12. **Fallback regex speaks the file's language** — repeat check 11 against a `.rs` and a `.py` file (any language without a configured server works) → PASS: the `next.textSearch.searchText` uses that language's declaration idiom (`pub` for Rust, `def|class` for Python, `func|type|var|const` for Go) — never a blanket `^export` that guarantees an empty follow-up outside JS/TS.
+13. **Stale lineHint is never a silent misbind** — pick a symbol with MULTIPLE same-named occurrences in one file, pass a `lineHint` a few lines off the intended one → PASS: the result's `resolvedSymbol` carries `isAmbiguous:true` and a `lineDeviation` count whenever the bound line differs from the hint — full-confidence resolution is reserved for exact-line or unique-symbol binds. Regression guard: deviations of 1–3 lines (inside the radius-5 search) used to resolve silently under `status:"ok"`.
+
+## Judge notes
+
+Score 0 for check 11 if `next` is absent or missing on an `unsupportedOperation` `documentSymbols` result — the whole point is a caller with no `symbolName` (documentSymbols has none) still gets pointed somewhere useful.
 
 ## Workflows
 

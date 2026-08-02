@@ -245,6 +245,10 @@ export function mapPullRequestProviderResultData(
     pullRequests,
     resultData: {
       pullRequests,
+      // Echo the exact search-qualifier string when the search path ran —
+      // the transparency signal that distinguishes real keyword matches
+      // from a plain recent-PR listing (ghSearchIssues does the same).
+      ...(data.effectiveQuery ? { effectiveQuery: data.effectiveQuery } : {}),
       ...(pagination
         ? { pagination }
         : { totalCount: data.totalCount || pullRequests.length }),

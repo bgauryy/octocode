@@ -28,7 +28,9 @@ CLI="node packages/octocode/out/octocode.js"
 2. **Windowed** — `... "since":"30d"` → PASS: only recent commits.
 3. **With diffs** — `... "includeDiff":true,"itemsPerPage":3` → PASS: per-commit patches (costly).
 4. **Author filter** — `... "author":"bgauryy"` → PASS: only that author's commits.
-5. **Compare refs** — `... "base":"v2.0.0","head":"v3.0.0"` → PASS: `aheadBy`/`behindBy`/`totalCommits` + the commit list between the two refs.
+5. **Compare refs** — `... "base":"<real-tag-or-sha>","head":"<real-tag-or-sha>"` (verify the refs exist first, e.g. via `ghListReleases`) → PASS: `aheadBy`/`behindBy`/`totalCommits` + the commit list between the two refs.
+6. **includeDiff + directory path** — `... '{"owner":"bgauryy","repo":"octocode","path":"packages/octocode-tools-core/src","includeDiff":true,"itemsPerPage":2}'` → PASS: per-commit `files[]` (changed files under that directory, with patches) plus a warning that the path was treated as a directory filter — NOT bare commits with no diff and no explanation. Regression guard: a directory path (no trailing `/`) used to be classified as a file, silently dropping `includeDiff` entirely.
+7. **includeDiff + exact file path** — same query with a real file path (e.g. `.../deadCodeScan.ts`) → PASS: `patch`/`additions`/`deletions` attached directly to each commit.
 
 ## Workflows
 

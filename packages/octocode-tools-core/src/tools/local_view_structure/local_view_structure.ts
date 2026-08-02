@@ -186,6 +186,11 @@ function viewStructureNative(
           `Results capped at ${maxEntries} entries during the walk before sorting — sortBy:"${sortBy}" only orders that partial set, not the true top-N across the whole tree. Add pattern/extensions/entryType/excludeDir or reduce depth to narrow the scope.`,
         ]
       : []),
+    ...(pagination.outOfRange
+      ? [
+          `page:${(query as { page?: number }).page} is out of range (only ${pagination.totalPages} page(s), ${pagination.totalEntries} total entries) — returned page ${pagination.currentPage} instead.`,
+        ]
+      : []),
   ];
   const isEmpty = totalEntries === 0;
   const summary = summarizeEntries(filteredEntries);
@@ -214,7 +219,9 @@ function viewStructureNative(
       ...(isEmpty ? { status: 'empty' as const } : {}),
       ...entryPayload,
       summary,
-      ...(pagination.hasMore || pagination.totalPages > 1
+      ...(pagination.hasMore ||
+      pagination.totalPages > 1 ||
+      pagination.outOfRange
         ? { pagination }
         : {}),
       ...(Object.keys(next).length > 0 ? { next } : {}),

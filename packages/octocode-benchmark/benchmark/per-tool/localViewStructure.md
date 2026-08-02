@@ -36,6 +36,7 @@ ROOT=$(pwd)
 5. **detail:"full"** — `"detail":"full"` → PASS: structured `entries[]` with size/perms/dates.
 6. **hidden** — `"hidden":true` on repo root → PASS: `.github`, `.git`, etc. appear.
 7. **Pagination** — small `itemsPerPage` → PASS: page 2 continues.
+8. **Out-of-range page** — small `itemsPerPage`, `page` set well beyond the true `totalPages` → PASS: the response is clamped to the last real page (returns its entries, not an empty list) **and** `pagination.outOfRange:true` plus a warning naming the valid range — not a silent clamp that lets a caller believe `currentPage` was the page it actually requested.
 
 ## Workflows
 

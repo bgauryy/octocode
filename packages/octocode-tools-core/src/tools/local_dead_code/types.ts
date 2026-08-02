@@ -50,6 +50,15 @@ export interface FileFacts {
 
 export interface FileNode {
   relativePath: string;
-  /** Resolved relative paths of files this file imports from. */
+  /** Resolved relative paths of files this file imports from — static and
+   * string-literal dynamic `import()` targets alike. */
   importsFiles: Set<string>;
+  /**
+   * Subset of `importsFiles` reached only through a string-literal dynamic
+   * `import()`, not a static `import`/`export ... from`. Used to compute a
+   * static-only reachability pass so a file reachable exclusively through
+   * dynamic import can be flagged as lower-confidence rather than treated
+   * with the same certainty as a statically-proven path.
+   */
+  dynamicImportsFiles: Set<string>;
 }

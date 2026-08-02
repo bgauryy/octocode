@@ -30,6 +30,14 @@ export type DiscussionsResult = {
     /** Opaque cursor to pass back as `after` for the next page. */
     nextCursor?: string;
   };
+  /**
+   * Whether the repository has Discussions enabled at all. Omitted (not
+   * `false`) when the repo-level probe itself failed/was inconclusive — a
+   * `totalCount:0` response is otherwise ambiguous between "disabled" and
+   * "enabled, nothing posted yet", which this field disambiguates without a
+   * second call.
+   */
+  hasDiscussionsEnabled?: boolean;
 };
 
 type FetchDiscussionsParams = {
@@ -44,7 +52,7 @@ type FetchDiscussionsParams = {
 // way to page + text-search them in one call. `repo:` scopes to the repository;
 // extra terms match title/body.
 const DISCUSSIONS_QUERY = `
-query($q: String!, $first: Int!, $after: String) {
+query($q: String!, $first: Int!, $after: String, $owner: String!, $repo: String!) {
   search(query: $q, type: DISCUSSION, first: $first, after: $after) {
     discussionCount
     pageInfo { hasNextPage endCursor }
@@ -62,6 +70,9 @@ query($q: String!, $first: Int!, $after: String) {
         comments { totalCount }
       }
     }
+  }
+  repository(owner: $owner, name: $repo) {
+    hasDiscussionsEnabled
   }
 }`;
 
@@ -84,6 +95,7 @@ type GraphQLDiscussionsResponse = {
     pageInfo: { hasNextPage: boolean; endCursor?: string | null };
     nodes: Array<GraphQLDiscussionNode | Record<string, never>>;
   };
+  repository?: { hasDiscussionsEnabled?: boolean } | null;
 };
 
 export async function fetchDiscussions(
@@ -132,6 +144,8 @@ async function fetchDiscussionsInternal(
       {
         q,
         first: params.perPage,
+        owner: params.owner,
+        repo: params.repo,
         ...(params.after ? { after: params.after } : {}),
       }
     );
@@ -171,6 +185,9 @@ async function fetchDiscussionsInternal(
           hasMore,
           ...(hasMore && endCursor ? { nextCursor: endCursor } : {}),
         },
+        ...(typeof result.repository?.hasDiscussionsEnabled === 'boolean'
+          ? { hasDiscussionsEnabled: result.repository.hasDiscussionsEnabled }
+          : {}),
       },
       status: 200,
     };

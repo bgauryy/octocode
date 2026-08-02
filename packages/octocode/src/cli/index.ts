@@ -4,10 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { parseArgs, hasHelpFlag, hasVersionFlag } from './parser.js';
 import { EXIT } from './exit-codes.js';
 import type { CLICommand, CLICommandSpec, ParsedArgs } from './types.js';
-import {
-  setRuntimeSurface,
-  invalidateConfigCache,
-} from '@octocodeai/octocode-tools-core/config';
+import { setRuntimeSurface, invalidateConfigCache } from '@octocodeai/config';
 
 declare const __APP_VERSION__: string;
 

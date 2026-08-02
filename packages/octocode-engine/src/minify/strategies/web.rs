@@ -16,6 +16,12 @@ pub fn minify_css_core(content: &str) -> String {
 
 /// High-quality CSS minification via lightningcss (100× better than regex).
 /// Uses `minify_css_core` on parse or panic error.
+///
+/// Gated on the opt-in `css-quality` feature. With the feature off, lightningcss
+/// is not compiled in and this degrades to the `minify_css_core` regex baseline
+/// — every caller (`minify_css_quality` binding, `minify_html_quality`,
+/// `minify_embedded_web`/`minify_style_blocks`) transparently gets the fallback.
+#[cfg(feature = "css-quality")]
 pub fn minify_css_quality(content: &str) -> String {
     std::panic::catch_unwind(|| {
         use lightningcss::stylesheet::{ParserOptions, PrinterOptions, StyleSheet};
@@ -31,6 +37,14 @@ pub fn minify_css_quality(content: &str) -> String {
         }
     })
     .unwrap_or_else(|_| minify_css_core(content))
+}
+
+/// Fallback when the `css-quality` feature is disabled (lightningcss not built):
+/// the always-available regex baseline. Keeps CSS/SCSS/LESS + embedded `<style>`
+/// minification working — just without parser-grade normalization (e.g. `0px`→`0`).
+#[cfg(not(feature = "css-quality"))]
+pub fn minify_css_quality(content: &str) -> String {
+    minify_css_core(content)
 }
 
 // ── HTML ─────────────────────────────────────────────────────────────────────

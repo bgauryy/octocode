@@ -49,20 +49,6 @@ pub fn extract_boundary_lines_inner(content: &str, file_path: &str) -> Vec<(usiz
     .unwrap_or_default()
 }
 
-/// Build a table of JS char offsets (UTF-16 code units) for each line start.
-/// `table[i]` is the offset of the first char on line `i + 1` (1-based lines).
-fn build_js_char_offset_table(content: &str) -> Vec<u32> {
-    let mut table: Vec<u32> = vec![0]; // line 1 starts at offset 0
-    let mut js_chars: u32 = 0;
-    for ch in content.chars() {
-        js_chars = js_chars.saturating_add(ch.len_utf16() as u32);
-        if ch == '\n' {
-            table.push(js_chars);
-        }
-    }
-    table
-}
-
 /// True when `trimmed` is a lone closing delimiter — it closes a block rather
 /// than starting one, so it must not be used as a chunk boundary.
 /// Examples: `}`, `};`, `]);`, `)`, `})`, `})`
@@ -203,7 +189,8 @@ pub fn get_semantic_boundary_offsets_inner(content: &str, file_path: &str) -> Ve
         return Vec::new();
     }
     let ext = get_extension_internal(file_path, true, "txt");
-    let offset_table = build_js_char_offset_table(content);
+    let offset_table = crate::text::utf8_offsets::LineIndex::new(content);
+    let offset_table = offset_table.line_starts_utf16();
     let mut offsets: Vec<u32> = lines
         .iter()
         .filter(|(_, text)| {
@@ -663,10 +650,14 @@ mod tests {
 
     #[test]
     fn js_char_offset_table_counts_utf16_units() {
-        // ASCII-only: each char = 1 JS unit
+        // ASCII-only: each char = 1 JS unit. Covered directly (and more
+        // thoroughly, incl. surrogate pairs) by
+        // text::utf8_offsets::tests::line_index_utf16_line_starts_*; this
+        // test pins that `get_semantic_boundary_offsets_inner`'s call site
+        // still gets the same table shape from the shared LineIndex.
         let src = "ab\ncd\n";
-        let table = build_js_char_offset_table(src);
+        let index = crate::text::utf8_offsets::LineIndex::new(src);
         // line 1: offset 0, line 2: offset 3 (a=1,b=1,\n=1), line 3: offset 6
-        assert_eq!(table, vec![0, 3, 6]);
+        assert_eq!(index.line_starts_utf16(), &[0, 3, 6]);
     }
 }
