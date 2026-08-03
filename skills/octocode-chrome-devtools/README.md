@@ -3,21 +3,37 @@
 Use this skill when you want an agent to investigate a website or web app through a real Chrome session.
 
 ## Features
-- CDP forensics: network, console, performance, DOM/CSS, storage, workers, screenshots
-- Sandboxed script runner with session reuse across checks
+- CDP forensics: network, console, performance, memory, coverage, DOM/CSS, accessibility, storage, consent, workers/service workers, WebSocket, security, supply-chain, screenshots/PDF
+- Headless and visible browser modes; live-page attach for manual auth, MFA, or interactive debugging
+- Sandboxed script runner with session-first reuse across checks/tabs on the same CDP port; per-port metadata for follow-up runs
+- OOTB bot-wall, CAPTCHA, auth, session-reuse, and recovery flows, with retry hints through `[CDP_RETRY_NEEDED]`
 - HAR capture, paging, and redaction before share
 - Opt-in cookie bridge from profile/CDP/storageState into isolated sessions
-- Live-page attach for manual auth, MFA, and interactive debugging
+- Source-map resolution and Octocode local/external source tracing
+- Proxy/VPN-compatible routing through launch flags or `.octocode` config
+- Structured findings through output prefixes
+- Page-declared AI tool discovery/invocation over the CDP WebMCP domain (experimental)
+
+## Usage
+
+You don't run any scripts yourself. Install the skill once, then talk to your AI coding agent (Claude Code, Cursor, or any agent that supports [Agent Skills](https://agentskills.io/what-are-skills)) in plain language — it reads this skill, picks an intent, launches/attaches Chrome, and reports evidence back to you.
+
+1. **Install** — one time, per project or globally. See [Installation](#installation).
+2. **Ask naturally** — give a URL, the behavior you expect, and the signal you care about. See [Start Here](#start-here) for good prompts and the [Prompt To Intent Cheatsheet](#prompt-to-intent-cheatsheet) if you know the outcome but not the CDP term for it.
+3. **The agent works the loop** — opens/attaches Chrome, runs one focused CDP script per intent, and reports prefixed findings (`[FINDING]`, `[NETWORK_ERROR]`, `[EXCEPTION]`, …). See [What Results Look Like](#what-results-look-like).
+4. **You approve the risky steps** — real Chrome profile use, login/CAPTCHA/MFA, and destructive actions (submit/delete/purchase/send) always pause for your OK first. See [Safety Gates](#safety-gates).
+
+Want to drive it yourself instead of through an agent — e.g. to debug the skill's own scripts? See [Optional CLI](#optional-cli).
 
 ## How It Works
 1. `open-browser.mjs` starts or reuses Chrome on a CDP port.
 2. Agent picks one intent and writes a focused `run(cdp)` script.
-3. `cdp-sandbox.mjs` runs it under Node permissions; artifacts land under `.octocode/chrome-devtools/`.
+3. `cdp-sandbox.mjs` runs it under Node permissions; artifacts land under `.octocode/tmp/chrome-devtools/`.
 4. Agent parses prefixed evidence (`[FINDING]`, `[NETWORK_ERROR]`, …) and iterates on the same port.
 
 ## Static scrape graph handoff
 
-Pair with [`octocode-scraping`](https://github.com/bgauryy/octocode/tree/main/skills/octocode-scraping): scrape public pages statically first, build `graph/graph.json`, then use this skill only for live evidence — actionability, search inputs/buttons, pagination, menus, infinite scroll, cookies/storage, screenshots, network/HAR bodies, and auth-gated state. If actionability returns zero rows, run `examples/actionability-diagnostics.mjs` to classify blocked, JS-shell, selector-mismatch, consent-region, or timing-hydration. Feed discovered URLs/data/artifacts back into the scraping corpus.
+Pair with [`octocode-scraping`](https://github.com/bgauryy/octocode/tree/main/skills/octocode-scraping): scrape public pages statically first, build `graph/graph.json`, then use this skill only for live evidence — actionability, search inputs/buttons, pagination, menus, infinite scroll, cookies/storage, screenshots, network/HAR bodies, and auth-gated state. If actionability returns zero rows, run `examples/actionability-diagnostics.mjs` to classify blocked, JS-shell, selector-mismatch, consent-region, timing-hydration, or (page is actually healthy) no-anomaly-detected. Feed discovered URLs/data/artifacts back into the scraping corpus.
 
 ## Installation
 ```bash
@@ -100,206 +116,12 @@ Use this skill when you need browser evidence, not guesses:
 
 Use a different tool when:
 
-- you need production-grade E2E tests, assertions, retries, and cross-browser coverage: use Playwright
-- you need deterministic request replay in CI: Playwright `recordHar` / `routeFromHAR` is usually better
-- you only need simple click/fill/navigation from accessibility snapshots: Chrome DevTools MCP or Playwright MCP may be faster
+- you need production-grade E2E tests, assertions, retries, and cross-browser coverage: use a maintained test framework
+- you need deterministic request replay in CI: a maintained HAR-record/route-replay tool is usually better
+- you only need simple click/fill/navigation from accessibility snapshots: a lighter automation MCP may be faster
+- you want page-declared WebMCP tools exposed to an arbitrary MCP client (not just one-off scripts in this skill): use the official `chrome-devtools-mcp` server directly (`list_webmcp_tools`/`execute_webmcp_tool`, Chrome 150+, `--enable-features=WebMCP`) instead of building a bespoke bridge
 - you need managed scraping infrastructure, proxies, CAPTCHA services, or hosted browsers: use a dedicated browser automation service
 - you want a reusable app test suite rather than one-off browser forensics: write tests instead of ad-hoc CDP scripts
-
-## Common Workflows
-
-### Quick Debug
-
-Prompt:
-
-- "Debug why this flow fails after the main action."
-
-Expected output:
-
-- network, console, and exception evidence
-- likely root cause and next steps
-
-### Manual Auth Then Inspect
-
-Prompt:
-
-- "Open a visible browser, I'll sign in, then inspect post-login errors."
-
-Expected output:
-
-- the agent pauses for your login
-- analysis continues after your confirmation
-
-### Live Page Monitoring
-
-Prompt:
-
-- "Keep this page open and monitor errors every 30s."
-
-Expected output:
-
-- repeated state checks
-- diff-like updates as page behavior changes
-
-### Authenticated Scrape
-
-Prompt:
-
-- "After I log in, scrape invoice rows: id, date, amount."
-
-Expected output:
-
-- structured extracted data
-- clear scrape findings
-
-### Proxy/VPN Investigation
-
-Prompt:
-
-- "Use configured proxy/VPN and debug this URL."
-
-Expected output:
-
-- browser launched with the configured proxy route
-- normal intent execution on top
-
-### HAR And Curl Replay
-
-Prompt:
-
-- "Watch this site while I use it, save the network evidence, then show me the API I can curl."
-
-Expected output:
-
-- `[ARTIFACT]` paths for HAR/NDJSON/summary files
-- paged HAR findings instead of a full HAR dump
-- a safe curl/API reproduction when the endpoint is public or approved
-- header names and request shape, never secret values
-
-## OOTB Flows
-
-These are ready-made investigation paths you can ask for without naming CDP internals.
-
-### Bot Wall Detection
-
-Prompt:
-
-- "Check if this page is blocking bots or headless Chrome."
-
-Expected output:
-
-- status codes, redirects, console errors, and visible page signals
-- evidence for bot-wall patterns such as challenge pages, blocked resources, or unusual access-denied responses
-- a recommendation to retry in visible mode or with configured proxy routing when useful
-
-### CAPTCHA Detection
-
-Prompt:
-
-- "Detect CAPTCHA or challenge flows on this URL."
-
-Expected output:
-
-- CAPTCHA/challenge evidence from DOM text, frames, network calls, and page state
-- a clear pause if user solving is required
-- no attempt to bypass CAPTCHA automatically
-
-### Auth Flow
-
-Prompt:
-
-- "Open a visible browser, guide me through login, then continue the investigation."
-
-Expected output:
-
-- visible Chrome for manual sign-in
-- pause points for MFA, SSO, consent, or CAPTCHA
-- post-login tab re-targeting before the agent reads protected state
-- redacted auth/storage findings
-
-### Session Reuse Flow
-
-Prompt:
-
-- "Keep this authenticated session open for follow-up checks."
-
-Expected output:
-
-- the same CDP port and tab reused across related checks
-- saved tab/resource metadata for follow-up runs
-- no reload unless you ask for one
-
-### Anti-Flake Recovery Flow
-
-Prompt:
-
-- "This browser run is flaky; recover and retry the right way."
-
-Expected output:
-
-- retry guidance from `[CDP_RETRY_NEEDED]`
-- fresh target listing and re-targeting
-- a narrower rerun that changes one meaningful thing
-
-### Performance Flow
-
-Prompt:
-
-- "Measure why this page/action feels slow."
-
-Expected output:
-
-- timing metrics, long tasks, slow resources, and render-related signals
-- a narrow comparison before/after one action when the prompt names an interaction
-- source-trace hints when a script, route, or package is the likely cause
-
-### WebSocket Flow
-
-Prompt:
-
-- "Inspect the WebSocket messages during this live update."
-
-Expected output:
-
-- WebSocket request metadata and frame summaries
-- frame direction, size, timing, and safe message shape
-- no secret payload values in the final report
-
-### Service Worker And Cache Flow
-
-Prompt:
-
-- "Check whether the service worker or cache is causing stale/offline behavior."
-
-Expected output:
-
-- service worker registration and lifecycle state
-- Cache Storage and relevant fetch behavior
-- a recommendation to reload, unregister, clear cache, or inspect source only when evidence supports it
-
-### Visual Capture Flow
-
-Prompt:
-
-- "Capture proof of the broken state after this action."
-
-Expected output:
-
-- screenshot or PDF file path
-- the action/state that was captured
-- related DOM/network/console evidence when the visual state is caused by runtime behavior
-
-### Source Map Flow
-
-Prompt:
-
-- "Resolve this browser exception to original source."
-
-Expected output:
-
-- generated stack frame and source-map candidate
-- original file/line when source maps are available
-- local or external Octocode follow-up when the source location points to a repo/package
 
 ## Use Case Playbook
 
@@ -323,6 +145,9 @@ Use these as default bundles when a prompt names an outcome instead of CDP inter
 | Bot wall or CAPTCHA triage | `debug`, `security`, optionally `inject` once | Headless first; visible user gate if challenge persists | Challenge DOM/frame/network signals, no automatic CAPTCHA bypass |
 | Proxy/VPN route investigation | Any selected intent + launcher proxy config | Fresh Chrome session on a clean port | Launcher JSON showing proxy configured, then normal intent evidence |
 | Source-traced browser error | `console` + source-map helper, then Octocode source trace | New tab when load-time stacks matter | `[EXCEPTION_LOCATION]`, `[SOURCEMAP]`, source file/line candidate |
+| Page exposes AI-native tools | `webmcp`, fall back to `automate`/`scrape` if none found | Fresh port with `--enableFeatures WebMCP`, Chrome 150+ | `[WEBMCP_TOOL]`, `[WEBMCP_RESULT]`, `[FINDING] WEBMCP_NO_TOOLS` |
+| Keep watching/reusing an open session across follow-up checks | any intent, repeated | Visible, `--keep-tab`, same `--port`; re-read current state, don't re-navigate | Diff-like updates per run; saved tab/resource metadata for the next check |
+| A run was flaky or hit `[CDP_RETRY_NEEDED]` | same intent, narrower | Fresh target listing/re-targeting; change exactly one thing before rerunning | `[CDP_RETRY_NEEDED]` guidance, then a clean rerun |
 
 ## Octocode Integration
 
@@ -415,30 +240,15 @@ The agent should pause and ask before:
 
 Sensitive values such as token values, cookie values, passwords, and session secrets should be redacted in outputs.
 
-## Core Features
-
-- Headless and visible browser modes
-- Live-page mode: you interact, then the agent inspects current state
-- Auth-aware flows with user confirmation gates
-- OOTB bot-wall, CAPTCHA detection, auth, session reuse, and recovery flows
-- Session-first reuse across many checks/tabs on the same CDP port
-- Structured findings through output prefixes
-- Step-by-step reasoning logs for scrape and automation loops
-- Per-port TMP metadata for smarter follow-up runs
-- Retry and recovery hints through `[CDP_RETRY_NEEDED]`
-- Proxy/VPN-compatible routing through launch flags or `.octocode` config
-- Source-map resolution and Octocode local/external source tracing
-- Performance, memory, coverage, worker, service worker, WebSocket, accessibility, screenshot/PDF, security, storage, consent, and supply-chain checks
-
 ## Why It Helps
 
 This skill inspects Chrome itself instead of only driving a page like a test runner. It uses Chrome DevTools Protocol directly, so the agent can build focused checks for the exact problem and explain what happened from browser evidence.
 
 The motivation is simple: many browser bugs are invisible from code search alone. Failed requests, console exceptions, service worker state, storage mutations, source-map locations, WebSocket frames, and bot/auth walls only become obvious after observing the real page.
 
-Compared with Playwright MCP, Chrome DevTools MCP, agent-browser, and Puppeteer workflows, users usually get:
+In practice this gives:
 
-- lower setup friction for this skill's scripts
+- low setup friction — one launcher, one sandboxed runner, no separate framework install
 - broad debugging, inspection, automation, auth, and source-trace coverage in one workflow
 - stronger iteration through session reuse and per-port metadata
 - clearer evidence loops through prefixed output
@@ -449,39 +259,9 @@ In practice, this means users get signal faster, rerun less, and keep context wh
 
 ## Intent Catalog
 
-Intent router:
+Routing and per-intent behavior are defined once in `references/intents.md` and its detail files (`references/intents-*.md`, `references/har-capture.md`) — that's the current, authoritative source; this list is just the full set of names for search/skim:
 
-- `references/intents.md`
-
-| Intent | What You Get |
-|---|---|
-| `debug` | Broad investigation for "what is broken" |
-| `network` | API traffic, request failures, status errors |
-| `console` | Console errors/warnings and JS exceptions |
-| `performance` | Performance metrics, long tasks, rendering signals |
-| `memory` | Memory and heap leak investigation |
-| `dom` | DOM structure/state checks |
-| `css-coverage` | Used vs unused CSS |
-| `js-coverage` | Used vs unused JS |
-| `automate` | Agent performs browser actions |
-| `scrape` | Data extraction from page content |
-| `live-page` | Keep visible page open, inspect without reload |
-| `login` | Agent-led login flow |
-| `user-auth` | You log in manually, then agent continues |
-| `emulate` | Device, network, and geo-style environment emulation |
-| `inject` | Controlled pre-load patching/hooking |
-| `monitor` | Repeated checks over time |
-| `security` | Cookies, tokens, headers, CSP, and security posture |
-| `websocket` | Real-time frame/message inspection |
-| `service-worker` | Service worker lifecycle, cache, and offline checks |
-| `workers` | Web/shared worker checks |
-| `intercept` | Block/mock/modify request paths |
-| `screenshot` | Visual capture and PDF-style snapshots |
-| `accessibility` | Accessibility-oriented checks |
-| `supply-chain` | Third-party/CDN script risk checks |
-| `full-audit` | Multi-area broad audit |
-| `storage` | Cookies, localStorage, sessionStorage, IDB, and quota |
-| `consent` | GDPR/consent and tracker-before-consent behavior |
+`debug`, `network`, `console`, `performance`, `memory`, `dom`, `css-coverage`, `js-coverage`, `automate`, `scrape`, `live-page`, `login`, `user-auth`, `emulate`, `inject`, `monitor`, `security`, `websocket`, `service-worker`, `workers`, `intercept`, `screenshot`, `webmcp`, `accessibility`, `supply-chain`, `full-audit`, `storage`, `consent`.
 
 ## Proxy/VPN Support
 
@@ -528,6 +308,7 @@ If a run fails or is flaky:
 | Script | Purpose | Use it for |
 |---|---|---|
 | `scripts/open-browser.mjs` | Launch, reuse, or clean up Chrome with CDP enabled | Headless isolated sessions, visible/live sessions, real-profile sessions after approval, proxy/PAC routing |
+| `scripts/prune-artifacts.mjs` | Delete run/session-meta directories past an age or count limit | Reclaiming disk under `.octocode/tmp/chrome-devtools/` — `--cleanup` only stops Chrome, it never deletes past artifacts |
 | `scripts/cdp-sandbox.mjs` | Run generated scripts through Node permissions with isolated output/session metadata | Default execution path for untrusted one-off CDP scripts |
 | `scripts/cdp-runner.mjs` | Attach to a target and provide the `run(cdp)` API | Trusted local iteration, target listing, target selection, retry metadata |
 | `scripts/cdp-template.mjs` | Baseline `export async function run(cdp)` script | Starting point for network/console/log evidence collection |
@@ -535,10 +316,12 @@ If a run fails or is flaky:
 | `scripts/undercover.mjs` | Apply and verify headless-fingerprint masking (27 evasions) | One guarded retry for public bot-wall triage before visible user gate |
 | `scripts/human-input.mjs` | Build Bezier mouse / WPM typing / scroll as trusted CDP Input event sequences | Interaction on targets where behavioral (not just fingerprint) anti-bot checks matter |
 | `scripts/eval-undercover.mjs` | Deterministic checks: human-input builder assertions (no browser) + real headless-Chrome stealth self-test against a `data:` URL | Run after changing `undercover.mjs`/`human-input.mjs`; no third-party site dependency |
+| `scripts/eval-actionability.mjs`, `scripts/eval-actionability-diagnostics.mjs`, `scripts/eval-storage-cookies.mjs`, `scripts/eval-network-har-fetch.mjs`, `scripts/eval-scrape-graph-handoff.mjs`, `scripts/eval-prune-artifacts.mjs` | Deterministic self-checks for actionability, storage/cookie redaction, HAR+fetch interception, scrape-graph handoff, and artifact retention | Run after touching the matching `examples/*.mjs` or `scripts/prune-artifacts.mjs` |
 | `scripts/octocode-chrome-devtools.vpn.example.json` | Example proxy config | Copying the shape of `.octocode/chrome-devtools.json` |
 | `examples/live-har-monitor.mjs` | Visible-tab monitor that writes HAR, NDJSON, summary, and resource timing files | Letting a user browse while collecting bounded network/perf evidence |
 | `examples/har-pager.mjs` | Compact HAR reader with filters and pages | Reviewing large HAR files without loading all entries into agent context |
-| `examples/dom-operations-check.mjs` | Selector actionability and optional click/fill with DOM/a11y facts | Checking whether an element exists, is visible, stable, covered, or operable |
+| `examples/page-snapshot.mjs` | Accessibility-tree snapshot with short, stable refs (`e1`, `e2`, ...) | Targeting elements without writing a CSS selector — feeds `DOM_REF` on `dom-operations-check.mjs` |
+| `examples/dom-operations-check.mjs` | Selector- or ref-based actionability and optional click/fill with DOM/a11y facts; emits `[CODE]` on success | Checking whether an element exists, is visible, stable, covered, or operable; producing a reusable locator |
 | `examples/api-replay.mjs` | Generic HTTP/API replay helper | Browser-discover-to-curl/API pattern for website data extraction with non-secret request data |
 | `examples/stealth-check.mjs` | Apply stealth, navigate, self-test | Full launch → patch → navigate → verify flow against a real detection site |
 
@@ -559,7 +342,7 @@ node "$SKILL_DIR/scripts/open-browser.mjs" --port "$PORT" --cleanup
 Session metadata location, shared by all runs on the same port:
 
 ```bash
-.octocode/chrome-devtools/session-meta/port-$PORT/
+.octocode/tmp/chrome-devtools/session-meta/port-$PORT/
 ```
 
 Important files:
@@ -572,7 +355,8 @@ Important files:
 
 ## Reference Files
 
-- `references/intents.md`
+- `references/intents.md` — router: which detail file for which intent
+- `references/cdp-domain-map.md` — exact CDP domain/method per need
 - `references/intents-debug.md`
 - `references/intents-automation.md`
 - `references/intents-auth.md`
@@ -581,5 +365,8 @@ Important files:
 - `references/intents-storage.md`
 - `references/chrome-flags.md`
 - `references/recovery.md`
-- `references/har-playwright.md`
-- `examples/README.md`
+- `references/har-capture.md`
+- `references/cdp-agent.md` — domain-enable order and session gotchas
+- `references/cookie-bridge.md` — cookie transfer design, before `cookie-bridge.mjs`
+- `references/script-patterns.md`, `-async.md`, `-browser.md`, `-observe.md`, `-special.md` — reusable `run(cdp)` snippets
+- `examples/README.md` — runnable demos, including the webmcp intent

@@ -15,9 +15,9 @@ Inject observers before navigation when possible. Feature-detect PerformanceObse
 Use Accessibility tree plus DOM role/name/label checks. Report selectors and impact; avoid generic dumps.
 
 ## Heap Memory
-Use bounded heap snapshots/samples. Compare before/after action only when a leak hypothesis exists.
+`HeapProfiler.enable` + `HeapProfiler.takeHeapSnapshot`, collecting chunks via `HeapProfiler.addHeapSnapshotChunk`. Compare before/after action only when a leak hypothesis exists.
 
 ## Security Audit
-Inspect headers, CSP, mixed content, TLS, cookie flags by name, storage risks, and third-party script origins without secret values.
+Enable `Security`/`Audits` and attach listeners before navigation, same as Network/Console. What to inspect: `references/intents-inspect.md#security`; exact methods: `references/cdp-domain-map.md`.
 
 Next: recovery table in `references/recovery.md` when signals conflict or disappear.

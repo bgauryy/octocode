@@ -12,7 +12,7 @@ Start from the intent detail file, then load at most one pattern detail file.
 | websockets, resource search, file upload, screenshots/PDFs, shadow DOM, source maps | `references/script-patterns-browser.md` |
 | network/console observation, performance, web vitals, DOM/a11y, heap, security | `references/script-patterns-observe.md` |
 | storage, consent, full-audit composition | `references/script-patterns-special.md` |
-| HAR export, Playwright comparison, API/curl replay, token budgets | `references/har-playwright.md` |
+| HAR export, API/curl replay, token budgets | `references/har-capture.md` |
 
 ## Output Rule
 Write files only under `cdp.outputDir`; emit paths with a prefix such as `[SCREENSHOT]`, `[SOURCEMAP]`, or `[ARTIFACT]`.

@@ -50,6 +50,7 @@ const PORT         = getArg('--port', '9222');
 const LIST_TARGETS = hasFlag('--list-targets');
 const scriptArg    = argv.find(a => !a.startsWith('--') && (a.endsWith('.mjs') || a.endsWith('.js')));
 const SCRIPT_TIMEOUT_MS = parseInt(getArg('--script-timeout', '300000'), 10);
+const VERBOSE      = hasFlag('--verbose');
 
 if (hasFlag('--help') || hasFlag('-h')) {
   console.error('[CDP_SANDBOX] Usage: node cdp-sandbox.mjs <script.mjs> [--port 9222] [options]');
@@ -79,9 +80,9 @@ function octocodeOutputBase() {
 
 const OCTOCODE_OUTPUT_BASE = octocodeOutputBase();
 const timestamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
-const OUTPUT_DIR = join(OCTOCODE_OUTPUT_BASE, 'chrome-devtools', timestamp);
+const OUTPUT_DIR = join(OCTOCODE_OUTPUT_BASE, 'tmp', 'chrome-devtools', timestamp);
 mkdirSync(OUTPUT_DIR, { recursive: true, mode: 0o700 });
-const SESSION_META_DIR = join(OCTOCODE_OUTPUT_BASE, 'chrome-devtools', 'session-meta', `port-${PORT}`);
+const SESSION_META_DIR = join(OCTOCODE_OUTPUT_BASE, 'tmp', 'chrome-devtools', 'session-meta', `port-${PORT}`);
 mkdirSync(SESSION_META_DIR, { recursive: true, mode: 0o700 });
 
 const safePath = (p) => { try { return realpathSync(p); } catch { return p; } };
@@ -94,7 +95,7 @@ const CONFIG_NODE_MODULES_ROOT_REAL = safePath(CONFIG_NODE_MODULES_ROOT);
 const OUTPUT_REAL = safePath(OUTPUT_DIR);
 const SESSION_META_REAL = safePath(SESSION_META_DIR);
 
-const HELPERS = ['sourcemap-resolver.mjs', 'undercover.mjs', 'human-input.mjs'];
+const HELPERS = ['sourcemap-resolver.mjs', 'undercover.mjs', 'human-input.mjs', 'dom-actionability.mjs'];
 for (const helper of HELPERS) {
   const src = resolve(__dir, helper);
   const dst = join(TMPDIR_RAW, helper);
@@ -153,9 +154,17 @@ const SCRIPT_ENV_ALLOWLIST = [
   'SLOW_MS',
   'MAX_STDOUT_ITEMS',
   'DOM_SELECTOR',
+  'DOM_REF',
   'DOM_ACTION',
   'DOM_VALUE',
   'DOM_STABILITY_MS',
+  'SNAPSHOT_DEPTH',
+  'SNAPSHOT_MAX',
+  'WEBMCP_ACTION',
+  'WEBMCP_TOOL',
+  'WEBMCP_INPUT',
+  'WEBMCP_FRAME',
+  'WEBMCP_WAIT_MS',
 ];
 const scriptEnv = Object.fromEntries(
   SCRIPT_ENV_ALLOWLIST
@@ -170,22 +179,27 @@ const childEnv = {
   TMP: OCTOCODE_OUTPUT_BASE,
   TEMP: OCTOCODE_OUTPUT_BASE,
   ...scriptEnv,
+  ...(VERBOSE ? { CDP_VERBOSE: '1' } : {}),
   ...(process.env.SystemRoot ? { SystemRoot: process.env.SystemRoot } : {}),
   ...(process.env.WINDIR ? { WINDIR: process.env.WINDIR } : {}),
 };
 
-console.error('[CDP_SANDBOX] Launching runner in sandbox (Node.js Permission Model)');
-console.error(`[CDP_SANDBOX]  Output dir:    ${OUTPUT_DIR}`);
-console.error(`[CDP_SANDBOX]  Session meta:  ${SESSION_META_DIR}`);
-console.error(`[CDP_SANDBOX]  FS write:      output dir + session meta dir (mode 0700)`);
-console.error(`[CDP_SANDBOX]  FS read:       .octocode output tree + runner`);
-console.error(`[CDP_SANDBOX]  child_process: blocked`);
-console.error(`[CDP_SANDBOX]  workers:       blocked`);
-console.error(`[CDP_SANDBOX]  env:           minimal allowlist (parent env not inherited)`);
-console.error(`[CDP_SANDBOX]  Node:           ${process.versions.node}`);
-console.error(`[CDP_SANDBOX]  Network:       CDP localhost only; --allow-net=${allowNet ? 'yes (Node 25+)' : 'skipped (Node <25)'}`);
-if (!allowNet) {
-  console.error('[CDP_SANDBOX]  Note: Node 22–24 grant net under --permission; Node 25+ requires --allow-net');
+if (VERBOSE) {
+  console.error('[CDP_SANDBOX] Launching runner in sandbox (Node.js Permission Model)');
+  console.error(`[CDP_SANDBOX]  Output dir:    ${OUTPUT_DIR}`);
+  console.error(`[CDP_SANDBOX]  Session meta:  ${SESSION_META_DIR}`);
+  console.error(`[CDP_SANDBOX]  FS write:      output dir + session meta dir (mode 0700)`);
+  console.error(`[CDP_SANDBOX]  FS read:       .octocode output tree + runner`);
+  console.error(`[CDP_SANDBOX]  child_process: blocked`);
+  console.error(`[CDP_SANDBOX]  workers:       blocked`);
+  console.error(`[CDP_SANDBOX]  env:           minimal allowlist (parent env not inherited)`);
+  console.error(`[CDP_SANDBOX]  Node:           ${process.versions.node}`);
+  console.error(`[CDP_SANDBOX]  Network:       CDP localhost only; --allow-net=${allowNet ? 'yes (Node 25+)' : 'skipped (Node <25)'}`);
+  if (!allowNet) {
+    console.error('[CDP_SANDBOX]  Note: Node 22–24 grant net under --permission; Node 25+ requires --allow-net');
+  }
+} else {
+  console.error(`[CDP_SANDBOX] sandboxed (node ${process.versions.node}, fs scoped, net=CDP-only) — rerun with --verbose for full detail`);
 }
 
 const child = spawn(process.execPath, [...permFlags, RUNNER_REAL, ...spawnArgv], {

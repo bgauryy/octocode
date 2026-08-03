@@ -34,7 +34,7 @@ Artifacts are written under the sandbox output directory printed by `[ARTIFACT]`
 
 ```bash
 node skills/octocode-chrome-devtools/examples/har-pager.mjs \
-  .octocode/chrome-devtools/<run>/live-network.har \
+  .octocode/tmp/chrome-devtools/<run>/live-network.har \
   --page 1 \
   --page-size 25
 ```
@@ -114,7 +114,7 @@ node skills/octocode-chrome-devtools/scripts/cdp-sandbox.mjs \
   --port 9222 --new-tab "https://example.com" --timeout 60000
 ```
 
-It classifies likely causes: blocked, JS-shell, selector-mismatch, consent-region, or timing-hydration; writes JSON plus a screenshot for proof.
+It classifies likely causes: blocked, JS-shell, selector-mismatch, consent-region, or timing-hydration; a healthy page with no matching anomaly reports `no-anomaly-detected` instead of falsely blaming the selector. Writes JSON plus a screenshot for proof.
 
 ## 6. Cookie and storage audit
 
@@ -175,11 +175,61 @@ node skills/octocode-chrome-devtools/scripts/cdp-sandbox.mjs \
 
 Applies `scripts/undercover.mjs`'s stealth patches, navigates to `STEALTH_CHECK_URL` (default: `bot.sannysoft.com`), then self-tests with `verifyStealth`. Writes `stealth-check.json` with the full per-signal breakdown. Run this before scraping a site likely to fingerprint headless Chrome — a `MOSTLY_CLEAN`/`DETECTED` result means switch to a visible user gate instead.
 
-## Playwright vs CDP quick rule
+## 11. Discover and invoke page-declared WebMCP tools
+
+Workflow, fallback behavior, and the mutation-risk gate are covered in `references/intents-automation.md#webmcp` — this is the runnable command form:
+
+```bash
+node skills/octocode-chrome-devtools/scripts/open-browser.mjs \
+  --headless --port 9222 --enableFeatures WebMCP --url "https://example.com"
+
+WEBMCP_ACTION=list node skills/octocode-chrome-devtools/scripts/cdp-sandbox.mjs \
+  skills/octocode-chrome-devtools/examples/webmcp-tools.mjs \
+  --port 9222 --target-url "example.com" --keep-tab
+
+WEBMCP_ACTION=invoke WEBMCP_TOOL=<tool-name> WEBMCP_INPUT='{"...":"..."}' \
+node skills/octocode-chrome-devtools/scripts/cdp-sandbox.mjs \
+  skills/octocode-chrome-devtools/examples/webmcp-tools.mjs \
+  --port 9222 --target-url "example.com" --keep-tab
+```
+
+Tool list and invocation payloads land in `webmcp-tools.json`/`webmcp-invocation.json` under the sandbox output dir.
+
+### Self-check (skill maintainers, not general page use)
+
+`examples/webmcp-tools.check.mjs` is a deterministic TDD grader, not a page-inspection tool: it launches an isolated Chrome against the bundled fixture (`examples/fixtures/webmcp-fixture.html`, which registers a real `echo_price` tool) and asserts discovery, invocation, and the no-tools fallback all behave correctly. Run it after touching `webmcp-tools.mjs`, `open-browser.mjs`, or `cdp-sandbox.mjs`:
+
+```bash
+node skills/octocode-chrome-devtools/examples/webmcp-tools.check.mjs --port 9245
+```
+
+Exit 0 and `[PASS]` on all lines means the intent still works end to end; any `[FAIL]` is a real regression, not a flaky page.
+
+## 12. Act on a page snapshot instead of guessing a selector
+
+Capture a compact, ref-based view of the page's interactive elements — no CSS selector needed:
+
+```bash
+node skills/octocode-chrome-devtools/scripts/cdp-sandbox.mjs \
+  skills/octocode-chrome-devtools/examples/page-snapshot.mjs \
+  --port 9222 --target-url "example.com" --keep-tab
+```
+
+`[SNAPSHOT] [e9] link "Hacker News"` — pass that ref straight to `dom-operations-check.mjs`:
+
+```bash
+DOM_REF=e9 DOM_ACTION=click \
+node skills/octocode-chrome-devtools/scripts/cdp-sandbox.mjs \
+  skills/octocode-chrome-devtools/examples/dom-operations-check.mjs \
+  --port 9222 --keep-tab
+```
+
+Refs are backed by `backendDOMNodeId` — stable within the current page, invalid after navigation (take a new snapshot). A successful `click`/`fill` also prints `[CODE] locator=... action=...` with the resolved unique path, for promoting into a maintained test suite.
+
+## Scope
 
 - Use these CDP examples for live forensics, manual browsing, console/network/perf evidence, and current DOM state.
-- Use Playwright for maintained tests, locators/assertions/retries, cross-browser checks, `recordHar`, and `routeFromHAR` replay.
-- Hybrid: debug with CDP, save HAR/summary artifacts, then promote stable flows into Playwright/API fixtures.
+- Not a maintained test suite: no locators/assertions/retries/cross-browser coverage. Promote a stable flow into one once it's proven here.
 
 ## Token strategy
 

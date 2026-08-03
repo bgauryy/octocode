@@ -1,5 +1,8 @@
 import { readFileSync, writeFileSync } from 'fs';
 import { join, resolve } from 'path';
+import { pathToFileURL } from 'url';
+
+const { ACTIONABILITY_HELPERS_JS, waitForPageReady } = await import(pathToFileURL(resolve(process.cwd(), '.octocode', 'dom-actionability.mjs')).href);
 
 const argv = process.argv.slice(2);
 const getArg = (flag, def = '') => { const i = argv.indexOf(flag); return i >= 0 && argv[i + 1] ? argv[i + 1] : def; };
@@ -30,6 +33,11 @@ export async function run(cdp) {
     await cdp.send('Page.navigate', { url: NAVIGATE_URL });
     await new Promise(r => setTimeout(r, 2500));
   }
+  // Also covers attaching to an already-launched tab (no --new-tab/--url here)
+  // that may still be on Chrome's internal about:blank from a fresh launch.
+  const ready = await waitForPageReady(cdp);
+  if (!ready) console.log('[FINDING] PAGE_NOT_FULLY_LOADED document.readyState never reached "complete" — actionability rows below may be incomplete');
+
   const graphSelectors = selectorsFromGraph(GRAPH);
   const selectorList = [...new Set([...graphSelectors, ...SELECTORS.split(',').map(s => s.trim()).filter(Boolean)])].slice(0, LIMIT);
   const result = await cdp.send('Runtime.evaluate', {
@@ -38,6 +46,7 @@ export async function run(cdp) {
     expression: `(async () => {
       const selectors = ${JSON.stringify(selectorList)};
       const sleep = ms => new Promise(r => setTimeout(r, ms));
+      ${ACTIONABILITY_HELPERS_JS}
       const short = v => String(v ?? '').replace(/\s+/g, ' ').trim().slice(0, 160);
       function nameOf(el) {
         const labelledBy = el.getAttribute('aria-labelledby');
@@ -66,8 +75,8 @@ export async function run(cdp) {
           const x = r2.left + r2.width / 2, y = r2.top + r2.height / 2;
           const hit = document.elementFromPoint(x, y);
           const stable = Math.abs(r1.x-r2.x)+Math.abs(r1.y-r2.y)+Math.abs(r1.width-r2.width)+Math.abs(r1.height-r2.height) < 1;
-          const visible = Boolean(r2.width && r2.height && style.display !== 'none' && style.visibility !== 'hidden' && Number(style.opacity || '1') > 0);
-          const disabled = Boolean(el.disabled || el.getAttribute('aria-disabled') === 'true' || el.closest('[inert]'));
+          const visible = isVisible(el, r2, style);
+          const disabled = isDisabled(el);
           const covered = Boolean(hit && hit !== el && !el.contains(hit));
           rows.push({ selector, path: pathOf(el), tag: el.localName, role: el.getAttribute('role') || el.localName, name: nameOf(el), text: short(el.innerText || el.textContent), href: el.href || null, type: el.getAttribute('type'), visible, disabled, stable, covered, canOperate: visible && !disabled && stable && !covered, bbox: { x: Math.round(r2.x), y: Math.round(r2.y), width: Math.round(r2.width), height: Math.round(r2.height) } });
         }

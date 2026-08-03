@@ -1,0 +1,34 @@
+[
+  { "pose": [
+    { "joint": "Spine", "movements": { "lateralFlexion": 18, "rotation": 12, "flexion": 5 } },
+    { "joint": "UpperLeg_R", "movements": { "flexion": 25 } }, { "joint": "LowerLeg_R", "movements": { "flexion": 35 } },
+    { "joint": "UpperLeg_L", "movements": { "flexion": 30 } }, { "joint": "LowerLeg_L", "movements": { "flexion": 45 } },
+    { "joint": "UpperArm_R", "movements": { "abduction": 70, "flexion": 40 } }, { "joint": "Forearm_R", "movements": { "flexion": 70 } },
+    { "joint": "UpperArm_L", "movements": { "abduction": 110, "flexion": 10 } }, { "joint": "Forearm_L", "movements": { "flexion": 90 } },
+    { "joint": "Head", "movements": { "rotation": 15 } }
+  ] },
+  { "pose": [
+    { "joint": "Spine", "movements": { "flexion": 12, "lateralFlexion": 0, "rotation": 0 } },
+    { "joint": "UpperLeg_R", "movements": { "flexion": 35 } }, { "joint": "LowerLeg_R", "movements": { "flexion": 55 } },
+    { "joint": "UpperLeg_L", "movements": { "flexion": 35 } }, { "joint": "LowerLeg_L", "movements": { "flexion": 55 } },
+    { "joint": "UpperArm_R", "movements": { "abduction": 30, "flexion": 50 } }, { "joint": "Forearm_R", "movements": { "flexion": 80 } },
+    { "joint": "UpperArm_L", "movements": { "abduction": 30, "flexion": 50 } }, { "joint": "Forearm_L", "movements": { "flexion": 80 } },
+    { "joint": "Head", "movements": { "rotation": 0, "flexion": 8 } }
+  ] },
+  { "pose": [
+    { "joint": "Spine", "movements": { "lateralFlexion": -18, "rotation": -12, "flexion": 5 } },
+    { "joint": "UpperLeg_L", "movements": { "flexion": 25 } }, { "joint": "LowerLeg_L", "movements": { "flexion": 35 } },
+    { "joint": "UpperLeg_R", "movements": { "flexion": 30 } }, { "joint": "LowerLeg_R", "movements": { "flexion": 45 } },
+    { "joint": "UpperArm_L", "movements": { "abduction": 70, "flexion": 40 } }, { "joint": "Forearm_L", "movements": { "flexion": 70 } },
+    { "joint": "UpperArm_R", "movements": { "abduction": 110, "flexion": 10 } }, { "joint": "Forearm_R", "movements": { "flexion": 90 } },
+    { "joint": "Head", "movements": { "rotation": -15 } }
+  ] },
+  { "pose": [
+    { "joint": "Spine", "movements": { "extension": 6, "lateralFlexion": 0, "rotation": 0 } },
+    { "joint": "UpperLeg_R", "movements": { "flexion": 10 } }, { "joint": "LowerLeg_R", "movements": { "flexion": 12 } },
+    { "joint": "UpperLeg_L", "movements": { "flexion": 10 } }, { "joint": "LowerLeg_L", "movements": { "flexion": 12 } },
+    { "joint": "UpperArm_R", "movements": { "abduction": 60, "flexion": 20 } }, { "joint": "Forearm_R", "movements": { "flexion": 45 } },
+    { "joint": "UpperArm_L", "movements": { "abduction": 60, "flexion": 20 } }, { "joint": "Forearm_L", "movements": { "flexion": 45 } },
+    { "joint": "Head", "movements": { "extension": 6 } }
+  ] }
+]

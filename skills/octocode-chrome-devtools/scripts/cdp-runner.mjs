@@ -33,6 +33,7 @@ const TARGET_TYPE = getArg('--target-type', '');
 const TIMEOUT     = parseInt(getArg('--timeout', '60000'), 10);
 const KEEP_TAB    = hasFlag('--keep-tab');
 const LIST_TARGETS = hasFlag('--list-targets');
+const VERBOSE     = process.env.CDP_VERBOSE === '1';
 
 if (hasFlag('--help') || hasFlag('-h')) {
   console.error('[CDP_RUNNER] Usage: node cdp-runner.mjs <script.mjs> [--port 9222] [--new-tab <url>] [--target <id>] [--target-url <pattern>] [--target-type <type>] [--list-targets] [--keep-tab]');
@@ -192,9 +193,9 @@ async function main() {
     console.error(`[CDP_RUNNER] Chrome not responding on port ${PORT}. Run open-browser.mjs first.`);
     process.exit(1);
   }
-  console.error(`[CDP_RUNNER] Chrome: ${version.Browser}`);
+  if (VERBOSE) console.error(`[CDP_RUNNER] Chrome: ${version.Browser}`);
   const sessionMetaDir = process.env.CDP_SESSION_META_DIR ?? (() => {
-    const dir = join(OCTOCODE_OUTPUT_BASE, 'chrome-devtools', 'session-meta', `port-${PORT}`);
+    const dir = join(OCTOCODE_OUTPUT_BASE, 'tmp', 'chrome-devtools', 'session-meta', `port-${PORT}`);
     mkdirSync(dir, { recursive: true, mode: 0o700 });
     return dir;
   })();
@@ -294,7 +295,7 @@ async function main() {
 
   const outputDir = process.env.CDP_OUTPUT_DIR ?? (() => {
     const ts  = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
-    const dir = join(OCTOCODE_OUTPUT_BASE, 'chrome-devtools', ts);
+    const dir = join(OCTOCODE_OUTPUT_BASE, 'tmp', 'chrome-devtools', ts);
     mkdirSync(dir, { recursive: true });
     return dir;
   })();
@@ -407,13 +408,19 @@ async function main() {
     writeJson(cdp.sessionMetaFile, next);
     return next;
   };
-  console.error(`[CDP_RUNNER] Output dir: ${outputDir}`);
-  console.error(`[CDP_RUNNER] Session meta dir: ${sessionMetaDir}`);
-  console.error(`[CDP_RUNNER] Connected - running ${scriptArg}`);
+  if (VERBOSE) {
+    console.error(`[CDP_RUNNER] Output dir: ${outputDir}`);
+    console.error(`[CDP_RUNNER] Session meta dir: ${sessionMetaDir}`);
+    console.error(`[CDP_RUNNER] Connected - running ${scriptArg}`);
+  }
 
   // Scripts use CDP over local Chrome only. Blocking arbitrary outbound
   // fetch/WebSocket keeps generated examples from becoming network clients;
   // use browser-discovered API replay outside this runner when needed.
+  // Deliberate exception: sourcemap-resolver.mjs fetches .map files via
+  // Node's http/https core modules (not globalThis.fetch), which this
+  // override does not touch — required since source maps live at the
+  // page's own real domain, not localhost.
   const _origFetch = globalThis.fetch;
   const _OrigWS    = globalThis.WebSocket;
   function isLocalhost(url) {
@@ -484,7 +491,7 @@ async function main() {
     await mod.run(cdp);
     cdp.writeSessionMetadata({ lastRunStatus: 'success' });
     finalizeRun('success');
-    console.error('[CDP_RUNNER] Script completed successfully');
+    if (VERBOSE) console.error('[CDP_RUNNER] Script completed successfully');
   } catch (e) {
     const isCdpError = /CDP error \[|CDP timeout/.test(e.message);
     if (isCdpError) {

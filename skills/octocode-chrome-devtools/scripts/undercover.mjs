@@ -63,7 +63,14 @@ export async function applyStealthPatches(cdp, opts = {}) {
       try { Object.defineProperty(obj, prop, { get: fn, configurable: true, enumerable: true }); } catch (_) {}
     }
 
-    def(navigator, 'webdriver',           () => undefined);
+    // Real browsers expose webdriver on Navigator.prototype (inherited), not
+    // as an own-property of the navigator instance. Detectors that check
+    // own-properties specifically (e.g. lodash _.has(navigator, 'webdriver'),
+    // used by bot.sannysoft.com's "WebDriver (New)" test) pass on a genuine
+    // browser for exactly that reason -- defining it on the instance instead
+    // creates the own-property the detector is looking for, even though the
+    // value itself reads as falsy either way.
+    def(Navigator.prototype, 'webdriver', () => undefined);
     def(navigator, 'vendor',              () => 'Google Inc.');
     def(navigator, 'platform',            () => 'Win32');
     def(navigator, 'maxTouchPoints',      () => 0);
@@ -180,7 +187,7 @@ export async function applyStealthPatches(cdp, opts = {}) {
       Object.defineProperty(HTMLIFrameElement.prototype, 'contentWindow', {
         get: function() {
           const w = _og.call(this);
-          if (w) { try { Object.defineProperty(w.navigator, 'webdriver', { get: () => undefined }); } catch(_){} }
+          if (w) { try { Object.defineProperty(w.Navigator.prototype, 'webdriver', { get: () => undefined, configurable: true }); } catch(_){} }
           return w;
         },
         configurable: true,

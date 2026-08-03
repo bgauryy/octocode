@@ -18,6 +18,6 @@ Target auto-attach creates child `sessionId`s. Route worker/iframe commands with
 After `Debugger.enable`, call `Debugger.setSkipAllPauses({skip:true})`. Add a dialog guard before risky navigation. Do not output secrets.
 
 ## Common Domains
-Target, Page, Runtime, DOM, CSS, Input, Network, Fetch, Emulation, Security, Debugger, Performance, Log, Browser, Storage, ServiceWorker, Accessibility.
+Target, Page, Runtime, DOM, CSS, Input, Network, Fetch, Emulation, Security, Debugger, Performance, Log, Browser, Storage, ServiceWorker, Accessibility, Audits, DOMSnapshot, HeapProfiler.
 
 Next: for launch flags load `references/chrome-flags.md`; for recovery load `references/recovery.md`.
