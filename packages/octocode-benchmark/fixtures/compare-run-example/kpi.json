@@ -1,0 +1,150 @@
+{
+  "run": "compare-run-example",
+  "date": "2026-08-02",
+  "subjectSha": "fixture-not-a-real-run",
+  "suiteVersion": 2,
+  "questionBankId": "synthetic-fixture-bank-v2",
+  "provenance": {
+    "schemaVersion": 2,
+    "harness": "synthetic-fixture-harness",
+    "harnessVersion": "fixture-only",
+    "arms": {
+      "A": {
+        "model": "synthetic-model-a",
+        "provider": "fixture-provider",
+        "modelSettings": { "temperature": 0 },
+        "runner": "fixture-runner",
+        "runnerVersion": "fixture-only",
+        "configHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "toolSurface": "synthetic-baseline",
+        "toolVersion": "fixture-only"
+      },
+      "B": {
+        "model": "synthetic-model-b",
+        "provider": "fixture-provider",
+        "modelSettings": { "temperature": 0 },
+        "runner": "fixture-runner",
+        "runnerVersion": "fixture-only",
+        "configHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "toolSurface": "synthetic-treatment",
+        "toolVersion": "fixture-only"
+      }
+    }
+  },
+  "baselines": { "example-baseline": "fixture" },
+  "agentTotals": {
+    "fixture-suite": {
+      "A": { "agentTokens": 100, "toolUses": 1, "wallClockSec": 1 },
+      "B": { "agentTokens": 80,  "toolUses": 1, "wallClockSec": 1 }
+    }
+  },
+  "questions": [
+    {
+      "suite": "fixture-suite",
+      "q": 1,
+      "taskId": "fixture-contract-task",
+      "topic": "contract fixture",
+      "difficulty": "easy",
+      "category": "contract-fixture",
+      "taskStatus": "valid",
+      "targetTools": ["ghSearchCode"],
+      "contaminated": false,
+      "arms": {
+        "A": {
+          "status": "completed",
+          "correctness": 8,
+          "precision": 8,
+          "recall": 7,
+          "judgeStd": 0.5,
+          "flow": 4,
+          "rawBytes": 500,
+          "readBytes": 400,
+          "runnerTokens": 100,
+          "tokenSource": "runner",
+          "estTokens": 100,
+          "calls": 1,
+          "falseConfidence": false,
+          "judgeNote": "Fixture baseline — correct with minor gap in recall.",
+          "vr": 0.764,
+          "vrpt": 764.0
+        },
+        "B": {
+          "status": "completed",
+          "correctness": 9,
+          "precision": 9,
+          "recall": 9,
+          "judgeStd": 0.3,
+          "flow": 5,
+          "rawBytes": 200,
+          "readBytes": 200,
+          "runnerTokens": 80,
+          "tokenSource": "runner",
+          "estTokens": 50,
+          "calls": 1,
+          "falseConfidence": false,
+          "judgeNote": "Fixture treatment — strong across all three dimensions.",
+          "vr": 0.9,
+          "vrpt": 1125.0
+        }
+      }
+    }
+  ],
+  "suiteRollups": {
+    "fixture-suite": {
+      "questionCount": 1,
+      "contaminatedQuestionCount": 0,
+      "invalidQuestionCount": 0,
+      "eligibilityRule": "taskStatus=valid && contaminated=false && arm.status=completed",
+      "scoringVersion": "vrpt-v3",
+      "reqFormula": "median over questions of: 100000 * harmonic_mean(C,P,R)/10 / tokens",
+      "reqPrecision": 1,
+      "arms": {
+        "A": {
+          "eligibleQuestions": 1,
+          "timeoutQuestions": 0,
+          "invalidQuestions": 0,
+          "meanCorrectness": 8.0,
+          "meanPrecision": 8.0,
+          "meanRecall": 7.0,
+          "totalRawBytes": 500,
+          "totalReadBytes": 400,
+          "falseConfidenceCount": 0,
+          "medianVRPT": 764.0,
+          "meanVRPT": 764.0,
+          "medianVR": 0.764,
+          "toolPropertyKPIs": {
+            "readTokensMedian": 100,
+            "readTokensP90": 100,
+            "readTokensCV": 0.0,
+            "rawBytesMedian": 500,
+            "rawBytesP90": 500,
+            "signalRatioMedian": 0.8
+          }
+        },
+        "B": {
+          "eligibleQuestions": 1,
+          "timeoutQuestions": 0,
+          "invalidQuestions": 0,
+          "meanCorrectness": 9.0,
+          "meanPrecision": 9.0,
+          "meanRecall": 9.0,
+          "totalRawBytes": 200,
+          "totalReadBytes": 200,
+          "falseConfidenceCount": 0,
+          "medianVRPT": 1125.0,
+          "meanVRPT": 1125.0,
+          "medianVR": 0.9,
+          "toolPropertyKPIs": {
+            "readTokensMedian": 50,
+            "readTokensP90": 50,
+            "readTokensCV": 0.0,
+            "rawBytesMedian": 200,
+            "rawBytesP90": 200,
+            "signalRatioMedian": 1.0
+          }
+        }
+      },
+      "verdict": "Fixture only — validates shape, not product quality."
+    }
+  }
+}

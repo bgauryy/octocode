@@ -1,0 +1,400 @@
+{
+  "note": "JUDGE-ONLY. Solvers must never read this.",
+  "suiteId": "octocode-vs-ast-grep",
+  "suiteVersion": 2,
+  "questionBankId": "ast-grep-react-v2",
+  "questionBankHash": "9ba308e992cb2a6eb56d4a247b0c2e3cd5df3883282d34f2524053f2c54b5259",
+  "questionBankHashNote": "sha256 of questions.md (solver-facing). Preflight MUST recompute and match before freezing.",
+  "corpus": {
+    "path": "packages/octocode-benchmark/context/react",
+    "repo": "react/react (formerly facebook/react; moved to the React Foundation org \u2014 both URLs resolve)",
+    "commit": "9ceb1e7d9e20bd0302cf6ab31b038c5ec673178d",
+    "commitDate": "2026-07-27",
+    "verify": "git -C $CORPUS rev-parse HEAD must equal the pinned commit before ANY run; if it moved, re-seed every oracle below on the new SHA before judging.",
+    "clone": "git clone https://github.com/react/react.git packages/octocode-benchmark/context/react && git -C packages/octocode-benchmark/context/react checkout 9ceb1e7d9e20bd0302cf6ab31b038c5ec673178d",
+    "properties": "Flow-typed .js (~1,873 files under packages/). Parser behavior on this real-world dirty input is measured during each run and reconciled after both arm outputs are sealed; no solver may assume the retained v1 parser finding."
+  },
+  "verificationCaveat": "Version 2 retains judge-only evidence seeded 2026-08-02 on the pinned commit with ast-grep 0.45.0 and the local octocode build. Q8's function-count oracle is corrected from the retained v1 result evidence. Before scoring v2, verify the SHA, run both arms independently under the sealed-arm contract, and let an independent judge compare and reconcile the outputs. Parser degradation observed in v1 remains a measured historical finding, not a solver assumption.",
+  "harnessRules": {
+    "note": "Gotchas that produce false divergences \u2014 HARNESS errors, not tool findings. Apply before comparing counts.",
+    "rules": [
+      "Line-number convention: ast-grep --json range.start.line is 0-BASED; octocode match lines are 1-BASED. Normalize (+1 on ast-grep) before diffing file:line sets.",
+      "File-set scope MUST be pinned: ast-grep '-l js' scans only .js; octocode structural with no include scans every supported extension (.ts test files too). Use include:[\"*.js\"] on octocode \u2014 observed +8 phantom divergence in packages/react/src from one .ts test file.",
+      "Counting runs MUST lift octocode caps: maxFiles/itemsPerPage/maxMatchesPerFile well above the expected result size; verify stats.capReached is absent.",
+      "Metavar syntax: $X = one node, $$$X = list. octocode REJECTS $$X with a remediation message (2026-08-02+); ast-grep treats it as a never-matching literal.",
+      "octocode relative paths resolve against process cwd \u2014 always pass ABSOLUTE paths ($CORPUS/...). (A nonexistent path now errors loudly on every prefilter branch \u2014 fixed 2026-08-02; before that, literal-anchored patterns returned a silent 0.)",
+      "Flow parser recovery: v1 measured different behavior inside Flow-annotated regions. In v2, do not assume a direction or magnitude; inspect the sealed outputs and suspicious spans, then attribute any observed q3/q5 divergence.",
+      "Modifier semantics differ by design: octocode's bare `function $NAME(...)` does NOT match `async function` (explicit-modifier matching); ast-grep's does. Both match `export function` via the inner declaration node. Reconcile with explicit modifier patterns or a modifier-agnostic `kind: function_declaration` rule.",
+      "ast-grep 0.45 DOES ship yaml/json/markdown grammars AND an `outline` subcommand \u2014 never claim it lacks them; verify any grammar-gap claim at run time.",
+      "Time both arms per query (cold process) and record wall-clock as a guardrail; rerun any slow batch query solo before concluding failure."
+    ]
+  },
+  "questions": {
+    "q1": {
+      "task": {
+        "taskId": "octocode-vs-ast-grep-v2-q1",
+        "difficulty": "easy",
+        "category": "structural-count",
+        "repositories": [
+          {
+            "repository": "react/react",
+            "commitSha": "9ceb1e7d9e20bd0302cf6ab31b038c5ec673178d"
+          }
+        ],
+        "duplicateFamily": "react-use-state-call-count",
+        "contamination": {
+          "status": "control-required",
+          "cutoff": "Exclude Q1 from scored comparison if the no-tools control reports the exact count for the pinned scope; annotate partial prior knowledge without excluding."
+        },
+        "budget": {
+          "maxToolCalls": 3,
+          "maxPages": 10,
+          "timeoutMs": 120000
+        }
+      },
+      "kind": "parity-count",
+      "oracle": "useState($$$ARGS) in $CORPUS/packages/react-reconciler/src, *.js scope",
+      "expected": 274,
+      "seededParity": "ast-grep 274 == octocode 274 (exact)",
+      "scoring": "1.0 exact count; 0.5 correct method with a capped count reported AS capped; 0 silent undercount.",
+      "lane": "parity",
+      "capabilityPoint": "Structural call-shape parity: both arms must run a real AST pattern (useState($$$ARGS)), counts must match exactly; caps lifted.",
+      "expectedWorkflow": "Apply the assigned arm's structural call-shape capability to the exact pinned directory and .js scope, consume the complete result, and report the count with completion and cost evidence.",
+      "targetTools": [
+        "structural-pattern-search"
+      ]
+    },
+    "q2": {
+      "task": {
+        "taskId": "octocode-vs-ast-grep-v2-q2",
+        "difficulty": "medium",
+        "category": "structural-set",
+        "repositories": [
+          {
+            "repository": "react/react",
+            "commitSha": "9ceb1e7d9e20bd0302cf6ab31b038c5ec673178d"
+          }
+        ],
+        "duplicateFamily": "react-member-push-call-set",
+        "contamination": {
+          "status": "control-required",
+          "cutoff": "Exclude Q2 from scored comparison if the no-tools control supplies the complete normalized file:line set for the pinned scope; annotate partial prior knowledge without excluding."
+        },
+        "budget": {
+          "maxToolCalls": 5,
+          "maxPages": 20,
+          "timeoutMs": 120000
+        }
+      },
+      "kind": "parity-set",
+      "oracle": "$OBJ.push($$$ARGS) in $CORPUS/packages/react/src, *.js scope",
+      "expected": 50,
+      "seededParity": "ast-grep 50 == octocode 50 with IDENTICAL 1-based file:line sets (after +1 on ast-grep)",
+      "scoring": "1.0 count + set match after normalization; 0.5 count only; 0 unexplained set mismatch.",
+      "lane": "parity",
+      "capabilityPoint": "Exact-set parity: identical 1-based file:line sets after normalization -- catches off-by-one and truncation bugs, not just counts.",
+      "expectedWorkflow": "Run the assigned arm's structural member-call search on the exact pinned scope, consume every result, normalize anchors to 1-based file:line values, then sort and report the complete set.",
+      "targetTools": [
+        "structural-pattern-search"
+      ]
+    },
+    "q3": {
+      "task": {
+        "taskId": "octocode-vs-ast-grep-v2-q3",
+        "difficulty": "hard",
+        "category": "parser-reconciliation",
+        "repositories": [
+          {
+            "repository": "react/react",
+            "commitSha": "9ceb1e7d9e20bd0302cf6ab31b038c5ec673178d"
+          }
+        ],
+        "duplicateFamily": "react-member-push-call-set",
+        "contamination": {
+          "status": "control-required",
+          "cutoff": "Exclude Q3 from scored comparison if the no-tools control supplies both sealed-arm counts and the concrete parser attribution; annotate partial recall of a divergence without excluding."
+        },
+        "budget": {
+          "maxToolCalls": 8,
+          "maxPages": 30,
+          "timeoutMs": 180000
+        }
+      },
+      "kind": "reconciliation",
+      "oracle": "$OBJ.push($$$ARGS) in $CORPUS/packages/react-reconciler/src, *.js scope: ast-grep 342 vs octocode 332",
+      "expectedAttribution": "All 10 ast-grep-only anchors sit on lines containing Flow generic syntax and NO .push call at all \u2014 ReactChildFiber.js:282 (function unwrapThenable<T>(thenable: Thenable<T>)), ReactFiberScope.js:36 (scopedNodes: Array<any>), ReactTestSelectors.js:232/272(x3)/430/587, ReactFiberPerformanceTrack.js:1238/1450. Mechanism: tree-sitter-javascript ERROR-subtree recovery on Flow annotations differs between engines.",
+      "scoring": "Judge only after both arm outputs are sealed. 1.0 per arm for its complete count/anchor set, completion evidence, and inspection of suspicious returned spans; reconciliation credit requires the independent judge to diff the two normalized sets and support the mechanism with >=2 concrete file:line spans. 0 for a solver invoking the other arm, an unspecified cross-check, estimating the other count, or silently omitting discrepant spans.",
+      "lane": "analysis",
+      "capabilityPoint": "Sealed-arm fairness and judge-side reconciliation: each solver uses only its allowed primary arm, reports complete counts/anchors, and inspects suspicious spans; the independent judge attributes the normalized delta.",
+      "expectedWorkflow": "Each solver independently uses only its assigned structural-search arm, reports the complete normalized anchor set, and inspects suspicious returned spans. After sealing, the judge diffs both sets and reconciles the delta from those span records.",
+      "targetTools": [
+        "structural-pattern-search",
+        "matched-span-inspection"
+      ]
+    },
+    "q4": {
+      "task": {
+        "taskId": "octocode-vs-ast-grep-v2-q4",
+        "difficulty": "medium",
+        "category": "relational-search",
+        "repositories": [
+          {
+            "repository": "react/react",
+            "commitSha": "9ceb1e7d9e20bd0302cf6ab31b038c5ec673178d"
+          }
+        ],
+        "duplicateFamily": "react-await-inside-try",
+        "contamination": {
+          "status": "control-required",
+          "cutoff": "Exclude Q4 from scored comparison if the no-tools control supplies the exact count and file set for the pinned scope; annotate partial prior knowledge without excluding."
+        },
+        "budget": {
+          "maxToolCalls": 5,
+          "maxPages": 10,
+          "timeoutMs": 120000
+        }
+      },
+      "kind": "parity-rule",
+      "oracle": "await $X inside try_statement (stopBy: end) in $CORPUS/packages/react-devtools-shared/src, *.js scope",
+      "expected": 1,
+      "expectedFile": "setupTests.js",
+      "seededParity": "ast-grep 1 == octocode 1, same file. NOTE: octocode accepts the ast-grep rule YAML verbatim (pattern/inside/kind/stopBy).",
+      "scoring": "1.0 count + file via a genuine relational rule; 0.5 count via a non-relational approximation; 0 wrong count.",
+      "lane": "parity",
+      "capabilityPoint": "Relational rule parity: ast-grep YAML rule (inside try_statement, stopBy end) accepted verbatim by octocode structural mode.",
+      "expectedWorkflow": "Express the ancestor relationship with the assigned arm's relational structural-search capability, run it on the pinned .js scope, and report the complete count and files.",
+      "targetTools": [
+        "relational-structural-search"
+      ]
+    },
+    "q5": {
+      "task": {
+        "taskId": "octocode-vs-ast-grep-v2-q5",
+        "difficulty": "hard",
+        "category": "scale-census",
+        "repositories": [
+          {
+            "repository": "react/react",
+            "commitSha": "9ceb1e7d9e20bd0302cf6ab31b038c5ec673178d"
+          }
+        ],
+        "duplicateFamily": "react-whole-corpus-call-census",
+        "contamination": {
+          "status": "control-required",
+          "cutoff": "Exclude Q5 from scored comparison if the no-tools control supplies the exact assigned-arm census for the pinned scope; timing recollection alone does not trigger exclusion."
+        },
+        "budget": {
+          "maxToolCalls": 4,
+          "maxPages": 5,
+          "timeoutMs": 300000
+        }
+      },
+      "kind": "scale-census",
+      "oracle": "$FN($$$ARGS) across ALL of $CORPUS/packages, *.js scope",
+      "expected": {
+        "astGrep": 122925,
+        "octocode": 122791,
+        "divergencePct": 0.11
+      },
+      "seededWallClock": {
+        "astGrep": "0.40 s (~11 threads)",
+        "octocode": "1.74 s (node startup + count assembly; P2 push-down pending)"
+      },
+      "scoring": "1.0 for an arm count matching its seeded oracle with honest wall-clock and completion evidence; 0.5 for a capped count explicitly reported as partial; 0 for a capped count presented as the total. The independent judge compares the sealed arm counts and attributes any observed divergence.",
+      "guardrail": "If the two sealed outputs agree exactly, the judge must recompute before accepting; neither solver may run or report the other arm.",
+      "lane": "parity-scale",
+      "capabilityPoint": "Scale census: whole-corpus (~1,873 files) structural count under lifted caps; divergence must be reported with percentage, wall-clock recorded.",
+      "expectedWorkflow": "Run one cold assigned-arm structural census across the complete pinned packages .js scope, prove the result is uncapped, record wall-clock and cost, then let the judge compare the sealed arm totals.",
+      "targetTools": [
+        "structural-pattern-search"
+      ]
+    },
+    "q6": {
+      "task": {
+        "taskId": "octocode-vs-ast-grep-v2-q6",
+        "difficulty": "expert",
+        "category": "symbol-identity",
+        "repositories": [
+          {
+            "repository": "react/react",
+            "commitSha": "9ceb1e7d9e20bd0302cf6ab31b038c5ec673178d"
+          }
+        ],
+        "duplicateFamily": "react-cross-file-symbol-references",
+        "contamination": {
+          "status": "control-required",
+          "cutoff": "Exclude Q6 from scored comparison if the no-tools control supplies the complete external per-file reference counts with identity-safe evidence; names or file guesses alone do not trigger exclusion."
+        },
+        "budget": {
+          "maxToolCalls": 8,
+          "maxPages": 50,
+          "timeoutMs": 300000
+        }
+      },
+      "kind": "beyond-identity",
+      "oracle": "cross-file references of scheduleUpdateOnFiber (defined $CORPUS/packages/react-reconciler/src/ReactFiberWorkLoop.js:973), includeDeclaration:false",
+      "expected": {
+        "totalReferences": 28,
+        "files": {
+          "ReactFiberReconciler.js": 13,
+          "ReactFiberHooks.js": 6,
+          "ReactFiberClassComponent.js": 4,
+          "ReactFiberBeginWork.js": 3,
+          "ReactFiberHotReloading.js": 2
+        }
+      },
+      "astGrepCeiling": "Pattern search finds name SHAPES but cannot prove identity (imports, aliasing, shadowing, strings/comments). Full credit requires a symbol-resolving method (LSP references or equivalent) or per-hit identity verification.",
+      "scoring": "1.0 5 files + counts + identity-safe method; 0.5 right files, counts polluted by comments/strings; 0 a grep dump presented as callers.",
+      "capabilityPoint": "Cross-file reference identity: distinguish references to the defined symbol from comments, strings, and same-named locals.",
+      "expectedWorkflow": "Use the assigned arm's strongest identity or per-hit verification capability, exclude the defining file and non-identity text hits, and aggregate the verified external references by file.",
+      "targetTools": [
+        "symbol-reference-resolution",
+        "per-hit-identity-verification"
+      ]
+    },
+    "q7": {
+      "task": {
+        "taskId": "octocode-vs-ast-grep-v2-q7",
+        "difficulty": "expert",
+        "category": "reachability",
+        "repositories": [
+          {
+            "repository": "react/react",
+            "commitSha": "9ceb1e7d9e20bd0302cf6ab31b038c5ec673178d"
+          }
+        ],
+        "duplicateFamily": "react-scheduler-dead-export-candidates",
+        "contamination": {
+          "status": "control-required",
+          "cutoff": "Exclude Q7 from scored comparison if the no-tools control supplies the candidate set plus two valid independent reachability verifications; candidate-name recall alone does not trigger exclusion."
+        },
+        "budget": {
+          "maxToolCalls": 12,
+          "maxPages": 100,
+          "timeoutMs": 300000
+        }
+      },
+      "kind": "beyond-reachability",
+      "oracle": "localFindDeadCode on $CORPUS/packages/scheduler: 28 files scanned; candidates include feature-flag consts (enableProfiling \u2014 once per SchedulerFeatureFlags fork \u2014 frameYieldMs, userBlockingPriorityTimeout, normalPriorityTimeout, lowPriorityTimeout, enableRequestPaint, enableAlwaysYieldScheduler, runIdCounter, compare); the tool itself reports confidence 'low'.",
+      "astGrepCeiling": "Cannot express reachability \u2014 an export-without-import text join is acceptable ONLY with the verification step.",
+      "judgeNote": "scheduler has forked SchedulerFeatureFlags variants rooted externally by www/native builds \u2014 being flagged does NOT prove deletable. The question grades verification discipline, not deletion.",
+      "scoring": "1.0 candidate list + 2 independent verifications + honest confidence; 0.5 list without verification; 0 'no dead code' or unverified delete claims.",
+      "capabilityPoint": "Reachability analysis with verification discipline: candidates are leads, and fork or build wiring must be checked before any dead-code claim.",
+      "expectedWorkflow": "Generate export-reachability candidates with the assigned arm, then verify at least two through a distinct allowed operation that checks references, entrypoints, forks, or build wiring before assigning confidence.",
+      "targetTools": [
+        "reachability-analysis",
+        "identifier-verification"
+      ]
+    },
+    "q8": {
+      "task": {
+        "taskId": "octocode-vs-ast-grep-v2-q8",
+        "difficulty": "hard",
+        "category": "outline-cost",
+        "repositories": [
+          {
+            "repository": "react/react",
+            "commitSha": "9ceb1e7d9e20bd0302cf6ab31b038c5ec673178d"
+          }
+        ],
+        "duplicateFamily": "react-work-loop-function-outline",
+        "contamination": {
+          "status": "control-required",
+          "cutoff": "Exclude Q8 from scored comparison if the no-tools control supplies the complete pinned-SHA function list and count; recollection of only the total does not trigger exclusion."
+        },
+        "budget": {
+          "maxToolCalls": 8,
+          "maxPages": 50,
+          "timeoutMs": 180000
+        }
+      },
+      "kind": "parity-outline",
+      "oracle": "Complete top-level function outline of $CORPUS/packages/react-reconciler/src/ReactFiberWorkLoop.js at the pinned SHA.",
+      "expected": {
+        "topLevelFunctionSymbols": 125,
+        "decomposition": {
+          "exported": 63,
+          "bare": 62
+        },
+        "evidence": "Retained v1 results at archive/compare-v1/octocode-vs-ast-grep/results.md (removed from tree 2026-08-03; provenance retained here) report the recomputed pinned-SHA oracle as 125 top-level functions: 63 export + 62 bare.",
+        "costContract": "No fixed byte expectation or ratio ceiling. Each arm must report raw bytes returned, bytes read, complete pagination, and total calls; the judge compares measured cost only after confirming the complete function count and list.",
+        "parserFinding": "Retained v1 evidence measured Flow-related degradation for one arm's function patterns. V2 must measure and report current behavior; the finding is not an assumed scoring answer."
+      },
+      "scoring": "1.0 exact 125-function complete list with lines, including 63 exported + 62 bare, plus raw/read-byte and call accounting; 0.5 an outline with incomplete count or incomplete cost accounting; 0 full-file output presented as an outline or an unreported partial result. Compare arm cost descriptively; do not apply a hard-coded byte ceiling.",
+      "lane": "parity-outline",
+      "capabilityPoint": "Complete-outline parity and measured cost: compare raw/read bytes and calls head-to-head only after validating the full pinned-SHA function set.",
+      "expectedWorkflow": "Produce and fully consume the assigned arm's top-level function outline, normalize and sort the line-anchored list, report raw/read bytes and calls, then let the judge compare cost only after completeness is verified.",
+      "targetTools": [
+        "symbol-outline"
+      ]
+    },
+    "q9": {
+      "task": {
+        "taskId": "octocode-vs-ast-grep-v2-q9",
+        "difficulty": "medium",
+        "category": "bounded-read",
+        "repositories": [
+          {
+            "repository": "react/react",
+            "commitSha": "9ceb1e7d9e20bd0302cf6ab31b038c5ec673178d"
+          }
+        ],
+        "duplicateFamily": "react-work-loop-bounded-function-read",
+        "contamination": {
+          "status": "control-required",
+          "cutoff": "Exclude Q9 from scored comparison if the no-tools control supplies the exact function window and bounded byte result; knowing the symbol or file alone does not trigger exclusion."
+        },
+        "budget": {
+          "maxToolCalls": 4,
+          "maxPages": 10,
+          "timeoutMs": 120000
+        }
+      },
+      "kind": "bounded-read",
+      "oracle": "scheduleUpdateOnFiber body spans lines 973-1099 (127 lines, ~5.5 KB source) of ReactFiberWorkLoop.js",
+      "expected": "returned bytes for the slice < 8 KB; a full-file read (203 KB) scores 0",
+      "scoring": "1.0 correct window + < 8 KB; 0.5 right window padded past 8 KB; 0 whole-file read.",
+      "capabilityPoint": "Bounded local read: localGetFileContent can return a matchString slice or startLine/endLine window; each arm must show how it avoided reading the full local file.",
+      "expectedWorkflow": "Locate the exact function boundary with the assigned arm and return only that function plus minimal context, recording the line window and exact returned/read bytes.",
+      "targetTools": [
+        "bounded-node-read"
+      ],
+      "lane": "beyond"
+    },
+    "q10": {
+      "task": {
+        "taskId": "octocode-vs-ast-grep-v2-q10",
+        "difficulty": "hard",
+        "category": "composite-research",
+        "repositories": [
+          {
+            "repository": "react/react",
+            "commitSha": "9ceb1e7d9e20bd0302cf6ab31b038c5ec673178d"
+          }
+        ],
+        "duplicateFamily": "react-exact-symbol-outline-read",
+        "contamination": {
+          "status": "control-required",
+          "cutoff": "Exclude Q10 from scored comparison if the no-tools control supplies the exact definition anchor and complete find-outline-read evidence with accounting; symbol-location recall alone does not trigger exclusion."
+        },
+        "budget": {
+          "maxToolCalls": 6,
+          "maxPages": 30,
+          "timeoutMs": 180000
+        }
+      },
+      "kind": "composite-flow",
+      "oracle": "flushSyncWork is defined at $CORPUS/packages/react-reconciler/src/ReactFiberWorkLoop.js:1934 (export function flushSyncWork(): boolean). Distractors: flushSyncWorkOnAllRoots / flushSyncWorkOnLegacyRootsOnly at ReactFiberRootScheduler.js:171/177 \u2014 an exact-symbol method must NOT return those.",
+      "expected": "file:line 1934; <= 4 tool calls excellent, <= 6 acceptable; byte accounting across all steps required",
+      "scoring": "1.0 exact file:line + distractors excluded + call/byte accounting; 0.5 found with extra manual steps; 0 wrong symbol (prefix match) or no accounting.",
+      "capabilityPoint": "Composite flow: exact-symbol resolution (lspGetSemantics definition or structural exact match) that rejects the flushSyncWorkOnAllRoots/OnLegacyRootsOnly distractors, chained with a bounded read -- text search alone cannot disambiguate; grade call count + byte accounting.",
+      "expectedWorkflow": "Resolve the exact symbol rather than a prefix distractor, outline its defining file, then read only the target definition while accounting for every call, page, and byte across the chain.",
+      "targetTools": [
+        "exact-symbol-discovery",
+        "symbol-outline",
+        "bounded-definition-read"
+      ],
+      "lane": "beyond"
+    }
+  }
+}

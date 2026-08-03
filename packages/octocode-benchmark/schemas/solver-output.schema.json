@@ -1,0 +1,183 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "octocode-benchmark/solver-output",
+  "title": "Solver arm output — one JSON document per arm per suite",
+  "description": "Machine-readable twin of one isolated solver trial. Record raw and read bytes separately; judges receive anonymized answers before anonymized call logs.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "arm",
+    "suite",
+    "suiteVersion",
+    "questionBankId",
+    "model",
+    "modelSettings",
+    "runnerConfig",
+    "startedAt",
+    "finishedAt",
+    "wallClockSec",
+    "runnerTokens",
+    "questions"
+  ],
+  "properties": {
+    "arm": { "type": "string", "minLength": 1, "description": "Suite-defined stable arm ID, e.g. C, A-gh-rtk, B-octocode-mcp" },
+    "suite": { "type": "string", "minLength": 1 },
+    "suiteVersion": { "type": "integer", "minimum": 1 },
+    "questionBankId": { "$ref": "#/$defs/stableId" },
+    "model": { "type": "string", "minLength": 1, "description": "Exact provider model identifier." },
+    "modelSettings": { "$ref": "#/$defs/modelSettings" },
+    "runnerConfig": { "$ref": "#/$defs/runnerConfig" },
+    "startedAt": { "type": "string", "format": "date-time" },
+    "finishedAt": { "type": "string", "format": "date-time" },
+    "wallClockSec": { "type": "number", "minimum": 0 },
+    "runnerTokens": { "type": ["integer", "null"], "minimum": 0, "description": "Whole-trial provider token total; null when unavailable, never estimated" },
+    "tokenFallback": { "type": "string", "minLength": 1, "description": "Labeled fallback method/value when runnerTokens is null, e.g. readBytes/4" },
+    "questions": {
+      "type": "array",
+      "description": "Ordered, gapless questions. q must equal its one-based array position; the verifier enforces this invariant.",
+      "minItems": 1,
+      "maxItems": 50,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["q", "taskId", "status", "answer", "confidence", "evidence", "budget", "usage", "gotchas", "commands", "totalRawBytes", "totalReadBytes"],
+        "properties": {
+          "q": { "type": "integer", "minimum": 1, "maximum": 50 },
+          "taskId": { "$ref": "#/$defs/stableId" },
+          "status": { "enum": ["answered", "unresolved", "timeout", "invalid"] },
+          "answer": { "type": "string", "minLength": 1, "description": "Full answer with file:line / sha / count anchors. Use exactly 'Unknown' when the budget expires without support — never guess." },
+          "confidence": { "enum": ["high", "medium", "low"] },
+          "evidence": { "enum": ["fetched", "memory-unverified", "mixed"], "description": "Any memory-derived claim must be labeled; unlabeled memory scored as false-confidence if wrong." },
+          "budget": { "$ref": "#/$defs/taskBudget" },
+          "usage": { "$ref": "#/$defs/taskUsage" },
+          "gotchas": { "type": "array", "items": { "type": "string", "minLength": 1 }, "description": "Drift, ambiguity, truncation, unsupported premise, or unresolved claim" },
+          "commands": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["cmd", "rawBytes", "readBytes"],
+              "properties": {
+                "cmd": { "type": "string", "minLength": 1, "description": "Short form of the command / tool call" },
+                "rawBytes": { "type": "integer", "minimum": 0, "description": "Complete stdout/tool payload before solver-side filtering" },
+                "readBytes": { "type": "integer", "minimum": 0, "description": "Bytes delivered to or read by the solver after filtering; equal to rawBytes for wholesale MCP results" },
+                "tool": { "type": "string", "minLength": 1, "description": "Tool name (for trajectory grading)" },
+                "ms": { "type": "integer", "minimum": 0 },
+                "attempt": { "type": "integer", "minimum": 1 }
+              }
+            }
+          },
+          "totalRawBytes": { "type": "integer", "minimum": 0 },
+          "totalReadBytes": { "type": "integer", "minimum": 0 },
+          "codeSearchCalls": { "type": "integer", "minimum": 0, "description": "GitHub code-search API calls spent (rate-limit guardrail)" }
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "runnerTokens": { "type": "null" } },
+        "required": ["runnerTokens"]
+      },
+      "then": {
+        "required": ["tokenFallback"],
+        "properties": { "tokenFallback": true }
+      }
+    }
+  ],
+  "$defs": {
+    "stableId": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[a-z0-9]+(?:[._-][a-z0-9]+)*$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "taskBudget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["maxToolCalls", "maxPages", "timeoutMs"],
+      "properties": {
+        "maxToolCalls": { "type": "integer", "minimum": 1 },
+        "maxPages": { "type": "integer", "minimum": 0 },
+        "maxRunnerTokens": { "type": "integer", "minimum": 1 },
+        "timeoutMs": { "type": "integer", "minimum": 1 }
+      },
+      "description": "Exact frozen task budget copied from the question bank."
+    },
+    "taskUsage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["toolCalls", "pages", "wallClockMs"],
+      "properties": {
+        "toolCalls": { "type": "integer", "minimum": 0 },
+        "pages": { "type": "integer", "minimum": 0 },
+        "wallClockMs": { "type": "integer", "minimum": 0 }
+      },
+      "description": "Measured task consumption used to audit per-task budget compliance."
+    },
+    "settingValue": {
+      "type": ["string", "number", "integer", "boolean", "null"]
+    },
+    "modelSettings": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["provider", "parameters"],
+      "properties": {
+        "provider": { "type": "string", "minLength": 1 },
+        "parameters": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": { "$ref": "#/$defs/settingValue" },
+          "description": "Exact submitted model settings, including explicit null for unsupported or unavailable controls."
+        }
+      }
+    },
+    "runnerConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["runner", "runnerVersion", "budget", "retries", "cachePolicy"],
+      "properties": {
+        "runner": { "type": "string", "minLength": 1 },
+        "runnerVersion": { "type": "string", "minLength": 1 },
+        "budget": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["maxToolCallsPerQuestion", "timeoutMsPerQuestion", "trialTimeoutMs"],
+          "properties": {
+            "maxToolCallsPerQuestion": { "type": "integer", "minimum": 1 },
+            "maxRunnerTokens": { "type": "integer", "minimum": 1 },
+            "timeoutMsPerQuestion": { "type": "integer", "minimum": 1 },
+            "trialTimeoutMs": { "type": "integer", "minimum": 1 }
+          }
+        },
+        "retries": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["maxAttempts", "retryOn", "backoffMs"],
+          "properties": {
+            "maxAttempts": { "type": "integer", "minimum": 1 },
+            "retryOn": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": { "type": "string", "minLength": 1 }
+            },
+            "backoffMs": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "cachePolicy": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mode", "namespace"],
+          "properties": {
+            "mode": { "enum": ["disabled", "read-only", "read-write"] },
+            "namespace": { "type": "string", "minLength": 1 }
+          }
+        }
+      }
+    }
+  }
+}
