@@ -1,0 +1,39 @@
+[
+  { "pose": [
+    { "joint": "UpperLeg_R", "movements": { "flexion": 55 } }, { "joint": "LowerLeg_R", "movements": { "flexion": 90 } },
+    { "joint": "UpperLeg_L", "movements": { "flexion": 55 } }, { "joint": "LowerLeg_L", "movements": { "flexion": 90 } },
+    { "joint": "Spine", "movements": { "flexion": 25 } },
+    { "joint": "UpperArm_R", "movements": { "extension": 40 } }, { "joint": "UpperArm_L", "movements": { "extension": 40 } } ],
+    "root": { "tx": 0, "ty": 0, "tz": 0, "pitch": 0 } },
+  { "pose": [
+    { "joint": "UpperLeg_R", "movements": { "flexion": 20 } }, { "joint": "LowerLeg_R", "movements": { "flexion": 15 } },
+    { "joint": "UpperLeg_L", "movements": { "flexion": 20 } }, { "joint": "LowerLeg_L", "movements": { "flexion": 15 } },
+    { "joint": "Spine", "movements": { "extension": 15 } },
+    { "joint": "UpperArm_R", "movements": { "flexion": 160 } }, { "joint": "UpperArm_L", "movements": { "flexion": 160 } } ],
+    "root": { "ty": 0.5, "tz": -0.2, "pitch": -70, "fly": true } },
+  { "pose": [
+    { "joint": "UpperLeg_R", "movements": { "flexion": 115 } }, { "joint": "LowerLeg_R", "movements": { "flexion": 125 } },
+    { "joint": "UpperLeg_L", "movements": { "flexion": 115 } }, { "joint": "LowerLeg_L", "movements": { "flexion": 125 } },
+    { "joint": "Spine", "movements": { "flexion": 40 } },
+    { "joint": "UpperArm_R", "movements": { "flexion": 120 } }, { "joint": "UpperArm_L", "movements": { "flexion": 120 } } ],
+    "root": { "ty": 1.15, "tz": -0.6, "pitch": -190, "fly": true } },
+  { "pose": [
+    { "joint": "UpperLeg_R", "movements": { "flexion": 45 } }, { "joint": "LowerLeg_R", "movements": { "flexion": 35 } },
+    { "joint": "UpperLeg_L", "movements": { "flexion": 45 } }, { "joint": "LowerLeg_L", "movements": { "flexion": 35 } },
+    { "joint": "Spine", "movements": { "extension": 8 } },
+    { "joint": "UpperArm_R", "movements": { "flexion": 55 } }, { "joint": "UpperArm_L", "movements": { "flexion": 55 } } ],
+    "root": { "ty": 0.45, "tz": -1.0, "pitch": -300, "fly": true } },
+  { "pose": [
+    { "joint": "UpperLeg_R", "movements": { "flexion": 70 } }, { "joint": "LowerLeg_R", "movements": { "flexion": 95 } },
+    { "joint": "UpperLeg_L", "movements": { "flexion": 70 } }, { "joint": "LowerLeg_L", "movements": { "flexion": 95 } },
+    { "joint": "Spine", "movements": { "flexion": 22 } },
+    { "joint": "UpperArm_R", "movements": { "flexion": 45 } }, { "joint": "UpperArm_L", "movements": { "flexion": 45 } },
+    { "joint": "Foot_R", "movements": { "dorsiflexion": 15 } }, { "joint": "Foot_L", "movements": { "dorsiflexion": 15 } } ],
+    "root": { "ty": 0, "tz": -1.2, "pitch": -360 } },
+  { "pose": [
+    { "joint": "UpperLeg_R", "movements": { "flexion": 8 } }, { "joint": "LowerLeg_R", "movements": { "flexion": 8 } },
+    { "joint": "UpperLeg_L", "movements": { "flexion": 8 } }, { "joint": "LowerLeg_L", "movements": { "flexion": 8 } },
+    { "joint": "Spine", "movements": { "flexion": 3 } },
+    { "joint": "UpperArm_R", "movements": { "flexion": 8 } }, { "joint": "UpperArm_L", "movements": { "flexion": 8 } } ],
+    "root": { "ty": 0, "tz": -1.2, "pitch": -360 } }
+]

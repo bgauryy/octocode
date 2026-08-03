@@ -3,7 +3,7 @@
 Load when launching Chrome with special profile, proxy, binary, headless, or mobile needs. Why: launch flags only apply to a fresh browser process.
 
 ## Defaults
-Headless inspection uses an isolated `.octocode/chrome-devtools/browser-state/` profile. Visible mode is for user-driven auth/live-page work. Real profile mode requires explicit user approval.
+Headless inspection uses an isolated `.octocode/tmp/chrome-devtools/browser-state/` profile and a `1280x720` viewport (`--windowSize` overrides it) — Chrome's own headless default is a narrow, non-standard size that collapses responsive sites into their mobile layout. Visible mode is for user-driven auth/live-page work and keeps the OS's normal window sizing. Real profile mode requires explicit user approval.
 
 ## Common Launches
 ```bash
@@ -33,7 +33,14 @@ Use launch window size only for outer dimensions; still set CDP Emulation for vi
 ## Binary Path
 Prefer auto-detection. Override only when Chrome is nonstandard; quote paths in shell commands.
 
+## WebMCP (experimental)
+Requires Chrome 150+ and a fresh launch — reused sessions can't add flags:
+```bash
+node <skill-dir>/scripts/open-browser.mjs --headless --port 9222 --enableFeatures WebMCP --url "<url>"
+```
+Workflow and fallback: `references/intents-automation.md#webmcp`.
+
 ## Output
-Generated scripts and logs go under `.octocode/tmp`; browser state and session metadata go under `.octocode/chrome-devtools` or global `~/.octocode/chrome-devtools` fallback.
+Everything lands under `.octocode/tmp/chrome-devtools/` (falls back to `~/.octocode/tmp/chrome-devtools/` when `.octocode` isn't writable): run artifacts by timestamp, `browser-state/` for profiles and session tracking, `session-meta/port-<N>/` for per-port history. Run `scripts/prune-artifacts.mjs` periodically to reclaim old runs — see `SKILL.md`.
 
 Next: after launch, route by `references/intents.md`.

@@ -1,5 +1,8 @@
 import { writeFileSync } from 'fs';
-import { join } from 'path';
+import { join, resolve } from 'path';
+import { pathToFileURL } from 'url';
+
+const { ACTIONABILITY_HELPERS_JS } = await import(pathToFileURL(resolve(process.cwd(), '.octocode', 'dom-actionability.mjs')).href);
 
 const argv = process.argv.slice(2);
 const getArg = (flag, def = '') => { const i = argv.indexOf(flag); return i >= 0 && argv[i + 1] ? argv[i + 1] : def; };
@@ -13,7 +16,13 @@ function classify({ finalUrl, title, bodyText, counts, failures }) {
   if ((counts.buttons + counts.inputs + counts.links) === 0 && bodyText.length < 500) reasons.push('js-shell');
   if (/cookie|consent|privacy choices|gdpr|accept all|manage preferences/.test(text)) reasons.push('consent-region');
   if (bodyText.length < 1000 && counts.scripts > 5 && counts.links < 5) reasons.push('timing-hydration');
-  if (reasons.length === 0) reasons.push('selector-mismatch');
+  if (reasons.length === 0) {
+    // A page with real interactive elements and real body text isn't a
+    // "mismatch" — the generic diagnostic just found nothing wrong. Only
+    // blame the selector when the page itself also looks thin/sparse.
+    const healthy = (counts.buttons + counts.inputs + counts.links) > 0 && bodyText.length >= 500;
+    reasons.push(healthy ? 'no-anomaly-detected' : 'selector-mismatch');
+  }
   return reasons;
 }
 
@@ -29,10 +38,11 @@ export async function run(cdp) {
   const evalResult = await cdp.send('Runtime.evaluate', {
     returnByValue: true,
     expression: `(() => {
+      ${ACTIONABILITY_HELPERS_JS}
       const bodyText = (document.body?.innerText || document.body?.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 5000);
       const count = s => document.querySelectorAll(s).length;
-      const visible = el => { const r = el.getBoundingClientRect(); const st = getComputedStyle(el); return !!(r.width && r.height && st.display !== 'none' && st.visibility !== 'hidden' && Number(st.opacity || '1') > 0); };
-      const visibleButtons = [...document.querySelectorAll('button,[role=button]')].filter(visible).slice(0, 20).map(el => ({ text: (el.innerText || el.textContent || el.getAttribute('aria-label') || '').trim().slice(0,120), disabled: !!(el.disabled || el.getAttribute('aria-disabled') === 'true') }));
+      const visible = el => isVisible(el);
+      const visibleButtons = [...document.querySelectorAll('button,[role=button]')].filter(visible).slice(0, 20).map(el => ({ text: (el.innerText || el.textContent || el.getAttribute('aria-label') || '').trim().slice(0,120), disabled: isDisabled(el) }));
       const visibleInputs = [...document.querySelectorAll('input,textarea,select')].filter(visible).slice(0, 20).map(el => ({ tag: el.localName, type: el.type || null, name: el.name || null, placeholder: el.placeholder || null }));
       return { finalUrl: location.href, title: document.title, readyState: document.readyState, bodyText, counts: { buttons: count('button,[role=button]'), inputs: count('input,textarea,select'), links: count('a[href]'), forms: count('form'), scripts: count('script'), iframes: count('iframe') }, visibleButtons, visibleInputs };
     })()`

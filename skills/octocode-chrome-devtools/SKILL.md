@@ -1,6 +1,6 @@
 ---
 name: octocode-chrome-devtools
-description: "Use when browser debugging needs Chrome DevTools evidence: network, console, performance, DOM/CSS, screenshots/PDF, security, cookies/storage, or auth-gated live pages via CDP — not just opening a URL."
+description: "Use when browser debugging, scraping a known URL efficiently, or running a multi-step page workflow needs real Chrome DevTools evidence: network, console, performance, DOM/CSS, screenshots/PDF, security, cookies/storage, click/fill/search flows, or auth-gated live pages via CDP — not just opening a URL."
 ---
 
 # Octocode Chrome DevTools
@@ -13,14 +13,16 @@ Related workflow: if the user needs broad public scraping, site maps, structured
 | When | Script | Why |
 |---|---|---|
 | open/reuse Chrome | `scripts/open-browser.mjs` | headless, visible, profile, proxy, cleanup |
-| run agent CDP script | `scripts/cdp-sandbox.mjs` | permission sandbox (Node 25+ adds `--allow-net`) |
+| reclaim old run artifacts | `scripts/prune-artifacts.mjs` | `--cleanup` stops Chrome only; this deletes aged/excess `.octocode/tmp/chrome-devtools/` run + session-meta dirs |
+| run agent CDP script | `scripts/cdp-sandbox.mjs` | permission sandbox (Node 25+ adds `--allow-net`); banner is one line by default, add `--verbose` for full sandbox/target detail |
 | trusted local only | `scripts/cdp-runner.mjs` | skip sandbox during iteration |
 | starter `run(cdp)` | `scripts/cdp-template.mjs` | copy shape before writing task script |
-| source maps | `scripts/sourcemap-resolver.mjs` | map frames; sandbox stages beside script |
+| source maps / DOM checks | `scripts/sourcemap-resolver.mjs`, `scripts/dom-actionability.mjs` | map frames; shared visible/disabled checks; sandbox stages both beside script |
 | bot-wall triage | `scripts/undercover.mjs` | one stealth pass before visible gate |
 | human-like click/type/scroll | `scripts/human-input.mjs` | trusted CDP Input events for behavioral anti-bot targets |
-| verify stealth + actionability/storage/HAR/graph handoff | `scripts/eval-undercover.mjs`, `scripts/eval-actionability.mjs`, `scripts/eval-actionability-diagnostics.mjs`, `scripts/eval-storage-cookies.mjs`, `scripts/eval-network-har-fetch.mjs`, `scripts/eval-scrape-graph-handoff.mjs` | deterministic CDP behavior checks |
+| verify stealth + actionability/storage/HAR/graph/prune/snapshot/readiness handoff | `scripts/eval-undercover.mjs`, `scripts/eval-actionability.mjs`, `scripts/eval-actionability-diagnostics.mjs`, `scripts/eval-storage-cookies.mjs`, `scripts/eval-network-har-fetch.mjs`, `scripts/eval-scrape-graph-handoff.mjs`, `scripts/eval-prune-artifacts.mjs`, `scripts/eval-page-snapshot.mjs`, `scripts/eval-page-readiness.mjs` | deterministic CDP behavior checks |
 | cookie transfer | `scripts/cookie-bridge.mjs` | opt-in profile/CDP/storageState → isolated session |
+| local CDP protocol docs corpus | `scripts/protocol-corpus.mjs` | when docs/version evidence is needed before choosing domains |
 
 ## References
 | When | Load | Why |
@@ -33,10 +35,9 @@ Related workflow: if the user needs broad public scraping, site maps, structured
 | automate/scrape/live-page | `references/intents-automation.md` | when automating with smart waits |
 | login / real profile | `references/intents-auth.md` | before secrets / cookie transfer |
 | emulate/inject/monitor | `references/intents-environment.md` | when applying device/network patches |
-| HAR / Playwright / API replay | `references/har-playwright.md` | before sharing network evidence |
+| HAR / API replay | `references/har-capture.md` | before sharing network evidence, or replaying a known URL directly instead of scraping the DOM |
 | cookie inject design | `references/cookie-bridge.md` | before `cookie-bridge.mjs` |
 | reusable helpers | `references/script-patterns.md` | when needing one matching detail |
-| local CDP protocol docs corpus | `scripts/protocol-corpus.mjs` | when docs/version evidence is needed before choosing domains |
 | enables / session gotchas | `references/cdp-agent.md` | before enable/listen/navigate |
 | launch flags / proxy | `references/chrome-flags.md` | when launching a fresh process |
 | repeated failure | `references/recovery.md` | after two same-class failures |

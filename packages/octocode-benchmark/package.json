@@ -1,6 +1,6 @@
 {
   "name": "@octocodeai/octocode-benchmark",
-  "description": "Private internal benchmark suite for Octocode tools and engine behavior.",
+  "description": "Benchmark suites for Octocode tools and engine behavior.",
   "version": "1.0.2",
   "bugs": "https://github.com/bgauryy/octocode/issues",
   "engines": {
@@ -14,10 +14,9 @@
   },
   "scripts": {
     "build": "echo 'No build step for benchmark package'",
-    "lint": "node scripts/verify-benchmark.mjs",
-    "test": "node scripts/verify-benchmark.mjs",
     "typecheck": "echo 'No TypeScript source files to typecheck'",
-    "verify": "yarn lint && yarn typecheck && yarn test"
+    "test": "node scripts/loop-report.mjs --self-test",
+    "validate:summary": "node scripts/loop-report.mjs --input"
   },
   "type": "module"
 }

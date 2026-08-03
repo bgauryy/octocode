@@ -1,0 +1,842 @@
+{
+  "note": "JUDGE-ONLY. Solvers must never read this file.",
+  "bankId": "github-research-v2",
+  "suiteVersion": 2,
+  "questionBankId": "github-research-v2",
+  "oracleStatus": "VERIFIED_WITH_REVERIFICATION_CONTRACT",
+  "questionBankHash": "f8cc969494755bfb2fe57bdeadc9eaac8ed5c67f5022af5919adfc73ea9643fe",
+  "questionBankHashNote": "sha256 of questions.md (solver-facing). Preflight MUST recompute `shasum -a 256 questions.md` and match this before freezing; if it differs the bank drifted and prior runs are not comparable.",
+  "verification": {
+    "admittedOn": "2026-08-03",
+    "sourceVerificationDates": [
+      "2026-07-12",
+      "2026-08-02"
+    ],
+    "authority": "Existing independently verified ground truth from octocode-vs-gh and octocode-vs-gh-rtk; cross-repo draft answers were not used as an oracle.",
+    "independentMethods": [
+      "WebFetch of raw.githubusercontent.com source files",
+      "WebFetch of api.github.com PR and issue objects",
+      "WebFetch of authoritative repository and registry metadata",
+      "judge-side curl records preserved in the source ground-truth verification blocks",
+      "independent sparse-checkout and structural spot-check for the original Vue ref premise"
+    ],
+    "sourceRecords": [
+      "archive/compare-v1/octocode-vs-gh/ground-truth.json (removed from tree 2026-08-03; provenance retained here)",
+      "archive/compare-v1/octocode-vs-gh-rtk/ground-truth.json (removed from tree 2026-08-03; provenance retained here)"
+    ],
+    "excludedAsAuthority": [
+      "archive/compare-v1/octocode-vs-gh-rtk-cross-repo/ground-truth.json (removed from tree 2026-08-03; provenance retained here)",
+      "output/**"
+    ],
+    "reverificationContract": "Before every scored run, independently resolve every mutable branch, state, size, language total, and line anchor; record resolved SHAs and UTC time; update drift only between runs; freeze before control or solver execution.",
+    "contaminationCutoff": "controlCorrectness >= 1.0",
+    "verdictAllowed": true,
+    "curation-2026-08-03-pass1": {
+      "removed": [
+        "ghrv2-ts-assignability-slice",
+        "ghrv2-node-stream-sizes",
+        "ghrv2-vue-pr-metadata",
+        "ghrv2-node-child-process-defs",
+        "ghrv2-redis-networking-anchors"
+      ],
+      "reason": "pure-lookup or duplicate-of-review tasks removed; bank curated toward research-oriented real-life questions",
+      "added": [
+        "ghrv2-deepagents-oolong-pr-review (live PR #4338, verified via api.github.com 2026-08-03: open, 19 files, +1529/-8)"
+      ],
+      "oracleFixes": [
+        "ghrv2-axios-entry-chain: package.json main corrected to ./dist/node/axios.cjs (was wrongly index.js; found by live verification 2026-08-03)",
+        "ghrv2-flask-route-history: commit 705e5268 oracle corrected \u2014 it added @get/@post/... method shortcuts over route(), not the route->add_url_rule delegation (live verification 2026-08-03; old oracle was title-fooled)",
+        "ghrv2-lodash-baseget-trace: accepted endpoints corrected \u2014 has (routes via hasPath/baseHas) and result (walks path itself) do NOT reach baseGet; accepted endpoints are get (direct), at (via baseAt), property/propertyOf (via basePropertyDeep); default branch is monolith lodash.js with no .internal/ dir (live verification 2026-08-03)"
+      ],
+      "observations-2026-08-03": [
+        "sindresorhus/is stargazers_count 1790",
+        "nodejs/node lib/internal/streams top-2: readable.js 55052, writable.js 33756 (question removed)"
+      ]
+    },
+    "curation-2026-08-03-pass2": {
+      "removed": [
+        "ghrv2-redis-unstable-guard (rigid branch-verification lookup: fetch this file, verify this condition \u2014 no research depth; overlaps with ghrv2-redis-bitfield-security on same topic)",
+        "ghrv2-lodash-baseget-trace (marked contaminated: control arm can answer from training data)"
+      ],
+      "updated": [
+        "ghrv2-is-repo-absence: removed drift-prone star-count requirement; replaced with primary-language claim (TypeScript dominant, stable)"
+      ],
+      "reason": "second curation pass \u2014 remove rigid lookup/contaminated questions; bank renumbered Q1-Q14 (14 questions)",
+      "resultingCount": 14
+    },
+    "curation-2026-08-03-pass3": {
+      "reason": "full live re-verification sweep of all 14 oracles against GitHub (gh CLI + octocode + raw.githubusercontent/api.github.com); fixed one stale oracle bug; recorded drift. questions.md solver-facing text is unchanged, so questionBankHash is unchanged and prior runs stay comparable.",
+      "reverifiedAllOn": "2026-08-03",
+      "methods": [
+        "gh pr/issue view (baseline-arm surface) for Q4/Q5/Q13/Q14 state + file lists",
+        "octocode ghSearchCode/ghSearchRepos/ghViewRepoStructure/ghGetFileContent (treatment-arm surface) for Q2/Q3/Q8/Q11",
+        "raw.githubusercontent.com + api.github.com/languages (surface outside both arms) for Q1/Q6/Q7/Q9/Q10/Q12"
+      ],
+      "oracleFixes": [
+        "ghrv2-axios-entry-chain: requiredClaims 'main index.js' was stale and contradicted this block's own corrected answer (pass1 fixed the answer to ./dist/node/axios.cjs but left the claims array). Corrected requiredClaims to 'main -> ./dist/node/axios.cjs (built CJS bundle)' and added an acceptedVariant clarifying the CJS require target (built bundle) vs the ESM source path (./index.js -> lib/axios.js) so precise solvers are not penalized."
+      ],
+      "driftRecorded": [
+        "ghrv2-flask-route-history: the route decorator now lives in src/flask/sansio/scaffold.py (was src/flask/scaffold.py). Oracle requiredClaims are path-agnostic (class Scaffold, add_url_rule, commit 705e5268) so scoring is unaffected; the answer text already notes the current path.",
+        "ghrv2-zustand-fix-pr-state (PR #3531) and ghrv2-deepagents-oolong-pr-review (PR #4338) both observed OPEN on 2026-08-03 — matches the reverify-before-run contract."
+      ],
+      "confirmedExact": [
+        "Q1 getRouteRegex + internal getParametrizedRoute @ route-regex.ts (canary)",
+        "Q6 expressjs/express package.json router ^2.2.0 -> pillarjs/router index.js matchLayer + next(err)",
+        "Q7 zustand peerDependencies.react + peerDependenciesMeta.react.optional=true; next.js store.ts createContext/useContext/createStore/useStore",
+        "Q8 WorkbenchKeybindingService extends AbstractKeybindingService; dispatchEvent present",
+        "Q9 fastify lib/route.js context.onRequest + onRequestHookRunner",
+        "Q11 evanw/esbuild Go dominant; node-shim.ts require('child_process').execFileSync(...,{stdio})",
+        "Q12 nodejs/node legacy.js EE.call + both ObjectSetPrototypeOf links",
+        "Q13 redis issue #15389 CLOSED, PR #15433 MERGED, src/bitops.c +9/-3 and tests/unit/bitfield.tcl +9/-0 = +18/-3"
+      ],
+      "contaminationNote": "Q6 (express router) and Q10 (axios) remain flagged contaminated (famous, memorizable); keep visible but exclude from the primary correctness mean per README. Candidate replacements toward post-cutoff targets are a future curation pass, not applied here to preserve questionBankHash.",
+      "resultingCount": 14
+    }
+  },
+  "questions": {
+    "q1": {
+      "answer": "The exported builder is getRouteRegex in packages/next/src/shared/lib/router/utils/route-regex.ts. Its first transformation call is getParametrizedRoute(route), which produces the parameterized route and named groups used to construct the RegExp.",
+      "oracle": {
+        "requiredClaims": [
+          "getRouteRegex",
+          "packages/next/src/shared/lib/router/utils/route-regex.ts",
+          "getParametrizedRoute"
+        ],
+        "acceptedVariants": [
+          "Line numbers may drift; the 2026-08-02 verification observed getRouteRegex near 149 and getParametrizedRoute near 93."
+        ]
+      },
+      "scoring": {
+        "full": "All three required claims with bounded source evidence.",
+        "partial": "Correct file and getRouteRegex but helper missing.",
+        "zero": "Wrong builder, such as getRouteMatcher, or unsupported answer."
+      },
+      "capabilityPoint": "Filtered remote code search followed by bounded source fetch.",
+      "task": {
+        "taskId": "ghrv2-route-regex-builder",
+        "category": "code-search",
+        "primaryCapability": "code-search",
+        "duplicateFamily": "next-route-regex",
+        "difficulty": "easy",
+        "repositories": [
+          {
+            "repository": "vercel/next.js"
+          }
+        ],
+        "refs": [
+          "canary (resolve and freeze)"
+        ],
+        "atomicClaims": 3,
+        "budget": {
+          "maxToolCalls": 3,
+          "maxPages": 1,
+          "timeoutMs": 120000
+        },
+        "contamination": {
+          "status": "control-required",
+          "cutoff": "controlCorrectness >= 1.0"
+        },
+        "reverifyBeforeRun": true
+      },
+      "targetTools": [
+        "ghSearchCode",
+        "ghGetFileContent"
+      ],
+      "expectedWorkflow": "Search the named builder in the scoped repository/path, then fetch only the containing source region."
+    },
+    "q2": {
+      "answer": "The repository is sindresorhus/is. Its primary language is TypeScript. Its public export surface (source/index.ts on the default branch) does not define or export isQuantumSuperposition. Absence must be established by inspecting the repository structure and fetching the public export surface \u2014 one empty search alone does not suffice.",
+      "oracle": {
+        "requiredClaims": [
+          "sindresorhus/is",
+          "TypeScript (primary language)",
+          "NO",
+          "bounded inspection of source/index.ts or the then-current public export surface"
+        ],
+        "acceptedVariants": [
+          "A moved public entry file is accepted if independently resolved at the frozen ref.",
+          "Language byte totals may drift; TypeScript dominant is the stable claim."
+        ]
+      },
+      "scoring": {
+        "full": "Repository, primary language, and NO proved from the bounded export surface.",
+        "partial": "Correct repository and NO but only an empty search, or language missing.",
+        "zero": "Claims the fabricated export exists or identifies another repository."
+      },
+      "capabilityPoint": "Repository discovery plus bounded negative evidence.",
+      "task": {
+        "taskId": "ghrv2-is-repo-absence",
+        "category": "repository-discovery-negative-evidence",
+        "primaryCapability": "repo-discovery-negative",
+        "duplicateFamily": "sindresorhus-is-absence",
+        "difficulty": "medium",
+        "repositories": [
+          {
+            "repository": "sindresorhus/is"
+          }
+        ],
+        "refs": [
+          "default branch (resolve and freeze)"
+        ],
+        "atomicClaims": 4,
+        "budget": {
+          "maxToolCalls": 5,
+          "maxPages": 1,
+          "timeoutMs": 120000
+        },
+        "contamination": {
+          "status": "uncontaminated",
+          "cutoff": "controlCorrectness >= 1.0"
+        },
+        "reverifyBeforeRun": true
+      },
+      "targetTools": [
+        "ghSearchRepos",
+        "ghViewRepoStructure",
+        "ghGetFileContent"
+      ],
+      "expectedWorkflow": "Discover the repository by owner/name, confirm primary language and branch, inspect structure, then fetch the bounded public export surface."
+    },
+    "q3": {
+      "answer": "The route decorator is defined by class Scaffold (currently src/flask/sansio/scaffold.py; src/flask/scaffold.py at the commit's time) and delegates registration to add_url_rule. Commit 705e5268 ('Add syntactic sugar for route registration') did NOT introduce that delegation \u2014 it added the @get/@post/@put/@delete/@patch HTTP-method shortcut decorators as sugar over route(). The route->add_url_rule delegation predates the commit; answers repeating the commit title as if it changed route() itself are wrong.",
+      "oracle": {
+        "requiredClaims": [
+          "route defined by Scaffold, delegates to add_url_rule",
+          "commit 705e5268 added @get/@post/@put/@delete/@patch shortcut decorators delegating to route()",
+          "the route->add_url_rule delegation predates the commit"
+        ],
+        "acceptedVariants": [
+          "A full SHA beginning 705e5268 is accepted.",
+          "Current line numbers and hierarchy intermediary names may drift."
+        ]
+      },
+      "scoring": {
+        "full": "Current owner/file/delegate and diff-grounded commit behavior.",
+        "partial": "Current location correct but commit explanation is title-only, or commit correct but current hierarchy incomplete.",
+        "zero": "Claims current definition is directly in Flask/app.py or fabricates commit behavior. Claiming the commit introduced route() or its add_url_rule delegation (title-only answer) scores zero on the commit clause."
+      },
+      "capabilityPoint": "Commit-history retrieval joined to current source.",
+      "task": {
+        "taskId": "ghrv2-flask-route-history",
+        "category": "commit-history",
+        "primaryCapability": "commit-history",
+        "duplicateFamily": "flask-route-evolution",
+        "difficulty": "hard",
+        "repositories": [
+          {
+            "repository": "pallets/flask"
+          }
+        ],
+        "refs": [
+          "commit prefix 705e5268",
+          "default branch (resolve and freeze)"
+        ],
+        "atomicClaims": 4,
+        "budget": {
+          "maxToolCalls": 6,
+          "maxPages": 2,
+          "timeoutMs": 180000
+        },
+        "contamination": {
+          "status": "uncontaminated",
+          "cutoff": "controlCorrectness >= 1.0"
+        },
+        "reverifyBeforeRun": true
+      },
+      "targetTools": [
+        "ghSearchCode",
+        "ghSearchCommits",
+        "ghGetFileContent"
+      ],
+      "expectedWorkflow": "Find the current definition, retrieve commit 705e5268 and its changed source, then connect the historical change to the current delegate."
+    },
+    "q4": {
+      "seedAnswer": "PR #3531 was OPEN at the 2026-08-02 verification and proposed changing src/middleware/devtools.ts for a source path containing a space. This is provenance only; freeze the current state before each scored run.",
+      "oracle": {
+        "requiredClaims": [
+          "PR #3531",
+          "independently frozen state observed immediately before the run",
+          "src/middleware/devtools.ts",
+          "source path contains a space"
+        ],
+        "acceptedVariants": [
+          "A changed PR state is accepted only if independently reverified and recorded before the run."
+        ]
+      },
+      "scoring": {
+        "full": "Correct PR, independently matching current state, changed source path, and edge case.",
+        "partial": "Correct PR/state but path or edge case missing, or correct patch facts with stale state.",
+        "zero": "Wrong fix object or unsupported merged claim."
+      },
+      "capabilityPoint": "Fixed pull-request state and changed-file metadata.",
+      "task": {
+        "taskId": "ghrv2-zustand-fix-pr-state",
+        "category": "pull-request-state-metadata",
+        "primaryCapability": "pr-state-metadata",
+        "duplicateFamily": "zustand-stack-path-fix",
+        "difficulty": "easy",
+        "repositories": [
+          {
+            "repository": "pmndrs/zustand"
+          }
+        ],
+        "refs": [
+          "PR 3531"
+        ],
+        "atomicClaims": 4,
+        "budget": {
+          "maxToolCalls": 3,
+          "maxPages": 1,
+          "timeoutMs": 120000
+        },
+        "contamination": {
+          "status": "control-required",
+          "cutoff": "controlCorrectness >= 1.0"
+        },
+        "reverifyBeforeRun": true
+      },
+      "targetTools": [
+        "ghSearchPullRequests"
+      ],
+      "expectedWorkflow": "Retrieve fixed PR #3531 and inspect its state, changed-file metadata, and bounded description."
+    },
+    "q5": {
+      "answer": "PR #15035 fixes Vapor/vdom hydration interop including Teleport hydration with invalid or null targets, async or Suspense components leaving stale adopted SSR DOM after late resolution, and slot-fallback stability across updates and unmounts. runtime-core owns shared hydration/renderer behavior; runtime-vapor owns Vapor block, component, and vdomInterop machinery that must preserve and coordinate anchors.",
+      "oracle": {
+        "requiredClaims": [
+          "first concrete fixed scenario grounded in a changed hunk",
+          "second distinct fixed scenario grounded in a changed hunk",
+          "runtime-core shared hydration/renderer role",
+          "runtime-vapor block/component/vdomInterop role"
+        ],
+        "acceptedVariants": [
+          "Equivalent precise descriptions grounded in the PR diff are accepted."
+        ]
+      },
+      "scoring": {
+        "full": "All four atomic claims: two distinct diff-grounded scenarios and both package roles.",
+        "partial": "Three of four atomic claims with no unsupported scenario.",
+        "zero": "Two or fewer atomic claims, title paraphrase only, or any unsupported scenario."
+      },
+      "capabilityPoint": "Selective pull-request code and diff review.",
+      "task": {
+        "taskId": "ghrv2-vue-pr-diff-review",
+        "category": "pull-request-code-review",
+        "primaryCapability": "pr-code-review",
+        "duplicateFamily": "vue-15035-hydration-semantics",
+        "difficulty": "hard",
+        "repositories": [
+          {
+            "repository": "vuejs/core"
+          }
+        ],
+        "refs": [
+          "PR 15035"
+        ],
+        "atomicClaims": 4,
+        "budget": {
+          "maxToolCalls": 6,
+          "maxPages": 1,
+          "timeoutMs": 180000
+        },
+        "contamination": {
+          "status": "control-required",
+          "cutoff": "controlCorrectness >= 1.0"
+        },
+        "reverifyBeforeRun": false
+      },
+      "targetTools": [
+        "ghSearchPullRequests"
+      ],
+      "expectedWorkflow": "Retrieve the fixed PR with changed files and selectively inspect relevant diff hunks in runtime-core and runtime-vapor."
+    },
+    "q6": {
+      "answer": "The current Express repository does not contain the layer loop. expressjs/express package.json depends on router ^2.2.0, whose source repository is pillarjs/router. In pillarjs/router index.js, next(err) advances through layers and calls matchLayer(layer, path); matchLayer is defined in index.js and delegates to the layer matcher.",
+      "oracle": {
+        "requiredClaims": [
+          "not in current express repo",
+          "package.json dependency router ^2.2.0",
+          "pillarjs/router",
+          "next(err) in index.js",
+          "matchLayer(layer, path) in index.js"
+        ],
+        "acceptedVariants": [
+          "A compatible drifted router version is accepted if independently verified at the frozen Express ref.",
+          "Approximate lines are not required."
+        ]
+      },
+      "scoring": {
+        "full": "Dependency proof, destination repository, and both function anchors.",
+        "partial": "Correct repository hop but one function anchor missing, or functions correct with weak dependency proof.",
+        "zero": "Uses the obsolete in-repo Express 4 router or fabricates paths."
+      },
+      "capabilityPoint": "Cross-repository dependency trace using only GitHub metadata and source.",
+      "task": {
+        "taskId": "ghrv2-express-router-trace",
+        "category": "cross-repository-trace",
+        "primaryCapability": "cross-repo-trace",
+        "duplicateFamily": "express-router-extraction",
+        "difficulty": "hard",
+        "repositories": [
+          {
+            "repository": "expressjs/express"
+          },
+          {
+            "repository": "pillarjs/router"
+          }
+        ],
+        "refs": [
+          "default branches (resolve and freeze)"
+        ],
+        "atomicClaims": 5,
+        "budget": {
+          "maxToolCalls": 7,
+          "maxPages": 1,
+          "timeoutMs": 180000
+        },
+        "contamination": {
+          "status": "contaminated",
+          "cutoff": "controlCorrectness >= 1.0"
+        },
+        "reverifyBeforeRun": true
+      },
+      "targetTools": [
+        "ghViewRepoStructure",
+        "ghGetFileContent",
+        "ghSearchRepos",
+        "ghSearchCode"
+      ],
+      "expectedWorkflow": "Inspect Express structure and package.json, discover the dependency repository, then fetch bounded router implementation regions."
+    },
+    "q7": {
+      "answer": "vercel/next.js examples/with-zustand/src/lib/store.ts uses createContext/useContext around Zustand createStore/useStore to construct a per-request store rather than a module singleton. Zustand declares react in peerDependencies and marks it optional with peerDependenciesMeta.react.optional = true.",
+      "oracle": {
+        "requiredClaims": [
+          "Context-backed per-request factory",
+          "examples/with-zustand/src/lib/store.ts",
+          "createContext/useContext and createStore/useStore",
+          "peerDependencies.react",
+          "peerDependenciesMeta.react.optional true"
+        ],
+        "acceptedVariants": [
+          "Equivalent explanation of request isolation is accepted but not required for correctness."
+        ]
+      },
+      "scoring": {
+        "full": "All integration and dependency-contract claims.",
+        "partial": "Store pattern or dependency contract correct, but not both.",
+        "zero": "Claims module singleton or required React dependency."
+      },
+      "capabilityPoint": "Cross-repository contract comparison.",
+      "task": {
+        "taskId": "ghrv2-zustand-next-contract",
+        "category": "cross-repository-comparison",
+        "primaryCapability": "cross-repo-comparison",
+        "duplicateFamily": "zustand-next-store-contract",
+        "difficulty": "medium",
+        "repositories": [
+          {
+            "repository": "vercel/next.js"
+          },
+          {
+            "repository": "pmndrs/zustand"
+          }
+        ],
+        "refs": [
+          "default branches (resolve and freeze)"
+        ],
+        "atomicClaims": 5,
+        "budget": {
+          "maxToolCalls": 5,
+          "maxPages": 1,
+          "timeoutMs": 120000
+        },
+        "contamination": {
+          "status": "control-required",
+          "cutoff": "controlCorrectness >= 1.0"
+        },
+        "reverifyBeforeRun": true
+      },
+      "targetTools": [
+        "ghGetFileContent"
+      ],
+      "expectedWorkflow": "Fetch the bounded Next example and Zustand package metadata at frozen refs, then compare the two contracts."
+    },
+    "q8": {
+      "answer": "WorkbenchKeybindingService is in src/vs/workbench/services/keybinding/browser/keybindingService.ts. Its base is AbstractKeybindingService in src/vs/platform/keybinding/common/abstractKeybindingService.ts, whose public keypress dispatch entry is dispatchEvent.",
+      "oracle": {
+        "requiredClaims": [
+          "WorkbenchKeybindingService",
+          "workbench/services/keybinding/browser/keybindingService.ts",
+          "AbstractKeybindingService",
+          "platform/keybinding/common/abstractKeybindingService.ts",
+          "dispatchEvent"
+        ],
+        "acceptedVariants": [
+          "Repository-root src/vs prefixes may be included or omitted.",
+          "Line numbers may drift."
+        ]
+      },
+      "scoring": {
+        "full": "Concrete class/file and base class/file/public dispatch method.",
+        "partial": "One side correct or internal _dispatch named in addition to, but not instead of, dispatchEvent.",
+        "zero": "No dispatchEvent and no correct class chain."
+      },
+      "capabilityPoint": "Refined code search in a large repository.",
+      "task": {
+        "taskId": "ghrv2-vscode-keybinding-dispatch",
+        "category": "large-repository-code-search",
+        "primaryCapability": "large-repo-code-search",
+        "duplicateFamily": "vscode-keybinding-entry",
+        "difficulty": "medium",
+        "repositories": [
+          {
+            "repository": "microsoft/vscode"
+          }
+        ],
+        "refs": [
+          "default branch (resolve and freeze)"
+        ],
+        "atomicClaims": 5,
+        "budget": {
+          "maxToolCalls": 5,
+          "maxPages": 2,
+          "timeoutMs": 120000
+        },
+        "contamination": {
+          "status": "control-required",
+          "cutoff": "controlCorrectness >= 1.0"
+        },
+        "reverifyBeforeRun": true
+      },
+      "targetTools": [
+        "ghSearchCode",
+        "ghGetFileContent"
+      ],
+      "expectedWorkflow": "Refine repository-scoped searches to the concrete service and base class, then fetch dispatchEvent in bounded context."
+    },
+    "q9": {
+      "answer": "The order is Incoming Request, Routing, Instance Logger, onRequest, preParsing, Parsing, preValidation, Validation, preHandler, User Handler. lib/route.js checks context.onRequest and calls onRequestHookRunner(context.onRequest, request, reply, ...); the runner is defined in lib/hooks.js.",
+      "oracle": {
+        "requiredClaims": [
+          "exact lifecycle order",
+          "context.onRequest",
+          "onRequestHookRunner",
+          "lib/route.js and lib/hooks.js"
+        ],
+        "acceptedVariants": [
+          "The trailing callback argument may be summarized.",
+          "Equivalent punctuation in the ordered sequence is accepted."
+        ]
+      },
+      "scoring": {
+        "full": "Correct sequence and exact source-level property/runner.",
+        "partial": "Sequence correct but source trace incomplete, or one adjacent ordering slip with correct source trace.",
+        "zero": "Materially wrong parsing/validation order or unrelated hooks."
+      },
+      "capabilityPoint": "Bounded documentation-to-source cross-check.",
+      "task": {
+        "taskId": "ghrv2-fastify-lifecycle",
+        "category": "documentation-source-cross-check",
+        "primaryCapability": "docs-source-fetch",
+        "duplicateFamily": "fastify-request-lifecycle",
+        "difficulty": "medium",
+        "repositories": [
+          {
+            "repository": "fastify/fastify"
+          }
+        ],
+        "refs": [
+          "default branch (resolve and freeze)"
+        ],
+        "atomicClaims": 4,
+        "budget": {
+          "maxToolCalls": 5,
+          "maxPages": 1,
+          "timeoutMs": 120000
+        },
+        "contamination": {
+          "status": "control-required",
+          "cutoff": "controlCorrectness >= 1.0"
+        },
+        "reverifyBeforeRun": true
+      },
+      "targetTools": [
+        "ghGetFileContent"
+      ],
+      "expectedWorkflow": "Fetch the lifecycle documentation and bounded regions of route.js and hooks.js; reconcile order and implementation."
+    },
+    "q10": {
+      "answer": "The repository is axios/axios and JavaScript is dominant. package.json main points to ./dist/node/axios.cjs (the built CJS bundle); the exports map routes Node require to ./dist/node/axios.cjs, while the ESM default condition is ./index.js, which re-exports the underlying source entry lib/axios.js.",
+      "oracle": {
+        "requiredClaims": [
+          "axios/axios",
+          "JavaScript dominant",
+          "main -> ./dist/node/axios.cjs (built CJS bundle)",
+          "Node require resolves via exports to ./dist/node/axios.cjs",
+          "underlying source entry lib/axios.js (reached via the ESM default condition ./index.js)"
+        ],
+        "acceptedVariants": [
+          "Language byte totals may drift; 2026-08-02 verification observed JavaScript 971,401 bytes versus TypeScript 101,082 bytes.",
+          "The Node CommonJS require target is the built bundle ./dist/node/axios.cjs; lib/axios.js is the underlying pre-build source reached through the ESM default condition ./index.js. Answers that correctly distinguish the built CJS require target from the ESM source path are fully correct and must not be penalized. (Live re-verification 2026-08-03: package.json main=./dist/node/axios.cjs, exports.'.'.default.require=./dist/node/axios.cjs, exports.'.'.default.default=./index.js -> import './lib/axios.js'.)"
+        ]
+      },
+      "scoring": {
+        "full": "Repository, dominant language, and complete entry chain.",
+        "partial": "Repository/language correct with partial entry chain, or complete chain without verified language metadata.",
+        "zero": "Wrong repository, TypeScript-dominant claim, or fabricated entry."
+      },
+      "capabilityPoint": "Repository discovery plus manifest/source entry tracing.",
+      "task": {
+        "taskId": "ghrv2-axios-entry-chain",
+        "category": "repository-discovery-entry-trace",
+        "primaryCapability": "repo-discovery-entry-trace",
+        "duplicateFamily": "axios-node-entry",
+        "difficulty": "medium",
+        "repositories": [
+          {
+            "repository": "axios/axios"
+          }
+        ],
+        "refs": [
+          "default branch (resolve and freeze)"
+        ],
+        "atomicClaims": 5,
+        "budget": {
+          "maxToolCalls": 6,
+          "maxPages": 1,
+          "timeoutMs": 120000
+        },
+        "contamination": {
+          "status": "contaminated",
+          "cutoff": "controlCorrectness >= 1.0"
+        },
+        "reverifyBeforeRun": true
+      },
+      "targetTools": [
+        "ghSearchRepos",
+        "ghGetFileContent"
+      ],
+      "expectedWorkflow": "Discover the repository, inspect language metadata, and fetch bounded package.json, index.js, and source-entry regions."
+    },
+    "q11": {
+      "answer": "The repository is evanw/esbuild and Go is the dominant language. The normal Node API uses a separate native Go process, invoking child_process spawn for the long-lived service and execFileSync for synchronous operation, communicating over stdio rather than executing the core in-process.",
+      "oracle": {
+        "requiredClaims": [
+          "evanw/esbuild",
+          "Go dominant",
+          "separate native process",
+          "child_process spawn",
+          "execFileSync",
+          "stdio"
+        ],
+        "acceptedVariants": [
+          "2026-08-02 language verification observed Go 5,118,255 bytes, JavaScript 1,162,522, and TypeScript 413,323; drifted totals are accepted if independently reverified."
+        ]
+      },
+      "scoring": {
+        "full": "Repository/language and complete process boundary with both APIs.",
+        "partial": "Repository and Go plus a vague separate-process trace, or process trace correct without verified language metadata.",
+        "zero": "Claims JS/TS-dominant or normal in-process JS/WASM execution."
+      },
+      "capabilityPoint": "Repository discovery and bounded runtime-boundary trace.",
+      "task": {
+        "taskId": "ghrv2-esbuild-process-boundary",
+        "category": "repository-discovery-runtime-trace",
+        "primaryCapability": "repo-discovery-runtime-trace",
+        "duplicateFamily": "esbuild-node-native-boundary",
+        "difficulty": "medium",
+        "repositories": [
+          {
+            "repository": "evanw/esbuild"
+          }
+        ],
+        "refs": [
+          "default branch (resolve and freeze)"
+        ],
+        "atomicClaims": 6,
+        "budget": {
+          "maxToolCalls": 6,
+          "maxPages": 1,
+          "timeoutMs": 120000
+        },
+        "contamination": {
+          "status": "control-required",
+          "cutoff": "controlCorrectness >= 1.0"
+        },
+        "reverifyBeforeRun": true
+      },
+      "targetTools": [
+        "ghSearchRepos",
+        "ghSearchCode",
+        "ghGetFileContent"
+      ],
+      "expectedWorkflow": "Discover the source repository, inspect language metadata, then fetch the bounded Node API region containing child_process calls."
+    },
+    "q12": {
+      "answer": "The base Stream constructor is implemented in lib/internal/streams/legacy.js as function Stream(opts) { EE.call(this, opts); }, with ObjectSetPrototypeOf(Stream.prototype, EE.prototype) and ObjectSetPrototypeOf(Stream, EE). EventEmitter.prototype.once delegates through this.on(type, _onceWrap(...)); _onceWrap binds onceWrapper, which removes itself with removeListener before invoking the real listener.",
+      "oracle": {
+        "requiredClaims": [
+          "lib/internal/streams/legacy.js",
+          "EE.call",
+          "both ObjectSetPrototypeOf links",
+          "once calls on",
+          "_onceWrap/onceWrapper",
+          "removeListener"
+        ],
+        "acceptedVariants": [
+          "EE may be expanded as EventEmitter.",
+          "Equivalent exact snippets from the frozen source are accepted."
+        ]
+      },
+      "scoring": {
+        "full": "Complete Stream prototype wiring and once delegation chain.",
+        "partial": "One of the two traces complete and the other directionally correct.",
+        "zero": "Claims class extends or independent once bookkeeping."
+      },
+      "capabilityPoint": "Bounded multi-file implementation trace.",
+      "task": {
+        "taskId": "ghrv2-node-stream-event-wiring",
+        "category": "multi-file-bounded-fetch",
+        "primaryCapability": "multi-file-bounded-fetch",
+        "duplicateFamily": "node-stream-eventemitter-wiring",
+        "difficulty": "hard",
+        "repositories": [
+          {
+            "repository": "nodejs/node"
+          }
+        ],
+        "refs": [
+          "default branch (resolve and freeze)"
+        ],
+        "atomicClaims": 6,
+        "budget": {
+          "maxToolCalls": 5,
+          "maxPages": 1,
+          "timeoutMs": 180000
+        },
+        "contamination": {
+          "status": "control-required",
+          "cutoff": "controlCorrectness >= 1.0"
+        },
+        "reverifyBeforeRun": true
+      },
+      "targetTools": [
+        "ghGetFileContent"
+      ],
+      "expectedWorkflow": "Fetch bounded regions in legacy.js and events.js around the named constructors and helpers."
+    },
+    "q13": {
+      "answer": "Issue #15389 describes signed overflow in getBitOffsetFromArgument when loffset *= bits occurs before a bounds check. For i64, offset 144115188075855872 is the first demonstrated overflowing value (greater than floor(LLONG_MAX/64)). PR #15433 merged 2026-07-10 and changed src/bitops.c (+9/-3) plus tests/unit/bitfield.tcl (+9/-0), totaling +18/-3.",
+      "oracle": {
+        "requiredClaims": [
+          "issue #15389",
+          "getBitOffsetFromArgument",
+          "loffset *= bits signed overflow",
+          "144115188075855872 or mathematically equivalent threshold",
+          "PR #15433",
+          "src/bitops.c and tests/unit/bitfield.tcl",
+          "+18/-3 total"
+        ],
+        "acceptedVariants": [
+          "The threshold may be expressed as any offset greater than floor(LLONG_MAX/64) with correct arithmetic.",
+          "Per-file and total deltas may both be supplied."
+        ]
+      },
+      "scoring": {
+        "full": "Correct issue/root cause/threshold and PR/files/delta.",
+        "partial": "Issue root cause correct but PR accounting incomplete, or PR metadata correct with vague overflow mechanism.",
+        "zero": "Wrong issue/PR, wrong operation, or fabricated files."
+      },
+      "capabilityPoint": "Issue-to-fixed-PR security trace with deterministic diff metadata.",
+      "task": {
+        "taskId": "ghrv2-redis-bitfield-security",
+        "category": "issue-pull-request-diff-trace",
+        "primaryCapability": "issue-pr-diff-trace",
+        "duplicateFamily": "redis-bitfield-overflow-fix",
+        "difficulty": "hard",
+        "repositories": [
+          {
+            "repository": "redis/redis"
+          }
+        ],
+        "refs": [
+          "issue 15389",
+          "PR 15433"
+        ],
+        "atomicClaims": 7,
+        "budget": {
+          "maxToolCalls": 6,
+          "maxPages": 1,
+          "timeoutMs": 180000
+        },
+        "contamination": {
+          "status": "control-required",
+          "cutoff": "controlCorrectness >= 1.0"
+        },
+        "reverifyBeforeRun": false
+      },
+      "targetTools": [
+        "ghSearchIssues",
+        "ghSearchPullRequests"
+      ],
+      "expectedWorkflow": "Retrieve the fixed issue and PR metadata, then inspect bounded changed-file hunks establishing the vulnerable multiplication and test coverage."
+    },
+    "q14": {
+      "oracle": {
+        "requiredClaims": [
+          "PR state reported as observed at verification time (open as of 2026-08-03)",
+          "adds the OOLONG-synth long-context aggregation benchmark as a Harbor dataset",
+          "only dataset.toml, metric.py, and bucket.toml are committed for the dataset; per-task dirs (environment/context.txt) are gitignored and regenerated",
+          "task data is pulled from HuggingFace during CI by a populate step before harbor run (dispatched by dataset path in _harbor_run.yml)",
+          "arms: bare -> bare-code-interpreter -> rlm; bare->bare-code-interpreter isolates the CodeInterpreterMiddleware tool, bare-code-interpreter->rlm isolates the Recursive Language Model strategy (chunk input, fan out a task() subagent per chunk, aggregate in code)",
+          "loader tries the HuggingFace datasets-server /filter API first and falls back to reading the Hub's auto-converted parquet directly via pyarrow predicate-pushdown",
+          "scorer is the verbatim official OOLONG scorer (MIT) at libs/evals/harbor_adapters/oolong/official_scorer.py",
+          "five classified paths, e.g. adapter libs/evals/harbor_adapters/oolong/loader.py|generate_oolong_tasks.py|main.py; dataset config libs/evals/datasets/oolong-synth/dataset.toml|bucket.toml|metric.py; CI .github/workflows/_harbor_run.yml|harbor.yml; agent graph libs/evals/deepagents_harbor/langgraph_project/langgraph_agent.py"
+        ],
+        "acceptedVariants": [
+          "If the PR merges or closes before the run, the reported state must match the frozen pre-run observation.",
+          "19 files, +1529/-8 accepted as supporting metadata but not required."
+        ]
+      },
+      "scoring": {
+        "full": "All 8 claim groups: state, what-it-adds, committed-vs-generated split with CI data source, the three arms with both isolations, loader fallback chain, scorer provenance, and >=5 correctly classified paths with no fabricated path.",
+        "partial": "At least 5 of 8 claim groups including the committed-vs-generated split and the arms ladder, with no fabricated path.",
+        "zero": "Fewer than 5 claim groups, wrong PR, fabricated paths, or arms/isolation reversed."
+      },
+      "capabilityPoint": "Live pull-request review: multi-file change comprehension, design-decision extraction (data-in-CI vs committed), and ablation-arm reasoning.",
+      "expectedWorkflow": "Fetch PR metadata and description, list changed files, read the key added files (loader, scorer, dataset config, CI workflow) bounded, then synthesize the design decisions and classify paths.",
+      "targetTools": [
+        "ghSearchPullRequests",
+        "ghGetFileContent"
+      ],
+      "task": {
+        "taskId": "ghrv2-deepagents-oolong-pr-review",
+        "difficulty": "hard",
+        "category": "pull-request-review",
+        "primaryCapability": "pr-diff-review",
+        "repositories": [
+          {
+            "repository": "langchain-ai/deepagents",
+            "ref": "main (PR #4338 head; resolve and freeze)"
+          }
+        ],
+        "duplicateFamily": "deepagents-oolong-eval-pr",
+        "contamination": {
+          "status": "control-required",
+          "cutoff": "PR opened after the model training cutoff (2026); control arm must confirm"
+        },
+        "budget": {
+          "maxToolCalls": 6,
+          "maxPages": 2,
+          "timeoutMs": 240000
+        },
+        "refs": [
+          "PR 4338"
+        ],
+        "atomicClaims": 8,
+        "reverifyBeforeRun": true
+      }
+    }
+  }
+}

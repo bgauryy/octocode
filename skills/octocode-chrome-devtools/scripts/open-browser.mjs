@@ -17,7 +17,8 @@ const HEADLESS    = hasFlag('--headless');
 const CLEANUP     = hasFlag('--cleanup');
 const DRY_RUN     = hasFlag('--dry-run');
 const CHROME_PATH  = getArg('--chromePath', '');
-const WINDOW_SIZE  = getArg('--windowSize', '');
+const WINDOW_SIZE  = getArg('--windowSize', HEADLESS ? '1280x720' : '');
+const ENABLE_FEATURES = getArg('--enableFeatures', '');
 const USER_AGENT  = getArg('--userAgent', '');
 const PROXY_SERVER = getArg('--proxyServer', '');
 const PROXY_BYPASS_LIST = getArg('--proxyBypassList', '');
@@ -39,7 +40,7 @@ function octocodeOutputBase() {
 }
 
 const OCTOCODE_OUTPUT_BASE = octocodeOutputBase();
-const CHROME_STATE_DIR = join(OCTOCODE_OUTPUT_BASE, 'chrome-devtools', 'browser-state');
+const CHROME_STATE_DIR = join(OCTOCODE_OUTPUT_BASE, 'tmp', 'chrome-devtools', 'browser-state');
 mkdirSync(CHROME_STATE_DIR, { recursive: true, mode: 0o700 });
 const SESSION_FILE = join(CHROME_STATE_DIR, `cdp-session-${PORT}.json`);
 const HEADLESS_PROFILE_DIR = join(CHROME_STATE_DIR, `cdp-chrome-profile-${PORT}`);
@@ -269,9 +270,12 @@ if (existing) {
     browser: existing.Browser,
     proxyConfigured: false,
     proxyRequested,
+    enableFeaturesRequested: ENABLE_FEATURES || undefined,
     warning: proxyRequested
       ? 'Existing Chrome was reused; proxy settings cannot be applied to an already-running CDP session. Run cleanup or use another port for a fresh proxied session.'
-      : undefined,
+      : ENABLE_FEATURES
+        ? 'Existing Chrome was reused; --enableFeatures cannot be applied to an already-running CDP session. Run cleanup or use another port for a fresh session.'
+        : undefined,
   });
   process.exit(0);
 }
@@ -338,6 +342,7 @@ if (USER_AGENT) chromeArgs.push(`--user-agent=${USER_AGENT}`);
 if (WINDOW_SIZE) {
   chromeArgs.push(`--window-size=${WINDOW_SIZE.replace('x', ',')}`);
 }
+if (ENABLE_FEATURES) chromeArgs.push(`--enable-features=${ENABLE_FEATURES}`);
 if (effectiveProxyServer) chromeArgs.push(`--proxy-server=${effectiveProxyServer}`);
 if (effectiveProxyBypassList) chromeArgs.push(`--proxy-bypass-list=${effectiveProxyBypassList}`);
 if (effectiveProxyPacUrl && !effectiveProxyServer) chromeArgs.push(`--proxy-pac-url=${effectiveProxyPacUrl}`);
@@ -365,6 +370,8 @@ while (attempts < 40) {
       isolated: HEADLESS || usingIsolatedProfile,
       sessionFile: (HEADLESS || usingIsolatedProfile) ? SESSION_FILE : null,
       proxyConfigured: proxyRequested,
+      enableFeaturesConfigured: ENABLE_FEATURES || undefined,
+      windowSize: WINDOW_SIZE || undefined,
     });
     process.exit(0);
   }
