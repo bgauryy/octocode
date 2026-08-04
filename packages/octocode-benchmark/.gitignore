@@ -1,3 +1,4 @@
-# Frozen local corpora for benchmark runs — cloned, never committed.
-# See BENCHMARK.md "Corpus" for the pinned SHA and clone command.
-context/
+# All benchmark scratch — measurement logs, smoke tests, frozen local corpora,
+# any per-run artifact — lives under a `tmp/` folder and is never committed.
+# Matches `tmp/` at the package root and inside any comparison folder.
+tmp/

@@ -1,47 +1,40 @@
-# Octocode MCP vs `gh` CLI — GitHub Research v2
+# Octocode CLI vs `gh`
 
-This is the plain-`gh` permutation of the paired GitHub Research v2 benchmark.
-It is an ablation of baseline output shaping, not a separate question suite.
-Questions and oracle live ONLY in the canonical bank — this folder holds no
-copies; it defines how to run the comparison.
+Seventeen GitHub research questions in the shared set [`../github-questions/`](../github-questions/) — one canonical copy, used by all three GitHub matchups.
 
-## Identity
+| Arm | Allowed surface |
+|---|---|
+| A | Read-only `gh` repository, code, content, tree, PR, issue, and commit operations |
+| B | Matching GitHub research through `npx octocode tools …` |
 
-- `suiteVersion`: `2`
-- `questionBankId`: `github-research-v2`
-- Questions: canonical source —
-  [`../../questions/github/research-v2/questions.md`](../../questions/github/research-v2/questions.md)
-- Oracle (judge-only): canonical source —
-  [`../../questions/github/research-v2/ground-truth.json`](../../questions/github/research-v2/ground-truth.json)
+Both runners receive the same question and budget. Neither gets browser, local-code, peer, or grader-reference access.
 
-## Arms
+The same shared set is used by `octocode-vs-gh-rtk` and `octocode-vs-gh-headroom`.
 
-- **Control C:** no research tools.
-- **Baseline A — `gh`:** only matching `gh` CLI GitHub repository, code,
-  content/tree, pull-request, issue, and commit operations. Output may be shaped
-  only with `gh`'s own output options.
-- **Treatment B — Octocode MCP remote GitHub only:** `ghSearchCode`,
-  `ghGetFileContent`, `ghViewRepoStructure`, `ghSearchRepos`,
-  `ghSearchPullRequests`, `ghSearchIssues`, and `ghSearchCommits`.
+## How to run Arm A (`gh`)
 
-Treatment B may not use the Octocode CLI, local tools, clone, AST, LSP, npm,
-minification/symbol modes, or a cache/batching advantage. No raw GitHub API,
-browser, package registry, or other research source is available to either
-solver arm.
+Confirm `gh --version` and that `gh auth status` is authenticated before running.
+Allowed families (read-only — no mutation verbs): `search
+{code,repos,prs,issues,commits}`, `repo view`, `pr view|diff`, `issue view`, and
+`api` limited to GET on `/contents` or `/git/trees`.
 
-## Execution contract and question map
+```bash
+gh search code --repo vercel/next.js "getRouteRegex" --limit 20
+gh api 'repos/vercel/next.js/git/trees/canary?recursive=1'
+gh api 'repos/vercel/next.js/contents/PATH?ref=canary' \
+      -H "Accept: application/vnd.github.raw"     # raw, not --jq .content base64 (~1.33× larger)
+```
 
-Owned by the canonical bank — follow
-[`../../questions/github/research-v2/README.md`](../../questions/github/research-v2/README.md)
-(frozen execution contract + Q1–Q14 category map), identical for both
-paired permutations. Do not copy it here.
+Footprint: prefer a snippet-bearing `gh search code` hit when it already answers
+the question (avoids a full-file fetch); keep `--json` field lists minimal.
+Record the characters each call pulls into context — that is Arm A's chars-in
+for `SCORING.md`. This is the uncompressed baseline the `rtk` and `headroom`
+matchups compress.
 
-## References
+## Arm B (Octocode)
 
-- [Canonical bank](../../questions/github/research-v2/README.md)
-- [Shared method](../../README.md)
-- [Run instructions](../../INSTRUCTIONS.md)
-- [Judging](../../JUDGING.md)
-- [Scoring](../../SCORING.md)
-- [Report template](../../REPORT_TEMPLATE.md)
-- [v2 results ledger](../../results/octocode-vs-gh.md)
+```bash
+npx octocode tools <the-question>
+```
+
+Record chars in/out per question, same as Arm A.

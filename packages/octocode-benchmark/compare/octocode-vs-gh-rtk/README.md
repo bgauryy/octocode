@@ -1,75 +1,28 @@
-# Octocode MCP vs (`gh` CLI + `rtk`) — GitHub Research v2
+# Octocode CLI vs `gh` + `rtk`
 
-This is the `rtk` output-shaping permutation of the paired GitHub Research v2
-benchmark. It is an ablation of baseline output shaping, not a separate question
-suite. The canonical bank must not drift between this suite, the plain-`gh`
-permutation, and the bank source.
+Seventeen GitHub research questions in the shared set [`../github-questions/`](../github-questions/) — one canonical copy, used by all three GitHub matchups.
 
-## Identity
+| Arm | Allowed surface |
+|---|---|
+| A | Read-only `gh` operations invoked through `rtk gh` |
+| B | Matching GitHub research through `npx octocode tools …` |
 
-- `suiteVersion`: `2`
-- `questionBankId`: `github-research-v2`
-- Questions: canonical source —
-  [`../../questions/github/research-v2/questions.md`](../../questions/github/research-v2/questions.md)
-- Oracle (judge-only): canonical source —
-  [`../../questions/github/research-v2/ground-truth.json`](../../questions/github/research-v2/ground-truth.json)
+RTK is a transport/filter layer, not an additional research source.
 
-## Arms
+These live once in [`../github-questions/`](../github-questions/); edit them there and every GitHub matchup sees the change.
 
-- **Control C:** no research tools.
-- **Baseline A — `gh` + `rtk`:** the same `gh` CLI GitHub repository, code,
-  content/tree, pull-request, issue, and commit operations as the plain-`gh`
-  permutation. `rtk` may only filter or shape `gh` output; it provides no extra
-  research source.
-- **Treatment B — Octocode MCP remote GitHub only:** `ghSearchCode`,
-  `ghGetFileContent`, `ghViewRepoStructure`, `ghSearchRepos`,
-  `ghSearchPullRequests`, `ghSearchIssues`, and `ghSearchCommits`.
+## Arm A (gh + rtk) — run the runner this leanest legal way
 
-### What `rtk` is
+Give arm A its fair minimum footprint. Verified against rtk's docs (`rtk-ai/rtk`, "filters and compresses command outputs") and empirically on 2026-08-04:
 
-`rtk` is a third-party CLI that filters/reshapes `gh` stdout to cut tokens; it
-adds **no new research source**. It is not part of this repo. Pin the exact
-binary + version in `manifest.md` (`baselines.rtk`) and confirm it before the
-run — last observed `rtk 0.41.0` alongside `gh 2.76.2`.
+- **File content — use the raw media type, never base64.** gh has no region-targeted read, so fetch the whole file with `Accept: application/vnd.github.raw`, not `--jq .content` (base64 is ~1.33–1.36× larger; measured 102,534→75,638 bytes). Still within `gh-rtk-readonly` (family `api`, `/contents` scope, GET):
+  `rtk gh api repos/OWNER/REPO/contents/PATH?ref=SHA -H "Accept: application/vnd.github.raw"`
+- **PR/issue detail & diffs — let rtk filter.** `rtk gh pr view N`, `rtk gh pr diff N`, `rtk gh issue view N` **without `--json`** get rtk's compact output (measured `rtk gh pr diff` 1811→1534, ~15% smaller). Add `--json <fields>` only when an exact structured field is required — `--json` forces passthrough (rtk adds nothing).
+- **`search code` / `api` are passthrough.** rtk does not compress these (measured `gh search code` == `rtk gh search code`); expect no rtk savings and keep queries tight.
+- **Prefer snippet-bearing `gh search code`** when its hit already answers the question, to avoid a full-file fetch entirely.
 
-### Fairness rules (HARD — this ablation measures the tool, not solver discipline)
+Note per call whether rtk **filtered** or **passed through** (`--json`, `search`, and `api` are passthrough — rtk adds nothing). This guidance changes footprint, not the read-only policy.
 
-The whole point of this permutation is to compare Octocode against a
-*token-optimized* baseline. If the baseline solver forgets to shape a large
-payload, its byte cost balloons and Octocode's efficiency edge is inflated by
-solver behavior rather than tool design (the `2026-08-03-cross-repo-draft`
-run saw exactly this on Q1/Q3, where raw 395KB/641KB `gh` payloads reached the
-solver unfiltered). To remove that confound:
+Allowed arm-A families: `search {code,repos,prs,issues,commits}`, `repo view`, `pr view|diff`, `issue view`, and `api` limited to `/contents` or `/git/trees` (GET only). No mutation verbs.
 
-1. **Mandatory shaping over 50 KB.** Any Arm A tool call whose `rawBytes` > 50 KB
-   MUST be piped through `rtk` before the payload enters the solver context. A
-   trial that reads a raw `gh` payload > 50 KB unfiltered is an **invalid trial**
-   (`taskStatus: invalid`), excluded from aggregates, and re-run.
-2. **Hard call cap.** Each question's `task.budget.maxToolCalls` is a hard cap,
-   not advisory: any trial (A **or** B) that exceeds it is `taskStatus: invalid`
-   and re-run. Retries, failures, empty calls, and pagination all count.
-3. **Symmetry.** Both arms are held to the same hard cap and the same fresh,
-   uncached context. Record every invalidated + re-run trial in the report's
-   guardrails section.
-
-Treatment B may not use the Octocode CLI, local tools, clone, AST, LSP, npm,
-minification/symbol modes, or a cache/batching advantage. No raw GitHub API,
-browser, package registry, or other research source is available to either
-solver arm.
-
-## Execution contract and question map
-
-Owned by the canonical bank — follow
-[`../../questions/github/research-v2/README.md`](../../questions/github/research-v2/README.md)
-(frozen execution contract + Q1–Q14 category map), identical for both
-paired permutations. Do not copy it here.
-
-## References
-
-- [Canonical bank](../../questions/github/research-v2/README.md)
-- [Shared method](../../README.md)
-- [Run instructions](../../INSTRUCTIONS.md)
-- [Judging](../../JUDGING.md)
-- [Scoring](../../SCORING.md)
-- [Report template](../../REPORT_TEMPLATE.md)
-- [v2 results ledger](../../results/octocode-vs-gh-rtk.md)
+Completed runs of this matchup are in [`../../results/`](../../results/) (see the index there for the latest).
