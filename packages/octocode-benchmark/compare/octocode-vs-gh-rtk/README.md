@@ -1,6 +1,6 @@
 # Octocode CLI vs `gh` + `rtk`
 
-Seventeen GitHub research questions in [`questions/`](questions/).
+Seventeen GitHub research questions in the shared set [`../github-questions/`](../github-questions/) — one canonical copy, used by all three GitHub matchups.
 
 | Arm | Allowed surface |
 |---|---|
@@ -9,7 +9,7 @@ Seventeen GitHub research questions in [`questions/`](questions/).
 
 RTK is a transport/filter layer, not an additional research source.
 
-The same questions are used by `octocode-vs-gh` (copy them if you edit).
+These live once in [`../github-questions/`](../github-questions/); edit them there and every GitHub matchup sees the change.
 
 ## Arm A (gh + rtk) — run the runner this leanest legal way
 
@@ -25,4 +25,4 @@ Note per call whether rtk **filtered** or **passed through** (`--json`, `search`
 
 Allowed arm-A families: `search {code,repos,prs,issues,commits}`, `repo view`, `pr view|diff`, `issue view`, and `api` limited to `/contents` or `/git/trees` (GET only). No mutation verbs.
 
-A completed run of this matchup is in [`../../results/octocode-vs-gh-rtk-campaign-03.md`](../../results/octocode-vs-gh-rtk-campaign-03.md).
+Completed runs of this matchup are in [`../../results/`](../../results/) (see the index there for the latest).

@@ -1,6 +1,6 @@
 # Write-up template
 
-Save finished runs in `results/<comparison-id>-<name>.md`. Lead with the outcome. Measure in **characters** (raw CLI output pulled into context) — never tokens.
+Save finished runs in `results/<comparison-name>-<HHMMSS>-<YYYY-MM-DD>.md` — the comparison name, then the run's start time `HHMMSS` (24-hour, so two runs on the same day never collide), then the date. Example: `results/octocode-vs-gh-rtk-021054-2026-08-05.md`. Lead with the outcome. Measure in **characters** (raw CLI output pulled into context) — never tokens.
 
 ## Per-question table
 

@@ -1,49 +1,41 @@
 ---
 name: octocode-benchmark
-description: "Use when planning, running, grading, or reporting a by-hand Octocode CLI comparison benchmark from markdown questions."
+description: "Use when planning, running, grading, or reporting a by-hand Octocode CLI comparison benchmark from markdown questions — isolated runners, a blind grader, results measured in characters."
 ---
 
 # Octocode benchmark
 
-Plain-markdown, run-by-hand CLI comparison. No harness, no JSON, no schemas — just markdown questions and a markdown write-up.
-
-## The flow
-
-For every question, three separate people/agents work alone: two answer it (one per tool), one grades. Then everything rolls up into one write-up.
+Plain-markdown, run-by-hand CLI comparison: for each question, two isolated runners answer (baseline CLI vs `npx octocode tools …`) and a blind grader scores both. No harness, no JSON. Design and rationale live once in `../../BENCHMARK.md`.
 
 ```
-QUESTION  (compare/<matchup>/questions/Q<n>.md)
-        │
-  ┌─────┼─────────────────────────────────┐
-  │ Runner A  answers with the baseline CLI │
-  │ Runner B  answers with npx octocode …   │
-  │ Grader    grades both answers blind      │
-  └─────┬─────────────────────────────────┘
-        ▼
-  results/<matchup>-<name>.md   (chars + correctness + quality, per question, then a summary of all)
+question              →  runner A + runner B (isolated)  →  blind grader  →  write-up
+(github-questions/ or                                                        results/<matchup>-<HHMMSS>-<YYYY-MM-DD>.md
+ a matchup's questions/)                                                     (per-question table + summary, in characters)
 ```
 
-Keep the two runners unaware of each other and of the grader. Same question, same budget, same frozen refs; only the CLI differs. The grader checks each answer on its own evidence before comparing.
+## Operate it correctly (skip one and the run is worthless)
+
+- **Isolate the three roles.** Spawn each runner and the grader as a *separate* agent/context. Never let one context play two roles, read another's transcript, or see any answer key — that contaminates the result.
+- **Same packet, one variable.** Both arms get the same question, budget, and frozen refs; only the CLI differs. Freeze every mutable ref (branch / PR state / SHA + UTC) *before* answering and put it in the answer.
+- **Blind the grader.** Give it the two answers as X/Y with tool names hidden; it establishes ground truth by its own research; un-blind only when you tabulate.
+- **Measure characters of raw CLI output, never tokens.** For an instrumented arm (`rtk`/`headroom`) read chars from the log, never a runner's self-report — models miscount their own context.
+- **Decide correctness-first.** Leaner (fewer chars at equal correctness) breaks ties; a confidently-wrong answer cannot win. One pass is a snapshot — repeat for a stable claim.
+
+## Run it
+
+1. **Preflight** — confirm both CLIs are installed and authenticated, and pin their versions, per the matchup `README.md`.
+2. **Per question** — Runner A and Runner B each answer per `../../RUNNER.md`; the Grader scores blind per `../../JUDGING.md`.
+3. **Score** each answer (correctness, depth, workflow, chars) per `../../SCORING.md`.
+4. **Write up** to `results/<matchup>-<HHMMSS>-<YYYY-MM-DD>.md` per `../../REPORT_TEMPLATE.md`.
+
+Full step list: `../../INSTRUCTIONS.md`.
 
 ## Where things are
 
-- `compare/<matchup>/README.md` — the two arms and their allowed surface.
-- `compare/<matchup>/questions/Q<n>.md` — one question each: just a title, an `id`, and the `## Question` (no scope, claims, or answer).
+- `compare/<matchup>/README.md` — the two arms + how to run each. Authoring/reviewing that README → load `references/matchup-readme.md`.
+- Questions — title + `id` + `## Question` only. GitHub matchups share `compare/github-questions/`; a corpus-local matchup keeps its own `compare/<matchup>/questions/`.
 - `results/` — finished write-ups.
-
-## How to run
-
-Follow `../../INSTRUCTIONS.md`. Roles: `../../RUNNER.md` (runner) and `../../JUDGING.md` (grader). Measure per `../../SCORING.md`. Report per `../../REPORT_TEMPLATE.md`.
-
-## Rules
-
-- Octocode arm = `npx octocode tools <tool> …` only (no MCP, no monorepo entrypoint).
-- Freeze mutable refs (branches, PR state, SHAs) before answering; put them in the answer.
-- Give each arm its leanest legitimate path; record any known handicap as a fairness caveat.
-- Questions carry no answer key; the grader establishes ground truth by its own research.
-- Grade semantic support, not wording, length, citations, or tool order.
-- Correctness first; on a tie, the leaner tool (fewer CLI-output characters at equal correctness) wins the tie-break. Report the per-question table and a summary of all.
 
 ## Add a question
 
-Copy an existing `questions/Q<n>.md`, bump the number, edit the title, `id`, and `## Question`. Nothing else. No scripts.
+Copy an existing `Q<n>.md`, bump the number, edit title / `id` / `## Question` — nothing else, no scripts. GitHub → `compare/github-questions/`; corpus-local → that matchup's `questions/`. Add its row to that set's `README.md`.

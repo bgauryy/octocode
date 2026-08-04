@@ -6,26 +6,21 @@ Plain-markdown, run-by-hand CLI research benchmarks. Each question is answered b
 
 ```
 compare/
-  octocode-vs-gh/        README.md + questions/Q1.md, Q2.md, …
-  octocode-vs-gh-rtk/    README.md + questions/Q1.md, Q2.md, …
-  octocode-vs-ast-grep/  README.md + questions/Q1.md, Q2.md, …
-results/                 finished write-ups (one per run)
+  github-questions/         the 17 shared GitHub questions — ONE canonical copy
+  octocode-vs-gh/           README.md            (runs github-questions/)
+  octocode-vs-gh-rtk/       README.md            (runs github-questions/)
+  octocode-vs-gh-headroom/  README.md + bin/     (runs github-questions/)
+results/                    finished write-ups (one per run)
+tmp/                        run scratch — logs, corpora (gitignored, never committed)
 ```
 
-- **A comparison** = a `README.md` (the two arms) + a `questions/` folder.
+- **A comparison** = a `README.md` (the two arms) + a set of questions — the GitHub matchups share [`compare/github-questions/`](compare/github-questions/); a corpus-local matchup would keep its own `questions/`.
 - **A question** = one `Q<n>.md` with exactly a title, an `id`, and the `## Question` — no scope, hints, claims, or answer.
 - The Octocode arm always runs as `npx octocode tools <tool> …` (no MCP, no monorepo entrypoint).
 
-## The flow (three separate people/agents per question)
+## The flow
 
-```
-QUESTION
-  ├─ Runner A  answers with the baseline CLI only          → write it down
-  ├─ Runner B  answers with `npx octocode tools …` only    → write it down
-  └─ Grader    reads both answers blind, researches, grades → write it down
-```
-
-Keep the two runners unaware of each other and of the grader. Give both the same question and budget; only their CLI differs. The grader checks each answer on its own evidence before comparing.
+Three separate agents per question, each working alone: **Runner A** (baseline CLI) and **Runner B** (`npx octocode tools …`) answer the same question blind to each other, then a **Grader** researches independently and scores both with tool names hidden. Keeping the roles separate and blind is what makes the numbers trustworthy — the full design and rationale live once in **[BENCHMARK.md](BENCHMARK.md)**.
 
 ## Run one
 
@@ -38,7 +33,7 @@ See [INSTRUCTIONS.md](INSTRUCTIONS.md) for the step list, [RUNNER.md](RUNNER.md)
 
 ## Add a question
 
-Create `questions/Q<n>.md` (next number) with exactly three parts:
+Pick the set: a **GitHub** question goes in the shared [`compare/github-questions/`](compare/github-questions/) (it applies to all three GitHub matchups at once); a **corpus-local** question goes in that matchup's own `questions/`. Create `Q<n>.md` (next number) with exactly three parts:
 
 ```markdown
 # Q<n> — Short title
@@ -51,4 +46,4 @@ One self-contained, objectively-checkable prompt. Name the repo(s)/ref(s) or
 `$CORPUS` path, and say exactly what to report. No hints, no approach, no answer.
 ```
 
-Then add its row to `questions/README.md`. That's the whole process — no scripts, no JSON. Good questions have a single correct, verifiable answer a grader can confirm from primary evidence.
+Then add its row to that set's `README.md` index. That's the whole process — no scripts, no JSON. Good questions have a single correct, verifiable answer a grader can confirm from primary evidence.
