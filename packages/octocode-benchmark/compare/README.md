@@ -1,25 +1,33 @@
-# Comparison Suites (v2)
+# Comparisons
 
-Active head-to-head suites. Shared contracts live one level up:
-[methodology](../README.md) · [run instructions](../INSTRUCTIONS.md) ·
-[judging](../JUDGING.md) · [scoring](../SCORING.md) ·
-[report template](../REPORT_TEMPLATE.md). Canonical questions live per subject
-under [`../questions/`](../questions/).
+Each comparison folder is plain markdown:
 
-| Suite | Arm A (baseline) | Arm B (treatment) | Question bank |
-|---|---|---|---|
-| [octocode-vs-gh](octocode-vs-gh/) | `gh` CLI | Octocode **MCP** (remote GitHub only) | [github/research-v2](../questions/github/research-v2/) |
-| [octocode-vs-gh-rtk](octocode-vs-gh-rtk/) | `rtk` + `gh` CLI | Octocode **MCP** (remote GitHub only) | [github/research-v2](../questions/github/research-v2/) |
-| [octocode-vs-ast-grep](octocode-vs-ast-grep/) | `ast-grep` CLI | Octocode **CLI** (local only) | [local-code/ast-grep-react-v2](../questions/local-code/ast-grep-react-v2/) |
+- `README.md` — the matchup: the two arms (baseline CLI vs Octocode CLI) and their allowed surface.
+- `questions/` — one file per question: `Q1.md`, `Q2.md`, … plus a `README.md` index.
 
-**Arm B surface is fixed per suite and is the only variable under test:** the
-remote GitHub suites run Octocode over **MCP** (remote GitHub tools only — no
-CLI, local, clone, AST, LSP, npm, or cache advantage); the `ast-grep` suite runs
-Octocode over the **local CLI** (`node packages/octocode/out/octocode.js`).
-MCP and CLI expose the same tool runners; the surface is pinned so the
-comparison stays apples-to-apples with the baseline's reach.
+Available comparisons: [Octocode vs gh](octocode-vs-gh/), [Octocode vs gh+rtk](octocode-vs-gh-rtk/), [Octocode vs ast-grep](octocode-vs-ast-grep/).
 
-Each suite folder holds ONLY `README.md` — arms, boundaries, and which bank
-questions to run. Questions and oracles live once, in the canonical bank;
-results ledgers are tracked at [`../../results/<suite>.md`](../results/). v1 suites
-were removed from the tree on 2026-08-03 and are not comparable with v2.
+## Add a question
+
+Create `questions/Q<n>.md` with exactly three parts — nothing else:
+
+```markdown
+# Q<n> — Short title
+
+**id:** `unique-kebab-id`
+
+## Question
+
+Self-contained, objectively-checkable prompt naming the repo(s)/ref(s) or
+$CORPUS path and exactly what to report.
+```
+
+No scope, budget, hints, claims, or reference — those bias the benchmark. Then add a row to `questions/README.md`.
+
+## Add a comparison
+
+Create `compare/octocode-vs-<baseline>/` with a `README.md` (the two arms) and a `questions/` folder. That's it.
+
+## Running
+
+There is no runner harness — benchmarks are run **by hand**. See the top-level [`README.md`](../README.md) and [`INSTRUCTIONS.md`](../INSTRUCTIONS.md). Tracked outcomes go to [`../results/`](../results/).

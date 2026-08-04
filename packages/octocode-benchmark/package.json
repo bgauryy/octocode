@@ -14,9 +14,10 @@
   },
   "scripts": {
     "build": "echo 'No build step for benchmark package'",
-    "typecheck": "echo 'No TypeScript source files to typecheck'",
-    "test": "node scripts/loop-report.mjs --self-test",
-    "validate:summary": "node scripts/loop-report.mjs --input"
+    "lint": "echo 'Markdown-only package — no scripts to lint'",
+    "typecheck": "echo 'Markdown-only package — nothing to typecheck'",
+    "test": "echo 'Markdown-only package — no automated tests'",
+    "verify": "echo 'Markdown-only package — nothing to verify'"
   },
   "type": "module"
 }
