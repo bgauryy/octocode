@@ -2,6 +2,8 @@
 
 Finished benchmark write-ups (one file per run). Write each using [`../REPORT_TEMPLATE.md`](../REPORT_TEMPLATE.md): a per-question table (correctness, research depth, workflow, chars in/out) and a summary of all.
 
+> **📊 Start here: [SUMMARY.md](SUMMARY.md)** — the plain-English rollup of every run, with per-question visual bar charts. At equal correctness, Octocode pulled **1.4×–5.8× less context** than `gh` alone, `gh`+`rtk`, and `gh`+Headroom.
+
 **File naming:** `<comparison-name>-<HHMMSS>-<YYYY-MM-DD>.md` — the comparison name, the run's start time `HHMMSS` (24-hour, so same-day runs never collide), then the date. Example: `octocode-vs-gh-rtk-021054-2026-08-05.md`.
 
 | Write-up | Comparison | Notes |

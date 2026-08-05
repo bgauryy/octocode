@@ -13,7 +13,7 @@
 
 **Evidence-first code research for AI agents and developers.**
 
-Evidence from your **local workspace** and **external** sources (GitHub repos, PRs, npm). One toolset: ripgrep + AST search, trees, precise reads, and LSP — as a **CLI** or **MCP server**, backed by a **Rust engine** for fast, token-efficient results across single files or mega-repos.
+Evidence from your **local workspace** and **external** sources (GitHub repos, PRs, npm). One toolset: ripgrep + AST search, trees, precise reads, and LSP - as a **CLI** or **MCP server**, backed by a **Rust engine** for fast, token-efficient results across single files or mega-repos.
 
 ---
 
@@ -22,6 +22,7 @@ Evidence from your **local workspace** and **external** sources (GitHub repos, P
 - [Quick Start](#quick-start)
 - [Why Octocode](#why-octocode)
 - [What You Can Do](#what-you-can-do)
+- [Built for Research (Benchmarks)](#built-for-research-benchmarks)
 - [Tools](#tools)
 - [MCP](#mcp)
 - [CLI](#cli)
@@ -44,7 +45,7 @@ Evidence from your **local workspace** and **external** sources (GitHub repos, P
 npx octocode --help
 ```
 
-**2. Authenticate with GitHub** — optional, but unlocks private repositories and higher API rate limits:
+**2. Authenticate with GitHub** - optional, but unlocks private repositories and higher API rate limits:
 
 ```bash
 npx octocode auth login
@@ -53,13 +54,13 @@ npx octocode status       # verify the active token source
 
 **3. Choose your interface.** The same engine and tools run identically either way.
 
-**🖥️ CLI** — research straight from your terminal:
+**🖥️ CLI** - research straight from your terminal:
 
 ```bash
 npx octocode
 ```
 
-**🤖 MCP** — one-click install:
+**🤖 MCP** - one-click install:
 
 - [<img src="https://cursor.com/deeplink/mcp-install-dark.svg" alt="Install in Cursor">](https://cursor.com/en/install-mcp?name=octocode&config=eyJjb21tYW5kIjoibnB4IiwidHlwZSI6InN0ZGlvIiwiYXJncyI6WyJAb2N0b2NvZGVhaS9tY3BAbGF0ZXN0Il19)
 - [<img src="https://img.shields.io/badge/VS_Code-Install_Server-0098FF?style=flat-square&logo=visualstudiocode&logoColor=white" alt="Install in VS Code">](https://insiders.vscode.dev/redirect/mcp/install?name=octocode&config=%7B%22command%22%3A%22npx%22%2C%22type%22%3A%22stdio%22%2C%22args%22%3A%5B%22%40octocodeai%2Fmcp%40latest%22%5D%7D)
@@ -108,6 +109,42 @@ Octocode is useful whenever the next coding step depends on finding and proving 
 | **Agent workflows** | Same engine via MCP, CLI, and Agent Skills. |
 
 See [Quick Start](#quick-start) to install in your terminal or AI assistant.
+
+---
+
+## Built for Research (Benchmarks)
+
+Octocode is built for **research** - and it's measured on it. Across four independent, **blind-graded** runs against the leading GitHub-research CLIs (`gh` alone, `gh` + [`rtk`](https://github.com/Pleias/rtk), and `gh` + Headroom), the same runner model answered the **same 17 real GitHub research questions** with each tool. At **equal or better correctness, Octocode pulled 1.4×–5.8× less context into the model** - lower is better:
+
+```
+gh alone  (17 questions)
+  octocode  ████████████████··············  152,710 chars
+  gh        ██████████████████████████████  286,812 chars   → gh pulls 1.9× more
+
+gh + rtk (by-hand pass)  (17 questions)
+  octocode  █████████████████████·········  168,773 chars
+  gh+rtk    ██████████████████████████████  242,691 chars   → gh+rtk pulls 1.4× more
+
+gh + rtk (orchestrated: 2 blind runners + grader)  (17 questions)
+  octocode  ███████████···················  395,644 chars
+  gh+rtk    ██████████████████████████████  1,040,783 chars   → gh+rtk pulls 2.6× more
+
+gh + Headroom compression (orchestrated)  (15 questions)
+  octocode  █████·························  203,708 chars
+  gh+hr     ██████████████████████████████  1,180,822 chars   → gh+hr pulls 5.8× more
+```
+
+Correctness was a **tie or an Octocode edge in every run** - `gh` 9.94/9.94, `gh+rtk` 10.0/10.0 (ties); orchestrated 9.18 → **9.38**; Headroom 9.07 → **9.67**.
+
+*Measured in **characters** of raw CLI output pulled into context (~4 chars ≈ 1 token) - the honest, measured number, not a self-report. Correctness graded first; leaner only wins at equal correctness.*
+
+**Why it's leaner:** `gh` and friends have no region read - to inspect one symbol they fetch the **whole file, tree, or diff**; Octocode reads the *region* that answers the question. Compression (Headroom) shrinks output only *after* it's fetched, so it can't offset over-fetching what you never needed.
+
+**A note on truncation:** most context-shrinking tools truncate output *blind to the question* - for example, silently cutting a multi-file `gh pr diff`, hiding half the changes and forcing a full re-fetch. In research flows the answer often lives in those connections across files, so Octocode instead tries to fetch just what the request needs, rather than trimming after the fact.
+
+**Use the right tool for the job:** for a **quick check** - a single small object, a flat list, a yes/no where you know where to look - `gh`'s bare output is leaner, and the benchmark shows it. For **actual research** - multi-hop questions whose answers live inside large files, trees, and diffs - Octocode wins, because that's what it was built for.
+
+📊 **Full write-up - per-question visual charts, the three baselines, and honest caveats: [Benchmark Summary](https://github.com/bgauryy/octocode/blob/main/packages/octocode-benchmark/results/SUMMARY.md).** Every run is reproducible by hand via the [`octocode-benchmark` skill](https://github.com/bgauryy/octocode/tree/main/packages/octocode-benchmark/skills/octocode-benchmark) - isolated runners, a blind grader, no harness.
 
 ---
 
@@ -167,7 +204,7 @@ https://github.com/user-attachments/assets/de8d14c0-2ead-46ed-895e-09144c9b5071
 
 Add to your MCP client config. Pick the package that matches the version you want:
 
-**New Octocode (Rust-powered engine)** — use `@octocodeai/mcp`:
+**New Octocode (Rust-powered engine)** - use `@octocodeai/mcp`:
 
 ```json
 {
@@ -181,7 +218,7 @@ Add to your MCP client config. Pick the package that matches the version you wan
 }
 ```
 
-**Classic octocode-mcp** — use `octocode-mcp`:
+**Classic octocode-mcp** - use `octocode-mcp`:
 
 ```json
 {
@@ -195,7 +232,7 @@ Add to your MCP client config. Pick the package that matches the version you wan
 }
 ```
 
-Add a GitHub token and options under `env` — see [Authentication](#authentication-methods) and [Configuration](#configuration).
+Add a GitHub token and options under `env` - see [Authentication](#authentication-methods) and [Configuration](#configuration).
 
 ---
 
@@ -222,10 +259,10 @@ npx octocode --help       # full usage
 
 #### More commands
 
-- **Cache & clone** — `npx octocode clone`, `npx octocode cache fetch|status|clear`
-- **Skills** — `npx octocode skill list|install|check|info|remove` for bundled Octocode skills
-- **Language servers** — `npx octocode lsp-server list|install|status|uninstall|clean`
-- **Setup & introspection** — `npx octocode install`, `npx octocode auth`, `npx octocode status`, `npx octocode context`
+- **Cache & clone** - `npx octocode clone`, `npx octocode cache fetch|status|clear`
+- **Skills** - `npx octocode skill list|install|check|info|remove` for bundled Octocode skills
+- **Language servers** - `npx octocode lsp-server list|install|status|uninstall|clean`
+- **Setup & introspection** - `npx octocode install`, `npx octocode auth`, `npx octocode status`, `npx octocode context`
 
 Full syntax, flags, and exit codes: [Octocode CLI Guide](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_CLI.md)
 
@@ -251,7 +288,7 @@ environment variables  >  <octocode-home>/.octocoderc  >  built-in defaults
 | Linux | `${XDG_CONFIG_HOME:-~/.config}/.octocode` |
 | Windows | `%APPDATA%\.octocode` |
 
-Set values as MCP `env` entries (per client; these win over `.octocoderc`) or globally in `<octocode-home>/.octocoderc` (JSON with comments). **Tokens never go in `.octocoderc`** — use `env` or `npx octocode auth login`.
+Set values as MCP `env` entries (per client; these win over `.octocoderc`) or globally in `<octocode-home>/.octocoderc` (JSON with comments). **Tokens never go in `.octocoderc`** - use `env` or `npx octocode auth login`.
 
 ### Common settings
 
@@ -296,7 +333,7 @@ Interactive login lets you choose Octocode browser OAuth or `gh auth login`. Oct
 gh auth login
 ```
 
-Octocode reads the `gh` token automatically — no further config needed.
+Octocode reads the `gh` token automatically - no further config needed.
 
 ### Option 3: Personal Access Token (also supported)
 
@@ -348,7 +385,7 @@ Four code-intelligence axes; three are native to the Rust engine and need no ext
 > [Agent Skills](https://agentskills.io/what-are-skills) are a lightweight, open format for extending AI agent capabilities.
 > Browse and install on [**skills.sh/bgauryy/octocode-mcp**](https://www.skills.sh/bgauryy/octocode-mcp)
 
-**13 skills** under [`skills/`](https://github.com/bgauryy/octocode/tree/main/skills), bundled in the `octocode` package. Every skill shares one architecture — a lean `SKILL.md` lobby with hard gates, references loaded only when a step needs them, and cross-skill routes — so they compose. Start with ⭐ [Research](https://www.skills.sh/bgauryy/octocode-mcp/octocode-research) for evidence-first code work.
+**13 skills** under [`skills/`](https://github.com/bgauryy/octocode/tree/main/skills), bundled in the `octocode` package. Every skill shares one architecture - a lean `SKILL.md` lobby with hard gates, references loaded only when a step needs them, and cross-skill routes - so they compose. Start with ⭐ [Research](https://www.skills.sh/bgauryy/octocode-mcp/octocode-research) for evidence-first code work.
 
 ```bash
 npx octocode skill list
@@ -419,7 +456,7 @@ client → sanitize inputs (Rust) → run tool (GitHub / FS / LSP) → sanitize 
 | [`packages/octocode-config`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-config) | `@octocodeai/config` | Zero-dep env + config loader: `getOctocodeHome`, `.env` parsing, `.octocoderc` reading. Single source used by every package and skill. |
 | [`packages/octocode-vscode`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-vscode) | `octocode-mcp-vscode` | VS Code extension: GitHub OAuth + multi-editor MCP install. |
 
-`packages/octocode-benchmark` (private, not published) holds benchmark methodology, evals, and run artifacts — see [Documentation](#documentation).
+`packages/octocode-benchmark` (private, not published) holds benchmark methodology, evals, and run artifacts - see [Documentation](#documentation).
 
 ---
 
@@ -434,7 +471,7 @@ Website: **[octocode.ai](https://octocode.ai)** · Product docs: **[github.com/b
 | CLI | [Octocode CLI Guide](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_CLI.md) |
 | Skills | [Skills](https://github.com/bgauryy/octocode/tree/main/skills) |
 | Development and security | [Security Model](https://github.com/bgauryy/octocode/blob/main/docs/SECURITY.md) · [LSP Server Lifecycle](https://github.com/bgauryy/octocode/blob/main/docs/LSP_SERVER_LIFECYCLE.md) |
-| Benchmarks and evals | [Benchmark Summary](https://github.com/bgauryy/octocode/blob/main/packages/octocode-benchmark/BENCHMARK.md) · [Unified CLI/Tool Eval](https://github.com/bgauryy/octocode/blob/main/packages/octocode-benchmark/benchmark/octocode/README.md) · [Benchmark Runbook](https://github.com/bgauryy/octocode/blob/main/packages/octocode-benchmark/recipes/agent-benchmark-runbook.md) · [Support Matrix](https://github.com/bgauryy/octocode/blob/main/docs/LSP_SERVER_LIFECYCLE.md#full-format-support-matrix) |
+| Benchmarks and evals | [Research Efficiency Results](https://github.com/bgauryy/octocode/blob/main/packages/octocode-benchmark/results/SUMMARY.md) · [Benchmark Design](https://github.com/bgauryy/octocode/blob/main/packages/octocode-benchmark/BENCHMARK.md) · [Unified CLI/Tool Eval](https://github.com/bgauryy/octocode/blob/main/packages/octocode-benchmark/benchmark/octocode/README.md) · [Benchmark Runbook](https://github.com/bgauryy/octocode/blob/main/packages/octocode-benchmark/recipes/agent-benchmark-runbook.md) · [Support Matrix](https://github.com/bgauryy/octocode/blob/main/docs/LSP_SERVER_LIFECYCLE.md#full-format-support-matrix) |
 | Shared internals | [Credentials Architecture](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md#github-token) · [Session Persistence](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_MCP.md#session-persistence) |
 
 ---
@@ -455,15 +492,15 @@ Read the output and fix accordingly.
 
 ### Recommended dev mode: Pi + Octocode
 
-[Pi](https://github.com/earendil-works/pi) is a fast, local-first coding agent whose stated philosophy is *"CLI tools with READMEs (Skills) over MCP."* Pairing it with Octocode gives a lean, evidence-driven dev loop — **Pi edits, Octocode researches**. Two routes, pick by how much surface you need:
+[Pi](https://github.com/earendil-works/pi) is a fast, local-first coding agent whose stated philosophy is *"CLI tools with READMEs (Skills) over MCP."* Pairing it with Octocode gives a lean, evidence-driven dev loop - **Pi edits, Octocode researches**. Two routes, pick by how much surface you need:
 
-- **Skill route — recommended, leanest.** Drop the [`octocode-research`](https://www.skills.sh/bgauryy/octocode-mcp/octocode-research) skill into Pi's global skills dir. It drives the Octocode **CLI** directly — no MCP transport, minimal token overhead — and Pi auto-discovers it:
+- **Skill route - recommended, leanest.** Drop the [`octocode-research`](https://www.skills.sh/bgauryy/octocode-mcp/octocode-research) skill into Pi's global skills dir. It drives the Octocode **CLI** directly - no MCP transport, minimal token overhead - and Pi auto-discovers it:
 
   ```bash
   npx octocode skill install octocode-research --platform pi
   ```
 
-- **Adapter route — full tool surface.** Install [`pi-mcp-adapter`](https://github.com/nicobailon/pi-mcp-adapter) to expose Octocode MCP tools behind a single ~200-token proxy tool, so servers stay disconnected until a tool is actually called. Enable clone tools with `ENABLE_CLONE=true`.
+- **Adapter route - full tool surface.** Install [`pi-mcp-adapter`](https://github.com/nicobailon/pi-mcp-adapter) to expose Octocode MCP tools behind a single ~200-token proxy tool, so servers stay disconnected until a tool is actually called. Enable clone tools with `ENABLE_CLONE=true`.
 
 ### Research-driven loop
 
