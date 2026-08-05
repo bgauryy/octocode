@@ -72,19 +72,8 @@ If a machine happened to have a Gemma + Qwen mix, routing might look like: tiny 
 8. if model has thinking: default --think=false for bulk
 ```
 
-## Cascade (one step)
+## Cascade, Hardware & Report
 
-On verify `fail` after one tighter packet:
-
-1. Next stronger **installed** chat model
-2. Else → orchestrator solo
-
-## Hardware sanity
-
-- Slow/thrashing → drop tier or shrink shards.
-- JSON keep failing on a tiny model → cascade once, don’t spin.
-- When comparing two installed models, prefer the smaller download/params that still passes verify (`ollama list` sizes).
-
-## Report line
-
-`model=<exact> tier=<t> reason=<smallest fit | warm | cascade | solo> think=<on|off>`
+- **Cascade:** On verify `fail`: 1) Next stronger installed chat model, 2) Else orchestrator solo.
+- **Hardware:** Slow/thrashing → drop tier or shrink shards. JSON fail on tiny model → cascade once. Prefer smaller download/params that passes verify.
+- **Report:** `model=<exact> tier=<t> reason=<smallest fit | warm | cascade | solo> think=<on|off>`

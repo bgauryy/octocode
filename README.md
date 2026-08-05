@@ -39,6 +39,8 @@ Evidence from your **local workspace** and **external** sources (GitHub repos, P
 
 ## Quick Start
 
+**Prerequisites:** Node.js v18+
+
 **1. Run the Octocode CLI with `npx`**
 
 ```bash
@@ -64,6 +66,11 @@ npx octocode
 
 - [<img src="https://cursor.com/deeplink/mcp-install-dark.svg" alt="Install in Cursor">](https://cursor.com/en/install-mcp?name=octocode&config=eyJjb21tYW5kIjoibnB4IiwidHlwZSI6InN0ZGlvIiwiYXJncyI6WyJAb2N0b2NvZGVhaS9tY3BAbGF0ZXN0Il19)
 - [<img src="https://img.shields.io/badge/VS_Code-Install_Server-0098FF?style=flat-square&logo=visualstudiocode&logoColor=white" alt="Install in VS Code">](https://insiders.vscode.dev/redirect/mcp/install?name=octocode&config=%7B%22command%22%3A%22npx%22%2C%22type%22%3A%22stdio%22%2C%22args%22%3A%5B%22%40octocodeai%2Fmcp%40latest%22%5D%7D)
+
+<details>
+<summary><b>Show more install options (Windsurf, Kiro, Goose, LM Studio, Claude Code)</b></summary>
+<br>
+
 - [<img src="https://img.shields.io/badge/VS_Code_Insiders-Install_Server-24bfa5?style=flat-square&logo=visualstudiocode&logoColor=white" alt="Install in VS Code Insiders">](https://insiders.vscode.dev/redirect/mcp/install?name=octocode&config=%7B%22command%22%3A%22npx%22%2C%22type%22%3A%22stdio%22%2C%22args%22%3A%5B%22%40octocodeai%2Fmcp%40latest%22%5D%7D&quality=insiders)
 - [<img src="https://img.shields.io/badge/Windsurf-Install_Server-1a1a1a?style=flat-square&logoColor=white" alt="Install in Windsurf">](windsurf://mcp/install?name=octocode&config=%7B%22command%22%3A%22npx%22%2C%22type%22%3A%22stdio%22%2C%22args%22%3A%5B%22%40octocodeai%2Fmcp%40latest%22%5D%7D)
 - [<img src="https://kiro.dev/images/add-to-kiro.svg" alt="Install in Kiro">](https://kiro.dev/launch/mcp/add?name=octocode&config=%7B%22command%22%3A%22npx%22%2C%22type%22%3A%22stdio%22%2C%22args%22%3A%5B%22%40octocodeai%2Fmcp%40latest%22%5D%7D)
@@ -75,8 +82,27 @@ npx octocode
 ```bash
 claude mcp add-json octocode --scope user '{"command":"npx","type":"stdio","args":["@octocodeai/mcp@latest"]}'
 ```
+</details>
 
 **Any other client:** `npx octocode install`
+
+---
+
+### See it in action
+
+Search your local codebase and see the minified, token-efficient output:
+
+```bash
+npx octocode tools localSearchCode --queries '{"query": "authenticate"}' --yaml
+```
+```yaml
+- id: "1"
+  results:
+    - path: "src/auth.ts"
+      matches:
+        - line: 12
+          content: "export async function authenticate(req: Request) {"
+```
 
 ➡️ Learn more at **[octocode.ai](https://octocode.ai)**.
 
@@ -310,6 +336,24 @@ The **Scope** column shows where a setting applies: `Both`, or `MCP` (the CLI ig
 
 > **Local defaults on; clone differs by surface.** Both CLI and MCP default local tools on; set `ENABLE_LOCAL=false` to disable them. The **CLI** defaults clone on, while the **MCP server** requires `ENABLE_CLONE=true`.
 
+### Example Configuration
+
+**`~/.octocode/.octocoderc`:**
+```json
+{
+  "github": {
+    "apiUrl": "https://api.github.com"
+  },
+  "local": {
+    "enabled": true,
+    "enableClone": true
+  },
+  "output": {
+    "format": "yaml"
+  }
+}
+```
+
 Per-project overrides and custom LSP servers live in a workspace `.octocode/` folder. For the full `.octocoderc` schema, a ready-to-copy example, clone-cache tuning, GitHub Enterprise setup, and precedence details, see the [Configuration Reference](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md).
 
 ---
@@ -394,20 +438,33 @@ npx octocode skill check --json
 npx octocode skill help
 ```
 
+#### Core Research & Extraction
 | Skill | Use when |
 |-------|----------|
 | ⭐ [**octocode-research**](https://github.com/bgauryy/octocode/tree/main/skills/octocode-research) | Evidence-first research, review, debugging, refactors, prior-art validation. |
-| [**octocode-graph-eval**](https://github.com/bgauryy/octocode/tree/main/skills/octocode-graph-eval) | Measuring whether a change helped: goal→KPI contracts, baselines, accept/revert loops, eval suites. |
+| [**octocode-scraping**](https://github.com/bgauryy/octocode/tree/main/skills/octocode-scraping) | Public page extraction and crawl triage: static corpus + graph v2 (pages/data/actions/risks/evidence), then CDP handoff for dynamic actions and blocked pages. |
+| [**octocode-chrome-devtools**](https://github.com/bgauryy/octocode/tree/main/skills/octocode-chrome-devtools) | Browser/CDP evidence: network, console, performance, cookies/storage, screenshots, auth-gated pages, and live validation of scrape-graph actions. |
+
+#### Planning & Architecture
+| Skill | Use when |
+|-------|----------|
 | [**octocode-brainstorming**](https://github.com/bgauryy/octocode/tree/main/skills/octocode-brainstorming) | Disciplined idea exploration before building: options, worth-building tests, prior-art maps. |
 | [**octocode-rfc-generator**](https://github.com/bgauryy/octocode/tree/main/skills/octocode-rfc-generator) | Evidence-backed RFCs, design docs, migration plans, option comparisons. |
-| [**octocode-roast**](https://github.com/bgauryy/octocode/tree/main/skills/octocode-roast) | Blunt, evidence-backed code critique with severity ranking and repair paths. |
 | [**octocode-documentation**](https://github.com/bgauryy/octocode/tree/main/skills/octocode-documentation) | Writing or updating README, API docs, runbooks, AGENTS.md, ADRs. |
-| [**octocode-skills**](https://github.com/bgauryy/octocode/tree/main/skills/octocode-skills) | Agent-skill lifecycle: discover, review, create, improve, install, sync. |
+
+#### Evaluation & Review
+| Skill | Use when |
+|-------|----------|
+| [**octocode-roast**](https://github.com/bgauryy/octocode/tree/main/skills/octocode-roast) | Blunt, evidence-backed code critique with severity ranking and repair paths. |
+| [**octocode-graph-eval**](https://github.com/bgauryy/octocode/tree/main/skills/octocode-graph-eval) | Measuring whether a change helped: goal→KPI contracts, baselines, accept/revert loops, eval suites. |
+| [**octocode-prompt-optimizer**](https://github.com/bgauryy/octocode/tree/main/skills/octocode-prompt-optimizer) | Making prompts, tool schemas, and agent contracts clearer, safer, cheaper, measurable. |
+
+#### Agent Orchestration
+| Skill | Use when |
+|-------|----------|
 | [**octocode-subagent**](https://github.com/bgauryy/octocode/tree/main/skills/octocode-subagent) | Delegation: spawn gates, decomposition, sealed packets, coordination, synthesis. |
 | [**octocode-awareness**](https://github.com/bgauryy/octocode/tree/main/skills/octocode-awareness) | Shared-repo coordination: collision avoidance, handoffs, verification debt, durable memory. |
-| [**octocode-prompt-optimizer**](https://github.com/bgauryy/octocode/tree/main/skills/octocode-prompt-optimizer) | Making prompts, tool schemas, and agent contracts clearer, safer, cheaper, measurable. |
-| [**octocode-chrome-devtools**](https://github.com/bgauryy/octocode/tree/main/skills/octocode-chrome-devtools) | Browser/CDP evidence: network, console, performance, cookies/storage, screenshots, auth-gated pages, and live validation of scrape-graph actions. |
-| [**octocode-scraping**](https://github.com/bgauryy/octocode/tree/main/skills/octocode-scraping) | Public page extraction and crawl triage: static corpus + graph v2 (pages/data/actions/risks/evidence), then CDP handoff for dynamic actions and blocked pages. |
+| [**octocode-skills**](https://github.com/bgauryy/octocode/tree/main/skills/octocode-skills) | Agent-skill lifecycle: discover, review, create, improve, install, sync. |
 | [**octocode-orchestrator-local-worker**](https://github.com/bgauryy/octocode/tree/main/skills/octocode-orchestrator-local-worker) | Offloading token-heavy text work to a local Ollama worker under a verify gate. |
 
 **Web automation workflow:** `octocode-scraping` performs the safe static pass first (fetch/crawl/extract → local corpus → graph v2). When the graph exposes dynamic actions or static output is blocked/thin, `octocode-chrome-devtools` validates live actionability, cookies/storage, network/HAR bodies, screenshots, or auth-gated state; discovered URLs/data/artifacts can be fed back into the scraping corpus for continued proof.
@@ -478,13 +535,17 @@ Website: **[octocode.ai](https://octocode.ai)** · Product docs: **[github.com/b
 
 ## Troubleshooting
 
-Having Node.js issues? Run:
+**Node.js or Environment Issues?**
+Run the built-in doctor command to check your environment:
 
 ```bash
 npx node-doctor check --json
 ```
 
-Read the output and fix accordingly.
+**Common Pitfalls:**
+- **GitHub Auth Failures:** Ensure your Personal Access Token (PAT) has the `repo` and `read:user` scopes. If using the CLI, run `npx octocode auth login` to refresh.
+- **MCP Connection Issues:** If your AI assistant (like Cursor or Windsurf) fails to connect, ensure you have run `npx octocode auth login` in your terminal first, or explicitly pass your `OCTOCODE_TOKEN` in the MCP `env` configuration.
+- **Native Engine Errors:** Octocode uses a prebuilt Rust engine. If it fails to load on Linux, ensure your system has `glibc` or `musl` compatibility. On macOS/Windows, ensure you are on a supported architecture (x64 or arm64).
 
 ---
 

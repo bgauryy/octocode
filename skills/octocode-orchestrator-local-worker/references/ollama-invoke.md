@@ -13,24 +13,9 @@ For which model to pass load `references/model-selection.md`.
 
 ## Health check
 
-Daemon only (no model required):
-
-```bash
-./scripts/ollama-health.sh
-```
-
-After ROUTE (model selected), verify exact name:
-
-```bash
-./scripts/ollama-health.sh --model "$OLLAMA_WORKER_MODEL"
-```
-
-Manual:
-
-```bash
-curl -sS "${OLLAMA_HOST:-http://127.0.0.1:11434}/api/tags"
-ollama list
-```
+Daemon only: `./scripts/ollama-health.sh`
+After ROUTE (model selected): `./scripts/ollama-health.sh --model "$OLLAMA_WORKER_MODEL"`
+Manual: `curl -sS "${OLLAMA_HOST:-http://127.0.0.1:11434}/api/tags"` or `ollama list`
 
 ## Default invoke
 
@@ -74,16 +59,14 @@ Default `--keepalive 5m` keeps the model warm across shards.
 
 See `references/ollama-cli.md`. Prefer the script for agents.
 
-## Serving gotchas
+## Serving gotchas & Artifacts
 
-1. **Wrong / fuzzy model id** — `llama3.2` must not match `llama3.2-vision`. Exact list name only.
-2. **Context too small** — raise via `--num-ctx` (script HTTP path), Modelfile `PARAMETER num_ctx`, or API `options.num_ctx`. Symptom: truncated / ungrounded JSON with no error.
-3. **Quantization too aggressive** — structured output dies before chat quality; cascade tier.
+1. **Exact model id** — `llama3.2` must not match `llama3.2-vision`.
+2. **Context too small** — raise via `--num-ctx`. Symptom: truncated JSON.
+3. **Quantization too aggressive** — structured output dies first; cascade tier.
 4. **Embed/OCR models** — not workers for text jobs.
 5. **Tool-calling** — out of scope; no agent loops on Ollama.
-6. **Missing keepalive on shards** — each invoke may cold-load; always keep explicit keepalive for map-reduce.
-7. **Vision + HTTP options** — `--temperature` / `--num-ctx` force HTTP and are **not** combined with `--image`; use CLI for vision.
+6. **Missing keepalive** — always keep explicit keepalive for map-reduce.
+7. **Vision + HTTP** — `--temperature` / `--num-ctx` force HTTP and are **not** combined with `--image`; use CLI for vision.
 
-## Artifact directory
-
-Write under `.octocode/worker/` (create if needed). Do not commit secrets. Ignore `.octocode/` in git if missing.
+**Artifact directory:** Write under `.octocode/worker/` (create if needed). Do not commit secrets.
