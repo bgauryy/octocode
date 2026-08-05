@@ -21,10 +21,6 @@
   "packageManager": "yarn@4.9.1",
   "private": true,
   "repository": "bgauryy/octocode.git",
-  "resolutions": {
-    "editorconfig/minimatch": "^10.2.6",
-    "intelephense/protobufjs": "^8.6.5"
-  },
   "scripts": {
     "build": "yarn workspaces foreach -Apt --exclude octocode-monorepo run build",
     "build:ci": "yarn prepublish && yarn workspace @octocodeai/octocode-engine build && node ./scripts/workspace-health.mjs run build --exclude @octocodeai/octocode-engine --exclude @octocodeai/octocode-benchmark",

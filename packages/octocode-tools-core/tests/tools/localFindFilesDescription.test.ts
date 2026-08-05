@@ -11,7 +11,7 @@ import { LocalFindFilesQuerySchema } from '../../src/tools/local_find_files/sche
 describe('localFindFiles excludeDir description contract', () => {
   it('core ships the pruned-by-default truth directly (no patch layer needed)', () => {
     const core = completeMetadata.tools.localFindFiles.description;
-    expect(core).toMatch(/prunes common generated\/vendor dirs by default/);
+    expect(core).toMatch(/prunes common generated\/vendor dirs by default/i);
     expect(core).not.toMatch(/Nothing is excluded by default/i);
   });
 

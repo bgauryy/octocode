@@ -42,7 +42,7 @@ Concise reference for Octocode MCP remote research tools: GitHub code/repo/PR se
 | `GH_TOKEN` | GitHub CLI compatible token. |
 | `GITHUB_TOKEN` | GitHub token fallback. |
 | `GITHUB_API_URL` | GitHub Enterprise API base URL. |
-| `ENABLE_LOCAL` | Local tools default on; set `false` to disable clone-backed local workflows. |
+| `ENABLE_LOCAL` | Local tools default on for the CLI, off for the MCP server; set `true` to enable on MCP, `false` to disable on CLI. |
 | `ENABLE_CLONE` | Enables `ghCloneRepo` and `ghGetFileContent(type="directory")`. |
 
 Every tool accepts bulk input (`{ "queries": [...] }`), up to 5 queries per call. All tools support `page`, `responseCharOffset`, and `responseCharLength` for pagination. Use `npx octocode tools <toolName> --scheme` for the exact active schema.
@@ -412,7 +412,7 @@ Useful local-tool environment variables:
 
 | Variable | Description |
 |----------|-------------|
-| `ENABLE_LOCAL` | Enables local filesystem tools. Defaults to `true`; set `false` to disable. |
+| `ENABLE_LOCAL` | Enables local filesystem tools. Defaults to `true` on the CLI and `false` on the MCP server; set `true` to enable on MCP or `false` to disable on CLI. |
 | `WORKSPACE_ROOT` | Root used to resolve relative local paths. Overrides `local.workspaceRoot` in config. |
 | `ALLOWED_PATHS` | Optional comma-separated allowlist of extra roots, added on top of the always-allowed home directory. Empty means home directory only (paths outside home are denied). |
 | `ENABLE_CLONE` | Enables clone-backed workflows and GitHub directory fetches that materialize local files. |
@@ -778,7 +778,7 @@ Octocode exposes **one** public semantic tool:
 |------|------------|
 | `lspGetSemantics` | Definitions, references, callers, callees, bidirectional call hierarchy, hover, document symbols, type definitions, and implementations. |
 
-Semantic operations are local-only. Local tools are enabled by default; `ENABLE_LOCAL=false` disables them. LSP needs a file that exists on disk. Use `localSearchCode` first when you need a symbol `lineHint`; `mode:"structural"` matches can provide AST-derived anchors before LSP proves symbol identity.
+Semantic operations are local-only. Local tools default on for the CLI and off for the MCP server; set `ENABLE_LOCAL=true` to enable them on MCP (`ENABLE_LOCAL=false` disables on the CLI). LSP needs a file that exists on disk. Use `localSearchCode` first when you need a symbol `lineHint`; `mode:"structural"` matches can provide AST-derived anchors before LSP proves symbol identity.
 
 For external repos: clone first with `ghCloneRepo` (or fetch a subtree with `ghGetFileContent(type:"directory")`), then use the returned `localPath` as the `uri` prefix for `lspGetSemantics`. The path is always absolute and immediately valid.
 

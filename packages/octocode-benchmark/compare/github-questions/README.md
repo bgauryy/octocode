@@ -1,6 +1,6 @@
 # GitHub questions (shared)
 
-The **one** canonical v2 set of 20 GitHub research questions. All three GitHub matchups run this exact set — they differ only in the baseline arm, never the questions. Published 17-question campaigns used v1 and are not directly comparable to a v2 run.
+The **one** canonical v2 set of 25 GitHub research questions. All three GitHub matchups run this exact set — they differ only in the baseline arm, never the questions. Published 17-question campaigns used v1 and are not directly comparable to a v2 run.
 
 - [`octocode-vs-gh`](../octocode-vs-gh/) — plain `gh`
 - [`octocode-vs-gh-rtk`](../octocode-vs-gh-rtk/) — `gh` + `rtk`
@@ -32,6 +32,11 @@ Each file is just the title, id, and the question.
 | [Q18.md](Q18.md) | Vite dependency-section membership |
 | [Q19.md](Q19.md) | Node child-process async and sync paths |
 | [Q20.md](Q20.md) | Actions toolkit exec output path |
+| [Q21.md](Q21.md) | LangChain createAgent flow and graph |
+| [Q22.md](Q22.md) | Axios release-range compare |
+| [Q23.md](Q23.md) | Linux write() syscall to VFS dispatch flow |
+| [Q24.md](Q24.md) | Axios buildFullPath blast radius |
+| [Q25.md](Q25.md) | Axios PR selected-patch and review thread |
 
 ## Add a GitHub question
 

@@ -3,10 +3,10 @@
  *
  * Some config defaults differ by surface (see `resolveLocal`):
  *   - `cli`: local tools default to ENABLED; clone defaults to ENABLED.
- *   - `mcp`: local tools default to ENABLED; clone defaults to DISABLED.
+ *   - `mcp`: local tools default to DISABLED; clone defaults to DISABLED.
  *
- * `ENABLE_LOCAL=false` or `local.enabled=false` explicitly disables local tools
- * on every surface.
+ * `ENABLE_LOCAL=true`/`false` (or `local.enabled`) explicitly enables or
+ * disables local tools on every surface, overriding the surface default.
  *
  * Defaults to `mcp`, the primary consumer. The CLI binary calls
  * `setRuntimeSurface('cli')` at startup before any tool runs.

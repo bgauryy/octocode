@@ -420,7 +420,7 @@ Run `npx octocode install --ide cursor` (or `vscode`, `claude`, `windsurf`, etc.
 
 | Env var | `.octocoderc` key | Default | Notes |
 |---------|------------------|---------|-------|
-| `ENABLE_LOCAL` | `local.enabled` | `true` | `false` → disable all local tools |
+| `ENABLE_LOCAL` | `local.enabled` | CLI `true`, MCP `false` | `true` → enable on MCP; `false` → disable all local tools on CLI |
 | `ENABLE_CLONE` | `local.enableClone` | CLI: `true` · MCP: `false` | Enable `ghCloneRepo` |
 | `ENABLE_RELEASES` | — (env-only) | `false` | Enable `ghListReleases` (CLI + MCP) |
 | `ENABLE_DISCUSSIONS` | — (env-only) | `false` | Enable `ghSearchDiscussions` (CLI + MCP) |
@@ -546,7 +546,7 @@ npx octocode status --json
 | Wrong GitHub account | `npx octocode auth logout` then `auth login` — or `auth login --force` |
 | Env token overriding saved token | Env always wins — unset the env var |
 | `ghCloneRepo` unavailable in MCP | Add `"ENABLE_CLONE": "true"` to the MCP `env` block |
-| Local tools disabled | Check `ENABLE_LOCAL` isn't `false` and `local.enabled` isn't `false` |
+| Local tools disabled | On MCP set `ENABLE_LOCAL=true`; check `ENABLE_LOCAL` isn't `false` and `local.enabled` isn't `false` |
 | A tool is missing | Check `TOOLS_TO_RUN` (strict whitelist), `ENABLE_TOOLS`, `DISABLE_TOOLS` |
 | Slow / timeouts | Raise `REQUEST_TIMEOUT` (max `300000` ms) |
 | Web search low quality | Add `TAVILY_API_KEY` to `~/.octocode/.env` |

@@ -145,10 +145,10 @@ See [Quick Start](#quick-start) to install in your terminal or AI assistant.
 
 ## Built for Research (Benchmarks)
 
-Octocode is measured against `gh`-based baselines on a suite of **20 research questions
+Octocode is measured against `gh`-based baselines on a suite of **25 research questions
 over real public GitHub repositories** — including **cross-repository research** (following
 a dependency into its source repo, a redirect into its transport, a parser chain across
-packages). Answers are scored correctness-first and by **context characters delivered**
+packages) and harder flow/graph, commit-range, blast-radius, and PR review-thread tasks. Answers are scored correctness-first and by **context characters delivered**
 (the budget a model must read into its window). Results are paired snapshots — they
 measure characters, correctness, depth, and workflow, not tokens, latency, or cost.
 
@@ -166,32 +166,34 @@ measure characters, correctness, depth, and workflow, not tokens, latency, or co
 - **Robust aggregation** — characters are summarized **per question, paired**, with the
   **geometric mean of per-question ratios** (never a raw sum, which one heavy question can
   dominate). See the [aggregation & stats method](https://github.com/bgauryy/octocode/blob/main/packages/octocode-benchmark/skills/octocode-benchmark/references/aggregation-and-stats.md).
-- **Validated** — the Headroom campaign runs 3 passes with checked-in instrumentation and a
-  campaign validator (all logs strict-valid, all answers present, artifacts intact).
+- **Validated** — the latest headline is a full 25-question pass with checked-in
+  instrumentation and strict artifact-backed measurement; a retained 3-pass Headroom
+  campaign corroborates it (all logs strict-valid, all answers present, artifacts intact).
 
 ### Results
 
-**Context characters delivered** — lower is better (`█` ≈ 0.1M chars):
+**Context characters delivered** — lower is better (`█` ≈ 0.25M chars):
 
 ```text
-gh + rtk        Octocode  ████                     0.36M
-                gh+rtk    ██████████████████████   2.15M   → typ. ~3× leaner (geo-mean 3.11×)
+gh + rtk        Octocode  ██                       0.52M
+                gh+rtk    ████████████████████████ 5.94M   → ~5× leaner (geo-mean 4.98×, median 6.65×, leaner on 21/25)
 
-gh + Headroom   Octocode  █████                    0.52M
-                gh+Head   ████████████████████     1.95M   → 3.76× leaner (even after compression)
+gh + Headroom   Octocode  ██                       0.38M
+                gh+Head   █████████████            3.25M   → ~5.4× leaner (geo-mean 5.38×, median 6.09×, leaner on 22/25)
 ```
 
 **Blind-graded correctness** — higher is better, out of 10 (`█` ≈ 0.5):
 
 ```text
-gh + rtk        Octocode  ███████████████████      9.70
-                gh+rtk    ███████████████████      9.65   → statistical tie (near ceiling)
+gh + rtk        Octocode  ██████████████████       9.18
+                gh+rtk    ██████████████████       9.24   → statistical tie (near ceiling; paired p≈0.23)
 
-gh + Headroom   Octocode  ██████████████████       9.10
-                gh+Head   ███████████████          7.50   → Octocode +1.6 (arm A made confident metadata errors)
+gh + Headroom   Octocode  ██████████████████       8.96
+                gh+Head   ████████████████         7.84   → near-ceiling tie; Octocode net more correct (paired 9–3, arm A made confident metadata errors)
 ```
 
-Octocode won the Headroom preference count **17–3**.
+Correctness is a near-ceiling tie on both sets while Octocode stays ~5× leaner. Full
+per-question tables, methodology, and caveats: [benchmark results](https://github.com/bgauryy/octocode/tree/main/packages/octocode-benchmark/results).
 
 ### When to reach for Octocode vs a quick check
 
@@ -229,8 +231,9 @@ older methodologies — interpret from their individual caveats.
 **17 tools in the full catalog.** MCP registers 14 by default; the CLI exposes 15
 because clone is enabled there by default. `ghCloneRepo` is opt-in on MCP
 (`ENABLE_CLONE=true`), while `ghListReleases` and `ghSearchDiscussions` are opt-in
-on both surfaces. Local tools are enabled by default (`ENABLE_LOCAL=false` disables
-them). Flags: [Configuration](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md).
+on both surfaces. Local tools default on for the **CLI** and off for the **MCP
+server** (`ENABLE_LOCAL=true` enables them on MCP; `ENABLE_LOCAL=false` disables on
+CLI). Flags: [Configuration](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md).
 
 **Token knobs.** `concise:true` returns path/title-only lists. `minify` controls file read density: `symbols` = skeleton with line numbers, `standard` = comments/blanks stripped (default), `none` = exact bytes.
 
@@ -380,7 +383,7 @@ The **Scope** column shows where a setting applies: `Both`, or `MCP` (the CLI ig
 | `OCTOCODE_HOME` | env only | platform default | Both | Overrides the Octocode data directory for config, credentials, sessions, stats, and caches. |
 | `OCTOCODE_TOKEN` / `GH_TOKEN` / `GITHUB_TOKEN` | env only | unset | Both | GitHub token, in priority order. Tokens stay in env, never in `.octocoderc`. |
 | `GITHUB_API_URL` | `github.apiUrl` | `https://api.github.com` | Both | API endpoint; use `/api/v3` for GitHub Enterprise. |
-| `ENABLE_LOCAL` | `local.enabled` | `true` | Both | Turns local filesystem + LSP tools on/off; set `false` to disable. |
+| `ENABLE_LOCAL` | `local.enabled` | CLI `true`, MCP `false` | Both | Turns local filesystem + LSP tools on/off. Default differs by surface; set `true` to enable on MCP or `false` to disable on CLI. |
 | `ENABLE_CLONE` | `local.enableClone` | CLI `true`, MCP `false` | Both | `ghCloneRepo` and directory fetch. Default differs by surface; set `false` to disable in either. |
 | `WORKSPACE_ROOT` | `local.workspaceRoot` | `cwd` | Both | Absolute root for resolving relative local paths. |
 | `ALLOWED_PATHS` | `local.allowedPaths` | `[]` | Both | Extra path allowlist for local access; empty means home directory only after validation. |
@@ -389,7 +392,7 @@ The **Scope** column shows where a setting applies: `Both`, or `MCP` (the CLI ig
 | `MAX_RETRIES` | `network.maxRetries` | `3` | Both | Retry attempts (clamped `0..10`). |
 | `OCTOCODE_OUTPUT_FORMAT` | `output.format` | `yaml` | Both | Response format: `yaml` or `json`. |
 
-> **Local defaults on; clone differs by surface.** Both CLI and MCP default local tools on; set `ENABLE_LOCAL=false` to disable them. The **CLI** defaults clone on, while the **MCP server** requires `ENABLE_CLONE=true`.
+> **Local and clone defaults differ by surface.** The **CLI** defaults both local tools and clone on. The **MCP server** defaults both off: set `ENABLE_LOCAL=true` for local tools and `ENABLE_CLONE=true` for clone.
 
 ### Example Configuration
 
