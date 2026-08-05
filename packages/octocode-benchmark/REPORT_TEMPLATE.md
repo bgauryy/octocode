@@ -14,15 +14,20 @@ One row per question:
 
 ## Summary of all
 
-Totals / means across every question:
+Aggregate **per question, paired** (see `skills/octocode-benchmark/references/aggregation-and-stats.md`).
+Headline characters with the geometric-mean ratio, not the pooled sum.
 
 | Metric | A (baseline) | B (Octocode) |
 |---|---:|---:|
-| Correctness (mean) | | |
+| Correctness — paired win/tie/loss (+ sign-test p) | | |
+| Correctness (mean, secondary — note ceiling) | | |
 | Research depth (mean) | | |
 | Workflow (mean) | | |
-| **Chars (total)** | | |
-| Questions leaner | | |
+| **Char ratio A/B — geometric mean** (headline) | | |
+| Char ratio A/B — median (min…max) | | |
+| Questions leaner (of N) + sign-test p | | |
+| Chars pooled sum — *outlier-sensitive* | | |
+|   top-question share of heavier arm; leave-one-out ratio | | |
 
 ## Per question (detail)
 

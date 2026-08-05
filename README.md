@@ -145,39 +145,82 @@ See [Quick Start](#quick-start) to install in your terminal or AI assistant.
 
 ## Built for Research (Benchmarks)
 
-The suite now has 20 public GitHub research questions. Published campaigns below
-cover the original 17 with isolated runners, frozen refs, measured CLI output,
-and correctness-first blind grading; they are snapshots, not universal claims.
+Octocode is measured against `gh`-based baselines on a suite of **20 research questions
+over real public GitHub repositories** — including **cross-repository research** (following
+a dependency into its source repo, a redirect into its transport, a parser chain across
+packages). Answers are scored correctness-first and by **context characters delivered**
+(the budget a model must read into its window). Results are paired snapshots — they
+measure characters, correctness, depth, and workflow, not tokens, latency, or cost.
 
-### Octocode delivered less output in both paired campaigns
+### How it's measured (and checked)
 
-| Baseline | Evaluations | **Octocode output reduction** | Characters delivered<br>**Octocode / baseline** | Blind-graded correctness<br>**Octocode / baseline** |
-|---|---:|---:|---:|---:|
-| [`gh` + `rtk`](https://github.com/bgauryy/octocode/blob/main/packages/octocode-benchmark/results/octocode-vs-gh-rtk-081914-2026-08-05.md) | 17 questions | **↓ 10.6% fewer characters** | **485,117** / 542,592 | 9.647 / 10.000 |
-| [`gh` + Headroom](https://github.com/bgauryy/octocode/blob/main/packages/octocode-benchmark/results/octocode-vs-gh-headroom-115145-2026-08-05.md) | 3 × 17 questions | **↓ 62.2% fewer characters** | **800,586** / 2,119,615 | **9.961** / 9.824 |
+- **Isolated by construction** — a fresh agent per (question, arm) and a separate blind
+  judge per question; no shared transcripts, no answer key, tool names hidden as X/Y.
+- **One variable** — both arms get the same question and frozen refs (branch/PR-state/SHA
+  + UTC); only the CLI differs.
+- **Transparent instrumentation** — every research command runs through a wrapper that
+  emits the real output and counts its Unicode characters to a JSONL log. Counts come from
+  the log, never a model's self-report.
+- **Blind, correctness-first grading** — the judge establishes ground truth by its own
+  current-evidence research, then scores each answer; a confidently-wrong answer cannot win.
+- **Robust aggregation** — characters are summarized **per question, paired**, with the
+  **geometric mean of per-question ratios** (never a raw sum, which one heavy question can
+  dominate). See the [aggregation & stats method](https://github.com/bgauryy/octocode/blob/main/packages/octocode-benchmark/skills/octocode-benchmark/references/aggregation-and-stats.md).
+- **Validated** — the Headroom campaign runs 3 passes with checked-in instrumentation and a
+  campaign validator (all logs strict-valid, all answers present, artifacts intact).
 
-Octocode won the Headroom preference count **29–22**. These correctness-first
-snapshots measure CLI-output characters—not tokens, latency, cost, or general quality.
+### Results
 
-<details>
-<summary><strong>Where Octocode lost correctness—and why</strong></summary>
+**Context characters delivered** — lower is better (`█` ≈ 0.1M chars):
 
-| Question | Miss | Status |
-|---|---|---|
-| Q11 · esbuild process boundary | Omitted synchronous `execFileSync` in the RTK snapshot. | Correct in all three Headroom rerun passes. |
-| Q14 · Vitest → Vite dependency | A clipped JSON excerpt obscured object membership, causing a false regular-dependency claim. | Hardened field extraction; correct in all three rerun passes. |
-| Q17 · Next.js fetch memoization | One Headroom-rerun answer left its two-layer name/file list blank. | Other two Octocode passes were complete. |
+```text
+gh + rtk        Octocode  ████                     0.36M
+                gh+rtk    ██████████████████████   2.15M   → typ. ~3× leaner (geo-mean 3.11×)
 
-Headroom's Q2, Q7, Q10, Q13, Q14, Q15, and Q16 majority wins were character
-tiebreaks between correct answers—not Octocode correctness failures.
+gh + Headroom   Octocode  █████                    0.52M
+                gh+Head   ████████████████████     1.95M   → 3.76× leaner (even after compression)
+```
 
-</details>
+**Blind-graded correctness** — higher is better, out of 10 (`█` ≈ 0.5):
 
-See the [benchmark design](https://github.com/bgauryy/octocode/blob/main/packages/octocode-benchmark/BENCHMARK.md),
-[question set](https://github.com/bgauryy/octocode/tree/main/packages/octocode-benchmark/compare/github-questions), and
-[result reports](https://github.com/bgauryy/octocode/tree/main/packages/octocode-benchmark/results). The Headroom matchup uses
-checked-in instrumentation and campaign validation; other historical reports use
-older methodologies and should be interpreted from their individual caveats.
+```text
+gh + rtk        Octocode  ███████████████████      9.70
+                gh+rtk    ███████████████████      9.65   → statistical tie (near ceiling)
+
+gh + Headroom   Octocode  ██████████████████       9.10
+                gh+Head   ███████████████          7.50   → Octocode +1.6 (arm A made confident metadata errors)
+```
+
+Octocode won the Headroom preference count **17–3**.
+
+### When to reach for Octocode vs a quick check
+
+Octocode's edge grows with **depth, exactness, and cross-repo scope**; for a single known
+fact, a quick `gh`/`curl` one-liner is fine.
+
+| Reach for **Octocode** when… | A **quick check** is enough when… |
+|---|---|
+| You need **exact field membership** (peer vs optional vs dev, ranges) — compressed/whole-file views mislead. | You already know the file+line and just want to eyeball it. |
+| The answer is a **trace across files or repos** (dependency → source, redirect, parser chain). | You need one PR title, issue state, or a `--json` field. |
+| You want to **stay lean in context** — targeted region reads instead of whole-file/tree dumps. | The file is tiny and a full fetch is trivially cheap. |
+| You need **reachability / call-graph proof**  before a change. | A single grep hit already answers it. |
+
+### Where Octocode shines
+
+- **Exact answers on structured metadata** — dependency membership (peer vs optional vs
+  dev) and precise version ranges read straight from the source, where compressed or
+  whole-file views mislead.
+- **Lean by default** — targeted region reads keep context small; the deepest savings show
+  up on multi-file trace questions where a baseline must pull an entire file or tree.
+- **Cross-repository reasoning** — following a dependency to its source repo, a redirect to
+  its transport, or a parser chain across packages in one flow.
+
+**Dig deeper:** [how the benchmark is run](https://github.com/bgauryy/octocode/tree/main/packages/octocode-benchmark/skills/octocode-benchmark) ·
+[benchmark design](https://github.com/bgauryy/octocode/blob/main/packages/octocode-benchmark/BENCHMARK.md) ·
+[question set](https://github.com/bgauryy/octocode/tree/main/packages/octocode-benchmark/compare/github-questions) ·
+[aggregation & stats method](https://github.com/bgauryy/octocode/blob/main/packages/octocode-benchmark/skills/octocode-benchmark/references/aggregation-and-stats.md) ·
+[all result reports](https://github.com/bgauryy/octocode/tree/main/packages/octocode-benchmark/results). Historical reports use
+older methodologies — interpret from their individual caveats.
 
 ---
 

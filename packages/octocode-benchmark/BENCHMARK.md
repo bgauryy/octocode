@@ -24,17 +24,19 @@ The current rollup is [`results/SUMMARY.md`](results/SUMMARY.md). It uses the
 latest complete report for each matchup and does not pool invalid, incomplete,
 or methodologically incompatible campaigns into one synthetic total.
 
-Efficiency is measured in Unicode characters delivered by the CLI. This is not
-a token, latency, or cost measurement. **Correctness is graded first**: fewer
-characters break an essentially equal-correctness tie, but cannot rescue a
-materially wrong answer.
+Efficiency is the count of Unicode characters the CLI delivers into the agent's
+context — the budget that funds reasoning and crowds out attention when spent.
+It is a deterministic, tokenizer-independent unit, not a token, latency, or cost
+estimate. **Correctness is graded first**: fewer characters break an essentially
+equal-correctness tie, but cannot rescue a materially wrong answer.
 
 Current evidence is mixed rather than universal:
 
 - Octocode is smaller on aggregate in the latest complete `gh`, RTK, and
   Headroom campaigns.
-- RTK wins its latest campaign on correctness even though Octocode uses fewer
-  characters.
+- Correctness is near-parity and pass-dependent: in the latest two-pass RTK
+  campaign Octocode was strictly more correct in one pass (Q13) and tied in the
+  other, while staying far leaner throughout.
 - In the latest strict three-pass Headroom campaign, Octocode wins 29–22 at
   higher correctness and uses 62.2% fewer delivered characters.
 
