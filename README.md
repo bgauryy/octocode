@@ -39,7 +39,7 @@ Evidence from your **local workspace** and **external** sources (GitHub repos, P
 
 ## Quick Start
 
-**Prerequisites:** Node.js v18+
+**Prerequisites:** Node.js 20.12+
 
 **1. Run the Octocode CLI with `npx`**
 
@@ -54,7 +54,9 @@ npx octocode auth login
 npx octocode status       # verify the active token source
 ```
 
-**3. Choose your interface.** The same engine and tools run identically either way.
+**3. Choose your interface.** Both surfaces use the same tool implementations and
+Rust engine. Registration defaults differ slightly: clone is enabled by default in
+the CLI and opt-in for MCP.
 
 **🖥️ CLI** - research straight from your terminal:
 
@@ -93,15 +95,18 @@ claude mcp add-json octocode --scope user '{"command":"npx","type":"stdio","args
 Search your local codebase and see the minified, token-efficient output:
 
 ```bash
-npx octocode tools localSearchCode --queries '{"query": "authenticate"}' --yaml
+npx octocode tools localSearchCode \
+  --queries '{"path":".","searchText":"authenticate","maxFiles":20}'
 ```
 ```yaml
-- id: "1"
-  results:
-    - path: "src/auth.ts"
-      matches:
-        - line: 12
-          content: "export async function authenticate(req: Request) {"
+results:
+  - id: localSearchCode-1
+    data:
+      files:
+        - path: src/auth.ts
+          matches:
+            - line: 12
+              value: "export async function authenticate(req: Request) {"
 ```
 
 ➡️ Learn more at **[octocode.ai](https://octocode.ai)**.
@@ -140,43 +145,49 @@ See [Quick Start](#quick-start) to install in your terminal or AI assistant.
 
 ## Built for Research (Benchmarks)
 
-Octocode is built for **research** - and it's measured on it. Across four independent, **blind-graded** runs against the leading GitHub-research CLIs (`gh` alone, `gh` + [`rtk`](https://github.com/Pleias/rtk), and `gh` + Headroom), the same runner model answered the **same 17 real GitHub research questions** with each tool. At **equal or better correctness, Octocode pulled 1.4×–5.8× less context into the model** - lower is better:
+The suite now has 20 public GitHub research questions. Published campaigns below
+cover the original 17 with isolated runners, frozen refs, measured CLI output,
+and correctness-first blind grading; they are snapshots, not universal claims.
 
-```
-gh alone  (17 questions)
-  octocode  ████████████████··············  152,710 chars
-  gh        ██████████████████████████████  286,812 chars   → gh pulls 1.9× more
+### Octocode delivered less output in both paired campaigns
 
-gh + rtk (by-hand pass)  (17 questions)
-  octocode  █████████████████████·········  168,773 chars
-  gh+rtk    ██████████████████████████████  242,691 chars   → gh+rtk pulls 1.4× more
+| Baseline | Evaluations | **Octocode output reduction** | Characters delivered<br>**Octocode / baseline** | Blind-graded correctness<br>**Octocode / baseline** |
+|---|---:|---:|---:|---:|
+| [`gh` + `rtk`](https://github.com/bgauryy/octocode/blob/main/packages/octocode-benchmark/results/octocode-vs-gh-rtk-081914-2026-08-05.md) | 17 questions | **↓ 10.6% fewer characters** | **485,117** / 542,592 | 9.647 / 10.000 |
+| [`gh` + Headroom](https://github.com/bgauryy/octocode/blob/main/packages/octocode-benchmark/results/octocode-vs-gh-headroom-115145-2026-08-05.md) | 3 × 17 questions | **↓ 62.2% fewer characters** | **800,586** / 2,119,615 | **9.961** / 9.824 |
 
-gh + rtk (orchestrated: 2 blind runners + grader)  (17 questions)
-  octocode  ███████████···················  395,644 chars
-  gh+rtk    ██████████████████████████████  1,040,783 chars   → gh+rtk pulls 2.6× more
+Octocode won the Headroom preference count **29–22**. These correctness-first
+snapshots measure CLI-output characters—not tokens, latency, cost, or general quality.
 
-gh + Headroom compression (orchestrated)  (15 questions)
-  octocode  █████·························  203,708 chars
-  gh+hr     ██████████████████████████████  1,180,822 chars   → gh+hr pulls 5.8× more
-```
+<details>
+<summary><strong>Where Octocode lost correctness—and why</strong></summary>
 
-Correctness was a **tie or an Octocode edge in every run** - `gh` 9.94/9.94, `gh+rtk` 10.0/10.0 (ties); orchestrated 9.18 → **9.38**; Headroom 9.07 → **9.67**.
+| Question | Miss | Status |
+|---|---|---|
+| Q11 · esbuild process boundary | Omitted synchronous `execFileSync` in the RTK snapshot. | Correct in all three Headroom rerun passes. |
+| Q14 · Vitest → Vite dependency | A clipped JSON excerpt obscured object membership, causing a false regular-dependency claim. | Hardened field extraction; correct in all three rerun passes. |
+| Q17 · Next.js fetch memoization | One Headroom-rerun answer left its two-layer name/file list blank. | Other two Octocode passes were complete. |
 
-*Measured in **characters** of raw CLI output pulled into context (~4 chars ≈ 1 token) - the honest, measured number, not a self-report. Correctness graded first; leaner only wins at equal correctness.*
+Headroom's Q2, Q7, Q10, Q13, Q14, Q15, and Q16 majority wins were character
+tiebreaks between correct answers—not Octocode correctness failures.
 
-**Why it's leaner:** `gh` and friends have no region read - to inspect one symbol they fetch the **whole file, tree, or diff**; Octocode reads the *region* that answers the question. Compression (Headroom) shrinks output only *after* it's fetched, so it can't offset over-fetching what you never needed.
+</details>
 
-**A note on truncation:** most context-shrinking tools truncate output *blind to the question* - for example, silently cutting a multi-file `gh pr diff`, hiding half the changes and forcing a full re-fetch. In research flows the answer often lives in those connections across files, so Octocode instead tries to fetch just what the request needs, rather than trimming after the fact.
-
-**Use the right tool for the job:** for a **quick check** - a single small object, a flat list, a yes/no where you know where to look - `gh`'s bare output is leaner, and the benchmark shows it. For **actual research** - multi-hop questions whose answers live inside large files, trees, and diffs - Octocode wins, because that's what it was built for.
-
-📊 **Full write-up - per-question visual charts, the three baselines, and honest caveats: [Benchmark Summary](https://github.com/bgauryy/octocode/blob/main/packages/octocode-benchmark/results/SUMMARY.md).** Every run is reproducible by hand via the [`octocode-benchmark` skill](https://github.com/bgauryy/octocode/tree/main/packages/octocode-benchmark/skills/octocode-benchmark) - isolated runners, a blind grader, no harness.
+See the [benchmark design](https://github.com/bgauryy/octocode/blob/main/packages/octocode-benchmark/BENCHMARK.md),
+[question set](https://github.com/bgauryy/octocode/tree/main/packages/octocode-benchmark/compare/github-questions), and
+[result reports](https://github.com/bgauryy/octocode/tree/main/packages/octocode-benchmark/results). The Headroom matchup uses
+checked-in instrumentation and campaign validation; other historical reports use
+older methodologies and should be interpreted from their individual caveats.
 
 ---
 
 ## Tools
 
-**13 always-on tools** (same on [MCP](#mcp) and [CLI](#cli)). Local tools on by default (`ENABLE_LOCAL=false` to disable). Three opt-ins: `ghCloneRepo` (MCP opt-in `ENABLE_CLONE=true`, CLI on by default), `ghListReleases` (`ENABLE_RELEASES=true`), and `ghSearchDiscussions` (`ENABLE_DISCUSSIONS=true`). Flags: [Configuration](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md).
+**17 tools in the full catalog.** MCP registers 14 by default; the CLI exposes 15
+because clone is enabled there by default. `ghCloneRepo` is opt-in on MCP
+(`ENABLE_CLONE=true`), while `ghListReleases` and `ghSearchDiscussions` are opt-in
+on both surfaces. Local tools are enabled by default (`ENABLE_LOCAL=false` disables
+them). Flags: [Configuration](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md).
 
 **Token knobs.** `concise:true` returns path/title-only lists. `minify` controls file read density: `symbols` = skeleton with line numbers, `standard` = comments/blanks stripped (default), `none` = exact bytes.
 
@@ -200,8 +211,9 @@ Correctness was a **tie or an Octocode edge in every run** - `gh` 9.94/9.94, `gh
 | Tool | What it does | Knob |
 |------|--------------|------|
 | `localSearchCode` | Local code/text search returning file and line anchors. `mode:"structural"` runs Octocode AST shape queries (`pattern` or `rule`). | `mode` |
-| `localViewStructure` | Browse a local directory tree: depth, filters, pagination, metadata. | `concise` |
+| `localViewStructure` | Browse a local directory tree: depth, filters, pagination, metadata. | `detail` |
 | `localFindFiles` | Find local files and directories by name, path, regex, extension, size, time, permissions, type. | |
+| `localFindDeadCode` | Find likely-unreferenced exports and dead-code clusters using whole-repository reachability analysis. | `entrypoints` |
 | `localGetFileContent` | Read a local file or region: exact slice, match string, line range, or paginated chars. | `minify` |
 
 ### Package Search
@@ -290,7 +302,7 @@ npx octocode --help       # full usage
 - **Language servers** - `npx octocode lsp-server list|install|status|uninstall|clean`
 - **Setup & introspection** - `npx octocode install`, `npx octocode auth`, `npx octocode status`, `npx octocode context`
 
-Full syntax, flags, and exit codes: [Octocode CLI Guide](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_CLI.md)
+Full syntax, flags, and exit codes: [Octocode CLI Guide](https://github.com/bgauryy/octocode/blob/main/packages/octocode/docs/OCTOCODE_CLI.md)
 
 ---
 
@@ -420,7 +432,9 @@ Four code-intelligence axes; three are native to the Rust engine and need no ext
 | **Content minification** | Comment/whitespace stripping for 70+ languages and config formats; HTML/Vue/Svelte also minify embedded `<style>`/`<script>`. | `minify:"standard"` (default) |
 | **LSP navigation** | definition, references, callers/callees, callHierarchy, hover, typeDefinition, implementation, documentSymbols, via an installed language server; JS/TS also have a native, no-server path. | `lspGetSemantics` · CLI `tools lspGetSemantics --scheme` |
 
-📋 **Full support matrix:** every extension with its exact AST, signature, LSP, and minify capability, machine-generated from the shipped binary, lives in the **[Full format support matrix](https://github.com/bgauryy/octocode/blob/main/docs/LSP_SERVER_LIFECYCLE.md#full-format-support-matrix)** (151 extensions: 61 AST, 47 signature, 32 LSP, 90 minify-only). Regenerate or verify with `yarn workspace @octocodeai/octocode-benchmark matrix:check`.
+📋 **Full support matrix:** every extension with its exact AST, signature, LSP,
+and minify capability lives in the
+**[Full format support matrix](https://github.com/bgauryy/octocode/blob/main/packages/octocode-engine/docs/LSP_SERVER_LIFECYCLE.md#full-format-support-matrix)**.
 
 ---
 
@@ -525,10 +539,10 @@ Website: **[octocode.ai](https://octocode.ai)** · Product docs: **[github.com/b
 |---|---|
 | MCP server | [Octocode MCP Server](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_MCP.md) · [Configuration](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md) · [Authentication](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md) |
 | Tools and workflows | [Octocode Tools Reference](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_TOOLS.md) · [RDD Manifest & Workflows](https://github.com/bgauryy/octocode/blob/main/MANIFEST.md) · [Octocode Research Skill](https://github.com/bgauryy/octocode/tree/main/skills/octocode-research) · [Search Guide](https://github.com/bgauryy/octocode/blob/main/docs/context/SEARCH_GUIDE.md) |
-| CLI | [Octocode CLI Guide](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_CLI.md) |
+| CLI | [Octocode CLI Guide](https://github.com/bgauryy/octocode/blob/main/packages/octocode/docs/OCTOCODE_CLI.md) |
 | Skills | [Skills](https://github.com/bgauryy/octocode/tree/main/skills) |
-| Development and security | [Security Model](https://github.com/bgauryy/octocode/blob/main/docs/SECURITY.md) · [LSP Server Lifecycle](https://github.com/bgauryy/octocode/blob/main/docs/LSP_SERVER_LIFECYCLE.md) |
-| Benchmarks and evals | [Research Efficiency Results](https://github.com/bgauryy/octocode/blob/main/packages/octocode-benchmark/results/SUMMARY.md) · [Benchmark Design](https://github.com/bgauryy/octocode/blob/main/packages/octocode-benchmark/BENCHMARK.md) · [Unified CLI/Tool Eval](https://github.com/bgauryy/octocode/blob/main/packages/octocode-benchmark/benchmark/octocode/README.md) · [Benchmark Runbook](https://github.com/bgauryy/octocode/blob/main/packages/octocode-benchmark/recipes/agent-benchmark-runbook.md) · [Support Matrix](https://github.com/bgauryy/octocode/blob/main/docs/LSP_SERVER_LIFECYCLE.md#full-format-support-matrix) |
+| Development and security | [Security Model](https://github.com/bgauryy/octocode/blob/main/docs/SECURITY.md) · [LSP Server Lifecycle](https://github.com/bgauryy/octocode/blob/main/packages/octocode-engine/docs/LSP_SERVER_LIFECYCLE.md) |
+| Benchmarks and evals | [Benchmark Results](https://github.com/bgauryy/octocode/tree/main/packages/octocode-benchmark/results) · [Benchmark Design](https://github.com/bgauryy/octocode/blob/main/packages/octocode-benchmark/BENCHMARK.md) · [Benchmark Runbook](https://github.com/bgauryy/octocode/blob/main/packages/octocode-benchmark/INSTRUCTIONS.md) · [Support Matrix](https://github.com/bgauryy/octocode/blob/main/packages/octocode-engine/docs/LSP_SERVER_LIFECYCLE.md#full-format-support-matrix) |
 | Shared internals | [Credentials Architecture](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md#github-token) · [Session Persistence](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_MCP.md#session-persistence) |
 
 ---

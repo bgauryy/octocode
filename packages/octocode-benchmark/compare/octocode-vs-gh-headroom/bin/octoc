@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# Instrumented Octocode arm for this matchup. The research command remains
+# exactly `npx octocode tools ...`; this wrapper only captures its output.
+set -euo pipefail
+
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+OCTO_LOG="${OCTO_LOG:-$PWD/tmp/octocode-run.jsonl}"
+OCTO_ARTIFACT_DIR="${OCTO_ARTIFACT_DIR:-${OCTO_LOG%.jsonl}-artifacts}"
+OCTO_PY="${OCTO_PY:-python3}"
+
+label="npx octocode tools $(printf '%s ' "$@" | sed 's/ *$//')"
+exec "$OCTO_PY" "$HERE/instrument_command.py" \
+  --log "$OCTO_LOG" \
+  --artifact-dir "$OCTO_ARTIFACT_DIR" \
+  --label "$label" \
+  -- npx octocode tools "$@"
