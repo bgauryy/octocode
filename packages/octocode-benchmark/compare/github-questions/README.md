@@ -1,6 +1,6 @@
 # GitHub questions (shared)
 
-The **one** canonical set of 17 GitHub research questions. All three GitHub matchups run this exact set — they differ only in the baseline arm, never the questions:
+The **one** canonical v2 set of 25 GitHub research questions. All three GitHub matchups run this exact set — they differ only in the baseline arm, never the questions. Published 17-question campaigns used v1 and are not directly comparable to a v2 run.
 
 - [`octocode-vs-gh`](../octocode-vs-gh/) — plain `gh`
 - [`octocode-vs-gh-rtk`](../octocode-vs-gh-rtk/) — `gh` + `rtk`
@@ -12,23 +12,31 @@ Each file is just the title, id, and the question.
 
 | File | Title |
 |---|---|
-| [Q1.md](Q1.md) | Route regex builder |
+| [Q1.md](Q1.md) | Next.js route-regex result |
 | [Q2.md](Q2.md) | Repository discovery and bounded absence |
 | [Q3.md](Q3.md) | Flask route history |
-| [Q4.md](Q4.md) | Zustand fix PR state |
+| [Q4.md](Q4.md) | Axios redirect implementation across repositories |
 | [Q5.md](Q5.md) | Vue hydration diff review |
 | [Q6.md](Q6.md) | Express router cross-repository trace |
 | [Q7.md](Q7.md) | Zustand's Next.js integration contract |
 | [Q8.md](Q8.md) | VS Code keybinding dispatch |
 | [Q9.md](Q9.md) | Fastify lifecycle contract |
 | [Q10.md](Q10.md) | Axios repository and Node entry chain |
-| [Q11.md](Q11.md) | Esbuild repository and Node runtime boundary |
+| [Q11.md](Q11.md) | Esbuild JavaScript-to-Go service boundary |
 | [Q12.md](Q12.md) | Stream and EventEmitter wiring |
 | [Q13.md](Q13.md) | Redis security issue and fix PR |
 | [Q14.md](Q14.md) | Vitest’s dependency on Vite |
 | [Q15.md](Q15.md) | Hono JSX array component PR |
 | [Q16.md](Q16.md) | ESLint parser dependency chain |
 | [Q17.md](Q17.md) | Next.js fetch request memoization |
+| [Q18.md](Q18.md) | Vite dependency-section membership |
+| [Q19.md](Q19.md) | Node child-process async and sync paths |
+| [Q20.md](Q20.md) | Actions toolkit exec output path |
+| [Q21.md](Q21.md) | LangChain createAgent flow and graph |
+| [Q22.md](Q22.md) | Axios release-range compare |
+| [Q23.md](Q23.md) | Linux write() syscall to VFS dispatch flow |
+| [Q24.md](Q24.md) | Axios buildFullPath blast radius |
+| [Q25.md](Q25.md) | Axios PR selected-patch and review thread |
 
 ## Add a GitHub question
 

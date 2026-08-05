@@ -41,7 +41,8 @@ const mockDefaultConfig = {
     apiUrl: 'https://api.github.com',
   },
   local: {
-    enabled: true,
+    // MCP surface default: local tools disabled unless ENABLE_LOCAL is set.
+    enabled: false,
     enableClone: false,
     allowedPaths: [],
   },

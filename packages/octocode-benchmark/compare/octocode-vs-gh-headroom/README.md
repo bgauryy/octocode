@@ -1,6 +1,6 @@
 # Octocode CLI vs `gh` + Headroom
 
-Seventeen GitHub research questions in the shared set
+Twenty GitHub research questions in the shared set
 [`../github-questions/`](../github-questions/) — one canonical copy, also used by
 [`octocode-vs-gh`](../octocode-vs-gh/) and
 [`octocode-vs-gh-rtk`](../octocode-vs-gh-rtk/).
@@ -16,8 +16,13 @@ shrinks what a `gh` call returns before it enters the agent's context. Arm A's
 GitHub surface is therefore identical to the plain-`gh` arm; the only difference
 is the compressor in front of it.
 
-Both runners receive the same question and budget. Neither gets browser,
-local-code, peer, or grader-reference access.
+Both runners receive the same question and budget. Neither gets browser, peer,
+or grader-reference access. Each runner may use only its assigned CLI surface;
+Octocode clone-to-local tools remain part of the Octocode product surface.
+
+Before the first call, give each runner only its assigned section from
+[`../../RUNNER_TOOL_CONTEXT.md`](../../RUNNER_TOOL_CONTEXT.md). The primer is
+fixed setup context; research-time help and schema calls are measured.
 
 ---
 
@@ -77,7 +82,7 @@ compresses stdin**, and **no `headroom wrap gh`**. The only correct way to
 compress a single `gh` command's output is the library, via the checked-in shim
 [`bin/hr_compress.py`](bin/hr_compress.py), driven by [`bin/ghc`](bin/ghc).
 
-### 2. The compression config is the whole trick — without it you get 0%
+### 2. The compression config is required — classify transforms, not ratios
 
 The library **protects** a lone user message by default (it assumes it's the
 prompt), so a naive `compress([{ "role":"user","content": gh_output }])` returns
@@ -88,15 +93,32 @@ output in (both required):
 CompressConfig(compress_user_messages=True, protect_recent=0)
 ```
 
-If you ever see `transforms=['router:protected:user_message']` or `ratio=0.000`,
-the config was dropped — the measurement is invalid, redo it.
+`ratio=0.000` is not itself an error: short/unsupported content can legitimately
+route through `router:noop`. The checked-in instrumenter records the exact
+`transforms` list. A call is invalid when transforms are missing or contain
+`router:protected:user_message`; a valid `router:noop` remains a measured
+passthrough call.
+
+Before any runner starts, run the deterministic readiness gate. It verifies a
+valid no-op, SmartCrusher on structured JSON, and Kompress on long prose. It
+fails if the model is unavailable or ML compression is disabled:
+
+```bash
+export HR_PY="$HOME/.local/share/uv/tools/headroom-ai/bin/python"
+"$HR_PY" bin/preflight.py --warmup
+```
 
 ### 3. Count chars from the shim's log, NEVER from the agent
 
 Models miscount their own context. `bin/ghc` writes one **measured** JSONL
-record per call (`raw_chars`, `out_chars`, `ratio`) to `$GHC_LOG`. Arm A's
+record per call (`raw_chars`, `out_chars`, `ratio`, `transforms`, hashes, and
+artifact paths) to `$GHC_LOG`. Arm A's
 "chars in" for a question is `sum(out_chars)` over that question's calls —
 `bin/sumlog.py` totals it. Do not let the runner self-report the number.
+
+Both raw and compressed outputs are preserved under `$GHC_ARTIFACT_DIR` and
+counted as Unicode code points. Strict aggregation re-reads and hashes them, so
+desktop/orchestration truncation cannot silently corrupt the score.
 
 ### Reversibility policy — one-shot, no CCR retrieve loop (keeps chars-in honest)
 
@@ -125,6 +147,7 @@ invoked as `./bin/ghc`, never bare on `$PATH`).
 cd compare/octocode-vs-gh-headroom
 export HR_PY="$HOME/.local/share/uv/tools/headroom-ai/bin/python"
 export GHC_LOG="$PWD/tmp/Q1.jsonl"       # one log file per question (tmp/ is gitignored; ghc creates it)
+export GHC_ARTIFACT_DIR="$PWD/tmp/Q1-artifacts"
 
 ./bin/ghc search code --repo vercel/next.js "getRouteRegex" --limit 20
 ./bin/ghc api 'repos/vercel/next.js/git/trees/canary?recursive=1'
@@ -149,18 +172,22 @@ Footprint tips (compression is on top of, not instead of, tight queries):
 Total a question's chars-in:
 
 ```bash
-python3 bin/sumlog.py tmp/Q1.jsonl
+python3 bin/sumlog.py tmp/Q1.jsonl --strict \
+  --diagnostics tmp/Q1-diagnostics.log
 # calls=4  raw_chars=91240  chars_in=58810  reduction=35.5%
 ```
 
-## Arm B — Octocode
+## Arm B — Octocode (instrumented transport)
 
 ```bash
-npx octocode tools <the-question>
+export OCTO_LOG="$PWD/tmp/Q1-octocode.jsonl"
+export OCTO_ARTIFACT_DIR="$PWD/tmp/Q1-octocode-artifacts"
+./bin/octoc <tool> --queries '<json>'
 ```
 
-Record the raw chars pulled into context per question, same as the other
-matchups.
+`bin/octoc` runs exactly `npx octocode tools …`; it only captures the complete
+combined output, Unicode-character count, hash, exit code, elapsed time, and
+artifact path. Use the log total, never a runner's reported count.
 
 ---
 
@@ -169,7 +196,7 @@ matchups.
 There is no runner harness — benchmarks are run **by hand**. See the top-level
 [`README.md`](../../README.md), [`INSTRUCTIONS.md`](../../INSTRUCTIONS.md),
 [`JUDGING.md`](../../JUDGING.md), and [`SCORING.md`](../../SCORING.md). For each
-of the 17 questions:
+of the 20 questions:
 
 1. **Seal the packet.** Give arm A and arm B the *same* question text and budget,
    differing only in allowed surface (above). No scope, hints, or reference —
@@ -177,10 +204,11 @@ of the 17 questions:
 2. **Isolate the arms.** Run each arm in a fresh context (separate subagent /
    session). The runner does only GitHub research; it must not see the other
    arm's transcript or any reference answer.
-3. **Arm A:** every GitHub read goes through `./bin/ghc` with a per-question
-   `$GHC_LOG`. Verify no call logged `ratio=0.000` / `router:protected` (that
-   means the config was bypassed — invalid, rerun it).
-4. **Arm B:** `npx octocode tools …`, record chars in/out.
+3. **Arm A:** every GitHub read goes through `./bin/ghc` with per-question log,
+   diagnostics, and artifacts. Validate with `sumlog.py --strict`; a zero ratio
+   is allowed only when its transform is classified.
+4. **Arm B:** every Octocode read goes through `./bin/octoc`; use its JSONL and
+   artifacts for exact character totals.
 5. **Repeat ≥3×** per arm; keep median correctness, report char spread.
 6. **Grade blind.** A separate grader scores both answers with arm labels
    stripped/shuffled: Correctness (0–10), Research depth (1–5), Workflow (1–5),
@@ -189,6 +217,22 @@ of the 17 questions:
    confidently-wrong answer blocks a win regardless of efficiency.
 7. **Report** to [`../../results/`](../../results/) with Headroom + model
    versions pinned.
+
+After all six passes finish, reject any incomplete or corrupt campaign before
+grading:
+
+```bash
+python3 bin/validate_campaign.py tmp/campaign-<id> > tmp/campaign-<id>/metrics.json
+```
+
+This requires all 120 question logs, all six answer files, valid hashes and
+artifacts, classified Headroom transforms, recorded source exit statuses in both
+arms, and no model-readiness diagnostics. Failed research calls remain in the
+totals and are reported as workflow waste; because their output was captured,
+they do not invalidate an otherwise complete pass.
+
+The validator defaults to the current 20-question suite. To re-audit a preserved
+17-question historical campaign, pass `--question-count 17`.
 
 ### Quick smoke test (confirm the arm runs before a full campaign)
 
@@ -202,5 +246,5 @@ python3 bin/sumlog.py tmp/smoke.jsonl    # expect ~21% char reduction, chars_in>
 rm -f tmp/smoke.jsonl
 ```
 
-If `chars_in` is 0 or equals `raw_chars`, the config/shim is broken — fix before
-running any questions.
+Do not infer validity from reduction alone. The run is valid only when
+`preflight.py --warmup` passes and every question log passes strict validation.

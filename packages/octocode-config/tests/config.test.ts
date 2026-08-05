@@ -415,7 +415,7 @@ import {
 describe('DEFAULT_CONFIG', () => {
   it('has sensible defaults', () => {
     expect(DEFAULT_CONFIG.github.apiUrl).toBe('https://api.github.com');
-    expect(DEFAULT_CONFIG.local.enabled).toBe(true);
+    expect(DEFAULT_CONFIG.local.enabled).toBe(false);
     expect(DEFAULT_CONFIG.local.enableClone).toBe(false);
     expect(DEFAULT_NETWORK_CONFIG.timeout).toBe(30000);
   });
@@ -818,6 +818,13 @@ describe('resolveLocal', () => {
     _resetRuntimeSurface();
   });
 
+  it('defaults local.enabled by surface (cli on, mcp off)', () => {
+    setRuntimeSurface('cli');
+    expect(resolveLocal().enabled).toBe(true);
+    setRuntimeSurface('mcp');
+    expect(resolveLocal().enabled).toBe(false);
+  });
+
   it('resolves from file config and CLI default clone behavior', () => {
     setRuntimeSurface('cli');
     expect(resolveLocal().enableClone).toBe(true);
@@ -1038,7 +1045,7 @@ describe('getConfigSync', () => {
       const cfg = resolveConfigSync();
       expect(cfg.source).toBe('invalid');
       expect(cfg.configPath).toBe(join(home, '.octocoderc'));
-      expect(cfg.local.enabled).toBe(true);
+      expect(cfg.local.enabled).toBe(false);
     } finally {
       if (oldHome === undefined) delete process.env['OCTOCODE_HOME']; else process.env['OCTOCODE_HOME'] = oldHome;
     }
@@ -1061,7 +1068,7 @@ describe('getConfigSync', () => {
   it('getConfigSync reflects env changes without manual invalidation', () => {
     const oldEnableLocal = process.env['ENABLE_LOCAL'];
     try {
-      delete process.env['ENABLE_LOCAL'];
+      process.env['ENABLE_LOCAL'] = 'true';
       const before = getConfigSync();
       process.env['ENABLE_LOCAL'] = 'false';
       const after = getConfigSync();

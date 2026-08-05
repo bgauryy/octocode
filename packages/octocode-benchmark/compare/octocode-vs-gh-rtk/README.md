@@ -1,6 +1,6 @@
 # Octocode CLI vs `gh` + `rtk`
 
-Seventeen GitHub research questions in the shared set [`../github-questions/`](../github-questions/) — one canonical copy, used by all three GitHub matchups.
+Twenty GitHub research questions in the shared set [`../github-questions/`](../github-questions/) — one canonical copy, used by all three GitHub matchups.
 
 | Arm | Allowed surface |
 |---|---|
@@ -8,6 +8,10 @@ Seventeen GitHub research questions in the shared set [`../github-questions/`](.
 | B | Matching GitHub research through `npx octocode tools …` |
 
 RTK is a transport/filter layer, not an additional research source.
+
+Before the first call, give each runner only its assigned section from
+[`../../RUNNER_TOOL_CONTEXT.md`](../../RUNNER_TOOL_CONTEXT.md). The primer is
+fixed setup context; research-time help and schema calls are measured.
 
 These live once in [`../github-questions/`](../github-questions/); edit them there and every GitHub matchup sees the change.
 
@@ -24,5 +28,14 @@ Give arm A its fair minimum footprint. Verified against rtk's docs (`rtk-ai/rtk`
 Note per call whether rtk **filtered** or **passed through** (`--json`, `search`, and `api` are passthrough — rtk adds nothing). This guidance changes footprint, not the read-only policy.
 
 Allowed arm-A families: `search {code,repos,prs,issues,commits}`, `repo view`, `pr view|diff`, `issue view`, and `api` limited to `/contents` or `/git/trees` (GET only). No mutation verbs.
+
+## Arm B (Octocode)
+
+```bash
+npx octocode tools <tool> --queries '<json>'
+```
+
+The Octocode primer lists all 17 tools, including remote discovery/content,
+clone-to-local analysis, LSP, and opt-in tools. Every invoked command is counted.
 
 Completed runs of this matchup are in [`../../results/`](../../results/) (see the index there for the latest).

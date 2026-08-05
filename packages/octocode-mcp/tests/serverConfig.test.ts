@@ -128,7 +128,7 @@ describe('ServerConfig - Simplified Version', () => {
       expect(config.disableTools).toBeUndefined();
       expect(config.timeout).toBe(30000);
       expect(config.maxRetries).toBe(3);
-      expect(config.enableLocal).toBe(true);
+      expect(config.enableLocal).toBe(false);
       expect(config.enableClone).toBe(false);
       expect(config.tokenSource).toBe('none');
     });
@@ -465,10 +465,10 @@ describe('ServerConfig - Simplified Version', () => {
       delete process.env.ENABLE_LOCAL;
     });
 
-    it('should default to true when ENABLE_LOCAL is not set', async () => {
+    it('should default to false (MCP surface) when ENABLE_LOCAL is not set', async () => {
       mockSpawnFailure();
       await initialize();
-      expect(getServerConfig().enableLocal).toBe(true);
+      expect(getServerConfig().enableLocal).toBe(false);
     });
 
     it('should enable local when ENABLE_LOCAL is "true"', async () => {
@@ -540,7 +540,7 @@ describe('ServerConfig - Simplified Version', () => {
       }
     });
 
-    it('should return true (default) for invalid/unrecognized ENABLE_LOCAL values', async () => {
+    it('should return false (MCP default) for invalid/unrecognized ENABLE_LOCAL values', async () => {
       const invalidValues = ['no', 'yes', 'enabled', '', '   '];
 
       for (const value of invalidValues) {
@@ -549,17 +549,24 @@ describe('ServerConfig - Simplified Version', () => {
         process.env.ENABLE_LOCAL = value;
         mockSpawnFailure();
         await initialize();
-        expect(getServerConfig().enableLocal).toBe(true);
+        expect(getServerConfig().enableLocal).toBe(false);
       }
     });
   });
 
   describe('isLocalEnabled() helper', () => {
-    it('should return true when enableLocal is true (default)', async () => {
-      delete process.env.ENABLE_LOCAL;
+    it('should return true when enableLocal is enabled via ENABLE_LOCAL', async () => {
+      process.env.ENABLE_LOCAL = 'true';
       mockSpawnFailure();
       await initialize();
       expect(isLocalEnabled()).toBe(true);
+    });
+
+    it('should return false by default (MCP surface)', async () => {
+      delete process.env.ENABLE_LOCAL;
+      mockSpawnFailure();
+      await initialize();
+      expect(isLocalEnabled()).toBe(false);
     });
 
     it('should return false when ENABLE_LOCAL is "false"', async () => {
@@ -640,7 +647,15 @@ describe('ServerConfig - Simplified Version', () => {
       expect(isCloneEnabled()).toBe(false);
     });
 
-    it('should return true when clone is enabled and local is true by default', async () => {
+    it('should return false when clone is enabled but local is off by default', async () => {
+      process.env.ENABLE_CLONE = 'true';
+      mockSpawnFailure();
+      await initialize();
+      expect(isCloneEnabled()).toBe(false);
+    });
+
+    it('should return true when clone and local are both explicitly enabled', async () => {
+      process.env.ENABLE_LOCAL = 'true';
       process.env.ENABLE_CLONE = 'true';
       mockSpawnFailure();
       await initialize();

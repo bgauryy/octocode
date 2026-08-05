@@ -71,9 +71,9 @@ describe('README/CONFIGURATION config claims', () => {
     });
   });
 
-  describe('ENABLE_LOCAL -> local.enabled (default true, explicit false disables)', () => {
-    it('defaults to true when neither env nor file config disables it', () => {
-      expect(resolveLocal(undefined).enabled).toBe(true);
+  describe('ENABLE_LOCAL -> local.enabled (surface default, explicit flag overrides)', () => {
+    it('defaults to false on the default MCP surface when neither env nor file config enables it', () => {
+      expect(resolveLocal(undefined).enabled).toBe(false);
     });
 
     it('ENABLE_LOCAL=false disables, overriding file=true', () => {
@@ -257,10 +257,10 @@ describe('README/CONFIGURATION config claims', () => {
     describe('MCP surface (default)', () => {
       beforeEach(() => setRuntimeSurface('mcp'));
 
-      it('local defaults on and honors ENABLE_LOCAL=false', () => {
-        expect(resolveLocal(undefined).enabled).toBe(true);
-        process.env.ENABLE_LOCAL = 'false';
+      it('local defaults off and honors ENABLE_LOCAL=true', () => {
         expect(resolveLocal(undefined).enabled).toBe(false);
+        process.env.ENABLE_LOCAL = 'true';
+        expect(resolveLocal(undefined).enabled).toBe(true);
       });
 
       it('ENABLE_LOCAL=true leaves local tools enabled', () => {

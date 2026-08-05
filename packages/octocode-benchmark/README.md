@@ -6,7 +6,7 @@ Plain-markdown, run-by-hand CLI research benchmarks. Each question is answered b
 
 ```
 compare/
-  github-questions/         the 17 shared GitHub questions — ONE canonical copy
+  github-questions/         the 20 shared GitHub questions — ONE canonical copy
   octocode-vs-gh/           README.md            (runs github-questions/)
   octocode-vs-gh-rtk/       README.md            (runs github-questions/)
   octocode-vs-gh-headroom/  README.md + bin/     (runs github-questions/)
@@ -24,12 +24,15 @@ Three separate agents per question, each working alone: **Runner A** (baseline C
 
 ## Run one
 
-1. Pick a comparison and open a `questions/Q<n>.md`.
+1. Pick a comparison and open one question from its set (`compare/github-questions/` for the GitHub matchups, or the matchup's own `questions/`).
 2. Runner A and Runner B each answer, recording every command and its output size in **characters**.
 3. The grader independently establishes the facts, then grades both answers against them.
 4. Roll the questions up into one write-up in [`results/`](results/) — a per-question table and a summary of all.
 
-See [INSTRUCTIONS.md](INSTRUCTIONS.md) for the step list, [RUNNER.md](RUNNER.md) / [JUDGING.md](JUDGING.md) for the two roles, [SCORING.md](SCORING.md) for what to measure, and [REPORT_TEMPLATE.md](REPORT_TEMPLATE.md) for the write-up shape.
+See [INSTRUCTIONS.md](INSTRUCTIONS.md) for the step list,
+[RUNNER.md](RUNNER.md) and [RUNNER_TOOL_CONTEXT.md](RUNNER_TOOL_CONTEXT.md) for
+runner packets, [JUDGING.md](JUDGING.md) for grading, [SCORING.md](SCORING.md)
+for measurement, and [REPORT_TEMPLATE.md](REPORT_TEMPLATE.md) for reports.
 
 ## Add a question
 

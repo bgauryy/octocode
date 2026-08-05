@@ -6,11 +6,16 @@ No harness. You (or three separate agents) work through the markdown questions a
 
 1. **Pick a comparison** under `compare/` and read its `README.md` (the two arms and the allowed surface for each). Its questions are either the shared [`compare/github-questions/`](compare/github-questions/) (the three GitHub matchups) or the matchup's own `questions/` (corpus-local matchups).
 2. **Freeze mutable state first.** For each question, resolve every branch/PR-state/SHA the prompt depends on, note the resolved SHA + UTC, and use those frozen refs in the answer.
-3. **For each `Q<n>.md`, three independent passes:**
+3. **Seal each runner's initial context.** Give it [`RUNNER.md`](RUNNER.md), the
+   matchup rules, the assigned-arm section from
+   [`RUNNER_TOOL_CONTEXT.md`](RUNNER_TOOL_CONTEXT.md), and the question—nothing
+   from the competing arm or grader. Keep that primer identical across all
+   questions and passes and record the tool versions.
+4. **For each `Q<n>.md`, three independent passes:**
    - **Runner A** answers using the baseline CLI only. Record each command and the characters it pulled in.
    - **Runner B** answers using `npx octocode tools …` only. Same recording.
    - **Grader** reads both answers *blind* (don't reveal which tool produced which), establishes the facts by independent research, and grades each answer on its own.
-4. **Write it up** in `results/<comparison-name>-<HHMMSS>-<YYYY-MM-DD>.md` (comparison name, run start time `HHMMSS`, then date — e.g. `results/octocode-vs-gh-rtk-021054-2026-08-05.md`) using [REPORT_TEMPLATE.md](REPORT_TEMPLATE.md) — per-question table + summary of all.
+5. **Write it up** in `results/<comparison-name>-<HHMMSS>-<YYYY-MM-DD>.md` (comparison name, run start time `HHMMSS`, then date — e.g. `results/octocode-vs-gh-rtk-021054-2026-08-05.md`) using [REPORT_TEMPLATE.md](REPORT_TEMPLATE.md) — per-question table + summary of all.
 
 ## Rules that keep it fair
 
@@ -19,6 +24,8 @@ No harness. You (or three separate agents) work through the markdown questions a
 - Questions carry **no answer key**. The grader establishes ground truth by its own research; if the evidence can't resolve a point, it says so.
 - Grade **semantic support**, not exact wording, length, citations, or tool order.
 - Octocode arm = `npx octocode tools <tool> …` only.
+- Fixed tool primers are setup context and excluded from CLI-output character
+  totals. Any help/catalog/schema command issued during research is counted.
 
 ## Add a question
 

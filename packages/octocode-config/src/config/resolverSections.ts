@@ -77,10 +77,13 @@ export function resolveLocal(
   const envWorkspaceRoot = process.env.WORKSPACE_ROOT?.trim() || undefined;
 
   return {
-    // Local tools are on by default. ENABLE_LOCAL=false (or local.enabled=false)
-    // is an explicit opt-out for users who want to remove the local surface.
+    // Local tools default is surface-specific: ENABLED for the CLI, DISABLED
+    // for the MCP server. An explicit ENABLE_LOCAL (env) or .octocoderc value
+    // wins for both surfaces, so `true` enables and `false` disables everywhere.
     enabled:
-      envEnableLocal ?? fileConfig?.enabled ?? DEFAULT_LOCAL_CONFIG.enabled,
+      envEnableLocal ??
+      fileConfig?.enabled ??
+      (isCli ? true : DEFAULT_LOCAL_CONFIG.enabled),
     // Clone: an explicit ENABLE_CLONE (env) or .octocoderc value wins for both
     // surfaces, so `false` disables everywhere. Otherwise the default is
     // surface-specific: ENABLED for the CLI, DISABLED for the MCP server.

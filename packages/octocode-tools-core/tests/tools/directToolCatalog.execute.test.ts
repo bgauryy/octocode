@@ -24,8 +24,8 @@ describe('executeDirectTool - invalid input handling (finding 3)', () => {
     cleanup();
   });
 
-  it('runs a local tool by default when ENABLE_LOCAL is unset', async () => {
-    setRuntimeSurface('mcp');
+  it('runs a local tool by default on the CLI surface when ENABLE_LOCAL is unset', async () => {
+    setRuntimeSurface('cli');
     delete process.env.ENABLE_LOCAL;
     cleanup();
 

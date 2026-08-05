@@ -9,9 +9,10 @@
   "bugs": "https://github.com/bgauryy/octocode/issues",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
-    "@octocodeai/octocode-core": "18.0.2",
-    "@octocodeai/octocode-engine": "^18.0.0",
-    "@octocodeai/octocode-tools-core": "^18.0.0",
+    "@octocodeai/octocode-core": "18.1.0",
+    "@octocodeai/octocode-engine": "18.0.1",
+    "@octocodeai/octocode-tools-core": "^18.0.1",
+    "@octokit/core": "^7.0.6",
     "@octokit/oauth-methods": "^6.0.2",
     "@octokit/plugin-throttling": "^11.0.3",
     "@octokit/request": "^10.0.10",

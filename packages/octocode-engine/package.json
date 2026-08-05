@@ -4,7 +4,7 @@
   "version": "18.0.1",
   "author": "Guy Bary <bgauryy@octocodeai.com>",
   "dependencies": {
-    "@octocodeai/config": "^18.0.0",
+    "@octocodeai/config": "18.0.1",
     "bash-language-server": "^5.6.0",
     "intelephense": "^1.14.1",
     "pyright": "^1.1.411",

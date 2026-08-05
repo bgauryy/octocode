@@ -1,13 +1,19 @@
 # Octocode CLI vs `gh`
 
-Seventeen GitHub research questions in the shared set [`../github-questions/`](../github-questions/) — one canonical copy, used by all three GitHub matchups.
+Twenty GitHub research questions in the shared set [`../github-questions/`](../github-questions/) — one canonical copy, used by all three GitHub matchups.
 
 | Arm | Allowed surface |
 |---|---|
 | A | Read-only `gh` repository, code, content, tree, PR, issue, and commit operations |
 | B | Matching GitHub research through `npx octocode tools …` |
 
-Both runners receive the same question and budget. Neither gets browser, local-code, peer, or grader-reference access.
+Both runners receive the same question and budget. Neither gets browser, peer,
+or grader-reference access. Each runner may use only its assigned CLI surface;
+Octocode clone-to-local tools remain part of the Octocode product surface.
+
+Before the first call, give each runner only its assigned section from
+[`../../RUNNER_TOOL_CONTEXT.md`](../../RUNNER_TOOL_CONTEXT.md). The primer is
+fixed setup context; research-time help and schema calls are measured.
 
 The same shared set is used by `octocode-vs-gh-rtk` and `octocode-vs-gh-headroom`.
 
@@ -34,7 +40,8 @@ matchups compress.
 ## Arm B (Octocode)
 
 ```bash
-npx octocode tools <the-question>
+npx octocode tools <tool> --queries '<json>'
 ```
 
-Record chars in/out per question, same as Arm A.
+The Octocode primer lists the complete catalog and when clone → local/LSP is
+useful. Record chars in/out per question, same as Arm A.

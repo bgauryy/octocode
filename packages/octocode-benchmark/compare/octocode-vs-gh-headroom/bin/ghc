@@ -4,6 +4,8 @@
 # Runs a read-only `gh` command, pipes its stdout through Headroom, prints the
 # compressed output, and appends one measured record to $GHC_LOG (JSONL) so the
 # "chars in" score comes from instrumentation, never from the model's self-report.
+# The compressor also stores raw/compressed artifacts and the exact Headroom
+# transform decision, so ratio=0 can be classified instead of guessed.
 #
 # Usage:   ghc <gh-args...>
 # Example: ghh api repos/pallets/flask/git/trees/main?recursive=1
@@ -20,7 +22,10 @@ HR_PY="${HR_PY:-$HOME/.local/share/uv/tools/headroom-ai/bin/python}"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Default log lives under the gitignored tmp/; create its dir so appends never fail.
 GHC_LOG="${GHC_LOG:-$PWD/tmp/run.jsonl}"
+GHC_ARTIFACT_DIR="${GHC_ARTIFACT_DIR:-${GHC_LOG%.jsonl}-artifacts}"
+GHC_DIAGNOSTICS_LOG="${GHC_DIAGNOSTICS_LOG:-${GHC_LOG%.jsonl}-diagnostics.log}"
 mkdir -p "$(dirname "$GHC_LOG")"
+mkdir -p "$GHC_ARTIFACT_DIR"
 
 # --- read-only guard: reject any mutating gh verb -------------------------------
 case "${1:-}" in
@@ -41,19 +46,33 @@ case "${2:-}" in
     echo "ghc: mutating subcommand '$2' is not allowed in arm A" >&2; exit 2;;
 esac
 
-raw="$(gh "$@")"
-raw_bytes=${#raw}
+# Capture successful and failed probes alike. A failed query is workflow waste,
+# not invisible work: its complete output is compressed, logged, and returned
+# with the original gh exit status so the runner can correct it.
+set +e
+raw="$(gh "$@" 2>&1)"
+gh_status=$?
+set -e
+command_label="gh $(printf '%s ' "$@" | sed 's/ *$//')"
 
 # Compress; capture the measurement line from stderr.
 tmp_err="$(mktemp)"
-compressed="$(printf '%s' "$raw" | "$HR_PY" "$HERE/hr_compress.py" 2>"$tmp_err")"
-meas="$(cat "$tmp_err")"; rm -f "$tmp_err"
+compressed="$(printf '%s' "$raw" | \
+  HR_LOG="$GHC_LOG" \
+  HR_ARTIFACT_DIR="$GHC_ARTIFACT_DIR" \
+  HR_COMMAND="$command_label" \
+  HR_SOURCE_EXIT_CODE="$gh_status" \
+  "$HR_PY" "$HERE/hr_compress.py" 2>"$tmp_err")"
+
+# Preserve warnings (including model-readiness failures) and the measurement
+# record. The JSONL remains the machine-readable source for scoring.
+if [[ -s "$tmp_err" ]]; then
+  {
+    printf '[%s] %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$command_label"
+    sed '/^HEADROOM_MEASUREMENT=/d' "$tmp_err"
+  } >> "$GHC_DIAGNOSTICS_LOG"
+fi
+rm -f "$tmp_err"
 
 printf '%s' "$compressed"
-
-# Append a JSONL record (chars measured, not narrated).
-out_chars=$(printf '%s' "$meas" | sed -n 's/.*out_chars=\([0-9]*\).*/\1/p')
-ratio=$(printf '%s' "$meas" | sed -n 's/.*ratio=\([0-9.]*\).*/\1/p')
-printf '{"cmd":"gh %s","raw_chars":%s,"out_chars":%s,"ratio":%s}\n' \
-  "$(printf '%s ' "$@" | sed 's/ *$//' | sed 's/"/\\"/g')" \
-  "$raw_bytes" "${out_chars:-0}" "${ratio:-0}" >> "$GHC_LOG"
+exit "$gh_status"

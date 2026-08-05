@@ -91,7 +91,7 @@ Important MCP settings:
 |---------|----------------|
 | `GITHUB_TOKEN` / `GH_TOKEN` / `OCTOCODE_TOKEN` | GitHub API auth. |
 | `GITHUB_API_URL` | GitHub Enterprise API endpoint. |
-| `ENABLE_LOCAL` | Enables local filesystem and LSP tools; defaults on. |
+| `ENABLE_LOCAL` | Enables local filesystem and LSP tools; defaults **off on the MCP server** — set `ENABLE_LOCAL=true` to enable. |
 | `ENABLE_CLONE` | Enables `ghCloneRepo` and directory materialization for MCP; must be `true` for clone workflows. |
 | `TOOLS_TO_RUN`, `ENABLE_TOOLS`, `DISABLE_TOOLS` | Control which tools the MCP server registers. |
 | `WORKSPACE_ROOT`, `ALLOWED_PATHS` | Bound local path resolution and validation. |
