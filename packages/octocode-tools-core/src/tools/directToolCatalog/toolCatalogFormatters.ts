@@ -13,31 +13,8 @@ import {
   type DirectToolMetadata,
 } from './toolCatalogDefinitions.js';
 
-export interface DirectToolOutputField {
-  name: string;
-  type: string;
-  optional?: boolean;
-}
-
 const DIRECT_TOOL_BASE_AUTO_FILLED_FIELDS: readonly DirectToolAutoFilledField[] =
   ['id', 'researchGoal', 'reasoning'];
-
-const DIRECT_TOOL_OUTPUT_FIELDS: readonly DirectToolOutputField[] = [
-  {
-    name: 'content',
-    type: 'Array<{ type: string; text: string }>',
-  },
-  {
-    name: 'structuredContent',
-    type: 'object',
-    optional: true,
-  },
-  {
-    name: 'isError',
-    type: 'boolean',
-    optional: true,
-  },
-];
 
 export function formatDirectToolSchemaText(toolName: string): string {
   const tool = findDirectToolDefinition(toolName);
@@ -75,23 +52,6 @@ export function getDirectToolAutoFilledFields(toolName: string): string[] {
   }
 
   return fields;
-}
-
-export function getDirectToolOutputFields(): DirectToolOutputField[] {
-  return DIRECT_TOOL_OUTPUT_FIELDS.map(field => ({ ...field }));
-}
-
-export function formatDirectToolOutputSchemaText(): string {
-  return JSON.stringify(
-    Object.fromEntries(
-      DIRECT_TOOL_OUTPUT_FIELDS.map(field => [
-        field.name,
-        field.optional ? `${field.type} (optional)` : field.type,
-      ])
-    ),
-    null,
-    2
-  );
 }
 
 export function getDirectToolDescription(

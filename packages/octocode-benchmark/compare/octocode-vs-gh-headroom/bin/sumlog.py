@@ -25,6 +25,8 @@ def main() -> int:
     args = parser.parse_args()
 
     raw = out = calls = failed_calls = 0
+    model_in = model_out = 0
+    answers = 0
     errors: list[str] = []
     transforms: Counter[str] = Counter()
     with Path(args.path).open(encoding="utf-8") as handle:
@@ -33,7 +35,19 @@ def main() -> int:
             if not line:
                 continue
             record = json.loads(line)
+            is_answer = record.get("kind") == "answer"
             is_headroom = "raw_chars" in record
+
+            # Directional totals: ALL chars through the model = in + out.
+            # model_in defaults to the legacy output-in field when absent.
+            default_in = int(record.get("out_chars", record.get("chars", 0)))
+            model_in += int(record.get("model_in_chars", default_in))
+            model_out += int(record.get("model_out_chars", 0))
+
+            if is_answer:
+                answers += 1
+                continue
+
             if is_headroom:
                 raw += int(record.get("raw_chars", 0))
                 out += int(record.get("out_chars", 0))
@@ -85,10 +99,15 @@ def main() -> int:
             errors.append("diagnostics: ML compression disabled")
 
     reduction = (1 - out / raw) * 100 if raw else 0.0
+    total_chars = model_in + model_out
     print(
         f"calls={calls}  raw_chars={raw}  chars_in={out}  "
         f"reduction={reduction:.1f}%  failed_calls={failed_calls}  "
         f"transforms={dict(transforms)}"
+    )
+    print(
+        f"model_in_chars={model_in}  model_out_chars={model_out}  "
+        f"total_chars={total_chars}  answers={answers}"
     )
     for error in errors:
         print(f"ERROR: {error}")

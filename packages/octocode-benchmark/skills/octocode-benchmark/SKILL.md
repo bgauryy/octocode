@@ -1,6 +1,6 @@
 ---
 name: octocode-benchmark
-description: "Use when planning, running, grading, or reporting a by-hand Octocode CLI comparison benchmark from markdown questions — a fresh isolated agent per question and per tool arm, one blind judge agent per question, results measured in characters delivered into context."
+description: "Use when planning, running, grading, or reporting a by-hand Octocode CLI comparison benchmark from markdown questions — a fresh isolated agent per question and per tool arm, one blind judge agent per question, results measured in total characters through the model (model-in delivered into context + model-out commands/args + final answer)."
 ---
 
 # Octocode benchmark
@@ -55,9 +55,11 @@ concrete agent-orchestration recipe (preflight, wrapper, spawn packets, outputs)
   answering and put it in the answer.
 - **Blind the judge.** Give it the two answers as X/Y with tool names hidden; it
   establishes ground truth by its own research; un-blind only when you tabulate.
-- **Measure characters of raw CLI output, never tokens.** Delivered characters are the
-  context budget. Read chars from the wrapper/instrument log, never a runner's
-  self-report — models miscount their own context.
+- **Measure total characters through the model in both directions, never tokens.** The
+  scored figure is `total_chars` = model-in (CLI/tool output pulled into context) **+**
+  model-out (the commands/args the model wrote + its final answer). Both directions spend
+  the context budget. Read chars from the wrapper/instrument log (`bin/sumlog.py`), never a
+  runner's self-report — models miscount their own context.
 - **Aggregate per question, paired; never let one question decide.** The unit is the
   question and the arms are matched pairs. Headline characters as the **geometric mean of
   per-question A/B ratios** + median + leaner win-rate (sign test) — NOT a pooled sum of

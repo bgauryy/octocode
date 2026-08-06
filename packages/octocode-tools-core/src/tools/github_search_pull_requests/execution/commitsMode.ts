@@ -46,6 +46,7 @@ export async function handleCommitsMode(
 
   // Compare mode: base+head diffs two refs instead of walking history.
   if (q.base && q.head) {
+    const compareRawLimit = (query as { limit?: unknown }).limit;
     const compare = await compareRefs(
       {
         owner: q.owner,
@@ -53,6 +54,16 @@ export async function handleCommitsMode(
         base: q.base,
         head: q.head,
         includeDiff: Boolean(q.includeDiff),
+        // Scope + paginate the diff exactly like the history-walk path so a
+        // large commit is searchable-by-path and windowed, not one big dump.
+        path: q.path,
+        filePage: typeof q.filePage === 'number' ? q.filePage : undefined,
+        itemsPerPage:
+          typeof compareRawLimit === 'number'
+            ? compareRawLimit
+            : q.itemsPerPage,
+        charOffset: typeof q.charOffset === 'number' ? q.charOffset : undefined,
+        charLength: typeof q.charLength === 'number' ? q.charLength : undefined,
       },
       authInfo
     );

@@ -9,7 +9,7 @@ Write down two things:
 
 Prefer current primary evidence. If evidence is insufficient, say **Unknown** and explain the gap. Don't pad, don't grade yourself, don't name the tool just to advertise it.
 
-There is no required wording, length, citation format, or tool sequence. Also record, for the write-up: each command you ran, the measured output characters, the number of calls, and elapsed time. When a matchup supplies an instrumentation wrapper, its JSONL and preserved output artifacts are authoritative; never reconstruct counts from the visible transcript.
+There is no required wording, length, citation format, or tool sequence. Also record, for the write-up: each command you ran and its character length (model-out), the measured output characters it pulled in (model-in), your final answer's characters (model-out), the number of calls, and elapsed time. The scored figure is the **total = model-in + model-out** (all chars through the model, both directions). When a matchup supplies an instrumentation wrapper, its JSONL and preserved output artifacts are authoritative; never reconstruct counts from the visible transcript.
 
 Octocode arm: every research command is `npx octocode tools <tool> …` — no MCP, no monorepo entrypoint. A matchup may provide a transparent measurement wrapper whose child process is exactly that command; it may capture output but must not alter the research request or response.
 

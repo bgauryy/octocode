@@ -25,7 +25,7 @@ Three separate agents per question, each working alone: **Runner A** (baseline C
 ## Run one
 
 1. Pick a comparison and open one question from its set (`compare/github-questions/` for the GitHub matchups, or the matchup's own `questions/`).
-2. Runner A and Runner B each answer, recording every command and its output size in **characters**.
+2. Runner A and Runner B each answer, recording every command's characters (model-out), its output size pulled in (model-in), and the final answer's characters (model-out) — the scored total is **model-in + model-out**.
 3. The grader independently establishes the facts, then grades both answers against them.
 4. Roll the questions up into one write-up in [`results/`](results/) — a per-question table and a summary of all.
 

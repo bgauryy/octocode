@@ -1,6 +1,6 @@
 # Write-up template
 
-Save finished runs in `results/<comparison-name>-<HHMMSS>-<YYYY-MM-DD>.md` — the comparison name, then the run's start time `HHMMSS` (24-hour, so two runs on the same day never collide), then the date. Example: `results/octocode-vs-gh-rtk-021054-2026-08-05.md`. Lead with the outcome. Measure in **characters** (raw CLI output pulled into context) — never tokens.
+Save finished runs in `results/<comparison-name>-<HHMMSS>-<YYYY-MM-DD>.md` — the comparison name, then the run's start time `HHMMSS` (24-hour, so two runs on the same day never collide), then the date. Example: `results/octocode-vs-gh-rtk-021054-2026-08-05.md`. Lead with the outcome. Measure in **total characters** through the model = model-in (CLI/tool output pulled into context) **+** model-out (commands/args the model wrote + its final answer), from the instrumented log — never tokens, never self-reported.
 
 Record the question-set version/hash, question count, all tool versions, and the
 commit/hash of the fixed `RUNNER_TOOL_CONTEXT.md` supplied to each runner.
@@ -9,8 +9,11 @@ commit/hash of the fixed `RUNNER_TOOL_CONTEXT.md` supplied to each runner.
 
 One row per question:
 
-| Question | Correctness A | Correctness B | Depth A | Depth B | Workflow A | Workflow B | Chars A | Chars B | Leaner |
+| Question | Correctness A | Correctness B | Depth A | Depth B | Workflow A | Workflow B | In/Out/Total A | In/Out/Total B | Leaner |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---|
+
+`In/Out/Total` = `model_in + model_out = total_chars` from `bin/sumlog.py`. The
+`Leaner` verdict and all ratios below use **total_chars** (both directions).
 
 ## Summary of all
 
@@ -31,7 +34,7 @@ Headline characters with the geometric-mean ratio, not the pooled sum.
 
 ## Per question (detail)
 
-For each: the two answers (short), each answer's research steps, and the per-question numbers (correctness, depth, workflow, chars in/out). Note any fairness caveat — e.g. a policy limit that constrained one arm, or a full-file pull where a search snippet would answer.
+For each: the two answers (short), each answer's research steps, and the per-question numbers (correctness, depth, workflow, chars model-in + model-out = total). Note any fairness caveat — e.g. a policy limit that constrained one arm, or a full-file pull where a search snippet would answer.
 
 ## Bottom line
 

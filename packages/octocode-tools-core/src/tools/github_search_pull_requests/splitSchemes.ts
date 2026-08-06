@@ -84,6 +84,12 @@ const commitsOverrides = {
     .describe(
       'Commits per page — alias of itemsPerPage (preferred when both are set).'
     ),
+  // includeDiff pagination: page the changed-file list and window each patch.
+  // Execution already reads these (history walk + compare mode); relax the
+  // numeric validation so they are accepted instead of stripped.
+  filePage: relaxedPageNumberField.optional(),
+  charOffset: clampedInt(0, 100_000_000).optional(),
+  charLength: clampedInt(1, 100_000).optional(),
 } as const;
 export const SearchCommitsLocalSchema = describeQuerySchema(
   CoreSearchCommitsQuerySchema,

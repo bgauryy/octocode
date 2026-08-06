@@ -22,10 +22,13 @@ Also read the matchup's `compare/<matchup>/README.md` for its exact allowed (rea
 
 ## 1. Measurement wrapper (transparent — required)
 
-Every research command runs through a wrapper that prints the real CLI output, counts
-its Unicode characters, and appends one JSONL row. The design explicitly allows a
-transparent wrapper whose child process is exactly the research command; it must not
-alter the request or response. Never trust a runner's self-reported char count.
+Every research command runs through a wrapper that prints the real CLI output and counts
+Unicode characters in **both directions** — the command string the model wrote
+(`model_out_chars`) and the output returned to the model (`model_in_chars`) — appending one
+JSONL row with `total_chars = model_in + model_out`. The final answer is logged the same
+way via `record_answer.py` (pure model-out). The design explicitly allows a transparent
+wrapper whose child process is exactly the research command; it must not alter the request
+or response. Never trust a runner's self-reported char count.
 
 ```bash
 # .octocode/tmp/measure.sh  — usage: measure.sh <ARM> <QID> <LABEL> -- <command...>
@@ -34,9 +37,12 @@ ARM="$1"; QID="$2"; LABEL="$3"; shift 3; [ "$1" = "--" ] && shift
 RUNDIR="$(cat "$(dirname "$0")/CURRENT_RUN")"; OUT="$RUNDIR/$ARM"; mkdir -p "$OUT"
 CMD="$*"; T0=$(perl -MTime::HiRes=time -e 'printf "%.0f",time()*1000')
 O="$("$@" 2>&1)"; RC=$?; T1=$(perl -MTime::HiRes=time -e 'printf "%.0f",time()*1000')
-C=$(printf '%s' "$O" | perl -CS -ne '$c+=length; END{print $c}')
-{ echo "### [$QID/$LABEL] rc=$RC chars=$C ms=$((T1-T0))"; echo "\$ $CMD"; echo "$O"; } >> "$OUT/$QID.out.txt"
-python3 -c 'import json,sys;open(sys.argv[1],"a").write(json.dumps({"arm":sys.argv[2],"qid":sys.argv[3],"label":sys.argv[4],"chars":int(sys.argv[5]),"ms":int(sys.argv[6]),"rc":int(sys.argv[7]),"cmd":sys.argv[8]})+"\n")' "$OUT/calls.jsonl" "$ARM" "$QID" "$LABEL" "$C" "$((T1-T0))" "$RC" "$CMD"
+# model-in = output returned to the model; model-out = the command the model wrote
+IN=$(printf '%s' "$O"  | perl -CS -ne '$c+=length; END{print $c}')
+OUTC=$(printf '%s' "$CMD" | perl -CS -ne '$c+=length; END{print $c}')
+TOT=$((IN+OUTC))
+{ echo "### [$QID/$LABEL] rc=$RC in=$IN out=$OUTC total=$TOT ms=$((T1-T0))"; echo "\$ $CMD"; echo "$O"; } >> "$OUT/$QID.out.txt"
+python3 -c 'import json,sys;open(sys.argv[1],"a").write(json.dumps({"arm":sys.argv[2],"qid":sys.argv[3],"label":sys.argv[4],"model_in_chars":int(sys.argv[5]),"model_out_chars":int(sys.argv[6]),"total_chars":int(sys.argv[5])+int(sys.argv[6]),"chars":int(sys.argv[5]),"ms":int(sys.argv[7]),"rc":int(sys.argv[8]),"cmd":sys.argv[9]})+"\n")' "$OUT/calls.jsonl" "$ARM" "$QID" "$LABEL" "$IN" "$OUTC" "$((T1-T0))" "$RC" "$CMD"
 printf '%s\n' "$O"
 ```
 
@@ -70,7 +76,7 @@ Inputs: the question + the two finished answers labelled **X** and **Y** with to
 hidden + its own research tools (e.g. `npx octocode tools …` or `gh`). Task per
 `../../JUDGING.md`: establish ground truth by its own current-evidence research
 (structured facts need an exact unminified read), score X then Y independently per
-`../../SCORING.md` (correctness 0-10, depth 1-5, workflow 1-5, chars in/out), then compare.
+`../../SCORING.md` (correctness 0-10, depth 1-5, workflow 1-5, total chars = model-in + model-out), then compare.
 FORBID it from trying to recover which tool produced X or Y.
 
 ### Scaling without breaking isolation

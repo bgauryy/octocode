@@ -13,6 +13,7 @@ const TOOL_RUNTIME_OPTION_KEYS = new Set([
   'list',
   'scheme',
   'compact',
+  'pretty',
   'format',
   'full',
   'no-color',

@@ -4,7 +4,7 @@ Give a runner `RUNNER.md`, its matchup rules, and **only its assigned arm primer
 before the first research call. Keep the primer identical across questions and
 passes, record the tool versions, and never add question-specific advice.
 
-This fixed setup context is not CLI output and is excluded from character totals.
+This fixed setup context is not CLI output and is excluded from character totals in both directions (model-in and model-out). Only research-time commands (model-out) and their returned output (model-in), plus the final answer (model-out), are counted.
 Any help, catalog, schema, or failed command the runner invokes afterward is a
 measured research call.
 

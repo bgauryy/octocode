@@ -12,8 +12,8 @@ No harness. You (or three separate agents) work through the markdown questions a
    from the competing arm or grader. Keep that primer identical across all
    questions and passes and record the tool versions.
 4. **For each `Q<n>.md`, three independent passes:**
-   - **Runner A** answers using the baseline CLI only. Record each command and the characters it pulled in.
-   - **Runner B** answers using `npx octocode tools …` only. Same recording.
+   - **Runner A** answers using the baseline CLI only. Record each command (chars the model wrote = model-out) and the characters it pulled in (model-in), plus the final answer chars; total = in + out.
+   - **Runner B** answers using `npx octocode tools …` only. Same recording (model-in + model-out).
    - **Grader** reads both answers *blind* (don't reveal which tool produced which), establishes the facts by independent research, and grades each answer on its own.
 5. **Write it up** in `results/<comparison-name>-<HHMMSS>-<YYYY-MM-DD>.md` (comparison name, run start time `HHMMSS`, then date — e.g. `results/octocode-vs-gh-rtk-021054-2026-08-05.md`) using [REPORT_TEMPLATE.md](REPORT_TEMPLATE.md) — per-question table + summary of all.
 

@@ -6,13 +6,11 @@ export {
   executeDirectTool,
   findDirectToolDefinition,
   formatDirectToolMetadataSchemaText,
-  formatDirectToolOutputSchemaText,
   formatDirectToolSchemaText,
   getDirectToolAutoFilledFields,
   getDirectToolCategory,
   getDirectToolDescription,
   getDirectToolDisplayFields,
-  getDirectToolOutputFields,
   prepareDirectToolInput,
   prepareDirectToolInputFromJsonText,
   sortDirectToolNames,
@@ -21,7 +19,6 @@ export {
   type DirectToolDisplayField,
   type DirectToolInput,
   type DirectToolMetadata,
-  type DirectToolOutputField,
   type PrepareDirectToolInputOptions,
 } from './tools/directToolCatalog.js';
 export { loadToolContent } from './tools/toolMetadata/state.js';

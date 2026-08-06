@@ -5,7 +5,7 @@ Grader prose is the evidence. Score each answer, per question, on four things:
 - **Correctness** — did it answer every material part? (0–10)
 - **Research depth** — how well the evidence supports the answer (1–5)
 - **Workflow** — how clean the path was: right calls, no wasted or redundant work (1–5)
-- **Chars in/out** — characters pulled into context (raw CLI output), per question
+- **Total chars through the model** — model-in (tool output pulled into context) **+** model-out (commands/args the model wrote + its final answer), per question. Both directions count — this is every char the model reads and writes, from the instrumented log (`bin/sumlog.py` → `total_chars`), never self-reported.
 
 **Aggregate per question, paired — the question is the unit and the arms are matched
 pairs.** Do not pool raw outputs and compare totals: summing characters weights each

@@ -8,11 +8,11 @@
 2. Assess **X** against those facts — without looking at Y.
 3. Assess **Y** the same way.
 4. Check that each answer's cited evidence actually supports it.
-5. Note any meaningful efficiency difference (CLI-output characters pulled in, calls, time).
+5. Note any meaningful efficiency difference (total chars through the model = model-in output pulled in + model-out commands/args + answer, calls, time).
 6. Only now compare X and Y and state a preference (X, Y, or tie) with a one-line reason.
 
 For structured facts (JSON fields, dependency sections, PR totals), use an exact unminified primary read or deterministic parser. Before reading either answer, record a compact `field → value/absent` table for every requested field, including the containing object name. Do not infer object membership across elided/minified output boundaries or matched excerpts. Treat the deterministic fact result as a correctness floor; prose quality is graded above it.
 
-Score **correctness** (0–10), **research depth** (1–5), and **workflow** (1–5, how clean the path was — right calls, no wasted work), and note **chars in/out** (CLI-output characters). Say why.
+Score **correctness** (0–10), **research depth** (1–5), and **workflow** (1–5, how clean the path was — right calls, no wasted work), and note **total chars through the model** = model-in (tool output pulled into context) **+** model-out (commands/args the model wrote + its final answer), from the instrumented log. Say why.
 
 Ground truth comes from your own current-evidence research, not from any supplied answer. No tool order, call count, or exact wording is required. If you can't research or read an answer reliably, say so instead of guessing.

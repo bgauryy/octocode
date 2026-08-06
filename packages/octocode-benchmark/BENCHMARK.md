@@ -24,11 +24,15 @@ The current rollup is [`results/SUMMARY.md`](results/SUMMARY.md). It uses the
 latest complete report for each matchup and does not pool invalid, incomplete,
 or methodologically incompatible campaigns into one synthetic total.
 
-Efficiency is the count of Unicode characters the CLI delivers into the agent's
-context — the budget that funds reasoning and crowds out attention when spent.
-It is a deterministic, tokenizer-independent unit, not a token, latency, or cost
-estimate. **Correctness is graded first**: fewer characters break an essentially
-equal-correctness tie, but cannot rescue a materially wrong answer.
+Efficiency is the total count of Unicode characters that pass through the model
+in **both directions** — model-in (tool/CLI output pulled into context) **plus**
+model-out (the commands/args the model wrote to drive each tool, plus its final
+answer). Both directions spend the budget that funds reasoning and crowds out
+attention. It is a deterministic, tokenizer-independent unit, not a token,
+latency, or cost estimate, and is taken from the instrumented log
+(`bin/sumlog.py` → `total_chars`), never self-reported. **Correctness is graded
+first**: fewer total characters break an essentially equal-correctness tie, but
+cannot rescue a materially wrong answer.
 
 Current evidence is mixed rather than universal:
 

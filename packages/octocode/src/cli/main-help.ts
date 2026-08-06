@@ -23,22 +23,40 @@ const QUICK_COMMAND_NAMES = new Set(['clone', 'cache']);
 const REGISTERED_COMMAND_NAME_SET = new Set(REGISTERED_COMMAND_NAMES);
 
 /**
- * Essence of the agent protocol; `context` (or `context --full`) has the full
- * prompt. Pre-wrapped to ~78 visible columns as plain dim lines so it renders
- * cleanly in a normal terminal instead of reflowing into a wall of text.
+ * Agent instructions block: explains how to drive the CLI (list tools, read a
+ * schema, call a tool) and then prints the canonical Octocode system prompt
+ * VERBATIM from octocode-core metadata, so `--help` is self-contained for an
+ * agent. `context --full` renders the same prompt plus per-tool descriptions.
+ * If metadata is unavailable, falls back to the short essence + a `context`
+ * pointer rather than printing nothing.
  */
-function buildAgentInstructionsBlock(): string[] {
-  const body = [
-    'tools <name> = read-only research. Read `tools <name> --scheme` first',
-    "(never guess fields), then `tools <name> --queries '<json>'` to run it.",
-    'Loop: orient cheap (structure/discovery) → narrow → read exact',
-    '(minify:"none") → prove. Snippets are discovery, not proof;',
-    'status:empty is a real run, not absence — follow next.* continuations.',
-    'Full protocol + playbook: `context`.',
+function buildAgentInstructionsBlock(
+  metadata: Awaited<ReturnType<typeof loadToolContent>> | null
+): string[] {
+  const usage = [
+    'HOW TO USE — read-only research CLI:',
+    '  tools                                    list all tools (add --json for the machine catalog)',
+    "  tools <name> --scheme                    read a tool's schema first — fields, types, bounds (never guess)",
+    '  tools <n1> <n2> --scheme                 batch-read several schemas at once',
+    "  tools <name> --queries '<json>'          run it — clean YAML output",
+    "  tools <name> --queries '<json>' --compact  run it — lean structuredContent JSON",
+    "  tools <name> --queries '<json>' --json     run it — full CallToolResult envelope",
+    '  Batch independent probes in one call via queries[] (each with its own id).',
+    '  Follow returned next.* / pagination cursors exactly; page only when hasMore.',
+    '  Full protocol + per-tool descriptions: `context` (or `context --full`).',
   ];
+  const systemPrompt = metadata?.systemPrompt?.trim();
+  const promptLines = systemPrompt
+    ? [
+        '',
+        'SYSTEM PROMPT (Octocode MCP instructions):',
+        ...systemPrompt.split('\n'),
+      ]
+    : ['', 'System prompt unavailable here — read it with `context --full`.'];
   return [
     `  ${dim('<AGENT_INSTRUCTIONS>')}`,
-    ...body.map(line => `  ${dim(line)}`),
+    ...usage.map(line => `  ${dim(line)}`),
+    ...promptLines.map(line => `  ${dim(line)}`),
     `  ${dim('</AGENT_INSTRUCTIONS>')}`,
   ];
 }
@@ -153,8 +171,9 @@ function quick(name: string, argHint: string, description: string): string {
 
 export async function showHelp(): Promise<void> {
   const toolCount = DIRECT_TOOL_DEFINITIONS.length;
-  const toolLines = buildToolBlock(await getOptionalToolMetadata());
-  const agentInstructions = buildAgentInstructionsBlock();
+  const metadata = await getOptionalToolMetadata();
+  const toolLines = buildToolBlock(metadata);
+  const agentInstructions = buildAgentInstructionsBlock(metadata);
 
   let isAuthenticated = false;
   try {

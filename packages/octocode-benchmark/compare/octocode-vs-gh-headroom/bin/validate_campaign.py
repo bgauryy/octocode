@@ -18,12 +18,19 @@ QUESTION_HEADING = re.compile(r"^## Q(\d+)\b", re.MULTILINE)
 
 def read_metrics(path: Path) -> dict[str, object]:
     calls = raw = chars = failed_calls = 0
+    model_in = model_out = answers = 0
     transforms: Counter[str] = Counter()
     with path.open(encoding="utf-8") as handle:
         for line in handle:
             if not line.strip():
                 continue
             record = json.loads(line)
+            default_in = int(record.get("out_chars", record.get("chars", 0)))
+            model_in += int(record.get("model_in_chars", default_in))
+            model_out += int(record.get("model_out_chars", 0))
+            if record.get("kind") == "answer":
+                answers += 1
+                continue
             calls += 1
             if "raw_chars" in record:
                 raw += int(record["raw_chars"])
@@ -40,6 +47,10 @@ def read_metrics(path: Path) -> dict[str, object]:
         "calls": calls,
         "raw_chars": raw,
         "chars_in": chars,
+        "model_in_chars": model_in,
+        "model_out_chars": model_out,
+        "total_chars": model_in + model_out,
+        "answers": answers,
         "failed_calls": failed_calls,
         "transforms": dict(transforms),
     }

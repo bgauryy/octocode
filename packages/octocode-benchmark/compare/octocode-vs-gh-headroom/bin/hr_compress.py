@@ -72,12 +72,20 @@ if artifact_dir_value:
     raw_artifact = str(raw_path)
     out_artifact = str(out_path)
 
+command_text = os.environ.get("HR_COMMAND", "headroom:stdin")
+model_out_chars = len(command_text)
+model_in_chars = len(out)
+
 record = {
-    "cmd": os.environ.get("HR_COMMAND", "headroom:stdin"),
+    "cmd": command_text,
     "source_exit_code": int(os.environ.get("HR_SOURCE_EXIT_CODE", "0")),
     "char_unit": "unicode_code_points",
     "raw_chars": len(raw),
     "out_chars": len(out),
+    # directional accounting: model-out (command) + model-in (compressed output)
+    "model_out_chars": model_out_chars,
+    "model_in_chars": model_in_chars,
+    "total_chars": model_out_chars + model_in_chars,
     "raw_bytes": len(raw.encode("utf-8")),
     "out_bytes": len(out.encode("utf-8")),
     "raw_sha256": hashlib.sha256(raw.encode("utf-8")).hexdigest(),
