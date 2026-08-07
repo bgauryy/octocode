@@ -97,7 +97,7 @@ export OCTOCODE_TOKEN=ghp_...
   "mcpServers": {
     "octocode": {
       "command": "npx",
-      "args": ["-y", "@octocodeai/mcp@latest"],
+      "args": ["-y", "octocode-mcp@latest"],
       "env": {
         "GITHUB_TOKEN": "ghp_..."
       }
@@ -370,7 +370,7 @@ The cleanest way to configure the MCP server — no shell profile changes needed
   "mcpServers": {
     "octocode": {
       "command": "npx",
-      "args": ["-y", "@octocodeai/mcp@latest"],
+      "args": ["-y", "octocode-mcp@latest"],
       "env": {
         "GITHUB_TOKEN": "ghp_...",
         "ENABLE_CLONE": "true",

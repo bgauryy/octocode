@@ -7,7 +7,7 @@
         "@octocodeai/octocode-engine",
         "@octocodeai/octocode-engine-*",
         "@octocodeai/octocode-tools-core",
-        "@octocodeai/mcp",
+        "octocode-mcp",
         "octocode"
       ],
       "isIgnored": true

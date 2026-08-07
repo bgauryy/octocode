@@ -157,7 +157,7 @@ describe('MCP Config Utilities', () => {
         await import('../../src/utils/mcp-config.js');
       const config = {
         mcpServers: {
-          octocode: { command: 'npx', args: ['@octocodeai/mcp@latest'] },
+          octocode: { command: 'npx', args: ['octocode-mcp@latest'] },
         },
       };
 

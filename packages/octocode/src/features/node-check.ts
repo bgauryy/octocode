@@ -94,7 +94,7 @@ export async function checkOctocodePackageAsync(): Promise<{
   version: string | null;
 }> {
   try {
-    const { stdout } = await execAsync('npm view @octocodeai/mcp version', {
+    const { stdout } = await execAsync('npm view octocode-mcp version', {
       timeout: CHECK_TIMEOUT,
     });
     return { available: true, version: stdout.trim() };

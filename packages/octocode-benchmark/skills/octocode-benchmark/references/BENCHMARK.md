@@ -14,7 +14,7 @@ matchup, and the rollup presents the matchups side by side.
 
 | Matchup dir | Anchor (arm) | Baseline (arm) | Baseline surface | Wrappers |
 |---|---|---|---|---|
-| `octocode-vs-gh` | Octocode | plain gh | `gh <args>` (read-only) | `bin/octoc` · `measure.sh` |
+| `octocode-vs-gh` | Octocode | plain gh | `gh <args>` (read-only) | `bin/octoc` · `bin/ghm` |
 | `octocode-vs-gh-rtk` | Octocode | gh + RTK | `rtk gh <args>` (read-only) | `bin/octoc` · `bin/rtkm` |
 | `octocode-vs-gh-headroom` | Octocode | gh + Headroom | `./bin/ghc <gh args>` (compressed) | `bin/octoc` · `bin/ghc` |
 

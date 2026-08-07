@@ -15,6 +15,7 @@ v18.1.1), blind neutral **gpt-5.5** judge, X/Y randomized per question, leanest-
 |---|---:|---|---|---|---|
 | [vs gh+Headroom](full-octocode-vs-headroom-134213-2026-08-07.md) | 30 × 3 | 9.30 / 8.62 (Octocode edges) | **2.62×** (1.87–3.71), median 2.77× | 60 / 0 / 28 · 63/88 | Octocode more correct **and** ~2.6× leaner; CI above 1×. Baseline prone to char blowups on tree/file dumps (one 20M-char question). |
 | [vs gh+RTK](full-octocode-vs-rtk-162848-2026-08-07.md) | 30 × 3 | 9.29 / 9.42 (near-parity) | **3.21×** (2.36–4.46), median 2.83× | 56 / 0 / 33 · 67/89 | Correctness parity; Octocode **reliably ~3.2× leaner** (CI well above 1×). Supersedes the earlier 2-pass RTK "parity" finding — the larger 3-pass run resolves toward Octocode leaner. |
+| [vs plain gh](full-octocode-vs-gh-152630-2026-08-07.md) | 30 × 3 | 9.19 / 9.27 (near-parity) | **1.99×** (1.52–2.61), median 2.16× | 16 / 51 / 22 · 67/89 | Correctness parity; Octocode **~2.0× leaner** (CI above 1×, sign test p<0.0001). Plain `gh` is the leanest baseline (no wrapper/compression), so the margin is smaller — but Octocode still wins on workflow (4.37 vs 3.85) via targeted region reads vs whole-file `raw` fetches. |
 
 ## What the current evidence supports
 
@@ -22,10 +23,12 @@ v18.1.1), blind neutral **gpt-5.5** judge, X/Y randomized per question, leanest-
   marginally higher as a **lossless** raw-`gh` passthrough; Headroom 8.61 lowest as **lossy**
   compression, and Octocode is net more correct than Headroom). Correctness-first scoring
   means a leaner answer never overrides a wrong one.
-- **Characters: Octocode is reliably leaner than *both* baselines** — ~2.6× vs gh+Headroom
-  (95% CI 1.87–3.71) and ~3.2× vs gh+RTK (95% CI 2.36–4.46); both CIs sit above 1×, and
-  Octocode is leaner on ~72% of questions (63/88 and 67/89). Fewer characters delivered =
-  healthier context window and sharper model attention on the load-bearing evidence.
+- **Characters: Octocode is reliably leaner than *all three* baselines** — ~2.0× vs plain gh
+  (95% CI 1.52–2.61), ~2.6× vs gh+Headroom (95% CI 1.87–3.71) and ~3.2× vs gh+RTK (95% CI
+  2.36–4.46); every CI sits above 1×, and Octocode is leaner on ~72–75% of questions
+  (67/89, 63/88, 67/89). Plain disciplined `gh` is the leanest baseline, so its margin is the
+  smallest, but still significant (sign test p<0.0001). Fewer characters delivered = healthier
+  context window and sharper model attention on the load-bearing evidence.
 - **The RTK result is now stable at 3 passes.** The earlier 2-pass RTK snapshot straddled 1×
   (snippet-vs-file path variance); the larger 30×3 run resolves to a clear Octocode lean. The
   public v2 suite is still orientation, not a shipping gate (contaminated-ceiling correctness).

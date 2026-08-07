@@ -98,7 +98,7 @@ export async function showCurrentJsonConfig(): Promise<void> {
       `  ${c('yellow', 'WARN')} Octocode is not configured for ${clientInfo.name}.`
     );
     console.log(
-      `  ${dim('Please install Octocode first using "Install @octocodeai/mcp".')}`
+      `  ${dim('Please install Octocode first using "Install octocode-mcp".')}`
     );
     console.log();
     return;

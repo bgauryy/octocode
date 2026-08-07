@@ -33,8 +33,10 @@ gh api 'repos/vercel/next.js/contents/PATH?ref=canary' \
 
 Footprint: prefer a snippet-bearing `gh search code` hit when it already answers
 the question (avoids a full-file fetch); keep `--json` field lists minimal.
-Record the characters each call pulls into context — that is Baseline arm's chars-in
-for `SCORING.md`. This is the uncompressed baseline the `rtk` and `headroom`
+Run every call through the instrumented wrapper
+[`../bin/ghm`](../bin/ghm) (`./bin/ghm <gh args>`,
+shared bin), which records chars both directions per call — that is Baseline arm's
+chars-in for `SCORING.md`. This is the uncompressed baseline the `rtk` and `headroom`
 matchups compress.
 
 ## Octocode arm

@@ -11,6 +11,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PKG_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 OCTO_VER="${1:-latest}"
 HR_ROOT="$PKG_ROOT/compare/octocode-vs-gh-headroom"
+BIN_ROOT="$PKG_ROOT/compare/bin"
 NULL=/dev/null
 
 fail=0
@@ -61,12 +62,12 @@ fi
 export HR_PY="${HR_PY:-$HOME/.local/share/uv/tools/headroom-ai/bin/python}"
 if [ -x "$HR_PY" ]; then
   pass "HR_PY interpreter: $HR_PY"
-  if [ -f "$HR_ROOT/bin/preflight.py" ]; then
+  if [ -f "$BIN_ROOT/preflight.py" ]; then
     # stderr carries HF/model-load noise -> discard; parse stdout JSON robustly.
     # one retry covers a cold model download on first invocation.
     hr_ok=""
     for _try in 1 2; do
-      out="$("$HR_PY" "$HR_ROOT/bin/preflight.py" --warmup 2>&1)"
+      out="$("$HR_PY" "$BIN_ROOT/preflight.py" --warmup 2>&1)"
       hr_ok="$(printf '%s' "$out" | "$HR_PY" "$SCRIPT_DIR/_hr_check.py" 2>"$NULL")"
       [ "$hr_ok" = "OK" ] && break
     done
@@ -76,7 +77,7 @@ if [ -x "$HR_PY" ]; then
       bad "headroom preflight --warmup did not pass (${hr_ok:-no-output} — compression OFF / model unavailable); measurement is invalid until it passes"
     fi
   else
-    warn "headroom preflight.py not found at $HR_ROOT/bin/preflight.py"
+    warn "headroom preflight.py not found at $BIN_ROOT/preflight.py"
   fi
   if "$HR_PY" "$SCRIPT_DIR/_hr_import.py" >"$NULL" 2>&1; then pass "headroom library importable"; else warn "headroom library import failed under HR_PY"; fi
 else

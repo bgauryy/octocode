@@ -330,6 +330,13 @@ export function isLockFile(filePath: string): boolean {
 function isDocFile(name: string): boolean {
   const ext = extname(name);
   if (ext && DOC_EXTENSIONS.has(ext)) return true;
+  // An extension that already identifies code/config (install.sh, history.py,
+  // notice.go, ...) rules out doc — DOC_BASENAMES words like "install" or
+  // "history" are common source filenames too; only bare/unrecognized
+  // extensions fall through to the basename match below.
+  if (ext && (CODE_EXTENSIONS.has(ext) || CONFIG_EXTENSION_SET.has(ext))) {
+    return false;
+  }
   // Extensionless / versioned doc files: README, LICENSE, CHANGELOG, ...
   const stem = (ext ? name.slice(0, name.length - ext.length) : name)
     .toLowerCase()

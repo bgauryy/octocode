@@ -7,7 +7,7 @@ Thirty GitHub research questions in the shared set
 
 | Arm | Allowed surface |
 |---|---|
-| A | Read-only `gh` operations, every output piped through **Headroom** compression (`bin/ghc`) |
+| A | Read-only `gh` operations, every output piped through **Headroom** compression (`../bin/ghc`) |
 | B | Matching GitHub research through `npx octocode tools …` |
 
 Headroom is a **transport/compression layer, not an additional research source** —
@@ -80,7 +80,7 @@ Three facts decide whether your numbers are real. Get any one wrong and baseline
 Headroom exposes `proxy`, `wrap`, `mcp`, etc. — but **no subcommand that
 compresses stdin**, and **no `headroom wrap gh`**. The only correct way to
 compress a single `gh` command's output is the library, via the checked-in shim
-[`bin/hr_compress.py`](bin/hr_compress.py), driven by [`bin/ghc`](bin/ghc).
+[`../bin/hr_compress.py`](../bin/hr_compress.py), driven by [`../bin/ghc`](../bin/ghc).
 
 ### 2. The compression config is required — classify transforms, not ratios
 
@@ -105,16 +105,16 @@ fails if the model is unavailable or ML compression is disabled:
 
 ```bash
 export HR_PY="$HOME/.local/share/uv/tools/headroom-ai/bin/python"
-"$HR_PY" bin/preflight.py --warmup
+"$HR_PY" ../bin/preflight.py --warmup
 ```
 
 ### 3. Count chars from the shim's log, NEVER from the agent
 
-Models miscount their own context. `bin/ghc` writes one **measured** JSONL
+Models miscount their own context. `../bin/ghc` writes one **measured** JSONL
 record per call (`raw_chars`, `out_chars`, `ratio`, `transforms`, hashes, and
 artifact paths) to `$GHC_LOG`. Baseline arm's
 "chars in" for a question is `sum(out_chars)` over that question's calls —
-`bin/sumlog.py` totals it. Do not let the runner self-report the number.
+`../bin/sumlog.py` totals it. Do not let the runner self-report the number.
 
 Both raw and compressed outputs are preserved under `$GHC_ARTIFACT_DIR` and
 counted as Unicode code points. Strict aggregation re-reads and hashes them, so
@@ -139,9 +139,9 @@ is a snapshot, and the neural path can drift across machines/model revisions.
 
 ## Baseline arm — how to run each `gh` call
 
-Use `bin/ghc` **by explicit path** for every GitHub read (there is a shell alias
+Use `../bin/ghc` **by explicit path** for every GitHub read (there is a shell alias
 `ghh=git help` on some machines — that is why the wrapper is named `ghc` and is
-invoked as `./bin/ghc`, never bare on `$PATH`).
+invoked as `../bin/ghc`, never bare on `$PATH`).
 
 ```bash
 cd compare/octocode-vs-gh-headroom
@@ -149,9 +149,9 @@ export HR_PY="$HOME/.local/share/uv/tools/headroom-ai/bin/python"
 export GHC_LOG="$PWD/tmp/Q1.jsonl"       # one log file per question (tmp/ is gitignored; ghc creates it)
 export GHC_ARTIFACT_DIR="$PWD/tmp/Q1-artifacts"
 
-./bin/ghc search code --repo vercel/next.js "getRouteRegex" --limit 20
-./bin/ghc api 'repos/vercel/next.js/git/trees/canary?recursive=1'
-./bin/ghc api 'repos/vercel/next.js/contents/PATH?ref=canary' \
+../bin/ghc search code --repo vercel/next.js "getRouteRegex" --limit 20
+../bin/ghc api 'repos/vercel/next.js/git/trees/canary?recursive=1'
+../bin/ghc api 'repos/vercel/next.js/contents/PATH?ref=canary' \
       -H "Accept: application/vnd.github.raw"      # raw, not base64 (smaller)
 ```
 
@@ -172,7 +172,7 @@ Footprint tips (compression is on top of, not instead of, tight queries):
 Total a question's chars-in:
 
 ```bash
-python3 bin/sumlog.py tmp/Q1.jsonl --strict \
+python3 ../bin/sumlog.py tmp/Q1.jsonl --strict \
   --diagnostics tmp/Q1-diagnostics.log
 # calls=4  raw_chars=91240  chars_in=58810  reduction=35.5%
 ```
@@ -182,10 +182,10 @@ python3 bin/sumlog.py tmp/Q1.jsonl --strict \
 ```bash
 export OCTO_LOG="$PWD/tmp/Q1-octocode.jsonl"
 export OCTO_ARTIFACT_DIR="$PWD/tmp/Q1-octocode-artifacts"
-./bin/octoc <tool> --queries '<json>'
+../bin/octoc <tool> --queries '<json>'
 ```
 
-`bin/octoc` runs exactly `npx octocode tools …`; it only captures the complete
+`../bin/octoc` runs exactly `npx octocode tools …`; it only captures the complete
 combined output, Unicode-character count, hash, exit code, elapsed time, and
 artifact path. Use the log total, never a runner's reported count.
 
@@ -204,15 +204,15 @@ of the 30 questions:
 2. **Isolate the arms.** Run each arm in a fresh context (separate subagent /
    session). The runner does only GitHub research; it must not see the other
    arm's transcript or any reference answer.
-3. **Baseline arm:** every GitHub read goes through `./bin/ghc` with per-question log,
+3. **Baseline arm:** every GitHub read goes through `../bin/ghc` with per-question log,
    diagnostics, and artifacts. Validate with `sumlog.py --strict`; a zero ratio
    is allowed only when its transform is classified.
-4. **Octocode arm:** every Octocode read goes through `./bin/octoc`; use its JSONL and
+4. **Octocode arm:** every Octocode read goes through `../bin/octoc`; use its JSONL and
    artifacts for exact character totals.
 5. **Repeat ≥3×** per arm; keep median correctness, report char spread.
 6. **Grade blind.** A separate grader scores both answers with arm labels
    stripped/shuffled: Correctness (0–10), Research depth (1–5), Workflow (1–5),
-   Chars in/out (measured — from `bin/sumlog.py` for A, from the recorded
+   Chars in/out (measured — from `../bin/sumlog.py` for A, from the recorded
    context for B). Correctness first; ties broken by fewer chars in/out. A
    confidently-wrong answer blocks a win regardless of efficiency.
 7. **Report** to [`../../results/`](../../results/) with Headroom + model
@@ -222,7 +222,7 @@ After all six passes finish, reject any incomplete or corrupt campaign before
 grading:
 
 ```bash
-python3 bin/validate_campaign.py tmp/campaign-<id> > tmp/campaign-<id>/metrics.json
+python3 ../bin/validate_campaign.py tmp/campaign-<id> > tmp/campaign-<id>/metrics.json
 ```
 
 This requires all question logs (30 questions × 3 passes × 2 arms), all six answer files, valid hashes and
@@ -240,9 +240,9 @@ historical campaign, pass `--question-count <n>` (e.g. `20` or `17` for older se
 cd compare/octocode-vs-gh-headroom
 export HR_PY="$HOME/.local/share/uv/tools/headroom-ai/bin/python"
 export GHC_LOG="$PWD/tmp/smoke.jsonl"; rm -f "$GHC_LOG"
-./bin/ghc api 'repos/pallets/flask/git/trees/main?recursive=1' >/dev/null
-python3 bin/sumlog.py tmp/smoke.jsonl    # expect ~21% char reduction, chars_in>0
-./bin/ghc issue create --repo x/y --title z ; echo "exit=$? (expect 2)"
+../bin/ghc api 'repos/pallets/flask/git/trees/main?recursive=1' >/dev/null
+python3 ../bin/sumlog.py tmp/smoke.jsonl    # expect ~21% char reduction, chars_in>0
+../bin/ghc issue create --repo x/y --title z ; echo "exit=$? (expect 2)"
 rm -f tmp/smoke.jsonl
 ```
 

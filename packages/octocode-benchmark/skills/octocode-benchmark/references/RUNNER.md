@@ -12,7 +12,7 @@ Your assigned arm is exactly one of (arm id in **bold** — use it in your outpu
 - **`octocode`** — every research command is `npx octocode@<ver> tools <tool> --queries …` (via `bin/octoc`); no MCP, no gh.
 - **`rtk`** — every research command is `rtk gh <args>` (read-only, via `bin/rtkm`).
 - **`headroom`** — every research command is `./bin/ghc <gh args>` (compressed).
-- **`gh`** — every research command is `gh <args>` (read-only, via `measure.sh`).
+- **`gh`** — every research command is `gh <args>` (read-only, via `../bin/ghm`).
 
 ## What to produce (one `## Q<n>` answer section — required)
 

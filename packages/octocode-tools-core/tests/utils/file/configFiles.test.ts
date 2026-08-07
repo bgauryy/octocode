@@ -176,6 +176,22 @@ describe('classifyFileType', () => {
     expect(classifyFileType('script.sh')).toBe('code');
   });
 
+  it('does not let a doc-basename word shadow a real code/config extension', () => {
+    expect(classifyFileType('install.sh')).toBe('code');
+    expect(classifyFileType('install.py')).toBe('code');
+    expect(classifyFileType('history.py')).toBe('code');
+    expect(classifyFileType('notice.go')).toBe('code');
+    expect(classifyFileType('authors.rb')).toBe('code');
+    expect(classifyFileType('contributors.ts')).toBe('code');
+    expect(classifyFileType('changes.ts')).toBe('code');
+    expect(classifyFileType('citation.py')).toBe('code');
+    expect(classifyFileType('license.go')).toBe('code');
+    expect(classifyFileType('copying.c')).toBe('code');
+    // still doc when genuinely extensionless or bare-suffixed
+    expect(classifyFileType('install')).toBe('doc');
+    expect(classifyFileType('LICENSE-MIT')).toBe('doc');
+  });
+
   it('returns undefined (omit field) for unknown or binary-ish paths', () => {
     expect(classifyFileType('logo.png')).toBeUndefined();
     expect(classifyFileType('data.bin')).toBeUndefined();
