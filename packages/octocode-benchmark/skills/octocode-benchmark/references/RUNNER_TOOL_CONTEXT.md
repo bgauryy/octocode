@@ -20,3 +20,4 @@ is a measured research call.
 | Octocode arm | [`references/primer-octocode.md`](primer-octocode.md) |
 | gh + RTK arm | [`references/primer-gh-rtk.md`](primer-gh-rtk.md) |
 | gh + Headroom arm | [`references/primer-gh-headroom.md`](primer-gh-headroom.md) |
+| gh arm (bare baseline) | [`references/primer-gh.md`](primer-gh.md) |

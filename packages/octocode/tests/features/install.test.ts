@@ -349,7 +349,7 @@ describe('Install Feature', () => {
       vi.mocked(isOctocodeConfigured).mockReturnValue(false);
       vi.mocked(getOctocodeServerConfig).mockReturnValue({
         command: 'npx',
-        args: ['@octocodeai/mcp@latest'],
+        args: ['octocode-mcp@latest'],
       });
 
       const { getInstallPreview } =
@@ -378,7 +378,7 @@ describe('Install Feature', () => {
       vi.mocked(isOctocodeConfigured).mockReturnValue(false);
       vi.mocked(getOctocodeServerConfig).mockReturnValue({
         command: 'npx',
-        args: ['@octocodeai/mcp@latest'],
+        args: ['octocode-mcp@latest'],
       });
 
       const { getInstallPreview } =
@@ -406,7 +406,7 @@ describe('Install Feature', () => {
       vi.mocked(isOctocodeConfigured).mockReturnValue(true);
       vi.mocked(getOctocodeServerConfig).mockReturnValue({
         command: 'npx',
-        args: ['@octocodeai/mcp@latest'],
+        args: ['octocode-mcp@latest'],
       });
       vi.mocked(getConfiguredMethod).mockReturnValue('npx');
 
@@ -637,7 +637,7 @@ describe('Install Feature', () => {
       vi.mocked(isOctocodeConfigured).mockReturnValue(false);
       vi.mocked(getOctocodeServerConfig).mockReturnValue({
         command: 'npx',
-        args: ['@octocodeai/mcp@latest'],
+        args: ['octocode-mcp@latest'],
       });
 
       const { getInstallPreviewForClient } =
@@ -667,7 +667,7 @@ describe('Install Feature', () => {
       vi.mocked(isOctocodeConfigured).mockReturnValue(true);
       vi.mocked(getOctocodeServerConfig).mockReturnValue({
         command: 'npx',
-        args: ['@octocodeai/mcp@latest'],
+        args: ['octocode-mcp@latest'],
       });
       vi.mocked(getConfiguredMethod).mockReturnValue('npx');
 
@@ -696,7 +696,7 @@ describe('Install Feature', () => {
       vi.mocked(isOctocodeConfigured).mockReturnValue(false);
       vi.mocked(getOctocodeServerConfig).mockReturnValue({
         command: 'npx',
-        args: ['@octocodeai/mcp@latest'],
+        args: ['octocode-mcp@latest'],
       });
 
       const { getInstallPreviewForClient } =

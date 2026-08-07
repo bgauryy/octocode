@@ -1,31 +1,27 @@
 {
-  "name": "@octocodeai/mcp",
+  "name": "octocode-mcp",
   "description": "Model Context Protocol (MCP) server for advanced GitHub repository analysis and code discovery. Provides AI assistants with powerful tools to search, analyze, and understand codebases across GitHub.",
-  "version": "18.0.1",
+  "version": "18.2.0",
   "author": "Guy Bary <bgauryy@octocodeai.com>",
-  "bin": {
-    "octocode-mcp": "dist/index.js"
-  },
+  "bin": "dist/index.js",
   "bugs": "https://github.com/bgauryy/octocode/issues",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
-    "@octocodeai/octocode-core": "18.1.1",
+    "@octocodeai/octocode-core": "18.2.0",
     "@octocodeai/octocode-engine": "18.0.1",
     "@octocodeai/octocode-tools-core": "^18.0.1",
-    "@octokit/core": "^7.0.6",
-    "@octokit/oauth-methods": "^6.0.2",
-    "@octokit/plugin-throttling": "^11.0.3",
-    "@octokit/request": "^10.0.10",
-    "node-cache": "^5.1.2",
-    "octokit": "^5.0.5",
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@octokit/core": "^7.0.6",
+    "@octokit/plugin-throttling": "^11.0.3",
     "@types/node": "^25.9.3",
     "@vitest/coverage-v8": "^4.1.9",
     "@vitest/ui": "^4.1.9",
     "esbuild": "^0.28.1",
     "eslint": "^9.18.0",
+    "node-cache": "^5.1.2",
+    "octokit": "^5.0.5",
     "rollup": "^4.52.5",
     "rollup-plugin-dts": "^6.2.3",
     "typescript": "^5.9.3",
@@ -88,7 +84,11 @@
   "publishConfig": {
     "access": "public"
   },
-  "repository": "bgauryy/octocode.git",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bgauryy/octocode.git",
+    "directory": "packages/octocode-mcp"
+  },
   "scripts": {
     "build": "yarn readme:sync && yarn clean && node build.mjs && yarn build:types",
     "build:bin": "bun build ./src/index.ts --compile --minify --sourcemap --outfile dist/octocode-mcp && node scripts/bundle-engine.mjs darwin-arm64 dist",

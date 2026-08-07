@@ -22,7 +22,7 @@ yarn build:native:all
 yarn release
 ```
 
-Individually: `yarn workspace @octocodeai/mcp release` · `yarn workspace octocode release`
+Individually: `yarn workspace octocode-mcp release` · `yarn workspace octocode release`
 
 Other platforms (darwin-x64, linux-x64, linux-x64-musl, linux-arm64, windows-x64):
 build on a matching CI runner, or pass `--node-bin <target-node>` to `scripts/release.mjs`.

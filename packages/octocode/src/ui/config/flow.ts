@@ -17,7 +17,7 @@ async function showConfigMenu(): Promise<ConfigMenuChoice> {
       {
         name: '- Edit configuration',
         value: 'edit',
-        description: 'Configure all @octocodeai/mcp settings for a client',
+        description: 'Configure all octocode-mcp settings for a client',
       },
       {
         name: '- View all configuration options',

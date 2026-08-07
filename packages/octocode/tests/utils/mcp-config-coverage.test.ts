@@ -299,7 +299,7 @@ describe('MCP Config Coverage Tests', () => {
 
       const existing: MCPConfig = {
         mcpServers: {
-          octocode: { command: 'npx', args: ['@octocodeai/mcp@latest'] },
+          octocode: { command: 'npx', args: ['octocode-mcp@latest'] },
         },
       };
 
@@ -400,7 +400,7 @@ describe('MCP Config Coverage Tests', () => {
       const config: MCPConfig = {
         mcpServers: {
           'external-mcp': { command: 'npx', args: [] },
-          octocode: { command: 'npx', args: ['@octocodeai/mcp@latest'] },
+          octocode: { command: 'npx', args: ['octocode-mcp@latest'] },
         },
       };
 

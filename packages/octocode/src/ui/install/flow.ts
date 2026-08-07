@@ -301,7 +301,7 @@ async function performInstall(state: InstallFlowState): Promise<void> {
     envOptions
   );
 
-  const spinner = new Spinner('Configuring @octocodeai/mcp...').start();
+  const spinner = new Spinner('Configuring octocode-mcp...').start();
 
   const result = installOctocodeForClient({
     client: state.client!,

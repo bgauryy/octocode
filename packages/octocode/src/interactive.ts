@@ -38,7 +38,7 @@ export async function runInteractiveMode(): Promise<void> {
   if (!envStatus.nodeInstalled) {
     console.log();
     console.log(
-      `  ${c('red', '✗')} ${bold('Node.js is required to run @octocodeai/mcp')}`
+      `  ${c('red', '✗')} ${bold('Node.js is required to run octocode-mcp')}`
     );
     printNodeDoctorHint();
     printGoodbye();

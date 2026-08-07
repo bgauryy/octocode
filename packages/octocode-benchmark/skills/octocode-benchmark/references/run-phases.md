@@ -17,7 +17,7 @@ headings exactly `Q1..QN` in order. Chars are authoritative from the JSONL. A mi
 `## Q<n>` section = that arm unscored on that question.
 
 Command forms: `octocode`→`npx octocode@<ver> tools <tool> --queries '<json>'` · `rtk`→`rtk
-gh <args>` · `headroom`→`./bin/ghc <gh args>` · `gh`→`gh <args>`.
+gh <args>` · `headroom`→`./bin/ghc <gh args>` · `gh`→`./bin/ghm <gh args>` (bare baseline).
 
 **Scaling:** you MAY batch questions within one arm's agent, never mix arms. One pass of a
 30-question matchup: `octocode:Q1-15`, `octocode:Q16-30`, `baseline:Q1-15`, `baseline:Q16-30`.
