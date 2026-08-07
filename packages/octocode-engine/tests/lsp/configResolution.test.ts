@@ -71,15 +71,13 @@ describe('config resolution ladder (server unavailable on PATH)', () => {
 });
 
 describe('pre-native fallback (language absent from the native spec table)', () => {
-  it('includes workspaceRoot in the bundled shellscript config', async () => {
-    // Shellscript has no entry in the native spec table, so
-    // getLanguageServerForFile returns undefined and resolution falls to
-    // BUNDLED_BY_LANGUAGE. Regression test: this branch used to construct the
-    // config object without `workspaceRoot` — a required field on
-    // LanguageServerConfig (and on the Rust-side JsLanguageServerConfig,
-    // which rejects a missing field at napi deserialization) — so every
-    // lspGetSemantics call on a .sh file failed with
-    // "Missing field `workspaceRoot`" even when the caller passed one in.
+  it('returns null when the native spec table has no entry and no bundled fallback exists', async () => {
+    // BUNDLED_BY_LANGUAGE (the pre-native fallback lookup) now only holds
+    // `python`, which always has a native spec — so this branch is never
+    // reached for a real language. Kept as a regression guard: any future
+    // language dropped from the native spec table must still resolve safely
+    // (null, not a throw) rather than construct a config object missing a
+    // required field like `workspaceRoot`.
     vi.resetModules();
     vi.doMock('../../src/lsp/native.js', () => ({
       nativeBinding: {
@@ -91,8 +89,7 @@ describe('pre-native fallback (language absent from the native spec table)', () 
     try {
       const { resolveServerForFile } = await import('../../src/lsp/config.js');
       const resolution = await resolveServerForFile('/repo/a.sh', '/repo');
-      expect(resolution?.source).toBe('bundled');
-      expect(resolution?.config.workspaceRoot).toBe('/repo');
+      expect(resolution).toBeNull();
     } finally {
       vi.doUnmock('../../src/lsp/native.js');
       vi.resetModules();
