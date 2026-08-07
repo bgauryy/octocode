@@ -1137,7 +1137,7 @@ dependencies = [
 
 [[package]]
 name = "octocode-engine"
-version = "18.0.1"
+version = "18.1.1"
 dependencies = [
  "aho-corasick",
  "criterion",
