@@ -48,14 +48,14 @@ Supported (47 extensions): every language in the table above **except** the data
 
 ## LSP — `lspGetSemantics`
 
-24 languages have a native server-resolution entry (`c cpp csharp css elixir go html java javascript javascriptreact json kotlin less lua php python ruby rust scss sql swift typescript typescriptreact yaml zig`). Resolution ladder, cheapest first:
+25 languages have a native server-resolution entry (`c cpp csharp css elixir go html java javascript javascriptreact json kotlin less lua php python ruby rust scss shellscript sql swift typescript typescriptreact yaml zig`). Resolution ladder, cheapest first:
 
 | Tier | Languages | What happens |
 |---|---|---|
-| **Bundled (zero install)** | TypeScript/JavaScript, Python (pyright), Shell (bash-language-server), YAML, JSON, HTML, CSS, PHP (intelephense) | Runs out of the box, no external binary |
+| **Bundled (zero install)** | TypeScript/JavaScript, Python (pyright), YAML, JSON, HTML, CSS | Runs out of the box, no external binary |
 | **Auto-download** | Rust (rust-analyzer), C/C++ (clangd) | Downloaded + checksum-verified on first use |
 | **Toolchain-coupled (detect-and-instruct)** | Go (gopls), Java (jdtls), Swift (sourcekit-lsp), C# (csharp-ls) | Needs the language's own toolchain installed; error message gives the exact install command |
-| **Bring-your-own** | Kotlin, Ruby, Lua, SCSS/Less, SQL, Zig, Elixir, and anything else | Needs a server already on `PATH`, or set `OCTOCODE_<LANG>_SERVER_PATH` |
+| **Bring-your-own** | PHP (intelephense), Shell (bash-language-server), Kotlin, Ruby, Lua, SCSS/Less, SQL, Zig, Elixir, and anything else | Needs a server already on `PATH`, or set `OCTOCODE_<LANG>_SERVER_PATH` |
 
 `documentSymbols`/`definition`/`references`/`hover`/etc. degrade gracefully to a typed `empty` payload (`unsupportedOperation`, `noLocations`, ...) when a server lacks a capability — never a crash.
 

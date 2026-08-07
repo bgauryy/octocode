@@ -293,6 +293,12 @@ fn spec_for_extension(extension: &str) -> Option<ServerSpec> {
             args: &[],
             env_var: Some("OCTOCODE_SWIFT_SERVER_PATH"),
         },
+        ".sh" | ".bash" | ".zsh" => ServerSpec {
+            language_id: "shellscript",
+            command: "bash-language-server",
+            args: &["start"],
+            env_var: Some("OCTOCODE_SHELL_SERVER_PATH"),
+        },
         // Resolve-if-installed servers for grammars we already ship — additive:
         // absent binary ⇒ same graceful "no server" behavior as before.
         ".rb" | ".rake" | ".gemspec" | ".ru" => ServerSpec {
