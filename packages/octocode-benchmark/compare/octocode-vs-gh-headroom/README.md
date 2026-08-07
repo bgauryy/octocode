@@ -1,6 +1,6 @@
 # Octocode CLI vs `gh` + Headroom
 
-Twenty GitHub research questions in the shared set
+Thirty GitHub research questions in the shared set
 [`../github-questions/`](../github-questions/) — one canonical copy, also used by
 [`octocode-vs-gh`](../octocode-vs-gh/) and
 [`octocode-vs-gh-rtk`](../octocode-vs-gh-rtk/).
@@ -12,7 +12,7 @@ Twenty GitHub research questions in the shared set
 
 Headroom is a **transport/compression layer, not an additional research source** —
 same role as `rtk` in the gh-rtk matchup. It never adds GitHub reach; it only
-shrinks what a `gh` call returns before it enters the agent's context. Arm A's
+shrinks what a `gh` call returns before it enters the agent's context. Baseline arm's
 GitHub surface is therefore identical to the plain-`gh` arm; the only difference
 is the compressor in front of it.
 
@@ -21,7 +21,7 @@ or grader-reference access. Each runner may use only its assigned CLI surface;
 Octocode clone-to-local tools remain part of the Octocode product surface.
 
 Before the first call, give each runner only its assigned section from
-[`../../RUNNER_TOOL_CONTEXT.md`](../../RUNNER_TOOL_CONTEXT.md). The primer is
+[`RUNNER_TOOL_CONTEXT.md`](../../skills/octocode-benchmark/references/RUNNER_TOOL_CONTEXT.md). The primer is
 fixed setup context; research-time help and schema calls are measured.
 
 ---
@@ -66,13 +66,13 @@ export HR_PY="$HOME/.local/share/uv/tools/headroom-ai/bin/python"
 
 > **Pin the versions.** Record `headroom --version` and the kompress model
 > (`kompress-v2-base`) in the run report. A different Headroom or model version
-> is a different arm A — do not compare across versions.
+> is a different baseline arm — do not compare across versions.
 
 ---
 
 ## How to measure Headroom + gh **properly** (read this before running)
 
-Three facts decide whether your numbers are real. Get any one wrong and arm A's
+Three facts decide whether your numbers are real. Get any one wrong and baseline arm's
 "chars in" is fiction.
 
 ### 1. There is NO `headroom compress` CLI — you MUST use the library shim
@@ -112,7 +112,7 @@ export HR_PY="$HOME/.local/share/uv/tools/headroom-ai/bin/python"
 
 Models miscount their own context. `bin/ghc` writes one **measured** JSONL
 record per call (`raw_chars`, `out_chars`, `ratio`, `transforms`, hashes, and
-artifact paths) to `$GHC_LOG`. Arm A's
+artifact paths) to `$GHC_LOG`. Baseline arm's
 "chars in" for a question is `sum(out_chars)` over that question's calls —
 `bin/sumlog.py` totals it. Do not let the runner self-report the number.
 
@@ -137,7 +137,7 @@ is a snapshot, and the neural path can drift across machines/model revisions.
 
 ---
 
-## Arm A — how to run each `gh` call
+## Baseline arm — how to run each `gh` call
 
 Use `bin/ghc` **by explicit path** for every GitHub read (there is a shell alias
 `ghh=git help` on some machines — that is why the wrapper is named `ghc` and is
@@ -177,7 +177,7 @@ python3 bin/sumlog.py tmp/Q1.jsonl --strict \
 # calls=4  raw_chars=91240  chars_in=58810  reduction=35.5%
 ```
 
-## Arm B — Octocode (instrumented transport)
+## Octocode arm (instrumented transport)
 
 ```bash
 export OCTO_LOG="$PWD/tmp/Q1-octocode.jsonl"
@@ -194,20 +194,20 @@ artifact path. Use the log total, never a runner's reported count.
 ## Running the benchmark (per-question protocol)
 
 There is no runner harness — benchmarks are run **by hand**. See the top-level
-[`README.md`](../../README.md), [`INSTRUCTIONS.md`](../../INSTRUCTIONS.md),
-[`JUDGING.md`](../../JUDGING.md), and [`SCORING.md`](../../SCORING.md). For each
-of the 20 questions:
+[`README.md`](../../README.md), [`INSTRUCTIONS.md`](../../skills/octocode-benchmark/references/INSTRUCTIONS.md),
+[`JUDGING.md`](../../skills/octocode-benchmark/references/JUDGING.md), and [`SCORING.md`](../../skills/octocode-benchmark/references/SCORING.md). For each
+of the 30 questions:
 
-1. **Seal the packet.** Give arm A and arm B the *same* question text and budget,
+1. **Seal the packet.** Give baseline arm and Octocode arm the *same* question text and budget,
    differing only in allowed surface (above). No scope, hints, or reference —
    those bias the run.
 2. **Isolate the arms.** Run each arm in a fresh context (separate subagent /
    session). The runner does only GitHub research; it must not see the other
    arm's transcript or any reference answer.
-3. **Arm A:** every GitHub read goes through `./bin/ghc` with per-question log,
+3. **Baseline arm:** every GitHub read goes through `./bin/ghc` with per-question log,
    diagnostics, and artifacts. Validate with `sumlog.py --strict`; a zero ratio
    is allowed only when its transform is classified.
-4. **Arm B:** every Octocode read goes through `./bin/octoc`; use its JSONL and
+4. **Octocode arm:** every Octocode read goes through `./bin/octoc`; use its JSONL and
    artifacts for exact character totals.
 5. **Repeat ≥3×** per arm; keep median correctness, report char spread.
 6. **Grade blind.** A separate grader scores both answers with arm labels
@@ -225,14 +225,14 @@ grading:
 python3 bin/validate_campaign.py tmp/campaign-<id> > tmp/campaign-<id>/metrics.json
 ```
 
-This requires all 120 question logs, all six answer files, valid hashes and
+This requires all question logs (30 questions × 3 passes × 2 arms), all six answer files, valid hashes and
 artifacts, classified Headroom transforms, recorded source exit statuses in both
 arms, and no model-readiness diagnostics. Failed research calls remain in the
 totals and are reported as workflow waste; because their output was captured,
 they do not invalidate an otherwise complete pass.
 
-The validator defaults to the current 20-question suite. To re-audit a preserved
-17-question historical campaign, pass `--question-count 17`.
+The validator defaults to the current 30-question suite. To re-audit a preserved
+historical campaign, pass `--question-count <n>` (e.g. `20` or `17` for older sets).
 
 ### Quick smoke test (confirm the arm runs before a full campaign)
 

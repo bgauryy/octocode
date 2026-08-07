@@ -27,33 +27,10 @@ export function shapeFileChange(
   };
 }
 
-export function stripPatchComments(patch: string): string {
-  return patch
-    .split('\n')
-    .filter(line => {
-      if (!line.startsWith('+')) return true;
-      const code = line.slice(1).trim();
-      return (
-        code !== '' &&
-        !code.startsWith('//') &&
-        !code.startsWith('/*') &&
-        !code.startsWith('*')
-      );
-    })
-    .map(line => {
-      if (!line.startsWith('+')) return line;
-      const code = line.slice(1);
-      const stripped = code.replace(/\s*\/\/.*$/, '');
-      return '+' + stripped.trimEnd();
-    })
-    .join('\n');
-}
-
 export function shapeFileSurfaces(
   pr: Record<string, unknown>,
   query: QueryLike,
-  request: NormalizedPrContentRequest,
-  shouldMinify?: boolean
+  request: NormalizedPrContentRequest
 ) {
   const allChanges = Array.isArray(pr.fileChanges)
     ? (pr.fileChanges as Array<Record<string, unknown>>)
@@ -81,10 +58,8 @@ export function shapeFileSurfaces(
   const shaped = items.map(change => {
     const base = shapeFileChange(change, false);
     if (!includePatch || typeof change.patch !== 'string') return base;
-    const rawPatch =
-      shouldMinify && !needle ? stripPatchComments(change.patch) : change.patch;
     const patch = paginateText(
-      rawPatch,
+      change.patch,
       query.charOffset ?? 0,
       query.charLength ?? 12_000
     );

@@ -59,7 +59,7 @@ def read_metrics(path: Path) -> dict[str, object]:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("campaign_dir", type=Path)
-    parser.add_argument("--question-count", type=int, default=20)
+    parser.add_argument("--question-count", type=int, default=30)
     args = parser.parse_args()
     campaign = args.campaign_dir.resolve()
     expected_questions = list(range(1, args.question_count + 1))

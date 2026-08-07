@@ -216,7 +216,7 @@ export function shapePullRequestForContent(
   const fullShape =
     isDetailFetch || (query as { verbose?: boolean }).verbose === true;
 
-  const fileSurfaces = shapeFileSurfaces(pr, query, request, shouldMinify);
+  const fileSurfaces = shapeFileSurfaces(pr, query, request);
   // If this response already fetched the changed-file list, hand nextCalls
   // a real path instead of the literal "path/from/changedFiles" placeholder
   // that previously always required a prior round-trip to resolve.

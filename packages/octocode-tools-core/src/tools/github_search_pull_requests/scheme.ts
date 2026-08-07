@@ -62,6 +62,10 @@ const queryOverrides = {
   charOffset: clampedInt(0, 100_000_000).optional(),
   commentBodyOffset: clampedInt(0, 100_000_000).optional(),
   charLength: clampedInt(1, MAX_CHAR_LENGTH).optional(),
+  // NOTE: diffs/patches are always returned verbatim (see contentResponse/
+  // fileSurfaces.ts — no patch minification). `minify` now only normalizes
+  // PR/issue body prose. Its description is owned by @octocodeai/octocode-core
+  // (external); update the "compact patches" wording there.
 } as const;
 
 const GitHubPullRequestSearchQueryShape = createQueryShapeSchema(
