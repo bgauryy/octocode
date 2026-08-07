@@ -1,7 +1,7 @@
 {
   "name": "@octocodeai/octocode-engine",
   "description": "Rust native Octocode engine for context compression, structural search, and LSP semantic navigation",
-  "version": "18.0.1",
+  "version": "18.1.2",
   "author": "Guy Bary <bgauryy@octocodeai.com>",
   "dependencies": {
     "@octocodeai/config": "18.0.1",
@@ -195,12 +195,12 @@
     ]
   },
   "optionalDependencies": {
-    "@octocodeai/octocode-engine-darwin-arm64": "18.0.1",
-    "@octocodeai/octocode-engine-darwin-x64": "18.0.1",
-    "@octocodeai/octocode-engine-linux-arm64-gnu": "18.0.1",
-    "@octocodeai/octocode-engine-linux-x64-gnu": "18.0.1",
-    "@octocodeai/octocode-engine-linux-x64-musl": "18.0.1",
-    "@octocodeai/octocode-engine-win32-x64-msvc": "18.0.1"
+    "@octocodeai/octocode-engine-darwin-arm64": "18.1.2",
+    "@octocodeai/octocode-engine-darwin-x64": "18.1.2",
+    "@octocodeai/octocode-engine-linux-arm64-gnu": "18.1.2",
+    "@octocodeai/octocode-engine-linux-x64-gnu": "18.1.2",
+    "@octocodeai/octocode-engine-linux-x64-musl": "18.1.2",
+    "@octocodeai/octocode-engine-win32-x64-msvc": "18.1.2"
   },
   "publishConfig": {
     "access": "public"
@@ -250,6 +250,7 @@
     "prepublish:verify": "yarn version:check && yarn loader:check && yarn verify:manifest && yarn pack:check && yarn platforms:check",
     "prepublishOnly": "yarn version:sync && node ../octocode/scripts/check-no-workspace-protocol.mjs",
     "readme:sync": "node ../../scripts/sync-package-readmes.mjs .",
+    "registry:check": "node scripts/check-registry-consistency.cjs",
     "support:gen": "yarn workspace @octocodeai/octocode-benchmark support:gen",
     "test": "vitest run --coverage",
     "test:node": "vitest run",
