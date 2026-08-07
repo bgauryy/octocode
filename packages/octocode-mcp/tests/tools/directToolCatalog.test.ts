@@ -14,10 +14,8 @@ import {
   formatDirectToolValidationIssues,
   getDirectToolCategory,
   getDirectToolDescription,
-  formatDirectToolOutputSchemaText,
   getDirectToolAutoFilledFields,
   getDirectToolDisplayFields,
-  getDirectToolOutputFields,
   prepareDirectToolInput,
   prepareDirectToolInputFromJsonText,
   sortDirectToolNames,
@@ -81,26 +79,6 @@ describe('directToolCatalog', () => {
       'researchGoal',
       'reasoning',
     ]);
-  });
-
-  it('exposes the canonical direct tool output shape for CLI help', () => {
-    const outputFields = getDirectToolOutputFields();
-
-    expect(outputFields).toEqual([
-      { name: 'content', type: 'Array<{ type: string; text: string }>' },
-      { name: 'structuredContent', type: 'object', optional: true },
-      { name: 'isError', type: 'boolean', optional: true },
-    ]);
-
-    expect(outputFields[0]).toBeDefined();
-    outputFields[0]!.name = 'mutated';
-
-    expect(getDirectToolOutputFields()[0]?.name).toBe('content');
-    expect(JSON.parse(formatDirectToolOutputSchemaText())).toEqual({
-      content: 'Array<{ type: string; text: string }>',
-      structuredContent: 'object (optional)',
-      isError: 'boolean (optional)',
-    });
   });
 
   it('categorizes known direct tool names and leaves unknown names as Other', () => {

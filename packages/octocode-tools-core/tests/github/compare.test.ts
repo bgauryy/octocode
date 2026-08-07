@@ -115,6 +115,79 @@ describe('compareRefs', () => {
     expect(result.data!.files![0]!.filename).toBe('src/index.ts');
     expect(result.data!.files![0]!.patch).toBeDefined();
     expect(result.data!.changedFiles).toBeUndefined();
+    // Diffs are now shaped like the history-walk path, exposing file pagination.
+    expect(result.data!.filesPagination).toBeDefined();
+    expect(result.data!.filesPagination!.totalFiles).toBe(1);
+  });
+
+  it('scopes the diff to a single file when path is given', async () => {
+    const resp = makeCompareResponse({
+      files: [
+        {
+          filename: 'src/index.ts',
+          status: 'modified',
+          additions: 5,
+          deletions: 2,
+          patch: '@@ -1 +1 @@ change',
+        },
+        {
+          filename: 'README.md',
+          status: 'modified',
+          additions: 1,
+          deletions: 0,
+          patch: '@@ -1 +1 @@ doc',
+        },
+      ],
+    });
+    mockGetOctokit.mockResolvedValue({
+      rest: {
+        repos: {
+          compareCommitsWithBasehead: vi.fn().mockResolvedValue(resp),
+        },
+      },
+    } as never);
+
+    const result = await compareRefs({
+      owner: 'facebook',
+      repo: 'react',
+      base: 'main^',
+      head: 'main',
+      includeDiff: true,
+      path: 'src/index.ts',
+    });
+
+    expect(result.data!.files).toHaveLength(1);
+    expect(result.data!.files![0]!.filename).toBe('src/index.ts');
+    expect(result.data!.filesPagination!.totalFiles).toBe(1);
+  });
+
+  it('windows a scoped patch with charOffset/charLength', async () => {
+    mockGetOctokit.mockResolvedValue({
+      rest: {
+        repos: {
+          compareCommitsWithBasehead: vi
+            .fn()
+            .mockResolvedValue(makeCompareResponse()),
+        },
+      },
+    } as never);
+
+    const result = await compareRefs({
+      owner: 'facebook',
+      repo: 'react',
+      base: 'main^',
+      head: 'main',
+      includeDiff: true,
+      charOffset: 0,
+      charLength: 5,
+    });
+
+    const file = result.data!.files![0]! as {
+      patch: string;
+      patchPagination?: { totalChars: number; hasMore: boolean };
+    };
+    expect(file.patch.length).toBe(5);
+    expect(file.patchPagination!.hasMore).toBe(true);
   });
 
   it('uses author.name for commit author when available', async () => {

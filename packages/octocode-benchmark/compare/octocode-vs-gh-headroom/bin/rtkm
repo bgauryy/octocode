@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Instrumented gh+RTK arm: runs exactly `rtk gh <args>`, captures chars via instrument_command.py.
+set -euo pipefail
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+RTK_LOG="${RTK_LOG:-$PWD/tmp/rtk-run.jsonl}"
+RTK_ARTIFACT_DIR="${RTK_ARTIFACT_DIR:-${RTK_LOG%.jsonl}-artifacts}"
+label="rtk gh $(printf '%s ' "$@" | sed 's/ *$//')"
+exec python3 "$HERE/instrument_command.py" --log "$RTK_LOG" --artifact-dir "$RTK_ARTIFACT_DIR" --label "$label" -- rtk gh "$@"

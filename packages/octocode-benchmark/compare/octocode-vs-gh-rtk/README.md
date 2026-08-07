@@ -1,6 +1,6 @@
 # Octocode CLI vs `gh` + `rtk`
 
-Twenty GitHub research questions in the shared set [`../github-questions/`](../github-questions/) — one canonical copy, used by all three GitHub matchups.
+Thirty GitHub research questions in the shared set [`../github-questions/`](../github-questions/) — one canonical copy, used by all three GitHub matchups.
 
 | Arm | Allowed surface |
 |---|---|
@@ -10,14 +10,14 @@ Twenty GitHub research questions in the shared set [`../github-questions/`](../g
 RTK is a transport/filter layer, not an additional research source.
 
 Before the first call, give each runner only its assigned section from
-[`../../RUNNER_TOOL_CONTEXT.md`](../../RUNNER_TOOL_CONTEXT.md). The primer is
+[`RUNNER_TOOL_CONTEXT.md`](../../skills/octocode-benchmark/references/RUNNER_TOOL_CONTEXT.md). The primer is
 fixed setup context; research-time help and schema calls are measured.
 
 These live once in [`../github-questions/`](../github-questions/); edit them there and every GitHub matchup sees the change.
 
-## Arm A (gh + rtk) — run the runner this leanest legal way
+## Baseline arm (gh + rtk) — run the runner this leanest legal way
 
-Give arm A its fair minimum footprint. Verified against rtk's docs (`rtk-ai/rtk`, "filters and compresses command outputs") and empirically on 2026-08-04:
+Give baseline arm its fair minimum footprint. Verified against rtk's docs (`rtk-ai/rtk`, "filters and compresses command outputs") and empirically on 2026-08-04:
 
 - **File content — use the raw media type, never base64.** gh has no region-targeted read, so fetch the whole file with `Accept: application/vnd.github.raw`, not `--jq .content` (base64 is ~1.33–1.36× larger; measured 102,534→75,638 bytes). Still within `gh-rtk-readonly` (family `api`, `/contents` scope, GET):
   `rtk gh api repos/OWNER/REPO/contents/PATH?ref=SHA -H "Accept: application/vnd.github.raw"`
@@ -29,7 +29,7 @@ Note per call whether rtk **filtered** or **passed through** (`--json`, `search`
 
 Allowed arm-A families: `search {code,repos,prs,issues,commits}`, `repo view`, `pr view|diff`, `issue view`, and `api` limited to `/contents` or `/git/trees` (GET only). No mutation verbs.
 
-## Arm B (Octocode)
+## Octocode arm
 
 ```bash
 npx octocode tools <tool> --queries '<json>'

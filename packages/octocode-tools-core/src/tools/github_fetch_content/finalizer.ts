@@ -130,6 +130,7 @@ export function buildGithubFetchContentFinalizer<
         'directories',
         'path',
         'content',
+        'fileType',
         'totalLines',
         'startLine',
         'endLine',

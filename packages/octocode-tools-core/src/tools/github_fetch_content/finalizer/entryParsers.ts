@@ -1,6 +1,7 @@
 import type { PaginationInfo } from '../../../types/toolResults.js';
 import { buildContinueCharsContinuation } from '../../../scheme/pagination.js';
 import { isCloneEnabled } from '../../../serverConfig.js';
+import { classifyFileType } from '../../../utils/file/configFiles.js';
 import type {
   DirectoryEntry,
   FileContentNextMap,
@@ -157,9 +158,13 @@ export function readFileEntry(
       ? { cloneForSemantics: buildCloneForSemanticsHint(query) }
       : {}),
   };
+  const filePath = readString(data.path) ?? String(query.path ?? '');
+  // Omit fileType entirely when classification is uncertain (undefined).
+  const fileType = filePath ? classifyFileType(filePath) : undefined;
   return {
-    path: readString(data.path) ?? String(query.path ?? ''),
+    path: filePath,
     content: typeof data.content === 'string' ? data.content : '',
+    ...(fileType ? { fileType } : {}),
     localPath: readString(data.localPath),
     repoRoot: readString(data.repoRoot),
     contentView:

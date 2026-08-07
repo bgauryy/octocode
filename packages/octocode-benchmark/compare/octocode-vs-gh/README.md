@@ -1,6 +1,6 @@
 # Octocode CLI vs `gh`
 
-Twenty GitHub research questions in the shared set [`../github-questions/`](../github-questions/) — one canonical copy, used by all three GitHub matchups.
+Thirty GitHub research questions in the shared set [`../github-questions/`](../github-questions/) — one canonical copy, used by all three GitHub matchups.
 
 | Arm | Allowed surface |
 |---|---|
@@ -12,12 +12,12 @@ or grader-reference access. Each runner may use only its assigned CLI surface;
 Octocode clone-to-local tools remain part of the Octocode product surface.
 
 Before the first call, give each runner only its assigned section from
-[`../../RUNNER_TOOL_CONTEXT.md`](../../RUNNER_TOOL_CONTEXT.md). The primer is
+[`RUNNER_TOOL_CONTEXT.md`](../../skills/octocode-benchmark/references/RUNNER_TOOL_CONTEXT.md). The primer is
 fixed setup context; research-time help and schema calls are measured.
 
 The same shared set is used by `octocode-vs-gh-rtk` and `octocode-vs-gh-headroom`.
 
-## How to run Arm A (`gh`)
+## How to run Baseline arm (`gh`)
 
 Confirm `gh --version` and that `gh auth status` is authenticated before running.
 Allowed families (read-only — no mutation verbs): `search
@@ -33,15 +33,15 @@ gh api 'repos/vercel/next.js/contents/PATH?ref=canary' \
 
 Footprint: prefer a snippet-bearing `gh search code` hit when it already answers
 the question (avoids a full-file fetch); keep `--json` field lists minimal.
-Record the characters each call pulls into context — that is Arm A's chars-in
+Record the characters each call pulls into context — that is Baseline arm's chars-in
 for `SCORING.md`. This is the uncompressed baseline the `rtk` and `headroom`
 matchups compress.
 
-## Arm B (Octocode)
+## Octocode arm
 
 ```bash
 npx octocode tools <tool> --queries '<json>'
 ```
 
 The Octocode primer lists the complete catalog and when clone → local/LSP is
-useful. Record chars in/out per question, same as Arm A.
+useful. Record chars in/out per question, same as Baseline arm.

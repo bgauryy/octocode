@@ -1,114 +1,53 @@
 ---
 name: octocode-benchmark
-description: "Use when planning, running, grading, or reporting a by-hand Octocode CLI comparison benchmark from markdown questions — a fresh isolated agent per question and per tool arm, one blind judge agent per question, results measured in characters delivered into context."
+description: "Use when planning, running, grading, or reporting the by-hand Octocode research benchmark — pairwise matchups (Octocode anchor vs one baseline: gh+RTK, gh+Headroom, or plain gh) over markdown questions, with a fresh isolated runner agent per (question, arm, pass), one blind judge per question grading two answers X/Y in randomized order, and an orchestrator that summarizes accuracy/quality/workflow/characters. Results measured in total characters through the model (model-in delivered + model-out commands/args + final answer)."
 ---
 
 # Octocode benchmark
 
-Plain-markdown, run-by-hand CLI comparison. For each question: two isolated runner
-agents answer (baseline CLI vs `npx octocode tools …`) and one blind judge agent scores
-both. No harness, no JSON. Design and rationale live once in `../../BENCHMARK.md`; the
-concrete agent-orchestration recipe (preflight, wrapper, spawn packets, outputs) lives in
-`references/run-with-agents.md`.
+Plain-markdown, run-by-hand CLI research comparison. Octocode is the **anchor**; each baseline
+is a **separate pairwise matchup** (`octocode` vs `rtk` | `headroom` | `gh`). Per question,
+per pass: two isolated runners answer, one blind judge grades them **X / Y** (randomized per
+question). Run ≥3 passes; the rollup shows every matchup together. No harness, no JSON.
 
-## Workflow
+## Flow (4 phases)
 
-```
- PREFLIGHT (once per matchup)
-   verify + pin each arm: gh · rtk · headroom bin/ghc · npx octocode
-   read compare/<matchup>/README.md  → the allowed read-only surface
-                       │
-                       ▼
- FOR EACH question Qn  ───────────── fan out, fully isolated ──────────────┐
- (github-questions/ or matchup questions/)                                 │
-                       │                                                   │
-     ┌──── agent: RUNNER A ────┐      ┌──── agent: RUNNER B ────┐   arms    │
-     │ RUNNER.md + RTK/headroom│      │ RUNNER.md + Octocode    │   never   │
-     │ primer; freeze refs;    │      │ primer; npx octocode    │   share a │
-     │ research A's surface;   │      │ tools … only;           │   context │
-     │ every cmd → measure.sh A│      │ every cmd → measure.sh B│   or see  │
-     │ → answer + calls.jsonl  │      │ → answer + calls.jsonl  │   the judge│
-     └───────────┬─────────────┘      └────────────┬────────────┘          │
-                 └──── answers relabelled X / Y (tool names hidden) ────────┘
-                       │
-                       ▼
-     ┌──── agent: JUDGE — one per question, blind ────┐
-     │ own research → ground truth; score X then Y:   │
-     │ correctness · depth · workflow · chars         │
-     │ (JUDGING.md + SCORING.md; correctness-first)   │
-     └───────────────────┬────────────────────────────┘
-                         ▼   (repeat for every question)
- WRITE-UP  results/<matchup>-<HHMMSS>-<YYYY-MM-DD>.md   (per-question table +
-                       │                                summary; REPORT_TEMPLATE.md)
-                       ▼
- ROLL UP   update the matchup's headline row in results/SUMMARY.md + results/README.md
-```
+0. **Preflight** — verify + pin every arm; a failure invalidates the run.
+1. **Answer** — 2 isolated runners (anchor + baseline) per question/pass, leanest-legal path, each appends a `## Q<n>` section to `answers/<arm>-p<pass>.md`.
+2. **Judge** — after both sections exist, one blind judge reasons to a verdict, then scores.
+3. **Summarize** — validate logs, aggregate paired stats, update the rollup.
 
-## Operate it correctly (skip one and the run is worthless)
+## Hard gates (skip one and the run is worthless)
 
-- **One agent per role per question.** Spawn a *separate* agent/context for runner A,
-  runner B, and the judge. Never let one context play two roles, read another's
-  transcript, or see any answer key. (You MAY batch questions within one arm's agent to
-  save processes — but never mix arms, and never let the judge share a transcript with a runner.)
-- **Same packet, one variable.** Both arms get the same question, budget, and frozen refs;
-  only the CLI differs. Freeze every mutable ref (branch / PR state / SHA + UTC) *before*
-  answering and put it in the answer.
-- **Blind the judge.** Give it the two answers as X/Y with tool names hidden; it
-  establishes ground truth by its own research; un-blind only when you tabulate.
-- **Measure characters of raw CLI output, never tokens.** Delivered characters are the
-  context budget. Read chars from the wrapper/instrument log, never a runner's
-  self-report — models miscount their own context.
-- **Aggregate per question, paired; never let one question decide.** The unit is the
-  question and the arms are matched pairs. Headline characters as the **geometric mean of
-  per-question A/B ratios** + median + leaner win-rate (sign test) — NOT a pooled sum of
-  raw chars (a single heavy question dominates a sum). If you report a pooled sum, disclose
-  the top question's share and a leave-one-out. Correctness clusters near ceiling: use
-  paired win/tie/loss, not mean gaps. Full method + worked example:
-  `references/aggregation-and-stats.md`.
-- **Decide correctness-first.** At statistically indistinguishable correctness, fewer
-  characters breaks the tie by geometric-mean ratio (not sum); a confidently-wrong answer
-  cannot win. One pass is a snapshot — repeat (≥3 passes) for a stable, testable claim.
+- **Isolation** — a fresh agent per (question, arm, pass) + a separate judge; no shared transcript, no answer key. Batch questions within an arm, never mix arms.
+- **Fairness** — leanest-legal path on every arm; no whole-tree/whole-file dump where a targeted read/search answers (inflates chars, invalidates the ratio).
+- **Blind + reasoned** — grade X/Y in randomized order; the judge reasons before scoring, correctness-first; a confidently-wrong answer never wins.
+- **Measured, not self-reported** — `total_chars = model-in + model-out` from the instrumented log.
+- **Honest stats** — geometric-mean char ratio (never a pooled sum) + bootstrap CI; ≥3 passes; the public set is orientation, not a shipping gate.
 
-## Run it (full recipe: `references/run-with-agents.md`)
+## Routes — load only what the step needs
 
-1. **Preflight** — confirm each arm's CLI/script is installed, authed, and working, and
-   pin versions: `gh --version` + `gh auth status`; `rtk --version`; headroom
-   `./compare/octocode-vs-gh-headroom/bin/ghc api rate_limit` (0% ratio = compression off,
-   invalid); `npx octocode --version` + one live `npx octocode tools …` probe. Read the
-   matchup `compare/<matchup>/README.md` for the allowed surface.
-2. **Set up measurement** — create the run dir + transparent wrapper (`references/run-with-agents.md` §1);
-   every research command runs as `.octocode/tmp/measure.sh <A|B> Q<n> <label> -- <cmd>`.
-3. **Spawn runners** — one agent per (question, arm), each given only `../../RUNNER.md`,
-   its arm section from `../../RUNNER_TOOL_CONTEXT.md`, and the question. Arm B uses
-   `npx octocode tools <tool> --queries '<json>'` only.
-4. **Spawn the judge** — one per question, given the two answers as X/Y (tools hidden) and
-   its own research tools; it scores per `../../JUDGING.md` (correctness, depth, workflow,
-   chars) and `../../SCORING.md`, then compares.
-5. **Write up + roll up** — recompute per-question paired stats from `<RUNDIR>/*/calls.jsonl`
-   per `references/aggregation-and-stats.md` (geometric-mean + median char ratio, leaner
-   win-rate + sign test, plus top-contributor share and leave-one-out for any pooled sum), write
-   `results/<matchup>-<HHMMSS>-<YYYY-MM-DD>.md` per `../../REPORT_TEMPLATE.md`, and update
-   the matchup's headline row in `results/SUMMARY.md` and `results/README.md`.
+| When | Load |
+|---|---|
+| understand the design | `references/BENCHMARK.md` |
+| run a matchup | `references/INSTRUCTIONS.md` then `references/run-with-agents.md` |
+| brief a runner | `references/RUNNER.md` + `references/RUNNER_TOOL_CONTEXT.md` |
+| judge a question | `references/JUDGING.md` + `references/example-verdict.md` |
+| score + aggregate | `references/SCORING.md` then `references/aggregation-and-stats.md` |
+| write the report | `references/REPORT_TEMPLATE.md` |
+| author a matchup README | `references/matchup-readme.md` |
 
-Full step list for the whole campaign: `../../INSTRUCTIONS.md`.
+## Scripts + done gate
 
-## Where things are
+`scripts/check-prereqs.sh` gates Phase 0; `scripts/measure.sh` is the fallback char wrapper.
+Run `bin/validate_campaign.py` before reporting; recompute every figure from the logs.
 
-- `../../BENCHMARK.md` — design + run-flow (single source of truth).
-- `../../RUNNER.md` · `../../RUNNER_TOOL_CONTEXT.md` — runner instructions + per-arm primers.
-- `../../JUDGING.md` · `../../SCORING.md` — grading + scoring rules.
-- `../../INSTRUCTIONS.md` · `../../REPORT_TEMPLATE.md` — campaign steps + report shape.
-- `references/run-with-agents.md` — preflight, wrapper script, spawn packets, outputs.
-- `references/aggregation-and-stats.md` — how to aggregate/test results (paired per-question,
-  geometric-mean char ratio, sign test, outlier disclosure) so one question can't set the verdict.
-- `compare/<matchup>/README.md` — the two arms + how to run each. Authoring/reviewing that
-  README → load `references/matchup-readme.md`.
-- Questions — title + `id` + `## Question` only. GitHub matchups share
-  `compare/github-questions/`; a corpus-local matchup keeps its own `compare/<matchup>/questions/`.
-- `results/` — finished write-ups + rollup.
+## Stop when
+
+The matchup's questions are answered, judged, and aggregated across ≥3 passes with CIs — or a
+preflight/fairness violation blocks the run; fix before continuing.
 
 ## Add a question
 
-Copy an existing `Q<n>.md`, bump the number, edit title / `id` / `## Question` — nothing
-else, no scripts. GitHub → `compare/github-questions/`; corpus-local → that matchup's
-`questions/`. Add its row to that set's `README.md`.
+Copy an existing `Q<n>.md`, bump the number, edit title / `id` / `## Question` only. GitHub →
+`compare/github-questions/`; corpus-local → that matchup's `questions/`; add its README row.

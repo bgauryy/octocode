@@ -112,43 +112,6 @@ export async function showToolHelp(toolName: string): Promise<boolean> {
   console.log(`  ${dim('Auto-filled')}: ${autoFilledFields.join(', ')}`);
   console.log();
 
-  console.log(`  ${bold('Output Schema')}`);
-  console.log(`    ${dim('Default (YAML):')}`);
-  console.log(
-    `      ${dim('Clean YAML — read directly. Next steps come from typed fields: pagination, next, location, error.')}`
-  );
-  console.log(`    ${dim('--json envelope:')}`);
-  console.log(
-    `      ${c('cyan', 'isError')}                          ${dim('true = tool failed')}`
-  );
-  console.log(
-    `      ${c('cyan', 'content[].text')}                   ${dim('YAML string (same as default output)')}`
-  );
-  console.log(
-    `      ${c('cyan', 'structuredContent.results[]')}      ${dim('tool result objects; most tools use id + data')}`
-  );
-  if (tool.name === 'ghGetFileContent') {
-    console.log(
-      `      ${c('cyan', 'results[].files/directories')}      ${dim('grouped GitHub fetch entries; data aliases the same group for generic parsers')}`
-    );
-  }
-  console.log(
-    `      ${c('cyan', 'structuredContent.base')}           ${dim('cwd / workspace root used for the query')}`
-  );
-  console.log(
-    `      ${c('cyan', 'structuredContent.pagination')}     ${dim('nextPage / nextCharOffset — page only when present')}`
-  );
-  console.log(
-    `      ${c('cyan', 'structuredContent.next')}           ${dim('typed follow-up params for the next call')}`
-  );
-  console.log(
-    `      ${c('cyan', 'structuredContent.location')}       ${dim('where remote content was saved (kind, localPath, repoRoot, ...)')}`
-  );
-  console.log(
-    `      ${c('cyan', 'structuredContent.error')}          ${dim('failure detail when isError is true')}`
-  );
-  console.log();
-
   console.log(`  ${bold('Flags')}`);
   console.log(
     `    ${c('cyan', '--json')}     ${dim('raw JSON envelope (structuredContent + content + isError)')}`

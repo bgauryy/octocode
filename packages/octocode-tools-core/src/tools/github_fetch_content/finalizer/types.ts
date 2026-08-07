@@ -13,6 +13,8 @@ export type PartialFileContentQuery = WithOptionalMeta<FileContentQuery> &
 export type FileEntry = {
   path: string;
   content: string;
+  /** Coarse file bucket to guide how bytes are read; omitted when uncertain. */
+  fileType?: 'code' | 'config' | 'lock' | 'doc';
   localPath?: string;
   repoRoot?: string;
   contentView?: 'none' | 'standard' | 'symbols';

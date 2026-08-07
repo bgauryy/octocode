@@ -1,6 +1,4 @@
-import type { z } from 'zod';
 import { CloneRepoQuerySchema } from '@octocodeai/octocode-core/schemas';
-import { GitHubCloneRepoOutputSchema as UpstreamCloneRepoOutput } from '@octocodeai/octocode-core/schemas/outputs';
 import { createRelaxedBulkQuerySchema } from '../../scheme/fields.js';
 import { describeQuerySchema } from '../../scheme/coreSchemas.js';
 import type { ToolContinuation } from '../../scheme/pagination.js';
@@ -15,15 +13,32 @@ export const BulkCloneRepoLocalSchema = createRelaxedBulkQuerySchema(
 
 // ---------------------------------------------------------------------------
 // Output TYPE — describes what ghCloneRepo returns. No zod: the MCP server
-// registers no outputSchema. Faithfully mirrors the deleted
-// `UpstreamCloneRepoOutput.extend(responseEnvelopeFields)`: the upstream
-// output's inferred type plus the shared response-envelope fields.
+// registers no outputSchema, so this is a plain structural type (the source of
+// truth for the shape is the clone execution, not a schema).
 // ---------------------------------------------------------------------------
-export type GitHubCloneRepoOutputLocal = z.infer<
-  typeof UpstreamCloneRepoOutput
-> & {
+interface GitHubCloneRepoData {
+  localPath: string;
+  resolvedBranch?: string;
+  cached?: boolean;
+  sparsePath?: string;
+  cloneTimeMs?: number;
+  totalSize?: number;
+  fileCount?: number;
+  location?: Record<string, unknown>;
+}
+
+export type GitHubCloneRepoOutputLocal = {
+  status?: string;
+  data?: GitHubCloneRepoData;
+  localPath?: string;
+  resolvedBranch?: string;
+  cached?: boolean;
+  sparsePath?: string;
+  location?: Record<string, unknown>;
+  warnings?: string[];
+  error?: string;
   base?: string;
   shared?: Record<string, string | number | boolean>;
   responsePagination?: ResponsePaginationInfo;
   next?: Record<string, ToolContinuation>;
-};
+} & Record<string, unknown>;

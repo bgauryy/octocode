@@ -18,6 +18,7 @@ import {
 } from './scheme.js';
 import { safeParseOrError } from '../utils.js';
 import { executeWithToolBoundary } from '../executionGuard.js';
+import { classifyFileType } from '../../utils/file/configFiles.js';
 import type { ToolExecutionArgs } from '../../types/execution.js';
 
 type LocalFetchContentResponse = BulkToolResponse & Record<string, unknown>;
@@ -85,10 +86,20 @@ function buildLocalFetchContentFinalizer<
 function cloneFlatResults(
   results: readonly FlatQueryResult[]
 ): FlatQueryResult[] {
-  return results.map(result => ({
-    ...result,
-    data: structuredClone(result.data),
-  }));
+  return results.map(result => {
+    const data = structuredClone(result.data);
+    // Tag successful file reads with a coarse type (code/config/lock/doc) so an
+    // agent can decide how to read the returned bytes. Skip error rows and rows
+    // without a path; omit the field entirely when the type is uncertain
+    // (classifyFileType returns undefined) rather than emit a low-confidence
+    // guess.
+    const path = typeof data.path === 'string' ? data.path : undefined;
+    if (result.status !== 'error' && path) {
+      const fileType = classifyFileType(path);
+      if (fileType) data.fileType = fileType;
+    }
+    return { ...result, data };
+  });
 }
 
 function formatLocalFetchContentText(responseData: BulkToolResponse): string {
@@ -121,6 +132,7 @@ function formatLocalFetchContentText(responseData: BulkToolResponse): string {
       'sourceChars',
       'sourceBytes',
       'returnedChars',
+      'fileType',
       'warnings',
       'error',
     ]).trimEnd();

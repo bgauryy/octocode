@@ -7,29 +7,32 @@ different harness generations are not summed into one synthetic total.
 
 ## Latest complete campaigns
 
-| Matchup | Questions / repeats | Correctness (baseline / Octocode) | Characters (baseline / Octocode) | Verdict |
-|---|---:|---:|---:|---|
-| [`gh` + RTK](octocode-vs-gh-rtk-011611-2026-08-06.md) | 25 × 1 (v2) | 9.24 / 9.18 (n.s.; paired B 3 win / 8 loss / 14 tie) | geo-mean ratio **4.98×**, median 6.65× (sum 5,942,524 / 515,164 = 11.54×, Q22 = 24.8%) | Correctness indistinguishable near ceiling (sign test p≈0.23, n.s.); Octocode ~5× leaner, leaner on 21/25; pooled 11.54× outlier-sensitive (leave-one-out 9.40×). Full v2 set incl. advanced Q21–Q25; prior [20-question 200641](octocode-vs-gh-rtk-200641-2026-08-05.md) kept for history. |
-| [`gh` + Headroom](octocode-vs-gh-headroom-011859-2026-08-06.md) | 25 × 1 (v2) | 7.84 / **8.96** (n.s.; paired B 9 win / 3 loss / 13 tie) | geo-mean ratio **5.38×**, median 6.09× (sum 3,247,495 / 380,276 = 8.54×, Q13 = 15.8%) | Latest, full v2 set incl. advanced Q21–Q25 (Headroom 0.34.0): correctness indistinguishable near ceiling (sign test p≈0.15), Octocode net more correct (9/3) and **~5.4× leaner** (leaner 22/25, p≈0.00016; leave-one-out 5.0–6.6×). Compression lost exact structured-fact fidelity on Q14/Q18. Stronger multi-pass evidence retained: [20×3 1845](octocode-vs-gh-headroom-1845-2026-08-05.md) (7.50 / 9.10, preferred 17/3, 3.76×). |
+Each matchup is a full **30-question v2 set × 3 passes** (local build `out/octocode.js`
+v18.1.1), blind neutral **gpt-5.5** judge, X/Y randomized per question, leanest-path enforced,
+95% bootstrap CIs (5,000 resamples of the per-question `total_chars` ratios).
+
+| Matchup | Questions | Correctness (Octocode / baseline) | Char ratio (per-Q geo-mean, 95% CI) | Wins O/tie/B · leaner | Verdict |
+|---|---:|---|---|---|---|
+| [vs gh+Headroom](full-octocode-vs-headroom-134213-2026-08-07.md) | 30 × 3 | 9.30 / 8.62 (Octocode edges) | **2.62×** (1.87–3.71), median 2.77× | 60 / 0 / 28 · 63/88 | Octocode more correct **and** ~2.6× leaner; CI above 1×. Baseline prone to char blowups on tree/file dumps (one 20M-char question). |
+| [vs gh+RTK](full-octocode-vs-rtk-162848-2026-08-07.md) | 30 × 3 | 9.29 / 9.42 (near-parity) | **3.21×** (2.36–4.46), median 2.83× | 56 / 0 / 33 · 67/89 | Correctness parity; Octocode **reliably ~3.2× leaner** (CI well above 1×). Supersedes the earlier 2-pass RTK "parity" finding — the larger 3-pass run resolves toward Octocode leaner. |
 
 ## What the current evidence supports
 
-- **Octocode is consistently smaller on aggregate** in these three latest
-  complete campaigns.
-- **Correctness ranges from tie to a clear Octocode win, depending on the
-  baseline's failure mode.** RTK was statistically indistinguishable (near
-  ceiling); against Headroom Octocode was **clearly more correct** (182 vs 150 of
-  200) because the compressed `gh` arm made 5 confident errors on deterministic
-  package.json/metadata questions. Correctness-first scoring means a leaner
-  answer never overrides a wrong one.
-- **The strongest current evidence is the Headroom campaign.** It has three
-  passes per arm, strict artifact-backed measurement, complete log/answer
-  census, blind grading, and an independent measurement audit.
-- These campaigns reuse one small public question suite (20 questions for the
-  latest RTK and Headroom headline reports). They are paired campaign results,
-  not independent samples of all repository-research work.
+- **Correctness is a near-ceiling tie** in both matchups (Octocode 9.30 vs Headroom 8.62, and 9.29 vs RTK 9.42; RTK 9.42
+  marginally higher as a **lossless** raw-`gh` passthrough; Headroom 8.61 lowest as **lossy**
+  compression, and Octocode is net more correct than Headroom). Correctness-first scoring
+  means a leaner answer never overrides a wrong one.
+- **Characters: Octocode is reliably leaner than *both* baselines** — ~2.6× vs gh+Headroom
+  (95% CI 1.87–3.71) and ~3.2× vs gh+RTK (95% CI 2.36–4.46); both CIs sit above 1×, and
+  Octocode is leaner on ~72% of questions (63/88 and 67/89). Fewer characters delivered =
+  healthier context window and sharper model attention on the load-bearing evidence.
+- **The RTK result is now stable at 3 passes.** The earlier 2-pass RTK snapshot straddled 1×
+  (snippet-vs-file path variance); the larger 30×3 run resolves to a clear Octocode lean. The
+  public v2 suite is still orientation, not a shipping gate (contaminated-ceiling correctness).
 
-## Latest Headroom detail (campaign-20260805-1845, 20 × 3, Headroom 0.34.0)
+## Historical multi-pass Headroom detail ([1845](octocode-vs-gh-headroom-1845-2026-08-05.md), 20 × 3, Headroom 0.34.0)
+
+*Retained for its stronger three-pass evidence; the current headline is the [2-pass campaign](campaign-2pass-183432-2026-08-06.md).*
 
 | Metric | `gh` + Headroom | Octocode |
 |---|---:|---:|
@@ -47,6 +50,15 @@ on deterministic package.json/metadata questions** (Q7, Q10, Q14, Q16, Q18) —
 the correctness gap. Octocode's honest weaknesses: Q3 commit-content retrieval
 (33 calls / 9 failed; A won with a targeted 3-call path) and a higher raw
 failed-call count from schema/empty-search retries; A also won Q6 and Q13.
+
+## Historical reports (restored, prior methodology)
+
+Kept for traceability; not summed into the headline (different harness generations):
+[gh+RTK 011611](octocode-vs-gh-rtk-011611-2026-08-06.md) ·
+[gh+RTK 200641](octocode-vs-gh-rtk-200641-2026-08-05.md) ·
+[gh+RTK localfix](octocode-vs-gh-rtk-localfix-020431-2026-08-06.md) ·
+[gh+Headroom 011859](octocode-vs-gh-headroom-011859-2026-08-06.md) ·
+[gh+Headroom 200034](octocode-vs-gh-headroom-200034-2026-08-05.md).
 
 ## Validity policy
 

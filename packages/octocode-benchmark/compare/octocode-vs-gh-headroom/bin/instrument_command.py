@@ -23,6 +23,10 @@ def main() -> int:
     if not command:
         parser.error("a command is required after --")
 
+    # The exact invocation string the model emitted to make this call is chars
+    # the model WROTE (model-out direction). Count it, do not just log it.
+    command_text = " ".join(command)
+
     started = time.perf_counter()
     process = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     elapsed_ms = round((time.perf_counter() - started) * 1000, 3)
@@ -35,12 +39,20 @@ def main() -> int:
     artifact = artifact_dir / f"{artifact_id}.txt"
     artifact.write_text(text, encoding="utf-8")
 
+    model_out_chars = len(command_text)
+    model_in_chars = len(text)
+
     record = {
         "cmd": args.label,
         "argv": command,
         "char_unit": "unicode_code_points",
-        "chars": len(text),
+        # legacy field: output pulled into context (model-in direction)
+        "chars": model_in_chars,
         "bytes": len(raw),
+        # directional accounting: ALL chars through the model = in + out
+        "model_out_chars": model_out_chars,
+        "model_in_chars": model_in_chars,
+        "total_chars": model_out_chars + model_in_chars,
         "sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
         "exit_code": process.returncode,
         "elapsed_ms": elapsed_ms,

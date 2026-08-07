@@ -7,7 +7,7 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@octocodeai/config": "18.0.1",
-    "@octocodeai/octocode-core": "18.1.0",
+    "@octocodeai/octocode-core": "18.1.1",
     "@octocodeai/octocode-engine": "18.0.1",
     "@octokit/oauth-methods": "^6.0.2",
     "@octokit/plugin-throttling": "^11.0.3",

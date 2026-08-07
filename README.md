@@ -5,6 +5,7 @@
 
   [![MCP Community Server](https://img.shields.io/badge/Model_Context_Protocol-Official_Community_Server-blue?style=flat-square)](https://github.com/modelcontextprotocol/servers)
   [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/bgauryy/octocode)
+  [![Glama score](https://glama.ai/mcp/servers/bgauryy/octocode/badges/score.svg)](https://glama.ai/mcp/servers/bgauryy/octocode)
 
   [![Website](https://img.shields.io/badge/Website-007ACC?style=for-the-badge&logo=link&logoColor=white)](https://octocode.ai)
   [![YouTube](https://img.shields.io/badge/YouTube-FF0000?style=for-the-badge&logo=youtube&logoColor=white)](https://www.youtube.com/@Octocode-ai)
@@ -34,6 +35,7 @@ Evidence from your **local workspace** and **external** sources (GitHub repos, P
 - [Architecture](#architecture)
 - [Documentation](#documentation)
 - [Troubleshooting](#troubleshooting)
+- [Agent Workflows](#agent-workflows)
 
 ---
 
@@ -145,84 +147,60 @@ See [Quick Start](#quick-start) to install in your terminal or AI assistant.
 
 ## Built for Research (Benchmarks)
 
-Octocode is measured against `gh`-based baselines on a suite of **25 research questions
-over real public GitHub repositories** — including **cross-repository research** (following
-a dependency into its source repo, a redirect into its transport, a parser chain across
-packages) and harder flow/graph, commit-range, blast-radius, and PR review-thread tasks. Answers are scored correctness-first and by **context characters delivered**
-(the budget a model must read into its window). Results are paired snapshots — they
-measure characters, correctness, depth, and workflow, not tokens, latency, or cost.
+Octocode is built to *research* code, not just fetch it — measured on **25 real cross-repo
+research questions** (dependency→source→transport→parser-chain traces, flow/graph, commit
+ranges, blast radius, PR review threads), scored **correctness-first** and by **context
+characters delivered** (the budget a model burns reading results in).
 
-### How it's measured (and checked)
+### Why it wins on deep research
 
-- **Isolated by construction** — a fresh agent per (question, arm) and a separate blind
-  judge per question; no shared transcripts, no answer key, tool names hidden as X/Y.
-- **One variable** — both arms get the same question and frozen refs (branch/PR-state/SHA
-  + UTC); only the CLI differs.
-- **Transparent instrumentation** — every research command runs through a wrapper that
-  emits the real output and counts its Unicode characters to a JSONL log. Counts come from
-  the log, never a model's self-report.
-- **Blind, correctness-first grading** — the judge establishes ground truth by its own
-  current-evidence research, then scores each answer; a confidently-wrong answer cannot win.
-- **Robust aggregation** — characters are summarized **per question, paired**, with the
-  **geometric mean of per-question ratios** (never a raw sum, which one heavy question can
-  dominate). See the [aggregation & stats method](https://github.com/bgauryy/octocode/blob/main/packages/octocode-benchmark/skills/octocode-benchmark/references/aggregation-and-stats.md).
-- **Validated** — the latest headline is a full 25-question pass with checked-in
-  instrumentation and strict artifact-backed measurement; a retained 3-pass Headroom
-  campaign corroborates it (all logs strict-valid, all answers present, artifacts intact).
+- **No truncation** — you get exactly the slice you asked for (region, symbol, match window,
+  diff hunk); it never silently cuts mid-answer, so deep research stays one pass.
+- **OOTB lossless minification** — output compacted with **zero data loss**; smaller context, nothing hidden.
+- **Smart pagination** — big results continue **on demand** via exact cursors, never a silent cutoff.
+- **Research-oriented flows** — one workflow across GitHub + local + LSP + npm: structure → search → exact read → prove.
 
-### Results
+### Scorecard (30 Q × 3 passes per matchup, local build v18.1.1, blind neutral gpt-5.5 judge, 95% bootstrap CIs)
 
-**Context characters delivered** — lower is better (`█` ≈ 0.25M chars):
+**Typical context per question** — characters read into the model, geometric-mean relative to
+Octocode (lower is better; `█` ≈ 0.32×):
 
 ```text
-gh + rtk        Octocode  ██                       0.52M
-                gh+rtk    ████████████████████████ 5.94M   → ~5× leaner (geo-mean 4.98×, median 6.65×, leaner on 21/25)
-
-gh + Headroom   Octocode  ██                       0.38M
-                gh+Head   █████████████            3.25M   → ~5.4× leaner (geo-mean 5.38×, median 6.09×, leaner on 22/25)
+Octocode      ███          1.0× (baseline)
+gh + Headroom ████████     2.6× more context
+gh + RTK      ██████████   3.2× more context
 ```
 
-**Blind-graded correctness** — higher is better, out of 10 (`█` ≈ 0.5):
+| Dimension | Octocode | gh + RTK | gh + Headroom |
+|---|---:|---:|---:|
+| Correctness (/10) | 9.3 | **9.4** | 8.6 |
+| Chars — per-Q geo-mean (baseline÷Octo, 95% CI) | 1.0× | **3.2×** (2.4–4.5) | **2.6×** (1.9–3.7) |
+| Per-question wins (Octo / tie / baseline) | — | 56 / 0 / 33 | 60 / 0 / 28 |
+| Questions Octocode leaner | — | 67/89 | 63/88 |
 
-```text
-gh + rtk        Octocode  ██████████████████       9.18
-                gh+rtk    ██████████████████       9.24   → statistical tie (near ceiling; paired p≈0.23)
-
-gh + Headroom   Octocode  ██████████████████       8.96
-                gh+Head   ████████████████         7.84   → near-ceiling tie; Octocode net more correct (paired 9–3, arm A made confident metadata errors)
-```
-
-Correctness is a near-ceiling tie on both sets while Octocode stays ~5× leaner. Full
-per-question tables, methodology, and caveats: [benchmark results](https://github.com/bgauryy/octocode/tree/main/packages/octocode-benchmark/results).
+**Read it straight:** correctness is a **near-ceiling tie** (RTK edges +0.1 as a *lossless*
+raw-`gh` passthrough; Headroom lowest from *lossy* compression; Octocode edges Headroom). On
+context, Octocode is **reliably ~2.6–3.2× leaner than *both* baselines** — both 95% CIs sit
+above 1× — and leaner on ~72% of questions. **Fewer characters mean a healthier context
+window and sharper model attention on the evidence that matters**, and the margin grows on
+deep, large-file, multi-hop research. Reports:
+[vs gh+RTK](https://github.com/bgauryy/octocode/blob/main/packages/octocode-benchmark/results/full-octocode-vs-rtk-162848-2026-08-07.md) ·
+[vs gh+Headroom](https://github.com/bgauryy/octocode/blob/main/packages/octocode-benchmark/results/full-octocode-vs-headroom-134213-2026-08-07.md).
 
 ### When to reach for Octocode vs a quick check
 
-Octocode's edge grows with **depth, exactness, and cross-repo scope**; for a single known
-fact, a quick `gh`/`curl` one-liner is fine.
-
 | Reach for **Octocode** when… | A **quick check** is enough when… |
 |---|---|
-| You need **exact field membership** (peer vs optional vs dev, ranges) — compressed/whole-file views mislead. | You already know the file+line and just want to eyeball it. |
-| The answer is a **trace across files or repos** (dependency → source, redirect, parser chain). | You need one PR title, issue state, or a `--json` field. |
-| You want to **stay lean in context** — targeted region reads instead of whole-file/tree dumps. | The file is tiny and a full fetch is trivially cheap. |
-| You need **reachability / call-graph proof**  before a change. | A single grep hit already answers it. |
+| You need **exact field membership** (peer vs optional vs dev, version ranges). | You already know the file+line and just want to eyeball it. |
+| The answer is a **trace across files/repos** (dependency → source → transport → parser chain). | You need one PR title, issue state, or a single `--json` field. |
+| You want to **stay lean in context** — targeted reads, not whole-file/tree dumps. | The file is tiny and a full fetch is trivially cheap. |
+| You need **reachability / call-graph proof** before a change. | A single grep hit already answers it. |
 
-### Where Octocode shines
-
-- **Exact answers on structured metadata** — dependency membership (peer vs optional vs
-  dev) and precise version ranges read straight from the source, where compressed or
-  whole-file views mislead.
-- **Lean by default** — targeted region reads keep context small; the deepest savings show
-  up on multi-file trace questions where a baseline must pull an entire file or tree.
-- **Cross-repository reasoning** — following a dependency to its source repo, a redirect to
-  its transport, or a parser chain across packages in one flow.
-
-**Dig deeper:** [how the benchmark is run](https://github.com/bgauryy/octocode/tree/main/packages/octocode-benchmark/skills/octocode-benchmark) ·
-[benchmark design](https://github.com/bgauryy/octocode/blob/main/packages/octocode-benchmark/BENCHMARK.md) ·
-[question set](https://github.com/bgauryy/octocode/tree/main/packages/octocode-benchmark/compare/github-questions) ·
-[aggregation & stats method](https://github.com/bgauryy/octocode/blob/main/packages/octocode-benchmark/skills/octocode-benchmark/references/aggregation-and-stats.md) ·
-[all result reports](https://github.com/bgauryy/octocode/tree/main/packages/octocode-benchmark/results). Historical reports use
-older methodologies — interpret from their individual caveats.
+**Dig deeper:** [run](https://github.com/bgauryy/octocode/tree/main/packages/octocode-benchmark/skills/octocode-benchmark) ·
+[design](https://github.com/bgauryy/octocode/blob/main/packages/octocode-benchmark/skills/octocode-benchmark/references/BENCHMARK.md) ·
+[questions](https://github.com/bgauryy/octocode/tree/main/packages/octocode-benchmark/compare/github-questions) ·
+[stats method](https://github.com/bgauryy/octocode/blob/main/packages/octocode-benchmark/skills/octocode-benchmark/references/aggregation-and-stats.md) ·
+[all reports](https://github.com/bgauryy/octocode/tree/main/packages/octocode-benchmark/results) (historical runs carry their own caveats).
 
 ---
 
@@ -392,8 +370,6 @@ The **Scope** column shows where a setting applies: `Both`, or `MCP` (the CLI ig
 | `MAX_RETRIES` | `network.maxRetries` | `3` | Both | Retry attempts (clamped `0..10`). |
 | `OCTOCODE_OUTPUT_FORMAT` | `output.format` | `yaml` | Both | Response format: `yaml` or `json`. |
 
-> **Local and clone defaults differ by surface.** The **CLI** defaults both local tools and clone on. The **MCP server** defaults both off: set `ENABLE_LOCAL=true` for local tools and `ENABLE_CLONE=true` for clone.
-
 ### Example Configuration
 
 **`~/.octocode/.octocoderc`:**
@@ -463,7 +439,7 @@ Create a token at [github.com/settings/tokens](https://github.com/settings/token
 - **Schema validation** runs before any tool executes; untrusted input size and shape are bounded.
 - **Credentials.** GitHub auth via env tokens, AES-256-GCM-encrypted on-disk OAuth, or the `gh` CLI; tokens are never logged.
 
-**Full security model, pipeline, and threat coverage: [SECURITY.md](https://github.com/bgauryy/octocode/blob/main/docs/SECURITY.md).** Related: [Authentication](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md) · [Configuration](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md) · [Credentials](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md#github-token)
+**Full security model, pipeline, and threat coverage: [SECURITY.md](https://github.com/bgauryy/octocode/blob/main/docs/SECURITY.md).** Related: [Configuration & Authentication](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md) · [Credentials](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md#github-token)
 
 ---
 
@@ -583,12 +559,12 @@ Website: **[octocode.ai](https://octocode.ai)** · Product docs: **[github.com/b
 
 | Area | Docs |
 |---|---|
-| MCP server | [Octocode MCP Server](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_MCP.md) · [Configuration](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md) · [Authentication](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md) |
+| MCP server | [Octocode MCP Server](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_MCP.md) · [Configuration & Authentication](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md) |
 | Tools and workflows | [Octocode Tools Reference](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_TOOLS.md) · [RDD Manifest & Workflows](https://github.com/bgauryy/octocode/blob/main/MANIFEST.md) · [Octocode Research Skill](https://github.com/bgauryy/octocode/tree/main/skills/octocode-research) · [Search Guide](https://github.com/bgauryy/octocode/blob/main/docs/context/SEARCH_GUIDE.md) |
 | CLI | [Octocode CLI Guide](https://github.com/bgauryy/octocode/blob/main/packages/octocode/docs/OCTOCODE_CLI.md) |
 | Skills | [Skills](https://github.com/bgauryy/octocode/tree/main/skills) |
 | Development and security | [Security Model](https://github.com/bgauryy/octocode/blob/main/docs/SECURITY.md) · [LSP Server Lifecycle](https://github.com/bgauryy/octocode/blob/main/packages/octocode-engine/docs/LSP_SERVER_LIFECYCLE.md) |
-| Benchmarks and evals | [Benchmark Results](https://github.com/bgauryy/octocode/tree/main/packages/octocode-benchmark/results) · [Benchmark Design](https://github.com/bgauryy/octocode/blob/main/packages/octocode-benchmark/BENCHMARK.md) · [Benchmark Runbook](https://github.com/bgauryy/octocode/blob/main/packages/octocode-benchmark/INSTRUCTIONS.md) · [Support Matrix](https://github.com/bgauryy/octocode/blob/main/packages/octocode-engine/docs/LSP_SERVER_LIFECYCLE.md#full-format-support-matrix) |
+| Benchmarks and evals | [Benchmark Results](https://github.com/bgauryy/octocode/tree/main/packages/octocode-benchmark/results) · [Benchmark Design](https://github.com/bgauryy/octocode/blob/main/packages/octocode-benchmark/skills/octocode-benchmark/references/BENCHMARK.md) · [Benchmark Runbook](https://github.com/bgauryy/octocode/blob/main/packages/octocode-benchmark/skills/octocode-benchmark/references/INSTRUCTIONS.md) · [Support Matrix](https://github.com/bgauryy/octocode/blob/main/packages/octocode-engine/docs/LSP_SERVER_LIFECYCLE.md#full-format-support-matrix) |
 | Shared internals | [Credentials Architecture](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md#github-token) · [Session Persistence](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_MCP.md#session-persistence) |
 
 ---

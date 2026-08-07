@@ -8,9 +8,11 @@ by its absolute size, so one outlier sets the verdict.
 
 ## The unit of analysis is the QUESTION, and the arms are PAIRED
 
-Both arms answer the *same* question, so every metric is a matched pair `(A_q, B_q)`.
-Analyse the **per-question paired differences/ratios**, never two independently-pooled
-piles. Two quantities behave differently and need different aggregation:
+Each matchup is a pairing — Octocode (anchor) vs one baseline (gh+RTK or gh+Headroom);
+the rollup presents them side by side as **two pairings** — Octocode-vs-RTK and
+Octocode-vs-Headroom. Within each pairing both arms answer
+the *same* question, so every metric is a matched pair (e.g. `(A_q, B_q)`). Analyse the
+**per-question paired differences/ratios**, never two independently-pooled piles. Two quantities behave differently and need different aggregation:
 
 | Quantity | Shape | Aggregate with | Never |
 |---|---|---|---|

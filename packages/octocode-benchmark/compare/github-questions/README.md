@@ -1,6 +1,6 @@
 # GitHub questions (shared)
 
-The **one** canonical v2 set of 25 GitHub research questions. All three GitHub matchups run this exact set — they differ only in the baseline arm, never the questions. Published 17-question campaigns used v1 and are not directly comparable to a v2 run.
+The **one** canonical v2 set of 30 GitHub research questions. All three GitHub matchups run this exact set — they differ only in the baseline arm, never the questions. Published 17-question campaigns used v1 and are not directly comparable to a v2 run.
 
 - [`octocode-vs-gh`](../octocode-vs-gh/) — plain `gh`
 - [`octocode-vs-gh-rtk`](../octocode-vs-gh-rtk/) — `gh` + `rtk`
@@ -37,6 +37,11 @@ Each file is just the title, id, and the question.
 | [Q23.md](Q23.md) | Linux write() syscall to VFS dispatch flow |
 | [Q24.md](Q24.md) | Axios buildFullPath blast radius |
 | [Q25.md](Q25.md) | Axios PR selected-patch and review thread |
+| [Q26.md](Q26.md) | Zustand documentation surface |
+| [Q27.md](Q27.md) | React Query public API surface |
+| [Q28.md](Q28.md) | Hermes agent memory management |
+| [Q29.md](Q29.md) | MCP HTTP transport authorization flow |
+| [Q30.md](Q30.md) | Chromium inter-process communication |
 
 ## Add a GitHub question
 

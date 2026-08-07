@@ -1,7 +1,8 @@
 import type { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types.js';
 import { getOctokit } from './client.js';
 import { handleGitHubAPIError } from './errors.js';
-import type { GitHubAPIResponse } from './githubAPI.js';
+import type { GitHubAPIResponse, HistoryCommitFile } from './githubAPI.js';
+import { shapeCommitDirFiles } from './history/commitFiles.js';
 
 export type CompareResult = {
   type: 'compare';
@@ -22,14 +23,17 @@ export type CompareResult = {
   }>;
   /** File count when includeDiff is off (lean default). */
   changedFiles?: number;
-  /** Per-file diffs when includeDiff is on. */
-  files?: Array<{
-    filename: string;
-    status: string;
-    additions: number;
-    deletions: number;
-    patch?: string;
-  }>;
+  /** Per-file diffs when includeDiff is on (windowed + paginated). */
+  files?: HistoryCommitFile[];
+  /** File-list pagination when includeDiff is on. */
+  filesPagination?: {
+    currentPage: number;
+    totalPages: number;
+    itemsPerPage: number;
+    totalFiles: number;
+    hasMore: boolean;
+    nextFilePage?: number;
+  };
 };
 
 /**
@@ -44,6 +48,12 @@ export async function compareRefs(
     base: string;
     head: string;
     includeDiff?: boolean;
+    /** Restrict the diff to a single file path (searchable scope). */
+    path?: string;
+    filePage?: number;
+    itemsPerPage?: number;
+    charOffset?: number;
+    charLength?: number;
   },
   authInfo?: AuthInfo
 ): Promise<GitHubAPIResponse<CompareResult>> {
@@ -61,7 +71,31 @@ export async function compareRefs(
       author: c.commit.author?.name ?? c.author?.login ?? 'unknown',
       date: c.commit.author?.date ?? '',
     }));
-    const files = d.files ?? [];
+    const allFiles = d.files ?? [];
+    // When a path is given, scope the diff to that file so a large commit is
+    // searchable by target instead of dumping every patch.
+    const scopedFiles = params.path
+      ? allFiles.filter(f => f.filename === params.path)
+      : allFiles;
+    let diffPayload:
+      | Pick<CompareResult, 'files' | 'filesPagination'>
+      | {
+          changedFiles: number;
+        };
+    if (params.includeDiff) {
+      const shaped = shapeCommitDirFiles(scopedFiles, {
+        filePage: params.filePage,
+        itemsPerPage: params.itemsPerPage,
+        charOffset: params.charOffset,
+        charLength: params.charLength,
+      });
+      diffPayload = {
+        files: shaped.files,
+        filesPagination: shaped.filesPagination,
+      };
+    } else {
+      diffPayload = { changedFiles: scopedFiles.length };
+    }
     return {
       data: {
         type: 'compare',
@@ -74,17 +108,7 @@ export async function compareRefs(
         behindBy: d.behind_by,
         totalCommits: d.total_commits,
         commits,
-        ...(params.includeDiff
-          ? {
-              files: files.map(f => ({
-                filename: f.filename,
-                status: f.status,
-                additions: f.additions,
-                deletions: f.deletions,
-                ...(f.patch ? { patch: f.patch } : {}),
-              })),
-            }
-          : { changedFiles: files.length }),
+        ...diffPayload,
       },
       status: 200,
     };
