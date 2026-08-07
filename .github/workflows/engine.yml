@@ -44,6 +44,12 @@ jobs:
       - name: Install dependencies
         run: yarn install --immutable
 
+      - name: Build @octocodeai/config
+        # octocode-engine imports @octocodeai/config's built dist/ (its `types`/`exports`
+        # point only at dist, no source path fallback) — build:dev's tsc step 404s with
+        # TS2307 "Cannot find module '@octocodeai/config'" without this.
+        run: yarn workspace @octocodeai/config build
+
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
