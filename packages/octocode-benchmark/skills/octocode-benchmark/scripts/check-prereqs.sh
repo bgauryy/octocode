@@ -24,8 +24,8 @@ echo "== Phase 0 preflight — octocode benchmark (all arms) =="
 echo "package root: $PKG_ROOT"
 echo
 
-# ---- Arm A: Octocode ---------------------------------------------------------
-echo "Arm A — Octocode (npx octocode@$OCTO_VER)"
+# ---- Octocode arm ------------------------------------------------------------
+echo "Octocode arm (npx octocode@$OCTO_VER)"
 if have npx; then
   v="$(npx -y "octocode@$OCTO_VER" --version 2>"$NULL" | tail -1)"
   [ -n "$v" ] && pass "octocode CLI reachable: $v  (note: --version string may lag the package version)" || bad "octocode CLI did not report a version"
@@ -36,8 +36,8 @@ else
 fi
 echo
 
-# ---- Arm B: gh + RTK ---------------------------------------------------------
-echo "Arm B — gh + RTK"
+# ---- gh + RTK arm ------------------------------------------------------------
+echo "gh + RTK arm"
 if have gh; then
   pass "gh: $(gh --version 2>"$NULL" | head -1)"
   if gh auth status >"$NULL" 2>&1; then pass "gh authenticated"; else bad "gh not authenticated (gh auth login)"; fi
@@ -52,8 +52,8 @@ else
 fi
 echo
 
-# ---- Arm C: gh + Headroom ----------------------------------------------------
-echo "Arm C — gh + Headroom"
+# ---- gh + Headroom arm -------------------------------------------------------
+echo "gh + Headroom arm"
 if have headroom; then
   pass "headroom: $(headroom --version 2>"$NULL" | head -1)"
 else

@@ -4,8 +4,8 @@ Thirty GitHub research questions in the shared set [`../github-questions/`](../g
 
 | Arm | Allowed surface |
 |---|---|
-| A | Read-only `gh` repository, code, content, tree, PR, issue, and commit operations |
-| B | Matching GitHub research through `npx octocode tools …` |
+| gh | Read-only `gh` repository, code, content, tree, PR, issue, and commit operations |
+| Octocode | Matching GitHub research through `npx octocode tools …` |
 
 Both runners receive the same question and budget. Neither gets browser, peer,
 or grader-reference access. Each runner may use only its assigned CLI surface;

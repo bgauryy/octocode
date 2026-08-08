@@ -9,8 +9,27 @@ overall reduction. Use the compressed total as arm A's "chars in" in SCORING.md.
 import argparse
 import hashlib
 import json
+import re
 from pathlib import Path
 from collections import Counter
+
+# Advisory fairness heuristics. The "leanest legal path" rule is otherwise
+# judge-enforced; these give a mechanical, reviewable signal so a wasteful path
+# (whole-tree dump / oversized single read) cannot pass unnoticed. They WARN,
+# never fail — some questions legitimately need a broad read.
+WHOLE_TREE_RE = re.compile(r"recursive=1\b")
+LARGE_READ_CHARS = 40000
+
+
+def fairness_notices(label: str, model_in_chars: int) -> list[str]:
+    notices: list[str] = []
+    if WHOLE_TREE_RE.search(label):
+        notices.append(f"whole-tree dump (recursive=1): {label!r}")
+    if model_in_chars >= LARGE_READ_CHARS:
+        notices.append(
+            f"large single read ({model_in_chars} chars ≥ {LARGE_READ_CHARS}): {label!r}"
+        )
+    return notices
 
 
 def digest(text: str) -> str:
@@ -28,6 +47,7 @@ def main() -> int:
     model_in = model_out = 0
     answers = 0
     errors: list[str] = []
+    fairness: list[str] = []
     transforms: Counter[str] = Counter()
     with Path(args.path).open(encoding="utf-8") as handle:
         for line_number, line in enumerate(handle, 1):
@@ -59,6 +79,12 @@ def main() -> int:
                 if int(record.get("exit_code", -1)) != 0:
                     failed_calls += 1
             calls += 1
+            fairness.extend(
+                fairness_notices(
+                    str(record.get("cmd", "")),
+                    int(record.get("model_in_chars", record.get("chars", 0))),
+                )
+            )
             for transform in record.get("transforms", []):
                 transforms[str(transform)] += 1
 
@@ -85,7 +111,10 @@ def main() -> int:
                 if not artifact_value or not Path(str(artifact_value)).is_file():
                     errors.append(f"{prefix}: missing {field}")
                     continue
-                text = Path(str(artifact_value)).read_text(encoding="utf-8")
+                # Read without newline translation so CRLF (\r\n) survives — universal
+                # newlines would strip \r and false-fail the char/hash check on CRLF files.
+                with open(str(artifact_value), encoding="utf-8", newline="") as artifact_handle:
+                    text = artifact_handle.read()
                 if len(text) != int(record.get(chars_field, -1)):
                     errors.append(f"{prefix}: {field} character count mismatch")
                 if digest(text) != record.get(hash_field):
@@ -109,6 +138,8 @@ def main() -> int:
         f"model_in_chars={model_in}  model_out_chars={model_out}  "
         f"total_chars={total_chars}  answers={answers}"
     )
+    for notice in fairness:
+        print(f"FAIRNESS: {notice}")
     for error in errors:
         print(f"ERROR: {error}")
     return 1 if errors else 0

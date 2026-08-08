@@ -14,9 +14,9 @@ matchup, and the rollup presents the matchups side by side.
 
 | Matchup dir | Anchor (arm) | Baseline (arm) | Baseline surface | Wrappers |
 |---|---|---|---|---|
-| `octocode-vs-gh` | Octocode | plain gh | `gh <args>` (read-only) | `bin/octoc` · `bin/ghm` |
-| `octocode-vs-gh-rtk` | Octocode | gh + RTK | `rtk gh <args>` (read-only) | `bin/octoc` · `bin/rtkm` |
-| `octocode-vs-gh-headroom` | Octocode | gh + Headroom | `./bin/ghc <gh args>` (compressed) | `bin/octoc` · `bin/ghc` |
+| `octocode-vs-gh` | Octocode | plain gh | `gh <args>` (read-only) | `compare/bin/octoc` · `compare/bin/ghm` |
+| `octocode-vs-gh-rtk` | Octocode | gh + RTK | `rtk gh <args>` (read-only) | `compare/bin/octoc` · `compare/bin/rtkm` |
+| `octocode-vs-gh-headroom` | Octocode | gh + Headroom | `compare/bin/ghc <gh args>` (compressed) | `compare/bin/octoc` · `compare/bin/ghc` |
 
 Within a matchup, each question is answered by **two isolated runner agents** (anchor +
 baseline) — same question and frozen refs, only the CLI differs. A separate **blind judge**
@@ -71,12 +71,14 @@ repeat ≥3 passes. Method + worked example: [`aggregation-and-stats.md`](aggreg
 
 ## Results
 
-Rollup: [`results/SUMMARY.md`](../../../results/SUMMARY.md). It uses the latest complete campaign and
-never pools invalid/incompatible runs into one synthetic total. Current honest reading
-(fair leanest-path run): correctness is a near-ceiling tie; Octocode is **~2× leaner than
-raw `gh`/rtk** and **~1.4× vs a lossless compressor (Headroom)** overall, with the advantage
-concentrated on large-file / commit-scoped / multi-hop reads and roughly even on small
-structured lookups. **No "several× better than everything" claim** — earlier inflated
-figures came from baseline runners violating the fairness rule above.
+Rollup: [`results/SUMMARY.md`](../../../results/SUMMARY.md) is the **single source of truth** for headline
+numbers — always read the current figures there and recompute from the logs
+(`per_question_summary.py`), never hardcode a ratio here. It uses the latest complete campaign
+and never pools invalid/incompatible runs into one synthetic total. Current honest reading
+(fair leanest-path run): correctness is a near-ceiling tie in every matchup, and Octocode is
+reliably **leaner than all three baselines** — the margin is largest on large-file /
+commit-scoped / multi-hop reads and inverts on small single-hit lookups where one `gh` call
+answers. **No "several× better than everything" claim** — earlier inflated figures came from
+baseline runners violating the fairness rule above.
 
 Treat this public question suite as comparative orientation, not a shipping gate.

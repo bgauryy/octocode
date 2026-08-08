@@ -60,13 +60,28 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("campaign_dir", type=Path)
     parser.add_argument("--question-count", type=int, default=30)
+    parser.add_argument(
+        "--arms",
+        help="comma-separated arm ids (e.g. 'rtk,octocode'); "
+        "default: auto-detect from answers/<arm>-p<pass>.md filenames",
+    )
     args = parser.parse_args()
     campaign = args.campaign_dir.resolve()
     expected_questions = list(range(1, args.question_count + 1))
     failures: list[str] = []
     summary: dict[str, object] = {}
 
-    for arm in ("headroom", "octocode"):
+    # Works for any matchup (octocode vs rtk | headroom | gh), not just headroom.
+    if args.arms:
+        arms = tuple(a.strip() for a in args.arms.split(",") if a.strip())
+    else:
+        arms = tuple(
+            sorted({p.name.rsplit("-p", 1)[0] for p in (campaign / "answers").glob("*-p*.md")})
+        )
+    if not arms:
+        arms = ("octocode",)
+
+    for arm in arms:
         arm_summary: dict[str, object] = {}
         for pass_number in range(1, 4):
             questions: dict[str, object] = {}
@@ -93,8 +108,10 @@ def main() -> int:
                     failures.append(f"missing log: {log}")
                     continue
                 command = [sys.executable, str(HERE / "sumlog.py"), str(log), "--strict"]
-                if arm == "headroom":
-                    command.extend(["--diagnostics", str(campaign / f"{stem}-diagnostics.log")])
+                # Pass diagnostics for any arm that produced them (the Headroom wrapper does).
+                diagnostics = campaign / f"{stem}-diagnostics.log"
+                if diagnostics.is_file():
+                    command.extend(["--diagnostics", str(diagnostics)])
                 validation = subprocess.run(command, text=True, capture_output=True)
                 if validation.returncode != 0:
                     failures.append(f"invalid {stem}: {validation.stdout}{validation.stderr}".strip())

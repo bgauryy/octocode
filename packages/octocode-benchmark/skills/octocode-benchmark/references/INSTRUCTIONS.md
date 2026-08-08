@@ -13,13 +13,13 @@ Concrete recipe: [run-with-agents.md](run-with-agents.md) →
    [run-preflight.md](run-preflight.md).
 2. **Phase 1 — answer.** Per pass, spawn the anchor + baseline as two isolated agents (no
    shared transcript, no answer key). Each appends its `## Q<n>` section to
-   `answers/<arm>-p<pass>.md`, chars via its `bin/` wrapper + `bin/record_answer.py`. Detail:
+   `answers/<arm>-p<pass>.md`, chars via its `compare/bin/` wrapper + `compare/bin/record_answer.py`. Detail:
    [run-phases.md](run-phases.md).
 3. **Phase 2 — judge.** After both sections exist, build the blind packet
-   (`bin/build_blind_packet.py`, X/Y randomized per question) and run one blind judge per
+   (`compare/bin/build_blind_packet.py`, X/Y randomized per question) and run one blind judge per
    question per [JUDGING.md](JUDGING.md) — reason first, score, rank correctness-first,
    confirm decisive wins, mark unresolved.
-4. **Phase 3 — summarize.** Validate logs (`bin/validate_campaign.py`), recompute paired
+4. **Phase 3 — summarize.** Validate logs (`compare/bin/validate_campaign.py`), recompute paired
    stats per [aggregation-and-stats.md](aggregation-and-stats.md), write the report
    ([REPORT_TEMPLATE.md](REPORT_TEMPLATE.md)), exclude + count unresolved questions, and
    update `results/SUMMARY.md` + `results/README.md`.

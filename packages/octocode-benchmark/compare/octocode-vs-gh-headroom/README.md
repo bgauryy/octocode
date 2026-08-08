@@ -7,8 +7,8 @@ Thirty GitHub research questions in the shared set
 
 | Arm | Allowed surface |
 |---|---|
-| A | Read-only `gh` operations, every output piped through **Headroom** compression (`../bin/ghc`) |
-| B | Matching GitHub research through `npx octocode tools …` |
+| gh + Headroom | Read-only `gh` operations, every output piped through **Headroom** compression (`../bin/ghc`) |
+| Octocode | Matching GitHub research through `npx octocode tools …` |
 
 Headroom is a **transport/compression layer, not an additional research source** —
 same role as `rtk` in the gh-rtk matchup. It never adds GitHub reach; it only
@@ -155,7 +155,7 @@ export GHC_ARTIFACT_DIR="$PWD/tmp/Q1-artifacts"
       -H "Accept: application/vnd.github.raw"      # raw, not base64 (smaller)
 ```
 
-Allowed arm-A families (read-only, mutations are rejected by the wrapper with
+Allowed gh + Headroom families (read-only, mutations are rejected by the wrapper with
 exit 2): `search {code,repos,prs,issues,commits}`, `repo view`, `pr view|diff`,
 `issue view`, and `api` limited to GET on `/contents` or `/git/trees`. Same
 policy as the gh and gh-rtk arms.

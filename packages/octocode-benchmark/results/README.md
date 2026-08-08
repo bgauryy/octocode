@@ -21,6 +21,19 @@ leanest-path enforced, 95% bootstrap CIs.
 characters than *both* baselines (both CIs above 1×) — a leaner context window and better model
 attention, with the margin widening on deep, large-file, multi-hop research.
 
+### Published-CLI validation (npx octocode@18.2.2)
+
+- **[Octocode vs gh+RTK — published CLI](full-octocode-vs-rtk-011533-2026-08-08.md)** — first full
+  30×3 run against the **published** `npx octocode@18.2.2` (not the local build). Correctness parity
+  (8.78 / 8.96, sign p=0.40), Octocode **~2.4× leaner** (per-Q geo-mean 2.37×, 95% CI 1.70–3.35×,
+  median 2.26×, leaner 66/90, p<0.0001; judge wins 47/43). Confirms the shipped artifact tracks the
+  local-build result (~3.2×); pooled 11.09× is outlier-driven (Q28=24.9%, leave-one-out 8.73×).
+- **[Octocode vs gh+Headroom — published CLI](full-octocode-vs-headroom-091618-2026-08-08.md)** — full
+  30×3 run against **published** `npx octocode@18.2.2` vs compressed gh+Headroom 0.34.0. Correctness
+  parity (8.68 / 8.68, sign p=0.59), Octocode **~2.3× leaner** (per-Q geo-mean 2.27×, 95% CI
+  1.70–3.01×, median 2.60×, leaner 67/90, p<0.0001; judge wins 47/43). Compression narrows but does
+  not close the gap; pooled 5.77× outlier-driven (Q28=20.3%, leave-one-out 4.98×).
+
 ### Superseded (earlier, smaller runs)
 
 - [campaign-2pass-183432](campaign-2pass-183432-2026-08-06.md) (25×2, published CLI) — found
@@ -46,7 +59,7 @@ headline calculation.
 
 Write new reports as
 `<comparison-name>-<HHMMSS>-<YYYY-MM-DD>.md` using
-[REPORT_TEMPLATE.md](../REPORT_TEMPLATE.md). Measurement is in Unicode
+[REPORT_TEMPLATE.md](../skills/octocode-benchmark/references/REPORT_TEMPLATE.md). Measurement is in Unicode
 characters delivered to the runner; correctness takes precedence over
 footprint. Failed probes inside a complete run remain counted.
 

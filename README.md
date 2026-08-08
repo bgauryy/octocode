@@ -166,71 +166,17 @@ Most tools do one slice (web search, or grep your repo) and hand back a fixed bl
 
 ## Built for Research (Benchmarks)
 
-Octocode is a **research layer for coding agents**: it finds and proves the context an agent
-needs *before* it writes, reviews, or explains code, via **CLI or MCP**. It shines at **deep
-research across many repositories**: connecting the dots from a symbol to its source, the PR
-that changed it, and the same pattern in other repos. The benchmark measures the two things a
-developer actually pays for:
+A blind, head-to-head test on **research-oriented flows — not simple lookups** (multi-hop traces,
+dependency/call-graph chains, commit ranges, blast-radius, PR reviews across repos).
 
-- **Accuracy**: did the agent get the answer right?
-- **Context cost**: how many characters the model had to read to get there. Fewer characters =
-  **lower token spend, faster turns, and sharper focus** (the model isn't buried in boilerplate).
+[![Octocode benchmark — same answers, a fraction of the context](assets/benchmark.png)](https://raw.githack.com/bgauryy/octocode/main/packages/octocode-benchmark/results/index.html)
 
-We ran **30 real cross-repo questions** (dependency traces, call graphs, commit ranges, blast
-radius, PR reviews), 3 passes each, against three GitHub setups a developer might use today:
-plain `gh`, `gh` + Headroom (compression), and `gh` + RTK. A blind, neutral judge (gpt-5.5)
-graded every answer.
+**How it works:** 30 GitHub questions × 3 passes; Octocode vs `gh`, `gh`+Headroom, and `gh`+RTK on
+identical questions (only the CLI differs). A blind judge (gpt-5.5) grades correctness; the metric is
+**characters through the model**, counted from instrumented logs (chars ≈ tokens). **Result:** at
+near-parity correctness, Octocode answers with **far fewer characters** than every baseline.
 
-### Scorecard (30 Q × 3 passes per matchup, local build v18.1.1, blind neutral gpt-5.5 judge, 95% bootstrap CIs)
-
-**Typical context per question**: how many characters the model reads to answer, relative to
-Octocode (lower is better):
-
-```text
-Octocode      ███          1.0× (baseline)
-plain gh      ██████       2.0× more context
-gh + Headroom ████████     2.6× more context
-gh + RTK      ██████████   3.2× more context
-```
-
-| Dimension | Octocode | plain gh | gh + Headroom | gh + RTK |
-|---|---:|---:|---:|---:|
-| Correctness (/10) | ~9.2–9.3 | 9.3 | 8.6 | **9.4** |
-| Chars, per-Q geo-mean (baseline÷Octo, 95% CI) | 1.0× | **2.0×** (1.5–2.6) | **2.6×** (1.9–3.7) | **3.2×** (2.4–4.5) |
-| Correct-and-leaner wins (Octo / baseline) | n/a | 51 / 38 | 60 / 28 | 57 / 33 |
-| Questions Octocode leaner | n/a | 67/89 | 63/88 | 68/90 |
-
-**What this means for you:** at the **same accuracy** (all arms tie at ~9/10), Octocode answers
-in **2–3× fewer characters** than every baseline, every 95% CI stays above 1×, and it is
-leaner on ~72–75% of questions. That is directly less token spend and context bloat on each
-research step. Even versus bare, disciplined `gh` (the leanest baseline) it is ~2× leaner, and
-the lead grows on the hard multi-hop, large-file questions where agents usually derail.
-
-**Why it's leaner without losing anything:**
-- **Exact slices, not dumps**: reads the region, symbol, or diff you asked for, never a whole file or tree.
-- **Lossless minification**: strips boilerplate across 70+ languages with zero data loss: a 100 KB file becomes a few hundred tokens of real structure.
-- **No silent truncation**: you get the full slice; large results continue on demand via exact cursors.
-- **One research loop**: GitHub + local + LSP + npm behind a single flow: structure → search → exact read → prove.
-
-Full reports:
-[vs plain gh](https://github.com/bgauryy/octocode/blob/main/packages/octocode-benchmark/results/full-octocode-vs-gh-152630-2026-08-07.md) ·
-[vs gh+Headroom](https://github.com/bgauryy/octocode/blob/main/packages/octocode-benchmark/results/full-octocode-vs-headroom-134213-2026-08-07.md) ·
-[vs gh+RTK](https://github.com/bgauryy/octocode/blob/main/packages/octocode-benchmark/results/full-octocode-vs-rtk-162848-2026-08-07.md).
-
-### When to reach for Octocode vs a quick check
-
-| Reach for **Octocode** when… | A **quick check** is enough when… |
-|---|---|
-| You need **exact field membership** (peer vs optional vs dev, version ranges). | You already know the file+line and just want to eyeball it. |
-| The answer is a **trace across files/repos** (dependency → source → transport → parser chain). | You need one PR title, issue state, or a single `--json` field. |
-| You want to **stay lean in context**: targeted reads, not whole-file/tree dumps. | The file is tiny and a full fetch is trivially cheap. |
-| You need **reachability / call-graph proof** before a change. | A single grep hit already answers it. |
-
-**Dig deeper:** [run](https://github.com/bgauryy/octocode/tree/main/packages/octocode-benchmark/skills/octocode-benchmark) ·
-[design](https://github.com/bgauryy/octocode/blob/main/packages/octocode-benchmark/skills/octocode-benchmark/references/BENCHMARK.md) ·
-[questions](https://github.com/bgauryy/octocode/tree/main/packages/octocode-benchmark/compare/github-questions) ·
-[stats method](https://github.com/bgauryy/octocode/blob/main/packages/octocode-benchmark/skills/octocode-benchmark/references/aggregation-and-stats.md) ·
-[all reports](https://github.com/bgauryy/octocode/tree/main/packages/octocode-benchmark/results) (historical runs carry their own caveats).
+▶ **[Open the interactive report](https://raw.githack.com/bgauryy/octocode/main/packages/octocode-benchmark/results/index.html)** · **[run it / method](https://github.com/bgauryy/octocode/tree/main/packages/octocode-benchmark/skills/octocode-benchmark)** · [questions](https://github.com/bgauryy/octocode/tree/main/packages/octocode-benchmark/compare/github-questions) · [all reports](https://github.com/bgauryy/octocode/tree/main/packages/octocode-benchmark/results)
 
 ---
 

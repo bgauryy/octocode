@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# Instrumented Octocode arm pinned to the published npx octocode@18.2.2 CLI.
+# Research command stays exactly `npx octocode@18.2.2 tools ...`; this wrapper
+# only captures its output/char metrics via instrument_command.py.
+set -euo pipefail
+
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+OCTO_LOG="${OCTO_LOG:-$PWD/tmp/octocode-run.jsonl}"
+OCTO_ARTIFACT_DIR="${OCTO_ARTIFACT_DIR:-${OCTO_LOG%.jsonl}-artifacts}"
+OCTO_PY="${OCTO_PY:-python3}"
+OCTO_SPEC="${OCTO_SPEC:-octocode@18.2.2}"
+
+label="npx octocode tools $(printf '%s ' "$@" | sed 's/ *$//')"
+exec "$OCTO_PY" "$HERE/instrument_command.py" \
+  --log "$OCTO_LOG" \
+  --artifact-dir "$OCTO_ARTIFACT_DIR" \
+  --label "$label" \
+  -- npx -y "$OCTO_SPEC" tools "$@"

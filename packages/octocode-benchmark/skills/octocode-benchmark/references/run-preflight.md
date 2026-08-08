@@ -25,15 +25,25 @@ output (`model_in_chars`) — appending one JSONL row per call; the final answer
 pure model-out. Never trust a self-reported count.
 
 **Canonical instrumentation:** thin per-arm wrappers shell the exact CLI through
-`bin/instrument_command.py` — `bin/octoc` (Octocode), `bin/rtkm` (gh+RTK), `bin/ghc`
-(gh+Headroom, compressed) — writing `<arm>-p<pass>-Q<n>.jsonl`. Log the final answer with
-`bin/record_answer.py` (a `kind:"answer"` model-out row). Total per arm/pass/question comes
-from `bin/sumlog.py --strict`; the whole campaign is checked by `bin/validate_campaign.py`.
-(These live under `compare/bin/`, shared by every matchup.)
+`compare/bin/instrument_command.py` — `compare/bin/octoc` (Octocode), `compare/bin/rtkm`
+(gh+RTK), `compare/bin/ghc` (gh+Headroom, compressed), `compare/bin/ghm` (plain gh, bare
+baseline) — writing `<arm>-p<pass>-Q<n>.jsonl`. Log the final answer with
+`compare/bin/record_answer.py` (a `kind:"answer"` model-out row). Total per arm/pass/question
+comes from `compare/bin/sumlog.py --strict`; the whole campaign is checked by
+`compare/bin/validate_campaign.py`. (These live under `compare/bin/`, shared by every matchup.)
+
+**Which octocode wrapper (all under `compare/bin/`):** use `octoc-local` for the
+cross-matchup comparable rollup (builds Octocode from the local monorepo — pin the
+build/commit), `octoc1822` for published-CLI validation (`npx -y octocode@18.2.2`), and
+**never** bare `octoc` (unpinned `npx octocode`) for a headline run. Record the exact wrapper
++ version in the report.
 
 **Fallback:** an arm with no dedicated wrapper MAY use
 `scripts/measure.sh <arm> Q<n> <label> -- <cmd>`; it emits the same
 `model_in_chars`/`model_out_chars`/`total_chars` fields so `sumlog.py` folds it in
-identically.
+identically. Note `measure.sh` writes a per-arm aggregated `<rundir>/<arm>/calls.jsonl`, **not**
+the canonical per-question `<arm>-p<pass>-Q<n>.jsonl`, so point `sumlog.py` at that
+`calls.jsonl` — `validate_campaign.py` globs the per-question logs and does not consume it.
+Prefer the `compare/bin/` wrappers for a headline campaign.
 
 Next: run the phases — [`run-phases.md`](run-phases.md).

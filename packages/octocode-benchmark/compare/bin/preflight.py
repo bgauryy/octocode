@@ -153,7 +153,8 @@ def main() -> int:
     parser.add_argument(
         "--headroom-python",
         default=os.environ.get(
-            "HR_PY", "/Users/guybary/.local/share/uv/tools/headroom-ai/bin/python"
+            "HR_PY",
+            str(Path.home() / ".local/share/uv/tools/headroom-ai/bin/python"),
         ),
     )
     args = parser.parse_args()

@@ -9,10 +9,10 @@ Seeking the other runner, the judge, or any hidden reference invalidates the run
 
 Your assigned arm is exactly one of (arm id in **bold** — use it in your output path):
 
-- **`octocode`** — every research command is `npx octocode@<ver> tools <tool> --queries …` (via `bin/octoc`); no MCP, no gh.
-- **`rtk`** — every research command is `rtk gh <args>` (read-only, via `bin/rtkm`).
-- **`headroom`** — every research command is `./bin/ghc <gh args>` (compressed).
-- **`gh`** — every research command is `gh <args>` (read-only, via `../bin/ghm`).
+- **`octocode`** — every research command is `npx octocode@<ver> tools <tool> --queries …` (via `compare/bin/octoc`); no MCP, no gh.
+- **`rtk`** — every research command is `rtk gh <args>` (read-only, via `compare/bin/rtkm`).
+- **`headroom`** — every research command is `compare/bin/ghc <gh args>` (compressed).
+- **`gh`** — every research command is `gh <args>` (read-only, via `compare/bin/ghm`).
 
 ## What to produce (one `## Q<n>` answer section — required)
 
@@ -29,7 +29,7 @@ nothing on that question. Each section has two parts:
 
 **Stats are recorded by the instrumentation, not hand-written.** Every research command runs
 through your arm's wrapper (which appends `model_in_chars` / `model_out_chars` per call to
-the run JSONL), and your final answer is logged with `bin/record_answer.py` (pure
+the run JSONL), and your final answer is logged with `compare/bin/record_answer.py` (pure
 model-out). The scored figure is **total = model-in + model-out** from that log — the JSONL
 and preserved artifacts are authoritative; never reconstruct counts from the transcript.
 
