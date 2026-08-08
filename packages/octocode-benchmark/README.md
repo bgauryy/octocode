@@ -6,18 +6,36 @@ An orchestrator drives all four phases and summarizes the campaign.
 
 **No harness, no JSON schemas.** Everything is markdown you can read and edit.
 
+## Characters delivered per tool (≈ tokens)
+
+Characters pushed through the model to answer the **same 30 research questions** (model-in +
+model-out; Unicode code points ≈ tokens). Correctness is a near-ceiling tie across tools, so
+this is the difference that matters — **fewer characters = leaner context**.
+
+| Tool | Mean chars / question | Total over 30 Q | vs Octocode |
+|---|---:|---:|---:|
+| **Octocode** | **22,111** | **663,319** | — (anchor) |
+| gh | 114,849 | 3,445,482 | **2.01×** more |
+| gh + RTK | 368,586 | 11,057,569 | **3.22×** more |
+| gh + Headroom | 382,598 | 11,477,951 | **2.73×** more |
+
+*“vs Octocode” = per-question geometric-mean ratio (outlier-resistant, the fair headline).
+Numbers recomputed from per-call logs by [`compare/bin/per_question_summary.py`](compare/bin/per_question_summary.py);
+see [`results/SUMMARY.md`](results/SUMMARY.md) for CIs and [`results/index.html`](results/index.html) for the visual report. Local build v18.1.1, 3 passes, blind gpt-5.5 judge.*
+
 ```
 compare/
+  bin/                      shared wrappers + scripts (octoc, ghm, rtkm, ghc, …)
   github-questions/         the 30 shared GitHub questions — ONE canonical copy
   octocode-vs-gh/           README.md            (arm: plain gh)
   octocode-vs-gh-rtk/       README.md            (arm: gh + RTK)
-  octocode-vs-gh-headroom/  README.md + bin/     (arm: gh + Headroom)
+  octocode-vs-gh-headroom/  README.md            (arm: gh + Headroom)
 results/                    finished campaign write-ups + SUMMARY
 tmp/                        run scratch — logs, corpora (gitignored)
 ```
 
 - A **question** = one `Q<n>.md` with exactly a title, an `id`, and the `## Question` — no scope, hints, claims, or answer.
-- The three **arms**: A = `npx octocode tools …`, B = `rtk gh …`, C = `./bin/ghc …` (no MCP, no monorepo entrypoint for arm A).
+- The **arms** (named, not lettered): `octocode` = `npx octocode tools …`, `rtk` = `rtk gh …`, `headroom` = `compare/bin/ghc …` (the `octocode` arm uses no MCP and no monorepo entrypoint).
 
 ## The flow (orchestrated, 4 phases)
 

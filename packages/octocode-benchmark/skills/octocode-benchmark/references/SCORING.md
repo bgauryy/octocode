@@ -6,9 +6,16 @@ reasoning behind it is not usable. Each answer is scored on **correctness (0–1
 depth (1–5), workflow (1–5)** — rubric and per-answer reasoning live in
 [JUDGING.md](JUDGING.md) — plus one measured quantity defined here:
 
-- **Total chars through the model** — model-in (tool output pulled into context) **+**
-  model-out (commands/args + final answer), per question, from the instrumented log — never
-  self-reported.
+- **Measured tool-transcript chars** (labeled "total chars through the model" in reports) —
+  model-in (tool output pulled into context) **+** model-out (commands/args + final answer),
+  per question, from the instrumented log — never self-reported. This is the **tool
+  transcript only**: it excludes the system prompt, tool schemas, and model reasoning; the
+  fixed per-arm primer is excluded by rule. Any later help/catalog/schema/failed command is a
+  measured research call.
+- **Unit is characters, not tokens.** We count Unicode code points, so the char ratio only
+  *approximates* the token ratio (JSON and prose tokenize differently). Report chars as the
+  headline; if you quote a token figure use `tokens_before/after` from the Headroom record and
+  label it separately.
 
 ## Aggregate per question, paired
 
@@ -48,3 +55,10 @@ Two honesty guards that gate any shipping claim:
   ratio; the per-question geometric mean is a separate, labeled figure.
 - Disclose the fairness rule: if any arm used a non-lean path (whole-file/tree dump where a
   targeted read answers), flag it — it inflates that arm's chars and biases the ratio.
+  `sumlog.py` now emits advisory `FAIRNESS:` lines for whole-tree (`recursive=1`) dumps and
+  oversized single reads; review them before trusting a ratio.
+- Disclose the output-format asymmetry: Octocode tool output is **natively minified**, while
+  `rtk gh` and plain `gh` return **raw** output (only the Headroom arm compresses). So an
+  Octocode-vs-rtk/gh char ratio measures Octocode's built-in compaction *and* query
+  discipline against a raw baseline — a legitimate product comparison, but state it alongside
+  the ratio so it is not read as a same-format normalization.

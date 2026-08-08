@@ -9,13 +9,24 @@ different harness generations are not summed into one synthetic total.
 
 Each matchup is a full **30-question v2 set × 3 passes** (local build `out/octocode.js`
 v18.1.1), blind neutral **gpt-5.5** judge, X/Y randomized per question, leanest-path enforced,
-95% bootstrap CIs (5,000 resamples of the per-question `total_chars` ratios).
+95% bootstrap CIs (10,000 resamples of the per-question `total_chars` ratios).
 
 | Matchup | Questions | Correctness (Octocode / baseline) | Char ratio (per-Q geo-mean, 95% CI) | Wins O/tie/B · leaner | Verdict |
 |---|---:|---|---|---|---|
 | [vs gh+Headroom](full-octocode-vs-headroom-134213-2026-08-07.md) | 30 × 3 | 9.30 / 8.62 (Octocode edges) | **2.62×** (1.87–3.71), median 2.77× | 60 / 0 / 28 · 63/88 | Octocode more correct **and** ~2.6× leaner; CI above 1×. Baseline prone to char blowups on tree/file dumps (one 20M-char question). |
 | [vs gh+RTK](full-octocode-vs-rtk-162848-2026-08-07.md) | 30 × 3 | 9.29 / 9.42 (near-parity) | **3.21×** (2.36–4.46), median 2.83× | 56 / 0 / 33 · 67/89 | Correctness parity; Octocode **reliably ~3.2× leaner** (CI well above 1×). Supersedes the earlier 2-pass RTK "parity" finding — the larger 3-pass run resolves toward Octocode leaner. |
 | [vs plain gh](full-octocode-vs-gh-152630-2026-08-07.md) | 30 × 3 | 9.19 / 9.27 (near-parity) | **1.99×** (1.52–2.61), median 2.16× | 16 / 51 / 22 · 67/89 | Correctness parity; Octocode **~2.0× leaner** (CI above 1×, sign test p<0.0001). Plain `gh` is the leanest baseline (no wrapper/compression), so the margin is smaller — but Octocode still wins on workflow (4.37 vs 3.85) via targeted region reads vs whole-file `raw` fetches. |
+
+## Published-CLI validation — `npx octocode@18.2.2` vs gh+RTK (30 × 3)
+
+The table above uses the **local monorepo build** (v18.1.1) for cross-matchup comparability. A
+separate full 30×3 campaign runs the **published** CLI to confirm the shipped artifact behaves
+the same (same runner/judge models, gpt-5.5 blind judge, seed=42, byte-faithful validation):
+
+| Matchup | Questions | Correctness (Octocode / baseline) | Char ratio (per-Q geo-mean, 95% CI) | Wins O/tie/B · leaner | Verdict |
+|---|---:|---|---|---|---|
+| [vs gh+RTK — published `octocode@18.2.2`](full-octocode-vs-rtk-011533-2026-08-08.md) | 30 × 3 | 8.78 / 8.96 (near-parity, p=0.40) | **2.37×** (1.70–3.35), median 2.26× | 47 / 0 / 43 · 66/90 | Correctness parity; published CLI **~2.4× leaner** (CI above 1×, leaner sign p<0.0001). Directionally consistent with the local-build ~3.2×; pooled 11.09× is outlier-driven (Q28 = 24.9%, LOO 8.73×). |
+| [vs gh+Headroom — published `octocode@18.2.2`](full-octocode-vs-headroom-091618-2026-08-08.md) | 30 × 3 | 8.68 / 8.68 (parity, p=0.59) | **2.27×** (1.70–3.01), median 2.60× | 47 / 0 / 43 · 67/90 | Correctness parity; published CLI **~2.3× leaner** (CI above 1×, leaner sign p<0.0001). Compression narrows but doesn't close the gap; pooled 5.77× outlier-driven (Q28 = 20.3%, LOO 4.98×). |
 
 ## What the current evidence supports
 
@@ -84,5 +95,7 @@ tokens, model latency, monetary cost, or product-wide capability. Use public
 benchmark results as orientation; use private held-out failures for shipping
 decisions.
 
-See [benchmark design](../BENCHMARK.md), [scoring](../SCORING.md),
-[judging](../JUDGING.md), and the [run instructions](../INSTRUCTIONS.md).
+See [benchmark design](../skills/octocode-benchmark/references/BENCHMARK.md),
+[scoring](../skills/octocode-benchmark/references/SCORING.md),
+[judging](../skills/octocode-benchmark/references/JUDGING.md), and the
+[run instructions](../skills/octocode-benchmark/references/INSTRUCTIONS.md).

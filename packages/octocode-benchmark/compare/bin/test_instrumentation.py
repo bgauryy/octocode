@@ -13,10 +13,23 @@ import unittest
 
 
 HERE = Path(__file__).resolve().parent
-HR_PY = Path("/Users/guybary/.local/share/uv/tools/headroom-ai/bin/python")
+# Resolve the Headroom interpreter the same way the wrappers do (ghc/hr_compress):
+# $HR_PY if set, else the uv-tool venv under the current user's home. Never hardcode
+# an absolute path to one developer's machine — that silently breaks the Headroom
+# measurement tests everywhere else.
+HR_PY = Path(
+    os.environ.get(
+        "HR_PY", Path.home() / ".local/share/uv/tools/headroom-ai/bin/python"
+    )
+)
+
+
+HR_AVAILABLE = HR_PY.is_file()
+HR_REASON = f"Headroom interpreter not found at {HR_PY} (set $HR_PY)"
 
 
 class InstrumentationTests(unittest.TestCase):
+    @unittest.skipUnless(HR_AVAILABLE, HR_REASON)
     def test_headroom_record_preserves_transform_and_unicode_artifacts(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
@@ -86,6 +99,7 @@ class InstrumentationTests(unittest.TestCase):
             self.assertEqual(record["exit_code"], 0)
             self.assertEqual(Path(record["artifact"]).read_text(encoding="utf-8"), text)
 
+    @unittest.skipUnless(HR_AVAILABLE, HR_REASON)
     def test_ghc_records_failed_probe_output_and_exit_status(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)

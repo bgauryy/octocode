@@ -92,8 +92,9 @@
     "directory": "packages/octocode-tools-core"
   },
   "scripts": {
-    "build": "yarn readme:sync && yarn clean && node build.mjs && tsc --emitDeclarationOnly -p tsconfig.build.json",
-    "build:dev": "yarn readme:sync && node build.mjs && tsc --emitDeclarationOnly -p tsconfig.build.json",
+    "build": "yarn readme:sync && yarn clean && node build.mjs && yarn build:types-deps && tsc --emitDeclarationOnly -p tsconfig.build.json",
+    "build:dev": "yarn readme:sync && node build.mjs && yarn build:types-deps && tsc --emitDeclarationOnly -p tsconfig.build.json",
+    "build:types-deps": "yarn workspace @octocodeai/config build",
     "clean": "rm -rf dist/",
     "lint": "eslint src",
     "lint:fix": "eslint src --fix",

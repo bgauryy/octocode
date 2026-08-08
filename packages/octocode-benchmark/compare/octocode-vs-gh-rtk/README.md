@@ -4,8 +4,8 @@ Thirty GitHub research questions in the shared set [`../github-questions/`](../g
 
 | Arm | Allowed surface |
 |---|---|
-| A | Read-only `gh` operations invoked through `rtk gh` |
-| B | Matching GitHub research through `npx octocode tools …` |
+| gh + RTK | Read-only `gh` operations invoked through `rtk gh` |
+| Octocode | Matching GitHub research through `npx octocode tools …` |
 
 RTK is a transport/filter layer, not an additional research source.
 
@@ -27,7 +27,7 @@ Give baseline arm its fair minimum footprint. Verified against rtk's docs (`rtk-
 
 Note per call whether rtk **filtered** or **passed through** (`--json`, `search`, and `api` are passthrough — rtk adds nothing). This guidance changes footprint, not the read-only policy.
 
-Allowed arm-A families: `search {code,repos,prs,issues,commits}`, `repo view`, `pr view|diff`, `issue view`, and `api` limited to `/contents` or `/git/trees` (GET only). No mutation verbs.
+Allowed gh + RTK families: `search {code,repos,prs,issues,commits}`, `repo view`, `pr view|diff`, `issue view`, and `api` limited to `/contents` or `/git/trees` (GET only). No mutation verbs.
 
 ## Octocode arm
 

@@ -58,7 +58,7 @@ LLM judges have known biases — control them or the scores are noise (Zheng et 
 LLM-as-a-Judge*, arXiv 2306.05685):
 
 - **Position bias** — assign X/Y in **randomized order per question** via
-  `bin/build_blind_packet.py` (it records the mapping out of band).
+  `compare/bin/build_blind_packet.py` (it records the mapping out of band).
 - **Verbosity bias** — never reward length; score evidence, not size.
 - **Self-enhancement bias** — use a **strong, neutral judge model**, ideally a different
   family from every arm; record it.
