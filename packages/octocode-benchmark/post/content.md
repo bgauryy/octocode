@@ -4,9 +4,9 @@
 
 > **TL;DR**
 >
-> Coding agents need context beyond the open repo, but dumping everything into a model creates noise. Octocode follows an evidence-first loop: orient, search, read the exact slice, prove, and continue only when needed.
+> Coding agents need evidence beyond the open repo, but dumping everything into a model creates noise. Octocode follows an evidence-first loop: orient, search, read the exact slice, prove, and continue only when needed.
 >
-> On a 30-question GitHub research benchmark, Octocode stayed in the same high correctness tier as plain `gh`, `gh + Headroom`, and `gh + RTK`, while those baselines delivered **roughly 2–3× as many characters**.
+> In a 30-question GitHub research benchmark, Octocode stayed in the same high correctness tier as plain `gh`, `gh + Headroom`, and `gh + RTK` while using about **50–70% less context** — roughly **half to one-third as many characters through the model**.
 >
 > Shorter context helps only when it stays precise enough to preserve correctness.
 
@@ -53,7 +53,7 @@ Plain `gh` and wrappers like RTK or Headroom can still produce correct answers. 
 
 Feeling lean is not the same as working. We tested whether evidence routing could keep answer quality high while cutting the characters delivered to the model.
 
-![Benchmark hero: baselines delivered 1.99×–3.21× as many characters with comparable correctness (Octocode / baseline)](./assets/octocode-benchmark-hero.png)
+![Benchmark hero: Octocode used about 50–70% less context with comparable correctness](./assets/octocode-benchmark-hero.png)
 
 We ran a public 30-question suite, three pairwise matchups (Octocode vs plain `gh`, `gh + Headroom`, `gh + RTK`), and three passes each. Correctness came first: a shorter wrong answer never beats a longer correct one.
 
@@ -94,7 +94,7 @@ Under the hood, remote providers fetch GitHub and npm evidence. A Rust/napi engi
 
 ![Architecture: CLI and MCP into shared tools-core, with arrows to metadata, remote evidence, and native engine, plus layered safety](./assets/octocode-architecture.png)
 
-## Four context-engineering lessons
+## Octocode context-engineering main approach
 
 ### 1. Orient before reading
 
@@ -102,7 +102,7 @@ When the location is unclear, map the tree before opening plausible files. Zoom 
 
 ### 2. Treat search hits as candidates
 
-A snippet can answer a narrow question, but it is not always proof. Use it to find the exact region—or the commit / PR—that can support the claim.
+A snippet can answer a narrow question, but it is not always proof. Use it to find the exact region—or the commit / PR—that can support the claim. Rank candidates against the question before the next tool call; do not treat the first hit as the answer.
 
 ### 3. Match the read to the question
 
@@ -111,6 +111,10 @@ Use a symbol outline when only structure matters, compact code for most investig
 ### 4. Make continuation cheap and deterministic
 
 When more evidence is needed, pagination and typed next-step hints let the agent continue without reconstructing the query or re-sending earlier content. Independent probes can run together in one batch.
+
+### 5. Force reasoned, research-oriented tool use
+
+Do not let the model jump from a vague goal to a tool dump. Require an explicit step before each search or read: state the hypothesis, what evidence would confirm or refute it, and which tool/query is the cheapest probe. Keep the agent in a research loop—scope, candidate search, exact read, prove—so tool calls stay purposeful instead of exploratory thrashing.
 
 ## What this benchmark does not prove
 
@@ -122,7 +126,7 @@ That points to clear next steps: a leaner response mode, better first-query guid
 
 ## The takeaway
 
-On this suite, Octocode stayed in the same high correctness tier while the three baselines delivered roughly **2–3× as many characters**.
+On this suite, Octocode stayed in the same high correctness tier while using roughly **50–70% less context** than the three baselines.
 
 Bigger windows expand what agents can attempt. They do not remove the need to choose what evidence belongs in that window. Shorter is not automatically better. **Sharper evidence is better when it preserves correctness.**
 
@@ -133,3 +137,5 @@ Bigger windows expand what agents can attempt. They do not remove the need to ch
 - [Benchmark questions](https://github.com/bgauryy/octocode/tree/main/packages/octocode-benchmark/compare/github-questions)
 - [Benchmark report](https://raw.githack.com/bgauryy/octocode/main/packages/octocode-benchmark/results/index.html)
 - [Research Driven Development Manifest](https://github.com/bgauryy/octocode/blob/main/MANIFEST.md)
+
+If you liked this post, feel free to explore — and add a ⭐ to the [Octocode repo](https://github.com/bgauryy/octocode) 🐙
