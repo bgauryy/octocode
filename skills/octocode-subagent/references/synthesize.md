@@ -21,4 +21,7 @@ Load before the parent answers the user. Why: fan-out without a barrier creates 
 - Task derailment / info withholding — compare packet `goal` vs returned `result`.
 - Coordination tax — if merge needs another research campaign, the cut was wrong.
 
-Next: `recovery.md` if blocked; `packets.md` for required shapes.
+## Before answering
+Emit the synthesis card in `references/output.md`. If trust is thin, gate to rubber-duck / interview (`references/techniques.md`) instead of shipping. Eval sensors on barrier quality → `octocode-graph-eval` subagent-communication cookbook (not this folder).
+
+Next: `references/recovery.md` if blocked; `references/packets.md` for required shapes; `references/output.md` for the card.

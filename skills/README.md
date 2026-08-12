@@ -14,14 +14,14 @@ Sync / install / review: use **`octocode-skills`** (`scripts/skill-sync.mjs`, `s
 | [octocode-brainstorming](./octocode-brainstorming/) | Explore ideas before building — options, worth-building, Build / Prototype / Narrow / Park |
 | [octocode-rfc-generator](./octocode-rfc-generator/) | Decision before coding — RFC, design, migration, rollout, measurable contract |
 | [octocode-graph-eval](./octocode-graph-eval/) | Did the change help? — loop & graph-of-loops evals, sensors, ACCEPT/REVERT, KPI contracts, suites, held-out, TDD-first |
-| [octocode-awareness](./octocode-awareness/) | Shared-repo coordination — collisions, handoffs, verification debt, wiki, hooks |
-| [octocode-subagent](./octocode-subagent/) | Spawn / parallel host workers — topology, packets, ownership, synthesize |
-| [octocode-orchestrator-local-worker](./octocode-orchestrator-local-worker/) | Cloud keeps judgment; local Ollama burns tokens — summarize/extract/… sealed packets |
-| [octocode-documentation](./octocode-documentation/) | Write/update docs — README, AGENTS/CLAUDE, ADRs, Diátaxis, agent-facing docs |
-| [octocode-roast](./octocode-roast/) | Blunt evidence-backed critique — smells, debt ranking, redemption paths |
+| [octocode-subagent](./octocode-subagent/) | Spawn / Task / A2A / challenge techniques **or** local Ollama sealed-packet offload |
+| [octocode-documentation](./octocode-documentation/) | Write/update docs — README, runbooks, CONTRIBUTING, ADRs, Diátaxis, agent-facing docs |
+| [octocode-roast](./octocode-roast/) | Blunt evidence-backed critique — smells, debt ranking, autopsy, redemption |
 | [octocode-prompt-optimizer](./octocode-prompt-optimizer/) | Sharpen prompts/skills/schemas/handoffs — clearer, safer, cheaper, measurable |
 | [octocode-skills](./octocode-skills/) | Skill lifecycle — discover, review, create, install, sync `SKILL.md` folders |
-| [octocode-chrome-devtools](./octocode-chrome-devtools/) | Browser evidence via CDP — network, console, perf, DOM, auth-gated pages |
+| [octocode-chrome-devtools](./octocode-chrome-devtools/) | Live browser CDP evidence — network, console, perf, DOM, HAR, auth-gated |
+| [octocode-scraping](./octocode-scraping/) | Public web → local cited corpus; keyless first; blocked/thin recovery |
+| [octocode-mannequin](./octocode-mannequin/) | Anatomical 3D skeleton/manikin — pose, ROM clamps, viewer, WebMCP drive |
 
 ## Explanations
 
@@ -41,25 +41,17 @@ Turns a consequential choice into a durable decision artifact: RFC, architecture
 
 Measurement and keep/discard — for a single agent loop or a graph of loops (multi-agent workflow). Defines goal→KPI contracts, feedback-loop prerequisites (runnable sensor + numeric target + budget before iterating), suites, graders, held-out checks, and ACCEPT/REVERT. Covers loop engineering (don't-stop-till-done optimization against a sensor) and graph evals (primary KPI at the graph boundary, per-node sensors, attribution by bisection, strengthen verifiers before adding nodes). Also covers TDD failing-case-first; `eval-eval.mjs --batch <dir>` grades an answer set in one command. Use whenever “it feels better” is not enough.
 
-### octocode-awareness
-
-Coordination layer for shared repos (and solo work across sessions). Collision avoidance, handoff packets, verification debt, durable memory/wiki, hooks setup/debug, and repo learning before you edit. Complements research; does not replace it.
-
 ### octocode-subagent
 
-General **multi-agent orchestration** for host workers, Task/subagents, specialist handoffs, and A2A peers. Decides spawn vs solo, decomposes work, picks topology/model tier, writes sealed packets, coordinates ownership, recovers failures, synthesizes. **Not** for local Ollama one-shots — see local-worker.
-
-### octocode-orchestrator-local-worker
-
-**Frugal offload:** cloud agent keeps tools, fetch, verify, and writes; local Ollama runs sealed packets for low-risk summarize / extract / classify / translate / draft / checklist / vision / map-reduce. Includes health/worker scripts and evals. Parallel cloud workers stay on **octocode-subagent**.
+General **multi-agent orchestration** for host workers, Task/subagents, specialist handoffs, A2A peers, **and** frugal local Ollama offload. Decides spawn vs solo vs Ollama; decomposes work; picks topology/model tier; writes sealed packets; coordinates ownership; recovers failures; synthesizes. Ollama path: parent keeps tools/verify/writes; local model does summarize/extract/classify/translate/draft/check/vision/map-reduce (`references/local-ollama.md`). Measuring keep/discard → **octocode-graph-eval**.
 
 ### octocode-documentation
 
-Produces or updates documentation deliverables (README, API docs, runbooks, `AGENTS.md` / `CLAUDE.md`, ADRs, Diátaxis). Evidence-backed and gate-heavy. Pure code research with no docs output → research; authoring a skill folder → **octocode-skills**.
+Produces or updates documentation deliverables (README, API docs, runbooks, troubleshooting, CONTRIBUTING, changelog, onboarding, `AGENTS.md` / `CLAUDE.md`, ADRs, Diátaxis, architecture/migration guides). Evidence-backed and gate-heavy. Pure code research with no docs output → research; authoring a skill folder → **octocode-skills**.
 
 ### octocode-roast
 
-Constructive but blunt critique with evidence: correctness, security, performance, design, testing, maintainability. Ranks cleanup debt and suggests redemption paths for a diff or hot path.
+Constructive but blunt critique with evidence: correctness, security, performance, design, testing, maintainability. Ranks cleanup debt, runs smell inventory/autopsy, and suggests redemption paths for a diff or hot path. Polite PR review → research.
 
 ### octocode-prompt-optimizer
 
@@ -71,7 +63,15 @@ Meta-skill for Agent Skill folders: discover, compare, inspect, review, create, 
 
 ### octocode-chrome-devtools
 
-Browser debugging that needs **DevTools-grade** evidence via Chrome DevTools Protocol (network, console, performance, DOM/CSS, screenshots/PDF, security, storage, auth-gated pages). Prefer lighter browser openers when you only need to load a URL.
+Browser debugging that needs **DevTools-grade** evidence via Chrome DevTools Protocol (network, console, performance, DOM/CSS, screenshots/PDF, security, storage, auth-gated pages). Prefer lighter browser openers when you only need to load a URL. Static crawl/bulk extract → **octocode-scraping**.
+
+### octocode-scraping
+
+Public web → local cited corpus: scrape/crawl, extract tables/fields, diagnose blocked/thin pages, answer from saved sessions. Keyless first; ask before hosted spend. Live clicks/HAR/perf → **octocode-chrome-devtools**.
+
+### octocode-mannequin
+
+Anatomical 3D humanoid manikin: pose commands, ROM clamps, walk/run/dance/backflip sequences, Three.js viewer, WebMCP agent drive. Not for general scenes, physics/ragdoll, IK, or mocap.
 
 ## Suggested routes
 
@@ -81,14 +81,15 @@ Idea / is it worth it?   → brainstorming → (rfc | research | park)
 Need a design contract?  → rfc-generator
 Did the change help?     → graph-eval
 Loop until a target?     → graph-eval (sensor + target + budget first)
-Shared-repo collisions?  → awareness
 Spawn cloud workers?     → subagent
-Save tokens via Ollama?  → orchestrator-local-worker
+Save tokens via Ollama?  → subagent (local-ollama.md)
 Write docs?              → documentation
 Critique code?           → roast
 Tune a prompt/skill?     → prompt-optimizer
 Change a skill folder?   → skills
 Debug in Chrome?         → chrome-devtools
+Scrape / build corpus?   → scraping
+Pose a manikin?          → mannequin
 ```
 
 ## Layout convention

@@ -1,0 +1,24 @@
+{
+  "should_trigger": [
+    { "prompt": "Docs are wrong — agents can't find how to run tests.", "expect": true },
+    { "prompt": "Rewrite the README install section with verified commands.", "expect": true },
+    { "prompt": "Add an ADR for the SQLite session store decision.", "expect": true },
+    { "prompt": "Restructure docs into Diátaxis.", "expect": true },
+    { "prompt": "Update AGENTS.md as an index, not a dump.", "expect": true },
+    { "prompt": "Onboarding docs are missing for new contributors.", "expect": true },
+    { "prompt": "Document this package for humans and agents.", "expect": true },
+    { "prompt": "Write a runbook for MCP startup failures.", "expect": true },
+    { "prompt": "Fix the stale CONTRIBUTING and changelog.", "expect": true },
+    { "prompt": "Add a troubleshooting guide for auth errors.", "expect": true },
+    { "prompt": "Write an architecture overview that links to real modules.", "expect": true },
+    { "prompt": "Migration guide from v1 to v2 CLI flags.", "expect": true }
+  ],
+  "should_not_trigger": [
+    { "prompt": "Why does localSearchCode return empty for this symbol?", "expect": false },
+    { "prompt": "Create or improve a SKILL.md folder.", "expect": false },
+    { "prompt": "Roast this hot path for performance smells.", "expect": false },
+    { "prompt": "Spawn workers to implement two packages in parallel.", "expect": false },
+    { "prompt": "Scrape this docs site into a local corpus.", "expect": false },
+    { "prompt": "Debug console errors on the live page in Chrome.", "expect": false }
+  ]
+}

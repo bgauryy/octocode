@@ -10,7 +10,7 @@ Local active. GitHub/packages active. Web active.
 Persistent team memory.
 
 ## Landscape
-- SQLite memory is useful. `moderate` skills/octocode-awareness/SKILL.md:14
+- Local eval sensors are useful. `moderate` skills/octocode-graph-eval/SKILL.md:8
 - Vector memory is useful. `moderate` https://arxiv.org/abs/2310.08560
 
 ## Perspective Review
@@ -24,5 +24,5 @@ Decision: Build RFC
 Design the full memory system.
 
 ## Sources
-- skills/octocode-awareness/SKILL.md:14 — backs the SQLite-is-useful claim above.
+- skills/octocode-graph-eval/SKILL.md:8 — backs the local-sensor-is-useful claim above.
 - https://arxiv.org/abs/2310.08560 — backs the vector-is-useful claim above.

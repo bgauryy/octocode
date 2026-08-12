@@ -7,4 +7,4 @@ SET GOAL + KPI → SMALLEST CHANGE → MEASURE ACTUAL RESULTS → ACCEPT | REVER
 ```
 
 Reject: undefined KPI · narrative-only accept · checks not run.
-Skill folder edits → `octocode-skills`. Awareness harness → Awareness `skill-evolution`.
+Skill folder edits → `octocode-skills`.

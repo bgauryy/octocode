@@ -30,6 +30,6 @@ Thin wrapper at `scripts/hooks/example-hook.sh` → exec brain under `scripts/`.
 
 ## Review before install
 
-Read every `scripts/hooks/*` and every `command:` in skill/host configs. Flag destructive, silent, or unbounded hooks. Production example: `octocode-awareness` skill hooks.
+Read every `scripts/hooks/*` and every `command:` in skill/host configs. Flag destructive, silent, or unbounded hooks.
 
 Next: when wiring a new hook load `references/hooks-add.md`; after editing frontmatter load `references/skill-review.md`.

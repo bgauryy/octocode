@@ -10,9 +10,10 @@ Load when a worker stalls, fails, or conflicts. Why: retrying the same packet wa
 5. **Stop + parent** — after one steer/replan failure, finish in parent.
 
 ## Synthesis / verifier
-- Barrier + merge: `synthesize.md`.
+- Barrier + merge: `references/synthesize.md`.
 - Verifier starts from anchors + acceptance — never from the worker’s unverified prose.
 - Partial/blocked stay labeled; do not echo shared errors into higher confidence.
+- Soft challenge first: rubber-duck / interview (`references/techniques.md`) before enlarging the swarm.
 
 ## Hygiene
 - Abort interrupts a turn; stop/kill ends the worker.

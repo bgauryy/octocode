@@ -1,6 +1,6 @@
 ---
 name: octocode-brainstorming
-description: "Use when an idea needs disciplined exploration before building: generate options, test worth-building, map adjacent solutions, challenge assumptions, narrow scope, or choose Build RFC / Prototype / Narrow / Park — even without saying brainstorm."
+description: "Use when an idea needs disciplined exploration before building: generate options, test whether it is worth building, map adjacent solutions, challenge assumptions, narrow scope, or choose Build RFC / Prototype / Narrow / Park — even if nobody said brainstorm. Already decided to implement a specific plan → skip."
 ---
 
 # Octocode Brainstorming
@@ -28,7 +28,7 @@ Stop, recommend one option, and wait when the idea spans three unrelated spaces,
 
 ## Related routes and scripts
 - Use `octocode-rfc-generator` for a Build verdict; `octocode-research` for technical evidence; `octocode-graph-eval` for measurable experiments.
-- Use `octocode-awareness` to capture durable lessons; `octocode-skills` when changing this skill folder.
+- Use `octocode-skills` when changing this skill folder.
 - Use `octocode-subagent` to dispatch and synthesize workers — see `references/web-search-workers.md` for the brainstorm-specific Scout/Aggregator/Checker topology and the five-worker ceiling.
 - Use `scripts/serper-search.mjs`, `scripts/tavily-search.mjs`, or `scripts/exa-search.mjs` for configured web search — default to querying every validated engine and consolidating, not a first-success ladder (`references/tools.md`); run `scripts/eval-brainstorm.mjs` when changing this skill.
 

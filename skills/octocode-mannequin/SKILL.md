@@ -1,6 +1,6 @@
 ---
 name: octocode-mannequin
-description: "Use when posing, animating, or explaining a 3D human skeleton, or driving a Three.js manikin as a live agent tool: anatomically-named bones/joints, range-of-motion-clamped movement, WebMCP-exposed pose tools — skeleton rig, joint constraints, forward kinematics, pose/animate a figure, make a manikin walk/run/dance/backflip, humanoid bones."
+description: "Use when posing, animating, or explaining a 3D human skeleton/manikin: anatomical joints, ROM clamps, walk/run/dance/backflip sequences, Three.js viewer, or agent-driven WebMCP figure control (reach/look_at). Phrases like pose the manikin, skeleton scheme, animate a walk cycle. Not for general 3D scenes, physics/ragdoll, IK foot-locking, or mocap import."
 ---
 
 # Octocode Mannequin
@@ -52,3 +52,4 @@ import. Motion is keyframed kinematics — a backflip is authored, not simulated
 ## Scripts
 
 - `scripts/skeleton.mjs` — `scheme` / `pose` / `sequence` / `viewer` subcommands (`--help`); zero npm installs. WebMCP CDP mechanics are delegated to the `octocode-chrome-devtools` skill.
+- `scripts/eval-mannequin.mjs` — `--self-test` / `--triggers` / `--scheme` / `--case <id> --input <answer.md>` after skill edits.

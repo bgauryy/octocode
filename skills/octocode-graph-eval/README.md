@@ -24,8 +24,9 @@ Agents claim “better” without baseline, held-out, or keep/discard. Public be
 - Graph of loops: end-to-end primary at the graph boundary, per-node sensors, attribution by bisection, strengthen verifiers before adding nodes
 - Graph eval gates: edge detection (real vs fake dependencies), verifier independence (fresh context required), Goodhart guard (counter-metric per KPI), anchor requirement (tests that actually ran)
 - Graph failure modes: shared-context self-agreement, race conditions / isolation protocol (3 questions before fan-out), Goodhart metric drift, missing anchors
+- Subagent cookbooks: protocol, KPIs (why/what/check), communication/barrier contracts, common & best approaches — spawn APIs remain in `octocode-subagent`
 - Bilevel escalation: when inner loop is flat with no new hypotheses, outer loop rewrites the search strategy — not just tunes program.md
-- Scripts: `loop-report.mjs`, `eval-eval.mjs`
+- Scripts: `loop-report.mjs`, `eval-eval.mjs`, `check-description.mjs`
 
 ## Operating Model
 

@@ -28,4 +28,7 @@ Map remote A2A `input-required` / `auth-required` to parent/user gates — do no
 ## Token / handoff filter
 Pass goal, anchors, scope, acceptance, return shape. Strip transcripts, tool chatter, and unpaired tool history. Prefer a short summary over full worker history on handoff.
 
-Next: `coordinate.md` · `synthesize.md` · `a2a.md`.
+## Optional technique fields
+- Rubber duck / interview / mimic → see `references/techniques.md` (`playbook`, `mimic`, interviewer `claim_table`, duck `questions`).
+
+Next: `references/coordinate.md` · `references/synthesize.md` · `references/a2a.md` · `references/mimic-flow.md`.

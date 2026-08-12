@@ -1,4 +1,0 @@
-interface:
-  display_name: "Octocode Awareness"
-  short_description: "Repository awareness: tasks, file presence, locks, verification, memory, hooks, and bounded wiki leads."
-  default_prompt: "Use for repository work. BEFORE/READ+REASON: attend; state goal, acceptance, affected scope, and evidence; then choose a shared task or explicit WORK. DURING/DO: declare edited paths, read interacting peer context, and reserve exclusivity for sensitive paths. AFTER/VERIFY: run the declared check while presence is active, submit or end, immediately mark verification, and audit debt. LEARN only when an outcome is reusable; CLEAN only under workboard pressure; PROJECT only when file readers need refreshed wiki leads."

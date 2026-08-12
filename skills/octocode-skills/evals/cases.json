@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 1,
+  "description": "Smoke evals for octocode-skills answers. Deterministic floor; skill-review.mjs remains the structural done-gate.",
+  "rubric": [
+    "Inspects real SKILL.md before judging or installing.",
+    "Uses quality rubric / comparison cards.",
+    "Gates writes (user approval before ACT/install/sync).",
+    "Runs skill-review to zero ERROR before done.",
+    "Routes wording-only polish to prompt-optimizer."
+  ],
+  "cases": [
+    {
+      "id": "rate-local-skill",
+      "mode": "judge",
+      "prompt": "Rate this local SKILL.md folder and recommend keep or improve.",
+      "minScore": 0.8,
+      "required": [
+        { "name": "inspect or path", "pattern": "\\bSKILL\\.md\\b|\\binspect\\b|\\bpath\\b" },
+        { "name": "rubric or fit", "pattern": "\\bHigh\\b|\\bMedium\\b|\\bLow\\b|\\brubric\\b|\\bTrigger\\b|\\bWorkflow\\b" },
+        { "name": "recommendation", "pattern": "\\bRecommend|\\bkeep\\b|\\bimprove\\b|\\binstall\\b|\\bcancel\\b" }
+      ]
+    },
+    {
+      "id": "install-gate",
+      "mode": "install",
+      "prompt": "Install this remote skill into Cursor for me.",
+      "minScore": 0.85,
+      "required": [
+        { "name": "user gate", "pattern": "\\bapprov|\\bgate\\b|\\bdry-?run\\b|\\bbefore (?:write|install|sync)\\b|\\bask\\b" },
+        { "name": "destination", "pattern": "\\bCursor\\b|\\bdestination\\b|\\b~\\/\\.cursor\\b|\\binstall-destinations\\b" },
+        { "name": "review", "pattern": "\\bskill-review\\b|\\bERROR\\b|\\breview\\b" }
+      ],
+      "forbidden": [
+        { "name": "silent write", "pattern": "\\binstalled without (?:asking|approval)\\b|\\bforce.?install\\b" }
+      ]
+    },
+    {
+      "id": "wording-only-route",
+      "mode": "route",
+      "prompt": "Just tighten the description wording — no folder structure changes.",
+      "minScore": 0.8,
+      "required": [
+        { "name": "route prompt-optimizer", "pattern": "\\boctocode-prompt-optimizer\\b|\\bprompt-optimizer\\b" },
+        { "name": "not full lifecycle", "pattern": "\\bwording\\b|\\bpolish\\b|\\bwithout folder\\b|\\bnot (?:install|create)\\b" }
+      ]
+    }
+  ]
+}

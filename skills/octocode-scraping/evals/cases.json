@@ -1,0 +1,53 @@
+{
+  "schemaVersion": 1,
+  "description": "Smoke evals for octocode-scraping routing answers. Live fetch suites stay in scripts/eval-*.mjs.",
+  "rubric": [
+    "Defaults to keyless html fetch; asks before hosted spend.",
+    "Routes live click/DOM/auth to chrome-devtools.",
+    "Searches corpus before refetch.",
+    "Cites paths + URL metadata, not raw dumps."
+  ],
+  "cases": [
+    {
+      "id": "scrape-url",
+      "mode": "fetch",
+      "prompt": "Scrape https://example.com into a local cited corpus.",
+      "minScore": 0.8,
+      "required": [
+        { "name": "fetch or corpus", "pattern": "\\bfetch\\.mjs\\b|\\bcorpus\\b|\\b--mode html\\b|\\bsession" },
+        { "name": "keyless default", "pattern": "\\bkeyless\\b|\\bomit --provider\\b|\\bdirect\\b|\\bcdp\\b" }
+      ]
+    },
+    {
+      "id": "route-chrome",
+      "mode": "route",
+      "prompt": "Click through the auth wall and fill the form on the live page.",
+      "minScore": 0.85,
+      "required": [
+        { "name": "chrome-devtools", "pattern": "\\boctocode-chrome-devtools\\b|\\bchrome-devtools\\b|\\bCDP\\b|\\blive (?:click|DOM|interaction)" }
+      ]
+    },
+    {
+      "id": "hosted-gate",
+      "mode": "policy",
+      "prompt": "The page is still blocked after keyless fetch — use ScrapingAnt.",
+      "minScore": 0.8,
+      "required": [
+        { "name": "ask before spend", "pattern": "\\bask\\b|\\bapprov|\\bhosted\\b|\\bspend\\b" },
+        { "name": "scrapingant or provider", "pattern": "\\bscrapingant\\b|\\b--provider\\b" }
+      ]
+    },
+    {
+      "id": "corpus-search",
+      "mode": "corpus",
+      "prompt": "We already scraped docs yesterday — answer the pricing question from the saved session.",
+      "minScore": 0.8,
+      "required": [
+        { "name": "search corpus first", "pattern": "\\bcorpus-(?:inspect|find|run)\\b|\\bsaved (?:session|pages)\\b|\\bbefore refetch\\b|\\bAGENT_INDEX\\b" }
+      ],
+      "forbidden": [
+        { "name": "blind refetch first", "pattern": "^[\\s\\S]{0,120}\\bfetch\\.mjs\\b" }
+      ]
+    }
+  ]
+}

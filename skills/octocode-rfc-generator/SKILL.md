@@ -1,6 +1,6 @@
 ---
 name: octocode-rfc-generator
-description: "Use when a consequential change needs a decision before coding: write or improve an RFC, design doc, architecture proposal, migration plan, option comparison, rollout plan, or measurable implementation contract."
+description: "Use when a consequential change needs a decision before coding: write or improve an RFC, design doc, architecture proposal, migration plan, option comparison, rollout plan, or measurable implementation contract. If the idea is still open-ended, use octocode-brainstorming first."
 ---
 
 # Octocode RFC Generator
@@ -35,5 +35,5 @@ For existing RFCs, run `REASSESS` (see `references/workflow.md` § Reassess exis
 
 ## Related routes and verification
 - Use `octocode-brainstorming` before RFC when worth-building is unresolved; `octocode-research` to close factual questions; `octocode-graph-eval` for KPI rigor.
-- Use `octocode-awareness` while coordinating drafts; `octocode-skills` when changing this skill folder.
+- Use `octocode-skills` when changing this skill folder.
 - Before delivery run `scripts/eval-rfc.mjs --case <id>` — validate the document contract and report the real result.
