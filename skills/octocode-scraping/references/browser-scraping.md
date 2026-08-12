@@ -1,30 +1,25 @@
 # Browser Scraping
 
-Load when static graph candidates need live validation or interaction. Why: `octocode-chrome-devtools` owns CDP safety, actionability, cookies/storage, screenshots, and network proof.
+Owner for the **cross-skill playbook** (chrome `SKILL.md` only points here). Live CDP = `octocode-chrome-devtools`; this skill owns corpus + ingest.
 
-## Static → CDP → corpus loop
-1. Use this skill first for public/static fetch, corpus, and graph candidates.
-2. Hand candidate URLs/selectors/actions to `octocode-chrome-devtools` for live checks: visible/enabled/clickable, search input, pagination button, menu reveal, infinite scroll, cookies/storage, network, screenshot, auth-gated state.
-3. If CDP finds 0 actionability rows, run `actionability-diagnostics.mjs` to classify blocked, JS-shell, selector-mismatch, consent-region, or timing-hydration.
-4. Save CDP outputs under `.octocode/tmp/scrape/{sessionId}/cdp/` or the CDP output dir.
-5. Feed newly discovered URLs, API endpoints, or saved DOM/text back into this corpus and continue `session-corpus.md` proof search.
+## Session IDs (do not mix)
+| Kind | Handle | Reuse |
+|---|---|---|
+| Scrape corpus | `.octocode/tmp/scrape/{sessionId}/` | same id for fetch → ingest → `corpus-run` |
+| Live Chrome | CDP `--port` + `--keep-tab` | same port/tab for DOM → click → measure → HAR |
+| CDP artifacts | `.octocode/tmp/chrome-devtools/<run>/` | pass to `har-ingest --from-cdp-dir` |
 
-## Handoff packet
-```json
-{
-  "url": "https://site/page",
-  "intent": "validate actionability and discover resulting URL/data",
-  "selectors": ["form[role=search]", "button[type=submit]", "a[rel=next]"],
-  "evidencePrefix": "[SCRAPE_GRAPH]",
-  "outputDir": ".octocode/tmp/scrape/<session>/cdp"
-}
-```
+## Playbook (one sessionId + one port)
+1. **Map** — `fetch.mjs` (html, omit `--provider`) → `AGENT_INDEX.json` + `graph/graph.json`.
+2. **Packet** — `har-ingest.mjs --export-packet` → `extracts/bridge-handoff.json`.
+3. **Live DOM** — chrome `page-snapshot` → `dom-operations-check` (`--keep-tab`). Static only: `dom-find.mjs`.
+4. **Click/fill** — same tab or `graph-actionability-check`; ask before destructive submits.
+5. **Measure** — `performance`/`network`/`storage-measure-check` with `MEASURE_EXISTING=1`.
+6. **Query** — `measure-query --dir|--latest`; HAR → `har-pager`; then deep HAR only if needed.
+7. **Ingest** — `har-ingest.mjs --session-dir <session> --from-cdp-dir <run>` (chrome alias `har-ingest-to-scrape`).
+8. **Prove** — `corpus-run.mjs --roots cdp,extracts --regex …` (alias `corpus-run-local`). No re-browser for the same body.
 
-## CDP rules
-- Attach listeners before navigation; use `about:blank` then `Page.navigate` for new loads.
-- Use smart waits and visible/enabled selectors.
-- Emit counts, sample rows, new URLs, screenshots/HAR paths, and storage counts — not raw secrets.
-- Never print cookies, tokens, session IDs, or localStorage values.
+Zero actionability rows → chrome `actionability-diagnostics`. Emit paths/counts — never cookies/tokens.
 
 ## Ask first
-Real profile, cookie bridge, CAPTCHA/MFA, destructive writes, form submission with real user data, purchases, sends, deletes, or account changes require explicit user approval.
+Real profile, cookie bridge, CAPTCHA/MFA, destructive writes, purchases, sends, deletes, account changes.

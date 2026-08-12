@@ -3,11 +3,11 @@ import { spawnSync } from 'node:child_process';
 import { resolve } from 'node:path';
 
 const here = new URL('.', import.meta.url).pathname;
-const fetchScript = resolve(here, 'scrapingant-fetch.mjs');
+const fetchScript = resolve(here, 'fetch.mjs');
 const inspectScript = resolve(here, 'corpus-inspect.mjs');
 const args = process.argv.slice(2);
 if (args.includes('--help') || args.includes('-h')) {
-  console.log('Usage: fetch-and-brief.mjs --url <url> [scrapingant-fetch options...]');
+  console.log('Usage: fetch-and-brief.mjs --url <url> [fetch.mjs options...]');
   process.exit(0);
 }
 const fetched = spawnSync(process.execPath, [fetchScript, ...args], { encoding: 'utf8', cwd: process.cwd() });

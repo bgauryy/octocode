@@ -5,7 +5,7 @@ each matchup and does not combine invalid or incomplete runs.
 
 ## Latest campaigns — full 30 Q × 3 passes per matchup (local build v18.1.1, gpt-5.5 judge)
 
-Two full pairwise matchups over the complete 30-question v2 set, 3 passes each, local build
+Three full pairwise matchups over the complete 30-question v2 set, 3 passes each, local build
 `out/octocode.js` v18.1.1; blind neutral **gpt-5.5** judge, X/Y randomized per question,
 leanest-path enforced, 95% bootstrap CIs.
 
@@ -17,9 +17,15 @@ leanest-path enforced, 95% bootstrap CIs.
   more correct (9.30 / 8.62) **and** ~2.6× leaner (per-Q geo-mean 2.62×, 95% CI 1.87–3.71,
   median 2.77×, leaner 63/88, wins 60/28).
 
-**Net:** at near-ceiling correctness parity, Octocode delivers answers in ~2.6–3.2× fewer
-characters than *both* baselines (both CIs above 1×) — a leaner context window and better model
-attention, with the margin widening on deep, large-file, multi-hop research.
+- **[Octocode vs plain gh](full-octocode-vs-gh-152630-2026-08-07.md)** — correctness parity
+  (9.19 / 9.27), Octocode **reliably ~2.0× leaner** (per-Q geo-mean 1.99×, 95% CI 1.52–2.61,
+  median 2.16×, leaner 67/89, wins 51/38). Plain `gh` is the leanest baseline, so the margin is
+  smaller but still significant.
+
+**Net:** at near-ceiling correctness parity, Octocode delivers answers in ~2.0× fewer characters
+than plain `gh`, ~2.6× fewer than gh+Headroom, and ~3.2× fewer than gh+RTK (all CIs above 1×) —
+a leaner context window and better model attention, with the margin widening on deep, large-file,
+multi-hop research.
 
 ### Published-CLI validation (npx octocode@18.2.2)
 
@@ -67,4 +73,5 @@ footprint. Failed probes inside a complete run remain counted.
 
 | Comparison | Report | Outcome |
 |---|---|---|
+| Live 3-arm run (`octocode@18.2.2` vs `gh`+RTK and `gh`+Headroom) | [live-3arm-130222](live-3arm-130222-2026-08-09.md) | 30×1 fresh live run with three isolated runner agents and two blind judges. All 90 logs strict-valid. Octocode was leaner than RTK on 19/30 (geo 1.58×) and leaner than Headroom on 20/30 (geo 1.56×). Single pass only — not a headline replacement. |
 | Octocode (local build, prompt+desc fixes) vs `gh` + RTK | [localfix-020431](octocode-vs-gh-rtk-localfix-020431-2026-08-06.md) | 25×1, arm B = local out/octocode.js. Octocode more correct this pass (mean 9.72/9.24; paired B 5 win/17 tie/3 loss, p≈0.73 n.s.), ~3.2× leaner (geo-mean 3.24×), leaner 20/25. Targeted fixes improved Q21 (verbatim node value) & Q25 (diff-over-comment). Local-build probe, not a published-CLI headline; Q25 contested. |

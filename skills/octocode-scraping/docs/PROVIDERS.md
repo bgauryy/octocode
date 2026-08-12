@@ -1,61 +1,46 @@
 # Scraping Providers — Setup
 
-[![ScrapingAnt](https://scrapingant.com/images/scrapingant.png)](https://scrapingant.com/?ref=mty5mzy)
-
-This skill fetches pages through a pluggable vendor (see `docs/ADDING_A_VENDOR.md` for the abstraction). Out of the box there are two:
+This skill fetches through a pluggable provider (`docs/ADDING_A_VENDOR.md`). **Default html auto is keyless** — hosted is never selected just because a key exists.
 
 | Provider | Needs a key? | Use for |
 |---|---|---|
-| `scrapingant` (default) | yes — `SCRAPING_ANT` | anti-bot handling, JS-rendered pages, AI extraction, markdown conversion |
-| `direct` | no | plain static pages, cost-free checks, or when no vendor key is configured — a raw HTTP fetch, no vendor involved |
+| `direct` | no | Static pages, cheapest proof, tests |
+| `cdp` | no | Local JS render via sibling `octocode-chrome-devtools` + Chrome |
+| `scrapingant` | yes — `SCRAPING_ANT` | Hosted anti-bot, markdown, extended, AI extract — **pass `--provider scrapingant` after approval** |
 
-## Adding your `SCRAPING_ANT` key
+Auto html priority: `cdp` (if chrome-devtools installed) → `direct`. Verify with `node skills/octocode-scraping/scripts/provider-check.mjs`.
 
-For better results on JavaScript-rendered, blocked, or extraction-heavy pages, use [ScrapingAnt](https://scrapingant.com/?ref=mty5mzy). Its public site describes the service as a Web Scraping API with Headless Chrome, 3M+ rotating proxies, AI extraction, hosted MCP server support for AI agents, one key/credit pool, and 10K free credits/no card.
+## Optional: add `SCRAPING_ANT` for hosted escalation
 
-`SCRAPING_ANT` is a third-party API key, exactly like `TAVILY_API_KEY` — it belongs in Octocode's `.env`, **not** in `.octocoderc` and never as a GitHub token.
+Use [ScrapingAnt](https://scrapingant.com/?ref=mty5mzy) when keyless routes fail and the user approves credits (anti-bot, markdown, AI extraction).
+
+`SCRAPING_ANT` belongs in Octocode `.env`, **not** `.octocoderc`, never as a GitHub token.
 
 ```bash
-# Get a key first: https://scrapingant.com/?ref=mty5mzy
-
-# Global — applies to every project
+# Get a key: https://scrapingant.com/?ref=mty5mzy
 mkdir -p ~/.octocode
 echo 'SCRAPING_ANT=your-key-here' >> ~/.octocode/.env
+# or project: .octocode/.env
 
-# Or project-level (overrides the global key for this project only)
-mkdir -p .octocode
-echo 'SCRAPING_ANT=your-key-here' >> .octocode/.env
+# Explicit hosted fetch (not auto):
+node skills/octocode-scraping/scripts/fetch.mjs --provider scrapingant --url 'https://example.com'
 ```
 
-Verify it's picked up:
+Verify key presence: `node skills/octocode-scraping/scripts/provider-check.mjs --provider scrapingant` → `"key":"set"`.
+Keyless check: `provider-check.mjs` (no flag) → shows auto pick; `--provider direct` → `"key":"not-required"`.
 
-```bash
-node skills/octocode-scraping/scripts/scrapingant-check.mjs
-# {"provider":"scrapingant","apiKeyEnv":"SCRAPING_ANT","key":"set"}
-```
+## How this key loads
 
-No key yet, or don't want one? Use `--provider direct` — `scrapingant-check.mjs --provider direct` reports `"key":"not-required"`, and every fetch/crawl/analysis script works identically (see `docs/ADDING_A_VENDOR.md` for why the corpus format doesn't change per vendor).
+Loaded by agent sessions/skill scripts via `@octocodeai/config` `propagateOctocodeEnv`. Shell env wins over file; project `.octocode/.env` overrides global. **MCP/CLI do not read this file** — pass `SCRAPING_ANT` in the client `env` block for MCP.
 
-## How this key actually loads
+Full config: [CONFIGURATION.md](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md).
 
-This `.env` file is loaded automatically by **agent sessions and skill scripts** (via `@octocodeai/config`'s `propagateOctocodeEnv`) — a shell env var with the same name always wins over the file, and a project `.octocode/.env` overrides the global one. **The MCP server and CLI do not read this file** — if you're running Octocode as an MCP server, pass `SCRAPING_ANT` through the client's `env` block instead (same as any other MCP server env var).
+## Installing Octocode MCP
 
-Full precedence rules, protected keys, and every other setting: [Octocode Configuration & Authentication](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md).
-
-## Installing the Octocode MCP server
-
-This skill runs standalone (`node skills/octocode-scraping/scripts/...`) — no MCP server required. If you also want Octocode's MCP tools (`localSearchCode`, `localGetFileContent`, etc. that the corpus search flow uses) available in your IDE/agent client:
-
-```bash
-npx octocode install --ide cursor   # or vscode, claude, windsurf, ...
-# any other client:
-npx octocode install
-```
-
-Full server lifecycle and client config: [MCP Server](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_MCP.md).
+Skill scripts run standalone. For local corpus search tools in the IDE: `npx octocode install --ide cursor` — [OCTOCODE_MCP.md](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_MCP.md).
 
 ## See also
 
-- `references/providers.md` — agent-facing: when to load this, the provider registry shape.
-- `docs/ADDING_A_VENDOR.md` — implementing and registering a new vendor.
-- `references/scrapingant.md` — ScrapingAnt endpoints, modes, params, error codes.
+- `references/providers.md` / `references/route-selection.md` — agent routing and cost gates
+- `docs/ADDING_A_VENDOR.md` — new vendor
+- `references/scrapingant.md` — hosted API details

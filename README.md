@@ -173,8 +173,9 @@ dependency/call-graph chains, commit ranges, blast-radius, PR reviews across rep
 
 **How it works:** 30 GitHub questions × 3 passes; Octocode vs `gh`, `gh`+Headroom, and `gh`+RTK on
 identical questions (only the CLI differs). A blind judge (gpt-5.5) grades correctness; the metric is
-**characters through the model**, counted from instrumented logs (chars ≈ tokens). **Result:** at
-near-parity correctness, Octocode answers with **far fewer characters** than every baseline.
+**characters through the model**, counted from instrumented logs (characters, not tokens). **Result:** at
+near-parity correctness, Octocode answers with **~2.0× fewer characters than plain `gh`, ~2.6× fewer
+than `gh`+Headroom, and ~3.2× fewer than `gh`+RTK** in the local-build headline runs.
 
 ▶ **[Open the interactive report](https://raw.githack.com/bgauryy/octocode/main/packages/octocode-benchmark/results/index.html)** · **[run it / method](https://github.com/bgauryy/octocode/tree/main/packages/octocode-benchmark/skills/octocode-benchmark)** · [questions](https://github.com/bgauryy/octocode/tree/main/packages/octocode-benchmark/compare/github-questions) · [all reports](https://github.com/bgauryy/octocode/tree/main/packages/octocode-benchmark/results)
 

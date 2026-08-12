@@ -95,7 +95,7 @@ const CONFIG_NODE_MODULES_ROOT_REAL = safePath(CONFIG_NODE_MODULES_ROOT);
 const OUTPUT_REAL = safePath(OUTPUT_DIR);
 const SESSION_META_REAL = safePath(SESSION_META_DIR);
 
-const HELPERS = ['sourcemap-resolver.mjs', 'undercover.mjs', 'human-input.mjs', 'dom-actionability.mjs'];
+const HELPERS = ['sourcemap-resolver.mjs', 'undercover.mjs', 'mandatory-stealth.mjs', 'human-input.mjs', 'dom-actionability.mjs'];
 for (const helper of HELPERS) {
   const src = resolve(__dir, helper);
   const dst = join(TMPDIR_RAW, helper);
@@ -122,6 +122,8 @@ const spawnArgv = argv.map(a => (a === scriptArg && scriptReal) ? scriptReal : a
 const readPaths  = [...new Set([
   RUNNER,
   RUNNER_REAL,
+  resolve(__dir, 'mandatory-stealth.mjs'),
+  resolve(__dir, 'undercover.mjs'),
   CONFIG_ROOT,
   CONFIG_ROOT_REAL,
   CONFIG_NODE_MODULES_ROOT,

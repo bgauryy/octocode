@@ -5,7 +5,7 @@ import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 
 const here = new URL('.', import.meta.url).pathname;
-const fetchScript = resolve(here, 'scrapingant-fetch.mjs');
+const fetchScript = resolve(here, 'fetch.mjs');
 const inspectScript = resolve(here, 'corpus-inspect.mjs');
 const findScript = resolve(here, 'corpus-find.mjs');
 const root = resolve(process.cwd());
@@ -17,7 +17,7 @@ await mkdir(outBase, { recursive: true });
 const html = '<html><body><h1>Agent Helper Site</h1><a href="/docs/api">API Reference</a><a href="/pricing">Pricing</a><form action="/signup"><input name="email" type="email"><button>Start free</button></form></body></html>';
 const mockFile = join(outBase, 'mock.html');
 await writeFile(mockFile, html);
-const fetch = spawnSync(process.execPath, [fetchScript, '--url', 'https://example.com', '--mode', 'html', '--session', 'agent-helper', '--mock-status', '200', '--mock-content-type', 'text/html', '--mock-body-file', mockFile, '--out', outBase], { cwd: root, encoding: 'utf8' });
+const fetch = spawnSync(process.execPath, [fetchScript, '--url', 'https://example.com', '--mode', 'html', '--provider', 'direct', '--session', 'agent-helper', '--mock-status', '200', '--mock-content-type', 'text/html', '--mock-body-file', mockFile, '--out', outBase], { cwd: root, encoding: 'utf8' });
 assert('fetch ok', fetch.status === 0, fetch.stderr);
 const dir = join(outBase, 'agent-helper');
 const inspect = spawnSync(process.execPath, [inspectScript, '--session-dir', dir, '--workflow', 'api-reference'], { cwd: root, encoding: 'utf8' });

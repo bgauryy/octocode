@@ -2,7 +2,7 @@
 //
 // Usage:
 //   node skills/octocode-chrome-devtools/scripts/cdp-sandbox.mjs \
-//     skills/octocode-chrome-devtools/examples/stealth-check.mjs \
+//     skills/octocode-chrome-devtools/scripts/cdp-checks/stealth-check.mjs \
 //     --port 9222 --new-tab "about:blank" --timeout 30000
 //
 // Configure the target with STEALTH_CHECK_URL (default: bot.sannysoft.com, a public
@@ -10,7 +10,7 @@
 //
 // cdp-sandbox.mjs stages undercover.mjs into <cwd>/.octocode/ (or the global Octocode
 // home if the project dir isn't writable) rather than next to this file — a plain
-// relative import would look in examples/ and fail. Resolve it the same way
+// relative import would look in scripts/cdp-checks/ and fail. Resolve it the same way
 // cdp-sandbox.mjs resolved it, then dynamic-import from that path.
 import { writeFileSync, existsSync } from 'fs';
 import { join, resolve } from 'path';

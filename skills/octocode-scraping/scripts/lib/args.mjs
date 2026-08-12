@@ -5,7 +5,7 @@ export const MODE_ENDPOINT = { html: 'general', markdown: 'markdown', extended: 
 
 export function createArgParser(args) {
   const usage = (exitCode = 2) => {
-    console.error(`Usage: scrapingant-fetch.mjs --url <url> [--provider scrapingant|direct|cdp] [--mode html|markdown|extended|extract] [--extract-properties <text>] [--crawl --max-pages <n> [--sitemap] [--same-domain] [--delay-ms <n>]] [--session <id>] [--out <dir>] [--browser] [--wait-for <selector>] [--no-raw] [--max-raw-bytes <n>] [--max-text-bytes <n>] [--chunk-bytes <n>] [--extract-links] [--param k=v] [--cdp-port <n>] [--cdp-wait-ms <n>] [--no-cdp-stealth]\nDefault output: .octocode/tmp/scrape/<sessionId>\n`);
+    console.error(`Usage: fetch.mjs --url <url> [--provider scrapingant|direct|cdp] [--mode html|markdown|extended|extract] [--extract-properties <text>] [--crawl --max-pages <n> [--sitemap] [--same-domain] [--delay-ms <n>]] [--session <id>] [--out <dir>] [--browser] [--wait-for <selector>] [--no-raw] [--max-raw-bytes <n>] [--max-text-bytes <n>] [--chunk-bytes <n>] [--extract-links] [--param k=v] [--cdp-port <n>] [--cdp-wait-ms <n>] [--no-cdp-stealth]\nDefault output: .octocode/tmp/scrape/<sessionId>\n`);
     process.exit(exitCode);
   };
   const take = (flag) => {
@@ -61,7 +61,7 @@ export function parseConfig(args) {
   if (!MODE_ENDPOINT[mode]) throw new Error('--mode must be html, markdown, extended, or extract');
   const provider = take('--provider') || 'auto';
   // For explicit providers, validate mode compatibility now. For 'auto', defer until env is
-  // propagated (scrapingant-fetch.mjs resolves 'auto' → real provider after propagateOctocodeEnv).
+  // propagated (fetch.mjs resolves 'auto' → real provider after propagateOctocodeEnv).
   let providerDescriptor = null;
   if (provider !== 'auto') {
     providerDescriptor = resolveProvider(provider); // throws on unknown
@@ -110,6 +110,6 @@ export function parseConfig(args) {
     mockCreditCost: take('--mock-credit-cost') || null,
     cdpPort: take('--cdp-port') || null,
     cdpWaitMs: take('--cdp-wait-ms') ? Number(take('--cdp-wait-ms')) : undefined,
-    cdpStealth: !has('--no-cdp-stealth')
+    cdpStealth: !has('--no-cdp-stealth'), // deprecated opt-out; default mandatory verify in client.mjs
   };
 }

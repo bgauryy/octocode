@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { resolve } from 'node:path';
-import { readJson as readJsonFile, takeArg } from './lib/cli.mjs';
+import { readJson as readJsonFile, takeArg } from './lib/bridge.mjs';
 
 function usage(code = 2) {
   console.error('Usage: graph-navigate.mjs --session-dir <dir> [--from <nodeId>] [--kind <edgeKind>] [--workflow <type>] [--risk <risk>] [--limit <n>] [--no-dedupe]');

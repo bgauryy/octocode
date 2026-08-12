@@ -5,7 +5,7 @@ import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 
 const here = new URL('.', import.meta.url).pathname;
-const fetchScript = resolve(here, 'scrapingant-fetch.mjs');
+const fetchScript = resolve(here, 'fetch.mjs');
 const domScript = resolve(here, 'dom-find.mjs');
 const resourceScript = resolve(here, 'resource-list.mjs');
 const graphScript = resolve(here, 'graph-navigate.mjs');
@@ -18,7 +18,7 @@ await mkdir(outBase, { recursive: true });
 const html = '<html><head><meta name="description" content="API pricing"><link rel="canonical" href="/home"><script type="application/ld+json">{"@type":"WebSite","name":"Smart"}</script></head><body><h1>Smart Navigation</h1><nav><a href="/docs/api">API Reference</a><a href="/pricing">Pricing</a><a href="/pricing">Pricing</a><a href="/support">Support</a></nav><a href="/signup">Start free</a><form action="/signup"><input name="email" type="email"><button>Sign up</button></form><table><tr><th>Plan</th><th>Price</th></tr></table><pre><code>curl https://api.example.com</code></pre></body></html>';
 const mockFile = join(outBase, 'mock.html');
 await writeFile(mockFile, html);
-const fetch = spawnSync(process.execPath, [fetchScript, '--url', 'https://example.com', '--mode', 'html', '--session', 'smart-nav', '--mock-status', '200', '--mock-content-type', 'text/html', '--mock-body-file', mockFile, '--out', outBase], { cwd: root, encoding: 'utf8' });
+const fetch = spawnSync(process.execPath, [fetchScript, '--url', 'https://example.com', '--mode', 'html', '--provider', 'direct', '--session', 'smart-nav', '--mock-status', '200', '--mock-content-type', 'text/html', '--mock-body-file', mockFile, '--out', outBase], { cwd: root, encoding: 'utf8' });
 assert('fetch ok', fetch.status === 0, fetch.stderr);
 const dir = join(outBase, 'smart-nav');
 const dom = spawnSync(process.execPath, [domScript, '--session-dir', dir, '--kind', 'form', '--workflow', 'signup'], { cwd: root, encoding: 'utf8' });

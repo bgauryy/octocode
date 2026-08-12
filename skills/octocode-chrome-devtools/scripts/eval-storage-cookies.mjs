@@ -8,7 +8,7 @@ const port = '9293';
 const open = spawnSync(process.execPath, ['skills/octocode-chrome-devtools/scripts/open-browser.mjs', '--headless', '--port', port, '--url', 'about:blank'], { encoding: 'utf8', timeout: 60000 });
 assert('headless Chrome launches', open.status === 0, open.stderr || open.stdout);
 const html = encodeURIComponent('<!doctype html><script>try{localStorage.setItem("theme","dark");sessionStorage.setItem("step","1");}catch(e){}</script><body>storage</body>');
-const run = spawnSync(process.execPath, ['skills/octocode-chrome-devtools/scripts/cdp-sandbox.mjs', 'skills/octocode-chrome-devtools/examples/storage-cookies-audit.mjs', '--port', port, '--new-tab', `data:text/html,${html}`, '--timeout', '30000', '--script-timeout', '45000'], { encoding: 'utf8', timeout: 70000, maxBuffer: 5 * 1024 * 1024 });
+const run = spawnSync(process.execPath, ['skills/octocode-chrome-devtools/scripts/cdp-sandbox.mjs', 'skills/octocode-chrome-devtools/scripts/cdp-checks/storage-cookies-audit.mjs', '--port', port, '--new-tab', `data:text/html,${html}`, '--timeout', '30000', '--script-timeout', '45000'], { encoding: 'utf8', timeout: 70000, maxBuffer: 5 * 1024 * 1024 });
 assert('storage audit script runs', run.status === 0, run.stderr.slice(0, 1000));
 assert('prints storage metrics', run.stdout.includes('[METRIC] STORAGE'), run.stdout.slice(0, 1000));
 const artifactLine = run.stdout.split(/\n/).find(l => l.includes('[ARTIFACT] STORAGE_COOKIES')) || '';

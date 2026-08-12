@@ -25,7 +25,7 @@ const port = '9295';
 const open = spawnSync(process.execPath, ['skills/octocode-chrome-devtools/scripts/open-browser.mjs', '--headless', '--port', port, '--url', 'about:blank'], { encoding: 'utf8', timeout: 60000 });
 assert('headless Chrome launches', open.status === 0, open.stderr || open.stdout);
 const pageUrl = `data:text/html,${encodeURIComponent(html)}`;
-const run = spawnSync(process.execPath, ['skills/octocode-chrome-devtools/scripts/cdp-sandbox.mjs', 'skills/octocode-chrome-devtools/examples/graph-actionability-check.mjs', '--port', port, '--new-tab', pageUrl, '--graph', graphPath, '--timeout', '30000', '--script-timeout', '45000'], { encoding: 'utf8', timeout: 70000, maxBuffer: 5 * 1024 * 1024 });
+const run = spawnSync(process.execPath, ['skills/octocode-chrome-devtools/scripts/cdp-sandbox.mjs', 'skills/octocode-chrome-devtools/scripts/cdp-checks/graph-actionability-check.mjs', '--port', port, '--new-tab', pageUrl, '--graph', graphPath, '--timeout', '30000', '--script-timeout', '45000'], { encoding: 'utf8', timeout: 70000, maxBuffer: 5 * 1024 * 1024 });
 assert('CDP actionability script runs against scraping graph', run.status === 0, run.stderr.slice(0, 1200));
 assert('prints ACTIONABILITY rows', run.stdout.includes('[ACTIONABILITY]'), run.stdout.slice(0, 1200));
 const artifactLine = run.stdout.split(/\n/).find(l => l.includes('[ARTIFACT] ACTIONABILITY')) || '';

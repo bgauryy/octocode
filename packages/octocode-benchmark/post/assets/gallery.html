@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Octocode Blog Assets — Review Gallery</title>
+  <style>
+    :root {
+      --bg: #070b14;
+      --panel: #0f172a;
+      --border: #1e293b;
+      --text: #e2e8f0;
+      --muted: #94a3b8;
+      --accent: #38d2dc;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Helvetica, Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.45;
+    }
+    header {
+      padding: 28px 32px 12px;
+      border-bottom: 1px solid var(--border);
+      position: sticky;
+      top: 0;
+      background: rgba(7, 11, 20, 0.92);
+      backdrop-filter: blur(8px);
+      z-index: 10;
+    }
+    header h1 { margin: 0 0 6px; font-size: 22px; font-weight: 700; }
+    header p { margin: 0; color: var(--muted); font-size: 14px; }
+    nav {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      padding: 12px 32px 16px;
+    }
+    nav a {
+      color: var(--accent);
+      text-decoration: none;
+      font-size: 13px;
+      border: 1px solid #164e63;
+      padding: 4px 10px;
+      border-radius: 999px;
+    }
+    nav a:hover { background: #0c4a6e; color: #fff; }
+    main { padding: 8px 32px 64px; max-width: 1680px; margin: 0 auto; }
+    section.asset {
+      margin: 28px 0;
+      padding: 20px;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+    }
+    .meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px 20px;
+      align-items: baseline;
+      margin-bottom: 14px;
+    }
+    .meta h2 {
+      margin: 0;
+      font-size: 16px;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+    }
+    .meta .badge {
+      font-size: 12px;
+      color: var(--muted);
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+    .frame {
+      background: #020617;
+      border: 1px solid #1e293b;
+      border-radius: 12px;
+      overflow: hidden;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+    .frame img {
+      display: block;
+      width: 100%;
+      max-width: 1600px;
+      height: auto;
+    }
+    footer {
+      padding: 24px 32px 40px;
+      color: var(--muted);
+      font-size: 13px;
+      border-top: 1px solid var(--border);
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Octocode BLOG assets</h1>
+    <p>Visual review gallery — text, color, layout, and export checks</p>
+    <nav>
+      <a href="#logo">logo</a>
+      <a href="#evidence">evidence-routing</a>
+      <a href="#hero">benchmark-hero</a>
+      <a href="#results">benchmark-results</a>
+      <a href="#flow">request-flow</a>
+      <a href="#architecture">architecture</a>
+    </nav>
+  </header>
+  <main>
+    <section class="asset" id="logo" data-name="octocode-logo-official">
+      <div class="meta">
+        <h2>1 · octocode-logo-official.png</h2>
+        <span class="badge">1600×900 · brand / footer</span>
+      </div>
+      <div class="frame"><img src="./octocode-logo-official.png" alt="octocode.ai logo" width="1600" height="900" /></div>
+    </section>
+
+    <section class="asset" id="evidence" data-name="evidence-routing">
+      <div class="meta">
+        <h2>2 · evidence-routing.png</h2>
+        <span class="badge">1600×900 · dump-first vs evidence-first</span>
+      </div>
+      <div class="frame"><img src="./evidence-routing.png" alt="Evidence routing diagram" width="1600" height="900" /></div>
+    </section>
+
+    <section class="asset" id="hero" data-name="octocode-benchmark-hero">
+      <div class="meta">
+        <h2>3 · octocode-benchmark-hero.png</h2>
+        <span class="badge">1600×900 · benchmark headline</span>
+      </div>
+      <div class="frame"><img src="./octocode-benchmark-hero.png" alt="Benchmark hero" width="1600" height="900" /></div>
+    </section>
+
+    <section class="asset" id="results" data-name="benchmark-results">
+      <div class="meta">
+        <h2>4 · benchmark-results.png</h2>
+        <span class="badge">1600×900 · ratio chart</span>
+      </div>
+      <div class="frame"><img src="./benchmark-results.png" alt="Benchmark results chart" width="1600" height="900" /></div>
+    </section>
+
+    <section class="asset" id="flow" data-name="octocode-request-flow">
+      <div class="meta">
+        <h2>5 · octocode-request-flow.png</h2>
+        <span class="badge">1600×900 · request lifecycle</span>
+      </div>
+      <div class="frame"><img src="./octocode-request-flow.png" alt="Request flow" width="1600" height="900" /></div>
+    </section>
+
+    <section class="asset" id="architecture" data-name="octocode-architecture">
+      <div class="meta">
+        <h2>6 · octocode-architecture.png</h2>
+        <span class="badge">1600×900 · architecture layers</span>
+      </div>
+      <div class="frame"><img src="./octocode-architecture.png" alt="Architecture diagram" width="1600" height="900" /></div>
+    </section>
+  </main>
+  <footer>Local review page for <code>packages/octocode-benchmark/post/assets</code></footer>
+</body>
+</html>

@@ -5,7 +5,7 @@ import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 
 const here = new URL('.', import.meta.url).pathname;
-const script = resolve(here, 'scrapingant-fetch.mjs');
+const script = resolve(here, 'fetch.mjs');
 const root = resolve(process.cwd());
 const outBase = join(root, '.octocode/tmp/scrape-eval');
 await mkdir(outBase, { recursive: true });
@@ -22,7 +22,7 @@ function assert(name, condition, detail = '') { checks.push({ name, ok: Boolean(
 await rm(outBase, { recursive: true, force: true });
 await mkdir(outBase, { recursive: true });
 
-run('example html success', ['--url', 'https://example.com', '--mode', 'html', '--session', 'eval-html', '--max-text-bytes', '20000', '--chunk-bytes', '5000', '--extract-links']);
+run('example html success', ['--url', 'https://example.com', '--mode', 'html', '--provider', 'direct', '--session', 'eval-html', '--max-text-bytes', '20000', '--chunk-bytes', '5000', '--extract-links']);
 assert('html map exists', existsSync(join(outBase, 'eval-html/MAP.md')));
 assert('html agent index exists', existsSync(join(outBase, 'eval-html/AGENT_INDEX.json')));
 assert('html graph exists', existsSync(join(outBase, 'eval-html/graph/site-graph.json')));
@@ -51,7 +51,7 @@ run('target error despite provider 200', ['--url', 'https://example.com/missing'
 const target404Index = JSON.parse(await readFile(join(outBase, 'eval-target-404/AGENT_INDEX.json'), 'utf8'));
 assert('target error warning recorded', target404Index.ok === false && target404Index.warnings.some((w) => /target likely returned/.test(w.warning)));
 
-const secretRun = run('secret param rejected', ['--url', 'https://example.com', '--mode', 'html', '--session', 'eval-secret', '--param', 'token=abc'], false);
+const secretRun = run('secret param rejected', ['--url', 'https://example.com', '--mode', 'html', '--provider', 'direct', '--session', 'eval-secret', '--param', 'token=abc'], false);
 assert('secret rejection is sanitized json', secretRun.stderr.includes('"ok": false') && secretRun.stderr.includes('Refusing secret-like') && !secretRun.stderr.includes('at file://'));
 
 run('mock cost captured', ['--url', 'https://example.com', '--mode', 'markdown', '--session', 'eval-cost', '--mock-status', '200', '--mock-body-file', mockFile, '--mock-credit-cost', '7']);

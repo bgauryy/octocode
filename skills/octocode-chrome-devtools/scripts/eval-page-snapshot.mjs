@@ -29,7 +29,7 @@ assert('default headless window size is 1280x720, not an undersized default', la
 
 const run = spawnSync(process.execPath, [
   'skills/octocode-chrome-devtools/scripts/cdp-sandbox.mjs',
-  'skills/octocode-chrome-devtools/examples/page-snapshot.mjs',
+  'skills/octocode-chrome-devtools/scripts/cdp-checks/page-snapshot.mjs',
   '--port', port, '--keep-tab', '--timeout', '20000', '--script-timeout', '25000',
 ], { encoding: 'utf8', timeout: 40000, maxBuffer: 5 * 1024 * 1024 });
 assert('page-snapshot.mjs runs', run.status === 0, run.stderr.slice(0, 1000));

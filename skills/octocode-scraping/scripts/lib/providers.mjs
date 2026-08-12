@@ -14,8 +14,9 @@ export function resolveProvider(name) {
 }
 
 /**
- * Auto-select the best available provider based on environment and installed skills.
- * Priority: scrapingant (SCRAPING_ANT set) → cdp (octocode-chrome-devtools installed) → direct.
+ * Auto-select a keyless route for html. Hosted is never auto-picked — pass
+ * `--provider scrapingant` only after direct/CDP failed and the user approved spend.
+ * Priority: cdp (octocode-chrome-devtools installed) → direct.
  * Non-html modes (markdown / extended / extract) require scrapingant — throw early if unavailable.
  */
 export function autoSelectProvider(mode, env) {
@@ -25,7 +26,6 @@ export function autoSelectProvider(mode, env) {
     }
     return 'scrapingant';
   }
-  if (env.SCRAPING_ANT?.trim()) return 'scrapingant';
   if (existsSync(CHROME_DEVTOOLS_DIR)) return 'cdp';
   return 'direct';
 }

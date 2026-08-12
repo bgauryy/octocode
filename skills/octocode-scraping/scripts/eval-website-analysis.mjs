@@ -5,7 +5,7 @@ import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 
 const here = new URL('.', import.meta.url).pathname;
-const fetchScript = resolve(here, 'scrapingant-fetch.mjs');
+const fetchScript = resolve(here, 'fetch.mjs');
 const schemaScript = resolve(here, 'schema-helper.mjs');
 const root = resolve(process.cwd());
 const outBase = join(root, '.octocode/tmp/scrape-analysis-eval');
@@ -21,7 +21,7 @@ await mkdir(outBase, { recursive: true });
 const html = `<!doctype html><html><head><title>Noisy Banner Title</title><link rel="canonical" href="/home"><link rel="stylesheet" href="/styles/main.css"><link rel="alternate" type="application/rss+xml" href="/feed.xml"><script src="/app.js"></script><meta name="description" content="API docs and pricing"><script type="application/ld+json">{"@type":"SoftwareApplication","name":"Demo"}</script></head><body><nav><a href="/docs/api">API Reference</a><a href="/pricing">Pricing</a></nav><h1>Developer Platform</h1><img src="/hero.png" alt="hero"><a href="/signup">Start free trial</a><form action="/signup" method="post"><label>Email</label><input type="email" name="email"><button>Sign up</button></form><table><tr><th>Plan</th><th>Price</th></tr><tr><td>Free</td><td>$0</td></tr></table><pre><code>curl https://api.example.com/v1/items</code></pre><nav class="pagination-nav"><a class="pagination-nav__link pagination-nav__link--prev" href="/docs/intro"><div>Previous</div><div>Intro</div></a><a class="pagination-nav__link pagination-nav__link--next" href="/docs/advanced"><div>Next</div><div>Advanced</div></a></nav></body></html>`;
 const mockFile = join(outBase, 'mock-site.html');
 await writeFile(mockFile, html);
-run('html analysis corpus', ['--url', 'https://example.com', '--mode', 'html', '--session', 'site-analysis', '--mock-status', '200', '--mock-content-type', 'text/html', '--mock-body-file', mockFile]);
+run('html analysis corpus', ['--url', 'https://example.com', '--mode', 'html', '--provider', 'direct', '--session', 'site-analysis', '--mock-status', '200', '--mock-content-type', 'text/html', '--mock-body-file', mockFile]);
 const dir = join(outBase, 'site-analysis');
 for (const rel of ['AGENT_INDEX.json', 'graph/graph.json', 'graph/site-graph.json', 'graph/workflows.json', 'indexes/pages-001.json', 'indexes/pages-summary.json', 'indexes/top-links.jsonl', 'indexes/workflow-candidates.jsonl', 'extracts/forms.jsonl', 'extracts/buttons.jsonl', 'extracts/tables.jsonl', 'extracts/meta.jsonl', 'extracts/canonical.jsonl', 'extracts/jsonld.jsonl', 'extracts/elements.jsonl']) assert(`${rel} exists`, existsSync(join(dir, rel)));
 const agent = JSON.parse(await readFile(join(dir, 'AGENT_INDEX.json'), 'utf8'));

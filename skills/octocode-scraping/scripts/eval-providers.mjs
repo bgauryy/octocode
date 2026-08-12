@@ -6,8 +6,8 @@ import { spawnSync } from 'node:child_process';
 import { PROVIDERS } from './lib/providers.mjs';
 
 const here = new URL('.', import.meta.url).pathname;
-const fetchScript = resolve(here, 'scrapingant-fetch.mjs');
-const checkScript = resolve(here, 'scrapingant-check.mjs');
+const fetchScript = resolve(here, 'fetch.mjs');
+const checkScript = resolve(here, 'provider-check.mjs');
 const root = resolve(process.cwd());
 const outBase = join(root, '.octocode/tmp/scrape-providers-eval');
 const checks = [];
@@ -29,12 +29,18 @@ for (const [name, descriptor] of Object.entries(PROVIDERS)) {
 // direct provider needs no key.
 const checkDirect = spawnSync(process.execPath, [checkScript, '--provider', 'direct'], { encoding: 'utf8' });
 const directCheck = JSON.parse(checkDirect.stdout || '{}');
-assert('scrapingant-check.mjs --provider direct reports no key required', checkDirect.status === 0 && directCheck.key === 'not-required', checkDirect.stdout);
+assert('provider-check.mjs --provider direct reports no key required', checkDirect.status === 0 && directCheck.key === 'not-required', checkDirect.stdout);
 
-// auto-selection: no flags → auto=true, selected=scrapingant (SCRAPING_ANT is set in this env).
-const checkAnt = spawnSync(process.execPath, [checkScript], { encoding: 'utf8' });
-const antCheck = JSON.parse(checkAnt.stdout || '{}');
-assert('scrapingant-check.mjs (no flags) auto-selects scrapingant when SCRAPING_ANT is set', antCheck.auto === true && antCheck.selected === 'scrapingant' && antCheck.apiKeyEnv === 'SCRAPING_ANT', checkAnt.stdout);
+// auto-selection: keyless-first — never auto scrapingant even when SCRAPING_ANT is set.
+const checkAuto = spawnSync(process.execPath, [checkScript], { encoding: 'utf8' });
+const autoCheck = JSON.parse(checkAuto.stdout || '{}');
+const chromeDevtoolsDirForAuto = resolve(here, '../../octocode-chrome-devtools');
+const expectAuto = existsSync(chromeDevtoolsDirForAuto) ? 'cdp' : 'direct';
+assert(
+  `provider-check.mjs (no flags) auto-selects ${expectAuto} (keyless; not scrapingant)`,
+  checkAuto.status === 0 && autoCheck.auto === true && autoCheck.selected === expectAuto && autoCheck.key === 'not-required',
+  checkAuto.stdout
+);
 
 // unknown provider is rejected cleanly.
 const badProvider = spawnSync(process.execPath, [fetchScript, '--url', 'https://example.com', '--provider', 'nonexistent'], { encoding: 'utf8' });
@@ -60,15 +66,22 @@ assert('direct provider: route is direct:html', JSON.parse(directRun.stdout).rou
 assert('direct provider: workflow classification still runs (pricing found)', directAgent.totals.workflows >= 1);
 assert('direct provider: no cost rows captured (no vendor cost concept)', (await readFile(join(directDir, 'extracts/costs.jsonl'), 'utf8')).trim() === '');
 
+// cdp respects --mock-status (no Chrome) so hermetic suites stay keyless + offline.
+const cdpMock = spawnSync(process.execPath, [fetchScript, '--url', 'https://example.com', '--mode', 'html', '--provider', 'cdp', '--session', 'cdp-mock', '--mock-status', '200', '--mock-content-type', 'text/html', '--mock-body-file', mockFile, '--out', outBase], { encoding: 'utf8', cwd: root });
+let cdpMockData = null;
+try { cdpMockData = JSON.parse(cdpMock.stdout); } catch {}
+assert('cdp provider: mock run succeeds without Chrome', cdpMock.status === 0 && cdpMockData?.ok === true && cdpMockData?.route === 'cdp:html', cdpMock.stderr.slice(0, 300));
+
 // live, real network proof: direct provider is genuinely usable with zero vendor/key ("curl from outside").
 const liveRun = spawnSync(process.execPath, [fetchScript, '--url', 'https://example.com', '--mode', 'html', '--provider', 'direct', '--session', 'direct-live', '--out', outBase], { encoding: 'utf8' });
 const liveData = JSON.parse(liveRun.stdout || '{}');
 assert('direct provider: real live fetch (no API key) succeeds', liveRun.status === 0 && liveData.ok === true && liveData.status === 200, liveRun.stderr.slice(0, 300));
 
-// cdp provider: real fetch via the sibling octocode-chrome-devtools skill. Gate gracefully —
-// don't fail the whole suite in an environment without that skill or without Chrome.
+// cdp live network is optional for hermetic suite (Chrome + site flake). Require OCTOCODE_LIVE_BENCH=1.
 const chromeDevtoolsDir = resolve(here, '../../octocode-chrome-devtools');
-if (existsSync(chromeDevtoolsDir)) {
+if (!existsSync(chromeDevtoolsDir)) {
+  checks.push({ name: 'cdp provider: skipped (octocode-chrome-devtools not installed alongside)', ok: true, detail: chromeDevtoolsDir });
+} else if (process.env.OCTOCODE_LIVE_BENCH === '1') {
   const cdpRun = spawnSync(process.execPath, [fetchScript, '--url', 'https://example.com', '--mode', 'html', '--provider', 'cdp', '--session', 'cdp-live', '--out', outBase], { encoding: 'utf8', cwd: root });
   let cdpData = null;
   try { cdpData = JSON.parse(cdpRun.stdout); } catch {}
@@ -81,7 +94,7 @@ if (existsSync(chromeDevtoolsDir)) {
     assert('cdp provider: manifest reports provider=cdp, apiKeyEnv null', cdpManifest.provider === 'cdp' && cdpManifest.apiKeyEnv === null, JSON.stringify(cdpManifest.provider));
   }
 } else {
-  checks.push({ name: 'cdp provider: skipped (octocode-chrome-devtools not installed alongside)', ok: true, detail: chromeDevtoolsDir });
+  checks.push({ name: 'cdp provider: live skipped (set OCTOCODE_LIVE_BENCH=1)', ok: true, detail: 'hermetic mocks cover cdp via --mock-status' });
 }
 
 const failed = checks.filter((c) => !c.ok);
