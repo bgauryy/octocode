@@ -186,6 +186,33 @@ ACCEPT
 
 ## Next
 None.`,
+    'trajectory-mode-selection': `Mode: Audit
+Choose strict trajectory match mode.
+Ordering / sequence requirement: policy_lookup must precede refund_tool — this is a business rule / requirement (policy before refund).
+Strict is required because order matters; do not pick a mode that ignores sequence.`,
+    'shared-context-verifier': `Mode: Audit
+Verdict: REVERT — not independent.
+The verifier receives the executor's full conversation history (shared context), so it is agreeing with itself / grading its own work.
+Require a fresh context / isolated context per verifier node; restructure so the verifier does not see the executor transcript.`,
+    'fake-parallelism': `Mode: Audit
+Not a real graph — fake parallelism.
+Edge detection: summarize actually reads fetched data; report actually uses the summary — real sequential dependencies / data flow.
+These steps cannot parallelize; forcing them parallel adds coordination cost / overhead with no speedup. Keep the chain sequential.`,
+    'goodhart-detection': `Mode: Audit
+Goodhart / proxy metric mismatch: ticket-resolution rate improved while satisfaction (counter-metric / guardrail) dropped — optimizing the metric instead of the goal.
+Stop / halt the loop (REVERT). Do not continue optimizing resolution rate.
+Reframe the goal / redefine the primary KPI; make satisfaction a hard guardrail floor the agent cannot tune.`,
+    'bilevel-escalation': `Mode: Run
+Primary is flat; error analysis finds no new categories — do not continue the inner loop / not more trials.
+The search pattern is stuck in model priors / same hypothesis.
+Escalate to bilevel / outer loop / meta-loop: rewrite the search strategy (how the inner loop searches), not just another experiment.`,
+    'subagent-cookbook-protocol': `Mode: Define
+Protocol frozen before first spawn: FRAME goal→KPI, edge detection, sealed packets, baseline at graph boundary, spawn independents, barrier list/wait, parent re-check anchors, ACCEPT/REVERT with harness frozen.
+Primary KPI: e2e / end-to-end pass rate at the graph boundary (higher-better) baseline=0.55 target=0.85
+Leading: per-worker case score; packet completeness
+Guardrails: token budget; spawn count ≤ 3; collisions=0; Goodhart — quality must not drop while latency falls
+Communication: sealed packet downlink; result uplink; lateral off; barrier before synthesize; fresh context verifier; ≥1 anchor node
+Do not accept “workers finished” vibes.`,
   };
   if (!samples[caseId]) throw new Error(`No strong sample for ${caseId}`);
   return samples[caseId];

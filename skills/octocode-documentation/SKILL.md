@@ -1,6 +1,6 @@
 ---
 name: octocode-documentation
-description: "Use when writing or updating docs: README, API docs, runbooks, AGENTS.md, CLAUDE.md, ADRs, Diátaxis restructuring, or codebase documentation for humans or coding agents."
+description: "Use when docs are missing, wrong, stale, or hard for humans or coding agents to use: README, API reference, runbooks, troubleshooting, CONTRIBUTING, changelog, onboarding, AGENTS.md/CLAUDE.md, ADRs, Diátaxis restructuring, architecture overviews, or migration guides. Phrases like document this, write a runbook, fix the README. Pure code investigation → octocode-research; SKILL.md folders → octocode-skills."
 ---
 
 # Octocode Documentation
@@ -47,3 +47,6 @@ Load only what the step needs:
 - Unclear mode → ask once: agent-docs / human-docs / adr / codebase-pack.
 - Conflicting conventions → surface; do not add a second scheme.
 - Missing command → omit or mark unverified. No Octocode → host search tools.
+
+## Scripts
+- `scripts/eval-documentation.mjs` — `--self-test` / `--triggers` / `--case <id> --input <answer.md>` after skill edits.

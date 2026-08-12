@@ -1,0 +1,67 @@
+{
+  "schemaVersion": 1,
+  "description": "Smoke evals for octocode-mannequin answers. Deterministic floor; skeleton.mjs is the SSOT CLI.",
+  "rubric": [
+    "Uses anatomical joint/movement names, not raw signed degrees alone.",
+    "Respects ROM clamps / reports clamped warnings.",
+    "Routes physics/mocap/general 3D elsewhere.",
+    "Points at skeleton.mjs scheme/pose/viewer when driving the figure."
+  ],
+  "cases": [
+    {
+      "id": "pose-wave",
+      "mode": "pose",
+      "prompt": "Pose the manikin waving with the right arm.",
+      "minScore": 0.8,
+      "required": [
+        { "name": "anatomical or joint", "pattern": "\\b(shoulder|elbow|wrist|joint|abduction|flexion|bone)\\b" },
+        { "name": "skeleton or pose cmd", "pattern": "\\bskeleton\\.mjs\\b|\\bpose\\b|\\bscheme\\b" },
+        { "name": "clamp or ROM", "pattern": "\\bROM\\b|\\bclamp|\\brange.of.motion\\b|\\bwarnings?\\b" }
+      ]
+    },
+    {
+      "id": "not-physics",
+      "mode": "route",
+      "prompt": "Simulate a ragdoll falling with IK foot locking from a BVH mocap file.",
+      "minScore": 0.85,
+      "required": [
+        { "name": "out of scope", "pattern": "\\bnot (?:this|for)|\\bout of scope\\b|\\bWhen NOT\\b|\\bkeyframed\\b" },
+        { "name": "names excluded tech", "pattern": "\\bragdoll\\b|\\bIK\\b|\\bmocap\\b|\\bBVH\\b|\\bphysics\\b" }
+      ],
+      "forbidden": [
+        { "name": "claims physics support", "pattern": "\\b(we|this skill) (?:can|will) simulate (?:ragdoll|physics)\\b" }
+      ]
+    },
+    {
+      "id": "walk-cycle",
+      "mode": "sequence",
+      "prompt": "Animate a walk/run cycle with ROM clamps and open the Three.js viewer.",
+      "minScore": 0.8,
+      "required": [
+        { "name": "sequence or assets", "pattern": "\\bsequence\\b|\\brun-cycle\\.json\\b|\\bassets/" },
+        { "name": "viewer", "pattern": "\\bviewer\\b|\\bThree\\.js\\b|\\bskeleton\\.mjs\\b" },
+        { "name": "ROM", "pattern": "\\bROM\\b|\\bclamp" }
+      ]
+    },
+    {
+      "id": "webmcp-drive",
+      "mode": "drive",
+      "prompt": "Drive the live manikin from an agent — reach the hand to a world point.",
+      "minScore": 0.8,
+      "required": [
+        { "name": "webmcp or tools", "pattern": "\\bWebMCP\\b|\\breach\\b|\\blook_at\\b|\\bget_pose\\b|\\bget_scheme\\b" },
+        { "name": "chrome or cdp handoff", "pattern": "\\bchrome-devtools\\b|\\bCDP\\b|\\bwebmcp-agent\\.md\\b" }
+      ]
+    },
+    {
+      "id": "scheme-first",
+      "mode": "scheme",
+      "prompt": "Explain the anatomical bone hierarchy before we pose anything.",
+      "minScore": 0.8,
+      "required": [
+        { "name": "scheme", "pattern": "\\bscheme\\b|\\banatomy-scheme\\b|\\bbone" },
+        { "name": "skeleton cli", "pattern": "\\bskeleton\\.mjs\\b" }
+      ]
+    }
+  ]
+}

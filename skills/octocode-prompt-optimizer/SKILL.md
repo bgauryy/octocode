@@ -1,6 +1,6 @@
 ---
 name: octocode-prompt-optimizer
-description: "Use when an agent prompt, skill, tool schema, policy, or handoff needs to get clearer, safer, easier to trigger, cheaper in context, or measurable against real behavior."
+description: "Use when an agent prompt, tool schema, policy, or handoff needs to get clearer, safer, easier to trigger, cheaper in context, or measurable against real behavior. For SKILL.md folder install/review/structure, use octocode-skills."
 ---
 
 # Octocode Prompt Optimizer
@@ -27,4 +27,7 @@ Optimize instruction behavior, not prose aesthetics. Flow: `READ → UNDERSTAND 
 
 ## Related routes
 - Use `octocode-skills` for skill-folder architecture/review; `octocode-research` to verify cited contracts; `octocode-graph-eval` for held-out behavior.
-- Use `octocode-subagent` for delegation topology; `octocode-awareness` for coordinated instruction-file edits.
+- Use `octocode-subagent` for delegation topology.
+
+## Scripts
+- `scripts/eval-prompt-optimizer.mjs` — `--self-test` / `--triggers` / `--case <id> --input <answer.md>` after skill edits.

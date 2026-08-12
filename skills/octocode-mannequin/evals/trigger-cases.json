@@ -1,0 +1,20 @@
+{
+  "should_trigger": [
+    { "prompt": "Pose a manikin waving with the right arm.", "expect": true },
+    { "prompt": "Animate a Three.js humanoid walk/run cycle with ROM clamps.", "expect": true },
+    { "prompt": "Explain the anatomical bone hierarchy for this skeleton rig.", "expect": true },
+    { "prompt": "Make the manikin do a backflip sequence.", "expect": true },
+    { "prompt": "Drive the live manikin figure from an agent.", "expect": true },
+    { "prompt": "skeleton.mjs scheme — show joint DOF and ROM.", "expect": true },
+    { "prompt": "Open the manikin viewer and play the dance asset.", "expect": true },
+    { "prompt": "Use WebMCP reach/look_at to move the figure.", "expect": true }
+  ],
+  "should_not_trigger": [
+    { "prompt": "Set up a general Three.js scene with lights and a cube.", "expect": false },
+    { "prompt": "Import BVH mocap and run ragdoll physics.", "expect": false },
+    { "prompt": "Add IK foot-locking for terrain following.", "expect": false },
+    { "prompt": "Why does this function return null?", "expect": false },
+    { "prompt": "Debug console errors on a live web page in Chrome.", "expect": false },
+    { "prompt": "Scrape docs into a local corpus.", "expect": false }
+  ]
+}

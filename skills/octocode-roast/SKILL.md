@@ -1,6 +1,6 @@
 ---
 name: octocode-roast
-description: "Use when code needs a blunt evidence-backed critique or roast: correctness, security, performance, design, testing, and maintainability smells; rank cleanup debt; review a diff or hot path; offer practical redemption paths."
+description: "Use when code needs a blunt evidence-backed roast or memorable critique: smell inventory, debt ranking, hot-path autopsy, savage/diff review, security or performance sins, or practical redemption paths. Phrases like roast this, brutal review, top sins, cleanup debt. Polite evidence-first PR review → octocode-research."
 ---
 
 # Octocode Roast
@@ -34,7 +34,10 @@ If there are 20+ issues, triage the top 10 by impact and confidence, then separa
 
 ## Related routes
 - Use `octocode-research` for evidence gathering; `octocode-graph-eval` to measure roast usefulness; `octocode-prompt-optimizer` only for tone/instruction wording.
-- Use `octocode-awareness` when reviewing live shared work; `octocode-skills` when changing this skill folder.
+- Use `octocode-skills` when changing this skill folder.
 
 ## Output
 Use: `Top roast`, `Important findings`, `Redundant / low-value findings`, `Autopsy`, `Redemption paths`, `Fix checkpoint`. Each finding includes `file:line`, evidence, impact, confidence, and repair move.
+
+## Scripts
+- `scripts/eval-roast.mjs` — `--self-test` / `--triggers` / `--case <id> --input <answer.md>` after skill edits.

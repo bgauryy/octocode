@@ -1,0 +1,80 @@
+{
+  "schemaVersion": 1,
+  "description": "Smoke evals for octocode-roast answers. Deterministic floor; human review still judges bite and accuracy.",
+  "rubric": [
+    "Opens with a Top roast.",
+    "Every major finding has file:line, impact, confidence, repair.",
+    "Ranks by severity; no personal insults.",
+    "Offers redemption paths; no edits without consent.",
+    "Redacts secrets."
+  ],
+  "cases": [
+    {
+      "id": "hot-path-roast",
+      "mode": "roast",
+      "prompt": "Roast the hot path in src/cache.ts for correctness and performance.",
+      "minScore": 0.85,
+      "required": [
+        { "name": "top roast", "pattern": "\\bTop roast\\b" },
+        { "name": "finding anchor", "pattern": "[A-Za-z0-9_./-]+:\\d+" },
+        { "name": "impact", "pattern": "\\b[Ii]mpact\\b|\\bseverity\\b|\\bfelony\\b|\\bcapital\\b" },
+        { "name": "confidence", "pattern": "\\b[Cc]onfidence\\b|\\bconfirmed\\b|\\blikely\\b" },
+        { "name": "redemption", "pattern": "\\bRedemption\\b|\\brepair\\b|\\bfix\\b" },
+        { "name": "checkpoint", "pattern": "\\b[Cc]heckpoint\\b|\\bconsent\\b|\\bDo not edit\\b|\\bbefore (?:edit|fix)" }
+      ],
+      "forbidden": [
+        { "name": "personal insult", "pattern": "\\byou(?:'re| are) (?:bad|stupid|incompetent)\\b|\\bjunior\\b.*\\bidiot\\b" }
+      ]
+    },
+    {
+      "id": "diff-roast",
+      "mode": "roast",
+      "prompt": "Brutal review of this staged diff — security first.",
+      "minScore": 0.8,
+      "required": [
+        { "name": "top roast", "pattern": "\\bTop roast\\b" },
+        { "name": "security or severity", "pattern": "\\bsecurit|\\bsecret\\b|\\binjection\\b|\\bcapital\\b|\\bfelon" },
+        { "name": "anchor", "pattern": "[A-Za-z0-9_./-]+:\\d+" },
+        { "name": "redemption", "pattern": "\\bRedemption\\b|\\brepair\\b" }
+      ]
+    },
+    {
+      "id": "debt-rank",
+      "mode": "roast",
+      "prompt": "Rank cleanup debt in this module — top sins and redemption order.",
+      "minScore": 0.8,
+      "required": [
+        { "name": "top roast or ranking", "pattern": "\\bTop roast\\b|\\bdebt\\b|\\brank|\\btop (?:\\d+|sins?)" },
+        { "name": "severity ladder", "pattern": "\\bcapital\\b|\\bfelon|\\bcrime|\\bslop\\b|\\bmisdemeanor|\\bseverit" },
+        { "name": "anchor", "pattern": "[A-Za-z0-9_./-]+:\\d+" },
+        { "name": "redemption order", "pattern": "\\bRedemption\\b|\\brepair\\b|\\bfix (?:first|order|path)" }
+      ]
+    },
+    {
+      "id": "secret-redact",
+      "mode": "roast",
+      "prompt": "Roast this file — it may contain API keys in comments.",
+      "minScore": 0.85,
+      "required": [
+        { "name": "top roast", "pattern": "\\bTop roast\\b" },
+        { "name": "secret handling", "pattern": "\\bredact|\\bsecret\\b|\\bAPI key\\b|\\bdo not (?:print|paste|reveal)|\\bcapital\\b" },
+        { "name": "checkpoint", "pattern": "\\b[Cc]heckpoint\\b|\\bconsent\\b|\\bDo not edit\\b" }
+      ],
+      "forbidden": [
+        { "name": "leaked key-like token", "pattern": "\\b(?:sk|ghp|AKIA)[A-Za-z0-9_\\-]{16,}\\b" }
+      ]
+    },
+    {
+      "id": "polite-route-away",
+      "mode": "route",
+      "prompt": "Politely review this PR with evidence and next steps — no roast tone.",
+      "minScore": 0.8,
+      "required": [
+        { "name": "route to research", "pattern": "\\boctocode-research\\b|\\bpolite\\b|\\bevidence-first\\b|\\bnot (?:a )?roast\\b|\\bPR review\\b" }
+      ],
+      "forbidden": [
+        { "name": "forces roast format", "pattern": "\\bTop roast\\b[\\s\\S]{0,80}\\bAutopsy\\b" }
+      ]
+    }
+  ]
+}

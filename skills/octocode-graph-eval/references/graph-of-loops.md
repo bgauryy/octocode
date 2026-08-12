@@ -42,6 +42,6 @@ Test: if edge detection (above) finds no two boxes with no arrow between them, b
 Load `references/graph-failure-modes.md` — shared-context verifier, race conditions, Goodhart's Law, missing anchors. Add suite cases on first trace appearance.
 
 ## Ownership
-Topology, spawning, and sealed packets → `octocode-subagent`. This skill owns measuring the graph: contract, sensors, attribution, verdict.
+Topology, spawning, and sealed packets → `octocode-subagent`. This skill owns measuring the graph: contract, sensors, attribution, verdict — start at `subagent-cookbook.md` for protocol/KPI/comms cookbooks.
 
-Next: node sensors → `feedback-loops.md`; inner loop per node → `agent-loop.md`; improvement-loop levels → `nested-loops.md`; bilevel escalation → `karpathy-patterns.md`.
+Next: node sensors → `feedback-loops.md`; inner loop per node → `agent-loop.md`; improvement-loop levels → `nested-loops.md`; bilevel escalation → `karpathy-patterns.md`; subagent measurement → `subagent-cookbook.md`.

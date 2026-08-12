@@ -1,6 +1,6 @@
 ---
 name: octocode-scraping
-description: "Use when extracting or mapping public web content into a local cited corpus: scrape/crawl a URL or docs site, pull tables/pricing/product fields, diagnose blocked/thin pages, or answer from saved pages — keyless html first (cdp/direct); ScrapingAnt only after approval. Live clicks/HAR/perf → octocode-chrome-devtools, then har-ingest + corpus-run."
+description: "Use when extracting or mapping public web content into a local cited corpus: scrape or crawl a URL/docs site, pull tables/pricing/product fields, diagnose blocked or thin pages, or answer from saved pages. Phrases like scrape this URL, crawl the docs, build a corpus, extract pricing. Prefer keyless fetch; ask before hosted spend. Live clicks/HAR/perf → octocode-chrome-devtools."
 ---
 
 # Octocode Scraping
@@ -37,4 +37,4 @@ Defaults: one public URL, `--mode html`, omit `--provider` (keyless `cdp`→`dir
 | live bridge | `references/browser-scraping.md` |
 | blocked / thin | `references/failure-recovery.md` |
 
-Scripts map: `scripts/README.md`. Done: `eval-benchmark-suite.mjs` after edits; `OCTOCODE_LIVE_BENCH=1` only for fetch/network changes.
+Scripts map: `scripts/README.md`. Skill smoke: `scripts/eval-scraping-skill.mjs` (`--self-test` / `--triggers`). Done: `eval-benchmark-suite.mjs` after edits; `OCTOCODE_LIVE_BENCH=1` only for fetch/network changes.

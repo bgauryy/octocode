@@ -1,6 +1,6 @@
 ---
 name: octocode-chrome-devtools
-description: "Use when a live page needs Chrome DevTools/CDP evidence: network failures, console errors, performance health, DOM/CSS actionability, screenshots/PDF, security, cookies/storage, click/fill/search, HAR, or auth-gated pages — not static crawl (use octocode-scraping)."
+description: "Use when a live page needs Chrome DevTools/CDP evidence: network failures, console errors, performance, DOM/CSS actionability, screenshots/PDF, cookies/storage, click/fill/search, HAR, or auth-gated pages. Phrases like debug in Chrome, live page health, CDP snapshot, cookie bridge. Not for static crawl or bulk extract (use octocode-scraping)."
 ---
 
 # Octocode Chrome DevTools
@@ -23,7 +23,9 @@ Flow: open/attach → stealth → **one** intent → `run(cdp)` → same `--port
 Default chain: open-browser → snapshot/DOM → (graph) → measure → query → optional HAR → bridge. Query `.octocode/tmp/chrome-devtools/` before a new browser run. Full audit = separate scripts, same port.
 
 ## Scripts / refs
-Runners: `open-browser`, `cdp-sandbox` (default), `cdp-runner`, `cdp-template`, `undercover`/`human-input`/`mandatory-stealth`, `cookie-bridge` (ask first), `prune-artifacts`, aliases `har-ingest-to-scrape`/`corpus-run-local`. Catalog: `references/cdp-checks.md`. Evals: `eval-benchmark-suite.mjs` (`OCTOCODE_LIVE_BENCH=1` live only).
+Runners: `open-browser`, `cdp-sandbox` (default), `cdp-runner`, `cdp-template`, `undercover`/`human-input`/`mandatory-stealth`, `cookie-bridge` (ask first), `prune-artifacts`, aliases `har-ingest-to-scrape`/`corpus-run-local`. Catalog: `references/cdp-checks.md`.
+
+Skill smoke: `scripts/eval-chrome-devtools.mjs` (`--self-test` / `--triggers`). Live/hermetic suites: `eval-benchmark-suite.mjs` (`OCTOCODE_LIVE_BENCH=1` live only).
 
 | When | Load |
 |---|---|

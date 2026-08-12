@@ -1,6 +1,6 @@
 ---
 name: octocode-research
-description: "Use when a technical question or code change needs evidence before conclusions: find or locate behavior, explain systems, diagnose failures, review diffs, validate dependencies or prior art, prove dead code, plan refactors, or ship the smallest verified fix."
+description: "Use when a claim about code needs exact evidence before you assert or change it: locate behavior, explain a system, diagnose a failure, prove dead code, or validate prior art. Skip when the fix is already known. Blunt critique → octocode-roast; decision-before-code → octocode-rfc-generator; worth-building → octocode-brainstorming."
 ---
 
 # Octocode Research
@@ -27,10 +27,9 @@ Modes: investigate, review, change, refactor, prior-art validation, and evidence
 - When command, MCP, or schema details matter, load `references/octocode.md` — use verified transport syntax; when improving this skill, prefer `octocode-graph-eval` (else `references/improve-loop.md`) — enforce an accept/revert gate.
 
 ## Related routes
-- Use `octocode-awareness` for shared-repo coordination, locks, verification, and durable lessons.
 - Use `octocode-brainstorming` when worth-building is unresolved; `octocode-graph-eval` for goal→KPI / keep-discard; `octocode-rfc-generator` for design contracts; `octocode-skills` for skill-folder lifecycle.
 - Use `octocode-subagent` for bounded fan-out; `octocode-roast` for critique tone.
 
 ## Script and output
-- When changing this skill, run `scripts/eval-research.mjs` for the matching case — catch routing regressions.
+- When changing this skill, run `scripts/check-description.mjs` then `scripts/eval-research.mjs` for the matching case — catch trigger and routing regressions.
 - Quick output: `Finding`, `Evidence`, `Confidence`, `Next`; decisions add verdict, risks, exact anchors, verification, and smallest safe fix.

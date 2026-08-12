@@ -9,6 +9,7 @@ Load before spawning. Why: multi-agent overhead is only worth independent work, 
 | Dependent steps, shared context, ordinary edits/synthesis | Stay in **parent** |
 | Independent tool calls, known inputs | **Batch** in one turn |
 | Skill/prompt pack already covers the job | Load skill in **parent** — do not spawn |
+| Low-risk summarize/extract/classify/… on saved text; save tokens | **Local Ollama** — `references/local-ollama.md` |
 | Named specialist role (research, plan, review, …) | Delegate **typed specialist** via host API |
 | Purpose-built objective; custom tools + brief | Spawn **clean worker** with minimal tools |
 | Independent remote peer | **A2A** — `a2a.md` |

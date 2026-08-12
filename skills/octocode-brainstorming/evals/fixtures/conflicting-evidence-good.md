@@ -11,13 +11,13 @@ Local active because the idea touches this skill. GitHub/packages active because
 - Set aside: vector-only memory as the default storage layer.
 
 ## Landscape
-- SQLite and FTS keep the base workflow local and inspectable. `moderate` skills/octocode-awareness/references/memory-recall.md:18
+- Local eval harnesses keep the base workflow inspectable and gated. `moderate` skills/octocode-graph-eval/SKILL.md:8
 - Vector memory projects show value for paraphrase recall, but add dependencies and tuning cost. `moderate` https://arxiv.org/abs/2310.08560
 
 ## Perspective Review
-- Critical Architect: SQLite-first held because the local store already supports scoped handoffs and verification; evidence skills/octocode-awareness/SKILL.md:14.
+- Critical Architect: SQLite-first held because local sensors already support keep/discard verification; evidence skills/octocode-graph-eval/SKILL.md:12.
 - Visionary Entrepreneur: optional semantic recall held because differentiated recall helps long-running work; evidence https://mem0.ai/blog/introducing-openmemory-mcp.
-- Product: default-vector memory was contested because setup friction would hurt first-run use; evidence skills/octocode-awareness/references/memory-recall.md:18.
+- Product: default-vector memory was contested because setup friction would hurt first-run use; evidence skills/octocode-graph-eval/references/routing.md:15.
 - Conceded: the claim that vector recall should be the default was dropped as weak until dependency and tuning costs are proven.
 
 ## Decision Delta
@@ -29,7 +29,7 @@ Decision: Prototype First
 Run one prototype that compares SQLite/FTS recall against optional semantic recall on real repo handoffs.
 
 ## Sources
-- skills/octocode-awareness/references/memory-recall.md:18 — backs the local/inspectable SQLite-first claim above.
+- skills/octocode-graph-eval/SKILL.md:8 — backs the local/inspectable sensor-first claim above.
 - https://arxiv.org/abs/2310.08560 — backs the paraphrase-recall-value/dependency-cost claim above.
-- skills/octocode-awareness/SKILL.md:14 — backs the scoped-handoff/verification claim above.
+- skills/octocode-graph-eval/SKILL.md:12 — backs the keep/discard verification claim above.
 - https://mem0.ai/blog/introducing-openmemory-mcp — backs the differentiated-recall claim above.

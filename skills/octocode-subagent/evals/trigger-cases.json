@@ -1,0 +1,25 @@
+{
+  "should_trigger": [
+    { "prompt": "Two independent packages — spawn workers with disjoint write paths.", "expect": true },
+    { "prompt": "Delegate a sealed research packet to a Task subagent.", "expect": true },
+    { "prompt": "Fan out specialist reviewers then barrier-synthesize.", "expect": true },
+    { "prompt": "A2A peer handoff with return shape and ownership rules.", "expect": true },
+    { "prompt": "Decompose three isolated objectives and spawn specialists.", "expect": true },
+    { "prompt": "Coordinate parallel agents without colliding on package.json.", "expect": true },
+    { "prompt": "Rubber-duck this plan with a second agent before we code.", "expect": true },
+    { "prompt": "Interview the other agent’s claims — try to falsify them.", "expect": true },
+    { "prompt": "Mimic-flow: give the worker the research checklist, not our chat.", "expect": true },
+    { "prompt": "Red-team this migration — devil’s advocate and premortem.", "expect": true },
+    { "prompt": "Blind-review the RFC artifact without the author’s rationale.", "expect": true },
+    { "prompt": "Run three independent solves and take consensus.", "expect": true },
+    { "prompt": "Save tokens with a local Ollama summarize job.", "expect": true },
+    { "prompt": "Offload classify/extract to ollama worker while I keep tools.", "expect": true }
+  ],
+  "should_not_trigger": [
+    { "prompt": "Read one file and summarize it.", "expect": false },
+    { "prompt": "Why does this function return null?", "expect": false },
+    { "prompt": "Update the README install steps.", "expect": false },
+    { "prompt": "Define KPIs and keep/discard whether the multi-agent graph helped.", "expect": false },
+    { "prompt": "Run a held-out ACCEPT/REVERT loop on worker quality.", "expect": false }
+  ]
+}

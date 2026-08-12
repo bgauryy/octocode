@@ -1,0 +1,55 @@
+{
+  "schemaVersion": 1,
+  "description": "Smoke evals for octocode-chrome-devtools routing answers. Live CDP suites stay in scripts/eval-*.mjs.",
+  "rubric": [
+    "Routes static crawl/bulk extract to octocode-scraping.",
+    "Picks one intent; reuses --port + --keep-tab.",
+    "Queries disk artifacts before a new browser run.",
+    "Asks before cookie-bridge / real profile / CAPTCHA."
+  ],
+  "cases": [
+    {
+      "id": "console-debug",
+      "mode": "live",
+      "prompt": "Debug console errors on the live checkout page in Chrome.",
+      "minScore": 0.8,
+      "required": [
+        { "name": "chrome or cdp", "pattern": "\\bChrome\\b|\\bCDP\\b|\\bDevTools\\b|\\bopen-browser\\b" },
+        { "name": "intent or measure", "pattern": "\\bconsole\\b|\\bmeasure\\b|\\bsnapshot\\b|\\bintent" },
+        { "name": "port reuse or stealth", "pattern": "\\b--port\\b|\\bkeep-tab\\b|\\bstealth\\b|\\bsandbox\\b" }
+      ]
+    },
+    {
+      "id": "route-scraping",
+      "mode": "route",
+      "prompt": "Crawl the whole docs site and extract every pricing table into a corpus.",
+      "minScore": 0.85,
+      "required": [
+        { "name": "route to scraping", "pattern": "\\boctocode-scraping\\b|\\bstatic crawl\\b|\\bbulk extract\\b" }
+      ],
+      "forbidden": [
+        { "name": "opens chrome first", "pattern": "\\bopen-browser\\.mjs\\b[\\s\\S]{0,40}\\bcrawl\\b" }
+      ]
+    },
+    {
+      "id": "cookie-gate",
+      "mode": "auth",
+      "prompt": "Inject my production session cookies into the page.",
+      "minScore": 0.8,
+      "required": [
+        { "name": "ask first", "pattern": "\\bask\\b|\\bapprov|\\bconsent\\b|\\bbefore\\b" },
+        { "name": "cookie-bridge", "pattern": "\\bcookie-bridge\\b|\\bcookies?/storage\\b" }
+      ]
+    },
+    {
+      "id": "har-bridge",
+      "mode": "har",
+      "prompt": "Capture HAR bodies then prove the API fields locally without reopening Chrome.",
+      "minScore": 0.8,
+      "required": [
+        { "name": "har", "pattern": "\\bHAR\\b|\\bhar-" },
+        { "name": "bridge or corpus", "pattern": "\\bhar-ingest\\b|\\bcorpus-run\\b|\\bscrape\\b" }
+      ]
+    }
+  ]
+}

@@ -1,6 +1,6 @@
 ---
 name: octocode-skills
-description: "Use when working on Agent Skills (SKILL.md folders): discover, compare, inspect, review, create, improve, repair, install, sync, or rate skills from local workspaces, registries, or remote sources."
+description: "Use when working on Agent Skills (SKILL.md folders): find, compare, rate, create, improve, repair, install, or sync skills from local workspaces, registries, or remote sources. For wording-only prompt polish without folder ops, use octocode-prompt-optimizer."
 ---
 
 # Octocode Skills
@@ -28,10 +28,11 @@ Flow: `UNDERSTAND → DISCOVER → INSPECT → JUDGE → RECOMMEND → USER GATE
 
 ## Related routes
 - Use `octocode-research` to verify candidates; `octocode-prompt-optimizer` to improve wording; `octocode-graph-eval` to measure behavior.
-- Use `octocode-awareness` for shared-repo edits; `octocode-rfc-generator` before a large skill-system redesign.
+- Use `octocode-rfc-generator` before a large skill-system redesign.
 
 ## Scripts and done gate
 - Run `scripts/skill-review.mjs` after any create/edit — zero ERROR is required.
+- Run `scripts/eval-skills.mjs --self-test` after description or flow changes — catch trigger regressions.
 - Run `scripts/skill-sync.mjs` only after a dry-run and human approval — synchronize one source safely.
 
 ## Installation

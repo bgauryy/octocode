@@ -446,10 +446,8 @@ npx octocode skill help
 #### Agent Orchestration
 | Skill | Use when |
 |-------|----------|
-| [**octocode-subagent**](https://github.com/bgauryy/octocode/tree/main/skills/octocode-subagent) | Delegation: spawn gates, decomposition, sealed packets, coordination, synthesis. |
-| [**octocode-awareness**](https://github.com/bgauryy/octocode/tree/main/skills/octocode-awareness) | Shared-repo coordination: collision avoidance, handoffs, verification debt, durable memory. |
+| [**octocode-subagent**](https://github.com/bgauryy/octocode/tree/main/skills/octocode-subagent) | Spawning workers / Task / A2A / challenge techniques, or offloading token-heavy text to local Ollama under a verify gate. |
 | [**octocode-skills**](https://github.com/bgauryy/octocode/tree/main/skills/octocode-skills) | Agent-skill lifecycle: discover, review, create, improve, install, sync. |
-| [**octocode-orchestrator-local-worker**](https://github.com/bgauryy/octocode/tree/main/skills/octocode-orchestrator-local-worker) | Offloading token-heavy text work to a local Ollama worker under a verify gate. |
 
 **Web automation workflow:** `octocode-scraping` performs the safe static pass first (fetch/crawl/extract → local corpus → graph v2). When the graph exposes dynamic actions or static output is blocked/thin, `octocode-chrome-devtools` validates live actionability, cookies/storage, network/HAR bodies, screenshots, or auth-gated state; discovered URLs/data/artifacts can be fed back into the scraping corpus for continued proof.
 

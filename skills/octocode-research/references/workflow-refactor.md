@@ -24,7 +24,7 @@ Record one invariant list and a task ledger with files, contract risk, verificat
 3. Rename symbols through semantic identity and exact patches; never blind-replace identifiers.
 4. Clean internals only inside moved units; avoid unrelated drive-bys.
 5. Re-run discovery and contract checks after every batch; stop on unplanned hits.
-Shared repository: declare wide moves through `octocode-awareness`.
+Shared repository: declare wide moves and path ownership before parallel edits.
 
 ## Verify and report
 - S: targeted unit/type check.

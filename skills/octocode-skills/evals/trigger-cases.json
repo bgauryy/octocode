@@ -1,0 +1,16 @@
+{
+  "should_trigger": [
+    { "prompt": "Rate all skills under skills/ and fix weak descriptions.", "expect": true },
+    { "prompt": "Install this SKILL.md folder into Cursor.", "expect": true },
+    { "prompt": "Create a new local Agent Skill from this pattern.", "expect": true },
+    { "prompt": "Run skill-review and clear ERRORs.", "expect": true },
+    { "prompt": "Sync this skill to Claude and Cursor after dry-run.", "expect": true },
+    { "prompt": "Find a skill for RFC writing and compare candidates.", "expect": true }
+  ],
+  "should_not_trigger": [
+    { "prompt": "Just polish this system prompt wording — no skill folder.", "expect": false },
+    { "prompt": "Why does this function return null?", "expect": false },
+    { "prompt": "Roast the cache hot path.", "expect": false },
+    { "prompt": "Save tokens with a local Ollama summarize job.", "expect": false }
+  ]
+}

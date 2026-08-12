@@ -411,6 +411,33 @@
       "forbidden": [
         { "name": "edit grader to pass", "pattern": "(?<!\\bnot )(?<!\\bnever )\\bedit(ed|ing)? (the )?(grader|cases) to pass\\b" }
       ]
+    },
+    {
+      "id": "subagent-cookbook-protocol",
+      "mode": "Define",
+      "prompt": "We will fan out three specialist subagents to improve a skill. What protocol, KPIs, and communication checks must be frozen before the first spawn?",
+      "minScore": 0.85,
+      "required": [
+        { "name": "primary KPI or e2e", "pattern": "\\bprimary KPI\\b|\\be2e\\b|\\bgraph boundary\\b|\\bend-to-end\\b" },
+        { "name": "protocol or baseline", "pattern": "\\bprotocol\\b|\\bbaseline\\b|\\bFRAME\\b|\\bfrozen\\b" },
+        { "name": "barrier or synthesize", "pattern": "\\bbarrier\\b|\\bsynthes|\\bwait\\b|\\blist\\b" },
+        { "name": "packet or sealed", "pattern": "\\bpacket\\b|\\bsealed\\b|\\breturn shape\\b|\\bacceptance\\b" },
+        { "name": "guardrail or Goodhart", "pattern": "\\bguardrail\\b|\\bGoodhart\\b|\\btoken\\b|\\bspawn count\\b|\\bcollision" },
+        { "name": "fresh verifier or anchor", "pattern": "\\bfresh (context|session)\\b|\\banchor\\b|\\bverifier\\b" }
+      ],
+      "binaryQuestions": [
+        {
+          "id": "measure-before-spawn",
+          "dimension": "subagent",
+          "question": "Does the answer require a graph-boundary KPI and barrier/packet checks before treating worker output as success?",
+          "passPattern": "\\b(primary KPI|e2e|graph boundary)\\b[\\s\\S]{0,200}\\b(barrier|packet|frozen)\\b|\\b(barrier|packet)\\b[\\s\\S]{0,200}\\b(primary KPI|e2e|baseline)\\b",
+          "failureSignature": "mechanism:eval-subagent|cause:spawn-without-kpi",
+          "suggestedLesson": "Load subagent-cookbook.md: freeze protocol + KPIs + communication checks before the first spawn; spawn APIs stay in octocode-subagent."
+        }
+      ],
+      "forbidden": [
+        { "name": "vibes workers finished", "pattern": "\\bworkers? (looked|felt) (good|faster|fine)\\b|\\bspawn(?:ing)? is (?:enough|success)\\b" }
+      ]
     }
   ]
 }
