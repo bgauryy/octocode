@@ -4,6 +4,7 @@ import { resolve, join } from 'path';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { pathToFileURL } from 'url';
 import { getOctocodeHome, propagateOctocodeEnv } from '@octocodeai/config';
+import { applyMandatoryStealth, stealthEnabled, isAboutOrDataUrl } from './mandatory-stealth.mjs';
 
 propagateOctocodeEnv({ cwd: process.cwd(), trusted: true });
 
@@ -34,14 +35,15 @@ const TIMEOUT     = parseInt(getArg('--timeout', '60000'), 10);
 const KEEP_TAB    = hasFlag('--keep-tab');
 const LIST_TARGETS = hasFlag('--list-targets');
 const VERBOSE     = process.env.CDP_VERBOSE === '1';
+if (hasFlag('--no-stealth')) process.env.CDP_NO_STEALTH = '1';
 
 if (hasFlag('--help') || hasFlag('-h')) {
-  console.error('[CDP_RUNNER] Usage: node cdp-runner.mjs <script.mjs> [--port 9222] [--new-tab <url>] [--target <id>] [--target-url <pattern>] [--target-type <type>] [--list-targets] [--keep-tab]');
+  console.error('[CDP_RUNNER] Usage: node cdp-runner.mjs <script.mjs> [--port 9222] [--new-tab <url>] [--target <id>] [--target-url <pattern>] [--target-type <type>] [--list-targets] [--keep-tab] [--no-stealth]');
   process.exit(0);
 }
 
 if (!scriptArg && !LIST_TARGETS) {
-  console.error('[CDP_RUNNER] Usage: node cdp-runner.mjs <script.mjs> [--port 9222] [--new-tab <url>] [--target <id>] [--target-url <pattern>] [--target-type <type>] [--list-targets] [--keep-tab]');
+  console.error('[CDP_RUNNER] Usage: node cdp-runner.mjs <script.mjs> [--port 9222] [--new-tab <url>] [--target <id>] [--target-url <pattern>] [--target-type <type>] [--list-targets] [--keep-tab] [--no-stealth]');
   process.exit(1);
 }
 
@@ -231,13 +233,17 @@ async function main() {
   }
 
   let targetWsUrl, targetInfo, openedTabId;
+  let pendingNavigate = null;
 
   if (NEW_TAB) {
-    const tab  = await openTab(NEW_TAB);
+    const tabUrl = NEW_TAB;
+    const openUrl = stealthEnabled() && !isAboutOrDataUrl(tabUrl) ? 'about:blank' : tabUrl;
+    if (openUrl !== tabUrl) pendingNavigate = tabUrl;
+    const tab  = await openTab(openUrl);
     openedTabId = tab.id;
     targetWsUrl = tab.webSocketDebuggerUrl;
     targetInfo  = { id: tab.id, url: tab.url, title: tab.title, type: tab.type };
-    console.error(`[CDP_RUNNER] Opened new tab (${tab.id}) -> ${NEW_TAB}`);
+    console.error(`[CDP_RUNNER] Opened new tab (${tab.id}) -> ${openUrl}${pendingNavigate ? ` (pending ${pendingNavigate})` : ''}`);
     await new Promise(r => setTimeout(r, 800));
 
   } else if (TARGET_ID) {
@@ -482,6 +488,26 @@ async function main() {
       lastError: 'Script must export: export async function run(cdp) { ... }',
     });
     finalizeRun('error', { error: 'missing run(cdp) export' });
+    await _cleanup?.();
+    process.exit(1);
+  }
+
+  try {
+    if (stealthEnabled()) {
+      await applyMandatoryStealth(cdp, { navigateUrl: pendingNavigate ?? undefined });
+      if (pendingNavigate) {
+        console.error(`[CDP_RUNNER] Stealth gate: navigating to ${pendingNavigate}`);
+        await cdp.send('Page.navigate', { url: pendingNavigate });
+        await new Promise((r) => setTimeout(r, 2500));
+        if (targetInfo) targetInfo = { ...targetInfo, url: pendingNavigate };
+      } else if (/^https?:/i.test(targetInfo?.url ?? '') && process.env.CDP_STEALTH_NO_RELOAD !== '1') {
+        // applyMandatoryStealth already reloaded; skip second reload for http(s) attach
+      }
+    }
+  } catch (stealthErr) {
+    console.error(`[CDP_RUNNER] ${stealthErr.message}`);
+    cdp.writeSessionMetadata({ lastRunStatus: 'error', lastError: stealthErr.message });
+    finalizeRun('error', { error: stealthErr.message });
     await _cleanup?.();
     process.exit(1);
   }

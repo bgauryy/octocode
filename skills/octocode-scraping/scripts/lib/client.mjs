@@ -141,6 +141,19 @@ async function ensureCdpBrowser(port) {
 
 export async function fetchCdp({ url, pageId, config }) {
   const fetchedAt = new Date().toISOString();
+  // Hermetic mocks must not launch Chrome — same contract as direct/scrapingant.
+  if (config.mockStatus) {
+    return {
+      pageId,
+      url,
+      status: Number(config.mockStatus),
+      contentType: config.mockContentType || 'text/html',
+      body: config.mockBodyFile ? await readFile(config.mockBodyFile, 'utf8') : '',
+      fetchError: null,
+      creditCost: null,
+      fetchedAt,
+    };
+  }
   if (!existsSync(CHROME_DEVTOOLS_DIR)) {
     return { pageId, url, status: 0, contentType: '', body: '', fetchError: `octocode-chrome-devtools not found at ${CHROME_DEVTOOLS_DIR} — install it alongside octocode-scraping to use --provider cdp`, creditCost: null, fetchedAt };
   }
@@ -156,10 +169,11 @@ export async function fetchCdp({ url, pageId, config }) {
   const runnerPath = join(runnerDir, `${pageId}-runner.mjs`);
   const waitMs = config.cdpWaitMs ?? 2000;
   const stealthStep = config.cdpStealth === false ? '' : `
-  try {
-    const { applyStealthPatches } = await import(pathToFileURL(resolve(CDP_SPAWN_CWD, '.octocode', 'undercover.mjs')).href);
-    await applyStealthPatches(cdp);
-  } catch (_) {}`;
+  const { applyStealthPatches, verifyStealth } = await import(pathToFileURL(resolve(CDP_SPAWN_CWD, '.octocode', 'undercover.mjs')).href);
+  await applyStealthPatches(cdp);
+  const stealthResult = await verifyStealth(cdp);
+  console.log('[METRIC] stealth self-test: ' + stealthResult.passed + '/' + stealthResult.total + ' passed');
+  if (stealthResult.failed > 0) throw new Error('[STEALTH_GATE] cdp provider fetch blocked: ' + stealthResult.failed + ' stealth checks failed');`;
   await writeFile(runnerPath, `import { resolve } from 'path';
 import { pathToFileURL } from 'url';
 export async function run(cdp) {

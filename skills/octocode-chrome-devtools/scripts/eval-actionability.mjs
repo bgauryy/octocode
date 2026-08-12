@@ -9,7 +9,7 @@ const port = '9292';
 const open = spawnSync(process.execPath, ['skills/octocode-chrome-devtools/scripts/open-browser.mjs', '--headless', '--port', port, '--url', 'about:blank'], { encoding: 'utf8', timeout: 60000 });
 assert('headless Chrome launches', open.status === 0, open.stderr || open.stdout);
 const html = encodeURIComponent('<!doctype html><button id="go">Search</button><input name="q" value="cookies"><a rel="next" href="/page/2">Next</a>');
-const run = spawnSync(process.execPath, ['skills/octocode-chrome-devtools/scripts/cdp-sandbox.mjs', 'skills/octocode-chrome-devtools/examples/graph-actionability-check.mjs', '--port', port, '--new-tab', `data:text/html,${html}`, '--timeout', '30000', '--script-timeout', '45000'], { encoding: 'utf8', timeout: 70000, maxBuffer: 5 * 1024 * 1024 });
+const run = spawnSync(process.execPath, ['skills/octocode-chrome-devtools/scripts/cdp-sandbox.mjs', 'skills/octocode-chrome-devtools/scripts/cdp-checks/graph-actionability-check.mjs', '--port', port, '--new-tab', `data:text/html,${html}`, '--timeout', '30000', '--script-timeout', '45000'], { encoding: 'utf8', timeout: 70000, maxBuffer: 5 * 1024 * 1024 });
 assert('actionability script runs', run.status === 0, run.stderr.slice(0, 1000));
 assert('prints ACTIONABILITY rows', run.stdout.includes('[ACTIONABILITY]'), run.stdout.slice(0, 1000));
 const artifactLine = run.stdout.split(/\n/).find(l => l.includes('[ARTIFACT] ACTIONABILITY')) || '';

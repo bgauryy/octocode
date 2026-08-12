@@ -1,5 +1,7 @@
 # Recovery Reference
 
+Hermetic evals do not cover every real bot-wall/CAPTCHA/region case — after **two** same-class failures, stop and summarize. Common live classes: consent wall, bot/CDN challenge, stale CDP session, fill without React setters, thin JS shell (hand off to scrape diagnostics).
+
 
 | Situation | Fix |
 |-----------|-----|

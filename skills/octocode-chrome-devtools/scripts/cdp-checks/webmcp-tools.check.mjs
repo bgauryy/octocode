@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// TDD grader for the webmcp intent (examples/webmcp-tools.mjs).
+// TDD grader for the webmcp intent (scripts/cdp-checks/webmcp-tools.mjs).
 // Deterministic, no LLM judgment: launches an isolated headless Chrome with
 // WebMCP enabled, points it at the fixture in fixtures/webmcp-fixture.html,
 // and asserts exact prefixed stdout lines the intent script must produce.
@@ -7,14 +7,14 @@
 // Usage: node webmcp-tools.check.mjs [--port 9245]
 //
 // Exit 0 = all assertions passed. Exit 1 = red (missing script or assertion
-// failure) — expected before examples/webmcp-tools.mjs exists.
+// failure) — expected before scripts/cdp-checks/webmcp-tools.mjs exists.
 
 import { spawnSync } from 'child_process';
 import { dirname, join, resolve } from 'path';
 import { fileURLToPath } from 'url';
 
 const __dir = dirname(fileURLToPath(import.meta.url));
-const SKILL_DIR = resolve(__dir, '..');
+const SKILL_DIR = resolve(__dir, '../..');
 const OPEN_BROWSER = join(SKILL_DIR, 'scripts', 'open-browser.mjs');
 const SANDBOX = join(SKILL_DIR, 'scripts', 'cdp-sandbox.mjs');
 const TARGET_SCRIPT = join(__dir, 'webmcp-tools.mjs');

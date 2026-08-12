@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { resolve } from 'node:path';
-import { readJson as readJsonFile, readJsonl as readJsonlFile, takeArg } from './lib/cli.mjs';
+import { readJson as readJsonFile, readJsonl as readJsonlFile, takeArg } from './lib/bridge.mjs';
 
 function usage(code = 2) {
   console.error('Usage: corpus-find.mjs --session-dir <dir> --query <text> [--limit <n>]');

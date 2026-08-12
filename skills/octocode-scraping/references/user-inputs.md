@@ -1,22 +1,19 @@
 # User Inputs
 
-Load before broad crawling, extraction schemas, or workflow analysis. Why: better inputs produce smaller, safer corpora and clearer answers.
+Load before broad crawl, extract schemas, or workflow analysis. Why: better inputs → smaller corpora.
 
-## Ask for
-- Goal: summarize, extract rows, understand navigation, find docs/API/pricing, monitor changes, or prove a claim.
-- Scope: one URL, explicit URL list, same-domain crawl, sitemap crawl, max pages, and delay.
-- Output shape: bullets, table, JSONL schema, graph summary, or cited answer.
-- Evidence strictness: quick scan, cited facts, raw audit, or cross-source validation.
-- Boundaries: auth, personal data, forms, CAPTCHA/MFA, rate limits, and forbidden areas.
+Ask: goal · scope (one URL / list / same-domain max-pages) · output shape · evidence strictness · boundaries (auth, personal data, forms, CAPTCHA, rate limits).
 
-## Default if user is vague
-Use one public URL, markdown mode, no auth, no broad crawl, default `.octocode/tmp/scrape/{sessionId}`, and return only the session path + next search targets.
+## Vague default
+One public URL, `--mode html`, omit `--provider`, no auth, no broad crawl, session `.octocode/tmp/scrape/{sessionId}` — return session path + next search targets. Not markdown / not ScrapingAnt by default.
 
-## Mode mapping
-| User intent | Route |
+| Intent | Route |
 |---|---|
-| “fetch/read this page” | `--mode markdown` |
-| “need raw/source” | `--mode html` |
-| “JS rendered element” | `--mode html --browser --wait-for <selector>` |
-| “structured fields” | `--mode extract --extract-properties <schema>` |
-| “understand site/workflows” | bounded `--crawl --same-domain --max-pages <n>` then graph/index analysis |
+| fetch/scrape page | `--mode html` (omit `--provider`) |
+| pretty markdown | ask — needs scrapingant + key |
+| JS / thin after direct | `--provider cdp` or chrome-devtools |
+| structured fields | ask — `--mode extract` (hosted) |
+| site/workflows | bounded `--crawl --same-domain --max-pages` |
+| live click / HAR / perf | chrome-devtools (`browser-scraping.md`) |
+
+Detail: `route-selection.md`, `providers.md`.

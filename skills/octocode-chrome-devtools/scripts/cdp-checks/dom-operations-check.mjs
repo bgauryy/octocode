@@ -146,10 +146,10 @@ function resolveRefBackendNodeId(cdp, ref) {
   try {
     resourceMap = JSON.parse(readFileSync(cdp.resourcesFile, 'utf8'));
   } catch {
-    throw new Error('No page-snapshot resource found for this session — run examples/page-snapshot.mjs on the same --port first.');
+    throw new Error('No page-snapshot resource found for this session — run scripts/cdp-checks/page-snapshot.mjs on the same --port first.');
   }
   const snapshotPath = resourceMap.resources?.['page-snapshot']?.artifactPath;
-  if (!snapshotPath) throw new Error('No page-snapshot artifact recorded — run examples/page-snapshot.mjs on the same --port first.');
+  if (!snapshotPath) throw new Error('No page-snapshot artifact recorded — run scripts/cdp-checks/page-snapshot.mjs on the same --port first.');
   const snapshot = JSON.parse(readFileSync(snapshotPath, 'utf8'));
   const entry = snapshot.refs?.[ref];
   if (!entry) throw new Error(`Ref ${ref} not found in ${snapshotPath}. Available: ${Object.keys(snapshot.refs ?? {}).join(', ')}`);

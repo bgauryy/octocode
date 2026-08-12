@@ -27,12 +27,12 @@ function freshLaunchAndRun(port, script, extraEnv = {}) {
   return { open, run };
 }
 
-const { open: open1, run: run1 } = freshLaunchAndRun('9660', 'skills/octocode-chrome-devtools/examples/dom-operations-check.mjs', { DOM_SELECTOR: '#username', DOM_ACTION: 'inspect' });
+const { open: open1, run: run1 } = freshLaunchAndRun('9660', 'skills/octocode-chrome-devtools/scripts/cdp-checks/dom-operations-check.mjs', { DOM_SELECTOR: '#username', DOM_ACTION: 'inspect' });
 assert('dom-operations-check: launches', open1.status === 0, open1.stderr || open1.stdout);
 assert('dom-operations-check: runs', run1.status === 0, run1.stderr.slice(0, 1000));
 assert('dom-operations-check: finds #username immediately post-launch (not a false not-found)', run1.stdout.includes('found=true'), run1.stdout.slice(0, 500));
 
-const { open: open2, run: run2 } = freshLaunchAndRun('9661', 'skills/octocode-chrome-devtools/examples/graph-actionability-check.mjs');
+const { open: open2, run: run2 } = freshLaunchAndRun('9661', 'skills/octocode-chrome-devtools/scripts/cdp-checks/graph-actionability-check.mjs');
 assert('graph-actionability-check: launches', open2.status === 0, open2.stderr || open2.stdout);
 assert('graph-actionability-check: runs', run2.status === 0, run2.stderr.slice(0, 1000));
 const rowsMatch = run2.stdout.match(/\[METRIC\] ACTIONABILITY rows=(\d+)/);

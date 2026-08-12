@@ -1,3 +1,8 @@
+#!/usr/bin/env node
+/**
+ * Legacy counts-only cookie/storage meta (no health score).
+ * Prefer storage-measure-check.mjs + measure-query.mjs --view cookies|keys|findings.
+ */
 import { writeFileSync } from 'fs';
 import { join } from 'path';
 

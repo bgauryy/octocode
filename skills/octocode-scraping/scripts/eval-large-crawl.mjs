@@ -5,7 +5,7 @@ import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 
 const here = new URL('.', import.meta.url).pathname;
-const fetchScript = resolve(here, 'scrapingant-fetch.mjs');
+const fetchScript = resolve(here, 'fetch.mjs');
 const root = resolve(process.cwd());
 const outBase = join(root, '.octocode/tmp/scrape-large-crawl-eval');
 const checks = [];
@@ -20,7 +20,7 @@ const html = `<!doctype html><html><head><title>Hub</title></head><body><h1>Hub<
 const mockFile = join(outBase, 'mock-hub.html');
 await writeFile(mockFile, html);
 
-const res = spawnSync(process.execPath, [fetchScript, '--url', 'https://example.com', '--mode', 'html', '--session', 'large-crawl', '--mock-status', '200', '--mock-content-type', 'text/html', '--mock-body-file', mockFile, '--crawl', '--same-domain', '--max-pages', String(PAGE_COUNT), '--out', outBase], { cwd: root, encoding: 'utf8' });
+const res = spawnSync(process.execPath, [fetchScript, '--url', 'https://example.com', '--mode', 'html', '--provider', 'direct', '--session', 'large-crawl', '--mock-status', '200', '--mock-content-type', 'text/html', '--mock-body-file', mockFile, '--crawl', '--same-domain', '--max-pages', String(PAGE_COUNT), '--out', outBase], { cwd: root, encoding: 'utf8' });
 checks.push({ name: 'large crawl runs', ok: res.status === 0, status: res.status, stderr: res.stderr.slice(0, 500) });
 
 const dir = join(outBase, 'large-crawl');

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { resolve } from 'node:path';
-import { readJson as readJsonFile, readJsonl as readJsonlFile, takeArg } from './lib/cli.mjs';
+import { readJson as readJsonFile, readJsonl as readJsonlFile, takeArg } from './lib/bridge.mjs';
 
 function usage(code = 2) {
   console.error('Usage: dom-find.mjs --session-dir <dir> [--kind form|button|table|meta|jsonld|canonical|code-block] [--workflow <type>] [--page-id <id>] [--query <text>] [--limit <n>]');

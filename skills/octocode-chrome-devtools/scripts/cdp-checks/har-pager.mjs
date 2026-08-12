@@ -11,18 +11,22 @@ const getArg = (flag, def) => {
 const hasFlag = (flag) => argv.includes(flag);
 
 if (!harArg || hasFlag('--help')) {
-  console.error(`Usage: node har-pager.mjs <file.har> [--page 1] [--page-size 25] [--filter all|failures|slow|domain:<host>] [--min-ms 1000] [--format text|json]\n\nReads a HAR 1.2 file and prints one compact page for agent review.`);
+  console.error(`Usage: node har-pager.mjs <file.har> [--page 1] [--page-size 25] [--filter all|failures|slow|domain:<host>] [--kind <type>] [--status <code>] [--url-regex <re>] [--min-ms 1000] [--format text|json]\n\nReads a HAR 1.2 file and prints one compact page for agent review.`);
   process.exit(harArg ? 0 : 1);
 }
 
 const page = Math.max(1, Number.parseInt(getArg('--page', '1'), 10));
 const pageSize = Math.max(1, Math.min(200, Number.parseInt(getArg('--page-size', '25'), 10)));
 const filter = getArg('--filter', 'all');
+const kindFilter = (getArg('--kind', '') || '').toLowerCase();
+const statusFilter = getArg('--status', '');
+const urlRegexStr = getArg('--url-regex', '');
 const minMs = Math.max(0, Number.parseInt(getArg('--min-ms', '1000'), 10));
 const format = getArg('--format', 'text');
 const harPath = resolve(process.cwd(), harArg);
 const har = JSON.parse(readFileSync(harPath, 'utf8'));
 const entries = Array.isArray(har.log?.entries) ? har.log.entries : [];
+const urlRe = urlRegexStr ? new RegExp(urlRegexStr, 'i') : null;
 
 function hostOf(raw) {
   try { return new URL(raw).hostname; } catch { return ''; }
@@ -56,6 +60,16 @@ if (filter === 'failures') {
 } else if (filter.startsWith('domain:')) {
   const host = filter.slice('domain:'.length).toLowerCase();
   rows = rows.filter(row => row.host.toLowerCase().includes(host));
+}
+if (kindFilter) {
+  rows = rows.filter(row => String(row.type || '').toLowerCase().includes(kindFilter));
+}
+if (statusFilter) {
+  const want = Number.parseInt(statusFilter, 10);
+  rows = rows.filter(row => row.status === want);
+}
+if (urlRe) {
+  rows = rows.filter(row => urlRe.test(row.url || ''));
 }
 
 const totalPages = Math.max(1, Math.ceil(rows.length / pageSize));

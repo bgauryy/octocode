@@ -7,7 +7,7 @@ const assert = (name, ok, detail = '') => checks.push({ name, ok: Boolean(ok), d
 const port = '9294';
 const open = spawnSync(process.execPath, ['skills/octocode-chrome-devtools/scripts/open-browser.mjs', '--headless', '--port', port, '--url', 'about:blank'], { encoding: 'utf8', timeout: 60000 });
 assert('headless Chrome launches', open.status === 0, open.stderr || open.stdout);
-const run = spawnSync(process.execPath, ['skills/octocode-chrome-devtools/scripts/cdp-sandbox.mjs', 'skills/octocode-chrome-devtools/examples/network-body-har-fetch-check.mjs', '--port', port, '--new-tab', 'about:blank', '--timeout', '30000', '--script-timeout', '45000'], { encoding: 'utf8', timeout: 70000, maxBuffer: 5 * 1024 * 1024 });
+const run = spawnSync(process.execPath, ['skills/octocode-chrome-devtools/scripts/cdp-sandbox.mjs', 'skills/octocode-chrome-devtools/scripts/cdp-checks/network-body-har-fetch-check.mjs', '--port', port, '--new-tab', 'about:blank', '--timeout', '30000', '--script-timeout', '45000'], { encoding: 'utf8', timeout: 70000, maxBuffer: 5 * 1024 * 1024 });
 assert('network body/HAR script runs', run.status === 0, run.stderr.slice(0, 1200));
 assert('Fetch interception fulfilled body', run.stdout.includes('[NETWORK_BODY] 200 https://example.test/api/data'), run.stdout.slice(0, 1200));
 const harLine = run.stdout.split(/\n/).find(l => l.includes('[ARTIFACT] HAR')) || '';
