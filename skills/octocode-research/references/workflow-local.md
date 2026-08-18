@@ -1,7 +1,7 @@
 # Workflow: Local Research
 
 Use when the running repo, local checkout, or installed dependency is source of truth.
-Read `algorithm.md` first; read `octocode.md` only when tool or CLI syntax is unclear.
+Read `references/algorithm.md` first; read `references/octocode.md` only when tool or CLI syntax is unclear.
 
 ```text
 localViewStructure / localFindFiles
@@ -16,6 +16,7 @@ Local-first defaults:
 - For impact claims, diff broad text hits against LSP results before saying "unused", "only", or "safe".
 - For edits, find a local pattern first, patch the smallest scope, then run the targeted verification.
 
-Use external surfaces only when they answer something local cannot: upstream intent, fixes in newer versions, PR/commit history, source repo tests, or ecosystem alternatives — see `workflow-external.md`.
+Use external surfaces only when they answer something local cannot: upstream intent, fixes in newer versions, PR/commit history, source repo tests, or ecosystem alternatives — see `references/workflow-external.md`.
 
-Validate: `node scripts/eval-research.mjs --case local-research`.
+Next: when remote code must be proven with local-grade tools bridge through `references/workflow-combination.md`; for the proof ladder on a local claim load `references/code-research.md`; when the local finding turns into an edit go to `references/workflow-change.md`.
+

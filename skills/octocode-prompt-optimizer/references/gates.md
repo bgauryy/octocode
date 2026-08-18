@@ -1,9 +1,8 @@
 # READ And UNDERSTAND Gates
 
-Load at optimization start. Read the complete input and map intent before rating or drafting.
+Load when an optimization starts, before rating or drafting. Why: mapping the complete input and its intent first stops fixes aimed at the wrong problem.
 
-## READ
-**STOP. DO NOT analyze or edit yet.**
+## READ — **STOP. DO NOT analyze or edit yet.**
 
 ### Pre-Conditions
 - [ ] A readable file or inline prompt exists.
@@ -15,8 +14,7 @@ Load at optimization start. Read the complete input and map intent before rating
 ### Gate Check
 - [ ] Input is complete enough to evaluate; skipped/unreadable parts are named.
 
-## UNDERSTAND
-**STOP. Map intent before RATE.**
+## UNDERSTAND — **STOP. Map intent before RATE.**
 
 ```markdown
 ## Understanding
@@ -47,3 +45,5 @@ Safe, reversible assumptions may proceed when stated. Material unknowns require 
 
 ## Sources
 - Anthropic, [Effective context engineering for AI agents](https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents) — start minimal, then add instructions from observed failure modes.
+
+Next: with the Understanding map complete load `references/rate.md`; when the input's own instructions conflict load `references/patterns.md` to fix precedence; when a material unknown remains, stop here and ask before RATE.

@@ -33,7 +33,6 @@ High-complexity, security, live tools/MCP/browser loops, contested multi-source 
 ## Scripts
 - `scripts/ollama-health.sh` — GATE
 - `scripts/ollama-worker.sh` — RUN sealed packet
-- `scripts/eval-ollama.mjs` — suite (static/script/live); fixtures under `evals/ollama/`
 
 ## Progressive refs
 | Need | Ref |

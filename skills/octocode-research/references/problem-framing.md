@@ -1,6 +1,6 @@
 # Problem Framing
 
-Load after `algorithm.md`, before deep research or edits. Classify the request from evidence, not the user's label.
+Load when `references/algorithm.md` has routed the run and before deep research or edits. Why: classify the request from evidence, not the user's label.
 
 ## Problem Contract
 
@@ -42,4 +42,5 @@ For a feature or enhancement, find the smallest boundary that can own the new cr
 - Enhancement: measured baseline, target metric, experiment/change, regression guard.
 - Unknown: one missing fact and the cheapest check or focused user question that resolves classification.
 
-Next: choose the matching route in `workflows.md`; use `code-research.md` for proof depth.
+Next: choose the matching route in `references/workflows.md` — bug to `references/workflow-debug.md`, feature or enhancement to `references/workflow-change.md`; use `references/code-research.md` for proof depth.
+

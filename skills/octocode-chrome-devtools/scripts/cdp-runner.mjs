@@ -3,7 +3,7 @@
 import { resolve, join } from 'path';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { pathToFileURL } from 'url';
-import { getOctocodeHome, propagateOctocodeEnv } from '@octocodeai/config';
+import { getOctocodeHome, propagateOctocodeEnv } from './octocode-config.mjs';
 import { applyMandatoryStealth, stealthEnabled, isAboutOrDataUrl } from './mandatory-stealth.mjs';
 
 propagateOctocodeEnv({ cwd: process.cwd(), trusted: true });

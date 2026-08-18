@@ -7,9 +7,9 @@ Load for substantial, multi-surface, multi-turn, subagent, saved-brief, or high-
 Start only when local writes are acceptable. Default storage is `.octocode/brainstorming/runs/`; tests may set `OCTOCODE_BRAINSTORM_RUN_DIR`.
 
 ```bash
-node skills/octocode-brainstorming/scripts/brainstorm-run.mjs start --idea "<idea>" --mode Validate --surface-plan '{"local":"active","web":"active"}'
-node skills/octocode-brainstorming/scripts/brainstorm-run.mjs checkpoint --run-id <id> --stage research --summary "<delta>" --claim "claim -> source -> confidence" --source "<path-or-url>"
-node skills/octocode-brainstorming/scripts/brainstorm-run.mjs finish --run-id <id> --verdict worth-prototyping --decision "Build RFC" --summary "<result>"
+node <skill_dir>/scripts/brainstorm-run.mjs start --idea "<idea>" --mode Validate --surface-plan '{"local":"active","web":"active"}'
+node <skill_dir>/scripts/brainstorm-run.mjs checkpoint --run-id <id> --stage research --summary "<delta>" --claim "claim -> source -> confidence" --source "<path-or-url>"
+node <skill_dir>/scripts/brainstorm-run.mjs finish --run-id <id> --verdict worth-prototyping --decision "Build RFC" --summary "<result>"
 ```
 
 Checkpoint at surface-plan, decisive evidence, confidence changes, and final synthesis. Record both sides of conflicts and the final concession.
@@ -31,9 +31,7 @@ Hooks stay fast, deterministic, workspace-scoped, and fail-open except the delib
 ## Eval Harness
 
 ```bash
-node skills/octocode-brainstorming/scripts/eval-brainstorm.mjs --list
-node skills/octocode-brainstorming/scripts/eval-brainstorm.mjs --case idea-validation --input .octocode/tmp/answer.md --json
-node skills/octocode-brainstorming/scripts/brainstorm-run.mjs --self-test
+node <skill_dir>/scripts/brainstorm-run.mjs --self-test
 ```
 
 The evaluator checks observable structure and failure modes, not whether market or technical judgment is true.

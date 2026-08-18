@@ -2,7 +2,7 @@
 
 ## Why it matters
 
-When an AI agent browses your codebase it **will** encounter `.env` files, `~/.aws/credentials`, private keys, and CI tokens. Without active protection, those secrets flow straight into the LLM context window — where they can be logged, leaked via tool call results, or exfiltrated through prompt injection.
+An AI agent browsing your codebase runs into `.env` files, `~/.aws/credentials`, private keys, and CI tokens. Without active protection, those secrets flow straight into the LLM context window, where logs capture them, tool call results expose them, or prompt injection exfiltrates them.
 
 Octocode enforces a hard boundary between untrusted content and the model:
 
@@ -14,7 +14,7 @@ You get this by default, for every tool call, over both MCP and CLI.
 
 ## The pipeline
 
-Three independent redaction stages guard every tool call:
+Three independent redaction stages guard every tool call.
 
 ```mermaid
 flowchart TD
@@ -58,7 +58,7 @@ flowchart TD
     style REQ fill:#0d6efd,color:#fff,stroke:none
 ```
 
-**What the agent sees after redaction:**
+The following table shows what the agent sees after redaction:
 
 | Situation | Output |
 |-----------|--------|
@@ -96,7 +96,7 @@ flowchart LR
     MATCH -->|"no"| TS --> OUT
 ```
 
-**Coverage categories:**
+The scanner covers these categories:
 
 | Category | Examples |
 |----------|---------|
@@ -111,7 +111,7 @@ flowchart LR
 
 ## Path validation
 
-Local filesystem access uses two independent layers so secrets can never be reached even if one layer is bypassed.
+Local filesystem access passes through two independent layers, so a bypass of one layer still leaves the other guarding sensitive files.
 
 ```mermaid
 flowchart TD
@@ -144,27 +144,27 @@ flowchart TD
     style READ fill:#28a745,color:#fff,stroke:none
 ```
 
-**Blocked categories** (matched on file name and directory path):
+The blocklist matches on file name and directory path, and covers these categories:
 
 | Category | Examples |
 |----------|---------|
-| Keys & certs | `*.pem`, `*.key`, `*.p12`, `id_rsa`, `id_ed25519`, `.ssh/` |
+| Keys and certs | `*.pem`, `*.key`, `*.p12`, `id_rsa`, `id_ed25519`, `.ssh/` |
 | Credentials | `.env`, `.env.*`, `.netrc`, `.npmrc`, `.git-credentials`, `*_token`, `client_secret*.json` |
-| Cloud & infra | `.aws/credentials`, `.kube/`, `*.tfstate`, `*.tfvars`, `.s3cfg` |
+| Cloud and infra | `.aws/credentials`, `.kube/`, `*.tfstate`, `*.tfvars`, `.s3cfg` |
 | Secret stores | `.password-store/`, `*.kdbx`, OS keychains, browser login DBs |
-| Shell & history | `.bash_history`, `.zsh_history`, `.*_history` |
+| Shell and history | `.bash_history`, `.zsh_history`, `.*_history` |
 | Crypto wallets | `wallet.dat`, `.bitcoin/`, `.ethereum/` |
 | App secrets | `wp-config.php`, `google-services.json`, `secrets.yml`, `master.key` |
 
-Canonical sources: `src/security/filePatterns.ts` · `src/security/pathPatterns.ts`.
+Canonical sources: `packages/octocode-engine/src/security/filePatterns.ts` and `packages/octocode-engine/src/security/pathPatterns.ts`.
 
-`ALLOWED_PATHS` (or `local.allowedPaths` in `.octocoderc`) adds roots on top of the HOME default. Disable local tools entirely with `ENABLE_LOCAL=false`.
+`ALLOWED_PATHS` (or `local.allowedPaths` in `.octocoderc`) adds roots on top of the HOME default. To turn local tools off entirely, set `ENABLE_LOCAL=false`.
 
 ---
 
 ## Command execution
 
-External commands run via `child_process.spawn()` with an argument array — **never** `exec` — and shell metacharacters are rejected before execution.
+External commands run through `child_process.spawn()` with an argument array — not `exec` — and Octocode rejects shell metacharacters before execution.
 
 | Command | Hardening |
 |---------|-----------|
@@ -175,19 +175,19 @@ External commands run via `child_process.spawn()` with an argument array — **n
 
 ---
 
-## Credentials & tokens
+## Credentials and tokens
 
-| | |
-|---|---|
-| **Resolution order** | `OCTOCODE_TOKEN` → `GH_TOKEN` → `GITHUB_TOKEN` → encrypted on-disk OAuth → `gh` CLI token |
-| **On-disk storage** | AES-256-GCM encrypted under `OCTOCODE_HOME` |
-| **Output masking** | Tokens are subject to output masking — never echoed in results |
+**Resolution order.** `OCTOCODE_TOKEN` → `GH_TOKEN` → `GITHUB_TOKEN` → `GITHUB_PERSONAL_ACCESS_TOKEN` → encrypted on-disk OAuth → `gh` CLI token. The first non-empty value wins; the four environment variables are protected keys that Octocode never reads from `.env` or `.octocoderc`.
 
-See [Configuration](https://github.com/bgauryy/octocode-mcp/blob/main/docs/CONFIGURATION.md) for token setup and credential architecture.
+**On-disk storage.** AES-256-GCM encrypted under `OCTOCODE_HOME`.
+
+**Output masking.** Output masking covers tokens, so results never echo them.
+
+See [Configuration](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md) for token setup and credential architecture.
 
 ---
 
-## Input limits & injection guards
+## Input limits and injection guards
 
 | Check | Limit / action |
 |-------|---------------|
@@ -200,11 +200,11 @@ See [Configuration](https://github.com/bgauryy/octocode-mcp/blob/main/docs/CONFI
 
 ---
 
-## Tool timeout & cancellation
+## Tool timeout and cancellation
 
-Every tool call runs under a 60-second timeout. MCP clients can cancel via `AbortSignal`. Both timeout and cancellation return a structured error — no partial data leaks through.
+Every tool call runs under a 60-second timeout. MCP clients can cancel through `AbortSignal`. Both timeout and cancellation return a structured error, so no partial data leaks through. Override the default in either of these ways:
 
-```
+```ts
 configureSecurity({ defaultTimeoutMs: 30_000 })   // process-wide override
 withSecurityValidation(name, handler, { timeoutMs: 10_000 })  // per-tool override
 ```
@@ -245,15 +245,15 @@ securityRegistry.addIgnoredFilePatterns([/\.company-secret$/]);
 securityRegistry.freeze(); // lock — throws on any further mutation
 ```
 
-**Guards on custom patterns:**
-- All `regex` values are checked against a **ReDoS timing heuristic** (50 ms on a 100-char input) — patterns that fail are rejected before registration.
-- Duplicate names/sources are silently deduplicated.
+Custom patterns pass through these guards:
+- A **ReDoS timing heuristic** checks every `regex` value against 50-, 500-, and 2,000-character inputs, and rejects any pattern that takes 200 ms or longer on one of them. Rejection happens before registration.
+- Octocode deduplicates repeated names and sources.
 - `securityRegistry.version` increments on every mutation — use it for cache invalidation.
 
 ---
 
-## Scope & disclosure
+## Scope and disclosure
 
 Octocode protects the **agent context boundary** — what flows between untrusted content and the model. It does not replace repository secret-scanning, OS-level sandboxing, or network egress controls; run those alongside it.
 
-To report a vulnerability, open a private advisory on the [repository](https://github.com/bgauryy/octocode-mcp) rather than a public issue.
+To report a vulnerability, open a private advisory on the [octocode repository](https://github.com/bgauryy/octocode) rather than a public issue.

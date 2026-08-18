@@ -18,4 +18,6 @@ Load when a scrape fails, blocks, times out, or creates too much data. Why: reco
 
 After two same-class failures: stop; summarize evidence, route tried, sanitized status, next approval.
 
-**Coverage note:** hermetic evals + optional `OCTOCODE_LIVE_BENCH=1` (example.com/httpbin) do not replace this table for real bot-walls/regions.
+**Coverage note:** local hermetic checks do not replace this table for real bot-walls/regions.
+
+Next: to re-pick a cheaper route load `references/route-selection.md`; for a live-browser attempt load `references/browser-scraping.md`; only after approved spend load `references/scrapingant.md`.

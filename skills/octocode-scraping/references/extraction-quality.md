@@ -18,3 +18,5 @@ Load when turning fetched pages into facts, rows, or summaries. Why: scraped dat
 - Store compact evidence excerpts in `snippets/`.
 - Store the narrative in `reports/summary.md`; link artifact paths, not giant pasted data.
 - Do not treat Markdown transformation or AI summaries as authoritative without exact source evidence.
+
+Next: for the exact file and stdout shapes you cite load `references/data-contract.md`; to locate the evidence on disk load `references/session-corpus.md`.

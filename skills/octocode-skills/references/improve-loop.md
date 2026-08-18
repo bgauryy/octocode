@@ -1,6 +1,6 @@
 # Improve Loop
 
-Stub only. Full goal→KPI cascade, nested loops, graders, held-out: load **`octocode-graph-eval`**.
+Load when a skill needs a measurable improve loop and `octocode-graph-eval` is unavailable. Why: a stub loop beats an invented cascade. Full goal→KPI cascade, nested loops, graders, held-out: load **`octocode-graph-eval`**.
 
 ```text
 SET GOAL + KPI → SMALLEST CHANGE → MEASURE ACTUAL RESULTS → ACCEPT | REVERT
@@ -8,3 +8,5 @@ SET GOAL + KPI → SMALLEST CHANGE → MEASURE ACTUAL RESULTS → ACCEPT | REVER
 
 Reject: undefined KPI · narrative-only accept · checks not run.
 Skill folder edits → this skill’s improve/review. Awareness harness → Awareness `skill-evolution`.
+
+Next: for the improve workflow load `references/skill-improve.md`; to verify the result load `references/skill-review.md`.

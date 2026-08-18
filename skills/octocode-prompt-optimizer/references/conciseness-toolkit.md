@@ -1,6 +1,6 @@
 # Conciseness & Clarity Toolkit
 
-Load during FIX when a line is wordy, indirect, or over about 20-25 words. Goal: fewer tokens, identical logic. Grounded in Anthropic agent guidance, plain-language rules, and psycholinguistics.
+Load when a FIX target line is wordy, indirect, or over about 20-25 words. Why: fewer tokens, identical logic. Grounded in Anthropic agent guidance, plain-language rules, and psycholinguistics.
 
 **Frame — density over length:** minimal is not the same as short. Cut tokens that carry no signal; keep every token that changes behavior. Aim for high signal-per-token, not raw brevity.
 
@@ -30,3 +30,5 @@ Load during FIX when a line is wordy, indirect, or over about 20-25 words. Goal:
 
 ## Sources
 - Anthropic, [Effective context engineering for AI agents](https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents) — the minimal high-signal context principle.
+
+Next: once the tokens are cut, load `references/attention.md` to place the surviving rules; when the offload move moves detail out of an always-loaded core, load `references/context-budget.md`; return to `references/fix.md` to record the change.

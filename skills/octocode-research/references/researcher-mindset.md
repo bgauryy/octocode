@@ -1,6 +1,6 @@
 # Researcher Mindset
 
-The meta-layer: how to think, plan, measure, delegate, and stay efficient across a whole research task. `algorithm.md` owns the per-query route; this owns the campaign around it.
+Load when a research task needs a campaign, not a query: planning, budgets, measuring progress, delegating, or staying efficient across the whole run. Why: `references/algorithm.md` owns the per-query route; this owns the meta-layer around it.
 
 ## State of Mind
 - Hold the question above the tool. Prove or disprove a claim; search is only a means.
@@ -12,7 +12,7 @@ The meta-layer: how to think, plan, measure, delegate, and stay efficient across
 ## Plan & Manage the Work
 - Open with one line: corpus, question, mode, active/skipped surfaces, budget, stop test.
 - Keep a tiny ledger — `claim -> evidence -> confidence -> next check` — and compress large outputs into it before continuing.
-- `loop-mode.md` owns the iteration budget, stop tests, and the ledger/anchor mechanics (`path:line`, matchRanges, ids, branch/ref, cursors, `next.*` — never invented); this section is only the campaign framing around them.
+- `references/loop-mode.md` owns the iteration budget, stop tests, and the ledger/anchor mechanics (`path:line`, matchRanges, ids, branch/ref, cursors, `next.*` — never invented); this section is only the campaign framing around them.
 - Gate the expensive moves: ask before cloning/running code, broad repo scans, expensive external research, or a product/architecture decision.
 
 ## Understand the Environment First
@@ -37,9 +37,10 @@ When a question is broad, contested, or splits into independent probes, fan out 
 
 ## Efficiency: jump smart, dot to dot
 - Every result hands you the next call — follow `next.*`, matchRanges, and pagination cursors instead of re-deriving them.
-- Route by the strongest handle you already hold (`algorithm.md`); skip the hops that handle makes redundant.
+- Route by the strongest handle you already hold (`references/algorithm.md`); skip the hops that handle makes redundant.
 - Orient cheap before reading deep: tree / discovery / counts / symbols cost little and aim the expensive exact reads.
 - Batch independent probes into one call (up to 5). Spend an extra angle on a *claim*; spend an extra query on a *lookup*.
 - Materialize once when 3+ remote reads or AST/LSP/negative proof are coming — one bridge call turns remote code into local-grade evidence.
 
-Validate: `node scripts/eval-research.mjs --case campaign-combination`.
+Next: run the iterations under `references/loop-mode.md`; pick the route the campaign needs from `references/workflows.md`; when the campaign must produce a durable brief load `references/long-research.md`.
+

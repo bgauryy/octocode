@@ -1,3 +1,0 @@
-Return ONLY valid JSON:
-{"color":"string","shape":"string","confidence":"high|medium|low"}
-Describe the image; do not invent objects that are not visible.

@@ -48,5 +48,6 @@ npx octocode skill --add --path skills/octocode-graph-eval --platform common --f
 ```bash
 node scripts/loop-report.mjs --self-test
 node scripts/eval-eval.mjs --self-test
-node ../../octocode-skills/scripts/skill-review.mjs .
 ```
+
+Before shipping a change, run the skill review from the `octocode-skills` skill against this folder and clear every ERROR — this folder installs on its own, so it never hard-codes a path into a sibling.

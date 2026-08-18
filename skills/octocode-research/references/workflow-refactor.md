@@ -1,7 +1,7 @@
 # Workflow: Refactor Mode
 
 Use when reshaping names, modules, files, or directories while preserving behavior and contracts. Why: structural change needs identity and blast-radius proof, not feature logic.
-Read `algorithm.md` first and use `code-research.md` for proof. New behavior routes to `workflow-change.md`; contested architecture routes to an explicit design doc before coding.
+Read `references/algorithm.md` first and use `references/code-research.md` for proof. New behavior routes to `references/workflow-change.md`; contested architecture routes to an explicit design doc before coding.
 
 Flow: `SKELETON → CONTRACTS → BLAST → PLAN → EXECUTE → VERIFY → CLEAN`.
 
@@ -30,8 +30,8 @@ Shared repository: declare wide moves and path ownership before parallel edits.
 - S: targeted unit/type check.
 - M: package test plus typecheck/lint.
 - L: leaves, dependents, root build, diagnostics on moved roots, and final search for old paths/names.
-On failure, read the failing path and patch only the cause; shifting evidence routes to `loop-mode.md`.
-Delete only after the dead-code proof in `code-research.md`.
+On failure, read the failing path and patch only the cause; shifting evidence routes to `references/loop-mode.md`.
+Delete only after the dead-code proof in `references/code-research.md`.
 
 ```text
 Mode/Tier: {refactor / S|M|L}
@@ -40,4 +40,5 @@ Changes: {moves, renames, scoped cleanup}
 Verification: {commands and exit codes}
 Confidence/Next: {level and remaining action}
 ```
-Validate with `node scripts/eval-research.mjs --case refactor-mode`.
+
+Next: when behavior has to move hand off to `references/workflow-change.md`; before merging the reshape run `references/workflow-pr-review.md` over the diff; when verification keeps failing load `references/loop-mode.md`.

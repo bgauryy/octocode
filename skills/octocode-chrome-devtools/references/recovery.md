@@ -1,6 +1,8 @@
 # Recovery Reference
 
-Hermetic evals do not cover every real bot-wall/CAPTCHA/region case — after **two** same-class failures, stop and summarize. Common live classes: consent wall, bot/CDN challenge, stale CDP session, fill without React setters, thin JS shell (hand off to scrape diagnostics).
+Load when a CDP call errors, returns empty, or the same failure class hits twice. Why: match the symptom to a known fix instead of retrying blind.
+
+Hermetic checks do not cover every real bot-wall/CAPTCHA/region case — after **two** same-class failures, stop and summarize. Common live classes: consent wall, bot/CDN challenge, stale CDP session, fill without React setters, thin JS shell (hand off to scrape diagnostics).
 
 
 | Situation | Fix |

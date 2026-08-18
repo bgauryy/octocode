@@ -1,9 +1,8 @@
 # Packet Contract
 
-Load before invoking the local worker. Workers inherit no chat history — the packet is the entire world.
+Load before invoking the local worker. Why: workers inherit no chat history — the packet is the entire world.
 
-## Required fields
-
+**Required fields**
 ```text
 GOAL:           <one sentence>
 JOB:            summarize | extract | classify | draft | map | check | vision | translate
@@ -27,32 +26,25 @@ RETURN:         stdout | file:.octocode/worker/<id>.json
 ```text
 You are a local worker. Complete only the JOB. Obey CONSTRAINTS.
 Return ONLY valid output matching OUTPUT_SCHEMA. No markdown fences unless asked.
-
 GOAL: {{GOAL}}
 JOB: {{JOB}}
 MODEL: {{MODEL}}
-
 INPUT:
 {{INPUT}}
-
 OUTPUT_SCHEMA:
 {{OUTPUT_SCHEMA}}
-
 ACCEPTANCE:
 {{ACCEPTANCE}}
 ```
 
-## Schema examples
-
-See `references/packet-schemas.md` for JSON schema examples (Summarize, Extract, Classify, Translate, Article).
+Schema examples (Summarize, Extract, Classify, Translate, Article): `references/packet-schemas.md`.
 
 ## Anti-patterns
 
-- Vague goals (“look at the codebase”)
-- Asking the worker to “fix” or “run tests”
-- Asking the worker to open/fetch URLs
-- Accepting free-form prose when JSON was required
+- Vague goals (“look at the codebase”); asking the worker to “fix”, to “run tests”, or to open/fetch URLs
+- Accepting free-form prose when JSON was required; structured jobs without `--format-json` + schema text (+ prefer `--temperature 0.2`)
 - Packets larger than the local context window — shard instead (or raise `num_ctx`)
 - Skipping local for every small task when a warm model is ready and the user wants local
 - Integrating article summaries without quote substring checks
-- Structured jobs without `--format-json` + schema text (+ prefer `--temperature 0.2`)
+
+Next: run the packet per `references/ollama-invoke.md`; gate the return with `references/verify-gate.md`.

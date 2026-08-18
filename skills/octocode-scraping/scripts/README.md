@@ -10,6 +10,5 @@
 | `har-ingest.mjs` | CDP ↔ scrape bridge; `--export-packet` / `--from-cdp-dir` (chrome aliases exist) |
 | `corpus-run.mjs` | Local `--regex` / `--script` (chrome alias `corpus-run-local`) |
 | `schema-helper.mjs` | Extraction field hints |
-| `eval-benchmark-suite.mjs` | Hermetic done gate (`OCTOCODE_LIVE_BENCH=1` for live smoke) |
 
-Schemas: `schemas/graph.schema.json`, `schemas/provider.schema.json`. Libs: `providers.mjs` (registry), `client.mjs` (fetch), `corpus`/`analyzers`/`extractors` (vendor-agnostic).
+Schemas: `schemas/graph.schema.json`, `schemas/provider.schema.json`. Libs in `lib/`: `providers.mjs` (registry), `client.mjs` (fetch), `corpus`/`analyzers`/`extractors`/`text` (vendor-agnostic), `args.mjs` (CLI config), `bridge.mjs` (JSON/JSONL readers). `octocode-config.mjs` is a vendored copy of `@octocodeai/config` — `propagateOctocodeEnv` reads `SCRAPING_ANT` from the octocode home; keep it local so the skill runs installed alone (no `package.json`, no npm install).

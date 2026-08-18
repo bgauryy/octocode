@@ -1,65 +1,37 @@
 # Packet Schemas
 
-Load for example JSON schemas when building a worker packet.
+Load when building a worker packet and you need the example JSON schemas. Why: a strict schema is what makes the return mechanically verifiable.
 
-### Summarize shard
+**Summarize shard**
 ```json
-{
-  "path": "string",
-  "summary": "string (≤120 words)",
-  "key_symbols": ["string"],
-  "risks": ["string"],
-  "confidence": "high|medium|low"
-}
+{ "path": "string", "summary": "string (≤120 words)", "key_symbols": ["string"],
+  "risks": ["string"], "confidence": "high|medium|low" }
 ```
 
-### Extract
+**Extract**
 ```json
-{
-  "rows": [
-    {
-      "path": "string",
-      "symbol": "string",
-      "kind": "function|class|route|config",
-      "notes": "string"
-    }
-  ],
-  "unknowns": ["string"]
-}
+{ "rows": [{ "path": "string", "symbol": "string",
+             "kind": "function|class|route|config", "notes": "string" }],
+  "unknowns": ["string"] }
 ```
 
-### Classify
+**Classify**
 ```json
-{
-  "items": [
-    {
-      "id": "string",
-      "label": "bug|chore|risk|question",
-      "reason": "string (≤40 words)",
-      "confidence": "high|medium|low"
-    }
-  ]
-}
+{ "items": [{ "id": "string", "label": "bug|chore|risk|question",
+              "reason": "string (≤40 words)", "confidence": "high|medium|low" }] }
 ```
 
-### Translate (often a small task)
+**Translate** (often a small task)
 ```json
-{
-  "source_lang": "string",
-  "target_lang": "string",
-  "translation": "string",
-  "notes": ["string"]
-}
+{ "source_lang": "string", "target_lang": "string", "translation": "string", "notes": ["string"] }
 ```
 
-### Article / web-body summarize (already fetched)
+**Article / web-body summarize** (already fetched)
 ```json
-{
-  "title": "string",
-  "tldr": "string",
-  "key_points": ["string"],
+{ "title": "string", "tldr": "string", "key_points": ["string"],
   "claims": [{ "claim": "string", "support_quote": "string" }],
-  "confidence": "high|medium|low"
-}
+  "confidence": "high|medium|low" }
 ```
 `support_quote` must be a verbatim contiguous substring of INPUT. Orchestrator verifies before integrate.
+
+Next: field-by-field packet rules in `references/packet-contract.md`; the substring and schema checks in `references/verify-gate.md`.

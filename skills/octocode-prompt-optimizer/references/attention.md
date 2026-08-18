@@ -1,11 +1,9 @@
 # Attention & Structure Toolkit
 
-Load during FIX to sharpen word choice, separate instructions from data, or move buried critical rules.
-Pair with `conciseness-toolkit.md`: that file cuts tokens; this file makes the survivors easier to distinguish and apply.
+Load when a FIX needs sharper word choice, a boundary between instructions and data, or a buried critical rule moved. Why: a rule the agent cannot find or cannot read one way does not constrain behavior.
 
-**Frame — optimize context, not model attention.** Prompt authors control context tokens and structure; models compute attention weights internally.
+**Frame — optimize context, not model attention.** Prompt authors control context tokens and structure; models compute attention weights internally, so word choice, section tags, and ordering are the only levers that make prompt boundaries and task-relevant constraints easier to find.
 Use semantic boundary tags such as `<context>` and `<example>`; `<attention>` is ordinary markup, while attention sinks are model/inference mechanisms.
-Word choice, section tags, and ordering make prompt boundaries and task-relevant constraints easier to find.
 
 ## 1. Word choice — choose one clear meaning
 Choose words that leave one interpretation.
@@ -47,3 +45,5 @@ Rules: descriptive, consistent tag names; nest only for real containment (`<docu
 - Anthropic, [Effective context engineering for AI agents](https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents) — bounded, high-signal context for agents.
 - Liu et al., [Lost in the Middle](https://arxiv.org/abs/2307.03172) — context position can affect long-context retrieval; validate placement on the target task.
 - Xiao et al., [StreamingLLM](https://arxiv.org/abs/2309.17453) — attention sinks are an internal model/inference mechanism.
+
+Next: pair with `references/conciseness-toolkit.md` — that file cuts tokens, this one makes the survivors distinguishable; when the isolated span is retrieved or user text load `references/untrusted-content.md`; return to `references/fix.md` to record the placement change.

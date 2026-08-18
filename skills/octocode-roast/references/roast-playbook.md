@@ -40,3 +40,5 @@ Summarize important versus redundant findings, then stop.
 Load `redemption-flow.md` only when the user selects a repair path.
 
 Output: `Top roast`, `Important findings`, `Redundant / low-value`, `Autopsy`, `Redemption paths`, `Fix checkpoint`.
+
+Next: rank the inventory with `references/sin-catalog.md` (ecosystem leads: `references/language-sins.md`); delegate evidence with `references/octocode.md`; split a monorepo pass with `references/parallel-roasting.md`; on a selected repair load `references/redemption-flow.md`.

@@ -1,12 +1,11 @@
 #!/usr/bin/env node
 
 import { spawn, spawnSync }               from 'child_process';
-import { createRequire }                  from 'module';
 import { resolve, dirname, join }         from 'path';
 import { fileURLToPath }                  from 'url';
 import { existsSync, realpathSync,
          mkdirSync, copyFileSync }        from 'fs';
-import { getOctocodeHome, propagateOctocodeEnv } from '@octocodeai/config';
+import { getOctocodeHome, propagateOctocodeEnv } from './octocode-config.mjs';
 
 /**
  * `--allow-net` exists only on Node 25+ (Permission Model network scope).
@@ -35,12 +34,9 @@ requireNode22();
 
 const __dir  = dirname(fileURLToPath(import.meta.url));
 const RUNNER = resolve(__dir, 'cdp-runner.mjs');
-const requireForResolve = createRequire(import.meta.url);
-const CONFIG_ENTRY = requireForResolve.resolve('@octocodeai/config');
-// Node's permission model must allow the resolved package path and the
-// workspace symlink path; Yarn/workspace installs can use either at runtime.
-const CONFIG_ROOT = resolve(dirname(CONFIG_ENTRY), '..');
-const CONFIG_NODE_MODULES_ROOT = resolve(process.cwd(), 'node_modules/@octocodeai/config');
+// Config is vendored inside the skill folder so the skill runs standalone with
+// no npm install; Node's permission model must allow both it and its realpath.
+const CONFIG_ENTRY = resolve(__dir, 'octocode-config.mjs');
 
 const argv     = process.argv.slice(2);
 const getArg   = (flag, def) => { const i = argv.indexOf(flag); return i !== -1 && argv[i + 1] ? argv[i + 1] : def; };
@@ -90,8 +86,7 @@ const safePath = (p) => { try { return realpathSync(p); } catch { return p; } };
 const TMPDIR_RAW  = OCTOCODE_OUTPUT_BASE;
 const TMPDIR_REAL = safePath(TMPDIR_RAW);
 const RUNNER_REAL = safePath(RUNNER);
-const CONFIG_ROOT_REAL = safePath(CONFIG_ROOT);
-const CONFIG_NODE_MODULES_ROOT_REAL = safePath(CONFIG_NODE_MODULES_ROOT);
+const CONFIG_ENTRY_REAL = safePath(CONFIG_ENTRY);
 const OUTPUT_REAL = safePath(OUTPUT_DIR);
 const SESSION_META_REAL = safePath(SESSION_META_DIR);
 
@@ -124,10 +119,8 @@ const readPaths  = [...new Set([
   RUNNER_REAL,
   resolve(__dir, 'mandatory-stealth.mjs'),
   resolve(__dir, 'undercover.mjs'),
-  CONFIG_ROOT,
-  CONFIG_ROOT_REAL,
-  CONFIG_NODE_MODULES_ROOT,
-  CONFIG_NODE_MODULES_ROOT_REAL,
+  CONFIG_ENTRY,
+  CONFIG_ENTRY_REAL,
   TMPDIR_RAW,
   TMPDIR_REAL,
   ...allowReadExtra,

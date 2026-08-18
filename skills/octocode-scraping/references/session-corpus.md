@@ -24,3 +24,5 @@ Load after fetch/crawl/extract or before searching saved output. Why: normalized
 `har-ingest --from-cdp-dir` → `corpus-run --roots cdp,extracts --regex` — cite `cdp/body-*.txt`, skip re-browser. Reverse: `--export-packet` → chrome `graph-actionability-check`.
 
 Stdout = session path + next targets, never scraped bodies. Concat parts: `corpus-run --concat-parts --write-full-clean`. Cite local path + `sources.jsonl` / `MAP.md` URL metadata.
+
+Next: for each file's field contract load `references/data-contract.md`; to navigate the graph load `references/website-analysis.md`; if the corpus is thin or blocked load `references/failure-recovery.md`.

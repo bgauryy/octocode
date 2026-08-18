@@ -1,8 +1,8 @@
-# Agent Instruction Files
+# Agent instruction files
 
 Load when creating or updating `AGENTS.md`, nested agent instructions, or a `CLAUDE.md` entrypoint. Spec: [agents.md](https://agents.md/).
 
-Goal: smallest useful map for coding agents. Target ≤60 lines; never exceed 100 unless the user insists.
+Goal: smallest useful map for coding agents. Target ≤60 lines; never exceed 100 unless the requester insists.
 
 ## Role of AGENTS.md
 
@@ -28,10 +28,10 @@ Use only sections that add non-obvious value:
 
 IF Claude entrypoint needed → THEN symlink `CLAUDE.md` to `AGENTS.md`. FORBIDDEN: divergent copies.
 
-## Writing rules
+## Content rules
 
 - Headings, bullets, tables — not paragraphs.
-- Link docs instead of copying them (see `agent-readable.md`).
+- Link docs instead of copying them (see `references/agent-readable.md`).
 - FORBIDDEN: welcome text, skill lists, linter config restatements, README dumps, code blocks beyond a one-line command.
 
 ## Verify
@@ -39,3 +39,5 @@ IF Claude entrypoint needed → THEN symlink `CLAUDE.md` to `AGENTS.md`. FORBIDD
 - Commands exist in manifests/Makefile/CI
 - Every reference path exists
 - Length within budget; nested files are deltas only
+
+Next: outline gate, write steps, and the full verify checklist → `references/write-verify.md`; wording and formatting rules → `references/style-index.md`.

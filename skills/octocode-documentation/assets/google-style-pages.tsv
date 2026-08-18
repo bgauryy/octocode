@@ -1,0 +1,70 @@
+slug	title	owner	url
+highlights	Highlights	style-index.md	https://developers.google.com/style/highlights
+philosophy	Philosophy of this guide	style-index.md	https://developers.google.com/style/philosophy
+tone	Voice and tone	style-voice.md	https://developers.google.com/style/tone
+person	Second person	style-voice.md	https://developers.google.com/style/person
+voice	Active voice	style-voice.md	https://developers.google.com/style/voice
+tense	Present tense	style-voice.md	https://developers.google.com/style/tense
+anthropomorphism	Anthropomorphism	style-voice.md	https://developers.google.com/style/anthropomorphism
+prescriptive-documentation	Prescriptive documentation	style-voice.md	https://developers.google.com/style/prescriptive-documentation
+sentence-structure	Sentence structure	style-voice.md	https://developers.google.com/style/sentence-structure
+paragraph-structure	Paragraphs	style-voice.md	https://developers.google.com/style/paragraph-structure
+articles	Articles (a, an, the)	style-grammar.md	https://developers.google.com/style/articles
+pronouns	Pronouns	style-grammar.md	https://developers.google.com/style/pronouns
+possessives	Possessives	style-grammar.md	https://developers.google.com/style/possessives
+pluralization	Pluralization	style-grammar.md	https://developers.google.com/style/pluralization
+prepositions	Prepositions	style-grammar.md	https://developers.google.com/style/prepositions
+contractions	Contractions	style-grammar.md	https://developers.google.com/style/contractions
+word-list	Word list	style-words.md	https://developers.google.com/style/word-list
+spelling	Spelling (redirects to the word list)	style-words.md	https://developers.google.com/style/spelling
+abbreviations	Abbreviations	style-abbreviations.md	https://developers.google.com/style/abbreviations
+jargon	Jargon	style-abbreviations.md	https://developers.google.com/style/jargon
+translation	Global audience	style-global.md	https://developers.google.com/style/translation
+accessibility	Accessibility	style-global.md	https://developers.google.com/style/accessibility
+inclusive-documentation	Inclusive language	style-inclusive.md	https://developers.google.com/style/inclusive-documentation
+headings	Headings and titles	style-structure.md	https://developers.google.com/style/headings
+lists	Lists	style-structure.md	https://developers.google.com/style/lists
+procedures	Procedures	style-procedures.md	https://developers.google.com/style/procedures
+notices	Notes and other notices	style-blocks.md	https://developers.google.com/style/notices
+tables	Tables	style-blocks.md	https://developers.google.com/style/tables
+footnotes	Footnotes	style-blocks.md	https://developers.google.com/style/footnotes
+images	Figures and other images	style-images.md	https://developers.google.com/style/images
+text-formatting	Text-formatting summary	style-format.md	https://developers.google.com/style/text-formatting
+capitalization	Capitalization	style-format.md	https://developers.google.com/style/capitalization
+italics-terms	Italics with terms	style-format.md	https://developers.google.com/style/italics-terms
+markdown	Markdown versus HTML	style-format.md	https://developers.google.com/style/markdown
+semantic-tagging	HTML and semantic tagging	style-format.md	https://developers.google.com/style/semantic-tagging
+html-formatting	HTML formatting	style-format.md	https://developers.google.com/style/html-formatting
+filenames	Filenames	style-format.md	https://developers.google.com/style/filenames
+colons	Colons	style-punctuation.md	https://developers.google.com/style/colons
+commas	Commas	style-punctuation.md	https://developers.google.com/style/commas
+dashes	Dashes	style-punctuation.md	https://developers.google.com/style/dashes
+ellipses	Ellipses	style-punctuation.md	https://developers.google.com/style/ellipses
+hyphens	Hyphens	style-punctuation.md	https://developers.google.com/style/hyphens
+parentheses	Parentheses	style-punctuation.md	https://developers.google.com/style/parentheses
+periods	Periods and end punctuation	style-punctuation.md	https://developers.google.com/style/periods
+quotation-marks	Quotation marks	style-punctuation.md	https://developers.google.com/style/quotation-marks
+semicolons	Semicolons	style-punctuation.md	https://developers.google.com/style/semicolons
+slashes	Slashes	style-punctuation.md	https://developers.google.com/style/slashes
+format-examples	Examples (how to introduce one)	style-punctuation.md	https://developers.google.com/style/format-examples
+numbers	Numbers	style-numbers.md	https://developers.google.com/style/numbers
+dates-times	Dates and times	style-numbers.md	https://developers.google.com/style/dates-times
+units-of-measure	Units of measurement	style-numbers.md	https://developers.google.com/style/units-of-measure
+phone-numbers	Phone numbers	style-numbers.md	https://developers.google.com/style/phone-numbers
+mathematical-notation	Mathematical notation	style-numbers.md	https://developers.google.com/style/mathematical-notation
+code-in-text	Code in text	style-code.md	https://developers.google.com/style/code-in-text
+code-samples	Code samples	style-code.md	https://developers.google.com/style/code-samples
+code-syntax	Command-line syntax	style-cli.md	https://developers.google.com/style/code-syntax
+placeholders	Placeholder formatting	style-cli.md	https://developers.google.com/style/placeholders
+examples	Example domains and names	style-examples.md	https://developers.google.com/style/examples
+ui-elements	UI elements and interaction	style-ui.md	https://developers.google.com/style/ui-elements
+cross-references	Cross-references and linking	style-links.md	https://developers.google.com/style/cross-references
+headings-targets	Headings as link targets	style-links.md	https://developers.google.com/style/headings-targets
+timeless-documentation	Timeless documentation	style-claims.md	https://developers.google.com/style/timeless-documentation
+future	Future features	style-claims.md	https://developers.google.com/style/future
+excessive-claims	Excessive claims	style-claims.md	https://developers.google.com/style/excessive-claims
+other-sources	Third-party content	style-claims.md	https://developers.google.com/style/other-sources
+trademarks	Trademarks	style-claims.md	https://developers.google.com/style/trademarks
+product-names	Product names	style-claims.md	https://developers.google.com/style/product-names
+api-reference-comments	API reference code comments	style-api.md	https://developers.google.com/style/api-reference-comments
+reference-verbs	Verbs in reference documents	style-api.md	https://developers.google.com/style/reference-verbs

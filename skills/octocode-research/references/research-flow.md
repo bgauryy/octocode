@@ -1,8 +1,8 @@
 # Research Flow
 
-Load for Map/Validate/Investigate/Plan execution. `algorithm.md` owns proof; `octocode.md` owns syntax; `workflows.md` routes debug/change/review/local/external work.
+Load for Map/Validate/Investigate/Plan execution. `references/algorithm.md` owns proof; `references/octocode.md` owns syntax; `references/workflows.md` routes debug/change/review/local/external work.
 
-Start with a Surface Plan: local, GitHub, packages, PR/history, web, and reasons for skips. Rare extensions: `long-research.md` for durable/contested decisions and `github-landscape.md` for repo ecosystems.
+Start with a Surface Plan: local, GitHub, packages, PR/history, web, and reasons for skips. Rare extensions: `references/long-research.md` for durable/contested decisions and `references/github-landscape.md` for repo ecosystems.
 
 ## Mode Flows
 | Mode | Chain |
@@ -19,7 +19,7 @@ Package evidence includes publish recency, cadence, maintainers, issue/PR ratio,
 Docs/wiki lead: tree -> exact doc -> verify each named entry point
 Local: tree/find -> search -> symbols/matchString -> LSP/AST
 Remote/package: package/repo search -> tree -> code search -> exact read -> history
-Remote as local: directory fetch/clone -> local AST/LSP/search (bridge details: workflow-combination.md)
+Remote as local: directory fetch/clone -> local AST/LSP/search (bridge: references/workflow-combination.md)
 PR intent: PR metadata/comments/selected patches -> exact changed paths -> history
 Dead code: research candidates -> returned graph query -> text+AST+LSP+tests
 ```
@@ -40,4 +40,4 @@ State the strongest cited case for and against; rebut the claim most likely to f
 - LSP uses a real anchor; empty/incomplete semantic results use another lane.
 - Output cites local `path:line` and remote URL/PR/commit IDs, names diagnostics/fallbacks, and reports verification.
 
-Use `loop-mode.md` after repeated Act→Observe→Learn cycles or shifting verification.
+Next: after repeated Act→Observe→Learn cycles or shifting verification load `references/loop-mode.md`; when a code claim needs the proof ladder load `references/code-research.md`; when the decision must be durable load `references/long-research.md`; when the plan turns into edits go to `references/workflow-change.md`.

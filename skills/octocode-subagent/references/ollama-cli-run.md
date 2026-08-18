@@ -1,14 +1,12 @@
 # Ollama CLI Run Reference
 
-Load when invoking the worker or debugging CLI run behavior.
+Load when invoking the worker or debugging CLI run behavior. Why: `run` flag shape (and what it does not expose) decides between CLI and HTTP.
 
 ## Run (worker invoke)
 
 ```bash
 ollama run MODEL [PROMPT] [flags]
 ```
-
-Useful flags:
 
 | Flag | When |
 |---|---|
@@ -27,14 +25,9 @@ Gemma 4 library sampling defaults (Modelfile/API): `temperature=1.0`, `top_p=0.9
 ### Non-interactive patterns (preferred for agents)
 
 ```bash
-# prompt as argument
-ollama run "$MODEL" "Summarize the following: ..."
-
-# prompt on stdin (what scripts/ollama-worker.sh uses)
-ollama run "$MODEL" < packet.txt
-
-# force JSON
-ollama run --format json "$MODEL" < packet.txt
+ollama run "$MODEL" "Summarize the following: ..."   # prompt as argument
+ollama run "$MODEL" < packet.txt                     # stdin (what scripts/ollama-worker.sh uses)
+ollama run --format json "$MODEL" < packet.txt        # force JSON
 ```
 
 MUST NOT use interactive REPL sessions for this skill (no TTY chat loops).
@@ -50,4 +43,6 @@ curl -sS "$OLLAMA_HOST/api/generate" -d '{...}'
 curl -sS "$OLLAMA_HOST/api/chat" -d '{...}'
 ```
 
-Prefer skill scripts for generate/chat. See `ollama-invoke.md`.
+Prefer skill scripts for generate/chat.
+
+Next: script invoke and serving knobs in `references/ollama-invoke.md`; full command catalog in `references/ollama-cli.md`.

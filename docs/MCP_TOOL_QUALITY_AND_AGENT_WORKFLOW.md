@@ -1,65 +1,27 @@
-# MCP Tool Quality, Improvements, and Agent Workflow
+# Agent workflow and tool improvement notes
 
-This document captures the local MCP all-tools run, depth/alignment/quality ratings, per-tool improvement backlog, and the recommended agent workflow for using Octocode tools.
+This page gives the recommended agent workflow for Octocode tools, the response
+contracts that all tools share, and the open improvement notes per tool. It is
+written for contributors and for agents tuning their own tool use.
 
-Validated locally with the built MCP stdio server:
+To exercise the full tool surface locally, start the built MCP stdio server with
+every optional surface turned on:
 
 ```bash
 ENABLE_LOCAL=true \
 ENABLE_CLONE=true \
+ENABLE_RELEASES=1 \
+ENABLE_DISCUSSIONS=1 \
+ENABLE_TOOLS=ghListReleases,ghSearchDiscussions \
 OCTOCODE_TRUST_PROJECT_LSP_CONFIG=1 \
 node packages/octocode-mcp/dist/index.js
 ```
 
-MCP runtime result: **12/12 tools passed**.
+The per-tool notes below do not yet cover `localFindDeadCode` or `ghSearchDiscussions`.
 
-## Rating scale
+## Standard agent workflow
 
-| Score | Meaning |
-|---:|---|
-| 10 | Deep, proof-capable, strongly aligned, high-quality structured output, safe pagination/bounds. |
-| 8-9 | Production-strong; rich enough for agent loops with minor ergonomics gaps. |
-| 6-7 | Useful but narrower, mostly discovery/lookup, or less proof-grade. |
-| <6 | Shallow, fragile, or missing key workflow affordances. |
-
-## Overall ratings
-
-| Dimension | Rating | Notes |
-|---|---:|---|
-| Runtime health | **10/10** | All MCP tools passed locally. |
-| Agent alignment | **8.8/10** | Strong discover -> inspect -> prove -> continue flow. |
-| Depth | **8.5/10** | Local/LSP excellent; GitHub strong; repo/npm discovery naturally shallower. |
-| Output quality | **8.6/10** | Structured content, pagination, summaries, and next hints are broadly good. |
-| Resource safety | **9.0/10** | Bounded local search/read, LSP guards, clone gating, pagination. |
-| Ease of use | **8.0/10** | Powerful; AST/GitHub search still need better repair guidance. |
-
-Suite score: **8.7/10**.
-
-## Tool ratings summary
-
-| Tool | Depth | Alignment | Quality | Overall | Primary role |
-|---|---:|---:|---:|---:|---|
-| `localSearchCode` | 9.5 | 9.6 | 9.0 | **9.4** | Local text/regex/AST discovery. |
-| `lspGetSemantics` | 9.3 | 9.5 | 8.8 | **9.2** | Semantic proof: symbols, refs, defs, hover, hierarchy. |
-| `localGetFileContent` | 9.0 | 9.3 | 9.0 | **9.1** | Exact local evidence fetch. |
-| `ghSearchPullRequests` | 8.7 | 8.7 | 8.4 | **8.6** | GitHub PR search and archaeology. |
-| `ghSearchIssues` | 8.7 | 8.7 | 8.4 | **8.6** | GitHub issue search and triage. |
-| `ghSearchCommits` | 8.7 | 8.7 | 8.4 | **8.6** | Commit history walk and ref compare. |
-| `ghListReleases` | 8.7 | 8.7 | 8.4 | **8.6** | Release listing (opt-in). |
-| `ghCloneRepo` | 8.6 | 9.0 | 8.5 | **8.7** | Remote -> local materialization bridge. |
-| `ghGetFileContent` | 8.5 | 8.8 | 8.5 | **8.6** | Exact GitHub file evidence. |
-| `localFindFiles` | 8.4 | 8.6 | 8.7 | **8.6** | Local metadata/file discovery. |
-| `localViewStructure` | 8.3 | 8.7 | 8.6 | **8.5** | Local tree orientation. |
-| `ghSearchCode` | 8.2 | 8.4 | 8.0 | **8.2** | GitHub code/path discovery. |
-| `ghViewRepoStructure` | 8.0 | 8.4 | 8.4 | **8.3** | GitHub tree orientation. |
-| `ghSearchRepos` | 7.6 | 7.8 | 8.0 | **7.8** | Repository discovery/triage. |
-| `npmSearch` | 7.5 | 7.9 | 8.2 | **7.9** | Package lookup and source repo bridge. |
-
----
-
-# Standard agent workflow
-
-Use this workflow by default. It keeps cost low, increases proof quality step by step, and avoids treating discovery as proof.
+Use this workflow by default. It keeps cost low, raises proof quality step by step, and avoids treating discovery as proof.
 
 ```text
 1. Orient
@@ -81,7 +43,7 @@ Use this workflow by default. It keeps cost low, increases proof quality step by
    Mark every claim as: orientation, candidate, exact text, semantic proof, or historical proof.
 ```
 
-## Default local-code workflow
+### Default local-code workflow
 
 ```text
 localViewStructure(path)
@@ -100,7 +62,7 @@ Rules:
 - Use `localGetFileContent(minify:"symbols")` before reading large files.
 - Use LSP only after anchoring a real symbol line from search/symbols.
 
-## Default GitHub workflow
+### Default GitHub workflow
 
 ```text
 ghSearchRepos / npmSearch
@@ -117,7 +79,7 @@ Rules:
 - Use `ghViewRepoStructure` to verify path case before `ghGetFileContent`.
 - Use `ghCloneRepo` for multi-file reasoning, large investigations, or semantic proof.
 
-## Default history workflow
+### Default history workflow
 
 ```text
 ghSearchCommits(owner, repo, path?)
@@ -132,7 +94,7 @@ Rules:
 - Fetch selected changed files or selected patch ranges before full patches.
 - Treat PR comments as context, not code proof.
 
-## Default package workflow
+### Default package workflow
 
 ```text
 npmSearch(packageName)
@@ -143,18 +105,18 @@ npmSearch(packageName)
 
 Rules:
 
-- Exact package lookup is preferred over keyword lookup when the name is known.
+- Prefer exact package lookup over keyword lookup when you know the name.
 - Use package health fields for triage, not correctness proof.
 
 ---
 
-# Suite-wide improvement contracts
+## Suite-wide improvement contracts
 
-These are the highest-impact improvements across the whole tool suite.
+The following contracts are the highest-impact improvements across the whole tool suite.
 
-## 1. Standardize `next` hints across all tools
+### 1. Standardize `next` hints across all tools
 
-Every result should consistently suggest the next best tool. A `next` entry should be directly callable, explain why it helps, and state confidence.
+Every result must suggest the next best tool. A `next` entry must be directly callable, explain why it helps, and state its confidence.
 
 Recommended shape:
 
@@ -178,12 +140,12 @@ Expected chains:
 | `localViewStructure` file | `localGetFileContent`. |
 | `localViewStructure` directory | deeper `localViewStructure`, `localFindFiles`, `localSearchCode`. |
 | `ghSearchCode` hit | `ghGetFileContent`, `ghViewRepoStructure`, `ghCloneRepo`. |
-| `ghSearchRepos` repo | `ghViewRepoStructure`, `ghSearchCode`, `ghCloneRepo`. |
+| `ghSearchRepos` repository | `ghViewRepoStructure`, `ghSearchCode`, `ghCloneRepo`. |
 | `ghViewRepoStructure` file | `ghGetFileContent`. |
 | `ghViewRepoStructure` directory | deeper `ghViewRepoStructure`, `ghCloneRepo`. |
 | `ghGetFileContent` file | `ghCloneRepo` for multi-file/LSP work. |
 | `ghCloneRepo` result | `localViewStructure`, `localSearchCode`, `localFindFiles`. |
-| `npmSearch` GitHub repo | `ghViewRepoStructure`, `ghSearchCode`, `ghCloneRepo`. |
+| `npmSearch` GitHub repository | `ghViewRepoStructure`, `ghSearchCode`, `ghCloneRepo`. |
 | `ghSearchPullRequests` changed file | `ghGetFileContent`, selected patch follow-up, `ghCloneRepo`. |
 | `ghSearchCommits` commit | `ghGetFileContent` at SHA, selected diff follow-up, `ghCloneRepo`. |
 | `lspGetSemantics` references | `localGetFileContent` around reference lines, callers/callees follow-up. |
@@ -194,9 +156,9 @@ Acceptance criteria:
 - Every `next.query` can be passed to the named tool without manual path conversion.
 - Hints never claim proof; they explain the next evidence step.
 
-## 2. Standardize diagnostics/warnings
+### 2. Standardize diagnostics/warnings
 
-Current outputs use a mix of `warnings`, errors, diagnostics, text guidance, and `next`. Keep compatibility, but converge on a common `diagnostics` shape.
+Outputs use a mix of `warnings`, errors, diagnostics, text guidance, and `next`. Keep compatibility, but converge on a common `diagnostics` shape.
 
 Recommended shape:
 
@@ -222,7 +184,7 @@ Rules:
 - `error`: tool could not answer the requested query.
 - `warning`: answered, but evidence may be partial, capped, paginated, fallback-based, or lossy.
 - `info`: useful repair/ergonomic guidance, such as AST pattern tips.
-- Existing `warnings` can remain, but agents should receive equivalent structured diagnostics.
+- Existing `warnings` can remain, but agents must also receive equivalent structured diagnostics.
 
 Acceptance criteria:
 
@@ -231,23 +193,23 @@ Acceptance criteria:
 - Large-file rejection emits diagnostics with line-range/pagination repair examples.
 - LSP unavailable/unsupported/anchor-failed states have distinct diagnostic codes.
 
-## 3. Normalize path/URI display
+### 3. Normalize path/URI display
 
-Local and LSP flows should display paths consistently while preserving exact machine fields.
+Local and LSP flows must display paths consistently while preserving the exact machine fields.
 
 Recommended shape:
 
 ```ts
 {
-  path: 'packages/foo.ts',
-  absolutePath: '/Users/example/repo/packages/foo.ts',
-  uri: 'file:///Users/example/repo/packages/foo.ts'
+  path: 'packages/octocode-tools-core/src/serverConfig.ts',
+  absolutePath: '/home/username/repo/packages/octocode-tools-core/src/serverConfig.ts',
+  uri: 'file:///home/username/repo/packages/octocode-tools-core/src/serverConfig.ts'
 }
 ```
 
 Rules:
 
-- `path`: human-friendly repo-relative path when a workspace/root is known.
+- `path`: human-friendly repository-relative path when a workspace/root is known.
 - `absolutePath`: direct local filesystem path for local tools.
 - `uri`: file URI for LSP operations.
 - Never pass `file://` URIs to filesystem-only functions.
@@ -259,9 +221,9 @@ Acceptance criteria:
 - Every local file row can feed `localGetFileContent` without conversion.
 - Every semantic row can feed `lspGetSemantics` without guessing URI/line.
 
-## 4. Standardize evidence levels and proof-upgrade guidance
+### 4. Standardize evidence levels and proof-upgrade guidance
 
-Agents need to know whether a result is orientation, candidate evidence, exact evidence, semantic proof, or historical context.
+Agents need to know whether a result is orientation, candidate evidence, exact evidence, semantic proof, or historical context. The following table maps each tool to its default level:
 
 Recommended shape:
 
@@ -277,8 +239,6 @@ evidence: {
   };
 }
 ```
-
-Suggested mapping:
 
 | Tool/result | Default evidence level | Upgrade path |
 |---|---|---|
@@ -299,22 +259,22 @@ Suggested mapping:
 
 Acceptance criteria:
 
-- Agents can distinguish “found a candidate” from “proved identity”.
+- Agents can distinguish "found a candidate" from "proved identity".
 - Every non-proof result includes an upgrade suggestion.
 - Search relevance order is never presented as proof.
 
 ---
 
-# Per-tool documentation and improvements
+## Per-tool documentation and improvements
 
-## `localSearchCode`
+### `localSearchCode`
 
 Role: search local files by text, regex, or AST/structural rule.
 
 Best for:
 
 - Finding candidate code locations.
-- Fast repo-wide text search.
+- Fast repository-wide text search.
 - Structural code-shape discovery.
 - Producing anchors for exact reads and LSP proof.
 
@@ -350,7 +310,7 @@ Improvements:
 4. Add language-specific structural examples.
 5. Emit evidence level: text hit vs structural candidate.
 
-## `lspGetSemantics`
+### `lspGetSemantics`
 
 Role: semantic code intelligence: symbols, definitions, references, hover, diagnostics, call/type hierarchy.
 
@@ -391,7 +351,7 @@ Improvements:
 4. Add recovery `next.documentSymbols` when anchor resolution fails.
 5. Add content-read next hints around reference/caller lines.
 
-## `localGetFileContent`
+### `localGetFileContent`
 
 Role: read exact local file content by range, match, full content, or minified/symbol view.
 
@@ -431,14 +391,14 @@ Improvements:
 4. Improve large-file rejection repairs.
 5. Emit evidence level `exact-text`.
 
-## `localFindFiles`
+### `localFindFiles`
 
 Role: local file/directory discovery by name, type, size, time, permissions, and depth.
 
 Best for:
 
 - Locating files by metadata.
-- Repo orientation by filename/extension.
+- Repository orientation by filename/extension.
 - Finding recently changed/stale/large files.
 
 Depth/alignment/quality:
@@ -455,13 +415,13 @@ Improvements:
 4. Add `next.localSearchCode` scoped to matched directories.
 5. Emit evidence level `candidate`.
 
-## `localViewStructure`
+### `localViewStructure`
 
 Role: local directory tree orientation.
 
 Best for:
 
-- Understanding repo or directory shape.
+- Understanding repository or directory shape.
 - Cheap first step before deeper search/read.
 
 Depth/alignment/quality:
@@ -478,7 +438,7 @@ Improvements:
 4. Clarify `pattern` is name/path filtering, not content search.
 5. Emit evidence level `orientation`.
 
-## `ghSearchCode`
+### `ghSearchCode`
 
 Role: search GitHub code or paths.
 
@@ -501,7 +461,7 @@ Improvements:
 4. Surface rate-limit/incomplete-result metadata when GitHub provides it.
 5. Emit evidence level `candidate` for search rows and `exact-text` only for returned snippets.
 
-## `ghGetFileContent`
+### `ghGetFileContent`
 
 Role: read exact GitHub file content or materialize a directory subtree.
 
@@ -525,13 +485,13 @@ Improvements:
 4. Warn before full-content reads for large files and suggest `startLine/endLine`, `matchString`, or `minify:"symbols"`.
 5. Emit evidence level `exact-text`.
 
-## `ghViewRepoStructure`
+### `ghViewRepoStructure`
 
 Role: browse a GitHub repository tree.
 
 Best for:
 
-- Remote repo orientation.
+- Remote repository orientation.
 - Verifying exact path/case before file reads.
 - Choosing whether to clone or inspect selected files.
 
@@ -549,7 +509,7 @@ Improvements:
 4. Expose generated/vendor auto-exclusions if they apply.
 5. Add extension histogram and emit evidence level `orientation`.
 
-## `ghSearchRepos`
+### `ghSearchRepos`
 
 Role: discover GitHub repositories by owner, keyword, topic, language, license, popularity, or activity.
 
@@ -566,20 +526,20 @@ Depth/alignment/quality:
 
 Improvements:
 
-1. Add `next.ghViewRepoStructure`, `next.ghSearchCode`, and `next.ghCloneRepo` per repo.
+1. Add `next.ghViewRepoStructure`, `next.ghSearchCode`, and `next.ghCloneRepo` per repository.
 2. Clarify search semantics: keywords are ANDed, topics are sparse, `match` controls searched fields.
-3. Add optional repo quality score using archive status, pushed date, stars, license, and issue activity.
-4. Add candidate-triage mode: official-looking, active, source-available, likely package repo.
+3. Add optional repository quality score using archive status, pushed date, stars, license, and issue activity.
+4. Add candidate-triage mode: official-looking, active, source-available, likely package repository.
 5. Emit evidence level `orientation`.
 
-## `ghSearchPullRequests`
+### `ghSearchPullRequests`
 
-Role: search GitHub PRs, or read one PR's files/diffs/reviews via a `content:{}` selector (metadata, body, changedFiles, patches, comments, reviews, commits).
+Role: search GitHub PRs, or read one PR's files/diffs/reviews through a `content:{}` selector (metadata, body, changedFiles, patches, comments, reviews, commits).
 
 Best for:
 
 - Finding merged PRs touching a symbol or path.
-- Understanding why code changed via review discussion.
+- Understanding why code changed through review discussion.
 - Reviewing selected PR patches without pulling all diffs.
 
 Depth/alignment/quality:
@@ -595,9 +555,9 @@ Improvements:
 3. Add next hints from changed files to `ghGetFileContent`, selected patch fetches, and `ghCloneRepo`.
 4. Emit evidence level `historical-context`; exact patches can upgrade to `exact-text`.
 
-## `ghSearchIssues`
+### `ghSearchIssues`
 
-Role: search GitHub issues, or read one issue via a `content:{}` selector (metadata, body, comments).
+Role: search GitHub issues, or read one issue through a `content:{}` selector (metadata, body, comments).
 
 Best for:
 
@@ -618,9 +578,9 @@ Improvements:
 3. Add next hints to `ghSearchPullRequests` for resolving PRs.
 4. Emit evidence level `historical-context`.
 
-## `ghSearchCommits`
+### `ghSearchCommits`
 
-Role: walk a repo's commit history for a path/range (`path`, `since`/`until`, `branch`, `author`, `committer`, `includeDiff`), or compare two refs via `base`+`head` (returns aheadBy/behindBy/totalCommits + commit list). No sort/order.
+Role: walk a repository's commit history for a path/range (`path`, `since`/`until`, `branch`, `author`, `committer`, `includeDiff`), or compare two refs through `base`+`head` (returns aheadBy/behindBy/totalCommits + commit list). No sort/order.
 
 Best for:
 
@@ -641,9 +601,9 @@ Improvements:
 3. Add next hints from commits to `ghGetFileContent` at SHA and `ghCloneRepo`.
 4. Emit evidence level `historical-context`; exact diffs can upgrade to `exact-text`.
 
-## `ghListReleases`
+### `ghListReleases`
 
-Role: list a repo's releases plus latest stable, with opt-in `includeAssets`. Opt-in tool (`ENABLE_RELEASES=true`).
+Role: list a repository's releases plus latest stable, with opt-in `includeAssets`. Opt-in tool (`ENABLE_RELEASES=true`).
 
 Best for:
 
@@ -664,7 +624,7 @@ Improvements:
 3. Add next hints from a release tag to `ghSearchCommits` (ref compare) and `ghGetFileContent` at tag.
 4. Emit evidence level `historical-context`.
 
-## `ghCloneRepo`
+### `ghCloneRepo`
 
 Role: clone/materialize a GitHub repository, branch, or sparse path to a local path for local tooling.
 
@@ -688,7 +648,7 @@ Improvements:
 4. Expose `cacheAge` and `forceRefresh` guidance.
 5. Emit evidence level `orientation` bridge, not proof by itself.
 
-## `npmSearch`
+### `npmSearch`
 
 Role: search npm packages and resolve exact package names to metadata/source repositories.
 
@@ -707,37 +667,40 @@ Depth/alignment/quality:
 Improvements:
 
 1. Add direct next hints when a GitHub repository is detected: `ghViewRepoStructure`, `ghSearchCode`, `ghCloneRepo`.
-2. Add package health summary: weekly downloads, deprecated flag, last publish, license, types, repo detected.
+2. Add package health summary: weekly downloads, deprecated flag, last publish, license, types, repository detected.
 3. Improve keyword result disambiguation: exact name match, official-looking scope, high-download candidate.
 4. Add package-risk diagnostics for deprecated/unmaintained packages and typo-like names.
 5. Emit evidence level `package-metadata`.
 
 ---
 
-# Implementation backlog by impact
+## Open improvements by priority
 
-## P0
+These are candidates ranked by impact, not commitments or dated plans. Priorities
+describe relative ordering for contributors picking up work.
+
+### P0
 
 1. Standardize `next` hints for local search/content/LSP and GitHub clone flows.
 2. Add structured diagnostics alongside free-form warnings.
 3. Normalize local/LSP path fields.
 
-## P1
+### P1
 
 1. Add evidence-level metadata across all tools.
 2. Improve structural AST zero-match repair examples.
 3. Add GitHub empty-result uncertainty diagnostics.
-4. Add package/repo next hints.
+4. Add package or repository next hints.
 
-## P2
+### P2
 
 1. Add extension histograms to tree/file discovery tools.
-2. Add repo/package quality scoring.
+2. Add repository or package quality scoring.
 3. Add cache-age reporting for clone/materialized content.
 
-# Verification checklist for future changes
+## Verification checklist for future changes
 
-A change that claims to improve tool quality should run:
+A change that claims to improve tool quality must run these commands:
 
 ```bash
 yarn build
@@ -750,7 +713,7 @@ yarn workspace @octocodeai/octocode-engine test:rust
 yarn platforms:check
 ```
 
-And then smoke every MCP tool through the built stdio server with local and clone enabled.
+Then smoke every MCP tool through the built stdio server, with local tools and clone turned on.
 
 Acceptance:
 

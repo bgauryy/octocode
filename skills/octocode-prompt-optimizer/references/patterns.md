@@ -45,3 +45,5 @@ Full Path: summarize goal, progress, next step, and blockers at a real phase/con
 
 ## Sources
 - Anthropic, [Effective context engineering for AI agents](https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents) — distinct prompt sections and a specific-but-not-brittle instruction altitude.
+
+Next: apply the chosen pattern under `references/fix.md`; for the wording of the surviving lines load `references/conciseness-toolkit.md`; for placement of critical rules and data boundaries load `references/attention.md`.

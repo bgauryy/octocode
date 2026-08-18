@@ -4,7 +4,7 @@ import { spawn, execSync, execFileSync } from 'child_process';
 import { platform }  from 'os';
 import { existsSync, writeFileSync, readFileSync, rmSync, mkdirSync } from 'fs';
 import { join, resolve } from 'path';
-import { getOctocodeHome, propagateOctocodeEnv } from '@octocodeai/config';
+import { getOctocodeHome, propagateOctocodeEnv } from './octocode-config.mjs';
 
 const argv = process.argv.slice(2);
 const getArg  = (flag, def) => { const i = argv.indexOf(flag); return i !== -1 && argv[i + 1] ? argv[i + 1] : def; };

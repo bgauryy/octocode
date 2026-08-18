@@ -1,4 +1,4 @@
-# Agent-Readable Docs
+# Agent-readable docs
 
 Load before WRITE for any audience. Why: agents navigate by links and stable names; verbose code dumps and line citations rot fast.
 
@@ -10,24 +10,26 @@ Load before WRITE for any audience. Why: agents navigate by links and stable nam
 
 ## Cross-refs
 
-- New or updated pages should link related docs (parent index, sibling how-to/reference, ADRs).
+- Link related docs from new or updated pages (parent index, sibling how-to/reference, ADRs).
 - `AGENTS.md` needs an External References (or Docs) table to the real sources of truth.
-- Use repo-relative paths in backticks or markdown links — not vague "see docs".
-- When two pages overlap, keep one owner and link the other.
+- Use repository-relative paths in backticks or markdown links — not vague "see docs".
+- When two pages overlap, keep one owner; link from the other.
 
 ## Durable over brittle
 
 - Point to modules, packages, entry files, and doc pages — not `file:line` in standing docs.
 - Describe contracts and behavior ("token exchange under `packages/mcp-host` auth services") instead of pasting implementations.
 - Name manifest scripts; do not embed large shell programs.
-- IF code and docs disagree → THEN trust code for facts, fix or flag the doc, and avoid ephemeral details.
+- IF code and docs disagree → THEN trust code for facts. Fix or flag the doc, and avoid ephemeral details.
 
 ## No code dumps
 
 - Skip multi-block source pastes, full configs, and long JSON/YAML in docs.
-- Allowed: one short command or signature when copy-paste is required; otherwise link the file.
+- Allowed: one short command or signature when the reader must copy-paste it; otherwise link the file.
 - Keep examples minimal; point to tests or source for the full story.
 
 ## Agent comprehension check
 
-Before finish: links + bullets should answer "where do I look?" and "what must I not break?". IF either answer is missing → THEN add refs or cut noise.
+Before finish: links and bullets must answer "where do I look?" and "what must I not break?". IF either answer is missing → THEN add refs or cut noise.
+
+Next: outline gate, write steps, and verify checklist → `references/write-verify.md`; wording and formatting rules → `references/style-index.md`.

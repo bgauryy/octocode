@@ -44,3 +44,5 @@ export const AgentPacket = z.discriminatedUnion("kind", [Request, Result, Failur
 - Zod, [Defining schemas](https://zod.dev/api) — discriminated unions and type narrowing.
 - Zod, [JSON Schema](https://zod.dev/json-schema) — stable `z.toJSONSchema()` conversion; `z.fromJSONSchema()` is experimental.
 - A2A, [Protocol specification](https://github.com/a2aproject/A2A/blob/main/docs/specification.md) — required-field validation, schema validation, authorization, and injection protections.
+
+Next: for the protocol and ownership rules around this packet load `references/agent-communication.md`; for the tool-facing surface it validates load `references/tool-contracts.md`; for the string/array bounds that protect context load `references/context-budget.md`.

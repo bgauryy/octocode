@@ -1,21 +1,15 @@
 # Model Selection
 
-Load on every **ROUTE** / model select. Portable: works on any `ollama list` — do not assume Gemma, Qwen, or any tag is installed.
+Load when routing any local offload — every **ROUTE** / model select. Why: only the live inventory says which tag exists, and the smallest fitting one wins.
 
-Load ladder:
-
-1. This file — always.
-2. `family-playbooks.md` — only if an installed family needs special flags, or two families both fit and you need examples.
-3. `ollama-local-models.md` — only for RAM kits, catalog, MCP/tools matrix, or pull suggestions (ask before pull).
+Portable: works on any `ollama list` — do not assume Gemma, Qwen, or any tag is installed. Load ladder: this file always; `references/family-playbooks.md` only if an installed family needs special flags or two families tie; `references/ollama-local-models.md` only for RAM kits, catalog, MCP/tools matrix, or pull suggestions (ask before pull).
 
 ## Absolute rules
 
 1. Run `ollama list` first. Use **exact** listed names (including tags).
-2. Never invent or assume a default tag (e.g. do not assume `llama3.2` or `gemma4:12b` exists).
-3. Never use embedding-only models (`*embed*`) as chat/summarize workers.
-4. Never use OCR/vision-only models for pure-text jobs unless the input needs that modality.
-5. Prefer the **smallest** installed chat model that can meet acceptance. Escalate once on verify fail.
-6. Named tags elsewhere in this skill are **examples**, not requirements.
+2. Never invent or assume a default tag (do not assume `llama3.2` or `gemma4:12b` exists); named tags elsewhere in this skill are **examples**, not requirements.
+3. Never use embedding-only models (`*embed*`) as chat/summarize workers, nor OCR/vision-only models for pure-text jobs unless the input needs that modality.
+4. Prefer the **smallest** installed chat model that can meet acceptance. Escalate once on verify fail.
 
 ## Job → tier (capability, not brand)
 
@@ -30,9 +24,7 @@ Load ladder:
 | Hard local synthesis (rare, still allowlisted) | `strong` | Else keep on orchestrator |
 | Image caption / OCR | `special` | Needs vision / OCR capability |
 
-## Bucket installed models
-
-After `ollama list`, optionally `ollama show <name>`. Bucket by **signals**:
+**Bucket installed models** — after `ollama list`, optionally `ollama show <name>` (confirm ambiguous `parameters`, `context length`, capabilities). Bucket by **signals**:
 
 | Signal | Bucket |
 |---|---|
@@ -45,35 +37,12 @@ After `ollama list`, optionally `ollama show <name>`. Bucket by **signals**:
 | `coder` / code-focused name | prefer for `draft` when in tier |
 | `thinking` capability | OK; default **think off** for bulk |
 
-Confirm ambiguous sizes with `ollama show` (`parameters`, `context length`, capabilities).
+Ties: prefer already-warm (`ollama ps`) at the same tier; structured-output models (many Qwen/instruct tags) for JSON/extract/classify **if installed**; coder or strong instruct for draft/code; any `vision`/multimodal for images; newer family generation over older sibling **when both installed** (e.g. gemma4 over gemma3) as the last tie-break. Illustrative only: on a Gemma + Qwen mix, tiny Qwen → classify, mid Qwen → JSON, mid Gemma → draft/vision, large anything → cascade. **Recompute from the live list every session.**
 
-### Heuristics when several models fit
+**Algorithm:** tier = f(job pattern) → candidates = installed chat models in tier ∪ stronger → drop embed / wrong-modality → optional family tie-break → pick the smallest remaining that meets structure needs → none left ⇒ solo, and suggest a size class to pull (ask user) → `export OLLAMA_WORKER_MODEL=<exact name from list>` → thinking-capable ⇒ default `--think=false` for bulk.
 
-1. Prefer already-warm (`ollama ps`) if same tier.
-2. For JSON/extract/classify: models known for structured output (many Qwen/instruct tags) **if installed**.
-3. For draft/code: coder or strong instruct tags **if installed**.
-4. For vision: any installed model with `vision` (or multimodal) capability.
-5. Newer family generation over older sibling **when both installed** (e.g. gemma4 over gemma3) — only as a tie-break.
-
-### Example mapping (illustrative only)
-
-If a machine happened to have a Gemma + Qwen mix, routing might look like: tiny Qwen → classify; mid Qwen → JSON; mid Gemma → draft/vision; large anything → cascade. **Recompute from the live list every session.**
-
-## Selection algorithm
-
-```text
-1. tier = f(job pattern)
-2. candidates = installed chat models in tier ∪ stronger
-3. drop embed / wrong-modality
-4. optional family tie-break (family-playbooks.md) if useful
-5. pick smallest remaining that meets structure needs
-6. if empty → solo; suggest a size class to pull (ask user)
-7. export OLLAMA_WORKER_MODEL=<exact name from list>
-8. if model has thinking: default --think=false for bulk
-```
-
-## Cascade, Hardware & Report
-
-- **Cascade:** On verify `fail`: 1) Next stronger installed chat model, 2) Else orchestrator solo.
-- **Hardware:** Slow/thrashing → drop tier or shrink shards. JSON fail on tiny model → cascade once. Prefer smaller download/params that passes verify.
+- **Cascade:** on verify `fail` → next stronger installed chat model, else orchestrator solo.
+- **Hardware:** slow/thrashing → drop tier or shrink shards; JSON fail on tiny model → cascade once; prefer smaller download/params that passes verify.
 - **Report:** `model=<exact> tier=<t> reason=<smallest fit | warm | cascade | solo> think=<on|off>`
+
+Next: invoke with `references/ollama-invoke.md`; family flags or tie-break examples in `references/family-playbooks.md`; gate the return with `references/verify-gate.md`.

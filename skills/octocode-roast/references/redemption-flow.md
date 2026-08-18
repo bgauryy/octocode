@@ -40,3 +40,5 @@ Next checkpoint: {one action}
 - User consent matches every mutation.
 - Tests/checks actually ran and their failures are reported.
 - Twenty or more findings remain triaged to the top ten.
+
+Next: the roast ends here — report the gate results and the remaining findings; when the user asks for another pass, restart at `references/roast-playbook.md` § 1 Target.

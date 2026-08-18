@@ -1,12 +1,10 @@
 # OUTPUT Gate
 
 Load after VALIDATE passes. Write only when the request authorizes a file change; otherwise present the deliverable in chat.
-
 ### Pre-Conditions
 - [ ] VALIDATE passed and write authority is known.
 
 ## Choose A Variant
-
 - Full optimized document when the user requests a rewrite or leaves format unspecified.
 - Patch-style delta for minimal edits, review-only work, or unsafe/unavailable writes.
 
@@ -47,3 +45,5 @@ Load after VALIDATE passes. Write only when the request authorizes a file change
 
 ## Sources
 - Model Context Protocol, [Tools specification](https://modelcontextprotocol.io/specification/2025-06-18/server/tools) — explicit output structure and error signaling support reliable tool use.
+
+Next: the flow ends here once the delivered artifact and its truthful delta are presented; when the user requests further changes return to `references/fix.md` and revalidate with `references/validate.md`; when the reliability claim must be proven load `references/evaluation-data.md`.

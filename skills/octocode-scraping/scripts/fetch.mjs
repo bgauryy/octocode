@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { propagateOctocodeEnv } from '@octocodeai/config';
+import { propagateOctocodeEnv } from './octocode-config.mjs';
 import { parseConfig } from './lib/args.mjs';
 import { discoverSitemap, sleep } from './lib/client.mjs';
 import { initCorpus, writePage, writeSession } from './lib/corpus.mjs';

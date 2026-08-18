@@ -1,8 +1,12 @@
 #!/usr/bin/env node
-import { propagateOctocodeEnv } from '@octocodeai/config';
+import { propagateOctocodeEnv } from './octocode-config.mjs';
 import { autoSelectProvider, resolveProvider } from './lib/providers.mjs';
 
 const args = process.argv.slice(2);
+if (args.includes('--help') || args.includes('-h')) {
+  console.log('Usage: provider-check.mjs [--provider direct|cdp|scrapingant]\nNo --provider: report the auto-selected html route. Exit 1 when a required key is missing. Never prints the key.');
+  process.exit(0);
+}
 const providerFlagIndex = args.indexOf('--provider');
 const explicit = providerFlagIndex >= 0 ? args[providerFlagIndex + 1] : null;
 propagateOctocodeEnv({ cwd: process.cwd(), trusted: true });

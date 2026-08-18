@@ -1,5 +1,7 @@
 # Ollama Local Models Sources
 
+Load when a catalog claim needs its source or confidence stated. Why: library tags plus your own hardware measurements outrank blog rankings.
+
 ## Community / secondary evidence (not authority)
 
 | Claim | Source | Confidence |
@@ -44,3 +46,5 @@ Secondary (community; medium confidence — see table above):
 - https://github.com/JConradoN/local-llm-benchmark
 - https://ai.rs/ai-developer/gemma-4-vs-qwen-3-5-vs-llama-4-compared
 - https://kaitchup.substack.com/p/gemma-4-31b-vs-qwen35-27b-inference
+
+Next: capability rows in `references/ollama-local-models-matrix.md`; kits in `references/ollama-local-models-kits.md`; back to the catalog in `references/ollama-local-models.md`.

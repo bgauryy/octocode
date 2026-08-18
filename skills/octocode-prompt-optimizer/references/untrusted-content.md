@@ -27,3 +27,5 @@ Load when a prompt includes search results, files, web pages, emails, tool outpu
 ## Sources
 - Model Context Protocol, [Tools specification](https://modelcontextprotocol.io/specification/2025-06-18/server/tools) — tool annotations are untrusted unless supplied by a trusted server.
 - Anthropic, [Effective context engineering for AI agents](https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents) — separate clear instructions from external context and retain only high-signal information.
+
+Next: to place the boundary tags and the restated rule load `references/attention.md`; when the untrusted text arrives from another agent load `references/agent-communication.md`; run the benign-plus-adversarial test through `references/evaluation-data.md`.

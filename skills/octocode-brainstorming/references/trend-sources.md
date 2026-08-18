@@ -20,4 +20,6 @@ For platform validation, go straight to the relevant vendor: OpenAI/Anthropic/Go
 - Match sources to the domain: product → momentum + competitors; technical → papers; code-adjacent → repo/package; add AI/security sources only when relevant.
 - Fetch at most 2-3 sources per section unless the user requests a landscape map.
 - Record the dated signal—release/activity/citation/ranking/velocity—not merely presence.
-- Apply `output.md` confidence rules and `tools.md` formal-source ladder to every citation.
+- Apply the `references/confidence.md` markers and the `references/tools.md` formal-source ladder to every citation.
+
+Next: to corroborate a dated signal in repo/package data load `references/octocode.md`; to dispatch a Trend & Source Scout load `references/web-search-workers.md`; once momentum is settled continue the flow at stress-test with `references/debate.md`.

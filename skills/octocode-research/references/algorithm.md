@@ -1,6 +1,6 @@
 # Research Algorithm
 
-Read first for routing, proof grades, triangulation, and failure recovery. Route from the strongest handle already known; never force a fixed grep→AST→LSP pipeline.
+Load when any research run starts and you need routing, proof grades, triangulation, or failure recovery. Why: the strongest handle you already hold decides the first move — never force a fixed grep→AST→LSP pipeline.
 
 ## Router
 | Handle | First move |
@@ -44,3 +44,5 @@ Evidence grades: semantic (LSP identity), structural (AST shape), lexical (cover
 | warning/redaction/pagination | interpretation changed → preserve and follow it |
 
 Avoid guessed offsets/fields, serial single queries, remote over-reading, snippet conclusions, and claims from one evidence lane. No embeddings/index are assumed; for conceptual queries use tree → hotspot map → symbols → exact proof.
+
+Next: classify the request with `references/problem-framing.md`, then take one route from `references/workflows.md`; when a code claim needs the proof ladder load `references/code-research.md`; when a call itself fails or a surface is gated load `references/octocode.md`.

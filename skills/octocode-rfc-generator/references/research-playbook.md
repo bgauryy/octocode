@@ -44,3 +44,5 @@ Put the broad source inventory in `RESOURCES.md`; cite decisive claims inline wh
 | Evidence conflicts | present conflict and decision rule |
 | Scope too broad | split into multiple RFCs or phases |
 | Two attempts fail | summarize what is known and ask for direction |
+
+Next: with the claim ledger filled, compare options and write the decision via `references/rfc-template.md`; when the change touches existing code load `references/rfc-prerequisites.md` first; carry every still-open question into `references/rfc-implementation.md`.

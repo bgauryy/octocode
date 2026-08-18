@@ -1,3 +1,0 @@
-Return ONLY valid JSON:
-{"summary":"string","functions":["string"],"risks":["string"]}
-Summarize the TypeScript INPUT for a code review skim.

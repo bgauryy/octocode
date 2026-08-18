@@ -1,12 +1,28 @@
 #!/usr/bin/env node
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { getOctocodeHome, propagateOctocodeEnv } from '@octocodeai/config';
+import { getOctocodeHome, propagateOctocodeEnv } from './octocode-config.mjs';
 
 const args = process.argv.slice(2);
 const cmd = args[0];
 const arg = (flag, fallback) => { const i = args.indexOf(flag); return i >= 0 ? args[i + 1] : fallback; };
 const has = (flag) => args.includes(flag);
+
+if (has('--help')) {
+  console.log(`brainstorm-run — resumable claim/source/decision ledger for a brainstorming run
+
+  node scripts/brainstorm-run.mjs start      --idea <text> [--mode Generate|Validate|Map] [--surface-plan <json>] [--run-id <id>]
+  node scripts/brainstorm-run.mjs checkpoint --run-id <id> [--stage <name>] [--summary <text>] [--claim <text>] [--source <path-or-url>]
+  node scripts/brainstorm-run.mjs finish     --run-id <id> [--verdict <text>] [--decision <text>] [--summary <text>]
+  node scripts/brainstorm-run.mjs hook       --event UserPromptSubmit|Stop|SubagentStop|SessionEnd
+  node scripts/brainstorm-run.mjs --self-test    create the run directory and print it
+  --help                                         this text
+
+Runs are JSON under <workspace>/.octocode/brainstorming/runs/, falling back to Octocode home when the
+workspace is unwritable; OCTOCODE_BRAINSTORM_RUN_DIR overrides it but must stay under that base.
+The Stop hook exits 2 until the run is finished; OCTOCODE_BRAINSTORM_NO_STOP_GATE=1 bypasses it.`);
+  process.exit(0);
+}
 propagateOctocodeEnv({ cwd: process.cwd(), trusted: true });
 
 function octocodeOutputBase() {

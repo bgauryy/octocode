@@ -1,12 +1,12 @@
-# Octocode Research Manifest
+# Octocode research manifest
 
 **Abstract.** Agentic code research fails in two symmetric ways. An LLM
 reasoning without deterministic backing hallucinates line numbers and
 generalizes from one grep; deterministic tools without an LLM directing them
 cannot decide what the question even is. This manifest specifies the routing
-algorithm that avoids both failure modes for Octocode's 13-tool surface (grep,
+algorithm that avoids both failure modes for Octocode's 17-tool surface (grep,
 AST, LSP, and provider search spanning local disk, GitHub/npm, and a
-federated query layer), and it describes how each tool actually behaves
+federated query layer), and it describes how each tool behaves in practice
 rather than what its documentation claims. Where a behavior is config-gated
 or a known gap, it is flagged inline instead of smoothed over. §0 through §2b
 build the model, §3 through §8 are the operational algorithm, §9 through §11
@@ -21,10 +21,10 @@ designs tool *interfaces* but no operational routing; aider's
 under a token budget (a whole-context optimization this doc does not attempt);
 OpenDev ([arXiv:2603.05344](https://arxiv.org/html/2603.05344v1)) ships anchor-based
 retrieval selection and layered LSP without evidence-grading or verification;
-tool surveys (e.g. rywalker's code-intelligence comparison, Mar 2026) give
+tool surveys (for example, rywalker's code-intelligence comparison, March 2026) give
 per-*product* guidance where this doc routes per-*query*. AutoWiki-style
 generators (Factory AutoWiki, Devin DeepWiki, Google Code Wiki, LangChain
-OpenWiki) solve a different problem, continuously-regenerated repo narrative,
+OpenWiki) solve a different problem, continuously-regenerated repository narrative,
 and are consumed, not implemented, by this manifest: see §1c. For the retrieval
 lanes this manifest deliberately does not use, see §1b. For where this manifest's
 own retrieval-layer scope sits against the wider 2025–2026 context-engineering
@@ -35,7 +35,7 @@ thesis, [1](#1-the-core-model) Core model, [1b](#1b-the-lanes-this-manifest-does
 Lanes not used, [1c](#1c-existing-wikisdocs-as-a-lead-not-a-lane-not-proof)
 Wikis as a lead, [1d](#1d-three-dimensions-read-together-structure-stream-connections)
 Three dimensions, [2](#2-tool-matrix) Tool matrix, [2b](#2b-bulk-queries-parallelism-and-triangulation)
-Bulk triangulation, [3](#3-the-router-master-decision-tree) The router,
+Bulk triangulation, [3](#3-the-router-primary-decision-tree) The router,
 [4](#4-where-does-the-code-live-local-vs-external-gate) Local/external gate,
 [4b](#4b-matchstring-the-anchor-read-primitive-use-it-by-default) matchString,
 [5](#5-local-algorithm-the-loop-in-full) LOCAL algorithm, [6](#6-external-algorithm-github--npm)
@@ -43,7 +43,7 @@ EXTERNAL algorithm, [7](#7-node_modules-first-before-any-external-hop) node_modu
 [8](#8-local--external-bridges) Local/external bridges, [9](#9-minification-modes-and-tradeoffs)
 Minification, [9b](#9b-smart-schema-pay-for-the-contract-only-when-youre-about-to-use-it)
 Smart schema, [10](#10-pagination-cursor-families) Pagination,
-[11](#11-failure-semantics--recovery) Failure semantics, [12](#12-anti-patterns-each-observed-to-cost-real-round-trips)
+[11](#11-failure-semantics-and-recovery) Failure semantics, [12](#12-anti-patterns-each-observed-to-cost-real-round-trips)
 Anti-patterns, [13](#13-strengths-and-known-limitations)
 Strengths and limitations, [14](#14-where-this-sits-in-the-context-engineering-literature)
 Literature position, [Appendix](#appendix-tool-agnostic-mapping) Tool-agnostic mapping.
@@ -77,11 +77,11 @@ example with the exact tool output: §5.5.
 Seven mechanisms make the loop cheap in practice:
 
 1. **Hints: the tool plans your next call.** Direct tool results ship
-   prefilled, copy-paste follow-up fields, not just a path. A text hit for a
+   prefilled, copy-paste follow-up fields, not only a path. A text hit for a
    symbol returns `next.semantic` (a documentSymbols query against the
    containing file) and `next.fetch` (a content query anchored on the
    match), both directly executable. Deeper results add `nextHints[].why`
-   and `confidence`, explaining *why* a continuation is offered, not just
+   and `confidence`, explaining *why* a continuation is offered, not only
    that one exists.
 2. **Pagination: cursors are opaque, nothing silently drops.**
    `pagination.nextCharOffset` / `nextPage` are copy-only fields the agent
@@ -118,7 +118,7 @@ Seven mechanisms make the loop cheap in practice:
    the call fires. That's a discipline against impulsive, ungrounded queries,
    not a server-side feature. Use the discipline; don't oversell what isn't
    wired up yet.
-7. **Multi-angle batching: one call, several angles, not just several
+7. **Multi-angle batching: one call, several angles, not only several
    independent lookups.** The 5-query batch (§2) isn't only for unrelated
    parallel lookups. Fire the SAME question through different lanes in one
    call and let disagreement between the angles be the finding. Worked
@@ -126,7 +126,7 @@ Seven mechanisms make the loop cheap in practice:
 
 ---
 
-## 1. The Core Model
+## 1. The core model
 
 Two research surfaces, bridged explicitly, one loop:
 
@@ -154,7 +154,7 @@ Evidence has grades. Treat them differently:
 | **semantic** | LSP (definitions, references, callers) | Proven identity, but scoped to the language project; blind to scripts, re-exports-as-text, strings, docs |
 | **structural** | AST match with metavar ranges | Proven shape: complete-node semantics, exact captures |
 | **lexical** | ripgrep text/regex (rows come pre-classified: `kind: declaration/callsite/import/comment` + scoreHint) | Total coverage: sees everything, proves nothing about identity |
-| **provider** | GitHub search index | Weakest: default-branch only, unindexed/archived repos return false zeros. `providerSemanticsApproximate` gives no line numbers |
+| **provider** | GitHub search index | Weakest: default-branch only, unindexed/archived repositories return false zeros. `providerSemanticsApproximate` gives no line numbers |
 
 **A core guideline:** avoid concluding from a single
 grade. Semantic and lexical lanes each miss things the other catches. LSP
@@ -171,7 +171,7 @@ Two retrieval families exist in the field that this toolset deliberately omits;
 know when they would beat you, and say so rather than pretending they don't exist.
 
 **Indexed/semantic retrieval (embeddings, vector search).** Tools like
-claude-context (embeddings+BM25) and grepai index the repo and answer *fuzzy
+claude-context (embeddings+BM25) and grepai index the repository and answer *fuzzy
 concept queries* ("where is retry logic handled?") without exact terms. If it
 existed here it would slot into §1's table as **indexed**: high recall on
 fuzzy concepts across huge unfamiliar corpora, proves nothing about identity,
@@ -190,7 +190,7 @@ skeletons), slower than a good index, but always fresh and evidence-graded.
 **Knowledge graphs / code graphs.** Graph tools precompute blast-radius and
 impact edges. Here that job is done at query time by LSP call hierarchy plus
 the mandatory cross-check (§5.3-5.5): correct per-query, but not precomputed.
-For repo-wide impact sweeps at very large monorepo scale, expect a
+For repository-wide impact sweeps at very large monorepo scale, expect a
 precomputed graph to be materially cheaper; this loop has not been validated
 at that scale.
 
@@ -204,9 +204,9 @@ verification steps that follow).
 ## 1c. Existing wikis/docs as a lead: not a lane, not proof
 
 AutoWiki-style tools (Factory AutoWiki, Devin DeepWiki, Google Code Wiki,
-LangChain OpenWiki) generate and continuously refresh repo-level narrative
+LangChain OpenWiki) generate and continuously refresh repository-level narrative
 docs, architecture summaries, module maps, sometimes a chat layer, synced
-via `git diff` on push. When a repo already has one (`ARCHITECTURE.md`,
+through `git diff` on push. When a repository already has one (`ARCHITECTURE.md`,
 `droid-wiki/`, `openwiki/`, `.devin/wiki.json`, a GitHub Wiki tab, or a
 DeepWiki/Code Wiki page), it is a **fast orientation lead**, not a new evidence
 grade: treat its claims exactly like a provider snippet, useful for naming
@@ -240,7 +240,7 @@ it can't see rather than flagging the gap:
 
 - **Structure alone** gives layout, not meaning: a file named `auth.ts` sitting
   next to `session.ts` proves nothing about what either does, or whether they
-  actually interact.
+  interact.
 - **Stream alone** (grep/read) sees everything but proves nothing about
   identity: it cannot tell a real call from a comment, a string, or a
   same-named symbol in an unrelated scope (§1's lexical grade).
@@ -258,7 +258,7 @@ before a hotspot grep (stream); §2b's triangulation worked example is a
 stream/connections disagreement on the same claim, and the mismatch itself
 was the finding. Combined orientation is where those threads generalize:
 before concluding anything nontrivial about an unfamiliar area, pull at
-least two of the three dimensions, not just the one that happens to be
+least two of the three dimensions, not only the one that happens to be
 cheapest or most habitual. An agent that only ever greps (never checks
 structure, never proves with LSP) or only ever calls LSP (never rereads the
 tree, never falls back to text) builds a systematically partial model of the
@@ -270,7 +270,7 @@ or "this is unused" built on a single angle (§12, item 2).
 
 ---
 
-## 2. Tool Matrix
+## 2. Tool matrix
 
 | Tool | Surface | Role | Reach for it when |
 |---|---|---|---|
@@ -279,22 +279,22 @@ or "this is unused" built on a single angle (§12, item 2).
 | `localViewStructure` | local | directory tree | orientation in an unfamiliar dir |
 | `localFindFiles` | local | find by name/size/time/permissions metadata | the constraint is *about the file*, not in it |
 | `lspGetSemantics` | local | definitions, references, callers/callees, hover, symbols, types | proving identity and impact |
-| `ghSearchCode` | external | GitHub code/path search | locating code across repos you don't have |
+| `ghSearchCode` | external | GitHub code/path search | locating code across repositories you don't have |
 | `ghGetFileContent` | external | read GitHub file (slices/ranges/symbols); `type:"directory"` materializes a subtree | reading remote files; bridging remote→local |
-| `ghViewRepoStructure` | external | GitHub tree browse | orienting in a remote repo |
-| `ghSearchRepos` | external | repo discovery | finding candidate repos/prior art |
+| `ghViewRepoStructure` | external | GitHub tree browse | orienting in a remote repository |
+| `ghSearchRepos` | external | repository discovery | finding candidate repos/prior art |
 | `ghSearchPullRequests` | external | PR search + PR deep-read (files/diffs/reviews; `reviewMode:"full"`) | who changed this and why |
 | `ghSearchIssues` | external | issue search + read one issue | tracking reported problems/intent |
 | `ghSearchCommits` | external | commit history for a path/range, or `base`+`head` compare | archaeology: when/why a line changed |
 | `ghListReleases` | external | releases + latest stable (**gated: `ENABLE_RELEASES`**) | mapping versions to changes |
-| `ghSearchDiscussions` | external | repo Discussions Q&A/RFCs (GraphQL; **gated: `ENABLE_DISCUSSIONS`**) | mining Q&A, RFCs, announcements |
-| `npmSearch` | external | package → source repo (+ `repositoryDirectory`) | resolving a dependency to its home |
-| `ghCloneRepo` | bridge | full/sparse clone (**gated: `ENABLE_CLONE=true`**) | whole-repo local analysis |
+| `ghSearchDiscussions` | external | repository Discussions Q&A/RFCs (GraphQL; **gated: `ENABLE_DISCUSSIONS`**) | mining Q&A, RFCs, announcements |
+| `npmSearch` | external | package → source repository (+ `repositoryDirectory`) | resolving a dependency to its home |
+| `ghCloneRepo` | bridge | full/sparse clone (**gated: `ENABLE_CLONE=true`**) | whole-repository local analysis |
 
 Bulk: every tool takes up to 5 parallel queries per call with per-query `id`.
 Batch independent probes into ONE call: it is the cheapest parallelism you have.
 That is only half the value of the batch. See §2b for using it to triangulate
-one question instead of just parallelizing unrelated ones.
+one question instead of merely parallelizing unrelated ones.
 
 ---
 
@@ -306,7 +306,7 @@ through different lanes (lexical, structural with one shape, structural with
 another shape) in a single call, and treat any disagreement between the
 angles as the actual finding, not noise to average away.
 
-Worked example: one `localSearchCode` bulk call against this repo's own
+Worked example: one `localSearchCode` bulk call against this repository's own
 `packages/octocode-awareness/src/db.ts`, asking one question three ways:
 *"is the `_db` module singleton ever reassigned or read-guarded outside
 `connectDb`?"*
@@ -320,7 +320,7 @@ Worked example: one `localSearchCode` bulk call against this repo's own
 The third angle's zero looked like "no read-guard exists." It was wrong about
 the *shape*, not the *fact*. A follow-up lexical angle (`matchString:"!_db"`)
 immediately found `if (!_db) throw new Error('Database not connected...')` in
-`getDb()`, a real guard, just brace-less, so the guessed AST pattern
+`getDb()`, a real guard, but brace-less, so the guessed AST pattern
 (`{ $$$BODY }`) could not match a single-statement `if`. One angle alone would
 have closed the question wrong ("no guard"); three-plus angles in one batch
 turned the mismatch itself into a finding (§11: structural 0 matches is a
@@ -335,13 +335,13 @@ target: lexical for total coverage, structural for shape-proof, and (per
 
 ---
 
-## 3. The router (master decision tree)
+## 3. The router (primary decision tree)
 
 Route by **what you already hold**, not by a fixed pipeline order.
 Running grep first when you hold a symbol name wastes a hop; running LSP first
 when you hold only a concept cannot work at all. Whichever branch you enter,
 the destination is still at least two of §1d's three dimensions
-(structure/stream/connections) before you conclude anything, not just the
+(structure/stream/connections) before you conclude anything, not only the
 one the branch started with.
 
 ```
@@ -391,14 +391,14 @@ Only then                               → EXTERNAL (GitHub/npm), and consider
 
 `localSearchCode` over `node_modules/zod` (with `excludeDir: []` and
 `noIgnore: true`, since node_modules is excluded by default) finds the exact
-installed source fast, with the version that actually runs, which GitHub's
+installed source fast, with the version that runs, which GitHub's
 default branch is NOT guaranteed to be.
 
 ---
 
 ## 4b. matchString: the anchor-read primitive (use it by default)
 
-`matchString` on `localGetFileContent` / `ghGetFileContent` is the highest-leverage
+`matchString` on `localGetFileContent` / `ghGetFileContent` is the most effective
 read mode in the toolset. Instead of guessing line ranges or paging a whole file,
 you hand it the string (or regex) you care about and get back only the relevant
 slices, **plus machine-usable anchors for the next step**. This works the same
@@ -423,7 +423,7 @@ What you get:
   on lines X, Y, Z, and more. These lines are lineHint anchors for
   lspGetSemantics." The tool is literally handing you the next call.
 - **Regex mode fetches multiple related definitions in one read** (several
-  function definitions plus their signatures via one regex, with surrounding
+  function definitions plus their signatures through one regex, with surrounding
   context lines).
 - **Works identically remote**: same anchors from a GitHub file, so you can go
   ghSearchCode (which file) to ghGetFileContent matchString (which lines) to
@@ -432,9 +432,9 @@ What you get:
   row's `next` object is a directly-executable query, not prose. `next.fetch`
   and `next.semantic` come back pre-populated with the target tool and params
   filled in (§0). Some results add `nextHints[].why` and `confidence`
-  explaining *why* that continuation was offered, e.g. `"Read the code at
+  explaining *why* that continuation was offered — for example, `"Read the code at
   this symbol location."` / `confidence:"exact"`. That's reasoning support,
-  not just a pointer.
+  not only a pointer.
 
 Default read policy: **matchString first, line ranges second, fullContent last**
 (small files only). If you know *what* you're looking for but not *where*, this
@@ -492,7 +492,7 @@ folds stream back in as a cross-check on what connections alone proved.
                 a guidance warning; rule queries currently do not).
               - method calls are not plain calls: on the same file, bare
                 `exec($$$A)` matches nothing while `$RECV.exec($$$A)` matches
-                the identical calls. `foo($$$A)` will not match `x.foo($$$A)`.
+                the identical calls. `parse($$$A)` does not match `x.parse($$$A)`.
               - for partial/relational matches use a YAML rule (kind/has/inside/not/any,
                 stopBy: end) with `pattern` nested inside the rule string, not as a
                 sibling field. Bare rule YAML and `rule:`-wrapped are both accepted
@@ -562,11 +562,11 @@ minify:"symbols"`, which is tree-sitter based and language-wide.
 ```
 
 **GitHub index blind spots (known):** default-branch-only; archived
-repos return zero code hits; renamed repos redirect for content APIs but silently
+repositories return zero code hits; renamed repositories redirect for content APIs but silently
 fail for search; the code-search API has an announced upstream deprecation.
 Therefore: **an empty ghSearchCode is NOT absence.** Verify with
 `ghViewRepoStructure` (does the path exist?) or `ghGetFileContent`, or materialize
-and grep locally. Avoid reporting "X does not exist in repo Y" from provider search alone.
+and grep locally. Avoid reporting "X does not exist in repository Y" from provider search alone.
 
 ---
 
@@ -591,17 +591,17 @@ Question about a dependency's behavior?
 Gotchas: `excludeDir: []` is mandatory. The default exclusion list
 silently skips node_modules, and a "no matches" there means "didn't look."
 Watch for dual hits (src/ + dist/ in the same package); prefer the one your
-resolver actually loads when semantics matter.
+resolver loads when semantics matter.
 
 **A scoping nuance worth knowing exactly:**
 pointing `path` directly AT `node_modules/<pkg>` reaches it fine with no
 `excludeDir` override at all. The default exclusion filters directory names
 encountered *while walking*, not the root path you hand it. But searching a
-parent path (e.g. `.`) with an explicit `include: "node_modules/**"` glob is
+parent path (`.`, for example) with an explicit `include: "node_modules/**"` glob is
 still fully blocked by default (`zeroMatches`). `include` does not override
 `excludeDir`; only clearing `excludeDir` (`""`/`[]`) plus `noIgnore:true`
 does, and once cleared the same query reaches files nested several
-`node_modules` levels deep (e.g. a transitive dependency's own bundled
+`node_modules` levels deep (for example, a transitive dependency's own bundled
 `node_modules`).
 So scoping `path` straight into a known package is always safe. Scoping a
 wider search and hoping `include` reaches into `node_modules` is not.
@@ -611,7 +611,7 @@ can show a very different layout than what's installed (a monorepo split,
 a rename, a restructure) from what an agent might remember or assume from
 an older snapshot. The installed copy under `node_modules` is unaffected by
 any of that upstream restructuring; it is still the one true source for
-"what actually runs."
+"what runs."
 
 ---
 
@@ -625,8 +625,8 @@ The full §5 loop runs unmodified on the result at any of the three depths:
 | Depth | Call | What lands on disk | Use when |
 |---|---|---|---|
 | **file** | `ghCloneRepo` + `sparsePath: "path/to/file.ts"` | sparse checkout: the file's subtree **plus repo-root files** (README, package.json, configs; git sparse-checkout keeps root); `complete:false` flagged | one file needs repeated matchString/LSP reads |
-| **tree** | `ghGetFileContent type:"directory"` | just that subtree under `~/.octocode/tmp/tree/<owner>/<repo>/<branch>/...`, with `commitSha`, per-reason skip accounting (`oversized`/`binary`/`fileLimit`/...) and disclosed size/count limits; partiality warning when limits bite | analyzing one directory |
-| **repo** | `ghCloneRepo` (no sparsePath) | full shallow clone, `complete:true`, cached for a period (`forceRefresh` to bust) | repo-wide grep/AST/LSP, dead-code, reachability |
+| **tree** | `ghGetFileContent type:"directory"` | only that subtree under `~/.octocode/tmp/tree/<owner>/<repo>/<branch>/...`, with `commitSha`, per-reason skip accounting (`oversized`/`binary`/`fileLimit`/...) and disclosed size/count limits; partiality warning when limits bite | analyzing one directory |
+| **repository** | `ghCloneRepo` (no sparsePath) | full shallow clone, `complete:true`, cached for a period (`forceRefresh` to bust) | repository-wide grep/AST/LSP, dead-code, reachability |
 
 Every result carries `localPath` + prefilled `next.localSearch` / `next.viewStructure`.
 
@@ -639,14 +639,14 @@ about to make a 3rd+ read call into the same remote area.
 
 **Honesty caveats (from the tool itself, respect them):** tree materialization is
 bounded, so check `skipped` counts before any "not present" claim on a materialized
-tree; sparse clones are `complete:false` by definition; prefer depth=repo before
-repo-wide reachability/dead-code conclusions (the warning says exactly this).
+tree; sparse clones are `complete:false` by definition; prefer depth=repository before
+repository-wide reachability/dead-code conclusions (the warning says exactly this).
 
 ### Local → External (context enrichment)
 
-- symbol came from a dependency → §7 first, then npmSearch → repo → docs/tests/history
+- symbol came from a dependency → §7 first, then npmSearch → repository → docs/tests/history
 - "why is this code like this" → `ghSearchCommits` on the file path,
-  then the PR behind the commit via `ghSearchPullRequests` (`reviewMode:"full"` for the whole story)
+  then the PR behind the commit through `ghSearchPullRequests` (`reviewMode:"full"` for the whole story)
 - "has someone solved this" → `ghSearchRepos` (concise triage) → §6 on candidates
 
 ---
@@ -677,7 +677,7 @@ not omission:
 
 | What you ask for | Relative size | When |
 |---|---|---|
-| `tools --json`: tool catalog, names + one-liners | small | default orientation: which of the 12 tools is this? |
+| `tools --json`: tool catalog, names + one-liners | small | default orientation: which tool in the live catalog is this? |
 | `tools <name> --scheme --json`: one tool's full field-level schema | large | right before calling that tool raw, avoid guessing a field |
 
 Read the tool catalog before any single tool's schema, and read a single
@@ -708,17 +708,17 @@ line numbers, so get lines from `ghGetFileContent matchString`.
 
 ---
 
-## 11. Failure semantics & recovery
+## 11. Failure semantics and recovery
 
 | Signal | Meaning | Move |
 |---|---|---|
 | `status:"empty"` + stats (`filesSearched`, `bytesSearched`) | proven negative *for that scope* | widen scope / synonyms / drop filters; only then conclude, and quote the stats |
-| `status:"error"` + `errorCode` + hint | typed failure with a `repair` field naming the recovery move (e.g. a nonexistent local path returns *"Verify the path exists (orient with target:'structure' on a known-good parent), fix typos, or materialize the remote source first."*) | follow the hint; do not retry verbatim |
+| `status:"error"` + `errorCode` + hint | typed failure with a `repair` field naming the recovery move (for example, a nonexistent local path returns *"Verify the path exists (orient with target:'structure' on a known-good parent), fix typos, or materialize the remote source first."*) | follow the hint; do not retry verbatim |
 | structural 0 matches | usually an incomplete pattern, NOT absence | add `$$$BODY`/return type, or switch to a rule; check the guidance warning (example, §2b: `if (!_db) { $$$BODY }` → 0 hits on a real, brace-less `if (!_db) throw ...` guard) |
 | LSP `serverUnavailable`/`unsupported` | capability absence, NOT "no usage" | fall back to grep / symbols view |
 | LSP `completeness.complete:false` | results truncated by depth/dynamic-call exclusion | deepen or supplement with grep before claiming full impact |
 | gh empty / `providerUnindexed` | index blind spot, NOT absence | verify path exists → materialize → grep locally |
-| `resolvedBranch` ≠ requested | ref fell back to default branch | re-check which branch you're actually reading |
+| `resolvedBranch` ≠ requested | ref fell back to default branch | re-check which branch you're reading |
 | `warnings[]` | redaction, fallback engine, pre-filter skips, pagination notes | read them, they change what the result means |
 
 `Pre-filter skipped parsing N file(s) (literal anchor absent)` on structural results
@@ -733,7 +733,7 @@ literal anchor.
    your knowledge already points (§3).
 2. **Concluding impact from one evidence lane.** The lexical/semantic diff is the
    deliverable, not a nicety (§5.5).
-3. **Trusting GitHub search zeros.** Default-branch-only + unindexed repos =
+3. **Trusting GitHub search zeros.** Default-branch-only + unindexed repositories =
    false absence machine (§6).
 4. **Reading before mapping.** `minify:"symbols"` first; bodies only for the slices
    that matter (§5.2, §9).
@@ -769,7 +769,7 @@ not a scorecard. Each algorithm's strengths and the gaps that limit it:
 |---|---|---|
 | **LOCAL loop (§5)** | Full evidence stack (lexical + structural + semantic + binary) with self-correcting anchors, merged matchString slices, honest completeness metadata, and typed recovery on every failure. | The lexical/semantic cross-check is agent discipline rather than a tool-emitted delta, and per-language LSP gaps remain (Rust documentSymbols, pull diagnostics). |
 | **EXTERNAL/GitHub loop (§6)** | Orient, search, matchString-read, history is a strong sequence, and symbols/matchString work identically remote. | Capped by provider physics the tool can't fix: default-branch-only index, archived/renamed blind spots, no remote AST/LSP. The clone bridge is the mitigation; escalating early effectively lifts this to local-grade. |
-| **NPM / node_modules-first (§7)** | The installed-version-is-ground-truth rule is cheap and correct; npmSearch resolves package→repo→`repositoryDirectory` in one call. | The `excludeDir: []` footgun (a forgotten default silently skips node_modules) and src/dist dual-hit ambiguity. |
+| **NPM / node_modules-first (§7)** | The installed-version-is-ground-truth rule is cheap and correct; npmSearch resolves package→repository→`repositoryDirectory` in one call. | The `excludeDir: []` footgun (a forgotten default silently skips node_modules) and src/dist dual-hit ambiguity. |
 | **Bridge: external→local (§8)** | One call converts remote code to full local-grade evidence at any of three depths, with per-file skip accounting and self-describing partiality. | Config-gated (`ENABLE_CLONE`), and tree-depth limits require reading the `skipped` counts. |
 
 **Standing gaps**, stated plainly rather than scored away. No embeddings/KG
@@ -835,7 +835,7 @@ this manifest documents, does carry adjacent primitives that don't appear
 in any of the seven external sources reviewed for this section at all:
 file-level locks (`fileLock`/`releaseFileLock`) and multi-agent handoff
 (`registerAgent`/`agentSignal`) for *concurrent, cooperating* agents editing
-the same repo, plus decay-scored cross-session memory retrieval
+the same repository, plus decay-scored cross-session memory retrieval
 (`insertMemory`/`decayScore`/`findSimilarMemories`) and a verify-before-conclude
 audit trail (`auditUnverified`/`markVerified`). Every article surveyed here
 frames context engineering around a single agent's own loop; none addresses
@@ -843,7 +843,7 @@ concurrent multi-agent coordination. Worth stating precisely rather than
 folding into this manifest's numbers: it is a different package solving a
 different problem, not evidence for the retrieval claims above.
 
-**The one gap that's real, not just unaddressed by design:** §13 already
+**The one gap that's real, not only unaddressed by design:** §13 already
 states it as an open item and this section does not add a new claim on top.
 No task-level benchmark (recall/precision/F1, wall-clock completion time)
 exists for the routed loop against a baseline, the way Sourcegraph's
@@ -856,7 +856,7 @@ gap here; closing it is future work, not something this manifest asserts.
 
 The claim this manifest makes is narrow on purpose: given a concrete handle
 (an identifier, a shape, a path, an error string), route by what you already
-hold (§3) through evidence graded by what it actually proves (§1), cross-check
+hold (§3) through evidence graded by what it proves (§1), cross-check
 across lanes before any claim of impact or absence (§5.5, §2b), and let the
 tools' own hints, pagination, and schema tiering (§0, §9b, §10) keep the
 reasoning budget on judgment instead of bookkeeping. That is also this
@@ -887,7 +887,7 @@ with lexical/structural/semantic lanes. Octocode primitive → common equivalent
 | `ghSearchCode` / `ghViewRepoStructure` / `ghGetFileContent` | `gh search code`, `gh api repos/.../git/trees`, `gh api .../contents` (same default-branch index limits apply) |
 | `ghCloneRepo sparsePath` / `type:"directory"` | `git clone --depth 1 --filter=blob:none --sparse` + `git sparse-checkout set <path>` |
 | `ghSearchPullRequests` / `ghSearchCommits` | `gh pr list/view`, `gh search prs`; `git log -- <path>` |
-| `npmSearch` → `repositoryDirectory` | `npm view <pkg> repository`, then the repo's `directory` field |
+| `npmSearch` → `repositoryDirectory` | `npm view <pkg> repository`, then the repository's `directory` field |
 | evidence grades + dual-lane cross-check (§1, §5.5) | pure method, apply with any of the above |
 
 What does NOT transfer: prefilled `next.*` continuation queries, lineHint

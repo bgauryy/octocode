@@ -37,3 +37,5 @@ Load when instructions govern tool selection, MCP behavior, schemas, description
 ## Sources
 - Anthropic, [Writing effective tools for AI agents](https://www.anthropic.com/engineering/writing-tools-for-agents) — namespacing, clear schemas, response formats, and token-efficient results.
 - Model Context Protocol, [Tools specification](https://modelcontextprotocol.io/specification/2025-06-18/server/tools) — tool metadata, input/output schemas, and paginated discovery.
+
+Next: when the result can still grow unbounded load `references/context-budget.md`; when the contract needs TypeScript/Zod types load `references/zod-agent-contracts.md`; when tool annotations or result text carry outside instructions load `references/untrusted-content.md`; prove selection accuracy with `references/evaluation-data.md`.

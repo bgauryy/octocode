@@ -32,4 +32,5 @@ If a loop stalls on the same `empty`/`error`, change surface or query shape: loc
 Do not output a transcript. End with: **Answer**, **Evidence**, **Loop trace** (decisive iterations only), **Verification** that actually ran, **Open gaps**.
 Declare `Mode: Loop` when this path owns the run.
 
-Validate: `node scripts/eval-research.mjs --case loop-mode`.
+Next: when the loop needs campaign framing — budgets, fan-out, subagents — load `references/researcher-mindset.md`; when a surviving lead needs an edit go to `references/workflow-change.md`; when the loop is an accept/revert gate on a skill edit load `references/improve-loop.md`. Otherwise a passed stop test ends the run.
+

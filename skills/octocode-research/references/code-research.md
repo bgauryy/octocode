@@ -1,6 +1,6 @@
 # Code Research
 
-Load for code investigation, review, refactor, architecture, dead-code, or blast-radius work. Read `algorithm.md` and `problem-framing.md` first; load the matching `workflow-*.md` before this proof ladder.
+Load for code investigation, review, refactor, architecture, dead-code, or blast-radius work. Read `references/algorithm.md` and `references/problem-framing.md` first; load the matching `references/workflow-*.md` route before this proof ladder.
 
 ## Route
 | Need | First proof path |
@@ -41,3 +41,5 @@ Review findings lead and include `file:line`, impact, evidence, confidence, and 
 | performance | exact hot/independent path; benchmark only when runtime proof matters |
 
 Dismiss a candidate when stronger proof contradicts it and state the reason briefly. Final output names claim, anchor, proof, confidence, impact, next action, and any deterministic check not run.
+
+Next: when the proven claim needs an edit go to `references/workflow-change.md` (behavior) or `references/workflow-refactor.md` (structure); when it is a review finding go to `references/workflow-pr-review-analysis.md`; when proof keeps flipping load `references/loop-mode.md`. Otherwise the ladder ends here — report the verdict.

@@ -43,3 +43,5 @@ Load after FIX and before OUTPUT. **STOP: validate the complete draft before wri
 
 ## Sources
 - Anthropic, [Writing effective tools for AI agents](https://www.anthropic.com/engineering/writing-tools-for-agents) — use verifiable outcomes and measure errors, calls, and tokens alongside task success.
+
+Next: when every check passes load `references/output.md`; when a local repair is needed return to `references/fix.md`; when intent changed return to `references/gates.md`; when a reliability claim still needs proof load `references/evaluation-data.md`.

@@ -1,58 +1,64 @@
 # Octocode Research
 
-`octocode-research` gives an agent the discipline to answer technical questions with evidence instead of vibes. It covers investigation, planning, review, implementation, refactor analysis, prior-art mapping, and repeated loops when one pass is not enough.
+Answers technical questions with evidence instead of vibes. Investigation, review, implementation, refactor analysis, prior-art mapping, and loops when one pass isn't enough.
 
-Use it when the answer should be grounded in code, history, package data, exact files, or verifiable behavior.
+## When to use it
 
-## The Problem
+Reach for it when code must be checked, not assumed:
 
-Technical work fails when an agent treats search snippets as proof, edits before understanding blast radius, or reports confidence without showing where it came from. A codebase rarely rewards a single lucky query.
+- **Connections** — who calls this, what imports it, what breaks if I change it?
+- Where does this behavior live? How does this system work? Why does it fail?
+- Safe to delete? Dependency still used? Has someone already solved this?
+- **Outward** — external repositories, npm packages, cross-repo connections, general research.
+- **Before writing** — plan the flow: touch points, blast radius, patterns to copy.
+- **After writing** — validate it landed: callers hold, tests cover it, diff is safe to merge.
+- Anytime someone asks to **research** something, or asks for **octocode**.
 
-It also fails when every request labeled “bug” is debugged as a defect, features are assigned fictional root causes, or enhancements begin without a baseline. This skill first defines actual versus desired behavior and classifies the work as bug, feature, enhancement, or unknown.
+**Skip it** for a trivial edit whose blast radius is already known. Blunt critique → `octocode-roast`; decision before coding → `octocode-rfc-generator`; worth building at all → `octocode-brainstorming`.
 
-The agent then searches cheaply, reads exact evidence, validates findings, and either recommends a path or makes a scoped change with verification.
+## The problem it solves
 
-## Capabilities
+Technical work fails when an agent treats a search snippet as proof, edits before understanding blast radius, or reports confidence without showing where it came from. A codebase rarely rewards a single lucky query.
 
-- Mode selection for map, validate, investigate, plan, review, change, refactor, and loop tasks.
-- Problem contracts covering actual/desired behavior, authority, trigger, impact, success criteria, and non-goals.
-- Evidence-based classification of bugs, features, enhancements, and unknown symptoms.
-- Root-cause proof requiring mechanism, trigger, violated contract, divergence boundary, and disconfirmation.
-- Evidence surfaces that can include local code, GitHub, npm, PR history, docs, specs, and papers.
-- Exact anchors such as `file:line`, repo path, package id, PR number, commit, or fetched URL.
-- Current Octocode workflows across 15 active tools: local search/find/read/tree/dead-code, LSP semantics, GitHub code/repos/files/PRs/issues/commits/clone, and npm lookup.
-- Confidence labels for confirmed, likely, uncertain, and weak claims.
-- Finding checks that keep alternate explanations alive until evidence resolves them.
-- Review output ordered by severity, impact, confidence, and citation quality.
-- Change output that stays scoped and reports the verification that actually ran.
-- Refactor output that maps skeleton → contracts → blast → big-to-small tasks (bulk `mv` when fit) and verifies contracts held.
+It also fails when everything labeled "bug" gets debugged as a defect, features are assigned fictional root causes, or enhancements start with no baseline. This skill defines actual versus desired behavior first and classifies the work as bug, feature, enhancement, or unknown — then searches cheaply, reads exact evidence, and either recommends a path or makes a scoped change with verification.
 
-## Operating Model
-
-The workflow is:
+## Operating model
 
 ```text
 FRAME -> CLASSIFY -> MODEL -> SEARCH -> READ EXACT -> PROVE -> DECIDE/PATCH -> VERIFY
 ```
 
-The agent starts by defining actual and desired behavior, the source of authority, task class, corpus, mode, and active evidence surfaces. It maps the load-bearing system path, uses cheap discovery to find anchors, reads exact slices, and only then decides, plans, reviews, or patches.
+That's the shape, not a checklist. Depth scales to the claim: a small lookup gets a cheap read and an honest confidence label; a delete, a merge verdict, or a root cause earns the whole ladder.
 
-For open-ended questions, the skill loops: act, observe, learn, and repeat until evidence converges or the remaining gap is clear enough to report honestly.
+Every claim carries an exact anchor (`file:line`, repo path, package id, PR number, commit, URL) and a confidence label (confirmed / likely / uncertain / weak). Alternate explanations stay alive until evidence kills them. Empty results are reported as "this lane can't see it," never as "it isn't there."
 
-## User Experience
+## Workflows
 
-Users should see a concise answer with proof. A good research response says what was checked, what was found, how confident the agent is, and what the next step should be. When the task is a review, findings lead. When the task is a change, the patch stays as small as the evidence allows.
+Seven routes, one per situation: local checkout, remote repo, local↔remote combination, debug/root-cause, change, refactor, and PR/diff review. Rare paths cover ecosystem ranking, durable decision briefs, and convergence loops. The agent loads one route plus the proof ladder — not everything.
 
-The skill is the default technical workhorse for Octocode because it can move from question to plan to verified edit without losing the evidence trail.
+## Tooling
+
+Uses Octocode **MCP tools** when they're exposed, and falls back to the **`npx octocode` CLI** otherwise — same 15 tools, same schemas, no loss of capability:
+
+- local: search, find, read, tree, dead-code
+- semantics: LSP definitions, references, callers, callees, symbols, diagnostics
+- GitHub: code, repos, files, structure, PRs, issues, commits, clone
+- packages: npm lookup
+
+Opt-in extras (`ghListReleases` via `ENABLE_RELEASES=1`) and MCP-side gates (`ENABLE_LOCAL`, `ENABLE_CLONE`) are documented in `references/octocode.md`. A disabled surface is reported as skipped, never faked.
 
 ## Installation
-
-Install the published skill with:
 
 ```bash
 npx octocode skill --name octocode-research
 ```
 
-## Maintainer Notes
+## Maintainer notes
 
-Keep this README about the research discipline users should expect. Keep mode-specific tactics, exact tool routing, long-report behavior, and ecosystem-comparison details in the agent-facing skill file and focused references.
+Keep this README about the discipline users should expect. Mode-specific tactics, tool routing, and report formats belong in `SKILL.md` and the focused references.
+
+Before publishing a change:
+
+```bash
+node scripts/check-description.mjs      # description contract (--help, --json)
+```

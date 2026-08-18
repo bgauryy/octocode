@@ -37,7 +37,7 @@ Defined formally in `schemas/provider.schema.json` (`$defs.FetchResponse` and `$
 
 1. **Implement the fetch function** in `scripts/lib/client.mjs`, following the existing `fetchScrapingAnt` / `fetchDirect` functions as templates. Reuse the existing mock plumbing (`config.mockStatus` / `config.mockBodyFile` / `config.mockContentType`) so your vendor is testable without a real network call or key.
 2. **Register it** in `scripts/lib/providers.mjs`'s `PROVIDERS` map with its `ProviderDescriptor`.
-3. **Verify**: run `node scripts/eval-providers.mjs` — it checks every registered descriptor against the schema, rejects unknown providers and unsupported provider/mode pairs, and asserts that a fetch through your new provider produces the *same corpus shape* (`AGENT_INDEX.json`, `graph/graph.json`, workflow classification, etc.) as every other provider. That parity check is the actual proof the abstraction held — if it fails, something leaked a vendor assumption into shared code.
+3. **Verify**: check every registered descriptor against the schema, reject unknown providers and unsupported provider/mode pairs, and confirm that a fetch through your new provider produces the *same corpus shape* (`AGENT_INDEX.json`, `graph/graph.json`, workflow classification, etc.) as every other provider. That parity check is the actual proof the abstraction held — if it breaks, something leaked a vendor assumption into shared code.
 4. Run `node scripts/skill-review.mjs` from `octocode-skills` before calling it done.
 
 ## Worked example: a hypothetical `firecrawl` provider

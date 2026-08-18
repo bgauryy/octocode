@@ -47,7 +47,7 @@ npx octocode skill --name octocode-brainstorming
 
 ## Configuration — web search keys
 
-The skill runs web research via Tavily, Serper, and/or Exa. Put your keys in the **unified Octocode env file**, at `<octocode-home>/.env` — not in a skill-local `.env`. The Octocode home directory is resolved by `getOctocodeHome()` (`@octocodeai/config`): by default it is `~/.octocode` on every platform (`path.join(homedir(), '.octocode')`), or `$OCTOCODE_HOME` when that override is set.
+The skill runs web research via Tavily, Serper, and/or Exa. Put your keys in the **unified Octocode env file**, at `<octocode-home>/.env` — not in a skill-local `.env`. The Octocode home directory is resolved by `getOctocodeHome()` from the vendored `scripts/octocode-config.mjs`: by default it is `~/.octocode` on every platform (`path.join(homedir(), '.octocode')`), or `$OCTOCODE_HOME` when that override is set.
 
 ```bash
 # example content, regardless of which path above applies to your platform:
@@ -62,7 +62,7 @@ Get keys: [Tavily](https://app.tavily.com/) · [Serper](https://serper.dev/) · 
 
 **How the keys reach the skill:**
 - Under the `octocode-agent` / Pi extension — `propagateOctocodeEnv` runs at session start and injects `<octocode-home>/.env` into `process.env`. Every subprocess (bash calls, hooks, script invocations) inherits the full env automatically.
-- When the scripts are run standalone from the published build — `octocode-config.mjs` is bundled alongside each script and loads the same file directly, using the same `getOctocodeHome()` resolution.
+- When the scripts are run standalone — `scripts/octocode-config.mjs` is vendored inside this folder, imported relatively by every script, and loads the same file directly using the same `getOctocodeHome()` resolution. The folder therefore needs no npm install and no `@octocodeai/config` dependency.
 
 **Key priority (highest to lowest):** `process.env` (shell / agent session) > `<project>/.octocode/.env` (project, when trusted) > `<octocode-home>/.env` (global). The search scripts never overwrite an already-set value.
 

@@ -6,7 +6,7 @@ Live Chrome/CDP evidence for agents: network, console, perf, DOM/actionability, 
 ```bash
 npx octocode skill --name octocode-chrome-devtools
 ```
-Prereqs: Chrome; Node **22+** (sandbox `--allow-net` needs **25+**).
+Prereqs: Chrome; Node **22+** (sandbox `--allow-net` needs **25+**). No npm install: every script uses Node built-ins plus the vendored `scripts/octocode-config.mjs`.
 
 ## Ask the agent
 Include URL, expected behavior, and the signal you care about. One intent + one CDP port.
@@ -27,7 +27,6 @@ Ask first: real profile, cookie bridge, CAPTCHA/MFA, destructive writes. Secrets
 SKILL_DIR="$(npx octocode skill dir octocode-chrome-devtools)"
 node "$SKILL_DIR/scripts/open-browser.mjs" --headless --port 9222
 node "$SKILL_DIR/scripts/cdp-sandbox.mjs" --list-targets --port 9222
-node "$SKILL_DIR/scripts/eval-benchmark-suite.mjs"   # hermetic done gate
 ```
 
 Agent truth: `SKILL.md` + `references/`. Check catalog: `references/cdp-checks.md`.

@@ -24,3 +24,5 @@ Pair with `sin-catalog.md`; use these as candidate patterns for `octocode-resear
 Exclude docs, examples, fixtures, generated files, and tests before ranking unless they are in scope.
 Ask `octocode-research` to upgrade each lead to exact evidence, mechanism, impact, and confidence.
 Demote taste-only evidence to Slop or Misdemeanor; never infer exploitability or production impact from syntax alone.
+
+Next: rank each upgraded lead by severity with `references/sin-catalog.md`; return to `references/roast-playbook.md` § 4 Autopsy once the inventory holds.

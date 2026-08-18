@@ -31,3 +31,5 @@ Load when repeated agent/API calls share instructions, tools, schemas, examples,
 - OpenAI, [Prompt caching](https://developers.openai.com/api/docs/guides/prompt-caching) — exact-prefix layout, automatic caching, cache keys/retention, and `cached_tokens` telemetry.
 - Anthropic, [Prompt caching](https://platform.claude.com/docs/en/build-with-claude/prompt-caching) — prefix breakpoints, automatic caching, TTLs, and cache usage fields.
 - Anthropic, [Tool use with prompt caching](https://platform.claude.com/docs/en/agents-and-tools/tool-use/tool-use-with-prompt-caching) — stable tool definitions and cache invalidation considerations.
+
+Next: when the tool definitions inside the cached prefix need fixing load `references/tool-contracts.md`; when the dynamic tail is still too large load `references/context-budget.md`; prove the hit rate and latency claim with `references/evaluation-data.md`.

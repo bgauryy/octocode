@@ -43,7 +43,8 @@ Do not silently delete — surface the recommendation and act only on explicit a
 6. If an RFC is deleted or archived, check other kept RFCs for dependency notes pointing at it and correct or re-point them in the same pass.
 
 ## Validate and deliver
-Run deterministic checks that can fail, including `scripts/eval-rfc.mjs --case <id>` when applicable.
+Run deterministic checks that can fail.
 Confirm goals/non-goals, evidence, fair alternatives, pre-mortem, blast radius, dependency order, V&V, rollback, KPI guardrails, and complete traceability.
-Deliver: `Status`, `Decision`, `Why`, `Alternatives`, `Risk`, `Success signal`, `Next step`; then ask before saving.
-Save approved full sets under `.octocode/rfc/{name}/`; otherwise keep the result in chat.
+Deliver: `Status`, `Decision`, `Why`, `Alternatives`, `Risk`, `Success signal`, `Next step`; then ask before saving. Save approved full sets under `.octocode/rfc/{name}/`; otherwise keep the result in chat.
+
+Next: for evidence load `references/research-playbook.md`; to write the decision `references/rfc-template.md`; for readiness `references/rfc-prerequisites.md`; for build `references/rfc-implementation.md`; for acceptance `references/rfc-kpi.md`; for provenance `references/rfc-resources.md`; when auditing an existing RFC `references/rfc-audit.md`.

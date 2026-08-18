@@ -1,6 +1,6 @@
-# Evidence Research
+# Evidence research
 
-Load when gathering or verifying repo facts before or after writing. Why: docs must track real behavior without hard-coding brittle details.
+Load when gathering or verifying repository facts before or after writing. Why: docs must track real behavior without hard-coding brittle details.
 
 ## Checklist
 
@@ -22,7 +22,7 @@ Load when gathering or verifying repo facts before or after writing. Why: docs m
 
 - Assert only verified commands, paths, APIs, and env names.
 - After about three targeted searches without a hit → mark unresolved and continue.
-- Prefer "Not verified in repo" over plausible filler.
+- Prefer "Not verified in repository" over plausible filler.
 - IF code and an existing doc disagree → THEN trust code for the fact and flag the doc.
 
 ## Claim map (before assertive prose)
@@ -31,4 +31,6 @@ Load when gathering or verifying repo facts before or after writing. Why: docs m
 |-------|----------------------------|--------|
 | … | … | answered / partial / missing |
 
-Only answered (careful partial) claims become firm docs. See `write-verify.md` for post-write checks; `agent-readable.md` for citation style.
+Only answered (careful partial) claims become firm docs.
+
+Next: post-write checks → `references/write-verify.md`; citation style and durable pointers → `references/agent-readable.md`.

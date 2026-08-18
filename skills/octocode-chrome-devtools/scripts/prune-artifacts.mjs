@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { readdirSync, statSync, rmSync, existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { getOctocodeHome } from '@octocodeai/config';
+import { getOctocodeHome } from './octocode-config.mjs';
 
 const argv    = process.argv.slice(2);
 const getArg  = (flag, def) => { const i = argv.indexOf(flag); return i !== -1 && argv[i + 1] ? argv[i + 1] : def; };

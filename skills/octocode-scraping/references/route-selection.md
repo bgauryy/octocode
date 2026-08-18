@@ -1,6 +1,6 @@
 # Route Selection
 
-Load when choosing how to fetch. Why: cheapest route that can prove the claim. Registry: `providers.md`.
+Load when choosing how to fetch. Why: cheapest route that can prove the claim.
 
 ## Default
 Omit `--provider` on html → `cdp` (if chrome-devtools present) → `direct`. `SCRAPING_ANT` does not auto-select. Check: `provider-check.mjs`.
@@ -15,3 +15,5 @@ Omit `--provider` on html → `cdp` (if chrome-devtools present) → `direct`. `
 7. CAPTCHA/MFA / private / high-volume → stop and ask.
 
 One URL first. Expand crawl only after `reports/summary.md` is useful. Cite `text/`/`extracts/`/`cdp/` + `sources.jsonl`.
+
+Next: for the vendor registry and contract load `references/providers.md`; for approved hosted calls load `references/scrapingant.md`; when the chosen route fails load `references/failure-recovery.md`.

@@ -15,7 +15,7 @@
 import { writeFileSync, existsSync } from 'fs';
 import { join, resolve } from 'path';
 import { pathToFileURL } from 'url';
-import { getOctocodeHome } from '@octocodeai/config';
+import { getOctocodeHome } from '../octocode-config.mjs';
 
 const TARGET_URL = process.env.STEALTH_CHECK_URL ?? 'https://bot.sannysoft.com/';
 

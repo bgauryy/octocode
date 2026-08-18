@@ -1,6 +1,6 @@
 # Verify Gate
 
-Load before merging worker output into answers, edits, or commits.
+Load before merging worker output into answers, edits, or commits. Why: this gate is the skill’s only quality estimator — unverified claims ship as facts.
 
 ## Principle
 
@@ -36,3 +36,5 @@ This gate is the skill’s **quality estimator**: pass → integrate; fail → o
 - Prefer quoting worker facts with path anchors the orchestrator confirmed.
 - Do not attribute confidence higher than the spot-check supports.
 - In the user-facing report, say what was offloaded and that results were verified (or partially verified).
+
+Next: `fail` → re-route the tier with `references/model-selection.md`; `pass` → finish the loop's REPORT step in `references/workflow.md`.
