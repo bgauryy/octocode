@@ -1,0 +1,61 @@
+# UI Elements And Interaction
+
+Load when the text tells a reader to operate an interface.
+
+## Task, not widget
+
+State what the reader accomplishes, not which widget they poke: "Refresh the page", "Expand the **Advanced options** section". It survives redesigns. IF the point of the procedure is to walk the reader through the page itself → THEN name the elements.
+
+## Terminology
+
+| Element | Use |
+|---|---|
+| Web page, console subpage | page — the preferred general term |
+| Smaller window for one interaction | dialog, not "pop-up window" |
+| Distinct region inside a window | pane or panel — never window, section, area, or column |
+| Region inside a pane | section — never area or column |
+| Item in a menu | command; "menu item" only when documenting how to build an interface |
+| Text entry | box, as "the **Name** box"; Google Cloud and Workspace docs use field |
+| Expandable region | expander arrow, expandable section — never "expando" or "zippy" |
+| Navigation menu | navigation menu — not navigation bar, pane, panel, or window |
+
+No slang: no "hamburger icon", no "kebab menu".
+
+## Labels
+
+- UI labels are bold: "Click **Save**". A label that also qualifies for code font takes both bold and code font: "In the **`Network`** list, select **`my-net-2`**".
+- Follow the label's own capitalization, but IF a label is all uppercase or a set of labels is inconsistently cased → THEN use sentence case: "Click **Refresh**".
+- Drop a trailing ellipsis from a label: `Save ...` is documented as "click **Save**".
+- Text the reader types goes in code font: "In the **Name** field, enter `wsfc-1`."
+- Don't bold a product or feature name unless it is literally the label on screen, and never put quotation marks around a label.
+- State the checkbox state as "selected" or "not selected".
+- Icons: put the icon before the name from its tooltip — "click ⋮ **Settings and utilities**". Never describe an icon by shape, and don't append the word "icon" to a label. IF no tooltip exists → THEN check `aria-label`, `aria-labelledby`, `title`, or `placeholder`, and file a bug asking for a tooltip.
+- Menu chains use a single bold span with a nonbreaking space before each angle bracket: "Click **File > Open**"; label the separator for screen readers (`aria-label="and then"`). The notation is for menu commands only — don't chain unrelated element types.
+
+## Verbs
+
+| Target | Verb |
+|---|---|
+| Button, link, icon | click (tap on touch devices) |
+| Checkbox | select / clear |
+| Radio button | select |
+| Menu command, list option | select or choose |
+| Toggle, switch | turn on / turn off |
+| Key | press |
+| Box or field | enter, type |
+| Page, tab, section | go to, open, expand |
+| Pointer | drag; hold the pointer over (never "hover") |
+
+Don't turn a label into a verb ("click **Save**", not "**Save** the file"), and don't write "toggle", "deselect", or "hit".
+
+## Keys
+
+`<kbd>` markup, spelled-out modifiers, uppercase letters, `MODIFIER+Shift+KEY`: `Control+S`. Put the macOS variant in parentheses: "press **Control+C** (or **Command+C** on macOS)". Spell out confusable characters (comma, hyphen, period, plus). A key typed for its literal value is code font, not `<kbd>`. Call it a keyboard shortcut or key combination — and don't make a shortcut the documented way to complete a task (`references/style-procedures.md`).
+
+## Location
+
+- "in" a dialog, field, menu, window, pane; "on" a page, tab, toolbar. Location first: "In the **Query** pane, click **Run**."
+- No directional references. IF an element is genuinely hard to find → THEN provide a screenshot (`references/style-images.md`).
+- Outside a numbered procedure, give the element enough context that the reader knows where it lives.
+
+Next: steps around the click → `references/style-procedures.md`; accessible phrasing → `references/style-global.md`.

@@ -8,7 +8,8 @@ npmSearch / ghSearchRepos for discovery
 -> ghViewRepoStructure for orientation
 -> ghSearchCode for anchors
 -> ghGetFileContent(matchString or symbols) for exact proof
--> ghSearchPullRequests / ghSearchCommits for PR/commit intent, ghSearchIssues (issueNumber) for issue context, ghListReleases (opt-in) for releases
+-> ghSearchPullRequests / ghSearchCommits for PR/commit intent, ghSearchIssues (issueNumber) for issue context
+-> ghListReleases for releases — opt-in, needs ENABLE_RELEASES=1 (see octocode.md); otherwise use tags via ghSearchCommits and mark releases skipped
 -> materialize when AST, LSP, negative proof, repeated reads, or local tests matter
 ```
 

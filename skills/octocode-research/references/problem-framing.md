@@ -43,3 +43,5 @@ For a feature or enhancement, find the smallest boundary that can own the new cr
 - Unknown: one missing fact and the cheapest check or focused user question that resolves classification.
 
 Next: choose the matching route in `workflows.md`; use `code-research.md` for proof depth.
+
+Validate: `node scripts/eval-research.mjs --case ambiguous-problem-classification` (unclear class), `--case feature-framing` (new capability), or `--case enhancement-framing` (measurable target).

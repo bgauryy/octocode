@@ -39,3 +39,5 @@ State spec → seed claims/alternates/disconfirmers → run `research-flow.md` �
 Vendor web adapters may enrich web/paper evidence but never replace local/GitHub/npm/history/AST/LSP proof; on adapter failure continue natively and mark degraded.
 
 Output: `TL;DR | scope | claim summary | evidence by surface | rebuttal survivors | verdict | risks/gaps | next | approved artifacts`. Summarize ledgers in chat; never dump raw JSONL.
+
+Validate: `node scripts/eval-research.mjs --case long-decision-brief`.

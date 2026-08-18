@@ -198,8 +198,14 @@ function evaluateCase(testCase, text, opts = {}) {
 }
 
 function readAnswer(input) {
-  if (input) return readFileSync(resolve(process.cwd(), input), 'utf8');
-  return readFileSync(0, 'utf8');
+  const text = input ? readFileSync(resolve(process.cwd(), input), 'utf8') : readFileSync(0, 'utf8');
+  if (!text.trim()) {
+    throw new Error(
+      `Empty answer text${input ? ` in ${input}` : ' on stdin'}. ` +
+      'Pass --input <file> or pipe an answer; scoring an empty string is not a real failure. See --help.'
+    );
+  }
+  return text;
 }
 
 function printResult(result, asJson) {
@@ -420,6 +426,9 @@ Cases file: ${CASES_PATH}`;
 async function main() {
   const opts = parseArgs(process.argv.slice(2));
   if (opts.help) { console.log(usage()); return; }
+  // No args and no piped answer: print usage instead of blocking on stdin
+  // (or silently grading an empty string as 16 failures).
+  if (!process.argv.slice(2).length && process.stdin.isTTY) { console.log(usage()); return; }
   const data = loadCases();
   if (opts.list) {
     for (const c of data.cases) console.log(`${c.id}\t${c.mode}\t${c.prompt}`);

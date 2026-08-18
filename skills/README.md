@@ -15,7 +15,7 @@ Sync / install / review: use **`octocode-skills`** (`scripts/skill-sync.mjs`, `s
 | [octocode-rfc-generator](./octocode-rfc-generator/) | Decision before coding — RFC, design, migration, rollout, measurable contract |
 | [octocode-graph-eval](./octocode-graph-eval/) | Did the change help? — loop & graph-of-loops evals, sensors, ACCEPT/REVERT, KPI contracts, suites, held-out, TDD-first |
 | [octocode-subagent](./octocode-subagent/) | Spawn / Task / A2A / challenge techniques **or** local Ollama sealed-packet offload |
-| [octocode-documentation](./octocode-documentation/) | Write/update docs — README, runbooks, CONTRIBUTING, ADRs, Diátaxis, agent-facing docs |
+| [octocode-documentation](./octocode-documentation/) | Write/update docs — README, runbooks, CONTRIBUTING, ADRs, Diátaxis, agent-facing docs — plus the full Google developer documentation style guide and a Markdown style linter |
 | [octocode-roast](./octocode-roast/) | Blunt evidence-backed critique — smells, debt ranking, autopsy, redemption |
 | [octocode-prompt-optimizer](./octocode-prompt-optimizer/) | Sharpen prompts/skills/schemas/handoffs — clearer, safer, cheaper, measurable |
 | [octocode-skills](./octocode-skills/) | Skill lifecycle — discover, review, create, install, sync `SKILL.md` folders |
@@ -47,7 +47,7 @@ General **multi-agent orchestration** for host workers, Task/subagents, speciali
 
 ### octocode-documentation
 
-Produces or updates documentation deliverables (README, API docs, runbooks, troubleshooting, CONTRIBUTING, changelog, onboarding, `AGENTS.md` / `CLAUDE.md`, ADRs, Diátaxis, architecture/migration guides). Evidence-backed and gate-heavy. Pure code research with no docs output → research; authoring a skill folder → **octocode-skills**.
+Produces or updates documentation deliverables (README, API docs, runbooks, troubleshooting, CONTRIBUTING, changelog, onboarding, `AGENTS.md` / `CLAUDE.md`, ADRs, Diátaxis, architecture/migration guides). Evidence-backed and gate-heavy. Also owns **editorial style**: the complete [Google developer documentation style guide](https://developers.google.com/style) is split across `references/style-*.md` (voice, grammar, words, global/inclusive, structure, blocks, format, punctuation, numbers, code, UI, links, claims, API reference), with every guide page mapped in `references/style-sources.md`, the 598-entry word list as data in `assets/google-word-list.tsv`, and `scripts/style-lint.mjs` for deterministic Markdown checks. Pure code research with no docs output → research; authoring a skill folder → **octocode-skills**.
 
 ### octocode-roast
 
