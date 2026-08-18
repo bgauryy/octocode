@@ -12,3 +12,5 @@ Insert directly under `RFC.md`'s header fields (`references/rfc-template.md`) �
 - **Evidence:** exact `file:line` / symbol / table / command names proving the status claim (both presence and absence).
 - **Remaining work:** the specific unclosed items, or "entire RFC" if nothing has shipped.
 ```
+
+Next: apply the keep/fix/delete recommendation from `references/workflow.md` § Reassess existing RFCs — never delete without explicit approval; when the RFC is fix-and-keep, refresh the open items in `references/rfc-implementation.md`.

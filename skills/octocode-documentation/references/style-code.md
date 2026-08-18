@@ -1,10 +1,18 @@
-# Code In Text
+# Code in text
 
 Load when deciding what gets code font and how code appears in prose or a sample.
 
 ## Code font
 
-Code font covers: attribute names and values, class, method, and function names, command output, data types, database elements (row and column names), defined constants, DNS record types, element and enum names, environment variables, filenames, extensions, paths, folders, HTTP verbs, status codes, and content types, IAM roles, IP addresses, port numbers, language keywords, namespaces, package names, placeholders, query parameters, strings used in commands, text the reader types, and UI values rendered from what the reader entered earlier (an instance or server name).
+Code font covers:
+
+- Attribute names and values; class, method, and function names; language keywords; namespaces; package names.
+- Command output; text the reader types; strings used in commands; placeholders; query parameters.
+- Data types; defined constants; element and enum names; environment variables.
+- Database elements: row names and column names.
+- Filenames, extensions, paths, and folders.
+- DNS record types; HTTP verbs, status codes, and content types; IAM roles; IP addresses; port numbers.
+- UI values rendered from what the reader entered earlier — an instance name, a server name.
 
 Not code font: product, service, and organization names, domain names, and URLs the reader opens in a browser.
 
@@ -24,7 +32,7 @@ Conditional cases:
 
 ## HTTP status codes
 
-Call it a **status code**, not a response code or error code, and put the number and the name in code font: "an HTTP `400 Bad Request` status code". Ranges read `2xx` or "the `200`-`299` range", both numbers in code font. Drop "HTTP" when context makes it obvious.
+Call it a **status code**, never a response code or error code. Put the number and the name in code font: "an HTTP `400 Bad Request` status code". Ranges read `2xx` or "the `200`-`299` range", both numbers in code font. Drop "HTTP" when context makes it obvious.
 
 ## Samples
 
@@ -32,5 +40,7 @@ Call it a **status code**, not a response code or error code, and put the number
 - Spaces, not tabs; two spaces per level; four-space indentation for Markdown code blocks; wrap at 80 characters, or narrower for print. Follow the language's own style guide, and Google's shell style guide for quoting in `bash`.
 - Mark omitted **code** with a comment in the language's syntax, never an ellipsis. Omitted **output** lines use `...` on their own line (`references/style-cli.md`).
 - A block with an omission is not click-to-copy.
+
+Upstream: [Code in text](https://developers.google.com/style/code-in-text) · [Code samples](https://developers.google.com/style/code-samples). Verify a disputed or missing rule against the live page → `references/style-sources.md`.
 
 Next: commands, prompts, placeholders → `references/style-cli.md`; reserved example values → `references/style-examples.md`; docstrings → `references/style-api.md`.

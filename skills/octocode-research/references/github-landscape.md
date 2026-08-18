@@ -1,6 +1,6 @@
 # GitHub Landscape
 
-Rare path: load for repo discovery, reuse decisions, open-source implementation search, or ecosystem comparison. Skip for one known repo or a narrow bug. `algorithm.md` owns proof; `octocode.md` owns syntax.
+Rare path: load for repo discovery, reuse decisions, open-source implementation search, or ecosystem comparison. Skip for one known repo or a narrow bug. `references/algorithm.md` owns proof; `references/octocode.md` owns syntax.
 
 ## Flow
 1. Frame literal, alias, adjacent implementation, and package terms.
@@ -32,4 +32,5 @@ Stars/downloads are tiebreakers, never validation.
 Stop after finalist proof converges, retries stay thin, license/service risk needs user choice, or deeper work requires unapproved clone/execution.
 Ask before cloning many repos, running untrusted code, or writing artifacts.
 
-Validate: `node scripts/eval-research.mjs --case github-landscape` (repo ranking) or `--case prior-art-map` (package/repo prior art).
+Next: when a finalist needs exact in-repo proof load `references/workflow-external.md`; when the winner must wire into local code load `references/workflow-combination.md`; when the ranking must survive as a durable brief load `references/long-research.md`.
+

@@ -36,3 +36,5 @@ Quality gate:
 - Leads remain labeled as leads.
 - Decisive claims still cite evidence in `RFC.md`, `PREREQUISITES.md`, `IMPLEMENTATION.md`, or `KPI.md`.
 - Rows stay dense — no filler entries, no source restated twice.
+
+Next: this is the last artifact written — validate and deliver the set per `references/workflow.md` § Validate and deliver.

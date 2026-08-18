@@ -2,14 +2,16 @@
 
 Load when reviewing, updating, or creating a skill — or right after editing any `SKILL.md`. Why: **review is the done-gate** — best practices + structure + routing + prose quality before claiming done.
 
-Review is not a narrow syntax check. It judges whether the skill is efficient for agents: lean lobby, one-concept refs, when/why routes, no overlaps, standalone ship shape, and working scripts.
+Review is not a narrow syntax check. It judges whether the skill is efficient for agents: lean lobby, one-concept refs, when/why routes, a navigable map with no dead ends, no overlaps, standalone ship shape, and working scripts.
 
 ## What review covers
 
 1. **Best practices** — lobby owns workflows; progressive disclosure; one owner per concept; scripts over mechanical prose (`references/skill-improve.md`, `references/skill-anatomy.md`).
 2. **Quality rubric** — trigger, workflow, gates, evidence, UX, risk (`references/quality-rubric.md`).
 3. **Mechanical rules** — frontmatter, missing refs/scripts, length, routing, hooks, prose, description trigger quality (`description-concise` / `description-rigid` / `description-redundant`) (`references/skill-review-rules.md`).
-4. **Cleanup** — orphans, dupes, dead files (`references/skill-cleanup.md`).
+4. **Navigation** — lobby lists every reference and script with when/how plus the workflow, routes carry when/why, chunks declare entry and next hop, flow phases are routed (`references/skill-anatomy.md`).
+5. **Standalone** — no dependency on a file outside the folder; the skill must work installed alone (`link-outside-skill`).
+6. **Cleanup** — orphans, dupes, dead files (`references/skill-cleanup.md`).
 
 ## Run
 

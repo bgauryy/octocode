@@ -60,6 +60,5 @@ Keep this README about the discipline users should expect. Mode-specific tactics
 Before publishing a change:
 
 ```bash
-node scripts/check-description.mjs      # description + trigger corpus
-node scripts/eval-research.mjs --self-test   # 16 cases, strong must pass / weak must fail
+node scripts/check-description.mjs      # description contract (--help, --json)
 ```

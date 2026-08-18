@@ -45,5 +45,6 @@ Verification asks whether the build matches design; validation asks whether `KPI
 - {exact local or external anchor} — how it constrains the plan
 ```
 
-Gate: every RFC question is resolved with `octocode-research` evidence or explicitly deferred. Steps have no time estimates and remain reversible where possible.
-Use `RESOURCES.md` for the full inventory.
+Gate: every RFC question is resolved with `octocode-research` evidence or explicitly deferred. Steps have no time estimates and remain reversible where possible. Use `RESOURCES.md` for the full inventory.
+
+Next: bind these steps to acceptance with `references/rfc-kpi.md`; record the source inventory with `references/rfc-resources.md`.

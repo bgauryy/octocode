@@ -46,3 +46,5 @@ Optional extensions that remain outside this decision.
 
 Quality gate: exact citations support non-obvious claims; recommendation relies on no uncertain claim; goals and scope appear only here.
 Every citation states why it matters; option comparisons render as a markdown table; no filler or duplicate phrasing.
+
+Next: when the change touches existing code load `references/rfc-prerequisites.md`; otherwise close the open questions and build with `references/rfc-implementation.md`.

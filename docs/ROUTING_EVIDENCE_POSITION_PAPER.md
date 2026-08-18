@@ -34,7 +34,7 @@ closed.
 Two independent failure modes recur in agentic code research:
 
 - **Ungrounded reasoning.** An LLM answering from memory or a single grep
-  hit will hallucinate line numbers, overgeneralize from one match, and
+  hit hallucinates line numbers, overgeneralizes from one match, and
   cannot distinguish a real call site from a comment or a same-named symbol
   in an unrelated scope.
 - **Undirected tooling.** Deterministic tools (grep, AST matchers, language
@@ -66,10 +66,11 @@ silently in a different place, and a grade's *zero result* is a claim about
 that grade's coverage, not about the codebase. A semantic call-hierarchy
 query returning zero callers is a statement about what the language server's
 project graph can see, not proof the symbol is unused — a lexical pass can
-surface a call site the language server structurally cannot reach (e.g.,
-invoked through a dispatch table, or from a script outside the project).
-Conversely a lexical hit is not proof of a real reference until corroborated,
-because grep cannot separate a call from a string or a comment. Treating
+surface a call site the language server structurally cannot reach — one
+invoked through a dispatch table, say, or called from a script outside
+the project. Conversely, a lexical hit is not proof of a real reference
+until corroborated, because grep cannot separate a call from a string or a
+comment. Treating
 *disagreement between grades* as the deliverable, rather than picking
 whichever grade answered first, is the mechanism that catches this class of
 error before it becomes a wrong conclusion.
@@ -81,8 +82,8 @@ codebase a query targets. We identify three:
 
 - **Structure** — the file tree: layout, naming, nesting, size. Answers
   "where does this live, relative to what."
-- **Stream** — the text itself, exact or outlined (e.g., a signatures-only
-  view). Answers "what is actually written."
+- **Stream** — the text itself, exact or outlined (for example, a
+  signatures-only view). Answers "what is written."
 - **Connections** — the call/import/type graph, proven either by a language
   server or by structural pattern matching. Answers "what refers to what."
 
@@ -107,21 +108,21 @@ queries a language server, builds a model that is confidently incomplete in
 a way it cannot detect from within that one dimension. The mitigation is
 procedural rather than architectural: before concluding on a non-trivial
 question, deliberately pull at least two of the three dimensions, and treat
-a mismatch between them (e.g., structure suggests a module is a leaf, but a
-connections query finds an inbound edge from outside that module) as a
-signal to look closer, not as noise.
+a mismatch between them (for example, structure suggests a module is a
+leaf, but a connections query finds an inbound edge from outside that
+module) as a signal to look closer, not as noise.
 
 ## 4. A routing procedure
 
 The model above motivates routing by *what the agent already holds*, rather
-than a fixed pipeline (e.g., always grep before AST before semantic). If the
+than a fixed pipeline such as always grep, then AST, then semantic. If the
 agent already holds a concrete identifier, going straight to a semantic
 query is both cheaper and higher-grade than starting with a lexical scan; if
 the agent holds only a natural-language concept with no identifier, no
 semantic query is possible until a lexical or structural pass produces one.
 In outline:
 
-```
+```text
 No prior orientation           → read structure first (tree), then a coarse
                                   stream pass (e.g. a hit-count-per-file scan)
                                   to find where the concern concentrates
@@ -165,8 +166,8 @@ precomputed knowledge/code graphs (cheaper at very large monorepo scale, at
 the cost of being memoryless of point-in-time query intent). Both are
 plausible complements to, not replacements for, the model above, and the
 routing procedure in §4 explicitly names where each would outperform it
-(purely conceptual queries at large scale for the former; repo-wide blast-
-radius sweeps at scale for the latter).
+(purely conceptual queries at large scale for the former; repository-wide
+blast-radius sweeps at scale for the latter).
 
 **Adjacent, not addressed here.** Compaction of an agent's own conversation
 history and sub-agent isolation ("code mode") are harness-level concerns
@@ -196,7 +197,7 @@ are complementary rather than competing.
 ## 6. Conclusion
 
 We describe a routing model for agentic code research built on two axes:
-evidence grading (what a retrieval result actually proves, versus what grade
+evidence grading (what a retrieval result proves, versus what grade
 of failure it produces silently) and reading dimension (structure, stream,
 connections — each individually incomplete). The procedural claim is narrow
 and testable in principle: route by what the agent already holds, grade

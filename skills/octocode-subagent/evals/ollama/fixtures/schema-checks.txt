@@ -1,2 +1,0 @@
-Return ONLY valid JSON:
-{"checks":[{"id":"string","verdict":"pass|fail|unknown","reason":"string"}]}

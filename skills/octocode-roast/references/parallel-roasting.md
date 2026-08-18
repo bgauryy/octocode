@@ -1,5 +1,7 @@
 # Parallel Roasting — Multi-Agent Sin Hunting
 
+Load when the scope spans 5+ modules, a monorepo, or several sin categories at once. Why: divide inspection and inventory across workers without duplicating or dropping findings.
+
 > **Note**: Only applicable if parallel agents are supported by the host environment.
 
 ## When to Spawn Subagents
@@ -44,3 +46,5 @@ Each worker returns this compact contract:
 - Don't parallelize small codebases (<10 files)
 - Don't spawn agents for single-file roasts
 - Don't parallelize redemption phase (fixes need sequential execution)
+
+Next: merge the worker contracts, then rank the combined inventory with `references/sin-catalog.md` and resume the sequential phases in `references/roast-playbook.md` § 4 Autopsy.

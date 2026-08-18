@@ -16,4 +16,4 @@ One public URL, `--mode html`, omit `--provider`, no auth, no broad crawl, sessi
 | site/workflows | bounded `--crawl --same-domain --max-pages` |
 | live click / HAR / perf | chrome-devtools (`browser-scraping.md`) |
 
-Detail: `route-selection.md`, `providers.md`.
+Next: for the route tree load `references/route-selection.md`; for the vendor registry load `references/providers.md`; when boundaries or legality are unclear load `references/scraping-policy.md`.

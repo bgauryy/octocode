@@ -100,4 +100,3 @@ Each skill folder typically includes:
 - `README.md` — human overview / install
 - `references/` — on-demand detail (load only what the step needs)
 - `scripts/` — deterministic helpers (when present)
-- `evals/` — permanent suites (when present); temp under `.octocode/`

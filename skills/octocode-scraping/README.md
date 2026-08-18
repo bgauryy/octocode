@@ -17,4 +17,4 @@ Keyless html: omit `--provider` (`cdp`→`direct`). Search `AGENT_INDEX.json` / 
 ## Safety
 Ask first: auth, CAPTCHA/MFA, personal data, hosted spend, high-volume crawl, destructive writes. No raw HTML/HAR in chat.
 
-Agent truth: `SKILL.md` + `references/`. Scripts: `scripts/README.md`. Done gate: `eval-benchmark-suite.mjs`.
+Agent truth: `SKILL.md` + `references/`. Scripts: `scripts/README.md`.

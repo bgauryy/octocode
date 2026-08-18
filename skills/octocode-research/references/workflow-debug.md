@@ -1,8 +1,8 @@
 # Workflow: Debug / Root Cause
 
-Use when `problem-framing.md` classifies a supported contract violation as a bug, or when an unknown symptom needs investigation.
-Read `algorithm.md` first for routing and evidence grades.
-Use `code-research.md` for the proof ladder on any code claim raised here.
+Use when `references/problem-framing.md` classifies a supported contract violation as a bug, or when an unknown symptom needs investigation.
+Read `references/algorithm.md` first for routing and evidence grades.
+Use `references/code-research.md` for the proof ladder on any code claim raised here.
 
 ```text
 problem contract: actual + expected + authority + trigger + impact
@@ -31,6 +31,5 @@ Fix: <smallest safe repair or decision needed>
 Verification: <test/build/search/history check run or still needed>
 ```
 
-If the fix requires an edit, hand off to `workflow-change.md` for blast-radius and patch discipline.
+Next: when the fix requires an edit hand off to `references/workflow-change.md` for blast-radius and patch discipline; when both hypotheses survive repeated passes load `references/loop-mode.md`; when the mechanism sits in an upstream dependency bridge through `references/workflow-combination.md`.
 
-Validate: `node scripts/eval-research.mjs --case code-investigation` (general root-cause shape) or `--case dead-code-proof` (dead-code/reachability root causes).

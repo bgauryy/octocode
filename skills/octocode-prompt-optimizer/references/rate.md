@@ -2,7 +2,6 @@
 Load after UNDERSTAND and before FIX. **STOP: rate every logical part before drafting.**
 ### Pre-Conditions
 - [ ] UNDERSTAND produced a goal, parts, flow, assumptions, and unknowns.
-
 ## Issue Scan
 | Severity | Categories |
 |---|---|
@@ -13,7 +12,6 @@ Load after UNDERSTAND and before FIX. **STOP: rate every logical part before dra
 
 Keep optional modals optional. Replace vague verbs with exact actions and vague conditionals with `IF condition → THEN action`. Preserve required frontmatter and exact commands.
 ## Score — score 1-5, then average: A 4.5-5 · B 3.5-4.4 · C 2.5-3.4 · D <2.5.
-
 | Dimension | 5 means |
 |---|---|
 | Clarity | concrete verbs, stable terms, explicit referents |
@@ -47,3 +45,5 @@ Overall: <avg> → <grade>
 
 ## Sources
 - Anthropic, [Writing effective tools for AI agents](https://www.anthropic.com/engineering/writing-tools-for-agents) — evaluate real tasks, inspect transcripts, and measure tool behavior.
+
+Next: with issues and a before score recorded load `references/fix.md`; when a severity rests on assumed behavior rather than evidence load `references/evaluation-data.md` first; when the issue is a precedence conflict load `references/patterns.md`.

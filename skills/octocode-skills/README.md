@@ -13,6 +13,7 @@ Use when the task is about a skill's trigger, workflow, references, hooks, insta
 - Install with provider/scope/mode gates and conflict handling
 - Create or adapt local skills with an audit trail and review gate
 - Review and wire lifecycle hooks safely
+- Check the skill as a map: references resolve, the lobby lists every reference and script with when/how plus the workflows, chunks declare entry and next hop, flow phases are routed
 
 ## How It Works
 
@@ -20,7 +21,7 @@ Use when the task is about a skill's trigger, workflow, references, hooks, insta
 UNDERSTAND → DISCOVER → INSPECT → JUDGE → RECOMMEND → USER GATE → ACT → CLEANUP → REVIEW → VERIFY
 ```
 
-`SKILL.md` is the compact operating map. Conditional depth lives in one-concept `references/` files (≤50 lines) with when/why load lines. Ref→ref links continue the path. `scripts/skill-review.mjs` is the done-gate (best practices + structure).
+`SKILL.md` is the compact operating map. Conditional depth lives in one-concept `references/` files (≤50 lines) with when/why load lines. Ref→ref links continue the path. `scripts/skill-review.mjs` is the done-gate (best practices, structure, and navigation).
 
 ## Installation
 

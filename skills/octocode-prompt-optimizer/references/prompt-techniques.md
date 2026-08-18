@@ -36,3 +36,5 @@ Load when choosing how to improve an agent prompt after identifying a concrete f
 - DAIR.AI, [Prompt Engineering Guide](https://github.com/dair-ai/Prompt-Engineering-Guide) — broad technique landscape, papers, and references.
 - OpenAI, [Prompt engineering](https://developers.openai.com/api/docs/guides/prompt-engineering) — structured sections, examples, retrieval context, tool guidance, model-specific prompting, and evaluation.
 - Anthropic, [Prompt engineering overview](https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/overview) and [context engineering](https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents) — success criteria, empirical testing, and minimal high-signal context.
+
+Next: for the chosen technique load its owner — schema or tool loop `references/tool-contracts.md`, decomposition/chaining `references/agent-communication.md`, delimiters `references/attention.md`, caching `references/prompt-caching.md`, retrieval limits `references/context-budget.md` — then measure step 2 with `references/evaluation-data.md`.

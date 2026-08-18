@@ -1,5 +1,7 @@
 # Improve Loop
 
+Load when improving this skill and `octocode-graph-eval` is unavailable. Why: a keep/discard loop still needs a KPI, not a narrative.
+
 Stub only. Full goal→KPI cascade, nested loops, graders, held-out: load **`octocode-graph-eval`**.
 
 ```text
@@ -7,4 +9,5 @@ SET GOAL + KPI → SMALLEST CHANGE → MEASURE ACTUAL RESULTS → ACCEPT | REVER
 ```
 
 Reject: undefined KPI · narrative-only accept · checks not run.
-Skill folder edits → `octocode-skills`.
+
+Next: skill folder edits → `octocode-skills`; worker quality measurement → `octocode-graph-eval`; back to delegation with `references/spawn-gate.md`.

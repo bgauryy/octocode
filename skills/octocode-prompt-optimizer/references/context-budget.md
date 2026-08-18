@@ -32,3 +32,5 @@ Load when a prompt, tool, retrieval path, or handoff can fill context with more 
 ## Sources
 - Anthropic, [Effective context engineering for AI agents](https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents) — finite attention budget and minimal high-signal context.
 - Anthropic, [Writing effective tools for AI agents](https://www.anthropic.com/engineering/writing-tools-for-agents) — filtering, pagination, truncation, and useful continuation guidance.
+
+Next: when the budget is set by a tool's own result shape load `references/tool-contracts.md`; when a stable prefix repeats across calls load `references/prompt-caching.md`; when the handoff row is the problem load `references/agent-communication.md`; measure the token delta with `references/evaluation-data.md`.

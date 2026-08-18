@@ -34,4 +34,5 @@ If writing fails, return the document in chat. Sections: executive summary; affe
 - [ ] Every check has an explicit status; APPROVE appears only after applicable checks pass.
 - [ ] Chat report came before any approved document; written issue numbering is sequential.
 
-Validate with `node scripts/eval-research.mjs --case pr-local-review`.
+Next: when a finding is disproven or a box stays unchecked return to `references/workflow-pr-review-analysis.md`; when the review authorizes a fix hand off to `references/workflow-change.md`. Otherwise the review ends here — deliver the chat report.
+

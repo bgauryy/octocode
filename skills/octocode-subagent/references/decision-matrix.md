@@ -1,12 +1,8 @@
 # Decision Matrix
 
-Load when unsure whether to offload to the local Ollama worker.
+Load when unsure whether to offload to the local Ollama worker. Why: offload that creates more verify work than it saves is a loss.
 
-## Core question
-
-Does offloading **free orchestrator context/budget** without creating more verify work than it saves?
-
-If no → stay solo.
+Core question: does offloading **free orchestrator context/budget** without creating more verify work than it saves? If no → stay solo.
 
 ## Matrix
 
@@ -20,19 +16,10 @@ If no → stay solo.
 
 ## Complexity signals
 
-**High — keep on orchestrator**
-
-- Architecture / API contracts / auth / tokens
-- Root-cause across unknown surfaces
-- Security or privacy-sensitive reasoning
-- Final merge of conflicting evidence
-
-**Low — local candidate**
-
-- Per-file summaries
-- Field extraction into a fixed schema
-- Labeling tickets/logs with a closed label set
-- First-pass boilerplate the orchestrator will edit and test
+| Signal | Keep on orchestrator (High) | Local candidate (Low) |
+|---|---|---|
+| Subject | Architecture / API contracts / auth / tokens; security or privacy-sensitive reasoning | Per-file summaries; field extraction into a fixed schema |
+| Shape | Root-cause across unknown surfaces; final merge of conflicting evidence | Labeling tickets/logs with a closed label set; first-pass boilerplate the orchestrator will edit and test |
 
 ## Offload ROI check
 
@@ -45,15 +32,6 @@ Offload only if **all** are true:
 
 ## Prefer non-LLM first
 
-Before any local model call, prefer:
+Before any local model call, prefer `rg` / tests / formatters / typecheckers, existing scripts in the repo, or a host "small/fast" cloud model via normal subagent routing when already configured. Local Ollama is for when those are unavailable or the corpus is too large for the orchestrator window.
 
-- `rg` / tests / formatters / typecheckers
-- Existing scripts in the repo
-- Host “small/fast” cloud model via normal subagent routing when already configured
-
-Local Ollama is for when those are unavailable or the corpus is too large for the orchestrator window.
-
-## After offload = yes
-
-Continue to **ROUTE** / model select (`references/model-selection.md`) using **live** `ollama list` and size/capability tiers.  
-Named tags in other refs are examples only.
+Next: offload = yes → **ROUTE** with `references/model-selection.md` using **live** `ollama list` and size/capability tiers (named tags in other refs are examples only); surface still unclear → `references/usage-matrix.md`.

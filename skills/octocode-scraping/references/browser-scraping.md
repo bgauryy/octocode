@@ -1,5 +1,7 @@
 # Browser Scraping
 
+Load when a live browser step joins a scrape — auth, clicks, JS-only page, HAR, or perf. Why: one sessionId plus one CDP port keeps the evidence joinable.
+
 Owner for the **cross-skill playbook** (chrome `SKILL.md` only points here). Live CDP = `octocode-chrome-devtools`; this skill owns corpus + ingest.
 
 ## Session IDs (do not mix)
@@ -23,3 +25,5 @@ Zero actionability rows → chrome `actionability-diagnostics`. Emit paths/count
 
 ## Ask first
 Real profile, cookie bridge, CAPTCHA/MFA, destructive writes, purchases, sends, deletes, account changes.
+
+Next: to search what ingest produced load `references/session-corpus.md`; if the page is still thin or blocked load `references/failure-recovery.md`.

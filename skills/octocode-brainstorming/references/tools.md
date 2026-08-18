@@ -20,7 +20,7 @@ Delegate repo/package/history/semantic checks to `octocode-research`. Ask it to 
 | `scripts/exa-search.mjs` | `EXA_API_KEY` | AI-native/neural search, category filters (papers, GitHub, news), highlights |
 
 Run `--check` once per engine at session start (`--presence-only` is offline-only) and record which are actually live.
-A configured key is not the same as a validated one. Credentials load through `@octocodeai/config` from process env, workspace `.octocode/.env`, then global Octocode home.
+A configured key is not the same as a validated one. Credentials load through the vendored `scripts/octocode-config.mjs` from process env, workspace `.octocode/.env`, then global Octocode home.
 Never cite snippets or print/commit keys.
 
 **Default policy: query every validated engine, not a first-success ladder.**

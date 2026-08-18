@@ -23,3 +23,5 @@ Load when the user wants to understand a site, find smart links, map workflows, 
 - Preserve blocked/error pages in warnings; do not hide them as empty data.
 - For “understand all website”, crawl a bounded allowlist first, inspect graph quality, then expand with approval.
 - For “get every page of this listing/archive”, follow `paginates_to` / `workflowType:"pagination"` edges rather than guessing URL patterns — it's the site's own declared next/prev structure.
+
+Next: query the graph from disk with `scripts/graph-navigate.mjs --session-dir <d>`; for the file field contracts load `references/data-contract.md`; for live actionability load `references/browser-scraping.md`.

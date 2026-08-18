@@ -1,6 +1,6 @@
 ---
 name: octocode-research
-description: "Use when code must be checked, not assumed: trace connections (callers, imports, cross-repo wiring, what breaks if I change it), locate behavior, map a system, diagnose a failure, RCA. Also for external repositories, npm packages, upstream/prior art, and general research. Plan a coding flow before writing, validate it after. Triggers on 'research this' or 'use octocode'. Gives exact file:line/PR/commit evidence with confidence. Skip trivial edits whose blast radius is already known"
+description: "Use when code must be checked, not assumed: trace connections (callers, imports, cross-repo wiring, what breaks if I change it), locate behavior, map a system, diagnose a failure, RCA. Also for external repositories, npm packages, upstream/prior art, and general research. Plan a coding flow before writing, validate it after. Triggers on 'research this' or 'use octocode'. Gives exact file:line/PR/commit evidence with confidence. Skip trivial edits whose blast radius is already known. Not for authoring or copyediting the docs themselves, or for building skill folders: docs deliverable → octocode-documentation; SKILL.md folders → octocode-skills."
 ---
 
 # Octocode Research
@@ -23,9 +23,11 @@ That's the full shape, not a checklist to march through. Scale it to the claim: 
 6. Track `claim → evidence → confidence → next check`. Cite exact anchors, and only checks that actually ran.
 7. Ask before broad contracts, deletes/renames, thin evidence, or a third unrelated search space. Patch after proof.
 
+Stop when: grounded evidence answers the framed question and the alternate is dead; no cheap next step can change the conclusion; the budget is hit (default 3-5 decisive iterations or ~15 minutes); the last iterations changed no state; retries stay thin, or a license/product/architecture call belongs to the user; a gate blocks (broad contract, delete/rename, clone or run untrusted code, unapproved artifact write); or a skill edit measured flat/worse — revert through `references/improve-loop.md`. Report the remaining gaps instead of padding certainty.
+
 ## Workflows
 
-Start with `references/algorithm.md` (routing, evidence grades) and `references/problem-framing.md` (is this a bug, feature, enhancement, or still unknown?). Then pick one route by what you're looking at:
+Start with `references/algorithm.md` (routing, evidence grades) and `references/problem-framing.md` (is this a bug, feature, enhancement, or still unknown?). Then pick one route by what you're looking at — load `references/workflows.md` when you need the per-route detail, the load budget per task size, or the handoff receipt between routes:
 
 | Situation | Route |
 |---|---|
@@ -40,6 +42,8 @@ Start with `references/algorithm.md` (routing, evidence grades) and `references/
 | Trace connections — callers, imports, references, reachability | `references/code-research.md` |
 
 Proof depth for any of them: `references/code-research.md`. General research — Map / Validate / Investigate / Plan across code, packages, docs, and history: `references/research-flow.md`.
+
+Review runs in three parts: use `references/workflow-pr-review.md` for target, guidelines, and risk sizing; then `references/workflow-pr-review-analysis.md` for sizing depth, flow proof, and finding shape; then `references/workflow-pr-review-report.md` for the verification-gated recommendation and the optional written document.
 
 Reach for these only when they earn it: `references/loop-mode.md` (evidence keeps flipping), `references/long-research.md` (durable decision brief), `references/researcher-mindset.md` (budgets, fan-out, campaign planning).
 
@@ -57,7 +61,7 @@ npx octocode tools <name> --queries '<json>' --compact # run it
 
 Batch up to five queries per call. Orient cheap (tree, discovery) before exact reads. Follow returned `next.*` and cursors instead of re-deriving them.
 
-Gates (`ENABLE_LOCAL`, `ENABLE_CLONE`, `ENABLE_RELEASES`), materialization, diagnostics, exit codes: `references/octocode.md`.
+Read `references/octocode.md` when transport, tool choice, auth, gates (`ENABLE_LOCAL`, `ENABLE_CLONE`, `ENABLE_RELEASES`), materialization, diagnostics, or exit codes are unclear.
 
 ## Output
 
@@ -65,6 +69,6 @@ Gates (`ENABLE_LOCAL`, `ENABLE_CLONE`, `ENABLE_RELEASES`), materialization, diag
 
 ## Related
 
-`octocode-brainstorming` (worth building?) · `octocode-rfc-generator` (design contract) · `octocode-graph-eval` (goal→KPI) · `octocode-skills` (skill folders) · `octocode-subagent` (fan-out) · `octocode-roast` (critique tone).
+`octocode-brainstorming` (worth building?) · `octocode-rfc-generator` (design contract) · `octocode-graph-eval` (goal→KPI) · `octocode-documentation` (docs deliverable) · `octocode-skills` (skill folders) · `octocode-subagent` (fan-out) · `octocode-roast` (critique tone).
 
-Changing this skill: `node scripts/check-description.mjs`, then `node scripts/eval-research.mjs --self-test`. Accept/revert gate: `references/improve-loop.md`.
+When changing this skill, run `node scripts/check-description.mjs` (description contract; `--help` for flags) and gate accept/revert with `references/improve-loop.md`.

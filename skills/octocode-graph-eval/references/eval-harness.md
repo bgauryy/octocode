@@ -8,8 +8,7 @@ evals/kpi-contract.json   # optional: goal, primary, guardrails, decision rule (
 evals/fixtures/           # optional: inputs for live/script runners
 scripts/eval-*.mjs        # grader: patterns, citations, self-test, live invokes
 ```
-Examples: `octocode-research`, `octocode-brainstorming`, `octocode-rfc-generator`,
-`octocode-subagent` Ollama path (`evals/ollama/` — static+script+live + KPI contract).
+Worked example — this folder's own suite: `evals/cases.json` + `evals/trigger-cases.json` + `evals/kpi-contract.json`, graded by `scripts/eval-eval.mjs`.
 
 ## Case shape (minimum)
 - `id`, `prompt` or mode, `minScore`

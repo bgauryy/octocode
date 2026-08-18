@@ -1,10 +1,10 @@
 # Ollama Capability Matrix
 
-Legend: **Y** = library tag and/or `ollama show`; **—** = not claimed; **?** = verify after pull. Sizes/context from [ollama.com/library](https://ollama.com/library) (re-check with `ollama show <tag>`).
+Load when checking what a local-first family or candidate tag can actually do (tools, thinking, vision, audio, context). Why: capability rows, not brand names, decide whether a tag fits a job.
 
-**Thinking vs reasoning:** `thinking` = explicit CoT channel Ollama can toggle. “Reasoning quality” is not a binary library flag — use LiveCodeBench / SWE / your verify gate.
+Legend: **Y** = library tag and/or `ollama show`; **—** = not claimed; **?** = verify after pull. Sizes/context from [ollama.com/library](https://ollama.com/library) (re-check with `ollama show <tag>`). **Thinking vs reasoning:** `thinking` = explicit CoT channel Ollama can toggle; “reasoning quality” is not a binary library flag — use LiveCodeBench / SWE / your verify gate.
 
-### A. Local-first families (best defaults)
+## Local-first families (best defaults)
 
 | Model / tag | Approx size | Context | Tools | Thinking | Vision | Audio | Best for | MCP / Skills / agents |
 |-------------|-------------|---------|-------|----------|--------|-------|----------|------------------------|
@@ -34,34 +34,6 @@ Legend: **Y** = library tag and/or `ollama show`; **—** = not claimed; **?** =
 | `deepseek-ocr` | ~6.7 GB | 8K | — | — | Y | — | Document OCR (installed) | Special modality |
 | `glm-ocr` | ~2.2 GB | 128K | Y | — | Y | — | Document OCR (lighter) | vision+tools; not a general coder |
 
-† Library emphasizes tools/agentic coding; confirm `thinking` with `ollama show` after pull.  
-‡ Library tags list ~488K; model card also cites 256K training / long-horizon — use tag value after pull.
+† Library emphasizes tools/agentic coding; confirm `thinking` with `ollama show` after pull. ‡ Library tags list ~488K; the model card also cites 256K training / long-horizon — use the tag value after pull.
 
-### B. Often cloud / heavy (local only if you have big iron)
-
-| Model | Notes |
-|-------|--------|
-| `qwen3.5:122b`, `397b-cloud` | Flagship Qwen; cloud or multi-GPU |
-| `qwen3-coder:480b` | ≥250 GB memory claimed for local |
-| `gpt-oss:120b` | ~65 GB download class |
-| `nemotron-3-super:120b` | MoE 12B active; multi-agent efficiency |
-| `minimax-m2.*` / `m3`, `glm-5.*`, `kimi-k2.*`, `deepseek-v4-*` | Strong coding/agents; many **cloud**-tagged on Ollama |
-| `mistral-medium-3.5:128b` | Large dense; workstation+ |
-
-Use `ollama launch <agent> --model <tag>` with these when cloud is acceptable; do not assume they fit a laptop.
-
-### Appendix — sample inventory from one workstation (not required)
-
-Recorded 2026-07-20 on an author machine (Ollama server ~0.31.x). Other setups will differ — always trust live `ollama list`.
-
-| Example installed tag | Params | Context | Capabilities (then) |
-|---------------|--------|---------|--------------|
-| `gemma4:12b` | 11.9B | 262144 | completion, vision, audio, tools, thinking |
-| `gemma4:latest` | 8.0B | 131072 | completion, vision, audio, tools, thinking |
-| `qwen2.5:0.5b` / `7b` / `32b` | 0.5–32.8B | 32768 | completion, tools (no thinking) |
-| `nomic-embed-text` | 137M | 2048 | **embedding** only |
-| `deepseek-ocr` | 3.3B | 8192 | completion, vision |
-| `llama3.2-vision` | 10.7B | 131072 | completion, vision, tools |
-| `gemma3:12b` | 12.2B | 131072 | completion, vision |
-
-Always re-run `ollama show <MODEL>` after pull — tags and capabilities change.
+Next: cloud/heavy tags and a sample workstation inventory in `references/ollama-local-models-heavy.md`; RAM kits in `references/ollama-local-models-kits.md`; route with `references/model-selection.md`.

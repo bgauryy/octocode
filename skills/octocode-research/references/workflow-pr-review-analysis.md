@@ -1,6 +1,6 @@
 # PR Review Analysis
 
-Load after `workflow-pr-review.md` resolves target, guidelines, context, and checkpoint scope.
+Load when `references/workflow-pr-review.md` has resolved target, guidelines, context, and checkpoint scope. Why: sizing, flow proof, and finding shape decide what the review may claim.
 
 ## Size And Domains
 | Mode | Trigger | Depth |
@@ -43,4 +43,6 @@ Impact: caller/user/data/contract consequence
 Fix: minimal direction or diff
 ```
 
-Avoid `#1` finding labels because GitHub auto-links them. Continue to `workflow-pr-review-report.md`; validate with `node scripts/eval-research.mjs --case pr-local-review`.
+Avoid `#1` finding labels because GitHub auto-links them.
+
+Next: write the verdict with `references/workflow-pr-review-report.md`; when a finding needs stronger proof first load `references/code-research.md`; when the diff authorizes a fix hand off to `references/workflow-change.md`.

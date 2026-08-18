@@ -59,7 +59,9 @@ const RULES = [
   ['parenthetical-plural', 'WARN', /\b[a-z]{3,}\(s\)|\(ren\)/i, 'Never put an optional plural in parentheses; pick one form or write "one or more".'],
   ['example-punctuation', 'INFO', /,\s*for example,\s*[^.;]*[.;]\s*$|;\s*for example[,:]/i, 'End-of-sentence examples take "such as", "like", or an em dash — not a comma-fenced or semicolon-introduced "for example".'],
   ['ui-label-quotes', 'WARN', /\b(click|select|choose|press)\s+(the\s+)?["“][^"”]{2,40}["”]/i, 'UI labels are bold, never quoted.'],
-  ['metasyntactic-name', 'WARN', /\b(foo|bar|baz|foobar|qux)\b/i, 'Use meaningful placeholder names (references/style-code.md).'],
+  // `bar` alone is left out: it is an ordinary UI noun (navigation bar, menu bar, progress bar), and a
+  // metasyntactic `bar` is almost always paired with `foo`, which fires on its own.
+  ['metasyntactic-name', 'WARN', /\b(foo|baz|foobar|qux)\b/i, 'Use meaningful placeholder names (references/style-code.md).'],
   ['placeholder-style', 'WARN', /\b(MY_[A-Z0-9_]{2,}|YOUR_[A-Z0-9_]{2,})\b|<[A-Z0-9_]{3,}>/, 'Placeholders are UPPERCASE_WITH_UNDERSCORES; no possessive MY_/YOUR_ prefix, and no brackets inside the placeholder itself.'],
   ['ampersand', 'WARN', /\s&\s/, 'Write "and" unless the UI label itself uses "&".'],
   ['long-sentence', 'INFO', null, 'Sentence is over 35 words — split it.'],
@@ -122,6 +124,8 @@ if (flag('--help') || (!argv.length && !flag('--self-test'))) {
 
 A file containing "<!-- style-lint: ignore-file -->" is skipped when found by directory
 recursion, and still linted when you name it directly (fixtures, deliberate examples).
+A line containing "<!-- style-lint: ignore-line rule-id,rule-id -->" suppresses those rules on
+that line; with no ids it suppresses all of them. Use it where a page must quote a banned term.
   --help              this text
 
 Examples:
@@ -151,6 +155,19 @@ function collect(p, explicit = true) {
 }
 
 const IGNORE_MARKER = '<!-- style-lint: ignore-file -->';
+const IGNORE_LINE = /<!--\s*style-lint:\s*ignore-line\s*([a-z0-9,\- ]*?)\s*-->/i;
+
+/** A directive inside a code span is documentation, not a directive — a page may explain both markers. */
+const stripCodeSpans = (text) => text.replace(/`[^`]*`/g, '');
+
+/** Rules named in an ignore-line directive are suppressed for that line; a bare directive suppresses all.
+ *  Mentioning a term a rule bans is not the same as using it — reference pages need the escape hatch. */
+function suppressedRules(rawLine) {
+  const m = stripCodeSpans(rawLine).match(IGNORE_LINE);
+  if (!m) return null;
+  const ids = m[1].split(',').map((x) => x.trim()).filter(Boolean);
+  return ids.length ? new Set(ids) : 'all';
+}
 
 /** Blank out code fences, inline code, link targets, and frontmatter, preserving offsets. */
 function mask(text) {
@@ -163,6 +180,7 @@ function mask(text) {
     if (/^\s*(```|~~~)/.test(line)) { inFence = !inFence; return blank(line); }
     if (inFence) return blank(line);
     return line
+      .replace(/<!--[\s\S]*?-->/g, blank)
       .replace(/`[^`]*`/g, blank)
       .replace(/\]\(([^)]*)\)/g, (m, target) => `](${' '.repeat(target.length)})`)
       .replace(/https?:\/\/\S+/g, blank);
@@ -175,7 +193,7 @@ function headingWords(line) {
 
 function lintFile(file, explicit) {
   const text = readFileSync(file, 'utf8');
-  if (!explicit && text.includes(IGNORE_MARKER)) return { findings: [], truncated: [], skipped: true };
+  if (!explicit && stripCodeSpans(text).includes(IGNORE_MARKER)) return { findings: [], truncated: [], skipped: true };
   return lintText(text, file);
 }
 
@@ -185,6 +203,8 @@ function lintText(text, file) {
   const findings = [];
   const counts = new Map();
   const push = (id, level, lineNo, col, quote, message) => {
+    const muted = suppressedRules(rawLines[lineNo - 1] || '');
+    if (muted === 'all' || (muted && muted.has(id))) return;
     const key = id;
     const n = (counts.get(key) || 0) + 1;
     counts.set(key, n);
@@ -226,7 +246,10 @@ function lintText(text, file) {
     }
     if (enabled(['long-sentence']) && !heading && !/^\s*[|>-]/.test(line)) {
       for (const s of line.split(/(?<=[.!?])\s+/)) {
-        const n = s.trim().split(/\s+/).filter(Boolean).length;
+        const words = s.trim().split(/\s+/).filter(Boolean).length;
+        // A run of links (an upstream list, a resource row) is navigation, not a sentence.
+        const links = (s.match(/\]\(/g) || []).length;
+        const n = links >= 3 ? 0 : words;
         if (n > 35) push('long-sentence', 'INFO', lineNo, 1, `${s.trim().slice(0, 60)}…`, `Sentence is ${n} words — split it.`);
       }
     }
@@ -282,9 +305,17 @@ const EXPECTED = ['missing-alt-text', 'vague-link-text', 'bare-url-link-text', '
   'visual-ui-reference', 'placeholder-style', 'the-user', 'unsupported-claim', 'parenthetical-plural',
   'example-punctuation', 'ui-label-quotes', 'exclamation-mark', 'word-list'];
 
+const DIRECTIVE_FIXTURE = ['# Directive check', '', 'Rename `foo` to a real name.',
+  'Rename `foo` to a real name. <!-- style-lint: ignore-line metasyntactic-name -->',
+  'Rename `foo` to a real name. <!-- style-lint: ignore-line -->',
+  'Rename `foo`, and document `<!-- style-lint: ignore-line -->` without invoking it.'].join('\n');
+
 function selfTest() {
   const dirty = lintText(DIRTY_FIXTURE, '<dirty-fixture>');
   const clean = lintText(CLEAN_FIXTURE, '<clean-fixture>');
+  const directive = lintText(DIRECTIVE_FIXTURE, '<directive-fixture>');
+  const muted = directive.findings.filter((f) => f.line === 4 || f.line === 5);
+  const documented = directive.findings.some((f) => f.line === 6);
   const fired = new Set(dirty.findings.map((f) => f.rule));
   const missed = EXPECTED.filter((id) => !fired.has(id));
   const cleanErrors = clean.findings.filter((f) => f.level === 'ERROR');
@@ -297,6 +328,8 @@ function selfTest() {
     { name: 'clean fixture has 0 ERROR', pass: cleanErrors.length === 0, detail: cleanErrors.map((f) => f.rule).join(',') },
     { name: 'clean fixture has 0 WARN', pass: cleanWarns.length === 0, detail: cleanWarns.map((f) => f.rule).join(',') },
     { name: 'word-list data loaded', pass: Boolean(WORD_LIST.re) },
+    { name: 'ignore-line directive suppresses', pass: muted.length === 0, detail: muted.map((f) => `${f.line}:${f.rule}`).join(',') },
+    { name: 'directive inside a code span is inert', pass: documented, detail: documented ? '' : 'line 6 was suppressed by documentation' },
   ];
   const pass = checks.every((c) => c.pass);
   if (flag('--json')) console.log(JSON.stringify({ id: 'style-lint-self-test', pass, checks }, null, 2));

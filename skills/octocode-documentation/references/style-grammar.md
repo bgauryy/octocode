@@ -1,16 +1,15 @@
-# Grammar Mechanics
+# Grammar mechanics
 
 Load for article, pronoun, possessive, plural, preposition, and contraction questions.
 
 ## Articles
 
 - Keep `a`, `an`, and `the` — including in headings and titles: "Create a VM instance", not "Create VM instance". Dropping articles hurts comprehension and translation.
-- Choose `a` or `an` by the following word's sound, not its letter.
-- Articles before product, tool, and API names are owned by `references/style-claims.md`.
+- Choose `a` or `an` by the following word's sound, not its letter; `references/style-claims.md` owns articles before product, tool, and API names.
 
 ## Pronouns
 
-- Every pronoun needs an unambiguous antecedent. IF "it", "this", or "they" could point at two nouns → THEN name the noun.
+- Every pronoun needs an unambiguous antecedent. IF "it", "this", or "they" might point at two nouns → THEN name the noun.
 - Follow a demonstrative with a noun even when only one candidate exists: "Set **this value** to `true`", not "Set this to `true`".
 - Keep optional relative pronouns — they aid clarity, not only ambiguity: "Right-click the link **that** you want to open"; "the fields, **which are** described in the following section".
 - "that" introduces a restrictive clause (no comma); "which" introduces a nonrestrictive one (comma). For people you can use "who"; "whose" works for people, animals, and things.
@@ -28,7 +27,7 @@ Load for article, pronoun, possessive, plural, preposition, and contraction ques
 ## Plurals
 
 - Standard US English plurals; never `'s` for a plural. Abbreviations add `s`, or `es` after s, sh, ch, x (`OSes`).
-- Never park an optional plural in parentheses: no "your API key(s)", no "the child(ren)". Pick one form, or write "one or more" when both genuinely matter.
+- Never park an optional plural in parentheses: no `your API key(s)`, no `the child(ren)`. Pick one form, or write "one or more" when both genuinely matter.
 - "one or more" takes a plural verb ("if one or more tests fail"); "more than one" takes a singular ("you can create more than one instance").
 - A spelled-out term and its abbreviation agree in number: "virtual machines (VMs)".
 - Units agree with the number and abbreviations don't pluralize: "1 degree", "0.5 degrees", "64 GB" — never "64 GBs".
@@ -37,14 +36,15 @@ Load for article, pronoun, possessive, plural, preposition, and contraction ques
 
 ## Prepositions
 
-- Ending a sentence with a preposition is fine when it reads better: "the language you're working with".
-- Include prepositions that add clarity and cut the ones that don't.
+- Ending a sentence with a preposition is fine when it reads better ("the language you're working with"); include the prepositions that add clarity and cut the ones that don't.
 - UI prepositions: "in" a dialog, field, menu, window; "on" a page, tab, toolbar (`references/style-ui.md`).
 
 ## Contractions
 
-- Common two-word contractions are welcome; negative contractions (`isn't`, `can't`, `don't`) are preferred because the negative is harder to miss.
-- No nonstandard or three-word contractions ("mightn't've"), and none that could read as a possessive.
+- Common two-word contractions are welcome; prefer negative contractions (`isn't`, `can't`, `don't`) because the negative is harder to miss.
+- No nonstandard or three-word contractions ("mightn't've"), and none that can read as a possessive.
 - IF a negative needs emphasis → THEN spell it out with formatting (`is <em>not</em>`), but most sentences don't need it.
+
+Upstream: [Articles (a, an, the)](https://developers.google.com/style/articles) · [Pronouns](https://developers.google.com/style/pronouns) · [Possessives](https://developers.google.com/style/possessives) · [Pluralization](https://developers.google.com/style/pluralization) · [Prepositions](https://developers.google.com/style/prepositions) · [Contractions](https://developers.google.com/style/contractions). Verify a disputed or missing rule against the live page → `references/style-sources.md`.
 
 Next: tone and voice → `references/style-voice.md`; specific words → `references/style-words.md`.

@@ -36,3 +36,5 @@ Existing-code area and contracts affected.
 
 Gate: do not plan as though an unresolved blocker is satisfied. Put unresolved facts in `RFC.md` Open Questions and close or explicitly defer them in `IMPLEMENTATION.md`.
 Keep long source inventories in `RESOURCES.md`; cite only implementation-gating facts here.
+
+Next: once no blocker has to be assumed satisfied, build the plan with `references/rfc-implementation.md`; when a readiness fact needs more proof return to `references/research-playbook.md`.

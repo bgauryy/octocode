@@ -14,7 +14,7 @@ Load for PR URL/#N/safe-to-merge, local staged/unstaged review, or a specific fi
 | ambiguous | ask PR target vs local changes |
 
 ## Availability
-- PR: metadata/changed files resolve. Ask for a corrected target only on not-found; route auth/rate/transport failures through `octocode.md` and report degraded/blocked coverage.
+- PR: metadata/changed files resolve. Ask for a corrected target only on not-found; route auth/rate/transport failures through `references/octocode.md` and report degraded/blocked coverage.
 - Local Changes: local tools and `git status` work; at least one staged/unstaged/untracked change exists.
 - File Scope: the file exists; File Scope does not require staged, unstaged, or untracked changes. Inspect it plus direct imports/exports and one-hop consumers.
 - LSP failure is not absence; use exact/structural/text proof.
@@ -38,4 +38,6 @@ Before Full analysis, present scope/areas, staged state, risk, sizing, guideline
 | remote-only PR | GitHub tree/search/exact/history; package metadata for dependency claims |
 | Local/File | local exact/search/LSP + shell git context |
 
-Search/patch hits lead to exact reads; exact anchors lead to callers/references/callees. Follow `references/workflow-pr-review-analysis.md` for sizing, flow proof, findings, and verification; then `references/workflow-pr-review-report.md` for recommendation/output. Validate with `node scripts/eval-research.mjs --case pr-local-review`.
+Search/patch hits lead to exact reads; exact anchors lead to callers/references/callees.
+
+Next: load `references/workflow-pr-review-analysis.md` for sizing, flow proof, findings, and verification; then `references/workflow-pr-review-report.md` for recommendation/output; when a finding needs the proof ladder load `references/code-research.md`.

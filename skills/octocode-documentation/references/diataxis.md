@@ -22,8 +22,10 @@ Load when writing or reviewing human-facing docs. Framework: [Diátaxis](https:/
 
 - Keep one type per page; link sibling types (tutorial → reference; how-to → explanation).
 - Avoid API tables mid-tutorial and narrative essays labeled as reference.
-- Before WRITE, also read `references/agent-readable.md` for cross-refs and no-dump rules.
+- Before WRITE, read `references/agent-readable.md` too — cross-refs and no-dump rules.
 
 ## Outline stub
 
 Type, audience, goal, sections, out path, exclude (what belongs elsewhere).
+
+Next: cross-refs, density, and durable pointers → `references/agent-readable.md`; outline gate and write steps → `references/write-verify.md`.

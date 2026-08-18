@@ -1,5 +1,7 @@
 # Stealth (mandatory)
 
+Load when stealth must be verified, tuned, or deliberately disabled. Why: patches only apply before navigation, and a failed verify aborts the run.
+
 Every `cdp-sandbox.mjs` / `cdp-runner.mjs` run applies `undercover.mjs` **before** your script’s `run(cdp)` unless disabled.
 
 | Rule | Detail |
@@ -14,4 +16,4 @@ Implementation: `scripts/mandatory-stealth.mjs` (imported from `cdp-runner.mjs`)
 
 `octocode-scraping` `--provider cdp` uses the same patches + verify in its generated runner (unless `--no-cdp-stealth`).
 
-Examples: `scripts/cdp-checks/stealth-check.mjs`, `scripts/cdp-checks/affiliates-stealth-probe.mjs` · eval: `scripts/eval-affiliates-stealth.mjs`.
+Examples: `scripts/cdp-checks/stealth-check.mjs`, `scripts/cdp-checks/affiliates-stealth-probe.mjs`.

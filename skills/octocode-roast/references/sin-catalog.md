@@ -41,3 +41,5 @@ For each candidate ask:
 
 Security, data, correctness, and user-impacting performance outrank maintainability; maintainability outranks taste.
 Pattern-only evidence is a lead. Unsupported exploit, latency, or outage claims are dropped or explicitly marked weak.
+
+Next: for ecosystem-specific leads load `references/language-sins.md`; with the inventory ranked, return to `references/roast-playbook.md` § 4 Autopsy and § 5 Checkpoint.

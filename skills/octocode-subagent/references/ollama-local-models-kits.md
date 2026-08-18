@@ -1,5 +1,7 @@
 # Ollama Starter Kits (by RAM)
 
+Load when RAM/VRAM headroom decides what to run or pull. Why: unified memory, not model quality, is the binding constraint on a laptop.
+
 Disk sizes below are typical Ollama library Q4-class downloads. **Unified memory / VRAM need ≈ download size + KV cache** (long context burns RAM fast). Prefer Apple Silicon **`-mlx`** tags when listed.
 
 | RAM / unified memory | Daily driver | Bulk worker (classify / JSON) | Coding agent / hard tasks | Also pull |
@@ -31,6 +33,6 @@ ollama pull gemma4:12b-mlx
 
 ### Job → model (this skill)
 
-Use portable tiers in [model-selection.md](./model-selection.md).  
-Optional family examples: [family-playbooks.md](./family-playbooks.md).  
-Do not copy brand-specific defaults from this catalog into routing unless those tags are installed.
+Use portable tiers in `references/model-selection.md`; optional family examples in `references/family-playbooks.md`. Do not copy brand-specific defaults from this catalog into routing unless those tags are installed.
+
+Next: per-tag capabilities in `references/ollama-local-models-matrix.md`; heavy/cloud classes in `references/ollama-local-models-heavy.md`; back to the catalog in `references/ollama-local-models.md`.

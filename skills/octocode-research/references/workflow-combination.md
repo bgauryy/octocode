@@ -1,11 +1,11 @@
 # Workflow: Combination (Local + External)
 
-Use when no single surface can answer: a local clue points upstream, or remote code needs AST, LSP, negative, or many-file proof. Read `algorithm.md` first. This bridges `workflow-local.md` and `workflow-external.md`.
+Use when no single surface can answer: a local clue points upstream, or remote code needs AST, LSP, negative, or many-file proof. Read `references/algorithm.md` first. This bridges `references/workflow-local.md` and `references/workflow-external.md`.
 
 ## Local -> External (enrich)
 - local dependency / error string / config key -> `npmSearch` or `ghSearchRepos` -> repo -> docs, tests, history.
 - "why is this code like this" -> `ghSearchCommits` on the path -> the PR behind the commit via `ghSearchPullRequests` (`reviewMode:"full"` for the whole story).
-- "has someone already solved this" -> `ghSearchRepos` triage -> external loop on the best candidates (`github-landscape.md` for ranking several).
+- "has someone already solved this" -> `ghSearchRepos` triage -> external loop on the best candidates (`references/github-landscape.md` for ranking several).
 
 ## External -> Local (materialize, then prove)
 One bridge call turns remote code into local-grade evidence; the full local loop then runs unmodified on the returned `localPath`.
@@ -23,4 +23,5 @@ CLI clone works by default; the MCP-server surface requires `ENABLE_CLONE=true` 
 ## The loop
 Loop local clue → external evidence → local proof until the claim reaches the strongest available grade. Check external facts against local reality and local upstream guesses against the source that shipped them.
 
-Validate: `node scripts/eval-research.mjs --case campaign-combination`.
+Next: run the local half with `references/workflow-local.md` and the remote half with `references/workflow-external.md`; once materialized, prove the claim through `references/code-research.md`; when a clone or run needs approval read the gates in `references/octocode.md`.
+

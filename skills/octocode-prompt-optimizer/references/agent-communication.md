@@ -39,3 +39,5 @@ Load when agents delegate, hand off ownership, work asynchronously, or expose ca
 - A2A, [Protocol specification](https://github.com/a2aproject/A2A/blob/main/docs/specification.md) — Agent Cards, Tasks, Messages, Artifacts, capability checks, authorization, and validation.
 - Model Context Protocol, [Tasks](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks) — task lifecycle support is experimental in the 2025-11-25 specification.
 - OpenAI Agents SDK, [composition patterns](https://openai.github.io/openai-agents-js/guides/agents/) and [handoffs](https://openai.github.io/openai-agents-js/guides/handoffs/) — manager versus ownership transfer and filtered/typed handoff inputs.
+
+Next: to type the packet this protocol carries load `references/zod-agent-contracts.md`; to bound what travels inside it load `references/context-budget.md`; when a remote Agent Card, message, or artifact must stay data load `references/untrusted-content.md`.

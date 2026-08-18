@@ -27,7 +27,7 @@ This skill makes the agent capture current-state evidence, compare viable option
 The workflow is:
 
 ```text
-UNDERSTAND -> RESEARCH (octocode) -> PREREQUISITES? -> COMPARE OPTIONS -> WRITE RFC -> CLOSE OPEN QUESTIONS (octocode) -> DERIVE KPIs -> VALIDATE -> DELIVER
+UNDERSTAND -> RESEARCH -> PREREQUISITES -> COMPARE -> WRITE -> CLOSE QUESTIONS -> KPI -> VALIDATE -> DELIVER
 ```
 
 The agent first clarifies the decision and the evidence surfaces. It gathers proof with Octocode, compares options, writes the RFC, closes every open question with a citation, derives measurable success criteria, validates, then delivers in chat or as an approved repo artifact.
@@ -62,4 +62,4 @@ npx octocode skill --name octocode-rfc-generator
 
 Keep this README focused on the decision-document story. Keep the detailed RFC structure, migration mechanics, and validation behavior in the agent-facing skill file and references.
 
-When changing this skill, edit the repo-root `skills/octocode-rfc-generator/` copy (canonical source), then run `node packages/octocode-pi-extension/scripts/build.mjs` to sync the pi-extension mirrors. Before reporting done, run `node scripts/eval-rfc.mjs --self-test` and the smoke prompts in `evals/prompts.md`, and run the skill linter until it reports 0 errors.
+When changing this skill, edit the repo-root `skills/octocode-rfc-generator/` copy (canonical source), then run `node packages/octocode-pi-extension/scripts/build.mjs` to sync the pi-extension mirrors. Before reporting done, run the skill linter until it reports 0 errors.

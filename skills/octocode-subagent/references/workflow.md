@@ -1,21 +1,10 @@
 # Workflow — GATE → ROUTE → RUN → VERIFY → REPORT
 
-Load for the full offload loop (beyond the lobby summary).
+Load when running the full local-offload loop (beyond the lobby summary). Why: each phase owns a gate, and a skipped one fails silently.
 
-## 1. GATE
+**1. GATE** — `./scripts/ollama-health.sh` → `ollama list` → `ollama show <MODEL>` when size/capabilities unclear → `ollama ps` to prefer already-warm for small tasks. Confirm low-risk and worth offload. For articles: source text already saved (or fetch it yourself) before invoke. Gate fail → stay solo.
 
-```bash
-./scripts/ollama-health.sh
-ollama list
-ollama show <MODEL>   # when size/capabilities unclear
-ollama ps             # prefer already-warm for small tasks
-```
-
-Confirm low-risk and worth offload. For articles: source text already saved (or fetch yourself) before invoke. Gate fail → stay solo.
-
-## 2. ROUTE
-
-Load `model-selection.md` (mandatory). Load `usage-matrix.md` / `decision-matrix.md` / `family-playbooks.md` only when needed. **Do not** load `ollama-local-models.md` on routine routing.
+**2. ROUTE** — load `references/model-selection.md` (mandatory); load `references/usage-matrix.md` / `references/decision-matrix.md` / `references/family-playbooks.md` only when needed. **Do not** load `references/ollama-local-models.md` on routine routing. Job → tier → smallest fitting installed chat model → prefer warm → skip embedders → `--think=false` for bulk.
 
 | Complexity | Volume | Action |
 |---|---|---|
@@ -23,32 +12,15 @@ Load `model-selection.md` (mandatory). Load `usage-matrix.md` / `decision-matrix
 | Low | Large | Offload |
 | Low | Small | Offload OK — prefer warm `small`/`balanced` |
 
-Job → tier → smallest fitting installed chat model → prefer warm → skip embedders → `--think=false` for bulk.
-
-## 3. RUN
-
+**3. RUN** — jobs: `summarize | extract | classify | draft | map | check | vision | translate`. Serving knobs (`keepalive`, `--format-json` + schema, `--temperature 0.2` for structured, `num_ctx` vs shard size): `references/ollama-invoke.md`. Long pages: shard → map → orchestrator reduce.
 ```bash
-./scripts/ollama-worker.sh \
-  --model "$OLLAMA_WORKER_MODEL" \
-  --think=false --keepalive 5m \
-  --job summarize \
-  --input /path/to/shard.txt \
-  --schema /path/to/schema-hint.txt \
-  --out .octocode/worker/shard-001.json
+./scripts/ollama-worker.sh --model "$OLLAMA_WORKER_MODEL" --think=false --keepalive 5m --job summarize \
+  --input /path/to/shard.txt --schema /path/to/schema-hint.txt --out .octocode/worker/shard-001.json
 ```
 
-Jobs: `summarize | extract | classify | draft | map | check | vision | translate`.
+**4. VERIFY** — load `references/verify-gate.md`. Never silent-accept. On fail: tighter packet **or** cascade once to stronger *installed* model **or** solo.
 
-Serving knobs: see `ollama-invoke.md` (`keepalive`, `--format-json` + schema, `--temperature 0.2` for structured, `num_ctx` vs shard size).
-
-Article schema: `evals/ollama/fixtures/schema-article-summarize.txt`. Long pages: shard → map → orchestrator reduce.
-
-## 4. VERIFY
-
-Load `verify-gate.md`. Never silent-accept. On fail: tighter packet **or** cascade once to stronger *installed* model **or** solo.
-
-## 5. REPORT
-
+**5. REPORT**
 ```text
 Offload: <job> → ollama/<exact-model> (tier: …) [size: small|large|article]
 Why this model: <inventory reason; warm?>
@@ -66,9 +38,7 @@ Kept on orchestrator: <fetch, merge, final claims, …>
 | Cold shards | `--keepalive`; prefer `ollama ps` warm |
 | Ungrounded quotes / bad paths | Discard; cascade or orchestrator redo |
 
-## Default job patterns
-
-Not an exclusive whitelist. See also `usage-matrix.md`.
+**Default job patterns** — not an exclusive whitelist; see also `references/usage-matrix.md`. **Never local:** architecture, security, auth, web browse, image generation, final verified claims.
 
 | Job | Local | Orchestrator |
 |---|---|---|
@@ -77,4 +47,4 @@ Not an exclusive whitelist. See also `usage-matrix.md`.
 | Translate / vision caption | Emit | Spot-check fidelity / pixels |
 | Draft / map-reduce | First pass / shards | Edit+tests / reduce |
 
-**Never local:** architecture, security, auth, web browse, image generation, final verified claims.
+Next: at ROUTE load `references/model-selection.md`; before integrating load `references/verify-gate.md`.

@@ -1,12 +1,12 @@
-# Octocode MCP Server
+# Octocode MCP server
 
-The Octocode MCP server exposes Octocode's research tools to AI coding clients through the Model Context Protocol over stdio. It is intentionally thin: the server registers schemas and transports requests, while the actual tool behavior lives in `@octocodeai/octocode-tools-core` and native primitives live in `@octocodeai/octocode-engine`.
+The Octocode MCP server exposes Octocode's research tools to AI coding clients through the Model Context Protocol over stdio. It is intentionally thin: the server registers schemas and transports requests, while tool behavior lives in `@octocodeai/octocode-tools-core` and native primitives live in `@octocodeai/octocode-engine`.
 
-Use this page for the MCP mental model, startup lifecycle, client configuration entry points, and session persistence. Use [Octocode Tools Reference](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_TOOLS.md) for every tool, [Configuration Reference](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md) for settings, and [Authentication](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md) for GitHub tokens and encrypted credential storage.
+Use this page for the MCP mental model, startup lifecycle, client configuration entry points, and session persistence. For every tool, see [Octocode tools reference](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_TOOLS.md). For settings, GitHub tokens, and encrypted credential storage, see [Octocode configuration and authentication](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md).
 
-## What MCP Adds
+## What MCP adds
 
-MCP gives assistants a stable tool catalog instead of asking them to shell out manually. In Octocode, MCP and CLI share the same schemas, runners, security validation, response envelope, pagination, and secret redaction path. That means a query researched through an assistant and a query run through `npx octocode tools ...` exercise the same core implementation.
+MCP gives assistants a stable tool catalog instead of making them shell out by hand. In Octocode, MCP and CLI share the same schemas, runners, security validation, response envelope, pagination, and secret redaction path. A query researched through an assistant and a query run through `npx octocode tools …` exercise the same core implementation.
 
 | Layer | Responsibility |
 |-------|----------------|
@@ -14,15 +14,15 @@ MCP gives assistants a stable tool catalog instead of asking them to shell out m
 | Tools core | GitHub/package/local/LSP runners, credentials, config, session, pagination, response shaping |
 | Engine | native ripgrep, structural AST search, minify/signatures, secret scan, LSP orchestration |
 
-## Quick Start
+## Quick start
 
-Install through the CLI helper when possible:
+Install through the CLI helper when you can:
 
 ```bash
 npx octocode install --ide cursor
 ```
 
-Or configure an MCP client directly, using `octocode-mcp`:
+Otherwise, configure an MCP client directly to run `octocode-mcp`:
 
 ```json
 {
@@ -35,11 +35,11 @@ Or configure an MCP client directly, using `octocode-mcp`:
 }
 ```
 
-Set tokens through environment variables or run `npx octocode auth login`. Do not put tokens in `.octocoderc`; see [Authentication](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md).
+Set tokens through environment variables or run `npx octocode auth login`. Don't put tokens in `.octocoderc`. For more information, see the [Authentication](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md#authentication) section of the configuration reference.
 
-## Startup Lifecycle
+## Startup lifecycle
 
-The MCP entrypoint follows this order:
+The MCP entrypoint runs these steps in order:
 
 ```text
 initialize
@@ -51,41 +51,64 @@ initialize
   -> stdio connect
 ```
 
-At startup, Octocode reads configuration from environment variables and `<octocode-home>/.octocoderc`, initializes local security and provider clients, loads tool metadata from `@octocodeai/octocode-core`, opens the session store, and registers the final enabled tool set. Actual GitHub token lookup is live per request, so changing an env token can affect the next API call even though the startup status log keeps its original token-source snapshot.
+At startup, Octocode reads configuration from environment variables and `<octocode-home>/.octocoderc`, initializes local security and provider clients, loads tool metadata from `@octocodeai/octocode-core`, opens the session store, and registers the final enabled tool set. Octocode looks the GitHub token up live on every request, so changing an environment token can affect the next API call even though the startup status log keeps its original token-source snapshot.
 
-## Tool Catalog
+## Tool catalog
 
-The MCP server registers the same **12** always-on research tools as the CLI tool runner:
+With no environment variables set, the MCP server registers 8 tools:
 
 | Family | Tools |
 |--------|-------|
-| GitHub | `ghSearchCode`, `ghGetFileContent`, `ghViewRepoStructure`, `ghSearchRepos`, `ghSearchPullRequests`, `ghSearchIssues`, `ghSearchCommits`, `ghListReleases` *(opt-in: `ENABLE_RELEASES`)*, `ghSearchDiscussions` *(opt-in: `ENABLE_DISCUSSIONS`)*, `ghCloneRepo` |
+| GitHub | `ghSearchCode`, `ghGetFileContent`, `ghViewRepoStructure`, `ghSearchRepos`, `ghSearchPullRequests`, `ghSearchIssues`, `ghSearchCommits` |
 | Package | `npmSearch` |
-| Local | `localSearchCode`, `localViewStructure`, `localFindFiles`, `localGetFileContent` |
-| LSP | `lspGetSemantics` |
 
-Every tool accepts bulk input via `queries` with up to 5 items. Responses use a structured bulk envelope with per-query success, empty, and error states, plus pagination hints when more content is available. See [Octocode Tools Reference](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_TOOLS.md).
+Three settings add the remaining 9 tools:
 
-## Configuration And Auth
+| Set | Adds | Total |
+|---|---|---:|
+| `ENABLE_LOCAL=true` | `localSearchCode`, `localViewStructure`, `localFindFiles`, `localGetFileContent`, `localFindDeadCode`, `lspGetSemantics` | 14 |
+| `ENABLE_CLONE=true` | `ghCloneRepo` (requires `ENABLE_LOCAL`) | 15 |
+| `ENABLE_RELEASES=1` or `ENABLE_DISCUSSIONS=1`, **and** `ENABLE_TOOLS` | `ghListReleases`, `ghSearchDiscussions` | 17 |
+
+The last row needs both settings because `ghListReleases` and `ghSearchDiscussions`
+carry `isDefault: false`: the feature flag adds the tool to the catalog, and the
+`ENABLE_TOOLS` allowlist is what registers it. Setting only the feature flag leaves
+the tool unregistered — a difference from the CLI, which needs the flag alone.
+
+```json
+{
+  "ENABLE_LOCAL": "true",
+  "ENABLE_CLONE": "true",
+  "ENABLE_RELEASES": "1",
+  "ENABLE_DISCUSSIONS": "1",
+  "ENABLE_TOOLS": "ghListReleases,ghSearchDiscussions"
+}
+```
+
+To read the live CLI catalog, run `octocode tools --json`.
+
+Every tool accepts bulk input through `queries`, with up to 5 items per call. Responses use a structured bulk envelope with per-query success, empty, and error states, plus pagination hints when more content is available. For more information, see the [Octocode tools reference](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_TOOLS.md).
+
+## Configuration and auth
 
 Use environment variables for per-client or per-project settings. Use `<octocode-home>/.octocoderc` for machine-level defaults. Environment variables win over file values.
 
-Important MCP settings:
+The following table lists the settings that matter most for MCP:
 
 | Setting | Why it matters |
 |---------|----------------|
 | `GITHUB_TOKEN` / `GH_TOKEN` / `OCTOCODE_TOKEN` | GitHub API auth. |
 | `GITHUB_API_URL` | GitHub Enterprise API endpoint. |
-| `ENABLE_LOCAL` | Enables local filesystem and LSP tools; defaults **off on the MCP server** — set `ENABLE_LOCAL=true` to enable. |
-| `ENABLE_CLONE` | Enables `ghCloneRepo` and directory materialization for MCP; must be `true` for clone workflows. |
+| `ENABLE_LOCAL` | Turns local filesystem and LSP tools on or off. A `tools/list` probe of the built MCP server registered them without the variable set, while the config resolver documents the MCP default as off. Set the value explicitly rather than relying on the default. |
+| `ENABLE_CLONE` | Turns on `ghCloneRepo` and directory materialization for MCP. Clone workflows require `true`. |
 | `TOOLS_TO_RUN`, `ENABLE_TOOLS`, `DISABLE_TOOLS` | Control which tools the MCP server registers. |
 | `WORKSPACE_ROOT`, `ALLOWED_PATHS` | Bound local path resolution and validation. |
 
-Full details live in [Configuration Reference](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md).
+For full details, see the [Octocode configuration and authentication](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md) reference.
 
-## Session Persistence
+## Session persistence
 
-`@octocodeai/octocode-tools-core/session` keeps lightweight runtime identity and usage stats across Octocode runs. It is intentionally small: one in-memory session, deferred disk writes, and synchronous flush on process exit.
+`@octocodeai/octocode-tools-core/session` keeps lightweight runtime identity and usage stats across Octocode runs. It stays small: one in-memory session, deferred disk writes, and a synchronous flush on process exit.
 
 ### Storage
 
@@ -94,9 +117,9 @@ Full details live in [Configuration Reference](https://github.com/bgauryy/octoco
 | `<octocode-home>/session.json` | Session identity | `version`, `sessionId`, `createdAt`, `lastActiveAt`. |
 | `<octocode-home>/stats.json` | Usage counters | Tool calls, errors, rate limits, char savings, cache hits, package registry failures. |
 
-`OCTOCODE_HOME` changes the base directory for both files. Without it, Octocode uses the platform default: macOS `~/.octocode`, Windows `%APPDATA%\octocode`, Linux `${XDG_CONFIG_HOME:-~/.config}/octocode`.
+`OCTOCODE_HOME` changes the base directory for both files. Without it, Octocode uses `.octocode` inside the OS home directory on every platform: `~/.octocode` on macOS and Linux, `%USERPROFILE%\.octocode` on Windows.
 
-### Data Model
+### Data model
 
 ```ts
 interface PersistedSession {
@@ -108,9 +131,9 @@ interface PersistedSession {
 }
 ```
 
-The runtime object includes `stats`; disk storage splits stats into `stats.json` so session identity can remain compact.
+The runtime object includes `stats`. On disk, Octocode splits stats into `stats.json` so session identity stays compact.
 
-### Write Strategy
+### Write strategy
 
 1. Read session once and keep it in memory.
 2. Mark the cache dirty when stats or timestamps change.
@@ -118,9 +141,9 @@ The runtime object includes `stats`; disk storage splits stats into `stats.json`
 4. Flush synchronously on `exit`, `SIGINT`, and `SIGTERM`.
 5. Write JSON through a temp file and atomic `rename()`.
 
-This avoids writing on every counter increment while still preserving data on normal shutdown.
+This avoids a write on every counter increment while still preserving data on normal shutdown.
 
-### Public Operations
+### Public operations
 
 | API | Behavior |
 |-----|----------|
@@ -136,19 +159,19 @@ This avoids writing on every counter increment while still preserving data on no
 | `flushSession()` / `flushSessionSync()` | Writes dirty cache to disk. |
 | `deleteSession()` | Clears cache and deletes session/stat files. |
 
-Testing helper: `_resetSessionState()` clears cache, timer, and exit handlers.
+Testing helper: `_resetSessionState()` clears the cache, the timer, and the exit handlers.
 
-### Failure Behavior
+### Failure behavior
 
 | Scenario | Behavior |
 |----------|----------|
 | Missing session file | Create a new session. |
 | Invalid session JSON/schema | Ignore the file and create a new session. |
 | Missing or invalid stats file | Use default zeroed stats. |
-| Write failure during normal flush | Error is logged by caller context when surfaced. |
-| Write failure during exit flush | Suppressed so shutdown can continue. |
+| Write failure during normal flush | The calling context logs the error when it surfaces. |
+| Write failure during exit flush | Octocode suppresses the error so shutdown continues. |
 
-### Design Rules
+### Design rules
 
 - Do not write session files directly from consumers.
 - Prefer increment helpers over manually building stats updates.
@@ -156,14 +179,14 @@ Testing helper: `_resetSessionState()` clears cache, timer, and exit handlers.
 - Call `flushSession()` in explicit shutdown paths when possible.
 - Use `_resetSessionState()` in tests that touch session state.
 
-### Related Documentation
+### Related documentation
 
-- [Credentials Architecture](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md#github-token)
-- [Tools Core package](https://github.com/bgauryy/octocode/blob/main/packages/octocode-tools-core/README.md)
+- [Token priority order](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md#token-priority-order)
+- [Tools core package](https://github.com/bgauryy/octocode/blob/main/packages/octocode-tools-core/README.md)
 
-## See Also
+## See also
 
-- [Octocode Tools Reference](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_TOOLS.md)
-- [Configuration Reference](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md)
-- [Authentication](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md)
-- [Octocode CLI Guide](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_CLI.md)
+- [Octocode tools reference](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_TOOLS.md)
+- [Octocode configuration and authentication](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md)
+- [Octocode CLI guide](https://github.com/bgauryy/octocode/blob/main/packages/octocode/docs/OCTOCODE_CLI.md)
+- [Security](https://github.com/bgauryy/octocode/blob/main/docs/SECURITY.md)
