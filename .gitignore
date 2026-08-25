@@ -51,9 +51,6 @@ autoresearch.*
 devScripts
 
 .agents
-# Generated from root README.md during package build/prepack
-/packages/*/README.md
-!/packages/octocode-awareness/README.md
 output
 __pycache__
 output
