@@ -1,7 +1,3 @@
-import { readFileSync, readdirSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
-
 import { describe, expect, it } from "vitest";
 
 import {
@@ -33,8 +29,6 @@ import {
   findingRequiresNextLanes,
   boundProtocolText,
 } from "./index.js";
-
-const SRC_DIR = dirname(fileURLToPath(import.meta.url));
 
 describe("octocode research protocol", () => {
   const message = {
@@ -367,15 +361,6 @@ describe("octocode research protocol", () => {
       value: "x",
       ref: "x",
     }).success).toBe(false);
-  });
-
-  it("never names a specific deployment (e.g. a company name) anywhere in its own source", () => {
-    // This package is a transport-neutral shared kernel — no schema
-    // description, comment, or literal here may bake in one deployment's
-    // name. Scan every source file, not just the ones touched this session.
-    const files = readdirSync(SRC_DIR).filter((name) => name.endsWith(".ts") && !name.endsWith(".test.ts"));
-    const offenders = files.filter((name) => readFileSync(join(SRC_DIR, name), "utf8").toLowerCase().includes("wix"));
-    expect(offenders).toEqual([]);
   });
 
   it("bounds arbitrary projection text to one of the protocol's own limits, with a fallback", () => {

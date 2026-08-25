@@ -6,29 +6,34 @@ This directory contains the active GitHub Actions workflows for the Octocode mon
 
 | Workflow | Trigger | Purpose |
 |---|---|---|
-| `ci.yml` | Pull requests | Repo health, lint, typecheck, build, test |
+| `ci.yml` | Pull requests, pushes to `main` | Docs, lint, build, verify outputs, typecheck, test for every package except `octocode-engine`/`octocode-benchmark` |
+| `engine.yml` | Pull requests/pushes touching `packages/octocode-engine/**` | Rust clippy, cargo tests, NAPI ABI drift guard, native-required vitest suite |
 
 ## CI (`ci.yml`)
 
-The pull request workflow runs two parallel jobs to minimize wall-clock time:
+The pull request workflow runs a single job (`ci`) in this order:
 
-1. `checks` — Health, Lint & Typecheck
-   Runs `yarn health:check`, `yarn docs:verify`, `yarn lint`, builds shared types, then `yarn typecheck`.
-2. `build-and-test` — Build & Test
-   Runs `yarn build`, verifies outputs, then `yarn test` and uploads per-package coverage artifacts.
+1. `yarn docs:verify`
+2. `yarn lint:ci`
+3. `yarn build:ci`
+4. `node scripts/workspace-health.mjs check-outputs`
+5. `yarn typecheck:ci`
+6. `yarn test:ci`, then uploads per-package coverage artifacts
+
+The `:ci`-suffixed scripts exclude `octocode-engine` (Rust/native, covered by `engine.yml` instead) and `octocode-benchmark`. Each of them also runs the same workspace script-contract check as `yarn health:check` (every package must declare `build`/`lint`/`test`/`typecheck`/`verify`) as a side effect of `scripts/workspace-health.mjs run <script>`, so there's no separate health step to run.
 
 Useful local commands before opening a PR:
 
 ```bash
-yarn health:check
 yarn docs:verify
-yarn lint
-yarn typecheck
-yarn build
-yarn test
+yarn lint:ci
+yarn build:ci
+node scripts/workspace-health.mjs check-outputs
+yarn typecheck:ci
+yarn test:ci
 ```
 
-If you want the full repo contract in one command, run:
+If you want the full repo contract (including `octocode-engine`/`octocode-benchmark`) in one command, run:
 
 ```bash
 yarn verify
