@@ -31,6 +31,7 @@ export const paths = {
   tmp: join(OCTOCODE_HOME, 'tmp'),
   clone: join(OCTOCODE_HOME, 'tmp', 'clone'),
   tree: join(OCTOCODE_HOME, 'tmp', 'tree'),
+  response: join(OCTOCODE_HOME, 'tmp', 'response'),
   repos: join(OCTOCODE_HOME, 'tmp', 'clone'),
   cliConfig: join(OCTOCODE_HOME, 'config.json'),
   lspConfig: join(OCTOCODE_HOME, 'lsp-servers.json'),

@@ -1,7 +1,4 @@
-import {
-  McpServer,
-  RegisteredTool,
-} from '@modelcontextprotocol/sdk/server/mcp.js';
+import { McpServer, RegisteredTool } from '@modelcontextprotocol/server';
 import type {
   ToolConfig,
   ToolInvocationCallback,
@@ -10,6 +7,7 @@ import type {
 import {
   ALL_TOOLS as CORE_ALL_TOOLS,
   STATIC_TOOL_NAMES,
+  LOCAL_ANALYZE_GRAPH_TOOL_NAME,
   LSP_GET_SEMANTICS_TOOL_NAME,
   DEFAULT_TOOL_METADATA_GATEWAY,
   getDescription,
@@ -31,7 +29,7 @@ import { registerGitHubCloneRepoTool } from './github_clone_repo/github_clone_re
 import { registerLocalRipgrepTool } from './local_ripgrep/register.js';
 import { registerLocalViewStructureTool } from './local_view_structure/register.js';
 import { registerLocalFindFilesTool } from './local_find_files/register.js';
-import { registerLocalFindDeadCodeTool } from './local_dead_code/register.js';
+import { registerLocalAnalyzeGraphTool } from './local_analyze_graph/register.js';
 import { registerLocalFetchContentTool } from './local_fetch_content/register.js';
 import { registerLspGetSemanticsTool } from './lsp/semantic_content/register.js';
 
@@ -67,7 +65,7 @@ const MCP_FN_MAP: Record<string, McpToolConfig['fn']> = {
   [STATIC_TOOL_NAMES.LOCAL_RIPGREP]: registerLocalRipgrepTool,
   [STATIC_TOOL_NAMES.LOCAL_VIEW_STRUCTURE]: registerLocalViewStructureTool,
   [STATIC_TOOL_NAMES.LOCAL_FIND_FILES]: registerLocalFindFilesTool,
-  [STATIC_TOOL_NAMES.LOCAL_FIND_DEAD_CODE]: registerLocalFindDeadCodeTool,
+  [LOCAL_ANALYZE_GRAPH_TOOL_NAME]: registerLocalAnalyzeGraphTool,
   [STATIC_TOOL_NAMES.LOCAL_FETCH_CONTENT]: registerLocalFetchContentTool,
   [LSP_GET_SEMANTICS_TOOL_NAME]: registerLspGetSemanticsTool,
 };
@@ -107,9 +105,7 @@ export const LOCAL_VIEW_STRUCTURE = requireTool(
   STATIC_TOOL_NAMES.LOCAL_VIEW_STRUCTURE
 );
 export const LOCAL_FIND_FILES = requireTool(STATIC_TOOL_NAMES.LOCAL_FIND_FILES);
-export const LOCAL_FIND_DEAD_CODE = requireTool(
-  STATIC_TOOL_NAMES.LOCAL_FIND_DEAD_CODE
-);
+export const LOCAL_ANALYZE_GRAPH = requireTool(LOCAL_ANALYZE_GRAPH_TOOL_NAME);
 export const LOCAL_FETCH_CONTENT = requireTool(
   STATIC_TOOL_NAMES.LOCAL_FETCH_CONTENT
 );

@@ -15,8 +15,8 @@ import {
   LocalFetchContentBulkQuerySchema,
   LocalFindFilesQuerySchema,
   LocalFindFilesBulkQuerySchema,
-  LocalFindDeadCodeQuerySchema,
-  LocalFindDeadCodeBulkQuerySchema,
+  LocalAnalyzeGraphQuerySchema,
+  LocalAnalyzeGraphBulkQuerySchema,
   LocalRipgrepQuerySchema,
   LocalRipgrepBulkQuerySchema,
   LocalViewStructureQuerySchema,
@@ -53,7 +53,7 @@ import { exploreMultipleRepositoryStructures } from './github_view_repo_structur
 import { searchPackages } from './package_search/execution.js';
 import { executeFetchContent } from './local_fetch_content/execution.js';
 import { executeFindFiles } from './local_find_files/execution.js';
-import { executeFindDeadCode } from './local_dead_code/execution.js';
+import { executeAnalyzeGraph } from './local_analyze_graph/execution.js';
 import { executeRipgrepSearch } from './local_ripgrep/execution.js';
 import { executeViewStructure } from './local_view_structure/execution.js';
 import { executeLspGetSemantics } from './lsp/semantic_content/execution.js';
@@ -92,7 +92,7 @@ interface ToolCatalog {
   LOCAL_RIPGREP: ToolConfig;
   LOCAL_VIEW_STRUCTURE: ToolConfig;
   LOCAL_FIND_FILES: ToolConfig;
-  LOCAL_FIND_DEAD_CODE: ToolConfig;
+  LOCAL_ANALYZE_GRAPH: ToolConfig;
   LOCAL_FETCH_CONTENT: ToolConfig;
   LSP_GET_SEMANTIC_CONTENT: ToolConfig;
   ALL_TOOLS: ToolConfig[];
@@ -246,6 +246,7 @@ function createToolCatalog(
       schema: CloneRepoQueryLocalSchema,
       inputSchema: BulkCloneRepoLocalSchema,
       executionFn: executeCloneRepo,
+      timeoutMs: 150_000,
       ...REMOTE_DIRECT,
     },
   });
@@ -286,14 +287,14 @@ function createToolCatalog(
     },
   });
 
-  const LOCAL_FIND_DEAD_CODE = createTool(gateway, 'LOCAL_FIND_DEAD_CODE', {
+  const LOCAL_ANALYZE_GRAPH = createTool(gateway, 'LOCAL_ANALYZE_GRAPH', {
     isDefault: true,
     isLocal: true,
     type: 'search',
     direct: {
-      schema: LocalFindDeadCodeQuerySchema,
-      inputSchema: LocalFindDeadCodeBulkQuerySchema,
-      executionFn: executeFindDeadCode,
+      schema: LocalAnalyzeGraphQuerySchema,
+      inputSchema: LocalAnalyzeGraphBulkQuerySchema,
+      executionFn: executeAnalyzeGraph,
       security: 'basic',
     },
   });
@@ -341,7 +342,7 @@ function createToolCatalog(
     LOCAL_RIPGREP,
     LOCAL_VIEW_STRUCTURE,
     LOCAL_FIND_FILES,
-    LOCAL_FIND_DEAD_CODE,
+    LOCAL_ANALYZE_GRAPH,
     LOCAL_FETCH_CONTENT,
     LSP_GET_SEMANTIC_CONTENT,
   ];
@@ -361,7 +362,7 @@ function createToolCatalog(
     LOCAL_RIPGREP,
     LOCAL_VIEW_STRUCTURE,
     LOCAL_FIND_FILES,
-    LOCAL_FIND_DEAD_CODE,
+    LOCAL_ANALYZE_GRAPH,
     LOCAL_FETCH_CONTENT,
     LSP_GET_SEMANTIC_CONTENT,
     ALL_TOOLS,
@@ -386,7 +387,7 @@ export const GITHUB_CLONE_REPO = DEFAULT_TOOL_CATALOG.GITHUB_CLONE_REPO;
 export const LOCAL_RIPGREP = DEFAULT_TOOL_CATALOG.LOCAL_RIPGREP;
 export const LOCAL_VIEW_STRUCTURE = DEFAULT_TOOL_CATALOG.LOCAL_VIEW_STRUCTURE;
 export const LOCAL_FIND_FILES = DEFAULT_TOOL_CATALOG.LOCAL_FIND_FILES;
-export const LOCAL_FIND_DEAD_CODE = DEFAULT_TOOL_CATALOG.LOCAL_FIND_DEAD_CODE;
+export const LOCAL_ANALYZE_GRAPH = DEFAULT_TOOL_CATALOG.LOCAL_ANALYZE_GRAPH;
 export const LOCAL_FETCH_CONTENT = DEFAULT_TOOL_CATALOG.LOCAL_FETCH_CONTENT;
 export const LSP_GET_SEMANTIC_CONTENT =
   DEFAULT_TOOL_CATALOG.LSP_GET_SEMANTIC_CONTENT;

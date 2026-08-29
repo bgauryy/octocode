@@ -4,8 +4,8 @@
 presentation layer: it parses input, routes to a handler, and renders output.
 At source/build time, all tool logic — schemas, execution, pagination,
 security — comes from `@octocodeai/octocode-tools-core` (which in turn calls the
-native `@octocodeai/octocode-engine` and reads metadata from
-`@octocodeai/octocode-core`). Nothing in this package shapes tool data; it only
+native `@octocodeai/octocode-engine`, owns tool schemas/descriptions, and reads
+the shared system prompt from `@octocodeai/octocode-core`). Nothing in this package shapes tool data; it only
 formats it for a terminal.
 
 ## Boundary

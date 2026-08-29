@@ -17,7 +17,33 @@ OCTOCODE_TRUST_PROJECT_LSP_CONFIG=1 \
 node packages/octocode-mcp/dist/index.js
 ```
 
-The per-tool notes below do not yet cover `localFindDeadCode` or `ghSearchDiscussions`.
+The audit covers all 15 default tools and both opt-in tools.
+
+## 2026-08-28 complete contract audit
+
+Scores combine schema clarity, response boundedness, workflow alignment, and exercised behavior. They are comparative routing scores, not claims that every backlog item is complete.
+
+| Tool | Score | Best workflow role |
+|---|---:|---|
+| `localGetFileContent` | 9.4 | bounded exact local evidence |
+| `localSearchCode` | 9.3 | text, regex, and structural discovery |
+| `lspGetSemantics` | 9.2 | semantic identity and impact proof |
+| `localAnalyzeGraph` | 9.1 | bounded file-topology questions |
+| `localViewStructure` | 9.0 | cheapest local orientation |
+| `localFindFiles` | 8.9 | metadata and filename discovery |
+| `ghSearchPullRequests` | 8.9 | PR search and selected detail |
+| `ghSearchCommits` | 8.8 | history and ref comparison |
+| `ghGetFileContent` | 8.8 | exact remote evidence |
+| `ghCloneRepo` | 8.8 | remote-to-local escalation |
+| `ghSearchIssues` | 8.7 | issue search and selected detail |
+| `ghSearchCode` | 8.8 | remote code/path candidates |
+| `npmSearch` | 8.6 | package-to-source routing |
+| `ghViewRepoStructure` | 8.6 | remote tree orientation |
+| `ghListReleases` *(opt-in)* | 8.5 | release chronology |
+| `ghSearchRepos` | 8.4 | repository discovery |
+| `ghSearchDiscussions` *(opt-in)* | 8.2 | repository discussion context |
+
+Audit changes accepted: compact and full schemas now expose conditional `relations`; every graph operation has a strict-valid command pattern; local examples use absolute placeholders; opt-in issue/release/discussion modes have hand-authored patterns; graph pagination defaults to the schema maximum of 50; entrypoint summaries cap at 50 and report count/truncation. The remaining suite-wide work is response evidence/diagnostic normalization, not another public-tool merge.
 
 ## Standard agent workflow
 
@@ -33,13 +59,16 @@ Use this workflow by default. It keeps cost low, raises proof quality step by st
 3. Inspect exact evidence
    localGetFileContent / ghGetFileContent
 
-4. Prove identity or impact
+4. Map repository topology when the question requires it
+   localAnalyzeGraph for dependencies, dependents, paths, cycles, reachability, or dead-code candidates
+
+5. Prove symbol identity or impact
    lspGetSemantics for definitions, references, hover, callers/callees, diagnostics
 
-5. Escalate remote to local when needed
+6. Escalate remote to local when needed
    ghCloneRepo -> localViewStructure -> localSearchCode -> localGetFileContent -> lspGetSemantics
 
-6. Synthesize with evidence status
+7. Synthesize with evidence status
    Mark every claim as: orientation, candidate, exact text, semantic proof, or historical proof.
 ```
 
@@ -50,6 +79,7 @@ localViewStructure(path)
   -> localFindFiles(path, names/extensions/metadata)
   -> localSearchCode(path, text/regex/AST)
   -> localGetFileContent(path, line range or matchString)
+  -> localAnalyzeGraph(operation) when repository topology matters
   -> lspGetSemantics(uri, symbolName, lineHint)
 ```
 
@@ -60,7 +90,20 @@ Rules:
 - Use `localSearchCode(mode:"structural")` for code shape.
 - If structural `pattern` returns zero, try a YAML `rule`.
 - Use `localGetFileContent(minify:"symbols")` before reading large files.
+- Use graph `dependents`/`path` for file impact, `cycles`/`reachability` for architecture, and `deadCode` only as a candidate generator.
+- Treat graph import edges as syntactic evidence; use LSP for symbol identity.
 - Use LSP only after anchoring a real symbol line from search/symbols.
+
+Graph operation routing:
+
+| Question | Operation | Required operation fields |
+|---|---|---|
+| imports of a file | `dependencies` | `file`; optional `depth` |
+| importers of a file | `dependents` | `file`; optional `depth` |
+| shortest directed import route | `path` | `file`, `target` |
+| strongly connected file components | `cycles` | none beyond `path` root |
+| entrypoint reachability | `reachability` | optional `entrypoints`, `includeTests` |
+| dead-code candidates | `deadCode` | optional `entrypoints`, `includeTests` |
 
 ### Default GitHub workflow
 
@@ -139,6 +182,8 @@ Expected chains:
 | `localFindFiles` file | `localGetFileContent`, `localSearchCode` scoped to the file/directory. |
 | `localViewStructure` file | `localGetFileContent`. |
 | `localViewStructure` directory | deeper `localViewStructure`, `localFindFiles`, `localSearchCode`. |
+| `localAnalyzeGraph` topology result | `localGetFileContent` around exact imports; `lspGetSemantics` when symbol identity matters. |
+| `localAnalyzeGraph` dead-code candidate | `localGetFileContent`, LSP references excluding declaration, broad search, tests/build. |
 | `ghSearchCode` hit | `ghGetFileContent`, `ghViewRepoStructure`, `ghCloneRepo`. |
 | `ghSearchRepos` repository | `ghViewRepoStructure`, `ghSearchCode`, `ghCloneRepo`. |
 | `ghViewRepoStructure` file | `ghGetFileContent`. |
@@ -247,6 +292,7 @@ evidence: {
 | `localSearchCode` text hit | `exact-text` for snippet presence, not symbol identity | `lspGetSemantics`. |
 | `localSearchCode` structural hit | `candidate` to `exact-text` depending row | `localGetFileContent`, then `lspGetSemantics`. |
 | `localGetFileContent` | `exact-text` | `lspGetSemantics` for identity/impact. |
+| `localAnalyzeGraph` | `candidate` file-topology evidence | exact import reads; LSP for symbol identity; tests/build before deletion. |
 | `lspGetSemantics` | `semantic-proof` | read reference/caller lines for quotes. |
 | `ghSearchRepos` | `orientation` | `ghViewRepoStructure`/`ghSearchCode`. |
 | `npmSearch` | `package-metadata` | GitHub tools or clone. |
@@ -437,6 +483,37 @@ Improvements:
 3. Make pagination/large-tree narrowing more prominent.
 4. Clarify `pattern` is name/path filtering, not content search.
 5. Emit evidence level `orientation`.
+
+### `localAnalyzeGraph`
+
+Role: answer bounded repository file-graph questions through one operation-discriminated tool.
+
+Best for:
+
+- Traversing dependencies or dependents and finding the shortest import path.
+- Finding strongly connected file components and entrypoint reachability.
+- Producing repository-wide dead-code candidates for semantic verification.
+
+Depth/alignment/quality:
+
+- Depth: **9.0/10**
+- Alignment: **9.4/10**
+- Quality: **9.1/10**
+
+Current strengths:
+
+- One lean public surface covers six related graph operations without an unbounded graph query language.
+- Full JSON Schema preserves operation-specific required fields.
+- Results are paginated and nested paths/components are capped with truncation metadata.
+- Syntactic confidence and LSP verification hints prevent dead-code candidates from becoming deletion verdicts.
+
+Improvements:
+
+1. Keep the compact `relations` contract and all six operation examples covered by tests.
+2. Keep entrypoint summaries bounded and retain count/truncation metadata.
+3. Reuse one graph build across batched operations sharing path/exclusions/file cap.
+4. Expand edge provenance beyond static/dynamic imports to named/star re-exports, calls, and containment where available.
+5. Add a continuation for truncated SCC/dead-cluster members only when real workflows require the full component.
 
 ### `ghSearchCode`
 

@@ -1,8 +1,10 @@
-import { completeMetadata } from '@octocodeai/octocode-core';
+import { toolNames } from '../toolContract/resources/global.js';
+export { LOCAL_ANALYZE_GRAPH_TOOL_NAME } from '../toolContract/resources/tools/localAnalyzeGraph.js';
+import { LOCAL_ANALYZE_GRAPH_TOOL_NAME } from '../toolContract/resources/tools/localAnalyzeGraph.js';
 
-export const STATIC_TOOL_NAMES = completeMetadata.toolNames;
+export const STATIC_TOOL_NAMES = toolNames;
 
-// Derived from core — single source of truth, drift-proof.
+// Derived from the repository-owned contract — single source of truth.
 export const LSP_GET_SEMANTICS_TOOL_NAME =
   STATIC_TOOL_NAMES.LSP_GET_SEMANTIC_CONTENT;
 
@@ -31,6 +33,7 @@ const LOCAL_TOOL_NAMES_SET = new Set<string>([
   STATIC_TOOL_NAMES.LOCAL_FETCH_CONTENT,
   STATIC_TOOL_NAMES.LOCAL_FIND_FILES,
   STATIC_TOOL_NAMES.LOCAL_VIEW_STRUCTURE,
+  LOCAL_ANALYZE_GRAPH_TOOL_NAME,
   LSP_GET_SEMANTICS_TOOL_NAME,
 ]);
 

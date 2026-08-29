@@ -12,9 +12,9 @@ Flow: `SKELETON → CONTRACTS → BLAST → PLAN → EXECUTE → VERIFY → CLEA
 Scale execution, not evidence quality.
 
 ## Proof before edits
-1. Skeleton: map roots and hotspots with structure/files; inspect symbols on entry points and move targets.
+1. Skeleton: map roots/hotspots with structure/files; use graph dependencies/dependents/reachability for file topology and inspect symbols on entry points/move targets.
 2. Contracts: freeze public exports, types, schemas, flags, tool names, env keys, serialized shapes, tests, and package boundaries.
-3. Blast: combine semantic references/callers with lexical or structural search across code, tests, scripts, configs, and docs.
+3. Blast: combine graph dependents/path/cycles with semantic references/callers and lexical/structural search across code, tests, scripts, configs, and docs.
 4. Gate: confirm the plan before public rename/delete, cross-package edges, or many consumers.
 Record one invariant list and a task ledger with files, contract risk, verification, and rollback.
 
@@ -29,7 +29,7 @@ Shared repository: declare wide moves and path ownership before parallel edits.
 ## Verify and report
 - S: targeted unit/type check.
 - M: package test plus typecheck/lint.
-- L: leaves, dependents, root build, diagnostics on moved roots, and final search for old paths/names.
+- L: graph dependents/cycles/reachability, root build, diagnostics on moved roots, and final search for old paths/names.
 On failure, read the failing path and patch only the cause; shifting evidence routes to `references/loop-mode.md`.
 Delete only after the dead-code proof in `references/code-research.md`.
 

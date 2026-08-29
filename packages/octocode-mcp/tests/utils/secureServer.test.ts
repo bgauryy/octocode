@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
+import { McpServer, ProtocolErrorCode } from '@modelcontextprotocol/server';
+import type { CallToolResult } from '@modelcontextprotocol/server';
 import { withOutputSanitization } from '../../src/utils/secureServer.js';
 import {
   buildToolErrorResult,
@@ -220,9 +220,13 @@ describe('secureServer', () => {
 
       proxy.registerTool('myTool', {} as never, rawHandler as never);
       const args = { query: 'test' };
-      const extra = { authInfo: { sub: 'user' }, sessionId: 'sid-1' };
-      await capturedCb(args, extra);
-      expect(rawHandler).toHaveBeenCalledWith(args, extra);
+      const context = {
+        http: { authInfo: { sub: 'user' } },
+        sessionId: 'sid-1',
+        mcpReq: { signal: new AbortController().signal },
+      };
+      await capturedCb(args, context);
+      expect(rawHandler).toHaveBeenCalledWith(args, context);
     });
 
     it('should pass through clean results without modification', async () => {
@@ -302,7 +306,7 @@ describe('secureServer', () => {
         expect(result).toEqual(ok);
       });
 
-      it('re-throws a sanitized McpError when a resource handler throws', async () => {
+      it('re-throws a sanitized ProtocolError when a resource handler throws', async () => {
         const handler = vi.fn().mockRejectedValue(new Error('disk on fire'));
         proxy.registerResource(
           'doc',
@@ -314,6 +318,8 @@ describe('secureServer', () => {
         await expect(
           captured.resource!(new URL('file:///x'), {})
         ).rejects.toMatchObject({
+          name: 'ProtocolError',
+          code: ProtocolErrorCode.InternalError,
           message: expect.stringContaining('resource "doc" failed'),
         });
       });

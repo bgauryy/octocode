@@ -48,7 +48,7 @@ secret regex catalog. Rust is tested with `cargo test`; the TS wrappers with
 ## Research Graph Direction
 
 Reachability/dead-code detection lives today in
-`octocode-tools-core/src/tools/local_dead_code/` (the `localFindDeadCode` MCP
+`octocode-tools-core/src/tools/local_analyze_graph/` (the `localAnalyzeGraph` MCP
 tool), consuming this engine's per-file facts rather than tool-specific regex
 logic:
 
@@ -56,20 +56,20 @@ logic:
   tree-sitter) parses files through the shared grammar registry and extracts
   AST facts for declarations, imports, exports, calls, classes, and functions,
   normalized into common symbol/relation facts;
-- `local_dead_code/graphBuilder.ts` calls the native `extractGraphFacts`
+- `src/graph/buildFileGraph.ts` calls the native `extractGraphFacts`
   binding (`bindings/signatures.rs`) for every scanned file and connects facts
   into file/symbol/dependency graph nodes and edges;
-- `local_dead_code/reachability.ts` runs BFS reachability and iterative
+- `src/graph/reachability.ts` runs BFS reachability and iterative
   Tarjan's SCC (`dead-cluster` verdicts for mutually-referencing-but-unreachable
   file clusters); `deadCodeScan.ts` performs transitive-dead pruning.
 
 LSP remains the semantic proof layer for cross-file identity, references,
 definitions, implementations, callers, callees, and call hierarchy. Text/ripgrep
-is discovery only; `local_dead_code` output is candidate-grade and must be
+is discovery only; `localAnalyzeGraph` output is candidate-grade and must be
 confirmed with `lspGetSemantics` before a deletion claim, matching that rule.
 
 **Note:** `signatures/graph_facts.rs`/`extractGraphFacts` has a live consumer
-(`local_dead_code/graphBuilder.ts`) — it is not orphaned. A native Rust port of
+(`src/graph/buildFileGraph.ts`) — it is not orphaned. A native Rust port of
 the graph algorithms above (reachability/SCC/retainer-lookup/pruning) was
 scoped in `docs/NATIVE_GRAPH_DOMAIN_SCOPE.md` but is superseded by this
 TypeScript implementation; see that doc's status before reviving the idea.

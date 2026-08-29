@@ -1,4 +1,4 @@
-import { CallToolResult } from '@modelcontextprotocol/sdk/types';
+import { CallToolResult } from '@modelcontextprotocol/server';
 import { incrementToolCharSavings } from '../../../shared/index.js';
 import {
   cleanJsonObject,
@@ -8,6 +8,7 @@ import {
 import type {
   ProcessedBulkResult,
   FlatQueryResult,
+  EvidenceKind,
   QueryError,
 } from '../../../types/toolResults.js';
 import type {
@@ -67,7 +68,14 @@ function createBulkResponse<
   pagination?: BulkResponsePagination
 ): CallToolResult {
   const topLevelFields = ['results', 'base', 'shared'];
-  const resultFields = ['id', 'status', 'data'];
+  const resultFields = [
+    'id',
+    'status',
+    'meta',
+    'evidence',
+    'diagnostics',
+    'data',
+  ];
   const fullKeysPriority = [
     ...new Set([
       ...topLevelFields,
@@ -84,12 +92,14 @@ function createBulkResponse<
 
   results.forEach(r => {
     const status = r.result.status;
+    const data = extractToolData(r.result);
     orderedQueries[r.queryIndex] = {
       id:
         uniqueQueryIds[r.queryIndex] ??
         resolveQueryId(r.originalQuery, r.queryIndex),
       ...(status !== undefined ? { status } : {}),
-      data: extractToolData(r.result),
+      meta: buildToolResultMeta(config.toolName, r.originalQuery, data, status),
+      data,
     };
   });
 
@@ -102,6 +112,12 @@ function createBulkResponse<
         uniqueQueryIds[err.queryIndex] ??
         resolveQueryId(originalQuery, err.queryIndex),
       status: 'error',
+      meta: buildToolResultMeta(
+        config.toolName,
+        originalQuery,
+        { error: err.error },
+        'error'
+      ),
       data: { error: err.error },
     };
   });
@@ -118,7 +134,7 @@ function createBulkResponse<
     });
     const paginated = paginateBulkText(finalized.text, pagination);
     const structuredContent = appendResponsePagination(
-      finalized.structuredContent,
+      attachFinalizedResultMeta(finalized.structuredContent, flatQueries),
       paginated.pagination
     );
     recordBulkCharSavings(
@@ -181,6 +197,82 @@ function createBulkResponse<
       flatQueries.length > 0 &&
       flatQueries.every(queryResult => queryResult.status === 'error'),
   };
+}
+
+function attachFinalizedResultMeta<TOutput extends Record<string, unknown>>(
+  structuredContent: TOutput,
+  sourceRows: FlatQueryResult[]
+): TOutput {
+  if (!Array.isArray(structuredContent.results)) return structuredContent;
+  const byId = new Map(sourceRows.map(row => [row.id, row]));
+  const results = structuredContent.results.map((value, index) => {
+    if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+      return value;
+    }
+    const row = value as Record<string, unknown>;
+    const source =
+      (typeof row.id === 'string' ? byId.get(row.id) : undefined) ??
+      sourceRows[index];
+    return source && row.meta === undefined
+      ? { ...row, meta: source.meta }
+      : row;
+  });
+  return { ...structuredContent, results };
+}
+
+export function buildToolResultMeta(
+  toolName: string,
+  query: object,
+  data: Record<string, unknown>,
+  status?: 'empty' | 'error'
+): FlatQueryResult['meta'] {
+  const kind = inferEvidenceKind(toolName, query);
+  const reportedConfidence = data.confidence;
+  const confidence =
+    status === 'error' || reportedConfidence === 'low'
+      ? 'low'
+      : reportedConfidence === 'high' || reportedConfidence === 'medium'
+        ? reportedConfidence
+        : kind === 'provider' || kind === 'lexical' || kind === 'syntactic'
+          ? 'medium'
+          : 'high';
+  const codes =
+    typeof data.errorCode === 'string' ? [data.errorCode] : undefined;
+  const pagination =
+    data.pagination && typeof data.pagination === 'object'
+      ? (data.pagination as Record<string, unknown>)
+      : undefined;
+  const partial =
+    data.truncated === true ||
+    data.isPartial === true ||
+    pagination?.hasMore === true;
+  // Existing result/finalizer hints remain in their established location.
+  // Copying them into metadata doubles response bytes without adding evidence.
+  const hasDiagnostics = (codes?.length ?? 0) > 0 || partial;
+
+  return {
+    evidence: { kind, confidence },
+    ...(hasDiagnostics
+      ? {
+          diagnostics: {
+            ...(codes ? { codes } : {}),
+            ...(partial ? { partial: true } : {}),
+          },
+        }
+      : {}),
+  };
+}
+
+function inferEvidenceKind(toolName: string, query: object): EvidenceKind {
+  if (toolName === 'localAnalyzeGraph') return 'syntactic';
+  if (toolName === 'lspGetSemantics') return 'semantic';
+  if (toolName === 'localSearchCode') {
+    return (query as Record<string, unknown>).mode === 'structural'
+      ? 'structural'
+      : 'lexical';
+  }
+  if (toolName.startsWith('gh') || toolName === 'npmSearch') return 'provider';
+  return 'exact';
 }
 
 function recordBulkCharSavings(

@@ -19,6 +19,7 @@ import {
 import { getInputText, validateRawToolFootguns } from './input.js';
 import {
   printJsonPayload,
+  printMultipleToolSchemasJson,
   printToolCatalogJson,
   printToolSchemaJson,
 } from './catalog-json.js';
@@ -125,7 +126,14 @@ export async function executeToolCommand(args: ParsedArgs): Promise<boolean> {
     typeof args.options.queries !== 'string' &&
     args.args.every(n => findToolDefinition(n) !== undefined)
   ) {
-    await showMultipleToolSchemas(args.args);
+    if (args.options.json === true) {
+      await printMultipleToolSchemasJson(args.args, {
+        compact: args.options.compact === true,
+        pretty: args.options.pretty === true,
+      });
+    } else {
+      await showMultipleToolSchemas(args.args);
+    }
     return true;
   }
 

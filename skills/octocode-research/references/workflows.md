@@ -6,7 +6,7 @@ Load when the task is framed and classified and one route has to be picked. Why:
 
 | Route | Use it when | What it gives you |
 |---|---|---|
-| `references/workflow-local.md` | The running repo, checkout, artifact, or installed dependency is the source of truth | Local spine: tree → search → exact read → LSP. `node_modules` is ground truth for what actually runs |
+| `references/workflow-local.md` | The running repo, checkout, artifact, or installed dependency is the source of truth | Local spine: tree → search → exact read → graph for file topology → LSP for symbol identity. `node_modules` is ground truth for what runs |
 | `references/workflow-external.md` | The corpus is a remote repo, PR, package, or upstream dependency | Remote spine: discovery → structure → anchors → exact read → history. Treats GitHub zeros as provider blind spots, not absence |
 | `references/workflow-combination.md` | One surface can't answer — a local clue points upstream, or remote code needs AST/LSP/negative proof | The bridge: materialize remote code so the local loop runs on it unmodified |
 | `references/workflow-debug.md` | Something fails and you need the actual cause | Two-hypothesis discipline, divergence boundary, counterfactual proof, root-cause receipt |
@@ -46,4 +46,3 @@ Cross-task meta — planning, budgets, measuring progress, subagent fan-out: `re
 Routes hand off; they don't nest. Debug hands to Change once edits are authorized. Change hands to `references/loop-mode.md` when verification keeps failing. Refactor hands to Change if behavior has to move. Local and external cross-pollinate: local dependency, error, and config clues feed outward; upstream fixes and PR intent come back for local confirmation.
 
 Handoff receipt: `mode | scope | active/skipped surfaces | claims/evidence/confidence/gaps | verification | next`.
-

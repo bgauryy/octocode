@@ -39,7 +39,7 @@ Start with `references/algorithm.md` (routing, evidence grades) and `references/
 | Plan a coding flow, implement, migrate, patch behavior | `references/workflow-change.md` |
 | Reshape structure or names, keep behavior | `references/workflow-refactor.md` |
 | Validate after a change; review a PR or local diff | `references/workflow-pr-review.md` |
-| Trace connections — callers, imports, references, reachability | `references/code-research.md` |
+| Trace connections — callers, imports, dependency paths, cycles, reachability | `references/code-research.md` |
 
 Proof depth for any of them: `references/code-research.md`. General research — Map / Validate / Investigate / Plan across code, packages, docs, and history: `references/research-flow.md`.
 
@@ -51,15 +51,16 @@ Load a reference when the current step needs it. Loading all of them is a failur
 
 ## Tooling
 
-Prefer Octocode **MCP tools** when exposed. Otherwise `npx octocode tools <name>` — same 15 tools, same schemas, no loss.
+Prefer Octocode **MCP tools** when exposed. In this monorepo use the built local CLI; from an installed standalone skill use `npx octocode`. Both expose the same 17 public schemas, including availability metadata for gated tools.
 
 ```bash
-npx octocode context --minimal                         # what's available
-npx octocode tools <name> --scheme --json --compact    # read fields — never guess
-npx octocode tools <name> --queries '<json>' --compact # run it
+OCTO='node packages/octocode/out/octocode.js'          # monorepo; use npx octocode outside it
+$OCTO context --minimal                                # what's available
+$OCTO tools <name> --scheme --json --compact           # read fields — never guess
+$OCTO tools <name> --queries '<json>' --compact        # run it
 ```
 
-Batch up to five queries per call. Orient cheap (tree, discovery) before exact reads. Follow returned `next.*` and cursors instead of re-deriving them.
+Batch up to five queries per call. Orient cheap (tree, discovery) before exact reads. Use `localAnalyzeGraph` for repository file topology and LSP for symbol identity; follow returned `next.*` and cursors instead of re-deriving them.
 
 Read `references/octocode.md` when transport, tool choice, auth, gates (`ENABLE_LOCAL`, `ENABLE_CLONE`, `ENABLE_RELEASES`), materialization, diagnostics, or exit codes are unclear.
 

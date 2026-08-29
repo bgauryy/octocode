@@ -5,7 +5,11 @@ import {
   getDirectToolDescription,
   sortDirectToolNames,
 } from '@octocodeai/octocode-tools-core/schema';
-import { TOOL_DEFINITIONS, loadToolMetadata } from './registry.js';
+import {
+  TOOL_DEFINITIONS,
+  getToolAvailability,
+  loadToolMetadata,
+} from './registry.js';
 import { formatConciseToolDescription } from './formatting.js';
 
 export async function getToolsContextString(
@@ -31,7 +35,16 @@ export async function getToolsContextString(
       `Tools (${toolNames.length}):`,
     ];
     for (const [category, names] of byCategory) {
-      lines.push(`  ${category}: ${names.join(', ')}`);
+      lines.push(
+        `  ${category}: ${names
+          .map(name => {
+            const availability = getToolAvailability(name);
+            return availability.enabled
+              ? name
+              : `${name} [disabled: ${availability.envVar}]`;
+          })
+          .join(', ')}`
+      );
     }
     return lines.join('\n');
   }
@@ -156,12 +169,16 @@ export async function getToolsContextString(
     for (const toolName of inCategory) {
       toolIndex += 1;
       const description = getDirectToolDescription(toolName, metadata);
+      const availability = getToolAvailability(toolName);
+      const availabilitySuffix = availability.enabled
+        ? ''
+        : ` [disabled: set ${availability.envVar}=1]`;
       if (full) {
-        sections.push(`  ${toolIndex}. ${toolName}`);
+        sections.push(`  ${toolIndex}. ${toolName}${availabilitySuffix}`);
         sections.push(description.trim());
       } else {
         sections.push(
-          `  ${toolIndex}. ${toolName} — ${formatConciseToolDescription(toolName, metadata, 96)}`
+          `  ${toolIndex}. ${toolName}${availabilitySuffix} — ${formatConciseToolDescription(toolName, metadata, 96)}`
         );
       }
     }

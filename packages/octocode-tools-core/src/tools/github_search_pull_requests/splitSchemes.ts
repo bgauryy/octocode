@@ -10,7 +10,7 @@ import {
   SearchIssuesQuerySchema as CoreSearchIssuesQuerySchema,
   SearchCommitsQuerySchema as CoreSearchCommitsQuerySchema,
   ListReleasesQuerySchema as CoreListReleasesQuerySchema,
-} from '@octocodeai/octocode-core/schemas';
+} from '../../toolContract/schemas.js';
 import {
   GITHUB_SEARCH_DEFAULT_LIMIT,
   GITHUB_SEARCH_MAX_LIMIT,

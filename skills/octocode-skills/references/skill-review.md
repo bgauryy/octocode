@@ -17,8 +17,10 @@ Review is not a narrow syntax check. It judges whether the skill is efficient fo
 
 ```bash
 node scripts/skill-review.mjs                       # every skill under nearest skills/ root
+node scripts/skill-review.mjs ../skills             # every immediate child skill in a collection
 node scripts/skill-review.mjs ../some-skill         # one or more folders
 node scripts/skill-review.mjs ../some-skill --json  # machine-readable
+node scripts/skill-review.mjs --self-test            # collection/error/frontmatter regressions
 ```
 
 Exit `1` on any ERROR; WARN is advisory. Always run before reporting create/edit done; surface findings.

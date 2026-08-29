@@ -2,6 +2,24 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 const executeDirectTool = vi.fn();
 
+const { mockPaths, getDirectorySizeBytes } = vi.hoisted(() => ({
+  mockPaths: {
+    home: '/fake/octocode',
+    tmp: '/fake/octocode/tmp',
+    clone: '/fake/octocode/tmp/clone',
+    tree: '/fake/octocode/tmp/tree',
+    response: '/fake/octocode/tmp/response',
+    repos: '/fake/octocode/tmp/clone',
+  },
+  getDirectorySizeBytes: vi.fn((_path: string) => 1024),
+}));
+
+vi.mock('@octocodeai/octocode-tools-core/paths', () => ({ paths: mockPaths }));
+vi.mock('@octocodeai/octocode-tools-core/fs-utils', () => ({
+  getDirectorySizeBytes,
+  formatBytes: (bytes: number) => `${bytes} B`,
+}));
+
 vi.mock('@octocodeai/octocode-tools-core/direct', () => ({
   executeDirectTool: (...args: unknown[]) => executeDirectTool(...args),
 }));
@@ -95,6 +113,28 @@ describe('cache command', () => {
   afterEach(() => {
     vi.restoreAllMocks();
     process.exitCode = undefined;
+  });
+
+  it('cache status reports the shared response bucket and real tmp total', async () => {
+    getDirectorySizeBytes.mockImplementation((path: string) =>
+      path === mockPaths.tmp ? 4096 : 1024
+    );
+
+    await run(['status'], { json: true });
+
+    const parsed = JSON.parse(
+      String(vi.mocked(console.log).mock.calls.at(-1)?.[0])
+    ) as {
+      tmp: { sizeBytes: number };
+      response: { path: string; sizeBytes: number };
+    };
+    expect(parsed.tmp.sizeBytes).toBe(4096);
+    expect(parsed.response).toEqual({
+      path: mockPaths.response,
+      exists: false,
+      sizeBytes: 1024,
+      sizeFormatted: '1024 B',
+    });
   });
 
   it('cache fetch materializes a remote path and returns structured location data', async () => {

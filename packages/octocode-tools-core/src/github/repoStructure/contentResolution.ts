@@ -1,6 +1,6 @@
 import { RequestError } from 'octokit';
 import type { Octokit } from 'octokit';
-import { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types';
+import { AuthInfo } from '@modelcontextprotocol/server';
 import type {
   GitHubApiFileItem,
   GitHubRepositoryStructureError,

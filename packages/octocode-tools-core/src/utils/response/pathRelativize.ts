@@ -179,7 +179,7 @@ const HOIST_EXCLUDED_KEYS = new Set<string>([
   // validation and killed the whole batch with -32602.
   'type',
   // 'kind' and 'reason' are core per-item semantic data an agent reads on
-  // every row (localFindDeadCode deadExports {kind, reason}; lsp symbols
+  // every row (localAnalyzeGraph deadCode results {kind, reason}; lsp symbols
   // {kind}). When a whole list happens to be homogeneous (e.g. a low-confidence
   // dead-code scan where every entry is kind:"function"/reason:"unreachable-file")
   // hoisting them stripped the fields off every row into a stray top-level

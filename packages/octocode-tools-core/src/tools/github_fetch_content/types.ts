@@ -1,5 +1,5 @@
 import type { z } from 'zod';
-import type { FileContentQuerySchema } from '@octocodeai/octocode-core/schemas';
+import type { FileContentQuerySchema } from '../../toolContract/schemas.js';
 import type { MinifyMode } from '../../scheme/fields.js';
 
 type FileContentQuery = z.infer<typeof FileContentQuerySchema>;
@@ -62,8 +62,8 @@ export interface DirectoryFetchResult {
   complete: boolean;
   /** true = completeness was proven against the remote tree (fresh fetch + complete) */
   verified: boolean;
-  /** HEAD commit SHA at the time of fetch; absent on cache hits from legacy entries */
-  commitSha?: string;
+  /** Immutable commit identity used by repoRoot and localPath. */
+  commitSha: string;
   /** true when nonFile > 0 — subdirectory entries were present but not fetched; use ghCloneRepo for full coverage */
   hasSubdirectories?: boolean;
   directoryEntryCount: number;
@@ -103,4 +103,5 @@ export interface FileMaterializationResult {
   owner: string;
   repo: string;
   branch: string;
+  commitSha: string;
 }

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import type { McpServer } from '@modelcontextprotocol/server';
 import { registerTools } from '../../src/tools/toolsManager.js';
 
 vi.mock('../../../octocode-tools-core/src/serverConfig.js', () => ({

@@ -1,6 +1,6 @@
-import { type CallToolResult } from '@modelcontextprotocol/sdk/types.js';
+import type { CallToolResult } from '@modelcontextprotocol/server';
 import type { z } from 'zod';
-import type { NpmPackageQuerySchema } from '@octocodeai/octocode-core/schemas';
+import type { NpmPackageQuerySchema } from '../../toolContract/schemas.js';
 
 type NpmSearchQuery = z.input<typeof NpmPackageQuerySchema>;
 import { searchPackage } from '../../utils/package/common.js';

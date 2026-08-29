@@ -2,7 +2,7 @@ import {
   validateToolPath,
   createErrorResult,
 } from '../../utils/file/toolHelpers.js';
-import { validateRipgrepQuery } from '@octocodeai/octocode-core/schemas/runtime';
+import { validateRipgrepQuery } from '../../toolContract/runtime.js';
 import { LocalRipgrepQuerySchema, type RipgrepQuery } from './scheme.js';
 import { RESOURCE_LIMITS } from '../../utils/core/constants.js';
 import { TOOL_NAMES } from '../toolMetadata/proxies.js';

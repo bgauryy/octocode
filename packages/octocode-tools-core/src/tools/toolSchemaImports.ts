@@ -49,9 +49,9 @@ export {
   LocalFindFilesBulkQuerySchema,
 } from './local_find_files/scheme.js';
 export {
-  LocalFindDeadCodeQuerySchema,
-  LocalFindDeadCodeBulkQuerySchema,
-} from './local_dead_code/scheme.js';
+  LocalAnalyzeGraphQuerySchema,
+  LocalAnalyzeGraphBulkQuerySchema,
+} from './local_analyze_graph/scheme.js';
 export {
   LocalRipgrepQuerySchema,
   LocalRipgrepBulkQuerySchema,

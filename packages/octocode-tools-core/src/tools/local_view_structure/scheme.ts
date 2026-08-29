@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { ViewStructureQuerySchema as CoreViewStructureQuerySchema } from '@octocodeai/octocode-core/schemas';
+import { ViewStructureQuerySchema as CoreViewStructureQuerySchema } from '../../toolContract/schemas.js';
 import {
   LOCAL_MAX_DEPTH,
   LOCAL_MAX_FILES_PER_PAGE,
@@ -27,8 +27,8 @@ const queryOverrides = {
     .describe(
       'Directory names to prune from recursive walks (default: common generated/vendor dirs such as node_modules, dist, build, out, coverage, target). Pass [] to inspect everything.'
     ),
-  // Description flows from @octocodeai/octocode-core prose (provenance:
-  // resources-only) — only the bounds are tightened here.
+  // Description flows from the repository-owned contract resource; only the
+  // bounds are tightened here.
   maxDepth: clampedInt(0, LOCAL_MAX_DEPTH).optional(),
   limit: clampedInt(1, LOCAL_MAX_LIMIT).optional(),
   page: relaxedPageNumberField.default(1),

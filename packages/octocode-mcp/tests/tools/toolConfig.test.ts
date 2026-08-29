@@ -12,6 +12,7 @@ import {
   LOCAL_FIND_FILES,
   LOCAL_FETCH_CONTENT,
   LSP_GET_SEMANTIC_CONTENT,
+  getDescription,
 } from '../../src/tools/toolConfig.js';
 import {
   TOOL_NAMES,
@@ -45,7 +46,7 @@ describe('Tool Configuration', () => {
           TOOL_NAMES.LOCAL_RIPGREP,
           TOOL_NAMES.LOCAL_VIEW_STRUCTURE,
           TOOL_NAMES.LOCAL_FIND_FILES,
-          TOOL_NAMES.LOCAL_FIND_DEAD_CODE,
+          TOOL_NAMES.LOCAL_ANALYZE_GRAPH,
           TOOL_NAMES.LOCAL_FETCH_CONTENT,
           LSP_GET_SEMANTICS_TOOL_NAME,
         ].sort()
@@ -63,7 +64,8 @@ describe('Tool Configuration', () => {
       expect(toolNames).toContain(TOOL_NAMES.LOCAL_RIPGREP);
       expect(toolNames).toContain(TOOL_NAMES.LOCAL_VIEW_STRUCTURE);
       expect(toolNames).toContain(TOOL_NAMES.LOCAL_FIND_FILES);
-      expect(toolNames).toContain(TOOL_NAMES.LOCAL_FIND_DEAD_CODE);
+      expect(toolNames).toContain(TOOL_NAMES.LOCAL_ANALYZE_GRAPH);
+      expect(toolNames).not.toContain('localFindDeadCode');
       expect(toolNames).toContain(TOOL_NAMES.LOCAL_FETCH_CONTENT);
       expect(toolNames).toContain(LSP_GET_SEMANTICS_TOOL_NAME);
       for (const removedName of removedLspToolNames) {
@@ -225,7 +227,7 @@ describe('Tool Configuration', () => {
   describe('getDescription fallback', () => {
     it('should return empty string for unknown tool names', () => {
       const unknownKey = 'unknown_tool_that_does_not_exist';
-      expect(DESCRIPTIONS[unknownKey]).toBe('');
+      expect(getDescription(unknownKey)).toBe('');
     });
   });
 });

@@ -1,5 +1,4 @@
-import { type CallToolResult } from '@modelcontextprotocol/sdk/types.js';
-import type { ToolNames } from '@octocodeai/octocode-core/types';
+import type { CallToolResult } from '@modelcontextprotocol/server';
 import { type z } from 'zod';
 import {
   DEFAULT_TOOL_METADATA_GATEWAY,
@@ -16,6 +15,9 @@ export interface ToolDirectExecutionConfig {
   security: ToolDirectSecurity;
   requiresServerRuntime?: boolean;
   requiresProviders?: boolean;
+  /** Outer security boundary for tools whose own bounded operation may exceed
+   * the shared 60-second default (for example a shallow repository clone). */
+  timeoutMs?: number;
 }
 
 export interface ToolConfig {
@@ -41,16 +43,16 @@ export const getDescription = (
   return gateway.getDescription(toolName);
 };
 
-function getToolName<TKey extends keyof ToolNames>(
-  key: TKey,
+function getToolName(
+  key: string,
   gateway: Pick<ToolMetadataGateway, 'getToolName'>
-): ToolNames[TKey] {
+): string {
   return gateway.getToolName(key);
 }
 
 export function createTool(
   gateway: ToolMetadataGateway,
-  nameKey: keyof ToolNames,
+  nameKey: string,
   config: Omit<ToolConfig, 'name' | 'description'>
 ): ToolConfig {
   const name = getToolName(nameKey, gateway);

@@ -1,4 +1,4 @@
-import type { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types.js';
+import type { AuthInfo } from '@modelcontextprotocol/server';
 import { TOOL_NAMES } from '../../toolMetadata/proxies.js';
 import { createSuccessResult, createErrorResult } from '../../utils.js';
 import { fetchReleases } from '../../../github/releases.js';

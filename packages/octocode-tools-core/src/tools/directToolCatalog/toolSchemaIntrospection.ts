@@ -18,6 +18,9 @@ interface JsonSchemaObject extends Record<string, unknown> {
   required?: string[];
   properties?: Record<string, unknown>;
   items?: unknown;
+  anyOf?: unknown[];
+  oneOf?: unknown[];
+  const?: unknown;
 }
 
 export function getDirectToolDisplayFields(
@@ -33,19 +36,9 @@ export function getDirectToolDisplayFields(
     return [];
   }
 
-  const properties = isRecord(jsonSchema.properties)
-    ? jsonSchema.properties
-    : {};
-
-  const requiredFields = new Set(
-    Array.isArray(jsonSchema.required)
-      ? jsonSchema.required.filter(
-          name =>
-            !DIRECT_TOOL_AUTO_FILLED_FIELDS.has(name) &&
-            !hasSchemaDefault(properties[name])
-        )
-      : []
-  );
+  const variants = collectObjectVariants(jsonSchema);
+  const properties = mergeVariantProperties(variants);
+  const requiredFields = intersectRequiredFields(variants, properties);
 
   return collectDisplayFields(properties, requiredFields);
 }
@@ -65,6 +58,9 @@ export function describeSchemaConstraints(
 }
 
 export function describeSchemaType(schema: JsonSchemaObject): string {
+  if ('const' in schema) {
+    return `enum(${String(schema.const)})`;
+  }
   if (Array.isArray(schema.enum) && schema.enum.length > 0) {
     return `enum(${schema.enum.map(String).join(', ')})`;
   }
@@ -99,6 +95,74 @@ export function describeSchemaType(schema: JsonSchemaObject): string {
   }
 
   return 'value';
+}
+
+function collectObjectVariants(schema: JsonSchemaObject): JsonSchemaObject[] {
+  if (isRecord(schema.properties)) return [schema];
+  const union = Array.isArray(schema.anyOf)
+    ? schema.anyOf
+    : Array.isArray(schema.oneOf)
+      ? schema.oneOf
+      : [];
+  return union
+    .filter(isJsonSchemaObject)
+    .flatMap(member => collectObjectVariants(member));
+}
+
+function mergeVariantProperties(
+  variants: readonly JsonSchemaObject[]
+): Record<string, unknown> {
+  const grouped = new Map<string, JsonSchemaObject[]>();
+  for (const variant of variants) {
+    if (!isRecord(variant.properties)) continue;
+    for (const [name, raw] of Object.entries(variant.properties)) {
+      if (!isJsonSchemaObject(raw)) continue;
+      const schemas = grouped.get(name) ?? [];
+      schemas.push(raw);
+      grouped.set(name, schemas);
+    }
+  }
+
+  return Object.fromEntries(
+    [...grouped].map(([name, schemas]) => {
+      const constants = schemas
+        .filter(schema => 'const' in schema)
+        .map(schema => schema.const);
+      if (constants.length === schemas.length) {
+        return [
+          name,
+          {
+            enum: [...new Set(constants)],
+            description:
+              name === 'operation'
+                ? 'Required graph analysis operation.'
+                : schemas[0]?.description,
+          },
+        ];
+      }
+      return [name, schemas[0] ?? {}];
+    })
+  );
+}
+
+function intersectRequiredFields(
+  variants: readonly JsonSchemaObject[],
+  properties: Record<string, unknown>
+): Set<string> {
+  if (variants.length === 0) return new Set();
+  const requiredByVariant = variants.map(
+    variant => new Set(Array.isArray(variant.required) ? variant.required : [])
+  );
+  const common = [...(requiredByVariant[0] ?? new Set<string>())].filter(name =>
+    requiredByVariant.every(required => required.has(name))
+  );
+  return new Set(
+    common.filter(
+      name =>
+        !DIRECT_TOOL_AUTO_FILLED_FIELDS.has(name) &&
+        !hasSchemaDefault(properties[name])
+    )
+  );
 }
 
 export function collectDisplayFields(

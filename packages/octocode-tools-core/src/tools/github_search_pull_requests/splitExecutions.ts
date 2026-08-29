@@ -1,10 +1,10 @@
+import type { CallToolResult } from '@modelcontextprotocol/server';
+
 // Thin executors for the 4 focused GitHub history tools
 // (ghSearchPullRequests / ghSearchIssues / ghSearchCommits / ghListReleases). Each injects
 // the mode `type` its tool owns, then delegates to the shared, already-tested
 // bulk executor + router (searchMultipleGitHubPullRequests). This keeps ONE
 // backend while giving the agent four focused, single-purpose tools.
-import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
-
 import type { ToolExecutionArgs } from '../../types/execution.js';
 import type { GitHubPullRequestSearchInput } from './execution/types.js';
 import { searchMultipleGitHubPullRequests } from './execution.js';

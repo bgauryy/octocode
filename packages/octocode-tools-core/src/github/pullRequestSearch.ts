@@ -20,7 +20,7 @@ import {
   shouldUseSearchForPRs,
 } from './queryBuilders.js';
 import { generateCacheKey, withDataCache } from '../utils/http/cache.js';
-import { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types';
+import { AuthInfo } from '@modelcontextprotocol/server';
 import {
   countSerializedChars,
   getRawResponseChars,

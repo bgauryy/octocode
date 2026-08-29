@@ -1,7 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
+import { Client } from '@modelcontextprotocol/client';
+import { McpServer, InMemoryTransport } from '@modelcontextprotocol/server';
 import { z } from 'zod';
 import { withOutputSanitization } from '../../src/utils/secureServer.js';
 
@@ -28,7 +27,7 @@ describe('secureServer integration (real McpServer + InMemoryTransport)', () => 
       'explode',
       {
         description: 'Always throws',
-        inputSchema: {},
+        inputSchema: z.object({}),
       },
       async () => {
         throw new Error(
@@ -39,7 +38,7 @@ describe('secureServer integration (real McpServer + InMemoryTransport)', () => 
 
     secure.registerTool(
       'ping',
-      { description: 'simple', inputSchema: {} },
+      { description: 'simple', inputSchema: z.object({}) },
       async () => ({
         content: [{ type: 'text', text: 'pong' }],
       })
@@ -76,11 +75,11 @@ describe('secureServer integration (real McpServer + InMemoryTransport)', () => 
       'strictExplode',
       {
         description: 'strict schema, always throws',
-        inputSchema: {},
-        outputSchema: {
+        inputSchema: z.object({}),
+        outputSchema: z.object({
           totalMatches: z.number(),
           files: z.array(z.string()),
-        },
+        }),
       },
       async () => {
         throw new Error('boom');

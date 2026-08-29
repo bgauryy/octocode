@@ -60,7 +60,23 @@ export interface ProcessedBulkResult {
 export interface FlatQueryResult {
   id: string;
   status?: QueryStatus;
+  meta: ToolResultMeta;
   data: Record<string, unknown>;
+}
+
+export type EvidenceKind =
+  'exact' | 'lexical' | 'structural' | 'syntactic' | 'semantic' | 'provider';
+
+export interface ToolResultMeta {
+  evidence: {
+    kind: EvidenceKind;
+    confidence: 'high' | 'medium' | 'low';
+  };
+  diagnostics?: {
+    codes?: string[];
+    hints?: string[];
+    partial?: boolean;
+  };
 }
 
 export interface QueryError {

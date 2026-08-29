@@ -1,8 +1,9 @@
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import {
+import type {
   CallToolRequest,
   CallToolResult,
-} from '@modelcontextprotocol/sdk/types.js';
+  ServerContext,
+} from '@modelcontextprotocol/server';
+import { McpServer } from '@modelcontextprotocol/server';
 import { vi } from 'vitest';
 
 export interface MockMcpServer {
@@ -66,10 +67,12 @@ export function createMockMcpServer(): MockMcpServer {
     };
 
     return await handler(request.params.arguments, {
-      authInfo: options?.authInfo,
+      http: options?.authInfo ? { authInfo: options.authInfo } : undefined,
       sessionId: options?.sessionId,
-      signal: options?.signal,
-    });
+      mcpReq: {
+        signal: options?.signal ?? new AbortController().signal,
+      },
+    } as ServerContext);
   };
 
   const cleanup = () => {

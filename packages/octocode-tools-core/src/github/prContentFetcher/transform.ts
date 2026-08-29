@@ -8,7 +8,7 @@ import {
   PullRequestItem,
 } from '../githubAPI.js';
 import { OctokitWithThrottling } from '../client.js';
-import { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types';
+import { AuthInfo } from '@modelcontextprotocol/server';
 import {
   createBasePRTransformation,
   normalizeOwnerRepo,

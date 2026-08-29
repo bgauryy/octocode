@@ -1,7 +1,7 @@
 import { writeFileSync, mkdirSync, existsSync, rmSync } from 'node:fs';
 import { join, dirname, resolve, sep } from 'node:path';
 import { getOctocodeDir } from '../../shared/index.js';
-import type { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types.js';
+import type { AuthInfo } from '@modelcontextprotocol/server';
 import { getOctokit } from '../client.js';
 import type { GitHubDirectoryFileEntry } from '@octocodeai/octocode-core/extra-types';
 import type { DirectoryFetchResult } from '../../tools/github_fetch_content/types.js';
@@ -28,6 +28,7 @@ import {
   scanDirectoryStats,
   type DirectoryEntry,
 } from './helpers.js';
+import { resolveMaterializationRef } from './refResolution.js';
 
 export async function fetchDirectoryContents(
   owner: string,
@@ -38,7 +39,14 @@ export async function fetchDirectoryContents(
   forceRefresh = false
 ): Promise<DirectoryFetchResult> {
   const octocodeDir = getOctocodeDir();
-  const treeRoot = getTreeDir(octocodeDir, owner, repo, branch);
+  const { commitSha, resolvedRef } = await resolveMaterializationRef(
+    owner,
+    repo,
+    branch,
+    authInfo,
+    forceRefresh
+  );
+  const treeRoot = getTreeDir(octocodeDir, owner, repo, commitSha);
 
   const dirPath = resolve(join(treeRoot, path));
   if (!dirPath.startsWith(treeRoot + sep) && dirPath !== treeRoot) {
@@ -48,7 +56,7 @@ export async function fetchDirectoryContents(
   }
 
   const cacheResult = isCacheHit(treeRoot);
-  if (cacheResult.hit) {
+  if (cacheResult.hit && cacheResult.meta.commitSha === commitSha) {
     if (!forceRefresh && existsSync(dirPath)) {
       const cached = scanDirectoryStats(dirPath, treeRoot);
       const skipped = emptyDirectorySkipCounts();
@@ -60,9 +68,7 @@ export async function fetchDirectoryContents(
         totalSize: cached.totalSize,
         complete: true,
         verified: false,
-        ...(cacheResult.meta.commitSha
-          ? { commitSha: cacheResult.meta.commitSha }
-          : {}),
+        commitSha,
         directoryEntryCount: cached.fileCount,
         eligibleFileCount: cached.fileCount,
         savedFileCount: cached.fileCount,
@@ -73,7 +79,7 @@ export async function fetchDirectoryContents(
         expiresAt: cacheResult.meta.expiresAt,
         owner,
         repo,
-        branch,
+        branch: resolvedRef,
         directoryPath: path,
       };
     }
@@ -81,26 +87,11 @@ export async function fetchDirectoryContents(
 
   const octokit = await getOctokit(authInfo);
 
-  // Resolve the branch-tip SHA before fetching so we can record it in cache
-  // meta. Agents can compare this to the current SHA on cache hits to detect
-  // branch drift within the 24 h TTL window.
-  let commitSha: string | undefined;
-  try {
-    const branchData = await octokit.rest.repos.getBranch({
-      owner,
-      repo,
-      branch,
-    });
-    commitSha = branchData.data.commit.sha;
-  } catch {
-    // Non-fatal — proceed without SHA (legacy behaviour)
-  }
-
   const { data } = await octokit.rest.repos.getContent({
     owner,
     repo,
     path,
-    ref: branch,
+    ref: commitSha,
   });
 
   if (!Array.isArray(data)) {
@@ -189,7 +180,7 @@ export async function fetchDirectoryContents(
   const meta = createCacheMeta(
     owner,
     repo,
-    branch,
+    resolvedRef,
     'treeFetch',
     undefined,
     undefined,
@@ -208,7 +199,7 @@ export async function fetchDirectoryContents(
     totalSize,
     complete,
     verified,
-    ...(commitSha ? { commitSha } : {}),
+    commitSha,
     ...(hasSubdirectories ? { hasSubdirectories: true } : {}),
     directoryEntryCount: directoryEntries.length,
     eligibleFileCount: eligibleEntries.length,
@@ -220,7 +211,7 @@ export async function fetchDirectoryContents(
     expiresAt: meta.expiresAt,
     owner,
     repo,
-    branch,
+    branch: resolvedRef,
     directoryPath: path,
   };
 }

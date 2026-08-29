@@ -24,6 +24,7 @@ const { mockPaths } = vi.hoisted(() => ({
     tmp: '/fake/tmp',
     clone: '/fake/tmp/clone',
     tree: '/fake/tmp/tree',
+    response: '/fake/tmp/response',
     repos: '/fake/tmp/clone',
   },
 }));
@@ -83,6 +84,7 @@ describe('statusCommand', () => {
     mockPaths.tmp = '/fake/tmp';
     mockPaths.clone = '/fake/tmp/clone';
     mockPaths.tree = '/fake/tmp/tree';
+    mockPaths.response = '/fake/tmp/response';
     mockPaths.repos = '/fake/tmp/clone';
     logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
     originalExitCode = process.exitCode;
@@ -189,6 +191,7 @@ describe('statusCommand', () => {
 
     expect(getDirectorySizeBytes).toHaveBeenCalledWith('/fake/tmp/clone');
     expect(getDirectorySizeBytes).toHaveBeenCalledWith('/fake/tmp/tree');
+    expect(getDirectorySizeBytes).toHaveBeenCalledWith('/fake/tmp/response');
 
     const payload = JSON.parse(String(logSpy.mock.calls.at(-1)?.[0])) as {
       cache: {
@@ -196,12 +199,14 @@ describe('statusCommand', () => {
         tmp: { path: string };
         clone: { path: string };
         tree: { path: string };
+        response: { path: string };
       };
     };
     expect(payload.cache.home).toBe('/fake/octocode');
     expect(payload.cache.tmp.path).toBe('/fake/tmp');
     expect(payload.cache.clone.path).toBe('/fake/tmp/clone');
     expect(payload.cache.tree.path).toBe('/fake/tmp/tree');
+    expect(payload.cache.response.path).toBe('/fake/tmp/response');
   });
 
   it('--json reports unauthenticated state without failing read-only status', async () => {

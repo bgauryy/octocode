@@ -10,6 +10,7 @@ Load when any research run starts and you need routing, proof grades, triangulat
 | concept/behavior | synonym regex → symbols view for anchors |
 | identifier | workspace symbol → callers/callees/references by symbol kind |
 | code shape | structural rule with metavariables |
+| file/repository topology | `localAnalyzeGraph`: dependencies/dependents/path/cycles/reachability |
 | installed package | inspect `node_modules` exact version before GitHub |
 | why/history | PR/commit history on the path |
 
@@ -20,7 +21,7 @@ Read at least two dimensions before a nontrivial conclusion:
 |---|---|---|
 | structure | location, size, layout | behavior |
 | stream | exact text/slices/symbols | symbol identity |
-| connections | references/callers/AST shape | dynamic/unsupported paths |
+| connections | graph paths/SCCs/reachability + LSP references/callers/AST shape | dynamic/unsupported paths |
 
 Evidence grades: semantic (LSP identity), structural (AST shape), lexical (coverage, not identity), provider (weakest; index-limited). Before “unused/only/safe/impact,” diff package-wide text hits against LSP and include tests/scripts/configs.
 
@@ -29,7 +30,7 @@ Evidence grades: semantic (LSP identity), structural (AST shape), lexical (cover
 - Prefer `matchString` anchors, then line ranges; use full exact content only for small files.
 - Quote/edit only exact content. Symbols orient; standard/minified output may rewrite text.
 - Materialize a remote area before AST/LSP, exact absence, repeated many-file reads, or a third deep read.
-- Read the tool/schema contract immediately before raw calls; follow returned cursors and `next.*`.
+- Read the tool/schema contract immediately before raw calls; graph compact schemas may flatten operation variants, so use full JSON when `file`/`target` requirements are unclear.
 - For `node_modules`, disable default exclusions and inspect the file the resolver actually loads.
 
 ## Failure Signals

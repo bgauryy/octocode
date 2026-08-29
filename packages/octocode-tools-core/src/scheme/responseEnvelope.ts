@@ -40,6 +40,26 @@ export function makeToolResultRowSchema<TData extends z.ZodTypeAny>(
   return z.object({
     id: z.string(),
     status: z.enum(['empty', 'error']).optional(),
+    meta: z.object({
+      evidence: z.object({
+        kind: z.enum([
+          'exact',
+          'lexical',
+          'structural',
+          'syntactic',
+          'semantic',
+          'provider',
+        ]),
+        confidence: z.enum(['high', 'medium', 'low']),
+      }),
+      diagnostics: z
+        .object({
+          codes: z.array(z.string()).optional(),
+          hints: z.array(z.string()).optional(),
+          partial: z.boolean().optional(),
+        })
+        .optional(),
+    }),
     data: dataSchema,
     next: z.record(z.string(), ToolContinuationSchema).optional(),
   });

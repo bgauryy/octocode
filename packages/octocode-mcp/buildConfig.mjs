@@ -30,11 +30,11 @@ export const runtimeExternals = Object.keys(pkg.dependencies ?? {}).filter(
 
 // Subpath-export wildcards for the externalized packages (esbuild matches `*`).
 // The base specifiers are already covered by runtimeExternals above; these keep
-// deep imports (e.g. `@octocodeai/octocode-core/schemas`) external too.
+// deep imports (e.g. `@octocodeai/octocode-core/types`) external too.
 export const transitiveExternals = [
   '@octocodeai/octocode-engine/*',
   '@octocodeai/octocode-core/*',
-  '@modelcontextprotocol/sdk/*',
+  '@modelcontextprotocol/server/*',
   '@octokit/*',
 ];
 

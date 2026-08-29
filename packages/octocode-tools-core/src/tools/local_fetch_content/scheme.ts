@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { FetchContentQuerySchema as CoreFetchContentQuerySchema } from '@octocodeai/octocode-core/schemas';
+import { FetchContentQuerySchema as CoreFetchContentQuerySchema } from '../../toolContract/schemas.js';
 import { MAX_CHAR_LENGTH } from '../../config.js';
 import {
   clampedInt,

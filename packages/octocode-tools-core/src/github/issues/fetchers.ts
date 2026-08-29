@@ -1,4 +1,4 @@
-import type { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types.js';
+import type { AuthInfo } from '@modelcontextprotocol/server';
 import { ContentSanitizer } from '@octocodeai/octocode-engine/contentSanitizer';
 import { getOctokit } from '../client.js';
 import { resolveCanonicalOwnerRepo } from '../canonicalRepo.js';

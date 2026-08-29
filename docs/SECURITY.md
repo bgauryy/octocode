@@ -6,7 +6,7 @@ An AI agent browsing your codebase runs into `.env` files, `~/.aws/credentials`,
 
 Octocode enforces a hard boundary between untrusted content and the model:
 
-> **Every byte is scanned and redacted before it reaches the LLM.** Secrets are stripped on the way *in* (inputs) and on the way *out* (results) — zero configuration required.
+> **Every returned byte is scanned and redacted before it reaches the LLM.** Secrets are stripped on the way *in* (inputs) and on the way *out* (results). If output sanitization itself fails, Octocode discards the raw result and returns a generic structured error.
 
 You get this by default, for every tool call, over both MCP and CLI.
 
@@ -50,10 +50,12 @@ flowchart TD
     S2 --> S3
     S3 -->|"blocked path"| E2(["❌ Redacted error"])
     S3 -->|clean| S4
+    S4 -->|"sanitizer failure"| E3(["❌ Raw output discarded"])
     S4 --> MODEL(["✅ Model"])
 
     style E1 fill:#dc3545,color:#fff,stroke:none
     style E2 fill:#dc3545,color:#fff,stroke:none
+    style E3 fill:#dc3545,color:#fff,stroke:none
     style MODEL fill:#28a745,color:#fff,stroke:none
     style REQ fill:#0d6efd,color:#fff,stroke:none
 ```
@@ -66,6 +68,7 @@ The following table shows what the agent sees after redaction:
 | Secret reaching output boundary | `A*I*S*A*4*1*X*…` (every-other-char masked) |
 | Content too large | `[CONTENT-REDACTED-SIZE-LIMIT]` |
 | Path blocked | Structured error — path never echoed |
+| Output sanitizer failure | Generic structured error — raw output and exception details are discarded |
 
 ---
 

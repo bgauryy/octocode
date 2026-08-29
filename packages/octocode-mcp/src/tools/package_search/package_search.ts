@@ -1,5 +1,5 @@
 import type { z } from 'zod';
-import type { NpmPackageQuerySchema } from '@octocodeai/octocode-core/schemas';
+import type { NpmPackageQuerySchema } from '@octocodeai/octocode-tools-core';
 import {
   TOOL_NAMES,
   NpmSearchBulkQueryLocalSchema,

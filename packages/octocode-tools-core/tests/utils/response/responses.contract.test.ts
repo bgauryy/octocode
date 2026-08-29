@@ -5,6 +5,7 @@ import {
   setContextUtilsNativeLoaderForTesting,
 } from '../../../src/utils/contextUtils.js';
 import { createResponseFormat } from '../../../src/responses.js';
+import { buildToolResultMeta } from '../../../src/utils/response/bulk/response.js';
 
 type NativeContextUtilsModule = typeof import('@octocodeai/octocode-engine');
 
@@ -56,5 +57,32 @@ describe('response YAML formatter contract', () => {
     expect(out).not.toContain(PAT);
     expect(out).toContain('[REDACTED-');
     expect(out).toContain('foo(bar)'); // benign content preserved
+  });
+
+  it('normalizes evidence and diagnostics metadata across tool families', () => {
+    expect(
+      buildToolResultMeta(
+        'localAnalyzeGraph',
+        { operation: 'dependencies' },
+        { pagination: { hasMore: true } }
+      )
+    ).toEqual({
+      evidence: { kind: 'syntactic', confidence: 'medium' },
+      diagnostics: { partial: true },
+    });
+    expect(
+      buildToolResultMeta('lspGetSemantics', { type: 'references' }, {})
+    ).toEqual({ evidence: { kind: 'semantic', confidence: 'high' } });
+    expect(
+      buildToolResultMeta(
+        'ghSearchCode',
+        {},
+        { errorCode: 'rateLimited', hints: ['retry later'] },
+        'error'
+      )
+    ).toEqual({
+      evidence: { kind: 'provider', confidence: 'low' },
+      diagnostics: { codes: ['rateLimited'] },
+    });
   });
 });

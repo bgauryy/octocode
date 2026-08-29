@@ -2,13 +2,14 @@
 
 `octocode-mcp` is a **thin MCP server**. It owns process lifecycle, tool
 registration, and output safety. It owns **no** business logic, schemas, or tool
-metadata — those live in `@octocodeai/octocode-tools-core` (and, beneath it,
-`octocode-core` for schemas/descriptions and `octocode-engine` for native
-search/minify/LSP). The MCP package wires those into the MCP SDK and runs them.
+metadata — those live in `@octocodeai/octocode-tools-core` (`toolContract/` for
+schemas/descriptions and `octocode-engine` for native search/minify/LSP). The
+MCP package wires those into the MCP SDK and runs them.
 
 ## Boundary
 
-- **Transport**: MCP SDK `StdioServerTransport` (stdio only — no HTTP).
+- **Transport**: MCP SDK v2 `StdioServerTransport` from
+  `@modelcontextprotocol/server/stdio` (stdio only — no HTTP).
 - **Entry**: `src/index.ts` → `startServer()` → stdio transport.
 - **Public API**: `src/public.ts` is the stable surface for programmatic
   consumers (`octocode` CLI, `octocode-research`). It mostly re-exports core
@@ -21,15 +22,17 @@ search/minify/LSP). The MCP package wires those into the MCP SDK and runs them.
 
 `startServer()` runs a fixed sequence, then connects the transport:
 
-1. `initialize()` — core bootstrap.
+1. `initialize()` — core bootstrap, including the persisted cache-maintenance due-check.
 2. `configureSecurity()` + register `getOctocodeDir()` as an allowed root.
 3. `initializeProviders()` — GitHub / GitLab / Bitbucket.
 4. `loadToolContent()` — pull descriptions/metadata from core.
 5. `initializeSession()`, then `createServer()` + `registerAllTools()`.
 
+After the transport connects, `startCacheGC()` schedules the next persisted maintenance deadline with an unreferenced timer. This is deadline-based scheduling from the shared 24-hour marker, not a fresh interval measured from each MCP start, so CLI and MCP processes observe the same gate. A cross-process lock prevents overlapping sweeps.
+
 The server is created with `instructions: completeMetadata.systemPrompt` (core).
 Process handlers wire SIGINT/SIGTERM/STDIN-close/uncaught/unhandled to a single
-`gracefulShutdown` that stops cache GC, clears caches, and closes the server
+`gracefulShutdown` that stops the cache-maintenance scheduler, clears runtime caches, and closes the server
 within `SHUTDOWN_TIMEOUT_MS` (5s) before exiting.
 
 ## Tool Registration (`src/tools/`)
@@ -83,23 +86,21 @@ inference from the SDK's Zod v3/v4 compat layer.
 
 There are two different dependency views:
 
-- **Source/build**: `@octocodeai/octocode-tools-core` is a workspace
-  `devDependency`. The MCP source imports its runners, schemas, metadata, and
-  shared utilities, then esbuild inlines that first-party code into
-  `dist/index.js` and `dist/public.js`.
-- **Published runtime**: npm users do **not** install
-  `@octocodeai/octocode-tools-core`. The published package depends directly on
-  `@modelcontextprotocol/sdk`, `@octocodeai/octocode-core`,
-  `@octocodeai/octocode-engine`, Octokit packages, `node-cache`, and `zod`.
+- **Source/build**: `@octocodeai/octocode-tools-core` resolves to the workspace
+  during local development. The MCP source imports its runners, schemas,
+  metadata, and shared utilities; `buildConfig.mjs` keeps runtime dependencies
+  external in `dist/index.js` and `dist/public.js`.
+- **Published runtime**: npm users install the direct dependencies declared in
+  `package.json`: MCP SDK v2's `@modelcontextprotocol/server`, tools-core, core,
+  the native engine, and Zod. Client SDK v2 is test-only.
 - **Native engine**: `@octocodeai/octocode-engine` must remain a direct runtime
   dependency because its Rust `.node` binary is distributed through the engine
   root package plus one matching platform `optionalDependency`.
 - **Types**: `dist/public.d.ts` is bundled so public declarations do not leak a
   dependency on the unpublished tools-core package.
 
-Publish order follows the runtime graph: publish
-`@octocodeai/octocode-engine` platform packages, then the engine root, then
-`octocode-mcp`.
+Publish order follows the runtime graph: publish the engine platform packages,
+then the engine root and tools-core, then `octocode-mcp`.
 
 ## Distribution Artifacts
 

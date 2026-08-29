@@ -1,10 +1,11 @@
 import type { ProviderType } from './providers/types.js';
-import { resolveTokenFull } from './shared/index.js';
+import { getOctocodeDir, resolveTokenFull } from './shared/index.js';
 import { getConfigSync, invalidateConfigCache } from '@octocodeai/config';
 import { version } from '../package.json';
 import type { ServerConfig, TokenSourceType } from './types/server.js';
 import { CONFIG_ERRORS } from './errors/domainErrors.js';
 import { maskSensitiveData } from '@octocodeai/octocode-engine/mask';
+import { runCacheMaintenanceIfDue } from './cacheMaintenance.js';
 
 let config: ServerConfig | null = null;
 let initializationPromise: Promise<void> | null = null;
@@ -81,6 +82,7 @@ export async function initialize(): Promise<void> {
       outputFormat: resolved.output.format,
       tokenSource: tokenResult.source,
     };
+    await runCacheMaintenanceIfDue(getOctocodeDir());
   })();
 
   initializationPromise = pendingInitialization;

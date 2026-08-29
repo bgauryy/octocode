@@ -37,6 +37,7 @@ export * from './responses.js';
 export * from './scheme/fields.js';
 export * from './scheme/responseEnvelope.js';
 export * from './serverConfig.js';
+export * from './cacheMaintenance.js';
 export * from './session.js';
 export * from './tools/executionGuard.js';
 export * from './tools/github_clone_repo/cache.js';
@@ -73,9 +74,8 @@ export * from './tools/local_fetch_content/scheme.js';
 export * from './tools/local_find_files/execution.js';
 export * from './tools/local_find_files/findFiles.js';
 export * from './tools/local_find_files/scheme.js';
-export * from './tools/local_dead_code/execution.js';
-export * from './tools/local_dead_code/local_dead_code.js';
-export * from './tools/local_dead_code/scheme.js';
+export * from './tools/local_analyze_graph/execution.js';
+export * from './tools/local_analyze_graph/scheme.js';
 export * from './tools/local_ripgrep/execution.js';
 export * from './tools/local_ripgrep/patternValidation.js';
 export * from './tools/local_ripgrep/ripgrepExecutor.js';
@@ -107,6 +107,26 @@ export * from './tools/toolMetadata/state.js';
 export * from './tools/toolMetadata/types.js';
 export * from './tools/directToolCatalog.js';
 export * from './tools/toolNames.js';
+export {
+  CloneRepoQuerySchema,
+  FetchContentQuerySchema,
+  FileContentQuerySchema,
+  FindFilesQuerySchema,
+  GitHubCodeSearchQuerySchema,
+  GitHubPullRequestSearchQuerySchema,
+  GitHubReposSearchSingleQuerySchema,
+  GitHubViewRepoStructureQuerySchema,
+  ListReleasesQuerySchema,
+  NpmPackageQuerySchema,
+  RipgrepQuerySchema,
+  SearchCommitsQuerySchema,
+  SearchDiscussionsQuerySchema,
+  SearchIssuesQuerySchema,
+  SearchPullRequestsQuerySchema,
+  ViewStructureQuerySchema,
+  findToolSchema,
+  toolSchemas,
+} from './toolContract/schemas.js';
 export * from './tools/utils.js';
 export * from './types/bulk.js';
 export * from './types/execution.js';
@@ -325,6 +345,7 @@ export {
 } from './shared/paths.js';
 export { getDirectorySizeBytes, formatBytes } from './shared/fs-utils.js';
 
-export { completeMetadata } from '@octocodeai/octocode-core';
+export { localCompleteMetadata as completeMetadata } from './toolContract/metadata.js';
+export type { LocalCompleteMetadata as CompleteMetadata } from './toolContract/types.js';
 
 export { z } from 'zod';

@@ -1,4 +1,4 @@
-import { type CallToolResult } from '@modelcontextprotocol/sdk/types.js';
+import type { CallToolResult } from '@modelcontextprotocol/server';
 import { executeBulkOperation } from '../../../utils/response/bulk.js';
 import type { ToolExecutionArgs } from '../../../types/execution.js';
 import { executeWithToolBoundary } from '../../executionGuard.js';

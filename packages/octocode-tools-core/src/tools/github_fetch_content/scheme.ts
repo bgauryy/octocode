@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { FileContentQuerySchema as CoreFileContentQuerySchema } from '@octocodeai/octocode-core/schemas';
+import { FileContentQuerySchema as CoreFileContentQuerySchema } from '../../toolContract/schemas.js';
 import { MAX_CHAR_LENGTH } from '../../config.js';
 import {
   clampedInt,
@@ -75,6 +75,7 @@ export interface GitHubFetchFileEntry {
   totalLines?: number;
   sourceChars?: number;
   resolvedBranch?: string;
+  commitSha?: string;
   pagination?: GitHubFetchFilePagination;
   next?: Record<string, ToolContinuation>;
   isPartial?: boolean;
@@ -96,6 +97,10 @@ export interface GitHubFetchDirectoryEntry {
   fileCount: number;
   totalSize: number;
   complete?: boolean;
+  verified?: boolean;
+  commitSha?: string;
+  hasSubdirectories?: boolean;
+  skippedSummary?: Record<string, number>;
   directoryEntryCount?: number;
   eligibleFileCount?: number;
   savedFileCount?: number;

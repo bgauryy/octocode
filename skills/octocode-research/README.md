@@ -38,14 +38,14 @@ Seven routes, one per situation: local checkout, remote repo, local↔remote com
 
 ## Tooling
 
-Uses Octocode **MCP tools** when they're exposed, and falls back to the **`npx octocode` CLI** otherwise — same 15 tools, same schemas, no loss of capability:
+Uses Octocode **MCP tools** when they're exposed. In this monorepo it uses the built local CLI; an installed standalone skill can use **`npx octocode`**. Both expose the same 17 public schemas and availability metadata:
 
-- local: search, find, read, tree, dead-code
+- local: search, find, read, tree, and graph analysis (dependencies, dependents, paths, cycles, reachability, dead-code candidates)
 - semantics: LSP definitions, references, callers, callees, symbols, diagnostics
-- GitHub: code, repos, files, structure, PRs, issues, commits, clone
+- GitHub: code, repos, files, structure, PRs, issues, commits, releases, discussions, clone
 - packages: npm lookup
 
-Opt-in extras (`ghListReleases` via `ENABLE_RELEASES=1`) and MCP-side gates (`ENABLE_LOCAL`, `ENABLE_CLONE`) are documented in `references/octocode.md`. A disabled surface is reported as skipped, never faked.
+Execution gates (`ghListReleases` via `ENABLE_RELEASES=1`, `ghSearchDiscussions` via `ENABLE_DISCUSSIONS=1`) and MCP-side gates (`ENABLE_LOCAL`, `ENABLE_CLONE`) are documented in `references/octocode.md`. A disabled surface is reported as skipped, never faked.
 
 ## Installation
 

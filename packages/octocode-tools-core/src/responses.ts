@@ -1,4 +1,4 @@
-import { CallToolResult } from '@modelcontextprotocol/sdk/types';
+import { CallToolResult } from '@modelcontextprotocol/server';
 import { ContentSanitizer } from '@octocodeai/octocode-engine/contentSanitizer';
 import { getConfigSync } from '@octocodeai/config';
 import { contextUtils, type JsonInput } from './utils/contextUtils.js';

@@ -33,6 +33,8 @@ vi.mock(
   })
 );
 
+import { McpServer } from '@modelcontextprotocol/server';
+
 vi.mock(
   '../../../octocode-tools-core/src/tools/github_search_code/execution.js',
   () => ({
@@ -69,8 +71,6 @@ import { registerViewGitHubRepoStructureTool } from '../../src/tools/github_view
 import { searchMultipleGitHubCode } from '../../../octocode-tools-core/src/tools/github_search_code/execution.js';
 import { searchMultipleGitHubRepos } from '../../../octocode-tools-core/src/tools/github_search_repos/execution.js';
 import { exploreMultipleRepositoryStructures } from '../../../octocode-tools-core/src/tools/github_view_repo_structure/execution.js';
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-
 describe('Tool Execution Branch Coverage Tests', () => {
   beforeEach(() => {
     vi.clearAllMocks();

@@ -1,22 +1,21 @@
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
-import { completeMetadata } from '@octocodeai/octocode-core';
+import { localCompleteMetadata } from '../../src/toolContract/metadata.js';
 import { DESCRIPTIONS } from '../../src/tools/toolMetadata/descriptions.js';
 import { LocalFindFilesQuerySchema } from '../../src/tools/local_find_files/scheme.js';
 
-// Provenance contract: descriptions are served from @octocodeai/octocode-core
-// VERBATIM (the temporary descriptionOverrides patch layer was removed once
-// core's prose was fixed at source). These tests keep both the truth of the
-// excludeDir prose AND the no-patching contract.
+// Ownership contract: descriptions are served directly from tools-core's local
+// tool contract. These tests keep both the truth of the excludeDir prose and
+// the single-local-owner contract.
 describe('localFindFiles excludeDir description contract', () => {
-  it('core ships the pruned-by-default truth directly (no patch layer needed)', () => {
-    const core = completeMetadata.tools.localFindFiles.description;
-    expect(core).toMatch(/prunes common generated\/vendor dirs by default/i);
-    expect(core).not.toMatch(/Nothing is excluded by default/i);
+  it('the local contract ships the pruned-by-default truth directly', () => {
+    const description = localCompleteMetadata.tools.localFindFiles.description;
+    expect(description).toMatch(/prunes common generated\/vendor dirs by default/i);
+    expect(description).not.toMatch(/Nothing is excluded by default/i);
   });
 
-  it('served DESCRIPTIONS are byte-identical to core (no interface-level patching)', () => {
-    for (const [name, spec] of Object.entries(completeMetadata.tools)) {
+  it('served DESCRIPTIONS are byte-identical to the local contract', () => {
+    for (const [name, spec] of Object.entries(localCompleteMetadata.tools)) {
       expect(DESCRIPTIONS[name]).toBe(spec.description);
     }
   });

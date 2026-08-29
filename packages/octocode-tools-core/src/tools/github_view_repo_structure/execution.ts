@@ -1,6 +1,6 @@
-import { type CallToolResult } from '@modelcontextprotocol/sdk/types.js';
+import type { CallToolResult } from '@modelcontextprotocol/server';
 import type { z } from 'zod';
-import type { GitHubViewRepoStructureQuerySchema } from '@octocodeai/octocode-core/schemas';
+import type { GitHubViewRepoStructureQuerySchema } from '../../toolContract/schemas.js';
 import type {
   GitHubViewRepoStructureToolResult,
   GitHubRepoStructureDirectoryEntry,

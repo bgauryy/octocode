@@ -7,10 +7,9 @@
  *
  * @see .octocode/research/type-recursion/research.md for background
  */
+import type { StandardSchemaWithJSON } from '@modelcontextprotocol/server';
 
-import type { AnySchema } from '@modelcontextprotocol/sdk/server/zod-compat.js';
-
-export function toMCPSchema<T extends object>(schema: T): AnySchema {
+export function toMCPSchema(schema: object): StandardSchemaWithJSON {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let s: any = schema;
   // Zod v4 uses `_zod.def`; v3 uses `_def`. Walking these private fields unwraps pipe/effects
@@ -25,5 +24,5 @@ export function toMCPSchema<T extends object>(schema: T): AnySchema {
   ) {
     s = s._def.schema ?? s._def.in ?? schema;
   }
-  return (s ?? schema) as AnySchema;
+  return (s ?? schema) as StandardSchemaWithJSON;
 }

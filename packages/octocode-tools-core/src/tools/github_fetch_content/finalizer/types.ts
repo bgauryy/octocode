@@ -1,5 +1,5 @@
 import type { z } from 'zod';
-import type { FileContentQuerySchema } from '@octocodeai/octocode-core/schemas';
+import type { FileContentQuerySchema } from '../../../toolContract/schemas.js';
 
 type FileContentQuery = z.infer<typeof FileContentQuerySchema>;
 import type { PaginationInfo } from '../../../types/toolResults.js';
@@ -21,6 +21,7 @@ export type FileEntry = {
   totalLines?: number;
   sourceChars?: number;
   resolvedBranch?: string;
+  commitSha?: string;
   pagination?: PaginationInfo;
   isPartial?: boolean;
   startLine?: number;

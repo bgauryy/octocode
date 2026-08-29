@@ -1,4 +1,4 @@
-import { CloneRepoQuerySchema } from '@octocodeai/octocode-core/schemas';
+import { CloneRepoQuerySchema } from '../../toolContract/schemas.js';
 import { createRelaxedBulkQuerySchema } from '../../scheme/fields.js';
 import { describeQuerySchema } from '../../scheme/coreSchemas.js';
 import type { ToolContinuation } from '../../scheme/pagination.js';

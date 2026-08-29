@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { GitHubPullRequestSearchQuerySchema as CoreGitHubPullRequestSearchQuerySchema } from '@octocodeai/octocode-core/schemas';
+import { GitHubPullRequestSearchQuerySchema as CoreGitHubPullRequestSearchQuerySchema } from '../../toolContract/schemas.js';
 import {
   GITHUB_SEARCH_DEFAULT_LIMIT,
   GITHUB_SEARCH_MAX_LIMIT,
@@ -64,8 +64,7 @@ const queryOverrides = {
   charLength: clampedInt(1, MAX_CHAR_LENGTH).optional(),
   // NOTE: diffs/patches are always returned verbatim (see contentResponse/
   // fileSurfaces.ts — no patch minification). `minify` now only normalizes
-  // PR/issue body prose. Its description is owned by @octocodeai/octocode-core
-  // (external); update the "compact patches" wording there.
+  // PR/issue body prose. Its description is owned by the local tool contract.
 } as const;
 
 const GitHubPullRequestSearchQueryShape = createQueryShapeSchema(

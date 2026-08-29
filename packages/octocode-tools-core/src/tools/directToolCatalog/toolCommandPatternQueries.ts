@@ -8,12 +8,18 @@
  */
 import {
   LSP_GET_SEMANTICS_TOOL_NAME,
+  LOCAL_ANALYZE_GRAPH_TOOL_NAME,
   STATIC_TOOL_NAMES,
 } from '../toolNames.js';
+import { buildOptionalDirectToolCommandPatternQueries } from './toolCommandPatternOptionalQueries.js';
 
 export function buildKnownDirectToolCommandPatternQueries(
   toolName: string
 ): Array<{ label: string; query: Record<string, unknown> }> {
+  const optionalPatterns =
+    buildOptionalDirectToolCommandPatternQueries(toolName);
+  if (optionalPatterns.length > 0) return optionalPatterns;
+
   if (toolName === STATIC_TOOL_NAMES.GITHUB_PULL_REQUESTS) {
     // Split tool: PRs only (no `type` field — commits/issues/releases are their
     // own tools now). List mode uses keywords+filters; detail mode uses prNumber
@@ -134,7 +140,7 @@ export function buildKnownDirectToolCommandPatternQueries(
       {
         label: 'text search',
         query: {
-          path: 'packages/octocode-tools-core/src',
+          path: '/ABS/repo/packages/octocode-tools-core/src',
           searchText: 'buildDirectToolCommandPatterns',
           maxFiles: 20,
         },
@@ -142,7 +148,7 @@ export function buildKnownDirectToolCommandPatternQueries(
       {
         label: 'structural code search',
         query: {
-          path: 'packages/octocode-tools-core/src/tools',
+          path: '/ABS/repo/packages/octocode-tools-core/src/tools',
           mode: 'structural',
           pattern: 'eval($X)',
         },
@@ -155,7 +161,7 @@ export function buildKnownDirectToolCommandPatternQueries(
       {
         label: 'exact line range',
         query: {
-          path: 'packages/octocode-tools-core/package.json',
+          path: '/ABS/repo/packages/octocode-tools-core/package.json',
           startLine: 1,
           endLine: 30,
           minify: 'none',
@@ -164,7 +170,7 @@ export function buildKnownDirectToolCommandPatternQueries(
       {
         label: 'matched slice',
         query: {
-          path: 'packages/octocode-tools-core/src/tools/directToolCatalog.meta.ts',
+          path: '/ABS/repo/packages/octocode-tools-core/src/tools/directToolCatalog.meta.ts',
           matchString: 'buildKnownDirectToolCommandPatternQueries',
           contextLines: 8,
           minify: 'standard',
@@ -178,7 +184,7 @@ export function buildKnownDirectToolCommandPatternQueries(
       {
         label: 'basename globs',
         query: {
-          path: 'packages/octocode-tools-core',
+          path: '/ABS/repo/packages/octocode-tools-core',
           names: ['scheme.ts', 'package.json'],
           entryType: 'f',
           itemsPerPage: 20,
@@ -187,7 +193,7 @@ export function buildKnownDirectToolCommandPatternQueries(
       {
         label: 'monorepo path glob',
         query: {
-          path: '.',
+          path: '/ABS/repo',
           pathPattern: 'packages/*/src/tools/**',
           entryType: 'f',
           itemsPerPage: 20,
@@ -196,7 +202,7 @@ export function buildKnownDirectToolCommandPatternQueries(
       {
         label: 'prune build dirs',
         query: {
-          path: 'packages/octocode-tools-core',
+          path: '/ABS/repo/packages/octocode-tools-core',
           names: ['*.js'],
           entryType: 'f',
           excludeDir: ['node_modules', 'dist', 'coverage', 'out'],
@@ -206,21 +212,57 @@ export function buildKnownDirectToolCommandPatternQueries(
     ];
   }
 
-  if (toolName === STATIC_TOOL_NAMES.LOCAL_FIND_DEAD_CODE) {
+  if (toolName === LOCAL_ANALYZE_GRAPH_TOOL_NAME) {
     return [
       {
-        label: 'default entrypoints (package.json + tests)',
+        label: 'dead code from detected entrypoints',
         query: {
-          path: 'packages/octocode-tools-core',
+          operation: 'deadCode',
+          path: '/ABS/repo',
           itemsPerPage: 20,
         },
       },
       {
-        label: 'explicit entrypoints',
+        label: 'cycles',
         query: {
-          path: 'packages/octocode-tools-core',
-          entrypoints: ['src/index.ts', 'src/direct.ts'],
-          includeTests: false,
+          operation: 'cycles',
+          path: '/ABS/repo',
+          limit: 20,
+        },
+      },
+      {
+        label: 'dependencies of one file',
+        query: {
+          operation: 'dependencies',
+          path: '/ABS/repo',
+          file: 'src/index.ts',
+          depth: 2,
+        },
+      },
+      {
+        label: 'dependents of one file',
+        query: {
+          operation: 'dependents',
+          path: '/ABS/repo',
+          file: 'src/index.ts',
+          depth: 2,
+        },
+      },
+      {
+        label: 'shortest dependency path',
+        query: {
+          operation: 'path',
+          path: '/ABS/repo',
+          file: 'src/index.ts',
+          target: 'src/responses.ts',
+        },
+      },
+      {
+        label: 'reachability from detected entrypoints',
+        query: {
+          operation: 'reachability',
+          path: '/ABS/repo',
+          itemsPerPage: 20,
         },
       },
     ];
@@ -231,7 +273,7 @@ export function buildKnownDirectToolCommandPatternQueries(
       {
         label: 'shallow tree',
         query: {
-          path: 'packages/octocode-tools-core/src/tools',
+          path: '/ABS/repo/packages/octocode-tools-core/src/tools',
           maxDepth: 2,
           itemsPerPage: 50,
         },
@@ -239,7 +281,7 @@ export function buildKnownDirectToolCommandPatternQueries(
       {
         label: 'files only at depth 1',
         query: {
-          path: 'packages/octocode-engine/src',
+          path: '/ABS/repo/packages/octocode-engine/src',
           maxDepth: 1,
           entryType: 'f',
           itemsPerPage: 100,

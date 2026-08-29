@@ -2,7 +2,10 @@ import { describe, it, expect } from 'vitest';
 import { z } from 'zod';
 import { existsSync, readdirSync } from 'node:fs';
 import { ALL_TOOLS } from '../../src/tools/toolConfig.js';
-import { STATIC_TOOL_NAMES } from '../../../octocode-tools-core/src/tools/toolNames.js';
+import {
+  LOCAL_ANALYZE_GRAPH_TOOL_NAME,
+  STATIC_TOOL_NAMES,
+} from '../../../octocode-tools-core/src/tools/toolNames.js';
 import { LSP_GET_SEMANTICS_TOOL_NAME } from '../../../octocode-tools-core/src/tools/lsp/shared/semanticTypes.js';
 const SHARED_FIELDS = [
   'id',
@@ -15,7 +18,7 @@ const MINIMAL_QUERY: Record<string, Record<string, unknown>> = {
   [STATIC_TOOL_NAMES.LOCAL_RIPGREP]: { searchText: 'foo', path: '.' },
   [STATIC_TOOL_NAMES.LOCAL_VIEW_STRUCTURE]: { path: '.' },
   [STATIC_TOOL_NAMES.LOCAL_FIND_FILES]: { path: '.' },
-  [STATIC_TOOL_NAMES.LOCAL_FIND_DEAD_CODE]: { path: '.' },
+  [LOCAL_ANALYZE_GRAPH_TOOL_NAME]: { operation: 'cycles', path: '.' },
   [STATIC_TOOL_NAMES.LOCAL_FETCH_CONTENT]: { path: '/tmp/test.ts' },
   [LSP_GET_SEMANTICS_TOOL_NAME]: {
     uri: '/tmp/test.ts',

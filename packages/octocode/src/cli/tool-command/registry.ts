@@ -4,7 +4,7 @@
 // load the native engine (e.g. Codex.app Node).
 import {
   DIRECT_TOOL_CATEGORIES,
-  DIRECT_TOOL_DEFINITIONS,
+  DIRECT_TOOL_DISCOVERY_DEFINITIONS,
   findDirectToolDefinition,
   getDirectToolCategory,
   getDirectToolDisplayFields,
@@ -15,7 +15,20 @@ import {
 
 export type ToolDefinition = DirectToolDefinition;
 export const TOOL_CATEGORIES = DIRECT_TOOL_CATEGORIES;
-export const TOOL_DEFINITIONS: ToolDefinition[] = DIRECT_TOOL_DEFINITIONS;
+// CLI discovery is schema-first: show every public tool, while `disabled`
+// keeps opt-in execution gated until its environment flag is enabled.
+export const TOOL_DEFINITIONS: ToolDefinition[] =
+  DIRECT_TOOL_DISCOVERY_DEFINITIONS;
+
+export function getToolAvailability(toolName: string): {
+  enabled: boolean;
+  envVar?: string;
+} {
+  const tool = findDirectToolDefinition(toolName);
+  return tool?.disabled
+    ? { enabled: false, envVar: tool.disabled.envVar }
+    : { enabled: true };
+}
 
 let toolMetadataPromise: Promise<
   Awaited<ReturnType<typeof loadToolContent>>

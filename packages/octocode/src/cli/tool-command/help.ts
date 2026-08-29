@@ -6,6 +6,7 @@ import {
   getDirectToolAutoFilledFields,
   getDirectToolDescription,
   getDirectToolDisplayFields,
+  getDirectToolSchemaRelations,
 } from '@octocodeai/octocode-tools-core/schema';
 import { findToolDefinition, getOptionalToolMetadata } from './registry.js';
 import {
@@ -33,6 +34,11 @@ export async function showToolHelpBrief(toolName: string): Promise<boolean> {
 
   console.log();
   console.log(`  ${c('magenta', bold(tool.name))}  ${dim(shortDesc)}`);
+  if (tool.disabled) {
+    console.log(
+      `  ${c('yellow', `Disabled: set ${tool.disabled.envVar}=1 to enable execution.`)}`
+    );
+  }
   console.log();
   for (const field of fields) {
     const reqTag = field.required ? c('red', ' [required]') : '';
@@ -69,12 +75,18 @@ export async function showToolHelp(toolName: string): Promise<boolean> {
   const shortDesc = extractShortDescription(fullDescription);
   const extendedDesc = formatFullDescription(fullDescription);
   const guidance = getToolSchemaGuidance(tool.name);
+  const relations = getDirectToolSchemaRelations(tool.name);
 
   console.log();
   console.log(`  ${c('magenta', bold(tool.name))}  ${dim(shortDesc)}`);
   console.log(
-    `  ${dim('Runtime: same Octocode MCP tool implementation under the hood.')}`
+    `  ${dim('Runtime: local CLI and MCP share the same tools-core runner.')}`
   );
+  if (tool.disabled) {
+    console.log(
+      `  ${c('yellow', `Disabled: set ${tool.disabled.envVar}=1 to enable execution.`)}`
+    );
+  }
   for (const line of guidance) {
     console.log(`  ${dim(line)}`);
   }
@@ -108,6 +120,12 @@ export async function showToolHelp(toolName: string): Promise<boolean> {
     );
   }
   console.log();
+
+  if (relations.length > 0) {
+    console.log(`  ${bold('Field Relations')}`);
+    for (const relation of relations) console.log(`    ${dim(relation)}`);
+    console.log();
+  }
 
   console.log(`  ${dim('Auto-filled')}: ${autoFilledFields.join(', ')}`);
   console.log();
@@ -166,6 +184,7 @@ export async function showMultipleToolSchemas(
     const autoFilledFields = getDirectToolAutoFilledFields(tool.name);
     const commandPatterns = buildDirectToolCommandPatterns(tool.name);
     const guidance = getToolSchemaGuidance(tool.name);
+    const relations = getDirectToolSchemaRelations(tool.name);
 
     console.log();
     console.log(`  ${c('magenta', bold(tool.name))}  ${dim(shortDesc)}`);
@@ -179,6 +198,10 @@ export async function showMultipleToolSchemas(
       console.log(
         `    ${c('cyan', field.name)} (${field.type}${meta})${reqTag}${field.description ? dim(` - ${field.description}`) : ''}`
       );
+    }
+    if (relations.length > 0) {
+      console.log(`  ${bold('Field Relations')}`);
+      for (const relation of relations) console.log(`    ${dim(relation)}`);
     }
     console.log(`  ${dim('Auto-filled')}: ${autoFilledFields.join(', ')}`);
     const exampleCommand =

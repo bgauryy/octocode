@@ -21,7 +21,7 @@ use it instead of paying for schema discovery.
 | `localSearchCode` | Text/regex/AST search in a clone → file+line anchors. Modes: `discovery`=paths, `paginated`=snippets, `detailed`=context, `structural`=AST. |
 | `localGetFileContent` | Read an exact cloned file/region (same region params as `ghGetFileContent`). |
 | `localViewStructure` · `localFindFiles` | Cloned tree browse · find-by-path-metadata. |
-| `localFindDeadCode` | Likely-unreferenced exports in a clone. |
+| `localAnalyzeGraph` | Bounded dependencies, dependents, paths, reachability, cycles, and dead-code candidates in a clone. |
 | `lspGetSemantics` | Definitions, references, callers/callees, symbols, types, diagnostics — **after** search/read gives a real file+line. `documentSymbols`/`diagnostic` need `uri`; `workspaceSymbol` needs `symbolName`; others need `uri`+`symbolName`+`lineHint`. |
 
 `ghListReleases` / `ghSearchDiscussions` are opt-in; a disabled tool is unavailable, not a failed requirement.

@@ -1,7 +1,7 @@
 import { RequestError } from 'octokit';
 import type { GetContentParameters, GitHubAPIResponse } from '../githubAPI.js';
 import type { z } from 'zod';
-import type { FileContentQuerySchema } from '@octocodeai/octocode-core/schemas';
+import type { FileContentQuerySchema } from '../../toolContract/schemas.js';
 
 type FileContentQuery = z.infer<typeof FileContentQuerySchema>;
 import {
@@ -9,8 +9,8 @@ import {
   OctokitWithThrottling,
   resolveDefaultBranch,
 } from '../client.js';
+import { AuthInfo } from '@modelcontextprotocol/server';
 import { handleGitHubAPIError } from '../errors.js';
-import { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types';
 import { TOOL_NAMES } from '../../tools/toolMetadata/proxies.js';
 import { FILE_OPERATION_ERRORS } from '../../errors/domainErrors.js';
 import { countSerializedChars } from '../../utils/response/charSavings.js';

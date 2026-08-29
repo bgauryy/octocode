@@ -40,9 +40,9 @@ Tree-sitter-backed. Two query forms: `pattern` (code-shaped, `$X`/`$$$ARGS` meta
 | Zig | `zig` | ✅ full | |
 | **Data/markup (structural, no functions):** CSS/SCSS/Less, HTML, JSON/JSONC, SQL, TOML, YAML | `css` `scss` `less` `htm` `html` `json` `jsonc` `sql` `toml` `yaml` `yml` | ✅ | Selector/key/tag/table shapes, not function bodies. Literal patterns occasionally fail to parse where a `rule` or a metavar-based pattern succeeds — try both |
 
-## Signature extraction / graph facts — `minify:"symbols"`, `localFindDeadCode`
+## Signature extraction / graph facts — `minify:"symbols"`, `localAnalyzeGraph`
 
-`localGetFileContent minify:"symbols"` (skeleton outlines) and `localFindDeadCode` (reachability) share this coverage. JS/TS uses the native `oxc` parser; everything else uses the tree-sitter body-query grammar.
+`localGetFileContent minify:"symbols"` (skeleton outlines) and `localAnalyzeGraph` share this coverage. JS/TS uses the native `oxc` parser; everything else uses the tree-sitter body-query grammar.
 
 Supported (47 extensions): every language in the table above **except** the data/markup row (CSS/SCSS/Less/HTML/JSON/SQL/TOML/YAML have no function bodies to extract) — **and, as a known gap, Julia (`jl`) and OCaml (`mli`/`ml`)**, which support structural search but not signature skeletons or graph facts yet.
 

@@ -1,4 +1,4 @@
-import type { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types.js';
+import type { AuthInfo } from '@modelcontextprotocol/server';
 import { TOOL_NAMES } from '../../toolMetadata/proxies.js';
 import { createSuccessResult, createErrorResult } from '../../utils.js';
 import { fetchIssues } from '../../../github/issues.js';
@@ -103,6 +103,13 @@ export async function handleIssuesMode(
   const hasContent = Array.isArray(result.data.issues)
     ? result.data.issues.length > 0
     : false;
+  // Empty pages can be meaningful: GitHub's issues endpoint also returns PRs,
+  // which this tool filters out. The shared egress contract strips `warnings`,
+  // so preserve an empty page's explanation as an agent-visible hint.
+  const emptyPageHints =
+    !hasContent && result.data.warnings?.length
+      ? { hints: result.data.warnings }
+      : {};
 
   const issues = result.data.issues;
   const firstIssueNumber = (() => {
@@ -151,6 +158,7 @@ export async function handleIssuesMode(
     query,
     {
       ...(result.data as unknown as Record<string, unknown>),
+      ...emptyPageHints,
       next,
     },
     hasContent,

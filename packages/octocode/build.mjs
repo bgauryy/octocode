@@ -30,8 +30,8 @@ const transitiveExternals = [
   '@octocodeai/octocode-engine/*',
   '@octocodeai/octocode-core',
   '@octocodeai/octocode-core/*',
-  '@modelcontextprotocol/sdk',
-  '@modelcontextprotocol/sdk/*',
+  '@modelcontextprotocol/server',
+  '@modelcontextprotocol/server/*',
   '@octokit/*',
   'zod',
 ];

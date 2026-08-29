@@ -1,8 +1,5 @@
-import {
-  McpServer,
-  RegisteredTool,
-} from '@modelcontextprotocol/sdk/server/mcp.js';
-import { type CallToolResult } from '@modelcontextprotocol/sdk/types.js';
+import { McpServer, type RegisteredTool } from '@modelcontextprotocol/server';
+import type { CallToolResult } from '@modelcontextprotocol/server';
 import { toMCPSchema } from '../types/toolTypes.js';
 import { withSecurityValidation } from '@octocodeai/octocode-tools-core';
 import {
@@ -33,6 +30,8 @@ interface RemoteToolConfig<TQuery> {
   };
 
   registrationGuard?: () => Promise<boolean>;
+
+  timeoutMs?: number;
 }
 
 export function createRemoteToolRegistration<TQuery>(
@@ -49,6 +48,7 @@ export function createRemoteToolRegistration<TQuery>(
     describe,
     annotations,
     registrationGuard,
+    timeoutMs,
   } = config;
 
   return (server: McpServer, callback?: ToolInvocationCallback) => {
@@ -92,7 +92,8 @@ export function createRemoteToolRegistration<TQuery>(
               sessionId: context.sessionId,
               signal: context.signal,
             });
-          }
+          },
+          { timeoutMs }
         )
       );
     };

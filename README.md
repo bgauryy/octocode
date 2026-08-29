@@ -229,7 +229,7 @@ Flags: [Configuration](https://github.com/bgauryy/octocode/blob/main/docs/CONFIG
 | `localSearchCode` | Local code/text search returning file and line anchors. `mode:"structural"` runs Octocode AST shape queries (`pattern` or `rule`). | `mode` |
 | `localViewStructure` | Browse a local directory tree: depth, filters, pagination, metadata. | `detail` |
 | `localFindFiles` | Find local files and directories by name, path, regex, extension, size, time, permissions, type. | |
-| `localFindDeadCode` | Find likely-unreferenced exports and dead-code clusters using whole-repository reachability analysis. | `entrypoints` |
+| `localAnalyzeGraph` | Analyze dependencies, dependents, paths, reachability, cycles, or dead-code candidates over one bounded repository graph. | `operation` |
 | `localGetFileContent` | Read a local file or region: exact slice, match string, line range, or paginated chars. | `minify` |
 
 ### Package search
@@ -313,6 +313,8 @@ environment variables  >  <octocode-home>/.octocoderc  >  built-in defaults
 3. **Built-in defaults**: used when neither is set.
 
 **Octocode home** (`<octocode-home>`) holds the global config, encrypted credentials, sessions, stats, and tmp materialization caches. On every platform it is `.octocode` inside the OS home directory — `~/.octocode` on macOS and Linux, `%USERPROFILE%\.octocode` on Windows. Override it with `OCTOCODE_HOME`.
+
+Remote data is shared by the CLI and MCP under `<octocode-home>/tmp/`: git clones in `clone/`, commit-addressed file trees in `tree/`, and reusable API/package responses in `response/`. A persisted 24-hour maintenance gate bounds automatic cleanup across short-lived CLI processes and long-lived MCP sessions. See the [configuration reference](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md#cache-storage-and-lifecycle) for lifecycle and limit details.
 
 Set values as MCP `env` entries (per client; these win over `.octocoderc`) or globally in `<octocode-home>/.octocoderc` (JSON with comments). **Tokens never go in `.octocoderc`** — use `env` or `npx octocode auth login`.
 

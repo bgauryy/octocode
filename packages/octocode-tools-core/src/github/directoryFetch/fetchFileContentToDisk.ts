@@ -1,7 +1,7 @@
 import { writeFileSync, mkdirSync, existsSync } from 'node:fs';
 import { join, dirname, resolve, sep } from 'node:path';
 import { getOctocodeDir } from '../../shared/index.js';
-import type { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types.js';
+import type { AuthInfo } from '@modelcontextprotocol/server';
 import type { FileMaterializationResult } from '../../tools/github_fetch_content/types.js';
 import { fetchRawGitHubFileContent } from '../fileContentRaw.js';
 import {
@@ -13,6 +13,7 @@ import {
   evictExpiredTrees,
 } from '../../tools/github_clone_repo/cache.js';
 import { safeFileSize } from './helpers.js';
+import { resolveMaterializationRef } from './refResolution.js';
 
 export async function fetchFileContentToDisk(
   owner: string,
@@ -23,7 +24,14 @@ export async function fetchFileContentToDisk(
   forceRefresh = false
 ): Promise<FileMaterializationResult> {
   const octocodeDir = getOctocodeDir();
-  const treeRoot = getTreeDir(octocodeDir, owner, repo, branch);
+  const { commitSha, resolvedRef } = await resolveMaterializationRef(
+    owner,
+    repo,
+    branch,
+    authInfo,
+    forceRefresh
+  );
+  const treeRoot = getTreeDir(octocodeDir, owner, repo, commitSha);
   const filePath = resolve(join(treeRoot, path));
   if (!filePath.startsWith(treeRoot + sep) && filePath !== treeRoot) {
     throw new Error(
@@ -32,7 +40,12 @@ export async function fetchFileContentToDisk(
   }
 
   const cacheResult = isCacheHit(treeRoot);
-  if (!forceRefresh && cacheResult.hit && existsSync(filePath)) {
+  if (
+    !forceRefresh &&
+    cacheResult.hit &&
+    cacheResult.meta.commitSha === commitSha &&
+    existsSync(filePath)
+  ) {
     return {
       localPath: filePath,
       repoRoot: treeRoot,
@@ -42,7 +55,8 @@ export async function fetchFileContentToDisk(
       expiresAt: cacheResult.meta.expiresAt,
       owner,
       repo,
-      branch,
+      branch: resolvedRef,
+      commitSha,
     };
   }
 
@@ -52,7 +66,7 @@ export async function fetchFileContentToDisk(
       repo,
       path,
       type: 'file',
-      branch,
+      branch: commitSha,
       fullContent: true,
       contextLines: 0,
       minify: 'none',
@@ -76,8 +90,15 @@ export async function fetchFileContentToDisk(
   }
   writeFileSync(filePath, rawResult.data.rawContent, 'utf-8');
 
-  const resolvedBranch = rawResult.data.branch || branch;
-  const meta = createCacheMeta(owner, repo, resolvedBranch, 'treeFetch');
+  const meta = createCacheMeta(
+    owner,
+    repo,
+    resolvedRef,
+    'treeFetch',
+    undefined,
+    undefined,
+    commitSha
+  );
   writeCacheMeta(treeRoot, meta);
 
   return {
@@ -89,6 +110,7 @@ export async function fetchFileContentToDisk(
     expiresAt: meta.expiresAt,
     owner,
     repo,
-    branch: resolvedBranch,
+    branch: resolvedRef,
+    commitSha,
   };
 }

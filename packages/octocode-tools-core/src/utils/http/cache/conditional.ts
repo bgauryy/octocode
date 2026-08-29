@@ -8,6 +8,15 @@ import {
   recordGitHubCacheHit,
   safeCacheSet,
 } from './store.js';
+import { readDiskCache, writeDiskCache } from './diskStore.js';
+
+const ETAG_SOFT_TTL_SECONDS = 86400;
+
+function resolveTTL(cacheKey: string, configured?: number): number {
+  if (configured) return configured;
+  const prefixMatch = cacheKey.match(/^v\d+-([^:]+):/);
+  return getTTLForPrefix(prefixMatch?.[1] ?? 'default');
+}
 
 /**
  * Soft ETag store: survives primary TTL so a miss can send If-None-Match and
@@ -46,6 +55,10 @@ export async function withDataCacheConditional<T>(
     return fresh.value;
   }
 
+  let diskSoft:
+    | { value: T; etag?: string; state: 'fresh' | 'stale'; expiresAt: number }
+    | undefined;
+
   if (!options.forceRefresh) {
     try {
       const cached = cache.get<T>(cacheKey);
@@ -56,6 +69,24 @@ export async function withDataCacheConditional<T>(
       }
     } catch {
       void 0;
+    }
+
+    diskSoft = await readDiskCache<T>(cacheKey, { allowStale: true });
+    if (diskSoft?.state === 'fresh') {
+      cacheStats.hits++;
+      recordGitHubCacheHit(cacheKey);
+      safeCacheSet(
+        cacheKey,
+        diskSoft.value,
+        Math.max(1, (diskSoft.expiresAt - Date.now()) / 1000)
+      );
+      if (diskSoft.etag) {
+        etagSoftCache.set(cacheKey, {
+          data: diskSoft.value,
+          etag: diskSoft.etag,
+        });
+      }
+      return diskSoft.value;
     }
   }
 
@@ -71,22 +102,26 @@ export async function withDataCacheConditional<T>(
       const soft = options.forceRefresh
         ? undefined
         : etagSoftCache.get<{ data: T; etag?: string }>(cacheKey);
+      const recoverable =
+        soft ??
+        (diskSoft ? { data: diskSoft.value, etag: diskSoft.etag } : undefined);
       const result = await operation({
         ifNoneMatch:
-          !options.forceRefresh && soft?.etag ? soft.etag : undefined,
+          !options.forceRefresh && recoverable?.etag
+            ? recoverable.etag
+            : undefined,
       });
 
-      if (result.notModified && soft) {
+      if (result.notModified && recoverable) {
         cacheStats.hits++;
         recordGitHubCacheHit(cacheKey);
-        let ttl = options.ttl;
-        if (!ttl) {
-          const prefixMatch = cacheKey.match(/^v\d+-([^:]+):/);
-          const prefix = prefixMatch?.[1] ?? 'default';
-          ttl = getTTLForPrefix(prefix);
-        }
-        safeCacheSet(cacheKey, soft.data, ttl);
-        return soft.data;
+        const ttl = resolveTTL(cacheKey, options.ttl);
+        safeCacheSet(cacheKey, recoverable.data, ttl);
+        await writeDiskCache(cacheKey, recoverable.data, ttl, {
+          ...(recoverable.etag ? { etag: recoverable.etag } : {}),
+          staleTtlSeconds: ETAG_SOFT_TTL_SECONDS,
+        });
+        return recoverable.data;
       }
 
       if (!options.forceRefresh) {
@@ -95,16 +130,15 @@ export async function withDataCacheConditional<T>(
 
       const shouldCache = options.shouldCache ?? (() => true);
       if (shouldCache(result.value)) {
-        let ttl = options.ttl;
-        if (!ttl) {
-          const prefixMatch = cacheKey.match(/^v\d+-([^:]+):/);
-          const prefix = prefixMatch?.[1] ?? 'default';
-          ttl = getTTLForPrefix(prefix);
-        }
+        const ttl = resolveTTL(cacheKey, options.ttl);
         safeCacheSet(cacheKey, result.value, ttl);
         etagSoftCache.set(cacheKey, {
           data: result.value,
           etag: result.etag,
+        });
+        await writeDiskCache(cacheKey, result.value, ttl, {
+          ...(result.etag ? { etag: result.etag } : {}),
+          staleTtlSeconds: ETAG_SOFT_TTL_SECONDS,
         });
       }
 

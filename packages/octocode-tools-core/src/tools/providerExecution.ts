@@ -1,4 +1,4 @@
-import type { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types.js';
+import type { AuthInfo } from '@modelcontextprotocol/server';
 import type { ProcessedBulkResult } from '../types/toolResults.js';
 import { getProvider } from '../providers/factory.js';
 import {

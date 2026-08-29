@@ -625,10 +625,12 @@ The full §5 loop runs unmodified on the result at any of the three depths:
 | Depth | Call | What lands on disk | Use when |
 |---|---|---|---|
 | **file** | `ghCloneRepo` + `sparsePath: "path/to/file.ts"` | sparse checkout: the file's subtree **plus repo-root files** (README, package.json, configs; git sparse-checkout keeps root); `complete:false` flagged | one file needs repeated matchString/LSP reads |
-| **tree** | `ghGetFileContent type:"directory"` | only that subtree under `~/.octocode/tmp/tree/<owner>/<repo>/<branch>/...`, with `commitSha`, per-reason skip accounting (`oversized`/`binary`/`fileLimit`/...) and disclosed size/count limits; partiality warning when limits bite | analyzing one directory |
+| **tree** | `ghGetFileContent type:"directory"` | only that subtree under `~/.octocode/tmp/tree/<owner>/<repo>/<commit-sha>/...`, with immutable `commitSha` identity, per-reason skip accounting (`oversized`/`binary`/`fileLimit`/...), and disclosed size/count limits; partiality warning when limits bite | analyzing one directory |
 | **repository** | `ghCloneRepo` (no sparsePath) | full shallow clone, `complete:true`, cached for a period (`forceRefresh` to bust) | repository-wide grep/AST/LSP, dead-code, reachability |
 
 Every result carries `localPath` + prefilled `next.localSearch` / `next.viewStructure`.
+File and tree paths are commit-addressed. A moving branch produces a new path;
+the previous commit remains available until the normal 24-hour cache eviction.
 
 **Post-bridge:** structural AST rules, native LSP `documentSymbols`, and
 matchString anchor reads all run unmodified on the materialized paths. Remote code

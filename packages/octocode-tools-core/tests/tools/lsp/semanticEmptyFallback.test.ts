@@ -6,6 +6,7 @@ import type {
   LspGetSemanticsQuery,
   LspSemanticEnvelope,
 } from '../../../src/tools/lsp/shared/semanticTypes.js';
+import { prepareDirectToolInput } from '../../../src/tools/directToolCatalog.meta.js';
 
 /**
  * The tool description promises: "Empty/incomplete: re-anchor or fall back to
@@ -18,7 +19,7 @@ describe('withSemanticNext — empty-state fallback', () => {
   ): { query: LspGetSemanticsQuery; result: LspSemanticEnvelope } => {
     const query = {
       type,
-      uri: 'src/foo.ts',
+      uri: 'file:///repo/src/foo.ts',
       symbolName: 'doThing',
       lineHint: 10,
     } as LspGetSemanticsQuery;
@@ -33,28 +34,34 @@ describe('withSemanticNext — empty-state fallback', () => {
     return { query, result };
   };
 
-  it('points a symbolNotFound definition to localSearchCode with a STRING keyword', () => {
+  it('points a symbolNotFound definition to a schema-valid localSearchCode query', () => {
     const { query, result } = symbolNotFound('definition');
     const withNext = withSemanticNext(query, result) as LspSemanticEnvelope;
 
     const textSearch = withNext.next?.textSearch;
     expect(textSearch?.tool).toBe('localSearchCode');
-    expect(textSearch?.query.keywords).toBe('doThing');
-    // Regression guard: keywords must be a string, not an array.
-    expect(Array.isArray(textSearch?.query.keywords)).toBe(false);
-    expect(typeof textSearch?.query.keywords).toBe('string');
+    expect(textSearch?.query).toMatchObject({
+      path: '/repo/src/foo.ts',
+      searchText: 'doThing',
+    });
+    expect(textSearch?.query.keywords).toBeUndefined();
+    expect(() =>
+      prepareDirectToolInput('localSearchCode', textSearch?.query ?? {}, {
+        rejectUnknownFields: true,
+      })
+    ).not.toThrow();
   });
 
   it('adds a re-anchor hint for symbolNotFound (references)', () => {
     const { query, result } = symbolNotFound('references');
     const withNext = withSemanticNext(query, result) as LspSemanticEnvelope;
 
-    expect(withNext.next?.textSearch?.query.keywords).toBe('doThing');
+    expect(withNext.next?.textSearch?.query.searchText).toBe('doThing');
     const reAnchor = withNext.next?.reAnchor;
     expect(reAnchor?.tool).toBe('lspGetSemantics');
     expect(reAnchor?.query).toMatchObject({
       type: 'documentSymbols',
-      uri: 'src/foo.ts',
+      uri: 'file:///repo/src/foo.ts',
     });
   });
 
@@ -126,6 +133,30 @@ describe('withSemanticNext — empty-state fallback', () => {
       );
       expect(searchText, `fallback regex for ${uri}`).toMatch(mustMatch);
     }
+  });
+
+  it('uses the workspace URI for a workspace-symbol fallback', () => {
+    const query = {
+      type: 'workspaceSymbol',
+      workspaceRoot: '/repo',
+      symbolName: 'doThing',
+    } as LspGetSemanticsQuery;
+    const result: LspSemanticEnvelope = {
+      type: 'workspaceSymbol',
+      uri: '/repo',
+      lsp: { serverAvailable: true },
+      payload: {
+        kind: 'empty',
+        category: 'noWorkspaceSymbols',
+        reason: 'No workspace symbols found.',
+      },
+    };
+
+    const withNext = withSemanticNext(query, result) as LspSemanticEnvelope;
+    expect(withNext.next?.textSearch?.query).toMatchObject({
+      path: '/repo',
+      searchText: 'doThing',
+    });
   });
 
   it('emits no fallback when there is no symbolName to search for', () => {

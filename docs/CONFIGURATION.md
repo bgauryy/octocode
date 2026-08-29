@@ -167,15 +167,33 @@ To override it for all products at once, set `OCTOCODE_HOME`:
 export OCTOCODE_HOME=/custom/path
 ```
 
-The following table lists the files inside the home directory:
+The following table lists the persistent files and cache directories inside the home directory:
 
-| File | What it does |
+| Path | What it does |
 |------|-------------|
 | `.env` | Your third-party API keys (Tavily, Serper, …). Loaded by agents and skills. |
 | `.octocoderc` | Octocode behavior settings (tools, network, paths, output). Read by the MCP server and CLI. |
 | `credentials.json` | Encrypted GitHub token from `octocode auth login`. Don't edit manually. |
 | `stats.json` | Usage counters (tool calls, cache hits, …). Written only when `OCTOCODE_ENABLE_STATS=1`. |
 | `session.json` | Session identity. |
+| `tmp/clone/` | Git clones, keyed by owner, repository, and branch/sparse identity. |
+| `tmp/tree/` | API-materialized files and directories, keyed by owner, repository, and immutable commit SHA. |
+| `tmp/response/` | Shared file-backed L2 cache for eligible GitHub and package responses. |
+
+### Cache storage and lifecycle
+
+The CLI and MCP share the same cache roots under `OCTOCODE_HOME`; neither product uses editor-local storage for remote materialization.
+
+| Concern | Behavior |
+|---------|----------|
+| Automatic cleanup | A persisted due marker allows one full maintenance pass per 24-hour window across processes. A cross-process lock prevents duplicate clone, tree, and response scans. |
+| CLI | A tool that enters the direct execution runtime performs the due-check once per process. The CLI does not start a background timer, so the check cannot keep a command alive. Help, schema, and context-only paths remain side-effect free. |
+| MCP | Server initialization performs the same due-check. After the stdio transport connects, MCP schedules the next persisted deadline with an `unref()` timer and cancels it during shutdown. |
+| Expiry | Clone and tree entries use the clone TTL (24 hours by default). Response entries carry their own fresh/stale deadlines and are removed after the stale deadline. Stale clone temp artifacts and locks are also recovered. |
+| Failure | Maintenance is best-effort. An unavailable or read-only cache home does not prevent CLI tool execution or MCP startup. |
+| Ownership | Automatic maintenance traverses only Octocode-owned `clone`, `tree`, clone-artifact, and `response` roots. It preserves unrelated directories under `tmp/`. |
+| Manual inspection | `octocode cache status` reports total `tmp`, clone, tree, and response sizes. |
+| Manual clear | `octocode cache clear --clone` and `--tree` are selective. `octocode cache clear --all` removes the entire `<octocode-home>/tmp/` directory, including response entries and lifecycle metadata; there is currently no response-only clear flag. |
 
 ---
 
@@ -467,13 +485,24 @@ Set the GitHub token in an environment variable only. Octocode never reads it fr
 |---------|---------|-------|
 | `OCTOCODE_ENABLE_STATS` | `false` (off) | Set to `1` or `true` to write `stats.json` on every flush. Octocode tracks stats in memory either way; this setting controls only whether it writes them to disk. Keeping it off eliminates one file write per 60-second flush cycle, which reduces SSD wear on long-running agent sessions. |
 
-#### Clone cache
+#### Clone and tree cache
 
 | Env var | Default | Notes |
 |---------|---------|-------|
 | `OCTOCODE_CACHE_TTL_MS` | `86400000` (24 h) | How long a cloned repository stays fresh before re-fetch |
 | `OCTOCODE_MAX_CACHE_SIZE` | `2147483648` (2 GB) | Total byte cap for the clone cache on disk |
 | `OCTOCODE_MAX_CLONES` | `50` | Maximum number of repositories the clone cache keeps |
+
+#### Response cache
+
+Eligible GitHub and package operations use a shared memory L1 plus the file-backed `tmp/response/` L2. Each entry defines its own fresh and stale deadlines; the settings below control storage rather than response TTL.
+
+| Env var | Default | Notes |
+|---------|---------|-------|
+| `OCTOCODE_DISK_CACHE` | `true` | Set to `false` or `0` to disable response-cache disk reads and writes. |
+| `OCTOCODE_DISK_CACHE_MAX_ENTRY_SIZE` | `5242880` (5 MiB) | Maximum serialized size of one response entry. |
+| `OCTOCODE_DISK_CACHE_MAX_ENTRIES` | `5000` | Maximum live response entries retained by maintenance. |
+| `OCTOCODE_DISK_CACHE_MAX_SIZE` | `268435456` (256 MiB) | Maximum total bytes retained under `tmp/response/`. |
 
 #### Timeouts
 

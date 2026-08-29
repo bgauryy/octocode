@@ -9,8 +9,7 @@ import {
   withDataCache,
   withDataCacheConditional,
 } from '../utils/http/cache.js';
-import { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types';
-
+import { AuthInfo } from '@modelcontextprotocol/server';
 import {
   fetchRawGitHubFileContent,
   type RawContentResult,

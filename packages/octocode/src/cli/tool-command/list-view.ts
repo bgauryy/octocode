@@ -9,6 +9,7 @@ import {
   TOOL_CATEGORIES,
   TOOL_DEFINITIONS,
   getOptionalToolMetadata,
+  getToolAvailability,
 } from './registry.js';
 import { formatConciseToolDescription } from './formatting.js';
 
@@ -34,9 +35,10 @@ export async function showAvailableTools(): Promise<void> {
 
     console.log(`  ${bold(category)}`);
     for (const toolName of toolsInCategory) {
+      const availability = getToolAvailability(toolName);
       const namePadded = toolName.padEnd(26);
       console.log(
-        `    ${c('cyan', namePadded)} ${dim(formatConciseToolDescription(toolName, metadata))}`
+        `    ${c('cyan', namePadded)} ${dim(formatConciseToolDescription(toolName, metadata))}${availability.enabled ? '' : ` ${c('yellow', `[disabled: set ${availability.envVar}=1]`)}`}`
       );
     }
     console.log();

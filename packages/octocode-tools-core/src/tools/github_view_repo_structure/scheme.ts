@@ -1,4 +1,4 @@
-import { GitHubViewRepoStructureQuerySchema as CoreGitHubViewRepoStructureQuerySchema } from '@octocodeai/octocode-core/schemas';
+import { GitHubViewRepoStructureQuerySchema as CoreGitHubViewRepoStructureQuerySchema } from '../../toolContract/schemas.js';
 import { GITHUB_STRUCTURE_MAX_ENTRIES_PER_PAGE } from '../../config.js';
 import { LOCAL_MAX_DEPTH } from '../../config.js';
 import {

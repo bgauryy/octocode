@@ -1,9 +1,9 @@
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import {
-  type CallToolResult,
-  McpError,
-  ErrorCode,
-} from '@modelcontextprotocol/sdk/types.js';
+  McpServer,
+  ProtocolError,
+  ProtocolErrorCode,
+} from '@modelcontextprotocol/server';
+import type { CallToolResult } from '@modelcontextprotocol/server';
 import {
   ContentSanitizer,
   maskSensitiveData,
@@ -48,31 +48,23 @@ function normalizeError(error: unknown): NormalizedError {
   };
 }
 
-/**
- * Output sanitization threw. We keep the tool result (availability) but must
- * never let the failure pass silently, since the content was NOT scrubbed for
- * secrets. Prepend a visible warning block so the caller knows the output is
- * unsanitized, and mirror it to stderr. The failure reason is itself scrubbed
- * so the warning can't leak a secret via the error text.
- */
-function appendSanitizationWarning(
-  result: CallToolResult,
-  error: unknown
-): CallToolResult {
-  const reason = sanitizeErrorMessage(normalizeError(error).message);
-  const warning = {
-    type: 'text' as const,
-    text: `⚠️ Output sanitization failed — the content below was NOT scrubbed for secrets and may contain sensitive data. Reason: ${reason}`,
-  };
-  const content = Array.isArray(result.content) ? result.content : [];
+function buildSanitizationFailureResult(toolName: string): CallToolResult {
   try {
     process.stderr.write(
-      `[octocode-mcp] output sanitization failed; returning unsanitized result with warning: ${reason}\n`
+      `[octocode-mcp] output sanitization failed for tool "${toolName}"; raw output discarded\n`
     );
   } catch {
-    // stderr unavailable — the in-band warning above still surfaces it
+    // stderr is best-effort; the in-band error still reports the failure.
   }
-  return { ...result, content: [warning, ...content] };
+  return {
+    content: [
+      {
+        type: 'text',
+        text: `Output sanitization failed for tool "${toolName}". The raw tool output was discarded.`,
+      },
+    ],
+    isError: true,
+  };
 }
 
 function safeStringify(value: unknown): string | undefined {
@@ -88,7 +80,11 @@ function sanitizeErrorMessage(message: string): string {
     const scan = ContentSanitizer.sanitizeContent(message);
     return maskSensitiveData(scan.hasSecrets ? scan.content : message);
   } catch {
-    return message;
+    try {
+      return maskSensitiveData(message);
+    } catch {
+      return 'Internal error';
+    }
   }
 }
 
@@ -103,11 +99,8 @@ function wrapToolCallback(
       )(...args);
       try {
         return sanitizeCallToolResult(result);
-      } catch (sanitizeError) {
-        // Sanitization failed. Policy: do NOT hard-fail the call and do NOT
-        // return the result silently — the content was not scrubbed for
-        // secrets, so surface a visible warning and let the caller decide.
-        return appendSanitizationWarning(result, sanitizeError);
+      } catch {
+        return buildSanitizationFailureResult(name);
       }
     } catch (error) {
       return buildToolErrorResult(name, error);
@@ -128,8 +121,8 @@ function wrapNonToolCallback<T>(
     } catch (error) {
       const normalized = normalizeError(error);
       const safeMessage = sanitizeErrorMessage(normalized.message);
-      throw new McpError(
-        ErrorCode.InternalError,
+      throw new ProtocolError(
+        ProtocolErrorCode.InternalError,
         `${kind} "${name}" failed: ${safeMessage}`
       );
     }

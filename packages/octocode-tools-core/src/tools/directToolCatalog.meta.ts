@@ -25,3 +25,4 @@ export * from './directToolCatalog/toolCatalogFormatters.js';
 export * from './directToolCatalog/toolSchemaIntrospection.js';
 export * from './directToolCatalog/toolCommandPatterns.js';
 export * from './directToolCatalog/toolInputPreparation.js';
+export * from './directToolCatalog/toolSchemaRelations.js';

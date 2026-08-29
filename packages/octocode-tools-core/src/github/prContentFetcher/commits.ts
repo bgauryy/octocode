@@ -5,7 +5,7 @@ import {
   CommitFileInfo,
 } from '../githubAPI.js';
 import { getOctokit } from '../client.js';
-import { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types';
+import { AuthInfo } from '@modelcontextprotocol/server';
 import { applyPartialContentFilter } from '../prTransformation.js';
 import {
   attachRawResponseChars,

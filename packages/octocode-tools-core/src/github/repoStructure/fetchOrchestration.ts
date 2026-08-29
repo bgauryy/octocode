@@ -1,7 +1,7 @@
 import type { z } from 'zod';
 import type { Octokit } from 'octokit';
-import { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types';
-import type { GitHubViewRepoStructureQuerySchema } from '@octocodeai/octocode-core/schemas';
+import { AuthInfo } from '@modelcontextprotocol/server';
+import type { GitHubViewRepoStructureQuerySchema } from '../../toolContract/schemas.js';
 
 type GitHubViewRepoStructureQuery = z.infer<
   typeof GitHubViewRepoStructureQuerySchema

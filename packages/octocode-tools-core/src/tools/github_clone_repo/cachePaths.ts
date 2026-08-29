@@ -55,12 +55,15 @@ export function getTreeDir(
   octocodeDir: string,
   owner: string,
   repo: string,
-  branch: string
+  commitSha: string
 ): string {
+  if (!/^[0-9a-f]{40}$/i.test(commitSha)) {
+    throw new Error('Tree cache identity must be a 40-character commit SHA.');
+  }
   return join(
     getTreeBaseDir(octocodeDir),
     owner,
     repo,
-    safeBranchSegment(branch)
+    commitSha.toLowerCase()
   );
 }

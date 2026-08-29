@@ -21,18 +21,18 @@ describe('direct-tool command patterns', () => {
     expect(patterns[0]).toMatchObject({
       label: 'text search',
       query: {
-        path: 'packages/octocode-tools-core/src',
+        path: '/ABS/repo/packages/octocode-tools-core/src',
         searchText: 'buildDirectToolCommandPatterns',
         maxFiles: 20,
       },
     });
     expect(patterns[0]?.command).toBe(
-      'tools localSearchCode --queries \'{"path":"packages/octocode-tools-core/src","searchText":"buildDirectToolCommandPatterns","maxFiles":20}\''
+      'tools localSearchCode --queries \'{"path":"/ABS/repo/packages/octocode-tools-core/src","searchText":"buildDirectToolCommandPatterns","maxFiles":20}\''
     );
     expect(patterns[1]).toMatchObject({
       label: 'structural code search',
       query: {
-        path: 'packages/octocode-tools-core/src/tools',
+        path: '/ABS/repo/packages/octocode-tools-core/src/tools',
         mode: 'structural',
         pattern: 'eval($X)',
       },
@@ -40,7 +40,7 @@ describe('direct-tool command patterns', () => {
     expect(
       buildDirectToolExampleQuery(STATIC_TOOL_NAMES.LOCAL_RIPGREP)
     ).toEqual({
-      path: 'packages/octocode-tools-core/src',
+      path: '/ABS/repo/packages/octocode-tools-core/src',
       searchText: 'buildDirectToolCommandPatterns',
       maxFiles: 20,
     });
@@ -56,7 +56,7 @@ describe('direct-tool command patterns', () => {
       'files only at depth 1',
     ]);
     expect(patterns[0]?.query).toEqual({
-      path: 'packages/octocode-tools-core/src/tools',
+      path: '/ABS/repo/packages/octocode-tools-core/src/tools',
       maxDepth: 2,
       itemsPerPage: 50,
     });

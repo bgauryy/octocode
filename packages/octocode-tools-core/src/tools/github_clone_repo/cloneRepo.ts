@@ -3,7 +3,7 @@ import { join } from 'path';
 import { createHash } from 'crypto';
 import { getOctocodeDir } from '../../shared/index.js';
 import { resolveDefaultBranch } from '../../github/client.js';
-import type { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types.js';
+import type { AuthInfo } from '@modelcontextprotocol/server';
 import {
   spawnWithTimeout,
   TOOLING_ALLOWED_ENV_VARS,
@@ -20,6 +20,8 @@ import {
   ensureCloneParentDir,
   removeCloneDir,
   evictExpiredClones,
+  writeCloneLockMeta,
+  tryRecoverStaleCloneLock,
 } from './cache.js';
 
 const CLONE_TIMEOUT_MS = 2 * 60 * 1000;
@@ -135,10 +137,12 @@ async function withCloneLock<T>(
   while (true) {
     try {
       mkdirSync(lockDir, { mode: 0o700 });
+      writeCloneLockMeta(lockDir);
       break;
     } catch (error) {
       const code = (error as NodeJS.ErrnoException).code;
       if (code !== 'EEXIST') throw error;
+      if (tryRecoverStaleCloneLock(lockDir)) continue;
       if (Date.now() - started > CLONE_LOCK_TIMEOUT_MS) {
         throw new Error(`Timed out waiting for clone cache lock '${lockDir}'.`);
       }

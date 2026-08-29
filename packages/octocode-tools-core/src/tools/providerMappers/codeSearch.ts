@@ -1,6 +1,6 @@
 import type { CodeSearchResult } from '../../providers/types.js';
 import type { z } from 'zod';
-import type { GitHubCodeSearchQuerySchema } from '@octocodeai/octocode-core/schemas';
+import type { GitHubCodeSearchQuerySchema } from '../../toolContract/schemas.js';
 import type { WithOptionalMeta } from '../../types/execution.js';
 
 import { DEFAULT_MATCH_SNIPPET_CHARS } from '../../config.js';

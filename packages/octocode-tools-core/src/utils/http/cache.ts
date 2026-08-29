@@ -4,3 +4,4 @@ export * from './cache/key.js';
 export * from './cache/dataCache.js';
 export * from './cache/conditional.js';
 export * from './cache/management.js';
+export * from './cache/diskStore.js';

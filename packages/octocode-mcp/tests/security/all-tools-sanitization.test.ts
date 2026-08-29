@@ -1,6 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
+import type { McpServer, CallToolResult } from '@modelcontextprotocol/server';
 import { withOutputSanitization } from '../../src/utils/secureServer.js';
 import { ALL_TOOLS } from '../../src/tools/toolConfig.js';
 
@@ -440,7 +439,7 @@ const TOOL_RESULT_SHAPES: Record<string, () => CallToolResult> = {
     },
   }),
 
-  localFindDeadCode: () => ({
+  localAnalyzeGraph: () => ({
     content: [
       {
         type: 'text',
@@ -652,10 +651,14 @@ describe('ALL-TOOLS: Unified output sanitization via withOutputSanitization prox
       const wrapped = handlers.get('testTool')!;
 
       const args = { query: 'test', owner: 'org' };
-      const extra = { authInfo: { token: 'tok' }, sessionId: 'sid-1' };
-      await wrapped(args, extra);
+      const context = {
+        http: { authInfo: { token: 'tok' } },
+        sessionId: 'sid-1',
+        mcpReq: { signal: new AbortController().signal },
+      };
+      await wrapped(args, context);
 
-      expect(handler).toHaveBeenCalledWith(args, extra);
+      expect(handler).toHaveBeenCalledWith(args, context);
     });
   });
 

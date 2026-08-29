@@ -1,5 +1,5 @@
 import type { z } from 'zod';
-import type { GitHubReposSearchSingleQuerySchema } from '@octocodeai/octocode-core/schemas';
+import type { GitHubReposSearchSingleQuerySchema } from '../../../toolContract/schemas.js';
 import type { RepoSearchResult as ProviderRepoSearchResult } from '../../../providers/types.js';
 import type { ProviderOperationResult } from '../../providerExecution.js';
 import type { WithOptionalMeta } from '../../../types/execution.js';

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { FindFilesQuerySchema as CoreFindFilesQuerySchema } from '@octocodeai/octocode-core/schemas';
+import { FindFilesQuerySchema as CoreFindFilesQuerySchema } from '../../toolContract/schemas.js';
 import { LOCAL_MAX_FILES_PER_PAGE, LOCAL_MAX_LIMIT } from '../../config.js';
 import {
   clampedInt,

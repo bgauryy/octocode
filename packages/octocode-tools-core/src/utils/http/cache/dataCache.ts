@@ -7,6 +7,13 @@ import {
   recordGitHubCacheHit,
   safeCacheSet,
 } from './store.js';
+import { readDiskCache, writeDiskCache } from './diskStore.js';
+
+function resolveTTL(cacheKey: string, configured?: number): number {
+  if (configured) return configured;
+  const prefixMatch = cacheKey.match(/^v\d+-([^:]+):/);
+  return getTTLForPrefix(prefixMatch?.[1] ?? 'default');
+}
 
 export async function withDataCache<T>(
   cacheKey: string,
@@ -33,6 +40,18 @@ export async function withDataCache<T>(
     } catch {
       void 0;
     }
+
+    const disk = await readDiskCache<T>(cacheKey);
+    if (disk?.state === 'fresh') {
+      cacheStats.hits++;
+      recordGitHubCacheHit(cacheKey);
+      safeCacheSet(
+        cacheKey,
+        disk.value,
+        Math.max(1, (disk.expiresAt - Date.now()) / 1000)
+      );
+      return disk.value;
+    }
   }
 
   cleanupStalePendingRequests();
@@ -52,13 +71,9 @@ export async function withDataCache<T>(
 
       const shouldCache = options.shouldCache ?? (() => true);
       if (shouldCache(result)) {
-        let ttl = options.ttl;
-        if (!ttl) {
-          const prefixMatch = cacheKey.match(/^v\d+-([^:]+):/);
-          const prefix = prefixMatch?.[1] ?? 'default';
-          ttl = getTTLForPrefix(prefix);
-        }
+        const ttl = resolveTTL(cacheKey, options.ttl);
         safeCacheSet(cacheKey, result, ttl);
+        await writeDiskCache(cacheKey, result, ttl);
       }
 
       return result;

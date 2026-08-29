@@ -211,43 +211,46 @@ function suggestField(
   return bestContained ?? bestFuzzy;
 }
 
-/**
- * Cross-tool field-name harmonization: the same concept is named differently
- * per tool in the core schemas (keywords vs keywordsToSearch, path vs
- * filePath, maxDepth vs depth…). These well-known renames are accepted as
- * aliases and folded to the canonical field instead of erroring or being
- * silently stripped. Real typos still hit the did-you-mean path.
- */
+/** Strict-safe cross-tool aliases; real typos still use did-you-mean errors. */
 type FieldAlias =
   | string
   | {
       field: string;
-      /**
-       * Optional value transform. Return the canonical value, or `undefined`
-       * to refuse the fold (the alias then stays unknown and errors — used
-       * when the alias value is not expressible in the canonical field,
-       * e.g. ghSearchPullRequests merged:false).
-       */
+      /** Return undefined when the alias cannot preserve meaning. */
       map: (value: unknown) => unknown | undefined;
     };
 
 const MINIFY_VALUES = new Set(['none', 'standard', 'symbols']);
 
+function normalizeEntryType(value: unknown): unknown | undefined {
+  if (value === 'f' || value === 'file') return 'f';
+  if (value === 'd' || value === 'directory' || value === 'dir') return 'd';
+  if (value === 'both' || value === 'all') return undefined;
+  return value;
+}
+
 const TOOL_FIELD_ALIASES: Record<string, Record<string, FieldAlias>> = {
-  // Map alias → canonical schema field (never the reverse).
   ghSearchCode: { keywordsToSearch: 'keywords' },
   ghSearchRepos: { keywordsToSearch: 'keywords' },
   npmSearch: { name: 'packageName' },
   ghViewRepoStructure: { depth: 'maxDepth' },
   lspGetSemantics: { op: 'type', line: 'lineHint', path: 'uri' },
   localGetFileContent: { filePath: 'path' },
-  // `searchText` is a single string; fold the old `keywords` name and the
-  // GitHub-style `keywordsToSearch` to it so first-contact habits still work.
-  // `language` is the ast-grep/LSP-style name for ripgrep's `langType`.
   localSearchCode: {
     keywordsToSearch: 'searchText',
     keywords: 'searchText',
     language: 'langType',
+    useRegex: {
+      field: 'regex',
+      map: value => {
+        if (value === true) return 'perl';
+        if (value === false) return 'fixed';
+        if (value === 'smart' || value === 'fixed' || value === 'perl') {
+          return value;
+        }
+        return undefined;
+      },
+    },
   },
   // Benchmark-measured first-contact misses (compare-run-20260802-b):
   ghGetFileContent: {
@@ -271,7 +274,22 @@ const TOOL_FIELD_ALIASES: Record<string, Record<string, FieldAlias>> = {
     },
   },
   ghSearchCommits: { filePath: 'path' },
-  localFindFiles: { maxResults: 'limit' },
+  localFindFiles: {
+    maxResults: 'limit',
+    name: {
+      field: 'names',
+      map: value => (typeof value === 'string' ? [value] : undefined),
+    },
+    type: {
+      field: 'entryType',
+      map: normalizeEntryType,
+    },
+  },
+  localViewStructure: {
+    depth: 'maxDepth',
+    type: { field: 'entryType', map: normalizeEntryType },
+  },
+  localAnalyzeGraph: { maxDepth: 'depth' },
 };
 
 function applyFieldAliases(
@@ -298,7 +316,30 @@ function applyFieldAliases(
     next[canonical] = value;
     delete next[alias];
   }
-  return next ?? query;
+  let normalized = next ?? query;
+  if (
+    (toolName === 'localFindFiles' || toolName === 'localViewStructure') &&
+    'entryType' in normalized
+  ) {
+    const entryType = normalizeEntryType(normalized.entryType);
+    normalized = { ...normalized };
+    if (entryType === undefined) delete normalized.entryType;
+    else normalized.entryType = entryType;
+  }
+  if (
+    toolName === 'localSearchCode' &&
+    normalized.mode !== 'structural' &&
+    !('searchText' in normalized) &&
+    typeof normalized.pattern === 'string'
+  ) {
+    const textQuery: Record<string, unknown> = {
+      ...normalized,
+      searchText: normalized.pattern,
+    };
+    delete textQuery.pattern;
+    return textQuery;
+  }
+  return normalized;
 }
 
 function normalizeQueryObject(

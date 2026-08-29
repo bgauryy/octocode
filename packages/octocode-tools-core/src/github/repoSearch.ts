@@ -4,7 +4,7 @@ import type {
   GitHubAPIResponse,
 } from './githubAPI.js';
 import type { z } from 'zod';
-import type { GitHubReposSearchSingleQuerySchema } from '@octocodeai/octocode-core/schemas';
+import type { GitHubReposSearchSingleQuerySchema } from '../toolContract/schemas.js';
 import type { GitHubRepositoryOutput } from '@octocodeai/octocode-core/extra-types';
 
 type GitHubReposSearchSingleQuery = z.infer<
@@ -14,8 +14,8 @@ import type { WithOptionalMeta } from '../types/execution.js';
 import { getOctokit, resolveCacheAuthFingerprint } from './client.js';
 import { handleGitHubAPIError, isNoResultsSearchError } from './errors.js';
 import { buildRepoSearchQuery } from './queryBuilders.js';
+import { AuthInfo } from '@modelcontextprotocol/server';
 import { generateCacheKey, withDataCache } from '../utils/http/cache.js';
-import { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types';
 import { SEARCH_ERRORS } from '../errors/domainErrors.js';
 import { countSerializedChars } from '../utils/response/charSavings.js';
 import { normalizeResponseHeaders } from './responseHeaders.js';

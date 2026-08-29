@@ -243,7 +243,8 @@ export function countBy<T>(
   const counts: Record<string, number> = {};
   for (const item of items) {
     const key = keyForItem(item);
-    counts[key] = (counts[key] ?? 0) + 1;
+    const current = counts[key];
+    counts[key] = typeof current === 'number' ? current + 1 : 1;
   }
   return counts;
 }

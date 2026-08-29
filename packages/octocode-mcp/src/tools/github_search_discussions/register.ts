@@ -2,7 +2,7 @@
 // bulk schema + executor from octocode-tools-core; gating is inherited from the
 // core tool catalog, so this only supplies the registration handle.
 import type { z } from 'zod';
-import type { SearchDiscussionsQuerySchema } from '@octocodeai/octocode-core/schemas';
+import type { SearchDiscussionsQuerySchema } from '@octocodeai/octocode-tools-core';
 import {
   TOOL_NAMES,
   SearchDiscussionsBulkLocalSchema,

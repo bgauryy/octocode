@@ -1,5 +1,5 @@
 import type { z } from 'zod';
-import type { GitHubViewRepoStructureQuerySchema } from '@octocodeai/octocode-core/schemas';
+import type { GitHubViewRepoStructureQuerySchema } from '../toolContract/schemas.js';
 
 type GitHubViewRepoStructureQuery = z.infer<
   typeof GitHubViewRepoStructureQuerySchema

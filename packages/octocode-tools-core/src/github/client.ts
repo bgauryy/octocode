@@ -4,7 +4,7 @@ import type { OctokitOptions } from '@octokit/core';
 import { createHash } from 'crypto';
 import { getGitHubToken } from '../serverConfig.js';
 import { getServerConfig } from '../serverConfig.js';
-import type { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types.js';
+import type { AuthInfo } from '@modelcontextprotocol/server';
 import { version } from '../../package.json';
 import { recordRateLimit } from '../session.js';
 

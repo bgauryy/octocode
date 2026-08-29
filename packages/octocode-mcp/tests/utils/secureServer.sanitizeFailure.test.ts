@@ -1,82 +1,90 @@
-import { describe, it, expect, vi } from 'vitest';
-import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { CallToolResult, McpServer } from '@modelcontextprotocol/server';
 
-// Force output sanitization to throw so we exercise the failure branch in
-// wrapToolCallback. Only `sanitizeCallToolResult` is overridden; the rest of the
-// module (ContentSanitizer/maskSensitiveData used to scrub the warning reason,
-// buildToolErrorResult) stays real. Isolated to its own file so the suite's
-// real-sanitizer tests are unaffected by the module mock.
-vi.mock('@octocodeai/octocode-tools-core', async importActual => {
+vi.mock('@octocodeai/octocode-tools-core', async importOriginal => {
   const actual =
-    await importActual<typeof import('@octocodeai/octocode-tools-core')>();
+    await importOriginal<typeof import('@octocodeai/octocode-tools-core')>();
+
   return {
     ...actual,
-    sanitizeCallToolResult: () => {
-      throw new Error(
-        'sanitizer boom ghp_abc123xyz456789012345678901234567890'
-      );
-    },
+    sanitizeCallToolResult: vi.fn(() => {
+      throw new Error('sanitizer boom SECRET_SHOULD_NOT_LEAK');
+    }),
   };
 });
 
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { withOutputSanitization } from '../../src/utils/secureServer.js';
 
-function makeProxy() {
-  let capturedCb!: (...args: unknown[]) => Promise<CallToolResult>;
+function setupSecureServer(): {
+  proxy: McpServer;
+  getWrapped: () => (...args: unknown[]) => Promise<CallToolResult>;
+} {
+  let wrapped: ((...args: unknown[]) => Promise<CallToolResult>) | undefined;
   const server = {
-    registerTool: vi.fn((_name: string, _config: unknown, cb: unknown) => {
-      capturedCb = cb as typeof capturedCb;
-      return {} as never;
-    }),
+    registerTool: vi.fn(
+      (_name: string, _config: unknown, callback: unknown) => {
+        wrapped = callback as typeof wrapped;
+        return {} as never;
+      }
+    ),
   } as unknown as McpServer;
-  const proxy = withOutputSanitization(server);
-  return { proxy, getCb: () => capturedCb };
+
+  return {
+    proxy: withOutputSanitization(server),
+    getWrapped: () => {
+      if (!wrapped) throw new Error('tool callback was not registered');
+      return wrapped;
+    },
+  };
 }
 
-describe('secureServer — sanitization-failure policy', () => {
-  it('warns and returns the result instead of hard-failing or silently passing it raw', async () => {
-    const { proxy, getCb } = makeProxy();
-    const raw: CallToolResult = {
-      content: [{ type: 'text', text: 'original body' }],
-      isError: false,
-    };
-    proxy.registerTool(
-      't',
-      {} as never,
-      vi.fn().mockResolvedValue(raw) as never
-    );
-
-    const result = await getCb()({});
-
-    // 1. Not a hard failure — the tool result is still delivered.
-    expect(result.isError).toBe(false);
-    // 2. Not a silent raw passthrough — a visible warning is prepended.
-    const first = result.content[0] as { type: 'text'; text: string };
-    expect(first.text).toContain('sanitization failed');
-    // 3. The original content is preserved (after the warning).
-    expect(
-      result.content.some(
-        c => (c as { text?: string }).text === 'original body'
-      )
-    ).toBe(true);
+describe('createSecureServer sanitizer failures', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
-  it('scrubs the failure reason so the warning cannot leak a secret', async () => {
-    const { proxy, getCb } = makeProxy();
+  it('fails closed and discards the original tool result', async () => {
+    const { proxy, getWrapped } = setupSecureServer();
     proxy.registerTool(
-      't',
+      'example',
       {} as never,
-      vi
-        .fn()
-        .mockResolvedValue({ content: [] } satisfies CallToolResult) as never
+      async () =>
+        ({
+          content: [{ type: 'text', text: 'original body SECRET_OUTPUT' }],
+          isError: false,
+        }) as never
     );
 
-    const result = await getCb()({});
-    const warning = result.content[0] as { type: 'text'; text: string };
-    expect(warning.text).toContain('sanitization failed');
-    expect(warning.text).not.toContain(
-      'ghp_abc123xyz456789012345678901234567890'
+    const result = await getWrapped()({}, {});
+    const serialized = JSON.stringify(result);
+
+    expect(result?.isError).toBe(true);
+    expect(serialized).toContain('Output sanitization failed');
+    expect(serialized).toContain('discarded');
+    expect(serialized).not.toContain('original body');
+    expect(serialized).not.toContain('SECRET_OUTPUT');
+  });
+
+  it('does not expose sanitizer failure details in-band or on stderr', async () => {
+    const stderr = vi
+      .spyOn(process.stderr, 'write')
+      .mockImplementation(() => true);
+    const { proxy, getWrapped } = setupSecureServer();
+    proxy.registerTool(
+      'example',
+      {} as never,
+      async () =>
+        ({
+          content: [{ type: 'text', text: 'original body' }],
+          isError: false,
+        }) as never
     );
+
+    const result = await getWrapped()({}, {});
+    const output = stderr.mock.calls.flat().join(' ');
+
+    expect(JSON.stringify(result)).not.toContain('SECRET_SHOULD_NOT_LEAK');
+    expect(output).not.toContain('SECRET_SHOULD_NOT_LEAK');
+    expect(output).not.toContain('sanitizer boom');
   });
 });

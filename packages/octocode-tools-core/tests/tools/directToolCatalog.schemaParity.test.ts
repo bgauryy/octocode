@@ -4,17 +4,14 @@
  * mapping that `toolConfig.ts` (`ALL_TOOLS`) attaches execution fns to. This
  * test imports BOTH (the engine-bearing ALL_TOOLS is fine in tests) and
  * asserts they never diverge in tool set, order, or JSON-schema shape.
- * DIRECT_TOOL_DEFINITIONS (the enumerable listing/agent-context source) stays
- * enabled-tools-only, matching ALL_TOOLS exactly — a disabled opt-in tool has
- * no business being advertised to an agent that can't call it. Single-name
- * lookup (`findDirectToolDefinition`) is a separate, wider path: it also
- * resolves opt-in tools that aren't enabled yet (marked `disabled`), so
- * `tools ghListReleases --scheme` stays discoverable without already knowing
- * the env var, without those tools ever appearing in a listing.
+ * DIRECT_TOOL_DEFINITIONS stays enabled-tools-only, matching ALL_TOOLS exactly.
+ * DIRECT_TOOL_DISCOVERY_DEFINITIONS additionally includes opt-in schemas with
+ * explicit disabled metadata so local CLI discovery and exact-name lookup agree.
  */
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import {
+  DIRECT_TOOL_DISCOVERY_DEFINITIONS,
   DIRECT_TOOL_DEFINITIONS,
   findDirectToolDefinition,
 } from '../../src/tools/directToolCatalog.meta.js';
@@ -44,14 +41,26 @@ describe('direct-tool meta catalog parity with ALL_TOOLS (P3)', () => {
 });
 
 describe('opt-in tool discoverability without the env var', () => {
+  it('keeps every public schema in the discovery catalog with explicit availability', () => {
+    expect(DIRECT_TOOL_DISCOVERY_DEFINITIONS).toHaveLength(17);
+    expect(
+      DIRECT_TOOL_DISCOVERY_DEFINITIONS.filter(tool => tool.disabled).map(
+        tool => [tool.name, tool.disabled?.envVar]
+      )
+    ).toEqual([
+      ['ghListReleases', 'ENABLE_RELEASES'],
+      ['ghSearchDiscussions', 'ENABLE_DISCUSSIONS'],
+    ]);
+  });
+
   it.each(['ghListReleases', 'ghSearchDiscussions'] as const)(
     '%s resolves by name with a disabled marker when its env var is unset',
     name => {
       // Test env has neither ENABLE_RELEASES nor ENABLE_DISCUSSIONS set, so
-      // both are absent from the enumerable listing...
+      // both are absent from the executable registry...
       expect(DIRECT_TOOL_DEFINITIONS.some(t => t.name === name)).toBe(false);
       expect(ALL_TOOLS.some(t => t.name === name)).toBe(false);
-      // ...but still resolve by exact name, with enough of a schema for
+      // ...but still resolve by exact name and discovery, with enough schema for
       // `--scheme` to render, and a marker `execute.ts` uses to fail clearly
       // instead of falling through to a generic "Unknown tool".
       const found = findDirectToolDefinition(name);

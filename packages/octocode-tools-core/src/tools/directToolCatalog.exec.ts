@@ -5,10 +5,12 @@
  * actually runs — schema/help/`--scheme`/`context` use `directToolCatalog.meta.ts`
  * (and the `@octocodeai/octocode-tools-core/schema` subpath), which is engine-free.
  */
-import { type CallToolResult } from '@modelcontextprotocol/sdk/types.js';
+import type { CallToolResult } from '@modelcontextprotocol/server';
 import { initialize } from '../serverConfig.js';
 import { initializeProviders } from '../providers/factory.js';
 import { getConfigSync } from '@octocodeai/config';
+import { runCacheMaintenanceIfDue } from '../cacheMaintenance.js';
+import { getOctocodeDir } from '../shared/paths.js';
 import type { ToolConfig } from './toolConfig.js';
 import { ALL_TOOLS } from './toolConfig.js';
 import {
@@ -32,10 +34,12 @@ type DirectToolRuntimeDefinition = DirectToolDefinition & {
   isClone?: boolean;
   requiresServerRuntime?: boolean;
   requiresProviders?: boolean;
+  timeoutMs?: number;
 };
 
 let serverRuntimeInitPromise: Promise<void> | null = null;
 let providerRuntimeInitPromise: Promise<void> | null = null;
+let cacheMaintenanceInitPromise: Promise<void> | null = null;
 
 // ---------------------------------------------------------------------------
 // Test hooks (prefixed with _ per project convention — not part of public API)
@@ -59,6 +63,7 @@ export function _resetInitialize(): void {
   _initialize = initialize;
   serverRuntimeInitPromise = null;
   providerRuntimeInitPromise = null;
+  cacheMaintenanceInitPromise = null;
 }
 
 function wrapExecution(
@@ -85,6 +90,7 @@ function createDirectTool(tool: ToolConfig): DirectToolRuntimeDefinition {
     isClone: tool.isClone,
     requiresServerRuntime: direct.requiresServerRuntime,
     requiresProviders: direct.requiresProviders,
+    timeoutMs: direct.timeoutMs,
   };
 }
 
@@ -137,6 +143,18 @@ function parseDirectToolInput(
 async function ensureDirectToolRuntimeReady(
   tool: DirectToolRuntimeDefinition
 ): Promise<void> {
+  if (!tool.requiresServerRuntime) {
+    if (!cacheMaintenanceInitPromise) {
+      cacheMaintenanceInitPromise = runCacheMaintenanceIfDue(getOctocodeDir())
+        .then(() => undefined)
+        .catch(err => {
+          cacheMaintenanceInitPromise = null;
+          throw err;
+        });
+    }
+    await cacheMaintenanceInitPromise;
+  }
+
   if (tool.requiresServerRuntime) {
     if (!serverRuntimeInitPromise) {
       // Self-heal: clear the cached promise on rejection so the next call
@@ -208,10 +226,11 @@ async function runRemoteDirectTool(
         authInfo: context.authInfo,
         sessionId: context.sessionId,
         signal: context.signal,
-      })
+      }),
+    { timeoutMs: tool.timeoutMs }
   );
 
-  return handler(input, {});
+  return handler(input);
 }
 
 async function runBasicDirectTool(
@@ -220,7 +239,8 @@ async function runBasicDirectTool(
 ): Promise<CallToolResult> {
   const handler = withBasicSecurityValidation<DirectToolInput>(
     tool.execute,
-    tool.name
+    tool.name,
+    { timeoutMs: tool.timeoutMs }
   );
 
   return handler(input);

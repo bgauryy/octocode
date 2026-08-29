@@ -7,7 +7,7 @@
  * catalog helpers intentionally stay out of this surface.
  */
 
-export type { CompleteMetadata } from '@octocodeai/octocode-core/types';
+export type { CompleteMetadata } from '@octocodeai/octocode-tools-core';
 
 export {
   CloneRepoQuerySchema,
@@ -21,7 +21,7 @@ export {
   NpmPackageQuerySchema as NpmSearchQuerySchema,
   RipgrepQuerySchema,
   ViewStructureQuerySchema,
-} from '@octocodeai/octocode-core/schemas';
+} from '@octocodeai/octocode-tools-core';
 
 export {
   executeCloneRepo,

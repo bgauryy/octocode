@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { NpmPackageQuerySchema } from '@octocodeai/octocode-core/schemas';
+import { NpmPackageQuerySchema } from '../../toolContract/schemas.js';
 import {
   createRelaxedBulkQuerySchema,
   relaxedPageNumberField,

@@ -1,7 +1,7 @@
 # Native Graph Domain — Scope
 
 Status: **Superseded** — reachability/dead-code detection now ships in
-`octocode-tools-core/src/tools/local_dead_code/` (the `localFindDeadCode` MCP
+`octocode-tools-core/src/tools/local_analyze_graph/` (the `localAnalyzeGraph` MCP
 tool), consuming the native `graphFacts` API this doc scoped a Rust port
 around. See ARCHITECTURE.md §"Research Graph Direction" for the current
 implementation. This doc is kept as a historical record of the original
@@ -12,12 +12,12 @@ plan.
 > **Historical note (superseded 2026-07-28):** the blocker below described the
 > state right after `octocode-tools-core/src/oql/research/analyze/` was
 > deleted, before its replacement existed. That replacement is
-> `local_dead_code/`, which reimplements reachability (BFS) and — unlike the
-> deleted OQL pipeline — also implements SCC (`local_dead_code/reachability.ts`,
+> `local_analyze_graph/`, which consumes shared reachability (BFS) and — unlike the
+> deleted OQL pipeline — also implements SCC (`src/graph/reachability.ts`,
 > iterative Tarjan's, used by `deadCodeScan.ts` for `dead-cluster` verdicts).
 > The native `graphFacts` API this plan builds on is **not** orphaned — see
 > ARCHITECTURE.md. A native Rust port of the graph algorithms below is no
-> longer scoped against the deleted OQL pipeline; it would need `local_dead_code`
+> longer scoped against the deleted OQL pipeline; it would need `localAnalyzeGraph`
 > as its new differential-test oracle if ever revived (see Future Possibilities
 > in `.octocode/rfc/20260728-engine-quality-fixes/RFC.md`).
 
@@ -41,7 +41,7 @@ TypeScript, inside the OQL analyze pipeline:
     → `reachable` / `transitive-dead` / `candidate-unused-export` /
     `unused-export`, tagged `retentionSource: 'ast' | 'ripgrep'`.
 - **SCC is implemented in TS, not Rust** (superseded — see status note above).
-  `local_dead_code/reachability.ts` runs iterative Tarjan's SCC and
+  `src/graph/reachability.ts` runs iterative Tarjan's SCC and
   `deadCodeScan.ts` flags cyclic-but-unreachable clusters as `dead-cluster`;
   what's still missing is only a *native* (Rust) port of that algorithm, not
   the algorithm itself.

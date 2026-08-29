@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { RipgrepQuerySchema as CoreRipgrepQuerySchema } from '@octocodeai/octocode-core/schemas';
+import { RipgrepQuerySchema as CoreRipgrepQuerySchema } from '../../toolContract/schemas.js';
 import {
   LOCAL_MAX_DEPTH,
   MAX_MATCH_CONTENT_LENGTH,
@@ -29,9 +29,9 @@ const LOCAL_SEARCH_MODES = [
 ] as const;
 
 // sort ('relevance'|'matchCount'|'path'|'modified'|'accessed'|'created'),
-// rankingProfile, and debugRanking are defined canonically in
-// @octocodeai/octocode-core (src/resources/tools/localSearchCode.ts) and flow in
-// through CoreRipgrepQuerySchema. Engine-incompatible sort values are translated
+// rankingProfile, and debugRanking are defined canonically in the local
+// toolContract resource and flow through CoreRipgrepQuerySchema.
+// Engine-incompatible sort values are translated
 // to a deterministic filesystem walk in ripgrepExecutor; the relevance scorer
 // runs in ripgrepResultBuilder. Keep tools-core overrides to tightening bounds
 // only, not redefining ranking fields.
@@ -99,8 +99,8 @@ const queryOverrides = {
       'Structural only: return full verbatim capture text for `$$$` list metavars (bodies, arg lists). Default false — list-capture text is omitted from `metavars`, and `metavarRanges` entries are comment-pruned and truncated to keep results lean; ranges always remain as line anchors.'
     ),
   contextLines: contextLinesField,
-  // Description flows from @octocodeai/octocode-core prose (provenance:
-  // resources-only) — only the bounds/default are tightened here.
+  // Description flows from the repository-owned contract resource; only the
+  // bounds/default are tightened here.
   matchContentLength: clampedInt(1, MAX_MATCH_CONTENT_LENGTH)
     .optional()
     .default(500),
@@ -154,7 +154,7 @@ const LocalRipgrepBaseQuerySchema = describeQuerySchema(
 );
 
 // The mutually-exclusive boolean clusters were collapsed to enums in
-// @octocodeai/octocode-core (regex/caseMode/multiline/output/unique), so those
+// the local contract (regex/caseMode/multiline/output/unique), so those
 // pairings are now impossible by construction. describeQuerySchema rebuilds the
 // object from its shape and DROPS the core superRefine, so this local schema
 // must re-assert the full cross-field contract itself (mirrors the core

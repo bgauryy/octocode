@@ -5,7 +5,7 @@
   "author": "Guy Bary <bgauryy@octocodeai.com>",
   "bugs": "https://github.com/bgauryy/octocode/issues",
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@modelcontextprotocol/server": "^2.0.0",
     "@octocodeai/config": "18.0.1",
     "@octocodeai/octocode-core": "18.2.0",
     "@octocodeai/octocode-engine": "18.1.2",

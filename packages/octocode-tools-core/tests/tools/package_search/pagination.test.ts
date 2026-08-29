@@ -5,7 +5,7 @@ import {
   compactPackageRepositories,
 } from '../../../src/tools/package_search/execution.js';
 import type { z } from 'zod';
-import type { NpmPackageQuerySchema } from '@octocodeai/octocode-core/schemas';
+import type { NpmPackageQuerySchema } from '../../../src/toolContract/schemas.js';
 
 type NpmSearchQuery = z.input<typeof NpmPackageQuerySchema>;
 

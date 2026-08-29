@@ -18,7 +18,11 @@ export function computeQueryTimeout(
   concurrency: number,
   minTimeoutMs?: number
 ): number {
-  if (queryCount <= 1) return BULK_QUERY_TIMEOUT_MS;
+  if (queryCount <= 1) {
+    return minTimeoutMs
+      ? Math.max(BULK_QUERY_TIMEOUT_MS, minTimeoutMs)
+      : BULK_QUERY_TIMEOUT_MS;
+  }
   const effectiveConcurrency = Math.min(Math.max(concurrency, 1), queryCount);
   const batches = Math.ceil(queryCount / effectiveConcurrency);
   const fair = Math.floor(OUTER_TIMEOUT_MS / batches);

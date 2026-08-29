@@ -18,6 +18,7 @@ const RAW_LOCAL_PATH_TOOL_NAMES = new Set([
   'localFindFiles',
   'localGetFileContent',
   'localViewStructure',
+  'localAnalyzeGraph',
 ]);
 const RAW_LOCAL_PATH_GUIDANCE =
   'Path note: local tools need an absolute path — "." resolves against the command cwd and can mismatch.';
@@ -150,7 +151,7 @@ export function getToolPreviewLines(toolName: string): string[] {
   }
 
   if (toolName === 'localSearchCode') {
-    return ['keywords: string'];
+    return ['searchText: string'];
   }
 
   return [];

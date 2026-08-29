@@ -201,7 +201,7 @@ function isRawLspRange(value: unknown): boolean {
  * extractor (`extractJsSymbols`) declines — notably Flow-typed `.js` (Flow
  * syntax like type annotations/generics can make oxc's default JS grammar
  * fail the whole-file parse, returning an empty body). `extractGraphFacts`
- * uses a more lenient extraction already proven elsewhere (localFindDeadCode)
+ * uses a more lenient extraction already proven elsewhere (localAnalyzeGraph)
  * to tolerate this exact file class, and its declarations already carry
  * 0-based LSP `range`s — so they slot into the same DocumentSymbol shape
  * `nativeDocumentSymbols` produces, just without a full symbol hierarchy

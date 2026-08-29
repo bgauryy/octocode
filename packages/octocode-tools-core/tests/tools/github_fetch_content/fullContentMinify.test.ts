@@ -23,6 +23,7 @@ vi.mock('../../../src/github/directoryFetch.js', () => ({
     repoRoot: '/tmp/x',
     cached: false,
     branch: 'main',
+    commitSha: '0123456789abcdef0123456789abcdef01234567',
   })),
   fetchDirectoryContents: vi.fn(),
 }));
@@ -56,7 +57,7 @@ describe('ghGetFileContent — fullContent is verbatim (minify:none) by default'
   });
 
   it('defaults fullContent reads to minify:none so comments are not stripped', async () => {
-    await fetchMultipleGitHubFileContents({
+    const result = await fetchMultipleGitHubFileContents({
       queries: [
         {
           owner: 'o',
@@ -70,6 +71,9 @@ describe('ghGetFileContent — fullContent is verbatim (minify:none) by default'
 
     expect(getFileContent).toHaveBeenCalledTimes(1);
     expect(minifyOf()).toBe('none');
+    expect(JSON.stringify(result.structuredContent)).toContain(
+      '0123456789abcdef0123456789abcdef01234567'
+    );
   });
 
   it('an explicit minify still wins over the fullContent default', async () => {

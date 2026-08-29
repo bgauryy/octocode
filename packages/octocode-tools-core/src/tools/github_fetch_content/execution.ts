@@ -1,5 +1,4 @@
-import { type CallToolResult } from '@modelcontextprotocol/sdk/types.js';
-import type { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types.js';
+import type { CallToolResult, AuthInfo } from '@modelcontextprotocol/server';
 import type { z } from 'zod';
 import { TOOL_NAMES } from '../toolMetadata/proxies.js';
 import { executeBulkOperation } from '../../utils/response/bulk.js';
@@ -259,6 +258,7 @@ async function handleFileFetch(
           localPath: materialized.localPath,
           repoRoot: materialized.repoRoot,
           cached: materialized.cached,
+          commitSha: materialized.commitSha,
           // Provenance: always name the ref that was actually served, so the
           // answer is citable even when it equals the requested branch.
           ...(materialized.branch

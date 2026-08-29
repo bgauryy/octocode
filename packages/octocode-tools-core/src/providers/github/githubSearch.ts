@@ -1,4 +1,4 @@
-import type { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types.js';
+import type { AuthInfo } from '@modelcontextprotocol/server';
 import type {
   ProviderResponse,
   CodeSearchQuery,
@@ -16,7 +16,7 @@ import type { z } from 'zod';
 import type {
   GitHubCodeSearchQuerySchema,
   GitHubReposSearchSingleQuerySchema,
-} from '@octocodeai/octocode-core/schemas';
+} from '../../toolContract/schemas.js';
 import type {
   GitHubRepositoryOutput,
   GitHubSearchRepositoriesData,

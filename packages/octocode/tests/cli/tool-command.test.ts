@@ -215,7 +215,9 @@ describe('toolCommand', () => {
       expect.stringContaining('Input Schema')
     );
     expect(consoleSpy).toHaveBeenCalledWith(
-      expect.stringContaining('same Octocode MCP tool implementation')
+      expect.stringContaining(
+        'local CLI and MCP share the same tools-core runner'
+      )
     );
   });
 
@@ -393,6 +395,37 @@ describe('toolCommand', () => {
     expect(output).toContain('localFindFiles');
   });
 
+  it('emits one lean JSON envelope for multiple compact schemas', async () => {
+    const { toolCommand } = await import('../../src/cli/tool-command.js');
+
+    await toolCommand.handler!({
+      command: 'tools',
+      args: ['localSearchCode', 'localFindFiles', 'localAnalyzeGraph'],
+      options: { scheme: true, json: true, compact: true },
+    });
+
+    const parsed = JSON.parse(consoleSpy.mock.calls.flat().join('\n')) as {
+      kind: string;
+      schemas: Array<{
+        name: string;
+        description: string;
+        inputSchema?: unknown;
+      }>;
+    };
+    expect(parsed.kind).toBe('octocode.toolSchemas.compact');
+    expect(parsed.schemas.map(schema => schema.name)).toEqual([
+      'localSearchCode',
+      'localFindFiles',
+      'localAnalyzeGraph',
+    ]);
+    expect(
+      parsed.schemas.every(schema => schema.inputSchema === undefined)
+    ).toBe(true);
+    expect(
+      parsed.schemas.every(schema => schema.description.length < 200)
+    ).toBe(true);
+  });
+
   it('shows error and tool help when --queries input cannot be parsed into a valid tool input', async () => {
     const { toolCommand } = await import('../../src/cli/tool-command.js');
 
@@ -452,8 +485,14 @@ describe('toolCommand', () => {
     expect(context).toContain('tools <name>');
     expect(context).toContain('Use Octocode tools carefully.');
     expect(context).toContain('1. ghSearchCode');
-    expect(context).toContain('8. ghCloneRepo');
-    expect(context).toContain('9. localSearchCode');
+    expect(context).toContain(
+      '6. ghListReleases [disabled: set ENABLE_RELEASES=1]'
+    );
+    expect(context).toContain(
+      '7. ghSearchDiscussions [disabled: set ENABLE_DISCUSSIONS=1]'
+    );
+    expect(context).toContain('10. ghCloneRepo');
+    expect(context).toContain('11. localSearchCode');
     expect(context).toContain('Quick commands (clone/cache fetch)');
     expect(context).not.toMatch(
       /Quick commands \([^)]*\b(?:search|ls|cat|repo|history|binary|unzip|diff|pkg|lsp|find|grep)\b/
@@ -535,6 +574,7 @@ describe('toolCommand', () => {
         category: string;
         description: string;
         fields: string;
+        availability: { enabled: boolean; envVar?: string };
       }>;
     };
     expect(parsed.kind).toBe('octocode.toolCatalog');
@@ -546,6 +586,11 @@ describe('toolCommand', () => {
     const names = parsed.tools.map(entry => entry.name).sort();
     expect(names).toEqual(TOOL_DEFINITIONS.map(t => t.name).sort());
     expect(parsed.toolCount).toBe(TOOL_DEFINITIONS.length);
+    expect(parsed.toolCount).toBe(17);
+    expect(
+      parsed.tools.find(entry => entry.name === 'ghSearchDiscussions')
+        ?.availability
+    ).toEqual({ enabled: false, envVar: 'ENABLE_DISCUSSIONS' });
 
     for (const entry of parsed.tools) {
       expect(typeof entry.name).toBe('string');
@@ -553,6 +598,53 @@ describe('toolCommand', () => {
       expect(entry).toHaveProperty('description');
       expect(typeof entry.fields).toBe('string');
     }
+  });
+
+  it('marks a disabled opt-in tool in its machine-readable schema', async () => {
+    const { toolCommand } = await import('../../src/cli/tool-command.js');
+
+    await toolCommand.handler!({
+      command: 'tools',
+      args: ['ghSearchDiscussions'],
+      options: { scheme: true, json: true, compact: true },
+    });
+
+    const output = consoleSpy.mock.calls
+      .map((call: unknown[]) => call.map(String).join(' '))
+      .join('\n')
+      .trim();
+    const parsed = JSON.parse(output) as {
+      availability?: { enabled: boolean; envVar?: string };
+    };
+    expect(parsed.availability).toEqual({
+      enabled: false,
+      envVar: 'ENABLE_DISCUSSIONS',
+    });
+  });
+
+  it('lists all public tools while keeping opt-in execution gated', async () => {
+    const { showAvailableTools, toolCommand } =
+      await import('../../src/cli/tool-command.js');
+
+    await showAvailableTools();
+    const listOutput = consoleSpy.mock.calls
+      .map((call: unknown[]) => call.map(String).join(' '))
+      .join('\n');
+    expect(listOutput).toContain('Octocode Tools (17)');
+    expect(listOutput).toContain('ghSearchDiscussions');
+    expect(listOutput).toContain('[disabled: set ENABLE_DISCUSSIONS=1]');
+
+    consoleSpy.mockClear();
+    await toolCommand.handler!({
+      command: 'tools',
+      args: ['ghSearchDiscussions'],
+      options: {
+        queries:
+          '{"owner":"vitejs","repo":"vite","keywordsToSearch":["plugin"]}',
+      },
+    });
+    expect(process.exitCode).toBe(3);
+    expect(publicMocks.noop).not.toHaveBeenCalled();
   });
 
   it('keeps the full all-tool schema dump behind `tools --json --full`', async () => {
@@ -625,6 +717,7 @@ describe('toolCommand', () => {
         runEnvelope: string;
       };
       guidance?: string[];
+      relations?: string[];
     };
 
     expect(parsed.kind).toBe('octocode.toolSchema');
@@ -638,6 +731,7 @@ describe('toolCommand', () => {
     expect(parsed.commands.runCompact).toContain('--compact');
     expect(parsed.commands.runEnvelope).toContain('tools localSearchCode');
     expect(parsed.guidance?.join('\n')).toContain('absolute path');
+    expect(parsed.relations?.join('\n')).toContain('structural');
   });
 
   it('pretty-prints compact JSON when --pretty is supplied', async () => {
@@ -679,6 +773,7 @@ describe('toolCommand', () => {
       fieldNames?: string[];
       fullDescription?: string;
       guidance?: string[];
+      relations?: string[];
       commands: { full: string; run: string };
     };
 
@@ -690,5 +785,6 @@ describe('toolCommand', () => {
     expect(parsed.commands.full).toBe('tools localSearchCode --scheme --json');
     expect(parsed.commands.run).toContain('--compact');
     expect(parsed.guidance?.join('\n')).toContain('absolute path');
+    expect(parsed.relations?.join('\n')).toContain('structural');
   });
 });

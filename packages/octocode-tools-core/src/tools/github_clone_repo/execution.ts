@@ -1,4 +1,4 @@
-import { type CallToolResult } from '@modelcontextprotocol/sdk/types.js';
+import type { CallToolResult } from '@modelcontextprotocol/server';
 import { getCheckedOutSizeBytes } from './contentSize.js';
 import { TOOL_NAMES } from '../toolMetadata/proxies.js';
 import { executeBulkOperation } from '../../utils/response/bulk.js';
@@ -118,6 +118,10 @@ export async function executeCloneRepo(
     {
       toolName: TOOL_NAMES.GITHUB_CLONE_REPO,
       keysPriority: ['totalSize', 'location', 'error'],
+      // Full and sparse clones have their own 120-second subprocess bound.
+      // Let that operation finish (or report its typed failure) before the
+      // shared bulk isolation layer aborts the query at its 60-second default.
+      minQueryTimeoutMs: 130_000,
     },
     args
   );

@@ -13,6 +13,12 @@ import { getDirectorySizeBytes } from '../../shared/index.js';
 import { getCloneBaseDir, getTreeBaseDir } from './cachePaths.js';
 
 export {
+  cleanupStaleCloneArtifacts,
+  tryRecoverStaleCloneLock,
+  writeCloneLockMeta,
+} from './cacheArtifacts.js';
+
+export {
   getReposBaseDir,
   getCloneBaseDir,
   getTreeBaseDir,
@@ -22,15 +28,11 @@ export {
 
 const DEFAULT_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 
-const GC_INTERVAL_MS = 10 * 60 * 1000;
-
 const DEFAULT_MAX_CACHE_SIZE_BYTES = 2 * 1024 * 1024 * 1024;
 
 const DEFAULT_MAX_CLONE_COUNT = 50;
 
 const META_FILE_NAME = '.octocode-clone-meta.json';
-
-let gcInterval: ReturnType<typeof setInterval> | null = null;
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null;
@@ -326,25 +328,4 @@ export function evictExpiredClones(octocodeDir: string): number {
 
 export function evictExpiredTrees(octocodeDir: string): number {
   return evictExpiredCacheBase(getTreeBaseDir(octocodeDir));
-}
-
-export function startCacheGC(octocodeDir: string): void {
-  if (gcInterval) return;
-
-  evictExpiredClones(octocodeDir);
-  evictExpiredTrees(octocodeDir);
-
-  gcInterval = setInterval(() => {
-    evictExpiredClones(octocodeDir);
-    evictExpiredTrees(octocodeDir);
-  }, GC_INTERVAL_MS);
-
-  gcInterval.unref();
-}
-
-export function stopCacheGC(): void {
-  if (gcInterval) {
-    clearInterval(gcInterval);
-    gcInterval = null;
-  }
 }

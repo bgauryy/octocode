@@ -1,21 +1,16 @@
-import { completeMetadata } from '@octocodeai/octocode-core';
-import type { CompleteMetadata } from '@octocodeai/octocode-core/types';
+import { localCompleteMetadata } from '../../toolContract/metadata.js';
+import type { LocalCompleteMetadata } from '../../toolContract/types.js';
 
-let _cached: CompleteMetadata | null = null;
+let _cached: LocalCompleteMetadata | null = null;
 
-// Provenance contract: tool descriptions, schemas, and the system prompt come
-// from @octocodeai/octocode-core (src/resources) VERBATIM — no interface- or
-// brain-level patching. Fix stale prose in octocode-core, never here.
-// (A temporary descriptionOverrides patch layer lived here until 2026-08;
-// guarded against regression by localFindFilesDescription.test.ts.)
-function ensureLoaded(): CompleteMetadata {
+function ensureLoaded(): LocalCompleteMetadata {
   if (!_cached) {
-    _cached = completeMetadata;
+    _cached = localCompleteMetadata;
   }
   return _cached;
 }
 
-export async function loadToolContent(): Promise<CompleteMetadata> {
+export async function loadToolContent(): Promise<LocalCompleteMetadata> {
   return ensureLoaded();
 }
 
@@ -23,7 +18,7 @@ export async function initializeToolMetadata(): Promise<void> {
   ensureLoaded();
 }
 
-export function getMetadataOrNull(): CompleteMetadata | null {
+export function getMetadataOrNull(): LocalCompleteMetadata | null {
   return _cached;
 }
 

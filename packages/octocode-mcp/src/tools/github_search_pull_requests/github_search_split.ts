@@ -8,7 +8,7 @@ import type {
   SearchIssuesQuerySchema,
   SearchCommitsQuerySchema,
   ListReleasesQuerySchema,
-} from '@octocodeai/octocode-core/schemas';
+} from '@octocodeai/octocode-tools-core';
 import {
   TOOL_NAMES,
   SearchPullRequestsBulkLocalSchema,

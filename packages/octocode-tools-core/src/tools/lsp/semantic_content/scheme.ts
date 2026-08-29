@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { LspGetSemanticsQuerySchema as CoreLspGetSemanticsQuerySchema } from '@octocodeai/octocode-core/schemas';
+import { LspGetSemanticsQuerySchema as CoreLspGetSemanticsQuerySchema } from '../../../toolContract/schemas.js';
 import { LOCAL_MAX_DEPTH } from '../../../config.js';
 import {
   clampedInt,

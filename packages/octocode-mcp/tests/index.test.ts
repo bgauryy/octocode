@@ -1,17 +1,15 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { allowExpectedStderrWarning } from './warningPolicy.js';
-import {
-  McpServer,
-  RegisteredTool,
-} from '@modelcontextprotocol/sdk/server/mcp.js';
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { StdioServerTransport } from '@modelcontextprotocol/server/stdio';
+import { McpServer, RegisteredTool } from '@modelcontextprotocol/server';
+
 // The server name/version are derived from package.json (src/index.ts builds
 // `${name}_${version}`), so assert against that source rather than hardcoding a
 // package name that changes on rename/version-sync.
 import { name as pkgName } from '../package.json';
 
-vi.mock('@modelcontextprotocol/sdk/server/mcp.js');
-vi.mock('@modelcontextprotocol/sdk/server/stdio.js');
+vi.mock('@modelcontextprotocol/server');
+vi.mock('@modelcontextprotocol/server/stdio');
 vi.mock('../../octocode-tools-core/src/utils/http/cache.js');
 vi.mock('../src/tools/github_search_code/github_search_code.js');
 vi.mock('../src/tools/github_fetch_content/github_fetch_content.js');
@@ -38,13 +36,10 @@ vi.mock(
       .mockResolvedValue({ systemPrompt: 'Test instructions' }),
   })
 );
-vi.mock(
-  '../../octocode-tools-core/src/tools/github_clone_repo/cache.js',
-  () => ({
-    startCacheGC: vi.fn(),
-    stopCacheGC: vi.fn(),
-  })
-);
+vi.mock('../../octocode-tools-core/src/cacheMaintenance.js', () => ({
+  startCacheGC: vi.fn(),
+  stopCacheGC: vi.fn(),
+}));
 import { registerGitHubSearchCodeTool } from '../src/tools/github_search_code/github_search_code.js';
 import { registerFetchGitHubFileContentTool } from '../src/tools/github_fetch_content/github_fetch_content.js';
 import { registerSearchGitHubReposTool } from '../src/tools/github_search_repos/github_search_repos.js';
@@ -54,9 +49,9 @@ import {
   cleanup,
   getServerConfig,
   getGitHubToken,
-  isCloneEnabled,
   getActiveProvider,
 } from '../../octocode-tools-core/src/serverConfig.js';
+import { startCacheGC } from '../../octocode-tools-core/src/cacheMaintenance.js';
 import { registerTools } from '../src/tools/toolsManager.js';
 import { TOOL_NAMES } from '../../octocode-tools-core/src/tools/toolMetadata/proxies.js';
 
@@ -76,7 +71,7 @@ const mockGetGitHubToken = vi.mocked(getGitHubToken);
 const mockInitialize = vi.mocked(initialize);
 const mockCleanup = vi.mocked(cleanup);
 const mockGetServerConfig = vi.mocked(getServerConfig);
-const mockIsCloneEnabled = vi.mocked(isCloneEnabled);
+const mockStartCacheGC = vi.mocked(startCacheGC);
 const mockGetActiveProvider = vi.mocked(getActiveProvider);
 
 const mockRegisterGitHubSearchCodeTool = vi.mocked(
@@ -191,7 +186,6 @@ describe('Index Module', () => {
       return { successCount: 4, failedTools: [] };
     });
 
-    mockIsCloneEnabled.mockReturnValue(false);
     mockGetActiveProvider.mockReturnValue('github');
   });
 
@@ -540,23 +534,12 @@ describe('Index Module', () => {
     });
   });
 
-  describe('Clone Configuration', () => {
-    it('should start cache GC when clone is enabled', async () => {
-      mockIsCloneEnabled.mockReturnValue(true);
-
+  describe('Cache lifecycle', () => {
+    it('starts cache GC independently of clone capability', async () => {
       await import('../src/index.js');
       await waitForAsyncOperations();
 
-      expect(mockIsCloneEnabled).toHaveBeenCalled();
-    });
-
-    it('should not start cache GC when clone is disabled', async () => {
-      mockIsCloneEnabled.mockReturnValue(false);
-
-      await import('../src/index.js');
-      await waitForAsyncOperations();
-
-      expect(mockIsCloneEnabled).toHaveBeenCalled();
+      expect(mockStartCacheGC).toHaveBeenCalled();
     });
   });
 

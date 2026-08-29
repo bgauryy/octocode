@@ -1,14 +1,11 @@
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import { Implementation } from '@modelcontextprotocol/sdk/types.js';
-
+import { StdioServerTransport } from '@modelcontextprotocol/server/stdio';
+import { McpServer, Implementation } from '@modelcontextprotocol/server';
 import {
   clearAllCache,
   clearOctokitInstances,
   initialize,
   cleanup,
   getGitHubToken,
-  isCloneEnabled,
   getActiveProvider,
   initializeProviders,
   clearProviderCache,
@@ -155,9 +152,7 @@ async function startServer() {
     const transport = new StdioServerTransport();
     await server.connect(transport);
 
-    if (isCloneEnabled()) {
-      startCacheGC(getOctocodeDir());
-    }
+    startCacheGC(getOctocodeDir());
   } catch (error) {
     const message =
       error instanceof Error ? error.message : String(error ?? 'unknown');

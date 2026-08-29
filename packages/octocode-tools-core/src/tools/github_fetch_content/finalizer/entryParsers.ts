@@ -179,6 +179,9 @@ export function readFileEntry(
     // and sourceBytes (duplicates sourceChars for ASCII) were dropped.
     sourceChars: readNumber(data.sourceChars),
     resolvedBranch: readString(data.resolvedBranch),
+    ...(typeof data.commitSha === 'string' && data.commitSha.length === 40
+      ? { commitSha: data.commitSha }
+      : {}),
     pagination,
     ...(Object.keys(next).length > 0 ? { next } : {}),
     ...(data.isPartial === true ||

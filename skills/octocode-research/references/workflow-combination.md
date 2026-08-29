@@ -14,14 +14,13 @@ One bridge call turns remote code into local-grade evidence; the full local loop
 |---|---|---|---|
 | tree | `ghGetFileContent type:"directory"` | one subtree (bounded — check `skipped` counts) | analyzing one directory |
 | file | `ghCloneRepo` + `sparsePath` | that file's subtree + repo-root files (`complete:false`) | repeated reads/LSP on one file |
-| repo | `ghCloneRepo` (no sparsePath) | full shallow clone (`complete:true`) | repo-wide grep / AST / LSP / dead-code |
+| repo | `ghCloneRepo` (no sparsePath) | full shallow clone (`complete:true`) | repo-wide search / AST / LSP / graph analysis |
 
 CLI clone works by default; the MCP-server surface requires `ENABLE_CLONE=true` and returns a typed error when disabled. Mark that surface skipped, fall back to file reads, and follow returned `next.localSearch` / `next.viewStructure`.
 
-**Materialize when:** AST / structural, LSP, multi-file regex, exact absence, or the 3rd+ read into one remote area is coming.
+**Materialize when:** AST/structural, LSP, multi-file regex, exact absence, graph `cycles`/`reachability`/`deadCode`, or the 3rd+ read into one remote area is coming. After cloning, run graph operations on `localPath`; keep their import edges candidate-grade until exact/LSP proof.
 
 ## The loop
 Loop local clue → external evidence → local proof until the claim reaches the strongest available grade. Check external facts against local reality and local upstream guesses against the source that shipped them.
 
 Next: run the local half with `references/workflow-local.md` and the remote half with `references/workflow-external.md`; once materialized, prove the claim through `references/code-research.md`; when a clone or run needs approval read the gates in `references/octocode.md`.
-

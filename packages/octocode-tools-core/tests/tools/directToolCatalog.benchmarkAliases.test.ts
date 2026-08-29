@@ -108,6 +108,69 @@ describe('benchmark-measured field aliases (compare-run-20260802-b)', () => {
     expect(q.maxResults).toBeUndefined();
   });
 
+  it('localFindFiles: singular name/type guesses fold to names/entryType', () => {
+    const q = prep('localFindFiles', {
+      path: '/tmp',
+      name: '*.ts',
+      type: 'f',
+    }).queries[0]!;
+    expect(q.names).toEqual(['*.ts']);
+    expect(q.entryType).toBe('f');
+  });
+
+  it('localSearchCode: text-mode pattern/useRegex guesses fold without weakening structural mode', () => {
+    const q = prep('localSearchCode', {
+      path: '/tmp',
+      mode: 'detailed',
+      pattern: 'needle',
+      useRegex: true,
+    }).queries[0]!;
+    expect(q.searchText).toBe('needle');
+    expect(q.pattern).toBeUndefined();
+    expect(q.regex).toBe('perl');
+
+    const structural = prep('localSearchCode', {
+      path: '/tmp',
+      mode: 'structural',
+      pattern: 'call($X)',
+    }).queries[0]!;
+    expect(structural.pattern).toBe('call($X)');
+    expect(structural.searchText).toBeUndefined();
+  });
+
+  it('localViewStructure: depth → maxDepth', () => {
+    const q = prep('localViewStructure', { path: '/tmp', depth: 2 })
+      .queries[0]!;
+    expect(q.maxDepth).toBe(2);
+    expect(q.depth).toBeUndefined();
+  });
+
+  it('local file tools accept readable entryType values and explicit both', () => {
+    expect(
+      prep('localFindFiles', { path: '/tmp', entryType: 'file' }).queries[0]!
+        .entryType
+    ).toBe('f');
+    expect(
+      prep('localViewStructure', { path: '/tmp', entryType: 'directory' })
+        .queries[0]!.entryType
+    ).toBe('d');
+    expect(
+      prep('localViewStructure', { path: '/tmp', entryType: 'both' })
+        .queries[0]!.entryType
+    ).toBeUndefined();
+  });
+
+  it('localAnalyzeGraph: maxDepth → depth', () => {
+    const q = prep('localAnalyzeGraph', {
+      path: '/tmp',
+      operation: 'dependencies',
+      file: 'src/a.ts',
+      maxDepth: 2,
+    }).queries[0]!;
+    expect(q.depth).toBe(2);
+    expect(q.maxDepth).toBeUndefined();
+  });
+
   it('an alias never clobbers an explicitly-set canonical field', () => {
     const q = prep('ghGetFileContent', {
       owner: 'o',

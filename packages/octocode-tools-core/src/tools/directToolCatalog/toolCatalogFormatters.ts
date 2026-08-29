@@ -12,6 +12,10 @@ import {
   type DirectToolAutoFilledField,
   type DirectToolMetadata,
 } from './toolCatalogDefinitions.js';
+import {
+  LOCAL_ANALYZE_GRAPH_DESCRIPTION,
+  LOCAL_ANALYZE_GRAPH_TOOL_NAME,
+} from '../../toolContract/resources/tools/localAnalyzeGraph.js';
 
 const DIRECT_TOOL_BASE_AUTO_FILLED_FIELDS: readonly DirectToolAutoFilledField[] =
   ['id', 'researchGoal', 'reasoning'];
@@ -58,5 +62,8 @@ export function getDirectToolDescription(
   toolName: string,
   metadata?: DirectToolMetadata | null
 ): string {
+  if (toolName === LOCAL_ANALYZE_GRAPH_TOOL_NAME) {
+    return LOCAL_ANALYZE_GRAPH_DESCRIPTION;
+  }
   return metadata?.tools?.[toolName]?.description ?? toolName;
 }

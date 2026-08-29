@@ -109,7 +109,8 @@ function renderMaterialization(result: RemoteMaterialization): void {
 function printStatus(jsonOutput: boolean): void {
   const cloneBytes = getDirectorySizeBytes(paths.clone);
   const treeBytes = getDirectorySizeBytes(paths.tree);
-  const tmpBytes = cloneBytes + treeBytes;
+  const responseBytes = getDirectorySizeBytes(paths.response);
+  const tmpBytes = getDirectorySizeBytes(paths.tmp);
   const payload = {
     home: paths.home,
     tmp: {
@@ -130,6 +131,12 @@ function printStatus(jsonOutput: boolean): void {
       sizeBytes: treeBytes,
       sizeFormatted: formatBytes(treeBytes),
     },
+    response: {
+      path: paths.response,
+      exists: existsSync(paths.response),
+      sizeBytes: responseBytes,
+      sizeFormatted: formatBytes(responseBytes),
+    },
   };
 
   if (jsonOutput) {
@@ -147,6 +154,9 @@ function printStatus(jsonOutput: boolean): void {
   );
   console.log(
     `  ${dim('tree cache:')}   ${payload.tree.path} (${payload.tree.sizeFormatted})`
+  );
+  console.log(
+    `  ${dim('response cache:')} ${payload.response.path} (${payload.response.sizeFormatted})`
   );
   console.log();
 }

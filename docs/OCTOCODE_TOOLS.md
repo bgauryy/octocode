@@ -1,11 +1,11 @@
 # Octocode tools reference
 
-One reference for every Octocode research tool exposed through MCP and the CLI. The schemas and descriptions come from `@octocodeai/octocode-core`; execution lives in `@octocodeai/octocode-tools-core`; native search, minify, security, and LSP primitives live in `@octocodeai/octocode-engine`.
+One reference for every Octocode research tool exposed through MCP and the CLI. Schemas, descriptions, and execution live in `@octocodeai/octocode-tools-core`; native search, minify, security, and LSP primitives live in `@octocodeai/octocode-engine`.
 
-Use this page when you need field-level guidance, cross-tool workflows, known behavior, or release verification checks. For MCP tool ratings, quality gaps, per-tool improvement backlogs, and the recommended agent workflow, see [`MCP_TOOL_QUALITY_AND_AGENT_WORKFLOW.md`](https://github.com/bgauryy/octocode/blob/main/docs/MCP_TOOL_QUALITY_AND_AGENT_WORKFLOW.md). For the exact active schema in a local checkout, run:
+Use this page when you need field-level guidance, cross-tool workflows, known behavior, or release verification checks. For MCP tool ratings, quality gaps, per-tool improvement backlogs, and the recommended agent workflow, see [`MCP_TOOL_QUALITY_AND_AGENT_WORKFLOW.md`](https://github.com/bgauryy/octocode/blob/main/docs/MCP_TOOL_QUALITY_AND_AGENT_WORKFLOW.md). For the exact active schema in a local checkout, run the compact form first; its `relations` list preserves mode-specific required and mutually exclusive fields:
 
 ```bash
-npx octocode tools <toolName> --scheme
+npx octocode tools <toolName> --scheme --json --compact
 ```
 
 ## Tool inventory
@@ -14,7 +14,7 @@ npx octocode tools <toolName> --scheme
 |--------|-------|
 | GitHub | `ghSearchCode`, `ghGetFileContent`, `ghViewRepoStructure`, `ghSearchRepos`, `ghSearchPullRequests`, `ghSearchIssues`, `ghSearchCommits`, `ghListReleases` *(opt-in: `ENABLE_RELEASES`)*, `ghSearchDiscussions` *(opt-in: `ENABLE_DISCUSSIONS`)*, `ghCloneRepo` |
 | Packages | `npmSearch` |
-| Local | `localSearchCode`, `localViewStructure`, `localFindFiles`, `localGetFileContent`, `localFindDeadCode` |
+| Local | `localSearchCode`, `localViewStructure`, `localFindFiles`, `localGetFileContent`, `localAnalyzeGraph` |
 | LSP | `lspGetSemantics` |
 
 ## Contents
@@ -505,7 +505,7 @@ Related docs:
 | `localViewStructure` | Browse directory structure and metadata. |
 | `localFindFiles` | Find files/directories by name, path, time, size, type, and permissions. |
 | `localGetFileContent` | Read targeted file content by line range, match, signature skeleton, or char page. |
-| `localFindDeadCode` | Find likely-unreferenced exports and dead-code clusters by whole-repository reachability analysis. |
+| `localAnalyzeGraph` | Run one bounded repository-graph operation: dependencies, dependents, path, reachability, cycles, or dead-code candidates. |
 
 ---
 
@@ -809,37 +809,44 @@ localGetFileContent(path="src/index.ts", minify="symbols")
 
 ---
 
-### `localFindDeadCode`
+### `localAnalyzeGraph`
 
-Whole-repo reachability analysis that surfaces likely-unreferenced exports and dead-code clusters. Results are candidates, not deletion proof.
+One bounded repository graph with six explicit operations: `dependencies`, `dependents`, `path`, `reachability`, `cycles`, and `deadCode`. Import edges come from native syntax facts. Traversal and path results report exact `edgeKinds` (`static-import`, `dynamic-import`, `named-reexport`, or `star-reexport`) with syntactic confidence. Native facts also contain `call` and `contains` relations, but the current public operations don't project those symbol-level edges. `deadCode` results are candidates, not deletion proof.
 
 #### Best for
 
-- Finding repository-wide dead-export candidates in one pass.
-- Detecting mutually-referencing clusters: files that only call each other, with no path from any entrypoint.
-- Producing file and line anchors to follow into `localGetFileContent` or `lspGetSemantics`.
+- Tracing forward dependencies or reverse dependents to a bounded depth.
+- Finding the shortest directed import path between two files.
+- Classifying entrypoint reachability and finding strongly connected import cycles.
+- Finding repository-wide dead-export candidates and dead clusters in one pass. A dead cluster is a strongly connected set of mutually importing, unreachable files; the files don't necessarily call one another.
 
-Use `lspGetSemantics` with `references` or `callers` instead when you are checking one known symbol. `localFindDeadCode` builds a file and symbol graph from every source file at once, so its cost scales with repository size rather than with candidate count.
+Use `localAnalyzeGraph` to discover repository-scale file topology and candidate reachability. Use `lspGetSemantics` with `references`, `callers`, or `callees` to prove the identity and semantic connections of one known symbol. A graph edge proves that one file syntactically imports or re-exports another; it doesn't prove which binding is used.
 
 #### Key parameters
 
 | Parameter | Description |
 |-----------|-------------|
+| `operation` | Required: `dependencies`, `dependents`, `path`, `reachability`, `cycles`, or `deadCode`. |
 | `path` | Repository root to analyze. Required. |
-| `entrypoints` | File paths treated as reachability roots. Omit to auto-detect from `package.json` `main`, `exports`, and `bin`. |
-| `includeTests` | Treat `*.test.*`, `*.spec.*`, and `__tests__/` files as entrypoints. Default `true`. |
+| `file` | Repo-relative source file for `dependencies`, `dependents`, and `path`. |
+| `target` | Repo-relative destination file for `path`. |
+| `depth` | Traversal depth for `dependencies` and `dependents`. Default 1, max 50. |
+| `entrypoints` | Roots for `reachability` and `deadCode`; omit to detect `package.json` `main`, `exports`, and `bin`. |
+| `includeTests` | Treat tests as roots for `reachability` and `deadCode`. Default `true`. |
 | `excludeDir` | Directory names to prune. Defaults to `node_modules`, `dist`, `build`, `out`, `coverage`, `.git`, `target`, `.next`, and `.cache`. |
 | `maxFiles` | Cap on files scanned. Max 50000. The scan stops and warns past this bound. |
-| `limit` | Dead-export result cap before pagination. Max 5000. |
+| `limit` | Result cap before pagination. Max 5000. |
 | `page` | Result page. Max 1000. |
 | `itemsPerPage` | Results per page. Max 50. |
+
+Results never dump the complete graph: the result list is paginated, SCC/dead-cluster members cap at 50 files with `size` and `truncated`, and shortest paths cap at 100 files with `length` and `truncated`. A five-query large-repository batch must remain at or below 32 KiB in compact structured output; use pagination instead of expanding nested collections.
 
 #### Examples
 
 ```bash
-localFindDeadCode(path=".")
-localFindDeadCode(path="packages/octocode-tools-core", includeTests=false)
-localFindDeadCode(path=".", entrypoints=["src/index.ts"], excludeDir=["fixtures"])
+localAnalyzeGraph(operation="dependencies", path="/ABS/repo", file="src/index.ts", depth=2)
+localAnalyzeGraph(operation="cycles", path="/ABS/repo", limit=20)
+localAnalyzeGraph(operation="deadCode", path="/ABS/repo", entrypoints=["src/index.ts"], includeTests=false)
 ```
 
 Verify a survivor with `lspGetSemantics` before removing it.
@@ -1161,9 +1168,9 @@ Octocode MCP has two worlds of tools:
 | **`ghCloneRepo`** | Full repository or sparse subtree | Uses `git clone` into `tmp/clone` (requires git) |
 | **`ghGetFileContent`** (type: `"directory"`) | Single directory of files | Uses GitHub API + `download_url` into `tmp/tree` (no git needed) |
 
-Clones and API-fetched trees use separate tmp buckets with the same 24-hour TTL policy: `<octocode-home>/tmp/clone/{owner}/{repo}/{branch}/` for git clones, and `<octocode-home>/tmp/tree/{owner}/{repo}/{branch}/` for file/tree materialization.
+Clones and API-fetched trees use separate tmp buckets with the same 24-hour TTL policy: `<octocode-home>/tmp/clone/{owner}/{repo}/{branch}/` for git clones, and `<octocode-home>/tmp/tree/{owner}/{repo}/{commitSha}/` for file/tree materialization.
 
-**Branch resolution:** Both tools auto-detect the repository's default branch through the GitHub API when no `branch` is specified (falls back to `main`). The resolved branch name is always included in the result and the cache path.
+**Ref resolution:** Both tools auto-detect the repository's default branch through the GitHub API when no `branch` is specified. Clones use the resolved branch in their path. File and directory materialization resolve the ref to a commit, return both `resolvedBranch` and `commitSha`, and use the immutable commit SHA in the path. A short-lived, auth-scoped ref pointer avoids resolving the same branch on every request.
 
 ```
 ┌─────────────────────┐       ┌────────────────────────────┐       ┌──────────────────────────┐
@@ -1299,27 +1306,29 @@ ghGetFileContent:
 
 **Result:**
 ```yaml
-localPath: <octocode-home>/tmp/tree/vercel/next.js/main/packages/next/src/server
-repoRoot: <octocode-home>/tmp/tree/vercel/next.js/main
+localPath: <octocode-home>/tmp/tree/vercel/next.js/0123456789abcdef0123456789abcdef01234567/packages/next/src/server
+repoRoot: <octocode-home>/tmp/tree/vercel/next.js/0123456789abcdef0123456789abcdef01234567
+commitSha: 0123456789abcdef0123456789abcdef01234567
 fileCount: 12
 complete: true
 location:
   kind: directory
-  localPath: <octocode-home>/tmp/tree/vercel/next.js/main/packages/next/src/server
-  repoRoot: <octocode-home>/tmp/tree/vercel/next.js/main
+  localPath: <octocode-home>/tmp/tree/vercel/next.js/0123456789abcdef0123456789abcdef01234567/packages/next/src/server
+  repoRoot: <octocode-home>/tmp/tree/vercel/next.js/0123456789abcdef0123456789abcdef01234567
   source: treeFetch
+  commitSha: 0123456789abcdef0123456789abcdef01234567
   cached: false
   complete: true
 next:
   localSearch:
     tool: localSearchCode
     query:
-      path: <octocode-home>/tmp/tree/vercel/next.js/main/packages/next/src/server
+      path: <octocode-home>/tmp/tree/vercel/next.js/0123456789abcdef0123456789abcdef01234567/packages/next/src/server
       mode: discovery
   viewStructure:
     tool: localViewStructure
     query:
-      path: <octocode-home>/tmp/tree/vercel/next.js/main/packages/next/src/server
+      path: <octocode-home>/tmp/tree/vercel/next.js/0123456789abcdef0123456789abcdef01234567/packages/next/src/server
 ```
 
 > **Note:** `complete: false` means some files were skipped (binary, oversized, or file-limit). Use `ghCloneRepo` when completeness matters.
@@ -1419,16 +1428,19 @@ Step 4: Find files by metadata
 | Behavior | Details |
 |----------|---------|
 | **TTL** | 24 hours by default (configurable through `OCTOCODE_CACHE_TTL_MS` env var) |
-| **Location** | clones: `<octocode-home>/tmp/clone/{owner}/{repo}/{branch}/`; file/tree fetches: `<octocode-home>/tmp/tree/{owner}/{repo}/{branch}/` |
-| **Branch** | Auto-detected through GitHub API when omitted; resolved branch always included in path and result |
+| **Location** | Clones: `<octocode-home>/tmp/clone/{owner}/{repo}/{branch}/`; file/tree fetches: `<octocode-home>/tmp/tree/{owner}/{repo}/{commitSha}/`; remote response L2: `<octocode-home>/tmp/response/` |
+| **Identity** | The API resolves an omitted branch, then pins file/tree bytes and paths to the resolved commit SHA |
+| **Ref pointer** | Auth-scoped branch/tag-to-commit results are cached for 60 seconds; `forceRefresh` bypasses the pointer |
 | **Sparse clones** | Separate cache: `{branch}__sp_{hash}/` |
 | **Coexistence** | Full clone and sparse clones of the same repository can coexist |
-| **Cache hit** | Returns instantly (no network call) |
+| **Cache hit** | Reuses immutable tree bytes; ref resolution can make one request after the 60-second pointer expires |
 | **Clone vs directory** | Clone-cache and directory/file materialization are separate; directory fetch never overwrites a git clone |
-| **Expired** | Automatically evicted by periodic GC (every 10 min) and on next request |
+| **Expired** | Owned entries are evicted when requested and by the shared 24-hour lifecycle |
 | **Force refresh** | Set `forceRefresh: true` in the query to bypass cache and re-clone/re-fetch |
-| **Periodic GC** | Expired clone/tree materializations are cleaned up every 10 minutes (runs on server startup and periodically) |
-| **Manual clear** | Delete the `localPath` directory to force re-clone |
+| **Periodic GC** | CLI tool-runtime bootstrap performs a cheap persisted due-check once per process and exits without a timer. MCP performs the same bootstrap check, then uses an unreferenced deadline timer. Both use one persisted 24-hour marker. A cross-process lock prevents duplicate sweeps; cleanup failure never blocks startup. |
+| **Cleanup scope** | Automatic maintenance removes expired entries only from owned clone, tree, response, and managed artifact roots. It preserves unrelated files under `tmp`. |
+| **Response limits** | Response entries also obey configurable per-entry and total-disk limits. See [Response cache](CONFIGURATION.md#response-cache). |
+| **Manual clear** | `octocode cache clear --clone` and `--tree` are selective. `--all` removes the entire Octocode `tmp` directory, including response entries and maintenance metadata. There is no response-only clear flag. |
 
 ---
 

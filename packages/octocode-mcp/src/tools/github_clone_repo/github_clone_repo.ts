@@ -1,5 +1,5 @@
 import type { z } from 'zod';
-import type { CloneRepoQuerySchema } from '@octocodeai/octocode-core/schemas';
+import type { CloneRepoQuerySchema } from '@octocodeai/octocode-tools-core';
 import {
   TOOL_NAMES,
   BulkCloneRepoLocalSchema,
@@ -15,6 +15,7 @@ export const registerGitHubCloneRepoTool =
     title: 'Clone / Fetch GitHub Repository Locally',
     inputSchema: BulkCloneRepoLocalSchema,
     executionFn: executeCloneRepo,
+    timeoutMs: 150_000,
     annotations: {
       readOnlyHint: false,
       destructiveHint: false,

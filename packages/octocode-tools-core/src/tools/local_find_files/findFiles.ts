@@ -4,7 +4,7 @@ import {
 } from '../../utils/file/toolHelpers.js';
 import { formatFileSize } from '../../utils/file/size.js';
 import type { z } from 'zod';
-import type { FindFilesQuerySchema } from '@octocodeai/octocode-core/schemas';
+import type { FindFilesQuerySchema } from '../../toolContract/schemas.js';
 import type { LocalFindFilesEntry } from '@octocodeai/octocode-core/types';
 import type { LocalFindFilesToolResult } from '@octocodeai/octocode-core/extra-types';
 import {

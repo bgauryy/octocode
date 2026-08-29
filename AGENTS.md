@@ -28,13 +28,13 @@ Access: `packages/*/src/`, `tests/`, `docs/` ✅ · `*.json`, `*.config.*`, `Car
 ```
  INTERFACES   octocode-mcp (stdio MCP)   octocode (CLI)   octocode-vscode (VS Code)
                     └─────────────────────┴── depend on ──┐
- BRAIN         @octocodeai/octocode-tools-core  (all tool execution logic)
-                    ├── metadata ──▶  @octocodeai/octocode-core  (external: schemas, descriptions, system prompt)
+ BRAIN         @octocodeai/octocode-tools-core  (execution + schemas/descriptions)
+                    ├── prompt ────▶  @octocodeai/octocode-core  (external: shared system prompt + output types)
                     ├── native   ──▶  @octocodeai/octocode-engine  (Rust/napi: search, minify, LSP, secrets)
                     └── config   ──▶  @octocodeai/config           (env/config loader — zero-dep, single source)
 ```
 
-Logic lives in tools-core / octocode-core / engine. Interface packages only register, render, configure. Never duplicate `getOctocodeHome` or `.env` parsing — use `@octocodeai/config`.
+Tool execution, schemas, and descriptions live in tools-core; the shared system prompt currently comes from octocode-core; native primitives live in engine. Interface packages only register, render, and configure. Never duplicate `getOctocodeHome` or `.env` parsing — use `@octocodeai/config`.
 
 ## Packages
 
@@ -50,22 +50,23 @@ All workspace packages (7). Prefer package `ARCHITECTURE.md` / `AGENTS.md` / `do
 | [`packages/octocode-vscode`](packages/octocode-vscode) | `octocode-mcp-vscode` | VS Code / multi-editor management extension: GitHub OAuth, MCP install into Cursor/Windsurf/etc., token sync. | package README |
 | [`packages/octocode-benchmark`](packages/octocode-benchmark) | `@octocodeai/octocode-benchmark` | Internal benchmarks/evals — head-to-head tool comparisons (octocode vs gh / gh+rtk / ast-grep), VRPT scoring. | [BENCHMARK](packages/octocode-benchmark/skills/octocode-benchmark/references/BENCHMARK.md) |
 
-External (not in this workspace): `@octocodeai/octocode-core` (sibling `octocode-mcp-host`) — single source for tool descriptions, schemas, and system prompt text. Never hand-write tool guidance in interface packages.
+External (not in this workspace): `@octocodeai/octocode-core` (sibling `octocode-mcp-host`) — current source for the shared system prompt and reusable output types only. Public tool schemas and descriptions are owned here under `packages/octocode-tools-core/src/toolContract/`. Never hand-write tool guidance in interface packages.
 
 ## Tools
 
-Full field-level reference: [`docs/OCTOCODE_TOOLS.md`](docs/OCTOCODE_TOOLS.md). Live catalog: `$OCTO tools --json` (schemas: `$OCTO tools <name> --scheme`).
+Full field-level reference: [`docs/OCTOCODE_TOOLS.md`](docs/OCTOCODE_TOOLS.md). Live catalog: `$OCTO tools --json`; read `$OCTO tools <name> --scheme --json --compact` before calling a tool. Compact schemas include `relations` for conditional and mutually exclusive fields.
 
-**Always-on (12)** — dogfood these via MCP or local CLI:
+**Default catalog (15)** — dogfood these via MCP or local CLI (plus 2 opt-in GitHub tools):
 
 | Family | Tools | Role |
 |---|---|---|
 | GitHub | `ghSearchCode` · `ghGetFileContent` · `ghViewRepoStructure` · `ghSearchRepos` · `ghSearchPullRequests` · `ghSearchIssues` · `ghSearchCommits` · `ghListReleases` *(opt-in: `ENABLE_RELEASES`)* · `ghSearchDiscussions` *(opt-in: `ENABLE_DISCUSSIONS`)* · `ghCloneRepo` | Remote code/path search, file read, tree, repo discovery, PR search, issue search, commit history/compare, releases, discussions, clone (`ENABLE_CLONE` for clone) |
 | Package | `npmSearch` | npm package lookup + source repo |
 | Local | `localSearchCode` · `localViewStructure` · `localFindFiles` · `localGetFileContent` | Text (text/regex/AST), tree, find-by-meta, file read (`ENABLE_LOCAL=false` disables the family) |
+| Graph | `localAnalyzeGraph` | Bounded file-graph operations: dependencies, dependents, shortest path, cycles/SCCs, reachability, and dead-code candidates |
 | LSP | `lspGetSemantics` | definition, references, callers/callees, symbols, types, diagnostics, … |
 
-Evidence: a text/code search hit is a **candidate**, not proof — confirm reachability with `lspGetSemantics` (`references`/`callers`) before a delete claim. Do not treat search relevance ranking as proof.
+Evidence: search and `localAnalyzeGraph` import edges are **candidates**, not symbol proof — use graph operations for repository file topology, then confirm identity/usage with `lspGetSemantics` (`references`/`callers`) before a delete claim. Do not treat search relevance ranking as proof.
 
 ## Build and local run
 
@@ -110,7 +111,7 @@ Adds the internal packages and octocode-engine platform packages to the `resolut
 |---|---|
 | `@octocodeai/octocode-tools-core` | Brain / all tool runners |
 | `@octocodeai/config` | Zero-dep env + config loader |
-| `@octocodeai/octocode-core` | External schemas + system prompt (sibling repo) |
+| `@octocodeai/octocode-core` | External shared system prompt + output types (sibling repo) |
 | `@octocodeai/octocode-engine` | Rust/napi engine |
 | `@octocodeai/octocode-engine-*` | Platform-native engine packages from `packages/octocode-engine/npm/*` |
 

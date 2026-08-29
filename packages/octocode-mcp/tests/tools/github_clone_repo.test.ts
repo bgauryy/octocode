@@ -23,9 +23,11 @@ import {
   getCacheTTL,
   getMaxCacheSizeBytes,
   getMaxCloneCount,
+} from '../../../octocode-tools-core/src/tools/github_clone_repo/cache.js';
+import {
   startCacheGC,
   stopCacheGC,
-} from '../../../octocode-tools-core/src/tools/github_clone_repo/cache.js';
+} from '../../../octocode-tools-core/src/cacheMaintenance.js';
 
 describe('github_clone_repo cache', () => {
   const testBaseDir = join(tmpdir(), `octocode-cache-test-${Date.now()}`);
@@ -444,15 +446,16 @@ describe('github_clone_repo cache', () => {
       stopCacheGC();
     });
 
-    it('runs immediate eviction on start', () => {
+    it('runs immediate eviction on start', async () => {
       const dir = join(testBaseDir, 'gc-test');
-      const reposDir = join(dir, 'repos', 'owner', 'repo', 'main');
+      const reposDir = getCloneDir(dir, 'owner', 'repo', 'main');
       mkdirSync(reposDir, { recursive: true });
       const expiredMeta = createCacheMeta('owner', 'repo', 'main', 'clone');
       expiredMeta.expiresAt = new Date(Date.now() - 1000).toISOString();
       writeCacheMeta(reposDir, expiredMeta);
 
       startCacheGC(dir);
+      await vi.waitFor(() => expect(existsSync(reposDir)).toBe(false));
 
       expect(existsSync(reposDir)).toBe(false);
     });

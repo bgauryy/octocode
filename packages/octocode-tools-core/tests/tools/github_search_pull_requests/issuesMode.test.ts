@@ -69,6 +69,50 @@ describe('ghSearchIssues type:"issues"', () => {
     expect(text).toContain('"searchCode"');
   });
 
+  it('keeps the PR-only page explanation on the public empty response', async () => {
+    fetchIssues.mockResolvedValue({
+      data: {
+        type: 'issues',
+        owner: 'microsoft',
+        repo: 'TypeScript',
+        issues: [],
+        warnings: [
+          'This page contained only pull requests; follow pagination.nextPage.',
+        ],
+        pagination: {
+          currentPage: 1,
+          perPage: 1,
+          hasMore: true,
+          nextPage: 2,
+        },
+      },
+      status: 200,
+    });
+
+    const result = await searchMultipleGitHubPullRequests({
+      queries: [
+        {
+          type: 'issues',
+          owner: 'microsoft',
+          repo: 'TypeScript',
+          limit: 1,
+        },
+      ],
+    } as never);
+
+    expect(result.structuredContent).toMatchObject({
+      results: [
+        {
+          status: 'empty',
+          data: {
+            hints: [expect.stringContaining('only pull requests')],
+            pagination: { hasMore: true, nextPage: 2 },
+          },
+        },
+      ],
+    });
+  });
+
   it('omits next.readIssue when already in detail mode but still offers searchCode', async () => {
     fetchIssues.mockResolvedValue({
       data: {

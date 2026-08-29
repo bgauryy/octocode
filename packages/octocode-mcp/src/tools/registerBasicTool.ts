@@ -1,8 +1,5 @@
-import {
-  McpServer,
-  RegisteredTool,
-} from '@modelcontextprotocol/sdk/server/mcp.js';
-import { type CallToolResult } from '@modelcontextprotocol/sdk/types.js';
+import { McpServer, type RegisteredTool } from '@modelcontextprotocol/server';
+import type { CallToolResult } from '@modelcontextprotocol/server';
 import { toMCPSchema } from '../types/toolTypes.js';
 import {
   DESCRIPTIONS,

@@ -142,7 +142,7 @@ describe('directToolCatalog', () => {
     expect(
       buildDirectToolExampleQuery(STATIC_TOOL_NAMES.LOCAL_RIPGREP)
     ).toEqual({
-      path: 'packages/octocode-tools-core/src',
+      path: '/ABS/repo/packages/octocode-tools-core/src',
       searchText: 'buildDirectToolCommandPatterns',
       maxFiles: 20,
     });

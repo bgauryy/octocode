@@ -8,7 +8,7 @@ import { SEARCH_ERRORS } from '../errors/domainErrors.js';
 import { getOctokit, resolveCacheAuthFingerprint } from './client.js';
 import { handleGitHubAPIError } from './errors.js';
 import { generateCacheKey, withDataCache } from '../utils/http/cache.js';
-import { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types';
+import { AuthInfo } from '@modelcontextprotocol/server';
 import { formatPRForResponse } from './prTransformation.js';
 import { transformPullRequestItemFromREST } from './prContentFetcher.js';
 import {

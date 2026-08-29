@@ -9,7 +9,7 @@ type SearchContentResult = Awaited<ReturnType<typeof searchContentRipgrep>>;
 type ViewStructureResult = Awaited<ReturnType<typeof viewStructure>>;
 type FindFilesResult = Awaited<ReturnType<typeof findFiles>>;
 type FetchContentResult = Awaited<ReturnType<typeof fetchContent>>;
-import { RipgrepQuerySchema } from '@octocodeai/octocode-core/schemas';
+import { RipgrepQuerySchema } from '@octocodeai/octocode-tools-core';
 import path from 'path';
 
 const NODE_MODULES_PATH = path.resolve(process.cwd(), 'node_modules');

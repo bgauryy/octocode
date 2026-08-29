@@ -16,7 +16,8 @@ Severity is impact (`HIGH/MED/LOW`); confidence is proof (`confirmed/likely/unce
 1. Derive 3-5 focus queries; check every changed file against loaded guidelines.
 2. Match changed public/high-risk symbols to proof:
    - signature → incoming callers; new function → callees; type/interface → references;
-   - transformation → trace each boundary; removed export → imports/references.
+   - transformation → trace each boundary; removed export → graph dependents/path + LSP references;
+   - import/module reshape → graph cycles/reachability before and after when topology risk is material.
 3. Exact-read every affected consumer before calling it broken; record changed values/types/side effects.
 4. Check APIs/schemas/dependencies, edge cases, auth/injection/data exposure, error context, hot paths, and TODO/FIXME on added lines.
 5. Run the smallest applicable project test/typecheck/lint check. If unavailable/unsafe, record `not run` and keep recommendation below `APPROVE`.

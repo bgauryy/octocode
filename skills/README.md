@@ -2,7 +2,7 @@
 
 Canonical Agent Skills for this monorepo. Each folder is a `SKILL.md` pack; vendor installs (`~/.claude`, `~/.cursor`, `~/.agents`, `~/.codex`, and project `.agents` / `.cursor` / `.claude`) should **symlink here**.
 
-Source of truth: `/Users/guybary/Documents/code/octocode/octocode/skills/`
+Source of truth: this `skills/` directory in the repository checkout.
 
 Sync / install / review: use **`octocode-skills`** (`scripts/skill-sync.mjs`, `scripts/skill-review.mjs`).
 
@@ -21,7 +21,6 @@ Sync / install / review: use **`octocode-skills`** (`scripts/skill-sync.mjs`, `s
 | [octocode-skills](./octocode-skills/) | Skill lifecycle — discover, review, create, install, sync `SKILL.md` folders |
 | [octocode-chrome-devtools](./octocode-chrome-devtools/) | Live browser CDP evidence — network, console, perf, DOM, HAR, auth-gated |
 | [octocode-scraping](./octocode-scraping/) | Public web → local cited corpus; keyless first; blocked/thin recovery |
-| [octocode-mannequin](./octocode-mannequin/) | Anatomical 3D skeleton/manikin — pose, ROM clamps, viewer, WebMCP drive |
 
 ## Explanations
 
@@ -69,10 +68,6 @@ Browser debugging that needs **DevTools-grade** evidence via Chrome DevTools Pro
 
 Public web → local cited corpus: scrape/crawl, extract tables/fields, diagnose blocked/thin pages, answer from saved sessions. Keyless first; ask before hosted spend. Live clicks/HAR/perf → **octocode-chrome-devtools**.
 
-### octocode-mannequin
-
-Anatomical 3D humanoid manikin: pose commands, ROM clamps, walk/run/dance/backflip sequences, Three.js viewer, WebMCP agent drive. Not for general scenes, physics/ragdoll, IK, or mocap.
-
 ## Suggested routes
 
 ```text
@@ -89,7 +84,6 @@ Tune a prompt/skill?     → prompt-optimizer
 Change a skill folder?   → skills
 Debug in Chrome?         → chrome-devtools
 Scrape / build corpus?   → scraping
-Pose a manikin?          → mannequin
 ```
 
 ## Layout convention

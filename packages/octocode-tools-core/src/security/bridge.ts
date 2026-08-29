@@ -1,5 +1,8 @@
-import { type CallToolResult } from '@modelcontextprotocol/sdk/types.js';
-import type { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types.js';
+import type {
+  AuthInfo,
+  CallToolResult,
+  ServerContext,
+} from '@modelcontextprotocol/server';
 import type {
   ToolResult,
   ToolSecurityContext,
@@ -14,17 +17,21 @@ export function withSecurityValidation<T extends Record<string, unknown>>(
   toolHandler: (
     sanitizedArgs: T,
     context: ToolSecurityContext<AuthInfo>
-  ) => Promise<CallToolResult>
-): (
-  args: unknown,
-  extra: { authInfo?: AuthInfo; sessionId?: string; signal?: AbortSignal }
-) => Promise<CallToolResult> {
+  ) => Promise<CallToolResult>,
+  options?: { timeoutMs?: number }
+): (args: unknown, context?: ServerContext) => Promise<CallToolResult> {
   const inner = _wsv<T, AuthInfo>(
     toolName,
     (sanitizedArgs, context) =>
-      toolHandler(sanitizedArgs, context) as Promise<ToolResult>
+      toolHandler(sanitizedArgs, context) as Promise<ToolResult>,
+    options
   );
-  return (args, extra) => inner(args, extra) as Promise<CallToolResult>;
+  return (args, context) =>
+    inner(args, {
+      authInfo: context?.http?.authInfo,
+      sessionId: context?.sessionId,
+      signal: context?.mcpReq.signal,
+    }) as Promise<CallToolResult>;
 }
 
 export function withBasicSecurityValidation<T extends object>(
@@ -32,15 +39,15 @@ export function withBasicSecurityValidation<T extends object>(
     sanitizedArgs: T,
     context: ToolSecurityContext<unknown>
   ) => Promise<CallToolResult>,
-  toolName?: string
-): (
-  args: unknown,
-  extra?: { signal?: AbortSignal }
-) => Promise<CallToolResult> {
+  toolName?: string,
+  options?: { timeoutMs?: number }
+): (args: unknown, context?: ServerContext) => Promise<CallToolResult> {
   const inner = _wbsv<T>(
     (sanitizedArgs, context) =>
       toolHandler(sanitizedArgs, context) as Promise<ToolResult>,
-    toolName
+    toolName,
+    options
   );
-  return (args, extra) => inner(args, extra) as Promise<CallToolResult>;
+  return (args, context) =>
+    inner(args, { signal: context?.mcpReq.signal }) as Promise<CallToolResult>;
 }

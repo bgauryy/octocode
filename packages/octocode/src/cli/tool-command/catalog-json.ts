@@ -7,12 +7,14 @@ import {
   getDirectToolCategory,
   getDirectToolDescription,
   getDirectToolDisplayFields,
+  getDirectToolSchemaRelations,
   sortDirectToolNames,
 } from '@octocodeai/octocode-tools-core/schema';
 import {
   TOOL_DEFINITIONS,
   findToolDefinition,
   getOptionalToolMetadata,
+  getToolAvailability,
 } from './registry.js';
 import {
   extractShortDescription,
@@ -77,7 +79,7 @@ export async function printToolCatalogJson(
       kind: 'octocode.toolCatalog',
       version: 1,
       toolCount: toolNames.length,
-      note: 'Lean catalog. Use schema/run templates with $.tools[].name.',
+      note: 'All public schemas. Check $.tools[].availability before execution.',
       output: 'results + evidence? + next? + diagnostics?',
       commands: {
         fullCatalog: 'tools --json --full',
@@ -89,6 +91,7 @@ export async function printToolCatalogJson(
         category: getDirectToolCategory(toolName),
         description: formatConciseToolDescription(toolName, metadata),
         fields: formatRequiredFields(toolName),
+        availability: getToolAvailability(toolName),
         ...(getToolPreviewLines(toolName).length > 0
           ? { hints: getToolPreviewLines(toolName) }
           : {}),
@@ -106,6 +109,7 @@ export async function printToolCatalogJson(
     guidance: [
       'Full all-tool schema catalog. This is intentionally large.',
       'For agent loops prefer tools --json, then tools <name> --scheme --json.',
+      'Check each tool availability; disabled opt-in tools name the required environment flag.',
       'Use this only when automation truly needs every schema in one payload.',
     ],
     commands: {
@@ -120,14 +124,17 @@ export async function printToolCatalogJson(
     tools: toolNames.map(toolName => {
       const fullDescription = getDirectToolDescription(toolName, metadata);
       const commandPatterns = buildDirectToolCommandPatterns(toolName);
+      const relations = getDirectToolSchemaRelations(toolName);
 
       return {
         name: toolName,
         category: getDirectToolCategory(toolName),
         description: extractShortDescription(fullDescription),
         fullDescription,
+        availability: getToolAvailability(toolName),
         inputSchema: JSON.parse(formatDirectToolSchemaText(toolName)),
         fields: formatToolFieldsJson(toolName),
+        ...(relations.length > 0 ? { relations } : {}),
         ...(getToolSchemaGuidance(toolName).length > 0
           ? { guidance: getToolSchemaGuidance(toolName) }
           : {}),
@@ -146,62 +153,90 @@ export async function printToolSchemaJson(
   toolName: string,
   options: { compact?: boolean; pretty?: boolean } = {}
 ): Promise<boolean> {
+  const payload = await buildToolSchemaJson(toolName, options);
+  if (!payload) return false;
+  printJsonPayload(payload, options.compact === true, options.pretty === true);
+  return true;
+}
+
+export async function printMultipleToolSchemasJson(
+  toolNames: string[],
+  options: { compact?: boolean; pretty?: boolean } = {}
+): Promise<boolean> {
+  const schemas = await Promise.all(
+    toolNames.map(toolName => buildToolSchemaJson(toolName, options))
+  );
+  if (schemas.some(schema => schema === undefined)) return false;
+  printJsonPayload(
+    {
+      kind: options.compact
+        ? 'octocode.toolSchemas.compact'
+        : 'octocode.toolSchemas',
+      version: 1,
+      schemas,
+    },
+    options.compact === true,
+    options.pretty === true
+  );
+  return true;
+}
+
+async function buildToolSchemaJson(
+  toolName: string,
+  options: { compact?: boolean } = {}
+): Promise<Record<string, unknown> | undefined> {
   const tool = findToolDefinition(toolName);
-  if (!tool) return false;
+  if (!tool) return undefined;
 
   const metadata = await getOptionalToolMetadata();
   const fullDescription = getDirectToolDescription(tool.name, metadata);
   const fields = formatToolFieldsJson(tool.name);
   const guidance = getToolSchemaGuidance(tool.name);
+  const relations = getDirectToolSchemaRelations(tool.name);
 
   if (options.compact) {
-    printJsonPayload(
-      {
-        kind: 'octocode.toolSchema.compact',
-        version: 1,
-        name: tool.name,
-        category: getDirectToolCategory(tool.name),
-        description: extractShortDescription(fullDescription),
-        fields: fields.map(formatCompactField),
-        ...(guidance.length > 0 ? { guidance } : {}),
-        commands: {
-          full: `tools ${tool.name} --scheme --json`,
-          run: compactRunCommand(tool.name),
-        },
+    return {
+      kind: 'octocode.toolSchema.compact',
+      version: 1,
+      name: tool.name,
+      category: getDirectToolCategory(tool.name),
+      description: formatConciseToolDescription(tool.name, metadata, 160),
+      availability: getToolAvailability(tool.name),
+      fields: fields.map(formatCompactField),
+      ...(relations.length > 0 ? { relations } : {}),
+      ...(guidance.length > 0 ? { guidance } : {}),
+      commands: {
+        full: `tools ${tool.name} --scheme --json`,
+        run: compactRunCommand(tool.name),
       },
-      options.compact === true,
-      options.pretty === true
-    );
-    return true;
+    };
   }
 
   const inputSchema = JSON.parse(formatDirectToolSchemaText(tool.name));
   const commandPatterns = buildDirectToolCommandPatterns(tool.name);
   const autoFilledFields = getDirectToolAutoFilledFields(tool.name);
 
-  printJsonPayload(
-    {
-      kind: 'octocode.toolSchema',
-      version: 1,
-      name: tool.name,
-      category: getDirectToolCategory(tool.name),
-      description: extractShortDescription(fullDescription),
-      inputSchema,
-      fullDescription,
-      fields,
-      ...(guidance.length > 0 ? { guidance } : {}),
-      autoFilledFields,
-      commands: {
-        catalog: 'tools --json',
-        schema: `tools ${tool.name} --scheme --json`,
-        compactSchema: `tools ${tool.name} --scheme --json --compact`,
-        humanSchema: `tools ${tool.name} --scheme`,
-        runCompact: compactRunCommand(tool.name),
-        runEnvelope: `tools ${tool.name} --queries '<json>' --json`,
-      },
-      ...(commandPatterns.length > 0 ? { commandPatterns } : {}),
+  return {
+    kind: 'octocode.toolSchema',
+    version: 1,
+    name: tool.name,
+    category: getDirectToolCategory(tool.name),
+    description: extractShortDescription(fullDescription),
+    inputSchema,
+    fullDescription,
+    availability: getToolAvailability(tool.name),
+    fields,
+    ...(relations.length > 0 ? { relations } : {}),
+    ...(guidance.length > 0 ? { guidance } : {}),
+    autoFilledFields,
+    commands: {
+      catalog: 'tools --json',
+      schema: `tools ${tool.name} --scheme --json`,
+      compactSchema: `tools ${tool.name} --scheme --json --compact`,
+      humanSchema: `tools ${tool.name} --scheme`,
+      runCompact: compactRunCommand(tool.name),
+      runEnvelope: `tools ${tool.name} --queries '<json>' --json`,
     },
-    false
-  );
-  return true;
+    ...(commandPatterns.length > 0 ? { commandPatterns } : {}),
+  };
 }

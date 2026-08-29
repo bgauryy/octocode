@@ -91,6 +91,12 @@ function fallbackSymbolName(
   return undefined;
 }
 
+function localPathFromUri(uri: string): string {
+  return uri.startsWith('file://')
+    ? decodeURIComponent(uri.slice('file://'.length))
+    : uri;
+}
+
 // Ready-to-run follow-up. On a hit: read the top result location with context,
 // so the agent doesn't have to assemble the localGetFileContent call from
 // ranges. On an empty/incomplete result: re-anchor or fall back to
@@ -109,9 +115,7 @@ export function withSemanticNext(
   const loc = payload.locations?.[0];
   const start = loc?.displayRange?.startLine;
   if (loc?.uri && typeof start === 'number') {
-    const path = loc.uri.startsWith('file://')
-      ? decodeURIComponent(loc.uri.slice('file://'.length))
-      : loc.uri;
+    const path = localPathFromUri(loc.uri);
     return {
       ...result,
       next: {
@@ -145,9 +149,7 @@ export function withSemanticNext(
     result.type === 'documentSymbols' &&
     result.uri
   ) {
-    const filePath = result.uri.startsWith('file://')
-      ? decodeURIComponent(result.uri.slice('file://'.length))
-      : result.uri;
+    const filePath = localPathFromUri(result.uri);
     return {
       ...result,
       next: {
@@ -170,11 +172,13 @@ export function withSemanticNext(
     return result;
   }
 
-  // NOTE: localSearchCode's `keywords` is a STRING (not an array).
+  const searchUriOrRoot = result.uri || query.uri || query.workspaceRoot;
+  if (!searchUriOrRoot) return result;
+  const searchPath = localPathFromUri(searchUriOrRoot);
   const next: NonNullable<LspSemanticEnvelope['next']> = {
     textSearch: {
       tool: 'localSearchCode',
-      query: { keywords: symbolName },
+      query: { path: searchPath, searchText: symbolName },
       why: `Semantic ${result.type} returned no result (${empty.category}) — fall back to a text search for "${symbolName}"`,
       confidence: 'low',
     },

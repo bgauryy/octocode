@@ -1,4 +1,4 @@
-import { type CallToolResult } from '@modelcontextprotocol/sdk/types.js';
+import type { CallToolResult } from '@modelcontextprotocol/server';
 import { ContentSanitizer } from '@octocodeai/octocode-engine/security';
 import { sanitizeStructuredContent } from '../../responses.js';
 import { getRuntimeSurface } from '@octocodeai/config';

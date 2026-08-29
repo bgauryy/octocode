@@ -63,10 +63,12 @@ export const statusCommand: CLICommand = {
     const tmpDir = paths.tmp;
     const cloneDir = paths.clone;
     const treeDir = paths.tree;
+    const responseDir = paths.response;
     const cloneBytes = getDirectorySizeBytes(cloneDir);
     const treeBytes = getDirectorySizeBytes(treeDir);
-    const tmpBytes = cloneBytes + treeBytes;
-    const totalCacheBytes = tmpBytes;
+    const responseBytes = getDirectorySizeBytes(responseDir);
+    const tmpBytes = getDirectorySizeBytes(tmpDir);
+    const totalCacheBytes = cloneBytes + treeBytes + responseBytes;
 
     let syncData: {
       summary: {
@@ -122,6 +124,11 @@ export const statusCommand: CLICommand = {
               sizeBytes: treeBytes,
               sizeFormatted: formatBytes(treeBytes),
             },
+            response: {
+              path: responseDir,
+              sizeBytes: responseBytes,
+              sizeFormatted: formatBytes(responseBytes),
+            },
             totalBytes: totalCacheBytes,
             totalFormatted: formatBytes(totalCacheBytes),
           },
@@ -163,6 +170,9 @@ export const statusCommand: CLICommand = {
     console.log(`    ${c('cyan', '•')} tmp:    ${formatBytes(tmpBytes)}`);
     console.log(`    ${c('cyan', '•')} clone:  ${formatBytes(cloneBytes)}`);
     console.log(`    ${c('cyan', '•')} tree:   ${formatBytes(treeBytes)}`);
+    console.log(
+      `    ${c('cyan', '•')} response: ${formatBytes(responseBytes)}`
+    );
 
     if (syncData) {
       console.log();

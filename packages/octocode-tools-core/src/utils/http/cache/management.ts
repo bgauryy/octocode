@@ -1,6 +1,7 @@
 import type { CacheStats } from '../../core/types.js';
 import { cache, cacheStats, pendingRequests } from './store.js';
 import { etagSoftCache } from './conditional.js';
+import { getDiskCacheStats, resetDiskCacheStats } from './diskStore.js';
 
 export function clearAllCache(): void {
   cache.flushAll();
@@ -12,6 +13,7 @@ export function clearAllCache(): void {
   cacheStats.sets = 0;
   cacheStats.totalKeys = 0;
   cacheStats.lastReset = new Date();
+  resetDiskCacheStats();
 }
 
 function clearCacheByPrefix(prefix: string): number {
@@ -58,11 +60,22 @@ export function clearRemoteAPICache(): number {
 export function getCacheStats(): CacheStats & {
   hitRate: number;
   cacheSize: number;
+  diskHits: number;
+  diskMisses: number;
+  diskSets: number;
+  diskErrors: number;
+  diskEvictions: number;
 } {
   const total = cacheStats.hits + cacheStats.misses;
+  const disk = getDiskCacheStats();
   return {
     ...cacheStats,
     hitRate: total > 0 ? (cacheStats.hits / total) * 100 : 0,
     cacheSize: cache.keys().length,
+    diskHits: disk.hits,
+    diskMisses: disk.misses,
+    diskSets: disk.sets,
+    diskErrors: disk.errors,
+    diskEvictions: disk.evictions,
   };
 }

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { GitHubReposSearchSingleQuerySchema as CoreGitHubReposSearchSingleQuerySchema } from '@octocodeai/octocode-core/schemas';
+import { GitHubReposSearchSingleQuerySchema as CoreGitHubReposSearchSingleQuerySchema } from '../../toolContract/schemas.js';
 import { GITHUB_SEARCH_MAX_LIMIT } from '../../config.js';
 import {
   clampedInt,

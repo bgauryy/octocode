@@ -51,7 +51,7 @@ initialize
   -> stdio connect
 ```
 
-At startup, Octocode reads configuration from environment variables and `<octocode-home>/.octocoderc`, initializes local security and provider clients, loads tool metadata from `@octocodeai/octocode-core`, opens the session store, and registers the final enabled tool set. Octocode looks the GitHub token up live on every request, so changing an environment token can affect the next API call even though the startup status log keeps its original token-source snapshot.
+At startup, Octocode reads configuration from environment variables and `<octocode-home>/.octocoderc`, initializes local security and provider clients, loads repository-owned tool metadata plus the external shared system prompt, opens the session store, and registers the final enabled tool set. Octocode looks the GitHub token up live on every request, so changing an environment token can affect the next API call even though the startup status log keeps its original token-source snapshot.
 
 ## Tool catalog
 
@@ -66,7 +66,7 @@ Three settings add the remaining 9 tools:
 
 | Set | Adds | Total |
 |---|---|---:|
-| `ENABLE_LOCAL=true` | `localSearchCode`, `localViewStructure`, `localFindFiles`, `localGetFileContent`, `localFindDeadCode`, `lspGetSemantics` | 14 |
+| `ENABLE_LOCAL=true` | `localSearchCode`, `localViewStructure`, `localFindFiles`, `localGetFileContent`, `localAnalyzeGraph`, `lspGetSemantics` | 14 |
 | `ENABLE_CLONE=true` | `ghCloneRepo` (requires `ENABLE_LOCAL`) | 15 |
 | `ENABLE_RELEASES=1` or `ENABLE_DISCUSSIONS=1`, **and** `ENABLE_TOOLS` | `ghListReleases`, `ghSearchDiscussions` | 17 |
 
@@ -105,6 +105,20 @@ The following table lists the settings that matter most for MCP:
 | `WORKSPACE_ROOT`, `ALLOWED_PATHS` | Bound local path resolution and validation. |
 
 For full details, see the [Octocode configuration and authentication](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md) reference.
+
+## Materialization and response cache
+
+The MCP server shares the same on-disk cache as the CLI under the configured Octocode home:
+
+| Bucket | Path | Contents |
+|---|---|---|
+| Clone | `tmp/clone/{owner}/{repo}/{branch}` | Reusable Git checkouts |
+| Tree | `tmp/tree/{owner}/{repo}/{commitSha}` | Materialized repository trees |
+| Response | `tmp/response/` | Eligible GitHub and npm response payloads |
+
+Initialization performs a persisted maintenance due-check. After the transport connects, MCP schedules the next persisted deadline with an unreferenced timer, so the timer does not keep the process alive. A cross-process lock prevents concurrent sweeps when CLI and MCP processes start together. Cleanup is best effort and is cancelled during shutdown; a cleanup failure does not block server startup or tool execution.
+
+Maintenance removes expired owned cache entries while preserving unrelated files under `tmp`. See [Cache storage and lifecycle](CONFIGURATION.md#cache-storage-and-lifecycle) for the 24-hour gate, expiry rules, limits, and manual controls, and [Cache behavior](OCTOCODE_TOOLS.md#cache-behavior) for tool-level semantics.
 
 ## Session persistence
 

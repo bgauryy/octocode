@@ -2,7 +2,7 @@
 // come from octocode-core (SearchDiscussionsQuerySchema); the runtime only
 // relaxes numeric validation (clamp instead of reject), matching the other
 // GitHub tools. One source of truth; no duplicated prose.
-import { SearchDiscussionsQuerySchema as CoreSearchDiscussionsQuerySchema } from '@octocodeai/octocode-core/schemas';
+import { SearchDiscussionsQuerySchema as CoreSearchDiscussionsQuerySchema } from '../../toolContract/schemas.js';
 import {
   PR_CONTENT_DEFAULT_ITEMS_PER_PAGE,
   PR_CONTENT_MAX_ITEMS_PER_PAGE,

@@ -10,6 +10,8 @@ import {
   createCacheMeta,
   writeCacheMeta,
   evictExpiredClones,
+  cleanupStaleCloneArtifacts,
+  writeCloneLockMeta,
 } from '../../../src/tools/github_clone_repo/cache.js';
 
 describe('slash-branch cache directory encoding', () => {
@@ -34,16 +36,21 @@ describe('slash-branch cache directory encoding', () => {
     expect(segmentCount(base, cloneDir)).toBe(3);
   });
 
-  it('getTreeDir keeps a slash-branch tree as a single directory level under owner/repo', () => {
-    const treeDir = getTreeDir(
-      octocodeDir,
-      'owner',
-      'repo',
-      'dependabot/npm/foo'
-    );
+  it('getTreeDir addresses materialized trees by immutable commit SHA', () => {
+    const sha = '0123456789abcdef0123456789abcdef01234567';
+    const treeDir = getTreeDir(octocodeDir, 'owner', 'repo', sha);
     const treeBase = join(octocodeDir, 'tmp', 'tree');
-    // owner + repo + <one branch segment> = 3 levels, never 4+.
+    expect(treeDir.endsWith(`${sep}owner${sep}repo${sep}${sha}`)).toBe(true);
     expect(segmentCount(treeBase, treeDir)).toBe(3);
+  });
+
+  it('getTreeDir rejects mutable refs and malformed commit identities', () => {
+    expect(() => getTreeDir(octocodeDir, 'owner', 'repo', 'main')).toThrow(
+      'commit SHA'
+    );
+    expect(() =>
+      getTreeDir(octocodeDir, 'owner', 'repo', '../0123456789abcdef')
+    ).toThrow('commit SHA');
   });
 
   it('getCloneDir stays byte-identical for a plain (non-slash) branch name', () => {
@@ -96,5 +103,50 @@ describe('slash-branch cache directory encoding', () => {
 
     expect(existsSync(slashBranchDir)).toBe(true);
     expect(existsSync(expiredDir)).toBe(false);
+  });
+});
+
+describe('clone temporary artifact cleanup', () => {
+  let octocodeDir: string;
+
+  beforeEach(() => {
+    octocodeDir = mkdtempSync(join(tmpdir(), 'octocode-cache-artifacts-'));
+  });
+
+  afterEach(() => {
+    rmSync(octocodeDir, { recursive: true, force: true });
+  });
+
+  it('removes stale clone temporaries but preserves unrelated tmp state', () => {
+    const stale = join(octocodeDir, 'tmp', 'clone-tmp', 'stale');
+    const sentinel = join(octocodeDir, 'tmp', 'plan', 'keep');
+    mkdirSync(stale, { recursive: true });
+    mkdirSync(sentinel, { recursive: true });
+
+    const evicted = cleanupStaleCloneArtifacts(
+      octocodeDir,
+      Date.now() + 20 * 60 * 1000
+    );
+
+    expect(evicted).toBe(1);
+    expect(existsSync(stale)).toBe(false);
+    expect(existsSync(sentinel)).toBe(true);
+  });
+
+  it('reclaims a stale dead-owner lock but preserves a live-owner lock', () => {
+    const locks = join(octocodeDir, 'tmp', 'clone-locks');
+    const dead = join(locks, 'dead');
+    const live = join(locks, 'live');
+    mkdirSync(dead, { recursive: true });
+    mkdirSync(live, { recursive: true });
+    const old = Date.now() - 10 * 60 * 1000;
+    writeCloneLockMeta(dead, 2_147_483_647, old);
+    writeCloneLockMeta(live, process.pid, old);
+
+    const evicted = cleanupStaleCloneArtifacts(octocodeDir);
+
+    expect(evicted).toBe(1);
+    expect(existsSync(dead)).toBe(false);
+    expect(existsSync(live)).toBe(true);
   });
 });

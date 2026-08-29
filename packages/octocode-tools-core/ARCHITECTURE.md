@@ -13,9 +13,9 @@ plus a TS orchestration layer. tools-core reaches the Rust core through the
 lazy `contextUtils` proxy (`src/utils/contextUtils.ts`) and the TS wrappers
 through the `./lsp/*` / `./security/*` subpath exports; its own
 `src/security/bridge.ts` is only a thin type adapter (MCP `CallToolResult` ↔
-engine `ToolResult`). Tool descriptions and
-schema texts come from `@octocodeai/octocode-core` — this package never invents
-its own.
+engine `ToolResult`). Tool descriptions and executable schemas are owned by
+`src/toolContract/`; the external core package supplies the shared system
+prompt and reusable output types.
 
 ## Tool catalog
 
@@ -47,14 +47,17 @@ point used by all consumers:
 
 1. **Resolve** the tool from `ALL_TOOLS`.
 2. **Parse** input against `inputSchema` (bulk `{ queries: [...] }`).
-3. **Init runtime** lazily and once: `initialize()` (server config + token) and
+3. **Bootstrap cache maintenance** with a cheap persisted due-check once per
+   process. Non-server local tools enter it directly; server-requiring tools
+   enter it through `initialize()`.
+4. **Init runtime** lazily and once: `initialize()` (server config + token) and
    `initializeProviders()`, gated by the tool's `requires*` flags.
-4. **Gate** local/clone tools on `ENABLE_LOCAL` / `ENABLE_CLONE` config.
-5. **Run** through the security wrapper — `remote` tools get
+5. **Gate** local/clone tools on `ENABLE_LOCAL` / `ENABLE_CLONE` config.
+6. **Run** through the security wrapper — `remote` tools get
    `withSecurityValidation` (sanitize + auth + session), `basic` tools get
    `withBasicSecurityValidation`. Both wrappers are thin bridges over
    `octocode-engine/security` in `src/security/bridge.ts`.
-6. **Sanitize** the result and always return a structured `CallToolResult` —
+7. **Sanitize** the result and always return a structured `CallToolResult` —
    errors become an error envelope (`buildToolErrorResult`), never a throw.
 
 `directToolCatalog.ts` also derives the agent-facing metadata (display fields,
@@ -73,6 +76,9 @@ structure, history) lives in `src/github/`.
 
 ## Cross-cutting modules
 
+- `src/cacheMaintenance.ts` — shared 24-hour maintenance gate, persisted marker,
+  cross-process lock, owned-root sweep, and MCP deadline scheduler for
+  `tmp/clone`, `tmp/tree`, and `tmp/response`.
 - `src/scheme/` — shared Zod fields and the response envelope.
 - `src/utils/pagination/` (incl. `hints.ts` — next-step hints: pagination
   cursors, token-budget warnings, structure hints) + `src/utils/response/` — the
@@ -116,7 +122,7 @@ platform `.node` package.
 ## Rules
 
 - Keep logic here, not in consumers — the CLI/MCP only select and render.
-- Descriptions and schema texts come from `octocode-core`; don't hardcode them.
+- Descriptions and schemas come from `src/toolContract/`; don't hardcode them in interfaces or runners.
 - Native work (minify, search, structural, LSP, masking) goes through
   `octocode-engine`, never reimplemented in TS.
 - Add a new tool by adding its `src/tools/<name>/` folder and one `ToolConfig`

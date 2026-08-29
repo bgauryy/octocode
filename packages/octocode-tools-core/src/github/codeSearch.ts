@@ -5,7 +5,7 @@ import type {
   OptimizedCodeSearchResult,
 } from './githubAPI.js';
 import type { z } from 'zod';
-import type { GitHubCodeSearchQuerySchema } from '@octocodeai/octocode-core/schemas';
+import type { GitHubCodeSearchQuerySchema } from '../toolContract/schemas.js';
 
 type GitHubCodeSearchQuery = z.infer<typeof GitHubCodeSearchQuerySchema>;
 import type { WithOptionalMeta } from '../types/execution.js';
@@ -14,8 +14,8 @@ import { contextUtils } from '../utils/contextUtils.js';
 import { getOctokit, resolveCacheAuthFingerprint } from './client.js';
 import { handleGitHubAPIError, isNoResultsSearchError } from './errors.js';
 import { buildCodeSearchQuery } from './queryBuilders.js';
+import { AuthInfo } from '@modelcontextprotocol/server';
 import { generateCacheKey, withDataCache } from '../utils/http/cache.js';
-import { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types';
 import { shouldIgnoreFile } from '../utils/file/filters.js';
 import { SEARCH_ERRORS } from '../errors/domainErrors.js';
 import { countSerializedChars } from '../utils/response/charSavings.js';

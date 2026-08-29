@@ -9,6 +9,7 @@ import {
   isReleasesEnabled,
   isDiscussionsEnabled,
   STATIC_TOOL_NAMES,
+  LOCAL_ANALYZE_GRAPH_TOOL_NAME,
 } from '../toolNames.js';
 import { LSP_GET_SEMANTICS_TOOL_NAME } from '../lsp/shared/semanticTypes.js';
 import {
@@ -38,8 +39,8 @@ import {
   LocalFetchContentBulkQuerySchema,
   LocalFindFilesQuerySchema,
   LocalFindFilesBulkQuerySchema,
-  LocalFindDeadCodeQuerySchema,
-  LocalFindDeadCodeBulkQuerySchema,
+  LocalAnalyzeGraphQuerySchema,
+  LocalAnalyzeGraphBulkQuerySchema,
   LocalRipgrepQuerySchema,
   LocalRipgrepBulkQuerySchema,
   LocalViewStructureQuerySchema,
@@ -84,17 +85,18 @@ const DIRECT_TOOL_RELEVANCE_ORDER = new Map<string, number>(
     STATIC_TOOL_NAMES.GITHUB_PULL_REQUESTS,
     STATIC_TOOL_NAMES.GITHUB_ISSUES,
     STATIC_TOOL_NAMES.GITHUB_COMMITS,
+    STATIC_TOOL_NAMES.GITHUB_RELEASES,
+    STATIC_TOOL_NAMES.GITHUB_DISCUSSIONS,
     STATIC_TOOL_NAMES.GITHUB_FETCH_CONTENT,
     STATIC_TOOL_NAMES.GITHUB_VIEW_REPO_STRUCTURE,
     STATIC_TOOL_NAMES.GITHUB_CLONE_REPO,
     STATIC_TOOL_NAMES.LOCAL_RIPGREP,
     STATIC_TOOL_NAMES.LOCAL_FIND_FILES,
-    STATIC_TOOL_NAMES.LOCAL_FIND_DEAD_CODE,
+    LOCAL_ANALYZE_GRAPH_TOOL_NAME,
     STATIC_TOOL_NAMES.LOCAL_FETCH_CONTENT,
     STATIC_TOOL_NAMES.LOCAL_VIEW_STRUCTURE,
     LSP_GET_SEMANTICS_TOOL_NAME,
     STATIC_TOOL_NAMES.PACKAGE_SEARCH,
-    ...(isDiscussionsEnabled() ? [STATIC_TOOL_NAMES.GITHUB_DISCUSSIONS] : []),
   ].map((name, index) => [name, index])
 );
 export interface DirectToolDisplayField {
@@ -189,9 +191,8 @@ export const DIRECT_TOOL_DEFINITIONS: DirectToolDefinition[] = [
     inputSchema: SearchCommitsBulkLocalSchema,
   },
   // ghListReleases is opt-in (ENABLE_RELEASES=1) — gated to match ALL_TOOLS.
-  // Listings/agent context stay clean (a disabled tool has no business being
-  // advertised to an agent that can't call it) — see DISABLED_TOOL_DEFINITIONS
-  // below for the single-name lookup path that keeps `--scheme` discoverable.
+  // CLI discovery combines this runtime list with the disabled definitions
+  // below and marks availability explicitly.
   ...(isReleasesEnabled()
     ? [
         {
@@ -237,9 +238,9 @@ export const DIRECT_TOOL_DEFINITIONS: DirectToolDefinition[] = [
     inputSchema: LocalFindFilesBulkQuerySchema,
   },
   {
-    name: STATIC_TOOL_NAMES.LOCAL_FIND_DEAD_CODE,
-    schema: LocalFindDeadCodeQuerySchema,
-    inputSchema: LocalFindDeadCodeBulkQuerySchema,
+    name: LOCAL_ANALYZE_GRAPH_TOOL_NAME,
+    schema: LocalAnalyzeGraphQuerySchema,
+    inputSchema: LocalAnalyzeGraphBulkQuerySchema,
   },
   {
     name: STATIC_TOOL_NAMES.LOCAL_FETCH_CONTENT,
@@ -253,11 +254,8 @@ export const DIRECT_TOOL_DEFINITIONS: DirectToolDefinition[] = [
   },
 ];
 
-// Opt-in tools when NOT enabled, kept OUT of DIRECT_TOOL_DEFINITIONS (so
-// listings/agent context never advertise a tool that can't actually be
-// called) but still resolvable by exact name — `tools ghListReleases
-// --scheme` needs to work without already knowing the env var, rather than
-// hard-failing with "Unknown tool" for a name that just isn't enabled yet.
+// Opt-in tools when NOT enabled, kept OUT of the executable-definition list
+// but included in DIRECT_TOOL_DISCOVERY_DEFINITIONS with an explicit gate.
 const DISABLED_TOOL_DEFINITIONS: DirectToolDefinition[] = [
   ...(isReleasesEnabled()
     ? []
@@ -279,6 +277,12 @@ const DISABLED_TOOL_DEFINITIONS: DirectToolDefinition[] = [
           disabled: { envVar: 'ENABLE_DISCUSSIONS' },
         },
       ]),
+];
+
+/** Every public direct-tool schema, including opt-in tools marked disabled. */
+export const DIRECT_TOOL_DISCOVERY_DEFINITIONS: DirectToolDefinition[] = [
+  ...DIRECT_TOOL_DEFINITIONS,
+  ...DISABLED_TOOL_DEFINITIONS,
 ];
 
 export function findDirectToolDefinition(
