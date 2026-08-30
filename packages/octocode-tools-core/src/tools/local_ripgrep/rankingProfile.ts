@@ -22,8 +22,8 @@
  *    tables, path-role regexes, `selectProfile`/`classifyPathRole`).
  *  - `rankingProfile/rankingScoring.ts`: the scoring engine (`bestLineScore`,
  *    `pathAffinityScore`, `candidateTermRarityScore`, `scoreFileWithRarity`).
- *  - `rankingProfile/rankingResults.ts`: `rankFiles`/`RankResult` plus the
- *    lexical helpers (`lexicalCategoryOf`, `isIndexInsideString`, etc.).
+ *  - `rankingProfile/rankingResults.ts`: `rankFiles`/`RankResult` orchestration.
+ *  - `rankingProfile/rankingLexical.ts`: shared pure lexical helpers.
  * Re-exported here so no other module needs to change its import path.
  */
 export type {
@@ -57,12 +57,12 @@ export {
 } from './rankingProfile/rankingScoring.js';
 
 export type { RankResult } from './rankingProfile/rankingResults.js';
+export { rankFiles } from './rankingProfile/rankingResults.js';
 export {
-  rankFiles,
   matchesAny,
   escapeRegex,
   isPlainIdentifierKeyword,
   matchedLineOf,
   lexicalCategoryOf,
   isIndexInsideString,
-} from './rankingProfile/rankingResults.js';
+} from './rankingProfile/rankingLexical.js';

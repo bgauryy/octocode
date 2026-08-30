@@ -27,8 +27,20 @@ function makePR(number = 42) {
     merge_commit_sha: null,
     html_url: `https://github.com/facebook/react/pull/${number}`,
     user: { login: 'author', avatar_url: '', type: 'User', html_url: '' },
-    head: { ref: 'feat/branch', sha: 'abc', label: 'author:feat/branch', repo: null, user: null },
-    base: { ref: 'main', sha: 'def', label: 'facebook:main', repo: null, user: null },
+    head: {
+      ref: 'feat/branch',
+      sha: 'abc',
+      label: 'author:feat/branch',
+      repo: null,
+      user: null,
+    },
+    base: {
+      ref: 'main',
+      sha: 'def',
+      label: 'facebook:main',
+      repo: null,
+      user: null,
+    },
     labels: [],
     assignees: [],
     requested_reviewers: [],
@@ -43,9 +55,14 @@ function makePR(number = 42) {
     comments_url: '',
     statuses_url: '',
     _links: {
-      html: { href: '' }, self: { href: '' }, commits: { href: '' },
-      statuses: { href: '' }, review_comments: { href: '' },
-      review_comment: { href: '' }, comments: { href: '' }, issue: { href: '' },
+      html: { href: '' },
+      self: { href: '' },
+      commits: { href: '' },
+      statuses: { href: '' },
+      review_comments: { href: '' },
+      review_comment: { href: '' },
+      comments: { href: '' },
+      issue: { href: '' },
     },
     author_association: 'OWNER',
     auto_merge: null,
@@ -71,7 +88,9 @@ function makeOctokit(prData = makePR()) {
   return {
     rest: {
       pulls: {
-        get: vi.fn().mockResolvedValue({ data: prData, status: 200, headers: {} }),
+        get: vi
+          .fn()
+          .mockResolvedValue({ data: prData, status: 200, headers: {} }),
         listReviews: vi.fn().mockResolvedValue({ data: [] }),
         listReviewComments: vi.fn().mockResolvedValue({ data: [] }),
         listCommits: vi.fn().mockResolvedValue({ data: [] }),
@@ -149,9 +168,11 @@ describe('fetchGitHubPullRequestByNumberAPIInternal', () => {
     mockGetOctokit.mockResolvedValue({
       rest: {
         pulls: {
-          get: vi.fn().mockRejectedValue(
-            Object.assign(new Error('Not Found'), { status: 404 })
-          ),
+          get: vi
+            .fn()
+            .mockRejectedValue(
+              Object.assign(new Error('Not Found'), { status: 404 })
+            ),
         },
       },
     } as never);

@@ -19,21 +19,12 @@ import type { BulkToolOutput } from '../../types/toolOutput.js';
 const queryOverrides = {
   maxDepth: clampedInt(0, 100).optional(),
   minDepth: clampedInt(0, 100).optional(),
-  limit: clampedInt(1, LOCAL_MAX_LIMIT)
-    .optional()
-    .describe(
-      'Discovery cap applied after sort, before pagination — total results are capped here; itemsPerPage/page page within that cap.'
-    ),
+  limit: clampedInt(1, LOCAL_MAX_LIMIT).optional(),
   page: relaxedPageNumberField.default(1),
   itemsPerPage: clampedInt(1, LOCAL_MAX_FILES_PER_PAGE).optional(),
   // Core's description can lag runtime behavior. The executor prunes common
   // generated/vendor dirs by default but honors excludeDir: [] to prune nothing.
-  excludeDir: z
-    .array(z.string())
-    .optional()
-    .describe(
-      'Directory names to prune from the walk. Common generated/vendor dirs are pruned by default (node_modules, .git, dist, build, out, coverage, target, .next, .cache); pass [] to prune nothing, or pass an explicit list to choose pruned dirs.'
-    ),
+  excludeDir: z.array(z.string()).optional(),
 } as const;
 
 // Strip unknown keys (legacy/removed fields like regexType, or typos) instead

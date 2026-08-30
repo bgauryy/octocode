@@ -1,6 +1,6 @@
 # Improve Loop
 
-Load when a skill needs a measurable improve loop and `octocode-graph-eval` is unavailable. Why: a stub loop beats an invented cascade. Full goal→KPI cascade, nested loops, graders, held-out: load **`octocode-graph-eval`**.
+Load when a skill needs a measurable improve loop and `octocode-eval-benchmark` is unavailable. Why: a stub loop beats an invented cascade. Full goal→KPI cascade, nested loops, graders, held-out: load **`octocode-eval-benchmark`**.
 
 ```text
 SET GOAL + KPI → SMALLEST CHANGE → MEASURE ACTUAL RESULTS → ACCEPT | REVERT

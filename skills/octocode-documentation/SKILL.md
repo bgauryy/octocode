@@ -11,6 +11,8 @@ Evidence-backed docs for humans and agents, written to the Google developer docu
 
 `UNDERSTAND → RESEARCH → CLASSIFY → OUTLINE GATE → WRITE → STYLE → VERIFY`
 
+Workspace output contract: chat-only reviews stay in chat. New generated reports or unnamed drafts default to `<workspace>/.octocode/octocode-documentation/`; scratch data uses `<workspace>/.octocode/tmp/octocode-documentation/`. Requested documentation and approved source edits keep their named repository paths. Never fall back to a user-level Octocode home for artifacts.
+
 UNDERSTAND names the deliverable, audience, and target paths. Compress when the request already names targets and type. Expand when claims need verification. A copyedit request starts at STYLE. Answer a single-term question ("is `allows you to` okay?") straight from `assets/google-word-list.tsv` — quote the guidance and stop.
 
 ## Rules
@@ -80,4 +82,4 @@ Suppression: `<!-- style-lint: ignore-file -->` skips a file found by recursion,
 - Pure code or repository evidence with no docs deliverable → `octocode-research`; authoring a `SKILL.md` → `octocode-skills`.
 - Full multi-file pack → plan the file set, gate it once, then work file by file.
 - Unclear mode → ask once: agent-docs / human-docs / adr / codebase-pack / style-pass. No Octocode → host search tools.
-- Measuring whether this skill triggers and holds its routes → `octocode-graph-eval`; the runnable sensors here are `scripts/style-lint.mjs --self-test` (rules still fire) and `scripts/refresh-word-list.mjs --dry-run` (word-list drift).
+- Measuring whether this skill triggers and holds its routes → `octocode-eval-benchmark`; the runnable sensors here are `scripts/style-lint.mjs --self-test` (rules still fire) and `scripts/refresh-word-list.mjs --dry-run` (word-list drift).

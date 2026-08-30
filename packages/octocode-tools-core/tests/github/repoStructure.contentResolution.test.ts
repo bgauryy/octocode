@@ -71,8 +71,26 @@ describe('mapApiItems', () => {
 
   it('maps multiple items', () => {
     const raw = [
-      { name: 'a.ts', path: 'a.ts', type: 'file', size: 10, url: '', html_url: '', git_url: '', sha: '1' },
-      { name: 'b.ts', path: 'b.ts', type: 'file', size: 20, url: '', html_url: '', git_url: '', sha: '2' },
+      {
+        name: 'a.ts',
+        path: 'a.ts',
+        type: 'file',
+        size: 10,
+        url: '',
+        html_url: '',
+        git_url: '',
+        sha: '1',
+      },
+      {
+        name: 'b.ts',
+        path: 'b.ts',
+        type: 'file',
+        size: 20,
+        url: '',
+        html_url: '',
+        git_url: '',
+        sha: '2',
+      },
     ];
     expect(mapApiItems(raw)).toHaveLength(2);
   });
@@ -100,15 +118,31 @@ describe('resolveContentWithBranchFallback', () => {
   it('resolves branch from default when none is specified', async () => {
     mockResolveDefaultBranch.mockResolvedValue('main');
     const octokit = makeOctokit(async () => ({
-      data: [{ name: 'src', path: 'src', type: 'dir', sha: '1', url: '', html_url: '', git_url: '' }],
+      data: [
+        {
+          name: 'src',
+          path: 'src',
+          type: 'dir',
+          sha: '1',
+          url: '',
+          html_url: '',
+          git_url: '',
+        },
+      ],
       headers: {},
     }));
 
     const result = await resolveContentWithBranchFallback(
-      octokit, 'facebook', 'react', '', undefined
+      octokit,
+      'facebook',
+      'react',
+      '',
+      undefined
     );
     expect((result as { workingBranch: string }).workingBranch).toBe('main');
-    expect((result as { repoDefaultBranch: string }).repoDefaultBranch).toBe('main');
+    expect((result as { repoDefaultBranch: string }).repoDefaultBranch).toBe(
+      'main'
+    );
   });
 
   it('uses the provided branch directly (no resolveDefaultBranch call)', async () => {
@@ -119,11 +153,19 @@ describe('resolveContentWithBranchFallback', () => {
     }));
 
     const result = await resolveContentWithBranchFallback(
-      octokit, 'facebook', 'react', 'src', 'my-branch'
+      octokit,
+      'facebook',
+      'react',
+      'src',
+      'my-branch'
     );
-    expect((result as { workingBranch: string }).workingBranch).toBe('my-branch');
+    expect((result as { workingBranch: string }).workingBranch).toBe(
+      'my-branch'
+    );
     // repoDefaultBranch should be absent since branch was pinned
-    expect((result as Record<string, unknown>).repoDefaultBranch).toBeUndefined();
+    expect(
+      (result as Record<string, unknown>).repoDefaultBranch
+    ).toBeUndefined();
     expect(mockResolveDefaultBranch).not.toHaveBeenCalled();
   });
 
@@ -134,7 +176,11 @@ describe('resolveContentWithBranchFallback', () => {
     const octokit = makeOctokit(async () => ({}));
 
     const result = await resolveContentWithBranchFallback(
-      octokit, 'facebook', 'badrepo', '', undefined
+      octokit,
+      'facebook',
+      'badrepo',
+      '',
+      undefined
     );
     expect((result as { error: string }).error).toBeDefined();
   });
@@ -143,13 +189,26 @@ describe('resolveContentWithBranchFallback', () => {
     mockResolveDefaultBranch.mockResolvedValue('main');
     const req304 = new RequestError('Not Modified', 304, {
       request: { method: 'GET', url: 'https://api.github.com/x', headers: {} },
-      response: { status: 304, url: 'https://api.github.com/x', headers: {}, data: {} },
+      response: {
+        status: 304,
+        url: 'https://api.github.com/x',
+        headers: {},
+        data: {},
+      },
     });
 
-    const octokit = makeOctokit(async () => { throw req304; });
+    const octokit = makeOctokit(async () => {
+      throw req304;
+    });
 
     const result = await resolveContentWithBranchFallback(
-      octokit, 'facebook', 'react', '', undefined, undefined, '"etag-123"'
+      octokit,
+      'facebook',
+      'react',
+      '',
+      undefined,
+      undefined,
+      '"etag-123"'
     );
     expect((result as { notModified: boolean }).notModified).toBe(true);
     expect((result as { data: unknown }).data).toBeNull();
@@ -159,28 +218,52 @@ describe('resolveContentWithBranchFallback', () => {
     mockResolveDefaultBranch.mockResolvedValue('main');
     const req404 = new RequestError('Not Found', 404, {
       request: { method: 'GET', url: 'https://api.github.com/x', headers: {} },
-      response: { status: 404, url: 'https://api.github.com/x', headers: {}, data: {} },
+      response: {
+        status: 404,
+        url: 'https://api.github.com/x',
+        headers: {},
+        data: {},
+      },
     });
 
-    const octokit = makeOctokit(async () => { throw req404; });
+    const octokit = makeOctokit(async () => {
+      throw req404;
+    });
 
     const result = await resolveContentWithBranchFallback(
-      octokit, 'facebook', 'react', 'nonexistent/path', undefined
+      octokit,
+      'facebook',
+      'react',
+      'nonexistent/path',
+      undefined
     );
-    expect((result as { error: string }).error).toMatch(/nonexistent\/path|not found/i);
+    expect((result as { error: string }).error).toMatch(
+      /nonexistent\/path|not found/i
+    );
   });
 
   it('returns access-failed error on non-404 API error', async () => {
     mockResolveDefaultBranch.mockResolvedValue('main');
     const req403 = new RequestError('Forbidden', 403, {
       request: { method: 'GET', url: 'https://api.github.com/x', headers: {} },
-      response: { status: 403, url: 'https://api.github.com/x', headers: {}, data: {} },
+      response: {
+        status: 403,
+        url: 'https://api.github.com/x',
+        headers: {},
+        data: {},
+      },
     });
 
-    const octokit = makeOctokit(async () => { throw req403; });
+    const octokit = makeOctokit(async () => {
+      throw req403;
+    });
 
     const result = await resolveContentWithBranchFallback(
-      octokit, 'facebook', 'react', '', undefined
+      octokit,
+      'facebook',
+      'react',
+      '',
+      undefined
     );
     expect((result as { error: string }).error).toBeDefined();
     expect((result as { status: number }).status).toBe(403);
@@ -194,7 +277,11 @@ describe('resolveContentWithBranchFallback', () => {
     }));
 
     const result = await resolveContentWithBranchFallback(
-      octokit, 'facebook', 'react', '', undefined
+      octokit,
+      'facebook',
+      'react',
+      '',
+      undefined
     );
     expect((result as { etag: string }).etag).toBe('"v1"');
   });

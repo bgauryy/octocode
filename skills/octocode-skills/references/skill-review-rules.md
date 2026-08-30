@@ -44,7 +44,7 @@ Navigation codes read the skill as a map: `SKILL.md` is the lobby that lists eve
 | `description` quality | one `Use when`; intents, not internals; no MUST/NEVER/ONLY-skill, second `Triggers:`, or quote spam |
 | Scripts and hooks | `--help` and flags; extract deterministic prose; route hook + `timeout`; a declared scheme is really exposed |
 | Portability | runtime assumptions, deps, and secrets travel with the folder; link a sibling skill by name, never by path |
+| Workspace artifacts | lobby routes generated files under `<workspace>/.octocode/`, distinguishes requested source mutations, and forbids user-level fallback |
 
 Key limits: each `references/*.md` ≤50 lines with one short H1; every reference and runnable script named in the lobby; every citation states why it matters.
-
 Next: when re-running the loop load `references/skill-review.md`; for design rationale load `references/skill-anatomy.md`.

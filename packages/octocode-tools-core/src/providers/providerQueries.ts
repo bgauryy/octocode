@@ -5,8 +5,7 @@ interface BaseProviderQuery {
 
   id?: string;
 
-  mainResearchGoal?: string;
-  researchGoal?: string;
+  goal?: string;
   reasoning?: string;
 }
 

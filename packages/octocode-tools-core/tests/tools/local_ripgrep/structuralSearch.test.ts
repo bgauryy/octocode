@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   validateToolPath: vi.fn(),
   structuralSearch: vi.fn(),
   structuralSearchFiles: vi.fn(),
+  structuralSearchFilesDetailed: vi.fn(),
 }));
 
 vi.mock('node:fs/promises', () => ({
@@ -28,6 +29,7 @@ vi.mock('../../../src/utils/contextUtils.js', () => ({
   contextUtils: {
     structuralSearch: mocks.structuralSearch,
     structuralSearchFiles: mocks.structuralSearchFiles,
+    structuralSearchFilesDetailed: mocks.structuralSearchFilesDetailed,
   },
 }));
 
@@ -65,6 +67,10 @@ describe('searchContentStructural', () => {
       skippedUnreadable: 0,
       skippedLarge: 0,
       warnings: [],
+    });
+    mocks.structuralSearchFilesDetailed.mockReturnValue({
+      files: [],
+      diagnostics: [],
     });
   });
 
@@ -118,6 +124,62 @@ describe('searchContentStructural', () => {
     // Successful structural searches carry evidence in structured fields; no
     // next-step hint boilerplate is emitted on success.
     expect(result.hints).toBeUndefined();
+  });
+
+  it('marks a structural match value when its display text is compacted', async () => {
+    const longMatch = 'x'.repeat(350);
+    mocks.structuralSearchFiles.mockReturnValue({
+      files: [
+        {
+          path: '/repo/long.ts',
+          matches: [
+            {
+              startLine: 1,
+              endLine: 20,
+              startCol: 1,
+              endCol: 2,
+              text: longMatch,
+              metavars: {},
+            },
+          ],
+        },
+      ],
+      totalMatches: 1,
+      parsedFiles: 1,
+      skippedByPreFilter: 0,
+      skippedUnreadable: 0,
+      skippedLarge: 0,
+      warnings: [],
+    });
+
+    const result = await searchContentStructural(makeQuery());
+    const value = result.files[0]?.matches?.[0]?.value ?? '';
+
+    expect(value).toHaveLength(300);
+    expect(value.endsWith('…')).toBe(true);
+  });
+
+  it('reports how many zero-match engine diagnostics were omitted', async () => {
+    mocks.structuralSearchFilesDetailed.mockReturnValue({
+      files: [],
+      query: {
+        kind: 'pattern',
+        preFilter: 'anchor',
+        diagnostics: Array.from({ length: 5 }, (_, index) => ({
+          severity: 'warning',
+          stage: 'parse',
+          code: `D${index}`,
+          message: `diagnostic ${index}`,
+        })),
+      },
+      diagnostics: [],
+    });
+
+    const result = await searchContentStructural(makeQuery());
+
+    expect(result.warnings?.join('\n')).toContain(
+      '2 additional engine diagnostic(s) omitted'
+    );
   });
 
   it('uses the single-file native matcher for structural file paths', async () => {

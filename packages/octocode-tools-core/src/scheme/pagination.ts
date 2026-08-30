@@ -91,18 +91,13 @@ export type LocalItemPagination = z.infer<typeof LocalItemPaginationSchema>;
 
 /**
  * Auto-filled per-call metadata that the direct-tool executor injects into every
- * query (id, research goals, reasoning). These are NOT real query parameters, so
+ * query (goal and reasoning). These are NOT real query parameters, so
  * they must be stripped from a replayable continuation — otherwise an agent that
  * runs `next` resends stale meta from the originating call.
  * Mirrors DIRECT_TOOL_AUTO_FILLED_FIELDS in tools/directToolCatalog; kept local
  * to avoid a scheme→tools upward (circular) import.
  */
-const AUTO_FILLED_META_KEYS: readonly string[] = [
-  'id',
-  'mainResearchGoal',
-  'researchGoal',
-  'reasoning',
-];
+const AUTO_FILLED_META_KEYS: readonly string[] = ['goal', 'reasoning'];
 
 function stripAutoFilledMeta(
   query: Record<string, unknown>

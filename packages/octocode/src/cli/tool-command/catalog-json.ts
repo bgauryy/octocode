@@ -2,12 +2,15 @@
 // all-tool schema dump, and a single tool's schema.
 import {
   buildDirectToolCommandPatterns,
+  formatDirectToolOutputSchemaText,
   formatDirectToolSchemaText,
   getDirectToolAutoFilledFields,
   getDirectToolCategory,
   getDirectToolDescription,
   getDirectToolDisplayFields,
+  getDirectToolOutputFields,
   getDirectToolSchemaRelations,
+  getDirectToolSchemaVariants,
   sortDirectToolNames,
 } from '@octocodeai/octocode-tools-core/schema';
 import {
@@ -79,8 +82,8 @@ export async function printToolCatalogJson(
       kind: 'octocode.toolCatalog',
       version: 1,
       toolCount: toolNames.length,
-      note: 'All public schemas. Check $.tools[].availability before execution.',
-      output: 'results + evidence? + next? + diagnostics?',
+      output:
+        'results[].{index,status?,meta,data?}; tool payload and continuations are row-local under data',
       commands: {
         fullCatalog: 'tools --json --full',
         schema: 'tools <name> --scheme --json',
@@ -108,7 +111,7 @@ export async function printToolCatalogJson(
     toolCount: toolNames.length,
     guidance: [
       'Full all-tool schema catalog. This is intentionally large.',
-      'For agent loops prefer tools --json, then tools <name> --scheme --json.',
+      'For agent loops prefer tools --json --compact, then tools <name> --scheme --json --compact.',
       'Check each tool availability; disabled opt-in tools name the required environment flag.',
       'Use this only when automation truly needs every schema in one payload.',
     ],
@@ -133,8 +136,12 @@ export async function printToolCatalogJson(
         fullDescription,
         availability: getToolAvailability(toolName),
         inputSchema: JSON.parse(formatDirectToolSchemaText(toolName)),
+        outputSchema: JSON.parse(formatDirectToolOutputSchemaText(toolName)),
         fields: formatToolFieldsJson(toolName),
         ...(relations.length > 0 ? { relations } : {}),
+        ...(getDirectToolSchemaVariants(toolName).length > 0
+          ? { variants: getDirectToolSchemaVariants(toolName) }
+          : {}),
         ...(getToolSchemaGuidance(toolName).length > 0
           ? { guidance: getToolSchemaGuidance(toolName) }
           : {}),
@@ -193,6 +200,7 @@ async function buildToolSchemaJson(
   const fields = formatToolFieldsJson(tool.name);
   const guidance = getToolSchemaGuidance(tool.name);
   const relations = getDirectToolSchemaRelations(tool.name);
+  const variants = getDirectToolSchemaVariants(tool.name);
 
   if (options.compact) {
     return {
@@ -203,7 +211,9 @@ async function buildToolSchemaJson(
       description: formatConciseToolDescription(tool.name, metadata, 160),
       availability: getToolAvailability(tool.name),
       fields: fields.map(formatCompactField),
+      output: getDirectToolOutputFields(tool.name),
       ...(relations.length > 0 ? { relations } : {}),
+      ...(variants.length > 0 ? { variants } : {}),
       ...(guidance.length > 0 ? { guidance } : {}),
       commands: {
         full: `tools ${tool.name} --scheme --json`,
@@ -213,6 +223,7 @@ async function buildToolSchemaJson(
   }
 
   const inputSchema = JSON.parse(formatDirectToolSchemaText(tool.name));
+  const outputSchema = JSON.parse(formatDirectToolOutputSchemaText(tool.name));
   const commandPatterns = buildDirectToolCommandPatterns(tool.name);
   const autoFilledFields = getDirectToolAutoFilledFields(tool.name);
 
@@ -223,10 +234,12 @@ async function buildToolSchemaJson(
     category: getDirectToolCategory(tool.name),
     description: extractShortDescription(fullDescription),
     inputSchema,
+    outputSchema,
     fullDescription,
     availability: getToolAvailability(tool.name),
     fields,
     ...(relations.length > 0 ? { relations } : {}),
+    ...(variants.length > 0 ? { variants } : {}),
     ...(guidance.length > 0 ? { guidance } : {}),
     autoFilledFields,
     commands: {

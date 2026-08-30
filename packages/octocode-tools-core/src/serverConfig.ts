@@ -1,6 +1,6 @@
 import type { ProviderType } from './providers/types.js';
 import { getOctocodeDir, resolveTokenFull } from './shared/index.js';
-import { getConfigSync, invalidateConfigCache } from '@octocodeai/config';
+import { getConfigSync } from '@octocodeai/config';
 import { version } from '../package.json';
 import type { ServerConfig, TokenSourceType } from './types/server.js';
 import { CONFIG_ERRORS } from './errors/domainErrors.js';
@@ -73,13 +73,11 @@ export async function initialize(): Promise<void> {
       version: version,
       githubApiUrl: resolved.github.apiUrl,
       toolsToRun: resolved.tools.enabled ?? undefined,
-      enableTools: resolved.tools.enableAdditional ?? undefined,
       disableTools: resolved.tools.disabled ?? undefined,
       timeout: resolved.network.timeout,
       maxRetries: resolved.network.maxRetries,
       enableLocal: resolved.local.enabled,
       enableClone: resolved.local.enableClone,
-      outputFormat: resolved.output.format,
       tokenSource: tokenResult.source,
     };
     await runCacheMaintenanceIfDue(getOctocodeDir());
@@ -101,7 +99,6 @@ export async function initialize(): Promise<void> {
 export function cleanup(): void {
   config = null;
   initializationPromise = null;
-  invalidateConfigCache();
 }
 
 export function getServerConfig(): ServerConfig {

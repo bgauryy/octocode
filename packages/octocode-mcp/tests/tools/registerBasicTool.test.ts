@@ -29,11 +29,27 @@ describe('createBasicToolRegistration', () => {
     register(mcp.server);
 
     expect(mcp.registrations).toHaveLength(1);
+    const registrationOptions = mcp.registrations[0]?.options as {
+      outputSchema?: z.ZodType;
+    };
+    const outputJson = z.toJSONSchema(registrationOptions.outputSchema!, {
+      io: 'output',
+    }) as {
+      properties?: {
+        results?: {
+          items?: { properties?: { data?: { properties?: object } } };
+        };
+      };
+    };
+    expect(
+      outputJson.properties?.results?.items?.properties?.data?.properties
+    ).toHaveProperty('files');
     expect(mcp.registrations[0]).toMatchObject({
       name: TOOL_NAMES.LOCAL_FIND_FILES,
       options: {
         description: expect.any(String),
         inputSchema: expect.any(Object),
+        outputSchema: expect.any(Object),
         annotations: {
           title: 'Local Find Files',
           readOnlyHint: true,

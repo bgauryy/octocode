@@ -75,8 +75,7 @@ export function mapPullRequestToolQuery(query: PartialPRQuery) {
     page: query.page,
     charOffset: (query as { charOffset?: number }).charOffset,
     charLength: (query as { charLength?: number }).charLength,
-    mainResearchGoal: query.mainResearchGoal,
-    researchGoal: query.researchGoal,
+    goal: query.goal,
     reasoning: query.reasoning,
   };
 }
@@ -145,6 +144,8 @@ function buildReviewSummary(
       inlineComments: number;
       discussionComments: number;
       commenters: string[];
+      commenterCount: number;
+      commentersTruncated?: true;
       latestCommentAt?: string;
       themes: string[];
     }
@@ -168,6 +169,8 @@ function buildReviewSummary(
     inlineComments,
     discussionComments: comments.length - inlineComments,
     commenters: commenters.slice(0, 8),
+    commenterCount: commenters.length,
+    ...(commenters.length > 8 ? { commentersTruncated: true as const } : {}),
     ...(latestCommentAt ? { latestCommentAt } : {}),
     themes: detectReviewThemes(comments, reviews ?? []),
   };

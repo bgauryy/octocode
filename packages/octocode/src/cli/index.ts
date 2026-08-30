@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { parseArgs, hasHelpFlag, hasVersionFlag } from './parser.js';
 import { EXIT } from './exit-codes.js';
 import type { CLICommand, CLICommandSpec, ParsedArgs } from './types.js';
-import { setRuntimeSurface, invalidateConfigCache } from '@octocodeai/config';
+import { setRuntimeSurface } from '@octocodeai/config';
 
 declare const __APP_VERSION__: string;
 
@@ -125,7 +125,6 @@ export async function runCLI(argv?: string[]): Promise<boolean> {
   // Declare the CLI surface before any config is read: local and clone support
   // default to enabled here, while still honoring explicit env/file disables.
   setRuntimeSurface('cli');
-  invalidateConfigCache();
 
   const args = parseArgs(argv);
 

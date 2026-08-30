@@ -8,8 +8,7 @@ const publicMocks = vi.hoisted(() => ({
     prompts: {},
     toolNames: {},
     baseSchema: {
-      mainResearchGoal: 'main goal',
-      researchGoal: 'goal',
+      goal: 'goal',
       reasoning: 'reasoning',
       bulkQuery: (toolName: string) => `queries for ${toolName}`,
     },
@@ -137,7 +136,7 @@ describe('toolCommand', () => {
             regex: 'fixed',
             include: ['ts', 'tsx'],
             maxFiles: 5,
-            researchGoal: 'Execute localSearchCode via octocode',
+            goal: 'Execute localSearchCode via octocode',
             reasoning: 'Executed via octocode tool command',
           }),
         ],
@@ -168,8 +167,7 @@ describe('toolCommand', () => {
             keywords: ['tool'],
             owner: 'bgauryy',
             repo: 'octocode-mcp',
-            mainResearchGoal: 'Execute ghSearchCode via octocode',
-            researchGoal: 'Execute ghSearchCode via octocode',
+            goal: 'Execute ghSearchCode via octocode',
             reasoning: 'Executed via octocode tool command',
           }),
         ],
@@ -485,15 +483,24 @@ describe('toolCommand', () => {
     expect(context).toContain('tools <name>');
     expect(context).toContain('Use Octocode tools carefully.');
     expect(context).toContain('1. ghSearchCode');
-    expect(context).toContain(
-      '6. ghListReleases [disabled: set ENABLE_RELEASES=1]'
-    );
-    expect(context).toContain(
-      '7. ghSearchDiscussions [disabled: set ENABLE_DISCUSSIONS=1]'
-    );
+    expect(context).toContain('6. ghListReleases');
+    expect(context).toContain('7. ghSearchDiscussions');
     expect(context).toContain('10. ghCloneRepo');
     expect(context).toContain('11. localSearchCode');
     expect(context).toContain('Quick commands (clone/cache fetch)');
+    expect(context).toContain(
+      'MCP receives bounded triage text plus full structuredContent'
+    );
+    expect(context).toContain('inspect each row status for mixed batches');
+    expect(context).toContain(
+      'Follow row data.next; advance data.pagination while hasMore. responsePagination is text-only; structuredContent is complete.'
+    );
+    expect(context).toContain(
+      'structuredContent.responsePagination: object text-channel char window; structured consumers do not replay it'
+    );
+    expect(context).not.toContain(
+      'Follow returned data.next/data.pagination only when hasMore.'
+    );
     expect(context).not.toMatch(
       /Quick commands \([^)]*\b(?:search|ls|cat|repo|history|binary|unzip|diff|pkg|lsp|find|grep)\b/
     );
@@ -514,6 +521,9 @@ describe('toolCommand', () => {
     );
     expect(context).not.toContain('"$schema"');
     expect(context).toContain('Protocol: schema first');
+    expect(context).toContain(
+      'Follow row data.next; advance data.pagination while hasMore. responsePagination is text-only; structuredContent is complete.'
+    );
     expect(context).not.toContain('Use Octocode tools carefully.');
     expect(context.length).toBeLessThanOrEqual(4000);
     for (const tool of TOOL_DEFINITIONS) {
@@ -529,7 +539,10 @@ describe('toolCommand', () => {
 
     expect(context).toContain('Octocode CLI — Minimal Context');
     expect(context).toContain('Protocol: schema first');
-    expect(context).not.toContain('Output contract');
+    expect(context).toContain(
+      'Output: YAML default; --compact structured JSON. Batch rows keep ordered indexes and isolate errors.'
+    );
+    expect(context).not.toContain('Output contract (all tools)');
     expect(context).not.toContain('Use Octocode tools carefully.');
     expect(context.length).toBeLessThanOrEqual(1800);
     for (const tool of TOOL_DEFINITIONS) {
@@ -567,6 +580,7 @@ describe('toolCommand', () => {
 
     const parsed = JSON.parse(output) as {
       kind: string;
+      output: string;
       toolCount: number;
       commands: { schema: string; fullCatalog: string; run: string };
       tools: Array<{
@@ -578,6 +592,9 @@ describe('toolCommand', () => {
       }>;
     };
     expect(parsed.kind).toBe('octocode.toolCatalog');
+    expect(parsed.output).toBe(
+      'results[].{index,status?,meta,data?}; tool payload and continuations are row-local under data'
+    );
     expect(parsed.commands.schema).toBe('tools <name> --scheme --json');
     expect(parsed.commands.fullCatalog).toBe('tools --json --full');
     expect(parsed.commands.run).toContain('--compact');
@@ -600,7 +617,7 @@ describe('toolCommand', () => {
     }
   });
 
-  it('marks a disabled opt-in tool in its machine-readable schema', async () => {
+  it('marks an opt-in tool disabled in its machine-readable schema', async () => {
     const { toolCommand } = await import('../../src/cli/tool-command.js');
 
     await toolCommand.handler!({
@@ -709,6 +726,8 @@ describe('toolCommand', () => {
       kind: string;
       name: string;
       inputSchema: { type?: string };
+      outputSchema: { type?: string };
+      variants?: Array<{ name: string; example: Record<string, unknown> }>;
       fields: Array<{ name: string; required: boolean }>;
       commands: {
         catalog: string;
@@ -723,6 +742,7 @@ describe('toolCommand', () => {
     expect(parsed.kind).toBe('octocode.toolSchema');
     expect(parsed.name).toBe('localSearchCode');
     expect(parsed.inputSchema.type).toBe('object');
+    expect(parsed.outputSchema.type).toBe('object');
     expect(parsed.fields.some(field => field.name === 'path')).toBe(true);
     expect(parsed.commands.catalog).toBe('tools --json');
     expect(parsed.commands.schema).toBe(
@@ -732,6 +752,10 @@ describe('toolCommand', () => {
     expect(parsed.commands.runEnvelope).toContain('tools localSearchCode');
     expect(parsed.guidance?.join('\n')).toContain('absolute path');
     expect(parsed.relations?.join('\n')).toContain('structural');
+    expect(parsed.variants?.map(variant => variant.name)).toEqual([
+      'text',
+      'structural',
+    ]);
   });
 
   it('pretty-prints compact JSON when --pretty is supplied', async () => {
@@ -769,6 +793,8 @@ describe('toolCommand', () => {
     const parsed = JSON.parse(output) as {
       kind: string;
       inputSchema?: unknown;
+      output?: string[];
+      variants?: Array<{ name: string; example: Record<string, unknown> }>;
       fields?: string[];
       fieldNames?: string[];
       fullDescription?: string;
@@ -779,6 +805,13 @@ describe('toolCommand', () => {
 
     expect(parsed.kind).toBe('octocode.toolSchema.compact');
     expect(parsed.inputSchema).toBeUndefined();
+    expect(parsed.output).toEqual(
+      expect.arrayContaining([
+        'files?:array',
+        'pagination?:object',
+        'next?:object',
+      ])
+    );
     expect(parsed.fullDescription).toBeUndefined();
     expect(parsed.fieldNames).toBeUndefined();
     expect(parsed.fields?.some(field => field.startsWith('path*:'))).toBe(true);
@@ -786,5 +819,9 @@ describe('toolCommand', () => {
     expect(parsed.commands.run).toContain('--compact');
     expect(parsed.guidance?.join('\n')).toContain('absolute path');
     expect(parsed.relations?.join('\n')).toContain('structural');
+    expect(parsed.variants?.map(variant => variant.name)).toEqual([
+      'text',
+      'structural',
+    ]);
   });
 });

@@ -21,13 +21,8 @@ import type {
 import type { BulkToolOutput } from '../../types/toolOutput.js';
 
 const queryOverrides = {
-  excludeDir: z
-    .array(z.string())
-    .optional()
-    .describe(
-      'Directory names to prune from recursive walks (default: common generated/vendor dirs such as node_modules, dist, build, out, coverage, target). Pass [] to inspect everything.'
-    ),
-  // Description flows from the repository-owned contract resource; only the
+  excludeDir: z.array(z.string()).optional(),
+  // Description flows from the shared core contract resource; only the
   // bounds are tightened here.
   maxDepth: clampedInt(0, LOCAL_MAX_DEPTH).optional(),
   limit: clampedInt(1, LOCAL_MAX_LIMIT).optional(),

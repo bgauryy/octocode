@@ -1,9 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   getToolFilterConfigSafe,
-  hasToolFilterConflict,
   isToolEnabled,
-  TOOL_FILTER_CONFLICT_WARNING,
+  validateToolFilterConfig,
   type ToolFilterConfig,
 } from '../../src/tools/toolFilters.js';
 import type { ToolConfig } from '../../src/tools/toolConfig.js';
@@ -36,19 +35,8 @@ describe('toolFilters', () => {
     });
     expect(cfg).toEqual({
       toolsToRun: [],
-      enableTools: [],
       disableTools: [],
     });
-  });
-
-  it('detects toolsToRun conflict with enable/disable lists', () => {
-    const cfg: ToolFilterConfig = {
-      toolsToRun: ['a'],
-      enableTools: ['b'],
-      disableTools: [],
-    };
-    expect(hasToolFilterConflict(cfg)).toBe(true);
-    expect(TOOL_FILTER_CONFLICT_WARNING).toContain('TOOLS_TO_RUN');
   });
 
   it('honors local and clone gates before list filters', () => {
@@ -61,7 +49,6 @@ describe('toolFilters', () => {
 
     const cfg: ToolFilterConfig = {
       toolsToRun: [],
-      enableTools: [],
       disableTools: [],
     };
 
@@ -82,7 +69,7 @@ describe('toolFilters', () => {
     ).toBe(false);
   });
 
-  it('applies precedence toolsToRun > disableTools > enableTools > isDefault', () => {
+  it('applies precedence toolsToRun > disableTools > isDefault', () => {
     const tool = makeTool({ name: 'x', isDefault: false });
 
     expect(
@@ -91,7 +78,6 @@ describe('toolFilters', () => {
         cloneEnabled: true,
         filterConfig: {
           toolsToRun: ['x'],
-          enableTools: [],
           disableTools: ['x'],
         },
       })
@@ -103,7 +89,6 @@ describe('toolFilters', () => {
         cloneEnabled: true,
         filterConfig: {
           toolsToRun: [],
-          enableTools: ['x'],
           disableTools: ['x'],
         },
       })
@@ -113,12 +98,39 @@ describe('toolFilters', () => {
       isToolEnabled(tool, {
         localEnabled: true,
         cloneEnabled: true,
-        filterConfig: {
-          toolsToRun: [],
-          enableTools: ['x'],
+        filterConfig: { toolsToRun: [], disableTools: [] },
+      })
+    ).toBe(false);
+  });
+
+  it('rejects an all-invalid strict allowlist with a close suggestion', () => {
+    expect(() =>
+      validateToolFilterConfig(
+        {
+          toolsToRun: ['ghGetPullRequest'],
           disableTools: [],
         },
-      })
-    ).toBe(true);
+        ['ghSearchPullRequests', 'ghSearchIssues']
+      )
+    ).toThrowError(
+      /Unknown tool name.*ghGetPullRequest.*ghSearchPullRequests/i
+    );
+  });
+
+  it('keeps valid names and reports invalid names in mixed filters', () => {
+    const result = validateToolFilterConfig(
+      {
+        toolsToRun: ['ghSearchIssues', 'ghGetPullRequest'],
+        disableTools: ['localSearchCode', 'missing'],
+      },
+      ['ghSearchIssues', 'ghSearchPullRequests', 'npmSearch', 'localSearchCode']
+    );
+
+    expect(result.config).toEqual({
+      toolsToRun: ['ghSearchIssues'],
+      disableTools: ['localSearchCode'],
+    });
+    expect(result.warnings.join('\n')).toMatch(/ghGetPullRequest/);
+    expect(result.warnings.join('\n')).toMatch(/missing/);
   });
 });

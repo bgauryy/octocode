@@ -36,6 +36,16 @@ describe('main-help', () => {
     expect(output).toContain('TOOLS');
     expect(output).toContain('context');
     expect(output).toContain('tools');
+    expect(output).toContain('context --full');
+    expect(output).toContain('TOOLS (15 enabled)');
+    expect(output).toContain(
+      'Copy row-local data.next exactly; advance data.pagination while hasMore. responsePagination is text-only.'
+    );
+    expect(output).not.toContain(
+      'Follow data.next/data.pagination only when hasMore.'
+    );
+    expect(output).not.toContain('SYSTEM PROMPT (Octocode MCP instructions)');
+    expect(output).not.toContain('Ground every claim in fetched bytes');
   });
 });
 

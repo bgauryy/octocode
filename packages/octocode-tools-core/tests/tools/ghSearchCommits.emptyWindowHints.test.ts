@@ -8,9 +8,8 @@ vi.mock('../../src/github/history.js', () => ({
   fetchHistory: mocks.fetchHistory,
 }));
 
-const { handleCommitsMode } = await import(
-  '../../src/tools/github_search_pull_requests/execution/commitsMode.js'
-);
+const { handleCommitsMode } =
+  await import('../../src/tools/github_search_pull_requests/execution/commitsMode.js');
 
 const query = {} as never;
 

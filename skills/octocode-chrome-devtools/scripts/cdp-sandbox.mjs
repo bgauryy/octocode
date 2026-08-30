@@ -5,7 +5,7 @@ import { resolve, dirname, join }         from 'path';
 import { fileURLToPath }                  from 'url';
 import { existsSync, realpathSync,
          mkdirSync, copyFileSync }        from 'fs';
-import { getOctocodeHome, propagateOctocodeEnv } from './octocode-config.mjs';
+import { propagateOctocodeEnv } from './octocode-config.mjs';
 
 /**
  * `--allow-net` exists only on Node 25+ (Permission Model network scope).
@@ -64,14 +64,8 @@ propagateOctocodeEnv({ cwd: process.cwd(), trusted: true });
 
 function octocodeOutputBase() {
   const workspace = resolve(process.cwd(), '.octocode');
-  try {
-    mkdirSync(workspace, { recursive: true, mode: 0o700 });
-    return workspace;
-  } catch {
-    const home = getOctocodeHome();
-    mkdirSync(home, { recursive: true, mode: 0o700 });
-    return home;
-  }
+  mkdirSync(workspace, { recursive: true, mode: 0o700 });
+  return workspace;
 }
 
 const OCTOCODE_OUTPUT_BASE = octocodeOutputBase();

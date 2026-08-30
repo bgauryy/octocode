@@ -286,8 +286,8 @@ or "this is unused" built on a single angle (§12, item 2).
 | `ghSearchPullRequests` | external | PR search + PR deep-read (files/diffs/reviews; `reviewMode:"full"`) | who changed this and why |
 | `ghSearchIssues` | external | issue search + read one issue | tracking reported problems/intent |
 | `ghSearchCommits` | external | commit history for a path/range, or `base`+`head` compare | archaeology: when/why a line changed |
-| `ghListReleases` | external | releases + latest stable (**gated: `ENABLE_RELEASES`**) | mapping versions to changes |
-| `ghSearchDiscussions` | external | repository Discussions Q&A/RFCs (GraphQL; **gated: `ENABLE_DISCUSSIONS`**) | mining Q&A, RFCs, announcements |
+| `ghListReleases` | external | releases + latest stable (**gated: `ENABLE_RELEASES=true`**) | mapping versions to changes |
+| `ghSearchDiscussions` | external | repository Discussions Q&A/RFCs (GraphQL; **gated: `ENABLE_DISCUSSIONS=true`**) | mining Q&A, RFCs, announcements |
 | `npmSearch` | external | package → source repository (+ `repositoryDirectory`) | resolving a dependency to its home |
 | `ghCloneRepo` | bridge | full/sparse clone (**gated: `ENABLE_CLONE=true`**) | whole-repository local analysis |
 

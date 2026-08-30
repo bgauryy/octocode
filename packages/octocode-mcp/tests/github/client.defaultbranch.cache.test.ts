@@ -66,7 +66,6 @@ describe('resolveDefaultBranch - caching', () => {
       maxRetries: 3,
       enableLocal: true,
       enableClone: false,
-      outputFormat: 'yaml',
       tokenSource: 'env:GH_TOKEN',
     });
   });

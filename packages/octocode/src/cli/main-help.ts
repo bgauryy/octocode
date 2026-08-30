@@ -24,39 +24,23 @@ const REGISTERED_COMMAND_NAME_SET = new Set(REGISTERED_COMMAND_NAMES);
 
 /**
  * Agent instructions block: explains how to drive the CLI (list tools, read a
- * schema, call a tool) and then prints the canonical Octocode system prompt
- * VERBATIM from octocode-core metadata, so `--help` is self-contained for an
- * agent. `context --full` renders the same prompt plus per-tool descriptions.
- * If metadata is unavailable, falls back to the short essence + a `context`
- * pointer rather than printing nothing.
+ * schema, and call a tool. The canonical system prompt and per-tool guidance
+ * stay behind `context --full` so top-level help remains a cheap router.
  */
-function buildAgentInstructionsBlock(
-  metadata: Awaited<ReturnType<typeof loadToolContent>> | null
-): string[] {
+function buildAgentInstructionsBlock(): string[] {
   const usage = [
-    'HOW TO USE — read-only research CLI:',
-    '  tools                                    list all tools (add --json for the machine catalog)',
-    "  tools <name> --scheme                    read a tool's schema first — fields, types, bounds (never guess)",
-    '  tools <n1> <n2> --scheme                 batch-read several schemas at once',
-    "  tools <name> --queries '<json>'          run it — clean YAML output",
-    "  tools <name> --queries '<json>' --compact  run it — lean structuredContent JSON",
-    "  tools <name> --queries '<json>' --json     run it — full CallToolResult envelope",
-    '  Batch independent probes in one call via queries[] (each with its own id).',
-    '  Follow returned next.* / pagination cursors exactly; page only when hasMore.',
-    '  Full protocol + per-tool descriptions: `context` (or `context --full`).',
+    'AGENT: inspect schema before unfamiliar calls; never guess fields.',
+    '  tools --json --compact                    lean catalog',
+    '  tools <name> --scheme --json --compact    lean machine schema',
+    '  tools <name> --scheme                     full descriptions + relations',
+    "  tools <name> --queries '<json>' --compact  lean typed result (default output is YAML)",
+    '  Batch with queries[]; results[] preserve zero-based index and isolate errors.',
+    '  Copy row-local data.next exactly; advance data.pagination while hasMore. responsePagination is text-only.',
+    '  Full MCP protocol + tool guidance: context --full; cheapest index: context --minimal.',
   ];
-  const systemPrompt = metadata?.systemPrompt?.trim();
-  const promptLines = systemPrompt
-    ? [
-        '',
-        'SYSTEM PROMPT (Octocode MCP instructions):',
-        ...systemPrompt.split('\n'),
-      ]
-    : ['', 'System prompt unavailable here — read it with `context --full`.'];
   return [
     `  ${dim('<AGENT_INSTRUCTIONS>')}`,
     ...usage.map(line => `  ${dim(line)}`),
-    ...promptLines.map(line => `  ${dim(line)}`),
     `  ${dim('</AGENT_INSTRUCTIONS>')}`,
   ];
 }
@@ -173,7 +157,7 @@ export async function showHelp(): Promise<void> {
   const toolCount = DIRECT_TOOL_DEFINITIONS.length;
   const metadata = await getOptionalToolMetadata();
   const toolLines = buildToolBlock(metadata);
-  const agentInstructions = buildAgentInstructionsBlock(metadata);
+  const agentInstructions = buildAgentInstructionsBlock();
 
   let isAuthenticated = false;
   try {
@@ -210,9 +194,9 @@ export async function showHelp(): Promise<void> {
     '',
 
     // ── Raw execution — every tool, schema-exact ───────────────────────────
-    `  ${bold(`TOOLS (${toolCount})`)}  ${dim('name + concise description')}`,
-    `    ${c('yellow', 'tools'.padEnd(31))} ${dim('list all tools')}`,
-    `    ${c('yellow', 'tools <name> --scheme'.padEnd(31))} ${dim('read schema (never guess)')}`,
+    `  ${bold(`TOOLS (${toolCount} enabled)`)}  ${dim('name + concise description')}`,
+    `    ${c('yellow', 'tools'.padEnd(31))} ${dim('list public catalog + availability')}`,
+    `    ${c('yellow', 'tools <name> --scheme --brief'.padEnd(31))} ${dim('lean schema + example')}`,
     `    ${c('yellow', "tools <name> --queries '<json>' --compact".padEnd(31))} ${dim('lean run')}`,
     ...toolLines,
     '',

@@ -6,7 +6,10 @@ vi.mock('../../../src/utils/colors.js', () => ({
   dim: (s: string) => s,
 }));
 
-import { markDirectToolFailure } from '../../../src/cli/commands/direct-tool-output.js';
+import {
+  markDirectToolFailure,
+  printDirectToolResult,
+} from '../../../src/cli/commands/direct-tool-output.js';
 import { EXIT } from '../../../src/cli/exit-codes.js';
 
 function errorResult(text: string) {
@@ -45,5 +48,20 @@ describe('markDirectToolFailure', () => {
   it('falls back to EXIT.TOOL for a generic error', () => {
     markDirectToolFailure(errorResult('something unexpected broke'));
     expect(process.exitCode).toBe(EXIT.TOOL);
+  });
+});
+
+describe('printDirectToolResult', () => {
+  it('prints the full CallToolResult envelope for JSON output', () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    const result = {
+      content: [{ type: 'text', text: 'results:\n- index: 0' }],
+      structuredContent: { results: [{ index: 0, data: { ok: true } }] },
+    };
+
+    printDirectToolResult(result, true);
+
+    expect(JSON.parse(String(log.mock.calls[0]?.[0]))).toEqual(result);
+    log.mockRestore();
   });
 });

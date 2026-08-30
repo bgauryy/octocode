@@ -59,10 +59,6 @@ export function createErrorResult(
     result.error = 'Unknown error occurred';
   }
 
-  if (options.toolName) {
-    result.toolName = options.toolName;
-  }
-
   if (extra) {
     const { hints: _hints, ...restExtra } = extra;
     void _hints;

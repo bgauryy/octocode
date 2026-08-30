@@ -6,14 +6,19 @@ Source of truth: this `skills/` directory in the repository checkout.
 
 Sync / install / review: use **`octocode-skills`** (`scripts/skill-sync.mjs`, `scripts/skill-review.mjs`).
 
+## Workspace output contract
+
+Every skill keeps chat-only results in chat. When a skill creates a new artifact without an approved destination, durable output belongs under `<workspace>/.octocode/<skill-name>/` and scratch/run data under `<workspace>/.octocode/tmp/<skill-name>/`. Existing specialized namespaces such as `.octocode/rfc/`, `.octocode/brainstorming/`, `.octocode/worker/`, `.octocode/tmp/scrape/`, and `.octocode/tmp/chrome-devtools/` remain valid. Requested code/docs/source edits, skill installations, symlinks, and configuration are target mutations rather than generated artifacts and stay at their explicitly approved paths. Skills must fail clearly when the workspace output root is unwritable; they must not redirect artifacts to a user-level Octocode home.
+
 ## Catalog
 
 | Skill | What it is |
 |---|---|
 | [octocode-research](./octocode-research/) | Evidence before conclusions — find, explain, diagnose, review diffs, smallest verified fix |
+| [octocode-code-graph](./octocode-code-graph/) | Repository dependency topology — cycles, paths, layering, reachability, impact, verified dead-code candidates |
 | [octocode-brainstorming](./octocode-brainstorming/) | Explore ideas before building — options, worth-building, Build / Prototype / Narrow / Park |
 | [octocode-rfc-generator](./octocode-rfc-generator/) | Decision before coding — RFC, design, migration, rollout, measurable contract |
-| [octocode-graph-eval](./octocode-graph-eval/) | Did the change help? — loop & graph-of-loops evals, sensors, ACCEPT/REVERT, KPI contracts, suites, held-out, TDD-first |
+| [octocode-eval-benchmark](./octocode-eval-benchmark/) | Did the change help? — loop & graph-of-loops evals, sensors, ACCEPT/REVERT, KPI contracts, suites, held-out, TDD-first |
 | [octocode-subagent](./octocode-subagent/) | Spawn / Task / A2A / challenge techniques **or** local Ollama sealed-packet offload |
 | [octocode-documentation](./octocode-documentation/) | Write/update docs — README, runbooks, CONTRIBUTING, ADRs, Diátaxis, agent-facing docs — plus the full Google developer documentation style guide and a Markdown style linter |
 | [octocode-roast](./octocode-roast/) | Blunt evidence-backed critique — smells, debt ranking, autopsy, redemption |
@@ -28,6 +33,10 @@ Sync / install / review: use **`octocode-skills`** (`scripts/skill-sync.mjs`, `s
 
 Primary technical research skill. Use when you need **proof from code/repos** before claiming how something works, what’s broken, or what to change. Routes local + GitHub/npm evidence; pairs with LSP when symbol identity matters. Prefer this over brainstorming when the question is factual about an existing system.
 
+### octocode-code-graph
+
+Turns repository file topology into ranked, falsifiable code findings. Use it for dependency cycles, shortest import paths, fan-in/out, layering, reachability, change impact, and dead-code candidates. It combines `localAnalyzeGraph` with exact imports, AST shape, LSP identity, and runnable checks; graph output alone never proves a defect or safe deletion.
+
 ### octocode-brainstorming
 
 Disciplined idea exploration **before** commitment. Generates options, stress-tests “is this worth building?”, maps adjacent solutions, and ends in a clear verdict (Build RFC / Prototype / Narrow / Park). Hand off to research for evidence and to RFC once the decision is made.
@@ -36,13 +45,13 @@ Disciplined idea exploration **before** commitment. Generates options, stress-te
 
 Turns a consequential choice into a durable decision artifact: RFC, architecture proposal, migration/rollout plan, or measurable implementation contract. Use when coding would lock you into the wrong path without an explicit decision.
 
-### octocode-graph-eval
+### octocode-eval-benchmark
 
-Measurement and keep/discard — for a single agent loop or a graph of loops (multi-agent workflow). Defines goal→KPI contracts, feedback-loop prerequisites (runnable sensor + numeric target + budget before iterating), suites, graders, held-out checks, and ACCEPT/REVERT. Covers loop engineering (don't-stop-till-done optimization against a sensor) and graph evals (primary KPI at the graph boundary, per-node sensors, attribution by bisection, strengthen verifiers before adding nodes). Also covers TDD failing-case-first; `eval-eval.mjs --batch <dir>` grades an answer set in one command. Use whenever “it feels better” is not enough.
+Smart eval and benchmark design for a single agent, a change, or a multi-agent workflow. Defines goal→KPI contracts, runnable sensors, suites, graders, held-out checks, guardrails, and ACCEPT/REVERT. Covers benchmark contamination, deterministic and model graders, TDD failing-case-first, don't-stop-till-done optimization, and per-node attribution for multi-agent workflows. `eval-skill.mjs --batch <dir>` grades an answer set in one command. Use whenever “it feels better” is not enough.
 
 ### octocode-subagent
 
-General **multi-agent orchestration** for host workers, Task/subagents, specialist handoffs, A2A peers, **and** frugal local Ollama offload. Decides spawn vs solo vs Ollama; decomposes work; picks topology/model tier; writes sealed packets; coordinates ownership; recovers failures; synthesizes. Ollama path: parent keeps tools/verify/writes; local model does summarize/extract/classify/translate/draft/check/vision/map-reduce (`references/local-ollama.md`). Measuring keep/discard → **octocode-graph-eval**.
+General **multi-agent orchestration** for host workers, Task/subagents, specialist handoffs, A2A peers, **and** frugal local Ollama offload. Decides spawn vs solo vs Ollama; decomposes work; picks topology/model tier; writes sealed packets; coordinates ownership; recovers failures; synthesizes. Ollama path: parent keeps tools/verify/writes; local model does summarize/extract/classify/translate/draft/check/vision/map-reduce (`references/local-ollama.md`). Measuring keep/discard → **octocode-eval-benchmark**.
 
 ### octocode-documentation
 
@@ -72,10 +81,12 @@ Public web → local cited corpus: scrape/crawl, extract tables/fields, diagnose
 
 ```text
 Question about code?     → research
+Dependency graph issue?  → code-graph
 Idea / is it worth it?   → brainstorming → (rfc | research | park)
 Need a design contract?  → rfc-generator
-Did the change help?     → graph-eval
-Loop until a target?     → graph-eval (sensor + target + budget first)
+Did the change help?     → eval-benchmark
+Design an eval/bench?    → eval-benchmark
+Loop until a target?     → eval-benchmark (sensor + target + budget first)
 Spawn cloud workers?     → subagent
 Save tokens via Ollama?  → subagent (local-ollama.md)
 Write docs?              → documentation

@@ -104,8 +104,7 @@ export function providerSupports(
 
 export async function executeProviderOperation<
   TQuery extends {
-    mainResearchGoal?: string;
-    researchGoal?: string;
+    goal?: string;
     reasoning?: string;
   },
   TData,

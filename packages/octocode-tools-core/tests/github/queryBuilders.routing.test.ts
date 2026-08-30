@@ -1,7 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  shouldUseSearchForPRs,
-} from '../../src/github/queryBuilders/pullRequests.js';
+import { shouldUseSearchForPRs } from '../../src/github/queryBuilders/pullRequests.js';
 import { shouldUseSearchForIssues } from '../../src/github/queryBuilders/issues.js';
 import type { GitHubPullRequestsSearchParams } from '../../src/github/githubAPI.js';
 
@@ -60,7 +58,9 @@ describe('shouldUseSearchForPRs', () => {
   });
 
   it('returns true when review-requested is set', () => {
-    expect(shouldUseSearchForPRs({ ...BASE, 'review-requested': 'fred' })).toBe(true);
+    expect(shouldUseSearchForPRs({ ...BASE, 'review-requested': 'fred' })).toBe(
+      true
+    );
   });
 
   it('returns true when reactions is set', () => {
@@ -84,7 +84,9 @@ describe('shouldUseSearchForPRs', () => {
   });
 
   it('returns true when language is set', () => {
-    expect(shouldUseSearchForPRs({ ...BASE, language: 'TypeScript' })).toBe(true);
+    expect(shouldUseSearchForPRs({ ...BASE, language: 'TypeScript' })).toBe(
+      true
+    );
   });
 
   it('returns true when checks is set', () => {
@@ -104,23 +106,33 @@ describe('shouldUseSearchForPRs', () => {
   });
 
   it('returns true when project is set', () => {
-    expect(shouldUseSearchForPRs({ ...BASE, project: 'facebook/1' })).toBe(true);
+    expect(shouldUseSearchForPRs({ ...BASE, project: 'facebook/1' })).toBe(
+      true
+    );
   });
 
   it('returns true when created date is set', () => {
-    expect(shouldUseSearchForPRs({ ...BASE, created: '>2024-01-01' })).toBe(true);
+    expect(shouldUseSearchForPRs({ ...BASE, created: '>2024-01-01' })).toBe(
+      true
+    );
   });
 
   it('returns true when updated date is set', () => {
-    expect(shouldUseSearchForPRs({ ...BASE, updated: '>2024-01-01' })).toBe(true);
+    expect(shouldUseSearchForPRs({ ...BASE, updated: '>2024-01-01' })).toBe(
+      true
+    );
   });
 
   it('returns true when merged-at is set', () => {
-    expect(shouldUseSearchForPRs({ ...BASE, 'merged-at': '>2024-01-01' })).toBe(true);
+    expect(shouldUseSearchForPRs({ ...BASE, 'merged-at': '>2024-01-01' })).toBe(
+      true
+    );
   });
 
   it('returns true when closed is set', () => {
-    expect(shouldUseSearchForPRs({ ...BASE, closed: '>2024-01-01' })).toBe(true);
+    expect(shouldUseSearchForPRs({ ...BASE, closed: '>2024-01-01' })).toBe(
+      true
+    );
   });
 
   it('returns true when merged is set', () => {
@@ -144,11 +156,15 @@ describe('shouldUseSearchForPRs', () => {
   });
 
   it('returns true when owner is an array', () => {
-    expect(shouldUseSearchForPRs({ owner: ['facebook', 'meta'], repo: 'react' })).toBe(true);
+    expect(
+      shouldUseSearchForPRs({ owner: ['facebook', 'meta'], repo: 'react' })
+    ).toBe(true);
   });
 
   it('returns true when repo is an array', () => {
-    expect(shouldUseSearchForPRs({ owner: 'facebook', repo: ['react', 'react-dom'] })).toBe(true);
+    expect(
+      shouldUseSearchForPRs({ owner: 'facebook', repo: ['react', 'react-dom'] })
+    ).toBe(true);
   });
 });
 
@@ -164,27 +180,39 @@ describe('shouldUseSearchForIssues', () => {
   });
 
   it('returns true when query is non-empty', () => {
-    expect(shouldUseSearchForIssues({ ...BASE_ISSUE, query: 'crash' })).toBe(true);
+    expect(shouldUseSearchForIssues({ ...BASE_ISSUE, query: 'crash' })).toBe(
+      true
+    );
   });
 
   it('returns false when query is whitespace', () => {
-    expect(shouldUseSearchForIssues({ ...BASE_ISSUE, query: '   ' })).toBe(false);
+    expect(shouldUseSearchForIssues({ ...BASE_ISSUE, query: '   ' })).toBe(
+      false
+    );
   });
 
   it('returns true when author is set', () => {
-    expect(shouldUseSearchForIssues({ ...BASE_ISSUE, author: 'alice' })).toBe(true);
+    expect(shouldUseSearchForIssues({ ...BASE_ISSUE, author: 'alice' })).toBe(
+      true
+    );
   });
 
   it('returns true when assignee is set', () => {
-    expect(shouldUseSearchForIssues({ ...BASE_ISSUE, assignee: 'bob' })).toBe(true);
+    expect(shouldUseSearchForIssues({ ...BASE_ISSUE, assignee: 'bob' })).toBe(
+      true
+    );
   });
 
   it('returns true when label is non-empty string', () => {
-    expect(shouldUseSearchForIssues({ ...BASE_ISSUE, label: 'bug' })).toBe(true);
+    expect(shouldUseSearchForIssues({ ...BASE_ISSUE, label: 'bug' })).toBe(
+      true
+    );
   });
 
   it('returns true when label is non-empty array', () => {
-    expect(shouldUseSearchForIssues({ ...BASE_ISSUE, label: ['bug'] })).toBe(true);
+    expect(shouldUseSearchForIssues({ ...BASE_ISSUE, label: ['bug'] })).toBe(
+      true
+    );
   });
 
   it('returns true when label is an empty string', () => {
@@ -195,47 +223,69 @@ describe('shouldUseSearchForIssues', () => {
   });
 
   it('returns true when mentions is set', () => {
-    expect(shouldUseSearchForIssues({ ...BASE_ISSUE, mentions: 'charlie' })).toBe(true);
+    expect(
+      shouldUseSearchForIssues({ ...BASE_ISSUE, mentions: 'charlie' })
+    ).toBe(true);
   });
 
   it('returns true when commenter is set', () => {
-    expect(shouldUseSearchForIssues({ ...BASE_ISSUE, commenter: 'dave' })).toBe(true);
+    expect(shouldUseSearchForIssues({ ...BASE_ISSUE, commenter: 'dave' })).toBe(
+      true
+    );
   });
 
   it('returns true when reactions is set', () => {
-    expect(shouldUseSearchForIssues({ ...BASE_ISSUE, reactions: '>5' })).toBe(true);
+    expect(shouldUseSearchForIssues({ ...BASE_ISSUE, reactions: '>5' })).toBe(
+      true
+    );
   });
 
   it('returns true when comments is set', () => {
-    expect(shouldUseSearchForIssues({ ...BASE_ISSUE, comments: '>2' })).toBe(true);
+    expect(shouldUseSearchForIssues({ ...BASE_ISSUE, comments: '>2' })).toBe(
+      true
+    );
   });
 
   it('returns true when milestone is set', () => {
-    expect(shouldUseSearchForIssues({ ...BASE_ISSUE, milestone: 'v5' })).toBe(true);
+    expect(shouldUseSearchForIssues({ ...BASE_ISSUE, milestone: 'v5' })).toBe(
+      true
+    );
   });
 
   it('returns true when locked is set', () => {
-    expect(shouldUseSearchForIssues({ ...BASE_ISSUE, locked: true })).toBe(true);
+    expect(shouldUseSearchForIssues({ ...BASE_ISSUE, locked: true })).toBe(
+      true
+    );
   });
 
   it('returns true when visibility is set', () => {
-    expect(shouldUseSearchForIssues({ ...BASE_ISSUE, visibility: 'public' })).toBe(true);
+    expect(
+      shouldUseSearchForIssues({ ...BASE_ISSUE, visibility: 'public' })
+    ).toBe(true);
   });
 
   it('returns true when created is set', () => {
-    expect(shouldUseSearchForIssues({ ...BASE_ISSUE, created: '>2024-01-01' })).toBe(true);
+    expect(
+      shouldUseSearchForIssues({ ...BASE_ISSUE, created: '>2024-01-01' })
+    ).toBe(true);
   });
 
   it('returns true when updated is set', () => {
-    expect(shouldUseSearchForIssues({ ...BASE_ISSUE, updated: '>2024-06-01' })).toBe(true);
+    expect(
+      shouldUseSearchForIssues({ ...BASE_ISSUE, updated: '>2024-06-01' })
+    ).toBe(true);
   });
 
   it('returns true when closed is set', () => {
-    expect(shouldUseSearchForIssues({ ...BASE_ISSUE, closed: '>2024-01-01' })).toBe(true);
+    expect(
+      shouldUseSearchForIssues({ ...BASE_ISSUE, closed: '>2024-01-01' })
+    ).toBe(true);
   });
 
   it('returns true when match is a non-empty array', () => {
-    expect(shouldUseSearchForIssues({ ...BASE_ISSUE, match: ['title'] })).toBe(true);
+    expect(shouldUseSearchForIssues({ ...BASE_ISSUE, match: ['title'] })).toBe(
+      true
+    );
   });
 
   it('returns false when match is an empty array', () => {
@@ -243,22 +293,38 @@ describe('shouldUseSearchForIssues', () => {
   });
 
   it('returns true when sort is comments', () => {
-    expect(shouldUseSearchForIssues({ ...BASE_ISSUE, sort: 'comments' })).toBe(true);
+    expect(shouldUseSearchForIssues({ ...BASE_ISSUE, sort: 'comments' })).toBe(
+      true
+    );
   });
 
   it('returns true when sort is reactions', () => {
-    expect(shouldUseSearchForIssues({ ...BASE_ISSUE, sort: 'reactions' })).toBe(true);
+    expect(shouldUseSearchForIssues({ ...BASE_ISSUE, sort: 'reactions' })).toBe(
+      true
+    );
   });
 
   it('returns false when sort is created (not a search-trigger sort)', () => {
-    expect(shouldUseSearchForIssues({ ...BASE_ISSUE, sort: 'created' })).toBe(false);
+    expect(shouldUseSearchForIssues({ ...BASE_ISSUE, sort: 'created' })).toBe(
+      false
+    );
   });
 
   it('returns true when owner is an array', () => {
-    expect(shouldUseSearchForIssues({ owner: ['microsoft', 'google'], repo: 'TypeScript' })).toBe(true);
+    expect(
+      shouldUseSearchForIssues({
+        owner: ['microsoft', 'google'],
+        repo: 'TypeScript',
+      })
+    ).toBe(true);
   });
 
   it('returns true when repo is an array', () => {
-    expect(shouldUseSearchForIssues({ owner: 'microsoft', repo: ['TypeScript', 'vs-code'] })).toBe(true);
+    expect(
+      shouldUseSearchForIssues({
+        owner: 'microsoft',
+        repo: ['TypeScript', 'vs-code'],
+      })
+    ).toBe(true);
   });
 });

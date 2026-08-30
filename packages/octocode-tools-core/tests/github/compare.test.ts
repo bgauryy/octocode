@@ -51,7 +51,9 @@ describe('compareRefs', () => {
     mockGetOctokit.mockResolvedValue({
       rest: {
         repos: {
-          compareCommitsWithBasehead: vi.fn().mockResolvedValue(makeCompareResponse()),
+          compareCommitsWithBasehead: vi
+            .fn()
+            .mockResolvedValue(makeCompareResponse()),
         },
       },
     } as never);
@@ -78,7 +80,9 @@ describe('compareRefs', () => {
     mockGetOctokit.mockResolvedValue({
       rest: {
         repos: {
-          compareCommitsWithBasehead: vi.fn().mockResolvedValue(makeCompareResponse()),
+          compareCommitsWithBasehead: vi
+            .fn()
+            .mockResolvedValue(makeCompareResponse()),
         },
       },
     } as never);
@@ -98,7 +102,9 @@ describe('compareRefs', () => {
     mockGetOctokit.mockResolvedValue({
       rest: {
         repos: {
-          compareCommitsWithBasehead: vi.fn().mockResolvedValue(makeCompareResponse()),
+          compareCommitsWithBasehead: vi
+            .fn()
+            .mockResolvedValue(makeCompareResponse()),
         },
       },
     } as never);
@@ -194,7 +200,9 @@ describe('compareRefs', () => {
     mockGetOctokit.mockResolvedValue({
       rest: {
         repos: {
-          compareCommitsWithBasehead: vi.fn().mockResolvedValue(makeCompareResponse()),
+          compareCommitsWithBasehead: vi
+            .fn()
+            .mockResolvedValue(makeCompareResponse()),
         },
       },
     } as never);

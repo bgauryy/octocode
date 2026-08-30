@@ -187,6 +187,24 @@ describe('SearchCommitsLocalSchema', () => {
     expect(result.success).toBe(true);
     expect(result.data!.page).toBeGreaterThanOrEqual(1);
   });
+
+  it('requires base and head together in compare mode', () => {
+    expect(
+      SearchCommitsLocalSchema.safeParse({
+        owner: 'facebook',
+        repo: 'react',
+        base: 'main',
+      }).success
+    ).toBe(false);
+    expect(
+      SearchCommitsLocalSchema.safeParse({
+        owner: 'facebook',
+        repo: 'react',
+        base: 'main',
+        head: 'updates',
+      }).success
+    ).toBe(true);
+  });
 });
 
 describe('SearchCommitsBulkLocalSchema', () => {
@@ -195,6 +213,13 @@ describe('SearchCommitsBulkLocalSchema', () => {
       queries: [{ owner: 'facebook', repo: 'react' }],
     });
     expect(result.success).toBe(true);
+  });
+
+  it('preserves the compare-mode pair guard in bulk', () => {
+    const result = SearchCommitsBulkLocalSchema.safeParse({
+      queries: [{ owner: 'facebook', repo: 'react', head: 'updates' }],
+    });
+    expect(result.success).toBe(false);
   });
 });
 

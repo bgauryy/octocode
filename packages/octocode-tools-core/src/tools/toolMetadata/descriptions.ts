@@ -1,5 +1,8 @@
-import { toolSpecs } from '../../toolContract/resources/tools/index.js';
+import { completeMetadata } from '@octocodeai/octocode-core';
 
 export const DESCRIPTIONS: Record<string, string> = Object.fromEntries(
-  Object.values(toolSpecs).map(tool => [tool.name, tool.description])
+  Object.values(completeMetadata.tools).map(tool => [
+    tool.name,
+    tool.description,
+  ])
 );

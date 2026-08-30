@@ -79,4 +79,45 @@ describe('scanForDeadCode dynamic import reachability', () => {
       )
     ).toBe(true);
   });
+
+  it('retains named re-exports exposed through a dynamically imported barrel', async () => {
+    const dir = await createTempDir();
+    await writeFile(
+      join(dir, 'entry.js'),
+      "export async function main() {\n  const mod = await import('./barrel.js');\n  return mod.used();\n}\n"
+    );
+    await writeFile(
+      join(dir, 'barrel.js'),
+      "export { used } from './leaf.js';\n"
+    );
+    await writeFile(
+      join(dir, 'leaf.js'),
+      'export function used() { return 1; }\nexport function trulyDead() { return 2; }\n'
+    );
+
+    const result = scanForDeadCode(dir, { entrypoints: ['entry.js'] });
+    const names = deadNames(result);
+
+    expect(names).not.toContain('leaf.js::used');
+    expect(names).toContain('leaf.js::trulyDead');
+  });
+
+  it('omits test-file candidates when tests are not included', async () => {
+    const dir = await createTempDir();
+    await writeFile(join(dir, 'entry.js'), 'export const live = true;\n');
+    await writeFile(
+      join(dir, 'unused.test.js'),
+      'export function testHelper() { return 1; }\n'
+    );
+
+    const result = scanForDeadCode(dir, {
+      entrypoints: ['entry.js'],
+      includeTests: false,
+    });
+
+    expect(deadNames(result)).not.toContain('unused.test.js::testHelper');
+    expect(result.deadClusters.flatMap(cluster => cluster.files)).not.toContain(
+      'unused.test.js'
+    );
+  });
 });

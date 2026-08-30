@@ -7,7 +7,7 @@ type AnyRec = Record<string, unknown>;
 function runFinalizer(results: AnyRec[]) {
   const finalize = buildGhSearchCodeFinalizer();
   const out = finalize({
-    queries: results.map(r => ({ id: r.id })) as never,
+    queries: results.map(() => ({})) as never,
     results: results as never,
     config: {} as never,
   });
@@ -25,42 +25,79 @@ function runFinalizerWithQueries(queries: AnyRec[], results: AnyRec[]) {
 }
 
 describe('ghSearchCode finalizer — incomplete_results (GitHub index degradation)', () => {
-  it('flags an empty query as incompleteResults (typed flag; warnings are stripped from responses)', () => {
-    const sc = runFinalizer([
-      {
-        id: 'q1',
-        data: { results: [], incompleteResults: true },
-      },
-    ]);
+  it('flags an empty query with typed partial diagnostics', () => {
+    const sc = runFinalizerWithQueries(
+      [{ keywords: ['react'] }],
+      [{ index: 0, data: { results: [], incompleteResults: true } }]
+    );
 
-    const empty = sc.emptyQueries as Array<AnyRec>;
+    const empty = sc.results as Array<AnyRec>;
     expect(empty).toHaveLength(1);
-    expect(empty[0].id).toBe('q1');
+    expect(empty[0]).toMatchObject({ index: 0, status: 'empty' });
     // Distinguishes "GitHub index did not complete" from a true no-match.
-    expect(empty[0].incompleteResults).toBe(true);
-    expect(empty[0].nonExistentScope).toBeUndefined();
+    expect((empty[0].data as AnyRec).incompleteResults).toBe(true);
+    expect((empty[0].data as AnyRec).nonExistentScope).toBeUndefined();
+    expect(empty[0]).toMatchObject({
+      meta: {
+        diagnostics: {
+          codes: ['ghIncompleteResults'],
+          hints: [expect.stringContaining('retry')],
+          partial: true,
+        },
+      },
+      data: {
+        next: {
+          retry: {
+            tool: 'ghSearchCode',
+            query: { keywords: ['react'] },
+          },
+        },
+      },
+    });
+    expect(sc.emptyQueries).toBeUndefined();
 
     // Responses carry no warnings channel — the typed flag above is the signal.
     expect(sc.warnings).toBeUndefined();
   });
 
   it('a genuine no-match (complete search) carries no incompleteResults and no warning', () => {
-    const sc = runFinalizer([{ id: 'q1', data: { results: [] } }]);
+    const sc = runFinalizer([{ index: 0, data: { results: [] } }]);
 
-    const empty = sc.emptyQueries as Array<AnyRec>;
+    const empty = sc.results as Array<AnyRec>;
     expect(empty).toHaveLength(1);
-    expect(empty[0].incompleteResults).toBeUndefined();
+    expect(empty[0]).toMatchObject({ index: 0, status: 'empty' });
+    expect(
+      (empty[0].data as AnyRec | undefined)?.incompleteResults
+    ).toBeUndefined();
     expect(sc.warnings).toBeUndefined();
   });
 
-  it('a scoped repo no-match yields an empty query row with no warnings channel', () => {
+  it('a scoped repo no-match carries typed proof limits and recovery', () => {
     const sc = runFinalizerWithQueries(
-      [{ id: 'q1', owner: 'facebook', repo: 'react' }],
-      [{ id: 'q1', data: { results: [] } }]
+      [{ owner: 'facebook', repo: 'react' }],
+      [{ index: 0, data: { results: [] } }]
     );
 
-    const empty = sc.emptyQueries as Array<AnyRec>;
+    const empty = sc.results as Array<AnyRec>;
     expect(empty).toHaveLength(1);
+    expect(empty[0]).toMatchObject({
+      index: 0,
+      status: 'empty',
+      meta: {
+        diagnostics: {
+          codes: ['ghScopedZeroUnproven'],
+          hints: [expect.stringContaining('verify')],
+        },
+      },
+      data: {
+        next: {
+          viewStructure: {
+            tool: 'ghViewRepoStructure',
+            query: { owner: 'facebook', repo: 'react', path: '' },
+          },
+        },
+      },
+    });
     expect(sc.warnings).toBeUndefined();
   });
 });

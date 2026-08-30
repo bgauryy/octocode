@@ -1601,7 +1601,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@octocodeai/config@npm:18.0.1, @octocodeai/config@workspace:packages/octocode-config":
+"@octocodeai/config@workspace:*, @octocodeai/config@workspace:packages/octocode-config":
   version: 0.0.0-use.local
   resolution: "@octocodeai/config@workspace:packages/octocode-config"
   dependencies:
@@ -1621,52 +1621,52 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@octocodeai/octocode-core@npm:18.2.0":
+"@octocodeai/octocode-core@file:///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core::locator=octocode-monorepo%40workspace%3A.":
   version: 18.2.0
-  resolution: "@octocodeai/octocode-core@npm:18.2.0"
+  resolution: "@octocodeai/octocode-core@file:///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core#///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core::hash=5dbd72&locator=octocode-monorepo%40workspace%3A."
   peerDependencies:
     zod: ">=4.0.0"
-  checksum: 10c0/81add5d54d5f7c1cd65a9ad636403a05a43916075efac8102f0de68ef50c09a4ee3396b67d87f1d68ad066d495b330245008f0c92dc8a583abc0ec8f4043cf65
+  checksum: 10c0/f73f76d6a27c8d84e94023707a2cb62ca1e5b8d7ebe1a505d29cf6a3c655f46e1eddd34b6d3970d1247bcf14340357816b49839ee4c04b3a2ce16fe711522807
   languageName: node
   linkType: hard
 
-"@octocodeai/octocode-engine-darwin-arm64@npm:18.1.2, @octocodeai/octocode-engine-darwin-arm64@workspace:packages/octocode-engine/npm/darwin-arm64":
+"@octocodeai/octocode-engine-darwin-arm64@workspace:*, @octocodeai/octocode-engine-darwin-arm64@workspace:packages/octocode-engine/npm/darwin-arm64":
   version: 0.0.0-use.local
   resolution: "@octocodeai/octocode-engine-darwin-arm64@workspace:packages/octocode-engine/npm/darwin-arm64"
   languageName: unknown
   linkType: soft
 
-"@octocodeai/octocode-engine-darwin-x64@npm:18.1.2, @octocodeai/octocode-engine-darwin-x64@workspace:packages/octocode-engine/npm/darwin-x64":
+"@octocodeai/octocode-engine-darwin-x64@workspace:*, @octocodeai/octocode-engine-darwin-x64@workspace:packages/octocode-engine/npm/darwin-x64":
   version: 0.0.0-use.local
   resolution: "@octocodeai/octocode-engine-darwin-x64@workspace:packages/octocode-engine/npm/darwin-x64"
   languageName: unknown
   linkType: soft
 
-"@octocodeai/octocode-engine-linux-arm64-gnu@npm:18.1.2, @octocodeai/octocode-engine-linux-arm64-gnu@workspace:packages/octocode-engine/npm/linux-arm64-gnu":
+"@octocodeai/octocode-engine-linux-arm64-gnu@workspace:*, @octocodeai/octocode-engine-linux-arm64-gnu@workspace:packages/octocode-engine/npm/linux-arm64-gnu":
   version: 0.0.0-use.local
   resolution: "@octocodeai/octocode-engine-linux-arm64-gnu@workspace:packages/octocode-engine/npm/linux-arm64-gnu"
   languageName: unknown
   linkType: soft
 
-"@octocodeai/octocode-engine-linux-x64-gnu@npm:18.1.2, @octocodeai/octocode-engine-linux-x64-gnu@workspace:packages/octocode-engine/npm/linux-x64-gnu":
+"@octocodeai/octocode-engine-linux-x64-gnu@workspace:*, @octocodeai/octocode-engine-linux-x64-gnu@workspace:packages/octocode-engine/npm/linux-x64-gnu":
   version: 0.0.0-use.local
   resolution: "@octocodeai/octocode-engine-linux-x64-gnu@workspace:packages/octocode-engine/npm/linux-x64-gnu"
   languageName: unknown
   linkType: soft
 
-"@octocodeai/octocode-engine-linux-x64-musl@npm:18.1.2, @octocodeai/octocode-engine-linux-x64-musl@workspace:packages/octocode-engine/npm/linux-x64-musl":
+"@octocodeai/octocode-engine-linux-x64-musl@workspace:*, @octocodeai/octocode-engine-linux-x64-musl@workspace:packages/octocode-engine/npm/linux-x64-musl":
   version: 0.0.0-use.local
   resolution: "@octocodeai/octocode-engine-linux-x64-musl@workspace:packages/octocode-engine/npm/linux-x64-musl"
   languageName: unknown
   linkType: soft
 
-"@octocodeai/octocode-engine-win32-x64-msvc@npm:18.1.2, @octocodeai/octocode-engine-win32-x64-msvc@workspace:packages/octocode-engine/npm/win32-x64-msvc":
+"@octocodeai/octocode-engine-win32-x64-msvc@workspace:*, @octocodeai/octocode-engine-win32-x64-msvc@workspace:packages/octocode-engine/npm/win32-x64-msvc":
   version: 0.0.0-use.local
   resolution: "@octocodeai/octocode-engine-win32-x64-msvc@workspace:packages/octocode-engine/npm/win32-x64-msvc"
   languageName: unknown
   linkType: soft
 
-"@octocodeai/octocode-engine@npm:18.1.2, @octocodeai/octocode-engine@workspace:packages/octocode-engine":
+"@octocodeai/octocode-engine@workspace:*, @octocodeai/octocode-engine@workspace:packages/octocode-engine":
   version: 0.0.0-use.local
   resolution: "@octocodeai/octocode-engine@workspace:packages/octocode-engine"
   dependencies:
@@ -1706,7 +1706,7 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@octocodeai/octocode-tools-core@npm:18.1.2, @octocodeai/octocode-tools-core@workspace:packages/octocode-tools-core":
+"@octocodeai/octocode-tools-core@workspace:*, @octocodeai/octocode-tools-core@workspace:packages/octocode-tools-core":
   version: 0.0.0-use.local
   resolution: "@octocodeai/octocode-tools-core@workspace:packages/octocode-tools-core"
   dependencies:

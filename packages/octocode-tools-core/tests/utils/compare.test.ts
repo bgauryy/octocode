@@ -13,9 +13,7 @@ describe('compareIsoDateDescending', () => {
   });
 
   it('sorts defined left before undefined right (undefined = -1)', () => {
-    expect(
-      compareIsoDateDescending('2024-01-01', undefined)
-    ).toBeLessThan(0);
+    expect(compareIsoDateDescending('2024-01-01', undefined)).toBeLessThan(0);
   });
 
   it('returns 0 when both are invalid ISO strings', () => {
@@ -29,9 +27,9 @@ describe('compareIsoDateDescending', () => {
   });
 
   it('sorts valid left before invalid right', () => {
-    expect(
-      compareIsoDateDescending('2024-01-01', 'not-a-date')
-    ).toBeLessThan(0);
+    expect(compareIsoDateDescending('2024-01-01', 'not-a-date')).toBeLessThan(
+      0
+    );
   });
 
   it('puts newer dates first (descending)', () => {
@@ -49,12 +47,8 @@ describe('compareIsoDateDescending', () => {
 
   it('handles empty string as valid date (NaN path)', () => {
     // empty string is passed to Date.parse → NaN
-    expect(
-      compareIsoDateDescending('', '2024-01-01')
-    ).toBeGreaterThan(0);
-    expect(
-      compareIsoDateDescending('2024-01-01', '')
-    ).toBeLessThan(0);
+    expect(compareIsoDateDescending('', '2024-01-01')).toBeGreaterThan(0);
+    expect(compareIsoDateDescending('2024-01-01', '')).toBeLessThan(0);
   });
 
   it('can sort an array of items descending by date', () => {

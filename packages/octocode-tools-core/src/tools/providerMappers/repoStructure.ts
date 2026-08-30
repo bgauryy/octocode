@@ -35,8 +35,7 @@ export function mapRepoStructureToolQuery(
     includeContributors: include.includes('contributors'),
     includeBranches: include.includes('branches'),
     includeTags: include.includes('tags'),
-    mainResearchGoal: query.mainResearchGoal,
-    researchGoal: query.researchGoal,
+    goal: query.goal,
     reasoning: query.reasoning,
   };
 }

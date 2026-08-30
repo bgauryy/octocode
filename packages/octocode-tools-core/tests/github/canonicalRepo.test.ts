@@ -20,7 +20,11 @@ function makeOctokit(fullName?: string, shouldThrow = false) {
 describe('resolveCanonicalOwnerRepo', () => {
   it('returns canonical owner/repo from full_name', async () => {
     const octokit = makeOctokit('facebook/react');
-    const result = await resolveCanonicalOwnerRepo(octokit, 'facebook', 'react');
+    const result = await resolveCanonicalOwnerRepo(
+      octokit,
+      'facebook',
+      'react'
+    );
     expect(result.owner).toBe('facebook');
     expect(result.repo).toBe('react');
     expect(result.renamed).toBe(false);
@@ -28,7 +32,11 @@ describe('resolveCanonicalOwnerRepo', () => {
 
   it('detects a rename when full_name differs from inputs', async () => {
     const octokit = makeOctokit('meta/react');
-    const result = await resolveCanonicalOwnerRepo(octokit, 'facebook', 'react');
+    const result = await resolveCanonicalOwnerRepo(
+      octokit,
+      'facebook',
+      'react'
+    );
     expect(result.owner).toBe('meta');
     expect(result.repo).toBe('react');
     expect(result.renamed).toBe(true);
@@ -36,14 +44,22 @@ describe('resolveCanonicalOwnerRepo', () => {
 
   it('detects a repo rename', async () => {
     const octokit = makeOctokit('facebook/react-v2');
-    const result = await resolveCanonicalOwnerRepo(octokit, 'facebook', 'react');
+    const result = await resolveCanonicalOwnerRepo(
+      octokit,
+      'facebook',
+      'react'
+    );
     expect(result.renamed).toBe(true);
     expect(result.repo).toBe('react-v2');
   });
 
   it('degrades gracefully on API error and returns original owner/repo', async () => {
     const octokit = makeOctokit(undefined, true);
-    const result = await resolveCanonicalOwnerRepo(octokit, 'facebook', 'react');
+    const result = await resolveCanonicalOwnerRepo(
+      octokit,
+      'facebook',
+      'react'
+    );
     expect(result.owner).toBe('facebook');
     expect(result.repo).toBe('react');
     expect(result.renamed).toBe(false);
@@ -57,7 +73,11 @@ describe('resolveCanonicalOwnerRepo', () => {
         },
       },
     } as never;
-    const result = await resolveCanonicalOwnerRepo(octokit, 'facebook', 'react');
+    const result = await resolveCanonicalOwnerRepo(
+      octokit,
+      'facebook',
+      'react'
+    );
     expect(result.owner).toBe('facebook');
     expect(result.repo).toBe('react');
     expect(result.renamed).toBe(false);
@@ -71,7 +91,11 @@ describe('resolveCanonicalOwnerRepo', () => {
         },
       },
     } as never;
-    const result = await resolveCanonicalOwnerRepo(octokit, 'facebook', 'react');
+    const result = await resolveCanonicalOwnerRepo(
+      octokit,
+      'facebook',
+      'react'
+    );
     // split('/') gives ['onlyone'], so canonicalRepo is undefined → return original
     expect(result.owner).toBe('facebook');
     expect(result.repo).toBe('react');

@@ -19,8 +19,7 @@ type PartialDiscussionsQuery = {
   itemsPerPage?: number;
   limit?: number;
   after?: string;
-  mainResearchGoal?: string;
-  researchGoal?: string;
+  goal?: string;
   reasoning?: string;
 };
 

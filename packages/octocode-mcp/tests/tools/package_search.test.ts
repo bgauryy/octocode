@@ -333,8 +333,7 @@ describe('searchPackage - NPM (CLI)', () => {
 
     const query: NpmSearchInput = {
       name: 'axios',
-      mainResearchGoal: 'Test',
-      researchGoal: 'Test',
+      goal: 'Test',
       reasoning: 'Test',
     };
 

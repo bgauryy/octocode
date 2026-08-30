@@ -46,8 +46,9 @@ within `SHUTDOWN_TIMEOUT_MS` (5s) before exiting.
 - `registrationExecutor.ts` — registers tools in parallel; per-tool failures are
   isolated and reported (`success` / `failed` / `skipped`), never fatal unless
   zero tools register.
-- `toolFilters.ts` — `isLocal`/`isClone` capability gates plus
-  `TOOLS_TO_RUN` (exclusive) vs `ENABLE_TOOLS`/`DISABLE_TOOLS` selection;
+- `toolFilters.ts` — `isLocal`/`isClone` capability gates plus catalog-level
+  `ENABLE_RELEASES`/`ENABLE_DISCUSSIONS` gates and
+  `TOOLS_TO_RUN` (exclusive) vs `DISABLE_TOOLS` selection;
   `isDefault` tools register unless disabled.
 - `metadataPolicy.ts` — a tool is skipped (not failed) if core has no valid
   metadata for it, unless `skipMetadataCheck`.

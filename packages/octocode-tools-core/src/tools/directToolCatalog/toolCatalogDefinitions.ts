@@ -6,8 +6,8 @@
  */
 import { z } from 'zod';
 import {
-  isReleasesEnabled,
   isDiscussionsEnabled,
+  isReleasesEnabled,
   STATIC_TOOL_NAMES,
   LOCAL_ANALYZE_GRAPH_TOOL_NAME,
 } from '../toolNames.js';
@@ -60,13 +60,7 @@ export interface DirectToolDefinition {
 
   inputSchema: z.ZodType;
 
-  /**
-   * Present only for opt-in tools (ghListReleases/ghSearchDiscussions) that
-   * are NOT currently enabled. Their entry still appears here (schema/help
-   * stay discoverable via `tools <name> --scheme` without already knowing the
-   * env var) — the runtime execution registry (`ALL_TOOLS` in toolConfig.ts)
-   * is the actual enforcement point and still omits them until enabled.
-   */
+  /** Present when a public schema is discoverable but execution is opt-in. */
   disabled?: { envVar: string };
 }
 
@@ -122,8 +116,7 @@ export interface DirectToolMetadata {
   >;
 }
 
-export type DirectToolAutoFilledField =
-  'id' | 'mainResearchGoal' | 'researchGoal' | 'reasoning';
+export type DirectToolAutoFilledField = 'goal' | 'reasoning';
 
 export interface PrepareDirectToolInputOptions {
   sourceLabel?: string;
@@ -143,7 +136,7 @@ export class DirectToolInputError extends Error {
 }
 
 const DIRECT_TOOL_AUTO_FILLED_FIELD_NAMES: readonly DirectToolAutoFilledField[] =
-  ['id', 'mainResearchGoal', 'researchGoal', 'reasoning'];
+  ['goal', 'reasoning'];
 
 export const DIRECT_TOOL_AUTO_FILLED_FIELDS: ReadonlySet<string> = new Set([
   ...DIRECT_TOOL_AUTO_FILLED_FIELD_NAMES,
@@ -190,9 +183,6 @@ export const DIRECT_TOOL_DEFINITIONS: DirectToolDefinition[] = [
     schema: SearchCommitsLocalSchema,
     inputSchema: SearchCommitsBulkLocalSchema,
   },
-  // ghListReleases is opt-in (ENABLE_RELEASES=1) — gated to match ALL_TOOLS.
-  // CLI discovery combines this runtime list with the disabled definitions
-  // below and marks availability explicitly.
   ...(isReleasesEnabled()
     ? [
         {
@@ -202,7 +192,6 @@ export const DIRECT_TOOL_DEFINITIONS: DirectToolDefinition[] = [
         },
       ]
     : []),
-  // ghSearchDiscussions is opt-in (ENABLE_DISCUSSIONS=1) — gated to match ALL_TOOLS.
   ...(isDiscussionsEnabled()
     ? [
         {
@@ -254,8 +243,6 @@ export const DIRECT_TOOL_DEFINITIONS: DirectToolDefinition[] = [
   },
 ];
 
-// Opt-in tools when NOT enabled, kept OUT of the executable-definition list
-// but included in DIRECT_TOOL_DISCOVERY_DEFINITIONS with an explicit gate.
 const DISABLED_TOOL_DEFINITIONS: DirectToolDefinition[] = [
   ...(isReleasesEnabled()
     ? []
@@ -279,7 +266,7 @@ const DISABLED_TOOL_DEFINITIONS: DirectToolDefinition[] = [
       ]),
 ];
 
-/** Every public direct-tool schema, including opt-in tools marked disabled. */
+/** Every public direct-tool schema, including disabled opt-in tools. */
 export const DIRECT_TOOL_DISCOVERY_DEFINITIONS: DirectToolDefinition[] = [
   ...DIRECT_TOOL_DEFINITIONS,
   ...DISABLED_TOOL_DEFINITIONS,

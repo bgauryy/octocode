@@ -4,7 +4,6 @@ import type { FileContentQuerySchema } from '../../../toolContract/schemas.js';
 type FileContentQuery = z.infer<typeof FileContentQuerySchema>;
 import type { PaginationInfo } from '../../../types/toolResults.js';
 import type { QueryWithPagination } from '../../../utils/response/groupedFinalizer.js';
-import type { GitHubFetchContentOutputLocal } from '../scheme.js';
 import type { WithOptionalMeta } from '../../../types/execution.js';
 
 export type PartialFileContentQuery = WithOptionalMeta<FileContentQuery> &
@@ -85,20 +84,3 @@ export type DirectoryEntry = {
   cached?: boolean;
   resolvedBranch?: string;
 };
-
-export type RepoGroup = {
-  id: string;
-  owner: string;
-  repo: string;
-  files?: FileEntry[];
-  directories?: DirectoryEntry[];
-};
-
-export type RepoGroupData = {
-  owner: string;
-  repo: string;
-  files?: FileEntry[];
-  directories?: DirectoryEntry[];
-};
-
-export type FileContentResponse = GitHubFetchContentOutputLocal;

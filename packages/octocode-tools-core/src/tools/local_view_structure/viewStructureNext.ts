@@ -22,7 +22,7 @@ export type ViewStructureNextMap = {
  * SKIP_TRAVERSAL_KEYS in utils/response/pathRelativize.ts), so hints stay
  * directly callable with no manual path conversion. Meta-free by construction:
  * queries are built from the entry path alone, never spread from the caller
- * query, so no auto-filled id/researchGoal/reasoning can leak in.
+ * query, so no auto-filled goal/reasoning can leak in.
  */
 export function buildViewStructureNextMap(
   entries: readonly DirectoryEntry[]

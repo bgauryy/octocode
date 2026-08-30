@@ -49,8 +49,7 @@ async function materializeCloneForCli(
         branch: repo.branch,
         sparsePath: cloneSparsePath,
         forceRefresh: request.forceRefresh || undefined,
-        mainResearchGoal: 'Materialize GitHub content for local CLI research',
-        researchGoal: `Save ${refLabel(repo)}${requestedPath ? `/${requestedPath}` : ''} locally`,
+        goal: `Save ${refLabel(repo)}${requestedPath ? `/${requestedPath}` : ''} locally`,
         reasoning: 'CLI remote-as-local materialization',
       },
     ],
@@ -61,16 +60,17 @@ async function materializeCloneForCli(
   }
 
   const data = parseCloneResult(result);
-  if (!data.localPath) {
-    throw new Error('ghCloneRepo did not return a localPath.');
+  const cloneLocation = data.location;
+  if (!cloneLocation?.localPath) {
+    throw new Error('ghCloneRepo did not return location.localPath.');
   }
 
-  const repoRoot = path.resolve(data.localPath);
+  const repoRoot = path.resolve(cloneLocation.localPath);
   const localPath = requestedPath
     ? path.resolve(repoRoot, ...requestedPath.split('/'))
     : repoRoot;
-  const resolvedBranch = data.resolvedBranch ?? repo.branch;
-  const cached = Boolean(data.cached);
+  const resolvedBranch = cloneLocation.resolvedBranch ?? repo.branch;
+  const cached = Boolean(cloneLocation.cached);
 
   return {
     owner: repo.owner,
@@ -118,8 +118,7 @@ async function materializeTreeForCli(
         ...(kind === 'file'
           ? { fullContent: true, contextLines: 0, minify: 'none' }
           : {}),
-        mainResearchGoal: 'Materialize GitHub content for local CLI research',
-        researchGoal: `Save ${refLabel(repo)}${requestedPath ? `/${requestedPath}` : ''} locally`,
+        goal: `Save ${refLabel(repo)}${requestedPath ? `/${requestedPath}` : ''} locally`,
         reasoning: 'CLI remote-as-local materialization',
       },
     ],

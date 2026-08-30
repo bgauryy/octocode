@@ -1,1 +1,1 @@
-export { baseSchemaDescriptions as BASE_SCHEMA } from '../../toolContract/resources/global.js';
+export { baseSchemaDescriptions as BASE_SCHEMA } from '@octocodeai/octocode-core/schemas';

@@ -8,21 +8,18 @@ import {
 describe('extractResearchFields', () => {
   it('extracts fields from a flat (non-bulk) params object', () => {
     const r = extractResearchFields({
-      mainResearchGoal: 'find auth bug',
-      researchGoal: 'trace login flow',
+      goal: 'trace login flow',
       reasoning: 'user reports 500',
     });
     expect(r).toEqual({
-      mainResearchGoal: 'find auth bug',
-      researchGoal: 'trace login flow',
+      goal: 'trace login flow',
       reasoning: 'user reports 500',
     });
   });
 
   it('ignores non-string and empty-string fields on a flat object', () => {
     const r = extractResearchFields({
-      mainResearchGoal: '',
-      researchGoal: 42,
+      goal: 42,
       reasoning: null,
     });
     expect(r).toEqual({});
@@ -31,22 +28,20 @@ describe('extractResearchFields', () => {
   it('aggregates and de-duplicates fields across a queries array', () => {
     const r = extractResearchFields({
       queries: [
-        { mainResearchGoal: 'goal A', researchGoal: 'sub 1', reasoning: 'r1' },
-        { mainResearchGoal: 'goal A', researchGoal: 'sub 2', reasoning: 'r1' },
+        { goal: 'sub 1', reasoning: 'r1' },
+        { goal: 'sub 2', reasoning: 'r1' },
       ],
     });
-    // 'goal A' and 'r1' dedupe to one; the two distinct sub-goals join.
-    expect(r.mainResearchGoal).toBe('goal A');
-    expect(r.researchGoal).toBe('sub 1; sub 2');
+    expect(r.goal).toBe('sub 1; sub 2');
     expect(r.reasoning).toBe('r1');
   });
 
   it('falls back to the flat object when queries is empty', () => {
     const r = extractResearchFields({
       queries: [],
-      mainResearchGoal: 'flat goal',
+      goal: 'flat goal',
     });
-    expect(r.mainResearchGoal).toBe('flat goal');
+    expect(r.goal).toBe('flat goal');
   });
 
   it('falls back to the flat object when queries is not an array', () => {
@@ -62,7 +57,7 @@ describe('extractResearchFields', () => {
       queries: [{ unrelated: 'x' }],
     });
     expect(r).toEqual({});
-    expect('mainResearchGoal' in r).toBe(false);
+    expect('goal' in r).toBe(false);
   });
 });
 

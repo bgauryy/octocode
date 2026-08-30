@@ -46,11 +46,6 @@ export function formatSemanticResult(
   return compactSemanticEnvelope(result);
 }
 
-// The ready-to-run follow-up builder lives in ./semanticNext.js (split to keep
-// this module under the max-lines lint). Re-exported so existing importers of
-// './semanticPresentation.js' keep working unchanged.
-export { withSemanticNext } from './semanticNext.js';
-
 export function isSemanticEnvelope(
   value: LspSemanticEnvelope | Record<string, unknown>
 ): value is LspSemanticEnvelope {

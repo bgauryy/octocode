@@ -1,6 +1,6 @@
 import type { FileNode } from './types.js';
 
-/** BFS from every entrypoint across the shared directed file-import graph. */
+/** Iterative DFS from every entrypoint across the shared directed file-import graph. */
 export function computeReachableFiles(
   fileGraph: ReadonlyMap<string, FileNode>,
   entrypoints: readonly string[]

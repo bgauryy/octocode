@@ -11,6 +11,32 @@
 export * from './tools/directToolCatalog.meta.js';
 export * from './toolContract/schemas.js';
 export * from './toolContract/runtime.js';
-// Descriptions and executable schemas are repository-owned; the loaded content
-// retains the external shared system prompt until that separate surface moves.
+export {
+  CloneRepoQuerySchema,
+  FetchContentQuerySchema,
+  FileContentQuerySchema,
+  FindFilesQuerySchema,
+  GitHubCodeSearchQuerySchema,
+  GitHubPullRequestSearchQuerySchema,
+  GitHubReposSearchSingleQuerySchema,
+  GitHubViewRepoStructureQuerySchema,
+  ListReleasesQuerySchema,
+  LocalAnalyzeGraphQuerySchema,
+  LspGetSemanticsQuerySchema,
+  NpmPackageQuerySchema,
+  RipgrepQuerySchema,
+  SearchCommitsQuerySchema,
+  SearchDiscussionsQuerySchema,
+  SearchIssuesQuerySchema,
+  SearchPullRequestsQuerySchema,
+  ViewStructureQuerySchema,
+  findToolSchema,
+  getToolSchemaRelations,
+  toolSchemas,
+} from './toolContract/schemas.js';
+export {
+  applyWorkflowMode,
+  validateRipgrepQuery,
+} from './toolContract/runtime.js';
+// Descriptions and executable schemas are owned by octocode-core.
 export { loadToolContent } from './tools/toolMetadata/state.js';

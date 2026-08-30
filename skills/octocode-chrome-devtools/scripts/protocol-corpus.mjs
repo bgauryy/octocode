@@ -1,15 +1,21 @@
 #!/usr/bin/env node
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
-import { resolve, join } from 'node:path';
+import { isAbsolute, join, relative, resolve } from 'node:path';
 
 const argv = process.argv.slice(2);
 const getArg = (flag, def = '') => { const i = argv.indexOf(flag); return i >= 0 && argv[i + 1] ? argv[i + 1] : def; };
 if (argv.includes('--help') || argv.includes('-h')) {
-  console.log('Usage: protocol-corpus.mjs [--out .octocode/cdp-protocol] [--domains Network,Storage,DOMStorage,Page,Runtime,Input]');
+  console.log('Usage: protocol-corpus.mjs [--out .octocode/octocode-chrome-devtools/cdp-protocol] [--domains Network,Storage,DOMStorage,Page,Runtime,Input]');
   process.exit(0);
 }
-const out = resolve(getArg('--out', '.octocode/cdp-protocol'));
+const workspaceOutputBase = resolve(process.cwd(), '.octocode');
+const out = resolve(getArg('--out', '.octocode/octocode-chrome-devtools/cdp-protocol'));
+const outRelative = relative(workspaceOutputBase, out);
+if (outRelative.startsWith('..') || isAbsolute(outRelative)) {
+  console.error(`--out must stay under ${workspaceOutputBase}`);
+  process.exit(2);
+}
 const domains = getArg('--domains', 'Network,Storage,DOMStorage,CacheStorage,Page,Runtime,Target,Browser,Fetch,Performance,Security,Accessibility,DOM,CSS,Input').split(',').map(s => s.trim()).filter(Boolean);
 mkdirSync(out, { recursive: true });
 const fetchScript = resolve('skills/octocode-scraping/scripts/fetch.mjs');

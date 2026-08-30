@@ -1,6 +1,6 @@
-# Sanity checks (manual, per tool)
+# Verification checks (manual, per tool)
 
-One markdown checklist per MCP tool for **manual runtime sanity checks** —
+One markdown checklist per MCP tool for **manual runtime verification** —
 pagination, scheme, quality, and token-effectiveness — to run against the live
 tool when changing the response/pagination layer or shipping a release.
 
@@ -35,7 +35,7 @@ comparisons.
 - [ghSearchPullRequests](./ghSearchPullRequests.md)
 - [ghSearchIssues](./ghSearchIssues.md)
 - [ghSearchCommits](./ghSearchCommits.md)
-- [ghListReleases](./ghListReleases.md) (opt-in: `ENABLE_RELEASES`)
+- [ghListReleases](./ghListReleases.md) (opt-in: `ENABLE_RELEASES=true`)
 - [npmSearch](./npmSearch.md)
 - [ghCloneRepo](./ghCloneRepo.md)
 - [localSearchCode](./localSearchCode.md)

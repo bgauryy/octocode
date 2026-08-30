@@ -35,12 +35,24 @@ describe('clone command', () => {
     process.exitCode = undefined;
   });
 
-  it('delegates to ghCloneRepo and prints the returned local path', async () => {
+  it('delegates to ghCloneRepo and prints the canonical tool output once', async () => {
     executeDirectTool.mockResolvedValue({
       isError: false,
-      content: [],
+      content: [
+        {
+          type: 'text',
+          text: 'results:\n  - index: 0\n    data:\n      location:\n        localPath: /tmp/octocode/tmp/clone/react\n',
+        },
+      ],
       structuredContent: {
-        results: [{ data: { localPath: '/tmp/octocode/tmp/clone/react' } }],
+        results: [
+          {
+            index: 0,
+            data: {
+              location: { localPath: '/tmp/octocode/tmp/clone/react' },
+            },
+          },
+        ],
       },
     });
 
@@ -54,8 +66,12 @@ describe('clone command', () => {
         ],
       })
     );
+    expect(console.log).toHaveBeenCalledTimes(3);
     expect(console.log).toHaveBeenCalledWith(
-      expect.stringContaining('Local clone: /tmp/octocode/tmp/clone/react')
+      expect.stringContaining('localPath: /tmp/octocode/tmp/clone/react')
+    );
+    expect(console.log).not.toHaveBeenCalledWith(
+      expect.stringContaining('Local clone:')
     );
   });
 
@@ -71,7 +87,7 @@ describe('clone command', () => {
       structuredContent: {
         results: [
           {
-            id: 'q1',
+            index: 0,
             status: 'error',
             data: {
               error:
@@ -94,5 +110,19 @@ describe('clone command', () => {
     expect(console.error).toHaveBeenCalledWith(
       expect.stringContaining('tools ghGetFileContent --scheme')
     );
+  });
+
+  it('uses the common tool-error envelope for JSON usage errors', async () => {
+    await run([], { json: true });
+
+    expect(
+      JSON.parse(String(vi.mocked(console.log).mock.calls[0]?.[0]))
+    ).toEqual({
+      kind: 'octocode.toolError',
+      version: 1,
+      tool: 'ghCloneRepo',
+      error: 'Provide a GitHub ref: owner/repo[/path][@branch] or a URL.',
+    });
+    expect(process.exitCode).toBe(EXIT.USAGE);
   });
 });

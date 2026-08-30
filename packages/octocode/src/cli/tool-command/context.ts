@@ -12,6 +12,9 @@ import {
 } from './registry.js';
 import { formatConciseToolDescription } from './formatting.js';
 
+const CONTINUATION_GUIDANCE =
+  'Follow row data.next; advance data.pagination while hasMore. responsePagination is text-only; structuredContent is complete.';
+
 export async function getToolsContextString(
   options: { full?: boolean; minimal?: boolean } = {}
 ): Promise<string> {
@@ -31,7 +34,8 @@ export async function getToolsContextString(
     const lines = [
       'Octocode CLI — Minimal Context',
       'Protocol: schema first → orient → search → read exact → prove → decide.',
-      "Run: tools --json | tools <name> --scheme --json | tools <name> --queries '<json>' --compact",
+      "Run: tools --json --compact | tools <name> --scheme --json --compact | tools <name> --queries '<json>' --compact",
+      'Output: YAML default; --compact structured JSON. Batch rows keep ordered indexes and isolate errors.',
       `Tools (${toolNames.length}):`,
     ];
     for (const [category, names] of byCategory) {
@@ -51,62 +55,23 @@ export async function getToolsContextString(
 
   const protocol = full
     ? [
-        full
-          ? 'Agent context: protocol, system prompt, full tool descriptions. Schemas are read separately, on demand.'
-          : '',
-        'Follow this protocol:',
-        '',
-        '  *** SCHEMA CHECK — REQUIRED BEFORE EVERY RAW TOOL CALL ***',
-        '  This context lists what each tool is for. It does NOT include schemas —',
-        "  read a tool's schema before calling it:",
-        '    tools --json                   # lean machine catalog, no full schemas',
-        '    tools <name> --scheme           # schema: fields, types, bounds, defaults',
-        '    tools <name> --scheme --json    # one machine-readable schema',
-        '    tools <name>                    # same schema/help shortcut',
-        '    tools <n1> <n2> ... --scheme    # batch: read multiple schemas at once',
-        '    tools --json --full             # full all-tool schema dump; expensive, rare',
-        '',
-        '  *** RESEARCH LOOP ***',
-        '  1. Orient: localViewStructure / ghViewRepoStructure / npmSearch.',
-        '  2. Search: localSearchCode / ghSearchCode. Use localSearchCode mode:"structural" for AST/code-shape anchors.',
-        '  3. Read: localGetFileContent / ghGetFileContent — smallest slice, choose minify standard|symbols|none.',
-        '  4. Prove: lspGetSemantics or ghSearchPullRequests; LSP consumes the file/line anchors from text or structural search.',
-        '',
-        '  *** ORIENT CHEAP — BEFORE READING ***',
-        '  concise:true         flat string lists — ghSearchRepos→"owner/repo", ghSearchCode→"owner/repo:path", ghSearchPullRequests list→"#number title"',
-        '  mode:"discovery"     localSearchCode paths only, no snippets (~80% cheaper than paginated)',
-        '  minify:"symbols"     skeleton+line-gutter — orient any unknown file first; never paginated',
-        '  minify:"standard"    strips comments/blanks — default read mode',
-        '  minify:"none"        exact raw text — for quotes, diffs, exact matching',
-        '',
-        '  *** PAGINATION ***',
-        '  Read the typed fields — pagination (nextPage/nextCharOffset) and next carry the exact follow-up params.',
-        '  Page only when pagination.hasMore or contentPagination.*.hasMore is true; narrow scope before paging.',
-        '  responseCharLength/responseCharOffset (root params, siblings of queries) cap the whole envelope.',
-        '',
+        'Full MCP prompt + tool descriptions. Schemas stay on demand.',
         '  *** TOOL CALLS ***',
-        '  tools --json                                  # lean catalog; choose one tool',
-        '  tools <name> --scheme --json                  # one tool schema; avoid all-schema dumps',
-        "  tools <name> --queries '<json>'           # run tool, YAML output",
-        "  tools <name> --queries '<json>' --json    # run tool, full CallToolResult JSON",
-        "  tools <name> --queries '<json>' --compact # run tool, lean structuredContent JSON",
-        '',
-        '  Output: clean YAML by default; use --compact for lean structuredContent JSON, --json for the full CallToolResult envelope.',
-        '',
-        '  Exit codes: 0=ok  2=bad-input  3=not-found  4=auth  5=tool-error  7=rate-limited',
-        '',
-        '  *** REFERENCES ***',
-        '  Docs:  https://github.com/bgauryy/octocode/tree/main/docs',
+        '  tools --json --compact | tools <name> --scheme --json --compact | tools <name> --scheme',
+        "  tools <name> --queries '<json>' [--compact|--json]",
+        '  YAML is default; --compact is typed JSON; --json is the full envelope.',
+        '  *** RESEARCH LOOP ***  orient → search → read exact → prove → decide.',
+        '  Cheap modes: concise:true, mode:"discovery", minify:"symbols".',
+        `  ${CONTINUATION_GUIDANCE}`,
+        '  Exit: 0 ok · 2 input · 3 not-found · 4 auth · 5 tool · 7 rate-limit.',
         '  Quick commands (clone/cache fetch) materialize content locally; every other capability (files, trees, content, repos, packages, PRs, history, diffs) runs through `tools <name>` — read its schema first.',
-        '  Do not hallucinate paths, lines, or fields — verify with the tools; snippets are discovery, not proof.',
-        '',
       ]
     : [
-        'Compact agent context. Use `context --full` for the full MCP prompt and long descriptions.',
+        'Compact context; use `context --full` for MCP instructions + long descriptions.',
         'Protocol: schema first → orient → search → read exact → prove → decide.',
-        "Commands: tools --json | tools <name> --scheme --json | tools <name> --queries '<json>' --compact",
+        "Commands: tools --json --compact | tools <name> --scheme --json --compact | tools <name> --queries '<json>' --compact",
         'Cheap modes: concise:true, localSearchCode mode:"discovery", minify:"symbols" before full reads.',
-        'Pagination: follow returned `next`/`pagination` fields exactly; narrow before paging.',
+        CONTINUATION_GUIDANCE,
         'Proof: snippets are discovery, not proof; use exact reads, PR/commit evidence, or LSP.',
       ];
 
@@ -119,29 +84,28 @@ export async function getToolsContextString(
           'Agent System Prompt (Octocode MCP Instructions):',
           metadata.systemPrompt.trim(),
         ].join('\n')
-      : 'System prompt omitted in compact mode; use `context --full` when you need the full MCP instruction text.',
+      : 'MCP instructions omitted; use `context --full` when needed.',
     '',
     'Output contract (all tools):',
     (full
       ? [
-          '  Default output: clean YAML — read it directly. No parsing needed.',
-          '  Add --compact for lean structuredContent JSON. Add --json for the full CallToolResult envelope below.',
+          '  CLI default: YAML from content[].text. --compact: structuredContent JSON. --json: full CallToolResult.',
+          '  MCP receives bounded triage text plus full structuredContent; read structuredContent for full data.',
           '',
           '  --json envelope:',
-          '    isError: boolean                       true = tool failed',
+          '    isError: boolean                       true = call/all rows failed; inspect each row status for mixed batches',
           '    content[].text: string                 YAML string (same as default output)',
-          '    structuredContent.results[]: array     tool result objects; most tools use id + data',
-          '    structuredContent.results[].files[]     ghGetFileContent grouped fetch entries; data aliases the same group',
+          '    structuredContent.results[]: array     ordered rows: index, optional status/meta, and data',
+          '    structuredContent.results[].data: object tool payload; continuations stay with their row',
           '    structuredContent.base: string         cwd / workspace root used for the query',
-          '    structuredContent.pagination: object   nextPage / nextCharOffset — page only when present',
-          '    structuredContent.next: object         typed follow-up params for the next call',
-          '    structuredContent.location: object     where remote content was saved (kind, localPath, repoRoot, ...)',
-          '    structuredContent.warnings[]: string[] non-fatal issues to account for',
-          '    structuredContent.error: object        failure detail when isError is true',
+          '    structuredContent.responsePagination: object text-channel char window; structured consumers do not replay it',
+          '    structuredContent.results[].data.pagination: object page state; advance only while hasMore',
+          '    structuredContent.results[].data.next: object typed follow-up calls for that row',
+          '    structuredContent.results[].data.location: object where fetched or cloned content was saved',
         ]
       : [
           '  Default: YAML. --compact: lean structuredContent JSON. --json: full CallToolResult.',
-          '  Follow `next` and `pagination` exactly; treat warnings/errors as evidence.',
+          '  Batch rows preserve zero-based index; errors stay isolated by row.',
         ]
     ).join('\n'),
     '',
@@ -186,10 +150,10 @@ export async function getToolsContextString(
   }
 
   sections.push(
-    'Schemas are not shown here — read them on demand (required before any call):'
+    'Schemas are not shown here — inspect before an unfamiliar or hand-authored call:'
   );
   sections.push(
-    '  tools <name> --scheme            # one tool',
+    '  tools <name> --scheme --brief    # lean signatures + example',
     '  tools <n1> <n2> ... --scheme     # several tools at once'
   );
 

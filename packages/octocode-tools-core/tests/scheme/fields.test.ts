@@ -26,14 +26,13 @@ describe('shared schema fields', () => {
   it('adds response pagination fields and clamps their bounds', () => {
     const schema = createRelaxedBulkQuerySchema(
       z.object({
-        id: z.string().optional(),
         value: z.string(),
       }),
       { maxQueries: 2 }
     );
 
     const parsed = schema.parse({
-      queries: [{ id: 'q1', value: 'alpha' }],
+      queries: [{ value: 'alpha' }],
       responseCharOffset: -1,
       responseCharLength: 100_000,
     });
@@ -42,27 +41,16 @@ describe('shared schema fields', () => {
     expect(parsed.responseCharLength).toBe(50_000);
   });
 
-  it('rejects duplicate query ids in the bulk envelope', () => {
+  it('accepts identical query values because response indexes provide correlation', () => {
     const schema = createRelaxedBulkQuerySchema(
-      z.object({
-        id: z.string().optional(),
-        value: z.string(),
-      })
+      z.object({ value: z.string() })
     );
 
     const result = schema.safeParse({
-      queries: [
-        { id: 'same', value: 'alpha' },
-        { id: 'same', value: 'beta' },
-      ],
+      queries: [{ value: 'same' }, { value: 'same' }],
     });
 
-    expect(result.success).toBe(false);
-    if (!result.success) {
-      expect(result.error.issues[0]).toMatchObject({
-        message: 'Duplicate query id "same" at index 1',
-        path: ['queries', 1, 'id'],
-      });
-    }
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.queries).toHaveLength(2);
   });
 });

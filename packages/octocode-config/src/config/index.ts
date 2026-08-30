@@ -74,12 +74,6 @@ export {
 
 export {
   resolveConfigSync,
-  resolveConfig,
-  getConfig,
   getConfigSync,
-  reloadConfig,
-  invalidateConfigCache,
-  _resetConfigCache,
-  _getCacheState,
   getConfigValue,
 } from './resolver.js';

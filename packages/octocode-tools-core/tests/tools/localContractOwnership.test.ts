@@ -1,46 +1,39 @@
-import { readdir, readFile } from 'node:fs/promises';
+import { access, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 const SOURCE_ROOT = path.resolve(import.meta.dirname, '../../src');
-const EXTERNAL_SCHEMA_SPECIFIER = '@octocodeai/' + 'octocode-core/' + 'schemas';
-const EXTERNAL_ROOT_SPECIFIER = '@octocodeai/' + 'octocode-core';
+const CONTRACT_ROOT = path.join(SOURCE_ROOT, 'toolContract');
 
-async function typescriptFiles(root: string): Promise<string[]> {
-  const entries = await readdir(root, { withFileTypes: true });
-  const nested = await Promise.all(
-    entries.map(async entry => {
-      const target = path.join(root, entry.name);
-      if (entry.isDirectory()) return typescriptFiles(target);
-      return entry.isFile() && entry.name.endsWith('.ts') ? [target] : [];
-    })
-  );
-  return nested.flat();
-}
-
-describe('local tool-contract ownership', () => {
-  it('has no source import from the external schema package', async () => {
-    const offenders: string[] = [];
-    for (const file of await typescriptFiles(SOURCE_ROOT)) {
-      const content = await readFile(file, 'utf8');
-      if (content.includes(EXTERNAL_SCHEMA_SPECIFIER)) {
-        offenders.push(path.relative(SOURCE_ROOT, file));
-      }
-    }
-    expect(offenders).toEqual([]);
+describe('shared tool-contract ownership', () => {
+  it('does not keep a duplicate resources tree in tools-core', async () => {
+    await expect(
+      access(path.join(CONTRACT_ROOT, 'resources'))
+    ).rejects.toThrow();
   });
 
-  it('uses external completeMetadata only for the shared system prompt', async () => {
-    const offenders: string[] = [];
-    for (const file of await typescriptFiles(SOURCE_ROOT)) {
-      const content = await readFile(file, 'utf8');
-      if (
-        content.includes(`from '${EXTERNAL_ROOT_SPECIFIER}'`) &&
-        !file.endsWith(path.join('toolContract', 'metadata.ts'))
-      ) {
-        offenders.push(path.relative(SOURCE_ROOT, file));
-      }
-    }
-    expect(offenders).toEqual([]);
+  it('routes executable schemas through octocode-core', async () => {
+    const schemas = await readFile(
+      path.join(CONTRACT_ROOT, 'schemas.ts'),
+      'utf8'
+    );
+    const runtime = await readFile(
+      path.join(CONTRACT_ROOT, 'runtime.ts'),
+      'utf8'
+    );
+
+    expect(schemas).toContain("from '@octocodeai/octocode-core/schemas'");
+    expect(runtime).toContain(
+      "from '@octocodeai/octocode-core/schemas/runtime'"
+    );
+  });
+
+  it('routes descriptions and metadata through octocode-core', async () => {
+    const metadata = await readFile(
+      path.join(CONTRACT_ROOT, 'metadata.ts'),
+      'utf8'
+    );
+
+    expect(metadata).toContain("from '@octocodeai/octocode-core'");
   });
 });

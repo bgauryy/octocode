@@ -1,8 +1,8 @@
 # Improve Loop
 
-Load when changing this skill's own instructions and `octocode-graph-eval` is unavailable. Why: an unmeasured edit cannot be accepted or reverted on evidence.
+Load when changing this skill's own instructions and `octocode-eval-benchmark` is unavailable. Why: an unmeasured edit cannot be accepted or reverted on evidence.
 
-Stub only. Full goal→KPI cascade, nested loops, graders, held-out: load **`octocode-graph-eval`**.
+Stub only. Full goal→KPI cascade, nested loops, graders, held-out: load **`octocode-eval-benchmark`**.
 
 ```text
 SET GOAL + KPI → SMALLEST CHANGE → MEASURE ACTUAL RESULTS → ACCEPT | REVERT

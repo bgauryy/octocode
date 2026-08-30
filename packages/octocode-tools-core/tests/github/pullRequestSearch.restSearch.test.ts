@@ -25,7 +25,9 @@ function makeApiError(overrides: Partial<GitHubAPIError> = {}): GitHubAPIError {
 describe('createPullRequestErrorResult', () => {
   it('returns a result with empty pullRequests and totalCount=0', () => {
     const apiError = makeApiError({ status: 404 });
-    const result = createPullRequestErrorResult(apiError, 'not found', ['try again']);
+    const result = createPullRequestErrorResult(apiError, 'not found', [
+      'try again',
+    ]);
     expect(result.pullRequests).toHaveLength(0);
     expect(result.totalCount).toBe(0);
   });
@@ -44,7 +46,10 @@ describe('createPullRequestErrorResult', () => {
 
   it('includes hints in the result', () => {
     const apiError = makeApiError();
-    const result = createPullRequestErrorResult(apiError, 'err', ['hint A', 'hint B']);
+    const result = createPullRequestErrorResult(apiError, 'err', [
+      'hint A',
+      'hint B',
+    ]);
     expect(result.hints).toEqual(['hint A', 'hint B']);
   });
 
@@ -139,8 +144,20 @@ function makePRItem(number = 1) {
     merge_commit_sha: null,
     html_url: `https://github.com/facebook/react/pull/${number}`,
     user: { login: 'author', avatar_url: '', type: 'User', html_url: '' },
-    head: { ref: 'feat/branch', sha: 'abc', label: 'author:feat/branch', repo: null, user: null },
-    base: { ref: 'main', sha: 'def', label: 'facebook:main', repo: null, user: null },
+    head: {
+      ref: 'feat/branch',
+      sha: 'abc',
+      label: 'author:feat/branch',
+      repo: null,
+      user: null,
+    },
+    base: {
+      ref: 'main',
+      sha: 'def',
+      label: 'facebook:main',
+      repo: null,
+      user: null,
+    },
     labels: [],
     assignees: [],
     requested_reviewers: [],
@@ -285,9 +302,11 @@ describe('searchPullRequestsWithREST', () => {
     const mockOctokit = {
       rest: {
         pulls: {
-          list: vi.fn().mockRejectedValue(
-            Object.assign(new Error('No results'), { status: 422 })
-          ),
+          list: vi
+            .fn()
+            .mockRejectedValue(
+              Object.assign(new Error('No results'), { status: 422 })
+            ),
           get: vi.fn(),
           listReviews: vi.fn(),
           listReviewComments: vi.fn(),
@@ -309,9 +328,11 @@ describe('searchPullRequestsWithREST', () => {
     const mockOctokit = {
       rest: {
         pulls: {
-          list: vi.fn().mockRejectedValue(
-            Object.assign(new Error('Internal server error'), { status: 500 })
-          ),
+          list: vi
+            .fn()
+            .mockRejectedValue(
+              Object.assign(new Error('Internal server error'), { status: 500 })
+            ),
           get: vi.fn(),
           listReviews: vi.fn(),
           listReviewComments: vi.fn(),

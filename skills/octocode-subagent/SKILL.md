@@ -1,12 +1,14 @@
 ---
 name: octocode-subagent
-description: "Use when spawning workers or offloading work: Task/subagents, specialist handoffs, A2A peers, sealed packets, coordinate/synthesize, challenge techniques (rubber-duck, interview, mimic-flow, red-team, blind review, consensus), or local Ollama one-shots to save tokens. Measuring keep/discard KPIs → octocode-graph-eval."
+description: "Use when spawning workers or offloading work: Task/subagents, specialist handoffs, A2A peers, sealed packets, coordinate/synthesize, challenge techniques (rubber-duck, interview, mimic-flow, red-team, blind review, consensus), or local Ollama one-shots to save tokens. Measuring keep/discard KPIs → octocode-eval-benchmark."
 ---
 
 # Octocode Subagent
 
 Host-agnostic delegation: cloud/host workers **or** local Ollama offload.  
 Flows: `GATE → DECOMPOSE → ROUTE → PACKET → SPAWN → COORDINATE → SYNTHESIZE → CLEANUP` (tool-using) · `GATE → ROUTE → RUN → VERIFY → REPORT` (Ollama — `references/local-ollama.md`).
+
+Workspace output contract: chat-only synthesis stays in chat. Worker packets and generated results default to `<workspace>/.octocode/worker/`; transient prompts use `<workspace>/.octocode/tmp/ollama-worker/`. User-approved source edits keep their named paths. Never fall back to a user-level Octocode home for artifacts.
 
 ## Lobby rules
 1. Spawn only when delegation changes speed, expertise, isolation, or context quality; otherwise keep work in the parent. Default is solo; earn spawn cost first.
@@ -29,7 +31,7 @@ Stop when solo work finishes, two High options need a winner, three angles add n
 - When parallel writers share mutable state, load `references/workspace.md`.
 - When workers stall, fail, or conflict, load `references/recovery.md`; before final output load `references/synthesize.md` and `references/output.md`; at CLEANUP stop and remove every worker and release shared state per `references/coordinate.md`.
 - When grounding orchestration guidance in sources, load `references/references.md`.
-- When improving this skill, prefer `octocode-graph-eval`; otherwise load `references/improve-loop.md`.
+- When improving this skill, prefer `octocode-eval-benchmark`; otherwise load `references/improve-loop.md`.
 
 ## Challenge routes — fresh context per critic; agreement is not proof
 - When quality risk needs a second mind, load `references/techniques.md` first — it names which technique below earns the spawn.
@@ -48,7 +50,7 @@ Stop when solo work finishes, two High options need a winner, three angles add n
 - When the question is RAM kits, catalog, or MCP/tools capability rather than routing, load `references/ollama-local-models.md` — pull commands per RAM in `references/ollama-local-models-kits.md`, capability rows in `references/ollama-local-models-matrix.md`, cloud/heavy tags plus a sample inventory in `references/ollama-local-models-heavy.md`, evidence and links in `references/ollama-local-models-sources.md`.
 
 ## Related routes
-- Use `octocode-research` for worker evidence; `octocode-graph-eval` to judge worker quality (subagent measurement cookbooks live there).
+- Use `octocode-research` for worker evidence; `octocode-eval-benchmark` to judge worker quality (subagent measurement cookbooks live there).
 - Use `octocode-rfc-generator` before changing a multi-agent architecture; `octocode-prompt-optimizer` for packet contracts; `octocode-skills` when changing this folder.
 
 ## Scripts

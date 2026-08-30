@@ -1,8 +1,8 @@
 import { z } from 'zod';
-import { ToolContinuationSchema } from './pagination.js';
 
 const ResponsePaginationSchema = z
   .object({
+    scope: z.literal('content.text'),
     currentPage: z.number(),
     totalPages: z.number(),
     hasMore: z.boolean(),
@@ -21,8 +21,6 @@ export const responseEnvelopeFields = {
     .optional(),
 
   responsePagination: ResponsePaginationSchema,
-
-  next: z.record(z.string(), ToolContinuationSchema).optional(),
 } as const;
 
 export function withResponseEnvelope<S extends z.ZodObject>(schema: S): S {
@@ -38,7 +36,7 @@ export function makeToolResultRowSchema<TData extends z.ZodTypeAny>(
   dataSchema: TData
 ) {
   return z.object({
-    id: z.string(),
+    index: z.number().int().min(0),
     status: z.enum(['empty', 'error']).optional(),
     meta: z.object({
       evidence: z.object({
@@ -61,7 +59,6 @@ export function makeToolResultRowSchema<TData extends z.ZodTypeAny>(
         .optional(),
     }),
     data: dataSchema,
-    next: z.record(z.string(), ToolContinuationSchema).optional(),
   });
 }
 

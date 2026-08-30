@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
 import { buildGhSearchCodeFinalizer } from '../../../src/tools/github_search_code/finalizer.js';
-import { resolveUniqueQueryIds } from '../../../src/utils/response/bulk.js';
 
 type AnyRec = Record<string, unknown>;
 
@@ -31,26 +30,12 @@ const pagination = (nextPage: number) => ({
   nextPage,
 });
 
-describe('resolveUniqueQueryIds — duplicate explicit ids get suffixed', () => {
-  it('keeps distinct ids untouched and suffixes collisions in order', () => {
-    expect(
-      resolveUniqueQueryIds([{ id: 'dup' }, { id: 'dup' }, { id: 'other' }])
-    ).toEqual(['dup', 'dup#2', 'other']);
-  });
-
-  it('falls back to positional ids and never collides with them', () => {
-    expect(resolveUniqueQueryIds([{}, { id: 'q1' }])).toEqual(['q1', 'q1#2']);
-  });
-});
-
-describe('ghSearchCode finalizer — same-id bulk queries are not merged', () => {
-  it('emits one record per query with its own pagination when ids collide upstream', () => {
-    // bulk.ts now derives unique ids ('dup', 'dup#2') before the finalizer
-    // runs; simulate its output for two queries submitted with the same id.
-    const queries = [{ id: 'dup' }, { id: 'dup#2' }];
+describe('ghSearchCode finalizer — ordered bulk indexes are not merged', () => {
+  it('emits one record per query with its own pagination', () => {
+    const queries = [{}, {}];
     const results = [
       {
-        id: 'dup',
+        index: 0,
         status: 'success',
         data: {
           results: [groupResult('octo', 'a', 'src/a.ts', 'foo')],
@@ -58,7 +43,7 @@ describe('ghSearchCode finalizer — same-id bulk queries are not merged', () =>
         },
       },
       {
-        id: 'dup#2',
+        index: 1,
         status: 'success',
         data: {
           results: [groupResult('octo', 'b', 'src/b.ts', 'bar')],
@@ -69,22 +54,22 @@ describe('ghSearchCode finalizer — same-id bulk queries are not merged', () =>
 
     const sc = runFinalizer(queries, results);
     const records = sc.results as Array<{
-      id: string;
+      index: number;
       data: { pagination?: { nextPage?: number } };
     }>;
-    expect(records.map(r => r.id).sort()).toEqual(['dup', 'dup#2']);
-    const byId = new Map(records.map(r => [r.id, r]));
-    expect(byId.get('dup')?.data.pagination?.nextPage).toBe(2);
-    expect(byId.get('dup#2')?.data.pagination?.nextPage).toBe(3);
+    expect(records.map(r => r.index)).toEqual([0, 1]);
+    const byIndex = new Map(records.map(r => [r.index, r]));
+    expect(byIndex.get(0)?.data.pagination?.nextPage).toBe(2);
+    expect(byIndex.get(1)?.data.pagination?.nextPage).toBe(3);
   });
 });
 
-describe('ghSearchCode finalizer — next.getLines continuation', () => {
+describe('ghSearchCode finalizer — row-local data.next continuation', () => {
   it('emits a ghGetFileContent matchString call for the top hit of a single query', () => {
-    const queries = [{ id: 'q1', keywords: ['createStoreImpl'] }];
+    const queries = [{ keywords: ['createStoreImpl'] }];
     const results = [
       {
-        id: 'q1',
+        index: 0,
         status: 'success',
         data: {
           results: [groupResult('pmndrs', 'zustand', 'src/vanilla.ts', 'x')],
@@ -93,7 +78,8 @@ describe('ghSearchCode finalizer — next.getLines continuation', () => {
     ];
 
     const sc = runFinalizer(queries, results);
-    const next = sc.next as Record<
+    const next = (sc.results as Array<{ data: { next: unknown } }>)[0]!.data
+      .next as Record<
       string,
       { tool: string; query: Record<string, unknown>; confidence?: string }
     >;
@@ -108,34 +94,32 @@ describe('ghSearchCode finalizer — next.getLines continuation', () => {
     expect(next.getLines!.confidence).toBe('low');
   });
 
-  it('emits per-query keys for multi-query bulk and uses each query own keyword', () => {
-    const queries = [
-      { id: 'q1', keywords: ['alpha'] },
-      { id: 'q2', keywords: ['beta'] },
-    ];
+  it('keeps each bulk query continuation with its ordered row', () => {
+    const queries = [{ keywords: ['alpha'] }, { keywords: ['beta'] }];
     const results = [
       {
-        id: 'q1',
+        index: 0,
         status: 'success',
         data: { results: [groupResult('o', 'a', 'a.ts', 'x')] },
       },
       {
-        id: 'q2',
+        index: 1,
         status: 'success',
         data: { results: [groupResult('o', 'b', 'b.ts', 'y')] },
       },
     ];
 
     const sc = runFinalizer(queries, results);
-    const next = sc.next as Record<string, { query: Record<string, unknown> }>;
-    expect(next['getLines:q1']!.query.matchString).toBe('alpha');
-    expect(next['getLines:q2']!.query.matchString).toBe('beta');
+    const rows = sc.results as Array<{
+      data: { next: Record<string, { query: Record<string, unknown> }> };
+    }>;
+    expect(rows[0]!.data.next.getLines!.query.matchString).toBe('alpha');
+    expect(rows[1]!.data.next.getLines!.query.matchString).toBe('beta');
   });
 
   it('maps repoState renamed → corrected retry continuation (warnings stripped)', () => {
     const queries = [
       {
-        id: 'q1',
         keywords: ['localSearchCode'],
         owner: 'bgauryy',
         repo: 'octocode-mcp',
@@ -143,7 +127,7 @@ describe('ghSearchCode finalizer — next.getLines continuation', () => {
     ];
     const results = [
       {
-        id: 'q1',
+        index: 0,
         status: 'success',
         data: {
           results: [],
@@ -153,40 +137,107 @@ describe('ghSearchCode finalizer — next.getLines continuation', () => {
     ];
     const sc = runFinalizer(queries, results);
     expect(sc.warnings).toBeUndefined();
-    const next = sc.next as Record<string, { query: Record<string, unknown> }>;
-    expect(next['retryRenamed:q1']!.query).toMatchObject({
+    const row = (
+      sc.results as Array<{
+        data: { next: Record<string, { query: Record<string, unknown> }> };
+      }>
+    )[0]!;
+    expect(row.data.next.retryRenamed!.query).toMatchObject({
       owner: 'bgauryy',
       repo: 'octocode',
       keywords: ['localSearchCode'],
     });
+    expect(row).toMatchObject({
+      meta: {
+        diagnostics: {
+          codes: ['ghRepoRenamed'],
+          hints: [expect.stringContaining('renamed')],
+        },
+      },
+    });
   });
 
   it('maps repoState archived/notFound → empty rows with no warnings channel', () => {
-    const queries = [{ id: 'q1' }, { id: 'q2' }];
+    const queries = [
+      { owner: 'octo', repo: 'archived' },
+      { owner: 'octo', repo: 'missing' },
+    ];
     const results = [
       {
-        id: 'q1',
+        index: 0,
         status: 'success',
         data: { results: [], repoState: { kind: 'archived' } },
       },
       {
-        id: 'q2',
+        index: 1,
         status: 'success',
         data: { results: [], repoState: { kind: 'notFound' } },
       },
     ];
     const sc = runFinalizer(queries, results);
     expect(sc.warnings).toBeUndefined();
-    expect(sc.emptyQueries as unknown[]).toHaveLength(2);
+    expect(sc.results).toMatchObject([
+      {
+        index: 0,
+        status: 'empty',
+        meta: { diagnostics: { codes: ['ghRepoArchived'] } },
+        data: { next: { viewStructure: { tool: 'ghViewRepoStructure' } } },
+      },
+      {
+        index: 1,
+        status: 'empty',
+        meta: { diagnostics: { codes: ['ghRepoNotFound'] } },
+        data: { next: { findRepository: { tool: 'ghSearchRepos' } } },
+      },
+    ]);
+    expect(sc.emptyQueries).toBeUndefined();
+  });
+
+  it('keeps mixed batch failures as ordered row-local errors', () => {
+    const queries = [{}, {}];
+    const results = [
+      {
+        index: 0,
+        status: 'error',
+        data: { error: 'first query failed' },
+      },
+      {
+        index: 1,
+        status: 'success',
+        data: { results: [groupResult('o', 'a', 'a.ts', 'x')] },
+      },
+    ];
+
+    const sc = runFinalizer(queries, results);
+    expect(sc.results).toMatchObject([
+      { index: 0, status: 'error', data: { error: 'first query failed' } },
+      { index: 1, data: { files: [{ path: 'a.ts' }] } },
+    ]);
+    expect(sc.errors).toBeUndefined();
   });
 
   it('omits next when there are no keywords to anchor on', () => {
-    const queries = [{ id: 'q1' }];
+    const queries = [{}];
     const results = [
       {
-        id: 'q1',
+        index: 0,
         status: 'success',
         data: { results: [groupResult('o', 'a', 'a.ts', 'x')] },
+      },
+    ];
+    const sc = runFinalizer(queries, results);
+    expect(sc.next).toBeUndefined();
+  });
+
+  it('omits content-match continuation for path-only search', () => {
+    const queries = [{ keywords: ['package.json'], match: 'path' }];
+    const results = [
+      {
+        index: 0,
+        status: 'success',
+        data: {
+          results: [groupResult('o', 'a', 'package.json', 'package.json')],
+        },
       },
     ];
     const sc = runFinalizer(queries, results);

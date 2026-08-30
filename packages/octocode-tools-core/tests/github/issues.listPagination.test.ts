@@ -59,9 +59,7 @@ describe('listIssues pagination honesty', () => {
     // next to hasMore:true.
     expect(result.data?.totalCount).toBeUndefined();
     expect(
-      result.data?.warnings?.some((w: string) =>
-        w.includes('pull requests')
-      )
+      result.data?.warnings?.some((w: string) => w.includes('pull requests'))
     ).toBe(true);
   });
 

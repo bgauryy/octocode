@@ -143,8 +143,7 @@ export async function searchCode(
     match: query.match,
     limit: query.limit,
     page: query.page,
-    mainResearchGoal: query.mainResearchGoal,
-    researchGoal: query.researchGoal,
+    goal: query.goal,
     reasoning: query.reasoning,
   } as GitHubCodeSearchQuery;
 
@@ -196,8 +195,7 @@ export async function searchRepos(
         : (query.sort as 'stars' | 'forks' | 'updated' | undefined),
     limit: query.limit,
     page: query.page,
-    mainResearchGoal: query.mainResearchGoal,
-    researchGoal: query.researchGoal,
+    goal: query.goal,
     reasoning: query.reasoning,
   } as GitHubReposSearchSingleQuery & { archived?: boolean };
 

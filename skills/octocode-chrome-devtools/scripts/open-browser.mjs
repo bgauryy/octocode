@@ -29,14 +29,8 @@ propagateOctocodeEnv({ cwd: process.cwd(), trusted: true });
 
 function octocodeOutputBase() {
   const workspace = resolve(process.cwd(), '.octocode');
-  try {
-    mkdirSync(workspace, { recursive: true, mode: 0o700 });
-    return workspace;
-  } catch {
-    const home = getOctocodeHome();
-    mkdirSync(home, { recursive: true, mode: 0o700 });
-    return home;
-  }
+  mkdirSync(workspace, { recursive: true, mode: 0o700 });
+  return workspace;
 }
 
 const OCTOCODE_OUTPUT_BASE = octocodeOutputBase();

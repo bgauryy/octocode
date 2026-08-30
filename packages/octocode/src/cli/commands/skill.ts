@@ -28,15 +28,16 @@ ${bold('Usage')}
 ${bold('Commands')}
   list                    List bundled skills with install/env status
   install <name>...       Install one or more bundled skills  ${dim('(override by default)')}
+  --add <source>          Add to canonical home + link into ~/.agents/skills
   remove  <name>...       Remove a skill — home copy + platform links
   check  [<name>...]      Verify installs, platform links, and env readiness
   info   <name>           Show full SKILL.md content
 
 ${bold('Install options')}
   --all                   Install all bundled skills
-  --platform <p>          Link into platform dir  ${dim('(comma-sep: pi | cursor | claude | claude-desktop | codex | opencode | copilot | gemini | common | all)')}
+  --platform <p>          Link into platform dir  ${dim('(comma-sep: pi | cursor | claude | claude-desktop | codex | codex-native | opencode | copilot | gemini | common | all)')}
   --workspace, --repo     Also link into <cwd>/.agents/skills/
-  --path <dir>            Install directly to <dir>  ${dim('(skips home)')}
+  --path <dir>            Install bundled skill directly to a custom destination
   --mode copy|symlink|hybrid  ${dim('[default: symlink · hybrid = copy for claude]')}
   --keep                  Preserve existing  ${dim('[default: override]')}
   --dry-run               Preview without writing
@@ -59,6 +60,7 @@ ${bold('Global flags')}
 ${bold('Examples')}
   octocode skill list --json
   octocode skill install --all --platform pi,cursor
+  octocode skill --add ./skills/my-skill --platform claude,cursor,codex-native
   octocode skill install octocode-research --workspace --keep
   octocode skill remove octocode-research --platform pi
   octocode skill check --fix
@@ -70,6 +72,8 @@ function subcommand(args: ParsedArgs): string {
   const first = args.args[0];
   if (first && SUBCOMMANDS.has(first)) return first;
   if (getBool(args.options, 'list')) return 'list';
+  if (getString(args.options, 'add') || getBool(args.options, 'add'))
+    return 'install';
   if (
     getString(args.options, 'name') ||
     getBool(args.options, 'install-all') ||
@@ -166,17 +170,27 @@ export const skillCommand: CLICommand = {
         return;
 
       case 'install': {
+        const addSource = getString(args.options, 'add');
+        const addLocal = Boolean(addSource) || getBool(args.options, 'add');
         const installAll =
           getBool(args.options, 'all') ||
           getBool(args.options, 'install-all') ||
           getBool(args.options, 'all-skills');
         const rawPath = getString(args.options, 'path');
+        if (addLocal && !addSource && !rawPath) {
+          const error = '--add requires <source>.';
+          if (json) console.log(JSON.stringify({ success: false, error }));
+          else console.error(`\n  ${c('red', '✗')} ${error}\n`);
+          process.exitCode = EXIT.USAGE;
+          return;
+        }
         const opts: InstallOptions = {
           all: installAll,
+          sourcePath: addLocal ? addSource || rawPath : null,
           platform: platformOption(args),
           workspace:
             getBool(args.options, 'workspace') || getBool(args.options, 'repo'),
-          customPath: rawPath,
+          customPath: addLocal ? null : rawPath,
           mode: installMode(args),
           // Old remote installer used --force; bundled installer overwrites by default.
           keep:

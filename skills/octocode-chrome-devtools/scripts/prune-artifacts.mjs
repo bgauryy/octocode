@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 import { readdirSync, statSync, rmSync, existsSync } from 'node:fs';
-import { join, resolve } from 'node:path';
-import { getOctocodeHome } from './octocode-config.mjs';
+import { isAbsolute, join, relative, resolve } from 'node:path';
 
 const argv    = process.argv.slice(2);
 const getArg  = (flag, def) => { const i = argv.indexOf(flag); return i !== -1 && argv[i + 1] ? argv[i + 1] : def; };
@@ -17,12 +16,13 @@ const MAX_COUNT    = parseInt(getArg('--max-count', '50'), 10);
 const DRY_RUN      = hasFlag('--dry-run');
 const BASE_OVERRIDE = getArg('--base', null);
 
-function defaultOutputBase() {
-  const workspace = resolve(process.cwd(), '.octocode');
-  return existsSync(workspace) ? workspace : getOctocodeHome();
+const WORKSPACE_OUTPUT_BASE = resolve(process.cwd(), '.octocode');
+const BASE = BASE_OVERRIDE ? resolve(BASE_OVERRIDE) : join(WORKSPACE_OUTPUT_BASE, 'tmp', 'chrome-devtools');
+const baseRelative = relative(WORKSPACE_OUTPUT_BASE, BASE);
+if (baseRelative.startsWith('..') || isAbsolute(baseRelative)) {
+  console.error(`[PRUNE] --base must stay under ${WORKSPACE_OUTPUT_BASE}`);
+  process.exit(2);
 }
-
-const BASE = BASE_OVERRIDE ? resolve(BASE_OVERRIDE) : join(defaultOutputBase(), 'tmp', 'chrome-devtools');
 const TIMESTAMP_RE = /^\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2}$/;
 const PORT_DIR_RE  = /^port-\d+$/;
 

@@ -3,7 +3,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { _resetConfigCache, setRuntimeSurface } from '@octocodeai/config';
+import { setRuntimeSurface } from '@octocodeai/config';
 import { executeDirectTool } from '../../../src/tools/directToolCatalog.js';
 
 const ROOT = process.env.HOME || homedir() || tmpdir();
@@ -31,7 +31,6 @@ describe('localGetFileContent direct text output', () => {
   beforeAll(async () => {
     process.env.ENABLE_LOCAL = 'true';
     setRuntimeSurface('cli');
-    _resetConfigCache();
     dir = await mkdtemp(join(ROOT, 'octocode-local-content-output-'));
   });
 
@@ -127,9 +126,7 @@ describe('localGetFileContent direct text output', () => {
     expect(data?.startLine).toBe(1);
     expect(data?.endLine).toBe(4);
     expect(data?.content).toBe(
-      ['1→ // keep me', '2→ const a = 1;', '3→ ', '4→ const b = 2;'].join(
-        '\n'
-      )
+      ['1→ // keep me', '2→ const a = 1;', '3→ ', '4→ const b = 2;'].join('\n')
     );
   });
 

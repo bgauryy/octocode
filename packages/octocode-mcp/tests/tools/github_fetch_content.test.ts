@@ -55,7 +55,6 @@ describe('GitHub Fetch Content Tool', () => {
     mockGetServerConfig.mockReturnValue({
       version: '4.0.5',
       githubApiUrl: 'https://api.github.com',
-      enableTools: [],
       disableTools: [],
       timeout: 30000,
       maxRetries: 3,

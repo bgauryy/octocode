@@ -7,7 +7,7 @@ import {
   createErrorResult,
   type UnifiedErrorResult,
 } from '../response/error.js';
-import { getConfigSync } from '@octocodeai/config';
+import { getConfigSync, getOctocodeHome } from '@octocodeai/config';
 
 type LocalErrorResult = UnifiedErrorResult;
 
@@ -38,6 +38,18 @@ export function applyConfiguredAllowedRoots(
   }
 }
 
+/**
+ * Authorize only the managed roots emitted by GitHub materialization tools.
+ * Resolve OCTOCODE_HOME per request so isolated/custom homes produce
+ * immediately runnable local-tool continuations without broadening access to
+ * the rest of the Octocode home directory.
+ */
+function applyManagedMaterializationRoots(): void {
+  const octocodeHome = getOctocodeHome(process.env);
+  pathValidator.addAllowedRoot(path.join(octocodeHome, 'tmp', 'clone'));
+  pathValidator.addAllowedRoot(path.join(octocodeHome, 'tmp', 'tree'));
+}
+
 export function validateToolPath(
   query: PartialBaseQueryLocal & { path?: string },
   toolName: string
@@ -53,6 +65,7 @@ export function validateToolPath(
   // var) before validating — otherwise file-config allowlist entries are a
   // silent no-op.
   applyConfiguredAllowedRoots();
+  applyManagedMaterializationRoots();
   const cwd =
     process.env.WORKSPACE_ROOT?.trim() ||
     getConfigSync().local.workspaceRoot ||

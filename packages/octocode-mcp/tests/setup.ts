@@ -48,7 +48,6 @@ const mockDefaultConfig = {
   },
   tools: {
     enabled: null,
-    enableAdditional: null,
     disabled: null,
   },
   network: {
@@ -105,7 +104,6 @@ const buildMockConfig = () => {
   const envMaxRetries = mockParseIntEnv(process.env.MAX_RETRIES);
   const envApiUrl = process.env.GITHUB_API_URL?.trim();
   const envToolsToRun = mockParseStringArrayEnv(process.env.TOOLS_TO_RUN);
-  const envEnableTools = mockParseStringArrayEnv(process.env.ENABLE_TOOLS);
   const envDisableTools = mockParseStringArrayEnv(process.env.DISABLE_TOOLS);
 
   let timeout = envTimeout ?? mockDefaultConfig.network.timeout;
@@ -129,8 +127,6 @@ const buildMockConfig = () => {
     },
     tools: {
       enabled: envToolsToRun ?? mockDefaultConfig.tools.enabled,
-      enableAdditional:
-        envEnableTools ?? mockDefaultConfig.tools.enableAdditional,
       disabled: envDisableTools ?? mockDefaultConfig.tools.disabled,
     },
     network: {
@@ -203,8 +199,6 @@ vi.mock('@octocodeai/octocode-tools-core/config', () => ({
     }
     return null;
   }),
-  invalidateConfigCache: vi.fn(),
-  _resetConfigCache: vi.fn(),
   getDirectorySizeBytes: vi.fn(() => 0),
   formatBytes: vi.fn((b: number) => `${b} B`),
 }));
@@ -303,7 +297,6 @@ const mockContent = {
     GITHUB_HISTORY: 'ghHistorySearch',
   },
   baseSchema: {
-    id: 'Stable query identifier.',
     mainResearchGoal: 'Main research goal description',
     researchGoal: 'Research goal description',
     reasoning: 'Reasoning description',

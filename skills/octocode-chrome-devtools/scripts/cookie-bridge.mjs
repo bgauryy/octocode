@@ -21,7 +21,7 @@ import { spawn } from 'child_process';
 import {
   existsSync, mkdirSync, readFileSync, writeFileSync,
 } from 'fs';
-import { dirname, join, resolve } from 'path';
+import { dirname, isAbsolute, join, relative, resolve } from 'path';
 import { fileURLToPath } from 'url';
 import { platform } from 'os';
 
@@ -52,6 +52,7 @@ const EXPORT_STATE = getArg('--export-storage-state', '');
 const SOURCE_PORT = getArg('--source-port', '9333');
 const URLS = (getArg('--urls', '') || '').split(',').map(s => s.trim()).filter(Boolean);
 const DRY_RUN = hasFlag('--dry-run');
+const WORKSPACE_OUTPUT_BASE = resolve(process.cwd(), '.octocode');
 
 function fail(msg) {
   console.error(`[COOKIE_BRIDGE] ${msg}`);
@@ -62,6 +63,13 @@ if (!ACK) fail('Refusing: pass --i-understand-secrets after user approval (CDP c
 if (!TO_PORT && !EXPORT_STATE) fail('Need --to-port and/or --export-storage-state.');
 const sources = [FROM_PORT, FROM_PROFILE, FROM_STATE].filter(Boolean);
 if (sources.length !== 1) fail('Pick exactly one of --from-port, --from-profile, --from-storage-state.');
+if (EXPORT_STATE) {
+  const exportPath = resolve(EXPORT_STATE);
+  const exportRelative = relative(WORKSPACE_OUTPUT_BASE, exportPath);
+  if (exportRelative.startsWith('..') || isAbsolute(exportRelative)) {
+    fail(`--export-storage-state must stay under ${WORKSPACE_OUTPUT_BASE}`);
+  }
+}
 
 const WS = globalThis.WebSocket;
 const [nodeMajor] = process.versions.node.split('.').map(Number);

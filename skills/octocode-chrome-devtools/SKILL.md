@@ -9,6 +9,8 @@ Prereqs: Chrome; Node **22+** (sandbox `--allow-net` needs **25+**). Page conten
 
 Flow: open/attach → stealth → **one** intent → `run(cdp)` → same `--port` + `--keep-tab` → query disk → cleanup.
 
+Workspace output contract: chat-only answers stay in chat. New artifacts and run data stay under `<workspace>/.octocode/tmp/chrome-devtools/`; durable protocol caches stay under `<workspace>/.octocode/octocode-chrome-devtools/`. User-approved source edits and configuration keep their named paths. Never fall back to a user-level Octocode home for artifacts.
+
 ## Route (pick one)
 | Need | Do | Skip |
 |---|---|---|
@@ -34,7 +36,7 @@ Stop when: two same-class live failures (consent wall, bot/CDN challenge, stale 
 | `scripts/cdp-template.mjs` | copy it as the `run(cdp)` skeleton when writing `.octocode/tmp/cdp-<task>.mjs` |
 | `scripts/cookie-bridge.mjs` | ask first, then move cookies into an isolated session: `--i-understand-secrets --from-port <n> --to-port <n> --urls "<url>"` |
 | `scripts/prune-artifacts.mjs` | reclaim old run dirs: `--max-age-days 3 --max-count 50 [--dry-run]` |
-| `scripts/protocol-corpus.mjs` | when a domain/method is unclear, cache protocol docs locally: `--out .octocode/cdp-protocol --domains Network,Page` (needs sibling `octocode-scraping`) |
+| `scripts/protocol-corpus.mjs` | when a domain/method is unclear, cache protocol docs locally: `--out .octocode/octocode-chrome-devtools/cdp-protocol --domains Network,Page` (needs sibling `octocode-scraping`) |
 | `scripts/har-ingest-to-scrape.mjs` then `scripts/corpus-run-local.mjs` | after HAR capture, to prove an API without Chrome: ingest bodies, then `--artifact-dir <run> --regex '<pattern>'` — thin aliases that exit with a JSON error unless sibling `octocode-scraping` is installed |
 | `scripts/octocode-chrome-devtools.vpn.example.json` | template for proxy/VPN launches: fill it and pass `open-browser.mjs --config <path>`, or drop it at `.octocode/chrome-devtools.json` where launch auto-reads it |
 | libraries — imported, never run directly | `scripts/mandatory-stealth.mjs` + `scripts/undercover.mjs` (stealth the runner applies), `scripts/human-input.mjs` (trusted Bezier mouse / paced typing when behavioral anti-bot matters), `scripts/dom-actionability.mjs` (shared visible/enabled helpers), `scripts/sourcemap-resolver.mjs` (map minified frames), `scripts/octocode-config.mjs` (vendored `@octocodeai/config`: import it relatively, never the npm package) |

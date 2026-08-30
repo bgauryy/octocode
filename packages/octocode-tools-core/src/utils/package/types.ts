@@ -2,8 +2,7 @@ export interface NpmSearchInput {
   name: string;
   itemsPerPage?: number;
   page?: number;
-  mainResearchGoal?: string;
-  researchGoal?: string;
+  goal?: string;
   reasoning?: string;
 }
 
@@ -30,7 +29,11 @@ export interface NpmPackageResult {
   typeDefinitions?: string | null;
   packageType?: 'module' | 'commonjs' | 'types-only' | 'unknown';
   exports?: string[];
+  exportsTotal?: number;
+  exportsTruncated?: true;
   bin?: string[];
+  binTotal?: number;
+  binTruncated?: true;
   repositoryDirectory?: string;
   lastPublished?: string;
   owner?: string;

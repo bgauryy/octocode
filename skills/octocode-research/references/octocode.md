@@ -28,16 +28,16 @@ Unknown fields fail fast with a suggestion (`'depth' → did you mean 'maxDepth'
 | semantics | `lspGetSemantics` (`documentSymbols`, `definition`, `references`, `callers`, `callees`, `hover`, diagnostics, type/call hierarchy) |
 | GitHub code / read / tree / repos | `ghSearchCode`, `ghGetFileContent`, `ghViewRepoStructure`, `ghSearchRepos` |
 | GitHub PRs / issues / commits | `ghSearchPullRequests`, `ghSearchIssues`, `ghSearchCommits` |
-| GitHub releases / discussions | `ghListReleases`, `ghSearchDiscussions` (always discoverable; gated at execution) |
+| GitHub releases / discussions | `ghListReleases`, `ghSearchDiscussions` (opt-in) |
 | materialize remote · packages | `ghCloneRepo` · `npmSearch` |
-`ghListReleases` and `ghSearchDiscussions` are always present in discovery with an availability gate; execution requires `ENABLE_RELEASES=1` or `ENABLE_DISCUSSIONS=1`. Treat an unenabled surface as skipped, not absent evidence. **Gates and diagnostics:**
+`ghListReleases` and `ghSearchDiscussions` remain present in discovery. Enable execution with `ENABLE_RELEASES=true` or `ENABLE_DISCUSSIONS=true`. **Gates and diagnostics:**
 
 | Gate or signal | Effect → move |
 |---|---|
 | `ENABLE_LOCAL` | MCP server can gate local tools; the CLI enables them by default |
 | `ENABLE_CLONE` | MCP clone needs it; CLI clone is on by default |
-| `ENABLE_RELEASES=1` | required for `ghListReleases` on both surfaces |
-| `ENABLE_DISCUSSIONS=1` | required for `ghSearchDiscussions` on both surfaces |
+| `ENABLE_RELEASES=true` | enables `ghListReleases` on CLI and MCP |
+| `ENABLE_DISCUSSIONS=true` | enables `ghSearchDiscussions` on CLI and MCP |
 | auth/rate | check auth; ask login only for protected data; narrow/retry and mark incomplete |
 | local/clone disabled | check `ENABLE_LOCAL`/`ENABLE_CLONE`/`.octocoderc`; use remote proof |
 | tool disabled error | check the gate rows above before assuming the tool does not exist |

@@ -11,11 +11,28 @@ import type { GitHubApiFileItem } from '../../src/tools/github_view_repo_structu
 // ---------------------------------------------------------------------------
 
 function file(path: string, size = 100): GitHubApiFileItem {
-  return { path, name: path.split('/').pop()!, type: 'file', size, sha: 'abc', url: '', html_url: '', git_url: '' };
+  return {
+    path,
+    name: path.split('/').pop()!,
+    type: 'file',
+    size,
+    sha: 'abc',
+    url: '',
+    html_url: '',
+    git_url: '',
+  };
 }
 
 function dir(path: string): GitHubApiFileItem {
-  return { path, name: path.split('/').pop()!, type: 'dir', sha: 'abc', url: '', html_url: '', git_url: '' };
+  return {
+    path,
+    name: path.split('/').pop()!,
+    type: 'dir',
+    sha: 'abc',
+    url: '',
+    html_url: '',
+    git_url: '',
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -24,7 +41,10 @@ function dir(path: string): GitHubApiFileItem {
 
 describe('buildStructureTree', () => {
   it('places root files under the "." key', () => {
-    const tree = buildStructureTree([file('README.md'), file('package.json')], '');
+    const tree = buildStructureTree(
+      [file('README.md'), file('package.json')],
+      ''
+    );
     expect(tree['.']).toBeDefined();
     expect(tree['.']!.files).toContain('README.md');
     expect(tree['.']!.files).toContain('package.json');
@@ -32,17 +52,17 @@ describe('buildStructureTree', () => {
   });
 
   it('separates files from directories', () => {
-    const items = [
-      file('src/index.ts'),
-      dir('src/lib'),
-    ];
+    const items = [file('src/index.ts'), dir('src/lib')];
     const tree = buildStructureTree(items, '');
     expect(tree['src']!.files).toContain('index.ts');
     expect(tree['src']!.folders).toContain('lib');
   });
 
   it('strips the basePath prefix', () => {
-    const items = [file('packages/core/src/index.ts'), dir('packages/core/src')];
+    const items = [
+      file('packages/core/src/index.ts'),
+      dir('packages/core/src'),
+    ];
     const tree = buildStructureTree(items, 'packages/core');
     expect(tree['src']!.files).toContain('index.ts');
   });
@@ -105,8 +125,13 @@ describe('buildFileSizeMap', () => {
 
   it('skips items without a size', () => {
     const item: GitHubApiFileItem = {
-      path: 'src/nosize.ts', name: 'nosize.ts', type: 'file',
-      sha: 'abc', url: '', html_url: '', git_url: '',
+      path: 'src/nosize.ts',
+      name: 'nosize.ts',
+      type: 'file',
+      sha: 'abc',
+      url: '',
+      html_url: '',
+      git_url: '',
     };
     const sizeMap = buildFileSizeMap([item], '');
     expect(Object.keys(sizeMap)).toHaveLength(0);
@@ -170,7 +195,10 @@ describe('buildStructureResult', () => {
   });
 
   it('includes defaultBranch when provided', () => {
-    const result = buildStructureResult({ ...BASE_ARGS, repoDefaultBranch: 'main' });
+    const result = buildStructureResult({
+      ...BASE_ARGS,
+      repoDefaultBranch: 'main',
+    });
     expect(result.defaultBranch).toBe('main');
   });
 
@@ -195,7 +223,9 @@ describe('buildStructureResult', () => {
   });
 
   it('paginates items correctly', () => {
-    const manyItems = Array.from({ length: 50 }, (_, i) => file(`src/f${i}.ts`));
+    const manyItems = Array.from({ length: 50 }, (_, i) =>
+      file(`src/f${i}.ts`)
+    );
     const result = buildStructureResult({
       ...BASE_ARGS,
       allItems: manyItems,
@@ -209,7 +239,9 @@ describe('buildStructureResult', () => {
   });
 
   it('page 2 returns the second slice', () => {
-    const manyItems = Array.from({ length: 25 }, (_, i) => file(`src/f${i}.ts`));
+    const manyItems = Array.from({ length: 25 }, (_, i) =>
+      file(`src/f${i}.ts`)
+    );
     const p2 = buildStructureResult({
       ...BASE_ARGS,
       allItems: manyItems,
@@ -263,7 +295,10 @@ describe('buildStructureResult', () => {
   });
 
   it('omits incompleteTree from summary when false', () => {
-    const result = buildStructureResult({ ...BASE_ARGS, incompleteTree: false });
+    const result = buildStructureResult({
+      ...BASE_ARGS,
+      incompleteTree: false,
+    });
     expect(result.summary).not.toHaveProperty('incompleteTree');
   });
 

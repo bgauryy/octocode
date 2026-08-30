@@ -10,7 +10,6 @@ import {
   DIRECT_TOOL_AUTO_FILLED_FIELDS,
   DirectToolInputError,
   findDirectToolDefinition,
-  getDirectToolCategory,
   type DirectToolInput,
   type PrepareDirectToolInputOptions,
 } from './toolCatalogDefinitions.js';
@@ -100,7 +99,6 @@ function buildDirectToolPayload(
   const processedQueries = queriesInput.map((query, index) =>
     applyDefaultQueryFields(
       toolName,
-      index,
       normalizeQueryObject(toolName, query, index, options),
       { sourceLabel: options.sourceLabel }
     )
@@ -110,33 +108,18 @@ function buildDirectToolPayload(
 
 function applyDefaultQueryFields(
   toolName: string,
-  index: number,
   query: Record<string, unknown>,
   options: Pick<PrepareDirectToolInputOptions, 'sourceLabel'>
 ): Record<string, unknown> {
   const nextQuery = { ...query };
-  const category = getDirectToolCategory(toolName);
   const sourceLabel = options.sourceLabel ?? 'direct tool execution';
   const defaultGoal = buildDefaultGoal(toolName, sourceLabel);
 
-  if (typeof nextQuery.id !== 'string' || nextQuery.id.trim().length === 0) {
-    nextQuery.id = `${toolName}-${index + 1}`;
-  }
-
-  if (category === 'GitHub' || category === 'Package') {
-    if (
-      typeof nextQuery.mainResearchGoal !== 'string' ||
-      nextQuery.mainResearchGoal.trim().length === 0
-    ) {
-      nextQuery.mainResearchGoal = defaultGoal;
-    }
-  }
-
   if (
-    typeof nextQuery.researchGoal !== 'string' ||
-    nextQuery.researchGoal.trim().length === 0
+    typeof nextQuery.goal !== 'string' ||
+    nextQuery.goal.trim().length === 0
   ) {
-    nextQuery.researchGoal = defaultGoal;
+    nextQuery.goal = defaultGoal;
   }
 
   if (

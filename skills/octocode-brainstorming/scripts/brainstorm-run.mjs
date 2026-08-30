@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
-import { getOctocodeHome, propagateOctocodeEnv } from './octocode-config.mjs';
+import { isAbsolute, join, relative, resolve } from 'node:path';
+import { propagateOctocodeEnv } from './octocode-config.mjs';
 
 const args = process.argv.slice(2);
 const cmd = args[0];
@@ -18,8 +18,8 @@ if (has('--help')) {
   node scripts/brainstorm-run.mjs --self-test    create the run directory and print it
   --help                                         this text
 
-Runs are JSON under <workspace>/.octocode/brainstorming/runs/, falling back to Octocode home when the
-workspace is unwritable; OCTOCODE_BRAINSTORM_RUN_DIR overrides it but must stay under that base.
+Runs are JSON under <workspace>/.octocode/brainstorming/runs/. An unwritable workspace is an error;
+OCTOCODE_BRAINSTORM_RUN_DIR overrides the run folder but must stay under the workspace .octocode root.
 The Stop hook exits 2 until the run is finished; OCTOCODE_BRAINSTORM_NO_STOP_GATE=1 bypasses it.`);
   process.exit(0);
 }
@@ -27,20 +27,15 @@ propagateOctocodeEnv({ cwd: process.cwd(), trusted: true });
 
 function octocodeOutputBase() {
   const workspace = resolve(process.cwd(), '.octocode');
-  try {
-    mkdirSync(workspace, { recursive: true, mode: 0o700 });
-    return workspace;
-  } catch {
-    const home = getOctocodeHome();
-    mkdirSync(home, { recursive: true, mode: 0o700 });
-    return home;
-  }
+  mkdirSync(workspace, { recursive: true, mode: 0o700 });
+  return workspace;
 }
 
 const outputBase = octocodeOutputBase();
 const requestedRunRoot = process.env.OCTOCODE_BRAINSTORM_RUN_DIR;
 const runRoot = requestedRunRoot ? resolve(requestedRunRoot) : join(outputBase, 'brainstorming', 'runs');
-if (!runRoot.startsWith(`${outputBase}/`) && runRoot !== outputBase) {
+const runRootRelative = relative(outputBase, runRoot);
+if (runRootRelative.startsWith('..') || isAbsolute(runRootRelative)) {
   throw new Error(`OCTOCODE_BRAINSTORM_RUN_DIR must be under ${outputBase}`);
 }
 function ensure() { mkdirSync(runRoot, { recursive: true, mode: 0o700 }); }

@@ -1,72 +1,89 @@
 import { c } from '../../utils/colors.js';
+import { DEFAULT_CONFIG } from '@octocodeai/config';
+import {
+  DIRECT_TOOL_DISCOVERY_DEFINITIONS,
+  getDirectToolCategory,
+} from '@octocodeai/octocode-tools-core/schema';
+
+type ToolCategory = 'github' | 'package' | 'local';
+
+interface AvailableTool {
+  id: string;
+  name: string;
+  description: string;
+  category: ToolCategory;
+}
+
+const TOOL_COPY: Record<string, readonly [name: string, description: string]> =
+  {
+    ghSearchCode: ['Search Code', 'Search code in GitHub repositories'],
+    ghGetFileContent: [
+      'Get File Content',
+      'Read files from GitHub repositories',
+    ],
+    ghViewRepoStructure: [
+      'View Repo Structure',
+      'Browse GitHub repository structure',
+    ],
+    ghSearchRepos: ['Search Repositories', 'Find GitHub repositories'],
+    ghSearchPullRequests: [
+      'Search Pull Requests',
+      'Search and inspect pull requests',
+    ],
+    ghSearchIssues: ['Search Issues', 'Search and inspect GitHub issues'],
+    ghSearchCommits: [
+      'Search Commits',
+      'Search commit history and comparisons',
+    ],
+    ghListReleases: ['List Releases', 'List GitHub repository releases'],
+    ghSearchDiscussions: ['Search Discussions', 'Search GitHub Discussions'],
+    npmSearch: [
+      'Search npm',
+      'Search npm packages and locate their source repositories',
+    ],
+    ghCloneRepo: [
+      'Clone Repository',
+      'Clone a GitHub repository for local analysis',
+    ],
+    localSearchCode: [
+      'Search Code',
+      'Search local code with text, regex, or AST patterns',
+    ],
+    localViewStructure: ['View Structure', 'Browse local directory structure'],
+    localFindFiles: ['Find Files', 'Find local files by name and metadata'],
+    localAnalyzeGraph: [
+      'Analyze Graph',
+      'Analyze local file dependencies and reachability',
+    ],
+    localGetFileContent: [
+      'Get File Content',
+      'Read targeted sections of local files',
+    ],
+    lspGetSemantics: [
+      'Get Semantics',
+      'Inspect definitions, references, symbols, and diagnostics',
+    ],
+  };
+
+function categoryFor(toolName: string): ToolCategory {
+  const category = getDirectToolCategory(toolName);
+  if (category === 'GitHub') return 'github';
+  if (category === 'Package') return 'package';
+  return 'local';
+}
+
+const PUBLIC_TOOLS: AvailableTool[] = DIRECT_TOOL_DISCOVERY_DEFINITIONS.map(
+  ({ name: id }) => {
+    const [name, description] = TOOL_COPY[id] ?? [id, id];
+    return { id, name, description, category: categoryFor(id) };
+  }
+);
 
 export const ALL_AVAILABLE_TOOLS = {
-  github: [
-    {
-      id: 'ghSearchCode',
-      name: 'Search Code',
-      description: 'Search for code patterns in GitHub repositories',
-    },
-    {
-      id: 'ghGetFileContent',
-      name: 'Get File Content',
-      description: 'Fetch file content from GitHub repositories',
-    },
-    {
-      id: 'ghViewRepoStructure',
-      name: 'View Repo Structure',
-      description: 'Browse repository directory structure',
-    },
-    {
-      id: 'ghSearchRepos',
-      name: 'Search Repositories',
-      description: 'Search for GitHub repositories',
-    },
-    {
-      id: 'ghSearchPullRequests',
-      name: 'Search Pull Requests',
-      description: 'Search pull requests and their history',
-    },
-    {
-      id: 'ghSearchIssues',
-      name: 'Search Issues',
-      description: 'Search issues and their history',
-    },
-    {
-      id: 'ghSearchCommits',
-      name: 'Search Commits',
-      description: 'Search commit history',
-    },
-    {
-      id: 'npmSearch',
-      name: 'Package Search',
-      description: 'Search npm/Python packages and find their repos',
-    },
-  ],
-
-  local: [
-    {
-      id: 'localSearchCode',
-      name: 'Ripgrep Search',
-      description: 'Fast content search with regex support',
-    },
-    {
-      id: 'localViewStructure',
-      name: 'View Structure',
-      description: 'Browse local directory structure',
-    },
-    {
-      id: 'localFindFiles',
-      name: 'Find Files',
-      description: 'Find files by name, time, size, permissions',
-    },
-    {
-      id: 'localGetFileContent',
-      name: 'Fetch Content',
-      description: 'Read targeted sections of local files',
-    },
-  ],
-} as const;
+  github: PUBLIC_TOOLS.filter(tool => tool.category === 'github'),
+  package: PUBLIC_TOOLS.filter(tool => tool.category === 'package'),
+  local: PUBLIC_TOOLS.filter(tool => tool.category === 'local'),
+};
 
 export interface ConfigOption {
   id: string;
@@ -92,6 +109,22 @@ export const ALL_CONFIG_OPTIONS: ConfigOption[] = [
     description:
       'Enable local file exploration tools for searching and browsing local files',
     type: 'boolean',
+    defaultValue: String(DEFAULT_CONFIG.local.enabled),
+  },
+  {
+    id: 'enableReleases',
+    envVar: 'ENABLE_RELEASES',
+    name: 'GitHub Releases',
+    description: 'Enable the opt-in ghListReleases tool',
+    type: 'boolean',
+    defaultValue: 'false',
+  },
+  {
+    id: 'enableDiscussions',
+    envVar: 'ENABLE_DISCUSSIONS',
+    name: 'GitHub Discussions',
+    description: 'Enable the opt-in ghSearchDiscussions tool',
+    type: 'boolean',
     defaultValue: 'false',
   },
   {
@@ -107,15 +140,6 @@ export const ALL_CONFIG_OPTIONS: ConfigOption[] = [
     envVar: 'TOOLS_TO_RUN',
     name: 'Tools to Run',
     description: 'Specific tools to enable (all others disabled)',
-    type: 'array',
-    defaultValue: '',
-    toolCategory: 'all',
-  },
-  {
-    id: 'enableTools',
-    envVar: 'ENABLE_TOOLS',
-    name: 'Enable Tools',
-    description: 'Additional tools to enable',
     type: 'array',
     defaultValue: '',
     toolCategory: 'all',
@@ -153,18 +177,9 @@ export function getAllTools(): Array<{
   id: string;
   name: string;
   description: string;
-  category: 'github' | 'local';
+  category: ToolCategory;
 }> {
-  return [
-    ...ALL_AVAILABLE_TOOLS.github.map(t => ({
-      ...t,
-      category: 'github' as const,
-    })),
-    ...ALL_AVAILABLE_TOOLS.local.map(t => ({
-      ...t,
-      category: 'local' as const,
-    })),
-  ];
+  return PUBLIC_TOOLS;
 }
 
 export function getCurrentValue(
@@ -252,8 +267,6 @@ export function getExampleValue(option: ConfigOption): string {
       return 'GITHUB_API_URL=https://github.mycompany.com/api/v3';
     case 'toolsToRun':
       return 'TOOLS_TO_RUN=ghSearchCode,ghGetFileContent';
-    case 'enableTools':
-      return 'ENABLE_TOOLS=localSearchCode,localFindFiles';
     case 'disableTools':
       return 'DISABLE_TOOLS=ghSearchPullRequests';
     case 'requestTimeout':

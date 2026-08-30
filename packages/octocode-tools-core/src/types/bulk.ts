@@ -34,6 +34,7 @@ export interface BulkResponsePagination {
 }
 
 export interface ResponsePaginationInfo {
+  scope: 'content.text';
   currentPage: number;
 
   totalPages: number;

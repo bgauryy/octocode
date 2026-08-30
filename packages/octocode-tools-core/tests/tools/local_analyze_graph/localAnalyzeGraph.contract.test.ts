@@ -129,7 +129,91 @@ async function createWorkspacePackageFixture(): Promise<string> {
   return dir;
 }
 
+async function createEdgePrecisionFixture(): Promise<string> {
+  const dir = await mkdtemp(join(process.cwd(), '.tmp-local-graph-precision-'));
+  tempDirs.push(dir);
+  await writeFile(
+    join(dir, 'package.json'),
+    JSON.stringify({ name: 'precision', main: 'index.js' })
+  );
+  await writeFile(
+    join(dir, 'index.ts'),
+    "import type { Shape } from './types.js';\nexport type { Shape };\n"
+  );
+  await writeFile(
+    join(dir, 'types.ts'),
+    "import type { Api } from './index.js';\nexport interface Shape { api?: Api }\n"
+  );
+  await writeFile(
+    join(dir, 'self.ts'),
+    "import './self.js';\nexport const self = true;\n"
+  );
+  return dir;
+}
+
 describe('localAnalyzeGraph operation contract', () => {
+  it('distinguishes type-only cycles from runtime cycles and preserves self-loops', async () => {
+    const path = await createEdgePrecisionFixture();
+    const dependencies = await analyzeGraph({
+      operation: 'dependencies',
+      path,
+      file: 'index.ts',
+      depth: 1,
+    });
+    expect(dependencies.results).toEqual([
+      expect.objectContaining({ file: 'types.ts', edgeKinds: ['type-import'] }),
+    ]);
+
+    const cycles = await analyzeGraph({ operation: 'cycles', path });
+    expect(cycles.results).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          files: ['index.ts', 'types.ts'],
+          runtimeCycle: false,
+          cycleEdges: [
+            {
+              from: 'index.ts',
+              to: 'types.ts',
+              edgeKinds: ['type-import'],
+            },
+            {
+              from: 'types.ts',
+              to: 'index.ts',
+              edgeKinds: ['type-import'],
+            },
+          ],
+          runtimeCycleEdges: [],
+        }),
+        expect.objectContaining({
+          files: ['self.ts'],
+          runtimeCycle: true,
+          cycleEdges: [
+            {
+              from: 'self.ts',
+              to: 'self.ts',
+              edgeKinds: ['static-import'],
+            },
+          ],
+          runtimeCycleEdges: [
+            {
+              from: 'self.ts',
+              to: 'self.ts',
+              edgeKinds: ['static-import'],
+            },
+          ],
+        }),
+      ])
+    );
+  });
+
+  it('keeps the tools-core runtime module load graph acyclic', async () => {
+    const result = await analyzeGraph({
+      operation: 'cycles',
+      path: join(process.cwd(), 'src', 'tools'),
+    });
+    expect(result.results.filter(item => item.runtimeCycle)).toEqual([]);
+  });
+
   it('resolves declared workspace package exports but never path aliases', async () => {
     const path = await createWorkspacePackageFixture();
     const result = await analyzeGraph({
@@ -317,5 +401,65 @@ describe('localAnalyzeGraph operation contract', () => {
       entrypointsResolvedTruncated: true,
     });
     expect(result.summary?.entrypointsResolved).toHaveLength(50);
+  });
+
+  it('maps a compiled bin entry to src/index.ts when basenames differ', async () => {
+    const path = await mkdtemp(join(process.cwd(), '.tmp-local-graph-bin-'));
+    tempDirs.push(path);
+    await mkdir(join(path, 'src'), { recursive: true });
+    await writeFile(
+      join(path, 'package.json'),
+      JSON.stringify({ name: 'cli-fixture', bin: 'out/cli.js' })
+    );
+    await writeFile(
+      join(path, 'src', 'index.ts'),
+      "import { live } from './live.js';\nexport const main = live;\n"
+    );
+    await writeFile(join(path, 'src', 'live.ts'), 'export const live = 1;\n');
+
+    const result = await analyzeGraph({
+      operation: 'reachability',
+      path,
+      includeTests: false,
+    });
+
+    expect(result.results).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ file: 'src/index.ts', reachable: true }),
+        expect.objectContaining({ file: 'src/live.ts', reachable: true }),
+      ])
+    );
+  });
+
+  it('adds custom exclusions without dropping the safe defaults', async () => {
+    const path = await mkdtemp(
+      join(process.cwd(), '.tmp-local-graph-excludes-')
+    );
+    tempDirs.push(path);
+    await Promise.all([
+      mkdir(join(path, 'src'), { recursive: true }),
+      mkdir(join(path, 'out'), { recursive: true }),
+      mkdir(join(path, 'fixtures'), { recursive: true }),
+    ]);
+    await writeFile(
+      join(path, 'package.json'),
+      JSON.stringify({ name: 'exclude-fixture', main: 'src/index.ts' })
+    );
+    await writeFile(join(path, 'src', 'index.ts'), 'export const live = 1;\n');
+    await writeFile(join(path, 'out', 'noise.js'), 'export const noise = 1;\n');
+    await writeFile(
+      join(path, 'fixtures', 'noise.ts'),
+      'export const fixtureNoise = 1;\n'
+    );
+
+    const result = await analyzeGraph({
+      operation: 'reachability',
+      path,
+      includeTests: false,
+      excludeDir: ['fixtures'],
+    });
+
+    expect(result.filesScanned).toBe(1);
+    expect(result.results.map(item => item.file)).toEqual(['src/index.ts']);
   });
 });

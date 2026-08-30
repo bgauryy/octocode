@@ -10,14 +10,14 @@ every optional surface turned on:
 ```bash
 ENABLE_LOCAL=true \
 ENABLE_CLONE=true \
-ENABLE_RELEASES=1 \
-ENABLE_DISCUSSIONS=1 \
-ENABLE_TOOLS=ghListReleases,ghSearchDiscussions \
+ENABLE_RELEASES=true \
+ENABLE_DISCUSSIONS=true \
 OCTOCODE_TRUST_PROJECT_LSP_CONFIG=1 \
 node packages/octocode-mcp/dist/index.js
 ```
 
-The audit covers all 15 default tools and both opt-in tools.
+The audit covers all 17 tools; cloning, releases, and Discussions need explicit
+enable flags on MCP.
 
 ## 2026-08-28 complete contract audit
 
@@ -680,7 +680,7 @@ Improvements:
 
 ### `ghListReleases`
 
-Role: list a repository's releases plus latest stable, with opt-in `includeAssets`. Opt-in tool (`ENABLE_RELEASES=true`).
+Role: list a repository's releases plus latest stable, with opt-in `includeAssets`.
 
 Best for:
 
@@ -696,9 +696,8 @@ Depth/alignment/quality:
 
 Improvements:
 
-1. Make `ENABLE_RELEASES=true` remediation explicit when disabled.
-2. Keep `includeAssets` opt-in to bound output.
-3. Add next hints from a release tag to `ghSearchCommits` (ref compare) and `ghGetFileContent` at tag.
+1. Keep `includeAssets` opt-in to bound output.
+2. Add next hints from a release tag to `ghSearchCommits` (ref compare) and `ghGetFileContent` at tag.
 4. Emit evidence level `historical-context`.
 
 ### `ghCloneRepo`

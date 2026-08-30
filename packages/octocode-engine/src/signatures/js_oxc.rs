@@ -478,25 +478,32 @@ fn collect_import_declaration(
     let specifier = decl.source.value.as_str().to_string();
     if let Some(specifiers) = &decl.specifiers {
         for (index, item) in specifiers.iter().enumerate() {
-            let (local_name, imported_name) = match item {
+            let (local_name, imported_name, import_kind) = match item {
                 ImportDeclarationSpecifier::ImportSpecifier(spec) => (
                     Some(spec.local.name.as_str().to_string()),
                     module_export_name(&spec.imported),
+                    import_export_kind(if decl.import_kind == ImportOrExportKind::Type {
+                        decl.import_kind
+                    } else {
+                        spec.import_kind
+                    }),
                 ),
                 ImportDeclarationSpecifier::ImportDefaultSpecifier(spec) => (
                     Some(spec.local.name.as_str().to_string()),
                     Some("default".to_string()),
+                    import_export_kind(decl.import_kind),
                 ),
                 ImportDeclarationSpecifier::ImportNamespaceSpecifier(spec) => (
                     Some(spec.local.name.as_str().to_string()),
                     Some("*".to_string()),
+                    import_export_kind(decl.import_kind),
                 ),
             };
             out.push(GraphImport {
                 id: format!("import:{}:{}:{}", specifier, line, index),
                 specifier: specifier.clone(),
                 line,
-                import_kind: import_export_kind(decl.import_kind),
+                import_kind,
                 local_name,
                 imported_name,
             });

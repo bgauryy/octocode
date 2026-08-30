@@ -2,18 +2,18 @@ import type { ToolConfig } from './toolConfig.js';
 
 export interface ToolFilterConfig {
   toolsToRun: string[];
-  enableTools: string[];
   disableTools: string[];
 }
 
 interface ServerFilterConfigLike {
   toolsToRun?: string[];
-  enableTools?: string[];
   disableTools?: string[];
 }
 
-export const TOOL_FILTER_CONFLICT_WARNING =
-  'Warning: TOOLS_TO_RUN cannot be used together with ENABLE_TOOLS/DISABLE_TOOLS. Using TOOLS_TO_RUN exclusively.\n';
+export interface ValidatedToolFilterConfig {
+  config: ToolFilterConfig;
+  warnings: string[];
+}
 
 export function getToolFilterConfigSafe(
   configProvider: () => ServerFilterConfigLike
@@ -22,19 +22,86 @@ export function getToolFilterConfigSafe(
     const config = configProvider();
     return {
       toolsToRun: config.toolsToRun ?? [],
-      enableTools: config.enableTools ?? [],
       disableTools: config.disableTools ?? [],
     };
   } catch {
-    return { toolsToRun: [], enableTools: [], disableTools: [] };
+    return { toolsToRun: [], disableTools: [] };
   }
 }
 
-export function hasToolFilterConflict(config: ToolFilterConfig): boolean {
-  return (
-    config.toolsToRun.length > 0 &&
-    (config.enableTools.length > 0 || config.disableTools.length > 0)
-  );
+function editDistance(left: string, right: string): number {
+  const previous = Array.from({ length: right.length + 1 }, (_, i) => i);
+  for (let leftIndex = 1; leftIndex <= left.length; leftIndex += 1) {
+    const current = [leftIndex];
+    for (let rightIndex = 1; rightIndex <= right.length; rightIndex += 1) {
+      current[rightIndex] = Math.min(
+        (current[rightIndex - 1] ?? 0) + 1,
+        (previous[rightIndex] ?? 0) + 1,
+        (previous[rightIndex - 1] ?? 0) +
+          (left[leftIndex - 1] === right[rightIndex - 1] ? 0 : 1)
+      );
+    }
+    previous.splice(0, previous.length, ...current);
+  }
+  return previous[right.length] ?? Number.MAX_SAFE_INTEGER;
+}
+
+function closestToolName(
+  unknownName: string,
+  availableNames: readonly string[]
+): string | undefined {
+  const ranked = availableNames
+    .map(name => ({ name, distance: editDistance(unknownName, name) }))
+    .sort(
+      (left, right) =>
+        left.distance - right.distance || left.name.localeCompare(right.name)
+    );
+  const closest = ranked[0];
+  if (!closest) return undefined;
+  const threshold = Math.max(3, Math.floor(unknownName.length / 2));
+  return closest.distance <= threshold ? closest.name : undefined;
+}
+
+function formatUnknownTool(
+  envVar: string,
+  name: string,
+  availableNames: readonly string[]
+): string {
+  const suggestion = closestToolName(name, availableNames);
+  return `[octocode-mcp] Unknown tool name in ${envVar}: ${name}.${
+    suggestion ? ` Did you mean "${suggestion}"?` : ''
+  }\n`;
+}
+
+export function validateToolFilterConfig(
+  config: ToolFilterConfig,
+  availableNames: readonly string[]
+): ValidatedToolFilterConfig {
+  const available = new Set(availableNames);
+  const validateList = (envVar: string, names: readonly string[]) => {
+    const valid: string[] = [];
+    const warnings: string[] = [];
+    for (const name of names) {
+      if (available.has(name)) valid.push(name);
+      else warnings.push(formatUnknownTool(envVar, name, availableNames));
+    }
+    return { valid, warnings };
+  };
+
+  const toolsToRun = validateList('TOOLS_TO_RUN', config.toolsToRun);
+  const disableTools = validateList('DISABLE_TOOLS', config.disableTools);
+
+  if (config.toolsToRun.length > 0 && toolsToRun.valid.length === 0) {
+    throw new Error(toolsToRun.warnings.join('').trim());
+  }
+
+  return {
+    config: {
+      toolsToRun: toolsToRun.valid,
+      disableTools: disableTools.valid,
+    },
+    warnings: [...toolsToRun.warnings, ...disableTools.warnings],
+  };
 }
 
 export function isToolEnabled(
@@ -55,7 +122,7 @@ export function isToolEnabled(
     return false;
   }
 
-  const { toolsToRun, enableTools, disableTools } = filterConfig;
+  const { toolsToRun, disableTools } = filterConfig;
 
   if (toolsToRun.length > 0) {
     return toolsToRun.includes(tool.name);
@@ -65,5 +132,5 @@ export function isToolEnabled(
     return false;
   }
 
-  return enableTools.includes(tool.name) || tool.isDefault;
+  return tool.isDefault;
 }

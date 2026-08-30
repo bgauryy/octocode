@@ -42,7 +42,6 @@ describe('Empty Arrays Removal in Responses', () => {
 
     mockGetServerConfig.mockReturnValue({
       version: '4.0.5',
-      enableTools: [],
       disableTools: [],
       timeout: 30000,
       maxRetries: 3,

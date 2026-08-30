@@ -107,13 +107,19 @@ describe('buildPullRequestSearchQuery — branch coverage', () => {
   });
 
   it('adds label filter (quoted)', () => {
-    const q = buildPullRequestSearchQuery({ ...BASE_PR, label: ['bug', 'enhancement'] });
+    const q = buildPullRequestSearchQuery({
+      ...BASE_PR,
+      label: ['bug', 'enhancement'],
+    });
     expect(q).toContain('label:"bug"');
     expect(q).toContain('label:"enhancement"');
   });
 
   it('adds review-requested filter', () => {
-    const q = buildPullRequestSearchQuery({ ...BASE_PR, 'review-requested': 'bob' });
+    const q = buildPullRequestSearchQuery({
+      ...BASE_PR,
+      'review-requested': 'bob',
+    });
     expect(q).toContain('review-requested:bob');
   });
 
@@ -133,7 +139,11 @@ describe('buildPullRequestSearchQuery — branch coverage', () => {
   });
 
   it('adds engagement filters (comments + reactions)', () => {
-    const q = buildPullRequestSearchQuery({ ...BASE_PR, comments: '>5', reactions: '>=3' });
+    const q = buildPullRequestSearchQuery({
+      ...BASE_PR,
+      comments: '>5',
+      reactions: '>=3',
+    });
     expect(q).toContain('comments:>5');
     expect(q).toContain('reactions:>=3');
   });
@@ -229,12 +239,18 @@ describe('buildPullRequestSearchQuery — branch coverage', () => {
   });
 
   it('adds is:private when visibility=private', () => {
-    const q = buildPullRequestSearchQuery({ ...BASE_PR, visibility: 'private' });
+    const q = buildPullRequestSearchQuery({
+      ...BASE_PR,
+      visibility: 'private',
+    });
     expect(q).toContain('is:private');
   });
 
   it('adds project filter', () => {
-    const q = buildPullRequestSearchQuery({ ...BASE_PR, project: 'facebook/1' });
+    const q = buildPullRequestSearchQuery({
+      ...BASE_PR,
+      project: 'facebook/1',
+    });
     expect(q).toContain('project:facebook/1');
   });
 
@@ -253,7 +269,10 @@ describe('buildPullRequestSearchQuery — branch coverage', () => {
   });
 
   it('adds language filter', () => {
-    const q = buildPullRequestSearchQuery({ ...BASE_PR, language: 'TypeScript' });
+    const q = buildPullRequestSearchQuery({
+      ...BASE_PR,
+      language: 'TypeScript',
+    });
     expect(q).toContain('language:TypeScript');
   });
 });
@@ -374,7 +393,11 @@ describe('buildIssueSearchQuery — branch coverage', () => {
 
 describe('buildCodeSearchQuery — branch coverage', () => {
   it('builds a basic code search with keywords', () => {
-    const q = buildCodeSearchQuery({ keywords: ['useState'], owner: 'facebook', repo: 'react' } as never);
+    const q = buildCodeSearchQuery({
+      keywords: ['useState'],
+      owner: 'facebook',
+      repo: 'react',
+    } as never);
     expect(q).toContain('useState');
     expect(q).toContain('repo:facebook/react');
   });
@@ -387,7 +410,10 @@ describe('buildCodeSearchQuery — branch coverage', () => {
   });
 
   it('handles no keywords field', () => {
-    const q = buildCodeSearchQuery({ owner: 'facebook', repo: 'react' } as never);
+    const q = buildCodeSearchQuery({
+      owner: 'facebook',
+      repo: 'react',
+    } as never);
     expect(q).toContain('repo:facebook/react');
   });
 
@@ -456,7 +482,9 @@ describe('buildCodeSearchQuery — branch coverage', () => {
   });
 
   it('quotes keywords with special chars', () => {
-    const q = buildCodeSearchQuery({ keywords: ['path/to/something'] } as never);
+    const q = buildCodeSearchQuery({
+      keywords: ['path/to/something'],
+    } as never);
     expect(q).toContain('"path/to/something"');
   });
 });
@@ -473,7 +501,9 @@ describe('buildRepoSearchQuery — branch coverage', () => {
   });
 
   it('adds topics filter', () => {
-    const q = buildRepoSearchQuery({ topicsToSearch: ['react', 'typescript'] } as never);
+    const q = buildRepoSearchQuery({
+      topicsToSearch: ['react', 'typescript'],
+    } as never);
     expect(q).toContain('topic:react');
     expect(q).toContain('topic:typescript');
   });
@@ -551,7 +581,10 @@ describe('buildRepoSearchQuery — branch coverage', () => {
   });
 
   it('adds owner/repo filter', () => {
-    const q = buildRepoSearchQuery({ owner: 'facebook', repo: 'react' } as never);
+    const q = buildRepoSearchQuery({
+      owner: 'facebook',
+      repo: 'react',
+    } as never);
     expect(q).toContain('repo:facebook/react');
   });
 

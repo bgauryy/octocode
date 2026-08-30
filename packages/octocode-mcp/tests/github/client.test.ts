@@ -67,7 +67,6 @@ describe('GitHub Client', () => {
       maxRetries: 3,
       enableLocal: true,
       enableClone: false,
-      outputFormat: 'yaml',
       tokenSource: 'env:GH_TOKEN',
     });
   });
@@ -168,7 +167,6 @@ describe('GitHub Client', () => {
         maxRetries: 3,
         enableLocal: true,
         enableClone: false,
-        outputFormat: 'yaml',
         tokenSource: 'env:GH_TOKEN',
       });
 
@@ -190,7 +188,6 @@ describe('GitHub Client', () => {
         maxRetries: 3,
         enableLocal: true,
         enableClone: false,
-        outputFormat: 'yaml',
         tokenSource: 'env:GH_TOKEN',
       });
 

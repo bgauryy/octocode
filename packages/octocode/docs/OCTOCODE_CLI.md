@@ -139,7 +139,7 @@ Cache data is shared with the MCP server under the configured Octocode home:
 
 Direct CLI tool execution performs the persisted maintenance due-check once per process and does not keep a background timer alive. The check is shared across processes, runs at most once per 24 hours when due, and never makes tool startup fail if cleanup cannot run. Help, schema, and context-only commands do not trigger maintenance.
 
-`cache status` reports the total `tmp` size plus clone, tree, and response usage. `cache clear --clone` and `cache clear --tree` are selective. `cache clear --all` removes the entire `tmp` directory, including response entries and maintenance metadata; there is currently no response-only clear flag. See [Cache storage and lifecycle](../../../docs/CONFIGURATION.md#cache-storage-and-lifecycle) for expiry rules and configuration.
+`cache status` reports the total `tmp` size plus clone, tree, and response usage. `cache clear --clone` and `cache clear --tree` are selective. `cache clear --all` removes the entire `tmp` directory, including response entries and maintenance metadata; there is currently no response-only clear flag. See [Cache storage and lifecycle](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md#cache-storage-and-lifecycle) for expiry rules and configuration.
 
 Use the returned absolute local path with `tools localSearchCode`,
 `tools localViewStructure`, `tools localFindFiles`, `tools localGetFileContent`,

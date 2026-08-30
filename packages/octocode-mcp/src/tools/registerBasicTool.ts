@@ -3,6 +3,8 @@ import type { CallToolResult } from '@modelcontextprotocol/server';
 import { toMCPSchema } from '../types/toolTypes.js';
 import {
   DESCRIPTIONS,
+  findToolOutputSchema,
+  ToolOutputSchema,
   withBasicSecurityValidation,
 } from '@octocodeai/octocode-tools-core';
 
@@ -32,6 +34,9 @@ export function createBasicToolRegistration<TInput extends object>({
       {
         description: DESCRIPTIONS[name],
         inputSchema: toMCPSchema(inputSchema),
+        outputSchema: toMCPSchema(
+          findToolOutputSchema(name) ?? ToolOutputSchema
+        ),
         annotations: {
           title,
           readOnlyHint: annotations?.readOnlyHint ?? true,

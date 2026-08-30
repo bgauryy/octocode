@@ -1,16 +1,12 @@
-import { completeMetadata as externalPromptMetadata } from '@octocodeai/octocode-core';
+import { completeMetadata } from '@octocodeai/octocode-core';
 
-import { baseSchemaDescriptions, toolNames } from './resources/global.js';
-import { toolSpecs } from './resources/tools/index.js';
-import type { LocalCompleteMetadata } from './types.js';
+const STALE_MCP_OUTPUT_GUIDANCE =
+  /MCP returns bounded triage text in content\[\]\.text and the full typed object in structuredContent; [^.]+restores full YAML text for clients without structuredContent\./;
 
-/**
- * Repository-owned names, descriptions, and schemas. The external core package
- * supplies only the shared system prompt until that separate surface moves.
- */
-export const localCompleteMetadata: LocalCompleteMetadata = {
-  systemPrompt: externalPromptMetadata.systemPrompt,
-  toolNames,
-  baseSchema: baseSchemaDescriptions,
-  tools: toolSpecs,
+export const localCompleteMetadata = {
+  ...completeMetadata,
+  systemPrompt: completeMetadata.systemPrompt.replace(
+    STALE_MCP_OUTPUT_GUIDANCE,
+    'MCP returns complete YAML text in content[].text and the full typed object in structuredContent.'
+  ),
 };

@@ -41,6 +41,6 @@ node <skill-dir>/scripts/open-browser.mjs --headless --port 9222 --enableFeature
 Workflow and fallback: `references/intents-automation.md#webmcp`.
 
 ## Output
-Everything lands under `.octocode/tmp/chrome-devtools/` (falls back to `~/.octocode/tmp/chrome-devtools/` when `.octocode` isn't writable): run artifacts by timestamp, `browser-state/` for profiles and session tracking, `session-meta/port-<N>/` for per-port history. Run `scripts/prune-artifacts.mjs` periodically to reclaim old runs — see `SKILL.md`.
+Everything lands under `<workspace>/.octocode/tmp/chrome-devtools/`: run artifacts by timestamp, `browser-state/` for profiles and session tracking, `session-meta/port-<N>/` for per-port history. An unwritable workspace is an error; artifacts never fall back to a user-level Octocode home. Run `scripts/prune-artifacts.mjs` periodically to reclaim old runs — see `SKILL.md`.
 
 Next: after launch, route by `references/intents.md`.

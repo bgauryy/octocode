@@ -300,6 +300,33 @@ const TOOL_RESULT_SHAPES: Record<string, () => CallToolResult> = {
     },
   }),
 
+  ghListReleases: () => ({
+    content: [
+      {
+        type: 'text',
+        text: `Release v1.0.0: remove ${SECRETS.ANTHROPIC_KEY}`,
+      },
+    ],
+    structuredContent: {
+      data: {
+        results: [
+          {
+            id: 'q1',
+            data: {
+              releases: [
+                {
+                  tagName: 'v1.0.0',
+                  name: 'First release',
+                  body: `Rotate ${SECRETS.ANTHROPIC_KEY}`,
+                },
+              ],
+            },
+          },
+        ],
+      },
+    },
+  }),
+
   npmSearch: () => ({
     content: [
       {
@@ -716,7 +743,7 @@ describe('ALL-TOOLS: Unified output sanitization via withOutputSanitization prox
 
   describe('Clean content preservation', () => {
     for (const toolName of Object.keys(TOOL_RESULT_SHAPES)) {
-      it(`${toolName}: clean structured results compact duplicate text`, async () => {
+      it(`${toolName}: clean structured results preserve complete text`, async () => {
         const { registerAndCall } = createProxyChain();
         const cleanResult: CallToolResult = {
           content: [
@@ -739,7 +766,7 @@ describe('ALL-TOOLS: Unified output sanitization via withOutputSanitization prox
 
         const text = (result.content[0] as { type: 'text'; text: string }).text;
         expect(text).toBe(
-          'structuredContent available. Read structuredContent for full data; if your client cannot read structuredContent, set OCTOCODE_MCP_FULL_TEXT=true.'
+          `function calculateTotal(items) {\n  return items.reduce((sum, i) => sum + i.price, 0);\n}`
         );
 
         const sc = result.structuredContent as Record<string, unknown>;

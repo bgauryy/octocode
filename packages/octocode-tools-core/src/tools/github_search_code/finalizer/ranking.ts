@@ -7,23 +7,12 @@ import {
   type CodeSearchGroupedResult,
 } from '../../providerMappers.js';
 
-export function queryById(
-  queries: readonly QueryWithPagination[]
-): ReadonlyMap<string, QueryWithPagination> {
-  const byId = new Map<string, QueryWithPagination>();
-  for (const query of queries) {
-    if (typeof query.id === 'string') byId.set(query.id, query);
-  }
-  return byId;
-}
-
 export function hasScopedGitHubQuery(
-  emptyQueries: readonly { id: string }[],
+  emptyQueries: readonly { index: number }[],
   queries: readonly QueryWithPagination[]
 ): boolean {
-  const queriesById = queryById(queries);
   return emptyQueries.some(empty => {
-    const query = queriesById.get(empty.id) as
+    const query = queries[empty.index] as
       (QueryWithPagination & { owner?: unknown; repo?: unknown }) | undefined;
     return typeof query?.owner === 'string' && typeof query?.repo === 'string';
   });

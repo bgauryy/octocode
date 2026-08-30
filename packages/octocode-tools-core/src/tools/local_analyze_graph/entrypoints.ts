@@ -3,6 +3,10 @@ import { posix } from 'node:path';
 
 const TEST_FILE_PATTERN = /(\.(test|spec)\.[^/]+$)|(^|\/)(__tests__|tests?)\//i;
 
+export function isTestFilePath(file: string): boolean {
+  return TEST_FILE_PATTERN.test(file);
+}
+
 const SCRIPT_FILE_EXTENSION = /\.(mjs|cjs|jsx?|tsx?)$/i;
 
 /**
@@ -77,6 +81,17 @@ function findSourceEquivalent(
     candidates.push(srcPath);
     const srcExtSwapped = swapToTsExtension(srcPath);
     if (srcExtSwapped) candidates.push(srcExtSwapped);
+  }
+
+  // CLI packages often compile one source entry (`src/index.ts`) to a renamed
+  // executable (`out/octocode.js`, `dist/my-cli.js`). When the direct basename
+  // mapping misses, prefer the conventional source entry over resolving no
+  // production root at all.
+  if (
+    BUILD_OUTPUT_DIRS.some(outDir => normalized.startsWith(`${outDir}/`)) &&
+    knownFiles.has('src/index.ts')
+  ) {
+    candidates.push('src/index.ts');
   }
 
   return candidates.find(candidate => knownFiles.has(candidate));
@@ -192,7 +207,7 @@ export function resolveEntrypoints(
 
   if (includeTests) {
     for (const file of knownFiles) {
-      if (TEST_FILE_PATTERN.test(file)) resolved.add(file);
+      if (isTestFilePath(file)) resolved.add(file);
     }
   }
 

@@ -18,6 +18,7 @@ export type Platform =
   | 'claude'
   | 'claude-desktop'
   | 'codex'
+  | 'codex-native'
   | 'opencode'
   | 'copilot'
   | 'gemini'
@@ -31,6 +32,7 @@ export const VALID_PLATFORMS: readonly string[] = [
   'claude-desktop',
   'claude-code',
   'codex',
+  'codex-native',
   'opencode',
   'copilot',
   'gemini',
@@ -52,12 +54,15 @@ export function getPlatformSkillsDir(platform: Platform): string {
     const appData = getAppData();
     switch (platform) {
       case 'claude':
+        return path.join(HOME, '.claude', 'skills');
       case 'claude-desktop':
         return path.join(appData, 'Claude Desktop', 'skills');
       case 'cursor':
         return path.join(HOME, '.cursor', 'skills');
       case 'codex':
         return path.join(HOME, '.agents', 'skills');
+      case 'codex-native':
+        return path.join(HOME, '.codex', 'skills');
       case 'opencode':
         return path.join(appData, 'opencode', 'skills');
       case 'pi':
@@ -74,12 +79,15 @@ export function getPlatformSkillsDir(platform: Platform): string {
 
   switch (platform) {
     case 'claude':
+      return path.join(HOME, '.claude', 'skills');
     case 'claude-desktop':
       return path.join(HOME, '.claude-desktop', 'skills');
     case 'cursor':
       return path.join(HOME, '.cursor', 'skills');
     case 'codex':
       return path.join(HOME, '.agents', 'skills');
+    case 'codex-native':
+      return path.join(HOME, '.codex', 'skills');
     case 'opencode':
       return path.join(HOME, '.config', 'opencode', 'skills');
     case 'pi':
@@ -98,7 +106,9 @@ const ALL_PLATFORMS: Platform[] = [
   'pi',
   'cursor',
   'claude',
+  'claude-desktop',
   'codex',
+  'codex-native',
   'opencode',
   'copilot',
   'gemini',
@@ -113,6 +123,7 @@ const PLATFORM_ALIASES: Record<string, Platform | 'all'> = {
   'claude-code': 'claude',
   'claude-desktop': 'claude-desktop',
   codex: 'codex',
+  'codex-native': 'codex-native',
   opencode: 'opencode',
   'open-code': 'opencode',
   copilot: 'copilot',

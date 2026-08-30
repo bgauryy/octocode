@@ -9,6 +9,8 @@ Optimize instruction behavior, not prose aesthetics.
 
 Flow: `READ → UNDERSTAND → RATE → FIX → VALIDATE → OUTPUT`.
 
+Workspace output contract: chat-only deltas stay in chat. New saved reviews or unnamed optimized drafts default to `<workspace>/.octocode/octocode-prompt-optimizer/`; scratch data uses `<workspace>/.octocode/tmp/octocode-prompt-optimizer/`. User-approved prompt, schema, policy, and source edits keep their named paths. Never fall back to a user-level Octocode home for artifacts.
+
 ## Lobby rules and gates
 - READ: inspect the whole input and its type; UNDERSTAND: map goal, parts, flow, assumptions, and unknowns.
 - RATE: record evidenced issues, severity, and baseline; FIX: address Critical/High issues and name deliberate deferrals.
@@ -28,10 +30,10 @@ Flow: `READ → UNDERSTAND → RATE → FIX → VALIDATE → OUTPUT`.
 - When context can overflow, load `references/context-budget.md`; when repeated calls share stable prefixes load `references/prompt-caching.md` — control relevance, pagination, latency, and cost.
 - When reliability must be measured, load `references/evaluation-data.md` — build realistic held-out scenarios, verifiers, metrics, and a failure ledger.
 - When instructions consume retrieved or user-supplied content, load `references/untrusted-content.md` — preserve the boundary between data and authority.
-- When improving this skill, prefer `octocode-graph-eval`; otherwise load `references/improve-loop.md` — require measurable acceptance instead of intuition.
+- When improving this skill, prefer `octocode-eval-benchmark`; otherwise load `references/improve-loop.md` — require measurable acceptance instead of intuition.
 
 ## Related routes
-- Use `octocode-skills` for skill-folder architecture/review; `octocode-research` to verify cited contracts; `octocode-graph-eval` for held-out behavior.
+- Use `octocode-skills` for skill-folder architecture/review; `octocode-research` to verify cited contracts; `octocode-eval-benchmark` for held-out behavior.
 - Use `octocode-subagent` for delegation topology.
 
 ## Done gate

@@ -7,7 +7,7 @@ import type {
 
 export function buildResultPagination(pagination: {
   currentPage: number;
-  totalPages: number;
+  totalPages?: number;
   hasMore: boolean;
   entriesPerPage?: number;
   totalMatches?: number;
@@ -18,7 +18,10 @@ export function buildResultPagination(pagination: {
 }) {
   return {
     currentPage: pagination.currentPage,
-    totalPages: pagination.totalPages,
+    ...(pagination.totalMatchesKind !== 'lowerBound' &&
+    pagination.totalPages !== undefined
+      ? { totalPages: pagination.totalPages }
+      : {}),
     perPage: pagination.entriesPerPage ?? 10,
     ...(pagination.totalMatches !== undefined
       ? { totalMatches: pagination.totalMatches }
@@ -42,7 +45,7 @@ export function buildResultPagination(pagination: {
 
 export type EffectivePagination = {
   currentPage: number;
-  totalPages: number;
+  totalPages?: number;
   hasMore: boolean;
   entriesPerPage?: number;
   totalMatches?: number;
@@ -77,7 +80,6 @@ export function buildMergedPagination(
   // bound on the true number of matches; report it as such.
   return {
     currentPage: pages[0]!.currentPage,
-    totalPages: Math.max(...pages.map(p => p.totalPages)),
     hasMore: pages.some(p => p.hasMore),
     entriesPerPage: pages[0]!.entriesPerPage,
     totalMatches: dedupedCount,

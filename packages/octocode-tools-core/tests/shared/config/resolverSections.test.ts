@@ -183,10 +183,10 @@ describe('resolveLocal', () => {
       _resetRuntimeSurface();
     });
 
-    it('should default enabled to false on the MCP surface when no config or env var', () => {
+    it('should default enabled to true on the MCP surface when no config or env var', () => {
       setRuntimeSurface('mcp');
       const result = resolveLocal(undefined);
-      expect(result.enabled).toBe(false);
+      expect(result.enabled).toBe(true);
       _resetRuntimeSurface();
     });
 

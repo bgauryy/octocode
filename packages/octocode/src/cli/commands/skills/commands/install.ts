@@ -15,8 +15,17 @@
  *   4. Custom path               → direct copy/symlink (--path, skips home)
  */
 
-import { listSkills, getSkill, type SkillInfo } from '../registry.js';
-import { parsePlatforms, type Platform } from '../platforms.js';
+import {
+  listSkills,
+  getSkill,
+  getSkillFromPath,
+  type SkillInfo,
+} from '../registry.js';
+import {
+  getPlatformSkillsDir,
+  parsePlatforms,
+  type Platform,
+} from '../platforms.js';
 import {
   installSkill,
   type InstallMode,
@@ -36,6 +45,8 @@ import { shortPath } from '../utils/paths.js';
 
 export interface InstallOptions {
   all: boolean;
+  /** Local standalone skill source used by `skill --add <source>`. */
+  sourcePath: string | null;
   platform: string | null;
   workspace: boolean;
   customPath: string | null;
@@ -86,7 +97,27 @@ export function runInstall(skillNames: string[], opts: InstallOptions): void {
 
   let skills: SkillInfo[];
 
-  if (opts.all) {
+  if (opts.sourcePath) {
+    if (opts.all || skillNames.length > 1) {
+      const error = opts.all
+        ? '--add cannot be combined with --all.'
+        : '--add accepts at most one --name override.';
+      if (opts.json) console.log(JSON.stringify({ success: false, error }));
+      else console.error(`\n  ${c('red', '✗')}  ${error}\n`);
+      process.exitCode = 1;
+      return;
+    }
+
+    const resolved = getSkillFromPath(opts.sourcePath, skillNames[0]);
+    if (!resolved.skill) {
+      const error = resolved.error ?? 'Unable to load local skill.';
+      if (opts.json) console.log(JSON.stringify({ success: false, error }));
+      else console.error(`\n  ${c('red', '✗')}  ${error}\n`);
+      process.exitCode = 1;
+      return;
+    }
+    skills = [resolved.skill];
+  } else if (opts.all) {
     skills = listSkills();
     if (skills.length === 0) {
       if (opts.json) {
@@ -180,6 +211,14 @@ export function runInstall(skillNames: string[], opts: InstallOptions): void {
       return;
     }
     platforms = parsed.platforms;
+  }
+
+  if (opts.sourcePath) {
+    const agentsDir = getPlatformSkillsDir('agents');
+    const alreadyTargetsAgents = platforms.some(
+      platform => getPlatformSkillsDir(platform) === agentsDir
+    );
+    if (!alreadyTargetsAgents) platforms.unshift('agents');
   }
 
   // ── Header (human) ────────────────────────────────────────────────────────

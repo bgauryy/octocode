@@ -124,6 +124,7 @@ describe('tool-command coverage', () => {
     expect(output).toContain('Local Code');
     expect(output).not.toContain('\n  LSP\n');
     expect(output).toContain('localSearchCode');
+    expect(output).toContain('Full protocol: context --full');
     expect(output).toContain('ghSearchCode');
     expect(output).toContain('Search code.');
     expect(output).toContain('Local search.');
@@ -282,7 +283,7 @@ describe('tool-command coverage', () => {
     expect(result).toBe(false);
   });
 
-  it('showToolHelp: GitHub tool shows mainResearchGoal in auto-filled hint', async () => {
+  it('showToolHelp: GitHub tool shows goal in auto-filled hint', async () => {
     const { toolCommand } = await import('../../src/cli/tool-command.js');
 
     await toolCommand.handler!({
@@ -292,12 +293,14 @@ describe('tool-command coverage', () => {
     });
 
     const output = consoleSpy.mock.calls.flat().join('\n');
-    expect(output).toContain('mainResearchGoal');
+    expect(output).toContain('goal');
+    expect(output).not.toContain('mainResearchGoal');
+    expect(output).not.toContain('researchGoal');
     expect(output).toContain('ghSearchCode');
     expect(output).toContain('keywords');
   });
 
-  it('showToolHelp: local tool does NOT show mainResearchGoal hint', async () => {
+  it('showToolHelp: local tool does not expose legacy goal names', async () => {
     const { toolCommand } = await import('../../src/cli/tool-command.js');
 
     await toolCommand.handler!({
@@ -311,6 +314,25 @@ describe('tool-command coverage', () => {
     expect(output).toContain('Input Schema');
 
     expect(output).not.toContain('mainResearchGoal');
+    expect(output).not.toContain('researchGoal');
+  });
+
+  it('brief schema help emits signatures without verbose field prose', async () => {
+    const { toolCommand } = await import('../../src/cli/tool-command.js');
+
+    await toolCommand.handler!({
+      command: 'tools',
+      args: ['ghSearchCode'],
+      options: { scheme: true, brief: true },
+    });
+
+    const output = consoleSpy.mock.calls.flat().join('\n');
+    expect(output).toContain('ghSearchCode');
+    expect(output).toContain('keywords (array<string>)');
+    expect(output).toContain("tools ghSearchCode --queries '");
+    expect(output).not.toContain('ANDed; keep a phrase as one item');
+    expect(output).not.toContain('Runtime: local CLI and MCP');
+    expect(output).not.toContain('Auto-filled');
   });
 
   it('ghCloneRepo: executes with owner and repo fields', async () => {
@@ -779,7 +801,7 @@ describe('tool-command coverage', () => {
     expect(ghIdx).toBeLessThan(cloneIdx);
   });
 
-  it('preserves user-supplied id, researchGoal, reasoning, mainResearchGoal', async () => {
+  it('preserves user-supplied goal and reasoning', async () => {
     const { toolCommand } = await import('../../src/cli/tool-command.js');
 
     await toolCommand.handler!({
@@ -787,9 +809,7 @@ describe('tool-command coverage', () => {
       args: [
         'ghSearchCode',
         JSON.stringify({
-          id: 'my-id',
-          mainResearchGoal: 'my main goal',
-          researchGoal: 'my goal',
+          goal: 'my goal',
           reasoning: 'my reasoning',
           keywords: ['test'],
         }),
@@ -801,14 +821,13 @@ describe('tool-command coverage', () => {
       expect.objectContaining({
         queries: [
           expect.objectContaining({
-            id: 'my-id',
-            mainResearchGoal: 'my main goal',
-            researchGoal: 'my goal',
+            goal: 'my goal',
             reasoning: 'my reasoning',
           }),
         ],
       })
     );
+    expect(mocks.noop.mock.calls[0]?.[0].queries[0]).not.toHaveProperty('id');
   });
 
   it('showAvailableTools: returns null metadata gracefully when loadToolContent fails', async () => {

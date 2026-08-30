@@ -167,20 +167,21 @@ Suite average: **8.9/10** after the graph, response, recording, and strict-safe 
 
 | Skill | Score | Main finding |
 |---|---:|---|
-| `octocode-research` | 9.4 | Best evidence ladder and routing backbone; local CLI/catalog wording was stale and is fixed in this audit. |
-| `octocode-brainstorming` | 9.0 | Disciplined divergence and decision gates; broad surface plan can be heavy for small asks. |
-| `octocode-rfc-generator` | 9.1 | Strong decision/traceability contract; multi-artifact mode is intentionally expensive. |
-| `octocode-graph-eval` | 9.5 | Strongest measurable accept/revert discipline, held-out checks, and Goodhart guards. |
-| `octocode-subagent` | 9.1 | Excellent spawn gate and local-Ollama route; reference surface is large. |
+| `octocode-research` | 9.5 | Best evidence ladder and routing backbone; precise proof grades and local/external handoffs. |
+| `octocode-code-graph` | 9.4 | Focused graph-to-code proof ladder with strong false-positive controls; the six-case suite is intentionally narrow. |
+| `octocode-brainstorming` | 9.1 | Disciplined divergence, cross-surface research, and decision gates; broad validation can be heavy for small asks. |
+| `octocode-rfc-generator` | 9.2 | Strong decision and traceability contract; multi-artifact mode is intentionally expensive. |
+| `octocode-eval-benchmark` | 9.6 | Strongest measurable accept/revert discipline, smart grader selection, held-out checks, benchmark hygiene, and Goodhart guards. |
+| `octocode-subagent` | 9.2 | Excellent spawn gate and local-Ollama route; the combined cloud/local reference surface is large. |
 | `octocode-documentation` | 9.2 | Evidence-backed writing plus deterministic style gate; its complete style pack is costly to maintain. |
 | `octocode-roast` | 8.8 | Memorable evidence-first critique and repair checkpoint; tone specialization narrows reuse. |
 | `octocode-prompt-optimizer` | 9.0 | Clear behavioral optimization loop; validation is model-driven rather than scripted. |
-| `octocode-skills` | 9.2 | Strong lifecycle, cleanup, sync, and zero-error review gate; passing a collection path to review crashes despite no-arg discovery working. |
+| `octocode-skills` | 9.3 | Strong lifecycle, cleanup, sync, and zero-error review gate; collection discovery and invalid-target handling are now deterministic. |
 | `octocode-chrome-devtools` | 9.0 | Deep live-browser evidence and safety gates; operational surface is large and environment-sensitive. |
 | `octocode-scraping` | 9.1 | Excellent corpus-first, keyless-first, recovery-oriented flow; provider matrix adds complexity. |
 | `octocode-mannequin` | 6.8 (removed) | Coherent but product-niche; duplicate FK/clamp implementations and browser coupling formed a maintenance island. |
 
-Remaining-suite average after removal: **9.1/10**. Baseline skill review: 12/12 clean, 0 errors, 0 warnings.
+Current-suite average: **9.2/10**. Baseline skill review: 12/12 clean, 0 errors, 0 warnings.
 
 ### End-to-end workflow
 

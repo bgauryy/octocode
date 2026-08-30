@@ -15,8 +15,6 @@ import {
 
 export type ToolDefinition = DirectToolDefinition;
 export const TOOL_CATEGORIES = DIRECT_TOOL_CATEGORIES;
-// CLI discovery is schema-first: show every public tool, while `disabled`
-// keeps opt-in execution gated until its environment flag is enabled.
 export const TOOL_DEFINITIONS: ToolDefinition[] =
   DIRECT_TOOL_DISCOVERY_DEFINITIONS;
 

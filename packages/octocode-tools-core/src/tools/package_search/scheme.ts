@@ -16,29 +16,38 @@ import type { BulkToolOutput } from '../../types/toolOutput.js';
 
 const queryOverrides = {
   page: relaxedPageNumberField,
-  // The strict npm bulk schema would otherwise reject it as an unrecognized key.
-  // Execution currently no-ops it, but the field must stay part of the contract.
-  // Core types this as a single string, but sibling tools take keyword ARRAYS
+  // Sibling tools take keyword ARRAYS
   // (ghSearchCode/localSearchCode) — agents reflexively pass arrays here too.
   // Accept both shapes; execution folds arrays to the space-joined registry
   // query (no zod transform — it would break JSON-schema generation).
-  keywords: z
-    .union([z.string(), z.array(z.string())])
-    .optional()
-    .describe(
-      'Registry keyword query (string; an array of terms is accepted and joined with spaces).'
-    ),
+  keywords: z.union([z.string(), z.array(z.string())]).optional(),
 } as const;
+
+function requirePackageNameOrKeywords(
+  query: { packageName?: string; keywords?: string | string[] },
+  ctx: z.RefinementCtx
+): void {
+  const keywords = Array.isArray(query.keywords)
+    ? query.keywords.join(' ').trim()
+    : query.keywords?.trim();
+  if (!query.packageName?.trim() && !keywords) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['packageName'],
+      message: 'provide packageName or keywords',
+    });
+  }
+}
 
 export const NpmSearchQueryLocalSchema = describeQuerySchema(
   NpmPackageQuerySchema,
   queryOverrides
-);
+).superRefine(requirePackageNameOrKeywords);
 
 export const NpmSearchBulkQueryLocalSchema = createRelaxedBulkQuerySchema(
   createQueryShapeSchema(NpmPackageQuerySchema, queryOverrides, {
     strict: true,
-  }),
+  }).superRefine(requirePackageNameOrKeywords),
   { maxQueries: 5 }
 );
 

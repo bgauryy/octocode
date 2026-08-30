@@ -55,33 +55,28 @@ At startup, Octocode reads configuration from environment variables and `<octoco
 
 ## Tool catalog
 
-With no environment variables set, the MCP server registers 8 tools:
+With no environment variables set, the MCP server registers 14 tools:
 
 | Family | Tools |
 |--------|-------|
 | GitHub | `ghSearchCode`, `ghGetFileContent`, `ghViewRepoStructure`, `ghSearchRepos`, `ghSearchPullRequests`, `ghSearchIssues`, `ghSearchCommits` |
+| Local | `localSearchCode`, `localViewStructure`, `localFindFiles`, `localGetFileContent`, `localAnalyzeGraph`, `lspGetSemantics` |
 | Package | `npmSearch` |
 
-Three settings add the remaining 9 tools:
+The following settings add the three capability-gated tools:
 
-| Set | Adds | Total |
+| Configuration | Adds | Total |
 |---|---|---:|
-| `ENABLE_LOCAL=true` | `localSearchCode`, `localViewStructure`, `localFindFiles`, `localGetFileContent`, `localAnalyzeGraph`, `lspGetSemantics` | 14 |
-| `ENABLE_CLONE=true` | `ghCloneRepo` (requires `ENABLE_LOCAL`) | 15 |
-| `ENABLE_RELEASES=1` or `ENABLE_DISCUSSIONS=1`, **and** `ENABLE_TOOLS` | `ghListReleases`, `ghSearchDiscussions` | 17 |
-
-The last row needs both settings because `ghListReleases` and `ghSearchDiscussions`
-carry `isDefault: false`: the feature flag adds the tool to the catalog, and the
-`ENABLE_TOOLS` allowlist is what registers it. Setting only the feature flag leaves
-the tool unregistered — a difference from the CLI, which needs the flag alone.
+| `ENABLE_RELEASES=true` | `ghListReleases` | 15 |
+| `ENABLE_DISCUSSIONS=true` | `ghSearchDiscussions` | 15 |
+| Both optional GitHub flags | Both optional GitHub tools | 16 |
+| Both optional GitHub flags plus `ENABLE_CLONE=true` | All three gated tools | 17 |
 
 ```json
 {
-  "ENABLE_LOCAL": "true",
   "ENABLE_CLONE": "true",
-  "ENABLE_RELEASES": "1",
-  "ENABLE_DISCUSSIONS": "1",
-  "ENABLE_TOOLS": "ghListReleases,ghSearchDiscussions"
+  "ENABLE_RELEASES": "true",
+  "ENABLE_DISCUSSIONS": "true"
 }
 ```
 
@@ -99,9 +94,11 @@ The following table lists the settings that matter most for MCP:
 |---------|----------------|
 | `GITHUB_TOKEN` / `GH_TOKEN` / `OCTOCODE_TOKEN` | GitHub API auth. |
 | `GITHUB_API_URL` | GitHub Enterprise API endpoint. |
-| `ENABLE_LOCAL` | Turns local filesystem and LSP tools on or off. A `tools/list` probe of the built MCP server registered them without the variable set, while the config resolver documents the MCP default as off. Set the value explicitly rather than relying on the default. |
+| `ENABLE_LOCAL` | Turns local filesystem and LSP tools on or off. Defaults to `true`; set it to `false` to disable them. |
 | `ENABLE_CLONE` | Turns on `ghCloneRepo` and directory materialization for MCP. Clone workflows require `true`. |
-| `TOOLS_TO_RUN`, `ENABLE_TOOLS`, `DISABLE_TOOLS` | Control which tools the MCP server registers. |
+| `ENABLE_RELEASES` | Turns on `ghListReleases`. Defaults to `false`. |
+| `ENABLE_DISCUSSIONS` | Turns on `ghSearchDiscussions`. Defaults to `false`. |
+| `TOOLS_TO_RUN`, `DISABLE_TOOLS` | Control which tools the MCP server registers. |
 | `WORKSPACE_ROOT`, `ALLOWED_PATHS` | Bound local path resolution and validation. |
 
 For full details, see the [Octocode configuration and authentication](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md) reference.
@@ -118,7 +115,7 @@ The MCP server shares the same on-disk cache as the CLI under the configured Oct
 
 Initialization performs a persisted maintenance due-check. After the transport connects, MCP schedules the next persisted deadline with an unreferenced timer, so the timer does not keep the process alive. A cross-process lock prevents concurrent sweeps when CLI and MCP processes start together. Cleanup is best effort and is cancelled during shutdown; a cleanup failure does not block server startup or tool execution.
 
-Maintenance removes expired owned cache entries while preserving unrelated files under `tmp`. See [Cache storage and lifecycle](CONFIGURATION.md#cache-storage-and-lifecycle) for the 24-hour gate, expiry rules, limits, and manual controls, and [Cache behavior](OCTOCODE_TOOLS.md#cache-behavior) for tool-level semantics.
+Maintenance removes expired owned cache entries while preserving unrelated files under `tmp`. See [Cache storage and lifecycle](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md#cache-storage-and-lifecycle) for the 24-hour gate, expiry rules, limits, and manual controls, and [Cache behavior](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_TOOLS.md#cache-behavior) for tool-level semantics.
 
 ## Session persistence
 

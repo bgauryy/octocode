@@ -27,8 +27,7 @@ export function mapFileContentToolQuery(query: LocalFileContentQuery) {
     minify: query.minify,
     matchStringIsRegex: query.matchStringIsRegex,
     matchStringCaseSensitive: query.matchStringCaseSensitive,
-    mainResearchGoal: query.mainResearchGoal,
-    researchGoal: query.researchGoal,
+    goal: query.goal,
     reasoning: query.reasoning,
   };
 }

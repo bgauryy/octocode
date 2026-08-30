@@ -96,6 +96,7 @@ export function paginateBulkText(
   return {
     text: `${header}${pageText}`,
     pagination: {
+      scope: 'content.text',
       currentPage,
       totalPages,
       hasMore,

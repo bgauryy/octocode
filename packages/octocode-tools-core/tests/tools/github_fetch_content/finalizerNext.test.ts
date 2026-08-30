@@ -11,7 +11,6 @@ vi.mock('../../../src/serverConfig.js', async importOriginal => ({
 }));
 
 type Query = {
-  id: string;
   owner: string;
   repo: string;
   branch?: string;
@@ -32,7 +31,6 @@ describe('github fetch content finalizer next.continueChars', () => {
 
   it('emits a ready continuation query when char pagination hasMore', () => {
     const query: Query = {
-      id: 'q1',
       owner: 'octo',
       repo: 'engine',
       branch: 'main',
@@ -40,7 +38,7 @@ describe('github fetch content finalizer next.continueChars', () => {
       minify: 'standard',
     };
     const result: FlatQueryResult = {
-      id: 'q1',
+      index: 0,
       status: 'success',
       data: {
         path: 'src/big.ts',
@@ -91,13 +89,12 @@ describe('github fetch content finalizer next.continueChars', () => {
 
   it('omits continueChars when there is no further page, but still offers the clone-for-semantics bridge (regression: this tool used to emit zero next-hints for a fully-read file)', () => {
     const query: Query = {
-      id: 'q1',
       owner: 'octo',
       repo: 'engine',
       path: 'src/small.ts',
     };
     const result: FlatQueryResult = {
-      id: 'q1',
+      index: 0,
       status: 'success',
       data: {
         path: 'src/small.ts',
@@ -135,13 +132,12 @@ describe('github fetch content finalizer next.continueChars', () => {
   it('omits cloneForSemantics (and an empty next map entirely) when clone is disabled', () => {
     mockIsCloneEnabled.mockReturnValue(false);
     const query: Query = {
-      id: 'q1',
       owner: 'octo',
       repo: 'engine',
       path: 'src/small.ts',
     };
     const result: FlatQueryResult = {
-      id: 'q1',
+      index: 0,
       status: 'success',
       data: {
         path: 'src/small.ts',
@@ -168,13 +164,12 @@ describe('github fetch content finalizer next.continueChars', () => {
   it('keeps continueChars when clone is disabled but more pages exist', () => {
     mockIsCloneEnabled.mockReturnValue(false);
     const query: Query = {
-      id: 'q1',
       owner: 'octo',
       repo: 'engine',
       path: 'src/big.ts',
     };
     const result: FlatQueryResult = {
-      id: 'q1',
+      index: 0,
       status: 'success',
       data: {
         path: 'src/big.ts',

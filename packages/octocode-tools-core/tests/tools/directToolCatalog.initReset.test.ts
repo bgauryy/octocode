@@ -27,8 +27,7 @@ import { STATIC_TOOL_NAMES } from '../../src/tools/toolNames.js';
 
 const PACKAGE_QUERY = {
   packageName: 'vitest',
-  mainResearchGoal: 'retry test',
-  researchGoal: 'verify retry',
+  goal: 'verify retry',
   reasoning: 'bug-5 regression',
 } as const;
 
@@ -65,7 +64,7 @@ describe('executeDirectTool – Bug #5: failed init promise is cleared on reject
     // rejected promise → initialize() is NOT called again → initCallCount stays 1.
     // Fix: promise cleared on rejection → initialize() retried → count = 2.
     await executeDirectTool(STATIC_TOOL_NAMES.PACKAGE_SEARCH, {
-      queries: [{ ...PACKAGE_QUERY, researchGoal: 'verify retry 2nd' }],
+      queries: [{ ...PACKAGE_QUERY, goal: 'verify retry 2nd' }],
     });
 
     expect(initCallCount).toBe(2);
@@ -79,7 +78,7 @@ describe('executeDirectTool – Bug #5: failed init promise is cleared on reject
 
     // First call sets serverRuntimeInitPromise to a resolved promise.
     await executeDirectTool(STATIC_TOOL_NAMES.PACKAGE_SEARCH, {
-      queries: [{ ...PACKAGE_QUERY, researchGoal: 'initial call' }],
+      queries: [{ ...PACKAGE_QUERY, goal: 'initial call' }],
     });
 
     // Now reset: clears the cached resolved promise.
@@ -93,7 +92,7 @@ describe('executeDirectTool – Bug #5: failed init promise is cleared on reject
     // Second call — because _resetInitialize cleared the promise, initialize()
     // must be called again.
     await executeDirectTool(STATIC_TOOL_NAMES.PACKAGE_SEARCH, {
-      queries: [{ ...PACKAGE_QUERY, researchGoal: 'after reset' }],
+      queries: [{ ...PACKAGE_QUERY, goal: 'after reset' }],
     });
 
     expect(reinitCount).toBe(1);

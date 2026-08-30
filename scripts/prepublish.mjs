@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 /**
- * prepublish.mjs — publish guard: no workspace:* resolutions for managed packages.
+ * prepublish.mjs — publish guard: no local resolutions for managed packages.
  *
  * A single check runs before any package in this monorepo is published:
  *
- *   RESOLUTIONS CHECK — root package.json must not have workspace:* entries
- *   for managed internal packages. Publishing with workspace:* resolutions
+ *   RESOLUTIONS CHECK — root package.json must not have local workspace/file/
+ *   link/portal entries for managed packages. Publishing with local resolutions
  *   active causes Yarn to rewrite consumer deps via the local registry,
  *   producing incorrect pinned versions in published tarballs. These entries
  *   are added by `yarn devScript` for local development and must be removed
@@ -29,6 +29,10 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import {
+  isLocalResolution,
+  managedResolutionPackages,
+} from './dev-resolution-contract.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const FIX = process.argv.includes('--fix');
@@ -37,19 +41,10 @@ const DRY_RUN = process.argv.includes('--dry-run');
 /** Packages whose root resolutions this script manages. */
 const ENGINE_PKG_PATH = join(ROOT, 'packages/octocode-engine/package.json');
 const enginePkg = JSON.parse(readFileSync(ENGINE_PKG_PATH, 'utf8'));
-const enginePlatformPackages = Object.keys(enginePkg.optionalDependencies ?? {}).filter((name) =>
-  name.startsWith('@octocodeai/octocode-engine-')
-);
-const MANAGED_PACKAGES = new Set([
-  '@octocodeai/octocode-tools-core',
-  '@octocodeai/config',
-  '@octocodeai/octocode-core',
-  '@octocodeai/octocode-engine',
-  ...enginePlatformPackages,
-]);
+const MANAGED_PACKAGES = new Set(managedResolutionPackages(enginePkg));
 
 // ---------------------------------------------------------------------------
-// Check: root resolutions must not contain workspace:* for managed packages
+// Check: root resolutions must not contain local protocols for managed packages
 // ---------------------------------------------------------------------------
 
 function checkAndFixResolutions(rootPkg, rootPkgPath) {
@@ -57,7 +52,7 @@ function checkAndFixResolutions(rootPkg, rootPkgPath) {
   const resolutions = rootPkg.resolutions ?? {};
 
   for (const name of MANAGED_PACKAGES) {
-    if (resolutions[name] === 'workspace:*') {
+    if (isLocalResolution(resolutions[name])) {
       issues.push(name);
     }
   }
@@ -67,7 +62,9 @@ function checkAndFixResolutions(rootPkg, rootPkgPath) {
   if (FIX || DRY_RUN) {
     for (const name of issues) {
       if (!DRY_RUN) delete resolutions[name];
-      console.log(`  ${DRY_RUN ? '~' : '-'} resolutions.${name} (workspace:* removed)`);
+      console.log(
+        `  ${DRY_RUN ? '~' : '-'} resolutions.${name} (local resolution removed)`
+      );
     }
     // Drop the resolutions key entirely if it became empty
     if (!DRY_RUN && Object.keys(resolutions).length === 0) {
@@ -96,7 +93,7 @@ console.log(`\n🔍 Prepublish check${mode}\n`);
 console.log('[ 1/1 ] Checking root resolutions…');
 const resolutionIssues = checkAndFixResolutions(rootPkg, rootPkgPath);
 if (resolutionIssues.length === 0) {
-  console.log('  ✓ No workspace:* resolutions for managed packages.\n');
+  console.log('  ✓ No local resolutions for managed packages.\n');
 }
 
 // --- Summary ---
@@ -111,17 +108,23 @@ if (FIX || DRY_RUN) {
       `📋 Dry-run: ${resolutionIssues.length} fix(es) would be applied. Re-run without --dry-run to apply.\n`
     );
   } else {
-    console.log(`✅ Fixed ${resolutionIssues.length} issue(s). Run \`yarn install\` to apply.\n`);
+    console.log(
+      `✅ Fixed ${resolutionIssues.length} issue(s). Run \`yarn install\` to apply.\n`
+    );
   }
   process.exit(0);
 }
 
 // Check-only mode: report and exit 1
 console.error('\n✗ Prepublish check failed:\n');
-console.error(`  workspace:* resolutions still present in root package.json:`);
+console.error(`  local resolutions still present in root package.json:`);
 for (const name of resolutionIssues) {
-  console.error(`    resolutions.${name}: "workspace:*"`);
+  console.error(`    resolutions.${name}: "${rootPkg.resolutions?.[name]}"`);
 }
-console.error(`\n  These were added by \`yarn devScript\` for local development.`);
-console.error(`  Remove them before publishing: \`node ./scripts/prepublish.mjs --fix\`\n`);
+console.error(
+  `\n  These were added by \`yarn devScript\` for local development.`
+);
+console.error(
+  `  Remove them before publishing: \`node ./scripts/prepublish.mjs --fix\`\n`
+);
 process.exit(1);

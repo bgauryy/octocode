@@ -13,6 +13,8 @@ FRAME → CLASSIFY → MODEL → SEARCH → READ EXACT → PROVE → DECIDE/PATC
 
 That's the full shape, not a checklist to march through. Scale it to the claim: a small lookup gets a cheap read and an honest confidence label; a delete, a merge verdict, or a root cause earns the whole ladder. Skip stages you can already answer — but say which ones you skipped.
 
+Workspace output contract: chat-only findings stay in chat. New decision briefs, evidence packets, or unnamed reports default to `<workspace>/.octocode/octocode-research/`; scratch data uses `<workspace>/.octocode/tmp/octocode-research/`. User-approved source edits keep their named paths. Never fall back to a user-level Octocode home for artifacts.
+
 ## The rules
 
 1. Open with one line: corpus, actual vs desired, task class, mode, surfaces used and skipped.
@@ -62,7 +64,7 @@ $OCTO tools <name> --queries '<json>' --compact        # run it
 
 Batch up to five queries per call. Orient cheap (tree, discovery) before exact reads. Use `localAnalyzeGraph` for repository file topology and LSP for symbol identity; follow returned `next.*` and cursors instead of re-deriving them.
 
-Read `references/octocode.md` when transport, tool choice, auth, gates (`ENABLE_LOCAL`, `ENABLE_CLONE`, `ENABLE_RELEASES`), materialization, diagnostics, or exit codes are unclear.
+Read `references/octocode.md` when transport, tool choice, auth, gates (`ENABLE_LOCAL`, `ENABLE_CLONE`, `ENABLE_RELEASES`, `ENABLE_DISCUSSIONS`), materialization, diagnostics, or exit codes are unclear.
 
 ## Output
 
@@ -70,6 +72,6 @@ Read `references/octocode.md` when transport, tool choice, auth, gates (`ENABLE_
 
 ## Related
 
-`octocode-brainstorming` (worth building?) · `octocode-rfc-generator` (design contract) · `octocode-graph-eval` (goal→KPI) · `octocode-documentation` (docs deliverable) · `octocode-skills` (skill folders) · `octocode-subagent` (fan-out) · `octocode-roast` (critique tone).
+`octocode-brainstorming` (worth building?) · `octocode-rfc-generator` (design contract) · `octocode-eval-benchmark` (goal→KPI) · `octocode-documentation` (docs deliverable) · `octocode-skills` (skill folders) · `octocode-subagent` (fan-out) · `octocode-roast` (critique tone).
 
 When changing this skill, run `node scripts/check-description.mjs` (description contract; `--help` for flags) and gate accept/revert with `references/improve-loop.md`.

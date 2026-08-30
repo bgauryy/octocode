@@ -5,6 +5,7 @@ import {
   buildMergedPagination,
   buildPartialFailureWarnings,
 } from '../../../src/tools/github_search_repos/execution.js';
+import { countPaginationMetadata } from '../../../src/providers/github/paginationMetadata.js';
 
 type MergeVariant = Parameters<typeof buildMergedPagination>[0][number];
 
@@ -24,6 +25,70 @@ function variantWithPagination(pagination: {
 }
 
 describe('ghSearchRepos pagination output', () => {
+  it('preserves lower-bound certainty without claiming an exact totalPages', () => {
+    expect(
+      buildResultPagination({
+        currentPage: 2,
+        totalPages: 3,
+        hasMore: true,
+        entriesPerPage: 2,
+        totalMatches: 5,
+        reachableTotalMatches: 4,
+        totalMatchesKind: 'lowerBound',
+      })
+    ).toEqual({
+      currentPage: 2,
+      perPage: 2,
+      totalMatches: 5,
+      reachableTotalMatches: 4,
+      totalMatchesKind: 'lowerBound',
+      hasMore: true,
+      nextPage: 3,
+    });
+  });
+
+  it('keeps exact and capped provider pagination behavior', () => {
+    expect(
+      buildResultPagination({
+        currentPage: 2,
+        totalPages: 10,
+        hasMore: true,
+        entriesPerPage: 100,
+        totalMatches: 1000,
+        reportedTotalMatches: 1200,
+        reachableTotalMatches: 1000,
+        totalMatchesKind: 'reported',
+        totalMatchesCapped: true,
+      })
+    ).toMatchObject({
+      totalPages: 10,
+      totalMatchesKind: 'reported',
+      totalMatchesCapped: true,
+      nextPage: 3,
+    });
+  });
+
+  it('keeps non-exact count metadata at the provider boundary', () => {
+    expect(
+      countPaginationMetadata({
+        currentPage: 1,
+        totalPages: 2,
+        hasMore: true,
+        totalMatches: 3,
+        totalMatchesKind: 'lowerBound',
+      })
+    ).toEqual({ totalMatchesKind: 'lowerBound' });
+    expect(
+      countPaginationMetadata({
+        currentPage: 1,
+        totalPages: 1,
+        hasMore: false,
+        totalMatches: 1,
+        totalMatchesKind: 'exact',
+      })
+    ).toEqual({});
+  });
+
   it('preserves provider total metadata instead of collapsing to a lossy shape', () => {
     expect(
       buildResultPagination({
@@ -39,7 +104,6 @@ describe('ghSearchRepos pagination output', () => {
       })
     ).toEqual({
       currentPage: 2,
-      totalPages: 4,
       perPage: 25,
       totalMatches: 75,
       reportedTotalMatches: 1000,
@@ -99,8 +163,9 @@ describe('ghSearchRepos merged pagination', () => {
     expect(merged!.totalMatches).toBe(55);
     expect(merged!.reachableTotalMatches).toBe(55);
     expect(merged!.totalMatchesKind).toBe('lowerBound');
-    // Structural fields still merge as before.
-    expect(merged!.totalPages).toBe(4);
+    // A merged count is only a lower bound, so totalPages must not be exposed
+    // as though its cardinality were exact.
+    expect(merged!.totalPages).toBeUndefined();
     expect(merged!.hasMore).toBe(true);
   });
 

@@ -348,6 +348,8 @@ code ~/.octocode/.octocoderc
 
 Every setting in `.octocoderc` also has an **env var** — env vars always win. For the env var name of each option, see [All settings reference](#all-settings-reference).
 
+Unknown top-level and nested keys emit a warning with their full path. This makes misspellings such as `local.enableLocl` visible instead of silently falling back to a default.
+
 ---
 
 ### How settings override each other
@@ -432,10 +434,10 @@ Set the GitHub token in an environment variable only. Octocode never reads it fr
 
 | Env var | `.octocoderc` key | Default | Notes |
 |---------|------------------|---------|-------|
-| `ENABLE_LOCAL` | `local.enabled` | CLI `true`; MCP resolver default `false`, but the built MCP server registered local tools without it | Set it explicitly on MCP. `false` turns local tools off on every surface |
+| `ENABLE_LOCAL` | `local.enabled` | `true` | `false` turns local tools off on every surface |
 | `ENABLE_CLONE` | `local.enableClone` | CLI `true`, MCP `false` | Turns on `ghCloneRepo` |
-| `ENABLE_RELEASES` | — (env-only) | `false` | Adds `ghListReleases` to the catalog. Registers it on the CLI; on MCP, also list it in `ENABLE_TOOLS` |
-| `ENABLE_DISCUSSIONS` | — (env-only) | `false` | Adds `ghSearchDiscussions` to the catalog. Registers it on the CLI; on MCP, also list it in `ENABLE_TOOLS` |
+| `ENABLE_RELEASES` | — (env-only) | `false` | Turns on `ghListReleases`; no additional allowlist is required |
+| `ENABLE_DISCUSSIONS` | — (env-only) | `false` | Turns on `ghSearchDiscussions`; no additional allowlist is required |
 | `WORKSPACE_ROOT` | `local.workspaceRoot` | `process.cwd()` | Must be absolute. Base for resolving relative paths — not itself an allowed root; add it to `allowedPaths` to access a location outside home. |
 | `ALLOWED_PATHS` | `local.allowedPaths` | `[]` (home only) | Extra roots added on top of the always-allowed home directory. Env: comma-separated; rc: JSON array. |
 
@@ -443,8 +445,7 @@ Set the GitHub token in an environment variable only. Octocode never reads it fr
 
 | Env var | `.octocoderc` key | Default | Notes |
 |---------|------------------|---------|-------|
-| `TOOLS_TO_RUN` | `tools.enabled` | `null` | Strict allowlist — overrides add/remove |
-| `ENABLE_TOOLS` | `tools.enableAdditional` | `null` | Add tools to the default set |
+| `TOOLS_TO_RUN` | `tools.enabled` | `null` | Strict allowlist — overrides `DISABLE_TOOLS` |
 | `DISABLE_TOOLS` | `tools.disabled` | `null` | Remove tools from the default set |
 
 #### Network
@@ -569,9 +570,9 @@ npx octocode status --json
 | Wrong GitHub account | `npx octocode auth logout` then `auth login` — or `auth login --force` |
 | Env token overriding saved token | Env always wins — unset the env var |
 | `ghCloneRepo` unavailable in MCP | Add `"ENABLE_CLONE": "true"` to the MCP `env` block |
-| `ghListReleases` or `ghSearchDiscussions` unavailable in MCP | The feature flag alone is not enough. Also add `"ENABLE_TOOLS": "ghListReleases,ghSearchDiscussions"` |
-| Local tools turned off | On MCP, set `ENABLE_LOCAL=true`. Otherwise, check that neither `ENABLE_LOCAL` nor `local.enabled` is `false` |
-| A tool is missing | Check `TOOLS_TO_RUN` (strict allowlist), `ENABLE_TOOLS`, `DISABLE_TOOLS` |
+| `ghListReleases` or `ghSearchDiscussions` unavailable | Set `ENABLE_RELEASES=true` or `ENABLE_DISCUSSIONS=true`; also check `TOOLS_TO_RUN` and `DISABLE_TOOLS` |
+| Local tools turned off | Check that neither `ENABLE_LOCAL` nor `local.enabled` is `false` |
+| A tool is missing | Check `TOOLS_TO_RUN` (strict allowlist) and `DISABLE_TOOLS` |
 | Slow / timeouts | Raise `REQUEST_TIMEOUT` (max `300000` ms) |
 | Web search low quality | Add `TAVILY_API_KEY` to `~/.octocode/.env` |
 | `stats.json` never written | Set `OCTOCODE_ENABLE_STATS=1` in your shell or MCP `env` block (off by default) |

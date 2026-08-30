@@ -20,6 +20,18 @@
   "license": "MIT",
   "packageManager": "yarn@4.9.1",
   "private": true,
+  "resolutions": {
+    "@octocodeai/config": "workspace:*",
+    "@octocodeai/octocode-core": "file:///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core",
+    "@octocodeai/octocode-engine": "workspace:*",
+    "@octocodeai/octocode-engine-darwin-arm64": "workspace:*",
+    "@octocodeai/octocode-engine-darwin-x64": "workspace:*",
+    "@octocodeai/octocode-engine-linux-arm64-gnu": "workspace:*",
+    "@octocodeai/octocode-engine-linux-x64-gnu": "workspace:*",
+    "@octocodeai/octocode-engine-linux-x64-musl": "workspace:*",
+    "@octocodeai/octocode-engine-win32-x64-msvc": "workspace:*",
+    "@octocodeai/octocode-tools-core": "workspace:*"
+  },
   "repository": "bgauryy/octocode.git",
   "scripts": {
     "build": "yarn workspaces foreach -Apt --exclude octocode-monorepo run build",
@@ -45,7 +57,7 @@
     "typecheck:ci": "node ./scripts/workspace-health.mjs run typecheck --exclude @octocodeai/octocode-engine --exclude @octocodeai/octocode-benchmark",
     "verify": "node ./scripts/workspace-health.mjs verify",
     "release": "node scripts/release.mjs --target mcp && node scripts/release.mjs --target cli",
-    "dev": "node scripts/dev.js"
+    "dev": "node scripts/dev-setup.mjs"
   },
   "type": "module",
   "workspaces": [

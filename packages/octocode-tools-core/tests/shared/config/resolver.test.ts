@@ -1,14 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { existsSync, readFileSync } from 'node:fs';
 import {
-  getConfig,
   getConfigSync,
-  reloadConfig,
   resolveConfigSync,
-  invalidateConfigCache,
   getConfigValue,
-  _resetConfigCache,
-  _getCacheState,
   DEFAULT_CONFIG,
 } from '@octocodeai/config';
 
@@ -25,14 +20,12 @@ describe('config/resolver', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    _resetConfigCache();
     delete process.env.GITHUB_API_URL;
     delete process.env.ENABLE_LOCAL;
     delete process.env.ENABLE_CLONE;
     delete process.env.WORKSPACE_ROOT;
     delete process.env.ALLOWED_PATHS;
     delete process.env.TOOLS_TO_RUN;
-    delete process.env.ENABLE_TOOLS;
     delete process.env.DISABLE_TOOLS;
     delete process.env.REQUEST_TIMEOUT;
     delete process.env.MAX_RETRIES;
@@ -140,15 +133,12 @@ describe('config/resolver', () => {
         process.env.ENABLE_LOCAL = 'true';
         expect(resolveConfigSync().local.enabled).toBe(true);
 
-        _resetConfigCache();
         process.env.ENABLE_LOCAL = '1';
         expect(resolveConfigSync().local.enabled).toBe(true);
 
-        _resetConfigCache();
         process.env.ENABLE_LOCAL = 'false';
         expect(resolveConfigSync().local.enabled).toBe(false);
 
-        _resetConfigCache();
         process.env.ENABLE_LOCAL = '0';
         expect(resolveConfigSync().local.enabled).toBe(false);
       });
@@ -157,15 +147,12 @@ describe('config/resolver', () => {
         process.env.ENABLE_CLONE = 'true';
         expect(resolveConfigSync().local.enableClone).toBe(true);
 
-        _resetConfigCache();
         process.env.ENABLE_CLONE = '1';
         expect(resolveConfigSync().local.enableClone).toBe(true);
 
-        _resetConfigCache();
         process.env.ENABLE_CLONE = 'false';
         expect(resolveConfigSync().local.enableClone).toBe(false);
 
-        _resetConfigCache();
         process.env.ENABLE_CLONE = '0';
         expect(resolveConfigSync().local.enableClone).toBe(false);
       });
@@ -174,15 +161,6 @@ describe('config/resolver', () => {
         process.env.TOOLS_TO_RUN = 'ghSearchCode,npmSearch';
         const config = resolveConfigSync();
         expect(config.tools.enabled).toEqual(['ghSearchCode', 'npmSearch']);
-      });
-
-      it('parses ENABLE_TOOLS as string array', () => {
-        process.env.ENABLE_TOOLS = 'localSearchCode, localViewStructure';
-        const config = resolveConfigSync();
-        expect(config.tools.enableAdditional).toEqual([
-          'localSearchCode',
-          'localViewStructure',
-        ]);
       });
 
       it('parses DISABLE_TOOLS as string array', () => {
@@ -201,7 +179,6 @@ describe('config/resolver', () => {
         process.env.REQUEST_TIMEOUT = '1000';
         expect(resolveConfigSync().network.timeout).toBe(5000);
 
-        _resetConfigCache();
         process.env.REQUEST_TIMEOUT = '999999';
         expect(resolveConfigSync().network.timeout).toBe(300000);
       });
@@ -221,7 +198,6 @@ describe('config/resolver', () => {
         process.env.MAX_RETRIES = '-1';
         expect(resolveConfigSync().network.maxRetries).toBe(0);
 
-        _resetConfigCache();
         process.env.MAX_RETRIES = '99';
         expect(resolveConfigSync().network.maxRetries).toBe(10);
       });
@@ -243,7 +219,6 @@ describe('config/resolver', () => {
           1000
         );
 
-        _resetConfigCache();
         process.env.OCTOCODE_OUTPUT_DEFAULT_CHAR_LENGTH = '999999';
         expect(resolveConfigSync().output.pagination.defaultCharLength).toBe(
           50000
@@ -478,42 +453,6 @@ describe('config/resolver', () => {
       });
     });
 
-    describe('tools.enableAdditional (ENABLE_TOOLS)', () => {
-      it('env overrides file', () => {
-        vi.mocked(existsSync).mockReturnValue(true);
-        vi.mocked(readFileSync).mockReturnValue(
-          JSON.stringify({
-            tools: { enableAdditional: ['fileTool'] },
-          })
-        );
-        process.env.ENABLE_TOOLS = 'envTool';
-
-        const config = resolveConfigSync();
-        expect(config.tools.enableAdditional).toEqual(['envTool']);
-      });
-
-      it('file overrides default', () => {
-        vi.mocked(existsSync).mockReturnValue(true);
-        vi.mocked(readFileSync).mockReturnValue(
-          JSON.stringify({
-            tools: { enableAdditional: ['fileTool'] },
-          })
-        );
-
-        const config = resolveConfigSync();
-        expect(config.tools.enableAdditional).toEqual(['fileTool']);
-      });
-
-      it('falls back to default when neither env nor file', () => {
-        vi.mocked(existsSync).mockReturnValue(false);
-
-        const config = resolveConfigSync();
-        expect(config.tools.enableAdditional).toBe(
-          DEFAULT_CONFIG.tools.enableAdditional
-        );
-      });
-    });
-
     describe('tools.disabled (DISABLE_TOOLS)', () => {
       it('env overrides file', () => {
         vi.mocked(existsSync).mockReturnValue(true);
@@ -709,7 +648,6 @@ describe('config/resolver', () => {
 
       expect(config1).not.toBe(config2);
       expect(callsAfterSecond).toBeGreaterThan(callsAfterFirst);
-      expect(_getCacheState()).toEqual({ cached: false, timestamp: 0 });
     });
 
     it('reflects file changes without reload or TTL expiry', () => {
@@ -728,53 +666,6 @@ describe('config/resolver', () => {
       const config2 = getConfigSync();
       expect(config2).not.toBe(config1);
       expect(config2.local.enabled).toBe(true);
-    });
-  });
-
-  describe('getConfig', () => {
-    it('returns same result as getConfigSync', async () => {
-      vi.mocked(existsSync).mockReturnValue(false);
-
-      const asyncConfig = await getConfig();
-      _resetConfigCache();
-      const syncConfig = getConfigSync();
-
-      expect(asyncConfig.version).toBe(syncConfig.version);
-      expect(asyncConfig.github.apiUrl).toBe(syncConfig.github.apiUrl);
-    });
-  });
-
-  describe('reloadConfig', () => {
-    it('invalidates cache and reloads', async () => {
-      vi.mocked(existsSync).mockReturnValue(true);
-      vi.mocked(readFileSync).mockReturnValue(
-        '{"version": 1, "local": {"enabled": false}}'
-      );
-
-      const config1 = getConfigSync();
-      expect(config1.local.enabled).toBe(false);
-
-      vi.mocked(readFileSync).mockReturnValue(
-        '{"version": 1, "local": {"enabled": true}}'
-      );
-
-      const config2 = getConfigSync();
-      expect(config2.local.enabled).toBe(true);
-
-      const config3 = await reloadConfig();
-      expect(config3.local.enabled).toBe(true);
-    });
-  });
-
-  describe('invalidateConfigCache', () => {
-    it('clears the cache', () => {
-      vi.mocked(existsSync).mockReturnValue(false);
-
-      getConfigSync();
-      expect(_getCacheState().cached).toBe(false);
-
-      invalidateConfigCache();
-      expect(_getCacheState()).toEqual({ cached: false, timestamp: 0 });
     });
   });
 

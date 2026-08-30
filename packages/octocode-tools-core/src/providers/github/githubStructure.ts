@@ -174,8 +174,7 @@ export async function getRepoStructure(
     itemsPerPage: query.itemsPerPage,
     page: query.page,
     includeSizes: query.includeSizes,
-    mainResearchGoal: query.mainResearchGoal,
-    researchGoal: query.researchGoal,
+    goal: query.goal,
     reasoning: query.reasoning,
   } as GitHubViewRepoStructureQuery & { includeSizes?: boolean };
 

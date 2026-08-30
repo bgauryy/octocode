@@ -34,6 +34,6 @@ Parent (or a fresh **interviewer** worker) asks structured questions against a s
 ## When NOT
 - No claims yet → gather evidence first.
 - Pure rubber-duck of parent’s own plan → `references/rubber-duck.md`.
-- Need measurable ACCEPT/REVERT on the graph → `octocode-graph-eval`.
+- Need measurable ACCEPT/REVERT on the graph → `octocode-eval-benchmark`.
 
 Next: instruction borrowing → `references/mimic-flow.md`; barrier merge → `references/synthesize.md`.

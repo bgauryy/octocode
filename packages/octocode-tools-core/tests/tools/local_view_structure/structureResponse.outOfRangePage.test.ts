@@ -27,9 +27,7 @@ describe('paginateEntries out-of-range page', () => {
     expect(pagination.totalPages).toBe(2);
     expect(pagination.currentPage).toBe(2);
     expect(paginatedEntries).toHaveLength(2);
-    expect(
-      (pagination as { outOfRange?: boolean }).outOfRange
-    ).toBe(true);
+    expect((pagination as { outOfRange?: boolean }).outOfRange).toBe(true);
   });
 
   it('a valid page has no out-of-range signal', () => {

@@ -1,5 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, mkdirSync, realpathSync, rmSync } from 'node:fs';
+import {
+  mkdtempSync,
+  mkdirSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { resetPathValidator } from '@octocodeai/octocode-engine/pathValidator';
@@ -37,10 +43,12 @@ import { validateToolPath } from '../../../src/utils/file/toolHelpers.js';
 
 describe('validateToolPath — .octocoderc local.allowedPaths wiring', () => {
   let outside: string;
+  let previousOctocodeHome: string | undefined;
 
   beforeEach(() => {
     outside = realpathSync(mkdtempSync(join(tmpdir(), 'octocoderc-allowed-')));
     mkdirSync(join(outside, 'proj'));
+    previousOctocodeHome = process.env.OCTOCODE_HOME;
     state.allowedPaths = [];
     state.workspaceRoot = undefined;
     // Restore the home-inclusive default so no roots leak between tests.
@@ -48,6 +56,8 @@ describe('validateToolPath — .octocoderc local.allowedPaths wiring', () => {
   });
 
   afterEach(() => {
+    if (previousOctocodeHome === undefined) delete process.env.OCTOCODE_HOME;
+    else process.env.OCTOCODE_HOME = previousOctocodeHome;
     rmSync(outside, { recursive: true, force: true });
     resetPathValidator();
   });
@@ -80,5 +90,68 @@ describe('validateToolPath — .octocoderc local.allowedPaths wiring', () => {
       'LOCAL_FIND_FILES'
     );
     expect(r.isValid).toBe(true);
+  });
+
+  it('allows clone and tree continuations under custom OCTOCODE_HOME managed roots', () => {
+    const customHome = join(outside, 'custom-home');
+    const clonedRepo = join(
+      customHome,
+      'tmp',
+      'clone',
+      'octocode',
+      'repo',
+      'main'
+    );
+    const materializedTree = join(
+      customHome,
+      'tmp',
+      'tree',
+      'octocode',
+      'repo',
+      '0123456789abcdef0123456789abcdef01234567'
+    );
+    mkdirSync(clonedRepo, { recursive: true });
+    mkdirSync(materializedTree, { recursive: true });
+    process.env.OCTOCODE_HOME = customHome;
+
+    const cloneResult = validateToolPath(
+      { path: clonedRepo },
+      'LOCAL_VIEW_STRUCTURE'
+    );
+    const treeResult = validateToolPath(
+      { path: materializedTree },
+      'LOCAL_VIEW_STRUCTURE'
+    );
+
+    expect(cloneResult.isValid).toBe(true);
+    expect(cloneResult.sanitizedPath).toBe(clonedRepo);
+    expect(treeResult.isValid).toBe(true);
+    expect(treeResult.sanitizedPath).toBe(materializedTree);
+  });
+
+  it('does not authorize arbitrary paths elsewhere under custom OCTOCODE_HOME', () => {
+    const customHome = join(outside, 'custom-home');
+    const arbitraryPath = join(customHome, 'private');
+    mkdirSync(arbitraryPath, { recursive: true });
+    process.env.OCTOCODE_HOME = customHome;
+
+    const r = validateToolPath({ path: arbitraryPath }, 'LOCAL_VIEW_STRUCTURE');
+
+    expect(r.isValid).toBe(false);
+  });
+
+  it('rejects a symlink escape from the managed clone root', () => {
+    const customHome = join(outside, 'custom-home');
+    const cloneRoot = join(customHome, 'tmp', 'clone');
+    const escapedTarget = join(outside, 'escaped-target');
+    const escapeLink = join(cloneRoot, 'escape');
+    mkdirSync(cloneRoot, { recursive: true });
+    mkdirSync(escapedTarget);
+    symlinkSync(escapedTarget, escapeLink);
+    process.env.OCTOCODE_HOME = customHome;
+
+    const r = validateToolPath({ path: escapeLink }, 'LOCAL_VIEW_STRUCTURE');
+
+    expect(r.isValid).toBe(false);
   });
 });

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { CallToolResult } from "@modelcontextprotocol/server";
+import type { CallToolResult } from '@modelcontextprotocol/server';
 
 const mockSanitizeContent = vi.fn();
 const mockSanitizeStructuredContent = vi.fn();
@@ -27,12 +27,10 @@ describe('sanitizeCallToolResult', () => {
     mockSanitizeContent.mockReset();
     mockSanitizeStructuredContent.mockReset();
     _resetRuntimeSurface();
-    delete process.env.OCTOCODE_MCP_FULL_TEXT;
   });
 
   afterEach(() => {
     _resetRuntimeSurface();
-    delete process.env.OCTOCODE_MCP_FULL_TEXT;
     vi.restoreAllMocks();
   });
 
@@ -133,7 +131,7 @@ describe('sanitizeCallToolResult', () => {
     expect(result.structuredContent).toEqual(sanitizedStructured);
   });
 
-  it('compacts duplicate text blocks on the MCP surface when structuredContent exists', () => {
+  it('preserves complete MCP text alongside structuredContent', () => {
     mockSanitizeContent.mockReturnValue({
       content: 'should not scan duplicate yaml',
       hasSecrets: false,
@@ -146,8 +144,8 @@ describe('sanitizeCallToolResult', () => {
       content: [{ type: 'text', text: 'results:\n- huge duplicate yaml' }],
       structuredContent: {
         results: [
-          { id: 'q1', data: { path: 'a.ts' } },
-          { id: 'q2', status: 'empty', data: {} },
+          { index: 0, data: { path: 'a.ts' } },
+          { index: 1, status: 'empty', data: {} },
         ],
         pagination: { hasMore: false },
       },
@@ -155,38 +153,43 @@ describe('sanitizeCallToolResult', () => {
 
     const textBlock = result.content?.[0];
     expect(textBlock && 'text' in textBlock ? textBlock.text : '').toBe(
-      'structuredContent available · results=2 · empty=1 · hasMore=false · [q1 ok a.ts · q2 empty]. Read structuredContent for full data; if your client cannot read structuredContent, set OCTOCODE_MCP_FULL_TEXT=true.'
+      'should not scan duplicate yaml'
     );
-    expect(mockSanitizeContent).not.toHaveBeenCalled();
+    expect(mockSanitizeContent).toHaveBeenCalledTimes(1);
     expect(result.structuredContent).toEqual({
       results: [
-        { id: 'q1', data: { path: 'a.ts' } },
-        { id: 'q2', status: 'empty', data: {} },
+        { index: 0, data: { path: 'a.ts' } },
+        { index: 1, status: 'empty', data: {} },
       ],
       pagination: { hasMore: false },
     });
   });
 
-  it('bounds the compact-text result preview to 3 entries with a +N more marker', () => {
+  it('does not replace MCP text with a bounded result preview', () => {
+    mockSanitizeContent.mockReturnValue({
+      content: 'results:\n- complete yaml',
+      hasSecrets: false,
+      secretsDetected: [],
+      warnings: [],
+    });
     mockSanitizeStructuredContent.mockImplementation((obj: unknown) => obj);
 
     const result = sanitizeCallToolResult({
       content: [{ type: 'text', text: 'dup' }],
       structuredContent: {
         results: [
-          { id: 'a', data: { path: 'one.ts' } },
-          { id: 'b', status: 'error', data: {} },
-          { id: 'c', data: {} },
-          { id: 'd', data: {} },
-          { id: 'e', data: {} },
+          { index: 0, data: { path: 'one.ts' } },
+          { index: 1, status: 'error', data: {} },
+          { index: 2, data: {} },
+          { index: 3, data: {} },
+          { index: 4, data: {} },
         ],
       },
     } as unknown as CallToolResult);
 
     const textBlock = result.content?.[0];
     const text = textBlock && 'text' in textBlock ? String(textBlock.text) : '';
-    expect(text).toContain('[a ok one.ts · b error · c ok · +2 more]');
-    expect(text).toContain('errors=1');
+    expect(text).toBe('results:\n- complete yaml');
   });
 
   it('preserves full text blocks on the CLI surface', () => {
@@ -207,28 +210,6 @@ describe('sanitizeCallToolResult', () => {
     const textBlock = result.content?.[0];
     expect(textBlock && 'text' in textBlock ? textBlock.text : '').toBe(
       'results:\n- full cli yaml'
-    );
-    expect(mockSanitizeContent).toHaveBeenCalledTimes(1);
-  });
-
-  it('preserves full MCP text blocks when the escape hatch is enabled', () => {
-    process.env.OCTOCODE_MCP_FULL_TEXT = 'true';
-    mockSanitizeContent.mockReturnValue({
-      content: 'results:\n- full mcp yaml',
-      hasSecrets: false,
-      secretsDetected: [],
-      warnings: [],
-    });
-    mockSanitizeStructuredContent.mockImplementation((obj: unknown) => obj);
-
-    const result = sanitizeCallToolResult({
-      content: [{ type: 'text', text: 'results:\n- full mcp yaml' }],
-      structuredContent: { results: [{ id: 'q1' }] },
-    } as unknown as CallToolResult);
-
-    const textBlock = result.content?.[0];
-    expect(textBlock && 'text' in textBlock ? textBlock.text : '').toBe(
-      'results:\n- full mcp yaml'
     );
     expect(mockSanitizeContent).toHaveBeenCalledTimes(1);
   });
@@ -297,8 +278,8 @@ describe('sanitizeCallToolResult', () => {
     } as unknown as CallToolResult);
 
     expect(JSON.stringify(result.structuredContent)).not.toContain(AWS_KEY);
-    expect(
-      JSON.stringify(result.structuredContent).toLowerCase()
-    ).toContain('withheld');
+    expect(JSON.stringify(result.structuredContent).toLowerCase()).toContain(
+      'withheld'
+    );
   });
 });

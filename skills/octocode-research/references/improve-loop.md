@@ -1,6 +1,6 @@
 # Improve Loop
 
-Load when changing **this skill** (or another skill folder) and you need an accept/revert gate. Prefer `octocode-graph-eval` for a full goal→KPI cascade; use this when you just need the loop to be honest.
+Load when changing **this skill** (or another skill folder) and you need an accept/revert gate. Prefer `octocode-eval-benchmark` for a full goal→KPI cascade; use this when you just need the loop to be honest.
 
 Investigation loops (Act→Observe→Learn on a code question) are not this — use `references/loop-mode.md`.
 

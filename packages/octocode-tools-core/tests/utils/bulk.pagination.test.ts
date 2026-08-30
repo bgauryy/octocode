@@ -30,7 +30,8 @@ describe('paginateBulkText', () => {
   });
 
   it('includes a page banner in the text', () => {
-    const text = 'hello world, this is a longer piece of text for testing pagination';
+    const text =
+      'hello world, this is a longer piece of text for testing pagination';
     const result = paginateBulkText(text, { responseCharLength: 20 });
     expect(result.text).toMatch(/# Response page \d+\/\d+/);
   });

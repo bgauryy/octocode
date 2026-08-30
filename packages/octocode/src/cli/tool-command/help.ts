@@ -34,18 +34,11 @@ export async function showToolHelpBrief(toolName: string): Promise<boolean> {
 
   console.log();
   console.log(`  ${c('magenta', bold(tool.name))}  ${dim(shortDesc)}`);
-  if (tool.disabled) {
-    console.log(
-      `  ${c('yellow', `Disabled: set ${tool.disabled.envVar}=1 to enable execution.`)}`
-    );
-  }
   console.log();
   for (const field of fields) {
     const reqTag = field.required ? c('red', ' [required]') : '';
     const meta = field.constraints ? `, ${field.constraints}` : '';
-    console.log(
-      `    ${c('cyan', field.name)} (${field.type}${meta})${reqTag}${field.description ? dim(` - ${field.description}`) : ''}`
-    );
+    console.log(`    ${c('cyan', field.name)} (${field.type}${meta})${reqTag}`);
   }
   console.log();
   if (tool.name === LSP_TOOL_NAME) {
@@ -82,11 +75,6 @@ export async function showToolHelp(toolName: string): Promise<boolean> {
   console.log(
     `  ${dim('Runtime: local CLI and MCP share the same tools-core runner.')}`
   );
-  if (tool.disabled) {
-    console.log(
-      `  ${c('yellow', `Disabled: set ${tool.disabled.envVar}=1 to enable execution.`)}`
-    );
-  }
   for (const line of guidance) {
     console.log(`  ${dim(line)}`);
   }

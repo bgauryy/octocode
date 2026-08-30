@@ -25,48 +25,22 @@ function isBindingLive(
     string,
     ReadonlyArray<{ file: string; localName: string }>
   >,
-  starReexporters: ReadonlyMap<string, ReadonlyArray<string>>,
-  visited: Set<string>
+  starReexporters: ReadonlyMap<string, ReadonlyArray<string>>
 ): boolean {
-  const key = bindingKey(file, name);
-  if (visited.has(key)) return false;
-  if (entrypointSet.has(file)) return true;
-  if (realImportIndex.has(key)) return true;
-  visited.add(key);
-  for (const reexporter of reexportIndex.get(key) ?? []) {
-    if (
-      isBindingLive(
-        reexporter.file,
-        reexporter.localName,
-        entrypointSet,
-        realImportIndex,
-        reexportIndex,
-        starReexporters,
-        visited
-      )
-    ) {
+  const visited = new Set<string>();
+  const pending = [{ file, name }];
+  while (pending.length > 0) {
+    const current = pending.pop() as { file: string; name: string };
+    const key = bindingKey(current.file, current.name);
+    if (visited.has(key)) continue;
+    visited.add(key);
+    if (entrypointSet.has(current.file) || realImportIndex.has(key))
       return true;
+    for (const reexporter of reexportIndex.get(key) ?? []) {
+      pending.push({ file: reexporter.file, name: reexporter.localName });
     }
-  }
-  // Star hop: `export * from file` republishes EVERY export of `file` under
-  // the same name — liveness continues at the star-re-exporting barrel. This
-  // edge carries no per-name entry in `reexportIndex` (there is no name to
-  // index), so without this hop a named re-export chained through a
-  // star-re-exported barrel (types.ts → barrel → `export *` → entrypoint)
-  // false-positives as an unreferenced export.
-  for (const starReexporter of starReexporters.get(file) ?? []) {
-    if (
-      isBindingLive(
-        starReexporter,
-        name,
-        entrypointSet,
-        realImportIndex,
-        reexportIndex,
-        starReexporters,
-        visited
-      )
-    ) {
-      return true;
+    for (const starReexporter of starReexporters.get(current.file) ?? []) {
+      pending.push({ file: starReexporter, name: current.name });
     }
   }
   return false;
@@ -111,43 +85,46 @@ export function computeLiveExportedNames(
         entrypointSet,
         realImportIndex,
         reexportIndex,
-        starReexporters,
-        new Set()
+        starReexporters
       )
     ) {
       live.add(name);
     }
   }
 
-  const callerIsLive = (caller: string): boolean =>
-    !exportedNames.has(caller) || live.has(caller);
-
-  let changed = true;
-  while (changed) {
-    changed = false;
-    for (const name of exportedNames) {
-      if (live.has(name)) continue;
-      const callsToName = facts.calls.filter(c => c.callee === name);
-
-      // Same-file usage: a LIVE declaration (or an untracked non-exported
-      // one) calls it directly. A self-call never retains.
-      if (callsToName.some(c => c.caller !== name && callerIsLive(c.caller))) {
-        live.add(name);
-        changed = true;
-        continue;
-      }
-
-      // Lexical fallback for value references, minus occurrences already
-      // explained by call sites inside dead exported callers.
-      const deadCallerCallCount = callsToName.filter(
-        c => c.caller === name || !callerIsLive(c.caller)
-      ).length;
-      const adjustedOccurrences =
-        (facts.referenceCounts.get(name) ?? 0) - deadCallerCallCount;
-      if (adjustedOccurrences > 1) {
-        live.add(name);
-        changed = true;
-      }
+  const calleesByCaller = new Map<string, string[]>();
+  const exportedCallerCounts = new Map<string, number>();
+  for (const call of facts.calls) {
+    const callees = calleesByCaller.get(call.caller) ?? [];
+    callees.push(call.callee);
+    calleesByCaller.set(call.caller, callees);
+    if (exportedNames.has(call.caller)) {
+      exportedCallerCounts.set(
+        call.callee,
+        (exportedCallerCounts.get(call.callee) ?? 0) + 1
+      );
+    }
+  }
+  const pending = [...live];
+  const markLive = (name: string): void => {
+    if (!exportedNames.has(name) || live.has(name)) return;
+    live.add(name);
+    pending.push(name);
+  };
+  for (const [caller, callees] of calleesByCaller) {
+    if (exportedNames.has(caller)) continue;
+    for (const callee of callees) markLive(callee);
+  }
+  for (const name of exportedNames) {
+    const adjustedOccurrences =
+      (facts.referenceCounts.get(name) ?? 0) -
+      (exportedCallerCounts.get(name) ?? 0);
+    if (adjustedOccurrences > 1) markLive(name);
+  }
+  for (let cursor = 0; cursor < pending.length; cursor++) {
+    const caller = pending[cursor] as string;
+    for (const callee of calleesByCaller.get(caller) ?? []) {
+      if (callee !== caller) markLive(callee);
     }
   }
   return live;

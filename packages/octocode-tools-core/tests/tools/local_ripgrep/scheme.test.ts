@@ -93,7 +93,9 @@ describe('localSearchCode schema', () => {
 
     expect(result.success).toBe(false);
     if (!result.success) {
-      const messages = result.error.issues.map(issue => issue.message).join('\n');
+      const messages = result.error.issues
+        .map(issue => issue.message)
+        .join('\n');
       expect(messages).toMatch(/\$\$ARGS/);
       expect(messages).toMatch(/\$\$\$ARGS/);
     }

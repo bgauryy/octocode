@@ -19,7 +19,6 @@ const CONFIG_ENV_KEYS = [
   'ALLOWED_PATHS',
   'WORKSPACE_ROOT',
   'TOOLS_TO_RUN',
-  'ENABLE_TOOLS',
   'DISABLE_TOOLS',
   'REQUEST_TIMEOUT',
   'MAX_RETRIES',
@@ -42,16 +41,30 @@ function sourceFor(fileState: FileState): ResolvedConfig['source'] {
   return envOverrides ? 'env' : 'defaults';
 }
 
-function warnInvalidConfig(configPath: string, errors: readonly string[]): void {
-  const message = errors.length > 0 ? errors.join('; ') : 'Invalid configuration';
-  process.stderr.write(`[octocode-config] Invalid .octocoderc at ${configPath}: ${message}\n`);
+function warnInvalidConfig(
+  configPath: string,
+  errors: readonly string[]
+): void {
+  const message =
+    errors.length > 0 ? errors.join('; ') : 'Invalid configuration';
+  process.stderr.write(
+    `[octocode-config] Invalid .octocoderc at ${configPath}: ${message}\n`
+  );
+}
+
+function warnConfig(configPath: string, warnings: readonly string[]): void {
+  if (warnings.length === 0) return;
+  process.stderr.write(
+    `[octocode-config] Configuration warning at ${configPath}: ${warnings.join('; ')}\n`
+  );
 }
 
 function buildResolvedConfig(
   fileConfig: OctocodeConfig | undefined,
   options: { configPath?: string; fileState?: FileState } = {}
 ): ResolvedConfig {
-  const fileState = options.fileState ?? (fileConfig === undefined ? 'absent' : 'valid');
+  const fileState =
+    options.fileState ?? (fileConfig === undefined ? 'absent' : 'valid');
   const source = sourceFor(fileState);
 
   return {
@@ -82,6 +95,8 @@ export function resolveConfigSync(): ResolvedConfig {
       });
     }
 
+    warnConfig(loadResult.path, validation.warnings);
+
     return buildResolvedConfig(loadResult.config, {
       configPath: loadResult.path,
       fileState: 'valid',
@@ -99,32 +114,6 @@ export function resolveConfigSync(): ResolvedConfig {
   return buildResolvedConfig(undefined);
 }
 
-export async function resolveConfig(): Promise<ResolvedConfig> {
-  return resolveConfigSync();
-}
-
 export function getConfigSync(): ResolvedConfig {
   return resolveConfigSync();
-}
-
-export async function getConfig(): Promise<ResolvedConfig> {
-  return getConfigSync();
-}
-
-export async function reloadConfig(): Promise<ResolvedConfig> {
-  invalidateConfigCache();
-  return getConfig();
-}
-
-export function invalidateConfigCache(): void {
-  // Kept as a compatibility no-op. Config resolution is intentionally uncached
-  // because it depends on mutable process.env, runtime surface, and home files.
-}
-
-export function _resetConfigCache(): void {
-  // Test compatibility no-op; see invalidateConfigCache().
-}
-
-export function _getCacheState(): { cached: boolean; timestamp: number } {
-  return { cached: false, timestamp: 0 };
 }

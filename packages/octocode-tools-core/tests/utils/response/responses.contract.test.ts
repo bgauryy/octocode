@@ -40,6 +40,23 @@ describe('response YAML formatter contract', () => {
     expect(calls).toEqual([{ keysPriority: ['data', 'status'] }]);
   });
 
+  it('prioritizes the canonical ordered bulk row fields', () => {
+    const calls: NonNullable<
+      Parameters<NativeContextUtilsModule['jsonToYamlString']>[1]
+    >[] = [];
+    installNative({
+      jsonToYamlString: (_jsonObject, config) => {
+        calls.push(config ?? {});
+        return 'results: []\n';
+      },
+    });
+
+    expect(createResponseFormat({ results: [] })).toBe('results: []\n');
+    expect(calls).toEqual([
+      { keysPriority: ['results', 'index', 'status', 'meta', 'data'] },
+    ]);
+  });
+
   it('redacts secrets in the formatted text output without leaking the raw value', () => {
     // Real serializer + real sanitizer (no installNative) — proves the
     // per-field sanitization still redacts in the rendered text after dropping

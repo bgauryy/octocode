@@ -1,8 +1,7 @@
 import { LSP_GET_SEMANTICS_TOOL_NAME } from '../toolNames.js';
 import {
   buildFileGraph,
-  DEFAULT_DEAD_CODE_EXCLUDE_DIRS,
-  type WalkResult,
+  resolveGraphExcludeDirs,
 } from '../../graph/buildFileGraph.js';
 import { scanForDeadCode } from './deadCodeScan.js';
 import { resolveEntrypoints } from './entrypoints.js';
@@ -17,61 +16,21 @@ import {
   computeReachableFiles,
   findStronglyConnectedComponents,
 } from '../../graph/reachability.js';
-
-export type GraphOperation =
-  | 'deadCode'
-  | 'cycles'
-  | 'dependencies'
-  | 'dependents'
-  | 'path'
-  | 'reachability';
-
-export interface AnalyzeGraphQuery {
-  operation: GraphOperation;
-  path: string;
-  file?: string;
-  target?: string;
-  depth?: number;
-  entrypoints?: string[];
-  includeTests?: boolean;
-  excludeDir?: string[];
-  maxFiles?: number;
-  limit?: number;
-  page?: number;
-  itemsPerPage?: number;
-}
-
-export interface AnalyzeGraphOutput {
-  status?: 'empty' | 'error';
-  error?: string;
-  errorCode?: string;
-  operation: GraphOperation;
-  path: string;
-  filesScanned?: number;
-  filesSkipped?: number;
-  results: Array<Record<string, unknown>>;
-  summary?: Record<string, unknown>;
-  pagination?: {
-    currentPage: number;
-    totalPages: number;
-    entriesPerPage: number;
-    totalEntries: number;
-    hasMore: boolean;
-    outOfRange?: boolean;
-  };
-  next?: Record<string, unknown>;
-  warnings?: string[];
-  confidence?: 'low';
-  [key: string]: unknown;
-}
-
-export interface AnalyzeGraphContext {
-  getGraph?: (
-    path: string,
-    excludeDir: string[],
-    maxFiles: number
-  ) => WalkResult | Promise<WalkResult>;
-}
+import {
+  computeImmediateDominators,
+  condenseGraph,
+  findTransitiveEdges,
+  withoutTypeOnlyEdges,
+} from '../../graph/advancedOperations.js';
+import {
+  componentLayerMap,
+  describeCycleWitness,
+} from '../../graph/cycleOperations.js';
+import type {
+  AnalyzeGraphContext,
+  AnalyzeGraphOutput,
+  AnalyzeGraphQuery,
+} from './analysisTypes.js';
 
 const DEFAULT_ITEMS_PER_PAGE = 50;
 const DEFAULT_MAX_FILES = 20_000;
@@ -182,10 +141,7 @@ export async function analyzeGraph(
   query: AnalyzeGraphQuery,
   context: AnalyzeGraphContext = {}
 ): Promise<AnalyzeGraphOutput> {
-  const excludeDir =
-    query.excludeDir && query.excludeDir.length > 0
-      ? query.excludeDir
-      : DEFAULT_DEAD_CODE_EXCLUDE_DIRS;
+  const excludeDir = resolveGraphExcludeDirs(query.excludeDir);
   const maxFiles = query.maxFiles ?? DEFAULT_MAX_FILES;
   const built = await (context.getGraph?.(query.path, excludeDir, maxFiles) ??
     buildFileGraph(query.path, excludeDir, maxFiles));
@@ -244,13 +200,55 @@ export async function analyzeGraph(
   };
 
   if (query.operation === 'cycles') {
-    const items = findStronglyConnectedComponents(built.fileGraph)
-      .map(component => {
-        const allFiles = [...component.files].sort();
+    const condensed = condenseGraph(built.fileGraph);
+    const layerByComponent = componentLayerMap(condensed.layers);
+    const redundantEdges = findTransitiveEdges(condensed.edges);
+    const runtimeGraph = withoutTypeOnlyEdges(built.fileGraph);
+    const runtimeComponents = findStronglyConnectedComponents(runtimeGraph).map(
+      component => [...component.files].sort()
+    );
+    const cycleComponents = condensed.components.filter(
+      component =>
+        component.length > 1 ||
+        (built.fileGraph
+          .get(component[0] as string)
+          ?.importsFiles.has(component[0] as string) ??
+          false)
+    );
+    const items = cycleComponents
+      .map(allFiles => {
+        const componentId = condensed.componentOf.get(allFiles[0] as string);
+        const memberSet = new Set(allFiles);
+        const containedRuntimeCycles = runtimeComponents.filter(component =>
+          component.every(file => memberSet.has(file))
+        );
+        const cycleEdges = describeCycleWitness(built.fileGraph, memberSet);
+        const runtimeCycleEdges = describeCycleWitness(runtimeGraph, memberSet);
+        const outgoing =
+          componentId === undefined
+            ? []
+            : [...(condensed.edges.get(componentId) ?? [])].sort(
+                (a, b) => a - b
+              );
         return {
           files: allFiles.slice(0, MAX_FILES_PER_COMPONENT),
           size: allFiles.length,
           edgeKinds: collectGraphEdgeKinds(built.fileGraph, allFiles),
+          runtimeCycle: containedRuntimeCycles.length > 0,
+          runtimeCycles: containedRuntimeCycles.slice(0, 10),
+          runtimeCycleCount: containedRuntimeCycles.length,
+          cycleEdges,
+          runtimeCycleEdges,
+          componentId,
+          topologicalLayer:
+            componentId === undefined
+              ? undefined
+              : layerByComponent.get(componentId),
+          outgoingComponents: outgoing.slice(0, MAX_FILES_PER_COMPONENT),
+          outgoingComponentCount: outgoing.length,
+          ...(outgoing.length > MAX_FILES_PER_COMPONENT
+            ? { outgoingComponentsTruncated: true }
+            : {}),
           ...(allFiles.length > MAX_FILES_PER_COMPONENT
             ? { truncated: true }
             : {}),
@@ -262,7 +260,17 @@ export async function analyzeGraph(
       {
         ...base,
         ...paginate(items, query),
-        summary: { cycleCount: items.length },
+        summary: {
+          cycleCount: items.length,
+          runtimeCycleCount: items.filter(item => item.runtimeCycle).length,
+          condensationComponentCount: condensed.components.length,
+          condensationEdgeCount: [...condensed.edges.values()].reduce(
+            (total, edges) => total + edges.size,
+            0
+          ),
+          topologicalLayerCount: condensed.layers.length,
+          transitiveEdgeCount: redundantEdges.size,
+        },
         ...(warnings.length > 0 ? { warnings } : {}),
       },
       query,
@@ -281,12 +289,41 @@ export async function analyzeGraph(
       query.operation === 'dependencies'
         ? built.fileGraph
         : reverseGraph(built.fileGraph);
-    const items = traverseGraph(graph, file, query.depth ?? DEFAULT_DEPTH);
+    const condensed = condenseGraph(graph);
+    const layerByComponent = componentLayerMap(condensed.layers);
+    const redundantEdges = findTransitiveEdges(condensed.edges);
+    const immediateDominators = computeImmediateDominators(graph, file);
+    const items = traverseGraph(graph, file, query.depth ?? DEFAULT_DEPTH).map(
+      result => {
+        const resultFile = result.file as string;
+        const via = result.via as string;
+        const fromComponent = condensed.componentOf.get(via);
+        const toComponent = condensed.componentOf.get(resultFile);
+        return {
+          ...result,
+          immediateDominator: immediateDominators.get(resultFile) ?? null,
+          topologicalLayer:
+            toComponent === undefined
+              ? undefined
+              : layerByComponent.get(toComponent),
+          transitiveEdge:
+            fromComponent !== undefined && toComponent !== undefined
+              ? redundantEdges.has(`${fromComponent}:${toComponent}`)
+              : false,
+        };
+      }
+    );
     return addNextSteps(
       {
         ...base,
         ...paginate(items, query),
-        summary: { source: file, depth: query.depth ?? DEFAULT_DEPTH },
+        summary: {
+          source: file,
+          depth: query.depth ?? DEFAULT_DEPTH,
+          condensationComponentCount: condensed.components.length,
+          topologicalLayerCount: condensed.layers.length,
+          transitiveEdgeCount: redundantEdges.size,
+        },
         ...(warnings.length > 0 ? { warnings } : {}),
       },
       query,

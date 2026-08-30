@@ -29,6 +29,6 @@ Next: <one action>
 6. Consensus (N independent) or verifier-critic  
 7. Local Ollama offload (`references/local-ollama.md`)  
 8. Replan / stop leftovers  
-9. Measure with `octocode-graph-eval`
+9. Measure with `octocode-eval-benchmark`
 
 Next: techniques → `references/techniques.md`; merge rules → `references/synthesize.md`.

@@ -4,6 +4,8 @@ import { toMCPSchema } from '../types/toolTypes.js';
 import { withSecurityValidation } from '@octocodeai/octocode-tools-core';
 import {
   DESCRIPTIONS,
+  findToolOutputSchema,
+  ToolOutputSchema,
   invokeCallbackSafely,
 } from '@octocodeai/octocode-tools-core';
 import type {
@@ -62,6 +64,9 @@ export function createRemoteToolRegistration<TQuery>(
         {
           description,
           inputSchema: toMCPSchema(inputSchema),
+          outputSchema: toMCPSchema(
+            findToolOutputSchema(name) ?? ToolOutputSchema
+          ),
           annotations: {
             title,
             readOnlyHint: annotations?.readOnlyHint ?? true,

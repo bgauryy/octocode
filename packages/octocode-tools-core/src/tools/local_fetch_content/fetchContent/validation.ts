@@ -207,7 +207,11 @@ export async function isLikelyBinaryFile(filePath: string): Promise<boolean> {
     }
 
     try {
-      new TextDecoder('utf-8', { fatal: true }).decode(sample);
+      // Streaming mode accepts an incomplete final code point at the sample
+      // boundary while still rejecting malformed UTF-8 inside the sample.
+      new TextDecoder('utf-8', { fatal: true }).decode(sample, {
+        stream: true,
+      });
     } catch {
       return true;
     }

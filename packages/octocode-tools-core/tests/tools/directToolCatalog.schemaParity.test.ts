@@ -4,9 +4,8 @@
  * mapping that `toolConfig.ts` (`ALL_TOOLS`) attaches execution fns to. This
  * test imports BOTH (the engine-bearing ALL_TOOLS is fine in tests) and
  * asserts they never diverge in tool set, order, or JSON-schema shape.
- * DIRECT_TOOL_DEFINITIONS stays enabled-tools-only, matching ALL_TOOLS exactly.
- * DIRECT_TOOL_DISCOVERY_DEFINITIONS additionally includes opt-in schemas with
- * explicit disabled metadata so local CLI discovery and exact-name lookup agree.
+ * Runtime definitions contain enabled tools; discovery additionally exposes
+ * disabled opt-in schemas with their enabling environment variable.
  */
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
@@ -18,7 +17,7 @@ import {
 import { ALL_TOOLS } from '../../src/tools/toolConfig.js';
 
 describe('direct-tool meta catalog parity with ALL_TOOLS (P3)', () => {
-  it('covers exactly the same default tools in the same order', () => {
+  it('covers exactly the same enabled tools in the same order', () => {
     expect(DIRECT_TOOL_DEFINITIONS.map(t => t.name)).toEqual(
       ALL_TOOLS.map(t => t.name)
     );
@@ -40,32 +39,23 @@ describe('direct-tool meta catalog parity with ALL_TOOLS (P3)', () => {
   });
 });
 
-describe('opt-in tool discoverability without the env var', () => {
-  it('keeps every public schema in the discovery catalog with explicit availability', () => {
+describe('default read-only tool availability', () => {
+  it('keeps every public schema discoverable while optional tools stay disabled', () => {
+    expect(DIRECT_TOOL_DEFINITIONS).toHaveLength(15);
     expect(DIRECT_TOOL_DISCOVERY_DEFINITIONS).toHaveLength(17);
-    expect(
-      DIRECT_TOOL_DISCOVERY_DEFINITIONS.filter(tool => tool.disabled).map(
-        tool => [tool.name, tool.disabled?.envVar]
-      )
-    ).toEqual([
-      ['ghListReleases', 'ENABLE_RELEASES'],
-      ['ghSearchDiscussions', 'ENABLE_DISCUSSIONS'],
-    ]);
+    expect(DIRECT_TOOL_DISCOVERY_DEFINITIONS).not.toBe(DIRECT_TOOL_DEFINITIONS);
   });
 
   it.each(['ghListReleases', 'ghSearchDiscussions'] as const)(
-    '%s resolves by name with a disabled marker when its env var is unset',
+    '%s resolves by name but is disabled without its feature flag',
     name => {
-      // Test env has neither ENABLE_RELEASES nor ENABLE_DISCUSSIONS set, so
-      // both are absent from the executable registry...
       expect(DIRECT_TOOL_DEFINITIONS.some(t => t.name === name)).toBe(false);
       expect(ALL_TOOLS.some(t => t.name === name)).toBe(false);
-      // ...but still resolve by exact name and discovery, with enough schema for
-      // `--scheme` to render, and a marker `execute.ts` uses to fail clearly
-      // instead of falling through to a generic "Unknown tool".
       const found = findDirectToolDefinition(name);
       expect(found).toBeDefined();
-      expect(found?.disabled?.envVar).toMatch(/^ENABLE_/);
+      expect(found?.disabled?.envVar).toMatch(
+        /^ENABLE_(RELEASES|DISCUSSIONS)$/
+      );
       expect(() => z.toJSONSchema(found!.inputSchema)).not.toThrow();
     }
   );

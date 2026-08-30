@@ -43,8 +43,7 @@ export function mapCodeSearchToolQuery(
     match: query.match,
     limit: (query as Record<string, unknown>).limit as number | undefined,
     page: query.page,
-    mainResearchGoal: query.mainResearchGoal,
-    researchGoal: query.researchGoal,
+    goal: query.goal,
     reasoning: query.reasoning,
   };
 }
@@ -60,7 +59,7 @@ export interface CodeSearchGroupedMatch {
 
 export interface CodeSearchGroupedResult {
   id: string;
-  queryId?: string;
+  queryIndex?: number;
   owner: string;
   repo: string;
   matches: CodeSearchGroupedMatch[];

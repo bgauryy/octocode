@@ -2,15 +2,14 @@ import type { PaginationInfo } from '../../types/toolResults.js';
 
 /**
  * Agent-facing count-honesty fields for search/PR pagination envelopes.
- * `totalMatches` (set on the base pagination) is the single count; here we add
- * only `totalMatchesCapped` — true when GitHub reported more than the reachable
- * 1000-result page window. The internal `reportedTotalMatches`/
- * `reachableTotalMatches`/`totalMatchesKind` drive that flag but are redundant
- * to emit (they duplicate `totalMatches` in the common uncapped case).
+ * `totalMatches` (set on the base pagination) is the count. Certainty is not
+ * redundant when that count is only a lower bound, so expose that exceptional
+ * kind along with the cap flag used for GitHub's 1000-result search window.
  */
 export function countPaginationMetadata(
   pagination: PaginationInfo | undefined
 ): {
+  totalMatchesKind?: 'exact' | 'reported' | 'lowerBound';
   totalMatchesCapped?: boolean;
   uniqueFileCount?: number;
 } {
@@ -22,6 +21,9 @@ export function countPaginationMetadata(
         ? pagination.reportedTotalMatches > pagination.reachableTotalMatches
         : undefined;
   return {
+    ...(pagination?.totalMatchesKind === 'lowerBound'
+      ? { totalMatchesKind: 'lowerBound' as const }
+      : {}),
     ...(typeof capped === 'boolean' ? { totalMatchesCapped: capped } : {}),
     ...(typeof pagination?.uniqueFileCount === 'number'
       ? { uniqueFileCount: pagination.uniqueFileCount }

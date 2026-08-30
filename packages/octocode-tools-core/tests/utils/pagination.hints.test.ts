@@ -140,7 +140,13 @@ const STUB_CTX = {
 describe('generateStructurePaginationHints', () => {
   it('returns empty array when hasMore is false', () => {
     const hints = generateStructurePaginationHints(
-      { currentPage: 1, totalPages: 1, hasMore: false, entriesPerPage: 100, totalEntries: 5 },
+      {
+        currentPage: 1,
+        totalPages: 1,
+        hasMore: false,
+        entriesPerPage: 100,
+        totalEntries: 5,
+      },
       STUB_CTX
     );
     expect(hints).toHaveLength(0);

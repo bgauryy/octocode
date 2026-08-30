@@ -132,30 +132,6 @@ describe('config/validator', () => {
         expect(result.errors.some(e => e.includes('tools.enabled'))).toBe(true);
       });
 
-      it('accepts null enableAdditional', () => {
-        const result = validateConfig({
-          tools: { enableAdditional: null },
-        });
-        expect(result.valid).toBe(true);
-      });
-
-      it('rejects non-array enableAdditional', () => {
-        const result = validateConfig({
-          tools: { enableAdditional: 'localSearchCode' },
-        });
-        expect(result.valid).toBe(false);
-        expect(
-          result.errors.some(e => e.includes('tools.enableAdditional'))
-        ).toBe(true);
-      });
-
-      it('accepts valid enableAdditional array', () => {
-        const result = validateConfig({
-          tools: { enableAdditional: ['localSearchCode', 'lspGetSemantics'] },
-        });
-        expect(result.valid).toBe(true);
-      });
-
       it('rejects non-array disabled', () => {
         const result = validateConfig({
           tools: { disabled: 'npmSearch' },

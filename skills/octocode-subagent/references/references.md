@@ -19,7 +19,7 @@ Research trail for `octocode-subagent`. Host-agnostic skill; Pi/Cursor/Claude ar
 | FrugalGPT / RouteLLM themes | model tier routing |
 
 ## Design choice
-Pi-specific tool names were removed so this skill installs on any host. Map `coordinate.md` actions to the local spawn API. Challenge techniques (duck / interview / mimic) live in this skill; KPI measurement stays in `octocode-graph-eval`.
+Pi-specific tool names were removed so this skill installs on any host. Map `coordinate.md` actions to the local spawn API. Challenge techniques (duck / interview / mimic) live in this skill; KPI measurement stays in `octocode-eval-benchmark`.
 
 ## Local Ollama offload (merged from former orchestrator-local-worker)
 

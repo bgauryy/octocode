@@ -10,7 +10,9 @@ import { LocalFindFilesQuerySchema } from '../../src/tools/local_find_files/sche
 describe('localFindFiles excludeDir description contract', () => {
   it('the local contract ships the pruned-by-default truth directly', () => {
     const description = localCompleteMetadata.tools.localFindFiles.description;
-    expect(description).toMatch(/prunes common generated\/vendor dirs by default/i);
+    expect(description).toMatch(
+      /prunes common generated\/vendor dirs by default/i
+    );
     expect(description).not.toMatch(/Nothing is excluded by default/i);
   });
 

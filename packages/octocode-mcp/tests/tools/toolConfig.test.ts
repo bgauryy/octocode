@@ -28,7 +28,7 @@ const removedLspToolNames = [
 
 describe('Tool Configuration', () => {
   describe('ALL_TOOLS', () => {
-    it('should contain all expected tools by default (8 remote + 7 local = 15; ghListReleases opt-in)', () => {
+    it('contains 15 tools by default with releases and discussions opt-in', () => {
       expect(ALL_TOOLS).toHaveLength(15);
 
       const toolNames = ALL_TOOLS.map(t => t.name);
@@ -59,6 +59,8 @@ describe('Tool Configuration', () => {
       expect(toolNames).toContain(TOOL_NAMES.GITHUB_PULL_REQUESTS);
       expect(toolNames).toContain(TOOL_NAMES.GITHUB_ISSUES);
       expect(toolNames).toContain(TOOL_NAMES.GITHUB_COMMITS);
+      expect(toolNames).not.toContain('ghListReleases');
+      expect(toolNames).not.toContain('ghSearchDiscussions');
       expect(toolNames).toContain(TOOL_NAMES.PACKAGE_SEARCH);
 
       expect(toolNames).toContain(TOOL_NAMES.LOCAL_RIPGREP);

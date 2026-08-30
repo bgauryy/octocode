@@ -1,17 +1,20 @@
 import type { BulkFinalizer } from '../../../types/bulk.js';
+import type { ToolResultMeta } from '../../../types/toolResults.js';
 import {
   collectFlatErrors,
   formatFinalizedResponse,
   type QueryWithPagination,
 } from '../../../utils/response/groupedFinalizer.js';
-import type { GitHubCodeSearchOutputLocal } from '../scheme.js';
+import type {
+  GitHubCodeSearchData,
+  GitHubCodeSearchOutputLocal,
+} from '../scheme.js';
 import type { RepoState } from '../execution.js';
 
 import { type CodeSearchPagination } from '../../providerMappers.js';
 import {
   applyExactMatchRanking,
   hasScopedGitHubQuery,
-  queryById,
   readPerQueryFlat,
 } from './ranking.js';
 import {
@@ -26,41 +29,39 @@ export function buildGhSearchCodeFinalizer<
 >(): BulkFinalizer<TQuery, GitHubCodeSearchOutputLocal> {
   return ({ queries, results }) => {
     const perQueryGroups: PerQueryGroups[] = [];
-    const paginationByQuery = new Map<string, CodeSearchPagination>();
+    const paginationByQuery = new Map<number, CodeSearchPagination>();
 
     const emptyQueries: Array<{
-      id: string;
+      index: number;
       nonExistentScope?: true;
       incompleteResults?: true;
     }> = [];
-    let anyIncompleteResults = false;
+    const incompleteQueryIndexes = new Set<number>();
 
     const repoStates: Array<{
-      id: string;
+      index: number;
       state: RepoState;
       query: QueryWithPagination | undefined;
     }> = [];
-    const queriesById = queryById(queries);
-
-    results.forEach((res, _index) => {
+    results.forEach(res => {
       if (res.status === 'error') return;
 
       const flat = readPerQueryFlat(res);
       if (flat.repoState) {
         repoStates.push({
-          id: res.id,
+          index: res.index,
           state: flat.repoState,
-          query: queriesById.get(res.id),
+          query: queries[res.index],
         });
       }
-      if (flat.incompleteResults) anyIncompleteResults = true;
+      if (flat.incompleteResults) incompleteQueryIndexes.add(res.index);
       const totalMatches = flat.results.reduce(
         (sum, group) => sum + group.matches.length,
         0
       );
       if (totalMatches === 0) {
         emptyQueries.push({
-          id: res.id,
+          index: res.index,
           ...(flat.nonExistentScope ? { nonExistentScope: true as const } : {}),
           ...(flat.incompleteResults
             ? { incompleteResults: true as const }
@@ -68,10 +69,10 @@ export function buildGhSearchCodeFinalizer<
         });
       }
       const groups = flat.results;
-      perQueryGroups.push({ id: res.id, groups });
+      perQueryGroups.push({ index: res.index, groups });
 
       if (flat.pagination) {
-        paginationByQuery.set(res.id, flat.pagination);
+        paginationByQuery.set(res.index, flat.pagination);
       }
     });
 
@@ -94,70 +95,161 @@ export function buildGhSearchCodeFinalizer<
     const conciseMode = queries.some(
       q => (q as { concise?: boolean }).concise === true
     );
-    const resultRecords = buildResultRecords(
+    const sourceRows = new Map(results.map(row => [row.index, row]));
+    const successRecords = buildResultRecords(
       queries,
       groups,
       paginationByQuery
-    );
-    const nextMap = buildNextMap(resultRecords, queries, allKeywords);
+    ).map(record => {
+      const meta = sourceRows.get(record.index)?.meta;
+      return { ...record, ...(meta ? { meta } : {}) };
+    });
+    const nextMap = buildNextMap(successRecords, queries, allKeywords);
+    if (nextMap) {
+      for (const record of successRecords) {
+        const key =
+          successRecords.length === 1 ? 'getLines' : `getLines:${record.index}`;
+        const continuation = nextMap[key];
+        if (continuation) {
+          (record.data as unknown as GitHubCodeSearchData).next = {
+            getLines: continuation,
+          };
+        }
+      }
+    }
     if (conciseMode) {
-      for (const rec of resultRecords) {
+      for (const rec of successRecords) {
         rec.data.files = rec.data.files.map(
           f => `${f.owner}/${f.repo}:${f.path}`
         ) as unknown as typeof rec.data.files;
       }
     }
+
+    const emptyRecords = emptyQueries.map(
+      ({ index, nonExistentScope, incompleteResults }) => {
+        const meta = sourceRows.get(index)?.meta;
+        return {
+          index,
+          status: 'empty' as const,
+          ...(meta ? { meta } : {}),
+          data: {
+            files: [],
+            ...(nonExistentScope ? { nonExistentScope } : {}),
+            ...(incompleteResults ? { incompleteResults } : {}),
+          },
+        };
+      }
+    );
+    const errorRecords = errors.map(({ index, error }) => {
+      const meta = sourceRows.get(index)?.meta;
+      return {
+        index,
+        status: 'error' as const,
+        ...(meta ? { meta } : {}),
+        data: { error },
+      };
+    });
+    const resultRecords = [
+      ...successRecords,
+      ...emptyRecords,
+      ...errorRecords,
+    ].sort((left, right) => left.index - right.index);
     const responseData: GitHubCodeSearchOutputLocal = {
       results: resultRecords,
-      ...(nextMap ? { next: nextMap } : {}),
     };
 
-    if (emptyQueries.length > 0) {
-      responseData.emptyQueries = emptyQueries.map(
-        ({ id, nonExistentScope, incompleteResults }) => ({
-          id,
-          ...(nonExistentScope ? { nonExistentScope } : {}),
-          ...(incompleteResults ? { incompleteResults } : {}),
-        })
-      );
-    }
-    if (errors.length > 0) responseData.errors = errors;
-
-    const warnings: string[] = [];
-    const warn = (_code: string, message: string): void => {
-      warnings.push(message);
+    type AgentRow = {
+      index: number;
+      meta?: ToolResultMeta;
+      data: GitHubCodeSearchData | { error: string };
+    };
+    const agentRows = responseData.results as AgentRow[];
+    const rowAt = (index: number): AgentRow | undefined =>
+      agentRows.find(row => row.index === index);
+    const addDiagnostic = (
+      index: number,
+      code: string,
+      hint: string,
+      partial = false
+    ): void => {
+      const row = rowAt(index);
+      if (!row) return;
+      const previous = row.meta;
+      const diagnostics = previous?.diagnostics;
+      row.meta = {
+        evidence: previous?.evidence ?? {
+          kind: 'provider',
+          confidence: 'medium',
+        },
+        diagnostics: {
+          ...(diagnostics ?? {}),
+          codes: Array.from(new Set([...(diagnostics?.codes ?? []), code])),
+          hints: Array.from(new Set([...(diagnostics?.hints ?? []), hint])),
+          ...(partial || diagnostics?.partial ? { partial: true } : {}),
+        },
+      };
+    };
+    const addContinuation = (
+      index: number,
+      name: string,
+      continuation: NonNullable<GitHubCodeSearchData['next']>[string]
+    ): void => {
+      const row = rowAt(index);
+      if (!row || !('files' in row.data)) return;
+      row.data.next = { ...(row.data.next ?? {}), [name]: continuation };
     };
 
-    // GitHub's index did not fully complete for at least one query — empty or
-    // partial results may be a false negative, NOT a true absence.
-    if (anyIncompleteResults) {
-      warn(
+    for (const index of incompleteQueryIndexes) {
+      addDiagnostic(
+        index,
         'ghIncompleteResults',
-        'GitHub code search returned incomplete_results: the search index did not fully complete. Empty or partial results may be a false negative — retry, narrow scope (owner/repo/path), or materialize the repo and search locally before concluding absence.'
+        'GitHub reported an incomplete search index result; retry, narrow the scope, or verify locally before concluding absence.',
+        true
       );
+      const {
+        goal: _goal,
+        reasoning: _reasoning,
+        ...retryQuery
+      } = queries[index] as QueryWithPagination & Record<string, unknown>;
+      addContinuation(index, 'retry', {
+        tool: 'ghSearchCode',
+        query: retryQuery,
+        why: 'Retry the same query because GitHub marked the result incomplete',
+        confidence: 'exact',
+      });
     }
 
-    if (
-      emptyQueries.length > 0 &&
-      hasScopedGitHubQuery(emptyQueries, queries)
-    ) {
-      warn(
+    const repoStateIndexes = new Set(repoStates.map(({ index }) => index));
+    for (const empty of emptyQueries) {
+      if (
+        repoStateIndexes.has(empty.index) ||
+        !hasScopedGitHubQuery([empty], queries)
+      ) {
+        continue;
+      }
+      const query = queries[empty.index] as QueryWithPagination & {
+        owner: string;
+        repo: string;
+      };
+      addDiagnostic(
+        empty.index,
         'ghScopedZeroUnproven',
-        'GitHub code search returned no results for a scoped repository query. Treat this as unproven absence: verify the repo/path with ghViewRepoStructure, then materialize or clone a bounded path and search locally before concluding.'
+        'No indexed matches is unproven absence; verify the repository structure and search a bounded local copy before concluding.'
       );
+      addContinuation(empty.index, 'viewStructure', {
+        tool: 'ghViewRepoStructure',
+        query: { owner: query.owner, repo: query.repo, path: '' },
+        why: 'Verify that the scoped repository and path exist before concluding absence',
+        confidence: 'exact',
+      });
     }
 
-    // Unlike ghSearchRepos (which GitHub rejects with a 422 for an overly
-    // long/complex query), the code-search endpoint has been observed to
-    // silently under-match instead of erroring — a genuine absence and a
-    // too-complex query both come back as a clean zero-result response. Flag
-    // it heuristically so an unexplained empty result with many keywords
-    // isn't mistaken for proof of absence.
+    // Complex code queries can silently under-match instead of returning 422.
     const COMPLEX_QUERY_KEYWORD_THRESHOLD = 8;
     const unexplainedComplexEmpty = emptyQueries.filter(
-      ({ id, nonExistentScope, incompleteResults }) => {
+      ({ index, nonExistentScope, incompleteResults }) => {
         if (nonExistentScope || incompleteResults) return false;
-        const kws = (queriesById.get(id) as { keywords?: unknown } | undefined)
+        const kws = (queries[index] as { keywords?: unknown } | undefined)
           ?.keywords;
         return (
           Array.isArray(kws) && kws.length > COMPLEX_QUERY_KEYWORD_THRESHOLD
@@ -165,64 +257,129 @@ export function buildGhSearchCodeFinalizer<
       }
     );
     if (unexplainedComplexEmpty.length > 0) {
-      warn(
-        'ghQueryPossiblyTooComplex',
-        `Quer${unexplainedComplexEmpty.length > 1 ? 'ies' : 'y'} ${unexplainedComplexEmpty.map(q => q.id).join(', ')} used more than ${COMPLEX_QUERY_KEYWORD_THRESHOLD} keywords and returned zero results. GitHub code search can silently under-match an overly long/complex query instead of erroring — narrow to fewer, more specific keywords before concluding absence.`
-      );
-    }
-
-    // Repo-state disambiguation for scoped-zero queries: say WHY it was empty
-    // (renamed / archived / gone) and hand a corrected retry when renamed.
-    for (const { id, state, query } of repoStates) {
-      if (state.kind === 'renamed') {
-        const [newOwner, newRepo] = state.fullName.split('/');
-        warn(
-          'ghRepoRenamed',
-          `Query ${id}: the repository was RENAMED to ${state.fullName} — searches against the old name silently miss. Retry with the new name (see next.retryRenamed).`
-        );
-        const kws = (query as { keywords?: unknown } | undefined)?.keywords;
-        responseData.next = {
-          ...(responseData.next ?? {}),
-          [`retryRenamed:${id}`]: {
-            tool: 'ghSearchCode',
-            query: {
-              owner: newOwner,
-              repo: newRepo,
-              ...(Array.isArray(kws) ? { keywords: kws } : {}),
-            },
-            why: 'Re-run the same search against the renamed repository',
-            confidence: 'exact',
-          },
+      for (const { index } of unexplainedComplexEmpty) {
+        const query = queries[index] as QueryWithPagination & {
+          keywords?: unknown;
+          owner?: unknown;
+          repo?: unknown;
+          path?: unknown;
+          filename?: unknown;
+          extension?: unknown;
+          language?: unknown;
+          match?: unknown;
         };
-      } else if (state.kind === 'archived') {
-        warn(
-          'ghRepoArchived',
-          `Query ${id}: the repository is ARCHIVED — the code-search index may lag or exclude it; zero matches is not proof of absence. Materialize the repo and search locally to verify.`
+        const keywords = Array.isArray(query.keywords)
+          ? query.keywords
+              .filter(
+                (keyword): keyword is string => typeof keyword === 'string'
+              )
+              .slice(0, COMPLEX_QUERY_KEYWORD_THRESHOLD)
+          : [];
+        addDiagnostic(
+          index,
+          'ghQueryPossiblyTooComplex',
+          `The query used more than ${COMPLEX_QUERY_KEYWORD_THRESHOLD} keywords; narrow it before treating zero matches as absence.`
         );
-      } else {
-        warn(
-          'ghRepoNotFound',
-          `Query ${id}: the repository was NOT FOUND — it does not exist (or is private to this token). Check the owner/repo spelling.`
-        );
+        addContinuation(index, 'retryNarrow', {
+          tool: 'ghSearchCode',
+          query: {
+            keywords,
+            ...(typeof query.owner === 'string' ? { owner: query.owner } : {}),
+            ...(typeof query.repo === 'string' ? { repo: query.repo } : {}),
+            ...(typeof query.path === 'string' ? { path: query.path } : {}),
+            ...(typeof query.filename === 'string'
+              ? { filename: query.filename }
+              : {}),
+            ...(typeof query.extension === 'string'
+              ? { extension: query.extension }
+              : {}),
+            ...(typeof query.language === 'string'
+              ? { language: query.language }
+              : {}),
+            ...(query.match === 'file' || query.match === 'path'
+              ? { match: query.match }
+              : {}),
+          },
+          why: 'Retry with a bounded keyword set to avoid silent under-matching',
+          confidence: 'low',
+        });
       }
     }
-    // Responses carry no warnings channel (stripped at the envelope); the
-    // collected messages above remain only to document the conditions — the
-    // typed flags (incompleteResults, nonExistentScope, emptyQueries,
-    // repoState-derived next continuations) are the agent-facing signals.
-    void warnings;
+
+    // Disambiguate scoped-zero results and attach the exact recovery path.
+    for (const { index, state, query } of repoStates) {
+      if (state.kind === 'renamed') {
+        const [newOwner, newRepo] = state.fullName.split('/');
+        addDiagnostic(
+          index,
+          'ghRepoRenamed',
+          `The repository was renamed to ${state.fullName}; retry against the renamed repository.`
+        );
+        const kws = (query as { keywords?: unknown } | undefined)?.keywords;
+        addContinuation(index, 'retryRenamed', {
+          tool: 'ghSearchCode',
+          query: {
+            owner: newOwner,
+            repo: newRepo,
+            ...(Array.isArray(kws) ? { keywords: kws } : {}),
+          },
+          why: 'Re-run the same search against the renamed repository',
+          confidence: 'exact',
+        });
+      } else if (state.kind === 'archived') {
+        addDiagnostic(
+          index,
+          'ghRepoArchived',
+          'The repository is archived, so its code-search index may lag or be incomplete; verify its structure and search locally.'
+        );
+        const scoped = query as
+          | (QueryWithPagination & { owner?: unknown; repo?: unknown })
+          | undefined;
+        if (
+          typeof scoped?.owner === 'string' &&
+          typeof scoped.repo === 'string'
+        ) {
+          addContinuation(index, 'viewStructure', {
+            tool: 'ghViewRepoStructure',
+            query: { owner: scoped.owner, repo: scoped.repo, path: '' },
+            why: 'Inspect the archived repository outside the code-search index',
+            confidence: 'exact',
+          });
+        }
+      } else {
+        addDiagnostic(
+          index,
+          'ghRepoNotFound',
+          'The repository was not found or is private to this token; verify the spelling or discover the current repository name.'
+        );
+        const scoped = query as
+          (QueryWithPagination & { repo?: unknown }) | undefined;
+        if (typeof scoped?.repo === 'string') {
+          addContinuation(index, 'findRepository', {
+            tool: 'ghSearchRepos',
+            query: { keywords: [scoped.repo] },
+            why: 'Find the repository by name in case it moved or was renamed',
+            confidence: 'low',
+          });
+        }
+      }
+    }
 
     return formatFinalizedResponse<GitHubCodeSearchOutputLocal>(
       responseData,
       [
         'results',
-        'id',
+        'index',
+        'status',
+        'meta',
+        'evidence',
+        'diagnostics',
         'data',
         'files',
         'path',
         'owner',
         'repo',
-        'queryId',
+        'queryIndex',
         'matches',
         'value',
         'pathOnly',
@@ -233,10 +390,9 @@ export function buildGhSearchCodeFinalizer<
         'query',
         'why',
         'confidence',
-        'emptyQueries',
         'nonExistentScope',
         'incompleteResults',
-        'errors',
+        'error',
       ],
       groups.length === 0 && errors.length > 0
     );

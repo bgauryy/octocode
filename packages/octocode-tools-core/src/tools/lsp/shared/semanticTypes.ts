@@ -34,8 +34,7 @@ export type SemanticQueryBase = {
   itemsPerPage?: number;
   contextLines?: number;
   format?: SemanticOutputFormat;
-  mainResearchGoal?: string;
-  researchGoal?: string;
+  goal?: string;
   reasoning?: string;
 };
 

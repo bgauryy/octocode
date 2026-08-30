@@ -35,35 +35,49 @@ export async function fetchWeeklyDownloads(
   }
 }
 
-function mapExports(value: unknown): string[] | undefined {
-  if (typeof value === 'string') return [value];
-  if (!value || typeof value !== 'object') return undefined;
-  const record = value as Record<string, unknown>;
-  const entries = Object.entries(record)
-    .flatMap(([key, entry]) => {
-      if (typeof entry === 'string') return [`${key}:${entry}`];
-      if (entry && typeof entry === 'object') {
-        return Object.entries(entry as Record<string, unknown>)
-          .filter(([, target]) => typeof target === 'string')
-          .map(([condition, target]) => `${key}:${condition}:${target}`);
-      }
-      return [];
-    })
-    .slice(0, 12);
-  return entries.length > 0 ? entries : undefined;
+interface BoundedMetadataList {
+  values: string[];
+  total: number;
+  truncated: boolean;
 }
 
-function mapBin(value: unknown, packageName?: string): string[] | undefined {
+function boundMetadata(values: string[], limit: number): BoundedMetadataList {
+  return {
+    values: values.slice(0, limit),
+    total: values.length,
+    truncated: values.length > limit,
+  };
+}
+
+function mapExports(value: unknown): BoundedMetadataList | undefined {
+  if (typeof value === 'string') return boundMetadata([value], 12);
+  if (!value || typeof value !== 'object') return undefined;
+  const record = value as Record<string, unknown>;
+  const entries = Object.entries(record).flatMap(([key, entry]) => {
+    if (typeof entry === 'string') return [`${key}:${entry}`];
+    if (entry && typeof entry === 'object') {
+      return Object.entries(entry as Record<string, unknown>)
+        .filter(([, target]) => typeof target === 'string')
+        .map(([condition, target]) => `${key}:${condition}:${target}`);
+    }
+    return [];
+  });
+  return entries.length > 0 ? boundMetadata(entries, 12) : undefined;
+}
+
+function mapBin(
+  value: unknown,
+  packageName?: string
+): BoundedMetadataList | undefined {
   if (typeof value === 'string') {
     const cmd = packageName?.replace(/^@[^/]+\//, '') ?? '';
-    return [cmd ? `${cmd} → ${value}` : value];
+    return boundMetadata([cmd ? `${cmd} → ${value}` : value], 8);
   }
   if (value && typeof value === 'object') {
     const entries = Object.entries(value as Record<string, unknown>)
       .filter(([, path]) => typeof path === 'string')
-      .map(([cmd, path]) => `${cmd} → ${path}`)
-      .slice(0, 8);
-    return entries.length > 0 ? entries : undefined;
+      .map(([cmd, path]) => `${cmd} → ${path}`);
+    return entries.length > 0 ? boundMetadata(entries, 8) : undefined;
   }
   return undefined;
 }
@@ -82,6 +96,8 @@ export function mapToResult(
   includeExtendedMetadata: boolean = false,
   source: 'cli' | 'registry' | 'cdn' = 'cli'
 ): NpmPackageResult {
+  const mappedExports = mapExports(data.exports);
+  const mappedBin = mapBin(data.bin, data.name);
   let repoUrl: string | null = null;
   let repositoryDirectory: string | undefined;
   if (data.repository) {
@@ -116,9 +132,21 @@ export function mapToResult(
     typeDefinitions: data.types || data.typings || null,
     packageType: inferPackageType(data),
     ...(repositoryDirectory ? { repositoryDirectory } : {}),
-    ...(mapExports(data.exports) ? { exports: mapExports(data.exports) } : {}),
-    ...(mapBin(data.bin, data.name)
-      ? { bin: mapBin(data.bin, data.name) }
+    ...(mappedExports
+      ? {
+          exports: mappedExports.values,
+          exportsTotal: mappedExports.total,
+          ...(mappedExports.truncated
+            ? { exportsTruncated: true as const }
+            : {}),
+        }
+      : {}),
+    ...(mappedBin
+      ? {
+          bin: mappedBin.values,
+          binTotal: mappedBin.total,
+          ...(mappedBin.truncated ? { binTruncated: true as const } : {}),
+        }
       : {}),
     lastPublished,
     source,

@@ -1,10 +1,5 @@
 import { CallToolResult } from '@modelcontextprotocol/server';
 import { incrementToolCharSavings } from '../../../shared/index.js';
-import {
-  cleanJsonObject,
-  createResponseFormat,
-  sanitizeStructuredContent,
-} from '../../../responses.js';
 import type {
   ProcessedBulkResult,
   FlatQueryResult,
@@ -17,14 +12,10 @@ import type {
   BulkToolResponse,
 } from '../../../types/bulk.js';
 import { countSerializedChars, getRawResponseChars } from '../charSavings.js';
-import { relativizeResultPaths, hoistSharedFields } from '../pathRelativize.js';
+import { buildResponseChannels } from '../responseChannels.js';
 
 import { paginateBulkText, appendResponsePagination } from './pagination.js';
-import {
-  processBulkQueries,
-  resolveQueryId,
-  resolveUniqueQueryIds,
-} from './queries.js';
+import { processBulkQueries } from './queries.js';
 
 const DEFAULT_BULK_CONCURRENCY = 3;
 
@@ -69,7 +60,7 @@ function createBulkResponse<
 ): CallToolResult {
   const topLevelFields = ['results', 'base', 'shared'];
   const resultFields = [
-    'id',
+    'index',
     'status',
     'meta',
     'evidence',
@@ -88,15 +79,11 @@ function createBulkResponse<
     queries.length
   );
 
-  const uniqueQueryIds = resolveUniqueQueryIds(queries);
-
   results.forEach(r => {
     const status = r.result.status;
     const data = extractToolData(r.result);
     orderedQueries[r.queryIndex] = {
-      id:
-        uniqueQueryIds[r.queryIndex] ??
-        resolveQueryId(r.originalQuery, r.queryIndex),
+      index: r.queryIndex,
       ...(status !== undefined ? { status } : {}),
       meta: buildToolResultMeta(config.toolName, r.originalQuery, data, status),
       data,
@@ -108,9 +95,7 @@ function createBulkResponse<
     if (!originalQuery) return;
 
     orderedQueries[err.queryIndex] = {
-      id:
-        uniqueQueryIds[err.queryIndex] ??
-        resolveQueryId(originalQuery, err.queryIndex),
+      index: err.queryIndex,
       status: 'error',
       meta: buildToolResultMeta(
         config.toolName,
@@ -156,25 +141,14 @@ function createBulkResponse<
 
   const responseData: BulkToolResponse = { results: flatQueries };
 
-  if (Array.isArray(responseData.results)) {
-    const dataBase = relativizeResultPaths(
-      responseData.results as Array<{ data?: unknown }>
-    );
-    if (dataBase) responseData.base = dataBase;
-
-    const shared = hoistSharedFields(
-      responseData.results as Array<{ data?: unknown }>
-    );
-    if (shared) responseData.shared = shared;
-  }
-
-  const formattedText = createResponseFormat(responseData, fullKeysPriority);
+  const responseChannels = buildResponseChannels(
+    responseData,
+    fullKeysPriority
+  );
+  const formattedText = responseChannels.text;
   const paginated = paginateBulkText(formattedText, pagination);
   const structuredContent = appendResponsePagination(
-    sanitizeStructuredContent(cleanJsonObject(responseData) ?? {}) as Record<
-      string,
-      unknown
-    >,
+    responseChannels.structuredContent as unknown as Record<string, unknown>,
     paginated.pagination
   );
   recordBulkCharSavings(
@@ -204,14 +178,14 @@ function attachFinalizedResultMeta<TOutput extends Record<string, unknown>>(
   sourceRows: FlatQueryResult[]
 ): TOutput {
   if (!Array.isArray(structuredContent.results)) return structuredContent;
-  const byId = new Map(sourceRows.map(row => [row.id, row]));
+  const byIndex = new Map(sourceRows.map(row => [row.index, row]));
   const results = structuredContent.results.map((value, index) => {
     if (value === null || typeof value !== 'object' || Array.isArray(value)) {
       return value;
     }
     const row = value as Record<string, unknown>;
     const source =
-      (typeof row.id === 'string' ? byId.get(row.id) : undefined) ??
+      (typeof row.index === 'number' ? byIndex.get(row.index) : undefined) ??
       sourceRows[index];
     return source && row.meta === undefined
       ? { ...row, meta: source.meta }
@@ -304,8 +278,7 @@ function recordBulkCharSavings(
 function extractToolData(result: ProcessedBulkResult): Record<string, unknown> {
   const excludedKeys = new Set([
     'status',
-    'mainResearchGoal',
-    'researchGoal',
+    'goal',
     'reasoning',
     'researchSuggestions',
     'query',

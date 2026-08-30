@@ -9,9 +9,19 @@ import { LocalRipgrepQuerySchema } from '../../src/tools/local_ripgrep/scheme.js
 import { LocalViewStructureQuerySchema } from '../../src/tools/local_view_structure/scheme.js';
 import { LocalFindFilesQuerySchema } from '../../src/tools/local_find_files/scheme.js';
 import { LocalAnalyzeGraphQuerySchema } from '../../src/tools/local_analyze_graph/scheme.js';
+import { DIRECT_TOOL_DEFINITIONS } from '../../src/tools/directToolCatalog/toolCatalogDefinitions.js';
 
-describe('metadata provenance — this repository owns schemas and descriptions', () => {
-  it('owns one nonempty description for every public tool', () => {
+describe('metadata provenance — octocode-core owns schemas and descriptions', () => {
+  it('removes the retired MCP full-text override from served instructions', () => {
+    expect(localCompleteMetadata.systemPrompt).not.toContain(
+      'restores full YAML text'
+    );
+    expect(localCompleteMetadata.systemPrompt).toContain(
+      'MCP returns complete YAML text in content[].text'
+    );
+  });
+
+  it('provides one nonempty description for every public tool', () => {
     const names = Object.values(localCompleteMetadata.toolNames);
     expect(names).toHaveLength(17);
     expect(new Set(names).size).toBe(17);
@@ -25,13 +35,13 @@ describe('metadata provenance — this repository owns schemas and descriptions'
     }
   });
 
-  it('loads the repository-owned metadata object without a patch layer', async () => {
+  it('loads the shared metadata object without a patch layer', async () => {
     const loaded = await loadToolContent();
     expect(loaded).toBe(localCompleteMetadata);
     expect(loaded.tools).toBe(localCompleteMetadata.tools);
   });
 
-  it('owns one executable query schema for every public tool', () => {
+  it('provides one executable query schema for every public tool', () => {
     const names = Object.values(localCompleteMetadata.toolNames);
     expect(Object.keys(localSchemas.toolSchemas)).toEqual(names);
     for (const name of names) {
@@ -57,7 +67,7 @@ describe('metadata provenance — this repository owns schemas and descriptions'
     ],
   ];
 
-  it('serves every localAnalyzeGraph operation from its local schema', () => {
+  it('serves every localAnalyzeGraph operation from its shared schema', () => {
     for (const query of [
       { operation: 'deadCode', path: '.' },
       { operation: 'cycles', path: '.' },
@@ -76,7 +86,7 @@ describe('metadata provenance — this repository owns schemas and descriptions'
   });
 
   for (const [tool, runtimeSchema, sourceSchema] of cases) {
-    it(`${tool}: runtime descriptions retain local source prose`, () => {
+    it(`${tool}: runtime descriptions retain shared source prose`, () => {
       const runtimeJson = z.toJSONSchema(runtimeSchema, { io: 'input' }) as {
         properties?: Record<string, { description?: string }>;
       };
@@ -101,4 +111,45 @@ describe('metadata provenance — this repository owns schemas and descriptions'
       );
     });
   }
+
+  it('keeps every runtime field description identical to octocode-core', () => {
+    const descriptionMap = (schema: z.ZodTypeAny): Map<string, string> => {
+      const json = z.toJSONSchema(schema, { io: 'input' }) as {
+        properties?: Record<string, { description?: string }>;
+        oneOf?: Array<{
+          properties?: Record<string, { description?: string }>;
+        }>;
+      };
+      const descriptions = new Map<string, string>();
+      for (const branch of json.oneOf ?? [json]) {
+        for (const [field, property] of Object.entries(
+          branch.properties ?? {}
+        )) {
+          if (property.description)
+            descriptions.set(field, property.description);
+        }
+      }
+      return descriptions;
+    };
+
+    const divergent: string[] = [];
+    for (const definition of DIRECT_TOOL_DEFINITIONS) {
+      const sourceSchema = localSchemas.findToolSchema(definition.name);
+      expect(sourceSchema, definition.name).toBeDefined();
+      if (!sourceSchema) continue;
+      const sourceDescriptions = descriptionMap(sourceSchema);
+      const runtimeDescriptions = descriptionMap(definition.schema);
+      for (const [field, sourceDescription] of sourceDescriptions) {
+        const runtimeDescription = runtimeDescriptions.get(field);
+        if (
+          runtimeDescription !== undefined &&
+          runtimeDescription !== sourceDescription
+        ) {
+          divergent.push(`${definition.name}.${field}`);
+        }
+      }
+    }
+
+    expect(divergent).toEqual([]);
+  });
 });

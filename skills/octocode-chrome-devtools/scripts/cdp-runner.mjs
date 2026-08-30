@@ -1,26 +1,35 @@
 #!/usr/bin/env node
 
-import { resolve, join } from 'path';
+import { isAbsolute, join, relative, resolve } from 'path';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { pathToFileURL } from 'url';
-import { getOctocodeHome, propagateOctocodeEnv } from './octocode-config.mjs';
+import { propagateOctocodeEnv } from './octocode-config.mjs';
 import { applyMandatoryStealth, stealthEnabled, isAboutOrDataUrl } from './mandatory-stealth.mjs';
 
 propagateOctocodeEnv({ cwd: process.cwd(), trusted: true });
 
 function octocodeOutputBase() {
   const workspace = resolve(process.cwd(), '.octocode');
-  try {
-    mkdirSync(workspace, { recursive: true, mode: 0o700 });
-    return workspace;
-  } catch {
-    const home = getOctocodeHome();
-    mkdirSync(home, { recursive: true, mode: 0o700 });
-    return home;
-  }
+  mkdirSync(workspace, { recursive: true, mode: 0o700 });
+  return workspace;
 }
 
 const OCTOCODE_OUTPUT_BASE = octocodeOutputBase();
+function workspaceOutputPath(candidate, label) {
+  const resolved = resolve(candidate);
+  const rel = relative(OCTOCODE_OUTPUT_BASE, resolved);
+  if (rel.startsWith('..') || isAbsolute(rel)) {
+    console.error(`[CDP_RUNNER] ${label} must stay under ${OCTOCODE_OUTPUT_BASE}`);
+    process.exit(2);
+  }
+  return resolved;
+}
+const ENV_SESSION_META_DIR = process.env.CDP_SESSION_META_DIR
+  ? workspaceOutputPath(process.env.CDP_SESSION_META_DIR, 'CDP_SESSION_META_DIR')
+  : null;
+const ENV_OUTPUT_DIR = process.env.CDP_OUTPUT_DIR
+  ? workspaceOutputPath(process.env.CDP_OUTPUT_DIR, 'CDP_OUTPUT_DIR')
+  : null;
 const argv      = process.argv.slice(2);
 const scriptArg = argv.find(a => !a.startsWith('--') && (a.endsWith('.mjs') || a.endsWith('.js')));
 const getArg    = (flag, def) => { const i = argv.indexOf(flag); return i !== -1 && argv[i + 1] ? argv[i + 1] : def; };
@@ -196,7 +205,9 @@ async function main() {
     process.exit(1);
   }
   if (VERBOSE) console.error(`[CDP_RUNNER] Chrome: ${version.Browser}`);
-  const sessionMetaDir = process.env.CDP_SESSION_META_DIR ?? (() => {
+  const sessionMetaDir = ENV_SESSION_META_DIR
+    ? ENV_SESSION_META_DIR
+    : (() => {
     const dir = join(OCTOCODE_OUTPUT_BASE, 'tmp', 'chrome-devtools', 'session-meta', `port-${PORT}`);
     mkdirSync(dir, { recursive: true, mode: 0o700 });
     return dir;
@@ -299,7 +310,9 @@ async function main() {
 
   const cdp = await createSession(targetWsUrl, targetInfo);
 
-  const outputDir = process.env.CDP_OUTPUT_DIR ?? (() => {
+  const outputDir = ENV_OUTPUT_DIR
+    ? ENV_OUTPUT_DIR
+    : (() => {
     const ts  = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
     const dir = join(OCTOCODE_OUTPUT_BASE, 'tmp', 'chrome-devtools', ts);
     mkdirSync(dir, { recursive: true });

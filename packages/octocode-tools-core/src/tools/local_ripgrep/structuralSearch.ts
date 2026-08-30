@@ -13,6 +13,15 @@ import type { SearchStats } from '../../utils/core/types.js';
 import { toStructuralSearchIncludeGlobs } from '../../shared/languageSelectors.js';
 import { buildSearchResult } from './ripgrepResultBuilder.js';
 import { budgetCaptures } from './captureBudget.js';
+
+const STRUCTURAL_MATCH_VALUE_MAX_CHARS = 300;
+
+function compactStructuralMatchValue(value: string): string {
+  const normalized = value.replace(/\s+/g, ' ').trim();
+  return normalized.length > STRUCTURAL_MATCH_VALUE_MAX_CHARS
+    ? `${normalized.slice(0, STRUCTURAL_MATCH_VALUE_MAX_CHARS - 1)}…`
+    : normalized;
+}
 import type { RipgrepQuery } from './scheme.js';
 
 // No directories excluded by default — structural search must not silently
@@ -209,7 +218,7 @@ export async function searchContentStructural(
         // A match can span lines (e.g. a chained call); collapse it to one
         // normalized line so the row shows the whole matched node instead of
         // its first physical line (often just the receiver of a chain).
-        value: match.text.replace(/\s+/g, ' ').trim().slice(0, 300),
+        value: compactStructuralMatchValue(match.text),
         column: match.startCol,
         endColumn: match.endCol,
         // Capture budget: `$$$` list captures (function bodies, arg lists)
@@ -294,12 +303,18 @@ export async function searchContentStructural(
         parts.push(`pre-filter: ${q.preFilter}`);
         if (q.unsafeReason) parts.push(`unsafe: ${q.unsafeReason}`);
         warnings.push(`Engine explanation: ${parts.join(', ')}.`);
-        for (const d of [
+        const diagnostics = [
           ...(q.diagnostics ?? []),
           ...(detailed.diagnostics ?? []),
-        ].slice(0, 3)) {
+        ];
+        for (const d of diagnostics.slice(0, 3)) {
           warnings.push(
             `Engine ${d.severity} [${d.stage}/${d.code}]: ${d.message}${d.recovery ? ` — ${d.recovery}` : ''}`
+          );
+        }
+        if (diagnostics.length > 3) {
+          warnings.push(
+            `${diagnostics.length - 3} additional engine diagnostic(s) omitted from this summary.`
           );
         }
       }

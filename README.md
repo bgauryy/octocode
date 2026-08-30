@@ -183,26 +183,22 @@ than `gh`+Headroom, and ~3.2× fewer than `gh`+RTK** in the local-build headline
 
 ## Tools
 
-**17 tools in the full catalog.** How many register depends on the surface and the
-flags you set:
+**17 tools in the full discovery catalog.** Releases and Discussions are opt-in;
+repository cloning is also capability-gated on MCP:
 
 | Surface | Registers | What that set is |
 |---|---:|---|
-| MCP, no flags | 8 | GitHub search and read, plus `npmSearch` |
-| MCP, `ENABLE_LOCAL=true` | 14 | Adds the five local tools and `lspGetSemantics` |
-| MCP, `+ ENABLE_CLONE=true` | 15 | Adds `ghCloneRepo` |
-| MCP, `+ ENABLE_TOOLS` allowlist | 17 | Adds `ghListReleases` and `ghSearchDiscussions` |
-| CLI, no flags | 15 | Local tools and clone are on by default |
-| CLI, `+ ENABLE_RELEASES=1 ENABLE_DISCUSSIONS=1` | 17 | Adds the same two GitHub tools |
+| MCP, no flags | 14 | Default GitHub, package, local, graph, and LSP tools |
+| MCP, `+ ENABLE_RELEASES=true ENABLE_DISCUSSIONS=true` | 16 | Adds releases and Discussions |
+| MCP, `+ ENABLE_CLONE=true` | 17 | Adds cloning to the fully enabled set |
+| CLI, no flags | 15 | Local tools and clone are on; releases and Discussions are off |
+| CLI, `+ ENABLE_RELEASES=true ENABLE_DISCUSSIONS=true` | 17 | Enables the full catalog |
 
-`ghListReleases` and `ghSearchDiscussions` need two settings on MCP, not one:
-`ENABLE_RELEASES=1` or `ENABLE_DISCUSSIONS=1` puts the tool in the catalog, and
-`ENABLE_TOOLS="ghListReleases,ghSearchDiscussions"` registers it. Either setting
-alone leaves the tool unregistered, because both carry `isDefault: false` and the
-MCP registration filter admits only default or explicitly allowlisted tools. The
-CLI needs only the `ENABLE_RELEASES` and `ENABLE_DISCUSSIONS` flags. `ENABLE_LOCAL`
-and `ENABLE_CLONE` accept `true` or `1`; `ENABLE_RELEASES` and `ENABLE_DISCUSSIONS`
-also accept `yes` and `on`.
+Use `TOOLS_TO_RUN` for a strict allowlist or `DISABLE_TOOLS` to remove tools from
+the default set. `ENABLE_LOCAL=false` disables local, graph, and LSP tools;
+`ENABLE_CLONE=true` enables cloning on MCP.
+Set `ENABLE_RELEASES=true` or `ENABLE_DISCUSSIONS=true` to enable either optional
+GitHub tool; no additional allowlist is required.
 Flags: [Configuration](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md).
 
 **Token knobs.** `concise:true` returns path/title-only lists. `minify` controls file read density: `symbols` = skeleton with line numbers, `standard` = comments/blanks stripped (default), `none` = exact bytes.
@@ -229,7 +225,7 @@ Flags: [Configuration](https://github.com/bgauryy/octocode/blob/main/docs/CONFIG
 | `localSearchCode` | Local code/text search returning file and line anchors. `mode:"structural"` runs Octocode AST shape queries (`pattern` or `rule`). | `mode` |
 | `localViewStructure` | Browse a local directory tree: depth, filters, pagination, metadata. | `detail` |
 | `localFindFiles` | Find local files and directories by name, path, regex, extension, size, time, permissions, type. | |
-| `localAnalyzeGraph` | Analyze dependencies, dependents, paths, reachability, cycles, or dead-code candidates over one bounded repository graph. | `operation` |
+| `localAnalyzeGraph` | Analyze bounded file dependencies, paths, reachability, SCCs, and dead-code candidates. Cycle results separate runtime loading cycles from type-only SCCs and include directed edge witnesses. | `operation` |
 | `localGetFileContent` | Read a local file or region: exact slice, match string, line range, or paginated chars. | `minify` |
 
 ### Package search
@@ -325,13 +321,13 @@ Most-used settings (both CLI and MCP unless noted):
 | Env var | `.octocoderc` key | Default | What it does |
 |---------|-------------------|---------|--------------|
 | `OCTOCODE_TOKEN` / `GH_TOKEN` / `GITHUB_TOKEN` | env only | unset | GitHub token, in priority order. Never in `.octocoderc`. |
-| `ENABLE_LOCAL` | `local.enabled` | CLI `true`; on MCP set it explicitly | Local filesystem and LSP tools on or off. |
+| `ENABLE_LOCAL` | `local.enabled` | `true` | Local filesystem and LSP tools on or off. Set `false` to disable them. |
 | `ENABLE_CLONE` | `local.enableClone` | CLI `true`, MCP `false` | `ghCloneRepo` + directory fetch on/off. |
 | `WORKSPACE_ROOT` | `local.workspaceRoot` | `cwd` | Root for resolving relative local paths. |
 | `ALLOWED_PATHS` | `local.allowedPaths` | `[]` | Extra path allowlist for local access. |
 | `OCTOCODE_OUTPUT_FORMAT` | `output.format` | `yaml` | Response format: `yaml` or `json`. |
 
-`OCTOCODE_HOME`, GitHub Enterprise (`GITHUB_API_URL`), MCP tool allowlisting (`TOOLS_TO_RUN`/`ENABLE_TOOLS`/`DISABLE_TOOLS`), and network timeouts/retries: see the [Configuration Reference](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md).
+`OCTOCODE_HOME`, GitHub Enterprise (`GITHUB_API_URL`), MCP tool filtering (`TOOLS_TO_RUN`/`DISABLE_TOOLS`), and network timeouts/retries: see the [Configuration Reference](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md).
 
 ### Example configuration
 
@@ -437,6 +433,7 @@ npx octocode skill help
 | Skill | Use when |
 |-------|----------|
 | ⭐ [**octocode-research**](https://github.com/bgauryy/octocode/tree/main/skills/octocode-research) | Evidence-first research, review, debugging, refactors, prior-art validation. |
+| [**octocode-code-graph**](https://github.com/bgauryy/octocode/tree/main/skills/octocode-code-graph) | Repository dependency topology: cycles, paths, layering, reachability, impact analysis, and verified dead-code candidates. |
 | [**octocode-scraping**](https://github.com/bgauryy/octocode/tree/main/skills/octocode-scraping) | Public page extraction and crawl triage: static corpus + graph v2 (pages/data/actions/risks/evidence), then CDP handoff for dynamic actions and blocked pages. |
 | [**octocode-chrome-devtools**](https://github.com/bgauryy/octocode/tree/main/skills/octocode-chrome-devtools) | Browser/CDP evidence: network, console, performance, cookies/storage, screenshots, auth-gated pages, and live validation of scrape-graph actions. |
 
@@ -451,7 +448,7 @@ npx octocode skill help
 | Skill | Use when |
 |-------|----------|
 | [**octocode-roast**](https://github.com/bgauryy/octocode/tree/main/skills/octocode-roast) | Blunt, evidence-backed code critique with severity ranking and repair paths. |
-| [**octocode-graph-eval**](https://github.com/bgauryy/octocode/tree/main/skills/octocode-graph-eval) | Measuring whether a change helped: goal→KPI contracts, baselines, accept/revert loops, eval suites. |
+| [**octocode-eval-benchmark**](https://github.com/bgauryy/octocode/tree/main/skills/octocode-eval-benchmark) | Smart evals and honest benchmarks: goal→KPI contracts, graders, held-out suites, guardrails, and accept/revert loops. |
 | [**octocode-prompt-optimizer**](https://github.com/bgauryy/octocode/tree/main/skills/octocode-prompt-optimizer) | Making prompts, tool schemas, and agent contracts clearer, safer, cheaper, measurable. |
 
 ### Agent orchestration

@@ -10,8 +10,8 @@ export const EXIT = {
 
 export type ExitCode = (typeof EXIT)[keyof typeof EXIT];
 
-// Shared error-text predicates so the exit code and the human-facing message
-// (github-error.ts) classify the same way. Auth deliberately matches only
+// Shared error-text predicates for consistent CLI failure classification.
+// Auth deliberately matches only
 // genuine credential failures (401/403/unauthorized/forbidden/bad credentials)
 // — NOT the bare word "authentication", which appears in the ambiguous
 // "may not exist, require authentication, or be inaccessible" not-found

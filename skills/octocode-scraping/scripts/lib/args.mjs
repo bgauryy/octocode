@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { isAbsolute, relative, resolve } from 'node:path';
 import { resolveProvider } from './providers.mjs';
 
 export const MODE_ENDPOINT = { html: 'general', markdown: 'markdown', extended: 'extended', extract: 'extract' };
@@ -79,6 +80,12 @@ export function parseConfig(args) {
   if (!Number.isFinite(maxRawBytes) || maxRawBytes < 0) throw new Error('--max-raw-bytes must be a non-negative number');
   if (!Number.isFinite(maxTextBytes) || maxTextBytes < 1) throw new Error('--max-text-bytes must be a positive number');
   if (!Number.isFinite(chunkBytes) || chunkBytes < 1_000) throw new Error('--chunk-bytes must be a number >= 1000');
+  const workspaceOutputBase = resolve(process.cwd(), '.octocode');
+  const outBase = resolve(take('--out') || '.octocode/tmp/scrape');
+  const outRelative = relative(workspaceOutputBase, outBase);
+  if (outRelative.startsWith('..') || isAbsolute(outRelative)) {
+    throw new Error(`--out must stay under ${workspaceOutputBase}`);
+  }
   return {
     targetUrl,
     mode,
@@ -92,7 +99,7 @@ export function parseConfig(args) {
     delayMs,
     sameDomain: has('--same-domain'),
     sitemap: has('--sitemap'),
-    outBase: take('--out') || '.octocode/tmp/scrape',
+    outBase,
     sessionId: safeSessionId(take('--session'), targetUrl),
     maxRawBytes,
     maxTextBytes,

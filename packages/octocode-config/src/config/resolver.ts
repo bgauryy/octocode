@@ -1,14 +1,5 @@
 // Thin re-export — all resolution logic lives in resolverCache.ts.
-export {
-  resolveConfigSync,
-  resolveConfig,
-  getConfig,
-  getConfigSync,
-  reloadConfig,
-  invalidateConfigCache,
-  _resetConfigCache,
-  _getCacheState,
-} from './resolverCache.js';
+export { resolveConfigSync, getConfigSync } from './resolverCache.js';
 
 import { getConfigSync } from './resolverCache.js';
 

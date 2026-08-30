@@ -62,9 +62,40 @@ describe('ghCloneRepo next-hints', () => {
     } as never);
 
     const data = (result.structuredContent ?? result) as {
-      results: Array<{ data: { next?: Record<string, unknown> } }>;
+      results: Array<{
+        index: number;
+        data: {
+          owner: string;
+          repo: string;
+          totalSize: number;
+          location: Record<string, unknown>;
+          next?: Record<string, unknown>;
+          localPath?: string;
+          resolvedBranch?: string;
+          cached?: boolean;
+        };
+      }>;
     };
-    const next = data.results[0]?.data.next;
+    const row = data.results[0];
+    expect(row?.index).toBe(0);
+    expect(Object.keys(row?.data ?? {})).toEqual([
+      'owner',
+      'repo',
+      'totalSize',
+      'location',
+      'next',
+    ]);
+    expect(row?.data.location).toMatchObject({
+      kind: 'repo',
+      source: 'clone',
+      complete: true,
+      resolvedBranch: 'main',
+    });
+    expect(row?.data.localPath).toBeUndefined();
+    expect(row?.data.resolvedBranch).toBeUndefined();
+    expect(row?.data.cached).toBeUndefined();
+
+    const next = row?.data.next;
     expect(next?.viewStructure).toBeDefined();
     // Regression: this hint used to be next.localSearch with mode:"discovery"
     // and no keywords, which localSearchCode's core schema always rejects.

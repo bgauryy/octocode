@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { withSemanticNext } from '../../../src/tools/lsp/semantic_content/semanticPresentation.js';
+import { withSemanticNext } from '../../../src/tools/lsp/semantic_content/semanticNext.js';
 import { failedAnchorEnvelope } from '../../../src/tools/lsp/semantic_content/semanticEnvelopes.js';
 import type {
   LspGetSemanticsQuery,

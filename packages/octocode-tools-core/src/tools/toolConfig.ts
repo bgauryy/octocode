@@ -58,7 +58,7 @@ import { executeRipgrepSearch } from './local_ripgrep/execution.js';
 import { executeViewStructure } from './local_view_structure/execution.js';
 import { executeLspGetSemantics } from './lsp/semantic_content/execution.js';
 import { LSP_GET_SEMANTICS_TOOL_NAME } from './lsp/shared/semanticTypes.js';
-import { isReleasesEnabled, isDiscussionsEnabled } from './toolNames.js';
+import { isDiscussionsEnabled, isReleasesEnabled } from './toolNames.js';
 import {
   DEFAULT_TOOL_METADATA_GATEWAY,
   type ToolMetadataGateway,
@@ -200,7 +200,7 @@ function createToolCatalog(
   });
 
   const GITHUB_RELEASES = createTool(gateway, 'GITHUB_RELEASES', {
-    isDefault: false,
+    isDefault: true,
     isLocal: false,
     type: 'history',
     direct: {
@@ -212,7 +212,7 @@ function createToolCatalog(
   });
 
   const GITHUB_DISCUSSIONS = createTool(gateway, 'GITHUB_DISCUSSIONS', {
-    isDefault: false,
+    isDefault: true,
     isLocal: false,
     type: 'history',
     direct: {
@@ -335,8 +335,8 @@ function createToolCatalog(
     GITHUB_PULL_REQUESTS,
     GITHUB_ISSUES,
     GITHUB_COMMITS,
-    ...(isReleasesEnabled() ? [GITHUB_RELEASES] : []), // ENABLE_RELEASES=1
-    ...(isDiscussionsEnabled() ? [GITHUB_DISCUSSIONS] : []), // ENABLE_DISCUSSIONS=1 (GraphQL)
+    ...(isReleasesEnabled() ? [GITHUB_RELEASES] : []),
+    ...(isDiscussionsEnabled() ? [GITHUB_DISCUSSIONS] : []),
     PACKAGE_SEARCH,
     GITHUB_CLONE_REPO,
     LOCAL_RIPGREP,

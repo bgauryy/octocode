@@ -3,12 +3,18 @@ import { z } from 'zod';
 import { createRemoteToolRegistration } from '../../src/tools/registerRemoteTool.js';
 
 function createMockServer() {
-  const registered: Array<{ name: string; handler: unknown }> = [];
+  const registered: Array<{
+    name: string;
+    options: Record<string, unknown>;
+    handler: unknown;
+  }> = [];
   const server = {
-    registerTool: vi.fn((name: string, _opts: unknown, handler: unknown) => {
-      registered.push({ name, handler });
-      return { name, registered: true };
-    }),
+    registerTool: vi.fn(
+      (name: string, options: Record<string, unknown>, handler: unknown) => {
+        registered.push({ name, options, handler });
+        return { name, registered: true };
+      }
+    ),
   };
   return { server, registered };
 }
@@ -17,7 +23,7 @@ const trivialInput = z.object({ queries: z.array(z.object({})).optional() });
 
 describe('createRemoteToolRegistration — registrationGuard', () => {
   it('registers the tool synchronously when no guard is provided', () => {
-    const { server } = createMockServer();
+    const { server, registered } = createMockServer();
     const register = createRemoteToolRegistration({
       name: 'sync_tool',
       title: 'Sync',
@@ -30,6 +36,7 @@ describe('createRemoteToolRegistration — registrationGuard', () => {
     expect(result).not.toBeNull();
     expect(result).not.toBeInstanceOf(Promise);
     expect(server.registerTool).toHaveBeenCalledTimes(1);
+    expect(registered[0]?.options.outputSchema).toEqual(expect.any(Object));
   });
 
   it('does NOT register the tool when guard resolves to false', async () => {

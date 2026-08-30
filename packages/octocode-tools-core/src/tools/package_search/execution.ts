@@ -153,7 +153,7 @@ function buildNext(
     latestRelease: {
       tool: 'ghListReleases',
       query: { owner, repo },
-      why: 'npm latest can diverge from the repo release line — verify against the repo releases/tags (requires ENABLE_RELEASES)',
+      why: 'npm latest can diverge from the repo release line — verify against the repository releases/tags',
     },
     searchCode: {
       tool: 'ghSearchCode',
@@ -313,9 +313,7 @@ export async function searchPackages(
         const apiResult = await searchPackage({
           name: searchName,
           page: (query as { page?: number }).page,
-          mainResearchGoal: (query as { mainResearchGoal?: string })
-            .mainResearchGoal,
-          researchGoal: (query as { researchGoal?: string }).researchGoal,
+          goal: (query as { goal?: string }).goal,
           reasoning: (query as { reasoning?: string }).reasoning,
         });
 

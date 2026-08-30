@@ -1,9 +1,9 @@
 import {
   buildFileGraph,
-  DEFAULT_DEAD_CODE_EXCLUDE_DIRS,
+  resolveGraphExcludeDirs,
   type WalkResult,
 } from '../../graph/buildFileGraph.js';
-import { resolveEntrypoints } from './entrypoints.js';
+import { isTestFilePath, resolveEntrypoints } from './entrypoints.js';
 import { resolveImportSpecifier } from '../../graph/importResolver.js';
 import {
   computeReachableFiles,
@@ -50,10 +50,7 @@ export function scanForDeadCode(
   query: FindDeadCodeQuery,
   builtGraph?: WalkResult
 ): DeadCodeScanResult {
-  const excludeDir =
-    query.excludeDir && query.excludeDir.length > 0
-      ? query.excludeDir
-      : DEFAULT_DEAD_CODE_EXCLUDE_DIRS;
+  const excludeDir = resolveGraphExcludeDirs(query.excludeDir);
   const maxFiles = query.maxFiles ?? 20_000;
 
   const {
@@ -109,6 +106,9 @@ export function scanForDeadCode(
 
   const reachableFiles = computeReachableFiles(fileGraph, entrypoints);
   const entrypointSet = new Set(entrypoints);
+  const publicSurfaceSet = new Set([...entrypointSet, ...dynamicImportTargets]);
+  const shouldReportFile = (file: string): boolean =>
+    query.includeTests !== false || !isTestFilePath(file);
 
   // A file reachable only through a string-literal dynamic import() has
   // lower-confidence reachability than one reachable through a static
@@ -217,13 +217,15 @@ export function scanForDeadCode(
   const deadClusters: DeadClusterOutput[] = [];
   let clusterId = 0;
   for (const scc of sccs) {
-    const allUnreachable = scc.files.every(f => !reachableFiles.has(f));
+    const reportableFiles = scc.files.filter(shouldReportFile);
+    if (reportableFiles.length === 0) continue;
+    const allUnreachable = reportableFiles.every(f => !reachableFiles.has(f));
     if (!allUnreachable) continue;
     const id = clusterId++;
-    for (const f of scc.files) clusterIdByFile.set(f, id);
+    for (const f of reportableFiles) clusterIdByFile.set(f, id);
     deadClusters.push({
       id,
-      files: scc.files,
+      files: reportableFiles,
       reason:
         'mutually-referencing cluster with no path from any entrypoint — each file looks locally referenced by the others, but the cluster as a whole is unreachable',
     });
@@ -232,6 +234,7 @@ export function scanForDeadCode(
   const liveNamesByFile = new Map<string, Set<string>>();
 
   for (const [file, fileFacts] of facts) {
+    if (!shouldReportFile(file)) continue;
     const isEntrypoint = entrypointSet.has(file);
     const isReachable = reachableFiles.has(file);
 
@@ -266,7 +269,7 @@ export function scanForDeadCode(
         liveNames = computeLiveExportedNames(
           file,
           fileFacts,
-          entrypointSet,
+          publicSurfaceSet,
           realImportIndex,
           reexportIndex,
           liveStarReexporters

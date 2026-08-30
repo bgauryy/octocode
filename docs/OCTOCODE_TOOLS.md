@@ -12,7 +12,7 @@ npx octocode tools <toolName> --scheme --json --compact
 
 | Family | Tools |
 |--------|-------|
-| GitHub | `ghSearchCode`, `ghGetFileContent`, `ghViewRepoStructure`, `ghSearchRepos`, `ghSearchPullRequests`, `ghSearchIssues`, `ghSearchCommits`, `ghListReleases` *(opt-in: `ENABLE_RELEASES`)*, `ghSearchDiscussions` *(opt-in: `ENABLE_DISCUSSIONS`)*, `ghCloneRepo` |
+| GitHub | `ghSearchCode`, `ghGetFileContent`, `ghViewRepoStructure`, `ghSearchRepos`, `ghSearchPullRequests`, `ghSearchIssues`, `ghSearchCommits`, `ghListReleases` *(opt-in)*, `ghSearchDiscussions` *(opt-in)*, `ghCloneRepo` |
 | Packages | `npmSearch` |
 | Local | `localSearchCode`, `localViewStructure`, `localFindFiles`, `localGetFileContent`, `localAnalyzeGraph` |
 | LSP | `lspGetSemantics` |
@@ -42,10 +42,12 @@ Concise reference for Octocode MCP remote research tools: GitHub code/repo/PR se
 | `GITHUB_TOKEN` | GitHub token fallback. |
 | `GITHUB_PERSONAL_ACCESS_TOKEN` | Lowest-priority GitHub token env var. |
 | `GITHUB_API_URL` | GitHub Enterprise API base URL. |
-| `ENABLE_LOCAL` | Turns local tools on or off. On by default for the CLI. On MCP the resolver default is off, but the built server registered local tools without the variable set, so set it explicitly. |
+| `ENABLE_LOCAL` | Turns local tools on or off. Defaults to `true` on both CLI and MCP. |
 | `ENABLE_CLONE` | Turns on `ghCloneRepo` and `ghGetFileContent(type="directory")`. |
+| `ENABLE_RELEASES` | Turns on `ghListReleases`. Defaults to `false`. |
+| `ENABLE_DISCUSSIONS` | Turns on `ghSearchDiscussions`. Defaults to `false`. |
 
-Every tool accepts bulk input (`{ "queries": [...] }`), up to 5 queries per call. All tools support `page`, `responseCharOffset`, and `responseCharLength` for pagination. Use `npx octocode tools <toolName> --scheme` for the exact active schema.
+Every tool accepts bulk input (`{ "queries": [...] }`), up to 5 queries per call. Pagination controls vary by tool: page-based tools use `page` and `itemsPerPage`, content tools use character windows, and Discussions uses an opaque `after` cursor. `ghCloneRepo` is a bounded operation and does not paginate its input. Use `npx octocode tools <toolName> --scheme` for the exact active schema.
 
 ### Choose a GitHub tool
 
@@ -58,8 +60,8 @@ Every tool accepts bulk input (`{ "queries": [...] }`), up to 5 queries per call
 | Search PRs or inspect one PR | `ghSearchPullRequests` |
 | Search issues or inspect one issue | `ghSearchIssues` |
 | Walk commit history or compare two refs | `ghSearchCommits` |
-| List releases (opt-in `ENABLE_RELEASES`) | `ghListReleases` |
-| Search a repository's discussions (opt-in `ENABLE_DISCUSSIONS`) | `ghSearchDiscussions` |
+| List releases | `ghListReleases` |
+| Search a repository's discussions | `ghSearchDiscussions` |
 | Materialize a repo/subtree locally | `ghCloneRepo` |
 | Resolve npm package to source repository | `npmSearch` |
 
@@ -337,8 +339,6 @@ Leave `includeDiff` off until you know which range matters.
 
 List releases plus the latest stable, with opt-in assets.
 
-Opt-in tool: disabled by default, enable with `ENABLE_RELEASES=true`.
-
 Key fields:
 
 | Field | Meaning |
@@ -357,8 +357,6 @@ Examples:
 ### `ghSearchDiscussions`
 
 Search a repository's GitHub Discussions (Q&A, RFCs, announcements). GraphQL-only.
-
-Opt-in tool: disabled by default, enable with `ENABLE_DISCUSSIONS=true`.
 
 Key fields:
 
@@ -527,7 +525,7 @@ Useful local-tool environment variables:
 
 | Variable | Description |
 |----------|-------------|
-| `ENABLE_LOCAL` | Enables local filesystem tools. Defaults to `true` on the CLI and `false` on the MCP server; set `true` to enable on MCP or `false` to disable on CLI. |
+| `ENABLE_LOCAL` | Enables local filesystem tools. Defaults to `true` on both CLI and MCP; set `false` to disable them. |
 | `WORKSPACE_ROOT` | Root used to resolve relative local paths. Overrides `local.workspaceRoot` in config. |
 | `ALLOWED_PATHS` | Optional comma-separated allowlist of extra roots, added on top of the always-allowed home directory. Empty means home directory only (paths outside home are denied). |
 | `ENABLE_CLONE` | Enables clone-backed workflows and GitHub directory fetches that materialize local files. |
@@ -811,12 +809,13 @@ localGetFileContent(path="src/index.ts", minify="symbols")
 
 ### `localAnalyzeGraph`
 
-One bounded repository graph with six explicit operations: `dependencies`, `dependents`, `path`, `reachability`, `cycles`, and `deadCode`. Import edges come from native syntax facts. Traversal and path results report exact `edgeKinds` (`static-import`, `dynamic-import`, `named-reexport`, or `star-reexport`) with syntactic confidence. Native facts also contain `call` and `contains` relations, but the current public operations don't project those symbol-level edges. `deadCode` results are candidates, not deletion proof.
+One bounded repository graph with six explicit operations: `dependencies`, `dependents`, `path`, `reachability`, `cycles`, and `deadCode`. Import edges come from native syntax facts. Traversal and path results report exact `edgeKinds` (`static-import`, `type-import`, `dynamic-import`, `named-reexport`, or `star-reexport`) with syntactic confidence. Dependency traversal also reports immediate dominators, topological layers, and transitively redundant condensation-DAG edges. Cycle results distinguish `runtimeCycle` from type-only SCCs, expose condensation metadata, and return deterministic directed witnesses in `cycleEdges` and `runtimeCycleEdges`; every witness edge includes `from`, `to`, and `edgeKinds`. Native facts also contain `call` and `contains` relations, but the current public operations don't project those symbol-level edges. `deadCode` results are candidates, not deletion proof.
 
 #### Best for
 
 - Tracing forward dependencies or reverse dependents to a bounded depth.
 - Finding the shortest directed import path between two files.
+- Finding mandatory dependency chokepoints, topological layers, and redundant edges.
 - Classifying entrypoint reachability and finding strongly connected import cycles.
 - Finding repository-wide dead-export candidates and dead clusters in one pass. A dead cluster is a strongly connected set of mutually importing, unreachable files; the files don't necessarily call one another.
 
@@ -839,7 +838,19 @@ Use `localAnalyzeGraph` to discover repository-scale file topology and candidate
 | `page` | Result page. Max 1000. |
 | `itemsPerPage` | Results per page. Max 50. |
 
-Results never dump the complete graph: the result list is paginated, SCC/dead-cluster members cap at 50 files with `size` and `truncated`, and shortest paths cap at 100 files with `length` and `truncated`. A five-query large-repository batch must remain at or below 32 KiB in compact structured output; use pagination instead of expanding nested collections.
+Results never dump the complete graph: the result list is paginated, SCC/dead-cluster members cap at 50 files with `size` and `truncated`, and complete shortest paths cap at 100 files. Longer paths return `complete:false`, empty `files`/`edges`, bounded `prefix` and `suffix`, the target, total file count, and omitted-middle count so a prefix cannot be mistaken for a complete source-to-target path. A five-query large-repository batch must remain at or below 32 KiB in compact structured output; use pagination instead of expanding nested collections.
+
+#### Graph result interpretation
+
+| Signal | Interpretation | Required follow-up |
+|--------|----------------|--------------------|
+| `cycleEdges` | A deterministic directed witness through one reported SCC. Each edge names `from`, `to`, and its syntactic `edgeKinds`. | Read every reported edge exactly; SCC member order alone is not a valid cycle path. |
+| `runtimeCycleEdges` | A directed witness that remains after the analysis removes `type-import` edges. This is the relevant witness for module-loading risk. | Confirm the imported bindings and initialization behavior before claiming a runtime defect. |
+| Type-only SCC | Files are mutually connected in the full import graph, but no runtime cycle remains after the analysis erases type-only edges. | Report it as topology or coupling evidence, not as a module-loading cycle. |
+| `transitiveCandidates` | Condensation-DAG edges for which another directed path already connects the same components. They can indicate redundant architectural wiring. | Check re-export contracts, side effects, public API intent, and symbol usage before calling an import duplicate. |
+| `immediateDominators` | Components that every directed route from the selected root must cross. | Use them to prioritize chokepoints; do not infer symbol ownership from file topology. |
+
+The graph assigns no weights to edges. `path` therefore uses breadth-first search to return the fewest-edge directed import path, not Dijkstra's weighted shortest-path algorithm. A syntactically redundant edge can still be semantically necessary because it imports a value for side effects, preserves a public barrel contract, or selects a different binding.
 
 #### Examples
 
@@ -849,7 +860,7 @@ localAnalyzeGraph(operation="cycles", path="/ABS/repo", limit=20)
 localAnalyzeGraph(operation="deadCode", path="/ABS/repo", entrypoints=["src/index.ts"], includeTests=false)
 ```
 
-Verify a survivor with `lspGetSemantics` before removing it.
+For a cycle, read the exact imports named by `cycleEdges`; use `runtimeCycleEdges` when investigating loading behavior. Verify a dead-code or transitive-edge candidate with `lspGetSemantics` before removing it.
 
 ---
 
@@ -937,7 +948,7 @@ Octocode exposes **one** public semantic tool:
 |------|------------|
 | `lspGetSemantics` | Definitions, references, callers, callees, bidirectional call hierarchy, hover, document symbols, type definitions, and implementations. |
 
-Semantic operations are local-only. Local tools default on for the CLI and off for the MCP server; set `ENABLE_LOCAL=true` to enable them on MCP (`ENABLE_LOCAL=false` disables on the CLI). LSP needs a file that exists on disk. Use `localSearchCode` first when you need a symbol `lineHint`; `mode:"structural"` matches can provide AST-derived anchors before LSP proves symbol identity.
+Semantic operations are local-only. Local tools default on for both CLI and MCP; set `ENABLE_LOCAL=false` to disable them. LSP needs a file that exists on disk. Use `localSearchCode` first when you need a symbol `lineHint`; `mode:"structural"` matches can provide AST-derived anchors before LSP proves symbol identity.
 
 For external repos: clone first with `ghCloneRepo` (or fetch a subtree with `ghGetFileContent(type:"directory")`), then use the returned `localPath` as the `uri` prefix for `lspGetSemantics`. The path is always absolute and immediately valid.
 
@@ -1439,7 +1450,7 @@ Step 4: Find files by metadata
 | **Force refresh** | Set `forceRefresh: true` in the query to bypass cache and re-clone/re-fetch |
 | **Periodic GC** | CLI tool-runtime bootstrap performs a cheap persisted due-check once per process and exits without a timer. MCP performs the same bootstrap check, then uses an unreferenced deadline timer. Both use one persisted 24-hour marker. A cross-process lock prevents duplicate sweeps; cleanup failure never blocks startup. |
 | **Cleanup scope** | Automatic maintenance removes expired entries only from owned clone, tree, response, and managed artifact roots. It preserves unrelated files under `tmp`. |
-| **Response limits** | Response entries also obey configurable per-entry and total-disk limits. See [Response cache](CONFIGURATION.md#response-cache). |
+| **Response limits** | Response entries also obey configurable per-entry and total-disk limits. See [Response cache](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md#response-cache). |
 | **Manual clear** | `octocode cache clear --clone` and `--tree` are selective. `--all` removes the entire Octocode `tmp` directory, including response entries and maintenance metadata. There is no response-only clear flag. |
 
 ---
@@ -1509,11 +1520,11 @@ Every tool must pass the same top-level contract:
 | Area | Required checks |
 | --- | --- |
 | Registration | Tool is present in `ALL_TOOLS`, has a direct execution definition, has MCP input and output schema, and registers with the expected security wrapper. |
-| Bulk envelope | `queries` accepts 1 to 5 items, preserves order, rejects duplicate `id`, isolates per-query errors, and does not let one bad query block siblings. |
-| Output shape | Responses expose machine data in `structuredContent.results[]`. Successful MCP responses may compact `content[0].text` to a short pointer; error and CLI text still carry readable details. Lean hoists apply: `base` relativizes absolute `path`/`uri`, `shared` collapses constants identical across leaves (identity keys `owner`/`repo`/`name`/`id` are never hoisted). |
+| Bulk envelope | `queries` accepts 1 to 5 items without caller IDs. Response rows use matching zero-based `index` values, preserve input order, isolate per-query errors, and do not let one failed query block siblings. |
+| Output shape | Responses expose machine data in `structuredContent.results[]` and preserve the complete sanitized YAML or JSON representation in `content[0].text` for every MCP client. Lean hoists apply: `base` relativizes absolute `path`/`uri`, `shared` collapses constants identical across leaves (identity keys `owner`/`repo`/`name`/`id` are never hoisted). |
 | Pagination | Native page fields, query-level `charOffset`/`charLength`, and top-level `responseCharOffset`/`responseCharLength` work independently and together. Pagination hints appear only when `hasMore=true`. |
 | Hints | Tool `hints.ts` files expose only `empty` and `error`. Empty hints are conditional and filter-aware. Error hints classify the failure and stay short. Success path hints are limited to data-bearing signals such as pagination or warnings. |
-| Empty results | Successful no-match responses are not errors. They must include a clear empty signal, preserve query identity, and provide recovery hints only when the query context makes a concrete next step possible. |
+| Empty results | Successful no-match responses are not errors. They must include a clear empty signal, preserve the query's ordered index, and provide recovery hints only when the query context makes a concrete next step possible. |
 | Errors | Provider, validation, path, auth, rate-limit, timeout, LSP-unavailable, and command failures return structured errors with recovery context and without leaking secrets. |
 | Evidence | Tools that can report evidence must set `evidence.kind`, `answerReady`, `confidence`, and `complete` consistently. Aggregated evidence should downgrade confidence and completeness when any query is partial or fallback-based. |
 | Security | Local tools respect path validation and command allow-lists. Remote tools sanitize errors and redact secrets. Clone and directory fetch do not write outside the intended cache or checkout root. |
@@ -1552,7 +1563,7 @@ Primary code: [packages/octocode-tools-core/src/tools/github_search_code/](https
 | Params | Verify `keywords`, owner/repo scoping, path/name/extension filters, match mode, `page`, `limit`, `charOffset`, `charLength`, and bulk response pagination. |
 | Implementation | Provider query is built with exact filters, default branch context is preserved for single-repo hits, results are grouped by `owner/repo`, and match values are sanitized. |
 | Pagination | Upstream provider pagination, per-query `outputPagination`, and top-level `responsePagination` can all appear without overwriting each other. |
-| Empty | No-match queries appear in `emptyQueries` with query id and concrete recovery hints. Empty groups are not silently dropped in mixed bulk calls. |
+| Empty | No-match queries appear in `emptyQueries` with their zero-based query index and concrete recovery hints. Empty groups are not silently dropped in mixed bulk calls. |
 | Warnings | `match-value-truncated` includes group id, path, full length, truncation point, and recovery. |
 | Research quality | A hit must include enough path and snippet evidence to justify a follow-up `ghGetFileContent` call. Each result must carry `owner`, `repo`, and per-match `path` and `value`. |
 
@@ -1636,7 +1647,7 @@ Primary code: [packages/octocode-tools-core/src/tools/github_search_pull_request
 
 | Surface | Checks |
 | --- | --- |
-| Params | Verify required owner/repo, `page`, `itemsPerPage`, `includeAssets`. Tool is opt-in behind `ENABLE_RELEASES=true`. |
+| Params | Verify required owner/repo, `page`, `itemsPerPage`, `includeAssets`. |
 | Implementation | Returns releases plus latest stable; `includeAssets` adds `assets[]` with name, size, downloadCount, and url. |
 | Pagination | Release list pages with `itemsPerPage`/`page`. |
 | Empty | Repos with no releases return empty with owner/repo context, not an error. |
@@ -1648,7 +1659,7 @@ Primary code: [packages/octocode-tools-core/src/tools/github_search_discussions/
 
 | Surface | Checks |
 | --- | --- |
-| Params | Verify required owner/repo, optional `keywordsToSearch`, `itemsPerPage`, `after` cursor. GraphQL-only; tool is opt-in behind `ENABLE_DISCUSSIONS=true`. |
+| Params | Verify required owner/repo, optional `keywordsToSearch`, `itemsPerPage`, `after` cursor. GraphQL-only. |
 | Implementation | Returns `totalCount` and `discussions[]`; `keywordsToSearch` filters title/body, omitting it lists newest; `answered:true` marks accepted Q&A answers. |
 | Pagination | Discussion list pages with `itemsPerPage`/`after` cursor through `pagination.nextCursor`. |
 | Empty | Repos with no matching discussions return empty with owner/repo context, not an error. |

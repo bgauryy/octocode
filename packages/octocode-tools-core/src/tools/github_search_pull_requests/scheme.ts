@@ -22,36 +22,20 @@ import type { ResponsePaginationInfo } from '../../types/toolOutput.js';
 
 // Field set, enums, defaults and descriptions all come from octocode-core
 // (GitHubPullRequestSearchQuerySchema). The runtime only overrides the numeric /
-// pagination fields to apply *relaxed* validation (clamp instead of reject) — and
-// omits .describe() so the description is inherited from core (see copyDescription
-// in ../../scheme/coreSchemas.ts). One source of truth; no duplicated prose.
+// pagination fields to apply *relaxed* validation (clamp instead of reject).
+// copyDescription in ../../scheme/coreSchemas.ts preserves canonical prose.
 const queryOverrides = {
-  // Extends core's enum (prs|commits) with 'releases' and 'issues'. Carries its
-  // own description until core ships the new values.
-  type: z
-    .enum(['prs', 'commits', 'releases', 'issues'])
-    .optional()
-    .describe(
-      'Research mode: "prs" (default) searches pull requests; "commits" walks commit history for a repo or path; "releases" lists the repository releases (tagName, publishedAt, prerelease flag) and surfaces the latest stable release; "issues" searches or reads GitHub issues (body/discussion comments — not PRs).'
-    ),
+  // Keep the runtime enum explicit while inheriting its description from core.
+  type: z.enum(['prs', 'commits', 'releases', 'issues']).optional(),
   prNumber: clampedInt(1, 1_000_000_000).optional(),
-  issueNumber: clampedInt(1, 1_000_000_000)
-    .optional()
-    .describe(
-      'Issue number for type:"issues" detail mode — reads that specific issue (body/discussion comments). Requires owner+repo. Falls back to prNumber if omitted.'
-    ),
+  issueNumber: clampedInt(1, 1_000_000_000).optional(),
   limit: clampedInt(1, GITHUB_SEARCH_MAX_LIMIT)
     .optional()
     .default(GITHUB_SEARCH_DEFAULT_LIMIT),
   // `match` here selects WHICH text fields keywords are matched against — a
   // different concept from ghSearchCode's `match` (file contents vs paths).
   // Don't carry intuition across tools.
-  match: z
-    .array(z.enum(['title', 'body', 'comments']))
-    .optional()
-    .describe(
-      'Fields to match keywords against: "title", "body", "comments". Default searches all three. Use ["title"] for the most precise and fastest match. (Unlike ghSearchCode, where `match` instead selects file-contents vs file-paths — a different concept sharing this name.)'
-    ),
+  match: z.array(z.enum(['title', 'body', 'comments'])).optional(),
   page: relaxedPageNumberField.default(1),
   filePage: relaxedPageNumberField.optional(),
   commentPage: relaxedPageNumberField.optional(),

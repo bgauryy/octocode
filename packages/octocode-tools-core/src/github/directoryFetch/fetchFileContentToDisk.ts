@@ -70,8 +70,7 @@ export async function fetchFileContentToDisk(
       fullContent: true,
       contextLines: 0,
       minify: 'none',
-      mainResearchGoal: 'Materialize GitHub file content for local research',
-      researchGoal: `Save ${owner}/${repo}/${path} locally`,
+      goal: `Save ${owner}/${repo}/${path} locally`,
       reasoning: 'GitHub file materialization',
     },
     authInfo

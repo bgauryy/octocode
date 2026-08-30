@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mockGetConfigSync = vi.hoisted(() => vi.fn());
-const mockInvalidateConfigCache = vi.hoisted(() => vi.fn());
 
 vi.mock('@octocodeai/config', async () => {
   const actual =
@@ -12,7 +11,6 @@ vi.mock('@octocodeai/config', async () => {
   return {
     ...actual,
     getConfigSync: mockGetConfigSync,
-    invalidateConfigCache: mockInvalidateConfigCache,
   };
 });
 
@@ -38,7 +36,6 @@ describe('serverConfig initialize recovery', () => {
         github: { apiUrl: 'https://api.github.com' },
         tools: {
           enabled: undefined,
-          enableAdditional: undefined,
           disabled: undefined,
         },
         network: { timeout: 30000, maxRetries: 3 },

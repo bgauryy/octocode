@@ -2,8 +2,7 @@ import type { ProcessedBulkResult } from '../types/toolResults.js';
 import { handleCatchError } from './utils.js';
 
 interface GuardableQuery {
-  mainResearchGoal?: string;
-  researchGoal?: string;
+  goal?: string;
   reasoning?: string;
 }
 

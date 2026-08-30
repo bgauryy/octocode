@@ -31,7 +31,7 @@ import {
   lexicalCategoryOf,
   matchedLineOf,
   matchesAny,
-} from './rankingResults.js';
+} from './rankingLexical.js';
 
 export interface RankContext {
   /** Validated, sanitized search base path (query.path). */

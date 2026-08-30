@@ -223,6 +223,21 @@ export async function editArrayOption(
   }
 
   choices.push({
+    name: c('magenta', '── Package Tools ──'),
+    value: '__separator_package__',
+    disabled: true,
+  } as unknown as (typeof choices)[number]);
+
+  for (const tool of allTools.filter(t => t.category === 'package')) {
+    choices.push({
+      name: `${tool.name} ${c('dim', `(${tool.id})`)}`,
+      value: tool.id,
+      checked: currentTools.includes(tool.id),
+      description: tool.description,
+    });
+  }
+
+  choices.push({
     name: c('yellow', '── Local Tools ──'),
     value: '__separator_local__',
     disabled: true,

@@ -32,6 +32,6 @@ Load when choosing orchestration topology. Portable across hosts (LangGraph, Ope
 - Supervisor ≠ router: supervisor is multi-turn; router is one classify step.
 - Sync = parent tools; async = spawn + wait/status.
 - Default production: **supervisor + specialists**.
-- Challenge techniques → `references/techniques.md`. Local token burn → `references/local-ollama.md`. Measure → `octocode-graph-eval`.
+- Challenge techniques → `references/techniques.md`. Local token burn → `references/local-ollama.md`. Measure → `octocode-eval-benchmark`.
 
 Next: `references/packets.md` · `references/coordinate.md` · `references/synthesize.md` · `references/techniques.md` · `references/local-ollama.md`.

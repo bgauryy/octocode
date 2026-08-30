@@ -7,6 +7,8 @@ description: "Use when extracting or mapping public web content into a local cit
 
 Flow: `FRAME → POLICY → ROUTE → FETCH → CORPUS → SEARCH → CITE → RECOVER`.
 
+Workspace output contract: chat-only answers stay in chat. Corpora and run artifacts stay under `<workspace>/.octocode/tmp/scrape/`; durable generated reports default to `<workspace>/.octocode/octocode-scraping/`. User-approved source edits and configuration keep their named paths. Never fall back to a user-level Octocode home for artifacts.
+
 FRAME before the first fetch: fix target URL/domain, goal, depth, and output shape — vague ask → `references/user-inputs.md`.
 
 Defaults: one public URL, `--mode html`, omit `--provider` (keyless `cdp`→`direct`), session `.octocode/tmp/scrape/{sessionId}`, compact stdout. Search corpus before refetch. Live interaction → chrome-devtools on one port, then `har-ingest` + `corpus-run` into the same session. Ask before auth, hosted spend, crawl widen, CAPTCHA/MFA, destructive actions. Cite paths + URL metadata — not raw dumps.

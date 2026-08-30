@@ -29,7 +29,6 @@ import { TOOL_NAMES } from '../../../octocode-tools-core/src/tools/toolMetadata/
 
 type CodeFile = {
   id: string;
-  queryId?: string;
   owner: string;
   repo: string;
   path: string;
@@ -38,8 +37,9 @@ type CodeFile = {
 
 type FlatResponse = {
   results: Array<{
-    id: string;
-    data?: { files?: CodeFile[] };
+    index: number;
+    status?: string;
+    data?: { files?: CodeFile[]; error?: string };
   }>;
   pagination?: {
     hasMore: boolean;
@@ -49,7 +49,6 @@ type FlatResponse = {
   };
   hints?: string[];
   warnings?: unknown[];
-  errors?: Array<{ id: string; error: string; hints?: string[] }>;
 };
 
 function makeItem(
@@ -118,7 +117,6 @@ describe('GitHub Search Code Tool - Page-Based Pagination', () => {
 
       const data = result.structuredContent as FlatResponse;
       expect(data.results).toHaveLength(1);
-      expect(data.errors).toBeUndefined();
     });
 
     it('returns multiple matches from a single query', async () => {
@@ -191,7 +189,6 @@ describe('GitHub Search Code Tool - Page-Based Pagination', () => {
 
       const data = result.structuredContent as FlatResponse;
       expect(data.results).toBeDefined();
-      expect(data.errors).toBeUndefined();
     });
 
     it('hints when GitHub caps reachable results below totalMatches', async () => {
@@ -284,13 +281,11 @@ describe('GitHub Search Code Tool - Page-Based Pagination', () => {
       });
 
       const data = result.structuredContent as FlatResponse;
-      expect(data.results.length).toBeGreaterThanOrEqual(1);
-      const files = data.results[0]?.data?.files ?? [];
-      expect(files.map(file => file.queryId)).toEqual(['q1', 'q2']);
-      expect(data.errors).toBeUndefined();
+      expect(data.results).toHaveLength(2);
+      expect(data.results.map(row => row.index)).toEqual([0, 1]);
     });
 
-    it('keeps same-repository matches separated by queryId', async () => {
+    it('keeps same-repository matches separated by ordered query index', async () => {
       mockProvider.searchCode
         .mockResolvedValueOnce({
           data: {
@@ -313,41 +308,33 @@ describe('GitHub Search Code Tool - Page-Based Pagination', () => {
 
       const result = await mockServer.callTool(TOOL_NAMES.GITHUB_SEARCH_CODE, {
         queries: [
-          {
-            id: 'first',
-            keywords: ['a'],
-            owner: 'owner',
-            repo: 'repo',
-          },
-          {
-            id: 'second',
-            keywords: ['b'],
-            owner: 'owner',
-            repo: 'repo',
-          },
+          { keywords: ['a'], owner: 'owner', repo: 'repo' },
+          { keywords: ['b'], owner: 'owner', repo: 'repo' },
         ],
       });
 
       const data = result.structuredContent as FlatResponse;
-      const files = data.results[0]?.data?.files ?? [];
+      const files = data.results.flatMap(row => row.data?.files ?? []);
+      expect(data.results.map(row => row.index)).toEqual([0, 1]);
       expect(files).toHaveLength(2);
-      expect(files.map(file => file.queryId)).toEqual(['first', 'second']);
       expect(files.map(file => file.path)).toEqual(['src/a.ts', 'src/b.ts']);
     });
 
     it('rejects repo without owner before calling the provider', async () => {
       const result = await mockServer.callTool(TOOL_NAMES.GITHUB_SEARCH_CODE, {
-        queries: [{ id: 'missing-owner', repo: 'repo' }],
+        queries: [{ repo: 'repo' }],
       });
 
       const data = result.structuredContent as FlatResponse;
       expect(mockProvider.searchCode).not.toHaveBeenCalled();
       expect(result.isError).toBe(true);
-      expect(data.errors?.[0]).toMatchObject({
-        id: 'missing-owner',
-        error: expect.stringContaining('Repository scope requires owner'),
+      expect(data.results[0]).toMatchObject({
+        index: 0,
+        status: 'error',
+        data: {
+          error: expect.stringContaining('Repository scope requires owner'),
+        },
       });
-      expect(data.errors?.[0]?.hints?.[0]).toContain('owner=');
     });
 
     it('reports errors per query without failing the whole request', async () => {
@@ -371,7 +358,10 @@ describe('GitHub Search Code Tool - Page-Based Pagination', () => {
       });
 
       const data = result.structuredContent as FlatResponse;
-      expect(data).toBeDefined();
+      expect(data.results.map(row => row.index)).toEqual([0, 1]);
+      expect(data.results[0]?.status).not.toBe('error');
+      expect(data.results[1]?.status).toBe('error');
+      expect(result.isError).toBe(false);
     });
   });
 
@@ -392,7 +382,6 @@ describe('GitHub Search Code Tool - Page-Based Pagination', () => {
       });
 
       const data = result.structuredContent as FlatResponse;
-      expect(data.errors).toBeUndefined();
       expect(data.hints).toBeDefined();
     });
   });

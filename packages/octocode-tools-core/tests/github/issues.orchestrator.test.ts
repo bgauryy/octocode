@@ -10,8 +10,7 @@ const mockSearchIssues = vi.fn();
 const mockListIssues = vi.fn();
 
 vi.mock('../../src/github/issues/fetchers.js', () => ({
-  fetchIssueByNumber: (...args: unknown[]) =>
-    mockFetchIssueByNumber(...args),
+  fetchIssueByNumber: (...args: unknown[]) => mockFetchIssueByNumber(...args),
   searchIssues: (...args: unknown[]) => mockSearchIssues(...args),
   listIssues: (...args: unknown[]) => mockListIssues(...args),
 }));
@@ -23,8 +22,7 @@ vi.mock('../../src/github/client.js', () => ({
   resolveCacheAuthFingerprint: vi.fn(async () => 'anon'),
 }));
 
-const { fetchIssues } =
-  await import('../../src/github/issues/orchestrator.js');
+const { fetchIssues } = await import('../../src/github/issues/orchestrator.js');
 
 const EMPTY_ISSUES_RESPONSE = {
   data: {

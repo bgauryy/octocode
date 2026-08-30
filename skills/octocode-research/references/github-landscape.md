@@ -7,7 +7,7 @@ Rare path: load for repo discovery, reuse decisions, open-source implementation 
 2. Discover repos/packages; turn web/product/paper names into repo/package leads.
 3. Record a compact table or approved `repo_db.jsonl` artifact.
 4. Rank cheaply; deep-read only the top 3-8 within budget.
-5. For each finalist, inspect tree, README, exact source/test anchors, issues/PRs, history, and license. Release history needs `ghListReleases` with `ENABLE_RELEASES=1`; without it use commit/tag history and mark releases skipped.
+5. For each finalist, inspect tree, README, exact source/test anchors, issues/PRs, release history, and license.
 6. Upgrade claims from snippets/README to exact evidence; use `long-research.md` for contested/large runs.
 7. Return clusters, ranking, integration blueprint, and proof still needed.
 
@@ -33,4 +33,3 @@ Stop after finalist proof converges, retries stay thin, license/service risk nee
 Ask before cloning many repos, running untrusted code, or writing artifacts.
 
 Next: when a finalist needs exact in-repo proof load `references/workflow-external.md`; when the winner must wire into local code load `references/workflow-combination.md`; when the ranking must survive as a durable brief load `references/long-research.md`.
-

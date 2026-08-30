@@ -67,7 +67,7 @@ export interface RepoStructureResultData {
   pagination?: ItemPagination;
   next?: Record<string, ToolContinuation>;
   warnings?: string[];
-  // status:"error" rows carry the query identity plus the failure details.
+  // status:"error" rows retain their ordered index plus the failure details.
   owner?: string;
   repo?: string;
   path?: string;

@@ -14,9 +14,9 @@ export const DEFAULT_GITHUB_CONFIG: RequiredGitHubConfig = {
 };
 
 export const DEFAULT_LOCAL_CONFIG: RequiredLocalConfig = {
-  // Base (MCP) default: local tools off unless explicitly enabled via
-  // ENABLE_LOCAL / local.enabled. The CLI opts in to true in resolveLocal.
-  enabled: false,
+  // Local tools are enabled by default on every runtime surface. An explicit
+  // ENABLE_LOCAL / local.enabled value can still disable them.
+  enabled: true,
   enableClone: false,
   allowedPaths: [],
   workspaceRoot: undefined,
@@ -24,7 +24,6 @@ export const DEFAULT_LOCAL_CONFIG: RequiredLocalConfig = {
 
 export const DEFAULT_TOOLS_CONFIG: RequiredToolsConfig = {
   enabled: null,
-  enableAdditional: null,
   disabled: null,
 };
 

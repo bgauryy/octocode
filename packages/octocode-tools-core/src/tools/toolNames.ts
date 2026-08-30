@@ -1,31 +1,26 @@
-import { toolNames } from '../toolContract/resources/global.js';
-export { LOCAL_ANALYZE_GRAPH_TOOL_NAME } from '../toolContract/resources/tools/localAnalyzeGraph.js';
-import { LOCAL_ANALYZE_GRAPH_TOOL_NAME } from '../toolContract/resources/tools/localAnalyzeGraph.js';
+import { toolNames } from '@octocodeai/octocode-core/schemas';
+import { parseBooleanEnv } from '@octocodeai/config';
+
+export const LOCAL_ANALYZE_GRAPH_TOOL_NAME = toolNames.LOCAL_ANALYZE_GRAPH;
 
 export const STATIC_TOOL_NAMES = toolNames;
 
-// Derived from the repository-owned contract — single source of truth.
+// Derived from the shared core contract — single source of truth.
 export const LSP_GET_SEMANTICS_TOOL_NAME =
   STATIC_TOOL_NAMES.LSP_GET_SEMANTIC_CONTENT;
 
-// ghListReleases is a niche surface (release history) — opt-in only, so the
-// default toolset stays lean. Enable with ENABLE_RELEASES=1.
+/** Whether the opt-in GitHub releases tool is enabled. */
 export function isReleasesEnabled(
   env: NodeJS.ProcessEnv = process.env
 ): boolean {
-  const raw = env.ENABLE_RELEASES;
-  if (raw === undefined) return false;
-  return ['1', 'true', 'yes', 'on'].includes(raw.trim().toLowerCase());
+  return parseBooleanEnv(env.ENABLE_RELEASES) ?? false;
 }
 
-// ghSearchDiscussions is GraphQL-only (GitHub Discussions have no REST list
-// endpoint) and a niche surface — opt-in only. Enable with ENABLE_DISCUSSIONS=1.
+/** Whether the opt-in GitHub Discussions tool is enabled. */
 export function isDiscussionsEnabled(
   env: NodeJS.ProcessEnv = process.env
 ): boolean {
-  const raw = env.ENABLE_DISCUSSIONS;
-  if (raw === undefined) return false;
-  return ['1', 'true', 'yes', 'on'].includes(raw.trim().toLowerCase());
+  return parseBooleanEnv(env.ENABLE_DISCUSSIONS) ?? false;
 }
 
 const LOCAL_TOOL_NAMES_SET = new Set<string>([

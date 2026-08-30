@@ -16,7 +16,10 @@ import type {
   ItemPagination,
   ToolContinuation,
 } from '../../scheme/pagination.js';
-import type { ResponsePaginationInfo } from '../../types/toolOutput.js';
+import type {
+  BulkToolResultRow,
+  ResponsePaginationInfo,
+} from '../../types/toolOutput.js';
 
 // No schema-level default: the direct-tool executor parses inputSchema (applying
 // any default) before execution runs, which would erase the distinction between
@@ -132,18 +135,20 @@ export interface GitHubFetchContentData {
   directories?: GitHubFetchDirectoryEntry[];
 }
 
+export interface GitHubFetchContentErrorData {
+  owner?: string;
+  repo?: string;
+  path?: string;
+  error: string;
+}
+
 export interface GitHubFetchContentOutputLocal {
   base?: string;
   shared?: Record<string, string | number | boolean>;
   responsePagination?: ResponsePaginationInfo;
-  results: Array<{ id: string; data?: GitHubFetchContentData }>;
-  errors?: Array<{
-    id: string;
-    owner?: string;
-    repo?: string;
-    path?: string;
-    error: string;
-  }>;
+  results: Array<
+    BulkToolResultRow<GitHubFetchContentData | GitHubFetchContentErrorData>
+  >;
   // Index signature: satisfies BulkFinalizer's `TOutput extends
   // Record<string, unknown>` constraint (the old zod-inferred type did too).
   [key: string]: unknown;

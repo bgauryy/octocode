@@ -21,6 +21,10 @@ Start from real expertise: completed task sequences, user corrections, I/O examp
 - Validation loop: do → validate → fix → repeat → proceed only after pass.
 - Plan-validate-execute for batch/stateful/destructive work.
 
+## Workspace outputs
+
+Every lobby states where generated artifacts go. Default durable artifacts to `<workspace>/.octocode/<skill-name>/` and scratch/run data to `<workspace>/.octocode/tmp/<skill-name>/`; a stable specialized namespace under the same root is fine. Keep chat-only results in chat. User-approved source edits, installs, symlinks, and configuration use their named targets. If the workspace root is unwritable, fail clearly—never redirect artifacts to a user-level Octocode home.
+
 ## Optimizing / ranking handoffs
 
 - Tune `description` → `references/description-tuning.md`.

@@ -7,18 +7,17 @@
  */
 import { z } from 'zod';
 import {
+  findToolOutputSchema,
+  getToolOutputFields,
+} from '@octocodeai/octocode-core/schemas';
+import {
   findDirectToolDefinition,
-  getDirectToolCategory,
   type DirectToolAutoFilledField,
   type DirectToolMetadata,
 } from './toolCatalogDefinitions.js';
-import {
-  LOCAL_ANALYZE_GRAPH_DESCRIPTION,
-  LOCAL_ANALYZE_GRAPH_TOOL_NAME,
-} from '../../toolContract/resources/tools/localAnalyzeGraph.js';
 
 const DIRECT_TOOL_BASE_AUTO_FILLED_FIELDS: readonly DirectToolAutoFilledField[] =
-  ['id', 'researchGoal', 'reasoning'];
+  ['goal', 'reasoning'];
 
 export function formatDirectToolSchemaText(toolName: string): string {
   const tool = findDirectToolDefinition(toolName);
@@ -41,6 +40,17 @@ export function formatDirectToolSchemaText(toolName: string): string {
   }
 }
 
+export function formatDirectToolOutputSchemaText(toolName: string): string {
+  const schema = findToolOutputSchema(toolName);
+  return schema
+    ? JSON.stringify(z.toJSONSchema(schema, { io: 'output' }), null, 2)
+    : '{}';
+}
+
+export function getDirectToolOutputFields(toolName: string): string[] {
+  return getToolOutputFields(toolName);
+}
+
 export function formatDirectToolMetadataSchemaText(
   schema: Record<string, string> | undefined
 ): string {
@@ -48,13 +58,8 @@ export function formatDirectToolMetadataSchemaText(
 }
 
 export function getDirectToolAutoFilledFields(toolName: string): string[] {
-  const category = getDirectToolCategory(toolName);
+  if (!findDirectToolDefinition(toolName)) return [];
   const fields = [...DIRECT_TOOL_BASE_AUTO_FILLED_FIELDS];
-
-  if (category === 'GitHub' || category === 'Package') {
-    fields.splice(1, 0, 'mainResearchGoal');
-  }
-
   return fields;
 }
 
@@ -62,8 +67,5 @@ export function getDirectToolDescription(
   toolName: string,
   metadata?: DirectToolMetadata | null
 ): string {
-  if (toolName === LOCAL_ANALYZE_GRAPH_TOOL_NAME) {
-    return LOCAL_ANALYZE_GRAPH_DESCRIPTION;
-  }
   return metadata?.tools?.[toolName]?.description ?? toolName;
 }

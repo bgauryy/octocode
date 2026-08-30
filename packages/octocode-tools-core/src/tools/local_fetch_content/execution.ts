@@ -116,7 +116,7 @@ function formatLocalFetchContentText(responseData: BulkToolResponse): string {
     delete displayData.content;
 
     lines.push(
-      `result: ${result.id}${result.status ? ` (${result.status})` : ''}`
+      `result: ${result.index}${result.status ? ` (${result.status})` : ''}`
     );
 
     const metadata = createResponseFormat({ data: displayData }, [

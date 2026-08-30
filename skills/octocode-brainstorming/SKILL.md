@@ -7,6 +7,8 @@ description: "Use when an idea needs disciplined exploration before building: ge
 Evidence-grounded idea exploration.
 Flow: `FRAME → DIVERGE → RESEARCH → CROSS-POLLINATE → STRESS-TEST → SYNTHESIZE → DECIDE`.
 
+Workspace output contract: chat-only answers stay in chat. New artifacts default to `<workspace>/.octocode/octocode-brainstorming/`; resumable run ledgers use `<workspace>/.octocode/brainstorming/runs/`. User-approved source edits keep their named paths. Never fall back to a user-level Octocode home for artifacts.
+
 ## Modes and lobby rules
 - Generate: create 6–10 angles, then validate the best 2–3. Validate: produce 2–4 reframings, then investigate deeply. Map: expand adjacent terms and landscape existing solutions.
 - Capture framing before judging. When direction, audience, or research surface is unclear, ask the user to choose before deep research.
@@ -26,10 +28,10 @@ Stop, recommend one option, and wait when the idea spans three unrelated spaces,
 - When research is substantial, multi-turn, or delegated, load `references/hook-communication.md` and run `scripts/brainstorm-run.mjs` — preserve a resumable claim/source/decision ledger.
 - When synthesizing and deciding, load `references/output.md` and score every prior-art claim with `references/confidence.md`; if the user approves a durable artifact, load `references/brief-template.md` — match chat brevity or saved decision depth.
 - When methods or source contracts are challenged, load `references/grounding.md` — make the process falsifiable.
-- When improving this skill, prefer `octocode-graph-eval`; otherwise load `references/improve-loop.md` — require measurable acceptance.
+- When improving this skill, prefer `octocode-eval-benchmark`; otherwise load `references/improve-loop.md` — require measurable acceptance.
 
 ## Related routes
-- Use `octocode-rfc-generator` for a Build verdict; `octocode-research` for technical evidence; `octocode-graph-eval` for measurable experiments.
+- Use `octocode-rfc-generator` for a Build verdict; `octocode-research` for technical evidence; `octocode-eval-benchmark` for measurable experiments.
 - Use `octocode-skills` when changing this skill folder.
 - Use `octocode-subagent` to dispatch and synthesize workers — see `references/web-search-workers.md` for the brainstorm-specific Scout/Aggregator/Checker topology and the five-worker ceiling.
 

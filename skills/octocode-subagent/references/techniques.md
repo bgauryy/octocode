@@ -25,7 +25,7 @@ Common topologies (supervisor, plan-and-execute, router, handoffs, pipelines) li
 1. Fresh context for duck / interviewer / critic / red-team — never feed the first worker’s full transcript as “truth.”
 2. Parent adjudicates; agreement is **not** proof.
 3. One technique at a time unless independence requires parallel critics.
-4. Measure usefulness with `octocode-graph-eval` when looping these into a harness.
+4. Measure usefulness with `octocode-eval-benchmark` when looping these into a harness.
 
 ## Earn the spawn
 Prefer parent self-check → rubber duck → interview / red-team → blind review → verifier with anchors → consensus only if still ambiguous. Do not stack by default.

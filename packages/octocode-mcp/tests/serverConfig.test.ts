@@ -89,7 +89,6 @@ describe('ServerConfig - Simplified Version', () => {
     delete process.env.GH_TOKEN;
     delete process.env.Authorization;
     delete process.env.TOOLS_TO_RUN;
-    delete process.env.ENABLE_TOOLS;
     delete process.env.DISABLE_TOOLS;
     delete process.env.TEST_GITHUB_TOKEN;
     delete process.env.ENABLE_LOCAL;
@@ -124,11 +123,10 @@ describe('ServerConfig - Simplified Version', () => {
 
       expect(config.githubApiUrl).toBe('https://api.github.com');
       expect(config.toolsToRun).toBeUndefined();
-      expect(config.enableTools).toBeUndefined();
       expect(config.disableTools).toBeUndefined();
       expect(config.timeout).toBe(30000);
       expect(config.maxRetries).toBe(3);
-      expect(config.enableLocal).toBe(false);
+      expect(config.enableLocal).toBe(true);
       expect(config.enableClone).toBe(false);
       expect(config.tokenSource).toBe('none');
     });
@@ -385,7 +383,6 @@ describe('ServerConfig - Simplified Version', () => {
 
   describe('Environment Variable Parsing', () => {
     it('should parse tool arrays correctly', async () => {
-      process.env.ENABLE_TOOLS = 'tool1,tool2,tool3';
       process.env.DISABLE_TOOLS = 'tool4, tool5 , tool6';
       process.env.TOOLS_TO_RUN = 'onlyTool1, onlyTool2';
       mockSpawnFailure();
@@ -393,13 +390,11 @@ describe('ServerConfig - Simplified Version', () => {
       await initialize();
       const config = getServerConfig();
 
-      expect(config.enableTools).toEqual(['tool1', 'tool2', 'tool3']);
       expect(config.disableTools).toEqual(['tool4', 'tool5', 'tool6']);
       expect(config.toolsToRun).toEqual(['onlyTool1', 'onlyTool2']);
     });
 
     it('should handle empty tool arrays', async () => {
-      process.env.ENABLE_TOOLS = '';
       process.env.DISABLE_TOOLS = '   ';
       process.env.TOOLS_TO_RUN = '';
       mockSpawnFailure();
@@ -407,7 +402,6 @@ describe('ServerConfig - Simplified Version', () => {
       await initialize();
       const config = getServerConfig();
 
-      expect(config.enableTools).toEqual(undefined);
       expect(config.disableTools).toEqual(undefined);
       expect(config.toolsToRun).toEqual(undefined);
     });
@@ -465,10 +459,10 @@ describe('ServerConfig - Simplified Version', () => {
       delete process.env.ENABLE_LOCAL;
     });
 
-    it('should default to false (MCP surface) when ENABLE_LOCAL is not set', async () => {
+    it('should default to true when ENABLE_LOCAL is not set', async () => {
       mockSpawnFailure();
       await initialize();
-      expect(getServerConfig().enableLocal).toBe(false);
+      expect(getServerConfig().enableLocal).toBe(true);
     });
 
     it('should enable local when ENABLE_LOCAL is "true"', async () => {
@@ -540,7 +534,7 @@ describe('ServerConfig - Simplified Version', () => {
       }
     });
 
-    it('should return false (MCP default) for invalid/unrecognized ENABLE_LOCAL values', async () => {
+    it('should return true (default) for invalid/unrecognized ENABLE_LOCAL values', async () => {
       const invalidValues = ['no', 'yes', 'enabled', '', '   '];
 
       for (const value of invalidValues) {
@@ -549,7 +543,7 @@ describe('ServerConfig - Simplified Version', () => {
         process.env.ENABLE_LOCAL = value;
         mockSpawnFailure();
         await initialize();
-        expect(getServerConfig().enableLocal).toBe(false);
+        expect(getServerConfig().enableLocal).toBe(true);
       }
     });
   });
@@ -562,11 +556,11 @@ describe('ServerConfig - Simplified Version', () => {
       expect(isLocalEnabled()).toBe(true);
     });
 
-    it('should return false by default (MCP surface)', async () => {
+    it('should return true by default', async () => {
       delete process.env.ENABLE_LOCAL;
       mockSpawnFailure();
       await initialize();
-      expect(isLocalEnabled()).toBe(false);
+      expect(isLocalEnabled()).toBe(true);
     });
 
     it('should return false when ENABLE_LOCAL is "false"', async () => {
@@ -647,11 +641,11 @@ describe('ServerConfig - Simplified Version', () => {
       expect(isCloneEnabled()).toBe(false);
     });
 
-    it('should return false when clone is enabled but local is off by default', async () => {
+    it('should return true when clone is enabled and local uses its enabled default', async () => {
       process.env.ENABLE_CLONE = 'true';
       mockSpawnFailure();
       await initialize();
-      expect(isCloneEnabled()).toBe(false);
+      expect(isCloneEnabled()).toBe(true);
     });
 
     it('should return true when clone and local are both explicitly enabled', async () => {

@@ -26,6 +26,6 @@ When publishing research-like output (Anthropic research systems use a citation 
 ## When NOT
 - Need the author to explain thinking → `references/rubber-duck.md`.
 - Need adversarial kill-shots on a plan → `references/red-team.md`.
-- Need measurable ACCEPT on a graph → `octocode-graph-eval`.
+- Need measurable ACCEPT on a graph → `octocode-eval-benchmark`.
 
 Next: consensus retries → `references/consensus.md`; techniques → `references/techniques.md`.

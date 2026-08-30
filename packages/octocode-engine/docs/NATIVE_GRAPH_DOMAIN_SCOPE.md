@@ -50,7 +50,7 @@ So the native graph domain is a **strangler port + one new algorithm**, not a
 from-scratch design — and the existing JS implementation is a ready-made
 **differential-test oracle** (see §4). That is what makes this tractable.
 
-## 1. Goal → KPI contract (per `octocode-graph-eval`)
+## 1. Goal → KPI contract (per `octocode-eval-benchmark`)
 
 **Goal.** Move file+symbol linking and the graph algorithms (reachability,
 retainer lookup, SCC, transitive-dead pruning) into a native Rust graph domain

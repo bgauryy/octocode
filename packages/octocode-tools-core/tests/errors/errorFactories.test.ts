@@ -4,7 +4,10 @@ import { ToolError } from '../../src/errors/ToolError.js';
 
 describe('ToolErrors.pathValidationFailed', () => {
   it('creates a ToolError with the provided reason', () => {
-    const err = ToolErrors.pathValidationFailed('/etc/passwd', 'outside workspace');
+    const err = ToolErrors.pathValidationFailed(
+      '/etc/passwd',
+      'outside workspace'
+    );
     expect(err).toBeInstanceOf(ToolError);
     expect(err.message).toContain('outside workspace');
   });
@@ -16,7 +19,9 @@ describe('ToolErrors.pathValidationFailed', () => {
 
   it('includes the file path in the context', () => {
     const err = ToolErrors.pathValidationFailed('/some/path');
-    expect((err as ToolError & { context: { path: string } }).context?.path).toBe('/some/path');
+    expect(
+      (err as ToolError & { context: { path: string } }).context?.path
+    ).toBe('/some/path');
   });
 });
 
@@ -35,26 +40,34 @@ describe('ToolErrors.fileAccessFailed', () => {
   });
 
   it('produces EACCES message for permission-denied cause', () => {
-    const cause = Object.assign(new Error('permission denied'), { code: 'EACCES' });
+    const cause = Object.assign(new Error('permission denied'), {
+      code: 'EACCES',
+    });
     const err = ToolErrors.fileAccessFailed('/path/file.ts', cause);
     expect(err.message).toMatch(/permission denied/i);
   });
 
   it('produces EISDIR message for is-a-directory cause', () => {
-    const cause = Object.assign(new Error('is a directory'), { code: 'EISDIR' });
+    const cause = Object.assign(new Error('is a directory'), {
+      code: 'EISDIR',
+    });
     const err = ToolErrors.fileAccessFailed('/path/dir', cause);
     expect(err.message).toMatch(/path is a directory/i);
     expect(err.message).toMatch(/localViewStructure/i);
   });
 
   it('produces ENOTDIR message', () => {
-    const cause = Object.assign(new Error('not a directory'), { code: 'ENOTDIR' });
+    const cause = Object.assign(new Error('not a directory'), {
+      code: 'ENOTDIR',
+    });
     const err = ToolErrors.fileAccessFailed('/a/b/c', cause);
     expect(err.message).toMatch(/invalid path/i);
   });
 
   it('produces ENAMETOOLONG message', () => {
-    const cause = Object.assign(new Error('name too long'), { code: 'ENAMETOOLONG' });
+    const cause = Object.assign(new Error('name too long'), {
+      code: 'ENAMETOOLONG',
+    });
     const err = ToolErrors.fileAccessFailed('/a/b/c', cause);
     expect(err.message).toMatch(/path too long/i);
   });
@@ -125,7 +138,10 @@ describe('ToolErrors.commandNotAvailable', () => {
   });
 
   it('includes install hint when provided', () => {
-    const err = ToolErrors.commandNotAvailable('rg', 'Install via brew install ripgrep');
+    const err = ToolErrors.commandNotAvailable(
+      'rg',
+      'Install via brew install ripgrep'
+    );
     expect(err.message).toContain('Install via brew install ripgrep');
   });
 
@@ -137,7 +153,11 @@ describe('ToolErrors.commandNotAvailable', () => {
 
 describe('ToolErrors.commandExecutionFailed', () => {
   it('uses stderr in the message when provided', () => {
-    const err = ToolErrors.commandExecutionFailed('rg', undefined, 'regex syntax error');
+    const err = ToolErrors.commandExecutionFailed(
+      'rg',
+      undefined,
+      'regex syntax error'
+    );
     expect(err).toBeInstanceOf(ToolError);
     expect(err.message).toContain('regex syntax error');
   });
@@ -162,7 +182,10 @@ describe('ToolErrors.toolExecutionFailed', () => {
   });
 
   it('accepts an optional cause', () => {
-    const err = ToolErrors.toolExecutionFailed('localSearchCode', new Error('cause'));
+    const err = ToolErrors.toolExecutionFailed(
+      'localSearchCode',
+      new Error('cause')
+    );
     expect(err).toBeInstanceOf(ToolError);
   });
 });

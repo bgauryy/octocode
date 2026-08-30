@@ -40,9 +40,8 @@ describe('findFiles out-of-range page', () => {
     expect(result.files).toHaveLength(0);
     // The bug: totalFiles>0 but files:[] with no honest signal — must not
     // be indistinguishable from a valid (if coincidentally empty) response.
-    const outOfRange = (
-      result.pagination as { outOfRange?: boolean }
-    ).outOfRange;
+    const outOfRange = (result.pagination as { outOfRange?: boolean })
+      .outOfRange;
     const warned = (result.warnings ?? []).some(w =>
       w.toLowerCase().includes('page')
     );

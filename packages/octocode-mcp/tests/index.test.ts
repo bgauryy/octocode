@@ -172,13 +172,11 @@ describe('Index Module', () => {
     mockGetServerConfig.mockReturnValue({
       version: '4.0.5',
       githubApiUrl: 'https://api.github.com',
-      enableTools: [],
       disableTools: [],
       timeout: 30000,
       maxRetries: 3,
       enableLocal: false,
       enableClone: false,
-      outputFormat: 'yaml',
       tokenSource: 'env:GITHUB_TOKEN',
     });
 
@@ -544,20 +542,13 @@ describe('Index Module', () => {
   });
 
   describe('Tools Configuration', () => {
-    let originalEnableTools: string | undefined;
     let originalDisableTools: string | undefined;
 
     beforeEach(() => {
-      originalEnableTools = process.env.ENABLE_TOOLS;
       originalDisableTools = process.env.DISABLE_TOOLS;
     });
 
     afterEach(() => {
-      if (originalEnableTools !== undefined) {
-        process.env.ENABLE_TOOLS = originalEnableTools;
-      } else {
-        delete process.env.ENABLE_TOOLS;
-      }
       if (originalDisableTools !== undefined) {
         process.env.DISABLE_TOOLS = originalDisableTools;
       } else {
@@ -566,7 +557,6 @@ describe('Index Module', () => {
     });
 
     it('should register default tools when no configuration is set', async () => {
-      delete process.env.ENABLE_TOOLS;
       delete process.env.DISABLE_TOOLS;
 
       await import('../src/index.js');
@@ -576,17 +566,7 @@ describe('Index Module', () => {
     });
 
     it('should register default tools when configuration is empty', async () => {
-      process.env.ENABLE_TOOLS = '';
       process.env.DISABLE_TOOLS = '';
-
-      await import('../src/index.js');
-      await waitForAsyncOperations();
-
-      expect(mockRegisterTools).toHaveBeenCalledWith(mockMcpServer);
-    });
-
-    it('should enable additional tools with ENABLE_TOOLS', async () => {
-      process.env.ENABLE_TOOLS = TOOL_NAMES.GITHUB_PULL_REQUESTS;
 
       await import('../src/index.js');
       await waitForAsyncOperations();
@@ -603,18 +583,7 @@ describe('Index Module', () => {
       expect(mockRegisterTools).toHaveBeenCalledWith(mockMcpServer);
     });
 
-    it('should handle both ENABLE_TOOLS and DISABLE_TOOLS', async () => {
-      process.env.ENABLE_TOOLS = TOOL_NAMES.GITHUB_PULL_REQUESTS;
-      process.env.DISABLE_TOOLS = TOOL_NAMES.GITHUB_SEARCH_CODE;
-
-      await import('../src/index.js');
-      await waitForAsyncOperations();
-
-      expect(mockRegisterTools).toHaveBeenCalledWith(mockMcpServer);
-    });
-
     it('should handle whitespace in tool configuration', async () => {
-      process.env.ENABLE_TOOLS = ' ghSearchPullRequests ';
       process.env.DISABLE_TOOLS = ' ghSearchCode ';
 
       await import('../src/index.js');
@@ -624,7 +593,6 @@ describe('Index Module', () => {
     });
 
     it('should handle invalid tool names gracefully', async () => {
-      process.env.ENABLE_TOOLS = 'ghSearchPullRequests,invalidTool';
       process.env.DISABLE_TOOLS = 'nonExistentTool';
 
       await import('../src/index.js');

@@ -1,9 +1,7 @@
 import type { CallToolResult } from '@modelcontextprotocol/server';
 import { ContentSanitizer } from '@octocodeai/octocode-engine/security';
 import { sanitizeStructuredContent } from '../../responses.js';
-import { getRuntimeSurface } from '@octocodeai/config';
-
-const FULL_MCP_TEXT_ENV = 'OCTOCODE_MCP_FULL_TEXT';
+import { normalizeError } from './normalizedError.js';
 
 // Fail-CLOSED egress policy: sanitization here is the LAST (and for some
 // content, the only — e.g. ripgrep snippets) barrier before content leaves the
@@ -38,10 +36,6 @@ export function sanitizeCallToolResult(result: CallToolResult): CallToolResult {
     }
   }
 
-  if (shouldCompactMcpText(sanitized)) {
-    return compactMcpTextContent(sanitized);
-  }
-
   if (sanitized.content?.length) {
     sanitized = {
       ...sanitized,
@@ -66,105 +60,6 @@ export function sanitizeCallToolResult(result: CallToolResult): CallToolResult {
   }
 
   return sanitized;
-}
-
-function shouldCompactMcpText(result: CallToolResult): boolean {
-  return (
-    getRuntimeSurface() === 'mcp' &&
-    process.env[FULL_MCP_TEXT_ENV] !== 'true' &&
-    result.isError !== true &&
-    result.structuredContent !== undefined
-  );
-}
-
-function compactMcpTextContent(result: CallToolResult): CallToolResult {
-  const nonTextContent = (result.content ?? []).filter(
-    item => item.type !== 'text'
-  );
-  return {
-    ...result,
-    content: [
-      {
-        type: 'text',
-        text: summarizeStructuredContent(result.structuredContent),
-      },
-      ...nonTextContent,
-    ],
-  };
-}
-
-// Cap on the per-result triage entries embedded in the compact text block.
-const RESULT_PREVIEW_LIMIT = 3;
-
-function summarizeStructuredContent(value: unknown): string {
-  const parts = ['structuredContent available'];
-  if (isRecord(value)) {
-    if (typeof value.status === 'string') {
-      parts.push(`status=${value.status}`);
-    }
-
-    if (Array.isArray(value.results)) {
-      parts.push(`results=${value.results.length}`);
-      const statusCounts = countResultStatuses(value.results);
-      if (statusCounts.error > 0) parts.push(`errors=${statusCounts.error}`);
-      if (statusCounts.empty > 0) parts.push(`empty=${statusCounts.empty}`);
-    }
-
-    const pagination = value.pagination;
-    if (isRecord(pagination) && typeof pagination.hasMore === 'boolean') {
-      parts.push(`hasMore=${pagination.hasMore}`);
-    }
-
-    // Bounded per-result triage so a client that never reads
-    // structuredContent still gets SOMETHING actionable (ids, statuses,
-    // paths) instead of an opaque stub.
-    if (Array.isArray(value.results) && value.results.length > 0) {
-      const preview = value.results
-        .slice(0, RESULT_PREVIEW_LIMIT)
-        .map(describeResultEntry)
-        .filter(Boolean);
-      if (preview.length > 0) {
-        const overflow = value.results.length - RESULT_PREVIEW_LIMIT;
-        parts.push(
-          `[${preview.join(' · ')}${overflow > 0 ? ` · +${overflow} more` : ''}]`
-        );
-      }
-    }
-  }
-
-  return `${parts.join(' · ')}. Read structuredContent for full data; if your client cannot read structuredContent, set ${FULL_MCP_TEXT_ENV}=true.`;
-}
-
-/** One bounded triage token per result: `id status path?`. */
-function describeResultEntry(entry: unknown): string {
-  if (!isRecord(entry)) return '';
-  const bits: string[] = [];
-  if (typeof entry.id === 'string') bits.push(entry.id);
-  bits.push(typeof entry.status === 'string' ? entry.status : 'ok');
-  const data = entry.data;
-  if (isRecord(data) && typeof data.path === 'string' && data.path) {
-    // Keep only the basename-ish tail so long absolute paths don't bloat.
-    bits.push(data.path.split('/').slice(-2).join('/').slice(0, 80));
-  }
-  return bits.join(' ');
-}
-
-function countResultStatuses(results: unknown[]): {
-  error: number;
-  empty: number;
-} {
-  let error = 0;
-  let empty = 0;
-  for (const result of results) {
-    if (!isRecord(result)) continue;
-    if (result.status === 'error') error += 1;
-    if (result.status === 'empty') empty += 1;
-  }
-  return { error, empty };
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null;
 }
 
 const TOOL_CALLBACK_EXCEPTION = 'TOOL_CALLBACK_EXCEPTION';
@@ -199,47 +94,5 @@ export function buildToolErrorResult(
     return sanitizeCallToolResult(fallback);
   } catch {
     return fallback;
-  }
-}
-
-interface NormalizedError {
-  name: string;
-  message: string;
-  code?: string;
-}
-
-function normalizeError(error: unknown): NormalizedError {
-  if (error instanceof Error) {
-    const code = (error as { code?: unknown }).code;
-    return {
-      name: error.name || 'Error',
-      message: error.message || String(error),
-      code: typeof code === 'string' ? code : undefined,
-    };
-  }
-  if (typeof error === 'string') {
-    return { name: 'Error', message: error };
-  }
-  if (error && typeof error === 'object') {
-    const obj = error as Record<string, unknown>;
-    const message =
-      typeof obj.message === 'string'
-        ? obj.message
-        : (safeStringify(obj) ?? 'Unknown error');
-    const name = typeof obj.name === 'string' ? obj.name : 'Error';
-    const code = typeof obj.code === 'string' ? obj.code : undefined;
-    return { name, message, code };
-  }
-  return {
-    name: 'Error',
-    message: error === undefined ? 'undefined' : String(error),
-  };
-}
-
-function safeStringify(value: unknown): string | undefined {
-  try {
-    return JSON.stringify(value);
-  } catch {
-    return undefined;
   }
 }

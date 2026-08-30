@@ -32,8 +32,7 @@ interface SuccessResultOptions {
 
 export function createSuccessResult<T extends object>(
   _query: {
-    mainResearchGoal?: string;
-    researchGoal?: string;
+    goal?: string;
     reasoning?: string;
   },
   data: T,
@@ -56,8 +55,7 @@ export function createSuccessResult<T extends object>(
 export function handleProviderError(
   apiResult: ProviderResponse<unknown>,
   query: {
-    mainResearchGoal?: string;
-    researchGoal?: string;
+    goal?: string;
     reasoning?: string;
   }
 ): ToolErrorResult {
@@ -85,8 +83,7 @@ export function handleProviderError(
 export function handleCatchError(
   error: unknown,
   query: {
-    mainResearchGoal?: string;
-    researchGoal?: string;
+    goal?: string;
     reasoning?: string;
   },
   contextMessage?: string,

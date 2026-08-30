@@ -18,7 +18,6 @@ vi.mock('../../../octocode-tools-core/src/serverConfig.js', () => ({
   getGitHubToken: vi.fn(() => Promise.resolve('mock-token')),
   getServerConfig: vi.fn(() => ({
     version: '7.0.0',
-    enableTools: [],
     disableTools: [],
     timeout: 30000,
     maxRetries: 3,

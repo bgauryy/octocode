@@ -105,8 +105,7 @@ export async function getFileContent(
     fullContent: query.fullContent,
     forceRefresh: query.forceRefresh,
     minify: query.minify ?? 'standard',
-    mainResearchGoal: query.mainResearchGoal,
-    researchGoal: query.researchGoal,
+    goal: query.goal,
     reasoning: query.reasoning,
   };
 

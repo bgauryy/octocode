@@ -1,0 +1,83 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "id": "type-only-cycle-edge",
+      "prompt": "A cycles result labels an edge static-import. Prevent a runtime-cycle claim when the exact edge is import type.",
+      "minScore": 1,
+      "required": [
+        {
+          "name": "static-import is not runtime proof",
+          "pattern": "(?:static-import[\\s\\S]{0,120}type-only|type-only[\\s\\S]{0,120}static-import)"
+        }
+      ],
+      "forbidden": [],
+      "referenceSolution": "Treat static-import as syntactic; exact-read it because it may be type-only."
+    },
+    {
+      "id": "root-scope-consumers",
+      "prompt": "A source-root dead-code scan cannot see tests and consumers outside that root.",
+      "minScore": 1,
+      "required": [
+        {
+          "name": "search outside scanned root",
+          "pattern": "(?:outside|beyond)[\\s\\S]{0,60}(?:scan|graph|analysis)[\\s\\S]{0,30}root|root[\\s\\S]{0,60}(?:omits|excludes)[\\s\\S]{0,30}(?:tests|consumers)"
+        }
+      ],
+      "forbidden": [],
+      "referenceSolution": "Search tests and consumers outside the scanned graph root before a dead-code verdict."
+    },
+    {
+      "id": "file-vs-symbol-liveness",
+      "prompt": "A reachable file can still contain an unused export; file reachability is not symbol liveness.",
+      "minScore": 1,
+      "required": [
+        {
+          "name": "separate file and symbol liveness",
+          "pattern": "(?:file reachability[\\s\\S]{0,100}(?:symbol|export)[\\s\\S]{0,40}(?:liveness|live)|reachable file[\\s\\S]{0,100}(?:dead|unused) export)"
+        }
+      ],
+      "forbidden": [],
+      "referenceSolution": "File reachability does not prove export or symbol liveness; verify the symbol separately."
+    },
+    {
+      "id": "alternate-entrypoint",
+      "prompt": "A file unreachable from index.ts may be a package subpath or alternate entrypoint.",
+      "minScore": 1,
+      "required": [
+        {
+          "name": "check manifests and subpaths",
+          "pattern": "(?:package (?:manifest|exports)|subpath entrypoint)[\\s\\S]{0,100}(?:unreachable|reachability|entrypoint)"
+        }
+      ],
+      "forbidden": [],
+      "referenceSolution": "Check the package manifest and exports for a subpath entrypoint before calling the file unreachable."
+    },
+    {
+      "id": "barrel-contract",
+      "prompt": "A barrel-only export with no internal callers may still be an external contract or deep import.",
+      "minScore": 1,
+      "required": [
+        {
+          "name": "preserve external barrel contracts",
+          "pattern": "(?:barrel[\\s\\S]{0,100}(?:external|public|deep import|contract)|deep import[\\s\\S]{0,80}barrel)"
+        }
+      ],
+      "forbidden": [],
+      "referenceSolution": "A barrel re-export may be a public or deep import contract; external consumers must be checked."
+    },
+    {
+      "id": "verification-exit-status",
+      "prompt": "Assertions pass but the command exits non-zero because coverage fails.",
+      "minScore": 1,
+      "required": [
+        {
+          "name": "process status controls green",
+          "pattern": "(?:exit (?:code|status)[\\s\\S]{0,100}(?:green|pass|success)|non-zero[\\s\\S]{0,100}(?:fail|green)|coverage[\\s\\S]{0,80}(?:non-zero|fail))"
+        }
+      ],
+      "forbidden": [],
+      "referenceSolution": "The process exit code controls green: a non-zero coverage failure is not a passing verification."
+    }
+  ]
+}

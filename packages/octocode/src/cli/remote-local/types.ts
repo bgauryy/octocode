@@ -8,9 +8,11 @@ export type DirectToolResult = {
 };
 
 export type CloneResultData = {
-  readonly localPath?: string;
-  readonly resolvedBranch?: string;
-  readonly cached?: boolean;
+  readonly location?: {
+    readonly localPath?: string;
+    readonly resolvedBranch?: string;
+    readonly cached?: boolean;
+  };
 };
 
 export type CloneStructuredContent = {

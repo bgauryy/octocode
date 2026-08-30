@@ -58,6 +58,66 @@ function parseFrontmatter(content: string): {
   return parsed;
 }
 
+export interface SkillPathResult {
+  skill?: SkillInfo;
+  error?: string;
+}
+
+/** Resolve and validate a standalone local skill folder for `skill --add`. */
+export function getSkillFromPath(
+  sourcePath: string,
+  nameOverride?: string
+): SkillPathResult {
+  const resolvedInput = path.resolve(sourcePath);
+  const skillDir =
+    path.basename(resolvedInput).toLowerCase() === 'skill.md'
+      ? path.dirname(resolvedInput)
+      : resolvedInput;
+  const skillMd = path.join(skillDir, 'SKILL.md');
+
+  if (!fs.existsSync(skillMd)) {
+    return { error: `SKILL.md not found in: ${skillDir}` };
+  }
+
+  let content: string;
+  try {
+    content = fs.readFileSync(skillMd, 'utf-8');
+  } catch (err) {
+    return {
+      error: `Unable to read ${skillMd}: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+
+  const frontmatter = parseFrontmatter(content);
+  if (!frontmatter.name || !frontmatter.description) {
+    return {
+      error: `Invalid SKILL.md in ${skillDir}: frontmatter requires name and description.`,
+    };
+  }
+
+  const folderName = path.basename(skillDir);
+  const installName = nameOverride ?? frontmatter.name;
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(installName)) {
+    return { error: `Invalid skill name: "${installName}".` };
+  }
+  if (!nameOverride && frontmatter.name !== folderName) {
+    return {
+      error:
+        `Skill name mismatch: folder is "${folderName}" but SKILL.md declares ` +
+        `"${frontmatter.name}". Pass --name <name> to confirm the install name.`,
+    };
+  }
+
+  return {
+    skill: {
+      name: installName,
+      folder: installName,
+      description: frontmatter.description,
+      dir: skillDir,
+    },
+  };
+}
+
 // ─── Skills directory resolution ─────────────────────────────────────────────
 
 /**

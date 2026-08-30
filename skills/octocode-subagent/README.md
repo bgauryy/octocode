@@ -32,7 +32,7 @@ Tool-using: GATE → DECOMPOSE → ROUTE → PACKET → SPAWN → COORDINATE →
 Ollama:     GATE → ROUTE → RUN → VERIFY → REPORT
 ```
 
-Users get safer parallel work with clear ownership. Developers extend `references/`; lobby owns the workflow. Host-specific tool names stay out of this skill — map `coordinate.md` to the local API. Measuring whether fan-out helped → `octocode-graph-eval` (`subagent-cookbook.md`).
+Users get safer parallel work with clear ownership. Developers extend `references/`; lobby owns the workflow. Host-specific tool names stay out of this skill — map `coordinate.md` to the local API. Measuring whether fan-out helped → `octocode-eval-benchmark` (`subagent-cookbook.md`).
 
 ## Install
 

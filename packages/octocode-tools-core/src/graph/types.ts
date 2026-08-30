@@ -15,6 +15,8 @@ export interface ImportFact {
   localName: string;
   importedName: string;
   line: number;
+  /** Native syntax classification; `type` edges do not exist at runtime. */
+  importKind: 'type' | 'value';
 }
 
 export interface CallEdgeFact {
@@ -66,4 +68,8 @@ export interface FileNode {
 }
 
 export type FileGraphEdgeKind =
-  'static-import' | 'dynamic-import' | 'named-reexport' | 'star-reexport';
+  | 'static-import'
+  | 'type-import'
+  | 'dynamic-import'
+  | 'named-reexport'
+  | 'star-reexport';

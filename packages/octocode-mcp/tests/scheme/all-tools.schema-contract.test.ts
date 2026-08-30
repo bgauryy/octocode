@@ -7,12 +7,8 @@ import {
   STATIC_TOOL_NAMES,
 } from '../../../octocode-tools-core/src/tools/toolNames.js';
 import { LSP_GET_SEMANTICS_TOOL_NAME } from '../../../octocode-tools-core/src/tools/lsp/shared/semanticTypes.js';
-const SHARED_FIELDS = [
-  'id',
-  'mainResearchGoal',
-  'researchGoal',
-  'reasoning',
-] as const;
+const SHARED_FIELDS = ['goal', 'reasoning'] as const;
+const REMOVED_FIELDS = ['id', 'mainResearchGoal', 'researchGoal'] as const;
 
 const MINIMAL_QUERY: Record<string, Record<string, unknown>> = {
   [STATIC_TOOL_NAMES.LOCAL_RIPGREP]: { searchText: 'foo', path: '.' },
@@ -55,6 +51,10 @@ const MINIMAL_QUERY: Record<string, Record<string, unknown>> = {
     repo: 'react',
   },
   [STATIC_TOOL_NAMES.GITHUB_RELEASES]: {
+    owner: 'facebook',
+    repo: 'react',
+  },
+  ghSearchDiscussions: {
     owner: 'facebook',
     repo: 'react',
   },
@@ -151,6 +151,12 @@ describe('all-tools schema contract', () => {
             `${toolName}: per-query schema missing shared field "${field}"`
           ).toBe(true);
         }
+        for (const field of REMOVED_FIELDS) {
+          expect(
+            field in shape,
+            `${toolName}: per-query schema still exposes removed field "${field}"`
+          ).toBe(false);
+        }
       });
 
       it('bulk per-query element also exposes shared fields', () => {
@@ -161,6 +167,12 @@ describe('all-tools schema contract', () => {
             field in shape,
             `${toolName}: bulk per-query element missing shared field "${field}"`
           ).toBe(true);
+        }
+        for (const field of REMOVED_FIELDS) {
+          expect(
+            field in shape,
+            `${toolName}: bulk per-query element still exposes removed field "${field}"`
+          ).toBe(false);
         }
       });
 
@@ -181,23 +193,21 @@ describe('all-tools schema contract', () => {
         ).toBe(true);
       });
 
-      it('parses with all research metadata', () => {
+      it('parses with both optional intent fields', () => {
         const minQuery = MINIMAL_QUERY[toolName];
         if (!minQuery) return;
         const result = bulkSchema.safeParse({
           queries: [
             {
               ...minQuery,
-              id: 'q1',
-              mainResearchGoal: 'contract test',
-              researchGoal: 'schema validation',
+              goal: 'validate the public request contract',
               reasoning: 'zod v4 audit',
             },
           ],
         });
         expect(
           result.success,
-          `${toolName}: failed with research metadata.\n` +
+          `${toolName}: failed with optional intent fields.\n` +
             `Errors: ${!result.success ? JSON.stringify(result.error.issues) : ''}`
         ).toBe(true);
       });
@@ -206,11 +216,7 @@ describe('all-tools schema contract', () => {
         const minQuery = MINIMAL_QUERY[toolName];
         if (!minQuery) return;
         const r = bulkSchema.safeParse({
-          queries: [
-            { ...minQuery, id: 'q1' },
-            { ...minQuery, id: 'q2' },
-            { ...minQuery, id: 'q3' },
-          ],
+          queries: [{ ...minQuery }, { ...minQuery }, { ...minQuery }],
         });
         expect(
           r.success,
@@ -234,26 +240,13 @@ describe('all-tools schema contract', () => {
         expect(r.success).toBe(false);
       });
 
-      it('rejects duplicate query ids with a structured Zod error', () => {
+      it('accepts identical queries because response indexes provide correlation', () => {
         const minQuery = MINIMAL_QUERY[toolName];
         if (!minQuery) return;
         const r = bulkSchema.safeParse({
-          queries: [
-            { ...minQuery, id: 'dup' },
-            { ...minQuery, id: 'dup' },
-          ],
+          queries: [{ ...minQuery }, { ...minQuery }],
         });
-        expect(r.success).toBe(false);
-        if (!r.success) {
-          const hasDup = r.error.issues.some(i =>
-            i.message.includes('Duplicate query id')
-          );
-          expect(
-            hasDup,
-            `${toolName}: expected "Duplicate query id" error.\n` +
-              `Got: ${JSON.stringify(r.error.issues)}`
-          ).toBe(true);
-        }
+        expect(r.success).toBe(true);
       });
 
       it('parses with extra unknown envelope fields ignored (does not reject)', () => {
@@ -345,8 +338,8 @@ describe('all-tools schema contract', () => {
           !file.startsWith('toolMetadata/')
       );
 
-      // The in-catalog split tools (ghSearchPullRequests/Issues/Commits, and
-      // opt-in ghListReleases) share github_search_pull_requests/splitSchemes.ts
+      // The in-catalog split tools (ghSearchPullRequests/Issues/Commits and
+      // ghListReleases) share github_search_pull_requests/splitSchemes.ts
       // instead of a per-tool scheme.ts, so they're excluded from the count.
       const SPLIT_TOOLS: string[] = [
         STATIC_TOOL_NAMES.GITHUB_PULL_REQUESTS,
@@ -354,15 +347,17 @@ describe('all-tools schema contract', () => {
         STATIC_TOOL_NAMES.GITHUB_COMMITS,
         STATIC_TOOL_NAMES.GITHUB_RELEASES,
       ];
-      // +2: two scheme.ts files exist on disk without a corresponding tool in
-      // the default ALL_TOOLS —
-      //   1. github_search_pull_requests/scheme.ts: the internal 4-mode PR/
-      //      commits schema the split executors parse with (no registered tool).
-      //   2. github_search_discussions/scheme.ts: ghSearchDiscussions is opt-in
-      //      (ENABLE_DISCUSSIONS), so it's gated out of the default catalog but
-      //      still ships its per-tool scheme.ts.
+      // +2: github_search_pull_requests/scheme.ts is the internal 4-mode PR/
+      // commits schema, and the opt-in Discussions schema remains on disk even
+      // when its tool is absent from the default executable catalog.
+      const outOfCatalogSchemeCount = ALL_TOOLS.some(
+        tool => tool.name === 'ghSearchDiscussions'
+      )
+        ? 1
+        : 2;
       expect(schemeFiles).toHaveLength(
-        ALL_TOOLS.filter(tool => !SPLIT_TOOLS.includes(tool.name)).length + 2
+        ALL_TOOLS.filter(tool => !SPLIT_TOOLS.includes(tool.name)).length +
+          outOfCatalogSchemeCount
       );
       expect(
         existsSync(

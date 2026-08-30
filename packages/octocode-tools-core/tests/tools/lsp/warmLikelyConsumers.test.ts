@@ -13,9 +13,8 @@ vi.mock('node:fs/promises', () => ({
   readFile: mocks.readFile,
 }));
 
-const { warmLikelyConsumers } = await import(
-  '../../../src/tools/lsp/semantic_content/semanticAnchored.js'
-);
+const { warmLikelyConsumers } =
+  await import('../../../src/tools/lsp/semantic_content/semanticAnchored.js');
 
 describe('warmLikelyConsumers', () => {
   beforeEach(() => {

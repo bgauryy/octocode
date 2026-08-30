@@ -415,7 +415,7 @@ import {
 describe('DEFAULT_CONFIG', () => {
   it('has sensible defaults', () => {
     expect(DEFAULT_CONFIG.github.apiUrl).toBe('https://api.github.com');
-    expect(DEFAULT_CONFIG.local.enabled).toBe(false);
+    expect(DEFAULT_CONFIG.local.enabled).toBe(true);
     expect(DEFAULT_CONFIG.local.enableClone).toBe(false);
     expect(DEFAULT_NETWORK_CONFIG.timeout).toBe(30000);
   });
@@ -484,6 +484,34 @@ describe('validateConfig', () => {
   it('warns on unknown keys', () => {
     const r = validateConfig({ unknownKey: true });
     expect(r.warnings.some(w => w.includes('unknownKey'))).toBe(true);
+  });
+
+  it('warns on unknown nested keys instead of silently ignoring typos', () => {
+    const r = validateConfig({
+      github: { apiUrl: 'https://api.github.com', apiURL: 'typo' },
+      local: { enabled: true, enableLocl: false },
+      tools: { enabled: null, enableAdditonal: ['npmSearch'] },
+      network: { timeout: 30000, retries: 2 },
+      lsp: { configPath: '/tmp/lsp.json', config: 'typo' },
+      output: {
+        format: 'yaml',
+        formatter: 'typo',
+        pagination: { defaultCharLength: 20000, defaultChars: 10 },
+      },
+    });
+
+    expect(r.valid).toBe(true);
+    expect(r.warnings).toEqual(
+      expect.arrayContaining([
+        'Unknown configuration key: github.apiURL',
+        'Unknown configuration key: local.enableLocl',
+        'Unknown configuration key: tools.enableAdditonal',
+        'Unknown configuration key: network.retries',
+        'Unknown configuration key: lsp.config',
+        'Unknown configuration key: output.formatter',
+        'Unknown configuration key: output.pagination.defaultChars',
+      ])
+    );
   });
 
   it('warns when config version is newer than this package supports', () => {
@@ -559,18 +587,16 @@ describe('validateConfig', () => {
   });
 
   it('accepts null optional arrays and rejects non-array tool lists', () => {
-    expect(validateConfig({ tools: { enabled: null, enableAdditional: null, disabled: null } }).valid).toBe(true);
+    expect(validateConfig({ tools: { enabled: null, disabled: null } }).valid).toBe(true);
 
     const r = validateConfig({
       tools: {
         enabled: 'localSearchCode',
-        enableAdditional: [1],
         disabled: [false],
       },
     });
     expect(r.errors).toEqual(expect.arrayContaining([
       'tools.enabled: Must be an array',
-      'tools.enableAdditional[0]: Must be a string',
       'tools.disabled[0]: Must be a string',
     ]));
   });
@@ -818,11 +844,11 @@ describe('resolveLocal', () => {
     _resetRuntimeSurface();
   });
 
-  it('defaults local.enabled by surface (cli on, mcp off)', () => {
+  it('defaults local.enabled on for every runtime surface', () => {
     setRuntimeSurface('cli');
     expect(resolveLocal().enabled).toBe(true);
     setRuntimeSurface('mcp');
-    expect(resolveLocal().enabled).toBe(false);
+    expect(resolveLocal().enabled).toBe(true);
   });
 
   it('resolves from file config and CLI default clone behavior', () => {
@@ -851,7 +877,7 @@ describe('resolveLocal', () => {
 });
 
 describe('resolveTools', () => {
-  const keys = ['TOOLS_TO_RUN', 'ENABLE_TOOLS', 'DISABLE_TOOLS'];
+  const keys = ['TOOLS_TO_RUN', 'DISABLE_TOOLS'];
   const savedEnv: Record<string, string | undefined> = {};
 
   beforeEach(() => {
@@ -868,18 +894,15 @@ describe('resolveTools', () => {
   });
 
   it('uses file config when env is absent and env lists when present', () => {
-    expect(resolveTools({ enabled: ['a'], enableAdditional: ['b'], disabled: ['c'] })).toEqual({
+    expect(resolveTools({ enabled: ['a'], disabled: ['c'] })).toEqual({
       enabled: ['a'],
-      enableAdditional: ['b'],
       disabled: ['c'],
     });
 
     process.env['TOOLS_TO_RUN'] = 'x,y';
-    process.env['ENABLE_TOOLS'] = 'extra';
     process.env['DISABLE_TOOLS'] = 'blocked';
-    expect(resolveTools({ enabled: ['a'], enableAdditional: ['b'], disabled: ['c'] })).toEqual({
+    expect(resolveTools({ enabled: ['a'], disabled: ['c'] })).toEqual({
       enabled: ['x', 'y'],
-      enableAdditional: ['extra'],
       disabled: ['blocked'],
     });
   });
@@ -963,12 +986,10 @@ describe('resolveOutput', () => {
 
 // ─── resolverCache / getConfigSync ───────────────────────────────────────────
 
-import { getConfig, getConfigSync, invalidateConfigCache, reloadConfig, resolveConfig, resolveConfigSync, _getCacheState, _resetConfigCache } from '../src/config/resolverCache.js';
+import { getConfigSync, resolveConfigSync } from '../src/config/resolverCache.js';
 import { getConfigValue } from '../src/config/resolver.js';
 
 describe('getConfigSync', () => {
-  beforeEach(() => _resetConfigCache());
-
   it('returns a ResolvedConfig with all required sections', () => {
     const cfg = getConfigSync();
     expect(cfg.github).toBeDefined();
@@ -1004,7 +1025,7 @@ describe('getConfigSync', () => {
     try {
       for (const key of [
         'GITHUB_API_URL', 'ENABLE_LOCAL', 'ENABLE_CLONE', 'ALLOWED_PATHS', 'WORKSPACE_ROOT',
-        'TOOLS_TO_RUN', 'ENABLE_TOOLS', 'DISABLE_TOOLS', 'REQUEST_TIMEOUT', 'MAX_RETRIES',
+        'TOOLS_TO_RUN', 'DISABLE_TOOLS', 'REQUEST_TIMEOUT', 'MAX_RETRIES',
         'OCTOCODE_LSP_CONFIG', 'OCTOCODE_OUTPUT_FORMAT', 'OCTOCODE_OUTPUT_DEFAULT_CHAR_LENGTH',
         'OCTOCODE_ENABLE_STATS',
       ]) delete process.env[key];
@@ -1015,6 +1036,30 @@ describe('getConfigSync', () => {
       expect(cfg.network.timeout).toBe(5000);
     } finally {
       process.env = oldEnv;
+    }
+  });
+
+  it('prints config warnings so ignored nested typos are visible at runtime', () => {
+    const oldHome = process.env['OCTOCODE_HOME'];
+    const home = mkdtempSync(join(tmpdir(), 'octo-source-warning-'));
+    writeFileSync(
+      join(home, '.octocoderc'),
+      JSON.stringify({ local: { enabled: true, enableLocl: false } })
+    );
+    const spy = vi
+      .spyOn(process.stderr, 'write')
+      .mockImplementation(() => true);
+    try {
+      process.env['OCTOCODE_HOME'] = home;
+      const cfg = resolveConfigSync();
+      expect(cfg.source).toBe('file');
+      expect(spy).toHaveBeenCalledWith(
+        expect.stringContaining('Unknown configuration key: local.enableLocl')
+      );
+    } finally {
+      spy.mockRestore();
+      if (oldHome === undefined) delete process.env['OCTOCODE_HOME'];
+      else process.env['OCTOCODE_HOME'] = oldHome;
     }
   });
 
@@ -1045,7 +1090,7 @@ describe('getConfigSync', () => {
       const cfg = resolveConfigSync();
       expect(cfg.source).toBe('invalid');
       expect(cfg.configPath).toBe(join(home, '.octocoderc'));
-      expect(cfg.local.enabled).toBe(false);
+      expect(cfg.local.enabled).toBe(true);
     } finally {
       if (oldHome === undefined) delete process.env['OCTOCODE_HOME']; else process.env['OCTOCODE_HOME'] = oldHome;
     }
@@ -1075,7 +1120,6 @@ describe('getConfigSync', () => {
       expect(before.local.enabled).toBe(true);
       expect(after.local.enabled).toBe(false);
       expect(after).not.toBe(before);
-      expect(_getCacheState().cached).toBe(false);
     } finally {
       if (oldEnableLocal === undefined) delete process.env['ENABLE_LOCAL']; else process.env['ENABLE_LOCAL'] = oldEnableLocal;
     }
@@ -1093,16 +1137,6 @@ describe('getConfigSync', () => {
     expect(a).not.toBe(b);
   });
 
-  it('async resolver helpers return resolved config and do not cache', async () => {
-    const resolved = await resolveConfig();
-    const got = await getConfig();
-    const reloaded = await reloadConfig();
-    expect(resolved.github).toBeDefined();
-    expect(got.github).toBeDefined();
-    expect(reloaded.github).toBeDefined();
-    expect(got).not.toBe(reloaded);
-  });
-
   it('getConfigValue reads nested resolved config paths', () => {
     const oldEnableLocal = process.env['ENABLE_LOCAL'];
     try {
@@ -1116,11 +1150,6 @@ describe('getConfigSync', () => {
     }
   });
 
-  it('invalidateConfigCache remains a compatibility no-op', () => {
-    getConfigSync();
-    invalidateConfigCache();
-    expect(_getCacheState()).toEqual({ cached: false, timestamp: 0 });
-  });
 });
 
 // ─── resolveSession ───────────────────────────────────────────────────────────

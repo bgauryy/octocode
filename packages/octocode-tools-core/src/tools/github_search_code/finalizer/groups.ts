@@ -5,10 +5,8 @@ import {
   type CodeSearchGroupedResult,
   type CodeSearchPagination,
 } from '../../providerMappers.js';
-import { queryById } from './ranking.js';
-
 export type PerQueryGroups = {
-  id: string;
+  index: number;
   groups: CodeSearchGroupedResult[];
 };
 
@@ -20,7 +18,7 @@ export type CodeSearchFileResult = {
 };
 
 export type CodeSearchResultRecord = {
-  id: string;
+  index: number;
   data: {
     files: CodeSearchFileResult[];
     pagination?: CodeSearchPagination;
@@ -31,14 +29,14 @@ export function mergeGroups(
   perQuery: readonly PerQueryGroups[]
 ): CodeSearchGroupedResult[] {
   const merged = new Map<string, CodeSearchGroupedResult>();
-  for (const { id: queryId, groups } of perQuery) {
+  for (const { index: queryIndex, groups } of perQuery) {
     for (const group of groups) {
-      const mergeKey = `${queryId}\u0000${group.id}`;
+      const mergeKey = `${queryIndex}\u0000${group.id}`;
       const existing = merged.get(mergeKey);
       if (!existing) {
         merged.set(mergeKey, {
           id: group.id,
-          queryId,
+          queryIndex,
           owner: group.owner,
           repo: group.repo,
           matches: [...group.matches],
@@ -57,7 +55,7 @@ function flattenGroupsToFiles(
   const byFile = new Map<string, CodeSearchFileResult>();
   for (const group of groups) {
     for (const match of group.matches) {
-      const key = `${group.queryId ?? ''}\u0000${group.owner}\u0000${group.repo}\u0000${match.path}`;
+      const key = `${group.queryIndex ?? -1}\u0000${group.owner}\u0000${group.repo}\u0000${match.path}`;
       const existing = byFile.get(key);
       const { path: _path, ...matchWithoutPath } = match;
       if (existing) {
@@ -68,8 +66,8 @@ function flattenGroupsToFiles(
         owner: group.owner,
         repo: group.repo,
         path: match.path,
-        // queryId intentionally omitted from output: it always equals the
-        // parent results[].id. It is still part of `key` above so files from
+        // queryIndex intentionally omitted from each file: it always equals the
+        // parent results[].index. It is still part of `key` above so files from
         // different queries never merge.
         matches: [matchWithoutPath],
       });
@@ -81,21 +79,17 @@ function flattenGroupsToFiles(
 export function buildResultRecords(
   queries: readonly QueryWithPagination[],
   groups: readonly CodeSearchGroupedResult[],
-  paginationByQuery: ReadonlyMap<string, CodeSearchPagination>
+  paginationByQuery: ReadonlyMap<number, CodeSearchPagination>
 ): CodeSearchResultRecord[] {
   if (groups.length === 0) return [];
 
-  // Single query: collapse to one record keyed by the query id (or the tool
-  // name), carrying that query's pagination — identical to the prior shape.
+  // Single query: collapse to one record carrying that query's pagination.
   if (queries.length === 1) {
-    const id =
-      typeof queries[0]?.id === 'string' ? queries[0].id : 'ghSearchCode';
-    const onlyId =
-      typeof queries[0]?.id === 'string' ? queries[0].id : undefined;
-    const pagination = onlyId ? paginationByQuery.get(onlyId) : undefined;
+    const index = groups[0]?.queryIndex ?? 0;
+    const pagination = paginationByQuery.get(index);
     return [
       {
-        id,
+        index,
         data: {
           files: flattenGroupsToFiles(groups),
           ...(pagination ? { pagination } : {}),
@@ -107,25 +101,25 @@ export function buildResultRecords(
   // Multi-query bulk: emit one record PER query that produced results, each
   // carrying its OWN pagination so an agent can page deeper on every query
   // independently (previously the merged block dropped all but one).
-  const byQuery = new Map<string, CodeSearchGroupedResult[]>();
-  const order: string[] = [];
+  const byQuery = new Map<number, CodeSearchGroupedResult[]>();
+  const order: number[] = [];
   for (const group of groups) {
-    const queryId = group.queryId ?? 'ghSearchCode';
-    let bucket = byQuery.get(queryId);
+    const queryIndex = group.queryIndex ?? 0;
+    let bucket = byQuery.get(queryIndex);
     if (!bucket) {
       bucket = [];
-      byQuery.set(queryId, bucket);
-      order.push(queryId);
+      byQuery.set(queryIndex, bucket);
+      order.push(queryIndex);
     }
     bucket.push(group);
   }
 
-  return order.map(queryId => {
-    const pagination = paginationByQuery.get(queryId);
+  return order.map(index => {
+    const pagination = paginationByQuery.get(index);
     return {
-      id: queryId,
+      index,
       data: {
-        files: flattenGroupsToFiles(byQuery.get(queryId)!),
+        files: flattenGroupsToFiles(byQuery.get(index)!),
         ...(pagination ? { pagination } : {}),
       },
     };
@@ -141,20 +135,21 @@ export function buildNextMap(
   queries: readonly QueryWithPagination[],
   allKeywords: readonly string[]
 ): Record<string, ToolContinuation> | undefined {
-  const queriesById = queryById(queries);
   const next: Record<string, ToolContinuation> = {};
   for (const record of resultRecords) {
     const file = record.data.files[0];
     if (!file) continue;
-    const query = queriesById.get(record.id) as
-      (QueryWithPagination & { keywords?: unknown }) | undefined;
+    const query = queries[record.index] as
+      | (QueryWithPagination & { keywords?: unknown; match?: unknown })
+      | undefined;
+    if (query?.match === 'path') continue;
     const ownKeywords = Array.isArray(query?.keywords)
       ? query.keywords.filter((k): k is string => typeof k === 'string')
       : [];
     const matchString = ownKeywords[0] ?? allKeywords[0];
     if (!matchString) continue;
     const key =
-      resultRecords.length === 1 ? 'getLines' : `getLines:${record.id}`;
+      resultRecords.length === 1 ? 'getLines' : `getLines:${record.index}`;
     next[key] = {
       tool: 'ghGetFileContent',
       query: {

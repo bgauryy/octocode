@@ -50,11 +50,7 @@ function nativeResultWithBodyCapture() {
             text: 'export function f() { ... }',
             metavars: {
               NAME: ['f'],
-              BODY: [
-                '// a comment line',
-                LONG_STATEMENT,
-                'return 1;',
-              ],
+              BODY: ['// a comment line', LONG_STATEMENT, 'return 1;'],
             },
             metavarRanges: {
               NAME: [
@@ -128,9 +124,7 @@ describe('structural capture budget', () => {
     // Single-node capture text survives (cheap, high value as LSP anchor).
     expect(match.metavars).toMatchObject({ NAME: ['f'] });
     // List capture ($$$BODY) full text is a token bomb — omitted by default.
-    expect(
-      (match.metavars as Record<string, string[]>).BODY
-    ).toBeUndefined();
+    expect((match.metavars as Record<string, string[]>).BODY).toBeUndefined();
 
     const ranges = match.metavarRanges as Record<
       string,

@@ -87,7 +87,14 @@ if [[ -z "${MODEL}" ]]; then
 fi
 
 WORKSPACE_OCTOCODE_DIR="$(node -e 'const path=require("node:path"); process.stdout.write(path.resolve(process.cwd(), ".octocode"))')"
-GLOBAL_OCTOCODE_DIR="$(node -e 'const os=require("node:os"); const path=require("node:path"); process.stdout.write(path.join(os.homedir(), ".octocode"))')"
+ABS_OUT=""
+if [[ -n "${OUT_PATH}" ]]; then
+  ABS_OUT="$(node -e 'const path=require("node:path"); process.stdout.write(path.resolve(process.argv[1]))' "${OUT_PATH}")"
+  case "${ABS_OUT}" in
+    "${WORKSPACE_OCTOCODE_DIR}"/*) ;;
+    *) echo "error: --out must be under ${WORKSPACE_OCTOCODE_DIR}" >&2; exit 2 ;;
+  esac
+fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if ! "${SCRIPT_DIR}/ollama-health.sh" --model "${MODEL}"; then
@@ -248,11 +255,6 @@ else
 fi
 
 if [[ -n "${OUT_PATH}" ]]; then
-  ABS_OUT="$(node -e 'const path=require("node:path"); process.stdout.write(path.resolve(process.argv[1]))' "${OUT_PATH}")"
-  case "${ABS_OUT}" in
-    "${WORKSPACE_OCTOCODE_DIR}"/*|"${GLOBAL_OCTOCODE_DIR}"/*) ;;
-    *) echo "error: --out must be under ${WORKSPACE_OCTOCODE_DIR} or ${GLOBAL_OCTOCODE_DIR}" >&2; exit 2 ;;
-  esac
   mkdir -p "$(dirname "${ABS_OUT}")"
   printf '%s\n' "${RESULT}" >"${ABS_OUT}"
   echo "wrote ${ABS_OUT} (model=${MODEL} keepalive=${KEEPALIVE})" >&2

@@ -58,7 +58,8 @@ export interface ProcessedBulkResult {
 }
 
 export interface FlatQueryResult {
-  id: string;
+  /** Zero-based position of the originating query in the submitted batch. */
+  index: number;
   status?: QueryStatus;
   meta: ToolResultMeta;
   data: Record<string, unknown>;

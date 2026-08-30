@@ -28,7 +28,9 @@ function validateOctocodeConfig(): { valid: boolean; errors: string[] } {
 
   if (
     config.args.length !== EXPECTED_OCTOCODE_CONFIG.args.length ||
-    config.args.some((arg, index) => arg !== EXPECTED_OCTOCODE_CONFIG.args[index])
+    config.args.some(
+      (arg, index) => arg !== EXPECTED_OCTOCODE_CONFIG.args[index]
+    )
   ) {
     errors.push(
       `Expected args ${JSON.stringify(EXPECTED_OCTOCODE_CONFIG.args)}, got ${JSON.stringify(config.args)}`

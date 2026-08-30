@@ -28,8 +28,7 @@ export function mapRepoSearchToolQuery(
     sort: query.sort,
     limit: (query as Record<string, unknown>).limit as number | undefined,
     page: query.page,
-    mainResearchGoal: query.mainResearchGoal,
-    researchGoal: query.researchGoal,
+    goal: query.goal,
     reasoning: query.reasoning,
   };
 }

@@ -11,7 +11,6 @@ export interface ServerConfig {
   version: string;
   githubApiUrl: string;
   toolsToRun?: string[];
-  enableTools?: string[];
   disableTools?: string[];
   timeout: number;
   maxRetries: number;
@@ -19,6 +18,5 @@ export interface ServerConfig {
 
   enableClone: boolean;
 
-  outputFormat: 'yaml' | 'json';
   tokenSource: TokenSourceType;
 }

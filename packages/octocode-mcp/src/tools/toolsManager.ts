@@ -12,9 +12,8 @@ import type {
 } from '@octocodeai/octocode-tools-core';
 import {
   getToolFilterConfigSafe,
-  hasToolFilterConflict,
   isToolEnabled,
-  TOOL_FILTER_CONFLICT_WARNING,
+  validateToolFilterConfig,
 } from './toolFilters.js';
 import { hasValidMetadata } from './metadataPolicy.js';
 import { withOutputSanitization } from '../utils/secureServer.js';
@@ -37,16 +36,17 @@ export async function registerTools(
 }> {
   const localEnabled = isLocalEnabled();
   const cloneEnabled = isCloneEnabled();
-  const filterConfig = getToolFilterConfigSafe(getServerConfig);
+  const rawFilterConfig = getToolFilterConfigSafe(getServerConfig);
   const metadataGateway =
     options.metadataGateway ?? DEFAULT_TOOL_METADATA_GATEWAY;
 
-  if (hasToolFilterConflict(filterConfig)) {
-    process.stderr.write(TOOL_FILTER_CONFLICT_WARNING);
-  }
-
   const secureServer = withOutputSanitization(server);
   const allTools = await loadTools(options.toolLoader);
+  const { config: filterConfig, warnings } = validateToolFilterConfig(
+    rawFilterConfig,
+    allTools.map(tool => tool.name)
+  );
+  for (const warning of warnings) process.stderr.write(warning);
   const enabledTools = allTools.filter(tool =>
     isToolEnabled(tool, {
       localEnabled,

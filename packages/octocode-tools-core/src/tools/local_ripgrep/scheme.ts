@@ -42,22 +42,11 @@ const queryOverrides = {
   // structural). It's unrelated to the nested `content.patches.mode` on
   // ghSearchPullRequests (diff detail level) — different concepts sharing this
   // field name across tools.
-  mode: z
-    .enum(LOCAL_SEARCH_MODES)
-    .optional()
-    .default('paginated')
-    .describe(
-      '"paginated" snippets; "discovery" paths only; "detailed" snippets plus context; "structural" AST/code-shape search with pattern or rule. Structural matches return line/capture anchors that can feed lspGetSemantics when symbol identity matters. (Unrelated to ghSearchPullRequests\'s `content.patches.mode` — different concepts sharing this name.)'
-    ),
+  mode: z.enum(LOCAL_SEARCH_MODES).optional().default('paginated'),
   // A single text/regex pattern (unlike ghSearchCode/ghSearchRepos, where
   // `keywords` is an ARRAY of ANDed terms) — passing an array here fails
   // validation.
-  searchText: z
-    .string()
-    .optional()
-    .describe(
-      'The search pattern. regex:"fixed" for a literal match, "perl" for advanced features (lookaheads, backreferences), else "smart". (Unlike ghSearchCode/ghSearchRepos, where `keywords` is an array of ANDed terms — this is a single string.)'
-    ),
+  searchText: z.string().optional(),
   // The `output` enum's "files"/"filesWithout" shapes drop line content down to
   // matching / non-matching file paths. Unrelated to localViewStructure's
   // `filesOnly`, which instead filters a directory LISTING to file entries.
@@ -71,35 +60,13 @@ const queryOverrides = {
       'matchOnly',
     ])
     .optional()
-    .default('content')
-    .describe(
-      '"content" (default) matches with line text; "files"/"filesWithout" return matching/non-matching paths; "countLines"/"countMatches" return per-file counts; "matchOnly" returns just the matched substring (required for unique/matchWindow). ("files" is unlike localViewStructure\'s `filesOnly`, which filters a directory listing to file entries.)'
-    ),
-  pattern: z
-    .string()
-    .optional()
-    .describe(
-      'Structural only: code-shaped AST pattern with $X (one node) or $$$ARGS (node list). Modifiers are part of the node — `function $NAME` does not match `async function` or `export function`; include the modifiers or use a YAML `kind` rule for modifier-agnostic matches. Use this to find syntax shape, then use lspGetSemantics for semantic proof.'
-    ),
-  maxDepth: clampedInt(0, LOCAL_MAX_DEPTH)
-    .optional()
-    .describe(
-      'Keep files at most this many directory levels below the search root (0 = files directly in the root). Structural mode pushes this into the native walker; text/regex mode applies it after the native search and emits a warning when it filters deeper matches.'
-    ),
-  rule: z
-    .string()
-    .optional()
-    .describe(
-      'Structural only: YAML ast-grep rule for not/inside/has/all/any. Use for partial or relational AST queries before escalating matched anchors to lspGetSemantics.'
-    ),
-  captureText: z
-    .boolean()
-    .optional()
-    .describe(
-      'Structural only: return full verbatim capture text for `$$$` list metavars (bodies, arg lists). Default false — list-capture text is omitted from `metavars`, and `metavarRanges` entries are comment-pruned and truncated to keep results lean; ranges always remain as line anchors.'
-    ),
+    .default('content'),
+  pattern: z.string().optional(),
+  maxDepth: clampedInt(0, LOCAL_MAX_DEPTH).optional(),
+  rule: z.string().optional(),
+  captureText: z.boolean().optional(),
   contextLines: contextLinesField,
-  // Description flows from the repository-owned contract resource; only the
+  // Description flows from the shared core contract resource; only the
   // bounds/default are tightened here.
   matchContentLength: clampedInt(1, MAX_MATCH_CONTENT_LENGTH)
     .optional()
@@ -109,13 +76,7 @@ const queryOverrides = {
   matchPage: relaxedPageNumberField.optional(),
   itemsPerPage: clampedInt(1, MAX_PAGE_NUMBER).optional(),
   page: relaxedPageNumberField.default(1),
-  unique: z
-    .enum(['off', 'list', 'count'])
-    .optional()
-    .default('off')
-    .describe(
-      'Needs output:"matchOnly". "list" returns each matched value once per file; "count" adds its frequency.'
-    ),
+  unique: z.enum(['off', 'list', 'count']).optional().default('off'),
 } as const;
 
 const bulkQueryOverrides = {

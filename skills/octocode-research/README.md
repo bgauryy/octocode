@@ -45,7 +45,7 @@ Uses Octocode **MCP tools** when they're exposed. In this monorepo it uses the b
 - GitHub: code, repos, files, structure, PRs, issues, commits, releases, discussions, clone
 - packages: npm lookup
 
-Execution gates (`ghListReleases` via `ENABLE_RELEASES=1`, `ghSearchDiscussions` via `ENABLE_DISCUSSIONS=1`) and MCP-side gates (`ENABLE_LOCAL`, `ENABLE_CLONE`) are documented in `references/octocode.md`. A disabled surface is reported as skipped, never faked.
+Tool gates (`ENABLE_LOCAL`, `ENABLE_CLONE`, `ENABLE_RELEASES`, and `ENABLE_DISCUSSIONS`) are documented in `references/octocode.md`. A disabled surface is reported as skipped, never faked.
 
 ## Installation
 

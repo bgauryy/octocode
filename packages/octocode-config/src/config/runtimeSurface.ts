@@ -2,14 +2,14 @@
  * Which interface is driving the shared tool core right now.
  *
  * Some config defaults differ by surface (see `resolveLocal`):
- *   - `cli`: local tools default to ENABLED; clone defaults to ENABLED.
- *   - `mcp`: local tools default to DISABLED; clone defaults to DISABLED.
+ *   - Local tools default to ENABLED on both surfaces.
+ *   - Clone defaults to ENABLED on `cli` and DISABLED on `mcp`.
  *
  * `ENABLE_LOCAL=true`/`false` (or `local.enabled`) explicitly enables or
  * disables local tools on every surface, overriding the surface default.
  *
  * Defaults to `mcp`, the primary consumer. The CLI binary calls
- * `setRuntimeSurface('cli')` at startup before any tool runs.
+ * `setRuntimeSurface('cli')` at startup before any clone operation.
  *
  * State lives on `globalThis` (not a module-level variable) so a single shared
  * value is seen even when bundlers (esbuild) inline this module more than once

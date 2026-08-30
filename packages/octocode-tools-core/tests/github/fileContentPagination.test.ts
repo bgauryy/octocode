@@ -60,7 +60,6 @@ describe('ghGetFileContent finalizer — next.continueChars fires from nextCharO
   it('emits a ready continuation carrying the materialized nextCharOffset', async () => {
     const paginated = await applyContentPagination(base(), 0, 1000);
     const query = {
-      id: 'q1',
       owner: 'octo',
       repo: 'engine',
       branch: 'main',
@@ -68,7 +67,7 @@ describe('ghGetFileContent finalizer — next.continueChars fires from nextCharO
       minify: 'none' as const,
     };
     const result: FlatQueryResult = {
-      id: 'q1',
+      index: 0,
       status: 'success',
       data: paginated as unknown as Record<string, unknown>,
     };

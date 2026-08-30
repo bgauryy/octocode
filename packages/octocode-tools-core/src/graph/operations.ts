@@ -119,9 +119,10 @@ export function findShortestPath(
   while (files[0] !== source) {
     files.unshift(previous.get(files[0] as string) as string);
   }
-  const boundedFiles = files.slice(0, MAX_FILES_PER_PATH);
-  const edges = boundedFiles.slice(0, -1).map((from, index) => {
-    const to = boundedFiles[index + 1] as string;
+  const truncated = files.length > MAX_FILES_PER_PATH;
+  const returnedFiles = truncated ? [] : files;
+  const edges = returnedFiles.slice(0, -1).map((from, index) => {
+    const to = returnedFiles[index + 1] as string;
     return {
       from,
       to,
@@ -131,10 +132,23 @@ export function findShortestPath(
   });
   return {
     found: true,
-    files: boundedFiles,
+    files: returnedFiles,
     edges,
     length: files.length,
-    ...(files.length > boundedFiles.length ? { truncated: true } : {}),
+    ...(truncated
+      ? {
+          truncated: true,
+          complete: false,
+          target,
+          totalFileCount: files.length,
+          omittedMiddleFileCount: Math.max(
+            0,
+            files.length - MAX_FILES_PER_PATH
+          ),
+          prefix: files.slice(0, MAX_FILES_PER_PATH / 2),
+          suffix: files.slice(-(MAX_FILES_PER_PATH / 2)),
+        }
+      : { complete: true }),
     confidence: 'syntactic',
   };
 }

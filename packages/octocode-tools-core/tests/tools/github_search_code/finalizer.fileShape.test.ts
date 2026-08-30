@@ -19,12 +19,12 @@ function groupResult(owner: string, repo: string, path: string, value: string) {
 }
 
 describe('ghSearchCode finalizer — file row shape (no redundant fields)', () => {
-  it('does not repeat queryId on each file row — it always equals the parent result id', () => {
+  it('does not repeat queryIndex on each file row — it equals the parent result index', () => {
     const sc = runFinalizer(
-      [{ id: 'q1' }],
+      [{}],
       [
         {
-          id: 'q1',
+          index: 0,
           data: { results: [groupResult('octo', 'a', 'src/a.ts', 'foo')] },
         },
       ]
@@ -32,13 +32,13 @@ describe('ghSearchCode finalizer — file row shape (no redundant fields)', () =
 
     const results = sc.results as Array<AnyRec>;
     expect(results).toHaveLength(1);
-    expect(results[0].id).toBe('q1');
+    expect(results[0].index).toBe(0);
 
     const files = (results[0].data as AnyRec).files as Array<AnyRec>;
     expect(files.length).toBeGreaterThan(0);
     for (const file of files) {
-      // queryId is redundant with results[].id and must not be emitted per row
-      expect(file).not.toHaveProperty('queryId');
+      // queryIndex is redundant with results[].index and must not be emitted per row
+      expect(file).not.toHaveProperty('queryIndex');
       // owner/repo ARE retained: a global (un-scoped) code search returns files
       // from many repos, so per-row owner/repo is meaningful, not redundant.
       expect(file.owner).toBe('octo');

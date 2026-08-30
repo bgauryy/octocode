@@ -17,28 +17,49 @@ function runFinalizerWithQueries(queries: AnyRec[], results: AnyRec[]) {
 const MANY_KEYWORDS = Array.from({ length: 12 }, (_, i) => `term${i}`);
 
 describe('ghSearchCode finalizer — overly-long query zero-result honesty', () => {
-  it('a >8-keyword zero-result query yields no warnings channel (warnings are stripped)', () => {
+  it('surfaces a typed diagnostic and bounded retry for a complex empty query', () => {
     const sc = runFinalizerWithQueries(
-      [{ id: 'q1', keywords: MANY_KEYWORDS }],
-      [{ id: 'q1', data: { results: [] } }]
+      [{ keywords: MANY_KEYWORDS }],
+      [{ index: 0, data: { results: [] } }]
     );
 
     expect(sc.warnings).toBeUndefined();
-    expect(sc.emptyQueries as unknown[]).toHaveLength(1);
+    expect(sc.results).toMatchObject([
+      {
+        index: 0,
+        status: 'empty',
+        meta: {
+          diagnostics: {
+            codes: ['ghQueryPossiblyTooComplex'],
+            hints: [expect.stringContaining('narrow')],
+          },
+        },
+        data: {
+          next: {
+            retryNarrow: {
+              tool: 'ghSearchCode',
+              query: { keywords: MANY_KEYWORDS.slice(0, 8) },
+            },
+          },
+        },
+      },
+    ]);
+    expect(sc.emptyQueries).toBeUndefined();
   });
 
   it('does not warn for a short keyword query with zero results', () => {
     const sc = runFinalizerWithQueries(
-      [{ id: 'q1', keywords: ['useState'] }],
-      [{ id: 'q1', data: { results: [] } }]
+      [{ keywords: ['useState'] }],
+      [{ index: 0, data: { results: [] } }]
     );
     expect(sc.warnings).toBeUndefined();
+    expect((sc.results as AnyRec[])[0]?.meta).toBeUndefined();
   });
 
   it('does not double-warn when the zero result is already explained (renamed/archived/not-found)', () => {
     const sc = runFinalizerWithQueries(
-      [{ id: 'q1', owner: 'facebook', repo: 'react', keywords: MANY_KEYWORDS }],
-      [{ id: 'q1', data: { results: [], nonExistentScope: true } }]
+      [{ owner: 'facebook', repo: 'react', keywords: MANY_KEYWORDS }],
+      [{ index: 0, data: { results: [], nonExistentScope: true } }]
     );
     const warnings = (sc.warnings as string[] | undefined) ?? [];
     expect(warnings.join(' ')).not.toContain('silently under-match');

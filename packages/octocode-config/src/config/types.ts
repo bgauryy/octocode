@@ -18,9 +18,6 @@ export interface LocalConfigOptions {
 
 export interface ToolsConfigOptions {
   enabled?: string[] | null;
-
-  enableAdditional?: string[] | null;
-
   disabled?: string[] | null;
 }
 
@@ -77,7 +74,6 @@ export interface RequiredLocalConfig {
 
 export interface RequiredToolsConfig {
   enabled: string[] | null;
-  enableAdditional: string[] | null;
   disabled: string[] | null;
 }
 

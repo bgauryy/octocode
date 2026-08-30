@@ -31,7 +31,9 @@ export function printDirectToolResult(
   jsonOutput: boolean
 ): void {
   if (jsonOutput) {
-    console.log(JSON.stringify(result.structuredContent ?? result, null, 2));
+    // Match `tools <name> --json`: JSON always means the full CallToolResult
+    // envelope. Callers that want structuredContent alone use `tools --compact`.
+    console.log(JSON.stringify(result, null, 2));
     return;
   }
 

@@ -8,6 +8,8 @@ description: "Use when code needs a blunt evidence-backed roast or memorable cri
 Sharp code critique with proof and a repair path.
 Flow: `TARGET → INSPECT → INVENTORY → AUTOPSY → CHECKPOINT → REDEEM`.
 
+Workspace output contract: chat-only critiques stay in chat. New saved reports default to `<workspace>/.octocode/octocode-roast/`; scratch evidence uses `<workspace>/.octocode/tmp/octocode-roast/`. User-approved source edits keep their named paths. Never fall back to a user-level Octocode home for artifacts.
+
 ## Lobby rules
 - Target patterns, never people; obey the requested scope and widen only with approval.
 - Cite or drop it: every major finding needs an exact anchor, impact, confidence, and repair move.
@@ -32,10 +34,10 @@ If there are 20+ issues, triage the top 10 by impact and confidence, then separa
 - When the user picks repairs at the checkpoint, load `references/redemption-flow.md` — redeem findings through consent-gated fixes and verification.
 - When scope spans a monorepo or many categories, load `references/parallel-roasting.md` — split the inspection and inventory across workers without duplicating findings.
 - When research tooling is needed, load `references/octocode.md` and use `octocode-research` if available — verify before joking; mark reduced coverage otherwise.
-- When improving this skill, prefer `octocode-graph-eval`; otherwise load `references/improve-loop.md` — require an accept/revert criterion.
+- When improving this skill, prefer `octocode-eval-benchmark`; otherwise load `references/improve-loop.md` — require an accept/revert criterion.
 
 ## Related routes
-- Use `octocode-research` for evidence gathering; `octocode-graph-eval` to measure roast usefulness; `octocode-prompt-optimizer` only for tone/instruction wording.
+- Use `octocode-research` for evidence gathering; `octocode-eval-benchmark` to measure roast usefulness; `octocode-prompt-optimizer` only for tone/instruction wording.
 - Use `octocode-skills` when changing this skill folder.
 
 ## Output

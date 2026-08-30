@@ -1,0 +1,22 @@
+{
+  "should_trigger": [
+    { "prompt": "Did this description change help? Define KPI and keep/discard.", "expect": true },
+    { "prompt": "Loop until p95 is under 200ms — don't stop till done.", "expect": true },
+    { "prompt": "Build a held-out eval suite before accepting the refactor.", "expect": true },
+    { "prompt": "Benchmark this agent against our private failure suite.", "expect": true },
+    { "prompt": "Design smart evals with calibrated graders and guardrails.", "expect": true },
+    { "prompt": "ACCEPT/REVERT this skill change against a baseline.", "expect": true },
+    { "prompt": "We need a goal→KPI contract before iterating.", "expect": true },
+    { "prompt": "Fan out three subagents — freeze protocol, KPIs, and communication checks first.", "expect": true },
+    { "prompt": "Measure whether the multi-agent graph improved the primary KPI.", "expect": true }
+  ],
+  "should_not_trigger": [
+    { "prompt": "Tests passed — merge the PR.", "expect": false },
+    { "prompt": "Fix the typo in the README.", "expect": false },
+    { "prompt": "Why does this function return null?", "expect": false },
+    { "prompt": "Analyze the dependency graph for runtime import cycles.", "expect": false },
+    { "prompt": "Find dead code with repository reachability and LSP references.", "expect": false },
+    { "prompt": "Roast the cache layer.", "expect": false },
+    { "prompt": "Just spawn Task workers with no metric — go fast.", "expect": false }
+  ]
+}

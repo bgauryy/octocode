@@ -8,7 +8,7 @@ An install = copy or symlink a `SKILL.md` folder into a path the runtime scans. 
 
 Accept `owner/repo/path`, GitHub tree/blob URLs, absolute/relative paths. Strip trailing `SKILL.md`. `skill-name` = final folder segment unless overridden. If frontmatter `name` ≠ folder, surface mismatch and ask.
 
-Prefer after approval: `npx octocode skill --add --path <src> --platform <hosts> [--mode copy|symlink|hybrid]`.
+Prefer after approval: `npx octocode skill --add <src> --platform <hosts> [--mode copy|symlink|hybrid]`. This copies the validated source into `<octocode-home>/skills/<name>` as the canonical installation, then creates vendor links from that copy. `--mode copy|hybrid` changes vendor destinations only; canonical home remains a copy.
 
 ## Four destination questions
 

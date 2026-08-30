@@ -10,15 +10,6 @@ import {
   printDirectToolResult,
 } from './direct-tool-output.js';
 
-type CloneStructuredContent = {
-  results?: Array<{ data?: { localPath?: string } }>;
-};
-
-function cloneLocalPath(structuredContent: unknown): string | undefined {
-  const content = structuredContent as CloneStructuredContent;
-  return content.results?.[0]?.data?.localPath;
-}
-
 export const cloneCommand: CLICommand = {
   name: 'clone',
   options: [
@@ -33,7 +24,14 @@ export const cloneCommand: CLICommand = {
 
     const reportUsage = (message: string): void => {
       if (jsonOutput) {
-        console.log(JSON.stringify({ success: false, error: message }));
+        console.log(
+          JSON.stringify({
+            kind: 'octocode.toolError',
+            version: 1,
+            tool: 'ghCloneRepo',
+            error: message,
+          })
+        );
       } else {
         console.error(`\n  ${c('red', '✗')} ${message}`);
         console.error(
@@ -73,26 +71,13 @@ export const cloneCommand: CLICommand = {
             branch: ref.branch,
             sparsePath: ref.subpath || undefined,
             forceRefresh: getBool(args.options, 'force-refresh') || undefined,
-            mainResearchGoal: 'Clone a GitHub repository for local research',
-            researchGoal: `Clone ${refLabel(ref)} for local search and LSP`,
+            goal: `Clone ${refLabel(ref)} for local search and LSP`,
             reasoning: 'CLI clone command',
           },
         ],
       });
 
       printDirectToolResult(result, jsonOutput);
-      if (!jsonOutput && !result.isError) {
-        const localPath = cloneLocalPath(result.structuredContent);
-        if (localPath) {
-          console.log(
-            `  ${c('green', '→')} Local clone: ${c('cyan', localPath)}\n` +
-              `    ${c('cyan', 'tools localViewStructure --scheme')}   ${dim('# map the tree')}\n` +
-              `    ${c('cyan', 'tools localSearchCode --scheme')}      ${dim('# search locally')}\n` +
-              `    ${c('cyan', 'tools localGetFileContent --scheme')}  ${dim('# read a file')}\n` +
-              `    ${c('cyan', 'tools lspGetSemantics --scheme')}      ${dim('# semantic outline')}\n`
-          );
-        }
-      }
       if (
         result.isError &&
         ref.subpath &&
@@ -108,7 +93,9 @@ export const cloneCommand: CLICommand = {
       if (jsonOutput) {
         console.log(
           JSON.stringify({
-            success: false,
+            kind: 'octocode.toolError',
+            version: 1,
+            tool: 'ghCloneRepo',
             error: `Octocode tool runtime failed: ${message}`,
           })
         );

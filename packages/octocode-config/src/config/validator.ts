@@ -204,12 +204,6 @@ function validateTools(tools: unknown, errors: string[]): void {
   const enabledError = validateNullableStringArray(t.enabled, 'tools.enabled');
   if (enabledError) errors.push(enabledError);
 
-  const enableAdditionalError = validateNullableStringArray(
-    t.enableAdditional,
-    'tools.enableAdditional'
-  );
-  if (enableAdditionalError) errors.push(enableAdditionalError);
-
   const disabledError = validateNullableStringArray(
     t.disabled,
     'tools.disabled'
@@ -292,6 +286,23 @@ function validateOutput(output: unknown, errors: string[]): void {
   }
 }
 
+function warnUnknownObjectKeys(
+  value: unknown,
+  prefix: string,
+  knownKeys: readonly string[],
+  warnings: string[]
+): void {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return;
+  }
+  const known = new Set(knownKeys);
+  for (const key of Object.keys(value)) {
+    if (!known.has(key)) {
+      warnings.push(`Unknown configuration key: ${prefix}.${key}`);
+    }
+  }
+}
+
 export function validateConfig(config: unknown): ValidationResult {
   const errors: string[] = [];
   const warnings: string[] = [];
@@ -322,6 +333,45 @@ export function validateConfig(config: unknown): ValidationResult {
   validateNetwork(cfg.network, errors);
   validateLsp(cfg.lsp, errors);
   validateOutput(cfg.output, errors);
+
+  warnUnknownObjectKeys(cfg.github, 'github', ['apiUrl'], warnings);
+  warnUnknownObjectKeys(
+    cfg.local,
+    'local',
+    ['enabled', 'enableClone', 'allowedPaths', 'workspaceRoot'],
+    warnings
+  );
+  warnUnknownObjectKeys(
+    cfg.tools,
+    'tools',
+    ['enabled', 'disabled'],
+    warnings
+  );
+  warnUnknownObjectKeys(
+    cfg.network,
+    'network',
+    ['timeout', 'maxRetries'],
+    warnings
+  );
+  warnUnknownObjectKeys(cfg.lsp, 'lsp', ['configPath'], warnings);
+  warnUnknownObjectKeys(
+    cfg.output,
+    'output',
+    ['format', 'pagination'],
+    warnings
+  );
+  if (
+    typeof cfg.output === 'object' &&
+    cfg.output !== null &&
+    !Array.isArray(cfg.output)
+  ) {
+    warnUnknownObjectKeys(
+      (cfg.output as Record<string, unknown>).pagination,
+      'output.pagination',
+      ['defaultCharLength'],
+      warnings
+    );
+  }
 
   const knownKeys = new Set([
     '$schema',

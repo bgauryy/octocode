@@ -26,7 +26,6 @@ const CONFIG_ENV_KEYS = [
   'WORKSPACE_ROOT',
   'ALLOWED_PATHS',
   'TOOLS_TO_RUN',
-  'ENABLE_TOOLS',
   'DISABLE_TOOLS',
   'REQUEST_TIMEOUT',
   'MAX_RETRIES',
@@ -71,9 +70,9 @@ describe('README/CONFIGURATION config claims', () => {
     });
   });
 
-  describe('ENABLE_LOCAL -> local.enabled (surface default, explicit flag overrides)', () => {
-    it('defaults to false on the default MCP surface when neither env nor file config enables it', () => {
-      expect(resolveLocal(undefined).enabled).toBe(false);
+  describe('ENABLE_LOCAL -> local.enabled (default enabled, explicit flag overrides)', () => {
+    it('defaults to true when neither env nor file config disables it', () => {
+      expect(resolveLocal(undefined).enabled).toBe(true);
     });
 
     it('ENABLE_LOCAL=false disables, overriding file=true', () => {
@@ -128,11 +127,10 @@ describe('README/CONFIGURATION config claims', () => {
     });
   });
 
-  describe('TOOLS_TO_RUN / ENABLE_TOOLS / DISABLE_TOOLS -> tools.*', () => {
+  describe('TOOLS_TO_RUN / DISABLE_TOOLS -> tools.*', () => {
     it('default to null (no filtering)', () => {
       const t = resolveTools(undefined);
       expect(t.enabled).toBeNull();
-      expect(t.enableAdditional).toBeNull();
       expect(t.disabled).toBeNull();
     });
     it('TOOLS_TO_RUN env populates the strict whitelist', () => {
@@ -142,11 +140,9 @@ describe('README/CONFIGURATION config claims', () => {
         'localSearchCode',
       ]);
     });
-    it('ENABLE_TOOLS and DISABLE_TOOLS env populate add/remove lists', () => {
-      process.env.ENABLE_TOOLS = 'ghCloneRepo';
+    it('DISABLE_TOOLS env populates the remove list', () => {
       process.env.DISABLE_TOOLS = 'npmSearch';
       const t = resolveTools(undefined);
-      expect(t.enableAdditional).toEqual(['ghCloneRepo']);
       expect(t.disabled).toEqual(['npmSearch']);
     });
   });
@@ -257,8 +253,8 @@ describe('README/CONFIGURATION config claims', () => {
     describe('MCP surface (default)', () => {
       beforeEach(() => setRuntimeSurface('mcp'));
 
-      it('local defaults off and honors ENABLE_LOCAL=true', () => {
-        expect(resolveLocal(undefined).enabled).toBe(false);
+      it('local defaults on and honors ENABLE_LOCAL=true', () => {
+        expect(resolveLocal(undefined).enabled).toBe(true);
         process.env.ENABLE_LOCAL = 'true';
         expect(resolveLocal(undefined).enabled).toBe(true);
       });

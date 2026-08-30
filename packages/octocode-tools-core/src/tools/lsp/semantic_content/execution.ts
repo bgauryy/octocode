@@ -29,8 +29,8 @@ import {
 import {
   attachSemanticRawEvidence,
   formatSemanticResult,
-  withSemanticNext,
 } from './semanticPresentation.js';
+import { withSemanticNext } from './semanticNext.js';
 
 export async function executeLspGetSemantics(
   args: ToolExecutionArgs<LspGetSemanticsQuery>

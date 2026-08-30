@@ -17,45 +17,21 @@ import type {
 } from '../../../scheme/pagination.js';
 import type { BulkToolOutput } from '../../../types/toolOutput.js';
 
-const requiredLineHintField = clampedInt(1, 1_000_000_000).describe(
-  '1-based source line for symbol-anchored semantic operations. Get it from search/localSearchCode, structural AST captures, or documentSymbols; never guess.'
-);
+const requiredLineHintField = clampedInt(1, 1_000_000_000);
 const orderHintField = clampedInt(0, 100_000).optional();
 
 const SEMANTIC_OUTPUT_FORMATS = ['structured', 'compact'] as const;
 
 const queryOverrides = {
-  type: z
-    .enum(SEMANTIC_CONTENT_TYPES)
-    .default('definition')
-    .describe(
-      'Semantic operation for local code intelligence. Use after text or structural AST search when you need identity, references, call flow, type relations, hover, symbols, or diagnostics.'
-    ),
-  symbolName: z
-    .string()
-    .min(1)
-    .max(1024)
-    .optional()
-    .describe(
-      'Exact bare identifier at the lineHint anchor for symbol operations; workspaceSymbol uses this as the fuzzy project-wide symbol query.'
-    ),
+  type: z.enum(SEMANTIC_CONTENT_TYPES).default('definition'),
+  symbolName: z.string().min(1).max(1024).optional(),
   lineHint: requiredLineHintField.optional(),
   orderHint: orderHintField,
-  depth: clampedInt(0, LOCAL_MAX_DEPTH)
-    .optional()
-    .describe(
-      'Traversal depth for call-hierarchy / type-hierarchy queries (0 = direct only).'
-    ),
+  depth: clampedInt(0, LOCAL_MAX_DEPTH).optional(),
   includeDeclaration: z.boolean().optional().default(true),
-  page: relaxedPageNumberField.describe(
-    'Result page for paginated reference/symbol lists (advance while pagination.hasMore).'
-  ),
-  itemsPerPage: clampedInt(1, 100)
-    .optional()
-    .describe('References/symbols returned per page (with page).'),
-  contextLines: clampedInt(0, 100)
-    .optional()
-    .describe('Lines of surrounding source shown around each result location.'),
+  page: relaxedPageNumberField,
+  itemsPerPage: clampedInt(1, 100).optional(),
+  contextLines: clampedInt(0, 100).optional(),
   format: z.enum(SEMANTIC_OUTPUT_FORMATS).optional().default('structured'),
 } as const;
 

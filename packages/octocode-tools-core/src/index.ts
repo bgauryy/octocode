@@ -97,6 +97,11 @@ export * from './tools/package_search/scheme.js';
 export * from './tools/providerExecution.js';
 export * from './tools/providerMappers.js';
 export * from './tools/toolConfig.js';
+export type {
+  ToolConfig,
+  ToolDirectExecutionConfig,
+  ToolDirectSecurity,
+} from './tools/toolCatalogFactory.js';
 export * from './tools/toolMetadata/baseSchema.js';
 export * from './tools/toolMetadata/descriptions.js';
 export * from './tools/toolMetadata/gateway.js';
@@ -117,14 +122,23 @@ export {
   GitHubReposSearchSingleQuerySchema,
   GitHubViewRepoStructureQuerySchema,
   ListReleasesQuerySchema,
+  LocalAnalyzeGraphQuerySchema,
   NpmPackageQuerySchema,
   RipgrepQuerySchema,
   SearchCommitsQuerySchema,
   SearchDiscussionsQuerySchema,
   SearchIssuesQuerySchema,
   SearchPullRequestsQuerySchema,
+  ToolOutputSchema,
+  ToolResultMetaSchema,
+  ToolResultRowSchema,
+  LspGetSemanticsQuerySchema,
   ViewStructureQuerySchema,
+  findToolOutputSchema,
   findToolSchema,
+  getToolOutputFields,
+  getToolSchemaVariants,
+  toolOutputSchemas,
   toolSchemas,
 } from './toolContract/schemas.js';
 export * from './tools/utils.js';
@@ -165,6 +179,7 @@ export * from './utils/parsers/diff.js';
 export * from './utils/parsers/schemas.js';
 export * from './utils/response/bulk.js';
 export * from './utils/response/callToolResult.js';
+export * from './utils/response/normalizedError.js';
 export * from './utils/response/charSavings.js';
 export * from './utils/response/error.js';
 export * from './utils/response/groupedFinalizer.js';

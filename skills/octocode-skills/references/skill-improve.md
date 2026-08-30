@@ -27,6 +27,7 @@ Load when improving, refactoring, or rewriting any Agent Skill — including thi
 - Every capability: same-line **when** + **why** to a ref or script.
 - Refs: one short H1, one concept, ≤50 lines. Skill→ref and ref→ref OK.
 - Scripts: deterministic work; list each with when/why.
+- Outputs: chat stays in chat; generated artifacts stay under `<workspace>/.octocode/`; source/install/config mutations keep their approved targets; no user-level artifact fallback.
 
 ## Improve loop
 

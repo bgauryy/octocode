@@ -9,6 +9,8 @@ Produce evidence-backed decisions that an implementer and reviewer can execute.
 Flow: `UNDERSTAND → RESEARCH → PREREQUISITES → COMPARE → WRITE → CLOSE QUESTIONS → KPI → VALIDATE → DELIVER`.
 For existing RFCs, run `REASSESS` (see `references/workflow.md` § Reassess existing RFCs) instead of WRITE — audit against live code, not prior checkboxes.
 
+Workspace output contract: chat-only proposals stay in chat. Saved RFC artifacts stay under `<workspace>/.octocode/rfc/`; scratch data uses `<workspace>/.octocode/tmp/octocode-rfc-generator/`. User-approved source edits keep their named paths. Never fall back to a user-level Octocode home for artifacts.
+
 ## Lobby rules
 - Skip RFC mode for trivial edits. Ask one focused question when uncertainty changes shape, owner, scope, or decision criteria.
 - Compare at least two alternatives, including do-nothing, unless the user explicitly requests one implementation plan.
@@ -33,9 +35,9 @@ For existing RFCs, run `REASSESS` (see `references/workflow.md` § Reassess exis
 - When defining acceptance and KPI targets, load `references/rfc-kpi.md` — connect user stories, metrics, decision rules, and verification in a traceability matrix.
 - When preserving sources, load `references/rfc-resources.md` — record provenance without moving decisive citations out of the RFC.
 - When you reassess, rate, or clean up an existing RFC, load `references/rfc-audit.md` — the dated `## Audit Reasoning` block, with live-code evidence, is required before any keep/fix/delete call.
-- When improving this skill, prefer `octocode-graph-eval`; otherwise load `references/improve-loop.md` — enforce measurable accept/revert.
+- When improving this skill, prefer `octocode-eval-benchmark`; otherwise load `references/improve-loop.md` — enforce measurable accept/revert.
 
 ## Related routes and verification
-- Use `octocode-brainstorming` before RFC when worth-building is unresolved; `octocode-research` to close factual questions; `octocode-graph-eval` for KPI rigor.
+- Use `octocode-brainstorming` before RFC when worth-building is unresolved; `octocode-research` to close factual questions; `octocode-eval-benchmark` for KPI rigor.
 - Use `octocode-skills` when changing this skill folder.
 - Before delivery validate the document contract section by section and report the real result.

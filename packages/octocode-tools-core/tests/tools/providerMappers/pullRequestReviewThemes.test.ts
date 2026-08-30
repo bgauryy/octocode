@@ -115,4 +115,27 @@ describe('ghSearchPullRequests reviewSummary.themes — ground-truth review stat
     };
     expect(pr.reviewSummary?.themes).toEqual(['discussion']);
   });
+
+  it('reports the total commenter count when the preview is bounded', () => {
+    const comments = Array.from({ length: 10 }, (_, index) => ({
+      author: `reviewer-${index}`,
+      body: 'review comment',
+      createdAt: '2026-01-02T00:00:00Z',
+      updatedAt: '2026-01-02T00:00:00Z',
+    }));
+    const result = mapPullRequestProviderResultData({
+      items: [basePr({ comments })],
+    } as never);
+
+    const pr = result.pullRequests[0] as {
+      reviewSummary?: {
+        commenters: string[];
+        commenterCount: number;
+        commentersTruncated?: true;
+      };
+    };
+    expect(pr.reviewSummary?.commenters).toHaveLength(8);
+    expect(pr.reviewSummary?.commenterCount).toBe(10);
+    expect(pr.reviewSummary?.commentersTruncated).toBe(true);
+  });
 });

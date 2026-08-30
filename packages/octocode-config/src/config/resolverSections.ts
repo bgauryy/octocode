@@ -77,13 +77,10 @@ export function resolveLocal(
   const envWorkspaceRoot = process.env.WORKSPACE_ROOT?.trim() || undefined;
 
   return {
-    // Local tools default is surface-specific: ENABLED for the CLI, DISABLED
-    // for the MCP server. An explicit ENABLE_LOCAL (env) or .octocoderc value
-    // wins for both surfaces, so `true` enables and `false` disables everywhere.
+    // Local tools default to enabled on every surface. An explicit
+    // ENABLE_LOCAL (env) or .octocoderc value wins, so `false` disables them.
     enabled:
-      envEnableLocal ??
-      fileConfig?.enabled ??
-      (isCli ? true : DEFAULT_LOCAL_CONFIG.enabled),
+      envEnableLocal ?? fileConfig?.enabled ?? DEFAULT_LOCAL_CONFIG.enabled,
     // Clone: an explicit ENABLE_CLONE (env) or .octocoderc value wins for both
     // surfaces, so `false` disables everywhere. Otherwise the default is
     // surface-specific: ENABLED for the CLI, DISABLED for the MCP server.
@@ -106,16 +103,11 @@ export function resolveTools(
   fileConfig?: OctocodeConfig['tools']
 ): RequiredToolsConfig {
   const envToolsToRun = parseStringArrayEnv(process.env.TOOLS_TO_RUN);
-  const envEnableTools = parseStringArrayEnv(process.env.ENABLE_TOOLS);
   const envDisableTools = parseStringArrayEnv(process.env.DISABLE_TOOLS);
 
   return {
     enabled:
       envToolsToRun ?? fileConfig?.enabled ?? DEFAULT_TOOLS_CONFIG.enabled,
-    enableAdditional:
-      envEnableTools ??
-      fileConfig?.enableAdditional ??
-      DEFAULT_TOOLS_CONFIG.enableAdditional,
     disabled:
       envDisableTools ?? fileConfig?.disabled ?? DEFAULT_TOOLS_CONFIG.disabled,
   };

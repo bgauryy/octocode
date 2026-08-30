@@ -45,7 +45,7 @@ export async function showAvailableTools(): Promise<void> {
   }
 
   console.log(
-    `  ${bold('SCHEMA')}  ${c('yellow', 'tools <name> --scheme')}  ${dim('# required before raw calls')}`
+    `  ${bold('SCHEMA')}  ${c('yellow', 'tools <name> --scheme')}  ${dim('# inspect before unfamiliar/raw calls')}`
   );
   console.log(
     `  ${bold('RUN')}     ${c('yellow', "tools <name> --queries '<json>' --compact")}  ${dim('# lean tool output')}`
@@ -54,6 +54,8 @@ export async function showAvailableTools(): Promise<void> {
     `  ${bold('JSON')}    ${c('yellow', 'tools --json --compact')}  ${dim('# lean machine catalog')}`
   );
   console.log();
-  console.log(`  ${dim('Full protocol: context  |  Help: tools <name>')}`);
+  console.log(
+    `  ${dim('Full protocol: context --full  |  Help: tools <name>')}`
+  );
   console.log();
 }

@@ -46,7 +46,6 @@ await esbuild.build({
   ...shared,
   entryPoints: ['src/cli.ts'],
   outfile: 'dist/cli.js',
-  banner: { js: '#!/usr/bin/env node' },
 });
 
 // Generate TypeScript declarations (uses workspace tsc, not global PATH).

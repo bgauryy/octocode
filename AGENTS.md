@@ -13,7 +13,7 @@ This monorepo is the platform. Use what we ship — do not reinvent with host de
 | npm lookup | `npmSearch` | ad-hoc registry curls |
 | Unified research | raw `tools <name>` invocation (CLI or MCP) | hand-rolled multi-tool scripts |
 | Research / review / change flows | `octocode-research` skill | inventing search loops |
-| Measure “did this help?” / keep-discard | `octocode-graph-eval` skill | vibe acceptance / editing graders to pass |
+| Measure “did this help?” / keep-discard | `octocode-eval-benchmark` skill | vibe acceptance / editing graders to pass |
 | Offload low-risk bulk to local Ollama | `octocode-subagent` (`references/local-ollama.md`) | cloud-only token burn / inventing Ollama loops |
 | After a package change | rebuild → real CLI / MCP / skill path | claim done from compile alone |
 
@@ -56,11 +56,11 @@ External (not in this workspace): `@octocodeai/octocode-core` (sibling `octocode
 
 Full field-level reference: [`docs/OCTOCODE_TOOLS.md`](docs/OCTOCODE_TOOLS.md). Live catalog: `$OCTO tools --json`; read `$OCTO tools <name> --scheme --json --compact` before calling a tool. Compact schemas include `relations` for conditional and mutually exclusive fields.
 
-**Default catalog (15)** — dogfood these via MCP or local CLI (plus 2 opt-in GitHub tools):
+**Full discovery catalog (17)** — releases and Discussions are opt-in through `ENABLE_RELEASES` and `ENABLE_DISCUSSIONS`; MCP also gates cloning with `ENABLE_CLONE`:
 
 | Family | Tools | Role |
 |---|---|---|
-| GitHub | `ghSearchCode` · `ghGetFileContent` · `ghViewRepoStructure` · `ghSearchRepos` · `ghSearchPullRequests` · `ghSearchIssues` · `ghSearchCommits` · `ghListReleases` *(opt-in: `ENABLE_RELEASES`)* · `ghSearchDiscussions` *(opt-in: `ENABLE_DISCUSSIONS`)* · `ghCloneRepo` | Remote code/path search, file read, tree, repo discovery, PR search, issue search, commit history/compare, releases, discussions, clone (`ENABLE_CLONE` for clone) |
+| GitHub | `ghSearchCode` · `ghGetFileContent` · `ghViewRepoStructure` · `ghSearchRepos` · `ghSearchPullRequests` · `ghSearchIssues` · `ghSearchCommits` · `ghListReleases` · `ghSearchDiscussions` · `ghCloneRepo` | Remote code/path search, file read, tree, repo discovery, PR search, issue search, commit history/compare, releases (`ENABLE_RELEASES`), discussions (`ENABLE_DISCUSSIONS`), clone (`ENABLE_CLONE` on MCP) |
 | Package | `npmSearch` | npm package lookup + source repo |
 | Local | `localSearchCode` · `localViewStructure` · `localFindFiles` · `localGetFileContent` | Text (text/regex/AST), tree, find-by-meta, file read (`ENABLE_LOCAL=false` disables the family) |
 | Graph | `localAnalyzeGraph` | Bounded file-graph operations: dependencies, dependents, shortest path, cycles/SCCs, reachability, and dead-code candidates |

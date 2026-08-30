@@ -1,6 +1,5 @@
 export interface ResearchFields {
-  mainResearchGoal?: string;
-  researchGoal?: string;
+  goal?: string;
   reasoning?: string;
 }
 
@@ -18,11 +17,8 @@ function extractResearchFieldsFromQuery(
   query: Record<string, unknown>
 ): ResearchFields {
   const fields: ResearchFields = {};
-  if (typeof query.mainResearchGoal === 'string' && query.mainResearchGoal) {
-    fields.mainResearchGoal = query.mainResearchGoal;
-  }
-  if (typeof query.researchGoal === 'string' && query.researchGoal) {
-    fields.researchGoal = query.researchGoal;
+  if (typeof query.goal === 'string' && query.goal) {
+    fields.goal = query.goal;
   }
   if (typeof query.reasoning === 'string' && query.reasoning) {
     fields.reasoning = query.reasoning;
@@ -39,22 +35,17 @@ export function extractResearchFields(
     return extractResearchFieldsFromQuery(params);
   }
 
-  const mainGoals = new Set<string>();
   const goals = new Set<string>();
   const reasonings = new Set<string>();
 
   for (const query of queries) {
     const fields = extractResearchFieldsFromQuery(query);
-    if (fields.mainResearchGoal) mainGoals.add(fields.mainResearchGoal);
-    if (fields.researchGoal) goals.add(fields.researchGoal);
+    if (fields.goal) goals.add(fields.goal);
     if (fields.reasoning) reasonings.add(fields.reasoning);
   }
 
   return {
-    ...(mainGoals.size > 0 && {
-      mainResearchGoal: Array.from(mainGoals).join('; '),
-    }),
-    ...(goals.size > 0 && { researchGoal: Array.from(goals).join('; ') }),
+    ...(goals.size > 0 && { goal: Array.from(goals).join('; ') }),
     ...(reasonings.size > 0 && {
       reasoning: Array.from(reasonings).join('; '),
     }),

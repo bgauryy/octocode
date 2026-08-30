@@ -23,6 +23,13 @@ export const DEFAULT_DEAD_CODE_EXCLUDE_DIRS = [
   '.cache',
 ];
 
+/** Keep generated/vendor defaults while allowing callers to add repo-specific exclusions. */
+export function resolveGraphExcludeDirs(
+  custom: readonly string[] | undefined
+): string[] {
+  return [...new Set([...DEFAULT_DEAD_CODE_EXCLUDE_DIRS, ...(custom ?? [])])];
+}
+
 export interface WalkResult {
   facts: Map<string, FileFacts>;
   fileGraph: Map<string, FileNode>;
@@ -87,6 +94,7 @@ interface RawGraphFacts {
     localName: string;
     importedName: string;
     line: number;
+    importKind?: string;
   }>;
   calls?: Array<{ caller: string; callee: string; kind?: string }>;
   exports?: Array<{
@@ -207,6 +215,7 @@ export function buildFileGraph(
         localName: exp.localName ?? exp.name,
         importedName: exp.name,
         line: exp.line,
+        importKind: 'value' as const,
       }));
 
     // String-literal dynamic `import('./x')` specifiers resolve to a file the
@@ -225,6 +234,7 @@ export function buildFileGraph(
         localName: i.localName,
         importedName: i.importedName,
         line: i.line,
+        importKind: i.importKind === 'type' ? 'type' : 'value',
       })),
       namedReexports,
       calls: (parsed.calls ?? [])
@@ -253,7 +263,11 @@ export function buildFileGraph(
         knownFiles,
         workspacePackageExports
       );
-      if (target && target !== relativePath) addEdge(target, 'static-import');
+      if (target)
+        addEdge(
+          target,
+          imp.importKind === 'type' ? 'type-import' : 'static-import'
+        );
     }
     for (const reexport of fileFacts.namedReexports) {
       const target = resolveImportSpecifier(
@@ -262,7 +276,7 @@ export function buildFileGraph(
         knownFiles,
         workspacePackageExports
       );
-      if (target && target !== relativePath) addEdge(target, 'named-reexport');
+      if (target) addEdge(target, 'named-reexport');
     }
     for (const specifier of dynamicImportSpecifiers) {
       const target = resolveImportSpecifier(
@@ -271,7 +285,7 @@ export function buildFileGraph(
         knownFiles,
         workspacePackageExports
       );
-      if (target && target !== relativePath) {
+      if (target) {
         addEdge(target, 'dynamic-import');
         dynamicImportTargets.add(target);
       }
@@ -284,7 +298,7 @@ export function buildFileGraph(
         knownFiles,
         workspacePackageExports
       );
-      if (target && target !== relativePath) {
+      if (target) {
         addEdge(target, 'star-reexport');
         starReexportTargets.add(target);
         const list = starReexporters.get(target) ?? [];

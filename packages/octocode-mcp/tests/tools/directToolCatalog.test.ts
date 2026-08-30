@@ -67,16 +67,15 @@ describe('directToolCatalog', () => {
   it('exposes MCP-owned auto-filled field labels per tool category', () => {
     expect(
       getDirectToolAutoFilledFields(STATIC_TOOL_NAMES.GITHUB_SEARCH_CODE)
-    ).toEqual(['id', 'mainResearchGoal', 'researchGoal', 'reasoning']);
+    ).toEqual(['goal', 'reasoning']);
     expect(
       getDirectToolAutoFilledFields(STATIC_TOOL_NAMES.PACKAGE_SEARCH)
-    ).toEqual(['id', 'mainResearchGoal', 'researchGoal', 'reasoning']);
+    ).toEqual(['goal', 'reasoning']);
     expect(
       getDirectToolAutoFilledFields(STATIC_TOOL_NAMES.LOCAL_RIPGREP)
-    ).toEqual(['id', 'researchGoal', 'reasoning']);
+    ).toEqual(['goal', 'reasoning']);
     expect(getDirectToolAutoFilledFields(LSP_GET_SEMANTICS_TOOL_NAME)).toEqual([
-      'id',
-      'researchGoal',
+      'goal',
       'reasoning',
     ]);
   });
@@ -183,14 +182,14 @@ describe('directToolCatalog', () => {
       expect.objectContaining({
         queries: [
           expect.objectContaining({
-            id: `${STATIC_TOOL_NAMES.LOCAL_RIPGREP}-1`,
             regex: 'fixed',
-            researchGoal: `Execute ${STATIC_TOOL_NAMES.LOCAL_RIPGREP} via unit-test`,
+            goal: `Execute ${STATIC_TOOL_NAMES.LOCAL_RIPGREP} via unit-test`,
             reasoning: 'Executed via unit-test tool command',
           }),
         ],
       })
     );
+    expect(single.queries[0]).not.toHaveProperty('id');
 
     const bulk = prepareDirectToolInputFromJsonText(
       STATIC_TOOL_NAMES.LOCAL_RIPGREP,
@@ -215,9 +214,7 @@ describe('directToolCatalog', () => {
     const prepared = prepareDirectToolInput(
       STATIC_TOOL_NAMES.GITHUB_SEARCH_CODE,
       {
-        id: 'custom-id',
-        mainResearchGoal: 'main',
-        researchGoal: 'goal',
+        goal: 'goal',
         reasoning: 'because',
         keywords: ['directToolCatalog'],
         limit: 1,
@@ -228,12 +225,11 @@ describe('directToolCatalog', () => {
 
     expect(prepared.queries[0]).toEqual(
       expect.objectContaining({
-        id: 'custom-id',
-        mainResearchGoal: 'main',
-        researchGoal: 'goal',
+        goal: 'goal',
         reasoning: 'because',
       })
     );
+    expect(prepared.queries[0]).not.toHaveProperty('id');
 
     const defaulted = prepareDirectToolInput(
       STATIC_TOOL_NAMES.GITHUB_SEARCH_CODE,
@@ -247,7 +243,7 @@ describe('directToolCatalog', () => {
 
     expect(defaulted.queries[0]).toEqual(
       expect.objectContaining({
-        mainResearchGoal: `Execute ${STATIC_TOOL_NAMES.GITHUB_SEARCH_CODE} via unit-test`,
+        goal: `Execute ${STATIC_TOOL_NAMES.GITHUB_SEARCH_CODE} via unit-test`,
       })
     );
   });

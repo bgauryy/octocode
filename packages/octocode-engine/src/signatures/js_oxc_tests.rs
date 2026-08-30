@@ -71,6 +71,25 @@ fn extracts_graph_facts_for_imports_exports_and_calls() {
 }
 
 #[test]
+fn distinguishes_declaration_and_specifier_level_type_imports() {
+    let src = "import type { Whole } from './whole';\nimport { type Shape, value } from './mixed';\n";
+    let v = graph(src, "main.ts");
+    let imports = v["imports"].as_array().unwrap();
+    let kinds = imports
+        .iter()
+        .map(|item| {
+            (
+                item["localName"].as_str().unwrap(),
+                item["importKind"].as_str().unwrap(),
+            )
+        })
+        .collect::<std::collections::HashMap<_, _>>();
+    assert_eq!(kinds.get("Whole"), Some(&"type"));
+    assert_eq!(kinds.get("Shape"), Some(&"type"));
+    assert_eq!(kinds.get("value"), Some(&"value"));
+}
+
+#[test]
 fn extracts_string_literal_dynamic_import_as_a_dynamic_import_call() {
     // A dynamic `import('./mod.js')` with a string-literal source must be
     // captured so the dead-code graph can treat the target as reachable —

@@ -11,8 +11,8 @@
  */
 import type { LocalSearchCodeFile } from '@octocodeai/octocode-core/types';
 
-import type { RankingProfileId, RankSort } from './rankingProfiles.js';
-import { COMMENT_LINE, RANK_CANDIDATE_CAP } from './rankingProfiles.js';
+import type { RankSort } from './rankingProfiles.js';
+import { RANK_CANDIDATE_CAP } from './rankingProfiles.js';
 import type { FileScore, RankContext } from './rankingScoring.js';
 import {
   buildCandidateTermRarity,
@@ -123,108 +123,4 @@ function compareByMatchCount(
   const delta = (b.matchCount ?? 0) - (a.matchCount ?? 0);
   if (delta !== 0) return delta;
   return a.path.localeCompare(b.path);
-}
-
-export function matchesAny(patterns: readonly RegExp[], line: string): boolean {
-  for (const re of patterns) if (re.test(line)) return true;
-  return false;
-}
-
-export function escapeRegex(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
-/** A search whose keyword is a single bare identifier — the only case where
- * whole-word/substring line-exactness is meaningful (regex/multi-term patterns
- * make the extracted token an arbitrary fragment). */
-export function isPlainIdentifierKeyword(keyword?: string): boolean {
-  return !!keyword && /^[A-Za-z_$][\w$]*$/.test(keyword.trim());
-}
-
-/** Pick the line within a (possibly multi-line context) snippet that actually
- * contains the query token; fall back to the first non-empty line. */
-export function matchedLineOf(
-  snippet: string,
-  token: string | undefined,
-  caseSensitive?: boolean
-): string {
-  const newline = snippet.indexOf('\n');
-  if (newline < 0) return snippet;
-  const lines = snippet.split('\n');
-  if (token) {
-    const needle = caseSensitive ? token : token.toLowerCase();
-    for (const ln of lines) {
-      const hay = caseSensitive ? ln : ln.toLowerCase();
-      if (hay.includes(needle)) return ln;
-    }
-  }
-  return lines.find(l => l.trim().length > 0) ?? lines[0] ?? '';
-}
-
-type LexicalCategory = 'comment' | 'string' | 'code';
-
-/** Best-effort lexical category of the token's occurrence on a single line.
- * Deterministic and conservative — used only in the regex fallback path when
- * the engine's grammar-accurate AST kind is unavailable. */
-export function lexicalCategoryOf(
-  line: string,
-  token: string | undefined,
-  profileId: RankingProfileId,
-  caseSensitive?: boolean
-): LexicalCategory {
-  // Markdown: `#`/`*`/`//` are headings/bullets/text, not comments — only the
-  // HTML comment counts. Prose is treated as code so heading scoring can run.
-  if (profileId === 'markdown') {
-    return /<!--/.test(line) ? 'comment' : 'code';
-  }
-  // JSON has no comments, and its keys are quoted strings — string-gating would
-  // wrongly suppress config-key detection. Only signal is the key-side check.
-  if (profileId === 'json') return 'code';
-  if (COMMENT_LINE.test(line)) return 'comment';
-  const idx = tokenIndexOf(line, token, caseSensitive);
-  if (idx < 0) return 'code'; // token not literally on this line (e.g. regex)
-  const commentIdx = commentStartIndex(line);
-  if (commentIdx >= 0 && idx > commentIdx) return 'comment';
-  if (isIndexInsideString(line, idx)) return 'string';
-  return 'code';
-}
-
-function tokenIndexOf(
-  line: string,
-  token: string | undefined,
-  caseSensitive?: boolean
-): number {
-  if (!token) return -1;
-  return caseSensitive
-    ? line.indexOf(token)
-    : line.toLowerCase().indexOf(token.toLowerCase());
-}
-
-/** Index of the first line comment marker, or -1. `#` and `--` require a
- * boundary to avoid matching `a--`, CSS hex colors, or template `#{}`. */
-function commentStartIndex(line: string): number {
-  let min = -1;
-  const take = (i: number) => {
-    if (i >= 0 && (min < 0 || i < min)) min = i;
-  };
-  for (const marker of ['//', '/*', '<!--']) take(line.indexOf(marker));
-  const hash = /(^|\s)#(?![!{])/.exec(line);
-  if (hash) take(hash.index + (hash[1]?.length ?? 0));
-  const dash = /(^|\s)--\s/.exec(line);
-  if (dash) take(dash.index + (dash[1]?.length ?? 0));
-  return min;
-}
-
-/** Whether byte index `idx` falls inside a quoted region of the line. */
-export function isIndexInsideString(line: string, idx: number): boolean {
-  let quote = '';
-  for (let i = 0; i < idx && i < line.length; i++) {
-    const c = line[i];
-    if (quote) {
-      if (c === quote && line[i - 1] !== '\\') quote = '';
-    } else if (c === '"' || c === "'" || c === '`') {
-      quote = c;
-    }
-  }
-  return quote !== '';
 }

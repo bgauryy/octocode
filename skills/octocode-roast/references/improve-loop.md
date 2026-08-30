@@ -1,8 +1,8 @@
 # Improve Loop
 
-Load when this skill folder itself needs a change and `octocode-graph-eval` is unavailable. Why: no edit ships without a measurable accept/revert criterion.
+Load when this skill folder itself needs a change and `octocode-eval-benchmark` is unavailable. Why: no edit ships without a measurable accept/revert criterion.
 
-Stub only. Full goal→KPI cascade, nested loops, graders, held-out: load **`octocode-graph-eval`**.
+Stub only. Full goal→KPI cascade, nested loops, graders, held-out: load **`octocode-eval-benchmark`**.
 
 ```text
 SET GOAL + KPI → SMALLEST CHANGE → MEASURE ACTUAL RESULTS → ACCEPT | REVERT

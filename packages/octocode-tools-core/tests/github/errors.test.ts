@@ -58,9 +58,7 @@ describe('handleGitHubAPIError - 403 rate-limit header parsing', () => {
 
 describe('handleGitHubAPIError — HTTP status routing', () => {
   it('handles 404 Not Found', () => {
-    const result = handleGitHubAPIError(
-      makeRequestError(404, 'Not Found', {})
-    );
+    const result = handleGitHubAPIError(makeRequestError(404, 'Not Found', {}));
     expect(result.error).toBeDefined();
     expect(result.status).toBe(404);
   });
@@ -140,7 +138,9 @@ describe('handleGitHubAPIError — HTTP status routing', () => {
   });
 
   it('handles Error with generic message (unknown network error)', () => {
-    const result = handleGitHubAPIError(new Error('some unknown error occurred'));
+    const result = handleGitHubAPIError(
+      new Error('some unknown error occurred')
+    );
     expect(result.error).toBeDefined();
   });
 
@@ -213,9 +213,7 @@ describe('handleGitHubAPIError — HTTP status routing', () => {
   });
 
   it('handles unknown HTTP status with empty message (uses fallback error message)', () => {
-    const result = handleGitHubAPIError(
-      makeRequestError(599, '', {})
-    );
+    const result = handleGitHubAPIError(makeRequestError(599, '', {}));
     expect(result.error).toBeDefined();
     expect(result.error.length).toBeGreaterThan(0);
   });

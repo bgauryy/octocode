@@ -1,21 +1,16 @@
-/**
- * TDD proof for Bug #1: `void toolName` in handleCatchError silently discards
- * the toolName parameter.  This file should be RED before the fix, GREEN after.
- */
+/** Error rows stay lean because the invocation envelope already names the tool. */
 import { describe, it, expect } from 'vitest';
 import { handleCatchError } from '../../src/tools/utils.js';
 
-describe('handleCatchError - Bug #1: toolName silently discarded (void toolName)', () => {
-  it('includes toolName in the error result when provided', () => {
+describe('handleCatchError — lean row-local errors', () => {
+  it('does not repeat toolName when the invocation already identifies the tool', () => {
     const result = handleCatchError(
       new Error('underlying failure'),
       {},
       undefined,
       'ghSearchCode'
     );
-    // BUG: toolName is voided in the implementation, so it never reaches the result.
-    // This assertion FAILS before the fix.
-    expect(result).toMatchObject({ toolName: 'ghSearchCode' });
+    expect(result).not.toHaveProperty('toolName');
   });
 
   it('does not include toolName key when no toolName is given', () => {

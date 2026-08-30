@@ -7,7 +7,7 @@
  *   node har-redact.mjs <in.har> [--out <out.har>] [--strip-bodies]
  */
 import { readFileSync, writeFileSync, mkdirSync } from 'fs';
-import { dirname, resolve } from 'path';
+import { basename, dirname, isAbsolute, join, relative, resolve } from 'path';
 
 const argv = process.argv.slice(2);
 const getArg = (flag, def) => {
@@ -22,7 +22,14 @@ if (!inPath || hasFlag('--help')) {
   process.exit(inPath ? 0 : 1);
 }
 
-const outPath = resolve(getArg('--out', inPath.replace(/\.har$/i, '') + '.redacted.har'));
+const workspaceOutputBase = resolve(process.cwd(), '.octocode');
+const defaultName = basename(inPath).replace(/\.har$/i, '') + '.redacted.har';
+const outPath = resolve(getArg('--out', join(workspaceOutputBase, 'tmp', 'chrome-devtools', 'redacted-har', defaultName)));
+const outRelative = relative(workspaceOutputBase, outPath);
+if (outRelative.startsWith('..') || isAbsolute(outRelative)) {
+  console.error(`--out must stay under ${workspaceOutputBase}`);
+  process.exit(2);
+}
 const stripBodies = hasFlag('--strip-bodies');
 const SECRET_HEADER = /^(cookie|set-cookie|authorization|proxy-authorization|x-api-key|x-auth-token|x-csrf-token)$/i;
 const SECRET_QUERY = /token|key|secret|session|auth|password|signature|jwt/i;

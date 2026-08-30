@@ -39,33 +39,14 @@ export function createRelaxedBulkQuerySchema(
   const { maxQueries = 5 } = options;
   // Strip unknown envelope keys instead of rejecting them, so a stray/legacy
   // top-level field never hard-fails the whole bulk call with a schema mismatch.
-  return z
-    .object({
-      queries: z
-        .array(querySchema)
-        .min(1)
-        .max(maxQueries)
-        .describe('Parallel queries.'),
-      ...responsePaginationFields,
-    })
-    .superRefine((data, ctx) => {
-      const ids = new Set<string>();
-      data.queries.forEach((q: unknown, idx) => {
-        if (
-          q &&
-          typeof q === 'object' &&
-          'id' in q &&
-          typeof q.id === 'string'
-        ) {
-          if (ids.has(q.id)) {
-            ctx.addIssue({
-              code: 'custom',
-              message: `Duplicate query id "${q.id}" at index ${idx}`,
-              path: ['queries', idx, 'id'],
-            });
-          }
-          ids.add(q.id);
-        }
-      });
-    });
+  return z.object({
+    queries: z
+      .array(querySchema)
+      .min(1)
+      .max(maxQueries)
+      .describe(
+        'Parallel queries; response rows use matching zero-based indexes.'
+      ),
+    ...responsePaginationFields,
+  });
 }
