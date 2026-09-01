@@ -27,7 +27,7 @@ describe('cross-tool field disambiguation (mode/match/keywords/filesOnly)', () =
     expect(desc).toContain('Operation:"code"');
   });
 
-  it('ghSearchPullRequests match distinguishes ghSearch code; issueNumber is described', () => {
+  it('history match distinguishes ghSearch code; issueNumber is described', () => {
     const matchDesc = fieldDescription(
       GitHubPullRequestSearchQueryLocalSchema,
       'match'
@@ -43,7 +43,8 @@ describe('cross-tool field disambiguation (mode/match/keywords/filesOnly)', () =
 
   it('keeps the local lexical-pattern description self-contained', () => {
     const modeDesc = fieldDescription(LocalRipgrepQuerySchema, 'mode');
-    expect(modeDesc).toContain('ghSearchPullRequests');
+    expect(modeDesc).toContain('structural');
+    expect(modeDesc).not.toContain('ghSearchPullRequests');
     expect(modeDesc).not.toContain('localBinaryInspect');
 
     const searchTextDesc = fieldDescription(

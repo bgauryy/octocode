@@ -12,7 +12,7 @@ npx octocode tools <toolName> --scheme --json --compact
 
 | Family | Tools |
 |--------|-------|
-| GitHub | `ghSearch`, `ghGetFileContent`, `ghSearchHistory`, `ghGetHistoryItem`, `ghListReleases` *(opt-in)*, `ghSearchDiscussions` *(opt-in)*, `ghCloneRepo` |
+| GitHub | `ghSearch`, `ghGetFileContent`, `ghSearchHistory`, `ghGetHistoryItem`, `ghCloneRepo` |
 | Packages | `npmSearch` |
 | Local | `localSearch`, `localGetFileContent`, `localAnalyzeGraph` |
 | LSP | `lspGetSemantics` |
@@ -44,10 +44,8 @@ Concise reference for Octocode MCP remote research tools: GitHub code/repo/PR se
 | `GITHUB_API_URL` | GitHub Enterprise API base URL. |
 | `ENABLE_LOCAL` | Turns local tools on or off. Defaults to `true` on both CLI and MCP. |
 | `ENABLE_CLONE` | Controls `ghCloneRepo` and `ghGetFileContent(type="directory")`. Defaults to `true`; set `false` to disable them. |
-| `ENABLE_RELEASES` | Turns on `ghListReleases`. Defaults to `false`. |
-| `ENABLE_DISCUSSIONS` | Turns on `ghSearchDiscussions`. Defaults to `false`. |
 
-Every tool accepts bulk input (`{ "queries": [...] }`), up to 5 queries per call. Page-based tools use `page` and `pageSize`; `limit` is a pre-pagination cap where that distinct control exists. When more results remain, run the matching schema-valid `next.*` call: `nextPage`/`nextMatchPage`, `expandLimit`/`expandScan`, or a line/character continuation. At an unexpandable public or provider cap, metadata reports `terminalLimitReached` and omits unusable continuations. Numeric page, offset, cursor, and raw `nextQuery` fields are not executable by themselves. `matchString` is a complete all-matches selector, while explicit line/character windows continue independently. Discussions uses an opaque `after` cursor. `ghCloneRepo` is atomic and does not paginate its input. Use `npx octocode tools <toolName> --scheme --json --compact` for the exact active schema and operation scopes.
+Every tool accepts bulk input (`{ "queries": [...] }`), up to 5 queries per call. Page-based tools use `page` and `pageSize`; `limit` is a pre-pagination cap where that distinct control exists. When more results remain, run the matching schema-valid `next.*` call: `nextPage`/`nextMatchPage`, `expandLimit`/`expandScan`, or a line/character continuation. At an unexpandable public or provider cap, metadata reports `terminalLimitReached` and omits unusable continuations. Numeric page, offset, cursor, and raw `nextQuery` fields are not executable by themselves. `matchString` is a complete all-matches selector, while explicit line/character windows continue independently. `ghCloneRepo` is atomic and does not paginate its input. Use `npx octocode tools <toolName> --scheme --json --compact` for the exact active schema and operation scopes.
 
 Search match values and provider text snippets are evidence previews, not collection pagination. A preview may abbreviate visible text only when it retains exact path/line locators and an executable exact-read route; structural capture reduction is explicitly typed with `capturesTruncated` and an executable `next.expandCaptures` replay.
 
@@ -61,8 +59,6 @@ Search match values and provider text snippets are evidence previews, not collec
 | Discover repositories | `ghSearch` with `operation: "repositories"` |
 | Search PRs, issues, or commits | `ghSearchHistory` with `operation: "pullRequests"`, `"issues"`, or `"commits"` |
 | Inspect one PR, issue, commit, or ref comparison | `ghGetHistoryItem` with `operation: "pullRequest"`, `"issue"`, `"commit"`, or `"compare"` |
-| List releases | `ghListReleases` |
-| Search a repository's discussions | `ghSearchDiscussions` |
 | Materialize a repo/subtree locally | `ghCloneRepo` |
 | Resolve npm package to source repository | `npmSearch` |
 
@@ -197,46 +193,6 @@ identity is the `base` + `head` pair.
 
 Request selected PR patches instead of every patch for large PRs, and leave
 commit diffs off until the relevant commit is known.
-
-### `ghListReleases`
-
-List releases plus the latest stable, with opt-in assets.
-
-Key fields:
-
-| Field | Meaning |
-|-------|---------|
-| `owner`, `repo` | Required repository. |
-| `includeAssets` | Opt-in; adds `assets[]` with name, size, downloadCount, url. |
-| `page`, `pageSize` | Pagination. |
-
-Examples:
-
-```json
-{ "owner": "vercel", "repo": "next.js" }
-{ "owner": "vercel", "repo": "next.js", "includeAssets": true }
-```
-
-### `ghSearchDiscussions`
-
-Search a repository's GitHub Discussions (Q&A, RFCs, announcements). GraphQL-only.
-
-Key fields:
-
-| Field | Meaning |
-|-------|---------|
-| `owner`, `repo` | Required repository. |
-| `keywords` | Optional `string[]`; filters title/body. Omit to list newest. |
-| `pageSize`, `after` | Pagination (`after` is a cursor). |
-
-Returns `totalCount` and `discussions[]` (number, title, url, author, category, createdAt, comments, `answered:true` for accepted Q&A answers) with cursor `pagination.nextCursor`.
-
-Examples:
-
-```json
-{ "owner": "vercel", "repo": "next.js" }
-{ "owner": "vercel", "repo": "next.js", "keywords": ["app router"] }
-```
 
 ### `ghCloneRepo`
 
@@ -828,10 +784,10 @@ Required fields:
 
 | Field | Required | Notes |
 |-------|----------|-------|
-| `uri` or `filePath` | Yes | Absolute local file path. `filePath` is an alias for `uri`. |
+| `uri` | Yes, except `workspaceSymbol` | Absolute local file path. |
 | `type` | No | Defaults to `definition`. |
-| `symbolName` | Yes except `documentSymbols` | Exact symbol text at the target line. |
-| `lineHint` | Yes except `documentSymbols` | 1-based line number from search results. |
+| `symbolName` | For anchored operations and `workspaceSymbol` | Exact symbol text at the target line. |
+| `lineHint` | For anchored operations | 1-based line number from search results. |
 
 Optional fields:
 
@@ -1302,7 +1258,7 @@ Step 4: Find files by metadata
 | Behavior | Details |
 |----------|---------|
 | **Materialization TTL** | Clone and tree entries use 24 hours by default (configurable through `OCTOCODE_CACHE_TTL_MS`) |
-| **Shared response cache** | `ghSearch`, `ghSearchHistory`, `ghGetHistoryItem`, `ghListReleases`, `ghSearchDiscussions`, and `npmSearch` use per-response freshness periods from 5 minutes to 24 hours |
+| **Shared response cache** | `ghSearch`, `ghSearchHistory`, `ghGetHistoryItem`, and `npmSearch` use per-response freshness periods from 5 minutes to 24 hours |
 | **Conditional cache** | `ghGetFileContent` and the `ghSearch` tree operation retain response bodies and ETags for conditional refresh; stale bodies can remain available for up to 24 hours |
 | **Response marker** | A result whose primary response payload was served from cache includes `cache: 1`. Fresh results and helper-only cache hits omit `cache`; no other marker value is valid. The contract is identical in CLI and MCP output. |
 | **Clone cache** | `ghCloneRepo` uses the clone/materialization cache |
@@ -1469,30 +1425,6 @@ Primary code: [packages/octocode-tools-core/src/tools/github_search_pull_request
 | Identity | PR and issue require `number`; commit requires `ref`; compare requires both `base` and `head`. |
 | Detail | Requested PR body/patches/comments/reviews/commits, issue body/comments, commit diff, and compare counts are returned only by their matching operation. |
 | Research quality | Every result preserves repository plus stable item identity, and large detail payloads provide a targeted follow-up rather than an unusable dump. |
-
-#### Verify `ghListReleases`
-
-Primary code: [packages/octocode-tools-core/src/tools/github_search_pull_requests/](https://github.com/bgauryy/octocode/tree/main/packages/octocode-tools-core/src/tools/github_search_pull_requests). Schema: `ListReleasesLocalSchema`.
-
-| Surface | Checks |
-| --- | --- |
-| Params | Verify required owner/repo, `page`, `pageSize`, and `includeAssets`. |
-| Implementation | Returns releases plus latest stable; `includeAssets` adds `assets[]` with name, size, downloadCount, and url. |
-| Pagination | Release list pages with `pageSize`/`page`. |
-| Empty | Repos with no releases return empty with owner/repo context, not an error. |
-| Research quality | Each release must expose tag, name, publish date, prerelease/draft flags, and assets when requested. |
-
-#### Verify `ghSearchDiscussions`
-
-Primary code: [packages/octocode-tools-core/src/tools/github_search_discussions/](https://github.com/bgauryy/octocode/tree/main/packages/octocode-tools-core/src/tools/github_search_discussions). Schema: `SearchDiscussionsLocalSchema`.
-
-| Surface | Checks |
-| --- | --- |
-| Params | Verify required owner/repo, optional `keywords`, `pageSize`, and `after` cursor. GraphQL-only. |
-| Implementation | Returns `totalCount` and `discussions[]`; `keywords` filters title/body, omitting it lists newest; `answered:true` marks accepted Q&A answers. |
-| Pagination | Discussion list pages with `pageSize`/`after` cursor through `pagination.nextCursor`. |
-| Empty | Repos with no matching discussions return empty with owner/repo context, not an error. |
-| Research quality | Each discussion must expose number, title, url, author, category, createdAt, and comments. |
 
 #### Verify `npmSearch`
 

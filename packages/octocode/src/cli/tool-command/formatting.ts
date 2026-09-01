@@ -19,7 +19,7 @@ const RAW_LOCAL_PATH_TOOL_NAMES = new Set([
   'localAnalyzeGraph',
 ]);
 const RAW_LOCAL_PATH_GUIDANCE =
-  'Path note: local tools need an absolute path — "." resolves against the command cwd and can mismatch.';
+  'Local path: use an absolute path; relative paths resolve from command cwd.';
 
 const DESCRIPTION_PREFIXES = new Set([
   'github',

@@ -74,14 +74,6 @@ const MINIMAL_QUERY: Record<string, Record<string, unknown>> = {
     repo: 'react',
     number: 1,
   },
-  [STATIC_TOOL_NAMES.GITHUB_RELEASES]: {
-    owner: 'facebook',
-    repo: 'react',
-  },
-  ghSearchDiscussions: {
-    owner: 'facebook',
-    repo: 'react',
-  },
   [STATIC_TOOL_NAMES.PACKAGE_SEARCH]: { packageName: 'zod' },
   [STATIC_TOOL_NAMES.GITHUB_CLONE_REPO]: {
     owner: 'facebook',
@@ -449,22 +441,12 @@ describe('all-tools schema contract', () => {
           !file.startsWith('toolMetadata/')
       );
 
-      // The in-catalog history pair and ghListReleases share history schema
-      // modules instead of a per-tool scheme.ts,
-      // instead of a per-tool scheme.ts, so they're excluded from the count.
-      const SPLIT_TOOLS: string[] = [
-        'ghSearchHistory',
-        'ghGetHistoryItem',
-        STATIC_TOOL_NAMES.GITHUB_RELEASES,
-      ];
+      // The in-catalog history pair shares schema modules instead of a
+      // per-tool scheme.ts, so both tools are excluded from the count.
+      const SPLIT_TOOLS: string[] = ['ghSearchHistory', 'ghGetHistoryItem'];
       // The six former public discovery tools remain internal engine modules,
-      // github_search_pull_requests/scheme.ts is the internal four-mode schema,
-      // and the opt-in Discussions schema remains on disk when disabled.
-      const outOfCatalogSchemeCount = ALL_TOOLS.some(
-        tool => tool.name === 'ghSearchDiscussions'
-      )
-        ? 7
-        : 8;
+      // and github_search_pull_requests/scheme.ts is their internal schema.
+      const outOfCatalogSchemeCount = 7;
       expect(schemeFiles).toHaveLength(
         ALL_TOOLS.filter(tool => !SPLIT_TOOLS.includes(tool.name)).length +
           outOfCatalogSchemeCount

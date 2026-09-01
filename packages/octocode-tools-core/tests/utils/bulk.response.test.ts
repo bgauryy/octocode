@@ -9,7 +9,6 @@ describe('executeBulkOperation batch correlation', () => {
       structuredContent: {
         results: results.map(row => ({ index: row.index, cache: true })),
       },
-      text: 'custom response',
     });
 
     const fresh = await executeBulkOperation(
@@ -65,23 +64,24 @@ describe('executeBulkOperation batch correlation', () => {
       async () => ({ pagination: { hasMore: true } }),
       {
         toolName: 'ghSearch',
-        finalize: ({ results }) => ({
-          structuredContent: {
-            results: results.map(row => ({
-              ...row,
-              data: {
-                ...row.data,
-                next: {
-                  nextPage: {
-                    tool: 'ghSearch',
-                    query: { operation: 'code', page: 2 },
+        finalize: ({ results }) =>
+          formatFinalizedResponse(
+            {
+              results: results.map(row => ({
+                ...row,
+                data: {
+                  ...row.data,
+                  next: {
+                    nextPage: {
+                      tool: 'ghSearch',
+                      query: { operation: 'code', page: 2 },
+                    },
                   },
                 },
-              },
-            })),
-          },
-          text: 'custom response',
-        }),
+              })),
+            },
+            ['results', 'index', 'meta', 'data', 'pagination', 'next']
+          ),
       }
     );
 
@@ -101,6 +101,9 @@ describe('executeBulkOperation batch correlation', () => {
     expect(row?.meta.diagnostics?.codes ?? []).not.toContain(
       'continuationMissing'
     );
+    const text = result.content[0]?.type === 'text' ? result.content[0].text : '';
+    expect(text).not.toContain('continuationMissing');
+    expect(text).toContain('nextPage');
   });
 
   it('includes finalized shared partial state in each row diagnostic', async () => {
@@ -125,7 +128,6 @@ describe('executeBulkOperation batch correlation', () => {
               },
             })),
           },
-          text: 'custom response',
         }),
       }
     );
@@ -148,6 +150,14 @@ describe('executeBulkOperation batch correlation', () => {
         scope: 'content.text',
         hasMore: true,
         charOffset: 0,
+        next: {
+          tool: 'testTool',
+          query: {
+            queries: [{ value: 'x'.repeat(200) }],
+            responseCharLength: 40,
+            responseCharOffset: expect.any(Number),
+          },
+        },
       },
     });
     expect(result.structuredContent).toMatchObject({

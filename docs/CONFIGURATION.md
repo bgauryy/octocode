@@ -446,8 +446,6 @@ Set the GitHub token in an environment variable only. Octocode never reads it fr
 |---------|------------------|---------|-------|
 | `ENABLE_LOCAL` | `local.enabled` | `true` | `false` turns local tools off on every surface |
 | `ENABLE_CLONE` | `local.enableClone` | `true` | `false` turns `ghCloneRepo` and directory materialization off on every surface |
-| `ENABLE_RELEASES` | — (env-only) | `false` | Turns on `ghListReleases`; no additional allowlist is required |
-| `ENABLE_DISCUSSIONS` | — (env-only) | `false` | Turns on `ghSearchDiscussions`; no additional allowlist is required |
 | `WORKSPACE_ROOT` | `local.workspaceRoot` | `process.cwd()` | Must be absolute. Base for resolving relative paths — not itself an allowed root; add it to `allowedPaths` to access a location outside home. |
 | `ALLOWED_PATHS` | `local.allowedPaths` | `[]` (home only) | Extra roots added on top of the always-allowed home directory. Env: comma-separated; rc: JSON array. |
 
@@ -584,7 +582,6 @@ npx octocode status --json
 | Wrong GitHub account | `npx octocode auth logout` then `auth login` — or `auth login --force` |
 | Env token overriding saved token | Env always wins — unset the env var |
 | `ghCloneRepo` unavailable | Check that neither `ENABLE_CLONE` nor `local.enableClone` is `false`; also check `TOOLS_TO_RUN` and `DISABLE_TOOLS` |
-| `ghListReleases` or `ghSearchDiscussions` unavailable | Set `ENABLE_RELEASES=true` or `ENABLE_DISCUSSIONS=true`; also check `TOOLS_TO_RUN` and `DISABLE_TOOLS` |
 | Local tools turned off | Check that neither `ENABLE_LOCAL` nor `local.enabled` is `false` |
 | A legacy local tool is unavailable | Add its exact name to `TOOLS_TO_RUN` or `tools.enabled`; include every other required tool because the list is strict |
 | A tool is missing | Check `TOOLS_TO_RUN` (strict allowlist) and `DISABLE_TOOLS` |

@@ -19,19 +19,11 @@ export {
   GitHubPullRequestSearchBulkQueryLocalSchema,
 } from './github_search_pull_requests/scheme.js';
 export {
-  ListReleasesLocalSchema,
-  ListReleasesBulkLocalSchema,
-} from './github_search_pull_requests/splitSchemes.js';
-export {
   GitHubSearchHistoryQueryLocalSchema,
   GitHubSearchHistoryBulkQueryLocalSchema,
   GitHubGetHistoryItemQueryLocalSchema,
   GitHubGetHistoryItemBulkQueryLocalSchema,
 } from './github_search_pull_requests/historySchemes.js';
-export {
-  SearchDiscussionsLocalSchema,
-  SearchDiscussionsBulkLocalSchema,
-} from './github_search_discussions/scheme.js';
 export {
   GitHubReposSearchSingleQueryLocalSchema,
   GitHubReposSearchBulkQueryLocalSchema,
@@ -70,5 +62,5 @@ export {
 } from './local_search/scheme.js';
 export {
   BulkLspGetSemanticsQuerySchema,
-  LspGetSemanticsQueryDisplaySchema,
+  LspGetSemanticsQuerySchema,
 } from './lsp/semantic_content/scheme.js';

@@ -46,8 +46,7 @@ within `SHUTDOWN_TIMEOUT_MS` (5s) before exiting.
 - `registrationExecutor.ts` — registers tools in parallel; per-tool failures are
   isolated and reported (`success` / `failed`), never fatal unless zero tools
   register.
-- `toolFilters.ts` — `isLocal`/`isClone` capability gates plus catalog-level
-  `ENABLE_RELEASES`/`ENABLE_DISCUSSIONS` gates and
+- `toolFilters.ts` — `isLocal`/`isClone` capability gates plus
   `TOOLS_TO_RUN` (exclusive) vs `DISABLE_TOOLS` selection;
   `isDefault` tools register unless disabled.
 - `registerTool.ts` — the single adapter for local and remote tools. It forwards
@@ -57,8 +56,7 @@ within `SHUTDOWN_TIMEOUT_MS` (5s) before exiting.
 The public catalog is:
 
 - **GitHub**: `ghSearch`, `ghGetFileContent`, `ghSearchHistory`,
-  `ghGetHistoryItem`,
-  `ghListReleases`, `ghSearchDiscussions`, and `ghCloneRepo`.
+  `ghGetHistoryItem`, and `ghCloneRepo`.
 - **Package**: `npmSearch`.
 - **Local**: `localSearch`, `localGetFileContent`, and `localAnalyzeGraph`.
 - **LSP**: `lspGetSemantics`.

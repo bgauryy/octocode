@@ -4,7 +4,6 @@ import { executeBulkOperation } from '../../utils/response/bulk.js';
 import type { ToolExecutionArgs } from '../../types/execution.js';
 import { handleCatchError, safeParseOrError } from '../utils.js';
 import { createLazyProviderContext } from '../providerExecution.js';
-import { handleReleasesMode } from './execution/releasesMode.js';
 import { handleIssuesMode } from './execution/issuesMode.js';
 import { handleCommitsMode } from './execution/commitsMode.js';
 import { handlePullRequestsMode } from './execution/pullRequestsMode.js';
@@ -34,10 +33,6 @@ export async function searchMultipleGitHubPullRequests(
         // runs — so no cross-mode "ignored field" warning machinery is needed.
         const type = (parsed.data as { type?: string }).type;
 
-        if (type === 'releases') {
-          return await handleReleasesMode(query, parsed.data, authInfo);
-        }
-
         if (type === 'issues') {
           return await handleIssuesMode(query, parsed.data, authInfo);
         }
@@ -65,11 +60,6 @@ export async function searchMultipleGitHubPullRequests(
       keysPriority: [
         'pullRequests',
         'issues',
-        'releases',
-        'latest',
-        'tagName',
-        'publishedAt',
-        'prerelease',
         'pagination',
         'totalCount',
         'error',

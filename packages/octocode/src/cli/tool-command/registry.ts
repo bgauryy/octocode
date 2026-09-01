@@ -14,7 +14,9 @@ import {
 } from '@octocodeai/octocode-tools-core/schema';
 import { getConfigSync } from '@octocodeai/config';
 
-export type ToolDefinition = DirectToolDefinition;
+export type ToolDefinition = DirectToolDefinition & {
+  disabled?: { envVar: string };
+};
 export const TOOL_CATEGORIES = DIRECT_TOOL_CATEGORIES;
 
 function isCloneEnabled(): boolean {
@@ -36,13 +38,8 @@ export const TOOL_DEFINITIONS: ToolDefinition[] =
     if (tool.name === STATIC_TOOL_NAMES.GITHUB_CLONE_REPO && !cloneEnabled) {
       return { ...tool, disabled: { envVar: 'ENABLE_CLONE' } };
     }
-    if (tool.disabled && tool.disabled.envVar !== 'TOOLS_TO_RUN') return tool;
     if (hasToolAllowlist && !explicitlyEnabledTools.has(tool.name)) {
       return { ...tool, disabled: { envVar: 'TOOLS_TO_RUN' } };
-    }
-    if (explicitlyEnabledTools.has(tool.name)) {
-      const { disabled: _disabled, ...enabledTool } = tool;
-      return enabledTool;
     }
     if (!hasToolAllowlist && explicitlyDisabledTools.has(tool.name)) {
       return { ...tool, disabled: { envVar: 'DISABLE_TOOLS' } };

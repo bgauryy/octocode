@@ -14,9 +14,14 @@ import {
   type PrepareDirectToolInputOptions,
 } from './toolCatalogDefinitions.js';
 import {
+  getDirectToolAllowedFieldNames,
   getDirectToolDisplayFields,
   isRecord,
 } from './toolSchemaIntrospection.js';
+import {
+  getDirectToolSchemaRelations,
+  getDirectToolSchemaVariants,
+} from './toolSchemaRelations.js';
 
 export function prepareDirectToolInputFromJsonText(
   toolName: string,
@@ -50,13 +55,40 @@ export function prepareDirectToolInput(
 
   const result = tool.inputSchema.safeParse(payload);
   if (!result.success) {
-    throw new DirectToolInputError(
-      'Check the query fields.',
-      formatDirectToolValidationIssues(result.error)
-    );
+    throw new DirectToolInputError('Check the query fields.', [
+      ...validationGuidance(toolName),
+      ...formatDirectToolValidationIssues(result.error),
+    ]);
   }
 
   return result.data as DirectToolInput;
+}
+
+function validationGuidance(toolName: string): string[] {
+  if (toolName === 'npmSearch') {
+    return getDirectToolSchemaRelations(toolName).slice(0, 1);
+  }
+  if (toolName === 'localSearch') {
+    const operations = getDirectToolSchemaVariants(toolName).map(
+      variant => variant.name
+    );
+    return operations.length > 0
+      ? [
+          `operation must be one of ${operations
+            .map((operation, index) =>
+              index === operations.length - 1 && operations.length > 1
+                ? `or ${operation}`
+                : operation
+            )
+            .join(', ')}.`,
+        ]
+      : [];
+  }
+  if (toolName === 'lspGetSemantics') {
+    const relations = getDirectToolSchemaRelations(toolName);
+    return relations.length > 0 ? [relations.join(' ')] : [];
+  }
+  return [];
 }
 
 export function formatDirectToolValidationIssues(error: z.ZodError): string[] {
@@ -70,9 +102,13 @@ export function formatDirectToolValidationIssues(error: z.ZodError): string[] {
       (branch): branch is z.core.$ZodIssue[] => Array.isArray(branch)
     );
     if (branches.length === 0) return [issue];
-    return branches.reduce((best, branch) =>
+    const bestBranch = branches.reduce((best, branch) =>
       branch.length < best.length ? branch : best
     );
+    return bestBranch.map(branchIssue => ({
+      ...branchIssue,
+      path: [...issue.path, ...branchIssue.path],
+    }));
   };
   return error.issues.flatMap(flattenIssue).map(issue => {
     const path = issue.path.length > 0 ? issue.path.join('.') : 'input';
@@ -210,7 +246,7 @@ function suggestField(
 
 /** Rejection hints only: unknown names are never rewritten. Empty means no equivalent. */
 const REJECTED_FIELD_HINTS: Readonly<
-  Record<string, Readonly<Record<string, string>>>
+  Record<string, Readonly<Record<string, string | readonly string[]>>>
 > = {
   npmSearch: { name: 'packageName' },
   lspGetSemantics: {
@@ -223,7 +259,7 @@ const REJECTED_FIELD_HINTS: Readonly<
   localGetFileContent: { filePath: 'path' },
   localSearch: {
     itemsPerPage: 'pageSize',
-    maxResults: 'limit',
+    maxResults: ['maxFiles', 'limit', 'pageSize'],
     keywords: 'searchText',
     language: 'langType',
     regexType: 'regex',
@@ -238,12 +274,6 @@ const REJECTED_FIELD_HINTS: Readonly<
     itemsPerPage: 'pageSize',
     limit: '',
     topicsToSearch: 'topics',
-  },
-  ghListReleases: { itemsPerPage: 'pageSize', limit: '' },
-  ghSearchDiscussions: {
-    keywordsToSearch: 'keywords',
-    itemsPerPage: 'pageSize',
-    limit: '',
   },
   localAnalyzeGraph: {
     itemsPerPage: 'pageSize',
@@ -288,11 +318,18 @@ function normalizeQueryObject(
   if (unknownFields.length > 0 && schemaFields.size > 0) {
     options.onUnknownFields?.(unknownFields, queryIndex);
     if (options.rejectUnknownFields === true) {
+      const allowedFields = getDirectToolAllowedFieldNames(toolName, query);
       const suggestions = unknownFields
         .map(field => {
+          const configured = REJECTED_FIELD_HINTS[toolName]?.[field];
+          const candidates = Array.isArray(configured)
+            ? configured
+            : configured === undefined
+              ? []
+              : [configured];
           const suggested =
-            REJECTED_FIELD_HINTS[toolName]?.[field] ??
-            suggestField(field, schemaFields);
+            candidates.find(candidate => allowedFields.has(candidate)) ??
+            suggestField(field, allowedFields);
           return suggested ? `'${field}' → did you mean '${suggested}'?` : '';
         })
         .filter(Boolean);

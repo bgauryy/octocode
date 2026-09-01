@@ -53,7 +53,7 @@ Load a reference when the current step needs it. Loading all of them is a failur
 
 ## Tooling
 
-Prefer Octocode **MCP tools** when exposed. In this monorepo use the built local CLI; from an installed standalone skill use `npx octocode`. Both expose the same 12 input contracts; 10 tools are enabled by default, with releases and discussions opt-in.
+Prefer Octocode **MCP tools** when exposed. In this monorepo use the built local CLI; from an installed standalone skill use `npx octocode`. Both expose the same 10 input contracts.
 
 ```bash
 OCTO='node packages/octocode/out/octocode.js'          # monorepo; use npx octocode outside it
@@ -64,7 +64,7 @@ $OCTO tools <name> --queries '<json>' --compact        # run it
 
 Batch up to five queries per call. Orient cheap (tree, discovery) before exact reads. Use `localAnalyzeGraph` for repository file topology and LSP for symbol identity; follow returned `next.*` and cursors instead of re-deriving them.
 
-Read `references/octocode.md` when transport, tool choice, auth, gates (`ENABLE_LOCAL`, `ENABLE_CLONE`, `ENABLE_RELEASES`, `ENABLE_DISCUSSIONS`), materialization, diagnostics, or exit codes are unclear.
+Read `references/octocode.md` when transport, tool choice, auth, gates (`ENABLE_LOCAL`, `ENABLE_CLONE`), materialization, diagnostics, or exit codes are unclear.
 
 ## Output
 

@@ -37,10 +37,10 @@ export function showLightAvailableTools(): void {
   console.log();
   console.log(`  ${bold('AGENT CONTEXT')}`);
   console.log(
-    `    ${c('yellow', 'context')}                                          ${dim('# protocol + system prompt + compact tool schemas')}`
+    `    ${c('yellow', 'context')}                                          ${dim('# protocol + concise tool descriptions')}`
   );
   console.log(
-    `    ${c('yellow', 'context --full')}                                   ${dim('# full schemas when runtime loads')}`
+    `    ${c('yellow', 'context --full')}                                   ${dim('# MCP prompt + full tool descriptions')}`
   );
   console.log(
     `    ${c('yellow', 'context --json')}                                   ${dim('# machine-readable context wrapper')}`
@@ -88,10 +88,8 @@ export function printLightInstructions(
   console.log('   tools <n1> <n2> ...  # batch schema reads');
   console.log("   tools <name> --queries '<json>'");
   console.log('3. Read the agent protocol and tool descriptions:');
-  console.log(
-    '   context         # protocol + system prompt + tool descriptions'
-  );
-  console.log('   context --full  # full tool descriptions');
+  console.log('   context         # protocol + concise tool descriptions');
+  console.log('   context --full  # MCP prompt + full tool descriptions');
   console.log('   context --json  # machine-readable context wrapper');
   console.log('4. Use auth status for read-only token/auth state:');
   console.log('   auth status --json');

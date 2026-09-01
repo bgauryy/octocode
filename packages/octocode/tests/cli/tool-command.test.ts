@@ -319,6 +319,25 @@ describe('toolCommand', () => {
     expect(process.exitCode).toBe(2);
   });
 
+  it('suggests only fields valid for the selected tool variant', async () => {
+    const { toolCommand } = await import('../../src/cli/tool-command.js');
+
+    await toolCommand.handler!({
+      command: 'tools',
+      args: ['localSearch'],
+      options: {
+        queries:
+          '{"operation":"text","path":".","searchText":"runCLI","maxResults":5}',
+      },
+    });
+
+    expect(publicMocks.localSearch).not.toHaveBeenCalled();
+    const output = consoleSpy.mock.calls.flat().join('\n');
+    expect(output).toContain("'maxResults' → did you mean 'maxFiles'?");
+    expect(output).not.toContain("did you mean 'limit'");
+    expect(process.exitCode).toBe(2);
+  });
+
   it('tool execution throwing should show error and return false', async () => {
     const err = new Error('Ripgrep launcher failed.');
     publicMocks.localSearch.mockRejectedValueOnce(err);
@@ -489,6 +508,8 @@ describe('toolCommand', () => {
     expect(output).toContain(
       'localSearch does not accept keywords; set searchText to one string.'
     );
+    expect(output).toContain('"path":"/ABS/repo"');
+    expect(output).toContain('tools localSearch --scheme --brief');
     expect(output).not.toContain('ghSearch');
     expect(process.exitCode).toBe(2);
   });
@@ -506,10 +527,8 @@ describe('toolCommand', () => {
     expect(context).toContain('1. ghSearch');
     expect(context).toContain('2. ghSearchHistory');
     expect(context).toContain('3. ghGetHistoryItem');
-    expect(context).toContain('4. ghListReleases');
-    expect(context).toContain('5. ghSearchDiscussions');
-    expect(context).toContain('7. ghCloneRepo');
-    expect(context).toContain('8. localSearch');
+    expect(context).toContain('5. ghCloneRepo');
+    expect(context).toContain('6. localSearch');
     expect(context).not.toMatch(
       /\b(?:ghSearchPullRequests|ghSearchIssues|ghSearchCommits|prNumber|issueNumber)\b/
     );
@@ -519,7 +538,7 @@ describe('toolCommand', () => {
     );
     expect(context).toContain('inspect each row status for mixed batches');
     expect(context).toContain(
-      'Follow row data.next; advance row data.pagination while hasMore. responsePagination windows content[].text only and remains visible in structuredContent.'
+      'Follow row data.next only while row data.pagination.hasMore. responsePagination windows content[].text only and remains visible in structuredContent.'
     );
     expect(context).not.toContain('mode:"discovery"');
     expect(context).not.toContain('Cheap modes: concise:true');
@@ -548,7 +567,7 @@ describe('toolCommand', () => {
     expect(context).not.toContain('"$schema"');
     expect(context).toContain('Protocol: schema first');
     expect(context).toContain(
-      'Follow row data.next; advance row data.pagination while hasMore. responsePagination windows content[].text only and remains visible in structuredContent.'
+      'Follow row data.next only while row data.pagination.hasMore. responsePagination windows content[].text only and remains visible in structuredContent.'
     );
     expect(context).not.toContain('Use Octocode tools carefully.');
     expect(context.length).toBeLessThanOrEqual(4000);
@@ -636,8 +655,6 @@ describe('toolCommand', () => {
       'ghGetFileContent',
       'ghSearchHistory',
       'ghGetHistoryItem',
-      'ghListReleases',
-      'ghSearchDiscussions',
       'npmSearch',
       'ghCloneRepo',
       'localSearch',
@@ -652,11 +669,6 @@ describe('toolCommand', () => {
         'ghSearchCommits',
       ])
     );
-    expect(
-      parsed.tools.find(entry => entry.name === 'ghSearchDiscussions')
-        ?.availability
-    ).toEqual({ enabled: false, envVar: 'ENABLE_DISCUSSIONS' });
-
     for (const entry of parsed.tools) {
       expect(typeof entry.name).toBe('string');
       expect(entry).toHaveProperty('category');
@@ -664,52 +676,6 @@ describe('toolCommand', () => {
       expect(typeof entry.fields).toBe('string');
     }
     expect(output.length).toBeLessThanOrEqual(4000);
-  });
-
-  it('marks an opt-in tool disabled in its machine-readable schema', async () => {
-    const { toolCommand } = await import('../../src/cli/tool-command.js');
-
-    await toolCommand.handler!({
-      command: 'tools',
-      args: ['ghSearchDiscussions'],
-      options: { scheme: true, json: true, compact: true },
-    });
-
-    const output = consoleSpy.mock.calls
-      .map((call: unknown[]) => call.map(String).join(' '))
-      .join('\n')
-      .trim();
-    const parsed = JSON.parse(output) as {
-      availability?: { enabled: boolean; envVar?: string };
-    };
-    expect(parsed.availability).toEqual({
-      enabled: false,
-      envVar: 'ENABLE_DISCUSSIONS',
-    });
-  });
-
-  it('lists all public tools while keeping opt-in execution gated', async () => {
-    const { showAvailableTools, toolCommand } =
-      await import('../../src/cli/tool-command.js');
-
-    await showAvailableTools();
-    const listOutput = consoleSpy.mock.calls
-      .map((call: unknown[]) => call.map(String).join(' '))
-      .join('\n');
-    expect(listOutput).toContain('Octocode Tools (12)');
-    expect(listOutput).toContain('ghSearchDiscussions');
-    expect(listOutput).toContain('[disabled: set ENABLE_DISCUSSIONS=true]');
-
-    consoleSpy.mockClear();
-    await toolCommand.handler!({
-      command: 'tools',
-      args: ['ghSearchDiscussions'],
-      options: {
-        queries: '{"owner":"vitejs","repo":"vite","keywords":["plugin"]}',
-      },
-    });
-    expect(process.exitCode).toBe(3);
-    expect(publicMocks.noop).not.toHaveBeenCalled();
   });
 
   it('keeps the full all-tool schema dump behind `tools --json --full`', async () => {
@@ -776,7 +742,6 @@ describe('toolCommand', () => {
       outputSchema?: never;
       variants?: Array<{
         name: string;
-        example: Record<string, unknown>;
         fields?: string[];
       }>;
       fields: Array<{ name: string; required: boolean }>;
@@ -856,9 +821,9 @@ describe('toolCommand', () => {
       outputScope?: never;
       variants?: Array<{
         name: string;
-        example: Record<string, unknown>;
         fields?: string[];
       }>;
+      fieldGroups?: Array<{ variants: string[]; fields: string[] }>;
       fields?: string[];
       fieldNames?: string[];
       fullDescription?: string;
@@ -887,6 +852,7 @@ describe('toolCommand', () => {
     const variants = new Map(
       parsed.variants?.map(variant => [variant.name, variant.fields])
     );
+    const fieldGroups = parsed.fieldGroups ?? [];
     expect(variants.get('text')).toContain('searchText*:string');
     expect(
       variants.get('text')?.some(field => field.startsWith('pattern'))
@@ -895,12 +861,26 @@ describe('toolCommand', () => {
       expect.arrayContaining(['pattern?:string', 'rule?:string'])
     );
     expect(variants.get('files')).toContain('pathRegex?:string');
-    expect(variants.get('files')).toContain('pageSize?:integer 1-50');
-    expect(variants.get('text')).toContain('pageSize?:integer 1-1000');
+    expect(fieldGroups).toContainEqual(
+      expect.objectContaining({
+        variants: ['files', 'tree'],
+        fields: expect.arrayContaining(['pageSize?:integer 1-50']),
+      })
+    );
+    expect(fieldGroups).toContainEqual(
+      expect.objectContaining({
+        variants: ['text', 'structural'],
+        fields: expect.arrayContaining(['pageSize?:integer 1-1000']),
+      })
+    );
     expect(variants.get('tree')).toContain('namePattern?:string');
     expect(parsed.fields?.some(field => field.startsWith('searchText'))).toBe(
       false
     );
     expect(parsed.fields?.some(field => field.startsWith('time.'))).toBe(false);
+    expect(parsed.variants?.every(variant => !('example' in variant))).toBe(
+      true
+    );
+    expect(Buffer.byteLength(output)).toBeLessThanOrEqual(3600);
   });
 });

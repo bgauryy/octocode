@@ -1,7 +1,7 @@
 import {
   getToolSchemaRelations,
   getToolSchemaVariants,
-} from '@octocodeai/octocode-core/schemas';
+} from '../../toolContract/schemas.js';
 import { z } from 'zod';
 import { findDirectToolDefinition } from './toolCatalogDefinitions.js';
 

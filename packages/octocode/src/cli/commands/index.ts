@@ -25,7 +25,7 @@ const commandLoaders: Record<string, CommandLoader> = {
 };
 
 // Every command the CLI dispatches. Each MUST have a matching spec in
-// octocode-core (the single source of truth for help/usage/description) —
+// the package-local command-spec registry (the single source of truth) —
 // enforced by tests/cli/command-spec-coverage.test.ts so help never silently
 // falls back to a non-core source.
 export const REGISTERED_COMMAND_NAMES: readonly string[] = [

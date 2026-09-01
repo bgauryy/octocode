@@ -57,8 +57,6 @@ export * from './tools/github_search_pull_requests/scheme.js';
 export * from './tools/github_search_pull_requests/splitSchemes.js';
 export * from './tools/github_search_pull_requests/splitExecutions.js';
 export * from './tools/github_search_pull_requests/types.js';
-export * from './tools/github_search_discussions/scheme.js';
-export * from './tools/github_search_discussions/execution.js';
 export * from './tools/local_fetch_content/contentExtractor.js';
 export * from './tools/local_fetch_content/execution.js';
 export * from './tools/local_fetch_content/fetchContent.js';
@@ -92,24 +90,6 @@ export * from './tools/toolMetadata/state.js';
 export * from './tools/toolMetadata/types.js';
 export * from './tools/directToolCatalog.js';
 export * from './tools/toolNames.js';
-export {
-  CloneRepoQuerySchema,
-  FetchContentQuerySchema,
-  FileContentQuerySchema,
-  GitHubSearchQuerySchema,
-  ListReleasesQuerySchema,
-  LocalAnalyzeGraphQuerySchema,
-  LocalSearchQuerySchema,
-  NpmPackageQuerySchema,
-  SearchCommitsQuerySchema,
-  SearchDiscussionsQuerySchema,
-  SearchIssuesQuerySchema,
-  SearchPullRequestsQuerySchema,
-  LspGetSemanticsQuerySchema,
-  findToolSchema,
-  getToolSchemaVariants,
-  toolSchemas,
-} from './toolContract/schemas.js';
 export * from './tools/utils.js';
 export * from './types/bulk.js';
 export * from './types/execution.js';

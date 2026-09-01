@@ -2,7 +2,7 @@
 
 Load when transport, tool choice, authentication, diagnostics, or CLI syntax is unclear. Why: `references/algorithm.md` owns evidence and routing; this file owns only *how to call things*.
 
-**Interface.** Use MCP tools when they are exposed — typed and with no shell hop; call them directly. In an Octocode checkout use the built local CLI (`node packages/octocode/out/octocode.js`); from a standalone installed skill use `npx octocode`. Both expose the same 12 input contracts and runtime row data, including availability metadata for gated tools; 10 tools are enabled by default. Their transports differ: MCP returns a `CallToolResult`, while CLI default, compact, and JSON modes render different views of it. Neither interface publishes output schemas. Check once at the start, then stop thinking about it. If neither interface exists, continue with stated degraded confidence; ask to install or authenticate only when protected GitHub data is essential.
+**Interface.** Use MCP tools when they are exposed — typed and with no shell hop; call them directly. In an Octocode checkout use the built local CLI (`node packages/octocode/out/octocode.js`); from a standalone installed skill use `npx octocode`. Both expose the same 10 input contracts and runtime row data, and 10 tools are enabled by default. Their transports differ: MCP returns a `CallToolResult`, while CLI default, compact, and JSON modes render different views of it. Neither interface publishes output schemas. Check once at the start, then stop thinking about it. If neither interface exists, continue with stated degraded confidence; ask to install or authenticate only when protected GitHub data is essential.
 
 **Two-step call rule.** Never guess fields: read the schema, then run.
 
@@ -18,7 +18,7 @@ Unknown fields fail fast with a suggestion (`'depth' → did you mean 'maxDepth'
 
 **Materialize.** `ghCloneRepo` is the tool path; `cache fetch` is the shell shortcut when you are already at a prompt. Both land content under the local Octocode cache and hand you a path the local tools run on unmodified. Materialize once when AST, LSP, multi-file regex, exact absence, or a third read into the same remote area is coming.
 
-**Efficiency.** Batch up to five independent queries per call — one call with five beats five calls. Orient cheap (tree, discovery) before exact reads; they aim the expensive ones. Follow `next.*`, cursors, and match ranges from the payload instead of re-deriving them. Use `--compact` for agent output, `--pretty` for humans, `context --minimal` under tight budgets. Compact schemas include a `relations` list for mode-specific required and mutually exclusive fields; obey it before composing a query. Spend an extra angle on a *claim*; spend an extra query on a *lookup*. **The 13-tool discovery catalog:**
+**Efficiency.** Batch up to five independent queries per call — one call with five beats five calls. Orient cheap (tree, discovery) before exact reads; they aim the expensive ones. Follow `next.*`, cursors, and match ranges from the payload instead of re-deriving them. Use `--compact` for agent output, `--pretty` for humans, `context --minimal` under tight budgets. Compact schemas include a `relations` list for mode-specific required and mutually exclusive fields; obey it before composing a query. Spend an extra angle on a *claim*; spend an extra query on a *lookup*. **The 10-tool discovery catalog:**
 
 | Need | Tool |
 |---|---|
@@ -29,16 +29,13 @@ Unknown fields fail fast with a suggestion (`'depth' → did you mean 'maxDepth'
 | GitHub exact read | `ghGetFileContent` |
 | GitHub PR / issue / commit search | `ghSearchHistory` with `operation:"pullRequests"|"issues"|"commits"` |
 | GitHub PR / issue / commit / compare detail | `ghGetHistoryItem` with `operation:"pullRequest"|"issue"|"commit"|"compare"` |
-| GitHub releases / discussions | `ghListReleases`, `ghSearchDiscussions` (opt-in) |
 | materialize remote · packages | `ghCloneRepo` · `npmSearch` |
-`ghListReleases` and `ghSearchDiscussions` remain present in discovery. Enable execution with `ENABLE_RELEASES=true` or `ENABLE_DISCUSSIONS=true`. Remote code, repository, and tree discovery route through `ghSearch`; local text, structural, file, and tree discovery route through `localSearch`. **Gates and diagnostics:**
+Remote code, repository, and tree discovery route through `ghSearch`; local text, structural, file, and tree discovery route through `localSearch`. **Gates and diagnostics:**
 
 | Gate or signal | Effect → move |
 |---|---|
 | `ENABLE_LOCAL` | MCP server can gate local tools; the CLI enables them by default |
 | `ENABLE_CLONE` | clone is on by default for CLI and MCP; `false` disables it |
-| `ENABLE_RELEASES=true` | enables `ghListReleases` on CLI and MCP |
-| `ENABLE_DISCUSSIONS=true` | enables `ghSearchDiscussions` on CLI and MCP |
 | auth/rate | check auth; ask login only for protected data; narrow/retry and mark incomplete |
 | local/clone disabled | check `ENABLE_LOCAL`/`ENABLE_CLONE`/`.octocoderc`; use remote proof |
 | tool disabled error | check the gate rows above before assuming the tool does not exist |

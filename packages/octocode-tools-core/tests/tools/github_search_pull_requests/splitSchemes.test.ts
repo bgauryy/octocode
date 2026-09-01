@@ -6,8 +6,6 @@ import {
   SearchIssuesBulkLocalSchema,
   SearchCommitsLocalSchema,
   SearchCommitsBulkLocalSchema,
-  ListReleasesLocalSchema,
-  ListReleasesBulkLocalSchema,
 } from '../../../src/tools/github_search_pull_requests/splitSchemes.js';
 import { GITHUB_SEARCH_MAX_LIMIT } from '../../../src/config.js';
 
@@ -275,50 +273,5 @@ describe('SearchCommitsBulkLocalSchema', () => {
       queries: [{ owner: 'facebook', repo: 'react', head: 'updates' }],
     });
     expect(result.success).toBe(false);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// ListReleasesLocalSchema (ghListReleases)
-// ---------------------------------------------------------------------------
-
-describe('ListReleasesLocalSchema', () => {
-  it('accepts a minimal query', () => {
-    const result = ListReleasesLocalSchema.safeParse({
-      owner: 'vercel',
-      repo: 'next.js',
-    });
-    expect(result.success).toBe(true);
-  });
-
-  it('defaults page to 1', () => {
-    const result = ListReleasesLocalSchema.safeParse({
-      owner: 'vercel',
-      repo: 'next.js',
-    });
-    expect(result.success).toBe(true);
-    expect(result.data!.page).toBe(1);
-  });
-
-  it('accepts a custom page', () => {
-    const result = ListReleasesLocalSchema.safeParse({
-      owner: 'vercel',
-      repo: 'next.js',
-      page: 3,
-    });
-    expect(result.success).toBe(true);
-    expect(result.data!.page).toBe(3);
-  });
-});
-
-describe('ListReleasesBulkLocalSchema', () => {
-  it('accepts bulk releases queries', () => {
-    const result = ListReleasesBulkLocalSchema.safeParse({
-      queries: [
-        { owner: 'vercel', repo: 'next.js' },
-        { owner: 'microsoft', repo: 'TypeScript', page: 2 },
-      ],
-    });
-    expect(result.success).toBe(true);
   });
 });

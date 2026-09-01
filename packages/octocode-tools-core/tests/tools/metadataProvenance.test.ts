@@ -14,7 +14,7 @@ import {
   DIRECT_TOOL_DISCOVERY_DEFINITIONS,
 } from '../../src/tools/directToolCatalog/toolCatalogDefinitions.js';
 
-describe('metadata provenance — octocode-core owns the shared prompt', () => {
+describe('metadata provenance — tools-core owns executable contracts', () => {
   it('serves the current MCP output guidance without a local patch', () => {
     expect(localCompleteMetadata.systemPrompt).not.toContain(
       'restores full YAML text'
@@ -28,8 +28,8 @@ describe('metadata provenance — octocode-core owns the shared prompt', () => {
     const names = DIRECT_TOOL_DISCOVERY_DEFINITIONS.map(
       definition => definition.name
     );
-    expect(names).toHaveLength(12);
-    expect(new Set(names).size).toBe(12);
+    expect(names).toHaveLength(10);
+    expect(new Set(names).size).toBe(10);
     expect(Object.keys(DESCRIPTIONS)).toEqual(names);
 
     for (const name of names) {
@@ -119,43 +119,9 @@ describe('metadata provenance — octocode-core owns the shared prompt', () => {
     });
   }
 
-  it('keeps every runtime field description identical to octocode-core', () => {
-    const descriptionMap = (schema: z.ZodTypeAny): Map<string, string> => {
-      const json = z.toJSONSchema(schema, { io: 'input' }) as {
-        properties?: Record<string, { description?: string }>;
-        oneOf?: Array<{
-          properties?: Record<string, { description?: string }>;
-        }>;
-      };
-      const descriptions = new Map<string, string>();
-      for (const branch of json.oneOf ?? [json]) {
-        for (const [field, property] of Object.entries(
-          branch.properties ?? {}
-        )) {
-          if (property.description)
-            descriptions.set(field, property.description);
-        }
-      }
-      return descriptions;
-    };
-
-    const divergent: string[] = [];
-    for (const definition of DIRECT_TOOL_DEFINITIONS) {
-      const sourceSchema = localSchemas.findToolSchema(definition.name);
-      if (!sourceSchema) continue;
-      const sourceDescriptions = descriptionMap(sourceSchema);
-      const runtimeDescriptions = descriptionMap(definition.schema);
-      for (const [field, sourceDescription] of sourceDescriptions) {
-        const runtimeDescription = runtimeDescriptions.get(field);
-        if (
-          runtimeDescription !== undefined &&
-          runtimeDescription !== sourceDescription
-        ) {
-          divergent.push(`${definition.name}.${field}`);
-        }
-      }
-    }
-
-    expect(divergent).toEqual([]);
+  it('does not expose a second schema registry beside the direct catalog', () => {
+    expect('toolSchemas' in localSchemas).toBe(false);
+    expect('findToolSchema' in localSchemas).toBe(false);
+    expect(DIRECT_TOOL_DEFINITIONS).toHaveLength(10);
   });
 });

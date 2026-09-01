@@ -36,9 +36,11 @@ describe('main-help', () => {
     expect(output).toContain('context');
     expect(output).toContain('tools');
     expect(output).toContain('context --full');
-    expect(output).toContain('TOOLS (10 enabled / 12 cataloged)');
+    expect(output).toContain('TOOLS (10 enabled / 10 cataloged)');
+    expect(output).toContain('tools <name> --scheme --json --compact');
+    expect(output).not.toContain('tools <name> --scheme --brief');
     expect(output).toContain(
-      'Copy row-local data.next exactly; advance data.pagination while hasMore. responsePagination is text-only.'
+      'Copy row-local data.next exactly while data.pagination.hasMore. responsePagination is text-only.'
     );
     expect(output).not.toContain(
       'Follow data.next/data.pagination only when hasMore.'
@@ -74,7 +76,6 @@ describe('command-help-specs', () => {
       'login',
       'logout',
       'status',
-      'clone',
       'cache',
       'context',
     ];
@@ -110,7 +111,6 @@ describe('command-help-specs', () => {
 
     const researchCommands = new Set([
       'search',
-      'clone',
       'cache',
       // management commands now carry agent guidance too
       'install',
@@ -280,6 +280,8 @@ describe('agent protocol help', () => {
     expect(output).toContain('tools <name>');
     expect(output).toContain('context');
     expect(output).toContain('auth status --json');
+    expect(output).toContain('MCP prompt + full tool descriptions');
+    expect(output).not.toContain('full schemas when runtime loads');
 
     stdoutSpy.mockRestore();
   });

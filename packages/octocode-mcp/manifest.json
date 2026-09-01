@@ -49,14 +49,6 @@
       "description": "Read one GitHub pull request, issue, commit, or ref comparison"
     },
     {
-      "name": "mcp_octocode_ghListReleases",
-      "description": "List GitHub releases when release discovery is enabled"
-    },
-    {
-      "name": "mcp_octocode_ghSearchDiscussions",
-      "description": "Search GitHub Discussions when discussion discovery is enabled"
-    },
-    {
       "name": "mcp_octocode_npmSearch",
       "description": "Search npm packages and source repositories"
     },

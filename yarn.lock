@@ -1621,12 +1621,10 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@octocodeai/octocode-core@file:///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core::locator=octocode-monorepo%40workspace%3A.":
-  version: 18.2.0
-  resolution: "@octocodeai/octocode-core@file:///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core#///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core::hash=8c43b5&locator=octocode-monorepo%40workspace%3A."
-  peerDependencies:
-    zod: ">=4.0.0"
-  checksum: 10c0/35591dc647bf4a5b013f0b039a9c1713d1771c4e9a4783efa0ab12b103bc48366a4225776b3f66fb0eba7a45ff0ef197399f26306297e6b27b2cba26e9ed3555
+"@octocodeai/octocode-core@npm:18.3.0":
+  version: 18.3.0
+  resolution: "@octocodeai/octocode-core@npm:18.3.0"
+  checksum: 10c0/094fba6c7da9bf0b64e21150c80f600d95bef3519d19e16833d4c312c335d7e5ae8577b5075dce03f395caf014f90a0b1aa377d2a06322fda3db5410280634ea
   languageName: node
   linkType: hard
 
@@ -1712,7 +1710,7 @@ __metadata:
   dependencies:
     "@modelcontextprotocol/server": "npm:^2.0.0"
     "@octocodeai/config": "npm:18.0.1"
-    "@octocodeai/octocode-core": "npm:18.2.0"
+    "@octocodeai/octocode-core": "npm:18.3.0"
     "@octocodeai/octocode-engine": "npm:18.1.2"
     "@octokit/core": "npm:^7.0.6"
     "@octokit/oauth-methods": "npm:^6.0.2"
@@ -6050,7 +6048,7 @@ __metadata:
   dependencies:
     "@modelcontextprotocol/client": "npm:^2.0.0"
     "@modelcontextprotocol/server": "npm:^2.0.0"
-    "@octocodeai/octocode-core": "npm:18.2.0"
+    "@octocodeai/octocode-core": "npm:18.3.0"
     "@octocodeai/octocode-engine": "npm:18.1.2"
     "@octocodeai/octocode-tools-core": "npm:18.1.2"
     "@octokit/core": "npm:^7.0.6"
@@ -6092,7 +6090,7 @@ __metadata:
   dependencies:
     "@inquirer/prompts": "npm:^8.5.2"
     "@octocodeai/config": "npm:18.0.1"
-    "@octocodeai/octocode-core": "npm:18.2.0"
+    "@octocodeai/octocode-core": "npm:18.3.0"
     "@octocodeai/octocode-engine": "npm:18.1.2"
     "@octocodeai/octocode-tools-core": "npm:18.1.2"
     "@octokit/auth-oauth-device": "npm:^8.0.3"

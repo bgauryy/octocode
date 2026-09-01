@@ -61,14 +61,12 @@ describe('Tool Configuration', () => {
       }
     });
 
-    it('publishes a 12-tool discovery catalog with two explicit opt-in gates', () => {
-      expect(DIRECT_TOOL_DISCOVERY_DEFINITIONS).toHaveLength(12);
+    it('publishes the same 10-tool runtime and discovery catalog', () => {
+      expect(DIRECT_TOOL_DISCOVERY_DEFINITIONS).toHaveLength(10);
       expect(ALL_TOOLS.filter(tool => tool.isDefault)).toHaveLength(10);
-      expect(
-        DIRECT_TOOL_DISCOVERY_DEFINITIONS.filter(tool => tool.disabled).map(
-          tool => tool.name
-        )
-      ).toEqual(['ghListReleases', 'ghSearchDiscussions']);
+      expect(DIRECT_TOOL_DISCOVERY_DEFINITIONS.map(tool => tool.name)).toEqual(
+        ALL_TOOLS.map(tool => tool.name)
+      );
     });
 
     it('uses shared titles without an MCP-local title registry', () => {

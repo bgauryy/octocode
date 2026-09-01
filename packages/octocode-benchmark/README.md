@@ -4,7 +4,10 @@ Plain-markdown, orchestrated CLI **research** benchmark. Each question is answer
 isolated agents** — Octocode, `gh`+RTK, `gh`+Headroom — and scored by a fourth, blind judge.
 An orchestrator drives all four phases and summarizes the campaign.
 
-**No harness, no JSON schemas.** Everything is markdown you can read and edit.
+The orchestrated research campaign itself has **no harness and no JSON
+schemas**. Its questions and grading flow remain markdown you can read and
+edit. A separate deterministic regression gate measures the unified Octocode
+tool-routing contract: [Unified routing held-out eval](docs/UNIFIED_ROUTING_EVAL.md).
 
 ## Characters delivered per tool (≈ tokens)
 

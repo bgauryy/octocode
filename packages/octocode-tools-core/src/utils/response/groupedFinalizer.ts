@@ -1,6 +1,5 @@
 import type { BulkFinalizerOutput } from '../../types/bulk.js';
 import type { FlatQueryResult } from '../../types/toolResults.js';
-import { buildResponseChannels } from './responseChannels.js';
 
 export type QueryWithPagination = object;
 
@@ -82,14 +81,9 @@ export function formatFinalizedResponse<T extends Record<string, unknown>>(
   keysPriority: readonly string[],
   isError?: boolean
 ): BulkFinalizerOutput<T> {
-  const { text, structuredContent } = buildResponseChannels(
-    responseData,
-    keysPriority
-  );
-
   return {
-    structuredContent,
-    text,
+    structuredContent: responseData,
+    keysPriority,
     isError,
   };
 }

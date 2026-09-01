@@ -8,7 +8,7 @@
   "dependencies": {
     "@inquirer/prompts": "^8.5.2",
     "@octocodeai/config": "18.0.1",
-    "@octocodeai/octocode-core": "18.2.0",
+    "@octocodeai/octocode-core": "18.3.0",
     "@octocodeai/octocode-engine": "18.1.2",
     "@octocodeai/octocode-tools-core": "18.1.2",
     "@octokit/auth-oauth-device": "^8.0.3",

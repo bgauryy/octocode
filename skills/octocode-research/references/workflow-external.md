@@ -10,7 +10,6 @@ npmSearch / ghSearch(operation:"repositories") for discovery
 -> ghGetFileContent(matchString or symbols) for exact proof
 -> ghSearchHistory(operation:"pullRequests"|"issues"|"commits") for history candidates
 -> ghGetHistoryItem(operation:"pullRequest"|"issue"|"commit"|"compare") for exact history detail
--> ghListReleases for releases when ENABLE_RELEASES=true; otherwise use commit history and tags, and mark releases skipped
 -> materialize when AST, LSP, negative proof, repeated reads, or local tests matter
 ```
 

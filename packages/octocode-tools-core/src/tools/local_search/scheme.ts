@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { LocalSearchQuerySchema as SharedLocalSearchQuerySchema } from '@octocodeai/octocode-core/schemas';
+import { LocalSearchQuerySchema as SharedLocalSearchQuerySchema } from '../../toolContract/schemas.js';
 import { createRelaxedBulkQuerySchema } from '../../scheme/fields.js';
 
 export type LocalTextResultView =

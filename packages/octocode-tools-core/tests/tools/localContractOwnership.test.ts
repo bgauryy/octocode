@@ -5,14 +5,14 @@ import { describe, expect, it } from 'vitest';
 const SOURCE_ROOT = path.resolve(import.meta.dirname, '../../src');
 const CONTRACT_ROOT = path.join(SOURCE_ROOT, 'toolContract');
 
-describe('shared tool-contract ownership', () => {
+describe('tool-contract ownership', () => {
   it('does not keep a duplicate resources tree in tools-core', async () => {
     await expect(
       access(path.join(CONTRACT_ROOT, 'resources'))
     ).rejects.toThrow();
   });
 
-  it('routes executable schemas through octocode-core', async () => {
+  it('owns executable schemas and runtime validation locally', async () => {
     const schemas = await readFile(
       path.join(CONTRACT_ROOT, 'schemas.ts'),
       'utf8'
@@ -22,18 +22,19 @@ describe('shared tool-contract ownership', () => {
       'utf8'
     );
 
-    expect(schemas).toContain("from '@octocodeai/octocode-core/schemas'");
-    expect(runtime).toContain(
-      "from '@octocodeai/octocode-core/schemas/runtime'"
-    );
+    expect(schemas).toContain("from './input/resources/tools/");
+    expect(schemas).not.toContain('@octocodeai/octocode-core/schemas');
+    expect(runtime).toContain("from './schemas.js'");
+    expect(runtime).not.toContain('@octocodeai/octocode-core/schemas');
   });
 
-  it('routes descriptions and metadata through octocode-core', async () => {
+  it('uses octocode-core only for the shared system prompt metadata', async () => {
     const metadata = await readFile(
       path.join(CONTRACT_ROOT, 'metadata.ts'),
       'utf8'
     );
 
     expect(metadata).toContain("from '@octocodeai/octocode-core'");
+    expect(metadata).toContain('DIRECT_TOOL_DISCOVERY_DEFINITIONS');
   });
 });

@@ -510,6 +510,12 @@ describe('runtimeSurface', () => {
     _resetRuntimeSurface();
     expect(getRuntimeSurface()).toBe('mcp');
   });
+  it('keeps the clone default enabled on every runtime surface', () => {
+    setRuntimeSurface('cli');
+    expect(resolveLocal().enableClone).toBe(true);
+    setRuntimeSurface('mcp');
+    expect(resolveLocal().enableClone).toBe(true);
+  });
 });
 
 // ─── validateConfig ───────────────────────────────────────────────────────────

@@ -101,7 +101,11 @@ function printToolCommandError(
 }
 
 function getErrorDetails(error: unknown): string[] {
-  return error instanceof DirectToolInputError ? error.details : [];
+  return error instanceof DirectToolInputError
+    ? error.details.map(detail =>
+        detail.replace(/(Run tools \S+ --scheme)(?! --brief)/, '$1 --brief')
+      )
+    : [];
 }
 
 export async function executeToolCommand(args: ParsedArgs): Promise<boolean> {

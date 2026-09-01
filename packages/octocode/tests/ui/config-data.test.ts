@@ -10,7 +10,7 @@ describe('interactive configuration catalog', () => {
     expect(getAllTools().map(tool => tool.id)).toEqual(
       DIRECT_TOOL_DISCOVERY_DEFINITIONS.map(tool => tool.name)
     );
-    expect(getAllTools()).toHaveLength(12);
+    expect(getAllTools()).toHaveLength(10);
     expect(getAllTools().map(tool => tool.id)).toEqual(
       expect.arrayContaining(['ghSearchHistory', 'ghGetHistoryItem'])
     );
@@ -20,6 +20,22 @@ describe('interactive configuration catalog', () => {
         'ghSearchIssues',
         'ghSearchCommits',
       ])
+    );
+  });
+
+  it('derives tool titles and descriptions from the canonical catalog', () => {
+    expect(getAllTools()).toEqual(
+      DIRECT_TOOL_DISCOVERY_DEFINITIONS.map(tool => ({
+        id: tool.name,
+        name: tool.title,
+        description: tool.description,
+        category:
+          tool.name === 'npmSearch'
+            ? 'package'
+            : tool.name.startsWith('gh')
+              ? 'github'
+              : 'local',
+      }))
     );
   });
 
@@ -50,14 +66,4 @@ describe('interactive configuration catalog', () => {
         ?.defaultValue
     ).toBe('true');
   });
-
-  it.each(['ENABLE_RELEASES', 'ENABLE_DISCUSSIONS'])(
-    'shows %s as opt-in',
-    envVar => {
-      expect(
-        ALL_CONFIG_OPTIONS.find(option => option.envVar === envVar)
-          ?.defaultValue
-      ).toBe('false');
-    }
-  );
 });

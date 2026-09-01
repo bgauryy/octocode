@@ -1,32 +1,12 @@
-import { afterAll, describe, expect, it, vi } from 'vitest';
-
-const previousFlags = vi.hoisted(() => {
-  const values = {
-    releases: process.env.ENABLE_RELEASES,
-    discussions: process.env.ENABLE_DISCUSSIONS,
-  };
-  process.env.ENABLE_RELEASES = 'true';
-  process.env.ENABLE_DISCUSSIONS = 'true';
-  return values;
-});
+import { describe, expect, it } from 'vitest';
 
 import { ALL_TOOLS } from '../../src/tools/toolConfig.js';
-
-afterAll(() => {
-  if (previousFlags.releases === undefined) delete process.env.ENABLE_RELEASES;
-  else process.env.ENABLE_RELEASES = previousFlags.releases;
-  if (previousFlags.discussions === undefined)
-    delete process.env.ENABLE_DISCUSSIONS;
-  else process.env.ENABLE_DISCUSSIONS = previousFlags.discussions;
-});
 
 const CACHE_WORKFLOWS = {
   sharedResponse: [
     'ghSearch',
     'ghSearchHistory',
     'ghGetHistoryItem',
-    'ghListReleases',
-    'ghSearchDiscussions',
     'npmSearch',
   ],
   conditionalMaterialization: ['ghGetFileContent'],

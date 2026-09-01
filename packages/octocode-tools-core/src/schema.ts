@@ -10,28 +10,6 @@
  */
 export * from './tools/directToolCatalog.meta.js';
 export * from './toolContract/runtime.js';
-export {
-  CloneRepoQuerySchema,
-  FetchContentQuerySchema,
-  FileContentQuerySchema,
-  GitHubSearchQuerySchema,
-  ListReleasesQuerySchema,
-  LocalAnalyzeGraphQuerySchema,
-  LocalSearchQuerySchema,
-  LspGetSemanticsQuerySchema,
-  NpmPackageQuerySchema,
-  SearchCommitsQuerySchema,
-  SearchDiscussionsQuerySchema,
-  SearchIssuesQuerySchema,
-  SearchPullRequestsQuerySchema,
-  findToolSchema,
-  getToolSchemaRelations,
-  toolSchemas,
-} from './toolContract/schemas.js';
-export {
-  applyWorkflowMode,
-  validateRipgrepQuery,
-} from './toolContract/runtime.js';
-// Descriptions and executable schemas are owned by octocode-core.
+// Descriptions and executable schemas are owned by tools-core.
 export { loadToolContent } from './tools/toolMetadata/state.js';
 export { STATIC_TOOL_NAMES } from './tools/toolNames.js';

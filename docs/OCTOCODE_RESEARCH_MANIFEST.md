@@ -78,11 +78,11 @@ Seven mechanisms make the loop cheap in practice:
 
 1. **Hints: the tool plans your next call.** Direct tool results ship
    prefilled, copy-paste follow-up fields, not only a path. A text hit for a
-   symbol returns `next.semantic` (a documentSymbols query against the
+   symbol returns `next.lspDefinition` (a semantic query anchored on the
    containing file) and `next.fetch` (a content query anchored on the
-   match), both directly executable. Deeper results add `nextHints[].why`
-   and `confidence`, explaining *why* a continuation is offered, not only
-   that one exists.
+   match), both directly executable. Each continuation carries its own
+   `why` and `confidence`, explaining *why* it is offered, not only that one
+   exists.
 2. **Pagination: follow executable continuations, not numeric hints.**
    Every bounded or partial axis exposes a schema-valid `next.*` call. Page,
    match-page, scan, limit, line, character, and provider-incomplete axes each
@@ -141,7 +141,7 @@ LOCAL      workspace files, node_modules, cloned/materialized repos
 
 EXTERNAL   GitHub (code, trees, files, PRs, commits) and npm
            → ghSearch, ghGetFileContent, ghSearchHistory, ghGetHistoryItem,
-             ghListReleases, ghSearchDiscussions, npmSearch
+             npmSearch
 
 BRIDGE     ghCloneRepo (or ghGetFileContent type:"directory") converts
            remote code to local-grade evidence, then LOCAL tools take over
@@ -284,8 +284,6 @@ or "this is unused" built on a single angle (§12, item 2).
 | `ghGetFileContent` | external | read GitHub file (slices/ranges/symbols); `type:"directory"` materializes a subtree | reading remote files; bridging remote→local |
 | `ghSearchHistory` | external | search PR, issue, or commit candidates through strict plural operations | locate history evidence and its stable identity |
 | `ghGetHistoryItem` | external | fetch a PR/issue by `number`, commit by `ref`, or comparison by `base`+`head` | inspect why code changed or what a thread established |
-| `ghListReleases` | external | releases + latest stable (**gated: `ENABLE_RELEASES=true`**) | mapping versions to changes |
-| `ghSearchDiscussions` | external | repository Discussions Q&A/RFCs (GraphQL; **gated: `ENABLE_DISCUSSIONS=true`**) | mining Q&A, RFCs, announcements |
 | `npmSearch` | external | package → source repository (+ `repositoryDirectory`) | resolving a dependency to its home |
 | `ghCloneRepo` | bridge | full/sparse clone (**default on; `ENABLE_CLONE=false` disables**) | whole-repository local analysis |
 
@@ -428,8 +426,8 @@ What you get:
   materialize to LSP at those lines, without ever reading a full file.
 - **Direct tool results go further than a warning string**: a code-search
   row's `next` object is a directly-executable query, not prose. `next.fetch`
-  and `next.semantic` come back pre-populated with the target tool and params
-  filled in (§0). Some results add `nextHints[].why` and `confidence`
+  and `next.lspDefinition` come back pre-populated with the target tool and params
+  filled in (§0). Each continuation carries `why` and `confidence`,
   explaining *why* that continuation was offered — for example, `"Read the code at
   this symbol location."` / `confidence:"exact"`. That's reasoning support,
   not only a pointer.
@@ -695,7 +693,7 @@ computing your own.** Every paginator here is lossless; nothing is silently drop
 
 | Family | Fields | Tools | Behavior |
 |---|---|---|---|
-| Char window (file) | `charOffset`/`charLength` → `nextCharOffset`, `isPartial` | local/gh GetFileContent | a capped `charLength` on a large file returns `pagination.hasMore:true` plus a ready, copy-paste `next.charRange` query pre-filled with the next offset, and `nextHints.why:"Read the next content window."` explaining the offer. Nothing to compute, nothing silently dropped. |
+| Char window (file) | `charOffset`/`charLength` → `nextCharOffset`, `isPartial` | local/gh GetFileContent | a capped `charLength` on a large file returns `pagination.hasMore:true` plus a ready, copy-paste `next.continueChars` query pre-filled with the next offset. That continuation carries `why:"Continue with the next character window."` and its confidence. Nothing to compute, nothing silently dropped. |
 | Result page | `page` → `hasMore`/`nextPage` | all search tools, structure tools | later pages return the next slice of rows with a `reported`/`reachable`/`capped` breakdown |
 | Per-file match page | `matchPage` + `maxMatchesPerFile` | localSearch | walks a noisy file without re-fetching others |
 | List pages | `pageSize` + `page`; `filePage`/`commentPage`/`commitPage` | LSP lists, PR content surfaces | large symbol lists page cleanly across calls |

@@ -81,6 +81,49 @@ export function getDirectToolVariantDisplayFields(
   );
 }
 
+/** Top-level fields accepted by the schema branches compatible with the
+ * selectors already present in a query. This keeps recovery suggestions inside
+ * the active discriminated-union branch instead of the merged catalog view. */
+export function getDirectToolAllowedFieldNames(
+  toolName: string,
+  query: Readonly<Record<string, unknown>>
+): ReadonlySet<string> {
+  const tool = findDirectToolDefinition(toolName);
+  if (!tool) return new Set();
+
+  const jsonSchema = z.toJSONSchema(tool.schema, { io: 'input' });
+  if (!isJsonSchemaObject(jsonSchema)) return new Set();
+  const variants = collectObjectVariants(jsonSchema);
+  const compatible = variants.filter(variant =>
+    branchMatchesKnownSelectors(variant, query)
+  );
+  const selected = compatible.length > 0 ? compatible : variants;
+  return new Set(
+    selected.flatMap(variant =>
+      isRecord(variant.properties) ? Object.keys(variant.properties) : []
+    )
+  );
+}
+
+function branchMatchesKnownSelectors(
+  variant: JsonSchemaObject,
+  query: Readonly<Record<string, unknown>>
+): boolean {
+  if (!isRecord(variant.properties)) return true;
+  for (const [name, value] of Object.entries(query)) {
+    const rawProperty = variant.properties[name];
+    if (!isJsonSchemaObject(rawProperty)) continue;
+    if ('const' in rawProperty && value !== rawProperty.const) return false;
+    if (
+      Array.isArray(rawProperty.enum) &&
+      !rawProperty.enum.some(candidate => candidate === value)
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
 export function describeSchemaConstraints(
   schema: JsonSchemaObject
 ): string | undefined {

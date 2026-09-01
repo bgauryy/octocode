@@ -73,7 +73,10 @@ function buildLocalFetchContentFinalizer<
       structuredContent: sanitizeStructuredContent(
         responseData
       ) as LocalFetchContentResponse,
-      text: formatLocalFetchContentText(responseData),
+      renderText: structuredContent =>
+        formatLocalFetchContentText(
+          structuredContent as unknown as BulkToolResponse
+        ),
       isError:
         responseData.results.length > 0 &&
         responseData.results.every(

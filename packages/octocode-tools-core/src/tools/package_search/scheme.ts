@@ -124,7 +124,7 @@ export const NpmSearchBulkQueryLocalSchema = createRelaxedBulkQuerySchema(
 );
 
 // ---------------------------------------------------------------------------
-// Output TYPES — describes what packageSearch returns. No zod: the MCP server
+// Output TYPES — describes what npmSearch returns. No zod: the MCP server
 // registers no outputSchema. Index signatures mirror the original
 // z.looseObject/.passthrough() for additive runtime fields. Shared envelope
 // lives in types/toolOutput.ts.

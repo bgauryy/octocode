@@ -3,12 +3,7 @@ import { Client } from '@modelcontextprotocol/client';
 import { McpServer, InMemoryTransport } from '@modelcontextprotocol/server';
 import { z } from 'zod';
 
-const FEATURE_FLAGS = [
-  'ENABLE_RELEASES',
-  'ENABLE_DISCUSSIONS',
-  'ENABLE_LOCAL',
-  'ENABLE_CLONE',
-] as const;
+const FEATURE_FLAGS = ['ENABLE_LOCAL', 'ENABLE_CLONE'] as const;
 
 afterEach(() => {
   for (const flag of FEATURE_FLAGS) delete process.env[flag];
@@ -16,7 +11,7 @@ afterEach(() => {
 });
 
 describe('all-tool real SDK catalog parity', () => {
-  it('lists the same 12 canonical contracts through a real MCP client without output schemas', async () => {
+  it('lists the same 10 canonical contracts through a real MCP client without output schemas', async () => {
     for (const flag of FEATURE_FLAGS) process.env[flag] = 'true';
     vi.resetModules();
 
@@ -29,8 +24,6 @@ describe('all-tool real SDK catalog parity', () => {
       'ghGetFileContent',
       'ghSearchHistory',
       'ghGetHistoryItem',
-      'ghListReleases',
-      'ghSearchDiscussions',
       'npmSearch',
       'ghCloneRepo',
       'localSearch',
@@ -42,6 +35,8 @@ describe('all-tool real SDK catalog parity', () => {
       'ghSearchPullRequests',
       'ghSearchIssues',
       'ghSearchCommits',
+      'ghListReleases',
+      'ghSearchDiscussions',
     ];
 
     expect(ALL_TOOLS.map(tool => tool.name)).toEqual(expectedNames);

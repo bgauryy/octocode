@@ -158,11 +158,6 @@ function buildNext(
         ...(repositoryDirectory ? { path: repositoryDirectory } : {}),
       },
     },
-    latestRelease: {
-      tool: 'ghListReleases',
-      query: { owner, repo },
-      why: 'npm latest can diverge from the repo release line — verify against the repository releases/tags',
-    },
     searchRepositoryCode: {
       tool: 'ghSearch',
       query: { operation: 'code', owner, repo },

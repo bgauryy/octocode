@@ -15,7 +15,13 @@ export interface BulkFinalizerOutput<
 > {
   structuredContent: TOutput;
 
-  text: string;
+  /** Rendering priority only. Text is derived once from finalized structured
+   * content so MCP and CLI cannot observe different semantic states. */
+  keysPriority?: readonly string[];
+
+  /** Optional presentation for copy-sensitive payloads. It receives the final,
+   * reconciled structured value and therefore cannot render stale metadata. */
+  renderText?: (structuredContent: Record<string, unknown>) => string;
 
   isError?: boolean;
 }
@@ -48,6 +54,11 @@ export interface ResponsePaginationInfo {
   totalChars: number;
 
   nextCharOffset?: number;
+
+  next?: {
+    tool: string;
+    query: Record<string, unknown>;
+  };
 }
 
 export interface BulkResponseConfig<

@@ -25,7 +25,7 @@ import type { ResponsePaginationInfo } from '../../types/toolOutput.js';
 // copyDescription in ../../scheme/coreSchemas.ts preserves canonical prose.
 const queryOverrides = {
   // Internal dispatcher mode; focused public tools inject this themselves.
-  type: z.enum(['prs', 'commits', 'releases', 'issues']).optional(),
+  type: z.enum(['prs', 'commits', 'issues']).optional(),
   prNumber: clampedInt(1, 1_000_000_000).optional(),
   issueNumber: clampedInt(1, 1_000_000_000).optional(),
   pageSize: clampedInt(1, GITHUB_SEARCH_MAX_LIMIT)
@@ -118,15 +118,6 @@ export interface HistoryCommit {
   [key: string]: unknown;
 }
 
-export interface HistoryRelease {
-  tagName?: string;
-  name?: string;
-  publishedAt?: string;
-  prerelease?: boolean;
-  latest?: boolean;
-  [key: string]: unknown;
-}
-
 // Commits-mode pagination omits totalPages (unbounded history walk), so the
 // canonical ItemPagination (which requires it) does not fit here.
 export interface HistoryPagination {
@@ -142,7 +133,7 @@ export interface PullRequestsResultData {
   pullRequests?: ConciseOrDetailRow[];
   // type:"issues" reuses this tool; same concise/object shapes.
   issues?: ConciseOrDetailRow[];
-  // Mode identity + scope echoed by commits/releases/issues modes.
+  // Mode identity + scope echoed by commits/issues modes.
   type?: string;
   owner?: string;
   repo?: string;
@@ -150,12 +141,6 @@ export interface PullRequestsResultData {
   totalCount?: number;
   effectiveQuery?: string;
   commits?: HistoryCommit[];
-  releases?: HistoryRelease[];
-  latest?: {
-    tagName?: string;
-    publishedAt?: string;
-    [key: string]: unknown;
-  };
   pagination?: HistoryPagination;
   // Mode-irrelevant-field notices and other in-band guidance.
   // Continuations (readIssue / searchRepositoryCode / …).

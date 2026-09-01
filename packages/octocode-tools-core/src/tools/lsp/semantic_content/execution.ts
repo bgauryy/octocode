@@ -32,7 +32,7 @@ import {
   formatSemanticResult,
 } from './semanticPresentation.js';
 import { withSemanticNext } from './semanticNext.js';
-import { LspGetSemanticsQueryDisplaySchema } from './scheme.js';
+import { LspGetSemanticsQuerySchema } from './scheme.js';
 
 export async function executeLspGetSemantics(
   args: ToolExecutionArgs<LspGetSemanticsQuery>
@@ -40,7 +40,7 @@ export async function executeLspGetSemantics(
   return executeBulkOperation(
     args.queries || [],
     async query => {
-      const parsed = safeParseOrError(LspGetSemanticsQueryDisplaySchema, query);
+      const parsed = safeParseOrError(LspGetSemanticsQuerySchema, query);
       if (parsed.ok === false) return parsed.error;
       const validatedQuery = parsed.data as LspGetSemanticsQuery;
 

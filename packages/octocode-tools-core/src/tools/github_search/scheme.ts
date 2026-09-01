@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { GitHubSearchQuerySchema as SharedGitHubSearchQuerySchema } from '@octocodeai/octocode-core/schemas';
+import { GitHubSearchQuerySchema as SharedGitHubSearchQuerySchema } from '../../toolContract/schemas.js';
 import { createRelaxedBulkQuerySchema } from '../../scheme/fields.js';
 
 function hasText(value: unknown): boolean {

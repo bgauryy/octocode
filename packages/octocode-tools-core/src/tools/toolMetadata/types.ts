@@ -1,3 +1,3 @@
-import type { ToolNames } from '@octocodeai/octocode-core/types';
+import type { ToolNames } from '../../toolContract/input/types/index.js';
 
 export type ToolName = ToolNames[keyof ToolNames];

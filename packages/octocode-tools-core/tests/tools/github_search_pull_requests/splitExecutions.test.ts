@@ -11,7 +11,6 @@ import {
   searchMultipleGitHubPullRequestsSplit,
   searchMultipleGitHubIssues,
   searchMultipleGitHubCommits,
-  listMultipleGitHubReleases,
 } from '../../../src/tools/github_search_pull_requests/splitExecutions.js';
 
 const SUCCESS_RESULT = {
@@ -55,15 +54,6 @@ describe('splitExecutions — type injection', () => {
 
     const calledWith = mockSearchMultiple.mock.calls[0]![0];
     expect(calledWith.queries[0].type).toBe('commits');
-  });
-
-  it('listMultipleGitHubReleases injects type:"releases"', async () => {
-    await listMultipleGitHubReleases(
-      baseArgs([{ owner: 'vercel', repo: 'next.js' }])
-    );
-
-    const calledWith = mockSearchMultiple.mock.calls[0]![0];
-    expect(calledWith.queries[0].type).toBe('releases');
   });
 
   it('preserves existing query fields when injecting type', async () => {

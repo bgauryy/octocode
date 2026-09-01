@@ -15,6 +15,7 @@ import {
 } from '@octocodeai/octocode-tools-core/schema';
 import { COMMAND_SPECS } from './commands/specs.js';
 import { REGISTERED_COMMAND_NAMES } from './commands/index.js';
+import { AGENT_TOOL_COMMANDS } from './tool-command/agent-contract.js';
 import { TOOL_DEFINITIONS } from './tool-command/registry.js';
 
 // Quick (read-first) commands get a rich arg hint; every other command is
@@ -35,7 +36,7 @@ function buildAgentInstructionsBlock(): string[] {
     '  tools <name> --scheme                     full descriptions + relations',
     "  tools <name> --queries '<json>' --compact  lean typed result (default output is YAML)",
     '  Batch with queries[]; results[] preserve zero-based index and isolate errors.',
-    '  Copy row-local data.next exactly; advance data.pagination while hasMore. responsePagination is text-only.',
+    '  Copy row-local data.next exactly while data.pagination.hasMore. responsePagination is text-only.',
     '  Full MCP protocol + tool guidance: context --full; cheapest index: context --minimal.',
   ];
   return [
@@ -193,7 +194,7 @@ export async function showHelp(): Promise<void> {
     // ── Raw execution — every tool, schema-exact ───────────────────────────
     `  ${bold(`TOOLS (${toolCount} enabled / ${catalogCount} cataloged)`)}  ${dim('name + concise description')}`,
     `    ${c('yellow', 'tools'.padEnd(31))} ${dim('list public catalog + availability')}`,
-    `    ${c('yellow', 'tools <name> --scheme --brief'.padEnd(31))} ${dim('lean schema + example')}`,
+    `    ${c('yellow', AGENT_TOOL_COMMANDS.schema.padEnd(31))} ${dim('lean schema + relations')}`,
     `    ${c('yellow', "tools <name> --queries '<json>' --compact".padEnd(31))} ${dim('lean run')}`,
     ...toolLines,
     '',

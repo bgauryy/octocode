@@ -147,14 +147,6 @@ export function baseQuery(query: QueryLike, prNumber: number) {
   };
 }
 
-export function compactQuery(
-  value: Record<string, unknown>
-): Record<string, unknown> {
-  return Object.fromEntries(
-    Object.entries(value).filter(([, entry]) => entry !== undefined)
-  );
-}
-
 export function continuationQuery(
   query: QueryLike,
   prNumber: number,

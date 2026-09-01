@@ -13,23 +13,23 @@ import { findStaticCommandHelp } from '../../src/cli/command-help-specs.js';
 const packageRoot = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 
 // Single source of truth: every CLI command's human-facing spec
-// (description / usage / scheme / whenToUse / examples) lives in octocode-core
+// (description / usage / scheme / whenToUse / examples) lives in this package
 // and is resolved by name via findStaticCommandHelp. Command files carry only
 // behavior (name + options + handler). These tests enforce that the content
-// genuinely comes from core — so it can never silently drift back into a
+// genuinely comes from the registry — so it can never silently drift back into a
 // hardcoded string in the CLI package.
-describe('CLI command content is sourced from octocode-core', () => {
-  it('every registered command resolves a spec from core', () => {
+describe('CLI command content is sourced from its canonical registry', () => {
+  it('every registered command resolves a spec', () => {
     const missing = REGISTERED_COMMAND_NAMES.filter(
       name => !findStaticCommandHelp(name)
     );
     expect(missing).toEqual([]);
   });
 
-  it('each resolved core spec carries the required help content', () => {
+  it('each resolved spec carries the required help content', () => {
     for (const name of REGISTERED_COMMAND_NAMES) {
       const spec = findStaticCommandHelp(name);
-      expect(spec, `no core spec for "${name}"`).toBeDefined();
+      expect(spec, `no spec for "${name}"`).toBeDefined();
       expect(spec!.description.trim().length).toBeGreaterThan(0);
       expect(spec!.usage?.startsWith(spec!.name)).toBe(true);
     }
@@ -82,7 +82,7 @@ describe('CLI command content is sourced from octocode-core', () => {
       }
       const spec = findStaticCommandHelp(name);
       if (!spec) {
-        offenders.push(`${name}: no core spec`);
+        offenders.push(`${name}: no spec`);
         continue;
       }
       const coreByName = new Map(

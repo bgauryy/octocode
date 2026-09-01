@@ -4,8 +4,7 @@
  * derive names and schemas from one engine-free specification. This test
  * imports both (the engine-bearing ALL_TOOLS is fine in tests) and asserts
  * they never diverge in tool set, order, or JSON-schema shape.
- * Runtime definitions contain enabled tools; discovery additionally exposes
- * disabled opt-in schemas with their enabling environment variable.
+ * Runtime and discovery expose the same canonical public tools.
  */
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
@@ -51,7 +50,10 @@ describe('direct-tool meta catalog parity with ALL_TOOLS (P3)', () => {
     ]) {
       expect(publicBarrelSource).not.toContain(legacyToolModule);
     }
-    expect(DIRECT_TOOL_SPECIFICATIONS).toHaveLength(12);
+    expect(DIRECT_TOOL_SPECIFICATIONS).toHaveLength(10);
+    expect(DIRECT_TOOL_SPECIFICATIONS.map(tool => tool.name)).not.toEqual(
+      expect.arrayContaining(['ghListReleases', 'ghSearchDiscussions'])
+    );
     expect(
       DIRECT_TOOL_SPECIFICATIONS.every(
         specification =>
@@ -230,9 +232,9 @@ describe('direct-tool meta catalog parity with ALL_TOOLS (P3)', () => {
 });
 
 describe('default read-only tool availability', () => {
-  it('publishes one schema per capability while optional tools stay disabled', () => {
+  it('publishes one schema per canonical capability', () => {
     expect(DIRECT_TOOL_DEFINITIONS).toHaveLength(10);
-    expect(DIRECT_TOOL_DISCOVERY_DEFINITIONS).toHaveLength(12);
+    expect(DIRECT_TOOL_DISCOVERY_DEFINITIONS).toHaveLength(10);
     expect(DIRECT_TOOL_DISCOVERY_DEFINITIONS).not.toBe(DIRECT_TOOL_DEFINITIONS);
   });
 
@@ -243,24 +245,10 @@ describe('default read-only tool availability', () => {
     'github.code',
     'github.repositories',
     'github.tree',
+    'ghListReleases',
+    'ghSearchDiscussions',
   ] as const)('%s compatibility schema is removed', name => {
     expect(ALL_TOOLS.some(tool => tool.name === name)).toBe(false);
     expect(findDirectToolDefinition(name)).toBeUndefined();
   });
-
-  it.each(['ghListReleases', 'ghSearchDiscussions'] as const)(
-    '%s resolves by name but is disabled without its feature flag',
-    name => {
-      expect(DIRECT_TOOL_DEFINITIONS.some(t => t.name === name)).toBe(false);
-      expect(ALL_TOOLS.some(t => t.name === name)).toBe(false);
-      const found = findDirectToolDefinition(name);
-      expect(found).toBeDefined();
-      expect(found?.disabled?.envVar).toMatch(
-        /^ENABLE_(RELEASES|DISCUSSIONS)$/
-      );
-      expect(() =>
-        z.toJSONSchema(found!.inputSchema, { io: 'input' })
-      ).not.toThrow();
-    }
-  );
 });

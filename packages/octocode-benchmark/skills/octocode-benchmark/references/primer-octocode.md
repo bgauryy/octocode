@@ -20,8 +20,6 @@ use it instead of paying for schema discovery.
 | `localAnalyzeGraph` | Bounded dependencies, dependents, paths, reachability, cycles, and dead-code candidates in a clone. |
 | `lspGetSemantics` | Definitions, references, callers/callees, symbols, types, diagnostics — **after** search/read gives a real file+line. `documentSymbols`/`diagnostic` need `uri`; `workspaceSymbol` needs `symbolName`; others need `uri`+`symbolName`+`lineHint`. |
 
-`ghListReleases` / `ghSearchDiscussions` are opt-in; a disabled tool is unavailable, not a failed requirement.
-
 ## Leanest path (required — this is how the tool is meant to be used)
 
 - **Let a search snippet answer.** A `ghSearch(operation:"code")` hit with the answer in its snippet ends the question — do not fetch the file.

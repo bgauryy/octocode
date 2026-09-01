@@ -269,8 +269,6 @@ const mockContent = {
     GITHUB_FETCH_CONTENT: 'ghGetFileContent',
     GITHUB_SEARCH_HISTORY: 'ghSearchHistory',
     GITHUB_GET_HISTORY_ITEM: 'ghGetHistoryItem',
-    GITHUB_RELEASES: 'ghListReleases',
-    GITHUB_DISCUSSIONS: 'ghSearchDiscussions',
     PACKAGE_SEARCH: 'npmSearch',
     GITHUB_CLONE_REPO: 'ghCloneRepo',
     LOCAL_SEARCH: 'localSearch',
@@ -288,8 +286,6 @@ const mockContent = {
     ghGetFileContent: githubFetchContentSchema,
     ghSearchHistory: mockToolSchema,
     ghGetHistoryItem: mockToolSchema,
-    ghListReleases: mockToolSchema,
-    ghSearchDiscussions: mockToolSchema,
     npmSearch: mockToolSchema,
     ghCloneRepo: {
       name: 'ghCloneRepo',
@@ -375,8 +371,6 @@ vi.mock('@octocodeai/octocode-core', async importOriginal => {
     GITHUB_FETCH_CONTENT: 'ghGetFileContent',
     GITHUB_SEARCH_HISTORY: 'ghSearchHistory',
     GITHUB_GET_HISTORY_ITEM: 'ghGetHistoryItem',
-    GITHUB_RELEASES: 'ghListReleases',
-    GITHUB_DISCUSSIONS: 'ghSearchDiscussions',
     GITHUB_CLONE_REPO: 'ghCloneRepo',
     PACKAGE_SEARCH: 'npmSearch',
     LOCAL_SEARCH: 'localSearch',
@@ -407,13 +401,6 @@ vi.mock('@octocodeai/octocode-core', async importOriginal => {
     ...schemaStubs,
     get octocodeConfig() {
       return _coreMock.ref;
-    },
-    get completeMetadata() {
-      return {
-        ...(_coreMock.ref as Record<string, unknown>),
-        baseSchema: actual.completeMetadata.baseSchema,
-        tools: actual.completeMetadata.tools,
-      };
     },
   };
 });

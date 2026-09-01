@@ -28,8 +28,6 @@ const TOOL_PAGINATION_CONTRACT: Record<
       'charLength',
     ],
   },
-  ghListReleases: { controls: ['page', 'pageSize'] },
-  ghSearchDiscussions: { controls: ['after', 'pageSize'] },
   npmSearch: { controls: ['page', 'pageSize'] },
   ghCloneRepo: {
     controls: [],

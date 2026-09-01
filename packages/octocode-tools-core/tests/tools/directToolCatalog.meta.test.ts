@@ -17,14 +17,110 @@ describe('prepareDirectToolInput', () => {
     'ghGetHistoryItem',
     'ghGetFileContent',
     'ghCloneRepo',
-    'ghSearchDiscussions',
-    'ghListReleases',
     'localSearch',
     'localAnalyzeGraph',
     'localGetFileContent',
     'lspGetSemantics',
     'npmSearch',
   ];
+
+  it.each([
+    ['npmSearch', {}, 'Set exactly one of packageName or keywords.'],
+    [
+      'localSearch',
+      {},
+      'operation must be one of text, structural, files, or tree.',
+    ],
+    [
+      'lspGetSemantics',
+      {},
+      'workspaceSymbol needs symbolName and may use workspaceRoot. documentSymbols/diagnostic need uri. definition | references | hover | callers | callees | callHierarchy | implementation | typeDefinition | supertypes | subtypes -> requires uri + symbolName + lineHint.',
+    ],
+  ])(
+    'reports the public relation for invalid %s union input',
+    (toolName, query, expectedDetail) => {
+      try {
+        prepareDirectToolInput(toolName, query, {
+          rejectUnknownFields: true,
+        });
+        expect.unreachable('expected invalid input');
+      } catch (error) {
+        expect(error).toBeInstanceOf(DirectToolInputError);
+        expect((error as DirectToolInputError).details).toContain(
+          expectedDetail
+        );
+      }
+    }
+  );
+
+  it.each([
+    [
+      'ghSearch',
+      {
+        operation: 'code',
+        owner: 'o',
+        repo: 'r',
+        keywords: ['x'],
+        topicsToSearch: ['mcp'],
+      },
+      'topics',
+    ],
+    [
+      'localAnalyzeGraph',
+      { operation: 'cycles', path: '/repo', maxDepth: 3 },
+      'depth',
+    ],
+  ])(
+    'does not suggest %s fields that are invalid for the active variant',
+    (tool, query, invalidSuggestion) => {
+      try {
+        prepareDirectToolInput(tool, query, { rejectUnknownFields: true });
+        expect.unreachable(`expected ${tool} to reject an unknown field`);
+      } catch (error) {
+        expect(error).toBeInstanceOf(DirectToolInputError);
+        expect((error as DirectToolInputError).details.join(' ')).not.toContain(
+          `did you mean '${invalidSuggestion}'`
+        );
+      }
+    }
+  );
+
+  it('retains an alias suggestion when it is valid for the active LSP variant', () => {
+    try {
+      prepareDirectToolInput(
+        'lspGetSemantics',
+        {
+          type: 'references',
+          uri: '/repo/file.ts',
+          symbolName: 'Thing',
+          lineHint: 1,
+          path: '/repo/other.ts',
+        },
+        { rejectUnknownFields: true }
+      );
+      expect.unreachable('expected lspGetSemantics to reject path');
+    } catch (error) {
+      expect(error).toBeInstanceOf(DirectToolInputError);
+      expect((error as DirectToolInputError).details).toContain(
+        "'path' → did you mean 'uri'?"
+      );
+    }
+  });
+
+  it.each([
+    ['ghGetFileContent', 'queries.0.owner'],
+    ['localGetFileContent', 'queries.0.path'],
+  ])('keeps the query index in flattened %s union errors', (toolName, path) => {
+    try {
+      prepareDirectToolInput(toolName, {}, { rejectUnknownFields: true });
+      expect.unreachable('expected invalid input');
+    } catch (error) {
+      expect(error).toBeInstanceOf(DirectToolInputError);
+      expect((error as DirectToolInputError).details).toEqual(
+        expect.arrayContaining([expect.stringContaining(`${path}:`)])
+      );
+    }
+  });
 
   it('publishes conditional field relations that flattened schemas cannot express', () => {
     expect(getDirectToolSchemaRelations('localAnalyzeGraph')).toEqual(
@@ -75,16 +171,6 @@ describe('prepareDirectToolInput', () => {
       'compare',
     ]);
 
-    const discussions = buildDirectToolCommandPatterns('ghSearchDiscussions');
-    expect(discussions.length).toBeGreaterThan(0);
-    expect(discussions[0]?.query).toMatchObject({
-      owner: 'vitejs',
-      repo: 'vite',
-      keywords: ['plugin'],
-    });
-    expect(
-      discussions.every(pattern => pattern.query.after === undefined)
-    ).toBe(true);
   });
 
   it('keeps every published command pattern inside its strict tool schema', () => {
@@ -313,6 +399,45 @@ describe('prepareDirectToolInput', () => {
       expect(details?.some(d => d.includes('did you mean'))).toBe(false);
     }
   });
+
+  it.each([
+    [
+      'text',
+      { operation: 'text', path: '.', searchText: 'needle', maxResults: 5 },
+      'maxFiles',
+    ],
+    [
+      'structural',
+      { operation: 'structural', path: '.', pattern: '$A', maxResults: 5 },
+      'maxFiles',
+    ],
+    [
+      'files',
+      { operation: 'files', path: '.', maxResults: 5 },
+      'limit',
+    ],
+    [
+      'tree',
+      { operation: 'tree', path: '.', maxResults: 5 },
+      'limit',
+    ],
+  ])(
+    'suggests a field valid for the active localSearch %s variant',
+    (_operation, query, expectedField) => {
+      try {
+        prepareDirectToolInput('localSearch', query, {
+          rejectUnknownFields: true,
+        });
+        expect.unreachable('expected localSearch to reject maxResults');
+      } catch (error) {
+        expect(error).toBeInstanceOf(DirectToolInputError);
+        const details = (error as DirectToolInputError).details.join(' ');
+        expect(details).toContain(
+          `'maxResults' → did you mean '${expectedField}'?`
+        );
+      }
+    }
+  );
 
   it('keeps ghSearch repository keywords canonical', () => {
     const prepared = prepareDirectToolInput(

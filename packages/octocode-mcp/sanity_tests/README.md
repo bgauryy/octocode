@@ -31,7 +31,6 @@ comparisons.
 - [ghSearch](./ghSearch.md)
 - [ghGetFileContent](./ghGetFileContent.md)
 - [ghSearchHistory and ghGetHistoryItem](./githubHistory.md)
-- [ghListReleases](./ghListReleases.md) (opt-in: `ENABLE_RELEASES=true`)
 - [npmSearch](./npmSearch.md)
 - [ghCloneRepo](./ghCloneRepo.md)
 - [localSearch](./localSearch.md)

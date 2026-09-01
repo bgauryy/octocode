@@ -14,52 +14,6 @@ interface AvailableTool {
   category: ToolCategory;
 }
 
-const TOOL_COPY: Record<string, readonly [name: string, description: string]> =
-  {
-    ghSearch: [
-      'Search GitHub',
-      'Search code or repositories, or browse a repository tree',
-    ],
-    ghGetFileContent: [
-      'Get File Content',
-      'Read files from GitHub repositories',
-    ],
-    ghSearchHistory: [
-      'Search GitHub History',
-      'Search pull requests, issues, or commits',
-    ],
-    ghGetHistoryItem: [
-      'Get GitHub History Item',
-      'Inspect one pull request, issue, commit, or ref comparison',
-    ],
-    ghListReleases: ['List Releases', 'List GitHub repository releases'],
-    ghSearchDiscussions: ['Search Discussions', 'Search GitHub Discussions'],
-    npmSearch: [
-      'Search npm',
-      'Search npm packages and locate their source repositories',
-    ],
-    ghCloneRepo: [
-      'Clone Repository',
-      'Clone a GitHub repository for local analysis',
-    ],
-    localSearch: [
-      'Search Local Code and Paths',
-      'Search text or AST patterns, find files, and browse directory structure',
-    ],
-    localAnalyzeGraph: [
-      'Analyze Graph',
-      'Analyze local file dependencies and reachability',
-    ],
-    localGetFileContent: [
-      'Get File Content',
-      'Read targeted sections of local files',
-    ],
-    lspGetSemantics: [
-      'Get Semantics',
-      'Inspect definitions, references, symbols, and diagnostics',
-    ],
-  };
-
 function categoryFor(toolName: string): ToolCategory {
   const category = getDirectToolCategory(toolName);
   if (category === 'GitHub') return 'github';
@@ -68,9 +22,14 @@ function categoryFor(toolName: string): ToolCategory {
 }
 
 const PUBLIC_TOOLS: AvailableTool[] = DIRECT_TOOL_DISCOVERY_DEFINITIONS.map(
-  ({ name: id }) => {
-    const [name, description] = TOOL_COPY[id] ?? [id, id];
-    return { id, name, description, category: categoryFor(id) };
+  tool => {
+    const id = tool.name;
+    return {
+      id,
+      name: tool.title,
+      description: tool.description,
+      category: categoryFor(id),
+    };
   }
 );
 
@@ -105,22 +64,6 @@ export const ALL_CONFIG_OPTIONS: ConfigOption[] = [
       'Enable local file exploration tools for searching and browsing local files',
     type: 'boolean',
     defaultValue: String(DEFAULT_CONFIG.local.enabled),
-  },
-  {
-    id: 'enableReleases',
-    envVar: 'ENABLE_RELEASES',
-    name: 'GitHub Releases',
-    description: 'Enable the opt-in ghListReleases tool',
-    type: 'boolean',
-    defaultValue: 'false',
-  },
-  {
-    id: 'enableDiscussions',
-    envVar: 'ENABLE_DISCUSSIONS',
-    name: 'GitHub Discussions',
-    description: 'Enable the opt-in ghSearchDiscussions tool',
-    type: 'boolean',
-    defaultValue: 'false',
   },
   {
     id: 'githubApiUrl',

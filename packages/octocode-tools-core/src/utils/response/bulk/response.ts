@@ -14,7 +14,11 @@ import type {
 import { countSerializedChars, getRawResponseChars } from '../charSavings.js';
 import { buildResponseChannels } from '../responseChannels.js';
 
-import { paginateBulkText, appendResponsePagination } from './pagination.js';
+import {
+  paginateBulkText,
+  appendResponsePagination,
+  buildResponsePaginationContinuation,
+} from './pagination.js';
 import {
   buildPaginationDiagnosticCodes,
   isPartialResult,
@@ -123,10 +127,27 @@ function createBulkResponse<
       results: flatQueries,
       config,
     });
-    const paginated = paginateBulkText(finalized.text, pagination);
+    const finalizedContent = attachFinalizedResultMeta(
+      finalized.structuredContent,
+      flatQueries
+    );
+    const responseChannels = buildResponseChannels(
+      finalizedContent,
+      finalized.keysPriority ?? fullKeysPriority
+    );
+    const finalizedText = finalized.renderText
+      ? finalized.renderText(responseChannels.structuredContent)
+      : responseChannels.text;
+    const paginated = paginateBulkText(finalizedText, pagination);
     const structuredContent = appendResponsePagination(
-      attachFinalizedResultMeta(finalized.structuredContent, flatQueries),
-      paginated.pagination
+      responseChannels.structuredContent as unknown as Record<string, unknown>,
+      paginated.pagination,
+      buildResponsePaginationContinuation(
+        config.toolName,
+        queries,
+        pagination,
+        paginated.pagination
+      )
     );
     recordBulkCharSavings(
       config.toolName,
@@ -134,9 +155,8 @@ function createBulkResponse<
       errors,
       paginated.text.length
     );
-    const text = paginated.text;
     return {
-      content: [{ type: 'text' as const, text }],
+      content: [{ type: 'text' as const, text: paginated.text }],
       structuredContent,
       isError:
         finalized.isError ??
@@ -155,7 +175,13 @@ function createBulkResponse<
   const paginated = paginateBulkText(formattedText, pagination);
   const structuredContent = appendResponsePagination(
     responseChannels.structuredContent as unknown as Record<string, unknown>,
-    paginated.pagination
+    paginated.pagination,
+    buildResponsePaginationContinuation(
+      config.toolName,
+      queries,
+      pagination,
+      paginated.pagination
+    )
   );
   recordBulkCharSavings(
     config.toolName,

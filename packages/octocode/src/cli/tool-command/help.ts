@@ -9,17 +9,47 @@ import {
   getDirectToolSchemaRelations,
 } from '@octocodeai/octocode-tools-core/schema';
 import { findToolDefinition, getOptionalToolMetadata } from './registry.js';
+import { getCompactToolSchemaShape } from './catalog-json.js';
 import {
   LSP_TOOL_NAME,
   extractShortDescription,
   formatFullDescription,
+  formatConciseToolDescription,
   formatToolExampleCommand,
   getToolSchemaGuidance,
 } from './formatting.js';
 import { LSP_TYPE_EXAMPLES } from './lsp-examples.js';
 
-// `tools <name> --scheme --brief`: params + one example, nothing else — the
-// cheapest schema read for agents that just need callable field names.
+function formatBriefField(field: {
+  name: string;
+  type: string;
+  required: boolean;
+}): string {
+  const type =
+    !field.required && field.type.length > 32
+      ? field.type.startsWith('array<enum(')
+        ? 'array<enum>'
+        : field.type.startsWith('enum(')
+          ? 'enum'
+          : field.type
+      : field.type;
+  return `${field.name}${field.required ? '*' : '?'}:${type}`;
+}
+
+function printBriefFieldLine(
+  label: string,
+  fields: Array<{
+    name: string;
+    type: string;
+    required: boolean;
+  }>
+): void {
+  if (fields.length === 0) return;
+  console.log(`    ${dim(label)} ${fields.map(formatBriefField).join(', ')}`);
+}
+
+// `tools <name> --scheme --brief`: branch-aware signatures + one example —
+// the cheapest schema read for agents that need callable field names.
 export async function showToolHelpBrief(toolName: string): Promise<boolean> {
   const tool = findToolDefinition(toolName);
   if (!tool) {
@@ -28,17 +58,32 @@ export async function showToolHelpBrief(toolName: string): Promise<boolean> {
 
   const metadata = await getOptionalToolMetadata();
   const fields = getDirectToolDisplayFields(tool.name);
-  const shortDesc = extractShortDescription(
-    getDirectToolDescription(tool.name, metadata)
-  );
+  const compactShape = getCompactToolSchemaShape(tool.name);
+  const shortDesc = formatConciseToolDescription(tool.name, metadata, 140);
+  const guidance = getToolSchemaGuidance(tool.name);
 
   console.log();
   console.log(`  ${c('magenta', bold(tool.name))}  ${dim(shortDesc)}`);
+  for (const line of guidance) console.log(`  ${dim(line)}`);
   console.log();
-  for (const field of fields) {
-    const reqTag = field.required ? c('red', ' [required]') : '';
-    const meta = field.constraints ? `, ${field.constraints}` : '';
-    console.log(`    ${c('cyan', field.name)} (${field.type}${meta})${reqTag}`);
+
+  if (compactShape.variants.length > 0) {
+    printBriefFieldLine('Fields:', compactShape.fields);
+    for (const group of compactShape.fieldGroups) {
+      printBriefFieldLine(`Shared ${group.variants.join('|')}:`, group.fields);
+    }
+    console.log(`    ${dim('Variants')}`);
+    for (const variant of compactShape.variants) {
+      if (variant.fields.length > 0) {
+        printBriefFieldLine(`${variant.name}:`, variant.fields);
+      } else {
+        console.log(
+          `    ${dim(`${variant.name}:`)} requires ${(variant.requires ?? []).join(', ')}`
+        );
+      }
+    }
+  } else {
+    printBriefFieldLine('Fields:', fields);
   }
   console.log();
   if (tool.name === LSP_TOOL_NAME) {
@@ -50,6 +95,9 @@ export async function showToolHelpBrief(toolName: string): Promise<boolean> {
   } else {
     console.log(`    ${c('yellow', formatToolExampleCommand(tool.name))}`);
   }
+  console.log(
+    `    ${dim(`full fields: tools ${tool.name} --scheme --json --compact`)}`
+  );
   console.log();
   return true;
 }

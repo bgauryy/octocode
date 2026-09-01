@@ -1,6 +1,6 @@
 import type { CallToolResult } from '@modelcontextprotocol/server';
 
-// Thin internal executors for focused GitHub history and release modes. Each injects
+// Thin internal executors for focused GitHub history modes. Each injects
 // the mode `type` its tool owns, then delegates to the shared, already-tested
 // bulk executor + router (searchMultipleGitHubPullRequests). This keeps ONE
 // backend while giving the agent four focused, single-purpose tools.
@@ -12,7 +12,7 @@ type SplitArgs = ToolExecutionArgs<Record<string, unknown>>;
 
 function withType(
   args: SplitArgs,
-  type: 'prs' | 'issues' | 'commits' | 'releases'
+  type: 'prs' | 'issues' | 'commits'
 ): ToolExecutionArgs<GitHubPullRequestSearchInput> {
   return {
     ...args,
@@ -39,10 +39,4 @@ export function searchMultipleGitHubCommits(
   args: SplitArgs
 ): Promise<CallToolResult> {
   return searchMultipleGitHubPullRequests(withType(args, 'commits'));
-}
-
-export function listMultipleGitHubReleases(
-  args: SplitArgs
-): Promise<CallToolResult> {
-  return searchMultipleGitHubPullRequests(withType(args, 'releases'));
 }

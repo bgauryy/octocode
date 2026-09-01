@@ -1,6 +1,6 @@
 import type { GitHubAPIError } from '../../github/githubAPI.js';
 import { toToolError, isToolError } from '../../errors/ToolError.js';
-import type { BaseQueryLocal } from '@octocodeai/octocode-core/extra-types';
+import type { BaseQueryLocal } from '../../types/execution.js';
 import { attachRawResponseChars } from './charSavings.js';
 
 type PartialBaseQuery = Partial<BaseQueryLocal>;

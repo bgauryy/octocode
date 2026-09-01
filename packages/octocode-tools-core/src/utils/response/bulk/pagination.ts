@@ -110,13 +110,42 @@ export function paginateBulkText(
 
 export function appendResponsePagination<T extends Record<string, unknown>>(
   structuredContent: T,
-  pagination?: NonNullable<BulkToolResponse['responsePagination']>
+  pagination?: NonNullable<BulkToolResponse['responsePagination']>,
+  next?: NonNullable<BulkToolResponse['responsePagination']>['next']
 ): T {
   if (!pagination) return structuredContent;
-  // The responsePagination object carries the cursor; restating it as a hint is
-  // redundant token waste. The page banner remains in the text channel header.
   return {
     ...structuredContent,
-    responsePagination: pagination,
+    responsePagination: {
+      ...pagination,
+      ...(pagination.hasMore && next ? { next } : {}),
+    },
+  };
+}
+
+export function buildResponsePaginationContinuation(
+  toolName: string,
+  queries: object[],
+  request: BulkResponsePagination | undefined,
+  pagination: NonNullable<BulkToolResponse['responsePagination']> | undefined
+): NonNullable<BulkToolResponse['responsePagination']>['next'] | undefined {
+  if (!pagination?.hasMore || pagination.nextCharOffset === undefined) {
+    return undefined;
+  }
+  const cleanQueries = queries.map(query => {
+    const {
+      goal: _goal,
+      reasoning: _reasoning,
+      ...clean
+    } = query as Record<string, unknown>;
+    return clean;
+  });
+  return {
+    tool: toolName,
+    query: {
+      queries: cleanQueries,
+      responseCharLength: request?.responseCharLength,
+      responseCharOffset: pagination.nextCharOffset,
+    },
   };
 }

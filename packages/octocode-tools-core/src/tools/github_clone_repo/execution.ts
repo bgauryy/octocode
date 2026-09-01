@@ -73,7 +73,9 @@ export async function executeCloneRepo(
             localPath: result.localPath,
             source: 'clone',
             cached: result.cached,
-            complete: !query.sparsePath,
+            // Completeness is relative to the requested clone scope. A sparse
+            // checkout contains every reachable entry under sparsePath.
+            complete: true,
             resolvedBranch: result.branch,
             ...(query.sparsePath ? { requestedPath: query.sparsePath } : {}),
           };

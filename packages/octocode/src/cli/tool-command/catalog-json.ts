@@ -64,16 +64,36 @@ function formatCompactField(
   return `${field.name}${marker}:${field.type}${field.constraints ? ` ${field.constraints}` : ''}`;
 }
 
+type CompactField = ReturnType<typeof formatToolFieldsJson>[number];
+type CompactSchemaShape = {
+  fields: CompactField[];
+  fieldGroups: Array<{ variants: string[]; fields: CompactField[] }>;
+  variants: Array<{
+    name: string;
+    when?: string;
+    requires?: string[];
+    fields: CompactField[];
+  }>;
+};
 function scopeCompactSchema(
   fields: ReturnType<typeof formatToolFieldsJson>,
   variants: ReturnType<typeof getDirectToolSchemaVariants>,
   variantFields: ReturnType<typeof getDirectToolVariantDisplayFields>
-) {
+): CompactSchemaShape {
   if (
     variants.length < 2 ||
     variants.some(variant => !variant.fields || variant.fields.length === 0)
   ) {
-    return { fields, variants };
+    return {
+      fields,
+      fieldGroups: [],
+      variants: variants.map(variant => ({
+        name: variant.name,
+        ...(variant.when ? { when: variant.when } : {}),
+        ...(variant.requires.length > 0 ? { requires: variant.requires } : {}),
+        fields: [],
+      })),
+    };
   }
 
   const sharedNames = variants
@@ -117,17 +137,65 @@ function scopeCompactSchema(
       parent => name === parent || name.startsWith(`${parent}.`)
     );
 
+  const groupedBySignature = new Map<
+    string,
+    { variants: string[]; field: (typeof fields)[number] }
+  >();
+  for (const variant of variants) {
+    for (const field of typedByVariant.get(variant.name) ?? []) {
+      if (common.has(field.name)) continue;
+      const signature = formatCompactField(field);
+      const existing = groupedBySignature.get(signature);
+      if (existing) existing.variants.push(variant.name);
+      else
+        groupedBySignature.set(signature, { variants: [variant.name], field });
+    }
+  }
+
+  const sharedSignatures = new Set(
+    [...groupedBySignature.entries()]
+      .filter(([, group]) => group.variants.length > 1)
+      .map(([signature]) => signature)
+  );
+  const fieldGroupsByVariants = new Map<
+    string,
+    { variants: string[]; fields: (typeof fields)[number][] }
+  >();
+  for (const [signature, group] of groupedBySignature) {
+    if (!sharedSignatures.has(signature)) continue;
+    const key = group.variants.join('\0');
+    const existing = fieldGroupsByVariants.get(key);
+    if (existing) existing.fields.push(group.field);
+    else {
+      fieldGroupsByVariants.set(key, {
+        variants: group.variants,
+        fields: [group.field],
+      });
+    }
+  }
+
   return {
     fields: fields.filter(
       field => !isScoped(field.name) || common.has(field.name)
     ),
+    fieldGroups: [...fieldGroupsByVariants.values()],
     variants: variants.map(variant => ({
-      ...variant,
-      fields: (typedByVariant.get(variant.name) ?? [])
-        .filter(field => !common.has(field.name))
-        .map(formatCompactField),
+      name: variant.name,
+      fields: (typedByVariant.get(variant.name) ?? []).filter(
+        field =>
+          !common.has(field.name) &&
+          !sharedSignatures.has(formatCompactField(field))
+      ),
     })),
   };
+}
+
+export function getCompactToolSchemaShape(toolName: string) {
+  return scopeCompactSchema(
+    formatToolFieldsJson(toolName),
+    getDirectToolSchemaVariants(toolName),
+    getDirectToolVariantDisplayFields(toolName)
+  );
 }
 
 function compactRunCommand(toolName: string): string {
@@ -150,13 +218,12 @@ export async function printToolCatalogJson(
       commands: {
         fullCatalog: 'tools --json --full',
         schema: AGENT_TOOL_COMMANDS.schema,
-        fullSchema: AGENT_TOOL_COMMANDS.fullSchema,
         run: AGENT_TOOL_COMMANDS.run,
       },
       tools: toolNames.map(toolName => ({
         name: toolName,
         category: getDirectToolCategory(toolName),
-        description: formatConciseToolDescription(toolName, metadata, 38),
+        description: formatConciseToolDescription(toolName, metadata, 32),
         fields: formatRequiredFields(toolName),
         availability: getToolAvailability(toolName),
         ...(getToolPreviewLines(toolName).length > 0
@@ -266,22 +333,31 @@ async function buildToolSchemaJson(
   const variants = getDirectToolSchemaVariants(tool.name);
 
   if (options.compact) {
-    const compactSchema = scopeCompactSchema(
-      fields,
-      variants,
-      getDirectToolVariantDisplayFields(tool.name)
-    );
+    const compactSchema = getCompactToolSchemaShape(tool.name);
     return {
       kind: 'octocode.toolSchema.compact',
       version: 1,
       name: tool.name,
       category: getDirectToolCategory(tool.name),
-      description: formatConciseToolDescription(tool.name, metadata, 160),
+      description: formatConciseToolDescription(tool.name, metadata, 96),
       availability: getToolAvailability(tool.name),
       fields: compactSchema.fields.map(formatCompactField),
+      ...(compactSchema.fieldGroups.length > 0
+        ? {
+            fieldGroups: compactSchema.fieldGroups.map(group => ({
+              variants: group.variants,
+              fields: group.fields.map(formatCompactField),
+            })),
+          }
+        : {}),
       ...(relations.length > 0 ? { relations } : {}),
       ...(compactSchema.variants.length > 0
-        ? { variants: compactSchema.variants }
+        ? {
+            variants: compactSchema.variants.map(variant => ({
+              ...variant,
+              fields: variant.fields.map(formatCompactField),
+            })),
+          }
         : {}),
       ...(guidance.length > 0 ? { guidance } : {}),
       commands: {

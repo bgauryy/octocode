@@ -1,7 +1,7 @@
-// Internal branch schemes for GitHub history and release execution.
+// Internal branch schemes for GitHub history execution.
 // Field set / enums / defaults / prose come from octocode-core
 // (SearchPullRequestsQuerySchema / SearchIssuesQuerySchema /
-// SearchCommitsQuerySchema / ListReleasesQuerySchema). The runtime only relaxes
+// SearchCommitsQuerySchema). The runtime only relaxes
 // numeric / pagination validation (clamp instead of reject), mirroring
 // github_search_pull_requests/scheme.ts. One source of truth; no duplicated prose.
 import { z } from 'zod';
@@ -10,12 +10,10 @@ import {
   SearchPullRequestsQuerySchema as CoreSearchPullRequestsQuerySchema,
   SearchIssuesQuerySchema as CoreSearchIssuesQuerySchema,
   SearchCommitsQuerySchema as CoreSearchCommitsQuerySchema,
-  ListReleasesQuerySchema as CoreListReleasesQuerySchema,
 } from '../../toolContract/schemas.js';
 import {
   GITHUB_SEARCH_DEFAULT_LIMIT,
   GITHUB_SEARCH_MAX_LIMIT,
-  PR_CONTENT_DEFAULT_ITEMS_PER_PAGE,
   PR_CONTENT_MAX_ITEMS_PER_PAGE,
 } from '../../config.js';
 import {
@@ -334,19 +332,4 @@ export const CommitCompareQueryShape = SearchCommitsQueryShape.omit({
 const commitCompareSchema = CommitCompareQueryShape;
 export const SearchCommitsBulkLocalSchema = createRelaxedBulkQuerySchema(
   z.union([commitHistorySchema, commitCompareSchema])
-);
-
-// ghListReleases — relax numeric validation while preserving its page default.
-const releasesOverrides = {
-  page: relaxedPageNumberField.default(1),
-  pageSize: clampedInt(1, PR_CONTENT_MAX_ITEMS_PER_PAGE)
-    .optional()
-    .default(PR_CONTENT_DEFAULT_ITEMS_PER_PAGE),
-} as const;
-export const ListReleasesLocalSchema = describeQuerySchema(
-  CoreListReleasesQuerySchema,
-  releasesOverrides
-);
-export const ListReleasesBulkLocalSchema = createRelaxedBulkQuerySchema(
-  createQueryShapeSchema(CoreListReleasesQuerySchema, releasesOverrides)
 );

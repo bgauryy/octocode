@@ -10,29 +10,9 @@
 export type { CompleteMetadata } from '@octocodeai/octocode-tools-core';
 
 export {
-  CloneRepoQuerySchema,
-  FetchContentQuerySchema,
-  FileContentQuerySchema,
-  GitHubSearchQuerySchema,
-  SearchPullRequestsQuerySchema,
-  SearchIssuesQuerySchema,
-  SearchCommitsQuerySchema,
-  ListReleasesQuerySchema,
-  SearchDiscussionsQuerySchema,
-  NpmSearchQueryLocalSchema,
-  LocalSearchQuerySchema,
-  LocalAnalyzeGraphQuerySchema,
-  LspGetSemanticsQuerySchema,
-} from '@octocodeai/octocode-tools-core';
-
-export {
-  executeCloneRepo,
+  DIRECT_TOOL_DISCOVERY_DEFINITIONS,
   executeDirectTool,
-  executeFetchContent,
-  executeLocalSearch,
-  executeLspGetSemantics,
   initialize,
   initializeProviders,
   loadToolContent,
-  searchPackages,
 } from '@octocodeai/octocode-tools-core';

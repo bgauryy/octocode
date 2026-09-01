@@ -56,11 +56,11 @@ External (not in this workspace): `@octocodeai/octocode-core` (sibling `octocode
 
 Full field-level reference: [`docs/OCTOCODE_TOOLS.md`](docs/OCTOCODE_TOOLS.md). Live catalog: `$OCTO tools --json`; read `$OCTO tools <name> --scheme --json --compact` before calling a tool. Compact schemas include `relations` for conditional and mutually exclusive fields.
 
-**Full discovery catalog (12; 10 enabled by default)** — releases and Discussions are opt-in through `ENABLE_RELEASES` and `ENABLE_DISCUSSIONS`; `ENABLE_CLONE=false` disables cloning:
+**Full discovery catalog (10)** — `ENABLE_CLONE=false` disables cloning:
 
 | Family | Tools | Role |
 |---|---|---|
-| GitHub | `ghSearch` · `ghGetFileContent` · `ghSearchHistory` · `ghGetHistoryItem` · `ghListReleases` · `ghSearchDiscussions` · `ghCloneRepo` | Unified code/repository/tree discovery, exact file reads, history search, and exact history reads; releases (`ENABLE_RELEASES`), discussions (`ENABLE_DISCUSSIONS`), and cloning. |
+| GitHub | `ghSearch` · `ghGetFileContent` · `ghSearchHistory` · `ghGetHistoryItem` · `ghCloneRepo` | Unified code/repository/tree discovery, exact file reads, history search, exact history reads, and cloning. |
 | Package | `npmSearch` | npm package lookup + source repo |
 | Local | `localSearch` · `localGetFileContent` | Unified text/regex/AST, path-metadata, and tree discovery; exact/minified file read. `ENABLE_LOCAL=false` disables the family. |
 | Graph | `localAnalyzeGraph` | Bounded file-graph operations: dependencies, dependents, shortest path, cycles/SCCs, reachability, and dead-code candidates |

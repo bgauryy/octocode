@@ -63,21 +63,6 @@ With no environment variables set, the MCP server registers 10 tools:
 | Local | `localSearch`, `localGetFileContent`, `localAnalyzeGraph`, `lspGetSemantics` |
 | Package | `npmSearch` |
 
-The following settings add the two opt-in GitHub tools:
-
-| Configuration | Adds | Total |
-|---|---|---:|
-| `ENABLE_RELEASES=true` | `ghListReleases` | 11 |
-| `ENABLE_DISCUSSIONS=true` | `ghSearchDiscussions` | 11 |
-| Both optional GitHub flags | Both optional GitHub tools | 12 |
-
-```json
-{
-  "ENABLE_RELEASES": "true",
-  "ENABLE_DISCUSSIONS": "true"
-}
-```
-
 To read the live CLI catalog, run `octocode tools --json`.
 
 `ghSearch` is the sole GitHub discovery entry point. Its strict
@@ -98,8 +83,6 @@ The following table lists the settings that matter most for MCP:
 | `GITHUB_API_URL` | GitHub Enterprise API endpoint. |
 | `ENABLE_LOCAL` | Turns local filesystem and LSP tools on or off. Defaults to `true`; set it to `false` to disable them. |
 | `ENABLE_CLONE` | Controls `ghCloneRepo` and directory materialization. Defaults to `true`; set it to `false` to disable clone workflows. |
-| `ENABLE_RELEASES` | Turns on `ghListReleases`. Defaults to `false`. |
-| `ENABLE_DISCUSSIONS` | Turns on `ghSearchDiscussions`. Defaults to `false`. |
 | `TOOLS_TO_RUN`, `DISABLE_TOOLS` | Control which tools the MCP server registers. |
 | `WORKSPACE_ROOT`, `ALLOWED_PATHS` | Bound local path resolution and validation. |
 

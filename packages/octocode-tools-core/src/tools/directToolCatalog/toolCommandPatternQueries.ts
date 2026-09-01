@@ -14,15 +14,11 @@ import {
   LOCAL_SEARCH_TOOL_NAME,
   STATIC_TOOL_NAMES,
 } from '../toolNames.js';
-import { buildOptionalDirectToolCommandPatternQueries } from './toolCommandPatternOptionalQueries.js';
 import { buildUnifiedSearchCommandPatternQueries } from './toolCommandPatternUnifiedSearchQueries.js';
 
 export function buildKnownDirectToolCommandPatternQueries(
   toolName: string
 ): Array<{ label: string; query: Record<string, unknown> }> {
-  const optionalPatterns =
-    buildOptionalDirectToolCommandPatternQueries(toolName);
-  if (optionalPatterns.length > 0) return optionalPatterns;
   const unifiedPatterns = buildUnifiedSearchCommandPatternQueries(toolName);
   if (unifiedPatterns.length > 0) return unifiedPatterns;
 

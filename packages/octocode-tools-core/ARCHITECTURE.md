@@ -27,7 +27,7 @@ is the single source of truth.
 
 - **GitHub** (`security: 'remote'`, needs providers): `ghSearch`,
   `ghGetFileContent`, `ghSearchHistory`, `ghGetHistoryItem`,
-  `ghListReleases`, `ghSearchDiscussions`, and `ghCloneRepo`.
+  and `ghCloneRepo`.
 - **Package**: `npmSearch`.
 - **Local** (`security: 'basic'`): `localSearch`, `localGetFileContent`, and
   `localAnalyzeGraph`.

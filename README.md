@@ -120,7 +120,7 @@ Every MCP tool is also a plain command: JSON in, token-efficient YAML out. Local
 
 ```bash
 npx octocode tools localSearch \
-  --queries '{"operation":"text","path":".","searchText":"authenticate","maxFiles":20}'
+  --queries '{"operation":"text","path":"/absolute/path/to/project","searchText":"authenticate","maxFiles":20}'
 ```
 ```yaml
 results:
@@ -183,21 +183,17 @@ than `gh`+Headroom, and ~3.2× fewer than `gh`+RTK** in the local-build headline
 
 ## Tools
 
-**12 tools in the full discovery catalog.** Releases and Discussions are opt-in.
-Repository cloning is enabled by default on both CLI and MCP:
+**10 tools in the full discovery catalog.** Repository cloning is enabled by
+default on both CLI and MCP:
 
 | Surface | Registers | What that set is |
 |---|---:|---|
 | MCP, no flags | 10 | Default GitHub, clone, package, local, graph, and LSP tools |
-| MCP, `+ ENABLE_RELEASES=true ENABLE_DISCUSSIONS=true` | 12 | Adds both optional GitHub tools |
-| CLI, no flags | 10 | Local tools and clone are on; releases and Discussions are off |
-| CLI, `+ ENABLE_RELEASES=true ENABLE_DISCUSSIONS=true` | 12 | Adds both optional GitHub tools |
+| CLI, no flags | 10 | Local tools and clone are on |
 
 Use `TOOLS_TO_RUN` for a strict allowlist or `DISABLE_TOOLS` to remove tools from
 the default set. `ENABLE_LOCAL=false` disables local, graph, and LSP tools;
 `ENABLE_CLONE=false` disables cloning on both surfaces.
-Set `ENABLE_RELEASES=true` or `ENABLE_DISCUSSIONS=true` to enable either optional
-GitHub tool; no additional allowlist is required.
 Flags: [Configuration](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md).
 
 **Token knobs.** `concise:true` returns path/title-only lists. `minify` controls file read density: `symbols` = skeleton with line numbers, `standard` = comments/blanks stripped (default), `none` = exact bytes.
@@ -210,8 +206,6 @@ Flags: [Configuration](https://github.com/bgauryy/octocode/blob/main/docs/CONFIG
 | `ghGetFileContent` | Read a GitHub file or region: full file, line range, match slice, or paginated chars. | `minify` |
 | `ghSearchHistory` | Search or list pull requests, issues, or commits through strict `operation:"pullRequests"`, `"issues"`, or `"commits"` queries. | `operation` |
 | `ghGetHistoryItem` | Read one pull request or issue by `number`, one commit by `ref`, or a comparison by `base`+`head`. | `operation` |
-| `ghListReleases` | List releases and the latest stable release, with opt-in assets. **Opt-in** (see [Tools](#tools) for the flags). | `includeAssets` |
-| `ghSearchDiscussions` | Search a repository's Discussions (Q&A, RFCs, announcements) through GraphQL. **Opt-in** (see [Tools](#tools) for the flags). | `keywords` |
 | `ghCloneRepo` | Clone a repository or sparse subtree into the local cache for local and LSP analysis. Enabled by default on CLI and MCP; `ENABLE_CLONE=false` disables it. | `sparsePath` |
 
 `ghSearch` is the only GitHub discovery interface; select code, repositories,

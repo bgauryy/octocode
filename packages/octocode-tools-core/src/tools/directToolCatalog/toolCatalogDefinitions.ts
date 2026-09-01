@@ -16,7 +16,6 @@ import {
 import { LSP_GET_SEMANTICS_TOOL_NAME } from '../lsp/shared/semanticTypes.js';
 import {
   DIRECT_TOOL_SPECIFICATIONS,
-  isDirectToolSpecificationEnabled,
   type DirectToolSpecification,
 } from './toolSpecifications.js';
 
@@ -34,9 +33,6 @@ export interface DirectToolDefinition {
   schema: z.ZodType;
 
   inputSchema: z.ZodType;
-
-  /** Present when a public schema is discoverable but execution is opt-in. */
-  disabled?: { envVar: string };
 }
 
 export type DirectToolCategory = 'GitHub' | 'Local Code' | 'Package' | 'Other';
@@ -52,8 +48,6 @@ const DIRECT_TOOL_RELEVANCE_ORDER = new Map<string, number>(
     GITHUB_SEARCH_TOOL_NAME,
     GITHUB_SEARCH_HISTORY_TOOL_NAME,
     GITHUB_GET_HISTORY_ITEM_TOOL_NAME,
-    STATIC_TOOL_NAMES.GITHUB_RELEASES,
-    STATIC_TOOL_NAMES.GITHUB_DISCUSSIONS,
     STATIC_TOOL_NAMES.GITHUB_FETCH_CONTENT,
     STATIC_TOOL_NAMES.GITHUB_CLONE_REPO,
     LOCAL_SEARCH_TOOL_NAME,
@@ -113,52 +107,32 @@ export const DIRECT_TOOL_AUTO_FILLED_FIELDS: ReadonlySet<string> = new Set([
 ]);
 
 function toDirectToolDefinition(
-  specification: DirectToolSpecification,
-  disabled = false
+  specification: DirectToolSpecification
 ): DirectToolDefinition {
-  const definition: DirectToolDefinition = {
+  return {
     name: specification.name,
     title: specification.title,
     description: specification.description,
     schema: specification.schema,
     inputSchema: specification.inputSchema,
   };
-
-  if (disabled && specification.availability) {
-    definition.disabled = { envVar: specification.availability.envVar };
-  }
-
-  return definition;
 }
 
-/** Engine-free enabled definitions, derived from the shared specification. */
+/** Engine-free definitions, derived from the shared specification. */
 export const DIRECT_TOOL_DEFINITIONS: DirectToolDefinition[] =
-  DIRECT_TOOL_SPECIFICATIONS.filter(isDirectToolSpecificationEnabled).map(
-    specification => toDirectToolDefinition(specification)
+  DIRECT_TOOL_SPECIFICATIONS.map(specification =>
+    toDirectToolDefinition(specification)
   );
 
-const DISABLED_TOOL_DEFINITIONS: DirectToolDefinition[] =
-  DIRECT_TOOL_SPECIFICATIONS.filter(
-    specification => !isDirectToolSpecificationEnabled(specification)
-  ).map(specification => toDirectToolDefinition(specification, true));
-
-/** Every public direct-tool schema, including disabled opt-in tools. */
+/** Every public direct-tool schema. */
 export const DIRECT_TOOL_DISCOVERY_DEFINITIONS: DirectToolDefinition[] = [
-  ...DIRECT_TOOL_SPECIFICATIONS.map(specification =>
-    toDirectToolDefinition(
-      specification,
-      !isDirectToolSpecificationEnabled(specification)
-    )
-  ),
+  ...DIRECT_TOOL_DEFINITIONS,
 ];
 
 export function findDirectToolDefinition(
   name: string
 ): DirectToolDefinition | undefined {
-  return (
-    DIRECT_TOOL_DEFINITIONS.find(tool => tool.name === name) ??
-    DISABLED_TOOL_DEFINITIONS.find(tool => tool.name === name)
-  );
+  return DIRECT_TOOL_DEFINITIONS.find(tool => tool.name === name);
 }
 
 export function getDirectToolCategory(toolName: string): DirectToolCategory {

@@ -23,14 +23,13 @@ describe('MCP unified ghSearch default catalog', () => {
     }
   });
 
-  it('keeps the two gated GitHub tools discoverable with explicit env gates', () => {
-    expect(
-      DIRECT_TOOL_DISCOVERY_DEFINITIONS.filter(tool => tool.disabled).map(
-        tool => [tool.name, tool.disabled?.envVar]
-      )
-    ).toEqual([
-      ['ghListReleases', 'ENABLE_RELEASES'],
-      ['ghSearchDiscussions', 'ENABLE_DISCUSSIONS'],
-    ]);
+  it('has no retired GitHub tools in discovery', () => {
+    for (const removedName of ['ghListReleases', 'ghSearchDiscussions']) {
+      expect(
+        DIRECT_TOOL_DISCOVERY_DEFINITIONS.some(
+          tool => tool.name === removedName
+        )
+      ).toBe(false);
+    }
   });
 });

@@ -218,35 +218,6 @@ const TOOL_RESULT_SHAPES: Record<string, () => CallToolResult> = {
     },
   }),
 
-  ghSearchDiscussions: () => ({
-    content: [
-      {
-        type: 'text',
-        text: `Discussion #7: Leaked config\n- Body: uses ${SECRETS.AWS_KEY}\n- Comment: "token ${SECRETS.GITHUB_TOKEN}"`,
-      },
-    ],
-    structuredContent: {
-      data: {
-        results: [
-          {
-            id: 'q1',
-            data: {
-              discussions: [
-                {
-                  number: 7,
-                  title: 'Leaked config',
-                  url: 'https://github.com/org/repo/discussions/7',
-                  body: `AWS_KEY=${SECRETS.AWS_KEY} STRIPE=${SECRETS.STRIPE_KEY}`,
-                  category: 'Q&A',
-                },
-              ],
-            },
-          },
-        ],
-      },
-    },
-  }),
-
   ghSearchHistory: () => ({
     content: [
       {
@@ -265,33 +236,6 @@ const TOOL_RESULT_SHAPES: Record<string, () => CallToolResult> = {
                   number: 7,
                   title: 'Leaked key',
                   body: `The token is ${SECRETS.GITHUB_TOKEN}`,
-                },
-              ],
-            },
-          },
-        ],
-      },
-    },
-  }),
-
-  ghListReleases: () => ({
-    content: [
-      {
-        type: 'text',
-        text: `Release v1.0.0: remove ${SECRETS.ANTHROPIC_KEY}`,
-      },
-    ],
-    structuredContent: {
-      data: {
-        results: [
-          {
-            id: 'q1',
-            data: {
-              releases: [
-                {
-                  tagName: 'v1.0.0',
-                  name: 'First release',
-                  body: `Rotate ${SECRETS.ANTHROPIC_KEY}`,
                 },
               ],
             },

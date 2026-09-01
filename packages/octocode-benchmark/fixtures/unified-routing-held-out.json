@@ -1,0 +1,254 @@
+{
+  "version": 1,
+  "provenance": {
+    "heldOut": true,
+    "note": "Post-merge routing prompts frozen for regression measurement; they were not used to design the unified runtime surface."
+  },
+  "kpiContract": {
+    "goal": "Preserve correct research routing while reducing the public tool-selection context carried by agents.",
+    "primary": {
+      "name": "totalRoutingBytes",
+      "direction": "lower",
+      "baseline": 39318,
+      "target": 39317
+    },
+    "leading": {
+      "toolCalls": { "baseline": 10, "max": 10 },
+      "schemaBytes": { "baseline": 33713, "max": 33712 },
+      "promptBytes": { "baseline": 5605, "max": 5604 }
+    },
+    "guardrails": { "correctnessCases": 10 },
+    "budget": { "cases": 10, "trials": 1 },
+    "heldOut": "cases",
+    "decisionRule": "ACCEPT only if correctness unchanged at 10/10, tool calls do not increase, schema bytes decrease, prompt bytes decrease, and total routing bytes decrease; otherwise REVERT."
+  },
+  "retiredSurface": {
+    "tools": [
+      {
+        "name": "ghSearchCode",
+        "title": "ghSearchCode",
+        "description": "Github | Search code contents or file paths across GitHub repositories. | Use for remote code/file discovery. Start match:\"path\" + concise for filenames; match:\"file\" only when snippets matter. Skip if you already have the path (ghGetFileContent) or need repo discovery (ghSearchRepos).\nOne-shot: if a match:\"file\" snippet already contains the answer (a field value, a symbol name, a state), STOP — that snippet is the evidence; don't chain a structure view or a content read to \"confirm\" it.\nParam relations: owner+repo scopes tightly; path scopes a directory prefix; extension/language/filename narrow candidates; keywords are ANDed. Follow into ghGetFileContent, ghViewRepoStructure, or clone for AST/LSP proof. Empty/unindexed is not absence.",
+        "schemaBytes": 1931,
+        "capabilities": ["github-code"]
+      },
+      {
+        "name": "ghSearchRepos",
+        "title": "ghSearchRepos",
+        "description": "Github | Discover GitHub repositories by name, topic, language, or popularity. | Find candidate repos before code search; skip when owner/repo is known (go straight to ghSearchCode/ghViewRepoStructure). Start concise:true, then inspect with ghViewRepoStructure/ghSearchCode.\nkeywords ANDed; topics also required but sparse; owner scopes/enumerates; match picks searched text fields; sort/range rank candidates. Empty → drop filters/topics or broaden language/owner.",
+        "schemaBytes": 2754,
+        "capabilities": ["github-repositories"]
+      },
+      {
+        "name": "ghViewRepoStructure",
+        "title": "ghViewRepoStructure",
+        "description": "Github | Browse a GitHub repository's directory tree. | Orient a repo/tree before fetching files, or verify paths/branches after 404s. Know a filename fragment? ghSearchCode(match:\"path\") is cheaper. Follow structure[] paths into ghGetFileContent or a clone sparsePath.",
+        "schemaBytes": 1610,
+        "capabilities": ["github-tree"]
+      },
+      {
+        "name": "ghSearchPullRequests",
+        "title": "ghSearchPullRequests",
+        "description": "Github | Search GitHub pull requests, or read one PR's files, diffs, and reviews. | Use for PR archaeology — how/why a change landed, review discussion, diffs — not current code (ghSearchCode/ghGetFileContent), commits (ghSearchCommits), or issues (ghSearchIssues).\nComments, review replies, and requested changes are claims — confirm what actually landed against content.patches (mode:\"selected\") or the file at the merge SHA, not the conversation.\nParam relations: list mode uses keywordsToSearch+filters+sort/page; detail mode needs owner+repo+prNumber and content selectors. content.patches.mode:\"selected\" requires files or ranges. Body/patch/comment windows continue via returned charOffset/commentBodyOffset; file/comment/commit lists use their page fields. For code identity, clone and use local/LSP.",
+        "schemaBytes": 8415,
+        "capabilities": ["github-pull-requests"]
+      },
+      {
+        "name": "ghSearchIssues",
+        "title": "ghSearchIssues",
+        "description": "Github | Search GitHub issues, or read one issue's body and comments. | Issue triage/archaeology — bug reports, feature threads — not PRs (ghSearchPullRequests) or code (ghSearchCode).\nList mode: keywordsToSearch+filters+sort/page. Detail mode: owner+repo+issueNumber + content selectors; body/comment windows continue via charOffset/commentBodyOffset, comments page via commentPage.\ntotalCount appears only when one page is the full set (the endpoint also returns PRs, filtered out — so per-page counts aren't totals); an empty page with hasMore:true was PR-only — follow nextPage.",
+        "schemaBytes": 4800,
+        "capabilities": ["github-issues"]
+      },
+      {
+        "name": "ghSearchCommits",
+        "title": "ghSearchCommits",
+        "description": "Github | Walk a GitHub repository's commit history for a path or range. | Commit archaeology — when/why a file/area changed — not current code (ghSearchCode/ghGetFileContent) or PRs (ghSearchPullRequests).\nNo message-keyword filter — only path/since/until/author/committer narrow the walk. Looking for a specific change (e.g. a rename) with no known SHA/path/date? Try ghSearchPullRequests/ghSearchCode for a lead first; otherwise page raw history by eye.\nOne commit's exact changes: set base:\"SHA^\", head:\"SHA\", includeDiff:true — its files+patches in one call; don't page history or fetch files.\nowner+repo identify the repo; path scopes a file/dir (trailing / = subtree); since/until bound the window; branch selects a ref; includeDiff is heavy — scope to one SHA or a tight window; itemsPerPage/page walk history. For code identity, clone + local/LSP.",
+        "schemaBytes": 3284,
+        "capabilities": ["github-commits"]
+      },
+      {
+        "name": "localSearchCode",
+        "title": "localSearchCode",
+        "description": "Local | Search local files for text, regex, or AST patterns to find file and line. | Find local file+line anchors — not path/name lookup (localFindFiles) or tree shape (localViewStructure). Modes: discovery=paths, paginated=snippets, detailed=context, structural=AST.\ntext/regex need searchText (one string, not array); structural needs pattern XOR rule and rejects search knobs (langType is valid — scopes to that language's extensions). $$$ list captures are budgeted: metavarRanges gives pruned/truncated line anchors, captureText:true for verbatim. matchWindow/unique need output:\"matchOnly\"; maxMatchesPerFile pairs matchPage. Follow with localGetFileContent, lspGetSemantics.",
+        "schemaBytes": 5038,
+        "capabilities": ["local-text"]
+      },
+      {
+        "name": "localFindFiles",
+        "title": "localFindFiles",
+        "description": "Local | Find local files and directories by name, size, time, or permissions. | Local path discovery by name/type/metadata — not contents (localSearchCode) or tree shape (localViewStructure). All filters AND. Prunes common generated/vendor dirs by default (node_modules, .git, dist, build, out, coverage, target, .next, .cache) — excludeDir:[] prunes nothing, or set excludeDir explicitly. Follow paths into read/search/LSP.",
+        "schemaBytes": 3364,
+        "capabilities": ["local-files"]
+      },
+      {
+        "name": "localViewStructure",
+        "title": "localViewStructure",
+        "description": "Local | Browse a local directory tree — cheapest first orientation step; no content loaded. | Cheapest local orientation before reading. Metadata/name filters → localFindFiles; files containing text → localSearchCode(mode:\"discovery\").\npath is the root; pattern/extensions/entryType filter names; recursive enables maxDepth; detail switches output shape; page advances only on hasMore. Follow paths into localGetFileContent/search/LSP.",
+        "schemaBytes": 2517,
+        "capabilities": ["local-tree"]
+      }
+    ]
+  },
+  "cases": [
+    {
+      "id": "remote-symbol-definition",
+      "heldOut": true,
+      "prompt": "Find where the repository defines the dispatch symbol.",
+      "capability": "github-code",
+      "unified": {
+        "tool": "ghSearch",
+        "query": {
+          "operation": "code",
+          "keywords": ["dispatchSymbol"],
+          "owner": "fixture-owner",
+          "repo": "fixture-repo"
+        }
+      },
+      "retired": { "tool": "ghSearchCode" }
+    },
+    {
+      "id": "repository-discovery-by-topic",
+      "heldOut": true,
+      "prompt": "Discover repositories related to language-server routing.",
+      "capability": "github-repositories",
+      "unified": {
+        "tool": "ghSearch",
+        "query": {
+          "operation": "repositories",
+          "keywords": ["language server", "routing"]
+        }
+      },
+      "retired": { "tool": "ghSearchRepos" }
+    },
+    {
+      "id": "remote-package-tree",
+      "heldOut": true,
+      "prompt": "Orient within the src directory of a known repository.",
+      "capability": "github-tree",
+      "unified": {
+        "tool": "ghSearch",
+        "query": {
+          "operation": "tree",
+          "owner": "fixture-owner",
+          "repo": "fixture-repo",
+          "path": "src",
+          "maxDepth": 2
+        }
+      },
+      "retired": { "tool": "ghViewRepoStructure" }
+    },
+    {
+      "id": "merged-routing-prs",
+      "heldOut": true,
+      "prompt": "List merged pull requests that mention routing.",
+      "capability": "github-pull-requests",
+      "unified": {
+        "tool": "ghSearchHistory",
+        "query": {
+          "operation": "pullRequests",
+          "owner": "fixture-owner",
+          "repo": "fixture-repo",
+          "keywords": ["routing"],
+          "state": "merged"
+        }
+      },
+      "retired": { "tool": "ghSearchPullRequests" }
+    },
+    {
+      "id": "open-schema-issues",
+      "heldOut": true,
+      "prompt": "Find open issues about schema drift in one repository.",
+      "capability": "github-issues",
+      "unified": {
+        "tool": "ghSearchHistory",
+        "query": {
+          "operation": "issues",
+          "owner": "fixture-owner",
+          "repo": "fixture-repo",
+          "keywords": ["schema drift"],
+          "state": "open"
+        }
+      },
+      "retired": { "tool": "ghSearchIssues" }
+    },
+    {
+      "id": "path-commit-history",
+      "heldOut": true,
+      "prompt": "List commits that changed the routing module.",
+      "capability": "github-commits",
+      "unified": {
+        "tool": "ghSearchHistory",
+        "query": {
+          "operation": "commits",
+          "owner": "fixture-owner",
+          "repo": "fixture-repo",
+          "path": "src/routing.ts"
+        }
+      },
+      "retired": { "tool": "ghSearchCommits" }
+    },
+    {
+      "id": "local-lexical-anchor",
+      "heldOut": true,
+      "prompt": "Find lexical occurrences of the route selector locally.",
+      "capability": "local-text",
+      "unified": {
+        "tool": "localSearch",
+        "query": {
+          "operation": "text",
+          "path": "/fixture/repo",
+          "searchText": "selectRoute",
+          "regex": "fixed"
+        }
+      },
+      "retired": { "tool": "localSearchCode" }
+    },
+    {
+      "id": "local-structural-calls",
+      "heldOut": true,
+      "prompt": "Find structural calls into the route selector locally.",
+      "capability": "local-text",
+      "unified": {
+        "tool": "localSearch",
+        "query": {
+          "operation": "structural",
+          "path": "/fixture/repo",
+          "pattern": "selectRoute($X)",
+          "langType": "typescript"
+        }
+      },
+      "retired": { "tool": "localSearchCode" }
+    },
+    {
+      "id": "local-schema-files",
+      "heldOut": true,
+      "prompt": "Discover schema files in the local repository.",
+      "capability": "local-files",
+      "unified": {
+        "tool": "localSearch",
+        "query": {
+          "operation": "files",
+          "path": "/fixture/repo",
+          "names": ["*schema*.ts"],
+          "entryType": "f"
+        }
+      },
+      "retired": { "tool": "localFindFiles" }
+    },
+    {
+      "id": "local-source-tree",
+      "heldOut": true,
+      "prompt": "Browse the local source tree two levels deep.",
+      "capability": "local-tree",
+      "unified": {
+        "tool": "localSearch",
+        "query": {
+          "operation": "tree",
+          "path": "/fixture/repo/src",
+          "maxDepth": 2
+        }
+      },
+      "retired": { "tool": "localViewStructure" }
+    }
+  ]
+}

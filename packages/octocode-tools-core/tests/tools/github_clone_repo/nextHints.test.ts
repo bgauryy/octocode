@@ -48,6 +48,15 @@ describe('ghCloneRepo next-hints', () => {
         const targetDir = args.at(-1);
         if (targetDir) mkdirSync(targetDir, { recursive: true });
       }
+      if (args.includes('sparse-checkout')) {
+        const targetDir = args[1];
+        const sparsePath = args.at(-1);
+        if (targetDir && sparsePath) {
+          const checkoutPath = join(targetDir, sparsePath);
+          mkdirSync(join(checkoutPath, '..'), { recursive: true });
+          writeFileSync(checkoutPath, '', 'utf8');
+        }
+      }
       return { stdout: '', stderr: '', exitCode: 0, success: true };
     });
   });
@@ -116,5 +125,37 @@ describe('ghCloneRepo next-hints', () => {
       cache: 1,
       data: { location: { cached: true } },
     });
+  });
+
+  it('treats a completed sparse checkout as complete within its requested scope', async () => {
+    const result = await executeCloneRepo({
+      queries: [
+        {
+          owner: 'bgauryy',
+          repo: 'octocode',
+          branch: 'main',
+          sparsePath: 'README.md',
+        },
+      ],
+    } as never);
+
+    const row = (
+      result.structuredContent as {
+        results: Array<{
+          meta?: { diagnostics?: { codes?: string[]; partial?: boolean } };
+          data: { location: Record<string, unknown> };
+        }>;
+      }
+    ).results[0];
+
+    expect(row?.data.location).toMatchObject({
+      kind: 'tree',
+      complete: true,
+      requestedPath: 'README.md',
+    });
+    expect(row?.meta?.diagnostics?.codes ?? []).not.toContain(
+      'continuationMissing'
+    );
+    expect(row?.meta?.diagnostics?.partial).not.toBe(true);
   });
 });

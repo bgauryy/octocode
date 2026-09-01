@@ -4,23 +4,21 @@ This page gives the recommended agent workflow for Octocode tools, the response
 contracts that all tools share, and the open improvement notes per tool. It is
 written for contributors and for agents tuning their own tool use.
 
-To exercise the full tool surface locally, start the built MCP stdio server with
-every optional surface turned on:
+To exercise the full tool surface locally, start the built MCP stdio server:
 
 ```bash
 ENABLE_LOCAL=true \
 ENABLE_CLONE=true \
-ENABLE_RELEASES=true \
-ENABLE_DISCUSSIONS=true \
 OCTOCODE_TRUST_PROJECT_LSP_CONFIG=1 \
 node packages/octocode-mcp/dist/index.js
 ```
 
-The discovery catalog contains 12 tools: 10 enabled by default and two
-feature-gated tools. Cloning is enabled by default; Releases and Discussions
-remain opt-in.
+The discovery catalog contains 10 tools, with 10 enabled by default.
 
-## 2026-08-30 complete contract audit
+## Historical baseline: 2026-08-30 contract audit
+
+This table is retained for change context and is superseded by the
+[current 2026-09-01 scorecard](https://github.com/bgauryy/octocode/blob/main/docs/MCP_CLI_TOOL_CONTRACT_GAPS.md).
 
 Scores combine schema clarity, response boundedness, workflow alignment, and exercised behavior. They are comparative routing scores, not claims that every backlog item is complete.
 
@@ -36,8 +34,6 @@ Scores combine schema clarity, response boundedness, workflow alignment, and exe
 | `ghGetFileContent` | 8.8 | exact remote evidence |
 | `ghCloneRepo` | 8.8 | remote-to-local escalation |
 | `npmSearch` | 8.6 | package-to-source routing |
-| `ghListReleases` *(opt-in)* | 8.5 | release chronology |
-| `ghSearchDiscussions` *(opt-in)* | 8.2 | repository discussion context |
 
 Audit changes accepted: `localSearch`, `ghSearch`, and the history search/get pair replace overlapping
 overlapping public tools with strict operation variants. The superseded interfaces
@@ -605,28 +601,6 @@ Improvements:
 2. Add next hints from changed files/refs to `ghGetFileContent` and `ghCloneRepo`.
 3. Reject identities from another operation instead of coercing them.
 4. Emit `historical-context`; exact patches and diffs can upgrade to `exact-text`.
-
-### `ghListReleases`
-
-Role: list a repository's releases plus latest stable, with opt-in `includeAssets`.
-
-Best for:
-
-- Finding the latest stable release and tag.
-- Mapping versions to release notes.
-- Locating downloadable assets when needed.
-
-Depth/alignment/quality:
-
-- Depth: **8.7/10**
-- Alignment: **8.7/10**
-- Quality: **8.4/10**
-
-Improvements:
-
-1. Keep `includeAssets` opt-in to bound output.
-2. Add next hints from a release tag to `ghGetHistoryItem(operation:"compare")` and `ghGetFileContent` at tag.
-4. Emit evidence level `historical-context`.
 
 ### `ghCloneRepo`
 

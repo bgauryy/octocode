@@ -22,7 +22,7 @@
   "private": true,
   "resolutions": {
     "@octocodeai/config": "workspace:*",
-    "@octocodeai/octocode-core": "file:///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core",
+    "@octocodeai/octocode-core": "18.3.0",
     "@octocodeai/octocode-engine": "workspace:*",
     "@octocodeai/octocode-engine-darwin-arm64": "workspace:*",
     "@octocodeai/octocode-engine-darwin-x64": "workspace:*",

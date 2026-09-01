@@ -353,11 +353,57 @@ describe('tool-command coverage', () => {
 
     const output = consoleSpy.mock.calls.flat().join('\n');
     expect(output).toContain('ghSearch');
-    expect(output).toContain('keywords (array<string>)');
+    expect(output).toContain('keywords?:array<string>');
     expect(output).toContain("tools ghSearch --queries '");
     expect(output).not.toContain('ANDed; keep a phrase as one item');
     expect(output).not.toContain('Runtime: local CLI and MCP');
     expect(output).not.toContain('Auto-filled');
+  });
+
+  it('brief schema help renders union ownership within a lean budget', async () => {
+    const { toolCommand } = await import('../../src/cli/tool-command.js');
+
+    await toolCommand.handler!({
+      command: 'tools',
+      args: ['localSearch'],
+      options: { scheme: true, brief: true },
+    });
+
+    const output = consoleSpy.mock.calls.flat().join('\n');
+    expect(output).toContain('Variants');
+    expect(output).toContain('text:');
+    expect(output).toContain('structural:');
+    expect(output).toContain('searchText*:string');
+    expect(output).toContain('pattern?:string');
+    expect(output).toContain(
+      'full fields: tools localSearch --scheme --json --compact'
+    );
+    expect(Buffer.byteLength(output)).toBeLessThanOrEqual(1900);
+  });
+
+  it('keeps unscoped LSP variants in compact schema output', async () => {
+    const { toolCommand } = await import('../../src/cli/tool-command.js');
+
+    await toolCommand.handler!({
+      command: 'tools',
+      args: ['lspGetSemantics'],
+      options: { scheme: true, json: true, compact: true },
+    });
+
+    const parsed = JSON.parse(consoleSpy.mock.calls.flat().join('\n')) as {
+      variants?: Array<{ name: string; requires?: string[] }>;
+    };
+    expect(parsed.variants?.map(variant => variant.name)).toEqual([
+      'anchored',
+      'document',
+      'workspace',
+    ]);
+    expect(parsed.variants?.[0]?.requires).toEqual([
+      'uri',
+      'type',
+      'symbolName',
+      'lineHint',
+    ]);
   });
 
   it('ghCloneRepo: executes with owner and repo fields', async () => {

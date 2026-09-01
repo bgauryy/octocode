@@ -58,25 +58,29 @@ reads, directory trees, npm lookup, and LSP semantics — is one named tool away
 ```bash
 npx octocode tools
 npx octocode tools --json --compact
+npx octocode tools localSearch --scheme --brief
 npx octocode tools localSearch --scheme
 npx octocode tools localSearch --scheme --json --compact
 npx octocode tools localSearch --scheme --json --compact --pretty
-npx octocode tools localSearch --queries '{"operation":"text","path":"./src","searchText":"runCLI"}' --compact
+npx octocode tools localSearch --queries '{"operation":"text","path":"/ABS/repo/src","searchText":"runCLI"}' --compact
 ```
 
 **Always read the schema before a raw call:**
 
 ```bash
-npx octocode tools <name> --scheme
+npx octocode tools <name> --scheme --brief
 ```
+
+Use `--brief` for branch-aware field names and one example. Escalate to
+`--scheme --json --compact` for bounds, defaults, and complete enum values.
+For local tools, use absolute paths in agent or script calls. Relative paths
+resolve from the command cwd, which may differ from the repository root.
 
 | Category | Default enabled tools |
 |---|---|
 | GitHub | `ghSearch` · `ghGetFileContent` · `ghSearchHistory` · `ghGetHistoryItem` · `ghCloneRepo` |
 | Local Code | `localSearch` · `localAnalyzeGraph` · `localGetFileContent` · `lspGetSemantics` |
 | Package | `npmSearch` |
-
-The catalog also includes opt-in `ghListReleases` and `ghSearchDiscussions`.
 
 ### Research loop
 
@@ -85,16 +89,17 @@ map cheaply → search narrowly → read exact evidence → follow symbols or hi
 ```
 
 ```bash
-npx octocode tools localSearch --queries '{"operation":"tree","path":"./packages/octocode/src"}'
-npx octocode tools localSearch --queries '{"operation":"text","path":"./packages/octocode/src","searchText":"executeDirectTool","resultView":"discovery"}'
-npx octocode tools localGetFileContent --queries '{"path":"./packages/octocode/src/cli/tool-command.ts","matchString":"executeDirectTool"}'
-npx octocode tools lspGetSemantics --queries '{"uri":"./packages/octocode/src/cli/tool-command.ts","type":"references","symbolName":"executeToolCommand","lineHint":90}'
+npx octocode tools localSearch --queries '{"operation":"tree","path":"/ABS/repo/packages/octocode/src"}'
+npx octocode tools localSearch --queries '{"operation":"text","path":"/ABS/repo/packages/octocode/src","searchText":"executeDirectTool","resultView":"discovery"}'
+npx octocode tools localGetFileContent --queries '{"path":"/ABS/repo/packages/octocode/src/cli/tool-command.ts","matchString":"executeDirectTool"}'
+npx octocode tools lspGetSemantics --queries '{"uri":"/ABS/repo/packages/octocode/src/cli/tool-command.ts","type":"references","symbolName":"executeToolCommand","lineHint":90}'
 ```
 
 ### Key flags for `tools`
 
 | Flag | Meaning |
 |---|---|
+| `--scheme --brief` | Cheapest branch-aware field map plus one runnable example. |
 | `--scheme` | Print the tool's input schema: fields, types, bounds, defaults. Read this before any unfamiliar call. |
 | `--scheme --json` | Machine-readable schema. |
 | `--queries '<json>'` | Run the tool. Accepts a single query object or `{"queries":[...]}` for a batch (up to 5). |
@@ -243,9 +248,9 @@ Prints the research protocol and active tool descriptions. Use `--minimal` for t
 ### Orient in a local codebase
 
 ```bash
-npx octocode tools localSearch --queries '{"operation":"tree","path":"./src"}'
-npx octocode tools localSearch --queries '{"operation":"text","path":"./src","searchText":"parseArgs","resultView":"discovery"}'
-npx octocode tools localGetFileContent --queries '{"path":"./src/cli/parser.ts","matchString":"parseArgs"}'
+npx octocode tools localSearch --queries '{"operation":"tree","path":"/ABS/repo/src"}'
+npx octocode tools localSearch --queries '{"operation":"text","path":"/ABS/repo/src","searchText":"parseArgs","resultView":"discovery"}'
+npx octocode tools localGetFileContent --queries '{"path":"/ABS/repo/src/cli/parser.ts","matchString":"parseArgs"}'
 ```
 
 ### Remote repo to local proof
@@ -264,8 +269,8 @@ npx octocode tools localSearch --queries '{"operation":"text","path":"<clone loc
 Get line anchors first, then trace the symbol:
 
 ```bash
-npx octocode tools lspGetSemantics --queries '{"uri":"./src/index.ts","type":"documentSymbols"}'
-npx octocode tools lspGetSemantics --queries '{"uri":"./src/index.ts","type":"references","symbolName":"runCLI","lineHint":42}'
+npx octocode tools lspGetSemantics --queries '{"uri":"/ABS/repo/src/index.ts","type":"documentSymbols"}'
+npx octocode tools lspGetSemantics --queries '{"uri":"/ABS/repo/src/index.ts","type":"references","symbolName":"runCLI","lineHint":42}'
 ```
 
 ### Package to source

@@ -1,10 +1,9 @@
 # MCP and CLI tool contract audit
 
-This audit covers all 12 public Octocode tools as exposed by the built CLI and
-the MCP stdio server on 2026-09-01. All tools executed successfully. The main
-remaining risk is repeatable execution parity: conditional input rules are now
-machine-enforceable, while the all-tool provider execution audit still depends
-on a live smoke harness rather than a fully offline fixture matrix.
+This audit covers all 10 public Octocode tools as exposed by the built CLI and
+the MCP stdio server on 2026-09-01. All tools executed successfully. Executable
+input contracts now have one owner, and a committed offline matrix replays every
+tool—including a second continuation page—through tools-core, CLI, and MCP.
 
 Use this page as the current gap and consolidation backlog. Use
 [`MCP_TOOL_QUALITY_AND_AGENT_WORKFLOW.md`](https://github.com/bgauryy/octocode/blob/main/docs/MCP_TOOL_QUALITY_AND_AGENT_WORKFLOW.md)
@@ -13,17 +12,17 @@ field-level reference.
 
 ## Audit result
 
-- Catalog: 12 tools; 10 enabled by default; `ghListReleases` and
-  `ghSearchDiscussions` are opt-in.
-- CLI execution: 12 of 12 representative calls succeeded.
-- MCP execution: 12 of 12 representative calls succeeded through stdio.
+- Catalog: 10 tools.
+- CLI execution: 10 of 10 representative calls succeeded.
+- MCP execution: 10 of 10 representative calls succeeded through stdio.
 - Change-specific contract tests cover tools-core, MCP, and CLI.
 - Input verdict: strict envelopes and retired-alias rejection are in place.
 - Output verdict: CLI and MCP discovery publish no output schemas. Runtime
   responses retain plain TypeScript contracts and the shared result envelope.
-- Suite score: **9.2/10** across description, input schema, implementation,
+- Suite score: **9.4/10** across description, input schema, implementation,
   output behavior, and hints/errors.
-- P0 gaps: none.
+- Monorepo P0 gaps: none. The sibling HTTP host has the release-order blocker
+  below and intentionally fails closed rather than serving legacy contracts.
 
 ### Score rubric
 
@@ -38,6 +37,15 @@ Each tool receives a score out of ten in five dimensions:
 The score measures the public contract, not the usefulness of the underlying
 provider or the completeness of every operation variant.
 
+### Component scorecard
+
+| Component | Score | Evidence | Remaining deduction |
+|---|---:|---|---|
+| `@octocodeai/octocode-core` | **9.8/10** | Prompt/output-types-only surface; redundant 13-entry registry, executable schemas, CLI generator, generated resources, and duplicate skill bundle removed; lint, typecheck, build, and focused surface tests pass | The aligned package has not been published and consumed from npm yet |
+| `octocode-mcp` | **9.8/10** | Exact ten-tool SDK catalog, no output schemas, shared titles/descriptions/input schemas, ten-tool offline execution/continuation parity, real stdio call, full suite and build pass | Live provider drift remains an authenticated smoke concern |
+| `octocode` CLI | **9.8/10** | Exact ten-tool catalog, all ten representative calls pass, local command-spec ownership, ten-tool parity, full suite/build pass, and brief-schema output is 20.5% smaller | Operation-specific runtime shapes and provider drift remain inherent |
+| HTTP MCP host | **9.6/10** | Local canonical five-remote-tool selection, fail-closed catalog guard, 412 tests, lint, and build pass | Requires the aligned tools-core npm release plus deployed authenticated list/call smoke |
+
 ## Complete tool scorecard
 
 `D`, `S`, `I`, `O`, and `H/E` mean description, schema, implementation,
@@ -46,74 +54,60 @@ output schemas are intentionally not published.
 
 | Tool | D | S | I | O | H/E | Mean | Main deduction |
 |---|---:|---:|---:|---:|---:|---:|---|
-| `ghSearch` | 9 | 10 | 9 | 8 | 9 | 9.0 | Output fields vary by operation |
-| `ghSearchHistory` | 9 | 10 | 9 | 8 | 9 | 9.0 | Three operation-specific candidate shapes |
-| `ghGetHistoryItem` | 9 | 10 | 9 | 8 | 9 | 9.0 | Four operation-specific detail shapes |
-| `ghListReleases` | 9 | 9 | 9 | 8 | 8 | 8.6 | Opt-in provider surface |
-| `ghSearchDiscussions` | 9 | 9 | 9 | 8 | 8 | 8.6 | Opt-in provider surface |
-| `ghGetFileContent` | 10 | 10 | 9 | 8 | 9 | 9.2 | Directory materialization remains specialized |
-| `ghCloneRepo` | 9 | 9 | 8 | 7 | 8 | 8.2 | Materialization output is intentionally specialized |
-| `localSearch` | 10 | 10 | 9 | 8 | 8 | 9.0 | Four operation-specific output shapes |
-| `localAnalyzeGraph` | 10 | 9 | 9 | 8 | 9 | 9.0 | Graph edges remain candidate evidence |
-| `localGetFileContent` | 10 | 10 | 9 | 8 | 9 | 9.2 | Local path identity remains specialized |
-| `lspGetSemantics` | 10 | 10 | 9 | 8 | 9 | 9.2 | Workspace inference is cwd-sensitive |
-| `npmSearch` | 9 | 10 | 9 | 8 | 9 | 9.0 | Registry/provider availability varies |
+| `ghSearch` | 9 | 10 | 10 | 9 | 9 | 9.4 | Output fields vary by operation |
+| `ghSearchHistory` | 9 | 10 | 10 | 9 | 9 | 9.4 | Three operation-specific candidate shapes |
+| `ghGetHistoryItem` | 9 | 10 | 10 | 9 | 9 | 9.4 | Four operation-specific detail shapes |
+| `ghGetFileContent` | 10 | 10 | 10 | 9 | 9 | 9.6 | Directory materialization remains specialized |
+| `ghCloneRepo` | 9 | 9 | 9 | 9 | 9 | 9.0 | Materialization remains intentionally specialized |
+| `localSearch` | 10 | 10 | 10 | 9 | 9 | 9.6 | Four operation-specific output shapes |
+| `localAnalyzeGraph` | 10 | 9 | 10 | 9 | 9 | 9.4 | Graph edges remain candidate evidence |
+| `localGetFileContent` | 10 | 10 | 10 | 9 | 9 | 9.6 | Local path identity remains specialized |
+| `lspGetSemantics` | 10 | 10 | 10 | 9 | 9 | 9.6 | Workspace inference is cwd-sensitive |
+| `npmSearch` | 9 | 10 | 10 | 9 | 9 | 9.4 | Registry/provider availability varies |
 
 ## Alignment gaps
 
-### P1: Executable input-schema ownership is split across repositories
+### P0: Publish the canonical tools-core catalog before enabling the HTTP host
 
-`packages/octocode-tools-core/src/tools/directToolCatalog/toolSpecifications.ts`
-owns the 13 names, titles, descriptions, and input-schema attachments, while
-some executable input schemas still originate in `@octocodeai/octocode-core`.
-
-This conflicts with the repository architecture rule that tools-core owns public
-tool schemas and descriptions, while the external core supplies the shared
-prompt and reusable output types. The split makes schema and executor changes
-harder to review atomically.
+The migrated sibling HTTP host selects the five canonical remote tools directly
+from `@octocodeai/octocode-tools-core`. The latest published package
+(`18.1.2`) still exports the retired 15-tool catalog, so the host cannot start
+against npm without reintroducing aliases or duplicated schemas.
 
 Acceptance criteria:
 
-- Move the remaining executable input schemas, relations, and variants into
-  tools-core.
-- Keep only reusable data types and shared prompt material in the external core.
-- Keep the build-time assertion that every direct tool has one description,
-  title, availability, and runtime attachment.
+- Publish the aligned 10-tool tools-core package.
+- Update the host dependency and remove the temporary workspace-resolution
+  boundary.
+- Run a real authenticated HTTP MCP `tools/list` and one tool invocation.
 
-### P1: Live adapter parity is not a committed 12-tool test
+### P1: Keep live provider drift checks separate from offline parity
 
-The current tests prove input-schema visibility, strict inputs, retired-alias
-rejection, and selected executions. They do not run a
-representative success response for every tool through every adapter. The full
-live MCP audit used for this page is a temporary harness, so CI cannot reproduce
-it.
-
-Acceptance criteria:
-
-- Commit a provider-fixture matrix for all 12 tools.
-- Run each fixture through tools-core, the CLI adapter, and the MCP adapter.
-- Compare normalized `structuredContent` across adapters.
-- Keep a separately gated live smoke job for provider drift.
-
-### P1: Merged-tool workflow benefit needs a held-out benchmark
-
-`ghSearch` and `localSearch` have executor-parity coverage, but parity does not
-prove that consolidation reduces calls, prompt bytes, or routing errors.
-
-Acceptance criteria:
-
-- Add held-out GitHub and local research tasks with legacy and unified routes.
-- Measure task correctness first, then calls and total input/output bytes.
-- Keep a merge only when correctness is unchanged and at least one cost metric
-  improves without a guardrail regression.
+The deterministic matrix proves adapter and continuation behavior without
+network state. A separately gated authenticated smoke job is still appropriate
+for GitHub/npm provider drift; it must not weaken or replace offline CI.
 
 ## Resolved in the 2026-09-01 cleanup
 
 - CLI and MCP discovery no longer publish output schemas or compact output-field
   summaries.
-- The shared direct-tool specification owns all 12 human titles; MCP no longer
+- Tools-core now owns all executable input schemas, relations, validation, names,
+  descriptions, titles, availability, and runtime attachments. An architecture
+  test rejects imports from the external core's retired schema/MCP surfaces.
+- `@octocodeai/octocode-core` is prompt-and-output-types only. Its 13-entry
+  title/schema registry, CLI generator, generated resources, and duplicate skill
+  bundle were removed.
+- CLI command-help types and specs now live with the CLI runtime; the retired
+  core `/cli` entry point and the stale `clone` help record are gone.
+- The committed ten-tool fixture proves schema identity, success, row errors,
+  whole-call errors, and executable page-two continuations through tools-core,
+  CLI, and MCP.
+- A held-out ten-case routing eval preserved 10/10 correctness and 10 calls while
+  reducing schema bytes 16.08%, prompt bytes 79.02%, and total routing bytes
+  25.05%; the unified GitHub/local searches remain accepted.
+- The shared direct-tool specification owns all 10 human titles; MCP no longer
   keeps a second title registry.
-- The same specification now owns all 12 descriptions; CLI and MCP consume it
+- The same specification now owns all 10 descriptions; CLI and MCP consume it
   directly instead of rereading external metadata.
 - MCP uses one registration adapter for basic and remote security modes. The
   duplicate adapters, metadata skip policy, metadata gateway, and private-Zod
@@ -134,7 +128,7 @@ Acceptance criteria:
   commit history/compare modes, and LSP operation requirements as item unions.
 - Generated-schema tests round-trip the actual input view and compare invalid
   and valid controls against executable validation.
-- A real MCP SDK client now lists all 12 feature-enabled descriptors and proves
+- A real MCP SDK client now lists all 10 descriptors and proves
   exact title, description, input-schema, order, and no-output-schema parity.
 - MCP callbacks and cancellation/pagination forwarding now apply to both remote
   and basic/local registrations.
@@ -145,6 +139,17 @@ Acceptance criteria:
   fetch the selected item through `ghGetHistoryItem`.
 - Named MCP lookup aliases and public exports of the three retired GitHub tool
   modules were removed.
+- Whole-response character pagination now returns an executable same-tool
+  `responsePagination.next` query; a real second-page replay succeeds.
+- Sparse clones are complete relative to the requested sparse scope and no
+  longer emit a false `continuationMissing` diagnostic.
+- Union-validation errors preserve `queries.N` paths and lead with operation or
+  selector relations for npm, local search, and LSP inputs.
+- CLI configuration titles and descriptions derive from the canonical tool
+  definitions; the second 10-entry UI copy registry was removed.
+- The duplicate LSP display-schema export was removed. Knip's duplicate-export
+  check is clean; its unconfigured whole-repository scan still reports dynamic
+  skill entrypoints and package barrels as candidates, not proven dead code.
 - Focused red-to-green tests cover all three changes.
 
 ## Merge candidates
@@ -156,8 +161,8 @@ Acceptance criteria:
 | GitHub and local content-reader selector fragments | internal | **Merged leaf builder** | A parameterized selector builder shares only identical range/match machinery while preserving source-specific tools |
 | PR, issue, and commit discovery | public | **Merged search contract** | Strict plural operations share discovery while preserving operation-specific validation |
 | PR, issue, commit, and comparison detail | public | **Merged get contract** | Strict singular operations share exact lookup while preserving operation-specific identities |
-| GitHub history pagination and continuation builders | internal | **Reject generic merge** | PR, issue, commit, release, and discussion pagination axes are materially different |
-| Live CLI/MCP audit harness and schema contract tests | test | **Merge** | One committed matrix must prove catalog, execution, and adapter parity |
+| GitHub history pagination and continuation builders | internal | **Reject generic merge** | PR, issue, and commit pagination axes are materially different |
+| Live CLI/MCP audit harness and schema contract tests | test | **Merged** | One committed matrix proves catalog, execution, continuation, and adapter parity |
 | This audit and the workflow guide | documentation | **Keep separate owners** | This page owns measured gaps; the workflow guide owns usage and evidence escalation |
 
 ## Public tools to keep separate
@@ -172,15 +177,12 @@ Acceptance criteria:
   syntactic candidate evidence; LSP resolves symbol identity.
 - Keep `npmSearch` and `ghSearch` separate. Package identity and registry
   metadata are not repository-search semantics.
-- Keep releases and discussions opt-in rather than folding them into a generic
-  history tool. Their provider capabilities and pagination models differ.
-
 ## Recommended implementation order
 
-1. Commit the offline 12-tool execution fixture matrix.
-2. Add held-out workflow measurements for the two unified search tools.
-3. Move the remaining executable input-schema ownership into tools-core.
-4. Semantically lint generated command patterns.
+1. Publish the aligned tools-core release.
+2. Switch the HTTP host from its local workspace boundary to that release.
+3. Run authenticated deployed HTTP catalog and execution smoke checks.
+4. Add isolated model-trajectory trials before claiming routing-accuracy gains.
 
 Do not merge public tools until a workflow benchmark shows fewer routing errors
 or fewer calls without reducing evidence quality. Internal schema and metadata
@@ -190,17 +192,12 @@ deduplication does not need that public-surface migration cost.
 
 The audit used the built monorepo artifacts, not source-only mocks:
 
-- `node packages/octocode/out/octocode.js tools --json` returned 12 canonical
+- `node packages/octocode/out/octocode.js tools --json` returned 10 canonical
   tools with no legacy public names.
-- The audit generated compact and full input-schema views for all 12 tools.
-- Representative CLI calls succeeded for all 12 tools, with feature flags set
-  for releases and discussions.
-- A live MCP stdio session listed and called all 12 tools successfully. It also
-  exercised all four `localSearch` operations.
-- Change-specific focused tests passed:
-  - tools-core title/schema parity and command patterns: 19;
-  - MCP registration, title, and pagination contracts: 62;
-  - CLI raw tool command contract: 27.
+- Requests for each removed tool return an unknown-tool error with exit code 3.
+- The real MCP SDK catalog test lists the same 10 names and no output schemas.
+- The offline parity matrix passes for all 10 tools in tools-core, CLI, and MCP.
+- The held-out routing benchmark passes 12 tests and its ACCEPT gates.
 
 Primary source paths:
 

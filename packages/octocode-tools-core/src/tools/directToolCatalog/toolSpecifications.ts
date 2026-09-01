@@ -9,8 +9,6 @@ import {
   GITHUB_SEARCH_TOOL_NAME,
   GITHUB_SEARCH_HISTORY_TOOL_NAME,
   GITHUB_GET_HISTORY_ITEM_TOOL_NAME,
-  isDiscussionsEnabled,
-  isReleasesEnabled,
   LOCAL_ANALYZE_GRAPH_TOOL_NAME,
   LOCAL_SEARCH_TOOL_NAME,
   STATIC_TOOL_NAMES,
@@ -23,29 +21,20 @@ import {
   FileContentQueryLocalSchema,
   GitHubSearchBulkQuerySchema,
   GitHubSearchQuerySchema,
-  ListReleasesBulkLocalSchema,
-  ListReleasesLocalSchema,
   LocalAnalyzeGraphBulkQuerySchema,
   LocalAnalyzeGraphQuerySchema,
   LocalFetchContentBulkQuerySchema,
   LocalFetchContentQuerySchema,
   LocalSearchBulkQuerySchema,
   LocalSearchQuerySchema,
-  LspGetSemanticsQueryDisplaySchema,
+  LspGetSemanticsQuerySchema,
   NpmSearchBulkQueryLocalSchema,
   NpmSearchQueryLocalSchema,
   GitHubGetHistoryItemBulkQueryLocalSchema,
   GitHubGetHistoryItemQueryLocalSchema,
   GitHubSearchHistoryBulkQueryLocalSchema,
   GitHubSearchHistoryQueryLocalSchema,
-  SearchDiscussionsBulkLocalSchema,
-  SearchDiscussionsLocalSchema,
 } from '../toolSchemaImports.js';
-
-interface DirectToolAvailability {
-  envVar: 'ENABLE_RELEASES' | 'ENABLE_DISCUSSIONS';
-  enabled: () => boolean;
-}
 
 export interface DirectToolSpecification {
   name: string;
@@ -53,7 +42,6 @@ export interface DirectToolSpecification {
   description: string;
   schema: z.ZodType;
   inputSchema: z.ZodType;
-  availability?: DirectToolAvailability;
 }
 
 export const DIRECT_TOOL_SPECIFICATIONS: readonly DirectToolSpecification[] = [
@@ -84,28 +72,6 @@ export const DIRECT_TOOL_SPECIFICATIONS: readonly DirectToolSpecification[] = [
     description: PUBLIC_TOOL_DESCRIPTIONS.ghGetHistoryItem,
     schema: GitHubGetHistoryItemQueryLocalSchema,
     inputSchema: GitHubGetHistoryItemBulkQueryLocalSchema,
-  },
-  {
-    name: STATIC_TOOL_NAMES.GITHUB_RELEASES,
-    title: 'GitHub Releases',
-    description: PUBLIC_TOOL_DESCRIPTIONS.ghListReleases,
-    schema: ListReleasesLocalSchema,
-    inputSchema: ListReleasesBulkLocalSchema,
-    availability: {
-      envVar: 'ENABLE_RELEASES',
-      enabled: isReleasesEnabled,
-    },
-  },
-  {
-    name: STATIC_TOOL_NAMES.GITHUB_DISCUSSIONS,
-    title: 'GitHub Discussions Search',
-    description: PUBLIC_TOOL_DESCRIPTIONS.ghSearchDiscussions,
-    schema: SearchDiscussionsLocalSchema,
-    inputSchema: SearchDiscussionsBulkLocalSchema,
-    availability: {
-      envVar: 'ENABLE_DISCUSSIONS',
-      enabled: isDiscussionsEnabled,
-    },
   },
   {
     name: STATIC_TOOL_NAMES.PACKAGE_SEARCH,
@@ -146,13 +112,7 @@ export const DIRECT_TOOL_SPECIFICATIONS: readonly DirectToolSpecification[] = [
     name: LSP_GET_SEMANTICS_TOOL_NAME,
     title: 'Get Semantic Content',
     description: PUBLIC_TOOL_DESCRIPTIONS.lspGetSemantics,
-    schema: LspGetSemanticsQueryDisplaySchema,
+    schema: LspGetSemanticsQuerySchema,
     inputSchema: BulkLspGetSemanticsQuerySchema,
   },
 ];
-
-export function isDirectToolSpecificationEnabled(
-  specification: DirectToolSpecification
-): boolean {
-  return specification.availability?.enabled() ?? true;
-}

@@ -1,4 +1,16 @@
-import { completeMetadata } from '@octocodeai/octocode-core';
+import { SYSTEM_PROMPT } from '@octocodeai/octocode-core';
+import { baseSchemaDescriptions, toolNames } from './schemas.js';
+import { DIRECT_TOOL_DISCOVERY_DEFINITIONS } from '../tools/directToolCatalog/toolCatalogDefinitions.js';
 
-/** Shared prompt and reusable metadata; executable tool contracts stay local. */
-export const localCompleteMetadata = completeMetadata;
+/** Shared prompt plus the canonical tools-core-owned executable catalog. */
+export const localCompleteMetadata = {
+  systemPrompt: SYSTEM_PROMPT,
+  toolNames,
+  baseSchema: baseSchemaDescriptions,
+  tools: Object.fromEntries(
+    DIRECT_TOOL_DISCOVERY_DEFINITIONS.map(definition => [
+      definition.name,
+      { description: definition.description },
+    ])
+  ),
+};
