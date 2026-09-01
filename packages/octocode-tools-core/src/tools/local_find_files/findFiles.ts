@@ -10,12 +10,7 @@ import type { LocalFindFilesToolResult } from '@octocodeai/octocode-core/extra-t
 import {
   contextUtils,
   type FileSystemEntry,
-  type FileSystemQueryResult,
 } from '../../utils/contextUtils.js';
-import {
-  expandBracePattern,
-  mergeFileSystemQueryResults,
-} from './pathPatternBraces.js';
 
 type UpstreamFindFilesQuery = z.infer<typeof FindFilesQuerySchema>;
 import type { WithOptionalMeta } from '../../types/execution.js';
@@ -119,28 +114,10 @@ export async function findFiles(
       excludeDir: nativeQuery.excludeDir,
       limit: LOCAL_MAX_LIMIT,
     };
-    // pathPattern has no brace-alternation support in the native glob compiler
-    // (see pathPatternBraces.ts) — expand `{a,b}` groups here into one native
-    // call per alternative and merge, so a pattern like
-    // `packages/{react,react-reconciler}/**` matches instead of silently
-    // returning nothing.
-    const expandedPathPatterns = nativeQuery.pathPattern
-      ? expandBracePattern(nativeQuery.pathPattern)
-      : undefined;
-    const nativeResult: FileSystemQueryResult =
-      expandedPathPatterns && expandedPathPatterns.length > 1
-        ? mergeFileSystemQueryResults(
-            expandedPathPatterns.map(pathPattern =>
-              contextUtils.queryFileSystem({
-                ...baseNativeQueryOptions,
-                pathPattern,
-              })
-            )
-          )
-        : contextUtils.queryFileSystem({
-            ...baseNativeQueryOptions,
-            pathPattern: nativeQuery.pathPattern,
-          });
+    const nativeResult = await contextUtils.queryFileSystem({
+      ...baseNativeQueryOptions,
+      pathPattern: nativeQuery.pathPattern,
+    });
 
     const discoveredFileCount = nativeResult.totalDiscovered;
     const wasFileCapped = nativeResult.wasCapped;

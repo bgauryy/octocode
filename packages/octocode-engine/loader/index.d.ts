@@ -624,7 +624,7 @@ export declare const enum PatchLineType {
  * Replaces the POSIX `find`/`ls` execution paths in octocode-tools-core while
  * keeping MCP response shaping in TypeScript.
  */
-export declare function queryFileSystem(options: FileSystemQueryOptions): FileSystemQueryResult
+export declare function queryFileSystem(options: FileSystemQueryOptions): Promise<FileSystemQueryResult>
 
 /** `commentTypes` accepts a single string or array of strings. */
 export declare function removeComments(content: string, commentTypes: any): string
@@ -732,6 +732,8 @@ export interface RipgrepSearchOptions {
   noIgnore?: boolean
   /** Search hidden files and directories (`--hidden`). */
   hidden?: boolean
+  /** Maximum directory descent below the search root; 0 searches root files only. */
+  maxDepth?: number
   /** Sort key: `path` (default), `modified`, `accessed`, or `created`. */
   sort?: string
   /** Reverse the sort order (`--sortr`). */

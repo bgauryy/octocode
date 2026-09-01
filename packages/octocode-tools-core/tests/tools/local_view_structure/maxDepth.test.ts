@@ -39,7 +39,7 @@ describe('local.tree effective maxDepth (documented defaults)', () => {
   });
 
   it('omitting maxDepth without recursive lists immediate children only (depth 1, non-recursive)', async () => {
-    const queryFileSystem = vi.fn().mockReturnValue(emptyNativeResult());
+    const queryFileSystem = vi.fn().mockResolvedValue(emptyNativeResult());
     installQueryFileSystem(queryFileSystem);
 
     await viewStructure({ path: validBasePath });
@@ -50,7 +50,7 @@ describe('local.tree effective maxDepth (documented defaults)', () => {
   });
 
   it('omitting maxDepth with recursive:true defaults to depth 5', async () => {
-    const queryFileSystem = vi.fn().mockReturnValue(emptyNativeResult());
+    const queryFileSystem = vi.fn().mockResolvedValue(emptyNativeResult());
     installQueryFileSystem(queryFileSystem);
 
     await viewStructure({ path: validBasePath, recursive: true });
@@ -61,7 +61,7 @@ describe('local.tree effective maxDepth (documented defaults)', () => {
   });
 
   it('maxDepth on its own enables recursion to that depth without recursive:true', async () => {
-    const queryFileSystem = vi.fn().mockReturnValue(emptyNativeResult());
+    const queryFileSystem = vi.fn().mockResolvedValue(emptyNativeResult());
     installQueryFileSystem(queryFileSystem);
 
     await viewStructure({ path: validBasePath, maxDepth: 3 });

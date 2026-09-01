@@ -236,7 +236,7 @@ export const contextUtils = {
 
   queryFileSystem(
     options: NativeContextUtils.FileSystemQueryOptions
-  ): NativeContextUtils.FileSystemQueryResult {
+  ): Promise<NativeContextUtils.FileSystemQueryResult> {
     return loadNative().queryFileSystem(options);
   },
 

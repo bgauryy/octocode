@@ -136,7 +136,7 @@ export async function resolveWorkspaceSymbolAnchor(
   const symbolHit = await findWorkspaceSymbolAnchorByName(query, workspaceRoot);
   if (symbolHit) return symbolHit;
   try {
-    const result = contextUtils.queryFileSystem({
+    const result = await contextUtils.queryFileSystem({
       path: workspaceRoot,
       recursive: true,
       includeRoot: false,

@@ -35,7 +35,7 @@ describe('scanForDeadCode dynamic import reachability', () => {
       'export function run() {\n  return 1;\n}\n'
     );
 
-    const result = scanForDeadCode(dir, { entrypoints: ['entry.js'] });
+    const result = await scanForDeadCode(dir, { entrypoints: ['entry.js'] });
 
     expect(result.entrypointsResolved).toEqual(['entry.js']);
     expect(deadNames(result)).not.toContain('plugin.js::run');
@@ -52,7 +52,7 @@ describe('scanForDeadCode dynamic import reachability', () => {
       'export function unused() {\n  return 1;\n}\n'
     );
 
-    const result = scanForDeadCode(dir, { entrypoints: ['entry.js'] });
+    const result = await scanForDeadCode(dir, { entrypoints: ['entry.js'] });
 
     // orphan.js is genuinely unreachable (nothing imports it, static or
     // dynamic) — a computed specifier must not accidentally suppress this by
@@ -71,7 +71,7 @@ describe('scanForDeadCode dynamic import reachability', () => {
       'export function run() {\n  return 1;\n}\n'
     );
 
-    const result = scanForDeadCode(dir, { entrypoints: ['entry.js'] });
+    const result = await scanForDeadCode(dir, { entrypoints: ['entry.js'] });
 
     expect(
       result.warnings.some(
@@ -95,7 +95,7 @@ describe('scanForDeadCode dynamic import reachability', () => {
       'export function used() { return 1; }\nexport function trulyDead() { return 2; }\n'
     );
 
-    const result = scanForDeadCode(dir, { entrypoints: ['entry.js'] });
+    const result = await scanForDeadCode(dir, { entrypoints: ['entry.js'] });
     const names = deadNames(result);
 
     expect(names).not.toContain('leaf.js::used');
@@ -110,7 +110,7 @@ describe('scanForDeadCode dynamic import reachability', () => {
       'export function testHelper() { return 1; }\n'
     );
 
-    const result = scanForDeadCode(dir, {
+    const result = await scanForDeadCode(dir, {
       entrypoints: ['entry.js'],
       includeTests: false,
     });

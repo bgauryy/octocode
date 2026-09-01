@@ -62,6 +62,25 @@ fn finds_matches_with_line_and_column() {
 }
 
 #[test]
+fn max_depth_prunes_the_native_walk_and_statistics() {
+    let t = TmpDir::new();
+    t.write("root.ts", "needle\n");
+    t.write("one/nested.ts", "needle\n");
+    t.write("one/two/deep.ts", "needle\n");
+
+    let mut options = opts(t.path(), "needle");
+    options.max_depth = Some(0);
+    let result = search(options).expect("search ok");
+
+    assert_eq!(result.files.len(), 1);
+    assert!(result.files[0].path.ends_with("root.ts"));
+    assert_eq!(result.stats.files_searched, Some(1));
+    assert_eq!(result.stats.files_matched, Some(1));
+    assert_eq!(result.stats.match_count, Some(1));
+    assert_eq!(result.stats.matched_lines, Some(1));
+}
+
+#[test]
 fn column_is_utf16_offset_on_multibyte_line() {
     let t = TmpDir::new();
     // 'b' is at byte 8 but UTF-16 index 7 ('é' is 2 bytes).

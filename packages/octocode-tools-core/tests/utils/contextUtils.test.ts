@@ -45,8 +45,8 @@ describe('contextUtils native boundary', () => {
     }
   });
 
-  it('delegates filesystem queries to the native package', () => {
-    const queryFileSystem = vi.fn().mockReturnValue({
+  it('delegates asynchronous filesystem queries to the native package', async () => {
+    const queryFileSystem = vi.fn().mockResolvedValue({
       entries: [],
       totalDiscovered: 0,
       wasCapped: false,
@@ -61,7 +61,7 @@ describe('contextUtils native boundary', () => {
         }) as unknown as typeof import('@octocodeai/octocode-engine')
     );
 
-    const result = contextUtils.queryFileSystem({
+    const result = await contextUtils.queryFileSystem({
       path: '/repo',
       names: ['*.ts'],
       entryType: 'f',

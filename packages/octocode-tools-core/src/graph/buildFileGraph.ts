@@ -112,14 +112,14 @@ interface RawGraphFacts {
  * native call per file, zero LSP round-trips — this is what makes the scan
  * scale with repo size instead of candidate count.
  */
-export function buildFileGraph(
+export async function buildFileGraph(
   rootAbsolutePath: string,
   excludeDir: string[],
   maxFiles: number
-): WalkResult {
+): Promise<WalkResult> {
   const supportedExtensions = contextUtils.getSupportedGraphFactExtensions();
 
-  const queryResult = contextUtils.queryFileSystem({
+  const queryResult = await contextUtils.queryFileSystem({
     path: rootAbsolutePath,
     recursive: true,
     showHidden: false,

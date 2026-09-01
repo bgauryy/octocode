@@ -73,7 +73,7 @@ export async function analyzeGraph(
     finalizeGraphOutput(output, query, built.truncated, why);
 
   if (query.operation === 'deadCode') {
-    const scan = scanForDeadCode(query.path, query, built);
+    const scan = await scanForDeadCode(query.path, query, built);
     const page = paginateGraphResults(
       scan.deadExports as unknown as Array<Record<string, unknown>>,
       query

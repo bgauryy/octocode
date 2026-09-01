@@ -21,7 +21,7 @@ function installEntries(count: number): void {
   setContextUtilsNativeLoaderForTesting(
     () =>
       ({
-        queryFileSystem: vi.fn().mockReturnValue({
+        queryFileSystem: vi.fn().mockResolvedValue({
           entries,
           totalDiscovered: entries.length,
           wasCapped: false,

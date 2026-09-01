@@ -11,7 +11,6 @@ import type { LocalSearchCodeToolResult } from '@octocodeai/octocode-core/extra-
 import { buildSearchResult } from './ripgrepResultBuilder.js';
 import { preflightValidateRipgrepPattern } from './patternValidation.js';
 import { attachRawResponseChars } from '../../utils/response/charSavings.js';
-import path from 'node:path';
 import {
   contextUtils,
   type RipgrepSearchOptions,
@@ -63,6 +62,7 @@ function toSearchOptions(
     excludeDir: query.excludeDir,
     noIgnore: query.noIgnore,
     hidden: query.hidden,
+    maxDepth: query.maxDepth,
     // The engine only understands filesystem sorts. TS-level relevance modes
     // (relevance/matchCount) are applied after the walk in ripgrepResultBuilder;
     // give the engine a stable deterministic walk so ranking inputs are stable.
@@ -92,23 +92,6 @@ function estimateResponseChars(files: LocalSearchCodeFile[]): number {
     }
   }
   return total;
-}
-
-function fileDepthFromSearchRoot(filePath: string, searchRoot: string): number {
-  const absoluteFilePath = path.isAbsolute(filePath)
-    ? filePath
-    : path.join(searchRoot, filePath);
-  const relativePath = path.relative(searchRoot, absoluteFilePath);
-  if (
-    !relativePath ||
-    relativePath.startsWith('..') ||
-    path.isAbsolute(relativePath)
-  ) {
-    return 0;
-  }
-  const dir = path.dirname(relativePath);
-  if (dir === '.') return 0;
-  return dir.split(path.sep).filter(Boolean).length;
 }
 
 export async function executeRipgrepSearchInternal(
@@ -224,25 +207,11 @@ export async function executeRipgrepSearchInternal(
     }),
   }));
 
-  const maxDepth = (queryForExec as { maxDepth?: number }).maxDepth;
-  const depthFilteredFiles =
-    maxDepth === undefined
-      ? files
-      : files.filter(
-          file =>
-            fileDepthFromSearchRoot(file.path, queryForExec.path) <= maxDepth
-        );
-  if (maxDepth !== undefined && depthFilteredFiles.length !== files.length) {
-    chunkingWarnings.push(
-      `Applied maxDepth:${maxDepth} after native text search; filtered ${files.length - depthFilteredFiles.length} deeper file(s).`
-    );
-  }
-
-  const responseChars = estimateResponseChars(depthFilteredFiles);
+  const responseChars = estimateResponseChars(files);
   const stats = {
     totalOccurrences: parsed.stats.matchCount,
     matchedLines: parsed.stats.matchedLines,
-    filesMatched: depthFilteredFiles.length,
+    filesMatched: files.length,
     filesSearched: parsed.stats.filesSearched,
     bytesSearched: parsed.stats.bytesSearched ?? undefined,
     searchTime: parsed.stats.searchTime,
@@ -256,7 +225,7 @@ export async function executeRipgrepSearchInternal(
     );
   }
 
-  if (depthFilteredFiles.length === 0) {
+  if (files.length === 0) {
     // An honest empty must point somewhere useful, not dead-end at stats.
     const broadenHints = [
       'No matches. Try caseMode:"insensitive", a shorter term, or regex:"smart".',
@@ -290,7 +259,7 @@ export async function executeRipgrepSearchInternal(
   }
 
   const searchResult = await buildSearchResult(
-    depthFilteredFiles,
+    files,
     query,
     'rg',
     [...validationWarnings, ...chunkingWarnings],

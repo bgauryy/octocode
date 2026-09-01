@@ -41,7 +41,7 @@ describe('local.tree native filter pushdown', () => {
   });
 
   it('does not pre-cap bracket globs before TypeScript filtering', async () => {
-    const queryFileSystem = vi.fn().mockReturnValue({
+    const queryFileSystem = vi.fn().mockResolvedValue({
       entries: [
         ...Array.from({ length: 20 }, (_, index) =>
           fileEntry(`filler-${index}.txt`, 'txt')
@@ -82,7 +82,7 @@ describe('local.tree native filter pushdown', () => {
   });
 
   it('pushes extension filters into the native query without limiting before sort', async () => {
-    const queryFileSystem = vi.fn().mockReturnValue({
+    const queryFileSystem = vi.fn().mockResolvedValue({
       entries: [fileEntry('beta.ts', 'ts')],
       totalDiscovered: 1,
       wasCapped: false,
@@ -115,7 +115,7 @@ describe('local.tree native filter pushdown', () => {
   });
 
   it('keeps the narrow pre-cap when filters are fully native-pushed', async () => {
-    const queryFileSystem = vi.fn().mockReturnValue({
+    const queryFileSystem = vi.fn().mockResolvedValue({
       entries: [fileEntry('target-a.ts', 'ts'), fileEntry('target-b.ts', 'ts')],
       totalDiscovered: 2,
       wasCapped: false,
@@ -145,7 +145,7 @@ describe('local.tree native filter pushdown', () => {
   });
 
   it('allows callers to opt out of default generated/vendor directory excludes', async () => {
-    const queryFileSystem = vi.fn().mockReturnValue({
+    const queryFileSystem = vi.fn().mockResolvedValue({
       entries: [fileEntry('node_modules/pkg/index.js', 'js')],
       totalDiscovered: 1,
       wasCapped: false,
@@ -170,7 +170,7 @@ describe('local.tree native filter pushdown', () => {
   });
 
   it('warns when a capped sorted result can only sort a partial walk', async () => {
-    const queryFileSystem = vi.fn().mockReturnValue({
+    const queryFileSystem = vi.fn().mockResolvedValue({
       entries: [fileEntry('small.ts', 'ts')],
       totalDiscovered: 10001,
       wasCapped: true,

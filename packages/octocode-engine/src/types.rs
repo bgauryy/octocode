@@ -120,6 +120,9 @@ pub struct RipgrepSearchOptions {
     pub no_ignore: Option<bool>,
     /// Search hidden files and directories (`--hidden`).
     pub hidden: Option<bool>,
+    /// Maximum directory descent below the search root. `0` searches files
+    /// directly in the root, `1` includes one nested directory level, and so on.
+    pub max_depth: Option<u32>,
 
     // ── ordering & result shaping ────────────────────────────────────────────
     /// Sort key: `path` (default), `modified`, `accessed`, or `created`.

@@ -45,11 +45,11 @@ export interface DeadCodeScanResult {
   confidence?: 'low';
 }
 
-export function scanForDeadCode(
+export async function scanForDeadCode(
   rootAbsolutePath: string,
   query: FindDeadCodeQuery,
   builtGraph?: WalkResult
-): DeadCodeScanResult {
+): Promise<DeadCodeScanResult> {
   const excludeDir = resolveGraphExcludeDirs(query.excludeDir);
   const maxFiles = query.maxFiles ?? 20_000;
 
@@ -61,7 +61,8 @@ export function scanForDeadCode(
     truncated,
     dynamicImportTargets,
     starReexporters,
-  } = builtGraph ?? buildFileGraph(rootAbsolutePath, excludeDir, maxFiles);
+  } = builtGraph ??
+    (await buildFileGraph(rootAbsolutePath, excludeDir, maxFiles));
 
   const knownFiles = new Set(facts.keys());
   const {

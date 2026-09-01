@@ -68,7 +68,7 @@ export async function viewStructure(
       query.detail === 'full' ||
       query.sortBy === 'time';
 
-    return viewStructureNative(
+    return await viewStructureNative(
       query,
       pathValidation.sanitizedPath,
       effectiveShowModified
@@ -86,11 +86,11 @@ export async function viewStructure(
   }
 }
 
-function viewStructureNative(
+async function viewStructureNative(
   query: ViewStructureQuery,
   basePath: string,
   showModified: boolean = false
-): LocalViewStructureToolResult {
+): Promise<LocalViewStructureToolResult> {
   const recursiveMode = Boolean(query.maxDepth || query.recursive);
   const maxDepth = recursiveMode
     ? query.maxDepth || (query.recursive ? 5 : 2)
@@ -104,9 +104,9 @@ function viewStructureNative(
     (query as { excludeDir?: string[] }).excludeDir
   );
 
-  let nativeResult: ReturnType<typeof contextUtils.queryFileSystem>;
+  let nativeResult: Awaited<ReturnType<typeof contextUtils.queryFileSystem>>;
   try {
-    nativeResult = contextUtils.queryFileSystem({
+    nativeResult = await contextUtils.queryFileSystem({
       path: basePath,
       recursive: recursiveMode,
       includeRoot: false,

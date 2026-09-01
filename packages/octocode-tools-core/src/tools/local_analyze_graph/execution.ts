@@ -29,9 +29,7 @@ export async function executeAnalyzeGraph(
     const key = JSON.stringify([path, [...excludeDir].sort(), maxFiles]);
     const existing = graphCache.get(key);
     if (existing) return existing;
-    const pending = Promise.resolve().then(() =>
-      buildFileGraph(path, excludeDir, maxFiles)
-    );
+    const pending = buildFileGraph(path, excludeDir, maxFiles);
     graphCache.set(key, pending);
     return pending;
   };

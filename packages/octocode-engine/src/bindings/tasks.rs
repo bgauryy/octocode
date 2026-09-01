@@ -1,5 +1,8 @@
 use crate::ripgrep_search;
-use crate::types::{MinifyResult, RipgrepParseResult, RipgrepSearchOptions};
+use crate::types::{
+    FileSystemQueryOptions, FileSystemQueryResult, MinifyResult, RipgrepParseResult,
+    RipgrepSearchOptions,
+};
 use napi::{Env, Error, Result, Status, Task};
 
 pub struct MinifyContentTask {
@@ -25,6 +28,30 @@ impl Task for MinifyContentTask {
 
 pub struct SearchRipgrepTask {
     pub options: Option<RipgrepSearchOptions>,
+}
+
+pub struct FileSystemQueryTask {
+    pub options: Option<FileSystemQueryOptions>,
+}
+
+impl Task for FileSystemQueryTask {
+    type Output = FileSystemQueryResult;
+    type JsValue = FileSystemQueryResult;
+
+    fn compute(&mut self) -> Result<Self::Output> {
+        let options = self.options.take().ok_or_else(|| {
+            Error::new(
+                Status::GenericFailure,
+                "filesystem query options already consumed",
+            )
+        })?;
+        crate::fs_query::query_file_system_inner(options)
+            .map_err(|message| Error::new(Status::InvalidArg, message))
+    }
+
+    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
+        Ok(output)
+    }
 }
 
 impl Task for SearchRipgrepTask {

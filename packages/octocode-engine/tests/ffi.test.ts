@@ -149,7 +149,7 @@ describe('getExtension', () => {
 });
 
 describe('queryFileSystem', () => {
-  it('finds files by glob and skips excluded directories', () => {
+  it('runs asynchronously, finds files by glob, and skips excluded directories', async () => {
     const root = mkdtempSync(join(tmpdir(), 'octocode-fs-query-'));
     try {
       mkdirSync(join(root, 'src', 'nested'), { recursive: true });
@@ -158,13 +158,15 @@ describe('queryFileSystem', () => {
       writeFileSync(join(root, 'src', 'nested', 'main.js'), 'module.exports = {}');
       writeFileSync(join(root, 'node_modules', 'pkg', 'index.ts'), 'ignored');
 
-      const result = addon!.queryFileSystem({
+      const pending = addon!.queryFileSystem({
         path: root,
         names: ['*.ts'],
         excludeDir: ['node_modules'],
         maxDepth: 3,
         entryType: 'f',
       });
+      expect(pending).toBeInstanceOf(Promise);
+      const result = await pending;
 
       expect(result.entries.map(entry => entry.relativePath)).toEqual([
         'src/nested/main.ts',
@@ -176,14 +178,14 @@ describe('queryFileSystem', () => {
     }
   });
 
-  it('rejects minDepth greater than maxDepth', () => {
-    expect(() =>
+  it('rejects minDepth greater than maxDepth', async () => {
+    await expect(
       addon!.queryFileSystem({
         path: '.',
         minDepth: 2,
         maxDepth: 1,
       })
-    ).toThrow('minDepth must be less than or equal to maxDepth');
+    ).rejects.toThrow('minDepth must be less than or equal to maxDepth');
   });
 });
 

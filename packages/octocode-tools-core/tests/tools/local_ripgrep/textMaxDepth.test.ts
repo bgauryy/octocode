@@ -38,6 +38,14 @@ describe('local.text text maxDepth', () => {
     expect((result.files ?? []).map(file => basename(file.path))).toEqual([
       'root.ts',
     ]);
-    expect(result.warnings?.join('\n')).toContain('maxDepth');
+    expect(result.stats).toMatchObject({
+      totalOccurrences: 1,
+      matchedLines: 1,
+      filesMatched: 1,
+      filesSearched: 1,
+    });
+    expect(result.warnings?.join('\n') ?? '').not.toContain(
+      'after native text search'
+    );
   });
 });

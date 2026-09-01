@@ -48,7 +48,7 @@ Supported (47 extensions): every language in the table above **except** the data
 
 ## LSP — `lspGetSemantics`
 
-24 languages have a native server-resolution entry (`c cpp csharp css elixir go html java javascript javascriptreact json kotlin less lua php python ruby rust scss sql swift typescript typescriptreact yaml zig`). Resolution ladder, cheapest first:
+25 languages have a native server-resolution entry (`c cpp csharp css elixir go html java javascript javascriptreact json kotlin less lua php python ruby rust scss shell sql swift typescript typescriptreact yaml zig`). Resolution ladder, cheapest first:
 
 | Tier | Languages | What happens |
 |---|---|---|

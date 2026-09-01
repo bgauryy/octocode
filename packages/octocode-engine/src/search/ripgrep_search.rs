@@ -275,6 +275,12 @@ fn build_walk_builder(opts: &RipgrepSearchOptions) -> Result<WalkBuilder> {
         .hidden(!opts.hidden.unwrap_or(false))
         .follow_links(false);
 
+    // ignore::WalkBuilder counts the root as depth 0 and its direct children as
+    // depth 1. The public tool contract counts files in the root as maxDepth 0.
+    if let Some(max_depth) = opts.max_depth {
+        wb.max_depth(Some(max_depth as usize + 1));
+    }
+
     if let Some(lang) = opts.lang_type.as_deref().filter(|l| !l.is_empty()) {
         let mut tb = TypesBuilder::new();
         tb.add_defaults();

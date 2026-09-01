@@ -42,7 +42,7 @@ describe('star-barrel retention (named re-export → star re-export → entrypoi
       "export * from './barrel/index.js';\n"
     );
 
-    const result = scanForDeadCode(dir, { includeTests: false });
+    const result = await scanForDeadCode(dir, { includeTests: false });
 
     const names = result.deadExports.map(d => d.name);
     // Republished through the star barrel — public API, must NOT be flagged.
@@ -65,7 +65,7 @@ describe('star-barrel retention (named re-export → star re-export → entrypoi
     await writeFile(join(dir, 'outer.js'), "export * from './mid.js';\n");
     await writeFile(join(dir, 'index.js'), "export * from './outer.js';\n");
 
-    const result = scanForDeadCode(dir, { includeTests: false });
+    const result = await scanForDeadCode(dir, { includeTests: false });
     expect(result.deadExports.map(d => d.name)).not.toContain('leafValue');
   });
 
@@ -88,7 +88,7 @@ describe('star-barrel retention (named re-export → star re-export → entrypoi
       "import './types.js';\nexport const api = 1;\n"
     );
 
-    const result = scanForDeadCode(dir, { includeTests: false });
+    const result = await scanForDeadCode(dir, { includeTests: false });
     expect(result.deadExports.map(d => d.name)).toContain('orphaned');
   });
 });
@@ -120,7 +120,7 @@ describe('symbol-level same-file retention (dead callers must not retain callees
       "import { used } from './lib.js';\nexport const api = used();\n"
     );
 
-    const result = scanForDeadCode(dir, { includeTests: false });
+    const result = await scanForDeadCode(dir, { includeTests: false });
     const names = result.deadExports.map(d => d.name);
     expect(names).toContain('deadCaller');
     // deadCallee's only usage is FROM a dead export — symbol-level liveness
@@ -152,7 +152,7 @@ describe('symbol-level same-file retention (dead callers must not retain callees
       "import { entryUsed } from './lib.js';\nentryUsed();\n"
     );
 
-    const result = scanForDeadCode(dir, { includeTests: false });
+    const result = await scanForDeadCode(dir, { includeTests: false });
     const names = result.deadExports.map(d => d.name);
     expect(names).not.toContain('entryUsed');
     expect(names).not.toContain('helperExported');
@@ -179,7 +179,7 @@ describe('symbol-level same-file retention (dead callers must not retain callees
       "import { buildConfig } from './lib.js';\nbuildConfig();\n"
     );
 
-    const result = scanForDeadCode(dir, { includeTests: false });
+    const result = await scanForDeadCode(dir, { includeTests: false });
     expect(result.deadExports.map(d => d.name)).not.toContain('DEFAULTS');
   });
 });
@@ -206,7 +206,7 @@ describe('viaHeuristic on unreferenced-export candidates', () => {
       "import './lib.js';\nimport { barrelOwn } from './deadBarrel.js';\nexport const api = barrelOwn;\n"
     );
 
-    const result = scanForDeadCode(dir, { includeTests: false });
+    const result = await scanForDeadCode(dir, { includeTests: false });
     const byName = new Map(result.deadExports.map(d => [d.name, d]));
 
     expect(byName.get('reexportedButUnused')?.reason).toBe(

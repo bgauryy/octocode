@@ -33,7 +33,7 @@ describe('scanForDeadCode entrypoint confidence signal', () => {
       "import { helper } from './foo.js';\nhelper();\n"
     );
 
-    const result = scanForDeadCode(dir, {});
+    const result = await scanForDeadCode(dir, {});
 
     expect(result.entrypointsResolved).toEqual(['foo.test.js']);
     expect(result.confidence).toBe('low');
@@ -57,7 +57,7 @@ describe('scanForDeadCode entrypoint confidence signal', () => {
       "import { helper } from './foo.js';\nhelper();\n"
     );
 
-    const result = scanForDeadCode(dir, {});
+    const result = await scanForDeadCode(dir, {});
 
     expect(result.entrypointsResolved).toContain('foo.js');
     expect(result.confidence).toBeUndefined();
@@ -123,7 +123,7 @@ describe('scanForDeadCode entrypoint confidence signal', () => {
       'export function helper() {\n  return 1;\n}\n'
     );
 
-    const result = scanForDeadCode(dir, {
+    const result = await scanForDeadCode(dir, {
       entrypoints: ['foo.js'],
       includeTests: false,
     });
@@ -142,7 +142,7 @@ describe('scanForDeadCode entrypoint confidence signal', () => {
       'export function helper() {\n  return 1;\n}\n'
     );
 
-    const result = scanForDeadCode(dir, {
+    const result = await scanForDeadCode(dir, {
       entrypoints: [join(dir, 'foo.js')],
       includeTests: false,
     });
@@ -158,7 +158,7 @@ describe('scanForDeadCode entrypoint confidence signal', () => {
       'export function helper() {\n  return 1;\n}\n'
     );
 
-    const result = scanForDeadCode(dir, {
+    const result = await scanForDeadCode(dir, {
       entrypoints: ['does/not/exist.js'],
       includeTests: false,
     });
