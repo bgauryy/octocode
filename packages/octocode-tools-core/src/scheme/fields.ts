@@ -21,8 +21,21 @@ export const contextLinesField = clampedInt(0, MAX_CONTEXT_LINES).optional();
 
 export const lineNumberField = clampedInt(1, 1_000_000_000).optional();
 
+// Offsets are cursors, not resource budgets. Keeping an arbitrary maximum here
+// can make a continuation emitted for a large resource fail its own schema.
+export const offsetField = z.preprocess(
+  value =>
+    typeof value === 'number' && Number.isFinite(value)
+      ? Math.max(value, 0)
+      : value,
+  z
+    .number()
+    .nonnegative()
+    .refine(Number.isSafeInteger, 'Expected a safe non-negative integer')
+);
+
 const responsePaginationFields = {
-  responseCharOffset: clampedInt(0, 100_000_000)
+  responseCharOffset: offsetField
     .optional()
     .describe(
       'Full-response char offset; re-call with returned value when hasMore.'
@@ -37,16 +50,16 @@ export function createRelaxedBulkQuerySchema(
   options: { maxQueries?: number } = {}
 ) {
   const { maxQueries = 5 } = options;
-  // Strip unknown envelope keys instead of rejecting them, so a stray/legacy
-  // top-level field never hard-fails the whole bulk call with a schema mismatch.
-  return z.object({
-    queries: z
-      .array(querySchema)
-      .min(1)
-      .max(maxQueries)
-      .describe(
-        'Parallel queries; response rows use matching zero-based indexes.'
-      ),
-    ...responsePaginationFields,
-  });
+  return z
+    .object({
+      queries: z
+        .array(querySchema)
+        .min(1)
+        .max(maxQueries)
+        .describe(
+          'Parallel queries; response rows use matching zero-based indexes.'
+        ),
+      ...responsePaginationFields,
+    })
+    .strict();
 }

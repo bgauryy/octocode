@@ -23,7 +23,6 @@ import { executeBulkOperation } from '../../../octocode-tools-core/src/utils/res
 import { attachRawResponseChars } from '../../../octocode-tools-core/src/utils/response/charSavings.js';
 import type { QueryStatus } from '../../../octocode-tools-core/src/types/toolResults.js';
 import { TOOL_NAMES } from '../../../octocode-tools-core/src/tools/toolMetadata/proxies.js';
-import type { ToolName } from '../../../octocode-tools-core/src/tools/toolMetadata/types.js';
 import { getTextContent } from './testHelpers.js';
 
 beforeAll(async () => {});
@@ -193,7 +192,7 @@ describe('executeBulkOperation', () => {
       });
 
       const result = await executeBulkOperation(queries, processor, {
-        toolName: TOOL_NAMES.GITHUB_SEARCH_CODE,
+        toolName: TOOL_NAMES.GITHUB_SEARCH,
         keysPriority: ['files'],
       });
 
@@ -556,7 +555,7 @@ describe('executeBulkOperation', () => {
         });
 
       const result = await executeBulkOperation(queries, processor, {
-        toolName: TOOL_NAMES.GITHUB_PULL_REQUESTS,
+        toolName: TOOL_NAMES.GITHUB_SEARCH_HISTORY,
       });
 
       expect(result.isError).toBe(false);
@@ -954,7 +953,7 @@ describe('executeBulkOperation', () => {
       });
 
       const result = await executeBulkOperation(queries, processor, {
-        toolName: TOOL_NAMES.GITHUB_PULL_REQUESTS,
+        toolName: TOOL_NAMES.GITHUB_SEARCH_HISTORY,
       });
 
       const responseText = getTextContent(result.content);
@@ -1043,12 +1042,11 @@ describe('executeBulkOperation', () => {
     });
 
     it('should work with different tool names', async () => {
-      const toolNames: ToolName[] = [
-        TOOL_NAMES.GITHUB_SEARCH_CODE,
-        TOOL_NAMES.GITHUB_SEARCH_REPOSITORIES,
-        TOOL_NAMES.GITHUB_PULL_REQUESTS,
+      const toolNames = [
+        TOOL_NAMES.GITHUB_SEARCH,
+        TOOL_NAMES.GITHUB_SEARCH_HISTORY,
         TOOL_NAMES.GITHUB_FETCH_CONTENT,
-        TOOL_NAMES.GITHUB_VIEW_REPO_STRUCTURE,
+        TOOL_NAMES.GITHUB_GET_HISTORY_ITEM,
       ];
 
       for (const toolName of toolNames) {
@@ -1618,7 +1616,7 @@ describe('executeBulkOperation', () => {
       });
 
       const result = await executeBulkOperation(queries, processor, {
-        toolName: TOOL_NAMES.GITHUB_PULL_REQUESTS,
+        toolName: TOOL_NAMES.GITHUB_GET_HISTORY_ITEM,
         keysPriority: ['items'],
       });
 
@@ -1653,7 +1651,7 @@ describe('executeBulkOperation', () => {
       });
 
       const result = await executeBulkOperation(queries, processor, {
-        toolName: TOOL_NAMES.GITHUB_PULL_REQUESTS,
+        toolName: TOOL_NAMES.GITHUB_GET_HISTORY_ITEM,
         keysPriority: ['items'],
       });
 

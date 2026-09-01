@@ -9,23 +9,16 @@ const pkg = require('./package.json');
 // Node core modules are always external.
 export const nodeExternals = [
   ...builtinModules,
-  ...builtinModules.map((m) => `node:${m}`),
+  ...builtinModules.map(m => `node:${m}`),
 ];
 
-// @octocodeai/octocode-tools-core is INLINED into this bundle — it is a
-// build-time (dev) dependency, never published to npm. esbuild bundles its
-// first-party code precisely because it is NOT listed in `external`.
-//
-// tools-core's own runtime deps cannot be inlined and must stay external:
-//   • @octocodeai/octocode-engine ships a native .node addon (unbundlable)
-//   • the rest are registry packages resolved by npm at install time
-// All of them are declared in octocode-mcp's own `dependencies`, so a consumer
-// `npm install octocode-mcp` pulls them in directly (no tools-core hop). Every
-// runtime `dependency` therefore stays external.
+// Published runtime dependencies stay external, including tools-core. Consumers
+// install them from this package's manifest; native and shared-core dependencies
+// are external for the same reason.
 export const bundledRuntimeDependencies = new Set([]);
 
 export const runtimeExternals = Object.keys(pkg.dependencies ?? {}).filter(
-  (dependencyName) => !bundledRuntimeDependencies.has(dependencyName)
+  dependencyName => !bundledRuntimeDependencies.has(dependencyName)
 );
 
 // Subpath-export wildcards for the externalized packages (esbuild matches `*`).
@@ -38,7 +31,11 @@ export const transitiveExternals = [
   '@octokit/*',
 ];
 
-export const external = [...nodeExternals, ...runtimeExternals, ...transitiveExternals];
+export const external = [
+  ...nodeExternals,
+  ...runtimeExternals,
+  ...transitiveExternals,
+];
 
 // ESM interop shim: provides require/__filename/__dirname inside the ESM bundle.
 export const shimBanner = [

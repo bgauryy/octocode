@@ -176,8 +176,6 @@ export interface PullRequestQuery extends BaseProviderQuery {
 
   content?: unknown;
 
-  reviewMode?: 'summary' | 'full';
-
   filePage?: number;
 
   commentPage?: number;

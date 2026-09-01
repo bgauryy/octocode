@@ -4,7 +4,6 @@ import {
   BulkLspGetSemanticsQuerySchema,
   LspGetSemanticsQuerySchema,
 } from '../../../octocode-tools-core/src/tools/lsp/semantic_content/scheme.js';
-import { registerLspGetSemanticsTool } from '../../src/tools/lsp/semantic_content/register.js';
 import { ALL_TOOLS } from '../../src/tools/toolConfig.js';
 import { createMockMcpServer } from '../fixtures/mcp-fixtures.js';
 
@@ -27,8 +26,12 @@ describe('new public LSP tools', () => {
 
   it('registers the semantic tool with read-only annotations', () => {
     const server = createMockMcpServer();
+    const lspTool = ALL_TOOLS.find(
+      tool => tool.name === LSP_GET_SEMANTICS_TOOL_NAME
+    );
+    expect(lspTool).toBeDefined();
 
-    registerLspGetSemanticsTool(server.server);
+    lspTool!.fn(server.server);
 
     expect(server.registrations).toContainEqual(
       expect.objectContaining({

@@ -40,7 +40,7 @@ type ResultShape = {
   };
 };
 
-describe('localSearchCode LSP next continuation — envelope-level invariant', () => {
+describe('local.text LSP next continuation — envelope-level invariant', () => {
   it('emits the LSP next once per response, anchored to the top file (never per-match)', async () => {
     const result = (await buildSearchResult(
       manyFiles(),

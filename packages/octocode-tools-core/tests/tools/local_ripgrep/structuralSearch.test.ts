@@ -281,7 +281,8 @@ describe('searchContentStructural', () => {
     expect(result.error).toContain('match a complete node');
     expect(result.error).toContain('$$$BODY');
     expect(result.error).toContain('valid py');
-    expect(result.error).toContain('tools localSearchCode --scheme');
+    expect(result.error).toContain('tools localSearch --scheme');
+    expect(result.error).not.toContain('local.text');
     expect(result.hints).toBeUndefined();
   });
 });

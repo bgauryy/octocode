@@ -45,7 +45,7 @@ describe('ghSearchIssues type:"issues"', () => {
           type: 'issues',
           owner: 'microsoft',
           repo: 'TypeScript',
-          keywordsToSearch: ['crash'],
+          keywords: ['crash'],
           state: 'open',
         },
       ],
@@ -65,8 +65,14 @@ describe('ghSearchIssues type:"issues"', () => {
     expect(text).toContain('Crash on startup');
     expect(text).toContain('"type":"issues"');
     expect(text).toContain('"readIssue"');
-    expect(text).toContain('"issueNumber":42');
-    expect(text).toContain('"searchCode"');
+    expect(text).toContain('"operation":"issue"');
+    expect(text).toContain('"number":42');
+    expect(text).not.toContain('"issueNumber"');
+    expect(text).toContain('"searchRepositoryCode"');
+    expect(text).not.toContain('"searchCode"');
+    expect(text).toContain('"tool":"ghSearch"');
+    expect(text).toContain('"operation":"code"');
+    expect(text).not.toContain('github.code');
   });
 
   it('keeps the PR-only page explanation on the public empty response', async () => {
@@ -113,7 +119,7 @@ describe('ghSearchIssues type:"issues"', () => {
     });
   });
 
-  it('omits next.readIssue when already in detail mode but still offers searchCode', async () => {
+  it('omits next.readIssue in detail mode but still offers repository code search', async () => {
     fetchIssues.mockResolvedValue({
       data: {
         type: 'issues',
@@ -151,7 +157,8 @@ describe('ghSearchIssues type:"issues"', () => {
 
     const text = JSON.stringify(result.structuredContent ?? result);
     expect(text).not.toContain('"readIssue"');
-    expect(text).toContain('"searchCode"');
+    expect(text).toContain('"searchRepositoryCode"');
+    expect(text).not.toContain('"searchCode"');
   });
 
   it('passes issueNumber for detail mode', async () => {

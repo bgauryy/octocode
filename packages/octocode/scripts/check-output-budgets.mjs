@@ -17,24 +17,40 @@ const cases = [
   { name: 'tools-json', args: ['tools', '--json'], maxBytes: 6500 },
   { name: 'context-compact', args: ['context', '--compact'], maxBytes: 4000 },
   { name: 'context-minimal', args: ['context', '--minimal'], maxBytes: 1800 },
-  { name: 'localSearchCode-compact-schema', args: ['tools', 'localSearchCode', '--scheme', '--json', '--compact'], maxBytes: 2600 },
+  {
+    name: 'localSearch-compact-schema',
+    args: ['tools', 'localSearch', '--scheme', '--json', '--compact'],
+    maxBytes: 5000,
+  },
 ];
 
 const results = [];
 for (const item of cases) {
   const run = spawnSync(process.execPath, [cli, ...item.args], {
     encoding: 'utf8',
-    env: { ...process.env, OCTOCODE_NO_STALE_BUILD_WARNING: '1', NO_COLOR: '1' },
+    env: {
+      ...process.env,
+      OCTOCODE_NO_STALE_BUILD_WARNING: '1',
+      NO_COLOR: '1',
+    },
     timeout: 60_000,
     maxBuffer: 10 * 1024 * 1024,
   });
   const bytes = Buffer.byteLength(run.stdout || '', 'utf8');
   const ok = run.status === 0 && bytes <= item.maxBytes;
-  results.push({ name: item.name, ok, status: run.status, bytes, maxBytes: item.maxBytes });
+  results.push({
+    name: item.name,
+    ok,
+    status: run.status,
+    bytes,
+    maxBytes: item.maxBytes,
+  });
 }
 
 for (const r of results) {
-  console.log(`${r.ok ? 'PASS' : 'FAIL'} ${r.name} bytes=${r.bytes}/${r.maxBytes} status=${r.status}`);
+  console.log(
+    `${r.ok ? 'PASS' : 'FAIL'} ${r.name} bytes=${r.bytes}/${r.maxBytes} status=${r.status}`
+  );
 }
 const failed = results.filter(r => !r.ok);
 if (failed.length > 0) process.exit(1);

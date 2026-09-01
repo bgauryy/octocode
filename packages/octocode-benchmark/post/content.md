@@ -40,8 +40,8 @@ Empty or noisy results trigger refinement—not an absence claim. The goal is no
 
 Octocode is a CLI and MCP suite for evidence-first research across GitHub, npm, and checked-out code. The same loop maps onto concrete tools:
 
-1. **Scope** — find the likely repo or package (`ghSearchRepos`, `npmSearch`)
-2. **Orient** — map the relevant tree (`ghViewRepoStructure`)
+1. **Scope** — find the likely repo or package (`ghSearch` repository operation, `npmSearch`)
+2. **Orient** — map the relevant tree (`ghSearch` tree operation)
 3. **Search** — surface candidates in code, commits, or PRs
 4. **Read exact** — fetch a matching window, line range, or bounded directory
 5. **Prove** — confirm with local search and LSP semantics (definitions, references, callers)

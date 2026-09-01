@@ -1,24 +1,24 @@
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
-import { localCompleteMetadata } from '../../src/toolContract/metadata.js';
 import { DESCRIPTIONS } from '../../src/tools/toolMetadata/descriptions.js';
+import { DIRECT_TOOL_DISCOVERY_DEFINITIONS } from '../../src/tools/directToolCatalog/toolCatalogDefinitions.js';
 import { LocalFindFilesQuerySchema } from '../../src/tools/local_find_files/scheme.js';
 
 // Ownership contract: descriptions are served directly from tools-core's local
 // tool contract. These tests keep both the truth of the excludeDir prose and
 // the single-local-owner contract.
-describe('localFindFiles excludeDir description contract', () => {
+describe('localSearch excludeDir description contract', () => {
   it('the local contract ships the pruned-by-default truth directly', () => {
-    const description = localCompleteMetadata.tools.localFindFiles.description;
+    const description = DESCRIPTIONS.localSearch;
     expect(description).toMatch(
-      /prunes common generated\/vendor dirs by default/i
+      /prune common generated and vendor directories by default/i
     );
     expect(description).not.toMatch(/Nothing is excluded by default/i);
   });
 
   it('served DESCRIPTIONS are byte-identical to the local contract', () => {
-    for (const [name, spec] of Object.entries(localCompleteMetadata.tools)) {
-      expect(DESCRIPTIONS[name]).toBe(spec.description);
+    for (const definition of DIRECT_TOOL_DISCOVERY_DEFINITIONS) {
+      expect(DESCRIPTIONS[definition.name]).toBe(definition.description);
     }
   });
 

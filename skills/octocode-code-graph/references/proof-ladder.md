@@ -14,7 +14,7 @@ graph candidate
 ## Tool roles
 
 - `localGetFileContent`: quote exact imports, exports, registrations, and line anchors.
-- `localSearchCode mode:"structural"`: distinguish code shapes; use `pattern` or YAML `rule`, and prefer `rule: kind: …` when fragment parsing is unreliable.
+- `localSearch operation:"structural"`: distinguish code shapes; use `pattern` or YAML `rule`, and prefer `rule: kind: …` when fragment parsing is unreliable.
 - `lspGetSemantics`: prove definitions, references, callers/callees, symbols, and diagnostics. Use `includeDeclaration:false` for unused claims.
 - Text search: cover configs, strings, scripts, tests, reflection, generated registries, and LSP blind spots; lexical hits do not prove identity.
 

@@ -47,7 +47,7 @@ export const LocalViewStructureBulkQuerySchema = createRelaxedBulkQuerySchema(
 );
 
 // ---------------------------------------------------------------------------
-// Output TYPES — describes what localViewStructure returns per query result.
+// Output TYPES — describes what the local tree operation returns per query result.
 // No zod: the MCP server registers no outputSchema, so the output is a plain
 // type. Shared envelope lives in types/toolOutput.ts.
 // ---------------------------------------------------------------------------
@@ -75,6 +75,10 @@ export interface LocalViewStructureData {
   summary?: string | Record<string, unknown>;
   pagination?: LocalItemPagination;
   next?: Record<string, ToolContinuation>;
+  terminalLimit?: boolean;
+  truncated?: boolean;
+  partialReasons?: Array<'limit' | 'walkLimit'>;
+  totalAvailable?: number;
 }
 
 export type LocalViewStructureOutput = BulkToolOutput<LocalViewStructureData>;

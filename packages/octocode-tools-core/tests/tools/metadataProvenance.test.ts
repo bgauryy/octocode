@@ -9,10 +9,13 @@ import { LocalRipgrepQuerySchema } from '../../src/tools/local_ripgrep/scheme.js
 import { LocalViewStructureQuerySchema } from '../../src/tools/local_view_structure/scheme.js';
 import { LocalFindFilesQuerySchema } from '../../src/tools/local_find_files/scheme.js';
 import { LocalAnalyzeGraphQuerySchema } from '../../src/tools/local_analyze_graph/scheme.js';
-import { DIRECT_TOOL_DEFINITIONS } from '../../src/tools/directToolCatalog/toolCatalogDefinitions.js';
+import {
+  DIRECT_TOOL_DEFINITIONS,
+  DIRECT_TOOL_DISCOVERY_DEFINITIONS,
+} from '../../src/tools/directToolCatalog/toolCatalogDefinitions.js';
 
-describe('metadata provenance — octocode-core owns schemas and descriptions', () => {
-  it('removes the retired MCP full-text override from served instructions', () => {
+describe('metadata provenance — octocode-core owns the shared prompt', () => {
+  it('serves the current MCP output guidance without a local patch', () => {
     expect(localCompleteMetadata.systemPrompt).not.toContain(
       'restores full YAML text'
     );
@@ -21,17 +24,22 @@ describe('metadata provenance — octocode-core owns schemas and descriptions', 
     );
   });
 
-  it('provides one nonempty description for every public tool', () => {
-    const names = Object.values(localCompleteMetadata.toolNames);
-    expect(names).toHaveLength(17);
-    expect(new Set(names).size).toBe(17);
-    expect(Object.keys(localCompleteMetadata.tools)).toEqual(names);
+  it('provides one locally owned nonempty description for every public tool', () => {
+    const names = DIRECT_TOOL_DISCOVERY_DEFINITIONS.map(
+      definition => definition.name
+    );
+    expect(names).toHaveLength(12);
+    expect(new Set(names).size).toBe(12);
+    expect(Object.keys(DESCRIPTIONS)).toEqual(names);
 
     for (const name of names) {
-      const spec = localCompleteMetadata.tools[name];
-      expect(spec, name).toBeDefined();
-      expect(spec?.description.trim().length, name).toBeGreaterThan(20);
-      expect(DESCRIPTIONS[name], name).toBe(spec?.description);
+      expect(DESCRIPTIONS[name]?.trim().length, name).toBeGreaterThan(20);
+      expect(
+        DIRECT_TOOL_DISCOVERY_DEFINITIONS.find(
+          definition => definition.name === name
+        )?.description,
+        name
+      ).toBe(DESCRIPTIONS[name]);
     }
   });
 
@@ -42,26 +50,25 @@ describe('metadata provenance — octocode-core owns schemas and descriptions', 
   });
 
   it('provides one executable query schema for every public tool', () => {
-    const names = Object.values(localCompleteMetadata.toolNames);
-    expect(Object.keys(localSchemas.toolSchemas)).toEqual(names);
-    for (const name of names) {
-      expect(localSchemas.findToolSchema(name), name).toBeDefined();
+    for (const definition of DIRECT_TOOL_DISCOVERY_DEFINITIONS) {
+      expect(definition.schema, definition.name).toBeDefined();
+      expect(definition.inputSchema, definition.name).toBeDefined();
     }
   });
 
   const cases: Array<[string, z.ZodTypeAny, z.ZodTypeAny]> = [
     [
-      'localSearchCode',
+      'local.text',
       LocalRipgrepQuerySchema,
       localSchemas.RipgrepQuerySchema as z.ZodTypeAny,
     ],
     [
-      'localViewStructure',
+      'local.tree',
       LocalViewStructureQuerySchema as z.ZodTypeAny,
       localSchemas.ViewStructureQuerySchema as z.ZodTypeAny,
     ],
     [
-      'localFindFiles',
+      'local.files',
       LocalFindFilesQuerySchema as z.ZodTypeAny,
       localSchemas.FindFilesQuerySchema as z.ZodTypeAny,
     ],
@@ -135,7 +142,6 @@ describe('metadata provenance — octocode-core owns schemas and descriptions', 
     const divergent: string[] = [];
     for (const definition of DIRECT_TOOL_DEFINITIONS) {
       const sourceSchema = localSchemas.findToolSchema(definition.name);
-      expect(sourceSchema, definition.name).toBeDefined();
       if (!sourceSchema) continue;
       const sourceDescriptions = descriptionMap(sourceSchema);
       const runtimeDescriptions = descriptionMap(definition.schema);

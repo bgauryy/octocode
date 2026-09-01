@@ -40,7 +40,7 @@ export function shapeComments(
   const { items, pagination } = paginateItems(
     matched,
     query.commentPage ?? query.page ?? 1,
-    query.itemsPerPage ?? PR_CONTENT_DEFAULT_ITEMS_PER_PAGE
+    query.pageSize ?? PR_CONTENT_DEFAULT_ITEMS_PER_PAGE
   );
   return {
     comments: items.map(comment => {
@@ -69,7 +69,7 @@ export function shapeComments(
         updatedAt: comment.updatedAt,
       };
     }),
-    commentPagination: pagination,
+    contentPagination: { comments: pagination },
   };
 }
 
@@ -120,7 +120,7 @@ export function shapeCommits(
   const { items, pagination } = paginateItems(
     allCommits,
     query.commitPage ?? query.page ?? 1,
-    query.itemsPerPage ?? PR_CONTENT_DEFAULT_ITEMS_PER_PAGE
+    query.pageSize ?? PR_CONTENT_DEFAULT_ITEMS_PER_PAGE
   );
   return {
     commits: items.map(commit => ({
@@ -134,6 +134,6 @@ export function shapeCommits(
         ? { files: commit.files }
         : {}),
     })),
-    commitPagination: pagination,
+    contentPagination: { commits: pagination },
   };
 }

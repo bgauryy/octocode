@@ -51,7 +51,6 @@ const NUMERIC_FLAGS = new Set([
   'line',
   'pr',
   'context-lines',
-  'context',
   'max-matches',
   'max-files',
   'match-length',

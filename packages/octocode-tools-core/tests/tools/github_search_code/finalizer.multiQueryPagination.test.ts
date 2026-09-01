@@ -30,7 +30,7 @@ const pagination = (nextPage: number) => ({
   nextPage,
 });
 
-describe('ghSearchCode finalizer — multi-query bulk pagination is not dropped', () => {
+describe('github.code finalizer — multi-query bulk pagination is not dropped', () => {
   it('surfaces pagination for BOTH paginating queries (not just one)', () => {
     const queries = [{}, {}];
     const results = [

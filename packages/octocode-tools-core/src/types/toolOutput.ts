@@ -27,6 +27,8 @@ export interface BulkToolResultRow<TData> {
   /** Zero-based position of the originating query in the submitted batch. */
   index: number;
   status?: 'empty' | 'error';
+  /** Present only when the primary response payload was served from cache. */
+  cache?: 1;
   meta?: ToolResultMeta;
   data: TData;
 }

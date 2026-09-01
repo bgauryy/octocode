@@ -1,114 +1,42 @@
-import { McpServer, RegisteredTool } from '@modelcontextprotocol/server';
+import {
+  McpServer,
+  RegisteredTool,
+  type CallToolResult,
+} from '@modelcontextprotocol/server';
 import type {
   ToolConfig,
+  ToolExecutionArgs,
   ToolInvocationCallback,
-  ToolMetadataGateway,
 } from '@octocodeai/octocode-tools-core';
-import {
-  ALL_TOOLS as CORE_ALL_TOOLS,
-  STATIC_TOOL_NAMES,
-  LOCAL_ANALYZE_GRAPH_TOOL_NAME,
-  LSP_GET_SEMANTICS_TOOL_NAME,
-  DEFAULT_TOOL_METADATA_GATEWAY,
-  getDescription,
-} from '@octocodeai/octocode-tools-core';
+import { ALL_TOOLS as CORE_ALL_TOOLS } from '@octocodeai/octocode-tools-core';
 
-import { registerGitHubSearchCodeTool } from './github_search_code/github_search_code.js';
-import { registerFetchGitHubFileContentTool } from './github_fetch_content/github_fetch_content.js';
-import { registerViewGitHubRepoStructureTool } from './github_view_repo_structure/github_view_repo_structure.js';
-import { registerSearchGitHubReposTool } from './github_search_repos/github_search_repos.js';
-import {
-  registerSearchGitHubPullRequestsSplitTool,
-  registerSearchGitHubIssuesTool,
-  registerSearchGitHubCommitsTool,
-  registerListGitHubReleasesTool,
-} from './github_search_pull_requests/github_search_split.js';
-import { registerSearchGitHubDiscussionsTool } from './github_search_discussions/register.js';
-import { registerNpmSearchTool } from './package_search/package_search.js';
-import { registerGitHubCloneRepoTool } from './github_clone_repo/github_clone_repo.js';
-import { registerLocalRipgrepTool } from './local_ripgrep/register.js';
-import { registerLocalViewStructureTool } from './local_view_structure/register.js';
-import { registerLocalFindFilesTool } from './local_find_files/register.js';
-import { registerLocalAnalyzeGraphTool } from './local_analyze_graph/register.js';
-import { registerLocalFetchContentTool } from './local_fetch_content/register.js';
-import { registerLspGetSemanticsTool } from './lsp/semantic_content/register.js';
+import { createToolRegistration } from './registerTool.js';
 
 export type {
   ToolConfig,
   ToolDirectExecutionConfig,
   ToolDirectSecurity,
 } from '@octocodeai/octocode-tools-core';
-export { getDescription, DEFAULT_TOOL_METADATA_GATEWAY };
-export type { ToolMetadataGateway };
-
 export interface McpToolConfig extends ToolConfig {
-  fn: (
-    server: McpServer,
-    callback?: ToolInvocationCallback
-  ) => RegisteredTool | Promise<RegisteredTool | null>;
+  fn: (server: McpServer, callback?: ToolInvocationCallback) => RegisteredTool;
 }
 
-const MCP_FN_MAP: Record<string, McpToolConfig['fn']> = {
-  [STATIC_TOOL_NAMES.GITHUB_SEARCH_CODE]: registerGitHubSearchCodeTool,
-  [STATIC_TOOL_NAMES.GITHUB_FETCH_CONTENT]: registerFetchGitHubFileContentTool,
-  [STATIC_TOOL_NAMES.GITHUB_VIEW_REPO_STRUCTURE]:
-    registerViewGitHubRepoStructureTool,
-  [STATIC_TOOL_NAMES.GITHUB_SEARCH_REPOSITORIES]: registerSearchGitHubReposTool,
-  [STATIC_TOOL_NAMES.GITHUB_PULL_REQUESTS]:
-    registerSearchGitHubPullRequestsSplitTool,
-  [STATIC_TOOL_NAMES.GITHUB_ISSUES]: registerSearchGitHubIssuesTool,
-  [STATIC_TOOL_NAMES.GITHUB_COMMITS]: registerSearchGitHubCommitsTool,
-  [STATIC_TOOL_NAMES.GITHUB_RELEASES]: registerListGitHubReleasesTool,
-  [STATIC_TOOL_NAMES.GITHUB_DISCUSSIONS]: registerSearchGitHubDiscussionsTool,
-  [STATIC_TOOL_NAMES.PACKAGE_SEARCH]: registerNpmSearchTool,
-  [STATIC_TOOL_NAMES.GITHUB_CLONE_REPO]: registerGitHubCloneRepoTool,
-  [STATIC_TOOL_NAMES.LOCAL_RIPGREP]: registerLocalRipgrepTool,
-  [STATIC_TOOL_NAMES.LOCAL_VIEW_STRUCTURE]: registerLocalViewStructureTool,
-  [STATIC_TOOL_NAMES.LOCAL_FIND_FILES]: registerLocalFindFilesTool,
-  [LOCAL_ANALYZE_GRAPH_TOOL_NAME]: registerLocalAnalyzeGraphTool,
-  [STATIC_TOOL_NAMES.LOCAL_FETCH_CONTENT]: registerLocalFetchContentTool,
-  [LSP_GET_SEMANTICS_TOOL_NAME]: registerLspGetSemanticsTool,
-};
+function createCoreToolRegistration(tool: ToolConfig): McpToolConfig['fn'] {
+  const common = {
+    name: tool.name,
+    title: tool.title,
+    description: tool.description,
+    inputSchema: tool.direct.inputSchema,
+    executionFn: tool.direct.executionFn as unknown as (
+      args: ToolExecutionArgs<unknown>
+    ) => Promise<CallToolResult>,
+    annotations: tool.isClone ? { readOnlyHint: false } : undefined,
+    security: tool.direct.security,
+    timeoutMs: tool.direct.timeoutMs,
+  };
+  return createToolRegistration(common);
+}
 
 export const ALL_TOOLS: McpToolConfig[] = CORE_ALL_TOOLS.map(tool => {
-  const fn = MCP_FN_MAP[tool.name];
-  if (!fn) {
-    throw new Error(`No MCP fn registered for tool: ${tool.name}`);
-  }
-  return { ...tool, fn };
+  return { ...tool, fn: createCoreToolRegistration(tool) };
 });
-
-function requireTool(name: string): McpToolConfig {
-  const tool = ALL_TOOLS.find(t => t.name === name);
-  if (!tool) throw new Error(`Tool not found in MCP registry: "${name}"`);
-  return tool;
-}
-
-export const GITHUB_SEARCH_CODE = requireTool(
-  STATIC_TOOL_NAMES.GITHUB_SEARCH_CODE
-);
-export const GITHUB_FETCH_CONTENT = requireTool(
-  STATIC_TOOL_NAMES.GITHUB_FETCH_CONTENT
-);
-export const GITHUB_VIEW_REPO_STRUCTURE = requireTool(
-  STATIC_TOOL_NAMES.GITHUB_VIEW_REPO_STRUCTURE
-);
-export const GITHUB_SEARCH_REPOSITORIES = requireTool(
-  STATIC_TOOL_NAMES.GITHUB_SEARCH_REPOSITORIES
-);
-export const PACKAGE_SEARCH = requireTool(STATIC_TOOL_NAMES.PACKAGE_SEARCH);
-export const GITHUB_CLONE_REPO = requireTool(
-  STATIC_TOOL_NAMES.GITHUB_CLONE_REPO
-);
-export const LOCAL_RIPGREP = requireTool(STATIC_TOOL_NAMES.LOCAL_RIPGREP);
-export const LOCAL_VIEW_STRUCTURE = requireTool(
-  STATIC_TOOL_NAMES.LOCAL_VIEW_STRUCTURE
-);
-export const LOCAL_FIND_FILES = requireTool(STATIC_TOOL_NAMES.LOCAL_FIND_FILES);
-export const LOCAL_ANALYZE_GRAPH = requireTool(LOCAL_ANALYZE_GRAPH_TOOL_NAME);
-export const LOCAL_FETCH_CONTENT = requireTool(
-  STATIC_TOOL_NAMES.LOCAL_FETCH_CONTENT
-);
-export const LSP_GET_SEMANTIC_CONTENT = requireTool(
-  LSP_GET_SEMANTICS_TOOL_NAME
-);

@@ -61,15 +61,16 @@ function firstCommentBodyPagination(
 
 function buildContentPagination(
   shaped: Record<string, unknown>,
+  rawPagination: ContentPagination,
   query: QueryLike,
   request: NormalizedPrContentRequest,
   prNumber: number
 ): ContentPagination | undefined {
   const contentPagination: ContentPagination = {};
-  const bodyPagination = readTextPagination(shaped.bodyPagination);
-  const filePagination = readPagination(shaped.filePagination);
-  const commentPagination = readPagination(shaped.commentPagination);
-  const commitPagination = readPagination(shaped.commitPagination);
+  const bodyPagination = readTextPagination(rawPagination.body);
+  const filePagination = readPagination(rawPagination.changedFiles);
+  const commentPagination = readPagination(rawPagination.comments);
+  const commitPagination = readPagination(rawPagination.commits);
   const patchPagination = firstPatchPagination(shaped);
   const commentBodyPagination = firstCommentBodyPagination(shaped);
   const fileContent = buildFileContentRequest(request);
@@ -87,28 +88,30 @@ function buildContentPagination(
   }
 
   if (filePagination) {
+    const nextQuery = pageContinuationQuery(
+      query,
+      prNumber,
+      fileContent,
+      'filePage',
+      filePagination
+    );
     contentPagination.changedFiles = {
       ...filePagination,
-      nextQuery: pageContinuationQuery(
-        query,
-        prNumber,
-        fileContent,
-        'filePage',
-        filePagination
-      ),
+      ...(nextQuery ? { nextQuery } : {}),
     };
   }
 
   if (commentPagination && request.comments) {
+    const nextQuery = pageContinuationQuery(
+      query,
+      prNumber,
+      { comments: request.comments },
+      'commentPage',
+      commentPagination
+    );
     contentPagination.comments = {
       ...commentPagination,
-      nextQuery: pageContinuationQuery(
-        query,
-        prNumber,
-        { comments: request.comments },
-        'commentPage',
-        commentPagination
-      ),
+      ...(nextQuery ? { nextQuery } : {}),
     };
   }
 
@@ -131,15 +134,16 @@ function buildContentPagination(
   }
 
   if (commitPagination && request.commits) {
+    const nextQuery = pageContinuationQuery(
+      query,
+      prNumber,
+      { commits: request.commits },
+      'commitPage',
+      commitPagination
+    );
     contentPagination.commits = {
       ...commitPagination,
-      nextQuery: pageContinuationQuery(
-        query,
-        prNumber,
-        { commits: request.commits },
-        'commitPage',
-        commitPagination
-      ),
+      ...(nextQuery ? { nextQuery } : {}),
     };
   }
 
@@ -156,7 +160,7 @@ function buildContentPagination(
     };
   }
 
-  const filePathsPagination = shaped.filePathsPagination;
+  const filePathsPagination = rawPagination.filePaths;
   if (isRecord(filePathsPagination)) {
     contentPagination.filePaths = {
       ...filePathsPagination,
@@ -174,14 +178,6 @@ function buildContentPagination(
   return Object.keys(contentPagination).length > 0
     ? contentPagination
     : undefined;
-}
-
-function removeLegacyPaginationFields(shaped: Record<string, unknown>): void {
-  delete shaped.bodyPagination;
-  delete shaped.filePagination;
-  delete shaped.commentPagination;
-  delete shaped.commitPagination;
-  delete shaped.filePathsPagination;
 }
 
 export function shapePullRequestForContent(
@@ -216,7 +212,14 @@ export function shapePullRequestForContent(
   const fullShape =
     isDetailFetch || (query as { verbose?: boolean }).verbose === true;
 
-  const fileSurfaces = shapeFileSurfaces(pr, query, request);
+  const { contentPagination: fileContentPagination = {}, ...fileSurfaces } =
+    shapeFileSurfaces(pr, query, request);
+  const {
+    contentPagination: commentContentPagination = {},
+    ...commentSurfaces
+  } = shapeComments(pr, query, request);
+  const { contentPagination: commitContentPagination = {}, ...commitSurfaces } =
+    shapeCommits(pr, query, request);
   // If this response already fetched the changed-file list, hand nextCalls
   // a real path instead of the literal "path/from/changedFiles" placeholder
   // that previously always required a prior round-trip to resolve.
@@ -272,13 +275,13 @@ export function shapePullRequestForContent(
     ...metadata,
     ...(request.body
       ? body
-        ? { body: body.content, bodyPagination: body.pagination }
+        ? { body: body.content }
         : { bodyEmpty: true }
       : {}),
     ...fileSurfaces,
-    ...shapeComments(pr, query, request),
+    ...commentSurfaces,
     ...shapeReviews(pr, query, request),
-    ...shapeCommits(pr, query, request),
+    ...commitSurfaces,
     ...(pr.reviewSummary ? { reviewSummary: pr.reviewSummary } : {}),
     ...(Array.isArray(pr.sanitizationWarnings) &&
     (pr.sanitizationWarnings as unknown[]).length > 0
@@ -287,11 +290,16 @@ export function shapePullRequestForContent(
   };
   const contentPagination = buildContentPagination(
     shaped,
+    {
+      ...(body ? { body: body.pagination } : {}),
+      ...fileContentPagination,
+      ...commentContentPagination,
+      ...commitContentPagination,
+    },
     query,
     request,
     prNumber
   );
-  removeLegacyPaginationFields(shaped);
   if (contentPagination) shaped.contentPagination = contentPagination;
   return shaped;
 }

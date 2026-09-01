@@ -9,14 +9,14 @@ const mocks = vi.hoisted(() => ({
     toolNames: {},
     baseSchema: {},
     tools: {
-      ghSearchCode: {
-        name: 'ghSearchCode',
-        description: 'Search code.',
-        schema: { keywords: 'terms', owner: 'owner' },
+      ghSearch: {
+        name: 'ghSearch',
+        description: 'Search GitHub code, repositories, or trees.',
+        schema: { operation: 'operation', keywords: 'terms', owner: 'owner' },
         hints: { hasResults: [], empty: [] },
       },
-      localSearchCode: {
-        name: 'localSearchCode',
+      localSearch: {
+        name: 'localSearch',
         description: 'Local search.',
         schema: { path: 'dir', searchText: 'regex' },
         hints: { hasResults: [], empty: [] },
@@ -48,7 +48,7 @@ const mocks = vi.hoisted(() => ({
     content: [{ type: 'text', text: 'err' }],
     isError: true,
   }),
-  localSearchCode: vi.fn().mockResolvedValue({
+  localSearch: vi.fn().mockResolvedValue({
     content: [{ type: 'text', text: 'tool output' }],
   }),
   cloneRepo: vi.fn().mockResolvedValue({
@@ -79,8 +79,8 @@ vi.mock('@octocodeai/octocode-tools-core/direct', async importOriginal => {
       await mocks.initializeProviders();
     }
 
-    if (toolName === 'localSearchCode') {
-      return mocks.localSearchCode(input);
+    if (toolName === 'localSearch') {
+      return mocks.localSearch(input);
     }
     if (toolName === 'ghCloneRepo') {
       return mocks.cloneRepo(input);
@@ -123,11 +123,11 @@ describe('tool-command coverage', () => {
     expect(output).toContain('GitHub');
     expect(output).toContain('Local Code');
     expect(output).not.toContain('\n  LSP\n');
-    expect(output).toContain('localSearchCode');
+    expect(output).toContain('localSearch');
     expect(output).toContain('Full protocol: context --full');
-    expect(output).toContain('ghSearchCode');
-    expect(output).toContain('Search code.');
-    expect(output).toContain('Local search.');
+    expect(output).toContain('ghSearch');
+    expect(output).toContain('Choose operation:"code"');
+    expect(output).toContain('localSearch');
     expect(output).not.toContain('[path*');
     expect(output).not.toContain('workspaceSymbol');
     expect(output).not.toContain('diagnostic');
@@ -135,7 +135,7 @@ describe('tool-command coverage', () => {
     expect(process.exitCode).toBeUndefined();
   });
 
-  it('showAvailableTools: --list flag triggers the tool list', async () => {
+  it('rejects the removed tools --list alias', async () => {
     const { toolCommand } = await import('../../src/cli/tool-command.js');
 
     await toolCommand.handler!({
@@ -145,11 +145,11 @@ describe('tool-command coverage', () => {
     });
 
     const output = consoleSpy.mock.calls.flat().join('\n');
-    expect(output).toContain('GitHub');
-    expect(output).toContain('localSearchCode');
+    expect(output).toContain('Unsupported tools option: --list');
+    expect(process.exitCode).toBe(2);
   });
 
-  it('showAvailableTools: "list" as toolName triggers the tool list', async () => {
+  it('rejects the removed tools list alias', async () => {
     const { toolCommand } = await import('../../src/cli/tool-command.js');
 
     await toolCommand.handler!({
@@ -159,7 +159,8 @@ describe('tool-command coverage', () => {
     });
 
     const output = consoleSpy.mock.calls.flat().join('\n');
-    expect(output).toContain('GitHub');
+    expect(output).toContain('Unknown tool: list');
+    expect(process.exitCode).toBe(3);
   });
 
   it('printToolsContext: prints full context to stdout', async () => {
@@ -188,13 +189,13 @@ describe('tool-command coverage', () => {
     expect(compact).toContain('Protocol: schema first');
     expect(full).toContain('RESEARCH LOOP');
     // full mode includes the complete description text on a separate line
-    expect(full).toContain('Search code.');
-    expect(full).toContain('Clone a repo.');
+    expect(full).toContain('Choose operation:"code"');
+    expect(full).toContain('Best for repeated reads');
   });
 
   it('A1: --compact emits minified structuredContent only', async () => {
     const { toolCommand } = await import('../../src/cli/tool-command.js');
-    mocks.localSearchCode.mockResolvedValueOnce({
+    mocks.localSearch.mockResolvedValueOnce({
       content: [{ type: 'text', text: 'results:\n  - id: x' }],
       structuredContent: {
         results: [{ id: 'x' }],
@@ -205,9 +206,9 @@ describe('tool-command coverage', () => {
 
     await toolCommand.handler!({
       command: 'tools',
-      args: ['localSearchCode'],
+      args: ['localSearch'],
       options: {
-        queries: '{"path":".","searchText":"x"}',
+        queries: '{"operation":"text","path":".","searchText":"x"}',
         compact: true,
       },
     });
@@ -227,13 +228,13 @@ describe('tool-command coverage', () => {
 
     await toolCommand.handler!({
       command: 'tools',
-      args: ['localSearchCode'],
+      args: ['localSearch'],
       options: { format: 'tool' },
     });
 
     const output = consoleSpy.mock.calls.flat().join('\n');
     const def = JSON.parse(output.trim());
-    expect(def.name).toBe('localSearchCode');
+    expect(def.name).toBe('localSearch');
     expect(typeof def.description).toBe('string');
     expect(def.inputSchema.type).toBe('object');
     expect(process.exitCode).toBeUndefined();
@@ -249,6 +250,30 @@ describe('tool-command coverage', () => {
     });
 
     expect(process.exitCode).toBe(3);
+  });
+
+  it('rejects clone execution when ENABLE_CLONE=false', async () => {
+    const previous = process.env.ENABLE_CLONE;
+    process.env.ENABLE_CLONE = 'false';
+    try {
+      const { toolCommand } = await import('../../src/cli/tool-command.js');
+      await toolCommand.handler!({
+        command: 'tools',
+        args: ['ghCloneRepo'],
+        options: {
+          queries: '{"owner":"octocat","repo":"Hello-World"}',
+          compact: true,
+        },
+      });
+
+      const output = consoleSpy.mock.calls.flat().join('\n');
+      expect(output).toContain("Tool 'ghCloneRepo' is disabled");
+      expect(mocks.cloneRepo).not.toHaveBeenCalled();
+      expect(process.exitCode).toBe(3);
+    } finally {
+      if (previous === undefined) delete process.env.ENABLE_CLONE;
+      else process.env.ENABLE_CLONE = previous;
+    }
   });
 
   it('getToolsContextString: excludes metadata-only tools that are not active CLI tools', async () => {
@@ -288,7 +313,7 @@ describe('tool-command coverage', () => {
 
     await toolCommand.handler!({
       command: 'tools',
-      args: ['ghSearchCode'],
+      args: ['ghSearch'],
       options: { scheme: true },
     });
 
@@ -296,7 +321,7 @@ describe('tool-command coverage', () => {
     expect(output).toContain('goal');
     expect(output).not.toContain('mainResearchGoal');
     expect(output).not.toContain('researchGoal');
-    expect(output).toContain('ghSearchCode');
+    expect(output).toContain('ghSearch');
     expect(output).toContain('keywords');
   });
 
@@ -305,12 +330,12 @@ describe('tool-command coverage', () => {
 
     await toolCommand.handler!({
       command: 'tools',
-      args: ['localSearchCode'],
+      args: ['localSearch'],
       options: { scheme: true },
     });
 
     const output = consoleSpy.mock.calls.flat().join('\n');
-    expect(output).toContain('localSearchCode');
+    expect(output).toContain('localSearch');
     expect(output).toContain('Input Schema');
 
     expect(output).not.toContain('mainResearchGoal');
@@ -322,14 +347,14 @@ describe('tool-command coverage', () => {
 
     await toolCommand.handler!({
       command: 'tools',
-      args: ['ghSearchCode'],
+      args: ['ghSearch'],
       options: { scheme: true, brief: true },
     });
 
     const output = consoleSpy.mock.calls.flat().join('\n');
-    expect(output).toContain('ghSearchCode');
+    expect(output).toContain('ghSearch');
     expect(output).toContain('keywords (array<string>)');
-    expect(output).toContain("tools ghSearchCode --queries '");
+    expect(output).toContain("tools ghSearch --queries '");
     expect(output).not.toContain('ANDed; keep a phrase as one item');
     expect(output).not.toContain('Runtime: local CLI and MCP');
     expect(output).not.toContain('Auto-filled');
@@ -340,8 +365,8 @@ describe('tool-command coverage', () => {
 
     await toolCommand.handler!({
       command: 'tools',
-      args: ['ghCloneRepo', '{"owner":"bgauryy","repo":"octocode-mcp"}'],
-      options: {},
+      args: ['ghCloneRepo'],
+      options: { queries: '{"owner":"bgauryy","repo":"octocode-mcp"}' },
     });
 
     expect(mocks.initialize).toHaveBeenCalledTimes(1);
@@ -365,11 +390,10 @@ describe('tool-command coverage', () => {
 
     await toolCommand.handler!({
       command: 'tools',
-      args: [
-        'ghCloneRepo',
-        '{"owner":"bgauryy","repo":"octocode-mcp","branch":"main"}',
-      ],
-      options: {},
+      args: ['ghCloneRepo'],
+      options: {
+        queries: '{"owner":"bgauryy","repo":"octocode-mcp","branch":"main"}',
+      },
     });
 
     expect(mocks.cloneRepo).toHaveBeenCalledWith(
@@ -390,14 +414,14 @@ describe('tool-command coverage', () => {
 
     await toolCommand.handler!({
       command: 'tools',
-      args: [
-        'localSearchCode',
-        '[{"path":".","searchText":"foo","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1},{"path":"src","searchText":"bar","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}]',
-      ],
-      options: {},
+      args: ['localSearch'],
+      options: {
+        queries:
+          '[{"operation":"text","path":".","searchText":"foo","matchContentLength":200,"pageSize":1,"page":1,"maxMatchesPerFile":1},{"operation":"text","path":"src","searchText":"bar","matchContentLength":200,"pageSize":1,"page":1,"maxMatchesPerFile":1}]',
+      },
     });
 
-    expect(mocks.localSearchCode).toHaveBeenCalledWith(
+    expect(mocks.localSearch).toHaveBeenCalledWith(
       expect.objectContaining({
         queries: expect.arrayContaining([
           expect.objectContaining({ path: '.', searchText: 'foo' }),
@@ -412,14 +436,14 @@ describe('tool-command coverage', () => {
 
     await toolCommand.handler!({
       command: 'tools',
-      args: [
-        'localSearchCode',
-        '{"queries":[{"path":".","searchText":"foo","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}],"responseCharOffset":500}',
-      ],
-      options: {},
+      args: ['localSearch'],
+      options: {
+        queries:
+          '{"queries":[{"operation":"text","path":".","searchText":"foo","matchContentLength":200,"pageSize":1,"page":1,"maxMatchesPerFile":1}],"responseCharOffset":500}',
+      },
     });
 
-    const callArg = mocks.localSearchCode.mock.calls[0]?.[0];
+    const callArg = mocks.localSearch.mock.calls[0]?.[0];
     expect(callArg).toEqual(
       expect.objectContaining({
         queries: [expect.objectContaining({ path: '.', searchText: 'foo' })],
@@ -434,15 +458,15 @@ describe('tool-command coverage', () => {
     await toolCommand.handler!({
       command: 'tools',
       args: [
-        'localSearchCode',
-        '{"path":".","searchText":"x","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
+        'localSearch',
+        '{"operation":"text","path":".","searchText":"x","matchContentLength":200,"pageSize":1,"page":1,"maxMatchesPerFile":1}',
         'extra',
       ],
       options: {},
     });
 
     const output = consoleSpy.mock.calls.flat().join('\n');
-    expect(output).toContain('Pass tool input as one quoted JSON string');
+    expect(output).toContain('Pass tool input with --queries');
     expect(process.exitCode).toBe(2);
   });
 
@@ -451,8 +475,8 @@ describe('tool-command coverage', () => {
 
     await toolCommand.handler!({
       command: 'tools',
-      args: ['localSearchCode', '42'],
-      options: {},
+      args: ['localSearch'],
+      options: { queries: '42' },
     });
 
     const output = consoleSpy.mock.calls.flat().join('\n');
@@ -465,8 +489,8 @@ describe('tool-command coverage', () => {
 
     await toolCommand.handler!({
       command: 'tools',
-      args: ['localSearchCode', '{"queries":[]}'],
-      options: {},
+      args: ['localSearch'],
+      options: { queries: '{"queries":[]}' },
     });
 
     const output = consoleSpy.mock.calls.flat().join('\n');
@@ -474,7 +498,7 @@ describe('tool-command coverage', () => {
     expect(process.exitCode).toBe(2);
   });
 
-  it('uses canonical query keys for localSearchCode pagination', async () => {
+  it('uses canonical query keys for localSearch pagination', async () => {
     const { toolCommand } = await import('../../src/cli/tool-command.js');
     const consoleErrorSpy = vi
       .spyOn(console, 'error')
@@ -483,19 +507,19 @@ describe('tool-command coverage', () => {
     try {
       await toolCommand.handler!({
         command: 'tools',
-        args: [
-          'localSearchCode',
-          '{"path":".","searchText":"x","regex":"fixed","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
-        ],
-        options: {},
+        args: ['localSearch'],
+        options: {
+          queries:
+            '{"operation":"text","path":".","searchText":"x","regex":"fixed","matchContentLength":200,"pageSize":1,"page":1,"maxMatchesPerFile":1}',
+        },
       });
 
-      expect(mocks.localSearchCode).toHaveBeenCalledWith(
+      expect(mocks.localSearch).toHaveBeenCalledWith(
         expect.objectContaining({
           queries: [
             expect.objectContaining({
               regex: 'fixed',
-              itemsPerPage: 1,
+              pageSize: 1,
               page: 1,
               maxMatchesPerFile: 1,
             }),
@@ -509,7 +533,7 @@ describe('tool-command coverage', () => {
   });
 
   it('printToolResult: falls back to structuredContent when content is empty', async () => {
-    mocks.localSearchCode.mockResolvedValueOnce({
+    mocks.localSearch.mockResolvedValueOnce({
       content: [],
       structuredContent: { status: 'ok', count: 3 },
     });
@@ -518,11 +542,11 @@ describe('tool-command coverage', () => {
 
     await toolCommand.handler!({
       command: 'tools',
-      args: [
-        'localSearchCode',
-        '{"path":".","searchText":"x","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
-      ],
-      options: {},
+      args: ['localSearch'],
+      options: {
+        queries:
+          '{"operation":"text","path":".","searchText":"x","matchContentLength":200,"pageSize":1,"page":1,"maxMatchesPerFile":1}',
+      },
     });
 
     const allArgs = consoleSpy.mock.calls.flat().join('\n');
@@ -530,7 +554,7 @@ describe('tool-command coverage', () => {
   });
 
   it('printToolResult: falls back to JSON.stringify(result) when no content and no structuredContent', async () => {
-    mocks.localSearchCode.mockResolvedValueOnce({
+    mocks.localSearch.mockResolvedValueOnce({
       content: [],
     });
 
@@ -538,11 +562,11 @@ describe('tool-command coverage', () => {
 
     await toolCommand.handler!({
       command: 'tools',
-      args: [
-        'localSearchCode',
-        '{"path":".","searchText":"x","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
-      ],
-      options: {},
+      args: ['localSearch'],
+      options: {
+        queries:
+          '{"operation":"text","path":".","searchText":"x","matchContentLength":200,"pageSize":1,"page":1,"maxMatchesPerFile":1}',
+      },
     });
 
     const allArgs = consoleSpy.mock.calls.flat().join('\n');
@@ -550,7 +574,7 @@ describe('tool-command coverage', () => {
   });
 
   it('printToolResult: --json mode prints the full MCP CallToolResult envelope', async () => {
-    mocks.localSearchCode.mockResolvedValueOnce({
+    mocks.localSearch.mockResolvedValueOnce({
       content: [{ type: 'text', text: 'yaml output' }],
       structuredContent: { kind: 'results', items: ['a', 'b'] },
       isError: false,
@@ -560,11 +584,12 @@ describe('tool-command coverage', () => {
 
     await toolCommand.handler!({
       command: 'tools',
-      args: [
-        'localSearchCode',
-        '{"path":".","searchText":"x","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
-      ],
-      options: { json: true },
+      args: ['localSearch'],
+      options: {
+        json: true,
+        queries:
+          '{"operation":"text","path":".","searchText":"x","matchContentLength":200,"pageSize":1,"page":1,"maxMatchesPerFile":1}',
+      },
     });
 
     const raw = consoleSpy.mock.calls.flat().join('\n');
@@ -578,7 +603,7 @@ describe('tool-command coverage', () => {
   });
 
   it('printToolResult: --json mode preserves structuredContent results', async () => {
-    mocks.localSearchCode.mockResolvedValueOnce({
+    mocks.localSearch.mockResolvedValueOnce({
       content: [{ type: 'text', text: 'yaml output' }],
       structuredContent: {
         base: '/repo/src',
@@ -590,11 +615,12 @@ describe('tool-command coverage', () => {
 
     await toolCommand.handler!({
       command: 'tools',
-      args: [
-        'localSearchCode',
-        '{"path":".","searchText":"x","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
-      ],
-      options: { json: true },
+      args: ['localSearch'],
+      options: {
+        json: true,
+        queries:
+          '{"operation":"text","path":".","searchText":"x","matchContentLength":200,"pageSize":1,"page":1,"maxMatchesPerFile":1}',
+      },
     });
 
     const raw = consoleSpy.mock.calls.flat().join('\n');
@@ -607,7 +633,7 @@ describe('tool-command coverage', () => {
   });
 
   it('printToolResult: --json selects JSON mode for structured output', async () => {
-    mocks.localSearchCode.mockResolvedValueOnce({
+    mocks.localSearch.mockResolvedValueOnce({
       content: [{ type: 'text', text: 'out' }],
       structuredContent: { answer: 42 },
     });
@@ -616,11 +642,12 @@ describe('tool-command coverage', () => {
 
     await toolCommand.handler!({
       command: 'tools',
-      args: [
-        'localSearchCode',
-        '{"path":".","searchText":"x","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
-      ],
-      options: { json: true },
+      args: ['localSearch'],
+      options: {
+        json: true,
+        queries:
+          '{"operation":"text","path":".","searchText":"x","matchContentLength":200,"pageSize":1,"page":1,"maxMatchesPerFile":1}',
+      },
     });
 
     const raw = consoleSpy.mock.calls.flat().join('\n');
@@ -630,7 +657,7 @@ describe('tool-command coverage', () => {
   });
 
   it('sets exitCode TOOL (5) when tool returns isError: true', async () => {
-    mocks.localSearchCode.mockResolvedValueOnce({
+    mocks.localSearch.mockResolvedValueOnce({
       content: [{ type: 'text', text: 'failed' }],
       isError: true,
     });
@@ -639,28 +666,28 @@ describe('tool-command coverage', () => {
 
     await toolCommand.handler!({
       command: 'tools',
-      args: [
-        'localSearchCode',
-        '{"path":".","searchText":"x","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
-      ],
-      options: {},
+      args: ['localSearch'],
+      options: {
+        queries:
+          '{"operation":"text","path":".","searchText":"x","matchContentLength":200,"pageSize":1,"page":1,"maxMatchesPerFile":1}',
+      },
     });
 
     expect(process.exitCode).toBe(5);
   });
 
   it('handles non-Error thrown value in tool execution', async () => {
-    mocks.localSearchCode.mockRejectedValueOnce('string error');
+    mocks.localSearch.mockRejectedValueOnce('string error');
 
     const { toolCommand } = await import('../../src/cli/tool-command.js');
 
     await toolCommand.handler!({
       command: 'tools',
-      args: [
-        'localSearchCode',
-        '{"path":".","searchText":"x","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
-      ],
-      options: {},
+      args: ['localSearch'],
+      options: {
+        queries:
+          '{"operation":"text","path":".","searchText":"x","matchContentLength":200,"pageSize":1,"page":1,"maxMatchesPerFile":1}',
+      },
     });
 
     const output = consoleSpy.mock.calls.flat().join('\n');
@@ -669,17 +696,17 @@ describe('tool-command coverage', () => {
   });
 
   it('handles non-Error thrown by the execution function', async () => {
-    mocks.localSearchCode.mockRejectedValueOnce(42);
+    mocks.localSearch.mockRejectedValueOnce(42);
 
     const { toolCommand } = await import('../../src/cli/tool-command.js');
 
     await toolCommand.handler!({
       command: 'tools',
-      args: [
-        'localSearchCode',
-        '{"path":".","searchText":"x","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
-      ],
-      options: {},
+      args: ['localSearch'],
+      options: {
+        queries:
+          '{"operation":"text","path":".","searchText":"x","matchContentLength":200,"pageSize":1,"page":1,"maxMatchesPerFile":1}',
+      },
     });
 
     const output = consoleSpy.mock.calls.flat().join('\n');
@@ -692,9 +719,7 @@ describe('tool-command coverage', () => {
     const { getDisplayFields, TOOL_DEFINITIONS } =
       await import('../../src/cli/tool-command.js');
 
-    const githubTool = TOOL_DEFINITIONS.find(
-      tool => tool.name === 'ghSearchCode'
-    );
+    const githubTool = TOOL_DEFINITIONS.find(tool => tool.name === 'ghSearch');
     const packageTool = TOOL_DEFINITIONS.find(
       tool => tool.name === 'npmSearch'
     );
@@ -738,12 +763,12 @@ describe('tool-command coverage', () => {
     expect(output).not.toContain('"limit"');
   });
 
-  it('ghSearchRepos help includes MCP schema and required example fields', async () => {
+  it('ghSearch repository help includes the unified schema', async () => {
     const { toolCommand } = await import('../../src/cli/tool-command.js');
 
     await toolCommand.handler!({
       command: 'tools',
-      args: ['ghSearchRepos'],
+      args: ['ghSearch'],
       options: { scheme: true },
     });
 
@@ -775,15 +800,15 @@ describe('tool-command coverage', () => {
     await toolCommand.handler!({
       command: 'tools',
 
-      args: [
-        'localSearchCode',
-        '[{"path":".","searchText":"ok","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1},{"path":".","searchText":999,"matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}]',
-      ],
-      options: {},
+      args: ['localSearch'],
+      options: {
+        queries:
+          '[{"operation":"text","path":".","searchText":"ok","matchContentLength":200,"pageSize":1,"page":1,"maxMatchesPerFile":1},{"operation":"text","path":".","searchText":999,"matchContentLength":200,"pageSize":1,"page":1,"maxMatchesPerFile":1}]',
+      },
     });
 
     const output = consoleSpy.mock.calls.flat().join('\n');
-    expect(output).toContain('Tool input does not match the expected schema.');
+    expect(output).toContain('Check the query fields.');
     expect(process.exitCode).toBe(2);
   });
 
@@ -793,7 +818,7 @@ describe('tool-command coverage', () => {
 
     const context = await getToolsContextString();
 
-    const ghIdx = context.indexOf('ghSearchCode');
+    const ghIdx = context.indexOf('ghSearch');
     const cloneIdx = context.indexOf('ghCloneRepo');
     expect(ghIdx).toBeGreaterThan(-1);
     expect(cloneIdx).toBeGreaterThan(-1);
@@ -806,15 +831,15 @@ describe('tool-command coverage', () => {
 
     await toolCommand.handler!({
       command: 'tools',
-      args: [
-        'ghSearchCode',
-        JSON.stringify({
+      args: ['ghSearch'],
+      options: {
+        queries: JSON.stringify({
+          operation: 'code',
           goal: 'my goal',
           reasoning: 'my reasoning',
           keywords: ['test'],
         }),
-      ],
-      options: {},
+      },
     });
 
     expect(mocks.noop).toHaveBeenCalledWith(
@@ -842,11 +867,11 @@ describe('tool-command coverage', () => {
 
     const output = consoleSpy.mock.calls.flat().join('\n');
 
-    expect(output).toContain('localSearchCode');
+    expect(output).toContain('localSearch');
   });
 
   it('printToolResult: uses structuredContent when result.content is undefined', async () => {
-    mocks.localSearchCode.mockResolvedValueOnce({
+    mocks.localSearch.mockResolvedValueOnce({
       structuredContent: { found: true },
     } as unknown as { content: []; structuredContent: { found: boolean } });
 
@@ -854,11 +879,11 @@ describe('tool-command coverage', () => {
 
     await toolCommand.handler!({
       command: 'tools',
-      args: [
-        'localSearchCode',
-        '{"path":".","searchText":"x","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
-      ],
-      options: {},
+      args: ['localSearch'],
+      options: {
+        queries:
+          '{"operation":"text","path":".","searchText":"x","matchContentLength":200,"pageSize":1,"page":1,"maxMatchesPerFile":1}',
+      },
     });
 
     const out = consoleSpy.mock.calls.flat().join('\n');
@@ -866,7 +891,7 @@ describe('tool-command coverage', () => {
   });
 
   it('printToolResult: content blocks with non-string text are filtered out', async () => {
-    mocks.localSearchCode.mockResolvedValueOnce({
+    mocks.localSearch.mockResolvedValueOnce({
       content: [
         { type: 'image', data: 'base64...' },
         { type: 'text', text: '' },
@@ -878,11 +903,11 @@ describe('tool-command coverage', () => {
 
     await toolCommand.handler!({
       command: 'tools',
-      args: [
-        'localSearchCode',
-        '{"path":".","searchText":"x","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
-      ],
-      options: {},
+      args: ['localSearch'],
+      options: {
+        queries:
+          '{"operation":"text","path":".","searchText":"x","matchContentLength":200,"pageSize":1,"page":1,"maxMatchesPerFile":1}',
+      },
     });
 
     const out = consoleSpy.mock.calls.flat().join('\n');
@@ -891,7 +916,7 @@ describe('tool-command coverage', () => {
   });
 
   it('printToolResult: JSON mode preserves null structuredContent in the envelope', async () => {
-    mocks.localSearchCode.mockResolvedValueOnce({
+    mocks.localSearch.mockResolvedValueOnce({
       content: [{ type: 'text', text: 'txt' }],
       structuredContent: null,
     } as unknown as { content: Array<{ type: string; text: string }> });
@@ -900,11 +925,12 @@ describe('tool-command coverage', () => {
 
     await toolCommand.handler!({
       command: 'tools',
-      args: [
-        'localSearchCode',
-        '{"path":".","searchText":"x","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
-      ],
-      options: { json: true },
+      args: ['localSearch'],
+      options: {
+        json: true,
+        queries:
+          '{"operation":"text","path":".","searchText":"x","matchContentLength":200,"pageSize":1,"page":1,"maxMatchesPerFile":1}',
+      },
     });
 
     const parsed = JSON.parse(consoleSpy.mock.calls.flat().join('\n'));
@@ -913,7 +939,7 @@ describe('tool-command coverage', () => {
   });
 
   it('printToolResult: JSON mode preserves primitive structuredContent in the envelope', async () => {
-    mocks.localSearchCode.mockResolvedValueOnce({
+    mocks.localSearch.mockResolvedValueOnce({
       content: [{ type: 'text', text: 'txt' }],
       structuredContent: 'just a string',
     } as unknown as { content: Array<{ type: string; text: string }> });
@@ -922,11 +948,12 @@ describe('tool-command coverage', () => {
 
     await toolCommand.handler!({
       command: 'tools',
-      args: [
-        'localSearchCode',
-        '{"path":".","searchText":"x","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
-      ],
-      options: { json: true },
+      args: ['localSearch'],
+      options: {
+        json: true,
+        queries:
+          '{"operation":"text","path":".","searchText":"x","matchContentLength":200,"pageSize":1,"page":1,"maxMatchesPerFile":1}',
+      },
     });
 
     const parsed = JSON.parse(consoleSpy.mock.calls.flat().join('\n'));
@@ -953,14 +980,15 @@ describe('tool-command coverage', () => {
     const { buildDirectToolExampleQuery } =
       await import('@octocodeai/octocode-tools-core/schema');
 
-    expect(buildDirectToolExampleQuery('ghSearchPullRequests')).toMatchObject({
+    expect(buildDirectToolExampleQuery('ghSearchHistory')).toMatchObject({
+      operation: 'pullRequests',
       owner: 'bgauryy',
       repo: 'octocode',
-      keywordsToSearch: ['localSearchCode'],
+      keywords: ['localSearch'],
     });
-    expect(
-      buildDirectToolExampleQuery('ghSearchPullRequests')
-    ).not.toHaveProperty('content.patches.ranges.file');
+    expect(buildDirectToolExampleQuery('ghSearchHistory')).not.toHaveProperty(
+      'number'
+    );
   });
 
   it('shows the tool list when no positional tool name is given', async () => {
@@ -975,6 +1003,6 @@ describe('tool-command coverage', () => {
 
     expect(ok).toBe(true);
     const output = consoleSpy.mock.calls.flat().join('\n');
-    expect(output).toContain('localSearchCode');
+    expect(output).toContain('localSearch');
   });
 });

@@ -212,7 +212,7 @@ export function buildGhSearchCodeFinalizer<
         ...retryQuery
       } = queries[index] as QueryWithPagination & Record<string, unknown>;
       addContinuation(index, 'retry', {
-        tool: 'ghSearchCode',
+        tool: 'github.code',
         query: retryQuery,
         why: 'Retry the same query because GitHub marked the result incomplete',
         confidence: 'exact',
@@ -237,7 +237,7 @@ export function buildGhSearchCodeFinalizer<
         'No indexed matches is unproven absence; verify the repository structure and search a bounded local copy before concluding.'
       );
       addContinuation(empty.index, 'viewStructure', {
-        tool: 'ghViewRepoStructure',
+        tool: 'github.tree',
         query: { owner: query.owner, repo: query.repo, path: '' },
         why: 'Verify that the scoped repository and path exist before concluding absence',
         confidence: 'exact',
@@ -281,7 +281,7 @@ export function buildGhSearchCodeFinalizer<
           `The query used more than ${COMPLEX_QUERY_KEYWORD_THRESHOLD} keywords; narrow it before treating zero matches as absence.`
         );
         addContinuation(index, 'retryNarrow', {
-          tool: 'ghSearchCode',
+          tool: 'github.code',
           query: {
             keywords,
             ...(typeof query.owner === 'string' ? { owner: query.owner } : {}),
@@ -317,7 +317,7 @@ export function buildGhSearchCodeFinalizer<
         );
         const kws = (query as { keywords?: unknown } | undefined)?.keywords;
         addContinuation(index, 'retryRenamed', {
-          tool: 'ghSearchCode',
+          tool: 'github.code',
           query: {
             owner: newOwner,
             repo: newRepo,
@@ -340,7 +340,7 @@ export function buildGhSearchCodeFinalizer<
           typeof scoped.repo === 'string'
         ) {
           addContinuation(index, 'viewStructure', {
-            tool: 'ghViewRepoStructure',
+            tool: 'github.tree',
             query: { owner: scoped.owner, repo: scoped.repo, path: '' },
             why: 'Inspect the archived repository outside the code-search index',
             confidence: 'exact',
@@ -356,7 +356,7 @@ export function buildGhSearchCodeFinalizer<
           (QueryWithPagination & { repo?: unknown }) | undefined;
         if (typeof scoped?.repo === 'string') {
           addContinuation(index, 'findRepository', {
-            tool: 'ghSearchRepos',
+            tool: 'github.repositories',
             query: { keywords: [scoped.repo] },
             why: 'Find the repository by name in case it moved or was renamed',
             confidence: 'low',

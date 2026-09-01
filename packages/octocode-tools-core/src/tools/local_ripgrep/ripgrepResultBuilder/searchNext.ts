@@ -1,4 +1,5 @@
 import type { LocalSearchCodeFile } from '@octocodeai/octocode-core/types';
+import { MAX_PAGE_NUMBER } from '../../../config.js';
 
 import type { RipgrepQuery } from '../scheme.js';
 import type { LocalSearchEngine } from './buildResult.js';
@@ -45,8 +46,7 @@ const RESERVED_SYMBOL_WORDS = new Set([
 // bare identifier — anchored, no surrounding regex/punctuation/whitespace.
 const BARE_IDENTIFIER = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
 
-type NextToolName =
-  'localGetFileContent' | 'lspGetSemantics' | 'localSearchCode';
+type NextToolName = 'localGetFileContent' | 'lspGetSemantics' | 'local.text';
 
 type NextConfidence = 'exact' | 'low';
 
@@ -63,6 +63,8 @@ export type SearchNextMap = {
   lspReferences?: SearchNextCall;
   nextPage?: SearchNextCall;
   nextMatchPage?: SearchNextCall;
+  expandScan?: SearchNextCall;
+  expandCaptures?: SearchNextCall;
 };
 
 type FlowMatch = {
@@ -71,6 +73,7 @@ type FlowMatch = {
   value?: string;
   metavars?: Record<string, string[]>;
   metavarRanges?: Record<string, Array<{ line: number }>>;
+  capturesTruncated?: boolean;
 };
 
 type FlowFile = {
@@ -95,6 +98,20 @@ export function buildSearchNextMap(
   const firstFile = (files as FlowFile[]).find(file => file.path);
   const firstMatch = firstFile?.matches?.find(match => match.line);
   const next: SearchNextMap = {};
+
+  if (
+    searchEngine === 'structural' &&
+    (files as FlowFile[]).some(file =>
+      file.matches?.some(match => match.capturesTruncated === true)
+    )
+  ) {
+    next.expandCaptures = {
+      tool: 'local.text',
+      query: withoutUndefined({ ...query, captureText: true }),
+      why: 'Replay this structural page with verbatim capture text because the default capture budget omitted or shortened capture payloads.',
+      confidence: 'exact',
+    };
+  }
 
   if (firstFile?.path) {
     // ONE fetch continuation instead of exact/standard/symbols triplets —
@@ -145,9 +162,12 @@ export function buildSearchNextMap(
     }
   }
 
-  if (options.currentPage < options.totalFilePages) {
+  if (
+    options.currentPage < options.totalFilePages &&
+    options.currentPage < MAX_PAGE_NUMBER
+  ) {
     next.nextPage = {
-      tool: 'localSearchCode',
+      tool: 'local.text',
       query: withoutUndefined({
         ...query,
         page: options.currentPage + 1,
@@ -157,9 +177,9 @@ export function buildSearchNextMap(
     };
   }
 
-  if (options.hasFileWithMoreMatches) {
+  if (options.hasFileWithMoreMatches && options.matchPage < MAX_PAGE_NUMBER) {
     next.nextMatchPage = {
-      tool: 'localSearchCode',
+      tool: 'local.text',
       query: withoutUndefined({
         ...query,
         maxMatchesPerFile: options.matchesPerPage,

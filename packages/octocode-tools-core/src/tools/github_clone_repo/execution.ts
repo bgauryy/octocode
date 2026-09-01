@@ -2,6 +2,7 @@ import type { CallToolResult } from '@modelcontextprotocol/server';
 import { getCheckedOutSizeBytes } from './contentSize.js';
 import { TOOL_NAMES } from '../toolMetadata/proxies.js';
 import { executeBulkOperation } from '../../utils/response/bulk.js';
+import { markResponseCacheHit } from '../../utils/http/cache/trace.js';
 import type {
   ToolExecutionArgs,
   WithOptionalMeta,
@@ -63,6 +64,8 @@ export async function executeCloneRepo(
             );
           }
 
+          if (result.cached) markResponseCacheHit();
+
           const totalSize = getCheckedOutSizeBytes(result.localPath);
 
           const location: Record<string, unknown> = {
@@ -75,18 +78,12 @@ export async function executeCloneRepo(
             ...(query.sparsePath ? { requestedPath: query.sparsePath } : {}),
           };
 
-          // localSearchCode always requires real `keywords` (enforced by its
-          // core schema) except in mode:"structural", which needs a
-          // pattern/rule — clone has neither, so any pre-filled localSearch
-          // hint would fail validation on the first copy-paste. Point at
-          // viewStructure (genuinely ready-to-run) instead; once the agent
-          // knows what to search for, it can call localSearchCode directly
-          // with real keywords against this localPath.
+          // Tree orientation is ready to run without inventing a search term.
           const next: Record<string, unknown> = {
             viewStructure: {
-              tool: 'localViewStructure',
-              query: { path: result.localPath },
-              why: 'Browse the cloned directory; once you know what to search for, call localSearchCode with real keywords against this localPath',
+              tool: 'localSearch',
+              query: { operation: 'tree', path: result.localPath },
+              why: 'Browse the cloned directory before choosing a text, structural, or file-discovery operation.',
               confidence: 'exact',
             },
           };

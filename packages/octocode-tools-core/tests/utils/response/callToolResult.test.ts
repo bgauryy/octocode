@@ -14,7 +14,7 @@ vi.mock('../../../src/responses.js', () => ({
   sanitizeStructuredContent: mockSanitizeStructuredContent,
 }));
 
-const { sanitizeCallToolResult } =
+const { buildToolErrorResult, sanitizeCallToolResult } =
   await import('../../../src/utils/response/callToolResult.js');
 const { setRuntimeSurface, _resetRuntimeSurface } =
   await import('@octocodeai/config');
@@ -281,5 +281,26 @@ describe('sanitizeCallToolResult', () => {
     expect(JSON.stringify(result.structuredContent).toLowerCase()).toContain(
       'withheld'
     );
+  });
+});
+
+describe('buildToolErrorResult', () => {
+  it('keeps the shared results envelope on callback exceptions', () => {
+    mockSanitizeContent.mockImplementation((text: string) => ({
+      content: text,
+      hasSecrets: false,
+      secretsDetected: [],
+      warnings: [],
+    }));
+    mockSanitizeStructuredContent.mockImplementation((obj: unknown) => obj);
+
+    const result = buildToolErrorResult('localSearch', new Error('boom'));
+
+    expect(result.structuredContent).toMatchObject({
+      results: [],
+      status: 'error',
+      tool: 'localSearch',
+      code: 'TOOL_CALLBACK_EXCEPTION',
+    });
   });
 });

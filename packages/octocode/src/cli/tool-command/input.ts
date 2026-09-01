@@ -6,11 +6,9 @@ import { formatToolExampleCommand } from './formatting.js';
 
 const TOOL_RUNTIME_OPTION_KEYS = new Set([
   'queries',
-  'query', // alias for --queries (the singular name agents naturally reach for)
   'json',
   'help',
   'version',
-  'list',
   'scheme',
   'compact',
   'pretty',
@@ -21,7 +19,7 @@ const TOOL_RUNTIME_OPTION_KEYS = new Set([
 
 function getUnexpectedToolOptionKeys(args: ParsedArgs): string[] {
   return Object.keys(args.options).filter(
-    key => key !== 'input' && !TOOL_RUNTIME_OPTION_KEYS.has(key)
+    key => !TOOL_RUNTIME_OPTION_KEYS.has(key)
   );
 }
 
@@ -29,12 +27,6 @@ export function getInputText(
   toolName: string,
   args: ParsedArgs
 ): string | undefined {
-  if (args.options.input !== undefined) {
-    throw new DirectToolInputError(
-      `Legacy --input is not supported. Use ${formatToolExampleCommand(toolName)}.`
-    );
-  }
-
   const unexpectedOptionKeys = getUnexpectedToolOptionKeys(args);
   if (unexpectedOptionKeys.length > 0) {
     const formattedKeys = unexpectedOptionKeys
@@ -46,18 +38,14 @@ export function getInputText(
     );
   }
 
-  if (args.args.length > 2) {
+  if (args.args.length > 1) {
     throw new DirectToolInputError(
-      `Pass tool input as one quoted JSON string. Use ${formatToolExampleCommand(toolName)}.`
+      `Pass tool input with --queries. Use ${formatToolExampleCommand(toolName)}.`
     );
   }
 
-  // Accept `--query` as an alias for `--queries`: agents routinely reach for
-  // the singular form. Don't make them pay for the easy-to-conflate name —
-  // treat both as the queries payload.
   if (typeof args.options.queries === 'string') return args.options.queries;
-  if (typeof args.options.query === 'string') return args.options.query;
-  return args.args[1];
+  return undefined;
 }
 
 function getPayloadQueries(rawPayload: unknown): unknown[] {
@@ -74,7 +62,7 @@ export function validateRawToolFootguns(
   toolName: string,
   inputText: string
 ): void {
-  if (toolName !== 'localSearchCode') return;
+  if (toolName !== 'localSearch') return;
 
   let rawPayload: unknown;
   try {
@@ -83,9 +71,8 @@ export function validateRawToolFootguns(
     return;
   }
 
-  // A plain `keywords`/`keywordsToSearch` string is folded to `searchText` by
-  // the alias layer; only an ARRAY can't (searchText is a single string), so
-  // catch that here with a friendly redirect.
+  // Catch the common array/string mismatch before schema parsing so the error
+  // names the canonical localSearch field directly.
   const badIndex = getPayloadQueries(rawPayload).findIndex(query => {
     if (!query || typeof query !== 'object') return false;
     const q = query as {
@@ -97,10 +84,9 @@ export function validateRawToolFootguns(
   if (badIndex === -1) return;
 
   throw new DirectToolInputError(
-    'localSearchCode.searchText must be a single string, not an array.',
+    'localSearch does not accept keywords; set searchText to one string.',
     [
-      'Use {"path":".","searchText":"runCLI"} for localSearchCode.',
-      'ghSearchCode/ghSearchRepos use `keywords` (an array of ANDed terms); localSearchCode uses `searchText` (one text/regex string).',
+      'Use {"operation":"text","path":".","searchText":"runCLI"} for localSearch.',
       `Run tools ${toolName} --scheme before raw calls.`,
     ]
   );

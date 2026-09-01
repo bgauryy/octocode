@@ -126,6 +126,46 @@ describe('compareRefs', () => {
     expect(result.data!.filesPagination!.totalFiles).toBe(1);
   });
 
+  it('reports the schema page limit instead of emitting compare file page 1001', async () => {
+    const files = Array.from({ length: 1001 }, (_, index) => ({
+      filename: `src/${index}.ts`,
+      status: 'modified',
+      additions: 1,
+      deletions: 0,
+      patch: 'x',
+    }));
+    mockGetOctokit.mockResolvedValue({
+      rest: {
+        repos: {
+          compareCommitsWithBasehead: vi
+            .fn()
+            .mockResolvedValue(makeCompareResponse({ files })),
+        },
+      },
+    } as never);
+
+    const result = await compareRefs({
+      owner: 'facebook',
+      repo: 'react',
+      base: 'main',
+      head: 'feat/branch',
+      includeDiff: true,
+      filePage: 1000,
+      itemsPerPage: 1,
+    });
+
+    expect(result.data!.filesPagination).toMatchObject({
+      currentPage: 1000,
+      hasMore: true,
+      terminalLimit: true,
+      continuationUnavailable: {
+        reason: 'schemaPageLimit',
+        maxPage: 1000,
+      },
+    });
+    expect(result.data!.filesPagination).not.toHaveProperty('nextFilePage');
+  });
+
   it('scopes the diff to a single file when path is given', async () => {
     const resp = makeCompareResponse({
       files: [

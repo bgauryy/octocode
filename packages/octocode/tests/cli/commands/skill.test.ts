@@ -51,28 +51,18 @@ describe('skill command', () => {
     expect(skillCommand.name).toBe('skill');
   });
 
-  it('declares legacy and bundled-skill options', () => {
+  it('declares only canonical bundled-skill options', () => {
     const optNames = (skillCommand.options ?? []).map(o => o.name);
     const required = [
       'add',
-      'name',
-      'list',
       'platform',
-      'target',
       'all',
       'mode',
-      'force',
-      'update',
-      'dry-run',
-      'verbose',
-      'branch',
-      'json',
-      'install-all',
-      'all-skills',
       'keep',
       'workspace',
-      'repo',
       'path',
+      'dry-run',
+      'json',
       'fix',
       'no-env',
     ];
@@ -82,6 +72,20 @@ describe('skill command', () => {
     expect(skillCommand.options?.find(o => o.name === 'add')?.hasValue).toBe(
       true
     );
+    for (const removed of [
+      'name',
+      'list',
+      'target',
+      'force',
+      'update',
+      'verbose',
+      'branch',
+      'install-all',
+      'all-skills',
+      'repo',
+    ]) {
+      expect(optNames).not.toContain(removed);
+    }
   });
 
   it('prints bundled skill help when no subcommand is provided', () => {
@@ -103,13 +107,6 @@ describe('skill command', () => {
     expect(parsed.count).toBeGreaterThan(0);
     expect(parsed.skills.some(s => s.name === 'octocode-research')).toBe(true);
     expect(parsed.skills[0]?.env).toBeDefined();
-  });
-
-  it('keeps --list as an alias for skill list', () => {
-    run([], { list: true, json: true });
-    const parsed = loggedJson<{ success: boolean; count: number }>();
-    expect(parsed.success).toBe(true);
-    expect(parsed.count).toBeGreaterThan(0);
   });
 
   it('shows skill info as JSON', () => {
@@ -145,16 +142,6 @@ describe('skill command', () => {
     expect(parsed.summary.failed).toBe(0);
   });
 
-  it('supports --name as install alias', () => {
-    run([], { name: 'octocode-research', 'dry-run': true, json: true });
-    const parsed = loggedJson<{
-      success: boolean;
-      skills: Array<{ name: string }>;
-    }>();
-    expect(parsed.success).toBe(true);
-    expect(parsed.skills[0]?.name).toBe('octocode-research');
-  });
-
   it('dry-runs adding a local skill through canonical home and vendor links', () => {
     const fixtureRoot = fs.mkdtempSync(
       path.join(tmpdir(), 'octocode-skill-add-')
@@ -173,7 +160,7 @@ describe('skill command', () => {
     );
 
     try {
-      run([], {
+      run(['install'], {
         add: sourceDir,
         platform: 'claude,cursor,codex-native',
         'dry-run': true,
@@ -217,7 +204,7 @@ describe('skill command', () => {
       ]);
 
       vi.mocked(console.log).mockClear();
-      run([], {
+      run(['install'], {
         add: sourceDir,
         platform: 'codex',
         'dry-run': true,
@@ -240,14 +227,6 @@ describe('skill command', () => {
     }
   });
 
-  it('requires a source when adding a standalone skill', () => {
-    run([], { add: true, json: true });
-    const parsed = loggedJson<{ success: boolean; error: string }>();
-    expect(parsed.success).toBe(false);
-    expect(parsed.error).toContain('--add requires <source>');
-    expect(process.exitCode).toBe(EXIT.USAGE);
-  });
-
   it('maps Claude Code and native Codex to distinct global skill homes', () => {
     expect(getPlatformSkillsDir('claude')).toBe(
       path.join(homedir(), '.claude', 'skills')
@@ -261,6 +240,21 @@ describe('skill command', () => {
     expect(parsePlatforms('claude,cursor,codex,codex-native')).toEqual({
       platforms: ['claude', 'cursor', 'codex', 'codex-native'],
     });
+  });
+
+  it('rejects non-canonical platform spellings', () => {
+    for (const removed of [
+      'pi-agent',
+      'claude-code',
+      'open-code',
+      'github-copilot',
+      'vscode-copilot',
+      'gemini-cli',
+      'agents',
+      'agent',
+    ]) {
+      expect(parsePlatforms(removed).error).toContain('Unknown platform');
+    }
   });
 
   it('rejects unknown skill names on install', () => {

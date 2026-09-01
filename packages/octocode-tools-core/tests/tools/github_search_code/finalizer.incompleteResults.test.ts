@@ -24,7 +24,7 @@ function runFinalizerWithQueries(queries: AnyRec[], results: AnyRec[]) {
   return out.structuredContent as AnyRec;
 }
 
-describe('ghSearchCode finalizer — incomplete_results (GitHub index degradation)', () => {
+describe('github.code finalizer — incomplete_results (GitHub index degradation)', () => {
   it('flags an empty query with typed partial diagnostics', () => {
     const sc = runFinalizerWithQueries(
       [{ keywords: ['react'] }],
@@ -48,7 +48,7 @@ describe('ghSearchCode finalizer — incomplete_results (GitHub index degradatio
       data: {
         next: {
           retry: {
-            tool: 'ghSearchCode',
+            tool: 'github.code',
             query: { keywords: ['react'] },
           },
         },
@@ -92,7 +92,7 @@ describe('ghSearchCode finalizer — incomplete_results (GitHub index degradatio
       data: {
         next: {
           viewStructure: {
-            tool: 'ghViewRepoStructure',
+            tool: 'github.tree',
             query: { owner: 'facebook', repo: 'react', path: '' },
           },
         },

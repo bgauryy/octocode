@@ -131,7 +131,7 @@ export async function showToolHelp(toolName: string): Promise<boolean> {
   if (tool.name === LSP_TOOL_NAME) {
     console.log(`  ${bold('Examples by type')}`);
     console.log(
-      `  ${dim('Run localSearchCode first to get the exact uri + lineHint, then:')}`
+      `  ${dim('Run localSearch operation:"text" first to get the exact uri + lineHint, then:')}`
     );
     console.log();
     for (const [label, query] of LSP_TYPE_EXAMPLES) {

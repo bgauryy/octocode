@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
-import { applyContentPagination } from '../../src/github/fileContentProcess.js';
+import {
+  applyContentPagination,
+  processFileContentAPI,
+} from '../../src/github/fileContentProcess.js';
 import { buildGithubFetchContentFinalizer } from '../../src/tools/github_fetch_content/finalizer.js';
 import type { GitHubFileContentApiResult } from '../../src/tools/github_fetch_content/types.js';
 import type { FlatQueryResult } from '../../src/types/toolResults.js';
@@ -88,5 +91,116 @@ describe('ghGetFileContent finalizer — next.continueChars fires from nextCharO
       paginated.pagination!.nextCharOffset
     );
     expect(file.next?.continueChars?.query.path).toBe('data.txt');
+  });
+
+  it('emits a schema-valid continueLines call for a non-final line range', async () => {
+    const query = {
+      owner: 'octo',
+      repo: 'engine',
+      branch: 'main',
+      path: 'data.txt',
+      startLine: 1,
+      endLine: 10,
+      minify: 'none' as const,
+    };
+    const result: FlatQueryResult = {
+      index: 0,
+      status: 'success',
+      data: {
+        path: 'data.txt',
+        content: 'lines 1-10',
+        totalLines: 25,
+        startLine: 1,
+        endLine: 10,
+        isPartial: true,
+      },
+    };
+    const out = buildGithubFetchContentFinalizer<typeof query>()({
+      queries: [query],
+      results: [result],
+    } as never);
+    const file = (
+      out.structuredContent.results as Array<{ data?: { files?: unknown[] } }>
+    )[0]?.data?.files?.[0] as {
+      next?: {
+        continueLines?: { tool: string; query: Record<string, unknown> };
+      };
+    };
+    expect(file.next?.continueLines).toEqual({
+      tool: 'ghGetFileContent',
+      query: {
+        owner: 'octo',
+        repo: 'engine',
+        branch: 'main',
+        path: 'data.txt',
+        startLine: 11,
+        endLine: 20,
+        minify: 'none',
+      },
+      why: 'Continue the file at lines 11-20.',
+      confidence: 'exact',
+    });
+  });
+});
+
+describe('ghGetFileContent selector completeness', () => {
+  const content = ['one', 'needle', 'three', 'needle', 'five'].join('\n');
+
+  it('marks a non-final line window partial', async () => {
+    const out = await processFileContentAPI(
+      content,
+      'o',
+      'r',
+      'main',
+      'a.txt',
+      false,
+      1,
+      2,
+      0,
+      undefined,
+      false,
+      false,
+      'none'
+    );
+    expect(out.isPartial).toBe(true);
+  });
+
+  it('does not report a range that reaches EOF as partial', async () => {
+    const out = await processFileContentAPI(
+      content,
+      'o',
+      'r',
+      'main',
+      'a.txt',
+      false,
+      1,
+      999,
+      0,
+      undefined,
+      false,
+      false,
+      'none'
+    );
+    expect(out.isPartial).not.toBe(true);
+  });
+
+  it('treats matchString as a complete selector when all matches are returned', async () => {
+    const out = await processFileContentAPI(
+      content,
+      'o',
+      'r',
+      'main',
+      'a.txt',
+      false,
+      undefined,
+      undefined,
+      0,
+      'needle',
+      false,
+      false,
+      'none'
+    );
+    expect(out.matchedLines).toEqual([2, 4]);
+    expect(out.isPartial).not.toBe(true);
   });
 });

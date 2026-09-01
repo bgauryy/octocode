@@ -74,6 +74,10 @@ export class RepoSearchQueryBuilder extends BaseQueryBuilder {
     this.addArrayFilter(params.topicsToSearch, 'topic');
     this.addSimpleFilter(params.stars, 'stars');
 
+    const p = params as Record<string, unknown>;
+    if (typeof p.size === 'string') this.queryParts.push(`size:${p.size}`);
+    if (typeof p.created === 'string')
+      this.queryParts.push(`created:${p.created}`);
     if (params.updated) {
       this.queryParts.push(`pushed:${params.updated}`);
     }
@@ -81,7 +85,6 @@ export class RepoSearchQueryBuilder extends BaseQueryBuilder {
       this.queryParts.push(`language:${params.language}`);
     }
 
-    const p = params as Record<string, unknown>;
     if (typeof p.forks === 'string') this.queryParts.push(`forks:${p.forks}`);
     if (typeof p.license === 'string')
       this.queryParts.push(`license:${p.license}`);

@@ -1,13 +1,12 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { mkdtemp, rm, writeFile } from 'fs/promises';
-import { tmpdir, homedir } from 'os';
 import { join } from 'path';
 
 import { fetchContent } from '../../../src/tools/local_fetch_content/fetchContent.js';
 
-// The global pathValidator allows HOME by default, so create the fixture under
-// HOME rather than the OS temp dir (which is outside allowed roots on macOS).
-const ROOT = process.env.HOME || homedir() || tmpdir();
+// Keep fixtures under the package workspace so both the path validator and the
+// managed test sandbox allow them.
+const ROOT = process.cwd();
 
 describe('fetchContent next.continueChars', () => {
   let dir: string;
@@ -93,6 +92,121 @@ describe('fetchContent next.continueChars', () => {
       (whole.pagination as { hasMore?: boolean } | undefined)?.hasMore
     ).toBeFalsy();
     expect((whole as { next?: unknown }).next).toBeUndefined();
+  });
+});
+
+describe('fetchContent next.continueLines', () => {
+  let dir: string;
+  let lineFile: string;
+
+  beforeAll(async () => {
+    dir = await mkdtemp(join(ROOT, 'octocode-fetch-lines-next-'));
+    lineFile = join(dir, 'lines.txt');
+    await writeFile(
+      lineFile,
+      ['alpha', 'bravo', 'charlie', 'delta', 'echo'].join('\n'),
+      'utf-8'
+    );
+  });
+
+  afterAll(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it('replays line continuations until the union of pages covers the file', async () => {
+    let query: Record<string, unknown> = {
+      path: lineFile,
+      minify: 'none',
+      startLine: 1,
+      endLine: 2,
+    };
+    const pages: string[] = [];
+    const partialStates: Array<boolean | undefined> = [];
+
+    for (let page = 0; page < 3; page += 1) {
+      const result = await fetchContent(query as never);
+      pages.push(result.content as string);
+      partialStates.push(result.isPartial);
+
+      const continuation = (
+        result as {
+          next?: {
+            continueLines?: {
+              tool?: string;
+              query?: Record<string, unknown>;
+            };
+          };
+        }
+      ).next?.continueLines;
+
+      if (page < 2) {
+        expect(continuation?.tool).toBe('localGetFileContent');
+        expect(continuation?.query).toBeDefined();
+        query = continuation!.query!;
+      } else {
+        expect(continuation).toBeUndefined();
+      }
+    }
+
+    expect(partialStates).toEqual([true, true, undefined]);
+    expect(pages).toEqual([
+      ['1→ alpha', '2→ bravo'].join('\n'),
+      ['3→ charlie', '4→ delta'].join('\n'),
+      '5→ echo',
+    ]);
+  });
+
+  it('does not claim partial when the requested range reaches EOF', async () => {
+    const result = await fetchContent({
+      path: lineFile,
+      minify: 'none',
+      startLine: 3,
+      endLine: 99,
+    } as never);
+
+    expect(result.startLine).toBe(3);
+    expect(result.endLine).toBe(5);
+    expect(result.isPartial).toBeUndefined();
+    expect((result as { next?: unknown }).next).toBeUndefined();
+  });
+
+  it('does not claim partial when matchString returned every matching slice', async () => {
+    const result = await fetchContent({
+      path: lineFile,
+      minify: 'none',
+      matchString: 'a',
+      contextLines: 0,
+    } as never);
+
+    expect(result.matchedLines).toEqual([1, 2, 3, 4]);
+    expect(result.isPartial).toBeUndefined();
+    expect((result as { next?: unknown }).next).toBeUndefined();
+  });
+
+  it('preserves matchString when character-paging a large matched view', async () => {
+    const result = await fetchContent({
+      path: lineFile,
+      minify: 'none',
+      matchString: 'a',
+      contextLines: 0,
+      charLength: 10,
+    } as never);
+    const continuation = (
+      result as {
+        next?: { continueChars?: { query?: Record<string, unknown> } };
+      }
+    ).next?.continueChars?.query;
+
+    expect(result.isPartial).toBe(true);
+    expect(continuation).toMatchObject({
+      path: lineFile,
+      matchString: 'a',
+      contextLines: 0,
+      charLength: 10,
+    });
+    const next = await fetchContent(continuation as never);
+    expect(next.content).not.toBe(result.content);
+    expect(next.matchedLines).toEqual([1, 2, 3, 4]);
   });
 });
 

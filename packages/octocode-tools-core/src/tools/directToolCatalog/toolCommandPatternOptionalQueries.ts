@@ -4,35 +4,11 @@ type PatternQuery = { label: string; query: Record<string, unknown> };
 export function buildOptionalDirectToolCommandPatternQueries(
   toolName: string
 ): PatternQuery[] {
-  if (toolName === 'ghSearchIssues') {
-    return [
-      {
-        label: 'issue search (list)',
-        query: {
-          owner: 'bgauryy',
-          repo: 'octocode',
-          keywordsToSearch: ['schema'],
-          state: 'open',
-          limit: 5,
-        },
-      },
-      {
-        label: 'issue detail (with comments)',
-        query: {
-          owner: 'bgauryy',
-          repo: 'octocode',
-          issueNumber: 1,
-          content: { body: true, comments: { discussion: true } },
-        },
-      },
-    ];
-  }
-
   if (toolName === 'ghListReleases') {
     return [
       {
         label: 'release list',
-        query: { owner: 'bgauryy', repo: 'octocode', limit: 5 },
+        query: { owner: 'bgauryy', repo: 'octocode', pageSize: 5 },
       },
       {
         label: 'release list with assets',
@@ -40,7 +16,7 @@ export function buildOptionalDirectToolCommandPatternQueries(
           owner: 'bgauryy',
           repo: 'octocode',
           includeAssets: true,
-          limit: 5,
+          pageSize: 5,
         },
       },
     ];
@@ -53,8 +29,8 @@ export function buildOptionalDirectToolCommandPatternQueries(
         query: {
           owner: 'vitejs',
           repo: 'vite',
-          keywordsToSearch: ['plugin'],
-          itemsPerPage: 10,
+          keywords: ['plugin'],
+          pageSize: 10,
         },
       },
     ];

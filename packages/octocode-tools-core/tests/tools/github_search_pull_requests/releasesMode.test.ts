@@ -6,6 +6,8 @@ vi.mock('../../../src/github/releases.js', () => ({
 }));
 
 import { searchMultipleGitHubPullRequests } from '../../../src/tools/github_search_pull_requests/execution.js';
+import { listMultipleGitHubReleases } from '../../../src/tools/github_search_pull_requests/splitExecutions.js';
+import { ListReleasesBulkLocalSchema } from '../../../src/tools/github_search_pull_requests/splitSchemes.js';
 
 function releasesData() {
   return {
@@ -50,8 +52,8 @@ describe('ghListReleases type:"releases"', () => {
         owner: 'microsoft',
         repo: 'TypeScript',
         page: 1,
-        // itemsPerPage default (20) feeds the release list per_page.
-        perPage: 20,
+        // The combined internal dispatcher uses the shared limit default.
+        perPage: 30,
       }),
       undefined
     );
@@ -71,7 +73,7 @@ describe('ghListReleases type:"releases"', () => {
     expect(text).toContain('owner and repo are required for releases mode');
   });
 
-  it('itemsPerPage sets the release list page size (canonical page-size field)', async () => {
+  it('pageSize sets the release list page size', async () => {
     fetchReleases.mockResolvedValue(releasesData());
     await searchMultipleGitHubPullRequests({
       queries: [
@@ -79,7 +81,7 @@ describe('ghListReleases type:"releases"', () => {
           type: 'releases',
           owner: 'microsoft',
           repo: 'TypeScript',
-          itemsPerPage: 5,
+          pageSize: 5,
         },
       ],
     } as never);
@@ -100,13 +102,104 @@ describe('ghListReleases type:"releases"', () => {
     (data.data.pagination as { nextPage?: number }).nextPage = 2;
     fetchReleases.mockResolvedValue(data);
 
-    const result = await searchMultipleGitHubPullRequests({
-      queries: [{ type: 'releases', owner: 'microsoft', repo: 'TypeScript' }],
+    const result = await listMultipleGitHubReleases({
+      queries: [
+        {
+          owner: 'microsoft',
+          repo: 'TypeScript',
+          includeAssets: true,
+        },
+      ],
     } as never);
 
-    const text = JSON.stringify(result.structuredContent ?? result);
-    expect(text).toContain('nextPage');
-    expect(text).toContain('"page":2');
+    const row = (
+      result.structuredContent as {
+        results: Array<{ data: Record<string, any> }>;
+      }
+    ).results[0]!;
+    const continuation = row.data.next.nextPage;
+    expect(continuation).toMatchObject({
+      tool: 'ghListReleases',
+      query: {
+        owner: 'microsoft',
+        repo: 'TypeScript',
+        page: 2,
+        pageSize: 30,
+        includeAssets: true,
+      },
+    });
+    const replay = ListReleasesBulkLocalSchema.parse({
+      queries: [continuation.query],
+    });
+    await expect(
+      listMultipleGitHubReleases({ queries: replay.queries } as never)
+    ).resolves.toBeDefined();
+  });
+
+  it('marks a next page beyond the public schema ceiling as terminal', async () => {
+    const data = releasesData();
+    data.data.pagination = {
+      currentPage: 1000,
+      perPage: 30,
+      hasMore: true,
+      nextPage: 1001,
+    } as never;
+    fetchReleases.mockResolvedValue(data);
+
+    const result = await listMultipleGitHubReleases({
+      queries: [{ owner: 'microsoft', repo: 'TypeScript', page: 1000 }],
+    } as never);
+    const row = (
+      result.structuredContent as {
+        results: Array<{
+          data: Record<string, any>;
+          meta: { diagnostics?: { codes?: string[] } };
+        }>;
+      }
+    ).results[0]!;
+
+    expect(row.data.terminalLimit).toBe(true);
+    expect(row.data.pagination.continuationUnavailable).toMatchObject({
+      reason: 'schemaPageLimit',
+      maxPage: 1000,
+    });
+    expect(row.data.pagination.nextPage).toBeUndefined();
+    expect(row.data.next?.nextPage).toBeUndefined();
+    expect(row.meta.diagnostics?.codes).toContain('terminalLimitReached');
+    expect(row.meta.diagnostics?.codes).not.toContain('continuationMissing');
+  });
+
+  it('marks provider cursor loss as terminal without an unusable continuation', async () => {
+    const data = releasesData();
+    data.data.pagination = {
+      currentPage: 1,
+      perPage: 30,
+      hasMore: true,
+    } as never;
+    fetchReleases.mockResolvedValue(data);
+
+    const result = await listMultipleGitHubReleases({
+      queries: [{ owner: 'microsoft', repo: 'TypeScript' }],
+    } as never);
+    const row = (
+      result.structuredContent as {
+        results: Array<{
+          data: Record<string, any>;
+          meta: { diagnostics?: { codes?: string[] } };
+        }>;
+      }
+    ).results[0]!;
+
+    expect(row.data).toMatchObject({
+      terminalLimit: true,
+      pagination: {
+        hasMore: true,
+        continuationUnavailable: { reason: 'missingProviderCursor' },
+      },
+    });
+    expect(row.data.next?.nextPage).toBeUndefined();
+    expect(row.meta.diagnostics?.codes).toContain('terminalLimitReached');
+    expect(row.meta.diagnostics?.codes).not.toContain('continuationMissing');
   });
 
   it('the local query schema accepts type:"releases"', async () => {

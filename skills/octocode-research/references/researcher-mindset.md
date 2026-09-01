@@ -18,7 +18,7 @@ Load when a research task needs a campaign, not a query: planning, budgets, meas
 ## Understand the Environment First
 Before trusting any surface, learn what is actually available:
 - `context` — protocol + tool list; `auth status` — GitHub reach; `lsp-server status <file>` — whether semantics exist for this language.
-- Gating: the MCP-server surface can gate local tools (`ENABLE_LOCAL`) and clone (`ENABLE_CLONE`); the `npx octocode` CLI enables both by default. A disabled surface is a skipped surface — declare it, degrade confidence, don't fake it.
+- Gating: CLI and MCP enable local tools (`ENABLE_LOCAL`) and clone (`ENABLE_CLONE`) by default; either can be explicitly disabled. A disabled surface is a skipped surface — declare it, degrade confidence, don't fake it.
 - Read the corpus shape before concluding from it: monorepo vs flat, installed version vs default branch (`node_modules` is ground truth for what actually runs), language mix (decides LSP vs `minify:"symbols"` fallback).
 
 ## Measure the Research
@@ -43,4 +43,3 @@ When a question is broad, contested, or splits into independent probes, fan out 
 - Materialize once when 3+ remote reads or AST/LSP/negative proof are coming — one bridge call turns remote code into local-grade evidence.
 
 Next: run the iterations under `references/loop-mode.md`; pick the route the campaign needs from `references/workflows.md`; when the campaign must produce a durable brief load `references/long-research.md`.
-

@@ -95,7 +95,7 @@ export async function callsEnvelope(
   const { pageItems, pagination } = paginateItems(
     compactCalls,
     query.page ?? 1,
-    query.itemsPerPage ?? DEFAULT_CALLS_PER_PAGE
+    query.pageSize ?? DEFAULT_CALLS_PER_PAGE
   );
   const direction =
     query.type === 'callers'
@@ -178,7 +178,7 @@ export async function typeHierarchyEnvelope(
   const { pageItems, pagination } = paginateItems(
     relatives,
     query.page ?? 1,
-    query.itemsPerPage ?? DEFAULT_SYMBOLS_PER_PAGE
+    query.pageSize ?? DEFAULT_SYMBOLS_PER_PAGE
   );
 
   return {

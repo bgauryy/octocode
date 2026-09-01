@@ -371,7 +371,7 @@ export async function fetchNpmPackageByView(
         hints: isNetwork
           ? [
               'npm registry is unreachable.',
-              'Use `ghSearchRepos` to find the source repo directly by package name or domain terms.',
+              'Use ghSearch operation:"repositories" with the package name or domain terms.',
             ]
           : [
               'Ensure npm is installed and available in PATH',

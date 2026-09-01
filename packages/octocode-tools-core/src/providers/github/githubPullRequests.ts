@@ -167,7 +167,6 @@ export function buildGitHubPullRequestsSearchParams(
     review: query.review,
     archived: query.archived,
     content: query.content,
-    reviewMode: query.reviewMode,
     filePage: query.filePage,
     commentPage: query.commentPage,
     commitPage: query.commitPage,

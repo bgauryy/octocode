@@ -17,7 +17,9 @@ import {
 
 describe('getOctocodeHome', () => {
   it('OCTOCODE_HOME override wins, path is resolved', () => {
-    expect(getOctocodeHome({ OCTOCODE_HOME: '/custom/home' })).toBe('/custom/home');
+    expect(getOctocodeHome({ OCTOCODE_HOME: '/custom/home' })).toBe(
+      '/custom/home'
+    );
   });
 
   it('trims whitespace from OCTOCODE_HOME override', () => {
@@ -42,9 +44,9 @@ describe('getOctocodeHome', () => {
 
     const { getOctocodeHome: getMockedHome } = await import('../src/home.js');
     expect(getMockedHome({})).toBe('/home/test/.octocode');
-    expect(getMockedHome({ XDG_CONFIG_HOME: '/xdg', APPDATA: 'D:\\Roaming' })).toBe(
-      '/home/test/.octocode',
-    );
+    expect(
+      getMockedHome({ XDG_CONFIG_HOME: '/xdg', APPDATA: 'D:\\Roaming' })
+    ).toBe('/home/test/.octocode');
 
     vi.doUnmock('node:os');
     vi.resetModules();
@@ -60,13 +62,28 @@ describe('getOctocodeHome', () => {
 
 describe('PROTECTED_KEYS', () => {
   it('covers all infrastructure keys', () => {
-    for (const k of ['PATH', 'HOME', 'SHELL', 'USER', 'LOGNAME', 'PWD', 'TMPDIR', 'NODE_OPTIONS', 'PYTHON']) {
+    for (const k of [
+      'PATH',
+      'HOME',
+      'SHELL',
+      'USER',
+      'LOGNAME',
+      'PWD',
+      'TMPDIR',
+      'NODE_OPTIONS',
+      'PYTHON',
+    ]) {
       expect(PROTECTED_KEYS.has(k), `${k} should be protected`).toBe(true);
     }
   });
 
   it('covers all four auth token vars', () => {
-    for (const k of ['OCTOCODE_TOKEN', 'GH_TOKEN', 'GITHUB_TOKEN', 'GITHUB_PERSONAL_ACCESS_TOKEN']) {
+    for (const k of [
+      'OCTOCODE_TOKEN',
+      'GH_TOKEN',
+      'GITHUB_TOKEN',
+      'GITHUB_PERSONAL_ACCESS_TOKEN',
+    ]) {
       expect(PROTECTED_KEYS.has(k), `${k} should be protected`).toBe(true);
     }
   });
@@ -111,7 +128,9 @@ describe('parseEnv', () => {
 
   it('preserves = signs inside the value', () => {
     // Only the first = splits key from value
-    expect(parseEnv('URL=https://example.com?a=1&b=2').URL).toBe('https://example.com?a=1&b=2');
+    expect(parseEnv('URL=https://example.com?a=1&b=2').URL).toBe(
+      'https://example.com?a=1&b=2'
+    );
   });
 
   it('handles CRLF line endings', () => {
@@ -144,12 +163,24 @@ describe('applyOctocodeEnv', () => {
   it('skips protected keys and reports them', () => {
     const env: Record<string, string | undefined> = {};
     const res = applyOctocodeEnv(
-      { PATH: '/evil', OCTOCODE_TOKEN: 'tok', GH_TOKEN: 'gh', GITHUB_TOKEN: 'git', GITHUB_PERSONAL_ACCESS_TOKEN: 'pat' },
-      { env },
+      {
+        PATH: '/evil',
+        OCTOCODE_TOKEN: 'tok',
+        GH_TOKEN: 'gh',
+        GITHUB_TOKEN: 'git',
+        GITHUB_PERSONAL_ACCESS_TOKEN: 'pat',
+      },
+      { env }
     );
     expect(Object.keys(env)).toHaveLength(0);
     expect(res.skippedProtected).toEqual(
-      expect.arrayContaining(['PATH', 'OCTOCODE_TOKEN', 'GH_TOKEN', 'GITHUB_TOKEN', 'GITHUB_PERSONAL_ACCESS_TOKEN']),
+      expect.arrayContaining([
+        'PATH',
+        'OCTOCODE_TOKEN',
+        'GH_TOKEN',
+        'GITHUB_TOKEN',
+        'GITHUB_PERSONAL_ACCESS_TOKEN',
+      ])
     );
   });
 
@@ -207,7 +238,10 @@ describe('loadOctocodeEnv', () => {
 
   it('project .env loaded and overrides global when trusted=true', () => {
     writeFileSync(join(home, '.env'), 'SHARED=global\nGLOBAL_ONLY=g\n');
-    writeFileSync(join(cwd, '.octocode', '.env'), 'SHARED=project\nPROJECT_ONLY=p\n');
+    writeFileSync(
+      join(cwd, '.octocode', '.env'),
+      'SHARED=project\nPROJECT_ONLY=p\n'
+    );
 
     const { map, sources } = loadOctocodeEnv({ home, cwd, trusted: true });
     expect(map.SHARED).toBe('project');
@@ -218,7 +252,10 @@ describe('loadOctocodeEnv', () => {
   });
 
   it('returns empty map when home is missing', () => {
-    const { map } = loadOctocodeEnv({ home: '/does/not/exist', cwd: undefined });
+    const { map } = loadOctocodeEnv({
+      home: '/does/not/exist',
+      cwd: undefined,
+    });
     expect(map).toEqual({});
   });
 
@@ -282,12 +319,18 @@ describe('loadOctocoderc', () => {
   });
 
   it('parses valid JSON', () => {
-    writeFileSync(join(tmpDir, '.octocoderc'), '{ "network": { "timeout": 5000 } }');
+    writeFileSync(
+      join(tmpDir, '.octocoderc'),
+      '{ "network": { "timeout": 5000 } }'
+    );
     expect(loadOctocoderc(tmpDir)).toEqual({ network: { timeout: 5000 } });
   });
 
   it('strips line comments', () => {
-    writeFileSync(join(tmpDir, '.octocoderc'), '{\n  // comment\n  "key": "val"\n}');
+    writeFileSync(
+      join(tmpDir, '.octocoderc'),
+      '{\n  // comment\n  "key": "val"\n}'
+    );
     expect(loadOctocoderc(tmpDir)).toEqual({ key: 'val' });
   });
 
@@ -297,7 +340,10 @@ describe('loadOctocoderc', () => {
   });
 
   it('tolerates trailing commas', () => {
-    writeFileSync(join(tmpDir, '.octocoderc'), '{ "network": { "timeout": 1234, }, }');
+    writeFileSync(
+      join(tmpDir, '.octocoderc'),
+      '{ "network": { "timeout": 1234, }, }'
+    );
     expect(loadOctocoderc(tmpDir)).toEqual({ network: { timeout: 1234 } });
   });
 
@@ -314,18 +360,24 @@ describe('loadOctocoderc', () => {
   it('preserves https:// URLs inside values (// not stripped inside strings)', () => {
     writeFileSync(
       join(tmpDir, '.octocoderc'),
-      '{ "github": { "apiUrl": "https://api.github.com" } }',
+      '{ "github": { "apiUrl": "https://api.github.com" } }'
     );
     const rc = loadOctocoderc(tmpDir);
-    expect((rc.github as Record<string, string>).apiUrl).toBe('https://api.github.com');
+    expect((rc.github as Record<string, string>).apiUrl).toBe(
+      'https://api.github.com'
+    );
   });
 
   it('writes parse error to stderr, does not throw', () => {
-    const spy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    const spy = vi
+      .spyOn(process.stderr, 'write')
+      .mockImplementation(() => true);
     writeFileSync(join(tmpDir, '.octocoderc'), 'BAD JSON');
     const result = loadOctocoderc(tmpDir);
     expect(result).toEqual({});
-    expect(spy).toHaveBeenCalledWith(expect.stringContaining('[octocode-config]'));
+    expect(spy).toHaveBeenCalledWith(
+      expect.stringContaining('[octocode-config]')
+    );
     spy.mockRestore();
   });
 
@@ -364,11 +416,15 @@ describe('getTokenFromEnv', () => {
     expect(getTokenFromEnv({ OCTOCODE_TOKEN: 'tok1' })).toBe('tok1');
     expect(getTokenFromEnv({ GH_TOKEN: 'tok2' })).toBe('tok2');
     expect(getTokenFromEnv({ GITHUB_TOKEN: 'tok3' })).toBe('tok3');
-    expect(getTokenFromEnv({ GITHUB_PERSONAL_ACCESS_TOKEN: 'tok4' })).toBe('tok4');
+    expect(getTokenFromEnv({ GITHUB_PERSONAL_ACCESS_TOKEN: 'tok4' })).toBe(
+      'tok4'
+    );
   });
 
   it('OCTOCODE_TOKEN beats GH_TOKEN', () => {
-    expect(getTokenFromEnv({ OCTOCODE_TOKEN: 'high', GH_TOKEN: 'low' })).toBe('high');
+    expect(getTokenFromEnv({ OCTOCODE_TOKEN: 'high', GH_TOKEN: 'low' })).toBe(
+      'high'
+    );
   });
 
   it('trims whitespace from token', () => {
@@ -382,19 +438,25 @@ describe('getEnvTokenSource', () => {
   });
 
   it('returns the correct source label', () => {
-    expect(getEnvTokenSource({ OCTOCODE_TOKEN: 'x' })).toBe('env:OCTOCODE_TOKEN');
+    expect(getEnvTokenSource({ OCTOCODE_TOKEN: 'x' })).toBe(
+      'env:OCTOCODE_TOKEN'
+    );
     expect(getEnvTokenSource({ GH_TOKEN: 'x' })).toBe('env:GH_TOKEN');
-    expect(getEnvTokenSource({ GITHUB_PERSONAL_ACCESS_TOKEN: 'x' })).toBe('env:GITHUB_PERSONAL_ACCESS_TOKEN');
+    expect(getEnvTokenSource({ GITHUB_PERSONAL_ACCESS_TOKEN: 'x' })).toBe(
+      'env:GITHUB_PERSONAL_ACCESS_TOKEN'
+    );
   });
 });
 
 describe('hasEnvToken', () => {
   it('false when no token', () => expect(hasEnvToken({})).toBe(false));
-  it('true when any token set', () => expect(hasEnvToken({ GH_TOKEN: 'x' })).toBe(true));
+  it('true when any token set', () =>
+    expect(hasEnvToken({ GH_TOKEN: 'x' })).toBe(true));
 });
 
 describe('resolveEnvToken', () => {
-  it('returns null when no token', () => expect(resolveEnvToken({})).toBeNull());
+  it('returns null when no token', () =>
+    expect(resolveEnvToken({})).toBeNull());
   it('returns { token, source } for first match', () => {
     const r = resolveEnvToken({ GITHUB_TOKEN: 'ghp_abc' });
     expect(r).not.toBeNull();
@@ -416,7 +478,7 @@ describe('DEFAULT_CONFIG', () => {
   it('has sensible defaults', () => {
     expect(DEFAULT_CONFIG.github.apiUrl).toBe('https://api.github.com');
     expect(DEFAULT_CONFIG.local.enabled).toBe(true);
-    expect(DEFAULT_CONFIG.local.enableClone).toBe(false);
+    expect(DEFAULT_CONFIG.local.enableClone).toBe(true);
     expect(DEFAULT_NETWORK_CONFIG.timeout).toBe(30000);
   });
 
@@ -517,12 +579,18 @@ describe('validateConfig', () => {
   it('warns when config version is newer than this package supports', () => {
     const r = validateConfig({ version: 999 });
     expect(r.valid).toBe(true);
-    expect(r.warnings).toEqual([expect.stringContaining('newer than supported')]);
+    expect(r.warnings).toEqual([
+      expect.stringContaining('newer than supported'),
+    ]);
   });
 
   it('rejects non-integer config versions', () => {
-    expect(validateConfig({ version: 1.5 }).errors).toContain('version: Must be an integer');
-    expect(validateConfig({ version: '1' }).errors).toContain('version: Must be an integer');
+    expect(validateConfig({ version: 1.5 }).errors).toContain(
+      'version: Must be an integer'
+    );
+    expect(validateConfig({ version: '1' }).errors).toContain(
+      'version: Must be an integer'
+    );
   });
 
   it('rejects invalid section shapes', () => {
@@ -535,22 +603,24 @@ describe('validateConfig', () => {
       output: [],
     });
     expect(r.valid).toBe(false);
-    expect(r.errors).toEqual(expect.arrayContaining([
-      'github: Must be an object',
-      'local: Must be an object',
-      'tools: Must be an object',
-      'network: Must be an object',
-      'lsp: Must be an object',
-      'output: Must be an object',
-    ]));
+    expect(r.errors).toEqual(
+      expect.arrayContaining([
+        'github: Must be an object',
+        'local: Must be an object',
+        'tools: Must be an object',
+        'network: Must be an object',
+        'lsp: Must be an object',
+        'output: Must be an object',
+      ])
+    );
   });
 
   it('rejects unsupported github URL protocols and non-string URLs', () => {
-    expect(validateConfig({ github: { apiUrl: 'ftp://example.com' } }).errors).toContain(
-      'github.apiUrl: Only http/https URLs allowed',
-    );
+    expect(
+      validateConfig({ github: { apiUrl: 'ftp://example.com' } }).errors
+    ).toContain('github.apiUrl: Only http/https URLs allowed');
     expect(validateConfig({ github: { apiUrl: 123 } }).errors).toContain(
-      'github.apiUrl: Must be a string',
+      'github.apiUrl: Must be a string'
     );
   });
 
@@ -563,12 +633,14 @@ describe('validateConfig', () => {
         workspaceRoot: 99,
       },
     });
-    expect(r.errors).toEqual(expect.arrayContaining([
-      'local.enabled: Must be a boolean',
-      'local.enableClone: Must be a boolean',
-      'local.allowedPaths[1]: Must be a string',
-      'local.workspaceRoot: Must be a string',
-    ]));
+    expect(r.errors).toEqual(
+      expect.arrayContaining([
+        'local.enabled: Must be a boolean',
+        'local.enableClone: Must be a boolean',
+        'local.allowedPaths[1]: Must be a string',
+        'local.workspaceRoot: Must be a string',
+      ])
+    );
   });
 
   it('rejects relative, empty, and whitespace-only local paths', () => {
@@ -579,40 +651,54 @@ describe('validateConfig', () => {
       },
     });
     expect(r.valid).toBe(false);
-    expect(r.errors).toEqual(expect.arrayContaining([
-      expect.stringContaining('local.allowedPaths[0]: must be absolute path'),
-      expect.stringContaining('local.allowedPaths[1]: empty or whitespace-only path'),
-      expect.stringContaining('local.workspaceRoot: must be absolute path'),
-    ]));
+    expect(r.errors).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining('local.allowedPaths[0]: must be absolute path'),
+        expect.stringContaining(
+          'local.allowedPaths[1]: empty or whitespace-only path'
+        ),
+        expect.stringContaining('local.workspaceRoot: must be absolute path'),
+      ])
+    );
   });
 
   it('accepts null optional arrays and rejects non-array tool lists', () => {
-    expect(validateConfig({ tools: { enabled: null, disabled: null } }).valid).toBe(true);
+    expect(
+      validateConfig({ tools: { enabled: null, disabled: null } }).valid
+    ).toBe(true);
 
     const r = validateConfig({
       tools: {
-        enabled: 'localSearchCode',
+        enabled: 'localSearch',
         disabled: [false],
       },
     });
-    expect(r.errors).toEqual(expect.arrayContaining([
-      'tools.enabled: Must be an array',
-      'tools.disabled[0]: Must be a string',
-    ]));
+    expect(r.errors).toEqual(
+      expect.arrayContaining([
+        'tools.enabled: Must be an array',
+        'tools.disabled[0]: Must be a string',
+      ])
+    );
   });
 
   it('rejects invalid network numbers and ranges', () => {
-    const r = validateConfig({ network: { timeout: 'fast', maxRetries: Number.NaN } });
-    expect(r.errors).toEqual(expect.arrayContaining([
-      'network.timeout: Must be a number',
-      'network.maxRetries: Must be a number',
-    ]));
+    const r = validateConfig({
+      network: { timeout: 'fast', maxRetries: Number.NaN },
+    });
+    expect(r.errors).toEqual(
+      expect.arrayContaining([
+        'network.timeout: Must be a number',
+        'network.maxRetries: Must be a number',
+      ])
+    );
 
     const range = validateConfig({ network: { timeout: 1, maxRetries: 999 } });
-    expect(range.errors).toEqual(expect.arrayContaining([
-      expect.stringContaining('network.timeout: Must be between'),
-      expect.stringContaining('network.maxRetries: Must be between'),
-    ]));
+    expect(range.errors).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining('network.timeout: Must be between'),
+        expect.stringContaining('network.maxRetries: Must be between'),
+      ])
+    );
   });
 
   it('rejects invalid lsp and output values', () => {
@@ -623,17 +709,26 @@ describe('validateConfig', () => {
         pagination: { defaultCharLength: 10 },
       },
     });
-    expect(r.errors).toEqual(expect.arrayContaining([
-      'lsp.configPath: Must be a string',
-      'output.format: Must be one of: yaml, json',
-      expect.stringContaining('output.pagination.defaultCharLength: Must be between'),
-    ]));
-
-    expect(validateConfig({ output: { format: 1 } }).errors).toContain('output.format: Must be a string');
-    expect(validateConfig({ output: { pagination: [] } }).errors).toContain('output.pagination: Must be an object');
-    expect(validateConfig({ output: { pagination: { defaultCharLength: 'long' } } }).errors).toContain(
-      'output.pagination.defaultCharLength: Must be a number',
+    expect(r.errors).toEqual(
+      expect.arrayContaining([
+        'lsp.configPath: Must be a string',
+        'output.format: Must be one of: yaml, json',
+        expect.stringContaining(
+          'output.pagination.defaultCharLength: Must be between'
+        ),
+      ])
     );
+
+    expect(validateConfig({ output: { format: 1 } }).errors).toContain(
+      'output.format: Must be a string'
+    );
+    expect(validateConfig({ output: { pagination: [] } }).errors).toContain(
+      'output.pagination: Must be an object'
+    );
+    expect(
+      validateConfig({ output: { pagination: { defaultCharLength: 'long' } } })
+        .errors
+    ).toContain('output.pagination.defaultCharLength: Must be a number');
   });
 
   it('accepts Windows absolute local paths', () => {
@@ -647,7 +742,10 @@ describe('validateConfig', () => {
   });
 
   it('rejects traversal path segments but allows literal dots inside a segment', () => {
-    expect(validateConfig({ local: { allowedPaths: ['/tmp/project..backup'] } }).valid).toBe(true);
+    expect(
+      validateConfig({ local: { allowedPaths: ['/tmp/project..backup'] } })
+        .valid
+    ).toBe(true);
     const r = validateConfig({
       local: {
         allowedPaths: ['/tmp/../etc'],
@@ -655,21 +753,29 @@ describe('validateConfig', () => {
       },
     });
     expect(r.valid).toBe(false);
-    expect(r.errors).toEqual(expect.arrayContaining([
-      expect.stringContaining('local.allowedPaths[0]'),
-      expect.stringContaining('local.workspaceRoot'),
-    ]));
+    expect(r.errors).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining('local.allowedPaths[0]'),
+        expect.stringContaining('local.workspaceRoot'),
+      ])
+    );
   });
 });
 
 // ─── loadConfigSync (via loader) ─────────────────────────────────────────────
 
-import { loadConfigSync, configExists, getConfigFilePath } from '../src/config/loader.js';
+import {
+  loadConfigSync,
+  configExists,
+  getConfigFilePath,
+} from '../src/config/loader.js';
 
 describe('loadConfigSync', () => {
   let tmpDir: string;
 
-  beforeEach(() => { tmpDir = mkdtempSync(join(tmpdir(), 'octo-loader-')); });
+  beforeEach(() => {
+    tmpDir = mkdtempSync(join(tmpdir(), 'octo-loader-'));
+  });
 
   it('returns success:false when file is absent', () => {
     const r = loadConfigSync(tmpDir);
@@ -691,20 +797,27 @@ describe('loadConfigSync', () => {
   });
 
   it('preserves https:// inside string values (does not strip URL)', () => {
-    writeFileSync(join(tmpDir, '.octocoderc'), '{ "github": { "apiUrl": "https://api.github.com" } }');
+    writeFileSync(
+      join(tmpDir, '.octocoderc'),
+      '{ "github": { "apiUrl": "https://api.github.com" } }'
+    );
     const r = loadConfigSync(tmpDir);
     expect(r.success).toBe(true);
-    expect((r.config as Record<string, Record<string, string>>).github?.apiUrl).toBe('https://api.github.com');
+    expect(
+      (r.config as Record<string, Record<string, string>>).github?.apiUrl
+    ).toBe('https://api.github.com');
   });
 
   it('preserves escaped characters and comment markers inside strings', () => {
     writeFileSync(
       join(tmpDir, '.octocoderc'),
-      '{ "message": "quoted \\\" // still string /* not comment */", "keep": true }',
+      '{ "message": "quoted \\\" // still string /* not comment */", "keep": true }'
     );
     const r = loadConfigSync(tmpDir);
     expect(r.success).toBe(true);
-    expect((r.config as Record<string, unknown>).message).toBe('quoted " // still string /* not comment */');
+    expect((r.config as Record<string, unknown>).message).toBe(
+      'quoted " // still string /* not comment */'
+    );
   });
 
   it('rejects JSON values whose top-level shape is not an object', () => {
@@ -720,7 +833,10 @@ describe('loadConfigSync', () => {
   });
 
   it('async loadConfig delegates to sync loader', async () => {
-    writeFileSync(join(tmpDir, '.octocoderc'), '{ "network": { "timeout": 5000 } }');
+    writeFileSync(
+      join(tmpDir, '.octocoderc'),
+      '{ "network": { "timeout": 5000 } }'
+    );
     const { loadConfig } = await import('../src/config/loader.js');
     await expect(loadConfig(tmpDir)).resolves.toMatchObject({
       success: true,
@@ -734,7 +850,8 @@ describe('loadConfigSync', () => {
       process.env['OCTOCODE_HOME'] = tmpDir;
       expect(getConfigFilePath()).toBe(join(tmpDir, '.octocoderc'));
     } finally {
-      if (oldHome === undefined) delete process.env['OCTOCODE_HOME']; else process.env['OCTOCODE_HOME'] = oldHome;
+      if (oldHome === undefined) delete process.env['OCTOCODE_HOME'];
+      else process.env['OCTOCODE_HOME'] = oldHome;
     }
   });
 
@@ -779,8 +896,13 @@ import {
 } from '../src/config/resolverSections.js';
 
 describe('parseBooleanEnv', () => {
-  it.each([['true', true], ['1', true], ['false', false], ['0', false]])(
-    'parses "%s" → %s', (input, expected) => expect(parseBooleanEnv(input)).toBe(expected),
+  it.each([
+    ['true', true],
+    ['1', true],
+    ['false', false],
+    ['0', false],
+  ])('parses "%s" → %s', (input, expected) =>
+    expect(parseBooleanEnv(input)).toBe(expected)
   );
   it('returns undefined for blank / unknown', () => {
     expect(parseBooleanEnv(undefined)).toBeUndefined();
@@ -791,8 +913,10 @@ describe('parseBooleanEnv', () => {
 
 describe('parseIntEnv', () => {
   it('parses integer strings', () => expect(parseIntEnv('42')).toBe(42));
-  it('returns undefined for non-numeric', () => expect(parseIntEnv('abc')).toBeUndefined());
-  it('returns undefined for undefined', () => expect(parseIntEnv(undefined)).toBeUndefined());
+  it('returns undefined for non-numeric', () =>
+    expect(parseIntEnv('abc')).toBeUndefined());
+  it('returns undefined for undefined', () =>
+    expect(parseIntEnv(undefined)).toBeUndefined());
 });
 
 describe('parseStringArrayEnv', () => {
@@ -812,17 +936,22 @@ describe('resolveGitHub', () => {
   const oldApiUrl = process.env['GITHUB_API_URL'];
 
   afterEach(() => {
-    if (oldApiUrl === undefined) delete process.env['GITHUB_API_URL']; else process.env['GITHUB_API_URL'] = oldApiUrl;
+    if (oldApiUrl === undefined) delete process.env['GITHUB_API_URL'];
+    else process.env['GITHUB_API_URL'] = oldApiUrl;
   });
 
   it('uses GITHUB_API_URL env when set', () => {
     process.env['GITHUB_API_URL'] = ' https://ghe.env.example.com ';
-    expect(resolveGitHub({ apiUrl: 'https://ghe.file.example.com' }).apiUrl).toBe('https://ghe.env.example.com');
+    expect(
+      resolveGitHub({ apiUrl: 'https://ghe.file.example.com' }).apiUrl
+    ).toBe('https://ghe.env.example.com');
   });
 
   it('uses fileConfig.apiUrl when no env override', () => {
     delete process.env['GITHUB_API_URL'];
-    expect(resolveGitHub({ apiUrl: 'https://ghe.example.com' }).apiUrl).toBe('https://ghe.example.com');
+    expect(resolveGitHub({ apiUrl: 'https://ghe.example.com' }).apiUrl).toBe(
+      'https://ghe.example.com'
+    );
   });
 });
 
@@ -830,7 +959,12 @@ describe('resolveLocal', () => {
   const savedEnv: Record<string, string | undefined> = {};
 
   beforeEach(() => {
-    for (const key of ['ENABLE_LOCAL', 'ENABLE_CLONE', 'ALLOWED_PATHS', 'WORKSPACE_ROOT']) {
+    for (const key of [
+      'ENABLE_LOCAL',
+      'ENABLE_CLONE',
+      'ALLOWED_PATHS',
+      'WORKSPACE_ROOT',
+    ]) {
       savedEnv[key] = process.env[key];
       delete process.env[key];
     }
@@ -839,7 +973,8 @@ describe('resolveLocal', () => {
 
   afterEach(() => {
     for (const [key, value] of Object.entries(savedEnv)) {
-      if (value === undefined) delete process.env[key]; else process.env[key] = value;
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
     }
     _resetRuntimeSurface();
   });
@@ -851,10 +986,19 @@ describe('resolveLocal', () => {
     expect(resolveLocal().enabled).toBe(true);
   });
 
-  it('resolves from file config and CLI default clone behavior', () => {
+  it('defaults clone on for every runtime surface and honors file opt-out', () => {
     setRuntimeSurface('cli');
     expect(resolveLocal().enableClone).toBe(true);
-    expect(resolveLocal({ enabled: false, enableClone: false, allowedPaths: ['/tmp'], workspaceRoot: '/tmp' })).toEqual({
+    setRuntimeSurface('mcp');
+    expect(resolveLocal().enableClone).toBe(true);
+    expect(
+      resolveLocal({
+        enabled: false,
+        enableClone: false,
+        allowedPaths: ['/tmp'],
+        workspaceRoot: '/tmp',
+      })
+    ).toEqual({
       enabled: false,
       enableClone: false,
       allowedPaths: ['/tmp'],
@@ -867,7 +1011,14 @@ describe('resolveLocal', () => {
     process.env['ENABLE_CLONE'] = 'true';
     process.env['ALLOWED_PATHS'] = ' /a, /b ,, ';
     process.env['WORKSPACE_ROOT'] = ' /workspace ';
-    expect(resolveLocal({ enabled: true, enableClone: false, allowedPaths: ['/file'], workspaceRoot: '/file' })).toEqual({
+    expect(
+      resolveLocal({
+        enabled: true,
+        enableClone: false,
+        allowedPaths: ['/file'],
+        workspaceRoot: '/file',
+      })
+    ).toEqual({
       enabled: false,
       enableClone: true,
       allowedPaths: ['/a', '/b'],
@@ -889,7 +1040,8 @@ describe('resolveTools', () => {
 
   afterEach(() => {
     for (const [key, value] of Object.entries(savedEnv)) {
-      if (value === undefined) delete process.env[key]; else process.env[key] = value;
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
     }
   });
 
@@ -920,7 +1072,8 @@ describe('resolveNetwork', () => {
 
   afterEach(() => {
     for (const [key, value] of Object.entries(savedEnv)) {
-      if (value === undefined) delete process.env[key]; else process.env[key] = value;
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
     }
   });
 
@@ -932,22 +1085,32 @@ describe('resolveNetwork', () => {
   it('uses env overrides and clamps max retries', () => {
     process.env['REQUEST_TIMEOUT'] = '999999';
     process.env['MAX_RETRIES'] = '-10';
-    expect(resolveNetwork({ timeout: 5000, maxRetries: 10 })).toEqual({ timeout: 300000, maxRetries: 0 });
+    expect(resolveNetwork({ timeout: 5000, maxRetries: 10 })).toEqual({
+      timeout: 300000,
+      maxRetries: 0,
+    });
   });
 });
 
 describe('resolveLsp', () => {
   const oldConfig = process.env['OCTOCODE_LSP_CONFIG'];
-  afterEach(() => { if (oldConfig === undefined) delete process.env['OCTOCODE_LSP_CONFIG']; else process.env['OCTOCODE_LSP_CONFIG'] = oldConfig; });
+  afterEach(() => {
+    if (oldConfig === undefined) delete process.env['OCTOCODE_LSP_CONFIG'];
+    else process.env['OCTOCODE_LSP_CONFIG'] = oldConfig;
+  });
 
   it('uses env config path before file config', () => {
     process.env['OCTOCODE_LSP_CONFIG'] = ' /env/lsp.json ';
-    expect(resolveLsp({ configPath: '/file/lsp.json' }).configPath).toBe('/env/lsp.json');
+    expect(resolveLsp({ configPath: '/file/lsp.json' }).configPath).toBe(
+      '/env/lsp.json'
+    );
   });
 
   it('falls back to file config when env is blank', () => {
     process.env['OCTOCODE_LSP_CONFIG'] = '   ';
-    expect(resolveLsp({ configPath: '/file/lsp.json' }).configPath).toBe('/file/lsp.json');
+    expect(resolveLsp({ configPath: '/file/lsp.json' }).configPath).toBe(
+      '/file/lsp.json'
+    );
   });
 });
 
@@ -955,7 +1118,10 @@ describe('resolveOutput', () => {
   const savedEnv: Record<string, string | undefined> = {};
 
   beforeEach(() => {
-    for (const key of ['OCTOCODE_OUTPUT_FORMAT', 'OCTOCODE_OUTPUT_DEFAULT_CHAR_LENGTH']) {
+    for (const key of [
+      'OCTOCODE_OUTPUT_FORMAT',
+      'OCTOCODE_OUTPUT_DEFAULT_CHAR_LENGTH',
+    ]) {
       savedEnv[key] = process.env[key];
       delete process.env[key];
     }
@@ -963,21 +1129,29 @@ describe('resolveOutput', () => {
 
   afterEach(() => {
     for (const [key, value] of Object.entries(savedEnv)) {
-      if (value === undefined) delete process.env[key]; else process.env[key] = value;
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
     }
   });
 
   it('uses valid env output format and clamps default char length', () => {
     process.env['OCTOCODE_OUTPUT_FORMAT'] = ' JSON ';
     process.env['OCTOCODE_OUTPUT_DEFAULT_CHAR_LENGTH'] = '999999';
-    expect(resolveOutput({ format: 'yaml', pagination: { defaultCharLength: 1000 } })).toEqual({
+    expect(
+      resolveOutput({ format: 'yaml', pagination: { defaultCharLength: 1000 } })
+    ).toEqual({
       format: 'json',
       pagination: { defaultCharLength: 50000 },
     });
   });
 
   it('falls back to default format for invalid values and clamps file values', () => {
-    expect(resolveOutput({ format: 'xml' as 'yaml', pagination: { defaultCharLength: 10 } })).toEqual({
+    expect(
+      resolveOutput({
+        format: 'xml' as 'yaml',
+        pagination: { defaultCharLength: 10 },
+      })
+    ).toEqual({
       format: 'yaml',
       pagination: { defaultCharLength: 1000 },
     });
@@ -986,7 +1160,10 @@ describe('resolveOutput', () => {
 
 // ─── resolverCache / getConfigSync ───────────────────────────────────────────
 
-import { getConfigSync, resolveConfigSync } from '../src/config/resolverCache.js';
+import {
+  getConfigSync,
+  resolveConfigSync,
+} from '../src/config/resolverCache.js';
 import { getConfigValue } from '../src/config/resolver.js';
 
 describe('getConfigSync', () => {
@@ -1013,22 +1190,37 @@ describe('getConfigSync', () => {
       expect(cfg.local.enabled).toBe(false);
       expect(cfg.configPath).toBeUndefined();
     } finally {
-      if (oldHome === undefined) delete process.env['OCTOCODE_HOME']; else process.env['OCTOCODE_HOME'] = oldHome;
-      if (oldEnableLocal === undefined) delete process.env['ENABLE_LOCAL']; else process.env['ENABLE_LOCAL'] = oldEnableLocal;
+      if (oldHome === undefined) delete process.env['OCTOCODE_HOME'];
+      else process.env['OCTOCODE_HOME'] = oldHome;
+      if (oldEnableLocal === undefined) delete process.env['ENABLE_LOCAL'];
+      else process.env['ENABLE_LOCAL'] = oldEnableLocal;
     }
   });
 
   it('reports file source for valid .octocoderc without env overrides', () => {
     const oldEnv = { ...process.env };
     const home = mkdtempSync(join(tmpdir(), 'octo-source-file-'));
-    writeFileSync(join(home, '.octocoderc'), JSON.stringify({ network: { timeout: 5000 } }));
+    writeFileSync(
+      join(home, '.octocoderc'),
+      JSON.stringify({ network: { timeout: 5000 } })
+    );
     try {
       for (const key of [
-        'GITHUB_API_URL', 'ENABLE_LOCAL', 'ENABLE_CLONE', 'ALLOWED_PATHS', 'WORKSPACE_ROOT',
-        'TOOLS_TO_RUN', 'DISABLE_TOOLS', 'REQUEST_TIMEOUT', 'MAX_RETRIES',
-        'OCTOCODE_LSP_CONFIG', 'OCTOCODE_OUTPUT_FORMAT', 'OCTOCODE_OUTPUT_DEFAULT_CHAR_LENGTH',
+        'GITHUB_API_URL',
+        'ENABLE_LOCAL',
+        'ENABLE_CLONE',
+        'ALLOWED_PATHS',
+        'WORKSPACE_ROOT',
+        'TOOLS_TO_RUN',
+        'DISABLE_TOOLS',
+        'REQUEST_TIMEOUT',
+        'MAX_RETRIES',
+        'OCTOCODE_LSP_CONFIG',
+        'OCTOCODE_OUTPUT_FORMAT',
+        'OCTOCODE_OUTPUT_DEFAULT_CHAR_LENGTH',
         'OCTOCODE_ENABLE_STATS',
-      ]) delete process.env[key];
+      ])
+        delete process.env[key];
       process.env['OCTOCODE_HOME'] = home;
       const cfg = resolveConfigSync();
       expect(cfg.source).toBe('file');
@@ -1067,7 +1259,10 @@ describe('getConfigSync', () => {
     const oldHome = process.env['OCTOCODE_HOME'];
     const oldTimeout = process.env['REQUEST_TIMEOUT'];
     const home = mkdtempSync(join(tmpdir(), 'octo-source-mixed-'));
-    writeFileSync(join(home, '.octocoderc'), JSON.stringify({ network: { timeout: 5000 } }));
+    writeFileSync(
+      join(home, '.octocoderc'),
+      JSON.stringify({ network: { timeout: 5000 } })
+    );
     try {
       process.env['OCTOCODE_HOME'] = home;
       process.env['REQUEST_TIMEOUT'] = '6000';
@@ -1076,15 +1271,20 @@ describe('getConfigSync', () => {
       expect(cfg.configPath).toBe(join(home, '.octocoderc'));
       expect(cfg.network.timeout).toBe(6000);
     } finally {
-      if (oldHome === undefined) delete process.env['OCTOCODE_HOME']; else process.env['OCTOCODE_HOME'] = oldHome;
-      if (oldTimeout === undefined) delete process.env['REQUEST_TIMEOUT']; else process.env['REQUEST_TIMEOUT'] = oldTimeout;
+      if (oldHome === undefined) delete process.env['OCTOCODE_HOME'];
+      else process.env['OCTOCODE_HOME'] = oldHome;
+      if (oldTimeout === undefined) delete process.env['REQUEST_TIMEOUT'];
+      else process.env['REQUEST_TIMEOUT'] = oldTimeout;
     }
   });
 
   it('reports invalid semantic config as invalid without applying invalid values', () => {
     const oldHome = process.env['OCTOCODE_HOME'];
     const home = mkdtempSync(join(tmpdir(), 'octo-source-invalid-'));
-    writeFileSync(join(home, '.octocoderc'), JSON.stringify({ local: { enabled: 'nope' } }));
+    writeFileSync(
+      join(home, '.octocoderc'),
+      JSON.stringify({ local: { enabled: 'nope' } })
+    );
     try {
       process.env['OCTOCODE_HOME'] = home;
       const cfg = resolveConfigSync();
@@ -1092,7 +1292,8 @@ describe('getConfigSync', () => {
       expect(cfg.configPath).toBe(join(home, '.octocoderc'));
       expect(cfg.local.enabled).toBe(true);
     } finally {
-      if (oldHome === undefined) delete process.env['OCTOCODE_HOME']; else process.env['OCTOCODE_HOME'] = oldHome;
+      if (oldHome === undefined) delete process.env['OCTOCODE_HOME'];
+      else process.env['OCTOCODE_HOME'] = oldHome;
     }
   });
 
@@ -1106,7 +1307,8 @@ describe('getConfigSync', () => {
       expect(cfg.source).toBe('invalid');
       expect(cfg.configPath).toBe(join(home, '.octocoderc'));
     } finally {
-      if (oldHome === undefined) delete process.env['OCTOCODE_HOME']; else process.env['OCTOCODE_HOME'] = oldHome;
+      if (oldHome === undefined) delete process.env['OCTOCODE_HOME'];
+      else process.env['OCTOCODE_HOME'] = oldHome;
     }
   });
 
@@ -1121,7 +1323,8 @@ describe('getConfigSync', () => {
       expect(after.local.enabled).toBe(false);
       expect(after).not.toBe(before);
     } finally {
-      if (oldEnableLocal === undefined) delete process.env['ENABLE_LOCAL']; else process.env['ENABLE_LOCAL'] = oldEnableLocal;
+      if (oldEnableLocal === undefined) delete process.env['ENABLE_LOCAL'];
+      else process.env['ENABLE_LOCAL'] = oldEnableLocal;
     }
   });
 
@@ -1142,14 +1345,16 @@ describe('getConfigSync', () => {
     try {
       process.env['ENABLE_LOCAL'] = 'false';
       expect(getConfigValue<boolean>('local.enabled')).toBe(false);
-      expect(getConfigValue<string>('github.apiUrl')).toBe('https://api.github.com');
+      expect(getConfigValue<string>('github.apiUrl')).toBe(
+        'https://api.github.com'
+      );
       expect(getConfigValue('local.enabled.missing')).toBeUndefined();
       expect(getConfigValue('does.not.exist')).toBeUndefined();
     } finally {
-      if (oldEnableLocal === undefined) delete process.env['ENABLE_LOCAL']; else process.env['ENABLE_LOCAL'] = oldEnableLocal;
+      if (oldEnableLocal === undefined) delete process.env['ENABLE_LOCAL'];
+      else process.env['ENABLE_LOCAL'] = oldEnableLocal;
     }
   });
-
 });
 
 // ─── resolveSession ───────────────────────────────────────────────────────────
@@ -1158,7 +1363,9 @@ import { resolveSession } from '../src/config/resolverSections.js';
 import { DEFAULT_SESSION_CONFIG } from '../src/config/defaults.js';
 
 describe('resolveSession', () => {
-  afterEach(() => { delete process.env['OCTOCODE_ENABLE_STATS']; });
+  afterEach(() => {
+    delete process.env['OCTOCODE_ENABLE_STATS'];
+  });
 
   it('returns enableStats:false by default (env var unset)', () => {
     delete process.env['OCTOCODE_ENABLE_STATS'];

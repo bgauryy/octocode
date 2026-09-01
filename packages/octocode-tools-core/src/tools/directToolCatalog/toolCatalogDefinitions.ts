@@ -6,48 +6,19 @@
  */
 import { z } from 'zod';
 import {
-  isDiscussionsEnabled,
-  isReleasesEnabled,
   STATIC_TOOL_NAMES,
+  GITHUB_GET_HISTORY_ITEM_TOOL_NAME,
+  GITHUB_SEARCH_TOOL_NAME,
+  GITHUB_SEARCH_HISTORY_TOOL_NAME,
   LOCAL_ANALYZE_GRAPH_TOOL_NAME,
+  LOCAL_SEARCH_TOOL_NAME,
 } from '../toolNames.js';
 import { LSP_GET_SEMANTICS_TOOL_NAME } from '../lsp/shared/semanticTypes.js';
 import {
-  CloneRepoQueryLocalSchema,
-  BulkCloneRepoLocalSchema,
-  FileContentQueryLocalSchema,
-  FileContentBulkQueryLocalSchema,
-  GitHubCodeSearchQueryLocalSchema,
-  GitHubCodeSearchBulkQueryLocalSchema,
-  SearchPullRequestsLocalSchema,
-  SearchPullRequestsBulkLocalSchema,
-  SearchIssuesLocalSchema,
-  SearchIssuesBulkLocalSchema,
-  SearchCommitsLocalSchema,
-  SearchCommitsBulkLocalSchema,
-  ListReleasesLocalSchema,
-  ListReleasesBulkLocalSchema,
-  SearchDiscussionsLocalSchema,
-  SearchDiscussionsBulkLocalSchema,
-  GitHubReposSearchSingleQueryLocalSchema,
-  GitHubReposSearchBulkQueryLocalSchema,
-  GitHubViewRepoStructureQueryLocalSchema,
-  GitHubViewRepoStructureBulkQueryLocalSchema,
-  NpmSearchQueryLocalSchema,
-  NpmSearchBulkQueryLocalSchema,
-  LocalFetchContentQuerySchema,
-  LocalFetchContentBulkQuerySchema,
-  LocalFindFilesQuerySchema,
-  LocalFindFilesBulkQuerySchema,
-  LocalAnalyzeGraphQuerySchema,
-  LocalAnalyzeGraphBulkQuerySchema,
-  LocalRipgrepQuerySchema,
-  LocalRipgrepBulkQuerySchema,
-  LocalViewStructureQuerySchema,
-  LocalViewStructureBulkQuerySchema,
-  BulkLspGetSemanticsQuerySchema,
-  LspGetSemanticsQueryDisplaySchema,
-} from '../toolSchemaImports.js';
+  DIRECT_TOOL_SPECIFICATIONS,
+  isDirectToolSpecificationEnabled,
+  type DirectToolSpecification,
+} from './toolSpecifications.js';
 
 export type DirectToolInput = Record<string, unknown> & {
   queries: unknown[];
@@ -55,6 +26,10 @@ export type DirectToolInput = Record<string, unknown> & {
 
 export interface DirectToolDefinition {
   name: string;
+
+  title: string;
+
+  description: string;
 
   schema: z.ZodType;
 
@@ -74,21 +49,16 @@ export const DIRECT_TOOL_CATEGORIES: readonly DirectToolCategory[] = [
 ];
 const DIRECT_TOOL_RELEVANCE_ORDER = new Map<string, number>(
   [
-    STATIC_TOOL_NAMES.GITHUB_SEARCH_CODE,
-    STATIC_TOOL_NAMES.GITHUB_SEARCH_REPOSITORIES,
-    STATIC_TOOL_NAMES.GITHUB_PULL_REQUESTS,
-    STATIC_TOOL_NAMES.GITHUB_ISSUES,
-    STATIC_TOOL_NAMES.GITHUB_COMMITS,
+    GITHUB_SEARCH_TOOL_NAME,
+    GITHUB_SEARCH_HISTORY_TOOL_NAME,
+    GITHUB_GET_HISTORY_ITEM_TOOL_NAME,
     STATIC_TOOL_NAMES.GITHUB_RELEASES,
     STATIC_TOOL_NAMES.GITHUB_DISCUSSIONS,
     STATIC_TOOL_NAMES.GITHUB_FETCH_CONTENT,
-    STATIC_TOOL_NAMES.GITHUB_VIEW_REPO_STRUCTURE,
     STATIC_TOOL_NAMES.GITHUB_CLONE_REPO,
-    STATIC_TOOL_NAMES.LOCAL_RIPGREP,
-    STATIC_TOOL_NAMES.LOCAL_FIND_FILES,
+    LOCAL_SEARCH_TOOL_NAME,
     LOCAL_ANALYZE_GRAPH_TOOL_NAME,
     STATIC_TOOL_NAMES.LOCAL_FETCH_CONTENT,
-    STATIC_TOOL_NAMES.LOCAL_VIEW_STRUCTURE,
     LSP_GET_SEMANTICS_TOOL_NAME,
     STATIC_TOOL_NAMES.PACKAGE_SEARCH,
   ].map((name, index) => [name, index])
@@ -142,134 +112,44 @@ export const DIRECT_TOOL_AUTO_FILLED_FIELDS: ReadonlySet<string> = new Set([
   ...DIRECT_TOOL_AUTO_FILLED_FIELD_NAMES,
 ]);
 
-/**
- * Engine-free tool definitions (name + display/bulk schema). Order mirrors
- * `ALL_TOOLS` in `toolConfig.ts`; each schema is the SAME object that
- * `toolConfig` attaches an executionFn to. Kept in lockstep by a drift test.
- */
-export const DIRECT_TOOL_DEFINITIONS: DirectToolDefinition[] = [
-  {
-    name: STATIC_TOOL_NAMES.GITHUB_SEARCH_CODE,
-    schema: GitHubCodeSearchQueryLocalSchema,
-    inputSchema: GitHubCodeSearchBulkQueryLocalSchema,
-  },
-  {
-    name: STATIC_TOOL_NAMES.GITHUB_FETCH_CONTENT,
-    schema: FileContentQueryLocalSchema,
-    inputSchema: FileContentBulkQueryLocalSchema,
-  },
-  {
-    name: STATIC_TOOL_NAMES.GITHUB_VIEW_REPO_STRUCTURE,
-    schema: GitHubViewRepoStructureQueryLocalSchema,
-    inputSchema: GitHubViewRepoStructureBulkQueryLocalSchema,
-  },
-  {
-    name: STATIC_TOOL_NAMES.GITHUB_SEARCH_REPOSITORIES,
-    schema: GitHubReposSearchSingleQueryLocalSchema,
-    inputSchema: GitHubReposSearchBulkQueryLocalSchema,
-  },
-  {
-    name: STATIC_TOOL_NAMES.GITHUB_PULL_REQUESTS,
-    schema: SearchPullRequestsLocalSchema,
-    inputSchema: SearchPullRequestsBulkLocalSchema,
-  },
-  {
-    name: STATIC_TOOL_NAMES.GITHUB_ISSUES,
-    schema: SearchIssuesLocalSchema,
-    inputSchema: SearchIssuesBulkLocalSchema,
-  },
-  {
-    name: STATIC_TOOL_NAMES.GITHUB_COMMITS,
-    schema: SearchCommitsLocalSchema,
-    inputSchema: SearchCommitsBulkLocalSchema,
-  },
-  ...(isReleasesEnabled()
-    ? [
-        {
-          name: STATIC_TOOL_NAMES.GITHUB_RELEASES,
-          schema: ListReleasesLocalSchema,
-          inputSchema: ListReleasesBulkLocalSchema,
-        },
-      ]
-    : []),
-  ...(isDiscussionsEnabled()
-    ? [
-        {
-          name: STATIC_TOOL_NAMES.GITHUB_DISCUSSIONS,
-          schema: SearchDiscussionsLocalSchema,
-          inputSchema: SearchDiscussionsBulkLocalSchema,
-        },
-      ]
-    : []),
-  {
-    name: STATIC_TOOL_NAMES.PACKAGE_SEARCH,
-    schema: NpmSearchQueryLocalSchema,
-    inputSchema: NpmSearchBulkQueryLocalSchema,
-  },
-  {
-    name: STATIC_TOOL_NAMES.GITHUB_CLONE_REPO,
-    schema: CloneRepoQueryLocalSchema,
-    inputSchema: BulkCloneRepoLocalSchema,
-  },
-  {
-    name: STATIC_TOOL_NAMES.LOCAL_RIPGREP,
-    schema: LocalRipgrepQuerySchema,
-    inputSchema: LocalRipgrepBulkQuerySchema,
-  },
-  {
-    name: STATIC_TOOL_NAMES.LOCAL_VIEW_STRUCTURE,
-    schema: LocalViewStructureQuerySchema,
-    inputSchema: LocalViewStructureBulkQuerySchema,
-  },
-  {
-    name: STATIC_TOOL_NAMES.LOCAL_FIND_FILES,
-    schema: LocalFindFilesQuerySchema,
-    inputSchema: LocalFindFilesBulkQuerySchema,
-  },
-  {
-    name: LOCAL_ANALYZE_GRAPH_TOOL_NAME,
-    schema: LocalAnalyzeGraphQuerySchema,
-    inputSchema: LocalAnalyzeGraphBulkQuerySchema,
-  },
-  {
-    name: STATIC_TOOL_NAMES.LOCAL_FETCH_CONTENT,
-    schema: LocalFetchContentQuerySchema,
-    inputSchema: LocalFetchContentBulkQuerySchema,
-  },
-  {
-    name: LSP_GET_SEMANTICS_TOOL_NAME,
-    schema: LspGetSemanticsQueryDisplaySchema,
-    inputSchema: BulkLspGetSemanticsQuerySchema,
-  },
-];
+function toDirectToolDefinition(
+  specification: DirectToolSpecification,
+  disabled = false
+): DirectToolDefinition {
+  const definition: DirectToolDefinition = {
+    name: specification.name,
+    title: specification.title,
+    description: specification.description,
+    schema: specification.schema,
+    inputSchema: specification.inputSchema,
+  };
 
-const DISABLED_TOOL_DEFINITIONS: DirectToolDefinition[] = [
-  ...(isReleasesEnabled()
-    ? []
-    : [
-        {
-          name: STATIC_TOOL_NAMES.GITHUB_RELEASES,
-          schema: ListReleasesLocalSchema,
-          inputSchema: ListReleasesBulkLocalSchema,
-          disabled: { envVar: 'ENABLE_RELEASES' },
-        },
-      ]),
-  ...(isDiscussionsEnabled()
-    ? []
-    : [
-        {
-          name: STATIC_TOOL_NAMES.GITHUB_DISCUSSIONS,
-          schema: SearchDiscussionsLocalSchema,
-          inputSchema: SearchDiscussionsBulkLocalSchema,
-          disabled: { envVar: 'ENABLE_DISCUSSIONS' },
-        },
-      ]),
-];
+  if (disabled && specification.availability) {
+    definition.disabled = { envVar: specification.availability.envVar };
+  }
+
+  return definition;
+}
+
+/** Engine-free enabled definitions, derived from the shared specification. */
+export const DIRECT_TOOL_DEFINITIONS: DirectToolDefinition[] =
+  DIRECT_TOOL_SPECIFICATIONS.filter(isDirectToolSpecificationEnabled).map(
+    specification => toDirectToolDefinition(specification)
+  );
+
+const DISABLED_TOOL_DEFINITIONS: DirectToolDefinition[] =
+  DIRECT_TOOL_SPECIFICATIONS.filter(
+    specification => !isDirectToolSpecificationEnabled(specification)
+  ).map(specification => toDirectToolDefinition(specification, true));
 
 /** Every public direct-tool schema, including disabled opt-in tools. */
 export const DIRECT_TOOL_DISCOVERY_DEFINITIONS: DirectToolDefinition[] = [
-  ...DIRECT_TOOL_DEFINITIONS,
-  ...DISABLED_TOOL_DEFINITIONS,
+  ...DIRECT_TOOL_SPECIFICATIONS.map(specification =>
+    toDirectToolDefinition(
+      specification,
+      !isDirectToolSpecificationEnabled(specification)
+    )
+  ),
 ];
 
 export function findDirectToolDefinition(

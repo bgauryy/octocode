@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { McpServer } from '@modelcontextprotocol/server';
+import type { McpServer, RegisteredTool } from '@modelcontextprotocol/server';
 import { registerTools } from '../../src/tools/toolsManager.js';
+import { ALL_TOOLS, type McpToolConfig } from '../../src/tools/toolConfig.js';
 
 vi.mock(
   '../../../octocode-tools-core/src/serverConfig.js',
@@ -20,6 +21,27 @@ import { getServerConfig } from '../../../octocode-tools-core/src/serverConfig.j
 
 const mockGetServerConfig = vi.mocked(getServerConfig);
 
+function registeredTool(): RegisteredTool {
+  return {
+    handler: vi.fn(async () => ({ content: [] })),
+    executor: vi.fn(async () => ({ content: [] })),
+    enabled: true,
+    enable: vi.fn(),
+    disable: vi.fn(),
+    update: vi.fn(),
+    remove: vi.fn(),
+  };
+}
+
+function toolWithRegistration(
+  name: string,
+  fn: McpToolConfig['fn']
+): McpToolConfig {
+  const tool = ALL_TOOLS.find(candidate => candidate.name === name);
+  if (!tool) throw new Error(`Missing test tool: ${name}`);
+  return { ...tool, fn };
+}
+
 describe('ToolsManager filter validation', () => {
   const mockServer = {} as McpServer;
 
@@ -32,53 +54,36 @@ describe('ToolsManager filter validation', () => {
 
   it('fails before registration when TOOLS_TO_RUN contains no valid names', async () => {
     mockGetServerConfig.mockReturnValue({
-      toolsToRun: ['ghGetPullRequest'],
+      toolsToRun: ['ghGetHistory'],
     } as ReturnType<typeof getServerConfig>);
-    const toolFn = vi.fn().mockResolvedValue({});
+    const toolFn = vi.fn(() => registeredTool());
 
     await expect(
       registerTools(mockServer, undefined, {
-        toolLoader: () => [
-          {
-            name: 'ghSearchPullRequests',
-            isDefault: true,
-            isLocal: false,
-            fn: toolFn,
-          },
-        ],
+        toolLoader: () => [toolWithRegistration('ghGetHistoryItem', toolFn)],
       })
-    ).rejects.toThrow(/ghGetPullRequest.*ghSearchPullRequests/i);
+    ).rejects.toThrow(/ghGetHistory.*ghGetHistoryItem/i);
     expect(toolFn).not.toHaveBeenCalled();
   });
 
   it('warns but registers valid tools from a mixed allowlist', async () => {
     mockGetServerConfig.mockReturnValue({
-      toolsToRun: ['ghSearchIssues', 'ghGetPullRequest'],
+      toolsToRun: ['ghSearchHistory', 'ghGetHistory'],
     } as ReturnType<typeof getServerConfig>);
     const stderr = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
-    const toolFn = vi.fn().mockResolvedValue({});
+    const toolFn = vi.fn(() => registeredTool());
 
     const result = await registerTools(mockServer, undefined, {
       toolLoader: () => [
-        {
-          name: 'ghSearchIssues',
-          isDefault: true,
-          isLocal: false,
-          fn: toolFn,
-        },
-        {
-          name: 'ghSearchPullRequests',
-          isDefault: true,
-          isLocal: false,
-          fn: vi.fn().mockResolvedValue({}),
-        },
+        toolWithRegistration('ghSearchHistory', toolFn),
+        toolWithRegistration('ghGetHistoryItem', () => registeredTool()),
       ],
     });
 
     expect(result.successCount).toBe(1);
     expect(toolFn).toHaveBeenCalledTimes(1);
     expect(stderr).toHaveBeenCalledWith(
-      expect.stringMatching(/ghGetPullRequest.*ghSearchPullRequests/i)
+      expect.stringMatching(/ghGetHistory.*ghGetHistoryItem/i)
     );
     stderr.mockRestore();
   });

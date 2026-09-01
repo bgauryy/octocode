@@ -1,12 +1,11 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
-import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { setRuntimeSurface } from '@octocodeai/config';
 import { executeDirectTool } from '../../../src/tools/directToolCatalog.js';
 
-const ROOT = process.env.HOME || homedir() || tmpdir();
+const ROOT = process.cwd();
 
 function firstText(
   result: Awaited<ReturnType<typeof executeDirectTool>>

@@ -111,7 +111,7 @@ export function createResponseFormat(
   const outputFormat = getOutputFormat();
   const defaultPriority =
     'results' in sanitizedData
-      ? ['results', 'index', 'status', 'meta', 'data']
+      ? ['results', 'index', 'status', 'cache', 'meta', 'data']
       : ['instructions', 'status', 'data'];
 
   if (outputFormat === 'json') {

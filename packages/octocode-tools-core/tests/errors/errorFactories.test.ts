@@ -36,7 +36,7 @@ describe('ToolErrors.fileAccessFailed', () => {
     const cause = Object.assign(new Error('no such file'), { code: 'ENOENT' });
     const err = ToolErrors.fileAccessFailed('/path/file.ts', cause);
     expect(err.message).toMatch(/file not found/i);
-    expect(err.message).toMatch(/localFindFiles/i);
+    expect(err.message).toMatch(/localSearch.*files/i);
   });
 
   it('produces EACCES message for permission-denied cause', () => {
@@ -53,7 +53,7 @@ describe('ToolErrors.fileAccessFailed', () => {
     });
     const err = ToolErrors.fileAccessFailed('/path/dir', cause);
     expect(err.message).toMatch(/path is a directory/i);
-    expect(err.message).toMatch(/localViewStructure/i);
+    expect(err.message).toMatch(/localSearch.*tree/i);
   });
 
   it('produces ENOTDIR message', () => {
@@ -117,7 +117,7 @@ describe('ToolErrors.binaryFileUnsupported', () => {
     const err = ToolErrors.binaryFileUnsupported('/image.png');
     expect(err).toBeInstanceOf(ToolError);
     expect(err.message).toMatch(/binary file/i);
-    expect(err.message).toMatch(/localSearchCode/i);
+    expect(err.message).toMatch(/localSearch.*text/i);
   });
 });
 
@@ -176,14 +176,14 @@ describe('ToolErrors.commandExecutionFailed', () => {
 
 describe('ToolErrors.toolExecutionFailed', () => {
   it('creates an error mentioning the tool name', () => {
-    const err = ToolErrors.toolExecutionFailed('localSearchCode');
+    const err = ToolErrors.toolExecutionFailed('local.text');
     expect(err).toBeInstanceOf(ToolError);
-    expect(err.message).toContain('localSearchCode');
+    expect(err.message).toContain('local.text');
   });
 
   it('accepts an optional cause', () => {
     const err = ToolErrors.toolExecutionFailed(
-      'localSearchCode',
+      'local.text',
       new Error('cause')
     );
     expect(err).toBeInstanceOf(ToolError);

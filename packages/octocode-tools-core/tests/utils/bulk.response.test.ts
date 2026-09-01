@@ -4,6 +4,34 @@ import { executeBulkOperation } from '../../src/utils/response/bulk.js';
 import { formatFinalizedResponse } from '../../src/utils/response/groupedFinalizer.js';
 
 describe('executeBulkOperation batch correlation', () => {
+  it('normalizes custom-finalizer cache markers to the strict cache: 1 contract', async () => {
+    const finalize = ({ results }: { results: Array<{ index: number }> }) => ({
+      structuredContent: {
+        results: results.map(row => ({ index: row.index, cache: true })),
+      },
+      text: 'custom response',
+    });
+
+    const fresh = await executeBulkOperation(
+      [{ value: 'fresh' }],
+      async query => query,
+      { toolName: 'testTool', finalize }
+    );
+    expect(fresh.structuredContent).toMatchObject({ results: [{ index: 0 }] });
+    expect(
+      (fresh.structuredContent as { results: unknown[] }).results[0]
+    ).not.toHaveProperty('cache');
+
+    const cached = await executeBulkOperation(
+      [{ value: 'cached' }],
+      async query => ({ ...query, cache: 1 as const }),
+      { toolName: 'testTool', finalize }
+    );
+    expect(cached.structuredContent).toMatchObject({
+      results: [{ index: 0, cache: 1 }],
+    });
+  });
+
   it('keeps finalized and ordinary response-envelope hoisting in parity', async () => {
     const queries = [{ value: 'one' }, { value: 'two' }];
     const processor = async (query: { value: string }) => ({
@@ -29,6 +57,82 @@ describe('executeBulkOperation batch correlation', () => {
     });
 
     expect(finalized.structuredContent).toEqual(ordinary.structuredContent);
+  });
+
+  it('reconciles continuation diagnostics after a finalizer adds next-page data', async () => {
+    const result = await executeBulkOperation(
+      [{ page: 1 }],
+      async () => ({ pagination: { hasMore: true } }),
+      {
+        toolName: 'ghSearch',
+        finalize: ({ results }) => ({
+          structuredContent: {
+            results: results.map(row => ({
+              ...row,
+              data: {
+                ...row.data,
+                next: {
+                  nextPage: {
+                    tool: 'ghSearch',
+                    query: { operation: 'code', page: 2 },
+                  },
+                },
+              },
+            })),
+          },
+          text: 'custom response',
+        }),
+      }
+    );
+
+    expect(result.structuredContent).toMatchObject({
+      results: [
+        {
+          meta: { diagnostics: { partial: true } },
+          data: { next: { nextPage: { tool: 'ghSearch' } } },
+        },
+      ],
+    });
+    const [row] = (
+      result.structuredContent as {
+        results: Array<{ meta: { diagnostics?: { codes?: string[] } } }>;
+      }
+    ).results;
+    expect(row?.meta.diagnostics?.codes ?? []).not.toContain(
+      'continuationMissing'
+    );
+  });
+
+  it('includes finalized shared partial state in each row diagnostic', async () => {
+    const result = await executeBulkOperation(
+      [{ path: 'file.ts' }],
+      async () => ({ value: 'slice' }),
+      {
+        toolName: 'ghGetFileContent',
+        finalize: ({ results }) => ({
+          structuredContent: {
+            shared: { isPartial: true },
+            results: results.map(row => ({
+              ...row,
+              data: {
+                ...row.data,
+                next: {
+                  continueLines: {
+                    tool: 'ghGetFileContent',
+                    query: { path: 'file.ts', startLine: 11, endLine: 20 },
+                  },
+                },
+              },
+            })),
+          },
+          text: 'custom response',
+        }),
+      }
+    );
+
+    expect(result.structuredContent).toMatchObject({
+      results: [{ meta: { diagnostics: { partial: true } } }],
+    });
   });
 
   it('labels whole-response pagination as text-channel-only', async () => {

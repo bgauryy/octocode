@@ -9,6 +9,11 @@ import {
   safeCacheSet,
 } from './store.js';
 import { readDiskCache, writeDiskCache } from './diskStore.js';
+import {
+  markResponseCacheHit,
+  runCacheLayer,
+  type CacheRole,
+} from './trace.js';
 
 const ETAG_SOFT_TTL_SECONDS = 86400;
 
@@ -38,17 +43,34 @@ export type ConditionalFetchResult<T> = {
   notModified?: boolean;
 };
 
+interface ConditionalCacheOptions<T> {
+  ttl?: number;
+  skipCache?: boolean;
+  forceRefresh?: boolean;
+  shouldCache?: (value: T) => boolean;
+  /** Whether a hit supplies the tool response or only supporting metadata. */
+  cacheRole?: CacheRole;
+}
+
 export async function withDataCacheConditional<T>(
   cacheKey: string,
   operation: (opts: {
     ifNoneMatch?: string;
   }) => Promise<ConditionalFetchResult<T>>,
-  options: {
-    ttl?: number;
-    skipCache?: boolean;
-    forceRefresh?: boolean;
-    shouldCache?: (value: T) => boolean;
-  } = {}
+  options: ConditionalCacheOptions<T> = {}
+): Promise<T> {
+  return runCacheLayer(
+    () => withDataCacheConditionalInternal(cacheKey, operation, options),
+    options.cacheRole
+  );
+}
+
+async function withDataCacheConditionalInternal<T>(
+  cacheKey: string,
+  operation: (opts: {
+    ifNoneMatch?: string;
+  }) => Promise<ConditionalFetchResult<T>>,
+  options: ConditionalCacheOptions<T>
 ): Promise<T> {
   if (options.skipCache) {
     const fresh = await operation({});
@@ -65,6 +87,7 @@ export async function withDataCacheConditional<T>(
       if (cached !== undefined) {
         cacheStats.hits++;
         recordGitHubCacheHit(cacheKey);
+        markResponseCacheHit();
         return cached;
       }
     } catch {
@@ -75,6 +98,7 @@ export async function withDataCacheConditional<T>(
     if (diskSoft?.state === 'fresh') {
       cacheStats.hits++;
       recordGitHubCacheHit(cacheKey);
+      markResponseCacheHit();
       safeCacheSet(
         cacheKey,
         diskSoft.value,
@@ -97,6 +121,7 @@ export async function withDataCacheConditional<T>(
     return existingPending.promise as Promise<T>;
   }
 
+  const requestId = Symbol(cacheKey);
   const promise = (async () => {
     try {
       const soft = options.forceRefresh
@@ -115,6 +140,7 @@ export async function withDataCacheConditional<T>(
       if (result.notModified && recoverable) {
         cacheStats.hits++;
         recordGitHubCacheHit(cacheKey);
+        markResponseCacheHit();
         const ttl = resolveTTL(cacheKey, options.ttl);
         safeCacheSet(cacheKey, recoverable.data, ttl);
         await writeDiskCache(cacheKey, recoverable.data, ttl, {
@@ -144,10 +170,16 @@ export async function withDataCacheConditional<T>(
 
       return result.value;
     } finally {
-      pendingRequests.delete(cacheKey);
+      if (pendingRequests.get(cacheKey)?.requestId === requestId) {
+        pendingRequests.delete(cacheKey);
+      }
     }
   })();
 
-  pendingRequests.set(cacheKey, { promise, startedAt: Date.now() });
-  return promise as Promise<T>;
+  pendingRequests.set(cacheKey, {
+    promise,
+    startedAt: Date.now(),
+    requestId,
+  });
+  return promise;
 }

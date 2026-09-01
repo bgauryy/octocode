@@ -4,13 +4,12 @@ import {
   GITHUB_SEARCH_DEFAULT_LIMIT,
   GITHUB_SEARCH_MAX_LIMIT,
   MAX_CHAR_LENGTH,
-  PR_CONTENT_DEFAULT_ITEMS_PER_PAGE,
-  PR_CONTENT_MAX_ITEMS_PER_PAGE,
 } from '../../config.js';
 import {
   clampedInt,
   createRelaxedBulkQuerySchema,
   relaxedPageNumberField,
+  offsetField,
 } from '../../scheme/fields.js';
 import {
   createQueryShapeSchema,
@@ -25,26 +24,23 @@ import type { ResponsePaginationInfo } from '../../types/toolOutput.js';
 // pagination fields to apply *relaxed* validation (clamp instead of reject).
 // copyDescription in ../../scheme/coreSchemas.ts preserves canonical prose.
 const queryOverrides = {
-  // Keep the runtime enum explicit while inheriting its description from core.
+  // Internal dispatcher mode; focused public tools inject this themselves.
   type: z.enum(['prs', 'commits', 'releases', 'issues']).optional(),
   prNumber: clampedInt(1, 1_000_000_000).optional(),
   issueNumber: clampedInt(1, 1_000_000_000).optional(),
-  limit: clampedInt(1, GITHUB_SEARCH_MAX_LIMIT)
+  pageSize: clampedInt(1, GITHUB_SEARCH_MAX_LIMIT)
     .optional()
     .default(GITHUB_SEARCH_DEFAULT_LIMIT),
   // `match` here selects WHICH text fields keywords are matched against — a
-  // different concept from ghSearchCode's `match` (file contents vs paths).
+  // different concept from code-operation `match` (file contents vs paths).
   // Don't carry intuition across tools.
   match: z.array(z.enum(['title', 'body', 'comments'])).optional(),
   page: relaxedPageNumberField.default(1),
-  filePage: relaxedPageNumberField.optional(),
-  commentPage: relaxedPageNumberField.optional(),
-  commitPage: relaxedPageNumberField.optional(),
-  itemsPerPage: clampedInt(1, PR_CONTENT_MAX_ITEMS_PER_PAGE)
-    .optional()
-    .default(PR_CONTENT_DEFAULT_ITEMS_PER_PAGE),
-  charOffset: clampedInt(0, 100_000_000).optional(),
-  commentBodyOffset: clampedInt(0, 100_000_000).optional(),
+  filePage: clampedInt(1, 1_000).optional(),
+  commentPage: clampedInt(1, 1_000).optional(),
+  commitPage: clampedInt(1, 1_000).optional(),
+  charOffset: offsetField.optional(),
+  commentBodyOffset: offsetField.optional(),
   charLength: clampedInt(1, MAX_CHAR_LENGTH).optional(),
   // NOTE: diffs/patches are always returned verbatim (see contentResponse/
   // fileSurfaces.ts — no patch minification). `minify` now only normalizes
@@ -65,7 +61,7 @@ export const GitHubPullRequestSearchBulkQueryLocalSchema =
   createRelaxedBulkQuerySchema(GitHubPullRequestSearchQueryShape);
 
 // ---------------------------------------------------------------------------
-// Output TYPES — describes what ghSearchPullRequests returns. No zod: the MCP
+// Output TYPES — describes what the internal GitHub history router returns. No zod: the MCP
 // server registers no outputSchema. Index signatures mirror the original
 // .passthrough() (upstream + local) for additive runtime fields.
 // ---------------------------------------------------------------------------
@@ -162,7 +158,7 @@ export interface PullRequestsResultData {
   };
   pagination?: HistoryPagination;
   // Mode-irrelevant-field notices and other in-band guidance.
-  // Continuations (readIssue / searchCode / …).
+  // Continuations (readIssue / searchRepositoryCode / …).
   next?: Record<string, ToolContinuation>;
   [key: string]: unknown;
 }

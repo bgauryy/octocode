@@ -10,7 +10,6 @@ export function shouldFetchFileChanges(
       }
     | undefined;
   return Boolean(
-    params.reviewMode === 'full' ||
     content?.changedFiles ||
     (content?.patches?.mode && content.patches.mode !== 'none')
   );
@@ -26,8 +25,6 @@ export type ContentComments = {
 export function getCommentsConfig(
   params: GitHubPullRequestsSearchParams
 ): ContentComments | null {
-  if (params.reviewMode === 'full')
-    return { discussion: true, reviewInline: true };
   const c = (params.content as { comments?: ContentComments } | undefined)
     ?.comments;
   return c ?? null;
@@ -53,14 +50,14 @@ export function shouldFetchCommits(
   params: GitHubPullRequestsSearchParams
 ): boolean {
   const content = params.content as { commits?: unknown } | undefined;
-  return Boolean(params.reviewMode === 'full' || content?.commits);
+  return Boolean(content?.commits);
 }
 
 export function shouldFetchReviews(
   params: GitHubPullRequestsSearchParams
 ): boolean {
   const content = params.content as { reviews?: boolean } | undefined;
-  return Boolean(params.reviewMode === 'full' || content?.reviews);
+  return Boolean(content?.reviews);
 }
 
 /**
@@ -72,7 +69,6 @@ export function shouldEnrichPullRequestFromSearch(
   params: GitHubPullRequestsSearchParams
 ): boolean {
   if (params.prNumber !== undefined) return true;
-  if (params.reviewMode === 'full') return true;
   return (
     shouldFetchFileChanges(params) ||
     shouldFetchDiscussionComments(params) ||

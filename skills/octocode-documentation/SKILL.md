@@ -73,7 +73,7 @@ Stop when: outline gate awaits answer; write+style+verify finishes; a word-list 
 | `scripts/style-lint.mjs --self-test` | After editing any rule | Lints built-in good/bad fixtures so a gate cannot go inert |
 | `scripts/refresh-word-list.mjs --dry-run` | When the word list looks stale | Rebuilds `assets/google-word-list.tsv` from `developers.google.com`; it fetches even with `--dry-run`, and refuses to write a short parse |
 | `assets/google-word-list.tsv` | Answering a single-term question | 597 guide entries with verdict and guidance; quote it and stop |
-| `assets/google-style-pages.tsv` | Finding which reference owns a guide page, or its URL | All 69 pages as `slug`, `title`, `owner`, `url`; `grep -P "^tables\t"` answers ownership, and the URL is what you fetch to verify |
+| `assets/google-style-pages.tsv` | Finding which reference owns a guide page, or its URL | All 69 pages as `slug`, `title`, `owner`, `url`; use `localSearch` with `operation:"text"` and `searchText:"^tables\\t"` to answer ownership, and fetch the returned URL to verify |
 
 Suppression: `<!-- style-lint: ignore-file -->` skips a file found by recursion, `<!-- style-lint: ignore-line rule-id -->` mutes named rules on one line. Both are inert inside a code span, so a page can document them. Docstrings, HTML, and UI strings stay hand-checked.
 

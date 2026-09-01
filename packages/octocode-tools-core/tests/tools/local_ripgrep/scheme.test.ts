@@ -5,7 +5,7 @@ import {
   LocalRipgrepQuerySchema,
 } from '../../../src/tools/local_ripgrep/scheme.js';
 
-describe('localSearchCode schema', () => {
+describe('local.text schema', () => {
   const baseQuery = { searchText: 'token', path: '/repo' };
 
   it('accepts the caseMode enum values', () => {

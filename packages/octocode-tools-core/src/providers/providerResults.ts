@@ -271,9 +271,16 @@ export interface RepoStructureResult {
     totalFiles: number;
     totalFolders: number;
     truncated: boolean;
+    incompleteTree?: boolean;
   };
 
   pagination?: PaginationInfo;
 
   hints?: string[];
+
+  isPartial?: boolean;
+
+  terminalLimit?: boolean;
+
+  partialReasons?: Array<'providerTreeTruncated' | 'partialTreeFailures'>;
 }

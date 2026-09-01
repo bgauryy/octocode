@@ -51,6 +51,10 @@ describe('fetchIssues (orchestrator)', () => {
     });
     expect('error' in result).toBe(true);
     expect((result as { error: string }).error).toContain('merged');
+    expect((result as { hints?: string[] }).hints).toEqual([
+      'Use ghSearchHistory with {"operation":"pullRequests","owner":"microsoft","repo":"TypeScript","state":"merged"}.',
+    ]);
+    expect(JSON.stringify(result)).not.toContain('type:\\"prs\\"');
   });
 
   it('routes to fetchIssueByNumber when issueNumber is provided', async () => {

@@ -369,7 +369,7 @@ describe('localAnalyzeGraph operation contract', () => {
       path,
       includeTests: false,
       limit: 3,
-      itemsPerPage: 2,
+      pageSize: 2,
       page: 2,
     });
 
@@ -382,7 +382,7 @@ describe('localAnalyzeGraph operation contract', () => {
     expect(result.results).toHaveLength(1);
   });
 
-  it('uses the schema maximum as its default page size and bounds entrypoint summaries', async () => {
+  it('uses the schema maximum as its default page size without dropping entrypoints', async () => {
     const path = await createWideGraphFixture();
     const entrypoints = Array.from({ length: 55 }, (_, index) =>
       join(path, `entry-${index}.js`)
@@ -398,9 +398,31 @@ describe('localAnalyzeGraph operation contract', () => {
     expect(result.results).toHaveLength(50);
     expect(result.summary).toMatchObject({
       entrypointsResolvedCount: 55,
-      entrypointsResolvedTruncated: true,
     });
-    expect(result.summary?.entrypointsResolved).toHaveLength(50);
+    expect(result.summary).not.toHaveProperty('entrypointsResolvedTruncated');
+    expect(result.summary?.entrypointsResolved).toHaveLength(55);
+  });
+
+  it('leaves files unclassified when inferred reachability has no roots', async () => {
+    const path = await createWideGraphFixture(3);
+    const result = await analyzeGraph({
+      operation: 'reachability',
+      path,
+      includeTests: false,
+    });
+
+    expect(result).toMatchObject({
+      status: 'empty',
+      confidence: 'low',
+      results: [],
+      summary: {
+        entrypointsResolvedCount: 0,
+        classifiedCount: 0,
+        unclassifiedCount: 3,
+      },
+      warnings: [expect.stringContaining('pass `entrypoints` explicitly')],
+    });
+    expect(result.summary).not.toHaveProperty('unreachableCount');
   });
 
   it('maps a compiled bin entry to src/index.ts when basenames differ', async () => {

@@ -88,10 +88,8 @@ describe('findInvalidNumericOptions', () => {
     ]);
   });
 
-  it('validates the --context alias as numeric', () => {
-    expect(findInvalidNumericOptions(args({ context: 'abc' }))).toEqual([
-      '--context=abc',
-    ]);
+  it('does not recognize the removed --context alias as numeric', () => {
+    expect(findInvalidNumericOptions(args({ context: 'abc' }))).toEqual([]);
   });
 
   it('validates --items-per-page as numeric', () => {

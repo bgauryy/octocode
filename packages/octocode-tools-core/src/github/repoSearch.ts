@@ -75,6 +75,8 @@ export async function searchGitHubReposAPI(
       owner: params.owner,
       repo: extra.repo,
       stars: params.stars,
+      size: extra.size,
+      created: extra.created,
       updated: params.updated,
       language: extra.language,
       match: params.match,
@@ -226,6 +228,21 @@ async function searchGitHubReposAPIInternal(
     const hasSearchTerms =
       (params.keywords?.length ?? 0) > 0 ||
       (params.topicsToSearch?.length ?? 0) > 0;
+    const extra = params as Record<string, unknown>;
+    const hasRepositoryFilters = Boolean(
+      params.stars ||
+      params.updated ||
+      params.language ||
+      params.match ||
+      extra.forks ||
+      extra.goodFirstIssues ||
+      extra.created ||
+      extra.size ||
+      extra.license ||
+      extra.visibility ||
+      extra.archived !== undefined ||
+      (params.sort && !['best-match', 'updated'].includes(params.sort))
+    );
 
     const ownerParam =
       typeof params.owner === 'string'
@@ -234,7 +251,7 @@ async function searchGitHubReposAPIInternal(
           ? params.owner[0]
           : undefined;
 
-    if (!hasSearchTerms && ownerParam) {
+    if (!hasSearchTerms && !hasRepositoryFilters && ownerParam) {
       return await listGitHubOrgReposAPIInternal(
         {
           owner: ownerParam,
@@ -315,7 +332,7 @@ async function searchGitHubReposAPIInternal(
 
     const reportedTotalMatches = result.data.total_count;
     const totalMatches = Math.min(reportedTotalMatches, 1000);
-    const totalPages = Math.min(Math.ceil(totalMatches / perPage), 10);
+    const totalPages = Math.ceil(totalMatches / perPage);
     const clampedPage = Math.min(currentPage, Math.max(1, totalPages));
     const hasMore = clampedPage < totalPages;
     const reachableTotalMatches = Math.min(totalMatches, totalPages * perPage);

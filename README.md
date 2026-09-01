@@ -113,18 +113,18 @@ Run `npx octocode` and agents figure out the rest. The bare command prints built
 ```bash
 npx octocode                                         # self-describing usage for agents
 npx octocode tools                                   # list every tool
-npx octocode tools localSearchCode --scheme          # inspect a tool's schema
+npx octocode tools localSearch --scheme              # inspect all local discovery modes
 ```
 
 Every MCP tool is also a plain command: JSON in, token-efficient YAML out. Local paths route to local tools; `owner/repo[/path]` routes to GitHub.
 
 ```bash
-npx octocode tools localSearchCode \
-  --queries '{"path":".","searchText":"authenticate","maxFiles":20}'
+npx octocode tools localSearch \
+  --queries '{"operation":"text","path":".","searchText":"authenticate","maxFiles":20}'
 ```
 ```yaml
 results:
-  - id: localSearchCode-1
+  - index: 0
     data:
       files:
         - path: src/auth.ts
@@ -183,20 +183,19 @@ than `gh`+Headroom, and ~3.2× fewer than `gh`+RTK** in the local-build headline
 
 ## Tools
 
-**17 tools in the full discovery catalog.** Releases and Discussions are opt-in;
-repository cloning is also capability-gated on MCP:
+**12 tools in the full discovery catalog.** Releases and Discussions are opt-in.
+Repository cloning is enabled by default on both CLI and MCP:
 
 | Surface | Registers | What that set is |
 |---|---:|---|
-| MCP, no flags | 14 | Default GitHub, package, local, graph, and LSP tools |
-| MCP, `+ ENABLE_RELEASES=true ENABLE_DISCUSSIONS=true` | 16 | Adds releases and Discussions |
-| MCP, `+ ENABLE_CLONE=true` | 17 | Adds cloning to the fully enabled set |
-| CLI, no flags | 15 | Local tools and clone are on; releases and Discussions are off |
-| CLI, `+ ENABLE_RELEASES=true ENABLE_DISCUSSIONS=true` | 17 | Enables the full catalog |
+| MCP, no flags | 10 | Default GitHub, clone, package, local, graph, and LSP tools |
+| MCP, `+ ENABLE_RELEASES=true ENABLE_DISCUSSIONS=true` | 12 | Adds both optional GitHub tools |
+| CLI, no flags | 10 | Local tools and clone are on; releases and Discussions are off |
+| CLI, `+ ENABLE_RELEASES=true ENABLE_DISCUSSIONS=true` | 12 | Adds both optional GitHub tools |
 
 Use `TOOLS_TO_RUN` for a strict allowlist or `DISABLE_TOOLS` to remove tools from
 the default set. `ENABLE_LOCAL=false` disables local, graph, and LSP tools;
-`ENABLE_CLONE=true` enables cloning on MCP.
+`ENABLE_CLONE=false` disables cloning on both surfaces.
 Set `ENABLE_RELEASES=true` or `ENABLE_DISCUSSIONS=true` to enable either optional
 GitHub tool; no additional allowlist is required.
 Flags: [Configuration](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md).
@@ -207,24 +206,22 @@ Flags: [Configuration](https://github.com/bgauryy/octocode/blob/main/docs/CONFIG
 
 | Tool | What it does | Knob |
 |------|--------------|------|
-| `ghSearchCode` | Code and path search across GitHub by owner, repository, path, filename, extension, and match filters. Accepts 1 to 5 parallel queries. | `concise` |
+| `ghSearch` | Discover GitHub code, repositories, or repository trees through strict `operation:"code"`, `"repositories"`, or `"tree"` queries. Accepts 1 to 5 parallel queries. | `operation` |
 | `ghGetFileContent` | Read a GitHub file or region: full file, line range, match slice, or paginated chars. | `minify` |
-| `ghViewRepoStructure` | Browse a repository's directory tree, plus opt-in repository enrichments. | `include` |
-| `ghSearchRepos` | Discover repositories by keywords, owner, topic, language, stars, updated, license, visibility. | `concise` |
-| `ghSearchPullRequests` | Search pull requests, or deep-read one PR: files, patches, comments, reviews, commits. | `content` |
-| `ghSearchIssues` | Search issues, or read one issue's body and comments. | `content` |
-| `ghSearchCommits` | Walk a repository's commit history, or compare two refs (`base`+`head`). | `includeDiff` |
+| `ghSearchHistory` | Search or list pull requests, issues, or commits through strict `operation:"pullRequests"`, `"issues"`, or `"commits"` queries. | `operation` |
+| `ghGetHistoryItem` | Read one pull request or issue by `number`, one commit by `ref`, or a comparison by `base`+`head`. | `operation` |
 | `ghListReleases` | List releases and the latest stable release, with opt-in assets. **Opt-in** (see [Tools](#tools) for the flags). | `includeAssets` |
-| `ghSearchDiscussions` | Search a repository's Discussions (Q&A, RFCs, announcements) through GraphQL. **Opt-in** (see [Tools](#tools) for the flags). | `keywordsToSearch` |
-| `ghCloneRepo` | Clone a repository or sparse subtree into the local cache for local and LSP analysis. **Opt-in** on MCP (`ENABLE_CLONE=true`); on by default in the CLI. | `sparsePath` |
+| `ghSearchDiscussions` | Search a repository's Discussions (Q&A, RFCs, announcements) through GraphQL. **Opt-in** (see [Tools](#tools) for the flags). | `keywords` |
+| `ghCloneRepo` | Clone a repository or sparse subtree into the local cache for local and LSP analysis. Enabled by default on CLI and MCP; `ENABLE_CLONE=false` disables it. | `sparsePath` |
+
+`ghSearch` is the only GitHub discovery interface; select code, repositories,
+or trees with its strict `operation` field.
 
 ### Local tools
 
 | Tool | What it does | Knob |
 |------|--------------|------|
-| `localSearchCode` | Local code/text search returning file and line anchors. `mode:"structural"` runs Octocode AST shape queries (`pattern` or `rule`). | `mode` |
-| `localViewStructure` | Browse a local directory tree: depth, filters, pagination, metadata. | `detail` |
-| `localFindFiles` | Find local files and directories by name, path, regex, extension, size, time, permissions, type. | |
+| `localSearch` | Discover local code and paths through one discriminated surface: `operation:"text"`, `"structural"`, `"files"`, or `"tree"`. | `operation` |
 | `localAnalyzeGraph` | Analyze bounded file dependencies, paths, reachability, SCCs, and dead-code candidates. Cycle results separate runtime loading cycles from type-only SCCs and include directed edge witnesses. | `operation` |
 | `localGetFileContent` | Read a local file or region: exact slice, match string, line range, or paginated chars. | `minify` |
 
@@ -287,7 +284,7 @@ Same research engine, no MCP client needed. Local paths route to local tools; `o
 
 #### More commands
 
-- **Cache and clone** — `npx octocode clone`, `npx octocode cache fetch|status|clear`
+- **Cache and materialize** — `npx octocode cache fetch|status|clear`; use `npx octocode tools ghCloneRepo --scheme` for the clone tool
 - **Skills** — `npx octocode skill list|install|check|info|remove` for bundled Octocode skills
 - **Language servers** — `npx octocode lsp-server list|install|status|uninstall|clean`
 - **Setup and introspection** — `npx octocode install`, `npx octocode auth`, `npx octocode status`, `npx octocode context`
@@ -322,7 +319,7 @@ Most-used settings (both CLI and MCP unless noted):
 |---------|-------------------|---------|--------------|
 | `OCTOCODE_TOKEN` / `GH_TOKEN` / `GITHUB_TOKEN` | env only | unset | GitHub token, in priority order. Never in `.octocoderc`. |
 | `ENABLE_LOCAL` | `local.enabled` | `true` | Local filesystem and LSP tools on or off. Set `false` to disable them. |
-| `ENABLE_CLONE` | `local.enableClone` | CLI `true`, MCP `false` | `ghCloneRepo` + directory fetch on/off. |
+| `ENABLE_CLONE` | `local.enableClone` | `true` | `ghCloneRepo` + directory fetch on/off. Set `false` to disable them. |
 | `WORKSPACE_ROOT` | `local.workspaceRoot` | `cwd` | Root for resolving relative local paths. |
 | `ALLOWED_PATHS` | `local.allowedPaths` | `[]` | Extra path allowlist for local access. |
 | `OCTOCODE_OUTPUT_FORMAT` | `output.format` | `yaml` | Response format: `yaml` or `json`. |
@@ -404,7 +401,7 @@ Four code-intelligence axes; three are native to the Rust engine and need no ext
 
 | Axis | What it does | How to use it |
 |------|--------------|---------------|
-| **Structural AST** | Tree-sitter shape queries (`pattern` or YAML `rule`) across 60+ extensions. | `localSearchCode mode:"structural"` · CLI `tools localSearchCode --scheme` |
+| **Structural AST** | Tree-sitter shape queries (`pattern` or YAML `rule`) across 60+ extensions. | `localSearch operation:"structural"` · CLI `tools localSearch --scheme` |
 | **Signature outline** | Body-free skeleton with line numbers from real tree-sitter parsing, no heuristics. An anti-growth guard returns the real file when a skeleton is not smaller. | `minify:"symbols"` · CLI `tools localGetFileContent --scheme` |
 | **Content minification** | Comment/whitespace stripping for 70+ languages and config formats; HTML/Vue/Svelte also minify embedded `<style>`/`<script>`. | `minify:"standard"` (default) |
 | **LSP navigation** | definition, references, callers/callees, callHierarchy, hover, typeDefinition, implementation, documentSymbols, through an installed language server; JS/TS also have a native, no-server path. | `lspGetSemantics` · CLI `tools lspGetSemantics --scheme` |
@@ -552,7 +549,7 @@ npx node-doctor
   npx octocode skill install octocode-research --platform pi
   ```
 
-- **Adapter route — full tool surface.** Install [`pi-mcp-adapter`](https://github.com/nicobailon/pi-mcp-adapter) to expose Octocode MCP tools behind a single ~200-token proxy tool, so servers stay disconnected until a tool is called. Enable clone tools with `ENABLE_CLONE=true`.
+- **Adapter route — full tool surface.** Install [`pi-mcp-adapter`](https://github.com/nicobailon/pi-mcp-adapter) to expose Octocode MCP tools behind a single ~200-token proxy tool, so servers stay disconnected until a tool is called. Clone tools are available by default.
 
 ### Research-driven loop
 

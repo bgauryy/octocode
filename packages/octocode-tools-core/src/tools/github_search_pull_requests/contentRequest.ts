@@ -8,7 +8,7 @@ export type PrContentSelector = {
   body?: boolean;
   changedFiles?: boolean;
   patches?: {
-    mode?: 'none' | 'selected' | 'all';
+    mode: 'selected' | 'all';
     files?: string[];
     ranges?: PartialContentRange[];
   };
@@ -20,14 +20,12 @@ export type PrContentSelector = {
   };
   reviews?: boolean;
   commits?: {
-    list?: boolean;
     includeFiles?: boolean;
   };
 };
 
 export type PullRequestContentQuery = {
   content?: PrContentSelector;
-  reviewMode?: 'full';
 };
 
 export type NormalizedPrContentRequest = {
@@ -53,12 +51,10 @@ export type NormalizedPrContentRequest = {
         list: boolean;
         includeFiles: boolean;
       };
-  reviewMode?: 'full';
 };
 
 function normalizePatches(
-  content?: PrContentSelector,
-  reviewMode?: 'full'
+  content?: PrContentSelector
 ): NormalizedPrContentRequest['patches'] {
   const patchSelector = content?.patches;
   if (patchSelector?.mode) {
@@ -68,13 +64,11 @@ function normalizePatches(
       ...(patchSelector.ranges ? { ranges: patchSelector.ranges } : {}),
     };
   }
-  if (reviewMode === 'full') return { mode: 'all' };
   return { mode: 'none' };
 }
 
 function normalizeComments(
-  content?: PrContentSelector,
-  reviewMode?: 'full'
+  content?: PrContentSelector
 ): NormalizedPrContentRequest['comments'] {
   const comments = content?.comments;
   if (comments) {
@@ -85,29 +79,18 @@ function normalizeComments(
       ...(comments.file ? { file: comments.file } : {}),
     };
   }
-  if (reviewMode === 'full') {
-    return {
-      discussion: true,
-      reviewInline: true,
-      includeBots: false,
-    };
-  }
   return false;
 }
 
 function normalizeCommits(
-  content?: PrContentSelector,
-  reviewMode?: 'full'
+  content?: PrContentSelector
 ): NormalizedPrContentRequest['commits'] {
   const commits = content?.commits;
   if (commits) {
     return {
-      list: commits.list ?? true,
+      list: true,
       includeFiles: commits.includeFiles ?? false,
     };
-  }
-  if (reviewMode === 'full') {
-    return { list: true, includeFiles: false };
   }
   return false;
 }
@@ -115,20 +98,18 @@ function normalizeCommits(
 export function normalizePullRequestContentRequest(
   query: PullRequestContentQuery
 ): NormalizedPrContentRequest {
-  const { content, reviewMode } = query;
-  const patches = normalizePatches(content, reviewMode);
-  const comments = normalizeComments(content, reviewMode);
-  const commits = normalizeCommits(content, reviewMode);
-  const full = reviewMode === 'full';
+  const { content } = query;
+  const patches = normalizePatches(content);
+  const comments = normalizeComments(content);
+  const commits = normalizeCommits(content);
 
   return {
-    body: content?.body ?? full,
-    changedFiles: (content?.changedFiles ?? full) || patches.mode !== 'none',
+    body: content?.body ?? false,
+    changedFiles: (content?.changedFiles ?? false) || patches.mode !== 'none',
     patches,
     comments,
-    reviews: content?.reviews ?? full,
+    reviews: content?.reviews ?? false,
     commits,
-    ...(reviewMode ? { reviewMode } : {}),
   };
 }
 

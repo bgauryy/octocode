@@ -108,33 +108,19 @@ describe('runCLI', () => {
     });
   });
 
-  it('routes --context as a top-level agent-context shortcut', async () => {
+  it('rejects the removed top-level --context alias', async () => {
     const { runCLI } = await import('../../src/cli/index.js');
 
     const handled = await runCLI(['--no-color', '--context', '--full']);
 
     expect(handled).toBe(true);
     expect(process.env.NO_COLOR).toBe('1');
-    expect(mocks.printToolsContext).toHaveBeenCalledWith({
-      full: true,
-      minimal: false,
-    });
+    expect(mocks.printToolsContext).not.toHaveBeenCalled();
+    expect(consoleSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Unknown option: --context')
+    );
+    expect(process.exitCode).toBe(3);
     expect(mocks.loadCommand).not.toHaveBeenCalled();
-  });
-
-  it('prints real JSON for --context --json', async () => {
-    const { runCLI } = await import('../../src/cli/index.js');
-
-    const handled = await runCLI(['--context', '--json', '--full']);
-
-    expect(handled).toBe(true);
-    expect(mocks.getToolsContextString).toHaveBeenCalledWith({
-      full: true,
-      minimal: false,
-    });
-    expect(JSON.parse(String(consoleSpy.mock.calls[0]?.[0]))).toEqual({
-      context: 'agent context',
-    });
   });
 
   it('routes tools usage through the unified tool executor', async () => {
@@ -142,7 +128,7 @@ describe('runCLI', () => {
 
     const handled = await runCLI([
       'tools',
-      'localSearchCode',
+      'localSearch',
       '--queries',
       '{"path":".","keywords":"runCLI"}',
     ]);
@@ -151,7 +137,7 @@ describe('runCLI', () => {
     expect(mocks.executeToolCommand).toHaveBeenCalledTimes(1);
     expect(mocks.executeToolCommand).toHaveBeenCalledWith({
       command: 'tools',
-      args: ['localSearchCode'],
+      args: ['localSearch'],
       options: {
         queries: '{"path":".","keywords":"runCLI"}',
       },
@@ -164,7 +150,7 @@ describe('runCLI', () => {
 
     const handled = await runCLI([
       'tools',
-      'ghSearchCode',
+      'github.code',
       '--queries',
       '{"owner":"bgauryy","repo":"octocode-mcp","keywords":["tool"]}',
       '--output',
@@ -175,7 +161,7 @@ describe('runCLI', () => {
     expect(mocks.executeToolCommand).toHaveBeenCalledTimes(1);
     expect(mocks.executeToolCommand).toHaveBeenCalledWith({
       command: 'tools',
-      args: ['ghSearchCode'],
+      args: ['github.code'],
       options: {
         queries:
           '{"owner":"bgauryy","repo":"octocode-mcp","keywords":["tool"]}',
@@ -189,11 +175,11 @@ describe('runCLI', () => {
 
     const { runCLI } = await import('../../src/cli/index.js');
 
-    const handled = await runCLI(['tools', 'localSearchCode', '--help']);
+    const handled = await runCLI(['tools', 'localSearch', '--help']);
 
     expect(handled).toBe(true);
     expect(mocks.showToolHelp).toHaveBeenCalledTimes(1);
-    expect(mocks.showToolHelp).toHaveBeenCalledWith('localSearchCode');
+    expect(mocks.showToolHelp).toHaveBeenCalledWith('localSearch');
     expect(mocks.executeToolCommand).not.toHaveBeenCalled();
     expect(mocks.loadCommand).not.toHaveBeenCalled();
   });
@@ -205,7 +191,7 @@ describe('runCLI', () => {
 
     const handled = await runCLI([
       'tool',
-      'localSearchCode',
+      'localSearch',
       '{"path":".","keywords":"runCLI"}',
     ]);
 
@@ -242,9 +228,28 @@ describe('runCLI', () => {
     expect(process.exitCode).toBe(3);
   });
 
+  it('rejects help for the removed clone command', async () => {
+    mocks.findStaticCommandHelp.mockReturnValue({
+      name: 'clone',
+      description: 'Clone a repository',
+    });
+    mocks.loadCommand.mockResolvedValue(undefined);
+
+    const { runCLI } = await import('../../src/cli/index.js');
+    const handled = await runCLI(['clone', '--help']);
+
+    expect(handled).toBe(true);
+    expect(mocks.showCommandHelp).not.toHaveBeenCalled();
+    expect(consoleSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Unknown command: clone')
+    );
+    expect(process.exitCode).toBe(3);
+  });
+
   it('shows static command help for "install --help" using shared renderer', async () => {
     const fakeCmd = { name: 'install', description: 'Configure octocode-mcp' };
     mocks.findStaticCommandHelp.mockReturnValue(fakeCmd);
+    mocks.loadCommand.mockResolvedValue({ name: 'install' });
 
     const { runCLI } = await import('../../src/cli/index.js');
 
@@ -253,7 +258,7 @@ describe('runCLI', () => {
     expect(handled).toBe(true);
     expect(mocks.findStaticCommandHelp).toHaveBeenCalledWith('install');
     expect(mocks.showCommandHelp).toHaveBeenCalledWith(fakeCmd);
-    expect(mocks.loadCommand).not.toHaveBeenCalled();
+    expect(mocks.loadCommand).toHaveBeenCalledWith('install');
   });
 
   it('prints version for --version flag', async () => {
@@ -318,16 +323,17 @@ describe('runCLI', () => {
     expect(mocks.loadCommand).not.toHaveBeenCalled();
   });
 
-  it('reports the actual unknown option after known global flags', async () => {
+  it('reports a near-miss without suggesting the removed context alias', async () => {
     const { runCLI } = await import('../../src/cli/index.js');
 
     const handled = await runCLI(['--no-color', '--contecxt']);
 
     expect(handled).toBe(true);
     expect(consoleSpy).toHaveBeenCalledWith(
-      expect.stringContaining(
-        'Unknown option: --contecxt (did you mean --context?)'
-      )
+      expect.stringContaining('Unknown option: --contecxt')
+    );
+    expect(consoleSpy).not.toHaveBeenCalledWith(
+      expect.stringContaining('did you mean --context?')
     );
     expect(process.exitCode).toBe(3);
     expect(mocks.loadCommand).not.toHaveBeenCalled();
@@ -369,7 +375,7 @@ describe('runCLI', () => {
 
     const handled = await runCLI([
       'tools',
-      'localSearchCode',
+      'localSearch',
       '--queries',
       '{"bad":"input"}',
     ]);
@@ -387,7 +393,7 @@ describe('runCLI', () => {
 
     await runCLI([
       'tools',
-      'ghSearchCode',
+      'github.code',
       '--queries',
       '{"owner":"x","repo":"y","keywords":["a"]}',
     ]);

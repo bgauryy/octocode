@@ -51,7 +51,7 @@ export function shapeFileSurfaces(
   const { items, pagination } = paginateItems(
     matched,
     query.filePage ?? query.page ?? 1,
-    query.itemsPerPage ?? PR_CONTENT_DEFAULT_ITEMS_PER_PAGE
+    query.pageSize ?? PR_CONTENT_DEFAULT_ITEMS_PER_PAGE
   );
 
   const includePatch = request.patches.mode !== 'none';
@@ -73,7 +73,7 @@ export function shapeFileSurfaces(
   if (request.changedFiles || request.patches.mode !== 'none') {
     return {
       changedFiles: shaped,
-      filePagination: pagination,
+      contentPagination: { changedFiles: pagination },
     };
   }
 
@@ -81,11 +81,13 @@ export function shapeFileSurfaces(
 
   return {
     filePathsPreview: allChanges.slice(0, 20).map(filePathOf).filter(Boolean),
-    filePathsPagination: {
-      totalFiles: allChanges.length,
-      filesPerPage: 20,
-      hasMore: allChanges.length > 20,
-      ...(allChanges.length > 20 ? { nextFilePage: 2 } : {}),
+    contentPagination: {
+      filePaths: {
+        totalFiles: allChanges.length,
+        filesPerPage: 20,
+        hasMore: allChanges.length > 20,
+        ...(allChanges.length > 20 ? { nextFilePage: 2 } : {}),
+      },
     },
   };
 }

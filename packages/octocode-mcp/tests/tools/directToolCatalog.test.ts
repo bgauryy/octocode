@@ -1,10 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import { ALL_TOOLS } from '../../src/tools/toolConfig.js';
-import { STATIC_TOOL_NAMES } from '../../../octocode-tools-core/src/tools/toolNames.js';
+import {
+  GITHUB_SEARCH_TOOL_NAME,
+  LOCAL_SEARCH_TOOL_NAME,
+  STATIC_TOOL_NAMES,
+} from '../../../octocode-tools-core/src/tools/toolNames.js';
 import { LSP_GET_SEMANTICS_TOOL_NAME } from '../../../octocode-tools-core/src/tools/lsp/shared/semanticTypes.js';
 import {
   DIRECT_TOOL_CATEGORIES,
   DIRECT_TOOL_DEFINITIONS,
+  DIRECT_TOOL_DISCOVERY_DEFINITIONS,
   DirectToolInputError,
   buildDirectToolExampleQuery,
   executeDirectTool,
@@ -29,6 +34,38 @@ describe('directToolCatalog', () => {
     );
   });
 
+  it('discovers exactly the 12 canonical public tools in contract order', () => {
+    const names = DIRECT_TOOL_DISCOVERY_DEFINITIONS.map(tool => tool.name);
+    expect(names).toEqual([
+      'ghSearch',
+      'ghGetFileContent',
+      'ghSearchHistory',
+      'ghGetHistoryItem',
+      'ghListReleases',
+      'ghSearchDiscussions',
+      'npmSearch',
+      'ghCloneRepo',
+      'localSearch',
+      'localAnalyzeGraph',
+      'localGetFileContent',
+      'lspGetSemantics',
+    ]);
+    expect(names).not.toEqual(
+      expect.arrayContaining([
+        'ghSearchPullRequests',
+        'ghSearchIssues',
+        'ghSearchCommits',
+      ])
+    );
+    for (const legacyName of [
+      'ghSearchPullRequests',
+      'ghSearchIssues',
+      'ghSearchCommits',
+    ]) {
+      expect(findDirectToolDefinition(legacyName)).toBeUndefined();
+    }
+  });
+
   it('exposes query and bulk input schemas for every direct tool', () => {
     for (const tool of DIRECT_TOOL_DEFINITIONS) {
       expect(tool.schema).toBeDefined();
@@ -40,17 +77,15 @@ describe('directToolCatalog', () => {
   it('sorts direct tool names by explicit relevance within category', () => {
     expect(
       sortDirectToolNames([
-        STATIC_TOOL_NAMES.LOCAL_VIEW_STRUCTURE,
-        STATIC_TOOL_NAMES.GITHUB_VIEW_REPO_STRUCTURE,
-        STATIC_TOOL_NAMES.LOCAL_RIPGREP,
-        STATIC_TOOL_NAMES.GITHUB_SEARCH_CODE,
+        STATIC_TOOL_NAMES.GITHUB_FETCH_CONTENT,
+        LOCAL_SEARCH_TOOL_NAME,
+        GITHUB_SEARCH_TOOL_NAME,
         STATIC_TOOL_NAMES.PACKAGE_SEARCH,
       ])
     ).toEqual([
-      STATIC_TOOL_NAMES.GITHUB_SEARCH_CODE,
-      STATIC_TOOL_NAMES.GITHUB_VIEW_REPO_STRUCTURE,
-      STATIC_TOOL_NAMES.LOCAL_RIPGREP,
-      STATIC_TOOL_NAMES.LOCAL_VIEW_STRUCTURE,
+      GITHUB_SEARCH_TOOL_NAME,
+      STATIC_TOOL_NAMES.GITHUB_FETCH_CONTENT,
+      LOCAL_SEARCH_TOOL_NAME,
       STATIC_TOOL_NAMES.PACKAGE_SEARCH,
     ]);
   });
@@ -65,15 +100,17 @@ describe('directToolCatalog', () => {
   });
 
   it('exposes MCP-owned auto-filled field labels per tool category', () => {
-    expect(
-      getDirectToolAutoFilledFields(STATIC_TOOL_NAMES.GITHUB_SEARCH_CODE)
-    ).toEqual(['goal', 'reasoning']);
+    expect(getDirectToolAutoFilledFields(GITHUB_SEARCH_TOOL_NAME)).toEqual([
+      'goal',
+      'reasoning',
+    ]);
     expect(
       getDirectToolAutoFilledFields(STATIC_TOOL_NAMES.PACKAGE_SEARCH)
     ).toEqual(['goal', 'reasoning']);
-    expect(
-      getDirectToolAutoFilledFields(STATIC_TOOL_NAMES.LOCAL_RIPGREP)
-    ).toEqual(['goal', 'reasoning']);
+    expect(getDirectToolAutoFilledFields(LOCAL_SEARCH_TOOL_NAME)).toEqual([
+      'goal',
+      'reasoning',
+    ]);
     expect(getDirectToolAutoFilledFields(LSP_GET_SEMANTICS_TOOL_NAME)).toEqual([
       'goal',
       'reasoning',
@@ -81,12 +118,8 @@ describe('directToolCatalog', () => {
   });
 
   it('categorizes known direct tool names and leaves unknown names as Other', () => {
-    expect(getDirectToolCategory(STATIC_TOOL_NAMES.GITHUB_SEARCH_CODE)).toBe(
-      'GitHub'
-    );
-    expect(getDirectToolCategory(STATIC_TOOL_NAMES.LOCAL_RIPGREP)).toBe(
-      'Local Code'
-    );
+    expect(getDirectToolCategory(GITHUB_SEARCH_TOOL_NAME)).toBe('GitHub');
+    expect(getDirectToolCategory(LOCAL_SEARCH_TOOL_NAME)).toBe('Local Code');
     expect(getDirectToolCategory(LSP_GET_SEMANTICS_TOOL_NAME)).toBe(
       'Local Code'
     );
@@ -110,38 +143,36 @@ describe('directToolCatalog', () => {
       '"foo": "bar"'
     );
     expect(
-      getDirectToolDescription(STATIC_TOOL_NAMES.LOCAL_RIPGREP, {
+      getDirectToolDescription(LOCAL_SEARCH_TOOL_NAME, {
         tools: {
-          [STATIC_TOOL_NAMES.LOCAL_RIPGREP]: {
+          [LOCAL_SEARCH_TOOL_NAME]: {
             description: 'Local search metadata',
           },
         },
       })
-    ).toBe('Local search metadata');
-    expect(
-      getDirectToolDescription(STATIC_TOOL_NAMES.LOCAL_RIPGREP, null)
-    ).toBe(STATIC_TOOL_NAMES.LOCAL_RIPGREP);
+    ).toBe(findDirectToolDefinition(LOCAL_SEARCH_TOOL_NAME)!.description);
+    expect(getDirectToolDescription(LOCAL_SEARCH_TOOL_NAME, null)).toBe(
+      findDirectToolDefinition(LOCAL_SEARCH_TOOL_NAME)!.description
+    );
   });
 
   it('builds display fields and example queries from MCP-owned schemas', () => {
-    const localFields = getDirectToolDisplayFields(
-      STATIC_TOOL_NAMES.LOCAL_RIPGREP
-    );
+    const localFields = getDirectToolDisplayFields(LOCAL_SEARCH_TOOL_NAME);
     const localByName = Object.fromEntries(
       localFields.map(field => [field.name, field])
     );
 
     expect(localByName['id']).toBeUndefined();
+    expect(localByName['operation']?.required).toBe(true);
     expect(localByName['searchText']?.required).toBe(false);
     expect(localByName['include']?.type).toBe('array<string>');
     expect(localByName['matchContentLength']?.required).toBe(false);
     expect(localByName['page']?.required).toBe(false);
     expect(getDirectToolDisplayFields('missingTool')).toEqual([]);
 
-    expect(
-      buildDirectToolExampleQuery(STATIC_TOOL_NAMES.LOCAL_RIPGREP)
-    ).toEqual({
-      path: '/ABS/repo/packages/octocode-tools-core/src',
+    expect(buildDirectToolExampleQuery(LOCAL_SEARCH_TOOL_NAME)).toEqual({
+      path: '/ABS/repo/src',
+      operation: 'text',
       searchText: 'buildDirectToolCommandPatterns',
       maxFiles: 20,
     });
@@ -157,33 +188,29 @@ describe('directToolCatalog', () => {
 
   it('prepares direct tool input from every CLI-supported JSON payload shape', () => {
     const query = {
+      operation: 'text',
       path: '.',
       searchText: 'DIRECT_TOOL_CATEGORIES',
       regex: 'fixed',
       matchContentLength: 200,
-      itemsPerPage: 1,
+      pageSize: 1,
       page: 1,
       maxMatchesPerFile: 1,
     };
 
     expect(
-      prepareDirectToolInputFromJsonText(
-        STATIC_TOOL_NAMES.LOCAL_RIPGREP,
-        undefined
-      )
+      prepareDirectToolInputFromJsonText(LOCAL_SEARCH_TOOL_NAME, undefined)
     ).toBeNull();
 
-    const single = prepareDirectToolInput(
-      STATIC_TOOL_NAMES.LOCAL_RIPGREP,
-      query,
-      { sourceLabel: 'unit-test' }
-    );
+    const single = prepareDirectToolInput(LOCAL_SEARCH_TOOL_NAME, query, {
+      sourceLabel: 'unit-test',
+    });
     expect(single).toEqual(
       expect.objectContaining({
         queries: [
           expect.objectContaining({
             regex: 'fixed',
-            goal: `Execute ${STATIC_TOOL_NAMES.LOCAL_RIPGREP} via unit-test`,
+            goal: `Execute ${LOCAL_SEARCH_TOOL_NAME} via unit-test`,
             reasoning: 'Executed via unit-test tool command',
           }),
         ],
@@ -192,7 +219,7 @@ describe('directToolCatalog', () => {
     expect(single.queries[0]).not.toHaveProperty('id');
 
     const bulk = prepareDirectToolInputFromJsonText(
-      STATIC_TOOL_NAMES.LOCAL_RIPGREP,
+      LOCAL_SEARCH_TOOL_NAME,
       JSON.stringify({
         queries: [query],
       }),
@@ -204,20 +231,19 @@ describe('directToolCatalog', () => {
       })
     );
 
-    const arrayInput = prepareDirectToolInput(STATIC_TOOL_NAMES.LOCAL_RIPGREP, [
-      query,
-    ]);
+    const arrayInput = prepareDirectToolInput(LOCAL_SEARCH_TOOL_NAME, [query]);
     expect(arrayInput.queries).toHaveLength(1);
   });
 
   it('preserves explicit query context while auto-filling missing GitHub context', () => {
     const prepared = prepareDirectToolInput(
-      STATIC_TOOL_NAMES.GITHUB_SEARCH_CODE,
+      GITHUB_SEARCH_TOOL_NAME,
       {
+        operation: 'code',
         goal: 'goal',
         reasoning: 'because',
         keywords: ['directToolCatalog'],
-        limit: 1,
+        pageSize: 1,
         page: 1,
       },
       { sourceLabel: 'unit-test' }
@@ -232,10 +258,11 @@ describe('directToolCatalog', () => {
     expect(prepared.queries[0]).not.toHaveProperty('id');
 
     const defaulted = prepareDirectToolInput(
-      STATIC_TOOL_NAMES.GITHUB_SEARCH_CODE,
+      GITHUB_SEARCH_TOOL_NAME,
       {
+        operation: 'code',
         keywords: ['directToolCatalog'],
-        limit: 1,
+        pageSize: 1,
         page: 1,
       },
       { sourceLabel: 'unit-test' }
@@ -243,7 +270,7 @@ describe('directToolCatalog', () => {
 
     expect(defaulted.queries[0]).toEqual(
       expect.objectContaining({
-        goal: `Execute ${STATIC_TOOL_NAMES.GITHUB_SEARCH_CODE} via unit-test`,
+        goal: `Execute ${GITHUB_SEARCH_TOOL_NAME} via unit-test`,
       })
     );
   });
@@ -252,10 +279,16 @@ describe('directToolCatalog', () => {
     const warnings: Array<{ fields: string[]; index: number }> = [];
 
     const prepared = prepareDirectToolInput(
-      STATIC_TOOL_NAMES.LOCAL_RIPGREP,
+      LOCAL_SEARCH_TOOL_NAME,
       [
-        { searchText: 'a', path: '.', limit: 3, bogusKey: true },
-        { searchText: 'b', path: '.', fixed_string: true },
+        {
+          operation: 'text',
+          searchText: 'a',
+          path: '.',
+          legacyLimit: 3,
+          bogusKey: true,
+        },
+        { operation: 'text', searchText: 'b', path: '.', fixed_string: true },
       ],
       {
         sourceLabel: 'unit-test',
@@ -265,21 +298,21 @@ describe('directToolCatalog', () => {
 
     // Agent is still warned about the stray keys...
     expect(warnings).toEqual([
-      { fields: ['limit', 'bogusKey'], index: 0 },
+      { fields: ['legacyLimit', 'bogusKey'], index: 0 },
       { fields: ['fixed_string'], index: 1 },
     ]);
     // ...but the call proceeds with the valid fields, stray keys stripped.
     expect(prepared.queries[0]).toMatchObject({ searchText: 'a', path: '.' });
     expect(prepared.queries[0]).not.toHaveProperty('bogusKey');
-    expect(prepared.queries[0]).not.toHaveProperty('limit');
+    expect(prepared.queries[0]).not.toHaveProperty('legacyLimit');
     expect(prepared.queries[1]).not.toHaveProperty('fixed_string');
   });
 
   it('preserves envelope-level fields alongside rebuilt queries', () => {
     const prepared = prepareDirectToolInput(
-      STATIC_TOOL_NAMES.LOCAL_RIPGREP,
+      LOCAL_SEARCH_TOOL_NAME,
       {
-        queries: [{ keywords: 'a', path: '.' }],
+        queries: [{ operation: 'text', searchText: 'a', path: '.' }],
         responseCharLength: 500,
       },
       { sourceLabel: 'unit-test' }
@@ -315,20 +348,17 @@ describe('directToolCatalog', () => {
 
   it('reports direct tool input errors without CLI-owned parsing logic', () => {
     expect(() =>
-      prepareDirectToolInputFromJsonText(
-        STATIC_TOOL_NAMES.LOCAL_RIPGREP,
-        '{not-json'
-      )
+      prepareDirectToolInputFromJsonText(LOCAL_SEARCH_TOOL_NAME, '{not-json')
     ).toThrow(new DirectToolInputError('Tool input must be valid JSON.'));
-    expect(() =>
-      prepareDirectToolInput(STATIC_TOOL_NAMES.LOCAL_RIPGREP, 42)
-    ).toThrow('Tool input must be a JSON object');
-    expect(() =>
-      prepareDirectToolInput(STATIC_TOOL_NAMES.LOCAL_RIPGREP, [])
-    ).toThrow('At least one query is required');
-    expect(() =>
-      prepareDirectToolInput(STATIC_TOOL_NAMES.LOCAL_RIPGREP, [42])
-    ).toThrow('Tool input must be a JSON object or an array of objects.');
+    expect(() => prepareDirectToolInput(LOCAL_SEARCH_TOOL_NAME, 42)).toThrow(
+      'Tool input must be a JSON object'
+    );
+    expect(() => prepareDirectToolInput(LOCAL_SEARCH_TOOL_NAME, [])).toThrow(
+      'At least one query is required'
+    );
+    expect(() => prepareDirectToolInput(LOCAL_SEARCH_TOOL_NAME, [42])).toThrow(
+      'Tool input must be a JSON object or an array of objects.'
+    );
     expect(() => prepareDirectToolInput('missingTool', {})).toThrow(
       'Unknown tool: missingTool'
     );
@@ -344,32 +374,31 @@ describe('directToolCatalog', () => {
 
   it('validates direct tool input against the canonical MCP bulk schema', () => {
     expect(() =>
-      prepareDirectToolInput(STATIC_TOOL_NAMES.LOCAL_RIPGREP, {
+      prepareDirectToolInput(LOCAL_SEARCH_TOOL_NAME, {
+        operation: 'structural',
         path: '.',
         pattern: 123,
         matchContentLength: 200,
-        itemsPerPage: 1,
+        pageSize: 1,
         page: 1,
         maxMatchesPerFile: 1,
       })
-    ).toThrow('Tool input does not match the expected schema.');
+    ).toThrow('Check the query fields.');
   });
 
   it('returns an MCP result envelope from the direct execution pipeline', async () => {
-    const input = prepareDirectToolInput(STATIC_TOOL_NAMES.LOCAL_RIPGREP, {
-      path: 'src/tools/directToolCatalog.ts',
-      keywords: 'DIRECT_TOOL_CATEGORIES',
-      fixedString: true,
+    const input = prepareDirectToolInput(LOCAL_SEARCH_TOOL_NAME, {
+      operation: 'text',
+      path: 'src/tools',
+      searchText: 'ALL_TOOLS',
+      regex: 'fixed',
       matchContentLength: 200,
-      itemsPerPage: 1,
+      pageSize: 1,
       page: 1,
       maxMatchesPerFile: 1,
     });
 
-    const result = await executeDirectTool(
-      STATIC_TOOL_NAMES.LOCAL_RIPGREP,
-      input
-    );
+    const result = await executeDirectTool(LOCAL_SEARCH_TOOL_NAME, input);
 
     expect(result.content?.length).toBeGreaterThan(0);
     expect(result.content?.[0]?.type).toBe('text');
@@ -384,7 +413,7 @@ describe('directToolCatalog', () => {
     // (not a throw) so every consumer — CLI and MCP — gets a uniform
     // CallToolResult instead of an exception. (input-parse moved inside the
     // execution try in directToolCatalog.)
-    const invalid = await executeDirectTool(STATIC_TOOL_NAMES.LOCAL_RIPGREP, {
+    const invalid = await executeDirectTool(LOCAL_SEARCH_TOOL_NAME, {
       queries: [],
     });
     expect(invalid.isError).toBe(true);

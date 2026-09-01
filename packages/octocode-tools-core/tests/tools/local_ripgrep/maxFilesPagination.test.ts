@@ -44,7 +44,7 @@ const baseQuery = (page: number): RipgrepQuery =>
     page,
   }) as unknown as RipgrepQuery;
 
-describe('localSearchCode maxFiles is a per-page ceiling (lossless)', () => {
+describe('local.text maxFiles is a per-page ceiling (lossless)', () => {
   it('page 1 returns ≤ maxFiles, true totalFiles, hasMore, and a next page', async () => {
     const files = makeFiles(5);
     const result = (await buildSearchResult(

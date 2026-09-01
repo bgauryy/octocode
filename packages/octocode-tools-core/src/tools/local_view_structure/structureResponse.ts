@@ -1,5 +1,5 @@
 import { formatFileSize, parseFileSize } from '../../utils/file/size.js';
-import { LOCAL_DEFAULT_FILES_PER_PAGE } from '../../config.js';
+import { LOCAL_DEFAULT_FILES_PER_PAGE, MAX_PAGE_NUMBER } from '../../config.js';
 import type { DirectoryEntry } from './structureFilters.js';
 
 export interface WalkStats {
@@ -58,7 +58,9 @@ export function paginateEntries(
       entriesPerPage,
       totalEntries,
       hasMore,
-      ...(hasMore ? { nextPage: currentPage + 1 } : {}),
+      ...(hasMore && currentPage < MAX_PAGE_NUMBER
+        ? { nextPage: currentPage + 1 }
+        : {}),
       ...(isOutOfRange ? { outOfRange: true } : {}),
     },
   };
@@ -75,7 +77,8 @@ export function buildEntryPaginationHints(
   },
   endIdx: number
 ): string[] {
-  if (!pagination.hasMore) return [];
+  if (!pagination.hasMore || pagination.currentPage >= MAX_PAGE_NUMBER)
+    return [];
 
   const nextPagePreview = entries
     .slice(endIdx, endIdx + 3)

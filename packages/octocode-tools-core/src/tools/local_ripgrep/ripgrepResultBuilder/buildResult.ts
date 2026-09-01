@@ -3,6 +3,7 @@ import type { LocalSearchCodeToolResult } from '@octocodeai/octocode-core/extra-
 
 import type { SearchStats } from '../../../utils/core/types.js';
 import { RESOURCE_LIMITS } from '../../../utils/core/constants.js';
+import { MAX_MATCH_CONTENT_LENGTH, MAX_PAGE_NUMBER } from '../../../config.js';
 import type { RipgrepQuery } from '../scheme.js';
 import {
   rankFiles,
@@ -26,6 +27,9 @@ type CountedLocalSearchFile = LocalSearchCodeFile & {
 
 type LocalSearchResultWithNext = LocalSearchCodeToolResult & {
   next?: SearchNextMap;
+  terminalLimit?: boolean;
+  truncated?: boolean;
+  partialReasons?: Array<'maxFiles'>;
 };
 
 export async function buildSearchResult(
@@ -182,7 +186,7 @@ export async function buildSearchResult(
                 matchesPerPage,
                 totalMatches: totalFileMatches,
                 hasMore: matchPage < totalMatchPages,
-                ...(matchPage < totalMatchPages
+                ...(matchPage < totalMatchPages && matchPage < MAX_PAGE_NUMBER
                   ? { nextMatchPage: matchPage + 1 }
                   : {}),
                 ...(isOutOfRange ? { outOfRange: true } : {}),
@@ -194,6 +198,13 @@ export async function buildSearchResult(
   );
 
   const filesWithMoreMatches = finalFiles.filter(f => f.pagination?.hasMore);
+  const terminalLimit =
+    (currentPage < totalFilePages && currentPage >= MAX_PAGE_NUMBER) ||
+    (filesWithMoreMatches.length > 0 &&
+      (aligned.matchPage || 1) >= MAX_PAGE_NUMBER) ||
+    (stats?.capReached === true &&
+      (configuredQuery.maxFiles ?? RESOURCE_LIMITS.MAX_FILES_DEFAULT) >=
+        MAX_MATCH_CONTENT_LENGTH);
 
   const next = buildSearchNextMap(finalFiles, configuredQuery, searchEngine, {
     isFileListMode,
@@ -203,6 +214,26 @@ export async function buildSearchResult(
     matchesPerPage,
     hasFileWithMoreMatches: filesWithMoreMatches.length > 0,
   });
+  const currentMaxFiles =
+    configuredQuery.maxFiles ?? RESOURCE_LIMITS.MAX_FILES_DEFAULT;
+  if (
+    stats?.capReached === true &&
+    currentMaxFiles < MAX_MATCH_CONTENT_LENGTH
+  ) {
+    next.expandScan = {
+      tool: 'local.text',
+      query: {
+        ...configuredQuery,
+        maxFiles: Math.min(
+          MAX_MATCH_CONTENT_LENGTH,
+          Math.max(currentMaxFiles + 1, currentMaxFiles * 2)
+        ),
+        page: 1,
+      },
+      why: 'Re-run with a larger file-scan bound because this search is partial.',
+      confidence: 'exact',
+    };
+  }
 
   const fullResult: LocalSearchResultWithNext = {
     searchEngine,
@@ -215,11 +246,17 @@ export async function buildSearchResult(
       totalFiles,
       ...(isPathListMode ? {} : { totalMatches }),
       hasMore: currentPage < totalFilePages,
-      ...(currentPage < totalFilePages ? { nextPage: currentPage + 1 } : {}),
+      ...(currentPage < totalFilePages && currentPage < MAX_PAGE_NUMBER
+        ? { nextPage: currentPage + 1 }
+        : {}),
       ...(isPageOutOfRange ? { outOfRange: true } : {}),
     },
     ...(warnings.length > 0 ? { warnings } : {}),
     ...(Object.keys(next).length > 0 ? { next } : {}),
+    ...(terminalLimit ? { terminalLimit: true } : {}),
+    ...(stats?.capReached === true
+      ? { truncated: true, partialReasons: ['maxFiles' as const] }
+      : {}),
   };
 
   return finalizeRipgrepResult(fullResult, configuredQuery, {

@@ -37,7 +37,7 @@ export type CompareResult = {
 };
 
 /**
- * Compare mode of ghSearchCommits: diff two refs (base...head) via GitHub's
+ * Exact history comparison: diff two refs (base...head) via GitHub's
  * compare endpoint. Returns ahead/behind counts, the commits between them, and
  * a lean changed-file count (or full diffs when includeDiff is set).
  */

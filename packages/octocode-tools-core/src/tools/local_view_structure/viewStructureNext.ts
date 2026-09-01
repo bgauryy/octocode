@@ -1,7 +1,7 @@
 import type { DirectoryEntry } from './structureFilters.js';
 
 type ViewStructureNextCall = {
-  tool: 'localGetFileContent' | 'localViewStructure';
+  tool: 'localGetFileContent' | 'local.tree';
   query: Record<string, unknown>;
   why: string;
   confidence?: 'exact' | 'high' | 'medium' | 'low';
@@ -13,7 +13,7 @@ export type ViewStructureNextMap = {
 };
 
 /**
- * Build per-result continuation hints for a localViewStructure response: read
+ * Build per-result continuation hints for a local tree response: read
  * the first listed file, and/or descend into the first listed subdirectory.
  * `nextPage` (pagination) is added separately by the caller.
  *
@@ -44,7 +44,7 @@ export function buildViewStructureNextMap(
   );
   if (firstDir?.path) {
     next.viewDeeper = {
-      tool: 'localViewStructure',
+      tool: 'local.tree',
       query: { path: firstDir.path },
       why: 'Descend into the first listed subdirectory.',
       confidence: 'exact',

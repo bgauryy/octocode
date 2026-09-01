@@ -1,7 +1,7 @@
 import type { LocalFindFilesEntry } from '@octocodeai/octocode-core/types';
 
 type FindFilesNextCall = {
-  tool: 'localGetFileContent' | 'localViewStructure';
+  tool: 'localGetFileContent' | 'local.tree';
   query: Record<string, unknown>;
   why: string;
   confidence?: 'exact' | 'high' | 'medium' | 'low';
@@ -13,7 +13,7 @@ export type FindFilesNextMap = {
 };
 
 /**
- * Build per-result continuation hints for a localFindFiles response: point the
+ * Build per-result continuation hints for a local files response: point the
  * agent at exact content for the first matched file, or into the first matched
  * directory when the page is all directories. `nextPage` (pagination) is added
  * separately by the caller.
@@ -44,7 +44,7 @@ export function buildFindFilesNextMap(
   if (firstDir) {
     return {
       viewStructure: {
-        tool: 'localViewStructure',
+        tool: 'local.tree',
         query: { path: firstDir.path },
         why: 'Orient inside the first matched directory before reading files.',
         confidence: 'exact',

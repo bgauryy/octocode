@@ -18,12 +18,12 @@ These are **not** interchangeable. Tree-sitter cannot resolve a symbol across fi
 When a semantic operation needs a language server and **no server is available**, octocode **throws** — it does *not* fabricate a syntactic or same-file approximation. A faked answer is worse than an honest failure, because the calling agent would trust it.
 
 - The thrown error is the standard typed envelope: `status:"error"`, `errorCode:"lspServerUnavailable"`. In bulk it lands under `errors[]`.
-- The message names the language, says no server is available, gives the install hint, and **directs the agent to `localSearchCode` (text/structural search) + `localGetFileContent`** instead.
+- The message names the language, says no server is available, gives the install hint, and **directs the agent to `localSearch` (text/structural operation) + `localGetFileContent`** instead.
 - octocode never returns a same-file-only `references` result, or a tree-sitter guess, dressed up as a semantic answer.
 
 **Throws when no server:** `definition`, `references`, `hover`, `callers`, `callees`, `callHierarchy`, `typeDefinition`, `implementation`, `workspaceSymbol`, `supertypes`, `subtypes`, `diagnostic`.
 
-**Never throws (genuine tree-sitter features, server-free):** `documentSymbols` (native OXC for JS/TS, Markdown heading outline, or LSP when present) and structural/AST search via `localSearchCode`. These are real syntactic capabilities, not LSP stand-ins. `documentSymbols` only throws for a non-JS/TS language with no server *and* no outline.
+**Never throws (genuine tree-sitter features, server-free):** `documentSymbols` (native OXC for JS/TS, Markdown heading outline, or LSP when present) and structural/AST search via `localSearch.operation:"structural"`. These are real syntactic capabilities, not LSP stand-ins. `documentSymbols` only throws for a non-JS/TS language with no server *and* no outline.
 
 > A server that *is* running but lacks a capability, or returns zero results, still yields an honest *empty* (`unsupportedOperation` / `noReferences` / …) — that is an accurate answer ("none"), not a missing-server failure.
 
@@ -66,7 +66,7 @@ semantic ops throw with an install hint.
 
 **Removed from LSP routing** (use text/structural search instead): TOML, Ruby, Kotlin,
 Elixir, Terraform, Lua, Proto, OCaml, Zig, Julia, Erlang, R, GDScript. Their tree-sitter
-grammars stay available for `localSearchCode` structural/AST queries.
+grammars stay available for `localSearch.operation:"structural"` queries.
 
 ### Custom / bring-your-own LSP (any language)
 
@@ -101,7 +101,7 @@ built-in spec for that extension:
 With the config present, semantic ops (`definition`, `references`, `hover`, call hierarchy, …)
 work for that language exactly like a built-in one. **Without it, the extension stays unsupported:
 the engine resolves no server and the no-fallback contract applies** — semantic ops throw
-`lspServerUnavailable` and the agent falls back to `localSearchCode` + `localGetFileContent`.
+`lspServerUnavailable` and the agent falls back to `localSearch` + `localGetFileContent`.
 Both halves of this contract are asserted by the benchmark (`benchmark/lsp/check-lsp.mjs`,
 "Custom LSP — bring-your-own server (Scala / metals)"), and verified **live against a real
 server** by `benchmark/lsp/check-custom-lsp.mjs` (`yarn lsp:custom`) — which registers
@@ -255,4 +255,4 @@ Progress streaming to the caller (`lsp.indexingStatus`), an opt-in `waitForIndex
 > proposed fix (honest `complete=false` + cross-check hint, with an opt-in
 > `waitForIndexingMs`) are in
 > [`LSP_REFERENCES_INDEXING_RFC.md`](https://github.com/bgauryy/octocode/blob/main/docs/context/LSP_REFERENCES_INDEXING_RFC.md). Meanwhile,
-> prefer `--op callers` or `localSearchCode` to confirm "who uses this".
+> prefer `--op callers` or `localSearch.operation:"text"` to confirm "who uses this".

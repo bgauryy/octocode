@@ -12,9 +12,9 @@ npx octocode tools <toolName> --scheme --json --compact
 
 | Family | Tools |
 |--------|-------|
-| GitHub | `ghSearchCode`, `ghGetFileContent`, `ghViewRepoStructure`, `ghSearchRepos`, `ghSearchPullRequests`, `ghSearchIssues`, `ghSearchCommits`, `ghListReleases` *(opt-in)*, `ghSearchDiscussions` *(opt-in)*, `ghCloneRepo` |
+| GitHub | `ghSearch`, `ghGetFileContent`, `ghSearchHistory`, `ghGetHistoryItem`, `ghListReleases` *(opt-in)*, `ghSearchDiscussions` *(opt-in)*, `ghCloneRepo` |
 | Packages | `npmSearch` |
-| Local | `localSearchCode`, `localViewStructure`, `localFindFiles`, `localGetFileContent`, `localAnalyzeGraph` |
+| Local | `localSearch`, `localGetFileContent`, `localAnalyzeGraph` |
 | LSP | `lspGetSemantics` |
 
 ## Contents
@@ -43,57 +43,58 @@ Concise reference for Octocode MCP remote research tools: GitHub code/repo/PR se
 | `GITHUB_PERSONAL_ACCESS_TOKEN` | Lowest-priority GitHub token env var. |
 | `GITHUB_API_URL` | GitHub Enterprise API base URL. |
 | `ENABLE_LOCAL` | Turns local tools on or off. Defaults to `true` on both CLI and MCP. |
-| `ENABLE_CLONE` | Turns on `ghCloneRepo` and `ghGetFileContent(type="directory")`. |
+| `ENABLE_CLONE` | Controls `ghCloneRepo` and `ghGetFileContent(type="directory")`. Defaults to `true`; set `false` to disable them. |
 | `ENABLE_RELEASES` | Turns on `ghListReleases`. Defaults to `false`. |
 | `ENABLE_DISCUSSIONS` | Turns on `ghSearchDiscussions`. Defaults to `false`. |
 
-Every tool accepts bulk input (`{ "queries": [...] }`), up to 5 queries per call. Pagination controls vary by tool: page-based tools use `page` and `itemsPerPage`, content tools use character windows, and Discussions uses an opaque `after` cursor. `ghCloneRepo` is a bounded operation and does not paginate its input. Use `npx octocode tools <toolName> --scheme` for the exact active schema.
+Every tool accepts bulk input (`{ "queries": [...] }`), up to 5 queries per call. Page-based tools use `page` and `pageSize`; `limit` is a pre-pagination cap where that distinct control exists. When more results remain, run the matching schema-valid `next.*` call: `nextPage`/`nextMatchPage`, `expandLimit`/`expandScan`, or a line/character continuation. At an unexpandable public or provider cap, metadata reports `terminalLimitReached` and omits unusable continuations. Numeric page, offset, cursor, and raw `nextQuery` fields are not executable by themselves. `matchString` is a complete all-matches selector, while explicit line/character windows continue independently. Discussions uses an opaque `after` cursor. `ghCloneRepo` is atomic and does not paginate its input. Use `npx octocode tools <toolName> --scheme --json --compact` for the exact active schema and operation scopes.
+
+Search match values and provider text snippets are evidence previews, not collection pagination. A preview may abbreviate visible text only when it retains exact path/line locators and an executable exact-read route; structural capture reduction is explicitly typed with `capturesTruncated` and an executable `next.expandCaptures` replay.
 
 ### Choose a GitHub tool
 
 | Need | Tool |
 |------|------|
-| Search code across GitHub | `ghSearchCode` |
+| Search code across GitHub | `ghSearch` with `operation: "code"` |
 | Read a file or fetch a directory | `ghGetFileContent` |
-| Browse a repository tree | `ghViewRepoStructure` |
-| Discover repositories | `ghSearchRepos` |
-| Search PRs or inspect one PR | `ghSearchPullRequests` |
-| Search issues or inspect one issue | `ghSearchIssues` |
-| Walk commit history or compare two refs | `ghSearchCommits` |
+| Browse a repository tree | `ghSearch` with `operation: "tree"` |
+| Discover repositories | `ghSearch` with `operation: "repositories"` |
+| Search PRs, issues, or commits | `ghSearchHistory` with `operation: "pullRequests"`, `"issues"`, or `"commits"` |
+| Inspect one PR, issue, commit, or ref comparison | `ghGetHistoryItem` with `operation: "pullRequest"`, `"issue"`, `"commit"`, or `"compare"` |
 | List releases | `ghListReleases` |
 | Search a repository's discussions | `ghSearchDiscussions` |
 | Materialize a repo/subtree locally | `ghCloneRepo` |
 | Resolve npm package to source repository | `npmSearch` |
 
-### `ghSearchCode`
+### `ghSearch`
 
-Search code or paths across GitHub.
+Use the default unified discovery tool with one strict operation per query:
 
-Key fields:
+- `operation: "code"` accepts the code-search fields documented below.
+- `operation: "repositories"` accepts repository discovery fields.
+- `operation: "tree"` requires `owner` and `repo` and accepts tree browsing fields.
 
-| Field | Meaning |
-|-------|---------|
-| `keywords` | Search terms. Terms are AND-combined; split phrases into separate words only when each word must match. |
-| `owner`, `repo` | Scope to an owner or repository. Use both for one repository. |
-| `extension` | Extension without a dot, such as `ts`. |
-| `filename` | Filename filter. |
-| `path` | Parent-directory prefix filter. |
-| `match` | `file` for content search, `path` for path/name search. |
-| `page` | Result page. |
-
-Examples:
+Fields from another operation are rejected rather than silently ignored. Mixed bulk
+queries are allowed and results retain input order. `ghGetFileContent` stays
+separate because it reads and minifies known content rather than discovering it.
 
 ```json
-{ "keywords": ["useReducer"], "owner": "vercel", "repo": "next.js" }
-{ "keywords": ["middleware"], "extension": "ts", "owner": "vercel", "repo": "next.js" }
-{ "keywords": ["config"], "match": "path", "owner": "vercel" }
+{ "operation": "code", "keywords": ["useReducer"], "owner": "vercel", "repo": "next.js" }
+{ "operation": "repositories", "keywords": ["code research"], "language": "TypeScript" }
+{ "operation": "tree", "owner": "vercel", "repo": "next.js", "path": "packages", "maxDepth": 2 }
 ```
 
-Rules:
+Operation-specific fields:
 
-- Scope with `owner`/`repo` at the first opportunity.
-- Use a few distinctive identifiers.
-- Avoid stacking too many filters at once.
+| Operation | Fields |
+|---|---|
+| `code` | `keywords`, `owner`, `repo`, `extension`, `filename`, `path`, `language`, `match`, `pageSize`, `page`, `concise` |
+| `repositories` | `keywords`, `topics`, `language`, `owner`, repository-range filters, `match`, `sort`, `pageSize`, `page`, `archived`, `visibility`, `license`, `concise` |
+| `tree` | required `owner` and `repo`; optional `branch`, `path`, `maxDepth`, `page`, `pageSize`, and `include` |
+
+Use `match:"path"` for path-only code discovery and `match:"file"` when snippets
+matter. Repository `match` instead selects searchable metadata fields. For the
+exact active branch requirements and field types, inspect the compact schema.
 
 ### `ghGetFileContent`
 
@@ -118,8 +119,8 @@ File extraction modes are mutually exclusive: use one of `fullContent`, `startLi
 
 Directory mode:
 
-- Requires `ENABLE_CLONE=true` and local tools not explicitly disabled.
-- Returns `localPath` (absolute), `location` (kind/source/cached/complete), and `next` pointing directly to `localSearchCode` and `localViewStructure` with ready-to-use `path` values — pass them as-is.
+- Enabled by default. Requires clone and local tools not to be explicitly disabled.
+- Returns `localPath` (absolute), `location` (kind/source/cached/complete), and `next` entries for `localSearch` text and tree operations with ready-to-use paths.
 - Rejects file-only extraction fields.
 
 Examples:
@@ -152,188 +153,50 @@ Behaviors worth knowing:
 - Files too large for the `/contents/` API fall back to the Git tree and blob API
   automatically. You do not need to switch to `ghCloneRepo` for size alone.
 
-### `ghViewRepoStructure`
+### `ghSearchHistory`
 
-Browse a repository tree.
+Search GitHub history through one strict discovery operation per query:
 
-Key fields:
+- `operation: "pullRequests"` searches PR candidates.
+- `operation: "issues"` searches issue candidates.
+- `operation: "commits"` walks commit history, optionally scoped to a path or time range.
 
-| Field | Meaning |
-|-------|---------|
-| `owner`, `repo` | Required repository. |
-| `branch` | Branch, tag, or commit SHA. |
-| `path` | Directory path. Use `""` or `"."` for root. |
-| `maxDepth` | Recursion depth. |
-| `page` | Result page. |
-| `itemsPerPage` | Entries per page, max 200. |
-
-Examples:
+The search tool returns candidates and stable identities. Fetch detailed content
+with `ghGetHistoryItem`; search queries do not accept singular-item identities.
 
 ```json
-{ "owner": "vercel", "repo": "next.js", "path": "", "maxDepth": 1 }
-{ "owner": "vercel", "repo": "next.js", "path": "packages", "maxDepth": 2, "itemsPerPage": 100 }
+{ "operation": "pullRequests", "owner": "vercel", "repo": "next.js", "keywords": ["middleware"], "match": ["title"], "state": "merged" }
+{ "operation": "issues", "owner": "vercel", "repo": "next.js", "keywords": ["memory leak"], "match": ["title"], "state": "open" }
+{ "operation": "commits", "owner": "vercel", "repo": "next.js", "path": "packages/next/src/server/", "since": "30d" }
 ```
 
-### `ghSearchRepos`
+Prefer title-first PR and issue searches. For commit archaeology, narrow by path
+and time before fetching a commit diff.
 
-Discover repositories.
+### `ghGetHistoryItem`
 
-Key fields:
+Read one known history item or compare two refs through one strict operation:
 
-| Field | Meaning |
-|-------|---------|
-| `keywords` | Name/description/readme terms. |
-| `topicsToSearch` | GitHub topics. Useful but sparse. |
-| `owner` | Scope to one owner, or enumerate owner repositories when no keywords are supplied. |
-| `language` | Primary language filter. |
-| `stars`, `size`, `created`, `updated` | GitHub range filters. |
-| `archived` | Include archived repositories when true. |
-| `match` | Search name, description, and/or readme. |
-| `sort` | `stars`, `forks`, `help-wanted-issues`, `updated`, or `best-match`. |
-| `page` | Result page. |
+| Operation | Required identity | Typical detail |
+|---|---|---|
+| `pullRequest` | `owner`, `repo`, `number` | body, changed files, selected patches, comments, reviews, commits |
+| `issue` | `owner`, `repo`, `number` | body and comments |
+| `commit` | `owner`, `repo`, `ref` | commit metadata and optional diff |
+| `compare` | `owner`, `repo`, `base`, `head` | ahead/behind counts and commits between refs |
 
-Examples:
+Fields from another operation are rejected rather than ignored. In particular,
+PR and issue identity is always `number`; commit identity is `ref`; comparison
+identity is the `base` + `head` pair.
 
 ```json
-{ "keywords": ["auth"], "language": "TypeScript", "stars": ">1000" }
-{ "owner": "openai" }
+{ "operation": "pullRequest", "owner": "vercel", "repo": "next.js", "number": 12345, "content": { "changedFiles": true } }
+{ "operation": "issue", "owner": "vercel", "repo": "next.js", "number": 12345, "content": { "body": true, "comments": {} } }
+{ "operation": "commit", "owner": "vercel", "repo": "next.js", "ref": "abc123", "includeDiff": true }
+{ "operation": "compare", "owner": "vercel", "repo": "next.js", "base": "v14.0.0", "head": "v14.1.0" }
 ```
 
-Field combinations:
-
-| Combination | What you get |
-|------------------|-------------|
-| `owner` only | Every repository for that owner, through the listing endpoint, which has no 1000-result cap |
-| `topicsToSearch` only | Repositories tagged with that topic |
-| `keywords` only | Repositories whose name or description matches |
-| `topicsToSearch` + `keywords` | Two searches in parallel, then deduplicated |
-| `language` | Filtered by primary language |
-| `stars: ">500"`, `updated: ">=2025-01-01"` | GitHub range filters |
-
-Behaviors worth knowing:
-
-- `language` is its own field. Passing `keywords: ["language:TypeScript"]` searches
-  for that literal string in names and descriptions.
-- With both `topicsToSearch` and `keywords`, `totalMatches` is the count of distinct
-  repositories merged, reported as `totalMatchesKind: "lowerBound"`. It is a
-  firm floor on the true total, not an inflated sum.
-- `sort` accepts `stars`, `forks`, `help-wanted-issues`, `updated`, and `best-match`.
-  For recency, filter with `created: ">=YYYY-MM-DD"` instead.
-- `visibility` is omitted for public repositories and set only when a repository is
-  not public.
-
-### `ghSearchPullRequests`
-
-Search GitHub pull requests, or read one PR's files, diffs, and reviews.
-
-Start with a list search, then request targeted `content` for a specific `prNumber`.
-
-List fields:
-
-| Field | Meaning |
-|-------|---------|
-| `owner`, `repo` | Repository scope. |
-| `keywordsToSearch` | Free-text PR search. Prefer title keywords first. |
-| `match` | Search `title`, `body`, and/or `comments`. |
-| `state` | `open`, `closed`, or `merged`. |
-| `author`, `label`, `checks`, `review` | PR filters. |
-| `created`, `updated` | Date filters. |
-| `sort`, `order`, `page` | Result ordering and paging. |
-| `limit` | Max PRs in the search list. |
-
-Detail fields:
-
-| Field | Meaning |
-|-------|---------|
-| `prNumber` | Direct PR lookup. Cheapest when known. |
-| `content` | Selector: `metadata`, `body`, `changedFiles`, `patches` (`mode: none/selected/all`, `files`, `ranges`), `comments` (`includeBots`, …), `reviews`, `commits`. |
-| `itemsPerPage` | Page size when reading one PR's comments/files/commits. |
-| `minify` | `none` or `standard`. |
-
-Examples:
-
-```json
-{ "owner": "vercel", "repo": "next.js", "keywordsToSearch": ["middleware"], "match": ["title"], "state": "merged" }
-{ "owner": "vercel", "repo": "next.js", "prNumber": 12345, "content": { "metadata": true, "changedFiles": true } }
-{ "owner": "vercel", "repo": "next.js", "prNumber": 12345, "content": { "patches": { "mode": "selected", "files": ["packages/next/src/server.ts"] } } }
-```
-
-Rules:
-
-- Use `prNumber` when known.
-- Avoid broad comment searches until title/body search fails.
-- Request selected patches instead of `mode: "all"` for large PRs.
-
-Cost by call pattern:
-
-| Call pattern | What you get | Approx tokens |
-|-------------|-------------|---------------|
-| List search (no `prNumber`) | PR list: number, title, author, dates, review metadata | ~200-2k |
-| `prNumber` + no `content` | The same fields for one PR | ~200 |
-| `prNumber` + `content.body` | PR description text | +500-5k |
-| `prNumber` + `content.changedFiles` | File paths with additions and deletions | +200-2k |
-| `prNumber` + `content.patches.mode: "selected"` | Diffs for the files you name | +500-5k per file |
-| `prNumber` + `content.patches.mode: "all"` | Every diff | unbounded |
-| `prNumber` + `content.comments` | Inline and discussion comment bodies | +1k-20k |
-| `prNumber` + `content.commits` | SHA, message, and author per commit | +200-2k |
-
-Behaviors worth knowing:
-
-- Content selectors apply to a single `prNumber`. A list search returns metadata only.
-- `content.patches.mode: "all"` is unbounded: a PR with 100 changed files can return
-  300k chars, and the large-PR warning arrives after the payload. Prefer `"selected"`.
-- `content.comments.includeBots` defaults to `false`.
-- A `label` value containing spaces is more reliable inside `keywordsToSearch` as
-  `label:"Pages Router"` than in the `label` field.
-
-### `ghSearchIssues`
-
-Search GitHub issues, or read one issue.
-
-Same list/detail shape as `ghSearchPullRequests`, with its own `content` selector. Use `issueNumber` for direct lookup.
-
-Examples:
-
-```json
-{ "owner": "vercel", "repo": "next.js", "keywordsToSearch": ["memory leak"], "match": ["title"], "state": "open" }
-{ "owner": "vercel", "repo": "next.js", "issueNumber": 12345, "content": { "body": true, "comments": {} } }
-```
-
-### `ghSearchCommits`
-
-Walk a repository's commit history for a path/range — or compare two refs.
-
-`owner` and `repo` are required. No `sort`/`order`.
-
-Key fields:
-
-| Field | Meaning |
-|-------|---------|
-| `path` | File/dir prefix; trailing `/` = whole subtree. |
-| `since`, `until` | Date bounds. Relative windows like `30d` are accepted. |
-| `branch` | Branch to walk. |
-| `author`, `committer` | User filters. |
-| `base`, `head` | Compare mode — diff `base…head`; returns `aheadBy`, `behindBy`, `totalCommits`, and the commit list. |
-| `includeDiff` | Include diffs (costly). |
-| `itemsPerPage`, `page` | Pagination. |
-
-Examples:
-
-```json
-{ "owner": "vercel", "repo": "next.js", "path": "packages/next/src/server/", "since": "30d" }
-{ "owner": "vercel", "repo": "next.js", "base": "v14.0.0", "head": "v14.1.0" }
-```
-
-Cost by call pattern:
-
-| Call pattern | What you get |
-|-------------|-------------|
-| `path` + `since`/`until` | Commits touching that path in the window |
-| `author`/`committer` | Commits by a user |
-| `base` + `head` | Compare mode: `aheadBy`, `behindBy`, `totalCommits`, commit list |
-| `includeDiff: true` | Adds per-commit diffs, which is costly |
-
-Leave `includeDiff` off until you know which range matters.
+Request selected PR patches instead of every patch for large PRs, and leave
+commit diffs off until the relevant commit is known.
 
 ### `ghListReleases`
 
@@ -345,7 +208,7 @@ Key fields:
 |-------|---------|
 | `owner`, `repo` | Required repository. |
 | `includeAssets` | Opt-in; adds `assets[]` with name, size, downloadCount, url. |
-| `page`, `itemsPerPage` | Pagination. |
+| `page`, `pageSize` | Pagination. |
 
 Examples:
 
@@ -363,8 +226,8 @@ Key fields:
 | Field | Meaning |
 |-------|---------|
 | `owner`, `repo` | Required repository. |
-| `keywordsToSearch` | Optional `string[]`; filters title/body. Omit to list newest. |
-| `itemsPerPage`, `after` | Pagination (`after` is a cursor). |
+| `keywords` | Optional `string[]`; filters title/body. Omit to list newest. |
+| `pageSize`, `after` | Pagination (`after` is a cursor). |
 
 Returns `totalCount` and `discussions[]` (number, title, url, author, category, createdAt, comments, `answered:true` for accepted Q&A answers) with cursor `pagination.nextCursor`.
 
@@ -372,14 +235,14 @@ Examples:
 
 ```json
 { "owner": "vercel", "repo": "next.js" }
-{ "owner": "vercel", "repo": "next.js", "keywordsToSearch": ["app router"] }
+{ "owner": "vercel", "repo": "next.js", "keywords": ["app router"] }
 ```
 
 ### `ghCloneRepo`
 
 Clone a repository or sparse subtree into Octocode's local cache.
 
-Requires `ENABLE_CLONE=true` and local tools not explicitly disabled.
+Enabled by default. Set `ENABLE_CLONE=false` to disable clone-backed workflows.
 
 Key fields:
 
@@ -416,12 +279,13 @@ Key fields:
 | `name` | Exact npm package name or npm keyword query. |
 | `npmFetchMetadata` | Fetch heavier npm metadata when needed. |
 | `page` | Page keyword-search results. |
+| `pageSize` | Return 1–100 keyword-search results per page; partial pages include executable `next.nextPage`. |
 
 Examples:
 
 ```json
 { "name": "react" }
-{ "name": "typescript eslint", "page": 2 }
+{ "name": "typescript eslint", "page": 2, "pageSize": 20 }
 ```
 
 Use `npmSearch` before GitHub repository search when you already have a package name.
@@ -444,19 +308,19 @@ Behaviors worth knowing:
   is absent, with no warning and no fallback hint. Read it from
   `https://api.npmjs.org/downloads/point/last-week/<name>` when you need it.
 - When the registry is unreachable the tool tries a web-search fallback, then returns
-  an error hinting at `ghSearchRepos`. Acting on that hint is your call, not automatic.
+  an error hinting at `ghSearch(operation:"repositories")`. Acting on that hint is your call, not automatic.
 - Scoped packages need the full `@scope/name`.
 
 ### Token cost control by goal
 
 | Goal | Cheapest approach |
 |------|------------------|
-| Find if a function exists in a file | `ghSearchCode` with `keywords: ["functionName"]` |
+| Find if a function exists in a file | `ghSearch(operation:"code")` with `keywords: ["functionName"]` |
 | Read one function body | `ghGetFileContent` with `matchString: "function name"` + small `contextLines` |
 | Scan a whole file's structure | `ghGetFileContent` with `minify: "symbols"` |
 | Read 2–10 functions from a file | Multiple `startLine`/`endLine` reads in one batched call |
 | Read a 3MB+ file | `ghCloneRepo` sparse + local read |
-| Understand why a PR was made | `ghSearchPullRequests` with `content.body: true` only |
+| Understand why a PR was made | `ghSearchHistory(operation:"pullRequests")`, then `ghGetHistoryItem(operation:"pullRequest", number)` with `content.body: true` |
 | Review a PR's changes | `content.changedFiles: true` first, then `content.patches.mode: "selected"` for relevant files |
 | Get all inline code comments on a PR | `content: { comments: { reviewInline: true, discussion: false } }` |
 | Count repositories in an org | `owner: "vercel"` with no keywords → `totalMatches` from pagination |
@@ -466,17 +330,17 @@ Behaviors worth knowing:
 
 | Task | Flow |
 |------|------|
-| Understand a package | `npmSearch` -> `ghViewRepoStructure` -> `ghSearchCode` -> `ghGetFileContent` |
-| Find examples of a pattern | `ghSearchCode` -> `ghGetFileContent` |
-| Explore a repository | `ghViewRepoStructure` -> `ghGetFileContent(README)` -> `ghSearchCode` |
-| Explain why code changed | `ghSearchCode` -> `ghSearchPullRequests` -> direct `prNumber` content |
+| Understand a package | `npmSearch` -> `ghSearch(operation:"tree")` -> `ghSearch(operation:"code")` -> `ghGetFileContent` |
+| Find examples of a pattern | `ghSearch(operation:"code")` -> `ghGetFileContent` |
+| Explore a repository | `ghSearch(operation:"tree")` -> `ghGetFileContent(README)` -> `ghSearch(operation:"code")` |
+| Explain why code changed | `ghSearch(operation:"code")` -> `ghSearchHistory` -> `ghGetHistoryItem` with the returned identity |
 | Deep local analysis | `ghCloneRepo` -> local tools |
 
 ### GitHub tool rules
 
 - Use GitHub tools for remote repositories, not files already on disk.
 - Use `npmSearch` for known npm package names.
-- Use `ghViewRepoStructure` before reading unknown paths.
+- Use `ghSearch(operation:"tree")` before reading unknown paths.
 - Use `matchString`, line ranges, or `minify: "symbols"` instead of `fullContent` for large files.
 - Use PR metadata first, then selected content.
 - Use `ghCloneRepo` only when local analysis is worth the clone cost.
@@ -499,9 +363,7 @@ Related docs:
 
 | Tool | Purpose |
 |------|---------|
-| `localSearchCode` | Text/regex search + structural AST/code-shape search (`mode:"structural"`). Matches provide file/line anchors for `lspGetSemantics`. |
-| `localViewStructure` | Browse directory structure and metadata. |
-| `localFindFiles` | Find files/directories by name, path, time, size, type, and permissions. |
+| `localSearch` | Unified local discovery. Set `operation` to `text`, `structural`, `files`, or `tree`; text and structural matches provide anchors for `lspGetSemantics`. |
 | `localGetFileContent` | Read targeted file content by line range, match, signature skeleton, or char page. |
 | `localAnalyzeGraph` | Run one bounded repository-graph operation: dependencies, dependents, path, reachability, cycles, or dead-code candidates. |
 
@@ -528,7 +390,8 @@ Useful local-tool environment variables:
 | `ENABLE_LOCAL` | Enables local filesystem tools. Defaults to `true` on both CLI and MCP; set `false` to disable them. |
 | `WORKSPACE_ROOT` | Root used to resolve relative local paths. Overrides `local.workspaceRoot` in config. |
 | `ALLOWED_PATHS` | Optional comma-separated allowlist of extra roots, added on top of the always-allowed home directory. Empty means home directory only (paths outside home are denied). |
-| `ENABLE_CLONE` | Enables clone-backed workflows and GitHub directory fetches that materialize local files. |
+| `ENABLE_CLONE` | Enables clone-backed workflows and GitHub directory fetches that materialize local files. Defaults to `true`; set `false` to disable them. |
+| `TOOLS_TO_RUN` | Strict tool allowlist; include every tool that must remain enabled. Removed compatibility names are rejected. |
 
 Config reference: [Configuration Reference](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md).
 
@@ -536,11 +399,11 @@ Config reference: [Configuration Reference](https://github.com/bgauryy/octocode/
 
 ### Platform support
 
-`localSearchCode` runs ripgrep in-process through Octocode's native engine. There is no external `rg` binary dependency and no `grep` fallback.
+`localSearch` uses Octocode's native in-process ripgrep, structural-search, and filesystem-walker engines. There are no external `rg`, `grep`, `find`, or `tree` dependencies.
 
 `localGetFileContent` is pure Node.js and works on macOS, Linux, and Windows.
 
-`localFindFiles` and `localViewStructure` use Octocode's native filesystem walker. They work on macOS, Linux, and Windows. Prefer `localSearchCode(output:"files", ...)` when content search can answer the question.
+All four `localSearch` operations work on macOS, Linux, and Windows. Prefer `operation:"text", resultView:"files"` when a content query can answer the question.
 
 ---
 
@@ -552,8 +415,8 @@ Local tools expose two pagination layers:
 
 | Layer | Fields | Applies To |
 |-------|--------|------------|
-| Native result pagination | `page`, `itemsPerPage` | `localSearchCode`, `localViewStructure`, `localFindFiles` |
-| Per-file match pagination | `matchPage`, `maxMatchesPerFile` | `localSearchCode` when a matched file has more matches |
+| Native result pagination | `page`, `pageSize` | Every `localSearch` operation |
+| Per-file match pagination | `matchPage`, `maxMatchesPerFile` | `localSearch(operation:"text")` when a matched file has more matches |
 | Content pagination | `charOffset`, `charLength` | `localGetFileContent` and oversized per-query payloads |
 | Bulk response pagination | `responseCharOffset`, `responseCharLength` | Any local-tool bulk response |
 
@@ -565,12 +428,12 @@ Use native pagination first for result lists, then char pagination only when a s
 
 | Need | Use |
 |------|-----|
-| "Which directories/files exist here?" | `localViewStructure` |
-| "Find files named `*.test.ts` or changed recently." | `localFindFiles` |
-| "Search for text, regex, imports, TODOs, or identifiers." | `localSearchCode` |
+| "Which directories/files exist here?" | `localSearch(operation:"tree")` |
+| "Find files named `*.test.ts` or changed recently." | `localSearch(operation:"files")` |
+| "Search for text, regex, imports, TODOs, or identifiers." | `localSearch(operation:"text")` |
 | "Read this exact file section." | `localGetFileContent` |
-| "Find files containing a pattern without match bodies." | `localSearchCode(output:"files", ...)` |
-| "Find files that do not contain a pattern." | `localSearchCode(output:"filesWithout", ...)` |
+| "Find files containing a pattern without match bodies." | `localSearch(operation:"text", resultView:"files", ...)` |
+| "Find files that do not contain a pattern." | `localSearch(operation:"text", resultView:"filesWithout", ...)` |
 
 Recommended order for code research:
 
@@ -580,11 +443,15 @@ DISCOVER -> SEARCH -> READ
 
 Start broad with structure or metadata, narrow with content search, then read the smallest exact file slice needed.
 
+`localSearch` is the only local discovery entry point. Its four strict operation
+branches reject fields from other operations. Removed compatibility names cannot
+be restored with `TOOLS_TO_RUN` or `.octocoderc`.
+
 ---
 
-### `localSearchCode`
+### `localSearch`
 
-Fast content search powered by ripgrep.
+One discriminated local-discovery surface. Always set `operation`; fields from different operations cannot be mixed.
 
 #### Best for
 
@@ -597,17 +464,17 @@ Fast content search powered by ripgrep.
 | Parameter | Description |
 |-----------|-------------|
 | `path` | File or directory to search. Relative paths resolve from the workspace root. For remote repos: pass `localPath` from a `ghCloneRepo` or `ghGetFileContent(type:"directory")` result — it is already absolute and immediately valid. |
-| `searchText` | Text or regex pattern for non-structural search. Use `regex:"fixed"` for literal search. Required unless `mode:"structural"`. |
-| `mode` | `paginated` (default), `discovery` (file paths only), `detailed` (expanded context), `structural` (AST/shape — use `pattern` or `rule`). |
-| `pattern` | Octocode code-shaped AST pattern. `$X` = single node, `$$$ARGS` = list. **Only with `mode:"structural"`**. |
-| `rule` | YAML relational rule (`not`/`inside`/`has`/`all`/`any`). Add `stopBy: end` for ancestor/descendant relations. **Only with `mode:"structural"`**. |
-| `output` | `content` (default), `files`, `filesWithout`, `countLines`, `countMatches`, or `matchOnly`. |
-| `matchWindow` | With `output:"matchOnly"`, widen each matched span by this many characters of context on each side (… marks trimmed sides). 0 = bare match. |
-| `unique` | With `output:"matchOnly"`, use `list` for distinct match values per file or `count` for frequencies. |
+| `operation` | Required. `text`, `structural`, `files`, or `tree`. |
+| `searchText` | Text or regex pattern. Required with `operation:"text"`. |
+| `resultView` | Text/structural response shape. Text supports `paginated`, `discovery`, `detailed`, `content`, `files`, `filesWithout`, `countLines`, `countMatches`, and `matchOnly`; structural supports content/file/count/match views. |
+| `pattern` | Octocode code-shaped AST pattern. `$X` = one node, `$$$ARGS` = a list. Use only with `operation:"structural"`; provide exactly one of `pattern` or `rule`. |
+| `rule` | YAML relational rule (`not`/`inside`/`has`/`all`/`any`). Add `stopBy: end` for ancestor/descendant relations. Use only with `operation:"structural"`. |
+| `matchWindow` | With `resultView:"matchOnly"`, widen each matched span by this many characters of context on each side (… marks trimmed sides). 0 = bare match. |
+| `unique` | With `resultView:"matchOnly"`, use `list` for distinct match values per file or `count` for frequencies. |
 | `contextLines` | Lines around each match. Max 100. |
-| `matchContentLength` | Max characters per individual match snippet. Default 200, max 100000. |
-| `maxFiles` | Hard cap on matched files. |
-| `maxMatchesPerFile` | Hard cap on matches per file. Pair with `matchPage` to continue. |
+| `matchContentLength` | Max characters per individual match snippet. Default 500, max 100000. |
+| `maxFiles` | Text: per-page ceiling. Structural: scan cap; stats report truncation. |
+| `maxMatchesPerFile` | Per-file match page size. Pair with `matchPage` to continue. |
 | `page` | Result page across matched files. |
 | `matchPage` | Per-file match page when a file has more matches. |
 
@@ -619,7 +486,7 @@ Fast content search powered by ripgrep.
 | `caseMode` | `smart`, `sensitive`, or `insensitive`. |
 | `wholeWord` | Match whole words only. |
 | `multiline` | `off`, `on`, or `dotall` for cross-line matching. |
-| `invertMatch` | Return non-matching lines, or with `output:"files"`, files lacking the pattern. |
+| `invertMatch` | Return non-matching lines, or with `resultView:"files"`, files lacking the pattern. |
 
 #### Filters
 
@@ -631,49 +498,47 @@ Fast content search powered by ripgrep.
 | `excludeDir` | Directory names to skip. |
 | `hidden` | Include hidden files. |
 | `noIgnore` | Ignore `.gitignore` and `.ignore` files. |
-| `sort` | Sort by `path`, `modified`, `accessed`, or `created`. |
-| `sortReverse` | Reverse the selected sort direction. |
+| `sort` | Text/structural: `relevance`, `matchCount`, `path`, `modified`, `accessed`, or `created`. Files: `modified`, `name`, `path`, or `size`. Tree: `name`, `size`, `time`, or `extension`. |
+| `reverse` | Reverse the selected sort direction where the selected operation supports it. |
 
 #### Output
 
-Normal results include matched files and match snippets with line and column information. For count-only output use `countLinesPerFile:true` or `countMatchesPerFile:true`.
+Normal results include matched files and match snippets with line and column information. For count-only output use `resultView:"countLines"` or `resultView:"countMatches"`.
 
-When matches are returned, `localSearchCode` also emits a machine-readable
+When matches are returned, `localSearch` also emits a machine-readable
 `next` map for common agent follow-ups:
 
 | Next key | Tool | Purpose |
 |----------|------|---------|
-| `fetchExact` | `localGetFileContent` | Read the first match with `minify:"none"` for exact source, comments, tests, or edits. |
-| `fetchStandard` | `localGetFileContent` | Read a token-efficient source slice with `minify:"standard"`. |
-| `fetchSymbols` | `localGetFileContent` | Get a file-level symbol skeleton with `minify:"symbols"`. |
+| `fetch` | `localGetFileContent` | Read the first hit; adjust `minify` on the follow-up when needed. |
 | `lspDefinition` / `lspReferences` | `lspGetSemantics` | Follow the first match semantically when a safe symbol name can be inferred. |
-| `nextPage` / `nextMatchPage` | `localSearchCode` | Continue file-level or per-file match pagination. |
+| `nextPage` / `nextMatchPage` | `localSearch` | Continue file-level or per-file match pagination. |
 
 #### Examples
 
 ```bash
-localSearchCode(path="packages/octocode-mcp/src", searchText="registerTool", langType="ts")
-localSearchCode(path=".", searchText="TODO", output="files")
-localSearchCode(path="src", searchText="class\\s+\\w+Service", regex="perl", contextLines=3)
+localSearch(operation="text", path="packages/octocode-mcp/src", searchText="registerTool", langType="ts")
+localSearch(operation="text", path=".", searchText="TODO", resultView="files")
+localSearch(operation="text", path="src", searchText="class\\s+\\w+Service", regex="perl", contextLines=3)
 ```
 
 #### Structural and AST search
 
-Use `mode:"structural"` for code-shape queries regex cannot express (find all `await` inside `for` loops, calls with N args, functions missing `try/catch`).
+Use `operation:"structural"` for code-shape queries regex cannot express (find all `await` inside `for` loops, calls with N args, functions missing `try/catch`).
 
 **Supported languages:** ts, tsx, js, jsx, mjs, cjs, py, go, rs, java, c/h, cpp/cc/cxx, cs, sh/bash/zsh.
 
 ```bash
-localSearchCode(path="src", mode="structural", pattern="track($$$ARGS)")
+localSearch(operation="structural", path="src", pattern="track($$$ARGS)")
 # `rule` is a YAML string: \n below are real newline escapes in the JSON tool
 # arg (not literal backslash-n). On the CLI, use $'...' or a real multiline string.
-localSearchCode(path="src", mode="structural", rule="rule:\n  pattern: await $C\n  inside:\n    kind: for_statement\n    stopBy: end")
-localSearchCode(path=".", mode="structural", pattern="eval($X)")
+localSearch(operation="structural", path="src", rule="rule:\n  pattern: await $C\n  inside:\n    kind: for_statement\n    stopBy: end")
+localSearch(operation="structural", path=".", pattern="eval($X)")
 ```
 
 ---
 
-### `localViewStructure`
+### `localSearch(operation:"tree")`
 
 Directory browsing for understanding shape, ownership, and file distribution.
 
@@ -688,34 +553,33 @@ Directory browsing for understanding shape, ownership, and file distribution.
 | Parameter | Description |
 |-----------|-------------|
 | `path` | Directory to browse. Relative paths resolve from the workspace root. |
-| `recursive` | Descend into subdirectories. Use with `maxDepth` to control cost. |
-| `maxDepth` | Recursion depth. Max 20. Use low depth first. |
+| `maxDepth` | Recursion depth; setting it enables traversal. Max 20. Use low depth first. |
 | `page` | Result page. |
-| `itemsPerPage` | Directory entries per page. Max 50. |
+| `pageSize` | Directory entries per page. Max 50. |
 | `limit` | Hard pre-pagination cap. Max 10000. |
 | `entryType` | `f` for files only, `d` for directories only; omit for both. |
 | `extensions` | Only include files with selected extensions. |
-| `pattern` | Filter entries by glob or substring. |
+| `namePattern` | Filter entries by glob or substring. |
 | `hidden` | Include hidden files and directories. |
 | `detail` | `basic` (default), `modified` (+mtime), or `full` (size/permissions/mtime). |
-| `sortBy` | Sort field. |
+| `sort` | Sort field. |
 | `reverse` | Reverse sort order. |
 
 #### Output
 
-`entries[]` contains structured file/directory entries. The response also includes summary and pagination metadata when applicable.
+The response separates structured `files[]` and `folders[]` and includes summary and pagination metadata when applicable.
 
 #### Examples
 
 ```bash
-localViewStructure(path=".", recursive=true, maxDepth=1)
-localViewStructure(path="packages/octocode-mcp/src", recursive=true, maxDepth=2, entryType="d")
-localViewStructure(path="docs", extensions=["md"], detail="full")
+localSearch(operation="tree", path=".", maxDepth=1)
+localSearch(operation="tree", path="packages/octocode-mcp/src", maxDepth=2, entryType="d")
+localSearch(operation="tree", path="docs", extensions=["md"], detail="full")
 ```
 
 ---
 
-### `localFindFiles`
+### `localSearch(operation:"files")`
 
 Metadata search for files and directories.
 
@@ -732,29 +596,29 @@ Metadata search for files and directories.
 | `path` | Directory root for metadata search. |
 | `names` | Filename globs OR-combined, such as `["*.ts", "*.tsx"]`. |
 | `pathPattern` | Glob matched against the full path. |
-| `regex` | Rust regex over the basename only. |
+| `pathRegex` | Rust regex over the basename only. |
 | `entryType` | `f` for files, `d` for directories. |
 | `minDepth` / `maxDepth` | Depth bounds. |
-| `modifiedWithin` | Files modified within a window, such as `7d` or `2h`. |
-| `modifiedBefore` | Files modified before a date/window. |
-| `accessedWithin` | Files accessed within a window. |
-| `sizeGreater` / `sizeLess` | Size filters such as `100k` or `1m`. |
+| `time.modifiedWithin` | Files modified within a window, such as `7d` or `2h`. |
+| `time.modifiedBefore` | Files modified before a date/window. |
+| `time.accessedWithin` | Files accessed within a window. |
+| `size.greater` / `size.less` | Size filters such as `100k` or `1m`. |
 | `empty` | Empty files/directories only. |
 | `permissions` | Permission string filter. |
 | `access` | Permission predicate: `executable`, `readable`, or `writable`. |
 | `excludeDir` | Directory names to skip. |
 | `detail` | `basic` (default), `modified` (+mtime), or `full` (all metadata). |
-| `sortBy` | Sort by `modified`, `name`, `path`, or `size`. |
+| `sort` | Sort by `modified`, `name`, `path`, or `size`. |
 | `page` | Result page. |
-| `itemsPerPage` | Files per page. Max 50. |
+| `pageSize` | Files per page. Max 50. |
 | `limit` | Hard pre-pagination cap. Max 10000. |
 
 #### Examples
 
 ```bash
-localFindFiles(path=".", names=["*.test.ts"])
-localFindFiles(path="packages", regex="^readme\\.md$")
-localFindFiles(path=".", time={"modifiedWithin":"24h"}, entryType="f", detail="full")
+localSearch(operation="files", path=".", names=["*.test.ts"])
+localSearch(operation="files", path="packages", pathRegex="^readme\\.md$")
+localSearch(operation="files", path=".", time={"modifiedWithin":"24h"}, entryType="f", detail="full")
 ```
 
 ---
@@ -787,7 +651,7 @@ Do not combine `fullContent` with match or line-range extraction. Do not combine
 
 | Parameter | Description |
 |-----------|-------------|
-| `path` | File path to read. Use `localViewStructure` for directories. |
+| `path` | File path to read. Use `localSearch` for directories. |
 | `startLine` / `endLine` | 1-based inclusive line range. Use together. |
 | `matchString` | Anchor text or regex. |
 | `contextLines` | Lines around each match. Default 5, max 100. |
@@ -836,7 +700,7 @@ Use `localAnalyzeGraph` to discover repository-scale file topology and candidate
 | `maxFiles` | Cap on files scanned. Max 50000. The scan stops and warns past this bound. |
 | `limit` | Result cap before pagination. Max 5000. |
 | `page` | Result page. Max 1000. |
-| `itemsPerPage` | Results per page. Max 50. |
+| `pageSize` | Results per page. Max 50. |
 
 Results never dump the complete graph: the result list is paginated, SCC/dead-cluster members cap at 50 files with `size` and `truncated`, and complete shortest paths cap at 100 files. Longer paths return `complete:false`, empty `files`/`edges`, bounded `prefix` and `suffix`, the target, total file count, and omitted-middle count so a prefix cannot be mistaken for a complete source-to-target path. A five-query large-repository batch must remain at or below 32 KiB in compact structured output; use pagination instead of expanding nested collections.
 
@@ -856,7 +720,7 @@ The graph assigns no weights to edges. `path` therefore uses breadth-first searc
 
 ```bash
 localAnalyzeGraph(operation="dependencies", path="/ABS/repo", file="src/index.ts", depth=2)
-localAnalyzeGraph(operation="cycles", path="/ABS/repo", limit=20)
+localAnalyzeGraph(operation="cycles", path="/ABS/repo", pageSize=20, limit=100)
 localAnalyzeGraph(operation="deadCode", path="/ABS/repo", entrypoints=["src/index.ts"], includeTests=false)
 ```
 
@@ -869,42 +733,42 @@ For a cycle, read the exact imports named by `cycleEdges`; use `runtimeCycleEdge
 #### Explore a new repository
 
 ```text
-localViewStructure(path=root, recursive=true, maxDepth=1)
-localViewStructure(path=root+"/src", recursive=true, maxDepth=2)
-localFindFiles(path=root, names=["package.json", "tsconfig.json", "README.md"])
-localSearchCode(path=root, searchText="export", output="files")
+localSearch(operation="tree", path=root, maxDepth=1)
+localSearch(operation="tree", path=root+"/src", maxDepth=2)
+localSearch(operation="files", path=root, names=["package.json", "tsconfig.json", "README.md"])
+localSearch(operation="text", path=root, searchText="export", resultView="files")
 localGetFileContent(path="README.md", minify="symbols")
 ```
 
 #### Search, then read
 
 ```text
-localSearchCode(path="src", searchText="validateInput", contextLines=2)
+localSearch(operation="text", path="src", searchText="validateInput", contextLines=2)
 localGetFileContent(path="src/validation.ts", matchString="validateInput", contextLines=20)
 ```
 
 #### Find tests for a feature
 
 ```text
-localFindFiles(path=".", names=["*.test.ts", "*.spec.ts"])
-localSearchCode(path="tests", searchText="featureName", output="files")
+localSearch(operation="files", path=".", names=["*.test.ts", "*.spec.ts"])
+localSearch(operation="text", path="tests", searchText="featureName", resultView="files")
 localGetFileContent(path="tests/feature.test.ts", matchString="featureName")
 ```
 
 #### Inspect recent changes
 
 ```text
-localFindFiles(path=".", time={"modifiedWithin":"24h"}, entryType="f", detail="full")
-localSearchCode(path=".", searchText="TODO|FIXME", regex="perl")
+localSearch(operation="files", path=".", time={"modifiedWithin":"24h"}, entryType="f", detail="full")
+localSearch(operation="text", path=".", searchText="TODO|FIXME", regex="perl")
 ```
 
 ---
 
 ### Local tool rules
 
-1. Use `localViewStructure` or `localFindFiles` before reading when the file is unknown.
-2. Use `localSearchCode(output:"files")` for fast discovery when match bodies are not needed.
-3. Use `localSearchCode` with `contextLines` before opening a large file.
+1. Use `localSearch(operation:"tree")` or `localSearch(operation:"files")` before reading when the file is unknown.
+2. Use `localSearch(operation:"text", resultView:"files")` for fast discovery when match bodies are not needed.
+3. Use `localSearch(operation:"text")` with `contextLines` before opening a large file.
 4. Use `localGetFileContent` with `matchString`, `startLine`/`endLine`, or `minify:"symbols"` instead of `fullContent` for large files.
 5. Use pagination fields when a response advertises `hasMore=true`.
 
@@ -913,8 +777,7 @@ localSearchCode(path=".", searchText="TODO|FIXME", regex="perl")
 ### Response shape
 
 - Bulk envelope: `results[]` with `data`, `hints`, `pagination`, `outputPagination`.
-- `localViewStructure` returns structured `entries[]`, not a string.
-- `localSearchCode` returns snippets, file-only lists, counts, or files-without-match per mode.
+- `localSearch` returns an operation-specific payload: text/structural matches, file rows, or tree entries.
 - `localGetFileContent` returns file slices only — not directory listings.
 
 ### Anti-patterns
@@ -940,7 +803,7 @@ localSearchCode(path=".", searchText="TODO|FIXME", regex="perl")
 
 ## LSP tools reference
 
-This is the canonical reference for Octocode's semantic code-intelligence operations. LSP is the protocol layer behind these operations; structural AST search remains part of `localSearchCode`.
+This is the canonical reference for Octocode's semantic code-intelligence operations. LSP is the protocol layer behind these operations; structural AST search remains part of `localSearch`.
 
 Octocode exposes **one** public semantic tool:
 
@@ -948,15 +811,15 @@ Octocode exposes **one** public semantic tool:
 |------|------------|
 | `lspGetSemantics` | Definitions, references, callers, callees, bidirectional call hierarchy, hover, document symbols, type definitions, and implementations. |
 
-Semantic operations are local-only. Local tools default on for both CLI and MCP; set `ENABLE_LOCAL=false` to disable them. LSP needs a file that exists on disk. Use `localSearchCode` first when you need a symbol `lineHint`; `mode:"structural"` matches can provide AST-derived anchors before LSP proves symbol identity.
+Semantic operations are local-only. Local tools default on for both CLI and MCP; set `ENABLE_LOCAL=false` to disable them. LSP needs a file that exists on disk. Use `localSearch` first when you need a symbol `lineHint`; `operation:"structural"` matches can provide AST-derived anchors before LSP proves symbol identity.
 
 For external repos: clone first with `ghCloneRepo` (or fetch a subtree with `ghGetFileContent(type:"directory")`), then use the returned `localPath` as the `uri` prefix for `lspGetSemantics`. The path is always absolute and immediately valid.
 
 ### Workflow
 
-1. Search textually or structurally with `localSearchCode` and capture the exact `lineHint`.
+1. Search with `localSearch(operation:"text")` or `localSearch(operation:"structural")` and capture the exact `lineHint`.
 2. Query `lspGetSemantics` with `uri`, `type`, `symbolName`, and `lineHint`.
-3. Page large symbol or call-flow results with `page` and `itemsPerPage`.
+3. Page large symbol or call-flow results with `page` and `pageSize`.
 4. Run project lint, typecheck, and tests before claiming risky changes are fully verified.
 
 ### `lspGetSemantics`
@@ -978,7 +841,7 @@ Optional fields:
 | `workspaceRoot` | Overrides automatic project-root detection. |
 | `contextLines` | Adds source previews to call-flow results. Keep `0` unless previews are needed. |
 | `page` | Result page for `documentSymbols` and call-flow results. |
-| `itemsPerPage` | Semantic items per page. Defaults to `40` for `documentSymbols`, `10` for call-flow. Max `100`. |
+| `pageSize` | Semantic items per page. Defaults to `40` for `documentSymbols`, `10` for call-flow. Max `100`. |
 | `depth` | Call-flow recursion depth. Keep `1` unless you need nested calls. |
 | `includeDeclaration` | For `references`; defaults to `true`. |
 | `groupByFile` | For `references`; adds per-file rollups. |
@@ -1033,7 +896,7 @@ If `workspaceRoot` is omitted:
 | `lsp` | A language server is available | Type-aware, cross-file. |
 | `native` / `markdown` | `documentSymbols` only | Syntax-only outline; no type inference. |
 
-Every **other** semantic operation — `references`, `definition`, `hover`, `callers`/`callees`/`callHierarchy`, `typeDefinition`, `implementation`, `workspaceSymbol`, `supertypes`/`subtypes`, `diagnostic` — requires a real server. When no server is available octocode **does not fall back to a syntactic guess**: it returns `status:"error"` with `errorCode:"lspServerUnavailable"` and a message directing you to `localSearchCode` (text/structural search) + `localGetFileContent`. (There is no longer a same-file-only `references` native path — a partial answer that silently omits cross-file usages is a trap, so it now errors instead.) See [LSP server lifecycle](https://github.com/bgauryy/octocode/blob/main/packages/octocode-engine/docs/LSP_SERVER_LIFECYCLE.md).
+Every **other** semantic operation — `references`, `definition`, `hover`, `callers`/`callees`/`callHierarchy`, `typeDefinition`, `implementation`, `workspaceSymbol`, `supertypes`/`subtypes`, `diagnostic` — requires a real server. When no server is available octocode **does not fall back to a syntactic guess**: it returns `status:"error"` with `errorCode:"lspServerUnavailable"` and a message directing you to `localSearch` (text/structural search) + `localGetFileContent`. (There is no longer a same-file-only `references` native path — a partial answer that silently omits cross-file usages is a trap, so it now errors instead.) See [LSP server lifecycle](https://github.com/bgauryy/octocode/blob/main/packages/octocode-engine/docs/LSP_SERVER_LIFECYCLE.md).
 
 ### TypeScript backends
 
@@ -1097,7 +960,7 @@ for that extension:
 `command` and `languageId` are required; `args` (default `[]`) and `initializationOptions`
 (passed verbatim in `initialize`) are optional. With the config present, every semantic op works
 for that language; without it the extension is unsupported and semantic ops throw
-`lspServerUnavailable` (→ fall back to `localSearchCode`). See
+`lspServerUnavailable` (→ fall back to `localSearch`). See
 [`LSP_SERVER_LIFECYCLE.md`](https://github.com/bgauryy/octocode/blob/main/packages/octocode-engine/docs/LSP_SERVER_LIFECYCLE.md#custom--bring-your-own-lsp-any-language).
 
 ### Examples
@@ -1134,7 +997,7 @@ Paginated call flow:
   "type": "callHierarchy",
   "symbolName": "printSchema",
   "lineHint": 133,
-  "itemsPerPage": 5,
+  "limit": 5,
   "page": 1
 }
 ```
@@ -1159,7 +1022,7 @@ Diagnostics:
 
 > How to use `ghCloneRepo` and `ghGetFileContent` (directory mode) to bridge GitHub repositories with local + LSP tools for deep code analysis.
 
-> **Prerequisites:** Requires `ENABLE_CLONE=true` and local tools not explicitly disabled.
+> **Prerequisites:** Clone is enabled by default. Clone and local tools must not be explicitly disabled.
 
 ---
 
@@ -1169,8 +1032,8 @@ Octocode MCP has two worlds of tools:
 
 | World | Tools | Strengths | Limitations |
 |-------|-------|-----------|-------------|
-| **GitHub** | `ghSearchCode`, `ghGetFileContent`, `ghViewRepoStructure` | Fast, no disk usage, works on any repository | No LSP, no semantic analysis, API rate limits |
-| **Local + LSP** | `localSearchCode`, `localViewStructure`, `localFindFiles`, `localGetFileContent`, `lspGetSemantics` | Semantic navigation, call tracing, full ripgrep power | Only works on files on disk |
+| **GitHub** | `ghSearch`, `ghGetFileContent` | Fast, no disk usage, works on any repository | No LSP, no semantic analysis, API rate limits |
+| **Local + LSP** | `localSearch`, `localGetFileContent`, `localAnalyzeGraph`, `lspGetSemantics` | Unified discovery, exact reads, topology, and semantic navigation | Only works on files on disk |
 
 **Two tools bridge these worlds** — they download content to `<octocode-home>/tmp/` so local and LSP tools can analyze it:
 
@@ -1187,10 +1050,10 @@ Clones and API-fetched trees use separate tmp buckets with the same 24-hour TTL 
 ┌─────────────────────┐       ┌────────────────────────────┐       ┌──────────────────────────┐
 │  GitHub (remote)     │       │  Bridge Tools              │       │  Local + LSP (on disk)   │
 │                      │       │                            │       │                          │
-│  ghSearchCode    │──────▶│  ghCloneRepo           │──────▶│  localSearchCode         │
-│  githubViewStructure │       │  (full/sparse clone)       │       │  localViewStructure      │
+│  ghSearch        │──────▶│  ghCloneRepo           │──────▶│  localSearch         │
+│  (code/tree/repos)│       │  (full/sparse clone)       │       │  localSearch      │
 │  ghGetFileContent│       │                            │       │  localGetFileContent     │
-│                      │       │  ghGetFileContent      │       │  localFindFiles          │
+│                      │       │  ghGetFileContent      │       │  localSearch          │
 │                      │       │  (type: "directory")       │       │  lspGetSemantics   │
 │                      │       │  (lightweight, no git)     │       │                          │
 │                      │       │  Both return localPath     │       │                          │
@@ -1206,14 +1069,14 @@ Clones and API-fetched trees use separate tmp buckets with the same 24-hour TTL 
 | Scenario | Use GitHub Tools | Use Directory Fetch | Use Clone |
 |----------|-----------------|--------------------|----|
 | Quick file read | ✅ `ghGetFileContent` | Overkill | Overkill |
-| Browse repository tree | ✅ `ghViewRepoStructure` | Overkill | Overkill |
-| Find code pattern across repositories | ✅ `ghSearchCode` | Overkill | Overkill |
+| Browse repository tree | ✅ `ghSearch(operation:"tree")` | Overkill | Overkill |
+| Find code pattern across repositories | ✅ `ghSearch(operation:"code")` | Overkill | Overkill |
 | **Read all files in a directory** | ❌ One-by-one | ✅ `type: "directory"` | Overkill |
-| **Search within a directory** | Limited | ✅ Directory fetch → `localSearchCode` | Also works |
+| **Search within a directory** | Limited | ✅ Directory fetch → `localSearch` | Also works |
 | **Trace function call chains** | ❌ Not possible | ❌ Partial context | ✅ Clone → `lspGetSemantics(type="callers")` / `type="callees"` |
 | **Jump to symbol definitions** | ❌ Not possible | ❌ Partial context | ✅ Clone → `lspGetSemantics(type="definition")` |
 | **Find all usages of a type** | ❌ Not possible | ❌ Partial context | ✅ Clone → `lspGetSemantics(type="references")` |
-| **Deep code search with regex** | Limited | ✅ If scope is small | ✅ Clone → `localSearchCode` |
+| **Deep code search with regex** | Limited | ✅ If scope is small | ✅ Clone → `localSearch` |
 | **Explore monorepo subtree** | Slow (many API calls) | ✅ For small dirs | ✅ Sparse clone for large dirs |
 
 **Rule of thumb:**
@@ -1251,12 +1114,12 @@ location:
   complete: true
 next:
   localSearch:
-    tool: localSearchCode
+    tool: localSearch
     query:
       path: <octocode-home>/tmp/clone/vercel/next.js/main
       mode: discovery
   viewStructure:
-    tool: localViewStructure
+    tool: localSearch
     query:
       path: <octocode-home>/tmp/clone/vercel/next.js/main
 ```
@@ -1291,12 +1154,12 @@ location:
   requestedPath: "src/compiler"
 next:
   localSearch:
-    tool: localSearchCode
+    tool: localSearch
     query:
       path: <octocode-home>/tmp/clone/microsoft/TypeScript/main__sp_a3f8c1
       mode: discovery
   viewStructure:
-    tool: localViewStructure
+    tool: localSearch
     query:
       path: <octocode-home>/tmp/clone/microsoft/TypeScript/main__sp_a3f8c1
 ```
@@ -1332,12 +1195,12 @@ location:
   complete: true
 next:
   localSearch:
-    tool: localSearchCode
+    tool: localSearch
     query:
       path: <octocode-home>/tmp/tree/vercel/next.js/0123456789abcdef0123456789abcdef01234567/packages/next/src/server
       mode: discovery
   viewStructure:
-    tool: localViewStructure
+    tool: localSearch
     query:
       path: <octocode-home>/tmp/tree/vercel/next.js/0123456789abcdef0123456789abcdef01234567/packages/next/src/server
 ```
@@ -1358,11 +1221,11 @@ Step 1: Clone the repo
   → localPath = "<octocode-home>/tmp/clone/vercel/next.js/canary"
 
 Step 2: Browse the tree
-  localViewStructure(path=localPath, depth=2)
+  localSearch(operation="tree", path=localPath, maxDepth=2)
   → See the full directory structure with file sizes and dates
 
 Step 3: Drill into a directory
-  localViewStructure(path=localPath + "/packages/next/src", depth=2)
+  localSearch(operation="tree", path=localPath + "/packages/next/src", maxDepth=2)
   → See the subdirectory contents
 ```
 
@@ -1376,7 +1239,7 @@ Step 1: Clone the repo
   → localPath
 
 Step 2: Search for the function
-  localSearchCode(path=localPath, pattern="handleRequest")
+  localSearch(operation="text", path=localPath, searchText="handleRequest")
   → Get file paths and lineHint values
 
 Step 3: Jump to definition
@@ -1394,7 +1257,7 @@ Step 4: Trace callers
 
 ```
 Step 1: Browse on GitHub first (quick)
-  ghViewRepoStructure(owner="pallets", repo="flask", maxDepth=2)
+  ghSearch(operation="tree", owner="pallets", repo="flask", maxDepth=2)
   → See the tree, find interesting directory "src/flask"
 
 Step 2: Clone for deep analysis
@@ -1402,7 +1265,7 @@ Step 2: Clone for deep analysis
   → localPath
 
 Step 3: Use full ripgrep power
-  localSearchCode(path=localPath, pattern="def route\\(", type="py")
+  localSearch(operation="text", path=localPath, searchText="def route\\(", langType="py")
   → Full regex search, file type filtering, match context
 
 Step 4: Use LSP
@@ -1416,7 +1279,7 @@ Step 4: Use LSP
 
 ```
 Step 1: Browse the monorepo structure on GitHub (quick discovery)
-  ghViewRepoStructure(owner="microsoft", repo="TypeScript", path="src", maxDepth=1)
+  ghSearch(operation="tree", owner="microsoft", repo="TypeScript", path="src", maxDepth=1)
   → See packages: compiler, services, harness, ...
 
 Step 2: Clone only the compiler
@@ -1424,11 +1287,11 @@ Step 2: Clone only the compiler
   → localPath (only downloads src/compiler, much faster)
 
 Step 3: Search within the fetched subtree
-  localSearchCode(path=localPath, pattern="transformTypeScript")
+  localSearch(operation="text", path=localPath, searchText="transformTypeScript")
   → Search only within the compiler code
 
 Step 4: Find files by metadata
-  localFindFiles(path=localPath, name="*.ts", modifiedWithin="30d")
+  localSearch(operation="files", path=localPath, names=["*.ts"], time={"modifiedWithin":"30d"})
   → Recently modified TypeScript files in the compiler
 ```
 
@@ -1438,7 +1301,12 @@ Step 4: Find files by metadata
 
 | Behavior | Details |
 |----------|---------|
-| **TTL** | 24 hours by default (configurable through `OCTOCODE_CACHE_TTL_MS` env var) |
+| **Materialization TTL** | Clone and tree entries use 24 hours by default (configurable through `OCTOCODE_CACHE_TTL_MS`) |
+| **Shared response cache** | `ghSearch`, `ghSearchHistory`, `ghGetHistoryItem`, `ghListReleases`, `ghSearchDiscussions`, and `npmSearch` use per-response freshness periods from 5 minutes to 24 hours |
+| **Conditional cache** | `ghGetFileContent` and the `ghSearch` tree operation retain response bodies and ETags for conditional refresh; stale bodies can remain available for up to 24 hours |
+| **Response marker** | A result whose primary response payload was served from cache includes `cache: 1`. Fresh results and helper-only cache hits omit `cache`; no other marker value is valid. The contract is identical in CLI and MCP output. |
+| **Clone cache** | `ghCloneRepo` uses the clone/materialization cache |
+| **Live tools** | `localSearch`, `localGetFileContent`, `localAnalyzeGraph`, and `lspGetSemantics` read the workspace directly and don't cache tool results |
 | **Location** | Clones: `<octocode-home>/tmp/clone/{owner}/{repo}/{branch}/`; file/tree fetches: `<octocode-home>/tmp/tree/{owner}/{repo}/{commitSha}/`; remote response L2: `<octocode-home>/tmp/response/` |
 | **Identity** | The API resolves an omitted branch, then pins file/tree bytes and paths to the resolved commit SHA |
 | **Ref pointer** | Auth-scoped branch/tag-to-commit results are cached for 60 seconds; `forceRefresh` bypasses the pointer |
@@ -1448,10 +1316,10 @@ Step 4: Find files by metadata
 | **Clone vs directory** | Clone-cache and directory/file materialization are separate; directory fetch never overwrites a git clone |
 | **Expired** | Owned entries are evicted when requested and by the shared 24-hour lifecycle |
 | **Force refresh** | Set `forceRefresh: true` in the query to bypass cache and re-clone/re-fetch |
-| **Periodic GC** | CLI tool-runtime bootstrap performs a cheap persisted due-check once per process and exits without a timer. MCP performs the same bootstrap check, then uses an unreferenced deadline timer. Both use one persisted 24-hour marker. A cross-process lock prevents duplicate sweeps; cleanup failure never blocks startup. |
+| **Periodic GC** | CLI tool-runtime bootstrap performs a persisted due-check once per process and exits without a timer. MCP performs the same bootstrap check, then uses an unreferenced deadline timer. Both use one persisted 24-hour marker. A cross-process lock prevents duplicate sweeps; a cleanup failure doesn't block startup. |
 | **Cleanup scope** | Automatic maintenance removes expired entries only from owned clone, tree, response, and managed artifact roots. It preserves unrelated files under `tmp`. |
 | **Response limits** | Response entries also obey configurable per-entry and total-disk limits. See [Response cache](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md#response-cache). |
-| **Manual clear** | `octocode cache clear --clone` and `--tree` are selective. `--all` removes the entire Octocode `tmp` directory, including response entries and maintenance metadata. There is no response-only clear flag. |
+| **Manual clear** | `octocode cache clear --clone` and `--tree` are selective. `--all` removes the entire Octocode `tmp` directory. This deletes response entries and maintenance metadata. There is no response-only clear flag. |
 
 ---
 
@@ -1482,10 +1350,10 @@ For TypeScript/JavaScript LSP:
 | Clone specific branch | `ghCloneRepo` | `owner`, `repo`, `branch` |
 | Clone one folder | `ghCloneRepo` | `owner`, `repo`, `sparsePath` (branch auto-detected) |
 | Force re-clone | `ghCloneRepo` | `forceRefresh: true` (bypasses valid cache) |
-| Browse cloned tree | `localViewStructure` | `path` = `localPath` |
-| Search cloned code | `localSearchCode` | `path` = `localPath` |
+| Browse cloned tree | `localSearch` | `path` = `localPath` |
+| Search cloned code | `localSearch` | `path` = `localPath` |
 | Read cloned file | `localGetFileContent` | `path` = `localPath + "/file.ts"` |
-| Find files in clone | `localFindFiles` | `path` = `localPath` |
+| Find files in clone | `localSearch` | `path` = `localPath` |
 | Jump to definition | `lspGetSemantics` with `type="definition"` | `uri` = file in `localPath` |
 | Find all references | `lspGetSemantics` with `type="references"` | `uri` = file in `localPath` |
 | Trace callers/callees | `lspGetSemantics` with `type="callers"` or `type="callees"` | `uri` = file in `localPath` |
@@ -1519,7 +1387,7 @@ Every tool must pass the same top-level contract:
 
 | Area | Required checks |
 | --- | --- |
-| Registration | Tool is present in `ALL_TOOLS`, has a direct execution definition, has MCP input and output schema, and registers with the expected security wrapper. |
+| Registration | Tool is present in `ALL_TOOLS`, has a direct execution definition, has an MCP input schema, publishes no output schema, and registers with the expected security wrapper. |
 | Bulk envelope | `queries` accepts 1 to 5 items without caller IDs. Response rows use matching zero-based `index` values, preserve input order, isolate per-query errors, and do not let one failed query block siblings. |
 | Output shape | Responses expose machine data in `structuredContent.results[]` and preserve the complete sanitized YAML or JSON representation in `content[0].text` for every MCP client. Lean hoists apply: `base` relativizes absolute `path`/`uri`, `shared` collapses constants identical across leaves (identity keys `owner`/`repo`/`name`/`id` are never hoisted). |
 | Pagination | Native page fields, query-level `charOffset`/`charLength`, and top-level `responseCharOffset`/`responseCharLength` work independently and together. Pagination hints appear only when `hasMore=true`. |
@@ -1554,18 +1422,17 @@ Run these scenarios for every tool before adding tool-specific edge cases:
 
 ### Tool checklist
 
-#### Verify `ghSearchCode`
+#### Verify `ghSearch`
 
-Primary code: [packages/octocode-tools-core/src/tools/github_search_code/](https://github.com/bgauryy/octocode/tree/main/packages/octocode-tools-core/src/tools/github_search_code). Schema: `GitHubCodeSearchQueryLocalSchema`.
+Primary code: [packages/octocode-tools-core/src/tools/github_search/](https://github.com/bgauryy/octocode/tree/main/packages/octocode-tools-core/src/tools/github_search). Schema: `GitHubSearchQuerySchema`.
 
 | Surface | Checks |
 | --- | --- |
-| Params | Verify `keywords`, owner/repo scoping, path/name/extension filters, match mode, `page`, `limit`, `charOffset`, `charLength`, and bulk response pagination. |
-| Implementation | Provider query is built with exact filters, default branch context is preserved for single-repo hits, results are grouped by `owner/repo`, and match values are sanitized. |
-| Pagination | Upstream provider pagination, per-query `outputPagination`, and top-level `responsePagination` can all appear without overwriting each other. |
-| Empty | No-match queries appear in `emptyQueries` with their zero-based query index and concrete recovery hints. Empty groups are not silently dropped in mixed bulk calls. |
-| Warnings | `match-value-truncated` includes group id, path, full length, truncation point, and recovery. |
-| Research quality | A hit must include enough path and snippet evidence to justify a follow-up `ghGetFileContent` call. Each result must carry `owner`, `repo`, and per-match `path` and `value`. |
+| Params | Verify the strict `code`, `repositories`, and `tree` operation branches and rejection of fields from another branch. |
+| Implementation | Each operation delegates to the matching provider flow, preserves input order in mixed bulk calls, and reports `data.operation`. |
+| Pagination | Code/repository pages and tree entry pages preserve their native parameters; top-level response pagination remains independent. |
+| Continuations | Every discovery continuation names `ghSearch`, preserves the operation, and produces a query valid for that operation. |
+| Research quality | Code hits are candidate evidence, repository rows support triage, and tree entries support a bounded exact-read follow-up. |
 
 #### Verify `ghGetFileContent`
 
@@ -1573,7 +1440,7 @@ Primary code: [packages/octocode-tools-core/src/tools/github_fetch_content/](htt
 
 | Surface | Checks |
 | --- | --- |
-| Params | Verify owner, repository, path, branch/ref, file versus directory mode, `fullContent`, `matchString`, `startLine`/`endLine`, `contextLines`, `charOffset`, `charLength`. |
+| Params | Verify `owner`, `repo`, `path`, optional `branch`, file versus directory mode, `fullContent`, `matchString`, `startLine`/`endLine`, `contextLines`, `charOffset`, and `charLength`. |
 | Mutex | `fullContent`, `matchString`, and line ranges are mutually exclusive. Invalid combinations produce per-query errors in bulk calls. |
 | File mode | Line ranges are accurate, `totalLines` is correct, branch fallback/resolution is reported, large files page by character cursor, and partial content sets `isPartial=true`. |
 | Directory mode | Requires local and clone support. Returns `localPath`, file count, total size, cached state, and resolved branch. Follow-up local tools must work against `localPath`. |
@@ -1581,65 +1448,27 @@ Primary code: [packages/octocode-tools-core/src/tools/github_fetch_content/](htt
 | Warnings | `content-truncated` includes group id, path, full content length, truncation point, and recovery. |
 | Research quality | File content must be answer-ready when the query requested a line range or match. Directory mode must be treated as setup evidence for local and LSP follow-ups. |
 
-#### Verify `ghViewRepoStructure`
+#### Verify `ghSearchHistory`
 
-Primary code: [packages/octocode-tools-core/src/tools/github_view_repo_structure/](https://github.com/bgauryy/octocode/tree/main/packages/octocode-tools-core/src/tools/github_view_repo_structure). Schema: `GitHubViewRepoStructureQueryLocalSchema`.
-
-| Surface | Checks |
-| --- | --- |
-| Params | Verify owner, repository, branch/ref, path, `maxDepth`, `itemsPerPage`, `page`, and `include` (array; values `sizes`, `languages`, `contributors`, `branches`, `tags`). |
-| Implementation | Tree keys are stable, files and folders are separated, branch fallback details are preserved, and provider errors retain owner/repo/path context. |
-| Pagination | Entry pagination uses `page=N+1` with `itemsPerPage` only while more entries exist. Page counts must match total entries, not only visible folders. |
-| Empty | Empty repository paths or filters return empty with precise path/branch context. Missing paths return error. |
-| Research quality | Structure must support choosing the next content or search query without guessing. Entries must expose `path` and `type`. |
-
-#### Verify `ghSearchRepos`
-
-Primary code: [packages/octocode-tools-core/src/tools/github_search_repos/](https://github.com/bgauryy/octocode/tree/main/packages/octocode-tools-core/src/tools/github_search_repos). Schema: `GitHubReposSearchSingleQueryLocalSchema`.
+Primary code: [packages/octocode-tools-core/src/tools/github_search_pull_requests/](https://github.com/bgauryy/octocode/tree/main/packages/octocode-tools-core/src/tools/github_search_pull_requests).
 
 | Surface | Checks |
 | --- | --- |
-| Params | Verify query text, topics, language, owner/user/org qualifiers, stars/forks/created/pushed filters, sort/order, `page`, `limit`. |
-| Implementation | Keyword and topic searches merge deterministically, duplicate repositories collapse, partial variant failures are reported, and language maps to GitHub's `language:` qualifier. |
-| Pagination | Pagination is preserved when exactly one provider result set succeeds. It is omitted or explained when multiple result sets are merged. |
-| Empty | Empty results name active filters so the agent can broaden language, topics, or pushed-date constraints. |
-| Research quality | Results must include repository identity, description, URL, default branch, pushed date, language, stars, topics, and enough metadata to choose follow-up search or structure calls. |
+| Operations | Verify the exact plural operations `pullRequests`, `issues`, and `commits`; reject fields belonging to another operation. |
+| Identity | Search results expose the `number` or commit `ref` needed by `ghGetHistoryItem`. Singular identity fields are rejected by the search contract. |
+| Pagination | Each operation pages without dropping or duplicating candidates and preserves its operation in continuations. |
+| Empty | Empty responses name operation, repository scope, and active filters without inventing evidence. |
 
-#### Verify `ghSearchPullRequests`
+#### Verify `ghGetHistoryItem`
 
-Primary code: [packages/octocode-tools-core/src/tools/github_search_pull_requests/](https://github.com/bgauryy/octocode/tree/main/packages/octocode-tools-core/src/tools/github_search_pull_requests). Schema: `SearchPullRequestsLocalSchema`.
-
-| Surface | Checks |
-| --- | --- |
-| Params | Verify owner/repo, `keywordsToSearch`, `match`, `prNumber`, author/label/checks/review filters, state `open|closed|merged`, sort/order, page, limit, `content` selector, `itemsPerPage`, `minify`, `charOffset`, `charLength`. |
-| Implementation | `state:"merged"` maps to merged search, approximate-title archaeology works with `match:["title"]`, and PR-number fetch returns requested body/patches/comments/reviews/commits. |
-| Pagination | List `page` and per-PR `itemsPerPage` for comments/files/commits coexist. Large diffs must emit a targeted follow-up hint instead of dumping unusable data. |
-| Empty | Empty responses name state, owner/repo, match scope, and query terms when present. |
-| Research quality | A PR result must expose title, state, author, timestamps, branches, SHAs when present, changed-file counts, requested content, and enough evidence to explain why the PR matters. |
-
-#### Verify `ghSearchIssues`
-
-Primary code: [packages/octocode-tools-core/src/tools/github_search_pull_requests/](https://github.com/bgauryy/octocode/tree/main/packages/octocode-tools-core/src/tools/github_search_pull_requests). Schema: `SearchIssuesLocalSchema`.
+Primary code: [packages/octocode-tools-core/src/tools/github_search_pull_requests/](https://github.com/bgauryy/octocode/tree/main/packages/octocode-tools-core/src/tools/github_search_pull_requests).
 
 | Surface | Checks |
 | --- | --- |
-| Params | Verify owner/repo, `keywordsToSearch`, `match`, `issueNumber`, state, author/label filters, sort/order, page, limit, `content` selector. |
-| Implementation | List search and single-issue fetch share one runner; `content` returns body/comments only for an explicit `issueNumber`. |
-| Pagination | List `page` and per-issue `itemsPerPage` for comments coexist. |
-| Empty | Empty responses name state, owner/repo, match scope, and query terms when present. |
-| Research quality | An issue result must expose title, state, author, timestamps, labels, and requested body/comments. |
-
-#### Verify `ghSearchCommits`
-
-Primary code: [packages/octocode-tools-core/src/tools/github_search_pull_requests/](https://github.com/bgauryy/octocode/tree/main/packages/octocode-tools-core/src/tools/github_search_pull_requests). Schema: `SearchCommitsLocalSchema`.
-
-| Surface | Checks |
-| --- | --- |
-| Params | Verify required owner/repo, `path` (trailing-slash subtree), `since`/`until` (including relative windows like `30d`), `branch`, `author`, `committer`, `base`+`head` compare mode, `includeDiff`, `itemsPerPage`, `page`. No `sort`/`order`. |
-| Implementation | Path walk honors subtree semantics; compare mode returns `aheadBy`, `behindBy`, `totalCommits`, and the commit list; `includeDiff` is gated as costly. |
-| Pagination | Commit list pages with `itemsPerPage`/`page` without dropping or duplicating commits. |
-| Empty | Empty responses name path, range, branch, and author filters when present. |
-| Research quality | Each commit must expose SHA, message, author, date, and diffs when requested; compare mode must make ahead/behind counts explicit. |
+| Operations | Verify the exact singular operations `pullRequest`, `issue`, `commit`, and `compare`; reject fields belonging to another operation. |
+| Identity | PR and issue require `number`; commit requires `ref`; compare requires both `base` and `head`. |
+| Detail | Requested PR body/patches/comments/reviews/commits, issue body/comments, commit diff, and compare counts are returned only by their matching operation. |
+| Research quality | Every result preserves repository plus stable item identity, and large detail payloads provide a targeted follow-up rather than an unusable dump. |
 
 #### Verify `ghListReleases`
 
@@ -1647,9 +1476,9 @@ Primary code: [packages/octocode-tools-core/src/tools/github_search_pull_request
 
 | Surface | Checks |
 | --- | --- |
-| Params | Verify required owner/repo, `page`, `itemsPerPage`, `includeAssets`. |
+| Params | Verify required owner/repo, `page`, `pageSize`, and `includeAssets`. |
 | Implementation | Returns releases plus latest stable; `includeAssets` adds `assets[]` with name, size, downloadCount, and url. |
-| Pagination | Release list pages with `itemsPerPage`/`page`. |
+| Pagination | Release list pages with `pageSize`/`page`. |
 | Empty | Repos with no releases return empty with owner/repo context, not an error. |
 | Research quality | Each release must expose tag, name, publish date, prerelease/draft flags, and assets when requested. |
 
@@ -1659,9 +1488,9 @@ Primary code: [packages/octocode-tools-core/src/tools/github_search_discussions/
 
 | Surface | Checks |
 | --- | --- |
-| Params | Verify required owner/repo, optional `keywordsToSearch`, `itemsPerPage`, `after` cursor. GraphQL-only. |
-| Implementation | Returns `totalCount` and `discussions[]`; `keywordsToSearch` filters title/body, omitting it lists newest; `answered:true` marks accepted Q&A answers. |
-| Pagination | Discussion list pages with `itemsPerPage`/`after` cursor through `pagination.nextCursor`. |
+| Params | Verify required owner/repo, optional `keywords`, `pageSize`, and `after` cursor. GraphQL-only. |
+| Implementation | Returns `totalCount` and `discussions[]`; `keywords` filters title/body, omitting it lists newest; `answered:true` marks accepted Q&A answers. |
+| Pagination | Discussion list pages with `pageSize`/`after` cursor through `pagination.nextCursor`. |
 | Empty | Repos with no matching discussions return empty with owner/repo context, not an error. |
 | Research quality | Each discussion must expose number, title, url, author, category, createdAt, and comments. |
 
@@ -1671,9 +1500,9 @@ Primary code: [packages/octocode-tools-core/src/tools/package_search/](https://g
 
 | Surface | Checks |
 | --- | --- |
-| Params | Verify `name`, default `ecosystem:"npm"`, explicit non-npm ecosystem rejection, `limit`, `searchLimit`, metadata fetch options. |
-| Implementation | `limit` maps to `searchLimit`, npm registry metadata is normalized, repository URLs are parsed into owner/repo when possible, deprecated packages add warning context, and package-not-found is empty. |
-| Pagination | Limit controls search breadth. Top-level `responseCharLength` still pages large metadata responses. |
+| Params | Set exactly one of `packageName` for exact lookup or `keywords` for discovery; `page` paginates discovery. |
+| Implementation | npm registry metadata is normalized, repository URLs are parsed into owner/repo when possible, deprecated packages add warning context, and package-not-found is empty. |
+| Pagination | `page` continues discovery. Top-level `responseCharLength` still pages large metadata responses. |
 | Empty | Empty search returns package-specific recovery without pretending the package exists. |
 | Research quality | Results must include package identity, version, description, repository URL or owner/repo, homepage, weekly downloads if fetched, license, keywords, and freshness metadata when available. |
 
@@ -1683,50 +1512,50 @@ Primary code: [packages/octocode-tools-core/src/tools/github_clone_repo/](https:
 
 | Surface | Checks |
 | --- | --- |
-| Params | Verify owner, repository, branch/ref, `sparsePath`, `forceRefresh`, and bulk ids. Clone is side-effecting and has no verbosity field. |
+| Params | Verify `owner`, `repo`, `branch`, `sparsePath`, and `forceRefresh`. Clone is side-effecting and has no verbosity field. |
 | Implementation | Requires clone/local enablement, resolves branch fallback, reuses cache when valid, refreshes expired cache, and returns a safe `localPath`. |
 | Pagination | No native pagination is expected, but bulk response pagination must still work. |
 | Empty | Not applicable. A missing repository, branch, or path is an error with recovery context. |
 | Data management | Verify cache TTL, cache invalidation, concurrent clone locking, cleanup on failed clone, and no writes outside the tmp materialization roots. |
-| Research quality | Returned `localPath` must be immediately usable by `localSearchCode`, `localViewStructure`, `localGetFileContent`, and LSP tools. |
+| Research quality | Returned `localPath` must be immediately usable by `localSearch`, `localGetFileContent`, and LSP tools. |
 
-#### Verify `localSearchCode`
+#### Verify `localSearch`
 
-Primary code: [packages/octocode-tools-core/src/tools/local_ripgrep/](https://github.com/bgauryy/octocode/tree/main/packages/octocode-tools-core/src/tools/local_ripgrep). Schema: `RipgrepQuerySchema`.
+Public router: [packages/octocode-tools-core/src/tools/local_search/](https://github.com/bgauryy/octocode/tree/main/packages/octocode-tools-core/src/tools/local_search). Schema: `LocalSearchQuerySchema`. The router delegates to the internal text/structural, file-discovery, and tree engines.
 
 | Surface | Checks |
 | --- | --- |
-| Params | Verify `path`, `searchText`, `pattern`, search mode, `regex`, `caseMode`, `wholeWord`, type/include/exclude/excludeDir, hidden/noIgnore, `output`, `contextLines`, `matchContentLength`, `maxMatchesPerFile`, `matchPage`, `itemsPerPage`, and `page`. |
-| Hidden fields | MCP schema must not expose hidden performance or diagnostic knobs such as threads, multiline, binary, encoding, sort, debug, passthru, or symlink following. |
+| Params | Verify `operation`, `path`, `searchText` or `pattern`, `regex`, `caseMode`, `wholeWord`, type/include/exclude/excludeDir, hidden/noIgnore, `resultView`, `contextLines`, `matchContentLength`, `maxMatchesPerFile`, `matchPage`, `pageSize`, and `page`. |
+| Hidden fields | MCP schema must not expose implementation-only knobs such as threads, binary, encoding, debug, passthru, or symlink following. |
 | Mutex | Structural `pattern` conflicts with `rule`; non-structural search requires `searchText`. Invalid enum combinations become per-query errors. |
 | Implementation | Runs ripgrep in-process through the native engine. No external `rg` binary and no grep fallback. Invalid regex, path errors, and no-permission paths are structured errors. |
 | Pagination | File and match pagination work independently. `line` values are stable 1-indexed `lineHint` inputs for LSP tools. |
 | Empty | Empty hints name active filters such as type, include, exclude, excludeDir, or path. No-filter empty stays silent. |
 | Research quality | Results must include file path, match count, line, column, snippet value, and enough context to drive precise `lspGetSemantics` queries such as `type="definition"`, `type="references"`, `type="callers"`, or `type="callees"`. |
 
-#### Verify `localViewStructure`
+#### Verify `localSearch(operation:"tree")`
 
 Primary code: [packages/octocode-tools-core/src/tools/local_view_structure/](https://github.com/bgauryy/octocode/tree/main/packages/octocode-tools-core/src/tools/local_view_structure). Schema: `ViewStructureQuerySchema`.
 
 | Surface | Checks |
 | --- | --- |
-| Params | Verify `path`, pattern filters, `extensions`, exclude filters, `recursive`, `maxDepth`, `limit`, `itemsPerPage`, and `page`. |
-| Hidden fields | `extension` singular is not exposed in MCP. Use `extensions`; when recursing, pair `recursive:true` with a bounded `maxDepth`. |
+| Params | Verify `operation:"tree"`, `path`, `namePattern`, `extensions`, exclude filters, `maxDepth`, total `limit`, `pageSize`, and `page`. |
+| Hidden fields | `extension` singular and `recursive` are not exposed in unified `localSearch`. Use `extensions`; set a bounded `maxDepth` to recurse. |
 | Implementation | Directory walk respects path validation, depth cap, ignored directories, sorting, and entry typing. Symlink and permission cases are explicit. |
 | Pagination | Entry pagination uses stable ordering so page 2 continues page 1 without duplicates or missed entries. |
 | Empty | Empty directories are empty, not errors. Missing paths are errors. Filtered empties name the active filter. |
 | Research quality | Entries must identify name, path, type, size, modified time, and depth so the next search or content call can be scoped. |
 
-#### Verify `localFindFiles`
+#### Verify `localSearch`
 
 Primary code: [packages/octocode-tools-core/src/tools/local_find_files/](https://github.com/bgauryy/octocode/tree/main/packages/octocode-tools-core/src/tools/local_find_files). Schema: `FindFilesQuerySchema`.
 
 | Surface | Checks |
 | --- | --- |
-| Params | Verify `path`, name/path/regex filters, entry type, size filters, modified/accessed filters, permissions if exposed, `limit`, `itemsPerPage`, and `page`. |
+| Params | Verify `operation:"files"`, `path`, name/path/regex filters, entry type, size filters, modified/accessed filters, permissions if exposed, total `limit`, `pageSize`, and `page`. |
 | Implementation | Uses the safe file-discovery path, respects allowed paths, handles large trees without unbounded output, and returns stable metadata. |
 | Pagination | File pagination and char pagination both work. Cap notices must not replace next-page cursors. |
-| Empty | Empty hints quote active filters such as `name`, `modifiedWithin`, or `sizeGreater`. No-filter empty stays silent. |
+| Empty | Empty hints quote active filters such as `names`, `time.modifiedWithin`, or `size.greater`. No-filter empty stays silent. |
 | Research quality | Results must support targeted follow-ups by path, type, size, permissions, and timestamps. |
 
 #### Verify `localGetFileContent`
@@ -1748,7 +1577,7 @@ Primary code: [packages/octocode-tools-core/src/tools/lsp/semantic_content/](htt
 
 | Surface | Checks |
 | --- | --- |
-| Params | Verify `uri`/`filePath`, `type`, `symbolName`, `lineHint`, `orderHint`, `includeDeclaration`, `groupByFile`, `depth`, `page`, `contextLines`, and output pagination. |
+| Params | Verify `uri`, `type`, `symbolName`, `lineHint`, `orderHint`, `includeDeclaration`, `groupByFile`, `depth`, `page`, `contextLines`, and output pagination. |
 | Implementation | Requires a `lineHint` for symbol-anchored types, resolves exact code occurrences while ignoring string/comment hits, uses pooled LSP clients, and reports capability gaps explicitly. |
 | Pagination | Large semantic payloads page without losing target identity. |
 | Empty | Symbol-not-found, unsupported capability, and LSP-unavailable paths are explicit. |
@@ -1760,14 +1589,14 @@ These suites verify that tools compose into reliable research workflows.
 
 | Suite | Steps | Pass criteria |
 | --- | --- | --- |
-| Local semantic navigation | `localSearchCode` for a symbol, then `lspGetSemantics` with `type="definition"`, `type="references"`, and `type="callers"`/`type="callees"` using returned line hints. | LSP tools resolve the same symbol, references include the definition when requested, call direction is correct, and fallback mode is explicit if used. |
-| Remote to local deep dive | `ghSearchCode` or `ghSearchRepos`, then `ghCloneRepo`, then local search and LSP tools on `localPath`. | Remote identity, branch, clone path, and local path all line up. No result requires guessing a path or branch. |
-| Structure to content | `ghViewRepoStructure` or `localViewStructure`, then content fetch on selected entries. | Paths emitted by structure tools are directly accepted by content tools. Empty directories and missing files are differentiated. |
-| Package provenance | `npmSearch`, then `ghViewRepoStructure` or `ghSearchCode` on parsed repository owner/name. | Package repository metadata is normalized enough to drive GitHub tools, and missing/ambiguous repository URLs are represented as missing evidence. |
-| PR archaeology | `ghSearchPullRequests` with title search, then PR number fetch and file-content or code search follow-up. | Approximate search finds candidates; PR-number path returns full body/diff data requested; large diffs guide targeted follow-up. |
+| Local semantic navigation | `localSearch` for a symbol, then `lspGetSemantics` with `type="definition"`, `type="references"`, and `type="callers"`/`type="callees"` using returned line hints. | LSP tools resolve the same symbol, references include the definition when requested, call direction is correct, and fallback mode is explicit if used. |
+| Remote to local deep dive | `ghSearch(operation:"code"|"repositories")`, then `ghCloneRepo`, then local search and LSP tools on `localPath`. | Remote identity, branch, clone path, and local path all line up. No result requires guessing a path or branch. |
+| Structure to content | `ghSearch(operation:"tree")` or `localSearch(operation:"tree")`, then content fetch on selected entries. | Paths emitted by structure tools are directly accepted by content tools. Empty directories and missing files are differentiated. |
+| Package provenance | `npmSearch`, then `ghSearch(operation:"tree"|"code")` on parsed repository owner/name. | Package repository metadata is normalized enough to drive GitHub tools, and missing/ambiguous repository URLs are represented as missing evidence. |
+| PR archaeology | `ghSearchHistory(operation:"pullRequests")` with title search, then `ghGetHistoryItem(operation:"pullRequest", number)` and file-content or code search follow-up. | Approximate search finds candidates; number lookup returns the requested body/diff data; large diffs guide targeted follow-up. |
 | Empty-result recovery | Run over-constrained queries across GitHub, local, and LSP tools. | Each tool either stays silent when no concrete advice exists or names exactly which filter to relax. |
-| Pagination chain | Force small `limit`, `itemsPerPage`, `maxMatchesPerFile`, `matchPage`, `charLength`, `scanOffset`, and `responseCharLength`. | Every next cursor continues the same result set without duplicates, missing entries, or final-page chatter. |
-| Verbosity chain | Run the same broad task with `concise`, drill down with `compact`, and confirm with `basic`. | `concise` is tiny and lossy, `compact` is enough to choose a target, and `basic` provides citeable evidence. |
+| Pagination chain | Force small `pageSize`, plus total `limit` where supported, and exercise `maxMatchesPerFile`, `matchPage`, `charLength`, and `responseCharLength`. | Every next cursor continues the same result set without duplicates, missing entries, or final-page chatter. |
+| Output-efficiency chain | Use `concise:true` where supported, `--compact` for lean CLI envelopes, and targeted exact reads with `minify:"none"` for citation-grade evidence. | Each narrower output preserves the identity and cursor needed for the next step. |
 
 ### Data management and reliability
 
@@ -1828,7 +1657,7 @@ npx knip
 
 Do not mark a tool-surface change complete until these are true:
 
-1. All 12 always-on tools still register with input and output schemas.
+1. All 10 default-enabled tools still register with input schemas and without output schemas.
 2. All public schema defaults, caps, hidden fields, and mutex rules have tests.
 3. Every tool has success, empty, error, mixed-bulk, pagination, lean-output (`base`/`shared`), and verbosity coverage.
 4. Remote tools cover auth, rate limit, provider error, no results, and provider-mapper edge cases.

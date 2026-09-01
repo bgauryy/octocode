@@ -2,6 +2,8 @@ import {
   type LspGetSemanticsQuery,
   type LspSemanticEnvelope,
 } from '../shared/semanticTypes.js';
+import { buildNextPageContinuation } from '../../../scheme/pagination.js';
+import { MAX_PAGE_NUMBER } from '../../../config.js';
 import { isRecord, isSemanticEnvelope } from './semanticPresentation.js';
 
 // Empty-state categories that warrant a ready-to-run fallback. Anything that
@@ -97,28 +99,124 @@ function localPathFromUri(uri: string): string {
     : uri;
 }
 
+function paginationContinuation(
+  query: LspGetSemanticsQuery,
+  result: LspSemanticEnvelope
+): NonNullable<LspSemanticEnvelope['next']>[string] | undefined {
+  if (!isRecord(result.pagination)) return undefined;
+  const { hasMore, nextPage } = result.pagination;
+  if (
+    hasMore !== true ||
+    typeof nextPage !== 'number' ||
+    nextPage > MAX_PAGE_NUMBER
+  )
+    return undefined;
+  return buildNextPageContinuation(
+    'lspGetSemantics',
+    { ...query, page: nextPage },
+    `Continue semantic ${query.type} results on page ${nextPage}.`
+  );
+}
+
 // Ready-to-run follow-up. On a hit: read the top result location with context,
 // so the agent doesn't have to assemble the localGetFileContent call from
 // ranges. On an empty/incomplete result: re-anchor or fall back to
-// localSearchCode, so the agent isn't left at a dead end.
+// localSearch text, so the agent isn't left at a dead end.
 export function withSemanticNext(
   query: LspGetSemanticsQuery,
   result: LspSemanticEnvelope | Record<string, unknown>
 ): LspSemanticEnvelope | Record<string, unknown> {
   if (!isSemanticEnvelope(result)) return result;
-  const payload = result.payload as {
+  let semanticResult: LspSemanticEnvelope = result;
+  if (
+    isRecord(semanticResult.pagination) &&
+    semanticResult.pagination.hasMore === true &&
+    typeof semanticResult.pagination.currentPage === 'number' &&
+    semanticResult.pagination.currentPage >= MAX_PAGE_NUMBER
+  ) {
+    const { nextPage: _nextPage, ...pagination } = semanticResult.pagination;
+    semanticResult = { ...semanticResult, pagination, terminalLimit: true };
+  }
+  const payload = semanticResult.payload as {
     locations?: Array<{
       uri?: string;
       displayRange?: { startLine?: number; endLine?: number };
     }>;
+    warmup?: { possiblyTruncated?: boolean };
+    completeness?: {
+      truncatedByDepth?: boolean;
+      truncatedByBudget?: boolean;
+    };
   } & Record<string, unknown>;
+  const warmupTruncated = payload.warmup?.possiblyTruncated === true;
+  const depthTruncated = payload.completeness?.truncatedByDepth === true;
+  const budgetTruncated = payload.completeness?.truncatedByBudget === true;
+  const requestedDepth = 'depth' in query ? (query.depth ?? 1) : 1;
+  const depthExpandable = depthTruncated && requestedDepth < 20;
+  const symbolName = fallbackSymbolName(query, semanticResult);
+  const completenessSearchPath =
+    semanticResult.workspaceRoot ??
+    query.workspaceRoot ??
+    (semanticResult.uri ? localPathFromUri(semanticResult.uri) : undefined);
+  const partialReasons = [
+    ...(warmupTruncated ? (['warmupCap'] as const) : []),
+    ...(depthTruncated ? (['depth'] as const) : []),
+    ...(budgetTruncated ? (['budget'] as const) : []),
+  ];
+  if (partialReasons.length > 0) {
+    semanticResult = {
+      ...semanticResult,
+      truncated: true,
+      partialReasons,
+      ...((budgetTruncated || (depthTruncated && !depthExpandable)) && {
+        terminalLimit: true,
+      }),
+    };
+  }
+  const continuePage = paginationContinuation(query, semanticResult);
+  const baseNext: NonNullable<LspSemanticEnvelope['next']> = {
+    ...(semanticResult.next ?? {}),
+    ...(continuePage ? { nextPage: continuePage } : {}),
+    ...(depthExpandable
+      ? {
+          expandDepth: buildNextPageContinuation(
+            'lspGetSemantics',
+            {
+              ...query,
+              depth: Math.min(
+                20,
+                Math.max(requestedDepth + 1, requestedDepth * 2)
+              ),
+              page: 1,
+            },
+            'Re-run with a larger call-hierarchy depth because deeper calls remain.'
+          ),
+        }
+      : {}),
+    ...(warmupTruncated && symbolName && completenessSearchPath
+      ? {
+          verifyCompleteness: buildNextPageContinuation(
+            'localSearch',
+            {
+              operation: 'text',
+              path: completenessSearchPath,
+              searchText: symbolName,
+              wholeWord: true,
+              resultView: 'files',
+            },
+            'The LSP consumer warmup hit its file cap; search the complete workspace lexically for additional consumer files.'
+          ),
+        }
+      : {}),
+  };
   const loc = payload.locations?.[0];
   const start = loc?.displayRange?.startLine;
   if (loc?.uri && typeof start === 'number') {
     const path = localPathFromUri(loc.uri);
     return {
-      ...result,
+      ...semanticResult,
       next: {
+        ...baseNext,
         readSite: {
           tool: 'localGetFileContent',
           query: {
@@ -146,16 +244,18 @@ export function withSemanticNext(
   // declaration idiom (`^export` finds nothing in Rust/Python/Go).
   if (
     empty?.category === 'unsupportedOperation' &&
-    result.type === 'documentSymbols' &&
-    result.uri
+    semanticResult.type === 'documentSymbols' &&
+    semanticResult.uri
   ) {
-    const filePath = localPathFromUri(result.uri);
+    const filePath = localPathFromUri(semanticResult.uri);
     return {
-      ...result,
+      ...semanticResult,
       next: {
+        ...baseNext,
         textSearch: {
-          tool: 'localSearchCode',
+          tool: 'localSearch',
           query: {
+            operation: 'text',
             path: filePath,
             searchText: declarationRegexForFile(filePath),
             regex: 'perl',
@@ -167,29 +267,40 @@ export function withSemanticNext(
     };
   }
 
-  const symbolName = fallbackSymbolName(query, result);
   if (!empty || !symbolName || !FALLBACK_EMPTY_CATEGORIES.has(empty.category)) {
-    return result;
+    return Object.keys(baseNext).length > 0
+      ? { ...semanticResult, next: baseNext }
+      : semanticResult;
   }
 
-  const searchUriOrRoot = result.uri || query.uri || query.workspaceRoot;
-  if (!searchUriOrRoot) return result;
+  const searchUriOrRoot =
+    semanticResult.type === 'workspaceSymbol'
+      ? (semanticResult.workspaceRoot ??
+        query.workspaceRoot ??
+        semanticResult.uri ??
+        query.uri)
+      : (semanticResult.uri ??
+        query.uri ??
+        semanticResult.workspaceRoot ??
+        query.workspaceRoot);
+  if (!searchUriOrRoot) return semanticResult;
   const searchPath = localPathFromUri(searchUriOrRoot);
   const next: NonNullable<LspSemanticEnvelope['next']> = {
+    ...baseNext,
     textSearch: {
-      tool: 'localSearchCode',
-      query: { path: searchPath, searchText: symbolName },
-      why: `Semantic ${result.type} returned no result (${empty.category}) — fall back to a text search for "${symbolName}"`,
+      tool: 'localSearch',
+      query: { operation: 'text', path: searchPath, searchText: symbolName },
+      why: `Semantic ${semanticResult.type} returned no result (${empty.category}) — fall back to a text search for "${symbolName}"`,
       confidence: 'low',
     },
   };
-  if (REANCHOR_EMPTY_CATEGORIES.has(empty.category) && result.uri) {
+  if (REANCHOR_EMPTY_CATEGORIES.has(empty.category) && semanticResult.uri) {
     next.reAnchor = {
       tool: 'lspGetSemantics',
-      query: { type: 'documentSymbols', uri: result.uri },
+      query: { type: 'documentSymbols', uri: semanticResult.uri },
       why: "Re-anchor: list this file's symbols to find the correct lineHint, then retry the semantic query",
       confidence: 'medium',
     };
   }
-  return { ...result, next };
+  return { ...semanticResult, next };
 }

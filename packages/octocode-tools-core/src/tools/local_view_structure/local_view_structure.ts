@@ -19,7 +19,7 @@ import {
   paginateEntries,
   summarizeEntries,
 } from './structureResponse.js';
-import { LOCAL_MAX_LIMIT } from '../../config.js';
+import { LOCAL_MAX_LIMIT, MAX_PAGE_NUMBER } from '../../config.js';
 import { attachRawResponseChars } from '../../utils/response/charSavings.js';
 import {
   contextUtils,
@@ -156,9 +156,12 @@ function viewStructureNative(
     return query.reverse ? -comparison : comparison;
   });
 
+  const availableBeforeLimit = filteredEntries.length;
   if (query.limit) {
     filteredEntries = filteredEntries.slice(0, query.limit);
   }
+  const limitTruncated = filteredEntries.length < availableBeforeLimit;
+  const scanTruncated = nativeResult.wasCapped;
 
   const totalEntries = filteredEntries.length;
   const { paginatedEntries, pagination } = paginateEntries(
@@ -198,9 +201,14 @@ function viewStructureNative(
   // Per-result evidence hints (read the first file / descend into the first
   // subdirectory) plus the pagination continuation when there are more pages.
   const rowNext = buildViewStructureNextMap(paginatedEntries) ?? {};
+  const requestedLimit = query.limit ?? LOCAL_MAX_LIMIT;
+  const canExpandLimit = limitTruncated && requestedLimit < LOCAL_MAX_LIMIT;
+  const terminalLimit =
+    (pagination.hasMore && pagination.currentPage >= MAX_PAGE_NUMBER) ||
+    ((limitTruncated || scanTruncated) && !canExpandLimit);
   const next: Record<string, unknown> = {
     ...rowNext,
-    ...(pagination.hasMore
+    ...(pagination.hasMore && !terminalLimit
       ? {
           nextPage: buildNextPageContinuation(
             TOOL_NAMES.LOCAL_VIEW_STRUCTURE,
@@ -209,6 +217,22 @@ function viewStructureNative(
               page: pagination.currentPage + 1,
             } as Record<string, unknown>,
             'Continue to the next page of directory entries.'
+          ),
+        }
+      : {}),
+    ...(canExpandLimit
+      ? {
+          expandLimit: buildNextPageContinuation(
+            TOOL_NAMES.LOCAL_VIEW_STRUCTURE,
+            {
+              ...query,
+              limit: Math.min(
+                LOCAL_MAX_LIMIT,
+                Math.max(requestedLimit + 1, requestedLimit * 2)
+              ),
+              page: 1,
+            } as Record<string, unknown>,
+            'Re-run with a larger entry limit because directory entries remain.'
           ),
         }
       : {}),
@@ -225,6 +249,20 @@ function viewStructureNative(
         ? { pagination }
         : {}),
       ...(Object.keys(next).length > 0 ? { next } : {}),
+      ...(terminalLimit ? { terminalLimit: true } : {}),
+      ...(limitTruncated || scanTruncated
+        ? {
+            truncated: true,
+            partialReasons: [
+              ...(limitTruncated ? ['limit' as const] : []),
+              ...(scanTruncated ? ['walkLimit' as const] : []),
+            ],
+            totalAvailable: Math.max(
+              nativeResult.totalDiscovered,
+              availableBeforeLimit
+            ),
+          }
+        : {}),
       ...(warnings.length > 0 && { warnings }),
     },
     nativeResult.entries.reduce((sum, entry) => sum + entry.path.length, 0)

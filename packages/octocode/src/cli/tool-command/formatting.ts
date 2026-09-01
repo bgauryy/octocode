@@ -14,10 +14,8 @@ import { findToolDefinition } from './registry.js';
 export const LSP_TOOL_NAME = 'lspGetSemantics';
 
 const RAW_LOCAL_PATH_TOOL_NAMES = new Set([
-  'localSearchCode',
-  'localFindFiles',
+  'localSearch',
   'localGetFileContent',
-  'localViewStructure',
   'localAnalyzeGraph',
 ]);
 const RAW_LOCAL_PATH_GUIDANCE =
@@ -146,12 +144,8 @@ export function getToolPreviewLines(toolName: string): string[] {
     return getFieldPreviewLines(toolName, 'type');
   }
 
-  if (toolName === 'ghSearchCode') {
-    return ['keywords: array<string> (AND terms)'];
-  }
-
-  if (toolName === 'localSearchCode') {
-    return ['searchText: string'];
+  if (toolName === 'localSearch') {
+    return ['operation: text|structural|files|tree'];
   }
 
   return [];

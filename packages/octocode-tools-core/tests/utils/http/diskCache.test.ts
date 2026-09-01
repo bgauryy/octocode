@@ -74,6 +74,45 @@ describe('shared file-backed response cache', () => {
     expect(cache.getCacheStats().diskHits).toBe(1);
   });
 
+  it('marks a bulk result restored from the disk response cache', async () => {
+    const cache = await import('../../../src/utils/http/cache.js');
+    const { executeBulkOperation } =
+      await import('../../../src/utils/response/bulk.js');
+    const key = cache.generateCacheKey('gh-api-prs', {
+      owner: 'octocode',
+      query: 'disk-response-marker',
+      auth: 'fingerprint-a',
+    });
+    let upstreamCalls = 0;
+    const execute = () =>
+      executeBulkOperation(
+        [{ id: 'query' }],
+        async () => ({
+          value: await cache.withDataCache(
+            key,
+            async () => {
+              upstreamCalls++;
+              return 'payload';
+            },
+            { ttl: 60 }
+          ),
+        }),
+        { toolName: 'ghSearchPullRequests' }
+      );
+    const rows = (result: Awaited<ReturnType<typeof execute>>) =>
+      (
+        result.structuredContent as {
+          results: Array<Record<string, unknown>>;
+        }
+      ).results;
+
+    expect(rows(await execute())[0]).not.toHaveProperty('cache');
+    cache.clearAllCache();
+    expect(rows(await execute())[0]).toMatchObject({ cache: 1 });
+    expect(upstreamCalls).toBe(1);
+    expect(cache.getCacheStats().diskHits).toBe(1);
+  });
+
   it('keeps auth fingerprints isolated and forceRefresh bypasses disk', async () => {
     const cache = await import('../../../src/utils/http/cache.js');
     const keyA = cache.generateCacheKey('gh-api-prs', {

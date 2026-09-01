@@ -9,18 +9,14 @@ use it instead of paying for schema discovery.
 
 | Tool | Use it for — and when NOT to |
 |---|---|
-| `ghSearchCode` | Remote code/file discovery. `match:"path"` for filenames, `match:"file"` only when snippets matter. Skip if you already have the path (→ `ghGetFileContent`) or need repo discovery (→ `ghSearchRepos`). |
-| `ghGetFileContent` | Read a file or a **region** once you know the path — not for discovery. If a `ghSearchCode` snippet already answers, **STOP — don't re-read the file.** |
-| `ghViewRepoStructure` | Orient a repo/tree before fetching, or verify a path/branch after a 404. Know a filename fragment? `ghSearchCode(match:"path")` is cheaper. |
-| `ghSearchRepos` | Discover candidate repos. Skip when owner/repo is known — go straight to code/structure. Start `concise:true`. |
-| `ghSearchPullRequests` | PR archaeology — how/why a change landed, reviews, one PR's diff/files. Not current code, commits, or issues. |
-| `ghSearchIssues` | Issue/comment search. Not PRs (→ `ghSearchPullRequests`). |
-| `ghSearchCommits` | Commit archaeology — when/why a file/area changed. Not current code or PRs. |
+| `ghSearch` | Remote discovery through strict operations: `code` for code/file paths, `repositories` for repository discovery, and `tree` for a known repository. For code, use `match:"path"` when only filenames matter. For repositories, start with `concise:true`. Skip discovery when you already know the exact file path. |
+| `ghGetFileContent` | Read a file or a **region** once you know the path — not for discovery. If a `ghSearch(operation:"code")` snippet already answers, **STOP — don't re-read the file.** |
+| `ghSearchHistory` | Search or list history with `operation:"pullRequests"`, `"issues"`, or `"commits"`. Use it for discovery, not exact item reads. |
+| `ghGetHistoryItem` | Read one PR or issue by `number`, one commit by `ref`, or compare `base`+`head`. Select only the content or diff you need. |
 | `ghCloneRepo` | Materialize a repo/sparse subtree **only** for repeated reads, structural (AST) matching, or LSP semantics. |
 | `npmSearch` | Resolve an npm package → its source repo. |
-| `localSearchCode` | Text/regex/AST search in a clone → file+line anchors. Modes: `discovery`=paths, `paginated`=snippets, `detailed`=context, `structural`=AST. |
+| `localSearch` | Unified text/regex/AST/path/tree search in a clone → file+line anchors. Select a strict `operation`. |
 | `localGetFileContent` | Read an exact cloned file/region (same region params as `ghGetFileContent`). |
-| `localViewStructure` · `localFindFiles` | Cloned tree browse · find-by-path-metadata. |
 | `localAnalyzeGraph` | Bounded dependencies, dependents, paths, reachability, cycles, and dead-code candidates in a clone. |
 | `lspGetSemantics` | Definitions, references, callers/callees, symbols, types, diagnostics — **after** search/read gives a real file+line. `documentSymbols`/`diagnostic` need `uri`; `workspaceSymbol` needs `symbolName`; others need `uri`+`symbolName`+`lineHint`. |
 
@@ -28,7 +24,7 @@ use it instead of paying for schema discovery.
 
 ## Leanest path (required — this is how the tool is meant to be used)
 
-- **Let a search snippet answer.** A `ghSearchCode` hit with the answer in its snippet ends the question — do not fetch the file.
+- **Let a search snippet answer.** A `ghSearch(operation:"code")` hit with the answer in its snippet ends the question — do not fetch the file.
 - **Read regions, not whole files.** `ghGetFileContent` least-cost path: unknown/large file → `minify:"symbols"` outline first, then a region via `matchString` (pairs with `contextLines`, returns padded `matchRanges` + exact `matchedLines`) **or** `startLine`+`endLine`. Choose exactly one of `fullContent` / `matchString` / `startLine+endLine`. `charOffset` pages a partial read.
 - **Structured/config files (package.json, tsconfig, lockfile): read whole with `minify:"none"`** — compaction can elide object boundaries. Exact key/field/value membership requires an unminified read; a partial slice can cut a nested object, so never conclude a field is absent from a slice — continue via `charOffset`/`next` or re-read the small file whole.
 - **Every response reports `totalLines`/`sourceChars`/`isPartial`.** Report only bytes you fetched; never invent a field or quote.
@@ -37,11 +33,13 @@ use it instead of paying for schema discovery.
 ## Query forms
 
 ```bash
-npx octocode tools ghSearchCode --queries '{"owner":"OWNER","repo":"REPO","keywords":["TERM"],"match":"path"}'
+npx octocode tools ghSearch --queries '{"operation":"code","owner":"OWNER","repo":"REPO","keywords":["TERM"],"match":"path"}'
+npx octocode tools ghSearch --queries '{"operation":"repositories","keywords":["TERM"],"concise":true}'
+npx octocode tools ghSearch --queries '{"operation":"tree","owner":"OWNER","repo":"REPO","branch":"SHA","path":"PATH"}'
 npx octocode tools ghGetFileContent --queries '{"owner":"OWNER","repo":"REPO","path":"PATH","branch":"SHA","matchString":"SYMBOL","contextLines":8}'
 npx octocode tools ghGetFileContent --queries '{"owner":"OWNER","repo":"REPO","path":"PATH","branch":"SHA","minify":"symbols"}'
-npx octocode tools ghViewRepoStructure --queries '{"owner":"OWNER","repo":"REPO","branch":"SHA","path":"PATH"}'
-npx octocode tools ghSearchPullRequests --queries '{"owner":"OWNER","repo":"REPO","prNumber":123}'
+npx octocode tools ghSearchHistory --queries '{"operation":"commits","owner":"OWNER","repo":"REPO","path":"PATH"}'
+npx octocode tools ghGetHistoryItem --queries '{"operation":"pullRequest","owner":"OWNER","repo":"REPO","number":123,"content":{"body":true}}'
 ```
 
 Errors are self-correcting — a missing/typo'd field returns a guiding message (e.g. *"Repository

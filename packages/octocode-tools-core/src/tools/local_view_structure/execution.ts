@@ -22,7 +22,7 @@ export async function executeViewStructure(
       executeWithToolBoundary({
         toolName: TOOL_NAMES.LOCAL_VIEW_STRUCTURE,
         query,
-        contextMessage: 'localViewStructure execution failed',
+        contextMessage: 'Local tree operation failed',
         execute: async () => {
           const parsed = safeParseOrError<ViewStructureQuery>(
             LocalViewStructureQuerySchema,

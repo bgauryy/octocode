@@ -55,32 +55,34 @@ At startup, Octocode reads configuration from environment variables and `<octoco
 
 ## Tool catalog
 
-With no environment variables set, the MCP server registers 14 tools:
+With no environment variables set, the MCP server registers 10 tools:
 
 | Family | Tools |
 |--------|-------|
-| GitHub | `ghSearchCode`, `ghGetFileContent`, `ghViewRepoStructure`, `ghSearchRepos`, `ghSearchPullRequests`, `ghSearchIssues`, `ghSearchCommits` |
-| Local | `localSearchCode`, `localViewStructure`, `localFindFiles`, `localGetFileContent`, `localAnalyzeGraph`, `lspGetSemantics` |
+| GitHub | `ghSearch`, `ghGetFileContent`, `ghSearchHistory`, `ghGetHistoryItem`, `ghCloneRepo` |
+| Local | `localSearch`, `localGetFileContent`, `localAnalyzeGraph`, `lspGetSemantics` |
 | Package | `npmSearch` |
 
-The following settings add the three capability-gated tools:
+The following settings add the two opt-in GitHub tools:
 
 | Configuration | Adds | Total |
 |---|---|---:|
-| `ENABLE_RELEASES=true` | `ghListReleases` | 15 |
-| `ENABLE_DISCUSSIONS=true` | `ghSearchDiscussions` | 15 |
-| Both optional GitHub flags | Both optional GitHub tools | 16 |
-| Both optional GitHub flags plus `ENABLE_CLONE=true` | All three gated tools | 17 |
+| `ENABLE_RELEASES=true` | `ghListReleases` | 11 |
+| `ENABLE_DISCUSSIONS=true` | `ghSearchDiscussions` | 11 |
+| Both optional GitHub flags | Both optional GitHub tools | 12 |
 
 ```json
 {
-  "ENABLE_CLONE": "true",
   "ENABLE_RELEASES": "true",
   "ENABLE_DISCUSSIONS": "true"
 }
 ```
 
 To read the live CLI catalog, run `octocode tools --json`.
+
+`ghSearch` is the sole GitHub discovery entry point. Its strict
+`operation: "code" | "repositories" | "tree"` branches reject fields from
+other operations and removed compatibility names cannot be re-enabled.
 
 Every tool accepts bulk input through `queries`, with up to 5 items per call. Responses use a structured bulk envelope with per-query success, empty, and error states, plus pagination hints when more content is available. For more information, see the [Octocode tools reference](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_TOOLS.md).
 
@@ -95,7 +97,7 @@ The following table lists the settings that matter most for MCP:
 | `GITHUB_TOKEN` / `GH_TOKEN` / `OCTOCODE_TOKEN` | GitHub API auth. |
 | `GITHUB_API_URL` | GitHub Enterprise API endpoint. |
 | `ENABLE_LOCAL` | Turns local filesystem and LSP tools on or off. Defaults to `true`; set it to `false` to disable them. |
-| `ENABLE_CLONE` | Turns on `ghCloneRepo` and directory materialization for MCP. Clone workflows require `true`. |
+| `ENABLE_CLONE` | Controls `ghCloneRepo` and directory materialization. Defaults to `true`; set it to `false` to disable clone workflows. |
 | `ENABLE_RELEASES` | Turns on `ghListReleases`. Defaults to `false`. |
 | `ENABLE_DISCUSSIONS` | Turns on `ghSearchDiscussions`. Defaults to `false`. |
 | `TOOLS_TO_RUN`, `DISABLE_TOOLS` | Control which tools the MCP server registers. |

@@ -25,11 +25,11 @@ export const ToolErrors = {
     const errorCode = (cause as Error & { code?: string })?.code;
 
     if (errorCode === 'ENOENT') {
-      message = `File not found: ${displayPath}. Verify the path exists using localFindFiles.`;
+      message = `File not found: ${displayPath}. Verify the path with localSearch operation:"files".`;
     } else if (errorCode === 'EACCES') {
       message = `Permission denied: ${displayPath}. Check file permissions.`;
     } else if (errorCode === 'EISDIR') {
-      message = `Path is a directory: ${displayPath}. Use localViewStructure instead.`;
+      message = `Path is a directory: ${displayPath}. Use localSearch operation:"tree".`;
     } else if (errorCode === 'ENOTDIR') {
       message = `Invalid path: ${displayPath}. A component of the path is not a directory.`;
     } else if (errorCode === 'ENAMETOOLONG') {
@@ -69,7 +69,7 @@ export const ToolErrors = {
   binaryFileUnsupported: (filePath: string) =>
     new ToolError(
       LOCAL_TOOL_ERROR_CODES.BINARY_FILE_UNSUPPORTED,
-      `Binary file unsupported: ${redactPath(filePath)}. Use localSearchCode to grep embedded strings.`,
+      `Binary file unsupported: ${redactPath(filePath)}. Use localSearch operation:"text" for embedded strings.`,
       { path: filePath }
     ),
 

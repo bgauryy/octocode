@@ -9,9 +9,8 @@
   `Path '…' is outside allowed directories (allowed: …)`, listing the configured
   roots so agents can self-correct in one step. The `Symlink target …` wording is
   reserved for genuine symlink escapes (a path inside a root whose target resolves
-  outside). Applies uniformly across `localSearchCode` (text + AST/structural),
-  `localFindFiles`, `localViewStructure`, `localGetFileContent`, and
-  `lspGetSemantics`.
+  outside). Applies uniformly across `localSearch` (`text`, `structural`, `files`,
+  and `tree` operations), `localGetFileContent`, and `lspGetSemantics`.
 - **`.octocoderc` `local.allowedPaths` now takes effect.** The file-config
   allowlist was validated but never reached the path validator, so only the
   `ALLOWED_PATHS` env var worked. `local.allowedPaths` now adds roots on top of

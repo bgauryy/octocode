@@ -208,7 +208,6 @@ export const cacheCommand: CLICommand = {
     { name: 'branch', hasValue: true },
     { name: 'force-refresh' },
     { name: 'clone' },
-    { name: 'repos' },
     { name: 'tree' },
     { name: 'all' },
     { name: 'json' },
@@ -224,13 +223,13 @@ export const cacheCommand: CLICommand = {
 
     if (subcommand === 'clear') {
       const selections = {
-        clone: getBool(args.options, 'clone') || getBool(args.options, 'repos'),
+        clone: getBool(args.options, 'clone'),
         tree: getBool(args.options, 'tree'),
         all: getBool(args.options, 'all'),
       };
       if (!selections.clone && !selections.tree && !selections.all) {
         printUsage(
-          'cache clear requires --clone, --tree, --repos, or --all.',
+          'cache clear requires --clone, --tree, or --all.',
           jsonOutput
         );
         return;
@@ -283,13 +282,13 @@ export const cacheCommand: CLICommand = {
     } catch (caught) {
       let message = caught instanceof Error ? caught.message : String(caught);
       // A directory can't be fetched as a single file. The raw tool points at
-      // ghViewRepoStructure, which only lists — steer the user to the cache
-      // command's own subtree mode (and clone), which actually land on disk.
+      // the GitHub tree operation, which only lists — steer the user to the cache
+      // command's own subtree mode (and ghCloneRepo), which actually land on disk.
       if (/is a directory/i.test(message) && requestedPath) {
         message =
           `"${requestedPath}" is a directory, not a file. ` +
           `Cache the subtree with: cache fetch ${repoRef} ${requestedPath} --depth tree ` +
-          `(or clone ${repoRef}/${requestedPath} for a working copy).`;
+          `(or cache fetch ${repoRef} ${requestedPath} --depth clone for a working copy).`;
       }
       if (jsonOutput) {
         console.log(

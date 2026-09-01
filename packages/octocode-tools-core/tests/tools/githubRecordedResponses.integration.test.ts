@@ -32,8 +32,9 @@ vi.mock('../../src/providers/factory.js', () => ({
 import { prepareDirectToolInput } from '../../src/tools/directToolCatalog.meta.js';
 import { cleanup, initialize } from '../../src/serverConfig.js';
 import { fetchMultipleGitHubFileContents } from '../../src/tools/github_fetch_content/execution.js';
+import { executeGitHubSearch } from '../../src/tools/github_search/execution.js';
 import { searchMultipleGitHubCode } from '../../src/tools/github_search_code/execution.js';
-import { searchMultipleGitHubPullRequests } from '../../src/tools/github_search_pull_requests/execution.js';
+import { searchMultipleGitHubHistory } from '../../src/tools/github_search_pull_requests/historyExecutions.js';
 import { searchMultipleGitHubRepos } from '../../src/tools/github_search_repos/execution.js';
 import { exploreMultipleRepositoryStructures } from '../../src/tools/github_view_repo_structure/execution.js';
 
@@ -186,14 +187,47 @@ describe('recorded authenticated GitHub response smokes', () => {
       })
     );
 
+    const unified = await executeGitHubSearch({
+      queries: [
+        prepared('ghSearch', {
+          operation: 'code',
+          owner: 'recorded',
+          repo: 'fixture',
+          keywords: ['needle'],
+        }),
+        prepared('ghSearch', {
+          operation: 'repositories',
+          keywords: ['fixture'],
+        }),
+        prepared('ghSearch', {
+          operation: 'tree',
+          owner: 'recorded',
+          repo: 'fixture',
+          path: 'src',
+          branch: 'main',
+        }),
+      ],
+    });
+    const unifiedRows = (
+      unified.structuredContent as { results?: Record<string, any>[] }
+    ).results;
+    expect(unifiedRows).toHaveLength(3);
+    expect(unifiedRows?.map(row => row.data.operation)).toEqual([
+      'code',
+      'repositories',
+      'tree',
+    ]);
+    expect(unifiedRows?.map(row => row.index)).toEqual([0, 1, 2]);
+    expect(unifiedRows?.every(row => row.status !== 'error')).toBe(true);
+
     const runs = await Promise.all([
       searchMultipleGitHubCode({
         queries: [
-          prepared('ghSearchCode', {
+          {
             owner: 'recorded',
             repo: 'fixture',
             keywords: ['needle'],
-          }),
+          },
         ],
       }),
       fetchMultipleGitHubFileContents({
@@ -208,25 +242,26 @@ describe('recorded authenticated GitHub response smokes', () => {
         ],
       }),
       searchMultipleGitHubRepos({
-        queries: [prepared('ghSearchRepos', { keywords: ['fixture'] })],
+        queries: [{ keywords: ['fixture'] }],
       }),
-      searchMultipleGitHubPullRequests({
+      searchMultipleGitHubHistory({
         queries: [
-          prepared('ghSearchPullRequests', {
+          prepared('ghSearchHistory', {
+            operation: 'pullRequests',
             owner: 'recorded',
             repo: 'fixture',
-            keywordsToSearch: ['change'],
+            keywords: ['change'],
           }),
         ],
       }),
       exploreMultipleRepositoryStructures({
         queries: [
-          prepared('ghViewRepoStructure', {
+          {
             owner: 'recorded',
             repo: 'fixture',
             path: 'src',
             branch: 'main',
-          }),
+          },
         ],
       }),
     ]);

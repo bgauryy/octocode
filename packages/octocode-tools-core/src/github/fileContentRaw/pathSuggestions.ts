@@ -17,7 +17,7 @@ export function buildPathSuggestionHints(
   const hints: string[] = [];
   if (isCaseMismatch) {
     hints.push(
-      'GitHub Contents API paths are case-sensitive. Verify exact file casing with ghViewRepoStructure.'
+      'GitHub paths are case-sensitive. Verify exact casing with ghSearch operation:"tree".'
     );
   }
   hints.push(`Did you mean: ${suggestions.join(', ')}?`);

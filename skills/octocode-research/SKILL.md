@@ -53,7 +53,7 @@ Load a reference when the current step needs it. Loading all of them is a failur
 
 ## Tooling
 
-Prefer Octocode **MCP tools** when exposed. In this monorepo use the built local CLI; from an installed standalone skill use `npx octocode`. Both expose the same 17 public schemas, including availability metadata for gated tools.
+Prefer Octocode **MCP tools** when exposed. In this monorepo use the built local CLI; from an installed standalone skill use `npx octocode`. Both expose the same 12 input contracts; 10 tools are enabled by default, with releases and discussions opt-in.
 
 ```bash
 OCTO='node packages/octocode/out/octocode.js'          # monorepo; use npx octocode outside it

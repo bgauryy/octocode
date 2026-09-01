@@ -3,23 +3,16 @@ import type { ToolInvocationCallback } from '@octocodeai/octocode-tools-core';
 import type { McpToolConfig } from './toolConfig.js';
 
 type ToolRegistrationOutcome =
-  | { status: 'success' }
-  | { status: 'failed'; toolName: string; error: string }
-  | { status: 'skipped' };
+  { status: 'success' } | { status: 'failed'; toolName: string; error: string };
 
 export async function registerSingleTool(
   tool: McpToolConfig,
   server: McpServer,
-  callback: ToolInvocationCallback | undefined,
-  metadataValidator: (tool: McpToolConfig) => boolean
+  callback: ToolInvocationCallback | undefined
 ): Promise<ToolRegistrationOutcome> {
-  if (!metadataValidator(tool)) {
-    return { status: 'skipped' };
-  }
-
   try {
-    const result = await tool.fn(server, callback);
-    return result !== null ? { status: 'success' } : { status: 'skipped' };
+    await tool.fn(server, callback);
+    return { status: 'success' };
   } catch (error) {
     return {
       status: 'failed',
@@ -32,13 +25,10 @@ export async function registerSingleTool(
 export async function registerToolsBatch(
   tools: McpToolConfig[],
   server: McpServer,
-  callback: ToolInvocationCallback | undefined,
-  metadataValidator: (tool: McpToolConfig) => boolean
+  callback: ToolInvocationCallback | undefined
 ): Promise<ToolRegistrationOutcome[]> {
   return Promise.all(
-    tools.map(tool =>
-      registerSingleTool(tool, server, callback, metadataValidator)
-    )
+    tools.map(tool => registerSingleTool(tool, server, callback))
   );
 }
 

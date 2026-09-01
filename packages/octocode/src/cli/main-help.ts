@@ -8,7 +8,6 @@ import { c, bold, dim, underline } from '../utils/colors.js';
 import { getAuthStatus } from '../features/github-oauth.js';
 import {
   DIRECT_TOOL_CATEGORIES,
-  DIRECT_TOOL_DEFINITIONS,
   getDirectToolCategory,
   getDirectToolDescription,
   loadToolContent,
@@ -16,10 +15,11 @@ import {
 } from '@octocodeai/octocode-tools-core/schema';
 import { COMMAND_SPECS } from './commands/specs.js';
 import { REGISTERED_COMMAND_NAMES } from './commands/index.js';
+import { TOOL_DEFINITIONS } from './tool-command/registry.js';
 
 // Quick (read-first) commands get a rich arg hint; every other command is
 // derived from COMMAND_SPECS below so the list never drifts or misses one.
-const QUICK_COMMAND_NAMES = new Set(['clone', 'cache']);
+const QUICK_COMMAND_NAMES = new Set(['cache']);
 const REGISTERED_COMMAND_NAME_SET = new Set(REGISTERED_COMMAND_NAMES);
 
 /**
@@ -102,7 +102,7 @@ function buildToolBlock(
 ): string[] {
   const lines: string[] = [];
   const allNames = sortDirectToolNames(
-    DIRECT_TOOL_DEFINITIONS.map(t => t.name)
+    TOOL_DEFINITIONS.filter(tool => !tool.disabled).map(tool => tool.name)
   );
 
   for (const category of DIRECT_TOOL_CATEGORIES) {
@@ -128,6 +128,7 @@ function buildToolBlock(
  * `context [--full|--minimal] [--json]` form (a contract checked by cli:check).
  */
 const COMMAND_INDEX: Record<string, { label?: string; desc: string }> = {
+  skill: { desc: 'manage bundled Octocode skills' },
   context: {
     label: 'context [--full|--minimal] [--json]',
     desc: 'agent protocol + tools',
@@ -154,7 +155,8 @@ function quick(name: string, argHint: string, description: string): string {
 }
 
 export async function showHelp(): Promise<void> {
-  const toolCount = DIRECT_TOOL_DEFINITIONS.length;
+  const toolCount = TOOL_DEFINITIONS.filter(tool => !tool.disabled).length;
+  const catalogCount = TOOL_DEFINITIONS.length;
   const metadata = await getOptionalToolMetadata();
   const toolLines = buildToolBlock(metadata);
   const agentInstructions = buildAgentInstructionsBlock();
@@ -182,11 +184,6 @@ export async function showHelp(): Promise<void> {
     // ── Quick commands FIRST — the friendly, human-first surface ────────────
     `  ${c('green', bold('QUICK COMMANDS'))}  ${dim('read-only materialization')}`,
     quick(
-      'clone',
-      '<owner/repo[/path][@branch]>',
-      'clone a repo/subtree locally'
-    ),
-    quick(
       'cache',
       'fetch <owner/repo> [path]',
       'materialize remote content locally'
@@ -194,7 +191,7 @@ export async function showHelp(): Promise<void> {
     '',
 
     // ── Raw execution — every tool, schema-exact ───────────────────────────
-    `  ${bold(`TOOLS (${toolCount} enabled)`)}  ${dim('name + concise description')}`,
+    `  ${bold(`TOOLS (${toolCount} enabled / ${catalogCount} cataloged)`)}  ${dim('name + concise description')}`,
     `    ${c('yellow', 'tools'.padEnd(31))} ${dim('list public catalog + availability')}`,
     `    ${c('yellow', 'tools <name> --scheme --brief'.padEnd(31))} ${dim('lean schema + example')}`,
     `    ${c('yellow', "tools <name> --queries '<json>' --compact".padEnd(31))} ${dim('lean run')}`,

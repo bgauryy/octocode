@@ -1,34 +1,51 @@
 import { describe, it, expect } from 'vitest';
-import { searchContentRipgrep } from '../../../octocode-tools-core/src/tools/local_ripgrep/searchContentRipgrep.js';
-import { viewStructure } from '../../../octocode-tools-core/src/tools/local_view_structure/local_view_structure.js';
-import { findFiles } from '../../../octocode-tools-core/src/tools/local_find_files/findFiles.js';
 import { fetchContent } from '../../../octocode-tools-core/src/tools/local_fetch_content/fetchContent.js';
-// Derive result types from the functions under test (the old public.js type
-// aliases were removed in a refactor; deriving keeps this drift-proof).
-type SearchContentResult = Awaited<ReturnType<typeof searchContentRipgrep>>;
-type ViewStructureResult = Awaited<ReturnType<typeof viewStructure>>;
-type FindFilesResult = Awaited<ReturnType<typeof findFiles>>;
+import { executeDirectTool } from '@octocodeai/octocode-tools-core';
+
 type FetchContentResult = Awaited<ReturnType<typeof fetchContent>>;
-import { RipgrepQuerySchema } from '@octocodeai/octocode-tools-core';
 import path from 'path';
 
-const NODE_MODULES_PATH = path.resolve(process.cwd(), 'node_modules');
+const NODE_MODULES_PATH = path.resolve(process.cwd(), '../../node_modules');
 
-const runRipgrep = (query: Record<string, unknown>) =>
-  searchContentRipgrep(
-    RipgrepQuerySchema.parse({
-      id: 'test:ripgrep-integration',
-      researchGoal: 'Test',
-      reasoning: 'Integration test',
-      ...query,
-    })
-  );
+type LocalSearchData = Record<string, unknown> & {
+  status?: 'empty' | 'error';
+  files?: unknown[];
+  folders?: unknown[];
+  entries?: unknown[];
+  summary?: unknown;
+  content?: string;
+  structuredOutput?: string;
+  pagination?: unknown;
+  hints?: unknown[];
+};
 
-type ToolResult =
-  | SearchContentResult
-  | ViewStructureResult
-  | FindFilesResult
-  | FetchContentResult;
+async function runLocalSearch(
+  query: Record<string, unknown>
+): Promise<LocalSearchData> {
+  const response = await executeDirectTool('localSearch', { queries: [query] });
+  expect(response.isError, JSON.stringify(response)).not.toBe(true);
+  const result = (
+    response.structuredContent as {
+      results?: Array<{ data?: LocalSearchData }>;
+    }
+  )?.results?.[0]?.data;
+  expect(result, JSON.stringify(response)).toBeDefined();
+  return result ?? {};
+}
+
+type ToolResult = LocalSearchData | FetchContentResult;
+
+function filePath(value: unknown): string | null {
+  if (typeof value === 'string') return value;
+  if (
+    value &&
+    typeof value === 'object' &&
+    typeof (value as { path?: unknown }).path === 'string'
+  ) {
+    return (value as { path: string }).path;
+  }
+  return null;
+}
 
 function verifySmartData<T extends ToolResult>(result: T, toolName: string): T {
   expect(result, `${toolName} should return a result object`).toBeDefined();
@@ -79,18 +96,19 @@ function verifySmartData<T extends ToolResult>(result: T, toolName: string): T {
 }
 
 describe('Integration Tests: All Tools on node_modules', () => {
-  describe('localSearchCode - Pattern Search', () => {
+  describe('localSearch operation:text - Pattern Search', () => {
     it('should find patterns in JavaScript files', async () => {
-      const result = await runRipgrep({
+      const result = await runLocalSearch({
+        operation: 'text',
         searchText: 'export',
         path: NODE_MODULES_PATH,
         include: ['*.js'],
-        itemsPerPage: 5,
-        researchGoal: 'Find exported functions in JavaScript files',
-        reasoning: 'Testing pattern search on node_modules',
+        noIgnore: true,
+        excludeDir: [],
+        pageSize: 5,
       });
 
-      verifySmartData(result, 'localSearchCode');
+      verifySmartData(result, 'localSearch:text');
 
       if (result.status === undefined) {
         expect(result.files).toBeDefined();
@@ -99,16 +117,17 @@ describe('Integration Tests: All Tools on node_modules', () => {
     });
 
     it('should find files only mode', async () => {
-      const result = await runRipgrep({
+      const result = await runLocalSearch({
+        operation: 'text',
         searchText: 'package.json',
         path: NODE_MODULES_PATH,
-        output: 'files',
+        resultView: 'files',
+        noIgnore: true,
+        excludeDir: [],
         maxFiles: 10,
-        researchGoal: 'Find package.json files',
-        reasoning: 'Testing output:"files" mode',
       });
 
-      verifySmartData(result, 'localSearchCode');
+      verifySmartData(result, 'localSearch:text');
 
       if (result.status === undefined) {
         expect(result.files).toBeDefined();
@@ -117,17 +136,16 @@ describe('Integration Tests: All Tools on node_modules', () => {
     });
   });
 
-  describe('localViewStructure - Directory Listing', () => {
+  describe('localSearch operation:tree - Directory Listing', () => {
     it('should list directory contents', async () => {
-      const result = await viewStructure({
+      const result = await runLocalSearch({
+        operation: 'tree',
         path: NODE_MODULES_PATH,
         detail: 'basic',
-        itemsPerPage: 20,
-        researchGoal: 'List top-level node_modules contents',
-        reasoning: 'Testing basic directory listing',
+        pageSize: 20,
       });
 
-      verifySmartData(result, 'localViewStructure');
+      verifySmartData(result, 'localSearch:tree');
 
       if (result.status === undefined) {
         expect(
@@ -137,16 +155,15 @@ describe('Integration Tests: All Tools on node_modules', () => {
     });
 
     it('should provide detailed file information', async () => {
-      const result = await viewStructure({
+      const result = await runLocalSearch({
+        operation: 'tree',
         path: NODE_MODULES_PATH,
         detail: 'full',
-        itemsPerPage: 10,
-        sortBy: 'size',
-        researchGoal: 'Get detailed file information sorted by size',
-        reasoning: 'Testing detailed listing with sorting',
+        pageSize: 10,
+        sort: 'size',
       });
 
-      verifySmartData(result, 'localViewStructure');
+      verifySmartData(result, 'localSearch:tree');
 
       if (result.status === undefined) {
         expect(
@@ -156,14 +173,13 @@ describe('Integration Tests: All Tools on node_modules', () => {
     });
 
     it('should generate tree view', async () => {
-      const result = await viewStructure({
+      const result = await runLocalSearch({
+        operation: 'tree',
         path: NODE_MODULES_PATH,
         maxDepth: 2,
-        researchGoal: 'Get tree structure view',
-        reasoning: 'Testing tree view mode',
       });
 
-      verifySmartData(result, 'localViewStructure');
+      verifySmartData(result, 'localSearch:tree');
 
       if (result.status === undefined) {
         expect(
@@ -173,18 +189,17 @@ describe('Integration Tests: All Tools on node_modules', () => {
     });
   });
 
-  describe('localFindFiles - File Discovery', () => {
+  describe('localSearch operation:files - File Discovery', () => {
     it('should find files by name', async () => {
-      const result = await findFiles({
+      const result = await runLocalSearch({
+        operation: 'files',
         path: NODE_MODULES_PATH,
         names: ['package.json'],
         maxDepth: 2,
-        itemsPerPage: 20,
-        researchGoal: 'Find package.json files',
-        reasoning: 'Testing name-based file discovery',
+        pageSize: 20,
       });
 
-      verifySmartData(result, 'localFindFiles');
+      verifySmartData(result, 'localSearch:files');
 
       if (result.status === undefined) {
         expect(result.files).toBeDefined();
@@ -193,16 +208,15 @@ describe('Integration Tests: All Tools on node_modules', () => {
     });
 
     it('should find files by extension', async () => {
-      const result = await findFiles({
+      const result = await runLocalSearch({
+        operation: 'files',
         path: NODE_MODULES_PATH,
         entryType: 'f',
         names: ['*.md'],
-        itemsPerPage: 10,
-        researchGoal: 'Find markdown documentation files',
-        reasoning: 'Testing extension-based discovery',
+        pageSize: 10,
       });
 
-      verifySmartData(result, 'localFindFiles');
+      verifySmartData(result, 'localSearch:files');
 
       if (result.status === undefined) {
         expect(result.files).toBeDefined();
@@ -210,16 +224,15 @@ describe('Integration Tests: All Tools on node_modules', () => {
     });
 
     it('should find directories', async () => {
-      const result = await findFiles({
+      const result = await runLocalSearch({
+        operation: 'files',
         path: NODE_MODULES_PATH,
         entryType: 'd',
         maxDepth: 1,
-        itemsPerPage: 15,
-        researchGoal: 'Find top-level directories',
-        reasoning: 'Testing directory discovery',
+        pageSize: 15,
       });
 
-      verifySmartData(result, 'localFindFiles');
+      verifySmartData(result, 'localSearch:files');
 
       if (result.status === undefined) {
         expect(result.files).toBeDefined();
@@ -231,13 +244,12 @@ describe('Integration Tests: All Tools on node_modules', () => {
     let testFile: string | null = null;
 
     it('should find a test file first', async () => {
-      const findResult = await findFiles({
+      const findResult = await runLocalSearch({
+        operation: 'files',
         path: NODE_MODULES_PATH,
         names: ['package.json'],
         maxDepth: 2,
-        itemsPerPage: 5,
-        researchGoal: 'Find package.json files',
-        reasoning: 'Testing file discovery for fetch_content tests',
+        pageSize: 5,
       });
 
       if (
@@ -246,13 +258,13 @@ describe('Integration Tests: All Tools on node_modules', () => {
         findResult.files.length > 0
       ) {
         const firstFile = findResult.files[0];
-        testFile =
-          typeof firstFile === 'string' ? firstFile : (firstFile?.path ?? null);
+        testFile = filePath(firstFile);
       } else {
-        const jsFileResult = await findFiles({
+        const jsFileResult = await runLocalSearch({
+          operation: 'files',
           path: NODE_MODULES_PATH,
           names: ['*.js'],
-          itemsPerPage: 1,
+          pageSize: 1,
         });
 
         if (
@@ -261,10 +273,7 @@ describe('Integration Tests: All Tools on node_modules', () => {
           jsFileResult.files.length > 0
         ) {
           const firstJsFile = jsFileResult.files[0];
-          testFile =
-            typeof firstJsFile === 'string'
-              ? firstJsFile
-              : (firstJsFile?.path ?? null);
+          testFile = filePath(firstJsFile);
         }
       }
 
@@ -281,7 +290,7 @@ describe('Integration Tests: All Tools on node_modules', () => {
         fullContent: true,
         contextLines: 5,
         minify: 'standard',
-        researchGoal: 'Read full package.json content',
+        goal: 'Read full package.json content',
         reasoning: 'Testing full content fetch',
       });
 
@@ -304,7 +313,7 @@ describe('Integration Tests: All Tools on node_modules', () => {
         charLength: 2000,
         contextLines: 5,
         minify: 'standard',
-        researchGoal: 'Read first 20 lines',
+        goal: 'Read first 20 lines',
         reasoning: 'Testing line range fetch',
       });
 
@@ -325,7 +334,7 @@ describe('Integration Tests: All Tools on node_modules', () => {
         matchString: 'dependencies',
         contextLines: 5,
         minify: 'standard',
-        researchGoal: 'Extract dependencies section',
+        goal: 'Extract dependencies section',
         reasoning: 'Testing pattern-based extraction',
       });
 

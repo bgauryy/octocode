@@ -41,32 +41,27 @@ within `SHUTDOWN_TIMEOUT_MS` (5s) before exiting.
   `register*` functions via `MCP_FN_MAP`, producing `ALL_TOOLS: McpToolConfig[]`.
   A tool in core with no MCP `fn` is a build-time error.
 - `toolsManager.ts` — `registerTools()`: wraps the server with output
-  sanitization, filters tools (local/clone gates + filter config), validates
-  metadata, then batch-registers and summarizes outcomes.
+  sanitization, filters tools (local/clone gates + filter config), then
+  batch-registers and summarizes outcomes.
 - `registrationExecutor.ts` — registers tools in parallel; per-tool failures are
-  isolated and reported (`success` / `failed` / `skipped`), never fatal unless
-  zero tools register.
+  isolated and reported (`success` / `failed`), never fatal unless zero tools
+  register.
 - `toolFilters.ts` — `isLocal`/`isClone` capability gates plus catalog-level
   `ENABLE_RELEASES`/`ENABLE_DISCUSSIONS` gates and
   `TOOLS_TO_RUN` (exclusive) vs `DISABLE_TOOLS` selection;
   `isDefault` tools register unless disabled.
-- `metadataPolicy.ts` — a tool is skipped (not failed) if core has no valid
-  metadata for it, unless `skipMetadataCheck`.
+- `registerTool.ts` — the single adapter for local and remote tools. It forwards
+  the core-owned title, description, and input schema; selects the matching
+  security boundary; and sets `openWorldHint` from the security class.
 
-### Two registration shapes
+The public catalog is:
 
-- `registerBasicTool.ts` — local single-call tools. Wraps the core `execute*`
-  with `withBasicSecurityValidation`. Defaults: `readOnlyHint`, `openWorldHint: false`.
-- `registerRemoteTool.ts` — bulk `queries[]` tools (GitHub/npm). Wraps with
-  `withSecurityValidation`, forwards `responseCharOffset/Length`, supports an
-  optional async `registrationGuard` (skip if preconditions unmet) and a
-  `describe()` hook. Default `openWorldHint: true`.
-
-Each `src/tools/<tool>/` file is a few lines: name + title + core schema + core
-`execute*` runner. The tool families are: **GitHub** (search code, fetch
-content, view repo structure, search repos, search PRs, clone repo),
-**package** (npm search), **local** (ripgrep, view structure, find files, fetch
-content, binary inspect), and **LSP** (semantic content).
+- **GitHub**: `ghSearch`, `ghGetFileContent`, `ghSearchHistory`,
+  `ghGetHistoryItem`,
+  `ghListReleases`, `ghSearchDiscussions`, and `ghCloneRepo`.
+- **Package**: `npmSearch`.
+- **Local**: `localSearch`, `localGetFileContent`, and `localAnalyzeGraph`.
+- **LSP**: `lspGetSemantics`.
 
 ## Output Safety (`src/utils/secureServer.ts`)
 
@@ -76,12 +71,6 @@ is passed through `sanitizeCallToolResult` (secret masking via
 `ContentSanitizer` + `maskSensitiveData`), and thrown errors are normalized,
 sanitized, and converted to a safe tool error result instead of crashing the
 server.
-
-## Schema Bridging (`src/types/toolTypes.ts`)
-
-`toMCPSchema()` unwraps Zod `pipe`/`ZodEffects`/`ZodPipeline` wrappers to the
-inner object schema before handing it to the MCP SDK — avoids exponential type
-inference from the SDK's Zod v3/v4 compat layer.
 
 ## Dependencies
 
@@ -97,8 +86,8 @@ There are two different dependency views:
 - **Native engine**: `@octocodeai/octocode-engine` must remain a direct runtime
   dependency because its Rust `.node` binary is distributed through the engine
   root package plus one matching platform `optionalDependency`.
-- **Types**: `dist/public.d.ts` is bundled so public declarations do not leak a
-  dependency on the unpublished tools-core package.
+- **Types**: `dist/public.d.ts` is bundled into one consumer-facing declaration
+  file while tools-core remains an explicit runtime dependency.
 
 Publish order follows the runtime graph: publish the engine platform packages,
 then the engine root and tools-core, then `octocode-mcp`.

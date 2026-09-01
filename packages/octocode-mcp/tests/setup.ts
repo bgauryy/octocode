@@ -41,9 +41,8 @@ const mockDefaultConfig = {
     apiUrl: 'https://api.github.com',
   },
   local: {
-    // MCP surface default: local tools disabled unless ENABLE_LOCAL is set.
-    enabled: false,
-    enableClone: false,
+    enabled: true,
+    enableClone: true,
     allowedPaths: [],
   },
   tools: {
@@ -239,14 +238,14 @@ const lspGetSemanticsSchema = {
     symbolName: 'Symbol name to find',
     lineHint: 'Line number hint',
     orderHint: 'Order hint for multiple occurrences',
-    itemsPerPage: 'Semantic items per page',
+    pageSize: 'Semantic items per page',
     contextLines: 'Lines of context to include',
   },
 };
 
-const localRipgrepSchema = {
-  name: 'localSearchCode',
-  description: 'Search code with ripgrep',
+const localSearchSchema = {
+  name: 'localSearch',
+  description: 'Search local text, structure, paths, and trees',
   schema: {},
 };
 
@@ -256,21 +255,9 @@ const localFetchContentSchema = {
   schema: {},
 };
 
-const localViewStructureSchema = {
-  name: 'localViewStructure',
-  description: 'Browse local directory structure',
-  schema: {},
-};
-
-const localFindFilesSchema = {
-  name: 'localFindFiles',
-  description: 'Find files by metadata',
-  schema: {},
-};
-
-const ghSearchCodeSchema = {
-  name: 'ghSearchCode',
-  description: 'Search code across GitHub',
+const githubSearchSchema = {
+  name: 'ghSearch',
+  description: 'Search GitHub code, repositories, and trees',
   schema: {},
 };
 
@@ -278,23 +265,18 @@ const mockContent = {
   systemPrompt: 'Test instructions',
   prompts: {},
   toolNames: {
+    GITHUB_SEARCH: 'ghSearch',
     GITHUB_FETCH_CONTENT: 'ghGetFileContent',
-    GITHUB_SEARCH_CODE: 'ghSearchCode',
-    GITHUB_PULL_REQUESTS: 'ghSearchPullRequests',
-    GITHUB_ISSUES: 'ghSearchIssues',
-    GITHUB_COMMITS: 'ghSearchCommits',
+    GITHUB_SEARCH_HISTORY: 'ghSearchHistory',
+    GITHUB_GET_HISTORY_ITEM: 'ghGetHistoryItem',
     GITHUB_RELEASES: 'ghListReleases',
-    GITHUB_SEARCH_REPOSITORIES: 'ghSearchRepos',
-    GITHUB_VIEW_REPO_STRUCTURE: 'ghViewRepoStructure',
+    GITHUB_DISCUSSIONS: 'ghSearchDiscussions',
     PACKAGE_SEARCH: 'npmSearch',
     GITHUB_CLONE_REPO: 'ghCloneRepo',
-    LOCAL_RIPGREP: 'localSearchCode',
+    LOCAL_SEARCH: 'localSearch',
     LOCAL_FETCH_CONTENT: 'localGetFileContent',
-    LOCAL_FIND_FILES: 'localFindFiles',
     LOCAL_ANALYZE_GRAPH: 'localAnalyzeGraph',
-    LOCAL_VIEW_STRUCTURE: 'localViewStructure',
     LSP_GET_SEMANTIC_CONTENT: 'lspGetSemantics',
-    GITHUB_HISTORY: 'ghHistorySearch',
   },
   baseSchema: {
     mainResearchGoal: 'Main research goal description',
@@ -302,14 +284,12 @@ const mockContent = {
     reasoning: 'Reasoning description',
   },
   tools: {
+    ghSearch: githubSearchSchema,
     ghGetFileContent: githubFetchContentSchema,
-    ghSearchCode: ghSearchCodeSchema,
-    ghSearchPullRequests: mockToolSchema,
-    ghSearchIssues: mockToolSchema,
-    ghSearchCommits: mockToolSchema,
+    ghSearchHistory: mockToolSchema,
+    ghGetHistoryItem: mockToolSchema,
     ghListReleases: mockToolSchema,
-    ghSearchRepos: mockToolSchema,
-    ghViewRepoStructure: mockToolSchema,
+    ghSearchDiscussions: mockToolSchema,
     npmSearch: mockToolSchema,
     ghCloneRepo: {
       name: 'ghCloneRepo',
@@ -324,12 +304,10 @@ const mockContent = {
         charLength: 'Character budget for output pagination',
       },
     },
-    localSearchCode: localRipgrepSchema,
+    localSearch: localSearchSchema,
     localGetFileContent: localFetchContentSchema,
-    localFindFiles: localFindFilesSchema,
-    localViewStructure: localViewStructureSchema,
+    localAnalyzeGraph: mockToolSchema,
     lspGetSemantics: lspGetSemanticsSchema,
-    ghHistorySearch: mockToolSchema,
   },
   bulkOperations: {
     instructions: {
@@ -393,20 +371,17 @@ vi.mock('@octocodeai/octocode-core', async importOriginal => {
     BulkFetchContentSchema: stubBulkSchema(),
     BulkViewStructureSchema: stubBulkSchema(),
     BulkFindFilesSchema: stubBulkSchema(),
+    GITHUB_SEARCH: 'ghSearch',
     GITHUB_FETCH_CONTENT: 'ghGetFileContent',
-    GITHUB_SEARCH_CODE: 'ghSearchCode',
-    GITHUB_PULL_REQUESTS: 'ghSearchPullRequests',
-    GITHUB_ISSUES: 'ghSearchIssues',
-    GITHUB_COMMITS: 'ghSearchCommits',
+    GITHUB_SEARCH_HISTORY: 'ghSearchHistory',
+    GITHUB_GET_HISTORY_ITEM: 'ghGetHistoryItem',
     GITHUB_RELEASES: 'ghListReleases',
-    GITHUB_SEARCH_REPOSITORIES: 'ghSearchRepos',
-    GITHUB_VIEW_REPO_STRUCTURE: 'ghViewRepoStructure',
+    GITHUB_DISCUSSIONS: 'ghSearchDiscussions',
     GITHUB_CLONE_REPO: 'ghCloneRepo',
     PACKAGE_SEARCH: 'npmSearch',
-    LOCAL_RIPGREP: 'localSearchCode',
+    LOCAL_SEARCH: 'localSearch',
     LOCAL_FETCH_CONTENT: 'localGetFileContent',
-    LOCAL_FIND_FILES: 'localFindFiles',
-    LOCAL_VIEW_STRUCTURE: 'localViewStructure',
+    LOCAL_ANALYZE_GRAPH: 'localAnalyzeGraph',
     LSP_GET_SEMANTIC_CONTENT: 'lspGetSemantics',
     validateRipgrepQuery: identityValidator,
     validateFindFilesQuery: identityValidator,
@@ -414,7 +389,6 @@ vi.mock('@octocodeai/octocode-core', async importOriginal => {
     validateFetchContentQuery: identityValidator,
     applyWorkflowMode: identityValidator,
     createBulkQuerySchema: stubBulkSchema,
-    NpmSearchQuerySchema: passthrough(),
     LocalSearchCodeDataSchema: passthrough(),
     LocalFindFilesDataSchema: passthrough(),
     LocalViewStructureDataSchema: passthrough(),

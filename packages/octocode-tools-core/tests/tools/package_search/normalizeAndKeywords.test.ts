@@ -19,6 +19,8 @@ import {
   formatPackageData,
   searchPackages,
 } from '../../../src/tools/package_search/execution.js';
+import { NpmSearchBulkQueryLocalSchema } from '../../../src/tools/package_search/scheme.js';
+import { NpmSearchQueryLocalSchema } from '../../../src/tools/package_search/scheme.js';
 
 type AnyPkg = Parameters<typeof formatPackageData>[0];
 
@@ -61,11 +63,13 @@ describe('normalizeRepoUrl — npm shorthand repository URLs', () => {
     const data = formatPackageData(npmPkg('github:octokit/rest.js'));
     expect(data.repository).toBe('https://github.com/octokit/rest.js');
     const next = data.next as
-      { viewRepoStructure?: { query?: Record<string, unknown> } } | undefined;
-    expect(next?.viewRepoStructure?.query).toMatchObject({
+      { viewTree?: { query?: Record<string, unknown> } } | undefined;
+    expect(next?.viewTree?.query).toMatchObject({
       owner: 'octokit',
       repo: 'rest.js',
     });
+    expect(next).not.toHaveProperty('viewRepoStructure');
+    expect(next).not.toHaveProperty('searchCode');
   });
 });
 
@@ -74,14 +78,10 @@ describe('foldKeywords', () => {
     expect(foldKeywords(['state', 'management'])).toBe('state management');
   });
 
-  it('passes a string through and trims', () => {
-    expect(foldKeywords('  react hooks ')).toBe('react hooks');
-  });
-
   it('returns undefined for empty inputs', () => {
     expect(foldKeywords(undefined)).toBeUndefined();
     expect(foldKeywords([])).toBeUndefined();
-    expect(foldKeywords('   ')).toBeUndefined();
+    expect(foldKeywords(['   '])).toBeUndefined();
   });
 });
 
@@ -137,6 +137,134 @@ describe('searchPackages — keywords fold drives the registry query', () => {
     expect(searchPackageMock.mock.calls[0]?.[0]).toMatchObject({
       name: 'react',
     });
+  });
+
+  it('applies keyword pageSize and emits a compact executable next page', async () => {
+    searchPackageMock.mockReset();
+    searchPackageMock.mockResolvedValue({
+      packages: [npmPkg('github:octo/one'), npmPkg('github:octo/two')],
+      totalFound: 20,
+      rawResponseChars: 100,
+    });
+    const firstQuery = {
+      keywords: ['state', 'management'],
+      page: 1,
+      pageSize: 2,
+      goal: 'discover packages',
+      reasoning: 'compare candidates',
+    };
+
+    const first = await searchPackages({ queries: [firstQuery] } as never);
+    expect(searchPackageMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        name: 'state management',
+        page: 1,
+        itemsPerPage: 2,
+      })
+    );
+    const firstRow = (
+      first.structuredContent as {
+        results: Array<{ data: Record<string, any> }>;
+      }
+    ).results[0]!;
+    const continuation = firstRow.data.next.nextPage;
+    expect(continuation).toMatchObject({
+      tool: 'npmSearch',
+      query: {
+        keywords: ['state', 'management'],
+        page: 2,
+        pageSize: 2,
+      },
+    });
+    expect(continuation.query).not.toHaveProperty('goal');
+    expect(continuation.query).not.toHaveProperty('reasoning');
+
+    const replay = NpmSearchBulkQueryLocalSchema.parse({
+      queries: [continuation.query],
+    });
+    await searchPackages({ queries: replay.queries } as never);
+    expect(searchPackageMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({ page: 2, itemsPerPage: 2 })
+    );
+  });
+
+  it('keeps a one-result keyword page in discovery pagination mode', async () => {
+    searchPackageMock.mockReset();
+    searchPackageMock.mockResolvedValue({
+      packages: [npmPkg('github:octo/one')],
+      totalFound: 11,
+      rawResponseChars: 50,
+    });
+
+    const result = await searchPackages({
+      queries: [{ keywords: ['narrow'], page: 2, pageSize: 10 }],
+    } as never);
+    const row = (
+      result.structuredContent as {
+        results: Array<{ data: Record<string, any> }>;
+      }
+    ).results[0]!;
+    expect(row.data.pagination).toMatchObject({
+      currentPage: 2,
+      perPage: 10,
+      returned: 1,
+    });
+  });
+
+  it('marks the schema page ceiling as a terminal partial result', async () => {
+    searchPackageMock.mockReset();
+    searchPackageMock.mockResolvedValue({
+      packages: [npmPkg('github:octo/one')],
+      totalFound: 1,
+      rawResponseChars: 50,
+    });
+
+    const result = await searchPackages({
+      queries: [{ keywords: ['schema'], page: 1000, pageSize: 1 }],
+    } as never);
+    const row = (
+      result.structuredContent as {
+        results: Array<{
+          data: Record<string, any>;
+          meta: { diagnostics?: { codes?: string[] } };
+        }>;
+      }
+    ).results[0]!;
+
+    expect(row.data).toMatchObject({
+      terminalLimit: true,
+      pagination: {
+        hasMore: true,
+        continuationUnavailable: {
+          reason: 'schemaPageLimit',
+          maxPage: 1000,
+        },
+      },
+    });
+    expect(row.data.next?.nextPage).toBeUndefined();
+    expect(row.meta.diagnostics?.codes).toContain('terminalLimitReached');
+    expect(row.meta.diagnostics?.codes).not.toContain('continuationMissing');
+  });
+});
+
+describe('npmSearch public selector schema', () => {
+  it('allows pageSize only for keyword discovery', () => {
+    expect(
+      NpmSearchBulkQueryLocalSchema.safeParse({
+        queries: [{ keywords: ['schema'], pageSize: 25 }],
+      }).success
+    ).toBe(true);
+    expect(
+      NpmSearchBulkQueryLocalSchema.safeParse({
+        queries: [{ packageName: 'zod', pageSize: 25 }],
+      }).success
+    ).toBe(false);
+    expect(
+      NpmSearchQueryLocalSchema.safeParse({
+        packageName: 'zod',
+        pageSize: 25,
+      }).success
+    ).toBe(false);
   });
 });
 

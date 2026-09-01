@@ -39,7 +39,7 @@ function graphOf(edges: Record<string, string[]>): Map<string, FileNode> {
 }
 
 describe('advanced file-graph algorithms', () => {
-  it('does not present a truncated path prefix as a complete source-to-target path', () => {
+  it('returns the complete source-to-target path beyond the former preview cap', () => {
     const edges: Record<string, string[]> = {};
     for (let index = 0; index < 105; index++) {
       edges[`f${index}.ts`] = index < 104 ? [`f${index + 1}.ts`] : [];
@@ -47,15 +47,13 @@ describe('advanced file-graph algorithms', () => {
     const result = findShortestPath(graphOf(edges), 'f0.ts', 'f104.ts');
     expect(result).toMatchObject({
       found: true,
-      complete: false,
-      files: [],
-      target: 'f104.ts',
+      complete: true,
       length: 105,
-      totalFileCount: 105,
-      omittedMiddleFileCount: 5,
     });
-    expect(result.prefix).toHaveLength(50);
-    expect(result.suffix).toHaveLength(50);
+    expect(result.files).toHaveLength(105);
+    expect(result.files[0]).toBe('f0.ts');
+    expect(result.files.at(-1)).toBe('f104.ts');
+    expect(result.edges).toHaveLength(104);
   });
 
   it('retains singleton self-loops as real SCC cycles', () => {

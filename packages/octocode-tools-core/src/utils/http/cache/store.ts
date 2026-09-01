@@ -37,6 +37,7 @@ export const CACHE_TTL_CONFIG = {
 export interface PendingRequest {
   promise: Promise<unknown>;
   startedAt: number;
+  requestId: symbol;
 }
 export const pendingRequests = new Map<string, PendingRequest>();
 

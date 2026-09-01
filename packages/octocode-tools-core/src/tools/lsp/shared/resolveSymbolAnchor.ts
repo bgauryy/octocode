@@ -53,11 +53,11 @@ export async function resolveFileAnchor(
         ok: false,
         error: {
           status: 'error',
-          error: `Path is a directory, not a file: ${absolutePath}. lspGetSemantics needs a single file uri.`,
+          error: `Path is a directory: ${absolutePath}.`,
           errorType: 'not_a_file',
           errorCode: LSP_ERROR_CODES.LSP_REQUEST_FAILED,
           hints: [
-            'Pass the path to a specific source file (e.g. via search --op on a file, or workspaceSymbol with symbolName for whole-project lookup).',
+            'Choose a source file, or use workspaceSymbol with symbolName.',
           ],
         },
       };
@@ -67,12 +67,10 @@ export async function resolveFileAnchor(
       ok: false,
       error: {
         status: 'error',
-        error: `File not found: ${absolutePath}. Check the path and spelling.`,
+        error: `File not found: ${absolutePath}.`,
         errorType: 'file_not_found',
         errorCode: LSP_ERROR_CODES.LSP_REQUEST_FAILED,
-        hints: [
-          `Could not find file: ${uri ?? '<missing>'}. Run search/localFindFiles to get the exact path first.`,
-        ],
+        hints: ['Use localSearch with operation:"files" to resolve the path.'],
       },
     };
   }
@@ -175,7 +173,7 @@ export async function resolveSymbolAnchor(
           searchRadius: error.searchRadius,
           hints: [
             `Symbol "${query.symbolName}" was not found near line ${query.lineHint}.`,
-            'Run localSearchCode with the exact symbol name to refresh lineHint, then retry.',
+            'Run localSearch with operation:"text" and the exact symbol name to refresh lineHint, then retry.',
           ],
         },
       };

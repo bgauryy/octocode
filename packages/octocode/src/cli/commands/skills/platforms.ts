@@ -30,14 +30,12 @@ export const VALID_PLATFORMS: readonly string[] = [
   'cursor',
   'claude',
   'claude-desktop',
-  'claude-code',
   'codex',
   'codex-native',
   'opencode',
   'copilot',
   'gemini',
   'common',
-  'agents',
   'all',
 ];
 
@@ -115,25 +113,17 @@ const ALL_PLATFORMS: Platform[] = [
   'common',
 ];
 
-const PLATFORM_ALIASES: Record<string, Platform | 'all'> = {
+const PLATFORM_VALUES: Record<string, Platform | 'all'> = {
   pi: 'pi',
-  'pi-agent': 'pi',
   cursor: 'cursor',
   claude: 'claude',
-  'claude-code': 'claude',
   'claude-desktop': 'claude-desktop',
   codex: 'codex',
   'codex-native': 'codex-native',
   opencode: 'opencode',
-  'open-code': 'opencode',
   copilot: 'copilot',
-  'github-copilot': 'copilot',
-  'vscode-copilot': 'copilot',
   gemini: 'gemini',
-  'gemini-cli': 'gemini',
   common: 'common',
-  agents: 'agents',
-  agent: 'agents',
   all: 'all',
 };
 
@@ -149,7 +139,7 @@ export function parsePlatforms(raw: string): {
   const platforms: Platform[] = [];
 
   for (const part of parts) {
-    const resolved = PLATFORM_ALIASES[part];
+    const resolved = PLATFORM_VALUES[part];
     if (!resolved) {
       return {
         platforms: [],

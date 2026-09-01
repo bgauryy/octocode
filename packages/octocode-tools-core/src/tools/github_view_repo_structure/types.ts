@@ -27,6 +27,9 @@ export interface GitHubRepositoryStructureResult {
   _cachedItems?: { path: string; type: 'file' | 'dir' }[];
   _cachedFileSizeMap?: Record<string, Record<string, number>>;
   rawResponseChars?: number;
+  isPartial?: boolean;
+  terminalLimit?: boolean;
+  partialReasons?: Array<'providerTreeTruncated' | 'partialTreeFailures'>;
 }
 
 export interface GitHubRepositoryStructureError {

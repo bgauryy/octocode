@@ -10,7 +10,28 @@ describe('interactive configuration catalog', () => {
     expect(getAllTools().map(tool => tool.id)).toEqual(
       DIRECT_TOOL_DISCOVERY_DEFINITIONS.map(tool => tool.name)
     );
-    expect(getAllTools()).toHaveLength(17);
+    expect(getAllTools()).toHaveLength(12);
+    expect(getAllTools().map(tool => tool.id)).toEqual(
+      expect.arrayContaining(['ghSearchHistory', 'ghGetHistoryItem'])
+    );
+    expect(getAllTools().map(tool => tool.id)).not.toEqual(
+      expect.arrayContaining([
+        'ghSearchPullRequests',
+        'ghSearchIssues',
+        'ghSearchCommits',
+      ])
+    );
+  });
+
+  it.each([
+    'github.code',
+    'github.repositories',
+    'github.tree',
+    'local.text',
+    'local.files',
+    'local.tree',
+  ])('does not expose removed tool %s', toolName => {
+    expect(getAllTools().some(tool => tool.id === toolName)).toBe(false);
   });
 
   it('classifies npm separately and describes only npm package search', () => {

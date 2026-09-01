@@ -68,6 +68,10 @@ export async function resolveMaterializationRef(
   return withDataCache(
     cacheKey,
     () => resolveRefUncached(owner, repo, ref, authInfo),
-    { ttl: REF_POINTER_TTL_SECONDS, forceRefresh }
+    {
+      ttl: REF_POINTER_TTL_SECONDS,
+      forceRefresh,
+      cacheRole: 'helper',
+    }
   );
 }

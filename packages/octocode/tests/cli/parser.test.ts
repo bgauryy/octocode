@@ -106,13 +106,13 @@ describe('CLI Parser', () => {
     it('should parse canonical tools command with --queries', () => {
       const result = parseArgs([
         'tools',
-        'localSearchCode',
+        'localSearch',
         '--queries',
         '{"path":".","keywords":"runCLI"}',
       ]);
 
       expect(result.command).toBe('tools');
-      expect(result.args).toEqual(['localSearchCode']);
+      expect(result.args).toEqual(['localSearch']);
       expect(result.options).toEqual({
         queries: '{"path":".","keywords":"runCLI"}',
       });
@@ -126,7 +126,7 @@ describe('CLI Parser', () => {
       );
       expect(parseArgs(['tools', '--no-color']).options['no-color']).toBe(true);
       expect(
-        parseArgs(['tools', 'localSearchCode', '--scheme']).options.scheme
+        parseArgs(['tools', 'localSearch', '--scheme']).options.scheme
       ).toBe(true);
       expect(parseArgs(['status', '--json']).options.json).toBe(true);
     });

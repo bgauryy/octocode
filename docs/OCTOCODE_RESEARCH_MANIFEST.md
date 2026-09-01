@@ -83,9 +83,13 @@ Seven mechanisms make the loop cheap in practice:
    match), both directly executable. Deeper results add `nextHints[].why`
    and `confidence`, explaining *why* a continuation is offered, not only
    that one exists.
-2. **Pagination: cursors are opaque, nothing silently drops.**
-   `pagination.nextCharOffset` / `nextPage` are copy-only fields the agent
-   never computes (§10); every paginator here is lossless by construction.
+2. **Pagination: follow executable continuations, not numeric hints.**
+   Every bounded or partial axis exposes a schema-valid `next.*` call. Page,
+   match-page, scan, limit, line, character, and provider-incomplete axes each
+   get their corresponding continuation. When a public or provider cap cannot
+   be continued, `meta.diagnostics.codes` contains `terminalLimitReached`.
+   Numeric `nextPage`, `nextCharOffset`, cursors, and raw `nextQuery` objects
+   are supporting metadata, not runnable continuations (§10).
 3. **Smart schema: pay for what you ask for, not what you might ask for.**
    Schema is tiered and opt-in. The tool catalog (`tools --json`, names and
    one-liners) is what an agent sees by default; a tool's full field-level
@@ -132,13 +136,12 @@ Two research surfaces, bridged explicitly, one loop:
 
 ```
 LOCAL      workspace files, node_modules, cloned/materialized repos
-           → localSearchCode, localGetFileContent, localViewStructure,
-             localFindFiles, lspGetSemantics
+           → localSearch, localGetFileContent, localAnalyzeGraph,
+             lspGetSemantics
 
 EXTERNAL   GitHub (code, trees, files, PRs, commits) and npm
-           → ghSearchCode, ghGetFileContent, ghViewRepoStructure,
-             ghSearchRepos, ghSearchPullRequests, ghSearchIssues,
-             ghSearchCommits, ghListReleases, ghSearchDiscussions, npmSearch
+           → ghSearch, ghGetFileContent, ghSearchHistory, ghGetHistoryItem,
+             ghListReleases, ghSearchDiscussions, npmSearch
 
 BRIDGE     ghCloneRepo (or ghGetFileContent type:"directory") converts
            remote code to local-grade evidence, then LOCAL tools take over
@@ -226,13 +229,13 @@ incomplete and only additive when combined:
 
 ```
 STRUCTURE    the tree: where things live, how big, how named, how nested
-             → localViewStructure, ghViewRepoStructure, localFindFiles
+             → localSearch operation:"tree" or "files", ghSearch operation:"tree"
 
 STREAM       the text: what is actually written, exact bytes or an outline
-             → localGetFileContent, ghGetFileContent, localSearchCode (lexical)
+             → localGetFileContent, ghGetFileContent, localSearch (lexical)
 
 CONNECTIONS  the graph: who calls/imports/extends/implements what, proven shapes
-             → lspGetSemantics, localSearchCode mode:"structural"
+             → lspGetSemantics, localSearch operation:"structural"
 ```
 
 None of the three substitutes for the others, and each is silent about what
@@ -264,7 +267,7 @@ structure, never proves with LSP) or only ever calls LSP (never rereads the
 tree, never falls back to text) builds a systematically partial model of the
 code and has no signal that it's partial, because each dimension only
 answers what it was asked and stays silent on the rest. The cost of the
-extra dimension is small (one `localViewStructure`, one
+extra dimension is small (one `localSearch`, one
 `minify:"symbols"` pass, §9) relative to the cost of a wrong "impact is X"
 or "this is unused" built on a single angle (§12, item 2).
 
@@ -274,22 +277,17 @@ or "this is unused" built on a single angle (§12, item 2).
 
 | Tool | Surface | Role | Reach for it when |
 |---|---|---|---|
-| `localSearchCode` | local | text/regex/AST search, count modes, ranked | any local content question, the workhorse |
+| `localSearch` | local | text/regex/AST, file metadata, and tree discovery | any local discovery question; choose an operation first |
 | `localGetFileContent` | local | read file / matchString slices / line ranges | reading after you have coordinates |
-| `localViewStructure` | local | directory tree | orientation in an unfamiliar dir |
-| `localFindFiles` | local | find by name/size/time/permissions metadata | the constraint is *about the file*, not in it |
 | `lspGetSemantics` | local | definitions, references, callers/callees, hover, symbols, types | proving identity and impact |
-| `ghSearchCode` | external | GitHub code/path search | locating code across repositories you don't have |
+| `ghSearch` | external | GitHub code/path, repository, and tree discovery through strict operations | locating and orienting in repositories you don't have |
 | `ghGetFileContent` | external | read GitHub file (slices/ranges/symbols); `type:"directory"` materializes a subtree | reading remote files; bridging remote→local |
-| `ghViewRepoStructure` | external | GitHub tree browse | orienting in a remote repository |
-| `ghSearchRepos` | external | repository discovery | finding candidate repos/prior art |
-| `ghSearchPullRequests` | external | PR search + PR deep-read (files/diffs/reviews; `reviewMode:"full"`) | who changed this and why |
-| `ghSearchIssues` | external | issue search + read one issue | tracking reported problems/intent |
-| `ghSearchCommits` | external | commit history for a path/range, or `base`+`head` compare | archaeology: when/why a line changed |
+| `ghSearchHistory` | external | search PR, issue, or commit candidates through strict plural operations | locate history evidence and its stable identity |
+| `ghGetHistoryItem` | external | fetch a PR/issue by `number`, commit by `ref`, or comparison by `base`+`head` | inspect why code changed or what a thread established |
 | `ghListReleases` | external | releases + latest stable (**gated: `ENABLE_RELEASES=true`**) | mapping versions to changes |
 | `ghSearchDiscussions` | external | repository Discussions Q&A/RFCs (GraphQL; **gated: `ENABLE_DISCUSSIONS=true`**) | mining Q&A, RFCs, announcements |
 | `npmSearch` | external | package → source repository (+ `repositoryDirectory`) | resolving a dependency to its home |
-| `ghCloneRepo` | bridge | full/sparse clone (**gated: `ENABLE_CLONE=true`**) | whole-repository local analysis |
+| `ghCloneRepo` | bridge | full/sparse clone (**default on; `ENABLE_CLONE=false` disables**) | whole-repository local analysis |
 
 Bulk: every tool takes up to 5 parallel queries per call with per-query `id`.
 Batch independent probes into ONE call: it is the cheapest parallelism you have.
@@ -306,7 +304,7 @@ through different lanes (lexical, structural with one shape, structural with
 another shape) in a single call, and treat any disagreement between the
 angles as the actual finding, not noise to average away.
 
-Worked example: one `localSearchCode` bulk call against this repository's own
+Worked example: one `localSearch` bulk call against this repository's own
 `packages/octocode-awareness/src/db.ts`, asking one question three ways:
 *"is the `_db` module singleton ever reassigned or read-guarded outside
 `connectDb`?"*
@@ -353,12 +351,12 @@ WHAT DO I HOLD?
 │    → re-enter router (§3) to verify any specific claim before relying on it
 │
 ├─ Nothing (unfamiliar codebase, no wiki/doc artifact)
-│    → localViewStructure (tree, maxDepth 1-2)
-│    → localSearchCode countMatchesPerFile on the domain term   ← hotspot map, 1 call
+│    → localSearch operation:"tree", maxDepth 1-2
+│    → localSearch operation:"text", resultView:"countMatches" on the domain term
 │    → then re-enter router with what you learned
 │
 ├─ A concept / behavior (words, no identifier)
-│    → localSearchCode with synonym regex: "halfLife|half_life|HALF_LIFE"
+│    → localSearch operation:"text" with synonym regex: "halfLife|half_life|HALF_LIFE"
 │    → top file → localGetFileContent minify:"symbols"          ← the anchor sheet
 │
 ├─ An identifier (function/class/const name)
@@ -366,13 +364,13 @@ WHAT DO I HOLD?
 │    → callers/callees (callables) or references groupByFile (everything else)
 │
 ├─ A code shape ("all X calls that do Y")
-│    → localSearchCode mode:"structural" with a rule            ← metavars = typed extraction
+│    → localSearch operation:"structural" with a rule       ← metavars = typed extraction
 │
 ├─ A package name
 │    → node_modules FIRST (§7), npmSearch only to find the repo
 │
 ├─ A "why" / history question
-│    → ghSearchPullRequests (keywords+match:["title"], concise:true) or ghSearchCommits (owner/repo/path)
+│    → ghSearchHistory operation:"pullRequests" (title-first) or operation:"commits" (owner/repo/path)
 ```
 
 ---
@@ -389,7 +387,7 @@ Only then                               → EXTERNAL (GitHub/npm), and consider
                                           materializing early if >2 reads are coming (§8).
 ```
 
-`localSearchCode` over `node_modules/zod` (with `excludeDir: []` and
+`localSearch` over `node_modules/zod` (with `excludeDir: []` and
 `noIgnore: true`, since node_modules is excluded by default) finds the exact
 installed source fast, with the version that runs, which GitHub's
 default branch is NOT guaranteed to be.
@@ -426,7 +424,7 @@ What you get:
   function definitions plus their signatures through one regex, with surrounding
   context lines).
 - **Works identically remote**: same anchors from a GitHub file, so you can go
-  ghSearchCode (which file) to ghGetFileContent matchString (which lines) to
+  ghSearch operation:"code" (which file) to ghGetFileContent matchString (which lines) to
   materialize to LSP at those lines, without ever reading a full file.
 - **Direct tool results go further than a warning string**: a code-search
   row's `next` object is a directly-executable query, not prose. `next.fetch`
@@ -438,8 +436,8 @@ What you get:
 
 Default read policy: **matchString first, line ranges second, fullContent last**
 (small files only). If you know *what* you're looking for but not *where*, this
-is always the cheapest correct read. Related but different: `ghSearchPullRequests
-matchString` filters PR patches/comments to matching sections (same idea,
+is always the cheapest correct read. Related but different: `ghGetHistoryItem`
+detail selectors bound PR patches/comments to the requested sections (same idea,
 different surface).
 
 ---
@@ -452,8 +450,8 @@ folds stream back in as a cross-check on what connections alone proved.
 
 ```
 0. ORIENT     (skip if you know the area)
-   localViewStructure         - shape of the directory
-   countMatchesPerFile        - which files carry the concern, instantly: one
+   localSearch operation:"tree" - shape of the directory
+   resultView:"countMatches"  - which files carry the concern, instantly: one
                                 `keywords:"session"` call over
                                 octocode-awareness/src ranked sessions.ts,
                                 pi-hooks.ts, intents.ts, db.ts at the top,
@@ -475,7 +473,7 @@ folds stream back in as a cross-check on what connections alone proved.
               - READ the completeness block: truncatedByDepth, dynamicCallsExcluded,
                 stdlibCallsExcluded, failedRequestCount tell you what you did NOT see
 
-4. EXTRACT    localSearchCode mode:"structural" when you need the complete node or
+4. EXTRACT    localSearch operation:"structural" when you need the complete node or
               typed captures. On this repo's own code
               (`packages/octocode-awareness/src/db.ts`), a pattern like
               `db.exec($$$SQL)` captures a multiline `CREATE TABLE` statement
@@ -531,10 +529,10 @@ minify:"symbols"`, which is tree-sitter based and language-wide.
 0. RESOLVE    package name → npmSearch → owner/repo + repositoryDirectory.
               Skip if you already know owner/repo.
 
-1. ORIENT     ghViewRepoStructure at repositoryDirectory (or root).
+1. ORIENT     ghSearch operation:"tree" at repositoryDirectory (or root).
               resolvedBranch in the result is the branch every follow-up should use.
 
-2. LOCATE     ghSearchCode:
+2. LOCATE     ghSearch operation:"code":
               - match:"path" first when a filename fragment is known (far cheaper)
               - keywords are ANDed; alternatives go in separate bulk queries
               - scope hard: owner+repo, path prefix, extension/language
@@ -551,11 +549,11 @@ minify:"symbols"`, which is tree-sitter based and language-wide.
               - startLine/endLine for known ranges; fullContent only for small files
 
 4. WHY        PR/issue/commit history:
-              - PR triage (ghSearchPullRequests): keywords + match:["title"] + concise:true,
-                then owner+repo+prNumber + content:{} selectors (body/patches/comments,
-                reviewMode:"full") for depth
+              - PR triage (`ghSearchHistory` operation:"pullRequests"): keywords + match:["title"] + concise:true,
+                then `ghGetHistoryItem` operation:"pullRequest" + owner+repo+number + explicit content selectors
+                (body/changedFiles/patches/comments/reviews/commits) for depth
               - archaeology: state:"merged" sort:"created" order:"asc"
-              - commit lane (ghSearchCommits): owner/repo/path (trailing "/" = subtree)
+              - commit lane (`ghSearchHistory` operation:"commits"): owner/repo/path (trailing "/" = subtree), then fetch by `ref`
 
 5. ESCALATE   the moment you need AST, LSP, multi-file grep, or >2 more reads:
               materialize and go local (§8).
@@ -564,8 +562,8 @@ minify:"symbols"`, which is tree-sitter based and language-wide.
 **GitHub index blind spots (known):** default-branch-only; archived
 repositories return zero code hits; renamed repositories redirect for content APIs but silently
 fail for search; the code-search API has an announced upstream deprecation.
-Therefore: **an empty ghSearchCode is NOT absence.** Verify with
-`ghViewRepoStructure` (does the path exist?) or `ghGetFileContent`, or materialize
+Therefore: **an empty `ghSearch(operation:"code")` is NOT absence.** Verify with
+`ghSearch(operation:"tree")` (does the path exist?) or `ghGetFileContent`, or materialize
 and grep locally. Avoid reporting "X does not exist in repository Y" from provider search alone.
 
 ---
@@ -578,8 +576,8 @@ newer, older, or restructured.
 
 ```
 Question about a dependency's behavior?
-  1. localViewStructure node_modules/<pkg>          - what shipped (dist? src? types?)
-  2. localSearchCode path:node_modules/<pkg>        - MUST set excludeDir: []
+  1. localSearch operation:"tree" node_modules/<pkg> - what shipped
+  2. localSearch operation:"text" path:node_modules/<pkg> - set excludeDir: []
        + noIgnore: true                               (defaults skip node_modules)
   3. localGetFileContent on the hit                 - .d.ts and shipped src are gold
   4. LSP hover/definition often resolves INTO node_modules types for free
@@ -619,7 +617,7 @@ any of that upstream restructuring; it is still the one true source for
 
 ### External to Local (materialize, then analyze): three depths
 
-All gated by `ENABLE_CLONE=true` (off → typed error saying exactly that).
+Enabled by default; `ENABLE_CLONE=false` disables these flows and returns a typed error.
 The full §5 loop runs unmodified on the result at any of the three depths:
 
 | Depth | Call | What lands on disk | Use when |
@@ -647,9 +645,9 @@ repository-wide reachability/dead-code conclusions (the warning says exactly thi
 ### Local → External (context enrichment)
 
 - symbol came from a dependency → §7 first, then npmSearch → repository → docs/tests/history
-- "why is this code like this" → `ghSearchCommits` on the file path,
-  then the PR behind the commit through `ghSearchPullRequests` (`reviewMode:"full"` for the whole story)
-- "has someone solved this" → `ghSearchRepos` (concise triage) → §6 on candidates
+- "why is this code like this" → `ghSearchHistory(operation:"commits")` on the file path,
+  then `ghGetHistoryItem(operation:"commit", ref)` and the matching PR fetched by `number`
+- "has someone solved this" → `ghSearch(operation:"repositories", concise:true)` → §6 on candidates
 
 ---
 
@@ -665,7 +663,7 @@ Works identically on local and GitHub files. The `symbols` gutter numbers are
 valid `lineHint`/`startLine` anchors.
 
 Search-side equivalents: `concise:true` (gh tools) for triage lists,
-`filesOnly`/`countMatchesPerFile` (local) for maps, `format:"compact"`/`groupByFile`
+`resultView:"files"`/`resultView:"countMatches"` (local) for maps, `format:"compact"`/`groupByFile`
 (LSP) for wide result sets, `content.patches mode:"selected"` + `ranges` (PRs) to
 avoid whole-diff pulls.
 
@@ -699,8 +697,8 @@ computing your own.** Every paginator here is lossless; nothing is silently drop
 |---|---|---|---|
 | Char window (file) | `charOffset`/`charLength` → `nextCharOffset`, `isPartial` | local/gh GetFileContent | a capped `charLength` on a large file returns `pagination.hasMore:true` plus a ready, copy-paste `next.charRange` query pre-filled with the next offset, and `nextHints.why:"Read the next content window."` explaining the offer. Nothing to compute, nothing silently dropped. |
 | Result page | `page` → `hasMore`/`nextPage` | all search tools, structure tools | later pages return the next slice of rows with a `reported`/`reachable`/`capped` breakdown |
-| Per-file match page | `matchPage` + `maxMatchesPerFile` | localSearchCode | walks a noisy file without re-fetching others |
-| List pages | `itemsPerPage` + `page`; `filePage`/`commentPage`/`commitPage` | LSP lists, PR content surfaces | large symbol lists page cleanly across calls |
+| Per-file match page | `matchPage` + `maxMatchesPerFile` | localSearch | walks a noisy file without re-fetching others |
+| List pages | `pageSize` + `page`; `filePage`/`commentPage`/`commitPage` | LSP lists, PR content surfaces | large symbol lists page cleanly across calls |
 | Response window | `responseCharLength`/`responseCharOffset` | EVERY tool (outermost) | wraps the whole bulk response; advance only on `hasMore`. Wrinkle: on multi-query bulk repo-search, prefer bigger `responseCharLength` or per-query pages over advancing this offset |
 
 Budget levers, cheapest first: tighter scope (path/owner/repo/langType) → leaner mode
@@ -806,7 +804,7 @@ manifest covers ground it doesn't, is the point of this section.
 
 | Field pattern | Source | This manifest's answer | Verdict |
 |---|---|---|---|
-| Just-in-time retrieval: hold a lightweight identifier, load content on demand instead of pre-loading it | Anthropic | `matchString` anchors, `next.fetch`/`next.semantic` (§4b). The toolset never had a pre-load path to begin with | Matches by construction |
+| Just-in-time retrieval: hold a lightweight identifier, load content on demand instead of pre-loading it | Anthropic | `matchString` anchors and `next.fetch`/LSP continuations (§4b). The toolset never had a pre-load path to begin with | Matches by construction |
 | Memory pointers: a short reference token stands in for content that can be re-fetched | StackOne | Materialized `localPath` (§8) | Matches |
 | Built-in filters as the pragmatic middle ground for tool *providers* (vs. sandboxed code-mode, which StackOne calls "heavy... most won't build it") | StackOne | `countMatchesPerFile`, `filesOnly`, `discovery`, structural metavars, `concise` (§9, §12) | Matches: independent validation of an existing design choice, not self-assessment |
 | Tiered/on-demand schema so tool definitions don't burn the budget up front | StackOne ("Tool Definition Catch-22") | §9b: a small tool catalog vs. a much larger per-tool schema | Matches: same discipline applied at the field level since the tool count (12) never grew large enough to need discovery-by-search |
@@ -880,15 +878,15 @@ with lexical/structural/semantic lanes. Octocode primitive → common equivalent
 
 | Octocode primitive | Generic equivalent |
 |---|---|
-| `localSearchCode` (text/regex, classified rows) | ripgrep (`rg -n --json`); classification (`declaration/callsite/comment`) you approximate manually |
-| `localSearchCode mode:"structural"` + rule | ast-grep (`sg run -p / --rule`), tree-sitter queries, Comby |
+| `localSearch` (text/regex, classified rows) | ripgrep (`rg -n --json`); classification (`declaration/callsite/comment`) you approximate manually |
+| `localSearch operation:"structural"` + rule | ast-grep (`sg run -p / --rule`), tree-sitter queries, Comby |
 | `lspGetSemantics` | Serena MCP, `mcp-language-server`, or any LSP client (definitions/references/callHierarchy) |
 | `localGetFileContent minify:"symbols"` | aider repo-map (per-repo), ctags/tree-sitter outline (per-file) |
 | `localGetFileContent matchString` + `matchRanges` | `rg -n -C<k>` then read the line spans; no merged-slice or anchor handoff, that's the gap |
-| `localViewStructure` / `localFindFiles` | `tree`/`eza`, `fd` |
-| `ghSearchCode` / `ghViewRepoStructure` / `ghGetFileContent` | `gh search code`, `gh api repos/.../git/trees`, `gh api .../contents` (same default-branch index limits apply) |
+| `localSearch operation:"tree"|"files"` | `tree`/`eza`, `fd` |
+| `ghSearch` / `ghGetFileContent` | `gh search code`, `gh search repos`, `gh api repos/.../git/trees`, `gh api .../contents` (same default-branch index limits apply) |
 | `ghCloneRepo sparsePath` / `type:"directory"` | `git clone --depth 1 --filter=blob:none --sparse` + `git sparse-checkout set <path>` |
-| `ghSearchPullRequests` / `ghSearchCommits` | `gh pr list/view`, `gh search prs`; `git log -- <path>` |
+| `ghSearchHistory` / `ghGetHistoryItem` | `gh pr list/view`, `gh issue list/view`, `gh search prs`; `git log/show -- <path>` |
 | `npmSearch` → `repositoryDirectory` | `npm view <pkg> repository`, then the repository's `directory` field |
 | evidence grades + dual-lane cross-check (§1, §5.5) | pure method, apply with any of the above |
 

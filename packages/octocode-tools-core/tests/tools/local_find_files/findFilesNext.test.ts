@@ -33,7 +33,7 @@ describe('buildFindFilesNextMap', () => {
   it('falls back to a viewStructure hint when the page is all directories', () => {
     const map = buildFindFilesNextMap([dir('/repo/a'), dir('/repo/b')]);
 
-    expect(map?.viewStructure?.tool).toBe('localViewStructure');
+    expect(map?.viewStructure?.tool).toBe('local.tree');
     expect(map?.viewStructure?.query).toEqual({ path: '/repo/a' });
     expect(map).not.toHaveProperty('fetch');
   });

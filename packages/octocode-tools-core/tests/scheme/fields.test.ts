@@ -23,7 +23,7 @@ describe('shared schema fields', () => {
     expect(field.safeParse(Number.NaN).success).toBe(false);
   });
 
-  it('adds response pagination fields and clamps their bounds', () => {
+  it('adds response pagination fields without an artificial offset ceiling', () => {
     const schema = createRelaxedBulkQuerySchema(
       z.object({
         value: z.string(),
@@ -39,6 +39,12 @@ describe('shared schema fields', () => {
 
     expect(parsed.responseCharOffset).toBe(0);
     expect(parsed.responseCharLength).toBe(50_000);
+    expect(
+      schema.parse({
+        queries: [{ value: 'alpha' }],
+        responseCharOffset: 100_000_001,
+      }).responseCharOffset
+    ).toBe(100_000_001);
   });
 
   it('accepts identical query values because response indexes provide correlation', () => {

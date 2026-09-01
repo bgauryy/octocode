@@ -13,8 +13,8 @@ const PR = {
   mergedAt: null,
 };
 
-describe('ghSearchPullRequests nextCalls — copy-paste-ready fragments (regression)', () => {
-  it('every fragment carries owner/repo/prNumber merged in, not just `target`', () => {
+describe('pull-request exact-item nextCalls — copy-paste-ready fragments', () => {
+  it('every fragment carries operation/owner/repo/number merged in', () => {
     const request = normalizePullRequestContentRequest({} as never);
     const shaped = shapePullRequestForContent(
       PR,
@@ -22,24 +22,39 @@ describe('ghSearchPullRequests nextCalls — copy-paste-ready fragments (regress
       request,
       false,
       true
-    ) as { next: Record<string, { owner?: string; prNumber?: number }> };
+    ) as {
+      next: Record<
+        string,
+        { operation?: string; owner?: string; number?: number }
+      >;
+    };
 
     expect(shaped.next.getBody).toMatchObject({
+      operation: 'pullRequest',
       owner: 'octo',
       repo: 'engine',
-      prNumber: 42,
+      number: 42,
       content: { body: true },
     });
     expect(shaped.next.getChangedFiles).toMatchObject({
       owner: 'octo',
       repo: 'engine',
-      prNumber: 42,
+      operation: 'pullRequest',
+      number: 42,
     });
     expect(shaped.next.fullReview).toMatchObject({
       owner: 'octo',
       repo: 'engine',
-      prNumber: 42,
-      reviewMode: 'full',
+      operation: 'pullRequest',
+      number: 42,
+      content: {
+        body: true,
+        changedFiles: true,
+        patches: { mode: 'all' },
+        comments: { discussion: true, reviewInline: true },
+        reviews: true,
+        commits: {},
+      },
     });
   });
 

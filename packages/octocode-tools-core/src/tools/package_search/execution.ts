@@ -1,8 +1,10 @@
 import type { CallToolResult } from '@modelcontextprotocol/server';
 import type { z } from 'zod';
-import type { NpmPackageQuerySchema } from '../../toolContract/schemas.js';
+import type { NpmSearchQueryLocalSchema } from './scheme.js';
 
-type NpmSearchQuery = z.input<typeof NpmPackageQuerySchema>;
+type NpmSearchQuery = z.input<typeof NpmSearchQueryLocalSchema> & {
+  pageSize?: number;
+};
 import { searchPackage } from '../../utils/package/common.js';
 import { isExactPackageName } from '../../utils/package/npm.js';
 import { foldKeywords, isPackageNotFoundError } from './queryHelpers.js';
@@ -18,6 +20,11 @@ import { executeBulkOperation } from '../../utils/response/bulk.js';
 import { createSuccessResult, createErrorResult } from '../utils.js';
 import { TOOL_NAMES } from '../toolMetadata/proxies.js';
 import type { ToolExecutionArgs } from '../../types/execution.js';
+import {
+  buildPackagePageContinuation,
+  buildPackagePagination,
+} from './pagination.js';
+export { buildPackagePagination } from './pagination.js';
 
 function isNpmSearchError(
   result: NpmSearchAPIResult | NpmSearchError
@@ -142,9 +149,10 @@ function buildNext(
   if (!gh) return undefined;
   const { owner, repo } = gh;
   const next: Record<string, unknown> = {
-    viewRepoStructure: {
-      tool: 'ghViewRepoStructure',
+    viewTree: {
+      tool: 'ghSearch',
       query: {
+        operation: 'tree',
         owner,
         repo,
         ...(repositoryDirectory ? { path: repositoryDirectory } : {}),
@@ -155,9 +163,9 @@ function buildNext(
       query: { owner, repo },
       why: 'npm latest can diverge from the repo release line — verify against the repository releases/tags',
     },
-    searchCode: {
-      tool: 'ghSearchCode',
-      query: { owner, repo },
+    searchRepositoryCode: {
+      tool: 'ghSearch',
+      query: { operation: 'code', owner, repo },
     },
     cloneRepo: {
       tool: 'ghCloneRepo',
@@ -245,52 +253,6 @@ export function compactPackageRepositories(
     : { packages };
 }
 
-type PackagePagination = {
-  currentPage: number;
-  totalPages: number;
-  perPage: number;
-  totalFound: number;
-  returned: number;
-  hasMore: boolean;
-  nextPage?: number;
-};
-
-export function buildPackagePagination(
-  query: NpmSearchQuery,
-  totalFound: number,
-  returned: number,
-  isKeyword: boolean
-): PackagePagination {
-  const currentPage = Math.max(1, (query as { page?: number }).page ?? 1);
-  const perPage = isKeyword ? 10 : 1;
-
-  // The keyword CLI search path reports `totalFound` as the count returned on
-  // THIS page (capped at the search limit), not the registry grand total. When
-  // a page comes back FULL, that count understates the true total and would
-  // otherwise yield hasMore:false even though more pages exist. Treat a full
-  // page as "there is at least one more page" so deeper paging stays reachable;
-  // only trust `totalFound` for a true totalPages when the page is NOT full.
-  const pageIsFull = isKeyword && returned >= perPage;
-  const totalPagesFromCount = Math.max(1, Math.ceil(totalFound / perPage));
-  const hasMore = pageIsFull || currentPage < totalPagesFromCount;
-  // Don't claim a precise totalPages from an understated count when the page is
-  // full and the count doesn't already imply a further page.
-  const totalPages =
-    pageIsFull && currentPage >= totalPagesFromCount
-      ? currentPage + 1
-      : totalPagesFromCount;
-
-  return {
-    currentPage,
-    totalPages,
-    perPage,
-    totalFound,
-    returned,
-    hasMore,
-    ...(hasMore ? { nextPage: currentPage + 1 } : {}),
-  };
-}
-
 export async function searchPackages(
   args: ToolExecutionArgs<NpmSearchQuery>
 ): Promise<CallToolResult> {
@@ -298,11 +260,12 @@ export async function searchPackages(
     args.queries,
     async (query: NpmSearchQuery) => {
       try {
-        // Explicit packageName wins; otherwise derive the registry query from
-        // `keywords` (folding an array to a space-joined string).
+        // Validation permits exactly one lookup mode. Fold keyword terms into
+        // the registry's space-delimited query when discovery mode is selected.
         const searchName =
           query.packageName ??
-          foldKeywords((query as { keywords?: string | string[] }).keywords);
+          foldKeywords((query as { keywords?: string[] }).keywords);
+        const isKeyword = Array.isArray(query.keywords);
         if (!searchName) {
           return createErrorResult(
             'Provide a packageName or keywords for package search',
@@ -313,6 +276,9 @@ export async function searchPackages(
         const apiResult = await searchPackage({
           name: searchName,
           page: (query as { page?: number }).page,
+          ...(isKeyword && typeof query.pageSize === 'number'
+            ? { itemsPerPage: query.pageSize }
+            : {}),
           goal: (query as { goal?: string }).goal,
           reasoning: (query as { reasoning?: string }).reasoning,
         });
@@ -329,8 +295,8 @@ export async function searchPackages(
                 packages: [],
                 hints: [
                   exact
-                    ? `No package published under the exact name "${searchName}". Check the spelling, and try the scoped (@scope/name) vs unscoped form.`
-                    : `No packages matched "${searchName}". Try different or fewer keywords, or search by an exact package name.`,
+                    ? `No package named "${searchName}". Check spelling and scope.`
+                    : `No packages matched "${searchName}". Try fewer keywords or an exact name.`,
                 ],
               },
               false,
@@ -347,7 +313,6 @@ export async function searchPackages(
         const packages = raw.map(formatPackageData);
         const hasContent = packages.length > 0;
 
-        const isKeyword = raw.length > 1 || apiResult.totalFound > 1;
         const pagination = buildPackagePagination(
           query,
           apiResult.totalFound,
@@ -356,9 +321,14 @@ export async function searchPackages(
         );
 
         const compacted = compactPackageRepositories(packages);
+        const next = buildPackagePageContinuation(query, pagination);
         const data = {
           ...compacted,
           pagination,
+          ...(pagination.continuationUnavailable
+            ? { terminalLimit: true }
+            : {}),
+          ...(next ? { next } : {}),
         };
 
         return createSuccessResult(

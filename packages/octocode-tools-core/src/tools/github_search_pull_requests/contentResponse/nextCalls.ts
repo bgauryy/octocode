@@ -1,7 +1,7 @@
 import type { NormalizedPrContentRequest } from '../contentRequest.js';
 import { baseQuery, type QueryLike } from './pagination.js';
 
-// Every fragment merges `target` (owner/repo/prNumber) into its own query so
+// Every fragment merges the public exact-item identity into its own query so
 // each one is copy-paste ready on its own — the fragment used to be a
 // content-only delta an agent had to manually merge with a separate `target`
 // object before the call would actually run.
@@ -10,13 +10,6 @@ function withTargetContent(
   content: Record<string, unknown>
 ): Record<string, unknown> {
   return { ...target, content };
-}
-
-function withTargetFields(
-  target: Record<string, unknown>,
-  fields: Record<string, unknown>
-): Record<string, unknown> {
-  return { ...target, ...fields };
 }
 
 export function nextCalls(
@@ -65,10 +58,15 @@ export function nextCalls(
     ...(request.commits
       ? {}
       : {
-          getCommits: withTargetContent(target, { commits: { list: true } }),
+          getCommits: withTargetContent(target, { commits: {} }),
         }),
-    ...(request.reviewMode === 'full'
-      ? {}
-      : { fullReview: withTargetFields(target, { reviewMode: 'full' }) }),
+    fullReview: withTargetContent(target, {
+      body: true,
+      changedFiles: true,
+      patches: { mode: 'all' },
+      comments: { discussion: true, reviewInline: true },
+      reviews: true,
+      commits: {},
+    }),
   };
 }

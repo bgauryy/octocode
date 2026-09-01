@@ -78,7 +78,7 @@ pub struct StructuralSearchFilesOptions {
     pub rule: Option<String>,
     pub include: Option<Vec<String>>,
     /// File-path globs to skip (gitignore-style, e.g. `"*.min.js"`, `"src/gen/**"`).
-    /// Mirrors `localSearchCode.exclude` so it is honored on the structural
+    /// Mirrors local-search `exclude` so it is honored on the structural
     /// lane too — previously silently dropped (typed-contract violation).
     pub exclude: Option<Vec<String>>,
     pub exclude_dir: Option<Vec<String>>,
@@ -86,7 +86,7 @@ pub struct StructuralSearchFilesOptions {
     /// (hidden ignored); `Some(true)` forces them in.
     pub hidden: Option<bool>,
     /// Bypass `.gitignore`/`.ignore` rules. `None` preserves defaults; `Some(true)`
-    /// searches files normally hidden by ignore files (mirrors `localSearchCode.noIgnore`).
+    /// searches files normally hidden by ignore files (mirrors local-search `noIgnore`).
     pub no_ignore: Option<bool>,
     /// Maximum directory descent depth (0 = just the root). `None` = unbounded.
     pub max_depth: Option<u32>,

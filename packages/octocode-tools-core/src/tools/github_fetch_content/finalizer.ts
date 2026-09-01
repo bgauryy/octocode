@@ -9,6 +9,14 @@ import type {
 import { readDirectoryEntry, readFileEntry } from './finalizer/entryParsers.js';
 import type { PartialFileContentQuery } from './finalizer/types.js';
 
+function extractErrorMessage(value: unknown): string | undefined {
+  if (typeof value === 'string') return value;
+  if (!value || typeof value !== 'object') return undefined;
+  const record = value as Record<string, unknown>;
+  if (typeof record.message === 'string') return record.message;
+  return record.error === value ? undefined : extractErrorMessage(record.error);
+}
+
 function attachQueryContext(
   result: FlatQueryResult,
   query: PartialFileContentQuery | undefined
@@ -18,8 +26,7 @@ function attachQueryContext(
 
   if (result.status === 'error') {
     const rawError = result.data.error;
-    const error =
-      typeof rawError === 'string' ? rawError : 'File content query failed';
+    const error = extractErrorMessage(rawError) ?? 'File content query failed';
     const isNotFound = /\b404\b|not found/i.test(error);
     return {
       ...(owner ? { owner } : {}),
@@ -27,7 +34,7 @@ function attachQueryContext(
       ...(query?.path ? { path: String(query.path) } : {}),
       error:
         isNotFound && owner && repo
-          ? `${error} — verify the path (exact case, no leading slash) and branch; list the tree with ghViewRepoStructure(owner:"${owner}", repo:"${repo}")`
+          ? `${error} — verify the path (exact case, no leading slash) and branch; use ghSearch with operation:"tree", owner:"${owner}", repo:"${repo}"`
           : error,
     };
   }

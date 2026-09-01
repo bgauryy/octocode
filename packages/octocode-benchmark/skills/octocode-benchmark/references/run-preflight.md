@@ -10,7 +10,7 @@ every check and exits non-zero on any failure. What it verifies (or check by han
 
 | Arm | Confirm | Command |
 |---|---|---|
-| octocode | CLI + live tool call | `npx octocode@<ver> --version` + probe `npx octocode@<ver> tools ghSearchRepos --queries '{"keywords":["is"],"owner":"sindresorhus","limit":1}'` |
+| octocode | CLI + live tool call | `npx octocode@<ver> --version` + probe `npx octocode@<ver> tools ghSearch --queries '{"operation":"repositories","keywords":["is"],"owner":"sindresorhus","limit":1}'` |
 | rtk | gh authed + rtk | `gh --version` · `gh auth status` · `rtk --version` + probe `rtk gh search repos octocode --limit 1` |
 | headroom | wrapper compresses | `export HR_PY=…; ./compare/bin/preflight.py --warmup` (a `0%` ratio / `router:protected` = compression OFF → invalid) |
 

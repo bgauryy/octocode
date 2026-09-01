@@ -4,7 +4,7 @@ This file records the verified findings from the MCP v2 and local-tool evaluatio
 
 ## Decision
 
-Replace `localFindDeadCode` and the proposed `localAnalyzeDependencies` surface with one public tool: `localAnalyzeGraph`.
+Replace the former standalone dead-code tool and the proposed the proposed standalone dependency tool surface with one public tool: `localAnalyzeGraph`.
 
 `localAnalyzeGraph` uses a discriminated `operation` contract. Dead-code analysis is an operation over the same repository graph, not a separate tool. The first contract must support `deadCode`, `cycles`, `dependencies`, `dependents`, `path`, and `reachability`. Do not expose an unbounded node-and-edge query language.
 
@@ -37,7 +37,7 @@ Acceptance criteria:
 - Cycle results match the existing iterative strongly connected component implementation.
 - Reachability results state their entrypoints, truncation state, skipped-file count, and confidence.
 - `operation: "deadCode"` matches the existing dead-code results on frozen fixtures and large-repository smoke cases.
-- The public catalog contains `localAnalyzeGraph` and does not contain `localFindDeadCode` or `localAnalyzeDependencies`.
+- The public catalog contains `localAnalyzeGraph` and does not contain the former standalone dead-code tool or the proposed standalone dependency tool.
 
 Evaluation contract:
 
@@ -64,7 +64,7 @@ Evaluation contract:
 
 ## P2: Correct contracts and documentation
 
-- [x] Fix the locally owned `localSearchCode.maxFiles` description: text/regex uses a non-lossy per-page ceiling; structural mode uses a potentially lossy native scan cap and reports truncation evidence.
+- [x] Fix the locally owned `localSearch` text/structural `maxFiles` description: text/regex uses a non-lossy per-page ceiling; structural mode uses a potentially lossy native scan cap and reports truncation evidence.
 - [x] Update `docs/OCTOCODE_TOOLS.md`: dead clusters are mutually importing SCCs, not necessarily files that call each other.
 - [x] Restore `docs/context/SEARCH_GUIDE.md` and `docs/context/AGENT_RESEARCH_WORKFLOWS.md` as concise, current references.
 - [x] Document the boundary between `localAnalyzeGraph` syntactic repository topology and `lspGetSemantics` symbol-identity proof.
@@ -73,7 +73,7 @@ Evaluation contract:
 
 - [x] Migrated MCP dependencies to `@modelcontextprotocol/server` and `@modelcontextprotocol/client` v2.
 - [x] Added one valid JSON envelope for batched compact schemas. The six-local-tool schema payload fell from 16,207 to 6,396 characters.
-- [x] Applied `localFindDeadCode.limit` before pagination.
+- [x] Applied the former dead-code `limit` before pagination.
 - [x] Fixed LSP symbol-kind counts for inherited object keys such as `constructor`.
 - [x] Propagated longer clone timeouts through the security, catalog, MCP registration, and single-query bulk layers.
 - [x] Exercised all local tools on large React and VS Code sparse clones.
@@ -82,7 +82,7 @@ Evaluation contract:
 ## Unified graph evaluation result
 
 - **Verdict: ACCEPT.** Primary KPI improved from 0/6 available operations to 6/6 through the public `localAnalyzeGraph` CLI contract.
-- The public catalog contains `localAnalyzeGraph`; querying `localFindDeadCode --scheme` returns unknown-tool and lists only the unified graph surface.
+- The public catalog contains `localAnalyzeGraph`; querying the retired standalone dead-code schema returns unknown-tool and lists only the unified graph surface.
 - The focused graph/dead-code suite passes 22/22 tests, including limit-before-pagination, confidence propagation, retention, dynamic imports, SCCs, traversal, paths, and reachability.
 - Held-out React reconciler: 173 files scanned; dependencies, dependents, path, cycles, and dead-code response shaping completed successfully.
 - Held-out VS Code editor: 863 files scanned; dependencies, dependents, path, cycles, reachability, and dead-code response shaping completed successfully.
@@ -105,7 +105,7 @@ Evaluation contract:
 
 - [x] Inspect the full and compact schema for all 15 default tools plus `ghListReleases` and `ghSearchDiscussions` with both feature flags enabled.
 - [x] Add compact/full `relations` for conditional and mutually exclusive modes: local search, graph, local/remote content reads, LSP, PRs, issues, commits, and discussions.
-- [x] Fix the lean catalog hint from nonexistent `localSearchCode.keywords` to `searchText`.
+- [x] Fix the lean catalog hint from nonexistent the retired local search `keywords` field to `searchText`.
 - [x] Replace relative local command examples with unmistakable `/ABS/...` placeholders.
 - [x] Publish strict-valid examples for all six graph operations and for issue list/detail, releases, and first-page discussions.
 - [x] Align `localAnalyzeGraph` default pagination with the schema maximum (`50`).
@@ -139,21 +139,20 @@ Rubrics: tools = schema clarity, routing distinctness, response/continuation qua
 
 | Tool | Score | Main finding |
 |---|---:|---|
-| `ghSearchCode` | 9.3 | Strong path/content split and cheap concise mode; deterministic provider-response coverage now protects finalization. |
-| `ghSearchRepos` | 8.9 | Rich discovery filters and examples; deterministic provider-response coverage offsets its broad query surface. |
-| `ghSearchPullRequests` | 9.2 | Excellent list/detail/patch contract plus a recorded provider smoke; its nested selector surface is necessarily large. |
-| `ghSearchIssues` | 8.9 | Clear list/detail routing and continuation; GitHub page edge cases need response hints. |
-| `ghSearchCommits` | 8.9 | Strong history/range semantics; provider behavior still needs recorded integration smokes. |
+| `ghSearch` (`operation:"code"`) | 9.3 | Strong path/content split and cheap concise mode; deterministic provider-response coverage now protects finalization. |
+| `ghSearch` (`operation:"repositories"`) | 8.9 | Rich discovery filters and examples; deterministic provider-response coverage offsets its broad query surface. |
+| `ghSearchHistory` | 9.1 | Clear `pullRequests`, `issues`, and `commits` discovery routes with bounded pagination and continuations. |
+| `ghGetHistoryItem` | 9.2 | Exact `pullRequest`, `issue`, `commit`, and `compare` reads use explicit identities and selective content or diff controls. |
 | `ghListReleases` | 8.4 | Distinct, simple operation; opt-in execution lowers default workflow availability. |
 | `ghSearchDiscussions` | 8.2 | Valuable distinct evidence surface; GraphQL/provider variability and opt-in execution add friction. |
 | `ghGetFileContent` | 9.5 | Precise extraction modes, pagination, cost controls, and a bounded recorded-response smoke. |
-| `ghViewRepoStructure` | 9.1 | Cheap remote orientation with clean follow-ups and recorded finalization coverage; branch/tree limits remain external. |
+| `ghSearch` (`operation:"tree"`) | 9.1 | Cheap remote orientation with clean follow-ups and recorded finalization coverage; branch/tree limits remain external. |
 | `ghCloneRepo` | 8.6 | Correct escalation for repeated/semantic work; network, disk, and trust costs are material. |
-| `localSearchCode` | 9.2 | Excellent text/regex/AST breadth plus strict-safe `pattern` and `useRegex` first-contact aliases. |
-| `localFindFiles` | 8.9 | Strong metadata discovery plus readable name/type aliases; it still has many metadata knobs. |
+| `localSearch` (`operation:"text"` or `"structural"`) | 9.2 | Excellent text/regex/AST breadth plus strict-safe `pattern` and `useRegex` first-contact aliases. |
+| `localSearch` (`operation:"files"`) | 8.9 | Strong metadata discovery plus readable name/type aliases; it still has many metadata knobs. |
 | `localAnalyzeGraph` | 9.5 | Six bounded operations, exact syntactic provenance, request-local reuse, parity tests, and large-repository held-outs. |
 | `localGetFileContent` | 9.4 | Exact, ranged, matched, and minified reads with strong mode relations. |
-| `localViewStructure` | 8.8 | Cheapest orientation step; readable entry types and `depth` alias now absorb the live first-contact misses. |
+| `localSearch` (`operation:"tree"`) | 8.8 | Cheapest orientation step; readable entry types and `depth` alias now absorb the live first-contact misses. |
 | `lspGetSemantics` | 8.8 | Unique symbol-identity proof and compact output; server/language availability and anchor requirements add fragility. |
 | `npmSearch` | 8.3 | Very lean package-to-source bridge; limited filters and registry/provider dependence cap depth. |
 

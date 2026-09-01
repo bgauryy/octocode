@@ -179,16 +179,25 @@ export async function getOctokit(
 
 export const MAX_BRANCH_CACHE_SIZE = 200;
 
-const defaultBranchCache = new Map<string, string>();
+const DEFAULT_BRANCH_TTL_MS = 5 * 60 * 1000;
+
+interface DefaultBranchCacheEntry {
+  branch: string;
+  expiresAt: number;
+}
+
+const defaultBranchCache = new Map<string, DefaultBranchCacheEntry>();
 
 export async function resolveDefaultBranch(
   owner: string,
   repo: string,
   authInfo?: AuthInfo
 ): Promise<string> {
-  const cacheKey = `${owner}/${repo}`;
+  const identity = await resolveCacheAuthFingerprint(authInfo);
+  const cacheKey = `${identity}:${owner}/${repo}`;
   const cached = defaultBranchCache.get(cacheKey);
-  if (cached) return cached;
+  if (cached && cached.expiresAt > Date.now()) return cached.branch;
+  if (cached) defaultBranchCache.delete(cacheKey);
 
   const octokit = await getOctokit(authInfo);
 
@@ -223,7 +232,10 @@ function cacheDefaultBranch(cacheKey: string, branch: string): void {
     const oldest = defaultBranchCache.keys().next().value;
     if (oldest !== undefined) defaultBranchCache.delete(oldest);
   }
-  defaultBranchCache.set(cacheKey, branch);
+  defaultBranchCache.set(cacheKey, {
+    branch,
+    expiresAt: Date.now() + DEFAULT_BRANCH_TTL_MS,
+  });
 }
 
 export function clearOctokitInstances(): void {

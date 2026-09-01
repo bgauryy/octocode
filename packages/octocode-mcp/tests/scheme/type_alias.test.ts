@@ -1,14 +1,26 @@
 import { describe, it, expect } from 'vitest';
 
-import { LocalRipgrepQuerySchema } from '../../../octocode-tools-core/src/tools/local_ripgrep/scheme.js';
-import { LocalFindFilesQuerySchema } from '../../../octocode-tools-core/src/tools/local_find_files/scheme.js';
-import { LocalViewStructureQuerySchema } from '../../../octocode-tools-core/src/tools/local_view_structure/scheme.js';
+import { LocalSearchQuerySchema } from '../../../octocode-tools-core/src/tools/local_search/scheme.js';
 
-describe('localSearchCode langType (one public field)', () => {
-  const base = { searchText: 'foo', path: 'src' };
+function rejectedKeys(error: { issues: unknown[] }): string[] {
+  const visit = (issue: unknown): string[] => {
+    if (!issue || typeof issue !== 'object') return [];
+    const value = issue as {
+      code?: string;
+      keys?: string[];
+      errors?: unknown[][];
+    };
+    if (value.code === 'unrecognized_keys') return value.keys ?? [];
+    return (value.errors ?? []).flatMap(branch => branch.flatMap(visit));
+  };
+  return error.issues.flatMap(visit);
+}
+
+describe('localSearch text operation aliases', () => {
+  const base = { operation: 'text', searchText: 'foo', path: 'src' };
 
   it('accepts langType', () => {
-    const result = LocalRipgrepQuerySchema.safeParse({
+    const result = LocalSearchQuerySchema.safeParse({
       ...base,
       langType: 'ts',
     });
@@ -19,31 +31,30 @@ describe('localSearchCode langType (one public field)', () => {
   });
 
   it('rejects the legacy `type` key on the public schema (strict, not honored)', () => {
-    const result = LocalRipgrepQuerySchema.safeParse({ ...base, type: 'ts' });
+    const result = LocalSearchQuerySchema.safeParse({ ...base, type: 'ts' });
     expect(result.success).toBe(false);
     if (!result.success) {
-      const keys = result.error.issues.flatMap(i =>
-        i.code === 'unrecognized_keys' ? i.keys : []
-      );
+      const keys = rejectedKeys(result.error);
       expect(keys).toContain('type');
     }
   });
 
-  it('accepts only supported workflow modes', () => {
+  it('uses resultView and rejects the legacy mode field', () => {
     expect(
-      LocalRipgrepQuerySchema.safeParse({ ...base, mode: 'discovery' }).success
+      LocalSearchQuerySchema.safeParse({ ...base, resultView: 'discovery' })
+        .success
     ).toBe(true);
     expect(
-      LocalRipgrepQuerySchema.safeParse({ ...base, mode: 'compact' }).success
+      LocalSearchQuerySchema.safeParse({ ...base, mode: 'discovery' }).success
     ).toBe(false);
   });
 });
 
-describe('localFindFiles entryType (one public field)', () => {
-  const base = { path: 'src' };
+describe('localSearch files operation aliases', () => {
+  const base = { operation: 'files', path: 'src' };
 
   it('accepts entryType', () => {
-    const result = LocalFindFilesQuerySchema.safeParse({
+    const result = LocalSearchQuerySchema.safeParse({
       ...base,
       entryType: 'd',
     });
@@ -53,43 +64,41 @@ describe('localFindFiles entryType (one public field)', () => {
     }
   });
 
-  it('accepts only supported entryType and sortBy values', () => {
+  it('accepts only supported entryType and sort values', () => {
     expect(
-      LocalFindFilesQuerySchema.safeParse({
+      LocalSearchQuerySchema.safeParse({
         ...base,
         entryType: 'f',
-        sortBy: 'modified',
+        sort: 'modified',
       }).success
     ).toBe(true);
     expect(
-      LocalFindFilesQuerySchema.safeParse({ ...base, entryType: 'file' })
-        .success
+      LocalSearchQuerySchema.safeParse({ ...base, entryType: 'file' }).success
     ).toBe(false);
     expect(
-      LocalFindFilesQuerySchema.safeParse({ ...base, sortBy: 'time' }).success
+      LocalSearchQuerySchema.safeParse({ ...base, sort: 'time' }).success
     ).toBe(false);
   });
 
-  it('strips the legacy `type` key instead of hard-failing (unknown fields never hard-fail)', () => {
-    const result = LocalFindFilesQuerySchema.safeParse({ ...base, type: 'f' });
-    expect(result.success).toBe(true);
-    if (result.success) {
-      expect('type' in result.data).toBe(false);
+  it('rejects the legacy `type` key instead of aliasing it', () => {
+    const result = LocalSearchQuerySchema.safeParse({ ...base, type: 'f' });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const keys = rejectedKeys(result.error);
+      expect(keys).toContain('type');
     }
   });
 });
 
-describe('localViewStructure sortBy values', () => {
-  const base = { path: 'src' };
+describe('localSearch tree sort values', () => {
+  const base = { operation: 'tree', path: 'src' };
 
   it('accepts only supported sort fields', () => {
     expect(
-      LocalViewStructureQuerySchema.safeParse({ ...base, sortBy: 'time' })
-        .success
+      LocalSearchQuerySchema.safeParse({ ...base, sort: 'time' }).success
     ).toBe(true);
     expect(
-      LocalViewStructureQuerySchema.safeParse({ ...base, sortBy: 'modified' })
-        .success
+      LocalSearchQuerySchema.safeParse({ ...base, sort: 'modified' }).success
     ).toBe(false);
   });
 });

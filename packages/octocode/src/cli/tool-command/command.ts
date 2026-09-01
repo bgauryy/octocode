@@ -8,7 +8,6 @@ export const toolCommand: CLICommand = {
   options: [
     { name: 'queries', hasValue: true },
     { name: 'query', hasValue: true },
-    { name: 'list' },
     { name: 'scheme' },
   ],
   handler: async (args: ParsedArgs) => {

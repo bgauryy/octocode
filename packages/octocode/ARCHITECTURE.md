@@ -13,7 +13,7 @@ formats it for a terminal.
 - `src/index.ts` is the binary entry (`bin: out/octocode.js`). It calls
   `runCLI()`, falls back to top-level help, and owns process signals/exit.
 - `src/cli/index.ts` (`runCLI`) is the dispatcher: parse args → handle global
-  flags (`--help`, `--version`, `--context`, `--no-color`) → route to a command,
+  flags (`--help`, `--version`, `--no-color`) → route to a command,
   the `tools`/`context` surface, or interactive install.
 - Keep dispatch thin. New behavior belongs in a command or feature module, not
   in `runCLI`.
@@ -51,9 +51,10 @@ formats it for a terminal.
 - `build.mjs` bundles `src/index.ts` with esbuild → `out/octocode.js`
   (ESM, minified, code-split, with a CJS-compat banner and a `#!/usr/bin/env node`
   shebang).
-- `@octocodeai/octocode-tools-core` is deliberately bundled into the CLI output.
-  It is a workspace `devDependency`, not a package npm users install.
-- All published runtime `dependencies`, especially
+- A custom source alias resolves `@octocodeai/octocode-tools-core` to workspace
+  source and bundles that code into the CLI output. The package manifest also
+  declares the published tools-core package as a runtime dependency.
+- Other published runtime dependencies, especially
   `@octocodeai/octocode-engine`, `@octocodeai/octocode-core`, and `zod`, stay
   **external** so npm resolves them normally. The native `.node` binary comes
   from the engine package's platform `optionalDependencies`.
@@ -61,9 +62,8 @@ formats it for a terminal.
 
 ## Publish Boundary
 
-`octocode` is published after `@octocodeai/octocode-engine` because the CLI
-declares the engine as a direct runtime dependency. `@octocodeai/octocode-tools-core`
-is absent from the publish order: its code is already inside `out/octocode.js`.
+Publish runtime prerequisites before the CLI: engine platform packages, the
+engine root, config/core/tools-core, and then `octocode`.
 
 ## Rules
 

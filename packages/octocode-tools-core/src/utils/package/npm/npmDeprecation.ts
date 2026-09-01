@@ -86,7 +86,9 @@ export async function searchNpmPackage(
         return {
           error:
             'npm registry circuit open and web search returned no results.',
-          hints: ['Use `ghSearchRepos` to find the source repo directly.'],
+          hints: [
+            'Use ghSearch operation:"repositories" to find the source repository.',
+          ],
         } as NpmSearchError;
       }
 
@@ -133,7 +135,7 @@ export async function searchNpmPackage(
           ...searchResult,
           hints: [
             'npm registry and web search (npms.io) are both unreachable.',
-            'Use `ghSearchRepos` to find the source repo directly by package name or domain terms.',
+            'Use ghSearch operation:"repositories" with the package name or domain terms.',
           ],
         };
       }

@@ -10,7 +10,7 @@ import { prepareDirectToolInput } from '../../../src/tools/directToolCatalog.met
 
 /**
  * The tool description promises: "Empty/incomplete: re-anchor or fall back to
- * localSearchCode." withSemanticNext must emit that structured fallback for
+ * localSearch." withSemanticNext must emit that structured fallback for
  * empty results that carry a symbolName.
  */
 describe('withSemanticNext — empty-state fallback', () => {
@@ -34,19 +34,20 @@ describe('withSemanticNext — empty-state fallback', () => {
     return { query, result };
   };
 
-  it('points a symbolNotFound definition to a schema-valid localSearchCode query', () => {
+  it('points a symbolNotFound definition to a schema-valid localSearch query', () => {
     const { query, result } = symbolNotFound('definition');
     const withNext = withSemanticNext(query, result) as LspSemanticEnvelope;
 
     const textSearch = withNext.next?.textSearch;
-    expect(textSearch?.tool).toBe('localSearchCode');
+    expect(textSearch?.tool).toBe('localSearch');
     expect(textSearch?.query).toMatchObject({
+      operation: 'text',
       path: '/repo/src/foo.ts',
       searchText: 'doThing',
     });
     expect(textSearch?.query.keywords).toBeUndefined();
     expect(() =>
-      prepareDirectToolInput('localSearchCode', textSearch?.query ?? {}, {
+      prepareDirectToolInput('localSearch', textSearch?.query ?? {}, {
         rejectUnknownFields: true,
       })
     ).not.toThrow();
@@ -93,7 +94,7 @@ describe('withSemanticNext — empty-state fallback', () => {
     const withNext = withSemanticNext(query, result) as LspSemanticEnvelope;
     const textSearch = withNext.next?.textSearch;
 
-    expect(textSearch?.tool).toBe('localSearchCode');
+    expect(textSearch?.tool).toBe('localSearch');
     expect(textSearch?.query.path).toBe('/repo/src/Big.js');
     expect(typeof textSearch?.query.searchText).toBe('string');
     expect(textSearch?.query.regex).toBe('perl');
@@ -135,7 +136,7 @@ describe('withSemanticNext — empty-state fallback', () => {
     }
   });
 
-  it('uses the workspace URI for a workspace-symbol fallback', () => {
+  it('uses the explicit workspace root instead of a representative anchor for a workspace-symbol fallback', () => {
     const query = {
       type: 'workspaceSymbol',
       workspaceRoot: '/repo',
@@ -143,7 +144,8 @@ describe('withSemanticNext — empty-state fallback', () => {
     } as LspGetSemanticsQuery;
     const result: LspSemanticEnvelope = {
       type: 'workspaceSymbol',
-      uri: '/repo',
+      uri: '/repo/src/representative.ts',
+      workspaceRoot: '/repo',
       lsp: { serverAvailable: true },
       payload: {
         kind: 'empty',
@@ -193,5 +195,194 @@ describe('withSemanticNext — empty-state fallback', () => {
     const withNext = withSemanticNext(query, result) as LspSemanticEnvelope;
     expect(withNext.next?.readSite?.tool).toBe('localGetFileContent');
     expect(withNext.next?.textSearch).toBeUndefined();
+  });
+
+  it('turns pagination.nextPage into an executable schema-valid continuation', () => {
+    const query = {
+      type: 'documentSymbols',
+      uri: 'file:///repo/src/foo.ts',
+      page: 1,
+      pageSize: 1,
+      format: 'compact',
+      goal: 'auto-filled goal',
+      reasoning: 'auto-filled reasoning',
+    } as LspGetSemanticsQuery & Record<string, unknown>;
+    const result: LspSemanticEnvelope = {
+      type: 'documentSymbols',
+      uri: query.uri!,
+      lsp: { serverAvailable: true },
+      payload: {
+        kind: 'documentSymbols',
+        symbols: [{ name: 'alpha' }],
+      },
+      pagination: {
+        currentPage: 1,
+        totalPages: 2,
+        totalResults: 2,
+        hasMore: true,
+        pageSize: 1,
+        nextPage: 2,
+      },
+    };
+
+    const withNext = withSemanticNext(query, result) as LspSemanticEnvelope;
+    const nextPage = withNext.next?.nextPage;
+    expect(nextPage).toMatchObject({
+      tool: 'lspGetSemantics',
+      query: {
+        type: 'documentSymbols',
+        uri: 'file:///repo/src/foo.ts',
+        page: 2,
+        pageSize: 1,
+        format: 'compact',
+      },
+      confidence: 'exact',
+    });
+    expect(nextPage?.query).not.toHaveProperty('goal');
+    expect(nextPage?.query).not.toHaveProperty('reasoning');
+    expect(() =>
+      prepareDirectToolInput('lspGetSemantics', nextPage?.query ?? {}, {
+        rejectUnknownFields: true,
+      })
+    ).not.toThrow();
+  });
+
+  it('marks page 1000 terminal instead of emitting schema-invalid page 1001', () => {
+    const query = {
+      type: 'documentSymbols',
+      uri: 'file:///repo/src/foo.ts',
+      page: 1_000,
+      pageSize: 1,
+    } as LspGetSemanticsQuery;
+    const result: LspSemanticEnvelope = {
+      type: 'documentSymbols',
+      uri: query.uri!,
+      lsp: { serverAvailable: true },
+      payload: {
+        kind: 'documentSymbols',
+        symbols: [{ name: 'item-999' }],
+      },
+      pagination: {
+        currentPage: 1_000,
+        totalPages: 1_001,
+        totalResults: 1_001,
+        hasMore: true,
+        pageSize: 1,
+        nextPage: 1_001,
+      },
+    };
+
+    const withNext = withSemanticNext(query, result) as LspSemanticEnvelope;
+    expect(withNext.terminalLimit).toBe(true);
+    expect(withNext.pagination).not.toHaveProperty('nextPage');
+    expect(withNext.next?.nextPage).toBeUndefined();
+  });
+
+  it('makes a capped reference warmup partial and provides a workspace search', () => {
+    const query = {
+      type: 'references',
+      uri: 'file:///repo/src/foo.ts',
+      workspaceRoot: '/repo',
+      symbolName: 'doThing',
+      lineHint: 10,
+    } as LspGetSemanticsQuery;
+    const result: LspSemanticEnvelope = {
+      type: 'references',
+      uri: query.uri!,
+      workspaceRoot: '/repo',
+      lsp: { serverAvailable: true },
+      payload: {
+        kind: 'references',
+        locations: [],
+        totalReferences: 0,
+        totalFiles: 0,
+        warmup: {
+          candidates: 100,
+          warmedFiles: 100,
+          skippedLarge: 0,
+          possiblyTruncated: true,
+        },
+      },
+    };
+
+    const withNext = withSemanticNext(query, result) as LspSemanticEnvelope;
+    expect(withNext).toMatchObject({
+      truncated: true,
+      partialReasons: ['warmupCap'],
+      next: {
+        verifyCompleteness: {
+          tool: 'localSearch',
+          query: {
+            operation: 'text',
+            path: '/repo',
+            searchText: 'doThing',
+            wholeWord: true,
+          },
+        },
+      },
+    });
+  });
+
+  it('expands call depth below the schema maximum and terminalizes fixed budgets', () => {
+    const query = {
+      type: 'callers',
+      uri: 'file:///repo/src/foo.ts',
+      symbolName: 'doThing',
+      lineHint: 10,
+      depth: 2,
+    } as LspGetSemanticsQuery;
+    const base: LspSemanticEnvelope = {
+      type: 'callers',
+      uri: query.uri!,
+      lsp: { serverAvailable: true },
+      payload: {
+        kind: 'callers',
+        direction: 'incoming',
+        calls: [],
+        completeness: {
+          complete: false,
+          truncatedByDepth: true,
+          truncatedByBudget: false,
+          cycleCount: 0,
+          failedRequestCount: 0,
+          dynamicCallsExcluded: true,
+        },
+      },
+    };
+
+    const expandable = withSemanticNext(query, base) as LspSemanticEnvelope;
+    expect(expandable).toMatchObject({
+      truncated: true,
+      partialReasons: ['depth'],
+      next: {
+        expandDepth: {
+          tool: 'lspGetSemantics',
+          query: { depth: 4, page: 1 },
+        },
+      },
+    });
+    expect(expandable.terminalLimit).toBeUndefined();
+
+    const terminal = withSemanticNext(
+      { ...query, depth: 20 },
+      {
+        ...base,
+        payload: {
+          ...base.payload,
+          completeness: {
+            ...(
+              base.payload as Extract<
+                LspSemanticEnvelope['payload'],
+                { kind: 'callers' }
+              >
+            ).completeness,
+            truncatedByBudget: true,
+          },
+        },
+      }
+    ) as LspSemanticEnvelope;
+    expect(terminal.terminalLimit).toBe(true);
+    expect(terminal.next?.expandDepth).toBeUndefined();
+    expect(terminal.partialReasons).toEqual(['depth', 'budget']);
   });
 });

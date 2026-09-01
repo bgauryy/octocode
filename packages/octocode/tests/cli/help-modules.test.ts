@@ -20,15 +20,14 @@ describe('main-help', () => {
     const output = stdoutSpy.mock.calls
       .map((c: unknown[]) => String(c[0]))
       .join('');
-    expect(output).toContain('ghSearchCode');
-    expect(output).toContain('Search code contents');
+    expect(output).toContain('ghSearch');
     expect(output).toContain('<AGENT_INSTRUCTIONS>');
-    expect(output).toContain('localSearchCode');
-    expect(output).toContain('Search local files');
+    expect(output).toContain('localSearch');
     expect(output).toContain('lspGetSemantics');
     expect(output).toContain('npmSearch');
     expect(output).not.toContain('[path*');
     expect(output).toContain('install');
+    expect(output).toContain('manage bundled Octocode skills');
     // Command list is derived from core specs, so every command appears —
     // including lsp-server, which the old hardcoded MANAGEMENT block omitted.
     expect(output).toContain('MORE COMMANDS');
@@ -37,7 +36,7 @@ describe('main-help', () => {
     expect(output).toContain('context');
     expect(output).toContain('tools');
     expect(output).toContain('context --full');
-    expect(output).toContain('TOOLS (15 enabled)');
+    expect(output).toContain('TOOLS (10 enabled / 12 cataloged)');
     expect(output).toContain(
       'Copy row-local data.next exactly; advance data.pagination while hasMore. responsePagination is text-only.'
     );
@@ -147,7 +146,34 @@ describe('command-help-specs', () => {
       '--backup-path <path>'
     );
     expect(findStaticCommandHelp('auth')!.usage).toContain('--hostname <host>');
-    expect(findStaticCommandHelp('context')!.usage).toContain('--context');
+    expect(findStaticCommandHelp('context')!.usage).toBe(
+      'context [--full|--minimal] [--json]'
+    );
+    expect(findStaticCommandHelp('context')!.usage).not.toContain('--context');
+    expect(findStaticCommandHelp('context')!.description).not.toContain(
+      'schemas'
+    );
+  });
+
+  it('renders context help without the removed top-level alias', async () => {
+    const stdoutSpy = vi
+      .spyOn(process.stdout, 'write')
+      .mockImplementation(() => true);
+
+    const { findStaticCommandHelp } =
+      await import('../../src/cli/command-help-specs.js');
+    const { showCommandHelp } = await import('../../src/cli/help.js');
+    showCommandHelp(findStaticCommandHelp('context')!);
+
+    const output = stdoutSpy.mock.calls
+      .map((c: unknown[]) => String(c[0]))
+      .join('');
+    expect(output).toContain('context [--full|--minimal] [--json]');
+    expect(output).toContain('--minimal');
+    expect(output).not.toContain('Include every full JSON input schema inline');
+    expect(output).not.toContain('--context');
+
+    stdoutSpy.mockRestore();
   });
 
   it('returns undefined for unknown commands', async () => {

@@ -7,6 +7,10 @@ export {
   FileContentBulkQueryLocalSchema,
 } from './github_fetch_content/scheme.js';
 export {
+  GitHubSearchQuerySchema,
+  GitHubSearchBulkQuerySchema,
+} from './github_search/scheme.js';
+export {
   GitHubCodeSearchQueryLocalSchema,
   GitHubCodeSearchBulkQueryLocalSchema,
 } from './github_search_code/scheme.js';
@@ -15,15 +19,15 @@ export {
   GitHubPullRequestSearchBulkQueryLocalSchema,
 } from './github_search_pull_requests/scheme.js';
 export {
-  SearchPullRequestsLocalSchema,
-  SearchPullRequestsBulkLocalSchema,
-  SearchIssuesLocalSchema,
-  SearchIssuesBulkLocalSchema,
-  SearchCommitsLocalSchema,
-  SearchCommitsBulkLocalSchema,
   ListReleasesLocalSchema,
   ListReleasesBulkLocalSchema,
 } from './github_search_pull_requests/splitSchemes.js';
+export {
+  GitHubSearchHistoryQueryLocalSchema,
+  GitHubSearchHistoryBulkQueryLocalSchema,
+  GitHubGetHistoryItemQueryLocalSchema,
+  GitHubGetHistoryItemBulkQueryLocalSchema,
+} from './github_search_pull_requests/historySchemes.js';
 export {
   SearchDiscussionsLocalSchema,
   SearchDiscussionsBulkLocalSchema,
@@ -60,6 +64,10 @@ export {
   LocalViewStructureQuerySchema,
   LocalViewStructureBulkQuerySchema,
 } from './local_view_structure/scheme.js';
+export {
+  LocalSearchQuerySchema,
+  LocalSearchBulkQuerySchema,
+} from './local_search/scheme.js';
 export {
   BulkLspGetSemanticsQuerySchema,
   LspGetSemanticsQueryDisplaySchema,

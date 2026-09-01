@@ -8,10 +8,14 @@
  */
 import {
   LSP_GET_SEMANTICS_TOOL_NAME,
+  GITHUB_GET_HISTORY_ITEM_TOOL_NAME,
+  GITHUB_SEARCH_HISTORY_TOOL_NAME,
   LOCAL_ANALYZE_GRAPH_TOOL_NAME,
+  LOCAL_SEARCH_TOOL_NAME,
   STATIC_TOOL_NAMES,
 } from '../toolNames.js';
 import { buildOptionalDirectToolCommandPatternQueries } from './toolCommandPatternOptionalQueries.js';
+import { buildUnifiedSearchCommandPatternQueries } from './toolCommandPatternUnifiedSearchQueries.js';
 
 export function buildKnownDirectToolCommandPatternQueries(
   toolName: string
@@ -19,97 +23,42 @@ export function buildKnownDirectToolCommandPatternQueries(
   const optionalPatterns =
     buildOptionalDirectToolCommandPatternQueries(toolName);
   if (optionalPatterns.length > 0) return optionalPatterns;
+  const unifiedPatterns = buildUnifiedSearchCommandPatternQueries(toolName);
+  if (unifiedPatterns.length > 0) return unifiedPatterns;
 
-  if (toolName === STATIC_TOOL_NAMES.GITHUB_PULL_REQUESTS) {
-    // Split tool: PRs only (no `type` field — commits/issues/releases are their
-    // own tools now). List mode uses keywords+filters; detail mode uses prNumber
-    // + content selectors.
+  if (toolName === GITHUB_SEARCH_HISTORY_TOOL_NAME) {
     return [
       {
         label: 'PR search (list)',
         query: {
+          operation: 'pullRequests',
           owner: 'bgauryy',
           repo: 'octocode',
-          keywordsToSearch: ['localSearchCode'],
+          keywords: ['localSearch'],
           concise: true,
-          limit: 5,
+          pageSize: 5,
         },
       },
       {
-        label: 'PR detail (diffs + reviews)',
+        label: 'issue search (list)',
         query: {
-          owner: 'sindresorhus',
-          repo: 'slugify',
-          prNumber: 1,
-          content: {
-            comments: { discussion: true },
-            reviews: true,
-            patches: { mode: 'all' },
-          },
-        },
-      },
-    ];
-  }
-
-  if (toolName === STATIC_TOOL_NAMES.GITHUB_SEARCH_CODE) {
-    return [
-      {
-        label: 'path search',
-        query: {
-          keywords: ['package.json'],
+          operation: 'issues',
           owner: 'bgauryy',
           repo: 'octocode',
-          match: 'path',
-          concise: true,
-          limit: 5,
+          keywords: ['schema'],
+          state: 'open',
+          pageSize: 5,
         },
       },
       {
-        label: 'content search',
+        label: 'commit history',
         query: {
-          keywords: ['localSearchCode'],
+          operation: 'commits',
           owner: 'bgauryy',
           repo: 'octocode',
-          extension: 'ts',
-          limit: 5,
-        },
-      },
-    ];
-  }
-
-  if (toolName === STATIC_TOOL_NAMES.GITHUB_SEARCH_REPOSITORIES) {
-    return [
-      {
-        label: 'repository search',
-        query: {
-          keywords: ['react'],
-          language: 'TypeScript',
-          stars: '>1000',
-          concise: true,
-          limit: 5,
-        },
-      },
-      {
-        label: 'owner repositories',
-        query: {
-          owner: 'bgauryy',
-          concise: true,
-          limit: 5,
-        },
-      },
-    ];
-  }
-
-  if (toolName === STATIC_TOOL_NAMES.GITHUB_VIEW_REPO_STRUCTURE) {
-    return [
-      {
-        label: 'repo tree',
-        query: {
-          owner: 'bgauryy',
-          repo: 'octocode',
-          path: 'packages',
-          maxDepth: 2,
-          itemsPerPage: 50,
+          path: 'packages/octocode-tools-core/src',
+          since: '6m',
+          pageSize: 10,
         },
       },
     ];
@@ -135,22 +84,41 @@ export function buildKnownDirectToolCommandPatternQueries(
     ];
   }
 
-  if (toolName === STATIC_TOOL_NAMES.LOCAL_RIPGREP) {
+  if (toolName === LOCAL_SEARCH_TOOL_NAME) {
     return [
       {
-        label: 'text search',
+        label: 'text anchors',
         query: {
-          path: '/ABS/repo/packages/octocode-tools-core/src',
+          operation: 'text',
+          path: '/ABS/repo/src',
           searchText: 'buildDirectToolCommandPatterns',
           maxFiles: 20,
         },
       },
       {
-        label: 'structural code search',
+        label: 'structural matches',
         query: {
-          path: '/ABS/repo/packages/octocode-tools-core/src/tools',
-          mode: 'structural',
+          operation: 'structural',
+          path: '/ABS/repo/src',
           pattern: 'eval($X)',
+          langType: 'typescript',
+        },
+      },
+      {
+        label: 'file discovery',
+        query: {
+          operation: 'files',
+          path: '/ABS/repo',
+          names: ['package.json'],
+          entryType: 'f',
+        },
+      },
+      {
+        label: 'tree orientation',
+        query: {
+          operation: 'tree',
+          path: '/ABS/repo/src',
+          maxDepth: 2,
         },
       },
     ];
@@ -179,39 +147,6 @@ export function buildKnownDirectToolCommandPatternQueries(
     ];
   }
 
-  if (toolName === STATIC_TOOL_NAMES.LOCAL_FIND_FILES) {
-    return [
-      {
-        label: 'basename globs',
-        query: {
-          path: '/ABS/repo/packages/octocode-tools-core',
-          names: ['scheme.ts', 'package.json'],
-          entryType: 'f',
-          itemsPerPage: 20,
-        },
-      },
-      {
-        label: 'monorepo path glob',
-        query: {
-          path: '/ABS/repo',
-          pathPattern: 'packages/*/src/tools/**',
-          entryType: 'f',
-          itemsPerPage: 20,
-        },
-      },
-      {
-        label: 'prune build dirs',
-        query: {
-          path: '/ABS/repo/packages/octocode-tools-core',
-          names: ['*.js'],
-          entryType: 'f',
-          excludeDir: ['node_modules', 'dist', 'coverage', 'out'],
-          itemsPerPage: 20,
-        },
-      },
-    ];
-  }
-
   if (toolName === LOCAL_ANALYZE_GRAPH_TOOL_NAME) {
     return [
       {
@@ -219,7 +154,7 @@ export function buildKnownDirectToolCommandPatternQueries(
         query: {
           operation: 'deadCode',
           path: '/ABS/repo',
-          itemsPerPage: 20,
+          limit: 20,
         },
       },
       {
@@ -262,29 +197,7 @@ export function buildKnownDirectToolCommandPatternQueries(
         query: {
           operation: 'reachability',
           path: '/ABS/repo',
-          itemsPerPage: 20,
-        },
-      },
-    ];
-  }
-
-  if (toolName === STATIC_TOOL_NAMES.LOCAL_VIEW_STRUCTURE) {
-    return [
-      {
-        label: 'shallow tree',
-        query: {
-          path: '/ABS/repo/packages/octocode-tools-core/src/tools',
-          maxDepth: 2,
-          itemsPerPage: 50,
-        },
-      },
-      {
-        label: 'files only at depth 1',
-        query: {
-          path: '/ABS/repo/packages/octocode-engine/src',
-          maxDepth: 1,
-          entryType: 'f',
-          itemsPerPage: 100,
+          limit: 20,
         },
       },
     ];
@@ -314,21 +227,41 @@ export function buildKnownDirectToolCommandPatternQueries(
     ];
   }
 
-  if (toolName === STATIC_TOOL_NAMES.GITHUB_COMMITS) {
+  if (toolName === GITHUB_GET_HISTORY_ITEM_TOOL_NAME) {
     return [
       {
-        label: 'file history (bounded window)',
+        label: 'pull request detail',
         query: {
+          operation: 'pullRequest',
           owner: 'bgauryy',
           repo: 'octocode',
-          path: 'packages/octocode-tools-core/src/responses.ts',
-          since: '6m',
-          itemsPerPage: 10,
+          number: 1,
+          content: { body: true, patches: { mode: 'all' } },
+        },
+      },
+      {
+        label: 'issue detail',
+        query: {
+          operation: 'issue',
+          owner: 'bgauryy',
+          repo: 'octocode',
+          number: 1,
+          content: { body: true, comments: { discussion: true } },
+        },
+      },
+      {
+        label: 'exact commit',
+        query: {
+          operation: 'commit',
+          owner: 'bgauryy',
+          repo: 'octocode',
+          ref: 'main',
         },
       },
       {
         label: 'compare two refs (base...head)',
         query: {
+          operation: 'compare',
           owner: 'bgauryy',
           repo: 'octocode',
           base: 'main',
@@ -346,7 +279,7 @@ export function buildKnownDirectToolCommandPatternQueries(
       },
       {
         label: 'keyword discovery (paged candidates)',
-        query: { packageName: 'schema validation', page: 1 },
+        query: { keywords: ['schema', 'validation'], page: 1 },
       },
     ];
   }

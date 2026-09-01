@@ -4,18 +4,13 @@ import {
   getServerConfig,
   isLocalEnabled,
   isCloneEnabled,
-  DEFAULT_TOOL_METADATA_GATEWAY,
 } from '@octocodeai/octocode-tools-core';
-import type {
-  ToolInvocationCallback,
-  ToolMetadataGateway,
-} from '@octocodeai/octocode-tools-core';
+import type { ToolInvocationCallback } from '@octocodeai/octocode-tools-core';
 import {
   getToolFilterConfigSafe,
   isToolEnabled,
   validateToolFilterConfig,
 } from './toolFilters.js';
-import { hasValidMetadata } from './metadataPolicy.js';
 import { withOutputSanitization } from '../utils/secureServer.js';
 import {
   registerToolsBatch,
@@ -27,7 +22,6 @@ export async function registerTools(
   callback?: ToolInvocationCallback,
   options: {
     toolLoader?: () => Promise<McpToolConfig[]> | McpToolConfig[];
-    metadataGateway?: Pick<ToolMetadataGateway, 'hasTool'>;
   } = {}
 ): Promise<{
   successCount: number;
@@ -37,9 +31,6 @@ export async function registerTools(
   const localEnabled = isLocalEnabled();
   const cloneEnabled = isCloneEnabled();
   const rawFilterConfig = getToolFilterConfigSafe(getServerConfig);
-  const metadataGateway =
-    options.metadataGateway ?? DEFAULT_TOOL_METADATA_GATEWAY;
-
   const secureServer = withOutputSanitization(server);
   const allTools = await loadTools(options.toolLoader);
   const { config: filterConfig, warnings } = validateToolFilterConfig(
@@ -57,11 +48,7 @@ export async function registerTools(
   const outcomes = await registerToolsBatch(
     enabledTools,
     secureServer,
-    callback,
-    tool =>
-      hasValidMetadata(tool, {
-        hasTool: metadataGateway.hasTool,
-      })
+    callback
   );
 
   return summarizeOutcomes(outcomes);

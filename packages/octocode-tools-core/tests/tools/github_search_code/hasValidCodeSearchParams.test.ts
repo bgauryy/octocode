@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { hasValidCodeSearchParams } from '../../../src/tools/github_search_code/execution.js';
 
-describe('ghSearchCode hasValidCodeSearchParams', () => {
+describe('github.code hasValidCodeSearchParams', () => {
   it('accepts a language-only query (regression: language was omitted from the validity check)', () => {
     expect(hasValidCodeSearchParams({ language: 'rust' })).toBe(true);
   });

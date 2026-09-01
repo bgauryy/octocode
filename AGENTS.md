@@ -56,17 +56,19 @@ External (not in this workspace): `@octocodeai/octocode-core` (sibling `octocode
 
 Full field-level reference: [`docs/OCTOCODE_TOOLS.md`](docs/OCTOCODE_TOOLS.md). Live catalog: `$OCTO tools --json`; read `$OCTO tools <name> --scheme --json --compact` before calling a tool. Compact schemas include `relations` for conditional and mutually exclusive fields.
 
-**Full discovery catalog (17)** — releases and Discussions are opt-in through `ENABLE_RELEASES` and `ENABLE_DISCUSSIONS`; MCP also gates cloning with `ENABLE_CLONE`:
+**Full discovery catalog (12; 10 enabled by default)** — releases and Discussions are opt-in through `ENABLE_RELEASES` and `ENABLE_DISCUSSIONS`; `ENABLE_CLONE=false` disables cloning:
 
 | Family | Tools | Role |
 |---|---|---|
-| GitHub | `ghSearchCode` · `ghGetFileContent` · `ghViewRepoStructure` · `ghSearchRepos` · `ghSearchPullRequests` · `ghSearchIssues` · `ghSearchCommits` · `ghListReleases` · `ghSearchDiscussions` · `ghCloneRepo` | Remote code/path search, file read, tree, repo discovery, PR search, issue search, commit history/compare, releases (`ENABLE_RELEASES`), discussions (`ENABLE_DISCUSSIONS`), clone (`ENABLE_CLONE` on MCP) |
+| GitHub | `ghSearch` · `ghGetFileContent` · `ghSearchHistory` · `ghGetHistoryItem` · `ghListReleases` · `ghSearchDiscussions` · `ghCloneRepo` | Unified code/repository/tree discovery, exact file reads, history search, and exact history reads; releases (`ENABLE_RELEASES`), discussions (`ENABLE_DISCUSSIONS`), and cloning. |
 | Package | `npmSearch` | npm package lookup + source repo |
-| Local | `localSearchCode` · `localViewStructure` · `localFindFiles` · `localGetFileContent` | Text (text/regex/AST), tree, find-by-meta, file read (`ENABLE_LOCAL=false` disables the family) |
+| Local | `localSearch` · `localGetFileContent` | Unified text/regex/AST, path-metadata, and tree discovery; exact/minified file read. `ENABLE_LOCAL=false` disables the family. |
 | Graph | `localAnalyzeGraph` | Bounded file-graph operations: dependencies, dependents, shortest path, cycles/SCCs, reachability, and dead-code candidates |
 | LSP | `lspGetSemantics` | definition, references, callers/callees, symbols, types, diagnostics, … |
 
 Evidence: search and `localAnalyzeGraph` import edges are **candidates**, not symbol proof — use graph operations for repository file topology, then confirm identity/usage with `lspGetSemantics` (`references`/`callers`) before a delete claim. Do not treat search relevance ranking as proof.
+
+Lossless pagination: never silently truncate or drop reachable results. Any search, list, or read that reaches a bound must expose typed partial state and a schema-valid executable `next.*` continuation; when continuation is impossible, return an explicit typed terminal-limit diagnostic. A numeric page/cursor without a runnable tool call is incomplete. Tests must execute continuations and prove that the union of pages covers the full fixture.
 
 ## Build and local run
 
@@ -77,7 +79,7 @@ yarn build:native:all · yarn platforms:check
 yarn deps:dedupe · yarn deps:dedupe:fix
 ```
 
-Coverage target 90% (Vitest + v8). Rust: `yarn workspace @octocodeai/octocode-engine test:rust`.
+Vitest coverage floors are package-specific ratchets in each `vitest.config.*`; do not lower them. Raise a floor when coverage improves. Rust: `yarn workspace @octocodeai/octocode-engine test:rust`.
 
 Local end-to-end (when changing engine, tools-core, or CLI):
 
@@ -89,7 +91,7 @@ OCTO='node packages/octocode/out/octocode.js'
 $OCTO --help
 $OCTO context --compact
 $OCTO tools --json
-$OCTO tools localSearchCode lspGetSemantics --scheme
+$OCTO tools localSearch lspGetSemantics --scheme
 ```
 
 Prefer `node packages/octocode/out/octocode.js` over global `octocode` / npx when validating monorepo changes. After engine or tools-core edits: rebuild the package, then `yarn workspace octocode build:dev`. `build:dev` skips clean + lint; engine uses debug (not `--release`).
@@ -117,26 +119,22 @@ Adds the internal packages and octocode-engine platform packages to the `resolut
 
 Script: [`scripts/dev-setup.mjs`](scripts/dev-setup.mjs). Idempotent — safe to re-run.
 
-### `scripts/prepublish.mjs` — publish prep: remove resolutions + align versions
+### `scripts/prepublish.mjs` — publish prep: remove local resolutions
 
 Runs automatically as part of `yarn prepublish`, followed by the shared final guard at `packages/octocode/scripts/check-no-workspace-protocol.mjs` and `readme:sync`. Also callable directly:
 
 ```bash
 node ./scripts/prepublish.mjs             # check only — exit 1 if issues found
-node ./scripts/prepublish.mjs --fix       # remove workspace:* resolutions + align package/dependency versions
-node ./scripts/prepublish.mjs --dry-run   # preview fixes without writing
+node ./scripts/prepublish.mjs --fix       # remove local workspace resolutions
+node ./scripts/prepublish.mjs --dry-run   # preview resolution fixes without writing
 ```
 
-Three checks:
-
-1. **Resolutions** — root `package.json` must not have `workspace:*` for managed packages. Yarn rewrites these during publish and can produce wrong pinned versions in tarballs.
-2. **Publish package versions** — publishable Octocode package versions and engine platform package versions must match the root `package.json` version.
-3. **Dependency alignment** — every workspace package that pins a managed package (non-`workspace:*`) must match the package's current `version` in the repo (written as `^<version>` or exact). Packages not in this workspace (e.g. `@octocodeai/octocode-core`) are skipped.
+The script checks that root `package.json` does not retain local protocols such as `workspace:*` for managed packages. Packages in this monorepo version independently; engine-specific scripts own engine platform-package version consistency. The shared per-package publish guard separately rejects local dependency protocols from publishable manifests.
 
 **Typical flow before publishing any package:**
 
 ```bash
-node ./scripts/prepublish.mjs --fix   # remove dev resolutions + align versions
+node ./scripts/prepublish.mjs --fix   # remove local dev resolutions
 yarn install                          # update lockfile
 yarn prepublish                       # runs prepublish + shared final guard + readme sync
 ```

@@ -16,7 +16,7 @@ function runFinalizerWithQueries(queries: AnyRec[], results: AnyRec[]) {
 
 const MANY_KEYWORDS = Array.from({ length: 12 }, (_, i) => `term${i}`);
 
-describe('ghSearchCode finalizer — overly-long query zero-result honesty', () => {
+describe('github.code finalizer — overly-long query zero-result honesty', () => {
   it('surfaces a typed diagnostic and bounded retry for a complex empty query', () => {
     const sc = runFinalizerWithQueries(
       [{ keywords: MANY_KEYWORDS }],
@@ -37,7 +37,7 @@ describe('ghSearchCode finalizer — overly-long query zero-result honesty', () 
         data: {
           next: {
             retryNarrow: {
-              tool: 'ghSearchCode',
+              tool: 'github.code',
               query: { keywords: MANY_KEYWORDS.slice(0, 8) },
             },
           },

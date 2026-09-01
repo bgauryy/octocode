@@ -19,7 +19,7 @@ export function commonDirPrefix(paths: readonly string[]): string {
 const PATH_LIKE_KEYS = ['path', 'uri', 'absolutePath'] as const;
 
 // Preserve absolute paths inside these top-level keys so agents can pass them
-// directly to local tool calls (localSearchCode, localViewStructure, etc.).
+// directly to local tool calls.
 const SKIP_TRAVERSAL_KEYS = new Set(['next', 'location']);
 
 function collectPathHolders(
@@ -173,7 +173,7 @@ const HOIST_EXCLUDED_KEYS = new Set<string>([
   'repo',
   'name',
   'id',
-  // 'type' is REQUIRED by some tool output schemas (e.g. localViewStructure's
+  // 'type' is required by some tree output schemas:
   // entries[].type) — hoisting it out of a homogeneous entry list (all-files
   // dir, filesOnly/directoriesOnly) made structuredContent fail MCP output
   // validation and killed the whole batch with -32602.
@@ -187,6 +187,8 @@ const HOIST_EXCLUDED_KEYS = new Set<string>([
   // and an undocumented envelope key. Keep them per-row.
   'kind',
   'reason',
+  // Partial state must stay on its row for final diagnostic reconciliation.
+  'isPartial',
 ]);
 
 export function hoistSharedFields(

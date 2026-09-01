@@ -127,7 +127,7 @@ async function searchGitHubCodeAPIInternal(
 
     const reportedTotalMatches = optimizedResult.total_count;
     const totalMatches = Math.min(reportedTotalMatches, 1000);
-    const totalPages = Math.min(Math.ceil(totalMatches / perPage), 10);
+    const totalPages = Math.ceil(totalMatches / perPage);
     const clampedPage = Math.min(currentPage, Math.max(1, totalPages));
     const hasMore = clampedPage < totalPages;
     const reachableTotalMatches = Math.min(totalMatches, totalPages * perPage);

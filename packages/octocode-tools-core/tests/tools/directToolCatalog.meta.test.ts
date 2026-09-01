@@ -5,10 +5,27 @@ import {
   DirectToolInputError,
   getDirectToolDisplayFields,
   getDirectToolSchemaRelations,
+  getDirectToolSchemaVariants,
+  getDirectToolVariantDisplayFields,
   prepareDirectToolInput,
 } from '../../src/tools/directToolCatalog.meta.js';
 
 describe('prepareDirectToolInput', () => {
+  const publicToolNames = [
+    'ghSearch',
+    'ghSearchHistory',
+    'ghGetHistoryItem',
+    'ghGetFileContent',
+    'ghCloneRepo',
+    'ghSearchDiscussions',
+    'ghListReleases',
+    'localSearch',
+    'localAnalyzeGraph',
+    'localGetFileContent',
+    'lspGetSemantics',
+    'npmSearch',
+  ];
+
   it('publishes conditional field relations that flattened schemas cannot express', () => {
     expect(getDirectToolSchemaRelations('localAnalyzeGraph')).toEqual(
       expect.arrayContaining([
@@ -22,10 +39,10 @@ describe('prepareDirectToolInput', () => {
         expect.stringContaining('definition | references'),
       ])
     );
-    expect(getDirectToolSchemaRelations('ghSearchIssues')).toEqual(
+    expect(getDirectToolSchemaRelations('ghGetHistoryItem')).toEqual(
       expect.arrayContaining([
-        expect.stringContaining('issueNumber'),
-        expect.stringContaining('list mode'),
+        expect.stringContaining('number'),
+        expect.stringContaining('base+head'),
       ])
     );
   });
@@ -44,17 +61,26 @@ describe('prepareDirectToolInput', () => {
       true
     );
 
-    const issues = buildDirectToolCommandPatterns('ghSearchIssues');
-    expect(issues).toHaveLength(2);
-    expect(issues[0]?.query.issueNumber).toBeUndefined();
-    expect(issues[1]?.query.issueNumber).toBeTypeOf('number');
+    const history = buildDirectToolCommandPatterns('ghSearchHistory');
+    expect(history.map(pattern => pattern.query.operation)).toEqual([
+      'pullRequests',
+      'issues',
+      'commits',
+    ]);
+    const items = buildDirectToolCommandPatterns('ghGetHistoryItem');
+    expect(items.map(pattern => pattern.query.operation)).toEqual([
+      'pullRequest',
+      'issue',
+      'commit',
+      'compare',
+    ]);
 
     const discussions = buildDirectToolCommandPatterns('ghSearchDiscussions');
     expect(discussions.length).toBeGreaterThan(0);
     expect(discussions[0]?.query).toMatchObject({
       owner: 'vitejs',
       repo: 'vite',
-      keywordsToSearch: ['plugin'],
+      keywords: ['plugin'],
     });
     expect(
       discussions.every(pattern => pattern.query.after === undefined)
@@ -62,26 +88,7 @@ describe('prepareDirectToolInput', () => {
   });
 
   it('keeps every published command pattern inside its strict tool schema', () => {
-    const toolNames = [
-      'ghSearchCode',
-      'ghSearchRepos',
-      'ghSearchPullRequests',
-      'ghSearchIssues',
-      'ghSearchCommits',
-      'ghGetFileContent',
-      'ghViewRepoStructure',
-      'ghCloneRepo',
-      'ghSearchDiscussions',
-      'ghListReleases',
-      'localSearchCode',
-      'localFindFiles',
-      'localAnalyzeGraph',
-      'localGetFileContent',
-      'localViewStructure',
-      'lspGetSemantics',
-      'npmSearch',
-    ];
-    for (const toolName of toolNames) {
+    for (const toolName of publicToolNames) {
       for (const pattern of buildDirectToolCommandPatterns(toolName)) {
         expect(() =>
           prepareDirectToolInput(toolName, pattern.query, {
@@ -92,13 +99,29 @@ describe('prepareDirectToolInput', () => {
     }
   });
 
+  it('keeps every compact variant example constructable and its requirements honest', () => {
+    for (const toolName of publicToolNames) {
+      for (const variant of getDirectToolSchemaVariants(toolName)) {
+        for (const required of variant.requires) {
+          expect(
+            variant.example,
+            `${toolName}.${variant.name}.${required}`
+          ).toHaveProperty(required);
+        }
+        expect(() =>
+          prepareDirectToolInput(toolName, variant.example, {
+            rejectUnknownFields: true,
+          })
+        ).not.toThrow();
+      }
+    }
+  });
+
   it('uses unmistakably absolute placeholders in every local command pattern', () => {
     for (const toolName of [
-      'localSearchCode',
-      'localFindFiles',
+      'localSearch',
       'localAnalyzeGraph',
       'localGetFileContent',
-      'localViewStructure',
       'lspGetSemantics',
     ]) {
       for (const pattern of buildDirectToolCommandPatterns(toolName)) {
@@ -119,82 +142,156 @@ describe('prepareDirectToolInput', () => {
     expect(byName.get('target')?.required).toBe(false);
   });
 
+  it('preserves both ghSearch match shapes and uses a neutral operation description', () => {
+    const fields = getDirectToolDisplayFields('ghSearch');
+    const byName = new Map(fields.map(field => [field.name, field]));
+
+    expect(byName.get('match')?.type).toBe(
+      'enum(file, path) | array<enum(name, description, readme)>'
+    );
+    expect(byName.get('operation')).toMatchObject({
+      required: true,
+      type: 'enum(code, repositories, tree)',
+      description: 'Required operation selector.',
+    });
+  });
+
+  it('publishes actual ghSearch branch requirements', () => {
+    const variants = new Map(
+      getDirectToolSchemaVariants('ghSearch').map(variant => [
+        variant.name,
+        variant,
+      ])
+    );
+    expect(variants.get('code')?.requires).toEqual(['operation']);
+    expect(variants.get('code')?.excludes).toEqual(['branch']);
+    expect(variants.get('repositories')?.requires).toEqual(['operation']);
+    expect(variants.get('tree')?.requires).toEqual([
+      'operation',
+      'owner',
+      'repo',
+    ]);
+    expect(variants.get('code')?.fields).toEqual([
+      'keywords',
+      'owner',
+      'repo',
+      'extension',
+      'filename',
+      'path',
+      'language',
+      'match',
+      'page',
+      'concise',
+      'pageSize',
+    ]);
+    expect(variants.get('tree')?.fields).toEqual([
+      'owner',
+      'repo',
+      'branch',
+      'path',
+      'maxDepth',
+      'page',
+      'include',
+      'pageSize',
+    ]);
+  });
+
+  it('keeps workspaceSymbol root optional in compact introspection', () => {
+    const workspace = getDirectToolSchemaVariants('lspGetSemantics').find(
+      variant => variant.name === 'workspace'
+    );
+
+    expect(workspace?.requires).toEqual(['type', 'symbolName']);
+  });
+
+  it('derives localSearch operation fields from the executable schema', () => {
+    const variants = new Map(
+      getDirectToolSchemaVariants('localSearch').map(variant => [
+        variant.name,
+        variant.fields,
+      ])
+    );
+
+    expect(variants.get('text')).toContain('searchText');
+    expect(variants.get('text')).not.toContain('pattern');
+    expect(variants.get('structural')).toContain('pattern');
+    expect(variants.get('structural')).not.toContain('searchText');
+    expect(variants.get('files')).toContain('pathRegex');
+    expect(variants.get('files')).not.toContain('namePattern');
+    expect(variants.get('tree')).toContain('namePattern');
+    expect(variants.get('tree')).not.toContain('pathRegex');
+  });
+
+  it('keeps alternative requirements and branch-specific limits honest', () => {
+    const variants = new Map(
+      getDirectToolSchemaVariants('localSearch').map(variant => [
+        variant.name,
+        variant,
+      ])
+    );
+    expect(variants.get('structural')?.requires).toEqual(['operation', 'path']);
+    expect(variants.get('structural')?.fields).toEqual(
+      expect.arrayContaining(['pattern', 'rule'])
+    );
+
+    const fields = getDirectToolVariantDisplayFields('localSearch');
+    expect(fields.text?.find(field => field.name === 'pageSize')).toMatchObject(
+      {
+        constraints: '1-1000',
+      }
+    );
+    expect(
+      fields.files?.find(field => field.name === 'pageSize')
+    ).toMatchObject({
+      constraints: '1-50',
+    });
+  });
+
+  it('describes PR search as filter-driven and repository-optional', () => {
+    const list = getDirectToolSchemaVariants('ghSearchHistory').find(
+      variant => variant.name === 'pullRequests'
+    );
+    expect(list?.requires).toEqual(['operation']);
+    expect(getDirectToolSchemaRelations('ghSearchHistory')).toContain(
+      'issues and commits require owner+repo; pullRequests may search globally.'
+    );
+  });
+
+  it('publishes exact ghSearch field scopes', () => {
+    expect(getDirectToolSchemaRelations('ghSearch')).toEqual([
+      'Use only fields listed for the selected operation.',
+      'code and repositories need at least one search term or scope filter.',
+      'match: code=file|path; repositories=name|description|readme.',
+      "code cannot select branch; it searches GitHub's indexed default branch.",
+    ]);
+  });
+
   it('rejects unknown query fields when strict mode is enabled', () => {
     expect(() =>
       prepareDirectToolInput(
-        'localSearchCode',
-        { path: '.', keywords: 'runCLI', typo: true },
+        'localSearch',
+        { operation: 'text', path: '.', searchText: 'runCLI', typo: true },
         { rejectUnknownFields: true }
       )
     ).toThrow(DirectToolInputError);
 
     expect(() =>
       prepareDirectToolInput(
-        'localSearchCode',
-        { path: '.', keywords: 'runCLI', typo: true },
+        'localSearch',
+        { operation: 'text', path: '.', searchText: 'runCLI', typo: true },
         { rejectUnknownFields: true }
       )
     ).toThrow('Unknown field(s): typo');
   });
 
-  it('folds well-known cross-tool field renames to the canonical field (no error)', () => {
-    const cases: Array<{
-      tool: string;
-      query: Record<string, unknown>;
-      canonical: string;
-      alias: string;
-    }> = [
-      {
-        tool: 'ghSearchCode',
-        query: { keywordsToSearch: ['x'], owner: 'o', repo: 'r' },
-        alias: 'keywordsToSearch',
-        canonical: 'keywords',
-      },
-      {
-        tool: 'ghSearchRepos',
-        query: { keywordsToSearch: ['octocode'], concise: true, limit: 3 },
-        alias: 'keywordsToSearch',
-        canonical: 'keywords',
-      },
-      {
-        tool: 'ghViewRepoStructure',
-        query: { owner: 'o', repo: 'r', path: '', depth: 1 },
-        alias: 'depth',
-        canonical: 'maxDepth',
-      },
-      {
-        tool: 'npmSearch',
-        query: { name: 'zod' },
-        alias: 'name',
-        canonical: 'packageName',
-      },
-      {
-        tool: 'lspGetSemantics',
-        query: { path: '/tmp/x.ts', line: 12, op: 'references' },
-        alias: 'line',
-        canonical: 'lineHint',
-      },
-    ];
-    for (const { tool, query, alias, canonical } of cases) {
-      const prepared = prepareDirectToolInput(tool, query, {
-        rejectUnknownFields: true,
-      }) as { queries: Array<Record<string, unknown>> };
-      const first = prepared.queries[0]!;
-      expect(first[canonical], `${tool}.${canonical}`).toEqual(
-        query[alias as keyof typeof query]
-      );
-      expect(first[alias], `${tool}.${alias} removed`).toBeUndefined();
-    }
-  });
-
   it('still suggests the closest field for real typos, but not for short unknowns', () => {
     try {
       prepareDirectToolInput(
-        'ghSearchCode',
-        { keywordz: ['x'], owner: 'o', repo: 'r' },
+        'ghSearch',
+        { operation: 'code', keywordz: ['x'], owner: 'o', repo: 'r' },
         { rejectUnknownFields: true }
       );
-      expect.unreachable('expected ghSearchCode to reject unknown fields');
+      expect.unreachable('expected ghSearch to reject unknown fields');
     } catch (error) {
       expect(error).toBeInstanceOf(DirectToolInputError);
       const details = (error as DirectToolInputError & { details?: string[] })
@@ -205,11 +302,11 @@ describe('prepareDirectToolInput', () => {
     // 2-char unknowns must not get fuzzy false friends ('xq' ≈ 'id' etc.).
     try {
       prepareDirectToolInput(
-        'ghSearchCode',
-        { xq: 1, owner: 'o', repo: 'r' },
+        'ghSearch',
+        { operation: 'code', xq: 1, owner: 'o', repo: 'r' },
         { rejectUnknownFields: true }
       );
-      expect.unreachable('expected ghSearchCode to reject unknown fields');
+      expect.unreachable('expected ghSearch to reject unknown fields');
     } catch (error) {
       const details = (error as DirectToolInputError & { details?: string[] })
         .details;
@@ -217,10 +314,15 @@ describe('prepareDirectToolInput', () => {
     }
   });
 
-  it('keeps ghSearchRepos canonical keywords (does not rewrite to keywordsToSearch)', () => {
+  it('keeps ghSearch repository keywords canonical', () => {
     const prepared = prepareDirectToolInput(
-      'ghSearchRepos',
-      { keywords: ['octocode'], concise: true, limit: 3 },
+      'ghSearch',
+      {
+        operation: 'repositories',
+        keywords: ['octocode'],
+        concise: true,
+        pageSize: 3,
+      },
       { rejectUnknownFields: true }
     ) as { queries: Array<Record<string, unknown>> };
     const first = prepared.queries[0]!;

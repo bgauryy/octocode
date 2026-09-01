@@ -89,13 +89,11 @@ export function handleCatchError(
   contextMessage?: string,
   toolName?: string
 ): ToolErrorResult {
-  const errorMessage =
-    error instanceof Error ? error.message : 'Unknown error occurred';
-  const fullErrorMessage = contextMessage
-    ? `${contextMessage}: ${errorMessage}`
-    : errorMessage;
-
-  return createErrorResult(fullErrorMessage, query, {
+  const result = createErrorResult(error, query, {
     toolName,
   }) as ToolErrorResult;
+  if (contextMessage && typeof result.error === 'string') {
+    result.error = `${contextMessage}: ${result.error}`;
+  }
+  return result;
 }

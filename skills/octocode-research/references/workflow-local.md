@@ -4,12 +4,12 @@ Use when the running repo, local checkout, or installed dependency is source of 
 Read `references/algorithm.md` first; read `references/octocode.md` only when tool or CLI syntax is unclear.
 
 ```text
-localViewStructure / localFindFiles
--> localSearchCode for terms, identifiers, or changed anchors
+localSearch tree / files
+-> localSearch text for terms, identifiers, or changed anchors
 -> localGetFileContent(symbols or matchString)
 -> localAnalyzeGraph for file topology when the question is dependencies, dependents, paths, cycles, reachability, or dead code
 -> lspGetSemantics for symbol identity: definition, references, callers, callees, hover
--> localSearchCode structural for code shape
+-> localSearch structural for code shape
 ```
 
 | Question | Graph operation and required fields | Proof upgrade |

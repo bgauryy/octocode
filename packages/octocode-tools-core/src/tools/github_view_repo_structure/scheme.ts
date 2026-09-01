@@ -38,7 +38,7 @@ export const GitHubViewRepoStructureBulkQueryLocalSchema =
   );
 
 // ---------------------------------------------------------------------------
-// Output TYPES — describes what ghViewRepoStructure returns. No zod: the MCP
+// Output TYPES — describes what the GitHub tree operation returns. No zod: the MCP
 // server registers no outputSchema. The upstream octocode-core output schema
 // described a different envelope (data.entries[]) than this tool actually emits
 // (results[].data.structure[]); this declares the real local envelope. Index

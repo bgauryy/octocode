@@ -12,14 +12,12 @@ const __dirname = dirname(__filename);
 const pkg = JSON.parse(readFileSync('./package.json', 'utf-8'));
 const nodeExternals = [
   ...builtinModules,
-  ...builtinModules.map((m) => `node:${m}`),
+  ...builtinModules.map(m => `node:${m}`),
 ];
 
-// Every runtime `dependency` MUST stay external — never inlined into the bundle.
-// @octocodeai/octocode-tools-core is deliberately NOT a runtime dependency: it
-// is a build-time (dev) dependency that esbuild INLINES into out/octocode.js, so
-// it is never published to npm. Its own runtime deps (engine native addon, core,
-// octokit, …) stay external and are declared in this package's `dependencies`.
+// Declared runtime dependencies stay external by default. The source-alias plugin
+// below resolves tools-core imports to workspace source and bundles that code into
+// the CLI; its transitive native and shared-core dependencies remain external.
 const runtimeExternals = Object.keys(pkg.dependencies ?? {});
 
 // Subpath-export wildcards for the externalized packages tools-core pulls in
@@ -36,7 +34,11 @@ const transitiveExternals = [
   'zod',
 ];
 
-const external = [...nodeExternals, ...runtimeExternals, ...transitiveExternals];
+const external = [
+  ...nodeExternals,
+  ...runtimeExternals,
+  ...transitiveExternals,
+];
 
 // @octocodeai/octocode-tools-core is inlined from SOURCE, not from its published
 // dist/. Resolving every specifier (base + subpaths) to the src entry files means
@@ -56,7 +58,7 @@ const TOOLS_CORE = toolsCorePkg.name;
 
 // dist outfile ('dist/direct.js') -> src entry ('src/direct.ts'), per tools-core's build.
 const distOutfileToSrcEntry = new Map(
-  toolsCoreEntryPoints.map((entry) => {
+  toolsCoreEntryPoints.map(entry => {
     const srcEntry = Array.isArray(entry.entryPoints)
       ? entry.entryPoints[0]
       : entry.entryPoints;
@@ -69,7 +71,9 @@ const toolsCoreSpecifierToSrc = new Map();
 for (const [subpath, target] of Object.entries(toolsCorePkg.exports ?? {})) {
   const importTarget = typeof target === 'string' ? target : target?.import;
   if (!importTarget) continue;
-  const srcEntry = distOutfileToSrcEntry.get(importTarget.replace(/^\.?\//, ''));
+  const srcEntry = distOutfileToSrcEntry.get(
+    importTarget.replace(/^\.?\//, '')
+  );
   if (!srcEntry) continue;
   const specifier =
     subpath === '.'
@@ -82,7 +86,7 @@ const inlineToolsCoreFromSource = {
   name: 'inline-tools-core-from-source',
   setup(build) {
     const filter = /^@octocodeai\/octocode-tools-core(\/.*)?$/;
-    build.onResolve({ filter }, (args) => {
+    build.onResolve({ filter }, args => {
       const target = toolsCoreSpecifierToSrc.get(args.path);
       if (!target) {
         return {
@@ -116,7 +120,9 @@ if (existsSync(monorepoSkillsDir)) {
   cpSync(monorepoSkillsDir, packageSkillsDir, { recursive: true });
   console.log('✓ skills synced → skills/');
 } else {
-  console.warn(`⚠ skills directory not found at ${monorepoSkillsDir}; bundled skill commands will list no skills`);
+  console.warn(
+    `⚠ skills directory not found at ${monorepoSkillsDir}; bundled skill commands will list no skills`
+  );
 }
 
 await esbuild.build({

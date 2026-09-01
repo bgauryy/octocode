@@ -60,6 +60,8 @@ export interface ProcessedBulkResult {
 export interface FlatQueryResult {
   /** Zero-based position of the originating query in the submitted batch. */
   index: number;
+  /** Present only when this query's response was served from cache. */
+  cache?: 1;
   status?: QueryStatus;
   meta: ToolResultMeta;
   data: Record<string, unknown>;

@@ -1,5 +1,5 @@
 import type { AuthInfo } from '@modelcontextprotocol/server';
-import { TOOL_NAMES } from '../../toolMetadata/proxies.js';
+import { GITHUB_SEARCH_HISTORY_TOOL_NAME } from '../../toolNames.js';
 import { createSuccessResult, createErrorResult } from '../../utils.js';
 import { fetchIssues } from '../../../github/issues.js';
 import { isGitHubAPIError } from '../../../github/githubAPI.js';
@@ -13,14 +13,15 @@ import type {
 export async function handleIssuesMode(
   query: GitHubPullRequestSearchInput,
   parsedData: GitHubPullRequestSearchQuery | undefined,
-  authInfo: AuthInfo | undefined
+  authInfo: AuthInfo | undefined,
+  toolName = GITHUB_SEARCH_HISTORY_TOOL_NAME
 ): Promise<ProcessedBulkResult> {
   const q = parsedData as {
     owner?: string;
     repo?: string;
     issueNumber?: number;
     prNumber?: number;
-    keywordsToSearch?: string[];
+    keywords?: string[];
     query?: string;
     state?: 'open' | 'closed' | 'merged';
     author?: string;
@@ -40,7 +41,7 @@ export async function handleIssuesMode(
     archived?: boolean;
     sort?: 'created' | 'updated' | 'best-match' | 'comments' | 'reactions';
     order?: 'asc' | 'desc';
-    limit?: number;
+    pageSize?: number;
     page?: number;
     concise?: boolean;
     content?: {
@@ -50,7 +51,6 @@ export async function handleIssuesMode(
     charOffset?: number;
     charLength?: number;
     commentPage?: number;
-    itemsPerPage?: number;
   };
   if (!q.owner || !q.repo) {
     return createErrorResult(
@@ -64,7 +64,7 @@ export async function handleIssuesMode(
       owner: q.owner,
       repo: q.repo,
       ...(issueNumber != null ? { issueNumber } : {}),
-      keywordsToSearch: q.keywordsToSearch,
+      keywordsToSearch: q.keywords,
       query: q.query,
       state: q.state,
       author: q.author,
@@ -84,21 +84,53 @@ export async function handleIssuesMode(
       archived: q.archived,
       sort: q.sort,
       order: q.order,
-      limit: q.limit,
+      limit: q.pageSize,
       page: Number(q.page) || 1,
       concise: q.concise,
       content: q.content,
       charOffset: q.charOffset,
       charLength: q.charLength,
       commentPage: q.commentPage,
-      itemsPerPage: q.itemsPerPage,
+      itemsPerPage: q.pageSize,
     },
     authInfo
   );
   if (isGitHubAPIError(result)) {
     return createErrorResult(result, query, {
-      toolName: TOOL_NAMES.GITHUB_ISSUES,
+      toolName,
     });
+  }
+  if (issueNumber != null && Array.isArray(result.data.issues)) {
+    const row = result.data.issues[0];
+    if (row && typeof row === 'object' && row.contentPagination) {
+      const pagination = row.contentPagination as Record<
+        string,
+        Record<string, unknown>
+      >;
+      const baseQuery = {
+        operation: 'issue',
+        owner: q.owner,
+        repo: q.repo,
+        number: issueNumber,
+        content: q.content,
+        ...(q.commentPage === undefined ? {} : { commentPage: q.commentPage }),
+        ...(q.charLength === undefined ? {} : { charLength: q.charLength }),
+      };
+      const body = pagination.body;
+      if (typeof body?.nextCharOffset === 'number') {
+        body.nextQuery = {
+          ...baseQuery,
+          charOffset: body.nextCharOffset,
+        };
+      }
+      const comments = pagination.comments;
+      if (typeof comments?.nextCommentPage === 'number') {
+        comments.nextQuery = {
+          ...baseQuery,
+          commentPage: comments.nextCommentPage,
+        };
+      }
+    }
   }
   const hasContent = Array.isArray(result.data.issues)
     ? result.data.issues.length > 0
@@ -133,20 +165,22 @@ export async function handleIssuesMode(
   const next: Record<string, unknown> = {};
   if (issueNumber == null && firstIssueNumber != null) {
     next.readIssue = {
-      tool: 'ghSearchIssues',
+      tool: 'ghGetHistoryItem',
       query: {
+        operation: 'issue',
         owner: q.owner,
         repo: q.repo,
-        issueNumber: firstIssueNumber,
+        number: firstIssueNumber,
         content: { body: true },
       },
       why: `Read issue #${firstIssueNumber} body/discussion from this list`,
       confidence: 'low',
     };
   }
-  next.searchCode = {
-    tool: 'ghSearchCode',
+  next.searchRepositoryCode = {
+    tool: 'ghSearch',
     query: {
+      operation: 'code',
       owner: q.owner,
       repo: q.repo,
     },
@@ -162,7 +196,7 @@ export async function handleIssuesMode(
       next,
     },
     hasContent,
-    TOOL_NAMES.GITHUB_ISSUES,
+    toolName,
     { rawResponse: result.rawResponseChars }
   );
 }

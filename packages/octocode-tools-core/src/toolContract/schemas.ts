@@ -1,5 +1,2 @@
-/**
- * Compatibility barrel for tools-core consumers. The executable schemas and
- * their prose descriptions are authored by @octocodeai/octocode-core.
- */
+/** Compatibility barrel for executable input schemas owned upstream. */
 export * from '@octocodeai/octocode-core/schemas';

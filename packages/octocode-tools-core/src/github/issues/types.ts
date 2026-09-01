@@ -34,6 +34,11 @@ export type IssueRow = {
       totalComments: number;
       hasMore: boolean;
       nextCommentPage?: number;
+      terminalLimit?: boolean;
+      continuationUnavailable?: {
+        reason: 'schemaPageLimit';
+        maxPage: number;
+      };
     };
   };
 };

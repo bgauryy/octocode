@@ -31,6 +31,7 @@ type DirectToolRuntimeDefinition = DirectToolDefinition & {
   execute: (input: DirectToolInput) => Promise<CallToolResult>;
   security: ToolConfig['direct']['security'];
   isLocal: boolean;
+  isDefault: boolean;
   isClone?: boolean;
   requiresServerRuntime?: boolean;
   requiresProviders?: boolean;
@@ -82,11 +83,14 @@ function createDirectTool(tool: ToolConfig): DirectToolRuntimeDefinition {
   const { direct } = tool;
   return {
     name: tool.name,
+    title: tool.title,
+    description: tool.description,
     schema: direct.schema,
     inputSchema: direct.inputSchema,
     execute: wrapExecution(direct.executionFn),
     security: direct.security,
     isLocal: tool.isLocal,
+    isDefault: tool.isDefault,
     isClone: tool.isClone,
     requiresServerRuntime: direct.requiresServerRuntime,
     requiresProviders: direct.requiresProviders,
@@ -117,8 +121,8 @@ export async function executeDirectTool(
   // clients shared by concurrent LSP tool invocations in MCP server mode.
   try {
     const parsedInput = parseDirectToolInput(tool, input);
-    await ensureDirectToolRuntimeReady(tool);
     assertDirectToolEnabled(tool);
+    await ensureDirectToolRuntimeReady(tool);
     return await runDirectTool(tool, parsedInput);
   } catch (error) {
     // Input parsing and runtime readiness can throw; convert to the same
@@ -181,11 +185,34 @@ async function ensureDirectToolRuntimeReady(
 }
 
 function assertDirectToolEnabled(tool: DirectToolRuntimeDefinition): void {
-  if (!tool.isLocal && !tool.isClone) {
+  if (!tool.isLocal && !tool.isClone && tool.isDefault) {
     return;
   }
 
   const config = getConfigSync();
+  const enabledTools = config.tools.enabled ?? [];
+  const disabledTools = config.tools.disabled ?? [];
+  if (enabledTools.length > 0 && !enabledTools.includes(tool.name)) {
+    const error = new Error(
+      `Tool "${tool.name}" is outside the TOOLS_TO_RUN allowlist.`
+    );
+    (error as { code?: string }).code = 'toolNotEnabled';
+    throw error;
+  }
+  if (!tool.isDefault && !enabledTools.includes(tool.name)) {
+    const error = new Error(
+      `Tool "${tool.name}" is opt-in. Add it to TOOLS_TO_RUN or .octocoderc tools.enabled.`
+    );
+    (error as { code?: string }).code = 'toolNotEnabled';
+    throw error;
+  }
+  if (enabledTools.length === 0 && disabledTools.includes(tool.name)) {
+    const error = new Error(
+      `Tool "${tool.name}" is disabled by DISABLE_TOOLS.`
+    );
+    (error as { code?: string }).code = 'toolDisabled';
+    throw error;
+  }
   if (tool.isLocal && !config.local.enabled) {
     const error = new Error(
       `Tool "${tool.name}" requires local tools. Set ENABLE_LOCAL=true to use it.`

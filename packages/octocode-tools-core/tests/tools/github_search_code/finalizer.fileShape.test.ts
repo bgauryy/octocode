@@ -18,7 +18,7 @@ function groupResult(owner: string, repo: string, path: string, value: string) {
   return { id: `${owner}/${repo}`, owner, repo, matches: [{ path, value }] };
 }
 
-describe('ghSearchCode finalizer — file row shape (no redundant fields)', () => {
+describe('github.code finalizer — file row shape (no redundant fields)', () => {
   it('does not repeat queryIndex on each file row — it equals the parent result index', () => {
     const sc = runFinalizer(
       [{}],

@@ -110,7 +110,6 @@ export function buildPullRequestSearchCacheKey(
       limit: params.limit,
       page: params.page,
       content: params.content,
-      reviewMode: params.reviewMode,
       filePage: params.filePage,
       commentPage: params.commentPage,
       commitPage: params.commitPage,
@@ -239,7 +238,7 @@ async function searchGitHubPullRequestsAPIInternal(
 
     const reportedTotalMatches = searchResult.data.total_count;
     const totalMatches = Math.min(reportedTotalMatches, 1000);
-    const totalPages = Math.min(Math.ceil(totalMatches / perPage), 10);
+    const totalPages = Math.ceil(totalMatches / perPage);
     const clampedPage = Math.min(currentPage, Math.max(1, totalPages));
     const hasMore = clampedPage < totalPages;
     const reachableTotalMatches = Math.min(totalMatches, totalPages * perPage);

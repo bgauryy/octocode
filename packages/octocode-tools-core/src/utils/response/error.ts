@@ -91,9 +91,8 @@ export type SafeParseOutcome<T> =
  * Validate `input` against `schema`, returning either the parsed data or a
  * structured {@link UnifiedErrorResult} built via {@link createErrorResult}.
  *
- * Replaces the per-tool `safeParse → issues.map(...).join('; ') →
- * createErrorResult('Validation error: …')` block. Pass `prefix: false` to
- * omit the "Validation error: " prefix (github_fetch_content parity).
+ * Replaces per-tool issue joining. Messages are direct by default; pass
+ * `prefix: true` only when a caller needs the legacy "Validation error: " label.
  */
 export function safeParseOrError<T>(
   schema: SafeParseableSchema<T>,
@@ -107,7 +106,7 @@ export function safeParseOrError<T>(
 
   const messages = result.error.issues.map(i => i.message).join('; ');
   const text =
-    options.prefix === false ? messages : `Validation error: ${messages}`;
+    options.prefix === true ? `Validation error: ${messages}` : messages;
 
   return {
     ok: false,

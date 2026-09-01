@@ -29,7 +29,7 @@ export function locationsEnvelope(
   const { pageItems, pagination } = paginateItems(
     compactLocations,
     query.page ?? 1,
-    query.itemsPerPage ?? DEFAULT_LOCATIONS_PER_PAGE
+    query.pageSize ?? DEFAULT_LOCATIONS_PER_PAGE
   );
   return {
     type: query.type,
@@ -66,7 +66,7 @@ export function referencesEnvelope(
   const { pageItems, pagination } = paginateItems(
     referenceItems,
     query.page ?? 1,
-    query.itemsPerPage ?? DEFAULT_LOCATIONS_PER_PAGE
+    query.pageSize ?? DEFAULT_LOCATIONS_PER_PAGE
   );
   const empty =
     refs.length === 0
@@ -79,7 +79,7 @@ export function referencesEnvelope(
   const warmupWarnings =
     warmupStats?.possiblyTruncated === true
       ? [
-          `Reference warmup opened ${warmupStats.warmedFiles}/${warmupStats.candidates} candidate file(s) and may be incomplete because the candidate set hit the warmup cap; narrow workspaceRoot/path or confirm with localSearchCode before unused/safe-delete claims.`,
+          `Reference warmup opened ${warmupStats.warmedFiles}/${warmupStats.candidates} candidate file(s) and may be incomplete because the candidate set hit the warmup cap; narrow workspaceRoot/path or confirm with localSearch operation:"text" before unused/safe-delete claims.`,
         ]
       : [];
 

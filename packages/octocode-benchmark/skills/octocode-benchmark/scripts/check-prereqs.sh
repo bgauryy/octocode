@@ -29,7 +29,7 @@ echo "Octocode arm (npx octocode@$OCTO_VER)"
 if have npx; then
   v="$(npx -y "octocode@$OCTO_VER" --version 2>"$NULL" | tail -1)"
   [ -n "$v" ] && pass "octocode CLI reachable: $v  (note: --version string may lag the package version)" || bad "octocode CLI did not report a version"
-  probe="$(npx -y "octocode@$OCTO_VER" tools ghSearchRepos --queries '[{"keywords":["is"],"owner":"sindresorhus","limit":1}]' 2>&1)"
+  probe="$(npx -y "octocode@$OCTO_VER" tools ghSearch --queries '[{"operation":"repositories","keywords":["is"],"owner":"sindresorhus","limit":1}]' 2>&1)"
   printf '%s' "$probe" | grep -qiE 'sindresorhus|repositories' && pass "octocode tools probe returned data" || bad "octocode tools probe failed: $(printf '%s' "$probe" | head -1)"
 else
   bad "npx not on PATH (need Node.js)"

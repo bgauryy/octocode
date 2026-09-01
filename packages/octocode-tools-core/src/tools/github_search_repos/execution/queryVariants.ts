@@ -14,6 +14,8 @@ export type RepositorySearchExtraFields = {
   forks?: string;
   license?: string;
   goodFirstIssues?: string;
+  created?: string;
+  size?: string;
 };
 
 export type PartialReposSearchQuery =
@@ -67,6 +69,8 @@ export function hasValidRepositorySearchParams(
     query.language ||
     query.stars ||
     query.updated ||
+    query.created ||
+    query.size ||
     query.forks ||
     query.license ||
     query.goodFirstIssues ||

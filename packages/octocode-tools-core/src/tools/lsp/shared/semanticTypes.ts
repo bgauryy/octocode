@@ -31,7 +31,7 @@ export type SemanticQueryBase = {
   uri?: string;
   workspaceRoot?: string;
   page?: number;
-  itemsPerPage?: number;
+  pageSize?: number;
   contextLines?: number;
   format?: SemanticOutputFormat;
   goal?: string;
@@ -162,6 +162,7 @@ export type SemanticEmptyState = {
 export type LspSemanticEnvelope = {
   type: SemanticContentType;
   uri: string;
+  workspaceRoot?: string;
   format?: SemanticOutputFormat;
   resolvedSymbol?: CompactResolvedSymbol;
   lsp: {
@@ -243,6 +244,9 @@ export type LspSemanticEnvelope = {
   pagination?: unknown;
   warnings?: string[];
   hints?: string[];
+  terminalLimit?: boolean;
+  truncated?: boolean;
+  partialReasons?: Array<'warmupCap' | 'depth' | 'budget'>;
   next?: Record<
     string,
     {

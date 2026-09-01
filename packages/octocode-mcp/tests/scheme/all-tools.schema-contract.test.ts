@@ -4,16 +4,52 @@ import { existsSync, readdirSync } from 'node:fs';
 import { ALL_TOOLS } from '../../src/tools/toolConfig.js';
 import {
   LOCAL_ANALYZE_GRAPH_TOOL_NAME,
+  LOCAL_SEARCH_TOOL_NAME,
   STATIC_TOOL_NAMES,
 } from '../../../octocode-tools-core/src/tools/toolNames.js';
 import { LSP_GET_SEMANTICS_TOOL_NAME } from '../../../octocode-tools-core/src/tools/lsp/shared/semanticTypes.js';
 const SHARED_FIELDS = ['goal', 'reasoning'] as const;
 const REMOVED_FIELDS = ['id', 'mainResearchGoal', 'researchGoal'] as const;
 
+const REMOVED_QUERY_ALIASES: Record<
+  string,
+  ReadonlyArray<Record<string, unknown>>
+> = {
+  npmSearch: [{ name: 'zod' }, { keywords: 'state' }],
+  lspGetSemantics: [{ op: 'documentSymbols' }],
+  localGetFileContent: [{ filePath: '/tmp/test.ts' }],
+  localSearch: [
+    { keywords: 'needle' },
+    { itemsPerPage: 5 },
+    { sortBy: 'name' },
+    { sortReverse: true },
+  ],
+  ghGetFileContent: [{ matchStringContextLines: 2 }, { minified: true }],
+  ghSearchHistory: [
+    { merged: true },
+    { keywordsToSearch: ['x'] },
+    { reviewMode: 'full' },
+  ],
+  ghGetHistoryItem: [
+    { prNumber: 1 },
+    { issueNumber: 1 },
+    { keywordsToSearch: ['x'] },
+  ],
+  ghSearch: [{ topicsToSearch: ['mcp'] }, { itemsPerPage: 5 }],
+  localAnalyzeGraph: [{ maxDepth: 2 }, { itemsPerPage: 5 }],
+};
+
 const MINIMAL_QUERY: Record<string, Record<string, unknown>> = {
-  [STATIC_TOOL_NAMES.LOCAL_RIPGREP]: { searchText: 'foo', path: '.' },
-  [STATIC_TOOL_NAMES.LOCAL_VIEW_STRUCTURE]: { path: '.' },
-  [STATIC_TOOL_NAMES.LOCAL_FIND_FILES]: { path: '.' },
+  ghSearch: {
+    operation: 'code',
+    keywords: ['useState'],
+    owner: 'facebook',
+  },
+  [LOCAL_SEARCH_TOOL_NAME]: {
+    operation: 'text',
+    searchText: 'foo',
+    path: '.',
+  },
   [LOCAL_ANALYZE_GRAPH_TOOL_NAME]: { operation: 'cycles', path: '.' },
   [STATIC_TOOL_NAMES.LOCAL_FETCH_CONTENT]: { path: '/tmp/test.ts' },
   [LSP_GET_SEMANTICS_TOOL_NAME]: {
@@ -22,33 +58,21 @@ const MINIMAL_QUERY: Record<string, Record<string, unknown>> = {
     symbolName: 'myFn',
     lineHint: 10,
   },
-  [STATIC_TOOL_NAMES.GITHUB_SEARCH_CODE]: {
-    keywords: ['useState'],
-    owner: 'facebook',
-  },
   [STATIC_TOOL_NAMES.GITHUB_FETCH_CONTENT]: {
     owner: 'facebook',
     repo: 'react',
     path: 'README.md',
   },
-  [STATIC_TOOL_NAMES.GITHUB_VIEW_REPO_STRUCTURE]: {
+  ghSearchHistory: {
+    operation: 'pullRequests',
     owner: 'facebook',
     repo: 'react',
   },
-  [STATIC_TOOL_NAMES.GITHUB_SEARCH_REPOSITORIES]: {
-    keywords: ['react'],
-  },
-  [STATIC_TOOL_NAMES.GITHUB_PULL_REQUESTS]: {
+  ghGetHistoryItem: {
+    operation: 'issue',
     owner: 'facebook',
     repo: 'react',
-  },
-  [STATIC_TOOL_NAMES.GITHUB_ISSUES]: {
-    owner: 'facebook',
-    repo: 'react',
-  },
-  [STATIC_TOOL_NAMES.GITHUB_COMMITS]: {
-    owner: 'facebook',
-    repo: 'react',
+    number: 1,
   },
   [STATIC_TOOL_NAMES.GITHUB_RELEASES]: {
     owner: 'facebook',
@@ -65,13 +89,22 @@ const MINIMAL_QUERY: Record<string, Record<string, unknown>> = {
   },
 };
 
-function getQueryShape(bulkSchema: z.ZodTypeAny): z.ZodRawShape | null {
-  if (!(bulkSchema instanceof z.ZodObject)) return null;
+function getQueryShapes(bulkSchema: z.ZodTypeAny): z.ZodRawShape[] {
+  if (!(bulkSchema instanceof z.ZodObject)) return [];
   const queriesField = unwrapOptionalSchema(bulkSchema.shape['queries']);
-  if (!(queriesField instanceof z.ZodArray)) return null;
-  const element = queriesField.element;
-  if (element instanceof z.ZodObject) return element.shape;
-  return null;
+  if (!(queriesField instanceof z.ZodArray)) return [];
+  return collectObjectShapes(queriesField.element as z.ZodTypeAny);
+}
+
+function collectObjectShapes(schema: z.ZodTypeAny): z.ZodRawShape[] {
+  const unwrapped = unwrapOptionalSchema(schema);
+  if (unwrapped instanceof z.ZodObject) return [unwrapped.shape];
+  if (unwrapped instanceof z.ZodUnion) {
+    return unwrapped.options.flatMap(option =>
+      collectObjectShapes(option as z.ZodTypeAny)
+    );
+  }
+  return [];
 }
 
 function unwrapOptionalSchema(schema: z.ZodTypeAny): z.ZodTypeAny {
@@ -160,19 +193,24 @@ describe('all-tools schema contract', () => {
       });
 
       it('bulk per-query element also exposes shared fields', () => {
-        const shape = getQueryShape(bulkSchema);
-        if (!shape) return;
-        for (const field of SHARED_FIELDS) {
-          expect(
-            field in shape,
-            `${toolName}: bulk per-query element missing shared field "${field}"`
-          ).toBe(true);
-        }
-        for (const field of REMOVED_FIELDS) {
-          expect(
-            field in shape,
-            `${toolName}: bulk per-query element still exposes removed field "${field}"`
-          ).toBe(false);
+        const shapes = getQueryShapes(bulkSchema);
+        expect(
+          shapes.length,
+          `${toolName}: no object query branches`
+        ).toBeGreaterThan(0);
+        for (const [branch, shape] of shapes.entries()) {
+          for (const field of SHARED_FIELDS) {
+            expect(
+              field in shape,
+              `${toolName}: bulk query branch ${branch} missing shared field "${field}"`
+            ).toBe(true);
+          }
+          for (const field of REMOVED_FIELDS) {
+            expect(
+              field in shape,
+              `${toolName}: bulk query branch ${branch} still exposes removed field "${field}"`
+            ).toBe(false);
+          }
         }
       });
 
@@ -249,23 +287,96 @@ describe('all-tools schema contract', () => {
         expect(r.success).toBe(true);
       });
 
-      it('parses with extra unknown envelope fields ignored (does not reject)', () => {
+      it('rejects extra unknown envelope fields', () => {
         const minQuery = MINIMAL_QUERY[toolName];
         if (!minQuery) return;
         const r = bulkSchema.safeParse({
           queries: [minQuery],
           unknownEnvelopeField: 'ignored',
         });
-        expect(
-          r.success,
-          `${toolName}: minimal parse should succeed.\n` +
-            `Errors: ${!r.success ? JSON.stringify(r.error.issues) : ''}`
-        ).toBe(true);
+        expect(r.success, `${toolName}: bulk envelope must be strict`).toBe(
+          false
+        );
+      });
+
+      it('rejects every retired query alias at the MCP boundary', () => {
+        const minQuery = MINIMAL_QUERY[toolName];
+        if (!minQuery) return;
+        for (const alias of REMOVED_QUERY_ALIASES[toolName] ?? []) {
+          const result = bulkSchema.safeParse({
+            queries: [{ ...minQuery, ...alias }],
+          });
+          expect(
+            result.success,
+            `${toolName} accepted retired input ${JSON.stringify(alias)}`
+          ).toBe(false);
+        }
+      });
+
+      it('rejects unknown per-query fields instead of stripping them', () => {
+        const minQuery = MINIMAL_QUERY[toolName];
+        if (!minQuery) return;
+        const result = bulkSchema.safeParse({
+          queries: [{ ...minQuery, definitelyUnknownField: true }],
+        });
+        expect(result.success, `${toolName}: query schema must be strict`).toBe(
+          false
+        );
       });
     }
   );
 
   describe('global invariants', () => {
+    it('preserves strict history operation branches through MCP wrappers', () => {
+      const byName = new Map(ALL_TOOLS.map(tool => [tool.name, tool]));
+      const searchSchema = byName.get('ghSearchHistory')?.direct
+        .inputSchema as z.ZodTypeAny;
+      const getSchema = byName.get('ghGetHistoryItem')?.direct
+        .inputSchema as z.ZodTypeAny;
+
+      const rejectedSearchQueries = [
+        {
+          operation: 'pullRequests',
+          owner: 'o',
+          repo: 'r',
+          number: 1,
+        },
+        {
+          operation: 'issues',
+          owner: 'o',
+          repo: 'r',
+          content: { body: true },
+        },
+        {
+          operation: 'commits',
+          owner: 'o',
+          repo: 'r',
+          ref: 'abc123',
+        },
+      ];
+      for (const query of rejectedSearchQueries) {
+        expect(searchSchema.safeParse({ queries: [query] }).success).toBe(
+          false
+        );
+      }
+
+      const rejectedGetQueries = [
+        { operation: 'pullRequest', owner: 'o', repo: 'r' },
+        { operation: 'issue', owner: 'o', repo: 'r', issueNumber: 1 },
+        {
+          operation: 'commit',
+          owner: 'o',
+          repo: 'r',
+          ref: 'abc123',
+          number: 1,
+        },
+        { operation: 'compare', owner: 'o', repo: 'r', base: 'main' },
+      ];
+      for (const query of rejectedGetQueries) {
+        expect(getSchema.safeParse({ queries: [query] }).success).toBe(false);
+      }
+    });
+
     it('ALL_TOOLS contains a non-empty live default tool catalog', () => {
       expect(ALL_TOOLS.length).toBeGreaterThan(0);
       expect(new Set(ALL_TOOLS.map(tool => tool.name)).size).toBe(
@@ -338,23 +449,22 @@ describe('all-tools schema contract', () => {
           !file.startsWith('toolMetadata/')
       );
 
-      // The in-catalog split tools (ghSearchPullRequests/Issues/Commits and
-      // ghListReleases) share github_search_pull_requests/splitSchemes.ts
+      // The in-catalog history pair and ghListReleases share history schema
+      // modules instead of a per-tool scheme.ts,
       // instead of a per-tool scheme.ts, so they're excluded from the count.
       const SPLIT_TOOLS: string[] = [
-        STATIC_TOOL_NAMES.GITHUB_PULL_REQUESTS,
-        STATIC_TOOL_NAMES.GITHUB_ISSUES,
-        STATIC_TOOL_NAMES.GITHUB_COMMITS,
+        'ghSearchHistory',
+        'ghGetHistoryItem',
         STATIC_TOOL_NAMES.GITHUB_RELEASES,
       ];
-      // +2: github_search_pull_requests/scheme.ts is the internal 4-mode PR/
-      // commits schema, and the opt-in Discussions schema remains on disk even
-      // when its tool is absent from the default executable catalog.
+      // The six former public discovery tools remain internal engine modules,
+      // github_search_pull_requests/scheme.ts is the internal four-mode schema,
+      // and the opt-in Discussions schema remains on disk when disabled.
       const outOfCatalogSchemeCount = ALL_TOOLS.some(
         tool => tool.name === 'ghSearchDiscussions'
       )
-        ? 1
-        : 2;
+        ? 7
+        : 8;
       expect(schemeFiles).toHaveLength(
         ALL_TOOLS.filter(tool => !SPLIT_TOOLS.includes(tool.name)).length +
           outOfCatalogSchemeCount

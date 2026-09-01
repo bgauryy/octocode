@@ -16,7 +16,7 @@ describe('hoistSharedFields', () => {
     expect(leaves.map(l => l.size)).toEqual(['1KB', '2KB']);
   });
 
-  it('never hoists `type` — required by output schemas (regression: localViewStructure entries[].type)', () => {
+  it('never hoists `type` — required by output schemas (regression: local.tree entries[].type)', () => {
     // A homogeneous listing (filesOnly / directoriesOnly / all-files dir with
     // details:true) makes `type` constant across every entry. Hoisting it out
     // violated ViewStructureEntrySchema (type is required per entry) and the
@@ -41,5 +41,16 @@ describe('hoistSharedFields', () => {
     expect(
       hoistSharedFields([{ data: { files: [{ type: 'file', a: 1 }] } }])
     ).toBeUndefined();
+  });
+
+  it('keeps partial state on each leaf for row-local diagnostics', () => {
+    const files = [
+      { path: 'a.ts', isPartial: true, lang: 'ts' },
+      { path: 'b.ts', isPartial: true, lang: 'ts' },
+    ];
+    const shared = hoistSharedFields([{ data: { files } }]);
+
+    expect(shared).toEqual({ lang: 'ts' });
+    expect(files.every(file => file.isPartial === true)).toBe(true);
   });
 });

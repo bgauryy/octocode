@@ -71,7 +71,7 @@ repeat ≥3 passes. Method + worked example: [`aggregation-and-stats.md`](aggreg
 
 ## Results
 
-Rollup: [`results/SUMMARY.md`](../../../results/SUMMARY.md) is the **single source of truth** for headline
+In this repository, `<workspace>/packages/octocode-benchmark/results/SUMMARY.md` is the **single source of truth** for headline
 numbers — always read the current figures there and recompute from the logs
 (`per_question_summary.py`), never hardcode a ratio here. It uses the latest complete campaign
 and never pools invalid/incompatible runs into one synthetic total. Current honest reading

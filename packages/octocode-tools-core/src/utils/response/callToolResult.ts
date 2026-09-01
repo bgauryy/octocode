@@ -26,6 +26,7 @@ export function sanitizeCallToolResult(result: CallToolResult): CallToolResult {
       sanitized = {
         ...sanitized,
         structuredContent: {
+          results: [],
           status: 'error',
           code: 'SANITIZATION_FAILED',
           error:
@@ -78,6 +79,7 @@ export function buildToolErrorResult(
       },
     ],
     structuredContent: {
+      results: [],
       status: 'error',
       tool: toolName,
       code: TOOL_CALLBACK_EXCEPTION,

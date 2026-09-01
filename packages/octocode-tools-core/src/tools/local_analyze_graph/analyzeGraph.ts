@@ -1,4 +1,3 @@
-import { LSP_GET_SEMANTICS_TOOL_NAME } from '../toolNames.js';
 import {
   buildFileGraph,
   resolveGraphExcludeDirs,
@@ -31,46 +30,21 @@ import type {
   AnalyzeGraphOutput,
   AnalyzeGraphQuery,
 } from './analysisTypes.js';
+import { finalizeGraphOutput, paginateGraphResults } from './pagination.js';
 
-const DEFAULT_ITEMS_PER_PAGE = 50;
 const DEFAULT_MAX_FILES = 20_000;
 const DEFAULT_DEPTH = 1;
-const MAX_FILES_PER_COMPONENT = 50;
-const MAX_ENTRYPOINTS_IN_SUMMARY = 50;
-
-function summarizeEntrypoints(entrypoints: string[]): Record<string, unknown> {
+export function summarizeEntrypoints(
+  entrypoints: string[]
+): Record<string, unknown> {
   return {
-    entrypointsResolved: entrypoints.slice(0, MAX_ENTRYPOINTS_IN_SUMMARY),
+    // This is the only structured list of resolved entrypoints in the graph
+    // response. Slicing it made the omitted values unreachable despite a count
+    // and truncation flag, so preserve the complete list.
+    entrypointsResolved: entrypoints,
     entrypointsResolvedCount: entrypoints.length,
-    ...(entrypoints.length > MAX_ENTRYPOINTS_IN_SUMMARY
-      ? { entrypointsResolvedTruncated: true }
-      : {}),
   };
 }
-
-function paginate(
-  items: Array<Record<string, unknown>>,
-  query: AnalyzeGraphQuery
-): Pick<AnalyzeGraphOutput, 'results' | 'pagination'> {
-  const limited = query.limit ? items.slice(0, query.limit) : items;
-  const itemsPerPage = query.itemsPerPage ?? DEFAULT_ITEMS_PER_PAGE;
-  const requestedPage = query.page ?? 1;
-  const totalPages = Math.max(1, Math.ceil(limited.length / itemsPerPage));
-  const currentPage = Math.min(Math.max(1, requestedPage), totalPages);
-  const start = (currentPage - 1) * itemsPerPage;
-  return {
-    results: limited.slice(start, start + itemsPerPage),
-    pagination: {
-      currentPage,
-      totalPages,
-      entriesPerPage: itemsPerPage,
-      totalEntries: limited.length,
-      hasMore: currentPage < totalPages,
-      ...(requestedPage > totalPages ? { outOfRange: true } : {}),
-    },
-  };
-}
-
 function errorOutput(
   query: AnalyzeGraphQuery,
   message: string
@@ -84,59 +58,6 @@ function errorOutput(
     results: [],
   };
 }
-
-function addNextSteps(
-  output: AnalyzeGraphOutput,
-  query: AnalyzeGraphQuery,
-  why: string
-): AnalyzeGraphOutput {
-  if (output.pagination?.outOfRange) {
-    output = {
-      ...output,
-      warnings: [
-        ...(output.warnings ?? []),
-        `page:${query.page} is out of range (only ${output.pagination.totalPages} page(s)) — returned page ${output.pagination.currentPage} instead.`,
-      ],
-    };
-  }
-  const next: Record<string, unknown> = {};
-  if (output.pagination?.hasMore) {
-    next.nextPage = {
-      tool: 'localAnalyzeGraph',
-      query: { ...query, page: output.pagination.currentPage + 1 },
-      why,
-      confidence: 'exact',
-    };
-  }
-
-  if (query.operation === 'deadCode') {
-    const candidate = output.results[0];
-    if (
-      candidate &&
-      typeof candidate.file === 'string' &&
-      typeof candidate.name === 'string' &&
-      typeof candidate.line === 'number'
-    ) {
-      const root = query.path.replace(/\/+$/, '');
-      next.verifyReferences = {
-        tool: LSP_GET_SEMANTICS_TOOL_NAME,
-        query: {
-          type: 'references',
-          uri: `${root}/${candidate.file}`,
-          symbolName: candidate.name,
-          lineHint: candidate.line,
-          includeDeclaration: false,
-          groupByFile: true,
-        },
-        why: `Verify candidate "${candidate.name}" before deletion; repeat for each result, prioritizing viaHeuristic:"reexport-chain".`,
-        confidence: 'high',
-      };
-    }
-  }
-
-  return Object.keys(next).length > 0 ? { ...output, next } : output;
-}
-
 export async function analyzeGraph(
   query: AnalyzeGraphQuery,
   context: AnalyzeGraphContext = {}
@@ -145,10 +66,15 @@ export async function analyzeGraph(
   const maxFiles = query.maxFiles ?? DEFAULT_MAX_FILES;
   const built = await (context.getGraph?.(query.path, excludeDir, maxFiles) ??
     buildFileGraph(query.path, excludeDir, maxFiles));
+  const finalize = (
+    output: AnalyzeGraphOutput,
+    why: string
+  ): AnalyzeGraphOutput =>
+    finalizeGraphOutput(output, query, built.truncated, why);
 
   if (query.operation === 'deadCode') {
     const scan = scanForDeadCode(query.path, query, built);
-    const page = paginate(
+    const page = paginateGraphResults(
       scan.deadExports as unknown as Array<Record<string, unknown>>,
       query
     );
@@ -157,7 +83,7 @@ export async function analyzeGraph(
         .map(result => result.clusterId)
         .filter((id): id is number => typeof id === 'number')
     );
-    return addNextSteps(
+    return finalize(
       {
         operation: query.operation,
         path: query.path,
@@ -170,13 +96,10 @@ export async function analyzeGraph(
             .filter(cluster => pageClusterIds.has(cluster.id))
             .map(cluster => ({
               ...cluster,
-              files: cluster.files.slice(0, MAX_FILES_PER_COMPONENT),
+              files: cluster.files,
               size: cluster.files.length,
               edgeKinds: collectGraphEdgeKinds(built.fileGraph, cluster.files),
               confidence: 'syntactic',
-              ...(cluster.files.length > MAX_FILES_PER_COMPONENT
-                ? { truncated: true }
-                : {}),
             })),
           deadClusterCount: scan.deadClusters.length,
           deadExportCount: scan.deadExports.length,
@@ -184,7 +107,6 @@ export async function analyzeGraph(
         ...(scan.warnings.length > 0 ? { warnings: scan.warnings } : {}),
         ...(scan.confidence ? { confidence: scan.confidence } : {}),
       },
-      query,
       'Continue dead-code candidates.'
     );
   }
@@ -231,11 +153,11 @@ export async function analyzeGraph(
                 (a, b) => a - b
               );
         return {
-          files: allFiles.slice(0, MAX_FILES_PER_COMPONENT),
+          files: allFiles,
           size: allFiles.length,
           edgeKinds: collectGraphEdgeKinds(built.fileGraph, allFiles),
           runtimeCycle: containedRuntimeCycles.length > 0,
-          runtimeCycles: containedRuntimeCycles.slice(0, 10),
+          runtimeCycles: containedRuntimeCycles,
           runtimeCycleCount: containedRuntimeCycles.length,
           cycleEdges,
           runtimeCycleEdges,
@@ -244,22 +166,16 @@ export async function analyzeGraph(
             componentId === undefined
               ? undefined
               : layerByComponent.get(componentId),
-          outgoingComponents: outgoing.slice(0, MAX_FILES_PER_COMPONENT),
+          outgoingComponents: outgoing,
           outgoingComponentCount: outgoing.length,
-          ...(outgoing.length > MAX_FILES_PER_COMPONENT
-            ? { outgoingComponentsTruncated: true }
-            : {}),
-          ...(allFiles.length > MAX_FILES_PER_COMPONENT
-            ? { truncated: true }
-            : {}),
           confidence: 'syntactic',
         };
       })
       .sort((a, b) => (a.files[0] ?? '').localeCompare(b.files[0] ?? ''));
-    return addNextSteps(
+    return finalize(
       {
         ...base,
-        ...paginate(items, query),
+        ...paginateGraphResults(items, query),
         summary: {
           cycleCount: items.length,
           runtimeCycleCount: items.filter(item => item.runtimeCycle).length,
@@ -273,17 +189,22 @@ export async function analyzeGraph(
         },
         ...(warnings.length > 0 ? { warnings } : {}),
       },
-      query,
       'Continue cycle components.'
     );
   }
 
   if (query.operation === 'dependencies' || query.operation === 'dependents') {
     if (!query.file)
-      return errorOutput(query, `${query.operation} requires file`);
+      return finalize(
+        errorOutput(query, `${query.operation} requires file`),
+        `Retry ${query.operation} after expanding the graph scan.`
+      );
     const file = normalizeGraphFile(query.file);
     if (!built.fileGraph.has(file)) {
-      return errorOutput(query, `file is not in the scanned graph: ${file}`);
+      return finalize(
+        errorOutput(query, `file is not in the scanned graph: ${file}`),
+        `Retry ${query.operation} after expanding the graph scan.`
+      );
     }
     const graph =
       query.operation === 'dependencies'
@@ -313,10 +234,10 @@ export async function analyzeGraph(
         };
       }
     );
-    return addNextSteps(
+    return finalize(
       {
         ...base,
-        ...paginate(items, query),
+        ...paginateGraphResults(items, query),
         summary: {
           source: file,
           depth: query.depth ?? DEFAULT_DEPTH,
@@ -326,31 +247,35 @@ export async function analyzeGraph(
         },
         ...(warnings.length > 0 ? { warnings } : {}),
       },
-      query,
       `Continue ${query.operation}.`
     );
   }
 
   if (query.operation === 'path') {
     if (!query.file || !query.target) {
-      return errorOutput(query, 'path requires file and target');
+      return finalize(
+        errorOutput(query, 'path requires file and target'),
+        'Retry the path query after expanding the graph scan.'
+      );
     }
     const file = normalizeGraphFile(query.file);
     const target = normalizeGraphFile(query.target);
     if (!built.fileGraph.has(file) || !built.fileGraph.has(target)) {
-      return errorOutput(
-        query,
-        'file and target must both be in the scanned graph'
+      return finalize(
+        errorOutput(query, 'file and target must both be in the scanned graph'),
+        'Retry the path query after expanding the graph scan.'
       );
     }
-    return addNextSteps(
+    return finalize(
       {
         ...base,
-        ...paginate([findShortestPath(built.fileGraph, file, target)], query),
+        ...paginateGraphResults(
+          [findShortestPath(built.fileGraph, file, target)],
+          query
+        ),
         summary: { source: file, target },
         ...(warnings.length > 0 ? { warnings } : {}),
       },
-      query,
       'Continue path results.'
     );
   }
@@ -362,6 +287,23 @@ export async function analyzeGraph(
     query.includeTests ?? true,
     knownFiles
   );
+  if (resolved.lowConfidence && resolved.entrypoints.length === 0) {
+    return finalize(
+      {
+        ...base,
+        status: 'empty',
+        results: [],
+        summary: {
+          ...summarizeEntrypoints(resolved.entrypoints),
+          classifiedCount: 0,
+          unclassifiedCount: built.fileGraph.size,
+        },
+        warnings: [...warnings, ...resolved.warnings],
+        confidence: 'low',
+      },
+      'Retry reachability after expanding the graph scan.'
+    );
+  }
   const reachable = computeReachableFiles(
     built.fileGraph,
     resolved.entrypoints
@@ -371,10 +313,10 @@ export async function analyzeGraph(
     reachable: reachable.has(file),
     confidence: 'syntactic',
   }));
-  return addNextSteps(
+  return finalize(
     {
       ...base,
-      ...paginate(items, query),
+      ...paginateGraphResults(items, query),
       summary: {
         ...summarizeEntrypoints(resolved.entrypoints),
         reachableCount: reachable.size,
@@ -385,7 +327,6 @@ export async function analyzeGraph(
         : {}),
       ...(resolved.lowConfidence ? { confidence: 'low' as const } : {}),
     },
-    query,
     'Continue reachability classifications.'
   );
 }

@@ -95,7 +95,7 @@ export async function cloneRepo(
         if (!existsSync(join(tempDir, sparsePath))) {
           throw new Error(
             `sparsePath "${sparsePath}" does not exist in ${owner}/${repo}@${branch} — nothing was checked out for it. ` +
-              'Verify the path with ghViewRepoStructure, then retry with the correct sparsePath (or omit it for a full clone).'
+              'Verify the path with ghSearch operation:"tree", then retry with the correct sparsePath (or omit it for a full clone).'
           );
         }
       } else {

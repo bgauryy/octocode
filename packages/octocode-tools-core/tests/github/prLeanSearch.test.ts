@@ -9,7 +9,7 @@ describe('shouldEnrichPullRequestFromSearch (Phase D lean)', () => {
     state: 'open',
   };
 
-  it('is false for lean list search (no content / reviewMode)', () => {
+  it('is false for lean list search without content selectors', () => {
     expect(shouldEnrichPullRequestFromSearch(base)).toBe(false);
   });
 
@@ -19,9 +19,19 @@ describe('shouldEnrichPullRequestFromSearch (Phase D lean)', () => {
     );
   });
 
-  it('is true for reviewMode full', () => {
+  it('is true for explicit full content selectors', () => {
     expect(
-      shouldEnrichPullRequestFromSearch({ ...base, reviewMode: 'full' })
+      shouldEnrichPullRequestFromSearch({
+        ...base,
+        content: {
+          body: true,
+          changedFiles: true,
+          patches: { mode: 'all' },
+          comments: { discussion: true, reviewInline: true },
+          reviews: true,
+          commits: {},
+        },
+      })
     ).toBe(true);
   });
 

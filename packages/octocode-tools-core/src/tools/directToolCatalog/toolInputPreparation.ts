@@ -1,7 +1,7 @@
 /**
  * Input preparation/normalization for the engine-free direct-tool catalog:
- * JSON parsing, envelope handling, default-field filling, field-name alias
- * folding, and unknown-field detection (with did-you-mean suggestions). Split
+ * JSON parsing, envelope handling, default-field filling, and unknown-field
+ * detection (with did-you-mean suggestions). Split
  * out of `directToolCatalog.meta.ts` (still the public barrel) — see that
  * file's header comment for the full P3 rationale.
  */
@@ -51,7 +51,7 @@ export function prepareDirectToolInput(
   const result = tool.inputSchema.safeParse(payload);
   if (!result.success) {
     throw new DirectToolInputError(
-      'Tool input does not match the expected schema.',
+      'Check the query fields.',
       formatDirectToolValidationIssues(result.error)
     );
   }
@@ -60,7 +60,21 @@ export function prepareDirectToolInput(
 }
 
 export function formatDirectToolValidationIssues(error: z.ZodError): string[] {
-  return error.issues.map(issue => {
+  const flattenIssue = (issue: z.core.$ZodIssue): z.core.$ZodIssue[] => {
+    const unionErrors = (issue as z.core.$ZodIssue & { errors?: unknown })
+      .errors;
+    if (issue.code !== 'invalid_union' || !Array.isArray(unionErrors)) {
+      return [issue];
+    }
+    const branches = unionErrors.filter(
+      (branch): branch is z.core.$ZodIssue[] => Array.isArray(branch)
+    );
+    if (branches.length === 0) return [issue];
+    return branches.reduce((best, branch) =>
+      branch.length < best.length ? branch : best
+    );
+  };
+  return error.issues.flatMap(flattenIssue).map(issue => {
     const path = issue.path.length > 0 ? issue.path.join('.') : 'input';
     return `${path}: ${issue.message}`;
   });
@@ -194,136 +208,49 @@ function suggestField(
   return bestContained ?? bestFuzzy;
 }
 
-/** Strict-safe cross-tool aliases; real typos still use did-you-mean errors. */
-type FieldAlias =
-  | string
-  | {
-      field: string;
-      /** Return undefined when the alias cannot preserve meaning. */
-      map: (value: unknown) => unknown | undefined;
-    };
-
-const MINIFY_VALUES = new Set(['none', 'standard', 'symbols']);
-
-function normalizeEntryType(value: unknown): unknown | undefined {
-  if (value === 'f' || value === 'file') return 'f';
-  if (value === 'd' || value === 'directory' || value === 'dir') return 'd';
-  if (value === 'both' || value === 'all') return undefined;
-  return value;
-}
-
-const TOOL_FIELD_ALIASES: Record<string, Record<string, FieldAlias>> = {
-  ghSearchCode: { keywordsToSearch: 'keywords' },
-  ghSearchRepos: { keywordsToSearch: 'keywords' },
+/** Rejection hints only: unknown names are never rewritten. Empty means no equivalent. */
+const REJECTED_FIELD_HINTS: Readonly<
+  Record<string, Readonly<Record<string, string>>>
+> = {
   npmSearch: { name: 'packageName' },
-  ghViewRepoStructure: { depth: 'maxDepth' },
-  lspGetSemantics: { op: 'type', line: 'lineHint', path: 'uri' },
+  lspGetSemantics: {
+    op: 'type',
+    line: 'lineHint',
+    path: 'uri',
+    itemsPerPage: 'pageSize',
+    limit: '',
+  },
   localGetFileContent: { filePath: 'path' },
-  localSearchCode: {
-    keywordsToSearch: 'searchText',
+  localSearch: {
+    itemsPerPage: 'pageSize',
+    maxResults: 'limit',
     keywords: 'searchText',
     language: 'langType',
-    useRegex: {
-      field: 'regex',
-      map: value => {
-        if (value === true) return 'perl';
-        if (value === false) return 'fixed';
-        if (value === 'smart' || value === 'fixed' || value === 'perl') {
-          return value;
-        }
-        return undefined;
-      },
-    },
+    regexType: 'regex',
+    sortBy: 'sort',
+    sortReverse: 'reverse',
   },
-  // Benchmark-measured first-contact misses (compare-run-20260802-b):
   ghGetFileContent: {
     matchStringContextLines: 'contextLines',
-    minified: {
-      field: 'minify',
-      map: value => {
-        if (value === true) return 'standard';
-        if (value === false) return 'none';
-        if (typeof value === 'string' && MINIFY_VALUES.has(value)) return value;
-        return undefined;
-      },
-    },
+    minified: 'minify',
   },
-  ghSearchPullRequests: {
-    // merged:true is unambiguous; merged:false ("closed but not merged")
-    // is not expressible via state and must keep erroring.
-    merged: {
-      field: 'state',
-      map: value => (value === true ? 'merged' : undefined),
-    },
+  ghSearch: {
+    itemsPerPage: 'pageSize',
+    limit: '',
+    topicsToSearch: 'topics',
   },
-  ghSearchCommits: { filePath: 'path' },
-  localFindFiles: {
+  ghListReleases: { itemsPerPage: 'pageSize', limit: '' },
+  ghSearchDiscussions: {
+    keywordsToSearch: 'keywords',
+    itemsPerPage: 'pageSize',
+    limit: '',
+  },
+  localAnalyzeGraph: {
+    itemsPerPage: 'pageSize',
     maxResults: 'limit',
-    name: {
-      field: 'names',
-      map: value => (typeof value === 'string' ? [value] : undefined),
-    },
-    type: {
-      field: 'entryType',
-      map: normalizeEntryType,
-    },
+    maxDepth: 'depth',
   },
-  localViewStructure: {
-    depth: 'maxDepth',
-    type: { field: 'entryType', map: normalizeEntryType },
-  },
-  localAnalyzeGraph: { maxDepth: 'depth' },
 };
-
-function applyFieldAliases(
-  toolName: string,
-  query: Record<string, unknown>
-): Record<string, unknown> {
-  const aliases = TOOL_FIELD_ALIASES[toolName];
-  if (!aliases) return query;
-  let next: Record<string, unknown> | undefined;
-  for (const [alias, target] of Object.entries(aliases)) {
-    if (!(alias in query)) continue;
-    const canonical = typeof target === 'string' ? target : target.field;
-    if (canonical in query) {
-      // Canonical field explicitly set — the alias is redundant, drop it
-      // rather than letting it error as an unknown field.
-      next ??= { ...query };
-      delete next[alias];
-      continue;
-    }
-    const value =
-      typeof target === 'string' ? query[alias] : target.map(query[alias]);
-    if (value === undefined) continue; // refuse the fold → unknown-field path
-    next ??= { ...query };
-    next[canonical] = value;
-    delete next[alias];
-  }
-  let normalized = next ?? query;
-  if (
-    (toolName === 'localFindFiles' || toolName === 'localViewStructure') &&
-    'entryType' in normalized
-  ) {
-    const entryType = normalizeEntryType(normalized.entryType);
-    normalized = { ...normalized };
-    if (entryType === undefined) delete normalized.entryType;
-    else normalized.entryType = entryType;
-  }
-  if (
-    toolName === 'localSearchCode' &&
-    normalized.mode !== 'structural' &&
-    !('searchText' in normalized) &&
-    typeof normalized.pattern === 'string'
-  ) {
-    const textQuery: Record<string, unknown> = {
-      ...normalized,
-      searchText: normalized.pattern,
-    };
-    delete textQuery.pattern;
-    return textQuery;
-  }
-  return normalized;
-}
 
 function normalizeQueryObject(
   toolName: string,
@@ -339,17 +266,18 @@ function normalizeQueryObject(
       'Tool input must be a JSON object or an array of objects.'
     );
   }
-  const aliasedQuery = applyFieldAliases(toolName, query);
-
   const schemaFields = new Set([
     ...getDirectToolDisplayFields(toolName)
       .filter(field => !field.name.includes('.'))
       .map(field => field.name),
+    ...collectDirectSchemaFieldNames(
+      findDirectToolDefinition(toolName)?.schema
+    ),
     ...DIRECT_TOOL_AUTO_FILLED_FIELDS,
   ]);
   const exactQuery: Record<string, unknown> = {};
   const unknownFields: string[] = [];
-  for (const [key, value] of Object.entries(aliasedQuery)) {
+  for (const [key, value] of Object.entries(query)) {
     if (schemaFields.has(key)) {
       exactQuery[key] = value;
       continue;
@@ -362,7 +290,9 @@ function normalizeQueryObject(
     if (options.rejectUnknownFields === true) {
       const suggestions = unknownFields
         .map(field => {
-          const suggested = suggestField(field, schemaFields);
+          const suggested =
+            REJECTED_FIELD_HINTS[toolName]?.[field] ??
+            suggestField(field, schemaFields);
           return suggested ? `'${field}' → did you mean '${suggested}'?` : '';
         })
         .filter(Boolean);
@@ -378,4 +308,28 @@ function normalizeQueryObject(
   }
 
   return exactQuery;
+}
+
+function collectDirectSchemaFieldNames(
+  schema: z.ZodType | undefined
+): string[] {
+  if (!schema) return [];
+  if (schema instanceof z.ZodObject) return Object.keys(schema.shape);
+  const options = (schema as z.ZodType & { options?: unknown }).options;
+  const unionOptions: z.ZodType[] =
+    schema instanceof z.ZodUnion
+      ? (schema.options as z.ZodType[])
+      : Array.isArray(options)
+        ? (options as z.ZodType[])
+        : [];
+  if (unionOptions.length > 0) {
+    return [
+      ...new Set<string>(
+        unionOptions.flatMap((option: z.ZodType) =>
+          collectDirectSchemaFieldNames(option as z.ZodType)
+        )
+      ),
+    ];
+  }
+  return [];
 }

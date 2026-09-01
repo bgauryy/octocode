@@ -133,6 +133,7 @@ export async function fetchGitHubFileContentAPI(
         {
           shouldCache: value => value !== null,
           forceRefresh: params.forceRefresh === true,
+          cacheRole: 'helper',
         }
       );
       if (timestampInfo) {

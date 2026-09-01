@@ -7,13 +7,17 @@ import {
 } from '@octocodeai/octocode-tools-core/schema';
 import {
   TOOL_DEFINITIONS,
+  getToolEnableInstruction,
   getToolAvailability,
   loadToolMetadata,
 } from './registry.js';
 import { formatConciseToolDescription } from './formatting.js';
-
-const CONTINUATION_GUIDANCE =
-  'Follow row data.next; advance data.pagination while hasMore. responsePagination is text-only; structuredContent is complete.';
+import {
+  AGENT_TOOL_COMMANDS,
+  BATCH_ERROR_GUIDANCE,
+  CHEAP_VIEW_GUIDANCE,
+  CONTINUATION_GUIDANCE,
+} from './agent-contract.js';
 
 export async function getToolsContextString(
   options: { full?: boolean; minimal?: boolean } = {}
@@ -34,8 +38,8 @@ export async function getToolsContextString(
     const lines = [
       'Octocode CLI — Minimal Context',
       'Protocol: schema first → orient → search → read exact → prove → decide.',
-      "Run: tools --json --compact | tools <name> --scheme --json --compact | tools <name> --queries '<json>' --compact",
-      'Output: YAML default; --compact structured JSON. Batch rows keep ordered indexes and isolate errors.',
+      `Run: ${AGENT_TOOL_COMMANDS.catalog} | ${AGENT_TOOL_COMMANDS.schema} | ${AGENT_TOOL_COMMANDS.run}`,
+      `Output: YAML default; --compact structured JSON. ${BATCH_ERROR_GUIDANCE}`,
       `Tools (${toolNames.length}):`,
     ];
     for (const [category, names] of byCategory) {
@@ -61,16 +65,16 @@ export async function getToolsContextString(
         "  tools <name> --queries '<json>' [--compact|--json]",
         '  YAML is default; --compact is typed JSON; --json is the full envelope.',
         '  *** RESEARCH LOOP ***  orient → search → read exact → prove → decide.',
-        '  Cheap modes: concise:true, mode:"discovery", minify:"symbols".',
+        `  ${CHEAP_VIEW_GUIDANCE}`,
         `  ${CONTINUATION_GUIDANCE}`,
-        '  Exit: 0 ok · 2 input · 3 not-found · 4 auth · 5 tool · 7 rate-limit.',
-        '  Quick commands (clone/cache fetch) materialize content locally; every other capability (files, trees, content, repos, packages, PRs, history, diffs) runs through `tools <name>` — read its schema first.',
+        '  Exit: 0 command completed (inspect row statuses) · 2 input · 3 not-found · 4 auth · 5 tool · 7 rate-limit.',
+        '  `cache fetch` materializes content locally; every other capability (files, trees, content, repos, packages, PRs, history, diffs) runs through `tools <name>` — read its schema first.',
       ]
     : [
         'Compact context; use `context --full` for MCP instructions + long descriptions.',
         'Protocol: schema first → orient → search → read exact → prove → decide.',
         "Commands: tools --json --compact | tools <name> --scheme --json --compact | tools <name> --queries '<json>' --compact",
-        'Cheap modes: concise:true, localSearchCode mode:"discovery", minify:"symbols" before full reads.',
+        CHEAP_VIEW_GUIDANCE,
         CONTINUATION_GUIDANCE,
         'Proof: snippets are discovery, not proof; use exact reads, PR/commit evidence, or LSP.',
       ];
@@ -90,7 +94,7 @@ export async function getToolsContextString(
     (full
       ? [
           '  CLI default: YAML from content[].text. --compact: structuredContent JSON. --json: full CallToolResult.',
-          '  MCP receives bounded triage text plus full structuredContent; read structuredContent for full data.',
+          '  MCP returns complete YAML text in content[].text plus full structuredContent.',
           '',
           '  --json envelope:',
           '    isError: boolean                       true = call/all rows failed; inspect each row status for mixed batches',
@@ -98,14 +102,14 @@ export async function getToolsContextString(
           '    structuredContent.results[]: array     ordered rows: index, optional status/meta, and data',
           '    structuredContent.results[].data: object tool payload; continuations stay with their row',
           '    structuredContent.base: string         cwd / workspace root used for the query',
-          '    structuredContent.responsePagination: object text-channel char window; structured consumers do not replay it',
+          '    structuredContent.responsePagination: object content[].text char window; structured data remains complete',
           '    structuredContent.results[].data.pagination: object page state; advance only while hasMore',
           '    structuredContent.results[].data.next: object typed follow-up calls for that row',
           '    structuredContent.results[].data.location: object where fetched or cloned content was saved',
         ]
       : [
           '  Default: YAML. --compact: lean structuredContent JSON. --json: full CallToolResult.',
-          '  Batch rows preserve zero-based index; errors stay isolated by row.',
+          `  ${BATCH_ERROR_GUIDANCE}`,
         ]
     ).join('\n'),
     '',
@@ -136,7 +140,7 @@ export async function getToolsContextString(
       const availability = getToolAvailability(toolName);
       const availabilitySuffix = availability.enabled
         ? ''
-        : ` [disabled: set ${availability.envVar}=1]`;
+        : ` [disabled: ${getToolEnableInstruction(toolName) ?? availability.envVar}]`;
       if (full) {
         sections.push(`  ${toolIndex}. ${toolName}${availabilitySuffix}`);
         sections.push(description.trim());

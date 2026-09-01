@@ -30,7 +30,7 @@ const pagination = (nextPage: number) => ({
   nextPage,
 });
 
-describe('ghSearchCode finalizer — ordered bulk indexes are not merged', () => {
+describe('github.code finalizer — ordered bulk indexes are not merged', () => {
   it('emits one record per query with its own pagination', () => {
     const queries = [{}, {}];
     const results = [
@@ -64,7 +64,7 @@ describe('ghSearchCode finalizer — ordered bulk indexes are not merged', () =>
   });
 });
 
-describe('ghSearchCode finalizer — row-local data.next continuation', () => {
+describe('github.code finalizer — row-local data.next continuation', () => {
   it('emits a ghGetFileContent matchString call for the top hit of a single query', () => {
     const queries = [{ keywords: ['createStoreImpl'] }];
     const results = [
@@ -120,7 +120,7 @@ describe('ghSearchCode finalizer — row-local data.next continuation', () => {
   it('maps repoState renamed → corrected retry continuation (warnings stripped)', () => {
     const queries = [
       {
-        keywords: ['localSearchCode'],
+        keywords: ['local.text'],
         owner: 'bgauryy',
         repo: 'octocode-mcp',
       },
@@ -145,7 +145,7 @@ describe('ghSearchCode finalizer — row-local data.next continuation', () => {
     expect(row.data.next.retryRenamed!.query).toMatchObject({
       owner: 'bgauryy',
       repo: 'octocode',
-      keywords: ['localSearchCode'],
+      keywords: ['local.text'],
     });
     expect(row).toMatchObject({
       meta: {
@@ -181,13 +181,13 @@ describe('ghSearchCode finalizer — row-local data.next continuation', () => {
         index: 0,
         status: 'empty',
         meta: { diagnostics: { codes: ['ghRepoArchived'] } },
-        data: { next: { viewStructure: { tool: 'ghViewRepoStructure' } } },
+        data: { next: { viewStructure: { tool: 'github.tree' } } },
       },
       {
         index: 1,
         status: 'empty',
         meta: { diagnostics: { codes: ['ghRepoNotFound'] } },
-        data: { next: { findRepository: { tool: 'ghSearchRepos' } } },
+        data: { next: { findRepository: { tool: 'github.repositories' } } },
       },
     ]);
     expect(sc.emptyQueries).toBeUndefined();

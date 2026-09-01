@@ -35,12 +35,16 @@ describe('CLI command content is sourced from octocode-core', () => {
     }
   });
 
+  it('does not register the removed clone command', () => {
+    expect(REGISTERED_COMMAND_NAMES).not.toContain('clone');
+  });
+
   it('command files no longer hardcode description/usage (only core has them)', async () => {
     // Spot-check a representative command object: it should expose name +
     // options + handler, but NOT a description/usage of its own.
-    const { cloneCommand } = await import('../../src/cli/commands/clone.js');
-    const obj = cloneCommand as unknown as Record<string, unknown>;
-    expect(obj.name).toBe('clone');
+    const { cacheCommand } = await import('../../src/cli/commands/cache.js');
+    const obj = cacheCommand as unknown as Record<string, unknown>;
+    expect(obj.name).toBe('cache');
     expect(typeof obj.handler).toBe('function');
     expect(obj.description).toBeUndefined();
     expect(obj.usage).toBeUndefined();

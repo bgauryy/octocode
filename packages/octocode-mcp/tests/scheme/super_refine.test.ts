@@ -96,7 +96,9 @@ describe('FileContentQueryLocalSchema (github) three-mode mutual exclusion', () 
     expect(result.success).toBe(false);
     if (!result.success) {
       const messages = result.error.issues.map(i => i.message).join('\n');
-      expect(messages.toLowerCase()).toMatch(/mutually exclusive/);
+      expect(messages).toContain('fullContent');
+      expect(messages).toContain('matchString');
+      expect(messages.length).toBeLessThanOrEqual(90);
     }
   });
 
@@ -162,9 +164,10 @@ describe('FileContentQueryLocalSchema (github) three-mode mutual exclusion', () 
     expect(result.success).toBe(false);
     if (!result.success) {
       const messages = result.error.issues.map(i => i.message).join('\n');
-      expect(messages).toContain(
-        'endLine must be greater than or equal to startLine'
-      );
+      expect(messages).toContain('endLine');
+      expect(messages).toContain('startLine');
+      expect(messages).toContain('greater than or equal');
+      expect(messages.length).toBeLessThanOrEqual(90);
     }
   });
 });

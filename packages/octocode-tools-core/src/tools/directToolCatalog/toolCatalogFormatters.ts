@@ -1,15 +1,11 @@
 /**
- * Engine-free direct-tool catalog: schema/output text formatters and
- * output-field metadata. Split out of `toolCatalogDefinitions.ts` to keep that
+ * Engine-free direct-tool catalog: schema and metadata formatters. Split out
+ * of `toolCatalogDefinitions.ts` to keep that
  * registry module under the max-lines budget — both are re-exported by the
  * `directToolCatalog.meta.ts` barrel. See that file's header comment for the
  * full P3 engine-free rationale.
  */
 import { z } from 'zod';
-import {
-  findToolOutputSchema,
-  getToolOutputFields,
-} from '@octocodeai/octocode-core/schemas';
 import {
   findDirectToolDefinition,
   type DirectToolAutoFilledField,
@@ -40,17 +36,6 @@ export function formatDirectToolSchemaText(toolName: string): string {
   }
 }
 
-export function formatDirectToolOutputSchemaText(toolName: string): string {
-  const schema = findToolOutputSchema(toolName);
-  return schema
-    ? JSON.stringify(z.toJSONSchema(schema, { io: 'output' }), null, 2)
-    : '{}';
-}
-
-export function getDirectToolOutputFields(toolName: string): string[] {
-  return getToolOutputFields(toolName);
-}
-
 export function formatDirectToolMetadataSchemaText(
   schema: Record<string, string> | undefined
 ): string {
@@ -65,7 +50,7 @@ export function getDirectToolAutoFilledFields(toolName: string): string[] {
 
 export function getDirectToolDescription(
   toolName: string,
-  metadata?: DirectToolMetadata | null
+  _metadata?: DirectToolMetadata | null
 ): string {
-  return metadata?.tools?.[toolName]?.description ?? toolName;
+  return findDirectToolDefinition(toolName)?.description ?? toolName;
 }

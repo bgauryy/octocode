@@ -35,7 +35,6 @@ export * from './providers/github/utils.js';
 export * from './providers/providerQueries.js';
 export * from './responses.js';
 export * from './scheme/fields.js';
-export * from './scheme/responseEnvelope.js';
 export * from './serverConfig.js';
 export * from './cacheMaintenance.js';
 export * from './session.js';
@@ -49,9 +48,8 @@ export * from './tools/github_fetch_content/execution.js';
 export * from './tools/github_fetch_content/finalizer.js';
 export * from './tools/github_fetch_content/scheme.js';
 export * from './tools/github_fetch_content/types.js';
-export * from './tools/github_search_code/execution.js';
-export * from './tools/github_search_code/finalizer.js';
-export * from './tools/github_search_code/scheme.js';
+export * from './tools/github_search/execution.js';
+export * from './tools/github_search/scheme.js';
 export * from './tools/github_search_pull_requests/contentRequest.js';
 export * from './tools/github_search_pull_requests/contentResponse.js';
 export * from './tools/github_search_pull_requests/execution.js';
@@ -61,31 +59,14 @@ export * from './tools/github_search_pull_requests/splitExecutions.js';
 export * from './tools/github_search_pull_requests/types.js';
 export * from './tools/github_search_discussions/scheme.js';
 export * from './tools/github_search_discussions/execution.js';
-export * from './tools/github_search_repos/execution.js';
-export * from './tools/github_search_repos/scheme.js';
-export * from './tools/github_view_repo_structure/constants.js';
-export * from './tools/github_view_repo_structure/execution.js';
-export * from './tools/github_view_repo_structure/scheme.js';
-export * from './tools/github_view_repo_structure/types.js';
 export * from './tools/local_fetch_content/contentExtractor.js';
 export * from './tools/local_fetch_content/execution.js';
 export * from './tools/local_fetch_content/fetchContent.js';
 export * from './tools/local_fetch_content/scheme.js';
-export * from './tools/local_find_files/execution.js';
-export * from './tools/local_find_files/findFiles.js';
-export * from './tools/local_find_files/scheme.js';
 export * from './tools/local_analyze_graph/execution.js';
 export * from './tools/local_analyze_graph/scheme.js';
-export * from './tools/local_ripgrep/execution.js';
-export * from './tools/local_ripgrep/patternValidation.js';
-export * from './tools/local_ripgrep/ripgrepExecutor.js';
-export * from './tools/local_ripgrep/ripgrepResultBuilder.js';
-export * from './tools/local_ripgrep/scheme.js';
-export * from './tools/local_ripgrep/searchContentRipgrep.js';
-export * from './tools/local_view_structure/execution.js';
-export * from './tools/local_view_structure/local_view_structure.js';
-export * from './tools/local_view_structure/scheme.js';
-export * from './tools/local_view_structure/structureFilters.js';
+export * from './tools/local_search/execution.js';
+export * from './tools/local_search/scheme.js';
 export * from './tools/lsp/semantic_content/execution.js';
 export * from './tools/lsp/semantic_content/index.js';
 export * from './tools/lsp/semantic_content/scheme.js';
@@ -104,7 +85,6 @@ export type {
 } from './tools/toolCatalogFactory.js';
 export * from './tools/toolMetadata/baseSchema.js';
 export * from './tools/toolMetadata/descriptions.js';
-export * from './tools/toolMetadata/gateway.js';
 export * from './tools/toolMetadata/metadataPresence.js';
 export * from './tools/toolMetadata/names.js';
 export * from './tools/toolMetadata/proxies.js';
@@ -116,29 +96,18 @@ export {
   CloneRepoQuerySchema,
   FetchContentQuerySchema,
   FileContentQuerySchema,
-  FindFilesQuerySchema,
-  GitHubCodeSearchQuerySchema,
-  GitHubPullRequestSearchQuerySchema,
-  GitHubReposSearchSingleQuerySchema,
-  GitHubViewRepoStructureQuerySchema,
+  GitHubSearchQuerySchema,
   ListReleasesQuerySchema,
   LocalAnalyzeGraphQuerySchema,
+  LocalSearchQuerySchema,
   NpmPackageQuerySchema,
-  RipgrepQuerySchema,
   SearchCommitsQuerySchema,
   SearchDiscussionsQuerySchema,
   SearchIssuesQuerySchema,
   SearchPullRequestsQuerySchema,
-  ToolOutputSchema,
-  ToolResultMetaSchema,
-  ToolResultRowSchema,
   LspGetSemanticsQuerySchema,
-  ViewStructureQuerySchema,
-  findToolOutputSchema,
   findToolSchema,
-  getToolOutputFields,
   getToolSchemaVariants,
-  toolOutputSchemas,
   toolSchemas,
 } from './toolContract/schemas.js';
 export * from './tools/utils.js';

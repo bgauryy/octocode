@@ -107,7 +107,7 @@ export async function getWorkspaceSymbols(
   const { pageItems, pagination } = paginateItems(
     symbols,
     query.page ?? 1,
-    query.itemsPerPage ?? DEFAULT_SYMBOLS_PER_PAGE
+    query.pageSize ?? DEFAULT_SYMBOLS_PER_PAGE
   );
 
   return {
@@ -278,7 +278,7 @@ export async function getFileDiagnostics(
   const { pageItems, pagination } = paginateItems(
     diags,
     query.page ?? 1,
-    query.itemsPerPage ?? DEFAULT_SYMBOLS_PER_PAGE
+    query.pageSize ?? DEFAULT_SYMBOLS_PER_PAGE
   );
 
   return {

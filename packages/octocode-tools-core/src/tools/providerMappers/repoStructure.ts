@@ -102,6 +102,15 @@ export function mapRepoStructureProviderResult(
     branches?: string[];
     tags?: Array<{ name: string; sha: string }>;
   };
+  const incompleteTree = data.summary.incompleteTree === true;
+  const partialReasons =
+    data.partialReasons && data.partialReasons.length > 0
+      ? data.partialReasons
+      : incompleteTree
+        ? (['providerTreeTruncated'] as const)
+        : undefined;
+  const isPartial = data.isPartial === true || incompleteTree;
+  const terminalLimit = data.terminalLimit === true || incompleteTree;
 
   const resultData: Record<string, unknown> = {
     structure: structureArray,
@@ -127,7 +136,11 @@ export function mapRepoStructureProviderResult(
     summary: {
       totalFiles: filteredSummary.totalFiles,
       totalFolders: filteredSummary.totalFolders,
+      ...(incompleteTree ? { incompleteTree: true } : {}),
     },
+    ...(isPartial ? { isPartial: true } : {}),
+    ...(terminalLimit ? { terminalLimit: true } : {}),
+    ...(partialReasons ? { partialReasons } : {}),
   };
 
   if (actualBranch) {

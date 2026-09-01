@@ -1,4 +1,5 @@
 import type { AuthInfo } from '@modelcontextprotocol/server';
+import { MAX_PAGE_NUMBER } from '../../../config.js';
 import { TOOL_NAMES } from '../../toolMetadata/proxies.js';
 import { createSuccessResult, createErrorResult } from '../../utils.js';
 import { fetchReleases } from '../../../github/releases.js';
@@ -21,8 +22,7 @@ export async function handleReleasesMode(
     owner?: string;
     repo?: string;
     page?: number;
-    itemsPerPage?: number;
-    limit?: number;
+    pageSize?: number;
     includeAssets?: boolean;
   };
   if (!q.owner || !q.repo) {
@@ -31,16 +31,7 @@ export async function handleReleasesMode(
       query
     );
   }
-  // Releases have no discovery-search, so `itemsPerPage` (the view/page-size
-  // field shared with the other modes) is the single knob; it feeds GitHub's
-  // per_page for the release list.
-  // `limit` is an alias for the page size; prefer it only when explicitly present
-  // in the raw query. parsedData may carry a defaulted `limit` from the unified PR
-  // schema, which must not override an explicit itemsPerPage.
-  const rawLimit = (query as { limit?: unknown }).limit;
-  const pageSize =
-    Number(typeof rawLimit === 'number' ? rawLimit : q.itemsPerPage) ||
-    RELEASES_PAGE_SIZE_DEFAULT;
+  const pageSize = Number(q.pageSize) || RELEASES_PAGE_SIZE_DEFAULT;
   const result = await fetchReleases(
     {
       owner: q.owner,
@@ -63,9 +54,32 @@ export async function handleReleasesMode(
   // back a ready-made continuation when there's another page, matching the
   // next-hint convention other modes of this tool already use.
   const nextPage = result.data.pagination?.nextPage;
+  const hasMore = result.data.pagination?.hasMore === true;
+  const terminalReason =
+    hasMore && (nextPage === undefined || nextPage > MAX_PAGE_NUMBER)
+      ? nextPage === undefined
+        ? { reason: 'missingProviderCursor' as const }
+        : {
+            reason: 'schemaPageLimit' as const,
+            maxPage: MAX_PAGE_NUMBER,
+          }
+      : undefined;
+  const terminalPagination = {
+    ...(result.data.pagination as Record<string, unknown> | undefined),
+  };
+  delete terminalPagination.nextPage;
   const dataWithNext = {
     ...(result.data as unknown as Record<string, unknown>),
-    ...(nextPage !== undefined
+    ...(terminalReason
+      ? {
+          terminalLimit: true,
+          pagination: {
+            ...terminalPagination,
+            continuationUnavailable: terminalReason,
+          },
+        }
+      : {}),
+    ...(nextPage !== undefined && nextPage <= MAX_PAGE_NUMBER
       ? {
           next: {
             nextPage: {
@@ -74,7 +88,8 @@ export async function handleReleasesMode(
                 owner: q.owner,
                 repo: q.repo,
                 page: nextPage,
-                itemsPerPage: pageSize,
+                pageSize,
+                ...(q.includeAssets === true ? { includeAssets: true } : {}),
               },
               why: 'Fetch the next page of releases',
               confidence: 'exact',

@@ -177,6 +177,29 @@ const BASE_ARGS = {
 } as const;
 
 describe('buildStructureResult', () => {
+  it('turns provider tree truncation into an explicit terminal partial result', () => {
+    const result = buildStructureResult({
+      ...BASE_ARGS,
+      incompleteTree: true,
+    });
+    expect(result).toMatchObject({
+      isPartial: true,
+      terminalLimit: true,
+      partialReasons: ['providerTreeTruncated'],
+    });
+  });
+
+  it('marks recursive subtree failures as retryable partial results', () => {
+    const result = buildStructureResult({
+      ...BASE_ARGS,
+      partialTreeFailures: 2,
+    });
+    expect(result).toMatchObject({
+      isPartial: true,
+      partialReasons: ['partialTreeFailures'],
+    });
+    expect(result.terminalLimit).toBeUndefined();
+  });
   it('returns owner/repo/branch in the result', () => {
     const result = buildStructureResult(BASE_ARGS);
     expect(result.owner).toBe('facebook');

@@ -1,4 +1,8 @@
-import { PR_CONTENT_DEFAULT_ITEMS_PER_PAGE } from '../../../config.js';
+import {
+  MAX_PAGE_NUMBER,
+  PR_CONTENT_DEFAULT_ITEMS_PER_PAGE,
+} from '../../../config.js';
+import { publicPullRequestContinuationQuery } from '../historyContinuations.js';
 
 export type QueryLike = {
   owner?: string;
@@ -8,11 +12,13 @@ export type QueryLike = {
   filePage?: number;
   commentPage?: number;
   commitPage?: number;
-  itemsPerPage?: number;
+  pageSize?: number;
   charOffset?: number;
   commentBodyOffset?: number;
   charLength?: number;
   matchString?: string;
+  content?: Record<string, unknown>;
+  type?: string;
 };
 
 export function matchStringNeedle(query: QueryLike): string | undefined {
@@ -33,6 +39,11 @@ export type Pagination = {
   totalItems: number;
   hasMore: boolean;
   nextPage?: number;
+  terminalLimit?: boolean;
+  continuationUnavailable?: {
+    reason: 'schemaPageLimit';
+    maxPage: number;
+  };
 };
 
 export type TextPagination = {
@@ -83,7 +94,18 @@ export function paginateItems<T>(
       itemsPerPage: safePerPage,
       totalItems,
       hasMore: currentPage < totalPages,
-      ...(currentPage < totalPages ? { nextPage: currentPage + 1 } : {}),
+      ...(currentPage < totalPages && currentPage < MAX_PAGE_NUMBER
+        ? { nextPage: currentPage + 1 }
+        : {}),
+      ...(currentPage < totalPages && currentPage >= MAX_PAGE_NUMBER
+        ? {
+            terminalLimit: true,
+            continuationUnavailable: {
+              reason: 'schemaPageLimit' as const,
+              maxPage: MAX_PAGE_NUMBER,
+            },
+          }
+        : {}),
     },
   };
 }
@@ -118,9 +140,10 @@ export function compactBody(value: unknown, max = 500): string | undefined {
 
 export function baseQuery(query: QueryLike, prNumber: number) {
   return {
+    operation: 'pullRequest',
     owner: query.owner,
     repo: query.repo,
-    prNumber,
+    number: prNumber,
   };
 }
 
@@ -137,7 +160,11 @@ export function continuationQuery(
   prNumber: number,
   patch: Record<string, unknown>
 ): Record<string, unknown> {
-  return compactQuery({ ...baseQuery(query, prNumber), ...patch });
+  return publicPullRequestContinuationQuery(
+    query as Record<string, unknown>,
+    prNumber,
+    patch
+  );
 }
 
 export function textContinuationQuery(
@@ -173,7 +200,7 @@ export function pageContinuationQuery(
   return continuationQuery(query, prNumber, {
     content,
     [pageKey]: pagination.nextPage,
-    itemsPerPage: query.itemsPerPage,
+    pageSize: query.pageSize,
   });
 }
 

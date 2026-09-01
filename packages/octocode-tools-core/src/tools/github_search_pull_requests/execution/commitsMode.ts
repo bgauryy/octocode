@@ -1,5 +1,5 @@
 import type { AuthInfo } from '@modelcontextprotocol/server';
-import { TOOL_NAMES } from '../../toolMetadata/proxies.js';
+import { GITHUB_SEARCH_HISTORY_TOOL_NAME } from '../../toolNames.js';
 import { createSuccessResult, createErrorResult } from '../../utils.js';
 import { fetchHistory } from '../../../github/history.js';
 import { compareRefs } from '../../../github/compare.js';
@@ -14,7 +14,8 @@ import type {
 export async function handleCommitsMode(
   query: GitHubPullRequestSearchInput,
   parsedData: GitHubPullRequestSearchQuery | undefined,
-  authInfo: AuthInfo | undefined
+  authInfo: AuthInfo | undefined,
+  toolName = GITHUB_SEARCH_HISTORY_TOOL_NAME
 ): Promise<ProcessedBulkResult> {
   const q = parsedData as {
     type?: string;
@@ -30,8 +31,7 @@ export async function handleCommitsMode(
     until?: string;
     page?: number;
     filePage?: number;
-    itemsPerPage?: number;
-    limit?: number;
+    pageSize?: number;
     includeDiff?: boolean;
     charOffset?: number;
     charLength?: number;
@@ -46,7 +46,6 @@ export async function handleCommitsMode(
 
   // Compare mode: base+head diffs two refs instead of walking history.
   if (q.base && q.head) {
-    const compareRawLimit = (query as { limit?: unknown }).limit;
     const compare = await compareRefs(
       {
         owner: q.owner,
@@ -58,10 +57,7 @@ export async function handleCommitsMode(
         // large commit is searchable-by-path and windowed, not one big dump.
         path: q.path,
         filePage: typeof q.filePage === 'number' ? q.filePage : undefined,
-        itemsPerPage:
-          typeof compareRawLimit === 'number'
-            ? compareRawLimit
-            : q.itemsPerPage,
+        itemsPerPage: q.pageSize,
         charOffset: typeof q.charOffset === 'number' ? q.charOffset : undefined,
         charLength: typeof q.charLength === 'number' ? q.charLength : undefined,
       },
@@ -69,14 +65,52 @@ export async function handleCommitsMode(
     );
     if (isGitHubAPIError(compare)) {
       return createErrorResult(compare, query, {
-        toolName: TOOL_NAMES.GITHUB_COMMITS,
+        toolName,
       });
+    }
+    const compareData = compare.data as unknown as Record<string, unknown>;
+    const filesPagination = compare.data.filesPagination;
+    const firstPatch = compare.data.files?.find(
+      file => typeof file.patchPagination?.nextCharOffset === 'number'
+    );
+    const next: Record<string, unknown> = {};
+    const publicQuery = {
+      operation: 'compare',
+      owner: q.owner,
+      repo: q.repo,
+      base: q.base,
+      head: q.head,
+      ...(q.includeDiff ? { includeDiff: true } : {}),
+      ...(q.path ? { path: q.path } : {}),
+      ...(q.filePage === undefined ? {} : { filePage: q.filePage }),
+      ...(q.pageSize === undefined ? {} : { pageSize: q.pageSize }),
+      ...(q.charOffset === undefined ? {} : { charOffset: q.charOffset }),
+      ...(q.charLength === undefined ? {} : { charLength: q.charLength }),
+    };
+    if (typeof filesPagination?.nextFilePage === 'number') {
+      next.nextFilePage = {
+        tool: 'ghGetHistoryItem',
+        query: { ...publicQuery, filePage: filesPagination.nextFilePage },
+        why: 'Continue the changed-file list.',
+        confidence: 'exact',
+      };
+    }
+    if (typeof firstPatch?.patchPagination?.nextCharOffset === 'number') {
+      next.continuePatch = {
+        tool: 'ghGetHistoryItem',
+        query: {
+          ...publicQuery,
+          charOffset: firstPatch.patchPagination.nextCharOffset,
+        },
+        why: 'Continue the current patch window.',
+        confidence: 'exact',
+      };
     }
     return createSuccessResult(
       query,
-      compare.data as unknown as Record<string, unknown>,
+      Object.keys(next).length > 0 ? { ...compareData, next } : compareData,
       compare.data.totalCommits > 0 || compare.data.status !== 'identical',
-      TOOL_NAMES.GITHUB_COMMITS
+      toolName
     );
   }
 
@@ -91,13 +125,6 @@ export async function handleCommitsMode(
     );
   }
 
-  // `limit` is an alias for the commits-per-page size; prefer it only when it is
-  // explicitly present in the raw query. parsedData may carry a defaulted `limit`
-  // from the unified PR schema, which must not override an explicit itemsPerPage.
-  const rawLimit = (query as { limit?: unknown }).limit;
-  const effectivePerPage =
-    typeof rawLimit === 'number' ? rawLimit : q.itemsPerPage;
-
   const result = await fetchHistory(
     {
       type: historyType,
@@ -110,12 +137,9 @@ export async function handleCommitsMode(
       author: q.author,
       committer: q.committer,
       page: Number(q.page) || 1,
-      // itemsPerPage is the agent-facing commits-per-page field; it feeds the
-      // GitHub per_page for the commit list.
-      perPage: Number(effectivePerPage) || 30,
+      perPage: Number(q.pageSize) || 30,
       filePage: typeof q.filePage === 'number' ? q.filePage : undefined,
-      itemsPerPage:
-        typeof effectivePerPage === 'number' ? effectivePerPage : undefined,
+      itemsPerPage: typeof q.pageSize === 'number' ? q.pageSize : undefined,
       includeDiff: Boolean(q.includeDiff),
       charOffset: typeof q.charOffset === 'number' ? q.charOffset : undefined,
       charLength: typeof q.charLength === 'number' ? q.charLength : undefined,
@@ -125,7 +149,7 @@ export async function handleCommitsMode(
 
   if (isGitHubAPIError(result)) {
     return createErrorResult(result, query, {
-      toolName: TOOL_NAMES.GITHUB_COMMITS,
+      toolName,
     });
   }
 
@@ -134,7 +158,7 @@ export async function handleCommitsMode(
 
   // Commit headlines reference their PR as "(#N)" — hand the agent a
   // ready-made PR lookup for the first referenced PR instead of
-  // making it build the type:"prs" call manually.
+  // making it build the exact-item call manually.
   const prRef = commits
     .map(c => c.messageHeadline?.match(/\(#(\d+)\)/)?.[1])
     .find(Boolean);
@@ -153,11 +177,12 @@ export async function handleCommitsMode(
       ? {
           next: {
             prDetail: {
-              tool: 'ghSearchPullRequests',
+              tool: 'ghGetHistoryItem',
               query: {
+                operation: 'pullRequest',
                 owner: q.owner,
                 repo: q.repo,
-                prNumber: Number(prRef),
+                number: Number(prRef),
               },
               why: `Open PR #${prRef} referenced by the first commit for review context`,
               confidence: 'low',
@@ -167,14 +192,8 @@ export async function handleCommitsMode(
       : {}),
   };
 
-  return createSuccessResult(
-    query,
-    dataWithNext,
-    hasContent,
-    TOOL_NAMES.GITHUB_COMMITS,
-    {
-      rawResponse: result.rawResponseChars,
-    }
-  );
+  return createSuccessResult(query, dataWithNext, hasContent, toolName, {
+    rawResponse: result.rawResponseChars,
+  });
 }
 // --- end commits mode ---

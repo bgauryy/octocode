@@ -42,13 +42,28 @@ export type FileContentNextMap = {
     tool: 'ghGetFileContent';
     query: Record<string, unknown>;
   };
+  continueLines?: {
+    tool: 'ghGetFileContent';
+    query: Record<string, unknown>;
+    why: string;
+    confidence: 'exact';
+  };
   cloneForSemantics?: {
     tool: 'ghCloneRepo';
     query: Record<string, unknown>;
     why: string;
     confidence: 'exact';
   };
+  escalateToClone?: {
+    tool: 'ghCloneRepo';
+    query: Record<string, unknown>;
+    why: string;
+    confidence: 'exact';
+  };
 };
+
+export type DirectoryPartialReason =
+  keyof NonNullable<DirectoryEntry['skipped']> | 'providerDirectoryIncomplete';
 
 export type DirectoryEntry = {
   path: string;
@@ -83,4 +98,8 @@ export type DirectoryEntry = {
   files?: Array<{ path: string; size: number; type: string }>;
   cached?: boolean;
   resolvedBranch?: string;
+  isPartial?: boolean;
+  terminalLimit?: boolean;
+  partialReasons?: DirectoryPartialReason[];
+  next?: Pick<FileContentNextMap, 'escalateToClone'>;
 };

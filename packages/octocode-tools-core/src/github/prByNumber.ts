@@ -46,7 +46,6 @@ export async function fetchGitHubPullRequestByNumberAPI(
       repo: params.repo,
       prNumber: params.prNumber,
       content: params.content,
-      reviewMode: params.reviewMode,
       auth,
     },
     sessionId

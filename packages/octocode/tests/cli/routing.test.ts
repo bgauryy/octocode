@@ -5,7 +5,6 @@ import {
   isGithubRef,
   isLocalRef,
   refLabel,
-  cloneCommandFor,
   type GithubRef,
 } from '../../src/cli/routing.js';
 
@@ -58,8 +57,8 @@ describe('resolveRef — GitHub ref parsing', () => {
     });
   });
 
-  // Regression: the form documented in top-level help and emitted by
-  // refLabel/cloneCommandFor — branch trailing after the subpath. Previously
+  // Regression: the form emitted by refLabel — branch trailing after the
+  // subpath. Previously
   // this mis-parsed "path@branch" into the subpath with no branch.
   it('parses owner/repo/path@branch (trailing branch)', () => {
     const ref = gh('facebook/react/packages/react@main');
@@ -106,20 +105,10 @@ describe('resolveRef — GitHub ref parsing', () => {
     });
   });
 
-  it('round-trips refLabel/cloneCommandFor output back through the parser', () => {
+  it('round-trips refLabel output back through the parser', () => {
     const original = gh('facebook/react/packages/react@main');
     const reparsed = gh(refLabel(original));
     expect(reparsed).toMatchObject({
-      owner: original.owner,
-      repo: original.repo,
-      subpath: original.subpath,
-      branch: original.branch,
-    });
-    // cloneCommandFor prefixes "clone "; the ref portion must also re-parse.
-    const cloneCmd = cloneCommandFor(original);
-    expect(cloneCmd.startsWith('clone ')).toBe(true);
-    const reparsedFromClone = gh(cloneCmd.slice('clone '.length));
-    expect(reparsedFromClone).toMatchObject({
       owner: original.owner,
       repo: original.repo,
       subpath: original.subpath,

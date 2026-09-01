@@ -5,7 +5,7 @@ import {
   LocalViewStructureQuerySchema,
 } from '../../../src/tools/local_view_structure/scheme.js';
 
-describe('localViewStructure schema', () => {
+describe('local.tree schema', () => {
   const baseQuery = { path: '/repo' };
 
   it('accepts the entryType enum values (f / d)', () => {

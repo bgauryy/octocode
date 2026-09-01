@@ -1,13 +1,11 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { mkdtemp, rm, writeFile } from 'fs/promises';
-import { tmpdir, homedir } from 'os';
 import { join } from 'path';
 
 import { fetchContent } from '../../../src/tools/local_fetch_content/fetchContent.js';
 
-// The global pathValidator allows HOME by default, so create the fixture under
-// HOME rather than the OS temp dir (which is outside allowed roots on macOS).
-const ROOT = process.env.HOME || homedir() || tmpdir();
+// Keep fixtures inside the package workspace for sandboxed verification.
+const ROOT = process.cwd();
 
 describe('fetchContent large-file gate applies to raw reads only', () => {
   let dir: string;

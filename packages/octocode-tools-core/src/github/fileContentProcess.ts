@@ -140,16 +140,14 @@ export async function processFileContentAPI(
         ...sourceSizeFields(sourceChars, sourceBytes),
         matchNotFound: true,
         searchedFor: matchString,
-        hints: [
-          `Invalid regex "${matchString}". Check syntax (e.g. escape backslashes: "\\\\w+" not "\\w+") or disable matchStringIsRegex=false for a literal search.`,
-        ],
+        hints: ['Fix the regex or set matchStringIsRegex:false for a literal.'],
       } as GitHubFileContentApiResult;
     }
 
     if (extraction.matchCount === 0) {
       const notFoundHints = matchStringIsRegex
         ? [
-            `Regex "${matchString}" matched no lines. Verify the pattern, check flags (case-${isCaseSensitive ? 'sensitive' : 'insensitive'}), or use fullContent=true to inspect the file.`,
+            `No lines matched "${matchString}" (case-${isCaseSensitive ? 'sensitive' : 'insensitive'}). Check the pattern or use fullContent:true.`,
           ]
         : [
             `"${matchString}" not found in file${isCaseSensitive ? ' (case-sensitive)' : ''}. Try matchStringIsRegex=true for pattern matching, broaden the search, or use fullContent=true.`,
@@ -176,7 +174,8 @@ export async function processFileContentAPI(
     endLine = lastRange.end;
     actualStartLine = firstRange.start;
     actualEndLine = lastRange.end;
-    isPartial = true;
+    // matchString is a complete selector: every match is returned with context.
+    isPartial = false;
     // Always emit matchRanges — startLine/endLine include ±context lines, so
     // for a single match they do NOT pinpoint the matched line; without this
     // the only structured lineHint anchor for lspGetSemantics is lost.
@@ -220,7 +219,8 @@ export async function processFileContentAPI(
 
       actualStartLine = adjustedStartLine;
       actualEndLine = adjustedEndLine;
-      isPartial = true;
+      // A range clamped to EOF has no forward page left to retrieve.
+      isPartial = adjustedEndLine < totalLines;
 
       finalContent = selectedLines.join('\n');
 

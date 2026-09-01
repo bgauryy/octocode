@@ -4,6 +4,7 @@ import { isCloneEnabled } from '../../../serverConfig.js';
 import { classifyFileType } from '../../../utils/file/configFiles.js';
 import type {
   DirectoryEntry,
+  DirectoryPartialReason,
   FileContentNextMap,
   FileEntry,
   PartialFileContentQuery,
@@ -105,17 +106,56 @@ function buildContinueChars(
   pagination: PaginationInfo | undefined,
   query: PartialFileContentQuery
 ): FileContentNextMap | undefined {
+  const {
+    goal: _goal,
+    reasoning: _reasoning,
+    charOffset: _charOffset,
+    ...continuationQuery
+  } = query as PartialFileContentQuery & Record<string, unknown>;
   return buildContinueCharsContinuation(
     'ghGetFileContent',
     {
+      ...continuationQuery,
+      charLength: pagination?.charLength ?? query.charLength,
+    },
+    pagination
+  ) as FileContentNextMap | undefined;
+}
+
+function buildContinueLines(
+  data: Record<string, unknown>,
+  query: PartialFileContentQuery
+): FileContentNextMap['continueLines'] | undefined {
+  if (query.matchString !== undefined) return undefined;
+  const startLine = readNumber(data.startLine);
+  const endLine = readNumber(data.endLine);
+  const totalLines = readNumber(data.totalLines);
+  if (
+    data.isPartial !== true ||
+    startLine === undefined ||
+    endLine === undefined ||
+    totalLines === undefined ||
+    endLine >= totalLines
+  ) {
+    return undefined;
+  }
+  const windowSize = Math.max(1, endLine - startLine + 1);
+  const nextStartLine = endLine + 1;
+  const nextEndLine = Math.min(totalLines, endLine + windowSize);
+  return {
+    tool: 'ghGetFileContent',
+    query: {
       owner: query.owner,
       repo: query.repo,
       ...(query.branch !== undefined ? { branch: query.branch } : {}),
       path: query.path,
+      startLine: nextStartLine,
+      endLine: nextEndLine,
       ...(query.minify !== undefined ? { minify: query.minify } : {}),
     },
-    pagination
-  ) as FileContentNextMap | undefined;
+    why: `Continue the file at lines ${nextStartLine}-${nextEndLine}.`,
+    confidence: 'exact',
+  };
 }
 
 // This was the ONLY fetch/search tool that could emit zero next-hints (a
@@ -133,7 +173,31 @@ function buildCloneForSemanticsHint(
       ...(query.branch !== undefined ? { branch: query.branch } : {}),
       sparsePath: query.path,
     },
-    why: 'lspGetSemantics (definitions/references) only works on local files — clone this path locally, then run localSearchCode or lspGetSemantics on it',
+    why: 'lspGetSemantics (definitions/references) only works on local files — clone this path locally, then run localSearch or lspGetSemantics on it',
+    confidence: 'exact',
+  };
+}
+
+function cloneHintEnabled(): boolean {
+  try {
+    return isCloneEnabled();
+  } catch {
+    return false;
+  }
+}
+
+function buildCloneForCompletenessHint(
+  query: PartialFileContentQuery
+): NonNullable<DirectoryEntry['next']>['escalateToClone'] {
+  return {
+    tool: 'ghCloneRepo',
+    query: {
+      owner: query.owner,
+      repo: query.repo,
+      ...(query.branch !== undefined ? { branch: query.branch } : {}),
+      sparsePath: query.path,
+    },
+    why: 'Clone this directory to retrieve content omitted by remote directory-fetch limits or failures.',
     confidence: 'exact',
   };
 }
@@ -146,15 +210,13 @@ export function readFileEntry(
   // Only offer the ghCloneRepo bridge when clone is actually enabled —
   // otherwise the hint names a tool that isn't registered in this session.
   // Fail-safe: an uninitialized config must suppress the hint, never throw.
-  let cloneHintEnabled = false;
-  try {
-    cloneHintEnabled = isCloneEnabled();
-  } catch {
-    cloneHintEnabled = false;
-  }
+  const canClone = cloneHintEnabled();
+  const continueLines =
+    pagination?.hasMore === true ? undefined : buildContinueLines(data, query);
   const next: FileContentNextMap = {
     ...buildContinueChars(pagination, query),
-    ...(cloneHintEnabled
+    ...(continueLines ? { continueLines } : {}),
+    ...(canClone
       ? { cloneForSemantics: buildCloneForSemanticsHint(query) }
       : {}),
   };
@@ -231,6 +293,15 @@ export function readDirectoryEntry(
     skippedSummaryEntries.length > 0
       ? Object.fromEntries(skippedSummaryEntries)
       : undefined;
+  const incomplete = data.complete === false;
+  const partialReasons: DirectoryPartialReason[] = incomplete
+    ? skippedSummaryEntries.length > 0
+      ? skippedSummaryEntries.map(
+          ([reason]) => reason as DirectoryPartialReason
+        )
+      : ['providerDirectoryIncomplete']
+    : [];
+  const canClone = incomplete && cloneHintEnabled();
 
   return {
     path: String(query.path ?? ''),
@@ -254,5 +325,18 @@ export function readDirectoryEntry(
     ...(files.length > 0 ? { files } : {}),
     ...(data.cached === true ? { cached: true } : {}),
     resolvedBranch: readString(data.resolvedBranch),
+    ...(incomplete
+      ? {
+          isPartial: true,
+          partialReasons,
+          ...(canClone
+            ? {
+                next: {
+                  escalateToClone: buildCloneForCompletenessHint(query),
+                },
+              }
+            : { terminalLimit: true }),
+        }
+      : {}),
   };
 }

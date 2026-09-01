@@ -14,6 +14,7 @@ import type { formatCallToolResultForOutput } from '@octocodeai/octocode-tools-c
 import {
   TOOL_DEFINITIONS,
   findToolDefinition,
+  getToolEnableInstruction,
   getOptionalToolMetadata,
 } from './registry.js';
 import { getInputText, validateRawToolFootguns } from './input.js';
@@ -108,7 +109,17 @@ export async function executeToolCommand(args: ParsedArgs): Promise<boolean> {
   const toolName =
     typeof maybeToolName === 'string' ? maybeToolName : undefined;
 
-  if (!toolName || toolName === 'list' || args.options.list === true) {
+  if (args.options.list !== undefined) {
+    printToolCommandError(
+      args,
+      toolName,
+      'Unsupported tools option: --list. Run `tools` to list the catalog.'
+    );
+    process.exitCode = EXIT.USAGE;
+    return false;
+  }
+
+  if (!toolName) {
     if (args.options.json === true) {
       await printToolCatalogJson({
         full: args.options.full === true,
@@ -180,10 +191,11 @@ export async function executeToolCommand(args: ParsedArgs): Promise<boolean> {
   }
 
   if (tool.disabled) {
+    const instruction = getToolEnableInstruction(tool.name);
     printToolCommandError(
       args,
       tool.name,
-      `Tool '${tool.name}' is disabled — set ${tool.disabled.envVar}=1 to enable it.`
+      `Tool '${tool.name}' is disabled${instruction ? ` — ${instruction}.` : '.'}`
     );
     process.exitCode = EXIT.NOT_FOUND;
     return false;

@@ -26,7 +26,7 @@ describe('buildViewStructureNextMap', () => {
       path: '/repo/src/index.ts',
       minify: 'standard',
     });
-    expect(map?.viewDeeper?.tool).toBe('localViewStructure');
+    expect(map?.viewDeeper?.tool).toBe('local.tree');
     expect(map?.viewDeeper?.query).toEqual({ path: '/repo/src/utils' });
     for (const k of ['id', 'researchGoal', 'mainResearchGoal', 'reasoning']) {
       expect(map?.fetch?.query).not.toHaveProperty(k);

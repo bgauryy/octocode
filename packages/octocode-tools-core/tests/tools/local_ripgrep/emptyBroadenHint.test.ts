@@ -18,7 +18,7 @@ afterEach(async () => {
  * somewhere useful (looser case/regex, wider path), not leave the caller at a
  * bare `status:"empty"` with stats only.
  */
-describe('localSearchCode honest-empty broaden hint', () => {
+describe('local.text honest-empty broaden hint', () => {
   it('a zero-match search carries an actionable broaden hint', async () => {
     const dir = await mkdtemp(join(process.cwd(), '.tmp-rg-empty-'));
     tempDirs.push(dir);

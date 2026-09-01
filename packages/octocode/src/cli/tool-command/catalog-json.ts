@@ -2,16 +2,14 @@
 // all-tool schema dump, and a single tool's schema.
 import {
   buildDirectToolCommandPatterns,
-  formatDirectToolOutputSchemaText,
   formatDirectToolSchemaText,
   getDirectToolAutoFilledFields,
   getDirectToolCategory,
   getDirectToolDescription,
   getDirectToolDisplayFields,
-  getDirectToolOutputFields,
+  getDirectToolVariantDisplayFields,
   getDirectToolSchemaRelations,
   getDirectToolSchemaVariants,
-  sortDirectToolNames,
 } from '@octocodeai/octocode-tools-core/schema';
 import {
   TOOL_DEFINITIONS,
@@ -27,6 +25,7 @@ import {
   getToolPreviewLines,
   getToolSchemaGuidance,
 } from './formatting.js';
+import { AGENT_TOOL_COMMANDS } from './agent-contract.js';
 
 type ToolCatalogJsonOptions = {
   full?: boolean;
@@ -65,6 +64,72 @@ function formatCompactField(
   return `${field.name}${marker}:${field.type}${field.constraints ? ` ${field.constraints}` : ''}`;
 }
 
+function scopeCompactSchema(
+  fields: ReturnType<typeof formatToolFieldsJson>,
+  variants: ReturnType<typeof getDirectToolSchemaVariants>,
+  variantFields: ReturnType<typeof getDirectToolVariantDisplayFields>
+) {
+  if (
+    variants.length < 2 ||
+    variants.some(variant => !variant.fields || variant.fields.length === 0)
+  ) {
+    return { fields, variants };
+  }
+
+  const sharedNames = variants
+    .slice(1)
+    .reduce(
+      (names, variant) =>
+        new Set([...names].filter(name => variant.fields!.includes(name))),
+      new Set(variants[0]!.fields)
+    );
+  const typedByVariant = new Map(
+    variants.map(variant => [
+      variant.name,
+      (variantFields[variant.name]?.length
+        ? variantFields[variant.name]
+        : fields.filter(field =>
+            variant.fields!.some(
+              parent =>
+                field.name === parent || field.name.startsWith(`${parent}.`)
+            )
+          )
+      ).map(field => ({
+        ...field,
+        required: field.required || variant.requires.includes(field.name),
+      })),
+    ])
+  );
+  const common = new Set(
+    [...sharedNames].filter(name => {
+      const rendered = variants.map(variant =>
+        typedByVariant.get(variant.name)?.find(field => field.name === name)
+      );
+      return (
+        rendered.every(Boolean) &&
+        new Set(rendered.map(field => formatCompactField(field!))).size === 1
+      );
+    })
+  );
+  const scoped = new Set(variants.flatMap(variant => variant.fields ?? []));
+  const isScoped = (name: string): boolean =>
+    [...scoped].some(
+      parent => name === parent || name.startsWith(`${parent}.`)
+    );
+
+  return {
+    fields: fields.filter(
+      field => !isScoped(field.name) || common.has(field.name)
+    ),
+    variants: variants.map(variant => ({
+      ...variant,
+      fields: (typedByVariant.get(variant.name) ?? [])
+        .filter(field => !common.has(field.name))
+        .map(formatCompactField),
+    })),
+  };
+}
+
 function compactRunCommand(toolName: string): string {
   return `${formatToolExampleCommand(toolName)} --compact`;
 }
@@ -73,9 +138,7 @@ export async function printToolCatalogJson(
   options: ToolCatalogJsonOptions = {}
 ): Promise<void> {
   const metadata = await getOptionalToolMetadata();
-  const toolNames = sortDirectToolNames(
-    TOOL_DEFINITIONS.map(tool => tool.name)
-  );
+  const toolNames = TOOL_DEFINITIONS.map(tool => tool.name);
 
   if (!options.full) {
     const catalog = {
@@ -86,13 +149,14 @@ export async function printToolCatalogJson(
         'results[].{index,status?,meta,data?}; tool payload and continuations are row-local under data',
       commands: {
         fullCatalog: 'tools --json --full',
-        schema: 'tools <name> --scheme --json',
-        run: "tools <name> --queries '<json>' --compact",
+        schema: AGENT_TOOL_COMMANDS.schema,
+        fullSchema: AGENT_TOOL_COMMANDS.fullSchema,
+        run: AGENT_TOOL_COMMANDS.run,
       },
       tools: toolNames.map(toolName => ({
         name: toolName,
         category: getDirectToolCategory(toolName),
-        description: formatConciseToolDescription(toolName, metadata),
+        description: formatConciseToolDescription(toolName, metadata, 38),
         fields: formatRequiredFields(toolName),
         availability: getToolAvailability(toolName),
         ...(getToolPreviewLines(toolName).length > 0
@@ -118,11 +182,11 @@ export async function printToolCatalogJson(
     commands: {
       list: 'tools --json',
       leanCatalog: 'tools --json --compact',
-      schema: 'tools <name> --scheme --json',
+      schema: AGENT_TOOL_COMMANDS.fullSchema,
       compactSchema: 'tools <name> --scheme --json --compact',
       humanSchema: 'tools <name> --scheme',
-      runCompact: "tools <name> --queries '<json>' --compact",
-      runEnvelope: "tools <name> --queries '<json>' --json",
+      runCompact: AGENT_TOOL_COMMANDS.run,
+      runEnvelope: AGENT_TOOL_COMMANDS.runEnvelope,
     },
     tools: toolNames.map(toolName => {
       const fullDescription = getDirectToolDescription(toolName, metadata);
@@ -136,7 +200,6 @@ export async function printToolCatalogJson(
         fullDescription,
         availability: getToolAvailability(toolName),
         inputSchema: JSON.parse(formatDirectToolSchemaText(toolName)),
-        outputSchema: JSON.parse(formatDirectToolOutputSchemaText(toolName)),
         fields: formatToolFieldsJson(toolName),
         ...(relations.length > 0 ? { relations } : {}),
         ...(getDirectToolSchemaVariants(toolName).length > 0
@@ -203,6 +266,11 @@ async function buildToolSchemaJson(
   const variants = getDirectToolSchemaVariants(tool.name);
 
   if (options.compact) {
+    const compactSchema = scopeCompactSchema(
+      fields,
+      variants,
+      getDirectToolVariantDisplayFields(tool.name)
+    );
     return {
       kind: 'octocode.toolSchema.compact',
       version: 1,
@@ -210,10 +278,11 @@ async function buildToolSchemaJson(
       category: getDirectToolCategory(tool.name),
       description: formatConciseToolDescription(tool.name, metadata, 160),
       availability: getToolAvailability(tool.name),
-      fields: fields.map(formatCompactField),
-      output: getDirectToolOutputFields(tool.name),
+      fields: compactSchema.fields.map(formatCompactField),
       ...(relations.length > 0 ? { relations } : {}),
-      ...(variants.length > 0 ? { variants } : {}),
+      ...(compactSchema.variants.length > 0
+        ? { variants: compactSchema.variants }
+        : {}),
       ...(guidance.length > 0 ? { guidance } : {}),
       commands: {
         full: `tools ${tool.name} --scheme --json`,
@@ -223,7 +292,6 @@ async function buildToolSchemaJson(
   }
 
   const inputSchema = JSON.parse(formatDirectToolSchemaText(tool.name));
-  const outputSchema = JSON.parse(formatDirectToolOutputSchemaText(tool.name));
   const commandPatterns = buildDirectToolCommandPatterns(tool.name);
   const autoFilledFields = getDirectToolAutoFilledFields(tool.name);
 
@@ -234,7 +302,6 @@ async function buildToolSchemaJson(
     category: getDirectToolCategory(tool.name),
     description: extractShortDescription(fullDescription),
     inputSchema,
-    outputSchema,
     fullDescription,
     availability: getToolAvailability(tool.name),
     fields,

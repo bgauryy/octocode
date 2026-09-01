@@ -10,6 +10,7 @@ import {
   createQueryShapeSchema,
   describeQuerySchema,
 } from '../../../scheme/coreSchemas.js';
+import { getRequiredSchemaField } from '../../../scheme/conditionalSchemas.js';
 import { SEMANTIC_CONTENT_TYPES } from '../shared/semanticTypes.js';
 import type {
   ItemPagination,
@@ -30,7 +31,7 @@ const queryOverrides = {
   depth: clampedInt(0, LOCAL_MAX_DEPTH).optional(),
   includeDeclaration: z.boolean().optional().default(true),
   page: relaxedPageNumberField,
-  itemsPerPage: clampedInt(1, 100).optional(),
+  pageSize: clampedInt(1, 100).optional(),
   contextLines: clampedInt(0, 100).optional(),
   format: z.enum(SEMANTIC_OUTPUT_FORMATS).optional().default('structured'),
 } as const;
@@ -39,6 +40,41 @@ const SemanticContentQueryShape = createQueryShapeSchema(
   CoreLspGetSemanticsQuerySchema,
   queryOverrides
 );
+
+const ANCHORED_SEMANTIC_TYPES = [
+  'definition',
+  'references',
+  'callers',
+  'callees',
+  'callHierarchy',
+  'hover',
+  'typeDefinition',
+  'implementation',
+  'supertypes',
+  'subtypes',
+] as const;
+const DOCUMENT_SEMANTIC_TYPES = ['documentSymbols', 'diagnostic'] as const;
+
+const anchoredSemanticQuerySchema = SemanticContentQueryShape.extend({
+  type: z.enum(ANCHORED_SEMANTIC_TYPES).optional(),
+  uri: getRequiredSchemaField(SemanticContentQueryShape.shape, 'uri'),
+  symbolName: getRequiredSchemaField(
+    SemanticContentQueryShape.shape,
+    'symbolName'
+  ),
+  lineHint: getRequiredSchemaField(SemanticContentQueryShape.shape, 'lineHint'),
+});
+const documentSemanticQuerySchema = SemanticContentQueryShape.extend({
+  type: z.enum(DOCUMENT_SEMANTIC_TYPES),
+  uri: getRequiredSchemaField(SemanticContentQueryShape.shape, 'uri'),
+});
+const workspaceSemanticQuerySchema = SemanticContentQueryShape.extend({
+  type: z.literal('workspaceSymbol'),
+  symbolName: getRequiredSchemaField(
+    SemanticContentQueryShape.shape,
+    'symbolName'
+  ),
+});
 
 export const LspGetSemanticsQueryDisplaySchema = describeQuerySchema(
   CoreLspGetSemanticsQuerySchema,
@@ -50,7 +86,11 @@ export const LspGetSemanticsQueryDisplaySchema = describeQuerySchema(
 export const LspGetSemanticsQuerySchema = LspGetSemanticsQueryDisplaySchema;
 
 export const BulkLspGetSemanticsQuerySchema = createRelaxedBulkQuerySchema(
-  SemanticContentQueryShape,
+  z.union([
+    anchoredSemanticQuerySchema,
+    documentSemanticQuerySchema,
+    workspaceSemanticQuerySchema,
+  ]),
   { maxQueries: 5 }
 );
 

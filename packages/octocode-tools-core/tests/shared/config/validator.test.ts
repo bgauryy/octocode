@@ -26,7 +26,7 @@ describe('config/validator', () => {
           allowedPaths: ['/home/user/projects'],
         },
         tools: {
-          enabled: ['ghSearchCode'],
+          enabled: ['github.code'],
           disabled: ['npmSearch'],
         },
         network: {
@@ -126,7 +126,7 @@ describe('config/validator', () => {
 
       it('rejects non-array enabled', () => {
         const result = validateConfig({
-          tools: { enabled: 'ghSearchCode' },
+          tools: { enabled: 'github.code' },
         });
         expect(result.valid).toBe(false);
         expect(result.errors.some(e => e.includes('tools.enabled'))).toBe(true);

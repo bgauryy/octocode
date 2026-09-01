@@ -946,7 +946,7 @@ export interface StructuralSearchFilesOptions {
   include?: Array<string>
   /**
    * File-path globs to skip (gitignore-style, e.g. `"*.min.js"`, `"src/gen/**"`).
-   * Mirrors `localSearchCode.exclude` so it is honored on the structural
+   * Mirrors local-search `exclude` so it is honored on the structural
    * lane too — previously silently dropped (typed-contract violation).
    */
   exclude?: Array<string>
@@ -958,7 +958,7 @@ export interface StructuralSearchFilesOptions {
   hidden?: boolean
   /**
    * Bypass `.gitignore`/`.ignore` rules. `None` preserves defaults; `Some(true)`
-   * searches files normally hidden by ignore files (mirrors `localSearchCode.noIgnore`).
+   * searches files normally hidden by ignore files (mirrors local-search `noIgnore`).
    */
   noIgnore?: boolean
   /** Maximum directory descent depth (0 = just the root). `None` = unbounded. */

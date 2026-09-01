@@ -75,5 +75,7 @@ describe('lspGetSemantics startup failures', () => {
     expect(row?.status).toBe('error');
     expect(row?.data?.error).toContain('startupFailed');
     expect(row?.data?.error).toContain('invalid server path');
+    expect(row?.data?.error).toContain('localSearch operation:"text"');
+    expect(row?.data?.error).not.toContain('local.text');
   });
 });

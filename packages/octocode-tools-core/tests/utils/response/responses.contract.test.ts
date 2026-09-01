@@ -20,6 +20,30 @@ describe('response YAML formatter contract', () => {
     resetContextUtilsNativeLoaderForTesting();
   });
 
+  it('accepts a nested continueChars call as the executable continuation for a partial remote file', () => {
+    const meta = buildToolResultMeta(
+      'ghGetFileContent',
+      {},
+      {
+        files: [
+          {
+            isPartial: true,
+            pagination: { hasMore: true },
+            next: {
+              continueChars: {
+                tool: 'ghGetFileContent',
+                query: { owner: 'o', repo: 'r', path: 'p', charOffset: 10 },
+              },
+            },
+          },
+        ],
+      }
+    );
+
+    expect(meta.diagnostics?.partial).toBe(true);
+    expect(meta.diagnostics?.codes ?? []).not.toContain('continuationMissing');
+  });
+
   it('passes priority keys to context-utils YAML serialization', () => {
     const calls: NonNullable<
       Parameters<NativeContextUtilsModule['jsonToYamlString']>[1]
@@ -53,7 +77,9 @@ describe('response YAML formatter contract', () => {
 
     expect(createResponseFormat({ results: [] })).toBe('results: []\n');
     expect(calls).toEqual([
-      { keysPriority: ['results', 'index', 'status', 'meta', 'data'] },
+      {
+        keysPriority: ['results', 'index', 'status', 'cache', 'meta', 'data'],
+      },
     ]);
   });
 
@@ -85,14 +111,153 @@ describe('response YAML formatter contract', () => {
       )
     ).toEqual({
       evidence: { kind: 'syntactic', confidence: 'medium' },
+      diagnostics: { partial: true, codes: ['continuationMissing'] },
+    });
+    expect(
+      buildToolResultMeta(
+        'localAnalyzeGraph',
+        { operation: 'dependencies' },
+        {
+          pagination: { hasMore: true },
+          next: {
+            nextPage: {
+              tool: 'localAnalyzeGraph',
+              query: { operation: 'dependencies', page: 2 },
+            },
+          },
+        }
+      )
+    ).toEqual({
+      evidence: { kind: 'syntactic', confidence: 'medium' },
       diagnostics: { partial: true },
+    });
+    expect(
+      buildToolResultMeta(
+        'ghGetFileContent',
+        {},
+        {
+          files: [
+            {
+              isPartial: true,
+              next: {
+                continueChars: {
+                  tool: 'ghGetFileContent',
+                  query: { owner: 'o', repo: 'r', path: 'p', charOffset: 200 },
+                },
+              },
+            },
+          ],
+        }
+      )
+    ).toEqual({
+      evidence: { kind: 'provider', confidence: 'medium' },
+      diagnostics: { partial: true },
+    });
+    expect(
+      buildToolResultMeta(
+        'ghGetHistoryItem',
+        {},
+        {
+          contentPagination: { body: { hasMore: true } },
+        }
+      )
+    ).toEqual({
+      evidence: { kind: 'provider', confidence: 'medium' },
+      diagnostics: { partial: true, codes: ['continuationMissing'] },
+    });
+    expect(
+      buildToolResultMeta(
+        'ghGetFileContent',
+        {},
+        {
+          complete: false,
+          next: {
+            viewStructure: {
+              tool: 'localSearch',
+              query: { operation: 'tree', path: '/tmp/repo' },
+            },
+          },
+        }
+      )
+    ).toEqual({
+      evidence: { kind: 'provider', confidence: 'medium' },
+      diagnostics: { partial: true, codes: ['continuationMissing'] },
+    });
+    expect(
+      buildToolResultMeta(
+        'ghSearch',
+        {},
+        {
+          pagination: { hasMore: true },
+          next: {
+            fetchFile: {
+              tool: 'ghGetFileContent',
+              query: { owner: 'o', repo: 'r', path: 'p' },
+            },
+          },
+        }
+      )
+    ).toEqual({
+      evidence: { kind: 'provider', confidence: 'medium' },
+      diagnostics: { partial: true, codes: ['continuationMissing'] },
+    });
+    expect(
+      buildToolResultMeta(
+        'localAnalyzeGraph',
+        { operation: 'cycles' },
+        { truncated: true, terminalLimit: true }
+      )
+    ).toEqual({
+      evidence: { kind: 'syntactic', confidence: 'medium' },
+      diagnostics: { partial: true, codes: ['terminalLimitReached'] },
+    });
+    expect(
+      buildToolResultMeta(
+        'ghGetFileContent',
+        {},
+        {
+          directories: [
+            {
+              complete: false,
+              isPartial: true,
+              next: {
+                escalateToClone: {
+                  tool: 'ghCloneRepo',
+                  query: { owner: 'o', repo: 'r', sparsePath: 'src' },
+                },
+              },
+            },
+          ],
+        }
+      )
+    ).toEqual({
+      evidence: { kind: 'provider', confidence: 'medium' },
+      diagnostics: { partial: true },
+    });
+    expect(
+      buildToolResultMeta(
+        'ghGetFileContent',
+        {},
+        {
+          directories: [
+            {
+              complete: false,
+              isPartial: true,
+              terminalLimit: true,
+            },
+          ],
+        }
+      )
+    ).toEqual({
+      evidence: { kind: 'provider', confidence: 'medium' },
+      diagnostics: { partial: true, codes: ['terminalLimitReached'] },
     });
     expect(
       buildToolResultMeta('lspGetSemantics', { type: 'references' }, {})
     ).toEqual({ evidence: { kind: 'semantic', confidence: 'high' } });
     expect(
       buildToolResultMeta(
-        'ghSearchCode',
+        'github.code',
         {},
         { errorCode: 'rateLimited', hints: ['retry later'] },
         'error'

@@ -8,92 +8,72 @@ import {
 } from '../../src/tools/directToolCatalog.meta.js';
 import {
   LSP_GET_SEMANTICS_TOOL_NAME,
+  LOCAL_SEARCH_TOOL_NAME,
   STATIC_TOOL_NAMES,
 } from '../../src/tools/toolNames.js';
 
 describe('direct-tool command patterns', () => {
-  it('uses workflow-aware patterns for localSearchCode conditional inputs', () => {
-    const patterns = buildDirectToolCommandPatterns(
-      STATIC_TOOL_NAMES.LOCAL_RIPGREP
-    );
+  it('uses operation-aware patterns for unified localSearch inputs', () => {
+    const patterns = buildDirectToolCommandPatterns(LOCAL_SEARCH_TOOL_NAME);
 
-    expect(patterns).toHaveLength(2);
+    expect(patterns).toHaveLength(4);
     expect(patterns[0]).toMatchObject({
-      label: 'text search',
+      label: 'text anchors',
       query: {
-        path: '/ABS/repo/packages/octocode-tools-core/src',
+        operation: 'text',
+        path: '/ABS/repo/src',
         searchText: 'buildDirectToolCommandPatterns',
         maxFiles: 20,
       },
     });
     expect(patterns[0]?.command).toBe(
-      'tools localSearchCode --queries \'{"path":"/ABS/repo/packages/octocode-tools-core/src","searchText":"buildDirectToolCommandPatterns","maxFiles":20}\''
+      'tools localSearch --queries \'{"operation":"text","path":"/ABS/repo/src","searchText":"buildDirectToolCommandPatterns","maxFiles":20}\''
     );
     expect(patterns[1]).toMatchObject({
-      label: 'structural code search',
+      label: 'structural matches',
       query: {
-        path: '/ABS/repo/packages/octocode-tools-core/src/tools',
-        mode: 'structural',
+        operation: 'structural',
+        path: '/ABS/repo/src',
         pattern: 'eval($X)',
+        langType: 'typescript',
       },
     });
-    expect(
-      buildDirectToolExampleQuery(STATIC_TOOL_NAMES.LOCAL_RIPGREP)
-    ).toEqual({
-      path: '/ABS/repo/packages/octocode-tools-core/src',
+    expect(patterns[2]?.query).toMatchObject({ operation: 'files' });
+    expect(patterns[3]?.query).toMatchObject({ operation: 'tree' });
+    expect(buildDirectToolExampleQuery(LOCAL_SEARCH_TOOL_NAME)).toEqual({
+      operation: 'text',
+      path: '/ABS/repo/src',
       searchText: 'buildDirectToolCommandPatterns',
       maxFiles: 20,
     });
   });
 
-  it('curates localViewStructure examples without schema placeholders', () => {
-    const patterns = buildDirectToolCommandPatterns(
-      STATIC_TOOL_NAMES.LOCAL_VIEW_STRUCTURE
-    );
+  it('uses one operation-aware pattern set for GitHub discovery', () => {
+    const patterns = buildDirectToolCommandPatterns('ghSearch');
 
     expect(patterns.map(pattern => pattern.label)).toEqual([
-      'shallow tree',
-      'files only at depth 1',
-    ]);
-    expect(patterns[0]?.query).toEqual({
-      path: '/ABS/repo/packages/octocode-tools-core/src/tools',
-      maxDepth: 2,
-      itemsPerPage: 50,
-    });
-    expect(JSON.stringify(patterns[0]?.query)).not.toContain('"pattern"');
-    expect(JSON.stringify(patterns[0]?.query)).not.toContain('"extensions"');
-  });
-
-  it('uses curated path/content patterns for GitHub code search', () => {
-    const patterns = buildDirectToolCommandPatterns(
-      STATIC_TOOL_NAMES.GITHUB_SEARCH_CODE
-    );
-
-    expect(patterns.map(pattern => pattern.label)).toEqual([
-      'path search',
-      'content search',
+      'code search',
+      'repository search',
+      'repository tree',
     ]);
     expect(patterns[0]).toMatchObject({
-      label: 'path search',
+      label: 'code search',
       query: {
-        keywords: ['package.json'],
+        operation: 'code',
+        keywords: ['localSearch'],
         owner: 'bgauryy',
         repo: 'octocode',
-        match: 'path',
-        limit: 5,
+        pageSize: 5,
       },
     });
     expect(patterns[1]).toMatchObject({
-      label: 'content search',
+      label: 'repository search',
       query: {
-        keywords: ['localSearchCode'],
-        owner: 'bgauryy',
-        repo: 'octocode',
-        extension: 'ts',
-        limit: 5,
+        operation: 'repositories',
+        pageSize: 5,
       },
     });
-    expect(patterns[0]?.command).toContain('tools ghSearchCode --queries');
+    expect(patterns[0]?.command).toContain('tools ghSearch --queries');
   });
 
   it('keeps semantic patterns compact for definition and outline flows', () => {
@@ -122,9 +102,7 @@ describe('direct-tool command patterns', () => {
 
     expect(DIRECT_TOOL_CATEGORIES).toContain('Local Code');
     expect(categoryLabels).not.toContain('LSP');
-    expect(getDirectToolCategory(STATIC_TOOL_NAMES.LOCAL_RIPGREP)).toBe(
-      'Local Code'
-    );
+    expect(getDirectToolCategory(LOCAL_SEARCH_TOOL_NAME)).toBe('Local Code');
     expect(getDirectToolCategory(LSP_GET_SEMANTICS_TOOL_NAME)).toBe(
       'Local Code'
     );
@@ -132,6 +110,18 @@ describe('direct-tool command patterns', () => {
 
   it('returns no patterns for unknown tools', () => {
     expect(buildDirectToolCommandPatterns('missingTool')).toEqual([]);
+  });
+
+  it('uses the keywords selector for npm keyword discovery', () => {
+    const patterns = buildDirectToolCommandPatterns(
+      STATIC_TOOL_NAMES.PACKAGE_SEARCH
+    );
+    expect(patterns).toContainEqual(
+      expect.objectContaining({
+        label: 'keyword discovery (paged candidates)',
+        query: { keywords: ['schema', 'validation'], page: 1 },
+      })
+    );
   });
 
   it('generates no examples referencing facebook/react', () => {

@@ -43,6 +43,23 @@ describe('npmSearch keyword pagination (full-page heuristic)', () => {
     expect(pg.hasMore).toBe(false);
     expect(pg.totalPages).toBe(1);
   });
+
+  it('marks the schema page ceiling explicitly instead of emitting a looping continuation', () => {
+    const pg = buildPackagePagination(
+      { keywords: ['schema'], page: 1000, pageSize: 10 },
+      10,
+      10,
+      true
+    );
+    expect(pg).toMatchObject({
+      hasMore: true,
+      continuationUnavailable: {
+        reason: 'schemaPageLimit',
+        maxPage: 1000,
+      },
+    });
+    expect(pg.nextPage).toBeUndefined();
+  });
 });
 
 describe('npmSearch package repository compaction', () => {
@@ -76,13 +93,21 @@ describe('npmSearch package repository compaction', () => {
       owner: 'bgauryy',
       repo: 'octocode-mcp',
       next: {
-        viewRepoStructure: {
-          tool: 'ghViewRepoStructure',
-          query: { owner: 'bgauryy', repo: 'octocode-mcp' },
+        viewTree: {
+          tool: 'ghSearch',
+          query: {
+            operation: 'tree',
+            owner: 'bgauryy',
+            repo: 'octocode-mcp',
+          },
         },
-        searchCode: {
-          tool: 'ghSearchCode',
-          query: { owner: 'bgauryy', repo: 'octocode-mcp' },
+        searchRepositoryCode: {
+          tool: 'ghSearch',
+          query: {
+            operation: 'code',
+            owner: 'bgauryy',
+            repo: 'octocode-mcp',
+          },
         },
         cloneRepo: {
           tool: 'ghCloneRepo',

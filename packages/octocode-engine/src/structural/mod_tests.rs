@@ -742,7 +742,7 @@ fn search_files_prefilters_operator_anchor_before_structural_match() {
 // anti-pattern the evidence-grade contract forbids.
 
 // ── scope parity: exclude / hidden / no_ignore / max_depth ───────────────
-// `localSearchCode`'s scope defines `exclude`/`hidden`/`noIgnore`/`maxDepth`
+// Local search defines `exclude`/`hidden`/`noIgnore`/`maxDepth`
 // and the text/regex lane forwards them. The structural lane previously
 // dropped them silently — a typed-contract violation. These tests pin the
 // parity.

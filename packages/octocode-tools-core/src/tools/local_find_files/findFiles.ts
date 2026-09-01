@@ -20,7 +20,11 @@ import {
 type UpstreamFindFilesQuery = z.infer<typeof FindFilesQuerySchema>;
 import type { WithOptionalMeta } from '../../types/execution.js';
 import { TOOL_NAMES } from '../toolMetadata/proxies.js';
-import { LOCAL_DEFAULT_FILES_PER_PAGE, LOCAL_MAX_LIMIT } from '../../config.js';
+import {
+  LOCAL_DEFAULT_FILES_PER_PAGE,
+  LOCAL_MAX_LIMIT,
+  MAX_PAGE_NUMBER,
+} from '../../config.js';
 
 import { attachRawResponseChars } from '../../utils/response/charSavings.js';
 import { buildNextPageContinuation } from '../../scheme/pagination.js';
@@ -147,6 +151,8 @@ export async function findFiles(
     sortLocalFindFilesEntrys(files, sortBy, collectModified);
 
     const limitedFiles = files.slice(0, requestedLimit);
+    const limitTruncated = limitedFiles.length < files.length;
+    const scanTruncated = wasFileCapped;
     const filesForOutput = formatForOutput(
       limitedFiles,
       details,
@@ -191,12 +197,16 @@ export async function findFiles(
     const allWarnings = [...timeFormatWarnings, ...nativeWarnings];
 
     const hasMore = currentPage < totalPages;
+    const canExpandLimit = limitTruncated && requestedLimit < LOCAL_MAX_LIMIT;
+    const terminalLimit =
+      (hasMore && currentPage >= MAX_PAGE_NUMBER) ||
+      ((limitTruncated || scanTruncated) && !canExpandLimit);
     // Per-result evidence hints (read the first file / orient into the first
     // dir) plus the pagination continuation when there are more pages.
     const rowNext = buildFindFilesNextMap(finalFiles) ?? {};
     const next: Record<string, unknown> = {
       ...rowNext,
-      ...(hasMore
+      ...(hasMore && !terminalLimit
         ? {
             nextPage: buildNextPageContinuation(
               TOOL_NAMES.LOCAL_FIND_FILES,
@@ -208,8 +218,24 @@ export async function findFiles(
             ),
           }
         : {}),
+      ...(canExpandLimit
+        ? {
+            expandLimit: buildNextPageContinuation(
+              TOOL_NAMES.LOCAL_FIND_FILES,
+              {
+                ...queryWithSanitizedPath,
+                limit: Math.min(
+                  LOCAL_MAX_LIMIT,
+                  Math.max(requestedLimit + 1, requestedLimit * 2)
+                ),
+                page: 1,
+              } as Record<string, unknown>,
+              'Re-run with a larger file limit because matched files remain.'
+            ),
+          }
+        : {}),
     };
-    const fullResult: LocalFindFilesToolResult = {
+    const fullResult = {
       ...(totalFiles === 0 ? { status: 'empty' as const } : {}),
       path: queryWithSanitizedPath.path,
       files: finalFiles,
@@ -219,15 +245,26 @@ export async function findFiles(
         filesPerPage,
         totalFiles,
         hasMore,
-        ...(hasMore ? { nextPage: currentPage + 1 } : {}),
+        ...(hasMore && !terminalLimit ? { nextPage: currentPage + 1 } : {}),
         ...(wasFileCapped || discoveredFileCount > totalFiles
           ? { totalFilesFound: discoveredFileCount }
           : {}),
         ...(isPageOutOfRange ? { outOfRange: true } : {}),
       },
+      ...(terminalLimit ? { terminalLimit: true } : {}),
+      ...(limitTruncated || scanTruncated
+        ? {
+            truncated: true,
+            partialReasons: [
+              ...(limitTruncated ? ['limit' as const] : []),
+              ...(scanTruncated ? ['walkLimit' as const] : []),
+            ],
+            totalAvailable: Math.max(discoveredFileCount, files.length),
+          }
+        : {}),
       ...(Object.keys(next).length > 0 ? { next } : {}),
       ...(allWarnings.length > 0 && { warnings: allWarnings }),
-    };
+    } as LocalFindFilesToolResult & { terminalLimit?: boolean };
 
     return attachRawResponseChars(
       fullResult,

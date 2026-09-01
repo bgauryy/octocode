@@ -16,24 +16,21 @@ interface AvailableTool {
 
 const TOOL_COPY: Record<string, readonly [name: string, description: string]> =
   {
-    ghSearchCode: ['Search Code', 'Search code in GitHub repositories'],
+    ghSearch: [
+      'Search GitHub',
+      'Search code or repositories, or browse a repository tree',
+    ],
     ghGetFileContent: [
       'Get File Content',
       'Read files from GitHub repositories',
     ],
-    ghViewRepoStructure: [
-      'View Repo Structure',
-      'Browse GitHub repository structure',
+    ghSearchHistory: [
+      'Search GitHub History',
+      'Search pull requests, issues, or commits',
     ],
-    ghSearchRepos: ['Search Repositories', 'Find GitHub repositories'],
-    ghSearchPullRequests: [
-      'Search Pull Requests',
-      'Search and inspect pull requests',
-    ],
-    ghSearchIssues: ['Search Issues', 'Search and inspect GitHub issues'],
-    ghSearchCommits: [
-      'Search Commits',
-      'Search commit history and comparisons',
+    ghGetHistoryItem: [
+      'Get GitHub History Item',
+      'Inspect one pull request, issue, commit, or ref comparison',
     ],
     ghListReleases: ['List Releases', 'List GitHub repository releases'],
     ghSearchDiscussions: ['Search Discussions', 'Search GitHub Discussions'],
@@ -45,12 +42,10 @@ const TOOL_COPY: Record<string, readonly [name: string, description: string]> =
       'Clone Repository',
       'Clone a GitHub repository for local analysis',
     ],
-    localSearchCode: [
-      'Search Code',
-      'Search local code with text, regex, or AST patterns',
+    localSearch: [
+      'Search Local Code and Paths',
+      'Search text or AST patterns, find files, and browse directory structure',
     ],
-    localViewStructure: ['View Structure', 'Browse local directory structure'],
-    localFindFiles: ['Find Files', 'Find local files by name and metadata'],
     localAnalyzeGraph: [
       'Analyze Graph',
       'Analyze local file dependencies and reachability',
@@ -266,9 +261,9 @@ export function getExampleValue(option: ConfigOption): string {
     case 'githubApiUrl':
       return 'GITHUB_API_URL=https://github.mycompany.com/api/v3';
     case 'toolsToRun':
-      return 'TOOLS_TO_RUN=ghSearchCode,ghGetFileContent';
+      return 'TOOLS_TO_RUN=ghSearch,ghGetFileContent';
     case 'disableTools':
-      return 'DISABLE_TOOLS=ghSearchPullRequests';
+      return 'DISABLE_TOOLS=ghSearchHistory';
     case 'requestTimeout':
       return 'REQUEST_TIMEOUT=60000';
     case 'maxRetries':

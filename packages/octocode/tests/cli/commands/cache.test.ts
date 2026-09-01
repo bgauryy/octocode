@@ -2,17 +2,23 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 const executeDirectTool = vi.fn();
 
-const { mockPaths, getDirectorySizeBytes } = vi.hoisted(() => ({
-  mockPaths: {
-    home: '/fake/octocode',
-    tmp: '/fake/octocode/tmp',
-    clone: '/fake/octocode/tmp/clone',
-    tree: '/fake/octocode/tmp/tree',
-    response: '/fake/octocode/tmp/response',
-    repos: '/fake/octocode/tmp/clone',
-  },
-  getDirectorySizeBytes: vi.fn((_path: string) => 1024),
-}));
+const { mockPaths, getDirectorySizeBytes, existsSync, rmSync } = vi.hoisted(
+  () => ({
+    mockPaths: {
+      home: '/fake/octocode',
+      tmp: '/fake/octocode/tmp',
+      clone: '/fake/octocode/tmp/clone',
+      tree: '/fake/octocode/tmp/tree',
+      response: '/fake/octocode/tmp/response',
+      repos: '/fake/octocode/tmp/clone',
+    },
+    getDirectorySizeBytes: vi.fn((_path: string) => 1024),
+    existsSync: vi.fn(() => false),
+    rmSync: vi.fn(),
+  })
+);
+
+vi.mock('node:fs', () => ({ existsSync, rmSync }));
 
 vi.mock('@octocodeai/octocode-tools-core/paths', () => ({ paths: mockPaths }));
 vi.mock('@octocodeai/octocode-tools-core/fs-utils', () => ({
@@ -106,6 +112,8 @@ describe('cache command', () => {
     executeDirectTool.mockReset();
     executeDirectTool.mockResolvedValue(fetchFileEnvelope());
     process.exitCode = undefined;
+    existsSync.mockReset().mockReturnValue(false);
+    rmSync.mockReset();
     vi.spyOn(console, 'log').mockImplementation(() => undefined);
     vi.spyOn(console, 'error').mockImplementation(() => undefined);
   });
@@ -135,6 +143,44 @@ describe('cache command', () => {
       sizeBytes: 1024,
       sizeFormatted: '1024 B',
     });
+  });
+
+  it('cache clear --all removes the complete tmp cache, including responses and lifecycle state', async () => {
+    existsSync.mockReturnValue(true);
+
+    await run(['clear'], { all: true, json: true });
+
+    expect(rmSync).toHaveBeenCalledOnce();
+    expect(rmSync).toHaveBeenCalledWith(mockPaths.tmp, {
+      recursive: true,
+      force: true,
+    });
+    expect(
+      JSON.parse(String(vi.mocked(console.log).mock.calls.at(-1)?.[0]))
+    ).toEqual({
+      success: true,
+      cleared: { tmp: mockPaths.tmp },
+    });
+  });
+
+  it('cache clear can reset clone and tree materializations without deleting responses', async () => {
+    existsSync.mockReturnValue(true);
+
+    await run(['clear'], { clone: true, tree: true, json: true });
+
+    expect(rmSync).toHaveBeenCalledTimes(2);
+    expect(rmSync).toHaveBeenCalledWith(mockPaths.clone, {
+      recursive: true,
+      force: true,
+    });
+    expect(rmSync).toHaveBeenCalledWith(mockPaths.tree, {
+      recursive: true,
+      force: true,
+    });
+    expect(rmSync).not.toHaveBeenCalledWith(
+      mockPaths.response,
+      expect.anything()
+    );
   });
 
   it('cache fetch materializes a remote path and returns structured location data', async () => {
@@ -257,7 +303,7 @@ describe('cache command', () => {
   });
 
   // Regression: fetching a directory at the default `file` depth used to surface
-  // the raw tool error "Use ghViewRepoStructure" — which lists, but doesn't bring
+  // the raw tool error "Use github.tree" — which lists, but doesn't bring
   // anything to disk. Point at the cache command's own subtree mode (and clone).
   it('rewrites the directory error to suggest --depth tree / clone', async () => {
     executeDirectTool.mockResolvedValue({
@@ -265,7 +311,7 @@ describe('cache command', () => {
       content: [
         {
           type: 'text',
-          text: 'Path is a directory. Use ghViewRepoStructure to list directory contents',
+          text: 'Path is a directory. Use github.tree to list directory contents',
         },
       ],
       structuredContent: {},
@@ -275,8 +321,8 @@ describe('cache command', () => {
 
     const errOut = vi.mocked(console.error).mock.calls.flat().join(' ');
     expect(errOut).toMatch(/--depth tree/);
-    expect(errOut).toMatch(/clone facebook\/react\/packages\/react/);
-    expect(errOut).not.toMatch(/ghViewRepoStructure/);
+    expect(errOut).toMatch(/--depth clone/);
+    expect(errOut).not.toMatch(/github.tree/);
   });
 
   it('rewrites the directory error in --json mode too', async () => {
@@ -285,7 +331,7 @@ describe('cache command', () => {
       content: [
         {
           type: 'text',
-          text: 'Path is a directory. Use ghViewRepoStructure to list directory contents',
+          text: 'Path is a directory. Use github.tree to list directory contents',
         },
       ],
       structuredContent: {},

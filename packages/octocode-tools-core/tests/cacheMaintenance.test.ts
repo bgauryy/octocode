@@ -7,12 +7,14 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import {
   createCacheMeta,
   getCloneDir,
+  getTreeDir,
   writeCacheMeta,
 } from '../src/tools/github_clone_repo/cache.js';
+import { getDiskCacheEntryPath } from '../src/utils/http/cache.js';
 import {
   CACHE_MAINTENANCE_INTERVAL_MS,
   getCacheMaintenanceDelayMs,
@@ -65,6 +67,59 @@ describe('cache maintenance lifecycle', () => {
     expect(getCacheMaintenanceDelayMs(home, now + 1_000)).toBe(
       CACHE_MAINTENANCE_INTERVAL_MS - 1_000
     );
+  });
+
+  it('cleans expired clone, tree, and response entries while preserving live and unrelated state', async () => {
+    const now = Date.now();
+    process.env.OCTOCODE_DISK_CACHE = 'true';
+
+    const expiredClone = writeExpiredClone(home, 'expired-clone');
+    const liveClone = getCloneDir(home, 'owner', 'repo', 'live-clone');
+    mkdirSync(liveClone, { recursive: true });
+    writeCacheMeta(
+      liveClone,
+      createCacheMeta('owner', 'repo', 'live-clone', 'clone')
+    );
+
+    const sha = '0123456789abcdef0123456789abcdef01234567';
+    const expiredTree = getTreeDir(home, 'owner', 'repo', sha);
+    mkdirSync(expiredTree, { recursive: true });
+    const treeMeta = createCacheMeta('owner', 'repo', sha, 'treeFetch');
+    treeMeta.expiresAt = new Date(now - 1_000).toISOString();
+    writeCacheMeta(expiredTree, treeMeta);
+
+    const writeResponse = (key: string, staleUntil: number): string => {
+      const path = getDiskCacheEntryPath(key, home);
+      mkdirSync(dirname(path), { recursive: true });
+      writeFileSync(
+        path,
+        JSON.stringify({
+          version: 1,
+          key,
+          createdAt: now - 2_000,
+          expiresAt: staleUntil,
+          staleUntil,
+          value: { key },
+        })
+      );
+      return path;
+    };
+    const expiredResponse = writeResponse('v1-gh-api-prs:expired', now - 1);
+    const liveResponse = writeResponse(
+      'v1-gh-api-prs:live',
+      now + CACHE_MAINTENANCE_INTERVAL_MS
+    );
+    const unrelated = join(home, 'tmp', 'plan', 'keep.txt');
+    mkdirSync(dirname(unrelated), { recursive: true });
+    writeFileSync(unrelated, 'keep');
+
+    expect(await runCacheMaintenanceIfDue(home, now)).toBe(true);
+    expect(existsSync(expiredClone)).toBe(false);
+    expect(existsSync(expiredTree)).toBe(false);
+    expect(existsSync(expiredResponse)).toBe(false);
+    expect(existsSync(liveClone)).toBe(true);
+    expect(existsSync(liveResponse)).toBe(true);
+    expect(existsSync(unrelated)).toBe(true);
   });
 
   it('still maintains clone state when the response cache is disabled', async () => {

@@ -33,52 +33,44 @@
   },
   "tools": [
     {
-      "name": "mcp_octocode_ghSearchCode",
-      "description": "Search code across GitHub repositories"
+      "name": "mcp_octocode_ghSearch",
+      "description": "Search GitHub code or repositories, or browse a repository tree"
     },
     {
       "name": "mcp_octocode_ghGetFileContent",
       "description": "Fetch file content from GitHub repositories"
     },
     {
-      "name": "mcp_octocode_ghSearchRepos",
-      "description": "Search GitHub repositories"
+      "name": "mcp_octocode_ghSearchHistory",
+      "description": "Search GitHub pull requests, issues, or commits"
     },
     {
-      "name": "mcp_octocode_ghSearchPullRequests",
-      "description": "Search pull requests, or read one PR: files, patches, comments, reviews, commits"
+      "name": "mcp_octocode_ghGetHistoryItem",
+      "description": "Read one GitHub pull request, issue, commit, or ref comparison"
     },
     {
-      "name": "mcp_octocode_ghSearchIssues",
-      "description": "Search issues, or read one issue: body and comments"
+      "name": "mcp_octocode_ghListReleases",
+      "description": "List GitHub releases when release discovery is enabled"
     },
     {
-      "name": "mcp_octocode_ghSearchCommits",
-      "description": "Walk a repository commit history for a path or range"
-    },
-    {
-      "name": "mcp_octocode_ghViewRepoStructure",
-      "description": "View GitHub repository structure"
-    },
-    {
-      "name": "mcp_octocode_ghCloneRepo",
-      "description": "Clone a GitHub repository or subtree for local analysis"
+      "name": "mcp_octocode_ghSearchDiscussions",
+      "description": "Search GitHub Discussions when discussion discovery is enabled"
     },
     {
       "name": "mcp_octocode_npmSearch",
       "description": "Search npm packages and source repositories"
     },
     {
-      "name": "mcp_octocode_localSearchCode",
-      "description": "Search local code with ripgrep or structural AST patterns"
+      "name": "mcp_octocode_ghCloneRepo",
+      "description": "Clone a GitHub repository or subtree for local analysis"
     },
     {
-      "name": "mcp_octocode_localViewStructure",
-      "description": "View local directory structure"
+      "name": "mcp_octocode_localSearch",
+      "description": "Search local text or syntax, discover files, or browse directory trees"
     },
     {
-      "name": "mcp_octocode_localFindFiles",
-      "description": "Find local files by name, path, metadata, and glob filters"
+      "name": "mcp_octocode_localAnalyzeGraph",
+      "description": "Analyze bounded local file dependency graphs"
     },
     {
       "name": "mcp_octocode_localGetFileContent",

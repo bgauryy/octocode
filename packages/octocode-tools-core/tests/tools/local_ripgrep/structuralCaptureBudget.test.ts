@@ -141,6 +141,23 @@ describe('structural capture budget', () => {
     expect(longEntry!.text.endsWith('…')).toBe(true);
     // Real statements keep their anchors.
     expect(ranges.BODY?.some(r => r.text === 'return 1;')).toBe(true);
+    expect(match.capturesTruncated).toBe(true);
+
+    const expandCaptures = (
+      result as unknown as {
+        next?: Record<
+          string,
+          { tool?: string; query?: Record<string, unknown> }
+        >;
+      }
+    ).next?.expandCaptures;
+    expect(expandCaptures).toMatchObject({
+      tool: 'local.text',
+      query: {
+        mode: 'structural',
+        captureText: true,
+      },
+    });
   });
 
   it('captureText:true restores full capture text (verbatim passthrough)', async () => {
@@ -158,5 +175,10 @@ describe('structural capture budget', () => {
     >;
     expect(ranges.BODY?.[1]?.text).toBe(LONG_STATEMENT);
     expect(ranges.BODY).toHaveLength(3);
+    expect(match.capturesTruncated).toBeUndefined();
+    expect(
+      (result as unknown as { next?: Record<string, unknown> }).next
+        ?.expandCaptures
+    ).toBeUndefined();
   });
 });

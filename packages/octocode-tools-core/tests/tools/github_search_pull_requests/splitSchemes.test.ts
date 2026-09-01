@@ -21,7 +21,10 @@ describe('SearchPullRequestsLocalSchema', () => {
       owner: 'facebook',
       repo: 'react',
     });
-    expect(result.success).toBe(true);
+    expect(
+      result.success,
+      result.success ? '' : JSON.stringify(result.error.issues)
+    ).toBe(true);
   });
 
   it('accepts a full-featured query', () => {
@@ -29,24 +32,26 @@ describe('SearchPullRequestsLocalSchema', () => {
       owner: 'facebook',
       repo: 'react',
       state: 'open',
-      keywordsToSearch: ['hooks', 'render'],
-      label: 'bug',
+      keywords: ['hooks', 'render'],
+      label: ['bug'],
       draft: false,
-      limit: 20,
+      pageSize: 5,
       page: 1,
-      itemsPerPage: 5,
     });
-    expect(result.success).toBe(true);
+    expect(
+      result.success,
+      result.success ? '' : JSON.stringify(result.error.issues)
+    ).toBe(true);
   });
 
-  it('clamps limit above GITHUB_SEARCH_MAX_LIMIT', () => {
+  it('clamps pageSize above GITHUB_SEARCH_MAX_LIMIT', () => {
     const result = SearchPullRequestsLocalSchema.safeParse({
       owner: 'facebook',
       repo: 'react',
-      limit: GITHUB_SEARCH_MAX_LIMIT + 1000,
+      pageSize: GITHUB_SEARCH_MAX_LIMIT + 1000,
     });
     expect(result.success).toBe(true);
-    expect(result.data!.limit).toBe(GITHUB_SEARCH_MAX_LIMIT);
+    expect(result.data!.pageSize).toBe(GITHUB_SEARCH_MAX_LIMIT);
   });
 
   it('clamps a negative page to 1', () => {
@@ -79,6 +84,32 @@ describe('SearchPullRequestsLocalSchema', () => {
     });
     expect(result.success).toBe(true);
   });
+
+  it('rejects fields from the wrong list/detail operation', () => {
+    expect(
+      SearchPullRequestsLocalSchema.safeParse({
+        owner: 'facebook',
+        repo: 'react',
+        content: { body: true },
+      }).success
+    ).toBe(false);
+    expect(
+      SearchPullRequestsLocalSchema.safeParse({
+        owner: 'facebook',
+        repo: 'react',
+        prNumber: 1,
+        keywords: ['ignored'],
+      }).success
+    ).toBe(false);
+    expect(
+      SearchPullRequestsLocalSchema.safeParse({
+        owner: 'facebook',
+        repo: 'react',
+        prNumber: 1,
+        page: 2,
+      }).success
+    ).toBe(false);
+  });
 });
 
 describe('SearchPullRequestsBulkLocalSchema', () => {
@@ -92,12 +123,18 @@ describe('SearchPullRequestsBulkLocalSchema', () => {
     expect(result.success).toBe(true);
   });
 
-  it('accepts an invalid query in bulk (relaxed)', () => {
-    // Bulk schemas are relaxed — individual bad queries should not abort parse
+  it('keeps canonical semantic validation in bulk mode', () => {
     const result = SearchPullRequestsBulkLocalSchema.safeParse({
-      queries: [{ owner: 'facebook', repo: 'react' }],
+      queries: [
+        {
+          owner: 'facebook',
+          repo: 'react',
+          prNumber: 1,
+          keywords: ['ignored'],
+        },
+      ],
     });
-    expect(result.success).toBe(true);
+    expect(result.success).toBe(false);
   });
 });
 
@@ -123,14 +160,32 @@ describe('SearchIssuesLocalSchema', () => {
     expect(result.success).toBe(true);
   });
 
-  it('clamps limit above max', () => {
+  it('clamps pageSize above max', () => {
     const result = SearchIssuesLocalSchema.safeParse({
       owner: 'microsoft',
       repo: 'TypeScript',
-      limit: 999,
+      pageSize: 999,
     });
     expect(result.success).toBe(true);
-    expect(result.data!.limit).toBeLessThanOrEqual(GITHUB_SEARCH_MAX_LIMIT);
+    expect(result.data!.pageSize).toBeLessThanOrEqual(GITHUB_SEARCH_MAX_LIMIT);
+  });
+
+  it('rejects fields from the wrong list/detail operation', () => {
+    expect(
+      SearchIssuesLocalSchema.safeParse({
+        owner: 'microsoft',
+        repo: 'TypeScript',
+        content: { body: true },
+      }).success
+    ).toBe(false);
+    expect(
+      SearchIssuesLocalSchema.safeParse({
+        owner: 'microsoft',
+        repo: 'TypeScript',
+        issueNumber: 1,
+        state: 'open',
+      }).success
+    ).toBe(false);
   });
 });
 

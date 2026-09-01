@@ -6,12 +6,14 @@ import {
   contextLinesField,
   createRelaxedBulkQuerySchema,
   lineNumberField,
+  offsetField,
   type MinifyMode,
 } from '../../scheme/fields.js';
 import {
   createQueryShapeSchema,
   describeQuerySchema,
 } from '../../scheme/coreSchemas.js';
+import { createContentSelectorQuerySchema } from '../../scheme/conditionalSchemas.js';
 import type {
   CharPagination,
   ItemPagination,
@@ -30,7 +32,7 @@ const queryOverrides = {
   startLine: lineNumberField,
   endLine: lineNumberField,
   contextLines: contextLinesField.default(5),
-  charOffset: clampedInt(0, 100_000_000).optional(),
+  charOffset: offsetField.optional(),
   charLength: clampedInt(1, MAX_CHAR_LENGTH).optional(),
   minify: minifyField,
 } as const;
@@ -50,7 +52,7 @@ export type FetchContentQuery = z.infer<typeof LocalFetchContentQuerySchema> & {
 };
 
 export const LocalFetchContentBulkQuerySchema = createRelaxedBulkQuerySchema(
-  FetchContentQueryShape,
+  createContentSelectorQuerySchema(FetchContentQueryShape),
   { maxQueries: 5 }
 );
 

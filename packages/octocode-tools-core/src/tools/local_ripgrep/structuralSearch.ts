@@ -102,7 +102,7 @@ async function searchSingleFile(
 
 /**
  * mode:"structural" execution path. Path validation and result shaping stay in
- * TypeScript with the rest of localSearchCode; filesystem traversal, file reads,
+ * TypeScript with the rest of local text search; filesystem traversal, file reads,
  * pre-filtering, parsing, and Octocode AST matching run in native Rust.
  */
 export async function searchContentStructural(
@@ -199,7 +199,7 @@ export async function searchContentStructural(
     const langType = query.langType || 'source';
     return createErrorResult(
       new Error(
-        `Invalid structural ${query.rule ? 'rule' : 'pattern'}: ${message} — patterns must be valid ${langType} and match a complete node; a class/def usually needs a body (add \`$$$BODY\`). Run \`octocode tools localSearchCode --scheme\` for the live schema.`
+        `Invalid structural ${query.rule ? 'rule' : 'pattern'}: ${message} — use valid ${langType} and match a complete node; a class/def usually needs a body (add \`$$$BODY\`). Run \`octocode tools localSearch --scheme\` for the live schema.`
       ),
       query,
       {
@@ -233,7 +233,7 @@ export async function searchContentStructural(
   );
 
   // Depth guard — enforced here because the engine's anchored-prefilter path
-  // cannot honor maxDepth natively. Semantics match localViewStructure:
+  // cannot honor maxDepth natively. Semantics match the local tree operation:
   // 0 = files directly in the search root, 1 = plus one directory level, ….
   const maxDepth = (query as { maxDepth?: number }).maxDepth;
   let depthFiltered = files;

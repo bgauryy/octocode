@@ -25,13 +25,13 @@ category flags (`isLocal`/`isClone`), a display `schema` + bulk
 and runtime needs (`requiresServerRuntime`, `requiresProviders`). `ALL_TOOLS`
 is the single source of truth.
 
-- **GitHub** (`security: 'remote'`, needs providers): `github_search_code`,
-  `github_fetch_content`, `github_view_repo_structure`, `github_search_repos`,
-  `github_search_pull_requests`, `github_clone_repo`.
-- **Local** (`security: 'basic'`): `local_ripgrep`, `local_find_files`,
-  `local_fetch_content`, `local_view_structure`.
-- **LSP**: `lsp_get_semantic_content` (needs server runtime).
-- **Package**: `package_search` (npm).
+- **GitHub** (`security: 'remote'`, needs providers): `ghSearch`,
+  `ghGetFileContent`, `ghSearchHistory`, `ghGetHistoryItem`,
+  `ghListReleases`, `ghSearchDiscussions`, and `ghCloneRepo`.
+- **Package**: `npmSearch`.
+- **Local** (`security: 'basic'`): `localSearch`, `localGetFileContent`, and
+  `localAnalyzeGraph`.
+- **LSP**: `lspGetSemantics` (needs server runtime).
 
 Each tool lives in `src/tools/<tool_name>/` with a common core — `scheme.ts`
 (Zod single + bulk schemas) and `execution.ts` (the bulk-loop `executionFn`) —
@@ -60,10 +60,9 @@ point used by all consumers:
 7. **Sanitize** the result and always return a structured `CallToolResult` —
    errors become an error envelope (`buildToolErrorResult`), never a throw.
 
-`directToolCatalog.ts` also derives the agent-facing metadata (display fields,
-constraints, example queries, auto-filled fields like `id`/`researchGoal`) from
-the Zod schemas, and tolerantly drops unknown query fields (warning via
-`onUnknownFields`) so a call never hard-fails on a typo.
+`directToolCatalog.ts` also derives agent-facing fields, variants, relations,
+and examples from the Zod schemas. Public query envelopes are strict: unknown
+fields fail before execution with a correction hint.
 
 ## Providers
 
@@ -79,7 +78,7 @@ structure, history) lives in `src/github/`.
 - `src/cacheMaintenance.ts` — shared 24-hour maintenance gate, persisted marker,
   cross-process lock, owned-root sweep, and MCP deadline scheduler for
   `tmp/clone`, `tmp/tree`, and `tmp/response`.
-- `src/scheme/` — shared Zod fields and the response envelope.
+- `src/scheme/` — shared Zod input fields. Output schemas are not published.
 - `src/utils/pagination/` (incl. `hints.ts` — next-step hints: pagination
   cursors, token-budget warnings, structure hints) + `src/utils/response/` — the
   single lossless char-pagination flow and YAML/JSON result rendering shared by
@@ -103,21 +102,19 @@ structure, history) lives in `src/github/`.
 
 ## Distribution
 
-`@octocodeai/octocode-tools-core` is a workspace-only build package. It is not
-published to npm and should not appear in any interface package's published
-runtime `dependencies`.
+`@octocodeai/octocode-tools-core` is a published runtime package with public
+entry points in `package.json#exports`. Workspace consumers resolve its source
+during development.
 
-- `octocode-mcp` and `octocode` list tools-core as a workspace
-  `devDependency` so local builds can import the source package.
-- Their esbuild bundles inline tools-core into the shipped `dist/` or `out/`
-  entrypoints.
-- Runtime dependencies that cannot be bundled — most importantly
-  `@octocodeai/octocode-engine` and its native platform packages — are declared
-  directly by the interface packages.
+- `octocode-mcp` keeps tools-core external and declares it as a runtime
+  dependency; npm installs it with the server.
+- `octocode` also declares tools-core as a runtime dependency, while its custom
+  esbuild source alias bundles tools-core code into `out/octocode.js` for the CLI.
+- Native dependencies, especially `@octocodeai/octocode-engine` and its matching
+  platform package, remain external.
 
-This keeps the source ownership centralized here while making npm installs
-resolve as `octocode-mcp` / `octocode` → `@octocodeai/octocode-engine` → one
-platform `.node` package.
+Publish runtime prerequisites before their consumers: engine platform packages,
+the engine root, config/core/tools-core, and then the CLI and MCP interfaces.
 
 ## Rules
 

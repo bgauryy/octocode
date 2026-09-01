@@ -1,7 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
   DIRECT_TOOL_DISCOVERY_DEFINITIONS,
-  formatDirectToolOutputSchemaText,
   formatDirectToolSchemaText,
 } from '@octocodeai/octocode-tools-core';
 
@@ -15,27 +14,34 @@ const TOOL_PAGINATION_CONTRACT: Record<
   string,
   { controls: string[]; exemption?: string }
 > = {
-  ghSearchCode: { controls: ['page'] },
+  ghSearch: { controls: ['page', 'pageSize'] },
   ghGetFileContent: { controls: ['charOffset', 'charLength'] },
-  ghViewRepoStructure: { controls: ['page', 'itemsPerPage'] },
-  ghSearchRepos: { controls: ['page'] },
-  ghSearchPullRequests: { controls: ['page', 'charOffset', 'charLength'] },
-  ghSearchIssues: { controls: ['page', 'charOffset', 'charLength'] },
-  ghSearchCommits: { controls: ['page', 'charOffset', 'charLength'] },
-  ghListReleases: { controls: ['page', 'itemsPerPage'] },
-  ghSearchDiscussions: { controls: ['after', 'itemsPerPage'] },
-  npmSearch: { controls: ['page'] },
+  ghSearchHistory: { controls: ['page', 'pageSize'] },
+  ghGetHistoryItem: {
+    controls: [
+      'filePage',
+      'commentPage',
+      'commitPage',
+      'pageSize',
+      'charOffset',
+      'commentBodyOffset',
+      'charLength',
+    ],
+  },
+  ghListReleases: { controls: ['page', 'pageSize'] },
+  ghSearchDiscussions: { controls: ['after', 'pageSize'] },
+  npmSearch: { controls: ['page', 'pageSize'] },
   ghCloneRepo: {
     controls: [],
     exemption: 'bounded clone/materialization operation',
   },
-  localSearchCode: { controls: ['page', 'itemsPerPage'] },
-  localViewStructure: { controls: ['page', 'itemsPerPage'] },
-  localFindFiles: { controls: ['page', 'itemsPerPage'] },
-  localAnalyzeGraph: { controls: ['page', 'itemsPerPage'] },
+  localSearch: { controls: ['page', 'pageSize'] },
+  localAnalyzeGraph: { controls: ['page', 'pageSize'] },
   localGetFileContent: { controls: ['charOffset', 'charLength'] },
-  lspGetSemantics: { controls: ['page', 'itemsPerPage'] },
+  lspGetSemantics: { controls: ['page', 'pageSize'] },
 };
+
+const TOTAL_CAP_TOOLS = new Set(['localSearch', 'localAnalyzeGraph']);
 
 describe('all-tools pagination contract', () => {
   it('covers every tool in the live catalog', () => {
@@ -48,7 +54,6 @@ describe('all-tools pagination contract', () => {
     '%s',
     (toolName, contract) => {
       const schemaText = formatDirectToolSchemaText(toolName);
-      const outputSchemaText = formatDirectToolOutputSchemaText(toolName);
 
       it('declares real pagination controls or a bounded-operation exemption', () => {
         expect(
@@ -60,9 +65,12 @@ describe('all-tools pagination contract', () => {
         }
       });
 
-      it('declares pagination and machine-ready continuation output', () => {
-        expect(outputSchemaText).toContain('"pagination"');
-        expect(outputSchemaText).toContain('"next"');
+      it('uses limit only as a supported pre-pagination total cap', () => {
+        if (TOTAL_CAP_TOOLS.has(toolName)) {
+          expect(schemaText).toContain('"limit"');
+        } else {
+          expect(schemaText).not.toContain('"limit"');
+        }
       });
 
       it('schema is free of silent-loss language (paginates, never truncates)', () => {

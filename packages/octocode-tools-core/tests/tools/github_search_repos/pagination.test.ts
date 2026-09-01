@@ -24,7 +24,7 @@ function variantWithPagination(pagination: {
   } as unknown as MergeVariant;
 }
 
-describe('ghSearchRepos pagination output', () => {
+describe('github.repositories pagination output', () => {
   it('preserves lower-bound certainty without claiming an exact totalPages', () => {
     expect(
       buildResultPagination({
@@ -131,7 +131,7 @@ describe('ghSearchRepos pagination output', () => {
   });
 });
 
-describe('ghSearchRepos merged pagination', () => {
+describe('github.repositories merged pagination', () => {
   it('reports the deduped count as a lower bound instead of summing overlapping variant totals', () => {
     // Two variants each report 40 matches, but after dedup only 55 distinct
     // repositories survive. Summing (80) would overcount the overlap.
@@ -179,7 +179,7 @@ describe('ghSearchRepos merged pagination', () => {
   });
 });
 
-describe('ghSearchRepos partial-failure warnings', () => {
+describe('github.repositories partial-failure warnings', () => {
   it('names the failed variant(s) when some variants error', () => {
     const warnings = buildPartialFailureWarnings([
       { label: 'topics' },

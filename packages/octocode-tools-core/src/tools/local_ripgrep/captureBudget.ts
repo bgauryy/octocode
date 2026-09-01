@@ -34,6 +34,7 @@ export function budgetCaptures(
 ): {
   metavars?: Record<string, string[]>;
   metavarRanges?: Record<string, MetavarRange[]>;
+  capturesTruncated?: true;
 } {
   const hasRanges = metavarRanges && Object.keys(metavarRanges).length > 0;
   if (captureText) {
@@ -43,12 +44,18 @@ export function budgetCaptures(
     };
   }
 
+  let capturesTruncated = false;
   let budgetedMetavars: Record<string, string[]> | undefined;
   if (metavars) {
     budgetedMetavars = {};
     for (const [name, values] of Object.entries(metavars)) {
       if (values.length <= 1) {
+        if (values.some(value => value.length > CAPTURE_TEXT_BUDGET)) {
+          capturesTruncated = true;
+        }
         budgetedMetavars[name] = values.map(truncateCapture);
+      } else {
+        capturesTruncated = true;
       }
       // Multi-entry list capture: text omitted — anchors live in ranges.
     }
@@ -61,11 +68,19 @@ export function budgetCaptures(
     budgetedRanges = {};
     for (const [name, ranges] of Object.entries(metavarRanges)) {
       const isListCapture = ranges.length > 1;
-      const kept = (
-        isListCapture
-          ? ranges.filter(r => !COMMENT_PREFIX.test(r.text))
-          : ranges
-      ).map(r => ({ ...r, text: truncateCapture(r.text) }));
+      const selected = isListCapture
+        ? ranges.filter(r => !COMMENT_PREFIX.test(r.text))
+        : ranges;
+      if (
+        selected.length !== ranges.length ||
+        selected.some(range => range.text.length > CAPTURE_TEXT_BUDGET)
+      ) {
+        capturesTruncated = true;
+      }
+      const kept = selected.map(r => ({
+        ...r,
+        text: truncateCapture(r.text),
+      }));
       if (kept.length > 0) budgetedRanges[name] = kept;
     }
     if (Object.keys(budgetedRanges).length === 0) budgetedRanges = undefined;
@@ -74,6 +89,7 @@ export function budgetCaptures(
   return {
     ...(budgetedMetavars ? { metavars: budgetedMetavars } : {}),
     ...(budgetedRanges ? { metavarRanges: budgetedRanges } : {}),
+    ...(capturesTruncated ? { capturesTruncated: true as const } : {}),
   };
 }
 

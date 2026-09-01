@@ -1,5 +1,5 @@
-import { TOOL_NAMES } from '../../toolMetadata/proxies.js';
-import { createSuccessResult, createErrorResult } from '../../utils.js';
+import { GITHUB_SEARCH_HISTORY_TOOL_NAME } from '../../toolNames.js';
+import { createSuccessResult } from '../../utils.js';
 import {
   mapPullRequestProviderResultData,
   mapPullRequestToolQuery,
@@ -21,7 +21,8 @@ import type {
 export async function handlePullRequestsMode(
   query: GitHubPullRequestSearchInput,
   parsedData: GitHubPullRequestSearchQuery | undefined,
-  getProviderContext: ReturnType<typeof createLazyProviderContext>
+  getProviderContext: ReturnType<typeof createLazyProviderContext>,
+  toolName = GITHUB_SEARCH_HISTORY_TOOL_NAME
 ): Promise<ProcessedBulkResult> {
   const currentProviderContext = getProviderContext();
   const effectiveQuery: PartialPRQuery = { ...parsedData };
@@ -32,22 +33,6 @@ export async function handlePullRequestsMode(
 
   if (!hasPrNumber) {
     (effectiveQuery as { content?: unknown }).content = undefined;
-    (effectiveQuery as { reviewMode?: unknown }).reviewMode = undefined;
-  }
-
-  const hasValidParams =
-    effectiveQuery.keywordsToSearch?.length ||
-    effectiveQuery.owner ||
-    effectiveQuery.repo ||
-    effectiveQuery.author ||
-    effectiveQuery.assignee ||
-    (effectiveQuery.prNumber && effectiveQuery.owner && effectiveQuery.repo);
-
-  if (!hasValidParams) {
-    return createErrorResult(
-      'At least one valid search parameter, filter, or PR number is required.',
-      query
-    );
   }
 
   const providerResult = await executeProviderOperation(effectiveQuery, () =>
@@ -75,9 +60,7 @@ export async function handlePullRequestsMode(
   }
 
   const shouldLeanBroadShape =
-    !hasPrNumber &&
-    (Boolean((query as { content?: unknown }).content) ||
-      Boolean((query as { reviewMode?: unknown }).reviewMode));
+    !hasPrNumber && Boolean((query as { content?: unknown }).content);
   const leanRequest = {
     ...contentRequest,
     body: false,
@@ -125,18 +108,19 @@ export async function handlePullRequestsMode(
     if (firstNumber != null && owner && repo) {
       resultData.next = {
         readPr: {
-          tool: 'ghSearchPullRequests',
+          tool: 'ghGetHistoryItem',
           query: {
+            operation: 'pullRequest',
             owner,
             repo,
-            prNumber: firstNumber,
+            number: firstNumber,
             content: {
               body: true,
               changedFiles: true,
               comments: { discussion: true },
             },
           },
-          why: 'Read any PR from this list — swap prNumber for the # you want.',
+          why: 'Read any PR from this list — swap number for the # you want.',
           confidence: 'low',
         },
       };
@@ -150,7 +134,7 @@ export async function handlePullRequestsMode(
     effectiveQuery,
     resultData as unknown as Record<string, unknown>,
     hasContent,
-    TOOL_NAMES.GITHUB_PULL_REQUESTS,
+    toolName,
     {
       rawResponse: providerResult.response.rawResponseChars,
     }

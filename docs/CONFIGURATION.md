@@ -182,18 +182,32 @@ The following table lists the persistent files and cache directories inside the 
 
 ### Cache storage and lifecycle
 
-The CLI and MCP share the same cache roots under `OCTOCODE_HOME`; neither product uses editor-local storage for remote materialization.
+The CLI and MCP share the same cache roots under `OCTOCODE_HOME`; neither product uses editor-local storage for remote materialization. The persistent caches in this section use files and directories, not a database.
 
 | Concern | Behavior |
 |---------|----------|
 | Automatic cleanup | A persisted due marker allows one full maintenance pass per 24-hour window across processes. A cross-process lock prevents duplicate clone, tree, and response scans. |
 | CLI | A tool that enters the direct execution runtime performs the due-check once per process. The CLI does not start a background timer, so the check cannot keep a command alive. Help, schema, and context-only paths remain side-effect free. |
 | MCP | Server initialization performs the same due-check. After the stdio transport connects, MCP schedules the next persisted deadline with an `unref()` timer and cancels it during shutdown. |
-| Expiry | Clone and tree entries use the clone TTL (24 hours by default). Response entries carry their own fresh/stale deadlines and are removed after the stale deadline. Stale clone temp artifacts and locks are also recovered. |
+| Expiry | Clone and tree entries use the clone TTL (24 hours by default). Response entries carry their own fresh/stale deadlines; maintenance removes them after the stale deadline. Maintenance also recovers stale clone temp artifacts and locks. |
 | Failure | Maintenance is best-effort. An unavailable or read-only cache home does not prevent CLI tool execution or MCP startup. |
 | Ownership | Automatic maintenance traverses only Octocode-owned `clone`, `tree`, clone-artifact, and `response` roots. It preserves unrelated directories under `tmp/`. |
 | Manual inspection | `octocode cache status` reports total `tmp`, clone, tree, and response sizes. |
-| Manual clear | `octocode cache clear --clone` and `--tree` are selective. `octocode cache clear --all` removes the entire `<octocode-home>/tmp/` directory, including response entries and lifecycle metadata; there is currently no response-only clear flag. |
+| Manual clear | `octocode cache clear --clone` and `--tree` are selective. `octocode cache clear --all` removes the entire `<octocode-home>/tmp/` directory. This deletes response entries and lifecycle metadata. There is no response-only clear flag. |
+
+Response freshness depends on the result type. The 24-hour maintenance interval is a cleanup gate, not a universal freshness period.
+
+| Response type | Freshness |
+|---------------|-----------|
+| File content | 5 minutes |
+| GitHub user identity | 15 minutes |
+| Pull requests, issues, and commit history | 30 minutes |
+| Code search and releases | 1 hour |
+| Repository search and repository structure | 2 hours |
+| npm search | 4 hours |
+| Unclassified response | 24 hours |
+
+Conditional file and structure requests can retain a stale body and ETag for up to 24 hours so a `304 Not Modified` response can restore the body without another full download. In-memory provider, GitHub client, branch-resolution, credential, and session caches are process-local; they aren't part of `tmp/` and disappear when the process shuts down.
 
 ---
 
@@ -285,7 +299,7 @@ code ~/.octocode/.octocoderc
 
   // ── Local filesystem tools ────────────────────────────────────────────────
   "local": {
-    // false → turn off all local filesystem tools (localSearchCode, localFindFiles, …)
+    // false → turn off all local filesystem tools (localSearch, localGetFileContent, …)
     "enabled": true,
 
     // true → turn on ghCloneRepo (clone a GitHub repo to disk for deep local analysis)
@@ -306,12 +320,8 @@ code ~/.octocode/.octocoderc
   "tools": {
     // Strict allowlist — only these tools are registered. Overrides enabled/disabled.
     // null = use the default tool set
-    // Example: ["ghSearchCode", "localSearchCode", "npmSearch"]
+    // Example: ["ghSearch", "localSearch", "npmSearch"]
     "enabled": null,
-
-    // Add specific tools on top of the default set.
-    // Example: ["ghCloneRepo"]
-    "enableAdditional": null,
 
     // Remove specific tools from the default set.
     // Example: ["ghCloneRepo"]
@@ -435,7 +445,7 @@ Set the GitHub token in an environment variable only. Octocode never reads it fr
 | Env var | `.octocoderc` key | Default | Notes |
 |---------|------------------|---------|-------|
 | `ENABLE_LOCAL` | `local.enabled` | `true` | `false` turns local tools off on every surface |
-| `ENABLE_CLONE` | `local.enableClone` | CLI `true`, MCP `false` | Turns on `ghCloneRepo` |
+| `ENABLE_CLONE` | `local.enableClone` | `true` | `false` turns `ghCloneRepo` and directory materialization off on every surface |
 | `ENABLE_RELEASES` | — (env-only) | `false` | Turns on `ghListReleases`; no additional allowlist is required |
 | `ENABLE_DISCUSSIONS` | — (env-only) | `false` | Turns on `ghSearchDiscussions`; no additional allowlist is required |
 | `WORKSPACE_ROOT` | `local.workspaceRoot` | `process.cwd()` | Must be absolute. Base for resolving relative paths — not itself an allowed root; add it to `allowedPaths` to access a location outside home. |
@@ -445,8 +455,12 @@ Set the GitHub token in an environment variable only. Octocode never reads it fr
 
 | Env var | `.octocoderc` key | Default | Notes |
 |---------|------------------|---------|-------|
-| `TOOLS_TO_RUN` | `tools.enabled` | `null` | Strict allowlist — overrides `DISABLE_TOOLS` |
+| `TOOLS_TO_RUN` | `tools.enabled` | `null` | Strict allowlist — replaces the default set and overrides `DISABLE_TOOLS` |
 | `DISABLE_TOOLS` | `tools.disabled` | `null` | Remove tools from the default set |
+
+`ghSearch` and `localSearch` are the only discovery entry points. A nonempty
+allowlist replaces the default set, so include every tool that you want to keep
+enabled. Removed compatibility names are rejected; they cannot be re-enabled.
 
 #### Network
 
@@ -569,9 +583,10 @@ npx octocode status --json
 | No token / 401 | Run `npx octocode auth login`, or set `GITHUB_TOKEN` in shell or MCP `env` block |
 | Wrong GitHub account | `npx octocode auth logout` then `auth login` — or `auth login --force` |
 | Env token overriding saved token | Env always wins — unset the env var |
-| `ghCloneRepo` unavailable in MCP | Add `"ENABLE_CLONE": "true"` to the MCP `env` block |
+| `ghCloneRepo` unavailable | Check that neither `ENABLE_CLONE` nor `local.enableClone` is `false`; also check `TOOLS_TO_RUN` and `DISABLE_TOOLS` |
 | `ghListReleases` or `ghSearchDiscussions` unavailable | Set `ENABLE_RELEASES=true` or `ENABLE_DISCUSSIONS=true`; also check `TOOLS_TO_RUN` and `DISABLE_TOOLS` |
 | Local tools turned off | Check that neither `ENABLE_LOCAL` nor `local.enabled` is `false` |
+| A legacy local tool is unavailable | Add its exact name to `TOOLS_TO_RUN` or `tools.enabled`; include every other required tool because the list is strict |
 | A tool is missing | Check `TOOLS_TO_RUN` (strict allowlist) and `DISABLE_TOOLS` |
 | Slow / timeouts | Raise `REQUEST_TIMEOUT` (max `300000` ms) |
 | Web search low quality | Add `TAVILY_API_KEY` to `~/.octocode/.env` |

@@ -17,12 +17,9 @@ import {
 } from '../../scheme/coreSchemas.js';
 
 const discussionsOverrides = {
-  itemsPerPage: clampedInt(1, PR_CONTENT_MAX_ITEMS_PER_PAGE)
+  pageSize: clampedInt(1, PR_CONTENT_MAX_ITEMS_PER_PAGE)
     .optional()
     .default(PR_CONTENT_DEFAULT_ITEMS_PER_PAGE),
-  // `limit` accepted as an alias for `itemsPerPage` (flow consistency); execution
-  // prefers it when explicitly provided.
-  limit: clampedInt(1, PR_CONTENT_MAX_ITEMS_PER_PAGE).optional(),
 } as const;
 
 export const SearchDiscussionsLocalSchema = describeQuerySchema(

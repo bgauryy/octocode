@@ -14,7 +14,7 @@ User says install/add/fetch/save locally, or wants to adapt a remote skill, or i
 
 1. Confirm intent: verbatim install vs adapt.
 2. Resolve destinations via `install-gates.md` + `install-destinations.md`.
-3. Fetch: inspect via `octocode.md` first; then `npx octocode clone owner/repo/path[@branch]` (or whole repo if many siblings). Stays in Octocode tmp — don't write destinations yet.
+3. Fetch: inspect via `octocode.md` first; then run `npx octocode cache fetch owner/repo path --depth clone` (add `--branch <ref>` when needed, or omit `path` for the whole repository). The result stays in the Octocode cache; don't write destinations yet.
 4. Validate: folder has `SKILL.md` with `name` + `description`.
 5. Safety scan: read `SKILL.md`, `scripts/`, hooks — flag risk before write.
 6. If adapting: synthesize via `create-local-skill.md`; reuse only license-allowed patterns; cite source.

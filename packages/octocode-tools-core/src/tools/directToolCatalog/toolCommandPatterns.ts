@@ -119,6 +119,7 @@ const LOW_SIGNAL_COMMAND_PATTERN_FIELDS: ReadonlySet<string> = new Set([
   'page',
   'itemsPerPage',
   'limit',
+  'pageSize',
   'matchPage',
   'maxFiles',
   'maxMatchesPerFile',

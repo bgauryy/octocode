@@ -1,8 +1,4 @@
-import { completeMetadata } from '@octocodeai/octocode-core';
-
-export const DESCRIPTIONS: Record<string, string> = Object.fromEntries(
-  Object.values(completeMetadata.tools).map(tool => [
-    tool.name,
-    tool.description,
-  ])
-);
+export {
+  PUBLIC_TOOL_DESCRIPTIONS,
+  PUBLIC_TOOL_DESCRIPTIONS as DESCRIPTIONS,
+} from '../../toolContract/descriptions.js';

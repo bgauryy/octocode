@@ -1,5 +1,5 @@
 import type { CallToolResult } from '@modelcontextprotocol/server';
-import { TOOL_NAMES } from '../toolMetadata/proxies.js';
+import { GITHUB_SEARCH_HISTORY_TOOL_NAME } from '../toolNames.js';
 import { executeBulkOperation } from '../../utils/response/bulk.js';
 import type { ToolExecutionArgs } from '../../types/execution.js';
 import { handleCatchError, safeParseOrError } from '../utils.js';
@@ -29,7 +29,7 @@ export async function searchMultipleGitHubPullRequests(
           return parsed.error;
         }
 
-        // `type` is injected by the split executors (ghSearchCommits/Issues/…),
+        // `type` is injected by the internal focused executors,
         // each backed by a FOCUSED schema that strips foreign fields before this
         // runs — so no cross-mode "ignored field" warning machinery is needed.
         const type = (parsed.data as { type?: string }).type;
@@ -56,12 +56,12 @@ export async function searchMultipleGitHubPullRequests(
           error,
           query,
           undefined,
-          TOOL_NAMES.GITHUB_PULL_REQUESTS
+          GITHUB_SEARCH_HISTORY_TOOL_NAME
         );
       }
     },
     {
-      toolName: TOOL_NAMES.GITHUB_PULL_REQUESTS,
+      toolName: GITHUB_SEARCH_HISTORY_TOOL_NAME,
       keysPriority: [
         'pullRequests',
         'issues',

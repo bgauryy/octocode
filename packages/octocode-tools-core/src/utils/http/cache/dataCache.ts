@@ -8,6 +8,20 @@ import {
   safeCacheSet,
 } from './store.js';
 import { readDiskCache, writeDiskCache } from './diskStore.js';
+import {
+  markResponseCacheHit,
+  runCacheLayer,
+  type CacheRole,
+} from './trace.js';
+
+interface DataCacheOptions<T> {
+  ttl?: number;
+  skipCache?: boolean;
+  forceRefresh?: boolean;
+  shouldCache?: (value: T) => boolean;
+  /** Whether a hit supplies the tool response or only supporting metadata. */
+  cacheRole?: CacheRole;
+}
 
 function resolveTTL(cacheKey: string, configured?: number): number {
   if (configured) return configured;
@@ -18,12 +32,18 @@ function resolveTTL(cacheKey: string, configured?: number): number {
 export async function withDataCache<T>(
   cacheKey: string,
   operation: () => Promise<T>,
-  options: {
-    ttl?: number;
-    skipCache?: boolean;
-    forceRefresh?: boolean;
-    shouldCache?: (value: T) => boolean;
-  } = {}
+  options: DataCacheOptions<T> = {}
+): Promise<T> {
+  return runCacheLayer(
+    () => withDataCacheInternal(cacheKey, operation, options),
+    options.cacheRole
+  );
+}
+
+async function withDataCacheInternal<T>(
+  cacheKey: string,
+  operation: () => Promise<T>,
+  options: DataCacheOptions<T>
 ): Promise<T> {
   if (options.skipCache) {
     return await operation();
@@ -35,6 +55,7 @@ export async function withDataCache<T>(
       if (cached !== undefined) {
         cacheStats.hits++;
         recordGitHubCacheHit(cacheKey);
+        markResponseCacheHit();
         return cached;
       }
     } catch {
@@ -45,6 +66,7 @@ export async function withDataCache<T>(
     if (disk?.state === 'fresh') {
       cacheStats.hits++;
       recordGitHubCacheHit(cacheKey);
+      markResponseCacheHit();
       safeCacheSet(
         cacheKey,
         disk.value,
@@ -61,6 +83,7 @@ export async function withDataCache<T>(
     return existingPending.promise as Promise<T>;
   }
 
+  const requestId = Symbol(cacheKey);
   const promise = (async () => {
     try {
       const result = await operation();
@@ -78,10 +101,16 @@ export async function withDataCache<T>(
 
       return result;
     } finally {
-      pendingRequests.delete(cacheKey);
+      if (pendingRequests.get(cacheKey)?.requestId === requestId) {
+        pendingRequests.delete(cacheKey);
+      }
     }
   })();
 
-  pendingRequests.set(cacheKey, { promise, startedAt: Date.now() });
-  return promise as Promise<T>;
+  pendingRequests.set(cacheKey, {
+    promise,
+    startedAt: Date.now(),
+    requestId,
+  });
+  return promise;
 }

@@ -1,4 +1,4 @@
-// Relative-window grammar shared with localFindFiles' time filters: <n><unit>
+// Relative-window grammar shared with local files time filters: <n><unit>
 // where unit ∈ h(ours) d(ays) w(eeks) m(onths) y(ears). The GitHub commits API
 // only accepts absolute ISO-8601, so a raw "30d" was silently dropped (returned
 // an empty list = false-absence). Convert relative → ISO here; pass absolute

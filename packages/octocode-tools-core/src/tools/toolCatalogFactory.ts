@@ -1,9 +1,5 @@
 import type { CallToolResult } from '@modelcontextprotocol/server';
 import { type z } from 'zod';
-import {
-  DEFAULT_TOOL_METADATA_GATEWAY,
-  type ToolMetadataGateway,
-} from './toolMetadata/gateway.js';
 
 export type ToolDirectSecurity = 'basic' | 'remote';
 
@@ -22,6 +18,7 @@ export interface ToolDirectExecutionConfig {
 
 export interface ToolConfig {
   name: string;
+  title: string;
   description: string;
   isDefault: boolean;
   isLocal: boolean;
@@ -29,36 +26,5 @@ export interface ToolConfig {
   isClone?: boolean;
   type: 'search' | 'content' | 'history' | 'debug';
 
-  skipMetadataCheck?: boolean;
   direct: ToolDirectExecutionConfig;
-}
-
-export const getDescription = (
-  toolName: string,
-  gateway: Pick<
-    ToolMetadataGateway,
-    'getDescription'
-  > = DEFAULT_TOOL_METADATA_GATEWAY
-): string => {
-  return gateway.getDescription(toolName);
-};
-
-function getToolName(
-  key: string,
-  gateway: Pick<ToolMetadataGateway, 'getToolName'>
-): string {
-  return gateway.getToolName(key);
-}
-
-export function createTool(
-  gateway: ToolMetadataGateway,
-  nameKey: string,
-  config: Omit<ToolConfig, 'name' | 'description'>
-): ToolConfig {
-  const name = getToolName(nameKey, gateway);
-  return {
-    ...config,
-    name,
-    description: getDescription(name, gateway),
-  };
 }

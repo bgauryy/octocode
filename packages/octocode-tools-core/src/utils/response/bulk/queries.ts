@@ -4,6 +4,7 @@ import type {
   QueryError,
 } from '../../../types/toolResults.js';
 import type { PromiseResult } from '../../../types/promise.js';
+import { traceResponseCache } from '../../http/cache/trace.js';
 
 const BULK_QUERY_TIMEOUT_MS =
   parseInt(process.env.OCTOCODE_BULK_QUERY_TIMEOUT_MS || '60000', 10) || 60000;
@@ -57,14 +58,19 @@ export async function processBulkQueries<TQuery extends object>(
     return { results, errors };
   }
 
-  const queryPromiseFunctions = queries.map(
-    (query, index) => () =>
-      processor(query, index).then(result => ({
-        result,
-        queryIndex: index,
-        originalQuery: query,
-      }))
-  );
+  const queryPromiseFunctions = queries.map((query, index) => async () => {
+    const { value: result, cacheHit } = await traceResponseCache(() =>
+      processor(query, index)
+    );
+    return {
+      result:
+        cacheHit && result.status !== 'error'
+          ? { ...result, cache: 1 as const }
+          : result,
+      queryIndex: index,
+      originalQuery: query,
+    };
+  });
 
   const queryResults = await executeWithErrorIsolation(queryPromiseFunctions, {
     timeout: computeQueryTimeout(

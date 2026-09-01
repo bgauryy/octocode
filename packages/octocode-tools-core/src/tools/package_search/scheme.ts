@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { NpmPackageQuerySchema } from '../../toolContract/schemas.js';
 import {
+  clampedInt,
   createRelaxedBulkQuerySchema,
   relaxedPageNumberField,
 } from '../../scheme/fields.js';
@@ -8,6 +9,10 @@ import {
   createQueryShapeSchema,
   describeQuerySchema,
 } from '../../scheme/coreSchemas.js';
+import {
+  getRequiredSchemaField,
+  getSchemaField,
+} from '../../scheme/conditionalSchemas.js';
 import type {
   ItemPagination,
   ToolContinuation,
@@ -16,15 +21,18 @@ import type { BulkToolOutput } from '../../types/toolOutput.js';
 
 const queryOverrides = {
   page: relaxedPageNumberField,
-  // Sibling tools take keyword ARRAYS
-  // (ghSearchCode/localSearchCode) — agents reflexively pass arrays here too.
-  // Accept both shapes; execution folds arrays to the space-joined registry
-  // query (no zod transform — it would break JSON-schema generation).
-  keywords: z.union([z.string(), z.array(z.string())]).optional(),
+  pageSize: clampedInt(1, 100)
+    .optional()
+    .describe('Packages returned per keyword-discovery page.'),
+  keywords: z.array(z.string()).optional(),
 } as const;
 
 function requirePackageNameOrKeywords(
-  query: { packageName?: string; keywords?: string | string[] },
+  query: {
+    packageName?: string;
+    keywords?: string | string[];
+    pageSize?: number;
+  },
   ctx: z.RefinementCtx
 ): void {
   const keywords = Array.isArray(query.keywords)
@@ -37,6 +45,20 @@ function requirePackageNameOrKeywords(
       message: 'provide packageName or keywords',
     });
   }
+  if (query.packageName?.trim() && keywords) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['keywords'],
+      message: 'provide packageName or keywords, not both',
+    });
+  }
+  if (query.packageName?.trim() && query.pageSize !== undefined) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['pageSize'],
+      message: 'pageSize is only available for keyword discovery',
+    });
+  }
 }
 
 export const NpmSearchQueryLocalSchema = describeQuerySchema(
@@ -44,10 +66,60 @@ export const NpmSearchQueryLocalSchema = describeQuerySchema(
   queryOverrides
 ).superRefine(requirePackageNameOrKeywords);
 
+const NpmSearchQueryShape = createQueryShapeSchema(
+  NpmPackageQuerySchema,
+  queryOverrides,
+  { strict: true }
+);
+const npmCommonShape = NpmSearchQueryShape.omit({
+  packageName: true,
+  keywords: true,
+  pageSize: true,
+}).shape;
+const packageNameMode = z
+  .object({
+    ...npmCommonShape,
+    packageName: getRequiredSchemaField(
+      NpmSearchQueryShape.shape,
+      'packageName'
+    ),
+  })
+  .strict()
+  .superRefine((query, ctx) =>
+    requirePackageNameOrKeywords(
+      query as {
+        packageName?: string;
+        keywords?: string | string[];
+        pageSize?: number;
+      },
+      ctx
+    )
+  );
+const keywordMode = z
+  .object({
+    ...npmCommonShape,
+    keywords: z
+      .array(z.string())
+      .min(1)
+      .describe(
+        getSchemaField(NpmSearchQueryShape.shape, 'keywords').description ?? ''
+      ),
+    pageSize: getSchemaField(NpmSearchQueryShape.shape, 'pageSize'),
+  })
+  .strict()
+  .superRefine((query, ctx) =>
+    requirePackageNameOrKeywords(
+      query as {
+        packageName?: string;
+        keywords?: string | string[];
+        pageSize?: number;
+      },
+      ctx
+    )
+  );
+
 export const NpmSearchBulkQueryLocalSchema = createRelaxedBulkQuerySchema(
-  createQueryShapeSchema(NpmPackageQuerySchema, queryOverrides, {
-    strict: true,
-  }).superRefine(requirePackageNameOrKeywords),
+  z.union([packageNameMode, keywordMode]),
   { maxQueries: 5 }
 );
 
@@ -80,10 +152,18 @@ export interface NpmSearchRepository {
   [key: string]: unknown;
 }
 
+export type NpmSearchPagination = ItemPagination & {
+  continuationUnavailable?: {
+    reason: 'schemaPageLimit';
+    maxPage: number;
+  };
+};
+
 export interface NpmSearchData {
   packages?: NpmSearchPackage[];
   repositories?: Record<string, NpmSearchRepository>;
-  pagination?: ItemPagination;
+  pagination?: NpmSearchPagination;
+  next?: Record<string, ToolContinuation>;
   [key: string]: unknown;
 }
 

@@ -9,27 +9,21 @@
  * For execution, import `executeDirectTool` from `@octocodeai/octocode-tools-core/direct`.
  */
 export * from './tools/directToolCatalog.meta.js';
-export * from './toolContract/schemas.js';
 export * from './toolContract/runtime.js';
 export {
   CloneRepoQuerySchema,
   FetchContentQuerySchema,
   FileContentQuerySchema,
-  FindFilesQuerySchema,
-  GitHubCodeSearchQuerySchema,
-  GitHubPullRequestSearchQuerySchema,
-  GitHubReposSearchSingleQuerySchema,
-  GitHubViewRepoStructureQuerySchema,
+  GitHubSearchQuerySchema,
   ListReleasesQuerySchema,
   LocalAnalyzeGraphQuerySchema,
+  LocalSearchQuerySchema,
   LspGetSemanticsQuerySchema,
   NpmPackageQuerySchema,
-  RipgrepQuerySchema,
   SearchCommitsQuerySchema,
   SearchDiscussionsQuerySchema,
   SearchIssuesQuerySchema,
   SearchPullRequestsQuerySchema,
-  ViewStructureQuerySchema,
   findToolSchema,
   getToolSchemaRelations,
   toolSchemas,
@@ -40,3 +34,4 @@ export {
 } from './toolContract/runtime.js';
 // Descriptions and executable schemas are owned by octocode-core.
 export { loadToolContent } from './tools/toolMetadata/state.js';
+export { STATIC_TOOL_NAMES } from './tools/toolNames.js';

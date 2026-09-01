@@ -5,17 +5,16 @@ const emptyCompleteMetadata = {
   prompts: {},
   toolNames: {
     GITHUB_FETCH_CONTENT: 'ghGetFileContent',
-    GITHUB_SEARCH_CODE: 'ghSearchCode',
-    GITHUB_SEARCH_REPOSITORIES: 'ghSearchRepos',
-    GITHUB_PULL_REQUESTS: 'ghSearchPullRequests',
-    GITHUB_ISSUES: 'ghSearchIssues',
-    GITHUB_COMMITS: 'ghSearchCommits',
-    GITHUB_VIEW_REPO_STRUCTURE: 'ghViewRepoStructure',
+    GITHUB_SEARCH_CODE: 'github.code',
+    GITHUB_SEARCH_REPOSITORIES: 'github.repositories',
+    GITHUB_SEARCH_HISTORY: 'ghSearchHistory',
+    GITHUB_GET_HISTORY_ITEM: 'ghGetHistoryItem',
+    GITHUB_VIEW_REPO_STRUCTURE: 'github.tree',
     PACKAGE_SEARCH: 'npmSearch',
-    LOCAL_RIPGREP: 'localSearchCode',
+    LOCAL_RIPGREP: 'local.text',
     LOCAL_FETCH_CONTENT: 'localGetFileContent',
-    LOCAL_FIND_FILES: 'localFindFiles',
-    LOCAL_VIEW_STRUCTURE: 'localViewStructure',
+    LOCAL_FIND_FILES: 'local.files',
+    LOCAL_VIEW_STRUCTURE: 'local.tree',
     LSP_GET_SEMANTIC_CONTENT: 'lspGetSemantics',
   },
   baseSchema: {
@@ -61,7 +60,7 @@ describe('toolMetadata - TOOL_NAMES static fallback (lines 236-243)', () => {
     );
     const desc4 = Object.getOwnPropertyDescriptor(
       TOOL_NAMES,
-      'GITHUB_PULL_REQUESTS'
+      'GITHUB_SEARCH_HISTORY'
     );
     const desc5 = Object.getOwnPropertyDescriptor(
       TOOL_NAMES,

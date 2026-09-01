@@ -64,6 +64,7 @@ describe('ghCloneRepo next-hints', () => {
     const data = (result.structuredContent ?? result) as {
       results: Array<{
         index: number;
+        cache?: 1;
         data: {
           owner: string;
           repo: string;
@@ -98,8 +99,22 @@ describe('ghCloneRepo next-hints', () => {
     const next = row?.data.next;
     expect(next?.viewStructure).toBeDefined();
     // Regression: this hint used to be next.localSearch with mode:"discovery"
-    // and no keywords, which localSearchCode's core schema always rejects.
+    // and no keywords, which local.text's core schema always rejects.
     expect(next?.localSearch).toBeUndefined();
     expect(JSON.stringify(next)).not.toContain('"mode":"discovery"');
+
+    const cachedResult = await executeCloneRepo({
+      queries: [{ owner: 'bgauryy', repo: 'octocode', branch: 'main' }],
+    } as never);
+    const cachedData = (cachedResult.structuredContent ?? cachedResult) as {
+      results: Array<{
+        cache?: 1;
+        data: { location: Record<string, unknown> };
+      }>;
+    };
+    expect(cachedData.results[0]).toMatchObject({
+      cache: 1,
+      data: { location: { cached: true } },
+    });
   });
 });

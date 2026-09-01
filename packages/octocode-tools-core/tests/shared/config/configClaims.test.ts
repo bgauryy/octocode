@@ -90,9 +90,9 @@ describe('README/CONFIGURATION config claims', () => {
     });
   });
 
-  describe('ENABLE_CLONE -> local.enableClone (default false)', () => {
-    it('defaults to false', () => {
-      expect(resolveLocal(undefined).enableClone).toBe(false);
+  describe('ENABLE_CLONE -> local.enableClone (default true)', () => {
+    it('defaults to true', () => {
+      expect(resolveLocal(undefined).enableClone).toBe(true);
     });
     it('ENABLE_CLONE=true enables, overriding file=false', () => {
       process.env.ENABLE_CLONE = 'true';
@@ -134,10 +134,10 @@ describe('README/CONFIGURATION config claims', () => {
       expect(t.disabled).toBeNull();
     });
     it('TOOLS_TO_RUN env populates the strict whitelist', () => {
-      process.env.TOOLS_TO_RUN = 'ghSearchCode,localSearchCode';
+      process.env.TOOLS_TO_RUN = 'github.code,local.text';
       expect(resolveTools(undefined).enabled).toEqual([
-        'ghSearchCode',
-        'localSearchCode',
+        'github.code',
+        'local.text',
       ]);
     });
     it('DISABLE_TOOLS env populates the remove list', () => {
@@ -219,7 +219,7 @@ describe('README/CONFIGURATION config claims', () => {
     });
   });
 
-  describe('runtime surface: local.enabled defaults on; clone defaults differ by flow', () => {
+  describe('runtime surface: local and clone default on for every flow', () => {
     describe('CLI surface', () => {
       beforeEach(() => setRuntimeSurface('cli'));
 
@@ -273,8 +273,8 @@ describe('README/CONFIGURATION config claims', () => {
         expect(resolveLocal({ enabled: true }).enabled).toBe(false);
       });
 
-      it('clone defaults to DISABLED', () => {
-        expect(resolveLocal(undefined).enableClone).toBe(false);
+      it('clone defaults to ENABLED', () => {
+        expect(resolveLocal(undefined).enableClone).toBe(true);
       });
 
       it('ENABLE_CLONE=true enables clone', () => {

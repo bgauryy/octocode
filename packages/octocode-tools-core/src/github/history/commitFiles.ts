@@ -1,4 +1,5 @@
 import type { HistoryCommitFile } from '../githubAPI.js';
+import { MAX_PAGE_NUMBER } from '../../config.js';
 
 export function windowPatch(
   patch: string | undefined,
@@ -65,6 +66,11 @@ export function shapeCommitDirFiles(
     totalFiles: number;
     hasMore: boolean;
     nextFilePage?: number;
+    terminalLimit?: boolean;
+    continuationUnavailable?: {
+      reason: 'schemaPageLimit';
+      maxPage: number;
+    };
   };
 } {
   const allFiles: HistoryCommitFile[] = rawFiles.map(f => {
@@ -103,7 +109,18 @@ export function shapeCommitDirFiles(
       itemsPerPage,
       totalFiles,
       hasMore: currentPage < totalPages,
-      ...(currentPage < totalPages ? { nextFilePage: currentPage + 1 } : {}),
+      ...(currentPage < totalPages && currentPage < MAX_PAGE_NUMBER
+        ? { nextFilePage: currentPage + 1 }
+        : {}),
+      ...(currentPage < totalPages && currentPage >= MAX_PAGE_NUMBER
+        ? {
+            terminalLimit: true,
+            continuationUnavailable: {
+              reason: 'schemaPageLimit' as const,
+              maxPage: MAX_PAGE_NUMBER,
+            },
+          }
+        : {}),
     },
   };
 }

@@ -1,4 +1,4 @@
-import { defineConfig } from 'vitest/config'
+import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
   test: {
@@ -21,11 +21,11 @@ export default defineConfig({
       ],
       reporter: ['text'],
       thresholds: {
-        statements: 58,
-        branches: 48,
-        functions: 73,
-        lines: 59,
+        statements: 60,
+        branches: 51,
+        functions: 76,
+        lines: 61,
       },
     },
   },
-})
+});

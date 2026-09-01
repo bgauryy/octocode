@@ -378,8 +378,8 @@ Pick the cheapest surface that answers the next question. Start with tree/discov
 **1. Find → read → prove (the workhorse)**
 
 ```
-localViewStructure (orient the tree)
-  → localSearchCode (mode:"discovery" for paths, "paginated" for snippets)
+localSearch (operation:"tree" to orient)
+  → localSearch (operation:"files" for paths, "text" for snippets)
   → localGetFileContent (matchString → returns matchRanges line anchors)
   → lspGetSemantics (references/callers, lineHint from matchRanges)
 ```
@@ -391,32 +391,32 @@ localViewStructure (orient the tree)
 **2. Symbol-first (you know the name, not the place)**
 
 ```
-localSearchCode (keywords:"<symbol>", sort:"relevance")   ← definition ranks above callers and tests
+localSearch (operation:"text", searchText:"<symbol>", sort:"relevance")
   → lspGetSemantics (references/callers, lineHint from the top hit)
 ```
 
-Use `mode:"paginated"` (not `"discovery"`) when definition-vs-caller order matters — discovery ranks by path only.
+Use the text operation when definition-vs-caller order matters; the files operation ranks paths, not snippets.
 
 **3. Structural (AST) → semantic proof**
 
 ```
-localSearchCode (mode:"structural", pattern or YAML rule)
+localSearch (operation:"structural", pattern or YAML rule)
   → matches carry per-capture metavarRanges → feed straight into lspGetSemantics
 ```
 
 - Patterns match **complete nodes**: a function needs `{ $$$BODY }`; modifiers count (`function $F` misses `async function`). Statement patterns self-heal a missing `;`.
 - Zero matches return an engine explanation (query kind, literal anchor, pre-filter) — read it before rewriting blind.
 
-**4. Metadata sweep** — `localFindFiles` (names/time/size, e.g. `modifiedWithin:"1d"`) → read/search the returned paths. Nothing is excluded by default; pass `excludeDir`.
+**4. Metadata sweep** — `localSearch` with `operation:"files"` (names/time/size, e.g. `time.modifiedWithin:"1d"`) → read/search the returned paths. Nothing is excluded by default; pass `excludeDir`.
 
 ### External workflows
 
 **5. Discover → orient → read**
 
 ```
-ghSearchRepos (concise:true)  or  npmSearch (package → source repo)
-  → ghViewRepoStructure (root tree; resolvedBranch confirms the ref)
-  → ghSearchCode (match:"path" first — cheap; match:"file" only for snippets)
+ghSearch (operation:"repositories", concise:true) or npmSearch (package → source repo)
+  → ghSearch (operation:"tree"; resolvedBranch confirms the ref)
+  → ghSearch (operation:"code", match:"path" first; match:"file" for snippets)
   → ghGetFileContent (matchString → matchRanges, same anchor contract as local)
 ```
 
@@ -425,9 +425,9 @@ GitHub search is default-branch and index-limited: **empty is not absence**; ver
 **6. History archaeology**
 
 ```
-ghSearchCommits (path-scoped)                            ← who touched this and when
+ghSearchHistory (operation:"commits", path-scoped)       ← who touched this and when
   → next.prDetail (PR number parsed from the commit)
-  → ghSearchPullRequests (prNumber + content selectors)  ← select ONLY what you need
+  → ghGetHistoryItem (operation:"pullRequest", number + content selectors)  ← select ONLY what you need
   → patches mode:"selected" + files/ranges               ← cheapest diff read
 ```
 
@@ -445,7 +445,7 @@ ghSearchCommits (path-scoped)                            ← who touched this an
 ### When results are empty or wrong
 
 - `status:"empty"` + warnings say what to change — the response self-corrects before you retry.
-- Errors carry the repair path (404s name branch-vs-path; missing files point to `localFindFiles`).
+- Errors carry the repair path (404s name branch-vs-path; missing files point to `localSearch.operation:"files"`).
 - LSP `serverUnavailable` means capability absence, not "no usages" — fall back to search.
 
 ### Research patterns — field-tested
@@ -482,7 +482,7 @@ The corpus is an evidence graph, not a pile of files — the semantic-extraction
 
 - Search tools discover nodes; `next.*` proposes edges.
 - `lspGetSemantics` provides the *typed* edges — references, callers/callees, type hierarchy — the only edges that prove identity rather than co-occurrence.
-- `ghSearchCommits`/`ghSearchPullRequests` add the **time axis**: commit → PR → patch edges answer *why* a node looks the way it does.
+- `ghSearchHistory`/`ghGetHistoryItem` add the **time axis**: commit → PR → patch edges answer *why* a node looks the way it does.
 - Materialization is the edge *between graphs* (remote → local), unlocking typed edges on remote code.
 
 ### The theory, field-validated

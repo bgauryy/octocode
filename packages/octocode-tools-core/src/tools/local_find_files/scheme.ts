@@ -75,7 +75,7 @@ export const LocalFindFilesBulkQuerySchema = createRelaxedBulkQuerySchema(
 );
 
 // ---------------------------------------------------------------------------
-// Output TYPES — localFindFiles result shape. No zod: the output was never
+// Output TYPES — local files result shape. No zod: the output was never
 // validated at runtime (MCP registers no outputSchema), so it is a plain type.
 // Shared envelope lives in types/toolOutput.ts.
 // ---------------------------------------------------------------------------
@@ -96,6 +96,10 @@ export interface LocalFindFilesData {
   summary?: string;
   pagination?: LocalItemPagination;
   next?: Record<string, ToolContinuation>;
+  terminalLimit?: boolean;
+  truncated?: boolean;
+  partialReasons?: Array<'limit' | 'walkLimit'>;
+  totalAvailable?: number;
 }
 
 export type LocalFindFilesOutput = BulkToolOutput<LocalFindFilesData>;

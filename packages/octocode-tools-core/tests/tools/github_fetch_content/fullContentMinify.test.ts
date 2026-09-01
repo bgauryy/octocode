@@ -130,4 +130,45 @@ describe('ghGetFileContent — fullContent is verbatim (minify:none) by default'
     await fetchMultipleGitHubFileContents(parsed as never);
     expect(minifyOf()).toBe('none');
   });
+
+  it('aligns row metadata with a nested partial file and executable line continuation', async () => {
+    getFileContent.mockResolvedValue({
+      data: {
+        path: 'src/a.ts',
+        content: 'first ten lines',
+        totalLines: 25,
+        startLine: 1,
+        endLine: 10,
+        isPartial: true,
+      },
+      status: 200,
+      provider: 'github',
+      rawResponseChars: 100,
+    });
+    const result = await fetchMultipleGitHubFileContents({
+      queries: [
+        {
+          owner: 'o',
+          repo: 'r',
+          path: 'src/a.ts',
+          startLine: 1,
+          endLine: 10,
+          minify: 'none',
+        },
+      ],
+    } as never);
+    const row = (
+      result.structuredContent as {
+        results: Array<{
+          data: { files: Array<Record<string, any>> };
+          meta: { diagnostics?: { partial?: boolean; codes?: string[] } };
+        }>;
+      }
+    ).results[0]!;
+    expect(row.data.files[0]?.next?.continueLines).toBeDefined();
+    expect(row.meta.diagnostics?.partial).toBe(true);
+    expect(row.meta.diagnostics?.codes ?? []).not.toContain(
+      'continuationMissing'
+    );
+  });
 });

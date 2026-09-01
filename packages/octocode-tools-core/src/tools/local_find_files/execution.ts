@@ -18,7 +18,7 @@ export async function executeFindFiles(
       executeWithToolBoundary({
         toolName: TOOL_NAMES.LOCAL_FIND_FILES,
         query,
-        contextMessage: 'localFindFiles execution failed',
+        contextMessage: 'Local files operation failed',
         execute: async () => {
           const parsed = safeParseOrError<FindFilesQuery>(
             LocalFindFilesQuerySchema,

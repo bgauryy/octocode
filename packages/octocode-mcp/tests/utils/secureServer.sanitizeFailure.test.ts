@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { CallToolResult, McpServer } from '@modelcontextprotocol/server';
+import { allowExpectedStderrWarning } from '../warningPolicy.js';
 
 vi.mock('@octocodeai/octocode-tools-core', async importOriginal => {
   const actual =
@@ -44,6 +45,9 @@ describe('createSecureServer sanitizer failures', () => {
   });
 
   it('fails closed and discards the original tool result', async () => {
+    allowExpectedStderrWarning(
+      '[octocode-mcp] output sanitization failed for tool "example"'
+    );
     const { proxy, getWrapped } = setupSecureServer();
     proxy.registerTool(
       'example',

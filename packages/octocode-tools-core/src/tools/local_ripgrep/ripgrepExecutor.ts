@@ -259,17 +259,13 @@ export async function executeRipgrepSearchInternal(
   if (depthFilteredFiles.length === 0) {
     // An honest empty must point somewhere useful, not dead-end at stats.
     const broadenHints = [
-      'No matches — broaden the search: try caseMode:"insensitive", a shorter/partial term, or regex:"smart" instead of "fixed".',
+      'No matches. Try caseMode:"insensitive", a shorter term, or regex:"smart".',
       ...(queryForExec.include?.length ||
       (queryForExec as { maxDepth?: number }).maxDepth !== undefined
-        ? [
-            'Filters are active (include/maxDepth) — drop them to search the wider tree.',
-          ]
+        ? ['Remove include/maxDepth to search a wider tree.']
         : []),
       ...(queryForExec.wholeWord
-        ? [
-            'wholeWord:true excludes partial hits — drop it to match substrings.',
-          ]
+        ? ['Set wholeWord:false to match substrings.']
         : []),
     ];
     return attachRawResponseChars(

@@ -6,6 +6,7 @@ import {
   type SemanticContentType,
 } from '../../shared/semanticTypes.js';
 import type { SymbolAnchor } from '../../shared/resolveSymbolAnchor.js';
+import { MAX_PAGE_NUMBER } from '../../../../config.js';
 
 export const DEFAULT_SYMBOLS_PER_PAGE = 40;
 export const DEFAULT_LOCATIONS_PER_PAGE = 40;
@@ -16,7 +17,7 @@ export type PaginationInfo = {
   totalPages: number;
   totalResults: number;
   hasMore: boolean;
-  itemsPerPage: number;
+  pageSize: number;
   nextPage?: number;
 };
 
@@ -92,8 +93,10 @@ export function paginateItems<T>(
       totalPages,
       totalResults: items.length,
       hasMore,
-      itemsPerPage,
-      ...(hasMore ? { nextPage: currentPage + 1 } : {}),
+      pageSize: itemsPerPage,
+      ...(hasMore && currentPage < MAX_PAGE_NUMBER
+        ? { nextPage: currentPage + 1 }
+        : {}),
     },
   };
 }

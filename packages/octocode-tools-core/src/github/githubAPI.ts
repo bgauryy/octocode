@@ -288,7 +288,7 @@ export interface GitHubPullRequestsSearchParams {
   closed?: string;
   comments?: number | string;
   reactions?: number | string;
-  label?: string | string[];
+  label?: string[];
   milestone?: string;
   language?: string;
   checks?: 'pending' | 'success' | 'failure';
@@ -309,7 +309,6 @@ export interface GitHubPullRequestsSearchParams {
   charOffset?: number;
   charLength?: number;
   content?: unknown;
-  reviewMode?: 'summary' | 'full';
   filePage?: number;
   commentPage?: number;
   commitPage?: number;

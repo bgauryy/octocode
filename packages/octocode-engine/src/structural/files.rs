@@ -635,7 +635,7 @@ fn matching_anchor_paths(
     Ok(result.files.into_iter().map(|file| file.path).collect())
 }
 
-// Both anchor-prefilter helpers thread the 6 scope fields localSearchCode
+// Both anchor-prefilter helpers thread the six local-search scope fields
 // requires (include/exclude/exclude_dir/hidden/no_ignore/max_depth); bundling
 // into a `FileScope` struct is a future cleanup, not warranted for this fix.
 #[allow(clippy::too_many_arguments)]
@@ -861,7 +861,7 @@ fn default_exclude_dirs() -> Vec<String> {
 /// Compile `include` + `exclude` into a gitignore-style override set, rooted at
 /// the search path so relative globs like `src/**/*.ts` resolve as users expect.
 /// `exclude` globs are added negated (`!glob`) so they drop files that `include`
-/// would otherwise match — mirroring `localSearchCode.exclude`。
+/// would otherwise match — mirroring the local-search `exclude` field.
 fn build_overrides(
     root: &Path,
     include: &[String],
@@ -911,7 +911,7 @@ fn collect_candidate_files(
     )
 }
 
-// Walker threads the 8 scope/output fields localSearchCode requires; a
+// Walker threads the eight local-search scope/output fields; a
 /// Loud existence check shared by every entry point — mirrors the message
 /// `collect_files` produces so all prefilter branches fail identically.
 fn check_root_exists(root: &Path) -> Result<(), String> {

@@ -19,7 +19,7 @@ export async function executeRipgrepSearch(
       executeWithToolBoundary({
         toolName: TOOL_NAMES.LOCAL_RIPGREP,
         query,
-        contextMessage: 'localSearchCode execution failed',
+        contextMessage: 'Local text operation failed',
         execute: async () => {
           const parsed = safeParseOrError<RipgrepQuery>(
             LocalRipgrepQuerySchema,

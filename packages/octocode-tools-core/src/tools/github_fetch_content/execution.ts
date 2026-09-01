@@ -168,13 +168,9 @@ async function handleDirectoryFetch(
   };
 
   const next: Record<string, unknown> = {
-    localSearch: {
-      tool: 'localSearchCode',
-      query: { path: result.localPath, mode: 'discovery' },
-    },
     viewStructure: {
-      tool: 'localViewStructure',
-      query: { path: result.localPath },
+      tool: 'localSearch',
+      query: { operation: 'tree', path: result.localPath },
     },
     // When subdirectories were skipped, provide a pre-filled clone hint so
     // agents can escalate to a complete local copy without constructing the

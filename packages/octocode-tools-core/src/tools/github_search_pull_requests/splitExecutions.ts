@@ -1,7 +1,6 @@
 import type { CallToolResult } from '@modelcontextprotocol/server';
 
-// Thin executors for the 4 focused GitHub history tools
-// (ghSearchPullRequests / ghSearchIssues / ghSearchCommits / ghListReleases). Each injects
+// Thin internal executors for focused GitHub history and release modes. Each injects
 // the mode `type` its tool owns, then delegates to the shared, already-tested
 // bulk executor + router (searchMultipleGitHubPullRequests). This keeps ONE
 // backend while giving the agent four focused, single-purpose tools.

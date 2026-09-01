@@ -43,6 +43,44 @@ export function getDirectToolDisplayFields(
   return collectDisplayFields(properties, requiredFields);
 }
 
+/** Exact per-operation fields for discriminated schemas. Unlike the merged
+ * display view, this preserves branch-specific enums and numeric limits. */
+export function getDirectToolVariantDisplayFields(
+  toolName: string
+): Record<string, DirectToolDisplayField[]> {
+  const tool = findDirectToolDefinition(toolName);
+  if (!tool) return {};
+
+  const jsonSchema = z.toJSONSchema(tool.schema, { io: 'input' });
+  if (!isJsonSchemaObject(jsonSchema)) return {};
+
+  const byOperation = new Map<string, JsonSchemaObject[]>();
+  for (const variant of collectObjectVariants(jsonSchema)) {
+    if (!isRecord(variant.properties)) continue;
+    const operation = variant.properties.operation;
+    if (!isJsonSchemaObject(operation) || typeof operation.const !== 'string')
+      continue;
+    const variants = byOperation.get(operation.const) ?? [];
+    variants.push(variant);
+    byOperation.set(operation.const, variants);
+  }
+
+  return Object.fromEntries(
+    [...byOperation].map(([operation, variants]) => {
+      const properties = mergeVariantProperties(variants);
+      const required = intersectRequiredFields(variants, properties);
+      return [
+        operation,
+        collectDisplayFields(properties, required).filter(
+          field =>
+            !DIRECT_TOOL_AUTO_FILLED_FIELDS.has(field.name) &&
+            field.name !== 'operation'
+        ),
+      ];
+    })
+  );
+}
+
 export function describeSchemaConstraints(
   schema: JsonSchemaObject
 ): string | undefined {
@@ -135,10 +173,14 @@ function mergeVariantProperties(
             enum: [...new Set(constants)],
             description:
               name === 'operation'
-                ? 'Required graph analysis operation.'
+                ? 'Required operation selector.'
                 : schemas[0]?.description,
           },
         ];
+      }
+      const distinctTypes = new Set(schemas.map(describeSchemaType));
+      if (distinctTypes.size > 1) {
+        return [name, { anyOf: schemas }];
       }
       return [name, schemas[0] ?? {}];
     })

@@ -29,6 +29,9 @@ export type DiscussionsResult = {
     hasMore: boolean;
     /** Opaque cursor to pass back as `after` for the next page. */
     nextCursor?: string;
+    continuationUnavailable?: {
+      reason: 'missingProviderCursor';
+    };
   };
   /**
    * Whether the repository has Discussions enabled at all. Omitted (not
@@ -184,6 +187,13 @@ async function fetchDiscussionsInternal(
           perPage: params.perPage,
           hasMore,
           ...(hasMore && endCursor ? { nextCursor: endCursor } : {}),
+          ...(hasMore && !endCursor
+            ? {
+                continuationUnavailable: {
+                  reason: 'missingProviderCursor' as const,
+                },
+              }
+            : {}),
         },
         ...(typeof result.repository?.hasDiscussionsEnabled === 'boolean'
           ? { hasDiscussionsEnabled: result.repository.hasDiscussionsEnabled }

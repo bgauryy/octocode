@@ -20,7 +20,7 @@ const queryOverrides = {
   limit: clampedInt(1, GITHUB_SEARCH_MAX_LIMIT).optional(),
   page: relaxedPageNumberField.default(1),
   // `match` here selects WHICH text fields to search — a different concept
-  // from ghSearchCode's `match`, which selects WHERE the search looks (file
+  // from code-operation `match`, which selects WHERE the search looks (file
   // contents vs paths). Don't carry intuition across tools.
   match: z.array(z.enum(['name', 'description', 'readme'])).optional(),
 } as const;
@@ -39,7 +39,7 @@ export const GitHubReposSearchBulkQueryLocalSchema =
   );
 
 // ---------------------------------------------------------------------------
-// Output TYPES — describes what ghSearchRepos returns. No zod: the MCP server
+// Output TYPES — describes what the repository operation returns. No zod: the MCP server
 // registers no outputSchema. Index signature mirrors the original
 // .passthrough() for additive runtime fields. Shared envelope lives in
 // types/toolOutput.ts.

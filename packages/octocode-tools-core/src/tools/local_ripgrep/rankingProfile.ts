@@ -1,5 +1,5 @@
 /**
- * Tier 1 — within-source language-aware ranking for localSearchCode.
+ * Tier 1 — within-source language-aware ranking for local text search.
  *
  * Replaces "more matches first, then path" with a stable, inspectable relevance
  * score. See `.octocode/RANKING-ARCHITECTURE.md`.

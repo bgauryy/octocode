@@ -19,7 +19,7 @@ type PartialPRQuery = WithOptionalMeta<
 >;
 
 export function mapPullRequestToolQuery(query: PartialPRQuery) {
-  const keywordParts = (query.keywordsToSearch ?? [])
+  const keywordParts = (query.keywords ?? [])
     .filter(k => k.trim())
     .map(quoteSearchKeyword);
   const rawQuery = (query as { query?: string }).query?.trim() ?? '';
@@ -58,11 +58,10 @@ export function mapPullRequestToolQuery(query: PartialPRQuery) {
     archived: (query as Record<string, unknown>).archived as
       boolean | undefined,
     content: (query as { content?: unknown }).content,
-    reviewMode: (query as { reviewMode?: 'summary' | 'full' }).reviewMode,
     filePage: (query as { filePage?: number }).filePage,
     commentPage: (query as { commentPage?: number }).commentPage,
     commitPage: (query as { commitPage?: number }).commitPage,
-    itemsPerPage: (query as { itemsPerPage?: number }).itemsPerPage,
+    itemsPerPage: (query as { pageSize?: number }).pageSize,
     sort: query.sort as
       | 'created'
       | 'updated'
@@ -71,7 +70,8 @@ export function mapPullRequestToolQuery(query: PartialPRQuery) {
       | 'reactions'
       | undefined,
     order: query.order as 'asc' | 'desc' | undefined,
-    limit: (query as { limit?: number }).limit ?? GITHUB_SEARCH_DEFAULT_LIMIT,
+    limit:
+      (query as { pageSize?: number }).pageSize ?? GITHUB_SEARCH_DEFAULT_LIMIT,
     page: query.page,
     charOffset: (query as { charOffset?: number }).charOffset,
     charLength: (query as { charLength?: number }).charLength,
@@ -250,7 +250,7 @@ export function mapPullRequestProviderResultData(
       pullRequests,
       // Echo the exact search-qualifier string when the search path ran —
       // the transparency signal that distinguishes real keyword matches
-      // from a plain recent-PR listing (ghSearchIssues does the same).
+      // from a plain recent-PR listing (issue history does the same).
       ...(data.effectiveQuery ? { effectiveQuery: data.effectiveQuery } : {}),
       ...(pagination
         ? { pagination }

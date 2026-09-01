@@ -113,7 +113,7 @@ export const LOCAL_TOOL_ERROR_REGISTRY: Record<
     code: LOCAL_TOOL_ERROR_CODES.LSP_SERVER_UNAVAILABLE,
     category: LocalToolErrorCategory.EXECUTION,
     description:
-      'No language server available for semantic analysis — use text search (localSearchCode) and localGetFileContent instead',
+      'No language server available for semantic analysis — use localSearch operation:"text" or "structural", then localGetFileContent',
     recoverability: 'user-action-required',
   },
 };

@@ -73,7 +73,7 @@ function createProxyChain() {
 }
 
 const TOOL_RESULT_SHAPES: Record<string, () => CallToolResult> = {
-  ghSearchCode: () => ({
+  'github.code': () => ({
     content: [
       {
         type: 'text',
@@ -134,7 +134,7 @@ const TOOL_RESULT_SHAPES: Record<string, () => CallToolResult> = {
     },
   }),
 
-  ghViewRepoStructure: () => ({
+  'github.tree': () => ({
     content: [
       {
         type: 'text',
@@ -154,7 +154,7 @@ const TOOL_RESULT_SHAPES: Record<string, () => CallToolResult> = {
     },
   }),
 
-  ghSearchRepos: () => ({
+  'github.repositories': () => ({
     content: [
       {
         type: 'text',
@@ -174,7 +174,7 @@ const TOOL_RESULT_SHAPES: Record<string, () => CallToolResult> = {
     },
   }),
 
-  ghSearchPullRequests: () => ({
+  ghGetHistoryItem: () => ({
     content: [
       {
         type: 'text',
@@ -247,7 +247,7 @@ const TOOL_RESULT_SHAPES: Record<string, () => CallToolResult> = {
     },
   }),
 
-  ghSearchIssues: () => ({
+  ghSearchHistory: () => ({
     content: [
       {
         type: 'text',
@@ -265,32 +265,6 @@ const TOOL_RESULT_SHAPES: Record<string, () => CallToolResult> = {
                   number: 7,
                   title: 'Leaked key',
                   body: `The token is ${SECRETS.GITHUB_TOKEN}`,
-                },
-              ],
-            },
-          },
-        ],
-      },
-    },
-  }),
-
-  ghSearchCommits: () => ({
-    content: [
-      {
-        type: 'text',
-        text: `commit abc: set token to ${SECRETS.GITLAB_TOKEN}`,
-      },
-    ],
-    structuredContent: {
-      data: {
-        results: [
-          {
-            id: 'q1',
-            data: {
-              commits: [
-                {
-                  sha: 'abc',
-                  message: `rotate token to ${SECRETS.GITLAB_TOKEN}`,
                 },
               ],
             },
@@ -359,7 +333,7 @@ const TOOL_RESULT_SHAPES: Record<string, () => CallToolResult> = {
     },
   }),
 
-  localSearchCode: () => ({
+  localSearch: () => ({
     content: [
       {
         type: 'text',
@@ -397,6 +371,18 @@ const TOOL_RESULT_SHAPES: Record<string, () => CallToolResult> = {
     },
   }),
 
+  'local.text': () => ({
+    content: [
+      {
+        type: 'text',
+        text: `Legacy search result: API_KEY=${SECRETS.AWS_KEY}`,
+      },
+    ],
+    structuredContent: {
+      data: { matches: [{ content: `token=${SECRETS.GITHUB_TOKEN}` }] },
+    },
+  }),
+
   localGetFileContent: () => ({
     content: [
       {
@@ -427,7 +413,7 @@ const TOOL_RESULT_SHAPES: Record<string, () => CallToolResult> = {
     },
   }),
 
-  localViewStructure: () => ({
+  'local.tree': () => ({
     content: [
       {
         type: 'text',
@@ -446,7 +432,7 @@ const TOOL_RESULT_SHAPES: Record<string, () => CallToolResult> = {
     },
   }),
 
-  localFindFiles: () => ({
+  'local.files': () => ({
     content: [
       {
         type: 'text',
@@ -541,6 +527,8 @@ const TOOL_RESULT_SHAPES: Record<string, () => CallToolResult> = {
     },
   }),
 };
+
+TOOL_RESULT_SHAPES.ghSearch = TOOL_RESULT_SHAPES['github.code']!;
 
 const CATALOG_TOOL_NAMES = ALL_TOOLS.map(tool => tool.name).sort();
 const SANITIZATION_TOOL_NAMES = Object.keys(TOOL_RESULT_SHAPES).sort();
@@ -728,7 +716,7 @@ describe('ALL-TOOLS: Unified output sanitization via withOutputSanitization prox
         ],
       } satisfies CallToolResult);
 
-      const result = await registerAndCall('ghSearchCode', handler);
+      const result = await registerAndCall('ghSearch', handler);
       assertNoSecrets(
         (result.content[0] as { type: 'text'; text: string }).text,
         'first text'

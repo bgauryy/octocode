@@ -40,16 +40,13 @@ const REMOVED_CORE_FIELDS = ['semanticRanking'] as const;
 const queryOverrides = {
   // This `mode` selects the SEARCH ALGORITHM (paginated/discovery/detailed/
   // structural). It's unrelated to the nested `content.patches.mode` on
-  // ghSearchPullRequests (diff detail level) — different concepts sharing this
+  // ghGetHistoryItem pullRequest (diff detail level) — different concepts sharing this
   // field name across tools.
   mode: z.enum(LOCAL_SEARCH_MODES).optional().default('paginated'),
-  // A single text/regex pattern (unlike ghSearchCode/ghSearchRepos, where
-  // `keywords` is an ARRAY of ANDed terms) — passing an array here fails
-  // validation.
+  // A single text/regex pattern; passing an array here fails validation.
   searchText: z.string().optional(),
   // The `output` enum's "files"/"filesWithout" shapes drop line content down to
-  // matching / non-matching file paths. Unrelated to localViewStructure's
-  // `filesOnly`, which instead filters a directory LISTING to file entries.
+  // matching / non-matching file paths, not tree-entry filtering.
   output: z
     .enum([
       'content',
@@ -119,7 +116,7 @@ const LocalRipgrepBaseQuerySchema = describeQuerySchema(
 // pairings are now impossible by construction. describeQuerySchema rebuilds the
 // object from its shape and DROPS the core superRefine, so this local schema
 // must re-assert the full cross-field contract itself (mirrors the core
-// superRefine in localSearchCode.ts). Enum fields carry defaults, so they are
+// operation-level schema refinement). Enum fields carry defaults, so they are
 // always defined here — a non-default value is an explicit agent choice.
 export const LocalRipgrepQuerySchema = LocalRipgrepBaseQuerySchema.superRefine(
   (query, ctx) => {
@@ -259,7 +256,7 @@ export const LocalRipgrepBulkQuerySchema = createRelaxedBulkQuerySchema(
 );
 
 // ---------------------------------------------------------------------------
-// Output TYPES — describes what localSearchCode returns per query result row.
+// Output TYPES — describes what local text search returns per query result row.
 // No zod: the MCP server registers no outputSchema, so the output is a plain
 // type. Shared envelope lives in types/toolOutput.ts.
 // ---------------------------------------------------------------------------
@@ -323,6 +320,9 @@ export interface LocalSearchCodeData {
   };
   pagination?: LocalItemPagination;
   next?: Record<string, ToolContinuation>;
+  terminalLimit?: boolean;
+  truncated?: boolean;
+  partialReasons?: Array<'maxFiles'>;
 }
 
 export type LocalSearchCodeOutput = BulkToolOutput<LocalSearchCodeData>;

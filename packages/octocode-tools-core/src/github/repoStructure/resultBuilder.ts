@@ -187,6 +187,10 @@ export function buildStructureResult(args: {
   for (const hint of extraHints) {
     hints.unshift(hint);
   }
+  const partialReasons: GitHubRepositoryStructureResult['partialReasons'] = [
+    ...(incompleteTree ? (['providerTreeTruncated'] as const) : []),
+    ...(partialTreeFailures > 0 ? (['partialTreeFailures'] as const) : []),
+  ];
 
   return {
     owner,
@@ -211,6 +215,8 @@ export function buildStructureResult(args: {
       _cachedFileSizeMap: cachedFileSizeMap,
     }),
     pagination: paginationInfo,
+    ...(partialReasons.length > 0 ? { isPartial: true, partialReasons } : {}),
+    ...(incompleteTree ? { terminalLimit: true } : {}),
     hints,
     rawResponseChars,
     _cachedItems: filteredItems.map(item => ({

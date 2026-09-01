@@ -13,12 +13,12 @@ function makeTool(
 ): ToolConfig {
   return {
     name: overrides.name,
+    title: overrides.title ?? overrides.name,
     description: '',
     isDefault: overrides.isDefault ?? true,
     isLocal: overrides.isLocal ?? false,
     isClone: overrides.isClone,
     type: overrides.type ?? 'search',
-    skipMetadataCheck: overrides.skipMetadataCheck,
     direct: overrides.direct ?? {
       schema: z.object({}),
       inputSchema: z.object({}),
@@ -34,6 +34,13 @@ describe('toolFilters', () => {
       throw new Error('not initialized');
     });
     expect(cfg).toEqual({
+      toolsToRun: [],
+      disableTools: [],
+    });
+  });
+
+  it('normalizes omitted filter lists from a valid config provider', () => {
+    expect(getToolFilterConfigSafe(() => ({}))).toEqual({
       toolsToRun: [],
       disableTools: [],
     });
@@ -59,6 +66,14 @@ describe('toolFilters', () => {
         filterConfig: cfg,
       })
     ).toBe(true);
+
+    expect(
+      isToolEnabled(localCloneTool, {
+        localEnabled: false,
+        cloneEnabled: true,
+        filterConfig: cfg,
+      })
+    ).toBe(false);
 
     expect(
       isToolEnabled(localCloneTool, {
@@ -107,30 +122,28 @@ describe('toolFilters', () => {
     expect(() =>
       validateToolFilterConfig(
         {
-          toolsToRun: ['ghGetPullRequest'],
+          toolsToRun: ['ghGetHistory'],
           disableTools: [],
         },
-        ['ghSearchPullRequests', 'ghSearchIssues']
+        ['ghSearchHistory', 'ghGetHistoryItem']
       )
-    ).toThrowError(
-      /Unknown tool name.*ghGetPullRequest.*ghSearchPullRequests/i
-    );
+    ).toThrowError(/Unknown tool name.*ghGetHistory.*ghGetHistoryItem/i);
   });
 
   it('keeps valid names and reports invalid names in mixed filters', () => {
     const result = validateToolFilterConfig(
       {
-        toolsToRun: ['ghSearchIssues', 'ghGetPullRequest'],
-        disableTools: ['localSearchCode', 'missing'],
+        toolsToRun: ['ghSearchHistory', 'ghGetHistory'],
+        disableTools: ['local.text', 'missing'],
       },
-      ['ghSearchIssues', 'ghSearchPullRequests', 'npmSearch', 'localSearchCode']
+      ['ghSearchHistory', 'ghGetHistoryItem', 'npmSearch', 'local.text']
     );
 
     expect(result.config).toEqual({
-      toolsToRun: ['ghSearchIssues'],
-      disableTools: ['localSearchCode'],
+      toolsToRun: ['ghSearchHistory'],
+      disableTools: ['local.text'],
     });
-    expect(result.warnings.join('\n')).toMatch(/ghGetPullRequest/);
+    expect(result.warnings.join('\n')).toMatch(/ghGetHistory/);
     expect(result.warnings.join('\n')).toMatch(/missing/);
   });
 });

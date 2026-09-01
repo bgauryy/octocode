@@ -42,9 +42,16 @@ async function fetchIssuesInternal(
 ): Promise<GitHubAPIResponse<IssuesResult>> {
   try {
     if (params.state === 'merged') {
+      const pullRequestQuery = {
+        owner: firstString(params.owner) ?? '',
+        repo: firstString(params.repo) ?? '',
+        state: 'merged',
+      };
       return createIssueError(
-        'state:"merged" is not valid for type:"issues" — use "open" or "closed".',
-        ['For merged PRs use type:"prs" with state:"merged".']
+        'state:"merged" is not valid for issues — use "open" or "closed".',
+        [
+          `Use ghSearchHistory with ${JSON.stringify({ operation: 'pullRequests', ...pullRequestQuery })}.`,
+        ]
       );
     }
 

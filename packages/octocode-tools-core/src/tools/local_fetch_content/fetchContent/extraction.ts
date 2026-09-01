@@ -68,7 +68,10 @@ function buildMatchExtractionState(
 
   return {
     resultContent,
-    isPartial: true,
+    // matchString is a filtered view, not a truncated one: every matching
+    // slice is present in resultContent. Character windowing, if needed, owns
+    // the partial flag and its executable continuation later in the pipeline.
+    isPartial: false,
     actualStartLine,
     actualEndLine,
     matchRanges,
@@ -149,7 +152,9 @@ function buildLineRangeExtractionState(
       effectiveStartLine,
       effectiveEndLine
     ),
-    isPartial: true,
+    // A bounded line view is partial only while reachable source lines remain.
+    // The result builder attaches the executable continuation for that state.
+    isPartial: effectiveEndLine < totalLines,
     actualStartLine: effectiveStartLine,
     actualEndLine: effectiveEndLine,
     warnings,

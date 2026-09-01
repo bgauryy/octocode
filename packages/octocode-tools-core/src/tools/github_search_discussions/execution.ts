@@ -15,9 +15,8 @@ const DISCUSSIONS_PAGE_SIZE_DEFAULT = 30;
 type PartialDiscussionsQuery = {
   owner?: string;
   repo?: string;
-  keywordsToSearch?: string[];
-  itemsPerPage?: number;
-  limit?: number;
+  keywords?: string[];
+  pageSize?: number;
   after?: string;
   goal?: string;
   reasoning?: string;
@@ -39,14 +38,12 @@ export async function searchMultipleGitHubDiscussions(
           );
         }
 
-        const perPage =
-          Number(query.limit ?? query.itemsPerPage) ||
-          DISCUSSIONS_PAGE_SIZE_DEFAULT;
+        const perPage = Number(query.pageSize) || DISCUSSIONS_PAGE_SIZE_DEFAULT;
         const result = await fetchDiscussions(
           {
             owner: query.owner,
             repo: query.repo,
-            keywords: query.keywordsToSearch,
+            keywords: query.keywords,
             perPage,
             ...(query.after ? { after: query.after } : {}),
           },
@@ -76,8 +73,11 @@ export async function searchMultipleGitHubDiscussions(
         // Cursor-based continuation: hand back a ready-to-run next page when
         // GitHub reports more, matching the next-hint convention of other tools.
         const nextCursor = result.data.pagination.nextCursor;
+        const terminalLimit =
+          result.data.pagination.hasMore === true && !nextCursor;
         const dataWithNext = {
           ...(result.data as unknown as Record<string, unknown>),
+          ...(terminalLimit ? { terminalLimit: true } : {}),
           ...(discussionsWarnings.length > 0
             ? { warnings: discussionsWarnings }
             : {}),
@@ -89,10 +89,8 @@ export async function searchMultipleGitHubDiscussions(
                     query: {
                       owner: query.owner,
                       repo: query.repo,
-                      ...(query.keywordsToSearch
-                        ? { keywordsToSearch: query.keywordsToSearch }
-                        : {}),
-                      itemsPerPage: perPage,
+                      ...(query.keywords ? { keywords: query.keywords } : {}),
+                      pageSize: perPage,
                       after: nextCursor,
                     },
                     why: 'Fetch the next page of discussions',

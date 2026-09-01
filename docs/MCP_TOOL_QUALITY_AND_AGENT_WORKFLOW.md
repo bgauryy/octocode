@@ -16,34 +16,35 @@ OCTOCODE_TRUST_PROJECT_LSP_CONFIG=1 \
 node packages/octocode-mcp/dist/index.js
 ```
 
-The audit covers all 17 tools; cloning, releases, and Discussions need explicit
-enable flags on MCP.
+The discovery catalog contains 12 tools: 10 enabled by default and two
+feature-gated tools. Cloning is enabled by default; Releases and Discussions
+remain opt-in.
 
-## 2026-08-28 complete contract audit
+## 2026-08-30 complete contract audit
 
 Scores combine schema clarity, response boundedness, workflow alignment, and exercised behavior. They are comparative routing scores, not claims that every backlog item is complete.
 
 | Tool | Score | Best workflow role |
 |---|---:|---|
+| `localSearch` | 9.5 | unified text, AST, path, metadata, and tree discovery |
 | `localGetFileContent` | 9.4 | bounded exact local evidence |
-| `localSearchCode` | 9.3 | text, regex, and structural discovery |
 | `lspGetSemantics` | 9.2 | semantic identity and impact proof |
 | `localAnalyzeGraph` | 9.1 | bounded file-topology questions |
-| `localViewStructure` | 9.0 | cheapest local orientation |
-| `localFindFiles` | 8.9 | metadata and filename discovery |
-| `ghSearchPullRequests` | 8.9 | PR search and selected detail |
-| `ghSearchCommits` | 8.8 | history and ref comparison |
+| `ghSearch` | 8.9 | unified remote code, repository, and tree discovery |
+| `ghSearchHistory` | 8.9 | PR, issue, and commit discovery |
+| `ghGetHistoryItem` | 8.8 | exact PR, issue, commit, and ref-comparison detail |
 | `ghGetFileContent` | 8.8 | exact remote evidence |
 | `ghCloneRepo` | 8.8 | remote-to-local escalation |
-| `ghSearchIssues` | 8.7 | issue search and selected detail |
-| `ghSearchCode` | 8.8 | remote code/path candidates |
 | `npmSearch` | 8.6 | package-to-source routing |
-| `ghViewRepoStructure` | 8.6 | remote tree orientation |
 | `ghListReleases` *(opt-in)* | 8.5 | release chronology |
-| `ghSearchRepos` | 8.4 | repository discovery |
 | `ghSearchDiscussions` *(opt-in)* | 8.2 | repository discussion context |
 
-Audit changes accepted: compact and full schemas now expose conditional `relations`; every graph operation has a strict-valid command pattern; local examples use absolute placeholders; opt-in issue/release/discussion modes have hand-authored patterns; graph pagination defaults to the schema maximum of 50; entrypoint summaries cap at 50 and report count/truncation. The remaining suite-wide work is response evidence/diagnostic normalization, not another public-tool merge.
+Audit changes accepted: `localSearch`, `ghSearch`, and the history search/get pair replace overlapping
+overlapping public tools with strict operation variants. The superseded interfaces
+are no longer registered by CLI or MCP. Compact and full schemas
+expose conditional `relations` and variants; every operation has a valid command
+pattern; continuations preserve the selected operation; and CLI and MCP share the
+same runners. Graph pagination and evidence rules are unchanged.
 
 ## Standard agent workflow
 
@@ -51,10 +52,10 @@ Use this workflow by default. It keeps cost low, raises proof quality step by st
 
 ```text
 1. Orient
-   localViewStructure / ghViewRepoStructure / npmSearch / ghSearchRepos
+   localSearch(operation:"tree") / ghSearch(operation:"tree"|"repositories") / npmSearch
 
 2. Discover candidates
-   localFindFiles / localSearchCode / ghSearchCode / ghSearchCommits / ghSearchPullRequests
+   localSearch(operation:"files"|"text"|"structural") / ghSearch(operation:"code") / ghSearchHistory
 
 3. Inspect exact evidence
    localGetFileContent / ghGetFileContent
@@ -66,7 +67,7 @@ Use this workflow by default. It keeps cost low, raises proof quality step by st
    lspGetSemantics for definitions, references, hover, callers/callees, diagnostics
 
 6. Escalate remote to local when needed
-   ghCloneRepo -> localViewStructure -> localSearchCode -> localGetFileContent -> lspGetSemantics
+   ghCloneRepo -> localSearch -> localGetFileContent -> lspGetSemantics
 
 7. Synthesize with evidence status
    Mark every claim as: orientation, candidate, exact text, semantic proof, or historical proof.
@@ -75,9 +76,9 @@ Use this workflow by default. It keeps cost low, raises proof quality step by st
 ### Default local-code workflow
 
 ```text
-localViewStructure(path)
-  -> localFindFiles(path, names/extensions/metadata)
-  -> localSearchCode(path, text/regex/AST)
+localSearch(operation="tree", path)
+  -> localSearch(operation="files", path, names/extensions/metadata)
+  -> localSearch(operation="text"|"structural", path, query)
   -> localGetFileContent(path, line range or matchString)
   -> localAnalyzeGraph(operation) when repository topology matters
   -> lspGetSemantics(uri, symbolName, lineHint)
@@ -85,9 +86,9 @@ localViewStructure(path)
 
 Rules:
 
-- Use `localViewStructure` first for unknown directories.
-- Use `localSearchCode(mode:"discovery")` when snippets are not needed.
-- Use `localSearchCode(mode:"structural")` for code shape.
+- Use `localSearch(operation:"tree")` first for unknown directories.
+- Use `localSearch(operation:"text", resultView:"discovery")` when snippets are not needed.
+- Use `localSearch(operation:"structural")` for code shape.
 - If structural `pattern` returns zero, try a YAML `rule`.
 - Use `localGetFileContent(minify:"symbols")` before reading large files.
 - Use graph `dependents`/`path` for file impact, `cycles`/`reachability` for architecture, and `deadCode` only as a candidate generator.
@@ -108,9 +109,9 @@ Graph operation routing:
 ### Default GitHub workflow
 
 ```text
-ghSearchRepos / npmSearch
-  -> ghViewRepoStructure
-  -> ghSearchCode(match:"path" for filenames, match:"file" for snippets)
+ghSearch(operation:"repositories") / npmSearch
+  -> ghSearch(operation:"tree")
+  -> ghSearch(operation:"code", match:"path" for filenames or match:"file" for snippets)
   -> ghGetFileContent(range/matchString/symbols)
   -> ghCloneRepo when cross-file or LSP proof is needed
   -> local tools on cloned localPath
@@ -119,14 +120,16 @@ ghSearchRepos / npmSearch
 Rules:
 
 - Do not treat empty GitHub search as proof of absence; GitHub is indexed/default-branch-limited.
-- Use `ghViewRepoStructure` to verify path case before `ghGetFileContent`.
+- Use `ghSearch(operation:"tree")` to verify path case before `ghGetFileContent`.
 - Use `ghCloneRepo` for multi-file reasoning, large investigations, or semantic proof.
 
 ### Default history workflow
 
 ```text
-ghSearchCommits(owner, repo, path?)
-  -> ghSearchPullRequests(owner, repo, prNumber, content)
+ghSearchHistory(operation:"commits", owner, repo, path?)
+  -> ghGetHistoryItem(operation:"commit", owner, repo, ref)
+  -> ghSearchHistory(operation:"pullRequests", owner, repo, keywords)
+  -> ghGetHistoryItem(operation:"pullRequest", owner, repo, number, content)
   -> ghGetFileContent(branch/SHA, path)
   -> ghCloneRepo(branch/SHA) for deeper local inspection
 ```
@@ -142,7 +145,7 @@ Rules:
 ```text
 npmSearch(packageName)
   -> source repository URL
-  -> ghViewRepoStructure / ghSearchCode
+  -> ghSearch(operation:"tree"|"code")
   -> ghCloneRepo for local proof
 ```
 
@@ -178,21 +181,20 @@ Expected chains:
 
 | Result source | Required next hints |
 |---|---|
-| `localSearchCode` hit | `localGetFileContent`, `lspGetSemantics` when a symbol anchor is available. |
-| `localFindFiles` file | `localGetFileContent`, `localSearchCode` scoped to the file/directory. |
-| `localViewStructure` file | `localGetFileContent`. |
-| `localViewStructure` directory | deeper `localViewStructure`, `localFindFiles`, `localSearchCode`. |
+| `localSearch` hit | `localGetFileContent`, `lspGetSemantics` when a symbol anchor is available. |
+| `localSearch` file result | `localGetFileContent`, or another scoped `localSearch` operation. |
+| `localSearch` directory result | deeper `operation:"tree"`, then `files`, `text`, or `structural`. |
 | `localAnalyzeGraph` topology result | `localGetFileContent` around exact imports; `lspGetSemantics` when symbol identity matters. |
 | `localAnalyzeGraph` dead-code candidate | `localGetFileContent`, LSP references excluding declaration, broad search, tests/build. |
-| `ghSearchCode` hit | `ghGetFileContent`, `ghViewRepoStructure`, `ghCloneRepo`. |
-| `ghSearchRepos` repository | `ghViewRepoStructure`, `ghSearchCode`, `ghCloneRepo`. |
-| `ghViewRepoStructure` file | `ghGetFileContent`. |
-| `ghViewRepoStructure` directory | deeper `ghViewRepoStructure`, `ghCloneRepo`. |
+| `ghSearch(operation:"code")` hit | `ghGetFileContent`, `ghSearch(operation:"tree")`, `ghCloneRepo`. |
+| `ghSearch(operation:"repositories")` repository | `ghSearch(operation:"tree"|"code")`, `ghCloneRepo`. |
+| `ghSearch(operation:"tree")` file | `ghGetFileContent`. |
+| `ghSearch(operation:"tree")` directory | deeper `ghSearch(operation:"tree")`, `ghCloneRepo`. |
 | `ghGetFileContent` file | `ghCloneRepo` for multi-file/LSP work. |
-| `ghCloneRepo` result | `localViewStructure`, `localSearchCode`, `localFindFiles`. |
-| `npmSearch` GitHub repository | `ghViewRepoStructure`, `ghSearchCode`, `ghCloneRepo`. |
-| `ghSearchPullRequests` changed file | `ghGetFileContent`, selected patch follow-up, `ghCloneRepo`. |
-| `ghSearchCommits` commit | `ghGetFileContent` at SHA, selected diff follow-up, `ghCloneRepo`. |
+| `ghCloneRepo` result | `localSearch`, then exact reads or LSP proof. |
+| `npmSearch` GitHub repository | `ghSearch(operation:"tree"|"code")`, `ghCloneRepo`. |
+| `ghSearchHistory` candidate | `ghGetHistoryItem` with the returned operation-specific identity. |
+| `ghGetHistoryItem` changed file or commit | `ghGetFileContent` at ref, selected detail follow-up, `ghCloneRepo`. |
 | `lspGetSemantics` references | `localGetFileContent` around reference lines, callers/callees follow-up. |
 
 Acceptance criteria:
@@ -287,20 +289,20 @@ evidence: {
 
 | Tool/result | Default evidence level | Upgrade path |
 |---|---|---|
-| `localViewStructure` | `orientation` | `localSearchCode` or `localGetFileContent`. |
-| `localFindFiles` | `candidate` | `localGetFileContent` or `localSearchCode`. |
-| `localSearchCode` text hit | `exact-text` for snippet presence, not symbol identity | `lspGetSemantics`. |
-| `localSearchCode` structural hit | `candidate` to `exact-text` depending row | `localGetFileContent`, then `lspGetSemantics`. |
+| `localSearch` | `orientation` | `localSearch` or `localGetFileContent`. |
+| `localSearch` | `candidate` | `localGetFileContent` or `localSearch`. |
+| `localSearch` text hit | `exact-text` for snippet presence, not symbol identity | `lspGetSemantics`. |
+| `localSearch` structural hit | `candidate` to `exact-text` depending row | `localGetFileContent`, then `lspGetSemantics`. |
 | `localGetFileContent` | `exact-text` | `lspGetSemantics` for identity/impact. |
 | `localAnalyzeGraph` | `candidate` file-topology evidence | exact import reads; LSP for symbol identity; tests/build before deletion. |
 | `lspGetSemantics` | `semantic-proof` | read reference/caller lines for quotes. |
-| `ghSearchRepos` | `orientation` | `ghViewRepoStructure`/`ghSearchCode`. |
+| `ghSearch(operation:"repositories")` | `orientation` | `ghSearch(operation:"tree"|"code")`. |
 | `npmSearch` | `package-metadata` | GitHub tools or clone. |
-| `ghSearchCode` | `candidate` or `exact-text` snippet | `ghGetFileContent`/`ghCloneRepo`. |
-| `ghViewRepoStructure` | `orientation` | `ghGetFileContent`/`ghCloneRepo`. |
+| `ghSearch(operation:"code")` | `candidate` or `exact-text` snippet | `ghGetFileContent`/`ghCloneRepo`. |
+| `ghSearch(operation:"tree")` | `orientation` | `ghGetFileContent`/`ghCloneRepo`. |
 | `ghGetFileContent` | `exact-text` | clone for local proof. |
-| `ghSearchPullRequests` | `historical-context` | fetch exact files/patches. |
-| `ghSearchCommits` | `historical-context` | fetch exact files/diffs at SHA. |
+| `ghSearchHistory` | `historical-context` candidate | `ghGetHistoryItem`. |
+| `ghGetHistoryItem` | `historical-context` or exact diff | fetch exact files at ref or clone for local proof. |
 | `ghCloneRepo` | `orientation` bridge | local tools. |
 
 Acceptance criteria:
@@ -313,13 +315,13 @@ Acceptance criteria:
 
 ## Per-tool documentation and improvements
 
-### `localSearchCode`
+### `localSearch`
 
-Role: search local files by text, regex, or AST/structural rule.
+Role: route all local discovery through one strict operation: text, structural, files, or tree.
 
 Best for:
 
-- Finding candidate code locations.
+- Finding candidate code locations and paths.
 - Fast repository-wide text search.
 - Structural code-shape discovery.
 - Producing anchors for exact reads and LSP proof.
@@ -331,8 +333,8 @@ Use when:
 
 Avoid when:
 
-- You only need directory shape: use `localViewStructure`.
-- You only need file metadata/name filters: use `localFindFiles`.
+- You only need directory shape: use `operation:"tree"`.
+- You only need file metadata/name filters: use `operation:"files"`.
 - You already need semantic identity: use `lspGetSemantics` after anchoring.
 
 Depth/alignment/quality:
@@ -345,7 +347,7 @@ Current strengths:
 
 - Native ripgrep and structural engine.
 - Detailed stats and pagination.
-- Multiple modes: discovery, paginated, detailed, structural.
+- Four discriminated operations with operation-specific fields.
 - Good bridge to `localGetFileContent` and `lspGetSemantics`.
 
 Improvements:
@@ -374,7 +376,7 @@ Use when:
 
 Avoid when:
 
-- You have no anchor yet: first run `documentSymbols` or `localSearchCode`.
+- You have no anchor yet: first run `documentSymbols` or `localSearch`.
 - Language server is unavailable and text proof is enough.
 
 Depth/alignment/quality:
@@ -414,7 +416,7 @@ Use when:
 
 Avoid when:
 
-- You only need file discovery: use `localFindFiles`/`localSearchCode`.
+- You only need file discovery: use `localSearch(operation:"files")`.
 - You need semantic references: use `lspGetSemantics` after reading/anchoring.
 
 Depth/alignment/quality:
@@ -437,7 +439,7 @@ Improvements:
 4. Improve large-file rejection repairs.
 5. Emit evidence level `exact-text`.
 
-### `localFindFiles`
+### `localSearch(operation:"files")`
 
 Role: local file/directory discovery by name, type, size, time, permissions, and depth.
 
@@ -458,10 +460,10 @@ Improvements:
 1. Add extension histogram summaries.
 2. Add default exclude-dir diagnostic.
 3. Add `next.localGetFileContent` for file rows.
-4. Add `next.localSearchCode` scoped to matched directories.
+4. Add `next.localSearch` scoped to matched directories.
 5. Emit evidence level `candidate`.
 
-### `localViewStructure`
+### `localSearch(operation:"tree")`
 
 Role: local directory tree orientation.
 
@@ -515,28 +517,24 @@ Improvements:
 4. Expand edge provenance beyond static/dynamic imports to named/star re-exports, calls, and containment where available.
 5. Add a continuation for truncated SCC/dead-cluster members only when real workflows require the full component.
 
-### `ghSearchCode`
+### `ghSearch`
 
-Role: search GitHub code or paths.
+Role: discover GitHub code or paths, repositories, and known repository trees
+through strict `operation:"code"|"repositories"|"tree"` queries.
 
 Best for:
 
-- Remote candidate discovery.
-- Finding files/snippets before exact remote read or clone.
-
-Depth/alignment/quality:
-
-- Depth: **8.2/10**
-- Alignment: **8.4/10**
-- Quality: **8.0/10**
+- Remote candidate discovery and repository triage.
+- Tree orientation before exact reads or clones.
+- Mixed bulk discovery while retaining per-query operation and order.
 
 Improvements:
 
-1. Add GitHub indexing uncertainty diagnostic on empty results.
-2. Add `match:"path"` vs `match:"file"` repair guidance.
-3. Add `next.ghGetFileContent`, `next.ghViewRepoStructure`, and `next.ghCloneRepo` for each result.
-4. Surface rate-limit/incomplete-result metadata when GitHub provides it.
-5. Emit evidence level `candidate` for search rows and `exact-text` only for returned snippets.
+1. Keep operation-specific relations, variants, and command examples synchronized with the exact schema.
+2. Preserve the selected operation in every continuation.
+3. Keep GitHub indexing uncertainty explicit on empty code-search results.
+4. Emit evidence level `candidate` for code rows and `orientation` for repository/tree rows.
+5. Keep code, repository, and tree behavior covered by field-for-field migration tests.
 
 ### `ghGetFileContent`
 
@@ -546,7 +544,7 @@ Best for:
 
 - Remote exact evidence.
 - Reading line ranges or match slices from GitHub.
-- Verifying paths found by `ghSearchCode` or `ghViewRepoStructure`.
+- Verifying paths found by `ghSearch(operation:"code"|"tree")`.
 
 Depth/alignment/quality:
 
@@ -556,68 +554,21 @@ Depth/alignment/quality:
 
 Improvements:
 
-1. Add stronger 404 recovery diagnostics: verify branch, path case, and tree with `ghViewRepoStructure`.
+1. Add stronger 404 recovery diagnostics: verify branch, path case, and tree with `ghSearch(operation:"tree")`.
 2. Add `next.ghCloneRepo` when a file read suggests cross-file investigation.
 3. Align content metadata with `localGetFileContent`: `contentView`, `returnedChars`, `isPartial`, `sourceChars` where available.
 4. Warn before full-content reads for large files and suggest `startLine/endLine`, `matchString`, or `minify:"symbols"`.
 5. Emit evidence level `exact-text`.
 
-### `ghViewRepoStructure`
+### `ghSearchHistory`
 
-Role: browse a GitHub repository tree.
-
-Best for:
-
-- Remote repository orientation.
-- Verifying exact path/case before file reads.
-- Choosing whether to clone or inspect selected files.
-
-Depth/alignment/quality:
-
-- Depth: **8.0/10**
-- Alignment: **8.4/10**
-- Quality: **8.4/10**
-
-Improvements:
-
-1. Add `next.ghGetFileContent` for files.
-2. Add deeper `next.ghViewRepoStructure` for directories.
-3. Add `next.ghCloneRepo` when a tree is large or multi-file proof is likely.
-4. Expose generated/vendor auto-exclusions if they apply.
-5. Add extension histogram and emit evidence level `orientation`.
-
-### `ghSearchRepos`
-
-Role: discover GitHub repositories by owner, keyword, topic, language, license, popularity, or activity.
+Role: search PR, issue, or commit candidates through the strict plural operations `pullRequests`, `issues`, and `commits`.
 
 Best for:
 
-- Finding candidate source repositories.
-- Triage before tree/code search.
-
-Depth/alignment/quality:
-
-- Depth: **7.6/10**
-- Alignment: **7.8/10**
-- Quality: **8.0/10**
-
-Improvements:
-
-1. Add `next.ghViewRepoStructure`, `next.ghSearchCode`, and `next.ghCloneRepo` per repository.
-2. Clarify search semantics: keywords are ANDed, topics are sparse, `match` controls searched fields.
-3. Add optional repository quality score using archive status, pushed date, stars, license, and issue activity.
-4. Add candidate-triage mode: official-looking, active, source-available, likely package repository.
-5. Emit evidence level `orientation`.
-
-### `ghSearchPullRequests`
-
-Role: search GitHub PRs, or read one PR's files/diffs/reviews through a `content:{}` selector (metadata, body, changedFiles, patches, comments, reviews, commits).
-
-Best for:
-
-- Finding merged PRs touching a symbol or path.
-- Understanding why code changed through review discussion.
-- Reviewing selected PR patches without pulling all diffs.
+- Finding merged PRs or issue threads by title and filters.
+- Finding commits touching a path or matching a time/author constraint.
+- Producing stable identities for `ghGetHistoryItem`.
 
 Depth/alignment/quality:
 
@@ -627,42 +578,19 @@ Depth/alignment/quality:
 
 Improvements:
 
-1. Add archaeology recipes: merged PRs by symbol, regressions by date range.
-2. Prefer selected `content` fields/patch ranges; warn when fetching all patches/comments.
-3. Add next hints from changed files to `ghGetFileContent`, selected patch fetches, and `ghCloneRepo`.
-4. Emit evidence level `historical-context`; exact patches can upgrade to `exact-text`.
+1. Add recipes for merged-PR archaeology, issue triage, and commits touching a path.
+2. Preserve the operation in every continuation and reject cross-operation fields.
+3. Add runnable `ghGetHistoryItem` hints using `number` or `ref` from each result.
+4. Emit evidence level `historical-context` candidate.
 
-### `ghSearchIssues`
+### `ghGetHistoryItem`
 
-Role: search GitHub issues, or read one issue through a `content:{}` selector (metadata, body, comments).
-
-Best for:
-
-- Triaging reported bugs and feature requests.
-- Tracing a symptom to its discussion thread.
-- Linking issues to the PRs that resolved them.
-
-Depth/alignment/quality:
-
-- Depth: **8.7/10**
-- Alignment: **8.7/10**
-- Quality: **8.4/10**
-
-Improvements:
-
-1. Add triage recipes: open issues by label, recently updated, linked-PR discovery.
-2. Prefer selected `content` fields; warn when fetching all comments.
-3. Add next hints to `ghSearchPullRequests` for resolving PRs.
-4. Emit evidence level `historical-context`.
-
-### `ghSearchCommits`
-
-Role: walk a repository's commit history for a path/range (`path`, `since`/`until`, `branch`, `author`, `committer`, `includeDiff`), or compare two refs through `base`+`head` (returns aheadBy/behindBy/totalCommits + commit list). No sort/order.
+Role: fetch a known PR or issue by `number`, a commit by `ref`, or compare `base` and `head`.
 
 Best for:
 
-- Finding the first/last commit touching a path.
-- Auditing changes in a date or ref range.
+- Understanding why code changed through selected PR detail.
+- Reading issue body/comments or a known commit diff.
 - Comparing two branches, tags, or SHAs.
 
 Depth/alignment/quality:
@@ -673,10 +601,10 @@ Depth/alignment/quality:
 
 Improvements:
 
-1. Add recipes: first commit touching path, ref-vs-ref divergence, author history.
-2. Prefer omitting `includeDiff` for listing; warn on large diff pulls.
-3. Add next hints from commits to `ghGetFileContent` at SHA and `ghCloneRepo`.
-4. Emit evidence level `historical-context`; exact diffs can upgrade to `exact-text`.
+1. Prefer selected PR content and omit commit diffs until the identity is known.
+2. Add next hints from changed files/refs to `ghGetFileContent` and `ghCloneRepo`.
+3. Reject identities from another operation instead of coercing them.
+4. Emit `historical-context`; exact patches and diffs can upgrade to `exact-text`.
 
 ### `ghListReleases`
 
@@ -697,7 +625,7 @@ Depth/alignment/quality:
 Improvements:
 
 1. Keep `includeAssets` opt-in to bound output.
-2. Add next hints from a release tag to `ghSearchCommits` (ref compare) and `ghGetFileContent` at tag.
+2. Add next hints from a release tag to `ghGetHistoryItem(operation:"compare")` and `ghGetFileContent` at tag.
 4. Emit evidence level `historical-context`.
 
 ### `ghCloneRepo`
@@ -720,7 +648,7 @@ Improvements:
 
 1. Make `ENABLE_CLONE=true` remediation explicit when clone is disabled.
 2. Add sparse checkout guidance for large repositories and known subdirectories.
-3. Add full post-clone next chain: `localViewStructure`, `localFindFiles`, `localSearchCode`, then `lspGetSemantics` if language is supported.
+3. Add a post-clone `localSearch` chain with explicit operations, then `lspGetSemantics` when supported.
 4. Expose `cacheAge` and `forceRefresh` guidance.
 5. Emit evidence level `orientation` bridge, not proof by itself.
 
@@ -742,7 +670,7 @@ Depth/alignment/quality:
 
 Improvements:
 
-1. Add direct next hints when a GitHub repository is detected: `ghViewRepoStructure`, `ghSearchCode`, `ghCloneRepo`.
+1. Add direct next hints when a GitHub repository is detected: `ghSearch(operation:"tree"|"code")`, `ghCloneRepo`.
 2. Add package health summary: weekly downloads, deprecated flag, last publish, license, types, repository detected.
 3. Improve keyword result disambiguation: exact name match, official-looking scope, high-download candidate.
 4. Add package-risk diagnostics for deprecated/unmaintained packages and typo-like names.

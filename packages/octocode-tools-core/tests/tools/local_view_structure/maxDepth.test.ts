@@ -31,7 +31,7 @@ function emptyNativeResult() {
   };
 }
 
-describe('localViewStructure effective maxDepth (documented defaults)', () => {
+describe('local.tree effective maxDepth (documented defaults)', () => {
   const validBasePath = join(process.cwd(), 'tests');
 
   afterEach(() => {

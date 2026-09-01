@@ -33,7 +33,7 @@ function fileEntry(relativePath: string, extension = '') {
   };
 }
 
-describe('localViewStructure native filter pushdown', () => {
+describe('local.tree native filter pushdown', () => {
   const validBasePath = join(process.cwd(), 'tests');
 
   afterEach(() => {

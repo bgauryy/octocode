@@ -3,6 +3,7 @@ import type { GitHubRepositoryOutput } from '@octocodeai/octocode-core/extra-typ
 import { TOOL_NAMES } from '../toolMetadata/proxies.js';
 import { executeBulkOperation } from '../../utils/response/bulk.js';
 import type { ToolExecutionArgs } from '../../types/execution.js';
+import type { ProcessedBulkResult } from '../../types/toolResults.js';
 import { getOctokit } from '../../github/client.js';
 import { resolveCanonicalOwnerRepo } from '../../github/canonicalRepo.js';
 import {
@@ -121,13 +122,13 @@ function buildReposSearchOutput(
     top?.owner && top?.repo
       ? {
           viewStructure: {
-            tool: 'ghViewRepoStructure',
+            tool: 'github.tree',
             query: { owner: top.owner, repo: top.repo, path: '' },
             why: 'Orient in the top-ranked repository before reading code',
             confidence: 'low',
           },
           searchCode: {
-            tool: 'ghSearchCode',
+            tool: 'github.code',
             query: { owner: top.owner, repo: top.repo },
             why: 'Scope a code search to the top-ranked repository',
             confidence: 'low',
@@ -145,205 +146,203 @@ function buildReposSearchOutput(
   };
 }
 
-export async function searchMultipleGitHubRepos(
-  args: ToolExecutionArgs<PartialReposSearchQuery>
-): Promise<CallToolResult> {
-  const { queries, authInfo } = args;
-  const getProviderContext = createLazyProviderContext(authInfo);
+export async function searchGitHubRepos(
+  query: PartialReposSearchQuery,
+  args: ToolExecutionArgs<PartialReposSearchQuery>,
+  getProviderContext = createLazyProviderContext(args.authInfo)
+): Promise<ProcessedBulkResult> {
+  const { authInfo } = args;
+  try {
+    if (!hasValidRepositorySearchParams(query)) {
+      return createErrorResult(
+        'At least one repository search term or filter is required.',
+        query
+      );
+    }
 
-  return executeBulkOperation(
-    queries,
-    async (query: PartialReposSearchQuery, _index: number) => {
-      try {
-        if (!hasValidRepositorySearchParams(query)) {
-          return createErrorResult(
-            'At least one repository search term or filter is required.',
-            query
-          );
-        }
-
-        const currentProviderContext = getProviderContext();
-        const variants = createSearchVariants(query);
-        const { successes, failures } = await executeProviderOperations(
-          variants.map(variant => ({
-            meta: { label: variant.label, query: variant.query },
-            operation: () =>
-              currentProviderContext.provider.searchRepos(
-                mapRepoSearchToolQuery(variant.query)
-              ),
-          }))
-        );
-
-        const successfulVariants: SuccessfulRepoSearchVariant[] = successes.map(
-          success => ({
-            label: success.meta.label,
-            query: success.meta.query,
-            response: success.response,
-          })
-        );
-        const failedVariants: RepoSearchVariantExecution[] = failures.map(
-          failure => ({
-            label: failure.meta.label,
-            query: failure.meta.query,
-            response: failure.response,
-          })
-        );
-
-        if (successfulVariants.length === 0) {
-          const firstFailedVariant = failedVariants[0];
-          if (!firstFailedVariant) {
-            return handleCatchError(
-              new Error('Repository search produced no provider results'),
-              query,
-              undefined,
-              TOOL_NAMES.GITHUB_SEARCH_REPOSITORIES
-            );
-          }
-          return handleProviderError(firstFailedVariant.response, query);
-        }
-
-        const mergedLimit = (query as { limit?: number }).limit;
-        const rankedRepositories = rankRepositoriesByRelevance(
-          deduplicateRepositories(
-            successfulVariants.flatMap(variant =>
-              mapRepoSearchProviderRepositories(
-                variant.response.data.repositories
-              )
-            )
+    const currentProviderContext = getProviderContext();
+    const variants = createSearchVariants(query);
+    const { successes, failures } = await executeProviderOperations(
+      variants.map(variant => ({
+        meta: { label: variant.label, query: variant.query },
+        operation: () =>
+          currentProviderContext.provider.searchRepos(
+            mapRepoSearchToolQuery(variant.query)
           ),
-          query
-        );
-        const repositories =
-          mergedLimit != null
-            ? rankedRepositories.slice(0, mergedLimit)
-            : rankedRepositories;
+      }))
+    );
 
-        const onlySuccessfulVariant =
-          successfulVariants.length === 1 ? successfulVariants[0] : undefined;
-        const isMergedResult = successfulVariants.length > 1;
-        const effectivePagination: EffectivePagination | undefined =
-          isMergedResult
-            ? buildMergedPagination(
-                successfulVariants,
-                rankedRepositories.length
-              )
-            : onlySuccessfulVariant?.response.data.pagination;
-        const resultPagination = effectivePagination
-          ? buildResultPagination(effectivePagination)
-          : undefined;
+    const successfulVariants: SuccessfulRepoSearchVariant[] = successes.map(
+      success => ({
+        label: success.meta.label,
+        query: success.meta.query,
+        response: success.response,
+      })
+    );
+    const failedVariants: RepoSearchVariantExecution[] = failures.map(
+      failure => ({
+        label: failure.meta.label,
+        query: failure.meta.query,
+        response: failure.response,
+      })
+    );
 
-        const hasContent = repositories.length > 0;
-
-        const shape = buildReposSearchOutput(
-          { repositories, pagination: resultPagination },
-          query
-        );
-
-        // Some query variants (e.g. the topics or keywords lane of a split
-        // search) failed while others succeeded. Surface it so an empty or
-        // thin result set isn't read as a confident, complete answer.
-        const partialFailureWarnings =
-          buildPartialFailureWarnings(failedVariants);
-
-        // An owner-scoped search whose keywords include a candidate repo name
-        // with no exact-name hit among the results is ambiguous the same way
-        // a scoped ghSearchCode miss is: true absence, a near-miss (other repos
-        // just happen to match too), or the repo was transferred out from
-        // under this owner (GitHub's search index has no redirect for that,
-        // unlike `repos.get`) — the transferred repo silently vanishes behind
-        // whatever else the owner still has matching the same keyword, so
-        // this isn't only a zero-result symptom. Best-effort, never blocks or
-        // fails the search over it; bounded to a few keyword candidates.
-        let transferHint:
-          { warning: string; next: Record<string, unknown> } | undefined;
-        if (query.owner && hasValidKeywords(query)) {
-          const candidates = (
-            Array.isArray(query.keywords) ? query.keywords : [query.keywords]
-          )
-            .filter(
-              (keyword): keyword is string =>
-                typeof keyword === 'string' && keyword.trim().length > 0
-            )
-            .slice(0, 3);
-          const hasExactNameMatch = candidates.some(candidate =>
-            repositories.some(
-              r => r.repo?.toLowerCase() === candidate.toLowerCase()
-            )
-          );
-          if (candidates.length > 0 && !hasExactNameMatch) {
-            try {
-              const octokit = await getOctokit(authInfo);
-              for (const candidate of candidates) {
-                const resolved = await resolveCanonicalOwnerRepo(
-                  octokit,
-                  String(query.owner),
-                  candidate
-                );
-                if (resolved.renamed) {
-                  transferHint = {
-                    warning: `No repositories matched under owner "${query.owner}", but "${query.owner}/${candidate}" now resolves to "${resolved.owner}/${resolved.repo}" — the repository may have been transferred. Retry scoped to owner:"${resolved.owner}" (see next.retryUnderCanonicalOwner).`,
-                    next: {
-                      retryUnderCanonicalOwner: {
-                        tool: 'ghSearchRepos',
-                        query: {
-                          ...query,
-                          owner: resolved.owner,
-                          keywords: [resolved.repo],
-                        },
-                        why: "Re-run scoped to the repository's current owner after a detected transfer.",
-                        confidence: 'exact',
-                      },
-                    },
-                  };
-                  break;
-                }
-              }
-            } catch {
-              // Metadata probe is best-effort — never fail the search over it.
-            }
-          }
-        }
-
-        // A genuine zero-result response previously carried no guidance at
-        // all (unlike localSearchCode's in-band hints) — tell the agent how
-        // to widen instead of leaving a bare status:"empty".
-        const warnings = [
-          ...(partialFailureWarnings ?? []),
-          ...(transferHint ? [transferHint.warning] : []),
-          ...(!hasContent && !transferHint
-            ? [
-                'No repositories matched. Keywords are ANDed — try fewer or broader keywords, drop a topic/filter (topics are sparse), or add match:"readme" for full-text search.',
-              ]
-            : []),
-        ];
-
-        const resultData = {
-          ...shape.data,
-          ...(warnings.length > 0 ? { warnings } : {}),
-          ...(transferHint ? { next: transferHint.next } : {}),
-        };
-
-        return createSuccessResult(
-          query,
-          resultData,
-          hasContent,
-          TOOL_NAMES.GITHUB_SEARCH_REPOSITORIES,
-          {
-            rawResponse: sumVariantRawResponseChars([
-              ...successfulVariants,
-              ...failedVariants,
-            ]),
-          }
-        );
-      } catch (error) {
+    if (successfulVariants.length === 0) {
+      const firstFailedVariant = failedVariants[0];
+      if (!firstFailedVariant) {
         return handleCatchError(
-          error,
+          new Error('Repository search produced no provider results'),
           query,
           undefined,
           TOOL_NAMES.GITHUB_SEARCH_REPOSITORIES
         );
       }
-    },
+      return handleProviderError(firstFailedVariant.response, query);
+    }
+
+    const mergedLimit = (query as { limit?: number }).limit;
+    const rankedRepositories = rankRepositoriesByRelevance(
+      deduplicateRepositories(
+        successfulVariants.flatMap(variant =>
+          mapRepoSearchProviderRepositories(variant.response.data.repositories)
+        )
+      ),
+      query
+    );
+    const repositories =
+      mergedLimit != null
+        ? rankedRepositories.slice(0, mergedLimit)
+        : rankedRepositories;
+
+    const onlySuccessfulVariant =
+      successfulVariants.length === 1 ? successfulVariants[0] : undefined;
+    const isMergedResult = successfulVariants.length > 1;
+    const effectivePagination: EffectivePagination | undefined = isMergedResult
+      ? buildMergedPagination(successfulVariants, rankedRepositories.length)
+      : onlySuccessfulVariant?.response.data.pagination;
+    const resultPagination = effectivePagination
+      ? buildResultPagination(effectivePagination)
+      : undefined;
+
+    const hasContent = repositories.length > 0;
+
+    const shape = buildReposSearchOutput(
+      { repositories, pagination: resultPagination },
+      query
+    );
+
+    // Some query variants (e.g. the topics or keywords lane of a split
+    // search) failed while others succeeded. Surface it so an empty or
+    // thin result set isn't read as a confident, complete answer.
+    const partialFailureWarnings = buildPartialFailureWarnings(failedVariants);
+
+    // An owner-scoped search whose keywords include a candidate repo name
+    // with no exact-name hit among the results is ambiguous the same way
+    // a scoped code-search miss is: true absence, a near-miss (other repos
+    // just happen to match too), or the repo was transferred out from
+    // under this owner (GitHub's search index has no redirect for that,
+    // unlike `repos.get`) — the transferred repo silently vanishes behind
+    // whatever else the owner still has matching the same keyword, so
+    // this isn't only a zero-result symptom. Best-effort, never blocks or
+    // fails the search over it; bounded to a few keyword candidates.
+    let transferHint:
+      { warning: string; next: Record<string, unknown> } | undefined;
+    if (query.owner && hasValidKeywords(query)) {
+      const candidates = (
+        Array.isArray(query.keywords) ? query.keywords : [query.keywords]
+      )
+        .filter(
+          (keyword): keyword is string =>
+            typeof keyword === 'string' && keyword.trim().length > 0
+        )
+        .slice(0, 3);
+      const hasExactNameMatch = candidates.some(candidate =>
+        repositories.some(
+          r => r.repo?.toLowerCase() === candidate.toLowerCase()
+        )
+      );
+      if (candidates.length > 0 && !hasExactNameMatch) {
+        try {
+          const octokit = await getOctokit(authInfo);
+          for (const candidate of candidates) {
+            const resolved = await resolveCanonicalOwnerRepo(
+              octokit,
+              String(query.owner),
+              candidate
+            );
+            if (resolved.renamed) {
+              transferHint = {
+                warning: `No repositories matched under owner "${query.owner}", but "${query.owner}/${candidate}" now resolves to "${resolved.owner}/${resolved.repo}" — the repository may have been transferred. Retry scoped to owner:"${resolved.owner}" (see next.retryUnderCanonicalOwner).`,
+                next: {
+                  retryUnderCanonicalOwner: {
+                    tool: 'github.repositories',
+                    query: {
+                      ...query,
+                      owner: resolved.owner,
+                      keywords: [resolved.repo],
+                    },
+                    why: "Re-run scoped to the repository's current owner after a detected transfer.",
+                    confidence: 'exact',
+                  },
+                },
+              };
+              break;
+            }
+          }
+        } catch {
+          // Metadata probe is best-effort — never fail the search over it.
+        }
+      }
+    }
+
+    // A genuine zero-result response previously carried no guidance at
+    // all (unlike local text search's in-band hints) — tell the agent how
+    // to widen instead of leaving a bare status:"empty".
+    const warnings = [
+      ...(partialFailureWarnings ?? []),
+      ...(transferHint ? [transferHint.warning] : []),
+      ...(!hasContent && !transferHint
+        ? [
+            'No repositories matched. Keywords are ANDed — try fewer or broader keywords, drop a topic/filter (topics are sparse), or add match:"readme" for full-text search.',
+          ]
+        : []),
+    ];
+
+    const resultData = {
+      ...shape.data,
+      ...(warnings.length > 0 ? { warnings } : {}),
+      ...(transferHint ? { next: transferHint.next } : {}),
+    };
+
+    return createSuccessResult(
+      query,
+      resultData,
+      hasContent,
+      TOOL_NAMES.GITHUB_SEARCH_REPOSITORIES,
+      {
+        rawResponse: sumVariantRawResponseChars([
+          ...successfulVariants,
+          ...failedVariants,
+        ]),
+      }
+    );
+  } catch (error) {
+    return handleCatchError(
+      error,
+      query,
+      undefined,
+      TOOL_NAMES.GITHUB_SEARCH_REPOSITORIES
+    );
+  }
+}
+
+export async function searchMultipleGitHubRepos(
+  args: ToolExecutionArgs<PartialReposSearchQuery>
+): Promise<CallToolResult> {
+  const getProviderContext = createLazyProviderContext(args.authInfo);
+  return executeBulkOperation(
+    args.queries,
+    query => searchGitHubRepos(query, args, getProviderContext),
     {
       toolName: TOOL_NAMES.GITHUB_SEARCH_REPOSITORIES,
       keysPriority: ['repositories', 'pagination', 'error'] satisfies string[],

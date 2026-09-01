@@ -18,7 +18,7 @@ afterEach(async () => {
   );
 });
 
-describe('localSearchCode text maxDepth', () => {
+describe('local.text text maxDepth', () => {
   it('filters text/regex search results to files within maxDepth', async () => {
     const dir = await createTempDir();
     await writeFile(join(dir, 'root.ts'), 'needle\n');

@@ -29,7 +29,7 @@ type ResultShape = {
   warnings?: string[];
 };
 
-describe('localSearchCode file-level page out of range', () => {
+describe('local.text file-level page out of range', () => {
   it('does not silently return an empty file list with no signal when page exceeds totalPages', async () => {
     const files = makeFiles(4);
     const query = {

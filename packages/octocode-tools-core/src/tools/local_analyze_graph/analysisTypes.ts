@@ -20,7 +20,7 @@ export interface AnalyzeGraphQuery {
   maxFiles?: number;
   limit?: number;
   page?: number;
-  itemsPerPage?: number;
+  pageSize?: number;
 }
 
 export interface AnalyzeGraphOutput {
@@ -31,6 +31,10 @@ export interface AnalyzeGraphOutput {
   path: string;
   filesScanned?: number;
   filesSkipped?: number;
+  truncated?: boolean;
+  terminalLimit?: boolean;
+  partialReasons?: Array<'maxFiles' | 'limit'>;
+  totalAvailable?: number;
   results: Array<Record<string, unknown>>;
   summary?: Record<string, unknown>;
   pagination?: {

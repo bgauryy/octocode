@@ -112,7 +112,7 @@ export async function getDocumentSymbols(
   const { pageItems, pagination } = paginateItems(
     compactSymbols,
     query.page ?? 1,
-    query.itemsPerPage ?? DEFAULT_SYMBOLS_PER_PAGE
+    query.pageSize ?? DEFAULT_SYMBOLS_PER_PAGE
   );
   const kindCounts = countBy(compactSymbols, symbol => symbol.kind);
   // Server is present (checked above) but lacks documentSymbolProvider.

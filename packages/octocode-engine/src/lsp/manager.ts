@@ -1,8 +1,5 @@
 import { LSPClient } from './client.js';
-import {
-  getLanguageServerForFile,
-  resolveServerForFile,
-} from './config.js';
+import { getLanguageServerForFile, resolveServerForFile } from './config.js';
 import { LspClientPool, type PoolKey, serializeKey } from './lspClientPool.js';
 import { manifestInstallHint } from './serverManifest.js';
 import { resolveWorkspaceRootForFile } from './workspaceRoot.js';
@@ -20,7 +17,7 @@ export async function isLanguageServerAvailable(
 }
 
 export const LSP_UNAVAILABLE_HINT =
-  'No language server is available for this file, so no semantic results were returned. Install a matching language server or set the relevant OCTOCODE_*_SERVER_PATH environment variable. For a text-based search meanwhile, use localSearchCode.';
+  'No language server is available for this file, so no semantic results were returned. Install a matching language server or set the relevant OCTOCODE_*_SERVER_PATH environment variable. For a text-based search meanwhile, use localSearch operation:"text".';
 
 // Single source of truth for toolchain-coupled servers — ones that can't be a
 // portable download because they need a host toolchain/runtime to function.
@@ -60,8 +57,13 @@ const TOOLCHAIN_INSTALL_HINTS: Record<string, string> = Object.fromEntries(
 );
 
 /** Honest, actionable guidance for a file whose server did not resolve. */
-export function unavailableHintFor(languageId?: string, command?: string): string {
-  const toolchain = languageId ? TOOLCHAIN_INSTALL_HINTS[languageId] : undefined;
+export function unavailableHintFor(
+  languageId?: string,
+  command?: string
+): string {
+  const toolchain = languageId
+    ? TOOLCHAIN_INSTALL_HINTS[languageId]
+    : undefined;
   if (toolchain) return toolchain;
   const manifest = command ? manifestInstallHint(command) : null;
   if (manifest) return manifest;
@@ -92,11 +94,11 @@ const PROGRESS_LANGUAGES: ReadonlySet<string> = new Set([
 // Per-language upper bound for $/progress drain (ms).
 // These are ceilings — waitForReady returns as soon as the server goes idle.
 const SERVER_READY_TIMEOUT_MS: Partial<Record<string, number>> = {
-  go:      15_000,
-  rust:    60_000,
-  java:   120_000,
-  csharp:  30_000,
-  swift:   30_000,
+  go: 15_000,
+  rust: 60_000,
+  java: 120_000,
+  csharp: 30_000,
+  swift: 30_000,
 };
 const DEFAULT_READY_TIMEOUT_MS = 30_000;
 
@@ -122,7 +124,10 @@ const sharedPool = new LspClientPool<LSPClient>({
     const cacheKey = serializeKey(key);
     const serverConfig =
       _pendingConfigs.get(cacheKey) ??
-      (await getLanguageServerForFile(synthesizeFilePathForKey(key), key.workspaceRoot));
+      (await getLanguageServerForFile(
+        synthesizeFilePathForKey(key),
+        key.workspaceRoot
+      ));
     _pendingConfigs.delete(cacheKey);
     if (!serverConfig) return null;
     const client = new LSPClient(serverConfig);

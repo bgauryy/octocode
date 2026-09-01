@@ -6,7 +6,7 @@ import {
 } from '../../../src/tools/github_search_pull_requests/scheme.js';
 import { formatDirectToolSchemaText } from '../../../src/tools/directToolCatalog.meta.js';
 
-describe('ghSearchPullRequests schema', () => {
+describe('internal pull-request history schema', () => {
   const baseQuery = { owner: 'octo', repo: 'repo', prNumber: 1 };
 
   it('rejects selected patch mode without files or ranges', () => {
@@ -60,14 +60,18 @@ describe('ghSearchPullRequests schema', () => {
   });
 
   it('emits input JSON schema so defaulted fields are not required from agents', () => {
-    const schema = JSON.parse(
-      formatDirectToolSchemaText('ghSearchPullRequests')
-    );
+    const schema = JSON.parse(formatDirectToolSchemaText('ghGetHistoryItem'));
     const querySchema = schema.properties.queries.items;
+    const branches = querySchema.anyOf ?? querySchema.oneOf ?? [querySchema];
 
-    expect(querySchema.required ?? []).not.toContain('itemsPerPage');
-    expect(querySchema.required ?? []).not.toContain('minify');
-    expect(querySchema.properties.itemsPerPage).toMatchObject({ minimum: 1 });
-    expect(querySchema.properties.minify.enum).toEqual(['none', 'standard']);
+    const pullRequest = branches.find(
+      (branch: { properties?: { operation?: { const?: string } } }) =>
+        branch.properties?.operation?.const === 'pullRequest'
+    );
+    expect(pullRequest).toBeDefined();
+    expect(pullRequest.required ?? []).not.toContain('pageSize');
+    expect(pullRequest.required ?? []).not.toContain('minify');
+    expect(pullRequest.properties.pageSize).toMatchObject({ minimum: 1 });
+    expect(pullRequest.properties.minify.enum).toEqual(['none', 'standard']);
   });
 });

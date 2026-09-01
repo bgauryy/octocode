@@ -51,8 +51,7 @@ function parseGithubRef(input: string): GithubRef | null {
   }
 
   // owner/repo/path@branch — trailing branch after the subpath. This is the
-  // form documented in top-level help and emitted by refLabel/cloneCommandFor,
-  // so it must round-trip back through the parser.
+  // form emitted by refLabel, so it must round-trip back through the parser.
   const trailingAtMatch = trimmed.match(/^([^/@]+)\/([^/@]+)\/(.+)@([^/@]+)$/);
   if (trailingAtMatch) {
     const [, owner, repo, subpath, branch] = trailingAtMatch;
@@ -144,16 +143,4 @@ export function refLabel(ref: Ref): string {
   const branch = ref.branch ? `@${ref.branch}` : '';
   const sub = ref.subpath ? `/${ref.subpath}` : '';
   return `${ref.owner}/${ref.repo}${sub}${branch}`;
-}
-
-/**
- * The exact `clone` quick-command that brings a GitHub ref to disk so it can be
- * searched/outlined locally. Preserves the subpath (sparse subtree) and branch
- * the user already typed, so the suggestion is ready to paste — used by the
- * local-only guards (structural grep, `ls --symbols`).
- */
-export function cloneCommandFor(ref: GithubRef): string {
-  const branch = ref.branch ? `@${ref.branch}` : '';
-  const sub = ref.subpath ? `/${ref.subpath}` : '';
-  return `clone ${ref.owner}/${ref.repo}${sub}${branch}`;
 }

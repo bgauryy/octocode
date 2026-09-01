@@ -37,7 +37,7 @@ type ResultShape = {
   warnings?: string[];
 };
 
-describe('localSearchCode matchPage + maxMatchesPerFile composition', () => {
+describe('local.text matchPage + maxMatchesPerFile composition', () => {
   it('does not silently return 0 rows when matchPage no longer exists under a changed maxMatchesPerFile', async () => {
     const files = makeFileWithMatches(22);
     // matchPage:2 under maxMatchesPerFile:25 is out of range — all 22 matches

@@ -8,7 +8,7 @@ describe('handleCatchError — lean row-local errors', () => {
       new Error('underlying failure'),
       {},
       undefined,
-      'ghSearchCode'
+      'github.code'
     );
     expect(result).not.toHaveProperty('toolName');
   });

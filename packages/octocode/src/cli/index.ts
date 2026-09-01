@@ -72,7 +72,6 @@ const KNOWN_TOP_LEVEL_OPTIONS = new Set([
   'no-color',
   'help',
   'version',
-  'context',
   // Global output modifiers (help FLAGS line). With no command they are no-ops
   // that fall through to the main help (exit 0) rather than "unknown options".
   'json',
@@ -153,17 +152,18 @@ export async function runCLI(argv?: string[]): Promise<boolean> {
     }
 
     if (args.command) {
-      const [{ findStaticCommandHelp }, { showCommandHelp }] =
-        await Promise.all([loadStaticCommandHelpModule(), loadHelpModule()]);
-
-      const staticCommand = findStaticCommandHelp(args.command);
-      if (staticCommand) {
-        showCommandHelp(staticCommand);
-        return true;
-      }
-
       const { loadCommand } = await loadCommandsModule();
       const liveCommand = await loadCommand(args.command);
+      if (liveCommand || args.command === 'context') {
+        const [{ findStaticCommandHelp }, { showCommandHelp }] =
+          await Promise.all([loadStaticCommandHelpModule(), loadHelpModule()]);
+        const staticCommand = findStaticCommandHelp(args.command);
+        if (staticCommand) {
+          showCommandHelp(staticCommand);
+          return true;
+        }
+      }
+
       if (liveCommand) {
         console.log();
         console.log(
@@ -189,29 +189,6 @@ export async function runCLI(argv?: string[]): Promise<boolean> {
 
   if (hasVersionFlag(args)) {
     showVersion();
-    return true;
-  }
-
-  if (!args.command && args.options.context === true) {
-    const toolModule = await tryLoadToolCommandModule();
-    if (toolModule) {
-      const options = {
-        full: args.options['full'] === true,
-        minimal: args.options['minimal'] === true,
-      };
-      if (args.options['json'] === true) {
-        const context = await toolModule.getToolsContextString(options);
-        console.log(JSON.stringify({ context }));
-      } else {
-        await toolModule.printToolsContext(options);
-      }
-      return true;
-    }
-    const { printLightInstructions } = await loadLightToolHelpModule();
-    printLightInstructions({
-      full: args.options['full'] === true,
-      minimal: args.options['minimal'] === true,
-    });
     return true;
   }
 
@@ -241,7 +218,7 @@ export async function runCLI(argv?: string[]): Promise<boolean> {
         showLightAvailableTools,
         showLightToolHelp,
       } = await loadLightToolHelpModule();
-      if (!args.args[0] || args.args[0] === 'list' || args.options.list) {
+      if (!args.args[0] && args.options.list === undefined) {
         showLightAvailableTools();
         return true;
       }

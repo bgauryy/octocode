@@ -32,7 +32,7 @@ function notFound() {
   return { error: 'Not Found', status: 404, provider: 'github' };
 }
 
-describe('ghViewRepoStructure — explicit invalid branch falls back to default (regression)', () => {
+describe('github.tree — explicit invalid branch falls back to default (regression)', () => {
   beforeEach(() => {
     getRepoStructure.mockReset();
     resolveDefaultBranch.mockReset();

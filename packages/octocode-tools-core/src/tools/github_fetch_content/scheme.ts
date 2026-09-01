@@ -6,11 +6,13 @@ import {
   contextLinesField,
   createRelaxedBulkQuerySchema,
   lineNumberField,
+  offsetField,
 } from '../../scheme/fields.js';
 import {
   createQueryShapeSchema,
   describeQuerySchema,
 } from '../../scheme/coreSchemas.js';
+import { createContentSelectorQuerySchema } from '../../scheme/conditionalSchemas.js';
 import type {
   CharPagination,
   ItemPagination,
@@ -31,7 +33,7 @@ const queryOverrides = {
   startLine: lineNumberField,
   endLine: lineNumberField,
   contextLines: contextLinesField,
-  charOffset: clampedInt(0, 100_000_000).optional(),
+  charOffset: offsetField.optional(),
   charLength: clampedInt(1, MAX_CHAR_LENGTH).optional(),
   minify: minifyField,
 } as const;
@@ -47,7 +49,9 @@ export const FileContentQueryLocalSchema = describeQuerySchema(
 );
 
 export const FileContentBulkQueryLocalSchema = createRelaxedBulkQuerySchema(
-  FileContentQueryBaseLocalSchema
+  createContentSelectorQuerySchema(FileContentQueryBaseLocalSchema, {
+    githubDirectoryMode: true,
+  })
 );
 
 // ---------------------------------------------------------------------------
@@ -126,6 +130,10 @@ export interface GitHubFetchDirectoryEntry {
   files?: Array<{ path: string; size: number; type: string }>;
   cached?: boolean;
   resolvedBranch?: string;
+  isPartial?: boolean;
+  terminalLimit?: boolean;
+  partialReasons?: string[];
+  next?: Record<string, ToolContinuation>;
 }
 
 export interface GitHubFetchContentData {

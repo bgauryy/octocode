@@ -4,12 +4,13 @@ Use when the corpus is a remote repo, PR, package, prior-art question, or upstre
 Read `references/algorithm.md` first; read `references/octocode.md` only when transport or CLI syntax is unclear.
 
 ```text
-npmSearch / ghSearchRepos for discovery
--> ghViewRepoStructure for orientation
--> ghSearchCode for anchors
+npmSearch / ghSearch(operation:"repositories") for discovery
+-> ghSearch(operation:"tree") for orientation
+-> ghSearch(operation:"code") for anchors
 -> ghGetFileContent(matchString or symbols) for exact proof
--> ghSearchPullRequests / ghSearchCommits for PR/commit intent, ghSearchIssues (issueNumber) for issue context
--> ghListReleases for releases when ENABLE_RELEASES=true; otherwise use tags via ghSearchCommits and mark releases skipped
+-> ghSearchHistory(operation:"pullRequests"|"issues"|"commits") for history candidates
+-> ghGetHistoryItem(operation:"pullRequest"|"issue"|"commit"|"compare") for exact history detail
+-> ghListReleases for releases when ENABLE_RELEASES=true; otherwise use commit history and tags, and mark releases skipped
 -> materialize when AST, LSP, negative proof, repeated reads, or local tests matter
 ```
 

@@ -2,6 +2,7 @@ import type { CallToolResult } from '@modelcontextprotocol/server';
 import { executeBulkOperation } from '../../../utils/response/bulk.js';
 import type { ToolExecutionArgs } from '../../../types/execution.js';
 import { executeWithToolBoundary } from '../../executionGuard.js';
+import { safeParseOrError } from '../../utils.js';
 import {
   acquirePooledClientDetailed,
   isLanguageServerAvailable,
@@ -31,6 +32,7 @@ import {
   formatSemanticResult,
 } from './semanticPresentation.js';
 import { withSemanticNext } from './semanticNext.js';
+import { LspGetSemanticsQueryDisplaySchema } from './scheme.js';
 
 export async function executeLspGetSemantics(
   args: ToolExecutionArgs<LspGetSemanticsQuery>
@@ -38,14 +40,21 @@ export async function executeLspGetSemantics(
   return executeBulkOperation(
     args.queries || [],
     async query => {
+      const parsed = safeParseOrError(LspGetSemanticsQueryDisplaySchema, query);
+      if (parsed.ok === false) return parsed.error;
+      const validatedQuery = parsed.data as LspGetSemanticsQuery;
+
       return executeWithToolBoundary({
         toolName: LSP_GET_SEMANTICS_TOOL_NAME,
-        query,
+        query: validatedQuery,
         contextMessage: 'lspGetSemantics execution failed',
         execute: async () => {
-          const result = await getSemanticContent(query);
+          const result = await getSemanticContent(validatedQuery);
           return attachSemanticRawEvidence(
-            withSemanticNext(query, formatSemanticResult(query, result))
+            withSemanticNext(
+              validatedQuery,
+              formatSemanticResult(validatedQuery, result)
+            )
           );
         },
       });
@@ -116,5 +125,5 @@ async function getSemanticContent(
     client,
     warmupStats
   );
-  return attachReadinessWarning(envelope, readiness);
+  return attachReadinessWarning({ ...envelope, workspaceRoot }, readiness);
 }

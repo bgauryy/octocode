@@ -29,6 +29,46 @@ describe('github fetch content finalizer next.continueChars', () => {
     mockIsCloneEnabled.mockReturnValue(true);
   });
 
+  it('uses the unified tree operation in not-found recovery guidance', () => {
+    const out = run(
+      [{ owner: 'octo', repo: 'engine', path: 'Src/missing.ts' }],
+      [
+        {
+          index: 0,
+          status: 'error',
+          data: { error: '404 not found' },
+        },
+      ]
+    );
+    const row = (
+      out.structuredContent.results as Array<{ data?: { error?: string } }>
+    )[0];
+    expect(row?.data?.error).toContain('ghSearch with operation:"tree"');
+    expect(row?.data?.error).not.toContain('github.tree');
+  });
+
+  it('preserves a structured provider error message', () => {
+    const out = run(
+      [{ owner: 'octo', repo: 'engine', path: 'README.md' }],
+      [
+        {
+          index: 0,
+          status: 'error',
+          data: {
+            error: {
+              error: 'Request timed out while contacting GitHub.',
+              type: 'network',
+            },
+          },
+        },
+      ]
+    );
+    const row = (
+      out.structuredContent.results as Array<{ data?: { error?: string } }>
+    )[0];
+    expect(row?.data?.error).toBe('Request timed out while contacting GitHub.');
+  });
+
   it('emits a ready continuation query when char pagination hasMore', () => {
     const query: Query = {
       owner: 'octo',
@@ -36,6 +76,10 @@ describe('github fetch content finalizer next.continueChars', () => {
       branch: 'main',
       path: 'src/big.ts',
       minify: 'standard',
+      matchString: 'needle',
+      matchStringIsRegex: false,
+      matchStringCaseSensitive: true,
+      contextLines: 3,
     };
     const result: FlatQueryResult = {
       index: 0,
@@ -80,11 +124,60 @@ describe('github fetch content finalizer next.continueChars', () => {
         repo: 'engine',
         branch: 'main',
         path: 'src/big.ts',
+        matchString: 'needle',
+        matchStringIsRegex: false,
+        matchStringCaseSensitive: true,
+        contextLines: 3,
         charOffset: 2000,
         charLength: 2000,
         minify: 'standard',
       },
     });
+  });
+
+  it('preserves a line selector and does not skip to the next line range before char pages finish', () => {
+    const query: Query = {
+      owner: 'octo',
+      repo: 'engine',
+      path: 'src/big.ts',
+      startLine: 1,
+      endLine: 20,
+      charLength: 10,
+    };
+    const result: FlatQueryResult = {
+      index: 0,
+      status: 'success',
+      data: {
+        path: 'src/big.ts',
+        content: 'chunk-1',
+        startLine: 1,
+        endLine: 20,
+        totalLines: 100,
+        pagination: {
+          currentPage: 1,
+          totalPages: 3,
+          hasMore: true,
+          charOffset: 0,
+          charLength: 10,
+          totalChars: 30,
+          nextCharOffset: 10,
+        },
+      },
+    };
+
+    const out = run([query], [result]);
+    const file = (
+      out.structuredContent.results as Array<{ data?: { files?: unknown[] } }>
+    )[0]?.data?.files?.[0] as {
+      next?: Record<string, { tool?: string; query?: Record<string, unknown> }>;
+    };
+    expect(file.next?.continueChars?.query).toMatchObject({
+      startLine: 1,
+      endLine: 20,
+      charOffset: 10,
+      charLength: 10,
+    });
+    expect(file.next?.continueLines).toBeUndefined();
   });
 
   it('omits continueChars when there is no further page, but still offers the clone-for-semantics bridge (regression: this tool used to emit zero next-hints for a fully-read file)', () => {
@@ -127,6 +220,7 @@ describe('github fetch content finalizer next.continueChars', () => {
       why: expect.stringContaining('lspGetSemantics'),
       confidence: 'exact',
     });
+    expect(JSON.stringify(file.next)).not.toContain('local.text');
   });
 
   it('omits cloneForSemantics (and an empty next map entirely) when clone is disabled', () => {
@@ -195,5 +289,117 @@ describe('github fetch content finalizer next.continueChars', () => {
 
     expect(file.next?.continueChars).toBeDefined();
     expect(file.next?.cloneForSemantics).toBeUndefined();
+  });
+
+  it.each([
+    'nonFile',
+    'missingDownloadUrl',
+    'oversized',
+    'binary',
+    'fileLimit',
+    'fetchFailed',
+    'totalSizeLimit',
+    'pathTraversal',
+  ] as const)(
+    'marks an incomplete directory caused by %s and emits a clone escalation',
+    reason => {
+      const skipped = {
+        nonFile: 0,
+        missingDownloadUrl: 0,
+        oversized: 0,
+        binary: 0,
+        fileLimit: 0,
+        fetchFailed: 0,
+        totalSizeLimit: 0,
+        pathTraversal: 0,
+        [reason]: 1,
+      };
+      const out = run(
+        [
+          {
+            owner: 'octo',
+            repo: 'engine',
+            branch: 'main',
+            path: 'src',
+            type: 'directory',
+          },
+        ],
+        [
+          {
+            index: 0,
+            status: 'success',
+            data: {
+              path: 'src',
+              localPath: '/tmp/engine/src',
+              complete: false,
+              skipped,
+            },
+          },
+        ]
+      );
+      const row = (
+        out.structuredContent.results as Array<{
+          data?: { directories?: Array<Record<string, any>> };
+          meta?: { diagnostics?: { partial?: boolean; codes?: string[] } };
+        }>
+      )[0]!;
+      const directory = row.data?.directories?.[0]!;
+
+      expect(directory).toMatchObject({
+        complete: false,
+        isPartial: true,
+        partialReasons: [reason],
+      });
+      expect(directory.next.escalateToClone).toMatchObject({
+        tool: 'ghCloneRepo',
+        query: {
+          owner: 'octo',
+          repo: 'engine',
+          branch: 'main',
+          sparsePath: 'src',
+        },
+      });
+    }
+  );
+
+  it('marks an incomplete directory terminal when clone is unavailable', () => {
+    mockIsCloneEnabled.mockReturnValue(false);
+    const out = run(
+      [
+        {
+          owner: 'octo',
+          repo: 'engine',
+          path: 'src',
+          type: 'directory',
+        },
+      ],
+      [
+        {
+          index: 0,
+          status: 'success',
+          data: {
+            path: 'src',
+            localPath: '/tmp/engine/src',
+            complete: false,
+            skipped: { fetchFailed: 1 },
+          },
+        },
+      ]
+    );
+    const row = (
+      out.structuredContent.results as Array<{
+        data?: { directories?: Array<Record<string, any>> };
+        meta?: { diagnostics?: { codes?: string[] } };
+      }>
+    )[0]!;
+    const directory = row.data?.directories?.[0]!;
+
+    expect(directory).toMatchObject({
+      complete: false,
+      isPartial: true,
+      terminalLimit: true,
+      partialReasons: ['fetchFailed'],
+    });
+    expect(directory.next).toBeUndefined();
   });
 });

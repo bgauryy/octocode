@@ -12,7 +12,7 @@ import { getActiveProvider, getActiveProviderConfig } from '../serverConfig.js';
 import { maskSensitiveData } from '@octocodeai/octocode-engine/mask';
 import { handleProviderError } from './utils.js';
 
-interface ProviderExecutionContext {
+export interface ProviderExecutionContext {
   providerType: ProviderType;
   provider: ICodeHostProvider;
   capabilities: ProviderCapabilities;

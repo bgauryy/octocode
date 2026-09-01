@@ -17,12 +17,12 @@ describe('safeParseOrError (finding 7)', () => {
     }
   });
 
-  it('returns a structured error with the "Validation error:" prefix by default', () => {
+  it('returns the actionable schema message without a redundant prefix by default', () => {
     const outcome = safeParseOrError(schema, { path: 123 });
     expect(outcome.ok).toBe(false);
     if (!outcome.ok) {
       expect(outcome.error.status).toBe('error');
-      expect(String(outcome.error.error)).toMatch(/^Validation error: /);
+      expect(String(outcome.error.error)).not.toMatch(/^Validation error: /);
     }
   });
 
@@ -35,11 +35,11 @@ describe('safeParseOrError (finding 7)', () => {
     }
   });
 
-  it('omits the prefix when prefix=false (github_fetch_content parity)', () => {
-    const outcome = safeParseOrError(schema, { path: 123 }, { prefix: false });
+  it('adds the prefix only when prefix=true', () => {
+    const outcome = safeParseOrError(schema, { path: 123 }, { prefix: true });
     expect(outcome.ok).toBe(false);
     if (!outcome.ok) {
-      expect(String(outcome.error.error)).not.toMatch(/^Validation error: /);
+      expect(String(outcome.error.error)).toMatch(/^Validation error: /);
     }
   });
 });

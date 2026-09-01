@@ -53,7 +53,7 @@ function normalizeStructureErrorResult(
     status === 404
       ? {
           retryParent: {
-            tool: 'ghViewRepoStructure',
+            tool: 'github.tree',
             query: {
               owner: query.owner,
               repo: query.repo,
@@ -64,7 +64,7 @@ function normalizeStructureErrorResult(
             confidence: 'low',
           },
           searchPath: {
-            tool: 'ghSearchCode',
+            tool: 'github.code',
             query: {
               owner: query.owner,
               repo: query.repo,
@@ -127,159 +127,159 @@ export function filterStructure(
   return filtered;
 }
 
+export async function exploreRepositoryStructure(
+  query: PartialRepoStructureQuery,
+  args: ToolExecutionArgs<PartialRepoStructureQuery>,
+  getProviderContext = createLazyProviderContext(args.authInfo)
+): Promise<ProcessedBulkResult> {
+  try {
+    const currentProviderContext = getProviderContext();
+    const projectId = `${query.owner}/${query.repo}`;
+    const explicitBranch = query.branch;
+    const resolvedBranch =
+      explicitBranch ??
+      (await currentProviderContext.provider.resolveDefaultBranch(projectId));
+
+    let providerResult = await executeProviderOperation(query, () =>
+      currentProviderContext.provider.getRepoStructure(
+        mapRepoStructureToolQuery(query, resolvedBranch)
+      )
+    );
+
+    let effectiveBranch = resolvedBranch;
+    let branchFallbackWarning: string | undefined;
+
+    // The schema documents that an unresolvable ref falls back to the
+    // default branch with a warning — but that only ever worked when
+    // `branch` was omitted (resolved upfront, above). An EXPLICIT bad
+    // branch 404s outright with no retry, contradicting the documented
+    // contract. Retry once against the actual default branch so the
+    // fallback promise holds for explicit branches too.
+    if (providerResult.ok === false && explicitBranch) {
+      const rawError = providerResult.result.error;
+      const status =
+        typeof rawError === 'object' && rawError !== null
+          ? (rawError as { status?: unknown }).status
+          : undefined;
+      if (status === 404) {
+        const defaultBranch =
+          await currentProviderContext.provider.resolveDefaultBranch(projectId);
+        if (defaultBranch !== explicitBranch) {
+          const retryResult = await executeProviderOperation(query, () =>
+            currentProviderContext.provider.getRepoStructure(
+              mapRepoStructureToolQuery(query, defaultBranch)
+            )
+          );
+          if (retryResult.ok !== false) {
+            providerResult = retryResult;
+            effectiveBranch = defaultBranch;
+            branchFallbackWarning = `Branch/ref '${explicitBranch}' was not found. Showing '${defaultBranch}' (default branch) instead. Re-query with the correct branch name if branch-specific results are required.`;
+          }
+        }
+      }
+    }
+
+    if (providerResult.ok === false) {
+      return normalizeStructureErrorResult(providerResult.result, query);
+    }
+
+    const filteredStructure = filterStructure(
+      providerResult.response.data.structure
+    );
+    const hasContent = Object.keys(filteredStructure).length > 0;
+    const resultData = mapRepoStructureProviderResult(
+      providerResult.response.data,
+      query,
+      filteredStructure,
+      effectiveBranch
+    );
+    if (branchFallbackWarning) {
+      (resultData as Record<string, unknown>).branchFallback = {
+        requestedBranch: explicitBranch,
+        actualBranch: effectiveBranch,
+        warning: branchFallbackWarning,
+      };
+    }
+
+    // Ready-to-run follow-ups: read the first listed file, or materialize
+    // the whole directory for local search/LSP.
+    const structure = (
+      resultData as {
+        structure?: Array<{ dir: string; files?: string[] }>;
+      }
+    ).structure;
+    const firstDir = structure?.find(d => (d.files?.length ?? 0) > 0);
+    // `structure[].dir` is RELATIVE to the queried path, so a `fetchFile`
+    // hint must re-prefix `query.path` (like `materialize` below does) —
+    // otherwise it emits a bare filename that 404s for any non-root query.
+    const structureBase = String(query.path ?? '').replace(/\/+$/, '');
+    const firstFile = firstDir
+      ? (() => {
+          const rel =
+            firstDir.dir === '.'
+              ? firstDir.files![0]
+              : `${firstDir.dir}/${firstDir.files![0]}`;
+          return structureBase ? `${structureBase}/${rel}` : rel;
+        })()
+      : undefined;
+    (resultData as Record<string, unknown>).next = {
+      ...(firstFile
+        ? {
+            fetchFile: {
+              tool: 'ghGetFileContent',
+              query: {
+                owner: query.owner,
+                repo: query.repo,
+                path: firstFile,
+                // Use the branch actually served — after a fallback,
+                // query.branch is the invalid requested ref.
+                ...(effectiveBranch ? { branch: effectiveBranch } : {}),
+              },
+              why: 'Read the first listed file',
+              confidence: 'low',
+            },
+          }
+        : {}),
+      materialize: {
+        tool: 'ghGetFileContent',
+        query: {
+          owner: query.owner,
+          repo: query.repo,
+          path: String(query.path ?? ''),
+          type: 'directory',
+          ...(effectiveBranch ? { branch: effectiveBranch } : {}),
+        },
+        why: 'Materialize this directory locally for exact line anchors, local search, or LSP',
+        confidence: 'exact',
+      },
+    };
+
+    return createSuccessResult(
+      query,
+      resultData as unknown as Record<string, unknown>,
+      hasContent,
+      TOOL_NAMES.GITHUB_VIEW_REPO_STRUCTURE,
+      {
+        rawResponse: providerResult.response.rawResponseChars,
+      }
+    );
+  } catch (error) {
+    return handleCatchError(
+      error,
+      query,
+      'Failed to explore repository structure',
+      TOOL_NAMES.GITHUB_VIEW_REPO_STRUCTURE
+    );
+  }
+}
+
 export async function exploreMultipleRepositoryStructures(
   args: ToolExecutionArgs<PartialRepoStructureQuery>
 ): Promise<CallToolResult> {
-  const { queries, authInfo } = args;
-  const getProviderContext = createLazyProviderContext(authInfo);
-
+  const getProviderContext = createLazyProviderContext(args.authInfo);
   return executeBulkOperation(
-    queries,
-    async (query: PartialRepoStructureQuery, _index: number) => {
-      try {
-        const currentProviderContext = getProviderContext();
-        const projectId = `${query.owner}/${query.repo}`;
-        const explicitBranch = query.branch;
-        const resolvedBranch =
-          explicitBranch ??
-          (await currentProviderContext.provider.resolveDefaultBranch(
-            projectId
-          ));
-
-        let providerResult = await executeProviderOperation(query, () =>
-          currentProviderContext.provider.getRepoStructure(
-            mapRepoStructureToolQuery(query, resolvedBranch)
-          )
-        );
-
-        let effectiveBranch = resolvedBranch;
-        let branchFallbackWarning: string | undefined;
-
-        // The schema documents that an unresolvable ref falls back to the
-        // default branch with a warning — but that only ever worked when
-        // `branch` was omitted (resolved upfront, above). An EXPLICIT bad
-        // branch 404s outright with no retry, contradicting the documented
-        // contract. Retry once against the actual default branch so the
-        // fallback promise holds for explicit branches too.
-        if (providerResult.ok === false && explicitBranch) {
-          const rawError = providerResult.result.error;
-          const status =
-            typeof rawError === 'object' && rawError !== null
-              ? (rawError as { status?: unknown }).status
-              : undefined;
-          if (status === 404) {
-            const defaultBranch =
-              await currentProviderContext.provider.resolveDefaultBranch(
-                projectId
-              );
-            if (defaultBranch !== explicitBranch) {
-              const retryResult = await executeProviderOperation(query, () =>
-                currentProviderContext.provider.getRepoStructure(
-                  mapRepoStructureToolQuery(query, defaultBranch)
-                )
-              );
-              if (retryResult.ok !== false) {
-                providerResult = retryResult;
-                effectiveBranch = defaultBranch;
-                branchFallbackWarning = `Branch/ref '${explicitBranch}' was not found. Showing '${defaultBranch}' (default branch) instead. Re-query with the correct branch name if branch-specific results are required.`;
-              }
-            }
-          }
-        }
-
-        if (providerResult.ok === false) {
-          return normalizeStructureErrorResult(providerResult.result, query);
-        }
-
-        const filteredStructure = filterStructure(
-          providerResult.response.data.structure
-        );
-        const hasContent = Object.keys(filteredStructure).length > 0;
-        const resultData = mapRepoStructureProviderResult(
-          providerResult.response.data,
-          query,
-          filteredStructure,
-          effectiveBranch
-        );
-        if (branchFallbackWarning) {
-          (resultData as Record<string, unknown>).branchFallback = {
-            requestedBranch: explicitBranch,
-            actualBranch: effectiveBranch,
-            warning: branchFallbackWarning,
-          };
-        }
-
-        // Ready-to-run follow-ups: read the first listed file, or materialize
-        // the whole directory for local search/LSP.
-        const structure = (
-          resultData as {
-            structure?: Array<{ dir: string; files?: string[] }>;
-          }
-        ).structure;
-        const firstDir = structure?.find(d => (d.files?.length ?? 0) > 0);
-        // `structure[].dir` is RELATIVE to the queried path, so a `fetchFile`
-        // hint must re-prefix `query.path` (like `materialize` below does) —
-        // otherwise it emits a bare filename that 404s for any non-root query.
-        const structureBase = String(query.path ?? '').replace(/\/+$/, '');
-        const firstFile = firstDir
-          ? (() => {
-              const rel =
-                firstDir.dir === '.'
-                  ? firstDir.files![0]
-                  : `${firstDir.dir}/${firstDir.files![0]}`;
-              return structureBase ? `${structureBase}/${rel}` : rel;
-            })()
-          : undefined;
-        (resultData as Record<string, unknown>).next = {
-          ...(firstFile
-            ? {
-                fetchFile: {
-                  tool: 'ghGetFileContent',
-                  query: {
-                    owner: query.owner,
-                    repo: query.repo,
-                    path: firstFile,
-                    // Use the branch actually served — after a fallback,
-                    // query.branch is the invalid requested ref.
-                    ...(effectiveBranch ? { branch: effectiveBranch } : {}),
-                  },
-                  why: 'Read the first listed file',
-                  confidence: 'low',
-                },
-              }
-            : {}),
-          materialize: {
-            tool: 'ghGetFileContent',
-            query: {
-              owner: query.owner,
-              repo: query.repo,
-              path: String(query.path ?? ''),
-              type: 'directory',
-              ...(effectiveBranch ? { branch: effectiveBranch } : {}),
-            },
-            why: 'Materialize this directory locally for exact line anchors, local search, or LSP',
-            confidence: 'exact',
-          },
-        };
-
-        return createSuccessResult(
-          query,
-          resultData as unknown as Record<string, unknown>,
-          hasContent,
-          TOOL_NAMES.GITHUB_VIEW_REPO_STRUCTURE,
-          {
-            rawResponse: providerResult.response.rawResponseChars,
-          }
-        );
-      } catch (error) {
-        return handleCatchError(
-          error,
-          query,
-          'Failed to explore repository structure',
-          TOOL_NAMES.GITHUB_VIEW_REPO_STRUCTURE
-        );
-      }
-    },
+    args.queries,
+    query => exploreRepositoryStructure(query, args, getProviderContext),
     {
       toolName: TOOL_NAMES.GITHUB_VIEW_REPO_STRUCTURE,
       keysPriority: [

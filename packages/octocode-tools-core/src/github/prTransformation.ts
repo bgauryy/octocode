@@ -290,7 +290,7 @@ export function applyPartialContentFilter(
       }
     | undefined;
   const patches = content?.patches;
-  const mode = patches?.mode ?? (params.reviewMode === 'full' ? 'all' : 'none');
+  const mode = patches?.mode ?? 'none';
   const metadataMap = new Map(
     patches?.ranges?.map(range => [range.file, range]) || []
   );

@@ -5,180 +5,181 @@ import {
   prepareDirectToolInput,
 } from '../../src/tools/directToolCatalog.meta.js';
 
-type Prepared = { queries: Array<Record<string, unknown>> };
-
-const prep = (tool: string, query: Record<string, unknown>): Prepared =>
-  prepareDirectToolInput(tool, query, {
-    rejectUnknownFields: true,
-  }) as Prepared;
-
-/**
- * Regression guards for the five first-contact field misses measured in
- * benchmark run compare-run-20260802-b (octocode-vs-gh / octocode-vs-gh-rtk,
- * Arm B call logs): each one cost a full agent turn on a retry. All are
- * plausible renames of a real field, so they are folded — not rejected.
- */
-describe('benchmark-measured field aliases (compare-run-20260802-b)', () => {
-  it('localSearchCode: language → langType', () => {
-    const q = prep('localSearchCode', {
-      path: '/tmp',
-      pattern: 'ref($$$ARGS)',
-      mode: 'structural',
-      language: 'typescript',
-    }).queries[0]!;
-    expect(q.langType).toBe('typescript');
-    expect(q.language).toBeUndefined();
-  });
-
-  it('ghGetFileContent: matchStringContextLines → contextLines', () => {
-    const q = prep('ghGetFileContent', {
-      owner: 'o',
-      repo: 'r',
-      path: 'f.ts',
-      matchString: 'x',
-      matchStringContextLines: 3,
-    }).queries[0]!;
-    expect(q.contextLines).toBe(3);
-    expect(q.matchStringContextLines).toBeUndefined();
-  });
-
-  it('ghGetFileContent: minified:true → minify:"standard", minified:false → "none"', () => {
-    const on = prep('ghGetFileContent', {
-      owner: 'o',
-      repo: 'r',
-      path: 'f.ts',
-      minified: true,
-    }).queries[0]!;
-    expect(on.minify).toBe('standard');
-    expect(on.minified).toBeUndefined();
-
-    const off = prep('ghGetFileContent', {
-      owner: 'o',
-      repo: 'r',
-      path: 'f.ts',
-      minified: false,
-    }).queries[0]!;
-    expect(off.minify).toBe('none');
-  });
-
-  it('ghGetFileContent: minified with a valid enum string folds through to minify', () => {
-    const q = prep('ghGetFileContent', {
-      owner: 'o',
-      repo: 'r',
-      path: 'f.ts',
-      minified: 'symbols',
-    }).queries[0]!;
-    expect(q.minify).toBe('symbols');
-  });
-
-  it('ghSearchPullRequests: merged:true → state:"merged"', () => {
-    const q = prep('ghSearchPullRequests', {
-      owner: 'o',
-      repo: 'r',
-      merged: true,
-    }).queries[0]!;
-    expect(q.state).toBe('merged');
-    expect(q.merged).toBeUndefined();
-  });
-
-  it('ghSearchPullRequests: merged:false is NOT foldable (still rejected)', () => {
-    // "closed but not merged" is not expressible via state — folding false
-    // would silently change meaning, so it must keep erroring.
-    expect(() =>
-      prep('ghSearchPullRequests', { owner: 'o', repo: 'r', merged: false })
-    ).toThrow(DirectToolInputError);
-  });
-
-  it('ghSearchCommits: filePath → path', () => {
-    const q = prep('ghSearchCommits', {
-      owner: 'o',
-      repo: 'r',
-      filePath: 'src/a.ts',
-    }).queries[0]!;
-    expect(q.path).toBe('src/a.ts');
-    expect(q.filePath).toBeUndefined();
-  });
-
-  it('localFindFiles: maxResults → limit', () => {
-    const q = prep('localFindFiles', {
-      path: '/tmp',
-      maxResults: 5,
-    }).queries[0]!;
-    expect(q.limit).toBe(5);
-    expect(q.maxResults).toBeUndefined();
-  });
-
-  it('localFindFiles: singular name/type guesses fold to names/entryType', () => {
-    const q = prep('localFindFiles', {
-      path: '/tmp',
-      name: '*.ts',
-      type: 'f',
-    }).queries[0]!;
-    expect(q.names).toEqual(['*.ts']);
-    expect(q.entryType).toBe('f');
-  });
-
-  it('localSearchCode: text-mode pattern/useRegex guesses fold without weakening structural mode', () => {
-    const q = prep('localSearchCode', {
-      path: '/tmp',
-      mode: 'detailed',
-      pattern: 'needle',
-      useRegex: true,
-    }).queries[0]!;
-    expect(q.searchText).toBe('needle');
-    expect(q.pattern).toBeUndefined();
-    expect(q.regex).toBe('perl');
-
-    const structural = prep('localSearchCode', {
-      path: '/tmp',
-      mode: 'structural',
+const removedAliases: ReadonlyArray<
+  readonly [tool: string, canonical: string, query: Record<string, unknown>]
+> = [
+  ['npmSearch', 'packageName', { name: 'zod' }],
+  ['lspGetSemantics', 'type', { op: 'documentSymbols', uri: '/repo/a.ts' }],
+  ['localGetFileContent', 'path', { filePath: '/repo/a.ts' }],
+  [
+    'localSearch',
+    'searchText',
+    { operation: 'text', path: '/repo', keywords: 'needle' },
+  ],
+  [
+    'localSearch',
+    'langType',
+    {
+      operation: 'structural',
+      path: '/repo',
       pattern: 'call($X)',
-    }).queries[0]!;
-    expect(structural.pattern).toBe('call($X)');
-    expect(structural.searchText).toBeUndefined();
-  });
-
-  it('localViewStructure: depth → maxDepth', () => {
-    const q = prep('localViewStructure', { path: '/tmp', depth: 2 })
-      .queries[0]!;
-    expect(q.maxDepth).toBe(2);
-    expect(q.depth).toBeUndefined();
-  });
-
-  it('local file tools accept readable entryType values and explicit both', () => {
-    expect(
-      prep('localFindFiles', { path: '/tmp', entryType: 'file' }).queries[0]!
-        .entryType
-    ).toBe('f');
-    expect(
-      prep('localViewStructure', { path: '/tmp', entryType: 'directory' })
-        .queries[0]!.entryType
-    ).toBe('d');
-    expect(
-      prep('localViewStructure', { path: '/tmp', entryType: 'both' })
-        .queries[0]!.entryType
-    ).toBeUndefined();
-  });
-
-  it('localAnalyzeGraph: maxDepth → depth', () => {
-    const q = prep('localAnalyzeGraph', {
-      path: '/tmp',
-      operation: 'dependencies',
-      file: 'src/a.ts',
-      maxDepth: 2,
-    }).queries[0]!;
-    expect(q.depth).toBe(2);
-    expect(q.maxDepth).toBeUndefined();
-  });
-
-  it('an alias never clobbers an explicitly-set canonical field', () => {
-    const q = prep('ghGetFileContent', {
+      language: 'typescript',
+    },
+  ],
+  [
+    'localSearch',
+    'pageSize',
+    { operation: 'text', path: '/repo', searchText: 'x', itemsPerPage: 5 },
+  ],
+  [
+    'localSearch',
+    'sort',
+    { operation: 'files', path: '/repo', sortBy: 'name' },
+  ],
+  [
+    'localSearch',
+    'reverse',
+    { operation: 'text', path: '/repo', searchText: 'x', sortReverse: true },
+  ],
+  [
+    'ghGetFileContent',
+    'contextLines',
+    {
       owner: 'o',
       repo: 'r',
-      path: 'f.ts',
-      minify: 'none',
-      minified: true,
-    }).queries[0]!;
-    expect(q.minify).toBe('none');
+      path: 'a.ts',
+      matchString: 'x',
+      matchStringContextLines: 2,
+    },
+  ],
+  [
+    'ghGetFileContent',
+    'minify',
+    { owner: 'o', repo: 'r', path: 'a.ts', minified: true },
+  ],
+  [
+    'ghSearchHistory',
+    'merged',
+    { operation: 'pullRequests', owner: 'o', repo: 'r', merged: true },
+  ],
+  [
+    'ghSearchHistory',
+    'keywordsToSearch',
+    {
+      operation: 'pullRequests',
+      owner: 'o',
+      repo: 'r',
+      keywordsToSearch: ['x'],
+    },
+  ],
+  [
+    'ghSearchHistory',
+    'keywordsToSearch',
+    {
+      operation: 'issues',
+      owner: 'o',
+      repo: 'r',
+      keywordsToSearch: ['x'],
+    },
+  ],
+  [
+    'ghSearch',
+    'topics',
+    { operation: 'repositories', topicsToSearch: ['mcp'] },
+  ],
+  [
+    'ghSearch',
+    'pageSize',
+    { operation: 'tree', owner: 'o', repo: 'r', itemsPerPage: 5 },
+  ],
+  [
+    'ghGetHistoryItem',
+    'filePath',
+    {
+      operation: 'commit',
+      owner: 'o',
+      repo: 'r',
+      ref: 'abc',
+      filePath: 'src/a.ts',
+    },
+  ],
+  [
+    'localAnalyzeGraph',
+    'depth',
+    { path: '/repo', operation: 'dependencies', file: 'src/a.ts', maxDepth: 2 },
+  ],
+  [
+    'localAnalyzeGraph',
+    'pageSize',
+    { path: '/repo', operation: 'cycles', itemsPerPage: 5 },
+  ],
+];
+
+describe('canonical direct-tool inputs', () => {
+  it.each(removedAliases)(
+    '%s rejects a removed alias and names %s',
+    (tool, canonical, query) => {
+      expect(() =>
+        prepareDirectToolInput(tool, query, { rejectUnknownFields: true })
+      ).toThrowError(DirectToolInputError);
+
+      try {
+        prepareDirectToolInput(tool, query, { rejectUnknownFields: true });
+      } catch (error) {
+        expect(error).toBeInstanceOf(DirectToolInputError);
+        const details = (error as DirectToolInputError).details.join(' ');
+        expect(details).toContain(canonical);
+      }
+    }
+  );
+
+  it('does not reinterpret text pattern as searchText', () => {
+    expect(() =>
+      prepareDirectToolInput(
+        'localSearch',
+        { operation: 'text', path: '/repo', pattern: 'needle' },
+        { rejectUnknownFields: true }
+      )
+    ).toThrowError(DirectToolInputError);
   });
+
+  it('accepts only canonical entryType values', () => {
+    expect(() =>
+      prepareDirectToolInput(
+        'localSearch',
+        { operation: 'files', path: '/repo', entryType: 'file' },
+        { rejectUnknownFields: true }
+      )
+    ).toThrowError(DirectToolInputError);
+
+    expect(
+      prepareDirectToolInput(
+        'localSearch',
+        { operation: 'files', path: '/repo', entryType: 'f' },
+        { rejectUnknownFields: true }
+      )
+    ).toMatchObject({ queries: [{ entryType: 'f' }] });
+  });
+
+  it.each([
+    [
+      'ghSearchPullRequests',
+      { owner: 'o', repo: 'r', prNumber: 1, reviewMode: 'full' },
+      'review',
+    ],
+    ['ghSearch', { operation: 'code', keywords: ['x'], limit: 10 }, 'pageSize'],
+  ])(
+    'does not suggest a non-equivalent field for %s',
+    (tool, query, wrongHint) => {
+      try {
+        prepareDirectToolInput(tool, query, { rejectUnknownFields: true });
+        expect.unreachable('expected rejected input');
+      } catch (error) {
+        expect(error).toBeInstanceOf(DirectToolInputError);
+        expect((error as DirectToolInputError).details.join(' ')).not.toContain(
+          `did you mean '${wrongHint}'`
+        );
+      }
+    }
+  );
 });

@@ -22,18 +22,19 @@ function isProviderCacheValid(entry: CachedProvider): boolean {
   return Date.now() - entry.createdAt < PROVIDER_CACHE_TTL_MS;
 }
 
-function evictProviderInstances(): void {
+function evictProviderInstances(reserveSlots = 0): void {
   for (const [key, entry] of instanceCache.entries()) {
     if (!isProviderCacheValid(entry)) {
       instanceCache.delete(key);
     }
   }
 
-  if (instanceCache.size > MAX_PROVIDER_INSTANCES) {
+  const targetSize = Math.max(0, MAX_PROVIDER_INSTANCES - reserveSlots);
+  if (instanceCache.size > targetSize) {
     const sorted = [...instanceCache.entries()].sort(
       (a, b) => a[1].lastAccessedAt - b[1].lastAccessedAt
     );
-    const excess = instanceCache.size - MAX_PROVIDER_INSTANCES;
+    const excess = instanceCache.size - targetSize;
     for (let i = 0; i < excess && i < sorted.length; i++) {
       const entry = sorted[i];
       if (entry) instanceCache.delete(entry[0]);
@@ -89,7 +90,7 @@ export function getProvider(
   }
 
   if (instanceCache.size >= MAX_PROVIDER_INSTANCES) {
-    evictProviderInstances();
+    evictProviderInstances(1);
   }
 
   const provider = new GitHubProvider({ ...config, type });

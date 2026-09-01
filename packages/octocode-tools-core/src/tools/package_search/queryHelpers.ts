@@ -1,15 +1,12 @@
 /**
- * Fold a `keywords` field (string as-is, or an array joined with spaces) into a
- * single registry query string. Sibling tools (ghSearchCode/localSearchCode)
- * take keyword arrays, so agents pass arrays here too — the scheme accepts both
- * shapes and this is where the array is collapsed. Returns undefined when empty.
+ * Fold keyword terms into one registry query string. Returns undefined when
+ * the list is absent or empty.
  */
 export function foldKeywords(
-  keywords: string | string[] | undefined
+  keywords: string[] | undefined
 ): string | undefined {
   if (keywords === undefined) return undefined;
-  const joined = Array.isArray(keywords) ? keywords.join(' ') : keywords;
-  const trimmed = joined.trim();
+  const trimmed = keywords.join(' ').trim();
   return trimmed.length > 0 ? trimmed : undefined;
 }
 

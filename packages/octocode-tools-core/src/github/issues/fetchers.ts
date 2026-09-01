@@ -13,6 +13,7 @@ import {
 import {
   GITHUB_SEARCH_DEFAULT_LIMIT,
   GITHUB_SEARCH_MAX_LIMIT,
+  MAX_PAGE_NUMBER,
 } from '../../config.js';
 import type { FetchIssuesParams, IssueRow, IssuesResult } from './types.js';
 import {
@@ -45,9 +46,9 @@ export async function fetchIssueByNumber(
 
   if (hasPullRequestField(response.data)) {
     return createIssueError(
-      `Issue #${issueNumber} is a pull request; use type:"prs" with prNumber:${issueNumber}.`,
+      `Issue #${issueNumber} is a pull request; use ghGetHistoryItem operation:"pullRequest" with number:${issueNumber}.`,
       [
-        `Retry with { type: "prs", owner: "${owner}", repo: "${repo}", prNumber: ${issueNumber} }.`,
+        `Retry with ghGetHistoryItem { operation: "pullRequest", owner: "${owner}", repo: "${repo}", number: ${issueNumber} }.`,
       ]
     );
   }
@@ -97,7 +98,18 @@ export async function fetchIssueByNumber(
       itemsPerPage,
       totalComments: row.comments.length,
       hasMore: hasMoreComments,
-      ...(hasMoreComments ? { nextCommentPage: commentPage + 1 } : {}),
+      ...(hasMoreComments && commentPage < MAX_PAGE_NUMBER
+        ? { nextCommentPage: commentPage + 1 }
+        : {}),
+      ...(hasMoreComments && commentPage >= MAX_PAGE_NUMBER
+        ? {
+            terminalLimit: true,
+            continuationUnavailable: {
+              reason: 'schemaPageLimit' as const,
+              maxPage: MAX_PAGE_NUMBER,
+            },
+          }
+        : {}),
     };
   }
 

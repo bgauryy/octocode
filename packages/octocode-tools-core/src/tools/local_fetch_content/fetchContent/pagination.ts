@@ -10,7 +10,10 @@ import {
 } from '../../../utils/pagination/boundary.js';
 import type { LocalGetFileContentToolResult } from '@octocodeai/octocode-core/extra-types';
 import type { FetchContentQuery } from '../scheme.js';
-import { buildContinueCharsContinuation } from '../../../scheme/pagination.js';
+import {
+  buildContinueCharsContinuation,
+  buildNextPageContinuation,
+} from '../../../scheme/pagination.js';
 import { sourceSizeFields, type FileStats } from './validation.js';
 import type { ExtractionState } from './extraction.js';
 
@@ -112,13 +115,24 @@ export async function paginateContentWindow(
   }
 
   // Ready continuation query for the next char page. Same shape convention as
-  // localSearchCode's `next` map (see ripgrepResultBuilder buildSearchNextMap).
+  // localSearch's `next` map (see ripgrepResultBuilder buildSearchNextMap).
+  // Replay the same extraction before advancing its character window. Keeping
+  // the selector matters for line ranges and matchString: a continuation that
+  // dropped it would page through the whole source file instead of the content
+  // that was actually windowed. Per-call agent metadata is not part of the
+  // public query contract and must not leak into a replay.
+  const {
+    goal: _goal,
+    reasoning: _reasoning,
+    charOffset: _charOffset,
+    ...continuationQuery
+  } = query as FetchContentQuery & Record<string, unknown>;
   const next = buildContinueCharsContinuation(
     'localGetFileContent',
     {
+      ...continuationQuery,
       path: queryPath,
       charLength: effectiveCharLength ?? pagination.charLength,
-      minify: query.minify,
     },
     pagination
   ) as ContentWindow['next'];
@@ -178,6 +192,34 @@ export async function buildSuccessResult(
   }
 
   const isPartial = extraction.isPartial || window.pagination.hasMore;
+  const lineWindowSize =
+    extraction.actualStartLine !== undefined &&
+    extraction.actualEndLine !== undefined
+      ? extraction.actualEndLine - extraction.actualStartLine + 1
+      : undefined;
+  const continueLines =
+    extraction.isPartial &&
+    !window.pagination.hasMore &&
+    extraction.actualEndLine !== undefined &&
+    lineWindowSize !== undefined
+      ? buildNextPageContinuation(
+          'localGetFileContent',
+          {
+            path: queryPath,
+            startLine: extraction.actualEndLine + 1,
+            endLine: Math.min(
+              totalLines,
+              extraction.actualEndLine + lineWindowSize
+            ),
+            ...(query.minify !== undefined ? { minify: query.minify } : {}),
+          },
+          'Continue with the next source-line window.'
+        )
+      : undefined;
+  const next = {
+    ...(window.next ?? {}),
+    ...(continueLines ? { continueLines } : {}),
+  };
 
   return {
     path: queryPath,
@@ -209,7 +251,7 @@ export async function buildSuccessResult(
         }),
       },
     }),
-    ...(window.next ? { next: window.next } : {}),
+    ...(Object.keys(next).length > 0 ? { next } : {}),
     ...(warnings.length > 0 && { warnings }),
   };
 }

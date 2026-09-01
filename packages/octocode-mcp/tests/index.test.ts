@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { allowExpectedStderrWarning } from './warningPolicy.js';
 import { StdioServerTransport } from '@modelcontextprotocol/server/stdio';
-import { McpServer, RegisteredTool } from '@modelcontextprotocol/server';
+import { McpServer } from '@modelcontextprotocol/server';
 
 // The server name/version are derived from package.json (src/index.ts builds
 // `${name}_${version}`), so assert against that source rather than hardcoding a
@@ -11,12 +11,6 @@ import { name as pkgName } from '../package.json';
 vi.mock('@modelcontextprotocol/server');
 vi.mock('@modelcontextprotocol/server/stdio');
 vi.mock('../../octocode-tools-core/src/utils/http/cache.js');
-vi.mock('../src/tools/github_search_code/github_search_code.js');
-vi.mock('../src/tools/github_fetch_content/github_fetch_content.js');
-vi.mock('../src/tools/github_search_repos/github_search_repos.js');
-vi.mock(
-  '../src/tools/github_view_repo_structure/github_view_repo_structure.js'
-);
 vi.mock('../../octocode-tools-core/src/utils/exec/npm.js');
 vi.mock('../../octocode-tools-core/src/serverConfig.js');
 vi.mock('../src/tools/toolsManager.js');
@@ -40,10 +34,6 @@ vi.mock('../../octocode-tools-core/src/cacheMaintenance.js', () => ({
   startCacheGC: vi.fn(),
   stopCacheGC: vi.fn(),
 }));
-import { registerGitHubSearchCodeTool } from '../src/tools/github_search_code/github_search_code.js';
-import { registerFetchGitHubFileContentTool } from '../src/tools/github_fetch_content/github_fetch_content.js';
-import { registerSearchGitHubReposTool } from '../src/tools/github_search_repos/github_search_repos.js';
-import { registerViewGitHubRepoStructureTool } from '../src/tools/github_view_repo_structure/github_view_repo_structure.js';
 import {
   initialize,
   cleanup,
@@ -73,19 +63,6 @@ const mockCleanup = vi.mocked(cleanup);
 const mockGetServerConfig = vi.mocked(getServerConfig);
 const mockStartCacheGC = vi.mocked(startCacheGC);
 const mockGetActiveProvider = vi.mocked(getActiveProvider);
-
-const mockRegisterGitHubSearchCodeTool = vi.mocked(
-  registerGitHubSearchCodeTool
-);
-const mockRegisterFetchGitHubFileContentTool = vi.mocked(
-  registerFetchGitHubFileContentTool
-);
-const mockRegisterSearchGitHubReposTool = vi.mocked(
-  registerSearchGitHubReposTool
-);
-const mockRegisterViewGitHubRepoStructureTool = vi.mocked(
-  registerViewGitHubRepoStructureTool
-);
 
 describe('Index Module', () => {
   let processExitSpy: any;
@@ -138,33 +115,6 @@ describe('Index Module', () => {
 
     mockMcpServer.connect.mockResolvedValue(undefined);
     mockMcpServer.close.mockResolvedValue(undefined);
-
-    const mockRegisteredTool = {
-      name: 'mock-tool',
-      description: 'Mock tool',
-      callback: vi.fn(function () {
-        return { content: [{ type: 'text', text: '' }] };
-      }),
-      enabled: true,
-      enable: vi.fn(function () {}),
-      disable: vi.fn(function () {}),
-      getStatus: vi.fn(function () {}),
-      getMetrics: vi.fn(function () {}),
-      update: vi.fn(function () {}),
-      remove: vi.fn(function () {}),
-    } as unknown as RegisteredTool;
-    mockRegisterGitHubSearchCodeTool.mockImplementation(function () {
-      return mockRegisteredTool;
-    });
-    mockRegisterFetchGitHubFileContentTool.mockImplementation(function () {
-      return mockRegisteredTool;
-    });
-    mockRegisterSearchGitHubReposTool.mockImplementation(function () {
-      return mockRegisteredTool;
-    });
-    mockRegisterViewGitHubRepoStructureTool.mockImplementation(function () {
-      return mockRegisteredTool;
-    });
 
     mockGetGitHubToken.mockResolvedValue('test-token');
     mockInitialize.mockResolvedValue(undefined);
@@ -331,7 +281,7 @@ describe('Index Module', () => {
       mockRegisterTools.mockImplementation(async () => {
         return {
           successCount: 3,
-          failedTools: [TOOL_NAMES.GITHUB_PULL_REQUESTS],
+          failedTools: [TOOL_NAMES.GITHUB_SEARCH_HISTORY],
         };
       });
 
@@ -380,7 +330,7 @@ describe('Index Module', () => {
       mockRegisterTools.mockImplementation(async () => {
         return {
           successCount: 2,
-          failedTools: [TOOL_NAMES.GITHUB_SEARCH_CODE],
+          failedTools: [TOOL_NAMES.GITHUB_FETCH_CONTENT],
         };
       });
 
@@ -493,18 +443,6 @@ describe('Index Module', () => {
     });
   });
 
-  describe('Tool Names Export Consistency', () => {
-    it('should have consistent tool name exports', () => {
-      expect(TOOL_NAMES.GITHUB_SEARCH_CODE).toBe(TOOL_NAMES.GITHUB_SEARCH_CODE);
-      expect(TOOL_NAMES.GITHUB_SEARCH_REPOSITORIES).toBe(
-        TOOL_NAMES.GITHUB_SEARCH_REPOSITORIES
-      );
-      expect(TOOL_NAMES.GITHUB_FETCH_CONTENT).toBe(
-        TOOL_NAMES.GITHUB_FETCH_CONTENT
-      );
-    });
-  });
-
   describe('registerAllTools', () => {
     it('should handle missing GitHub token silently', async () => {
       mockGetGitHubToken.mockResolvedValue(null);
@@ -575,7 +513,7 @@ describe('Index Module', () => {
     });
 
     it('should disable tools with DISABLE_TOOLS', async () => {
-      process.env.DISABLE_TOOLS = 'ghSearchCode,ghGetFileContent';
+      process.env.DISABLE_TOOLS = 'github.code,ghGetFileContent';
 
       await import('../src/index.js');
       await waitForAsyncOperations();
@@ -584,7 +522,7 @@ describe('Index Module', () => {
     });
 
     it('should handle whitespace in tool configuration', async () => {
-      process.env.DISABLE_TOOLS = ' ghSearchCode ';
+      process.env.DISABLE_TOOLS = ' github.code ';
 
       await import('../src/index.js');
       await waitForAsyncOperations();

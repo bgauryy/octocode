@@ -9,7 +9,7 @@ console.log('signatures', n.getSupportedSignatureExtensions().sort());
 console.log('jsts', n.getSupportedJsTsExtensions().sort());"
 ```
 
-## Structural (AST) search — `localSearchCode mode:"structural"`
+## Structural (AST) search — `localSearch operation:"structural"`
 
 Tree-sitter-backed. Two query forms: `pattern` (code-shaped, `$X`/`$$$ARGS` metavars) and `rule` (YAML, `kind`/`has`/`inside`/`all`/`any`/`not`). **`rule: kind: <node_kind>` always works** — it doesn't go through pattern-fragment parsing at all. Reach for it whenever `pattern` misbehaves.
 
@@ -59,7 +59,7 @@ Supported (47 extensions): every language in the table above **except** the data
 
 `documentSymbols`/`definition`/`references`/`hover`/etc. degrade gracefully to a typed `empty` payload (`unsupportedOperation`, `noLocations`, ...) when a server lacks a capability — never a crash.
 
-## `localSearchCode` text/regex mode (ripgrep-backed)
+## `localSearch` text operation (ripgrep-backed)
 
 | Feature | Values |
 |---|---|

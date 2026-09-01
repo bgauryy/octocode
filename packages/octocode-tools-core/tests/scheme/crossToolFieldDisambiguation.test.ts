@@ -4,7 +4,6 @@ import { GitHubCodeSearchQueryLocalSchema } from '../../src/tools/github_search_
 import { GitHubReposSearchSingleQueryLocalSchema } from '../../src/tools/github_search_repos/scheme.js';
 import { GitHubPullRequestSearchQueryLocalSchema } from '../../src/tools/github_search_pull_requests/scheme.js';
 import { LocalRipgrepQuerySchema } from '../../src/tools/local_ripgrep/scheme.js';
-import { LocalViewStructureQuerySchema } from '../../src/tools/local_view_structure/scheme.js';
 
 function fieldDescription(schema: unknown, field: string): string | undefined {
   const shape = (schema as { shape?: Record<string, { description?: string }> })
@@ -13,25 +12,27 @@ function fieldDescription(schema: unknown, field: string): string | undefined {
 }
 
 describe('cross-tool field disambiguation (mode/match/keywords/filesOnly)', () => {
-  it('ghSearchCode match cross-references ghSearchRepos/ghSearchPullRequests', () => {
+  it('ghSearch code match distinguishes the repositories operation', () => {
     const desc = fieldDescription(GitHubCodeSearchQueryLocalSchema, 'match');
-    expect(desc).toContain('ghSearchRepos');
+    expect(desc).toContain('ghSearch operation:"code"');
+    expect(desc).toContain('Operation:"repositories"');
   });
 
-  it('ghSearchRepos match cross-references ghSearchCode', () => {
+  it('ghSearch repositories match distinguishes the code operation', () => {
     const desc = fieldDescription(
       GitHubReposSearchSingleQueryLocalSchema,
       'match'
     );
-    expect(desc).toContain('ghSearchCode');
+    expect(desc).toContain('ghSearch operation:"repositories"');
+    expect(desc).toContain('Operation:"code"');
   });
 
-  it('ghSearchPullRequests match cross-references ghSearchCode; issueNumber is now described', () => {
+  it('ghSearchPullRequests match distinguishes ghSearch code; issueNumber is described', () => {
     const matchDesc = fieldDescription(
       GitHubPullRequestSearchQueryLocalSchema,
       'match'
     );
-    expect(matchDesc).toContain('ghSearchCode');
+    expect(matchDesc).toContain('ghSearch operation:"code"');
 
     const issueNumberDesc = fieldDescription(
       GitHubPullRequestSearchQueryLocalSchema,
@@ -40,7 +41,7 @@ describe('cross-tool field disambiguation (mode/match/keywords/filesOnly)', () =
     expect(issueNumberDesc).toBeTruthy();
   });
 
-  it("localSearchCode mode/searchText/output cross-reference other tools' same-named fields", () => {
+  it('keeps the local lexical-pattern description self-contained', () => {
     const modeDesc = fieldDescription(LocalRipgrepQuerySchema, 'mode');
     expect(modeDesc).toContain('ghSearchPullRequests');
     expect(modeDesc).not.toContain('localBinaryInspect');
@@ -49,9 +50,7 @@ describe('cross-tool field disambiguation (mode/match/keywords/filesOnly)', () =
       LocalRipgrepQuerySchema,
       'searchText'
     );
-    expect(searchTextDesc).toContain('ghSearchCode');
-
-    const outputDesc = fieldDescription(LocalRipgrepQuerySchema, 'output');
-    expect(outputDesc).toContain('localViewStructure');
+    expect(searchTextDesc).toContain('Single lexical pattern');
+    expect(searchTextDesc).not.toContain('ghSearch operation:"code"');
   });
 });

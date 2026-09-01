@@ -10,7 +10,7 @@ import {
 type PRArg = Parameters<typeof mapPullRequestToolQuery>[0];
 
 /**
- * Regression for the benchmark-found P0: `keywordsToSearch` was silently
+ * Regression for the benchmark-found P0: `keywords` was silently
  * dropped between the tool mapper (which folds it into a provider-level
  * `query` string) and the GitHub provider adapter (whose param mapping never
  * copied `query`, because PullRequestQuery didn't declare the field). The
@@ -22,7 +22,7 @@ describe('ghSearchPullRequests keywords survive the full mapping chain', () => {
   const toolQuery = {
     owner: 'facebook',
     repo: 'react',
-    keywordsToSearch: ['useTransition'],
+    keywords: ['useTransition'],
   } as PRArg;
 
   it('the provider params carry the keyword query string', () => {
@@ -75,5 +75,16 @@ describe('ghSearchPullRequests keywords survive the full mapping chain', () => {
 
     expect(params.query).toBeUndefined();
     expect(shouldUseSearchForPRs(params)).toBe(false);
+  });
+
+  it('maps public pageSize to the provider result limit', () => {
+    const providerQuery = mapPullRequestToolQuery({
+      owner: 'facebook',
+      repo: 'react',
+      pageSize: 7,
+    } as PRArg);
+
+    expect(providerQuery.limit).toBe(7);
+    expect(providerQuery.itemsPerPage).toBe(7);
   });
 });

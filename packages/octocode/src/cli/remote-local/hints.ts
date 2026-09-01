@@ -83,7 +83,7 @@ export function formatMaterializationHints(
 }
 
 /** Remote context stamped into every `next.*` query so agents following
- *  pagination to page 2+ can see the provenance even though localSearchCode
+ *  pagination to page 2+ can see the provenance even though localSearch
  *  won't re-emit the full `location` block. */
 function remoteAnnotation(m: RemoteMaterialization): Record<string, unknown> {
   return {

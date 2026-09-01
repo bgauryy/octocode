@@ -15,6 +15,10 @@ import { countSerializedChars, getRawResponseChars } from '../charSavings.js';
 import { buildResponseChannels } from '../responseChannels.js';
 
 import { paginateBulkText, appendResponsePagination } from './pagination.js';
+import {
+  buildPaginationDiagnosticCodes,
+  isPartialResult,
+} from './paginationDiagnostics.js';
 import { processBulkQueries } from './queries.js';
 
 const DEFAULT_BULK_CONCURRENCY = 3;
@@ -62,6 +66,7 @@ function createBulkResponse<
   const resultFields = [
     'index',
     'status',
+    'cache',
     'meta',
     'evidence',
     'diagnostics',
@@ -85,6 +90,7 @@ function createBulkResponse<
     orderedQueries[r.queryIndex] = {
       index: r.queryIndex,
       ...(status !== undefined ? { status } : {}),
+      ...(r.result.cache === 1 ? { cache: 1 as const } : {}),
       meta: buildToolResultMeta(config.toolName, r.originalQuery, data, status),
       data,
     };
@@ -179,6 +185,12 @@ function attachFinalizedResultMeta<TOutput extends Record<string, unknown>>(
 ): TOutput {
   if (!Array.isArray(structuredContent.results)) return structuredContent;
   const byIndex = new Map(sourceRows.map(row => [row.index, row]));
+  const shared =
+    structuredContent.shared !== null &&
+    typeof structuredContent.shared === 'object' &&
+    !Array.isArray(structuredContent.shared)
+      ? (structuredContent.shared as Record<string, unknown>)
+      : undefined;
   const results = structuredContent.results.map((value, index) => {
     if (value === null || typeof value !== 'object' || Array.isArray(value)) {
       return value;
@@ -187,9 +199,23 @@ function attachFinalizedResultMeta<TOutput extends Record<string, unknown>>(
     const source =
       (typeof row.index === 'number' ? byIndex.get(row.index) : undefined) ??
       sourceRows[index];
-    return source && row.meta === undefined
-      ? { ...row, meta: source.meta }
-      : row;
+    if (!source) return row;
+    const { cache: _untrustedCacheMarker, ...finalizedRow } = row;
+    const data =
+      row.data !== null &&
+      typeof row.data === 'object' &&
+      !Array.isArray(row.data)
+        ? (row.data as Record<string, unknown>)
+        : source.data;
+    const meta = reconcilePaginationDiagnostics(
+      (row.meta as FlatQueryResult['meta'] | undefined) ?? source.meta,
+      shared ? { ...shared, ...data } : data
+    );
+    return {
+      ...finalizedRow,
+      ...(source.cache === 1 ? { cache: 1 } : {}),
+      meta,
+    };
   });
   return { ...structuredContent, results };
 }
@@ -210,26 +236,50 @@ export function buildToolResultMeta(
         : kind === 'provider' || kind === 'lexical' || kind === 'syntactic'
           ? 'medium'
           : 'high';
-  const codes =
-    typeof data.errorCode === 'string' ? [data.errorCode] : undefined;
-  const pagination =
-    data.pagination && typeof data.pagination === 'object'
-      ? (data.pagination as Record<string, unknown>)
-      : undefined;
-  const partial =
-    data.truncated === true ||
-    data.isPartial === true ||
-    pagination?.hasMore === true;
+  const partial = isPartialResult(data);
+  const codes = [
+    ...(typeof data.errorCode === 'string' ? [data.errorCode] : []),
+    ...buildPaginationDiagnosticCodes(data),
+  ];
   // Existing result/finalizer hints remain in their established location.
   // Copying them into metadata doubles response bytes without adding evidence.
-  const hasDiagnostics = (codes?.length ?? 0) > 0 || partial;
+  const hasDiagnostics = codes.length > 0 || partial;
 
   return {
     evidence: { kind, confidence },
     ...(hasDiagnostics
       ? {
           diagnostics: {
-            ...(codes ? { codes } : {}),
+            ...(codes.length > 0 ? { codes } : {}),
+            ...(partial ? { partial: true } : {}),
+          },
+        }
+      : {}),
+  };
+}
+
+function reconcilePaginationDiagnostics(
+  meta: FlatQueryResult['meta'],
+  data: Record<string, unknown>
+): FlatQueryResult['meta'] {
+  const { diagnostics, ...stableMeta } = meta;
+  const codes = [
+    ...(diagnostics?.codes ?? []).filter(
+      code => code !== 'continuationMissing' && code !== 'terminalLimitReached'
+    ),
+    ...buildPaginationDiagnosticCodes(data),
+  ];
+  const partial = isPartialResult(data);
+  const hasDiagnostics =
+    codes.length > 0 || partial || (diagnostics?.hints?.length ?? 0) > 0;
+
+  return {
+    ...stableMeta,
+    ...(hasDiagnostics
+      ? {
+          diagnostics: {
+            ...(codes.length > 0 ? { codes } : {}),
+            ...(diagnostics?.hints?.length ? { hints: diagnostics.hints } : {}),
             ...(partial ? { partial: true } : {}),
           },
         }
@@ -240,12 +290,23 @@ export function buildToolResultMeta(
 function inferEvidenceKind(toolName: string, query: object): EvidenceKind {
   if (toolName === 'localAnalyzeGraph') return 'syntactic';
   if (toolName === 'lspGetSemantics') return 'semantic';
-  if (toolName === 'localSearchCode') {
+  if (toolName === 'local.text') {
     return (query as Record<string, unknown>).mode === 'structural'
       ? 'structural'
       : 'lexical';
   }
-  if (toolName.startsWith('gh') || toolName === 'npmSearch') return 'provider';
+  if (toolName === 'localSearch') {
+    const operation = (query as Record<string, unknown>).operation;
+    if (operation === 'structural') return 'structural';
+    if (operation === 'text') return 'lexical';
+    return 'exact';
+  }
+  if (
+    toolName.startsWith('gh') ||
+    toolName.startsWith('github.') ||
+    toolName === 'npmSearch'
+  )
+    return 'provider';
   return 'exact';
 }
 
@@ -278,6 +339,7 @@ function recordBulkCharSavings(
 function extractToolData(result: ProcessedBulkResult): Record<string, unknown> {
   const excludedKeys = new Set([
     'status',
+    'cache',
     'goal',
     'reasoning',
     'researchSuggestions',

@@ -28,19 +28,13 @@ comparisons.
 
 ## Tools
 
-- [ghSearchCode](./ghSearchCode.md)
+- [ghSearch](./ghSearch.md)
 - [ghGetFileContent](./ghGetFileContent.md)
-- [ghViewRepoStructure](./ghViewRepoStructure.md)
-- [ghSearchRepos](./ghSearchRepos.md)
-- [ghSearchPullRequests](./ghSearchPullRequests.md)
-- [ghSearchIssues](./ghSearchIssues.md)
-- [ghSearchCommits](./ghSearchCommits.md)
+- [ghSearchHistory and ghGetHistoryItem](./githubHistory.md)
 - [ghListReleases](./ghListReleases.md) (opt-in: `ENABLE_RELEASES=true`)
 - [npmSearch](./npmSearch.md)
 - [ghCloneRepo](./ghCloneRepo.md)
-- [localSearchCode](./localSearchCode.md)
-- [localViewStructure](./localViewStructure.md)
-- [localFindFiles](./localFindFiles.md)
+- [localSearch](./localSearch.md)
 - [localGetFileContent](./localGetFileContent.md)
 - [lspGetSemantics](./lspGetSemantics.md)
 
@@ -48,5 +42,4 @@ comparisons.
 
 - `lspGetSemantics` references mode — over-budget `locations` tail-dropped, not char-paged (issue #1 / task #6).
 - `npmSearch` — no result-count page cursor for `searchLimit>1` (issue #2).
-- `localFindFiles` — `maxFiles` caps discovery before pagination (issue #3).
 - `lspGetSemantics` callHierarchy mode — per-node `content` clipped to 500 chars (issue #4).
