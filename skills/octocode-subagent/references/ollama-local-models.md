@@ -4,7 +4,7 @@ Load when the question is RAM / kit advice, catalog browse, MCP/tools capability
 
 Choosing Ollama models on a laptop/workstation: RAM kits, capability matrix (thinking, tools, context, vision), and how that maps to MCP / Agent Skills / coding agents.
 
-**Authority:** Ollama library tags + `ollama show` on *the current machine*. Community blogs are secondary. Re-check live tags before pulling. **Pull gate:** NEVER `ollama pull` multi-GB models unless the user explicitly asks — suggest a size/class and wait for approval.
+**Authority:** Ollama library tags + `ollama show` on *the current machine*. Community blogs are secondary. Re-check live tags before pulling. **Pull gate:** Do not run `ollama pull` for multi-GB models unless the user explicitly asks; suggest a size or class and wait for approval.
 
 ## Layer map (do not confuse these)
 

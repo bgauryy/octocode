@@ -2,7 +2,7 @@
 
 Load when creating or updating `AGENTS.md`, nested agent instructions, or a `CLAUDE.md` entrypoint. Spec: [agents.md](https://agents.md/).
 
-Goal: smallest useful map for coding agents. Target ≤60 lines; never exceed 100 unless the requester insists.
+Goal: the smallest useful map for coding agents. Aim for 60 lines; exceed 100 only when the requester needs the added detail.
 
 ## Role of AGENTS.md
 
@@ -23,16 +23,16 @@ Use only sections that add non-obvious value:
 
 - Package manager (one line)
 - Commands table (task → command); prefer file-scoped test/lint when available
-- External References table (need → path) — REQUIRED; this is how agents find deeper docs
+- External References table (need → path); this is how agents find deeper docs
 - Key Conventions — only rules that prevent likely mistakes
 
-IF Claude entrypoint needed → THEN symlink `CLAUDE.md` to `AGENTS.md`. FORBIDDEN: divergent copies.
+For a Claude entrypoint, symlink `CLAUDE.md` to `AGENTS.md` so the instructions cannot diverge.
 
 ## Content rules
 
 - Headings, bullets, tables — not paragraphs.
 - Link docs instead of copying them (see `references/agent-readable.md`).
-- FORBIDDEN: welcome text, skill lists, linter config restatements, README dumps, code blocks beyond a one-line command.
+- Omit welcome text, skill lists, linter-config restatements, README dumps, and code blocks beyond a one-line command.
 
 ## Verify
 

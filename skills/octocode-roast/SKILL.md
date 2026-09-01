@@ -1,6 +1,6 @@
 ---
 name: octocode-roast
-description: "Use when code needs a blunt evidence-backed roast or memorable critique: smell inventory, debt ranking, hot-path autopsy, savage/diff review, security or performance sins, or practical redemption paths. Phrases like roast this, brutal review, top sins, cleanup debt. Polite evidence-first PR review → octocode-research."
+description: "Use when code needs a blunt, evidence-backed roast or memorable critique: smell inventory, debt ranking, hot-path autopsy, brutal review, security or performance sins, or practical repair paths. Trigger phrases include roast this, brutal review, top sins, and cleanup debt. Use octocode-research for a conventional evidence-first review."
 ---
 
 # Octocode Roast
@@ -17,16 +17,11 @@ Workspace output contract: chat-only critiques stay in chat. New saved reports d
 - Punch the code, not the coder; avoid insults about ability, identity, or experience.
 - Never reveal a secret; redact values and use restrained language for security or production-sensitive findings.
 - Rank confirmed security, data loss, correctness, and user-impacting performance above style or taste.
-- Default to medium tone; use savage/nuclear only when explicitly requested. Do not edit or install before consent.
-- Stop when: the target resolves to no files; the checkpoint is reached — important versus redundant findings summarized, nothing edited yet; a repair, a scope widening, or an install needs consent; savage/nuclear tone was not requested; or evidence is pattern-only — report the lead with its confidence instead of asserting exploitability, latency, or outage.
+- Match the requested tone; reserve savage/nuclear language for explicit requests. Do not edit or install before consent.
+- Stop when the target resolves to no files, a repair or scope expansion needs consent, or evidence cannot support the claimed impact. Pattern-only matches remain leads with stated confidence.
 
 ## Severity
-- Capital offenses: confirmed secret exposure, injection/RCE paths, data loss or corruption, auth/access bypass.
-- Felonies: risky security controls, N+1 or hot-path performance damage, brittle async/concurrency, dangerous coupling, change-blocking god functions.
-- Crimes: broad type abuse, hidden state, poor errors, missing tests around risky logic.
-- Slop: duplicate ceremony, AI-ish verbosity, unclear naming, style residue that slows maintenance.
-- Misdemeanors: TODO fossils, console logs, formatting noise.
-If there are 20+ issues, triage the top 10 by impact and confidence, then separate important findings from redundant noise.
+Use the memorable labels in `references/sin-catalog.md`, but rank by demonstrated impact and confidence: security, data loss, correctness, and user-visible performance outrank maintainability and taste. When the inventory overwhelms the decision, show only the highest-value findings and summarize the remainder.
 
 ## Smart routes — load only what the current step needs
 - When you have the target and are ready to inspect it, load `references/roast-playbook.md` — the phase-by-phase run through inspection, inventory, autopsy, and the pre-fix checkpoint.
@@ -41,7 +36,7 @@ If there are 20+ issues, triage the top 10 by impact and confidence, then separa
 - Use `octocode-skills` when changing this skill folder.
 
 ## Output
-Use: `Top roast`, `Important findings`, `Redundant / low-value findings`, `Autopsy`, `Redemption paths`, `Fix checkpoint`. Each finding includes `file:line`, evidence, impact, confidence, and repair move.
+Lead with the top roast, then the important findings, autopsy, repair paths, and fix checkpoint. Include redundant or low-value findings only when they help scope debt. Each finding needs `file:line`, mechanism, impact, confidence, and the smallest repair.
 
 ## Scripts
 None — this skill is instruction-only. Evidence comes from `octocode-research` and the host's own repo tools; verification runs the target project's own checks.

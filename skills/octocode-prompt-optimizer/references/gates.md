@@ -1,20 +1,12 @@
-# READ And UNDERSTAND Gates
+# READ And UNDERSTAND
 
-Load when an optimization starts, before rating or drafting. Why: mapping the complete input and its intent first stops fixes aimed at the wrong problem.
+Load when an optimization starts, before rating or drafting. Why: a complete intent map prevents repairs aimed at the wrong problem.
 
-## READ — **STOP. DO NOT analyze or edit yet.**
+## Read
 
-### Pre-Conditions
-- [ ] A readable file or inline prompt exists.
+Read every section. Record the document type, purpose, and any skipped or unreadable parts. If neither the path nor inline content is readable, request the missing input.
 
-### Required Actions
-1. Read every section.
-2. Record document type, purpose, and approximate line count.
-
-### Gate Check
-- [ ] Input is complete enough to evaluate; skipped/unreadable parts are named.
-
-## UNDERSTAND — **STOP. Map intent before RATE.**
+## Understand
 
 ```markdown
 ## Understanding
@@ -25,25 +17,9 @@ Assumptions: <safe, reversible assumptions and impact if wrong>
 Unknowns: <material choices that change intent, scope, or risk>
 ```
 
-Safe, reversible assumptions may proceed when stated. Material unknowns require one focused question and a pause.
-
-### Gate Check
-- [ ] Goal, parts, flow, assumptions, and material unknowns are explicit.
-- [ ] Required branches and constraints remain intact.
-
-### Forbidden
-- Editing during READ; partial-read conclusions; invented missing text.
-- Editing from unstated assumptions or unresolved material choices.
-
-### Allowed
-- Read-only access, line counts, rereads, stated low-risk assumptions, and focused clarification.
-
-### On Failure
-- **IF** a path fails but inline content exists → **THEN** use the inline content.
-- **IF** no readable content exists → **THEN** ask for the correct path/content.
-- **IF** interpretations change behavior → **THEN** present options and wait.
+Proceed with stated, reversible assumptions. Ask one focused question when interpretations would materially change behavior, scope, or risk. Do not draft from partial input, invented text, or unresolved material choices.
 
 ## Sources
 - Anthropic, [Effective context engineering for AI agents](https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents) — start minimal, then add instructions from observed failure modes.
 
-Next: with the Understanding map complete load `references/rate.md`; when the input's own instructions conflict load `references/patterns.md` to fix precedence; when a material unknown remains, stop here and ask before RATE.
+Next: with the map complete load `references/rate.md`; for instruction conflicts load `references/patterns.md`; when a material unknown remains, ask before RATE.

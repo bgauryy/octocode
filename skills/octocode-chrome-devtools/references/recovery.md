@@ -2,12 +2,10 @@
 
 Load when a CDP call errors, returns empty, or the same failure class hits twice. Why: match the symptom to a known fix instead of retrying blind.
 
-Hermetic checks do not cover every real bot-wall/CAPTCHA/region case — after **two** same-class failures, stop and summarize. Common live classes: consent wall, bot/CDN challenge, stale CDP session, fill without React setters, thin JS shell (hand off to scrape diagnostics).
-
-
+Hermetic checks do not cover every bot-wall/CAPTCHA/region case. After two same-class failures, stop and summarize. Common classes: consent wall, bot/CDN challenge, stale session, framework-controlled fill, and thin JS shell (hand off to scrape diagnostics).
 | Situation | Fix |
 |-----------|-----|
-| Filled a React/Vue-controlled input, `input`/`change` events fired, but the site's own search/submit/filter acted as if the field were still empty | Prototype-setter fix in `references/script-patterns-async.md#waitForSelector` — `dom-operations-check.mjs`'s fill action already does this. |
+| Framework-controlled input looks filled but the app ignores it | Use the prototype-setter fix in `references/script-patterns-async.md#waitForSelector`; `dom-operations-check.mjs` already does. |
 | `Chrome not found` | Install Chrome or check path in `open-browser.mjs` |
 | `Chrome not running on port` | Run `open-browser.mjs --headless` first |
 | Chrome already open, no CDP | Handled automatically — `open-browser.mjs` launches isolated CDP session |
@@ -19,8 +17,8 @@ Hermetic checks do not cover every real bot-wall/CAPTCHA/region case — after *
 | `No page targets found` | Use `--new-tab about:blank` to open a fresh tab |
 | Need to inspect an iframe or service worker | Use `--list-targets` to discover, then `--target-url <pattern>` or `--target-type service_worker` |
 | `[CDP_RETRY_NEEDED]` in output (exit 2) | Read the `[CDP_RETRY_NEEDED]` lines — fix the domain enable or method name, retry once |
-| Bot-wall detected (bot-wall / CDN challenge instead of real page) | Pass `--userAgent` explicitly with a current Chrome desktop UA string only when needed. For sites that fingerprint JS (canvas, WebGL, timing): use the `user-auth` flow — visible browser, user solves the challenge in the CDP-controlled session. |
-| `ERR_ACCESS_DENIED` in sandbox | Script tried to write outside `cdp.outputDir`, read a blocked path, or spawn a child process / Worker. Fix: all file writes via `join(cdp.outputDir, filename)`; all browser interaction via `cdp.send()`; no `child_process`, `net`, or `new Worker()`. Rerun with `cdp-sandbox.mjs --verbose` to see the exact allowed fs/net paths. |
+| Bot/CDN challenge replaces the page | If needed, pass a current desktop Chrome `--userAgent`; for JS fingerprinting, use visible `user-auth` and let the user solve it. |
+| `ERR_ACCESS_DENIED` in sandbox | Write only through `join(cdp.outputDir, filename)` and interact through `cdp.send()`; no `child_process`, `net`, or `new Worker()`. Use `--verbose` for allowed paths. |
 | `[AUTH_TIMEOUT]` — user-auth script timed out | User did not authenticate within `TIMEOUT_MS`. Increase the timeout, verify `POST_AUTH_PATTERN` matches the actual post-login URL fragment, or set `AUTH_COOKIE_NAME` to the exact cookie the app sets on successful login. |
 | Events not firing, or `--new-tab <url>` misses network/script events | Tab loaded before listeners attached — use `--new-tab about:blank`, attach listeners, then call `Page.navigate` inside `run()` |
 | JavaScript dialog blocking all commands | Add dialog guard before navigate: `cdp.on('Page.javascriptDialogOpening', () => cdp.send('Page.handleJavaScriptDialog', { accept: true }))` — see Dialog guard in `cdp-agent.md` section 0 |
@@ -35,9 +33,9 @@ Hermetic checks do not cover every real bot-wall/CAPTCHA/region case — after *
 | Geolocation `getCurrentPosition` hangs | Add `Browser.grantPermissions({ permissions: ["geolocation"] })` before `Emulation.setGeolocationOverride` |
 | `CSS.enable` throws "DOM agent needs to be enabled first" | Enable `DOM` before `CSS` — order matters |
 | Coverage shows 0 functions/rules | Target page has no JS/CSS frameworks — test on a real app page, not static HTML |
-| **Consent / GDPR wall — page redirects to privacy dialog before content** | Detect: title in foreign language, request count < 20, no API calls seen. Fix: `const btn = [...document.querySelectorAll('button,a')].find(b => /accept\|agree\|לקבל/i.test(b.innerText\|b.textContent\|'')); if (btn) btn.click();` → wait 1500ms → re-navigate to original URL. Add this check after first `Page.navigate` settles. |
+| Consent/GDPR wall appears before content | Detect title/request/API clues; locate a visible consent control, act only when authorized, wait for settlement, then re-navigate to the original URL. |
 | Performance metrics show DNS/TCP/TLS = 0ms and all resource durations = 0ms | You are measuring a warm/cached navigation. For cold-load metrics: call `await cdp.send('Network.clearBrowserCache', {})` and `await cdp.send('Network.clearBrowserCookies', {})` before `Page.navigate`, or use `--headless` with a fresh profile (default). |
-| FCP / First Paint is `null` after navigation | Paint entries only exist for the navigated frame. If you navigated twice (e.g. after accepting a consent wall), call `performance.getEntriesByType('paint')` immediately after the *second* navigate settles, not after waiting. **Recommended:** read `performance.getEntriesByType('paint').find(e => e.name === 'first-contentful-paint')?.startTime` — already in ms from `navigationStart`, no reference-frame conversion needed. **Alternative (CDP lifecycle):** call `Page.setLifecycleEventsEnabled({ enabled: true })` after `Page.enable`; use `'commit'` for `navStartTs` and `'firstContentfulPaint'` for FCP delta — do NOT mix with `performance.now()` (different reference frame). |
+| FCP/First Paint is `null` | Read paint entries after the final navigation settles: `performance.getEntriesByType('paint').find(e => e.name === 'first-contentful-paint')?.startTime`. For CDP lifecycle timing, enable lifecycle events and subtract `commit` from `firstContentfulPaint`; never mix that clock with `performance.now()`. |
 | JS dead-code findings are all single-letter names (`c`, `i`, `Tt`, `Ut`) | Bundle is minified — function names are mangled. Filter out names with `name.length <= 2` before emitting `[FINDING] DEAD_CODE`. To get readable names you need source maps: serve the site with `//# sourceMappingURL=` intact and use `Debugger.getScriptSource` + source map parsing. |
 | Fetch mocking not intercepting | Call `Fetch.enable` with `patterns` BEFORE navigation — it must be active before requests start |
 | Screenshot is blank / all black | Page not fully loaded — add a `setTimeout` wait after navigate before calling `captureScreenshot` |

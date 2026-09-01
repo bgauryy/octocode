@@ -22,7 +22,7 @@ This gate is the skill’s **quality estimator**: pass → integrate; fail → o
 |---|---|---|
 | `pass` | Checklist green | Integrate |
 | `partial` | Some shards/rows good | Keep good; redo or solo the rest |
-| `fail` | Schema broken or systematic hallucination | One tighter re-packet **or** escalate; **NEVER** silent accept |
+| `fail` | Schema broken or systematic hallucination | One tighter re-packet or escalation; never accept silently |
 
 ## Escalation rules
 

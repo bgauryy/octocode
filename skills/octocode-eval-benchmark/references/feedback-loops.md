@@ -21,7 +21,7 @@ A loop is workable only when all four hold:
 ## Slow or noisy sensor tactics
 - Derive a **leading** proxy with faster feedback; keep the lagging primary for final VERIFY.
 - Pin the environment (versions, warm-up, isolation) before trusting deltas.
-- If sensor noise exceeds the expected effect size → STOP; fix the sensor, not the subject.
+- If sensor noise exceeds the expected effect size, pause the experiment and fix the sensor before the subject.
 
 ## "Don't stop till done" requests
 Translate the ask into the contract — sensor command + numeric target + budget — then run

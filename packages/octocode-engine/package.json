@@ -5,8 +5,6 @@
   "author": "Guy Bary <bgauryy@octocodeai.com>",
   "dependencies": {
     "@octocodeai/config": "18.0.1",
-    "bash-language-server": "^5.6.0",
-    "intelephense": "^1.14.1",
     "pyright": "^1.1.411",
     "typescript": "^5.9.3",
     "typescript-language-server": "^4.4.0",

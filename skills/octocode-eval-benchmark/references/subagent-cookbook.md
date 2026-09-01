@@ -18,10 +18,6 @@ Load when measuring or managing a multi-agent / subagent workflow under this ski
 | Edge detection / attribution | `references/graph-of-loops.md` |
 | Shared-context / races / anchors | `references/graph-failure-modes.md` |
 
-## Hard gate before fan-out
-1. Runnable sensor + numeric primary at the **graph boundary**.
-2. Edge detection passes (`references/graph-of-loops.md`) — else build a loop, not a graph.
-3. At least one **anchor** node (tests/build/types) — no narrative-only graphs.
-4. Packets sealed; workers treated as claims until parent re-checks.
+Before fan-out, use `references/subagent-protocol.md` to freeze the sensor, graph-boundary KPI, topology check, anchor, and packet/barrier rules. This file only routes the measurement concerns.
 
 Next: start with `references/subagent-protocol.md` unless you already have a filled KPI contract.

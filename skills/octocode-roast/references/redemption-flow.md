@@ -3,7 +3,7 @@
 Load after the autopsy when the user may want fixes. Why: separate critique from mutation and obtain a precise repair choice.
 
 ## Checkpoint
-Stop and present a compact menu:
+When the user asked only for critique, present a compact menu and wait:
 
 ```text
 Redemption options
@@ -14,7 +14,7 @@ Redemption options
 Choose: one number, several numbers, a category, all, more critique, or stop.
 ```
 
-Do not edit until the user selects a path. Security findings come first, but consent still governs scope.
+If the original request already authorized fixes, map them to the findings and proceed within that scope. Otherwise wait for a selection. Security findings come first, but consent still governs scope.
 
 ## Execute selected repairs
 - Re-read the exact evidence and current file state.
@@ -39,6 +39,6 @@ Next checkpoint: {one action}
 - Important findings remain separate from redundant noise.
 - User consent matches every mutation.
 - Tests/checks actually ran and their failures are reported.
-- Twenty or more findings remain triaged to the top ten.
+- Large inventories are reduced to the findings that can change the repair decision.
 
 Next: the roast ends here — report the gate results and the remaining findings; when the user asks for another pass, restart at `references/roast-playbook.md` § 1 Target.

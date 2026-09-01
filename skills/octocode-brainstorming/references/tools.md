@@ -19,16 +19,14 @@ Delegate repo/package/history/semantic checks to `octocode-research`. Ask it to 
 | `scripts/tavily-search.mjs` | `TAVILY_API_KEY` | curated/deeper research |
 | `scripts/exa-search.mjs` | `EXA_API_KEY` | AI-native/neural search, category filters (papers, GitHub, news), highlights |
 
-Run `--check` once per engine at session start (`--presence-only` is offline-only) and record which are actually live.
+Run `--check` only for engines you may use (`--presence-only` is offline-only) and record which are live.
 A configured key is not the same as a validated one. Credentials load through the vendored `scripts/octocode-config.mjs` from process env, workspace `.octocode/.env`, then global Octocode home.
 Never cite snippets or print/commit keys.
 
-**Default policy: query every validated engine, not a first-success ladder.**
-Serper, Tavily, and Exa surface different result sets for the same query (raw Google SERP vs. AI-curated summary vs. neural/category-filtered) — role-based fusion, not interchangeable fallbacks.
-Only fall back to fewer engines (down to DuckDuckGo, no key needed) when a key is missing or fails `--check`. Fetch/open the best formal URLs from the consolidated set → exact-read code → reconcile.
+Choose the smallest useful engine set: Serper for breadth, Tavily for curated research, and Exa for neural/category search. Add a second engine when coverage, independence, or conflict resolution matters; use DuckDuckGo when no keyed engine is available. Fetch formal URLs, exact-read relevant code, and reconcile the evidence.
 
 **Consolidation isn't a raw URL-overlap count.** Canonicalize URLs first (strip tracking params/fragments before comparing) — otherwise identical pages with different query strings under-merge.
-Then tier confidence instead of treating "2+ engines saw it" as proof on its own.
+When results come from multiple engines, tier confidence instead of treating overlap as proof.
 Cross-engine SEO/aggregator pages can duplicate without independent verification, and AI-curated engines can legitimately omit a URL a raw SERP returns, so low overlap ≠ weak claim:
 - **Strong:** same canonical URL from 2+ engines, each with an acceptable per-engine relevance score, ideally a primary-source domain.
 - **Medium:** single engine, high relevance score.
@@ -45,4 +43,4 @@ Worker dispatch for multi-engine/multi-angle research: `references/web-search-wo
 - Formal claims prefer official docs/specs, standards, papers, and primary code/data. Community/marketing content is a lead unless sentiment is the question.
 - Use domain filters for formal sources; fetch the paper/publisher page rather than citing Scholar results.
 - On 401/403 switch engine and report invalid auth; on 429/5xx switch/fallback and continue. Without an engine, follow README/package/awesome-list leads and mark web coverage limited.
-- Fetch 2-3 decisive sources per question; stop when another source is unlikely to change the verdict.
+- Fetch the few decisive sources needed; stop when another source is unlikely to change the verdict.

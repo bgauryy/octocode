@@ -18,7 +18,7 @@ For platform validation, go straight to the relevant vendor: OpenAI/Anthropic/Go
 - A trend surface alone is `weak`; require an independent source or direct repo/package/paper data for `moderate`/`strong`.
 - For scientific/technical claims, check papers and publisher/official sources before accepting blog or marketing summaries.
 - Match sources to the domain: product → momentum + competitors; technical → papers; code-adjacent → repo/package; add AI/security sources only when relevant.
-- Fetch at most 2-3 sources per section unless the user requests a landscape map.
+- Fetch only the decisive sources unless the user requests a landscape map.
 - Record the dated signal—release/activity/citation/ranking/velocity—not merely presence.
 - Apply the `references/confidence.md` markers and the `references/tools.md` formal-source ladder to every citation.
 

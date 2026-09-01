@@ -1,32 +1,23 @@
 # Chrome DevTools Skill
 
-Live Chrome/CDP evidence for agents: network, console, perf, DOM/actionability, storage, HAR, screenshots, auth-gated pages. Static crawl → [`octocode-scraping`](https://github.com/bgauryy/octocode/tree/main/skills/octocode-scraping).
+Live Chrome/CDP evidence for DOM actionability, network, console, performance, storage, HAR, screenshots, and authenticated pages. Use [`octocode-scraping`](https://github.com/bgauryy/octocode/tree/main/skills/octocode-scraping) for static crawl or bulk extraction.
 
 ## Install
+
 ```bash
 npx octocode skill --name octocode-chrome-devtools
 ```
-Prereqs: Chrome; Node **22+** (sandbox `--allow-net` needs **25+**). No npm install: every script uses Node built-ins plus the vendored `scripts/octocode-config.mjs`.
 
-## Ask the agent
-Include URL, expected behavior, and the signal you care about. One intent + one CDP port.
+Requires Chrome and Node 22+; sandbox `--allow-net` needs Node 25+. Scripts use Node built-ins plus the vendored config module, so no package install is needed.
 
-- “Debug why submit fails on this page.”
-- “Watch network when I click checkout.”
-- “Visible browser — I’ll log in, then inspect API errors.”
-- “Measure page health (perf/net/storage) and summarize findings.”
-- “Capture HAR, then prove the product API field in the scrape corpus.”
+Provide a URL, expected behavior, and the signal to inspect. The agent opens or attaches to one CDP port, applies/verifies stealth, runs one focused check, reuses the tab, and queries saved measure/HAR/corpus artifacts before reopening Chrome.
 
-Agent loop: `open-browser` → stealth → focused CDP script → prefixed findings → reuse `--keep-tab` → `measure-query` / `har-pager` / bridge before reopening Chrome.
+Ask first for real-profile access, cookie transfer, CAPTCHA/MFA, or destructive/real-data mutations. Secrets remain redacted.
 
-## Safety
-Ask first: real profile, cookie bridge, CAPTCHA/MFA, destructive writes. Secrets stay redacted.
-
-## Optional CLI
 ```bash
 SKILL_DIR="$(npx octocode skill dir octocode-chrome-devtools)"
 node "$SKILL_DIR/scripts/open-browser.mjs" --headless --port 9222
 node "$SKILL_DIR/scripts/cdp-sandbox.mjs" --list-targets --port 9222
 ```
 
-Agent truth: `SKILL.md` + `references/`. Check catalog: `references/cdp-checks.md`.
+Agent behavior: `SKILL.md` and `references/`. Ready checks: `references/cdp-checks.md`.

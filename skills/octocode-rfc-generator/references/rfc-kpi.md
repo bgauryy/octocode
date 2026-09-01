@@ -42,7 +42,7 @@ Feature: {feature}
 |---|---|---|---|---|
 ````
 
-Gate: every RFC requirement has a story, pass/fail check, verification method, and current status.
-Use at least one outcome, one leading signal, and one guardrail; mark untracked or stale rows pending rather than asserting success.
+Gate: every requirement has a pass/fail check, verification method, and current status; add a user story when it clarifies the behavior.
+Use outcome, leading, and guardrail metrics when they are decision-relevant. Mark omitted, untracked, or stale signals honestly rather than inventing targets.
 
 Next: record provenance with `references/rfc-resources.md`, then validate and deliver per `references/workflow.md` § Validate and deliver.

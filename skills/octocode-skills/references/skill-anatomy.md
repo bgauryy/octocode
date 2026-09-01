@@ -2,7 +2,7 @@
 
 Load when evaluating, improving, or creating a skill's folder shape — before rewriting structure.
 
-A skill is a **standalone folder** with `SKILL.md` (required) plus optional `scripts/`, `references/`, `assets/`. Install/sync ships that folder as-is — prune dead files via `references/skill-cleanup.md` before done. Assume it is installed alone, with no sibling beside it: never route to `../another-skill/...`, name the sibling so an agent can load it if present, and vendor a small script of your own instead of reaching across folders. Duplicating 40 lines of runner beats shipping a command that dies on install. The same applies to npm: an `@scope/pkg` import with no `package.json` in the folder throws `ERR_MODULE_NOT_FOUND` on a standalone install — vendor the module and import it relatively.
+A skill is a standalone folder with required `SKILL.md` and optional `scripts/`, `references/`, and `assets/`. Assume no sibling folder or monorepo dependency exists after installation. Name optional sibling skills, vendor small required helpers, and declare packaged dependencies.
 
 ```text
 my-skill/
@@ -32,9 +32,7 @@ my-skill/
 
 ## Map and navigation
 
-The skill is a map, not a pile: `SKILL.md` is the lobby, references are the chunks.
-
-- Lobby shows all — `SKILL.md` lists every reference and every runnable script with when and how to use it, plus the workflows. An index reference may add depth, never replace the listing.
+- `SKILL.md` lists every reference and runnable script with when and how to use it, plus the workflows. An index may add depth, not replace the listing.
 - Each chunk opens with its own entry condition (`Load when … Why: …`) so a route is verifiable from the file itself.
 - Each chunk ends with the next hop, or says the step ends here — never leave the agent guessing where to go.
 - Every flow phase in `SKILL.md` appears in a route or gate; a phase named only in the flow line is decoration.

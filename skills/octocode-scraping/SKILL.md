@@ -1,60 +1,34 @@
 ---
 name: octocode-scraping
-description: "Use when extracting or mapping public web content into a local cited corpus: scrape or crawl a URL/docs site, pull tables/pricing/product fields, diagnose blocked or thin pages, or answer from saved pages. Phrases like scrape this URL, crawl the docs, build a corpus, extract pricing. Prefer keyless fetch; ask before hosted spend. Live clicks/HAR/perf → octocode-chrome-devtools."
+description: "Use when extracting or mapping public web content into a local cited corpus: scrape/crawl a URL or docs site, pull tables/pricing/product fields, diagnose blocked or thin pages, or answer from saved pages. Phrases like scrape this URL, crawl the docs, build a corpus, extract pricing. Prefer keyless fetch; ask before hosted spend. Live clicks/HAR/perf → octocode-chrome-devtools."
 ---
 
 # Octocode Scraping
 
 Flow: `FRAME → POLICY → ROUTE → FETCH → CORPUS → SEARCH → CITE → RECOVER`.
 
-Workspace output contract: chat-only answers stay in chat. Corpora and run artifacts stay under `<workspace>/.octocode/tmp/scrape/`; durable generated reports default to `<workspace>/.octocode/octocode-scraping/`. User-approved source edits and configuration keep their named paths. Never fall back to a user-level Octocode home for artifacts.
+Chat answers stay in chat; corpora/runs use `<workspace>/.octocode/tmp/scrape/`, durable reports `<workspace>/.octocode/octocode-scraping/`, and approved source/config edits keep their paths. Never use user-level Octocode home for artifacts.
 
-FRAME before the first fetch: fix target URL/domain, goal, depth, and output shape — vague ask → `references/user-inputs.md`.
+Frame URL/domain, goal, depth, and output before fetching; vague scope → `references/user-inputs.md`. Default to one public URL, `--mode html`, no explicit provider (keyless `cdp`→`direct`), `.octocode/tmp/scrape/{sessionId}`, and compact stdout. Search an existing corpus before refetching. Live interaction belongs to `octocode-chrome-devtools`; ingest its HAR into the same session.
 
-Defaults: one public URL, `--mode html`, omit `--provider` (keyless `cdp`→`direct`), session `.octocode/tmp/scrape/{sessionId}`, compact stdout. Search corpus before refetch. Live interaction → chrome-devtools on one port, then `har-ingest` + `corpus-run` into the same session. Ask before auth, hosted spend, crawl widen, CAPTCHA/MFA, destructive actions. Cite paths + URL metadata — not raw dumps.
+Ask before auth, hosted spend, crawl expansion, CAPTCHA/MFA, personal-data export, form submits, purchases, sends, deletes, or account changes. Stop after two same-class failures, a hosted `403`, an auth/challenge gate, one failed CDP escalation, sufficient saved evidence, or before expanding a crawl whose summary is not yet useful. Use `references/failure-recovery.md`; cite artifact paths plus URL metadata, never raw dumps.
 
-Stop when: two same-class failures (report evidence, route tried, sanitized status, next approval); hosted `403` (wrong key or credits gone — status only, no retry); CAPTCHA/MFA, auth wall, or cookie/profile transfer needed; still blocked after one `cdp` try (ask before `--provider scrapingant`); personal data, form submits, purchases, sends, deletes, or account changes in scope; the saved corpus already proves the claim (cite it, do not refetch); crawl widen before `reports/summary.md` is useful. Recovery table: `references/failure-recovery.md`.
+## Route
 
-## Route (pick one)
-| Need | Do | Skip |
-|---|---|---|
-| Vague scrape | `--mode html`, omit `--provider` | markdown / auto hosted |
-| See auto pick | `scripts/provider-check.mjs` | guessing |
-| Fetch/crawl | `scripts/fetch.mjs` | deprecated `scrapingant-fetch` |
-| Corpus on disk | `corpus-inspect` → find helpers → `corpus-run` | blind refetch |
-| Live click/DOM/auth | chrome-devtools | `--provider cdp` alone for interaction |
-| Page health | chrome measure + `measure-query` | hosted scrape for scores |
-| CDP → corpus | `scripts/har-ingest.mjs --from-cdp-dir` | new sessionId |
-| Prove field | `scripts/corpus-run.mjs --regex\|--script` | reopen browser |
-| Still blocked | evidence + ask → `--provider scrapingant` | silent spend |
+- When fetching/crawling/extracting, run `scripts/fetch.mjs --url <u> [--mode html] [--crawl --same-domain --max-pages <n>] [--no-raw]`; when a brief is also needed, run `scripts/fetch-and-brief.mjs --url <u>`.
+- Before routing/spend → `scripts/provider-check.mjs [--provider <p>]`; credit status → `scripts/provider-usage.mjs`. Both sanitize secrets.
+- Saved session → `scripts/corpus-inspect.mjs --session-dir <d> [--page <n>]`, then `scripts/corpus-find.mjs --session-dir <d> --query <t>`.
+- When querying static DOM/assets/paths, run `scripts/dom-find.mjs`, `scripts/resource-list.mjs`, or `scripts/graph-navigate.mjs` with `--session-dir <d>`; live DOM stays in chrome-devtools.
+- Local field proof → `scripts/corpus-run.mjs --session-dir <d> --roots cdp,extracts --regex <re>` or `--script <file>`.
+- CDP bridge → `scripts/har-ingest.mjs --session-dir <d> --from-cdp-dir <run>`; reverse with `--export-packet`.
+- When extraction field names are unclear, run `scripts/schema-helper.mjs --intent "extract pricing and features"`.
+- When an old transcript names `scripts/scrapingant-fetch.mjs`, `scripts/scrapingant-check.mjs`, or `scripts/scrapingant-usage.mjs`, treat them as forwarding shims and use the neutral scripts above.
 
-## Scripts (Node, no install; every one takes `--help`)
-| When | Run |
-|---|---|
-| fetch / crawl / extract a URL — the owner of every network call | `scripts/fetch.mjs --url <u> [--mode html] [--crawl --same-domain --max-pages <n>] [--no-raw]` |
-| want the fetch plus an immediate corpus brief in one shot | `scripts/fetch-and-brief.mjs --url <u>` (wraps `fetch.mjs` → `corpus-inspect.mjs`) |
-| before routing or hosted spend: which provider auto-wins, credits left | `scripts/provider-check.mjs [--provider <p>]`, `scripts/provider-usage.mjs` — sanitized, never prints the key |
-| read a saved session first, then search it | `scripts/corpus-inspect.mjs --session-dir <d> [--page <n>]`, then `scripts/corpus-find.mjs --session-dir <d> --query <t>` |
-| pull static DOM, assets, or graph paths out of the corpus (live DOM → chrome-devtools) | `scripts/dom-find.mjs --kind form/button/table`, `scripts/resource-list.mjs --kind asset/external`, `scripts/graph-navigate.mjs --from <nodeId>` — each with `--session-dir <d>` |
-| prove one field locally instead of reopening a browser | `scripts/corpus-run.mjs --session-dir <d> --roots cdp,extracts --regex <re>` (or `--script <file>`, `--concat-parts`) |
-| bridge chrome-devtools artifacts into this session, or hand a packet back | `scripts/har-ingest.mjs --session-dir <d> --from-cdp-dir <run>`; reverse with `--export-packet` |
-| need field names before an extraction | `scripts/schema-helper.mjs --intent "extract pricing and features"` |
-| an old transcript uses the legacy names | deprecated shims `scripts/scrapingant-fetch.mjs`, `scripts/scrapingant-check.mjs`, `scripts/scrapingant-usage.mjs` forward to `fetch.mjs` / `provider-check.mjs` / `provider-usage.mjs` — call the new names |
-| editing or extending a script | shared modules in `scripts/lib/` (`providers` registry, `client` fetch, `corpus`, `analyzers`, `extractors`, `text`, `args`, `bridge`); env/key resolution vendored in `scripts/octocode-config.mjs`; JSON contracts in `scripts/schemas/` |
-
-Full flags, roles, and the library map: read `scripts/README.md` before adding a flag or a vendor.
+Every runnable script accepts `--help`. Before changing scripts or providers, read `scripts/README.md`; shared modules live in `scripts/lib/`, vendored env resolution in `scripts/octocode-config.mjs`, and JSON contracts in `scripts/schemas/`.
 
 ## References
-| When | Load |
-|---|---|
-| frame a vague scope | `references/user-inputs.md` |
-| legal/safety/privacy policy | `references/scraping-policy.md` |
-| cost / keyless vs hosted route | `references/route-selection.md` |
-| provider registry / add a vendor | `references/providers.md` |
-| hosted API, after approval | `references/scrapingant.md` |
-| search a saved session corpus | `references/session-corpus.md` |
-| site graph / navigation / workflows | `references/website-analysis.md` |
-| stdout and corpus file shapes | `references/data-contract.md` |
-| extract quality and citations | `references/extraction-quality.md` |
-| live browser bridge playbook | `references/browser-scraping.md` |
-| blocked, thin, or oversized results | `references/failure-recovery.md` |
+
+- When scope, policy, or route is unclear, load `references/user-inputs.md`, `references/scraping-policy.md`, or `references/route-selection.md`.
+- When choosing a provider, load `references/providers.md`; after hosted approval, load `references/scrapingant.md`; for human setup/vendor extension, read `docs/PROVIDERS.md` or `docs/ADDING_A_VENDOR.md`.
+- When searching corpus layout/contracts, load `references/session-corpus.md` and `references/data-contract.md`; for graph/workflows, load `references/website-analysis.md`; for extraction/citations, load `references/extraction-quality.md`.
+- When bridging a live browser, load `references/browser-scraping.md`; for blocked/thin/oversized output, load `references/failure-recovery.md`.

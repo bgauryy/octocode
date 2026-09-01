@@ -9,25 +9,20 @@ Modes: **ErrorAnalyze** · **Define** · **Run** · **Suite** · **Benchmark** �
 
 Workspace output contract: chat-only results stay in chat. New eval reports, frozen harness snapshots, and benchmark artifacts default to `<workspace>/.octocode/octocode-eval-benchmark/`; scratch runs use `<workspace>/.octocode/tmp/octocode-eval-benchmark/`. User-approved subject or suite edits keep their named paths. Never fall back to a user-level Octocode home for artifacts.
 
-## Lobby rules
-- No goal→KPI link → STOP. No measurable primary → STOP. No runnable sensor → build one before looping.
-- Narrative-only accept → REJECT. Editing harness/cases/graders to pass → REJECT.
-- ACCEPT only if primary moves on held-out **and** guardrails hold.
-- Prefer deterministic graders; binary/LLM next; humans calibrate. Grade outcomes over paths.
-- **TDD for agents:** write or select a failing case / KPI check **before** mutating the subject; green only after the change (red → green → keep|discard).
-- Public benches orient; private failure suites gate ships. Distrust saturated/contaminated boards.
-- Freeze the harness during an experiment; evolve the suite only between experiments.
-- **Topology check:** before evaluating a multi-agent workflow, run edge detection — if no two nodes are independent (every step reads the prior step's output), it is a loop, not a graph. Build a loop.
-- **Goodhart guard:** every primary KPI must have a counter-metric guardrail the agent cannot tune. Primary improving + guardrail degrading → reframe the goal, not the loop.
-- **Verifier independence:** a verifier sharing the executor's context is not independent. Require fresh context before calling a result verified.
-- **Anchor requirement:** every evaluated workflow must have at least one result that cannot be argued with (tests that ran, build exit codes, type errors). No anchors → build one before trusting the result.
+## Operating rules
+- Link the user goal to one measurable primary KPI, a runnable sensor, a fixed budget, guardrails, and a decision rule before iterating.
+- Establish a failing case or below-target baseline before changing the subject. Keep the harness frozen during an experiment; grow the suite between experiments only.
+- Accept only when comparable held-out results improve and guardrails hold. Never edit cases or graders to make a candidate pass.
+- Prefer deterministic outcome graders; use calibrated model or human judgment where deterministic checks cannot capture quality.
+- Public benchmarks orient; private failure suites gate releases. Account for contamination, saturation, and variance.
+- For multi-agent workflows, verify real dependencies, fresh-context verification, counter-metric guardrails, and at least one deterministic anchor.
 
 ## Workflow
 1. Error-analyze traces into a failure taxonomy; frame success, primary/leading metrics, guardrails, and decision rule.
 2. Measure a fixed-budget baseline; make the smallest subject change; keep or discard from comparable results.
 3. Judge grader quality, fairness, capability versus regression, and contamination; capture one durable lesson.
 4. Verify held-out results and required checks; then add new failure cases between experiments.
-Stop when goal/KPI is undefined, checks did not run, the harness changed to pass, or another loop cannot change the verdict.
+Stop when the contract is undefined, checks cannot run comparably, the harness changed mid-experiment, or another iteration cannot change the verdict.
 
 ## Smart routes — load only what the current step needs
 - When deriving failures, load `references/error-analysis.md`; when connecting intent to measures load `references/goal-kpi-cascade.md`, then fill `references/kpi-contract.md` — make success and budget explicit.
@@ -42,6 +37,7 @@ Stop when goal/KPI is undefined, checks did not run, the harness changed to pass
 - When creating cases and runners, load `references/eval-harness.md`; before acceptance load `references/held-out-and-guards.md` — prevent leakage, overfitting, and greenwashing.
 - When grounding methods in primary patterns, load `references/karpathy-patterns.md` — anchor techniques in proven loops.
 - When a result needs another skill or durable capture, load `references/routing.md`; when closing a meta improvement cycle load `references/improve-loop.md` — transfer ownership without losing the decision rule.
+- At SUITE-EVOLVE, add cases only from observed failures between experiments; use `references/error-analysis.md` and `references/eval-harness.md`.
 - When reporting, load `references/output.md` and run `scripts/loop-report.mjs` — require goal, baseline, result, and verdict.
 
 ## Related routes and verification

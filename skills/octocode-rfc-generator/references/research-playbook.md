@@ -2,13 +2,7 @@
 
 Load when the RFC needs evidence. This file describes what evidence the RFC needs; `octocode-research` owns how Octocode research is run.
 
-Use `octocode-research` if installed. If it is missing, use https://github.com/bgauryy/octocode/tree/main/skills/octocode-research or install it with:
-
-```bash
-npx octocode skill --name octocode-research
-```
-
-Do not copy Octocode router/tool rules into this skill. Ask `octocode-research` for the needed surfaces, citations, confidence, source inventory, and unresolved gaps, then write the RFC artifacts from that claim ledger.
+Follow `references/octocode.md` to load or install `octocode-research`. Ask it for the needed surfaces, citations, confidence, source inventory, and unresolved gaps; this file owns only the RFC evidence plan.
 
 ## Research plan — run only the tracks that matter
 
@@ -43,6 +37,6 @@ Put the broad source inventory in `RESOURCES.md`; cite decisive claims inline wh
 | No external prior art | say so; rely on local constraints and unresolved questions |
 | Evidence conflicts | present conflict and decision rule |
 | Scope too broad | split into multiple RFCs or phases |
-| Two attempts fail | summarize what is known and ask for direction |
+| Another pass is unlikely to close the gap | summarize what is known and ask for direction |
 
 Next: with the claim ledger filled, compare options and write the decision via `references/rfc-template.md`; when the change touches existing code load `references/rfc-prerequisites.md` first; carry every still-open question into `references/rfc-implementation.md`.

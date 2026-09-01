@@ -1,4 +1,4 @@
-# Ollama CLI Run Reference
+# Ollama CLI run reference
 
 Load when invoking the worker or debugging CLI run behavior. Why: `run` flag shape (and what it does not expose) decides between CLI and HTTP.
 
@@ -20,7 +20,7 @@ ollama run MODEL [PROMPT] [flags]
 
 `ollama run` does **not** expose `temperature` / `num_ctx` as flags — use `scripts/ollama-worker.sh --temperature` / `--num-ctx` (HTTP `/api/generate`) or a Modelfile.
 
-Gemma 4 library sampling defaults (Modelfile/API): `temperature=1.0`, `top_p=0.95`, `top_k=64` — already present on local `gemma4:*` via `ollama show --parameters`. For JSON extract/classify, override with `--temperature 0.2`.
+Gemma 4 library sampling defaults (Modelfile/API): `temperature=1.0`, `top_p=0.95`, `top_k=64` — already present on local `gemma4:*`, as shown by `ollama show --parameters`. For JSON extract/classify, override with `--temperature 0.2`.
 
 ### Non-interactive patterns (preferred for agents)
 
@@ -30,7 +30,7 @@ ollama run "$MODEL" < packet.txt                     # stdin (what scripts/ollam
 ollama run --format json "$MODEL" < packet.txt        # force JSON
 ```
 
-MUST NOT use interactive REPL sessions for this skill (no TTY chat loops).
+Use non-interactive invocations; REPL sessions and TTY chat loops do not fit sealed worker packets.
 
 ## HTTP equivalents
 

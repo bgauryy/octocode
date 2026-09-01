@@ -10,15 +10,14 @@ Flow: `UNDERSTAND → DISCOVER → INSPECT → JUDGE → RECOMMEND → USER GATE
 
 Workspace output contract: chat-only recommendations stay in chat. New reviews, comparison reports, or fetched scratch artifacts default to `<workspace>/.octocode/octocode-skills/` or `<workspace>/.octocode/tmp/octocode-skills/`. Approved skill source edits, installations, symlinks, and configuration keep their gated destinations. Never fall back to a user-level Octocode home for artifacts.
 
-## Lobby rules
-- `SKILL.md` owns workflows, hard gates, and routes; each reference owns one concept and never restates the flow.
-- The lobby lists every reference and every script with when and how to use it, plus the workflows — no chunk is discoverable only by opening another file.
-- MUST read and navigate between routed reference files to understand the complete flow; this skill is intentionally simplified into reference units for efficiency, including reference-to-reference handoffs.
-- Inspect the real `SKILL.md` before quoting, judging, or installing; identify candidates by path and gate every write.
-- Stop when one fit is clear, two High candidates need a winner, three angles add nothing, or user/auth approval is pending.
-- Ship a standalone folder with one owner per concept; prune dead or duplicated material before done. Assume no sibling skill is installed: name a sibling to load, never depend on its files.
+## Operating rules
+- `SKILL.md` owns workflows and routes; each reference owns one concept. List every reference and runnable script in the lobby with its use condition.
+- Inspect the real skill before quoting, judging, or installing it. Identify candidates by path and require authority for writes.
+- Stop discovery when one fit is clear, further angles add no evidence, a winner needs user judgment, or approval is pending.
+- Ship a standalone folder with one owner per concept. Name optional sibling skills; never depend on their files.
 
 ## Smart routes — load only what the current step needs
+- At UNDERSTAND, identify the requested skill operation, scope, source, and write authority before choosing a route.
 - When discovering, load `references/search-playbook.md`; choose a source with `references/discovery-surfaces.md`, parse manifests with `references/discovery-manifests.md`, and recover with `references/recovery.md` — search broadly enough without inventing candidates.
 - When judging, load `references/quality-rubric.md` for content fit and `references/quality-signals.md` for adoption/recency; when recommending, present through `references/output-format.md` — rank evidence, not popularity alone.
 - When designing structure, load `references/skill-anatomy.md`; write with `references/skill-authoring.md`, extract deterministic work with `references/skill-scripts.md`, and tune activation with `references/description-tuning.md` — keep the lobby lean and triggers strong.
@@ -33,12 +32,11 @@ Workspace output contract: chat-only recommendations stay in chat. New reviews, 
 - Use `octocode-research` to verify candidates; `octocode-prompt-optimizer` to improve wording; `octocode-eval-benchmark` to measure behavior.
 - Use `octocode-rfc-generator` before a large skill-system redesign.
 
-## Scripts and done gate
+## Scripts and verification
 - Run `scripts/skill-review.mjs` after any create/edit — zero ERROR is required.
 - Run `scripts/skill-sync.mjs` only after a dry-run and human approval — synchronize one source safely.
 - `scripts/skill-lint.mjs` is an alias for `scripts/skill-review.mjs` — same gate under the older name.
 - A skill script needing Octocode home or env imports `./octocode-config.mjs`, a build artifact injected by `packages/octocode-config` into every skill that imports it relatively — never import `@octocodeai/config` from a skill, or the folder breaks once installed alone.
 - When wiring a hook, copy `assets/hooks/example-hook.sh` into `scripts/hooks/` and route it from frontmatter.
 
-## Installation
-When creating or installing, follow the routed approval and destination gates, then run the review before reporting done.
+When creating or installing, follow the approval and destination routes, then review the result before reporting done.

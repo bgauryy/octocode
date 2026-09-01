@@ -1,8 +1,6 @@
-# OUTPUT Gate
+# OUTPUT
 
-Load after VALIDATE passes. Write only when the request authorizes a file change; otherwise present the deliverable in chat.
-### Pre-Conditions
-- [ ] VALIDATE passed and write authority is known.
+Load after VALIDATE passes. Why: deliver the requested artifact with a truthful delta. Write only when authorized; otherwise answer in chat.
 
 ## Choose A Variant
 - Full optimized document when the user requests a rewrite or leaves format unspecified.
@@ -29,19 +27,7 @@ Load after VALIDATE passes. Write only when the request authorizes a file change
 | <section> | <old> | <new> | <reason> |
 ```
 
-### Gate Check
-- [ ] Variant matches the request; summary and required deliverable are present.
-- [ ] File-change claims match writes that actually succeeded.
-
-### Forbidden
-- Output before validation, omitted deliverable, or false write claims.
-
-### Allowed
-- Safe approved write, complete chat rewrite, or concise delta.
-
-### On Failure
-- **IF** format alone is wrong → **THEN** regenerate OUTPUT.
-- **IF** requested changes alter the fix → **THEN** return to FIX and revalidate.
+The variant must match the request, include the deliverable, and report only successful writes. Fix formatting here; if a requested change alters the repair, return to FIX and revalidate.
 
 ## Sources
 - Model Context Protocol, [Tools specification](https://modelcontextprotocol.io/specification/2025-06-18/server/tools) — explicit output structure and error signaling support reliable tool use.

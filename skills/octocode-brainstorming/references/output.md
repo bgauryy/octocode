@@ -37,8 +37,6 @@ Load when presenting the chat brief, assigning confidence, or preparing an RFC h
 - <URL or path:line> — <claim it supports, author/org/date where unstable>
 ```
 
-**`Sources` is mandatory, not optional** — always close with it, even for a chat-only answer that is never saved as a brief.
-One line per URL/path actually cited above (Evidence by Surface, Landscape, or inline); do not introduce new sources here that weren't already used in the body.
-Empty only when zero external evidence was used (pure reasoning/framing turn).
+When evidence was cited, close with `Sources`: one line per URL/path used above and no new sources. Omit the section for a pure reasoning/framing turn.
 
 Confidence markers for `Evidence by Surface` entries, and Decision-label routing: `references/confidence.md`.

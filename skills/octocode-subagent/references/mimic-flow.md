@@ -19,7 +19,7 @@ Load when a worker should follow another role’s instructions, skill excerpt, o
 | Unverified worker prose as “facts” | Amplifies errors |
 | Secrets, raw credentials, private user data | Safety |
 | Entire foreign system prompts verbatim when rights/unknown | Prefer cite path + paraphrase duties |
-| Competing MUST rules from two playbooks | Conflicts → pick one owner |
+| Competing mandatory rules from two playbooks | Conflicts → pick one owner |
 
 ## Packet fields (additions)
 - `playbook` — path or pasted excerpt (≤1 screen) of steps to mimic

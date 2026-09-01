@@ -31,6 +31,16 @@ export interface ToolchainServer {
 
 export const TOOLCHAIN_SERVERS: readonly ToolchainServer[] = [
   {
+    server: 'bash-language-server',
+    languageId: 'shellscript',
+    hint: 'Install `bash-language-server` in the project or on PATH, or set `OCTOCODE_BASH_SERVER_PATH` to its executable.',
+  },
+  {
+    server: 'intelephense',
+    languageId: 'php',
+    hint: 'Install `intelephense` in the project or on PATH, or set `OCTOCODE_PHP_SERVER_PATH` to its executable.',
+  },
+  {
     server: 'gopls',
     languageId: 'go',
     hint: 'Install Go, then `go install golang.org/x/tools/gopls@latest` (gopls needs the Go toolchain at runtime).',

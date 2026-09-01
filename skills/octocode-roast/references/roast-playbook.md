@@ -13,12 +13,7 @@ Pattern matches are leads. Upgrade every cited finding with exact anchor, mechan
 Never reveal credential values or infer compromise from a literal alone.
 
 ## 3. Inventory
-Group by severity from the lobby:
-- Capital: confirmed security, data loss/corruption, auth bypass, or exploitable correctness.
-- Felony: high-impact performance, concurrency, safety, coupling, or change-blocking design.
-- Crime: real type/error/test/maintainability defects.
-- Slop/Misdemeanor: noisy structure, naming, residue, or taste.
-At 20+ findings, show the top ten by impact and confidence and state the overflow count.
+Rank with `references/sin-catalog.md`. If the inventory obscures the decision, show the highest-value findings by impact and confidence and summarize the overflow.
 
 Finding shape:
 ```text
@@ -39,6 +34,6 @@ Explain why it is risky, where contracts cross, and how the repair can be staged
 Summarize important versus redundant findings, then stop.
 Load `redemption-flow.md` only when the user selects a repair path.
 
-Output: `Top roast`, `Important findings`, `Redundant / low-value`, `Autopsy`, `Redemption paths`, `Fix checkpoint`.
+Output: top roast, important findings, autopsy, repair paths, and fix checkpoint. Include redundant/low-value findings only when useful.
 
 Next: rank the inventory with `references/sin-catalog.md` (ecosystem leads: `references/language-sins.md`); delegate evidence with `references/octocode.md`; split a monorepo pass with `references/parallel-roasting.md`; on a selected repair load `references/redemption-flow.md`.

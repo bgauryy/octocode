@@ -12,7 +12,7 @@ node <skill_dir>/scripts/brainstorm-run.mjs checkpoint --run-id <id> --stage res
 node <skill_dir>/scripts/brainstorm-run.mjs finish --run-id <id> --verdict worth-prototyping --decision "Build RFC" --summary "<result>"
 ```
 
-Checkpoint at surface-plan, decisive evidence, confidence changes, and final synthesis. Record both sides of conflicts and the final concession.
+Checkpoint when the surface plan, decisive evidence, confidence, or final synthesis changes. Record both sides of material conflicts and the final concession.
 Capture at most one durable awareness lesson from the surviving verdict. Never create one memory per checkpoint.
 
 ## Hook Entrypoint
@@ -44,4 +44,4 @@ If the same model family both writes the brainstorming answer and grades it via 
 
 ## User Communication
 
-Use only three progress notes: **Surface Plan**, **Research Checkpoint** (strongest evidence, weakest claim, gate), and **Final Decision** (verdict, confidence, next proof/RFC handoff). Summarize subagents; never paste transcripts.
+Send progress notes at meaningful boundaries: the Surface Plan, a material research checkpoint, and the final decision are the usual set. Summarize workers; do not paste transcripts.

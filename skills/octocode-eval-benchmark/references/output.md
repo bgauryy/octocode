@@ -1,33 +1,29 @@
 # Output
 Load when presenting an eval or loop result. Why: incomplete reports invite vibe acceptance.
 
-## Loop report (required sections)
+## Loop report
 ```markdown
 ## Goal
 ## KPI
 - primary (lagging): <name> (<dir>) baseline=… result=… target=…  [serves goal]
 - leading (optional): …
 - guardrails: …
-## Loop level
-experiment | suite | meta
-## Budget / trials
-## Subject changed
-## Harness unchanged? (yes/no)
+## Loop level and budget
+experiment | suite | meta; trials/cost
+## Subject and harness
+what changed; whether cases/graders stayed frozen
 ## Checks run
 - command + exit code / score
 - held-out: …
-## Transcript note
 ## Verdict
 ACCEPT | REVERT | CONTINUE  (inner-loop KEEP maps to ACCEPT, DISCARD to REVERT)
-## Next
+## Next (when needed)
 ```
 
 Validate with `scripts/loop-report.mjs` before claiming done.
 Write run artifacts (answers, grades, loop reports) under `.octocode/` in the workspace — never a session temp dir; only permanent suite files live in `evals/`.
 
-## Loop retrospective (multi-iteration runs)
-After the final verdict, add one short block: iterations run · hypotheses kept/killed ·
-metric trajectory (baseline → … → final) · where the loop stalled or escalated (suite/meta).
+For multi-iteration runs, add a short retrospective: iterations, hypotheses kept/killed, metric trajectory, and any escalation.
 
 ## Confidence markers
 | Marker | Minimum |

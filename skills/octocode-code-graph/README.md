@@ -1,20 +1,17 @@
 # Octocode code graph
 
-Turns dependency-graph signals into evidence-backed code findings. It supports architecture-risk triage and change-impact mapping. Use it to analyze cycles, layers, and reachability. It also verifies dead-code candidates carefully.
+Turns dependency-graph signals into evidence-backed findings for architecture risk, change impact, cycles, layers, reachability, and dead-code review.
 
 ## What it does
 
-- Chooses the cheapest bounded `localAnalyzeGraph` operation for the question.
-- Converts cycles, paths, dependents, dependencies, reachability, and dead-code output into falsifiable hypotheses.
-- Interprets directed cycle witnesses, type-only versus runtime cycles, SCC condensation layers, immediate dominators, and transitive-edge candidates.
-- Upgrades syntactic file topology with exact imports, AST structural search, LSP symbol identity, and runnable verification.
-- Ranks confirmed findings separately from likely, candidate, dismissed, and incomplete results.
-- Preserves entrypoint assumptions, test policy, scan limits, truncation, unsupported resolution, and unavailable LSP capabilities.
-- Rejects common false positives from type-only cycle edges, narrow scan roots, alternate package entrypoints, barrel contracts, and misleading partial-test summaries.
+- Chooses a bounded `localAnalyzeGraph` operation and turns its output into falsifiable hypotheses.
+- Proves file-topology signals with exact imports, AST shape, LSP identity, and runnable checks.
+- Separates confirmed, likely, candidate, dismissed, and incomplete results.
+- Keeps entrypoint assumptions, test policy, scan limits, truncation, and unavailable capabilities visible.
 
 ## What it does not do
 
-It does not treat every cycle or high-degree file as a defect, infer safe deletion from graph reachability, or replace `octocode-research` for general code investigation. Use it when the graph itself is the primary reasoning surface.
+It does not treat every cycle or high-degree file as a defect, infer safe deletion from reachability, or replace `octocode-research` for general investigation. Use it when the graph is the primary reasoning surface.
 
 ## Workflow
 
@@ -22,23 +19,22 @@ It does not treat every cycle or high-degree file as a defect, infer safe deleti
 FRAME -> SCHEMA -> GRAPH -> HYPOTHESIZE -> PROVE -> RANK -> VERIFY
 ```
 
-Use Octocode MCP tools when they are available. In this monorepo the skill uses the built CLI; installed copies fall back to `npx octocode`. The workflow remains schema-first so it does not depend on memorized fields.
+The skill uses Octocode MCP tools when available, this monorepo's built CLI during development, and `npx octocode` elsewhere. It reads the live schema before raw calls.
 
-## How it reads graph findings
+## Evidence rules
 
-- `cycleEdges` is the deterministic directed witness to inspect. The order of files in an SCC is not a cycle path.
-- `runtimeCycleEdges` removes type-only edges and isolates cycles that can affect module loading. The skill still checks imported bindings and initialization order before confirming a defect.
-- A type-only SCC is coupling evidence, not a runtime loading cycle.
-- `transitiveCandidates` identifies condensation-graph edges with an alternate directed path. The skill treats these as possible duplicate wiring, then checks side effects, re-export contracts, and symbol use before recommending removal.
-- `path` finds the fewest import edges in an unweighted graph. It does not pretend that import edges have performance or business-cost weights.
-- `deadCode` is a candidate generator. Entrypoints, tests, framework loading, package exports, LSP references, and runnable verification remain part of the proof.
+- `cycleEdges` is a directed witness; SCC member order is not a cycle path.
+- `runtimeCycleEdges` removes type-only edges. Imported bindings and initialization order still need proof.
+- `transitiveCandidates` can reveal duplicate wiring, but side effects, re-exports, and symbol use can justify the edge.
+- `path` minimizes unweighted import edges; it does not model performance or business cost.
+- `deadCode` generates candidates; entrypoints, tests, framework loading, exports, LSP references, and a runnable check decide the verdict.
 
-The result is a ranked finding with an explicit confidence level, evidence chain, impact, smallest safe action, and verification command. Incomplete scans and unavailable semantic checks stay visible instead of being silently promoted to conclusions.
+Results include confidence, evidence, impact, the smallest safe action, and verification. They also name incomplete scans or semantic gaps.
 
 ## Installation
 
 ```bash
-npx octocode skill --name octocode-code-graph
+npx octocode skill install octocode-code-graph
 ```
 
 ## Maintainer verification
@@ -49,4 +45,4 @@ node skills/octocode-code-graph/scripts/eval-code-graph.mjs --json
 node skills/octocode-skills/scripts/skill-review.mjs skills/octocode-code-graph --json
 ```
 
-The evaluator freezes six failure-derived controls in `evals/cases.json`; its KPI and guardrails live in `evals/kpi-contract.json`. Then run a fresh repository question through graph output, exact edge reads, AST/LSP proof, and a zero-exit deterministic check before publishing.
+The evaluator covers six failure-derived controls from `evals/cases.json`; KPI and guardrails live in `evals/kpi-contract.json`. Before publishing, also smoke-test a fresh repository question through graph output, exact edge reads, AST/LSP proof, and a zero-exit check.

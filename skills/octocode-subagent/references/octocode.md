@@ -11,7 +11,7 @@ This skill does not redefine research rules. Use `octocode-research` for routing
 3. Install:
 
 ```bash
-npx octocode skill --name octocode-research
+npx octocode skill install octocode-research
 ```
 
 Return evidence into the subagent result packet, then synthesize in the parent.

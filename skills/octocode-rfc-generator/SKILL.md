@@ -1,30 +1,29 @@
 ---
 name: octocode-rfc-generator
-description: "Use when a consequential change needs a decision before coding: write or improve an RFC, design doc, architecture proposal, migration plan, option comparison, rollout plan, or measurable implementation contract. If the idea is still open-ended, use octocode-brainstorming first."
+description: "Use when a consequential change needs a decision before coding: write or improve an RFC, design doc, architecture proposal, migration plan, option comparison, rollout plan, or measurable implementation contract. Use octocode-brainstorming first while the idea is still open-ended."
 ---
 
 # Octocode RFC Generator
 
 Produce evidence-backed decisions that an implementer and reviewer can execute.
 Flow: `UNDERSTAND → RESEARCH → PREREQUISITES → COMPARE → WRITE → CLOSE QUESTIONS → KPI → VALIDATE → DELIVER`.
-For existing RFCs, run `REASSESS` (see `references/workflow.md` § Reassess existing RFCs) instead of WRITE — audit against live code, not prior checkboxes.
+For an existing RFC, use the reassessment route in `references/workflow.md` and audit against live code rather than prior checkboxes.
 
 Workspace output contract: chat-only proposals stay in chat. Saved RFC artifacts stay under `<workspace>/.octocode/rfc/`; scratch data uses `<workspace>/.octocode/tmp/octocode-rfc-generator/`. User-approved source edits keep their named paths. Never fall back to a user-level Octocode home for artifacts.
 
 ## Lobby rules
 - Skip RFC mode for trivial edits. Ask one focused question when uncertainty changes shape, owner, scope, or decision criteria.
-- Compare at least two alternatives, including do-nothing, unless the user explicitly requests one implementation plan.
+- Compare the viable alternatives and include the status quo when it is a real option; skip ceremonial options that cannot satisfy the decision.
 - Recommendations require verifiable facts; cite exact anchors and commands/checks that actually ran.
 - `RFC.md` owns goals, scope, and decision. Other files link to its anchors rather than restating them.
-- Resolve every open question with evidence or an explicit deferral; no recommendation may rest on an uncertain claim.
+- Resolve decision-blocking questions with evidence. Mark other uncertainty with confidence, impact, owner, and a proof or deferral trigger.
 - Order implementation by dependency, not estimates; bind requirements to acceptance and verification.
-- Reviewing, rating, or cleaning up `.octocode/rfc/` (delete/implemented/fixed calls) always requires a dated `## Audit Reasoning` block written into the RFC itself, backed by fresh reads of the live code.
+- Reassessing `.octocode/rfc/` requires fresh reads of live code and a dated audit result. Write the `## Audit Reasoning` block into the RFC only when source edits are authorized; otherwise return it in chat.
 - Never assert RFC status from memory or from another RFC's claims.
-- Stop when: the change is a trivial one-file edit (route to `octocode-research`); a brainstorming handoff is marked Prototype First, Narrow, Park, or not ready; uncertainty changes artifact shape, owner, scope, or tradeoff priority; two research attempts fail (state what is known and ask for direction); scope needs splitting into separate RFCs or phases; an unresolved blocker would have to be assumed satisfied; or a save, delete, or archive under `.octocode/rfc/` awaits explicit approval.
+- Stop when the work is a trivial edit; a brainstorming handoff is not RFC-ready; uncertainty changes artifact shape, owner, scope, or tradeoff priority; another research pass is unlikely to close a blocker; independent decisions need separate RFCs; or a save, edit, delete, or archive awaits approval.
 
 ## Artifact route
-- Small, reversible, single-package work: produce only `RFC.md` with plan, acceptance, and inline references.
-- Otherwise, after save approval, create `<workspace>/.octocode/rfc/{name}/`: `RFC.md` (decide), `PREREQUISITES.md` (ready, existing code only), `IMPLEMENTATION.md` (build), `KPI.md` (verify), and `RESOURCES.md` (source appendix).
+Start with `RFC.md`. Add `PREREQUISITES.md`, `IMPLEMENTATION.md`, `KPI.md`, or `RESOURCES.md` only when readiness, execution, measurement, or source volume needs its own lifecycle. After save approval, place the chosen set under `<workspace>/.octocode/rfc/{name}/`.
 
 ## Smart routes — load only what the current step needs
 - To understand the ask and select a mode before drafting, load `references/workflow.md` — gates, claim ledger, artifact set, traceability, validation, and delivery order.
@@ -34,7 +33,7 @@ Workspace output contract: chat-only proposals stay in chat. Saved RFC artifacts
 - When building the execution plan, load `references/rfc-implementation.md` — close open questions, order dependencies, and define rollout/rollback.
 - When defining acceptance and KPI targets, load `references/rfc-kpi.md` — connect user stories, metrics, decision rules, and verification in a traceability matrix.
 - When preserving sources, load `references/rfc-resources.md` — record provenance without moving decisive citations out of the RFC.
-- When you reassess, rate, or clean up an existing RFC, load `references/rfc-audit.md` — the dated `## Audit Reasoning` block, with live-code evidence, is required before any keep/fix/delete call.
+- When you reassess, rate, or clean up an existing RFC, load `references/rfc-audit.md` — produce a dated audit result with live-code evidence before any keep/fix/delete recommendation.
 - When improving this skill, prefer `octocode-eval-benchmark`; otherwise load `references/improve-loop.md` — enforce measurable accept/revert.
 
 ## Related routes and verification

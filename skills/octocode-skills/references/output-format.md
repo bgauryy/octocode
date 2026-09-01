@@ -18,21 +18,15 @@ Why it matches:  <tie to request>
 Caveat:          <real risk, or "None obvious">
 ```
 
-## Next-step gate
+## Next step
 
 ```text
 Recommended: <skill> from <source>
-1. Install — destinations via install-gates.md + fetch-remote.md
-2. Create local — adapt via create-local-skill.md
-3. Explain — trigger, workflow, gates, risks
-4. Show link — URL/path only, no write
-5. Compare — vs another candidate
-6. Keep researching
-7. Cancel
+Next: install | adapt locally | compare | inspect further | stop
 ```
 
 ## Deep-dive
 
-Fetch full `SKILL.md` + behavior-affecting refs → summarize trigger, workflow, support files, gates, strengths, gaps, adaptation ideas → ask install / adapt / compare / research.
+Fetch full `SKILL.md` plus behavior-affecting refs, then summarize trigger, workflow, support files, gates, strengths, gaps, and adaptation ideas. Offer only relevant next actions.
 
 Next: when installing load `references/install-gates.md`; when adapting load `references/create-local-skill.md`; if evidence is thin load `references/recovery.md`.

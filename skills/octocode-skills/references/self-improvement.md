@@ -1,16 +1,15 @@
 # Self-Improvement Mode
 
-Load when the user asks to rate, review, score, improve, refactor, or review a skill and the mode is unclear. Why: pick Rate-only vs Improve before editing.
+Load when the user asks to rate, review, improve, or refactor a skill. Why: match the work to the requested mode without assuming write authority.
 
 For the rewrite contract (lobby, dedupe, ≤50, review), load `references/skill-improve.md` — this file only gates the mode.
 
-## Mode gate
+## Choose the mode
 
 ```text
-1. Rate-only — score + issues; no edits.
-2. Improve / refactor — fix; gate before write (then skill-improve.md).
-3. Fix all — apply a prior rating in this chat; skip re-rate.
-4. Cancel.
+1. Rate/review — score and report issues; no edits.
+2. Improve/refactor — inspect, patch, and verify when the request authorizes edits.
+3. Apply prior findings — use the current conversation's rating; do not repeat it without a reason.
 ```
 
 ## Rate-only report
@@ -21,11 +20,11 @@ Score card:  trigger/workflow/evidence/gates/UX/specificity/portability/risk →
 Issues:      Critical / High / Medium / Low — each with file:line
 Strengths:   2-4 bullets to preserve
 Residual:    1-3 risks
-Next:        numbered choices ending with Cancel
+Next:        relevant action(s), if any
 ```
 
 Run `scripts/skill-review.mjs` first (`references/skill-review.md`). Cite findings with `references/skill-review-rules.md`.
 
-Improve/Fix-all: after the gate, follow `references/skill-improve.md` end-to-end; do not restate its loop here.
+Ask only when the request leaves write authority or the desired outcome materially unclear. For edits, follow `references/skill-improve.md`; do not restate its loop here.
 
 Next: when rewriting load `references/skill-improve.md`; when presenting load `references/output-format.md`.

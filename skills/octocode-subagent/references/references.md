@@ -1,33 +1,33 @@
 # References
 
-Research trail for `octocode-subagent`, including the merged orchestration contract. Host-agnostic skill; Pi/Cursor/Claude are example hosts only.
+Research trail for `octocode-subagent`, including the merged orchestration contract. The skill is platform-independent; Pi, Cursor, and Claude are example hosts only.
 
-## Specs / Docs
+## Specifications and research
 
-| Source | Finding |
-|--------|---------|
-| docs.langchain.com multi-agent / subagents / handoffs / router / skills | portable topologies; right context per agent |
-| LangGraph interrupts / Send fan-out | HITL gates; merge reducers |
-| a2a-protocol.org specification | Agent Card, task lifecycle |
-| OpenAI Agents SDK handoffs / agents-as-tools | ownership vs manager-as-tool |
-| arXiv:2503.13657 MAST | failure modes: design, misalignment, weak verification |
-| arXiv:2305.14325 multi-agent debate | independent critics improve factuality |
-| Anthropic multi-agent research (2025) | scout fan-out, citation pass, scale effort to complexity |
-| Anthropic multiagent systems research | correlated consensus and conflicting-goal risks |
-| OpenAI Agents SDK orchestration | manager versus handoff, deterministic orchestration, filtered context |
-| Agent Skills specification | progressive disclosure and focused references |
-| Rubber-duck debugging (classic) | restatement surfaces assumptions without new tools |
-| Premortem / devil’s advocate (decision lit.) | attack the plan before commitment |
-| Self-consistency (Wang et al. themes) | majority over independent samples |
-| FrugalGPT / RouteLLM themes | model tier routing |
+| Source | Repository or venue | Score | Finding |
+|---|---|---:|---|
+| docs.langchain.com multi-agent / subagents / handoffs / router / skills | LangChain docs | — | portable topologies; right context per agent |
+| LangGraph interrupts / Send fan-out | LangGraph docs | — | HITL gates; merge reducers |
+| a2a-protocol.org specification | A2A specification | — | Agent Card, task lifecycle |
+| OpenAI Agents SDK handoffs / agents-as-tools | OpenAI docs | — | ownership vs manager-as-tool |
+| arXiv:2503.13657 MAST | arXiv | — | failure modes: design, misalignment, weak verification |
+| arXiv:2305.14325 multi-agent debate | arXiv | — | independent critics improve factuality |
+| Anthropic multi-agent research (2025) | Anthropic | — | scout fan-out, citation pass, scale effort to complexity |
+| Anthropic multiagent systems research | Anthropic | — | correlated consensus and conflicting-goal risks |
+| OpenAI Agents SDK orchestration | OpenAI docs | — | manager versus handoff, deterministic orchestration, filtered context |
+| Agent Skills specification | agentskills.io | — | progressive disclosure and focused references |
+| Rubber-duck debugging (classic) | general practice | — | restatement surfaces assumptions without new tools |
+| Premortem / devil’s advocate (decision literature) | general research | — | attack the plan before commitment |
+| Self-consistency (Wang et al. themes) | research literature | — | majority over independent samples |
+| FrugalGPT / RouteLLM themes | research literature | — | model tier routing |
 
 ## Design choice
-Pi-specific tool names were removed so this skill installs on any host. Map `coordinate.md` actions to the local spawn API. The former `octocode-orchestrator` contract was merged here: framing, authority/budgets, TDD/eval routing, Awareness, and completion now surround the existing delegation mechanics. Challenge techniques live here; full KPI measurement stays in `octocode-eval-benchmark`.
+The design omits Pi-specific tool names so this skill installs on any host. Map `coordinate.md` actions to the local spawn API. The former `octocode-orchestrator` contract now lives here: framing, authority and budgets, TDD and eval routing, Awareness, and completion surround the delegation mechanics. Challenge techniques live here; full KPI measurement stays in `octocode-eval-benchmark`.
 
 ## Local Ollama offload (merged from former orchestrator-local-worker)
 
-| Source | Finding |
-|--------|---------|
+| Source | Repository | Score | Finding |
+|---|---|---:|---|
 | qwen-delegation | athola/claude-night-market | 115 | Closest “delegate execution, retain reasoning” worker skill; pattern borrowed, Qwen CLI not copied |
 | delegation-core | athola/claude-night-market | 126 | Decision matrix / offload philosophy; adapted to Ollama allowlist |
 | gemini-delegation | athola/claude-night-market | 107 | Sibling provider skill; confirmed multi-provider pack, not used as code |

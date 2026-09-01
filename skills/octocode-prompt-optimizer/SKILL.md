@@ -11,15 +11,12 @@ Flow: `READ → UNDERSTAND → RATE → FIX → VALIDATE → OUTPUT`.
 
 Workspace output contract: chat-only deltas stay in chat. New saved reviews or unnamed optimized drafts default to `<workspace>/.octocode/octocode-prompt-optimizer/`; scratch data uses `<workspace>/.octocode/tmp/octocode-prompt-optimizer/`. User-approved prompt, schema, policy, and source edits keep their named paths. Never fall back to a user-level Octocode home for artifacts.
 
-## Lobby rules and gates
-- READ: inspect the whole input and its type; UNDERSTAND: map goal, parts, flow, assumptions, and unknowns.
-- RATE: record evidenced issues, severity, and baseline; FIX: address Critical/High issues and name deliberate deferrals.
-- VALIDATE: prove intent and required behavior remain correct; OUTPUT: provide the requested artifact and truthful delta.
-- Use the full path for multi-section, ambiguous, tool-facing, or high-risk work; combine adjacent steps only for short, low-risk text. Never skip VALIDATE.
-- Preserve intent, working branches, identifiers, commands, and required metadata; ask before changing them.
-- Verify cited commands, flags, paths, tool names, and schemas before rewriting; flag unverified claims.
-- Make only critical behavior mandatory; retain preference language for real preferences. Mutate files only with authority.
-- Stop when: a material unknown would change intent, scope, or risk (ask one focused question and pause); instruction authority is ambiguous, or resolving a conflict would override user intent; an edit changed intent or working logic (revert it and return to UNDERSTAND); write authority is missing (deliver a patch-style delta instead of a file change); a VALIDATE check fails twice on the same section (report the weakest branch instead of forcing a pass); a reliability gain has no held-out evidence (report it as unmeasured).
+## Operating rules
+- Read the complete input and map its intent before judging it. Rate evidenced issues before drafting fixes.
+- For short, low-risk text, combine adjacent phases. For complex, tool-facing, or risky instructions, keep the phases explicit. Always validate the finished draft.
+- Preserve intent, working branches, identifiers, commands, and required metadata. Verify technical claims before rewriting them.
+- Reserve mandatory language for real requirements. Keep preferences flexible and mutate files only when authorized.
+- Ask one focused question only when an unresolved choice would materially change intent, scope, or risk. Without write authority, return a delta. Report unmeasured reliability claims as unmeasured.
 
 ## Smart routes — load only what the current step needs
 - READ and UNDERSTAND: load `references/gates.md` — read every section and map intent before judging or drafting.
@@ -36,6 +33,5 @@ Workspace output contract: chat-only deltas stay in chat. New saved reviews or u
 - Use `octocode-skills` for skill-folder architecture/review; `octocode-research` to verify cited contracts; `octocode-eval-benchmark` for held-out behavior.
 - Use `octocode-subagent` for delegation topology.
 
-## Done gate
-- This skill ships no scripts: every gate above is model-driven, so never report a check you did not actually perform.
-- Done requires VALIDATE passed, the OUTPUT variant matching the request, and the reported before/after score, changed files, and deferrals all matching reality.
+## Done
+This skill ships no scripts. Report only checks actually performed; the deliverable, score, changed files, and deferrals must match reality.

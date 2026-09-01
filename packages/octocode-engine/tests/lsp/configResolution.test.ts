@@ -68,34 +68,33 @@ describe('config resolution ladder (server unavailable on PATH)', () => {
       }
     );
   });
-});
 
-describe('pre-native fallback (language absent from the native spec table)', () => {
-  it('includes workspaceRoot in the bundled shellscript config', async () => {
-    // Shellscript has no entry in the native spec table, so
-    // getLanguageServerForFile returns undefined and resolution falls to
-    // BUNDLED_BY_LANGUAGE. Regression test: this branch used to construct the
-    // config object without `workspaceRoot` — a required field on
-    // LanguageServerConfig (and on the Rust-side JsLanguageServerConfig,
-    // which rejects a missing field at napi deserialization) — so every
-    // lspGetSemantics call on a .sh file failed with
-    // "Missing field `workspaceRoot`" even when the caller passed one in.
-    vi.resetModules();
-    vi.doMock('../../src/lsp/native.js', () => ({
-      nativeBinding: {
-        getLanguageServerForFile: vi.fn(() => undefined),
-        detectLanguageId: vi.fn(() => 'shellscript'),
-        isCommandAvailable: vi.fn(() => false),
-      },
-    }));
-    try {
-      const { resolveServerForFile } = await import('../../src/lsp/config.js');
-      const resolution = await resolveServerForFile('/repo/a.sh', '/repo');
-      expect(resolution?.source).toBe('bundled');
-      expect(resolution?.config.workspaceRoot).toBe('/repo');
-    } finally {
-      vi.doUnmock('../../src/lsp/native.js');
-      vi.resetModules();
+  it.each([
+    {
+      file: '/repo/a.sh',
+      command: 'bash-language-server',
+      args: ['start'],
+      languageId: 'shellscript',
+    },
+    {
+      file: '/repo/a.php',
+      command: 'intelephense',
+      args: ['--stdio'],
+      languageId: 'php',
+    },
+  ])(
+    'does not silently load an unbundled $languageId server',
+    async ({ file, command, args, languageId }) => {
+      await withUnavailableNative(
+        { command, args, languageId },
+        async ({ resolveServerForFile }) => {
+          const resolution = await resolveServerForFile(file, '/repo');
+          expect(resolution).toMatchObject({
+            source: 'unavailable',
+            config: { command, args, languageId, workspaceRoot: '/repo' },
+          });
+        }
+      );
     }
-  });
+  );
 });

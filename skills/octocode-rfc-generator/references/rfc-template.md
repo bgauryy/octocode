@@ -31,7 +31,7 @@ Define architecture, APIs/contracts, interactions, edge cases, compatibility, an
 List cost, complexity, operations, performance, learning, migration, blast radius, failure trigger, and mitigation.
 
 ## Rationale and Alternatives
-Explain why this design wins. Compare at least two options, including do-nothing, on architecture fit, complexity, maintenance, performance/security/data, maturity, migration, and reversibility.
+Explain why this design wins. Compare viable options, including do-nothing when relevant, on the criteria that can change the decision.
 
 ## Prior Art
 State decision-relevant lessons from local systems, ecosystem implementations, standards, or research. Put the inventory in `RESOURCES.md`.
@@ -44,7 +44,7 @@ Each question must be closed with evidence in `IMPLEMENTATION.md` or explicitly 
 Optional extensions that remain outside this decision.
 ```
 
-Quality gate: exact citations support non-obvious claims; recommendation relies on no uncertain claim; goals and scope appear only here.
+Quality gate: exact citations support non-obvious claims; decision-blocking uncertainty is resolved and remaining uncertainty is explicit; goals and scope appear only here.
 Every citation states why it matters; option comparisons render as a markdown table; no filler or duplicate phrasing.
 
 Next: when the change touches existing code load `references/rfc-prerequisites.md`; otherwise close the open questions and build with `references/rfc-implementation.md`.

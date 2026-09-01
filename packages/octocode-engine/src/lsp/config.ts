@@ -25,8 +25,6 @@ const BUNDLED_JS_SERVERS: Record<string, string> = {
     'vscode-langservers-extracted/bin/vscode-html-language-server',
   'vscode-css-language-server':
     'vscode-langservers-extracted/bin/vscode-css-language-server',
-  // PHP: native spec defaults to `intelephense` — command-keyed so native args carry over.
-  'intelephense': 'intelephense/lib/intelephense.js',
 };
 
 /**
@@ -37,9 +35,6 @@ const BUNDLED_JS_SERVERS: Record<string, string> = {
  */
 const BUNDLED_BY_LANGUAGE: Record<string, { cli: string; args: string[] }> = {
   python: { cli: 'pyright/langserver.index.js', args: ['--stdio'] },
-  // Shell scripts: native spec table has no shellscript server spec, so this
-  // is the pre-native fallback path (detectLanguageId → 'shellscript' → here).
-  shellscript: { cli: 'bash-language-server/out/cli.js', args: ['start'] },
 };
 
 /**
@@ -51,7 +46,6 @@ const BUNDLED_BY_LANGUAGE: Record<string, { cli: string; args: string[] }> = {
 export const BUNDLED_SERVER_NAMES: readonly string[] = [
   ...Object.keys(BUNDLED_JS_SERVERS),
   'pyright',
-  'bash-language-server',
 ];
 
 export function detectLanguageId(filePath: string): string {
@@ -98,8 +92,8 @@ export async function resolveServerForFile(
       | LanguageServerConfig
       | undefined) ?? null;
 
-  // Pre-native: languages absent from the native spec table (e.g. shellscript)
-  // can still get a bundled server via BUNDLED_BY_LANGUAGE.
+  // Pre-native: languages absent from the native spec table can still get a
+  // bundled server via BUNDLED_BY_LANGUAGE.
   if (!base) {
     const langId = nativeBinding.detectLanguageId(filePath) ?? '';
     const preNative = langId ? BUNDLED_BY_LANGUAGE[langId] : undefined;

@@ -13,7 +13,7 @@ Use when the task is about a skill's trigger, workflow, references, hooks, insta
 - Install with provider/scope/mode gates and conflict handling
 - Create or adapt local skills with an audit trail and review gate
 - Review and wire lifecycle hooks safely
-- Check the skill as a map: references resolve, the lobby lists every reference and script with when/how plus the workflows, chunks declare entry and next hop, flow phases are routed
+- Check structure, routes, references, scripts, portability, and trigger quality
 
 ## How It Works
 
@@ -21,7 +21,7 @@ Use when the task is about a skill's trigger, workflow, references, hooks, insta
 UNDERSTAND → DISCOVER → INSPECT → JUDGE → RECOMMEND → USER GATE → ACT → CLEANUP → REVIEW → VERIFY
 ```
 
-`SKILL.md` is the compact operating map. Conditional depth lives in one-concept `references/` files (≤50 lines) with when/why load lines. Ref→ref links continue the path. `scripts/skill-review.mjs` is the done-gate (best practices, structure, and navigation).
+`SKILL.md` is the compact operating map. Conditional depth lives in focused `references/`; deterministic work lives in `scripts/`. `scripts/skill-review.mjs` checks structure and navigation.
 
 ## Installation
 
@@ -31,4 +31,4 @@ npx octocode skill --name octocode-skills
 
 ## Maintainer Notes
 
-Keep this README user-facing. Agent routing, rubrics, install matrices, and review rules live under `references/`. Skills ship as a standalone folder — after edits run cleanup (`references/skill-cleanup.md`) then `node scripts/skill-review.mjs .` and clear ERRORs before shipping.
+Keep routing, rubrics, install matrices, and review rules under `references/`. Skills ship as standalone folders. After edits, run `node scripts/skill-review.mjs .` and clear ERRORs before shipping.

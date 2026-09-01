@@ -1,7 +1,5 @@
-# RATE Gate
-Load after UNDERSTAND and before FIX. **STOP: rate every logical part before drafting.**
-### Pre-Conditions
-- [ ] UNDERSTAND produced a goal, parts, flow, assumptions, and unknowns.
+# RATE
+Load after UNDERSTAND and before FIX. Why: evidence and severity keep the repair proportional.
 ## Issue Scan
 | Severity | Categories |
 |---|---|
@@ -10,8 +8,11 @@ Load after UNDERSTAND and before FIX. **STOP: rate every logical part before dra
 | Medium | missing output/gate; duplication; low density; imprecise term; buried rule; unmarked example/data; irrelevant metadata |
 | Low | indirect/wordy sentence; repeated example; cosmetic residue |
 
-Keep optional modals optional. Replace vague verbs with exact actions and vague conditionals with `IF condition → THEN action`. Preserve required frontmatter and exact commands.
-## Score — score 1-5, then average: A 4.5-5 · B 3.5-4.4 · C 2.5-3.4 · D <2.5.
+Keep optional modals optional. Preserve required frontmatter and exact commands.
+
+## Score
+
+Score 1–5, then average: A 4.5–5 · B 3.5–4.4 · C 2.5–3.4 · D <2.5.
 | Dimension | 5 means |
 |---|---|
 | Clarity | concrete verbs, stable terms, explicit referents |
@@ -31,17 +32,7 @@ Keep optional modals optional. Replace vague verbs with exact actions and vague 
 | <dimension> | <n> | <why> |
 Overall: <avg> → <grade>
 ```
-### Gate Check
-- [ ] Every part/category was checked; issues and scores cite evidence.
-
-### Forbidden
-- Fixing before rating, inflating severity, or deleting required metadata as noise.
-
-### Allowed
-- Rereads and a clean result after a second scan.
-
-### On Failure
-- **IF** the scan is suspiciously clean → **THEN** recheck modals, referents, conflicts, branches, and outputs once.
+Rate every logical part, cite evidence, and avoid inflating severity. If the scan is unexpectedly clean, recheck modals, referents, conflicts, branches, and outputs once.
 
 ## Sources
 - Anthropic, [Writing effective tools for AI agents](https://www.anthropic.com/engineering/writing-tools-for-agents) — evaluate real tasks, inspect transcripts, and measure tool behavior.

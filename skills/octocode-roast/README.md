@@ -1,21 +1,17 @@
 # Octocode Roast
 
-`octocode-roast` gives an agent permission to make code critique memorable without making it careless. It is blunt, funny, evidence-backed, and aimed at code patterns rather than people.
-
-Use it when the user explicitly wants a roast, brutal review, code-quality critique, or a sharp explanation of what is wrong with a codebase.
+`octocode-roast` makes code critique memorable without making it careless. Use it for a roast, brutal review, debt ranking, or sharp explanation of what is wrong with a codebase. It targets code patterns, never people.
 
 ## The Problem
 
-Normal review can be too polite to land. But harsh feedback without citations is just noise. A roast needs both edge and receipts: every major jab should point to code, explain impact, and offer a repair path.
-
-This skill gives the agent a tone-controlled critique mode that stays useful, safe, and fixable.
+Polite review may not land; harsh feedback without evidence is noise. A useful roast pairs each major jab with code, impact, confidence, and a repair path.
 
 ## Capabilities
 
 - Explicit target precedence, so user-specified files are reviewed before staged or branch-wide changes.
 - Evidence-backed findings with `file:line` citations, impact, confidence, and repair paths.
 - Severity tiers that keep security, data loss, correctness, and production impact above style noise.
-- Tone calibration from gentle to savage based on the user's wording and the sensitivity of the code.
+- Tone calibrated to the request and the sensitivity of the code.
 - Secret-safe handling for credentials, security findings, and production-sensitive paths.
 - Language-specific smell patterns and code-search strategies.
 - A top-offender autopsy when one pattern explains many issues.
@@ -29,13 +25,11 @@ The workflow is:
 TARGET -> INSPECT -> INVENTORY -> AUTOPSY -> CHECKPOINT -> REDEEM
 ```
 
-The agent scopes the target, inspects enough code to cite major issues, builds an issue inventory, ranks the most damaging patterns, and writes the roast after the evidence is in. Pattern matches are leads until exact code evidence upgrades them. The humor is seasoning, not the proof.
+The agent scopes the target, gathers exact evidence, ranks the damaging patterns, and writes the roast after the proof is in. Pattern matches remain leads until verified; humor is seasoning, not evidence.
 
 ## User Experience
 
-Users get critique that is hard to ignore and easy to act on. The answer should lead with the strongest roast, then group findings by severity, explain why they matter, and show repair paths.
-
-The skill waits at a fix checkpoint. It can point toward remediation, but it should not silently switch from roast mode into edit mode without the user choosing that path.
+Users get critique that is hard to ignore and easy to act on: the strongest roast, ranked findings, an autopsy, and repair paths. If the request did not already authorize fixes, the skill waits at a fix checkpoint before editing.
 
 ## Installation
 

@@ -1,8 +1,8 @@
 # Skill Review
 
-Load when reviewing, updating, or creating a skill — or right after editing any `SKILL.md`. Why: **review is the done-gate** — best practices + structure + routing + prose quality before claiming done.
+Load when reviewing, updating, or creating a skill. Why: check structure, routing, prose, and portability before claiming done.
 
-Review is not a narrow syntax check. It judges whether the skill is efficient for agents: lean lobby, one-concept refs, when/why routes, a navigable map with no dead ends, no overlaps, standalone ship shape, and working scripts.
+Review combines mechanical findings with judgment about density, ownership, navigation, portability, and working scripts.
 
 ## What review covers
 
@@ -30,9 +30,7 @@ No-arg scan is relative to this skill copy: `.agents/skills/octocode-skills` sca
 
 ## Fix loop
 
-1. Fix ERRORs first — message names the exact gap.
-2. WARNs: match finding → fix (see `references/skill-review-rules.md`).
-3. Re-run until ERRORs clear; residual WARNs = gated decision with user.
+Fix ERRORs first, then assess WARNs with `references/skill-review-rules.md`. Re-run until ERRORs clear; explain any intentional residual WARN.
 
 ## Hooks note
 

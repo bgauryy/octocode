@@ -203,6 +203,12 @@ fn spec_for_extension(extension: &str) -> Option<ServerSpec> {
             args: &[],
             env_var: Some("OCTOCODE_PYTHON_SERVER_PATH"),
         },
+        ".sh" => ServerSpec {
+            language_id: "shellscript",
+            command: "bash-language-server",
+            args: &["start"],
+            env_var: Some("OCTOCODE_BASH_SERVER_PATH"),
+        },
         ".go" => ServerSpec {
             language_id: "go",
             command: "gopls",
@@ -639,6 +645,16 @@ mod tests {
             assert_eq!(config.command, "vscode-css-language-server");
             assert_eq!(config.language_id.as_deref(), Some(expected_language_id));
         }
+    }
+
+    #[test]
+    fn maps_shell_scripts_to_an_externally_resolvable_bash_server() {
+        let config = default_server_for_file("demo.sh".to_owned(), "/workspace".to_owned())
+            .expect("default shell server config");
+
+        assert_eq!(config.command, "bash-language-server");
+        assert_eq!(config.args, Some(vec!["start".to_owned()]));
+        assert_eq!(config.language_id.as_deref(), Some("shellscript"));
     }
 
     #[test]

@@ -11,7 +11,7 @@ Reference `RFC.md` anchors; never restate goals or scope. Success metrics stay i
 | RFC open question (§) | Resolution or explicit deferral | Evidence | Confidence |
 |---|---|---|---|
 
-Nothing remains uncertain. A deferral names reason and revisit trigger.
+Decision-blocking questions are closed. Each remaining deferral names its impact, reason, owner, and revisit trigger.
 
 ## Approach
 One or two lines linking the selected RFC recommendation.
@@ -45,6 +45,6 @@ Verification asks whether the build matches design; validation asks whether `KPI
 - {exact local or external anchor} — how it constrains the plan
 ```
 
-Gate: every RFC question is resolved with `octocode-research` evidence or explicitly deferred. Steps have no time estimates and remain reversible where possible. Use `RESOURCES.md` for the full inventory.
+Gate: every decision-blocking question is resolved with evidence; other questions are explicitly deferred. Include estimates only when requested and evidence-based; keep steps reversible where useful. Use `RESOURCES.md` when the source inventory needs its own file.
 
 Next: bind these steps to acceptance with `references/rfc-kpi.md`; record the source inventory with `references/rfc-resources.md`.

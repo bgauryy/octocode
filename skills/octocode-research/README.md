@@ -1,64 +1,30 @@
 # Octocode Research
 
-Answers technical questions with evidence instead of vibes. Investigation, review, implementation, refactor analysis, prior-art mapping, and loops when one pass isn't enough.
+Evidence-first investigation for local code, external repositories, packages, history, reviews, implementation planning, and refactors.
 
-## When to use it
+## Use it for
 
-Reach for it when code must be checked, not assumed:
+- callers, imports, dependency paths, blast radius, or safe-delete proof;
+- locating behavior, mapping a system, or diagnosing a supported-contract failure;
+- upstream fixes, npm packages, prior art, and ecosystem comparisons;
+- planning before a change and validating callers, tests, and the final diff afterward.
 
-- **Connections** — who calls this, what imports it, what breaks if I change it?
-- Where does this behavior live? How does this system work? Why does it fail?
-- Safe to delete? Dependency still used? Has someone already solved this?
-- **Outward** — external repositories, npm packages, cross-repo connections, general research.
-- **Before writing** — plan the flow: touch points, blast radius, patterns to copy.
-- **After writing** — validate it landed: callers hold, tests cover it, diff is safe to merge.
-- Anytime someone asks to **research** something, or asks for **octocode**.
+Skip it when a trivial edit's impact is already known. Docs writing belongs to `octocode-documentation`; skill folders to `octocode-skills`; open-ended product exploration to `octocode-brainstorming`.
 
-**Skip it** for a trivial edit whose blast radius is already known. Blunt critique → `octocode-roast`; decision before coding → `octocode-rfc-generator`; worth building at all → `octocode-brainstorming`.
+## How it works
 
-## The problem it solves
+`FRAME → CLASSIFY → MODEL → SEARCH → READ EXACT → PROVE → DECIDE/PATCH → VERIFY`
 
-Technical work fails when an agent treats a search snippet as proof, edits before understanding blast radius, or reports confidence without showing where it came from. A codebase rarely rewards a single lucky query.
+Depth follows claim risk. Exact anchors (`file:line`, repository path, package/version, PR, commit, or URL) carry `confirmed`, `likely`, `uncertain`, or `weak` confidence. Search snippets are leads; empty results describe one searched lane, not universal absence.
 
-It also fails when everything labeled "bug" gets debugged as a defect, features are assigned fictional root causes, or enhancements start with no baseline. This skill defines actual versus desired behavior first and classifies the work as bug, feature, enhancement, or unknown — then searches cheaply, reads exact evidence, and either recommends a path or makes a scoped change with verification.
+Routes cover local, external, combined local↔remote, debug/RCA, behavioral change, refactor, and PR/diff review. Rare routes cover ecosystem ranking, durable briefs, and convergence loops. The agent loads only the active route and proof guidance.
 
-## Operating model
+Octocode MCP is preferred. This monorepo uses the built CLI; an installed skill uses `npx octocode`. Both expose local search/read/graph, LSP semantics, GitHub code/history, cloning, and npm lookup. Disabled surfaces are reported, never simulated.
 
-```text
-FRAME -> CLASSIFY -> MODEL -> SEARCH -> READ EXACT -> PROVE -> DECIDE/PATCH -> VERIFY
-```
-
-That's the shape, not a checklist. Depth scales to the claim: a small lookup gets a cheap read and an honest confidence label; a delete, a merge verdict, or a root cause earns the whole ladder.
-
-Every claim carries an exact anchor (`file:line`, repo path, package id, PR number, commit, URL) and a confidence label (confirmed / likely / uncertain / weak). Alternate explanations stay alive until evidence kills them. Empty results are reported as "this lane can't see it," never as "it isn't there."
-
-## Workflows
-
-Seven routes, one per situation: local checkout, remote repo, local↔remote combination, debug/root-cause, change, refactor, and PR/diff review. Rare paths cover ecosystem ranking, durable decision briefs, and convergence loops. The agent loads one route plus the proof ladder — not everything.
-
-## Tooling
-
-Uses Octocode **MCP tools** when they're exposed. In this monorepo it uses the built local CLI; an installed standalone skill can use **`npx octocode`**. Both expose the same 10 input contracts and availability metadata:
-
-- local: search, find, read, tree, and graph analysis (dependencies, dependents, paths, cycles, reachability, dead-code candidates)
-- semantics: LSP definitions, references, callers, callees, symbols, diagnostics
-- GitHub: code, repos, files, structure, PRs, issues, commits, and clone
-- packages: npm lookup
-
-Tool gates (`ENABLE_LOCAL` and `ENABLE_CLONE`) are documented in `references/octocode.md`. A disabled surface is reported as skipped, never faked.
-
-## Installation
+## Install
 
 ```bash
 npx octocode skill --name octocode-research
 ```
 
-## Maintainer notes
-
-Keep this README about the discipline users should expect. Mode-specific tactics, tool routing, and report formats belong in `SKILL.md` and the focused references.
-
-Before publishing a change:
-
-```bash
-node scripts/check-description.mjs      # description contract (--help, --json)
-```
+Maintainers: keep tactics and report contracts in `SKILL.md`/`references/`; verify description changes with `node scripts/check-description.mjs`.

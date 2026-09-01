@@ -25,9 +25,9 @@ Load when running an evaluated multi-agent iteration. Why: without a fixed proto
 | Anchor | ≥1 non-arguable node outcome recorded |
 | Harness | Cases/graders unchanged mid-experiment |
 
-## Stop / REVERT
-- No primary KPI or no sensor → STOP
-- Narrative-only “workers looked good” → REVERT
+## Stop or revert
+- No primary KPI or sensor → stop and define the contract.
+- Narrative-only “workers looked good” → revert.
 - Edit harness to pass → REVERT
 - Primary up + guardrail down → reframe goal (Goodhart), do not keep looping
 

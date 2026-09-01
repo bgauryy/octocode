@@ -16,7 +16,7 @@ Load when a FIX target line is wordy, indirect, or over about 20-25 words. Why: 
 | Front-load | known/context first, new/emphasis last | Reader links back before absorbing the new claim |
 | Parallel structure | match grammatical form across list items | Structural priming speeds reading and comparison |
 | Prose → table / bullets / snippet | dense paragraph → structured rows | One real snippet beats three prose paragraphs |
-| Strip non-meaningful markdown | decorative `**bold**`, a header over one line, a 2-row table → plain text | Markdown syntax is tokens; keep it ONLY when it aids structure or scanning |
+| Strip non-meaningful markdown | decorative `**bold**`, a header over one line, a 2-row table → plain text | Markdown syntax costs tokens; keep it when it aids structure or scanning |
 | Offload | move conditional detail to `references/` | Keeps the always-loaded core lean (progressive disclosure) |
 | Consistent vocabulary | one term per concept, throughout | Removes synonym-driven ambiguity; lowers decode load |
 
