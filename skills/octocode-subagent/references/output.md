@@ -3,10 +3,11 @@ Load before the parent answers or decides the next spawn. Why: fan-out without a
 
 ## Solo vs spawn card
 ```text
-Decision: SOLO | BATCH | SPAWN
+Decision: SOLO | BATCH | SPAWN | HANDOFF
 Why: <speed | expertise | isolation | context>
 Workers: <n> · Topology: <pattern>
 Packets sealed?: yes/no · Ownership declared?: yes/no
+Authority/budget bounded?: yes/no
 Technique (optional): rubber-duck | interview | mimic-flow | verifier | red-team | blind-review | consensus | local-ollama
 ```
 

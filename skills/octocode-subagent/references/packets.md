@@ -6,6 +6,8 @@ Load when writing worker briefs or parsing returns. Why: workers see no parent c
 - `goal` — one bounded objective
 - `context` — decisive facts + exact anchors only
 - `scope` — include / exclude / tools / stop
+- `authority` — allowed effects, approval gates, and explicit prohibitions; workers cannot widen parent authority
+- `budget` — worker and graph time/token/tool-call cap plus replan threshold
 - `ownership` — **manager-as-tool** (parent keeps user) vs **handoff** (specialist owns next turns + return/terminal rule). Writes need disjoint paths + verify cmd
 - `acceptance` — observable done criteria
 - `return` — required shape (structured prefixes or schema OK)
@@ -27,6 +29,7 @@ Map remote A2A `input-required` / `auth-required` to parent/user gates — do no
 
 ## Token / handoff filter
 Pass goal, anchors, scope, acceptance, return shape. Strip transcripts, tool chatter, and unpaired tool history. Prefer a short summary over full worker history on handoff.
+Give verifier workers the artifact, anchors, and acceptance contract—not the executor's reasoning transcript.
 
 ## Optional technique fields
 - Rubber duck / interview / mimic → see `references/techniques.md` (`playbook`, `mimic`, interviewer `claim_table`, duck `questions`).

@@ -1,0 +1,223 @@
+{
+  "version": 1,
+  "goal": "Activate orchestration only when it improves a multi-stage task, then choose an evidence-backed topology and completion gate.",
+  "cases": [
+    {
+      "id": "trigger-explicit-orchestrate",
+      "split": "train",
+      "prompt": "Orchestrate the API migration in this shared repo while other sessions are active, with parallel research, implementation, independent review, docs, and end-to-end validation.",
+      "activation": "trigger",
+      "expected": { "decision": "SPAWN", "tdd": true, "eval": false, "awareness": true }
+    },
+    {
+      "id": "trigger-independent-audits",
+      "split": "train",
+      "prompt": "Have specialists independently audit security, performance, and accessibility, then synthesize fixes and verify everything.",
+      "activation": "trigger",
+      "expected": { "decision": "SPAWN", "tdd": true, "eval": false, "awareness": false }
+    },
+    {
+      "id": "trigger-shared-repo-release",
+      "split": "train",
+      "prompt": "Coordinate agents working in this shared repo to finish the release checklist without conflicting edits.",
+      "activation": "trigger",
+      "expected": { "decision": "SPAWN", "tdd": false, "eval": false, "awareness": true }
+    },
+    {
+      "id": "trigger-sequential-program",
+      "split": "train",
+      "prompt": "Orchestrate this multi-stage rollout; each phase depends on the prior artifact, so plan, implement, test, document, and clean up.",
+      "activation": "trigger",
+      "expected": { "decision": "SOLO", "tdd": true, "eval": false, "awareness": false }
+    },
+    {
+      "id": "near-miss-small-fix",
+      "split": "train",
+      "prompt": "Fix this typo and run the focused test.",
+      "activation": "near-miss",
+      "expected": { "decision": "SOLO", "tdd": false, "eval": false, "awareness": false }
+    },
+    {
+      "id": "near-miss-explanation",
+      "split": "train",
+      "prompt": "Explain how this function works.",
+      "activation": "near-miss",
+      "expected": { "decision": "SOLO", "tdd": false, "eval": false, "awareness": false }
+    },
+    {
+      "id": "near-miss-parallel-tool-reads",
+      "split": "train",
+      "prompt": "Read these three independent files and summarize them.",
+      "activation": "near-miss",
+      "expected": { "decision": "BATCH", "tdd": false, "eval": false, "awareness": false }
+    },
+    {
+      "id": "near-miss-vague-keep-going",
+      "split": "train",
+      "prompt": "Keep going on the current simple edit.",
+      "activation": "near-miss",
+      "expected": { "decision": "SOLO", "tdd": false, "eval": false, "awareness": false }
+    },
+    {
+      "id": "regression-shared-streaming",
+      "split": "regression",
+      "prompt": "Orchestrate resumable streaming across agent-core and the native launcher. Freeze the event contract first, then assign disjoint package ownership; two teammates are already editing adjacent session code. Integrate conformance tests and verify the real CLI.",
+      "activation": "trigger",
+      "expected": { "decision": "SPAWN", "tdd": true, "eval": false, "awareness": true }
+    },
+    {
+      "id": "regression-isolated-mode-audit",
+      "split": "regression",
+      "prompt": "Audit session resume behavior across print, JSON, and RPC modes in separate read-only worktrees. Have the parent alone apply any fixes, update mode docs, and run cross-mode scenarios.",
+      "activation": "trigger",
+      "expected": { "decision": "SPAWN", "tdd": true, "eval": false, "awareness": false }
+    },
+    {
+      "id": "regression-explicit-sequential-migration",
+      "split": "regression",
+      "prompt": "Orchestrate an on-disk session-format migration. Profile existing records, design the new schema, wait for my approval, then implement the migrator, update the loader, add rollback guidance, and verify round trips; every phase consumes the previous artifact.",
+      "activation": "trigger",
+      "expected": { "decision": "SOLO", "tdd": true, "eval": false, "awareness": false }
+    },
+    {
+      "id": "regression-readonly-delegation",
+      "split": "regression",
+      "prompt": "Delegate a read-only review of cancellation semantics: one agent inspects agent-core, another independently inspects the Pi adapter, and a fresh verifier compares their findings. Do not edit anything; return evidence for my decision.",
+      "activation": "trigger",
+      "expected": { "decision": "SPAWN", "tdd": false, "eval": false, "awareness": false }
+    },
+    {
+      "id": "regression-routing-strategy-eval",
+      "split": "regression",
+      "prompt": "Orchestrate an improvement to subagent routing accuracy. Establish the baseline on training prompts, keep unseen held-out prompts, compare two independent routing proposals, and accept a change only if held-out pass rate improves without increasing false activations.",
+      "activation": "trigger",
+      "expected": { "decision": "SPAWN", "tdd": true, "eval": true, "awareness": false }
+    },
+    {
+      "id": "regression-implicit-independent-program",
+      "split": "regression",
+      "prompt": "Migrate authentication behavior across the API client and CLI settings, update the user guide, add compatibility tests, remove the old path, and validate the complete workflow. The client, CLI, docs, and read-only compatibility audit can proceed independently after the parent freezes the contract.",
+      "activation": "trigger",
+      "expected": { "decision": "SPAWN", "tdd": true, "eval": false, "awareness": true }
+    },
+    {
+      "id": "regression-implicit-shared-program",
+      "split": "regression",
+      "prompt": "Finish cache invalidation across agent-core and the editor with disjoint package ownership, tests, docs, and an integrated CLI check. Another active session is editing adjacent cache files, so coordinate overlap before changes.",
+      "activation": "trigger",
+      "expected": { "decision": "SPAWN", "tdd": true, "eval": false, "awareness": true }
+    },
+    {
+      "id": "regression-implicit-dependent-program",
+      "split": "regression",
+      "prompt": "Rewrite the parser, then use its final AST to update the transformer, then use that output to update formatting; diagnose and implement each stage in order with regression tests.",
+      "activation": "near-miss",
+      "expected": { "decision": "SOLO", "tdd": true, "eval": false, "awareness": false }
+    },
+    {
+      "id": "regression-trivial-delegation",
+      "split": "regression",
+      "prompt": "Delegate changing this one-word typo and run the existing focused check.",
+      "activation": "near-miss",
+      "expected": { "decision": "SOLO", "tdd": false, "eval": false, "awareness": false }
+    },
+    {
+      "id": "regression-batch-research",
+      "split": "regression",
+      "prompt": "Open five independent public API references and summarize their authentication headers in one table.",
+      "activation": "near-miss",
+      "expected": { "decision": "BATCH", "tdd": false, "eval": false, "awareness": false }
+    },
+    {
+      "id": "regression-tiny-rename",
+      "split": "regression",
+      "prompt": "Rename the local test helper makeCtx to createContext and update its two references.",
+      "activation": "near-miss",
+      "expected": { "decision": "SOLO", "tdd": false, "eval": false, "awareness": false }
+    },
+    {
+      "id": "regression-explain-retry",
+      "split": "regression",
+      "prompt": "Explain why the retry function returns the original error after its final attempt; do not change code.",
+      "activation": "near-miss",
+      "expected": { "decision": "SOLO", "tdd": false, "eval": false, "awareness": false }
+    },
+    {
+      "id": "regression-batch-doc-reads",
+      "split": "regression",
+      "prompt": "Read the package architecture note, README, and docs index, then summarize where they disagree.",
+      "activation": "near-miss",
+      "expected": { "decision": "BATCH", "tdd": false, "eval": false, "awareness": false }
+    },
+    {
+      "id": "regression-sequential-debug",
+      "split": "regression",
+      "prompt": "Reproduce the CLI crash, inspect its stack, then follow the failing call chain and report the cause; don't edit.",
+      "activation": "near-miss",
+      "expected": { "decision": "SOLO", "tdd": false, "eval": false, "awareness": false }
+    },
+    {
+      "id": "regression-approval-blocked-release",
+      "split": "regression",
+      "prompt": "Prepare the release command, but do not publish, tag, or message anyone until I explicitly approve.",
+      "activation": "near-miss",
+      "expected": { "decision": "SOLO", "tdd": false, "eval": false, "awareness": false }
+    },
+    {
+      "id": "regression-vague-continuation",
+      "split": "regression",
+      "prompt": "Continue with whatever comes next.",
+      "activation": "near-miss",
+      "expected": { "decision": "SOLO", "tdd": false, "eval": false, "awareness": false }
+    },
+    {
+      "id": "regression-explicit-readonly-handoff",
+      "split": "regression",
+      "prompt": "Transfer this investigation to a specialist and let that agent become my point of contact. It may inspect logs and configuration but must not restart services, rotate credentials, or mutate infrastructure. If the host cannot hand off, explain that limitation.",
+      "activation": "trigger",
+      "expected": { "decision": "HANDOFF", "tdd": false, "eval": false, "awareness": false, "owner": "SPECIALIST", "authority": "PROCEED", "proof": "PARENT_ANCHOR", "cleanup": "NONE", "budget": "BOUNDED" }
+    },
+    {
+      "id": "regression-unauthorized-cloud-cleanup",
+      "split": "regression",
+      "prompt": "Coordinate an inventory of obsolete production buckets and draft exact deletion commands. I have not authorized cloud mutation, credential use, deletion, or external messages. Finish as much as safely possible.",
+      "activation": "trigger",
+      "expected": { "decision": "SOLO", "tdd": false, "eval": false, "awareness": false, "owner": "PARENT", "authority": "STOP", "proof": "PARENT_ANCHOR", "cleanup": "ASK_BEFORE_REMOVE", "budget": "NOT_APPLICABLE" }
+    },
+    {
+      "id": "regression-correlated-majority",
+      "split": "regression",
+      "prompt": "Ask three agents whether to replace the event bus, give all of them the same recommended answer first, and treat unanimous agreement as proof before proceeding. The decision affects durability and rollback.",
+      "activation": "trigger",
+      "expected": { "decision": "SPAWN", "tdd": false, "eval": true, "awareness": false, "owner": "PARENT", "authority": "STOP", "proof": "MIXED_INDEPENDENT", "cleanup": "NONE", "budget": "BOUNDED" }
+    },
+    {
+      "id": "regression-filtered-security-verifier",
+      "split": "regression",
+      "prompt": "Delegate an authentication middleware patch and independent security verification. Give each only decisive contracts and paths; exclude unrelated incident notes and secrets, and do not give the verifier the implementer's reasoning transcript.",
+      "activation": "trigger",
+      "expected": { "decision": "SPAWN", "tdd": true, "eval": false, "awareness": true, "owner": "PARENT", "authority": "PROCEED", "proof": "MIXED_INDEPENDENT", "cleanup": "NONE", "budget": "BOUNDED" }
+    },
+    {
+      "id": "regression-hard-agent-budget",
+      "split": "regression",
+      "prompt": "Orchestrate a comparison within 24,000 model tokens, at most three agent runs, and no paid services. Stop with a decision-ready partial result if the acceptance threshold cannot be proven inside the cap.",
+      "activation": "trigger",
+      "expected": { "decision": "SPAWN", "tdd": false, "eval": true, "awareness": false, "owner": "PARENT", "authority": "PROCEED", "proof": "MIXED_INDEPENDENT", "cleanup": "NONE", "budget": "BOUNDED" }
+    },
+    {
+      "id": "regression-proven-local-cleanup",
+      "split": "regression",
+      "prompt": "Refactor a private helper and its colocated tests as the only active editor. Remove the replaced helper only after references and focused tests prove it dead; do not delete anything else.",
+      "activation": "near-miss",
+      "expected": { "decision": "SOLO", "tdd": false, "eval": false, "awareness": false, "owner": "PARENT", "authority": "PROCEED", "proof": "PARENT_ANCHOR", "cleanup": "PROVE_THEN_REMOVE", "budget": "NOT_APPLICABLE" }
+    },
+    {
+      "id": "regression-ceremonial-batch-request",
+      "split": "regression",
+      "prompt": "Orchestrate three agents to read three named version constants and tell me whether the values match. The files are known, local, read-only, and can be opened together.",
+      "activation": "near-miss",
+      "expected": { "decision": "BATCH", "tdd": false, "eval": false, "awareness": false, "owner": "PARENT", "authority": "PROCEED", "proof": "PARENT_ANCHOR", "cleanup": "NONE", "budget": "NOT_APPLICABLE" }
+    }
+  ]
+}

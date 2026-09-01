@@ -1,6 +1,6 @@
 # Synthesize
 
-Load before the parent answers the user. Why: fan-out without a barrier creates false certainty (misalignment, echo, withheld info).
+Load before the parent merges worker results. Why: fan-out without a barrier creates false certainty (misalignment, echo, withheld info).
 
 ## Barrier
 1. List every live worker — note starting / running / idle.
@@ -21,7 +21,7 @@ Load before the parent answers the user. Why: fan-out without a barrier creates 
 - Task derailment / info withholding — compare packet `goal` vs returned `result`.
 - Coordination tax — if merge needs another research campaign, the cut was wrong.
 
-## Before answering
+## Before completion
 Emit the synthesis card in `references/output.md`. If trust is thin, gate to rubber-duck / interview (`references/techniques.md`) instead of shipping. Eval sensors on barrier quality → `octocode-eval-benchmark` subagent-communication cookbook (not this folder).
 
-Next: `references/recovery.md` if blocked; `references/packets.md` for required shapes; `references/output.md` for the card.
+Next: `references/recovery.md` if blocked; `references/output.md` for the card; then `references/completion.md` for integrated verification, cleanup, documentation, and reporting.

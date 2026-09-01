@@ -13,5 +13,6 @@ Load when workers share a repo, cwd, or mutable files. Why: parallel agents coll
 - Assign **disjoint write paths** + a verification command in the packet.
 - Prefer read-only workers; parent applies mutations unless ownership transfers.
 - After session reload, spawn fresh workers — do not reuse stale worker ids.
+- When peers, messages, locks, verification debt, or durable memory change the next action, continue through `references/awareness.md`.
 
-Next: `packets.md` · `coordinate.md`.
+Next: `packets.md` · `coordinate.md`; shared-state signal present → `awareness.md`.

@@ -1,6 +1,6 @@
 # References
 
-Research trail for `octocode-subagent`. Host-agnostic skill; Pi/Cursor/Claude are example hosts only.
+Research trail for `octocode-subagent`, including the merged orchestration contract. Host-agnostic skill; Pi/Cursor/Claude are example hosts only.
 
 ## Specs / Docs
 
@@ -13,13 +13,16 @@ Research trail for `octocode-subagent`. Host-agnostic skill; Pi/Cursor/Claude ar
 | arXiv:2503.13657 MAST | failure modes: design, misalignment, weak verification |
 | arXiv:2305.14325 multi-agent debate | independent critics improve factuality |
 | Anthropic multi-agent research (2025) | scout fan-out, citation pass, scale effort to complexity |
+| Anthropic multiagent systems research | correlated consensus and conflicting-goal risks |
+| OpenAI Agents SDK orchestration | manager versus handoff, deterministic orchestration, filtered context |
+| Agent Skills specification | progressive disclosure and focused references |
 | Rubber-duck debugging (classic) | restatement surfaces assumptions without new tools |
 | Premortem / devil’s advocate (decision lit.) | attack the plan before commitment |
 | Self-consistency (Wang et al. themes) | majority over independent samples |
 | FrugalGPT / RouteLLM themes | model tier routing |
 
 ## Design choice
-Pi-specific tool names were removed so this skill installs on any host. Map `coordinate.md` actions to the local spawn API. Challenge techniques (duck / interview / mimic) live in this skill; KPI measurement stays in `octocode-eval-benchmark`.
+Pi-specific tool names were removed so this skill installs on any host. Map `coordinate.md` actions to the local spawn API. The former `octocode-orchestrator` contract was merged here: framing, authority/budgets, TDD/eval routing, Awareness, and completion now surround the existing delegation mechanics. Challenge techniques live here; full KPI measurement stays in `octocode-eval-benchmark`.
 
 ## Local Ollama offload (merged from former orchestrator-local-worker)
 
