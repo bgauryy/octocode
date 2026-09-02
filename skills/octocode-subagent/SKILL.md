@@ -46,4 +46,4 @@ Stop when solo work finishes, two High options need a winner, three angles add n
 - Use `octocode-research` for worker evidence; `octocode-eval-benchmark` for worker quality; `octocode-rfc-generator` before multi-agent architecture changes; `octocode-prompt-optimizer` for packet contracts; `octocode-skills` for this folder.
 ## Scripts
 - Run `scripts/ollama-health.sh` at GATE and after model ROUTE; run `scripts/ollama-worker.sh` once per sealed packet or shard at RUN with `--job`, `--input`, `--schema`, `--out`, and `--keepalive`.
-- After changing tool-using orchestration, run `scripts/eval-contract.mjs`; it validates `evals/cases.json`, while `--results` grades only a fresh current-digest receipt. `evals/premerge-forward-results.json` is historical baseline evidence, not post-merge proof.
+- After changing tool-using orchestration, run `scripts/eval-contract.mjs`; it validates `evals/cases.json`, while `--results` grades only a fresh current-digest receipt kept outside the shipped skill.

@@ -13,7 +13,7 @@ Invoke via `cdp-sandbox.mjs` (or `cdp-runner.mjs`) on a live `--port`.
 | `measure-query` | Filter measure JSON (`--view/--code/--kind/--domain/--latest`) |
 | `live-har-monitor` / `network-body-har-fetch-check` | Deep HAR/bodies after measure+query |
 | `har-pager` / `har-redact` | Page `.har` (`--filter/--kind/--status/--url-regex`); redact before share |
-| `api-replay` / `stealth-check` / `affiliates-stealth-probe` | Replay; stealth smoke |
+| `api-replay` / `stealth-check` / `affiliates-stealth-check` | Replay; stealth smoke |
 | `webmcp-tools` (+ `.check`) | WebMCP list/invoke + hermetic grader |
 
 ## Measure → query (no re-browser)

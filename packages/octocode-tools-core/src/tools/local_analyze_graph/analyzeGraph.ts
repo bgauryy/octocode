@@ -111,9 +111,16 @@ export async function analyzeGraph(
     );
   }
 
-  const warnings = built.truncated
-    ? [`scan stopped at maxFiles (${maxFiles}) — graph results are partial`]
-    : [];
+  const warnings = [
+    ...(built.truncated
+      ? [`scan stopped at maxFiles (${maxFiles}) — graph results are partial`]
+      : []),
+    ...(built.filesSkipped > 0
+      ? [
+          `${built.filesSkipped} file(s) could not be read or parsed within the native graph bounds — graph results are partial`,
+        ]
+      : []),
+  ];
   const base = {
     operation: query.operation,
     path: query.path,

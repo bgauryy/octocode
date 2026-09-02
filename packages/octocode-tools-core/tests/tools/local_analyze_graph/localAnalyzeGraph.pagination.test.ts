@@ -141,6 +141,108 @@ describe('localAnalyzeGraph deadCode pagination', () => {
     expect(nextPage.results).toHaveLength(1);
   });
 
+  it('replays every page continuation and preserves the complete duplicate-free result union', async () => {
+    const dir = await createWideGraphFixture(7);
+    let query = LocalAnalyzeGraphQuerySchema.parse({
+      operation: 'reachability',
+      path: dir,
+      entrypoints: ['entry-0.js'],
+      includeTests: false,
+      pageSize: 2,
+    });
+    const files: string[] = [];
+
+    for (;;) {
+      const page = await analyzeGraph(query);
+      files.push(...page.results.map(result => result.file as string));
+      if (!page.pagination?.hasMore) break;
+
+      const continuation = page.next?.nextPage as
+        { query?: Record<string, unknown> } | undefined;
+      query = LocalAnalyzeGraphQuerySchema.parse(continuation?.query);
+    }
+
+    expect(files).toHaveLength(7);
+    expect(new Set(files).size).toBe(7);
+    expect(files.sort()).toEqual(
+      Array.from({ length: 7 }, (_, index) => `entry-${index}.js`)
+    );
+  });
+
+  it('expands a capped scan, then replays every page without losing files', async () => {
+    const dir = await createWideGraphFixture(7);
+    let query = LocalAnalyzeGraphQuerySchema.parse({
+      operation: 'reachability',
+      path: dir,
+      entrypoints: ['entry-0.js'],
+      includeTests: false,
+      maxFiles: 2,
+      pageSize: 2,
+    });
+    let output = await analyzeGraph(query);
+
+    while (output.partialReasons?.includes('maxFiles')) {
+      const continuation = output.next?.expandScan as
+        { query?: Record<string, unknown> } | undefined;
+      query = LocalAnalyzeGraphQuerySchema.parse(continuation?.query);
+      output = await analyzeGraph(query);
+    }
+
+    const files: string[] = [];
+    for (;;) {
+      files.push(...output.results.map(result => result.file as string));
+      if (!output.pagination?.hasMore) break;
+
+      const continuation = output.next?.nextPage as
+        { query?: Record<string, unknown> } | undefined;
+      query = LocalAnalyzeGraphQuerySchema.parse(continuation?.query);
+      output = await analyzeGraph(query);
+    }
+
+    expect(files).toHaveLength(7);
+    expect(new Set(files).size).toBe(7);
+    expect(files.sort()).toEqual(
+      Array.from({ length: 7 }, (_, index) => `entry-${index}.js`)
+    );
+  });
+
+  it('expands a result limit, then replays every page without losing files', async () => {
+    const dir = await createWideGraphFixture(7);
+    let query = LocalAnalyzeGraphQuerySchema.parse({
+      operation: 'reachability',
+      path: dir,
+      entrypoints: ['entry-0.js'],
+      includeTests: false,
+      limit: 2,
+      pageSize: 2,
+    });
+    let output = await analyzeGraph(query);
+
+    while (output.partialReasons?.includes('limit')) {
+      const continuation = output.next?.expandLimit as
+        { query?: Record<string, unknown> } | undefined;
+      query = LocalAnalyzeGraphQuerySchema.parse(continuation?.query);
+      output = await analyzeGraph(query);
+    }
+
+    const files: string[] = [];
+    for (;;) {
+      files.push(...output.results.map(result => result.file as string));
+      if (!output.pagination?.hasMore) break;
+
+      const continuation = output.next?.nextPage as
+        { query?: Record<string, unknown> } | undefined;
+      query = LocalAnalyzeGraphQuerySchema.parse(continuation?.query);
+      output = await analyzeGraph(query);
+    }
+
+    expect(files).toHaveLength(7);
+    expect(new Set(files).size).toBe(7);
+    expect(files.sort()).toEqual(
+      Array.from({ length: 7 }, (_, index) => `entry-${index}.js`)
+    );
+  });
+
   it.each(['reachability', 'deadCode'] as const)(
     'surfaces a maxFiles-truncated %s scan through the built executor and provides an executable expansion',
     async operation => {
@@ -184,6 +286,54 @@ describe('localAnalyzeGraph deadCode pagination', () => {
       expect(replayRow?.data?.truncated).not.toBe(true);
     }
   );
+
+  it('does not surface maxFiles partial state for an exactly-at-cap scan', async () => {
+    const dir = await createWideGraphFixture(2);
+    const result = await executeAnalyzeGraph({
+      queries: [
+        {
+          operation: 'reachability',
+          path: dir,
+          entrypoints: ['entry-0.js'],
+          includeTests: false,
+          maxFiles: 2,
+        },
+      ],
+    });
+    const row = firstRow(result);
+
+    expect(row?.data?.truncated).not.toBe(true);
+    expect(row?.data?.partialReasons).toBeUndefined();
+    expect(row?.data?.next?.expandScan).toBeUndefined();
+    expect(row?.meta?.diagnostics?.partial).not.toBe(true);
+  });
+
+  it('marks skipped native graph files as an explicit terminal partial result', async () => {
+    const dir = await createWideGraphFixture(1);
+    await writeFile(join(dir, 'oversized.js'), 'x'.repeat(1_000_001));
+    const result = await executeAnalyzeGraph({
+      queries: [
+        {
+          operation: 'reachability',
+          path: dir,
+          entrypoints: ['entry-0.js'],
+          includeTests: false,
+          maxFiles: 10,
+        },
+      ],
+    });
+    const row = firstRow(result);
+
+    expect(row?.data).toMatchObject({
+      filesSkipped: 1,
+      truncated: true,
+      partialReasons: ['filesSkipped'],
+      terminalLimit: true,
+    });
+    expect(row?.meta?.diagnostics?.partial).toBe(true);
+    expect(row?.meta?.diagnostics?.codes).toContain('terminalLimitReached');
+    expect(row?.meta?.diagnostics?.codes).not.toContain('continuationMissing');
+  });
 
   it('surfaces limit truncation and provides an executable expansion after the last limited page', async () => {
     const dir = await createWideGraphFixture(5);

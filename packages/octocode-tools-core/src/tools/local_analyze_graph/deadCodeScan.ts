@@ -4,7 +4,6 @@ import {
   type WalkResult,
 } from '../../graph/buildFileGraph.js';
 import { isTestFilePath, resolveEntrypoints } from './entrypoints.js';
-import { resolveImportSpecifier } from '../../graph/importResolver.js';
 import {
   computeReachableFiles,
   findStronglyConnectedComponents,
@@ -82,6 +81,11 @@ export async function scanForDeadCode(
       `scan stopped at maxFiles (${maxFiles}) — results are partial, not a full-repo verdict`
     );
   }
+  if (filesSkipped > 0) {
+    warnings.push(
+      `${filesSkipped} file(s) could not be read or parsed within the native graph bounds — results are partial, not a full-repo verdict`
+    );
+  }
 
   // A resolved entrypoint that extracted to NO outgoing edges and NO
   // declarations of its own almost always means the native extractor failed to
@@ -156,20 +160,6 @@ export async function scanForDeadCode(
     );
   }
 
-  // Precompute each file's `localName -> resolved target file` map once
-  // (same resolver the graph builder used), then fold into two reverse
-  // indexes so `isRetained`/`isBindingLive` do O(1) lookups per candidate
-  // instead of re-scanning every reachable file's imports/re-exports.
-  const fileImportsResolved = new Map<string, Map<string, string>>();
-  for (const [file, fileFacts] of facts) {
-    const localToTarget = new Map<string, string>();
-    for (const imp of fileFacts.imports) {
-      const target = resolveImportSpecifier(imp.specifier, file, knownFiles);
-      if (target) localToTarget.set(imp.localName, target);
-    }
-    fileImportsResolved.set(file, localToTarget);
-  }
-
   // `${targetFile}::${importedName}` for every real (non-re-export) import
   // reachable code actually makes.
   const realImportIndex = new Set<string>();
@@ -183,15 +173,14 @@ export async function scanForDeadCode(
   for (const file of reachableFiles) {
     const fileFacts = facts.get(file);
     if (!fileFacts) continue;
-    const resolved = fileImportsResolved.get(file);
 
     for (const imp of fileFacts.imports) {
-      const target = resolved?.get(imp.localName);
+      const target = imp.resolvedTarget;
       if (target) realImportIndex.add(bindingKey(target, imp.importedName));
     }
 
     for (const rex of fileFacts.namedReexports) {
-      const target = resolveImportSpecifier(rex.specifier, file, knownFiles);
+      const target = rex.resolvedTarget;
       if (!target) continue;
       const key = bindingKey(target, rex.importedName);
       const list = reexportIndex.get(key) ?? [];

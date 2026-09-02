@@ -1,15 +1,15 @@
-// Stealth-mandatory probe: Walmart Affiliate Program landing (public marketing site).
+// Stealth-mandatory check: Walmart Affiliate Program landing (public marketing site).
 // CDP runner applies stealth before navigation when using --new-tab <https url>.
 //
 //   node skills/octocode-chrome-devtools/scripts/open-browser.mjs --headless --port 9222 --url about:blank
 //   node skills/octocode-chrome-devtools/scripts/cdp-sandbox.mjs \
-//     skills/octocode-chrome-devtools/scripts/cdp-checks/affiliates-stealth-probe.mjs \
+//     skills/octocode-chrome-devtools/scripts/cdp-checks/affiliates-stealth-check.mjs \
 //     --port 9222 --new-tab "https://affiliates.walmart.com/" --timeout 60000 --keep-tab
 //
 import { writeFileSync } from 'fs';
 import { join } from 'path';
 
-const TARGET = process.env.AFFILIATES_PROBE_URL ?? 'https://affiliates.walmart.com/';
+const TARGET = process.env.AFFILIATES_CHECK_URL ?? 'https://affiliates.walmart.com/';
 
 export async function run(cdp) {
   if (!cdp.stealthApplied) {
@@ -55,16 +55,16 @@ export async function run(cdp) {
     cookies: { count: cookieRows.length, rows: cookieRows },
     storage: storage.result?.value,
   };
-  const out = join(cdp.outputDir, 'affiliates-stealth-probe.json');
+  const out = join(cdp.outputDir, 'affiliates-stealth-check.json');
   writeFileSync(out, JSON.stringify(payload, null, 2));
   console.log(`[ARTIFACT] ${out}`);
   console.log(`[METRIC] COOKIES count=${cookieRows.length}`);
   console.log(`[METRIC] STORAGE localStorageKeys=${payload.storage?.localStorageKeys?.length ?? 0}`);
 
   if (!/Walmart Affiliate/i.test(info.title || '') && !/Become a Walmart Affiliate/i.test(info.h1 || '')) {
-    throw new Error('affiliate landing probe: title/h1 mismatch (bot wall or redirect)');
+    throw new Error('affiliate landing check: title/h1 mismatch (bot wall or redirect)');
   }
   if (!info.href?.includes('affiliates.walmart.com')) {
-    throw new Error(`affiliate landing probe: unexpected href ${info.href}`);
+    throw new Error(`affiliate landing check: unexpected href ${info.href}`);
   }
 }

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { basename, dirname, join, resolve } from 'node:path';
+import { basename, dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -22,9 +22,9 @@ if (args.includes('--help')) {
   --self-test  run collection, usage-error, and frontmatter-route regressions
   --help       this text
 
-Navigation gates treat the skill as a map: SKILL.md is the lobby that lists every reference and
-script with when and how to use it plus the workflow, each route says when to load it, and each
-reference points onward. Exit 1 on any ERROR.`);
+Navigation gates treat the skill as a map: SKILL.md is the lobby, every local file reference stays
+inside the folder, and every shipped file is reachable from the lobby, README, or another used file.
+Exit 1 on any ERROR.`);
   process.exit(0);
 }
 
@@ -111,6 +111,49 @@ function scriptFiles(dir, sub = 'scripts') {
   });
 }
 
+/** Every file ships with the skill. There are no invisible development-only files. */
+function skillFiles(dir, sub = '') {
+  const base = join(dir, sub);
+  return readdirSync(base).flatMap((name) => {
+    const rel = sub ? `${sub}/${name}` : name;
+    const full = join(dir, rel);
+    return statSync(full).isDirectory() ? skillFiles(dir, rel) : [rel.split(sep).join('/')];
+  });
+}
+
+function textFile(path) {
+  const bytes = readFileSync(path);
+  return bytes.includes(0) ? null : bytes.toString('utf8');
+}
+
+function staysInside(root, candidate) {
+  const rel = relative(root, candidate);
+  return rel === '' || (!rel.startsWith(`..${sep}`) && rel !== '..');
+}
+
+/** Reachability starts at the lobby and human README, then follows exact file or directory mentions. */
+function usedFiles(dir, files, texts) {
+  const used = new Set(files.filter((rel) => rel === 'SKILL.md' || rel === 'README.md'));
+  const queue = [...used];
+  while (queue.length) {
+    const source = queue.shift();
+    const text = texts.get(source);
+    if (text == null) continue;
+    const routedDirs = linkedPaths(text).filter((path) => path.endsWith('/'));
+    for (const target of files) {
+      if (used.has(target)) continue;
+      const fromSource = relative(dirname(join(dir, source)), join(dir, target)).split(sep).join('/');
+      const directlyNamed = text.includes(target) || text.includes(`./${target}`) || text.includes(fromSource);
+      const directoryRouted = routedDirs.some((prefix) => target.startsWith(prefix));
+      if (directlyNamed || directoryRouted) {
+        used.add(target);
+        queue.push(target);
+      }
+    }
+  }
+  return used;
+}
+
 /** A skill folder installs on its own, so it must not depend on a file outside itself. A bare `../name`
  *  is left alone: it is a directory argument (a skill under review), not a dependency. */
 const OUTSIDE_DEP = /\.\.\/(?:[A-Za-z0-9._-]+\/)*[A-Za-z0-9._-]+\.[A-Za-z0-9]{1,5}|~\/[^\s`)]+\.[A-Za-z0-9]{1,5}|file:\/\/[^\s`)]+|(?:^|[\s`("])\/(?:Users|home|etc|opt|var)\/[^\s`)"]+/;
@@ -120,6 +163,30 @@ const DATA_ARTIFACT = /(?:^|\/)references\.md$|template|appendix|fixture/i;
 
 /** An onward pointer keeps navigation moving instead of dead-ending in a leaf. */
 const ONWARD_CUE = /^\s*(?:next|then|return|back|continue|see also)\b/im;
+
+const STALE_OCTOCODE_CONTRACTS = [
+  {
+    pattern: /\boctocode skill --name\b/,
+    fix: 'use `octocode skill install <name>`',
+  },
+  {
+    pattern: /\boctocode skill --list\b/,
+    fix: 'use `octocode skill list`',
+  },
+  {
+    pattern: /\boctocode skill --add\b/,
+    fix: 'use `octocode skill install --add <source>`',
+  },
+  {
+    pattern: /\boctocode skill dir\b/,
+    fix: 'use `octocode skill info <name> --json` and read `skill.dir`',
+  },
+  {
+    pattern:
+      /\btools\s+(?:local\.(?:text|find|tree|fetch)|github\.(?:tree|code|repo|fetch)|local_(?:ripgrep|view_structure|find_files|fetch_content))\b/,
+    fix: 'use a current public tool name and operation from `tools --json`',
+  },
+];
 
 /** Phase tokens from a `Flow:` line — ALL-CAPS steps joined by arrows. */
 function flowPhases(text) {
@@ -140,6 +207,9 @@ function checkSkill(dir) {
 
   const error = (code, message) => findings.push({ level: 'ERROR', code, message });
   const warn = (code, message) => findings.push({ level: 'WARN', code, message });
+
+  const files = skillFiles(dir);
+  const texts = new Map(files.map((rel) => [rel, textFile(join(dir, rel))]));
 
   if (!fm) error('frontmatter-missing', 'SKILL.md must start with YAML frontmatter.');
   if (fm && fm.name !== basename(dir)) error('name-mismatch', `frontmatter name (${fm.name}) must match folder (${basename(dir)}).`);
@@ -226,16 +296,34 @@ function checkSkill(dir) {
   }
 
   // A table row carries its condition in the left cell, so only prose routes are judged on their own line.
-  const topLevelMd = readdirSync(dir).filter((f) => /\.md$/i.test(f) && f !== 'SKILL.md')
-    .map((f) => [f, readFileSync(join(dir, f), 'utf8')]);
-  for (const [rel, text] of [['SKILL.md', skill], ...topLevelMd, ...refTexts]) {
+  for (const [rel, text] of texts) {
+    if (text == null) continue;
     for (const [i, line] of text.split(/\r?\n/).entries()) {
       const hit = line.match(OUTSIDE_DEP);
       // A path carrying a placeholder (`<abs>`, `...`, `$HOME`, `{dir}`) is a template the reader fills in,
       // not a file this folder depends on.
       if (hit && !/<[^>]*>|\.\.\.|\$[A-Za-z{]|\{/.test(hit[0])) {
-        error('link-outside-skill', `${rel}:${i + 1} depends on ${hit[0].trim()} outside the folder; the skill installs alone — vendor it or drop it.`);
+        const raw = hit[0].trim().replace(/^[`('"]+/, '');
+        const escaped = raw.startsWith('../')
+          ? !staysInside(dir, resolve(dirname(join(dir, rel)), raw))
+          : true;
+        if (escaped) error('link-outside-skill', `${rel}:${i + 1} depends on ${raw} outside the folder; vendor it or drop it.`);
       }
+      for (const contract of STALE_OCTOCODE_CONTRACTS) {
+        if (contract.pattern.test(line)) {
+          error(
+            'octocode-contract-stale',
+            `${rel}:${i + 1} uses stale Octocode syntax; ${contract.fix}.`
+          );
+        }
+      }
+    }
+  }
+
+  const used = usedFiles(dir, files, texts);
+  for (const rel of files) {
+    if (!used.has(rel)) {
+      error('unused-file', `${rel} is not reachable from SKILL.md, README.md, or another used file; route it or remove it.`);
     }
   }
 
@@ -283,6 +371,39 @@ Run the hook test and stop.
     if (expanded.length !== 1 || expanded[0] !== skillDir) throw new Error('collection discovery regression');
     const findings = checkSkill(skillDir).findings;
     if (findings.length) throw new Error(`frontmatter route regression: ${JSON.stringify(findings)}`);
+
+    writeFileSync(
+      join(skillDir, 'README.md'),
+      '# Hook skill\n\nRun `npx octocode skill --name hook-skill`.\n'
+    );
+    const staleContractFindings = checkSkill(skillDir).findings;
+    if (
+      !staleContractFindings.some(
+        finding => finding.code === 'octocode-contract-stale'
+      )
+    ) {
+      throw new Error(
+        `octocode-contract-stale regression: ${JSON.stringify(staleContractFindings)}`
+      );
+    }
+    writeFileSync(join(skillDir, 'README.md'), '# Hook skill\n');
+
+    writeFileSync(join(skillDir, 'unused-probe.txt'), 'temporary probe\n');
+    const unusedFindings = checkSkill(skillDir).findings;
+    if (!unusedFindings.some((finding) => finding.code === 'unused-file')) {
+      throw new Error(`unused-file regression: ${JSON.stringify(unusedFindings)}`);
+    }
+    rmSync(join(skillDir, 'unused-probe.txt'));
+
+    mkdirSync(join(skillDir, 'references'));
+    const outsidePath = '../' + '../shared.md';
+    writeFileSync(join(skillDir, 'references', 'outside.md'), `# Outside\n\nLoad when testing. Why: regression.\n\nRead \`${outsidePath}\`.\n\nNext: return to \`SKILL.md\`.\n`);
+    writeFileSync(join(skillDir, 'SKILL.md'), readFileSync(join(skillDir, 'SKILL.md'), 'utf8') + '\nWhen testing paths, load `references/outside.md`.\n');
+    const outsideFindings = checkSkill(skillDir).findings;
+    if (!outsideFindings.some((finding) => finding.code === 'link-outside-skill')) {
+      throw new Error(`outside-file regression: ${JSON.stringify(outsideFindings)}`);
+    }
+
     let rejectedMissing = false;
     try { expandTarget(join(root, 'missing')); } catch { rejectedMissing = true; }
     if (!rejectedMissing) throw new Error('missing target must be rejected');

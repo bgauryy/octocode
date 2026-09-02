@@ -20,8 +20,7 @@ function platformKey(): string | null {
   }
   if (process.platform === 'linux') {
     const report = process.report?.getReport() as
-      | { header?: { glibcVersionRuntime?: string } }
-      | undefined;
+      { header?: { glibcVersionRuntime?: string } } | undefined;
     const libc = report?.header?.glibcVersionRuntime ? 'gnu' : 'musl';
     if (process.arch === 'x64') return `linux-x64-${libc}`;
     if (process.arch === 'arm64') return `linux-arm64-${libc}`;
@@ -35,13 +34,7 @@ const addonExists =
   (key !== null &&
     (existsSync(join(__dirname, '..', `octocode-engine.${key}.node`)) ||
       existsSync(
-        join(
-          __dirname,
-          '..',
-          'npm',
-          key,
-          `octocode-engine.${key}.node`
-        )
+        join(__dirname, '..', 'npm', key, `octocode-engine.${key}.node`)
       )));
 
 // A missing addon must FAIL the suite — silent skipping masks broken builds.
@@ -109,14 +102,13 @@ const MINIFIER_FUNCTION_EXPORTS = [
   'computeLineDiff',
 ] as const satisfies readonly (keyof typeof import('../index.js'))[];
 
-const PUBLIC_NATIVE_EXPORTS = PUBLIC_NATIVE_EXPORT_NAMES satisfies readonly (keyof typeof import('../index.js'))[];
+const PUBLIC_NATIVE_EXPORTS =
+  PUBLIC_NATIVE_EXPORT_NAMES satisfies readonly (keyof typeof import('../index.js'))[];
 
 beforeAll(async () => {
   if (!addonExists) return;
   addon = await import('../index.js');
 });
-
-
 
 describe('public native export parity', () => {
   it('exports every symbol in the native export manifest', async () => {
@@ -129,7 +121,6 @@ describe('public native export parity', () => {
     }
   });
 });
-
 
 describe('getExtension', () => {
   it('returns extension from normal file', () => {
@@ -156,7 +147,10 @@ describe('queryFileSystem', () => {
       mkdirSync(join(root, 'src', 'nested'), { recursive: true });
       mkdirSync(join(root, 'node_modules', 'pkg'), { recursive: true });
       writeFileSync(join(root, 'src', 'nested', 'main.ts'), 'export {}');
-      writeFileSync(join(root, 'src', 'nested', 'main.js'), 'module.exports = {}');
+      writeFileSync(
+        join(root, 'src', 'nested', 'main.js'),
+        'module.exports = {}'
+      );
       writeFileSync(join(root, 'node_modules', 'pkg', 'index.ts'), 'ignored');
 
       const pending = addon!.queryFileSystem({
@@ -234,6 +228,13 @@ describe('scanGraphFacts', () => {
       expect(result.entries[0]?.factsJson).toContain('declarations');
       expect(result.filesSkipped).toBe(0);
       expect(result.truncated).toBe(false);
+
+      const exactCap = await native.scanGraphFacts({
+        path: root,
+        maxFiles: 2,
+      });
+      expect(exactCap.candidatePaths).toHaveLength(2);
+      expect(exactCap.truncated).toBe(false);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -373,7 +374,10 @@ describe('minifyContentSync', () => {
 
   it('is deterministic across repeated public minify calls', () => {
     const cases = [
-      ['script.ts', 'export function add(a: number, b: number) { return a + b; }\n'],
+      [
+        'script.ts',
+        'export function add(a: number, b: number) { return a + b; }\n',
+      ],
       ['data.jsonc', '{\n  // comment\n  "a": 1,\n}\n'],
       ['style.css', '.card { color: red; margin: 0px; }\n'],
       ['readme.md', '# Title\n\nBody text\n\n'],
@@ -475,9 +479,14 @@ def top():
   it('returns null for languages without a tree-sitter grammar (no regex fallback)', () => {
     // Signature extraction is tree-sitter only — Markdown, Lua, SQL, Ruby, etc.
     // have no wired grammar and therefore produce no outline.
-    expect(addon!.extractSignatures('# Title\n\nText\n', 'README.md')).toBeNull();
     expect(
-      addon!.extractSignatures('local x = 1\nfunction f() return x end\n', 'a.lua')
+      addon!.extractSignatures('# Title\n\nText\n', 'README.md')
+    ).toBeNull();
+    expect(
+      addon!.extractSignatures(
+        'local x = 1\nfunction f() return x end\n',
+        'a.lua'
+      )
     ).toBeNull();
     expect(
       addon!.extractSignatures('CREATE TABLE t (id INT);\n', 'a.sql')
@@ -514,7 +523,9 @@ export function main(): void {}
   });
 
   it('returns null for non-JS/TS and empty content', () => {
-    expect(addon!.extractJsSymbols('package main\nfunc f(){}', 'main.go')).toBeNull();
+    expect(
+      addon!.extractJsSymbols('package main\nfunc f(){}', 'main.go')
+    ).toBeNull();
     expect(addon!.extractJsSymbols('', 'empty.ts')).toBeNull();
   });
 
@@ -527,15 +538,29 @@ export function main(): void {}
   it('getSupportedJsTsExtensions is the dispatch source of truth', () => {
     const exts = addon!.getSupportedJsTsExtensions();
     expect(exts).toEqual(
-      expect.arrayContaining(['ts', 'tsx', 'js', 'jsx', 'mjs', 'cjs', 'mts', 'cts'])
+      expect.arrayContaining([
+        'ts',
+        'tsx',
+        'js',
+        'jsx',
+        'mjs',
+        'cjs',
+        'mts',
+        'cts',
+      ])
     );
     // Every advertised extension must actually produce a native outline.
     for (const ext of exts) {
-      const out = addon!.extractJsSymbols(`export function f(){}`, `probe.${ext}`);
+      const out = addon!.extractJsSymbols(
+        `export function f(){}`,
+        `probe.${ext}`
+      );
       expect(out, `extension ${ext} must outline natively`).not.toBeNull();
     }
     // A non-listed extension must not.
-    expect(addon!.extractJsSymbols('export function f(){}', 'probe.go')).toBeNull();
+    expect(
+      addon!.extractJsSymbols('export function f(){}', 'probe.go')
+    ).toBeNull();
   });
 });
 
@@ -554,7 +579,9 @@ describe('findInFileReferences (native oxc in-file references)', () => {
   });
 
   it('returns null when the cursor is not on a binding', () => {
-    expect(addon!.findInFileReferences('const x = 1;\n', 'm.ts', 0, 0)).toBeNull();
+    expect(
+      addon!.findInFileReferences('const x = 1;\n', 'm.ts', 0, 0)
+    ).toBeNull();
   });
 
   it('returns null for non-JS/TS files', () => {
@@ -623,9 +650,9 @@ pub fn run() {
         expect.objectContaining({ name: 'run', exported: true }),
       ])
     );
-    expect(facts.imports.some(item => item.specifier.includes('crate::other'))).toBe(
-      true
-    );
+    expect(
+      facts.imports.some(item => item.specifier.includes('crate::other'))
+    ).toBe(true);
     expect(facts.calls).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ caller: 'run', callee: 'helper' }),
@@ -641,7 +668,9 @@ pub fn run() {
     expect(addon!.SUPPORTED_GRAPH_FACT_EXTENSIONS).toEqual(
       expect.arrayContaining(['rs', 'py', 'go', 'ts'])
     );
-    const capabilities = JSON.parse(addon!.getGraphFactCapabilities()) as Array<{
+    const capabilities = JSON.parse(
+      addon!.getGraphFactCapabilities()
+    ) as Array<{
       extension: string;
       factFamilies: string[];
     }>;
@@ -760,10 +789,12 @@ describe('structuralSearchFilesDetailed', () => {
       expect(result.skippedByPreFilter).toBe(1);
       expect(result.skippedUnsupported).toBe(1);
       expect(result.query.literalAnchor).toBe('target');
-      expect(result.files.some(file => file.status === 'skippedByPreFilter')).toBe(
+      expect(
+        result.files.some(file => file.status === 'skippedByPreFilter')
+      ).toBe(true);
+      expect(result.files.some(file => file.status === 'unsupported')).toBe(
         true
       );
-      expect(result.files.some(file => file.status === 'unsupported')).toBe(true);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -902,7 +933,10 @@ describe('searchRipgrep (in-process ripgrep)', () => {
     const root = mkdtempSync(join(tmpdir(), 'octocode-rg-empty-'));
     try {
       writeFileSync(join(root, 'a.ts'), 'nothing relevant\n');
-      const result = await addon!.searchRipgrep({ path: root, pattern: 'absent' });
+      const result = await addon!.searchRipgrep({
+        path: root,
+        pattern: 'absent',
+      });
       expect(result.files).toHaveLength(0);
     } finally {
       rmSync(root, { recursive: true, force: true });
@@ -977,14 +1011,34 @@ describe('getSupportedSignatureExtensions', () => {
     if (!addon) return;
     const exts = addon.getSupportedSignatureExtensions();
     // Languages with body_query — must be present.
-    for (const required of ['ts', 'py', 'rs', 'go', 'java', 'rb', 'php',
-                             'kt', 'ex', 'lua', 'erl', 'zig', 'r', 'swift',
-                             'scala', 'tf', 'hcl', 'tfvars', 'proto']) {
+    for (const required of [
+      'ts',
+      'py',
+      'rs',
+      'go',
+      'java',
+      'rb',
+      'php',
+      'kt',
+      'ex',
+      'lua',
+      'erl',
+      'zig',
+      'r',
+      'swift',
+      'scala',
+      'tf',
+      'hcl',
+      'tfvars',
+      'proto',
+    ]) {
       expect(exts, `${required} must be in signature list`).toContain(required);
     }
     // Data/markup/prose formats and languages without a body_query are excluded.
     for (const absent of ['md', 'markdown', 'sql', 'html', 'jl', 'ml']) {
-      expect(exts, `${absent} must NOT be in signature list`).not.toContain(absent);
+      expect(exts, `${absent} must NOT be in signature list`).not.toContain(
+        absent
+      );
     }
   });
 });
@@ -1282,9 +1336,13 @@ describe('extractMatchingLines', () => {
   });
 
   it('regex match', () => {
-    const r = addon!.extractMatchingLines('const x = 1;\nlet y = 2;', String.raw`(const|let)\s+\w`, {
-      isRegex: true,
-    });
+    const r = addon!.extractMatchingLines(
+      'const x = 1;\nlet y = 2;',
+      String.raw`(const|let)\s+\w`,
+      {
+        isRegex: true,
+      }
+    );
     expect(r.matchCount).toBe(2);
   });
 
@@ -1304,7 +1362,11 @@ describe('extractMatchingLines', () => {
   });
 
   it('whitespace-stripped fallback', () => {
-    const r = addon!.extractMatchingLines('hello    world\nfoo', 'helloworld', null);
+    const r = addon!.extractMatchingLines(
+      'hello    world\nfoo',
+      'helloworld',
+      null
+    );
     expect(r.matchCount).toBe(1);
   });
 
@@ -1315,7 +1377,9 @@ describe('extractMatchingLines', () => {
   });
 
   it('max matches cap', () => {
-    const r = addon!.extractMatchingLines('x\nx\nx\nx\nx', 'x', { maxMatches: 2 });
+    const r = addon!.extractMatchingLines('x\nx\nx\nx\nx', 'x', {
+      maxMatches: 2,
+    });
     expect(r.matchingLines).toHaveLength(2);
   });
 
@@ -1374,7 +1438,7 @@ describe('filterPatch', () => {
 describe('computeLineDiff', () => {
   it('returns Myers ops for a single-line change', () => {
     const ops = addon!.computeLineDiff('a\nb\nc\n', 'a\nB\nc\n');
-    const changed = ops.filter((op) => op.opType !== 'same');
+    const changed = ops.filter(op => op.opType !== 'same');
     expect(changed).toEqual([
       { opType: 'remove', line: 'b' },
       { opType: 'add', line: 'B' },
@@ -1383,7 +1447,7 @@ describe('computeLineDiff', () => {
 
   it('marks identical content as all same', () => {
     const ops = addon!.computeLineDiff('one\ntwo\n', 'one\ntwo\n');
-    expect(ops.every((op) => op.opType === 'same')).toBe(true);
+    expect(ops.every(op => op.opType === 'same')).toBe(true);
   });
 });
 
@@ -1408,7 +1472,9 @@ describe('ESM/CJS loader parity', () => {
     const cjsModule = await import(cjsLoaderPath);
     const binding = (cjsModule.default ?? cjsModule) as Record<string, unknown>;
     const esm = await importEsmLoader();
-    const facadeKeys = new Set(Object.keys(esm).filter(name => name !== 'default'));
+    const facadeKeys = new Set(
+      Object.keys(esm).filter(name => name !== 'default')
+    );
     const missing = Object.keys(binding).filter(name => !facadeKeys.has(name));
     expect(missing).toEqual([]);
   });

@@ -1,4 +1,0 @@
-interface:
-  display_name: "Octocode Brainstorming"
-  short_description: "Explore and validate ideas with evidence."
-  default_prompt: "Use $octocode-brainstorming to explore this idea, test the strongest framings with relevant evidence, and recommend the next decision."

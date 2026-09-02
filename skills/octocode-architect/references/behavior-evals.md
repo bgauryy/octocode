@@ -1,30 +1,35 @@
 # Behavior Evaluations
 
-Load when calibrating the skill or checking a revision. Why: verify that its rigor stays proportional and evidence-based.
+Load when calibrating or changing the skill. Why: verify architectural rigor without making small tasks ceremonial.
 
-## Scenarios
+## Contract
 
-| Scenario | Expected behavior | Failure signal |
+The executable cases live in `evals/cases.json`; `scripts/eval-skill.mjs` grades required and forbidden behavior. Cases cover:
+
+| Behavior | Pass signal | Regression signal |
 |---|---|---|
-| Rename a private local variable | Confirm local scope, patch, run the narrow check, and report briefly | Invents rollout, security, or observability work |
-| Change a public request field | Trace callers and consumers; name compatibility, validation, migration, tests, and rollback | Edits the type without checking runtime consumers |
-| Add behavior resembling an existing helper | Search for similar implementations and contracts; reuse, consolidate, or justify intentional divergence | Adds another copy after inspecting only the first matching file |
-| Review a safe mechanical diff | Return `Major: none` when evidence supports it | Fabricates a finding to fill the template |
-| Dependency contract is unclear | Present verified facts, name the missing contract, and pause before implementation | Guesses the API or builds an abstraction around uncertainty |
-| Optimize an agent prompt | Define a metric and baseline, change one variable, rerun, and compare | Claims improvement from intuition alone |
+| Private rename | local scope and narrow verification | invented rollout or security work |
+| Public contract | consumers, compatibility, migration, rollback | type-only edit |
+| Similar helper | search, reuse, consolidate, or justify divergence | duplicate behavior |
+| Safe review | `Major: none` when evidence supports it | fabricated finding |
+| Unclear dependency | verified facts, missing contract, pause | guessed API |
+| Prompt optimization | metric, baseline, one-variable rerun | intuition-only improvement |
+| Blast radius | callers, data, runtime, tests, operations, rollback | file-list-only impact |
+| Housekeeping | task-adjacent cleanup only | unrelated refactor |
+| Bookkeeping | repository-required records updated | blanket metadata churn |
+| Data/interface wiring | source, transform, boundary, sink, invariants | code treated as isolated text |
+| Decomposition | dependencies, bounded parallel work, per-part verification, composition | indiscriminate workers or hidden failures |
 
-## Pass contract
+## Run
 
-For each scenario, check:
+```bash
+node scripts/eval-skill.mjs --self-test
+node scripts/eval-skill.mjs --case <id> --answer <response.md>
+node scripts/eval-skill.mjs --batch <answer-directory>
+```
 
-- The response follows `THINK → PLAN → CODE → REVIEW` without turning those labels into ceremony.
-- Claims cite inspected code, runtime behavior, tests, or an explicitly named assumption.
-- The plan names the smallest useful slice and excludes unrelated work.
-- The response checks similar implementations and explains reuse, consolidation, or intentional divergence.
-- Risk dimensions are addressed only when material; irrelevant dimensions are omitted or marked N/A with a reason.
-- Verification exercises the production path or explains why that is impossible.
-- The output uses the planning or review contract and stays concise.
+`--self-test` proves every reference answer passes and every failure example fails. `--batch` expects `<id>.md` for each case and reports the aggregate pass rate.
 
-A revision passes when every scenario avoids its failure signal and satisfies all applicable checks. Record any failed scenario before changing the instructions; change one instruction at a time, then rerun the full set.
+Keep cases frozen during an instruction experiment. Accept only when the target failure improves, prior cases stay green, and `skill-review.mjs` reports zero errors. Add cases between experiments, never to excuse a failing candidate.
 
-This evaluation step ends here. Return to `SKILL.md` and keep only revisions that improve the failed scenario without regressing the others.
+Next: return to `SKILL.md` and keep only evidence-backed revisions.

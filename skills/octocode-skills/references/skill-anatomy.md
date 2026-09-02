@@ -2,7 +2,7 @@
 
 Load when evaluating, improving, or creating a skill's folder shape — before rewriting structure.
 
-A skill is a standalone folder with required `SKILL.md` and optional `scripts/`, `references/`, and `assets/`. Assume no sibling folder or monorepo dependency exists after installation. Name optional sibling skills, vendor small required helpers, and declare packaged dependencies.
+A skill is a standalone folder with required `SKILL.md` and optional `scripts/`, `references/`, and `assets/`. Every local file reference resolves inside it, and every shipped file is used. Name optional sibling skills without file paths; vendor required helpers and remove development-only metadata, probes, duplicates, and dead artifacts.
 
 ```text
 my-skill/

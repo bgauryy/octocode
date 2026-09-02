@@ -48,7 +48,7 @@ export interface AnalyzeGraphOutput {
   filesSkipped?: number;
   truncated?: boolean;
   terminalLimit?: boolean;
-  partialReasons?: Array<'maxFiles' | 'limit'>;
+  partialReasons?: Array<'maxFiles' | 'limit' | 'filesSkipped'>;
   totalAvailable?: number;
   results?: Array<Record<string, unknown>>;
   summary?: Record<string, unknown>;

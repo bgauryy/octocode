@@ -4,7 +4,7 @@ Load when pruning a skill before ship, after improve/dedupe, or when review flag
 
 ## Standalone ship shape
 
-A skill is one portable directory. Install/sync copies or symlinks that folder as-is. There is no monorepo outside it at runtime.
+A skill is one portable directory. Install/sync copies or symlinks that folder as-is. Every local file reference must resolve inside it; sibling skills are named capabilities, never file dependencies.
 
 Keep only what the agent needs to run the skill:
 
@@ -18,14 +18,14 @@ skill-name/
 `-- references/references.md  # audit trail only (optional)
 ```
 
-Do not ship: drafts, scratch notes, old renames, vendor copies, nested `node_modules`, secrets, or files that only make sense inside another repo.
+Do not ship: unused or duplicate files, development-only metadata, probes, drafts, scratch notes, old renames, nested `node_modules`, secrets, or files that only make sense inside another repo.
 
 ## Cleanup checklist
 
-1. **Orphan refs** — every `references/*.md` reachable from `SKILL.md` or another ref (`orphan-reference`); else delete or route.
-2. **Orphan scripts/assets** — every agent-facing script listed in the lobby; unused assets → remove or document.
-3. **Duplicate content** — one owner per concept; delete restated paragraphs; cross-link (`duplicate-content`).
-4. **Broken links** — no missing `references/` or `scripts/` targets; no links escaping the skill folder.
+1. **Whole-folder reachability** — every file is reachable from `SKILL.md`, `README.md`, or another used file (`unused-file`); otherwise delete or route it.
+2. **Internal references** — every local file reference resolves inside the skill; vendor required files and name optional sibling skills without file paths (`link-outside-skill`).
+3. **Duplicate content/files** — one owner and one shipped copy per concept; delete restated prose, duplicate assets, development-only metadata, and probes.
+4. **Routes** — every reference and agent-facing script is reachable and listed in the lobby with its use condition.
 5. **Bloat** — `SKILL.md` ≤50 lines; each ref ≤50, one H1; drop authoring metadata from agent files.
 6. **Dead routes** — lobby links that no longer match a real job → remove the line and the file if unused.
 

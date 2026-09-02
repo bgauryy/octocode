@@ -47,12 +47,17 @@ function markScanCompleteness(
   output: AnalyzeGraphOutput,
   scanTruncated: boolean
 ): AnalyzeGraphOutput {
-  if (!scanTruncated) return output;
+  const filesSkipped = (output.filesSkipped ?? 0) > 0;
+  if (!scanTruncated && !filesSkipped) return output;
   return {
     ...output,
     truncated: true,
     partialReasons: [
-      ...new Set([...(output.partialReasons ?? []), 'maxFiles' as const]),
+      ...new Set([
+        ...(output.partialReasons ?? []),
+        ...(scanTruncated ? (['maxFiles'] as const) : []),
+        ...(filesSkipped ? (['filesSkipped'] as const) : []),
+      ]),
     ],
   };
 }
@@ -71,7 +76,12 @@ function markTerminalLimit(
   const pageLimitReached =
     output.pagination?.hasMore === true &&
     output.pagination.currentPage >= MAX_PAGE_NUMBER;
-  return scanLimitReached || resultLimitReached || pageLimitReached
+  const skippedFilesCannotBePaged =
+    output.partialReasons?.includes('filesSkipped') === true;
+  return scanLimitReached ||
+    resultLimitReached ||
+    pageLimitReached ||
+    skippedFilesCannotBePaged
     ? { ...output, terminalLimit: true }
     : output;
 }

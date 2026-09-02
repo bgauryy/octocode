@@ -16,4 +16,4 @@ Implementation: `scripts/mandatory-stealth.mjs` (imported from `cdp-runner.mjs`)
 
 `octocode-scraping` `--provider cdp` uses the same patches + verify in its generated runner (unless `--no-cdp-stealth`).
 
-Examples: `scripts/cdp-checks/stealth-check.mjs`, `scripts/cdp-checks/affiliates-stealth-probe.mjs`.
+Examples: `scripts/cdp-checks/stealth-check.mjs`, `scripts/cdp-checks/affiliates-stealth-check.mjs`.

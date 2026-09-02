@@ -24,7 +24,7 @@ Project hooks run from repo root. Cloud agents support a subset of events only.
 ## Steps
 
 1. Pick event + matcher from `hooks.md`.
-2. Copy `assets/hooks/example-hook.sh` → target `scripts/hooks/example-hook.sh` (rename if needed).
+2. Copy `assets/hooks/example-hook.sh` into the target skill as scripts/hooks/NAME.sh (rename it).
 3. Copy `assets/hooks/example-hook-brain.mjs`; replace TODO; keep `--help` + stdin parse.
 4. Claude: add frontmatter with `${CLAUDE_SKILL_DIR}/…` + `timeout`. Cursor/Codex: native config or installer with `--dry-run` first.
 5. Document in `SKILL.md` body (host, event, what it does, how to verify) — review requires `hooks-handling`.

@@ -26,10 +26,10 @@ Confirm the target host executes the surface before relying on it.
 
 ## Script contract
 
-Thin wrapper at `scripts/hooks/example-hook.sh` → exec brain under `scripts/`. Stdin JSON; exit 0 allow, 2 block (pre/stop only); fail open on bugs. Always set `timeout`. Fast pre-tool; best-effort post; stop = reminder not undo. Rename the example when adding a real hook.
+The target skill's scripts/hooks/NAME.sh wrapper executes its internal brain under scripts/. Stdin JSON; exit 0 allow, 2 block (pre/stop only); fail open on bugs. Always set `timeout`. Fast pre-tool; best-effort post; stop = reminder not undo.
 
 ## Review before install
 
-Read every `scripts/hooks/*` and every `command:` in skill/host configs. Flag destructive, silent, or unbounded hooks.
+Read every hook script and every `command:` in skill/host configs. Flag destructive, silent, or unbounded hooks.
 
 Next: when wiring a new hook load `references/hooks-add.md`; after editing frontmatter load `references/skill-review.md`.

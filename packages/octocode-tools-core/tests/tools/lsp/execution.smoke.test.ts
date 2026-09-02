@@ -133,4 +133,73 @@ describe('lspGetSemantics tools-core smoke', () => {
       firstData?.payload?.symbols
     );
   });
+
+  it('recovers the complete documentSymbols result by executing every emitted continuation', async () => {
+    const dir = await mkdtemp(join(process.cwd(), '.tmp-octocode-lsp-union-'));
+    tempDirs.push(dir);
+    const filePath = join(dir, 'fixture.ts');
+    await writeFile(
+      filePath,
+      [
+        'export const alpha = 1;',
+        'export const beta = 2;',
+        'export const gamma = 3;',
+      ].join('\n')
+    );
+
+    type SymbolsData = {
+      payload?: { symbols?: unknown[] };
+      next?: { nextPage?: { query?: Record<string, unknown> } };
+    };
+    const readData = (
+      result: Awaited<ReturnType<typeof executeLspGetSemantics>>
+    ) =>
+      (
+        result.structuredContent as {
+          results?: Array<{ data?: SymbolsData }>;
+        }
+      ).results?.[0]?.data;
+
+    const complete = await executeLspGetSemantics({
+      queries: [
+        {
+          uri: filePath,
+          type: 'documentSymbols',
+          page: 1,
+          pageSize: 100,
+          format: 'structured',
+        },
+      ],
+    } as never);
+    const expected = complete.isError
+      ? []
+      : (readData(complete)?.payload?.symbols ?? []);
+
+    const recovered: unknown[] = [];
+    let query: Record<string, unknown> | undefined = {
+      uri: filePath,
+      type: 'documentSymbols',
+      page: 1,
+      pageSize: 1,
+      format: 'structured',
+    };
+    let pages = 0;
+    while (query) {
+      const result = await executeLspGetSemantics({
+        queries: [query],
+      } as never);
+      expect(result.isError).not.toBe(true);
+      const data = readData(result);
+      recovered.push(...(data?.payload?.symbols ?? []));
+      query = data?.next?.nextPage?.query;
+      pages += 1;
+      expect(pages).toBeLessThanOrEqual(10);
+    }
+
+    expect(pages).toBeGreaterThan(1);
+    expect(recovered).toEqual(expected);
+    expect(new Set(recovered.map(symbol => JSON.stringify(symbol))).size).toBe(
+      recovered.length
+    );
+  });
 });

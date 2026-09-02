@@ -12,9 +12,9 @@ Load when interpreting or fixing review findings — after running `scripts/skil
 | `description-too-long` | `description` ≤1024 chars |
 | `missing-route` | every routed `references/*` and `scripts/*` path exists |
 | `link-outside-skill` | no dependency on a file outside the folder — no `../dir/file`, `~/`, `file://`, or absolute path (a bare `../dir` argument is fine, as is a path carrying a `<placeholder>`) |
+| `unused-file` | every shipped file is reachable from `SKILL.md`, `README.md`, or another used file; remove development-only metadata, probes, duplicates, and dead weight |
 
 ## WARN codes → fix
-
 | Code | Fix |
 |------|-----|
 | `description-trigger` | lead with `Use when <trigger>` |
@@ -46,5 +46,5 @@ Navigation codes read the skill as a map: `SKILL.md` is the lobby that lists eve
 | Portability | runtime assumptions, deps, and secrets travel with the folder; link a sibling skill by name, never by path |
 | Workspace artifacts | lobby routes generated files under `<workspace>/.octocode/`, distinguishes requested source mutations, and forbids user-level fallback |
 
-Key limits: each `references/*.md` ≤50 lines with one short H1; every reference and runnable script named in the lobby; every citation states why it matters.
+Key limits: references stay inside the skill; every shipped file is used; each `references/*.md` ≤50 lines with one short H1; every reference and runnable script is named in the lobby.
 Next: when re-running the loop load `references/skill-review.md`; for design rationale load `references/skill-anatomy.md`.

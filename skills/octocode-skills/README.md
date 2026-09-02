@@ -13,7 +13,7 @@ Use when the task is about a skill's trigger, workflow, references, hooks, insta
 - Install with provider/scope/mode gates and conflict handling
 - Create or adapt local skills with an audit trail and review gate
 - Review and wire lifecycle hooks safely
-- Check structure, routes, references, scripts, portability, and trigger quality
+- Check structure, routes, whole-folder file usage, internal-only references, portability, and trigger quality
 
 ## How It Works
 

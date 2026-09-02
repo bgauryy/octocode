@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   ALL_TOOLS as CORE_ALL_TOOLS,
   GITHUB_SEARCH_TOOL_NAME,
+  STATIC_TOOL_NAMES,
 } from '@octocodeai/octocode-tools-core';
 import type { ToolExecutionArgs } from '@octocodeai/octocode-tools-core';
 import { createMockMcpServer } from '../fixtures/mcp-fixtures.js';
@@ -132,6 +133,23 @@ describe('core-driven MCP tool registration', () => {
     } finally {
       coreTool!.direct.executionFn = originalExecutionFn;
     }
+  });
+
+  it.each([
+    STATIC_TOOL_NAMES.GITHUB_CLONE_REPO,
+    STATIC_TOOL_NAMES.GITHUB_FETCH_CONTENT,
+  ])('marks cache-materializing %s as not read-only', async toolName => {
+    vi.resetModules();
+    const { ALL_TOOLS } = await import('../../src/tools/toolConfig.js');
+    const tool = ALL_TOOLS.find(item => item.name === toolName);
+    expect(tool).toBeDefined();
+
+    const mcp = createMockMcpServer();
+    tool!.fn(mcp.server);
+
+    expect(mcp.registrations[0]?.options.annotations).toMatchObject({
+      readOnlyHint: false,
+    });
   });
 
   it('batches isolated registration failures and summarizes their messages', async () => {

@@ -17,6 +17,12 @@ export interface ImportFact {
   line: number;
   /** Native syntax classification; `type` edges do not exist at runtime. */
   importKind: 'type' | 'value';
+  /**
+   * Canonical target resolved during graph construction with the complete
+   * workspace package-export map. `null` means the specifier is external or
+   * unsupported by the bounded resolver.
+   */
+  resolvedTarget: string | null;
 }
 
 export interface CallEdgeFact {

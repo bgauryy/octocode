@@ -10,8 +10,8 @@ Review combines mechanical findings with judgment about density, ownership, navi
 2. **Quality rubric** — trigger, workflow, gates, evidence, UX, risk (`references/quality-rubric.md`).
 3. **Mechanical rules** — frontmatter, missing refs/scripts, length, routing, hooks, prose, description trigger quality (`description-concise` / `description-rigid` / `description-redundant`) (`references/skill-review-rules.md`).
 4. **Navigation** — lobby lists every reference and script with when/how plus the workflow, routes carry when/why, chunks declare entry and next hop, flow phases are routed (`references/skill-anatomy.md`).
-5. **Standalone** — no dependency on a file outside the folder; the skill must work installed alone (`link-outside-skill`).
-6. **Cleanup** — orphans, dupes, dead files (`references/skill-cleanup.md`).
+5. **Standalone** — every local file reference stays inside the folder (`link-outside-skill`).
+6. **Cleanup** — every shipped file is reachable and useful; no duplicate, development-only metadata, probe, or scratch artifacts (`unused-file`, `references/skill-cleanup.md`).
 
 ## Run
 

@@ -6,7 +6,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const subjectPaths = ['SKILL.md', 'agents/openai.yaml', 'references/orchestration-contract.md', 'references/spawn-gate.md', 'references/decompose.md', 'references/packets.md', 'references/evaluation.md', 'references/awareness.md', 'references/completion.md'];
+const subjectPaths = ['SKILL.md', 'references/orchestration-contract.md', 'references/spawn-gate.md', 'references/decompose.md', 'references/packets.md', 'references/evaluation.md', 'references/awareness.md', 'references/completion.md'];
 const required = [...subjectPaths, 'README.md', 'evals/cases.json', 'references/references.md'];
 const usage = `eval-contract [--results <fresh-receipt.json>] [--print-digest]\n\nValidates the orchestration suite and optionally grades provenance-bearing fresh-agent outputs.\n--results <path>  grade a fresh receipt for the current subject digest\n--print-digest    print current subject and case digests\n--help            show this help`;
 
@@ -55,7 +55,6 @@ if (existsSync(join(root, 'SKILL.md'))) {
   if (!skill.includes('description: "Use when ')) failures.push('description is not trigger-led');
   if (skill.split('\n').length > 50) failures.push('SKILL.md exceeds 50 lines');
 }
-if (existsSync(join(root, 'agents/openai.yaml')) && !readFileSync(join(root, 'agents/openai.yaml'), 'utf8').includes('allow_implicit_invocation: true')) failures.push('implicit invocation is not enabled');
 if (resultsPath && !existsSync(resultsPath)) failures.push(`missing results file: ${resultsPath}`);
 
 if (!failures.length && resultsPath) {

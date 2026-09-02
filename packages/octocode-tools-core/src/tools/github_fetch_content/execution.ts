@@ -28,6 +28,7 @@ import {
   providerSupports,
 } from '../providerExecution.js';
 import { buildGithubFetchContentFinalizer } from './finalizer.js';
+import { getConfigSync } from '@octocodeai/config';
 
 type FileContentInputQuery = z.input<typeof FileContentQueryLocalSchema>;
 
@@ -72,6 +73,12 @@ export async function fetchMultipleGitHubFileContents(
           minify: resolvedMinify,
         };
 
+        if (effectiveQuery.type === 'directory') {
+          const capabilityError =
+            getDirectoryMaterializationCapabilityError(effectiveQuery);
+          if (capabilityError) return capabilityError;
+        }
+
         const providerContext = getProviderContext();
 
         if (effectiveQuery.type === 'directory') {
@@ -100,14 +107,32 @@ export async function fetchMultipleGitHubFileContents(
   );
 }
 
+function getDirectoryMaterializationCapabilityError(
+  query: PartialFileContentQuery
+) {
+  const config = getConfigSync();
+  if (!config.local.enabled) {
+    return createErrorResult(
+      'Directory fetch requires local materialization. Set ENABLE_LOCAL=true to use type: "directory".',
+      query,
+      { extra: { errorCode: 'localToolsDisabled' }, rawResponse: 0 }
+    );
+  }
+  if (!config.local.enableClone) {
+    return createErrorResult(
+      'Directory fetch requires clone/materialization support. Set ENABLE_CLONE=true to use type: "directory".',
+      query,
+      { extra: { errorCode: 'cloneDisabled' }, rawResponse: 0 }
+    );
+  }
+  return undefined;
+}
+
 async function handleDirectoryFetch(
   query: PartialFileContentQuery,
   authInfo: AuthInfo | undefined,
   providerContext: ReturnType<typeof createProviderExecutionContext>
 ) {
-  // Clone availability is enforced at the MCP layer (packages/octocode-mcp).
-  // tools-core implementation proceeds if local is enabled.
-
   if (!providerSupports(providerContext, 'fetchDirectoryToDisk')) {
     return handleCatchError(
       new Error(

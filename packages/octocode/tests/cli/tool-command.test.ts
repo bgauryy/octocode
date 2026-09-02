@@ -47,6 +47,9 @@ const publicMocks = vi.hoisted(() => ({
   ghSearch: vi.fn().mockResolvedValue({
     content: [{ type: 'text', text: 'github output' }],
   }),
+  ghGetFileContent: vi.fn().mockResolvedValue({
+    content: [{ type: 'text', text: 'file content output' }],
+  }),
   noop: vi.fn().mockResolvedValue({
     content: [{ type: 'text', text: 'ok' }],
   }),
@@ -82,6 +85,9 @@ vi.mock('@octocodeai/octocode-tools-core/direct', async importOriginal => {
     }
     if (toolName === 'ghSearch') {
       return publicMocks.ghSearch(input);
+    }
+    if (toolName === 'ghGetFileContent') {
+      return publicMocks.ghGetFileContent(input);
     }
     return publicMocks.noop(input);
   });
@@ -882,5 +888,45 @@ describe('toolCommand', () => {
       true
     );
     expect(Buffer.byteLength(output)).toBeLessThanOrEqual(3600);
+  });
+
+  it('prints tools-core directory capability errors in compact CLI output', async () => {
+    publicMocks.ghGetFileContent.mockResolvedValueOnce({
+      content: [{ type: 'text', text: 'directory materialization disabled' }],
+      structuredContent: {
+        results: [
+          {
+            index: 0,
+            status: 'error',
+            meta: { diagnostics: { codes: ['localToolsDisabled'] } },
+            data: {
+              error:
+                'Directory fetch requires local materialization. Set ENABLE_LOCAL=true to use type: "directory".',
+            },
+          },
+        ],
+      },
+    });
+
+    const { executeToolCommand } =
+      await import('../../src/cli/tool-command.js');
+    const ok = await executeToolCommand({
+      command: 'tools',
+      args: ['ghGetFileContent'],
+      options: {
+        compact: true,
+        queries: JSON.stringify({
+          owner: 'octocat',
+          repo: 'Hello-World',
+          path: 'src',
+          type: 'directory',
+        }),
+      },
+    });
+
+    expect(ok).toBe(true);
+    expect(consoleSpy.mock.calls.flat().join('\n')).toContain(
+      'localToolsDisabled'
+    );
   });
 });

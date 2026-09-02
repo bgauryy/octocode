@@ -163,6 +163,12 @@ export async function buildFileGraph(
         importedName: exp.name,
         line: exp.line,
         importKind: 'value' as const,
+        resolvedTarget: resolveImportSpecifier(
+          exp.source as string,
+          relativePath,
+          knownFiles,
+          workspacePackageExports
+        ),
       }));
 
     // String-literal dynamic `import('./x')` specifiers resolve to a file the
@@ -182,6 +188,12 @@ export async function buildFileGraph(
         importedName: i.importedName,
         line: i.line,
         importKind: i.importKind === 'type' ? 'type' : 'value',
+        resolvedTarget: resolveImportSpecifier(
+          i.specifier,
+          relativePath,
+          knownFiles,
+          workspacePackageExports
+        ),
       })),
       namedReexports,
       calls: (parsed.calls ?? [])
@@ -204,12 +216,7 @@ export async function buildFileGraph(
       edgeKinds.set(target, kinds);
     };
     for (const imp of fileFacts.imports) {
-      const target = resolveImportSpecifier(
-        imp.specifier,
-        relativePath,
-        knownFiles,
-        workspacePackageExports
-      );
+      const target = imp.resolvedTarget;
       if (target)
         addEdge(
           target,
@@ -217,12 +224,7 @@ export async function buildFileGraph(
         );
     }
     for (const reexport of fileFacts.namedReexports) {
-      const target = resolveImportSpecifier(
-        reexport.specifier,
-        relativePath,
-        knownFiles,
-        workspacePackageExports
-      );
+      const target = reexport.resolvedTarget;
       if (target) addEdge(target, 'named-reexport');
     }
     for (const specifier of dynamicImportSpecifiers) {

@@ -14,7 +14,7 @@ Workspace output contract: chat-only recommendations stay in chat. New reviews, 
 - `SKILL.md` owns workflows and routes; each reference owns one concept. List every reference and runnable script in the lobby with its use condition.
 - Inspect the real skill before quoting, judging, or installing it. Identify candidates by path and require authority for writes.
 - Stop discovery when one fit is clear, further angles add no evidence, a winner needs user judgment, or approval is pending.
-- Ship a standalone folder with one owner per concept. Name optional sibling skills; never depend on their files.
+- Ship a standalone folder: local file references stay inside it, and every shipped file is reachable from the lobby, README, or another used file. Remove duplicate, development-only metadata, probe, and scratch files; name optional sibling skills without depending on their files.
 
 ## Smart routes — load only what the current step needs
 - At UNDERSTAND, identify the requested skill operation, scope, source, and write authority before choosing a route.
@@ -37,6 +37,6 @@ Workspace output contract: chat-only recommendations stay in chat. New reviews, 
 - Run `scripts/skill-sync.mjs` only after a dry-run and human approval — synchronize one source safely.
 - `scripts/skill-lint.mjs` is an alias for `scripts/skill-review.mjs` — same gate under the older name.
 - A skill script needing Octocode home or env imports `./octocode-config.mjs`, a build artifact injected by `packages/octocode-config` into every skill that imports it relatively — never import `@octocodeai/config` from a skill, or the folder breaks once installed alone.
-- When wiring a hook, copy `assets/hooks/example-hook.sh` into `scripts/hooks/` and route it from frontmatter.
+- When wiring a hook, copy `assets/hooks/example-hook.sh` into the target skill's hook-script directory and route that internal file from frontmatter.
 
 When creating or installing, follow the approval and destination routes, then review the result before reporting done.

@@ -1,9 +1,12 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Capture the query the provider actually receives so we can assert which
 // minify mode reaches the GitHub layer (where comment/blank-line stripping
 // happens).
 const getFileContent = vi.fn();
+const { fetchDirectoryContents } = vi.hoisted(() => ({
+  fetchDirectoryContents: vi.fn(),
+}));
 
 const fakeProvider = {
   type: 'github',
@@ -25,7 +28,7 @@ vi.mock('../../../src/github/directoryFetch.js', () => ({
     branch: 'main',
     commitSha: '0123456789abcdef0123456789abcdef01234567',
   })),
-  fetchDirectoryContents: vi.fn(),
+  fetchDirectoryContents,
 }));
 
 import { fetchMultipleGitHubFileContents } from '../../../src/tools/github_fetch_content/execution.js';
@@ -33,6 +36,8 @@ import {
   FileContentQueryLocalSchema,
   FileContentBulkQueryLocalSchema,
 } from '../../../src/tools/github_fetch_content/scheme.js';
+import { cleanup } from '../../../src/serverConfig.js';
+import { _resetRuntimeSurface, setRuntimeSurface } from '@octocodeai/config';
 
 const FILE_WITH_COMMENTS = '// a comment\nconst x = 1;\n\nconst y = 2;\n';
 
@@ -51,10 +56,53 @@ function minifyOf(): string | undefined {
 }
 
 describe('ghGetFileContent — fullContent is verbatim (minify:none) by default', () => {
+  const originalEnableLocal = process.env.ENABLE_LOCAL;
+  const originalEnableClone = process.env.ENABLE_CLONE;
+
   beforeEach(() => {
     getFileContent.mockReset();
     getFileContent.mockResolvedValue(providerOk());
+    fetchDirectoryContents.mockReset();
+    setRuntimeSurface('cli');
+    process.env.ENABLE_LOCAL = 'true';
+    process.env.ENABLE_CLONE = 'true';
+    cleanup();
   });
+
+  afterEach(() => {
+    if (originalEnableLocal === undefined) delete process.env.ENABLE_LOCAL;
+    else process.env.ENABLE_LOCAL = originalEnableLocal;
+    if (originalEnableClone === undefined) delete process.env.ENABLE_CLONE;
+    else process.env.ENABLE_CLONE = originalEnableClone;
+    _resetRuntimeSurface();
+    cleanup();
+  });
+
+  it.each([
+    ['ENABLE_LOCAL', 'false', 'localToolsDisabled'],
+    ['ENABLE_CLONE', 'false', 'cloneDisabled'],
+  ] as const)(
+    'rejects directory materialization when %s=%s before touching the filesystem',
+    async (flag, value, errorCode) => {
+      process.env[flag] = value;
+      cleanup();
+
+      const result = await fetchMultipleGitHubFileContents({
+        queries: [
+          {
+            owner: 'o',
+            repo: 'r',
+            path: 'src',
+            branch: 'main',
+            type: 'directory',
+          },
+        ],
+      } as never);
+
+      expect(fetchDirectoryContents).not.toHaveBeenCalled();
+      expect(JSON.stringify(result.structuredContent)).toContain(errorCode);
+    }
+  );
 
   it('defaults fullContent reads to minify:none so comments are not stripped', async () => {
     const result = await fetchMultipleGitHubFileContents({

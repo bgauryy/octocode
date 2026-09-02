@@ -7,6 +7,7 @@ import {
 } from '../../src/tools/toolNames.js';
 import { cleanup } from '../../src/serverConfig.js';
 import { setRuntimeSurface, _resetRuntimeSurface } from '@octocodeai/config';
+import { ADAPTER_PARITY_CASES } from '../fixtures/adapterParityFixture.js';
 
 describe('executeDirectTool - invalid input handling (finding 3)', () => {
   const originalEnableClone = process.env.ENABLE_CLONE;
@@ -141,6 +142,48 @@ describe('executeDirectTool - invalid input handling (finding 3)', () => {
     expect(structured?.error?.message).toContain('outside the TOOLS_TO_RUN');
   });
 
+  it.each([
+    ['TOOLS_TO_RUN', LOCAL_SEARCH_TOOL_NAME, 'toolNotEnabled'],
+    ['DISABLE_TOOLS', STATIC_TOOL_NAMES.GITHUB_SEARCH, 'toolDisabled'],
+  ] as const)(
+    'applies %s to default remote tools in direct execution',
+    async (flag, value, errorCode) => {
+      setRuntimeSurface('cli');
+      delete process.env.TOOLS_TO_RUN;
+      delete process.env.DISABLE_TOOLS;
+      process.env[flag] = value;
+      cleanup();
+
+      const result = await executeDirectTool(STATIC_TOOL_NAMES.GITHUB_SEARCH, {
+        queries: [{ operation: 'code', keywords: ['executeDirectTool'] }],
+      });
+
+      expect(result.isError).toBe(true);
+      const structured = result.structuredContent as
+        { error?: { code?: string } } | undefined;
+      expect(structured?.error?.code).toBe(errorCode);
+    }
+  );
+
+  it.each(ADAPTER_PARITY_CASES)(
+    'applies the strict direct-execution allowlist to $name',
+    async testCase => {
+      setRuntimeSurface('cli');
+      process.env.ENABLE_LOCAL = 'true';
+      process.env.ENABLE_CLONE = 'true';
+      process.env.TOOLS_TO_RUN = 'local.text';
+      delete process.env.DISABLE_TOOLS;
+      cleanup();
+
+      const result = await executeDirectTool(testCase.name, testCase.input);
+
+      expect(result.isError).toBe(true);
+      const structured = result.structuredContent as
+        { error?: { code?: string } } | undefined;
+      expect(structured?.error?.code).toBe('toolNotEnabled');
+    }
+  );
+
   it('returns a structured error result instead of throwing for invalid input', async () => {
     // A primitive is invalid for every tool's object input schema, so the
     // parse fails. It must surface as a structured CallToolResult error, not a
@@ -163,10 +206,7 @@ describe('executeDirectTool - invalid input handling (finding 3)', () => {
     ).rejects.toThrow(/Unknown tool/);
   });
 
-  // ENABLE_CLONE gate is MCP-only (packages/octocode-mcp/src/tools/toolFilters.ts).
-  // tools-core no longer rejects based on ENABLE_CLONE — it is gate-free at
-  // this layer. The MCP decides whether to register/expose ghCloneRepo at all.
-  it('does NOT gate ghCloneRepo in tools-core when ENABLE_CLONE is false (gate is MCP-only)', async () => {
+  it('gates ghCloneRepo in tools-core when ENABLE_CLONE is false', async () => {
     process.env.ENABLE_LOCAL = 'true';
     process.env.ENABLE_CLONE = 'false';
     cleanup();
@@ -178,47 +218,43 @@ describe('executeDirectTool - invalid input handling (finding 3)', () => {
           {
             owner: 'octocat',
             repo: 'Hello-World',
-            mainResearchGoal: 'Verify clone gate is MCP-only',
-            researchGoal: 'Confirm tools-core does not gate on ENABLE_CLONE',
-            reasoning:
-              'Architectural decision: clone gating belongs in the MCP layer',
           },
         ],
       }
     );
 
-    // tools-core must NOT return a cloneDisabled error — that code was removed.
-    // The call may error for other reasons (network, auth) but not clone gating.
     const structured = result.structuredContent as
       { error?: { code?: string } } | undefined;
-    expect(structured?.error?.code).not.toBe('cloneDisabled');
+    expect(result.isError).toBe(true);
+    expect(structured?.error?.code).toBe('cloneDisabled');
   });
 
-  it('does NOT gate ghGetFileContent directory type in tools-core when ENABLE_CLONE is false (gate is MCP-only)', async () => {
-    process.env.ENABLE_LOCAL = 'true';
-    process.env.ENABLE_CLONE = 'false';
-    cleanup();
+  it.each([
+    ['ENABLE_LOCAL', 'false', 'localToolsDisabled'],
+    ['ENABLE_CLONE', 'false', 'cloneDisabled'],
+  ] as const)(
+    'gates ghGetFileContent directory materialization inside tools-core when %s=%s',
+    async (flag, value, errorCode) => {
+      process.env.ENABLE_LOCAL = 'true';
+      process.env.ENABLE_CLONE = 'true';
+      process.env[flag] = value;
+      cleanup();
 
-    const result = await executeDirectTool(
-      STATIC_TOOL_NAMES.GITHUB_FETCH_CONTENT,
-      {
-        queries: [
-          {
-            owner: 'octocat',
-            repo: 'Hello-World',
-            path: 'README.md',
-            mainResearchGoal: 'Verify directory fetch clone gate is MCP-only',
-            researchGoal:
-              'Confirm tools-core does not gate directory fetch on ENABLE_CLONE',
-            reasoning:
-              'Architectural decision: clone gating belongs in the MCP layer',
-          },
-        ],
-      }
-    );
+      const result = await executeDirectTool(
+        STATIC_TOOL_NAMES.GITHUB_FETCH_CONTENT,
+        {
+          queries: [
+            {
+              owner: 'octocat',
+              repo: 'Hello-World',
+              path: 'src',
+              type: 'directory',
+            },
+          ],
+        }
+      );
 
-    // tools-core must NOT emit "Directory fetch requires local clone support".
-    const text = JSON.stringify(result.structuredContent);
-    expect(text).not.toContain('Directory fetch requires local clone support');
-  });
+      expect(JSON.stringify(result.structuredContent)).toContain(errorCode);
+    }
+  );
 });

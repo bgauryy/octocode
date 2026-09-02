@@ -27,7 +27,7 @@ pub(crate) fn scan_graph_facts(
         ..Default::default()
     })?;
 
-    let truncated = query.entries.len() >= max_files as usize;
+    let truncated = query.was_capped;
     let mut candidate_paths: Vec<String> = query
         .entries
         .iter()
@@ -125,6 +125,17 @@ mod tests {
     use super::*;
     use std::path::Path;
 
+    fn create_supported_files(root: &Path, count: usize) {
+        fs::create_dir_all(root).expect("create fixture");
+        for index in 0..count {
+            fs::write(
+                root.join(format!("entry-{index}.ts")),
+                format!("export const value{index} = {index};"),
+            )
+            .expect("write fixture file");
+        }
+    }
+
     #[test]
     fn scans_supported_files_and_counts_export_references() {
         let root = std::env::temp_dir().join(format!("octocode-graph-scan-{}", std::process::id()));
@@ -153,6 +164,43 @@ mod tests {
         assert_eq!(result.entries[0].reference_counts[0].name, "answer");
         assert_eq!(result.entries[0].reference_counts[0].count, 2);
         assert!(!result.truncated);
+        fs::remove_dir_all(root).expect("cleanup fixture");
+    }
+
+    #[test]
+    fn reports_truncation_only_when_graph_scan_exceeds_the_file_cap() {
+        let root =
+            std::env::temp_dir().join(format!("octocode-graph-scan-cap-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        create_supported_files(&root, 3);
+
+        let below_cap = scan_graph_facts(GraphFactsScanOptions {
+            path: path_string(&root),
+            max_files: Some(4),
+            ..Default::default()
+        })
+        .expect("scan below cap");
+        assert_eq!(below_cap.entries.len(), 3);
+        assert!(!below_cap.truncated);
+
+        let exact_cap = scan_graph_facts(GraphFactsScanOptions {
+            path: path_string(&root),
+            max_files: Some(3),
+            ..Default::default()
+        })
+        .expect("scan at cap");
+        assert_eq!(exact_cap.entries.len(), 3);
+        assert!(!exact_cap.truncated);
+
+        let over_cap = scan_graph_facts(GraphFactsScanOptions {
+            path: path_string(&root),
+            max_files: Some(2),
+            ..Default::default()
+        })
+        .expect("scan over cap");
+        assert_eq!(over_cap.entries.len(), 2);
+        assert!(over_cap.truncated);
+
         fs::remove_dir_all(root).expect("cleanup fixture");
     }
 

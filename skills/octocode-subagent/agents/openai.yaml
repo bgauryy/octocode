@@ -1,6 +1,0 @@
-interface:
-  display_name: "Octocode Orchestration"
-  short_description: "Coordinate workers with measurable completion gates"
-  default_prompt: "Use $octocode-subagent to choose solo, batch, spawn, handoff, A2A, or local Ollama; preserve authority and require parent-owned verification, documentation, and cleanup."
-policy:
-  allow_implicit_invocation: true

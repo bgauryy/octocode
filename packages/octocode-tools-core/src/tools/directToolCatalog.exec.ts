@@ -185,13 +185,23 @@ async function ensureDirectToolRuntimeReady(
 }
 
 function assertDirectToolEnabled(tool: DirectToolRuntimeDefinition): void {
-  if (!tool.isLocal && !tool.isClone && tool.isDefault) {
-    return;
-  }
-
   const config = getConfigSync();
   const enabledTools = config.tools.enabled ?? [];
   const disabledTools = config.tools.disabled ?? [];
+  if (tool.isLocal && !config.local.enabled) {
+    const error = new Error(
+      `Tool "${tool.name}" requires local tools. Set ENABLE_LOCAL=true to use it.`
+    );
+    (error as { code?: string }).code = 'localToolsDisabled';
+    throw error;
+  }
+  if (tool.isClone && !config.local.enableClone) {
+    const error = new Error(
+      `Tool "${tool.name}" requires clone support. Set ENABLE_CLONE=true to use it.`
+    );
+    (error as { code?: string }).code = 'cloneDisabled';
+    throw error;
+  }
   if (enabledTools.length > 0 && !enabledTools.includes(tool.name)) {
     const error = new Error(
       `Tool "${tool.name}" is outside the TOOLS_TO_RUN allowlist.`
@@ -213,17 +223,6 @@ function assertDirectToolEnabled(tool: DirectToolRuntimeDefinition): void {
     (error as { code?: string }).code = 'toolDisabled';
     throw error;
   }
-  if (tool.isLocal && !config.local.enabled) {
-    const error = new Error(
-      `Tool "${tool.name}" requires local tools. Set ENABLE_LOCAL=true to use it.`
-    );
-    (error as { code?: string }).code = 'localToolsDisabled';
-    throw error;
-  }
-
-  // Clone gating is the responsibility of the MCP package (packages/octocode-mcp).
-  // The tools-core implementation is gate-free — the interface layer decides
-  // whether to register/expose ghCloneRepo based on ENABLE_CLONE.
 }
 
 async function runDirectTool(

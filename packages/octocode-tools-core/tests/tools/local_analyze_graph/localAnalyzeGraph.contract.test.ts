@@ -232,6 +232,26 @@ describe('localAnalyzeGraph operation contract', () => {
     expect(JSON.stringify(result)).not.toContain('@fixture-alias/schema');
   });
 
+  it('retains a live export imported through a workspace package subpath', async () => {
+    const path = await createWorkspacePackageFixture();
+    const result = await analyzeGraph({
+      operation: 'deadCode',
+      path,
+      entrypoints: ['packages/consumer/src/main.ts'],
+      includeTests: false,
+    });
+
+    expect(result.results).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          file: 'packages/library/src/schema.ts',
+          name: 'schema',
+          reason: 'unreferenced-export',
+        }),
+      ])
+    );
+  });
+
   it('reports exact import and re-export provenance on traversed edges', async () => {
     const path = await createProvenanceFixture();
     const result = await analyzeGraph({
