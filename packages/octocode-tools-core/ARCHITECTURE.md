@@ -6,8 +6,8 @@ shaping, pagination, hints, security, credentials, config, and session state.
 Consumers (the `octocode` CLI and `octocode-mcp` server) are thin: they pick a
 tool, hand it input, and render the `CallToolResult` it returns.
 
-Native heavy lifting (minify, local search, structural AST, secret
-detection/masking) and LSP orchestration (client pool, resolver, security
+Native heavy lifting (minify, local search, batched graph-fact scanning,
+structural AST, secret detection/masking) and LSP orchestration (client pool, resolver, security
 validation) are delegated to `@octocodeai/octocode-engine` — a Rust/napi core
 plus a TS orchestration layer. tools-core reaches the Rust core through the
 lazy `contextUtils` proxy (`src/utils/contextUtils.ts`) and the TS wrappers
@@ -120,7 +120,7 @@ the engine root, config/core/tools-core, and then the CLI and MCP interfaces.
 
 - Keep logic here, not in consumers — the CLI/MCP only select and render.
 - Descriptions and schemas come from `src/toolContract/`; don't hardcode them in interfaces or runners.
-- Native work (minify, search, structural, LSP, masking) goes through
+- Native work (minify, search, graph-fact scanning, structural, LSP, masking) goes through
   `octocode-engine`, never reimplemented in TS.
 - Add a new tool by adding its `src/tools/<name>/` folder and one `ToolConfig`
   entry in `toolConfig.ts`; everything else (metadata, execution, security) is

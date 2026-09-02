@@ -269,10 +269,10 @@ describe('localAnalyzeGraph operation contract', () => {
 
   it('builds one same-root graph per bulk request', async () => {
     const path = await createGraphFixture();
-    const original = contextUtils.extractGraphFacts.bind(contextUtils);
-    const extract = vi
-      .spyOn(contextUtils, 'extractGraphFacts')
-      .mockImplementation((content, filePath) => original(content, filePath));
+    const original = contextUtils.scanGraphFacts.bind(contextUtils);
+    const scan = vi
+      .spyOn(contextUtils, 'scanGraphFacts')
+      .mockImplementation(options => original(options));
 
     await executeAnalyzeGraph({
       queries: [
@@ -281,8 +281,8 @@ describe('localAnalyzeGraph operation contract', () => {
       ],
     });
 
-    expect(extract).toHaveBeenCalledTimes(5);
-    extract.mockRestore();
+    expect(scan).toHaveBeenCalledTimes(1);
+    scan.mockRestore();
   });
 
   it('covers all six bounded graph operations through one executor', async () => {

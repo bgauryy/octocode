@@ -33,6 +33,7 @@ export const extractSignatures = nativeBinding.extractSignatures
 export const extractJsSymbols = nativeBinding.extractJsSymbols
 export const findInFileReferences = nativeBinding.findInFileReferences
 export const extractGraphFacts = nativeBinding.extractGraphFacts
+export const scanGraphFacts = nativeBinding.scanGraphFacts
 export const getSupportedJsTsExtensions = nativeBinding.getSupportedJsTsExtensions
 export const getSupportedGraphFactExtensions = nativeBinding.getSupportedGraphFactExtensions
 export const getGraphFactCapabilities = nativeBinding.getGraphFactCapabilities

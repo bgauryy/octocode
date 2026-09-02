@@ -1,7 +1,7 @@
 use crate::ripgrep_search;
 use crate::types::{
-    FileSystemQueryOptions, FileSystemQueryResult, MinifyResult, RipgrepParseResult,
-    RipgrepSearchOptions,
+    FileSystemQueryOptions, FileSystemQueryResult, GraphFactsScanOptions, GraphFactsScanResult,
+    MinifyResult, RipgrepParseResult, RipgrepSearchOptions,
 };
 use napi::{Env, Error, Result, Status, Task};
 
@@ -46,6 +46,30 @@ impl Task for FileSystemQueryTask {
             )
         })?;
         crate::fs_query::query_file_system_inner(options)
+            .map_err(|message| Error::new(Status::InvalidArg, message))
+    }
+
+    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
+        Ok(output)
+    }
+}
+
+pub struct GraphFactsScanTask {
+    pub options: Option<GraphFactsScanOptions>,
+}
+
+impl Task for GraphFactsScanTask {
+    type Output = GraphFactsScanResult;
+    type JsValue = GraphFactsScanResult;
+
+    fn compute(&mut self) -> Result<Self::Output> {
+        let options = self.options.take().ok_or_else(|| {
+            Error::new(
+                Status::GenericFailure,
+                "graph scan options already consumed",
+            )
+        })?;
+        crate::graph::scan_graph_facts(options)
             .map_err(|message| Error::new(Status::InvalidArg, message))
     }
 

@@ -1,15 +1,9 @@
-import { readFileSync } from 'node:fs';
 import { posix } from 'node:path';
 import { contextUtils } from '../utils/contextUtils.js';
 import { isValidJsSymbolName } from '../utils/jsSymbolNames.js';
 import { resolveImportSpecifier } from './importResolver.js';
 import type { FileFacts, FileGraphEdgeKind, FileNode } from './types.js';
 import { buildWorkspacePackageExports } from './workspacePackageResolver.js';
-
-// Mirrors the engine's own MAX_STRUCTURAL_CONTENT_BYTES backstop: a file this
-// large is skipped rather than risking a slow parse for a dead-code scan
-// where speed at repo scale is the point.
-const MAX_FILE_BYTES = 1_000_000;
 
 export const DEFAULT_DEAD_CODE_EXCLUDE_DIRS = [
   'node_modules',
@@ -65,22 +59,6 @@ export interface WalkResult {
   starReexporters: Map<string, string[]>;
 }
 
-function escapeRegExp(literal: string): string {
-  return literal.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
-/**
- * Count whole-word occurrences of `name` in `content`, including its own
- * declaration line — callers compare against 1 (declaration-only) to detect
- * same-file usage. Deliberately text-based rather than AST-based: it can
- * over-count (a comment or string mentioning the name) but never under-counts
- * a real reference, which is the safe direction for a dead-code signal.
- */
-function countWholeWordOccurrences(content: string, name: string): number {
-  const matches = content.match(new RegExp(`\\b${escapeRegExp(name)}\\b`, 'g'));
-  return matches ? matches.length : 0;
-}
-
 interface RawGraphFacts {
   declarations?: Array<{
     id: string;
@@ -107,35 +85,28 @@ interface RawGraphFacts {
 }
 
 /**
- * Walk every graph-fact-capable file under `rootAbsolutePath`, extract native
- * per-file facts, and resolve import specifiers into a file-level graph. One
- * native call per file, zero LSP round-trips — this is what makes the scan
- * scale with repo size instead of candidate count.
+ * Scan every graph-fact-capable file under `rootAbsolutePath` in one native
+ * worker-pool operation, then resolve import specifiers into a file-level graph.
+ * Cross-file policy stays here; filesystem I/O and parsing stay in Rust.
  */
 export async function buildFileGraph(
   rootAbsolutePath: string,
   excludeDir: string[],
   maxFiles: number
 ): Promise<WalkResult> {
-  const supportedExtensions = contextUtils.getSupportedGraphFactExtensions();
-
-  const queryResult = await contextUtils.queryFileSystem({
+  const scanResult = await contextUtils.scanGraphFacts({
     path: rootAbsolutePath,
-    recursive: true,
-    showHidden: false,
-    entryType: 'f',
-    extensions: supportedExtensions,
     excludeDir,
-    stopAtLimit: true,
-    limit: maxFiles,
+    maxFiles,
+    maxFileBytes: 1_000_000,
   });
 
-  const entries = queryResult.entries;
-  const truncated = entries.length >= maxFiles;
+  const entries = scanResult.entries;
+  const truncated = scanResult.truncated;
 
   const knownFiles = new Set(
-    entries.map(entry =>
-      posix.normalize(entry.relativePath.split('\\').join('/'))
+    scanResult.candidatePaths.map(relativePath =>
+      posix.normalize(relativePath.split('\\').join('/'))
     )
   );
   const workspacePackageExports = buildWorkspacePackageExports(
@@ -148,34 +119,15 @@ export async function buildFileGraph(
   const starReexportTargets = new Set<string>();
   const dynamicImportTargets = new Set<string>();
   const starReexporters = new Map<string, string[]>();
-  let filesSkipped = 0;
+  let filesSkipped = scanResult.filesSkipped;
 
   for (const entry of entries) {
     const relativePath = posix.normalize(
       entry.relativePath.split('\\').join('/')
     );
-    if ((entry.size ?? 0) > MAX_FILE_BYTES) {
-      filesSkipped++;
-      continue;
-    }
-
-    let content: string;
-    try {
-      content = readFileSync(entry.path, 'utf-8');
-    } catch {
-      filesSkipped++;
-      continue;
-    }
-
-    const rawJson = contextUtils.extractGraphFacts(content, relativePath);
-    if (!rawJson) {
-      filesSkipped++;
-      continue;
-    }
-
     let parsed: RawGraphFacts;
     try {
-      parsed = JSON.parse(rawJson) as RawGraphFacts;
+      parsed = JSON.parse(entry.factsJson) as RawGraphFacts;
     } catch {
       filesSkipped++;
       continue;
@@ -195,14 +147,9 @@ export async function buildFileGraph(
         exported: d.exported ?? false,
       }));
 
-    const referenceCounts = new Map<string, number>();
-    for (const decl of declarations) {
-      if (!decl.exported || referenceCounts.has(decl.name)) continue;
-      referenceCounts.set(
-        decl.name,
-        countWholeWordOccurrences(content, decl.name)
-      );
-    }
+    const referenceCounts = new Map(
+      entry.referenceCounts.map(({ name, count }) => [name, count])
+    );
 
     // `export { x } from './y.js'` re-exports a specific name from another
     // file. Kept separate from `imports` (see FileFacts.namedReexports) —

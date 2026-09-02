@@ -61,7 +61,8 @@ export async function scanForDeadCode(
     truncated,
     dynamicImportTargets,
     starReexporters,
-  } = builtGraph ??
+  } =
+    builtGraph ??
     (await buildFileGraph(rootAbsolutePath, excludeDir, maxFiles));
 
   const knownFiles = new Set(facts.keys());

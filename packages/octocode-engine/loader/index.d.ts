@@ -203,6 +203,31 @@ export interface GraphFacts {
   diagnostics: Array<string>
 }
 
+export interface GraphFactsScanOptions {
+  path: string
+  excludeDir?: Array<string>
+  maxFiles?: number
+  maxFileBytes?: number
+}
+
+export interface GraphReferenceCount {
+  name: string
+  count: number
+}
+
+export interface GraphFactsScanEntry {
+  relativePath: string
+  factsJson: string
+  referenceCounts: Array<GraphReferenceCount>
+}
+
+export interface GraphFactsScanResult {
+  entries: Array<GraphFactsScanEntry>
+  candidatePaths: Array<string>
+  filesSkipped: number
+  truncated: boolean
+}
+
 export interface GraphFactCapability {
   extension: string
   language: string
@@ -220,6 +245,9 @@ export interface GraphFactCapability {
  * identity still needs LSP proof.
  */
 export declare function extractGraphFacts(content: string, filePath: string): string | null
+
+/** Walk, read, and extract graph facts on the native worker pool in one call. */
+export declare function scanGraphFacts(options: GraphFactsScanOptions): Promise<GraphFactsScanResult>
 
 /**
  * Canonical list of file extensions (lowercase, no leading dot) handled by the

@@ -241,6 +241,41 @@ pub struct FileSystemQueryResult {
     pub warnings: Vec<String>,
 }
 
+// ── graph scan types ─────────────────────────────────────────────────────────
+
+#[napi(object)]
+#[derive(Debug, Clone, Default)]
+pub struct GraphFactsScanOptions {
+    pub path: String,
+    pub exclude_dir: Option<Vec<String>>,
+    pub max_files: Option<u32>,
+    pub max_file_bytes: Option<u32>,
+}
+
+#[napi(object)]
+#[derive(Debug, Clone)]
+pub struct GraphReferenceCount {
+    pub name: String,
+    pub count: u32,
+}
+
+#[napi(object)]
+#[derive(Debug, Clone)]
+pub struct GraphFactsScanEntry {
+    pub relative_path: String,
+    pub facts_json: String,
+    pub reference_counts: Vec<GraphReferenceCount>,
+}
+
+#[napi(object)]
+#[derive(Debug, Clone)]
+pub struct GraphFactsScanResult {
+    pub entries: Vec<GraphFactsScanEntry>,
+    pub candidate_paths: Vec<String>,
+    pub files_skipped: u32,
+    pub truncated: bool,
+}
+
 // ── utf8_offsets types ────────────────────────────────────────────────────────
 
 #[napi(object)]

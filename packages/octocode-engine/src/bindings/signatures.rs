@@ -80,8 +80,7 @@ pub fn find_in_file_references(
 /// Cross-file identity and type-aware proof remain LSP work.
 #[napi(js_name = "extractGraphFacts")]
 pub fn extract_graph_facts(content: String, file_path: String) -> Option<String> {
-    crate::signatures::js_oxc::extract_graph_facts(&content, &file_path)
-        .or_else(|| crate::signatures::graph_facts::extract_graph_facts(&content, &file_path))
+    crate::signatures::extract_graph_facts_inner(&content, &file_path)
 }
 
 /// Canonical lowercase extensions (no leading dot) that can produce native

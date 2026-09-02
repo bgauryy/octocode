@@ -16,6 +16,10 @@ export type {
   GraphFactExport,
   GraphFactImport,
   GraphFacts,
+  GraphFactsScanEntry,
+  GraphFactsScanOptions,
+  GraphFactsScanResult,
+  GraphReferenceCount,
   LineDiffOp,
   MinifyResult,
   JsonInput,
@@ -144,6 +148,13 @@ export const contextUtils = {
    */
   extractGraphFacts(content: string, filePath: string): string | null {
     return loadNative().extractGraphFacts(content, filePath);
+  },
+
+  /** Walk, read, and extract graph facts on the native worker pool in one call. */
+  scanGraphFacts(
+    options: NativeContextUtils.GraphFactsScanOptions
+  ): Promise<NativeContextUtils.GraphFactsScanResult> {
+    return loadNative().scanGraphFacts(options);
   },
 
   /**

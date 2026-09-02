@@ -56,8 +56,9 @@ logic:
   tree-sitter) parses files through the shared grammar registry and extracts
   AST facts for declarations, imports, exports, calls, classes, and functions,
   normalized into common symbol/relation facts;
-- `src/graph/buildFileGraph.ts` calls the native `extractGraphFacts`
-  binding (`bindings/signatures.rs`) for every scanned file and connects facts
+- `graph/mod.rs` owns the bounded filesystem walk, parallel file reads, native
+  fact extraction, and conservative same-file reference counts behind the
+  async `scanGraphFacts` batch binding; tools-core connects the returned facts
   into file/symbol/dependency graph nodes and edges;
 - `src/graph/reachability.ts` runs BFS reachability and iterative
   Tarjan's SCC (`dead-cluster` verdicts for mutually-referencing-but-unreachable
@@ -68,9 +69,10 @@ definitions, implementations, callers, callees, and call hierarchy. Text/ripgrep
 is discovery only; `localAnalyzeGraph` output is candidate-grade and must be
 confirmed with `lspGetSemantics` before a deletion claim, matching that rule.
 
-**Note:** `signatures/graph_facts.rs`/`extractGraphFacts` has a live consumer
-(`src/graph/buildFileGraph.ts`) — it is not orphaned. A native Rust port of
-the graph algorithms above (reachability/SCC/retainer-lookup/pruning) was
+**Note:** `signatures/graph_facts.rs`/`extractGraphFacts` has live consumers
+through both the single-file API and `scanGraphFacts` — it is not orphaned. A
+native Rust port of the graph algorithms above
+(reachability/SCC/retainer-lookup/pruning) was
 scoped in `docs/NATIVE_GRAPH_DOMAIN_SCOPE.md` but is superseded by this
 TypeScript implementation; see that doc's status before reviving the idea.
 

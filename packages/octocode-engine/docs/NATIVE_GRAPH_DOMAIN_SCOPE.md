@@ -9,6 +9,12 @@ native-port design — its import-resolution risk analysis (§7) remains
 accurate and relevant if a native port is revisited later — not as an active
 plan.
 
+Current hybrid boundary: Rust performs the bounded walk, parallel reads,
+per-file fact extraction, and same-file reference counting through
+`scanGraphFacts`; tools-core retains import resolution, reachability, SCC, and
+dead-code policy. This is an I/O/parsing batch, not the superseded full graph
+algorithm port proposed below.
+
 > **Historical note (superseded 2026-07-28):** the blocker below described the
 > state right after `octocode-tools-core/src/oql/research/analyze/` was
 > deleted, before its replacement existed. That replacement is

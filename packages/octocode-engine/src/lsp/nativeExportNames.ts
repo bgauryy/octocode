@@ -24,6 +24,7 @@ export const PUBLIC_NATIVE_EXPORT_NAMES = [
   'extractJsSymbols',
   'findInFileReferences',
   'extractGraphFacts',
+  'scanGraphFacts',
   'getSupportedJsTsExtensions',
   'getSupportedGraphFactExtensions',
   'getGraphFactCapabilities',

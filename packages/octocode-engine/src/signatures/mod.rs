@@ -1,6 +1,11 @@
 pub mod extractor;
 pub mod graph_facts;
 pub mod js_oxc;
+
+pub(crate) fn extract_graph_facts_inner(content: &str, file_path: &str) -> Option<String> {
+    js_oxc::extract_graph_facts(content, file_path)
+        .or_else(|| graph_facts::extract_graph_facts(content, file_path))
+}
 pub mod languages;
 pub mod renderer;
 

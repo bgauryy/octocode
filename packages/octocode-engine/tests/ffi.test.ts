@@ -84,6 +84,7 @@ const MINIFIER_FUNCTION_EXPORTS = [
   'extractJsSymbols',
   'findInFileReferences',
   'extractGraphFacts',
+  'scanGraphFacts',
   'getSupportedJsTsExtensions',
   'getSupportedGraphFactExtensions',
   'getGraphFactCapabilities',
@@ -186,6 +187,56 @@ describe('queryFileSystem', () => {
         maxDepth: 1,
       })
     ).rejects.toThrow('minDepth must be less than or equal to maxDepth');
+  });
+});
+
+describe('scanGraphFacts', () => {
+  it('scans and extracts graph facts in one asynchronous native operation', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'octocode-graph-scan-'));
+    try {
+      mkdirSync(join(root, 'src'), { recursive: true });
+      writeFileSync(
+        join(root, 'src', 'entry.ts'),
+        "import { value } from './value.js'; export const answer = value;"
+      );
+      writeFileSync(join(root, 'src', 'value.ts'), 'export const value = 42;');
+      writeFileSync(join(root, 'README.md'), '# ignored');
+
+      const native = addon as unknown as {
+        scanGraphFacts(options: {
+          path: string;
+          excludeDir?: string[];
+          maxFiles?: number;
+          maxFileBytes?: number;
+        }): Promise<{
+          entries: Array<{
+            relativePath: string;
+            factsJson: string;
+            referenceCounts: Array<{ name: string; count: number }>;
+          }>;
+          candidatePaths: string[];
+          filesSkipped: number;
+          truncated: boolean;
+        }>;
+      };
+      const pending = native.scanGraphFacts({ path: root, maxFiles: 10 });
+      expect(pending).toBeInstanceOf(Promise);
+      const result = await pending;
+
+      expect(result.entries.map(entry => entry.relativePath).sort()).toEqual([
+        'src/entry.ts',
+        'src/value.ts',
+      ]);
+      expect(result.candidatePaths.sort()).toEqual([
+        'src/entry.ts',
+        'src/value.ts',
+      ]);
+      expect(result.entries[0]?.factsJson).toContain('declarations');
+      expect(result.filesSkipped).toBe(0);
+      expect(result.truncated).toBe(false);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });
 
