@@ -4,8 +4,8 @@ Load before transferring cookies into an isolated CDP session. Why: authenticate
 
 ## Prefer Order
 1. Manual `user-auth` on the same visible CDP port (no transfer).
-2. `--from-storage-state` Playwright jar the user already exported.
-3. `--from-port` pull from an existing CDP Chrome the user controls.
+2. `--from-storage-state` Playwright jar you already exported.
+3. `--from-port` pull from an existing CDP Chrome you controls.
 4. `--from-profile` only if Chrome is fully quit and user explicitly approved.
 
 ## Required Gate

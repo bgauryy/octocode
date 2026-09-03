@@ -6,12 +6,33 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   applyOctocodeEnv,
   getOctocodeHome,
+  isPersistentStorageEnabled,
+  isStatsEnabled,
   loadOctocodeEnv,
   loadOctocoderc,
   parseEnv,
   PROTECTED_KEYS,
   propagateOctocodeEnv,
 } from '../src/index.js';
+
+describe('storage policy', () => {
+  const previousMode = process.env['OCTOCODE_STORAGE_MODE'];
+  const previousStats = process.env['OCTOCODE_ENABLE_STATS'];
+
+  afterEach(() => {
+    if (previousMode === undefined) delete process.env['OCTOCODE_STORAGE_MODE'];
+    else process.env['OCTOCODE_STORAGE_MODE'] = previousMode;
+    if (previousStats === undefined) delete process.env['OCTOCODE_ENABLE_STATS'];
+    else process.env['OCTOCODE_ENABLE_STATS'] = previousStats;
+  });
+
+  it('disables all disk-backed runtime state in memory mode', () => {
+    process.env['OCTOCODE_STORAGE_MODE'] = 'memory';
+    process.env['OCTOCODE_ENABLE_STATS'] = 'true';
+    expect(isPersistentStorageEnabled()).toBe(false);
+    expect(isStatsEnabled()).toBe(false);
+  });
+});
 
 // ─── getOctocodeHome ─────────────────────────────────────────────────────────
 
@@ -529,6 +550,17 @@ describe('validateConfig', () => {
     expect(r.errors).toHaveLength(0);
   });
 
+  it('accepts only supported storage modes', () => {
+    expect(validateConfig({ storage: { mode: 'memory' } }).valid).toBe(true);
+    const invalid = validateConfig({ storage: { mode: 'disk' } });
+    expect(invalid.valid).toBe(false);
+    expect(invalid.errors).toContain('storage.mode: Must be "persistent" or "memory"');
+
+    const invalidShape = validateConfig({ storage: 'memory' });
+    expect(invalidShape.valid).toBe(false);
+    expect(invalidShape.errors).toContain('storage: Must be an object');
+  });
+
   it('accepts a full valid config', () => {
     const r = validateConfig({
       github: { apiUrl: 'https://api.github.com' },
@@ -899,6 +931,7 @@ import {
   resolveNetwork,
   resolveLsp,
   resolveOutput,
+  resolveStorage,
 } from '../src/config/resolverSections.js';
 
 describe('parseBooleanEnv', () => {
@@ -1066,6 +1099,31 @@ describe('resolveTools', () => {
   });
 });
 
+describe('resolveStorage', () => {
+  const previous = process.env['OCTOCODE_STORAGE_MODE'];
+
+  afterEach(() => {
+    if (previous === undefined) delete process.env['OCTOCODE_STORAGE_MODE'];
+    else process.env['OCTOCODE_STORAGE_MODE'] = previous;
+  });
+
+  it('defaults to persistent storage and accepts a file opt-out', () => {
+    delete process.env['OCTOCODE_STORAGE_MODE'];
+    expect(resolveStorage()).toEqual({ mode: 'persistent' });
+    expect(resolveStorage({ mode: 'memory' })).toEqual({ mode: 'memory' });
+  });
+
+  it('lets the environment force memory-only operation', () => {
+    process.env['OCTOCODE_STORAGE_MODE'] = 'memory';
+    expect(resolveStorage({ mode: 'persistent' })).toEqual({ mode: 'memory' });
+  });
+
+  it('does not let an invalid environment value defeat a file privacy choice', () => {
+    process.env['OCTOCODE_STORAGE_MODE'] = 'memroy';
+    expect(resolveStorage({ mode: 'memory' })).toEqual({ mode: 'memory' });
+  });
+});
+
 describe('resolveNetwork', () => {
   const savedEnv: Record<string, string | undefined> = {};
 
@@ -1181,6 +1239,7 @@ describe('getConfigSync', () => {
     expect(cfg.network).toBeDefined();
     expect(cfg.output).toBeDefined();
     expect(cfg.session).toBeDefined();
+    expect(cfg.storage).toBeDefined();
     expect(cfg.source).toMatch(/^(defaults|env|file|mixed|invalid)$/);
   });
 
@@ -1203,12 +1262,25 @@ describe('getConfigSync', () => {
     }
   });
 
-  it('reports file source for valid .octocoderc without env overrides', () => {
+  it('preserves an existing full .octocoderc when storage is omitted', () => {
     const oldEnv = { ...process.env };
     const home = mkdtempSync(join(tmpdir(), 'octo-source-file-'));
     writeFileSync(
       join(home, '.octocoderc'),
-      JSON.stringify({ network: { timeout: 5000 } })
+      JSON.stringify({
+        version: 1,
+        github: { apiUrl: 'https://ghe.example/api/v3' },
+        local: {
+          enabled: false,
+          enableClone: false,
+          workspaceRoot: '/workspace',
+          allowedPaths: ['/workspace'],
+        },
+        tools: { enabled: ['ghSearch'], disabled: null },
+        network: { timeout: 5000, maxRetries: 2 },
+        output: { format: 'json', pagination: { defaultCharLength: 12000 } },
+        lsp: { configPath: '/workspace/lsp-servers.json' },
+      })
     );
     try {
       for (const key of [
@@ -1225,13 +1297,29 @@ describe('getConfigSync', () => {
         'OCTOCODE_OUTPUT_FORMAT',
         'OCTOCODE_OUTPUT_DEFAULT_CHAR_LENGTH',
         'OCTOCODE_ENABLE_STATS',
+        'OCTOCODE_STORAGE_MODE',
       ])
         delete process.env[key];
       process.env['OCTOCODE_HOME'] = home;
       const cfg = resolveConfigSync();
       expect(cfg.source).toBe('file');
       expect(cfg.configPath).toBe(join(home, '.octocoderc'));
+      expect(cfg.github.apiUrl).toBe('https://ghe.example/api/v3');
+      expect(cfg.local).toMatchObject({
+        enabled: false,
+        enableClone: false,
+        workspaceRoot: '/workspace',
+        allowedPaths: ['/workspace'],
+      });
+      expect(cfg.tools.enabled).toEqual(['ghSearch']);
       expect(cfg.network.timeout).toBe(5000);
+      expect(cfg.network.maxRetries).toBe(2);
+      expect(cfg.output).toEqual({
+        format: 'json',
+        pagination: { defaultCharLength: 12000 },
+      });
+      expect(cfg.lsp.configPath).toBe('/workspace/lsp-servers.json');
+      expect(cfg.storage.mode).toBe('persistent');
     } finally {
       process.env = oldEnv;
     }
@@ -1404,8 +1492,6 @@ describe('resolveSession', () => {
 });
 
 // ─── isStatsEnabled ───────────────────────────────────────────────────────────
-
-import { isStatsEnabled } from '../src/index.js';
 
 describe('isStatsEnabled', () => {
   it('returns false when env var is unset', () => {

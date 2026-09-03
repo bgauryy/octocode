@@ -28,13 +28,13 @@ Write the failing check first. Keep held-out sealed until VERIFY. Leave graders 
 | Green | Subject change; same harness command passes |
 | Refactor | Keep if guardrails hold; else discard; suite grow between runs |
 
-## Coding checks
+## Code checks
 - **fail-to-pass** — previously failing tests now pass (bug fixed)
 - **pass-to-pass** — previously passing tests still pass (no regression)
 Both needed; tests passing ≠ merge-ready taste/security.
 
 ## Capability vs regression
-Capability: hard, low pass rate. Regression: near-100%. Balance should-fire and should-not-fire cases.
+Capability: hard, low pass rate. Regression: near-100%. Balance positive-trigger and negative-trigger cases.
 
 ## Non-determinism
 - **pass@k** — ≥1 success in k trials (often pass@1 for coding)

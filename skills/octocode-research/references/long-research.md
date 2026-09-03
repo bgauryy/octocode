@@ -20,7 +20,7 @@ Update the spec only when scope changes. Gate budget expansion or public-contrac
 `evidence.jsonl` rows are small proof facts:
 
 ```json
-{"id":"ev1","type":"exact-file","source":"local","locator":"src/foo.ts:42","quoteOrFact":"X calls Y","quality":"primary","retrievedAt":"2026-06-28"}
+{"id":"ev1","type":"exact-file","source":"local","locator":"src/example.ts:42","quoteOrFact":"X calls Y","quality":"primary","retrievedAt":"2026-06-28"}
 ```
 
 Types: exact-file/LSP/AST/PR/commit/package/paper/official-doc/web/benchmark/test. Quality: primary/secondary/weak/counter. Promote snippets only after exact source, semantic/structural proof, metadata, history, or tests.
@@ -33,12 +33,11 @@ Types: exact-file/LSP/AST/PR/commit/package/paper/official-doc/web/benchmark/tes
 
 Status: supported/partial/contradicted/unverified/dropped; confidence: confirmed/likely/uncertain. Drop unsupported plausibility; retain decision-relevant contradictions.
 
-## Workflow And Output
+## Workflow and output
 State spec → seed claims/alternates/disconfirmers → run `references/research-flow.md` → promote evidence → update claims → Advocate/Critic → brief from supported/partial claims → optionally capture one durable lesson.
 
-Vendor web adapters may enrich web/paper evidence but never replace local/GitHub/npm/history/AST/LSP proof; on adapter failure continue natively and mark degraded.
+Vendor web adapters can enrich web/paper evidence but never replace local/GitHub/npm/history/AST/LSP proof; on adapter failure continue natively and mark degraded.
 
 Output: `TL;DR | scope | claim summary | evidence by surface | rebuttal survivors | verdict | risks/gaps | next | approved artifacts`. Summarize ledgers in chat; never dump raw JSONL.
 
 Next: execute each surface through `references/research-flow.md`; when candidate repos need ranking load `references/github-landscape.md`; when a claim keeps flipping between iterations load `references/loop-mode.md`; when the brief authorizes an edit hand off to `references/workflow-change.md`.
-

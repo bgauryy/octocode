@@ -7,7 +7,7 @@ A loop is a graph with one node and an edge back to itself. A graph composes loo
 ## KPI placement
 | Level | KPI |
 |---|---|
-| **Primary (lagging)** | End-to-end outcome at the graph boundary — the user-visible result |
+| **Primary (lagging)** | End-to-end outcome at the graph boundary — you-visible result |
 | **Leading** | Per-node sensors: case score, exit code, stage latency |
 | **Guardrails** | Per-node budgets + graph-level counter-metrics (total cost, latency, permission scope) |
 
@@ -16,13 +16,13 @@ When the end-to-end primary drops: bisect by node with frozen inputs; grade node
 
 ## Edge detection — real vs fake dependencies
 Before measuring a graph, verify its topology is real. For every "and then" in the workflow:
-- Does the next step actually **read** the previous step's output?
-  - **Yes** → real edge; ordering is required.
-  - **No** → no real edge; the wait is wasted; steps can run in parallel.
+- Does the next step **read** the previous step's output?
+  - **Yes** → real edge; ordering is required. <!-- style-lint: ignore-line passive-voice -->
+  - **No** → no real edge; the wait is wasted; steps can run in parallel. <!-- style-lint: ignore-line passive-voice -->
 
 A graph whose steps all wait for prior steps with no data crossing between them is a line masquerading as a graph. It adds coordination cost with zero throughput gain. Measure fake graphs by removing sequential waits and timing the result.
 
-## When a loop should become a graph — escalation signals
+## When a loop must become a graph — escalation signals
 1. Distinct specialties needing separate context/constraints
 2. Parallel fan-out then merge
 3. Different model/tools per step

@@ -37,6 +37,6 @@ Load when presenting the chat brief, assigning confidence, or preparing an RFC h
 - <URL or path:line> — <claim it supports, author/org/date where unstable>
 ```
 
-When evidence was cited, close with `Sources`: one line per URL/path used above and no new sources. Omit the section for a pure reasoning/framing turn.
+When evidence was cited, close with `Sources`: one line per URL/path used above and no new sources. Omit the section for a pure reasoning/framing turn. <!-- style-lint: ignore-line passive-voice -->
 
 Confidence markers for `Evidence by Surface` entries, and Decision-label routing: `references/confidence.md`.

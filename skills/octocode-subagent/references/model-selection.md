@@ -2,7 +2,7 @@
 
 Load when routing any local offload — every **ROUTE** / model select. Why: only the live inventory says which tag exists, and the smallest fitting one wins.
 
-Portable: works on any `ollama list` — do not assume Gemma, Qwen, or any tag is installed. Load ladder: this file always; `references/family-playbooks.md` only if an installed family needs special flags or two families tie; `references/ollama-local-models.md` only for RAM kits, catalog, MCP/tools matrix, or pull suggestions (ask before pull).
+Portable: works on any `ollama list` — do not assume Gemma, Qwen, or any tag is installed. Load ladder: this file always; `references/family-playbooks.md` only if an installed family needs special flags or two families tie; `references/ollama-local-models.md` only for RAM kits, catalog, MCP/tools matrix, or pull suggestions (ask before pull). <!-- style-lint: ignore-line passive-voice -->
 
 ## Absolute rules
 
@@ -18,7 +18,7 @@ Portable: works on any `ollama list` — do not assume Gemma, Qwen, or any tag i
 | Classify / label / short triage | `small` | Speed; low creativity |
 | Translate short text | `small` or `balanced` | Prefer warm; escalate if fidelity fails |
 | Article / web-body summarize (already fetched) | `balanced` | Quote grounding; escalate if grounded_rate < 1 |
-| Small one-shot summarize / extract | `small` if warm + simple; else `balanced` | Latency for tiny jobs |
+| Small one-shot summarize / extract | `small` if warm +; else `balanced` | Latency for tiny jobs |
 | Summarize, extract JSON, checklist | `balanced` | Instruction following + structure |
 | Draft code / tests | `balanced` (prefer coder/instruct signals) | Code structure |
 | Hard local synthesis (rare, still allowlisted) | `strong` | Else keep on orchestrator |
@@ -37,9 +37,9 @@ Portable: works on any `ollama list` — do not assume Gemma, Qwen, or any tag i
 | `coder` / code-focused name | prefer for `draft` when in tier |
 | `thinking` capability | OK; default **think off** for bulk |
 
-Ties: prefer already-warm (`ollama ps`) at the same tier; structured-output models (many Qwen/instruct tags) for JSON/extract/classify **if installed**; coder or strong instruct for draft/code; any `vision`/multimodal for images; newer family generation over older sibling **when both installed** (e.g. gemma4 over gemma3) as the last tie-break. Illustrative only: on a Gemma + Qwen mix, tiny Qwen → classify, mid Qwen → JSON, mid Gemma → draft/vision, large anything → cascade. **Recompute from the live list every session.**
+For ties, prefer an already-warm model (`ollama ps`) at the same tier. Prefer structured-output models for JSON, extraction, or classification; coder or strong instruct models for drafting and code; and multimodal models for images. Use a newer family generation as the last tie-break. Illustrative only: on a Gemma and Qwen mix, tiny Qwen → classify, mid Qwen → JSON, mid Gemma → draft/vision, large anything → cascade. **Recompute from the live list every session.**
 
-**Algorithm:** tier = f(job pattern) → candidates = installed chat models in tier ∪ stronger → drop embed / wrong-modality → optional family tie-break → pick the smallest remaining that meets structure needs → none left ⇒ solo, and suggest a size class to pull (ask user) → `export OLLAMA_WORKER_MODEL=<exact name from list>` → thinking-capable ⇒ default `--think=false` for bulk.
+**Algorithm:** derive the tier from the job pattern. Keep installed chat models in that tier or stronger. Drop embedding and wrong-modality models, apply optional family tie-breaks, and pick the smallest model that meets the structure needs. If none remain, work solo. Suggest a size class to pull with approval. Set `OLLAMA_WORKER_MODEL` to the exact listed name. For bulk work, default thinking-capable models to `--think=false`.
 
 - **Cascade:** on verify `fail` → next stronger installed chat model, else orchestrator solo.
 - **Hardware:** slow/thrashing → drop tier or shrink shards; JSON fail on tiny model → cascade once; prefer smaller download/params that passes verify.

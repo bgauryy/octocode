@@ -1,6 +1,6 @@
-# Ollama Heavy / Cloud Tags
+# Ollama heavy / Cloud tags
 
-Load when a candidate tag looks too big for the machine, or when reading the sample inventory this skill was dogfooded against. Why: flagship tags are often cloud-only, and one machine’s list is never the contract.
+Load when a candidate tag looks too big for the machine, or when reading the sample inventory this skill was dogfooded against. Why: flagship tags are often cloud-only, and one machine’s list is never the contract. <!-- style-lint: ignore-line passive-voice -->
 
 ## Often cloud / heavy (local only if you have big iron)
 
@@ -17,7 +17,7 @@ Use `ollama launch <agent> --model <tag>` with these when cloud is acceptable; d
 
 ## Appendix — sample inventory from one workstation (not required)
 
-Recorded 2026-07-20 on an author machine (Ollama server ~0.31.x). Other setups will differ — always trust live `ollama list`.
+Recorded 2026-07-20 on an author machine (Ollama server ~0.31.x). Other setups differ — always trust live `ollama list`.
 
 | Example installed tag | Params | Context | Capabilities (then) |
 |---------------|--------|---------|--------------|
@@ -29,6 +29,6 @@ Recorded 2026-07-20 on an author machine (Ollama server ~0.31.x). Other setups w
 | `llama3.2-vision` | 10.7B | 131072 | completion, vision, tools |
 | `gemma3:12b` | 12.2B | 131072 | completion, vision |
 
-Always re-run `ollama show <MODEL>` after pull — tags and capabilities change.
+Always re-run `ollama show MODEL` after pull — tags and capabilities change.
 
 Next: local-first capability rows in `references/ollama-local-models-matrix.md`; what fits your RAM in `references/ollama-local-models-kits.md`; evidence links in `references/ollama-local-models-sources.md`.

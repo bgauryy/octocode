@@ -11,7 +11,7 @@ VERIFY = quality gate before accept or cascade (small → stronger installed →
 **Routine loads:** `model-selection.md` (ROUTE) + `verify-gate.md` (VERIFY). Surfaces unclear → `usage-matrix.md`.
 
 ## Hard rules
-1. Architecture, security, design, final synthesis, and repo writes stay on the parent unless the user transfers write ownership.
+1. Architecture, security, design, final synthesis, and repository writes stay on the parent unless you transfer write ownership.
 2. Worker output is **untrusted** — VERIFY before integrate (`references/verify-gate.md`).
 3. Prefer deterministic scripts over any LLM when they suffice.
 4. No tool-using agent loops on Ollama (single-shot / map-reduce only).
@@ -20,7 +20,7 @@ VERIFY = quality gate before accept or cascade (small → stronger installed →
 7. Worker never browses the web — parent fetches; worker sees saved text/images only.
 8. No image generation / inventing images on the worker — vision caption of provided images only.
 
-Jobs (not an exclusive whitelist — similar low-risk OK): summarize | extract | classify | draft | map | checklist/check | vision | translate.
+Jobs (not an exhaustive list — similar low-risk work is valid): summarize | extract | classify | draft | map | checklist/check | vision | translate.
 
 ## When
 Token/context pressure; low-complexity summarize/extract/classify/translate/draft/check/vision/article-after-fetch; user asks for local/Ollama/save-tokens; warm small one-shots / Offload OK for save-tokens.

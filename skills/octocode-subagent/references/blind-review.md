@@ -18,9 +18,9 @@ When publishing research-like output (Anthropic research systems use a citation 
 - Fail claims with no cite; do not invent sources
 
 ## Rules
-1. No author transcript, no “why we did it,” no peer opinions.
+1. No author transcript, no author rationale, no peer opinions.
 2. Parent re-checks failed criteria on real anchors.
-3. If reviewer asks for rationale, parent may supply **facts/anchors** only — not persuasion.
+3. If reviewer asks for rationale, parent can supply **facts/anchors** only — not persuasion.
 4. Blind review ≠ rubber duck (duck hears the explanation; blind must not).
 
 ## When NOT

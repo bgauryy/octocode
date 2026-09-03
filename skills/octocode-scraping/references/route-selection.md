@@ -6,7 +6,7 @@ Load when choosing how to fetch. Why: cheapest route that can prove the claim.
 Omit `--provider` on html → `cdp` (if chrome-devtools present) → `direct`. `SCRAPING_ANT` does not auto-select. Check: `provider-check.mjs`.
 
 ## Tree
-1. Repo/code question → Octocode research, not scrape.
+1. Repository/code question → Octocode research, not scrape.
 2. Public static → omit `--provider` or `direct`; prove from corpus.
 3. Thin/JS after direct → `cdp` or chrome-devtools live proof.
 4. Auth / clicks / network / screenshots → chrome-devtools (one port).

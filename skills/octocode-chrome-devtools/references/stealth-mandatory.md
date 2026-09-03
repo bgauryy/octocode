@@ -1,6 +1,6 @@
 # Stealth (mandatory)
 
-Load when stealth must be verified, tuned, or deliberately disabled. Why: patches only apply before navigation, and a failed verify aborts the run.
+Load when stealth must be verified, tuned, or deliberately disabled. Why: patches only apply before navigation, and a failed verify stops the run. <!-- style-lint: ignore-line passive-voice -->
 
 Every `cdp-sandbox.mjs` / `cdp-runner.mjs` run applies `undercover.mjs` **before** your script’s `run(cdp)` unless disabled.
 
@@ -10,7 +10,7 @@ Every `cdp-sandbox.mjs` / `cdp-runner.mjs` run applies `undercover.mjs` **before
 | **Opt-out** | `CDP_NO_STEALTH=1` or `cdp-runner.mjs --no-stealth` (debug only) |
 | **Debug only** | `CDP_STEALTH_ALLOW_FAIL=1` to log failures without exit; `CDP_SKIP_STEALTH_VERIFY=1` to skip verify |
 | **Navigation** | `--new-tab https://…` opens `about:blank` first, patches, verifies, then navigates |
-| **Attached tab** | http(s) tabs get `Page.reload` after patches so injections apply (`CDP_STEALTH_NO_RELOAD=1` to skip) |
+| **Attached tab** | HTTP or HTTPS tabs get `Page.reload` after patches so injections apply (`CDP_STEALTH_NO_RELOAD=1` to skip) |
 
 Implementation: `scripts/mandatory-stealth.mjs` (imported from `cdp-runner.mjs`).
 

@@ -4,8 +4,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 // minify mode reaches the GitHub layer (where comment/blank-line stripping
 // happens).
 const getFileContent = vi.fn();
-const { fetchDirectoryContents } = vi.hoisted(() => ({
+const { fetchDirectoryContents, fetchFileContentToDisk } = vi.hoisted(() => ({
   fetchDirectoryContents: vi.fn(),
+  fetchFileContentToDisk: vi.fn(async () => ({
+    localPath: '/tmp/x',
+    repoRoot: '/tmp/x',
+    cached: false,
+    branch: 'main',
+    commitSha: '0123456789abcdef0123456789abcdef01234567',
+  })),
 }));
 
 const fakeProvider = {
@@ -21,13 +28,7 @@ vi.mock('../../../src/providers/factory.js', () => ({
 // materializeExactFile (triggered by fullContent + minify:none) would otherwise
 // hit disk/network — stub it out.
 vi.mock('../../../src/github/directoryFetch.js', () => ({
-  fetchFileContentToDisk: vi.fn(async () => ({
-    localPath: '/tmp/x',
-    repoRoot: '/tmp/x',
-    cached: false,
-    branch: 'main',
-    commitSha: '0123456789abcdef0123456789abcdef01234567',
-  })),
+  fetchFileContentToDisk,
   fetchDirectoryContents,
 }));
 
@@ -58,6 +59,7 @@ function minifyOf(): string | undefined {
 describe('ghGetFileContent — fullContent is verbatim (minify:none) by default', () => {
   const originalEnableLocal = process.env.ENABLE_LOCAL;
   const originalEnableClone = process.env.ENABLE_CLONE;
+  const originalStorageMode = process.env.OCTOCODE_STORAGE_MODE;
 
   beforeEach(() => {
     getFileContent.mockReset();
@@ -66,6 +68,7 @@ describe('ghGetFileContent — fullContent is verbatim (minify:none) by default'
     setRuntimeSurface('cli');
     process.env.ENABLE_LOCAL = 'true';
     process.env.ENABLE_CLONE = 'true';
+    process.env.OCTOCODE_STORAGE_MODE = 'persistent';
     cleanup();
   });
 
@@ -74,6 +77,9 @@ describe('ghGetFileContent — fullContent is verbatim (minify:none) by default'
     else process.env.ENABLE_LOCAL = originalEnableLocal;
     if (originalEnableClone === undefined) delete process.env.ENABLE_CLONE;
     else process.env.ENABLE_CLONE = originalEnableClone;
+    if (originalStorageMode === undefined)
+      delete process.env.OCTOCODE_STORAGE_MODE;
+    else process.env.OCTOCODE_STORAGE_MODE = originalStorageMode;
     _resetRuntimeSurface();
     cleanup();
   });
@@ -104,6 +110,28 @@ describe('ghGetFileContent — fullContent is verbatim (minify:none) by default'
     }
   );
 
+  it('rejects directory materialization when memory-only storage is selected', async () => {
+    process.env.OCTOCODE_STORAGE_MODE = 'memory';
+    cleanup();
+
+    const result = await fetchMultipleGitHubFileContents({
+      queries: [
+        {
+          owner: 'o',
+          repo: 'r',
+          path: 'src',
+          branch: 'main',
+          type: 'directory',
+        },
+      ],
+    } as never);
+
+    expect(fetchDirectoryContents).not.toHaveBeenCalled();
+    expect(JSON.stringify(result.structuredContent)).toContain(
+      'persistentStorageDisabled'
+    );
+  });
+
   it('defaults fullContent reads to minify:none so comments are not stripped', async () => {
     const result = await fetchMultipleGitHubFileContents({
       queries: [
@@ -122,6 +150,28 @@ describe('ghGetFileContent — fullContent is verbatim (minify:none) by default'
     expect(JSON.stringify(result.structuredContent)).toContain(
       '0123456789abcdef0123456789abcdef01234567'
     );
+  });
+
+  it('returns full content without materializing it in memory-only mode', async () => {
+    process.env.OCTOCODE_STORAGE_MODE = 'memory';
+    cleanup();
+    fetchFileContentToDisk.mockClear();
+
+    const result = await fetchMultipleGitHubFileContents({
+      queries: [
+        {
+          owner: 'o',
+          repo: 'r',
+          path: 'src/a.ts',
+          branch: 'main',
+          fullContent: true,
+        },
+      ],
+    } as never);
+
+    expect(fetchFileContentToDisk).not.toHaveBeenCalled();
+    expect(JSON.stringify(result.structuredContent)).toContain('const x = 1');
+    expect(JSON.stringify(result.structuredContent)).not.toContain('localPath');
   });
 
   it('an explicit minify still wins over the fullContent default', async () => {

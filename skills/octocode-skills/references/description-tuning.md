@@ -6,16 +6,16 @@ Load when optimizing a skill's `description` — the primary trigger. Why: at st
 
 - Imperative: "Use when…".
 - User intent, not implementation internals.
-- Non-obvious triggers where the user may not name the domain.
+- Non-obvious triggers where you cannot name the domain.
 - Concise, ≤1024 chars; first ~50 chars state the trigger.
 - Not so broad that near-miss prompts activate it.
-- **Trigger-rich, not rigid:** list intents agents will say; keep exclusivity/mandate language out of the description — hard rules belong in the lobby body.
-- **Not redundant:** one `Use when` clause; no second `Triggers:` label; no "This skill should be used when…"; no long quoted-synonym laundry lists; no CLI/schema/internals dump.
+- **Trigger-rich, not rigid:** list intents agents use; keep exclusivity/mandate language out of the description — hard rules belong in the lobby body.
+- **Not redundant:** one `Use when` clause; no second `Triggers:` label; no "This skill applies when…"; no long quoted-synonym laundry lists; no CLI/schema/internals dump.
 
 ## Eval queries
 
-- Should-trigger: vary phrasing, typos, explicitness, complexity.
-- Should-not-trigger: near-misses sharing keywords but needing another skill.
+- Positive trigger: vary phrasing, typos, explicitness, and complexity.
+- Negative trigger: use near-misses that share keywords but need another skill.
 - Train/validation split so edits don't overfit.
 - Re-run when nondeterministic; compare trigger rates.
 

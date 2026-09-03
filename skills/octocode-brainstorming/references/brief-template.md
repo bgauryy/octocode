@@ -1,5 +1,5 @@
-# Idea Brief Template
-Load when the user approves a saved brief; save under `.octocode/octocode-brainstorming/<date>-<slug>.md` or `<doc_placement>`. This is exploratory research, not a spec. Include `## Resources` when evidence was cited.
+# Idea brief template
+Load when you approve a saved brief; save under `.octocode/octocode-brainstorming/<date>-<slug>.md` or `<doc_placement>`. This is exploratory research, not a spec. Include `## Resources` when evidence was cited. <!-- style-lint: ignore-line passive-voice -->
 ```markdown
 # Idea Brief: {one-line restatement}
 | Field | Value |

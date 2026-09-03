@@ -1,8 +1,8 @@
-# PR Review Analysis
+# PR review analysis
 
-Load when `references/workflow-pr-review.md` has resolved target, guidelines, context, and checkpoint scope. Why: sizing, flow proof, and finding shape decide what the review may claim.
+Load when `references/workflow-pr-review.md` has resolved target, guidelines, context, and checkpoint scope. Why: sizing, flow proof, and finding shape decide what the review can claim.
 
-## Size And Domains
+## Size and domains
 | Mode | Trigger | Depth |
 |---|---|---|
 | Quick | ≤5 files and all LOW risk | surface scan → verify → finalize |
@@ -20,12 +20,12 @@ Severity is impact (`HIGH/MED/LOW`); confidence is proof (`confirmed/likely/unce
    - import/module reshape → graph cycles/reachability before and after when topology risk is material.
 3. Exact-read every affected consumer before calling it broken; record changed values/types/side effects.
 4. Check APIs/schemas/dependencies, edge cases, auth/injection/data exposure, error context, hot paths, and TODO/FIXME on added lines.
-5. Run the smallest applicable project test/typecheck/lint check. If unavailable/unsafe, record `not run` and keep recommendation below `APPROVE`.
+5. Run the smallest applicable project test/typecheck/lint check. If unavailable/unsafe, record `not run`, and keep recommendation below `APPROVE`.
 6. For high-risk changes, require rollout/rollback or a reason they are unnecessary.
 
 Do not inspect excluded areas. Empty results require one changed query/surface. Dead-end flow proof stays an explicit limitation.
 
-## Optional Parallel Split
+## Optional parallel split
 Use only when the runtime/user permits and the review is Full. Split independent Flow, Security/Error, Architecture/Quality, and loaded-guideline checks.
 Workers return scope, findings, checked non-findings, and limits; they never write. Merge by root cause/location, keep stronger proof, and cap the top 5-7.
 

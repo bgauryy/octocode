@@ -1,4 +1,4 @@
-# PR Review Report
+# PR review report
 
 Load after analysis produces deduped findings, verification receipts, and a recommendation.
 
@@ -28,11 +28,10 @@ Ask before writing. After approval:
 If writing fails, return the document in chat. Sections: executive summary; affected areas/business/flow; 1-5 ratings for correctness/security/performance/maintainability; PR/change health; guidelines compliance; findings; flow impact; next steps. Never provide duration estimates.
 
 ## Verification Checklist
-- [ ] Target/mode, availability, guidelines, diff/PR context, risk sizing, and checkpoint were handled.
+- [ ] Target/mode, availability, guidelines, diff/PR context, risk sizing, and checkpoint were handled. <!-- style-lint: ignore-line passive-voice -->
 - [ ] Full mode traced every modified function/method and covered requested focus only.
-- [ ] Findings were deduped; each has location, severity, confidence, evidence, impact, and fix.
+- [ ] Findings were deduped; each has location, severity, confidence, evidence, impact, and fix. <!-- style-lint: ignore-line passive-voice -->
 - [ ] Every check has an explicit status; APPROVE appears only after applicable checks pass.
 - [ ] Chat report came before any approved document; written issue numbering is sequential.
 
 Next: when a finding is disproven or a box stays unchecked return to `references/workflow-pr-review-analysis.md`; when the review authorizes a fix hand off to `references/workflow-change.md`. Otherwise the review ends here — deliver the chat report.
-

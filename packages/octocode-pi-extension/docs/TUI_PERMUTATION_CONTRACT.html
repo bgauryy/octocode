@@ -1,0 +1,262 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Octocode TUI permutation contract</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --page: #091018;
+      --surface: #101923;
+      --surface-2: #151f2b;
+      --line: #2b3948;
+      --text: #e8edf2;
+      --muted: #91a0af;
+      --brand: #27c2c9;
+      --link: #b4a0ff;
+      --warning: #f1c75b;
+      --success: #69d49b;
+      --error: #ff7e86;
+      --code: #0b131c;
+    }
+    html[data-theme="light"] {
+      color-scheme: light;
+      --page: #eef4f8;
+      --surface: #ffffff;
+      --surface-2: #f6f9fb;
+      --line: #cad6df;
+      --text: #172838;
+      --muted: #647587;
+      --brand: #087f89;
+      --link: #654bb1;
+      --warning: #986c00;
+      --success: #157343;
+      --error: #b72f3b;
+      --code: #f4f8fb;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--page);
+      color: var(--text);
+      font: 14px/1.5 Inter, ui-sans-serif, system-ui, sans-serif;
+    }
+    header, main { width: min(1180px, calc(100% - 32px)); margin-inline: auto; }
+    header { padding: 28px 0 18px; display: flex; align-items: end; justify-content: space-between; gap: 16px; }
+    h1 { margin: 0; font-size: clamp(22px, 4vw, 38px); line-height: 1.08; letter-spacing: -.035em; }
+    .subtitle { margin: 6px 0 0; color: var(--muted); }
+    .controls { display: flex; flex-wrap: wrap; gap: 8px; }
+    button {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 7px 11px;
+      background: var(--surface);
+      color: var(--text);
+      font: inherit;
+      cursor: pointer;
+    }
+    button[aria-pressed="true"] { border-color: var(--brand); color: var(--brand); }
+    main { padding-bottom: 40px; }
+    .matrix { display: grid; grid-template-columns: repeat(12, 1fr); gap: 14px; }
+    section {
+      grid-column: span 6;
+      min-width: 0;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: var(--surface);
+      overflow: hidden;
+    }
+    section.wide { grid-column: 1 / -1; }
+    h2 { margin: 0; padding: 11px 14px; border-bottom: 1px solid var(--line); font-size: 13px; color: var(--link); }
+    .case { padding: 12px 14px; border-bottom: 1px solid var(--line); }
+    .case:last-child { border-bottom: 0; }
+    .case-title { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 7px; color: var(--muted); font-size: 12px; }
+    .tag { color: var(--brand); }
+    pre {
+      margin: 0;
+      padding: 10px 12px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--code);
+      color: var(--text);
+      font: 12px/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+    }
+    .brand { color: var(--brand); }
+    .link { color: var(--link); }
+    .muted { color: var(--muted); }
+    .warning { color: var(--warning); }
+    .success { color: var(--success); }
+    .error { color: var(--error); }
+    .task-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .media-preview {
+      min-height: 118px;
+      display: grid;
+      place-items: center;
+      border: 1px dashed var(--line);
+      border-radius: 8px;
+      background: linear-gradient(135deg, color-mix(in srgb, var(--brand) 12%, transparent), color-mix(in srgb, var(--link) 9%, transparent));
+      color: var(--muted);
+      text-align: center;
+      padding: 16px;
+    }
+    .density-compact [data-density="default"],
+    .density-compact [data-density="full"],
+    .density-default [data-density="full"] { display: none; }
+    @media (max-width: 780px) {
+      header { align-items: flex-start; flex-direction: column; }
+      section { grid-column: 1 / -1; }
+      .task-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body class="density-default">
+  <header>
+    <div>
+      <h1>Octocode TUI permutation contract</h1>
+      <p class="subtitle">One visual acceptance matrix for footer, components, state, messages, tools, agents, plans, Awareness, and media.</p>
+    </div>
+    <div class="controls" aria-label="Contract controls">
+      <button type="button" data-density-button="compact">Compact</button>
+      <button type="button" data-density-button="default" aria-pressed="true">Default</button>
+      <button type="button" data-density-button="full">Full</button>
+      <button type="button" id="theme-toggle">Light theme</button>
+    </div>
+  </header>
+
+  <main>
+    <div class="matrix">
+      <section class="wide">
+        <h2>Footer · responsive density and precise context</h2>
+        <div class="case">
+          <div class="case-title"><span>Live session</span><span class="tag">no duplicate 0/200k state</span></div>
+          <pre><span class="muted">main (7 changed)</span> · <span class="brand">model openai/gpt-5.6</span> · github ✓ · perm default +2
+<span class="warning">context ▓▓▓▓▓▓░░ 76% · 152k/200k</span> · turn 8 · 14s · session 12m 8s
+<span data-density="default" class="muted">initial ~18.4k · mcp 5 · skills 11</span><span data-density="full" class="muted"> · system 9.2k · direct tools 2.4k · dynamic 1.8k</span></pre>
+        </div>
+      </section>
+
+      <section>
+        <h2>Agents · name, model, assignment, plan, live state</h2>
+        <div class="case">
+          <pre><span class="brand">Agent Component Builder (a1b2c3)</span> · <span class="brand">running</span> · 14s · <span class="link">model gpt-5.6</span>
+task: Unify footer state · plan: 2. Build shared components
+<span class="muted">now: tool edit · editing footer-view.ts</span>
+
+<span class="brand">Agent Border Reviewer (d4e5f6)</span> · <span class="warning">blocked</span> · 9s · <span class="link">model claude-sonnet</span>
+task: Verify every width · <span class="muted">waiting for components.ts</span>
+
+<span class="brand">Agent Media Verifier (f7a8b9)</span> · <span class="success">done</span> · 5s · <span class="link">model gpt-5.6-mini</span></pre>
+        </div>
+      </section>
+
+      <section>
+        <h2>Plan and tasks · complete list, explicit running lane</h2>
+        <div class="case task-grid">
+          <pre><span class="brand">Plan  ███░░░░░  1/3 done</span>
+<span class="muted">✓ 1. Inventory renderers</span>
+<span class="brand">▶ 2. Unifying state projections  running</span>
+<span class="warning">! 3. Run visual checks  blocked</span></pre>
+          <pre><span class="link">Task storage projection</span>
+<span class="brand">DOING</span>  Implement footer · builder
+<span class="link">READY</span>  Review borders
+<span class="link">READY</span>  Verify Ghostty media
+<span class="link">READY</span>  Run full extension suite</pre>
+        </div>
+      </section>
+
+      <section class="wide">
+        <h2>Awareness · attention first, then complete actionable tasks</h2>
+        <div class="case">
+          <pre><span class="link">Awareness</span> · <span class="warning">✉ 1 unread from reviewer</span> · <span class="warning">verify-debt 2</span> · <span class="brand">plans 1 · ready 4 · doing 1</span>
+<span class="muted">locks 1 · work 2 · peer-msgs 3</span>
+  task · <span class="brand">DOING</span> · Implement footer · builder · task-r
+  task · <span class="link">READY</span> · Review borders · task-r
+  task · <span class="link">READY</span> · Verify Ghostty media · task-m
+  task · <span class="link">READY</span> · Run full suite · task-v</pre>
+        </div>
+      </section>
+
+      <section>
+        <h2>Tool calls · schema-owned <code>queryRunType</code> execution policy</h2>
+        <div class="case">
+          <div class="case-title"><span>Mutating tools</span><span class="tag">sequential only</span></div>
+          <pre><span class="muted">↳ 2 queries · sequential</span>
+◇ bash · yarn typecheck
+  verify types before tests
+◇ bash · yarn test
+  run after typecheck completes</pre>
+        </div>
+        <div class="case">
+          <div class="case-title"><span>Independent reads</span><span class="tag">parallel opt-in</span></div>
+          <pre><span class="link">↳ 2 queries · parallel</span>
+◇ readMedia · image a.png
+◇ readMedia · image b.png</pre>
+        </div>
+      </section>
+
+      <section>
+        <h2>Tool results · run type plus every receipt</h2>
+        <div class="case">
+          <pre>◇ readMedia · 3 queries · <span class="link">parallel</span>
+<span class="success">✓</span> readMedia [0] · image a loaded
+<span class="success">✓</span> readMedia [1] · image b loaded
+<span class="error">✗</span> readMedia [2] · unsupported format</pre>
+        </div>
+        <div class="case">
+          <pre>◇ file · 3 queries · <span class="muted">sequential</span>
+<span class="success">✓</span> file [0] · a.ts written
+<span class="error">✗</span> file [1] · stale read
+<span class="muted">–</span> file [2] · not run</pre>
+        </div>
+      </section>
+
+      <section>
+        <h2>Messages · closed component frames</h2>
+        <div class="case">
+          <pre>╭─ <span class="brand">Compaction checkpoint · entry-42</span> ─────────╮
+│ active plan: 1/3 · Unify state projections         │
+│ summary: task, files, decisions, and agent refs kept│
+╰─ <span class="muted">context compacted · resume from checkpoint</span> ─╯</pre>
+        </div>
+        <div class="case">
+          <pre>╭─ <span class="link">Awareness handoff · reviewer</span> ─────────────╮
+│ status: in-progress · verify borders                │
+│ artifact: TUI_PERMUTATION_CONTRACT.html             │
+╰─ <span class="muted">awareness handed off</span> ───────────────────╯</pre>
+        </div>
+      </section>
+
+      <section>
+        <h2>Media · TUI protocol and browser fallback</h2>
+        <div class="case">
+          <div class="media-preview"><span><span class="brand">Ghostty / Kitty protocol preview</span><br>Expanded readMedia results emit raw image rows without width truncation.</span></div>
+        </div>
+        <div class="case">
+          <pre><span class="warning">🖼 image: screenshot.png (248 KB)</span>
+Inline display unavailable in this TUI.
+Offer to open the file in the user’s browser; ask first.</pre>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <script>
+    const body = document.body;
+    const densityButtons = [...document.querySelectorAll('[data-density-button]')];
+    densityButtons.forEach((button) => button.addEventListener('click', () => {
+      const density = button.dataset.densityButton;
+      body.className = `density-${density}`;
+      densityButtons.forEach((item) => item.setAttribute('aria-pressed', String(item === button)));
+    }));
+    document.getElementById('theme-toggle').addEventListener('click', (event) => {
+      const root = document.documentElement;
+      const next = root.dataset.theme === 'dark' ? 'light' : 'dark';
+      root.dataset.theme = next;
+      event.currentTarget.textContent = next === 'dark' ? 'Light theme' : 'Dark theme';
+    });
+  </script>
+</body>
+</html>

@@ -21,7 +21,7 @@ Goal: <preserved intent>
 Change: <bounded repair>
 Risk: <regression and check>
 ```
-Fix Critical/High issues; fix or record the rest. Avoid optional-to-mandatory escalation, redesign, duplicate rule owners, or unverified writes. If a repair changes intent or working logic, revert it and return to UNDERSTAND. Explain material growth instead of treating brevity as the only goal.
+Fix Critical/High issues; fix or record the rest. Avoid optional-to-mandatory escalation, redesign, duplicate rule owners, or unverified writes. If a repair changes intent or working logic, revert it, and return to UNDERSTAND. Explain material growth instead of treating brevity as the only goal.
 
 ## Sources
 - Anthropic, [Effective context engineering for AI agents](https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents) — clear, specific prompts at the right level of prescription.

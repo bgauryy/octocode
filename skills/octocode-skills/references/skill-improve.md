@@ -1,4 +1,4 @@
-# Skill Improve Protocol
+# Skill improve protocol
 
 Load when improving, refactoring, or rewriting an Agent Skill. Why: preserve its job while making the folder leaner and easier to navigate.
 
@@ -29,8 +29,8 @@ Load when improving, refactoring, or rewriting an Agent Skill. Why: preserve its
 
 `READ → MAP INTENT → RATE → DEDUPE → REWRITE → CLEANUP → REVIEW → VERIFY`
 
-Preserve core job → score via `references/quality-rubric.md` → remove overlaps → split bloat → prune orphans (`references/skill-cleanup.md`) → re-review to 0 ERROR → report residual risk.
+Preserve core job → score through `references/quality-rubric.md` → remove overlaps → split bloat → prune orphans (`references/skill-cleanup.md`) → re-review to 0 ERROR → report residual risk.
 
-Done when the real files were inspected, intent is preserved, routes and workflows remain navigable, dead or duplicate material is gone, and review reports 0 ERROR.
+Done after you inspect the real files and preserve intent. Keep navigation intact. Remove dead material and duplicates. Finish with 0 ERROR.
 
 Next: when pruning orphans load `references/skill-cleanup.md`; when picking rate vs rewrite mode load `references/self-improvement.md`.

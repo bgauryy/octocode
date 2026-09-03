@@ -1,14 +1,14 @@
 {
   "name": "@octocodeai/octocode-tools-core",
   "description": "Core tool implementations for Octocode: GitHub, local filesystem, LSP, and package search tools.",
-  "version": "18.2.0",
+  "version": "18.3.0",
   "author": "Guy Bary <bgauryy@octocodeai.com>",
   "bugs": "https://github.com/bgauryy/octocode/issues",
   "dependencies": {
     "@modelcontextprotocol/server": "^2.0.0",
-    "@octocodeai/config": "18.0.1",
+    "@octocodeai/config": "18.3.0",
     "@octocodeai/octocode-core": "18.3.0",
-    "@octocodeai/octocode-engine": "18.2.0",
+    "@octocodeai/octocode-engine": "18.3.0",
     "@octokit/oauth-methods": "^6.0.2",
     "@octokit/plugin-throttling": "^11.0.3",
     "@octokit/request": "^10.0.10",
@@ -20,12 +20,12 @@
     "@octokit/core": "^7.0.6",
     "@octokit/openapi-types": "^27.0.0",
     "@octokit/plugin-rest-endpoint-methods": "^17.0.0",
-    "@types/node": "^25.9.3",
-    "@vitest/coverage-v8": "^4.1.9",
+    "@types/node": "^26.2.0",
+    "@vitest/coverage-v8": "^4.1.11",
     "esbuild": "^0.28.1",
     "eslint": "^9.18.0",
     "typescript": "^5.9.3",
-    "vitest": "^4.1.9"
+    "vitest": "^4.1.11"
   },
   "engines": {
     "node": ">=20.0.0"
@@ -92,8 +92,8 @@
     "directory": "packages/octocode-tools-core"
   },
   "scripts": {
-    "build": "yarn readme:sync && yarn clean && node build.mjs && yarn build:types-deps && tsc --emitDeclarationOnly -p tsconfig.build.json",
-    "build:dev": "yarn readme:sync && node build.mjs && yarn build:types-deps && tsc --emitDeclarationOnly -p tsconfig.build.json",
+    "build": "yarn readme:sync && yarn clean && node ../../scripts/esbuild-package.mjs && yarn build:types-deps && tsc --emitDeclarationOnly -p tsconfig.build.json",
+    "build:dev": "yarn readme:sync && node ../../scripts/esbuild-package.mjs && yarn build:types-deps && tsc --emitDeclarationOnly -p tsconfig.build.json",
     "build:types-deps": "yarn workspace @octocodeai/config build",
     "clean": "rm -rf dist/",
     "lint": "eslint src",

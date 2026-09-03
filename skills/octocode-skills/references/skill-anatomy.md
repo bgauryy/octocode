@@ -2,7 +2,7 @@
 
 Load when evaluating, improving, or creating a skill's folder shape — before rewriting structure.
 
-A skill is a standalone folder with required `SKILL.md` and optional `scripts/`, `references/`, and `assets/`. Every local file reference resolves inside it, and every shipped file is used. Name optional sibling skills without file paths; vendor required helpers and remove development-only metadata, probes, duplicates, and dead artifacts.
+A skill is a standalone folder with required `SKILL.md` and optional `scripts/`, `references/`, and `assets/`. Every local file reference resolves inside it, and every shipped file is used. Name optional sibling skills without file paths; vendor required helpers and remove development-only metadata, probes, duplicates, and dead artifacts. <!-- style-lint: ignore-line passive-voice -->
 
 ```text
 my-skill/
@@ -32,7 +32,7 @@ my-skill/
 
 ## Map and navigation
 
-- `SKILL.md` lists every reference and runnable script with when and how to use it, plus the workflows. An index may add depth, not replace the listing.
+- `SKILL.md` lists every reference and runnable script with when and how to use it, plus the workflows. An index can add depth, not replace the listing.
 - Each chunk opens with its own entry condition (`Load when … Why: …`) so a route is verifiable from the file itself.
 - Each chunk ends with the next hop, or says the step ends here — never leave the agent guessing where to go.
 - Every flow phase in `SKILL.md` appears in a route or gate; a phase named only in the flow line is decoration.
@@ -41,7 +41,7 @@ my-skill/
 
 ## Context cut
 
-Ask: "Would the agent get this wrong without the skill?" If not, cut.
+Ask: "Can the agent get this wrong without the skill?" If not, cut.
 Prefer stepwise guidance over exhaustive docs. Keep each skill a coherent unit of work.
 
 Next: when improving an existing skill load `references/skill-improve.md`; when writing instructions load `references/skill-authoring.md`; before bundling scripts load `references/skill-scripts.md`.

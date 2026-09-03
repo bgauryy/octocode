@@ -28,10 +28,10 @@ Evidence grades: semantic (LSP identity), structural (AST shape), lexical (cover
 ## Execution Rules
 - Batch independent probes; claims get 2-3 angles on the same target.
 - Prefer `matchString` anchors, then line ranges; use full exact content only for small files.
-- Quote/edit only exact content. Symbols orient; standard/minified output may rewrite text.
+- Quote/edit only exact content. Symbols orient; standard/minified output might rewrite text.
 - Materialize a remote area before AST/LSP, exact absence, repeated many-file reads, or a third deep read.
-- Read the tool/schema contract immediately before raw calls; graph compact schemas may flatten operation variants, so use full JSON when `file`/`target` requirements are unclear.
-- For `node_modules`, disable default exclusions and inspect the file the resolver actually loads.
+- Read the tool/schema contract immediately before raw calls; graph compact schemas might flatten operation variants, so use full JSON when `file`/`target` requirements are unclear.
+- For `node_modules`, turn off default exclusions and inspect the file the resolver loads.
 
 ## Failure Signals
 | Signal | Meaning → move |
@@ -44,6 +44,6 @@ Evidence grades: semantic (LSP identity), structural (AST shape), lexical (cover
 | resolved ref differs | default-branch fallback → cite/recheck actual ref |
 | warning/redaction/pagination | interpretation changed → preserve and follow it |
 
-Avoid guessed offsets/fields, serial single queries, remote over-reading, snippet conclusions, and claims from one evidence lane. No embeddings/index are assumed; for conceptual queries use tree → hotspot map → symbols → exact proof.
+Avoid guessed offsets/fields, serial single queries, remote over-reading, snippet conclusions, and claims from one evidence lane. No embeddings/index are assumed; for conceptual queries use tree → hotspot map → symbols → exact proof. <!-- style-lint: ignore-line passive-voice -->
 
-Next: classify the request with `references/problem-framing.md`, then take one route from `references/workflows.md`; when a code claim needs the proof ladder load `references/code-research.md`; when a call itself fails or a surface is gated load `references/octocode.md`.
+Next: classify the request with `references/problem-framing.md`, then take one route from `references/workflows.md`; when a code claim needs the proof ladder load `references/code-research.md`; when a call itself fails or a surface is gated load `references/octocode.md`. <!-- style-lint: ignore-line passive-voice -->

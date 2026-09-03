@@ -1,6 +1,6 @@
 # Self-Improvement Mode
 
-Load when the user asks to rate, review, improve, or refactor a skill. Why: match the work to the requested mode without assuming write authority.
+Load when you ask to rate, review, improve, or refactor a skill. Why: match the work to the requested mode without assuming write authority.
 
 For the rewrite contract (lobby, dedupe, ≤50, review), load `references/skill-improve.md` — this file only gates the mode.
 
@@ -25,6 +25,6 @@ Next:        relevant action(s), if any
 
 Run `scripts/skill-review.mjs` first (`references/skill-review.md`). Cite findings with `references/skill-review-rules.md`.
 
-Ask only when the request leaves write authority or the desired outcome materially unclear. For edits, follow `references/skill-improve.md`; do not restate its loop here.
+Ask only when the request leaves write authority or the needed outcome materially unclear. For edits, follow `references/skill-improve.md`; do not restate its loop here.
 
 Next: when rewriting load `references/skill-improve.md`; when presenting load `references/output-format.md`.

@@ -19,15 +19,17 @@ export type ToolDefinition = DirectToolDefinition & {
 };
 export const TOOL_CATEGORIES = DIRECT_TOOL_CATEGORIES;
 
-function isCloneEnabled(): boolean {
+function cloneDisabledBy(): string | undefined {
   try {
-    return getConfigSync().local.enableClone;
+    const config = getConfigSync();
+    if (config.storage.mode === 'memory') return 'OCTOCODE_STORAGE_MODE';
+    return config.local.enableClone ? undefined : 'ENABLE_CLONE';
   } catch {
-    return true;
+    return undefined;
   }
 }
 
-const cloneEnabled = isCloneEnabled();
+const cloneDisabledEnvVar = cloneDisabledBy();
 const toolConfig = getConfigSync().tools;
 const explicitlyEnabledTools = new Set(toolConfig.enabled ?? []);
 const explicitlyDisabledTools = new Set(toolConfig.disabled ?? []);
@@ -35,8 +37,11 @@ const hasToolAllowlist = explicitlyEnabledTools.size > 0;
 
 export const TOOL_DEFINITIONS: ToolDefinition[] =
   DIRECT_TOOL_DISCOVERY_DEFINITIONS.map(tool => {
-    if (tool.name === STATIC_TOOL_NAMES.GITHUB_CLONE_REPO && !cloneEnabled) {
-      return { ...tool, disabled: { envVar: 'ENABLE_CLONE' } };
+    if (
+      tool.name === STATIC_TOOL_NAMES.GITHUB_CLONE_REPO &&
+      cloneDisabledEnvVar
+    ) {
+      return { ...tool, disabled: { envVar: cloneDisabledEnvVar } };
     }
     if (hasToolAllowlist && !explicitlyEnabledTools.has(tool.name)) {
       return { ...tool, disabled: { envVar: 'TOOLS_TO_RUN' } };
@@ -65,6 +70,9 @@ export function getToolEnableInstruction(toolName: string): string | undefined {
   }
   if (availability.envVar === 'DISABLE_TOOLS') {
     return `remove ${toolName} from DISABLE_TOOLS`;
+  }
+  if (availability.envVar === 'OCTOCODE_STORAGE_MODE') {
+    return 'set OCTOCODE_STORAGE_MODE=persistent';
   }
   return `set ${availability.envVar}=true`;
 }

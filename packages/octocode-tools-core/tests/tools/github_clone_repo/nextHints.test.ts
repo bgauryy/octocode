@@ -40,7 +40,10 @@ const { executeCloneRepo } =
   await import('../../../src/tools/github_clone_repo/execution.js');
 
 describe('ghCloneRepo next-hints', () => {
+  const originalStorageMode = process.env.OCTOCODE_STORAGE_MODE;
+
   beforeEach(() => {
+    process.env.OCTOCODE_STORAGE_MODE = 'persistent';
     mocks.octocodeDir = mkdtempSync(join(tmpdir(), 'octocode-clone-next-'));
     mocks.spawnWithTimeout.mockReset();
     mocks.spawnWithTimeout.mockImplementation(async (_command, args) => {
@@ -63,6 +66,22 @@ describe('ghCloneRepo next-hints', () => {
 
   afterEach(() => {
     rmSync(mocks.octocodeDir, { recursive: true, force: true });
+    if (originalStorageMode === undefined)
+      delete process.env.OCTOCODE_STORAGE_MODE;
+    else process.env.OCTOCODE_STORAGE_MODE = originalStorageMode;
+  });
+
+  it('refuses to clone before writing when memory-only storage is selected', async () => {
+    process.env.OCTOCODE_STORAGE_MODE = 'memory';
+
+    const result = await executeCloneRepo({
+      queries: [{ owner: 'bgauryy', repo: 'octocode', branch: 'main' }],
+    } as never);
+
+    expect(mocks.spawnWithTimeout).not.toHaveBeenCalled();
+    expect(JSON.stringify(result.structuredContent)).toContain(
+      'persistentStorageDisabled'
+    );
   });
 
   it('emits a ready-to-run viewStructure hint and no longer emits the broken localSearch hint (regression)', async () => {

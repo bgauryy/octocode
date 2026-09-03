@@ -1,4 +1,4 @@
-# Discovery Manifests And CLIs
+# Discovery manifests and CLIs
 
 Load when parsing marketplace manifests or choosing an installer CLI — after `discovery-surfaces.md`.
 
@@ -9,8 +9,8 @@ Load when parsing marketplace manifests or choosing an installer CLI — after `
 | `agentskills.io/llms.txt` | Standard hub | Agent-readable doc index |
 | `aiskillstore.io/llms.txt` | USK registry | Spec + endpoint catalog |
 | `microsoft.github.io/skills/llms*.txt` | Microsoft | Daily catalog snapshot |
-| `.claude-plugin/marketplace.json` | Marketplace repo | Anthropic marketplace |
-| `.claude-plugin/plugin.json` | Plugin repo | Per-plugin manifest |
+| `.claude-plugin/marketplace.json` | Marketplace repository | Anthropic marketplace |
+| `.claude-plugin/plugin.json` | Plugin repository | Per-plugin manifest |
 | `feed/new-skills.json` | aiskillstore | New-skill firehose |
 | YAML frontmatter | Inside `SKILL.md` | `name`, `description`, optional USK fields |
 
@@ -22,7 +22,7 @@ Always safety-scan source before install. Prefer Octocode CLI when available (`i
 |-----|---------|-------|
 | `npx skills add` | `… <gh-url> --agent <host> --skill <name>` | Symlink-by-default |
 | `npx skills-installer` | `… install @owner/repo/skill --client <host>` | Pairs with claude-plugins.dev |
-| `npx claude-plugins` | install/list/enable/disable | Plugin marketplace mgmt |
+| `npx claude-plugins` | install/list/enable/disable | Plugin marketplace management | <!-- style-lint: ignore-line word-list -->
 | Anthropic native | `/plugin marketplace add` then `/plugin install` | Claude Code |
 | `npx octocode skill` | `--add --path … --platform …` | Preferred in this monorepo |
 

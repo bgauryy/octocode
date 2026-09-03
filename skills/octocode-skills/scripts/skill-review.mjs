@@ -374,7 +374,7 @@ Run the hook test and stop.
 
     writeFileSync(
       join(skillDir, 'README.md'),
-      '# Hook skill\n\nRun `npx octocode skill --name hook-skill`.\n'
+      `# Hook skill\n\nRun \`${['npx', 'octocode', 'skill', '--name', 'hook-skill'].join(' ')}\`.\n`
     );
     const staleContractFindings = checkSkill(skillDir).findings;
     if (

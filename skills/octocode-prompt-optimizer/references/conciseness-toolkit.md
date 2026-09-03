@@ -1,4 +1,4 @@
-# Conciseness & Clarity Toolkit
+# Conciseness and clarity toolkit
 
 Load when a FIX target line is wordy, indirect, or over about 20-25 words. Why: fewer tokens, identical logic. Grounded in Anthropic agent guidance, plain-language rules, and psycholinguistics.
 
@@ -8,7 +8,7 @@ Load when a FIX target line is wordy, indirect, or over about 20-25 words. Why: 
 | Move | Before → After | Why it helps an agent |
 |------|----------------|-----------------------|
 | De-nominalize | "make a decision" → "decide" | Verb carries the action; drops the empty light-verb |
-| Active voice, name the actor | "it must be done" → "you must do it" | Shorter; assigns responsibility unambiguously |
+| Active voice, name the actor | "it must be done" → "you must do it" | Shorter; assigns responsibility unambiguously | <!-- style-lint: ignore-line passive-voice -->
 | Cut expletive openers | "there is a check that runs" → "a check runs" | Removes placeholder plus relative pronoun |
 | Strong verb over periphrasis | "provide validation of" → "validate" | One precise verb replaces a weak-verb chunk |
 | Positive over negative | "do not omit the flag" → "include the flag" | Negation adds processing cost; flip double negatives |

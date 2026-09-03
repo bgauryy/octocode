@@ -22,6 +22,7 @@ import {
 import { cloneRepo } from './cloneRepo.js';
 import type { CloneRepoQueryLocalSchema } from './scheme.js';
 import type { z } from 'zod';
+import { getConfigSync } from '@octocodeai/config';
 
 type CloneRepoQuery = z.infer<typeof CloneRepoQueryLocalSchema>;
 
@@ -39,6 +40,13 @@ export async function executeCloneRepo(
         query,
         contextMessage: `Clone failed for ${query.owner}/${query.repo}`,
         execute: async () => {
+          if (getConfigSync().storage.mode === 'memory') {
+            return createErrorResult(
+              'Clone requires persistent local storage. Set storage.mode="persistent" or OCTOCODE_STORAGE_MODE=persistent to use ghCloneRepo.',
+              query,
+              { extra: { errorCode: 'persistentStorageDisabled' } }
+            );
+          }
           const providerContext = getProviderContext();
 
           if (!providerSupports(providerContext, 'cloneRepo')) {

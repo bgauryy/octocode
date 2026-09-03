@@ -21,7 +21,7 @@ Load when choosing a multi-agent topology for an evaluated experiment. Why: patt
 4. **Outcomes over paths** — grade results/anchors, not exact tool sequences (unless policy order is the contract → strict trajectory).
 5. **Freeze harness** during the experiment; evolve topology only between experiments.
 6. **Anchor first** — tests/build/types before narrative critics.
-7. **Parent synthesizes** — workers never silently become the user-facing voice.
+7. **Parent synthesizes** — workers never silently become you-facing voice.
 
 ## Anti-patterns
 - Fake parallelism on a true chain (coordination tax, zero speedup).

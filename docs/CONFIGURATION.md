@@ -172,7 +172,7 @@ The following table lists the persistent files and cache directories inside the 
 | Path | What it does |
 |------|-------------|
 | `.env` | Your third-party API keys (Tavily, Serper, …). Loaded by agents and skills. |
-| `.octocoderc` | Octocode behavior settings (tools, network, paths, output). Read by the MCP server and CLI. |
+| `.octocoderc` | Octocode behavior settings (tools, network, paths, output, storage). Read by the MCP server and CLI. |
 | `credentials.json` | Encrypted GitHub token from `octocode auth login`. Don't edit manually. |
 | `stats.json` | Usage counters (tool calls, cache hits, …). Written only when `OCTOCODE_ENABLE_STATS=1`. |
 | `session.json` | Session identity. |
@@ -183,6 +183,8 @@ The following table lists the persistent files and cache directories inside the 
 ### Cache storage and lifecycle
 
 The CLI and MCP share the same cache roots under `OCTOCODE_HOME`; neither product uses editor-local storage for remote materialization. The persistent caches in this section use files and directories, not a database.
+
+Set `storage.mode` to `"memory"` when Octocode must not create persistent runtime caches or session state. Memory mode disables clone, directory, and exact-file materialization; disables response-cache disk reads and writes; skips cache maintenance; prevents session and stats writes; and prevents the Pi extension from opening its SQLite state. The Pi extension keeps active interaction and authorization state in process memory until exit. Ordinary file-content requests still return content without a `localPath`. The setting does not delete existing files, remove your `.octocoderc`, or disable explicitly configured credentials.
 
 | Concern | Behavior |
 |---------|----------|
@@ -267,7 +269,7 @@ Skills query every web-search engine whose key is set and validated, then fuse t
 
 ### `.octocoderc` — Octocode settings
 
-**What it is:** A JSON config file for Octocode's own behavior — tool availability, network settings, local path restrictions, output format, LSP config. It is **not** for third-party API keys.
+**What it is:** A JSON config file for Octocode's own behavior — tool availability, network settings, local path restrictions, output format, LSP config, and runtime storage. It is **not** for third-party API keys.
 
 **Where:** `~/.octocode/.octocoderc`
 
@@ -303,8 +305,8 @@ code ~/.octocode/.octocoderc
     "enabled": true,
 
     // true → turn on ghCloneRepo (clone a GitHub repo to disk for deep local analysis)
-    // CLI default: true  |  MCP default: false (must opt in)
-    "enableClone": false,
+    // Default: true. storage.mode="memory" disables clone and materialization writes.
+    "enableClone": true,
 
     // Lock the workspace root to a specific path (default: process.cwd())
     // Must be an absolute path. Example: "/home/user/projects"
@@ -352,6 +354,14 @@ code ~/.octocode/.octocoderc
   "lsp": {
     // Path to a custom lsp-servers.json. null = use built-in defaults.
     "configPath": null
+  },
+
+  // ── Runtime storage ────────────────────────────────────────────────────────
+  "storage": {
+    // "persistent" (default) permits caches and session state on disk.
+    // "memory" prevents persistent runtime cache, materialization, session,
+    // stats, and Pi SQLite writes. Existing files are not deleted.
+    "mode": "persistent"
   }
 }
 ```
@@ -486,11 +496,19 @@ enabled. Removed compatibility names are rejected; they cannot be re-enabled.
 |---------|---------|-------|
 | `OCTOCODE_HOME` | `<os-home>/.octocode` | Overrides the config directory for all products |
 
+#### Runtime storage
+
+| Env var | `.octocoderc` key | Default | Notes |
+|---------|------------------|---------|-------|
+| `OCTOCODE_STORAGE_MODE` | `storage.mode` | `persistent` | Use `memory` to prevent persistent runtime cache, materialization, session, stats, and Pi SQLite writes. Existing files and credentials remain untouched. |
+
 ---
 
 ### Advanced runtime — env var only
 
 `octocode-tools-core` reads these lower-level knobs directly. They have **no** `.octocoderc` equivalent — set them in your shell or MCP `env` block.
+
+`storage.mode="memory"` takes precedence over settings that otherwise enable disk caching or stats persistence.
 
 #### Stats persistence
 

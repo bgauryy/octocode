@@ -9,7 +9,7 @@ Flow: `FRAME → POLICY → ROUTE → FETCH → CORPUS → SEARCH → CITE → R
 
 Chat answers stay in chat; corpora/runs use `<workspace>/.octocode/tmp/scrape/`, durable reports `<workspace>/.octocode/octocode-scraping/`, and approved source/config edits keep their paths. Never use user-level Octocode home for artifacts.
 
-Frame URL/domain, goal, depth, and output before fetching; vague scope → `references/user-inputs.md`. Default to one public URL, `--mode html`, no explicit provider (keyless `cdp`→`direct`), `.octocode/tmp/scrape/{sessionId}`, and compact stdout. Search an existing corpus before refetching. Live interaction belongs to `octocode-chrome-devtools`; ingest its HAR into the same session.
+Frame URL/domain, goal, depth, and output before fetching; vague scope → `references/user-inputs.md`. Default to one public URL, `--mode html`, no explicit provider (keyless `cdp`→`direct`), `.octocode/tmp/scrape/{sessionId}`, and compact stdout. Search an existing corpus before refetching. Live interaction belongs to `octocode-chrome-devtools`; process its HAR into the same session.
 
 Ask before auth, hosted spend, crawl expansion, CAPTCHA/MFA, personal-data export, form submits, purchases, sends, deletes, or account changes. Stop after two same-class failures, a hosted `403`, an auth/challenge gate, one failed CDP escalation, sufficient saved evidence, or before expanding a crawl whose summary is not yet useful. Use `references/failure-recovery.md`; cite artifact paths plus URL metadata, never raw dumps.
 

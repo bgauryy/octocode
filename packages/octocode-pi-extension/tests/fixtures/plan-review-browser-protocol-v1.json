@@ -1,0 +1,74 @@
+{
+  "version": 1,
+  "bind": {
+    "host": "127.0.0.1",
+    "port": "ephemeral",
+    "directoryBrowsing": false,
+    "authenticatedIdleTimeoutMinutes": 30
+  },
+  "capability": {
+    "randomBytes": 32,
+    "entropyBits": 256,
+    "encoding": "base64url",
+    "fragmentKey": "cap",
+    "authorizationScheme": "Bearer",
+    "persisted": false,
+    "rotateOnServerStart": true,
+    "scope": ["runtimeInstanceId", "sessionKey", "serverInstance"]
+  },
+  "routes": [
+    { "method": "GET", "path": "/review/", "kind": "interactive-shell", "auth": false },
+    { "method": "GET", "path": "/read-only/<revision>/", "kind": "inert-snapshot", "auth": false },
+    { "method": "GET", "path": "/api/state", "kind": "json-api", "auth": true },
+    { "method": "POST", "path": "/api/events", "kind": "json-api", "auth": true, "contentType": "application/json" }
+  ],
+  "requestPolicy": {
+    "exactHost": "127.0.0.1:<port>",
+    "postExactOrigin": "http://127.0.0.1:<port>",
+    "postRejectMissingOrNullOrigin": true,
+    "getOrigin": "optional-but-exact-when-present",
+    "corsResponseHeader": false,
+    "optionsAllowed": false
+  },
+  "limits": {
+    "requestBodyBytes": 65536,
+    "answerOrCommentBytes": 8192,
+    "pendingUnresolvedComments": 100,
+    "acceptsFilesystemPath": false,
+    "acceptsCommand": false
+  },
+  "csp": "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+  "idempotency": {
+    "operationIdBits": 128,
+    "operationIdFormat": "uuid",
+    "serverSequence": "monotonic",
+    "duplicateBehavior": "return-original-response-without-append-or-state-change"
+  },
+  "statuses": {
+    "400": "malformed-event",
+    "401": "missing-or-invalid-capability",
+    "403": "invalid-host-or-origin",
+    "404": "unknown-route",
+    "409": "stale-revision-invalid-transition-or-limit",
+    "410": "session-gone",
+    "413": "body-too-large",
+    "415": "unsupported-content-type",
+    "200": "successful-or-idempotently-replayed-event",
+    "201": "created-event"
+  },
+  "events": [
+    "question.answer",
+    "comment.add",
+    "comment.resolve",
+    "comment.reopen",
+    "review.request_changes",
+    "review.reopen",
+    "review.accept",
+    "implementation.start",
+    "workflow.abandon"
+  ],
+  "log": {
+    "include": ["sequence", "operationId", "actionType", "revision", "phaseBefore", "phaseAfter", "timestamp", "outcome"],
+    "exclude": ["capability", "authorization", "answerBody", "commentBody", "query", "fragment", "arbitraryHeaders"]
+  }
+}

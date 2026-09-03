@@ -1,4 +1,4 @@
-# Agent Tool & MCP Contract
+# Agent tool and MCP contract
 
 Load when instructions govern tool selection, MCP behavior, schemas, descriptions, or response shape.
 

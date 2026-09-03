@@ -1,24 +1,24 @@
 {
   "name": "octocode-mcp",
   "description": "Model Context Protocol (MCP) server for advanced GitHub repository analysis and code discovery. Provides AI assistants with powerful tools to search, analyze, and understand codebases across GitHub.",
-  "version": "18.2.2",
+  "version": "18.3.0",
   "author": "Guy Bary <bgauryy@octocodeai.com>",
   "bin": "dist/index.js",
   "bugs": "https://github.com/bgauryy/octocode/issues",
   "dependencies": {
     "@modelcontextprotocol/server": "^2.0.0",
     "@octocodeai/octocode-core": "18.3.0",
-    "@octocodeai/octocode-engine": "18.1.2",
-    "@octocodeai/octocode-tools-core": "18.1.2",
+    "@octocodeai/octocode-engine": "18.3.0",
+    "@octocodeai/octocode-tools-core": "18.3.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {
     "@modelcontextprotocol/client": "^2.0.0",
     "@octokit/core": "^7.0.6",
     "@octokit/plugin-throttling": "^11.0.3",
-    "@types/node": "^25.9.3",
-    "@vitest/coverage-v8": "^4.1.9",
-    "@vitest/ui": "^4.1.9",
+    "@types/node": "^26.2.0",
+    "@vitest/coverage-v8": "^4.1.11",
+    "@vitest/ui": "^4.1.11",
     "esbuild": "^0.28.1",
     "eslint": "^9.18.0",
     "node-cache": "^5.1.2",
@@ -26,7 +26,7 @@
     "rollup": "^4.52.5",
     "rollup-plugin-dts": "^6.2.3",
     "typescript": "^5.9.3",
-    "vitest": "^4.1.9"
+    "vitest": "^4.1.11"
   },
   "engines": {
     "node": ">=20.0.0"
@@ -91,7 +91,7 @@
     "directory": "packages/octocode-mcp"
   },
   "scripts": {
-    "build": "yarn readme:sync && yarn clean && node build.mjs && yarn build:types",
+    "build": "yarn readme:sync && yarn clean && node ../../scripts/esbuild-package.mjs && yarn build:types",
     "build:bin": "bun build ./src/index.ts --compile --minify --sourcemap --outfile dist/octocode-mcp && node scripts/bundle-engine.mjs darwin-arm64 dist",
     "build:bin:all": "bun run build:bin:linux-x64 && bun run build:bin:linux-arm64 && bun run build:bin:linux-x64-musl && bun run build:bin:darwin-arm64 && bun run build:bin:darwin-x64 && bun run build:bin:windows-x64",
     "build:bin:darwin-arm64": "bun build ./src/index.ts --compile --minify --sourcemap --target=bun-darwin-arm64 --outfile dist/octocode-mcp-darwin-arm64 && node scripts/bundle-engine.mjs darwin-arm64 dist",
@@ -101,10 +101,10 @@
     "build:bin:linux-x64-musl": "bun build ./src/index.ts --compile --minify --sourcemap --target=bun-linux-x64-musl --outfile dist/octocode-mcp-linux-x64-musl && node scripts/bundle-engine.mjs linux-x64-musl dist",
     "build:bin:windows-x64": "bun build ./src/index.ts --compile --minify --sourcemap --target=bun-windows-x64 --outfile dist/octocode-mcp-windows-x64.exe && node scripts/bundle-engine.mjs windows-x64 dist",
     "build:ci": "yarn verify && yarn build",
-    "build:dev": "yarn readme:sync && yarn workspace @octocodeai/octocode-tools-core build:dev && OCTOCODE_RUNTIME_PLATFORMS=native node build.mjs && yarn build:types",
+    "build:dev": "yarn readme:sync && yarn workspace @octocodeai/octocode-tools-core build:dev && OCTOCODE_RUNTIME_PLATFORMS=native node ../../scripts/esbuild-package.mjs && yarn build:types",
     "build:publish": "yarn build",
     "build:types": "tsc --emitDeclarationOnly --outDir dist/.types -p tsconfig.build.json && node scripts/bundle-dts.mjs",
-    "build:watch": "node build.mjs --watch",
+    "build:watch": "node ../../scripts/esbuild-package.mjs --watch",
     "clean": "rm -rf dist/",
     "debug": "npx @modelcontextprotocol/inspector node dist/index.js",
     "format": "prettier --write \"src/**/*.{ts,js,json}\"",

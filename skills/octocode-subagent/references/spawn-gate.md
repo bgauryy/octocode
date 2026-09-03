@@ -12,10 +12,10 @@ Activate orchestration for an explicit substantial delegation request or a conse
 | Independent tool calls, known inputs | **Batch** in one turn |
 | Skill/prompt pack already covers the job | Load skill in **parent** — do not spawn |
 | Low-risk summarize/extract/classify/… on saved text; save tokens | **Local Ollama** — `references/local-ollama.md` |
-| Named specialist role (research, plan, review, …) | Delegate **typed specialist** via host API |
+| Named specialist role (research, plan, review, …) | Delegate **typed specialist** through host API |
 | Purpose-built objective; custom tools + brief | Spawn **clean worker** with minimal tools |
 | Independent remote peer | **A2A** — `a2a.md` |
-| Specialist should own next user turns | **Handoff** packet (filtered history + return rule) |
+| Specialist must own next user turns | **Handoff** packet (filtered history + return rule) |
 
 IF parent, skill, or one batch finishes cheaply THEN do not spawn.
 IF subtasks need each other's live context THEN keep serial in parent.

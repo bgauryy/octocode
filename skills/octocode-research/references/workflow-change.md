@@ -1,6 +1,6 @@
-# Workflow: Change Mode
+# Workflow: change mode
 
-Use when the user asks to implement, migrate, or patch **behavior** after `references/problem-framing.md` defines the task class and success criteria.
+Use when you ask to implement, migrate, or patch **behavior** after `references/problem-framing.md` defines the task class and success criteria.
 For structure/name/module/layout reshapes that preserve behavior, use `references/workflow-refactor.md` instead.
 Read `references/algorithm.md` first for the router and evidence grades; use `references/code-research.md` for the proof ladder before editing.
 

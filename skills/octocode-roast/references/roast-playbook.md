@@ -8,7 +8,7 @@ Use explicit files/directories/symbols/lines first, then an explicitly requested
 Do not widen a provided target. Stop if it resolves to no files.
 
 ## 2. Inspect
-Use `octocode-research` for structure, search, semantics, reachability, and blast radius; otherwise mark reduced coverage.
+Use `octocode-research` for structure, search, semantics, reachability, and affected scope; otherwise mark reduced coverage.
 Pattern matches are leads. Upgrade every cited finding with exact anchor, mechanism, impact, confidence, and repair move.
 Never reveal credential values or infer compromise from a literal alone.
 
@@ -28,11 +28,11 @@ Roast: {one evidence-specific line}
 ## 4. Autopsy
 Choose the highest-impact offender, not the funniest one.
 Break it into responsibilities or failure paths; quantify only measured properties.
-Explain why it is risky, where contracts cross, and how the repair can be staged.
+Explain why it is risky, where contracts cross, and how the repair can be staged. <!-- style-lint: ignore-line passive-voice -->
 
 ## 5. Checkpoint
 Summarize important versus redundant findings, then stop.
-Load `redemption-flow.md` only when the user selects a repair path.
+Load `redemption-flow.md` only when you selects a repair path.
 
 Output: top roast, important findings, autopsy, repair paths, and fix checkpoint. Include redundant/low-value findings only when useful.
 

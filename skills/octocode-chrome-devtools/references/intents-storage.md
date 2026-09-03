@@ -1,4 +1,4 @@
-# CDP Storage And Consent Intents
+# CDP storage and consent Intents
 
 Load for storage inspection or consent analysis. Why: storage can hold secrets; consent often blocks evidence.
 

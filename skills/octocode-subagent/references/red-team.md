@@ -13,7 +13,7 @@ Load when a plan or design is “too clean” and needs attack before ship. Why:
 - `goal`: attack / premortem / steelman — do **not** implement the original task
 - `context`: sealed plan or artifact + acceptance criteria (no author chat)
 - `scope`: failure modes, kill-shots, unanswered risks; max N findings ranked
-- `acceptance`: ranked risks with severity + what would falsify each
+- `acceptance`: ranked risks with severity + what can falsify each
 - `return`: `attacks` · `severity` · `falsifiers` · `keep_or_kill` · `next`
 
 ## Rules

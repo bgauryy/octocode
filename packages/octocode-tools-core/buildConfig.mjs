@@ -1,4 +1,4 @@
-// Pure, side-effect-free build configuration shared by build.mjs and its tests.
+// Pure, side-effect-free build configuration consumed by the shared package runner and tests.
 import { builtinModules } from 'node:module';
 import { createRequire } from 'node:module';
 

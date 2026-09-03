@@ -9,7 +9,7 @@ A loop is workable only when all four hold:
 |---|---|
 | **Sensor** | One command prints the metric (profiler, benchmark, test suite, eval score) |
 | **Deterministic enough** | Same subject → same reading, or known variance with N-trial averaging |
-| **Fast & cheap** | Sensor cost per iteration ≪ mutation cost; fits the declared budget |
+| **Fast and cheap** | Sensor cost per iteration ≪ mutation cost; fits the declared budget |
 | **Target** | Numeric threshold or delta declared before iterating (`kpi-contract.md`) |
 
 ## Sensor quality ladder
@@ -21,7 +21,7 @@ A loop is workable only when all four hold:
 ## Slow or noisy sensor tactics
 - Derive a **leading** proxy with faster feedback; keep the lagging primary for final VERIFY.
 - Pin the environment (versions, warm-up, isolation) before trusting deltas.
-- If sensor noise exceeds the expected effect size, pause the experiment and fix the sensor before the subject.
+- If sensor noise exceeds the expected effect size, pause the experiment, and fix the sensor before the subject.
 
 ## "Don't stop till done" requests
 Translate the ask into the contract — sensor command + numeric target + budget — then run

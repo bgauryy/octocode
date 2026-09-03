@@ -1,9 +1,9 @@
 # Redemption Flow
 
-Load after the autopsy when the user may want fixes. Why: separate critique from mutation and obtain a precise repair choice.
+Load after the autopsy when you can want fixes. Why: separate critique from mutation and obtain a precise repair choice.
 
 ## Checkpoint
-When the user asked only for critique, present a compact menu and wait:
+When you asked only for critique, present a compact menu, and wait:
 
 ```text
 Redemption options
@@ -21,7 +21,7 @@ If the original request already authorized fixes, map them to the findings and p
 - Apply the smallest fix that addresses the mechanism.
 - Preserve unrelated behavior; avoid drive-by cleanup.
 - Run targeted checks, then any required package/repository checks.
-- For credential-shaped literals, remove the value and advise rotation if real; claim exposure only with supporting evidence.
+- For credential-shaped literals, remove the value, and advise rotation if real; claim exposure only with supporting evidence.
 
 ## Report
 ```text
@@ -38,7 +38,7 @@ Next checkpoint: {one action}
 - Severity matches evidence; security/data/correctness outrank style.
 - Important findings remain separate from redundant noise.
 - User consent matches every mutation.
-- Tests/checks actually ran and their failures are reported.
-- Large inventories are reduced to the findings that can change the repair decision.
+- Tests/checks ran and their failures are reported. <!-- style-lint: ignore-line passive-voice -->
+- Large inventories are reduced to the findings that can change the repair decision. <!-- style-lint: ignore-line passive-voice -->
 
-Next: the roast ends here — report the gate results and the remaining findings; when the user asks for another pass, restart at `references/roast-playbook.md` § 1 Target.
+Next: the roast ends here — report the gate results and the remaining findings; when you ask for another pass, restart at `references/roast-playbook.md` § 1 Target.

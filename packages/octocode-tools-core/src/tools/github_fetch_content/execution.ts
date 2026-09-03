@@ -125,6 +125,16 @@ function getDirectoryMaterializationCapabilityError(
       { extra: { errorCode: 'cloneDisabled' }, rawResponse: 0 }
     );
   }
+  if (config.storage.mode === 'memory') {
+    return createErrorResult(
+      'Directory fetch requires persistent local materialization. Set storage.mode="persistent" or OCTOCODE_STORAGE_MODE=persistent to use type: "directory".',
+      query,
+      {
+        extra: { errorCode: 'persistentStorageDisabled' },
+        rawResponse: 0,
+      }
+    );
+  }
   return undefined;
 }
 
@@ -268,7 +278,9 @@ async function handleFileFetch(
   }
 
   const materialized =
-    query.fullContent === true && query.minify === 'none'
+    query.fullContent === true &&
+    query.minify === 'none' &&
+    getConfigSync().storage.mode === 'persistent'
       ? await materializeExactFile(query, authInfo)
       : undefined;
 

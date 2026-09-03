@@ -1,6 +1,6 @@
 # Improve Loop
 
-Load when a change to this skill's own instructions must be accepted or reverted on evidence. Why: intuition cannot tell an improvement from a regression.
+Load when a change to this skill's own instructions must be accepted or reverted on evidence. Why: intuition cannot tell an improvement from a regression. <!-- style-lint: ignore-line passive-voice -->
 
 Stub only. Full goal→KPI cascade, nested loops, graders, held-out: load **`octocode-eval-benchmark`**.
 

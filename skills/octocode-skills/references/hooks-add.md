@@ -19,7 +19,7 @@ hooks:
 { "version": 1, "hooks": { "preToolUse": [{ "command": ".cursor/hooks/guard.sh", "matcher": "Write", "timeout": 20 }] } }
 ```
 
-Project hooks run from repo root. Cloud agents support a subset of events only.
+Project hooks run from repository root. Cloud agents support a subset of events only.
 
 ## Steps
 

@@ -1,4 +1,4 @@
-# Language-Specific Sins and Search Patterns
+# Language-Specific sins and search patterns
 
 Load when generic categories need language-specific leads. Why: syntax varies, but every cited finding still needs exact impact and confidence.
 Pair with `sin-catalog.md`; use these as candidate patterns for `octocode-research`, not conclusions.

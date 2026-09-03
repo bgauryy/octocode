@@ -1,6 +1,6 @@
-# Prompt Caching & Stable Prefixes
+# Prompt caching and stable prefixes
 
-Load when repeated agent/API calls share instructions, tools, schemas, examples, or long-lived context and cost or latency matters.
+Load when repeated agent/API calls share instructions, tools, schemas, examples, or long-lived context. Why: the shared prefix can reduce cost or latency.
 
 **Cache stable, high-signal prefixes; keep dynamic task data at the end.** Caching reduces repeated input work, not output generation, bad context, or unbounded tool results.
 

@@ -21,6 +21,7 @@ export * from './tokens/index.js';
 // ─── Env loading (uses loadConfigSync from config/loader.ts below) ────────────
 
 import { loadConfigSync } from './config/loader.js';
+import { getConfigSync } from './config/resolver.js';
 
 /** Keys a project/global .env must never override — infrastructure + all auth tokens. */
 export const PROTECTED_KEYS: ReadonlySet<string> = new Set([
@@ -157,8 +158,18 @@ export function propagateOctocodeEnv({
  * Keeping it off (the default) eliminates one write per 60-second flush cycle.
  */
 export function isStatsEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  if (
+    env['OCTOCODE_STORAGE_MODE'] === 'memory' ||
+    (env === process.env && !isPersistentStorageEnabled())
+  )
+    return false;
   const v = env['OCTOCODE_ENABLE_STATS'];
   return v === '1' || v === 'true';
+}
+
+/** True when Octocode may persist caches and runtime state on this machine. */
+export function isPersistentStorageEnabled(): boolean {
+  return getConfigSync().storage.mode === 'persistent';
 }
 
 /**

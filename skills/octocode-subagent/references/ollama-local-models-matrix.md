@@ -1,6 +1,6 @@
-# Ollama Capability Matrix
+# Ollama capability matrix
 
-Load when checking what a local-first family or candidate tag can actually do (tools, thinking, vision, audio, context). Why: capability rows, not brand names, decide whether a tag fits a job.
+Load when checking what a local-first family or candidate tag can do (tools, thinking, vision, audio, context). Why: capability rows, not brand names, decide whether a tag fits a job.
 
 Legend: **Y** = library tag and/or `ollama show`; **—** = not claimed; **?** = verify after pull. Sizes/context from [ollama.com/library](https://ollama.com/library) (re-check with `ollama show <tag>`). **Thinking vs reasoning:** `thinking` = explicit CoT channel Ollama can toggle; “reasoning quality” is not a binary library flag — use LiveCodeBench / SWE / your verify gate.
 
@@ -13,11 +13,11 @@ Legend: **Y** = library tag and/or `ollama show`; **—** = not claimed; **?** =
 | `gemma4:12b` | ~7.6 GB | **256K** | Y | Y | Y | Y | **Workstation default** | Best all-rounder for local agents |
 | `gemma4:26b` (MoE ~3.8B active) | ~18 GB | 256K | Y | Y | Y | — | Quality / speed tradeoff | Prefer when 31B too slow |
 | `gemma4:31b` | ~20 GB | 256K | Y | Y | Y | — | Peak Gemma 4 local | Best coding/reasoning in family; library: text+image only |
-| `qwen3.5:0.8b`–`4b` | 1–3.4 GB | **256K** | Y | Y | Y | — | Tiny workers | Tools yes; keep jobs simple |
+| `qwen3.5:0.8b`–`4b` | 1–3.4 GB | **256K** | Y | Y | Y | — | Tiny workers | Tools yes; keep jobs |
 | `qwen3.5:9b` | ~6.6 GB | 256K | Y | Y | Y | — | Mid-tier value | Strong tool/agent score in community ABS benches |
 | `qwen3.5:27b` / `35b` | 17–24 GB | 256K | Y | Y | Y | — | Strong dense / MoE | Coding + multilingual |
 | `qwen3.6:27b` / `35b` | 17–24 GB | 256K | Y | Y | Y | — | Agentic coding upgrade | Prefer over 3.5 for long agent runs |
-| `qwen3-coder:30b` | ~19 GB | 256K | Y | ?† | — | — | Repo / SWE agents | MoE ~3.3B active; great for OpenCode/Claude Code |
+| `qwen3-coder:30b` | ~19 GB | 256K | Y | ?† | — | — | Repository / SWE agents | MoE ~3.3B active; great for OpenCode/Claude Code |
 | `gpt-oss:20b` | ~14 GB | 128K | Y | Y | — | — | OpenAI open weights | Native agent tooling; reasoning effort levels |
 | `lfm2.5:8b` | ~5.2 GB | 125K | Y | Y | — | — | Fast tool calling on edge | Good MCP client brain when RAM tight |
 | `north-mini-code-1.0` | ~19 GB | **~488K**‡ | Y | Y | — | — | Agentic SWE specialist | Trained for OpenCode / SWE harnesses |

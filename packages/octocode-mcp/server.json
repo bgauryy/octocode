@@ -5,15 +5,15 @@
   "description": "AI code research platform. Search, analyze, and extract insights from any GitHub repository.",
   "status": "active",
   "repository": {
-    "url": "https://github.com/bgauryy/octocode-mcp",
+    "url": "https://github.com/bgauryy/octocode",
     "source": "github"
   },
-  "version": "16.2.0",
+  "version": "18.2.2",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "octocode-mcp",
-      "version": "16.2.0",
+      "version": "18.2.2",
       "transport": {
         "type": "stdio"
       },

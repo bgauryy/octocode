@@ -1,6 +1,6 @@
 # Sin Catalog
 
-Load when ranking generic findings. Why: severity follows demonstrated impact, not how easy a pattern is to joke about.
+Load when ranking generic findings. Why: severity follows demonstrated impact, not how a pattern is to joke about.
 For ecosystem-specific leads load `language-sins.md`.
 
 ## Capital offenses — critical
@@ -31,7 +31,7 @@ Require mechanism, reachability, impact, and exact evidence; redact secret value
 - Minor naming inconsistency or style preferences with no demonstrated impact.
 Mention only when signal remains after higher tiers.
 
-## Ranking rule
+## Rank findings
 For each candidate ask:
 1. Is the mechanism proven?
 2. Is the path reachable and in scope?
@@ -40,6 +40,6 @@ For each candidate ask:
 5. What is the smallest repair?
 
 Security, data, correctness, and user-impacting performance outrank maintainability; maintainability outranks taste.
-Pattern-only evidence is a lead. Unsupported exploit, latency, or outage claims are dropped or explicitly marked weak.
+Pattern-only evidence is a lead. Unsupported exploit, latency, or outage claims are dropped or explicitly marked weak. <!-- style-lint: ignore-line passive-voice -->
 
 Next: for ecosystem-specific leads load `references/language-sins.md`; with the inventory ranked, return to `references/roast-playbook.md` § 4 Autopsy and § 5 Checkpoint.

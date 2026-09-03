@@ -1,6 +1,6 @@
-# CDP Special Patterns
+# CDP special patterns
 
-Load for compound audits only. Why: broad checks should still be small scripts.
+Load for compound audits only. Why: broad checks must still be small scripts.
 
 ## Storage Audit
 Combine `storage` intent with security redaction. Report key names, stores, counts, quota, and risky categories only.

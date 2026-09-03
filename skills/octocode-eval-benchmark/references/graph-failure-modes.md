@@ -1,8 +1,8 @@
-# Graph Failure Modes
+# Graph failure modes
 Load when evaluating a multi-agent graph for structural failure risks. Why: topology alone doesn't buy correctness.
 
 ## 1. Shared context
-A verifier receiving the executor's conversation is not independent and may repeat the same failure.
+A verifier receiving the executor's conversation is not independent and might repeat the same failure.
 
 **Sensor:** does each verifier node start with fresh context, grading only the artifact? Require this before calling a result verified.
 
@@ -20,10 +20,10 @@ A loop with one metric can hit that metric while the real goal degrades (support
 **Protection:** for every primary KPI, name a counter-metric guardrail the agent cannot tune. Primary improving + guardrail degrading → stop and reframe the goal, not the loop.
 
 ## 4. Missing anchors
-A graph without anchors will drift. Every graph needs at least one node whose output cannot be argued with: a test that actually ran, a build exit code, a type error.
+Anchors prevent graph drift. Every graph needs at least one indisputable node output: a test result, a build exit code, or a type error.
 
 **Anchors to require:**
-- Tests that actually ran with exit codes
+- Tests that ran with exit codes
 - A verifier on deterministic evidence (not LLM opinion of LLM output)
 - At least one rule agents are never allowed to tune
 

@@ -19,7 +19,7 @@ BASELINE → MUTATE (one subject) → MEASURE (fixed budget) → KEEP | DISCARD 
 4. Re-measure with the same command and budget.
 5. **Keep** only if primary improves and guardrails hold; else **discard**.
 6. Log: id · metric · status · one-line hypothesis.
-7. Do not pause mid-loop for permission unless the user interrupted.
+7. Do not pause mid-loop for permission unless you interrupted.
 
 ## Stop gates
 - Primary flat across N trials with no new hypothesis → escalate to suite/meta
@@ -27,7 +27,7 @@ BASELINE → MUTATE (one subject) → MEASURE (fixed budget) → KEEP | DISCARD 
 
 ## Isolation
 Each trial starts clean. Shared state or peeking at prior-trial artifacts corrupts independence.
-N independent hypotheses in one round → fan out via `octocode-subagent` (one sealed packet each); measurement and keep/discard return here under the frozen harness.
+N independent hypotheses in one round → fan out through `octocode-subagent` (one sealed packet each); measurement and keep/discard return here under the frozen harness.
 
 ## Creativity vs path grading
 Grade **outcomes** over exact tool-call sequences.

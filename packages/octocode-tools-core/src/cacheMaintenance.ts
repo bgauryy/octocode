@@ -7,6 +7,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { join } from 'node:path';
+import { isPersistentStorageEnabled } from '@octocodeai/config';
 import {
   evictExpiredClones,
   evictExpiredTrees,
@@ -137,6 +138,7 @@ export function runCacheMaintenanceIfDue(
   octocodeHome: string,
   now = Date.now()
 ): Promise<boolean> {
+  if (!isPersistentStorageEnabled()) return Promise.resolve(false);
   const active = inFlight.get(octocodeHome);
   if (active) return active;
 
@@ -164,6 +166,7 @@ function scheduleNext(octocodeHome: string): void {
 
 /** Starts the long-lived MCP cron-style scheduler without keeping Node alive. */
 export function startCacheGC(octocodeHome: string): void {
+  if (!isPersistentStorageEnabled()) return;
   if (scheduledHome !== null) return;
   scheduledHome = octocodeHome;
   void runCacheMaintenanceIfDue(octocodeHome).finally(() => {

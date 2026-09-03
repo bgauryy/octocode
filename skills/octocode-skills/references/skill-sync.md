@@ -28,9 +28,9 @@ node scripts/skill-sync.mjs --list-vendors
 
 ## When to use
 
-- Stable local skill source the user controls (dev dogfood / live edits).
+- Stable local skill source that you control (development dogfood or live edits).
 - User asked to sync/symlink to Claude, Cursor, Codex, or `.agents`.
-- Prefer Octocode CLI copy/symlink when installing published skills: `npx octocode skill --add …`.
+- Prefer Octocode CLI copy/symlink when installing published skills: `npx octocode skill install --add …`.
 
 Never symlink a temp fetch — use `references/fetch-remote.md` + copy instead.
 

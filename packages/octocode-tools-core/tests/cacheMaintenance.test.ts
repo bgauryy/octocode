@@ -35,10 +35,13 @@ function writeExpiredClone(home: string, name: string): string {
 describe('cache maintenance lifecycle', () => {
   let home: string;
   let previousDiskCache: string | undefined;
+  let previousStorageMode: string | undefined;
 
   beforeEach(() => {
     home = mkdtempSync(join(tmpdir(), 'octocode-cache-maintenance-'));
     previousDiskCache = process.env.OCTOCODE_DISK_CACHE;
+    previousStorageMode = process.env.OCTOCODE_STORAGE_MODE;
+    process.env.OCTOCODE_STORAGE_MODE = 'persistent';
     process.env.OCTOCODE_DISK_CACHE = 'false';
   });
 
@@ -47,6 +50,8 @@ describe('cache maintenance lifecycle', () => {
     vi.useRealTimers();
     if (previousDiskCache === undefined) delete process.env.OCTOCODE_DISK_CACHE;
     else process.env.OCTOCODE_DISK_CACHE = previousDiskCache;
+    if (previousStorageMode === undefined) delete process.env.OCTOCODE_STORAGE_MODE;
+    else process.env.OCTOCODE_STORAGE_MODE = previousStorageMode;
     rmSync(home, { recursive: true, force: true });
   });
 
@@ -134,6 +139,19 @@ describe('cache maintenance lifecycle', () => {
     writeFileSync(blockedHome, 'blocked');
 
     await expect(runCacheMaintenanceIfDue(blockedHome)).resolves.toBe(false);
+  });
+
+  it('does not touch cache state or schedule GC in memory mode', async () => {
+    process.env.OCTOCODE_STORAGE_MODE = 'memory';
+    const expired = writeExpiredClone(home, 'memory-mode');
+
+    expect(await runCacheMaintenanceIfDue(home)).toBe(false);
+    expect(existsSync(expired)).toBe(true);
+
+    vi.useFakeTimers();
+    startCacheGC(home);
+    await vi.advanceTimersByTimeAsync(CACHE_MAINTENANCE_INTERVAL_MS);
+    expect(vi.getTimerCount()).toBe(0);
   });
 
   it('uses an unreferenced MCP timer and runs again at the persisted deadline', async () => {

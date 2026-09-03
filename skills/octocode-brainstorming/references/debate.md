@@ -12,14 +12,14 @@ Run together only when the worker budget permits; otherwise run sequentially. Ea
 
 | Lens | Challenge |
 |---|---|
-| Critical Architect | feasibility, integration/blast radius, security/performance/maintenance, hardest technical unknown |
+| Critical Architect | feasibility, integration/affected scope, security/performance/maintenance, hardest technical unknown |
 | Visionary Entrepreneur | urgency, wedge, strategic value, differentiation, distribution, upside |
 | Product | workflow, adoption friction, scope razor, retention/value signal, smallest decision-changing test |
 
 ## Evidence And Cross-Exam
 
 - Drop or mark `weak` every uncited new claim, including market/user claims.
-- Use ledger evidence instead of raw snippets. State assumptions when a follow-up would leave the decision unchanged.
+- Use ledger evidence instead of raw snippets. State assumptions when a follow-up leaves the decision unchanged.
 - Pick the 1-2 claims most likely to flip the verdict. Ask only relevant lenses for new evidence; repeating a citation is not rebuttal.
 - Every rebuttal states its concessions. If budget ends, run a short referee pass and report the shortened review.
 
@@ -37,4 +37,4 @@ Keep claims that survived, remove concessions, and mark unresolved claims as dec
 
 An RFC handoff needs a worth-prototyping/underserved verdict; specific user, problem, and success; grounded prior art; and a bounded first slice. The largest unknown must be a design tradeoff rather than demand.
 
-Next: to present the surviving synthesis load `references/output.md`; to score what survived load `references/confidence.md`; when a flipped claim needs fresh evidence return to `references/tools.md` for another research round; when the lens design itself is challenged load `references/grounding.md`.
+Next: to present the surviving synthesis load `references/output.md`. To score what survived load `references/confidence.md`. When a flipped claim needs fresh evidence return to `references/tools.md` for another research round. When the lens design itself is challenged load `references/grounding.md`. <!-- style-lint: ignore-line passive-voice -->

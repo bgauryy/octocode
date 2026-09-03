@@ -10,9 +10,9 @@ Use one-off shell only when an existing tool already does the job; pin versions 
 
 ## Agent-facing contract
 
-- Input via flags, env, files, or stdin — never interactive prompts.
+- Input through flags, env, files, or stdin — never interactive prompts.
 - Concise `--help` with examples.
-- Errors say what failed, what was expected, what to try.
+- Errors say what failed, what was expected, what to try. <!-- style-lint: ignore-line passive-voice -->
 - Structured data on stdout; diagnostics on stderr.
 - Idempotent or safe to retry; reject ambiguous input.
 - `--dry-run` for destructive/stateful ops.

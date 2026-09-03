@@ -1,4 +1,4 @@
-# Workflow: Refactor Mode
+# Workflow: refactor mode
 
 Use when reshaping names, modules, files, or directories while preserving behavior and contracts. Why: structural change needs identity and blast-radius proof, not feature logic.
 Read `references/algorithm.md` first and use `references/code-research.md` for proof. New behavior routes to `references/workflow-change.md`; contested architecture routes to an explicit design doc before coding.
@@ -30,7 +30,7 @@ Shared repository: declare wide moves and path ownership before parallel edits.
 - S: targeted unit/type check.
 - M: package test plus typecheck/lint.
 - L: graph dependents/cycles/reachability, root build, diagnostics on moved roots, and final search for old paths/names.
-On failure, read the failing path and patch only the cause; shifting evidence routes to `references/loop-mode.md`.
+On failure, read the failing path, and patch only the cause; shifting evidence routes to `references/loop-mode.md`.
 Delete only after the dead-code proof in `references/code-research.md`.
 
 ```text

@@ -22,7 +22,7 @@ Research trail for `octocode-subagent`, including the merged orchestration contr
 | FrugalGPT / RouteLLM themes | research literature | — | model tier routing |
 
 ## Design choice
-The design omits Pi-specific tool names so this skill installs on any host. Map `coordinate.md` actions to the local spawn API. The former `octocode-orchestrator` contract now lives here: framing, authority and budgets, TDD and eval routing, Awareness, and completion surround the delegation mechanics. Challenge techniques live here; full KPI measurement stays in `octocode-eval-benchmark`.
+The design omits Pi-specific tool names so this skill installs on any host. Map `coordinate.md` actions to the local spawn API. The former `octocode-orchestrator` contract now lives here: framing, authority, budgets, TDD, evaluation routing, Awareness, and completion surround the delegation mechanics. Challenge techniques live here; full KPI measurement stays in `octocode-eval-benchmark`.
 
 ## Local Ollama offload (merged from former orchestrator-local-worker)
 

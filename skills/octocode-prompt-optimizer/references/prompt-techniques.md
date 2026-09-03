@@ -1,4 +1,4 @@
-# Advanced Prompt Technique Selector
+# Advanced prompt technique selector
 
 Load when choosing how to improve an agent prompt after identifying a concrete failure mode.
 
@@ -21,7 +21,7 @@ Load when choosing how to improve an agent prompt after identifying a concrete f
 | Task needs action or observation | Tool loop / ReAct | Describe when to call each tool, pass compact results, and stop on an observable condition. |
 | Work has dependent stages | Decomposition / prompt chain | Give each stage a typed artifact and verifier; never pass raw transcripts by default. |
 | Ambiguity changes the decision | Bounded candidates / self-consistency | Compare a few independent candidates with evidence or a verifier; do not majority-vote guesses. |
-| Hard planning problem | Plan + checkpoints / branching | Request an inspectable plan or rubric, then execute and verify; never require private reasoning text. |
+| Hard planning problem | Plan + checkpoints / branching | Request an inspectable plan or rubric. Then execute and verify; never require private reasoning text. |
 | Stable prefix repeats | Prompt caching | Put stable instructions/tools/examples first and dynamic evidence last; measure cache hits. |
 
 ## Agent guardrails

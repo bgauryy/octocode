@@ -4,7 +4,7 @@ Load when pruning a skill before ship, after improve/dedupe, or when review flag
 
 ## Standalone ship shape
 
-A skill is one portable directory. Install/sync copies or symlinks that folder as-is. Every local file reference must resolve inside it; sibling skills are named capabilities, never file dependencies.
+A skill is one portable directory. Install/sync copies or symlinks that folder as-is. Every local file reference must resolve inside it; sibling skills are named capabilities, never file dependencies. <!-- style-lint: ignore-line passive-voice -->
 
 Keep only what the agent needs to run the skill:
 
@@ -18,7 +18,7 @@ skill-name/
 `-- references/references.md  # audit trail only (optional)
 ```
 
-Do not ship: unused or duplicate files, development-only metadata, probes, drafts, scratch notes, old renames, nested `node_modules`, secrets, or files that only make sense inside another repo.
+Do not ship: unused or duplicate files, development-only metadata, probes, drafts, scratch notes, old renames, nested `node_modules`, secrets, or files that only make sense inside another repository.
 
 ## Cleanup checklist
 

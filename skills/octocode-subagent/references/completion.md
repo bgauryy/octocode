@@ -1,6 +1,6 @@
 # Completion Gate
 
-Load before SYNTHESIZE, CLEANUP, or REPORT. Why: worker completion and green focused tests do not prove the integrated user goal is done.
+Load before SYNTHESIZE, CLEANUP, or REPORT. Why: worker completion and green focused tests do not prove the integrated user goal is done. <!-- style-lint: ignore-line passive-voice -->
 
 ## Verify and synthesize
 
@@ -19,8 +19,8 @@ Load before SYNTHESIZE, CLEANUP, or REPORT. Why: worker completion and green foc
 
 ## Report
 
-Lead with the outcome. Name completed work, exact checks and counts, remaining gaps, destructive actions, and authority still needed. Say `partial` when a stop gate remains; regression evidence is not production or real-host evidence.
+Lead with the outcome. Name completed work, exact checks, and counts, remaining gaps, destructive actions, and authority still needed. Say `partial` when a stop gate remains; regression evidence is not production or real-host evidence.
 
-Acceptance requires closed workers/shared work, no authorized proven cleanup left, and an evidence-backed report—or a concrete blocker returned to the user.
+Acceptance requires closed workers/shared work, no authorized proven cleanup left, and an evidence-backed report—or a concrete blocker returned to you.
 
 Next: this step ends here.

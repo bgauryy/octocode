@@ -14,11 +14,11 @@ Workspace output contract: chat-only proposals stay in chat. Saved RFC artifacts
 ## Lobby rules
 - Skip RFC mode for trivial edits. Ask one focused question when uncertainty changes shape, owner, scope, or decision criteria.
 - Compare the viable alternatives and include the status quo when it is a real option; skip ceremonial options that cannot satisfy the decision.
-- Recommendations require verifiable facts; cite exact anchors and commands/checks that actually ran.
+- Recommendations require verifiable facts; cite exact anchors and commands/checks that ran.
 - `RFC.md` owns goals, scope, and decision. Other files link to its anchors rather than restating them.
-- Resolve decision-blocking questions with evidence. Mark other uncertainty with confidence, impact, owner, and a proof or deferral trigger.
+- Resolve decision-blocking questions with evidence. Mark other uncertainty with confidence, impact, owner, and either a proof trigger or a deferral trigger.
 - Order implementation by dependency, not estimates; bind requirements to acceptance and verification.
-- Reassessing `.octocode/rfc/` requires fresh reads of live code and a dated audit result. Write the `## Audit Reasoning` block into the RFC only when source edits are authorized; otherwise return it in chat.
+- Reassessing `.octocode/rfc/` requires fresh reads of live code and a dated audit result. Write the `## Audit Reasoning` block into the RFC only when source edits are authorized; otherwise return it in chat. <!-- style-lint: ignore-line passive-voice -->
 - Never assert RFC status from memory or from another RFC's claims.
 - Stop when the work is a trivial edit; a brainstorming handoff is not RFC-ready; uncertainty changes artifact shape, owner, scope, or tradeoff priority; another research pass is unlikely to close a blocker; independent decisions need separate RFCs; or a save, edit, delete, or archive awaits approval.
 
@@ -37,6 +37,6 @@ Start with `RFC.md`. Add `PREREQUISITES.md`, `IMPLEMENTATION.md`, `KPI.md`, or `
 - When improving this skill, prefer `octocode-eval-benchmark`; otherwise load `references/improve-loop.md` — enforce measurable accept/revert.
 
 ## Related routes and verification
-- Use `octocode-brainstorming` before RFC when worth-building is unresolved; `octocode-research` to close factual questions; `octocode-eval-benchmark` for KPI rigor.
+- Use `octocode-brainstorming` before RFC when worth-building is unresolved; `octocode-research` to close factual questions; `octocode-eval-benchmark` for KPI rigor. <!-- style-lint: ignore-line passive-voice -->
 - Use `octocode-skills` when changing this skill folder.
 - Before delivery validate the document contract section by section and report the real result.

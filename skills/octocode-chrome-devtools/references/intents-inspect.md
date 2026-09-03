@@ -1,4 +1,4 @@
-# CDP Inspection Intents
+# CDP inspection intents
 
 Load when inspecting browser surfaces beyond ordinary DOM text. Why: choose domains and safety gates.
 
@@ -12,10 +12,10 @@ Track frames and failures. Record URL, opcode/type, counts, sampled safe payload
 Use `ServiceWorker.*` plus Target sessions to inspect registration, versions, activation, update failures, and controlled clients.
 
 ## workers
-Discover worker targets with Target auto-attach. Route commands with `sessionId`; keep a target role map. `Target.getTargets` returns every target in the whole browser, not just the inspected page — Chrome-bundled extension workers (`url` starting `chrome-extension://`) show up too. Filter by URL origin matching the page before reporting a worker/service-worker as belonging to the site.
+Discover worker targets with Target auto-attach. Route commands with `sessionId`; keep a target role map. `Target.getTargets` returns every target in the whole browser, not the inspected page — Chrome-bundled extension workers (`url` starting `chrome-extension://`) show up too. Filter by URL origin matching the page before reporting a worker/service-worker as belonging to the site.
 
 ## intercept
-Use Fetch only when mocking/blocking is needed. Every paused request must continue, fail, or fulfill; otherwise the page hangs.
+Use Fetch only when mocking/blocking is needed. Every paused request must continue, fail, or fulfill; otherwise the page hangs. <!-- style-lint: ignore-line passive-voice -->
 
 ## screenshot
 Use Page capture or printToPDF. Write artifacts under `cdp.outputDir` and emit `[SCREENSHOT] <path>`.

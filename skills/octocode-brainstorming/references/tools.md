@@ -5,11 +5,11 @@ Load when building the Surface Plan or choosing local, GitHub/package, and web e
 ## Surface Order
 
 For external validation, start with official docs, papers, standards, canonical articles, and dated announcements. Extract leads, verify them in code/packages, then reconcile contradictions with formal sources.
-Start locally for repo-targeted ideas. Skip external work for explicit local-only tasks or unavailable web.
+Start locally for repository-targeted ideas. Skip external work for explicit local-only tasks or unavailable web.
 
 ## Local, GitHub, Packages
 
-Delegate repo/package/history/semantic checks to `octocode-research`. Ask it to orient locally before external research when the idea touches this workspace; skip local for purely external landscapes. Carry the real stack and constraints into external queries.
+Delegate repository/package/history/semantic checks to `octocode-research`. Ask it to orient locally before external research when the idea touches this workspace; skip local for purely external landscapes. Carry the real stack and constraints into external queries.
 
 ## Web Engines
 
@@ -19,7 +19,7 @@ Delegate repo/package/history/semantic checks to `octocode-research`. Ask it to 
 | `scripts/tavily-search.mjs` | `TAVILY_API_KEY` | curated/deeper research |
 | `scripts/exa-search.mjs` | `EXA_API_KEY` | AI-native/neural search, category filters (papers, GitHub, news), highlights |
 
-Run `--check` only for engines you may use (`--presence-only` is offline-only) and record which are live.
+Run `--check` only for engines you can use (`--presence-only` is offline-only) and record which are live.
 A configured key is not the same as a validated one. Credentials load through the vendored `scripts/octocode-config.mjs` from process env, workspace `.octocode/.env`, then global Octocode home.
 Never cite snippets or print/commit keys.
 
@@ -35,9 +35,9 @@ Do not sum or compare raw scores across engines (Serper rank, Tavily score, Exa 
 
 Worker dispatch for multi-engine/multi-angle research: `references/web-search-workers.md`.
 
-## Query And Evidence Rules
+## Query and evidence rules
 
-- Expand the user's phrase into 2-3 synonyms/reframes; retry one changed shape after empty results.
+- Expand your phrase into 2-3 synonyms/reframes; retry one changed shape after empty results.
 - Prefer recent sources; inactive repos are prior art, not current competition.
 - Package health = publish recency, cadence, maintainers, issue/PR ratio, and dependency freshness—not downloads alone.
 - Formal claims prefer official docs/specs, standards, papers, and primary code/data. Community/marketing content is a lead unless sentiment is the question.

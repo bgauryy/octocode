@@ -1,4 +1,4 @@
-# Ollama Local Models Sources
+# Ollama local models sources
 
 Load when a catalog claim needs its source or confidence stated. Why: library tags plus your own hardware measurements outrank blog rankings.
 
@@ -12,7 +12,7 @@ Load when a catalog claim needs its source or confidence stated. Why: library ta
 | Gemma 4 31B strong LiveCodeBench / Codeforces vs prior Gemma | Ollama Gemma 4 readme + [ai.rs writeup](https://ai.rs/ai-developer/gemma-4-vs-qwen-3-5-vs-llama-4-compared) | Medium (benchmarks move) |
 | Gemma 4 31B often more token-efficient than Qwen3.5 27B when thinking | [Kaitchup Substack](https://kaitchup.substack.com/p/gemma-4-31b-vs-qwen35-27b-inference) | Medium |
 
-Primary decisions should follow **library tags + your latency/quality on your hardware**, not blog rankings alone.
+Primary decisions must follow **library tags + your latency/quality on your hardware**, not blog rankings alone.
 
 ## Sources
 

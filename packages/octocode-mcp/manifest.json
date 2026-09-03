@@ -2,7 +2,7 @@
   "dxt_version": "0.1",
   "name": "octocode-mcp",
   "display_name": "Octocode MCP Extension",
-  "version": "16.2.0",
+  "version": "18.2.2",
   "description": "Code research MCP server for GitHub, npm, local files, and LSP semantics",
   "long_description": "MCP server with code research tools across GitHub, npm, local files, and LSP semantics. Agents orient, search, read exact evidence, and prove findings with typed continuations and sanitized output.",
   "author": {
@@ -12,11 +12,11 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/bgauryy/octocode-mcp"
+    "url": "https://github.com/bgauryy/octocode"
   },
   "homepage": "https://octocode.ai",
-  "documentation": "https://github.com/bgauryy/octocode-mcp#readme",
-  "support": "https://github.com/bgauryy/octocode-mcp/issues",
+  "documentation": "https://github.com/bgauryy/octocode#readme",
+  "support": "https://github.com/bgauryy/octocode/issues",
   "icon": "assets/logo.png",
   "server": {
     "type": "node",

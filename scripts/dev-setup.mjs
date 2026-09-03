@@ -22,7 +22,9 @@ import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import {
   OCTOCODE_CORE_PACKAGE,
+  AGENT_TESTING_PACKAGE,
   isLocalResolution,
+  localAgentTestingResolution,
   localCoreResolution,
   managedResolutionPackages,
   workspaceResolutionPackages,
@@ -59,9 +61,11 @@ const WORKSPACE_RESOLUTIONS = Object.fromEntries(
   workspaceResolutionPackages(enginePkg).map(name => [name, 'workspace:*'])
 );
 const coreResolution = localCoreResolution(ROOT);
+const agentTestingResolution = localAgentTestingResolution(ROOT);
 const DEV_RESOLUTIONS = {
   ...WORKSPACE_RESOLUTIONS,
   ...(coreResolution ? { [OCTOCODE_CORE_PACKAGE]: coreResolution } : {}),
+  ...(agentTestingResolution ? { [AGENT_TESTING_PACKAGE]: agentTestingResolution } : {}),
 };
 
 const pkg = JSON.parse(readFileSync(PKG_PATH, 'utf8'));
@@ -101,6 +105,11 @@ for (const [name, spec] of Object.entries(DEV_RESOLUTIONS)) {
 if (!coreResolution) {
   console.warn(
     `⚠ ${OCTOCODE_CORE_PACKAGE} sibling not found at ../octocode-mcp-host/packages/octocode-core; keeping the current registry resolution.`
+  );
+}
+if (!agentTestingResolution) {
+  console.warn(
+    `⚠ ${AGENT_TESTING_PACKAGE} sibling not found at ../octocode-agent/packages/octocode-agent-testing; keeping the current registry resolution.`
   );
 }
 

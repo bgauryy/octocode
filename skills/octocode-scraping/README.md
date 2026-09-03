@@ -1,16 +1,33 @@
 # Octocode Scraping
 
-Turn public pages into a local, cited corpus. For live clicks, auth, HAR, or performance evidence, add [`octocode-chrome-devtools`](https://github.com/bgauryy/octocode/tree/main/skills/octocode-chrome-devtools).
+Turn public web pages into a local, cited corpus that supports repeated queries without repeated fetches.
+
+## Use when
+
+- You need to scrape or crawl public pages, documentation, tables, or product fields.
+- You must map a site into links, forms, resources, and workflows.
+- You need to diagnose blocked, thin, or oversized pages.
+
+Use `octocode-chrome-devtools` for live clicks, authenticated sessions, HAR, or performance evidence.
+
+## Workflow
+
+```text
+UNDERSTAND → POLICY GATE → DISCOVER → FETCH → NORMALIZE → INDEX → QUERY → CITE
+```
+
+The default HTML route is keyless: local CDP when available, then direct fetch. Hosted ScrapingAnt use requires explicit approval. Query existing corpus, graph, extraction, and captured-body artifacts before refetching.
+
+Ask before authentication; CAPTCHA or MFA handling; personal data; hosted spend; broad crawling; or destructive mutations. Keep raw HTML and HAR files out of chat.
 
 ## Install
 
 ```bash
-npx octocode skill --name octocode-scraping
-npx octocode skill --name octocode-chrome-devtools  # optional live CDP
+npx octocode skill install octocode-scraping --platform codex
 ```
 
-Ask the agent to scrape a URL, map links/forms/workflows, and cite artifacts. The default HTML route is keyless (`cdp`→`direct`); hosted ScrapingAnt is explicit and approval-gated. Saved `AGENT_INDEX.json`, graph, extracts, and CDP bodies are searched before any refetch.
+See [provider setup](docs/PROVIDERS.md) and the [script catalog](scripts/README.md).
 
-Ask first for auth, CAPTCHA/MFA, personal data, hosted spend, broad crawl, or destructive mutations. Raw HTML/HAR stays out of chat.
+## Maintainer verification
 
-Provider setup: [`docs/PROVIDERS.md`](docs/PROVIDERS.md). Script catalog: [`scripts/README.md`](scripts/README.md). Agent behavior: `SKILL.md` and `references/`.
+Run the `octocode-skills` review against this folder.

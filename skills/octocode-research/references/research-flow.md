@@ -2,7 +2,7 @@
 
 Load for Map/Validate/Investigate/Plan execution. `references/algorithm.md` owns proof; `references/octocode.md` owns syntax; `references/workflows.md` routes debug/change/review/local/external work.
 
-Start with a Surface Plan: local, GitHub, packages, PR/history, web, and reasons for skips. Rare extensions: `references/long-research.md` for durable/contested decisions and `references/github-landscape.md` for repo ecosystems.
+Start with a Surface Plan: local, GitHub, packages, PR/history, web, and reasons for skips. Rare extensions: `references/long-research.md` for durable/contested decisions and `references/github-landscape.md` for repository ecosystems.
 
 ## Mode Flows
 | Mode | Chain |
@@ -10,7 +10,7 @@ Start with a Surface Plan: local, GitHub, packages, PR/history, web, and reasons
 | Map | literal + synonyms → repos/packages → tree/search → exact finalist reads → active/partial/abandoned/white-space clusters |
 | Validate | reframe/invert/decompose → local-first if relevant → external evidence → cross-pollinate → Advocate/Critic → build/narrow/prototype/do-not-build |
 | Investigate | structure → symptom/symbol search → exact boundary reads → graph for file topology + LSP/AST for identity/shape → history/tests; keep two hypotheses |
-| Plan | current contract/invariants → graph/LSP blast radius → boundary checks → local pattern → options/safest next step |
+| Plan | current contract/invariants → graph/LSP affected scope → boundary checks → local pattern → options/safest next step |
 
 Package evidence includes publish recency, cadence, maintainers, issue/PR ratio, and dependency freshness. Gate public contracts, cross-package edits, shared deletes/renames, or broad consumer impact.
 
@@ -27,7 +27,7 @@ Dead code: `localAnalyzeGraph(operation:"deadCode")` candidates → exact read +
 
 ## Cross-Pollination
 - Local dependencies/errors/config feed external queries; upstream fixes/history return to local proof.
-- README competitors become repo/package checks; issue complaints become PR/commit searches.
+- README competitors become repository/package checks; issue complaints become PR/commit searches.
 - Empty results get one synonym/scope/ref adjustment, then materialization before strong absence.
 - Compress large outputs into `claim → evidence → confidence → next` before continuing.
 
@@ -36,9 +36,9 @@ State the strongest cited case for and against; rebut the claim most likely to f
 
 ## Before Answering
 - Corpus/ref and active/skipped surfaces are explicit.
-- Raw tool schemas were read; continuations/pagination were followed or declared unnecessary.
-- Candidates became exact evidence; syntax/semantic/history/artifact/runtime proof are distinguished.
+- Raw tool schemas were read; continuations/pagination were followed or declared unnecessary. <!-- style-lint: ignore-line passive-voice -->
+- Candidates became exact evidence; syntax/semantic/history/artifact/runtime proof are distinguished. <!-- style-lint: ignore-line passive-voice -->
 - LSP uses a real anchor; empty/incomplete semantic results use another lane.
 - Output cites local `path:line` and remote URL/PR/commit IDs, names diagnostics/fallbacks, and reports verification.
 
-Next: after repeated Act→Observe→Learn cycles or shifting verification load `references/loop-mode.md`; when a code claim needs the proof ladder load `references/code-research.md`; when the decision must be durable load `references/long-research.md`; when the plan turns into edits go to `references/workflow-change.md`.
+Next: after repeated Act→Observe→Learn cycles or shifting verification load `references/loop-mode.md`. When a code claim needs the proof ladder load `references/code-research.md`. When the decision must be durable load `references/long-research.md`. When the plan turns into edits go to `references/workflow-change.md`.

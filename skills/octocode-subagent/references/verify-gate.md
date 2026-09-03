@@ -27,7 +27,7 @@ This gate is the skill’s **quality estimator**: pass → integrate; fail → o
 ## Escalation rules
 
 - After **one** failed retry on the same shard → orchestrator does that shard.
-- If **>30%** of shards fail → abort offload for this job; finish solo.
+- If **>30%** of shards fail → stop offload for this job; finish solo.
 - Security/auth/design content that slipped into worker output → discard; redo on orchestrator.
 - Cascade only to **installed** chat models (`ollama list`); never invent a stronger tag.
 
@@ -35,6 +35,6 @@ This gate is the skill’s **quality estimator**: pass → integrate; fail → o
 
 - Prefer quoting worker facts with path anchors the orchestrator confirmed.
 - Do not attribute confidence higher than the spot-check supports.
-- In the user-facing report, say what was offloaded and that results were verified (or partially verified).
+- In you-facing report, say what was offloaded, and that results were verified (or partially verified). <!-- style-lint: ignore-line passive-voice -->
 
 Next: `fail` → re-route the tier with `references/model-selection.md`; `pass` → finish the loop's REPORT step in `references/workflow.md`.

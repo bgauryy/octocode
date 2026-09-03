@@ -1,6 +1,6 @@
 # Workspace
 
-Load when workers share a repo, cwd, or mutable files. Why: parallel agents collide without ownership.
+Load when workers share a repository, cwd, or mutable files. Why: parallel agents collide without ownership.
 
 ## Before parallel writes
 1. Inventory active work / locks if the host provides them.

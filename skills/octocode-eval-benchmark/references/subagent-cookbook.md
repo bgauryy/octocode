@@ -6,7 +6,7 @@ Load when measuring or managing a multi-agent / subagent workflow under this ski
 |---|---|
 | Spawn gate, packets, coordinate, synthesize, topology catalog | `octocode-subagent` |
 | Goal→KPI, sensors, held-out, Goodhart, verifier independence, ACCEPT/REVERT | **this skill** |
-| Packet wording polish | `octocode-prompt-optimizer` after KPI is fixed |
+| Packet wording polish | `octocode-prompt-optimizer` after KPI is fixed | <!-- style-lint: ignore-line passive-voice -->
 
 ## Load next (one at a time)
 | Need | Ref |

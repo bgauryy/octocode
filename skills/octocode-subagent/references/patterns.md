@@ -13,7 +13,7 @@ Load when choosing orchestration topology. Portable across hosts (LangGraph, Ope
 | **Verifier-critic** | Quality is the bottleneck | Second worker; parent adjudicates |
 | **Rubber duck** | Need assumption surface cheaply | Listener restates + questions · `rubber-duck.md` |
 | **Interview** | Challenge another agent’s claims | Fresh interviewer vs sealed claims · `interview.md` |
-| **Mimic flow** | Worker should follow another playbook | Lend filtered instructions · `mimic-flow.md` |
+| **Mimic flow** | Worker must follow another playbook | Lend filtered instructions · `mimic-flow.md` |
 | **Red team / premortem** | Plan too clean; attack or imagine failure | `red-team.md` |
 | **Blind review** | Judge artifact without author story | `blind-review.md` |
 | **Consensus** | Ambiguous solve; independent retries / majority | `consensus.md` |

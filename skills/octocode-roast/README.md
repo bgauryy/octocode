@@ -1,44 +1,35 @@
 # Octocode Roast
 
-`octocode-roast` makes code critique memorable without making it careless. Use it for a roast, brutal review, debt ranking, or sharp explanation of what is wrong with a codebase. It targets code patterns, never people.
+Deliver a memorable, evidence-backed code critique with ranked impact and practical repair paths.
 
-## The Problem
+## Use when
 
-Polite review may not land; harsh feedback without evidence is noise. A useful roast pairs each major jab with code, impact, confidence, and a repair path.
+- You request a roast, brutal review, debt ranking, or hot-path autopsy.
+- Security, correctness, performance, design, testing, or maintainability problems need sharper framing.
+- A blunt but constructive review can be more useful than a conventional polite review.
 
-## Capabilities
+## Rules
 
-- Explicit target precedence, so user-specified files are reviewed before staged or branch-wide changes.
-- Evidence-backed findings with `file:line` citations, impact, confidence, and repair paths.
-- Severity tiers that keep security, data loss, correctness, and production impact above style noise.
-- Tone calibrated to the request and the sensitivity of the code.
-- Secret-safe handling for credentials, security findings, and production-sensitive paths.
-- Language-specific smell patterns and code-search strategies.
-- A top-offender autopsy when one pattern explains many issues.
-- Redemption paths and a checkpoint before edits are made.
+- Target code patterns, never people.
+- Cite or drop every major finding.
+- Rank security, data loss, correctness, and production impact above style.
+- Redact secrets and keep sensitive findings restrained.
+- Do not edit until the request authorizes fixes or you accept a repair at the checkpoint.
 
-## Operating Model
-
-The workflow is:
+## Workflow
 
 ```text
-TARGET -> INSPECT -> INVENTORY -> AUTOPSY -> CHECKPOINT -> REDEEM
+TARGET → INSPECT → INVENTORY → AUTOPSY → CHECKPOINT → REDEEM
 ```
 
-The agent scopes the target, gathers exact evidence, ranks the damaging patterns, and writes the roast after the proof is in. Pattern matches remain leads until verified; humor is seasoning, not evidence.
+Pattern matches remain leads until verified. Humor supports the finding; it never replaces evidence.
 
-## User Experience
-
-Users get critique that is hard to ignore and easy to act on: the strongest roast, ranked findings, an autopsy, and repair paths. If the request did not already authorize fixes, the skill waits at a fix checkpoint before editing.
-
-## Installation
-
-Install the published skill with:
+## Install
 
 ```bash
-npx octocode skill --name octocode-roast
+npx octocode skill install octocode-roast --platform codex
 ```
 
-## Maintainer Notes
+## Maintainer verification
 
-Keep this README focused on the balance: memorable critique, real citations, tone safety, and repairability. Keep detailed issue catalogs, tone personas, language-specific checks, and redemption flow in the agent-facing skill file and references.
+Run the `octocode-skills` review against this folder.

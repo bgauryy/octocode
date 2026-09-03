@@ -1,14 +1,14 @@
-# Usage matrix — when & how
+# Usage matrix — when and how
 
-Load when choosing whether/how to offload a surface (research, articles, code, translate, images, …). Why: surface, not vibe, decides what a tool-less local worker may own.
+Load when choosing whether/how to offload a surface (research, articles, code, translate, images, …). Why: surface, not vibe, decides what a tool-less local worker can own.
 
-Portable: pick from **installed** models via live `ollama list` + tiers in `references/model-selection.md`. Named tags below are **examples from dogfood**, not requirements.
+Portable: pick from **installed** models through live `ollama list` + tiers in `references/model-selection.md`. Named tags below are **examples from dogfood**, not requirements.
 
 ## Split of labor (always)
 
 | Role | Owns |
 |---|---|
-| **Orchestrator** | Tools, web/MCP fetch, architecture, security, final synthesis, repo writes, verify |
+| **Orchestrator** | Tools, web/MCP fetch, architecture, security, final synthesis, repository writes, verify |
 | **Local worker** | Single-shot / map-reduce on **already-provided** text or images — no browse, no tools |
 
 ## Surface guide
@@ -30,9 +30,9 @@ Portable: pick from **installed** models via live `ollama list` + tiers in `refe
 
 **Good:** privacy, cost, cloud-context savings on short/medium already-fetched articles (~2–8k chars per shard); structured JSON with verbatim quotes. **Bad / escalate:** worker browsing the web; long unsharded pages; multi-article contested synthesis; citation-exact claims without a substring verify gate.
 
-**Packet pattern:** 1) orchestrator fetches → writes `SOURCE_URL` + plain text file; 2) worker `--job summarize` + schema requiring `tldr`, `key_points`, `claims[].support_quote`; 3) verify every `support_quote` is a contiguous substring of the input (normalize whitespace), drop ungrounded claims, cascade once if grounded_rate < 1.0; 4) long pages: chunk → map summarize → orchestrator reduce (same pattern as map-reduce corpus).
+**Packet pattern:** 1) orchestrator fetches and writes `SOURCE_URL` plus a plain-text file. 2) worker runs `--job summarize` with a schema requiring `tldr`, `key_points`, and `claims[].support_quote`. 3) verify each `support_quote` is a contiguous input substring after whitespace normalization; drop ungrounded claims and cascade once if `grounded_rate < 1.0`. 4) for long pages, chunk, map-summarize, and let the orchestrator reduce.
 
-**Fidelity vs latency (measured on this skill’s kit — illustrative):** warmer ~7B often faster; ~12B multimodal/instruct often better quote grounding. Always verify; never skip cascade after partial grounding. **Why verify before cascade:** cheap/local draft first, accept only if the quality gate passes, else stronger model or orchestrator — same cascade idea as FrugalGPT / cascadeflow, implemented as substring + schema checks (not a trained scorer).
+**Fidelity vs latency (measured on this skill’s kit — illustrative):** a warm ~7B model is often faster; a ~12B multimodal/instruct model often has better quote grounding. Always verify and never skip cascade after partial grounding. **Why verify before cascade:** accept the cheap local draft only if the quality gate passes. Otherwise, escalate to the orchestrator or a stronger model. This uses the cascade idea from FrugalGPT and cascadeflow with substring and schema checks, not a trained scorer. <!-- style-lint: ignore-line missing-serial-comma -->
 
 **Small tasks:** same surfaces, smaller packets. Prefer **warm** installed models. User-facing translate/article skim still needs verify — tiny ≤3B models often fail fidelity (see loop-report).
 
@@ -42,7 +42,7 @@ Portable: pick from **installed** models via live `ollama list` + tiers in `refe
 - Using embedding models as chat summarizers; thinking **on** for bulk article shards (`--think=false` by default)
 - Silent-accepting failed JSON / ungrounded quotes without cascade or solo redo
 - Omitting `--keepalive` on map-reduce (cold reload each shard); oversized shards vs `num_ctx` (silent truncation — no Ollama error)
-- High temperature on extract/classify (prefer `0.1–0.3` via `--temperature`)
+- High temperature on extract/classify (prefer `0.1–0.3` through `--temperature`)
 - Confusing this skill with Ollama **setup** skills or full local **agent** bridges (tools/browser)
 
 Next: pick the tag with `references/model-selection.md`; write the brief with `references/packet-contract.md`; gate the return with `references/verify-gate.md`.

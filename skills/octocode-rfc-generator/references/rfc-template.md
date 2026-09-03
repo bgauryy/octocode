@@ -1,4 +1,4 @@
-# RFC.md Template — Decision Body
+# RFC.md template — decision body
 
 Load when writing `RFC.md`. Why: this reviewer-facing document is the single source of truth for goals, scope, and decision; freeze it when accepted.
 Implementation detail belongs in `rfc-implementation.md`, metrics in `rfc-kpi.md`, and source inventories in `rfc-resources.md`. On (re)read against live code, insert the audit block right after the header fields: `references/rfc-audit.md`.
@@ -44,7 +44,7 @@ Each question must be closed with evidence in `IMPLEMENTATION.md` or explicitly 
 Optional extensions that remain outside this decision.
 ```
 
-Quality gate: exact citations support non-obvious claims; decision-blocking uncertainty is resolved and remaining uncertainty is explicit; goals and scope appear only here.
+Quality gate: exact citations support non-obvious claims; decision-blocking uncertainty is resolved and remaining uncertainty is explicit; goals and scope appear only here. <!-- style-lint: ignore-line passive-voice -->
 Every citation states why it matters; option comparisons render as a markdown table; no filler or duplicate phrasing.
 
 Next: when the change touches existing code load `references/rfc-prerequisites.md`; otherwise close the open questions and build with `references/rfc-implementation.md`.

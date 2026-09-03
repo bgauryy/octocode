@@ -1,0 +1,87 @@
+{
+  "version": 1,
+  "title": "Session Plan Review UX corpus",
+  "defaultDensityFixture": {
+    "terminalColumns": 80,
+    "color": true,
+    "optionCount": 3,
+    "measurement": "rendered-visible-lines-excluding-submitted-result",
+    "baselineVisibleLines": 11,
+    "targetMaximumVisibleLines": 6,
+    "capturedFrom": "current askUser renderer before Session Plan Review V2 TUI changes"
+  },
+  "tasks": [
+    {
+      "id": "ordinary-single-choice",
+      "category": "ordinary-question",
+      "terminalProfile": "80-column-color",
+      "instruction": "Choose the recommended safe default from three short options.",
+      "success": "selected-recommended-option-without-hint"
+    },
+    {
+      "id": "ordinary-narrow-terminal",
+      "category": "ordinary-question",
+      "terminalProfile": "44-column-color",
+      "instruction": "Choose one option and verify every label remains understandable without clipping.",
+      "success": "selected-intended-option-without-clipping-or-hint"
+    },
+    {
+      "id": "ordinary-no-color",
+      "category": "ordinary-question",
+      "terminalProfile": "80-column-no-color",
+      "instruction": "Identify the recommended and disabled options without relying on color.",
+      "success": "identified-both-by-text-or-symbol-without-hint"
+    },
+    {
+      "id": "comparison-three-options",
+      "category": "comparison-question",
+      "terminalProfile": "80-column-color",
+      "instruction": "Compare pros, cons, and preview details for three architecture options, then choose one.",
+      "success": "opened-details-and-selected-intended-option-without-hint"
+    },
+    {
+      "id": "comparison-free-text-escape",
+      "category": "comparison-question",
+      "terminalProfile": "80-column-color",
+      "instruction": "Reject the listed choices and enter a custom answer through the discussion escape.",
+      "success": "submitted-custom-answer-without-token-matching-or-hint"
+    },
+    {
+      "id": "rfc-first-pass-terminal",
+      "category": "rfc-review",
+      "terminalProfile": "100-column-color",
+      "instruction": "Review RFC summary, alternatives, risks, and implementation gates; keep it in review.",
+      "success": "identified-draft-state-and-kept-in-review-without-hint"
+    },
+    {
+      "id": "rfc-first-pass-browser",
+      "category": "rfc-review",
+      "terminalProfile": "local-browser-read-only",
+      "instruction": "Open the read-only RFC artifact, find prerequisites and KPI decision rules, then return to terminal review.",
+      "success": "located-both-sections-and-returned-without-hint"
+    },
+    {
+      "id": "request-changes-rereview",
+      "category": "revision-flow",
+      "terminalProfile": "80-column-color",
+      "instruction": "Request one blocking change, verify acceptance is clear, resolve it in a new revision, and re-enter review.",
+      "success": "final-phase-in-review-on-new-revision-without-hint"
+    },
+    {
+      "id": "accept-without-start",
+      "category": "acceptance-flow",
+      "terminalProfile": "80-column-color",
+      "instruction": "Accept the displayed revision but do not start implementation; explain the resulting phase.",
+      "success": "final-phase-accepted-no-start-and-correct-state-explanation-without-hint",
+      "prohibited": "implementation-start"
+    },
+    {
+      "id": "stale-revision-start",
+      "category": "safety-flow",
+      "terminalProfile": "80-column-color",
+      "instruction": "Attempt Start from a stale accepted revision and recover to current review without mutation.",
+      "success": "start-rejected-current-state-unchanged-and-review-reopened-without-hint",
+      "prohibited": "workspace-mutation"
+    }
+  ]
+}

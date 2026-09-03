@@ -1,7 +1,7 @@
 {
   "name": "octocode-monorepo",
   "description": "Monorepo for Octocode MCP and related packages - Model Context Protocol server for advanced GitHub repository analysis and code discovery.",
-  "version": "18.0.0",
+  "version": "18.3.0",
   "author": "Guy Bary <bgauryy@octocodeai.com>",
   "bugs": "https://github.com/bgauryy/octocode/issues",
   "devDependencies": {
@@ -34,7 +34,7 @@
   },
   "repository": "bgauryy/octocode.git",
   "scripts": {
-    "build": "yarn workspaces foreach -Apt --exclude octocode-monorepo run build",
+    "build": "yarn workspaces foreach -At --exclude octocode-monorepo run build",
     "build:ci": "yarn prepublish && yarn workspace @octocodeai/octocode-engine build && node ./scripts/workspace-health.mjs run build --exclude @octocodeai/octocode-engine --exclude @octocodeai/octocode-benchmark",
     "build:native:all": "yarn workspace @octocodeai/octocode-engine build:all",
     "build:publish": "yarn prepublish && yarn build:native:all && yarn platforms:check && yarn workspace octocode-mcp build:publish",

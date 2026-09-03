@@ -1,13 +1,13 @@
 # Discovery Surfaces
 
-Load when shopping beyond raw GitHub. Why: pick the right registry/API for the user goal.
+Load when shopping beyond raw GitHub. Why: pick the right registry/API for you goal.
 
 Cross-check ≥2 surfaces; prefer activity evidence (installs, updates, audits).
 
 | User goal | First surface |
 |-----------|---------------|
 | Keyword/topic search | skills.sh `/api/search?q=` (sort `installs`) ∥ GitHub ∥ web |
-| Mentions outside registries | WebSearch → confirm `SKILL.md` via Octocode |
+| Mentions outside registries | WebSearch → confirm `SKILL.md` through Octocode |
 | Is X published / battle-tested? | `https://www.skills.sh/<owner>/<repo>/<skill>` |
 | Most-installed now | `https://www.skills.sh` leaderboard |
 | Claude Code plugin | `claude-plugins.dev` |
@@ -19,7 +19,7 @@ Cross-check ≥2 surfaces; prefer activity evidence (installs, updates, audits).
 
 ## Per-skill check
 
-Confirm on skills.sh before recommending. Page gives installs, install cmd, audit badge, siblings. 404 → source repo + lower confidence.
+Confirm on skills.sh before recommending. Page gives installs, install cmd, audit badge, siblings. 404 → source repository + lower confidence.
 
 ## Surface notes
 

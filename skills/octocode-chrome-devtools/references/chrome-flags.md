@@ -1,4 +1,4 @@
-# Chrome Flags Reference
+# Chrome flags reference
 
 Load when launching Chrome with special profile, proxy, binary, headless, or mobile needs. Why: launch flags only apply to a fresh browser process.
 
@@ -14,7 +14,7 @@ node <skill-dir>/scripts/open-browser.mjs --headless --proxyServer "socks5://127
 node <skill-dir>/scripts/open-browser.mjs --port 9222 --cleanup --dry-run
 ```
 
-## Auth Without Full Profile
+## Auth without full profile
 Prefer cookie transfer into isolated headless over long-lived real-profile CDP:
 
 ```bash
@@ -41,6 +41,6 @@ node <skill-dir>/scripts/open-browser.mjs --headless --port 9222 --enableFeature
 Workflow and fallback: `references/intents-automation.md#webmcp`.
 
 ## Output
-Everything lands under `<workspace>/.octocode/tmp/chrome-devtools/`: run artifacts by timestamp, `browser-state/` for profiles and session tracking, `session-meta/port-<N>/` for per-port history. An unwritable workspace is an error; artifacts never fall back to a user-level Octocode home. Run `scripts/prune-artifacts.mjs` periodically to reclaim old runs — see `SKILL.md`.
+Everything lands under `<workspace>/.octocode/tmp/chrome-devtools/`: run artifacts by timestamp, `browser-state/` for profiles, and session tracking, `session-meta/port-<N>/` for per-port history. An unwritable workspace is an error; artifacts never fall back to a user-level Octocode home. Run `scripts/prune-artifacts.mjs` periodically to reclaim old runs — see `SKILL.md`.
 
 Next: after launch, route by `references/intents.md`.

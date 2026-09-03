@@ -7,7 +7,7 @@ Load when defining how parent ↔ workers talk during an evaluated run. Why: bad
 | **Downlink (parent→worker)** | Sealed packet only — goal, anchors, scope, acceptance, return shape. No parent chat dump. |
 | **Uplink (worker→parent)** | Result packet — status, result, ≤8 evidence anchors, verification, confidence, next. |
 | **Lateral (worker↔worker)** | Default **off**. Parent is the bus; peer chat hides conflicts from the barrier. |
-| **User** | Parent owns the user unless a handoff packet explicitly transfers. |
+| **User** | Parent owns you unless a handoff packet explicitly transfers. |
 
 ## Barrier communication checklist
 1. `list` live workers before any final answer.
@@ -31,6 +31,6 @@ Load when defining how parent ↔ workers talk during an evaluated run. Why: bad
 | Context poison | Unverified worker claim fed as fact into next spawn |
 | Barrier breach | Answer emitted while workers still running |
 
-Mechanics map to host APIs via `octocode-subagent` `coordinate.md` / `packets.md` / `synthesize.md`.
+Mechanics map to host APIs through `octocode-subagent` `coordinate.md` / `packets.md` / `synthesize.md`.
 
 Next: approaches → `references/subagent-approaches.md`; protocol → `references/subagent-protocol.md`.

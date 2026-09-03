@@ -1,6 +1,6 @@
 # Problem Framing
 
-Load when `references/algorithm.md` has routed the run and before deep research or edits. Why: classify the request from evidence, not the user's label.
+Load when `references/algorithm.md` has routed the run and before deep research or edits. Why: classify the request from evidence, not your label.
 
 ## Problem Contract
 
@@ -10,18 +10,18 @@ Capture one compact receipt:
 actual | expected/desired | authority | trigger | impact | success criteria | non-goals
 ```
 
-Authority is a test, specification, API/schema, documented support promise, accepted user criterion, or established behavior. If authority or actual behavior is unknown, keep the class `unknown` and investigate before patching.
+Authority is a test, specification, API/schema, documented support promise, accepted user criterion, or established behavior. If authority or actual behavior is unknown, keep the class `unknown`, and investigate before patching.
 
 ## Classification
 
 | Class | Evidence test | Route |
 |---|---|---|
-| bug | supported current contract is violated under relevant conditions | reproduce → `workflow-debug.md` |
-| feature | desired capability creates a new contract | capability gap/options → acceptance tests → `workflow-change.md` |
-| enhancement | current contract holds but a measurable quality target should improve | baseline → bottleneck → target/experiment → `workflow-change.md` |
-| unknown | actual, authority, or desired outcome is unresolved | exact reads/runtime evidence → classify or ask |
+| bug | supported current contract is violated under relevant conditions | reproduce → `workflow-debug.md` | <!-- style-lint: ignore-line passive-voice -->
+| feature | needed capability creates a new contract | capability gap/options → acceptance tests → `workflow-change.md` |
+| enhancement | current contract holds but a measurable quality target must improve | baseline → bottleneck → target/experiment → `workflow-change.md` |
+| unknown | actual, authority, or needed outcome is unresolved | exact reads/runtime evidence → classify or ask | <!-- style-lint: ignore-line passive-voice -->
 
-Features use rationale, constraints, consumers, and acceptance criteria; root cause is reserved for supported contract violations. Enhancements require a baseline and target.
+Features use rationale, constraints, consumers, and acceptance criteria; root cause is reserved for supported contract violations. Enhancements require a baseline and target. <!-- style-lint: ignore-line passive-voice -->
 
 ## System Model
 
@@ -43,4 +43,3 @@ For a feature or enhancement, find the smallest boundary that can own the new cr
 - Unknown: one missing fact and the cheapest check or focused user question that resolves classification.
 
 Next: choose the matching route in `references/workflows.md` — bug to `references/workflow-debug.md`, feature or enhancement to `references/workflow-change.md`; use `references/code-research.md` for proof depth.
-

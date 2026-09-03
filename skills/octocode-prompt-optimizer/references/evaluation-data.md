@@ -1,4 +1,4 @@
-# Evaluation Data & Failure Ledger
+# Evaluation data and failure ledger
 
 Load before claiming that a prompt, instruction, description, schema, or tool change improved reliability.
 
@@ -35,4 +35,4 @@ Avoid toy single-call tests for multi-step work, exact-match verifiers that reje
 - Anthropic, [Writing effective tools for AI agents](https://www.anthropic.com/engineering/writing-tools-for-agents) — realistic evaluation tasks, verifiers, held-out tests, and tool-use metrics.
 - Anthropic, [Effective context engineering for AI agents](https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents) — evaluate context quality as part of agent behavior.
 
-Next: when the measurement accepts the change, record it in `references/validate.md`; when it rejects the change, return to `references/fix.md` and narrow the repair; for the full goal→KPI cascade and graders use `octocode-eval-benchmark`, or `references/improve-loop.md` if it is unavailable.
+Next: when the measurement accepts the change, record it in `references/validate.md`. When it rejects the change, return to `references/fix.md`, and narrow the repair. For the full goal→KPI cascade and graders use `octocode-eval-benchmark`, or `references/improve-loop.md` if it is unavailable.

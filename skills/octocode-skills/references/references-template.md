@@ -1,6 +1,6 @@
 # References Template
 
-Copy to `references/references.md` inside a newly created skill. Fill only sources you actually consulted.
+Copy to `references/references.md` inside a created skill. Fill only sources you consulted.
 
 ## Skills.sh API Results
 
@@ -8,13 +8,13 @@ Copy to `references/references.md` inside a newly created skill. Fill only sourc
 |-------|--------|----------|----------|
 | | | | |
 
-## GitHub Sources Inspected
+## GitHub sources inspected
 
-| File | Owner/Repo | Path | Quality | Notes |
+| File | Owner/Repository | Path | Quality | Notes |
 |------|-----------|------|---------|-------|
 | | | | | |
 
-## Registry and Marketplace Surfaces
+## Registry and marketplace surfaces
 
 | Surface | URL or Query | Finding |
 |---------|-------------|---------|

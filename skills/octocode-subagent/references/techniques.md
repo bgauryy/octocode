@@ -6,7 +6,7 @@ Load when quality risk needs a second mind without enlarging the swarm. Why: top
 |---|---|---|
 | **Rubber duck** | Stuck plan; surface assumptions cheaply | `references/rubber-duck.md` |
 | **Interview** | Another agent’s claims need falsification | `references/interview.md` |
-| **Mimic flow** | Worker should follow a playbook without full chat | `references/mimic-flow.md` |
+| **Mimic flow** | Worker must follow a playbook without full chat | `references/mimic-flow.md` |
 | **Red team / devil’s advocate** | Plan feels “too clean”; attack before ship | `references/red-team.md` |
 | **Premortem** | High-stakes change; imagine failure first | `references/red-team.md` |
 | **Steelman** | Contested choice; strengthen the opposing case | `references/red-team.md` |

@@ -1,30 +1,38 @@
 # Octocode Research
 
-Evidence-first investigation for local code, external repositories, packages, history, reviews, implementation planning, and refactors.
+Investigate local code, external repositories, packages, history, failures, reviews, and implementation plans with exact evidence.
 
-## Use it for
+## Use when
 
-- callers, imports, dependency paths, blast radius, or safe-delete proof;
-- locating behavior, mapping a system, or diagnosing a supported-contract failure;
-- upstream fixes, npm packages, prior art, and ecosystem comparisons;
-- planning before a change and validating callers, tests, and the final diff afterward.
+- You need callers, imports, paths, affected-area analysis, or safe-delete proof.
+- You must locate behavior or analyze the root cause of a failure.
+- An upstream repository, npm package, commit, or pull request can answer the question.
+- A planned change needs evidence before editing and verification afterward.
 
-Skip it when a trivial edit's impact is already known. Docs writing belongs to `octocode-documentation`; skill folders to `octocode-skills`; open-ended product exploration to `octocode-brainstorming`.
+Skip this skill when a trivial edit's impact is already known. Documentation writing belongs to `octocode-documentation`; skill folders belong to `octocode-skills`; open-ended idea exploration belongs to `octocode-brainstorming`.
 
-## How it works
+## Workflow
 
-`FRAME → CLASSIFY → MODEL → SEARCH → READ EXACT → PROVE → DECIDE/PATCH → VERIFY`
+```text
+FRAME → CLASSIFY → MODEL → SEARCH → READ EXACT → PROVE → DECIDE/PATCH → VERIFY
+```
 
-Depth follows claim risk. Exact anchors (`file:line`, repository path, package/version, PR, commit, or URL) carry `confirmed`, `likely`, `uncertain`, or `weak` confidence. Search snippets are leads; empty results describe one searched lane, not universal absence.
+Search results are leads. Findings use exact repository paths, package versions, commits, pull requests, or URLs with explicit confidence. Empty results describe only the searched lane.
 
-Routes cover local, external, combined local↔remote, debug/RCA, behavioral change, refactor, and PR/diff review. Rare routes cover ecosystem ranking, durable briefs, and convergence loops. The agent loads only the active route and proof guidance.
+## Tools
 
-Octocode MCP is preferred. This monorepo uses the built CLI; an installed skill uses `npx octocode`. Both expose local search/read/graph, LSP semantics, GitHub code/history, cloning, and npm lookup. Disabled surfaces are reported, never simulated.
+Prefer Octocode MCP tools. The monorepo uses its built CLI; installed skills use `npx octocode`. Use graph operations for file topology and LSP for symbol identity.
 
 ## Install
 
 ```bash
-npx octocode skill --name octocode-research
+npx octocode skill install octocode-research --platform codex
 ```
 
-Maintainers: keep tactics and report contracts in `SKILL.md`/`references/`; verify description changes with `node scripts/check-description.mjs`.
+## Maintainer verification
+
+```bash
+node scripts/check-description.mjs
+```
+
+Then run the `octocode-skills` review against this folder.

@@ -1,10 +1,10 @@
-# Held-Out And Guards
+# Held-Out and guards
 Load when accepting a change or expanding a suite. Why: overfitting and contamination are silent failures.
 
 ## Splits
 | Set | Role |
 |---|---|
-| **Train / invent** | Failures you may study while designing the patch |
+| **Train / invent** | Failures you can study while designing the patch |
 | **Held-out** | Never used to invent the edit; run only at JUDGE/VERIFY |
 | **Regression** | Former capability tasks that must stay green |
 

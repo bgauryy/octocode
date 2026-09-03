@@ -11,7 +11,7 @@ Start reference-free to discover failure patterns; add golden trajectories once 
 | Mode | Checks | Use when |
 |---|---|---|
 | **strict** | Same tools, same order, same args | Ordering is a business requirement (policy: step A before B) |
-| **unordered** | Same tools, any order | All required tools must be called, order is irrelevant |
+| **unordered** | Same tools, any order | All required tools must be called, order is irrelevant | <!-- style-lint: ignore-line passive-voice -->
 | **subset** | Agent called subset of reference | Agent must not call extra tools beyond the reference |
 | **superset** | Agent called superset of reference | Key tools required; extra tools acceptable |
 
@@ -31,7 +31,7 @@ For graph-based agents, the trajectory is node steps, not messages:
 ```
 steps: [["__start__", "agent", "tools", "__interrupt__"], ["agent"]]
 ```
-`__interrupt__` = human-in-the-loop gate. Grade whether the agent visited the right nodes across turns, not just what it said. Use strict match for deterministic step sequences; LLM judge for flexible ones.
+`__interrupt__` = human-in-the-loop gate. Grade whether the agent visited the right nodes across turns, not what it said. Use strict match for deterministic step sequences; LLM judge for flexible ones.
 
 ## Multiturn simulation — trajectory generation, not evaluation
 To test multi-turn agents without real users: simulate a user (LLM or scripted fixed responses), run app ↔ user for N turns or until a stopping condition, then evaluate the final trajectory.

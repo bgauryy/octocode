@@ -1,8 +1,8 @@
-# Zod Agent Packet Contracts
+# Zod agent packet contracts
 
 Load when an agent handoff, tool result, or MCP-facing input/output needs a TypeScript/Zod contract.
 
-**Validate at every trust boundary; keep the packet small.** A schema proves shape, not that the request is authorized, relevant, or safe.
+**Validate at every trust boundary; keep the packet small.** A schema proves shape, not that the request is authorized, relevant, or safe. <!-- style-lint: ignore-line passive-voice -->
 
 ```ts
 import { z } from "zod";

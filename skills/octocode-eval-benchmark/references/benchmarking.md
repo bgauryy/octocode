@@ -18,7 +18,7 @@ Prefer private suites sourced from error analysis. Public gains without transcri
 - **Outcome tests** — coding: fail-to-pass (bug fixed) + pass-to-pass (no regressions). Tests alone ≠ merge-ready (quality/taste still needed).
 
 ## Coding-bench pattern (SWE-style)
-1. Issue + repo snapshot  
+1. Issue + repository snapshot  
 2. Agent patch  
 3. Run fail-to-pass + pass-to-pass tests  
 4. Read transcripts; distrust saturated Verified-style boards as sole proof  

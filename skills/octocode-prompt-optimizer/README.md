@@ -1,19 +1,35 @@
-# Prompt Optimizer
+# Octocode prompt optimizer
 
-Improve prompts, agent instructions, handoffs, and tool/schema contracts while preserving intent and measuring behavior where reliability matters.
+Improve prompts, policies, agent instructions, and handoffs. Preserve intent when you change tool contracts or schema contracts.
 
-## Features
+## Use when
 
-- A proportional `READ → UNDERSTAND → RATE → FIX → VALIDATE → OUTPUT` workflow; small edits may combine adjacent phases.
-- Focused references for tool contracts, agent handoffs, Zod boundaries, pagination, prompt caching, evaluation data, and untrusted content.
-- Lean output: a validated rewrite or patch-style delta, with only the context the next agent needs.
+- An instruction surface is unclear, unsafe, too expensive in context, or difficult to trigger.
+- A handoff omits authority, evidence, acceptance, or return shape.
+- A tool schema or pagination contract permits ambiguous or incomplete behavior.
+- Reliability needs behavioral evaluation rather than wording judgment alone.
 
-## How it works
+## Capabilities
 
-The skill reads the whole input, records evidenced issues, makes the smallest useful repair, and validates intent and behavior before delivery. Conditional guidance lives in focused references for context, tools, handoffs, schemas, caching, and untrusted content.
+- Finds evidenced instruction and contract failures.
+- Makes the smallest repair that preserves the original job.
+- Handles untrusted content, tool boundaries, caching, pagination, and structured outputs.
+- Produces a validated rewrite or a focused patch-style delta.
 
-## Installation
+## Workflow
+
+```text
+READ → UNDERSTAND → RATE → FIX → VALIDATE → OUTPUT
+```
+
+Small edits can combine adjacent phases. Significant behavior changes require a frozen sensor and measurable comparison.
+
+## Install
 
 ```bash
-npx octocode skill --name octocode-prompt-optimizer
+npx octocode skill install octocode-prompt-optimizer --platform codex
 ```
+
+## Maintainer verification
+
+Run the `octocode-skills` review against this folder.

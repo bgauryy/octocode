@@ -1,20 +1,20 @@
 # Install Gates
 
-Load when the user chooses to install. Why: every write needs explicit destination + approval.
+Load when you choose to install. Why: every write needs an explicit destination and approval.
 
 An install = copy or symlink a `SKILL.md` folder into a path the runtime scans. No single official installer — any method that lands a valid folder is fine.
 
 ## Normalize source
 
-Accept `owner/repo/path`, GitHub tree/blob URLs, absolute/relative paths. Strip trailing `SKILL.md`. `skill-name` = final folder segment unless overridden. If frontmatter `name` ≠ folder, surface mismatch and ask.
+Accept `owner/repo/path`, GitHub tree/blob URLs, absolute paths, or relative paths. Strip trailing `SKILL.md`. `skill-name` = final folder segment unless overridden. If frontmatter `name` ≠ folder, surface the mismatch, and ask.
 
-Prefer after approval: `npx octocode skill --add <src> --platform <hosts> [--mode copy|symlink|hybrid]`. This copies the validated source into `<octocode-home>/skills/<name>` as the canonical installation, then creates vendor links from that copy. `--mode copy|hybrid` changes vendor destinations only; canonical home remains a copy.
+Prefer after approval: `npx octocode skill install --add <src> --platform <hosts> [--mode copy|symlink|hybrid]`. This copies the validated source into `<octocode-home>/skills/<name>` as the canonical installation, then creates vendor links from that copy. `--mode copy|hybrid` changes vendor destinations only; canonical home remains a copy.
 
 ## Four destination questions
 
 Skip only if already answered this turn:
 
-1. Provider(s)? — one, several, or all agents.
+1. Providers? — one, several, or all agents.
 2. Scope per provider? — user / project / custom.
 3. If project: which absolute root?
 4. Mode? — symlink (stable local source) or copy (portable / remote).

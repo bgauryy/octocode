@@ -2,7 +2,7 @@
 
 Load when inventorying models, invoking the worker, or debugging CLI behavior. Why: exact tags and lifecycle flags decide whether an offload runs at all.
 
-Commands and flags verified against local `ollama --help` / subcommand help (Ollama CLI on the agent host). Official docs: https://github.com/ollama/ollama · library hub: https://ollama.com/library · key families: [gemma4](https://ollama.com/library/gemma4) · [qwen2.5](https://ollama.com/library/qwen2.5). Gotcha: `ollama -v` may show a **client** build different from the **server** (`ollama serve`) — prefer live `run`/`show` behavior and upgrade the CLI if flags diverge.
+Commands and flags verified against local `ollama --help` / subcommand help (Ollama CLI on the agent host). Official docs: https://github.com/ollama/ollama · library hub: https://ollama.com/library · key families: [gemma4](https://ollama.com/library/gemma4) · [qwen2.5](https://ollama.com/library/qwen2.5). Gotcha: `ollama -v` can show a **client** build different from the **server** (`ollama serve`) — prefer live `run`/`show` behavior and upgrade the CLI if flags diverge.
 
 **Global:** `ollama --help` · `ollama -v` (version). Env:
 
@@ -31,7 +31,7 @@ ollama ps            # models currently loaded in memory
 ollama show MODEL    # add --parameters | --system | --modelfile | --template | -v
 ```
 
-**Agent rules:** copy model names **exactly** from `ollama list` (include `:tag`); use `show` before selecting an unfamiliar model (size, context, capabilities); `ps` helps avoid loading a huge model when a small one is already warm — an optional optimization, not a substitute for tier fit.
+**Agent rules:** copy model names **exactly** from `ollama list`, including `:tag`. Before selecting an unfamiliar model, use `show` to inspect size, context, and capabilities. Use `ps` to avoid loading a huge model when a fitting small model is warm; this optimization never replaces tier fit.
 
 **Safe defaults for this skill:** 1) Health: `./scripts/ollama-health.sh` 2) Inventory: `ollama list` 3) Select: `export OLLAMA_WORKER_MODEL='<exact-tag>'` 4) Verify: `./scripts/ollama-health.sh --model "$OLLAMA_WORKER_MODEL"` 5) Run: `./scripts/ollama-worker.sh --model "$OLLAMA_WORKER_MODEL" --job summarize --input shard.txt --out .octocode/worker/out.txt`
 

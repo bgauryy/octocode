@@ -7,6 +7,7 @@ import type {
   RequiredLspConfig,
   RequiredOutputConfig,
   RequiredSessionConfig,
+  RequiredStorageConfig,
 } from './types.js';
 import {
   DEFAULT_GITHUB_CONFIG,
@@ -16,6 +17,7 @@ import {
   DEFAULT_LSP_CONFIG,
   DEFAULT_OUTPUT_CONFIG,
   DEFAULT_SESSION_CONFIG,
+  DEFAULT_STORAGE_CONFIG,
   MIN_TIMEOUT,
   MAX_TIMEOUT,
   MIN_RETRIES,
@@ -149,6 +151,17 @@ export function resolveSession(): RequiredSessionConfig {
   return {
     enableStats: envEnableStats ?? DEFAULT_SESSION_CONFIG.enableStats,
   };
+}
+
+export function resolveStorage(
+  fileConfig?: OctocodeConfig['storage']
+): RequiredStorageConfig {
+  const envMode = process.env.OCTOCODE_STORAGE_MODE?.trim().toLowerCase();
+  const fileMode = fileConfig?.mode ?? DEFAULT_STORAGE_CONFIG.mode;
+  if (envMode === 'memory' || envMode === 'persistent') {
+    return { mode: envMode };
+  }
+  return { mode: fileMode };
 }
 
 const VALID_OUTPUT_FORMATS = new Set(['yaml', 'json']);

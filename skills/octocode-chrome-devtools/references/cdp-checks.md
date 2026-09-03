@@ -2,7 +2,7 @@
 
 Load when a ready-made check can replace a custom script. Why: pick the right check and its flags instead of rewriting `run(cdp)`.
 
-Invoke via `cdp-sandbox.mjs` (or `cdp-runner.mjs`) on a live `--port`.
+Invoke through `cdp-sandbox.mjs` (or `cdp-runner.mjs`) on a live `--port`.
 
 | Script | Role |
 |---|---|
@@ -34,4 +34,4 @@ node …/corpus-run-local.mjs --artifact-dir <run> --regex 'offerId' --limit 20
 | Standalone `.har` | `har-pager` (not measure-query unless same run dir + `--har`) |
 | Corpus / any artifact | `corpus-run-local` |
 
-Chain: snapshot → DOM → measure → query → (optional) HAR → ingest. See `har-capture.md`, `intents-debug.md`.
+Chain: snapshot → DOM → measure → query → (optional) HAR → process. See `har-capture.md`, `intents-debug.md`.

@@ -1,8 +1,8 @@
-# Script Pattern Router
+# Script pattern router
 
 Load when a CDP script needs reusable helper shape. Why: choose a focused pattern instead of copying a giant script.
 
-## Loading Rule
+## Load a route
 Start from the intent detail file, then load at most one pattern detail file.
 
 ## Pattern Routes

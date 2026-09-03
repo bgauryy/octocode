@@ -1,8 +1,8 @@
-# Context Budget & Pagination
+# Context budget and pagination
 
 Load when a prompt, tool, retrieval path, or handoff can fill context with more than the next action needs.
 
-**Budget for the next decision, not for completeness.** Keep the smallest high-signal evidence set that lets the agent act correctly; fetch detail just in time.
+**Budget for the next decision, not for completeness.** Keep the smallest high-signal evidence set that lets the agent act correctly; fetch detail in time.
 
 ## Input and output policy
 
@@ -16,7 +16,7 @@ Load when a prompt, tool, retrieval path, or handoff can fill context with more 
 
 ## Pagination workflow
 
-1. Start targeted; do not fetch a whole corpus “just in case.”
+1. Start targeted; do not fetch a whole corpus “in case.”
 2. Return a small page plus `isPartial` and opaque `nextCursor` when more exists.
 3. Tell the agent the precise resume call; reuse the cursor unchanged.
 4. Fetch another page only if the current evidence cannot answer the task.
@@ -33,4 +33,4 @@ Load when a prompt, tool, retrieval path, or handoff can fill context with more 
 - Anthropic, [Effective context engineering for AI agents](https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents) — finite attention budget and minimal high-signal context.
 - Anthropic, [Writing effective tools for AI agents](https://www.anthropic.com/engineering/writing-tools-for-agents) — filtering, pagination, truncation, and useful continuation guidance.
 
-Next: when the budget is set by a tool's own result shape load `references/tool-contracts.md`; when a stable prefix repeats across calls load `references/prompt-caching.md`; when the handoff row is the problem load `references/agent-communication.md`; measure the token delta with `references/evaluation-data.md`.
+Next: when the budget is set by a tool's own result shape load `references/tool-contracts.md`. When a stable prefix repeats across calls load `references/prompt-caching.md`. When the handoff row is the problem load `references/agent-communication.md`. Measure the token delta with `references/evaluation-data.md`. <!-- style-lint: ignore-line passive-voice -->

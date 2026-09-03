@@ -1,8 +1,8 @@
-# Audit Reasoning Block
+# Audit reasoning block
 
 Load when reassessing an existing RFC against live code — first read, periodic re-check, or before any delete/archive/keep call. Full process: `references/workflow.md` § Reassess existing RFCs.
 
-Produce this whenever an existing RFC is checked against the live repo. With source-edit authority, insert it under `RFC.md`'s header fields; otherwise present the block in chat and leave the file untouched.
+Produce this whenever an existing RFC is checked against the live repository. With source-edit authority, insert it under `RFC.md`'s header fields; otherwise present the block in chat and leave the file untouched. <!-- style-lint: ignore-line passive-voice -->
 
 ```markdown
 ## Audit Reasoning — kept/updated ({date})

@@ -1,4 +1,4 @@
-# CDP Agent Reference
+# CDP agent reference
 
 Load when exact CDP domain order, session routing, or API support matters. Why: most failures are missing enables, wrong session, or stale API assumptions.
 

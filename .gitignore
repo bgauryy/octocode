@@ -1,4 +1,6 @@
 node_modules
+# Stale test temp dirs — tests must use os.tmpdir(), not package dir
+.tmp-*
 build
 dist
 .yarn/install-state.gz
@@ -51,11 +53,7 @@ autoresearch.*
 devScripts
 
 .agents
-# Generated from root README.md during package build/prepack
-/packages/*/README.md
-!/packages/octocode-awareness/README.md
 output
 __pycache__
 output
 releases/**
-!releases/README.md

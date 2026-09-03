@@ -42,9 +42,9 @@ Schema examples (Summarize, Extract, Classify, Translate, Article): `references/
 ## Anti-patterns
 
 - Vague goals (“look at the codebase”); asking the worker to “fix”, to “run tests”, or to open/fetch URLs
-- Accepting free-form prose when JSON was required; structured jobs without `--format-json` + schema text (+ prefer `--temperature 0.2`)
+- Accepting free-form prose when JSON was required; structured jobs without `--format-json` + schema text (+ prefer `--temperature 0.2`) <!-- style-lint: ignore-line passive-voice -->
 - Packets larger than the local context window — shard instead (or raise `num_ctx`)
-- Skipping local for every small task when a warm model is ready and the user wants local
+- Skipping local for every small task when a warm model is ready and you want local
 - Integrating article summaries without quote substring checks
 
 Next: run the packet per `references/ollama-invoke.md`; gate the return with `references/verify-gate.md`.

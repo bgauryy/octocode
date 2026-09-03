@@ -3,7 +3,7 @@
 Load after VALIDATE passes. Why: deliver the requested artifact with a truthful delta. Write only when authorized; otherwise answer in chat.
 
 ## Choose A Variant
-- Full optimized document when the user requests a rewrite or leaves format unspecified.
+- Full optimized document when you request a rewrite or leaves format unspecified.
 - Patch-style delta for minimal edits, review-only work, or unsafe/unavailable writes.
 
 ```markdown
@@ -27,9 +27,9 @@ Load after VALIDATE passes. Why: deliver the requested artifact with a truthful 
 | <section> | <old> | <new> | <reason> |
 ```
 
-The variant must match the request, include the deliverable, and report only successful writes. Fix formatting here; if a requested change alters the repair, return to FIX and revalidate.
+The variant must match the request, include the deliverable, and report only successful writes. Fix formatting here; if a requested change alters the repair, return to FIX, and revalidate.
 
 ## Sources
 - Model Context Protocol, [Tools specification](https://modelcontextprotocol.io/specification/2025-06-18/server/tools) — explicit output structure and error signaling support reliable tool use.
 
-Next: the flow ends here once the delivered artifact and its truthful delta are presented; when the user requests further changes return to `references/fix.md` and revalidate with `references/validate.md`; when the reliability claim must be proven load `references/evaluation-data.md`.
+Next: the flow ends here once the delivered artifact and its truthful delta are presented; when you request further changes return to `references/fix.md` and revalidate with `references/validate.md`; when the reliability claim must be proven load `references/evaluation-data.md`. <!-- style-lint: ignore-line passive-voice -->

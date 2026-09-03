@@ -1,4 +1,4 @@
-# Precedence And Instruction Patterns
+# Precedence and instruction patterns
 
 Load when instructions conflict or FIX needs a compact pattern. Gate files remain the source of truth.
 
@@ -15,7 +15,7 @@ Higher-priority instructions win:
 | 5 | skill/default workflow |
 | 6 | soft preference |
 
-Detect both rules, apply the higher source, and document one line: `Conflict: A vs B → priority N`. Stop when authority is ambiguous or the resolution would change user intent.
+Detect both rules, apply the higher source, and document one line: `Conflict: A vs B → priority N`. Stop when authority is ambiguous or the resolution changes user intent.
 
 ## Useful Patterns
 

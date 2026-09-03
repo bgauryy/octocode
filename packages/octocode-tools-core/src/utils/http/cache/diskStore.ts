@@ -10,6 +10,7 @@ import {
   writeFile,
 } from 'node:fs/promises';
 import { join } from 'node:path';
+import { isPersistentStorageEnabled } from '@octocodeai/config';
 import { getDefaultOctocodeHome } from '../../../shared/paths.js';
 
 const DISK_CACHE_VERSION = 1;
@@ -51,6 +52,7 @@ function positiveEnv(name: string, fallback: number): number {
 }
 
 export function isDiskCacheEnabled(): boolean {
+  if (!isPersistentStorageEnabled()) return false;
   const raw = process.env.OCTOCODE_DISK_CACHE?.trim().toLowerCase();
   if (raw === 'false' || raw === '0') return false;
   if (process.env.NODE_ENV === 'test') return raw === 'true' || raw === '1';

@@ -32,10 +32,10 @@ Use `--platform pi,claude,cursor,codex` to select one or more supported hosts. T
 ## Folder contract
 
 - `SKILL.md` owns triggers, workflow, gates, and routes.
-- `README.md` explains when and why a human would use the skill.
+- `README.md` explains when and why people use the skill.
 - `references/`, `scripts/`, and `assets/` contain routed depth or runtime resources.
-- Every local file reference stays inside its skill folder, and every shipped file must be used.
-- Chat-only results stay in chat. New artifacts use the skill's workspace `.octocode/` path; approved source or configuration edits keep their named targets.
+- Keep every local file reference inside its skill folder. Use every shipped file.
+- Keep chat-only results in chat. Store new artifacts in the skill's workspace `.octocode/` path; keep approved source or configuration edits at their named targets.
 
 ## Verify
 

@@ -1,5 +1,5 @@
 # Subagent Protocol
-Load when running an evaluated multi-agent iteration. Why: without a fixed protocol, fan-out burns tokens and greenwashes.
+Load when running an evaluated multi-agent iteration. Why: without a fixed protocol, fan-out burns tokens, and greenwashes.
 
 ## Protocol (frozen during an experiment)
 ```text

@@ -1,6 +1,6 @@
-# Adding a Scraping Vendor
+# Add a scraping vendor
 
-Vendor code returns one `FetchResponse`; corpus, extraction, and graph modules remain provider-agnostic. Formal shapes live in `scripts/schemas/provider.schema.json`.
+Vendor code returns one `FetchResponse`; corpus, extraction, and graph modules remain provider-independent. Formal shapes live in `scripts/schemas/provider.schema.json`.
 
 ## Contracts
 
@@ -20,7 +20,7 @@ Vendor code returns one `FetchResponse`; corpus, extraction, and graph modules r
 2. Register its descriptor in `scripts/lib/providers.mjs`.
 3. Validate every descriptor, unknown-provider handling, and provider/mode rejection against the schema.
 4. Compare a mock fetch with existing providers: it must produce the same `AGENT_INDEX.json`, graph, workflow, and extraction shapes.
-5. Run `node scripts/skill-review.mjs` from `octocode-skills`.
+5. Run the `octocode-skills` review against this folder.
 
 Example registration:
 

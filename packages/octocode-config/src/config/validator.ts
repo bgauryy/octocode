@@ -142,6 +142,18 @@ function validateGitHub(github: unknown, errors: string[]): void {
   if (apiUrlError) errors.push(apiUrlError);
 }
 
+function validateStorage(storage: unknown, errors: string[]): void {
+  if (storage === undefined || storage === null) return;
+  if (typeof storage !== 'object' || Array.isArray(storage)) {
+    errors.push('storage: Must be an object');
+    return;
+  }
+  const mode = (storage as Record<string, unknown>).mode;
+  if (mode !== undefined && mode !== 'persistent' && mode !== 'memory') {
+    errors.push('storage.mode: Must be "persistent" or "memory"');
+  }
+}
+
 function validateLocal(local: unknown, errors: string[]): void {
   if (local === undefined || local === null) return;
 
@@ -333,6 +345,7 @@ export function validateConfig(config: unknown): ValidationResult {
   validateNetwork(cfg.network, errors);
   validateLsp(cfg.lsp, errors);
   validateOutput(cfg.output, errors);
+  validateStorage(cfg.storage, errors);
 
   warnUnknownObjectKeys(cfg.github, 'github', ['apiUrl'], warnings);
   warnUnknownObjectKeys(
@@ -341,6 +354,7 @@ export function validateConfig(config: unknown): ValidationResult {
     ['enabled', 'enableClone', 'allowedPaths', 'workspaceRoot'],
     warnings
   );
+  warnUnknownObjectKeys(cfg.storage, 'storage', ['mode'], warnings);
   warnUnknownObjectKeys(
     cfg.tools,
     'tools',
@@ -382,6 +396,7 @@ export function validateConfig(config: unknown): ValidationResult {
     'network',
     'lsp',
     'output',
+    'storage',
   ]);
 
   for (const key of Object.keys(cfg)) {

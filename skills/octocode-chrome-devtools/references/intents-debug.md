@@ -1,4 +1,4 @@
-# CDP Debug Intents
+# CDP debug intents
 
 Load when diagnosing network, console, DOM, performance, memory, or coverage. Why: pick signals before writing `run(cdp)`.
 
@@ -21,6 +21,6 @@ Use for leak suspicion. Prefer bounded heap samples; avoid long traces unless us
 Use for selectors, visible text, state, and framework globals. Prefer `Runtime.evaluate` helpers for shadow DOM and app state.
 
 ## css-coverage / js-coverage
-Use to find unused code. Start coverage before navigation/action, stop after stable state, report percentages and top unused URLs.
+Use to find unused code. Start coverage before navigation/action, stop after stable state, report percentages, and top unused URLs.
 
 Next: for wait helpers load `references/script-patterns-async.md`; for API enables load `references/cdp-agent.md`.

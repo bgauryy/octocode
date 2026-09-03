@@ -14,7 +14,7 @@ If fetching a remote skill first, load `references/fetch-remote.md`. Shape the l
 
 Write the lobby (`SKILL.md`) with purpose, workflows, hard rules, stop conditions, and when/why routes. Put depth in one-concept refs. Hooks → `references/hooks-add.md`. Scripts → `references/skill-scripts.md`.
 
-Create `references/references.md` from `references/references-template.md` with sources actually consulted.
+Create `references/references.md` from `references/references-template.md` with sources consulted.
 
 Run `node scripts/skill-review.mjs <new-skill-dir>`; clear ERRORs before done.
 

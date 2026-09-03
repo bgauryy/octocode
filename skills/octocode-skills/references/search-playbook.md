@@ -5,7 +5,7 @@ Load when discovering skill candidates. Why: sets depth, fan-out, and angles bef
 ## Set depth
 
 - Quick: enough to recommend one best candidate with caveats.
-- Research: compare broadly; stop when more search won't change the pick.
+- Research: compare broadly; stop when more search does not change the pick.
 - Install: inspect source, support files, destinations, conflicts before approval.
 - Improve/rate/review/create: inspect target + local examples + `skill-anatomy.md` first.
 - Weak results: broaden once, then report the gap.
@@ -14,7 +14,7 @@ Load when discovering skill candidates. Why: sets depth, fan-out, and angles bef
 
 For every PUBLIC query, fan out IN PARALLEL, then dedupe by `(owner/repo, skill name)`:
 
-1. Octocode/GitHub — via `octocode.md` / `octocode-research`.
+1. Octocode/GitHub — through `octocode.md` / `octocode-research`.
 2. skills.sh API — install-ranked (below).
 3. Web search — topic + "agent skill"/"SKILL.md"; confirm real `SKILL.md` before recommend.
 
@@ -31,7 +31,7 @@ curl 'https://www.skills.sh/api/search?q={{SEARCH_KEY}}&limit=100' --compressed 
   -H 'User-Agent: Mozilla/5.0'
 ```
 
-Sort by `installs` desc → top 5 inspect targets → fetch each `SKILL.md` via Octocode. Installs are a tiebreaker, not a blind recommend. Unreachable → leaderboard + GitHub topics; lower confidence (`recovery.md`).
+Sort by `installs` desc → top 5 inspect targets → fetch each `SKILL.md` through Octocode. Installs are a tiebreaker, not a blind recommend. Unreachable → leaderboard + GitHub topics; lower confidence (`recovery.md`).
 
 ## Sparse discovery
 

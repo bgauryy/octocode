@@ -15,6 +15,7 @@ import {
   resolveNetwork,
   resolveLsp,
   resolveOutput,
+  resolveStorage,
   setRuntimeSurface,
   _resetRuntimeSurface,
 } from '@octocodeai/config';
@@ -32,6 +33,7 @@ const CONFIG_ENV_KEYS = [
   'OCTOCODE_LSP_CONFIG',
   'OCTOCODE_OUTPUT_FORMAT',
   'OCTOCODE_OUTPUT_DEFAULT_CHAR_LENGTH',
+  'OCTOCODE_STORAGE_MODE',
 ];
 
 describe('README/CONFIGURATION config claims', () => {
@@ -281,6 +283,26 @@ describe('README/CONFIGURATION config claims', () => {
         process.env.ENABLE_CLONE = 'true';
         expect(resolveLocal(undefined).enableClone).toBe(true);
       });
+    });
+  });
+
+  describe('OCTOCODE_STORAGE_MODE -> storage.mode (default persistent)', () => {
+    it('keeps existing .octocoderc files compatible when storage is omitted', () => {
+      expect(resolveStorage(undefined).mode).toBe('persistent');
+    });
+
+    it('honors memory mode from .octocoderc', () => {
+      expect(resolveStorage({ mode: 'memory' }).mode).toBe('memory');
+    });
+
+    it('lets a valid environment value override .octocoderc', () => {
+      process.env.OCTOCODE_STORAGE_MODE = 'persistent';
+      expect(resolveStorage({ mode: 'memory' }).mode).toBe('persistent');
+    });
+
+    it('ignores an invalid environment value instead of weakening memory mode', () => {
+      process.env.OCTOCODE_STORAGE_MODE = 'memroy';
+      expect(resolveStorage({ mode: 'memory' }).mode).toBe('memory');
     });
   });
 });

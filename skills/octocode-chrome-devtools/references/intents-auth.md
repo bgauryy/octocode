@@ -1,18 +1,18 @@
-# CDP Auth Intents
+# CDP auth intents
 
 Load for login, MFA, CAPTCHA, real-profile, or cookie transfer. Why: authenticated CDP exposes sensitive state.
 
 ## login
-Open visible Chrome; let the user authenticate. Do not automate password/MFA unless explicitly approved.
+Open visible Chrome; let you authenticate. Do not automate password/MFA unless explicitly approved.
 
 ## user-auth
 Emit `[AUTH_COMPLETE]` only on a deterministic post-auth signal; else `[AUTH_TIMEOUT]` with observed URL/state.
 
-## Real Profile Gate
+## Real profile gate
 Before `--profile`, warn CDP can read cookies, tokens, storage, and page data. Require explicit yes.
 
 ## Cookie Bridge
-When the user wants default-browser cookies in an isolated headless session, load `references/cookie-bridge.md` and run `scripts/cookie-bridge.mjs` with `--i-understand-secrets`. Prefer storageState or `--from-port` over `--from-profile` if Chrome is already open.
+When you want default-browser cookies in an isolated headless session, load `references/cookie-bridge.md`, and run `scripts/cookie-bridge.mjs` with `--i-understand-secrets`. Prefer storageState or `--from-port` over `--from-profile` if Chrome is already open.
 
 `--from-profile` requires Chrome to be fully quit because a running instance locks the profile; otherwise launch falls back to an isolated, cookie-less profile. This skill cannot attach to an ordinary already-open Chrome without relaunching it. Keeping that live session requires an available browser-extension transport such as `chrome.debugger`; do not build one as part of this flow.
 

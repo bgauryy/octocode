@@ -1,7 +1,7 @@
 {
   "name": "octocode-mcp-vscode",
   "description": "Management extension for Octocode MCP Server. Enables AI assistants to search, analyze, and understand codebases across GitHub. Supports Cursor, Windsurf, Antigravity, Cline, Roo Code, Trae, and more.",
-  "version": "1.0.2",
+  "version": "18.3.0",
   "activationEvents": [
     "onStartupFinished"
   ],
@@ -76,14 +76,14 @@
     }
   },
   "devDependencies": {
-    "@types/node": "^25.9.3",
+    "@types/node": "^26.2.0",
     "@types/vscode": "^1.125.0",
-    "@vitest/coverage-v8": "^4.1.9",
+    "@vitest/coverage-v8": "^4.1.11",
     "@vscode/vsce": "^3.9.2",
     "esbuild": "^0.28.1",
     "eslint": "^9.18.0",
     "typescript": "^5.9.3",
-    "vitest": "^4.1.9"
+    "vitest": "^4.1.11"
   },
   "displayName": "Octocode MCP",
   "engines": {
@@ -141,7 +141,7 @@
     "test:quiet": "node ../../node_modules/vitest/vitest.mjs run --reporter=dot --silent",
     "typecheck": "tsc --noEmit",
     "verify": "yarn lint && yarn typecheck && yarn test && yarn build",
-    "vscode:prepublish": "npm run build",
+    "vscode:prepublish": "yarn compile",
     "watch": "esbuild src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node --watch"
   }
 }

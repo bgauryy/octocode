@@ -15,7 +15,7 @@ Spawn a **listener** worker (minimal or no tools) whose only job is to hear the 
 1. Duck does **not** inherit parent tools/chat — independence is the point.
 2. Parent must answer the duck’s questions or mark them deferred before shipping.
 3. Agreement (“looks fine”) without restatement → failed duck; re-ask.
-4. If duck finds a load-bearing gap, fix in parent or spawn a real verifier with anchors — do not treat duck prose as evidence.
+4. If duck finds a load-bearing gap, fix in parent, or spawn a real verifier with anchors — do not treat duck prose as evidence.
 
 ## When NOT
 - Need external facts/code proof → `octocode-research` or verifier with tools.
@@ -24,6 +24,6 @@ Spawn a **listener** worker (minimal or no tools) whose only job is to hear the 
 
 ## Variants
 - **Self-duck (no spawn):** parent writes restatement + assumptions in-chat once; upgrade to a real duck when risk is high.
-- **Duo duck:** two ducks with different lenses (e.g. security vs UX) — still parent adjudicates.
+- **Duo duck:** two ducks with different lenses (for example security vs UX) — still parent adjudicates.
 
 Next: escalate claims → `references/interview.md`; merge → `references/synthesize.md`.

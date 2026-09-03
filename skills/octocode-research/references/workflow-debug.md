@@ -1,4 +1,4 @@
-# Workflow: Debug / Root Cause
+# Workflow: debug / root cause
 
 Use when `references/problem-framing.md` classifies a supported contract violation as a bug, or when an unknown symptom needs investigation.
 Read `references/algorithm.md` first for routing and evidence grades.
@@ -16,7 +16,7 @@ problem contract: actual + expected + authority + trigger + impact
 ```
 
 The nearest suspicious line, recent commit, or correlation is not root cause.
-If reproduction is unavailable, name the equivalent evidence and cap confidence.
+If reproduction is unavailable, name the equivalent evidence, and cap confidence.
 If both hypotheses survive, ask for the missing runtime input, log, or config.
 
 Keep the root cause answer tight:
@@ -32,4 +32,3 @@ Verification: <test/build/search/history check run or still needed>
 ```
 
 Next: when the fix requires an edit hand off to `references/workflow-change.md` for blast-radius and patch discipline; when both hypotheses survive repeated passes load `references/loop-mode.md`; when the mechanism sits in an upstream dependency bridge through `references/workflow-combination.md`.
-

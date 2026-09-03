@@ -5,7 +5,7 @@ import {
   unlinkSync,
   renameSync,
 } from 'node:fs';
-import { isStatsEnabled } from '@octocodeai/config';
+import { isPersistentStorageEnabled, isStatsEnabled } from '@octocodeai/config';
 import { ensureOctocodeDir } from '../credentials/storage.js';
 import { paths } from '../paths.js';
 import {
@@ -54,6 +54,7 @@ function readStatsFromDisk(): SessionStats {
 }
 
 export function writeSessionToDisk(session: PersistedSession): void {
+  if (!isPersistentStorageEnabled()) return;
   ensureOctocodeDir();
 
   // stats.json is opt-in — set OCTOCODE_ENABLE_STATS=1 to persist tool usage stats.
@@ -70,6 +71,7 @@ export function writeSessionToDisk(session: PersistedSession): void {
 }
 
 export function readSessionFromDisk(): PersistedSession | null {
+  if (!isPersistentStorageEnabled()) return null;
   if (!existsSync(SESSION_FILE)) {
     return null;
   }

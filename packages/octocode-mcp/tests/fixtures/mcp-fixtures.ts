@@ -23,7 +23,10 @@ export interface MockMcpServer {
 
 export interface MockToolRegistration {
   name: string;
-  options: unknown;
+  options: {
+    annotations?: Record<string, unknown>;
+    [key: string]: unknown;
+  };
   handler: Function;
 }
 
@@ -36,10 +39,16 @@ export function createMockMcpServer(): MockMcpServer {
       toolHandlers.set(name, handler);
     }),
 
-    registerTool: vi.fn((name: string, options: unknown, handler: Function) => {
-      registrations.push({ name, options, handler });
-      toolHandlers.set(name, handler);
-    }),
+    registerTool: vi.fn(
+      (
+        name: string,
+        options: MockToolRegistration['options'],
+        handler: Function
+      ) => {
+        registrations.push({ name, options, handler });
+        toolHandlers.set(name, handler);
+      }
+    ),
     addTool: vi.fn(),
     listTools: vi.fn(),
   } as unknown as McpServer;

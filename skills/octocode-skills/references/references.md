@@ -12,7 +12,7 @@ Sources consulted to create `octocode-skills`. Audit trail only — not a runtim
 
 ## GitHub inspected
 
-| Skill | Repo | Notes |
+| Skill | Repository | Notes |
 |-------|------|-------|
 | find-skills | vercel-labs/skills | Discovery + gate UX |
 | skill-creator | anthropics/skills | Creation flow |

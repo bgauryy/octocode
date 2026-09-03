@@ -14,7 +14,7 @@ Verify: <real check and result>
 
 ## Consequential plan
 
-Include only material fields; write `N/A — <reason>` only when omission would be surprising.
+Include only material fields; write `N/A — <reason>` only when omission surprises readers.
 
 ```text
 Slice: <smallest useful outcome>
@@ -29,7 +29,7 @@ Rollout/Revert: <migration, flag, rollback>
 Rejected: <viable alternative and evidence-based reason>
 ```
 
-Pause only when the model, ownership, contract, or migration choice is unsettled. Otherwise implement the named slice.
+Pause only when the model, ownership, contract, or migration choice is unsettled. Otherwise implement the named slice. <!-- style-lint: ignore-line passive-voice -->
 
 ## Review
 

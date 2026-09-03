@@ -19,7 +19,7 @@ Worked example — this folder's own suite: `evals/cases.json` + `evals/trigger-
 
 ## Rules
 1. Cases come from **real failures** and manual release checks (20–50 is enough to start). Write the failing case **before** the subject patch (TDD).
-2. Two experts should agree on pass/fail; include a **reference solution** that passes.
+2. Two experts must agree on pass/fail; include a **reference solution** that passes.
 3. Do not edit cases to make a bad change pass — fix the subject or discard.
 4. Keep CI floor deterministic; put semantic/LLM layers above it as advisory or calibrated judges.
 5. Isolate trials; same command for baseline and candidate.

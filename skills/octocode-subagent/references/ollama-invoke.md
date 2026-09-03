@@ -21,23 +21,23 @@ For the CLI command catalog load `references/ollama-cli.md` first; for which mod
   --keepalive 5m --job extract --input shard.txt --out .octocode/worker/shard-001.json
 ```
 
-The script builds a constrained prompt, calls `ollama run` (CLI) or `/api/generate` when `--temperature` / `--num-ctx` / `--http` is set, and writes `--out` when set. Default `--keepalive 5m` keeps the model warm across shards.
+The script builds a constrained prompt, calls `ollama run` (CLI), or `/api/generate` when `--temperature` / `--num-ctx` / `--http` is set, and writes `--out` when set. Default `--keepalive 5m` keeps the model warm across shards. <!-- style-lint: ignore-line passive-voice -->
 
-## Serving best practices
+## Server best practices
 
 | Knob | Default / prefer | Why |
 |---|---|---|
 | `keepalive` / `--keepalive` | `5m` (script default) | Avoid cold reload between shards; pass `0` after tier switch to free VRAM |
-| `format=json` + schema in prompt | Always for extract/classify/check | Ollama requires instructing JSON in the prompt even when `format` is set |
-| `temperature` | `0.1–0.3` for structured; model default OK for draft/caption | Creative defaults (e.g. Gemma `1.0`) hurt JSON fidelity |
+| `format=json` + schema in prompt | Always for extract/classify/check | Ollama requires instructing JSON in the prompt even when `format` is set | <!-- style-lint: ignore-line passive-voice -->
+| `temperature` | `0.1–0.3` for structured; model default OK for draft/caption | Creative defaults (for example Gemma `1.0`) hurt JSON fidelity |
 | `num_ctx` | ≥ shard tokens + headroom | Undersized ctx **silently truncates** the start of the prompt |
 | One model per batch | Prefer `ollama ps` warm hit | Swapping large models mid-job thrashes RAM/VRAM |
 | `--think=false` | Bulk / map-reduce | Thinking burns tokens without helping sealed packets |
 
-## Serving gotchas & artifacts
+## Server caveats and artifacts
 
 1. **Exact model id** — `llama3.2` must not match `llama3.2-vision`.
-2. **Context too small** — raise via `--num-ctx`. Symptom: truncated JSON.
+2. **Context too small** — raise through `--num-ctx`. Symptom: truncated JSON.
 3. **Quantization too aggressive** — structured output dies first; cascade tier.
 4. **Embed/OCR models** — not workers for text jobs.
 5. **Tool-calling** — out of scope; no agent loops on Ollama.

@@ -14,7 +14,7 @@ USER GOAL (outcome)
 | Layer | Question | Example |
 |---|---|---|
 | Goal | What user-visible win? | Fewer false skill triggers |
-| Success | How would a human verify? | Held-out prompts fire correctly |
+| Success | How can a human verify? | Held-out prompts fire correctly |
 | Primary (lagging) | Final scoreboard | false-trigger rate ↓ |
 | Leading | Early signal | description trigger-eval pass@1 ↑ |
 | Guardrail | What must not break | true-trigger recall ≥ floor; review ERROR=0 |
@@ -24,7 +24,7 @@ USER GOAL (outcome)
 2. Prefer one primary lagging KPI; 1–3 leading max.
 3. Leading without lagging → local optima; lagging without leading → slow feedback.
 4. Decision rule is binary enough to keep/discard: `ACCEPT if primary≥target AND guardrails hold`.
-5. If the goal is fuzzy, stop and clarify — do not invent a vanity KPI.
+5. If the goal is fuzzy, stop, and clarify — do not invent a vanity KPI.
 
 ## Anti-patterns
 Optimizing tokens while the goal was correctness · dashboard metrics with no decision rule · multiple “primaries”

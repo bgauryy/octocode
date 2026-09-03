@@ -14,6 +14,33 @@ import {
 } from '../../utils/mcp-paths.js';
 import { readMCPConfig } from '../../utils/mcp-io.js';
 import { readAllClientConfigs, analyzeSyncState } from '../../features/sync.js';
+import { getConfigSync } from '@octocodeai/config';
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+export function isOctocodeMcpServer(
+  name: string,
+  definition: unknown
+): boolean {
+  if (name === 'octocode' || name === 'octocode-mcp') return true;
+  if (!isRecord(definition)) return false;
+  const command = definition['command'];
+  if (
+    typeof command === 'string' &&
+    /(^|[/\\])octocode-mcp(?:\.js)?$/.test(command)
+  ) {
+    return true;
+  }
+  const args = definition['args'];
+  return (
+    Array.isArray(args) &&
+    args.some(
+      arg => typeof arg === 'string' && /^octocode-mcp(?:@[^\s]+)?$/.test(arg)
+    )
+  );
+}
 
 export const statusCommand: CLICommand = {
   name: 'status',
@@ -41,13 +68,15 @@ export const statusCommand: CLICommand = {
     }
 
     const auth = await formatAuthStatusAsJson(hostname);
+    const resolvedConfig = getConfigSync();
 
     const mcpClients = DETECTABLE_MCP_CLIENTS.map(clientId => {
       const cfgPath = getMCPConfigPath(clientId);
       const exists = configFileExists(clientId);
-      const servers = exists
-        ? Object.keys(readMCPConfig(cfgPath)?.mcpServers || {})
-        : [];
+      const serverDefinitions = exists
+        ? readMCPConfig(cfgPath)?.mcpServers || {}
+        : {};
+      const servers = Object.keys(serverDefinitions);
       return {
         client: clientId,
         name: MCP_CLIENTS[clientId]?.name || clientId,
@@ -55,7 +84,9 @@ export const statusCommand: CLICommand = {
         exists,
         serverCount: servers.length,
         servers,
-        octocodeInstalled: servers.includes('octocode-mcp'),
+        octocodeInstalled: Object.entries(serverDefinitions).some(
+          ([name, definition]) => isOctocodeMcpServer(name, definition)
+        ),
       };
     });
 
@@ -106,6 +137,13 @@ export const statusCommand: CLICommand = {
       console.log(
         JSON.stringify({
           auth,
+          config: {
+            source: resolvedConfig.source,
+            path: resolvedConfig.configPath ?? null,
+            storageMode: resolvedConfig.storage.mode,
+            persistentRuntimeState:
+              resolvedConfig.storage.mode === 'persistent',
+          },
           mcpClients,
           cache: {
             home: octocodeHome,
@@ -143,6 +181,14 @@ export const statusCommand: CLICommand = {
     console.log();
 
     await printAuthStatus(hostname);
+
+    console.log(`  ${bold('Configuration')}`);
+    console.log(
+      `    ${c('cyan', '•')} source: ${resolvedConfig.source}${resolvedConfig.configPath ? ` (${resolvedConfig.configPath})` : ''}`
+    );
+    console.log(
+      `    ${c('cyan', '•')} storage: ${resolvedConfig.storage.mode}${resolvedConfig.storage.mode === 'memory' ? ' (no persistent runtime state)' : ''}`
+    );
 
     const found = mcpClients.filter(c => c.exists);
     console.log();

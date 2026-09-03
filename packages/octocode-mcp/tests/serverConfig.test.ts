@@ -96,6 +96,9 @@ describe('ServerConfig - Simplified Version', () => {
     delete process.env.REQUEST_TIMEOUT;
     delete process.env.MAX_RETRIES;
     delete process.env.OCTOCODE_TOKEN;
+    // Factory-default assertions must not inherit a developer's user-level
+    // .octocoderc. Memory-mode behavior has its own explicit contract below.
+    process.env.OCTOCODE_STORAGE_MODE = 'persistent';
 
     setupTokenMocks();
   });
@@ -606,6 +609,15 @@ describe('ServerConfig - Simplified Version', () => {
       mockSpawnFailure();
       await initialize();
       expect(getServerConfig().enableClone).toBe(false);
+    });
+
+    it('should disable clone materialization in memory-only mode', async () => {
+      process.env.ENABLE_CLONE = 'true';
+      process.env.OCTOCODE_STORAGE_MODE = 'memory';
+      mockSpawnFailure();
+      await initialize();
+      expect(getServerConfig().enableClone).toBe(false);
+      expect(isCloneEnabled()).toBe(false);
     });
 
     it('should use the enabled default for invalid/unrecognized ENABLE_CLONE values', async () => {

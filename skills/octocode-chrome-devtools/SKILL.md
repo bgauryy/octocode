@@ -20,17 +20,17 @@ Ask before real-profile access, cookie transfer, CAPTCHA/MFA, purchases, sends, 
 ## Route
 
 - Static map/bulk extract → `octocode-scraping`; DOM/action → `page-snapshot` then `dom-operations-check`; live graph → `graph-actionability-check` and diagnostics if empty.
-- Page health → performance/network/storage measure checks, then `measure-query`; standalone HAR → `har-pager`; deep bodies only after measure/query via `live-har-monitor` or `network-body-har-fetch-check`.
+- Page health → performance/network/storage measure checks, then `measure-query`; standalone HAR → `har-pager`; deep bodies only after measure/query through `live-har-monitor` or `network-body-har-fetch-check`.
 - Prove captured API data without Chrome → `scripts/har-ingest-to-scrape.mjs`, then `scripts/corpus-run-local.mjs`.
 
 ## Scripts
 
 - Launch/reuse/cleanup: `scripts/open-browser.mjs --headless --port 9222 --url "<url>"`; cleanup supports `--dry-run`.
 - Run checks/custom scripts: sandboxed `scripts/cdp-sandbox.mjs <script.mjs> --port 9222 [--keep-tab]`; use unsandboxed `scripts/cdp-runner.mjs` only for legitimate child-process or non-CDP network needs.
-- When a ready-made check fits, run `scripts/cdp-checks/` through the runner and choose flags with `references/cdp-checks.md`; when writing custom code, copy `scripts/cdp-template.mjs` to `.octocode/tmp/cdp-<task>.mjs`.
+- When a ready-made check fits, run `scripts/cdp-checks/` through the runner, and choose flags with `references/cdp-checks.md`; when writing custom code, copy `scripts/cdp-template.mjs` to `.octocode/tmp/cdp-<task>.mjs`.
 - After cookie-transfer approval, run `scripts/cookie-bridge.mjs --i-understand-secrets --from-port <n> --to-port <n> --urls "<url>"`.
 - Retention/protocol: `scripts/prune-artifacts.mjs --max-age-days 3 --max-count 50 [--dry-run]`; `scripts/protocol-corpus.mjs --out .octocode/octocode-chrome-devtools/cdp-protocol --domains Network,Page`.
-- When a proxy/VPN launch is needed, copy `scripts/octocode-chrome-devtools.vpn.example.json` and pass it to `open-browser.mjs --config <path>` or install it at `.octocode/chrome-devtools.json`.
+- When a proxy/VPN launch is needed, copy `scripts/octocode-chrome-devtools.vpn.example.json`, and pass it to `open-browser.mjs --config <path>` or install it at `.octocode/chrome-devtools.json`. <!-- style-lint: ignore-line passive-voice -->
 - Imported libraries: `scripts/mandatory-stealth.mjs`, `scripts/undercover.mjs`, `scripts/human-input.mjs`, `scripts/dom-actionability.mjs`, `scripts/sourcemap-resolver.mjs`, and vendored `scripts/octocode-config.mjs`; do not run them as CLIs.
 
 ## References

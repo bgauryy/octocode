@@ -7,23 +7,23 @@
   "bugs": "https://github.com/bgauryy/octocode/issues",
   "dependencies": {
     "@inquirer/prompts": "^8.5.2",
-    "@octocodeai/config": "18.0.1",
+    "@octocodeai/config": "18.3.0",
     "@octocodeai/octocode-core": "18.3.0",
-    "@octocodeai/octocode-engine": "18.1.2",
-    "@octocodeai/octocode-tools-core": "18.1.2",
+    "@octocodeai/octocode-engine": "18.3.0",
+    "@octocodeai/octocode-tools-core": "18.3.0",
     "@octokit/auth-oauth-device": "^8.0.3",
     "@octokit/oauth-methods": "^6.0.2",
     "@octokit/request": "^10.0.10",
     "open": "^11.0.0"
   },
   "devDependencies": {
-    "@types/node": "^25.9.3",
-    "@vitest/coverage-v8": "^4.1.9",
+    "@types/node": "^26.2.0",
+    "@vitest/coverage-v8": "^4.1.11",
     "esbuild": "^0.28.1",
     "eslint": "^9.18.0",
     "tsx": "^4.22.4",
     "typescript": "^5.9.3",
-    "vitest": "^4.1.9",
+    "vitest": "^4.1.11",
     "zod": "^4.4.3"
   },
   "engines": {

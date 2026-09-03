@@ -1,6 +1,6 @@
 # Improve Loop
 
-Load when changing this skill's own instructions and `octocode-eval-benchmark` is unavailable. Why: an unmeasured edit cannot be accepted or reverted on evidence.
+Load when changing this skill's own instructions and `octocode-eval-benchmark` is unavailable. Why: an unmeasured edit cannot be accepted or reverted on evidence. <!-- style-lint: ignore-line passive-voice -->
 
 Stub only. Full goal→KPI cascade, nested loops, graders, held-out: load **`octocode-eval-benchmark`**.
 

@@ -1,16 +1,16 @@
 # Mimic Flow
-Load when a worker should follow another role’s instructions, skill excerpt, or prompt playbook without inheriting that agent’s chat. Why: context engineering beats dumping another agent’s full history (LangChain multi-agent: right data per agent).
+Load when a worker must follow another role’s instructions, skill excerpt, or prompt playbook without inheriting that agent’s chat. Why: context engineering beats dumping another agent’s full history (LangChain multi-agent: right data per agent).
 
 ## Pattern
 **Instruction lending:** parent attaches a filtered playbook so the worker mimics a known good flow (review checklist, research algorithm, verify steps) while staying sealed.
 
-## What you may share
+## What you can share
 | Share | Example |
 |---|---|
 | Skill excerpt / checklist | `octocode-research` claim ledger steps; roast severity ladder |
 | Output contract | Required sections / return schema |
 | Tool allowlist + stop rules | Same as packet `scope` |
-| Short worked example | 1 tiny gold example of the desired return shape |
+| Short worked example | 1 tiny gold example of the needed return shape |
 
 ## What you must NOT share
 | Never share | Why |

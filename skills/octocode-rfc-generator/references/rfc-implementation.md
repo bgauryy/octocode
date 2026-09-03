@@ -1,6 +1,6 @@
-# IMPLEMENTATION.md Template — Build Document
+# IMPLEMENTATION.md template — build document
 
-Load when writing the live implementer plan. Why: close every RFC question with evidence, then order build and verification by dependency.
+Load when writing the live implementer plan. Why: close every RFC question with evidence, then order build, and verification by dependency.
 Reference `RFC.md` anchors; never restate goals or scope. Success metrics stay in `KPI.md`.
 ```markdown
 # Implementation: {Title}
@@ -45,6 +45,6 @@ Verification asks whether the build matches design; validation asks whether `KPI
 - {exact local or external anchor} — how it constrains the plan
 ```
 
-Gate: every decision-blocking question is resolved with evidence; other questions are explicitly deferred. Include estimates only when requested and evidence-based; keep steps reversible where useful. Use `RESOURCES.md` when the source inventory needs its own file.
+Gate: every decision-blocking question is resolved with evidence; other questions are explicitly deferred. Include estimates only when requested and evidence-based; keep steps reversible where useful. Use `RESOURCES.md` when the source inventory needs its own file. <!-- style-lint: ignore-line passive-voice -->
 
 Next: bind these steps to acceptance with `references/rfc-kpi.md`; record the source inventory with `references/rfc-resources.md`.

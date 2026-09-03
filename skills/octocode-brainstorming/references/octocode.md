@@ -1,4 +1,4 @@
-# Octocode Research Delegation
+# Octocode research delegation
 
 Load when brainstorming needs local code, GitHub, package, history, or artifact research through Octocode.
 
@@ -6,12 +6,12 @@ This skill does not define Octocode research rules. Use `octocode-research` for 
 
 ## How To Route
 
-1. If `octocode-research` is installed, load it and run the needed Map / Validate / Investigate flow.
-2. If it is not installed, point the user or agent to https://github.com/bgauryy/octocode/tree/main/skills/octocode-research.
+1. When `octocode-research` is available, load it, and run the needed Map / Validate / Investigate flow.
+2. Otherwise, point readers to https://github.com/bgauryy/octocode/tree/main/skills/octocode-research.
 3. To install it with the Octocode CLI, run:
 
 ```bash
-npx octocode skill --name octocode-research
+npx octocode skill install octocode-research
 ```
 
 Add `--platform <target>` when installing for a specific host, such as `codex`, `claude`, `cursor`, or `pi`.

@@ -77,7 +77,8 @@ export async function initialize(): Promise<void> {
       timeout: resolved.network.timeout,
       maxRetries: resolved.network.maxRetries,
       enableLocal: resolved.local.enabled,
-      enableClone: resolved.local.enableClone,
+      enableClone:
+        resolved.local.enableClone && resolved.storage.mode === 'persistent',
       tokenSource: tokenResult.source,
     };
     await runCacheMaintenanceIfDue(getOctocodeDir());

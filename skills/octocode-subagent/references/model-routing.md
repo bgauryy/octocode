@@ -3,7 +3,7 @@
 Load when choosing model / thinking per worker. Why: pay for the intelligence the subtask needs.
 
 ## Live table first
-Use the **host’s configured model catalog** (CLI list, settings UI, or provider table). Map names from what is actually available — never invent providers.
+Use the **host’s configured model catalog** (CLI list, settings UI, or provider table). Map names from what is available — never invent providers.
 
 ## Three tiers (keep it operable)
 
@@ -17,7 +17,7 @@ Use the **host’s configured model catalog** (CLI list, settings UI, or provide
 - **Route** — pick tier before spawn (preferred for interactive agents).
 - **Cascade** — escalate only if acceptance fails or confidence stays uncertain after one replan.
 
-IF the task is a simple one-shot and parent already holds a capable model THEN skip spawn entirely — see `spawn-gate.md`.
+IF the task is a one-shot and parent already holds a capable model THEN skip spawn entirely — see `spawn-gate.md`.
 IF quality collapses on the small tier THEN escalate once with a tighter packet, not a larger swarm.
 
 ## Least privilege

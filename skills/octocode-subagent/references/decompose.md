@@ -11,7 +11,7 @@ Load when splitting a goal into worker-sized units. Why: bad cuts create thrash;
 6. Cap fan-out (default ≤5). Ask before larger swarms.
 
 ## Independence test
-A subtask may run in parallel only if all hold:
+A subtask can run in parallel only if all hold:
 - Inputs are already known (or cheap to duplicate).
 - No write overlap, or exclusive locks assigned.
 - Failure of one does not invalidate another's method mid-flight.

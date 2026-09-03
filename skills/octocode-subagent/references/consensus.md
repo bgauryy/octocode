@@ -27,7 +27,7 @@ Load when one solve is ambiguous and independent retries can reduce noise. Why: 
 
 ## When NOT
 - Cheap deterministic check exists → run it.
-- Workers would share mutable writes → `references/workspace.md` first.
+- Workers can share mutable writes → `references/workspace.md` first.
 - Single clear specialist task → one worker + barrier.
 
 Next: techniques → `references/techniques.md`; barrier → `references/synthesize.md`.

@@ -1,4 +1,4 @@
-# CDP Automation Intents
+# CDP automation intents
 
 Load for page actions or live-page attach. Why: prevent accidental navigation/mutation.
 
@@ -15,7 +15,7 @@ Read-only counts/samples to files. Broad public crawls → `octocode-scraping` f
 `--keep-tab`. Listeners miss past events — re-read current state.
 
 ## webmcp
-Only if the user names WebMCP / page-native AI tools. Fresh Chrome with `--enableFeatures WebMCP` (`chrome-flags.md`); `webmcp-tools.mjs` list/invoke. `[FINDING] WEBMCP_NO_TOOLS` is common → fall back to automate. Mutating tools = mutation gate.
+Only if you names WebMCP / page-native AI tools. Fresh Chrome with `--enableFeatures WebMCP` (`chrome-flags.md`); `webmcp-tools.mjs` list/invoke. `[FINDING] WEBMCP_NO_TOOLS` is common → fall back to automate. Mutating tools = mutation gate.
 
 ## Mutation gate
 Ask before purchases, sends, deletes, account changes, or submitting real user data.

@@ -13,6 +13,8 @@ export type {
   LspConfigOptions,
   OutputConfigOptions,
   OutputPaginationConfigOptions,
+  StorageConfigOptions,
+  StorageMode,
   RequiredGitHubConfig,
   RequiredLocalConfig,
   RequiredToolsConfig,
@@ -21,6 +23,7 @@ export type {
   RequiredOutputConfig,
   RequiredOutputPaginationConfig,
   RequiredSessionConfig,
+  RequiredStorageConfig,
   MinifyMode,
 } from './types.js';
 
@@ -41,6 +44,7 @@ export {
   MIN_OUTPUT_DEFAULT_CHAR_LENGTH,
   MAX_OUTPUT_DEFAULT_CHAR_LENGTH,
   DEFAULT_SESSION_CONFIG,
+  DEFAULT_STORAGE_CONFIG,
 } from './defaults.js';
 
 export {
@@ -70,6 +74,7 @@ export {
   resolveLsp,
   resolveOutput,
   resolveSession,
+  resolveStorage,
 } from './resolverSections.js';
 
 export {

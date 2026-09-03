@@ -254,7 +254,9 @@ describe('tool-command coverage', () => {
 
   it('rejects clone execution when ENABLE_CLONE=false', async () => {
     const previous = process.env.ENABLE_CLONE;
+    const previousMode = process.env.OCTOCODE_STORAGE_MODE;
     process.env.ENABLE_CLONE = 'false';
+    process.env.OCTOCODE_STORAGE_MODE = 'persistent';
     try {
       const { toolCommand } = await import('../../src/cli/tool-command.js');
       await toolCommand.handler!({
@@ -273,6 +275,33 @@ describe('tool-command coverage', () => {
     } finally {
       if (previous === undefined) delete process.env.ENABLE_CLONE;
       else process.env.ENABLE_CLONE = previous;
+      if (previousMode === undefined) delete process.env.OCTOCODE_STORAGE_MODE;
+      else process.env.OCTOCODE_STORAGE_MODE = previousMode;
+    }
+  });
+
+  it('reports clone unavailable in memory-only storage mode', async () => {
+    const previousMode = process.env.OCTOCODE_STORAGE_MODE;
+    process.env.OCTOCODE_STORAGE_MODE = 'memory';
+    try {
+      const { toolCommand } = await import('../../src/cli/tool-command.js');
+      await toolCommand.handler!({
+        command: 'tools',
+        args: ['ghCloneRepo'],
+        options: {
+          queries: '{"owner":"octocat","repo":"Hello-World"}',
+          compact: true,
+        },
+      });
+
+      const output = consoleSpy.mock.calls.flat().join('\n');
+      expect(output).toContain("Tool 'ghCloneRepo' is disabled");
+      expect(output).toContain('OCTOCODE_STORAGE_MODE=persistent');
+      expect(mocks.cloneRepo).not.toHaveBeenCalled();
+      expect(process.exitCode).toBe(3);
+    } finally {
+      if (previousMode === undefined) delete process.env.OCTOCODE_STORAGE_MODE;
+      else process.env.OCTOCODE_STORAGE_MODE = previousMode;
     }
   });
 

@@ -1,10 +1,10 @@
-# Run Ledger, Hooks, And Evaluation
+# Run Ledger, Hooks, and evaluation
 
 Load for substantial, multi-surface, multi-turn, subagent, saved-brief, or high-confidence work. Quick answers do not need the harness.
 
 ## Run Ledger
 
-Start only when local writes are acceptable. Default storage is `.octocode/brainstorming/runs/`; tests may set `OCTOCODE_BRAINSTORM_RUN_DIR`.
+Start only when local writes are acceptable. Default storage is `.octocode/brainstorming/runs/`; tests can set `OCTOCODE_BRAINSTORM_RUN_DIR`.
 
 ```bash
 node <skill_dir>/scripts/brainstorm-run.mjs start --idea "<idea>" --mode Validate --surface-plan '{"local":"active","web":"active"}'
@@ -34,13 +34,13 @@ Hooks stay fast, deterministic, workspace-scoped, and fail-open except the delib
 node <skill_dir>/scripts/brainstorm-run.mjs --self-test
 ```
 
-The evaluator checks observable structure and failure modes, not whether market or technical judgment is true.
+The evaluator checks observable structure and failure modes, not whether market, or technical judgment is true.
 Cited `file:line` references are always checked locally (no flag, no network — fabricated paths or stale line numbers fail `cited file:line references resolve`).
 Cited URLs are only checked live with `--verify-links` (network required, opt-in so default/CI runs stay offline) and only a definitive 404 fails `cited links are reachable (verified)` — timeouts, 403s, 5xx, and hosts that reject `HEAD` are `unverified`, not `dead`.
 
 **Contract: the deterministic score is the gate; `--agentic` is monitoring, not a gate.** `required`/`forbidden`/`binaryQuestions`/citation-count/Sources-section checks decide pass/fail (`affectsScore: false` on the agentic layer is deliberate — a flaky LLM judge must never fail CI).
 Advisory-only protects the gate from judge inconsistency, but it does **not** protect against self-preference bias.
-If the same model family both writes the brainstorming answer and grades it via `--agentic`, use a **different judge model/provider** whenever that advisory pass is actually informing a decision — not for a curiosity-only check.
+If the same model family both writes the brainstorming answer and grades it through `--agentic`, use a **different judge model/provider** whenever that advisory pass is informing a decision — not for a curiosity-only check.
 
 ## User Communication
 

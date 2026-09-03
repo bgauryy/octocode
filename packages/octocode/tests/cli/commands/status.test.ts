@@ -29,6 +29,14 @@ const { mockPaths } = vi.hoisted(() => ({
   },
 }));
 
+vi.mock('@octocodeai/config', () => ({
+  getConfigSync: vi.fn(() => ({
+    source: 'file',
+    configPath: '/fake/octocode/.octocoderc',
+    storage: { mode: 'memory' },
+  })),
+}));
+
 vi.mock('@octocodeai/octocode-tools-core/paths', () => ({
   paths: mockPaths,
 }));
@@ -152,6 +160,30 @@ describe('statusCommand', () => {
     expect(out('2 MCPs')).toBe(true);
     expect(out('1 MCPs')).toBe(true);
     expect(out('2/2 configured')).toBe(true);
+  });
+
+  it('detects the installer-owned octocode key by behavior', async () => {
+    vi.mocked(configFileExists).mockReturnValue(true);
+    vi.mocked(readMCPConfig).mockReturnValue({
+      mcpServers: {
+        octocode: { command: 'npx', args: ['octocode-mcp@latest'] },
+      },
+    } as never);
+    const cmd = await loadCommand();
+    await cmd.handler({ command: 'status', args: [], options: { json: true } });
+    const payload = JSON.parse(String(logSpy.mock.calls.at(-1)?.[0])) as {
+      config: { storageMode: string; persistentRuntimeState: boolean };
+      mcpClients: Array<{ octocodeInstalled: boolean }>;
+    };
+    expect(payload.config).toEqual({
+      source: 'file',
+      path: '/fake/octocode/.octocoderc',
+      storageMode: 'memory',
+      persistentRuntimeState: false,
+    });
+    expect(payload.mcpClients.every(client => client.octocodeInstalled)).toBe(
+      true
+    );
   });
 
   it('handles readMCPConfig returning null (no mcpServers)', async () => {

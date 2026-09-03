@@ -10,6 +10,7 @@ import {
   resolveLsp,
   resolveOutput,
   resolveSession,
+  resolveStorage,
 } from './resolverSections.js';
 
 const CONFIG_ENV_KEYS = [
@@ -26,6 +27,7 @@ const CONFIG_ENV_KEYS = [
   'OCTOCODE_OUTPUT_FORMAT',
   'OCTOCODE_OUTPUT_DEFAULT_CHAR_LENGTH',
   'OCTOCODE_ENABLE_STATS',
+  'OCTOCODE_STORAGE_MODE',
 ] as const;
 
 type FileState = 'absent' | 'valid' | 'invalid';
@@ -76,6 +78,7 @@ function buildResolvedConfig(
     lsp: resolveLsp(fileConfig?.lsp),
     output: resolveOutput(fileConfig?.output),
     session: resolveSession(),
+    storage: resolveStorage(fileConfig?.storage),
     source,
     configPath: fileState !== 'absent' ? options.configPath : undefined,
   };

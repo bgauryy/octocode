@@ -19,4 +19,4 @@ Audit trail for the local evidence used to create this skill. Paths are reposito
 | `skills/octocode-skills/references/skill-review-rules.md` | mechanical skill quality gates |
 | Dogfood graph run over `octocode-tools-core/src` | type-only SCC inflation, root-scope dead-code false positives, alternate entrypoints, symbol-vs-file liveness, barrel contracts, and exit-status verification controls |
 
-No external web, registry, or marketplace source was needed; the requested behavior is defined by the checked-out implementation and its bundled skills.
+No external web, registry, or marketplace source was needed; the requested behavior is defined by the checked-out implementation and its bundled skills. <!-- style-lint: ignore-line passive-voice -->

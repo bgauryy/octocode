@@ -22,7 +22,7 @@ Map these to the host API (Task tool, teammate/message APIs, A2A tasks, …):
 3. Steer once on wrong direction; else stop and replan — do not replay the same packet.
 4. Before concluding: `list`, reconcile failures, stop leftovers.
 5. Worker registries are often in-memory — after session reload, spawn fresh (do not reuse stale ids).
-6. Workers do not talk to the user unless a handoff packet says so.
+6. Workers do not talk to you unless a handoff packet says so.
 
 ## Sync vs async
 - **Sync** — parent needs the result to continue → wait (or keep work in parent).

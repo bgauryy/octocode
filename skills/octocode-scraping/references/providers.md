@@ -1,6 +1,6 @@
 # Providers
 
-Load when choosing `--provider`, checking routes, or adding a vendor. Why: fetch may vary; corpus stays vendor-agnostic.
+Load when choosing `--provider`, checking routes, or adding a vendor. Why: fetch might vary; corpus stays vendor-independent.
 
 ## Contract
 `fetch({ url, pageId, config, apiKey })` → `FetchResponse` (`scripts/schemas/provider.schema.json`). Corpus/analyzers must not branch on vendor names.

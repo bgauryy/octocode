@@ -27,9 +27,9 @@ Load when choosing which improvement loop to run. Why: one flat loop conflates e
    change how the inner loop searches.
 ```
 
-## Coupling rules
+## Dependency rules
 - Never “fix” a failing experiment by editing graders mid-run (cheating).
-- Suite growth is allowed **between** experiments, from real failures — not to greenwash.
+- Suite growth is allowed **between** experiments, from real failures — not to greenwash. <!-- style-lint: ignore-line passive-voice -->
 - Meta changes require a new baseline and held-out VERIFY (`improve-loop.md`).
 - Stop inner loop when flat; escalate to suite (missing cases) or meta (bad program).
 

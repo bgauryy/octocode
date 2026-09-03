@@ -23,4 +23,4 @@ Rank by `evidence strength × consequence × actionability`, never topology size
 - Candidate: graph signal only, partial graph, or unresolved alternate.
 - Dismissed: stronger AST/LSP/config/test evidence explains the signal; state the killed hypothesis.
 
-“High fan-in/out” has no universal threshold. Compare within the same package and role, record the observed count/depth, and avoid percentile claims unless actually computed. Next, load `references/proof-ladder.md` to test every surviving prediction.
+“High fan-in/out” has no universal threshold. Compare within the same package and role, record the observed count/depth, and avoid percentile claims unless computed. Next, load `references/proof-ladder.md` to test every surviving prediction.

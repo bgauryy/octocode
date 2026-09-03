@@ -43,6 +43,13 @@ export interface OutputConfigOptions {
   pagination?: OutputPaginationConfigOptions;
 }
 
+export type StorageMode = 'persistent' | 'memory';
+
+export interface StorageConfigOptions {
+  /** `memory` disables persistent caches, materialization, session files, and SQLite-backed extension state. */
+  mode?: StorageMode;
+}
+
 export interface OctocodeConfig {
   $schema?: string;
 
@@ -59,6 +66,8 @@ export interface OctocodeConfig {
   lsp?: LspConfigOptions;
 
   output?: OutputConfigOptions;
+
+  storage?: StorageConfigOptions;
 }
 
 export interface RequiredGitHubConfig {
@@ -95,6 +104,10 @@ export interface RequiredOutputConfig {
   pagination: RequiredOutputPaginationConfig;
 }
 
+export interface RequiredStorageConfig {
+  mode: StorageMode;
+}
+
 export interface ResolvedConfig {
   version: number;
 
@@ -111,6 +124,8 @@ export interface ResolvedConfig {
   output: RequiredOutputConfig;
 
   session: RequiredSessionConfig;
+
+  storage: RequiredStorageConfig;
 
   source: 'file' | 'defaults' | 'mixed' | 'env' | 'invalid';
 

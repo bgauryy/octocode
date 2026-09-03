@@ -16,7 +16,7 @@ Load when a worker stalls, fails, or conflicts. Why: retrying the same packet wa
 - Soft challenge first: rubber-duck / interview (`references/techniques.md`) before enlarging the swarm.
 
 ## Hygiene
-- Abort interrupts a turn; stop/kill ends the worker.
+- Stop interrupts a turn; stop/kill ends the worker.
 - Always list before claiming the campaign done.
 - Preserve useful partial output when stopping.
 - Empty final / missing return shape → failed handback.

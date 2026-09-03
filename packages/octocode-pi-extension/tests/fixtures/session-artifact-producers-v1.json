@@ -1,0 +1,155 @@
+{
+  "version": 1,
+  "identityDecision": {
+    "precedence": ["session-manager-id", "resolved-session-file", "process-workspace-fallback"],
+    "sessionKey": "readable-slug-plus-sha256-of-raw-id-NUL-resolved-workspace",
+    "workspaceIsolation": true,
+    "rawSessionFilePersisted": false
+  },
+  "planStorageDecision": {
+    "customEntryAuthority": "active-branch-only",
+    "projection": "branch-snapshot-plus-generation-CAS"
+  },
+  "crossProcessDecision": {
+    "workerContract": "parent-serializes-session-root-and-exact-handback-path",
+    "piTranscriptOwner": "external-pi-session-manager"
+  },
+  "producers": [
+    {
+      "id": "active-plan-state",
+      "source": "src/tools/active-plan.ts",
+      "symbol": "readStoredFromDisk/projectStoredPlan",
+      "classification": "session-owned",
+      "status": "current",
+      "currentPath": "plan/branches/<sourceEntryId>.json plus plan/state.json projection"
+    },
+    {
+      "id": "plan-review-page",
+      "source": "src/tools/plan-html.ts",
+      "symbol": "planArtifactsDir/writePlanArtifacts",
+      "classification": "session-owned",
+      "status": "pending-session-migration",
+      "currentPath": "<OCTOCODE_HOME>/tmp/plan/<scope-hash>/{plan.html,plan.md}",
+      "targetPath": "plan/{review.html,plan.md}"
+    },
+    {
+      "id": "compaction-checkpoints",
+      "source": "src/tools/compaction-artifacts.ts",
+      "symbol": "writeCompactionArtifact",
+      "classification": "session-owned",
+      "status": "current",
+      "currentPath": "compaction/"
+    },
+    {
+      "id": "worker-handback",
+      "source": "src/tools/agent-tools.ts",
+      "symbol": "buildAgentHandbackPath",
+      "classification": "session-owned-cross-process",
+      "status": "pending-session-migration",
+      "currentPath": "<workspace>/.octocode/tmp/agents/<agentId>/handback.md",
+      "targetPath": "agents/<agentId>/handback.md"
+    },
+    {
+      "id": "worker-prompt-staging",
+      "source": "src/tools/agent-tools.ts",
+      "symbol": "writeSystemPromptFile",
+      "classification": "session-ephemeral-transport",
+      "status": "pending-session-migration",
+      "currentPath": "<os.tmpdir>/octocode-pi-agent-*",
+      "targetPath": "tmp/agents/ with private mode and lifecycle cleanup"
+    },
+    {
+      "id": "implicit-image-fallback",
+      "source": "src/tools/create-image-tool.ts",
+      "symbol": "createImplicitImagePath",
+      "classification": "session-owned",
+      "status": "pending-session-migration",
+      "currentPath": "<os.tmpdir>/octocode-images/<session-or-pid>",
+      "targetPath": "images/"
+    },
+    {
+      "id": "chrome-connection-state",
+      "source": "src/chrome-debug.ts",
+      "symbol": "getSessionDir/writeSessionMeta",
+      "classification": "global-reusable-browser-connection",
+      "status": "explicit-exclusion",
+      "currentPath": "<workspace>/.octocode/chrome-debug/port-<port>",
+      "rationale": "Keyed by and reused for a CDP port, not owned by one Pi session. Per-session evidence is classified separately."
+    },
+    {
+      "id": "chrome-screenshot-evidence",
+      "source": "src/chrome-debug.ts",
+      "symbol": "getScreenshotDir",
+      "classification": "session-owned",
+      "status": "pending-session-migration",
+      "currentPath": "<workspace>/.octocode/screenshots or <OCTOCODE_HOME>/screenshots",
+      "targetPath": "screenshots/"
+    },
+    {
+      "id": "workspace-error-log",
+      "source": "src/index.ts",
+      "symbol": "reportError",
+      "classification": "workspace-shared-diagnostic",
+      "status": "explicit-exclusion",
+      "currentPath": "<workspace>/.octocode/logs/error.txt",
+      "rationale": "Intentionally append-only across sessions; session event logs use the adapter separately."
+    },
+    {
+      "id": "implicit-session-export",
+      "source": "src/tools/export-command.ts",
+      "symbol": "createExportCommand/defaultImportExporter",
+      "classification": "session-owned",
+      "status": "pending-session-migration",
+      "currentPath": "<os.tmpdir>/pi-session-<session-file>.html",
+      "targetPath": "exports/"
+    },
+    {
+      "id": "shadow-git-checkpoints",
+      "source": "src/tools/checkpoints.ts",
+      "symbol": "checkpointStoreDir",
+      "classification": "global-reusable-workspace-history",
+      "status": "explicit-exclusion",
+      "currentPath": "<OCTOCODE_HOME>/checkpoints/<workspace-hash>"
+    },
+    {
+      "id": "awareness-plans-and-memory-reports",
+      "source": "../octocode-awareness/src/plans.ts",
+      "symbol": "createPlan",
+      "classification": "explicit-shared-artifact",
+      "status": "explicit-exclusion",
+      "currentPath": "explicit Awareness workspace/report destinations"
+    },
+    {
+      "id": "discovery-inventory",
+      "source": "src/tools/discovery-file.ts",
+      "symbol": "writeDiscoveryFile",
+      "classification": "global-reusable-workspace-inventory",
+      "status": "explicit-exclusion",
+      "currentPath": "<workspace>/.octocode/discovery.json"
+    },
+    {
+      "id": "dynamic-registry-and-runner",
+      "source": "src/tools/dynamic-tools.ts",
+      "symbol": "executeSandboxedTool",
+      "classification": "global-registry-or-call-ephemeral",
+      "status": "explicit-exclusion",
+      "currentPath": "registry roots and immediately cleaned <os.tmpdir>/octocode-calltool-*"
+    },
+    {
+      "id": "explicit-image-destination",
+      "source": "src/tools/create-image-tool.ts",
+      "symbol": "resolveExplicitOutputPath",
+      "classification": "explicit-user-destination",
+      "status": "explicit-exclusion",
+      "currentPath": "caller-provided saveTo"
+    },
+    {
+      "id": "pi-session-transcript",
+      "source": "external:@earendil-works/pi-coding-agent",
+      "symbol": "SessionManager",
+      "classification": "external-owner",
+      "status": "explicit-exclusion",
+      "currentPath": "Pi-managed session JSONL"
+    }
+  ]
+}

@@ -1,10 +1,10 @@
 {
   "name": "@octocodeai/octocode-engine",
   "description": "Rust native Octocode engine for context compression, structural search, and LSP semantic navigation",
-  "version": "18.2.0",
+  "version": "18.3.0",
   "author": "Guy Bary <bgauryy@octocodeai.com>",
   "dependencies": {
-    "@octocodeai/config": "18.0.1",
+    "@octocodeai/config": "18.3.0",
     "pyright": "^1.1.411",
     "typescript": "^5.9.3",
     "typescript-language-server": "^4.4.0",
@@ -14,11 +14,11 @@
   },
   "devDependencies": {
     "@napi-rs/cli": "^3.7.2",
-    "@types/node": "^25.9.3",
-    "@vitest/coverage-v8": "^4.1.9",
+    "@types/node": "^26.2.0",
+    "@vitest/coverage-v8": "^4.1.11",
     "esbuild": "^0.28.1",
     "typescript": "^5.9.3",
-    "vitest": "^4.1.9"
+    "vitest": "^4.1.11"
   },
   "engines": {
     "node": ">=20.0.0"
@@ -193,12 +193,12 @@
     ]
   },
   "optionalDependencies": {
-    "@octocodeai/octocode-engine-darwin-arm64": "18.2.0",
-    "@octocodeai/octocode-engine-darwin-x64": "18.2.0",
-    "@octocodeai/octocode-engine-linux-arm64-gnu": "18.2.0",
-    "@octocodeai/octocode-engine-linux-x64-gnu": "18.2.0",
-    "@octocodeai/octocode-engine-linux-x64-musl": "18.2.0",
-    "@octocodeai/octocode-engine-win32-x64-msvc": "18.2.0"
+    "@octocodeai/octocode-engine-darwin-arm64": "18.3.0",
+    "@octocodeai/octocode-engine-darwin-x64": "18.3.0",
+    "@octocodeai/octocode-engine-linux-arm64-gnu": "18.3.0",
+    "@octocodeai/octocode-engine-linux-x64-gnu": "18.3.0",
+    "@octocodeai/octocode-engine-linux-x64-musl": "18.3.0",
+    "@octocodeai/octocode-engine-win32-x64-msvc": "18.3.0"
   },
   "publishConfig": {
     "access": "public"
@@ -253,8 +253,8 @@
     "support:gen": "yarn workspace @octocodeai/octocode-benchmark support:gen",
     "test": "vitest run --coverage",
     "test:node": "vitest run",
-    "test:node:coverage": "vitest run --coverage",
-    "test:quiet": "vitest run",
+    "test:node:coverage": "yarn test",
+    "test:quiet": "yarn test:node",
     "test:rust": "cargo test --lib --tests --all-features && cargo build --benches --all-features",
     "test:watch": "vitest watch",
     "typecheck": "tsc --noEmit",

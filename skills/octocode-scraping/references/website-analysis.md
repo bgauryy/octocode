@@ -1,6 +1,6 @@
 # Website Analysis
 
-Load when the user wants to understand a site, find smart links, map workflows, or analyze scraped data. Why: agents should navigate a local corpus instead of rereading raw pages.
+Load when you want to understand a site, find smart links, map workflows, or analyze scraped data. Why: agents must navigate a local corpus instead of rereading raw pages.
 
 ## Data model
 - `AGENT_INDEX.json`: first-read contract, warnings, totals, search targets, pagination hints.

@@ -5,7 +5,7 @@ Load before the parent merges worker results. Why: fan-out without a barrier cre
 ## Barrier
 1. List every live worker — note starting / running / idle.
 2. Wait or poll until each relevant worker is idle or terminal.
-3. Stop+remove workers you will not continue.
+3. Stop and remove workers you do not continue.
 4. Do **not** synthesize while needed workers are still starting/running.
 
 ## Merge (reducer)

@@ -2,7 +2,7 @@
 
 Load when choosing where a skill lands — after `install-gates.md`. Why: wrong scope = skill invisible or pollutes every project.
 
-| Provider | User (global) | Project (per-repo) |
+| Provider | User (global) | Project (per-repository) |
 |----------|---------------|--------------------|
 | shared agents | `~/.agents/skills/` | `<repo>/.agents/skills/` |
 | claude-code | `~/.claude/skills/` | `<repo>/.claude/skills/` |
@@ -14,7 +14,7 @@ Load when choosing where a skill lands — after `install-gates.md`. Why: wrong 
 | pi | `~/.pi/agent/skills/` | `<repo>/.pi/skills/` |
 | copilot | `~/.copilot/skills/` | `<repo>/.github/skills/` |
 | gemini | `~/.gemini/skills/` or `~/.agents/skills/` | matching project path |
-| other | path the runtime scans | in-repo path user confirms |
+| other | path the runtime scans | in-repository path user confirms |
 
 Symlink sync to these dirs: `scripts/skill-sync.mjs` (`references/skill-sync.md`) — dry-run, then human `--approve`.
 
@@ -22,7 +22,7 @@ Windows: `~` → `%USERPROFILE%` (or `%APPDATA%` for desktop apps). Custom overr
 
 ## Scope defaults
 
-- Project — repo-specific (commit conventions, internal CLIs, codebase quirks).
+- Project — repository-specific (commit conventions, internal CLIs, codebase quirks).
 - User — generally useful across all work.
 
 Unknown provider → treat as custom path; confirm the runtime scans it.

@@ -6,6 +6,7 @@ import type {
   RequiredLspConfig,
   RequiredOutputConfig,
   RequiredSessionConfig,
+  RequiredStorageConfig,
   ResolvedConfig,
 } from './types.js';
 
@@ -49,6 +50,10 @@ export const DEFAULT_SESSION_CONFIG: RequiredSessionConfig = {
   enableStats: false,
 };
 
+export const DEFAULT_STORAGE_CONFIG: RequiredStorageConfig = {
+  mode: 'persistent',
+};
+
 export const DEFAULT_CONFIG: Omit<ResolvedConfig, 'source' | 'configPath'> = {
   version: 1,
   github: DEFAULT_GITHUB_CONFIG,
@@ -58,6 +63,7 @@ export const DEFAULT_CONFIG: Omit<ResolvedConfig, 'source' | 'configPath'> = {
   lsp: DEFAULT_LSP_CONFIG,
   output: DEFAULT_OUTPUT_CONFIG,
   session: DEFAULT_SESSION_CONFIG,
+  storage: DEFAULT_STORAGE_CONFIG,
 };
 
 export const MIN_TIMEOUT = 5000;

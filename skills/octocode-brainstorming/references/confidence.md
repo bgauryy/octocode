@@ -1,4 +1,4 @@
-# Evidence Confidence Markers
+# Evidence confidence markers
 
 Load when scoring prior-art evidence strength for the `Evidence by Surface` section or a saved brief. Output template: `references/output.md`.
 

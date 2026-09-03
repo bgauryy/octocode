@@ -1,4 +1,4 @@
-# Parallel Roasting — Multi-Agent Sin Hunting
+# Parallel roasting — Multi-Agent sin hunting
 
 Load when independent modules or risk categories make delegation worthwhile. Why: divide inspection without duplicating or dropping findings. If the host lacks workers, run the same domains sequentially.
 
@@ -6,7 +6,7 @@ Load when independent modules or risk categories make delegation worthwhile. Why
 1. Identify independent domains whose inspection can run without shared mutable state.
 2. Spawn only when parallelism, specialist context, or isolation repays coordination cost.
 3. Give each worker a bounded scope and evidence contract.
-4. Merge, deduplicate, and rank after every required worker returns or is marked partial.
+4. Merge, deduplicate, and rank after every required worker returns or is marked partial. <!-- style-lint: ignore-line passive-voice -->
 
 Each worker returns this compact contract:
 

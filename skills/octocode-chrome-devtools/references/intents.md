@@ -1,4 +1,4 @@
-# CDP Intent Router
+# CDP intent router
 
 Load when choosing the smallest CDP script. Why: one intent → one detail file + stable prefixes.
 

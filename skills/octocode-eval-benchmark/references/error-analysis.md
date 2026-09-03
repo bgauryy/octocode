@@ -1,5 +1,5 @@
 # Error Analysis
-Load before writing new eval cases or when the suite feels generic. Why: evals should come from real failure modes, not vanity metrics.
+Load before writing new eval cases or when the suite feels generic. Why: evals must come from real failure modes, not vanity metrics.
 
 ## Process (Hamel-style)
 1. **Dataset** — gather representative traces (prod, dogfood, or synthetic starter).
@@ -18,7 +18,7 @@ Load before writing new eval cases or when the suite feels generic. Why: evals s
 
 ## Rules
 - Do not start from generic platform metrics (“toxicity”, “helpfulness”) unless they appear in your taxonomy.
-- Frequency beats rarity — evals aren’t free; cover what actually happens.
+- Frequency beats rarity — evals aren’t free; cover what happens.
 - Revisit after product/model shifts; taxonomies rot.
 - Upstream errors cause downstream noise — fix/tag the first break.
 

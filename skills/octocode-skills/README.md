@@ -1,34 +1,43 @@
 # Octocode Skills
 
-Find, evaluate, review, improve, install, and author Agent Skills (`SKILL.md` folders) across local paths, GitHub, and marketplaces.
+Discover, evaluate, create, improve, install, synchronize, and verify standalone Agent Skill folders.
 
-Use when the task is about a skill's trigger, workflow, references, hooks, install target, or publication quality — not ordinary markdown.
+## Use when
 
-## Capabilities
+- A `SKILL.md` trigger, workflow, route, hook, or install destination needs work.
+- You need to compare or install skills from a local path, repository, or registry.
+- A skill folder needs structural review, cleanup, or publication checks.
 
-- Discover skills across GitHub, registries, and local paths
-- Inspect real `SKILL.md` content before recommending or installing
-- Score quality: trigger, workflow, gates, evidence, portability, risk
-- Tune descriptions so skills activate at the right time
-- Install with provider/scope/mode gates and conflict handling
-- Create or adapt local skills with an audit trail and review gate
-- Review and wire lifecycle hooks safely
-- Check structure, routes, whole-folder file usage, internal-only references, portability, and trigger quality
+## Folder contract
 
-## How It Works
+- `SKILL.md` owns the workflow, hard rules, stop conditions, and route table.
+- References own one concept each and remain inside the skill folder.
+- Keep every shipped file reachable and useful; remove duplicate, development-only metadata, probe, and scratch files.
+- Use scripts for deterministic work, and route them from the lobby or import them from a used script.
+
+## Workflow
 
 ```text
 UNDERSTAND → DISCOVER → INSPECT → JUDGE → RECOMMEND → USER GATE → ACT → CLEANUP → REVIEW → VERIFY
 ```
 
-`SKILL.md` is the compact operating map. Conditional depth lives in focused `references/`; deterministic work lives in `scripts/`. `scripts/skill-review.mjs` checks structure and navigation.
-
-## Installation
+## Install
 
 ```bash
-npx octocode skill --name octocode-skills
+npx octocode skill install octocode-skills --platform codex
 ```
 
-## Maintainer Notes
+## Review a skill
 
-Keep routing, rubrics, install matrices, and review rules under `references/`. Skills ship as standalone folders. After edits, run `node scripts/skill-review.mjs .` and clear ERRORs before shipping.
+```bash
+node scripts/skill-review.mjs <skill-or-collection>
+```
+
+The review checks triggers, routes, internal-only references, whole-folder usage, portability, and navigation. Errors block completion; warnings require correction or explanation.
+
+## Maintainer verification
+
+```bash
+node scripts/skill-review.mjs --self-test
+node scripts/skill-review.mjs ..
+```

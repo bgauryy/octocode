@@ -2,12 +2,12 @@
 
 Load when a live browser step joins a scrape — auth, clicks, JS-only page, HAR, or perf. Why: one sessionId plus one CDP port keeps the evidence joinable.
 
-Owner for the **cross-skill playbook** (chrome `SKILL.md` only points here). Live CDP = `octocode-chrome-devtools`; this skill owns corpus + ingest.
+Owner for the **cross-skill playbook** (chrome `SKILL.md` only points here). Live CDP = `octocode-chrome-devtools`; this skill owns corpus + process.
 
 ## Session IDs (do not mix)
 | Kind | Handle | Reuse |
 |---|---|---|
-| Scrape corpus | `.octocode/tmp/scrape/{sessionId}/` | same id for fetch → ingest → `corpus-run` |
+| Scrape corpus | `.octocode/tmp/scrape/{sessionId}/` | same id for fetch → process → `corpus-run` |
 | Live Chrome | CDP `--port` + `--keep-tab` | same port/tab for DOM → click → measure → HAR |
 | CDP artifacts | `.octocode/tmp/chrome-devtools/<run>/` | pass to `har-ingest --from-cdp-dir` |
 
@@ -18,7 +18,7 @@ Owner for the **cross-skill playbook** (chrome `SKILL.md` only points here). Liv
 4. **Click/fill** — same tab or `graph-actionability-check`; ask before destructive submits.
 5. **Measure** — `performance`/`network`/`storage-measure-check` with `MEASURE_EXISTING=1`.
 6. **Query** — `measure-query --dir|--latest`; HAR → `har-pager`; then deep HAR only if needed.
-7. **Ingest** — `har-ingest.mjs --session-dir <session> --from-cdp-dir <run>` (chrome alias `har-ingest-to-scrape`).
+7. **Process** — `har-ingest.mjs --session-dir <session> --from-cdp-dir <run>` (chrome alias `har-ingest-to-scrape`).
 8. **Prove** — `corpus-run.mjs --roots cdp,extracts --regex …` (alias `corpus-run-local`). No re-browser for the same body.
 
 Zero actionability rows → chrome `actionability-diagnostics`. Emit paths/counts — never cookies/tokens.
@@ -26,4 +26,4 @@ Zero actionability rows → chrome `actionability-diagnostics`. Emit paths/count
 ## Ask first
 Real profile, cookie bridge, CAPTCHA/MFA, destructive writes, purchases, sends, deletes, account changes.
 
-Next: to search what ingest produced load `references/session-corpus.md`; if the page is still thin or blocked load `references/failure-recovery.md`.
+Next: to search what process produced load `references/session-corpus.md`; if the page is still thin or blocked load `references/failure-recovery.md`.

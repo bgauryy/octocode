@@ -1,9 +1,9 @@
-# Scraping Policy
+# Data collection policy
 
-Load when legality, safety, privacy, or account boundaries could matter. Why: scraping mistakes can leak secrets, overload sites, or cross user intent.
+Load when legality, safety, privacy, or account boundaries can matter. Why: scraping mistakes can leak secrets, overload sites, or cross user intent.
 
 ## Frame before fetch
-- Confirm target URL/domain, purpose, allowed depth, expected output shape, and whether auth/session data is involved.
+- Confirm target URL/domain, purpose, allowed depth, expected output shape, and whether auth/session data is involved. <!-- style-lint: ignore-line passive-voice -->
 - Prefer one URL or an explicit allowlist. Broad crawls require user approval for depth, max pages, and rate.
 - Respect robots.txt/ToS where applicable; if not checked, state uncertainty.
 

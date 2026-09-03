@@ -2,7 +2,7 @@
 
 Load when running the full local-offload loop (beyond the lobby summary). Why: each phase owns a gate, and a skipped one fails silently.
 
-**1. GATE** — `./scripts/ollama-health.sh` → `ollama list` → `ollama show <MODEL>` when size/capabilities unclear → `ollama ps` to prefer already-warm for small tasks. Confirm low-risk and worth offload. For articles: source text already saved (or fetch it yourself) before invoke. Gate fail → stay solo.
+**1. GATE** — `./scripts/ollama-health.sh` → `ollama list` → `ollama show MODEL_NAME` when size/capabilities unclear → `ollama ps` to prefer already-warm for small tasks. Confirm low-risk and worth offload. For articles: source text already saved (or fetch it yourself) before invoke. Gate fail → stay solo.
 
 **2. ROUTE** — load `references/model-selection.md` (mandatory); load `references/usage-matrix.md` / `references/decision-matrix.md` / `references/family-playbooks.md` only when needed. **Do not** load `references/ollama-local-models.md` on routine routing. Job → tier → smallest fitting installed chat model → prefer warm → skip embedders → `--think=false` for bulk.
 
@@ -38,7 +38,7 @@ Kept on orchestrator: <fetch, merge, final claims, …>
 | Cold shards | `--keepalive`; prefer `ollama ps` warm |
 | Ungrounded quotes / bad paths | Discard; cascade or orchestrator redo |
 
-**Default job patterns** — not an exclusive whitelist; see also `references/usage-matrix.md`. **Never local:** architecture, security, auth, web browse, image generation, final verified claims.
+**Default job patterns** — not an exhaustive list; see also `references/usage-matrix.md`. **Never local:** architecture, security, auth, web browse, image generation, final verified claims.
 
 | Job | Local | Orchestrator |
 |---|---|---|
