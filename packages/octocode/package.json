@@ -33,7 +33,6 @@
     "out",
     "docs/**",
     "skills/**",
-    "assets/example.png",
     "README.md",
     "LICENSE"
   ],
@@ -60,7 +59,7 @@
     "directory": "packages/octocode"
   },
   "scripts": {
-    "build": "yarn readme:sync && yarn lint && node build.mjs",
+    "build": "yarn readme:sync && yarn lint && node build.mjs && node scripts/bundle-docs.mjs",
     "release": "node ../../scripts/release.mjs --target cli",
     "build:dev": "yarn readme:sync && yarn workspace @octocodeai/octocode-tools-core build:dev && node build.mjs",
     "clean": "rm -rf out/",

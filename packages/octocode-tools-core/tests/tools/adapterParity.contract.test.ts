@@ -65,6 +65,7 @@ import {
 describe('canonical adapter parity fixture', () => {
   beforeEach(() => {
     process.env.ENABLE_LOCAL = 'true';
+    process.env.ENABLE_CLONE = 'true';
     delete process.env.TOOLS_TO_RUN;
     delete process.env.DISABLE_TOOLS;
     _overrideInitialize(async () => undefined);
@@ -81,6 +82,7 @@ describe('canonical adapter parity fixture', () => {
 
   afterEach(() => {
     delete process.env.ENABLE_LOCAL;
+    delete process.env.ENABLE_CLONE;
     delete process.env.TOOLS_TO_RUN;
     delete process.env.DISABLE_TOOLS;
     fixtureExecution.mockReset();

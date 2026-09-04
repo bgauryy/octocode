@@ -436,8 +436,10 @@ describe('tool-command coverage', () => {
   });
 
   it('ghCloneRepo: executes with owner and repo fields', async () => {
+    process.env.ENABLE_CLONE = 'true';
     const { toolCommand } = await import('../../src/cli/tool-command.js');
 
+    try {
     await toolCommand.handler!({
       command: 'tools',
       args: ['ghCloneRepo'],
@@ -458,11 +460,16 @@ describe('tool-command coverage', () => {
     );
     expect(consoleSpy).toHaveBeenCalledWith('cloned');
     expect(process.exitCode).toBeUndefined();
+    } finally {
+      delete process.env.ENABLE_CLONE;
+    }
   });
 
   it('ghCloneRepo: branch is forwarded correctly', async () => {
+    process.env.ENABLE_CLONE = 'true';
     const { toolCommand } = await import('../../src/cli/tool-command.js');
 
+    try {
     await toolCommand.handler!({
       command: 'tools',
       args: ['ghCloneRepo'],
@@ -482,6 +489,9 @@ describe('tool-command coverage', () => {
         ],
       })
     );
+    } finally {
+      delete process.env.ENABLE_CLONE;
+    }
   });
 
   it('accepts an array of query objects directly', async () => {

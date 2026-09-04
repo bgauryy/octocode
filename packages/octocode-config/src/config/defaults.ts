@@ -18,8 +18,9 @@ export const DEFAULT_LOCAL_CONFIG: RequiredLocalConfig = {
   // Local tools are enabled by default on every runtime surface. An explicit
   // ENABLE_LOCAL / local.enabled value can still disable them.
   enabled: true,
-  // Clone is available on both CLI and MCP unless explicitly disabled.
-  enableClone: true,
+  // Clone is opt-in: set ENABLE_CLONE=true or local.enableClone: true in .octocoderc.
+  // Requires storage.mode="persistent" (the default) to function.
+  enableClone: false,
   allowedPaths: [],
   workspaceRoot: undefined,
 };

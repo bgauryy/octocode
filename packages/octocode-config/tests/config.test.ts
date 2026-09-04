@@ -499,7 +499,7 @@ describe('DEFAULT_CONFIG', () => {
   it('has sensible defaults', () => {
     expect(DEFAULT_CONFIG.github.apiUrl).toBe('https://api.github.com');
     expect(DEFAULT_CONFIG.local.enabled).toBe(true);
-    expect(DEFAULT_CONFIG.local.enableClone).toBe(true);
+    expect(DEFAULT_CONFIG.local.enableClone).toBe(false);
     expect(DEFAULT_NETWORK_CONFIG.timeout).toBe(30000);
   });
 
@@ -531,11 +531,11 @@ describe('runtimeSurface', () => {
     _resetRuntimeSurface();
     expect(getRuntimeSurface()).toBe('mcp');
   });
-  it('keeps the clone default enabled on every runtime surface', () => {
+  it('clone defaults to disabled (opt-in) on every runtime surface', () => {
     setRuntimeSurface('cli');
-    expect(resolveLocal().enableClone).toBe(true);
+    expect(resolveLocal().enableClone).toBe(false);
     setRuntimeSurface('mcp');
-    expect(resolveLocal().enableClone).toBe(true);
+    expect(resolveLocal().enableClone).toBe(false);
   });
 });
 
@@ -1025,11 +1025,11 @@ describe('resolveLocal', () => {
     expect(resolveLocal().enabled).toBe(true);
   });
 
-  it('defaults clone on for every runtime surface and honors file opt-out', () => {
+  it('clone defaults off (opt-in) on every runtime surface and honors explicit enable', () => {
     setRuntimeSurface('cli');
-    expect(resolveLocal().enableClone).toBe(true);
+    expect(resolveLocal().enableClone).toBe(false);
     setRuntimeSurface('mcp');
-    expect(resolveLocal().enableClone).toBe(true);
+    expect(resolveLocal().enableClone).toBe(false);
     expect(
       resolveLocal({
         enabled: false,

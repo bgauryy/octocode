@@ -305,8 +305,9 @@ code ~/.octocode/.octocoderc
     "enabled": true,
 
     // true → turn on ghCloneRepo (clone a GitHub repo to disk for deep local analysis)
-    // Default: true. storage.mode="memory" disables clone and materialization writes.
-    "enableClone": true,
+    // Opt-in: false by default. Set true or ENABLE_CLONE=true to enable.
+    // Requires storage.mode="persistent" (the default); memory mode disables materialization writes.
+    "enableClone": false,
 
     // Lock the workspace root to a specific path (default: process.cwd())
     // Must be an absolute path. Example: "/home/user/projects"
@@ -455,7 +456,7 @@ Set the GitHub token in an environment variable only. Octocode never reads it fr
 | Env var | `.octocoderc` key | Default | Notes |
 |---------|------------------|---------|-------|
 | `ENABLE_LOCAL` | `local.enabled` | `true` | `false` turns local tools off on every surface |
-| `ENABLE_CLONE` | `local.enableClone` | `true` | `false` turns `ghCloneRepo` and directory materialization off on every surface |
+| `ENABLE_CLONE` | `local.enableClone` | `false` | Opt-in: set `true` to enable `ghCloneRepo` and directory materialization. Requires `storage.mode="persistent"` (the default). |
 | `WORKSPACE_ROOT` | `local.workspaceRoot` | `process.cwd()` | Must be absolute. Base for resolving relative paths — not itself an allowed root; add it to `allowedPaths` to access a location outside home. |
 | `ALLOWED_PATHS` | `local.allowedPaths` | `[]` (home only) | Extra roots added on top of the always-allowed home directory. Env: comma-separated; rc: JSON array. |
 
@@ -599,7 +600,7 @@ npx octocode status --json
 | No token / 401 | Run `npx octocode auth login`, or set `GITHUB_TOKEN` in shell or MCP `env` block |
 | Wrong GitHub account | `npx octocode auth logout` then `auth login` — or `auth login --force` |
 | Env token overriding saved token | Env always wins — unset the env var |
-| `ghCloneRepo` unavailable | Check that neither `ENABLE_CLONE` nor `local.enableClone` is `false`; also check `TOOLS_TO_RUN` and `DISABLE_TOOLS` |
+| `ghCloneRepo` unavailable | Clone is opt-in (off by default). Set `ENABLE_CLONE=true` in your shell/env block, or `local.enableClone: true` in `.octocoderc`. Also check that `OCTOCODE_STORAGE_MODE` is not `memory`, and that `TOOLS_TO_RUN` / `DISABLE_TOOLS` don't exclude it. |
 | Local tools turned off | Check that neither `ENABLE_LOCAL` nor `local.enabled` is `false` |
 | A legacy local tool is unavailable | Add its exact name to `TOOLS_TO_RUN` or `tools.enabled`; include every other required tool because the list is strict |
 | A tool is missing | Check `TOOLS_TO_RUN` (strict allowlist) and `DISABLE_TOOLS` |

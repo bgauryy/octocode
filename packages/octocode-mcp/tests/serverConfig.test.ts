@@ -130,7 +130,7 @@ describe('ServerConfig - Simplified Version', () => {
       expect(config.timeout).toBe(30000);
       expect(config.maxRetries).toBe(3);
       expect(config.enableLocal).toBe(true);
-      expect(config.enableClone).toBe(true);
+      expect(config.enableClone).toBe(false);
       expect(config.tokenSource).toBe('none');
     });
 
@@ -584,10 +584,10 @@ describe('ServerConfig - Simplified Version', () => {
       delete process.env.ENABLE_LOCAL;
     });
 
-    it('should default to true when ENABLE_CLONE is not set', async () => {
+    it('should default to false when ENABLE_CLONE is not set (opt-in)', async () => {
       mockSpawnFailure();
       await initialize();
-      expect(getServerConfig().enableClone).toBe(true);
+      expect(getServerConfig().enableClone).toBe(false);
     });
 
     it('should enable clone when ENABLE_CLONE is "true"', async () => {
@@ -620,7 +620,7 @@ describe('ServerConfig - Simplified Version', () => {
       expect(isCloneEnabled()).toBe(false);
     });
 
-    it('should use the enabled default for invalid/unrecognized ENABLE_CLONE values', async () => {
+    it('should fall back to disabled default for invalid/unrecognized ENABLE_CLONE values', async () => {
       const invalidValues = ['no', 'yes', 'enabled', '', '   '];
 
       for (const value of invalidValues) {
@@ -629,7 +629,7 @@ describe('ServerConfig - Simplified Version', () => {
         process.env.ENABLE_CLONE = value;
         mockSpawnFailure();
         await initialize();
-        expect(getServerConfig().enableClone).toBe(true);
+        expect(getServerConfig().enableClone).toBe(false);
       }
     });
   });
@@ -640,10 +640,10 @@ describe('ServerConfig - Simplified Version', () => {
       delete process.env.ENABLE_LOCAL;
     });
 
-    it('should return true by default', async () => {
+    it('should return false by default (clone is opt-in)', async () => {
       mockSpawnFailure();
       await initialize();
-      expect(isCloneEnabled()).toBe(true);
+      expect(isCloneEnabled()).toBe(false);
     });
 
     it('should return false when clone is explicitly disabled', async () => {

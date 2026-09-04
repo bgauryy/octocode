@@ -75,3 +75,12 @@ function removeEnvExamples(dir) {
     }
   }
 }
+
+// Sync skills from monorepo root skills/ → packages/octocode/skills/
+const sourceSkills = join(repoRoot, 'skills');
+const targetSkills = join(packageRoot, 'skills');
+
+copyDirectoryFiltered(sourceSkills, targetSkills);
+removeEnvExamples(targetSkills);
+
+console.log('✓ skills synced from monorepo root to packages/octocode/skills/');

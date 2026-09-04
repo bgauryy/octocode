@@ -36,7 +36,7 @@ describe('main-help', () => {
     expect(output).toContain('context');
     expect(output).toContain('tools');
     expect(output).toContain('context --full');
-    expect(output).toContain('TOOLS (10 enabled / 10 cataloged)');
+    expect(output).toContain('TOOLS (9 enabled / 10 cataloged)');
     expect(output).toContain('tools <name> --scheme --json --compact');
     expect(output).not.toContain('tools <name> --scheme --brief');
     expect(output).toContain(

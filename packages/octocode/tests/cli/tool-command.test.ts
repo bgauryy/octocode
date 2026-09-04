@@ -307,22 +307,27 @@ describe('toolCommand', () => {
   });
 
   it('rejects unknown raw tool fields without executing the tool', async () => {
+    process.env.ENABLE_CLONE = 'true';
     const { toolCommand } = await import('../../src/cli/tool-command.js');
 
-    await toolCommand.handler!({
-      command: 'tools',
-      args: ['ghCloneRepo'],
-      options: {
-        queries:
-          '{"owner":"bgauryy","repo":"octocode","path":"docs","depth":1}',
-      },
-    });
+    try {
+      await toolCommand.handler!({
+        command: 'tools',
+        args: ['ghCloneRepo'],
+        options: {
+          queries:
+            '{"owner":"bgauryy","repo":"octocode","path":"docs","depth":1}',
+        },
+      });
 
-    expect(publicMocks.noop).not.toHaveBeenCalled();
-    const output = consoleSpy.mock.calls.flat().join('\n');
-    expect(output).toContain('Unknown field(s): path, depth');
-    expect(output).toContain('tools ghCloneRepo --scheme');
-    expect(process.exitCode).toBe(2);
+      expect(publicMocks.noop).not.toHaveBeenCalled();
+      const output = consoleSpy.mock.calls.flat().join('\n');
+      expect(output).toContain('Unknown field(s): path, depth');
+      expect(output).toContain('tools ghCloneRepo --scheme');
+      expect(process.exitCode).toBe(2);
+    } finally {
+      delete process.env.ENABLE_CLONE;
+    }
   });
 
   it('suggests only fields valid for the selected tool variant', async () => {

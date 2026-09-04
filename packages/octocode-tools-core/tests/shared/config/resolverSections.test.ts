@@ -209,14 +209,14 @@ describe('resolveLocal', () => {
   });
 
   describe('enableClone defaults', () => {
-    it('should default enableClone to true when no config or env var', () => {
+    it('should default enableClone to false when no config or env var (opt-in)', () => {
       const result = resolveLocal(undefined);
-      expect(result.enableClone).toBe(true);
+      expect(result.enableClone).toBe(false);
     });
 
-    it('should default enableClone to true when file config has no enableClone', () => {
+    it('should default enableClone to false when file config has no enableClone', () => {
       const result = resolveLocal({ enabled: true });
-      expect(result.enableClone).toBe(true);
+      expect(result.enableClone).toBe(false);
     });
   });
 
@@ -257,10 +257,10 @@ describe('resolveLocal', () => {
       expect(result.enableClone).toBe(false);
     });
 
-    it('should fall back to default when ENABLE_CLONE is empty', () => {
+    it('should fall back to default (false) when ENABLE_CLONE is empty', () => {
       process.env.ENABLE_CLONE = '';
       const result = resolveLocal(undefined);
-      expect(result.enableClone).toBe(true);
+      expect(result.enableClone).toBe(false);
     });
   });
 

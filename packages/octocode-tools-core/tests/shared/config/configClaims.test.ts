@@ -92,9 +92,9 @@ describe('README/CONFIGURATION config claims', () => {
     });
   });
 
-  describe('ENABLE_CLONE -> local.enableClone (default true)', () => {
-    it('defaults to true', () => {
-      expect(resolveLocal(undefined).enableClone).toBe(true);
+  describe('ENABLE_CLONE -> local.enableClone (default false, opt-in)', () => {
+    it('defaults to false', () => {
+      expect(resolveLocal(undefined).enableClone).toBe(false);
     });
     it('ENABLE_CLONE=true enables, overriding file=false', () => {
       process.env.ENABLE_CLONE = 'true';
@@ -238,8 +238,8 @@ describe('README/CONFIGURATION config claims', () => {
         expect(resolveLocal({ enabled: false }).enabled).toBe(false);
       });
 
-      it('clone defaults to ENABLED', () => {
-        expect(resolveLocal(undefined).enableClone).toBe(true);
+      it('clone defaults to DISABLED (opt-in)', () => {
+        expect(resolveLocal(undefined).enableClone).toBe(false);
       });
 
       it('ENABLE_CLONE=false still disables clone', () => {
@@ -275,8 +275,8 @@ describe('README/CONFIGURATION config claims', () => {
         expect(resolveLocal({ enabled: true }).enabled).toBe(false);
       });
 
-      it('clone defaults to ENABLED', () => {
-        expect(resolveLocal(undefined).enableClone).toBe(true);
+      it('clone defaults to DISABLED (opt-in)', () => {
+        expect(resolveLocal(undefined).enableClone).toBe(false);
       });
 
       it('ENABLE_CLONE=true enables clone', () => {
