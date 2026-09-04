@@ -11,6 +11,7 @@ import { clearPendingRehydration, runAndRecordRehydration } from './rehydration-
 import { captureCurrentContextSources } from './context-source-registry.js';
 import { redactCompactionText } from './compaction-redaction.js';
 import { openPersistentAwareness } from './storage-policy.js';
+import { appendSessionAuditEntry } from './session-audit.js';
 
 export interface CompactionRehydrationCapture {
   segments: ContextSegmentV1[];
@@ -357,6 +358,16 @@ export function registerCompactionHooks(pi: PiInstance, notify: NotifyFn): void 
         }
         try {
           const artifactContext = createSessionArtifactContext(ctx);
+          appendSessionAuditEntry(artifactContext, {
+            event: 'compaction.completed',
+            detail: {
+              checkpoint: details.label,
+              reason: details.reason,
+              fromExtension: details.fromExtension,
+              ...(details.tokensBefore === undefined ? {} : { tokensBefore: details.tokensBefore }),
+              ...(details.reclaimedTokens === undefined ? {} : { reclaimedTokens: details.reclaimedTokens }),
+            },
+          });
           const planScope = activePlanScope(ctx);
           const review = getPlanReviewState(planScope);
           const planContent = renderPlanContext(getCurrentPlanReadModel(ctx, planScope));

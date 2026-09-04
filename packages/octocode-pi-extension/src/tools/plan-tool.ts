@@ -24,6 +24,7 @@ import { setManagedActivity } from './runtime-renderer.js';
 import { activePlanScope, setPlan, setPlanLifecycle, finishPlanVerification, activatePlan, proposePlanReview, acceptPlanReview, requestPlanChanges, startAcceptedPlan, rollbackAcceptedPlanStart, addStep, startStep, restorePlanSteps, completeStep, removeStep, clearPlan, getPlan, getPlanReviewState, getPlanCoordination, updatePlanCoordination, setPlanAwarenessMappings, MARK, stepLabel, displayStatus, depsMet, dependencyIndexes, resolveRfcPath, setPlanRfc, getPlanRfc, addPlanDecision, getPlanDecisions, planPhaseIndex, PLAN_PHASES, type PlanStep, type DisplayStatus, type StepInput } from './active-plan.js';
 import { completeUnifiedPlanTask, finalizeUnifiedPlan, getAwarenessAgentId, projectUnifiedPlan, type ObservedCheckReceipt, type UnifiedPlanScope } from './awareness-shared.js';
 import { buildQueryEnvelopeSchema, executeQueryBatch, type QueryRecord } from './query-envelope.js';
+import { appendSessionAuditForContext } from './session-audit.js';
 
 let planBrowserMessageSender: ((message: string) => void | Promise<void>) | undefined;
 let planDirectoryServer: typeof serveDirectory = serveDirectory;
@@ -638,6 +639,24 @@ export async function handleOctocodePlanCommand(args: string, ctx: PiContext | u
  * Handles one action (PlanParams) against the given ctx and returns a
  * ToolCallResult. Called from inside `executeQueryBatch` per query.
  */
+function auditPlanEvent(
+  ctx: PiContext | undefined,
+  scope: string,
+  event: string,
+  detail: Record<string, unknown> = {},
+): void {
+  const review = getPlanReviewState(scope);
+  appendSessionAuditForContext(ctx, {
+    event: `plan.${event}`,
+    detail: {
+      phase: review.phase,
+      generation: review.generation,
+      steps: getPlan(scope).length,
+      ...detail,
+    },
+  });
+}
+
 async function executePlanQuery(p: PlanParams, ctx: PiContext | undefined): Promise<ToolCallResult> {
   const scope = activePlanScope(ctx);
   let steps: PlanStep[];
@@ -711,6 +730,7 @@ async function executePlanQuery(p: PlanParams, ctx: PiContext | undefined): Prom
     }
     const head = recorded.length ? `[PLAN] recorded ${recorded.length} decision(s):\n${recorded.map((r, i) => `${i + 1}. ${r}`).join('\n')}` : '[PLAN] no decisions recorded';
     const tail = halted ? `\n${halted}` : '\nWhen intent + approach are decision-complete, call plan(propose) — the decisions travel with the plan and render on its page.';
+    if (recorded.length > 0) auditPlanEvent(ctx, scope, 'clarify', { decisionsRecorded: recorded.length });
     return clarifyResult(`${head}${tail}`, false, pendingInteraction ? {
       pendingInteraction: {
         version: pendingInteraction.version,
@@ -776,6 +796,7 @@ async function executePlanQuery(p: PlanParams, ctx: PiContext | undefined): Prom
         refreshPlanUi(ctx);
         setManagedActivity(ctx, { kind: 'reviewing', planScope: scope, revision });
         const summary = buildRfcReviewTldr(scope, steps, revision, artifacts);
+        auditPlanEvent(ctx, scope, 'propose', { revision });
         const outcome = ctx
           ? await runAskPrompt(ctx, {
               question: `Plan overview ready · rev ${revision.slice(0, 8)} · ${steps.length} step${steps.length === 1 ? '' : 's'} — start implementation?`,
@@ -813,6 +834,7 @@ async function executePlanQuery(p: PlanParams, ctx: PiContext | undefined): Prom
           const activeArtifacts = writeCurrentPlanArtifacts(ctx, scope, 'active');
           refreshPlanUi(ctx);
           const verdict = `[PLAN] approved and started · rev ${revision.slice(0, 8)}`;
+          auditPlanEvent(ctx, scope, 'start', { revision, source: 'propose' });
           return {
             content: [{ type: 'text', text: `${verdict}\n\n${summary}\n\nActive plan\n${renderList(steps)}` }],
             details: { action: p.action, ...planPresentation(ctx, scope), verdict, revision, decision: 'start', ...(activeArtifacts ? { artifacts: activeArtifacts } : {}) },
@@ -826,6 +848,7 @@ async function executePlanQuery(p: PlanParams, ctx: PiContext | undefined): Prom
           writeCurrentPlanArtifacts(ctx, scope, 'draft');
           refreshPlanUi(ctx);
           const verdict = `[PLAN] changes requested${feedback ? `: ${feedback}` : ''}`;
+          auditPlanEvent(ctx, scope, 'changes', { revision, feedbackProvided: Boolean(feedback) });
           return {
             content: [{ type: 'text', text: `${verdict}\n\n${summary}` }],
             details: { action: p.action, ...planPresentation(ctx, scope), verdict, revision, decision: 'changes', transitionOk: changed.ok },
@@ -845,6 +868,7 @@ async function executePlanQuery(p: PlanParams, ctx: PiContext | undefined): Prom
 
       const artifacts = writeCurrentPlanArtifacts(ctx, scope, 'draft');
       refreshPlanUi(ctx);
+      auditPlanEvent(ctx, scope, 'propose');
       const outcome = ctx
         ? await runAskPrompt(ctx, {
             question: `${steps.length} step${steps.length === 1 ? '' : 's'} in the panel below — ${PLAN_PROPOSE_HINT}`,
@@ -870,6 +894,7 @@ async function executePlanQuery(p: PlanParams, ctx: PiContext | undefined): Prom
         ensureUnifiedProjection(scope, p.scope, ctx);
         steps = getPlan(scope);
         refreshPlanUi(ctx);
+        auditPlanEvent(ctx, scope, 'start', { source: 'propose' });
       }
       const verdict = (() => {
         if (!outcome || outcome.status === 'unavailable') {
@@ -1040,6 +1065,9 @@ async function executePlanQuery(p: PlanParams, ctx: PiContext | undefined): Prom
       break;
   }
   refreshPlanUi(ctx);
+  if (p.action !== 'show') {
+    auditPlanEvent(ctx, scope, p.action, p.index === undefined ? {} : { index: p.index });
+  }
   const done = steps.filter((s) => s.status === 'done').length;
   const header = p.action === 'clear' ? '[PLAN] cleared' : `[PLAN] ${done}/${steps.length} done`;
   const artifactHint = (p.action === 'set' || p.action === 'add' || p.action === 'start' || p.action === 'complete' || p.action === 'remove') && steps.length > 0

@@ -45,6 +45,13 @@ it directly without reading the artifact file. Reopen the current active plan
 and its referenced docs; current sources override stale saved text. When work is
 complete, blocked on approval, or waiting for the user, stop; otherwise continue.
 
+The <session_artifacts> block supplies this session’s private artifact paths.
+Maintain memory.md with short, verified gotchas, improvements, decisions,
+handoff notes, and reflections that should survive compaction. Keep memory.md
+under 4 KB, with at most 10 entries per section and 200 characters per entry.
+The audit.md file is system-written lifecycle history: you may read it, but
+never edit it.
+
 Improvement needs a sensor: baseline → change one thing → rerun → compare.
 </engineering>`;
 
