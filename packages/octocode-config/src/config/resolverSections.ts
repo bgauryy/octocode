@@ -81,8 +81,8 @@ export function resolveLocal(
     // ENABLE_LOCAL (env) or .octocoderc value wins, so `false` disables them.
     enabled:
       envEnableLocal ?? fileConfig?.enabled ?? DEFAULT_LOCAL_CONFIG.enabled,
-    // Clone defaults on for every surface. An explicit ENABLE_CLONE (env) or
-    // .octocoderc value wins, so `false` disables it everywhere.
+    // Clone is opt-in (off by default). An explicit ENABLE_CLONE (env) or
+    // .octocoderc value wins; set to `true` to enable ghCloneRepo.
     enableClone:
       envEnableClone ??
       fileConfig?.enableClone ??

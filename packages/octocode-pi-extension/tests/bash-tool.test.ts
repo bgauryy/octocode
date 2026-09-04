@@ -337,20 +337,17 @@ test('bash execution runs obvious environment exfiltration after explicit approv
   }
 });
 
-test('bash execution blocks mutating commands while plan mode is active', async () => {
+test('bash execution remains available while plan mode is active', async () => {
   const tool = loadBashTool();
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'octocode-bash-plan-mode-'));
   const ctx = { cwd: tmp } as never;
   enterPlanMode(ctx);
   try {
-    await assert.rejects(
-      () => executeBash(tool, 'plan-write', { command: 'echo hi > out.txt', reasoning: 'verify plan mode blocks mutating bash' }, undefined, ctx),
-      /shell, and external effects stay blocked until the user separately starts implementation/,
-    );
-    await assert.rejects(
-      () => executeBash(tool, 'plan-read', { command: 'pwd', reasoning: 'verify shell stays conservatively disabled before Start' }, undefined, ctx),
-      /shell, and external effects stay blocked/,
-    );
+    const write = await executeBash(tool, 'plan-write', { command: 'echo hi > out.txt', reasoning: 'verify planning does not disable guarded shell work' }, undefined, ctx);
+    assert.equal(write.isError ?? false, false);
+    assert.equal(fs.readFileSync(path.join(tmp, 'out.txt'), 'utf8').trim(), 'hi');
+    const read = await executeBash(tool, 'plan-read', { command: 'pwd', reasoning: 'verify planning keeps shell reads available' }, undefined, ctx);
+    assert.equal(read.isError ?? false, false);
   } finally {
     exitPlanMode(ctx);
     fs.rmSync(tmp, { recursive: true, force: true });

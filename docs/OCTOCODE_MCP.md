@@ -77,16 +77,45 @@ Use environment variables for per-client or per-project settings. Use `<octocode
 
 The following table lists the settings that matter most for MCP:
 
-| Setting | Why it matters |
-|---------|----------------|
-| `GITHUB_TOKEN` / `GH_TOKEN` / `OCTOCODE_TOKEN` | GitHub API auth. |
-| `GITHUB_API_URL` | GitHub Enterprise API endpoint. |
-| `ENABLE_LOCAL` | Turns local filesystem and LSP tools on or off. Defaults to `true`; set it to `false` to disable them. |
-| `ENABLE_CLONE` | Controls `ghCloneRepo` and directory materialization. Defaults to `true`; set it to `false` to disable clone workflows. |
-| `TOOLS_TO_RUN`, `DISABLE_TOOLS` | Control which tools the MCP server registers. |
-| `WORKSPACE_ROOT`, `ALLOWED_PATHS` | Bound local path resolution and validation. |
+| Setting | Default | Why it matters |
+|---------|---------|----------------|
+| `GITHUB_TOKEN` / `GH_TOKEN` / `OCTOCODE_TOKEN` | — | GitHub API auth. |
+| `GITHUB_API_URL` | `https://api.github.com` | GitHub Enterprise endpoint. |
+| `ENABLE_LOCAL` | `true` | Turns local filesystem and LSP tools on or off. |
+| `ENABLE_CLONE` | `false` | Opt-in. Set `true` to enable `ghCloneRepo` and directory materialization. Also requires `OCTOCODE_STORAGE_MODE` to not be `memory`. |
+| `TOOLS_TO_RUN` | unset | Strict allowlist — replaces the default set. Every tool you need must be named explicitly. |
+| `DISABLE_TOOLS` | unset | Remove specific tools from the default set. |
+| `WORKSPACE_ROOT`, `ALLOWED_PATHS` | — | Bound local path resolution and validation. |
+| `REQUEST_TIMEOUT` | `30000` ms | Per-request timeout (5 000 – 300 000). |
+| `MAX_RETRIES` | `3` | Retries on transient GitHub failures (0 – 10). |
+| `OCTOCODE_STORAGE_MODE` | `persistent` | Set `memory` to disable all disk writes. Disables clone even if `ENABLE_CLONE=true`. |
+| `OCTOCODE_OUTPUT_FORMAT` | `yaml` | Tool response format: `yaml` or `json`. |
+| `OCTOCODE_OUTPUT_DEFAULT_CHAR_LENGTH` | `20000` | Default response size budget (1 000 – 50 000). |
+| `OCTOCODE_LSP_CONFIG` | unset | Path to a custom `lsp-servers.json`. |
 
 For full details, see the [Octocode configuration and authentication](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md) reference.
+
+## Tool name migration
+
+Tool names were renamed in v18 to use camelCase. If you have `TOOLS_TO_RUN` or `DISABLE_TOOLS` set with old names, update them — **old names are not recognized and cause a fatal startup error when all names in the list are invalid**. The `Did you mean?` hint in stderr identifies the new name.
+
+| Old name | New name |
+|---|---|
+| `github_search_code` | `ghSearch` |
+| `github_fetch_content` | `ghGetFileContent` |
+| `github_view_repo_structure` | `ghSearch` (tree operation) |
+| `github_search_repos` | `ghSearch` (repositories operation) |
+| `github_search_pull_requests` | `ghSearchHistory` |
+| `github_clone_repo` | `ghCloneRepo` |
+| `local_analyze_graph` | `localAnalyzeGraph` |
+| `local_fetch_content` | `localGetFileContent` |
+| `local_dead_code` | `localAnalyzeGraph` (deadCode operation) |
+| `local_find_files` | `localSearch` (files operation) |
+| `local_ripgrep` | `localSearch` (text operation) |
+| `local_view_structure` | `localSearch` (tree operation) |
+| `local_search` | `localSearch` ✅ unchanged |
+| `lsp` | `lspGetSemantics` |
+| `package_search` | `npmSearch` |
 
 ## Materialization and response cache
 

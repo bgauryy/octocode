@@ -48,7 +48,7 @@ import { recordFileReadState, clearReadStatesForTests } from '../src/tools/file-
 import { assertPathAllowed } from '../src/tools/path-guard.js';
 import { getPermissionLevel, setPermissionLevel } from '../src/tools/approval.js';
 import { activePlanScope, clearPlan, getPlan, getPlanReviewState, setPlan } from '../src/tools/active-plan.js';
-import { handleOctocodePlanCommand, setPlanDirectoryServerForTests } from '../src/tools/plan-tool.js';
+import { setPlanDirectoryServerForTests } from '../src/tools/plan-tool.js';
 import { setPlanOpenerForTests } from '../src/tools/plan-html.js';
 import { buildFooterSegments, getFooterDensity, setFooterDensity } from '../src/ui-extras.js';
 import { PI_CONFIG_DIR } from '../src/constants.js';
@@ -405,7 +405,7 @@ function assertHasAllOctocodeSkills(skillArgs: string[]): void {
 
 test('build composes the system prompt from the inlined prompt module', async () => {
   const paths = getAssetPaths(distDir);
-  const { SYSTEM_PROMPT } = await import('../src/prompts/prompt.js');
+  const { SYSTEM_PROMPT } = await import('../src/prompts/system-prompt.js');
   assert.equal(fs.existsSync(paths.systemPrompt), true);
   assert.ok(SYSTEM_PROMPT.includes('<authority>'), 'sections are composed');
   // The prompt is one inlined document now: src/prompts/prompt.ts → dist/prompts/prompt.js.
@@ -463,12 +463,15 @@ test('build copies bundled Octocode skills without secret env files', () => {
     execFileSync(process.execPath, [bundledCli, 'tools', '--json'], { encoding: 'utf8' }),
   ) as {
     toolCount: number;
-    tools: Array<{ name: string; category: string; availability: { enabled: boolean } }>;
+    tools: Array<{ name: string; category: string; availability: { enabled: boolean; envVar?: string } }>;
   };
   const catalogNames = catalog.tools.map(({ name }) => name);
   assert.equal(catalog.toolCount, catalog.tools.length);
   assert.equal(new Set(catalogNames).size, catalogNames.length, 'tool names are unique');
-  assert.ok(catalog.tools.every(({ availability }) => availability.enabled), 'packaged tools are callable');
+  assert.ok(catalog.tools.filter(({ name }) => name !== 'ghCloneRepo').every(({ availability }) => availability.enabled), 'ungated packaged tools are callable');
+  const cloneTool = catalog.tools.find(({ name }) => name === 'ghCloneRepo');
+  assert.ok(cloneTool, 'clone capability remains represented');
+  if (!cloneTool.availability.enabled) assert.match(cloneTool.availability.envVar ?? '', /^(ENABLE_CLONE|OCTOCODE_STORAGE_MODE)$/);
   for (const category of ['GitHub', 'Package', 'Local Code']) {
     assert.ok(catalog.tools.some((tool) => tool.category === category), `${category} capability is represented`);
   }
@@ -917,7 +920,7 @@ test('plan state is branch-correct: mutations append session entries; session_st
       },
     };
     await treeHandler({}, reviewCtx);
-    assert.ok(await toolGate({ toolName: 'edit', input: {} }, reviewCtx), 'accepted branch restores pre-Start mutation block');
+    assert.equal(await toolGate({ toolName: 'edit', input: {} }, reviewCtx), undefined, 'plan review state never disables ordinary tools');
 
     const executingCtx = {
       ...reviewCtx,
@@ -5688,19 +5691,18 @@ test('plan propose: approval card outcomes drive machine-legible [PLAN] verdicts
     };
   };
   try {
-    // Approve → begin executing.
-    let res = await invokeExecute(planTool, { action: 'propose', steps: ['step A', 'step B'] }, askCtx({ status: 'selected', value: 'approve' }));
+    // Start approves the overview and begins executing in one decision.
+    let res = await invokeExecute(planTool, { action: 'propose', steps: ['step A', 'step B'] }, askCtx({ status: 'selected', value: 'start', label: 'Start implementation' }));
     let text = (res.content[0] as { text: string }).text;
-    assert.match(text, /\[PLAN\] approved — begin executing/);
+    assert.match(text, /\[PLAN\] approved and started — keep steps updated via complete/);
     assert.match(text, /step A/);
 
     const rfcPath = path.join(cwd, '.octocode', 'rfc', 'review', 'RFC.md');
     fs.mkdirSync(path.dirname(rfcPath), { recursive: true });
     fs.writeFileSync(rfcPath, '# Reviewable design\n');
 
-    // Browser review is an explicit surface choice; its exact slash command
-    // Accepts without starting implementation.
-    let rfcCtx = askCtx({ status: 'selected', value: 'browser' }) as unknown as PiContext;
+    // RFC Start binds the displayed revision and starts one step immediately.
+    let rfcCtx = askCtx({ status: 'selected', value: 'start', label: 'Start implementation' }) as unknown as PiContext;
     res = await invokeExecute(
       planTool,
       {
@@ -5716,67 +5718,41 @@ test('plan propose: approval card outcomes drive machine-legible [PLAN] verdicts
     );
     text = (res.content[0] as { text: string }).text;
     let review = getPlanReviewState(activePlanScope({ cwd }));
-    assert.equal(review.phase, 'in_review');
-    assert.match(text, /browser review opened/i);
-    await handleOctocodePlanCommand(`accept ${review.revision}`, rfcCtx, () => undefined);
-    review = getPlanReviewState(activePlanScope({ cwd }));
-    assert.equal(review.phase, 'accepted');
+    assert.equal(review.phase, 'executing');
+    assert.match(text, /\[PLAN\] approved and started · rev/i);
     assert.ok(review.acceptedRevision);
-    assert.equal(review.startedAt, undefined);
-    assert.deepEqual(getPlan(activePlanScope({ cwd })).map((step) => step.status), ['todo', 'todo']);
+    assert.ok(review.startedAt);
+    assert.deepEqual(getPlan(activePlanScope({ cwd })).map((step) => step.status), ['doing', 'todo']);
+    clearPlan(activePlanScope({ cwd }));
 
-    // Request changes from the browser is a real transition back to draft.
-    rfcCtx = askCtx({ status: 'selected', value: 'browser' }) as unknown as PiContext;
+    // Request changes is the only alternative decision and returns review to draft.
+    rfcCtx = askCtx({ status: 'selected', value: 'changes', label: 'Request changes' }) as unknown as PiContext;
     res = await invokeExecute(
       planTool,
       { action: 'propose', steps: ['RFC step A'], consequential: true, rfcPath },
       rfcCtx,
     );
-    await handleOctocodePlanCommand('changes clarify the rollback section', rfcCtx, () => undefined);
     review = getPlanReviewState(activePlanScope({ cwd }));
     assert.equal(review.phase, 'draft');
     assert.equal(review.acceptedRevision, undefined);
+    assert.match((res.content[0] as { text: string }).text, /changes requested/i);
 
-    // The distinct browser Start command rechecks accepted bytes and starts one step.
-    rfcCtx = askCtx({ status: 'selected', value: 'browser' }) as unknown as PiContext;
-    res = await invokeExecute(
-      planTool,
-      {
-        action: 'propose',
-        steps: [
-          { text: 'RFC step A', paths: ['src/a.ts'], acceptance: 'A is implemented' },
-          { text: 'RFC step B', paths: ['src/b.ts'], acceptance: 'B is implemented', dependsOn: [1] },
-        ],
-        consequential: true,
-        rfcPath,
-      },
-      rfcCtx,
-    );
-    review = getPlanReviewState(activePlanScope({ cwd }));
-    await handleOctocodePlanCommand(`accept ${review.revision}`, rfcCtx, () => undefined);
-    review = getPlanReviewState(activePlanScope({ cwd }));
-    await handleOctocodePlanCommand(`start ${review.acceptedRevision}`, rfcCtx, () => undefined);
-    review = getPlanReviewState(activePlanScope({ cwd }));
-    assert.equal(review.phase, 'executing');
-    assert.ok(review.startedAt);
-    assert.deepEqual(getPlan(activePlanScope({ cwd })).map((step) => step.status), ['doing', 'todo']);
-    clearPlan(activePlanScope({ cwd }));
-
-    // Free-text reply = adjust request, echoed verbatim for the agent to act on.
+    // Free-text reply = Request changes feedback, echoed verbatim for the agent to act on.
     res = await invokeExecute(planTool, { action: 'propose', steps: ['step A'] }, askCtx({ status: 'text', value: 'split step A into two' }));
     text = (res.content[0] as { text: string }).text;
-    assert.match(text, /\[PLAN\] adjust requested: split step A into two/);
-    assert.match(text, /Revise the plan and re-propose/);
+    assert.match(text, /\[PLAN\] changes requested: split step A into two/);
+    assert.match(text, /RFC plan overview/);
 
-    // Reject (and esc/cancel) → do not execute.
-    res = await invokeExecute(planTool, { action: 'propose', steps: ['step A'] }, askCtx({ status: 'selected', value: 'reject' }));
+    // Back/cancel leaves the review ready without executing.
+    res = await invokeExecute(planTool, { action: 'propose', steps: ['step A'] }, askCtx({ status: 'cancelled' }));
     text = (res.content[0] as { text: string }).text;
-    assert.match(text, /\[PLAN\] rejected — do not execute/);
+    assert.match(text, /\[PLAN\] review cancelled — the RFC remains ready/);
 
-    // Headless host without an answer adapter → fail closed and ask inline.
+    // Headless host without an answer adapter receives the overview and inline decision commands.
     res = await invokeExecute(planTool, { action: 'propose', steps: ['step A'] }, { cwd, hasUI: false });
     text = (res.content[0] as { text: string }).text;
-    assert.match(text, /cannot prompt — present the plan inline/);
+    assert.match(text, /plan ready — show this overview inline/i);
+    assert.match(text, /Start implementation.*Request changes/is);
   } finally {
     setPlanDirectoryServerForTests(undefined);
     setPlanOpenerForTests(undefined);

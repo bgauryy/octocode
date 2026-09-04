@@ -265,11 +265,11 @@ export function buildRfcReviewTldr(
   const stepLines = steps.slice(0, 5).map((step, index) => `  ${index + 1}. ${step.text}`);
   if (steps.length > 5) stepLines.push(`  … ${steps.length - 5} more in plan.md`);
   return [
-    `[PLAN] RFC ready for review · rev ${revision.slice(0, 8)} · implementation not started`,
+    `[PLAN] RFC plan overview · rev ${revision.slice(0, 8)}`,
     '',
     'Summary',
     `- ${title} · ${status}`,
-    `- ${steps.length} dependency-ordered step${steps.length === 1 ? '' : 's'}; Accept binds these RFC bytes but does not Start implementation.`,
+    `- ${steps.length} dependency-ordered step${steps.length === 1 ? '' : 's'}.`, 
     ...stepLines,
     '',
     `RFC file: ${localPath}`,
@@ -277,11 +277,82 @@ export function buildRfcReviewTldr(
     artifacts ? `Plan Markdown: ${artifacts.mdPath}` : undefined,
     artifacts ? `Plan HTML: ${artifacts.htmlPath}` : undefined,
     '',
-    'After review:',
-    `- Accept: /octocode-plan accept ${revision}`,
+    'Decision:',
+    `- Start implementation: /octocode-plan start ${revision}`,
     '- Request changes: /octocode-plan changes <feedback>',
-    '- Open browser later: /octocode-plan html',
+    '- Optional browser view: /octocode-plan html',
   ].filter((line): line is string => typeof line === 'string').join('\n');
+}
+
+interface ReviewedPlanStartResult {
+  ok: boolean;
+  message: string;
+  steps: PlanStep[];
+  revision?: string;
+}
+
+/** Bind one explicit Start decision to the current RFC bytes and begin execution. */
+function startReviewedPlan(scope: string, displayedRevision: string, ctx?: PiContext): ReviewedPlanStartResult {
+  const steps = getPlan(scope);
+  const contractError = getPlanCoordination(scope).mode === 'required'
+    ? sharedStartContractError(steps)
+    : undefined;
+  if (contractError) return { ok: false, message: `invalid shared step contract — ${contractError}`, steps };
+
+  let state = getPlanReviewState(scope);
+  const expectedRevision = state.phase === 'accepted' ? state.acceptedRevision : state.revision;
+  if (!expectedRevision || displayedRevision !== expectedRevision) {
+    return { ok: false, message: `displayed revision is stale (expected ${expectedRevision?.slice(0, 8) ?? 'none'})`, steps };
+  }
+  const planId = getPlanCoordination(scope).sourcePlanKey;
+  if (state.phase === 'in_review') {
+    const acceptReceipt = createHumanAuthorizationReceipt(ctx, {
+      planId,
+      revision: displayedRevision,
+      scope: 'plan.accept',
+      question: `Start implementation of RFC revision ${displayedRevision}?`,
+    });
+    const accepted = acceptPlanReview(scope, displayedRevision, acceptReceipt.receiptId);
+    if (!accepted.ok) return { ok: false, message: accepted.message, steps: accepted.steps };
+    consumeHumanAuthorizationReceipt(scope, {
+      receiptId: acceptReceipt.receiptId,
+      planId,
+      revision: displayedRevision,
+      scope: 'plan.accept',
+    });
+    state = accepted.state;
+  }
+  if (state.phase !== 'accepted' || !state.acceptedRevision) {
+    return { ok: false, message: `Start is not valid from ${state.phase}`, steps: getPlan(scope) };
+  }
+
+  const startReceipt = createHumanAuthorizationReceipt(ctx, {
+    planId,
+    revision: state.acceptedRevision,
+    scope: 'plan.start',
+    question: `Start implementation of RFC revision ${state.acceptedRevision}?`,
+  });
+  consumeHumanAuthorizationReceipt(scope, {
+    receiptId: startReceipt.receiptId,
+    planId,
+    revision: state.acceptedRevision,
+    scope: 'plan.start',
+  });
+  const started = startAcceptedPlan(scope, startReceipt.receiptId);
+  if (!started.ok) return { ok: false, message: started.message, steps: started.steps };
+  try {
+    ensureUnifiedProjection(scope, undefined, ctx);
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    rollbackAcceptedPlanStart(scope, `Shared Start failed: ${reason}`);
+    return { ok: false, message: `RFC acceptance was preserved: ${reason}`, steps: getPlan(scope) };
+  }
+  return {
+    ok: true,
+    message: `Implementation started from revision ${started.state.acceptedRevision?.slice(0, 8) ?? 'unknown'}.`,
+    steps: getPlan(scope),
+    revision: started.state.acceptedRevision,
+  };
 }
 
 /** Tear down a scope's plan surface: stop live sync and drop its server mount. */
@@ -395,8 +466,8 @@ function publishPlanActivity(ctx: PiContext | undefined, scope: string, steps: P
 
 // ─── /octocode-plan command (user can view / complete / delete tasks) ────────
 
-export const OCTOCODE_PLAN_COMMAND_USAGE = '/octocode-plan [new <goal>|off|show|html|accept <revision>|changes [feedback]|complete <n>|start <displayed-revision|n>|remove <n>|clear]';
-export const OCTOCODE_PLAN_COMMAND_COMPLETIONS = ['new ', 'off', 'show', 'html', 'accept ', 'changes ', 'complete ', 'start ', 'remove ', 'clear'] as const;
+export const OCTOCODE_PLAN_COMMAND_USAGE = '/octocode-plan [new <goal>|off|show|html|changes [feedback]|complete <n>|start <displayed-revision|n>|remove <n>|clear]';
+export const OCTOCODE_PLAN_COMMAND_COMPLETIONS = ['new ', 'off', 'show', 'html', 'changes ', 'complete ', 'start ', 'remove ', 'clear'] as const;
 
 /** Host hook for `/octocode-plan new`: sends the plan-mode prompt to the agent as the next user turn. */
 export type SendPlanPrompt = (text: string) => void | Promise<void>;
@@ -410,7 +481,7 @@ export async function handleOctocodePlanCommand(args: string, ctx: PiContext | u
   if (action === 'off') {
     const was = isPlanMode(ctx);
     exitPlanMode(ctx);
-    notify(ctx, was ? 'Plan mode off — write tools restored.' : 'Plan mode was not on.', 'info');
+    notify(ctx, was ? 'Plan mode off.' : 'Plan mode was not on.', 'info');
     return;
   }
   if (action === 'new') {
@@ -424,8 +495,9 @@ export async function handleOctocodePlanCommand(args: string, ctx: PiContext | u
     enterPlanMode(ctx);
     setPlanLifecycle(scope, 'researching');
     setManagedActivity(ctx, { kind: 'researching', planScope: scope, detail: goal || undefined });
+    notify(ctx, 'Creating plan…', 'info');
     await sendPrompt(buildPlanPrompt(goal));
-    notify(ctx, goal ? `Plan mode on (write tools blocked until the required authorization gate): planning “${goal.slice(0, 80)}”.` : 'Plan mode on (write tools blocked until the required authorization gate): the agent will ask for the goal.', 'info');
+    notify(ctx, goal ? `Plan mode on: planning “${goal.slice(0, 80)}”.` : 'Plan mode on: the agent will ask for the goal.', 'info');
     return;
   }
   const n = Number(arg);
@@ -469,26 +541,18 @@ export async function handleOctocodePlanCommand(args: string, ctx: PiContext | u
     }
     case 'accept': {
       if (!arg) {
-        notify(ctx, 'Usage: /octocode-plan accept <displayed-revision>', 'warning');
+        notify(ctx, 'Usage: /octocode-plan start <displayed-revision>', 'warning');
         return;
       }
-      const planId = getPlanCoordination(scope).sourcePlanKey;
-      const receipt = createHumanAuthorizationReceipt(ctx, {
-        planId,
-        revision: arg,
-        scope: 'plan.accept',
-        question: `Accept RFC revision ${arg} for this plan?`,
-      });
-      const accepted = acceptPlanReview(scope, arg, receipt.receiptId);
-      if (!accepted.ok) {
-        notify(ctx, `RFC acceptance failed: ${accepted.message}`, 'warning');
+      const started = startReviewedPlan(scope, arg, ctx);
+      if (!started.ok) {
+        notify(ctx, `Implementation did not start: ${started.message}`, 'warning');
         refreshPlanUi(ctx);
         return;
       }
-      consumeHumanAuthorizationReceipt(scope, { receiptId: receipt.receiptId, planId, revision: arg, scope: 'plan.accept' });
-      writeCurrentPlanArtifacts(ctx, scope, 'approved');
+      writeCurrentPlanArtifacts(ctx, scope, 'active');
       refreshPlanUi(ctx);
-      notify(ctx, `RFC accepted · rev ${accepted.state.acceptedRevision?.slice(0, 8) ?? 'unknown'} — mutation remains blocked until Start.`, 'info');
+      notify(ctx, started.message, 'info');
       return;
     }
     case 'changes': {
@@ -519,50 +583,21 @@ export async function handleOctocodePlanCommand(args: string, ctx: PiContext | u
       }
       break;
     case 'start': {
-      if (getPlanReviewState(scope).phase === 'accepted') {
-        const contractError = sharedStartContractError(getPlan(scope));
-        if (contractError) {
-          notify(ctx, `Implementation did not start: invalid shared step contract — ${contractError}.`, 'warning');
-          refreshPlanUi(ctx);
-          return;
-        }
-        const state = getPlanReviewState(scope);
-        const revision = state.acceptedRevision!;
+      const reviewPhase = getPlanReviewState(scope).phase;
+      if (reviewPhase === 'in_review' || reviewPhase === 'accepted') {
         if (!arg) {
-          notify(ctx, 'Usage: /octocode-plan start <displayed-revision>. Start is bound to the revision shown by the browser or terminal.', 'warning');
+          notify(ctx, 'Usage: /octocode-plan start <displayed-revision>. Start is bound to the revision shown by the plan overview.', 'warning');
           return;
         }
-        if (arg !== revision) {
-          notify(ctx, `Implementation did not start: displayed revision is stale (expected ${revision.slice(0, 8)}). Refresh the plan and Start again.`, 'warning');
-          refreshPlanUi(ctx);
-          return;
-        }
-        const planId = getPlanCoordination(scope).sourcePlanKey;
-        const receipt = createHumanAuthorizationReceipt(ctx, {
-          planId,
-          revision,
-          scope: 'plan.start',
-          question: `Start implementation of accepted RFC revision ${revision}?`,
-        });
-        consumeHumanAuthorizationReceipt(scope, { receiptId: receipt.receiptId, planId, revision, scope: 'plan.start' });
-        const started = startAcceptedPlan(scope, receipt.receiptId);
+        const started = startReviewedPlan(scope, arg, ctx);
         if (!started.ok) {
           notify(ctx, `Implementation did not start: ${started.message}`, 'warning');
           refreshPlanUi(ctx);
           return;
         }
-        try {
-          ensureUnifiedProjection(scope, undefined, ctx);
-        } catch (error) {
-          const reason = error instanceof Error ? error.message : String(error);
-          rollbackAcceptedPlanStart(scope, `Shared Start failed: ${reason}`);
-          notify(ctx, `Implementation did not start; RFC acceptance was preserved: ${reason}`, 'warning');
-          refreshPlanUi(ctx);
-          return;
-        }
         writeCurrentPlanArtifacts(ctx, scope, 'active');
         refreshPlanUi(ctx);
-        notify(ctx, `Implementation started from accepted revision ${started.state.acceptedRevision?.slice(0, 8) ?? 'unknown'}.`, 'info');
+        notify(ctx, started.message, 'info');
         return;
       }
       if (validStep('start')) {
@@ -702,36 +737,13 @@ async function executePlanQuery(p: PlanParams, ctx: PiContext | undefined): Prom
       }
       return { rfc: res.path, hasNewRfc: true };
     }
-    const existing = getPlanRfc(scope);
-    const { consequential: inferred, signals } = inferConsequential(Array.isArray(p.steps) ? p.steps : []);
-    const treatConsequential = p.consequential === true || (inferred && p.consequential !== false);
-    if (treatConsequential && !existing) {
-      const why = p.consequential === true
-        ? 'consequential work'
-        : `this looks consequential (${signals.join('; ')})`;
-      return { hasNewRfc: false, error: gateError(`[PLAN] ${why} needs a reviewable RFC first. Load octocode-rfc-generator, write or update the RFC, then re-call plan with rfcPath pointing at it (…/.octocode/rfc/<name>/RFC.md). If this is genuinely trivial, pass consequential:false with a short reason.`) };
-    }
-    if (inferred && p.consequential === false) {
-      const reason = typeof p.reason === 'string' ? p.reason.trim() : '';
-      if (!reason) {
-        return { hasNewRfc: false, error: gateError(`[PLAN] this looks consequential (${signals.join('; ')}) but consequential:false was set. To skip the RFC, pass reason:"…" explaining why it's safe; otherwise write an RFC and pass rfcPath.`) };
-      }
-      addPlanDecision(scope, `Skipped RFC despite consequential signals (${signals.join('; ')})`, reason);
-    }
-    return { rfc: existing, hasNewRfc: false };
+    return { rfc: getPlanRfc(scope), hasNewRfc: false };
   };
 
   switch (p.action) {
     case 'set': {
       const gate = resolveGate();
       if (gate.error) return gate.error;
-      if (gate.hasNewRfc || p.consequential === true) {
-        return {
-          content: [{ type: 'text' as const, text: '[PLAN] consequential RFC-backed work must use plan(propose) so the user can review and Accept the exact revision, then separately Start implementation.' }],
-          isError: true,
-          details: { action: p.action, error: 'review-required' },
-        } as unknown as ToolCallResult;
-      }
       steps = setPlan(scope, Array.isArray(p.steps) ? p.steps : []);
       configurePlanScope(scope, p.scope);
       if (gate.hasNewRfc) setPlanRfc(scope, gate.rfc);
@@ -741,7 +753,8 @@ async function executePlanQuery(p: PlanParams, ctx: PiContext | undefined): Prom
       break;
     }
     case 'propose': {
-      setManagedActivity(ctx, { kind: 'planning', planScope: scope, detail: 'Preparing RFC review' });
+      ctx?.ui?.notify?.('Creating plan…', 'info');
+      setManagedActivity(ctx, { kind: 'planning', planScope: scope, detail: 'Creating plan…' });
       const gate = resolveGate();
       if (gate.error) return gate.error;
       steps = setPlan(scope, Array.isArray(p.steps) ? p.steps : [], 'draft');
@@ -749,7 +762,6 @@ async function executePlanQuery(p: PlanParams, ctx: PiContext | undefined): Prom
       if (gate.hasNewRfc) setPlanRfc(scope, gate.rfc);
 
       if (gate.rfc) {
-        updatePlanCoordination(scope, { mode: 'required', localReason: null });
         const proposed = proposePlanReview(scope);
         if (!proposed.ok) {
           return {
@@ -764,53 +776,70 @@ async function executePlanQuery(p: PlanParams, ctx: PiContext | undefined): Prom
         refreshPlanUi(ctx);
         setManagedActivity(ctx, { kind: 'reviewing', planScope: scope, revision });
         const summary = buildRfcReviewTldr(scope, steps, revision, artifacts);
-        const reviewSurface = ctx
+        const outcome = ctx
           ? await runAskPrompt(ctx, {
-            question: `RFC ready for review · rev ${revision.slice(0, 8)} · ${steps.length} step${steps.length === 1 ? '' : 's'} — how would you like to review it?`,
-            headerLabel: PLAN_RFC_REVIEW_HEADER,
-            durable: false,
-            options: [
-              {
-                value: 'browser',
-                label: 'Open in browser',
-                description: 'interactive localhost page with feedback, Accept, and Start buttons',
-                recommended: true,
-                disabled: planBrowserMessageSender ? false : 'browser-to-agent bridge unavailable in this host',
-              },
-              {
-                value: 'terminal',
-                label: 'Keep in terminal',
-                description: 'RFC summary and exact follow-up commands appear here in chat',
-              },
-            ],
+              question: `Plan overview ready · rev ${revision.slice(0, 8)} · ${steps.length} step${steps.length === 1 ? '' : 's'} — start implementation?`,
+              headerLabel: PLAN_RFC_REVIEW_HEADER,
+              durable: false,
+              freeTextLabel: 'Request changes',
+              options: [
+                {
+                  value: 'start',
+                  label: PLAN_APPROVE_LABEL,
+                  description: 'approve this exact RFC revision and begin the first runnable step',
+                  recommended: true,
+                  preview: summary,
+                },
+                {
+                  value: 'changes',
+                  label: PLAN_REJECT_LABEL,
+                  description: PLAN_REJECT_DESC,
+                  preview: summary,
+                },
+              ],
             })
           : undefined;
-        if (reviewSurface?.status === 'selected' && reviewSurface.value === 'browser') {
-          const reviewUrl = planBrowserMessageSender ? await servePlanPage(ctx, scope) : undefined;
-          if (reviewUrl) {
-            const verdict = `[PLAN] browser review opened · rev ${revision.slice(0, 8)} — Accept binds the displayed RFC bytes but does not Start implementation.`;
-            const pageNote = artifacts ? `\nPlan doc: ${artifacts.mdPath}` : '\nPlan doc could not be written.';
+
+        if (outcome?.status === 'selected' && outcome.value === 'start') {
+          const started = startReviewedPlan(scope, revision, ctx);
+          if (!started.ok) {
             return {
-              content: [{ type: 'text', text: `${verdict}\n${renderList(steps)}${pageNote}\nInteractive review: ${reviewUrl}` }],
-              details: { action: p.action, ...planPresentation(ctx, scope), verdict, revision, reviewUrl, reviewSurface: 'browser' },
+              content: [{ type: 'text', text: `[PLAN] implementation did not start: ${started.message}\n\n${summary}` }],
+              isError: true,
+              details: { action: p.action, ...planPresentation(ctx, scope), error: 'start-failed', revision },
             } as unknown as ToolCallResult;
           }
+          steps = started.steps;
+          const activeArtifacts = writeCurrentPlanArtifacts(ctx, scope, 'active');
+          refreshPlanUi(ctx);
+          const verdict = `[PLAN] approved and started · rev ${revision.slice(0, 8)}`;
+          return {
+            content: [{ type: 'text', text: `${verdict}\n\n${summary}\n\nActive plan\n${renderList(steps)}` }],
+            details: { action: p.action, ...planPresentation(ctx, scope), verdict, revision, decision: 'start', ...(activeArtifacts ? { artifacts: activeArtifacts } : {}) },
+          } as unknown as ToolCallResult;
         }
 
-        const selectedSurface = reviewSurface?.status === 'selected' ? reviewSurface.value : 'terminal';
-        const verdict = selectedSurface === 'browser'
-            ? '[PLAN] browser could not be opened — falling back to the terminal Summary and local files.'
-            : '[PLAN] terminal review selected — browser remains closed.';
+        const feedback = outcome?.status === 'text' ? String(outcome.value ?? '').trim() : '';
+        if ((outcome?.status === 'selected' && outcome.value === 'changes') || feedback) {
+          const changed = requestPlanChanges(scope);
+          if (feedback) addPlanDecision(scope, 'Requested plan changes', feedback);
+          writeCurrentPlanArtifacts(ctx, scope, 'draft');
+          refreshPlanUi(ctx);
+          const verdict = `[PLAN] changes requested${feedback ? `: ${feedback}` : ''}`;
+          return {
+            content: [{ type: 'text', text: `${verdict}\n\n${summary}` }],
+            details: { action: p.action, ...planPresentation(ctx, scope), verdict, revision, decision: 'changes', transitionOk: changed.ok },
+          } as unknown as ToolCallResult;
+        }
+
+        const verdict = outcome?.status === 'pending'
+          ? `[PLAN] Start decision pending (correlation=${outcome.interaction?.correlationId ?? 'unavailable'}).`
+          : outcome?.status === 'cancelled'
+            ? '[PLAN] review cancelled — the RFC remains ready when the user returns.'
+            : '[PLAN] plan ready — show this overview inline and ask the user to Start implementation or request changes.';
         return {
           content: [{ type: 'text', text: `${verdict}\n\n${summary}` }],
-          details: {
-            action: p.action,
-            ...planPresentation(ctx, scope),
-            verdict,
-            revision,
-            reviewSurface: 'terminal',
-            ...(artifacts ? { artifacts } : {}),
-          },
+          details: { action: p.action, ...planPresentation(ctx, scope), verdict, revision, decision: outcome?.status ?? 'unavailable', ...(artifacts ? { artifacts } : {}) },
         } as unknown as ToolCallResult;
       }
 
@@ -822,7 +851,7 @@ async function executePlanQuery(p: PlanParams, ctx: PiContext | undefined): Prom
             headerLabel: PLAN_APPROVAL_HEADER,
             options: [
               {
-                value: 'approve',
+                value: 'start',
                 label: PLAN_APPROVE_LABEL,
                 description: PLAN_APPROVE_DESC,
                 recommended: true,
@@ -835,7 +864,7 @@ async function executePlanQuery(p: PlanParams, ctx: PiContext | undefined): Prom
             ],
           })
         : undefined;
-      const approved = outcome?.status === 'selected' && outcome.value === 'approve';
+      const approved = outcome?.status === 'selected' && outcome.value === 'start';
       if (approved) {
         steps = activatePlan(scope);
         ensureUnifiedProjection(scope, p.scope, ctx);
@@ -850,7 +879,7 @@ async function executePlanQuery(p: PlanParams, ctx: PiContext | undefined): Prom
           return `[PLAN] approval pending (correlation=${outcome.interaction?.correlationId ?? 'unavailable'}) — do not execute until the durable host continuation records approval.`;
         }
         if (approved) {
-          return '[PLAN] approved — begin executing; keep steps updated via start/complete.';
+          return '[PLAN] approved and started — keep steps updated via complete.';
         }
         if (outcome.status === 'text' && outcome.value) {
           return `[PLAN] adjust requested: ${outcome.value}\nRevise the plan and re-propose.`;
@@ -1045,15 +1074,15 @@ export function registerPlanTool(
     label: 'Plan',
     description: [
       'Track a canonical, compaction-durable checklist for non-trivial multi-step or risky work; skip obvious single-step tasks. The footer shows progress/current work, while show and generated plan artifacts retain full detail.',
-      'Use clarify only for unresolved decision-changing blockers; set for already-authorized work; propose with an RFC for consequential review; add/start/complete/remove to keep execution truthful; clear when done or abandoned.',
-      'Consequential work requires an exact RFC revision: user Accept records the displayed bytes, and a separate user Start authorizes mutation. The agent-callable start action cannot grant that authorization.',
+      'Use clarify only for unresolved decision-changing blockers; set for already-authorized work; propose with an RFC for review; add/start/complete/remove to keep execution truthful; clear when done or abandoned.',
+      'RFC review uses one user decision: Start approves the exact displayed bytes and begins implementation; Request changes returns the plan to draft.',
     'Multiple independent steps may be doing in parallel. Use scope:"shared" for persistent multi-agent execution; it automatically projects stable steps, dependencies, ownership, and verification receipts into Awareness from one internal plan model.',
       'index is optional for start/complete/remove: complete/remove default to the single current doing step; when multiple steps are doing, pass index. start defaults to the next runnable todo. Completing a mapped shared step requires receipt {command,status,message} from the declared check that actually ran.',
     ].join('\n'),
     promptSnippet: 'Track a durable task checklist (clarify/set/propose/add/start/complete/remove/show/clear).',
     promptGuidelines: [
       'Research first. Use plan(clarify) only when an answer will change scope, architecture, acceptance criteria, or authorization and the repository cannot supply it. Prefer one question; use 2–3 only for independent blockers. Never ask for confirmation, information already given, or implementation details you can decide safely.',
-      'When execution is already authorized/obvious, record steps with plan(set). For consequential or preference-dependent work, create a reviewable RFC and call plan(propose) with consequential:true and rfcPath. The user—not the agent—accepts the exact displayed revision, and mutation remains blocked until a separate user Start. The tool auto-detects consequential-looking plans and blocks them without an RFC; consequential:false requires a logged reason. Once executing, keep working: finish the active step and call plan(complete) with no index for the single current step, then continue the next runnable step until the whole plan is done.',
+      'When execution is already authorized/obvious, record steps with plan(set). When the user asks for a plan, research first, ask only decision-changing questions through askUser, create or update an RFC, then call plan(propose) with rfcPath. The proposal shows the overview and asks once: Start implementation or Request changes. Planning never disables tools; after Start, finish the active step with plan(complete) and continue until the whole plan is done.',
       'Keep the checklist truthful as scope shifts: plan(add) newly discovered document-backed steps, plan(remove) obsolete ones, and plan(clear) once the task is done or abandoned. Shared task projection, ownership, dependencies, check receipts, and finalization are internal to plan; there is no separate public task tool.',
       'For independent lanes, encode ordering with dependsOn, start runnable lanes with plan(start:N) before batching/spawning, and pass explicit indices when completing parallel steps.',
       'Give active steps a concise activeForm (for example, "Editing file"). The footer shows plan progress and current/blocking work; plan show, plan.md, and plan.html retain the complete checklist.',
@@ -1092,8 +1121,8 @@ export function registerPlanTool(
       acceptance: Type.Optional(Type.String({ description: 'For action:add — observable done state.' })),
       checkCommand: Type.Optional(Type.String({ description: 'For action:add — command that verifies the task.' })),
       index: Type.Optional(Type.Integer({ minimum: 1, description: '1-based step number for start/complete/remove. Omit to target the current doing step (complete/remove) or the next runnable todo (start).' })),
-      consequential: Type.Optional(Type.Boolean({ description: 'For set/propose: mark the work consequential. When true—or inferred from the steps—a reviewable RFC path is required; acceptance happens inside the user review flow. Pass false only for genuinely trivial work.' })),
-      reason: Type.Optional(Type.String({ description: 'Required with consequential:false when the steps still look consequential — a short justification for skipping the RFC (recorded in the decision log).' })),
+      consequential: Type.Optional(Type.Boolean({ description: 'Optional compatibility metadata for set/propose; it does not add a tool restriction. Use rfcPath when a reviewable RFC exists.' })),
+      reason: Type.Optional(Type.String({ description: 'Optional planning rationale recorded by callers; it is never required to bypass a heuristic gate.' })),
       rfcPath: Type.Optional(Type.String({ description: 'For set/propose: a reviewable `.octocode/rfc/<name>/` folder or RFC.md. Propose hashes its exact bytes and enters review; the path must stay under the workspace RFC tree.' })),
       questions: Type.Optional(Type.Array(
         Type.Object({

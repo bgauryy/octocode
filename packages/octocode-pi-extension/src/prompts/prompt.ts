@@ -1,3 +1,17 @@
+/**
+ * Standalone prompt assembly runtime — copied from `octocode-agent-core/src/runtime/prompt.ts`.
+ *
+ * STATUS: Not wired into the extension pipeline. The extension builds its system
+ * prompt through `buildOctocodeSystemPrompt` in `system-prompt.ts`. This module
+ * is kept as a zero-dep utility for future fragment-based assembly.
+ *
+ * PLACEMENT NOTE: `PromptPlacement` here (`'system'|'before-user'|'after-user'`)
+ * differs from `PromptPlacement` in `../tools/prompt-lifecycle.ts`
+ * (`'frozen-system'|'turn-context'|'transcript'`). Separate modules; no import
+ * clash, but do not conflate the two models.
+ *
+ * Remove this file when `@octocodeai/octocode-shared` exposes `assemblePrompt`.
+ */
 export type PromptPlacement = 'system' | 'before-user' | 'after-user';
 
 export interface PromptFragment {

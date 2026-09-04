@@ -96,6 +96,23 @@ $OCTO tools localSearch lspGetSemantics --scheme
 
 Prefer `node packages/octocode/out/octocode.js` over global `octocode` / npx when validating monorepo changes. After engine or tools-core edits: rebuild the package, then `yarn workspace octocode build:dev`. `build:dev` skips clean + lint; engine uses debug (not `--release`).
 
+## Bash tool best practices
+
+Avoid hangs and aborts in shell calls:
+
+| Pattern | Problem | Fix |
+|---|---|---|
+| `npx <pkg>@latest` | Prompts for install confirmation — **hangs** | `npx -y <pkg>@latest` |
+| `npx pkg --version` | Downloads full package before printing — slow/hangs | `npm view <pkg>@latest version` |
+| Mix fast + slow cmds in one batch | One hang aborts all remaining queries | Isolate slow/network commands in their own single-query bash call |
+| `timeout <cmd>` on macOS | `timeout` is GNU — not available | `gtimeout` (brew install coreutils) or `perl -e 'alarm N; exec @ARGV' -- <cmd>` |
+
+**octocode tool call rules** (localSearch, localGetFileContent, lspGetSemantics):
+- `localSearch` always requires `path` (absolute) **+** `operation` — no exceptions.
+- Wrong field names error silently: `directory` → `path`; `maxResults` → `limit`.
+- Check live schema before first call: `octocode tools <toolName> --scheme --brief`
+- Version checks: always use `npm view <pkg>@latest version` — no download, no prompt, instant.
+
 ## Dev setup and publish guard
 
 See [`scripts/README.md`](scripts/README.md) for the script catalog. Use the root scripts as the source of truth; do not re-add package-local version sync helpers.

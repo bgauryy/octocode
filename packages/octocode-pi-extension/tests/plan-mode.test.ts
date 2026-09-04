@@ -11,7 +11,6 @@ import {
   evaluateToolCapability,
   isPlanMode,
   planModeToolGate,
-  PLAN_MODE_BLOCK_REASON,
   unclassifiedToolNames,
 } from '../src/tools/plan-mode.js';
 
@@ -41,45 +40,28 @@ test('capability receipts are deterministic and deny precedence is fail-closed',
   assert.ok(first.guards.some((guard) => guard.name === 'tool-effect-classified' && guard.decision === 'block'));
 });
 
-test('pre-Start policy allows planning/coordination/read and blocks workspace, external, shell, and unknown effects', () => {
+test('pre-Start policy tracks the phase without blocking tool execution', () => {
   const session = ctx('review-session');
   enterPlanMode(session);
   assert.equal(isPlanMode(session), true);
-  for (const allowed of ['plan', 'askUser', 'skill', 'claim', 'readMedia', 'web', 'localSearch']) {
-    assert.equal(planModeToolGate(allowed, session), undefined, `${allowed} remains available during review`);
+  for (const [toolName, toolInput] of [
+    ['plan', undefined],
+    ['askUser', undefined],
+    ['skill', { queries: [{ reasoning: 'create a workflow', type: 'call', skillType: 'release-flow', mode: 'create' }] }],
+    ['file', undefined],
+    ['bash', undefined],
+    ['chromeDebug', undefined],
+    ['agent', { queries: [{ type: 'spawn', profile: 'researcher' }] }],
+    ['MCPTool', { queries: [{ action: 'add', server: 'other' }] }],
+    ['mysteryTool', undefined],
+  ] as const) {
+    assert.equal(planModeToolGate(toolName, session, toolInput), undefined, `${toolName} is not restricted by plan phase`);
   }
-  assert.deepEqual(
-    planModeToolGate('agent', session),
-    { block: true, reason: PLAN_MODE_BLOCK_REASON },
-    'an agent call without a resolved batch fails closed',
-  );
   assert.equal(
-    planModeToolGate('skill', session, { queries: [{ reasoning: 'load RFC guidance', type: 'load', name: 'octocode-rfc-generator' }] }),
-    undefined,
-    'installed skill reads remain available during review',
+    evaluateToolCapability({ toolName: 'file', phase: 'in_review', createdAt: '2026-08-26T00:00:00.000Z' }).effectiveDecision,
+    'allow',
+    'plan phase is audit context, not an execution deny',
   );
-  for (const mode of ['auto', 'use', 'create', 'enhance', 'fix', 'list', 'delete']) {
-    assert.deepEqual(
-      planModeToolGate('skill', session, { queries: [{ reasoning: 'dynamic skill operation', type: 'call', skillType: 'release-flow', mode }] }),
-      { block: true, reason: PLAN_MODE_BLOCK_REASON },
-      `dynamic skill mode ${mode} is blocked because the orchestrator may mutate dynamic-skill storage`,
-    );
-  }
-  assert.deepEqual(
-    planModeToolGate('skill', session, {
-      queries: [
-        { reasoning: 'safe installed skill read', type: 'load', action: 'list' },
-        { reasoning: 'unsafe dynamic skill mutation', type: 'call', skillType: 'release-flow', mode: 'create' },
-      ],
-    }),
-    { block: true, reason: PLAN_MODE_BLOCK_REASON },
-    'one mutating query blocks the entire ordered batch before execution',
-  );
-  assert.equal(planModeToolGate('MCPTool', session, { queries: [{ action: 'call', server: 'octocode' }] }), undefined);
-  assert.ok(planModeToolGate('MCPTool', session, { queries: [{ action: 'status' }, { action: 'add', server: 'other' }] }));
-  for (const blocked of ['file', 'edit', 'write', 'bash', 'createImage', 'chromeDebug', 'mysteryTool']) {
-    assert.deepEqual(planModeToolGate(blocked, session), { block: true, reason: PLAN_MODE_BLOCK_REASON }, `${blocked} fails closed`);
-  }
 });
 
 test('policies are isolated by session and only explicit off clears the targeted session', () => {
@@ -88,7 +70,7 @@ test('policies are isolated by session and only explicit off clears the targeted
   enterPlanMode(one);
   assert.equal(isPlanMode(one), true);
   assert.equal(isPlanMode(two), false);
-  assert.ok(planModeToolGate('edit', one));
+  assert.equal(planModeToolGate('edit', one), undefined);
   assert.equal(planModeToolGate('edit', two), undefined);
   exitPlanMode(two);
   assert.equal(isPlanMode(one), true, 'clearing another session cannot disable this gate');
@@ -107,7 +89,7 @@ test('branch adoption replaces policy atomically and rejects stale same-branch g
   });
   assert.equal(adoptPlanModePolicy(session, { phase: 'accepted', branchSnapshotId: 'branch-b', generation: 1 }), true);
   assert.equal(getPlanModePolicy(session)?.branchSnapshotId, 'branch-b', 'tree switch adopts the active branch even with a lower generation');
-  assert.ok(planModeToolGate('write', session), 'accepted still blocks mutation');
+  assert.equal(planModeToolGate('write', session), undefined, 'accepted plans do not disable tools');
   assert.equal(adoptPlanModePolicy(session, { phase: 'executing', branchSnapshotId: 'branch-b', generation: 2 }), true);
-  assert.equal(planModeToolGate('write', session), undefined, 'Start enables effects for the owning branch generation');
+  assert.equal(planModeToolGate('write', session), undefined, 'execution remains unrestricted by plan tracking');
 });

@@ -14,6 +14,7 @@ import {
   getCachedMcpCounts,
   isCompactMcpEnabled,
   isMcpAiGuideEnabled,
+  formatMcpSchemaValidationErrors,
   mcpCatalogReady,
   resolveMcpCallContent,
   resolveMcpCallText,
@@ -50,6 +51,20 @@ afterEach(() => {
     delete process.env["OCTOCODE_STORAGE_MODE"];
   else process.env["OCTOCODE_STORAGE_MODE"] = originalStorageMode;
   mcpTestHooks.clearCachedMcpCatalog();
+});
+
+test("MCP schema errors explain rejected branch fields instead of saying schema is false", () => {
+  const text = formatMcpSchemaValidationErrors([
+    {
+      keyword: "Never",
+      instancePath: "/queries/0/limit",
+      schemaPath: "#/properties/queries/items/oneOf/0/properties/limit",
+      message: "schema is false",
+    },
+  ]);
+  assert.match(text, /\/queries\/0\/limit: field is not allowed for the selected operation/i);
+  assert.match(text, /MCPTool action:\"describe\"/i);
+  assert.doesNotMatch(text, /schema is false/i);
 });
 
 test("compact MCP prompting is the default and exact mode is an explicit opt-out", () => {
@@ -2100,20 +2115,30 @@ test("parallel MCP batches overlap read operations and preserve source-order rec
   }
 });
 
-test("parallel MCP calls reject same-server overlap before either call runs", async () => {
-  const def = buildMcpToolDef();
-  const res = await def.execute("tc-parallel-gate", {
-    queryRunType: "parallel",
-    queries: [
-      { reasoning: "first call", action: "call", server: "same", tool: "one" },
-      { reasoning: "second call", action: "call", server: "same", tool: "two" },
-    ],
-  });
-  assert.equal(res.isError, true);
-  assert.match(
-    (res.content[0] as { text: string }).text,
-    /distinct servers|appears more than once/i,
-  );
+test("parallel MCP calls may target the same server and report each result independently", async () => {
+  const fixture = createCallGateMcpFixture();
+  try {
+    const def = buildMcpToolDef();
+    const res = await def.execute(
+      "tc-parallel-same-server",
+      {
+        queryRunType: "parallel",
+        queries: [
+          { reasoning: "echo first", action: "call", server: "octocode", tool: "echo", arguments: { value: "first" } },
+          { reasoning: "echo second", action: "call", server: "octocode", tool: "echo", arguments: { value: "second" } },
+        ],
+      },
+      undefined,
+      undefined,
+      fixture.ctx,
+    );
+    assert.equal(res.isError ?? false, false);
+    assert.match((res.content[0] as { text: string }).text, /2 queries succeeded · parallel/i);
+    assert.match((res.content[1] as { text: string }).text, /first/i);
+    assert.match((res.content[2] as { text: string }).text, /second/i);
+  } finally {
+    fixture.cleanup();
+  }
 });
 
 test("single-query passthrough: result is returned directly (not aggregate)", async () => {

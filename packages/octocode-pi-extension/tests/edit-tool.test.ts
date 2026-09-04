@@ -348,6 +348,19 @@ test('matchMode:lineRange replaces by line numbers', async () => {
   assert.equal(fs.readFileSync(path.join(tmpDir, 'lr.txt'), 'utf8'), 'line1\nREPLACED\nline3\n');
 });
 
+test('matchMode:lineRange treats an empty oldText as omitted', async () => {
+  writeFile('lr-empty-old.txt', 'line1\nline2\nline3\n');
+  const result = await run({
+    queries: [{
+      reasoning: 'replace line 2 with a range selector',
+      path: 'lr-empty-old.txt',
+      edits: [{ reasoning: 'target line', oldText: '', newText: 'REPLACED\n', matchMode: 'lineRange', startLine: 2, endLine: 2 }],
+    }],
+  });
+  assert.equal(result.isError, undefined);
+  assert.equal(fs.readFileSync(path.join(tmpDir, 'lr-empty-old.txt'), 'utf8'), 'line1\nREPLACED\nline3\n');
+});
+
 // ─── renderCall / renderResult ────────────────────────────────────────────────
 
 test('renderCall returns a renderer that includes the tool label and file path', () => {

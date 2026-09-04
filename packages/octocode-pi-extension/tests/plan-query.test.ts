@@ -415,7 +415,7 @@ test('shared completion compensates a failed check mark and reports verification
   }
 });
 
-test('accepted RFC shared scope creates no Awareness rows until the separate Start command', async () => {
+test('accepted RFC shared scope creates no Awareness rows until the Start command', async () => {
   const workspace = mkdtempSync(join(tmpdir(), 'plan-scope-rfc-start-'));
   const previousAgent = process.env['OCTOCODE_AGENT_ID'];
   process.env['OCTOCODE_AGENT_ID'] = 'pi:plan-rfc-start-test';

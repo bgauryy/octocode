@@ -191,7 +191,7 @@ test('card builders truncate every line to the given width', () => {
 
 // ─── Emitters ─────────────────────────────────────────────────────────────────
 
-test('emitCompactionCheckpoint: bounded marker carries recovery pointers without duplicating summary or full plan', () => {
+test('emitCompactionCheckpoint: bounded marker carries recovery pointers and inline summary snapshot', () => {
   const { pi, sent } = makePi();
   emitCompactionCheckpoint(pi, compactionDetails);
   assert.equal(sent.length, 1);
@@ -200,7 +200,9 @@ test('emitCompactionCheckpoint: bounded marker carries recovery pointers without
   assert.equal(msg.display, true);
   assert.equal(msg.details, compactionDetails);
   assert.match(msg.content, /^<octocode_compaction_context>/);
-  assert.doesNotMatch(msg.content, /line one line two/);
+  // Summary is now inlined (≤3500 chars, covers Next Steps) so the agent can resume without a file read.
+  assert.match(msg.content, /"summaryAvailable":true/);
+  assert.match(msg.content, /"summary":"line one/);
   assert.match(msg.content, /"phase":"executing"/);
   assert.match(msg.content, /"activeStepIds":\["step-1"\]/);
   assert.match(msg.content, /<\/octocode_compaction_context>$/);
@@ -209,7 +211,7 @@ test('emitCompactionCheckpoint: bounded marker carries recovery pointers without
   assert.equal(extraArgs.length, 0, 'no options argument → no triggerTurn');
 });
 
-test('renderCompactionContextMarker caps provider summary text', () => {
+test('renderCompactionContextMarker caps provider summary text at 3500 chars', () => {
   const marker = renderCompactionContextMarker({
     label: 'bounded',
     summary: 'x'.repeat(10_000),
@@ -222,9 +224,14 @@ test('renderCompactionContextMarker caps provider summary text', () => {
       },
     },
   });
-  assert.ok(marker.length < 4_000);
+  // Summary is bounded at 3500 chars (covers Next Steps at ~2094 chars in typical summaries).
   assert.match(marker, /^<octocode_compaction_context>/);
-  assert.doesNotMatch(marker, /x{100}/);
+  assert.match(marker, /"summaryAvailable":true/);
+  // 3500 x's must be in the marker; the full 10000 must not appear.
+  assert.match(marker, /"summary":"x{3500}"/);
+  assert.doesNotMatch(marker, /x{3501}/);
+  // marker stays a single line (no newlines in JSON payload)
+  assert.ok(!marker.includes('\n'));
 });
 
 test('emitAwarenessHandoff: one-line content, details payload, display true, no triggerTurn', () => {

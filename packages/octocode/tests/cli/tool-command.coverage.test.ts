@@ -440,26 +440,26 @@ describe('tool-command coverage', () => {
     const { toolCommand } = await import('../../src/cli/tool-command.js');
 
     try {
-    await toolCommand.handler!({
-      command: 'tools',
-      args: ['ghCloneRepo'],
-      options: { queries: '{"owner":"bgauryy","repo":"octocode-mcp"}' },
-    });
+      await toolCommand.handler!({
+        command: 'tools',
+        args: ['ghCloneRepo'],
+        options: { queries: '{"owner":"bgauryy","repo":"octocode-mcp"}' },
+      });
 
-    expect(mocks.initialize).toHaveBeenCalledTimes(1);
-    expect(mocks.initializeProviders).toHaveBeenCalledTimes(1);
-    expect(mocks.cloneRepo).toHaveBeenCalledWith(
-      expect.objectContaining({
-        queries: [
-          expect.objectContaining({
-            owner: 'bgauryy',
-            repo: 'octocode-mcp',
-          }),
-        ],
-      })
-    );
-    expect(consoleSpy).toHaveBeenCalledWith('cloned');
-    expect(process.exitCode).toBeUndefined();
+      expect(mocks.initialize).toHaveBeenCalledTimes(1);
+      expect(mocks.initializeProviders).toHaveBeenCalledTimes(1);
+      expect(mocks.cloneRepo).toHaveBeenCalledWith(
+        expect.objectContaining({
+          queries: [
+            expect.objectContaining({
+              owner: 'bgauryy',
+              repo: 'octocode-mcp',
+            }),
+          ],
+        })
+      );
+      expect(consoleSpy).toHaveBeenCalledWith('cloned');
+      expect(process.exitCode).toBeUndefined();
     } finally {
       delete process.env.ENABLE_CLONE;
     }
@@ -470,25 +470,25 @@ describe('tool-command coverage', () => {
     const { toolCommand } = await import('../../src/cli/tool-command.js');
 
     try {
-    await toolCommand.handler!({
-      command: 'tools',
-      args: ['ghCloneRepo'],
-      options: {
-        queries: '{"owner":"bgauryy","repo":"octocode-mcp","branch":"main"}',
-      },
-    });
+      await toolCommand.handler!({
+        command: 'tools',
+        args: ['ghCloneRepo'],
+        options: {
+          queries: '{"owner":"bgauryy","repo":"octocode-mcp","branch":"main"}',
+        },
+      });
 
-    expect(mocks.cloneRepo).toHaveBeenCalledWith(
-      expect.objectContaining({
-        queries: [
-          expect.objectContaining({
-            owner: 'bgauryy',
-            repo: 'octocode-mcp',
-            branch: 'main',
-          }),
-        ],
-      })
-    );
+      expect(mocks.cloneRepo).toHaveBeenCalledWith(
+        expect.objectContaining({
+          queries: [
+            expect.objectContaining({
+              owner: 'bgauryy',
+              repo: 'octocode-mcp',
+              branch: 'main',
+            }),
+          ],
+        })
+      );
     } finally {
       delete process.env.ENABLE_CLONE;
     }

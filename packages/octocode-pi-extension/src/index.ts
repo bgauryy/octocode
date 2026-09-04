@@ -125,7 +125,7 @@ import { setUiTickSubscriber } from './tui/ui-ticker.js';
 import { FOOTER_LEGEND, PERMISSION_LEVEL_SUMMARY } from './tui/content.js';
 import { listCDPSessions, closeAllChromeConnections } from './chrome-connection-cache.js';
 import { handleOctocodePlanCommand, OCTOCODE_PLAN_COMMAND_USAGE, OCTOCODE_PLAN_COMMAND_COMPLETIONS, setPlanMetricsRefreshForUi } from './tools/plan-tool.js';
-import { adoptPlanModePolicy, evaluateToolCapability, exitPlanMode, getPlanModePolicy, planModeToolGate } from './tools/plan-mode.js';
+import { adoptPlanModePolicy, evaluateToolCapability, exitPlanMode, getPlanModePolicy } from './tools/plan-mode.js';
 import { atomicWriteUtf8, clearAllReadStates, resolveFilePath } from './tools/file-state.js';
 import { registerAgentInbox, type AgentInboxRegistration } from './tools/agent-inbox.js';
 import { getPaletteShortcut, registerCommandPalette } from './tools/command-palette.js';
@@ -1274,7 +1274,7 @@ async function wireOctocodePiExtension(
       return skillPath ? { skillPaths: [skillPath] } : {};
     });
 
-    hooks.on('tool_call', 'octocode-plan-mode-gate', async (event: { toolName?: string; input?: Record<string, unknown> }, ctx: PiContext | undefined) => {
+    hooks.on('tool_call', 'octocode-plan-mode-audit', async (event: { toolName?: string; input?: Record<string, unknown> }, ctx: PiContext | undefined) => {
       const policy = getPlanModePolicy(ctx);
       const receipt = evaluateToolCapability({ toolName: event.toolName, toolInput: event.input, ...(policy ? { phase: policy.phase } : {}) });
       if (!process.env['VITEST']) {
@@ -1283,7 +1283,7 @@ async function wireOctocodePiExtension(
           try { awareness.recordCapabilityReceipt(receipt); } finally { awareness.close(); }
         } catch { /* audit persistence cannot weaken the synchronous deny decision */ }
       }
-      return planModeToolGate(event.toolName, ctx, event.input);
+      return undefined;
     });
 
     hooks.on('tool_call', 'awareness-lock-gate', async (event: { toolName?: string; input?: Record<string, unknown> }, ctx: PiContext | undefined) => {

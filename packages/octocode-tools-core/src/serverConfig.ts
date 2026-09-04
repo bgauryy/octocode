@@ -81,6 +81,13 @@ export async function initialize(): Promise<void> {
         resolved.local.enableClone && resolved.storage.mode === 'persistent',
       tokenSource: tokenResult.source,
     };
+    // Warn when the user explicitly enabled clone but storage mode cancels it.
+    if (resolved.local.enableClone && resolved.storage.mode !== 'persistent') {
+      process.stderr.write(
+        '[octocode] ENABLE_CLONE is set but OCTOCODE_STORAGE_MODE is "memory" — clone is disabled. ' +
+        'Remove OCTOCODE_STORAGE_MODE=memory or set it to "persistent" to enable ghCloneRepo.\n'
+      );
+    }
     await runCacheMaintenanceIfDue(getOctocodeDir());
   })();
 

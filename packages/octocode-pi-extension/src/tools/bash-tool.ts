@@ -17,7 +17,6 @@ import { paint } from '../tui/cli-design.js';
 import { buildToolView, makeRenderer, truncateToWidth } from './render-helpers.js';
 import { assertPathAllowed } from './path-guard.js';
 import { classifySensitiveCommand, requestApproval, type ApprovalRequest } from './approval.js';
-import { isPlanMode, PLAN_MODE_BLOCK_REASON } from './plan-mode.js';
 import type { PiContext } from '../types.js';
 import type { registerUniqueTool } from './octocode-tools.js';
 import { buildQueryEnvelopeSchema, executeQueryBatch } from './query-envelope.js';
@@ -594,7 +593,6 @@ export function registerBashTool(
             throw new Error('command must be a non-empty string.');
           }
           assertBashCommandAllowed(query['command'], cwd);
-          if (isPlanMode(ctx)) throw new Error(`bash blocked: ${PLAN_MODE_BLOCK_REASON}`);
         },
         async execute(query, _index, itemCallId) {
           const command = query['command'] as string;

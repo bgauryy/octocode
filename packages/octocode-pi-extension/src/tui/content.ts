@@ -62,17 +62,17 @@ export const OVERLAY_HELP_MULTI = '↑↓ navigate • space toggle • enter co
 
 // ─── Plan approval ─────────────────────────────────────────────────────────────
 
-export const PLAN_APPROVE_LABEL = 'Approve plan';
-export const PLAN_APPROVE_DESC = 'begin executing the steps';
-export const PLAN_REJECT_LABEL = 'Reject plan';
-export const PLAN_REJECT_DESC = 'do not execute';
+export const PLAN_APPROVE_LABEL = 'Start implementation';
+export const PLAN_APPROVE_DESC = 'approve this plan and begin the first runnable step';
+export const PLAN_REJECT_LABEL = 'Request changes';
+export const PLAN_REJECT_DESC = 'return the plan to draft for revision';
 /** Free-text row doubles as the adjust channel; the question advertises it. */
 export const PLAN_PROPOSE_HINT = 'type feedback to request changes';
 
 // ─── Context-specific ask-widget header labels for plan prompts ───────────────
 
 /** Ask-widget header for the RFC-backed propose review surface picker. */
-export const PLAN_RFC_REVIEW_HEADER = 'RFC Ready for Review';
+export const PLAN_RFC_REVIEW_HEADER = 'Plan Ready to Start';
 /** Ask-widget header for the plan approve/reject flow. */
 export const PLAN_APPROVAL_HEADER = 'Plan Approval';
 

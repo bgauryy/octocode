@@ -101,6 +101,7 @@ import {
   McpSchemaUnsupportedError,
   compileMcpSchemaValidator,
   type McpCompiledSchemaValidator,
+  type McpSchemaValidationError,
 } from "./mcp-schema-validator.js";
 import {
   createMcpOAuthFlow,
@@ -1938,6 +1939,21 @@ async function validateOneMcpTool(
   };
 }
 
+export function formatMcpSchemaValidationErrors(errors: McpSchemaValidationError[]): string {
+  const seen = new Set<string>();
+  const lines = errors.flatMap((error) => {
+    const message = /schema is false|expected never/i.test(error.message)
+      ? 'field is not allowed for the selected operation'
+      : error.message;
+    const line = `- ${error.instancePath || "/"}: ${message}`;
+    if (seen.has(line)) return [];
+    seen.add(line);
+    return [line];
+  });
+  lines.push('Hint: run MCPTool action:"describe" for this tool, then use only fields supported by the selected operation.');
+  return lines.join("\n");
+}
+
 export async function handleMcpAction(
   params: Record<string, unknown>,
   signal?: AbortSignal,
@@ -2405,11 +2421,8 @@ export async function handleMcpAction(
     const validation = validated.validator.validate(argumentsPayload);
     if (!validation.valid) {
       mcpSchemaMetrics.blockedCalls += 1;
-      const lines = validation.errors.map(
-        (error) => `- ${error.instancePath || "/"}: ${error.message}`,
-      );
       return result(
-        `MCP_SCHEMA_INVALID ${serverName}/${tool}\n${lines.join("\n")}`,
+        `MCP_SCHEMA_INVALID ${serverName}/${tool}\n${formatMcpSchemaValidationErrors(validation.errors)}`,
         {
           server: serverName,
           tool,
@@ -2742,7 +2755,6 @@ export function registerMcpTool(
   ): Promise<ToolCallResult> => {
     setManagedStatus(ctx, MCP_STATUS_NAME, "mcp · running");
     try {
-      const parallelServers = new Set<string>();
       return await executeQueryBatch({
         toolCallId,
         raw: params,
@@ -2776,14 +2788,8 @@ export function registerMcpTool(
               `parallel MCP batches do not support the mutating ${action} action`,
             );
           }
-          if (action !== "call") return;
-          const server = String(query["server"]);
-          if (parallelServers.has(server)) {
-            throw new Error(
-              `parallel MCP calls require distinct servers; ${server} appears more than once`,
-            );
-          }
-          parallelServers.add(server);
+          // Read-like MCP actions may share a server; the MCP client correlates
+          // concurrent requests and executeQueryBatch preserves source-order rows.
         },
         async execute(
           query,

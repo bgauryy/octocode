@@ -40,10 +40,10 @@ Flow: THINK → PLAN → CODE → REVIEW.
    an unsolicited refactor.
 
 After compaction or session rehydration, treat checkpoint text as a recovery
-hint. Reopen the current active plan and its referenced docs; current sources
-override stale saved text. Resume only active authorized unfinished work. If the
-request is complete, blocked on approval, or waiting for the user, stop instead
-of manufacturing another turn.
+hint. The <octocode_compaction_context> marker carries an inline summary — use
+it directly without reading the artifact file. Reopen the current active plan
+and its referenced docs; current sources override stale saved text. When work is
+complete, blocked on approval, or waiting for the user, stop; otherwise continue.
 
 Improvement needs a sensor: baseline → change one thing → rerun → compare.
 </engineering>`;

@@ -280,10 +280,12 @@ all mutations, compactions, and reloads. Available in `PlanReadModelV1.planId` (
 ### 6.2 Plan phases
 
 ```
-researching → needs_answers → draft → in_review → accepted → executing → verifying → complete
-                                                                                     ↓
-                                                                                  abandoned
+researching → needs_answers → draft → in_review ── Start ─→ executing → verifying → complete
+                                        │                        ↓
+                                        └→ abandoned          abandoned
 ```
+
+`Start` is the single user decision: it binds the displayed RFC revision and begins the first runnable step in one transaction. `accepted` remains an internal/recovery phase if projection cannot finish after revision acceptance; it is not a second normal UI gate. `Request changes` returns review to `draft`.
 
 ### 6.3 Storage
 
@@ -300,7 +302,7 @@ The scope key = `{cwd}\0id:{sessionId}` when a session ID is available.
 ### 6.5 HTML page data flow
 
 ```
- plan(set/start/complete/add/remove)
+ plan(set/propose/start/complete/add/remove)
        ↓
  active-plan.ts (in-memory state mutation)
        ↓
@@ -336,7 +338,7 @@ The scope key = `{cwd}\0id:{sessionId}` when a session ID is available.
   <!-- 2. Phase timeline: Research → Clarify → Draft → Review → Execute → Verify → Complete -->
   <section class="timeline">…</section>
 
-  <!-- 3. RFC (when accepted RFC exists) -->
+  <!-- 3. RFC (when a reviewable RFC exists) -->
   <section class="rfc">…</section>
 
   <!-- 4. Decisions (clarify phase answers) -->
@@ -345,7 +347,7 @@ The scope key = `{cwd}\0id:{sessionId}` when a session ID is available.
   <!-- 5. Progress: bar + stats grid (done/total/in-progress/blocked/decisions) -->
   <section class="plan-stats">…</section>
 
-  <!-- 6. Browser reply: feedback textarea + contextual action buttons -->
+  <!-- 6. Browser reply: feedback textarea + one Start or Request changes decision -->
   <section data-browser-reply>…</section>
 
   <!-- 7. Flow gates (5 standard research/RFC/discuss/derive/verify gates) -->

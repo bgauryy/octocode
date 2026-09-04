@@ -194,7 +194,7 @@ export function renderPlanContext(model: PlanReadModelV1): string {
   });
   const executionAllowed = model.phase === 'executing' || model.phase === 'verifying';
   if (!executionAllowed) {
-    return ['<active_plan>', `This task breakdown is in ${model.phase.replace('_', ' ')} (0/${model.tasks.length} done). Implementation has not started; do not execute or start any step before the separate Start transition.`, ...metadata, ...rows, ...contracts, 'next: awaiting user approval', '</active_plan>'].join('\n');
+    return ['<active_plan>', `This task breakdown is in ${model.phase.replace('_', ' ')} (0/${model.tasks.length} done). Implementation has not started; wait for the Start decision shown with the plan overview.`, ...metadata, ...rows, ...contracts, 'next: awaiting Start or requested changes', '</active_plan>'].join('\n');
   }
   const doing = model.tasks.filter((task) => task.status === 'doing');
   const current = doing[0] ?? model.tasks.find((task) => task.status === 'todo');

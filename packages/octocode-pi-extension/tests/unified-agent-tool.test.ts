@@ -27,7 +27,6 @@ import {
   evaluateToolCapability,
   getToolEffect,
   planModeToolGate,
-  PLAN_MODE_BLOCK_REASON,
 } from '../src/tools/plan-mode.js';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -449,74 +448,16 @@ describe('plan Start enforcement', () => {
     await expect(run(tools.get('agent')!, batch(query), ctx)).resolves.toBeDefined();
   });
 
-  it.each(['researcher', 'planner', 'architect'] as const)(
-    'blocks typed profile:%s from its resolved write/dynamic toolset before Start',
-    async (profile) => {
-      const ctx = planContext(`typed-${profile}`);
-      enterPlanMode(ctx as never);
-      await expect(
-        run(tools.get('agent')!, batch({ type: 'spawn', profile, task: 'work' }), ctx),
-      ).rejects.toThrow(PLAN_MODE_BLOCK_REASON);
-      expect(vi.mocked(agentTools.prepareSpawnAgentParams)).not.toHaveBeenCalled();
-      expect(vi.mocked(agentTools.spawnRpcAgent)).not.toHaveBeenCalled();
-    },
-  );
-
-  it.each([
-    { profile: 'custom', tools: ['web'] },
-    { profile: 'browser' },
-  ])('blocks $profile categorically before Start', async ({ profile, tools: requestedTools }) => {
-    const ctx = planContext(`dynamic-${profile}`);
+  it('allows spawn and mixed lifecycle batches before Start', async () => {
+    const ctx = planContext('planning-spawn');
     enterPlanMode(ctx as never);
     await expect(
-      run(
-        tools.get('agent')!,
-        batch({ type: 'spawn', profile, task: 'work', ...(requestedTools ? { tools: requestedTools } : {}) }),
-        ctx,
-      ),
-    ).rejects.toThrow(PLAN_MODE_BLOCK_REASON);
-    expect(vi.mocked(agentTools.prepareSpawnAgentParams)).not.toHaveBeenCalled();
-    expect(vi.mocked(agentTools.spawnRpcAgent)).not.toHaveBeenCalled();
-  });
+      run(tools.get('agent')!, batch({ type: 'spawn', profile: 'researcher', task: 'work' }), ctx),
+    ).resolves.toBeDefined();
+    expect(vi.mocked(agentTools.prepareSpawnAgentParams)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(agentTools.spawnRpcAgent)).toHaveBeenCalledTimes(1);
 
-  it('allows a typed profile only when its exact resolved toolset is read/coordination-only', async () => {
-    const subagents = await import('../src/subagents.js');
-    const config = subagents.SUBAGENT_REGISTRY.researcher;
-    const originalTools = [...config.tools];
-    config.tools = ['web', 'localSearch'];
-    try {
-      const ctx = planContext('read-only-typed');
-      enterPlanMode(ctx as never);
-      await expect(
-        run(tools.get('agent')!, batch({ type: 'spawn', profile: 'researcher', task: 'read only' }), ctx),
-      ).resolves.toBeDefined();
-      expect(vi.mocked(agentTools.spawnRpcAgent)).toHaveBeenCalledTimes(1);
-    } finally {
-      config.tools = originalTools;
-    }
-  });
-
-  it('fails closed when a typed profile resolves an unclassified child tool', async () => {
-    const subagents = await import('../src/subagents.js');
-    const config = subagents.SUBAGENT_REGISTRY.researcher;
-    const originalTools = [...config.tools];
-    config.tools = ['web', 'futureUnknownTool'];
-    try {
-      const ctx = planContext('unknown-child-tool');
-      enterPlanMode(ctx as never);
-      await expect(
-        run(tools.get('agent')!, batch({ type: 'spawn', profile: 'researcher', task: 'unknown tool' }), ctx),
-      ).rejects.toThrow(PLAN_MODE_BLOCK_REASON);
-      expect(vi.mocked(agentTools.prepareSpawnAgentParams)).not.toHaveBeenCalled();
-      expect(vi.mocked(agentTools.spawnRpcAgent)).not.toHaveBeenCalled();
-    } finally {
-      config.tools = originalTools;
-    }
-  });
-
-  it('classifies the complete ordered batch before executing an earlier lifecycle query', async () => {
-    const ctx = planContext('whole-batch');
-    enterPlanMode(ctx as never);
+    vi.clearAllMocks();
     await expect(
       run(
         tools.get('agent')!,
@@ -526,25 +467,19 @@ describe('plan Start enforcement', () => {
         ),
         ctx,
       ),
-    ).rejects.toThrow(PLAN_MODE_BLOCK_REASON);
-    expect(vi.mocked(agentTools.refreshAgentLedgerUi)).not.toHaveBeenCalled();
-    expect(vi.mocked(agentTools.prepareSpawnAgentParams)).not.toHaveBeenCalled();
-    expect(vi.mocked(agentTools.spawnRpcAgent)).not.toHaveBeenCalled();
+    ).resolves.toBeDefined();
+    expect(vi.mocked(agentTools.refreshAgentLedgerUi)).toHaveBeenCalled();
+    expect(vi.mocked(agentTools.spawnRpcAgent)).toHaveBeenCalledTimes(1);
   });
 
-  it.each([
-    batch({ type: 'unknown-operation' }),
-    batch({ type: 'spawn', profile: 'unknown-profile', task: 'work' }),
-    batch({ type: 'spawn', profile: 'researcher', task: '' }),
-    { queries: [{ reasoning: 'malformed', type: 'spawn', profile: 'researcher', task: 'work' }, null] },
-  ])('fails closed on malformed or unknown agent input before Start', async (input) => {
+  it('keeps ordinary agent input validation active during planning', async () => {
     const ctx = planContext('malformed');
     enterPlanMode(ctx as never);
-    await expect(run(tools.get('agent')!, input as Record<string, unknown>, ctx)).rejects.toThrow(PLAN_MODE_BLOCK_REASON);
-    expect(vi.mocked(agentTools.prepareSpawnAgentParams)).not.toHaveBeenCalled();
+    await expect(
+      run(tools.get('agent')!, batch({ type: 'unknown-operation' }), ctx),
+    ).rejects.toThrow(/unknown|invalid|must be one of/i);
     expect(vi.mocked(agentTools.spawnRpcAgent)).not.toHaveBeenCalled();
   });
-
   it.each(['executing', 'verifying', 'complete'] as const)(
     'preserves normal spawn semantics in %s',
     async (phase) => {
@@ -569,8 +504,8 @@ describe('plan Start enforcement', () => {
     expect(evaluateToolCapability({ toolName: 'agent', toolInput: lifecycle, phase: 'researching' }).effectiveDecision).toBe('allow');
 
     expect(getToolEffect('agent', spawn)).toBe('external-effect');
-    expect(planModeToolGate('agent', ctx as never, spawn)).toEqual({ block: true, reason: PLAN_MODE_BLOCK_REASON });
-    expect(evaluateToolCapability({ toolName: 'agent', toolInput: spawn, phase: 'researching' }).effectiveDecision).toBe('block');
+    expect(planModeToolGate('agent', ctx as never, spawn)).toBeUndefined();
+    expect(evaluateToolCapability({ toolName: 'agent', toolInput: spawn, phase: 'researching' }).effectiveDecision).toBe('allow');
   });
 });
 

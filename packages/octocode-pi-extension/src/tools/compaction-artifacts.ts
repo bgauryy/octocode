@@ -106,7 +106,7 @@ export function buildCompactionMarkdown(details: CompactionCheckpointDetails, cr
     ...renderPlanContinuation(details),
     '## Resume',
     '',
-    'Treat this checkpoint as a recovery hint. Reopen the current active plan and its referenced docs before continuing. Current authoritative sources override stale checkpoint text. Resume only authorized unfinished work; if none remains, stop and wait for the user.',
+    'Treat this checkpoint as a recovery hint. Read the inline summary from the context marker first; only read this file when the summary is absent or insufficient. If there is active authorized work in the plan, continue it directly without announcing the rehydration. Current authoritative sources override stale checkpoint text. Stop only when all active work is complete, the user asks to pause, or a real blocker requires input.',
     '',
   ].filter((line): line is string => line !== undefined).join('\n'));
 }

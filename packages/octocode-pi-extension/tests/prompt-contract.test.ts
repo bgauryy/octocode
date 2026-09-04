@@ -7,7 +7,7 @@ import {
   PLAN_PROMPT_MAX_GOAL,
   PLAN_PROMPT_TRUNCATION_MARKER,
 } from '../src/prompts/plan-prompt.js';
-import { SYSTEM_PROMPT } from '../src/prompts/prompt.js';
+import { SYSTEM_PROMPT } from '../src/prompts/system-prompt.js';
 import {
   expandSubagentPrompt,
   SUBAGENT_COORDINATION,
@@ -141,7 +141,7 @@ test('main prompt makes compacted checkpoints subordinate to current plan and do
   assert.match(recoveryGuidance, /referenced docs/i);
   assert.match(recoveryGuidance, /current sources/i);
   assert.match(recoveryGuidance, /stale saved text/i);
-  assert.match(recoveryGuidance, /complete.*blocked on approval.*waiting for the user.*stop/is);
+  assert.match(recoveryGuidance, /complete.*blocked on approval.*waiting\s+for the user.*stop/is);
 });
 
 test('main prompt keeps research, tests, comments, and reflection evidence-efficient', () => {
@@ -253,16 +253,18 @@ test('main prompt top-level XML sections are balanced, uniquely owned, and remai
   }
 });
 
-test('plan mode keeps its no-mutation and explicit approval gate', () => {
+test('plan mode uses a conversational RFC flow with one Start decision and no tool restrictions', () => {
   const prompt = buildPlanPrompt('change the public API');
   assert.match(prompt, /PLAN MODE/i);
-  assert.match(prompt, /do not (?:edit|change)|must not edit|no mutation/i);
-  assert.match(prompt, /accept(?:ance)?.*does not.*authoriz.*implementation/i);
-  assert.match(prompt, /separate.*start/i);
-  assert.match(prompt, /rejected|rejection/i);
-  assert.match(prompt, /plan\(propose\)|action:\s*["']propose["']/i);
-  assert.match(prompt, /terminal Summary first.*open the full browser review/i);
-  assert.match(prompt, /Do not change code before.*Start/i);
+  assert.match(prompt, /askUser|ask widget/i);
+  assert.match(prompt, /only when.*decision-changing|decision-changing.*only when/i);
+  assert.match(prompt, /Creating plan…/i);
+  assert.match(prompt, /create or update.*RFC/i);
+  assert.match(prompt, /overview/i);
+  assert.match(prompt, /one.*Start|single.*Start/i);
+  assert.match(prompt, /planning does not disable tools/i);
+  assert.match(prompt, /do not implement.*Start/i);
+  assert.doesNotMatch(prompt, /accept(?:ance)?.*does not.*authoriz.*implementation|separate.*Start/i);
 });
 
 test('plan mode preserves goal formatting and makes truncation explicit', () => {

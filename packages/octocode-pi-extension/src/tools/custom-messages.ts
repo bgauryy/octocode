@@ -278,7 +278,7 @@ export function renderCompactionContextMarker(details: CompactionCheckpointDetai
     ...(details.estimatedTokensAfter !== undefined ? { estimatedTokensAfter: details.estimatedTokensAfter } : {}),
     ...(details.latestArtifactPath ? { artifact: bounded(details.latestArtifactPath, 512) } : {}),
     ...(planPointer ? { plan: planPointer } : {}),
-    ...(details.summary?.trim() ? { summaryAvailable: true } : {}),
+    ...(details.summary?.trim() ? { summaryAvailable: true, summary: bounded(details.summary, 3500) } : {}),
   };
   return `<octocode_compaction_context>${JSON.stringify(payload)}</octocode_compaction_context>`;
 }

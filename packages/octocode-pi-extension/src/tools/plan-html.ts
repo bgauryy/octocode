@@ -70,11 +70,11 @@ const MD_MARK: Record<DisplayStatus, string> = {
 };
 
 const FLOW_GATES = [
-  'Research current code and contracts with Octocode tools.',
-  'For consequential work, write/update the RFC or implementation plan.',
-  'Discuss the plan with the user; incorporate missing points and wait for approval.',
-  'Derive local plan steps and Awareness tasks from the accepted document.',
-  'Verify with the command/check named by the accepted plan.',
+  'Research current code and contracts with Octocode tools; ask only when a decision is unresolved.',
+  'Write or update the RFC and derive dependency-ordered implementation steps.',
+  'Show the plan overview and ask once: Start implementation or Request changes.',
+  'Use Start to approve the exact RFC revision and begin the first runnable step.',
+  'Verify with the command/check named by the approved plan.',
 ];
 
 /** Escape a label for a quoted mermaid node: `S1["…"]`. */
@@ -251,15 +251,15 @@ function planStatsSectionHtml(model: PlanReadModelV1): string {
 function browserReplySectionHtml(model: PlanReadModelV1): string {
   const revision = model.revision ?? model.acceptedRevision;
   const contextualActions = model.phase === 'in_review' && revision
-    ? `<button type="button" data-reply-command="/octocode-plan accept ${escapeHtml(revision)}" class="primary">Approve revision · ${escapeHtml(revision.slice(0, 8))}</button>
+    ? `<button type="button" data-reply-command="/octocode-plan start ${escapeHtml(revision)}" class="primary">Start implementation · ${escapeHtml(revision.slice(0, 8))}</button>
     <button type="button" data-reply-command="/octocode-plan changes">Request changes</button>`
     : model.phase === 'accepted' && revision
       ? `<button type="button" data-reply-command="/octocode-plan start ${escapeHtml(revision)}" class="primary">Start implementation</button>\n    <button type="button" data-reply-command="/octocode-plan changes">Reopen review</button>`
       : '';
   const help = model.phase === 'in_review'
-    ? 'Approve the exact displayed revision, request changes, or send a note. Approval keeps implementation blocked.'
+    ? 'Start approves the exact displayed revision and begins implementation in one action. You can also request changes or send a note.'
     : model.phase === 'accepted'
-      ? 'The design is accepted. Start is the separate action that enables implementation.'
+      ? 'A previous Start attempt did not complete. Start the already accepted revision again or reopen review.'
       : 'Send a note directly to the running agent task.';
   return `<section class="browser-reply" data-browser-reply>
   <h2>Reply to the agent</h2>

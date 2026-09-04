@@ -17,9 +17,9 @@ import {
   setPlanAwarenessMappings, getPlanCoordination,
   type PlanDecision, type PlanStep,
 } from '../src/tools/active-plan.js';
-import { registerPlanTool, refreshPlanUi, handleOctocodePlanCommand, inferConsequential, planPanelModelLines, setPlanDirectoryServerForTests, setPlanMetricsRefreshForUi } from '../src/tools/plan-tool.js';
+import { registerPlanTool, refreshPlanUi, handleOctocodePlanCommand, OCTOCODE_PLAN_COMMAND_COMPLETIONS, planPanelModelLines, setPlanMetricsRefreshForUi } from '../src/tools/plan-tool.js';
 import { planArtifactsDir, setPlanOpenerForTests } from '../src/tools/plan-html.js';
-import { isPlanMode, enterPlanMode, exitPlanMode, planModeToolGate, PLAN_MODE_BLOCK_REASON } from '../src/tools/plan-mode.js';
+import { isPlanMode, exitPlanMode, planModeToolGate } from '../src/tools/plan-mode.js';
 import { createSessionArtifactContext, readPlanProjection } from '../src/tools/session-artifacts.js';
 import type { PiContext } from '../src/types.js';
 import { buildPlanReadModel, getCurrentPlanReadModel, renderPlanContext } from '../src/tools/plan-read-model.js';
@@ -74,8 +74,8 @@ test('draft plans persist without active work and inject an explicit approval ga
   assert.equal(getPlanLifecycle(CWD), 'draft');
   assert.equal(readPersistedLifecycleForTests(CWD), 'draft');
   const addendum = renderActivePlanAddendum(CWD);
-  assert.match(addendum, /awaiting user approval/i);
-  assert.match(addendum, /do not execute or start/i);
+  assert.match(addendum, /awaiting Start or requested changes/i);
+  assert.match(addendum, /wait for the Start decision/i);
   assert.doesNotMatch(addendum, /Execute active steps|mark the next runnable step/i);
 });
 
@@ -505,7 +505,7 @@ test('/octocode-plan command completes a step and clears the plan', async () => 
   assert.ok(calls.notify.some((m) => /cleared/i.test(m)));
 });
 
-test('/octocode-plan start binds the displayed revision and separately starts an accepted RFC', async () => {
+test('/octocode-plan start binds the displayed revision and starts an in-review RFC with one decision', async () => {
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'plan-command-start-'));
   const rfcPath = path.join(workspace, '.octocode', 'rfc', 'demo', 'RFC.md');
   fs.mkdirSync(path.dirname(rfcPath), { recursive: true });
@@ -519,11 +519,10 @@ test('/octocode-plan start binds the displayed revision and separately starts an
     setPlanRfc(workspace, rfcPath);
     const proposed = proposePlanReview(workspace);
     assert.equal(proposed.ok, true);
-    assert.equal(acceptPlanReview(workspace, getPlanReviewState(workspace).revision!).ok, true);
 
-    const revision = getPlanReviewState(workspace).acceptedRevision!;
+    const revision = getPlanReviewState(workspace).revision!;
     await handleOctocodePlanCommand('start stale-revision', ctx, (_c, message) => calls.notify.push(message));
-    assert.equal(getPlanReviewState(workspace).phase, 'accepted', 'stale browser callback is rejected');
+    assert.equal(getPlanReviewState(workspace).phase, 'in_review', 'stale browser callback is rejected');
     await handleOctocodePlanCommand(`start ${revision}`, ctx, (_c, message) => calls.notify.push(message));
     assert.equal(getPlanReviewState(workspace).phase, 'executing');
     assert.deepEqual(getPlan(workspace).map((step) => step.status), ['doing', 'todo']);
@@ -534,30 +533,12 @@ test('/octocode-plan start binds the displayed revision and separately starts an
   }
 });
 
-test('/octocode-plan accept binds the displayed revision without starting implementation', async () => {
-  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'plan-command-accept-'));
-  const rfcPath = path.join(workspace, '.octocode', 'rfc', 'demo', 'RFC.md');
-  fs.mkdirSync(path.dirname(rfcPath), { recursive: true });
-  fs.writeFileSync(rfcPath, '# Review this design\n');
-  const { ctx, calls } = uiCtx(workspace);
-  try {
-    setPlan(workspace, ['Implement', 'Verify'], 'draft');
-    setPlanRfc(workspace, rfcPath);
-    assert.equal(proposePlanReview(workspace).ok, true);
-    const revision = getPlanReviewState(workspace).revision!;
-
-    await handleOctocodePlanCommand(`accept ${revision}`, ctx, (_c, message) => calls.notify.push(message));
-
-    assert.equal(getPlanReviewState(workspace).phase, 'accepted');
-    assert.deepEqual(getPlan(workspace).map((step) => step.status), ['todo', 'todo']);
-    assert.ok(calls.notify.some((message) => /accepted.*mutation remains blocked/i.test(message)));
-  } finally {
-    clearPlan(workspace);
-    fs.rmSync(workspace, { recursive: true, force: true });
-  }
+test('/octocode-plan advertises one Start action instead of a separate Accept command', () => {
+  assert.ok(OCTOCODE_PLAN_COMMAND_COMPLETIONS.includes('start '));
+  assert.ok(!OCTOCODE_PLAN_COMMAND_COMPLETIONS.includes('accept ' as never));
 });
 
-test('/octocode-plan Start rejects incomplete shared execution contracts without losing acceptance', async () => {
+test('/octocode-plan Start allows a lightweight local RFC plan without shared-only contract fields', async () => {
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'plan-command-contract-'));
   const rfcPath = path.join(workspace, '.octocode', 'rfc', 'demo', 'RFC.md');
   fs.mkdirSync(path.dirname(rfcPath), { recursive: true });
@@ -567,13 +548,13 @@ test('/octocode-plan Start rejects incomplete shared execution contracts without
     setPlan(workspace, ['Missing path and acceptance'], 'draft');
     setPlanRfc(workspace, rfcPath);
     assert.equal(proposePlanReview(workspace).ok, true);
-    assert.equal(acceptPlanReview(workspace, getPlanReviewState(workspace).revision!).ok, true);
+    const revision = getPlanReviewState(workspace).revision!;
 
-    await handleOctocodePlanCommand('start', ctx, (_c, message) => calls.notify.push(message));
+    await handleOctocodePlanCommand(`start ${revision}`, ctx, (_c, message) => calls.notify.push(message));
 
-    assert.equal(getPlanReviewState(workspace).phase, 'accepted');
-    assert.deepEqual(getPlan(workspace).map((step) => step.status), ['todo']);
-    assert.ok(calls.notify.some((message) => /invalid shared step contract.*paths/i.test(message)));
+    assert.equal(getPlanReviewState(workspace).phase, 'executing');
+    assert.deepEqual(getPlan(workspace).map((step) => step.status), ['doing']);
+    assert.ok(calls.notify.some((message) => /implementation started/i.test(message)));
   } finally {
     clearPlan(workspace);
     fs.rmSync(workspace, { recursive: true, force: true });
@@ -736,11 +717,12 @@ test('plan tool teaches default-index flow, unified shared projection, and paral
   assert.match(tool.description, /receipt \{command,status,message\}/);
   const guidelines = tool.promptGuidelines?.join('\n') ?? '';
   assert.match(guidelines, /plan\(complete\)/);
-  assert.match(guidelines, /single current step/i);
+  assert.match(guidelines, /active step.*plan\(complete\)/i);
   assert.match(guidelines, /internal to plan/);
   assert.doesNotMatch(guidelines, /update it in the same turn/);
   assert.match(guidelines, /plan\(start:N\)/);
-  assert.match(guidelines, /accepts the exact displayed revision.*separate user Start/);
+  assert.match(guidelines, /asks once: Start implementation or Request changes/i);
+  assert.match(guidelines, /Planning never disables tools/i);
   assert.match(guidelines, /answer will change scope, architecture, acceptance criteria, or authorization/);
   assert.match(guidelines, /Prefer one question; use 2–3 only for independent blockers/);
 });
@@ -1245,18 +1227,16 @@ function withTempHome<T>(body: () => T): T {
   }
 }
 
-test('plan(set) consequential without an RFC is blocked and does not mutate the plan', async () => {
+test('plan(set) consequential metadata does not create an RFC restriction', async () => {
   await withTempHome(async () => {
     const { ws } = makeRfcWorkspace();
     try {
       const tool = loadTool();
       const ctx = { cwd: ws } as unknown as PiContext;
       clearPlan(ws);
-      const res = (await tool.execute('id', { action: 'set', steps: ['risky migration'], consequential: true }, undefined, undefined, ctx)) as { content: Array<{ text: string }>; isError?: boolean };
-      assert.equal(res.isError, true, 'consequential + no RFC is an error');
-      assert.match(res.content[0]!.text, /needs a reviewable RFC/);
-      assert.match(res.content[0]!.text, /octocode-rfc-generator/);
-      assert.equal(getPlan(ws).length, 0, 'the plan was NOT set by a blocked call');
+      const res = (await tool.execute('id', { action: 'set', steps: ['risky migration'], consequential: true }, undefined, undefined, ctx)) as { isError?: boolean };
+      assert.notEqual(res.isError, true);
+      assert.equal(getPlan(ws).length, 1);
       assert.equal(getPlanRfc(ws), undefined);
     } finally {
       fs.rmSync(ws, { recursive: true, force: true });
@@ -1264,18 +1244,17 @@ test('plan(set) consequential without an RFC is blocked and does not mutate the 
   });
 });
 
-test('plan(set) cannot use a valid RFC path to bypass revision-bound review', async () => {
+test('plan(set) may attach an RFC without forcing a review flow', async () => {
   await withTempHome(async () => {
     const { ws, rfcDir } = makeRfcWorkspace();
     try {
       const tool = loadTool();
       const ctx = { cwd: ws } as unknown as PiContext;
       clearPlan(ws);
-      const res = (await tool.execute('id', { action: 'set', steps: ['step a', 'step b'], consequential: true, rfcPath: rfcDir }, undefined, undefined, ctx)) as { content: Array<{ text: string }>; isError?: boolean };
-      assert.equal(res.isError, true);
-      assert.match(res.content[0]!.text, /use plan\(propose\).*review/i);
-      assert.equal(getPlan(ws).length, 0, 'set does not create executing work from an unaccepted RFC path');
-      assert.equal(getPlanRfc(ws), undefined);
+      const res = (await tool.execute('id', { action: 'set', steps: ['step a', 'step b'], consequential: true, rfcPath: rfcDir }, undefined, undefined, ctx)) as { isError?: boolean };
+      assert.notEqual(res.isError, true);
+      assert.equal(getPlan(ws).length, 2);
+      assert.ok(getPlanRfc(ws)?.endsWith('RFC.md'));
     } finally {
       fs.rmSync(ws, { recursive: true, force: true });
     }
@@ -1334,86 +1313,39 @@ test('a previously-linked RFC satisfies the gate on a later consequential call w
   });
 });
 
-test('an interactive consequential proposal opens browser review only after the user chooses it', async () => {
-  await withTempHome(async () => {
-    const { ws, rfcDir } = makeRfcWorkspace();
-    const opened: string[] = [];
-    setPlanOpenerForTests(async (target) => {
-      opened.push(target);
-      return { ok: true };
-    });
-    setPlanDirectoryServerForTests(async (name) => ({
-      name,
-      url: `http://127.0.0.1:41737/${name}/`,
-    }));
-    try {
-      const tool = loadTool(async () => undefined);
-      const { ctx: baseCtx } = uiCtx(ws);
-      const ctx = {
-        ...baseCtx,
-        mode: 'tui',
-        ui: { ...baseCtx.ui, custom: async () => ({ status: 'selected', value: 'browser' }) },
-      } as unknown as PiContext;
-      clearPlan(ws);
-
-      const res = (await tool.execute(
-        'id',
-        { action: 'propose', steps: ['Implement', 'Verify'], consequential: true, rfcPath: rfcDir },
-        undefined,
-        undefined,
-        ctx,
-      )) as { content: Array<{ text: string }>; isError?: boolean };
-
-      assert.notEqual(res.isError, true);
-      assert.equal(opened.length, 1, 'the browser opens after the explicit surface choice');
-      assert.match(opened[0]!, /^http:\/\/127\.0\.0\.1:\d+\/plan-/);
-      assert.equal(getPlanReviewState(ws).phase, 'in_review');
-      assert.deepEqual(getPlan(ws).map((step) => step.status), ['todo', 'todo']);
-      assert.match(res.content[0]!.text, /browser review/i);
-      assert.match(res.content[0]!.text, /accept.*does not start/i);
-
-      const markdown = fs.readFileSync(path.join(planArtifactsDir(ws), 'plan.md'), 'utf8');
-      assert.match(markdown, /^Status: draft$/m);
-      assert.match(markdown, /^Phase: in_review$/m);
-    } finally {
-      setPlanOpenerForTests(undefined);
-      setPlanDirectoryServerForTests(undefined);
-      clearPlan(ws);
-      fs.rmSync(ws, { recursive: true, force: true });
-    }
-  });
-});
-
-test('terminal RFC review keeps the browser closed and exposes the Summary plus exact follow-ups', async () => {
+test('interactive RFC proposal shows the overview and starts from one ask-widget decision', async () => {
   await withTempHome(async () => {
     const { ws, rfcDir } = makeRfcWorkspace();
     const opened: string[] = [];
     setPlanOpenerForTests(async (target) => { opened.push(target); return { ok: true }; });
     try {
       const tool = loadTool(async () => undefined);
-      const { ctx: baseCtx } = uiCtx(ws);
+      const { ctx: baseCtx, calls } = uiCtx(ws);
       const ctx = {
         ...baseCtx,
         mode: 'tui',
-        ui: { ...baseCtx.ui, custom: async () => ({ status: 'selected', value: 'terminal' }) },
+        ui: { ...baseCtx.ui, custom: async () => ({ status: 'selected', value: 'start', label: 'Start implementation' }) },
       } as unknown as PiContext;
+
       const res = (await tool.execute(
         'id',
-        { action: 'propose', steps: ['Implement', 'Verify'], consequential: true, rfcPath: rfcDir },
+        { action: 'propose', steps: ['Implement', 'Verify'], rfcPath: rfcDir },
         undefined,
         undefined,
         ctx,
-      )) as { content: Array<{ text: string }>; details?: { reviewSurface?: string } };
+      )) as { content: Array<{ text: string }>; isError?: boolean };
 
-      assert.deepEqual(opened, [], 'terminal review never opens a browser');
-      assert.equal(getPlanReviewState(ws).phase, 'in_review');
-      assert.equal(res.details?.reviewSurface, 'terminal');
-      assert.match(res.content[0]!.text, /browser remains closed/i);
-      assert.match(res.content[0]!.text, /^\[PLAN\].*\n\nSummary\n/m);
-      assert.match(res.content[0]!.text, /RFC URI: file:\/\//);
-      assert.match(res.content[0]!.text, /\/octocode-plan accept [a-f0-9]{64}/);
-      assert.match(res.content[0]!.text, /\/octocode-plan changes <feedback>/);
-      assert.match(res.content[0]!.text, /\/octocode-plan html/);
+      assert.notEqual(res.isError, true);
+      assert.deepEqual(opened, [], 'the ask widget keeps browser review optional');
+      assert.equal(getPlanReviewState(ws).phase, 'executing');
+      assert.deepEqual(getPlan(ws).map((step) => step.status), ['doing', 'todo']);
+      assert.match(res.content[0]!.text, /Summary/);
+      assert.match(res.content[0]!.text, /approved and started|implementation started/i);
+      assert.ok(calls.notify.some((message) => /Creating plan…/i.test(message)));
+
+      const markdown = fs.readFileSync(path.join(planArtifactsDir(ws), 'plan.md'), 'utf8');
+      assert.match(markdown, /^Status: active$/m);
+      assert.match(markdown, /^Phase: executing$/m);
     } finally {
       setPlanOpenerForTests(undefined);
       clearPlan(ws);
@@ -1422,6 +1354,35 @@ test('terminal RFC review keeps the browser closed and exposes the Summary plus 
   });
 });
 
+test('RFC proposal records requested changes from the same ask widget', async () => {
+  await withTempHome(async () => {
+    const { ws, rfcDir } = makeRfcWorkspace();
+    try {
+      const tool = loadTool(async () => undefined);
+      const { ctx: baseCtx } = uiCtx(ws);
+      const ctx = {
+        ...baseCtx,
+        mode: 'tui',
+        ui: { ...baseCtx.ui, custom: async () => ({ status: 'selected', value: 'changes', label: 'Request changes' }) },
+      } as unknown as PiContext;
+      const res = (await tool.execute(
+        'id',
+        { action: 'propose', steps: ['Implement', 'Verify'], rfcPath: rfcDir },
+        undefined,
+        undefined,
+        ctx,
+      )) as { content: Array<{ text: string }> };
+
+      assert.equal(getPlanReviewState(ws).phase, 'draft');
+      assert.deepEqual(getPlan(ws).map((step) => step.status), ['todo', 'todo']);
+      assert.match(res.content[0]!.text, /changes requested/i);
+      assert.match(res.content[0]!.text, /Summary/);
+    } finally {
+      clearPlan(ws);
+      fs.rmSync(ws, { recursive: true, force: true });
+    }
+  });
+});
 test('planPanelLines keeps the persistent panel focused on current and next work', () => {
   const steps: PlanStep[] = [
     { id: 'setup', text: 'Completed setup', status: 'done' },
@@ -1456,98 +1417,47 @@ test('planPanelLines caps ordinary future work and reports the hidden remainder'
   assert.doesNotMatch(lines.join('\n'), /Step 4/);
 });
 
-// ─── Gate hardening: inferConsequential ───────────────────────────────────────
+// ─── Flexible planning: wording never creates an execution restriction ─────────
 
-test('inferConsequential flags long plans and risk vocabulary, not short neutral ones', () => {
-  assert.equal(inferConsequential(['tweak copy', 'fix typo']).consequential, false);
-  const many = inferConsequential(['a', 'b', 'c', 'd', 'e']);
-  assert.equal(many.consequential, true);
-  assert.match(many.signals.join(), /5 steps/);
-  const risky = inferConsequential(['Run the database schema migration']);
-  assert.equal(risky.consequential, true);
-  assert.match(risky.signals.join(), /risk terms/);
-  assert.match(risky.signals.join(), /migrat|schema/);
-});
-
-test('plan(set) that LOOKS consequential (inferred) is blocked even without consequential:true', async () => {
+test('plan(set) does not infer an RFC gate from risk words or step count', async () => {
   await withTempHome(async () => {
     const { ws } = makeRfcWorkspace();
     try {
       const tool = loadTool();
       const ctx = { cwd: ws } as unknown as PiContext;
       clearPlan(ws);
-      const res = (await tool.execute('id', { action: 'set', steps: ['Run auth token migration'] }, undefined, undefined, ctx)) as { content: Array<{ text: string }>; isError?: boolean };
-      assert.equal(res.isError, true, 'risk vocabulary triggers the gate');
-      assert.match(res.content[0]!.text, /looks consequential/);
-      assert.equal(getPlan(ws).length, 0);
-    } finally {
-      fs.rmSync(ws, { recursive: true, force: true });
-    }
-  });
-});
-
-test('plan(set) inferred-consequential + consequential:false requires a reason, then records it', async () => {
-  await withTempHome(async () => {
-    const { ws } = makeRfcWorkspace();
-    try {
-      const tool = loadTool();
-      const ctx = { cwd: ws } as unknown as PiContext;
-      clearPlan(ws);
-      // No reason → blocked.
-      const blocked = (await tool.execute('id', { action: 'set', steps: ['a', 'b', 'c', 'd', 'e'], consequential: false }, undefined, undefined, ctx)) as { content: Array<{ text: string }>; isError?: boolean };
-      assert.equal(blocked.isError, true);
-      assert.match(blocked.content[0]!.text, /pass reason/);
-      assert.equal(getPlan(ws).length, 0);
-      // With a reason → proceeds and logs the justification.
-      const ok = (await tool.execute('id', { action: 'set', steps: ['a', 'b', 'c', 'd', 'e'], consequential: false, reason: 'all five are trivial doc tweaks' }, undefined, undefined, ctx)) as { isError?: boolean };
-      assert.notEqual(ok.isError, true);
+      const risky = (await tool.execute('id', { action: 'set', steps: ['Run auth token migration'] }, undefined, undefined, ctx)) as { isError?: boolean };
+      assert.notEqual(risky.isError, true);
+      const many = (await tool.execute('id', { action: 'set', steps: ['a', 'b', 'c', 'd', 'e'] }, undefined, undefined, ctx)) as { isError?: boolean };
+      assert.notEqual(many.isError, true);
       assert.equal(getPlan(ws).length, 5);
-      assert.ok(getPlanDecisions(ws).some((d) => /Skipped RFC/.test(d.q) && /trivial doc tweaks/.test(d.a)), 'the skip justification is recorded');
     } finally {
       fs.rmSync(ws, { recursive: true, force: true });
     }
   });
 });
 
-test('short neutral plans are not falsely flagged', async () => {
+test('plan(propose) without an RFC asks once and starts when the user chooses Start', async () => {
   await withTempHome(async () => {
     const { ws } = makeRfcWorkspace();
     try {
       const tool = loadTool();
-      const ctx = { cwd: ws } as unknown as PiContext;
+      const { ctx: baseCtx } = uiCtx(ws);
+      const ctx = {
+        ...baseCtx,
+        mode: 'tui',
+        ui: { ...baseCtx.ui, custom: async () => ({ status: 'selected', value: 'start', label: 'Start implementation' }) },
+      } as unknown as PiContext;
       clearPlan(ws);
-      const res = (await tool.execute('id', { action: 'set', steps: ['rename button label', 'update copy'] }, undefined, undefined, ctx)) as { isError?: boolean };
-      // "rename" IS a risk term — confirm the detector is deliberate about it.
-      assert.equal(res.isError, true, 'rename is intentionally a risk term');
-      const res2 = (await tool.execute('id', { action: 'set', steps: ['update the footer copy', 'fix a typo'] }, undefined, undefined, ctx)) as { isError?: boolean };
-      assert.notEqual(res2.isError, true, 'genuinely trivial two-step plan passes');
-      assert.equal(getPlan(ws).length, 2);
+      const res = (await tool.execute('id', { action: 'propose', steps: ['Implement', 'Verify'] }, undefined, undefined, ctx)) as { isError?: boolean };
+      assert.notEqual(res.isError, true);
+      assert.equal(getPlanReviewState(ws).phase, 'executing');
+      assert.deepEqual(getPlan(ws).map((step) => step.status), ['doing', 'todo']);
     } finally {
       fs.rmSync(ws, { recursive: true, force: true });
     }
   });
 });
-
-test('plan(propose) consequential without an RFC is blocked and STAYS in plan mode', async () => {
-  await withTempHome(async () => {
-    const { ws } = makeRfcWorkspace();
-    const ctx = { cwd: ws } as unknown as PiContext;
-    try {
-      const tool = loadTool();
-      clearPlan(ws);
-      enterPlanMode(ctx);
-      const res = (await tool.execute('id', { action: 'propose', steps: ['big risky thing'], consequential: true }, undefined, undefined, ctx)) as { content: Array<{ text: string }>; isError?: boolean };
-      assert.equal(res.isError, true, 'blocked before the approval prompt');
-      assert.match(res.content[0]!.text, /needs a reviewable RFC/);
-      assert.equal(isPlanMode(ctx), true, 'a blocked propose does not lift the write-tool gate');
-      assert.equal(getPlan(ws).length, 0, 'no plan was proposed');
-    } finally {
-      exitPlanMode(ctx);
-      fs.rmSync(ws, { recursive: true, force: true });
-    }
-  });
-});
-
 test('/octocode-plan new <goal> sends the plan-mode prompt and never touches the plan', async () => {
   const cwd = '/tmp/plan-new-ws';
   clearPlan(cwd);
@@ -1558,7 +1468,8 @@ test('/octocode-plan new <goal> sends the plan-mode prompt and never touches the
   assert.match(sent[0]!, /^\[PLAN MODE\]/);
   assert.match(sent[0]!, /Goal: add dark mode toggle/);
   assert.match(sent[0]!, /plan\(propose\)/);
-  assert.match(sent[0]!, /never execute a rejected plan/);
+  assert.match(sent[0]!, /one decision: Start implementation or Request changes/i);
+  assert.doesNotMatch(sent[0]!, /separate.*Start/i);
   assert.equal(getPlan(cwd).length, 0, 'planning is the agent\'s job — the command sets nothing');
   assert.ok(calls.notify.some((m) => /Plan mode/.test(m)));
   // No goal → the prompt asks the agent to ask.
@@ -1570,21 +1481,20 @@ test('/octocode-plan new <goal> sends the plan-mode prompt and never touches the
   assert.match(calls.notify[before]!, /cannot send prompts/);
 });
 
-test('plan mode: /octocode-plan new blocks write tools until /octocode-plan off or an approved propose', async () => {
+test('plan mode: /octocode-plan new tracks planning without disabling tools', async () => {
   const cwd = '/tmp/plan-mode-ws';
   const { ctx, calls } = uiCtx(cwd);
   exitPlanMode(ctx);
-  assert.equal(planModeToolGate('edit', ctx), undefined, 'gate is inert outside plan mode');
   await handleOctocodePlanCommand('new ship it', ctx, (_c, m) => calls.notify.push(m), () => {});
   assert.equal(isPlanMode(ctx), true);
-  assert.deepEqual(planModeToolGate('edit', ctx), { block: true, reason: PLAN_MODE_BLOCK_REASON });
-  assert.deepEqual(planModeToolGate('Write', ctx), { block: true, reason: PLAN_MODE_BLOCK_REASON });
-  assert.equal(planModeToolGate('localSearch', ctx), undefined, 'read tools stay available');
+  for (const toolName of ['edit', 'Write', 'localSearch', 'bash', 'chromeDebug']) {
+    assert.equal(planModeToolGate(toolName, ctx), undefined, `${toolName} remains available while planning`);
+  }
   assert.ok(calls.status.some((s) => (s as { name: string }).name === 'octocode-plan-mode'), 'status chip shown');
+  assert.ok(calls.notify.some((message) => /Creating plan…/i.test(message)));
   await handleOctocodePlanCommand('off', ctx, (_c, m) => calls.notify.push(m));
   assert.equal(isPlanMode(ctx), false);
-  assert.equal(planModeToolGate('edit', ctx), undefined);
-  assert.ok(calls.notify.some((m) => /write tools restored/.test(m)));
+  assert.ok(calls.notify.some((message) => /Plan mode off/.test(message)));
 });
 
 test('plan refresh delegates every mutation to the unified footer repaint', () => {

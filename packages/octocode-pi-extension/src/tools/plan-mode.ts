@@ -97,7 +97,7 @@ export const TOOL_EFFECTS: Readonly<Record<string, ToolEffect>> = Object.freeze(
 });
 
 export const PLAN_MODE_BLOCK_REASON =
-  'Plan review: workspace, shell, and external effects stay blocked until the user separately starts implementation.';
+  'Plan phase tracking is informational and does not restrict tool execution.';
 
 function sessionKey(ctx?: SessionIdentityInput): string {
   if (!ctx) return FALLBACK_SESSION_KEY;
@@ -112,7 +112,7 @@ function slot(ctx?: SessionIdentityInput): string {
   return `${RUNTIME_INSTANCE_ID}\0${sessionKey(ctx)}`;
 }
 
-function phaseBlocksEffects(phase: PlanPolicyPhase): boolean {
+function phaseIsPlanning(phase: PlanPolicyPhase): boolean {
   return phase !== 'executing' && phase !== 'verifying' && phase !== 'complete';
 }
 
@@ -120,7 +120,7 @@ function paintStatus(ctx: PiContext | undefined): void {
   if (!ctx?.hasUI) return;
   const key = slot(ctx);
   const policy = policies.get(key);
-  const text = policy && phaseBlocksEffects(policy.phase) ? `plan · ${policy.phase.replace('_', ' ')}` : undefined;
+  const text = policy && phaseIsPlanning(policy.phase) ? `plan · ${policy.phase.replace('_', ' ')}` : undefined;
   if (text) {
     setManagedStatus(ctx, STATUS_KEY, paintUi(ctx.ui, 'warning', text));
     visibleStatusSlots.add(key);
@@ -179,7 +179,7 @@ export function getPlanModePolicy(ctx?: PiContext): PlanModePolicyInput | undefi
 
 export function isPlanMode(ctx?: PiContext): boolean {
   const policy = policies.get(slot(ctx));
-  return Boolean(policy && phaseBlocksEffects(policy.phase));
+  return Boolean(policy && phaseIsPlanning(policy.phase));
 }
 
 export function getToolEffect(toolName: string | undefined, input?: Record<string, unknown>): ToolEffect | undefined {
@@ -240,16 +240,9 @@ export function evaluateToolCapability(input: {
 }): CapabilityDecisionReceiptV1 {
   const action = input.toolName?.trim() || '(unknown)';
   const effect = getToolEffect(input.toolName, input.toolInput);
-  const preStart = input.phase ? phaseBlocksEffects(input.phase) : false;
   const guards: CapabilityDecisionReceiptV1['guards'] = [
     { name: 'tool-effect-classified', decision: effect ? 'allow' : 'block', ...(!effect ? { reason: 'unclassified tool effect' } : {}) },
-    {
-      name: 'plan-phase-effect-policy',
-      decision: preStart && effect !== 'read' && effect !== 'planning-write' && effect !== 'coordination-write' ? 'block' : 'allow',
-      ...(preStart && effect !== 'read' && effect !== 'planning-write' && effect !== 'coordination-write'
-        ? { reason: PLAN_MODE_BLOCK_REASON }
-        : {}),
-    },
+    { name: 'plan-phase-effect-policy', decision: 'allow' },
   ];
   const createdAt = input.createdAt ?? new Date().toISOString();
   const stable = JSON.stringify({ action: action.toLowerCase(), effect: effect ?? 'unknown', phase: input.phase ?? 'none', guards, createdAt });
@@ -267,17 +260,16 @@ export function evaluateToolCapability(input: {
   };
 }
 
-/** Block broad/unknown effects before Start; allow read/planning/coordination effects. */
+/** Plan phase is informational; execution safety remains owned by each tool and host approval gates. */
 export function planModeToolGate(
   toolName: string | undefined,
   ctx?: PiContext,
   input?: Record<string, unknown>,
-): { block: true; reason: string } | undefined {
-  if (!isPlanMode(ctx) || !toolName) return undefined;
-  const effect = getToolEffect(toolName, input);
-  return effect === 'read' || effect === 'planning-write' || effect === 'coordination-write'
-    ? undefined
-    : { block: true, reason: PLAN_MODE_BLOCK_REASON };
+): undefined {
+  void toolName;
+  void ctx;
+  void input;
+  return undefined;
 }
 
 export function clearPlanModePoliciesForTests(): void {

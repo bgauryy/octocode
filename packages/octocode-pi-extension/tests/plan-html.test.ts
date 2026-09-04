@@ -73,8 +73,8 @@ test('buildPlanMarkdownFromModel renders flow gates, progress, checkboxes, and t
   assert.match(md, /Progress: 1\/3 done/);
   assert.match(md, /## Flow gates/);
   assert.match(md, /Research current code and contracts with Octocode tools/);
-  assert.match(md, /Discuss the plan with the user; incorporate missing points and wait for approval/);
-  assert.match(md, /Derive local plan steps and Awareness tasks from the accepted document/);
+  assert.match(md, /Show the plan overview and ask once: Start implementation or Request changes/);
+  assert.match(md, /Use Start to approve the exact RFC revision and begin the first runnable step/);
   assert.match(md, /OCTOCODE_PLAN_CHECKLIST_START/);
   assert.match(md, /- \[x\] 1\. Design schema/);
   assert.match(md, /- \[ \] ▸ 2\..*_\(in progress\)_/);
@@ -92,7 +92,7 @@ test('buildPlanPageHtmlFromModel escapes dynamic checklist text and embeds the d
   assert.match(html, /needs 4/, 'known stable dependency IDs resolve to current display indices');
   assert.doesNotMatch(html, /<script>/, 'unknown dependency IDs are never rendered');
   assert.match(html, /<section><h2>Flow gates<\/h2>/);
-  assert.match(html, /Discuss the plan with the user; incorporate missing points and wait for approval/);
+  assert.match(html, /Show the plan overview and ask once: Start implementation or Request changes/);
   assert.match(html, /<pre class="mermaid">/);
   assert.match(html, /1\/4 done/);
 });
@@ -196,13 +196,13 @@ test('buildPlanPageHtmlFromModel uses the persisted review phase and revision fo
   };
   const html = renderPage(STEPS, undefined, [], review);
   assert.match(html, /class="ph now"><span class="ph-g">▸<\/span>Review/);
-  assert.match(html, /data-reply-command="\/octocode-plan accept abcdef1234567890"/);
-  assert.match(html, /Approve revision/);
+  assert.match(html, /data-reply-command="\/octocode-plan start abcdef1234567890"/);
+  assert.match(html, /Start implementation/);
   assert.match(html, /data-reply-command="\/octocode-plan changes"/);
-  assert.doesNotMatch(html, /data-reply-command="\/octocode-plan start"/);
+  assert.doesNotMatch(html, /Approve revision/);
 });
 
-test('accepted plan HTML offers Start as a separate action', () => {
+test('accepted recovery state still offers Start without a second approval action', () => {
   const review: ReviewState = {
     phase: 'accepted',
     branchSnapshotId: 'snapshot',

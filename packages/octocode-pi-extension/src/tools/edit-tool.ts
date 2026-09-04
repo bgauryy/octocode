@@ -243,8 +243,8 @@ function validateOperation(edit: unknown, index: number): EditOperation {
   if (matchMode !== 'lineRange' && (typeof item['oldText'] !== 'string' || item['oldText'].length === 0)) {
     throw new Error(`Edit tool input is invalid. edits[${index}].oldText must be a non-empty string unless matchMode:"lineRange" is used.`);
   }
-  if (item['oldText'] === '') {
-    throw new Error(`Edit tool input is invalid. edits[${index}].oldText must not be empty.`);
+  if (item['oldText'] === '' && matchMode !== 'lineRange') {
+    throw new Error(`Edit tool input is invalid. edits[${index}].oldText must not be empty; omit oldText when using matchMode:"lineRange".`);
   }
   if (item['replaceAll'] !== undefined && typeof item['replaceAll'] !== 'boolean') {
     throw new Error(`Edit tool input is invalid. edits[${index}].replaceAll must be a boolean.`);
@@ -253,7 +253,7 @@ function validateOperation(edit: unknown, index: number): EditOperation {
     throw new Error(`Edit tool input is invalid. edits[${index}].reasoning is required — provide a non-empty string explaining why this edit is necessary.`);
   }
   const operation: EditOperation = {
-    oldText: item['oldText'] as string | undefined,
+    oldText: matchMode === 'lineRange' && item['oldText'] === '' ? undefined : item['oldText'] as string | undefined,
     newText: item['newText'],
     replaceAll: item['replaceAll'] === true,
     reasoning: item['reasoning'] as string,

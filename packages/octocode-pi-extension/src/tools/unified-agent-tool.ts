@@ -67,7 +67,6 @@ import { makeRenderer, truncateToWidth } from './render-helpers.js';
 import { paint, CLI_GLYPH } from '../tui/cli-design.js';
 import {
   getToolEffect,
-  planModeToolGate,
   registerAgentToolEffectResolver,
   type ToolEffect,
 } from './plan-mode.js';
@@ -692,9 +691,6 @@ export function registerUnifiedAgentTool(
       onUpdate?: unknown,
       ctx?: PiContext,
     ): Promise<ToolCallResult> {
-      const policyBlock = planModeToolGate('agent', ctx, rawParams);
-      if (policyBlock) throw new Error(policyBlock.reason);
-
       // Cross-batch reference guard: checked before any item executes.
       const queriesRaw = Array.isArray(rawParams['queries'])
         ? (rawParams['queries'] as QueryRecord[])

@@ -13,7 +13,7 @@ import {
 import { buildPlanPageHtmlFromModel } from '../src/tools/plan-html.js';
 import { buildPlanReadModel, getCurrentPlanReadModel, renderPlanContext, renderPlanReadModel } from '../src/tools/plan-read-model.js';
 import { planPanelModelLines } from '../src/tools/plan-tool.js';
-import { listLocalServerMounts, serveDirectory, stopLocalServer } from '../src/tools/local-server.js';
+import { getLocalServerBaseUrl, listLocalServerMounts, serveDirectory, stopLocalServer } from '../src/tools/local-server.js';
 import { setInteractionStoreFactoryForTests } from '../src/tools/interaction-broker.js';
 import { bindRuntimeRenderer } from '../src/tools/runtime-renderer.js';
 import { createRuntimeStore, type ForegroundActivityInput } from '../src/tools/runtime-store.js';
@@ -42,7 +42,7 @@ function fixtureAt(workspace: string): { workspace: string; rfcPath: string; rev
   return { workspace, rfcPath, revision: createHash('sha256').update(bytes).digest('hex') };
 }
 
-test('drives AskUser, browser Accept/Start, shared work, verification, and every surface through production adapters', async () => {
+test('drives AskUser, explicit browser Start, shared work, verification, and every surface through production adapters', async () => {
   const isolated = await createIsolatedAwarenessStore(
     ({ workspace, dbPath }) => openAwareness({ workspace, dbPath }),
     { close: (store) => store.close() },
@@ -61,7 +61,7 @@ test('drives AskUser, browser Accept/Start, shared work, verification, and every
     scripted: {
       customs: [
         { status: 'selected', value: 'strict', label: 'Strict migration' },
-        { status: 'selected', value: 'browser', label: 'Open in browser' },
+        { status: 'cancelled' },
         { status: 'selected', value: 'continue', label: 'Continue to next task' },
       ],
     },
@@ -97,27 +97,27 @@ test('drives AskUser, browser Accept/Start, shared work, verification, and every
           { text: 'Validate terminal and browser UX', activeForm: 'Validating UX', dependsOn: [1], paths: ['src/ui.ts'], acceptance: 'UX checked', checkCommand: 'test ui' },
         ],
       }],
-    }) as { details: { reviewUrl: string; revision: string } };
+    }) as { details: { revision: string } };
     assert.equal(proposed.details.revision, revision);
-    assert.ok(listLocalServerMounts().length > 0);
+    assert.equal(listLocalServerMounts().length, 0, 'proposing never opens a browser automatically');
+    await flow.expandPrompt('/octocode-plan html');
+    const reviewMount = listLocalServerMounts()[0]!;
+    const reviewUrl = `${getLocalServerBaseUrl()!}${reviewMount.name}/`;
 
-    assert.equal((await flow.postBrowserMessage({ url: proposed.details.reviewUrl, message: `/octocode-plan accept ${revision}`, origin: 'https://attacker.invalid' })).status, 403);
-    assert.equal((await flow.postBrowserMessage({ url: proposed.details.reviewUrl, message: `/octocode-plan accept ${revision}`, contentType: 'text/plain' })).status, 415);
-    assert.equal((await flow.postBrowserMessage({ url: proposed.details.reviewUrl, message: `/octocode-plan accept ${revision}` })).status, 202);
+    assert.equal((await flow.postBrowserMessage({ url: reviewUrl, message: `/octocode-plan start ${revision}`, origin: 'https://attacker.invalid' })).status, 403);
+    assert.equal((await flow.postBrowserMessage({ url: reviewUrl, message: `/octocode-plan start ${revision}`, contentType: 'text/plain' })).status, 415);
+    assert.equal((await flow.postBrowserMessage({ url: reviewUrl, message: `/octocode-plan start ${revision}` })).status, 202);
     let model = getCurrentPlanReadModel(ctx);
-    assert.equal(model.phase, 'accepted');
-    assert.ok(model.tasks.every((step) => step.status !== 'doing'), 'Accept never starts work');
-    const acceptedReceipt = model.authorization.acceptReceiptId;
-    assert.equal((await flow.postBrowserMessage({ url: proposed.details.reviewUrl, message: `/octocode-plan accept ${revision}` })).status, 202);
+    assert.equal(model.phase, 'executing', JSON.stringify(flow.eventsOf('ui.notification').slice(-5)));
+    assert.ok(model.authorization.acceptReceiptId);
+    assert.ok(model.authorization.startReceiptId);
+    const startReceipt = model.authorization.startReceiptId;
+    assert.equal((await flow.postBrowserMessage({ url: reviewUrl, message: `/octocode-plan start ${revision}` })).status, 202);
     model = getCurrentPlanReadModel(ctx);
-    assert.equal(model.authorization.acceptReceiptId, acceptedReceipt, 'duplicate browser click cannot mint new authority');
+    assert.equal(model.authorization.startReceiptId, startReceipt, 'duplicate browser click cannot mint new authority');
 
     await flow.restart();
-    assert.equal(getCurrentPlanReadModel(flow.context as unknown as PiContext).phase, 'accepted', 'restart restores accepted plan');
-    assert.equal((await flow.postBrowserMessage({ url: proposed.details.reviewUrl, message: `/octocode-plan start ${revision}` })).status, 202);
-    model = getCurrentPlanReadModel(flow.context as unknown as PiContext);
-    assert.equal(model.phase, 'executing', JSON.stringify(flow.eventsOf('ui.notification').slice(-5)));
-    assert.ok(model.authorization.startReceiptId);
+    assert.equal(getCurrentPlanReadModel(flow.context as unknown as PiContext).phase, 'executing', 'restart restores started plan');
     assert.ok(model.coordination.awarenessPlanId);
     await flow.runTool('agent', { queries: [{ reasoning: 'inspect effective worker capability after Start', type: 'inspect' }] });
     assert.ok(flow.normalizedTranscript().some((event) => event.kind === 'tool.started' && (event.data as { name?: string }).name === 'agent'));
@@ -143,7 +143,7 @@ test('drives AskUser, browser Accept/Start, shared work, verification, and every
     assert.deepEqual((renderPlanReadModel(model, 'rpc') as typeof model).tasks.map((task) => task.id), model.tasks.map((task) => task.id));
     assert.equal(flow.eventsOf('ui.widget').length, 0, 'plan state never creates a duplicate persistent widget');
     assert.ok(flow.normalizedTranscript().some((event) => event.kind === 'command.expanded'));
-    flow.assertSequence(['ui.dialog', 'browser.request', 'command.expanded', 'session.restarted', 'browser.request', 'command.expanded']);
+    flow.assertSequence(['ui.dialog', 'command.expanded', 'browser.request', 'command.expanded', 'session.restarted']);
   } finally {
     stopLocalServer();
     await isolated.cleanup();
@@ -243,24 +243,21 @@ test('registered AskUser widget covers recommended, free-text, cancel, and nonin
   }
 });
 
-test('registered command Start fails closed without a displayed revision and stale RFC bytes cannot reuse accepted authority', async () => {
+test('registered command Start requires a displayed revision and stale RFC bytes cannot reuse authority', async () => {
   const { workspace, rfcPath, revision } = fixture();
-  const flow = createPiFlowHarness({ cwd: workspace, scripted: { customs: [{ status: 'selected', value: 'terminal', label: 'Keep in terminal' }] } });
+  const flow = createPiFlowHarness({ cwd: workspace, scripted: { customs: [{ status: 'cancelled' }] } });
   await extension(flow.pi as unknown as PiInstance);
   await flow.runTool('plan', {
     queries: [{ reasoning: 'propose exact revision', action: 'propose', consequential: true, rfcPath, steps: ['Implement'] }],
   });
-  await flow.expandPrompt(`/octocode-plan accept ${revision}`);
-  assert.equal(getCurrentPlanReadModel(flow.context as unknown as PiContext).phase, 'accepted');
-
   await flow.expandPrompt('/octocode-plan start');
-  assert.equal(getCurrentPlanReadModel(flow.context as unknown as PiContext).phase, 'accepted');
+  assert.equal(getCurrentPlanReadModel(flow.context as unknown as PiContext).phase, 'in_review');
   fs.appendFileSync(rfcPath, '\nchanged');
   await flow.expandPrompt(`/octocode-plan start ${revision}`);
   const stale = getCurrentPlanReadModel(flow.context as unknown as PiContext);
-  assert.equal(stale.phase, 'accepted');
+  assert.equal(stale.phase, 'in_review');
   assert.deepEqual(stale.tasks.map((step) => step.status), ['todo']);
-  assert.ok(flow.eventsOf('command.finished').length >= 3);
+  assert.ok(flow.eventsOf('command.finished').length >= 2);
 
   const unavailable = await serveDirectory('unavailable-flow', workspace, { indexFile: 'missing.html' });
   assert.ok(unavailable);
