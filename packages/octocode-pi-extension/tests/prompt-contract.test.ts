@@ -144,6 +144,13 @@ test('main prompt makes compacted checkpoints subordinate to current plan and do
   assert.match(recoveryGuidance, /complete.*blocked on approval.*waiting\s+for the user.*stop/is);
 });
 
+test('main prompt assigns bounded session memory to the agent and audit history to the system', () => {
+  assert.match(SYSTEM_PROMPT, /<session_artifacts>/i);
+  assert.match(SYSTEM_PROMPT, /memory\.md.*gotchas.*decisions.*handoff/is);
+  assert.match(SYSTEM_PROMPT, /memory\.md.*4\s*KB.*10 entries.*200 characters/is);
+  assert.match(SYSTEM_PROMPT, /audit\.md.*system-written.*never edit/is);
+});
+
 test('main prompt keeps research, tests, comments, and reflection evidence-efficient', () => {
   const localBlock = SYSTEM_PROMPT.match(/<local_tools>\n([\s\S]*?)\n<\/local_tools>/)?.[1] ?? '';
   const routingBlock = SYSTEM_PROMPT.match(/<capability_routing>\n([\s\S]*?)\n<\/capability_routing>/)?.[1] ?? '';

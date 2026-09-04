@@ -6,7 +6,7 @@
  * flat-call rejection, and renderCall envelope awareness.
  */
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -20,6 +20,8 @@ import { completeUnifiedPlanTask } from '../src/tools/awareness-shared.js';
 import { acceptPlanReview, clearPlan, getPlan, getPlanCoordination, getPlanReviewState, proposePlanReview, setPlan, setPlanRfc, updatePlanCoordination } from '../src/tools/active-plan.js';
 import { setInteractionStoreFactoryForTests } from '../src/tools/interaction-broker.js';
 import { getCurrentPlanReadModel } from '../src/tools/plan-read-model.js';
+import { createSessionArtifactContext } from '../src/tools/session-artifacts.js';
+import { SESSION_AUDIT_RELATIVE_PATH } from '../src/tools/session-audit.js';
 
 const CWD = '/tmp/plan-query-test-ws';
 
@@ -125,6 +127,36 @@ test('single show query returns the canonical versioned RPC read model', async (
   assert.equal(d.plan?.phase, 'executing');
   assert.deepEqual(d.plan?.tasks, d.steps);
   assert.match(d.addendum ?? '', /<active_plan>/);
+});
+
+test('successful plan mutations append session audit rows while show stays read-only', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'plan-audit-'));
+  const workspace = join(root, 'workspace');
+  const home = join(root, 'home');
+  mkdirSync(workspace);
+  const priorHome = process.env['OCTOCODE_HOME'];
+  process.env['OCTOCODE_HOME'] = home;
+  const auditCtx = {
+    cwd: workspace,
+    sessionManager: { getSessionId: () => 'plan-audit-session' },
+  } as unknown as PiContext;
+  try {
+    const tool = loadTool();
+    await tool.execute('id', { queries: [{ reasoning: 'setup', action: 'set', steps: ['Alpha'] }] }, undefined, undefined, auditCtx);
+    await tool.execute('id', { queries: [{ reasoning: 'inspect', action: 'show' }] }, undefined, undefined, auditCtx);
+    await tool.execute('id', { queries: [{ reasoning: 'cleanup', action: 'clear' }] }, undefined, undefined, auditCtx);
+
+    const artifact = createSessionArtifactContext(auditCtx);
+    const audit = readFileSync(artifact.resolve(SESSION_AUDIT_RELATIVE_PATH), 'utf8');
+    assert.match(audit, /\| plan\.set \|/);
+    assert.match(audit, /\| plan\.clear \|/);
+    assert.doesNotMatch(audit, /\| plan\.show \|/);
+  } finally {
+    clearPlan(workspace);
+    if (priorHome === undefined) delete process.env['OCTOCODE_HOME'];
+    else process.env['OCTOCODE_HOME'] = priorHome;
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test('unified auto and explicit session scopes keep solo plans out of Awareness', async () => {

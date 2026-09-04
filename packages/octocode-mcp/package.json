@@ -34,7 +34,7 @@
   "exports": {
     ".": {
       "types": "./dist/public.d.ts",
-      "import": "./dist/index.js"
+      "import": "./dist/public.js"
     },
     "./types": {
       "types": "./dist/public.d.ts"
@@ -48,6 +48,7 @@
     "dist/*.js",
     "dist/**/*.d.ts",
     "dist/docs/**",
+    "assets/logo.png",
     "manifest.json",
     "server.json",
     "LICENSE",
@@ -76,7 +77,7 @@
     "typescript"
   ],
   "license": "MIT",
-  "main": "dist/index.js",
+  "main": "dist/public.js",
   "mcp": {
     "type": "stdio",
     "command": "octocode-mcp",

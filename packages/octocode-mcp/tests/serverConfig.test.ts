@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach, Mock } from 'vitest';
+import { allowExpectedStderrWarning } from './warningPolicy.js';
 import {
   initialize,
   cleanup,
@@ -614,6 +615,9 @@ describe('ServerConfig - Simplified Version', () => {
     it('should disable clone materialization in memory-only mode', async () => {
       process.env.ENABLE_CLONE = 'true';
       process.env.OCTOCODE_STORAGE_MODE = 'memory';
+      allowExpectedStderrWarning(
+        '[octocode] ENABLE_CLONE is set but OCTOCODE_STORAGE_MODE is "memory"'
+      );
       mockSpawnFailure();
       await initialize();
       expect(getServerConfig().enableClone).toBe(false);

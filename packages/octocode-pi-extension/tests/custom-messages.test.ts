@@ -31,7 +31,10 @@ import {
   resetCompactionCheckpointDedupe,
 } from '../src/tools/compaction-hooks.js';
 import { visibleWidth } from '../src/tools/render-helpers.js';
-import { createSessionArtifactContext } from '../src/tools/session-artifacts.js';
+import { createSessionArtifactContext, readRehydrationLedger, readRehydrationSegmentContents } from '../src/tools/session-artifacts.js';
+import { clearCurrentContextSources, registerCurrentContextSource } from '../src/tools/context-source-registry.js';
+import { initializeSessionMemory, readSessionMemory, SESSION_MEMORY_RELATIVE_PATH, SESSION_MEMORY_TEMPLATE } from '../src/tools/session-memory.js';
+import { SESSION_AUDIT_RELATIVE_PATH } from '../src/tools/session-audit.js';
 import type { PiInstance, PiTheme } from '../src/types.js';
 
 const theme = { fg: (c: string, t: string) => '<' + c + '>' + t + '</' + c + '>' } as unknown as PiTheme;
@@ -109,6 +112,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  clearCurrentContextSources();
   if (previousHome === undefined) delete process.env['OCTOCODE_HOME'];
   else process.env['OCTOCODE_HOME'] = previousHome;
   fs.rmSync(testHome, { recursive: true, force: true });
@@ -328,6 +332,24 @@ test('session_compact completion emits exactly one checkpoint card per compactio
   };
   const sessionManager = { getSessionId: () => 'compaction-test' };
   const ctx = { hasUI: false, cwd: testHome, sessionManager };
+  const artifacts = createSessionArtifactContext({ cwd: testHome, sessionManager });
+  initializeSessionMemory(artifacts);
+  artifacts.writeText(
+    SESSION_MEMORY_RELATIVE_PATH,
+    SESSION_MEMORY_TEMPLATE.replace('## Decisions\n', '## Decisions\n- Keep the live memory owner authoritative.\n'),
+  );
+  registerCurrentContextSource(ctx, {
+    version: 1,
+    id: 'session-memory',
+    kind: 'memory-lead',
+    origin: 'session-memory',
+    authority: 'external-data',
+    scope: 'session',
+    visibility: 'inspectable',
+    rehydrate: 'always',
+    tokenBudget: 1_000,
+    readCurrent: () => readSessionMemory(artifacts),
+  });
   await fire('session_compact', event, ctx);
   await fire('session_compact', event, ctx);
   const cards = checkpointCards(sent);
@@ -345,7 +367,6 @@ test('session_compact completion emits exactly one checkpoint card per compactio
   assert.equal(details.fromExtension, false);
   assert.deepEqual(details.readFiles, ['src/a.ts']);
   assert.deepEqual(details.modifiedFiles, ['src/b.ts']);
-  const artifacts = createSessionArtifactContext({ cwd: testHome, sessionManager });
   assert.ok(details.artifactPath?.startsWith(`${path.dirname(artifacts.resolve('compaction/latest.md'))}${path.sep}`));
   assert.ok(details.artifactPath?.endsWith('-c-1.md'));
   assert.equal(details.latestArtifactPath, artifacts.resolve('compaction/latest.md'));
@@ -359,6 +380,13 @@ test('session_compact completion emits exactly one checkpoint card per compactio
   assert.match(markdown, /- src\/a\.ts/);
   assert.match(markdown, /- src\/b\.ts/);
   assert.equal(fs.readFileSync(details.latestArtifactPath!, 'utf8'), markdown);
+
+  const ledger = readRehydrationLedger(artifacts)!;
+  assert.ok(ledger.segments.some((segment) => segment.id === 'session-memory'));
+  assert.match(readRehydrationSegmentContents(artifacts, ledger)['session-memory'] ?? '', /live memory owner authoritative/);
+  const audit = fs.readFileSync(artifacts.resolve(SESSION_AUDIT_RELATIVE_PATH), 'utf8');
+  assert.match(audit, /\| compaction\.completed \|/);
+  assert.match(audit, /c-1/);
 });
 test('a distinct compaction event emits its own card', async () => {
   const { pi, sent, fire } = makePi();

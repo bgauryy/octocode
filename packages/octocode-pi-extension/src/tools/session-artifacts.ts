@@ -38,6 +38,8 @@ export interface SessionIdentity {
 
 export type SessionArtifactProducer =
   | 'plan'
+  | 'memory'
+  | 'audit'
   | 'compaction'
   | 'worker'
   | 'image'
