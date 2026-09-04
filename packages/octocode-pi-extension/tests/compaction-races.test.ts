@@ -4,10 +4,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, test } from 'vitest';
-import { Type } from 'typebox';
 import { contentDigest } from '@octocodeai/octocode-awareness';
-import type { CompactOptions, PiInstance, ToolDefinition } from '../src/types.js';
-import { registerContextTools } from '../src/tools/context-tools.js';
+import type { PiInstance, ToolDefinition } from '../src/types.js';
+import { OCTOCODE_COMPACTION_THRESHOLD, reserveTokensForCompactionThreshold } from '../src/tools/context-tools.js';
 import { __test__ as compactionInternals, registerCompactionHooks, resetCompactionCheckpointDedupe } from '../src/tools/compaction-hooks.js';
 import { activePlanScope, clearPlan } from '../src/tools/active-plan.js';
 import { buildCompactionMarkdown } from '../src/tools/compaction-artifacts.js';
@@ -43,16 +42,7 @@ function makeHarness(): Harness {
     },
   } as unknown as PiInstance;
   const notify = (_ctx: unknown, msg: string, level?: string) => notes.push({ msg, level });
-  const registerFn = (
-    target: { registerTool?(definition: ToolDefinition): void },
-    names: Set<string>,
-    definition: ToolDefinition,
-  ) => {
-    names.add(definition.name);
-    target.registerTool?.(definition);
-  };
   registerCompactionHooks(pi, notify as never);
-  registerContextTools(pi, Type, new Set<string>(), registerFn as never, notify as never);
   return {
     tools,
     notes,
@@ -64,10 +54,8 @@ function makeHarness(): Harness {
 }
 
 function makeCtx(options: { tokens?: number | null; contextWindow?: number; branch?: unknown[] } = {}) {
-  const compactCalls: CompactOptions[] = [];
   const ctx = {
     hasUI: false,
-    compact: (compactOptions: CompactOptions) => compactCalls.push(compactOptions),
     getContextUsage: () => ({
       tokens: options.tokens === undefined ? 90 : options.tokens,
       contextWindow: options.contextWindow ?? 100,
@@ -77,8 +65,18 @@ function makeCtx(options: { tokens?: number | null; contextWindow?: number; bran
       getSessionId: () => 'test-session',
     },
   };
-  return { ctx, compactCalls };
+  return { ctx };
 }
+
+test('compaction summaries never retain private model reasoning', () => {
+  const summary = compactionInternals.extractTextContent([
+    { type: 'text', text: 'User-visible result' },
+    { type: 'thinking', thinking: 'private internal reasoning must not persist' },
+  ]);
+  assert.match(summary, /User-visible result/);
+  assert.match(summary, /model reasoning omitted/);
+  assert.doesNotMatch(summary, /private internal reasoning/);
+});
 
 let previousHome: string | undefined;
 let testHome: string;
@@ -98,78 +96,26 @@ afterEach(() => {
   fs.rmSync(testHome, { recursive: true, force: true });
 });
 
-test('Octocode registers one proactive idle-boundary compactor and no turn_end abort race', () => {
+test('Octocode leaves automatic compaction and continuation to Pi', () => {
   const harness = makeHarness();
-  assert.equal(harness.handlerCount('agent_settled'), 1);
+  assert.equal(harness.handlerCount('agent_settled'), 0);
   assert.equal(harness.handlerCount('turn_end'), 0);
   assert.equal(harness.handlerCount('message_end'), 0);
   assert.equal(harness.tools.has('manage_context'), false);
 });
 
-test('completed turns compact once at 80 percent and ignore lower or unknown usage', async () => {
-  const harness = makeHarness();
-  const low = makeCtx({ tokens: 79, contextWindow: 100 });
-  await harness.fire('agent_settled', {}, low.ctx);
-  assert.deepEqual(low.compactCalls, []);
-
-  const unknown = makeCtx({ tokens: null, contextWindow: 100 });
-  await harness.fire('agent_settled', {}, unknown.ctx);
-  assert.deepEqual(unknown.compactCalls, []);
-
-  const { ctx, compactCalls } = makeCtx({ tokens: 80, contextWindow: 100 });
-  await harness.fire('agent_settled', {}, ctx);
-  await harness.fire('agent_settled', {}, ctx);
-  assert.equal(compactCalls.length, 1, 'the in-flight guard prevents duplicate compaction');
-  assert.match(compactCalls[0]?.customInstructions ?? '', /80%/);
-});
-
-test('failed proactive compaction can retry and completed compaction reports success', async () => {
-  const harness = makeHarness();
-  const { ctx, compactCalls } = makeCtx({ tokens: 90, contextWindow: 100 });
-  await harness.fire('agent_settled', {}, ctx);
-  compactCalls[0]?.onError?.(new Error('provider failed'));
-  await harness.fire('agent_settled', {}, ctx);
-  assert.equal(compactCalls.length, 2);
-  compactCalls[1]?.onComplete?.({ tokensBefore: 90, estimatedTokensAfter: 30 });
-  assert.ok(harness.notes.some((note) => /compaction completed: 90 → ~30 tokens; reclaimed ~60 \(67%\)/i.test(note.msg)));
-  assert.equal(
-    fs.existsSync(createSessionArtifactContext(ctx as never).resolve('compaction/metrics-latest.json')),
-    true,
-  );
-});
-
-test('Pi compaction failure events and synchronous host errors release the in-flight guard', async () => {
-  const harness = makeHarness();
-  const failed = makeCtx({ tokens: 90, contextWindow: 100 });
-  await harness.fire('agent_settled', {}, failed.ctx);
-  await harness.fire('session_compact_failed', {
-    reason: 'threshold', aborted: false, willRetry: false, fromExtension: false, errorMessage: 'provider failed',
-  }, failed.ctx);
-  await harness.fire('agent_settled', {}, failed.ctx);
-  assert.equal(failed.compactCalls.length, 2);
-  failed.compactCalls[1]?.onComplete?.({ tokensBefore: 90, estimatedTokensAfter: 30 });
-
-  const synchronous = makeCtx({ tokens: 90, contextWindow: 100 });
-  let attempts = 0;
-  Object.assign(synchronous.ctx, {
-    compact: (options: CompactOptions) => {
-      attempts += 1;
-      if (attempts === 1) throw new Error('inactive host context');
-      synchronous.compactCalls.push(options);
-    },
-  });
-  await harness.fire('agent_settled', {}, synchronous.ctx);
-  await harness.fire('agent_settled', {}, synchronous.ctx);
-  assert.equal(attempts, 2);
-  assert.equal(synchronous.compactCalls.length, 1);
-  assert.ok(harness.notes.some((note) => /inactive host context/.test(note.msg)));
+test('80 percent Pi policy reserves 20 percent of the context window', () => {
+  assert.equal(OCTOCODE_COMPACTION_THRESHOLD, 0.8);
+  assert.equal(reserveTokensForCompactionThreshold(8_192), 1_639);
+  assert.equal(reserveTokensForCompactionThreshold(100), 20);
+  assert.equal(reserveTokensForCompactionThreshold(0), undefined);
 });
 
 test('only public Pi compaction hooks are registered', () => {
   const harness = makeHarness();
   assert.equal(harness.handlerCount('session_before_compact'), 1);
-  assert.equal(harness.handlerCount('session_compact'), 2);
-  assert.equal(harness.handlerCount('session_compact_failed'), 1);
+  assert.equal(harness.handlerCount('session_compact'), 1);
+  assert.equal(harness.handlerCount('session_compact_failed'), 0);
 });
 
 test('session shutdown discards staged smart-resume state without reading Pi stale context', async () => {

@@ -4,18 +4,18 @@ import {
 } from './tools/approval.js';
 import { getCachedAwarenessStatus } from './tools/awareness-status.js';
 import {
-  listWorkerLedgerEntries,
+  listVisibleWorkerLedgerEntries,
 } from './tools/agent-tools.js';
 import { recordSessionTitle } from './tools/desktop-notify.js';
 import { getActiveDialLevel } from './tools/effort-dial.js';
 import { peerWipCount } from './tools/peer-wip.js';
 import { makeRenderer } from './tools/render-helpers.js';
 import {
+  activityPresentation,
   runtimeStoreFor,
   setManagedFooter,
   setManagedStatus,
   setManagedWorkingIndicator,
-  setManagedWorkingMessage,
 } from './tools/runtime-renderer.js';
 import type { RuntimeFooterState } from './tools/runtime-store.js';
 import { renderFooterView } from './tui/footer-view.js';
@@ -25,11 +25,13 @@ import {
   buildAgentFooterRows,
   buildFooterSegments,
   buildWorkingIndicator,
-  buildWorkingMessage,
   deriveSessionName,
   formatBranchSegment,
   formatCompact,
 } from './ui-extras.js';
+import { activePlanScope } from './tools/active-plan.js';
+import { getCurrentPlanReadModel, type PlanReadModelV1 } from './tools/plan-read-model.js';
+import type { InlineSegment } from './tui/components.js';
 
 /**
  * The `octocode-thinking` status text. Pi already renders `model: <id>` in the
@@ -64,36 +66,33 @@ export function formatContextUsage(ctx: PiContext | undefined): { text: string; 
   };
 }
 
-interface WorkerFooterCounts {
-  /** All worker records still tracked in this session. */
-  total: number;
-  /** Live workers (starting / running / idle). */
-  active: number;
-  /** Workers waiting on the lead (normalized [BLOCKED]). */
-  blocked: number;
-  /** Workers that failed / crashed. */
-  failed: number;
-}
-
-function workerFooterCounts(): WorkerFooterCounts {
-  const counts: WorkerFooterCounts = { total: 0, active: 0, blocked: 0, failed: 0 };
-  try {
-    for (const e of listWorkerLedgerEntries()) {
-      counts.total += 1;
-      // Buckets are mutually exclusive: a blocked-or-done idle worker must not
-      // ALSO count as "live" — the footer would overstate active work and
-      // disagree with the ledger's own status display.
-      const live = e.status === 'running' || e.status === 'idle' || e.status === 'starting';
-      if (e.status === 'failed' || e.normalizedStatus === 'failed') counts.failed += 1;
-      // "Blocked" is an attention flag for a worker the lead can still unblock;
-      // an exited process that last said [BLOCKED] is not actionable.
-      else if (e.normalizedStatus === 'blocked' && live) counts.blocked += 1;
-      else if (live && e.normalizedStatus !== 'done') counts.active += 1;
-    }
-  } catch {
-    return { total: 0, active: 0, blocked: 0, failed: 0 };
+export function buildPlanFooterSegments(model: PlanReadModelV1): InlineSegment[] {
+  if (model.summary.total === 0) return [];
+  const planToken = model.summary.blocked > 0
+    ? 'warning'
+    : model.summary.done === model.summary.total
+      ? 'success'
+      : model.summary.running > 0
+        ? 'brand'
+        : 'dim';
+  const segments: InlineSegment[] = [{
+    text: `plan ${model.summary.done}/${model.summary.total}`,
+    token: planToken,
+    attention: model.summary.blocked > 0,
+  }];
+  const task = model.tasks.find((item) => item.status === 'doing')
+    ?? model.tasks.find((item) => item.status === 'blocked')
+    ?? model.tasks.find((item) => item.status === 'todo');
+  if (task) {
+    const state = task.status === 'doing' ? '' : `${task.status} `;
+    const extra = model.summary.running > 1 ? ` (+${model.summary.running - 1} active)` : '';
+    segments.push({
+      text: `task ${task.index} ${state}${task.activeText ?? task.text}${extra}`,
+      token: task.status === 'blocked' ? 'warning' : task.status === 'doing' ? 'brand' : 'muted',
+      attention: task.status === 'blocked',
+    });
   }
-  return counts;
+  return segments;
 }
 
 // Footer registration is idempotent per session context. Pi's documented
@@ -120,7 +119,10 @@ function buildOctocodeFooterLines(
   // re-registering the footer.
   const now = Date.now();
   const usage = state.usage ?? { tokens: undefined, contextWindow: 0 };
-  const workers = workerFooterCounts();
+  const agentRows = buildAgentFooterRows(listVisibleWorkerLedgerEntries(), now).rows;
+  const planSegments = buildPlanFooterSegments(getCurrentPlanReadModel(ctx, activePlanScope(ctx)));
+  const runtimeState = runtimeStoreFor(ctx)?.getState();
+  const activity = runtimeState ? activityPresentation(runtimeState.activity) : undefined;
   const cachedAwareness = getCachedAwarenessStatus(ctx.cwd ?? process.cwd());
   // ── Row 1: Identity (branch · model · github · perm) + /commands ──
   // The app already owns the Octocode brand; repeating it in every footer frame
@@ -150,22 +152,22 @@ function buildOctocodeFooterLines(
   }
   identityParts.push({ text: '/settings', token: 'link' });
 
-  // ── Row 2: Metrics (context · session · timing · overhead · agent counts) ──
+  // Metrics complement plan/agent rows; they never restate their counts.
   const metricsSegments = buildFooterSegments({
-    tokens: usage?.tokens ?? 0,
-    contextWindow: usage?.contextWindow ?? 0,
+    tokens: undefined,
+    contextWindow: 0,
     completedTurns: state.completedTurns,
     activeTurnMs: state.activeTurnStartedAt !== undefined ? now - state.activeTurnStartedAt : undefined,
     lastTurnMs: state.lastTurnMs,
     sessionMs: now - state.sessionStartedAt,
-    activeWorkers: workers.active,
-    workerTotal: workers.total,
+    activeWorkers: 0,
+    workerTotal: 0,
     agentDoing: undefined,
     awarenessPeers: cachedAwareness?.agentCount ?? 0,
     awarenessUnread: cachedAwareness?.unreadInbox ?? 0,
     peerDirty: peerWipCount(),
-    blockedWorkers: workers.blocked,
-    failedWorkers: workers.failed,
+    blockedWorkers: 0,
+    failedWorkers: 0,
     dial: getActiveDialLevel(),
     permissionLevel: undefined,
     approvedClassCount: undefined,
@@ -185,12 +187,42 @@ function buildOctocodeFooterLines(
     dirty: state.gitDirty ?? false,
     dirtyFiles: state.gitDirtyFiles,
   });
-  const { rows: agentRows } = buildAgentFooterRows(listWorkerLedgerEntries(), now);
+  const context = usage.contextWindow > 0 && usage.tokens !== undefined
+    ? (() => {
+        const percent = Math.floor((usage.tokens / usage.contextWindow) * 100);
+        const gauge = contextGauge(percent);
+        return {
+          text: `ctx ${gauge.bar} ${percent}% (${formatCompact(usage.tokens)}/${formatCompact(usage.contextWindow)})`,
+          token: gauge.token,
+          attention: gauge.token === 'error',
+        } as InlineSegment;
+      })()
+    : ({ text: 'ctx …', token: 'dim' } as InlineSegment);
   return renderFooterView({
-    identity: identityParts,
-    metrics: metricsSegments,
+    rows: [
+      [
+        ...(activity?.status
+        ? [{
+            text: activity.status,
+            token: runtimeState?.activity.kind === 'failed'
+              ? 'error' as const
+              : runtimeState?.activity.kind === 'blocked' || runtimeState?.activity.kind === 'awaiting_input'
+                ? 'warning' as const
+                : runtimeState?.activity.kind === 'complete'
+                  ? 'success' as const
+                  : 'brand' as const,
+            attention: runtimeState?.activity.kind === 'failed' || runtimeState?.activity.kind === 'blocked' || runtimeState?.activity.kind === 'awaiting_input',
+          }]
+        : state.activeTurnStartedAt !== undefined
+          ? [{ text: 'Thinking…', token: 'brand' as const }]
+          : []),
+        context,
+      ],
+      planSegments,
+      identityParts,
+      metricsSegments,
+    ],
     agents: agentRows,
-    shortcuts: [],
   }, { width, theme });
 }
 
@@ -205,19 +237,24 @@ export function updateOctocodeMetricsUi(ctx: PiContext | undefined, _now = Date.
   } catch { /* keep the last sample */ }
 
   // The consolidated branded footer is the SINGLE metrics surface — context /
-  // tokens / turns / timing / agents / git. Plan stays in the below-editor panel.
+  // tokens / plan / task / agents / git. No second persistent state panel exists.
   if (!footerRegisteredCtxs.has(ctx)) {
     footerRegisteredCtxs.add(ctx);
     setManagedFooter(ctx, (tui: unknown, theme, footerData) => {
       footerRequestRenderByCtx.set(ctx, () => (tui as { requestRender?: () => void } | undefined)?.requestRender?.());
       const renderer = makeRenderer((width) => buildOctocodeFooterLines(ctx, store.getState().footer, width, theme, footerData));
-      const unsubscribe = footerData?.onBranchChange?.(() => {
+      const repaint = () => {
         renderer.invalidate();
         footerRequestRenderByCtx.get(ctx)?.();
-      });
+      };
+      const unsubscribeBranch = footerData?.onBranchChange?.(repaint);
+      const unsubscribeRuntime = store.subscribe(repaint);
       return {
         ...renderer,
-        dispose: () => unsubscribe?.(),
+        dispose: () => {
+          unsubscribeBranch?.();
+          unsubscribeRuntime();
+        },
       };
     });
   }
@@ -327,8 +364,7 @@ export function applyOctocodeUi(ctx: PiContext | undefined, level?: string, cont
     // so keeping "Octocode" out of the frames avoids "Octocode Octocode …".
     const theme = ui.theme;
     setManagedWorkingIndicator(ctx, buildWorkingIndicator(theme));
-    // Message/visibility are runtime state rendered by runtime-renderer. Only the
-    // immutable indicator component is installed directly on the UI context.
-    setManagedWorkingMessage(ctx, buildWorkingMessage(theme));
+    // Visibility is derived from runtime phase/activity. The footer owns its
+    // lifecycle text, so the working row contains only this animated glyph.
   }
 }

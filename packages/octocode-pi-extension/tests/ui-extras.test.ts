@@ -4,7 +4,6 @@ import {
   formatCompact,
   formatDurationShort,
   buildWorkingIndicator,
-  buildWorkingMessage,
   buildFooterSegments,
   buildShortcutHintsRow,
   buildCommandsRow,
@@ -184,20 +183,11 @@ test('buildWorkingIndicator paints spinner frames with a fast semantic color pul
   ]);
 });
 
-test('buildWorkingMessage is a static branded verb — one motion source (the indicator glyph)', () => {
-  const theme = {
-    fg: (color: string, text: string) => `<${color}:${text}>`,
-    bold: (text: string) => text,
-  };
-  assert.equal(buildWorkingMessage(theme), '<accent:Thinking><mdLink:…>');
-  assert.equal(buildWorkingMessage(), 'Thinking…');
-});
-
 test('buildFooterSegments keeps agent counts separate from per-agent activity rows', () => {
   const segs = buildFooterSegments({
     tokens: 0, contextWindow: 0, completedTurns: 0, activeTurnMs: 0,
     sessionMs: 0, activeWorkers: 2, workerTotal: 3, agentDoing: 'Editing agent-tools.ts', dirty: false,
-  });
+  }, 'default');
   const seg = segs.find((s) => s.text.startsWith('agents '))!;
   assert.equal(seg.text, 'agents 3 (2 live)');
   assert.doesNotMatch(seg.text, /now:|Editing/);
@@ -207,7 +197,7 @@ test('buildFooterSegments keeps tracked idle agents visible in the toolbar', () 
   const segs = buildFooterSegments({
     tokens: 0, contextWindow: 0, completedTurns: 0, activeTurnMs: 0,
     sessionMs: 0, activeWorkers: 0, workerTotal: 2, dirty: false,
-  });
+  }, 'default');
   const seg = segs.find((s) => s.text.startsWith('agents '))!;
   assert.equal(seg.text, 'agents 2');
 });
@@ -218,7 +208,7 @@ test('buildFooterSegments composes one actionable context gauge, timing, workers
     completedTurns: 3, activeTurnMs: 9000, lastTurnMs: undefined,
     sessionMs: 120_000, activeWorkers: 2, workerTotal: 2, awarenessPeers: 4, peerDirty: 3,
     branch: 'main', dirty: true,
-  });
+  }, 'default');
   const joined = segs.map((s) => s.text).join(' | ');
   const ctx = segs.find((s) => s.text.startsWith('context '))!;
   assert.match(joined, /8%/);          // 16000/200000
@@ -267,9 +257,9 @@ test('buildFooterSegments always renders labeled harness context total; breakdow
   const full = fullSegments.join(' | ');
   assert.match(full, /initial ~12\.0k \(sys 8\.0k · mcp 2\/38 · skills 3\)/);
   assert.equal(fullSegments.filter((text) => text.includes('mcp 2')).length, 1, 'full density renders MCP/skill counts only in the prompt breakdown');
-  // compact: still shown (labeled total, no breakdown)
+  // compact: diagnostic harness overhead stays behind /octocode-harness
   const compact = buildFooterSegments(base, 'compact').map((s) => s.text).join(' | ');
-  assert.match(compact, /initial ~12\.0k/);
+  assert.doesNotMatch(compact, /initial/);
   assert.doesNotMatch(compact, /sys /);
 });
 
@@ -316,7 +306,7 @@ test('buildFooterSegments shows a branded dial segment without depending on plan
     tokens: 0, contextWindow: 0, completedTurns: 0,
     activeTurnMs: 0, sessionMs: 0, activeWorkers: 0,
     dial: 'deep', dirty: false,
-  });
+  }, 'default');
   const dial = segs.find((s) => s.text.startsWith('dial '))!;
   assert.equal(dial.text, 'dial deep');
   assert.equal(dial.token, 'brand');
@@ -334,7 +324,7 @@ test('buildFooterSegments omits optional segments cleanly', () => {
     tokens: 0, contextWindow: 0, completedTurns: 0,
     activeTurnMs: undefined, lastTurnMs: 1200, sessionMs: 5000,
     activeWorkers: 0, branch: undefined, dirty: false,
-  });
+  }, 'default');
   const joined = segs.map((s) => s.text).join(' | ');
   assert.doesNotMatch(joined, /agents/);
   assert.doesNotMatch(joined, /plan \d/);
@@ -398,7 +388,7 @@ test('footer density: default and full omit redundant peer counts', () => {
 
 test('footer density: module-level mode drives the default parameter; parse rejects junk', () => {
   try {
-    assert.equal(getFooterDensity(), 'default');
+    assert.equal(getFooterDensity(), 'compact');
     setFooterDensity('compact');
     assert.equal(getFooterDensity(), 'compact');
     const joined = buildFooterSegments(DENSITY_INPUT).map((s) => s.text).join(' | ');

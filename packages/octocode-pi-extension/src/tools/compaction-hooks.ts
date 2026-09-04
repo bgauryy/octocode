@@ -76,7 +76,9 @@ function extractTextContent(content: unknown): string {
     .map((part) => {
       if (!isRecord(part)) return '';
       if (part.type === 'text' && typeof part.text === 'string') return part.text;
-      if (part.type === 'thinking' && typeof part.thinking === 'string') return `[thinking] ${part.thinking}`;
+      // Model reasoning is not user-visible output and must never be copied into
+      // durable compaction artifacts or the next-turn summary.
+      if (part.type === 'thinking') return '[model reasoning omitted]';
       if (part.type === 'toolCall') {
         const name = typeof part.name === 'string' ? part.name : 'tool';
         return `[tool call] ${name} (arguments omitted)`;
@@ -411,4 +413,5 @@ export function registerCompactionHooks(pi: PiInstance, notify: NotifyFn): void 
 
 export const __test__ = {
   buildDeterministicCompaction,
+  extractTextContent,
 };

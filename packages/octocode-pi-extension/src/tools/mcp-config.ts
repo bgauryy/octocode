@@ -112,10 +112,13 @@ function resolveLocalOctocodeMcpBin(): string | null {
   }
 }
 
+// Version kept in sync with package.json#dependencies.octocode-mcp.
+const OCTOCODE_MCP_FALLBACK_VERSION = '^18.3.0';
+
 /**
  * Build the built-in Octocode MCP server spawn config. Prefer the pinned local
  * binary (fast, offline, reproducible against the version we ship); fall back to
- * `npx -y octocode-mcp@latest` (cache-first) when the dependency is unresolvable.
+ * `npx -y octocode-mcp@OCTOCODE_MCP_FALLBACK_VERSION` (cache-first) when the dependency is unresolvable.
  */
 export function buildDefaultOctocodeMcpServer(): McpServerConfig {
   const localBin = resolveLocalOctocodeMcpBin();
@@ -123,7 +126,7 @@ export function buildDefaultOctocodeMcpServer(): McpServerConfig {
     ? { command: process.execPath, args: [localBin] }
     : // No --prefer-online: use the extension-owned npm cache.
       // for sub-100ms cold start when the pinned dep is unavailable.
-      { command: 'npx', args: ['-y', 'octocode-mcp@latest'] };
+      { command: 'npx', args: ['-y', `octocode-mcp@${OCTOCODE_MCP_FALLBACK_VERSION}`] };
   return {
     transport: 'stdio',
     ...spawn,
@@ -357,7 +360,7 @@ export async function loadMcpConfig(
   const trusted = ctx?.isProjectTrusted ? Boolean(await ctx.isProjectTrusted()) : true;
   const defaultServer = buildDefaultOctocodeMcpServer();
   const servers = new Map<string, McpServerConfig>([[DEFAULT_OCTOCODE_MCP_SERVER_NAME, defaultServer]]);
-  const sourcePath = defaultServer.command === 'npx' ? 'npx -y octocode-mcp@latest' : `node ${defaultServer.args?.[0] ?? 'octocode-mcp'}`;
+  const sourcePath = defaultServer.command === 'npx' ? `npx -y octocode-mcp@${OCTOCODE_MCP_FALLBACK_VERSION}` : `node ${defaultServer.args?.[0] ?? 'octocode-mcp'}`;
   const builtInSource: McpConfigSource = { scope: 'built-in', path: sourcePath, trusted: true };
   const sources: McpConfigSource[] = [builtInSource];
   const serverSources = new Map<string, McpConfigSource>([[DEFAULT_OCTOCODE_MCP_SERVER_NAME, builtInSource]]);

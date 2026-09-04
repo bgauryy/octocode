@@ -1,11 +1,11 @@
 /**
- * awareness-status — a live below-editor panel for the shared Awareness state
+ * awareness-status — a compact shared Awareness projection
  * (plans, tasks, verify debt, locks, manual work presence, and messages).
  *
  * Awareness is canonical SQLite behind the `octocode-awareness` bin shipped by
  * `@octocodeai/octocode-awareness`. Its
  * state previously only surfaced in chat when the agent ran a CLI command; this
- * module projects it into a persistent under-input panel instead.
+ * module projects attention into the footer while commands retain full detail.
  *
  * Design:
  *   - `formatAwarenessPanel` is pure + unit-tested.
@@ -25,7 +25,6 @@ import { paint } from '../tui/cli-design.js';
 import { SEP_WIDE } from '../tui/palette.js';
 import { renderInlineRows, type InlineSegment } from '../tui/components.js';
 import { truncateToWidth } from './render-helpers.js';
-import { refreshStatusPanel } from './status-panel.js';
 import { capMapSize } from '../utils.js';
 
 export type AwarenessTaskActivity = ExternalAwarenessTaskActivity;
@@ -72,7 +71,7 @@ export function renderAwarenessSignalAddendum(
 }
 
 /**
- * Build the below-editor Awareness panel lines. Empty array when there is
+ * Build explicit Awareness detail lines. Empty array when there is
  * nothing to show; lines clipped at the source when `width` is given.
  */
 export function formatAwarenessPanel(s: AwarenessStatus, theme?: PiTheme, width?: number): string[] {
@@ -183,18 +182,28 @@ export function forceAwarenessStatusRefreshForTests(cwd: string): void {
   if (entry) entry.lastRunAt = 0;
 }
 
-function renderWidget(ctx: PiContext, _status: AwarenessStatus | null): void {
-  // The Awareness section is composed by the unified status panel from the cached status.
-  refreshStatusPanel(ctx);
+let awarenessMetricsRefresh: ((ctx?: PiContext) => void) | undefined;
+
+/** Register the host footer refresher without coupling this data source to UI layout. */
+export function setAwarenessMetricsRefreshForUi(cb: ((ctx?: PiContext) => void) | undefined): void {
+  awarenessMetricsRefresh = cb;
+}
+
+function repaintFooter(ctx: PiContext): void {
+  try {
+    awarenessMetricsRefresh?.(ctx);
+  } catch {
+    // Awareness remains authoritative even if a stale UI context rejects repaint.
+  }
 }
 
 /**
- * Refresh the Awareness panel: throttled + async. Renders the cached status
+ * Refresh the Awareness projection: throttled + async. Renders the cached status
  * immediately (if any) and kicks off a background refresh at most every
  * MIN_REFRESH_MS. Never blocks the turn; never throws.
  */
-// Set during session_shutdown so the async CLI refresh completing after the
-// widget was cleared cannot re-create it in the replaced session.
+// Set during session_shutdown so an async refresh from the replaced session
+// cannot repaint its stale context.
 let panelSuppressed = false;
 export function suppressAwarenessPanel(): void {
   panelSuppressed = true;
@@ -213,8 +222,8 @@ export function refreshAwarenessPanel(ctx?: PiContext): void {
   cache.set(cwd, entry);
   capMapSize(cache, MAX_CACHED_CWDS);
 
-  // Paint whatever we last knew so the panel is stable between refreshes.
-  renderWidget(ctx, entry.status);
+  // Repaint immediately from the cached snapshot, then again if async state changes.
+  repaintFooter(ctx);
 
   const now = Date.now();
   if (entry.running || now - entry.lastRunAt < MIN_REFRESH_MS) return;
@@ -225,15 +234,15 @@ export function refreshAwarenessPanel(ctx?: PiContext): void {
       entry.running = false;
       if (status === null) {
         entry.status = null;
-        renderWidget(ctx, null);
+        repaintFooter(ctx);
         return;
       }
       entry.status = status;
-      renderWidget(ctx, status);
+      repaintFooter(ctx);
     })
     .catch(() => {
       entry.running = false;
       entry.status = null;
-      renderWidget(ctx, null);
+      repaintFooter(ctx);
     });
 }

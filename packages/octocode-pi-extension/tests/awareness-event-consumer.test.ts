@@ -42,7 +42,7 @@ describe('Awareness event status projection', () => {
       backlogCapped: true,
       drainAccepted: 1,
       drainRefused: 1,
-    })).toBe('events q 2+ · ack 7 · accepted 1 · held 0 · refused 1 · errors 0');
+    })).toBe('peer events · 2+ queued · 1 refused · seq 7');
   });
 });
 

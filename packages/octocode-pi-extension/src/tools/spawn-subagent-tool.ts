@@ -138,7 +138,7 @@ export function registerSpawnSubagentTool(
       'Before spawning, break the request into explicit subtasks and delegate only one independent, bounded subtask per typed specialist.',
       'Structure the task as a labeled packet — lines starting with "Goal:", "Context:", "Scope:", "Ownership:", "Acceptance:", "Return:" (any of "-"/"—"/":" as separator, headings/bullets OK). Missing labels surface as a [POLICY] warning on the spawn response, not silently.',
       'Model routing (which configured model to pass, `pi -ne --list-models`) is defined once in the agents policy — follow it there rather than re-deriving it here.',
-      'Use AgentMessage(wait) to collect the current turn; treat [DONE] as phase completion and check /octocode-agents or the below-editor ledger plus the delegated acceptance criteria before declaring the objective complete.',
+      'Use AgentMessage(wait) to collect the current turn; treat [DONE] as phase completion and check the unified footer or /octocode-agents plus the delegated acceptance criteria before declaring the objective complete.',
       'Typed subagent packets include a durable handback file under .octocode/tmp/agents/<agentId>/handback.md and typed subagents have the write tool; require long or important findings to be written there and reported with [ARTIFACT] before terminal output.',
       'Use AgentMessage(abort) to gracefully interrupt the active turn — the subagent stays alive for follow-up send/steer turns.',
       'Typed subagents emit structured prefixed lines such as [FINDING], [EVIDENCE], [ACTION], [PLAN], [BLOCKED], [ARTIFACT], and [DONE] — parse these for synthesis.',

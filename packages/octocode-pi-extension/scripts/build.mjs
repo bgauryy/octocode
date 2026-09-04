@@ -27,9 +27,9 @@ const SOURCE_PATHS = {
   configLoader: CONFIG_LOADER_SRC,
   subagents: path.join(packageRoot, 'subagents'),
   skills: path.join(packageRoot, 'skills'),
-  // The system prompt is one inlined document (src/prompts/prompt.ts → dist/prompts/prompt.js);
+  // The system prompt is one inlined document (src/prompts/system-prompt.ts → dist/prompts/system-prompt.js);
   // there are no per-section fragment files to copy.
-  promptSource: path.join(packageRoot, 'src', 'prompts', 'prompt.ts'),
+  promptSource: path.join(packageRoot, 'src', 'prompts', 'system-prompt.ts'),
   // Awareness skill source comes from the published package; runtime invocation uses npx.
   awarenessSkills: path.join(AWARENESS_PACKAGE_ROOT, 'skills'),
   octocodeSkills: path.join(OCTOCODE_PACKAGE_ROOT, 'skills'),
@@ -347,10 +347,10 @@ async function build() {
   // the published extension carries the loader itself (no runtime dep, nothing to publish).
   // src/env.ts stays a workspace re-export for repo-time (tests, IDE); dist is self-contained.
   copyFile(SOURCE_PATHS.configLoader, path.join(distDir, 'env.js'));
-  // The system prompt is one inlined document; compileTsc() emits dist/prompts/prompt.js.
+  // The system prompt is one inlined document; compileTsc() emits dist/prompts/system-prompt.js.
   // Import the composed prompt and write it to dist/system/ — no per-section copy needed.
   const { SYSTEM_PROMPT } = await import(
-    pathToFileURL(path.join(distDir, 'prompts', 'prompt.js')).href
+    pathToFileURL(path.join(distDir, 'prompts', 'system-prompt.js')).href
   );
   fs.mkdirSync(path.dirname(OUTPUT_PATHS.systemPrompt), { recursive: true });
   fs.writeFileSync(OUTPUT_PATHS.systemPrompt, SYSTEM_PROMPT, 'utf8');

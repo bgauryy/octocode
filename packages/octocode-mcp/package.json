@@ -10,17 +10,17 @@
     "@octocodeai/octocode-core": "18.3.0",
     "@octocodeai/octocode-engine": "18.3.0",
     "@octocodeai/octocode-tools-core": "18.3.0",
-    "zod": "^4.4.3"
+    "zod": "^4.5.4"
   },
   "devDependencies": {
     "@modelcontextprotocol/client": "^2.0.0",
     "@octokit/core": "^7.0.6",
     "@octokit/plugin-throttling": "^11.0.3",
-    "@types/node": "^26.2.0",
+    "@types/node": "^26.4.1",
     "@vitest/coverage-v8": "^4.1.11",
     "@vitest/ui": "^4.1.11",
-    "esbuild": "^0.28.1",
-    "eslint": "^9.18.0",
+    "esbuild": "^0.28.2",
+    "eslint": "^10.9.1",
     "node-cache": "^5.1.2",
     "octokit": "^5.0.5",
     "rollup": "^4.52.5",
@@ -47,6 +47,7 @@
   "files": [
     "dist/*.js",
     "dist/**/*.d.ts",
+    "dist/docs/**",
     "manifest.json",
     "server.json",
     "LICENSE",
@@ -91,7 +92,7 @@
     "directory": "packages/octocode-mcp"
   },
   "scripts": {
-    "build": "yarn readme:sync && yarn clean && node ../../scripts/esbuild-package.mjs && yarn build:types",
+    "build": "yarn readme:sync && yarn clean && node ../../scripts/esbuild-package.mjs && yarn build:types && node scripts/bundle-docs.mjs",
     "build:bin": "bun build ./src/index.ts --compile --minify --sourcemap --outfile dist/octocode-mcp && node scripts/bundle-engine.mjs darwin-arm64 dist",
     "build:bin:all": "bun run build:bin:linux-x64 && bun run build:bin:linux-arm64 && bun run build:bin:linux-x64-musl && bun run build:bin:darwin-arm64 && bun run build:bin:darwin-x64 && bun run build:bin:windows-x64",
     "build:bin:darwin-arm64": "bun build ./src/index.ts --compile --minify --sourcemap --target=bun-darwin-arm64 --outfile dist/octocode-mcp-darwin-arm64 && node scripts/bundle-engine.mjs darwin-arm64 dist",
@@ -101,7 +102,7 @@
     "build:bin:linux-x64-musl": "bun build ./src/index.ts --compile --minify --sourcemap --target=bun-linux-x64-musl --outfile dist/octocode-mcp-linux-x64-musl && node scripts/bundle-engine.mjs linux-x64-musl dist",
     "build:bin:windows-x64": "bun build ./src/index.ts --compile --minify --sourcemap --target=bun-windows-x64 --outfile dist/octocode-mcp-windows-x64.exe && node scripts/bundle-engine.mjs windows-x64 dist",
     "build:ci": "yarn verify && yarn build",
-    "build:dev": "yarn readme:sync && yarn workspace @octocodeai/octocode-tools-core build:dev && OCTOCODE_RUNTIME_PLATFORMS=native node ../../scripts/esbuild-package.mjs && yarn build:types",
+    "build:dev": "yarn readme:sync && yarn workspace @octocodeai/octocode-tools-core build:dev && OCTOCODE_RUNTIME_PLATFORMS=native node ../../scripts/esbuild-package.mjs && yarn build:types && node scripts/bundle-docs.mjs",
     "build:publish": "yarn build",
     "build:types": "tsc --emitDeclarationOnly --outDir dist/.types -p tsconfig.build.json && node scripts/bundle-dts.mjs",
     "build:watch": "node ../../scripts/esbuild-package.mjs --watch",

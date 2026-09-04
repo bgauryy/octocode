@@ -14,10 +14,12 @@ to debug with the exact catalog in provider context.
 ## Ownership
 
 `runtime-store.ts` owns initialization phase, task receipts, MCP loading projection,
-managed status slots, working visibility/message, and user notices. `runtime-renderer.ts`
-subscribes once per session context, diffs rendered values, and is the only implementation
-that mutates Pi status or working-message APIs. Tool and resource modules publish state
-through `setManagedStatus`, `setManagedWorking`, or `publishMcpRuntimeState`.
+managed status slots, foreground activity, footer metrics, and user notices.
+`runtime-renderer.ts` subscribes once per session context, diffs rendered values, and is
+the only implementation that mutates Pi status or working APIs. Foreground activity text
+is projected only by the footer; the renderer derives Pi's motion visibility from activity
+without repeating its label. Tool and resource modules publish state through
+`setManagedStatus`, `setManagedActivity`, or `publishMcpRuntimeState`.
 
 Foreground work is a separate discriminated Zustand slice: `idle`, `thinking`,
 `researching`, `awaiting_input`, `planning`, `reviewing`, `awaiting_start`, `working`,
@@ -30,10 +32,9 @@ Resource lifetime stays local to the owning manager. MCP clients, Chrome connect
 worker processes, file queues, timers, schema validators, and filesystem watchers do not
 belong in Zustand. Their observable state may be projected into the runtime store.
 
-The footer and below-editor panel keep register-once Pi component factories because Pi
-requires `setFooter`/`setWidget` once followed by `requestRender`. Their lifecycle is
-started and disposed by the same session hooks; their component-specific caches remain
-local.
+The footer keeps one register-once Pi component factory because Pi requires `setFooter`
+once followed by `requestRender`. It subscribes to runtime changes and disposes branch and
+store listeners with the session. No persistent below-editor plan/worker widget is registered.
 
 ## Initialization order
 
@@ -42,7 +43,7 @@ local.
 1. Dispose a previous renderer binding without touching a stale replacement context.
 2. Create and bind the new runtime store.
 3. Resolve project trust and propagate Octocode environment configuration.
-4. Reset/restore session-scoped policy, plans, metrics, panels, and UI components.
+4. Reset/restore session-scoped policy, plans, metrics, and UI components.
 5. Restore MCP prompt cache and start live schema discovery.
 6. Start independent background receipts: checkpoints, GitHub auth, update check,
    discovery inventory, Awareness registration, and MCP refresh.
@@ -65,11 +66,11 @@ If the deadline wins, the late refresh is persisted for the next session.
 
 The renderer shows cache checking, discovery, guide optimization, counts, cached state,
 and degraded completion. Initialization emits one aggregate ready notice; stage changes
-use the persistent status/working surfaces instead of notification spam.
+use managed status and the unified footer instead of notification spam.
 
 ## Disposal
 
-`session_shutdown` marks the runtime disposing, suppresses late panel/inbox callbacks,
+`session_shutdown` marks the runtime disposing, suppresses late footer/inbox callbacks,
 stops resource managers, then disposes the renderer and store. Replacement-session
 shutdown skips UI clears because Pi may already have invalidated that context; quit clears
 the live UI. Generation checks prevent late GitHub/MCP results from changing a new session.

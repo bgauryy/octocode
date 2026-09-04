@@ -76,12 +76,12 @@
     }
   },
   "devDependencies": {
-    "@types/node": "^26.2.0",
+    "@types/node": "^26.4.1",
     "@types/vscode": "^1.125.0",
     "@vitest/coverage-v8": "^4.1.11",
     "@vscode/vsce": "^3.9.2",
-    "esbuild": "^0.28.1",
-    "eslint": "^9.18.0",
+    "esbuild": "^0.28.2",
+    "eslint": "^10.9.1",
     "typescript": "^5.9.3",
     "vitest": "^4.1.11"
   },

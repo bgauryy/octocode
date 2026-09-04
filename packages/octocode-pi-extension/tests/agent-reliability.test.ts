@@ -486,12 +486,12 @@ test('L3: refreshAgentLedgerUi with no agents stops the ticker without creating 
   refreshAgentLedgerUi(ctx); // registry cleared by beforeEach
   assert.equal(isLedgerTickerActiveForTests(), false, 'no ticker without active workers');
   assert.deepEqual(statusCalls, [], 'agent state no longer duplicates into a compact status chip');
-  assert.deepEqual(widgetCalls, [], 'agent state no longer duplicates into the below-editor widget');
+  assert.deepEqual(widgetCalls, [], 'agent state does not create a second persistent widget');
 
   stopLedgerTickerForTests();
 });
 
-test('/octocode-agents hide suppresses footer ledger rows until list/status shows them again', async () => {
+test('/octocode-agents hide suppresses unified footer detail until list/status shows it again', async () => {
   if (isSubagentProcess()) return;
   const statusCalls: unknown[] = [];
   const widgetCalls: unknown[] = [];
@@ -511,7 +511,7 @@ test('/octocode-agents hide suppresses footer ledger rows until list/status show
   await handleOctocodeAgentsCommand('hide', ctx);
   assert.equal(agentPanelLines().length, 0, 'hide suppresses the shared visible-ledger row builder');
   assert.deepEqual(statusCalls, [], 'hide does not create a duplicate status surface');
-  assert.deepEqual(widgetCalls, [], 'hide does not mutate the below-editor Plan/Awareness panel');
+  assert.deepEqual(widgetCalls, [], 'worker state never creates a duplicate below-editor surface');
 
   await handleOctocodeAgentsCommand('list', ctx);
   assert.ok(agentPanelLines().length > 0, 'list shows the footer ledger rows again');

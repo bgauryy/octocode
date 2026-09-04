@@ -8,8 +8,6 @@
  *  - A tiny `makeRenderer` factory for the Component interface
  */
 
-import { truncateToWidth as piTruncateToWidth, visibleWidth as piVisibleWidth } from '@earendil-works/pi-tui';
-
 import {
   CLI_STATUS_TEXT,
   paint,
@@ -35,24 +33,9 @@ import {
 // sanitizeLine lives in palette.ts so cli-design (which render-helpers imports) can
 // reuse it without a cycle. Imported for internal use and re-exported for existing importers.
 import { sanitizeLine } from '../tui/palette.js';
+import { truncateToWidth, visibleWidth } from '../tui/width.js';
 export { sanitizeLine };
-
-export function visibleWidth(str: string): number {
-  return piVisibleWidth(sanitizeLine(str));
-}
-
-/**
- * Truncate `str` so its *visible* width (ANSI codes excluded) ≤ `maxWidth`.
- * When truncated, pi-tui inserts SGR resets around the appended ellipsis so
- * open colour sequences don't bleed into subsequent lines.
- */
-export function truncateToWidth(
-  str: string,
-  maxWidth: number,
-  ellipsis = '\u2026',
-): string {
-  return piTruncateToWidth(sanitizeLine(str), maxWidth, ellipsis);
-}
+export { truncateToWidth, visibleWidth };
 
 /**
  * Truncate PLAIN text (no ANSI codes) to at most `maxWidth` visible cells,
@@ -155,7 +138,7 @@ export function buildToolView(
  * "Performance"). Use ONLY when the line data is fixed at construction time — the
  * closure must capture no live mutable state. Safe for the tool-row builders
  * below (a fresh renderResult/renderCall call rebuilds them when data changes).
- * Do NOT use for the footer / status-panel / spinner renderers, whose closures
+ * Do NOT use for the footer or spinner renderers, whose closures
  * read live state at render time and must recompute every frame. invalidate()
  * drops the cache (Pi calls it on theme change).
  */

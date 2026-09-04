@@ -73,6 +73,45 @@ test('maps canonical deny and rewrite decisions back to Pi without widening auth
   assert.deepEqual(inputResult, { action: 'transform', text: 'normalized', images: [] });
 });
 
+test('serializes concurrent tool_execution_end dispatches to prevent LifecycleBus reentrancy', async () => {
+  // Reproduces: Extension error: Recursive intercepting event: tool.ended
+  // Root cause: Pi fires tool_execution_end concurrently for parallel tools.
+  // The LifecycleBus.dispatch() guard uses a per-type #active Set that throws
+  // when two calls overlap. The dispatch queue in bindPiLifecycleBus must
+  // serialize all calls so only one is in flight at a time.
+  const { pi, handlers } = hostHarness();
+  const bus = new LifecycleBus<Record<string, unknown>>({
+    eventType: 'tool.ended',
+    authority: ['observe'],
+    validate: (payload): payload is Record<string, unknown> => Boolean(payload) && typeof payload === 'object',
+  });
+  const order: number[] = [];
+  bus.subscribe({
+    id: 'observer',
+    source: 'builtin',
+    // Slow handler so concurrent calls have time to overlap if not queued.
+    handler: async (envelope) => {
+      await new Promise((r) => setTimeout(r, 10));
+      order.push((envelope.payload as { n: number }).n);
+      return undefined;
+    },
+  });
+  bindPiLifecycleBus(pi, 'tool_execution_end', bus);
+  const handler = handlers.get('tool_execution_end')!;
+  // Fire 5 concurrent "parallel tool" completions without awaiting individually.
+  const results = await Promise.all([
+    handler({ toolCallId: 'a', toolName: 'bash', result: '', isError: false, n: 0 }, { cwd: '/w' }),
+    handler({ toolCallId: 'b', toolName: 'bash', result: '', isError: false, n: 1 }, { cwd: '/w' }),
+    handler({ toolCallId: 'c', toolName: 'bash', result: '', isError: false, n: 2 }, { cwd: '/w' }),
+    handler({ toolCallId: 'd', toolName: 'bash', result: '', isError: false, n: 3 }, { cwd: '/w' }),
+    handler({ toolCallId: 'e', toolName: 'bash', result: '', isError: false, n: 4 }, { cwd: '/w' }),
+  ]);
+  // All 5 dispatches must complete without throwing.
+  assert.equal(results.length, 5);
+  // All must have been processed in FIFO order (the queue is first-in, first-out).
+  assert.deepEqual(order, [0, 1, 2, 3, 4]);
+});
+
 test('preserves attributed context messages alongside before-agent-start prompt rewrites', async () => {
   const { pi, handlers } = hostHarness();
   const bus = new LifecycleBus<Record<string, unknown>>({

@@ -9,10 +9,10 @@ import {
   isPathInsideSessionRoot,
   readPlanProjection,
   resolveSessionIdentity,
-  workspaceAgentRoot,
   writePlanBranchSnapshot,
   type PlanProjectionV1,
 } from '../src/tools/session-artifacts.js';
+import { extensionHome } from '../src/extension-paths.js';
 
 const roots: string[] = [];
 const originalHome = process.env['OCTOCODE_HOME'];
@@ -75,7 +75,7 @@ test('process fallback is stable for one process/workspace and isolated across w
 test('context contains private writes, rejects traversal and symlink escapes, and preserves old bytes on serialization failure', () => {
   const workspace = tempRoot('octocode-session-context-');
   const ctx = createSessionArtifactContext({ cwd: workspace, sessionManager: { getSessionId: () => 'ctx-test' } });
-  assert.equal(ctx.root, path.join(workspaceAgentRoot(workspace), 'sessions', ctx.identity.sessionKey));
+  assert.equal(ctx.root, path.join(extensionHome(), 'sessions', ctx.identity.sessionKey), 'session root must be flat under extensionHome/sessions');
   assert.equal(ctx.root.startsWith(workspace), false);
   assert.ok(isPathInsideSessionRoot(ctx, ctx.resolve('plan', 'state.json')));
   assert.equal(isPathInsideSessionRoot(ctx, workspace), false);

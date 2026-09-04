@@ -4,7 +4,6 @@ import { createRuntimeStore, type ForegroundActivity, type ForegroundActivityInp
 interface RuntimeBinding {
   store: RuntimeStore;
   dispose: RuntimeRendererDisposer;
-  widgets: Set<string>;
   footer: boolean;
   workingIndicator: boolean;
 }
@@ -15,7 +14,6 @@ const bindings = new WeakMap<object, RuntimeBinding>();
 interface RenderedRuntimeState {
   statuses: Map<string, string | undefined>;
   workingVisible?: boolean;
-  workingMessage?: string;
 }
 
 function isLoading(state: RuntimeState): boolean {
@@ -58,7 +56,10 @@ function renderRuntime(ctx: PiContext, state: RuntimeState, rendered: RenderedRu
   statuses['octocode-init'] = isLoading(state) ? `Octocode · ${state.stage}` : undefined;
   statuses['octocode-mcp-init'] = mcpStageText(state.mcp);
   const activity = activityPresentation(state.activity);
-  statuses['octocode-activity'] = activity.status;
+  // Foreground activity text has one persistent owner: the custom footer.
+  // Keep Pi's motion indicator here, but do not repeat the same lifecycle label
+  // in the status row or working-message row.
+  statuses['octocode-activity'] = undefined;
   const keys = new Set([...rendered.statuses.keys(), ...Object.keys(statuses)]);
   for (const key of keys) {
     const next = statuses[key];
@@ -68,14 +69,7 @@ function renderRuntime(ctx: PiContext, state: RuntimeState, rendered: RenderedRu
     else rendered.statuses.set(key, next);
   }
   const loading = isLoading(state);
-  const workingVisible = loading || activity.visible || (state.activity.kind === 'idle' && state.working.visible);
-  const workingMessage = loading
-    ? `Octocode · ${state.stage}`
-    : activity.message ?? (state.activity.kind === 'idle' ? state.working.message : undefined);
-  if (rendered.workingMessage !== workingMessage) {
-    ctx.ui.setWorkingMessage?.(workingMessage);
-    rendered.workingMessage = workingMessage;
-  }
+  const workingVisible = loading || activity.visible;
   if (rendered.workingVisible !== workingVisible) {
     ctx.ui.setWorkingVisible?.(workingVisible);
     rendered.workingVisible = workingVisible;
@@ -89,7 +83,6 @@ export function bindRuntimeRenderer(ctx: PiContext | undefined, store: RuntimeSt
   const binding: RuntimeBinding = {
     store,
     dispose: () => undefined,
-    widgets: new Set(),
     footer: false,
     workingIndicator: false,
   };
@@ -119,14 +112,12 @@ export function bindRuntimeRenderer(ctx: PiContext | undefined, store: RuntimeSt
     if (opts.clearUi !== false && !uiCleared) {
       uiCleared = true;
       for (const key of rendered.statuses.keys()) ctx.ui?.setStatus?.(key, undefined);
-      for (const widget of binding.widgets) ctx.ui?.setWidget?.(widget, undefined);
       if (binding.footer) ctx.ui?.setFooter?.(undefined);
       if (binding.workingIndicator) ctx.ui?.setWorkingIndicator?.(undefined);
       ctx.ui?.setWorkingMessage?.(undefined);
       ctx.ui?.setWorkingVisible?.(false);
     }
     rendered.statuses.clear();
-    binding.widgets.clear();
     binding.footer = false;
     binding.workingIndicator = false;
   };
@@ -157,36 +148,9 @@ export function setManagedStatus(ctx: PiContext | undefined, name: string, text:
   if (store) store.getState().setStatus(name, text);
 }
 
-export function setManagedWorking(ctx: PiContext | undefined, visible: boolean, message?: string): void {
-  const store = ensureRuntimeBinding(ctx)?.store;
-  if (store) store.getState().setWorking(visible, message);
-}
-
 export function setManagedActivity(ctx: PiContext | undefined, activity: ForegroundActivityInput): void {
   const store = ensureRuntimeBinding(ctx)?.store;
   if (store) store.getState().setActivity(activity);
-}
-
-export function setManagedWorkingMessage(ctx: PiContext | undefined, message?: string): void {
-  const store = ensureRuntimeBinding(ctx)?.store;
-  if (store) {
-    const working = store.getState().working;
-    store.getState().setWorking(working.visible, message);
-  }
-}
-
-export function setManagedWidget(
-  ctx: PiContext | undefined,
-  name: string,
-  content: string[] | ((tui: unknown, theme: PiTheme) => unknown) | undefined,
-  opts?: { placement?: 'aboveEditor' | 'belowEditor' },
-): void {
-  if (!ctx || typeof ctx !== 'object') return;
-  const binding = ensureRuntimeBinding(ctx);
-  if (!binding) return;
-  ctx.ui?.setWidget?.(name, content, opts);
-  if (content === undefined) binding.widgets.delete(name);
-  else binding.widgets.add(name);
 }
 
 export function setManagedFooter(

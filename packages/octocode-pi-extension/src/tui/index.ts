@@ -4,3 +4,4 @@ export * from './footer-view.js';
 export * from './palette.js';
 export * from './cli-design.js';
 export * from './content.js';
+export * from './width.js';

@@ -10,7 +10,6 @@ import { pathToFileURL } from 'node:url';
 import type { ToolDefinition, ToolCallResult, PiContext, PiTheme, NotifyFn, RenderResultOptions } from '../types.js';
 import type { registerUniqueTool } from './octocode-tools.js';
 import { CLI_STATUS_TEXT, paint } from '../tui/cli-design.js';
-import { SEP } from '../tui/palette.js';
 import { buildPlanPrompt } from '../prompts/plan-prompt.js';
 import { adoptPlanModePolicy, enterPlanMode, exitPlanMode, isPlanMode } from './plan-mode.js';
 import { runAskPrompt, type AskOutcome } from './ask-user-tool.js';
@@ -18,12 +17,11 @@ import { consumeHumanAuthorizationReceipt, createHumanAuthorizationReceipt } fro
 import { getCurrentPlanReadModel, renderPlanContext, type PlanReadModelV1 } from './plan-read-model.js';
 import { enablePlanHtmlSync, resetPlanHtmlSync, openPlanHtml, syncCurrentPlanHtmlIfEnabled, writeCurrentPlanArtifacts as writeCanonicalPlanArtifacts, writePlanReadModelArtifacts, planArtifactsDir, readRfcDoc } from './plan-html.js';
 import { serveDirectory, unmount } from './local-server.js';
-import { FREE_TEXT_TELL_DIFFERENTLY, PLAN_APPROVE_DESC, PLAN_APPROVE_LABEL, PLAN_APPROVED_HEADER, PLAN_APPROVED_REVIEW_QUESTION, PLAN_APPROVAL_HEADER, PLAN_COMPLETE_HEADER, PLAN_COMPLETE_QUESTION, PLAN_PROPOSE_HINT, PLAN_READY_HEADER, PLAN_REJECT_DESC, PLAN_REJECT_LABEL, PLAN_RFC_REVIEW_HEADER, PLAN_SET_BROWSER_QUESTION } from '../tui/content.js';
+import { PLAN_APPROVE_DESC, PLAN_APPROVE_LABEL, PLAN_APPROVAL_HEADER, PLAN_PROPOSE_HINT, PLAN_REJECT_DESC, PLAN_REJECT_LABEL, PLAN_RFC_REVIEW_HEADER } from '../tui/content.js';
 import { buildQueryCallBlocks, buildToolView } from './render-helpers.js';
 import { wrapTextWithAnsi } from '@earendil-works/pi-tui';
-import { refreshStatusPanel } from './status-panel.js';
 import { setManagedActivity } from './runtime-renderer.js';
-import { activePlanScope, setPlan, setPlanLifecycle, finishPlanVerification, activatePlan, proposePlanReview, acceptPlanReview, requestPlanChanges, startAcceptedPlan, rollbackAcceptedPlanStart, addStep, startStep, restorePlanSteps, completeStep, removeStep, clearPlan, getPlan, getPlanReviewState, getPlanCoordination, updatePlanCoordination, setPlanAwarenessMappings, MARK, stepLabel, displayStatus, depsMet, dependencyIndexes, resolveRfcPath, setPlanRfc, getPlanRfc, addPlanDecision, getPlanDecisions, planPhaseIndex, PLAN_PHASES, type PlanPhase, type PlanStep, type DisplayStatus, type StepInput } from './active-plan.js';
+import { activePlanScope, setPlan, setPlanLifecycle, finishPlanVerification, activatePlan, proposePlanReview, acceptPlanReview, requestPlanChanges, startAcceptedPlan, rollbackAcceptedPlanStart, addStep, startStep, restorePlanSteps, completeStep, removeStep, clearPlan, getPlan, getPlanReviewState, getPlanCoordination, updatePlanCoordination, setPlanAwarenessMappings, MARK, stepLabel, displayStatus, depsMet, dependencyIndexes, resolveRfcPath, setPlanRfc, getPlanRfc, addPlanDecision, getPlanDecisions, planPhaseIndex, PLAN_PHASES, type PlanStep, type DisplayStatus, type StepInput } from './active-plan.js';
 import { completeUnifiedPlanTask, finalizeUnifiedPlan, getAwarenessAgentId, projectUnifiedPlan, type ObservedCheckReceipt, type UnifiedPlanScope } from './awareness-shared.js';
 import { buildQueryEnvelopeSchema, executeQueryBatch, type QueryRecord } from './query-envelope.js';
 
@@ -134,56 +132,37 @@ function planPresentation(ctx: PiContext | undefined, scope: string) {
   return { plan, steps: plan.tasks, addendum: renderPlanContext(plan) };
 }
 
-const BAR_WIDTH = 8;
-
 /**
- * A one-line phase stepper — `✓ Research → ✓ RFC → ▸ Build …` — so the panel
- * always shows where in the flow the plan is. Done phases fade, the current one
- * is brand-bold, upcoming ones are muted. Same color contract as the checklist.
- */
-export function phaseStepperLine(phase: PlanPhase, theme?: PiTheme): string {
-  const cur = planPhaseIndex(phase);
-  const bold = (t: string) => (typeof theme?.bold === 'function' ? theme.bold(t) : t);
-  const parts = PLAN_PHASES.map((label, i) => {
-    if (i < cur) return paint(theme, 'dim', `✓ ${label}`);
-    if (i === cur) return paint(theme, 'brand', bold(`▸ ${label}`));
-    return paint(theme, 'muted', `○ ${label}`);
-  });
-  return parts.join(paint(theme, 'dim', ' → '));
-}
-
-/** Render a compact `███░░` progress bar for done/total. */
-function progressBar(done: number, total: number): string {
-  if (total <= 0) return '';
-  const filled = Math.max(0, Math.min(BAR_WIDTH, Math.round((done / total) * BAR_WIDTH)));
-  return `${'█'.repeat(filled)}${'░'.repeat(BAR_WIDTH - filled)}`;
-}
-
-/**
- * Complete plan projection for the persistent below-editor panel. Every task is
- * visible and the running lane is explicit; hiding tasks here caused the UI to
- * disagree with durable plan storage and made resumed/compacted work look lost.
+ * Compact plan-detail projection for explicit inspection and legacy consumers.
+ * The footer owns persistent progress/current work; canonical browser/Markdown
+ * views retain the complete checklist.
  */
 /** Pure terminal projection of the canonical model. */
 export function planPanelModelLines(readModel: PlanReadModelV1, theme?: PiTheme, width?: number): string[] {
   if (readModel.tasks.length === 0) return [];
   const done = readModel.summary.done;
-  const doing = readModel.tasks.filter((step) => step.status === 'doing');
-  const currentLabel = doing.length > 1
-    ? `${SEP}now: ${doing.map((task) => task.activeText ?? task.text).join(SEP)}`
-    : doing[0] ? `${SEP}now: ${doing[0].activeText ?? doing[0].text}` : '';
-  const header = paint(theme, 'brand', `Plan  ${progressBar(done, readModel.summary.total)}  ${done}/${readModel.summary.total} done${currentLabel}`);
-  const rows = readModel.tasks.map((task) => {
+  const phase = PLAN_PHASES[planPhaseIndex(readModel.phase)] ?? readModel.phase;
+  const unresolved = readModel.tasks.filter((task) => task.status !== 'done');
+  const running = unresolved.filter((task) => task.status === 'doing');
+  const next = unresolved
+    .filter((task) => task.status !== 'doing')
+    .slice(0, Math.max(0, 3 - running.length));
+  const visibleIds = new Set([...running, ...next].map((task) => task.id));
+  const visible = unresolved.filter((task) => visibleIds.has(task.id));
+  const later = unresolved.length - visible.length;
+  const suffix = later > 0 ? ` · ${later} later` : '';
+  const header = paint(theme, 'brand', `Plan · ${phase} · ${done}/${readModel.summary.total}${suffix}`);
+  const rows = visible.map((task) => {
     const status = task.status;
-    const mark = status === 'done' ? '✓' : status === 'doing' ? '▶' : status === 'blocked' ? '!' : '○';
-    const token = status === 'done' ? 'dim' : status === 'doing' ? 'brand' : status === 'blocked' ? 'warning' : 'muted';
+    const mark = status === 'doing' ? '▶' : status === 'blocked' ? '!' : '○';
+    const token = status === 'doing' ? 'brand' : status === 'blocked' ? 'warning' : 'muted';
     const label = status === 'doing' ? (task.activeText ?? task.text) : task.text;
-    const text = `${mark} ${task.index}. ${label}${status === 'doing' ? '  running' : ''}`;
+    const text = `${mark} ${task.index}. ${label}`;
     return status === 'doing' && typeof theme?.bold === 'function'
       ? paint(theme, token, theme.bold(text))
       : paint(theme, token, text);
   });
-  const lines = [header, phaseStepperLine(readModel.phase, theme), ...rows];
+  const lines = [header, ...rows];
   return width
     ? lines.flatMap((line) => wrapTextWithAnsi(line, Math.max(1, width)))
     : lines;
@@ -339,7 +318,7 @@ async function servePlanPage(ctx: PiContext | undefined, scope: string): Promise
   return served.url;
 }
 
-/** Mirror the active plan into the unified below-editor status panel only. */
+/** Repaint the unified footer and keep any open HTML plan view synchronized. */
 export function refreshPlanUi(ctx?: PiContext): void {
   // Live HTML sync is independent of the TUI: headless mutations still keep
   // an opened plan page fresh.
@@ -350,7 +329,14 @@ export function refreshPlanUi(ctx?: PiContext): void {
   if (steps.length > 0) adoptPlanModePolicy(ctx, getPlanReviewState(scope));
   else exitPlanMode(ctx);
   if (!ctx?.hasUI) return;
-  refreshStatusPanel(ctx);
+  planMetricsRefresh?.(ctx);
+}
+
+let planMetricsRefresh: ((ctx?: PiContext) => void) | undefined;
+
+/** Inject the host footer repaint without coupling the plan domain to extension UI. */
+export function setPlanMetricsRefreshForUi(refresh: ((ctx?: PiContext) => void) | undefined): void {
+  planMetricsRefresh = refresh;
 }
 
 function publishPlanActivity(ctx: PiContext | undefined, scope: string, steps: PlanStep[]): void {
@@ -783,22 +769,20 @@ async function executePlanQuery(p: PlanParams, ctx: PiContext | undefined): Prom
             question: `RFC ready for review · rev ${revision.slice(0, 8)} · ${steps.length} step${steps.length === 1 ? '' : 's'} — how would you like to review it?`,
             headerLabel: PLAN_RFC_REVIEW_HEADER,
             durable: false,
-              options: [
-                {
-                  value: 'browser',
-                  label: 'Open in browser',
-                  description: 'interactive localhost page with feedback, Accept, and Start buttons',
-                  recommended: true,
-                  pros: ['live RFC + checklist in one view', 'one-click Accept and Request Changes', 'live-updates as plan evolves'],
-                  disabled: planBrowserMessageSender ? false : 'browser-to-agent bridge unavailable in this host',
-                },
-                {
-                  value: 'terminal',
-                  label: 'Keep in terminal',
-                  description: 'RFC summary and exact follow-up commands appear here in chat',
-                  cons: ['no interactive buttons — use /octocode-plan accept or /octocode-plan changes'],
-                },
-              ],
+            options: [
+              {
+                value: 'browser',
+                label: 'Open in browser',
+                description: 'interactive localhost page with feedback, Accept, and Start buttons',
+                recommended: true,
+                disabled: planBrowserMessageSender ? false : 'browser-to-agent bridge unavailable in this host',
+              },
+              {
+                value: 'terminal',
+                label: 'Keep in terminal',
+                description: 'RFC summary and exact follow-up commands appear here in chat',
+              },
+            ],
             })
           : undefined;
         if (reviewSurface?.status === 'selected' && reviewSurface.value === 'browser') {
@@ -842,13 +826,11 @@ async function executePlanQuery(p: PlanParams, ctx: PiContext | undefined): Prom
                 label: PLAN_APPROVE_LABEL,
                 description: PLAN_APPROVE_DESC,
                 recommended: true,
-                pros: ['begins implementation immediately', 'locks in the exact plan text'],
               },
               {
                 value: 'reject',
                 label: PLAN_REJECT_LABEL,
                 description: PLAN_REJECT_DESC,
-                cons: ['agent stops and asks how to proceed'],
               },
             ],
           })
@@ -881,52 +863,9 @@ async function executePlanQuery(p: PlanParams, ctx: PiContext | undefined): Prom
         : '\nPlan doc could not be written — continuing with the in-terminal plan.';
       if (approved) {
         const approvedArtifacts = writeCurrentPlanArtifacts(ctx, scope, 'approved');
-        if (approvedArtifacts) pageNote = `\nPlan doc: ${approvedArtifacts.mdPath}`;
-        // 3-way surface choice: consistent with the RFC-backed propose flow.
-        const reviewSurfaceApproved = ctx?.hasUI && ctx.mode === 'tui'
-          ? await runAskPrompt(ctx, {
-              question: PLAN_APPROVED_REVIEW_QUESTION,
-              headerLabel: PLAN_APPROVED_HEADER,
-              options: [
-                {
-                  value: 'browser',
-                  label: 'Open in browser',
-                  description: 'serve the plan page on localhost — live-updates as steps progress',
-                  recommended: true,
-                  pros: ['visual dependency graph', 'live progress as steps complete', 'feedback and discuss from browser'],
-                },
-                {
-                  value: 'chat',
-                  label: 'Show summary in chat',
-                  description: 'print step count and file paths inline here',
-                  pros: ['quick reference without leaving the terminal'],
-                },
-                {
-                  value: 'no',
-                  label: 'Not now',
-                  description: '/octocode-plan html opens the page anytime later',
-                },
-              ],
-              freeTextLabel: FREE_TEXT_TELL_DIFFERENTLY,
-            })
-          : undefined;
-        if (reviewSurfaceApproved?.status === 'selected' && reviewSurfaceApproved.value === 'browser') {
-          const url = await servePlanPage(ctx, scope);
-          pageNote = url
-            ? `\nLive plan page: ${url} (local server, updates as the plan changes)`
-            : '\nCould not start the local plan server — /octocode-plan html retries.';
-        } else if (reviewSurfaceApproved?.status === 'selected' && reviewSurfaceApproved.value === 'chat') {
-          const tldrLines = [
-            `${steps.length} step${steps.length === 1 ? '' : 's'} · approved`,
-            ...(approvedArtifacts ? [`Plan markdown: ${approvedArtifacts.mdPath}`, `Plan HTML: ${approvedArtifacts.htmlPath}`] : []),
-          ];
-          pageNote = `\n${tldrLines.join('\n')}`;
-        } else {
-          // Not now or no UI: surface paths so the agent can relay them.
-          pageNote = approvedArtifacts
-            ? `\nPlan doc: ${approvedArtifacts.mdPath}\nPlan HTML: ${approvedArtifacts.htmlPath}\n/octocode-plan html opens a live visual plan page.`
-            : '\n/octocode-plan html opens a live visual plan page.';
-        }
+        pageNote = approvedArtifacts
+          ? `\nPlan doc: ${approvedArtifacts.mdPath}\nPlan HTML: ${approvedArtifacts.htmlPath}\n/octocode-plan html opens the visual plan.`
+          : '\n/octocode-plan html opens the visual plan.';
       }
       return {
         content: [{ type: 'text', text: `${verdict}\n${renderList(steps)}${pageNote}` }],
@@ -1077,90 +1016,9 @@ async function executePlanQuery(p: PlanParams, ctx: PiContext | undefined): Prom
   const artifactHint = (p.action === 'set' || p.action === 'add' || p.action === 'start' || p.action === 'complete' || p.action === 'remove') && steps.length > 0
     ? `\nPlan doc: ${path.join(planArtifactsDir(scope), 'plan.md')}`
     : '';
-  // plan(set): offer the browser view via runAskPrompt instead of a text tip.
-  // plan(complete) all-done: ask what to do next.
-  let lifecycleNote = '';
-  if (p.action === 'set' && steps.length > 0 && ctx?.hasUI && ctx.mode === 'tui') {
-    const viewBrowser = await runAskPrompt(ctx, {
-      question: `${steps.length} step${steps.length === 1 ? '' : 's'} ready — ${PLAN_SET_BROWSER_QUESTION}`,
-      headerLabel: PLAN_READY_HEADER,
-      options: [
-        {
-          value: 'yes',
-          label: 'Open in browser',
-          description: 'serve the plan page on localhost — live-updates as steps change',
-          recommended: true,
-          pros: ['visual dependency graph', 'live progress tracking', 'feedback and discuss from browser'],
-        },
-        {
-          value: 'no',
-          label: 'Not now',
-          description: '/octocode-plan html opens the page anytime later',
-        },
-      ],
-      freeTextLabel: FREE_TEXT_TELL_DIFFERENTLY,
-    });
-    if (viewBrowser?.status === 'selected' && viewBrowser.value === 'yes') {
-      const url = await servePlanPage(ctx, scope);
-      lifecycleNote = url
-        ? `\nLive plan page: ${url} (local server, live-updates as the plan changes)`
-        : '\nCould not start the local plan server — /octocode-plan html retries.';
-    } else if (viewBrowser?.status === 'text' && viewBrowser.value) {
-      lifecycleNote = `\nUser note: ${viewBrowser.value}`;
-    } else {
-      lifecycleNote = artifactHint
-        ? `${artifactHint}\n/octocode-plan html opens a live visual plan page.`
-        : '\n/octocode-plan html opens a live visual plan page.';
-    }
-  } else if (p.action === 'complete' && steps.length > 0 && steps.every((s) => s.status === 'done') && ctx?.hasUI && ctx.mode === 'tui') {
-    const decisionCount = getPlanDecisions(scope).length;
-    const statsLabel = decisionCount > 0
-      ? `${done}/${steps.length} step${steps.length === 1 ? '' : 's'} done · ${decisionCount} decision${decisionCount === 1 ? '' : 's'}`
-      : `${done}/${steps.length} step${steps.length === 1 ? '' : 's'} done`;
-    const nextStep = await runAskPrompt(ctx, {
-      question: `${statsLabel} — ${PLAN_COMPLETE_QUESTION}`,
-      headerLabel: PLAN_COMPLETE_HEADER,
-      options: [
-        {
-          value: 'browser',
-          label: 'Open plan report in browser',
-          description: 'review the completed plan with dependency graph, decisions, and history',
-          pros: ['full session history and stats', 'dependency visualization', 'save or share the report'],
-        },
-        {
-          value: 'continue',
-          label: 'Continue to next task',
-          description: 'tell me what to work on next',
-          recommended: true,
-          pros: ['immediate next step', 'keeps momentum'],
-        },
-        {
-          value: 'summary',
-          label: 'Show summary in chat',
-          description: 'get a quick TL;DR of what was accomplished inline here',
-        },
-      ],
-      freeTextLabel: FREE_TEXT_TELL_DIFFERENTLY,
-    });
-    if (nextStep?.status === 'selected' && nextStep.value === 'browser') {
-      const url = await servePlanPage(ctx, scope);
-      lifecycleNote = url
-        ? `\nCompleted plan page: ${url}`
-        : `\nCompleted plan: ${path.join(planArtifactsDir(scope), 'plan.html')}`;
-    } else if (nextStep?.status === 'selected' && nextStep.value === 'summary') {
-      const summaryLines = [
-        `Plan complete · ${done}/${steps.length} step${steps.length === 1 ? '' : 's'} done`,
-        ...steps.map((s, i) => `  ${i + 1}. ✓ ${s.text}`),
-        ...(decisionCount > 0 ? [`${decisionCount} decision${decisionCount === 1 ? '' : 's'} recorded during planning`] : []),
-      ];
-      if (artifactHint) summaryLines.push(artifactHint.trimStart());
-      lifecycleNote = `\n${summaryLines.join('\n')}`;
-    } else if (nextStep?.status === 'text' && nextStep.value) {
-      lifecycleNote = `\nUser direction: ${nextStep.value}`;
-    }
-  }
-
-  const baseNote = lifecycleNote || (p.action !== 'set' ? artifactHint : '');
+  // Presentation is not a decision gate. Keep set/complete non-blocking and let
+  // the explicit /octocode-plan html command open the full review surface.
+  const baseNote = artifactHint;
   return {
     content: [{ type: 'text', text: `${header}\n${renderList(steps)}${baseNote}` }],
     details: { action: p.action, ...planPresentation(ctx, scope) },
@@ -1186,20 +1044,20 @@ export function registerPlanTool(
     name: 'plan',
     label: 'Plan',
     description: [
-      'Record and track the task breakdown from the think-first gate as a visible, compaction-durable checklist and reviewable plan document.',
-      'The plan is injected at session start (<active_plan>) and re-delivered as a context message when it changes mid-session, so it survives compaction — set it once, then start/complete steps as you go. Mutations also write plan.md/plan.html under the Octocode temp plan directory; when an RFC is linked (rfcPath), the plan.html renders that RFC document itself above the derived checklist and dependency diagram.',
-      'Use for non-trivial multi-step work (multiple files/phases/risky edits). Skip for obvious single-step tasks. For consequential work, load octocode-rfc-generator, make the RFC reviewable, then call propose with consequential:true and rfcPath. Propose enters revision-bound review; explicit user Accept records the exact displayed bytes but keeps mutation blocked, and a separate user Start authorizes implementation. A consequential set/propose with no RFC is blocked. Set scope:"shared" for persistent multi-agent execution; Start projects stable steps and dependencies onto Awareness automatically.',
-      'Actions: clarify (record bounded material questions) · set (replace steps for already-authorized/obvious work) · propose (enter review; when an RFC is linked, user Accept and user Start are distinct interactions) · add · start (mark an execution-phase step doing; multiple independent steps may be doing in parallel, but this agent-callable action cannot accept an RFC or authorize implementation) · complete · remove · show · clear. The user command `/octocode-plan start` separately starts an accepted current RFC revision.',
+      'Track a canonical, compaction-durable checklist for non-trivial multi-step or risky work; skip obvious single-step tasks. The footer shows progress/current work, while show and generated plan artifacts retain full detail.',
+      'Use clarify only for unresolved decision-changing blockers; set for already-authorized work; propose with an RFC for consequential review; add/start/complete/remove to keep execution truthful; clear when done or abandoned.',
+      'Consequential work requires an exact RFC revision: user Accept records the displayed bytes, and a separate user Start authorizes mutation. The agent-callable start action cannot grant that authorization.',
+    'Multiple independent steps may be doing in parallel. Use scope:"shared" for persistent multi-agent execution; it automatically projects stable steps, dependencies, ownership, and verification receipts into Awareness from one internal plan model.',
       'index is optional for start/complete/remove: complete/remove default to the single current doing step; when multiple steps are doing, pass index. start defaults to the next runnable todo. Completing a mapped shared step requires receipt {command,status,message} from the declared check that actually ran.',
     ].join('\n'),
     promptSnippet: 'Track a durable task checklist (clarify/set/propose/add/start/complete/remove/show/clear).',
     promptGuidelines: [
-      'Explore first, ask second: when intent/scope/trade-offs stay open after a research pass, run plan(clarify) with ≤3 high-impact multiple-choice questions the repo can’t answer (mark a recommended default) — each answer is recorded in the durable decision log and renders on the plan page. Skip clarify for obvious work.',
+      'Research first. Use plan(clarify) only when an answer will change scope, architecture, acceptance criteria, or authorization and the repository cannot supply it. Prefer one question; use 2–3 only for independent blockers. Never ask for confirmation, information already given, or implementation details you can decide safely.',
       'When execution is already authorized/obvious, record steps with plan(set). For consequential or preference-dependent work, create a reviewable RFC and call plan(propose) with consequential:true and rfcPath. The user—not the agent—accepts the exact displayed revision, and mutation remains blocked until a separate user Start. The tool auto-detects consequential-looking plans and blocks them without an RFC; consequential:false requires a logged reason. Once executing, keep working: finish the active step and call plan(complete) with no index for the single current step, then continue the next runnable step until the whole plan is done.',
       'Keep the checklist truthful as scope shifts: plan(add) newly discovered document-backed steps, plan(remove) obsolete ones, and plan(clear) once the task is done or abandoned. Shared task projection, ownership, dependencies, check receipts, and finalization are internal to plan; there is no separate public task tool.',
       'For independent lanes, encode ordering with dependsOn, start runnable lanes with plan(start:N) before batching/spawning, and pass explicit indices when completing parallel steps.',
-      'Optionally give each step an activeForm (present-continuous label, e.g. "Editing file") — it is shown in the live plan panel while that step runs; propose also shows the full checklist below the editor before the approval prompt. The plan widget/doc should make the flow gate visible: RFC/research → review exact revision → Accept → separate Start → execute → verify.',
-      'Plan lifecycle prompts: after plan(set) the tool automatically uses askUser to offer the local browser view (plan.html, live-updating) — do not add a separate askUser call for this. After plan(complete) marks every step done, the tool automatically asks what to do next; if the user says continue, pick up the next task without prompting again. The tool outputs plan.md and plan.html paths in the result — surface them to the user when the askUser prompt is unavailable.',
+      'Give active steps a concise activeForm (for example, "Editing file"). The footer shows plan progress and current/blocking work; plan show, plan.md, and plan.html retain the complete checklist.',
+      'Plan lifecycle prompts are reserved for clarification, proposal approval, and consequential RFC review. plan(set), plan(start), and plan(complete) never interrupt execution with presentation-only questions; use /octocode-plan html only when the user asks for the visual plan. The tool returns plan.md/plan.html paths for explicit review.',
     ],
     parameters: buildQueryEnvelopeSchema(Type, Type.Object({
       action: Type.Unsafe({ type: 'string', enum: ['set', 'propose', 'clarify', 'add', 'start', 'complete', 'remove', 'clear', 'show'], description: 'Plan lifecycle operation; use the matching action branch and fields.' }),
@@ -1239,17 +1097,17 @@ export function registerPlanTool(
       rfcPath: Type.Optional(Type.String({ description: 'For set/propose: a reviewable `.octocode/rfc/<name>/` folder or RFC.md. Propose hashes its exact bytes and enters review; the path must stay under the workspace RFC tree.' })),
       questions: Type.Optional(Type.Array(
         Type.Object({
-          prompt: Type.String({ description: 'A high-impact question the repo cannot answer (skip anything answerable by reading code).' }),
+          prompt: Type.String({ description: 'One concise question whose answer changes scope, architecture, acceptance criteria, or authorization and cannot be answered from the repo.' }),
           options: Type.Optional(Type.Array(Type.Object({
             label: Type.String(),
             value: Type.Optional(Type.String()),
-            description: Type.Optional(Type.String()),
+            description: Type.Optional(Type.String({ description: 'One short sentence of decision-relevant nuance; omit when the label is self-explanatory.' })),
             recommended: Type.Optional(Type.Boolean({ description: 'Marks the recommended default; lands the cursor here.' })),
-            pros: Type.Optional(Type.Array(Type.String())),
-            cons: Type.Optional(Type.Array(Type.String())),
+            pros: Type.Optional(Type.Array(Type.String(), { description: 'Distinct upside bullets; omit when description or label already says it.' })),
+            cons: Type.Optional(Type.Array(Type.String(), { description: 'Distinct risk bullets; omit when description or label already says it.' })),
           }), { description: 'Multiple-choice options; omit for a free-text question. A free-text escape is always offered.' })),
         }),
-        { minItems: 1, maxItems: 3, description: 'For clarify: 1–3 material questions that repository research cannot answer.' },
+        { minItems: 1, maxItems: 3, description: 'For clarify: prefer one decision-changing blocker; use 2–3 only when independent and all must be answered before planning.' },
       )),
     }, {
       oneOf: [

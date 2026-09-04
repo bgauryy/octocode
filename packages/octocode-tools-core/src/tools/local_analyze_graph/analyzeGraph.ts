@@ -1,3 +1,5 @@
+import { existsSync } from 'node:fs';
+import { dirname, isAbsolute, join, relative } from 'node:path';
 import {
   buildFileGraph,
   resolveGraphExcludeDirs,
@@ -34,6 +36,31 @@ import { finalizeGraphOutput, paginateGraphResults } from './pagination.js';
 
 const DEFAULT_MAX_FILES = 20_000;
 const DEFAULT_DEPTH = 1;
+
+/**
+ * Walk up from an absolute file path until we find a directory that contains
+ * package.json.  Falls back to the file's own directory when no marker is found.
+ */
+export function inferRootFromAbsoluteFile(absoluteFile: string): string {
+  let dir = dirname(absoluteFile);
+  while (true) {
+    if (existsSync(join(dir, 'package.json'))) return dir;
+    const parent = dirname(dir);
+    if (parent === dir) break; // filesystem root
+    dir = parent;
+  }
+  return dirname(absoluteFile);
+}
+
+/**
+ * Return the graph-relative key for `file`.
+ * When `file` is absolute it is made relative to `rootPath` first so that the
+ * key matches what buildFileGraph stores (repo-relative paths).
+ */
+function resolveFileForGraph(file: string, rootPath: string): string {
+  return normalizeGraphFile(isAbsolute(file) ? relative(rootPath, file) : file);
+}
+
 export function summarizeEntrypoints(
   entrypoints: string[]
 ): Record<string, unknown> {
@@ -46,7 +73,7 @@ export function summarizeEntrypoints(
   };
 }
 function errorOutput(
-  query: AnalyzeGraphQuery,
+  query: AnalyzeGraphQuery & { path: string },
   message: string
 ): AnalyzeGraphOutput {
   return {
@@ -54,14 +81,42 @@ function errorOutput(
     error: message,
     errorCode: 'invalidGraphQuery',
     operation: query.operation,
-    path: query.path,
+    // Keep this helper safe when it is called with a schema-level query whose
+    // optional path has not been narrowed by a caller yet.
+    path: query.path ?? '',
     results: [],
   };
 }
 export async function analyzeGraph(
-  query: AnalyzeGraphQuery,
+  rawQuery: AnalyzeGraphQuery,
   context: AnalyzeGraphContext = {}
 ): Promise<AnalyzeGraphOutput> {
+  // Resolve path: when omitted, infer from the first absolute file-like field.
+  let resolvedPath = rawQuery.path;
+  if (!resolvedPath) {
+    const candidate =
+      rawQuery.file ?? rawQuery.target ?? rawQuery.entrypoints?.[0];
+    if (candidate && isAbsolute(candidate)) {
+      resolvedPath = inferRootFromAbsoluteFile(candidate);
+    }
+  }
+  if (!resolvedPath) {
+    return {
+      status: 'error',
+      error:
+        'path is required — or provide an absolute file path and path will be inferred from the nearest package.json',
+      errorCode: 'invalidGraphQuery',
+      operation: rawQuery.operation,
+      path: '',
+      results: [],
+    };
+  }
+  // Work with a query that always has a string path.
+  const query: AnalyzeGraphQuery & { path: string } = {
+    ...rawQuery,
+    path: resolvedPath,
+  };
+
   const excludeDir = resolveGraphExcludeDirs(query.excludeDir);
   const maxFiles = query.maxFiles ?? DEFAULT_MAX_FILES;
   const built = await (context.getGraph?.(query.path, excludeDir, maxFiles) ??
@@ -206,7 +261,7 @@ export async function analyzeGraph(
         errorOutput(query, `${query.operation} requires file`),
         `Retry ${query.operation} after expanding the graph scan.`
       );
-    const file = normalizeGraphFile(query.file);
+    const file = resolveFileForGraph(query.file, query.path);
     if (!built.fileGraph.has(file)) {
       return finalize(
         errorOutput(query, `file is not in the scanned graph: ${file}`),
@@ -265,8 +320,8 @@ export async function analyzeGraph(
         'Retry the path query after expanding the graph scan.'
       );
     }
-    const file = normalizeGraphFile(query.file);
-    const target = normalizeGraphFile(query.target);
+    const file = resolveFileForGraph(query.file, query.path);
+    const target = resolveFileForGraph(query.target, query.path);
     if (!built.fileGraph.has(file) || !built.fileGraph.has(target)) {
       return finalize(
         errorOutput(query, 'file and target must both be in the scanned graph'),

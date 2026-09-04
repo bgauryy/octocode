@@ -1,8 +1,8 @@
 /**
  * Octocode cleanup command — scans ~/.octocode/tmp/clone and ~/.octocode/tmp
  * for stale entries, shows a multi-select overlay sorted by age, and deletes
- * what the user picks. Also exported as a fire-and-forget session-init probe
- * that runs once per process when expired items are found.
+ * what the user picks. Session init may announce stale items, but never opens
+ * a destructive picker over the active session automatically.
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -201,7 +201,7 @@ let _initRan = false;
 
 /**
  * Fire-and-forget probe: runs once per process on session_start.
- * If expired clones or old tmp dirs exist, shows the cleanup overlay.
+ * If expired clones or old tmp dirs exist, advertise the explicit command.
  * Safe to call with ctx=undefined (no-ops silently).
  */
 export function runCleanupOnInit(ctx: PiContext | undefined): void {
@@ -209,8 +209,11 @@ export function runCleanupOnInit(ctx: PiContext | undefined): void {
   _initRan = true;
   const { defaultSelected } = scanCleanupTargets();
   if (defaultSelected.length === 0) return;
-  // Fire-and-forget — must not block session init.
-  void runCleanupOverlay(ctx);
+  const count = defaultSelected.length;
+  ctx.ui?.notify?.(
+    `Cleanup available: ${count} stale item${count === 1 ? '' : 's'} — run /octocode-cleanup to review and delete.`,
+    'info',
+  );
 }
 
 // ─── Command registration ─────────────────────────────────────────────────────

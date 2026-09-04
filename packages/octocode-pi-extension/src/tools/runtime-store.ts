@@ -91,7 +91,6 @@ export interface RuntimeState {
   context: RuntimeContextState;
   footer: RuntimeFooterState;
   activity: ForegroundActivity;
-  working: { visible: boolean; message?: string };
   notice?: RuntimeNotice;
   begin(stage?: string): number;
   setStage(stage: string): void;
@@ -104,7 +103,6 @@ export interface RuntimeState {
   setFooter(patch: Partial<RuntimeFooterState>): void;
   setActivity(activity: ForegroundActivityInput): void;
   setStatus(name: string, text: string | undefined): void;
-  setWorking(visible: boolean, message?: string): void;
   announce(message: string, level?: RuntimeNoticeLevel): void;
   ready(message?: string): void;
   degraded(message: string): void;
@@ -119,7 +117,7 @@ function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-function initialState(): Pick<RuntimeState, 'generation' | 'phase' | 'stage' | 'tasks' | 'statuses' | 'mcp' | 'context' | 'footer' | 'activity' | 'working'> {
+function initialState(): Pick<RuntimeState, 'generation' | 'phase' | 'stage' | 'tasks' | 'statuses' | 'mcp' | 'context' | 'footer' | 'activity'> {
   return {
     generation: 0,
     phase: 'idle',
@@ -153,7 +151,6 @@ function initialState(): Pick<RuntimeState, 'generation' | 'phase' | 'stage' | '
       githubAuth: { status: 'checking' },
     },
     activity: { kind: 'idle' },
-    working: { visible: false },
   };
 }
 
@@ -241,7 +238,6 @@ export function createRuntimeStore(now: () => number = Date.now): RuntimeStore {
       if (state.statuses[name] === text) return state;
       return { statuses: { ...state.statuses, [name]: text } };
     }),
-    setWorking: (visible, message) => set({ working: { visible, message } }),
     announce: (message, level = 'info') => set({ notice: { id: ++noticeId, level, message } }),
     ready: (message = 'Octocode ready') => set({
       phase: 'ready',

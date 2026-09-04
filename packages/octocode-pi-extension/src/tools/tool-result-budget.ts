@@ -1,10 +1,14 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import type { ContentPart, PiContext, ToolCallResult } from '../types.js';
+import { chunkReadHint, writeEphemeralToolOutput } from './ephemeral-tool-output.js';
 import { createSessionArtifactContext } from './session-artifacts.js';
 
-export const MODEL_VISIBLE_TOOL_RESULT_MAX_CHARS = 48_000;
-export const MODEL_VISIBLE_TOOL_RESULT_MAX_IMAGES = 4;
+/** Results above this size become reference-first instead of transcript-first. */
+export const MODEL_VISIBLE_TOOL_RESULT_MAX_CHARS = 12_000;
+/** Maximum diagnostic text retained from a heavy result (25% head, 75% tail). */
+export const MODEL_VISIBLE_TOOL_RESULT_PREVIEW_CHARS = 4_000;
+export const MODEL_VISIBLE_TOOL_RESULT_MAX_IMAGES = 2;
 const ESTIMATED_IMAGE_CHARS = 4_800;
 const TRUNCATION_NOTICE_RESERVE_CHARS = 1_000;
 
@@ -21,21 +25,14 @@ function safePart(value: string): string {
 }
 
 function spillText(content: ContentPart[], options: ToolResultBudgetOptions): string | undefined {
-  if (!options.ctx) return undefined;
   const text = content.flatMap((part) => part.type === 'text' ? [part.text] : []).join('\n\n');
   if (!text) return undefined;
   try {
-    const artifacts = createSessionArtifactContext(options.ctx);
-    const relative = `tool-results/${safePart(options.toolCallId)}-${safePart(options.toolName)}.txt`;
-    artifacts.writeText(relative, text);
-    // Producer registration is best-effort metadata. Reaching its bounded registry
-    // must not hide an artifact that was already written successfully.
-    try {
-      artifacts.registerProducer('log', relative);
-    } catch {
-      // The resolved path is still useful to the model and operator.
-    }
-    return artifacts.resolve(relative);
+    return writeEphemeralToolOutput(text, {
+      toolName: options.toolName,
+      toolCallId: options.toolCallId,
+      extension: 'txt',
+    });
   } catch {
     return undefined;
   }
@@ -113,7 +110,15 @@ function spillImages(
   }
 }
 
-/** Bound provider-visible output while preserving omitted text and images in private session artifacts. */
+function safeSlice(text: string, start: number, end?: number): string {
+  let from = start;
+  let to = end ?? text.length;
+  if (from > 0 && (text.charCodeAt(from) & 0xFC00) === 0xDC00) from += 1;
+  if (to < text.length && to > 0 && (text.charCodeAt(to - 1) & 0xFC00) === 0xD800) to -= 1;
+  return text.slice(from, to);
+}
+
+/** Bound provider-visible output while preserving omitted text/images by reference. */
 export function budgetToolResult(
   result: ToolCallResult,
   options: ToolResultBudgetOptions,
@@ -134,26 +139,31 @@ export function budgetToolResult(
   const imageManifestPath = spillImages(result.content, keptImageLimit, options, result.details);
   const omittedImages = Math.max(0, totalImages - keptImageLimit);
   const notice = [
-    `[tool output truncated: budget=${maxChars} estimated chars; original text=${totalTextChars} chars`,
+    `[heavy tool output referenced: inline budget=${maxChars} estimated chars; original text=${totalTextChars} chars`,
     spillPath ? `full text=${spillPath}` : totalTextChars > 0 ? 'rerun with a narrower query for omitted text' : '',
     omittedImages > 0 ? `omitted images=${omittedImages}` : '',
     imageManifestPath ? `image manifest=${imageManifestPath}` : omittedImages > 0 ? 'rerun to recover omitted images' : '',
   ].filter(Boolean).join('; ') + ']';
-  let remaining = Math.max(0, maxChars - notice.length - 2 - keptImageLimit * ESTIMATED_IMAGE_CHARS);
+  const readHint = spillPath ? chunkReadHint(spillPath) : '';
+  const available = Math.max(0, Math.min(
+    MODEL_VISIBLE_TOOL_RESULT_PREVIEW_CHARS,
+    maxChars - notice.length - readHint.length - 4 - keptImageLimit * ESTIMATED_IMAGE_CHARS,
+  ));
+  const allText = result.content.flatMap((part) => part.type === 'text' ? [part.text] : []).join('\n\n');
+  const headChars = Math.floor(available / 4);
+  const tailChars = available - headChars;
+  const omittedText = Math.max(0, allText.length - headChars - tailChars);
+  const preview = omittedText > 0
+    ? `${safeSlice(allText, 0, headChars)}\n[… ${omittedText.toLocaleString()} chars omitted …]\n${safeSlice(allText, allText.length - tailChars)}`
+    : allText;
+  const content: ContentPart[] = preview ? [{ type: 'text', text: preview }] : [];
   let keptImages = 0;
-  const content: ContentPart[] = [];
   for (const part of result.content) {
-    if (part.type === 'image') {
-      if (keptImages >= keptImageLimit) continue;
+    if (part.type === 'image' && keptImages < keptImageLimit) {
       content.push(part);
       keptImages += 1;
-      continue;
     }
-    if (remaining <= 0) continue;
-    const text = part.text.slice(0, remaining);
-    if (text) content.push({ type: 'text', text });
-    remaining -= text.length;
   }
-  content.push({ type: 'text', text: notice });
+  content.push({ type: 'text', text: `${notice}${readHint ? `\n${readHint}` : ''}` });
   return { ...result, content };
 }

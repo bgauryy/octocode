@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'vitest';
 import type { PiTheme } from '../src/types.js';
 import { OCTOCODE_OVERLAY_OPTIONS, octocodeSelectListTheme, applyFilterKey, selectItemMatchesFilter } from '../src/tools/ui-overlays.js';
+import { visibleWidth } from '../src/tools/render-helpers.js';
 
 const theme = {
   fg: (color: string, t: string) => `<${color}>${t}</${color}>`,
@@ -10,14 +11,14 @@ const theme = {
 
 test('shared picker overlays use a bounded modern dialog geometry', () => {
   assert.deepEqual(OCTOCODE_OVERLAY_OPTIONS, {
-    width: 88,
-    minWidth: 40,
-    maxHeight: '80%',
-    margin: 1,
+    width: 72,
+    minWidth: 32,
+    maxHeight: '70%',
+    margin: 2,
     visible: OCTOCODE_OVERLAY_OPTIONS.visible,
   });
-  assert.equal(OCTOCODE_OVERLAY_OPTIONS.visible(39), false);
-  assert.equal(OCTOCODE_OVERLAY_OPTIONS.visible(40), true);
+  assert.equal(OCTOCODE_OVERLAY_OPTIONS.visible(31), false);
+  assert.equal(OCTOCODE_OVERLAY_OPTIONS.visible(32), true);
 });
 
 test('octocodeSelectListTheme returns all five SelectList theme functions', () => {
@@ -103,4 +104,22 @@ test('type-to-filter preserves the highlighted item across list rebuilds', async
   component!.handleInput('p');      // rebuild again ('apple' + 'apricot' both survive)
   component!.handleInput('\r');     // confirm
   assert.equal(await resultP, 'apricot');
+});
+
+test('multi-select overlay paints every dialog row to its full width', async () => {
+  const { runMultiSelectOverlay } = await import('../src/tools/ui-overlays.js');
+  let component: { render: (width: number) => string[] } | undefined;
+  const ctx = {
+    mode: 'tui', hasUI: true,
+    ui: {
+      custom: (factory: (tui: unknown, theme: unknown, kb: unknown, done: (v: unknown) => void) => unknown) =>
+        new Promise((resolve) => {
+          component = factory({ requestRender() {} }, { fg: (_c: string, t: string) => t, bold: (t: string) => t }, undefined, resolve) as typeof component;
+        }),
+    },
+  } as never;
+  void runMultiSelectOverlay(ctx, { title: 'Delete stale files', items: [{ value: 'old', label: 'old' }] });
+  const lines = component!.render(32);
+  assert.ok(lines.length > 0);
+  for (const line of lines) assert.equal(visibleWidth(line), 32, `overlay row must clear its full width: ${line}`);
 });

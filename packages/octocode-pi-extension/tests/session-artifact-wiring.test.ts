@@ -17,6 +17,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, test } from 'vitest';
 import { resolveSessionIdentity, createSessionArtifactContext, workspaceAgentRoot } from '../src/tools/session-artifacts.js';
+import { extensionHome } from '../src/extension-paths.js';
 import { planArtifactsDir } from '../src/tools/plan-html.js';
 import { getSessionDir, getScreenshotDir } from '../src/chrome-debug.js';
 import { writeCompactionArtifact } from '../src/tools/compaction-artifacts.js';
@@ -110,7 +111,7 @@ test('planArtifactsDir: routes inside the session artifact tree when workspace e
   // without requiring a live plan scope.
   const sessionManager = makeSessionManager('plan-test-id');
   const { sessionKey } = resolveSessionIdentity({ cwd: tmpRoot, sessionManager });
-  const expected = path.join(workspaceAgentRoot(tmpRoot), 'sessions', sessionKey, 'plan');
+  const expected = path.join(extensionHome(tmpHome), 'sessions', sessionKey, 'plan');
 
   // Create the artifact context directly and confirm resolve('plan') matches.
   const ctx = createSessionArtifactContext({ cwd: tmpRoot, sessionManager });
@@ -183,7 +184,7 @@ test('getInternalErrorLogPath shape: session manager → global workspace sessio
   const computed = createSessionArtifactContext({ cwd: tmpRoot, sessionManager }).resolve('logs/error.txt');
 
   assert.equal(computed, expected);
-  assert.ok(computed.startsWith(workspaceAgentRoot(tmpRoot, tmpHome)), 'must be inside the global workspace session tree');
+  assert.ok(computed.startsWith(path.join(extensionHome(tmpHome), 'sessions')), 'must be inside extensionHome/sessions');
   assert.ok(computed.endsWith('logs/error.txt'), 'must end with logs/error.txt');
 });
 
@@ -266,8 +267,8 @@ test('writeCompactionArtifact: routes to session artifact dir when cwd + session
 
   const result = writeCompactionArtifact(details, sessionManager, tmpRoot);
   assert.ok(result, 'must return an artifact record');
-  assert.ok(result!.path.startsWith(workspaceAgentRoot(tmpRoot, tmpHome)), 'snapshot must be inside the global workspace session tree');
-  assert.ok(result!.latestPath.startsWith(workspaceAgentRoot(tmpRoot, tmpHome)), 'latest.md must be inside the global workspace session tree');
+  assert.ok(result!.path.startsWith(extensionHome(tmpHome)), 'snapshot must be inside extensionHome');
+  assert.ok(result!.latestPath.startsWith(extensionHome(tmpHome)), 'latest.md must be inside extensionHome');
   assert.ok(result!.path.includes('/compaction/'), 'snapshot must be under compaction/ subdir');
   assert.ok(result!.latestPath.endsWith('compaction/latest.md'), 'latest pointer must be compaction/latest.md');
 
@@ -339,9 +340,9 @@ test('writeCompactionArtifact: skips writes when session is absent', () => {
 // createSessionArtifactContext — path guard and isolation
 // ---------------------------------------------------------------------------
 
-test('createSessionArtifactContext: session root is global and workspace-scoped', () => {
+test('createSessionArtifactContext: session root is global under extensionHome/sessions/', () => {
   const ctx = createSessionArtifactContext({ cwd: tmpRoot, sessionManager: makeSessionManager('guard-test') });
-  assert.ok(ctx.root.startsWith(workspaceAgentRoot(tmpRoot)), 'session root must preserve workspace identity globally');
+  assert.ok(ctx.root.startsWith(path.join(extensionHome(tmpHome), 'sessions')), 'session root must be inside extensionHome/sessions');
   assert.equal(ctx.root.startsWith(tmpRoot), false, 'session root must not be inside the workspace');
 });
 

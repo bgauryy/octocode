@@ -1,15 +1,16 @@
 # Session Artifacts
 
-Every file that Octocode writes during a session — plan pages, screenshots,
-compaction snapshots, error logs, and more — lands in one **session artifact tree**
-instead of scattered across OS temporary directories and various workspace
-subdirectories.
+Durable files that Octocode writes during a session—plan pages, screenshots,
+compaction snapshots, error logs, and more—land in one **session artifact tree**.
+Large generic tool results and bash logs are the deliberate exception: they use
+private files under `$OCTOCODE_HOME/extension/tmp/tool-results/` and are deleted
+during `session_shutdown` after the bounded result has exposed a chunk-read path.
 
 ---
 
 ## Where your files live
 
-All session outputs are written under:
+Durable session outputs are written under:
 
 ```
 $OCTOCODE_HOME/extension/workspaces/<workspace-key>/sessions/<session-key>/
@@ -100,7 +101,8 @@ session has produced:
 
 ## View the plan page
 
-The plan HTML file (`plan/plan.html`) auto-refreshes every 10 seconds. You can
+The plan HTML file (`plan/plan.html`) checks for updates every 3 seconds and
+reloads only when the generated plan revision changes. You can
 open it in a browser directly:
 
 ```sh
@@ -147,6 +149,9 @@ Markdown recovery checkpoint to:
 - **Timestamped snapshot:** `compaction/<timestamp>-<label>.md` — never overwritten; one file per compaction event.
 - **Latest pointer:** `compaction/latest.md` — always the most recent snapshot.
 
+Checkpoints retain user-visible text, plan state, and safe tool metadata. They never
+retain private model reasoning blocks or raw tool-call arguments.
+
 The checkpoint includes a secret-redacted copy of Pi's summary, read and modified file pointers, and the
 active plan with its RFC and step paths. It is a recovery hint. Reopen the current
 plan and referenced docs before resuming; current sources override stale snapshot
@@ -154,10 +159,10 @@ text.
 
 ### Compaction and smart-resume flow
 
-1. After Pi finishes its post-run checks and emits the idle `agent_settled`
-   boundary, Octocode requests compaction through Pi's public API when context
-   usage reaches 80%. Pi selects the history boundary
-   and summarizes it. On an
+1. Pi's native auto-compaction runs after tool results and before the next
+   assistant response when its configured reserve threshold is crossed. Configure
+   `compaction.reserveTokens` to 20% of the active model context window for an
+   80% policy. Pi selects the history boundary and summarizes it. On an
    overflow split turn only, Octocode can supply a bounded deterministic fallback
    that preserves resume instructions, plan and doc pointers, file lists, and
    Pi's split-turn marker.

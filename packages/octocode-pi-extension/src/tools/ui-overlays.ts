@@ -12,8 +12,7 @@
 import { SelectList } from "@earendil-works/pi-tui";
 import type { PiTheme, PiContext } from "../types.js";
 import { MultiSelectList, multiSelectKeyAction, type MultiSelectTheme } from "./multi-select-list.js";
-import { truncateToWidth } from "./render-helpers.js";
-import { CLI_GLYPH } from "../tui/cli-design.js";
+import { truncateToWidth, visibleWidth } from "./render-helpers.js";
 import { TOKEN, type SemanticToken } from "../tui/palette.js";
 import { OVERLAY_HELP_MULTI, OVERLAY_HELP_SELECT, OVERLAY_HELP_SELECT_FILTER } from "../tui/content.js";
 
@@ -31,17 +30,26 @@ function fgTok(theme: PiTheme | undefined, token: SemanticToken, text: string): 
  * hide the overlay entirely on terminals too narrow to render it legibly.
  */
 export const OCTOCODE_OVERLAY_OPTIONS = {
-  width: 88,
-  minWidth: 40,
-  maxHeight: "80%",
-  margin: 1,
-  visible: (termWidth: number) => termWidth >= 40,
+  width: 72,
+  minWidth: 32,
+  maxHeight: "70%",
+  margin: 2,
+  visible: (termWidth: number) => termWidth >= 32,
 } as const;
 
-/** Branded overlay title line, consistent across select / multi-select overlays. */
+/** Quiet overlay title: the host already provides the application identity. */
 function overlayHeading(theme: PiTheme | undefined, title: string): string {
-  const text = `${CLI_GLYPH.brand} ${title}`;
-  return fgTok(theme, "brand", theme?.bold?.(text) ?? text);
+  return fgTok(theme, "brand", theme?.bold?.(title) ?? title);
+}
+
+/**
+ * An overlay is layered over existing terminal cells. Paint its complete row,
+ * including trailing spaces, so text and artwork from the transcript cannot
+ * bleed through the transparent remainder of a short line.
+ */
+function paintOverlayLine(line: string, width: number): string {
+  const clipped = truncateToWidth(line, width);
+  return `${clipped}${' '.repeat(Math.max(0, width - visibleWidth(clipped)))}`;
 }
 
 /** pi-tui SelectList theme shape (5 colorizer fns). */
@@ -164,7 +172,7 @@ export async function runSelectOverlay(
             label: o.label,
             description: o.description,
           })) as any,
-          Math.min(opts.maxVisible ?? 10, Math.max(1, visible.length)),
+            Math.min(opts.maxVisible ?? 8, Math.max(1, visible.length)),
           octocodeSelectListTheme(theme) as any,
         );
         (list as any).onSelect = (item: { value: string }) => done(item.value);
@@ -186,7 +194,7 @@ export async function runSelectOverlay(
       return {
         render: (w: number) => {
           const lines: string[] = [heading];
-          if (enableFilter) {
+          if (enableFilter && filter) {
             lines.push(fgTok(theme, "dim", `filter: ${filter}`));
           }
           if (empty) {
@@ -195,7 +203,7 @@ export async function runSelectOverlay(
             lines.push(...(list.render(w) as string[]).map((l: string) => ` ${l}`));
           }
           lines.push(helpLine);
-          return lines.map((line) => truncateToWidth(line, w));
+          return lines.map((line) => paintOverlayLine(line, w));
         },
         invalidate: () => list?.invalidate?.(),
         handleInput: (data: string) => {
@@ -278,7 +286,7 @@ export async function runMultiSelectOverlay(
       return {
         render: (w: number) =>
           [heading, ...list.render(w, theme as unknown as MultiSelectTheme), helpLine].map(
-            (line) => truncateToWidth(line, w),
+            (line) => paintOverlayLine(line, w),
           ),
         invalidate: () => {},
         handleInput: (data: string) => {

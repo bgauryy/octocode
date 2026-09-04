@@ -59,7 +59,7 @@ Same-name `registerTool` overrides. Pi keeps the tool name; the extension owns t
 
 | Tool | What the override adds |
 |---|---|
-| `bash` | Catastrophic pattern block (`rm -rf /`, `mkfs`, `dd of=/dev/`, `shutdown/reboot/halt`) · best-effort write-target extraction for redirects / `tee` / `cp`/`mv`/`install` → path guard · lossless output paging into ≤20,000-character model content blocks · bounded head/tail UI previews · timeout support |
+| `bash` | Catastrophic pattern block (`rm -rf /`, `mkfs`, `dd of=/dev/`, `shutdown/reboot/halt`) · best-effort write-target extraction for redirects / `tee` / `cp`/`mv`/`install` → path guard · process output streamed to a private ephemeral log · at most approximately 4,000 model-visible head-and-tail characters plus a chunk-read reference · bounded UI reads · timeout support |
 
 ### Disabled Built-ins — 6
 
@@ -231,8 +231,7 @@ Set via `ctx.ui.setStatus(name, value)` and `ctx.ui.setWidget(name, value)`.
 | `chrome-debug` | Active CDP action label during `chromeDebug` calls |
 | `octocode-mcp` | MCP connection status label |
 
-Metrics (turns · durations · context %) live ONLY on the consolidated footer (`setFooter`), not a status line. The identity row contains `/settings` (opens the settings HTML page in the browser); keyboard hints are intentionally omitted. A once-per-session, non-blocking `npx octocode auth status --json` probe adds `github ✓` in green when authenticated, `github ✗ login required` in red when credentials are missing, or `github check failed` in red on probe errors. `/commands` shows `npx octocode auth login` and `gh auth login` guidance without retaining or displaying token values. The unified below-editor widget is `octocode-status-panel` (complete Plan checklist → Awareness); model/context remain in Pi/footer chrome and agents remain in uncapped footer rows.
-| `octocode-agents` (widget) | Rich agent panel with per-worker state, timestamps, and preview |
+Metrics (turns · durations · exact current/max context), plan/task progress, Awareness attention, and a bounded live-agent list live only on the consolidated footer (`setFooter`), never in a duplicate status line or below-editor widget. The identity row contains `/settings` (opens the settings HTML page in the browser); keyboard hints are intentionally omitted. A once-per-session, non-blocking `npx octocode auth status --json` probe adds `github ✓` in green when authenticated, `github ✗ login required` in red when credentials are missing, or `github check failed` in red on probe errors. `/commands` shows `npx octocode auth login` and `gh auth login` guidance without retaining or displaying token values. Full worker details remain available through `/octocode-agents list`.
 
 ---
 

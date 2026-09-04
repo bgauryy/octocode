@@ -1089,7 +1089,9 @@ export function createPiSdkScenarioSuite(
         const events: Event[] = [];
         const settings = {
           enabled: true,
-          reserveTokens: 1_000,
+          // 20% of the probe model's 8,192-token context window: Pi's native
+          // threshold then compacts once the live context exceeds 80%.
+          reserveTokens: 1_639,
           keepRecentTokens: 1,
           behavior: "complete" as const,
         };
@@ -1455,7 +1457,7 @@ export function createPiSdkScenarioSuite(
           {
             compaction: {
               enabled: true,
-              reserveTokens: 1_000,
+              reserveTokens: 1_639,
               keepRecentTokens: 1,
               behavior: "wait-for-abort",
             },

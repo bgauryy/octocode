@@ -223,7 +223,9 @@ describe('prepareDirectToolInput', () => {
       required: true,
       type: 'enum(deadCode, cycles, dependencies, dependents, path, reachability)',
     });
-    expect(byName.get('path')?.required).toBe(true);
+    // path is optional: omitting it is valid when file/target is absolute
+    // (the root is inferred by walking up to the nearest package.json).
+    expect(byName.get('path')?.required).toBe(false);
     expect(byName.get('file')?.required).toBe(false);
     expect(byName.get('target')?.required).toBe(false);
   });

@@ -70,19 +70,6 @@ export function formatDurationShort(ms: number | undefined): string {
   return `${hr}h ${min % 60}m`;
 }
 
-import { WORKING_WORD } from './tui/content.js';
-
-/**
- * Themed working message: the brand verb plus a static lavender ellipsis.
- * ONE motion source on the working row — the 120ms indicator glyph animates,
- * the text holds still. (The old 1s dot cycle pulsed at a different cadence
- * than the glyph, which reads as jitter, not liveliness.) Carries NO elapsed
- * time or token count — those live in the footer's `active`/`ctx` segments.
- */
-export function buildWorkingMessage(theme?: PaintTheme): string {
-  return `${paint(theme, 'brand', WORKING_WORD)}${paint(theme, 'link', '…')}`;
-}
-
 export interface FooterInput {
   /** Unknown until Pi has measured a real request (not zero). */
   tokens?: number;
@@ -157,7 +144,7 @@ function ellipsize(text: string, max: number): string {
  */
 export type FooterDensity = 'compact' | 'default' | 'full';
 
-let footerDensity: FooterDensity = 'default';
+let footerDensity: FooterDensity = 'compact';
 
 export function getFooterDensity(): FooterDensity {
   return footerDensity;
@@ -268,7 +255,7 @@ export function buildFooterSegments(input: FooterInput, density: FooterDensity =
   // shown (even in compact). Default/full densities also expose
   // the live capability counts separately so users can see MCP connectivity and
   // skill discovery without decoding the prompt budget segment.
-  if (input.overhead && input.overhead.totalChars > 0) {
+  if (!compact && input.overhead && input.overhead.totalChars > 0) {
     const o = input.overhead;
     const tok = (chars: number): string => formatCompact(estimateTokens(chars));
     const breakdown = density === 'full'
@@ -371,8 +358,8 @@ function agentStateToken(status: string): { token: SemanticToken; attention: boo
  * One footer row per subagent — live workers first (most recently updated
  * first), then finished ones — so the operator sees every worker's name,
  * state, and current activity without opening /octocode-agents. Pure: pass
- * `nowMs` for deterministic elapsed times. Returns at most
- * AGENT_FOOTER_MAX_ROWS rows plus an `overflow` count.
+ * `nowMs` for deterministic elapsed times. Every visible worker receives a row;
+ * `overflow` remains zero for compatibility with the footer contract.
  */
 export function buildAgentFooterRows(
   entries: readonly AgentFooterEntry[],

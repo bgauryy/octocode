@@ -10,9 +10,9 @@
 | Worker subprocesses | Pi CLI/RPC mode | `spawnRpcAgent` launches `pi --mode rpc` |
 | Worker tools | SDK/CLI tool allowlists | `buildPiArgs` plus recursive tool stripping |
 | User controls | `pi.registerCommand` | `/octocode-agents` |
-| Lightweight live UX | toolbar footer segments | active/blocked/failed worker counts (`ui-extras.ts`) |
-| Richer live UX | `ctx.ui.setWidget` | below-editor worker ledger |
-| Session cleanup | `session_shutdown` hook | kill active workers and clear status/widget |
+| Live UX | register-once custom footer | bounded non-killed worker rows, attention first (`footer-view.ts`) |
+| Full inspection | user command/tool result | `/octocode-agents` and `agent` lifecycle queries |
+| Session cleanup | `session_shutdown` hook | kill active workers and clear footer state |
 
 ## Runtime flow
 

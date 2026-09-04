@@ -21,6 +21,8 @@ export interface PlanReadModelTaskV1 {
 
 export interface PlanReadModelV1 {
   version: 1;
+  /** Stable plan identity — the `sourcePlanKey` from coordination, e.g. `pi-plan-<uuid>`. Stable across plan mutations and used to link the HTML page to a specific plan lifecycle. */
+  planId: string;
   phase: ReviewState['phase'];
   revision?: string;
   acceptedRevision?: string;
@@ -92,6 +94,7 @@ export function buildPlanReadModel(input: {
   }));
   return {
     version: 1,
+    planId: input.coordination.sourcePlanKey,
     phase: input.review.phase,
     ...(input.review.revision ? { revision: input.review.revision } : {}),
     ...(input.review.acceptedRevision ? { acceptedRevision: input.review.acceptedRevision } : {}),

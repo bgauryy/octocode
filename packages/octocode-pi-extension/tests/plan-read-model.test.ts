@@ -62,11 +62,15 @@ describe('plan presentation read model', () => {
         { id: 'ship', status: 'blocked' },
       ],
     });
-    for (const output of [terminal, browser, markdown, prompt]) {
+    expect(terminal).not.toContain('Research API');
+    expect(terminal).toContain('Plan · Work · 1/3');
+    for (const output of [browser, markdown, prompt]) {
       expect(output).toContain('Research API');
       expect(output).toMatch(/Build(?:ing)? API/);
       expect(output).toContain('Ship API');
     }
+    expect(terminal).toMatch(/Build(?:ing)? API/);
+    expect(terminal).toContain('Ship API');
     expect(browser).toContain('data-plan-read-model="1"');
     expect(browser).toContain('data-revision="rev-7"');
     expect(browser).toContain('data-task-id="ship" class="blocked"');

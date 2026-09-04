@@ -54,7 +54,6 @@ import {
   estimateTokens,
 } from './utils.js';
 import { getDirectToolContractStats, registerUniqueTool } from './tools/octocode-tools.js';
-import { registerContextTools } from './tools/context-tools.js';
 import { registerCompactionHooks, resetCompactionCheckpointDedupe, setCompactionRehydrationSegmentsProvider } from './tools/compaction-hooks.js';
 import { budgetToolResult } from './tools/tool-result-budget.js';
 import {
@@ -119,14 +118,13 @@ import { awarenessEventStatusText, registerAwarenessEventConsumer } from './tool
 import { getAwarenessAgentId } from './tools/awareness-shared.js';
 import { activePlanScope, adoptPlanFromBranch, getPlan, getPlanReviewState, bumpPlanTurn, setPlanEntryAppender, PLAN_ENTRY_TYPE } from './tools/active-plan.js';
 import { getCurrentPlanReadModel, renderPlanContext } from './tools/plan-read-model.js';
-import { getCachedAwarenessStatus, refreshAwarenessPanel, suppressAwarenessPanel, resumeAwarenessPanel, clearAwarenessCacheEntry } from './tools/awareness-status.js';
-import { refreshStatusPanel, suppressStatusPanel, resumeStatusPanel } from './tools/status-panel.js';
+import { getCachedAwarenessStatus, refreshAwarenessPanel, suppressAwarenessPanel, resumeAwarenessPanel, clearAwarenessCacheEntry, setAwarenessMetricsRefreshForUi } from './tools/awareness-status.js';
 import { getFooterDensity, parseFooterDensity, resolveSystemThemeName, setFooterDensity, deriveSessionName, OCTOCODE_THEME_DARK, OCTOCODE_THEME_LIGHT, type OctocodeThemeName } from './ui-extras.js';
 import { paintUi } from './tui/palette.js';
 import { setUiTickSubscriber } from './tui/ui-ticker.js';
 import { FOOTER_LEGEND, PERMISSION_LEVEL_SUMMARY } from './tui/content.js';
 import { listCDPSessions, closeAllChromeConnections } from './chrome-connection-cache.js';
-import { handleOctocodePlanCommand, OCTOCODE_PLAN_COMMAND_USAGE, OCTOCODE_PLAN_COMMAND_COMPLETIONS } from './tools/plan-tool.js';
+import { handleOctocodePlanCommand, OCTOCODE_PLAN_COMMAND_USAGE, OCTOCODE_PLAN_COMMAND_COMPLETIONS, setPlanMetricsRefreshForUi } from './tools/plan-tool.js';
 import { adoptPlanModePolicy, evaluateToolCapability, exitPlanMode, getPlanModePolicy, planModeToolGate } from './tools/plan-mode.js';
 import { atomicWriteUtf8, clearAllReadStates, resolveFilePath } from './tools/file-state.js';
 import { registerAgentInbox, type AgentInboxRegistration } from './tools/agent-inbox.js';
@@ -138,6 +136,7 @@ import { registerOctocodeAutocomplete } from './tools/autocomplete-providers.js'
 import { registerOctocodeMessageRenderers } from './tools/custom-messages.js';
 import { initCheckpointStore, type CheckpointEngine } from './tools/checkpoints.js';
 import { createSessionArtifactContext, workspaceAgentRoot } from './tools/session-artifacts.js';
+import { cleanupEphemeralToolOutputs } from './tools/ephemeral-tool-output.js';
 import { consumeValidatedRehydration, runAndRecordRehydration, REHYDRATION_RECEIPT_ENTRY_TYPE, type CurrentRehydrationSource } from './tools/rehydration-orchestrator.js';
 import { createCheckpointInputHook, registerRewindCommand } from './tools/rewind-command.js';
 import { registerDialCommand, restoreDialOnStartup } from './tools/effort-dial.js';
@@ -654,7 +653,7 @@ export function formatOctocodeDashboard(ctx?: PiContext, baseDir?: string, sessi
   const awarenessCliPath = getAwarenessCLIPath(baseDir);
   const searchProvider = pickProvider({});
   const warnings = [
-    context.percent !== undefined && context.percent >= 80 ? `⚠ context at compaction boundary (${context.percent}%) — automatic compaction is pending or running` : '',
+    context.percent !== undefined && context.percent >= 80 ? `⚠ context at ${context.percent}% — Pi compacts in-run at its configured reserve threshold` : '',
     promptOk ? '' : `⚠ missing system prompt at ${paths.systemPrompt}`,
     searchProvider === 'duckduckgo' ? '⚠ web search using DuckDuckGo fallback; add Tavily/Serper for stronger results' : '',
   ].filter(Boolean);
@@ -984,12 +983,10 @@ function registerSupportToolPhase({ pi, Type, registeredToolNames, notify, getLa
 
 interface RuntimeUiRegistrationArgs {
   pi: PiInstance;
-  Type: TypeBoxBuilder;
-  registeredToolNames: Set<string>;
   notify: NotifyFn;
 }
 
-function registerRuntimeUiPhase({ pi, Type, registeredToolNames, notify }: RuntimeUiRegistrationArgs): void {
+function registerRuntimeUiPhase({ pi, notify }: RuntimeUiRegistrationArgs): void {
   registerCompactionHooks(pi, notify);
   registerAwarenessEventConsumer(pi, {
     resolveExpectedAgentId: (ctx) => getAwarenessAgentId(ctx),
@@ -1033,7 +1030,6 @@ function registerRuntimeUiPhase({ pi, Type, registeredToolNames, notify }: Runti
       renderBannerWithTagline(theme as BannerTheme, width, readOwnVersion(getAssetPaths().baseDir), sessionInfo),
     );
   });
-  registerContextTools(pi, Type, registeredToolNames, registerUniqueTool, notify);
 }
 
 interface TurnMetricsRegistrationArgs {
@@ -1079,6 +1075,8 @@ interface WorkerToolRegistrationArgs {
 
 function registerWorkerToolPhase({ pi, notify }: WorkerToolRegistrationArgs): AgentInboxRegistration {
   setAgentLedgerMetricsRefreshForUi((ctx) => updateOctocodeMetricsUi(ctx));
+  setPlanMetricsRefreshForUi((ctx) => updateOctocodeMetricsUi(ctx));
+  setAwarenessMetricsRefreshForUi((ctx) => updateOctocodeMetricsUi(ctx));
 
   // Worker inbox overlay (/octocode-inbox) + desktop notifications. The unified
   // agent facade initializes the shared ledger runtime during support-tool setup.
@@ -1305,7 +1303,7 @@ async function wireOctocodePiExtension(
       if (adopted) adoptPlanModePolicy(ctx, getPlanReviewState(scope));
       else exitPlanMode(ctx);
       if (ctx) runAndRecordRehydration(pi, ctx, 'tree');
-      refreshStatusPanel(ctx);
+      updateOctocodeMetricsUi(ctx);
     });
 
     const disposeSessionResources = async (reason: string, ctx: PiContext | undefined): Promise<void> => {
@@ -1316,10 +1314,11 @@ async function wireOctocodePiExtension(
       stopMcpConfigWatchers();
       stopMetricsTicker();
       runtimeStoreFor(ctx)?.getState().setFooter({ activeTurnStartedAt: undefined });
-      suppressStatusPanel();
       suppressAwarenessPanel();
       agentInbox?.shutdown({ restoreTitle: canUseShutdownContext });
       setAgentLedgerMetricsRefreshForUi(undefined);
+      setPlanMetricsRefreshForUi(undefined);
+      setAwarenessMetricsRefreshForUi(undefined);
       stopWatch();
       // Fix 3: clear the watch chip explicitly so it does not leak into the next
       // session’s TUI paint on non-quit shutdowns (rendererDisposer runs with
@@ -1378,7 +1377,6 @@ async function wireOctocodePiExtension(
       });
       runtimeStore.getState().setStage('restoring session');
       // Undo the shutdown-time suppression from a previous session in this process.
-      resumeStatusPanel();
       resumeAwarenessPanel();
       // Re-arm worker desktop notifications: the inbox is registered once per
       // process and session_shutdown suppresses + detaches its ledger listener,
@@ -1396,6 +1394,8 @@ async function wireOctocodePiExtension(
       // re-registration per session, e.g. after /new or a theme change).
       resetOctocodeFooterRegistration(ctx);
       setAgentLedgerMetricsRefreshForUi((ctx) => updateOctocodeMetricsUi(ctx));
+      setPlanMetricsRefreshForUi((ctx) => updateOctocodeMetricsUi(ctx));
+      setAwarenessMetricsRefreshForUi((ctx) => updateOctocodeMetricsUi(ctx));
       // Read-states recorded in a previous session must not satisfy the edit
       // tool's stale-read gate in this one, and the auto-compaction edge
       // trigger must not carry the old session's threshold crossing.
@@ -1533,8 +1533,6 @@ async function wireOctocodePiExtension(
         runtimeStore.getState().setFooter({ githubAuth: authState });
         updateOctocodeMetricsUi(ctx);
       }));
-      // Surface any disk-restored plan / live agents in the below-editor panel right at launch.
-      refreshStatusPanel(ctx);
       // AI Watch: if OCTOCODE_WATCH=1 auto-started the watcher before this TUI
       // session existed, paint the persistent chip now that we have a UI context.
       // /octocode-watch on|off already paints via the setStatus dep for manual toggles.
@@ -1651,8 +1649,12 @@ async function wireOctocodePiExtension(
     // Clean up status labels and spawned workers when the session tears down
     // so they don't leak across /new, /resume, /fork, reload, or quit.
     hooks.on('session_shutdown', 'octocode-session-shutdown', async (event: SessionShutdownEvent, _ctx: PiContext | undefined) => {
-      await sessionRuntime?.dispose(event.reason);
-      sessionRuntime = undefined;
+      try {
+        await sessionRuntime?.dispose(event.reason);
+      } finally {
+        sessionRuntime = undefined;
+        cleanupEphemeralToolOutputs();
+      }
     });
 
     hooks.on('model_select', 'octocode-model-select', async (_event: unknown, ctx: PiContext | undefined) => {
@@ -1839,10 +1841,9 @@ async function wireOctocodePiExtension(
         return piPrompt !== event.systemPrompt ? { systemPrompt: piPrompt } : undefined;
       }
 
-      // Refresh TUI panels on every turn — previously skipped on frozen turns
+      // Refresh shared Awareness state on every turn — previously skipped on frozen turns
       // because they sat after the freeze early-return.
       refreshAwarenessPanel(ctx);
-      refreshStatusPanel(ctx);
 
       // Compute the canonical model-facing plan projection once. Plans are mutable
       // task state, so they are delivered through attributed turn context and are
@@ -2051,7 +2052,7 @@ async function wireOctocodePiExtension(
       notify,
       getLatestAvailableSkills: () => latestAvailableSkills,
     });
-    registerRuntimeUiPhase({ pi, Type, registeredToolNames, notify });
+    registerRuntimeUiPhase({ pi, notify });
   registerTurnMetricsPhase({ pi, startMetricsTicker, stopMetricsTicker, toolStartTimes, toolInputs });
   agentInbox = registerWorkerToolPhase({ pi, Type, registeredToolNames, notify });
 
@@ -2072,13 +2073,10 @@ async function wireOctocodePiExtension(
           // A specific plan/work lifecycle always outranks generic model reasoning.
           if (runtimeStoreFor(ctx)?.getState().activity.kind === 'idle') {
             setManagedActivity(ctx, { kind: 'thinking' });
-            // paintUi (not paint) guards against a lazy theme getter that has not
-            // yet been initialized — RPC and plain-output sessions expose ui while
-            // that getter can still throw.
-            setManagedStatus(ctx, 'octocode-thinking', paintUi(ui, 'brand', 'thinking…'));
-          } else {
-            setManagedStatus(ctx, 'octocode-thinking', undefined);
           }
+          // The footer owns lifecycle text. Pi's working row supplies motion only,
+          // so active turns never render two competing "Thinking…" labels.
+          setManagedStatus(ctx, 'octocode-thinking', undefined);
         } catch {
           // UI operations are best-effort; never propagate to Pi’s event system.
         }

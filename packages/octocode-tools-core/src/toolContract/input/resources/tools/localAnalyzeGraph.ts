@@ -48,7 +48,12 @@ const operation = <T extends string>(value: T, description: string) =>
 
 const commonFields = {
   ...metaFields,
-  path: z.string().describe('Absolute repository or package root to scan.'),
+  path: z
+    .string()
+    .optional()
+    .describe(
+      'Absolute repository or package root to scan. Omit when file is absolute — the root is inferred by walking up to the nearest package.json.'
+    ),
   excludeDir: z
     .array(z.string())
     .optional()

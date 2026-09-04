@@ -150,7 +150,11 @@ function addNextSteps(
     );
   }
 
-  if (query.operation === 'deadCode') {
+  // The analyzer resolves path before calling this helper, but keep this
+  // exported continuation builder safe for direct callers as well. A missing
+  // root must not turn into a relative LSP URI such as "/dead.ts".
+  const graphRoot = query.path;
+  if (query.operation === 'deadCode' && graphRoot) {
     const candidate = output.results[0];
     if (
       candidate &&
@@ -158,7 +162,7 @@ function addNextSteps(
       typeof candidate.name === 'string' &&
       typeof candidate.line === 'number'
     ) {
-      const root = query.path.replace(/\/+$/, '');
+      const root = graphRoot.replace(/\/+$/, '');
       next.verifyReferences = {
         tool: LSP_GET_SEMANTICS_TOOL_NAME,
         query: {

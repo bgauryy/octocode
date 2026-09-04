@@ -128,6 +128,14 @@ function normalizeFields(raw: AskParams['fields']): AskField[] {
     }));
 }
 
+function validateUniqueFieldNames(fields: readonly AskField[]): void {
+  const seen = new Set<string>();
+  for (const field of fields) {
+    if (seen.has(field.name)) throw new Error(`field names must be unique; duplicate "${field.name}".`);
+    seen.add(field.name);
+  }
+}
+
 function disabledReason(option: Pick<AskOption, 'disabled'>): string | undefined {
   if (typeof option.disabled === 'string') return option.disabled;
   return option.disabled ? 'disabled' : undefined;
@@ -187,11 +195,8 @@ function isPrintableInput(data: string): boolean {
   });
 }
 
-/** Keep decision cards readable in wide terminals and usable in small panes. */
-const ASK_FRAME_PREFERRED_WIDTH = 72;
-const ASK_FRAME_MAX_WIDTH = 88;
-const ASK_FRAME_GUTTER = 2;
-const ASK_FRAME_COMPACT_BREAKPOINT = 52;
+/** Keep decision cards readable without floating them in an arbitrary center column. */
+const ASK_FRAME_MAX_WIDTH = 80;
 
 interface AskFrameLayout {
   width: number;
@@ -200,19 +205,7 @@ interface AskFrameLayout {
 
 function askFrameLayout(width: number): AskFrameLayout {
   const available = Math.max(1, Math.floor(width || 80));
-  if (available < ASK_FRAME_COMPACT_BREAKPOINT) return { width: available, leftPadding: 0 };
-
-  const usable = available - (ASK_FRAME_GUTTER * 2);
-  const responsive = Math.floor(available * 0.72);
-  const cardWidth = Math.min(
-    ASK_FRAME_MAX_WIDTH,
-    usable,
-    Math.max(ASK_FRAME_PREFERRED_WIDTH, responsive),
-  );
-  return {
-    width: cardWidth,
-    leftPadding: Math.floor((available - cardWidth) / 2),
-  };
+  return { width: Math.min(available, ASK_FRAME_MAX_WIDTH), leftPadding: 0 };
 }
 
 function askFrameWidth(width: number): number {
@@ -267,12 +260,11 @@ function askHeaderLines(theme: PiTheme | undefined, question: string, width: num
     ? paint(theme, 'muted', ` · ${pagination.current} of ${pagination.total} ·`)
     : '';
   const pageBadgePlain = pagination ? ` · ${pagination.current} of ${pagination.total} ·` : '';
-  // Dim frame, brand mark: `╭─ ` dim + `◆ <label>` brand + optional pagination + dim fill.
-  // headerLabel overrides the generic 'Input needed' when a specific context is known.
+  // The host already supplies application identity; decisions only need a clear label.
   const label = headerLabel ?? ASK_HEADER_LABEL;
-  const prefix = `╭─ ◆ ${label}${pageBadgePlain} `;
+  const prefix = `╭─ ${label}${pageBadgePlain} `;
   const fill = Math.max(0, askFrameWidth(width) - visibleWidth(prefix));
-  const header = `${paint(theme, 'dim', '╭─ ')}${paint(theme, 'brand', `◆ ${label}`)}${pageBadge}${paint(theme, 'dim', ` ${'─'.repeat(fill)}`)}`;  
+  const header = `${paint(theme, 'dim', '╭─ ')}${paint(theme, 'brand', label)}${pageBadge}${paint(theme, 'dim', ` ${'─'.repeat(fill)}`)}`;
   return [header, ...wrapped.map((line) => `${bar} ${line}`), bar];
 }
 
@@ -288,8 +280,6 @@ function askFooterLines(theme: PiTheme | undefined, help: string, width: number,
 
 /** Max option rows painted at once; longer lists scroll in a window around the cursor. */
 const ASK_LIST_MAX_VISIBLE = 7;
-/** Unicode circled digit glyphs for option badges ①–⑨ (U+2460–U+2468, 1-cell wide, East-Asian Narrow). */
-const CIRCLE_DIGITS = ['①', '②', '③', '④', '⑤', '⑥', '⑦', '⑧', '⑨'] as const;
 
 function renderAskChoiceLines(
   theme: PiTheme | undefined,
@@ -353,12 +343,8 @@ function renderAskChoiceLines(
     const checked = selected && !item.empty && !item.freeText ? (selected.has(optionIndex) ? paint(theme, 'brand', '[x]') : paint(theme, 'dim', '[ ]')) : '';
     // Numbered rows advertise the 1-9 quick-select keys; rows past 9 pad the same
     // 3 cells so the label column doesn't jump. Free-text/empty rows are unnumbered.
-    // Circle badge for options 0–8 (①–⑨, 1-cell wide + 2 spaces = 3-cell column).
-    // Options 9+ fall back to plain `N. ` so the label column stays consistent.
     const ordinal = !item.freeText && !item.empty
-      ? (optionIndex < 9
-        ? paint(theme, active ? 'brand' : 'dim', CIRCLE_DIGITS[optionIndex]!) + '  '
-        : `${optionIndex + 1}. `)
+      ? `${paint(theme, active ? 'brand' : 'dim', `${optionIndex + 1}.`)} `
       : '';
     const rawLabel = disabled || item.empty ? paint(theme, 'muted', item.label) : item.freeText ? paint(theme, active ? 'brand' : 'muted', item.label) : (active ? paint(theme, 'brand', item.label) : item.label);
     // Recommended pill: [recommended] in brand color, always visible regardless
@@ -377,16 +363,6 @@ function renderAskChoiceLines(
     // Expand the FOCUSED row with its trade-offs (pros ✓ / cons ✗) and any
     // preview — collapsed rows stay one line so the list stays scannable.
     const detail: string[] = [];
-    // Always show the complete dim description for non-focused selectable rows
-    // so the user can read every option's nuance without needing to navigate to it.
-    if (!active && item.description && !item.freeText && !item.groupHeader && !item.empty) {
-      detail.push(...wrapAskPayload(
-        paint(theme, 'muted', item.description),
-        `${bar}     `,
-        `${bar}     `,
-        width,
-      ));
-    }
     if (active) {
       if (item.description) {
         detail.push(...wrapAskPayload(
@@ -518,7 +494,7 @@ export async function runAskPrompt(
     placeholder?: string;
     /** Context-specific label for the always-present free-text escape row. */
     freeTextLabel?: string;
-    /** Overrides the generic 'Input needed' header with a context-specific label (e.g. 'Plan Complete'). */
+    /** Overrides the generic 'Input needed' header with a context-specific label. */
     headerLabel?: string;
     /** When set, renders a '· N of T ·' pagination badge in the header. */
     pagination?: { current: number; total: number };
@@ -923,26 +899,18 @@ export function registerAskUserTool(
     name: 'askUser',
     label: 'Ask user',
     description: [
-      'Ask the human a question and get a real, structured answer through the terminal UI.',
-      'Provide options[] to show a keyboard-navigable list the user arrows through and selects — never make the user type a token that matches a prose list.',
-      'Give each option pros[] and cons[] (short trade-off bullets, shown under the focused row) and set recommended:true on the safe default — the widget badges it and lands the cursor there so one Enter accepts it.',
-      'Omit options to collect a free-text reply; when options[] is present, a "Discuss or type your own answer" row is always included so the user can push back or ask a question instead of being boxed into the choices.',
-      'Returns the selected value/label or the typed text. Left-arrow returns Back from a choice card, esc cancels, and timeoutMs returns timed_out without selecting a default; non-interactive hosts return a durable pending interaction and tell you to ask inline instead.',
-      'Use for genuine decision points (pick a branch, choose an approach, confirm a target). Do not use it to replace normal conversation or to ask trivial yes/no — for yes/no prefer a two-option list.',
-      'Set multiSelect (with optional min/max) to let the user toggle several options with space, `a` all/clear, `i` invert, and confirm with enter — returns the chosen values[]. Options may carry a preview block shown while focused.',
-      'Options may be disabled with disabled:true or disabled:"reason"; disabled choices stay visible but cannot be selected.',
-      'Provide fields[] for a simple sequential form (one input prompt per field); required/minLength/maxLength/pattern validation keeps focus on the invalid field — returns values keyed by field name.',
+      'Collect one genuine, decision-changing human answer through the terminal UI. Research first; do not use this for facts available from code, routine confirmation, or normal conversation.',
+      'Use options[] for mutually exclusive choices. Keep labels short, add one non-duplicative description only when needed, and mark the safest sensible default recommended:true. A discussion/free-text escape is always available.',
+      'Use multiSelect only when several choices can be true; use fields[] for a few related short answers. Disabled choices remain visible with their reason.',
+      'Back and cancellation never authorize a default. Non-interactive hosts return a durable pending interaction so the question can be asked inline.',
     ].join('\n'),
     promptSnippet: 'Ask the user a question via an interactive list picker or text input (real UI, not prose)',
     promptGuidelines: [
-      'When you would otherwise print "reply 1/2/3", call askUser with options[] so the user selects from a real list.',
-      'Keep option labels short; add pros[]/cons[] so the user can weigh each choice, and mark the safe default recommended:true (do not also reorder — the badge + preselected cursor already signal it).',
-      'The UI always includes a "Discuss or type your own answer" row; when the user replies there, treat it as discussion — answer or adjust the options, do not force a listed choice.',
-      'If askUser reports the host is non-interactive or the user cancelled, fall back to asking the question directly in your reply.',
-      'If the user chooses Back, return to the previous decision step and do not infer an answer; timed_out likewise never authorizes a default.',
-      'Use multiSelect when several answers can be true at once (pick files, pick checks to run); set min/max only when the task genuinely constrains the count.',
-      'Use disabled options to show unavailable choices with a reason instead of hiding them when that helps the user understand constraints.',
-      'Use fields[] to gather a few related short answers in one call instead of a chain of separate free-text questions; add required/minLength/maxLength/pattern only when the answer has a real format constraint.',
+      'Ask only when the answer changes scope, architecture, acceptance, authorization, or an irreducible preference. Prefer one question.',
+      'Use short mutually exclusive labels; add descriptions or pros/cons only for distinct information, never repetition. Mark the safest sensible default recommended:true.',
+      'Treat the discussion row as conversation: answer or revise the choices instead of forcing a selection.',
+      'Back, cancel, and timeout do not authorize a default. If interactive UI is unavailable, ask inline.',
+      'Use multiSelect for genuinely independent selections and fields[] for related formatted answers; constrain counts or validation only when required.',
     ],
     parameters: buildQueryEnvelopeSchema(Type, Type.Object({
       question: Type.String({ description: 'The question to show the user. Keep it one clear sentence.' }),
@@ -951,7 +919,7 @@ export function registerAskUserTool(
           Type.Object({
             value: Type.String({ description: 'Value returned to you when this option is chosen.' }),
             label: Type.Optional(Type.String({ description: 'Short display label (defaults to value).' })),
-            description: Type.Optional(Type.String({ description: 'Optional one-line nuance shown inline after the label.' })),
+            description: Type.Optional(Type.String({ description: 'Optional one-line nuance shown only for the focused option; omit when the label is enough.' })),
             pros: Type.Optional(Type.Array(Type.String(), { description: 'Upsides of this option — short bullets shown as ✓ lines under the focused row.' })),
             cons: Type.Optional(Type.Array(Type.String(), { description: 'Downsides/risks of this option — short bullets shown as ✗ lines under the focused row.' })),
             recommended: Type.Optional(Type.Boolean({ description: 'Mark the safe/recommended default: badges the row and lands the cursor here first.' })),
@@ -1002,6 +970,7 @@ export function registerAskUserTool(
       }
       const options = normalizeOptions(p.options);
       const fields = normalizeFields(p.fields);
+      validateUniqueFieldNames(fields);
 
       if (!hasInteractiveUi(ctx)) {
         const mode = ctx?.mode ?? 'unknown';
@@ -1148,6 +1117,7 @@ export function registerAskUserTool(
         ctx,
         preflight(query) {
           if (!String(query['question'] ?? '').trim()) throw new Error('question is required.');
+          validateUniqueFieldNames(normalizeFields((query as unknown as AskParams).fields));
         },
         execute: runQuery,
       });

@@ -1,52 +1,84 @@
-import { EXTERNAL_AGENT_AWARENESS_PROMPT } from '@octocodeai/octocode-awareness';
-import { buildOctocodeSystemPrompt } from '@octocodeai/octocode-shared/prompts';
+export type PromptPlacement = 'system' | 'before-user' | 'after-user';
 
-/**
- * Engineering workflow kernel — delta content from the octocode-architect skill
- * that is not already covered by the base sections (judgment, repository,
- * code_quality). Inlined so the main agent always reasons with architect
- * discipline without loading the skill.
- *
- * NOTE: when @octocodeai/octocode-shared is updated to include this section in
- * buildOctocodeSystemPrompt (see staging system.ts), remove this constant and
- * the concatenation below to avoid duplication.
- */
-const engineering = `<engineering>
-Work in small, evidence-backed slices. Treat code as wiring: data enters through
-an interface, changes shape under explicit invariants, crosses boundaries, and
-produces observable effects.
+export interface PromptFragment {
+  readonly id: string;
+  readonly placement: PromptPlacement;
+  readonly priority: number;
+  readonly content: string;
+  readonly provenance: string;
+  readonly trusted: boolean;
+}
 
-Flow: THINK → PLAN → CODE → REVIEW.
+export interface PromptSection {
+  readonly placement: PromptPlacement;
+  readonly content: string;
+  readonly fragmentIds: readonly string[];
+  readonly bytes: number;
+}
 
-1. Think — map source → transformation → boundary → sink and identify the owned
-   interface. Cross-check four views: graph (who depends on this, what does it
-   depend on), code (exact guarantees), stream (data and control flow), runtime
-   (config, process, wiring). Search beyond the first match; similar names can
-   hide different contracts.
-2. Plan — name In, Out, Interface, Test, Edges, Touches, dependencies, parallel
-   work, and material risks. Pause only when the use case, contract, ownership,
-   or migration choice is unsettled; otherwise proceed.
-3. Code — before editing, inspect the working tree and record comparable baseline
-   checks. Existing changes may belong to a human or another agent: preserve
-   them; never stash, reset, overwrite, or discard them; coordinate overlapping
-   paths before writing. Write the failing surface test, implement one slice, and
-   exercise the production path. After editing, rerun the same checks and
-   classify each failure as pre-existing, introduced by your change, introduced
-   by concurrent work, or uncertain. Fix only in-scope failures; report the
-   others with attribution evidence. Do not route around a wrong model or
-   boundary.
-4. Review — inspect the diff and rerun focused checks. Cleanup is limited to
-   what is caused by or directly adjacent to the change. Never turn a task into
-   an unsolicited refactor.
+export interface PromptSnapshot {
+  readonly schemaVersion: 1;
+  readonly text: string;
+  readonly sections: readonly PromptSection[];
+  readonly fragments: readonly {
+    readonly id: string;
+    readonly placement: PromptPlacement;
+    readonly provenance: string;
+    readonly bytes: number;
+  }[];
+  readonly bytes: number;
+  readonly semanticDigest: string;
+}
 
-After compaction or session rehydration, treat checkpoint text as a recovery
-hint. Reopen the current active plan and its referenced docs; current sources
-override stale saved text. Resume only active authorized unfinished work. If the
-request is complete, blocked on approval, or waiting for the user, stop instead
-of manufacturing another turn.
+export interface PromptAssemblyOptions {
+  readonly maxBytes?: number;
+}
 
-Improvement needs a sensor: baseline → change one thing → rerun → compare.
-</engineering>`;
+export const assemblePrompt = (
+  fragments: readonly PromptFragment[],
+  options: PromptAssemblyOptions = {},
+): PromptSnapshot => {
+  const ordered = [...fragments].sort(
+    (a, b) => placementOrder(a.placement) - placementOrder(b.placement)
+      || a.priority - b.priority
+      || a.id.localeCompare(b.id),
+  );
+  const ids = new Set<string>();
+  for (const fragment of ordered) {
+    if (!fragment.trusted) throw new Error(`Untrusted prompt fragment: ${fragment.id}`);
+    if (!fragment.id.trim()) throw new Error('Prompt fragment id is required');
+    if (ids.has(fragment.id)) throw new Error(`duplicate prompt fragment id ${fragment.id}`);
+    ids.add(fragment.id);
+  }
 
-/** Pi binds the shared Octocode policy, Awareness coordination, and engineering workflow. */
-export const SYSTEM_PROMPT = buildOctocodeSystemPrompt(EXTERNAL_AGENT_AWARENESS_PROMPT) + '\n' + engineering;
+  const sections = (['system', 'before-user', 'after-user'] as const).flatMap((placement) => {
+    const matching = ordered.filter((fragment) => fragment.placement === placement);
+    if (matching.length === 0) return [];
+    const content = matching.map((fragment) => fragment.content).join('\n\n');
+    return [{ placement, content, fragmentIds: matching.map((fragment) => fragment.id), bytes: byteLength(content) }];
+  });
+  const text = sections.map((section) => section.content).join('\n\n');
+  const bytes = byteLength(text);
+  if (options.maxBytes !== undefined && bytes > options.maxBytes) {
+    throw new Error(`prompt exceeds byte budget ${options.maxBytes} (actual ${bytes})`);
+  }
+  return {
+    schemaVersion: 1,
+    text,
+    sections,
+    fragments: ordered.map(({ id, placement, provenance, content }) => ({ id, placement, provenance, bytes: byteLength(content) })),
+    bytes,
+    semanticDigest: fnv1a(text),
+  };
+};
+
+const placementOrder = (placement: PromptPlacement): number => placement === 'system' ? 0 : placement === 'before-user' ? 1 : 2;
+const byteLength = (value: string): number => new TextEncoder().encode(value).byteLength;
+const fnv1a = (value: string): string => {
+  let hash = 0x811c9dc5;
+  for (const byte of new TextEncoder().encode(value)) {
+    hash ^= byte;
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(16).padStart(8, '0');
+};

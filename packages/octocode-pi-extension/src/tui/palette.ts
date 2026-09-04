@@ -169,7 +169,7 @@ export function isHttpUrl(value: string): boolean {
 
 /** Separator for dense data rows (ledger lines, tool summaries, previews). */
 export const SEP = ' · ';
-/** Separator for the toolbar and stacked below-editor panels. */
+/** Wider separator for stacked cards and explicit detail panels. */
 export const SEP_WIDE = '  ·  ';
 /** The brand diamond used by headers, footer, and message cards. */
 export const BRAND_DIAMOND = '◆';

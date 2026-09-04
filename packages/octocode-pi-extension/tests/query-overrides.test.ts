@@ -67,7 +67,8 @@ describe('built-in override query envelopes', () => {
       queries: [{ reasoning: 'print one marker', command: "printf 'one'" }],
     });
     expect((result.content[0] as { text: string }).text).toBe('one');
-    expect(result.details).toMatchObject({ code: 0, stdout: 'one' });
+    expect(result.details).toMatchObject({ code: 0, totalChars: 3, stdoutChars: 3, stderrChars: 0 });
+    expect((result.details as { stdout?: string }).stdout).toBeUndefined();
   });
 
   it('write exposes only queries, preflights, and writes multiple files in order', async () => {

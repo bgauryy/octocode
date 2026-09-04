@@ -29,7 +29,6 @@ import type {
 import type { registerUniqueTool } from './octocode-tools.js';
 import { cliToolTitle, paint } from '../tui/cli-design.js';
 import { makeRenderer, truncateToWidth } from './render-helpers.js';
-import { refreshStatusPanel, resumeStatusPanel, setStatusPanelAgentSource } from './status-panel.js';
 import { stringEnumSchema } from './schema-helpers.js';
 import { setManagedStatus } from './runtime-renderer.js';
 import { workspaceAgentRoot } from './session-artifacts.js';
@@ -166,8 +165,6 @@ interface AgentRecord {
   deltaSummary?: string;
   /** Durable markdown handback path assigned by the parent and safe to inspect after kill/remove. */
   handbackPath: string;
-  /** Rolling 1-line summary of the worker's latest reasoning/thinking, distinct from output deltaSummary. */
-  thinkingSummary?: string;
   /**
    * Count of messages queued to the worker (followUp / streaming send / idle steer)
    * that the worker has not yet begun a turn for. Cleared when the worker emits
@@ -260,9 +257,6 @@ export function setAgentProcessFactoryForTests(factory: AgentProcessFactory | nu
   setWorktreeGitRunnerForTests(null);
   agents.clear();
   ledgerHidden = false;
-  // A prior test's session_shutdown may have suppressed the status panel;
-  // ledger rendering assertions need it live again.
-  resumeStatusPanel();
 }
 
 export function setAgentWorktreeGitRunnerForTests(runner: WorktreeGitRunner | null): void {
@@ -924,16 +918,6 @@ function extractTextFromMessage(message: unknown): string {
     .join('\n');
 }
 
-/** Concatenated `thinking` content parts of an assistant message (session-format ThinkingContent). */
-function extractThinkingFromMessage(message: unknown): string {
-  const content = (message as { content?: unknown })?.content;
-  if (!Array.isArray(content)) return '';
-  return content
-    .map((part) => ((part as { type?: string; thinking?: string }).type === 'thinking' ? (part as { thinking?: string }).thinking ?? '' : ''))
-    .filter(Boolean)
-    .join('\n');
-}
-
 function normalizeConfidence(value: string | undefined): NormalizedWorkerConfidence {
   const lower = String(value ?? '').toLowerCase();
   if (lower.includes('confirmed')) return 'confirmed';
@@ -1077,12 +1061,6 @@ function updateLastOutput(record: AgentRecord, message: unknown): void {
     if (delta) record.deltaSummary = delta;
     refreshNormalizedResult(record);
   }
-  const thinking = extractThinkingFromMessage(message);
-  if (thinking) {
-    // Keep only the last non-empty reasoning line as a rolling one-line summary.
-    const lastLine = thinking.split('\n').map((l) => l.trim()).filter(Boolean).at(-1);
-    if (lastLine) record.thinkingSummary = lastLine;
-  }
 }
 
 function getEventToolName(event: Record<string, unknown>): string {
@@ -1178,7 +1156,6 @@ function processRpcLine(record: AgentRecord, line: string): void {
     // overrides the live process state in the footer and ledger.
     record.normalizedResult = undefined;
     record.deltaSummary = undefined;
-    record.thinkingSummary = undefined;
     // ONE queued turn has started: decrement (never hard-reset) the pending
     // counter, so when two follow-ups are queued the ledger keeps showing
     // 'queued' work and agent_end after turn 1 does not resolve `wait` while
@@ -1402,7 +1379,6 @@ export function spawnRpcAgent(params: SpawnAgentParams, ctx?: PiContext): AgentR
     lastOutput: '',
     deltaSummary: undefined,
     handbackPath,
-    thinkingSummary: undefined,
     pendingMessages: 0,
     normalizedResult: normalizeWorkerOutput(''),
     recoveryRisk: evaluateWorkerRecoveryRisk(''),
@@ -1523,7 +1499,6 @@ function summarizeAgent(record: AgentRecord, opts: { full?: boolean } = {}) {
     recoveryRisk: record.recoveryRisk,
     pendingMessages: record.pendingMessages,
     lastMessage: record.lastMessage,
-    thinkingSummary: record.thinkingSummary,
     policyWarnings: [...record.policyWarnings],
     ledgerEvents: opts.full ? [...record.ledgerEvents] : record.ledgerEvents.slice(-10),
     toolCalls: opts.full ? [...record.toolCalls] : record.toolCalls.slice(-10),
@@ -1571,6 +1546,11 @@ export function listWorkerLedgerEntries(): WorkerLedgerEntry[] {
   return [...agents.values()]
     .sort((a, b) => b.updatedAt - a.updatedAt)
     .map(toWorkerLedgerEntry);
+}
+
+/** Footer projection respects the user's explicit hide/clear choice. */
+export function listVisibleWorkerLedgerEntries(): WorkerLedgerEntry[] {
+  return ledgerHidden ? [] : listWorkerLedgerEntries();
 }
 
 function getArgValue(args: string[], flag: string): string | undefined {
@@ -1880,11 +1860,6 @@ function buildAgentLedgerLines(limit = 10, theme?: PiTheme, width?: number): str
     const id = paint(theme, 'dim', shortId(summary.agentId));
     const elapsed = formatElapsed(record.startedAt, isTerminal(record) ? record.updatedAt : undefined);
     lines.push(`${meta.icon} ${name} (${id}) · ${meta.label}${handback}${queuedInfo}${modelInfo}${taskInfo}${planInfo}${active}${toolsInfo}${worktreeInfo} · ${elapsed}${paint(theme, 'dim', preview)}`);
-    // Phase 3: a dim reasoning sub-line for live workers, gated to a small ledger so
-    // it never crowds the panel. Distinct from the output preview (deltaSummary).
-    if (record.thinkingSummary && !isTerminal(record) && records.length <= 3) {
-      lines.push(paint(theme, 'dim', `    thinking: ${record.thinkingSummary.replace(/\n/g, ' ').slice(0, 80)}`));
-    }
   }
   if (records.length > limit) lines.push(paint(theme, 'muted', `… ${records.length - limit} more; use AgentMessage list for full details.`));
   // Clip at the source when a width is known — pi errors on over-wide lines.
@@ -1899,12 +1874,10 @@ function hasVisibleAgentLedgerRecords(): boolean {
   return agents.size > 0 && !ledgerHidden;
 }
 
-/** The Agents section lines for the unified below-editor panel. Empty when there are no workers. */
+/** Legacy explicit-detail projection retained for commands and compatibility tests. */
 export function agentPanelLines(theme?: PiTheme, limit = 6, width?: number): string[] {
   return hasVisibleAgentLedgerRecords() ? buildAgentLedgerLines(limit, theme, width) : [];
 }
-
-setStatusPanelAgentSource((theme, width) => agentPanelLines(theme, Number.MAX_SAFE_INTEGER, width));
 
 /** Register the host-level footer/metrics refresher used by refreshAgentLedgerUi. */
 export function setAgentLedgerMetricsRefreshForUi(cb: ((ctx?: PiContext) => void) | undefined): void {
@@ -1919,11 +1892,7 @@ function refreshAgentFooterMetrics(ctx?: PiContext): void {
   }
 }
 
-/**
- * The single orchestrator for agent visibility. The custom footer is the sole
- * live ledger surface; event sources (ledger events, ticker, commands,
- * spawn/exit) call ONLY this so every state change repaints it exactly once.
- */
+/** Repaint the single persistent agent projection in the unified footer. */
 export function refreshAgentLedgerUi(ctx?: PiContext): void {
   const records = [...agents.values()];
   if (records.length === 0 || ledgerHidden) {
@@ -1961,22 +1930,16 @@ function formatOctocodeAgentsHelp(): string {
     '- kill <id-or-prefix> — stop one live worker',
     '- kill-all — stop every live worker',
     '- prune — remove completed idle records from the in-memory ledger',
-    '- hide — clear the footer/widget ledger for this session',
+    '- hide — clear the footer ledger for this session',
     '',
     'Spawning/use:',
     '- typed specialists: spawnSubagent({agent:"researcher"|"planner"|"architect", task:"..."}) · browser work: browserAgent tool',
     '- generic worker: spawnAgent({task:"...", name:"..."})',
     '- after spawning: AgentMessage({action:"wait"|"status"|"send"|"kill", agentId:"..."})',
-    '- visible UI: running/blocked/failed/done workers appear in the unified status panel and compact footer until hide/prune/remove',
+    '- visible UI: running/blocked/failed/done workers appear in the unified footer until hide/prune/remove; killed workers are omitted',
     '',
     'Tip: ids can be full ids or short prefixes shown by list/status.',
   ].join('\n');
-}
-
-function showAgentInspectionPanel(ctx?: PiContext): void {
-  if (!ctx?.hasUI) return;
-  resumeStatusPanel();
-  refreshStatusPanel(ctx);
 }
 
 export async function handleOctocodeAgentsCommand(args: string, ctx?: PiContext): Promise<void> {
@@ -1990,7 +1953,7 @@ export async function handleOctocodeAgentsCommand(args: string, ctx?: PiContext)
   }
   if (action === 'hide' || action === 'clear') {
     ledgerHidden = true;
-    refreshAgentFooterMetrics(ctx);
+    refreshAgentLedgerUi(ctx);
     ctx?.ui?.notify?.('Octocode agent ledger hidden for this session. Run /octocode-agents list to show it again.', 'info');
     return;
   }
@@ -2040,7 +2003,6 @@ export async function handleOctocodeAgentsCommand(args: string, ctx?: PiContext)
   }
   ledgerHidden = false;
   refreshAgentLedgerUi(ctx);
-  showAgentInspectionPanel(ctx);
   ctx?.ui?.notify?.(formatAgentLedgerDetails(), 'info');
 }
 
@@ -2086,7 +2048,6 @@ function renderSingleAgentResult(record: AgentRecord, header: string, opts: { fu
     content: [{ type: 'text', text: contentParts.join('\n') }],
     details: {
       agent: summary,
-      output,
     },
     isError: record.status === 'failed' || Boolean(record.error),
   };
@@ -2457,9 +2418,8 @@ export function registerAgentTools(
       }
       const ok = !result.isError;
       const det = result.details as {
-        agent?: { name?: string; status?: AgentStatus } | null;
+        agent?: { name?: string; status?: AgentStatus; lastOutput?: string } | null;
         agents?: Array<{ name: string; agentId: string; status: string; exitCode?: number }>;
-        output?: string;
       } | null;
       if (det?.agents) {
         const squareIcon = paint(theme, 'title', '▦');
@@ -2482,7 +2442,9 @@ export function registerAgentTools(
       const nameStr = paint(theme, 'brand', agentName);
       const header = `${meta.icon} ${label} · ${nameStr} · ${meta.label}`;
       if (!opts.expanded) {
-        const preview = det?.output ? det.output.split('\n').find((line) => line.trim())?.trim() : '';
+        const preview = det?.agent?.lastOutput
+          ? det.agent.lastOutput.split('\n').find((line) => line.trim())?.trim()
+          : '';
         const suffix = preview ? ` — ${preview}` : ' · no output yet';
         return makeRenderer((w) => [truncateToWidth(`${header}${paint(theme, 'dim', suffix)}`, w)]);
       }

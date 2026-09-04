@@ -7,7 +7,7 @@ The TUI is conversation-first: transcript content is durable, decisions appear i
 ## Design goals
 
 - Keep your task and the next required action visible before metrics or decoration.
-- Give each fact one stable owner. Do not repeat agent state in the footer and status panel.
+- Give each fact one stable owner. Do not repeat lifecycle, plan, task, or agent state across surfaces.
 - Make every action keyboard-complete, cancellable, and understandable without color.
 - Adapt to narrow editor panes and wide terminals without edge-to-edge reading measures.
 - Render from state. Rendering must not start I/O, mutate workflow state, or scan the session.
@@ -17,10 +17,10 @@ The TUI is conversation-first: transcript content is durable, decisions appear i
 ## Component and state architecture
 
 - `src/tui/components.ts` owns the pure functional component contract, responsive inline rows, stacks, and cell-perfect closed frames. `src/tui/index.ts` is the single public TUI barrel.
-- `src/tui/footer-view.ts` owns footer layout. `index.ts` collects branch, permission, worker, discovery, and model data, then passes props to the view.
+- `src/tui/footer-view.ts` owns the unified persistent footer. `extension-ui.ts` projects activity, exact context use/current maximum, compact plan/task progress, every visible worker, attention, identity, and settings into it; diagnostic telemetry stays in commands.
 - Every historical `makeRenderer` call/result/message renderer is adapted through the same functional component contract, so width enforcement and invalidation behavior are uniform.
-- `runtime-store.ts` is the Zustand source of truth for initialization, statuses, notices, working state, context composition, MCP progress, and footer metrics. Renderers subscribe or read snapshots; they do not keep parallel UI state.
-- Plan, task, agent, and Awareness sections compose through one stack in `status-panel.ts`. Commands request a repaint instead of registering competing widgets.
+- `runtime-store.ts` is the Zustand source of truth for initialization, statuses, notices, foreground activity, context composition, MCP progress, and footer metrics. Renderers subscribe or read snapshots; they do not keep parallel UI state. Pi working visibility is derived from foreground activity and carries no second message value.
+- Plan and agent mutations request a footer repaint. `status-panel.ts` retains only pure legacy composition and cleanup; it never registers a competing widget.
 - Box drawing is centralized. New widgets must use `renderFrame`; legacy left-rail cards use `closeFrameLines` during migration. Both reserve the right edge before truncation and preserve the IME cursor marker.
 
 ## Surface hierarchy
@@ -30,10 +30,9 @@ The visual order is also the attention order:
 1. Transcript: user messages, agent responses, tool rows, and durable completion cards.
 2. Inline decision: one focused `askUser` card at the bottom of the conversation.
 3. Editor: the normal input surface when no decision owns focus.
-4. Status panel: Plan → Tasks → Agents → Awareness, below the editor.
-5. Footer: compact session health and worker activity.
-6. Overlay: temporary navigation or management opened through an explicit action.
-7. Browser companion: optional rich review, opened only after an explicit choice.
+4. Footer: priority-ordered state rows plus one row for every visible worker.
+5. Overlay: temporary navigation or management opened through an explicit action.
+6. Browser companion: optional rich review, opened only after an explicit choice.
 
 Only one interactive surface owns keyboard focus. Closing or submitting that surface returns focus to the editor. An overlay must not obscure an unresolved inline decision.
 
@@ -43,42 +42,40 @@ Only one interactive surface owns keyboard focus. Closing or submitting that sur
 |---|---|---|
 | Session chrome | Terminal title and session banner (`branding/`, `index.ts`) | Identify the session once. Never animate or repaint above the transcript. |
 | Activity | Foreground projection (`runtime-store.ts`, `runtime-renderer.ts`) | Show Thinking, Researching, Input needed, Planning, Reviewing, Ready to start, Working, Verifying, Blocked, Complete, or Failed from one Zustand slice; motion only for active work. |
-| Transcript | Thinking blocks and tool rows (`tui/cli-design.ts`, render helpers) | Call → running/update → outcome. Expanded detail stays behind the standard expand action. |
+| Transcript | Activity and tool rows (`tui/cli-design.ts`, render helpers) | Call → running/update → outcome. Show user-facing lifecycle state, never private model reasoning text. |
 | Transcript | Inline images (browser and Chrome tool renderers) | Render only when expanded; provide a text placeholder when the terminal cannot display images. |
 | Transcript | Conversation cards (compaction and handoff renderers) | Keep the summary durable and the payload collapsible. |
-| Decision | Single-select `askUser` (`ask-user-tool.ts`) | Recommended choice receives initial focus. The widget supports arrow keys, number keys, Enter, filtering, disabled reasons, and free text. |
+| Decision | Single-select `askUser` (`ask-user-tool.ts`) | Recommended choice receives initial focus; only that row expands optional nuance and trade-offs. The widget supports arrow keys, number keys, Enter, filtering, disabled reasons, and free text. |
 | Decision | Multi-select `askUser` (`ask-user-tool.ts`) | Space toggles, Enter confirms, min/max validation stays inline, and selected count remains visible. |
 | Decision | Text and form `askUser` (`ask-user-tool.ts`) | Use Pi's input component for cursor movement, paste, graphemes, validation, and IME positioning. |
-| Decision | Plan/RFC review (`plan-tool.ts`) | Always show the terminal Summary, then ask whether to open the browser; acceptance binds an exact revision and never starts implementation. |
+| Decision | Plan/RFC review (`plan-tool.ts`) | Ask only for clarification, proposal approval, or the consequential RFC review surface. Set/start/complete remain non-blocking; acceptance binds an exact revision and never starts implementation. |
+| Status | Compact plan (`plan-tool.ts`, `extension-ui.ts`) | Show progress and current/blocking work in the footer. `/octocode-plan`, Markdown, browser, and RPC retain the complete plan. |
 | Navigation | Shared select overlay (`ui-overlays.ts`) | Search visible labels and descriptions; preserve focus through filtering; cancel with Escape or Ctrl-C. |
 | Navigation | Shared multi-select overlay (`ui-overlays.ts`, `multi-select-list.ts`) | Use the same focus, selection, validation, and cancellation language as `askUser`. |
 | Navigation | Command palette (`command-palette.ts`) | Filter all public commands and direct actions; dispatch the selected command through the normal message path. |
-| Workers | Worker inbox and agent inspection (`agent-inbox.ts`, `agent-tools.ts`) | Pick → inspect → steer or stop. All workers remain visible in the unified panel and footer, with the running/blocked/failed state named explicitly. |
+| Workers | Worker inbox and agent inspection (`agent-inbox.ts`, `agent-tools.ts`) | Pick → inspect → steer or stop. Footer rows show every visible non-killed worker, attention first; commands retain the complete ledger and evidence. |
 | Configuration | Effort dial (`effort-dial.ts`) | Show the current value, explain each choice, and persist the selected level. |
 | Safety | MCP consent and removal pickers (`mcp-tool.ts`) | Name the external process or server and make cancel the safe exit. Never mutate when interactive consent is unavailable. |
 | Recovery | Checkpoint picker (`rewind-command.ts`) | Identify snapshots by time and intent; distinguish file restoration from conversation rewind. |
 | Editor | Mention and plan-step autocomplete (`autocomplete-providers.ts`) | `@` selects workers or skills, `#` selects plan steps, and all other input delegates to file completion. |
 | Editor | Watch mode (`ai-watch.ts`) | Convert explicit `AI!` comments into steer or follow-up messages without stealing editor focus; injected prompts are bounded and point back to the source when markers are omitted. |
-| Persistent state | Unified status panel (`status-panel.ts`) | Plan → Tasks → Agents → Awareness. Show the complete task and agent lists and mark the running item. |
-| Persistent state | Footer (`tui/footer-view.ts`, footer registration in `index.ts`) | Show compact health, precise context, task activity, permission level, skills/MCP overhead, and every worker; warnings are bold and textual. |
+| Persistent state | Unified footer (`tui/footer-view.ts`, footer registration in `extension-ui.ts`) | Responsive state rows plus one row per visible worker. Promote activity, warnings, exact context, current work, identity, and settings; truncate individual segments at the available width rather than hiding them behind `+N`. |
 | Discovery | Dashboard and command guide (`index.ts`, `commands-command.ts`) | Present health first, then the smallest useful next actions. The live command registry owns command inventory. |
 | Feedback | Inline validation and notifications (`ask-user-tool.ts`, `desktop-notify.ts`) | Keep recoverable validation next to the control; reserve desktop notifications for completion, failure, or blocked work. |
 | Export | Branded HTML export (`export-command.ts`) | Produce a sibling artifact without changing transcript state. |
 
 ## Responsive layout
 
-Decision cards use a bounded reading measure instead of a percentage of a wide terminal:
+Decision cards align with the transcript and use a bounded reading measure:
 
 | Terminal width | Inline decision card |
 |---:|---|
-| Under 52 columns | Use the full width, compact key help, and no horizontal gutter. |
-| 52–75 columns | Leave a two-column gutter when possible and use the remaining width. |
-| 76–99 columns | Center a 72-column card. |
-| 100 columns or wider | Grow gradually to a maximum of 88 columns and center it. |
+| Under 80 columns | Use the full available width and compact key help. |
+| 80 columns or wider | Use an 80-column, left-aligned reading measure. |
 
-Shared picker overlays use an 88-column target, 40-column minimum, one-cell outer margin, and at most 80% of terminal height. Lists show at most seven option rows; `↑ N more` and `↓ N more` preserve position. Descriptions, previews, and trade-offs appear only for the focused item and count against the visible-row budget.
+Shared picker overlays use a 72-column target, 32-column minimum, two-cell outer margin, and at most 70% of terminal height. Select lists show at most eight rows by default. Descriptions, previews, and trade-offs appear only for the focused item and count against the visible-row budget.
 
-The status panel and footer degrade by priority: keep the required action and error state, then current work, then counts, then passive metrics. Never truncate Enter, Escape, or cancellation guidance before optional shortcuts.
+The footer degrades by priority: keep the required action and error state, then exact context and current work, then passive metrics. Worker attention rows sort first. Never truncate Enter, Escape, or cancellation guidance before optional shortcuts.
 
 ## Input and focus
 
@@ -187,7 +184,7 @@ Modern TUI commands: `/octocode-palette`, `/octocode-dial`, `/octocode-footer` (
 
 At session start, the footer probes `npx octocode auth status --json` asynchronously. It paints `github ✓` green and paints `github ✗ login required` or `github check failed` red. The probe retains only authenticated/source/expiry status, never token values. When the probe reports a missing login, `/commands` shows `npx octocode auth login` and `gh auth login`.
 
-Scrollback rule (pi-tui `tui-main-screen.js`): a change to any line **above the visible viewport** — or a width/height change — forces a full redraw that clears the screen *and scrollback*. Octocode therefore renders **nothing above the transcript**: it does not call `setHeader`, and the session name lives only in the terminal title. Every transcript entry, message, and tool row is a pure function of its data. Live state stays in the footer, status chips, and below-editor panel; Octocode registers these surfaces once and repaints them with `tui.requestRender`. Per-frame render closures never do O(session) work. Events and the 1-second tick sample context usage because `pi.getContextUsage()` rebuilds the session branch per call; the banner also memoizes its version read. Diagnose any remaining full redraw with `PI_DEBUG_REDRAW=1` (pi logs each `fullRender:` reason to `pi-debug.log`).
+Scrollback rule (pi-tui `tui-main-screen.js`): a change to any line **above the visible viewport** — or a width/height change — forces a full redraw that clears the screen *and scrollback*. Octocode therefore renders **nothing above the transcript**: it does not call `setHeader`, and the session name lives only in the terminal title. Every transcript entry, message, and tool row is a pure function of its data. Live operational state stays in the register-once footer; unrelated mode/config chips remain status-owned. Repaints use `tui.requestRender`, and per-frame render closures never do O(session) work. Events and the 1-second tick sample context usage because `pi.getContextUsage()` rebuilds the session branch per call; the banner also memoizes its version read. Diagnose any remaining full redraw with `PI_DEBUG_REDRAW=1` (pi logs each `fullRender:` reason to `pi-debug.log`).
 
 Motion language: the transcript and footer use no animated decoration — pi's working spinner is the only moving glyph; live agent rows only update factual elapsed/state/message text. The palette paints attention flags (`⚠ ✗ ✉`, ≥90% context) as warning/error **and bold**; brightness always means state, never decoration. The banner card is a fixed purple gradient — an animated banner at the top of the scrollback invalidated pi-tui's line diff on every repaint and caused scroll jumps.
 
@@ -216,7 +213,7 @@ Ledger badges:
 
 ## Visual contract
 
-`src/tui/cli-design.ts` owns the Pi adapter's visual language: core glyphs, spinner frames, transcript tool rows, thinking rows, compact payload summaries, and raw ANSI fallback colors. Pi component renderers still use `src/tools/render-helpers.ts` for width-safe output, but they import symbols and progress primitives from this contract so extension surfaces do not drift.
+`src/tui/cli-design.ts` owns the Pi adapter's visual language: core glyphs, spinner frames, transcript tool rows, activity rows, compact payload summaries, and raw ANSI fallback colors. Pi component renderers still use `src/tools/render-helpers.ts` for width-safe output, but they import symbols and progress primitives from this contract so extension surfaces do not drift. Activity can report that a model is working; it never renders or stores private reasoning text.
 
 ## Color system
 
@@ -225,14 +222,14 @@ Ledger badges:
 | Colour | Tokens | Means | Never used for |
 |---|---|---|---|
 | **Purple** (`accent`) | `brand`, `title` | Octocode identity: the `◆` mark, banner body, tool names, the focused/selected row, and anything **in flight** (spinner, `running`, `doing`, `Fetching…`, `Spawning agent…`) | warnings, success |
-| **Lavender** (`mdLink`) | `link` | Links, peer/agent messaging (`✉` unread, `queued` workers), model thinking rows | decoration |
+| **Lavender** (`mdLink`) | `link` | Links and peer/agent messaging (`✉` unread, `queued` workers) | decoration |
 | **Sky** (`mdCode`) | `path`, `symbol` | File paths and identifiers — the data you read most; distinct from purple so a path never looks like a tool title | — |
 | **Gold** (`warning`) | `warning` | **Act on me**: blocked workers `⚠`, `perm relaxed`, ≥75 % context, genuine tool warnings | frames, spinners, in-flight labels, "no match", cancels, pros/cons |
 | **Green / Red** | `success`, `error`, `diffAdd`, `diffRemove` | Outcomes only: done/failed rows, `✓`/`✗` result glyphs, `+`/`-` diff lines | selection state, recommended badges |
 | **Default fg** | `count`, `bright` | Values such as counts and totals, plus pending plan rows — bright against dim labels | — |
 | **Grey ramp** | `muted` → `dim` → theme `faint` | Secondary text → chrome (separators, `│` bars, hints, finished plan rows) → rules | primary content |
 
-The footer speaks in words, not glyphs: `context ▓▓░░ 25% · 250k/1M · turn 8 · 14s · session 1h · agents 3 (2 live) · now: … · mail 2 · blocked 1 · failed 1 · dial deep · perm default · prompt ~12k · main (5 changed)`. Below it, **one row per subagent** — `agent <name> (<id>) · <state> · <elapsed> · now: <activity>` — with live workers first and no hidden row cap. The state word carries the ledger colour (running purple, blocked gold-bold, failed red-bold, done green). Compact density (`/octocode-footer compact`) hides worker rows.
+The footer speaks in words, not glyphs, across responsive rows: `ctx ▓▓░░ 25% (250k/1M) · plan 3/6 · task 4 validating UI`, followed by identity/settings and one row for each visible worker. When width is limited, each row keeps its highest-priority content and truncates safely; it does not hide footer state behind `+N`. `/octocode-status`, `/octocode-agents`, and `/octocode-harness` retain diagnostic detail.
 
 Attention states in the footer (`⚠`, `✗`, `✉`, near-full ctx) are additionally **bold** (`FooterSegment.attention`) — the only emphasis in the toolbar, so bold always means "look here". Per-row budget: at most three colours plus the grey ramp.
 

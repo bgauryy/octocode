@@ -11,6 +11,7 @@ import {
   MANAGED_BLOCK_END,
   MANAGED_BLOCK_START,
   SYSTEM_PROMPT_MARKER,
+  DISABLED_BUILTIN_TOOL_NAMES,
   OCTOCODE_SUPPORT_TOOL_NAMES,
   disableBuiltinTools,
   formatStatus,
@@ -2678,12 +2679,11 @@ test('applies Octocode Pi UI status and hidden thinking label', () => {
   }, undefined, 'Improve toolbar UX\nextra context ignored');
   assert.deepEqual(calls, [
     // title + the changed status chip fire first; WeakSet-guarded one-time calls (thinking label,
-    // indicator, message) come after because they are inside the first-call block.
+    // indicator) come after because they are inside the first-call block.
     ['title', 'Octocode · Improve toolbar UX'],
     ['status', 'octocode', '<◆ Octocode>'],
     ['thinking', 'Octocode thinking'],
     ['indicator', '<✦><✧><✶><✺><✹><✷><✶><✧>', '120'],
-    ['working', '<Thinking><…>'],
   ]);
   // reasoning:false → chip is hidden (empty string, not 'thinking unsupported')
   assert.equal(
@@ -2710,6 +2710,7 @@ test('Octocode metrics footer updates on session and turn lifecycle (single surf
     code: 0,
   });
   const statusCalls: Array<[string, string | undefined]> = [];
+  const workingVisibility: boolean[] = [];
   const footerCalls: Array<(tui: unknown, theme: unknown, footerData?: unknown) => { render: (w?: number) => string[]; dispose?: () => void }> = [];
   const theme = { fg: (_c: string, text: string) => text, bold: (text: string) => text };
   let branch = 'update-awareness';
@@ -2734,6 +2735,7 @@ test('Octocode metrics footer updates on session and turn lifecycle (single surf
       setFooter: (fn: (tui: unknown, t: unknown, fd?: unknown) => { render: (w?: number) => string[]; dispose?: () => void }) => footerCalls.push(fn),
       setWorkingIndicator: () => undefined,
       setWorkingMessage: () => undefined,
+      setWorkingVisible: (visible: boolean) => workingVisibility.push(visible),
     },
   };
   const renderFooterComponent = () => footerCalls.at(-1)!(tui, theme, footerData);
@@ -2755,8 +2757,7 @@ test('Octocode metrics footer updates on session and turn lifecycle (single surf
   );
   const initial = renderFooter();
   assert.doesNotMatch(initial, /◆ Octocode/, 'footer does not repeat the app brand');
-  assert.match(initial, /context [▓░]{8} 50%/);
-  assert.doesNotMatch(initial, /50\.0k\/100k/, 'default footer density avoids repeating percent as an exact ratio');
+  assert.match(initial, /ctx [▓░]{8} 50% \(50\.0k\/100k\)/, 'footer shows current and maximum context exactly');
   // Pre-first-turn footer carries no `turns 0` / `last —` placeholders.
   assert.doesNotMatch(initial, /turns 0/);
   assert.doesNotMatch(initial, /last —/);
@@ -2781,7 +2782,15 @@ test('Octocode metrics footer updates on session and turn lifecycle (single surf
   assert.equal(branchChange, undefined);
 
   for (const turnStart of handlers.get('turn_start') ?? []) await turnStart(undefined, ctx);
+  assert.match(renderFooter(), /Thinking…/, 'active operation is named in the footer');
+  assert.equal(workingVisibility.at(-1), true, 'active operation keeps Pi\'s animated working row visible');
+  assert.equal(
+    statusCalls.some(([key, value]) => key === 'octocode-thinking' && /thinking/i.test(value ?? '')),
+    false,
+    'Thinking is never duplicated in the status row',
+  );
   for (const turnEnd of handlers.get('turn_end') ?? []) await turnEnd(undefined, ctx);
+  assert.equal(workingVisibility.at(-1), false, 'working animation hides when the operation ends');
 
   const latest = renderFooter();
   assert.match(latest, /turns 1/);
@@ -2901,7 +2910,7 @@ test('formatOctocodeDashboard is scan-friendly and includes health warnings', ()
 
   assert.match(dashboard, /^◆ Octocode dashboard/m);
   assert.match(dashboard, /ctx ▓▓▓▓▓▓▓▓▓░ 92%/);
-  assert.match(dashboard, /⚠ context at compaction boundary \(92%\)/);
+  assert.match(dashboard, /⚠ context at 92% — Pi compacts in-run at its configured reserve threshold/);
   assert.match(dashboard, /Management: npx octocode/);
   assert.match(dashboard, /Awareness: .*octocode-awareness.*octocode-awareness\.js/);
   assert.match(dashboard, /user CLI: npx -p @octocodeai\/octocode-awareness octocode-awareness/);
@@ -2913,7 +2922,7 @@ test('formatOctocodeDashboard is scan-friendly and includes health warnings', ()
     cwd: packageRoot,
   });
   assert.match(belowBoundary, /ctx ▓▓▓▓▓▓▓▓░░ 79%/);
-  assert.doesNotMatch(belowBoundary, /context at compaction boundary/);
+  assert.doesNotMatch(belowBoundary, /Pi compacts in-run at its configured reserve threshold/);
 });
 
 test('CLI slash commands removed — extension commands are lean', async () => {
@@ -3382,8 +3391,8 @@ test('the activated extension bounds every provider-visible tool result', withTe
     .map((part) => part.text ?? '')
     .join('');
 
-  assert.ok(visibleText.length <= 48_000);
-  assert.match(visibleText, /tool output truncated/);
+  assert.ok(visibleText.length <= 5_000);
+  assert.match(visibleText, /heavy tool output referenced/);
   assert.deepEqual(result.details, { preserved: true });
 }));
 
@@ -4322,7 +4331,7 @@ test('spawnAgent starts a lean RPC Pi process and AgentMessage can list/status/s
     assert.match(notifications.at(-1)?.message ?? '', /inspect <id-or-prefix>/);
     assert.match(notifications.at(-1)?.message ?? '', /spawnSubagent\(\{agent:"researcher"\|"planner"\|"architect"/);
     assert.match(notifications.at(-1)?.message ?? '', /AgentMessage\(\{action:"wait"\|"status"\|"send"\|"kill"/);
-    assert.match(notifications.at(-1)?.message ?? '', /unified status panel and compact footer/);
+    assert.match(notifications.at(-1)?.message ?? '', /unified footer/);
     assert.match(notifications.at(-1)?.message ?? '', /ids can be full ids or short prefixes/);
 
     await agentsCommand.handler('', agentCommandCtx());
@@ -4331,18 +4340,7 @@ test('spawnAgent starts a lean RPC Pi process and AgentMessage can list/status/s
     assert.match(notifications.at(-1)?.message ?? '', /guy-provider-anthropic\/sonnet:high/);
     assert.match(notifications.at(-1)?.message ?? '', /think:medium/);
     assert.match(notifications.at(-1)?.message ?? '', /tools:4/);
-    const widgetCall = widgetCalls.find(call => call.name === 'octocode-status-panel' && typeof call.content === 'function');
-    assert.equal(widgetCall?.opts?.placement, 'belowEditor');
-    const widget = (widgetCall?.content as (tui: unknown, theme: TestTheme) => { render(width: number): string[] })(null, {
-      fg: (color: string, text: string) => `<${color}:${text}>`,
-      bold: (text: string) => `*${text}*`,
-    });
-    const widgetLines = widget.render(160);
-    assert.match(widgetLines[0] ?? '', /<toolTitle:Octocode agents>/);
-    assert.ok(
-      widgetLines.some(line => /<success:✓>/.test(line) && /<accent:docs-scout>/.test(line) && /guy-provider-anthropic\/sonnet:high/.test(line) && /think:medium/.test(line)),
-      'agent ledger widget uses theme-aware status/name coloring and shows provider/model/thinking'
-    );
+    assert.equal(widgetCalls.length, 0, 'agent inspection does not create persistent duplicate state');
 
     await agentsCommand.handler(`inspect ${agentId.slice(0, 8)}`, agentCommandCtx());
     assert.match(notifications.at(-1)?.message ?? '', /Agent status \[docs-scout\]/);
@@ -4380,7 +4378,7 @@ test('spawnAgent starts a lean RPC Pi process and AgentMessage can list/status/s
   }
 });
 
-test('agent ledger UI refreshes live worker transitions only in the custom footer', async () => {
+test('agent ledger splits ambient counts from bounded worker detail', async () => {
   const spawned: MockAgentProcess[] = [];
   setAgentProcessFactoryForTests((_command, _args, _options) => {
     const proc = createMockAgentProcess();
@@ -4435,10 +4433,10 @@ test('agent ledger UI refreshes live worker transitions only in the custom foote
     assert.equal(
       widgetCalls.some((entry) => entry.key === 'octocode-status-panel'),
       false,
-      'agent refresh does not create a duplicate below-editor widget'
+      'worker detail does not create a duplicate persistent panel'
     );
-    assert.match(footerText(), /agents 1 \(1 live\)/, 'custom footer shows the running worker immediately after spawn');
-    assert.match(footerText(), /agent ui-worker .*running/, 'custom footer owns the per-worker running row');
+    assert.match(footerText(), /agent ui-worker.*running/, 'footer owns the per-worker running row');
+    assert.doesNotMatch(footerText(), /agents 1|1 live/, 'the worker row is not repeated as aggregate counts');
 
     spawned[0]!.emitStdout({
       type: 'message_end',
@@ -4450,33 +4448,29 @@ test('agent ledger UI refreshes live worker transitions only in the custom foote
     spawned[0]!.emitStdout({ type: 'agent_end', messages: [] });
     assert.match(
       footerText(),
-      /msg← reply: \[BLOCKED\] need parent input/,
-      'async worker handback shows the inbound reply direction in the footer',
+      /blocked[\s\S]*need parent input/,
+      'async worker handback remains visible in the footer',
     );
-    // Footer buckets are mutually exclusive: a blocked worker shows in the ⚠
-    // attention count, NOT double-counted in the "live" segment.
-    assert.match(footerText(), /agents 1\b/, 'custom footer keeps the blocked worker visible in the total');
-    assert.doesNotMatch(footerText(), /1 live/, 'blocked worker is not double-counted as live');
-    assert.match(footerText(), /blocked 1/, 'custom footer surfaces blocked worker attention count');
+    assert.doesNotMatch(footerText(), /agents 1|1 live|blocked 1/, 'blocked state appears once, on its worker row');
 
     await invokeExecute(
       messageTool,
       { action: 'send', agentId, message: 'answer: proceed' },
       ctx
     );
-    // Before the worker starts the turn, the footer shows the outbound message
-    // and truthful queue depth instead of faking a running worker.
+    // Before the worker starts the turn, the footer shows truthful queue state
+    // instead of faking a running worker. Full message history stays in inspect.
     assert.match(
       footerText(),
-      /msg→ send \(1 queued\): answer: proceed/,
-      'a queued turn exposes outbound AgentMessage flow in the footer',
+      /ui-worker[\s\S]*queued/,
+      'a queued turn stays visibly queued in the footer',
     );
     // The worker actually begins the queued turn → running.
     spawned[0]!.emitStdout({ type: 'agent_start' });
     assert.match(
       footerText(),
-      /agent ui-worker .*running.*msg→ send: answer: proceed/,
-      'the footer keeps message direction visible once the queued turn starts',
+      /ui-worker .*running/,
+      'the footer switches to running once the queued turn starts',
     );
 
     spawned[0]!.emitStdout({
@@ -4490,14 +4484,14 @@ test('agent ledger UI refreshes live worker transitions only in the custom foote
     spawned[0]!.close(0);
     assert.match(
       footerText(),
-      /msg← reply: \[RESULT\] ok \[DONE\] complete/,
-      'completed workers keep their latest inbound reply visible in the footer',
+      /ui-worker[\s\S]*exited[\s\S]*ok/,
+      'completed workers keep their concise result visible in the footer',
     );
-    assert.match(footerText(), /agents 1(?!\/)/, 'custom footer keeps completed worker records visible until prune/hide/remove');
+    assert.doesNotMatch(footerText(), /agents 1(?!\/)/, 'completed worker detail is not repeated as a count');
     assert.equal(
       widgetCalls.some((call) => call.key === 'octocode-status-panel'),
       false,
-      'completed records remain footer-only and never resurrect the below-editor widget'
+      'completed records remain footer-owned without a duplicate panel'
     );
 
     const stateSummary = messageTool.renderResult!(
@@ -4781,7 +4775,7 @@ test('spawnSubagent starts researcher, planner, and architect with all Octocode 
     );
     assert.match(
       spawnSubagent.promptGuidelines!.join('\n'),
-      /check \/octocode-agents or the below-editor ledger/
+      /check the unified footer or \/octocode-agents/
     );
     assert.match(
       String(
@@ -5916,3 +5910,19 @@ test(
   }),
   15_000,
 );
+
+
+test('DISABLED_BUILTIN_TOOL_NAMES is structurally sound and non-empty', () => {
+  assert.ok(Array.isArray(DISABLED_BUILTIN_TOOL_NAMES), 'DISABLED_BUILTIN_TOOL_NAMES must be an array');
+  assert.ok(DISABLED_BUILTIN_TOOL_NAMES.length > 0, 'DISABLED_BUILTIN_TOOL_NAMES must not be empty');
+  for (const name of DISABLED_BUILTIN_TOOL_NAMES) {
+    assert.equal(typeof name, 'string', `each entry must be a string; got ${typeof name}`);
+    assert.ok(name.length > 0, `entry must be a non-empty string; got ${JSON.stringify(name)}`);
+    assert.ok(/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name), `entry ${JSON.stringify(name)} is not a valid tool name`);
+  }
+  // Verify the set contains known replaced built-ins
+  const nameSet = new Set(DISABLED_BUILTIN_TOOL_NAMES);
+  for (const expected of ['read', 'grep', 'find']) {
+    assert.ok(nameSet.has(expected), `DISABLED_BUILTIN_TOOL_NAMES must include '${expected}'`);
+  }
+});

@@ -10,7 +10,8 @@ export type GraphOperation =
 
 export interface AnalyzeGraphQuery {
   operation: GraphOperation;
-  path: string;
+  /** Absolute repo/package root to scan. Inferred from `file` when omitted and `file` is absolute. */
+  path?: string;
   file?: string;
   target?: string;
   depth?: number;

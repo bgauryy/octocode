@@ -14,7 +14,7 @@ afterEach(() => {
   setStatusPanelAgentSource(undefined);
 });
 
-test('status panel composes every agent through the shared component stack', () => {
+test('status panel is globally bounded and discloses hidden detail', () => {
   const { ctx } = uiCtx();
   setStatusPanelAgentSource((_theme, width) => [
     `Agents · ${width}`,
@@ -23,8 +23,10 @@ test('status panel composes every agent through the shared component stack', () 
   const body = composeStatusPanelLines(ctx, THEME, 72).lines.join('\n');
   assert.match(body, /Agents · 72/);
   assert.match(body, /agent-1/);
-  assert.match(body, /agent-12/);
+  assert.doesNotMatch(body, /agent-12/);
   assert.match(body, /agent-4 · running/);
+  assert.ok(body.split('\n').length <= 7);
+  assert.match(body, /more.*octocode-status/);
 });
 
 function uiCtx(cwd = STATUS_CWD): { ctx: PiContext; calls: Array<{ name: string; cleared: boolean; isFn: boolean; content: unknown }> } {
@@ -40,35 +42,24 @@ function uiCtx(cwd = STATUS_CWD): { ctx: PiContext; calls: Array<{ name: string;
   return { ctx, calls };
 }
 
-test('status panel renderer shrinks with volatile sections instead of retaining blank rows', () => {
+test('persistent status panel is retired so footer remains the single state owner', () => {
   const { ctx, calls } = uiCtx();
   setPlan(STATUS_CWD, Array.from({ length: 6 }, (_, i) => `step ${i + 1}`));
   refreshPlanUi(ctx);
-  const registration = calls.find((call) => call.name === 'octocode-status-panel' && call.isFn)!;
-  const factory = registration.content as (tui: unknown, theme: unknown) => { render(width: number): string[] };
-  const renderer = factory({ requestRender: () => undefined }, THEME);
-
-  const tall = renderer.render(100);
-  assert.ok(tall.length > 2, 'active plan makes the panel taller than the model-only baseline');
-
-  setPlan(STATUS_CWD, ['one remaining step']);
-  const shorterVolatile = renderer.render(100);
-  assert.ok(shorterVolatile.length < tall.length, 'volatile panel contracts to its current content height');
-  assert.equal(shorterVolatile.some((line) => line === ''), false, 'the panel does not synthesize blank padding rows');
-
-  clearPlan(STATUS_CWD);
-  const modelOnly = renderer.render(100);
-  assert.deepEqual(modelOnly, [''], 'empty volatile state resets the renderer without duplicate model/context chrome');
+  assert.equal(calls.some((call) => call.isFn), false, 'plan state is not registered below the editor');
 });
 
-test('status panel shows every task and highlights the running task without duplicate context/model lines', () => {
+test('status panel bounds future tasks and highlights the running task without duplicate context/model lines', () => {
   const { ctx } = uiCtx();
   setPlan(STATUS_CWD, Array.from({ length: 40 }, (_, i) => `task ${i + 1}`));
   const lines = composeStatusPanelLines(ctx, THEME, 120).lines;
   const body = lines.join('\n');
   assert.match(body, /task 1/);
-  assert.match(body, /task 40/);
-  assert.doesNotMatch(body, /… \d+ more/);
+  assert.match(body, /task 2/);
+  assert.match(body, /task 3/);
+  assert.doesNotMatch(body, /task 40/);
+  assert.match(body, /37 later/);
+  assert.equal(lines.length, 4, 'persistent plan density stays bounded');
   assert.doesNotMatch(body, /^model:/m);
   assert.doesNotMatch(body, /^ctx:/m);
 });
@@ -89,6 +80,6 @@ test('status panel does not register a blank model widget when provider is unkno
   const { calls } = uiCtx();
   const ctx = { cwd: STATUS_CWD, hasUI: true, model: { id: 'claude-test' }, ui: { setWidget: (name: string, content: unknown) => calls.push({ name, cleared: content === undefined, isFn: typeof content === 'function', content }) } } as unknown as PiContext;
   refreshPlanUi(ctx);
-  assert.ok(calls.some((call) => call.name === 'octocode-status-panel' && call.cleared), 'provider-less model clears instead of painting an empty widget');
+  assert.equal(calls.length, 0, 'provider-less empty state does not churn an unregistered widget');
   assert.equal(calls.some((call) => call.isFn), false, 'no blank renderer is registered');
 });

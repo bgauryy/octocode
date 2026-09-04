@@ -355,20 +355,84 @@ function browserReplySectionHtml(model: PlanReadModelV1): string {
 </script>`;
 }
 
+/** CSS for the richer step rendering. Scoped to the steps list. */
+const STEP_DETAIL_CSS = `
+<style>
+  ul.steps li { display:grid; grid-template-columns:1.6rem 1fr; gap:0 .5rem; padding:.52rem .6rem; border-radius:8px; margin-bottom:.28rem; border:1px solid var(--line); background:var(--bg); transition:border-color .15s; }
+  ul.steps li.done { border-color:color-mix(in srgb,var(--cyan) 28%,transparent); }
+  ul.steps li.doing { border-color:color-mix(in srgb,var(--gold) 35%,transparent); background:color-mix(in srgb,var(--gold) 4%,var(--bg)); }
+  ul.steps li.blocked { border-color:color-mix(in srgb,#EA580C 28%,transparent); }
+  ul.steps li .glyph { grid-column:1; grid-row:1; font-size:.9rem; line-height:1.55; }
+  ul.steps li.done .glyph { color:var(--cyan); }
+  ul.steps li.doing .glyph { color:var(--gold); }
+  ul.steps li.blocked .glyph { color:#EA580C; }
+  ul.steps li .step-main { grid-column:2; grid-row:1; line-height:1.5; font-size:.92rem; }
+  ul.steps li .step-detail { grid-column:2; grid-row:2; margin-top:.35rem; }
+  ul.steps li .step-detail summary { font-size:.73rem; color:var(--muted); cursor:pointer; letter-spacing:.04em; text-transform:uppercase; margin-bottom:.35rem; }
+  ul.steps li .step-detail .check-cmd { display:block; font-family:monospace; font-size:.78rem; background:var(--surface); border:1px solid var(--line); border-radius:5px; padding:.25rem .5rem; color:var(--cyan); margin-bottom:.25rem; overflow:auto; white-space:pre; }
+  ul.steps li .step-detail .acceptance { font-size:.8rem; color:var(--muted); margin:.2rem 0; border-left:2px solid var(--violet); padding-left:.5rem; }
+  ul.steps li .step-detail .step-paths { list-style:none; margin:.2rem 0 0; padding:0; }
+  ul.steps li .step-detail .step-paths li { font-family:monospace; font-size:.75rem; color:var(--muted); padding:.1rem 0; }
+  ul.steps li .deps { font-size:.78rem; color:#EA580C; margin-left:.4rem; }
+  .plan-meta { display:flex; flex-wrap:wrap; gap:.55rem; align-items:center; padding:.6rem .8rem; background:var(--surface); border:1px solid var(--line); border-radius:10px; margin-bottom:1.2rem; }
+  .plan-meta-item { display:flex; flex-direction:column; }
+  .plan-meta-label { font-size:.65rem; color:var(--muted); text-transform:uppercase; letter-spacing:.09em; font-weight:700; }
+  .plan-meta-val { font-family:monospace; font-size:.8rem; color:var(--ink); }
+  .plan-meta-val.plan-id-pill { background:color-mix(in srgb,var(--violet) 12%,transparent); color:var(--violet); border:1px solid color-mix(in srgb,var(--violet) 30%,transparent); border-radius:6px; padding:.15rem .45rem; font-size:.78rem; font-weight:700; }
+</style>`;
+
+/** Build the plan identity header: plan ID badge + workspace + session context. */
+function planMetaHeaderHtml(model: PlanReadModelV1): string {
+  const shortId = model.planId.startsWith('pi-plan-') ? model.planId.slice(8, 16) : model.planId.slice(0, 8);
+  const items = [
+    `<div class="plan-meta-item"><span class="plan-meta-label">Plan ID</span><span class="plan-meta-val plan-id-pill" title="${escapeHtml(model.planId)}">${escapeHtml(shortId)}…</span></div>`,
+    model.coordination.workspace
+      ? `<div class="plan-meta-item"><span class="plan-meta-label">Workspace</span><span class="plan-meta-val" title="${escapeHtml(model.coordination.workspace)}">${escapeHtml(shortenPath(model.coordination.workspace))}</span></div>`
+      : '',
+    model.revision
+      ? `<div class="plan-meta-item"><span class="plan-meta-label">Revision</span><span class="plan-meta-val">${escapeHtml(model.revision.slice(0, 8))}</span></div>`
+      : '',
+    `<div class="plan-meta-item"><span class="plan-meta-label">Steps</span><span class="plan-meta-val">${escapeHtml(String(model.summary.done))}/${escapeHtml(String(model.summary.total))}</span></div>`,
+  ].filter(Boolean);
+  return `${STEP_DETAIL_CSS}<div class="plan-meta">${items.join('')}</div>`;
+}
+
+/** Shorten an absolute path to the last 2 components for display. */
+function shortenPath(p: string): string {
+  const parts = p.replace(/\\/g, '/').split('/').filter(Boolean);
+  return parts.length <= 2 ? p : '\u2026/' + parts.slice(-2).join('/');
+}
+
+/** Build a rich step list item with expandable detail (checkCommand, acceptance, paths). */
+function stepItemHtml(task: { id: string; index: number; text: string; activeText?: string; status: DisplayStatus; dependsOn: number[]; paths?: string[]; reasoning?: string; acceptance?: string; checkCommand?: string }): string {
+  const glyph: Record<DisplayStatus, string> = { done: '\u2713', doing: '\u25b8', todo: '\u25cb', blocked: '\u2298' };
+  const label = task.status === 'doing' && task.activeText ? task.activeText : task.text;
+  const deps = task.status === 'blocked' && task.dependsOn.length
+    ? `<span class="deps">(needs ${task.dependsOn.map(String).map(escapeHtml).join(', ')})</span>`
+    : '';
+  const hasDetail = task.checkCommand || task.acceptance || (task.paths && task.paths.length > 0);
+  const detailHtml = hasDetail ? [
+    '<details class="step-detail">',
+    '<summary>Details</summary>',
+    task.checkCommand ? `<code class="check-cmd">$ ${escapeHtml(task.checkCommand)}</code>` : '',
+    task.acceptance ? `<p class="acceptance">${escapeHtml(task.acceptance)}</p>` : '',
+    task.paths?.length ? `<ul class="step-paths">${task.paths.map((p) => `<li>${escapeHtml(p)}</li>`).join('')}</ul>` : '',
+    '</details>',
+  ].filter(Boolean).join('') : '';
+  return `<li data-task-id="${escapeHtml(task.id)}" class="${task.status}"><span class="glyph">${glyph[task.status]}</span><span class="step-main">${task.index}. ${escapeHtml(label)}${deps}</span>${detailHtml}</li>`;
+}
+
 /** Pure browser projection of the canonical model. */
 export function buildPlanPageHtmlFromModel(model: PlanReadModelV1, rfc?: RfcDoc): string {
-  const glyph: Record<DisplayStatus, string> = { done: '✓', doing: '▸', todo: '○', blocked: '⊘' };
-  const items = model.tasks.map((task) => {
-    const label = task.status === 'doing' && task.activeText ? task.activeText : task.text;
-    const deps = task.status === 'blocked' && task.dependsOn.length
-      ? ` <span class="deps">(needs ${task.dependsOn.map(String).map(escapeHtml).join(', ')})</span>`
-      : '';
-    return `<li data-task-id="${escapeHtml(task.id)}" class="${task.status}"><span class="glyph">${glyph[task.status]}</span>${task.index}. ${escapeHtml(label)}${deps}</li>`;
-  });
+  const items = model.tasks.map((task) => stepItemHtml(task));
   const gates = FLOW_GATES.map((gate, i) => `<li>${i + 1}. ${escapeHtml(gate)}</li>`);
   return [
+    // Root section: carries plan-id + revision so the auto-refresh and live-sync
+    // can detect stale renders without a full DOM diff.
+    `<section data-plan-read-model="${model.version}" data-plan-id="${escapeHtml(model.planId)}" data-revision="${escapeHtml(model.revision ?? '')}">`,
+    // Identity header: plan ID, workspace, revision — always visible at a glance.
+    planMetaHeaderHtml(model),
     // Phase timeline up top: where the plan sits in the flow at a glance.
-    `<section data-plan-read-model="${model.version}" data-revision="${escapeHtml(model.revision ?? '')}">`,
     phaseTimelineHtml(model.phase, model.review.outcomeReason),
     // RFC next: the plan the user reviews leads with the accepted decision doc,
     // then the interview decisions, the derived checklist, and dependency flow.
@@ -381,7 +445,7 @@ export function buildPlanPageHtmlFromModel(model: PlanReadModelV1, rfc?: RfcDoc)
     '<section><h2>Flow gates</h2><ul class="steps gates">',
     ...gates,
     '</ul></section>',
-    `<section><h2>Steps · ${model.summary.done}/${model.summary.total} done</h2><ul class="steps">`,
+    `<section><h2>Steps \u00b7 ${model.summary.done}/${model.summary.total} done</h2><ul class="steps">`,
     ...items,
     '</ul></section>',
     '<section><h2>Dependency flow</h2>',
@@ -449,11 +513,12 @@ function writeProjectedPlanArtifacts(scope: string, model: PlanReadModelV1, opts
     ensurePrivateDirectory(dir);
     const htmlPath = path.join(dir, 'plan.html');
     const mdPath = path.join(dir, 'plan.md');
+    const planShortId = model.planId.startsWith('pi-plan-') ? model.planId.slice(8, 16) : model.planId.slice(0, 8);
     const html = renderOctocodePage({
-      title: 'Octocode plan',
+      title: `Octocode plan \u00b7 ${planShortId}`,
       bodyHtml: buildPlanPageHtmlFromModel(model, rfc),
       refreshSeconds: REFRESH_SECONDS,
-      refreshToken: `${model.review.branchSnapshotId}:${model.review.generation}:${model.revision ?? ''}`,
+      refreshToken: `${model.review.branchSnapshotId}:${model.review.generation}:${model.revision ?? ''}:${model.planId}`,
       mermaid: true,
     });
     const markdown = buildPlanMarkdownFromModel(model, { ...opts, ...(rfc ? { rfc } : {}) });

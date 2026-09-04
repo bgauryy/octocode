@@ -8,6 +8,7 @@ import { buildCompactionCard, buildHandoffCard } from '../src/tools/custom-messa
 import { buildOctocodeRenderResult, visibleWidth } from '../src/tools/render-helpers.js';
 import type { PlanStep } from '../src/tools/active-plan.js';
 import type { ToolCallResult } from '../src/types.js';
+import { buildPlanFooterSegments } from '../src/extension-ui.js';
 
 const PLAN: PlanStep[] = [
   { id: 'one', text: 'Inventory renderers', status: 'done' },
@@ -44,33 +45,28 @@ test('plan, task, agent, footer, and Awareness projections stay complete and wid
       ],
     }, undefined, width);
     const footer = renderFooterView({
-      identity: [{ text: 'main (3 changed)' }, { text: 'model gpt-5.6' }],
-      metrics: [{ text: 'context 152k/200k · 76%' }, { text: 'agents 2 (1 live)' }],
-      agents: [
-        {
-          label: 'agent Component Builder (a1b2c3)',
-          model: 'gpt-5.6',
-          task: 'Unify footer state',
-          planStep: '2. Unify state projections',
-          state: 'running',
-          elapsed: '14s',
-          doing: 'editing footer-view.ts',
-        },
-        { label: 'agent Border Reviewer (d4e5f6)', model: 'claude-sonnet', state: 'blocked', elapsed: '9s' },
+      segments: [
+        { text: 'main (3 changed)' }, { text: 'model gpt-5.6' },
+        { text: 'context 152k/200k · 76%' }, { text: 'agents 2 (1 live)' },
       ],
-      shortcuts: [{ text: 'ctrl+o tools' }],
     }, { width });
 
     assertWidthSafe([...plan, ...awareness, ...footer], width);
     if (width >= 80) {
       const body = [...plan, ...awareness, ...footer].join('\n');
       assert.match(body, /Unifying state projections/);
-      assert.match(body, /Implement footer/);
-      assert.match(body, /Component Builder/);
       assert.match(body, /gpt-5\.6/);
       if (width >= 120) assert.match(body, /verify-debt 1/);
     }
   }
+});
+
+test('footer plan projection shows progress and the current task without duplicating the checklist', () => {
+  const segments = buildPlanFooterSegments(PLAN_MODEL);
+  assert.deepEqual(segments.map((segment) => segment.text), [
+    'plan 1/3',
+    'task 2 Unifying state projections',
+  ]);
 });
 
 test('compaction and Awareness messages share closed, width-perfect component frames', () => {

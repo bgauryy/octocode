@@ -49,11 +49,11 @@ Colors convey meaning rather than decoration:
 - bright/title: tool identity, action, or current focal value;
 - muted/dim: metadata, previews, reasoning, and disclosure hints.
 
-Renderer limits are view-only, while a separate provider boundary caps every tool result at approximately 48,000 model-visible characters and four images. Omitted text and excess images are written losslessly to the private session artifact tree; the result includes the text path and/or image-manifest path. Bash retains its tighter lossless paging contract of approximately 20,000 characters; its collapsed/expanded terminal preview is independently bounded.
+Renderer limits are view-only. A separate provider boundary makes results above approximately 12,000 characters reference-first: it keeps at most 4,000 diagnostic characters (one-quarter head and three-quarters tail) and two images. The full text goes to a private ephemeral file, and the result includes a `localGetFileContent` chunk-read hint. Session shutdown removes ephemeral tool-output files. Excess images remain recoverable through a private image manifest.
 
 Media renderers are path-backed: generated image bytes are stored once in the
 session artifact tree instead of being duplicated as base64 inside result details.
-When a batched result exceeds the four-image boundary, the spill manifest reuses
+When a batched result exceeds the two-image boundary, the spill manifest reuses
 already-safe workspace/session image paths rather than writing duplicate copies.
 MCP call details likewise retain only block counts and status metadata; full text,
 structured content, and image bytes live solely in the bounded model content or
@@ -114,7 +114,7 @@ Session-scoped maintenance jobs are controlled by `/octocode-cron`; see [CRON.md
 
 | Reuse/create/maintain a verified dynamic capability | `callTool` |
 | Load or manage a reusable multi-step workflow | `skill` with `type:"load"|"call"` |
-| Compact or reset context | Pi's user `/compact` or `/new`; Octocode requests automatic compaction at 80% through Pi's public API |
+| Compact or reset context | Pi's native auto-compaction or user `/compact` / `/new`; configure Pi's reserve threshold for 80% |
 | Recall prior lessons that may change the approach | `memory` |
 | Record a verified reusable root cause / decision | `memory` |
 | Inspect deeper shared-state diagnostics | Awareness skill / `$OCTOCODE_AWARENESS_CLI` |
@@ -128,7 +128,7 @@ Session-scoped maintenance jobs are controlled by `/octocode-cron`; see [CRON.md
 
 ### `bash`
 
-Execute shell commands in the current working directory. Octocode override of Pi’s built-in bash: same shell execution, plus path-guard on redirect/`tee`/`cp`/`mv` write targets and a small blocklist of catastrophic commands. Every call requires a non-empty `reasoning` field explaining why the command is necessary. Bash bounds model-visible output to a single head-and-tail block of about 20,000 characters and spills larger captured output to a temporary file. Raw accumulation stops at 150,000 characters to prevent runaway processes from exhausting memory. Collapsed UI shows the latest lines; expanded UI uses a bounded head-and-tail preview. Prefer `file` for ordinary mutations; use bash for builds, tests, package commands, and genuinely mechanical changes. Details: [OVERRIDES.md](https://github.com/bgauryy/octocode/blob/main/packages/octocode-pi-extension/docs/OVERRIDES.md).
+Execute shell commands in the current working directory. Octocode overrides Pi’s built-in bash with the same shell execution, a path guard on redirect/`tee`/`cp`/`mv` write targets, and a small blocklist of catastrophic commands. Every call requires a non-empty `reasoning` field. Bash streams output to a private ephemeral log and keeps at most about 4,000 model-visible characters: a 1,000-character head and a 3,000-character tail. Renderer metadata contains only the log path and byte/character counts, not a duplicate of stdout or stderr. The in-memory preview source stops at 150,000 characters, but the referenced log continues up to a 64 MiB safety ceiling. Session shutdown deletes the log. Prefer `file` for ordinary mutations; use bash for builds, tests, package commands, and mechanical changes. For more information, see [OVERRIDES.md](https://github.com/bgauryy/octocode/blob/main/packages/octocode-pi-extension/docs/OVERRIDES.md).
 
 ### `file`
 
@@ -253,7 +253,7 @@ Spawn policy is warning-first: task packets should name goal, context, scope, ow
 
 ### `/octocode-agents`
 
-This user command manages the in-session worker ledger and below-editor widget. It lists, inspects, kills, prunes, or hides worker records. The model uses `agent` lifecycle queries; users can use `/octocode-agents` directly. See [`AGENT_ORCHESTRATOR.md`](https://github.com/bgauryy/octocode/blob/main/packages/octocode-pi-extension/docs/AGENT_ORCHESTRATOR.md) and [`SUBAGENTS.md`](https://github.com/bgauryy/octocode/blob/main/packages/octocode-pi-extension/docs/SUBAGENTS.md).
+This user command manages the in-session worker ledger shown in the unified footer. It lists, inspects, kills, prunes, or hides worker records. Killed workers are omitted from the footer; `/octocode-agents` retains complete inspection detail. The model uses `agent` lifecycle queries; users can use `/octocode-agents` directly. See [`AGENT_ORCHESTRATOR.md`](https://github.com/bgauryy/octocode/blob/main/packages/octocode-pi-extension/docs/AGENT_ORCHESTRATOR.md) and [`SUBAGENTS.md`](https://github.com/bgauryy/octocode/blob/main/packages/octocode-pi-extension/docs/SUBAGENTS.md).
 
 ## Media and web tools
 
@@ -277,7 +277,20 @@ Fetches a public URL as clean text or runs a web search. Query fields select `ur
 
 ## Context controls
 
-The extension doesn't register a model-callable context tool. It requests automatic compaction once usage reaches 80%, while Pi continues to own summarization, overflow recovery, and continuation. Users can invoke Pi's `/compact` and `/new` commands directly.
+The extension does not invoke `ctx.compact()` automatically: Pi defines that API as manual compaction, which aborts an active run and does not continue it. Pi's native auto-compaction instead runs after tool results and before the next assistant response, preserving the active run, overflow recovery, and continuation.
+
+To compact at 80%, set Pi's `compaction.reserveTokens` to 20% of the active model context window. For an 8,192-token model this is 1,639 tokens:
+
+```json
+{
+  "compaction": {
+    "enabled": true,
+    "reserveTokens": 1639
+  }
+}
+```
+
+Put this in `<project>/.pi/settings.json` or `~/.pi/agent/settings.json`. Recalculate the value when changing to a model with a different context window. Users can invoke Pi's `/compact` and `/new` commands directly.
 
 A model-runtime `maximum output token limit` stop is different from context pressure: shorten or chunk the response, or write long output to a file and return a concise summary and path.
 
@@ -285,7 +298,7 @@ A model-runtime `maximum output token limit` stop is different from context pres
 
 ## Session artifact routing
 
-Every tool output that lands on disk is now routed into the **session artifact tree** under
+Every durable tool output that lands on disk is routed into the **session artifact tree** under
 `$OCTOCODE_HOME/extension/workspaces/<workspace-key>/sessions/<session-key>/` and registered in a session manifest
 (`manifest.json`). The `session-key` is derived from `sessionManager.getSessionId()` (falls
 back to the session-file basename, then `process-<pid>`).
@@ -303,6 +316,8 @@ back to the session-file basename, then `process-<pid>`).
 All write operations are atomic (`O_EXCL` temp + rename) and use private permissions
 (`0o700` dirs, `0o600` files). A fallback path is used when the session artifact dir
 cannot be created (e.g., workspace does not yet exist).
+
+Large generic tool results and bash logs are intentionally not durable session artifacts. They use private files under `$OCTOCODE_HOME/extension/tmp/tool-results/`, include an exact path in the bounded result, support chunked reads through `localGetFileContent`, and are removed during `session_shutdown`. A later write prunes crash leftovers older than 24 hours.
 
 ---
 
@@ -370,7 +385,7 @@ batches use the shared four-query concurrency cap. Omit the
 field for the default sequential, stop-on-first-error behavior.
 
 MCP payloads pass through the shared provider-result budget. Omitted full text is preserved
-in a private session artifact and referenced by path; up to four image blocks remain model
+in a private ephemeral file and referenced by path; up to two image blocks remain model
 content. Unsupported block types are preserved as JSON text. When an MCP server emits only
 the compact `structuredContent available` stub, the gateway surfaces the complete
 `structuredContent` payload instead.

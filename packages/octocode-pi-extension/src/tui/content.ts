@@ -69,30 +69,12 @@ export const PLAN_REJECT_DESC = 'do not execute';
 /** Free-text row doubles as the adjust channel; the question advertises it. */
 export const PLAN_PROPOSE_HINT = 'type feedback to request changes';
 
-/** Question shown after plan(set) to offer the local browser view. */
-export const PLAN_SET_BROWSER_QUESTION = 'Plan created — open the live browser view?';
-/** Question shown after plan(propose) non-RFC is approved, to pick a review surface. */
-export const PLAN_APPROVED_REVIEW_QUESTION = 'Plan approved — where would you like to continue?';
-/** Question shown after plan(complete) marks every step done. */
-export const PLAN_COMPLETE_QUESTION = 'All steps done — what would you like to do next?';
-
 // ─── Context-specific ask-widget header labels for plan prompts ───────────────
 
 /** Ask-widget header for the RFC-backed propose review surface picker. */
 export const PLAN_RFC_REVIEW_HEADER = 'RFC Ready for Review';
-/** Ask-widget header when all plan steps finish and we ask what's next. */
-export const PLAN_COMPLETE_HEADER = 'Plan Complete';
 /** Ask-widget header for the plan approve/reject flow. */
 export const PLAN_APPROVAL_HEADER = 'Plan Approval';
-/** Ask-widget header after plan(set) when offering the browser view. */
-export const PLAN_READY_HEADER = 'Plan Ready';
-/** Ask-widget header for the post-approve surface picker (browser vs chat). */
-export const PLAN_APPROVED_HEADER = 'Plan Approved';
-
-// ─── Free-text escape labels ────────────────────────────────────────────────
-
-/** Plan-context free-text escape — signals the user wants to redirect rather than pick an option. */
-export const FREE_TEXT_TELL_DIFFERENTLY = 'Or tell me what to do differently';
 
 // ─── Footer legend ─────────────────────────────────────────────────────────────
 

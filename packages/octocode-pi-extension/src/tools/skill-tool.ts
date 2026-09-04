@@ -94,8 +94,10 @@ export function discoverAllSkills(cwd: string, piSkills?: SkillInfo[], home = os
       precedence: sources.length,
       defaultEnabled: true,
     });
-  } catch {
-    // A source-less development build simply has no bundled skill directory.
+  } catch (error) {
+    // A source-less development build has no bundled skill directory.
+    // Warn so the gap is not invisible during development.
+    console.warn('[octocode:skills] bundled skill directory unavailable (dev build without dist/skills?):', (error as Error)?.message ?? error);
   }
   for (const skill of piSkills ?? []) {
     const file = (skill as { path?: string; filePath?: string }).path

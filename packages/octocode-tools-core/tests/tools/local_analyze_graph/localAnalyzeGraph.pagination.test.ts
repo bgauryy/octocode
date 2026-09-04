@@ -473,4 +473,19 @@ describe('localAnalyzeGraph deadCode pagination', () => {
     expect(meta.diagnostics?.codes).toContain('terminalLimitReached');
     expect(meta.diagnostics?.codes).not.toContain('continuationMissing');
   });
+
+  it('does not emit an unverifiable LSP continuation without a graph root', () => {
+    const output = finalizeGraphOutput(
+      {
+        operation: 'deadCode',
+        path: '',
+        results: [{ file: 'dead.ts', name: 'unused', line: 1 }],
+      },
+      { operation: 'deadCode' },
+      false,
+      'Continue dead-code candidates.'
+    );
+
+    expect(output.next?.verifyReferences).toBeUndefined();
+  });
 });

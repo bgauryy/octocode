@@ -10,13 +10,13 @@
     "typescript-language-server": "^4.4.0",
     "vscode-langservers-extracted": "^4.10.0",
     "yaml-language-server": "^1.23.0",
-    "zod": "^4.4.3"
+    "zod": "^4.5.4"
   },
   "devDependencies": {
     "@napi-rs/cli": "^3.7.2",
-    "@types/node": "^26.2.0",
+    "@types/node": "^26.4.1",
     "@vitest/coverage-v8": "^4.1.11",
-    "esbuild": "^0.28.1",
+    "esbuild": "^0.28.2",
     "typescript": "^5.9.3",
     "vitest": "^4.1.11"
   },

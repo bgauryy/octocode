@@ -44,7 +44,7 @@ test('managed status creates a renderer-owned provisional runtime before session
   assert.deepEqual(calls, [['standalone', 'ready']]);
 });
 
-test('foreground activity drives truthful working and status surfaces', () => {
+test('foreground activity drives motion while the footer exclusively owns lifecycle text', () => {
   const statusCalls: Array<[string, string | undefined]> = [];
   const working: boolean[] = [];
   const messages: Array<string | undefined> = [];
@@ -61,12 +61,12 @@ test('foreground activity drives truthful working and status surfaces', () => {
 
   store.getState().setActivity({ kind: 'planning', planScope: '/workspace', detail: 'Drafting RFC' });
   assert.equal(working.at(-1), true);
-  assert.equal(messages.at(-1), 'Planning… Drafting RFC');
-  assert.ok(statusCalls.some(([name, text]) => name === 'octocode-activity' && text === 'Planning…'));
+  assert.equal(messages.at(-1), undefined);
+  assert.ok(statusCalls.every(([name, text]) => name !== 'octocode-activity' || text === undefined));
 
   store.getState().setActivity({ kind: 'awaiting_input', planScope: '/workspace', question: 'Choose rollout' });
   assert.equal(working.at(-1), false, 'the input card owns focus without a competing spinner');
-  assert.ok(statusCalls.some(([name, text]) => name === 'octocode-activity' && text === 'Input needed'));
+  assert.ok(statusCalls.every(([name, text]) => name !== 'octocode-activity' || text === undefined));
 });
 
 test('every foreground activity has an explicit motion and status contract', () => {

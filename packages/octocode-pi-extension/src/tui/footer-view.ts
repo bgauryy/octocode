@@ -1,44 +1,49 @@
 /** Pure footer view: state collection stays outside, layout stays testable here. */
 import type { PiTheme } from '../types.js';
-import type { SemanticToken } from './palette.js';
-import { renderInlineRows, renderStack, type InlineSegment, type TuiRenderContext } from './components.js';
+import { renderInlineRows, type InlineSegment, type TuiRenderContext } from './components.js';
+import { paint, SEP, type SemanticToken } from './palette.js';
+import { truncateToWidth } from '../tools/render-helpers.js';
 
 export interface FooterAgentView {
   label: string;
-  model?: string;
-  task?: string;
-  planStep?: string;
   state: string;
   elapsed: string;
+  task?: string;
   doing?: string;
   token?: SemanticToken;
   attention?: boolean;
 }
 
 export interface FooterViewProps {
-  identity: readonly InlineSegment[];
-  metrics: readonly InlineSegment[];
-  agents: readonly FooterAgentView[];
-  shortcuts: readonly InlineSegment[];
+  /**
+   * Semantic footer rows. Each row wraps responsively, but no state is replaced
+   * by a `+N` disclosure. Keep related facts together (activity/context, plan,
+   * repository identity, metrics) so a narrow terminal never hides an entire
+   * category of live state.
+   */
+  rows?: readonly (readonly InlineSegment[])[];
+  /** Backward-compatible single-row input for small callers. */
+  segments?: readonly InlineSegment[];
+  agents?: readonly FooterAgentView[];
 }
 
-function agentSegments(agent: FooterAgentView): InlineSegment[] {
-  return [
-    { text: `  ${agent.label}`, token: 'muted' },
-    { text: agent.state, token: agent.token ?? (agent.state === 'failed' ? 'error' : agent.state === 'blocked' ? 'warning' : agent.state === 'done' ? 'success' : 'brand'), attention: agent.attention },
-    { text: agent.elapsed, token: 'dim' },
-    ...(agent.model ? [{ text: `model ${agent.model}`, token: 'link' as const }] : []),
-    ...(agent.task ? [{ text: `task: ${agent.task}`, token: 'muted' as const }] : []),
-    ...(agent.planStep ? [{ text: `plan: ${agent.planStep}`, token: 'symbol' as const }] : []),
-    ...(agent.doing ? [{ text: `now: ${agent.doing}`, token: 'dim' as const }] : []),
-  ];
+function agentRow(agent: FooterAgentView, context: TuiRenderContext): string[] {
+  const stateToken = agent.token ?? (agent.state === 'failed' ? 'error' : agent.state === 'blocked' ? 'warning' : agent.state === 'done' ? 'success' : 'brand');
+  const required = `  ${paint(context.theme, 'muted', agent.label)}${SEP}${paint(context.theme, stateToken, agent.state)}`;
+  const summary = [agent.elapsed, agent.task ? `task ${agent.task}` : ''].filter(Boolean).join(SEP);
+  const lines = [truncateToWidth(summary ? `${required}${SEP}${paint(context.theme, 'dim', summary)}` : required, context.width)];
+  if (agent.doing) lines.push(truncateToWidth(`    ${paint(context.theme, 'muted', `doing ${agent.doing}`)}`, context.width));
+  return lines;
 }
 
-/** Responsive component used by Pi and by the visual permutation generator. */
+/** Unified persistent state: responsive semantic rows plus every visible worker. */
 export function renderFooterView(props: FooterViewProps, context: TuiRenderContext & { theme?: PiTheme }): string[] {
-  const identity = renderInlineRows({ segments: props.identity }, context);
-  const metrics = renderInlineRows({ segments: props.metrics, prioritizeAttention: true }, context);
-  const agents = props.agents.flatMap((agent) => renderInlineRows({ segments: agentSegments(agent) }, context));
-  const shortcuts = renderInlineRows({ segments: props.shortcuts, prefix: props.shortcuts.length > 0 ? 'keys ' : '' }, context);
-  return renderStack({ sections: [identity, metrics, agents, shortcuts] }, context);
+  const rows = props.rows ?? (props.segments ? [props.segments] : []);
+  const header = rows.flatMap((segments) => renderInlineRows({ segments }, context));
+  const agents = (props.agents ?? [])
+    .filter((agent) => agent.state !== 'killed')
+    .map((agent, index) => ({ agent, index }))
+    .sort((a, b) => Number(b.agent.attention) - Number(a.agent.attention) || a.index - b.index)
+    .map(({ agent }) => agent);
+  return [...header, ...agents.flatMap((agent) => agentRow(agent, context))];
 }

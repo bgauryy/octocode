@@ -35,7 +35,6 @@ export interface AwarenessJsonResult {
   code: number;
   json: unknown;
   error?: string;
-  raw: string;
 }
 
 /**
@@ -59,12 +58,11 @@ export function runAwarenessCommand(req: AwarenessCommandRequest, cwd: string, d
       code: exitCode,
       json: result,
       error: failed ? (typeof record?.['error'] === 'string' ? (record['error'] as string) : `exit ${exitCode}`) : undefined,
-      raw: result === undefined ? '' : JSON.stringify(result),
     };
   } catch (err) {
     // Unknown command/action or a missing required param throws — surface it the
     // same way the CLI's non-zero exit would (code 1), not as a crash.
-    return { ok: false, code: 1, json: null, error: err instanceof Error ? err.message : String(err), raw: '' };
+    return { ok: false, code: 1, json: null, error: err instanceof Error ? err.message : String(err) };
   } finally {
     aw?.close();
   }
@@ -74,10 +72,10 @@ export function awarenessError(text: string): ToolCallResult {
   return { content: [{ type: 'text', text }], isError: true } as unknown as ToolCallResult;
 }
 
-/** Uniform success result: a one-line summary plus the raw JSON payload for the model. */
+/** Uniform success result: model payload once; details retain only renderer metadata. */
 export function awarenessOk(summary: string, action: string, json: unknown): ToolCallResult {
   const text = json === null || json === undefined ? summary : `${summary}\n${JSON.stringify(json)}`;
-  return { content: [{ type: 'text', text }], details: { action, result: json } } as unknown as ToolCallResult;
+  return { content: [{ type: 'text', text }], details: { action, count: countRows(json) } } as unknown as ToolCallResult;
 }
 
 /** Shared renderCall: `⟨title⟩ action hint`. */

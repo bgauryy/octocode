@@ -6,14 +6,12 @@
 /** Output lines shown per-query under a collapsed bash result row (tail of output). */
 const BASH_COLLAPSED_LINES = 3;
 
-import { constants } from 'node:fs';
-import { access, mkdir, writeFile } from 'node:fs/promises';
+import fs, { constants } from 'node:fs';
+import { access } from 'node:fs/promises';
 import { spawn } from 'node:child_process';
 import { StringDecoder } from 'node:string_decoder';
 import path from 'node:path';
-import { randomBytes } from 'node:crypto';
 import { getShellConfig } from '@earendil-works/pi-coding-agent';
-import { extensionTmpRoot } from '../extension-paths.js';
 import type { TSchema, ToolCallResult, ToolDefinition, PiTheme } from '../types.js';
 import { paint } from '../tui/cli-design.js';
 import { buildToolView, makeRenderer, truncateToWidth } from './render-helpers.js';
@@ -23,18 +21,21 @@ import { isPlanMode, PLAN_MODE_BLOCK_REASON } from './plan-mode.js';
 import type { PiContext } from '../types.js';
 import type { registerUniqueTool } from './octocode-tools.js';
 import { buildQueryEnvelopeSchema, executeQueryBatch } from './query-envelope.js';
+import { chunkReadHint, writeEphemeralToolOutput } from './ephemeral-tool-output.js';
 
 type TypeBoxBuilder = (typeof import('typebox'))['Type'];
 type RegisterFn = typeof registerUniqueTool;
 
 /** Max chars injected into model context per bash call (single content block). */
-export const BASH_CONTEXT_MAX_CHARS = 20_000;
+export const BASH_CONTEXT_MAX_CHARS = 4_000;
 /** Head chars preserved in head+tail split (command invocation / early output). */
-export const BASH_HEAD_CHARS = 8_000;
+export const BASH_HEAD_CHARS = 1_000;
 /** Tail chars preserved in head+tail split (errors and final summaries appear at the end). */
-export const BASH_TAIL_CHARS = 12_000;
+export const BASH_TAIL_CHARS = 3_000;
 /** Stop accumulating stdout/stderr beyond this to prevent OOM on runaway processes. */
 export const BASH_RAW_ACCUMULATION_MAX = 150_000;
+/** Hard safety ceiling for a single ephemeral bash log. Crossing it is explicit. */
+export const BASH_OUTPUT_FILE_MAX_BYTES = 64 * 1024 * 1024;
 const BASH_TOOL_DISPLAY_NAME = 'bash (Octocode)';
 
 const PLAN_MODE_MUTATING_BASH_RE = /(^|[;|&(`\n])\s*(?:sudo\s+)?(?:touch|mkdir|rm|rmdir|mv|cp|install|ln|chmod|chown|truncate|dd|sed\s+[^;|&\n]*\s-i\b|perl\s+[^;|&\n]*\s-i\b|node\s+(?:--[^\s]+\s+)*-[ep]\b|python3?\s+-c\b|ruby\s+-e\b)\b|>>?|\btee\b/i;
@@ -276,6 +277,12 @@ export interface BashFormattedOutput {
   tempFilePath?: string;
 }
 
+function safeSliceTail(text: string, chars: number): string {
+  let start = Math.max(0, text.length - chars);
+  if (start > 0 && (text.charCodeAt(start) & 0xFC00) === 0xDC00) start += 1;
+  return text.slice(start);
+}
+
 /**
  * Format bash output for model context injection.
  *
@@ -285,9 +292,17 @@ export interface BashFormattedOutput {
  *  - the full output is disk-spilled and the path is included in the returned text
  *  - slice boundaries are adjusted to avoid splitting Unicode surrogate pairs
  */
-export async function formatBashOutput(raw: string): Promise<BashFormattedOutput> {
-  if (raw.length <= BASH_CONTEXT_MAX_CHARS) {
-    return { text: raw, truncated: false, totalChars: raw.length };
+export async function formatBashOutput(raw: string, existingOutputPath?: string, originalChars = raw.length): Promise<BashFormattedOutput> {
+  let tempFilePath = existingOutputPath;
+  if (!tempFilePath) {
+    try {
+      tempFilePath = writeEphemeralToolOutput(raw, { toolName: 'bash', extension: 'log' });
+    } catch {
+      tempFilePath = undefined;
+    }
+  }
+  if (originalChars <= BASH_CONTEXT_MAX_CHARS && raw.length <= BASH_CONTEXT_MAX_CHARS) {
+    return { text: raw, truncated: false, totalChars: originalChars, tempFilePath };
   }
 
   // Surrogate-safe head boundary: don't end on a high surrogate
@@ -300,26 +315,16 @@ export async function formatBashOutput(raw: string): Promise<BashFormattedOutput
 
   const head = raw.slice(0, headEnd);
   const tail = raw.slice(tailStart);
-  const omitted = tailStart - headEnd;
-
-  let tempFilePath: string | undefined;
-  try {
-    const id = randomBytes(8).toString('hex');
-    const spillDir = path.join(extensionTmpRoot(), 'bash');
-    await mkdir(spillDir, { recursive: true, mode: 0o700 });
-    tempFilePath = path.join(spillDir, `pi-bash-${id}.log`);
-    await writeFile(tempFilePath, raw, 'utf8');
-  } catch {
-    tempFilePath = undefined;
-  }
+  const omitted = Math.max(0, originalChars - headEnd - tail.length);
 
   const notice =
     `[… ${omitted.toLocaleString()} chars omitted — ` +
-    `first ${headEnd.toLocaleString()} + last ${tail.length.toLocaleString()} of ${raw.length.toLocaleString()} chars shown` +
-    `${tempFilePath ? `. Full output: ${tempFilePath}` : ''}]`;
+    `first ${headEnd.toLocaleString()} + last ${tail.length.toLocaleString()} of ${originalChars.toLocaleString()} chars shown` +
+    `${tempFilePath ? `. Full output: ${tempFilePath}` : ''}]` +
+    `${tempFilePath ? `\n${chunkReadHint(tempFilePath)}` : ''}`;
 
   const text = `${head}\n\n${notice}\n\n${tail}`;
-  return { text, truncated: true, totalChars: raw.length, tempFilePath };
+  return { text, truncated: true, totalChars: originalChars, tempFilePath };
 }
 
 function smartBashView(text: string, maxChars: number): { lines: string[]; omittedChars: number } {
@@ -337,19 +342,86 @@ function smartBashView(text: string, maxChars: number): { lines: string[]; omitt
   return { lines: preview.split('\n').filter((line) => line.length > 0), omittedChars };
 }
 
+/** Read a bounded head+tail window for the TUI without loading the full log. */
+function readBashOutputForUi(file: string | undefined, maxChars: number): string {
+  if (!file) return '';
+  let fd: number | undefined;
+  try {
+    fd = fs.openSync(file, 'r');
+    const size = fs.fstatSync(fd).size;
+    const byteBudget = Math.max(512, maxChars);
+    if (size <= byteBudget) {
+      const bytes = Buffer.alloc(size);
+      fs.readSync(fd, bytes, 0, size, 0);
+      return bytes.toString('utf8');
+    }
+    const headBytes = Math.floor(byteBudget / 4);
+    const tailBytes = byteBudget - headBytes;
+    const head = Buffer.alloc(headBytes);
+    const tail = Buffer.alloc(tailBytes);
+    fs.readSync(fd, head, 0, headBytes, 0);
+    fs.readSync(fd, tail, 0, tailBytes, Math.max(0, size - tailBytes));
+    return `${head.toString('utf8')}\n… ${size - byteBudget} bytes hidden in UI; full output remains in ${file} …\n${tail.toString('utf8')}`;
+  } catch {
+    return '';
+  } finally {
+    if (fd !== undefined) fs.closeSync(fd);
+  }
+}
+
 async function runBash(
   command: string,
   cwd: string,
   timeoutSec: number | undefined,
+  outputPath: string,
   signal?: AbortSignal,
-): Promise<{ stdout: string; stderr: string; code: number | null; signal: NodeJS.Signals | null; aborted: boolean; capped: boolean }> {
+): Promise<{ stdout: string; stderr: string; recentTail: string; stdoutChars: number; stderrChars: number; code: number | null; signal: NodeJS.Signals | null; aborted: boolean; previewCapped: boolean; fileCapped: boolean }> {
   await access(cwd, constants.F_OK).catch(() => {
     throw new Error(`Working directory does not exist: ${cwd}\nCannot execute bash commands.`);
   });
-  if (signal?.aborted) throw new Error('Operation aborted');
+  // Cancellation is reported as a normal failed tool result, not a batch
+  // execution exception. This also closes the small race where cancellation
+  // arrives after preflight but before the child process is spawned.
+  if (signal?.aborted) {
+    return {
+      stdout: '',
+      stderr: '',
+      recentTail: '',
+      stdoutChars: 0,
+      stderrChars: 0,
+      code: null,
+      signal: null,
+      aborted: true,
+      previewCapped: false,
+      fileCapped: false,
+    };
+  }
 
   const shell = getShellConfig().shell;
   return await new Promise((resolve, reject) => {
+    const outputFd = fs.openSync(outputPath, 'a');
+    let outputBytes = 0;
+    let outputFileCapped = false;
+    let outputClosed = false;
+    const closeOutput = () => {
+      if (outputClosed) return;
+      outputClosed = true;
+      try { fs.closeSync(outputFd); } catch { /* best effort */ }
+    };
+    const persistChunk = (chunk: Buffer) => {
+      if (outputBytes >= BASH_OUTPUT_FILE_MAX_BYTES) {
+        outputFileCapped = true;
+        return;
+      }
+      const kept = chunk.subarray(0, BASH_OUTPUT_FILE_MAX_BYTES - outputBytes);
+      try {
+        fs.writeSync(outputFd, kept);
+        outputBytes += kept.length;
+        if (kept.length < chunk.length) outputFileCapped = true;
+      } catch {
+        outputFileCapped = true;
+      }
+    };
     const child = spawn(shell, ['-lc', command], {
       cwd,
       env: process.env,
@@ -357,6 +429,9 @@ async function runBash(
     });
     let stdout = '';
     let stderr = '';
+    let recentTail = '';
+    let stdoutChars = 0;
+    let stderrChars = 0;
     let settled = false;
     const killChild = (sig: NodeJS.Signals) => {
       try {
@@ -406,27 +481,39 @@ async function runBash(
     const errDec = new StringDecoder('utf8');
     let accumulated = 0;
     let outputCapped = false;
+    const rememberTail = (text: string) => {
+      recentTail = safeSliceTail(recentTail + text, BASH_TAIL_CHARS);
+    };
     child.stdout?.on('data', (chunk: Buffer) => {
+      persistChunk(chunk);
       const text = outDec.write(chunk);
+      stdoutChars += text.length;
+      rememberTail(text);
       // Always read to drain the pipe so the child process can exit.
       // Only accumulate up to BASH_RAW_ACCUMULATION_MAX to prevent OOM.
       if (accumulated < BASH_RAW_ACCUMULATION_MAX) {
-        stdout += text;
-        accumulated += text.length;
-        if (accumulated >= BASH_RAW_ACCUMULATION_MAX) outputCapped = true;
+        const remaining = BASH_RAW_ACCUMULATION_MAX - accumulated;
+        stdout += text.slice(0, remaining);
+        accumulated += Math.min(text.length, remaining);
+        if (text.length > remaining || accumulated >= BASH_RAW_ACCUMULATION_MAX) outputCapped = true;
       }
     });
     child.stderr?.on('data', (chunk: Buffer) => {
+      persistChunk(chunk);
       const text = errDec.write(chunk);
+      stderrChars += text.length;
+      rememberTail(text);
       if (accumulated < BASH_RAW_ACCUMULATION_MAX) {
-        stderr += text;
-        accumulated += text.length;
-        if (accumulated >= BASH_RAW_ACCUMULATION_MAX) outputCapped = true;
+        const remaining = BASH_RAW_ACCUMULATION_MAX - accumulated;
+        stderr += text.slice(0, remaining);
+        accumulated += Math.min(text.length, remaining);
+        if (text.length > remaining || accumulated >= BASH_RAW_ACCUMULATION_MAX) outputCapped = true;
       }
     });
     child.on('error', (err) => {
       if (timer) clearTimeout(timer);
       signal?.removeEventListener('abort', onAbort);
+      closeOutput();
       if (!settled) {
         settled = true;
         reject(err);
@@ -435,11 +522,18 @@ async function runBash(
     child.on('close', (code, sig) => {
       if (timer) clearTimeout(timer);
       signal?.removeEventListener('abort', onAbort);
+      closeOutput();
       if (!settled) {
         settled = true;
-        stdout += outDec.end();
-        stderr += errDec.end();
-        resolve({ stdout, stderr, code, signal: sig, aborted, capped: outputCapped });
+        const stdoutEnd = outDec.end();
+        const stderrEnd = errDec.end();
+        stdout += stdoutEnd;
+        stderr += stderrEnd;
+        stdoutChars += stdoutEnd.length;
+        stderrChars += stderrEnd.length;
+        rememberTail(stdoutEnd);
+        rememberTail(stderrEnd);
+        resolve({ stdout, stderr, recentTail, stdoutChars, stderrChars, code, signal: sig, aborted, previewCapped: outputCapped, fileCapped: outputFileCapped });
       }
     });
   });
@@ -502,7 +596,7 @@ export function registerBashTool(
           assertBashCommandAllowed(query['command'], cwd);
           if (isPlanMode(ctx)) throw new Error(`bash blocked: ${PLAN_MODE_BLOCK_REASON}`);
         },
-        async execute(query) {
+        async execute(query, _index, itemCallId) {
           const command = query['command'] as string;
           const timeout = typeof query['timeout'] === 'number' && Number.isFinite(query['timeout'])
             ? query['timeout']
@@ -527,21 +621,34 @@ export function registerBashTool(
               throw new Error(`bash blocked: "${request.title}" requires user approval. ${why}`);
             }
           }
-          if (signal?.aborted) throw new Error('Operation aborted');
-
-          const { stdout, stderr, code, signal: killedBy, aborted, capped } = await runBash(command, cwd, timeout, signal);
+          const outputPath = writeEphemeralToolOutput('', { toolName: 'bash', toolCallId: itemCallId, extension: 'log' });
+          const { stdout, stderr, recentTail, stdoutChars, stderrChars, code, signal: killedBy, aborted, previewCapped, fileCapped } = await runBash(command, cwd, timeout, outputPath, signal);
           let combined = [stdout, stderr].filter(Boolean).join('\n');
-          if (capped) {
-            combined += `\n[Output collection capped at ${BASH_RAW_ACCUMULATION_MAX.toLocaleString()} chars — process may have emitted more]`;
+          if (previewCapped) {
+            combined += `\n[Inline preview source capped at ${BASH_RAW_ACCUMULATION_MAX.toLocaleString()} chars; inspect the referenced log for later output]`;
+            if (recentTail) combined += `\n[Actual process tail]\n${recentTail}`;
+          }
+          if (fileCapped) {
+            combined += `\n[Referenced log hit the ${BASH_OUTPUT_FILE_MAX_BYTES.toLocaleString()}-byte safety ceiling; later process output was discarded]`;
           }
           const isError = aborted || code !== 0;
           const exitNote = aborted ? '(aborted)' : killedBy ? `(killed by ${killedBy})` : `(exit ${code ?? 'null'})`;
           const rawBody = isError && combined ? `${combined}\n${exitNote}` : combined;
-          const formatted = await formatBashOutput(rawBody || exitNote);
+          const formatted = await formatBashOutput(
+            rawBody || exitNote,
+            outputPath,
+            stdoutChars + stderrChars + (isError && stdoutChars + stderrChars > 0 ? exitNote.length + 1 : 0),
+          );
           return {
             content: [{ type: 'text' as const, text: formatted.text }],
             isError,
-            details: { code, stdout, stderr },
+            details: {
+              code,
+              outputPath: formatted.tempFilePath,
+              totalChars: formatted.totalChars,
+              stdoutChars,
+              stderrChars,
+            },
           };
         },
       });
@@ -562,10 +669,12 @@ export function registerBashTool(
         const ok = !result.isError;
         const details = result.details as {
           code?: number | null;
-          stdout?: string;
-          stderr?: string;
+          outputPath?: string;
+          totalChars?: number;
+          stdoutChars?: number;
+          stderrChars?: number;
           queryRunType?: string;
-          results?: Array<{ index: number; status: string; result?: { code?: number | null; stdout?: string; stderr?: string } }>;
+          results?: Array<{ index: number; status: string; result?: { code?: number | null; outputPath?: string; totalChars?: number } }>;
         } | undefined;
 
         // Multi-query: render each query's output separately.
@@ -589,7 +698,7 @@ export function registerBashTool(
             for (const qr of queryResults) {
               const qOk = qr.status === 'success';
               const qCode = qr.result?.code;
-              const combined = [qr.result?.stdout, qr.result?.stderr].filter(Boolean).join('\n');
+              const combined = readBashOutputForUi(qr.result?.outputPath, Math.max(512, Math.floor(BASH_CONTEXT_MAX_CHARS / qCount)));
               const allQLines = combined.split('\n').filter((l) => l.length > 0);
               lines.push(...buildToolView({
                 name: `[${qr.index}]`,
@@ -621,7 +730,7 @@ export function registerBashTool(
 
         // Single query: status header + last N lines (tail is most useful for
         // build/test \u2014 errors and final summary appear at the end).
-        const detailText = [details?.stdout, details?.stderr].filter(Boolean).join('\n');
+        const detailText = readBashOutputForUi(details?.outputPath, BASH_CONTEXT_MAX_CHARS);
         const text = detailText || result.content
           .filter((c) => c.type === 'text')
           .map((c) => c.text)

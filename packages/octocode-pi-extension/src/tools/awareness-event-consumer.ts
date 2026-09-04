@@ -19,7 +19,13 @@ export function awarenessEventStatusText(stats: AwarenessEventObservability): st
     || stats.drainRefused > 0
     || stats.drainErrors > 0;
   if (!attention) return undefined;
-  return `events q ${stats.backlogDepth}${stats.backlogCapped ? '+' : ''} · ack ${stats.lastAcknowledgedSequence} · accepted ${stats.drainAccepted} · held ${stats.drainHeld} · refused ${stats.drainRefused} · errors ${stats.drainErrors}`;
+  // Show only the non-zero drain-pressure signals; omit zero-noise fields.
+  const parts: string[] = [];
+  if (stats.backlogDepth > 0) parts.push(`${stats.backlogDepth}${stats.backlogCapped ? '+' : ''} queued`);
+  if (stats.drainErrors > 0) parts.push(`${stats.drainErrors} err`);
+  if (stats.drainRefused > 0) parts.push(`${stats.drainRefused} refused`);
+  if (stats.drainHeld > 0) parts.push(`${stats.drainHeld} held`);
+  return `peer events · ${parts.length > 0 ? parts.join(' · ') : 'draining'} · seq ${stats.lastAcknowledgedSequence}`;
 }
 
 interface RegisterAwarenessEventConsumerOptions {
@@ -95,26 +101,42 @@ export function registerAwarenessEventConsumer(pi: PiInstance, options: Register
         ...(options.openStore ? { openStore: options.openStore } : {}),
         ...(options.now ? { now: options.now } : {}),
         ...(options.maxEventsPerDrain ? { maxEventsPerDrain: options.maxEventsPerDrain } : {}),
-        deliver: (message) => {
+        deliver: async (message) => {
           if (!pi.sendMessage) throw new Error('Pi custom message delivery is unavailable');
           const readEntries = ctx.sessionManager?.getEntries ?? ctx.sessionManager?.getBranch;
           if (!readEntries) {
             throw new Error('Pi session persistence receipts are unavailable; Awareness event remains unacknowledged');
           }
 
-          /*
-           * Pi 0.84.x sendMessage returns void and its runtime swallows asynchronous
-           * sendCustomMessage rejection. Avoid nextTurn (which is only an in-memory
-           * queue) and positively verify the event identity in the durable session
-           * ledger before allowing Awareness to advance its cursor.
-           */
           const persisted = () => readEntries.call(ctx.sessionManager)
             .some((entry) => isPersistedPeerDelivery(entry, message));
-          if (!persisted()) pi.sendMessage(message, { triggerTurn: false });
-          if (!persisted()) {
-            throw new Error('Pi custom message persistence was not confirmed; Awareness event remains unacknowledged');
-          }
-          options.onDelivery?.(message, ctx);
+
+          // Idempotency guard: already in the ledger from a previous drain cycle.
+          if (persisted()) { options.onDelivery?.(message, ctx); return; }
+
+          /*
+           * pi.sendMessage() wraps the async sendCustomMessage() in a fire-and-forget
+           * .catch(), returning void synchronously while the internal write is still in
+           * flight. deliverAs:'steer' is explicit: outside streaming (turn_end context)
+           * pi appends immediately to the session ledger rather than queuing for the
+           * next user prompt ('nextTurn' is only an in-memory queue and does not survive
+           * compaction or session reload).
+           *
+           * Two microtask yields give sendCustomMessage time to complete its internal
+           * awaits before we verify persistence in the session ledger. The yields are
+           * no-ops when the write is synchronous (test harness path) and necessary when
+           * it is async (production sendCustomMessage implementation).
+           */
+          pi.sendMessage(message, { triggerTurn: false, deliverAs: 'steer' });
+          await Promise.resolve(); // let sendCustomMessage start executing
+          await Promise.resolve(); // let its first internal await settle
+
+          if (persisted()) { options.onDelivery?.(message, ctx); return; }
+
+          throw new Error(
+            `Pi custom message persistence was not confirmed for awareness event ` +
+            `${message.details.eventId}; Awareness event remains unacknowledged`,
+          );
         },
         onObservability: (stats) => options.onObservability?.(stats, ctx),
       });

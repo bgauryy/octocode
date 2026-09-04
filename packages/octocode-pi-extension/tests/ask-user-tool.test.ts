@@ -62,19 +62,19 @@ function overlayCtx() {
   };
 }
 
-test('askUser registration teaches option lists, concise labels, and inline fallback', () => {
+test('askUser registration teaches decision-changing questions, concise choices, and inline fallback', () => {
   const tool = loadTool();
 
   assert.equal(tool.name, 'askUser');
-  assert.match(tool.description, /keyboard-navigable list/);
-  assert.match(tool.description, /Discuss or type your own answer/);
-  assert.match(tool.description, /pros\[\] and cons\[\]/);
+  assert.match(tool.description, /decision-changing/);
+  assert.match(tool.description, /discussion\/free-text escape/);
+  assert.match(tool.description, /non-duplicative description/);
   assert.match(tool.description, /recommended:true/);
-  assert.match(tool.description, /non-interactive hosts/);
-  assert.match(tool.promptGuidelines?.join('\n') ?? '', /reply 1\/2\/3/);
+  assert.match(tool.description, /non-interactive hosts/i);
+  assert.match(tool.promptGuidelines?.join('\n') ?? '', /answer changes scope, architecture, acceptance, authorization/);
   assert.match(tool.promptGuidelines?.join('\n') ?? '', /recommended:true/);
-  assert.match(tool.promptGuidelines?.join('\n') ?? '', /Discuss or type your own answer/);
-  assert.match(tool.promptGuidelines?.join('\n') ?? '', /fall back to asking the question directly/);
+  assert.match(tool.promptGuidelines?.join('\n') ?? '', /discussion row as conversation/);
+  assert.match(tool.promptGuidelines?.join('\n') ?? '', /interactive UI is unavailable, ask inline/);
   const schema = tool.parameters as {
     properties?: { queries?: { items?: { properties?: Record<string, unknown>; required?: string[] } } };
     required?: string[];
@@ -112,6 +112,24 @@ test('askUser preflights every question before opening an earlier prompt', async
       { reasoning: 'invalid blank question', question: '   ' },
     ],
   }, undefined, undefined, ctx), /queries\[1\] failed preflight/);
+  assert.equal(customCalled, false);
+});
+
+test('askUser rejects duplicate form field names before opening a prompt', async () => {
+  const tool = loadTool();
+  let customCalled = false;
+  const ctx = {
+    hasUI: true,
+    mode: 'tui',
+    ui: { custom: async () => { customCalled = true; return undefined; } },
+  } as unknown as PiContext;
+  await assert.rejects(tool.execute('duplicate-fields', {
+    queries: [{
+      reasoning: 'collect an unambiguous form',
+      question: 'Profile?',
+      fields: [{ name: 'email' }, { name: 'email', label: 'Confirm email' }],
+    }],
+  }, undefined, undefined, ctx), /field names must be unique/i);
   assert.equal(customCalled, false);
 });
 
@@ -248,7 +266,7 @@ test('askUser free-text mode supports cursor editing through Pi Input', async ()
   assert.deepEqual(result.details, { status: 'text', value: 'abc' });
 });
 
-test('askUser centers a bounded responsive card without exceeding the terminal', async () => {
+test('askUser keeps a bounded left-aligned card without exceeding the terminal', async () => {
   const tool = loadTool();
   const wide = overlayCtx();
   const pendingWide = tool.execute('id', { question: 'Choose?', options: ['safe', 'fast'] }, undefined, undefined, wide.ctx);
@@ -256,23 +274,23 @@ test('askUser centers a bounded responsive card without exceeding the terminal',
 
   const wideHeader = wideLines[0]!.replace(/\x1b\[[0-9;]*m/g, '');
   const wideStart = wideHeader.indexOf('╭');
-  assert.equal(wideStart, 36, 'an 88-column card is centered in a 160-column terminal');
-  assert.equal(visibleWidth(wideHeader.slice(wideStart)), 88, 'wide terminals cap the reading measure at 88 columns');
+  assert.equal(wideStart, 0, 'decision UI aligns with the transcript instead of floating');
+  assert.equal(visibleWidth(wideHeader.slice(wideStart)), 80, 'wide terminals cap the reading measure at 80 columns');
   assert.ok(wideLines.every((line) => visibleWidth(line) <= 160), 'wide rendering stays within the terminal');
   wide.send('\x1b');
   await pendingWide;
 
   for (const [terminalWidth, expectedStart, expectedCardWidth] of [
-    [52, 2, 48],
-    [80, 4, 72],
-    [100, 14, 72],
-    [120, 17, 86],
+    [52, 0, 52],
+    [80, 0, 80],
+    [100, 0, 80],
+    [120, 0, 80],
   ] as const) {
     const sized = overlayCtx();
     const pendingSized = tool.execute('id', { question: 'Choose?', options: ['safe', 'fast'] }, undefined, undefined, sized.ctx);
     const header = sized.render(terminalWidth)[0]!.replace(/\x1b\[[0-9;]*m/g, '');
     const start = header.indexOf('╭');
-    assert.equal(start, expectedStart, `${terminalWidth}-column terminal centers the decision card`);
+    assert.equal(start, expectedStart, `${terminalWidth}-column terminal left-aligns the decision card`);
     assert.equal(visibleWidth(header.slice(start)), expectedCardWidth, `${terminalWidth}-column card uses the responsive reading measure`);
     sized.send('\x1b');
     await pendingSized;
@@ -549,10 +567,9 @@ test('askUser progressively discloses focused descriptions and trade-offs and la
 
   const before = render(100).join('\n').replace(/\x1b\[[0-9;]*m/g, '');
   assert.match(before, /Leave it \[recommended\]/);
-  // Focused-row contract: description is always visible for all rows; pros/cons only appear on focused row.
+  // Focused-row contract: only the focused option expands its nuance and trade-offs.
   assert.match(before, /Keeps the supported behavior unchanged/);
-  // Non-focused rows now always show their description (dim), so Aggressive cut's description IS visible.
-  assert.match(before, /Removes the compatibility path/);
+  assert.doesNotMatch(before, /Removes the compatibility path/);
   assert.doesNotMatch(before, /✓ small diff/, 'non-focused Aggressive cut does not show pros');
   assert.doesNotMatch(before, /✗ thins the safety net/, 'non-focused Aggressive cut does not show cons');
   assert.match(before, /✓ no risk/);
@@ -561,9 +578,9 @@ test('askUser progressively discloses focused descriptions and trade-offs and la
 
   send('\x1b[A');
   const after = render(100).join('\n').replace(/\x1b\[[0-9;]*m/g, '');
-  // After moving focus to Aggressive cut: its detail appears; Leave it's description stays visible (always-on).
+  // After moving focus to Aggressive cut, only its detail appears.
   assert.match(after, /Removes the compatibility path/);
-  assert.match(after, /Keeps the supported behavior unchanged/);
+  assert.doesNotMatch(after, /Keeps the supported behavior unchanged/);
   assert.match(after, /✓ small diff/);
   assert.match(after, /✗ thins the safety net/);
 
@@ -820,8 +837,8 @@ test('askUser single-select digit keys pick the numbered option outright', async
     ctx,
   );
   const plain = render(100).join('\n').replace(/\x1b\[[0-9;]*m/g, '');
-  assert.match(plain, /①  alpha/, 'options use circle badge for quick-select');
-  assert.match(plain, /②  beta/);
+  assert.match(plain, /1\. alpha/, 'options use plain numbered quick-select labels');
+  assert.match(plain, /2\. beta/);
   send('2');
   const result = await pending;
   assert.deepEqual(result.details, { status: 'selected', value: 'beta', label: 'beta' });

@@ -217,8 +217,8 @@ describe("query envelope", () => {
       (sum, part) => sum + (part.type === "text" ? part.text.length : 0),
       0,
     );
-    expect(visibleChars).toBeLessThanOrEqual(48_000);
-    expect((result.content.at(-1) as { text: string }).text).toMatch(/truncated/i);
+    expect(visibleChars).toBeLessThanOrEqual(5_000);
+    expect((result.content.at(-1) as { text: string }).text).toMatch(/heavy tool output referenced/i);
   });
 
   it("runs opted-in parallel queries concurrently while returning source-ordered receipts", async () => {

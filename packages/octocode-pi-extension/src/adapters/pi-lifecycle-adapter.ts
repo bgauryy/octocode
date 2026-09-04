@@ -168,7 +168,18 @@ export function bindPiLifecycleBus(
   } = {},
 ): void {
   let sequence = 0;
-  pi.on(piEvent, async (rawEvent: unknown, rawContext: unknown) => {
+  // LifecycleBus.dispatch() guards against reentrant calls on the same event
+  // type via an internal #active Set. In parallel tool mode, Pi can fire
+  // tool_execution_end (and potentially other events) concurrently for multiple
+  // in-flight tool calls. Without serialization the second concurrent handler
+  // enters bus.dispatch() while the first is still awaiting, which throws
+  // "Recursive intercepting event: <type>". This queue chains every dispatch
+  // behind the previous one so at most one is running at a time.
+  // The resolved promise is returned to pi so control-flow events (tool_call,
+  // input, etc.) still deliver their decisions; observe-only events ignore it.
+  let dispatchQueue: Promise<unknown> = Promise.resolve();
+
+  pi.on(piEvent, (rawEvent: unknown, rawContext: unknown) => {
     const payload = rawEvent && typeof rawEvent === 'object' && !Array.isArray(rawEvent)
       ? rawEvent as Record<string, unknown>
       : { value: rawEvent };
@@ -177,12 +188,22 @@ export function bindPiLifecycleBus(
     const context = piEvent === 'session_shutdown' && payload['reason'] !== 'quit'
       ? undefined
       : rawContext as PiContext | undefined;
-    const envelope = await createPiEventEnvelope(piEvent, payload, context, sequence++);
-    options.onEnvelope?.(envelope, context);
-    try {
-      return mapDecisionToPi(piEvent, await bus.dispatch(envelope));
-    } finally {
-      options.onComplete?.(envelope);
-    }
+    // Capture sequence number in arrival order before entering the queue.
+    const seq = sequence++;
+
+    const dispatched = dispatchQueue.then(async () => {
+      const envelope = await createPiEventEnvelope(piEvent, payload, context, seq);
+      options.onEnvelope?.(envelope, context);
+      try {
+        return mapDecisionToPi(piEvent, await bus.dispatch(envelope));
+      } finally {
+        options.onComplete?.(envelope);
+      }
+    });
+
+    // Advance the tail without propagating rejections — a failed dispatch must
+    // not block subsequent events from being processed.
+    dispatchQueue = dispatched.then(() => undefined, () => undefined);
+    return dispatched;
   });
 }

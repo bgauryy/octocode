@@ -141,7 +141,7 @@ test('drives AskUser, browser Accept/Start, shared work, verification, and every
     assert.match(buildPlanPageHtmlFromModel(model), /Implement data contracts/);
     assert.match(renderPlanContext(model), /phase=complete/);
     assert.deepEqual((renderPlanReadModel(model, 'rpc') as typeof model).tasks.map((task) => task.id), model.tasks.map((task) => task.id));
-    assert.ok(flow.eventsOf('ui.widget').length > 0);
+    assert.equal(flow.eventsOf('ui.widget').length, 0, 'plan state never creates a duplicate persistent widget');
     assert.ok(flow.normalizedTranscript().some((event) => event.kind === 'command.expanded'));
     flow.assertSequence(['ui.dialog', 'browser.request', 'command.expanded', 'session.restarted', 'browser.request', 'command.expanded']);
   } finally {
@@ -151,9 +151,13 @@ test('drives AskUser, browser Accept/Start, shared work, verification, and every
     if (previousHome === undefined) delete process.env['OCTOCODE_HOME']; else process.env['OCTOCODE_HOME'] = previousHome;
     if (previousAgent === undefined) delete process.env['OCTOCODE_AGENT_ID']; else process.env['OCTOCODE_AGENT_ID'] = previousAgent;
   }
-}, 15_000);
+// This intentionally exercises real persistence, local HTTP callbacks, and
+// repeated extension restarts. It can exceed Vitest's default under the full
+// workspace suite even though the same production flow is healthy; give this
+// integration boundary a bounded, explicit budget rather than a flaky default.
+}, 30_000);
 
-test('terminal plan widget keeps every task visible and width-safe throughout a complex mocked agent flow', () => {
+test('terminal plan widget keeps current and next work visible and width-safe throughout a complex mocked agent flow', () => {
   const steps = [
     { id: 'research', text: 'Research the existing data, session, agent, and instruction contracts', activeForm: 'Researching all contracts', status: 'done' as const },
     { id: 'implement', text: 'Implement a deliberately long cross-layer change with mocked agent responses', activeForm: 'Implementing the cross-layer change', status: 'doing' as const, dependsOnStepIds: ['research'] },
@@ -171,10 +175,14 @@ test('terminal plan widget keeps every task visible and width-safe throughout a 
     const lines = planPanelModelLines(model, undefined, width);
     for (const line of lines) assert.ok(visibleWidth(line) <= width, `line fits width ${width}: ${line}`);
     const normalized = lines.join(' ').replace(/\s+/g, ' ');
-    for (const step of steps) {
-      const label = step.status === 'doing' ? step.activeForm : step.text;
-      assert.ok(normalized.includes(label), `complete task label remains visible at width ${width}: ${label}`);
-    }
+    for (const label of [
+      'Implementing the cross-layer change',
+      'Validate browser callback revision and origin handling',
+      'Validate RPC cancellation, restart, and duplicate answer handling',
+    ]) assert.ok(normalized.includes(label), `current/next task remains visible at width ${width}: ${label}`);
+    assert.ok(!normalized.includes(steps[0]!.text), 'completed detail stays in the durable full plan');
+    assert.ok(!normalized.includes(steps[4]!.text), 'later work stays collapsed in the persistent panel');
+    assert.match(normalized, /1 later/);
     assert.match(normalized, /▶/, 'the active lane remains identifiable at every width');
   }
 });

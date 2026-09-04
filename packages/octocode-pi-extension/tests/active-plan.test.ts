@@ -17,7 +17,7 @@ import {
   setPlanAwarenessMappings, getPlanCoordination,
   type PlanDecision, type PlanStep,
 } from '../src/tools/active-plan.js';
-import { registerPlanTool, refreshPlanUi, handleOctocodePlanCommand, inferConsequential, phaseStepperLine, planPanelModelLines, setPlanDirectoryServerForTests } from '../src/tools/plan-tool.js';
+import { registerPlanTool, refreshPlanUi, handleOctocodePlanCommand, inferConsequential, planPanelModelLines, setPlanDirectoryServerForTests, setPlanMetricsRefreshForUi } from '../src/tools/plan-tool.js';
 import { planArtifactsDir, setPlanOpenerForTests } from '../src/tools/plan-html.js';
 import { isPlanMode, enterPlanMode, exitPlanMode, planModeToolGate, PLAN_MODE_BLOCK_REASON } from '../src/tools/plan-mode.js';
 import { createSessionArtifactContext, readPlanProjection } from '../src/tools/session-artifacts.js';
@@ -364,25 +364,19 @@ test('normal flow always keeps one step in progress (no invariant nudge)', () =>
   clearPlan(cwd);
 });
 
-test('plan panel renders complete progress and the running step activeForm', () => {
+test('plan detail projection renders compact progress and the running step activeForm without a persistent widget', () => {
   const cwd = '/tmp/plan-widget-ws';
   const { ctx, calls } = uiCtx(cwd);
   setPlan(cwd, [{ text: 'Edit file', activeForm: 'Editing file' }, 'Run tests']);
   completeStep(cwd, 1); // step 2 becomes doing
   refreshPlanUi(ctx);
-  const w = calls.widget.find(
-    (x) => (x as { name: string }).name === 'octocode-status-panel' && !(x as { cleared: boolean }).cleared,
-  ) as { content: (tui: unknown, theme: unknown) => { render?: unknown } } | undefined;
-  assert.ok(w, 'a below-editor widget renderer was set');
-  // Invoke the renderer with a no-op theme and read the lines it produces.
   const theme = { fg: (_c: string, t: string) => t } as unknown;
-  const comp = w!.content(null, theme) as { render: (w: number) => string[] };
-  const lines = comp.render(80);
+  const lines = planPanelModelLines(getCurrentPlanReadModel(ctx, cwd), theme as never, 80);
   const joined = lines.join('\n');
-  assert.match(joined, /Plan\s+[\u2588\u2591]{8}\s+1\/2 done · now: Run tests/, 'header has progress and the current running step');
-  assert.match(joined, /✓ 1\. Edit file/, 'completed tasks remain visible');
-  assert.match(joined, /▶ 2\. Run tests\s+running/, 'running task is explicit');
-  assert.match(joined, /Research.*Work.*Verify/, 'durable lifecycle phase is visible');
+  assert.match(joined, /Plan · Work · 1\/2/, 'header has phase and compact progress');
+  assert.doesNotMatch(joined, /Edit file/, 'completed detail stays out of the persistent panel');
+  assert.match(joined, /▶ 2\. Run tests/, 'running task is explicit');
+  assert.deepEqual(calls.widget, [], 'the footer remains the only persistent state surface');
   clearPlan(cwd);
 });
 
@@ -489,20 +483,15 @@ function loadTool(sendUserMessage?: (message: string, options?: { deliverAs?: 's
   };
 }
 
-test('refreshPlanUi renders a live checklist plus the lifecycle activity status', () => {
+test('refreshPlanUi repaints the footer without creating widget or status duplicates', () => {
   const { ctx, calls } = uiCtx('/tmp/plan-ui-ws');
   setPlan('/tmp/plan-ui-ws', ['a', 'b']);
   refreshPlanUi(ctx);
-  const rendered = calls.widget.find((w) => (w as { name: string }).name === 'octocode-status-panel') as
-    | { cleared: boolean; isFn: boolean; opts?: { placement?: string } }
-    | undefined;
-  assert.ok(rendered && !rendered.cleared, 'below-editor plan widget is rendered while a plan is active');
-  assert.equal(rendered!.isFn, true, 'widget content is a renderer fn (not a static string[])');
-  assert.equal(rendered!.opts?.placement, 'belowEditor', 'plan checklist sits below the input field');
-  assert.deepEqual(calls.status, [{ name: 'octocode-activity', text: 'Working…' }], 'the only compact status is the lifecycle projection');
+  assert.deepEqual(calls.widget, []);
+  assert.deepEqual(calls.status, []);
   clearPlan('/tmp/plan-ui-ws');
   refreshPlanUi(ctx);
-  assert.ok(calls.widget.some((w) => (w as { cleared: boolean }).cleared === true), 'widget cleared when the plan is empty');
+  assert.deepEqual(calls.widget, []);
 });
 
 test('/octocode-plan command completes a step and clears the plan', async () => {
@@ -742,7 +731,7 @@ test('plan tool add supports dependsOn ordering', async () => {
 test('plan tool teaches default-index flow, unified shared projection, and parallel lanes', () => {
   const tool = loadTool();
   assert.match(tool.description, /remove/);
-  assert.match(tool.description, /multiple independent steps may be doing in parallel/);
+  assert.match(tool.description, /multiple independent steps may be doing in parallel/i);
   assert.match(tool.description, /scope:"shared".*automatically/);
   assert.match(tool.description, /receipt \{command,status,message\}/);
   const guidelines = tool.promptGuidelines?.join('\n') ?? '';
@@ -751,7 +740,9 @@ test('plan tool teaches default-index flow, unified shared projection, and paral
   assert.match(guidelines, /internal to plan/);
   assert.doesNotMatch(guidelines, /update it in the same turn/);
   assert.match(guidelines, /plan\(start:N\)/);
-  assert.match(guidelines, /RFC\/research → review exact revision → Accept → separate Start → execute → verify/);
+  assert.match(guidelines, /accepts the exact displayed revision.*separate user Start/);
+  assert.match(guidelines, /answer will change scope, architecture, acceptance criteria, or authorization/);
+  assert.match(guidelines, /Prefer one question; use 2–3 only for independent blockers/);
 });
 
 test('plan tool requires explicit complete index when multiple lanes are doing', async () => {
@@ -1431,20 +1422,7 @@ test('terminal RFC review keeps the browser closed and exposes the Summary plus 
   });
 });
 
-// ─── Phase stepper (below-editor panel) ───────────────────────────────────────
-
-test('phaseStepperLine marks the current phase from durable lifecycle state', () => {
-  const approve = phaseStepperLine('accepted');
-  assert.match(approve, /✓ Research/);
-  assert.match(approve, /✓ Review/);
-  assert.match(approve, /▸ Start/);
-  assert.match(approve, /○ Work/);
-  assert.match(approve, /○ Verify/);
-  assert.match(phaseStepperLine('executing'), /▸ Work/);
-  assert.match(phaseStepperLine('verifying'), /▸ Verify/);
-});
-
-test('planPanelLines shows the complete checklist and marks the running lane', () => {
+test('planPanelLines keeps the persistent panel focused on current and next work', () => {
   const steps: PlanStep[] = [
     { id: 'setup', text: 'Completed setup', status: 'done' },
     { id: 'change', text: 'A long-ish step description here', activeForm: 'Implementing the focused change', status: 'doing' },
@@ -1453,15 +1431,29 @@ test('planPanelLines shows the complete checklist and marks the running lane', (
   ];
   const model = panelModel(steps);
   const wrapped = planPanelModelLines(model, undefined, 24).join(' ').replace(/\s+/g, ' ');
-  for (const label of ['Completed setup', 'Implementing the focused change', 'Blocked follow-up', 'Later verification']) {
+  for (const label of ['Implementing the focused change', 'Blocked follow-up', 'Later verification']) {
     assert.ok(wrapped.includes(label), `narrow panel preserves the complete label: ${label}`);
   }
+  assert.ok(!wrapped.includes('Completed setup'), 'completed detail stays in the canonical full plan, not the persistent panel');
   const full = planPanelModelLines(model).join('\n');
   assert.match(full, /1\/4/, 'progress remains visible');
   assert.match(full, /Implementing the focused change/, 'activeForm is the active lane label');
-  assert.match(full, /running/, 'the active lane is explicit');
-  assert.match(full, /Research.*Work.*Verify/, 'durable lifecycle phase stepper is visible');
-  assert.match(full, /Completed setup|Later verification/, 'stored tasks remain visible');
+  assert.match(full, /▶/, 'the active lane is explicit');
+  assert.match(full, /Plan · Work/, 'the current lifecycle phase stays visible without a second stepper');
+  assert.doesNotMatch(full, /Completed setup/, 'completed rows do not crowd the persistent panel');
+});
+
+test('planPanelLines caps ordinary future work and reports the hidden remainder', () => {
+  const steps: PlanStep[] = Array.from({ length: 8 }, (_, index) => ({
+    id: `step-${index + 1}`,
+    text: `Step ${index + 1}`,
+    status: index === 0 ? 'doing' : 'todo',
+  }));
+  const lines = planPanelModelLines(panelModel(steps));
+  assert.equal(lines.length, 4, 'one header plus at most three current/next rows');
+  assert.match(lines[0]!, /5 later/);
+  assert.match(lines.join('\n'), /Step 1.*Step 2.*Step 3/s);
+  assert.doesNotMatch(lines.join('\n'), /Step 4/);
 });
 
 // ─── Gate hardening: inferConsequential ───────────────────────────────────────
@@ -1595,25 +1587,23 @@ test('plan mode: /octocode-plan new blocks write tools until /octocode-plan off 
   assert.ok(calls.notify.some((m) => /write tools restored/.test(m)));
 });
 
-test('status panel registers its widget ONCE per session and repaints via tui.requestRender afterwards', () => {
+test('plan refresh delegates every mutation to the unified footer repaint', () => {
   const cwd = '/tmp/plan-panel-once-ws';
   const { ctx, calls } = uiCtx(cwd);
-  setPlan(cwd, ['a', 'b']);
-  refreshPlanUi(ctx);
-  const registrations = calls.widget.filter((w) => (w as { isFn: boolean }).isFn);
-  assert.equal(registrations.length, 1, 'first refresh registers the widget factory');
-  // Bind the factory the way pi does, so the panel learns its tui.requestRender.
   let renders = 0;
-  const factory = (registrations[0] as { content: (tui: unknown, theme: unknown) => unknown }).content;
-  factory({ requestRender: () => { renders++; } }, { fg: (_c: string, t: string) => t, bold: (t: string) => t });
-  startStep(cwd, 1);
-  refreshPlanUi(ctx);
-  refreshPlanUi(ctx);
-  assert.equal(calls.widget.filter((w) => (w as { isFn: boolean }).isFn).length, 1, 'no re-registration on later refreshes');
-  assert.equal(renders, 2, 'later refreshes only ask pi to repaint');
-  clearPlan(cwd);
-  refreshPlanUi(ctx);
-  assert.ok(calls.widget.some((w) => (w as { cleared: boolean }).cleared), 'empty panel clears the widget');
+  setPlanMetricsRefreshForUi(() => { renders++; });
+  try {
+    setPlan(cwd, ['a', 'b']);
+    refreshPlanUi(ctx);
+    startStep(cwd, 1);
+    refreshPlanUi(ctx);
+    clearPlan(cwd);
+    refreshPlanUi(ctx);
+    assert.equal(renders, 3);
+    assert.deepEqual(calls.widget, [], 'no below-editor state owner is registered');
+  } finally {
+    setPlanMetricsRefreshForUi(undefined);
+  }
 });
 
 test('unified orchestration fixtures encode retry, fork, and worker terminal contracts', () => {

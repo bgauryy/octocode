@@ -132,7 +132,10 @@ export const workspaceAgentRoot = extensionWorkspaceRoot;
 
 export function sessionArtifactRoot(input: SessionIdentityInput = {}): string {
   const identity = resolveSessionIdentity(input);
-  return path.join(workspaceAgentRoot(identity.workspace, input.octocodeHome ?? getOctocodeHome()), 'sessions', identity.sessionKey);
+  const octocodeHome = input.octocodeHome ?? getOctocodeHome();
+  // Sessions live flat under extensionHome/sessions/ — no workspace nesting.
+  // Workspace-level state (discovery.json, mcp/, lsp/) stays under workspaceAgentRoot.
+  return path.join(extensionHome(octocodeHome), 'sessions', identity.sessionKey);
 }
 
 function isInside(root: string, candidate: string): boolean {

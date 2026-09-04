@@ -8,6 +8,7 @@ import {
   refreshAwarenessPanel,
   renderAwarenessSignalAddendum,
   resetAwarenessStatusStateForTests,
+  setAwarenessMetricsRefreshForUi,
   setAwarenessStatusRunnerForTests,
   type AwarenessStatus,
 } from '../src/tools/awareness-status.js';
@@ -43,7 +44,10 @@ const FULL: AwarenessStatus = {
   lastInbound: { from: 'planner', preview: 'take lane' },
 };
 
-afterEach(() => resetAwarenessStatusStateForTests());
+afterEach(() => {
+  resetAwarenessStatusStateForTests();
+  setAwarenessMetricsRefreshForUi(undefined);
+});
 
 test('signal detection and bounded prompt addendum use typed status', () => {
   assert.equal(hasAwarenessSignal(ZERO), false);
@@ -107,6 +111,16 @@ test('refresh caches one typed package snapshot and throttles repeated paints', 
   assert.ok(!widget.some((entry) => entry.isFn && !entry.cleared), 'panel is not registered for awareness-only state');
 });
 
+test('refresh repaints the unified footer for cached and newly loaded Awareness state', async () => {
+  let repaints = 0;
+  setAwarenessMetricsRefreshForUi(() => { repaints++; });
+  setAwarenessStatusRunnerForTests(async () => FULL);
+  const { ctx } = uiCtx();
+  refreshAwarenessPanel(ctx);
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  assert.equal(repaints, 2, 'cached snapshot and async replacement each repaint the footer');
+});
+
 test('refresh clears stale cached status when the package reader fails', async () => {
   let calls = 0;
   setAwarenessStatusRunnerForTests(async () => calls++ === 0 ? FULL : null);
@@ -117,5 +131,5 @@ test('refresh clears stale cached status when the package reader fails', async (
   refreshAwarenessPanel(ctx);
   await new Promise((resolve) => setTimeout(resolve, 5));
   assert.equal(getCachedAwarenessStatus(ctx.cwd!), null);
-  assert.ok(widget.some((entry) => entry.cleared));
+  assert.equal(widget.length, 0, 'an unregistered empty panel is not redundantly cleared');
 });

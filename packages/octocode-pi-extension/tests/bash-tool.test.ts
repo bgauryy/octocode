@@ -224,16 +224,16 @@ test('classifyEnvExfilCommand flags obvious inherited environment dumps but not 
 });
 
 test('bash formats large output as a single bounded context block with head+tail and disk-spill', async () => {
-  assert.equal(BASH_CONTEXT_MAX_CHARS, 20_000);
-  assert.equal(BASH_HEAD_CHARS, 8_000);
-  assert.equal(BASH_TAIL_CHARS, 12_000);
+  assert.equal(BASH_CONTEXT_MAX_CHARS, 4_000);
+  assert.equal(BASH_HEAD_CHARS, 1_000);
+  assert.equal(BASH_TAIL_CHARS, 3_000);
   const full = `${'a'.repeat(21_000)}\n${'b'.repeat(21_000)}\ntail`;
   const result = await formatBashOutput(full);
 
   assert.ok(result.truncated, 'large output must be marked truncated');
   assert.equal(result.totalChars, full.length);
-  // Single block must stay bounded (20K + label overhead ≤ ~20.5K)
-  assert.ok(result.text.length <= BASH_CONTEXT_MAX_CHARS + 512, 'single block stays bounded');
+  // Single block stays near 4K; only the reference/read hint is extra.
+  assert.ok(result.text.length <= BASH_CONTEXT_MAX_CHARS + 768, 'single block stays bounded');
   // Head preserved
   assert.ok(result.text.startsWith('a'.repeat(Math.min(BASH_HEAD_CHARS, 20))), 'head chars preserved');
   // Tail preserved
@@ -246,13 +246,33 @@ test('bash formats large output as a single bounded context block with head+tail
   assert.equal(diskContent, full, 'disk file contains the complete original output');
 });
 
-test('bash formatBashOutput returns full text unchanged when within BASH_CONTEXT_MAX_CHARS', async () => {
+test('bash formatBashOutput returns small text inline and still keeps an ephemeral reference', async () => {
   const small = 'hello world\n'.repeat(10);
   const result = await formatBashOutput(small);
   assert.equal(result.truncated, false);
   assert.equal(result.text, small);
   assert.equal(result.totalChars, small.length);
-  assert.equal(result.tempFilePath, undefined);
+  assert.ok(result.tempFilePath);
+  assert.equal(fs.readFileSync(result.tempFilePath!, 'utf8'), small);
+});
+
+test('bash streams output beyond the in-memory preview cap to a chunk-readable artifact', async () => {
+  const tool = loadBashTool();
+  const result = await executeBash(tool, 'large-stream', {
+    command: `node -e "process.stdout.write('A'.repeat(200000) + 'TAIL')"`,
+    reasoning: 'verify large output stays artifact-backed',
+  }, undefined, { cwd: os.tmpdir() });
+  const visible = result.content.flatMap((part) => part.type === 'text' ? [part.text] : []).join('');
+  const details = result.details as { outputPath?: string; stdout?: string; totalChars?: number };
+  assert.ok(visible.length <= BASH_CONTEXT_MAX_CHARS + 1_000);
+  assert.match(visible, /localGetFileContent/);
+  assert.ok(visible.endsWith('TAIL'), 'bounded model preview retains the actual process tail');
+  assert.equal(details.stdout, undefined, 'raw stdout is not duplicated into details');
+  assert.equal(details.totalChars, 200_004, 'metadata reports actual output, not the capped preview source');
+  assert.ok(details.outputPath);
+  const disk = fs.readFileSync(details.outputPath!, 'utf8');
+  assert.equal(disk.length, 200_004);
+  assert.ok(disk.endsWith('TAIL'), 'artifact retains output emitted after the memory preview cap');
 });
 
 test('bash head+tail truncation never splits a Unicode surrogate pair at slice boundaries', async () => {
@@ -385,12 +405,12 @@ test('bash expanded UI uses a smart head/tail preview while the tool result rema
   const formatted = await formatBashOutput(out);
   const result: ToolCallResult = {
     content: [{ type: 'text', text: formatted.text }],
-    details: { code: 0, stdout: out, stderr: '' },
+    details: { code: 0, outputPath: formatted.tempFilePath, totalChars: out.length },
   };
   const expanded = (tool.renderResult!(result, { expanded: true }, renderTheme as never) as { render(w: number): string[] }).render(120);
   assert.ok(expanded.some((line) => line.includes('HEAD')));
   assert.ok(expanded.some((line) => line.includes('TAIL')));
   assert.ok(expanded.some((line) => /hidden in UI/.test(line)));
   assert.ok(expanded.length < 3_000, 'expanded rendering stays bounded');
-  assert.equal((result.details as { stdout: string }).stdout, out, 'renderer never mutates the model result');
+  assert.equal((result.details as { totalChars: number }).totalChars, out.length, 'renderer keeps only compact metadata');
 });
