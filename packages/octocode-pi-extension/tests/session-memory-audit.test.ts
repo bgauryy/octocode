@@ -95,13 +95,16 @@ test('session audit appends escaped rows, keeps the newest bounded events, and r
   const auditPath = initializeSessionAudit(artifact);
   assert.equal(auditPath, artifact.resolve(SESSION_AUDIT_RELATIVE_PATH));
 
-  for (let index = 0; index < SESSION_AUDIT_MAX_EVENTS + 5; index += 1) {
-    appendSessionAuditEntry(artifact, {
-      at: new Date(index * 1000).toISOString(),
-      event: `plan.step.${index}`,
-      detail: index === SESSION_AUDIT_MAX_EVENTS + 4 ? 'line one | line two\ncontinued' : `detail ${index}`,
-    });
-  }
+  const header = fs.readFileSync(auditPath, 'utf8');
+  const seededRows = Array.from({ length: SESSION_AUDIT_MAX_EVENTS + 4 }, (_, index) =>
+    `| ${new Date(index * 1000).toISOString()} | plan.step.${index} | detail ${index} |`,
+  );
+  artifact.writeText(SESSION_AUDIT_RELATIVE_PATH, `${header}${seededRows.join('\n')}\n`);
+  appendSessionAuditEntry(artifact, {
+    at: new Date((SESSION_AUDIT_MAX_EVENTS + 4) * 1000).toISOString(),
+    event: `plan.step.${SESSION_AUDIT_MAX_EVENTS + 4}`,
+    detail: 'line one | line two\ncontinued',
+  });
 
   const audit = fs.readFileSync(auditPath, 'utf8');
   const eventRows = audit.split('\n').filter((line) => /^\| \d{4}-/.test(line));

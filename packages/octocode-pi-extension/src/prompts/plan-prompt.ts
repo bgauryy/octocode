@@ -15,7 +15,7 @@ ${goalBlock}
 1. Check the request and repository first. Keep research proportional to the decision.
 2. Use the askUser widget only when a decision-changing question remains; otherwise continue without an interview.
 3. Show the user “Creating plan…” while preparing the review.
-4. Create or update a reviewable RFC under .octocode/rfc/, then call plan(propose) with its rfcPath and dependency-ordered, verifiable steps.
+4. Create or update a reviewable RFC under .octocode/rfc/, then call plan with queries:[{reasoning:"Propose the reviewed plan.", action:"propose", rfcPath, steps}] using dependency-ordered, verifiable steps.
 5. Present a concise plan overview in the message and ask one decision: Start implementation or Request changes.
 6. Choosing Start approves the exact RFC revision and begins implementation in one action. There is no separate Accept step.
 

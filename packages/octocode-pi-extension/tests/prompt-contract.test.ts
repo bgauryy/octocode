@@ -235,6 +235,21 @@ test('main prompt scopes mathematical modeling to useful diagnosis evidence', ()
   );
 });
 
+test('engineering kernel is compact, proportional, and avoids duplicating base implementation rules', () => {
+  const block = SYSTEM_PROMPT.match(/<engineering>\n([\s\S]*?)\n<\/engineering>/)?.[1] ?? '';
+  assert.match(block, /THINK.*PLAN.*CODE.*REVIEW/i, 'the four-phase workflow remains explicit');
+  assert.match(block, /write.*must exist|why.*write.*necessary/i, 'every edit requires a stated reason');
+  assert.match(block, /graph.*code.*stream.*dependenc.*runtime/is, 'analysis covers graph, code, stream, dependencies, and runtime');
+  assert.match(block, /material|proportion/i, 'risk dimensions scale with the change');
+  assert.match(block, /named slice/i, 'implementation is planned as one named slice');
+  assert.match(block, /failing.*(?:check|test).*baseline|baseline.*failing.*(?:check|test)/is, 'behavior changes establish evidence first');
+  assert.match(block, /sensor.*change.*re-?run|baseline.*change.*compare/i, 'improvements require a closed evaluation loop');
+  assert.match(block, /compaction or session rehydration/i, 'Pi recovery guidance remains owned here');
+  assert.doesNotMatch(block, /working tree|inspect the diff/i, 'the kernel does not imply forbidden Git inspection');
+  assert.doesNotMatch(block, /Write the failing surface test/i, 'the kernel does not override proportional baseline guidance');
+  assert.ok(block.trim().split(/\s+/).length <= 280, 'the always-loaded delta stays compact');
+});
+
 test('main prompt top-level XML sections are balanced, uniquely owned, and remain compact', () => {
   const opens = [...SYSTEM_PROMPT.matchAll(/^<([a-z_]+)>$/gm)].map((match) => match[1]);
   const closes = [...SYSTEM_PROMPT.matchAll(/^<\/([a-z_]+)>$/gm)].map((match) => match[1]);
@@ -271,6 +286,8 @@ test('plan mode uses a conversational RFC flow with one Start decision and no to
   assert.match(prompt, /one.*Start|single.*Start/i);
   assert.match(prompt, /planning does not disable tools/i);
   assert.match(prompt, /do not implement.*Start/i);
+  assert.match(prompt, /queries.*reasoning.*action.*propose/is, 'plan mode teaches the required query envelope');
+  assert.doesNotMatch(prompt, /plan\(propose\)/i, 'plan mode avoids function-call shorthand that bypasses queries[]');
   assert.doesNotMatch(prompt, /accept(?:ance)?.*does not.*authoriz.*implementation|separate.*Start/i);
 });
 

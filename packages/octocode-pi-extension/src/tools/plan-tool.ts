@@ -490,7 +490,7 @@ export async function handleOctocodePlanCommand(args: string, ctx: PiContext | u
     // The goal is everything after `new`; the agent asks for one when absent.
     const goal = args.trim().replace(/^new\b/, '').trim();
     if (!sendPrompt) {
-      notify(ctx, 'This host cannot send prompts — describe the goal and ask the agent to `plan(propose)` it.', 'warning');
+      notify(ctx, 'This host cannot send prompts — describe the goal and ask the agent to call plan with action:"propose" inside queries[].', 'warning');
       return;
     }
     enterPlanMode(ctx);
@@ -729,7 +729,7 @@ async function executePlanQuery(p: PlanParams, ctx: PiContext | undefined): Prom
       setManagedActivity(ctx, { kind: 'planning', planScope: scope, detail: 'Applying your answers' });
     }
     const head = recorded.length ? `[PLAN] recorded ${recorded.length} decision(s):\n${recorded.map((r, i) => `${i + 1}. ${r}`).join('\n')}` : '[PLAN] no decisions recorded';
-    const tail = halted ? `\n${halted}` : '\nWhen intent + approach are decision-complete, call plan(propose) — the decisions travel with the plan and render on its page.';
+    const tail = halted ? `\n${halted}` : '\nWhen intent + approach are decision-complete, call plan with action:"propose" inside queries[] — the decisions travel with the plan and render on its page.';
     if (recorded.length > 0) auditPlanEvent(ctx, scope, 'clarify', { decisionsRecorded: recorded.length });
     return clarifyResult(`${head}${tail}`, false, pendingInteraction ? {
       pendingInteraction: {
@@ -1102,19 +1102,21 @@ export function registerPlanTool(
     label: 'Plan',
     description: [
       'Track a canonical, compaction-durable checklist for non-trivial multi-step or risky work; skip obvious single-step tasks. The footer shows progress/current work, while show and generated plan artifacts retain full detail.',
+      'Every call uses queries:[{reasoning, action, ...}]. Put lifecycle fields inside each query item; root-level action fields are invalid.',
       'Use clarify only for unresolved decision-changing blockers; set for already-authorized work; propose with an RFC for review; add/start/complete/remove to keep execution truthful; clear when done or abandoned.',
       'RFC review uses one user decision: Start approves the exact displayed bytes and begins implementation; Request changes returns the plan to draft.',
     'Multiple independent steps may be doing in parallel. Use scope:"shared" for persistent multi-agent execution; it automatically projects stable steps, dependencies, ownership, and verification receipts into Awareness from one internal plan model.',
       'index is optional for start/complete/remove: complete/remove default to the single current doing step; when multiple steps are doing, pass index. start defaults to the next runnable todo. Completing a mapped shared step requires receipt {command,status,message} from the declared check that actually ran.',
     ].join('\n'),
-    promptSnippet: 'Track a durable task checklist (clarify/set/propose/add/start/complete/remove/show/clear).',
+    promptSnippet: 'Track a durable task checklist. Every call uses queries:[{reasoning, action, ...}]; actions are clarify/set/propose/add/start/complete/remove/show/clear.',
     promptGuidelines: [
-      'Research first. Use plan(clarify) only when an answer will change scope, architecture, acceptance criteria, or authorization and the repository cannot supply it. Prefer one question; use 2–3 only for independent blockers. Never ask for confirmation, information already given, or implementation details you can decide safely.',
-      'When execution is already authorized/obvious, record steps with plan(set). When the user asks for a plan, research first, ask only decision-changing questions through askUser, create or update an RFC, then call plan(propose) with rfcPath. The proposal shows the overview and asks once: Start implementation or Request changes. Planning never disables tools; after Start, finish the active step with plan(complete) and continue until the whole plan is done.',
-      'Keep the checklist truthful as scope shifts: plan(add) newly discovered document-backed steps, plan(remove) obsolete ones, and plan(clear) once the task is done or abandoned. Shared task projection, ownership, dependencies, check receipts, and finalization are internal to plan; there is no separate public task tool.',
-      'For independent lanes, encode ordering with dependsOn, start runnable lanes with plan(start:N) before batching/spawning, and pass explicit indices when completing parallel steps.',
-      'Give active steps a concise activeForm (for example, "Editing file"). The footer shows plan progress and current/blocking work; plan show, plan.md, and plan.html retain the complete checklist.',
-      'Plan lifecycle prompts are reserved for clarification, proposal approval, and consequential RFC review. plan(set), plan(start), and plan(complete) never interrupt execution with presentation-only questions; use /octocode-plan html only when the user asks for the visual plan. The tool returns plan.md/plan.html paths for explicit review.',
+      'Every call uses queries:[{reasoning, action, ...}]. Put action-specific fields in that query item; never send action or its fields at the tool root.',
+      'Research first. Use action:"clarify" only when an answer will change scope, architecture, acceptance criteria, or authorization and the repository cannot supply it. Prefer one question; use 2–3 only for independent blockers. Never ask for confirmation, information already given, or implementation details you can decide safely.',
+      'When execution is already authorized or obvious, record steps with action:"set". When the user asks for a plan, research first, ask only decision-changing questions through askUser, create or update an RFC, then call plan with queries:[{reasoning, action:"propose", rfcPath, steps}]. The proposal asks once: Start implementation or Request changes. Planning never disables tools; after Start, finish the active step with action:"complete" and continue until the whole plan is done.',
+      'Keep the checklist truthful as scope shifts: use action:"add" for newly discovered document-backed steps, action:"remove" for obsolete ones, and action:"clear" once the task is done or abandoned. Shared task projection, ownership, dependencies, check receipts, and finalization are internal to plan; there is no separate public task tool.',
+      'For independent lanes, encode ordering with dependsOn, start runnable lanes with action:"start" and index:N before batching or spawning, and pass explicit indices when completing parallel steps.',
+      'Give active steps a concise activeForm (for example, "Editing file"). The footer shows plan progress and current or blocking work; action:"show", plan.md, and plan.html retain the complete checklist.',
+      'Plan lifecycle prompts are reserved for clarification, proposal approval, and consequential RFC review. Actions "set", "start", and "complete" never interrupt execution with presentation-only questions; use /octocode-plan html only when the user asks for the visual plan. The tool returns plan.md and plan.html paths for explicit review.',
     ],
     parameters: buildQueryEnvelopeSchema(Type, Type.Object({
       action: Type.Unsafe({ type: 'string', enum: ['set', 'propose', 'clarify', 'add', 'start', 'complete', 'remove', 'clear', 'show'], description: 'Plan lifecycle operation; use the matching action branch and fields.' }),

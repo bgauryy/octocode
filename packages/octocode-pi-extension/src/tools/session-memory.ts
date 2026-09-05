@@ -41,11 +41,15 @@ export function initializeSessionMemory(ctx: SessionArtifactContext): string {
 
 /** Read only meaningful, bounded current bytes for prompt/rehydration projection. */
 export function readSessionMemory(ctx: SessionArtifactContext): string | undefined {
-  const memoryPath = ctx.resolve(SESSION_MEMORY_RELATIVE_PATH);
-  if (!fs.existsSync(memoryPath)) return undefined;
-  const text = fs.readFileSync(memoryPath, 'utf8');
-  if (!text.trim() || text.trim() === SESSION_MEMORY_TEMPLATE.trim()) return undefined;
-  return truncateUtf8(text, SESSION_MEMORY_MAX_BYTES);
+  try {
+    const memoryPath = ctx.resolve(SESSION_MEMORY_RELATIVE_PATH);
+    if (!fs.existsSync(memoryPath)) return undefined;
+    const text = fs.readFileSync(memoryPath, 'utf8');
+    if (!text.trim() || text.trim() === SESSION_MEMORY_TEMPLATE.trim()) return undefined;
+    return truncateUtf8(text, SESSION_MEMORY_MAX_BYTES);
+  } catch {
+    return undefined;
+  }
 }
 
 export function renderSessionArtifactPaths(paths: SessionArtifactPaths): string {

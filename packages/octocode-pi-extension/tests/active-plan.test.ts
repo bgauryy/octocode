@@ -402,6 +402,8 @@ test('addendum shows runnable parallel lanes and all active work', () => {
   setPlan(cwd, [{ text: 'Edit', activeForm: 'Editing' }, { text: 'Review', activeForm: 'Reviewing' }, { text: 'Verify', dependsOn: [1, 2] }]);
   let out = renderActivePlanAddendum(cwd);
   assert.match(out, /parallel-ready: 2\. Review/);
+  assert.match(out, /queries.*reasoning.*action/is);
+  assert.doesNotMatch(out, /plan\((?:set|propose|clarify|add|start|complete|remove|clear|show)/i);
   startStep(cwd, 2);
   out = renderActivePlanAddendum(cwd);
   assert.match(out, /now: Editing \| Reviewing/);
@@ -716,11 +718,12 @@ test('plan tool teaches default-index flow, unified shared projection, and paral
   assert.match(tool.description, /scope:"shared".*automatically/);
   assert.match(tool.description, /receipt \{command,status,message\}/);
   const guidelines = tool.promptGuidelines?.join('\n') ?? '';
-  assert.match(guidelines, /plan\(complete\)/);
-  assert.match(guidelines, /active step.*plan\(complete\)/i);
+  assert.match(guidelines, /queries.*reasoning.*action/is);
+  assert.match(guidelines, /active step.*action:\"complete\"/i);
   assert.match(guidelines, /internal to plan/);
   assert.doesNotMatch(guidelines, /update it in the same turn/);
-  assert.match(guidelines, /plan\(start:N\)/);
+  assert.match(guidelines, /action:\"start\".*index:N/i);
+  assert.doesNotMatch(guidelines, /plan\(/i);
   assert.match(guidelines, /asks once: Start implementation or Request changes/i);
   assert.match(guidelines, /Planning never disables tools/i);
   assert.match(guidelines, /answer will change scope, architecture, acceptance criteria, or authorization/);
@@ -1467,7 +1470,8 @@ test('/octocode-plan new <goal> sends the plan-mode prompt and never touches the
   assert.equal(sent.length, 1);
   assert.match(sent[0]!, /^\[PLAN MODE\]/);
   assert.match(sent[0]!, /Goal: add dark mode toggle/);
-  assert.match(sent[0]!, /plan\(propose\)/);
+  assert.match(sent[0]!, /queries.*reasoning.*action.*propose/is);
+  assert.doesNotMatch(sent[0]!, /plan\(propose\)/);
   assert.match(sent[0]!, /one decision: Start implementation or Request changes/i);
   assert.doesNotMatch(sent[0]!, /separate.*Start/i);
   assert.equal(getPlan(cwd).length, 0, 'planning is the agent\'s job — the command sets nothing');

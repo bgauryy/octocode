@@ -29,10 +29,10 @@ The full system prompt injected by the extension is the concatenation of:
 buildOctocodeSystemPrompt(EXTERNAL_AGENT_AWARENESS_PROMPT)
   └── @octocodeai/octocode-shared/prompts  (base Octocode policy)
   └── EXTERNAL_AGENT_AWARENESS_PROMPT      (Awareness coordination rules)
-+ <engineering> block                      (src/prompts/prompt.ts — THINK→PLAN→CODE→REVIEW)
++ <engineering> block                      (src/prompts/system-prompt.ts — THINK→PLAN→CODE→REVIEW)
 ```
 
-Source: `src/prompts/prompt.ts` → `SYSTEM_PROMPT`.
+Source: `src/prompts/system-prompt.ts` → `SYSTEM_PROMPT`.
 Bundled: `dist/system/SYSTEM_PROMPT.md` (16.9 KB, rebuilt by `scripts/build.mjs`).
 
 ### 2.2 Per-turn context segments
@@ -52,7 +52,7 @@ Six segments are injected/refreshed on every turn by `assembleContextSegments` (
 
 | File | Content |
 |---|---|
-| `src/prompts/prompt.ts` | `SYSTEM_PROMPT` constant (base + engineering) |
+| `src/prompts/system-prompt.ts` | `SYSTEM_PROMPT` constant (base + engineering) |
 | `src/prompts/plan-prompt.ts` | Re-exports `buildPlanPrompt`, `PLAN_PROMPT_MAX_GOAL` from `octocode-shared` |
 | `src/prompts/subagent-shared.ts` | Re-exports `expandSubagentPrompt`, `SUBAGENT_FRAGMENTS` from `octocode-shared` |
 

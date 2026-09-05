@@ -1,7 +1,7 @@
 /**
  * plan-html — the plan's local HTML/Markdown surface.
  *
- * `/octocode-plan html` (and now `plan(propose)`) writes `plan.html` (branded
+ * `/octocode-plan html` (and plan action:"propose" inside `queries[]`) writes `plan.html` (branded
  * page: status checklist + mermaid dependency diagram + raw markdown) and
  * `plan.md` (shareable) under the global Octocode home
  * (`~/.octocode/tmp/plan/<scope-hash>/`), opens the page, and arms LIVE SYNC:

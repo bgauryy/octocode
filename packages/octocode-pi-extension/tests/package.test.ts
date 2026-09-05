@@ -408,12 +408,17 @@ test('build composes the system prompt from the inlined prompt module', async ()
   const { SYSTEM_PROMPT } = await import('../src/prompts/system-prompt.js');
   assert.equal(fs.existsSync(paths.systemPrompt), true);
   assert.ok(SYSTEM_PROMPT.includes('<authority>'), 'sections are composed');
-  // The prompt is one inlined document now: src/prompts/prompt.ts → dist/prompts/prompt.js.
-  // The per-section .md fragments (and sections/index.ts, compose.ts) were consolidated away.
+  // The prompt is one inlined document: src/prompts/system-prompt.ts → dist/prompts/system-prompt.js.
+  // The per-section fragments and unused alternate assembler stay absent.
   assert.equal(
-    fs.existsSync(path.join(distDir, 'prompts', 'prompt.js')),
+    fs.existsSync(path.join(distDir, 'prompts', 'system-prompt.js')),
     true,
-    'compiled single-file prompt module is emitted to dist'
+    'compiled system-prompt module is emitted to dist'
+  );
+  assert.equal(
+    fs.existsSync(path.join(packageRoot, 'src', 'prompts', 'prompt.ts')),
+    false,
+    'unused alternate prompt assembler is absent'
   );
   assert.equal(
     fs.existsSync(path.join(distDir, 'prompts', 'sections')),
@@ -423,7 +428,7 @@ test('build composes the system prompt from the inlined prompt module', async ()
   assert.equal(
     fs.existsSync(path.join(packageRoot, 'src', 'prompts', 'sections')),
     false,
-    'per-section sources were consolidated into src/prompts/prompt.ts'
+    'per-section sources were consolidated into src/prompts/system-prompt.ts'
   );
   assert.equal(fs.readFileSync(paths.systemPrompt, 'utf8'), SYSTEM_PROMPT);
 

@@ -135,7 +135,9 @@ import { probeGitHubAuth } from './tools/github-auth-status.js';
 import { registerOctocodeAutocomplete } from './tools/autocomplete-providers.js';
 import { registerOctocodeMessageRenderers } from './tools/custom-messages.js';
 import { initCheckpointStore, type CheckpointEngine } from './tools/checkpoints.js';
-import { createSessionArtifactContext, workspaceAgentRoot } from './tools/session-artifacts.js';
+import { createSessionArtifactContext, workspaceAgentRoot, type SessionArtifactContext } from './tools/session-artifacts.js';
+import { initializeSessionMemory, readSessionMemory, renderSessionArtifactPaths, SESSION_MEMORY_MAX_BYTES } from './tools/session-memory.js';
+import { appendSessionAuditEntry, appendSessionAuditForContext, initializeSessionAudit } from './tools/session-audit.js';
 import { cleanupEphemeralToolOutputs } from './tools/ephemeral-tool-output.js';
 import { consumeValidatedRehydration, runAndRecordRehydration, REHYDRATION_RECEIPT_ENTRY_TYPE, type CurrentRehydrationSource } from './tools/rehydration-orchestrator.js';
 import { createCheckpointInputHook, registerRewindCommand } from './tools/rewind-command.js';
@@ -705,7 +707,7 @@ function formatModelLine(ctx?: PiContext): string {
 
 function formatPlanLines(ctx?: PiContext): string[] {
   const steps = getPlan(activePlanScope(ctx));
-  if (steps.length === 0) return ['local plan: none — use plan(set) for multi-step work'];
+  if (steps.length === 0) return ['local plan: none — call plan with action:"set" inside queries[] for multi-step work'];
   const done = steps.filter((s) => s.status === 'done').length;
   const current = steps.find((s) => s.status === 'doing') ?? steps.find((s) => s.status !== 'done');
   return [
@@ -1104,6 +1106,9 @@ async function wireOctocodePiExtension(
   let frozenSystemPrompt: string | undefined;
   // Signature of the last plan projection delivered through attributed turn context.
   let deliveredPlanSignature: string | undefined;
+  let sessionArtifactContext: SessionArtifactContext | undefined;
+  let sessionArtifactPathsContext = '';
+  let sessionMemoryPendingDelivery = true;
   // Unread count last surfaced via cron callback (proactive TUI notify; separate from per-turn LLM injection).
   let lastCronUnreadAlerted = -1;
   // No pi.exec seam → the awareness status job runs in-process (no child).
@@ -1307,6 +1312,7 @@ async function wireOctocodePiExtension(
     });
 
     const disposeSessionResources = async (reason: string, ctx: PiContext | undefined): Promise<void> => {
+      appendSessionAuditForContext(ctx, { event: 'session.shutdown', detail: { reason } });
       const canUseShutdownContext = reason === 'quit';
       awarenessMutationGate.cleanup();
       updateAwarenessRegistry('leave', pi, undefined, latestSessionCwd);
@@ -1347,6 +1353,9 @@ async function wireOctocodePiExtension(
       if (ctx) configureInteractionBrokerRoute(ctx, hasHostInteractionAnswerRoute);
       frozenSystemPrompt = undefined;
       deliveredPlanSignature = undefined;
+      sessionArtifactContext = undefined;
+      sessionArtifactPathsContext = '';
+      sessionMemoryPendingDelivery = true;
       latestAvailableSkills = undefined;
       latestPiSkills = undefined;
       lastCronUnreadAlerted = -1;
@@ -1400,6 +1409,33 @@ async function wireOctocodePiExtension(
       // tool's stale-read gate in this one, and the auto-compaction edge
       // trigger must not carry the old session's threshold crossing.
       clearAllReadStates();
+      if (ctx) {
+        try {
+          const artifacts = createSessionArtifactContext(ctx);
+          sessionArtifactContext = artifacts;
+          const memoryPath = initializeSessionMemory(artifacts);
+          const auditPath = initializeSessionAudit(artifacts);
+          sessionArtifactPathsContext = renderSessionArtifactPaths({ memoryPath, auditPath });
+          registerCurrentContextSource(ctx, {
+            version: 1,
+            id: 'session-memory',
+            kind: 'memory-lead',
+            origin: 'session-memory',
+            authority: 'external-data',
+            scope: 'session',
+            visibility: 'inspectable',
+            rehydrate: 'always',
+            tokenBudget: Math.ceil(SESSION_MEMORY_MAX_BYTES / 4),
+            readCurrent: () => readSessionMemory(artifacts),
+          });
+          appendSessionAuditEntry(artifacts, {
+            event: 'session.start',
+            detail: { reason: reason ?? 'new' },
+          });
+        } catch {
+          // Session artifacts are continuity aids; initialization must not block Pi startup.
+        }
+      }
       // Snapshot the working tree's pre-session dirty set so file can warn
       // before co-mingling changes into peer/user uncommitted work.
       if (ctx?.cwd) {
@@ -1862,6 +1898,9 @@ async function wireOctocodePiExtension(
       const livePlanAssembly = assembleContextSegments([
         { id: 'active-plan', content: planContext, kind: 'plan', origin: 'plan-domain', authority: 'user', scope: 'task', visibility: 'transcript', rehydrate: 'always', tokenBudget: 15_000 },
       ]);
+      const sessionMemoryContent = sessionMemoryPendingDelivery && sessionArtifactContext
+        ? readSessionMemory(sessionArtifactContext) ?? ''
+        : '';
 
       const currentSourcesFrom = (manifest: ReturnType<typeof assembleContextSegments>['manifest'], contents: Record<string, string>): CurrentRehydrationSource[] =>
         manifest.map((segment) => ({ segment, content: contents[segment.id] ?? '' }));
@@ -1877,6 +1916,7 @@ async function wireOctocodePiExtension(
           'runtime-tool-contracts': currentRuntimeCapabilities,
           'dynamic-tool-contracts': currentDynamic,
           'available-skills': currentSkills,
+          'session-artifact-contract': sessionArtifactPathsContext,
         };
         const currentAssembly = assembleContextSegments([
           { id: 'octocode-product-policy', content: currentContents['octocode-product-policy']!, kind: 'product-policy', origin: 'octocode-harness', authority: 'product', scope: 'session', visibility: 'hidden-policy', rehydrate: 'always', tokenBudget: 20_000 },
@@ -1884,6 +1924,7 @@ async function wireOctocodePiExtension(
           { id: 'runtime-tool-contracts', content: currentRuntimeCapabilities, kind: 'tool-contract', origin: 'octocode-harness', authority: 'product', scope: 'session', visibility: 'inspectable', rehydrate: 'always', tokenBudget: 10_000 },
           { id: 'dynamic-tool-contracts', content: currentDynamic, kind: 'tool-contract', origin: 'octocode-harness', authority: 'product', scope: 'session', visibility: 'inspectable', rehydrate: 'always', tokenBudget: 20_000 },
           { id: 'available-skills', content: currentSkills, kind: 'skill', origin: 'installed-skills', authority: 'project', scope: 'session', visibility: 'inspectable', rehydrate: 'on-trigger', tokenBudget: 20_000 },
+          { id: 'session-artifact-contract', content: sessionArtifactPathsContext, kind: 'tool-contract', origin: 'octocode-harness', authority: 'product', scope: 'session', visibility: 'inspectable', rehydrate: 'always', tokenBudget: 1_000 },
         ], { totalTokenBudget: INITIAL_CONTEXT_TOKEN_BUDGET });
         frozenRehydration = consumeValidatedRehydration(
           ctx,
@@ -1901,6 +1942,7 @@ async function wireOctocodePiExtension(
       // only when first delivered, changed, or cleared.
       const contextAssembly = assembleContextSegments([
         { id: 'active-plan', content: planDeliveryContent, kind: 'plan', origin: 'plan-domain', authority: 'user', scope: 'task', visibility: 'transcript', rehydrate: 'always', tokenBudget: 15_000 },
+        { id: 'session-memory', content: sessionMemoryContent, kind: 'memory-lead', origin: 'session-memory', authority: 'external-data', scope: 'session', visibility: 'inspectable', rehydrate: 'always', tokenBudget: Math.ceil(SESSION_MEMORY_MAX_BYTES / 4) },
       ]);
       const contextMessage =
         contextAssembly.manifest.length > 0 || frozenRehydration?.content
@@ -1909,6 +1951,7 @@ async function wireOctocodePiExtension(
 
       if (frozenSystemPrompt !== undefined) {
         deliveredPlanSignature = planSig;
+        sessionMemoryPendingDelivery = false;
         return contextMessage
           ? { systemPrompt: frozenSystemPrompt, message: contextMessage }
           : { systemPrompt: frozenSystemPrompt };
@@ -1956,6 +1999,7 @@ async function wireOctocodePiExtension(
         { id: 'runtime-tool-contracts', content: runtimeCapabilities, kind: 'tool-contract', origin: 'octocode-harness', authority: 'product', scope: 'session', visibility: 'inspectable', rehydrate: 'always', tokenBudget: 10_000 },
         { id: 'dynamic-tool-contracts', content: dynamicCatalog, kind: 'tool-contract', origin: 'octocode-harness', authority: 'product', scope: 'session', visibility: 'inspectable', rehydrate: 'always', tokenBudget: 20_000 },
         { id: 'available-skills', content: availableSkills, kind: 'skill', origin: 'installed-skills', authority: 'project', scope: 'session', visibility: 'inspectable', rehydrate: 'on-trigger', tokenBudget: 20_000 },
+        { id: 'session-artifact-contract', content: sessionArtifactPathsContext, kind: 'tool-contract', origin: 'octocode-harness', authority: 'product', scope: 'session', visibility: 'inspectable', rehydrate: 'always', tokenBudget: 1_000 },
       ], { totalTokenBudget: INITIAL_CONTEXT_TOKEN_BUDGET });
       const initialContents: Record<string, string> = {
         'octocode-product-policy': cachedSystemPromptText,
@@ -1963,6 +2007,7 @@ async function wireOctocodePiExtension(
         'runtime-tool-contracts': runtimeCapabilities,
         'dynamic-tool-contracts': dynamicCatalog,
         'available-skills': availableSkills,
+        'session-artifact-contract': sessionArtifactPathsContext,
       };
       const initialRehydration = ctx
         ? consumeValidatedRehydration(
@@ -2033,6 +2078,7 @@ async function wireOctocodePiExtension(
       });
       frozenSystemPrompt = resolvedPrompt;
       deliveredPlanSignature = planSig;
+      sessionMemoryPendingDelivery = false;
       if (resolvedPrompt === event.systemPrompt && !stripped) {
         return contextMessage ? { message: contextMessage } : undefined;
       }

@@ -52,6 +52,15 @@ test('plan schema exposes only queries[] at the top level', () => {
   assert.ok(schema.required?.includes('queries'), 'queries is required');
 });
 
+test('plan guidance teaches the required queries[] envelope without function-call shorthand', () => {
+  const tool = loadTool();
+  const guidance = [tool.description, tool.promptSnippet, ...(tool.promptGuidelines ?? [])].join('\n');
+  assert.match(guidance, /every call.*queries.*reasoning.*action/is);
+  assert.match(guidance, /action:\"set\"/i);
+  assert.match(guidance, /action:\"propose\"/i);
+  assert.doesNotMatch(guidance, /plan\((?:set|propose|clarify|add|start|complete|remove|clear|show)(?::[^)]*)?\)/i);
+});
+
 test('plan schema exposes session, shared, and auto scope on each query', () => {
   const tool = loadTool();
   const schema = tool.parameters as {

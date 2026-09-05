@@ -200,17 +200,17 @@ export function renderPlanContext(model: PlanReadModelV1): string {
   const current = doing[0] ?? model.tasks.find((task) => task.status === 'todo');
   const runnable = model.tasks.filter((task) => task.status === 'todo' && task.dependsOn.every((index) => model.tasks[index - 1]?.status === 'done'));
   const nudges = doing.length === 0 && model.summary.done < model.summary.total
-    ? ['note: no step is in progress — mark the next runnable step with plan(start:N) so unfinished work has an active owner.']
+    ? ['note: no step is in progress — call plan with queries:[{reasoning:"Start the next runnable step.", action:"start", index:N}] so unfinished work has an active owner.']
     : doing.length > 0 && runnable.length > 0
-      ? [`parallel-ready: ${runnable.map((task) => `${task.index}. ${escapePromptMetadata(task.activeText ?? task.text)}`).join(' | ')} — start independent lanes with plan(start:N) before spawning/batching, or leave them todo if they depend on the current decision.`]
+      ? [`parallel-ready: ${runnable.map((task) => `${task.index}. ${escapePromptMetadata(task.activeText ?? task.text)}`).join(' | ')} — start independent lanes with action:"start" and index:N inside queries[] before spawning or batching, or leave them todo if they depend on the current decision.`]
       : [];
   if (model.summary.done < model.summary.total && model.runtime.turnsSinceUpdate >= STALE_PLAN_TURNS) {
-    nudges.push(`note: this plan has not been updated in ${STALE_PLAN_TURNS}+ turns — advance it (plan start/complete), add/remove changed scope, or clear it if the work is done or abandoned.`);
+    nudges.push(`note: this plan has not been updated in ${STALE_PLAN_TURNS}+ turns — use action:"start" or action:"complete" inside queries[], add or remove changed scope, or clear it if the work is done or abandoned.`);
   }
   const next = doing.length > 1
     ? `now: ${doing.map((task) => escapePromptMetadata(task.activeText ?? task.text)).join(' | ')}`
-    : current ? `next: ${escapePromptMetadata(current.activeText ?? current.text)}` : 'next: (all steps done — verify, then plan clear)';
-  return ['<active_plan>', `Your current task breakdown (${model.summary.done}/${model.summary.total} done). Execute active steps; start independent parallel lanes with plan(start:N); advance and clear via plan(start/complete/add/remove/clear).`, ...metadata, ...rows, ...contracts, next, ...nudges, '</active_plan>'].join('\n');
+    : current ? `next: ${escapePromptMetadata(current.activeText ?? current.text)}` : 'next: (all steps done — verify, then use action:"clear" inside queries[])';
+  return ['<active_plan>', `Your current task breakdown (${model.summary.done}/${model.summary.total} done). Every plan call uses queries:[{reasoning, action, ...}]. Execute active steps; start independent parallel lanes with action:"start" and index:N; advance or clear with the matching action inside queries[].`, ...metadata, ...rows, ...contracts, next, ...nudges, '</active_plan>'].join('\n');
 }
 
 export function renderPlanReadModel(model: PlanReadModelV1, format: 'terminal' | 'browser' | 'rpc'): string | PlanReadModelV1 {

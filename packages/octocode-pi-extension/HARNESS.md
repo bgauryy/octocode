@@ -6,7 +6,7 @@ Everything the extension registers with Pi on load: tools, system-prompt section
 
 ## System Prompt
 
-Authored as a stable eight-section decision kernel in `src/prompts/prompt.ts`, built into `dist/system/SYSTEM_PROMPT.md`, and injected via the `before_agent_start` hook: `<authority>` · `<operating_model>` · `<judgment>` · `<repository>` · `<awareness>` · `<code_quality>` · `<capability_routing>` · `<output>`. The kernel owns cross-task decisions; live tool/MCP/skill catalogs, plan mode, and typed-role prompts own operational detail. The concept-level contract lives in `tests/prompt-contract.test.ts`.
+Composed in `src/prompts/system-prompt.ts` from the shared Octocode policy, Awareness coordination, and one Pi-specific `<engineering>` delta; built into `dist/system/SYSTEM_PROMPT.md`; and injected through the `before_agent_start` hook. The shared kernel owns cross-task decisions, while the Pi delta owns THINK→PLAN→CODE→REVIEW phase order and Pi recovery. Live tool/MCP/skill catalogs, plan mode, and typed-role prompts own operational detail. The concept-level contract lives in `tests/prompt-contract.test.ts`.
 
 On the first main-agent turn, the hook assembles either the eager `<mcp_catalog>` or lazy `<mcp_catalog_index>`, `<dynamic_capabilities>` (dynamic `callTool` and `skill` `type:"call"` registries), the complete available-skills projection, and the initial `<active_plan>`, then freezes those exact system-prompt bytes for the session. Runtime plan/tool results remain in transcript context; compaction adds a bounded `<octocode_compaction_context>` marker with the native summary and active-plan pointer. With `--no-context` set, the hook suppresses project context before freezing the prompt.
 
@@ -284,7 +284,7 @@ Resolved by `getAssetPaths()` in `src/assets.ts`.
 11  bundled skills           (octocode CLI skill set; awareness excluded)
  5  worker profiles          (researcher, architect, planner, browser, custom)
  1  built-in MCP server      (octocode — cache-first npx, pre-warmed at session start)
- 8  stable system-prompt sections
+ 1  composed system prompt     (shared policy + Awareness + Pi engineering delta)
 ```
 
 ## Token Savings
