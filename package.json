@@ -21,7 +21,9 @@
   "packageManager": "yarn@4.9.1",
   "private": true,
   "resolutions": {
-    "@octocodeai/octocode-core": "18.3.0"
+    "@octocodeai/octocode-core": "18.3.0",
+    "@octocodeai/octocode-shared": "file:../octocode-agent/packages/octocode-shared",
+    "@octocodeai/octocode-awareness": "workspace:*"
   },
   "repository": "bgauryy/octocode.git",
   "scripts": {

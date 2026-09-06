@@ -207,7 +207,7 @@ export async function checkReadState(
 ): Promise<ReadStateCheck> {
   const state = readStates.get(absolutePath);
   if (!state) {
-    const message = 'No prior localGetFileContent read state recorded for this file.';
+    const message = 'No prior localGetFileContent read state recorded for this file. Use MCPTool for the read; shell reads do not refresh this guard.';
     if (requireRecentRead) {
       throw new Error(
         `${message} Re-read the file before editing or set requireRecentRead:false intentionally.`,
@@ -247,7 +247,7 @@ export async function checkReadState(
         message: 'File changed since last recorded read; proceeding because the edit is anchored to exact oldText.',
       };
     }
-    throw new Error('File changed since last recorded read. Re-read the target range before editing.');
+    throw new Error('File changed since last recorded read. Re-read the target range with MCPTool localGetFileContent before editing; shell reads do not refresh this guard.');
   }
   return {
     state: 'fresh',

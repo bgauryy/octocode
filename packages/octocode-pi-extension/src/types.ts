@@ -504,7 +504,7 @@ export interface PiInstance {
   on(event: 'thinking_level_select', handler: (event: ThinkingLevelEvent, ctx: PiContext) => Promise<void>): void;
   on(event: 'before_agent_start', handler: (event: BeforeAgentStartEvent, ctx?: PiContext) => Promise<BeforeAgentStartResult | void>): void;
   on(event: 'agent_start', handler: (event: unknown, ctx: PiContext) => Promise<void>): void;
-  on(event: 'agent_end', handler: (event: { messages: unknown[] }, ctx: PiContext) => Promise<void>): void;
+  on(event: 'agent_end', handler: (event: { messages: unknown[]; willRetry?: boolean }, ctx: PiContext) => Promise<void>): void;
   on(event: 'turn_start', handler: (event: { turnIndex: number; timestamp: number }, ctx: PiContext) => void | Promise<void>): void;
   on(event: 'turn_end', handler: (event: TurnEndEvent, ctx: PiContext) => void | Promise<void>): void;
   on(event: 'resources_discover', handler: (event: { cwd: string; reason: string }, ctx: PiContext) => Promise<ResourcesDiscoverResult | void>): void;

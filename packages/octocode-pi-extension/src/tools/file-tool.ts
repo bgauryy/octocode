@@ -191,6 +191,8 @@ export function registerFileTool(
     promptGuidelines: [
       'Use type:"edit" for targeted replacements, type:"write" for new files or intentional full rewrites, and type:"delete" only when removal is explicitly in scope.',
       'Read and understand existing files before edit/delete. Use exact oldText by default; normalized or lineRange matching is opt-in.',
+      'For requireRecentRead or a lineRange edit without oldText, read through MCPTool localGetFileContent first; shell reads do not refresh the stale-edit guard.',
+      'Keep replacements bounded with the smallest unique anchor, and split large mutations across separate calls before the model output limit.',
       'Each query has one concise reasoning field. Mixed batches are fully preflighted before the first mutation and reject duplicate target paths.',
       'Do not use bash redirection, sed, or rm for ordinary file mutations when file is available.',
     ],

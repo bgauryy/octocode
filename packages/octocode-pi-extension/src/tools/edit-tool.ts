@@ -668,18 +668,18 @@ function changesSuffix(prepared: PreparedEdit[]): string {
 }
 
 function renderEditReasoningItems(files: RenderableEditFile[], theme?: PiTheme): Array<{ text: string; truncate: boolean }> {
-  const items: Array<{ text: string; truncate: boolean }> = [];
+  const counts = new Map<string, number>();
   for (const file of files) {
     for (const edit of file.edits ?? []) {
       const reasonText = edit.reasoning.trim();
       if (!reasonText) continue;
-      items.push({
-        text: paint(theme, 'muted', `  Reasoning: ${reasonText}`),
-        truncate: true,
-      });
+      counts.set(reasonText, (counts.get(reasonText) ?? 0) + 1);
     }
   }
-  return items;
+  return [...counts].map(([reasonText, count]) => ({
+    text: paint(theme, 'muted', `  Reasoning: ${count > 1 ? `(${count} edits) ` : ''}${reasonText}`),
+    truncate: true,
+  }));
 }
 
 function renderEditDiffItems(files: RenderableEditFile[], theme?: PiTheme): Array<{ text: string; truncate: boolean }> {

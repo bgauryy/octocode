@@ -1,0 +1,80 @@
+{
+  "name": "@octocodeai/octocode-awareness",
+  "version": "1.5.0",
+  "description": "Octocode Awareness: always-on workspace coordination — awareness, collaboration, learning, memory/wiki, bookkeeping, housekeeping, reflection — zero npm runtime deps.",
+  "keywords": [
+    "octocode",
+    "awareness",
+    "collaboration",
+    "memory",
+    "bookkeeping",
+    "housekeeping",
+    "sqlite",
+    "agent"
+  ],
+  "author": "Guy Bary <bgauryy@octocodeai.com>",
+  "homepage": "https://octocode.ai",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bgauryy/octocode.git",
+    "directory": "packages/octocode-awareness"
+  },
+  "bugs": "https://github.com/bgauryy/octocode/issues",
+  "license": "MIT",
+  "type": "module",
+  "main": "./out/index.js",
+  "types": "./out/types/src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./out/types/src/index.d.ts",
+      "import": "./out/index.js",
+      "default": "./out/index.js"
+    },
+    "./bin/awareness": "./out/octocode-awareness.js",
+    "./bin/extract-hook-files": "./out/extract-hook-files.js",
+    "./schema": "./out/schema-api.js"
+  },
+  "bin": "./out/octocode-awareness.js",
+  "files": [
+    "out/**",
+    "!docs/**",
+    "skills/**",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "scripts": {
+    "build": "node build.mjs",
+    "clean": "rm -rf out/ dist/",
+    "lint": "eslint . --config eslint.config.mjs --no-warn-ignored && tsc --noEmit -p tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "yarn build && vitest run --coverage",
+    "test:quiet": "yarn build && vitest run --reporter=dot --silent",
+    "test:smoke": "node skills/octocode-awareness/scripts/smoke-multi-agent.mjs",
+    "pack:check": "node scripts/verify-package.mjs",
+    "prepack": "yarn build && node scripts/verify-package.mjs",
+    "self-test": "node out/octocode-awareness.js maintenance self-test",
+    "start": "node out/octocode-awareness.js",
+    "verify": "yarn lint && yarn test"
+  },
+  "devDependencies": {
+    "@octocodeai/octocode-shared": "0.1.0",
+    "@types/node": "^26.2.0",
+    "@vitest/coverage-v8": "^4.1.11",
+    "esbuild": "^0.28.2",
+    "eslint": "^10.10.0",
+    "tsx": "^4.23.12",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.69.0",
+    "vitest": "^4.1.11",
+    "zod": "^4.4.3"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "octocode": {
+    "readmeSync": false
+  }
+}

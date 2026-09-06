@@ -56,6 +56,8 @@ import {
 } from './utils.js';
 import { getDirectToolContractStats, registerUniqueTool } from './tools/octocode-tools.js';
 import { registerCompactionHooks, resetCompactionCheckpointDedupe, setCompactionRehydrationSegmentsProvider } from './tools/compaction-hooks.js';
+import { registerCompactionPolicyGuidance } from './tools/compaction-policy-guidance.js';
+import { registerModelOutputRecovery } from './tools/model-output-recovery.js';
 import { budgetToolResult } from './tools/tool-result-budget.js';
 import {
   cleanupSpawnedAgentsForShutdown,
@@ -884,6 +886,8 @@ interface RuntimeUiRegistrationArgs {
 
 function registerRuntimeUiPhase({ pi, notify }: RuntimeUiRegistrationArgs): void {
   registerCompactionHooks(pi, notify);
+  registerCompactionPolicyGuidance(pi, notify);
+  registerModelOutputRecovery(pi, notify);
   registerAwarenessEventConsumer(pi, {
     resolveExpectedAgentId: (ctx) => getAwarenessAgentId(ctx),
     onDelivery: (message, ctx) => {

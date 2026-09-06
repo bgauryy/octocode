@@ -38,7 +38,7 @@ Tool execution, schemas, and descriptions live in tools-core; the shared system 
 
 ## Packages
 
-All workspace packages (8). Prefer package `ARCHITECTURE.md` / `AGENTS.md` / `docs/` over guessing.
+All workspace packages (9). Prefer package `ARCHITECTURE.md` / `AGENTS.md` / `docs/` over guessing.
 
 | Package | npm name | What it is | Dig deeper |
 |---|---|---|---|
@@ -49,6 +49,7 @@ All workspace packages (8). Prefer package `ARCHITECTURE.md` / `AGENTS.md` / `do
 | [`packages/octocode`](packages/octocode) | `octocode` | CLI — same tool runners as MCP via raw `tools <name>`, plus install/auth/MCP-marketplace, `skill`, `context`, `lsp-server`. Prefer `node packages/octocode/out/octocode.js` in this monorepo. | [ARCHITECTURE](packages/octocode/ARCHITECTURE.md) · [CLI](packages/octocode/docs/OCTOCODE_CLI.md) |
 | [`packages/octocode-vscode`](packages/octocode-vscode) | `octocode-mcp-vscode` | VS Code / multi-editor management extension: GitHub OAuth, MCP install into Cursor/Windsurf/etc., token sync. | package README |
 | [`packages/octocode-pi-extension`](packages/octocode-pi-extension) | `@octocodeai/pi-extension` | Pi integration: native tools, bundled Octocode CLI/MCP wiring, Awareness assets, prompts, and harness hooks. | package `ARCHITECTURE.md` · README |
+| [`packages/octocode-awareness`](packages/octocode-awareness) | `@octocodeai/octocode-awareness` | Shared coordination runtime for plans, work, locks, messages, verification, memory, reflection, and hooks. | [ARCHITECTURE](packages/octocode-awareness/ARCHITECTURE.md) · [docs](packages/octocode-awareness/docs/README.md) |
 | [`packages/octocode-benchmark`](packages/octocode-benchmark) | `@octocodeai/octocode-benchmark` | Internal benchmarks/evals — head-to-head tool comparisons (octocode vs gh / gh+rtk / ast-grep), VRPT scoring. | [BENCHMARK](packages/octocode-benchmark/skills/octocode-benchmark/references/BENCHMARK.md) |
 
 External (not in this workspace): `@octocodeai/octocode-core` (sibling `octocode-mcp-host`) — current source for the shared system prompt and reusable output types only. Public tool schemas and descriptions are owned here under `packages/octocode-tools-core/src/toolContract/`. Never hand-write tool guidance in interface packages.

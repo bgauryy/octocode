@@ -1,0 +1,7 @@
+/out/
+/dist/
+/coverage/
+/node_modules/
+/skills/octocode-awareness/scripts/awareness.mjs
+/skills/octocode-awareness/scripts/hook-runner.mjs
+/skills/octocode-awareness/scripts/extract-hook-files.mjs

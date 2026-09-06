@@ -568,6 +568,7 @@ export function registerBashTool(
     promptSnippet: 'Run shell commands with Octocode path-guard on write targets.',
     promptGuidelines: [
       'Octocode custom bash replaces Pi built-in bash; prefer file for ordinary creates, edits, and deletes.',
+      'Never use bash for code search or file reads; use MCPTool so Octocode can return structured evidence and record edit freshness.',
       'Use bash for git, builds, tests, package managers, and bulk mechanical edits (e.g. sed).',
       'Bash query batches are always sequential: each command completes before the next starts.',
       'Commands that obviously print inherited environment variables or secret-like env vars require approval; bash otherwise keeps the inherited environment.',

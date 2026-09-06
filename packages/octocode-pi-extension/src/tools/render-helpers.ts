@@ -584,6 +584,20 @@ function firstResultTextLine(result: ToolCallResult): string {
   return text.split('\n').map((line) => line.trim()).find(Boolean) ?? '';
 }
 
+function actionableResultError(result: ToolCallResult): string {
+  const text = (result.content as Array<{ type: string; text: string }> | undefined)
+    ?.find?.((part) => part?.type === 'text')?.text ?? '';
+  const errorLine = text.split('\n')
+    .map((line) => line.trim())
+    .find((line) => /^(?:["']?error["']?)\s*:/.test(line));
+  if (!errorLine) return firstResultTextLine(result);
+  const value = errorLine.replace(/^(?:["']?error["']?)\s*:\s*/, '').replace(/,$/, '').trim();
+  if (value.length >= 2 && ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'")))) {
+    return value.slice(1, -1);
+  }
+  return value;
+}
+
 export interface QueryResultRenderRow {
   index: number;
   status: 'success' | 'failed' | 'not-run';
@@ -724,7 +738,7 @@ export function buildOctocodeRenderResult(
   // the message in the first text content line — so the row explains WHY it
   // failed instead of showing a bare error glyph with no data.
   if (isError) {
-    const errText = firstResultTextLine(result);
+    const errText = actionableResultError(result);
     const segments: InlineSegment[] = errText
       ? [{ text: truncatePlainToWidth(errText, 200), token: 'error' }]
       : [];

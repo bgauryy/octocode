@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://octocode.ai/schemas/awareness-config.v1.schema.json",
+  "title": "Octocode Awareness Configuration",
+  "description": "Global shell-hook automation preferences stored at <OCTOCODE_HOME>/awareness.json; Pi native events are outside this contract.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "features"],
+  "properties": {
+    "version": {
+      "const": 1,
+      "description": "Configuration contract version."
+    },
+    "features": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "hooks",
+        "notifications",
+        "verificationGate",
+        "sessionCapture",
+        "maintenanceReminders"
+      ],
+      "properties": {
+        "hooks": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable installed Awareness shell-hook automation. Missing configuration keeps hooks inert."
+        },
+        "notifications": {
+          "type": "boolean",
+          "default": true,
+          "description": "Allow hooks to deliver peer, handoff, and relevant memory context."
+        },
+        "verificationGate": {
+          "type": "boolean",
+          "default": true,
+          "description": "Allow stop hooks to surface unverified work."
+        },
+        "sessionCapture": {
+          "type": "boolean",
+          "default": true,
+          "description": "Allow compact/end hooks to capture resumable session context."
+        },
+        "maintenanceReminders": {
+          "type": "boolean",
+          "default": false,
+          "description": "Allow bounded maintenance-pressure reminders from hooks."
+        }
+      }
+    }
+  }
+}

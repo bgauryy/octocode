@@ -1,0 +1,4 @@
+interface:
+  display_name: "Octocode Awareness"
+  short_description: "Coordinate shared repo work, verification, and memory."
+  default_prompt: "Use $octocode-awareness to reason about shared repository state, then follow the live CLI contracts for deterministic coordination and verification."
