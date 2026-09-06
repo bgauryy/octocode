@@ -2328,16 +2328,7 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@octocodeai/octocode-awareness@npm:^1.5.0":
-  version: 1.5.0
-  resolution: "@octocodeai/octocode-awareness@npm:1.5.0"
-  bin:
-    octocode-awareness: out/octocode-awareness.js
-  checksum: 10c0/6c57585436b9774cd8256e5276b1e022fa6c2829c73df782c3ffc7bb6dbf13c1f95bf145a44f532493aaddf9e4c95325b612f525f099f0bbd7b24e1b8541bc0d
-  languageName: node
-  linkType: hard
-
-"@octocodeai/octocode-awareness@workspace:packages/octocode-awareness":
+"@octocodeai/octocode-awareness@npm:2.0.0, @octocodeai/octocode-awareness@workspace:packages/octocode-awareness":
   version: 0.0.0-use.local
   resolution: "@octocodeai/octocode-awareness@workspace:packages/octocode-awareness"
   dependencies:
@@ -2488,7 +2479,7 @@ __metadata:
     "@octocodeai/agent-core": "npm:0.1.0"
     "@octocodeai/agent-testing": "npm:^0.1.0"
     "@octocodeai/config": "npm:19.1.0"
-    "@octocodeai/octocode-awareness": "npm:^1.5.0"
+    "@octocodeai/octocode-awareness": "npm:2.0.0"
     "@octocodeai/octocode-engine": "npm:19.1.0"
     "@resvg/resvg-js": "npm:^2.6.2"
     "@types/node": "npm:^26.4.1"
